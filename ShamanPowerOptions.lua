@@ -588,6 +588,13 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if not ShamanPower.opt.dropOrder then ShamanPower.opt.dropOrder = {1, 2, 3, 4} end
+								-- Swap if duplicate
+								for i = 2, 4 do
+									if ShamanPower.opt.dropOrder[i] == val then
+										ShamanPower.opt.dropOrder[i] = ShamanPower.opt.dropOrder[1]
+										break
+									end
+								end
 								ShamanPower.opt.dropOrder[1] = val
 								ShamanPower:UpdateDropAllButton()
 							end
@@ -609,6 +616,13 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if not ShamanPower.opt.dropOrder then ShamanPower.opt.dropOrder = {1, 2, 3, 4} end
+								-- Swap if duplicate
+								for i = 1, 4 do
+									if i ~= 2 and ShamanPower.opt.dropOrder[i] == val then
+										ShamanPower.opt.dropOrder[i] = ShamanPower.opt.dropOrder[2]
+										break
+									end
+								end
 								ShamanPower.opt.dropOrder[2] = val
 								ShamanPower:UpdateDropAllButton()
 							end
@@ -630,6 +644,13 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if not ShamanPower.opt.dropOrder then ShamanPower.opt.dropOrder = {1, 2, 3, 4} end
+								-- Swap if duplicate
+								for i = 1, 4 do
+									if i ~= 3 and ShamanPower.opt.dropOrder[i] == val then
+										ShamanPower.opt.dropOrder[i] = ShamanPower.opt.dropOrder[3]
+										break
+									end
+								end
 								ShamanPower.opt.dropOrder[3] = val
 								ShamanPower:UpdateDropAllButton()
 							end
@@ -651,6 +672,13 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if not ShamanPower.opt.dropOrder then ShamanPower.opt.dropOrder = {1, 2, 3, 4} end
+								-- Swap if duplicate
+								for i = 1, 3 do
+									if ShamanPower.opt.dropOrder[i] == val then
+										ShamanPower.opt.dropOrder[i] = ShamanPower.opt.dropOrder[4]
+										break
+									end
+								end
 								ShamanPower.opt.dropOrder[4] = val
 								ShamanPower:UpdateDropAllButton()
 							end
