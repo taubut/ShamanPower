@@ -39,6 +39,26 @@ local isShaman = false
 
 AC_Leader = false
 
+-- Helper function to check if player knows a spell by name (works with any rank in Classic)
+local function PlayerKnowsSpellByName(spellName)
+	if not spellName then return false end
+	-- GetSpellInfo with a name will return info if the player can cast it
+	local name = GetSpellInfo(spellName)
+	if not name then return false end
+	-- Check if it's in the spellbook
+	local slot = FindSpellBookSlotBySpellID(select(7, GetSpellInfo(spellName)) or 0, false)
+	if slot then return true end
+	-- Fallback: try to find by name in spellbook
+	for i = 1, 500 do
+		local bookName = GetSpellBookItemName(i, BOOKTYPE_SPELL)
+		if not bookName then break end
+		if bookName == spellName or bookName:find("^" .. spellName) then
+			return true
+		end
+	end
+	return false
+end
+
 -- unit tables
 local party_units = {}
 local raid_units = {}
@@ -1538,28 +1558,29 @@ function ShamanPower:CreateCooldownBar()
 		local knowsSpell = false
 		local defaultShieldSpell = nil
 		if spellType == "shield" then
-			-- Check preferred shield first
+			-- Check preferred shield first (use spell name for Classic compatibility)
 			local preferredShield = self.opt.preferredShield or 1
 			local preferredData = self.ShieldSpells[preferredShield]
-			if preferredData and IsSpellKnown(preferredData[1]) then
+			if preferredData and PlayerKnowsSpellByName(preferredData[2]) then
 				knowsSpell = true
-				defaultShieldSpell = preferredData[1]
-				local sName, _, sIcon = GetSpellInfo(preferredData[1])
+				defaultShieldSpell = preferredData[2]  -- Use spell name for casting
+				local sName, _, sIcon = GetSpellInfo(preferredData[2])
 				if sIcon then icon = sIcon end
 			else
 				-- Fall back to any known shield
 				for _, shieldData in ipairs(self.ShieldSpells) do
-					if IsSpellKnown(shieldData[1]) then
+					if PlayerKnowsSpellByName(shieldData[2]) then
 						knowsSpell = true
-						defaultShieldSpell = shieldData[1]
-						local sName, _, sIcon = GetSpellInfo(shieldData[1])
+						defaultShieldSpell = shieldData[2]  -- Use spell name for casting
+						local sName, _, sIcon = GetSpellInfo(shieldData[2])
 						if sIcon then icon = sIcon end
 						break
 					end
 				end
 			end
 		else
-			knowsSpell = name and IsSpellKnown(spellID)
+			-- Try IsSpellKnown first, fall back to name check for Classic compatibility
+			knowsSpell = name and (IsSpellKnown(spellID) or PlayerKnowsSpellByName(spellName))
 		end
 
 		-- Only create button if player knows this spell
@@ -1628,7 +1649,14 @@ function ShamanPower:CreateCooldownBar()
 				if self.activeShieldID then
 					GameTooltip:SetSpellByID(self.activeShieldID)
 				elseif self.spellType == "shield" and self.defaultShieldSpell then
-					GameTooltip:SetSpellByID(self.defaultShieldSpell)
+					-- defaultShieldSpell is a spell name, use it directly
+					local spellName = self.defaultShieldSpell
+					local name, _, icon, _, _, _, spellID = GetSpellInfo(spellName)
+					if spellID then
+						GameTooltip:SetSpellByID(spellID)
+					else
+						GameTooltip:SetText(spellName)
+					end
 				else
 					GameTooltip:SetSpellByID(self.spellID)
 				end
@@ -6068,6 +6096,12 @@ function ShamanPower:CreateTotemicCallButton()
 end
 
 function ShamanPower:SetupKeybindings()
+	-- Can't modify bindings during combat
+	if InCombatLockdown() then
+		self.keybindsPending = true
+		return
+	end
+
 	-- Need a frame to own the bindings
 	if not self.keybindFrame then
 		self.keybindFrame = CreateFrame("Frame", "ShamanPowerKeybindFrame", UIParent)
@@ -6089,13 +6123,24 @@ function ShamanPower:SetupKeybindings()
 			SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, "LeftButton")
 		end
 	end
+
+	self.keybindsPending = false
 end
 
 -- Register for binding updates
 local keybindEventFrame = CreateFrame("Frame")
 keybindEventFrame:RegisterEvent("UPDATE_BINDINGS")
 keybindEventFrame:RegisterEvent("PLAYER_LOGIN")
+keybindEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 keybindEventFrame:SetScript("OnEvent", function(self, event)
+	-- If leaving combat, check if we have pending keybind setup
+	if event == "PLAYER_REGEN_ENABLED" then
+		if ShamanPower.keybindsPending then
+			ShamanPower:SetupKeybindings()
+		end
+		return
+	end
+
 	-- Delay slightly to ensure buttons exist
 	C_Timer.After(0.5, function()
 		if ShamanPower.SetupKeybindings then
