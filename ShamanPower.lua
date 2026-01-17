@@ -2008,6 +2008,11 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Setup keybindings for the buttons
 	self:SetupKeybindings()
+
+	-- Setup auto-updating WoW macros (delayed to ensure assignments are loaded)
+	C_Timer.After(1, function()
+		ShamanPower:UpdateSPMacros()
+	end)
 end
 
 -- Tooltip for mini totem bar buttons
@@ -2540,6 +2545,7 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 			-- Also update the mini totem bar
 			self:UpdateMiniTotemBar()
 			self:UpdateDropAllButton()
+			self:UpdateSPMacros()
 		end
 		local msgQueue
 		msgQueue =
@@ -2614,6 +2620,7 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 			-- Also update the mini totem bar
 			self:UpdateMiniTotemBar()
 			self:UpdateDropAllButton()
+			self:UpdateSPMacros()
 		end
 		local msgQueue
 		msgQueue =
@@ -3961,6 +3968,7 @@ function ShamanPower:UpdateLayout()
 		-- Update the mini totem bar icons and spells
 		self:UpdateMiniTotemBar()
 		self:UpdateDropAllButton()
+		self:UpdateSPMacros()
 	else
 		autob:Hide()
 	end
@@ -6107,6 +6115,150 @@ function ShamanPower:CreateTotemicCallButton()
 	btn:SetAttribute("spell1", spellName)
 end
 
+-- ============================================================================
+-- Auto-updating WoW Macros
+-- Creates actual WoW macros that users can drag to their action bars.
+-- The addon automatically updates the macro text when assignments change.
+-- ============================================================================
+
+ShamanPower.MacroNames = {
+	Earth = "SP_Earth",
+	Fire = "SP_Fire",
+	Water = "SP_Water",
+	Air = "SP_Air",
+	DropAll = "SP_DropAll",
+	TotemicCall = "SP_Recall",
+}
+
+-- Create or update a WoW macro
+function ShamanPower:CreateOrUpdateMacro(name, icon, body)
+	if InCombatLockdown() then return end
+
+	local index = GetMacroIndexByName(name)
+	if index > 0 then
+		-- Macro exists, update it
+		EditMacro(index, name, icon, body)
+	else
+		-- Create new macro (character-specific)
+		local numGlobal, numChar = GetNumMacros()
+		if numChar < MAX_CHARACTER_MACROS then
+			CreateMacro(name, icon, body, true)  -- true = per-character
+		else
+			-- Try global macros if character slots full
+			if numGlobal < MAX_ACCOUNT_MACROS then
+				CreateMacro(name, icon, body, false)
+			end
+		end
+	end
+end
+
+-- Update all ShamanPower macros based on current assignments
+function ShamanPower:UpdateSPMacros()
+	if InCombatLockdown() then
+		self.macroUpdatePending = true
+		return
+	end
+
+	local playerName = self.player
+	local assignments = ShamanPower_Assignments[playerName]
+	if not assignments then return end
+
+	local elementNames = {"Earth", "Fire", "Water", "Air"}
+	local defaultIcons = {
+		"INV_Stone_10",           -- Earth
+		"Spell_Fire_Fire",        -- Fire
+		"Spell_Frost_SummonWaterElemental", -- Water
+		"Spell_Nature_InvisibilityTotem",   -- Air
+	}
+
+	-- Create/update individual totem macros
+	for element = 1, 4 do
+		local macroName = self.MacroNames[elementNames[element]]
+		local totemIndex = assignments[element] or 0
+		local body = "#showtooltip\n/cast "
+		local icon = defaultIcons[element]
+
+		if totemIndex > 0 then
+			local spellID = self:GetTotemSpell(element, totemIndex)
+			if spellID then
+				local spellName = GetSpellInfo(spellID)
+				if spellName then
+					body = body .. spellName
+					-- Use totem icon
+					local totemIcon = self:GetTotemIcon(element, totemIndex)
+					if totemIcon then
+						icon = totemIcon:gsub("Interface\\Icons\\", "")
+					end
+				else
+					body = body .. "-- No totem assigned"
+				end
+			else
+				body = body .. "-- No totem assigned"
+			end
+		else
+			body = body .. "-- No totem assigned"
+		end
+
+		self:CreateOrUpdateMacro(macroName, icon, body)
+	end
+
+	-- Create/update Drop All macro
+	local totemSpells = {}
+	local dropOrder = self.opt.dropOrder or {1, 2, 3, 4}
+	for _, element in ipairs(dropOrder) do
+		local totemIndex = assignments[element] or 0
+		if totemIndex > 0 then
+			local spellID = self:GetTotemSpell(element, totemIndex)
+			if spellID then
+				local spellName = GetSpellInfo(spellID)
+				if spellName then
+					table.insert(totemSpells, spellName)
+				end
+			end
+		end
+	end
+
+	local dropAllBody = "#showtooltip\n"
+	if #totemSpells > 0 then
+		dropAllBody = dropAllBody .. "/castsequence reset=combat " .. table.concat(totemSpells, ", ")
+	else
+		dropAllBody = dropAllBody .. "/cast -- No totems assigned"
+	end
+	self:CreateOrUpdateMacro(self.MacroNames.DropAll, "inv_hammer_02", dropAllBody)
+
+	-- Create Totemic Call macro
+	local tcSpellName, _, tcIcon = GetSpellInfo(36936)
+	if tcSpellName then
+		local tcBody = "#showtooltip\n/cast " .. tcSpellName
+		local tcIconName
+		if type(tcIcon) == "string" then
+			tcIconName = tcIcon:match("Interface\\Icons\\(.+)") or tcIcon
+		elseif type(tcIcon) == "number" then
+			tcIconName = tcIcon  -- Use texture ID directly
+		else
+			tcIconName = "INV_Misc_QuestionMark"
+		end
+		self:CreateOrUpdateMacro(self.MacroNames.TotemicCall, tcIconName, tcBody)
+	end
+
+	self.macroUpdatePending = false
+end
+
+-- Slash command to create/refresh macros
+SLASH_SPMACROS1 = "/spmacros"
+SlashCmdList["SPMACROS"] = function()
+	if InCombatLockdown() then
+		print("ShamanPower: Cannot update macros in combat")
+		return
+	end
+	ShamanPower:UpdateSPMacros()
+	print("ShamanPower: Macros updated! Look for these in your macro list:")
+	print("  SP_Earth, SP_Fire, SP_Water, SP_Air - Cast assigned totem")
+	print("  SP_DropAll - Cast all totems in sequence")
+	print("  SP_Recall - Totemic Call")
+	print("Drag them to your action bar - they auto-update when you change assignments!")
+end
+
 function ShamanPower:SetupKeybindings()
 	-- Can't modify bindings during combat
 	if InCombatLockdown() then
@@ -6145,10 +6297,13 @@ keybindEventFrame:RegisterEvent("UPDATE_BINDINGS")
 keybindEventFrame:RegisterEvent("PLAYER_LOGIN")
 keybindEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 keybindEventFrame:SetScript("OnEvent", function(self, event)
-	-- If leaving combat, check if we have pending keybind setup
+	-- If leaving combat, check if we have pending keybind or macro setup
 	if event == "PLAYER_REGEN_ENABLED" then
 		if ShamanPower.keybindsPending then
 			ShamanPower:SetupKeybindings()
+		end
+		if ShamanPower.macroUpdatePending then
+			ShamanPower:UpdateSPMacros()
 		end
 		return
 	end

@@ -757,6 +757,37 @@ ShamanPower.options = {
 						}
 					}
 				},
+				macros_section = {
+					order = 3.5,
+					name = "Macros",
+					type = "group",
+					inline = true,
+					disabled = function(info)
+						return ShamanPower.opt.enabled == false or not isShaman
+					end,
+					args = {
+						macros_desc = {
+							order = 0,
+							type = "description",
+							name = "Create macros for your assigned totems. Drag them to your action bar - they auto-update when you change assignments."
+						},
+						create_macros = {
+							order = 1,
+							type = "execute",
+							name = "Create/Update Macros",
+							desc = "Creates or updates the following macros:\nSP_Earth, SP_Fire, SP_Water, SP_Air - Cast assigned totem\nSP_DropAll - Cast all totems in sequence\nSP_Recall - Totemic Call",
+							width = 1.3,
+							func = function()
+								if InCombatLockdown() then
+									print("ShamanPower: Cannot update macros in combat")
+									return
+								end
+								ShamanPower:UpdateSPMacros()
+								print("ShamanPower: Macros created! Check your macro panel (Esc -> Macros)")
+							end
+						}
+					}
+				},
 				cp_button = {
 					order = 4,
 					name = "Element Buttons",
