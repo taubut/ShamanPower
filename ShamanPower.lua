@@ -828,7 +828,8 @@ function ShamanPower_ScaleFrame(scale)
 	frame:SetScale(scale)
 	if frame:GetName() == "ShamanPowerBlessingsFrame" then
 		frame:SetClampedToScreen(true)
-		frame:SetPoint("TOPLEFT", "UIParent", "BOTTOMLEFT", framex / scale, framey / scale)
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", framex / scale, framey / scale)
 		ShamanPower.opt.configscale = scale
 	end
 end
