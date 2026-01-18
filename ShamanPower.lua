@@ -3968,7 +3968,7 @@ function ShamanPower:UpdateLayout()
 		-- Update the mini totem bar icons and spells
 		self:UpdateMiniTotemBar()
 		self:UpdateDropAllButton()
-		self:UpdateSPMacros()
+		-- Note: UpdateSPMacros() is called only when assignments change, not on every layout update
 	else
 		autob:Hide()
 	end
