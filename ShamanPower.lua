@@ -4944,6 +4944,9 @@ function ShamanPower:UpdateRoster()
 		end
 	end
 	self:UpdateLayout()
+
+	-- Update SPRange visibility based on group composition
+	self:UpdateSPRangeVisibility()
 end
 
 function ShamanPower:ScanClass(classID)
@@ -8816,6 +8819,15 @@ ShamanPower.TrackableTotems = {
 		detection = "buff",
 		buffName = "Fire Resistance",
 	},
+	{
+		id = "manatide",
+		name = "Mana Tide Totem",
+		element = 3,
+		index = 3,
+		spellID = 16190,
+		detection = "buff",
+		buffName = "Mana Tide",
+	},
 	-- Air
 	{
 		id = "windfury",
@@ -8889,6 +8901,7 @@ ShamanPower.TrackableTotemShortNames = {
 	manaspring = "Mana",
 	healingstream = "Heal",
 	fireresist = "FiRes",
+	manatide = "Mana Tide",
 	windfury = "WF",
 	graceofair = "GoA",
 	wrathofair = "WoA",
@@ -8990,15 +9003,38 @@ function ShamanPower:CreateSPRangeFrame()
 	title:SetTextColor(1, 0.82, 0)
 	frame.title = title
 
+	-- Settings button (cog icon in top right)
+	local settingsBtn = CreateFrame("Button", nil, frame)
+	settingsBtn:SetSize(14, 14)
+	settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+	settingsBtn:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+	settingsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+	settingsBtn:SetScript("OnClick", function()
+		ShamanPower:ShowSPRangeConfig()
+	end)
+	settingsBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:AddLine("Configure SPRange", 1, 1, 1)
+		GameTooltip:Show()
+	end)
+	settingsBtn:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+	frame.settingsBtn = settingsBtn
+
 	-- Container for totem icons
 	local iconContainer = CreateFrame("Frame", nil, frame)
 	iconContainer:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -20)
 	iconContainer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
 	frame.iconContainer = iconContainer
 
-	-- Drag to move
+	-- Drag to move (ALT+drag when borderless, normal drag when bordered)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", function(self)
+		-- If border is hidden, require ALT to drag
+		if ShamanPower_RangeTracker.hideBorder and not IsAltKeyDown() then
+			return
+		end
 		self:StartMoving()
 	end)
 	frame:SetScript("OnDragStop", function(self)
@@ -9008,9 +9044,9 @@ function ShamanPower:CreateSPRangeFrame()
 		ShamanPower_RangeTracker.position = { point = point, x = x, y = y }
 	end)
 
-	-- Right-click to open config
+	-- Right-click to configure (when border is hidden)
 	frame:SetScript("OnMouseUp", function(self, button)
-		if button == "RightButton" then
+		if button == "RightButton" and ShamanPower_RangeTracker.hideBorder then
 			ShamanPower:ShowSPRangeConfig()
 		end
 	end)
@@ -9020,9 +9056,12 @@ function ShamanPower:CreateSPRangeFrame()
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:AddLine("SPRange - Totem Range Tracker", 1, 0.82, 0)
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("Right-click to configure", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("/sprange - Toggle visibility", 0.7, 0.7, 0.7)
+		if ShamanPower_RangeTracker.hideBorder then
+			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("Right-click to configure", 0.7, 0.7, 0.7)
+		else
+			GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
+		end
 		GameTooltip:Show()
 	end)
 	frame:SetScript("OnLeave", function(self)
@@ -9038,8 +9077,9 @@ end
 
 -- Create a totem button for SPRange
 function ShamanPower:CreateSPRangeTotemButton(parent, totemData, index)
+	local iconSize = ShamanPower_RangeTracker.iconSize or 36
 	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-	btn:SetSize(36, 36)  -- Larger for better visibility
+	btn:SetSize(iconSize, iconSize)
 
 	-- Background
 	btn:SetBackdrop({
@@ -9085,6 +9125,9 @@ function ShamanPower:CreateSPRangeTotemButton(parent, totemData, index)
 	nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 	nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:sub(1, 6))
 	nameText:SetTextColor(0.8, 0.8, 0.8)
+	if ShamanPower_RangeTracker.hideNames then
+		nameText:Hide()
+	end
 	btn.nameText = nameText
 
 	-- In-range state
@@ -9145,20 +9188,43 @@ function ShamanPower:UpdateSPRangeFrame()
 		return
 	end
 
-	-- Calculate frame size (larger buttons with names below)
-	local buttonSize = 36
+	-- Calculate frame size based on icon size setting
+	local buttonSize = ShamanPower_RangeTracker.iconSize or 36
 	local padding = 6
 	local numButtons = #trackedList
-	local width = (buttonSize * numButtons) + (padding * (numButtons + 1)) + 12
-	local height = buttonSize + 40  -- Title + padding + name text
+	local nameSpace = ShamanPower_RangeTracker.hideNames and 0 or 14
+	local isVertical = ShamanPower_RangeTracker.vertical
 
-	frame:SetSize(math.max(100, width), height)
+	local width, height
+	if isVertical then
+		-- Vertical layout
+		width = buttonSize + 24 + nameSpace
+		height = (buttonSize * numButtons) + (padding * (numButtons - 1)) + 28  -- Title + padding
+	else
+		-- Horizontal layout
+		local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
+		width = buttonsWidth + 24
+		height = buttonSize + 26 + nameSpace
+	end
+
+	frame:SetSize(math.max(80, width), height)
 	frame.title:SetText("SPRange")
 
 	-- Create buttons
 	for i, totemData in ipairs(trackedList) do
 		local btn = self:CreateSPRangeTotemButton(frame.iconContainer, totemData, i)
-		btn:SetPoint("LEFT", frame.iconContainer, "LEFT", (i - 1) * (buttonSize + padding), 4)
+
+		if isVertical then
+			-- Vertical: stack top to bottom
+			local startY = -20
+			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, startY - (i - 1) * (buttonSize + padding))
+		else
+			-- Horizontal: left to right, centered
+			local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
+			local startX = (frame:GetWidth() - buttonsWidth) / 2
+			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", startX + (i - 1) * (buttonSize + padding), -20)
+		end
+
 		btn:Show()
 		frame.totemButtons[totemData.id] = btn
 	end
@@ -9297,8 +9363,45 @@ end
 function ShamanPower:ShowSPRangeConfig()
 	-- Create config frame if needed
 	if not self.spRangeConfigFrame then
+		local elementNames = { "Earth", "Fire", "Water", "Air" }
+		local elementColors = {
+			{ r = 0.4, g = 0.25, b = 0.1 },    -- Earth (brown)
+			{ r = 0.5, g = 0.2, b = 0.1 },     -- Fire (dark red/orange)
+			{ r = 0.1, g = 0.25, b = 0.4 },    -- Water (blue)
+			{ r = 0.2, g = 0.3, b = 0.35 },    -- Air (grey-blue)
+		}
+		local elementBorderColors = {
+			{ r = 0.6, g = 0.4, b = 0.2 },     -- Earth border
+			{ r = 1.0, g = 0.5, b = 0.2 },     -- Fire border
+			{ r = 0.3, g = 0.6, b = 1.0 },     -- Water border
+			{ r = 0.5, g = 0.8, b = 1.0 },     -- Air border
+		}
+
+		-- Group totems by element
+		local totemsByElement = { {}, {}, {}, {} }
+		for _, totemData in ipairs(self.TrackableTotems) do
+			table.insert(totemsByElement[totemData.element], totemData)
+		end
+
+		-- Find max totems in any element for sizing
+		local maxTotems = 0
+		for e = 1, 4 do
+			if #totemsByElement[e] > maxTotems then
+				maxTotems = #totemsByElement[e]
+			end
+		end
+
+		local columnWidth = 70
+		local iconSize = 40
+		local rowHeight = iconSize + 18  -- Icon + name text
+		local headerHeight = 22
+		local padding = 4
+
+		local contentWidth = (4 * columnWidth) + (5 * padding)
+		local contentHeight = headerHeight + (maxTotems * rowHeight) + (2 * padding) + 30 + 90  -- +30 for title, +90 for settings (3 rows)
+
 		local config = CreateFrame("Frame", "ShamanPowerRangeConfigFrame", UIParent, "BackdropTemplate")
-		config:SetSize(200, 300)
+		config:SetSize(contentWidth, contentHeight)
 		config:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 		config:SetMovable(true)
 		config:EnableMouse(true)
@@ -9311,13 +9414,13 @@ function ShamanPower:ShowSPRangeConfig()
 			tile = true, tileSize = 16, edgeSize = 16,
 			insets = { left = 4, right = 4, top = 4, bottom = 4 }
 		})
-		config:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
-		config:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+		config:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+		config:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 
 		-- Title
 		local title = config:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		title:SetPoint("TOP", config, "TOP", 0, -10)
-		title:SetText("SPRange Configuration")
+		title:SetPoint("TOP", config, "TOP", 0, -8)
+		title:SetText("SPRange - Click totems to track")
 		title:SetTextColor(1, 0.82, 0)
 
 		-- Close button
@@ -9330,81 +9433,272 @@ function ShamanPower:ShowSPRangeConfig()
 		config:SetScript("OnDragStart", function(self) self:StartMoving() end)
 		config:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
 
-		-- Scroll frame for checkboxes
-		local scrollFrame = CreateFrame("ScrollFrame", nil, config, "UIPanelScrollFrameTemplate")
-		scrollFrame:SetPoint("TOPLEFT", config, "TOPLEFT", 10, -35)
-		scrollFrame:SetPoint("BOTTOMRIGHT", config, "BOTTOMRIGHT", -30, 10)
+		config.totemButtons = {}
+		config.columns = {}
 
-		local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-		scrollChild:SetSize(160, 400)
-		scrollFrame:SetScrollChild(scrollChild)
+		-- Create columns for each element
+		for element = 1, 4 do
+			local xOffset = padding + ((element - 1) * (columnWidth + padding))
+			local c = elementColors[element]
+			local bc = elementBorderColors[element]
 
-		config.scrollChild = scrollChild
-		config.checkboxes = {}
+			-- Column background frame
+			local column = CreateFrame("Frame", nil, config, "BackdropTemplate")
+			local columnHeight = headerHeight + (#totemsByElement[element] * rowHeight) + padding
+			column:SetSize(columnWidth, columnHeight)
+			column:SetPoint("TOPLEFT", config, "TOPLEFT", xOffset, -26)
 
-		-- Create checkboxes for each trackable totem
-		local yOffset = 0
-		local lastElement = nil
+			column:SetBackdrop({
+				bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+				tile = true, tileSize = 16, edgeSize = 12,
+				insets = { left = 2, right = 2, top = 2, bottom = 2 }
+			})
+			column:SetBackdropColor(c.r, c.g, c.b, 0.8)
+			column:SetBackdropBorderColor(c.r * 1.5, c.g * 1.5, c.b * 1.5, 0.6)
 
-		for _, totemData in ipairs(ShamanPower.TrackableTotems) do
-			-- Add element header if new element
-			if totemData.element ~= lastElement then
-				local elementNames = { "Earth", "Fire", "Water", "Air" }
-				local elementColors = {
-					{ r = 0.6, g = 0.4, b = 0.2 },  -- Earth (brown)
-					{ r = 1.0, g = 0.4, b = 0.0 },  -- Fire (orange)
-					{ r = 0.0, g = 0.6, b = 1.0 },  -- Water (blue)
-					{ r = 0.6, g = 0.8, b = 1.0 },  -- Air (light blue)
-				}
+			config.columns[element] = column
 
-				if lastElement then
-					yOffset = yOffset - 5  -- Extra space between elements
-				end
+			-- Element header label
+			local header = column:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+			header:SetPoint("TOP", column, "TOP", 0, -4)
+			header:SetText(elementNames[element])
+			header:SetTextColor(bc.r, bc.g, bc.b)
 
-				local header = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-				header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -yOffset)
-				header:SetText(elementNames[totemData.element])
-				local c = elementColors[totemData.element]
-				header:SetTextColor(c.r, c.g, c.b)
+			-- Create totem icons for this element (stacked vertically)
+			local totems = totemsByElement[element]
+			for i, totemData in ipairs(totems) do
+				local yOffset = -headerHeight - ((i - 1) * rowHeight)
 
-				yOffset = yOffset + 16
-				lastElement = totemData.element
+				local btn = CreateFrame("Button", nil, column)
+				btn:SetSize(iconSize, iconSize)
+				btn:SetPoint("TOP", column, "TOP", 0, yOffset)
+
+				-- Icon
+				local icon = btn:CreateTexture(nil, "ARTWORK")
+				icon:SetAllPoints()
+				icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+				local _, _, spellIcon = GetSpellInfo(totemData.spellID)
+				icon:SetTexture(spellIcon)
+				btn.icon = icon
+
+				-- Name below icon
+				local nameText = btn:CreateFontString(nil, "OVERLAY")
+				nameText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+				nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+				nameText:SetWidth(columnWidth - 4)
+				nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:gsub(" Totem", ""))
+				btn.nameText = nameText
+
+				btn.totemData = totemData
+				btn.elementColors = bc
+
+				-- Click to toggle
+				btn:SetScript("OnClick", function(self)
+					local id = self.totemData.id
+					ShamanPower_RangeTracker.tracked[id] = not ShamanPower_RangeTracker.tracked[id]
+					ShamanPower:UpdateSPRangeConfigButtons()
+					ShamanPower:UpdateSPRangeFrame()
+				end)
+
+				-- Tooltip
+				btn:SetScript("OnEnter", function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					GameTooltip:AddLine(self.totemData.name, 1, 1, 1)
+					if ShamanPower_RangeTracker.tracked[self.totemData.id] then
+						GameTooltip:AddLine("Currently tracking", 0, 1, 0)
+						GameTooltip:AddLine("Click to stop tracking", 0.7, 0.7, 0.7)
+					else
+						GameTooltip:AddLine("Not tracking", 0.5, 0.5, 0.5)
+						GameTooltip:AddLine("Click to track", 0.7, 0.7, 0.7)
+					end
+					GameTooltip:Show()
+				end)
+				btn:SetScript("OnLeave", function()
+					GameTooltip:Hide()
+				end)
+
+				config.totemButtons[totemData.id] = btn
 			end
-
-			-- Checkbox
-			local cb = CreateFrame("CheckButton", nil, scrollChild, "UICheckButtonTemplate")
-			cb:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 5, -yOffset)
-			cb:SetSize(20, 20)
-
-			local label = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			label:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-			label:SetText(totemData.name)
-
-			cb.totemID = totemData.id
-			cb:SetChecked(ShamanPower_RangeTracker.tracked[totemData.id] or false)
-
-			cb:SetScript("OnClick", function(self)
-				ShamanPower_RangeTracker.tracked[self.totemID] = self:GetChecked()
-				ShamanPower:UpdateSPRangeFrame()
-			end)
-
-			config.checkboxes[totemData.id] = cb
-			yOffset = yOffset + 22
 		end
 
-		-- Adjust scroll child height
-		scrollChild:SetHeight(yOffset + 10)
+		-- Settings section - clean layout (position below tallest column)
+		local settingsY = -26 - (maxTotems * rowHeight) - headerHeight - 15
+
+		-- Opacity slider (first row)
+		local opacityLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		opacityLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY)
+		opacityLabel:SetText("Opacity:")
+		opacityLabel:SetTextColor(1, 0.82, 0)
+
+		local opacitySlider = CreateFrame("Slider", "SPRangeConfigOpacitySlider", config, "OptionsSliderTemplate")
+		opacitySlider:SetPoint("LEFT", opacityLabel, "RIGHT", 10, 0)
+		opacitySlider:SetSize(120, 17)
+		opacitySlider:SetMinMaxValues(0.2, 1.0)
+		opacitySlider:SetValueStep(0.1)
+		opacitySlider:SetObeyStepOnDrag(true)
+		opacitySlider:SetValue(ShamanPower_RangeTracker.opacity or 1.0)
+		local opacityBg = opacitySlider:CreateTexture(nil, "BACKGROUND")
+		opacityBg:SetPoint("TOPLEFT", 0, -6)
+		opacityBg:SetPoint("BOTTOMRIGHT", 0, 6)
+		opacityBg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+		opacitySlider.Low:SetText("")
+		opacitySlider.High:SetText("")
+		opacitySlider.Text:SetPoint("LEFT", opacitySlider, "RIGHT", 8, 0)
+		opacitySlider.Text:SetText(tostring(math.floor((ShamanPower_RangeTracker.opacity or 1.0) * 100)) .. "%")
+		opacitySlider:SetScript("OnValueChanged", function(self, value)
+			ShamanPower_RangeTracker.opacity = value
+			self.Text:SetText(tostring(math.floor(value * 100)) .. "%")
+			ShamanPower:UpdateSPRangeOpacity()
+		end)
+
+		-- Icon Size slider (second row)
+		local sizeLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		sizeLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY - 22)
+		sizeLabel:SetText("Icon Size:")
+		sizeLabel:SetTextColor(1, 0.82, 0)
+
+		local sizeSlider = CreateFrame("Slider", "SPRangeConfigSizeSlider", config, "OptionsSliderTemplate")
+		sizeSlider:SetPoint("LEFT", sizeLabel, "RIGHT", 10, 0)
+		sizeSlider:SetSize(120, 17)
+		sizeSlider:SetMinMaxValues(20, 60)
+		sizeSlider:SetValueStep(4)
+		sizeSlider:SetObeyStepOnDrag(true)
+		sizeSlider:SetValue(ShamanPower_RangeTracker.iconSize or 36)
+		local sizeBg = sizeSlider:CreateTexture(nil, "BACKGROUND")
+		sizeBg:SetPoint("TOPLEFT", 0, -6)
+		sizeBg:SetPoint("BOTTOMRIGHT", 0, 6)
+		sizeBg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
+		sizeSlider.Low:SetText("")
+		sizeSlider.High:SetText("")
+		sizeSlider.Text:SetPoint("LEFT", sizeSlider, "RIGHT", 8, 0)
+		sizeSlider.Text:SetText(tostring(ShamanPower_RangeTracker.iconSize or 36))
+		sizeSlider:SetScript("OnValueChanged", function(self, value)
+			value = math.floor(value)
+			ShamanPower_RangeTracker.iconSize = value
+			self.Text:SetText(tostring(value))
+			ShamanPower:UpdateSPRangeFrame()
+		end)
+
+		-- Checkboxes row (third row)
+		local checkboxY = settingsY - 48
+
+		-- Vertical Layout checkbox
+		local verticalBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")
+		verticalBtn:SetSize(22, 22)
+		verticalBtn:SetPoint("TOPLEFT", config, "TOPLEFT", 8, checkboxY)
+		verticalBtn:SetChecked(ShamanPower_RangeTracker.vertical or false)
+		verticalBtn:SetScript("OnClick", function(self)
+			ShamanPower_RangeTracker.vertical = self:GetChecked()
+			ShamanPower:UpdateSPRangeFrame()
+			ShamanPower:UpdateSPRangeBorder()
+		end)
+
+		local verticalLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		verticalLabel:SetPoint("LEFT", verticalBtn, "RIGHT", 0, 0)
+		verticalLabel:SetText("Vertical")
+		verticalLabel:SetTextColor(0.9, 0.9, 0.9)
+
+		-- Hide Names checkbox
+		local hideNamesBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")
+		hideNamesBtn:SetSize(22, 22)
+		hideNamesBtn:SetPoint("LEFT", verticalLabel, "RIGHT", 10, 0)
+		hideNamesBtn:SetChecked(ShamanPower_RangeTracker.hideNames or false)
+		hideNamesBtn:SetScript("OnClick", function(self)
+			ShamanPower_RangeTracker.hideNames = self:GetChecked()
+			ShamanPower:UpdateSPRangeFrame()
+		end)
+
+		local hideNamesLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		hideNamesLabel:SetPoint("LEFT", hideNamesBtn, "RIGHT", 0, 0)
+		hideNamesLabel:SetText("Hide Names")
+		hideNamesLabel:SetTextColor(0.9, 0.9, 0.9)
+
+		-- Hide Border checkbox
+		local hideBorderBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")
+		hideBorderBtn:SetSize(22, 22)
+		hideBorderBtn:SetPoint("LEFT", hideNamesLabel, "RIGHT", 10, 0)
+		hideBorderBtn:SetChecked(ShamanPower_RangeTracker.hideBorder or false)
+		hideBorderBtn:SetScript("OnClick", function(self)
+			ShamanPower_RangeTracker.hideBorder = self:GetChecked()
+			ShamanPower:UpdateSPRangeBorder()
+		end)
+
+		local hideBorderLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		hideBorderLabel:SetPoint("LEFT", hideBorderBtn, "RIGHT", 0, 0)
+		hideBorderLabel:SetText("Hide Border")
+		hideBorderLabel:SetTextColor(0.9, 0.9, 0.9)
 
 		config:Hide()
 		self.spRangeConfigFrame = config
 	end
 
-	-- Update checkbox states
-	for id, cb in pairs(self.spRangeConfigFrame.checkboxes) do
-		cb:SetChecked(ShamanPower_RangeTracker.tracked[id] or false)
-	end
-
+	-- Update button states
+	self:UpdateSPRangeConfigButtons()
 	self.spRangeConfigFrame:Show()
+end
+
+-- Update SPRange frame border visibility
+function ShamanPower:UpdateSPRangeBorder()
+	if not self.spRangeFrame then return end
+
+	local hideBorder = ShamanPower_RangeTracker.hideBorder
+
+	if hideBorder then
+		-- Hide border and background
+		self.spRangeFrame:SetBackdrop(nil)
+		if self.spRangeFrame.title then
+			self.spRangeFrame.title:Hide()
+		end
+		if self.spRangeFrame.settingsBtn then
+			self.spRangeFrame.settingsBtn:Hide()
+		end
+	else
+		-- Show border and background
+		self.spRangeFrame:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 16,
+			insets = { left = 4, right = 4, top = 4, bottom = 4 }
+		})
+		self.spRangeFrame:SetBackdropColor(0, 0, 0, 0.8)
+		self.spRangeFrame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+		if self.spRangeFrame.title then
+			self.spRangeFrame.title:Show()
+		end
+		if self.spRangeFrame.settingsBtn then
+			self.spRangeFrame.settingsBtn:Show()
+		end
+	end
+end
+
+-- Update SPRange frame opacity
+function ShamanPower:UpdateSPRangeOpacity()
+	if not self.spRangeFrame then return end
+	local opacity = ShamanPower_RangeTracker.opacity or 1.0
+	self.spRangeFrame:SetAlpha(opacity)
+end
+
+-- Update config button visual states
+function ShamanPower:UpdateSPRangeConfigButtons()
+	if not self.spRangeConfigFrame or not self.spRangeConfigFrame.totemButtons then return end
+
+	for id, btn in pairs(self.spRangeConfigFrame.totemButtons) do
+		local isTracked = ShamanPower_RangeTracker.tracked[id]
+		local c = btn.elementColors
+
+		if isTracked then
+			-- Tracked - full color
+			btn.icon:SetDesaturated(false)
+			btn.icon:SetAlpha(1)
+			btn.nameText:SetTextColor(1, 1, 1)
+		else
+			-- Not tracked - grey
+			btn.icon:SetDesaturated(true)
+			btn.icon:SetAlpha(0.4)
+			btn.nameText:SetTextColor(0.5, 0.5, 0.5)
+		end
+	end
 end
 
 -- Toggle SPRange visibility
@@ -9428,9 +9722,11 @@ function ShamanPower:ToggleSPRange()
 		end
 
 		self:UpdateSPRangeFrame()
+		self:UpdateSPRangeBorder()
+		self:UpdateSPRangeOpacity()
 		self.spRangeFrame:Show()
 		ShamanPower_RangeTracker.shown = true
-		self:Print("SPRange shown. Right-click to configure tracked totems.")
+		self:Print("SPRange shown. Click settings cog to configure.")
 	end
 end
 
@@ -9503,22 +9799,69 @@ function ShamanPower:SetupSPRangeUpdater()
 	end)
 end
 
+-- Check if there's a shaman anywhere in the group (not just subgroup)
+function ShamanPower:SPRangeHasAnyShamanInGroup()
+	-- If player is a shaman, don't auto-show SPRange (they have the full UI)
+	local _, playerClass = UnitClass("player")
+	if playerClass == "SHAMAN" then
+		return false
+	end
+
+	if IsInRaid() then
+		for i = 1, 40 do
+			local name, _, _, _, _, class = GetRaidRosterInfo(i)
+			if name and class == "SHAMAN" then
+				return true
+			end
+		end
+	elseif IsInGroup() then
+		for i = 1, 4 do
+			if UnitExists("party" .. i) then
+				local _, class = UnitClass("party" .. i)
+				if class == "SHAMAN" then
+					return true
+				end
+			end
+		end
+	end
+
+	return false
+end
+
+-- Auto-show/hide SPRange based on group composition
+function ShamanPower:UpdateSPRangeVisibility()
+	if not self.spRangeFrame then return end
+
+	local shouldShow = self:SPRangeHasAnyShamanInGroup()
+
+	if shouldShow then
+		if not self.spRangeFrame:IsShown() then
+			-- Restore position
+			local pos = ShamanPower_RangeTracker.position
+			if pos then
+				self.spRangeFrame:ClearAllPoints()
+				self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
+			end
+			self:UpdateSPRangeFrame()
+			self:UpdateSPRangeBorder()
+			self:UpdateSPRangeOpacity()
+			self.spRangeFrame:Show()
+		end
+	else
+		if self.spRangeFrame:IsShown() then
+			self.spRangeFrame:Hide()
+		end
+	end
+end
+
 -- Initialize SPRange on addon load (for non-shamans primarily, but works for all)
 function ShamanPower:InitializeSPRange()
 	self:InitSPRange()
 	self:CreateSPRangeFrame()
 	self:SetupSPRangeUpdater()
 
-	-- Restore visibility if it was shown before
-	if ShamanPower_RangeTracker.shown then
-		local pos = ShamanPower_RangeTracker.position
-		if pos then
-			self.spRangeFrame:ClearAllPoints()
-			self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-		self:UpdateSPRangeFrame()
-		self.spRangeFrame:Show()
-	end
+	-- Check if we should auto-show (in group with a shaman)
+	self:UpdateSPRangeVisibility()
 end
 
 -- Register /sprange slash command
