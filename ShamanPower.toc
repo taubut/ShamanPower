@@ -1,7 +1,7 @@
 ## Interface: 30403
 ## Author: taubut (based on PallyPower by Aznamir, Dyaxler, Es, gallantron)
 ## Title: ShamanPower
-## Version: 1.0.9
+## Version: 1.0.9.1
 ## Notes: Raid/Party Shaman Totem Coordination
 ## Notes-esES: Coordinacion de Totems de Chaman para Grupo/Banda
 ## Notes-zhCN: 萨满图腾协调管理

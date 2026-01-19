@@ -2227,8 +2227,70 @@ function ShamanPower:UpdateMiniTotemBar()
 		self:HideTwistTimer()
 	end
 
+	-- Setup GCD swipe overlays on totem buttons
+	self:SetupGCDSwipes()
+
 	-- Note: Macros are created manually via Options -> Buttons -> "Create/Update Macros" button
 	-- or /spmacros command. No automatic macro updates to avoid interfering with macro UI.
+end
+
+-- ============================================================================
+-- GCD Swipe (shows global cooldown animation on totem buttons)
+-- ============================================================================
+
+ShamanPower.gcdCooldowns = {}  -- Cooldown frames for each totem button
+
+function ShamanPower:SetupGCDSwipes()
+	for element = 1, 4 do
+		local totemButton = _G["ShamanPowerAutoTotem" .. element]
+		if totemButton then
+			local cdFrame = self.gcdCooldowns[element]
+			if not cdFrame then
+				cdFrame = CreateFrame("Cooldown", "ShamanPowerGCD" .. element, totemButton, "CooldownFrameTemplate")
+				cdFrame:SetAllPoints(totemButton)
+				cdFrame:SetDrawEdge(true)
+				cdFrame:SetDrawSwipe(true)
+				cdFrame:SetSwipeColor(0, 0, 0, 0.6)
+				cdFrame:SetHideCountdownNumbers(true)
+				self.gcdCooldowns[element] = cdFrame
+			end
+		end
+	end
+
+	-- Also add to Drop All button
+	local dropAllButton = _G["ShamanPowerAutoDropAll"]
+	if dropAllButton then
+		local cdFrame = self.gcdCooldowns[5]
+		if not cdFrame then
+			cdFrame = CreateFrame("Cooldown", "ShamanPowerGCD5", dropAllButton, "CooldownFrameTemplate")
+			cdFrame:SetAllPoints(dropAllButton)
+			cdFrame:SetDrawEdge(true)
+			cdFrame:SetDrawSwipe(true)
+			cdFrame:SetSwipeColor(0, 0, 0, 0.6)
+			cdFrame:SetHideCountdownNumbers(true)
+			self.gcdCooldowns[5] = cdFrame
+		end
+	end
+end
+
+function ShamanPower:TriggerGCDSwipe()
+	-- Get the current GCD from spell cooldown
+	local start, duration = GetSpellCooldown(2484)  -- Earthbind Totem as reference
+	if not start or start == 0 then
+		-- Fallback: standard 1.5 second GCD
+		start = GetTime()
+		duration = 1.5
+	end
+
+	-- Only trigger if this is a fresh GCD (not a longer cooldown)
+	if duration > 2 then return end
+
+	for i = 1, 5 do
+		local cdFrame = self.gcdCooldowns[i]
+		if cdFrame then
+			cdFrame:SetCooldown(start, duration)
+		end
+	end
 end
 
 -- Tooltip for mini totem bar buttons
@@ -3373,6 +3435,14 @@ function ShamanPower:UpdateAllShamans()
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
+	-- Trigger GCD swipe when player casts a totem
+	if unitTarget == "player" then
+		local spellName = GetSpellInfo(spellID)
+		if spellName and spellName:find("Totem") then
+			self:TriggerGCDSwipe()
+		end
+	end
+
 	if select(2, UnitClass(unitTarget)) == "SHAMAN" then
 		for _, spells in pairs(self.Cooldowns) do
 			for _, spell in pairs(spells) do
