@@ -599,6 +599,19 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBar()
 							end
 						},
+						show_totem_flyouts = {
+							order = 2.25,
+							type = "toggle",
+							name = "Show Totem Flyouts",
+							desc = "[Enable/Disable] Show flyout menus on mouseover for quick totem selection (TotemTimers style)",
+							width = 1.3,
+							get = function(info)
+								return ShamanPower.opt.showTotemFlyouts
+							end,
+							set = function(info, val)
+								ShamanPower.opt.showTotemFlyouts = val
+							end
+						},
 						preferred_shield = {
 							order = 2.3,
 							type = "select",

@@ -1802,6 +1802,227 @@ function ShamanPower:UpdateTotemProgressBars()
 end
 
 -- ============================================================================
+-- Totem Flyout Menus (TotemTimers-style popup for selecting totems)
+-- ============================================================================
+
+ShamanPower.totemFlyouts = {}  -- Flyout frames for each element
+
+-- Create flyout menu for an element
+function ShamanPower:CreateTotemFlyout(element)
+	if self.totemFlyouts[element] then return self.totemFlyouts[element] end
+
+	local totemButton = _G["ShamanPowerAutoTotem" .. element]
+	if not totemButton then return nil end
+
+	-- Create the flyout container frame (with BackdropTemplate for SetBackdrop support)
+	local flyout = CreateFrame("Frame", "ShamanPowerFlyout" .. element, UIParent, "BackdropTemplate")
+	flyout:SetFrameStrata("DIALOG")
+	flyout:SetClampedToScreen(true)
+	flyout:Hide()
+
+	-- Flyout appearance
+	flyout:SetBackdrop({
+		bgFile = "Interface\\Buttons\\WHITE8x8",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		edgeSize = 12,
+		insets = {left = 2, right = 2, top = 2, bottom = 2},
+	})
+	local colors = self.ElementColors[element]
+	flyout:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+	flyout:SetBackdropBorderColor(colors.r, colors.g, colors.b, 1)
+
+	-- Get totems for this element
+	local totems = self.Totems[element]
+	local totemNames = self.TotemNames[element]
+	local icons = self.TotemIcons[element]
+
+	-- Count known totems and create buttons
+	local buttons = {}
+	local buttonSize = 28
+	local padding = 4
+	local spacing = 2
+
+	for totemIndex, spellID in pairs(totems) do
+		-- Check if player knows this totem
+		local spellName = GetSpellInfo(spellID)
+		if spellName and IsSpellKnown(spellID) then
+			local btn = CreateFrame("Button", "ShamanPowerFlyout" .. element .. "Btn" .. totemIndex, flyout, "SecureActionButtonTemplate")
+			btn:SetSize(buttonSize, buttonSize)
+			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp")
+
+			-- Left-click casts spell, right-click does nothing (assignment handled in PostClick)
+			btn:SetAttribute("type1", "spell")
+			btn:SetAttribute("spell", spellName)
+
+			-- Create icon texture explicitly
+			local iconTex = btn:CreateTexture(nil, "ARTWORK")
+			iconTex:SetAllPoints()
+			iconTex:SetTexture(icons[totemIndex] or "Interface\\Icons\\INV_Misc_QuestionMark")
+			btn.icon = iconTex
+
+			-- Highlight texture
+			local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+			highlight:SetAllPoints()
+			highlight:SetColorTexture(1, 1, 1, 0.3)
+
+			-- Tooltip
+			btn:SetScript("OnEnter", function(self)
+				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+				GameTooltip:SetSpellByID(spellID)
+				GameTooltip:AddLine(" ")
+				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 1, 1, 1)
+				GameTooltip:AddLine("|cffffcc00Right-click:|r Set as assigned totem", 1, 1, 1)
+				GameTooltip:Show()
+			end)
+			btn:SetScript("OnLeave", function(self)
+				GameTooltip:Hide()
+			end)
+
+			-- Right-click to set as assigned totem
+			btn:SetScript("PostClick", function(self, button)
+				if button == "RightButton" then
+					if InCombatLockdown() then
+						print("|cffff0000ShamanPower:|r Cannot change assignments in combat")
+						return
+					end
+					-- Update assignment
+					if not ShamanPower_Assignments[ShamanPower.player] then
+						ShamanPower_Assignments[ShamanPower.player] = {}
+					end
+					ShamanPower_Assignments[ShamanPower.player][element] = self.totemIndex
+					-- Refresh the main bar
+					ShamanPower:UpdateMiniTotemBar()
+					-- Hide the flyout
+					flyout:Hide()
+				end
+			end)
+
+			btn.totemIndex = totemIndex
+			btn.spellID = spellID
+			table.insert(buttons, btn)
+		end
+	end
+
+	-- Position buttons vertically
+	local numButtons = #buttons
+	if numButtons == 0 then
+		flyout:SetSize(buttonSize + padding * 2, buttonSize + padding * 2)
+	else
+		local height = (buttonSize * numButtons) + (spacing * (numButtons - 1)) + (padding * 2)
+		flyout:SetSize(buttonSize + padding * 2, height)
+
+		for i, btn in ipairs(buttons) do
+			btn:ClearAllPoints()
+			btn:SetPoint("TOP", flyout, "TOP", 0, -padding - (i - 1) * (buttonSize + spacing))
+		end
+	end
+
+	flyout.buttons = buttons
+	flyout.element = element
+	self.totemFlyouts[element] = flyout
+
+	return flyout
+end
+
+-- Update flyout to hide currently assigned totem
+function ShamanPower:UpdateFlyoutVisibility(element)
+	local flyout = self.totemFlyouts[element]
+	if not flyout or not flyout.buttons then return end
+
+	-- Get current assignment
+	local assignments = ShamanPower_Assignments[self.player]
+	local currentTotemIndex = assignments and assignments[element] or 0
+
+	-- Show/hide buttons and reposition
+	local buttonSize = 28
+	local padding = 4
+	local spacing = 2
+	local visibleIndex = 0
+
+	for _, btn in ipairs(flyout.buttons) do
+		if btn.totemIndex == currentTotemIndex then
+			btn:Hide()
+		else
+			btn:Show()
+			btn:ClearAllPoints()
+			btn:SetPoint("TOP", flyout, "TOP", 0, -padding - visibleIndex * (buttonSize + spacing))
+			visibleIndex = visibleIndex + 1
+		end
+	end
+
+	-- Resize flyout based on visible buttons
+	if visibleIndex == 0 then
+		flyout:Hide()
+	else
+		local height = (buttonSize * visibleIndex) + (spacing * (visibleIndex - 1)) + (padding * 2)
+		flyout:SetSize(buttonSize + padding * 2, height)
+	end
+end
+
+-- Setup all flyout menus
+function ShamanPower:SetupTotemFlyouts()
+	if not self.opt.showTotemFlyouts then return end
+
+	for element = 1, 4 do
+		local totemButton = _G["ShamanPowerAutoTotem" .. element]
+		if totemButton then
+			-- Create the flyout
+			local flyout = self:CreateTotemFlyout(element)
+			if not flyout then return end
+
+			-- Position flyout above the button
+			flyout:ClearAllPoints()
+			flyout:SetPoint("BOTTOM", totemButton, "TOP", 0, 2)
+
+			-- Show flyout on mouse enter
+			totemButton:HookScript("OnEnter", function(btn)
+				if ShamanPower.opt.showTotemFlyouts then
+					ShamanPower:UpdateFlyoutVisibility(element)
+					flyout:Show()
+				end
+			end)
+
+			-- Hide flyout when mouse leaves both button and flyout
+			local function CheckMouseOver()
+				if not flyout:IsShown() then return end
+				if flyout:IsMouseOver() or totemButton:IsMouseOver() then
+					C_Timer.After(0.1, CheckMouseOver)
+				else
+					flyout:Hide()
+				end
+			end
+
+			totemButton:HookScript("OnLeave", function(btn)
+				C_Timer.After(0.1, CheckMouseOver)
+			end)
+
+			flyout:SetScript("OnLeave", function(self)
+				C_Timer.After(0.1, CheckMouseOver)
+			end)
+		end
+	end
+end
+
+-- Refresh flyout buttons (call when spells change or out of combat)
+function ShamanPower:RefreshTotemFlyouts()
+	if InCombatLockdown() then return end
+
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts[element]
+		if flyout then
+			-- Update spell bindings for any new spells learned
+			local totems = self.Totems[element]
+			for _, btn in ipairs(flyout.buttons) do
+				local spellName = GetSpellInfo(btn.spellID)
+				if spellName then
+					btn:SetAttribute("spell", spellName)
+				end
+			end
+		end
+	end
+end
+
+-- ============================================================================
 -- Player Totem Range Indicator (greys out icon if out of range of own totem)
 -- ============================================================================
 
@@ -2336,6 +2557,9 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Setup totem duration progress bars
 	self:SetupTotemProgressBars()
+
+	-- Setup totem flyout menus
+	self:SetupTotemFlyouts()
 
 	-- Setup cooldown tracker bar
 	self:UpdateCooldownBar()

@@ -90,6 +90,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showDropAllButton = true,  -- Show the Drop All Totems button on mini bar
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
+        showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         skin = "Smooth",
