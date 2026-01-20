@@ -2697,22 +2697,25 @@ function ShamanPower:CreateCooldownBar()
 
 	-- Create the cooldown bar frame
 	local bar = CreateFrame("Frame", "ShamanPowerCooldownBar", self.autoButton, "BackdropTemplate")
-	bar:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 12,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 }
-	})
-	bar:SetBackdropColor(0, 0, 0, 0.7)
-	bar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+	-- Only apply backdrop if not hidden
+	if not self.opt.hideCooldownBarFrame then
+		bar:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 12,
+			insets = { left = 2, right = 2, top = 2, bottom = 2 }
+		})
+		bar:SetBackdropColor(0, 0, 0, 0.7)
+		bar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+	end
 
 	self.cooldownBar = bar
 	self.cooldownButtons = {}
 
 	-- Add drag handlers for independent positioning (ALT+drag on bar itself)
 	bar:SetScript("OnDragStart", function(self)
-		-- Only allow dragging if bar is independent AND position is not locked
-		if not ShamanPower.opt.cooldownBarLocked and not ShamanPower.opt.cooldownBarFrameLocked and IsAltKeyDown() then
+		-- ALT+drag always works when bar is unlocked (ignores frame position lock)
+		if not ShamanPower.opt.cooldownBarLocked and IsAltKeyDown() then
 			ShamanPower.cooldownBarDragging = true
 			self:StartMoving()
 		end
@@ -2720,9 +2723,11 @@ function ShamanPower:CreateCooldownBar()
 
 	bar:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
-		-- Save position FIRST, before clearing dragging flag
-		_, _, _, ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = self:GetPoint()
-		ShamanPower.cooldownBarDragging = false
+		-- Only save position if we were actually dragging
+		if ShamanPower.cooldownBarDragging then
+			_, _, _, ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = self:GetPoint()
+			ShamanPower.cooldownBarDragging = false
+		end
 	end)
 
 	-- Create drag handle CheckButton for cooldown bar (like main frame drag handle)
@@ -2761,9 +2766,11 @@ function ShamanPower:CreateCooldownBar()
 
 	dragHandle:SetScript("OnDragStop", function(self)
 		ShamanPower.cooldownBar:StopMovingOrSizing()
-		-- Save position FIRST, before clearing dragging flag
-		_, _, _, ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = ShamanPower.cooldownBar:GetPoint()
-		ShamanPower.cooldownBarDragging = false
+		-- Only save position if we were actually dragging
+		if ShamanPower.cooldownBarDragging then
+			_, _, _, ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = ShamanPower.cooldownBar:GetPoint()
+			ShamanPower.cooldownBarDragging = false
+		end
 	end)
 
 	dragHandle:SetScript("OnEnter", function(self)
@@ -7922,7 +7929,12 @@ function ShamanPower:ApplySkin()
 	end
 	ShamanPowerAura:SetBackdrop(tmp)
 	ShamanPowerRF:SetBackdrop(tmp)
-	ShamanPowerAuto:SetBackdrop(tmp)
+	-- Only apply backdrop to totem bar if not hidden
+	if self.opt.hideTotemBarFrame then
+		ShamanPowerAuto:SetBackdrop(nil)
+	else
+		ShamanPowerAuto:SetBackdrop(tmp)
+	end
 	for cbNum = 1, SHAMANPOWER_MAXCLASSES do
 		local cButton = self.classButtons[cbNum]
 		if BackdropTemplateMixin then
@@ -7946,6 +7958,39 @@ function ShamanPower:ApplyBackdrop(button, preset)
 		Mixin(button, BackdropTemplateMixin)
 	end
 	button:SetBackdropColor(preset["r"], preset["g"], preset["b"], preset["t"])
+end
+
+function ShamanPower:UpdateTotemBarFrame()
+	-- Show or hide the totem bar frame (background/border)
+	if not ShamanPowerAuto then return end
+
+	if self.opt.hideTotemBarFrame then
+		-- Hide the frame - set backdrop to nil
+		ShamanPowerAuto:SetBackdrop(nil)
+	else
+		-- Show the frame - reapply skin
+		self:ApplySkin()
+	end
+end
+
+function ShamanPower:UpdateCooldownBarFrame()
+	-- Show or hide the cooldown bar frame (background/border)
+	if not self.cooldownBar then return end
+
+	if self.opt.hideCooldownBarFrame then
+		-- Hide the frame
+		self.cooldownBar:SetBackdrop(nil)
+	else
+		-- Show the frame
+		self.cooldownBar:SetBackdrop({
+			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 12,
+			insets = { left = 2, right = 2, top = 2, bottom = 2 }
+		})
+		self.cooldownBar:SetBackdropColor(0, 0, 0, 0.7)
+		self.cooldownBar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+	end
 end
 
 function ShamanPower:SetSeal(seal)

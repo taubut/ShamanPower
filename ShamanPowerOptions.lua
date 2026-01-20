@@ -192,6 +192,54 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBarScale()
 							end
 						},
+						unlock_cooldown_bar = {
+							order = 1.6,
+							type = "toggle",
+							name = "Unlock Cooldown Bar",
+							desc = "Allow the cooldown bar to be moved independently from the totem bar (ALT+drag or use drag handle)",
+							width = 1.5,
+							disabled = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return not ShamanPower.opt.cooldownBarLocked
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cooldownBarLocked = not val
+								ShamanPower:UpdateCooldownBarPosition()
+							end
+						},
+						hide_totem_bar_frame = {
+							order = 1.7,
+							type = "toggle",
+							name = "Hide Totem Bar Frame",
+							desc = "Hide the background and border around the totem bar (show icons only)",
+							width = 1.5,
+							get = function(info)
+								return ShamanPower.opt.hideTotemBarFrame
+							end,
+							set = function(info, val)
+								ShamanPower.opt.hideTotemBarFrame = val
+								ShamanPower:UpdateTotemBarFrame()
+							end
+						},
+						hide_cooldown_bar_frame = {
+							order = 1.8,
+							type = "toggle",
+							name = "Hide Cooldown Bar Frame",
+							desc = "Hide the background and border around the cooldown bar (show icons only)",
+							width = 1.5,
+							disabled = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.hideCooldownBarFrame
+							end,
+							set = function(info, val)
+								ShamanPower.opt.hideCooldownBarFrame = val
+								ShamanPower:UpdateCooldownBarFrame()
+							end
+						},
 						padding1 = {
 							order = 2,
 							name = "",
@@ -619,23 +667,6 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.showCooldownBar = val
 								ShamanPower:UpdateCooldownBar()
-							end
-						},
-						unlock_cooldown_bar = {
-							order = 2.21,
-							type = "toggle",
-							name = "Unlock Cooldown Bar",
-							desc = "Allow the cooldown bar to be moved independently (ALT+drag)",
-							width = 1.3,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return not ShamanPower.opt.cooldownBarLocked
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cooldownBarLocked = not val
-								ShamanPower:UpdateCooldownBarPosition()
 							end
 						},
 						show_totem_flyouts = {

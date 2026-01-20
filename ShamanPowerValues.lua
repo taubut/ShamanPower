@@ -90,6 +90,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showDropAllButton = true,  -- Show the Drop All Totems button on mini bar
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
+        hideTotemBarFrame = false,  -- Hide the background/border around totem bar (icons only)
+        hideCooldownBarFrame = false,  -- Hide the background/border around cooldown bar (icons only)
         cooldownBarLocked = true,  -- When false, CD bar can be moved independently from totem bar
         cooldownBarFrameLocked = false,  -- When CD bar is independent, this locks its position (red=locked, green=movable)
         cooldownBarScale = 0.90,  -- Separate scale for CD bar
