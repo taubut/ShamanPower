@@ -2852,6 +2852,7 @@ function ShamanPower:CreateCooldownBar()
 			if frame.elapsed < 0.2 then return end
 			frame.elapsed = 0
 			ShamanPower:UpdateCooldownButtons()
+			ShamanPower:UpdateWeaponImbueButton()
 		end)
 	end
 end
@@ -3048,6 +3049,11 @@ function ShamanPower:UpdateCooldownBar()
 		self:CreateCooldownBar()
 	end
 
+	-- Create weapon imbue button if not exists
+	if not self.weaponImbueButton then
+		self:CreateWeaponImbueButton()
+	end
+
 	if not self.cooldownBar then return end
 
 	if self.opt.showCooldownBar and #self.cooldownButtons > 0 then
@@ -3091,9 +3097,497 @@ function ShamanPower:RecreateCooldownBar()
 	end
 	self.cooldownButtons = {}
 
+	-- Destroy existing weapon imbue button and flyout
+	if self.weaponImbueButton then
+		self.weaponImbueButton:Hide()
+		self.weaponImbueButton:SetParent(nil)
+		self.weaponImbueButton = nil
+	end
+	if self.weaponImbueFlyout then
+		self.weaponImbueFlyout:Hide()
+		self.weaponImbueFlyout:SetParent(nil)
+		self.weaponImbueFlyout = nil
+	end
+
 	-- Recreate it
 	self:CreateCooldownBar()
 	self:UpdateCooldownBar()
+end
+
+-- ============================================================================
+-- Weapon Imbue Bar (for applying weapon enchants)
+-- ============================================================================
+
+ShamanPower.weaponImbueButton = nil
+ShamanPower.weaponImbueFlyout = nil
+ShamanPower.lastMainHandImbue = nil  -- Last imbue applied to main hand
+ShamanPower.lastOffHandImbue = nil   -- Last imbue applied to off hand
+
+-- Check if player can dual wield (Enhancement talent)
+function ShamanPower:CanDualWield()
+	-- Check if player has an off-hand weapon equipped
+	local offHandLink = GetInventoryItemLink("player", 17)  -- SecondaryHandSlot
+	if offHandLink then
+		-- Check if it's a weapon (not a shield)
+		local _, _, _, _, _, itemType = GetItemInfo(offHandLink)
+		if itemType == "Weapon" then
+			return true
+		end
+	end
+	return false
+end
+
+-- Get the highest rank of a weapon imbue spell that the player knows
+function ShamanPower:GetHighestRankImbue(imbueIndex)
+	local baseSpellID = self.WeaponImbueSpells[imbueIndex]
+	if not baseSpellID then return nil end
+
+	local baseName = GetSpellInfo(baseSpellID)
+	if not baseName then return nil end
+
+	-- Try to find the spell in the spellbook (gets highest rank)
+	local spellName = baseName
+	if GetSpellInfo(spellName) and PlayerKnowsSpellByName(spellName) then
+		return spellName
+	end
+
+	return nil
+end
+
+-- Create the weapon imbue button on the cooldown bar
+function ShamanPower:CreateWeaponImbueButton()
+	if self.weaponImbueButton then return end
+	if not self.cooldownBar then return end
+	if InCombatLockdown() then return end
+
+	-- Check if player knows any weapon imbue
+	local knowsAnyImbue = false
+	for i = 1, 4 do
+		if self:GetHighestRankImbue(i) then
+			knowsAnyImbue = true
+			break
+		end
+	end
+
+	if not knowsAnyImbue then return end
+
+	local buttonSize = self.cooldownBar.buttonSize or 22
+
+	-- Create the button with secure template
+	local btn = CreateFrame("Button", "ShamanPowerWeaponImbue", self.cooldownBar, "SecureActionButtonTemplate")
+	btn:SetSize(buttonSize, buttonSize)
+	btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp", "RightButtonDown")
+
+	-- Icon texture (will be updated based on current enchants)
+	local iconTex = btn:CreateTexture(nil, "ARTWORK")
+	iconTex:SetAllPoints()
+	iconTex:SetTexture(self.WeaponIcons[1])  -- Default to Windfury icon
+	iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	btn.icon = iconTex
+
+	-- Second icon for split display (off-hand)
+	local icon2 = btn:CreateTexture(nil, "ARTWORK")
+	icon2:SetPoint("TOPLEFT", btn, "CENTER", 0, 0)
+	icon2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+	icon2:SetTexture(self.WeaponIcons[2])  -- Default to Flametongue
+	icon2:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	icon2:Hide()
+	btn.icon2 = icon2
+
+	-- Dark overlay for when no enchant is active
+	local dark = btn:CreateTexture(nil, "OVERLAY")
+	dark:SetAllPoints()
+	dark:SetColorTexture(0, 0, 0, 0.6)
+	dark:Hide()
+	btn.darkOverlay = dark
+
+	-- Text overlay to show remaining time
+	local timeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	timeText:SetPoint("BOTTOM", btn, "BOTTOM", 0, 1)
+	timeText:SetText("")
+	btn.timeText = timeText
+
+	-- Tooltip
+	btn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Weapon Imbues")
+
+		-- Show current enchant status
+		local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
+		if hasMain then
+			local imbueType = ShamanPower.EnchantIDToImbue[mainID]
+			local imbueName = imbueType and ShamanPower.WeaponEnchantNames[imbueType] or "Unknown"
+			GameTooltip:AddLine("Main Hand: " .. imbueName .. " (" .. math.floor(mainExp/60000) .. "m)", 0, 1, 0)
+		else
+			GameTooltip:AddLine("Main Hand: None", 1, 0.5, 0.5)
+		end
+
+		if ShamanPower:CanDualWield() then
+			if hasOff then
+				local imbueType = ShamanPower.EnchantIDToImbue[offID]
+				local imbueName = imbueType and ShamanPower.WeaponEnchantNames[imbueType] or "Unknown"
+				GameTooltip:AddLine("Off Hand: " .. imbueName .. " (" .. math.floor(offExp/60000) .. "m)", 0, 1, 0)
+			else
+				GameTooltip:AddLine("Off Hand: None", 1, 0.5, 0.5)
+			end
+		end
+
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+		if ShamanPower:CanDualWield() then
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+		end
+		GameTooltip:AddLine("|cff888888Hold to show imbue menu|r", 0.7, 0.7, 0.7)
+		GameTooltip:Show()
+	end)
+	btn:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+
+	-- Set up click to show flyout
+	btn:SetScript("OnClick", function(self, button, down)
+		if down then
+			-- Show flyout on mouse down
+			ShamanPower:ShowWeaponImbueFlyout(button)
+		end
+	end)
+
+	-- Set default spell for quick cast (last used imbue or first known)
+	local defaultImbue = self:GetHighestRankImbue(1) or self:GetHighestRankImbue(2) or
+	                     self:GetHighestRankImbue(3) or self:GetHighestRankImbue(4)
+	if defaultImbue then
+		btn:SetAttribute("type1", "spell")
+		btn:SetAttribute("spell1", defaultImbue)
+		btn:SetAttribute("type2", "spell")
+		btn:SetAttribute("spell2", defaultImbue)
+	end
+
+	self.weaponImbueButton = btn
+
+	-- Add to cooldown buttons array for positioning
+	table.insert(self.cooldownButtons, btn)
+	btn.spellType = "weaponImbue"
+
+	-- Create the flyout
+	self:CreateWeaponImbueFlyout()
+end
+
+-- Create the flyout menu for weapon imbues
+function ShamanPower:CreateWeaponImbueFlyout()
+	if self.weaponImbueFlyout then return end
+	if InCombatLockdown() then return end
+
+	local flyout = CreateFrame("Frame", "ShamanPowerWeaponImbueFlyout", UIParent, "BackdropTemplate")
+	flyout:SetFrameStrata("DIALOG")
+	flyout:SetClampedToScreen(true)
+	flyout:Hide()
+
+	-- Flyout appearance
+	flyout:SetBackdrop({
+		bgFile = "Interface\\Buttons\\WHITE8x8",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		edgeSize = 12,
+		insets = {left = 2, right = 2, top = 2, bottom = 2},
+	})
+	flyout:SetBackdropColor(0.1, 0.1, 0.1, 0.9)
+	flyout:SetBackdropBorderColor(0.6, 0.4, 0.8, 1)  -- Purple for Enhancement
+
+	local buttons = {}
+	local buttonSize = 28
+	local padding = 4
+	local spacing = 2
+
+	-- Create buttons for each known imbue
+	for imbueIndex = 1, 4 do
+		local spellName = self:GetHighestRankImbue(imbueIndex)
+		if spellName then
+			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, flyout, "SecureActionButtonTemplate")
+			btn:SetSize(buttonSize, buttonSize)
+			btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+			-- Left-click applies to main hand, right-click to off-hand
+			btn:SetAttribute("type1", "spell")
+			btn:SetAttribute("spell1", spellName)
+			btn:SetAttribute("type2", "spell")
+			btn:SetAttribute("spell2", spellName)
+
+			-- Icon
+			local iconTex = btn:CreateTexture(nil, "ARTWORK")
+			iconTex:SetAllPoints()
+			iconTex:SetTexture(self.WeaponIcons[imbueIndex])
+			iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			btn.icon = iconTex
+
+			-- Highlight
+			local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+			highlight:SetAllPoints()
+			highlight:SetColorTexture(1, 1, 1, 0.3)
+
+			-- Tooltip
+			btn:SetScript("OnEnter", function(self)
+				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+				GameTooltip:SetSpellByID(ShamanPower.WeaponImbueSpells[imbueIndex])
+				GameTooltip:AddLine(" ")
+				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+				if ShamanPower:CanDualWield() then
+					GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+				end
+				GameTooltip:Show()
+			end)
+			btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+			-- Hide flyout after click
+			btn:SetScript("PostClick", function(self, button)
+				flyout:Hide()
+				-- Remember last used imbue
+				if button == "LeftButton" then
+					ShamanPower.lastMainHandImbue = imbueIndex
+				else
+					ShamanPower.lastOffHandImbue = imbueIndex
+				end
+			end)
+
+			btn.imbueIndex = imbueIndex
+			btn.spellName = spellName
+			table.insert(buttons, btn)
+		end
+	end
+
+	-- Add combined imbue buttons if player can dual wield
+	if self:CanDualWield() then
+		for i, combo in ipairs(self.CombinedImbues) do
+			local mainSpell = self:GetHighestRankImbue(combo.main)
+			local offSpell = self:GetHighestRankImbue(combo.off)
+
+			if mainSpell and offSpell then
+				local btn = CreateFrame("Button", "ShamanPowerImbueCombo" .. i, flyout, "SecureActionButtonTemplate")
+				btn:SetSize(buttonSize, buttonSize)
+				btn:RegisterForClicks("LeftButtonUp")
+
+				-- Combined buttons use macro to cast both
+				btn:SetAttribute("type1", "macro")
+				btn:SetAttribute("macrotext1", "/cast " .. mainSpell .. "\n/use 16\n/click StaticPopup1Button1\n/cast " .. offSpell .. "\n/use 17\n/click StaticPopup1Button1")
+
+				-- Split icon display
+				local icon1 = btn:CreateTexture(nil, "ARTWORK")
+				icon1:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+				icon1:SetPoint("BOTTOMRIGHT", btn, "CENTER", 0, 0)
+				icon1:SetTexture(self.WeaponIcons[combo.main])
+				icon1:SetTexCoord(0.08, 0.5, 0.08, 0.5)
+				btn.icon = icon1
+
+				local icon2 = btn:CreateTexture(nil, "ARTWORK")
+				icon2:SetPoint("TOPLEFT", btn, "CENTER", 0, 0)
+				icon2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+				icon2:SetTexture(self.WeaponIcons[combo.off])
+				icon2:SetTexCoord(0.5, 0.92, 0.5, 0.92)
+				btn.icon2 = icon2
+
+				-- Highlight
+				local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
+				highlight:SetAllPoints()
+				highlight:SetColorTexture(1, 1, 1, 0.3)
+
+				-- Tooltip
+				btn:SetScript("OnEnter", function(self)
+					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					GameTooltip:SetText(combo.name)
+					GameTooltip:AddLine("Applies " .. ShamanPower.WeaponEnchantNames[combo.main] .. " to Main Hand")
+					GameTooltip:AddLine("Applies " .. ShamanPower.WeaponEnchantNames[combo.off] .. " to Off Hand")
+					GameTooltip:Show()
+				end)
+				btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+				-- Hide flyout after click
+				btn:SetScript("PostClick", function()
+					flyout:Hide()
+					ShamanPower.lastMainHandImbue = combo.main
+					ShamanPower.lastOffHandImbue = combo.off
+				end)
+
+				btn.isCombo = true
+				btn.combo = combo
+				table.insert(buttons, btn)
+			end
+		end
+	end
+
+	flyout.buttons = buttons
+	flyout.buttonSize = buttonSize
+	flyout.padding = padding
+	flyout.spacing = spacing
+
+	-- Layout will be done when shown
+	self.weaponImbueFlyout = flyout
+end
+
+-- Show the weapon imbue flyout
+function ShamanPower:ShowWeaponImbueFlyout(button)
+	if not self.weaponImbueFlyout then return end
+	if InCombatLockdown() then return end
+
+	local flyout = self.weaponImbueFlyout
+	local buttons = flyout.buttons
+	local numButtons = #buttons
+
+	if numButtons == 0 then return end
+
+	local buttonSize = flyout.buttonSize
+	local padding = flyout.padding
+	local spacing = flyout.spacing
+
+	-- Determine flyout direction based on layout
+	-- For weapon imbues, go OPPOSITE direction from totem flyouts
+	local isHorizontalBar = (self.opt.layout == "Horizontal")
+	local isVerticalLeft = (self.opt.layout == "VerticalLeft")
+
+	-- If bar is horizontal: totem flyouts go vertical, so weapon flyout goes horizontal
+	-- If bar is vertical: totem flyouts go horizontal, so weapon flyout goes vertical
+	local flyoutIsHorizontal = isHorizontalBar
+
+	-- Position buttons
+	if flyoutIsHorizontal then
+		local width = (buttonSize * numButtons) + (spacing * (numButtons - 1)) + (padding * 2)
+		flyout:SetSize(width, buttonSize + padding * 2)
+
+		for i, btn in ipairs(buttons) do
+			btn:ClearAllPoints()
+			btn:SetPoint("LEFT", flyout, "LEFT", padding + (i - 1) * (buttonSize + spacing), 0)
+			btn:Show()
+		end
+	else
+		local height = (buttonSize * numButtons) + (spacing * (numButtons - 1)) + (padding * 2)
+		flyout:SetSize(buttonSize + padding * 2, height)
+
+		for i, btn in ipairs(buttons) do
+			btn:ClearAllPoints()
+			btn:SetPoint("TOP", flyout, "TOP", 0, -padding - (i - 1) * (buttonSize + spacing))
+			btn:Show()
+		end
+	end
+
+	-- Position flyout relative to button (opposite direction from totem flyouts)
+	self:PositionWeaponImbueFlyout(flyout, self.weaponImbueButton)
+
+	flyout:Show()
+
+	-- Auto-hide after a delay if mouse leaves
+	flyout:SetScript("OnLeave", function(self)
+		C_Timer.After(0.3, function()
+			if not self:IsMouseOver() and not ShamanPower.weaponImbueButton:IsMouseOver() then
+				self:Hide()
+			end
+		end)
+	end)
+end
+
+-- Position the weapon imbue flyout (opposite direction from totem flyouts)
+function ShamanPower:PositionWeaponImbueFlyout(flyout, imbueButton)
+	if not flyout or not imbueButton then return end
+
+	local isHorizontalBar = (self.opt.layout == "Horizontal")
+	local isVerticalLeft = (self.opt.layout == "VerticalLeft")
+
+	-- Match scale
+	local parentScale = imbueButton:GetEffectiveScale() / UIParent:GetEffectiveScale()
+	flyout:SetScale(parentScale)
+
+	local screenWidth = GetScreenWidth()
+	local screenHeight = GetScreenHeight()
+
+	local buttonLeft = imbueButton:GetLeft() or 0
+	local buttonRight = imbueButton:GetRight() or 0
+	local buttonTop = imbueButton:GetTop() or 0
+	local buttonBottom = imbueButton:GetBottom() or 0
+
+	local flyoutWidth = flyout:GetWidth() * parentScale
+	local flyoutHeight = flyout:GetHeight() * parentScale
+
+	flyout:ClearAllPoints()
+
+	if isHorizontalBar then
+		-- Horizontal bar: weapon flyout goes HORIZONTAL (left/right)
+		-- Opposite of totem flyouts which go vertical
+		local spaceRight = screenWidth - buttonRight
+		local spaceLeft = buttonLeft
+
+		if spaceRight >= flyoutWidth + 2 then
+			flyout:SetPoint("LEFT", imbueButton, "RIGHT", 2, 0)
+		elseif spaceLeft >= flyoutWidth + 2 then
+			flyout:SetPoint("RIGHT", imbueButton, "LEFT", -2, 0)
+		elseif spaceRight >= spaceLeft then
+			flyout:SetPoint("LEFT", imbueButton, "RIGHT", 2, 0)
+		else
+			flyout:SetPoint("RIGHT", imbueButton, "LEFT", -2, 0)
+		end
+	else
+		-- Vertical bar: weapon flyout goes VERTICAL (up/down)
+		-- Opposite of totem flyouts which go horizontal
+		local spaceAbove = screenHeight - buttonTop
+		local spaceBelow = buttonBottom
+
+		if spaceBelow >= flyoutHeight + 2 then
+			flyout:SetPoint("TOP", imbueButton, "BOTTOM", 0, -2)
+		elseif spaceAbove >= flyoutHeight + 2 then
+			flyout:SetPoint("BOTTOM", imbueButton, "TOP", 0, 2)
+		elseif spaceBelow >= spaceAbove then
+			flyout:SetPoint("TOP", imbueButton, "BOTTOM", 0, -2)
+		else
+			flyout:SetPoint("BOTTOM", imbueButton, "TOP", 0, 2)
+		end
+	end
+end
+
+-- Update the weapon imbue button appearance based on current enchants
+function ShamanPower:UpdateWeaponImbueButton()
+	local btn = self.weaponImbueButton
+	if not btn then return end
+
+	local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
+
+	if hasMain then
+		local imbueType = self.EnchantIDToImbue[mainID] or 1
+		btn.icon:SetTexture(self.WeaponIcons[imbueType])
+		btn.icon:SetDesaturated(false)
+		btn.darkOverlay:Hide()
+
+		-- Show time remaining
+		local mins = math.floor(mainExp / 60000)
+		if mins < 5 then
+			btn.timeText:SetTextColor(1, 0.3, 0.3)  -- Red when low
+		else
+			btn.timeText:SetTextColor(1, 1, 1)
+		end
+		btn.timeText:SetText(mins .. "m")
+
+		-- If dual wielding, show split display
+		if self:CanDualWield() and hasOff then
+			local offImbueType = self.EnchantIDToImbue[offID] or 2
+			btn.icon:ClearAllPoints()
+			btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+			btn.icon:SetPoint("BOTTOMRIGHT", btn, "CENTER", 0, 0)
+			btn.icon:SetTexCoord(0.08, 0.5, 0.08, 0.5)
+
+			btn.icon2:SetTexture(self.WeaponIcons[offImbueType])
+			btn.icon2:SetTexCoord(0.5, 0.92, 0.5, 0.92)
+			btn.icon2:Show()
+		else
+			-- Single weapon display
+			btn.icon:ClearAllPoints()
+			btn.icon:SetAllPoints()
+			btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			btn.icon2:Hide()
+		end
+	else
+		-- No enchant - show default icon desaturated
+		btn.icon:ClearAllPoints()
+		btn.icon:SetAllPoints()
+		btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		btn.icon:SetDesaturated(true)
+		btn.icon2:Hide()
+		btn.darkOverlay:Show()
+		btn.timeText:SetText("")
+	end
 end
 
 -- ============================================================================

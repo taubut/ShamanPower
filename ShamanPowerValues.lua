@@ -403,6 +403,14 @@ ShamanPower.TotemBuffs = {
 -- WEAPON ENCHANTS
 -- ============================================================================
 
+-- Base spell IDs for weapon imbues (use rank 1 for IsSpellKnown checks)
+ShamanPower.WeaponImbueSpells = {
+    [1] = 8232,     -- Windfury Weapon
+    [2] = 8024,     -- Flametongue Weapon
+    [3] = 8033,     -- Frostbrand Weapon
+    [4] = 8017,     -- Rockbiter Weapon
+}
+
 ShamanPower.WeaponEnchants = {
     [1] = 25505,    -- Windfury Weapon (Rank 4)
     [2] = 25489,    -- Flametongue Weapon (Rank 6)
@@ -422,6 +430,31 @@ ShamanPower.WeaponEnchantShortNames = {
     [2] = "FT",
     [3] = "FB",
     [4] = "RB",
+}
+
+-- Map enchant IDs (from GetWeaponEnchantInfo) to imbue type index
+-- This allows us to identify what imbue is currently active on a weapon
+ShamanPower.EnchantIDToImbue = {
+    -- Windfury Weapon (all ranks)
+    [283] = 1, [284] = 1, [525] = 1, [1669] = 1, [2636] = 1,
+    [3785] = 1, [3786] = 1, [3787] = 1, [7569] = 1,
+    -- Flametongue Weapon (all ranks)
+    [3] = 2, [4] = 2, [5] = 2, [523] = 2, [1665] = 2, [1666] = 2,
+    [2634] = 2, [3779] = 2, [3780] = 2, [3781] = 2, [7567] = 2,
+    -- Frostbrand Weapon (all ranks)
+    [2] = 3, [12] = 3, [524] = 3, [1667] = 3, [1668] = 3, [2635] = 3,
+    [3782] = 3, [3783] = 3, [3784] = 3, [7566] = 3,
+    -- Rockbiter Weapon (all ranks)
+    [1] = 4, [6] = 4, [29] = 4, [503] = 4, [504] = 4, [683] = 4,
+    [1663] = 4, [1664] = 4, [2632] = 4, [2633] = 4, [3018] = 4, [7568] = 4,
+}
+
+-- Combined imbue definitions for dual wield
+-- These are virtual "spells" that cast one imbue on main hand, another on off hand
+ShamanPower.CombinedImbues = {
+    [1] = {main = 1, off = 2, name = "WF / FT", shortName = "WF+FT"},  -- Windfury MH, Flametongue OH
+    [2] = {main = 1, off = 3, name = "WF / FB", shortName = "WF+FB"},  -- Windfury MH, Frostbrand OH
+    [3] = {main = 2, off = 2, name = "FT / FT", shortName = "FT+FT"},  -- Flametongue both hands
 }
 
 -- ============================================================================
