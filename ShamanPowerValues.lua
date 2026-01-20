@@ -114,6 +114,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
+        excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
+        excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button
+        excludeWaterFromDropAll = false,  -- Exclude Water totem from Drop All button
+        excludeAirFromDropAll = false,    -- Exclude Air totem from Drop All button
         totemBarOrder = {1, 2, 3, 4},  -- Order of totem buttons on mini bar: 1=Earth, 2=Fire, 3=Water, 4=Air
         cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7},  -- Order of cooldown bar items: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=BL/Hero, 7=Imbues
         skin = "Smooth",

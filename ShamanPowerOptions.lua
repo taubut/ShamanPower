@@ -831,6 +831,72 @@ ShamanPower.options = {
 								ShamanPower:UpdateDropAllButton()
 							end
 						},
+						exclude_from_drop_all_header = {
+							order = 2.901,
+							type = "description",
+							name = "\n|cffffd200Exclude from Drop All:|r Skip these totems when using Drop All",
+							fontSize = "medium",
+						},
+						exclude_earth = {
+							order = 2.902,
+							type = "toggle",
+							name = "Earth",
+							desc = "Exclude Earth totem from the Drop All button",
+							width = 0.5,
+							get = function(info)
+								return ShamanPower.opt.excludeEarthFromDropAll
+							end,
+							set = function(info, val)
+								ShamanPower.opt.excludeEarthFromDropAll = val
+								ShamanPower:UpdateDropAllButton()
+								ShamanPower:UpdateSPMacros()
+							end
+						},
+						exclude_fire = {
+							order = 2.903,
+							type = "toggle",
+							name = "Fire",
+							desc = "Exclude Fire totem from the Drop All button",
+							width = 0.5,
+							get = function(info)
+								return ShamanPower.opt.excludeFireFromDropAll
+							end,
+							set = function(info, val)
+								ShamanPower.opt.excludeFireFromDropAll = val
+								ShamanPower:UpdateDropAllButton()
+								ShamanPower:UpdateSPMacros()
+							end
+						},
+						exclude_water = {
+							order = 2.904,
+							type = "toggle",
+							name = "Water",
+							desc = "Exclude Water totem from the Drop All button",
+							width = 0.5,
+							get = function(info)
+								return ShamanPower.opt.excludeWaterFromDropAll
+							end,
+							set = function(info, val)
+								ShamanPower.opt.excludeWaterFromDropAll = val
+								ShamanPower:UpdateDropAllButton()
+								ShamanPower:UpdateSPMacros()
+							end
+						},
+						exclude_air = {
+							order = 2.905,
+							type = "toggle",
+							name = "Air",
+							desc = "Exclude Air totem from the Drop All button",
+							width = 0.5,
+							get = function(info)
+								return ShamanPower.opt.excludeAirFromDropAll
+							end,
+							set = function(info, val)
+								ShamanPower.opt.excludeAirFromDropAll = val
+								ShamanPower:UpdateDropAllButton()
+								ShamanPower:UpdateSPMacros()
+							end
+						},
 						totem_bar_order_header = {
 							order = 2.91,
 							type = "description",

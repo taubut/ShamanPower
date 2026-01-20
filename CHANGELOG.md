@@ -6,6 +6,10 @@
 - CD bar drag handle (green=movable, red=locked) when unlocked
 - Position saves correctly across /reload
 - ALT+drag support for moving CD bar when drag handle is disabled
+- Add keybind options for all cooldown bar buttons (Shield, Recall, Ankh, NS, Mana Tide, BL, Imbue)
+- Add option to show keybind text on buttons (top-right corner)
+- Auto-update cooldown bar when changing talents/specs
+- Add "Exclude from Drop All" toggles to skip specific totem types (Earth, Fire, Water, Air)
 
 ## [v1.3.1](https://github.com/taubut/ShamanPower/releases/tag/v1.3.1) (2026-01-19)
 - Add cooldown bar order customization (drag to reorder Shield, Recall, Ankh, NS, MTT, BL, Imbue)

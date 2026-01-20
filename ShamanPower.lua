@@ -4944,24 +4944,34 @@ function ShamanPower:UpdateDropAllButton()
 	local newSequence = {}
 	local totemSpells = {}
 	local dropOrder = self.opt.dropOrder or {1, 2, 3, 4}
+	-- Build exclude table for easy lookup
+	local excludeTotem = {
+		[1] = self.opt.excludeEarthFromDropAll,
+		[2] = self.opt.excludeFireFromDropAll,
+		[3] = self.opt.excludeWaterFromDropAll,
+		[4] = self.opt.excludeAirFromDropAll,
+	}
 	for _, element in ipairs(dropOrder) do
-		local totemIndex = assignments[element] or 0
-		if totemIndex and totemIndex > 0 then
-			local spellID = self:GetTotemSpell(element, totemIndex)
-			if spellID then
-				local spellName = GetSpellInfo(spellID)
-				-- Fallback to our stored name if GetSpellInfo fails
-				if not spellName then
-					spellName = self:GetTotemName(element, totemIndex)
-					-- Add "Totem" suffix if not present (for castsequence compatibility)
-					if spellName and not spellName:find("Totem") and not spellName:find("Elemental") then
-						spellName = spellName .. " Totem"
+		-- Skip if this totem type is excluded
+		if not excludeTotem[element] then
+			local totemIndex = assignments[element] or 0
+			if totemIndex and totemIndex > 0 then
+				local spellID = self:GetTotemSpell(element, totemIndex)
+				if spellID then
+					local spellName = GetSpellInfo(spellID)
+					-- Fallback to our stored name if GetSpellInfo fails
+					if not spellName then
+						spellName = self:GetTotemName(element, totemIndex)
+						-- Add "Totem" suffix if not present (for castsequence compatibility)
+						if spellName and not spellName:find("Totem") and not spellName:find("Elemental") then
+							spellName = spellName .. " Totem"
+						end
 					end
-				end
-				if spellName then
-					local icon = self:GetTotemIcon(element, totemIndex)
-					table.insert(newSequence, {element = element, spellName = spellName, icon = icon})
-					table.insert(totemSpells, spellName)
+					if spellName then
+						local icon = self:GetTotemIcon(element, totemIndex)
+						table.insert(newSequence, {element = element, spellName = spellName, icon = icon})
+						table.insert(totemSpells, spellName)
+					end
 				end
 			end
 		end
@@ -8977,14 +8987,24 @@ function ShamanPower:UpdateSPMacros()
 	-- Create/update Drop All macro
 	local totemSpells = {}
 	local dropOrder = self.opt.dropOrder or {1, 2, 3, 4}
+	-- Build exclude table for easy lookup
+	local excludeTotem = {
+		[1] = self.opt.excludeEarthFromDropAll,
+		[2] = self.opt.excludeFireFromDropAll,
+		[3] = self.opt.excludeWaterFromDropAll,
+		[4] = self.opt.excludeAirFromDropAll,
+	}
 	for _, element in ipairs(dropOrder) do
-		local totemIndex = assignments[element] or 0
-		if totemIndex > 0 then
-			local spellID = self:GetTotemSpell(element, totemIndex)
-			if spellID then
-				local spellName = GetSpellInfo(spellID)
-				if spellName then
-					table.insert(totemSpells, spellName)
+		-- Skip if this totem type is excluded
+		if not excludeTotem[element] then
+			local totemIndex = assignments[element] or 0
+			if totemIndex > 0 then
+				local spellID = self:GetTotemSpell(element, totemIndex)
+				if spellID then
+					local spellName = GetSpellInfo(spellID)
+					if spellName then
+						table.insert(totemSpells, spellName)
+					end
 				end
 			end
 		end
