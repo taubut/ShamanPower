@@ -2104,6 +2104,34 @@
 					</OnLeave>
 				</Scripts>
 			</Button>
+			<Button name = "$parentTotemRange" inherits = "UIPanelButtonTemplate" text = "Totem Range" hidden = "false">
+				<Size>
+					<AbsDimension x = "85" y = "22"/>
+				</Size>
+				<Anchors>
+					<Anchor point = "BOTTOMRIGHT" relativeTo = "$parentRaidCDs" relativePoint = "BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x = "-4" y = "0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						ShamanPower:ShowSPRangeConfig();
+					</OnClick>
+					<OnEnter>
+						if ShamanPower.opt.ShowTooltips then
+							GameTooltip:SetOwner(self, "ANCHOR_BOTTOM");
+							GameTooltip:SetText("Open Totem Range tracker configuration");
+							GameTooltip:Show(self, motion);
+							CursorUpdate(self, motion);
+						end
+					</OnEnter>
+					<OnLeave>
+						GameTooltip:Hide(self, motion);
+					</OnLeave>
+				</Scripts>
+			</Button>
 			<Button name = "$parentPreset" inherits = "UIPanelButtonTemplate" text = "Preset" hidden = "true">
 				<Size>
 					<AbsDimension x = "60" y = "22"/>

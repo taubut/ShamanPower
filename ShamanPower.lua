@@ -9632,7 +9632,7 @@ function ShamanPower:ShowSPRangeConfig()
 		local padding = 4
 
 		local contentWidth = (4 * columnWidth) + (5 * padding)
-		local contentHeight = headerHeight + (maxTotems * rowHeight) + (2 * padding) + 30 + 90  -- +30 for title, +90 for settings (3 rows)
+		local contentHeight = headerHeight + (maxTotems * rowHeight) + (2 * padding) + 30 + 118  -- +30 for title, +118 for settings (4 rows with button)
 
 		local config = CreateFrame("Frame", "ShamanPowerRangeConfigFrame", UIParent, "BackdropTemplate")
 		config:SetSize(contentWidth, contentHeight)
@@ -9759,9 +9759,28 @@ function ShamanPower:ShowSPRangeConfig()
 		-- Settings section - clean layout (position below tallest column)
 		local settingsY = -26 - (maxTotems * rowHeight) - headerHeight - 15
 
-		-- Opacity slider (first row)
+		-- Show/Hide Overlay button (above sliders)
+		local toggleBtn = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
+		toggleBtn:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY)
+		toggleBtn:SetSize(130, 22)
+		local function updateToggleBtnText()
+			if ShamanPower.spRangeFrame and ShamanPower.spRangeFrame:IsShown() then
+				toggleBtn:SetText("Hide Overlay")
+			else
+				toggleBtn:SetText("Show Overlay")
+			end
+		end
+		updateToggleBtnText()
+		toggleBtn:SetScript("OnClick", function()
+			ShamanPower:ToggleSPRange()
+			updateToggleBtnText()
+		end)
+		config.toggleBtn = toggleBtn
+		config.updateToggleBtnText = updateToggleBtnText
+
+		-- Opacity slider (second row)
 		local opacityLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		opacityLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY)
+		opacityLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY - 28)
 		opacityLabel:SetText("Opacity:")
 		opacityLabel:SetTextColor(1, 0.82, 0)
 
@@ -9786,9 +9805,9 @@ function ShamanPower:ShowSPRangeConfig()
 			ShamanPower:UpdateSPRangeOpacity()
 		end)
 
-		-- Icon Size slider (second row)
+		-- Icon Size slider (third row)
 		local sizeLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		sizeLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY - 22)
+		sizeLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY - 50)
 		sizeLabel:SetText("Icon Size:")
 		sizeLabel:SetTextColor(1, 0.82, 0)
 
@@ -9814,8 +9833,8 @@ function ShamanPower:ShowSPRangeConfig()
 			ShamanPower:UpdateSPRangeFrame()
 		end)
 
-		-- Checkboxes row (third row)
-		local checkboxY = settingsY - 48
+		-- Checkboxes row (fourth row)
+		local checkboxY = settingsY - 76
 
 		-- Vertical Layout checkbox
 		local verticalBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")

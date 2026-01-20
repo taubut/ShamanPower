@@ -1819,13 +1819,41 @@
 						GameTooltip:Hide(self, motion);
 					</OnLeave>
 				</Scripts>
-			</Button>			
-			<Button name = "$parentPreset" inherits = "GameMenuButtonTemplate" text = "SHAMANPOWER_PRESET" hidden = "false">
+			</Button>
+			<Button name = "$parentTotemRange" inherits = "GameMenuButtonTemplate" text = "Totem Range" hidden = "false">
 				<Size>
 					<AbsDimension x = "100" y = "20"/>
 				</Size>
 				<Anchors>
 					<Anchor point = "BOTTOMRIGHT" relativeTo = "$parentOptions" relativePoint = "BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x = "-7" y = "0"/>
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Scripts>
+					<OnClick>
+						ShamanPower:ShowSPRangeConfig();
+					</OnClick>
+					<OnEnter>
+						if ShamanPower.opt.ShowTooltips then
+							GameTooltip:SetOwner(self, "ANCHOR_BOTTOM");
+							GameTooltip:SetText("Open Totem Range tracker configuration");
+							GameTooltip:Show(self, motion);
+							CursorUpdate(self, motion);
+						end
+					</OnEnter>
+					<OnLeave>
+						GameTooltip:Hide(self, motion);
+					</OnLeave>
+				</Scripts>
+			</Button>
+			<Button name = "$parentPreset" inherits = "GameMenuButtonTemplate" text = "SHAMANPOWER_PRESET" hidden = "false">
+				<Size>
+					<AbsDimension x = "100" y = "20"/>
+				</Size>
+				<Anchors>
+					<Anchor point = "BOTTOMRIGHT" relativeTo = "$parentTotemRange" relativePoint = "BOTTOMLEFT">
 						<Offset>
 							<AbsDimension x = "-7" y = "0"/>
 						</Offset>
