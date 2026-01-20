@@ -3308,13 +3308,11 @@ function ShamanPower:CreateWeaponImbueFlyout()
 		if spellName then
 			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, flyout, "SecureActionButtonTemplate")
 			btn:SetSize(buttonSize, buttonSize)
-			btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown")
 
-			-- Left-click applies to main hand (slot 16), right-click to off hand (slot 17)
-			btn:SetAttribute("type1", "macro")
-			btn:SetAttribute("macrotext1", "/cast " .. spellName .. "\n/use 16\n/click StaticPopup1Button1")
-			btn:SetAttribute("type2", "macro")
-			btn:SetAttribute("macrotext2", "/cast " .. spellName .. "\n/use 17\n/click StaticPopup1Button1")
+			-- Click to cast imbue spell
+			btn:SetAttribute("type1", "spell")
+			btn:SetAttribute("spell", spellName)
 
 			-- Icon
 			local iconTex = btn:CreateTexture(nil, "ARTWORK")
@@ -3332,14 +3330,11 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			btn:SetScript("OnEnter", function(self)
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(ShamanPower.WeaponImbueSpells[imbueIndex])
-				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
-				GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
 				GameTooltip:Show()
 			end)
 			btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-			-- Hide flyout after click
+			-- Hide flyout after click (use PostClick, NOT OnClick - OnClick breaks secure actions)
 			btn:SetScript("PostClick", function(self, button)
 				flyout:Hide()
 				-- Remember last used imbue
