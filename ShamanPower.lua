@@ -3574,16 +3574,22 @@ function ShamanPower:UpdateWeaponImbueButton()
 		end
 		btn.timeText:SetText(mins .. "m")
 
-		-- If dual wielding, show split display
+		-- If dual wielding, show split display (left half = main hand, right half = off hand)
 		if self:CanDualWield() and hasOff then
 			local offImbueType = self.EnchantIDToImbue[offID] or 2
+
+			-- Main hand icon on left half
 			btn.icon:ClearAllPoints()
 			btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
 			btn.icon:SetPoint("BOTTOMRIGHT", btn, "CENTER", 0, 0)
-			btn.icon:SetTexCoord(0.08, 0.5, 0.08, 0.5)
+			btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)  -- Full icon, squished
 
+			-- Off hand icon on right half
+			btn.icon2:ClearAllPoints()
+			btn.icon2:SetPoint("TOPLEFT", btn, "CENTER", 0, 0)
+			btn.icon2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
 			btn.icon2:SetTexture(self.WeaponIcons[offImbueType])
-			btn.icon2:SetTexCoord(0.5, 0.92, 0.5, 0.92)
+			btn.icon2:SetTexCoord(0.08, 0.92, 0.08, 0.92)  -- Full icon, squished
 			btn.icon2:Show()
 		else
 			-- Single weapon display
