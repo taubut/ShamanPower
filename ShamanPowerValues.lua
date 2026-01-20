@@ -90,7 +90,13 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showDropAllButton = true,  -- Show the Drop All Totems button on mini bar
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
+        cooldownBarLocked = true,  -- When false, CD bar can be moved independently from totem bar
+        cooldownBarFrameLocked = false,  -- When CD bar is independent, this locks its position (red=locked, green=movable)
+        cooldownBarScale = 0.90,  -- Separate scale for CD bar
+        cooldownBarPosX = 0,  -- Saved X position (offset from UIParent CENTER, same as totem bar)
+        cooldownBarPosY = -50,  -- Saved Y position (offset from UIParent CENTER, same as totem bar)
         showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
+        hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         totemBarOrder = {1, 2, 3, 4},  -- Order of totem buttons on mini bar: 1=Earth, 2=Fire, 3=Water, 4=Air

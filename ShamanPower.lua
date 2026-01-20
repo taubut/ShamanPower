@@ -2709,6 +2709,80 @@ function ShamanPower:CreateCooldownBar()
 	self.cooldownBar = bar
 	self.cooldownButtons = {}
 
+	-- Add drag handlers for independent positioning (ALT+drag on bar itself)
+	bar:SetScript("OnDragStart", function(self)
+		-- Only allow dragging if bar is independent AND position is not locked
+		if not ShamanPower.opt.cooldownBarLocked and not ShamanPower.opt.cooldownBarFrameLocked and IsAltKeyDown() then
+			ShamanPower.cooldownBarDragging = true
+			self:StartMoving()
+		end
+	end)
+
+	bar:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		-- Save position FIRST, before clearing dragging flag
+		_, _, _, ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = self:GetPoint()
+		ShamanPower.cooldownBarDragging = false
+	end)
+
+	-- Create drag handle CheckButton for cooldown bar (like main frame drag handle)
+	-- Only visible when CD bar is unlocked from totem bar
+	-- Green = position movable, Red = position locked
+	local dragHandle = CreateFrame("CheckButton", "ShamanPowerCDBarDragHandle", bar)
+	dragHandle:SetSize(16, 16)
+	dragHandle:SetPoint("LEFT", bar, "LEFT", -18, 0)
+	dragHandle:RegisterForDrag("LeftButton")
+	dragHandle:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	dragHandle:SetMovable(false)
+	dragHandle:EnableMouse(true)
+
+	-- Normal texture (green - position movable)
+	dragHandle:SetNormalTexture("Interface\\AddOns\\ShamanPower\\Icons\\draghandle")
+	-- Checked texture (red - position locked)
+	dragHandle:SetCheckedTexture("Interface\\AddOns\\ShamanPower\\Icons\\draghandle-checked")
+
+	-- Click to toggle position lock (not bar attachment)
+	dragHandle:SetScript("OnClick", function(self, mousebutton)
+		if InCombatLockdown() then return end
+		if mousebutton == "LeftButton" then
+			-- Toggle frame lock (whether position can be changed)
+			ShamanPower.opt.cooldownBarFrameLocked = not ShamanPower.opt.cooldownBarFrameLocked
+			self:SetChecked(ShamanPower.opt.cooldownBarFrameLocked)
+		end
+	end)
+
+	dragHandle:SetScript("OnDragStart", function(self)
+		-- Only allow dragging when position is not locked
+		if not ShamanPower.opt.cooldownBarFrameLocked then
+			ShamanPower.cooldownBarDragging = true
+			ShamanPower.cooldownBar:StartMoving()
+		end
+	end)
+
+	dragHandle:SetScript("OnDragStop", function(self)
+		ShamanPower.cooldownBar:StopMovingOrSizing()
+		-- Save position FIRST, before clearing dragging flag
+		_, _, _, ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = ShamanPower.cooldownBar:GetPoint()
+		ShamanPower.cooldownBarDragging = false
+	end)
+
+	dragHandle:SetScript("OnEnter", function(self)
+		if ShamanPower.opt.ShowTooltips then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText("|cffffffffLeft-Click|r Lock/Unlock Position\n|cffffffffDrag|r Move Cooldown Bar")
+			GameTooltip:Show()
+		end
+	end)
+
+	dragHandle:SetScript("OnLeave", function(self)
+		GameTooltip:Hide()
+	end)
+
+	-- Set initial checked state (checked = position locked = red)
+	dragHandle:SetChecked(self.opt.cooldownBarFrameLocked)
+	dragHandle:Hide()  -- Hidden by default, only shown when CD bar unlocked from totem bar
+	self.cooldownBarDragHandle = dragHandle
+
 	-- Create buttons for each tracked spell
 	local buttonSize = 22
 	local spacing = 8  -- Increased spacing to prevent cooldown text overlap
@@ -3067,6 +3141,12 @@ function ShamanPower:UpdateCooldownBarLayout()
 			btn:ClearAllPoints()
 			btn:SetPoint("TOP", bar, "TOP", 0, -padding - (i - 1) * (buttonSize + spacing))
 		end
+
+		-- Position drag handle at top of bar for vertical layout
+		if self.cooldownBarDragHandle then
+			self.cooldownBarDragHandle:ClearAllPoints()
+			self.cooldownBarDragHandle:SetPoint("BOTTOM", bar, "TOP", 0, 2)
+		end
 	else
 		-- Horizontal: buttons left to right
 		local barWidth = (buttonSize * numButtons) + (spacing * (numButtons - 1)) + (padding * 2) + (extraPadding * 2)
@@ -3075,6 +3155,12 @@ function ShamanPower:UpdateCooldownBarLayout()
 		for i, btn in ipairs(self.cooldownButtons) do
 			btn:ClearAllPoints()
 			btn:SetPoint("LEFT", bar, "LEFT", padding + extraPadding + (i - 1) * (buttonSize + spacing), 0)
+		end
+
+		-- Position drag handle at left of bar for horizontal layout
+		if self.cooldownBarDragHandle then
+			self.cooldownBarDragHandle:ClearAllPoints()
+			self.cooldownBarDragHandle:SetPoint("RIGHT", bar, "LEFT", -2, 0)
 		end
 	end
 end
@@ -3256,6 +3342,9 @@ function ShamanPower:UpdateCooldownButtons()
 end
 
 function ShamanPower:UpdateCooldownBar()
+	-- Don't update while dragging
+	if self.cooldownBarDragging then return end
+
 	if not self.cooldownBar then
 		self:CreateCooldownBar()
 	end
@@ -3271,24 +3360,37 @@ function ShamanPower:UpdateCooldownBar()
 		-- Update the button layout first
 		self:UpdateCooldownBarLayout()
 
-		-- Position based on layout orientation
-		local isVertical = (self.opt.layout == "Vertical" or self.opt.layout == "VerticalLeft")
-		local isVerticalLeft = (self.opt.layout == "VerticalLeft")
-		self.cooldownBar:ClearAllPoints()
-		if isVertical then
-			if isVerticalLeft then
-				-- Vertical (Left): bar on left side of screen, CDs go to the RIGHT of totems
-				self.cooldownBar:SetPoint("LEFT", self.autoButton, "RIGHT", 2, 0)
+		-- Position based on lock state
+		if self.opt.cooldownBarLocked then
+			-- Locked: anchor to totem bar based on layout orientation
+			local isVertical = (self.opt.layout == "Vertical" or self.opt.layout == "VerticalLeft")
+			local isVerticalLeft = (self.opt.layout == "VerticalLeft")
+			self.cooldownBar:ClearAllPoints()
+			if isVertical then
+				if isVerticalLeft then
+					-- Vertical (Left): bar on left side of screen, CDs go to the RIGHT of totems
+					self.cooldownBar:SetPoint("LEFT", self.autoButton, "RIGHT", 2, 0)
+				else
+					-- Vertical (Right): bar on right side of screen, CDs go to the LEFT of totems
+					self.cooldownBar:SetPoint("RIGHT", self.autoButton, "LEFT", -2, 0)
+				end
 			else
-				-- Vertical (Right): bar on right side of screen, CDs go to the LEFT of totems
-				self.cooldownBar:SetPoint("RIGHT", self.autoButton, "LEFT", -2, 0)
+				-- Horizontal: position below the main totem bar
+				self.cooldownBar:SetPoint("TOP", self.autoButton, "BOTTOM", 0, -2)
+			end
+			-- Hide drag handle when CD bar is locked to totem bar
+			if self.cooldownBarDragHandle then
+				self.cooldownBarDragHandle:Hide()
 			end
 		else
-			-- Horizontal: position below the main totem bar
-			self.cooldownBar:SetPoint("TOP", self.autoButton, "BOTTOM", 0, -2)
+			-- Unlocked: set up independent positioning
+			self:UpdateCooldownBarPosition()
 		end
 		self.cooldownBar:Show()
 		self.cooldownUpdateFrame:Show()
+
+		-- Apply scale
+		self:UpdateCooldownBarScale()
 	else
 		self.cooldownBar:Hide()
 		if self.cooldownUpdateFrame then
@@ -3300,7 +3402,11 @@ end
 function ShamanPower:RecreateCooldownBar()
 	if InCombatLockdown() then return end
 
-	-- Destroy existing cooldown bar
+	-- Destroy existing cooldown bar and drag handle
+	if self.cooldownBarDragHandle then
+		self.cooldownBarDragHandle:Hide()
+		self.cooldownBarDragHandle = nil
+	end
 	if self.cooldownBar then
 		self.cooldownBar:Hide()
 		self.cooldownBar:SetParent(nil)
@@ -3333,6 +3439,69 @@ function ShamanPower:RecreateCooldownBar()
 	-- Recreate it
 	self:CreateCooldownBar()
 	self:UpdateCooldownBar()
+
+	-- Apply lock/unlock state, position, and drag handle visibility
+	self:UpdateCooldownBarPosition()
+end
+
+-- Update cooldown bar position based on lock state
+function ShamanPower:UpdateCooldownBarPosition()
+	if not self.cooldownBar then return end
+	if InCombatLockdown() then return end
+	if self.cooldownBarDragging then return end
+
+	if self.opt.cooldownBarLocked then
+		-- CD bar is attached to totem bar - hide drag handle
+		if self.cooldownBarDragHandle then
+			self.cooldownBarDragHandle:Hide()
+		end
+		self.cooldownBar:SetParent(self.autoButton)
+		self.cooldownBar:EnableMouse(false)
+		self.cooldownBar:SetMovable(false)
+		self:UpdateCooldownBar()
+	else
+		-- CD bar is independent
+		if self.cooldownBarDragHandle then
+			self.cooldownBarDragHandle:SetChecked(self.opt.cooldownBarFrameLocked)
+			if self.opt.display.enableDragHandle then
+				self.cooldownBarDragHandle:Show()
+			else
+				self.cooldownBarDragHandle:Hide()
+			end
+		end
+
+		-- ONLY position the bar when FIRST unlocking (like totem bar - positioned once, never again)
+		if self.cooldownBar:GetParent() ~= UIParent then
+			self.cooldownBar:SetParent(UIParent)
+			self.cooldownBar:SetFrameStrata("MEDIUM")
+			self.cooldownBar:SetFrameLevel(100)
+			self.cooldownBar:ClearAllPoints()
+			self.cooldownBar:SetPoint("CENTER", "UIParent", "CENTER", self.opt.cooldownBarPosX, self.opt.cooldownBarPosY)
+		end
+
+		self.cooldownBar:EnableMouse(true)
+		self.cooldownBar:SetMovable(true)
+		self.cooldownBar:RegisterForDrag("LeftButton")
+		self.cooldownBar:Show()
+	end
+
+	self:UpdateCooldownBarScale()
+end
+
+-- Update cooldown bar scale
+function ShamanPower:UpdateCooldownBarScale()
+	if not self.cooldownBar then return end
+
+	local cdScale = self.opt.cooldownBarScale or 0.9
+
+	if self.opt.cooldownBarLocked then
+		-- When locked, counteract parent scale and apply CD scale
+		local parentScale = self.opt.buffscale or 0.9
+		self.cooldownBar:SetScale(cdScale / parentScale)
+	else
+		-- When unlocked (parented to UIParent), apply directly
+		self.cooldownBar:SetScale(cdScale)
+	end
 end
 
 -- ============================================================================
@@ -4633,11 +4802,15 @@ function ShamanPower:UpdateEarthShieldButton()
 				esIcon:SetTexture(self.EarthShield.icon)
 			end
 
-			-- Show target name
+			-- Show target name (unless hidden by option)
 			if esName then
-				local shortName = Ambiguate(targetName, "short")
-				esName:SetText(shortName)
-				esName:Show()
+				if self.opt.hideEarthShieldText then
+					esName:Hide()
+				else
+					local shortName = Ambiguate(targetName, "short")
+					esName:SetText(shortName)
+					esName:Show()
+				end
 			end
 
 			esBtn:Show()
@@ -6388,6 +6561,8 @@ function ShamanPower:UpdateLayout()
 	if InCombatLockdown() then return end
 
 	ShamanPowerFrame:SetScale(self.opt.buffscale)
+	-- Update cooldown bar scale to compensate for parent scale change
+	self:UpdateCooldownBarScale()
 	local x = self.opt.display.buttonWidth
 	local y = self.opt.display.buttonHeight
 	local point = "TOPLEFT"

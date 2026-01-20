@@ -152,8 +152,8 @@ ShamanPower.options = {
 					args = {
 						buffscale = {
 							order = 1,
-							name = L["ShamanPower Buttons Scale"],
-							desc = L["This allows you to adjust the overall size of the ShamanPower Buttons"],
+							name = "Totem Bar Scale",
+							desc = "Adjust the size of the totem bar and main ShamanPower buttons",
 							type = "range",
 							width = 1.5,
 							min = 0.4,
@@ -168,7 +168,28 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.buffscale = val
 								ShamanPower:UpdateLayout()
+								ShamanPower:UpdateCooldownBarScale()
 								ShamanPower:UpdateRoster()
+							end
+						},
+						cooldownBarScale = {
+							order = 1.5,
+							name = "Cooldown Bar Scale",
+							desc = "Adjust the size of the cooldown tracker bar independently",
+							type = "range",
+							width = 1.5,
+							min = 0.4,
+							max = 1.5,
+							step = 0.05,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cooldownBarScale or 0.9
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cooldownBarScale = val
+								ShamanPower:UpdateCooldownBarScale()
 							end
 						},
 						padding1 = {
@@ -600,6 +621,23 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBar()
 							end
 						},
+						unlock_cooldown_bar = {
+							order = 2.21,
+							type = "toggle",
+							name = "Unlock Cooldown Bar",
+							desc = "Allow the cooldown bar to be moved independently (ALT+drag)",
+							width = 1.3,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return not ShamanPower.opt.cooldownBarLocked
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cooldownBarLocked = not val
+								ShamanPower:UpdateCooldownBarPosition()
+							end
+						},
 						show_totem_flyouts = {
 							order = 2.25,
 							type = "toggle",
@@ -611,6 +649,20 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.showTotemFlyouts = val
+							end
+						},
+						hide_earth_shield_text = {
+							order = 2.26,
+							type = "toggle",
+							name = "Hide Earth Shield Text",
+							desc = "[Enable/Disable] Hide the Earth Shield target name text below the button on the totem bar",
+							width = 1.3,
+							get = function(info)
+								return ShamanPower.opt.hideEarthShieldText
+							end,
+							set = function(info, val)
+								ShamanPower.opt.hideEarthShieldText = val
+								ShamanPower:UpdateEarthShieldButton()
 							end
 						},
 						drop_order_header = {
@@ -1431,6 +1483,8 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.display.enableDragHandle = val
 								ShamanPower:UpdateRoster()
+								-- Also update cooldown bar drag handle visibility
+								ShamanPower:UpdateCooldownBarPosition()
 							end
 						}
 					}
