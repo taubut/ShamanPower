@@ -113,7 +113,15 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarPadding = 2,  -- Padding between totem bar buttons (pixels)
         cooldownBarPadding = 2,  -- Padding between cooldown bar buttons (pixels)
         showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
+        swapFlyoutClickButtons = false,  -- Swap flyout mouse buttons (left=assign, right=cast instead of default)
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
+        -- Raid Cooldown caller button options
+        raidCDButtonOpacity = 1.0,  -- Opacity of raid cooldown caller buttons (0.1 to 1.0)
+        raidCDButtonScale = 1.0,  -- Scale of raid cooldown caller buttons (0.5 to 2.0)
+        raidCDShowWarningIcon = true,  -- Show raid warning icon when calling cooldowns
+        raidCDShowWarningText = true,  -- Show raid warning text when calling cooldowns
+        raidCDPlaySound = true,  -- Play sound when calling cooldowns
+        raidCDShowButtonAnimation = true,  -- Show cooldown animation on caller buttons
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button

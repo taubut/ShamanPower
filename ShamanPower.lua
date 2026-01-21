@@ -2289,11 +2289,20 @@ function ShamanPower:CreateTotemFlyout(element)
 		if isKnown then
 			local btn = CreateFrame("Button", "ShamanPowerFlyout" .. element .. "Btn" .. totemIndex, flyout, "SecureActionButtonTemplate")
 			btn:SetSize(buttonSize, buttonSize)
-			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp")
+			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp", "RightButtonDown")
 
-			-- Left-click casts spell, right-click does nothing (assignment handled in PostClick)
-			btn:SetAttribute("type1", "spell")
-			btn:SetAttribute("spell", spellName)
+			-- Check if buttons are swapped
+			local swapped = self.opt.swapFlyoutClickButtons
+
+			if swapped then
+				-- Swapped: Right-click casts spell, left-click assigns (in PostClick)
+				btn:SetAttribute("type2", "spell")
+				btn:SetAttribute("spell", spellName)
+			else
+				-- Default: Left-click casts spell, right-click assigns (in PostClick)
+				btn:SetAttribute("type1", "spell")
+				btn:SetAttribute("spell", spellName)
+			end
 
 			-- Create icon texture explicitly
 			local iconTex = btn:CreateTexture(nil, "ARTWORK")
@@ -2306,22 +2315,28 @@ function ShamanPower:CreateTotemFlyout(element)
 			highlight:SetAllPoints()
 			highlight:SetColorTexture(1, 1, 1, 0.3)
 
-			-- Tooltip
+			-- Tooltip (shows correct button assignments)
 			btn:SetScript("OnEnter", function(self)
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(spellID)
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 1, 1, 1)
-				GameTooltip:AddLine("|cffffcc00Right-click:|r Set as assigned totem", 1, 1, 1)
+				if ShamanPower.opt.swapFlyoutClickButtons then
+					GameTooltip:AddLine("|cff00ff00Left-click:|r Set as assigned totem", 1, 1, 1)
+					GameTooltip:AddLine("|cffffcc00Right-click:|r Cast totem", 1, 1, 1)
+				else
+					GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 1, 1, 1)
+					GameTooltip:AddLine("|cffffcc00Right-click:|r Set as assigned totem", 1, 1, 1)
+				end
 				GameTooltip:Show()
 			end)
 			btn:SetScript("OnLeave", function(self)
 				GameTooltip:Hide()
 			end)
 
-			-- Right-click to set as assigned totem
+			-- Handle assignment click (button depends on swap setting)
 			btn:SetScript("PostClick", function(self, button)
-				if button == "RightButton" then
+				local assignButton = ShamanPower.opt.swapFlyoutClickButtons and "LeftButton" or "RightButton"
+				if button == assignButton then
 					if InCombatLockdown() then
 						print("|cffff0000ShamanPower:|r Cannot change assignments in combat")
 						return
@@ -2635,6 +2650,28 @@ function ShamanPower:RefreshTotemFlyouts()
 			end
 		end
 	end
+end
+
+-- Recreate all totem flyouts (used when click behavior changes)
+function ShamanPower:RecreateTotemFlyouts()
+	if InCombatLockdown() then
+		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		return
+	end
+
+	-- Destroy existing flyouts
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts[element]
+		if flyout then
+			flyout:Hide()
+			flyout:SetParent(nil)
+			self.totemFlyouts[element] = nil
+		end
+		self.flyoutHooksInstalled[element] = nil
+	end
+
+	-- Recreate flyouts with new settings
+	self:SetupTotemFlyouts()
 end
 
 -- ============================================================================
@@ -3043,6 +3080,9 @@ end
 
 -- Add alert effect to a cooldown button (glow, shake, scale up)
 function ShamanPower:AddCooldownButtonAlert(spellID)
+	-- Check if button animation is enabled
+	if self.opt.raidCDShowButtonAnimation == false then return end
+
 	local btn = self:GetCooldownButtonBySpellID(spellID)
 	if not btn then return end
 
@@ -5900,12 +5940,24 @@ function ShamanPower:GROUP_LEFT(event)
 	ShamanPower_EarthShieldAssignments = {}
 	self.currentEarthShieldTarget = nil
 
+	-- Clear Raid Cooldown assignments when leaving group
+	ShamanPower_RaidCooldowns = {
+		bloodlust = {
+			primary = nil,
+			backup1 = nil,
+			backup2 = nil,
+			caller = nil,
+		},
+		manatide = {},
+	}
+
 	self:ScanSpells()
 	self:ScanCooldowns()
 	self:ScanInventory()
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:UpdateEarthShieldButton()
+	self:UpdateCallerButtons()
 end
 
 function ShamanPower:UpdateAllShamans()
@@ -9680,11 +9732,12 @@ function ShamanPower:UpdateRaidCooldownPanel()
 	local shamans = self:GetRaidShamans()
 	local members = self:GetRaidMembers()
 	local bl = ShamanPower_RaidCooldowns.bloodlust
-	local canAssign = self:CanAssignRaidCooldowns()
 
 	-- Helper to create dropdown menu
-	local function InitShamanDropdown(dropdown, currentValue, field)
+	local function InitShamanDropdown(dropdown, field)
 		UIDropDownMenu_Initialize(dropdown, function(self, level)
+			-- Read current value each time dropdown opens
+			local currentValue = bl[field]
 			local info = UIDropDownMenu_CreateInfo()
 
 			-- None option
@@ -9692,11 +9745,9 @@ function ShamanPower:UpdateRaidCooldownPanel()
 			info.value = nil
 			info.checked = (currentValue == nil)
 			info.func = function()
-				if canAssign then
-					bl[field] = nil
-					UIDropDownMenu_SetText(dropdown, "-- None --")
-					ShamanPower:SendRaidCooldownSync()
-				end
+				bl[field] = nil
+				UIDropDownMenu_SetText(dropdown, "-- None --")
+				ShamanPower:SendRaidCooldownSync()
 			end
 			UIDropDownMenu_AddButton(info)
 
@@ -9706,32 +9757,31 @@ function ShamanPower:UpdateRaidCooldownPanel()
 				info.value = name
 				info.checked = (currentValue == name)
 				info.func = function()
-					if canAssign then
-						bl[field] = name
-						UIDropDownMenu_SetText(dropdown, name)
-						ShamanPower:SendRaidCooldownSync()
-					end
+					bl[field] = name
+					UIDropDownMenu_SetText(dropdown, name)
+					ShamanPower:SendRaidCooldownSync()
 				end
 				UIDropDownMenu_AddButton(info)
 			end
 		end)
-		UIDropDownMenu_SetText(dropdown, currentValue or "-- None --")
+		UIDropDownMenu_SetText(dropdown, bl[field] or "-- None --")
 	end
 
 	-- Helper for caller dropdown (all members)
-	local function InitCallerDropdown(dropdown, currentValue)
+	local function InitCallerDropdown(dropdown)
 		UIDropDownMenu_Initialize(dropdown, function(self, level)
+			-- Read current value each time dropdown opens
+			local currentValue = bl.caller
 			local info = UIDropDownMenu_CreateInfo()
 
 			info.text = "-- None --"
 			info.value = nil
 			info.checked = (currentValue == nil)
 			info.func = function()
-				if canAssign then
-					bl.caller = nil
-					UIDropDownMenu_SetText(dropdown, "-- None --")
-					ShamanPower:SendRaidCooldownSync()
-				end
+				bl.caller = nil
+				UIDropDownMenu_SetText(dropdown, "-- None --")
+				ShamanPower:SendRaidCooldownSync()
+				ShamanPower:UpdateCallerButtons()
 			end
 			UIDropDownMenu_AddButton(info)
 
@@ -9740,26 +9790,25 @@ function ShamanPower:UpdateRaidCooldownPanel()
 				info.value = name
 				info.checked = (currentValue == name)
 				info.func = function()
-					if canAssign then
-						bl.caller = name
-						UIDropDownMenu_SetText(dropdown, name)
-						ShamanPower:SendRaidCooldownSync()
-					end
+					bl.caller = name
+					UIDropDownMenu_SetText(dropdown, name)
+					ShamanPower:SendRaidCooldownSync()
+					ShamanPower:UpdateCallerButtons()
 				end
 				UIDropDownMenu_AddButton(info)
 			end
 		end)
-		UIDropDownMenu_SetText(dropdown, currentValue or "-- None --")
+		UIDropDownMenu_SetText(dropdown, bl.caller or "-- None --")
 	end
 
 	-- Initialize dropdowns
-	InitShamanDropdown(self.raidCooldownPanel.primaryDropdown, bl.primary, "primary")
-	InitShamanDropdown(self.raidCooldownPanel.backup1Dropdown, bl.backup1, "backup1")
-	InitShamanDropdown(self.raidCooldownPanel.backup2Dropdown, bl.backup2, "backup2")
-	InitCallerDropdown(self.raidCooldownPanel.callerDropdown, bl.caller)
+	InitShamanDropdown(self.raidCooldownPanel.primaryDropdown, "primary")
+	InitShamanDropdown(self.raidCooldownPanel.backup1Dropdown, "backup1")
+	InitShamanDropdown(self.raidCooldownPanel.backup2Dropdown, "backup2")
+	InitCallerDropdown(self.raidCooldownPanel.callerDropdown)
 
 	-- Update Mana Tide rows
-	self:UpdateManaTideRows(members, canAssign)
+	self:UpdateManaTideRows(members)
 
 	-- Update floating caller buttons
 	self:UpdateCallerButtons()
@@ -9808,21 +9857,8 @@ function ShamanPower:GetManaTideShamans()
 					local _, _, subgroup = GetRaidRosterInfo(i)
 					group = subgroup or 1
 				end
-				-- Check AllShamans for MT capability, or assume they might have it
-				local hasMT = false
-				if AllShamans and AllShamans[name] and AllShamans[name][3] then
-					-- Water element (3) has Mana Tide at index 3
-					if AllShamans[name][3][3] then
-						hasMT = true
-					end
-				end
-				-- Also check if it's us
-				if name == self.player and IsSpellKnown(16190) then
-					hasMT = true
-				end
-				if hasMT then
-					table.insert(mtShamans, {name = name, group = group})
-				end
+				-- Add all shamans - if they don't have MT, assignment just won't work for them
+				table.insert(mtShamans, {name = name, group = group})
 			end
 		end
 	end
@@ -9831,7 +9867,7 @@ function ShamanPower:GetManaTideShamans()
 end
 
 -- Update Mana Tide assignment rows
-function ShamanPower:UpdateManaTideRows(members, canAssign)
+function ShamanPower:UpdateManaTideRows(members)
 	local panel = self.raidCooldownPanel
 	if not panel or not panel.mtContainer then return end
 
@@ -9865,21 +9901,20 @@ function ShamanPower:UpdateManaTideRows(members, canAssign)
 		row.dropdown:SetPoint("TOPLEFT", 100, yOffset + 5)
 		UIDropDownMenu_SetWidth(row.dropdown, 90)
 
-		local currentCaller = mt[shamanName] and mt[shamanName].caller or nil
 		UIDropDownMenu_Initialize(row.dropdown, function(self, level)
+			-- Read current value each time dropdown opens
+			local currentCaller = mt[shamanName] and mt[shamanName].caller or nil
 			local info = UIDropDownMenu_CreateInfo()
 
 			info.text = "-- None --"
 			info.value = nil
 			info.checked = (currentCaller == nil)
 			info.func = function()
-				if canAssign then
-					if not mt[shamanName] then mt[shamanName] = {} end
-					mt[shamanName].caller = nil
-					UIDropDownMenu_SetText(row.dropdown, "-- None --")
-					ShamanPower:SendRaidCooldownSync()
-					ShamanPower:UpdateCallerButtons()
-				end
+				if not mt[shamanName] then mt[shamanName] = {} end
+				mt[shamanName].caller = nil
+				UIDropDownMenu_SetText(row.dropdown, "-- None --")
+				ShamanPower:SendRaidCooldownSync()
+				ShamanPower:UpdateCallerButtons()
 			end
 			UIDropDownMenu_AddButton(info)
 
@@ -9888,18 +9923,17 @@ function ShamanPower:UpdateManaTideRows(members, canAssign)
 				info.value = memberName
 				info.checked = (currentCaller == memberName)
 				info.func = function()
-					if canAssign then
-						if not mt[shamanName] then mt[shamanName] = {} end
-						mt[shamanName].caller = memberName
-						UIDropDownMenu_SetText(row.dropdown, memberName)
-						ShamanPower:SendRaidCooldownSync()
-						ShamanPower:UpdateCallerButtons()
-					end
+					if not mt[shamanName] then mt[shamanName] = {} end
+					mt[shamanName].caller = memberName
+					UIDropDownMenu_SetText(row.dropdown, memberName)
+					ShamanPower:SendRaidCooldownSync()
+					ShamanPower:UpdateCallerButtons()
 				end
 				UIDropDownMenu_AddButton(info)
 			end
 		end)
-		UIDropDownMenu_SetText(row.dropdown, currentCaller or "-- None --")
+		local initialCaller = mt[shamanName] and mt[shamanName].caller or nil
+		UIDropDownMenu_SetText(row.dropdown, initialCaller or "-- None --")
 
 		table.insert(panel.mtRows, row)
 		yOffset = yOffset - 30
@@ -9932,8 +9966,6 @@ end
 
 -- Send raid cooldown sync to group
 function ShamanPower:SendRaidCooldownSync()
-	if not self:CanAssignRaidCooldowns() then return end
-
 	local bl = ShamanPower_RaidCooldowns.bloodlust
 	local data = string.format("RCSYNC|%s|%s|%s|%s",
 		bl.primary or "",
@@ -9943,7 +9975,7 @@ function ShamanPower:SendRaidCooldownSync()
 	)
 	self:SendMessage(data)
 
-	-- Also send MT assignments
+	-- Also send MT assignments (always send, even if empty, so receivers can clear)
 	local mt = ShamanPower_RaidCooldowns.manatide
 	local mtParts = {}
 	for shamanName, mtData in pairs(mt) do
@@ -9951,9 +9983,7 @@ function ShamanPower:SendRaidCooldownSync()
 			table.insert(mtParts, shamanName .. ":" .. mtData.caller)
 		end
 	end
-	if #mtParts > 0 then
-		self:SendMessage("MTSYNC|" .. table.concat(mtParts, ","))
-	end
+	self:SendMessage("MTSYNC|" .. table.concat(mtParts, ","))
 end
 
 -- Call for Bloodlust/Heroism
@@ -10019,6 +10049,19 @@ end
 
 -- Show a center screen alert with icon and text
 function ShamanPower:ShowCenterScreenAlert(iconPath, text)
+	-- Check if any alerts are enabled
+	local showIcon = self.opt.raidCDShowWarningIcon ~= false
+	local showText = self.opt.raidCDShowWarningText ~= false
+	local playSound = self.opt.raidCDPlaySound ~= false
+
+	-- If nothing to show, just play sound if enabled
+	if not showIcon and not showText then
+		if playSound then
+			PlaySound(8959) -- PVPFLAGTAKEN
+		end
+		return
+	end
+
 	if not self.centerAlert then
 		local frame = CreateFrame("Frame", "ShamanPowerCenterAlert", UIParent)
 		frame:SetSize(150, 150)
@@ -10041,8 +10084,22 @@ function ShamanPower:ShowCenterScreenAlert(iconPath, text)
 		self.centerAlert = frame
 	end
 
-	self.centerAlert.icon:SetTexture(iconPath)
-	self.centerAlert.text:SetText(text)
+	-- Show/hide icon based on option
+	if showIcon then
+		self.centerAlert.icon:SetTexture(iconPath)
+		self.centerAlert.icon:Show()
+	else
+		self.centerAlert.icon:Hide()
+	end
+
+	-- Show/hide text based on option
+	if showText then
+		self.centerAlert.text:SetText(text)
+		self.centerAlert.text:Show()
+	else
+		self.centerAlert.text:Hide()
+	end
+
 	self.centerAlert:Show()
 
 	-- Pulse animation
@@ -10051,8 +10108,10 @@ function ShamanPower:ShowCenterScreenAlert(iconPath, text)
 		self.elapsed = self.elapsed + elapsed
 		local alpha = 0.6 + 0.4 * math.sin(self.elapsed * 4)
 		self:SetAlpha(alpha)
-		local scale = 1 + 0.05 * math.sin(self.elapsed * 5)
-		self.icon:SetSize(128 * scale, 128 * scale)
+		if showIcon then
+			local scale = 1 + 0.05 * math.sin(self.elapsed * 5)
+			self.icon:SetSize(128 * scale, 128 * scale)
+		end
 	end)
 
 	-- Hide after 5 seconds
@@ -10063,8 +10122,10 @@ function ShamanPower:ShowCenterScreenAlert(iconPath, text)
 		end
 	end)
 
-	-- Play sound
-	PlaySound(8959) -- PVPFLAGTAKEN
+	-- Play sound if enabled
+	if playSound then
+		PlaySound(8959) -- PVPFLAGTAKEN
+	end
 end
 
 -- Handle incoming raid cooldown messages
@@ -10277,7 +10338,8 @@ function ShamanPower:UpdateCallerButtons()
 	local mt = ShamanPower_RaidCooldowns.manatide
 
 	-- Check if player is a BL caller or MT caller for any shaman
-	local isBLCaller = self:CanAssignRaidCooldowns() or (bl.caller and bl.caller == playerName)
+	-- Only consider BL callable if there's a caller assigned AND (player is RL/assist or is the caller)
+	local isBLCaller = bl.caller and (self:CanAssignRaidCooldowns() or bl.caller == playerName)
 	local mtCallsFor = {}
 
 	-- Check if player is caller for any shaman's MT
@@ -10287,23 +10349,27 @@ function ShamanPower:UpdateCallerButtons()
 		end
 	end
 
-	-- Also show if RL/assist (they can call anything)
+	-- Also show if RL/assist (they can call anything that has a caller assigned)
 	if self:CanAssignRaidCooldowns() then
-		-- Get all MT shamans for RL/assist
+		-- Get all MT shamans for RL/assist, but only if they have a caller assigned
 		local mtShamans = self:GetManaTideShamans()
 		for _, info in ipairs(mtShamans) do
-			local found = false
-			for _, name in ipairs(mtCallsFor) do
-				if name == info.name then found = true break end
-			end
-			if not found then
-				table.insert(mtCallsFor, info.name)
+			-- Only add if this shaman has a caller assigned
+			if mt[info.name] and mt[info.name].caller then
+				local found = false
+				for _, name in ipairs(mtCallsFor) do
+					if name == info.name then found = true break end
+				end
+				if not found then
+					table.insert(mtCallsFor, info.name)
+				end
 			end
 		end
 	end
 
-	-- Show frame if player can call anything
-	local showFrame = isBLCaller or #mtCallsFor > 0
+	-- Determine if buttons will actually be shown
+	local showBLButton = isBLCaller and (bl.primary or bl.backup1 or bl.backup2)
+	local showFrame = showBLButton or #mtCallsFor > 0
 
 	if not showFrame then
 		if self.callerButtonFrame then
@@ -10315,7 +10381,7 @@ function ShamanPower:UpdateCallerButtons()
 	local frame = self:CreateCallerButtonFrame()
 
 	-- Show/hide BL button
-	if isBLCaller and (bl.primary or bl.backup1 or bl.backup2) then
+	if showBLButton then
 		frame.blBtn:Show()
 	else
 		frame.blBtn:Hide()
@@ -10412,6 +10478,10 @@ function ShamanPower:UpdateCallerButtons()
 	frame:SetSize(width, 62)  -- 40 button + 2 gap + 12 text + 8 padding
 
 	frame:Show()
+
+	-- Apply scale and opacity settings
+	self:UpdateCallerButtonScale()
+	self:UpdateCallerButtonOpacity()
 
 	-- Start cooldown tracking update
 	self:StartCallerCooldownTracking()
@@ -10607,6 +10677,11 @@ end
 
 -- Set cooldown display on a caller button
 function ShamanPower:SetCallerButtonCooldown(btn, start, duration)
+	-- Check if animation is enabled
+	if self.opt.raidCDShowButtonAnimation == false then
+		return
+	end
+
 	-- Create cooldown frame if needed
 	if not btn.cooldownFrame then
 		local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
@@ -10635,6 +10710,22 @@ function ShamanPower:ClearCallerButtonCooldown(btn)
 	-- Restore icon color
 	if btn.icon then
 		btn.icon:SetDesaturated(false)
+	end
+end
+
+-- Update opacity of caller button frame
+function ShamanPower:UpdateCallerButtonOpacity()
+	if self.callerButtonFrame then
+		local opacity = self.opt.raidCDButtonOpacity or 1.0
+		self.callerButtonFrame:SetAlpha(opacity)
+	end
+end
+
+-- Update scale of caller button frame
+function ShamanPower:UpdateCallerButtonScale()
+	if self.callerButtonFrame then
+		local scale = self.opt.raidCDButtonScale or 1.0
+		self.callerButtonFrame:SetScale(scale)
 	end
 end
 
@@ -11301,7 +11392,7 @@ function ShamanPower:ShowSPRangeConfig()
 		local padding = 4
 
 		local contentWidth = (4 * columnWidth) + (5 * padding)
-		local contentHeight = headerHeight + (maxTotems * rowHeight) + (2 * padding) + 30 + 118  -- +30 for title, +118 for settings (4 rows with button)
+		local contentHeight = headerHeight + (maxTotems * rowHeight) + (2 * padding) + 30 + 35  -- +30 for title, +35 for toggle button
 
 		local config = CreateFrame("Frame", "ShamanPowerRangeConfigFrame", UIParent, "BackdropTemplate")
 		config:SetSize(contentWidth, contentHeight)
@@ -11447,109 +11538,8 @@ function ShamanPower:ShowSPRangeConfig()
 		config.toggleBtn = toggleBtn
 		config.updateToggleBtnText = updateToggleBtnText
 
-		-- Opacity slider (second row)
-		local opacityLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		opacityLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY - 28)
-		opacityLabel:SetText("Opacity:")
-		opacityLabel:SetTextColor(1, 0.82, 0)
-
-		local opacitySlider = CreateFrame("Slider", "SPRangeConfigOpacitySlider", config, "OptionsSliderTemplate")
-		opacitySlider:SetPoint("LEFT", opacityLabel, "RIGHT", 10, 0)
-		opacitySlider:SetSize(120, 17)
-		opacitySlider:SetMinMaxValues(0.2, 1.0)
-		opacitySlider:SetValueStep(0.1)
-		opacitySlider:SetObeyStepOnDrag(true)
-		opacitySlider:SetValue(ShamanPower_RangeTracker.opacity or 1.0)
-		local opacityBg = opacitySlider:CreateTexture(nil, "BACKGROUND")
-		opacityBg:SetPoint("TOPLEFT", 0, -6)
-		opacityBg:SetPoint("BOTTOMRIGHT", 0, 6)
-		opacityBg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-		opacitySlider.Low:SetText("")
-		opacitySlider.High:SetText("")
-		opacitySlider.Text:SetPoint("LEFT", opacitySlider, "RIGHT", 8, 0)
-		opacitySlider.Text:SetText(tostring(math.floor((ShamanPower_RangeTracker.opacity or 1.0) * 100)) .. "%")
-		opacitySlider:SetScript("OnValueChanged", function(self, value)
-			ShamanPower_RangeTracker.opacity = value
-			self.Text:SetText(tostring(math.floor(value * 100)) .. "%")
-			ShamanPower:UpdateSPRangeOpacity()
-		end)
-
-		-- Icon Size slider (third row)
-		local sizeLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		sizeLabel:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY - 50)
-		sizeLabel:SetText("Icon Size:")
-		sizeLabel:SetTextColor(1, 0.82, 0)
-
-		local sizeSlider = CreateFrame("Slider", "SPRangeConfigSizeSlider", config, "OptionsSliderTemplate")
-		sizeSlider:SetPoint("LEFT", sizeLabel, "RIGHT", 10, 0)
-		sizeSlider:SetSize(120, 17)
-		sizeSlider:SetMinMaxValues(20, 60)
-		sizeSlider:SetValueStep(4)
-		sizeSlider:SetObeyStepOnDrag(true)
-		sizeSlider:SetValue(ShamanPower_RangeTracker.iconSize or 36)
-		local sizeBg = sizeSlider:CreateTexture(nil, "BACKGROUND")
-		sizeBg:SetPoint("TOPLEFT", 0, -6)
-		sizeBg:SetPoint("BOTTOMRIGHT", 0, 6)
-		sizeBg:SetColorTexture(0.2, 0.2, 0.2, 0.8)
-		sizeSlider.Low:SetText("")
-		sizeSlider.High:SetText("")
-		sizeSlider.Text:SetPoint("LEFT", sizeSlider, "RIGHT", 8, 0)
-		sizeSlider.Text:SetText(tostring(ShamanPower_RangeTracker.iconSize or 36))
-		sizeSlider:SetScript("OnValueChanged", function(self, value)
-			value = math.floor(value)
-			ShamanPower_RangeTracker.iconSize = value
-			self.Text:SetText(tostring(value))
-			ShamanPower:UpdateSPRangeFrame()
-		end)
-
-		-- Checkboxes row (fourth row)
-		local checkboxY = settingsY - 76
-
-		-- Vertical Layout checkbox
-		local verticalBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")
-		verticalBtn:SetSize(22, 22)
-		verticalBtn:SetPoint("TOPLEFT", config, "TOPLEFT", 8, checkboxY)
-		verticalBtn:SetChecked(ShamanPower_RangeTracker.vertical or false)
-		verticalBtn:SetScript("OnClick", function(self)
-			ShamanPower_RangeTracker.vertical = self:GetChecked()
-			ShamanPower:UpdateSPRangeFrame()
-			ShamanPower:UpdateSPRangeBorder()
-		end)
-
-		local verticalLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		verticalLabel:SetPoint("LEFT", verticalBtn, "RIGHT", 0, 0)
-		verticalLabel:SetText("Vertical")
-		verticalLabel:SetTextColor(0.9, 0.9, 0.9)
-
-		-- Hide Names checkbox
-		local hideNamesBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")
-		hideNamesBtn:SetSize(22, 22)
-		hideNamesBtn:SetPoint("LEFT", verticalLabel, "RIGHT", 10, 0)
-		hideNamesBtn:SetChecked(ShamanPower_RangeTracker.hideNames or false)
-		hideNamesBtn:SetScript("OnClick", function(self)
-			ShamanPower_RangeTracker.hideNames = self:GetChecked()
-			ShamanPower:UpdateSPRangeFrame()
-		end)
-
-		local hideNamesLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		hideNamesLabel:SetPoint("LEFT", hideNamesBtn, "RIGHT", 0, 0)
-		hideNamesLabel:SetText("Hide Names")
-		hideNamesLabel:SetTextColor(0.9, 0.9, 0.9)
-
-		-- Hide Border checkbox
-		local hideBorderBtn = CreateFrame("CheckButton", nil, config, "UICheckButtonTemplate")
-		hideBorderBtn:SetSize(22, 22)
-		hideBorderBtn:SetPoint("LEFT", hideNamesLabel, "RIGHT", 10, 0)
-		hideBorderBtn:SetChecked(ShamanPower_RangeTracker.hideBorder or false)
-		hideBorderBtn:SetScript("OnClick", function(self)
-			ShamanPower_RangeTracker.hideBorder = self:GetChecked()
-			ShamanPower:UpdateSPRangeBorder()
-		end)
-
-		local hideBorderLabel = config:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		hideBorderLabel:SetPoint("LEFT", hideBorderBtn, "RIGHT", 0, 0)
-		hideBorderLabel:SetText("Hide Border")
-		hideBorderLabel:SetTextColor(0.9, 0.9, 0.9)
+		-- Note: Appearance settings (opacity, icon size, vertical, hide names, hide border)
+		-- are now in the Look & Feel options panel
 
 		config:Hide()
 		self.spRangeConfigFrame = config
@@ -11798,13 +11788,15 @@ SLASH_SPRANGE1 = "/sprange"
 SlashCmdList["SPRANGE"] = function(msg)
 	msg = msg:lower():trim()
 
-	if msg == "config" or msg == "options" then
+	if msg == "toggle" or msg == "show" or msg == "hide" then
+		-- Toggle the overlay visibility
+		ShamanPower:ToggleSPRange()
+	else
+		-- Default: show the config menu
 		ShamanPower:InitSPRange()
 		if not ShamanPower.spRangeFrame then
 			ShamanPower:CreateSPRangeFrame()
 		end
 		ShamanPower:ShowSPRangeConfig()
-	else
-		ShamanPower:ToggleSPRange()
 	end
 end

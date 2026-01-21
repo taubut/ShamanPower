@@ -1281,6 +1281,24 @@ ShamanPower.options = {
 								["VerticalLeft"] = "Vertical (Left)",
 							}
 						},
+						swap_flyout_clicks = {
+							order = 2,
+							type = "toggle",
+							name = "Swap Flyout Click Buttons",
+							desc = "Swap mouse buttons on totem flyout menus: Left-click assigns totem, Right-click casts (default is Left=cast, Right=assign)",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman
+							end,
+							get = function(info)
+								return ShamanPower.opt.swapFlyoutClickButtons
+							end,
+							set = function(info, val)
+								ShamanPower.opt.swapFlyoutClickButtons = val
+								-- Recreate flyouts with new click behavior
+								ShamanPower:RecreateTotemFlyouts()
+							end
+						},
 					}
 				},
 				scale_section = {
@@ -1654,6 +1672,195 @@ ShamanPower.options = {
 							end,
 							hasAlpha = true
 						}
+					}
+				},
+				raid_cd_section = {
+					order = 7,
+					name = "Raid Cooldowns",
+					type = "group",
+					inline = true,
+					args = {
+						raidCDButtonScale = {
+							order = 1,
+							name = "Caller Button Scale",
+							desc = "Adjust the size of the raid cooldown caller buttons",
+							type = "range",
+							width = 1.5,
+							min = 0.5,
+							max = 2.0,
+							step = 0.05,
+							get = function(info)
+								return ShamanPower.opt.raidCDButtonScale or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDButtonScale = val
+								ShamanPower:UpdateCallerButtonScale()
+							end
+						},
+						raidCDButtonOpacity = {
+							order = 2,
+							name = "Caller Button Opacity",
+							desc = "Adjust the opacity of the raid cooldown caller buttons",
+							type = "range",
+							width = 1.5,
+							min = 0.1,
+							max = 1.0,
+							step = 0.05,
+							get = function(info)
+								return ShamanPower.opt.raidCDButtonOpacity or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDButtonOpacity = val
+								ShamanPower:UpdateCallerButtonOpacity()
+							end
+						},
+						raidCDShowWarningIcon = {
+							order = 3,
+							name = "Show Warning Icon",
+							desc = "Show raid warning icon when calling cooldowns",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower.opt.raidCDShowWarningIcon ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDShowWarningIcon = val
+							end
+						},
+						raidCDShowWarningText = {
+							order = 4,
+							name = "Show Warning Text",
+							desc = "Show raid warning text when calling cooldowns",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower.opt.raidCDShowWarningText ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDShowWarningText = val
+							end
+						},
+						raidCDPlaySound = {
+							order = 5,
+							name = "Play Sound",
+							desc = "Play sound when calling cooldowns",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower.opt.raidCDPlaySound ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDPlaySound = val
+							end
+						},
+						raidCDShowButtonAnimation = {
+							order = 6,
+							name = "Show Button Animation",
+							desc = "Show cooldown animation on caller buttons",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower.opt.raidCDShowButtonAnimation ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDShowButtonAnimation = val
+							end
+						},
+					}
+				},
+				sprange_section = {
+					order = 8,
+					name = "Totem Range Tracker (SPRange)",
+					type = "group",
+					inline = true,
+					args = {
+						sprange_opacity = {
+							order = 1,
+							name = "Opacity",
+							desc = "Adjust the opacity of the totem range overlay",
+							type = "range",
+							width = 1.5,
+							min = 0.2,
+							max = 1.0,
+							step = 0.1,
+							get = function(info)
+								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.opacity or 1.0
+							end,
+							set = function(info, val)
+								if ShamanPower_RangeTracker then
+									ShamanPower_RangeTracker.opacity = val
+									ShamanPower:UpdateSPRangeOpacity()
+								end
+							end
+						},
+						sprange_icon_size = {
+							order = 2,
+							name = "Icon Size",
+							desc = "Adjust the size of the totem range overlay icons",
+							type = "range",
+							width = 1.5,
+							min = 20,
+							max = 60,
+							step = 4,
+							get = function(info)
+								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.iconSize or 36
+							end,
+							set = function(info, val)
+								if ShamanPower_RangeTracker then
+									ShamanPower_RangeTracker.iconSize = val
+									ShamanPower:UpdateSPRangeFrame()
+								end
+							end
+						},
+						sprange_vertical = {
+							order = 3,
+							name = "Vertical Layout",
+							desc = "Stack totem icons vertically instead of horizontally",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.vertical or false
+							end,
+							set = function(info, val)
+								if ShamanPower_RangeTracker then
+									ShamanPower_RangeTracker.vertical = val
+									ShamanPower:UpdateSPRangeFrame()
+									ShamanPower:UpdateSPRangeBorder()
+								end
+							end
+						},
+						sprange_hide_names = {
+							order = 4,
+							name = "Hide Names",
+							desc = "Hide totem names below the icons",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.hideNames or false
+							end,
+							set = function(info, val)
+								if ShamanPower_RangeTracker then
+									ShamanPower_RangeTracker.hideNames = val
+									ShamanPower:UpdateSPRangeFrame()
+								end
+							end
+						},
+						sprange_hide_border = {
+							order = 5,
+							name = "Hide Border",
+							desc = "Hide the frame border and title on the totem range overlay",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.hideBorder or false
+							end,
+							set = function(info, val)
+								if ShamanPower_RangeTracker then
+									ShamanPower_RangeTracker.hideBorder = val
+									ShamanPower:UpdateSPRangeBorder()
+								end
+							end
+						},
 					}
 				},
 			}

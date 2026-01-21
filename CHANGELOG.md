@@ -1,5 +1,14 @@
 # ShamanPower Changelog
 
+## [v1.3.5](https://github.com/taubut/ShamanPower/releases/tag/v1.3.5) (2026-01-21)
+- Raid Cooldowns: Anyone can now set Heroism/Mana Tide assignments (not just raid leader/assist)
+- Raid Cooldowns: Fix Mana Tide shaman list not showing for non-leaders
+- Raid Cooldowns: Fix assignments not syncing when set to "None"
+- Raid Cooldowns: Add Look & Feel options (button opacity, scale, warning icon/text/sound/animation toggles)
+- SPRange: `/sprange` now opens the Totem Range config menu directly (`/sprange toggle` for overlay)
+- SPRange: Move appearance settings (opacity, icon size, vertical, hide names, hide border) to Look & Feel
+- Totem Flyouts: Add "Swap Flyout Click Buttons" option in Look & Feel to swap left/right click behavior
+
 ## [v1.3.4](https://github.com/taubut/ShamanPower/releases/tag/v1.3.4) (2026-01-20)
 - Earth Shield tracking now works on any target (not just assigned target)
 - Shows who currently has your Earth Shield with color-coded names (green=assigned, yellow=other, red=inactive)
