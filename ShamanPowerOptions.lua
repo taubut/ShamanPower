@@ -68,6 +68,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.minimap.show
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("minimap")
 								ShamanPower.opt.minimap.show = val
 								ShamanPowerMinimapIcon_Toggle()
 							end
@@ -150,10 +151,22 @@ ShamanPower.options = {
 					type = "group",
 					inline = true,
 					args = {
-						reset = {
+						reset_center = {
 							order = 1,
-							name = L["Reset Frames"],
-							desc = L["Reset all ShamanPower frames back to center"],
+							name = "Reset Frames to Center",
+							desc = "Reset totem bar and cooldown bar positions to center of screen",
+							type = "execute",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							func = function()
+								SlashCmdList["SPCENTER"]("")
+							end
+						},
+						reset_defaults = {
+							order = 2,
+							name = "Reset to Defaults",
+							desc = "Reset all visual settings (scale, skin, border, layout) back to defaults",
 							type = "execute",
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false
@@ -338,6 +351,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.autobuff.autobutton
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("autobuff")
 								ShamanPower.opt.autobuff.autobutton = val
 								ShamanPower:UpdateRoster()
 							end
@@ -1098,6 +1112,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.autobuff.waitforpeople
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("autobuff")
 								ShamanPower.opt.autobuff.waitforpeople = val
 								ShamanPower:UpdateRoster()
 							end
@@ -1160,6 +1175,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.display.showClassButtons
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("display")
 								ShamanPower.opt.display.showClassButtons = val
 								ShamanPower:UpdateRoster()
 							end
@@ -1176,6 +1192,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.display.showPlayerButtons
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("display")
 								ShamanPower.opt.display.showPlayerButtons = val
 								ShamanPower:UpdateRoster()
 							end
@@ -1192,6 +1209,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.display.buffDuration
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("display")
 								ShamanPower.opt.display.buffDuration = val
 								ShamanPower:UpdateRoster()
 							end
@@ -1512,6 +1530,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.display.enableDragHandle
 							end,
 							set = function(info, val)
+								ShamanPower:EnsureProfileTable("display")
 								ShamanPower.opt.display.enableDragHandle = val
 								ShamanPower:UpdateRoster()
 								ShamanPower:UpdateCooldownBarPosition()
@@ -1615,6 +1634,19 @@ ShamanPower.options = {
 								ShamanPower.opt.cdbarShowCDText = val
 							end
 						},
+						shield_charge_colors = {
+							order = 4,
+							type = "toggle",
+							name = "Shield Charge Colors",
+							desc = "Color shield charge count based on remaining charges (Green=full, Yellow=half, Red=low). Disable for plain white text.",
+							width = 1.2,
+							get = function(info)
+								return ShamanPower.opt.shieldChargeColors ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.shieldChargeColors = val
+							end
+						},
 					}
 				},
 				color_section = {
@@ -1634,6 +1666,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.cBuffGood.r, ShamanPower.opt.cBuffGood.g, ShamanPower.opt.cBuffGood.b, ShamanPower.opt.cBuffGood.t
 							end,
 							set = function(info, r, g, b, t)
+								ShamanPower:EnsureProfileTable("cBuffGood")
 								ShamanPower.opt.cBuffGood.r = r
 								ShamanPower.opt.cBuffGood.g = g
 								ShamanPower.opt.cBuffGood.b = b
@@ -1650,6 +1683,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.cBuffNeedSome.r, ShamanPower.opt.cBuffNeedSome.g, ShamanPower.opt.cBuffNeedSome.b, ShamanPower.opt.cBuffNeedSome.t
 							end,
 							set = function(info, r, g, b, t)
+								ShamanPower:EnsureProfileTable("cBuffNeedSome")
 								ShamanPower.opt.cBuffNeedSome.r = r
 								ShamanPower.opt.cBuffNeedSome.g = g
 								ShamanPower.opt.cBuffNeedSome.b = b
@@ -1665,6 +1699,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.cBuffNeedAll.r, ShamanPower.opt.cBuffNeedAll.g, ShamanPower.opt.cBuffNeedAll.b, ShamanPower.opt.cBuffNeedAll.t
 							end,
 							set = function(info, r, g, b, t)
+								ShamanPower:EnsureProfileTable("cBuffNeedAll")
 								ShamanPower.opt.cBuffNeedAll.r = r
 								ShamanPower.opt.cBuffNeedAll.g = g
 								ShamanPower.opt.cBuffNeedAll.b = b
