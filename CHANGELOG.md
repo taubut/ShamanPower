@@ -1,5 +1,13 @@
 # ShamanPower Changelog
 
+## [v1.3.6](https://github.com/taubut/ShamanPower/releases/tag/v1.3.6) (2026-01-21)
+- Fix profile system: Totem bar and cooldown bar positions now properly save and restore per-profile
+- Fix all nested settings (display, colors, minimap, autobuff) to properly persist to profiles
+- Add shield charge color coding: Green (full), Yellow (half), Red (low) based on remaining charges
+- Add "Reset Frames to Center" button in Settings (same as `/spcenter`)
+- Rename "Reset Frames" to "Reset to Defaults" for clarity
+- Fix `/spcenter` to properly center cooldown bar when unlocked from totem bar
+
 ## [v1.3.5](https://github.com/taubut/ShamanPower/releases/tag/v1.3.5) (2026-01-21)
 - Raid Cooldowns: Anyone can now set Heroism/Mana Tide assignments (not just raid leader/assist)
 - Raid Cooldowns: Fix Mana Tide shaman list not showing for non-leaders

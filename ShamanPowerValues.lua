@@ -123,6 +123,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         raidCDPlaySound = true,  -- Play sound when calling cooldowns
         raidCDShowButtonAnimation = true,  -- Show cooldown animation on caller buttons
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
+        shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button

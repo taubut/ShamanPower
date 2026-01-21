@@ -249,8 +249,44 @@ function ShamanPower:OnInitialize()
 
 	local h = _G["ShamanPowerFrame"]
 	h:ClearAllPoints()
-	h:SetPoint("CENTER", "UIParent", "CENTER", self.opt.display.offsetX, self.opt.display.offsetY)
+	local x = self.opt.display.offsetX
+	local y = self.opt.display.offsetY
+	if x and y and x ~= 0 and y ~= 0 then
+		-- Restore absolute position (CENTER of frame at saved x,y screen coordinates)
+		h:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+	else
+		-- Default to center of screen if no saved position
+		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
 
+end
+
+-- Helper function to ensure nested tables exist in the profile for proper saving
+-- AceDB returns default tables when profile doesn't have the key, but setting
+-- values on default tables doesn't persist to the profile
+function ShamanPower:EnsureProfileTable(tableName)
+	if not rawget(self.db.profile, tableName) then
+		-- Create a copy of the defaults in the profile
+		local defaults = SHAMANPOWER_DEFAULT_VALUES.profile[tableName]
+		if defaults then
+			self.db.profile[tableName] = {}
+			for k, v in pairs(defaults) do
+				self.db.profile[tableName][k] = v
+			end
+		else
+			self.db.profile[tableName] = {}
+		end
+	end
+end
+
+-- Helper to save frame position to profile (ensures display table exists)
+-- Saves absolute screen position for exact restore
+function ShamanPower:SaveFramePosition(frame)
+	self:EnsureProfileTable("display")
+	-- Save the frame's center as absolute screen coordinates
+	local x, y = frame:GetCenter()
+	self.db.profile.display.offsetX = x
+	self.db.profile.display.offsetY = y
 end
 
 function ShamanPower:OnEnable()
@@ -335,7 +371,44 @@ end
 
 function ShamanPower:OnProfileChanged()
 	self.opt = self.db.profile
+
+	-- Reset frame positions when profile changes (prevents off-screen issues)
+	if not InCombatLockdown() then
+		local h = _G["ShamanPowerFrame"]
+		if h then
+			h:ClearAllPoints()
+			local x = self.opt.display and self.opt.display.offsetX
+			local y = self.opt.display and self.opt.display.offsetY
+			if x and y and x ~= 0 and y ~= 0 then
+				-- Restore absolute position (CENTER of frame at saved x,y screen coordinates)
+				h:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+			else
+				-- Default to center of screen if no saved position
+				h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+			end
+		end
+
+		-- Apply cooldown bar position from new profile (force reposition to use profile's saved position)
+		if self.cooldownBar then
+			self.opt.cooldownBarPosX = self.opt.cooldownBarPosX or 0
+			self.opt.cooldownBarPosY = self.opt.cooldownBarPosY or -50
+			self.opt.cooldownBarPoint = self.opt.cooldownBarPoint or "CENTER"
+			self.opt.cooldownBarRelPoint = self.opt.cooldownBarRelPoint or "CENTER"
+			self:UpdateCooldownBarPosition(true)  -- true = force reposition from profile
+		end
+
+		-- Reset assignment window position
+		local c = _G["ShamanPowerBlessingsFrame"]
+		if c then
+			c:ClearAllPoints()
+			c:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		end
+	end
+
+	self:ApplySkin()
 	self:UpdateLayout()
+	self:UpdateRoster()
+	--self:Debug("Profile changed, positions restored from profile.")
 end
 
 function ShamanPower:BindKeys()
@@ -370,17 +443,26 @@ end
 function ShamanPower:Reset()
 	if InCombatLockdown() then return end
 
+	-- Reset totem bar to center and clear saved position
 	local h = _G["ShamanPowerFrame"]
 	h:ClearAllPoints()
-	h:SetPoint("CENTER", "UIParent", "CENTER", self.opt.display.offsetX, self.opt.display.offsetY)
+	h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	self:EnsureProfileTable("display")
+	self.opt.display.offsetX = 0
+	self.opt.display.offsetY = 0
+
+	-- Reset visual settings to defaults
 	self.opt.buffscale = 0.9
 	self.opt.border = "Blizzard Tooltip"
-	self.opt.layout = "Layout 2"
+	self.opt.layout = "Vertical"
 	self.opt.skin = "Smooth"
+	self.opt.configscale = 0.9
+
+	-- Reset assignment window to center
 	local c = _G["ShamanPowerBlessingsFrame"]
 	c:ClearAllPoints()
-	c:SetPoint("CENTER", "UIParent", "CENTER", 0, 0)
-	self.opt.configscale = 0.9
+	c:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+
 	self:ApplySkin()
 	self:UpdateLayout()
 end
@@ -3286,10 +3368,22 @@ function ShamanPower:UpdateCooldownButtons()
 				local remaining = shieldExpiration - GetTime()
 				local maxDuration = shieldDuration > 0 and shieldDuration or 600  -- Default 10 min
 
-				-- Show charge count
+				-- Show charge count with optional coloring
 				if btn.chargeText then
 					if shieldCharges > 0 then
 						btn.chargeText:SetText(tostring(shieldCharges))
+						-- Color based on charges if enabled
+						if self.opt.shieldChargeColors then
+							if shieldCharges >= 3 then
+								btn.chargeText:SetTextColor(0, 1, 0)  -- Green (full/high)
+							elseif shieldCharges == 2 then
+								btn.chargeText:SetTextColor(1, 1, 0)  -- Yellow (half)
+							else
+								btn.chargeText:SetTextColor(1, 0, 0)  -- Red (low - 1 charge)
+							end
+						else
+							btn.chargeText:SetTextColor(1, 1, 1)  -- White (default)
+						end
 					else
 						btn.chargeText:SetText("")
 					end
@@ -3515,7 +3609,8 @@ function ShamanPower:RecreateCooldownBar()
 end
 
 -- Update cooldown bar position based on lock state
-function ShamanPower:UpdateCooldownBarPosition()
+-- forceReposition: set to true when switching profiles to apply new profile's position
+function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 	if not self.cooldownBar then return end
 	if InCombatLockdown() then return end
 	if self.cooldownBarDragging then return end
@@ -3540,8 +3635,8 @@ function ShamanPower:UpdateCooldownBarPosition()
 			end
 		end
 
-		-- ONLY position the bar when FIRST unlocking (like totem bar - positioned once, never again)
-		if self.cooldownBar:GetParent() ~= UIParent then
+		-- Position the bar when first unlocking OR when forcing reposition (profile change)
+		if self.cooldownBar:GetParent() ~= UIParent or forceReposition then
 			self.cooldownBar:SetParent(UIParent)
 			self.cooldownBar:SetFrameStrata("MEDIUM")
 			self.cooldownBar:SetFrameLevel(100)
@@ -4945,7 +5040,18 @@ function ShamanPower:UpdateEarthShieldCharges()
 
 	if currentTarget and charges and charges > 0 then
 		chargeText:SetText(tostring(charges))
-		chargeText:SetTextColor(1, 1, 1)  -- White
+		-- Color based on charges if enabled (Earth Shield has more charges: 6-10)
+		if self.opt.shieldChargeColors then
+			if charges >= 5 then
+				chargeText:SetTextColor(0, 1, 0)  -- Green (healthy)
+			elseif charges >= 3 then
+				chargeText:SetTextColor(1, 1, 0)  -- Yellow (getting low)
+			else
+				chargeText:SetTextColor(1, 0, 0)  -- Red (critical - 1-2 charges)
+			end
+		else
+			chargeText:SetTextColor(1, 1, 1)  -- White (default)
+		end
 	else
 		chargeText:SetText("")
 	end
@@ -6730,8 +6836,8 @@ function ShamanPower:CreateLayout()
 		if ShamanPower.isDragging then
 			local frame = ShamanPowerFrame
 			frame:StopMovingOrSizing()
-			-- Save position
-			_, _, _, ShamanPower.opt.display.offsetX, ShamanPower.opt.display.offsetY = frame:GetPoint()
+			-- Save position to profile (ensures display table exists for proper persistence)
+			ShamanPower:SaveFramePosition(frame)
 			ShamanPower.isDragging = false
 		end
 	end)
@@ -7950,6 +8056,7 @@ end
 function ShamanPower:ClickHandle(button, mousebutton)
 	-- Lock & Unlock the frame on left click, and toggle config dialog with right click
 	local function RelockActionBars()
+		ShamanPower:EnsureProfileTable("display")
 		self.opt.display.frameLocked = true
 		if (self.opt.display.LockBuffBars) then
 			LOCK_ACTIONBAR = "1"
@@ -7965,13 +8072,14 @@ function ShamanPower:ClickHandle(button, mousebutton)
 			button:SetChecked(self.opt.display.frameLocked)
 		end
 	elseif (mousebutton == "LeftButton") then
+		self:EnsureProfileTable("display")
 		self.opt.display.frameLocked = not self.opt.display.frameLocked
 		if (self.opt.display.frameLocked) then
 			if (self.opt.display.LockBuffBars) then
 				LOCK_ACTIONBAR = "1"
 			end
 			local h = _G["ShamanPowerFrame"]
-			_, _, _, self.opt.display.offsetX, self.opt.display.offsetY = h:GetPoint()
+			self:SaveFramePosition(h)
 		else
 			if (self.opt.display.LockBuffBars) then
 				LOCK_ACTIONBAR = "0"
@@ -7995,8 +8103,8 @@ function ShamanPower:DragStop()
 	-- End dragging and save position
 	local h = _G["ShamanPowerFrame"]
 	h:StopMovingOrSizing()
-	-- Save position immediately so it persists
-	_, _, _, self.opt.display.offsetX, self.opt.display.offsetY = h:GetPoint()
+	-- Save position to profile (ensures display table exists for proper persistence)
+	self:SaveFramePosition(h)
 end
 
 function ShamanPower:AutoBuff(button, mousebutton)
@@ -11799,4 +11907,111 @@ SlashCmdList["SPRANGE"] = function(msg)
 		end
 		ShamanPower:ShowSPRangeConfig()
 	end
+end
+
+-- ============================================================================
+-- SPThanks: Special feature for Srumar to thank ShamanPower users
+-- ============================================================================
+
+ShamanPower.spThanksEnabled = false
+ShamanPower.spThankedPlayers = {}  -- Track who we've already thanked this session
+
+function ShamanPower:SPThanksCheckAndWhisper(playerName)
+	-- Only works for Srumar
+	if self.player ~= "Srumar" then return end
+	if not self.spThanksEnabled then return end
+	if not playerName or playerName == self.player then return end
+
+	-- Don't thank the same person twice in a session
+	if self.spThankedPlayers[playerName] then return end
+
+	-- Mark as thanked and send whisper
+	self.spThankedPlayers[playerName] = true
+	SendChatMessage("Thanks for installing ShamanPower!", "WHISPER", nil, playerName)
+	self:Print("Thanked " .. playerName .. " for using ShamanPower!")
+end
+
+-- Hook into existing addon sync to detect users
+local originalParseMessage = ShamanPower.ParseMessage
+function ShamanPower:ParseMessage(sender, msg, ...)
+	-- Check for SPThanks before calling original (sender is first param!)
+	if sender and sender ~= self.player then
+		-- Strip realm name if present
+		local shortName = strsplit("-", sender)
+		self:SPThanksCheckAndWhisper(shortName)
+	end
+
+	-- Call original function
+	if originalParseMessage then
+		return originalParseMessage(self, sender, msg, ...)
+	end
+end
+
+SLASH_SPTHANKS1 = "/spthanks"
+SlashCmdList["SPTHANKS"] = function(msg)
+	-- Only Srumar can use this
+	if ShamanPower.player ~= "Srumar" then
+		print("|cffff0000ShamanPower:|r This feature is only available for Srumar.")
+		return
+	end
+
+	msg = msg:lower():trim()
+
+	if msg == "on" then
+		ShamanPower.spThanksEnabled = true
+		ShamanPower.spThankedPlayers = {}  -- Reset thanked list
+		print("|cff00ff00ShamanPower:|r SPThanks enabled! Will whisper thanks to ShamanPower users.")
+	elseif msg == "off" then
+		ShamanPower.spThanksEnabled = false
+		print("|cff00ff00ShamanPower:|r SPThanks disabled.")
+	else
+		local status = ShamanPower.spThanksEnabled and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+		print("|cff00ff00ShamanPower:|r SPThanks is currently " .. status)
+		print("Usage: /spthanks on | /spthanks off")
+	end
+end
+
+-- ============================================================================
+-- SPCenter: Reset totem bar and cooldown bar to center of screen
+-- ============================================================================
+
+SLASH_SPCENTER1 = "/spcenter"
+SlashCmdList["SPCENTER"] = function(msg)
+	if InCombatLockdown() then
+		print("|cffff0000ShamanPower:|r Cannot reposition frames during combat.")
+		return
+	end
+
+	-- Reset main ShamanPower frame to center and save position
+	local mainFrame = _G["ShamanPowerFrame"]
+	if mainFrame then
+		mainFrame:ClearAllPoints()
+		mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		-- Clear saved position so it stays centered after reload
+		ShamanPower:EnsureProfileTable("display")
+		ShamanPower.opt.display.offsetX = 0
+		ShamanPower.opt.display.offsetY = 0
+		print("|cff00ff00ShamanPower:|r Totem bar moved to center.")
+	end
+
+	-- Reset cooldown bar position (force reposition even if already unlocked)
+	if ShamanPower.cooldownBar then
+		ShamanPower.opt.cooldownBarPosX = 0
+		ShamanPower.opt.cooldownBarPosY = -50
+		ShamanPower.opt.cooldownBarPoint = "CENTER"
+		ShamanPower.opt.cooldownBarRelPoint = "CENTER"
+		ShamanPower:UpdateCooldownBarPosition(true)  -- true = force reposition
+		print("|cff00ff00ShamanPower:|r Cooldown bar moved to center.")
+	end
+
+	-- Make sure bars are visible
+	if ShamanPower.autoButton then
+		ShamanPower.autoButton:Show()
+	end
+
+	-- Force a layout update
+	ShamanPower:UpdateLayout()
+	ShamanPower:UpdateRoster()
+
+	print("|cff00ff00ShamanPower:|r Frames reset to center. Use ALT+drag to reposition.")
 end
