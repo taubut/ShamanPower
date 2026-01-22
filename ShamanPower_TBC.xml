@@ -1,5 +1,46 @@
 <Ui xmlns = "http://www.blizzard.com/wow/ui/" xmlns:xsi = "http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation = "http://www.blizzard.com/wow/ui/ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 
+<!-- Combat-Functional Totem Button Templates (TotemTimers architecture) -->
+<!-- Parent totem button: parented to UIParent, enables combat flyouts -->
+<!-- NOTE: No ActionButtonTemplate - just secure templates to avoid visual clutter -->
+	<Button name="SPTotemButtonTemplate" virtual="true" frameStrata="MEDIUM"
+		inherits="SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerAttributeTemplate, SecureHandlerBaseTemplate">
+		<Size x="26" y="26"/>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentIcon" setAllPoints="true"/>
+			</Layer>
+			<Layer level="HIGHLIGHT">
+				<Texture name="$parentHighlight" alphaMode="ADD" setAllPoints="true">
+					<Color r="1" g="1" b="1" a="0.3"/>
+				</Texture>
+			</Layer>
+		</Layers>
+	</Button>
+
+<!-- Flyout button: child of parent button, responds to ChildUpdate -->
+<!-- NOTE: No ActionButtonTemplate - just secure templates to avoid visual clutter -->
+	<Button name="SPFlyoutButtonTemplate" virtual="true" frameStrata="DIALOG"
+		inherits="SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate, SecureHandlerBaseTemplate">
+		<Size x="28" y="28"/>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentIcon" setAllPoints="true"/>
+			</Layer>
+			<Layer level="HIGHLIGHT">
+				<Texture name="$parentHighlight" alphaMode="ADD" setAllPoints="true">
+					<Color r="1" g="1" b="1" a="0.3"/>
+				</Texture>
+			</Layer>
+		</Layers>
+		<Scripts>
+			<OnLoad>
+				self:RegisterForClicks("AnyUp", "AnyDown")
+				self:Hide()
+			</OnLoad>
+		</Scripts>
+	</Button>
+
 <!-- ShamanPower Buttons -->
 	<Button name = "ShamanPowerRFButtonTemplate" virtual = "true" frameStrata = "LOW" inherits = "SecureActionButtonTemplate">
 		<Size>
@@ -141,7 +182,7 @@
 		</KeyValues>
 		<Frames>
 			<!-- Earth Totem Button -->
-			<Button name = "$parentTotem1" inherits = "SecureActionButtonTemplate">
+			<CheckButton name = "$parentTotem1" inherits = "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerAttributeTemplate">
 				<Size>
 					<AbsDimension x = "26" y = "26"/>
 				</Size>
@@ -161,9 +202,9 @@
 					<OnEnter>ShamanPower:TotemBarTooltip(self, 1)</OnEnter>
 					<OnLeave>GameTooltip:Hide()</OnLeave>
 				</Scripts>
-			</Button>
+			</CheckButton>
 			<!-- Fire Totem Button -->
-			<Button name = "$parentTotem2" inherits = "SecureActionButtonTemplate">
+			<CheckButton name = "$parentTotem2" inherits = "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerAttributeTemplate">
 				<Size>
 					<AbsDimension x = "26" y = "26"/>
 				</Size>
@@ -183,9 +224,9 @@
 					<OnEnter>ShamanPower:TotemBarTooltip(self, 2)</OnEnter>
 					<OnLeave>GameTooltip:Hide()</OnLeave>
 				</Scripts>
-			</Button>
+			</CheckButton>
 			<!-- Water Totem Button -->
-			<Button name = "$parentTotem3" inherits = "SecureActionButtonTemplate">
+			<CheckButton name = "$parentTotem3" inherits = "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerAttributeTemplate">
 				<Size>
 					<AbsDimension x = "26" y = "26"/>
 				</Size>
@@ -205,9 +246,9 @@
 					<OnEnter>ShamanPower:TotemBarTooltip(self, 3)</OnEnter>
 					<OnLeave>GameTooltip:Hide()</OnLeave>
 				</Scripts>
-			</Button>
+			</CheckButton>
 			<!-- Air Totem Button -->
-			<Button name = "$parentTotem4" inherits = "SecureActionButtonTemplate">
+			<CheckButton name = "$parentTotem4" inherits = "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerAttributeTemplate">
 				<Size>
 					<AbsDimension x = "26" y = "26"/>
 				</Size>
@@ -227,7 +268,7 @@
 					<OnEnter>ShamanPower:TotemBarTooltip(self, 4)</OnEnter>
 					<OnLeave>GameTooltip:Hide()</OnLeave>
 				</Scripts>
-			</Button>
+			</CheckButton>
 			<!-- Drop All Button - cycles through totems -->
 			<Button name = "$parentDropAll" inherits = "SecureActionButtonTemplate">
 				<Size>

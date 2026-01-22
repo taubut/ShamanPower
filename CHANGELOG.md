@@ -1,5 +1,27 @@
 # ShamanPower Changelog
 
+## [v1.3.7-beta](https://github.com/taubut/ShamanPower/releases/tag/v1.3.7-beta) (2026-01-22)
+
+### Duration Bar Improvements
+- Add duration bar position options: Left, Right, Top (Horizontal), Top (Vertical), Bottom (Horizontal), Bottom (Vertical)
+- Add duration bar size slider for both totem bar and cooldown bar
+- Add duration text position options: Inside Bar (Top), Inside Bar (Bottom), Above Bar, Below Bar, On Icon
+
+### Pulse Bar Improvements (for pulsing totems like Tremor, Healing Stream)
+- Add pulse bar position options: On Icon, Above (Horizontal/Vertical), Below (Horizontal/Vertical), Left, Right
+- Add pulse time display options: Inside Bar (Top/Bottom), Above Bar, Below Bar, On Icon
+- Pulse bar now respects position setting on active totem overlays
+
+### Flyout Improvements
+- Add flyout direction option for totem bar when in horizontal mode (Auto, Above, Below)
+- Add flyout direction option for cooldown bar when in horizontal mode (Auto, Above, Below)
+- Move flyout direction options to Look & Feel tab under Layout section
+
+### Bug Fixes
+- Fix cooldown bar hidden items still working with keybinds (buttons created but hidden)
+- Fix Earth Shield tracker crash when leaving group (nil table error)
+- Fix various option label abbreviations (Horiz/Vert changed to Horizontal/Vertical)
+
 ## [v1.3.6](https://github.com/taubut/ShamanPower/releases/tag/v1.3.6) (2026-01-21)
 - Fix profile system: Totem bar and cooldown bar positions now properly save and restore per-profile
 - Fix all nested settings (display, colors, minimap, autobuff) to properly persist to profiles
