@@ -10,3 +10,4 @@ Thumbs.db
 # Packager
 .release/
 .pkgmeta
+CLAUDE_NOTES.md
