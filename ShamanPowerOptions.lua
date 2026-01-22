@@ -384,31 +384,37 @@ ShamanPower.options = {
 								ShamanPower:UpdatePartyRangeDots()
 							end
 						},
-						show_cooldown_bar = {
-							order = 2.2,
-							type = "toggle",
-							name = "Show Cooldown Bar",
-							desc = "[Enable/Disable] Show a cooldown tracker bar below the totem bar (Shields, Ankh, Nature's Swiftness)",
-							width = 1.3,
-							get = function(info)
-								return ShamanPower.opt.showCooldownBar
-							end,
-							set = function(info, val)
-								ShamanPower.opt.showCooldownBar = val
-								ShamanPower:UpdateCooldownBar()
-							end
-						},
 						show_totem_flyouts = {
 							order = 2.25,
 							type = "toggle",
 							name = "Show Totem Flyouts",
 							desc = "[Enable/Disable] Show flyout menus on mouseover for quick totem selection (TotemTimers style)",
-							width = 1.3,
+							width = 1.0,
 							get = function(info)
 								return ShamanPower.opt.showTotemFlyouts
 							end,
 							set = function(info, val)
 								ShamanPower.opt.showTotemFlyouts = val
+								ShamanPower:UpdateTotemFlyoutEnabled()
+							end
+						},
+						show_es_flyout = {
+							order = 2.26,
+							type = "toggle",
+							name = "Show ES Flyout",
+							desc = "[Enable/Disable] Show flyout menu on Earth Shield button for quick target selection",
+							width = 1.3,
+							hidden = function(info)
+								return not ShamanPower:HasEarthShield()
+							end,
+							get = function(info)
+								return ShamanPower.opt.enableESFlyout ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.enableESFlyout = val
+								if not InCombatLockdown() then
+									ShamanPower:UpdateEarthShieldButton()
+								end
 							end
 						},
 						drop_order_header = {
@@ -595,513 +601,6 @@ ShamanPower.options = {
 								ShamanPower:UpdateSPMacros()
 							end
 						},
-						totem_bar_order_header = {
-							order = 2.91,
-							type = "description",
-							name = "\n|cffffd200Totem Bar Order:|r Choose the order of totem buttons",
-							fontSize = "medium",
-						},
-						totem_bar_order_1 = {
-							order = 2.911,
-							type = "select",
-							name = "1st",
-							desc = "First totem button position",
-							width = 0.5,
-							values = {
-								[1] = "Earth",
-								[2] = "Fire",
-								[3] = "Water",
-								[4] = "Air",
-							},
-							get = function(info)
-								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[1] or 1
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
-								-- Swap if duplicate
-								for i = 2, 4 do
-									if ShamanPower.opt.totemBarOrder[i] == val then
-										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[1]
-										break
-									end
-								end
-								ShamanPower.opt.totemBarOrder[1] = val
-								ShamanPower:UpdateMiniTotemBar()
-							end
-						},
-						totem_bar_order_2 = {
-							order = 2.912,
-							type = "select",
-							name = "2nd",
-							desc = "Second totem button position",
-							width = 0.5,
-							values = {
-								[1] = "Earth",
-								[2] = "Fire",
-								[3] = "Water",
-								[4] = "Air",
-							},
-							get = function(info)
-								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[2] or 2
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
-								-- Swap if duplicate
-								for i = 1, 4 do
-									if i ~= 2 and ShamanPower.opt.totemBarOrder[i] == val then
-										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[2]
-										break
-									end
-								end
-								ShamanPower.opt.totemBarOrder[2] = val
-								ShamanPower:UpdateMiniTotemBar()
-							end
-						},
-						totem_bar_order_3 = {
-							order = 2.913,
-							type = "select",
-							name = "3rd",
-							desc = "Third totem button position",
-							width = 0.5,
-							values = {
-								[1] = "Earth",
-								[2] = "Fire",
-								[3] = "Water",
-								[4] = "Air",
-							},
-							get = function(info)
-								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[3] or 3
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
-								-- Swap if duplicate
-								for i = 1, 4 do
-									if i ~= 3 and ShamanPower.opt.totemBarOrder[i] == val then
-										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[3]
-										break
-									end
-								end
-								ShamanPower.opt.totemBarOrder[3] = val
-								ShamanPower:UpdateMiniTotemBar()
-							end
-						},
-						totem_bar_order_4 = {
-							order = 2.914,
-							type = "select",
-							name = "4th",
-							desc = "Fourth totem button position",
-							width = 0.5,
-							values = {
-								[1] = "Earth",
-								[2] = "Fire",
-								[3] = "Water",
-								[4] = "Air",
-							},
-							get = function(info)
-								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[4] or 4
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
-								-- Swap if duplicate
-								for i = 1, 3 do
-									if ShamanPower.opt.totemBarOrder[i] == val then
-										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[4]
-										break
-									end
-								end
-								ShamanPower.opt.totemBarOrder[4] = val
-								ShamanPower:UpdateMiniTotemBar()
-							end
-						},
-						cooldown_bar_order_header = {
-							order = 2.92,
-							type = "description",
-							name = "\n|cffffd200Cooldown Bar Order:|r Choose the order of cooldown buttons",
-							fontSize = "medium",
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-						},
-						cooldown_bar_order_1 = {
-							order = 2.921,
-							type = "select",
-							name = "1st",
-							desc = "First cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[1] or 1
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 2, 7 do
-									if ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[1]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[1] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cooldown_bar_order_2 = {
-							order = 2.922,
-							type = "select",
-							name = "2nd",
-							desc = "Second cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[2] or 2
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 1, 7 do
-									if i ~= 2 and ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[2]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[2] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cooldown_bar_order_3 = {
-							order = 2.923,
-							type = "select",
-							name = "3rd",
-							desc = "Third cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[3] or 3
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 1, 7 do
-									if i ~= 3 and ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[3]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[3] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cooldown_bar_order_4 = {
-							order = 2.924,
-							type = "select",
-							name = "4th",
-							desc = "Fourth cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[4] or 4
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 1, 7 do
-									if i ~= 4 and ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[4]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[4] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cooldown_bar_order_5 = {
-							order = 2.925,
-							type = "select",
-							name = "5th",
-							desc = "Fifth cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[5] or 5
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 1, 7 do
-									if i ~= 5 and ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[5]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[5] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cooldown_bar_order_6 = {
-							order = 2.926,
-							type = "select",
-							name = "6th",
-							desc = "Sixth cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[6] or 6
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 1, 7 do
-									if i ~= 6 and ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[6]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[6] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cooldown_bar_order_7 = {
-							order = 2.927,
-							type = "select",
-							name = "7th",
-							desc = "Seventh cooldown button position",
-							width = 0.42,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							values = {
-								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "MTT",
-								[6] = "BL",
-								[7] = "Imbue",
-							},
-							get = function(info)
-								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[7] or 7
-							end,
-							set = function(info, val)
-								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
-								-- Swap if duplicate
-								for i = 1, 6 do
-									if ShamanPower.opt.cooldownBarOrder[i] == val then
-										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[7]
-										break
-									end
-								end
-								ShamanPower.opt.cooldownBarOrder[7] = val
-								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
-							end
-						},
-						cdbar_items_header = {
-							order = 2.95,
-							type = "description",
-							name = "\n|cffffd200Cooldown Bar Items:|r Choose which items to show",
-							fontSize = "medium",
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-						},
-						cdbar_show_shields = {
-							order = 2.96,
-							type = "toggle",
-							name = "Shields",
-							desc = "Show Lightning/Water Shield button on cooldown bar",
-							width = 0.6,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowShields ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowShields = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
-						cdbar_show_recall = {
-							order = 2.97,
-							type = "toggle",
-							name = "Recall",
-							desc = "Show Totemic Call button on cooldown bar",
-							width = 0.5,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowRecall ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowRecall = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
-						cdbar_show_reincarnation = {
-							order = 2.98,
-							type = "toggle",
-							name = "Ankh",
-							desc = "Show Reincarnation cooldown on cooldown bar",
-							width = 0.5,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowReincarnation ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowReincarnation = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
-						cdbar_show_ns = {
-							order = 2.981,
-							type = "toggle",
-							name = "NS",
-							desc = "Show Nature's Swiftness cooldown on cooldown bar",
-							width = 0.4,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowNS ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowNS = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
-						cdbar_show_manatide = {
-							order = 2.982,
-							type = "toggle",
-							name = "Mana Tide",
-							desc = "Show Mana Tide Totem cooldown on cooldown bar",
-							width = 0.6,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowManaTide ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowManaTide = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
-						cdbar_show_bloodlust = {
-							order = 2.983,
-							type = "toggle",
-							name = "BL/Hero",
-							desc = "Show Bloodlust/Heroism cooldown on cooldown bar",
-							width = 0.55,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowBloodlust ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowBloodlust = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
-						cdbar_show_imbues = {
-							order = 2.984,
-							type = "toggle",
-							name = "Imbues",
-							desc = "Show Weapon Imbue button on cooldown bar",
-							width = 0.55,
-							hidden = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return ShamanPower.opt.cdbarShowImbues ~= false
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cdbarShowImbues = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
-							end
-						},
 						auto_wait = {
 							order = 3,
 							type = "toggle",
@@ -1244,8 +743,8 @@ ShamanPower.options = {
 							order = 1,
 							type = "select",
 							width = 1.4,
-							name = L["Buff Button | Player Button Layout"],
-							desc = L["LAYOUT_TOOLTIP"],
+							name = "Totem Bar Layout",
+							desc = "Change the layout orientation of the totem bar",
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman
 							end,
@@ -1255,6 +754,11 @@ ShamanPower.options = {
 							set = function(info, val)
 								-- Don't change layout in combat
 								if InCombatLockdown() then return end
+
+								-- Initialize cdbarLayout if not set, so changing totem bar doesn't affect CD bar
+								if ShamanPower.opt.cdbarLayout == nil then
+									ShamanPower.opt.cdbarLayout = ShamanPower.opt.layout
+								end
 
 								-- Save current autoButton screen position before layout change
 								local oldLayout = ShamanPower.opt.layout
@@ -1299,6 +803,98 @@ ShamanPower.options = {
 								["VerticalLeft"] = "Vertical (Left)",
 							}
 						},
+						totem_flyout_direction = {
+							order = 1.2,
+							type = "select",
+							name = "Totem Flyout Direction",
+							desc = "Direction totem flyouts appear when totem bar is horizontal",
+							width = 1.0,
+							hidden = function(info)
+								return not ShamanPower.opt.showTotemFlyouts or ShamanPower.opt.layout ~= "Horizontal"
+							end,
+							values = {
+								["auto"] = "Auto",
+								["above"] = "Above",
+								["below"] = "Below",
+							},
+							get = function(info)
+								return ShamanPower.opt.totemFlyoutDirection or "auto"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemFlyoutDirection = val
+								-- Update all totem flyouts (UpdateFlyoutVisibility handles positioning)
+								for element = 1, 4 do
+									if ShamanPower.totemFlyouts[element] then
+										ShamanPower:UpdateFlyoutVisibility(element)
+									end
+								end
+								-- Update ES flyout if it exists
+								if ShamanPower.CreateEarthShieldFlyout then
+									ShamanPower:CreateEarthShieldFlyout()
+								end
+							end,
+						},
+						cdbarLayout = {
+							order = 1.5,
+							type = "select",
+							width = 1.4,
+							name = "Cooldown Bar Layout",
+							desc = "Change the layout orientation of the cooldown bar independently from the totem bar",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarLayout or ShamanPower.opt.layout
+							end,
+							set = function(info, val)
+								-- Don't change layout in combat
+								if InCombatLockdown() then return end
+								ShamanPower.opt.cdbarLayout = val
+								ShamanPower:UpdateCooldownBarLayout()
+								ShamanPower:UpdateCooldownBar()
+								-- Re-layout the shield and weapon imbue flyouts for new direction
+								if ShamanPower.LayoutShieldFlyout then
+									ShamanPower:LayoutShieldFlyout()
+								end
+								if ShamanPower.LayoutWeaponImbueFlyout then
+									ShamanPower:LayoutWeaponImbueFlyout()
+								end
+							end,
+							values = {
+								["Horizontal"] = "Horizontal",
+								["Vertical"] = "Vertical (Right)",
+								["VerticalLeft"] = "Vertical (Left)",
+							}
+						},
+						cdbar_flyout_direction = {
+							order = 1.7,
+							type = "select",
+							name = "Cooldown Flyout Direction",
+							desc = "Direction cooldown bar flyouts appear when cooldown bar is horizontal",
+							width = 1.0,
+							hidden = function(info)
+								local cdLayout = ShamanPower.opt.cdbarLayout or ShamanPower.opt.layout
+								return cdLayout ~= "Horizontal"
+							end,
+							values = {
+								["auto"] = "Auto",
+								["above"] = "Above",
+								["below"] = "Below",
+							},
+							get = function(info)
+								return ShamanPower.opt.cdbarFlyoutDirection or "auto"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarFlyoutDirection = val
+								-- Re-layout the shield and weapon imbue flyouts for new direction
+								if ShamanPower.LayoutShieldFlyout then
+									ShamanPower:LayoutShieldFlyout()
+								end
+								if ShamanPower.LayoutWeaponImbueFlyout then
+									ShamanPower:LayoutWeaponImbueFlyout()
+								end
+							end,
+						},
 						swap_flyout_clicks = {
 							order = 2,
 							type = "toggle",
@@ -1313,8 +909,8 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.swapFlyoutClickButtons = val
-								-- Recreate flyouts with new click behavior
-								ShamanPower:RecreateTotemFlyouts()
+								-- Just update click attributes on existing buttons
+								ShamanPower:UpdateFlyoutClickBehavior()
 							end
 						},
 					}
@@ -1332,7 +928,7 @@ ShamanPower.options = {
 							type = "range",
 							width = 1.5,
 							min = 0.4,
-							max = 1.5,
+							max = 3.0,
 							step = 0.05,
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman
@@ -1354,7 +950,7 @@ ShamanPower.options = {
 							type = "range",
 							width = 1.5,
 							min = 0.4,
-							max = 1.5,
+							max = 3.0,
 							step = 0.05,
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
@@ -1374,7 +970,7 @@ ShamanPower.options = {
 							type = "range",
 							width = 1.5,
 							min = 0.4,
-							max = 1.5,
+							max = 3.0,
 							step = 0.05,
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman
@@ -1386,6 +982,98 @@ ShamanPower.options = {
 								ShamanPower.opt.configscale = val
 								ShamanPower:UpdateLayout()
 								ShamanPower:UpdateRoster()
+							end
+						},
+					}
+				},
+				opacity_section = {
+					order = 1.5,
+					name = "Opacity",
+					type = "group",
+					inline = true,
+					args = {
+						totemBarOpacity = {
+							order = 1,
+							name = "Totem Bar",
+							desc = "Adjust the opacity/transparency of the totem bar",
+							type = "range",
+							width = 1.2,
+							min = 0.1,
+							max = 1.0,
+							step = 0.05,
+							isPercent = true,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman
+							end,
+							get = function(info)
+								return ShamanPower.opt.totemBarOpacity or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarOpacity = val
+								ShamanPower:UpdateTotemBarOpacity()
+							end
+						},
+						cooldownBarOpacity = {
+							order = 2,
+							name = "Cooldown Bar",
+							desc = "Adjust the opacity/transparency of the cooldown bar",
+							type = "range",
+							width = 1.2,
+							min = 0.1,
+							max = 1.0,
+							step = 0.05,
+							isPercent = true,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOpacity or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cooldownBarOpacity = val
+								ShamanPower:UpdateCooldownBarOpacity()
+							end
+						},
+						totemFlyoutOpacity = {
+							order = 3,
+							name = "Totem Flyouts",
+							desc = "Adjust the opacity/transparency of the totem bar flyout menus",
+							type = "range",
+							width = 1.2,
+							min = 0.1,
+							max = 1.0,
+							step = 0.05,
+							isPercent = true,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.totemFlyoutOpacity or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemFlyoutOpacity = val
+								ShamanPower:UpdateTotemFlyoutOpacity()
+							end
+						},
+						cooldownFlyoutOpacity = {
+							order = 4,
+							name = "CD Flyouts",
+							desc = "Adjust the opacity/transparency of the cooldown bar flyout menus",
+							type = "range",
+							width = 1.2,
+							min = 0.1,
+							max = 1.0,
+							step = 0.05,
+							isPercent = true,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cooldownFlyoutOpacity or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cooldownFlyoutOpacity = val
+								ShamanPower:UpdateCooldownFlyoutOpacity()
 							end
 						},
 					}
@@ -1639,12 +1327,77 @@ ShamanPower.options = {
 							type = "toggle",
 							name = "Shield Charge Colors",
 							desc = "Color shield charge count based on remaining charges (Green=full, Yellow=half, Red=low). Disable for plain white text.",
-							width = 1.2,
+							width = 1.0,
 							get = function(info)
 								return ShamanPower.opt.shieldChargeColors ~= false
 							end,
 							set = function(info, val)
 								ShamanPower.opt.shieldChargeColors = val
+							end
+						},
+						spacer1 = {
+							order = 5,
+							type = "description",
+							name = "",
+							width = "full",
+						},
+						cdbar_progress_position = {
+							order = 6,
+							type = "select",
+							name = "Bar Position",
+							desc = "Position of the progress bar relative to icons",
+							width = 1.1,
+							values = {
+								["left"] = "Left",
+								["right"] = "Right",
+								["top"] = "Top (Horizontal)",
+								["top_vert"] = "Top (Vertical)",
+								["bottom"] = "Bottom (Horizontal)",
+								["bottom_vert"] = "Bottom (Vertical)",
+							},
+							get = function(info)
+								return ShamanPower.opt.cdbarProgressPosition or "left"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarProgressPosition = val
+								ShamanPower:RecreateCooldownBar()
+							end
+						},
+						cdbar_progress_height = {
+							order = 7,
+							type = "range",
+							name = "Bar Size",
+							desc = "Size of the duration bar (height for horizontal bars, width for vertical bars)",
+							width = 0.8,
+							min = 3,
+							max = 16,
+							step = 1,
+							get = function(info)
+								return ShamanPower.opt.cdbarProgressBarHeight or 3
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarProgressBarHeight = val
+								ShamanPower:UpdateCooldownBarProgressBars()
+								ShamanPower:UpdateCooldownBarLayout()
+							end
+						},
+						cdbar_duration_text = {
+							order = 8,
+							type = "select",
+							name = "Show Duration",
+							desc = "Where to show the remaining duration time",
+							width = 0.9,
+							values = {
+								["none"] = "None",
+								["inside"] = "Inside Bar",
+								["outside"] = "Outside Bar",
+								["icon"] = "On Icon",
+							},
+							get = function(info)
+								return ShamanPower.opt.cdbarDurationTextLocation or "none"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarDurationTextLocation = val
 							end
 						},
 					}
@@ -1895,6 +1648,868 @@ ShamanPower.options = {
 									ShamanPower:UpdateSPRangeBorder()
 								end
 							end
+						},
+					}
+				},
+				estrack_section = {
+					order = 8.5,
+					name = "Earth Shield Tracker",
+					type = "group",
+					inline = true,
+					args = {
+						estrack_enabled = {
+							order = 0.5,
+							name = "Enable",
+							desc = "Enable the Earth Shield tracker to show all Earth Shields in your party/raid",
+							type = "toggle",
+							width = 0.6,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.enabled or false
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.enabled = val
+									ShamanPower:ToggleESTracker()
+								end
+							end
+						},
+						estrack_opacity = {
+							order = 1,
+							name = "Opacity",
+							desc = "Adjust the opacity of the Earth Shield tracker",
+							type = "range",
+							width = 1.3,
+							min = 0.2,
+							max = 1.0,
+							step = 0.1,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.opacity or 1.0
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.opacity = val
+									ShamanPower:UpdateESTrackerOpacity()
+								end
+							end
+						},
+						estrack_icon_size = {
+							order = 2,
+							name = "Icon Size",
+							desc = "Adjust the size of the Earth Shield tracker icons",
+							type = "range",
+							width = 1.5,
+							min = 20,
+							max = 60,
+							step = 4,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.iconSize or 36
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.iconSize = val
+									ShamanPower:UpdateESTrackerFrame()
+								end
+							end
+						},
+						estrack_vertical = {
+							order = 3,
+							name = "Vertical Layout",
+							desc = "Stack Earth Shield icons vertically instead of horizontally",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.vertical or false
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.vertical = val
+									ShamanPower:UpdateESTrackerFrame()
+									ShamanPower:UpdateESTrackerBorder()
+								end
+							end
+						},
+						estrack_hide_names = {
+							order = 4,
+							name = "Hide Names",
+							desc = "Hide player names on the Earth Shield tracker",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideNames or false
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.hideNames = val
+									ShamanPower:UpdateESTrackerFrame()
+								end
+							end
+						},
+						estrack_hide_border = {
+							order = 5,
+							name = "Hide Border",
+							desc = "Hide the frame border and title (use ALT+drag to move when hidden)",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideBorder or false
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.hideBorder = val
+									ShamanPower:UpdateESTrackerBorder()
+								end
+							end
+						},
+						estrack_hide_charges = {
+							order = 6,
+							name = "Hide Charges",
+							desc = "Hide the charge count on Earth Shield icons",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideCharges or false
+							end,
+							set = function(info, val)
+								if ShamanPower_ESTracker then
+									ShamanPower_ESTracker.hideCharges = val
+									ShamanPower:UpdateESTrackerFrame()
+								end
+							end
+						},
+					}
+				},
+				totembar_items_section = {
+					order = 9,
+					name = "Totem Bar Items",
+					type = "group",
+					inline = true,
+					args = {
+						totembar_show_earth = {
+							order = 1,
+							type = "toggle",
+							name = "Earth",
+							desc = "Show Earth totem button on the mini totem bar",
+							width = 0.5,
+							get = function(info)
+								return ShamanPower.opt.totemBarShowEarth ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarShowEarth = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totembar_show_fire = {
+							order = 2,
+							type = "toggle",
+							name = "Fire",
+							desc = "Show Fire totem button on the mini totem bar",
+							width = 0.45,
+							get = function(info)
+								return ShamanPower.opt.totemBarShowFire ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarShowFire = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totembar_show_water = {
+							order = 3,
+							type = "toggle",
+							name = "Water",
+							desc = "Show Water totem button on the mini totem bar",
+							width = 0.5,
+							get = function(info)
+								return ShamanPower.opt.totemBarShowWater ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarShowWater = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totembar_show_air = {
+							order = 4,
+							type = "toggle",
+							name = "Air",
+							desc = "Show Air totem button on the mini totem bar",
+							width = 0.4,
+							get = function(info)
+								return ShamanPower.opt.totemBarShowAir ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarShowAir = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totembar_show_earthshield = {
+							order = 5,
+							type = "toggle",
+							name = "Earth Shield",
+							desc = "Show Earth Shield button on the mini totem bar (if you have the talent)",
+							width = 0.8,
+							get = function(info)
+								return ShamanPower.opt.totemBarShowEarthShield ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarShowEarthShield = val
+								ShamanPower:UpdateEarthShieldButton()
+							end
+						},
+					}
+				},
+				totembar_order_section = {
+					order = 10,
+					name = "Totem Bar Order",
+					type = "group",
+					inline = true,
+					args = {
+						totem_bar_order_1 = {
+							order = 1,
+							type = "select",
+							name = "1st",
+							desc = "First totem button position",
+							width = 0.5,
+							values = {
+								[1] = "Earth",
+								[2] = "Fire",
+								[3] = "Water",
+								[4] = "Air",
+							},
+							get = function(info)
+								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[1] or 1
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
+								for i = 2, 4 do
+									if ShamanPower.opt.totemBarOrder[i] == val then
+										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[1]
+										break
+									end
+								end
+								ShamanPower.opt.totemBarOrder[1] = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totem_bar_order_2 = {
+							order = 2,
+							type = "select",
+							name = "2nd",
+							desc = "Second totem button position",
+							width = 0.5,
+							values = {
+								[1] = "Earth",
+								[2] = "Fire",
+								[3] = "Water",
+								[4] = "Air",
+							},
+							get = function(info)
+								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[2] or 2
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
+								for i = 1, 4 do
+									if i ~= 2 and ShamanPower.opt.totemBarOrder[i] == val then
+										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[2]
+										break
+									end
+								end
+								ShamanPower.opt.totemBarOrder[2] = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totem_bar_order_3 = {
+							order = 3,
+							type = "select",
+							name = "3rd",
+							desc = "Third totem button position",
+							width = 0.5,
+							values = {
+								[1] = "Earth",
+								[2] = "Fire",
+								[3] = "Water",
+								[4] = "Air",
+							},
+							get = function(info)
+								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[3] or 3
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
+								for i = 1, 4 do
+									if i ~= 3 and ShamanPower.opt.totemBarOrder[i] == val then
+										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[3]
+										break
+									end
+								end
+								ShamanPower.opt.totemBarOrder[3] = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						totem_bar_order_4 = {
+							order = 4,
+							type = "select",
+							name = "4th",
+							desc = "Fourth totem button position",
+							width = 0.5,
+							values = {
+								[1] = "Earth",
+								[2] = "Fire",
+								[3] = "Water",
+								[4] = "Air",
+							},
+							get = function(info)
+								return ShamanPower.opt.totemBarOrder and ShamanPower.opt.totemBarOrder[4] or 4
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.totemBarOrder then ShamanPower.opt.totemBarOrder = {1, 2, 3, 4} end
+								for i = 1, 3 do
+									if ShamanPower.opt.totemBarOrder[i] == val then
+										ShamanPower.opt.totemBarOrder[i] = ShamanPower.opt.totemBarOrder[4]
+										break
+									end
+								end
+								ShamanPower.opt.totemBarOrder[4] = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+					}
+				},
+				totembar_duration_section = {
+					order = 10.5,
+					name = "Totem Bar Duration",
+					type = "group",
+					inline = true,
+					args = {
+						duration_bar_position = {
+							order = 1,
+							type = "select",
+							name = "Bar Position",
+							desc = "Position of the duration bar relative to totem icons",
+							width = 1.1,
+							values = {
+								["bottom"] = "Bottom (Horizontal)",
+								["bottom_vert"] = "Bottom (Vertical)",
+								["top"] = "Top (Horizontal)",
+								["top_vert"] = "Top (Vertical)",
+								["left"] = "Left",
+								["right"] = "Right",
+							},
+							get = function(info)
+								return ShamanPower.opt.durationBarPosition or "bottom"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.durationBarPosition = val
+								ShamanPower:UpdateTotemProgressBarPositions()
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						duration_bar_height = {
+							order = 2,
+							type = "range",
+							name = "Bar Size",
+							desc = "Size of the duration bar (height for horizontal bars, width for vertical bars)",
+							width = 0.8,
+							min = 3,
+							max = 16,
+							step = 1,
+							get = function(info)
+								return ShamanPower.opt.durationBarHeight or 3
+							end,
+							set = function(info, val)
+								ShamanPower.opt.durationBarHeight = val
+								ShamanPower:UpdateTotemProgressBarHeight()
+							end
+						},
+						show_duration_text = {
+							order = 3,
+							type = "select",
+							name = "Show Duration",
+							desc = "Where to show the remaining totem duration time",
+							width = 1.1,
+							values = {
+								["none"] = "None",
+								["inside_top"] = "Inside Bar (Top)",
+								["inside_bottom"] = "Inside Bar (Bottom)",
+								["above"] = "Above Bar",
+								["below"] = "Below Bar",
+								["icon"] = "On Icon",
+							},
+							get = function(info)
+								return ShamanPower.opt.durationTextLocation or "none"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.durationTextLocation = val
+								ShamanPower:UpdateTotemProgressBarPositions()
+								ShamanPower:UpdateTotemProgressBars()
+							end
+						},
+						pulse_bar_position = {
+							order = 4,
+							type = "select",
+							name = "Pulse Bar Position",
+							desc = "Position of the white pulse countdown bar for pulsing totems (Tremor, Healing Stream, etc)",
+							width = 1.2,
+							values = {
+								["on_icon"] = "On Icon",
+								["above"] = "Above (Horizontal)",
+								["above_vert"] = "Above (Vertical)",
+								["below"] = "Below (Horizontal)",
+								["below_vert"] = "Below (Vertical)",
+								["left"] = "Left",
+								["right"] = "Right",
+							},
+							get = function(info)
+								return ShamanPower.opt.pulseBarPosition or "on_icon"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.pulseBarPosition = val
+								ShamanPower:UpdatePulseBarPositions()
+							end
+						},
+						pulse_time_display = {
+							order = 5,
+							type = "select",
+							name = "Show Pulse Time",
+							desc = "Where to show the time until next pulse",
+							width = 1.1,
+							values = {
+								["none"] = "None",
+								["inside_top"] = "Inside Bar (Top)",
+								["inside_bottom"] = "Inside Bar (Bottom)",
+								["above"] = "Above Bar",
+								["below"] = "Below Bar",
+								["on_icon"] = "On Icon",
+							},
+							get = function(info)
+								return ShamanPower.opt.pulseTimeDisplay or "none"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.pulseTimeDisplay = val
+								ShamanPower:UpdatePulseBarPositions()
+							end
+						},
+					}
+				},
+				cdbar_items_section = {
+					order = 11,
+					name = "Cooldown Bar",
+					type = "group",
+					inline = true,
+					args = {
+						show_cooldown_bar = {
+							order = 0,
+							type = "toggle",
+							name = "Show Cooldown Bar",
+							desc = "[Enable/Disable] Show a cooldown tracker bar (Shields, Ankh, Nature's Swiftness, etc.)",
+							width = 1.3,
+							get = function(info)
+								return ShamanPower.opt.showCooldownBar
+							end,
+							set = function(info, val)
+								ShamanPower.opt.showCooldownBar = val
+								ShamanPower:UpdateCooldownBar()
+							end
+						},
+						cdbar_show_shields = {
+							order = 1,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							type = "toggle",
+							name = "Shields",
+							desc = "Show Lightning/Water Shield button on cooldown bar",
+							width = 0.6,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowShields ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowShields = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_recall = {
+							order = 2,
+							type = "toggle",
+							name = "Recall",
+							desc = "Show Totemic Call button on cooldown bar",
+							width = 0.5,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowRecall ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowRecall = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_reincarnation = {
+							order = 3,
+							type = "toggle",
+							name = "Ankh",
+							desc = "Show Reincarnation cooldown on cooldown bar",
+							width = 0.5,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowReincarnation ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowReincarnation = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_ns = {
+							order = 4,
+							type = "toggle",
+							name = "NS",
+							desc = "Show Nature's Swiftness cooldown on cooldown bar",
+							width = 0.4,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowNS ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowNS = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_manatide = {
+							order = 5,
+							type = "toggle",
+							name = "Mana Tide",
+							desc = "Show Mana Tide Totem cooldown on cooldown bar",
+							width = 0.6,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowManaTide ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowManaTide = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_bloodlust = {
+							order = 6,
+							type = "toggle",
+							name = "BL/Hero",
+							desc = "Show Bloodlust/Heroism cooldown on cooldown bar",
+							width = 0.55,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowBloodlust ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowBloodlust = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_imbues = {
+							order = 7,
+							type = "toggle",
+							name = "Imbues",
+							desc = "Show Weapon Imbue button on cooldown bar",
+							width = 0.55,
+							hidden = function(info)
+								return not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowImbues ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowImbues = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+					}
+				},
+				cdbar_order_section = {
+					order = 12,
+					name = "Cooldown Bar Order",
+					type = "group",
+					inline = true,
+					hidden = function(info)
+						return not ShamanPower.opt.showCooldownBar
+					end,
+					args = {
+						cooldown_bar_order_1 = {
+							order = 1,
+							type = "select",
+							name = "1st",
+							desc = "First cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[1] or 1
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 2, 7 do
+									if ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[1]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[1] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+						cooldown_bar_order_2 = {
+							order = 2,
+							type = "select",
+							name = "2nd",
+							desc = "Second cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[2] or 2
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 1, 7 do
+									if i ~= 2 and ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[2]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[2] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+						cooldown_bar_order_3 = {
+							order = 3,
+							type = "select",
+							name = "3rd",
+							desc = "Third cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[3] or 3
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 1, 7 do
+									if i ~= 3 and ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[3]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[3] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+						cooldown_bar_order_4 = {
+							order = 4,
+							type = "select",
+							name = "4th",
+							desc = "Fourth cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[4] or 4
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 1, 7 do
+									if i ~= 4 and ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[4]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[4] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+						cooldown_bar_order_5 = {
+							order = 5,
+							type = "select",
+							name = "5th",
+							desc = "Fifth cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[5] or 5
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 1, 7 do
+									if i ~= 5 and ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[5]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[5] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+						cooldown_bar_order_6 = {
+							order = 6,
+							type = "select",
+							name = "6th",
+							desc = "Sixth cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[6] or 6
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 1, 7 do
+									if i ~= 6 and ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[6]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[6] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+						cooldown_bar_order_7 = {
+							order = 7,
+							type = "select",
+							name = "7th",
+							desc = "Seventh cooldown button position",
+							width = 0.42,
+							values = {
+								[1] = "Shield",
+								[2] = "Recall",
+								[3] = "Ankh",
+								[4] = "NS",
+								[5] = "Mana Tide",
+								[6] = "BL/Hero",
+								[7] = "Imbue",
+							},
+							get = function(info)
+								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[7] or 7
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.cooldownBarOrder then ShamanPower.opt.cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7} end
+								for i = 1, 6 do
+									if ShamanPower.opt.cooldownBarOrder[i] == val then
+										ShamanPower.opt.cooldownBarOrder[i] = ShamanPower.opt.cooldownBarOrder[7]
+										break
+									end
+								end
+								ShamanPower.opt.cooldownBarOrder[7] = val
+								if not InCombatLockdown() then ShamanPower:RecreateCooldownBar() end
+							end
+						},
+					}
+				},
+				popout_section = {
+					order = 13,
+					name = "Pop-Out Trackers",
+					type = "group",
+					inline = true,
+					args = {
+						popout_desc = {
+							order = 0,
+							type = "description",
+							name = "Middle-click any totem or cooldown button to pop it out into a standalone, movable tracker. Use the cog wheel on each pop-out for individual settings (scale, opacity, hide frame). Middle-click or use the cog menu to return to bar. ALT+drag to move when frame is hidden.",
+						},
+						popout_return_all = {
+							order = 1,
+							type = "execute",
+							name = "Return All to Bars",
+							desc = "Return all popped-out trackers back to their original bars",
+							width = 1.2,
+							func = function()
+								if InCombatLockdown() then
+									print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+									return
+								end
+								ShamanPower:ReturnAllPopOutsToBar()
+							end,
+						},
+						popout_hide_all_frames = {
+							order = 2,
+							type = "toggle",
+							name = "Hide All Frames",
+							desc = "Hide the frame/border around all popped-out trackers (show only icons). You can still use ALT+drag to move them.",
+							width = 1.2,
+							get = function(info)
+								return ShamanPower.opt.poppedOutHideAllFrames or false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.poppedOutHideAllFrames = val
+								-- Apply to all existing pop-outs
+								for key, frame in pairs(ShamanPower.poppedOutFrames) do
+									ShamanPower.opt.poppedOutSettings = ShamanPower.opt.poppedOutSettings or {}
+									ShamanPower.opt.poppedOutSettings[key] = ShamanPower.opt.poppedOutSettings[key] or {}
+									local wasHidden = ShamanPower.opt.poppedOutSettings[key].hideFrame
+									if val ~= wasHidden then
+										ShamanPower:TogglePopOutFrame(key)
+									end
+								end
+							end,
 						},
 					}
 				},

@@ -112,6 +112,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cooldownBarPosY = -50,  -- Saved Y position offset
         totemBarPadding = 2,  -- Padding between totem bar buttons (pixels)
         cooldownBarPadding = 2,  -- Padding between cooldown bar buttons (pixels)
+        totemBarOpacity = 1.0,  -- Opacity of totem bar (0.1 to 1.0)
+        cooldownBarOpacity = 1.0,  -- Opacity of cooldown bar (0.1 to 1.0)
+        totemFlyoutOpacity = 1.0,  -- Opacity of totem bar flyout menus (0.1 to 1.0)
+        cooldownFlyoutOpacity = 1.0,  -- Opacity of cooldown bar flyout menus (0.1 to 1.0)
         showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
         swapFlyoutClickButtons = false,  -- Swap flyout mouse buttons (left=assign, right=cast instead of default)
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
@@ -130,7 +134,21 @@ SHAMANPOWER_DEFAULT_VALUES = {
         excludeWaterFromDropAll = false,  -- Exclude Water totem from Drop All button
         excludeAirFromDropAll = false,    -- Exclude Air totem from Drop All button
         totemBarOrder = {1, 2, 3, 4},  -- Order of totem buttons on mini bar: 1=Earth, 2=Fire, 3=Water, 4=Air
+        totemBarShowEarth = true,  -- Show Earth totem button on mini bar
+        totemBarShowFire = true,   -- Show Fire totem button on mini bar
+        totemBarShowWater = true,  -- Show Water totem button on mini bar
+        totemBarShowAir = true,    -- Show Air totem button on mini bar
+        totemBarShowEarthShield = true,  -- Show Earth Shield button on mini bar
         cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7},  -- Order of cooldown bar items: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=BL/Hero, 7=Imbues
+        -- Pop-out tracker settings
+        -- Keys: "totem_earth", "totem_fire", "totem_water", "totem_air" (element with flyout)
+        --       "single_1_3" (element 1, totem index 3 = Tremor Totem)
+        --       "cd_1", "cd_2", etc. (cooldown bar items by type)
+        poppedOut = {},  -- Values: true if popped out
+        poppedOutPositions = {},  -- Values: {point="CENTER", relPoint="CENTER", x=0, y=0}
+        poppedOutSettings = {},  -- Values: {scale=1.0, opacity=1.0}
+        poppedOutDefaultScale = 1.0,  -- Default scale for new pop-outs
+        poppedOutDefaultOpacity = 1.0,  -- Default opacity for new pop-outs
         skin = "Smooth",
         SmartBuffs = true,
         syncToTotemTimers = false,  -- Sync assignments to TotemTimers addon (if installed)
