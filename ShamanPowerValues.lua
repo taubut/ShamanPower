@@ -153,6 +153,24 @@ SHAMANPOWER_DEFAULT_VALUES = {
         SmartBuffs = true,
         syncToTotemTimers = false,  -- Sync assignments to TotemTimers addon (if installed)
         weaponEnchant = 1,  -- Default weapon enchant (Windfury)
+        dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
+        enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
+        hideOutOfCombat = false,  -- Hide totem bar when not in combat
+        hideWhenNoTotems = false,  -- Hide totem bar when no totems are placed
+        -- Shield Charge Display (large on-screen numbers)
+        shieldChargeDisplay = {
+            showPlayerShield = true,  -- Show Lightning/Water Shield charges
+            showEarthShield = true,   -- Show Earth Shield charges on target
+            scale = 1.0,              -- Size of the numbers
+            opacity = 1.0,            -- Transparency
+            locked = false,           -- Click-through when locked
+            hideOutOfCombat = false,  -- Hide when not in combat
+            hideNoShields = true,     -- Hide when no shields are active
+            playerShieldX = -50,      -- Position offset from center
+            playerShieldY = -100,
+            earthShieldX = 50,
+            earthShieldY = -100,
+        },
     }
 }
 

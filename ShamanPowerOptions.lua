@@ -145,6 +145,109 @@ ShamanPower.options = {
 					}
 				},
 				-- settings_buffs removed - was PallyPower blessing options not applicable to Shamans
+				settings_totemMode = {
+					order = 2,
+					name = "Totem Bar Mode",
+					type = "group",
+					inline = true,
+					args = {
+						dynamicMode = {
+							order = 1,
+							name = "Dynamic Mode (PVP)",
+							desc = "When enabled, the totem bar automatically shows whatever totem is currently placed for each element. No need to right-click to assign totems first - just drop a totem and it becomes the active one on the bar. Great for PVP where you need quick, reactive totem management.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.dynamicTotemMode
+							end,
+							set = function(info, val)
+								ShamanPower.opt.dynamicTotemMode = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
+						dynamicModeDesc = {
+							order = 2,
+							name = "|cff888888Normal Mode: Right-click a totem in the flyout to assign it, then left-click to cast.\nDynamic Mode: Any totem you drop becomes the active button for that element.|r",
+							type = "description",
+							width = "full",
+						}
+					}
+				},
+				settings_visibility = {
+					order = 2.3,
+					name = "Totem Bar Visibility",
+					type = "group",
+					inline = true,
+					args = {
+						hideOutOfCombat = {
+							order = 1,
+							name = "Hide Out of Combat",
+							desc = "Hide the totem bar when not in combat",
+							type = "toggle",
+							width = 1.0,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.hideOutOfCombat == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.hideOutOfCombat = val
+								ShamanPower:UpdateTotemBarVisibility()
+							end
+						},
+						hideWhenNoTotems = {
+							order = 2,
+							name = "Hide When No Totems",
+							desc = "Hide the totem bar when no totems are currently placed",
+							type = "toggle",
+							width = 1.0,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.hideWhenNoTotems == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.hideWhenNoTotems = val
+								ShamanPower:UpdateTotemBarVisibility()
+							end
+						},
+					}
+				},
+				settings_popout = {
+					order = 2.5,
+					name = "Pop-Out Trackers",
+					type = "group",
+					inline = true,
+					args = {
+						enablePopOut = {
+							order = 1,
+							name = "Enable Middle-Click Pop-Out",
+							desc = "Allow middle-clicking buttons to pop them out as standalone, movable trackers. Disable this if you accidentally trigger pop-outs.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.enableMiddleClickPopOut ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.enableMiddleClickPopOut = val
+							end
+						},
+						popOutDesc = {
+							order = 2,
+							name = "|cff888888When enabled: Middle-click any totem button, cooldown bar item, Earth Shield, or Drop All to pop it out.\nSHIFT+Middle-click on popped-out frame for settings. ALT+drag to move.|r",
+							type = "description",
+							width = "full",
+						}
+					}
+				},
 				settings_frames = {
 					order = 3,
 					name = "Reset",
@@ -185,6 +288,7 @@ ShamanPower.options = {
 			name = L["Buttons"],
 			desc = L["Change the button settings"],
 			type = "group",
+			childGroups = "tree",
 			cmdHidden = true,
 			disabled = function(info)
 				return ShamanPower.opt.enabled == false
@@ -194,7 +298,6 @@ ShamanPower.options = {
 					order = 1,
 					name = L["Aura Button"],
 					type = "group",
-					inline = true,
 					hidden = true,  -- Hidden - paladin auras not applicable to Shamans
 					disabled = function(info)
 						return ShamanPower.opt.enabled == false or not isShaman
@@ -258,7 +361,6 @@ ShamanPower.options = {
 					order = 2,
 					name = L["Weapon Enchant"],
 					type = "group",
-					inline = true,
 					hidden = true,  -- Hidden - weapon enchants are personal choice, not raid coordination
 					disabled = function(info)
 						return ShamanPower.opt.enabled == false or not isShaman
@@ -331,7 +433,6 @@ ShamanPower.options = {
 					order = 3,
 					name = "Mini Totem Bar",
 					type = "group",
-					inline = true,
 					disabled = function(info)
 						return ShamanPower.opt.enabled == false or not isShaman
 					end,
@@ -339,14 +440,14 @@ ShamanPower.options = {
 						auto_desc = {
 							order = 0,
 							type = "description",
-							name = "[|cffffd200Enable|r/|cffffd200Disable|r] The Mini Totem Bar (clickable totem buttons)."
+							name = "Configure the Mini Totem Bar - a compact bar of clickable totem buttons.",
 						},
 						auto_enable = {
 							order = 1,
 							type = "toggle",
-							name = "Mini Totem Bar",
+							name = "Enable Mini Totem Bar",
 							desc = "[Enable/Disable] The Mini Totem Bar",
-							width = 1.1,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.autobuff.autobutton
 							end,
@@ -361,7 +462,7 @@ ShamanPower.options = {
 							type = "toggle",
 							name = "Show Drop All Button",
 							desc = "[Enable/Disable] The Drop All Totems button on the Mini Totem Bar",
-							width = 1.1,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.showDropAllButton
 							end,
@@ -370,12 +471,26 @@ ShamanPower.options = {
 								ShamanPower:UpdateRoster()
 							end
 						},
+						show_cooldown_bar = {
+							order = 2.05,
+							type = "toggle",
+							name = "Show Cooldown Bar",
+							desc = "[Enable/Disable] Show the cooldown tracker bar (Shields, Ankh, NS, etc.)",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.showCooldownBar
+							end,
+							set = function(info, val)
+								ShamanPower.opt.showCooldownBar = val
+								ShamanPower:UpdateCooldownBar()
+							end
+						},
 						show_party_range = {
 							order = 2.1,
 							type = "toggle",
 							name = "Show Party Range Dots",
 							desc = "[Enable/Disable] Show colored dots indicating which party members are in range of your totems (party only, not raid)",
-							width = 1.3,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.showPartyRangeDots
 							end,
@@ -389,7 +504,7 @@ ShamanPower.options = {
 							type = "toggle",
 							name = "Show Totem Flyouts",
 							desc = "[Enable/Disable] Show flyout menus on mouseover for quick totem selection (TotemTimers style)",
-							width = 1.0,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.showTotemFlyouts
 							end,
@@ -401,9 +516,9 @@ ShamanPower.options = {
 						show_es_flyout = {
 							order = 2.26,
 							type = "toggle",
-							name = "Show ES Flyout",
+							name = "Show Earth Shield Flyout",
 							desc = "[Enable/Disable] Show flyout menu on Earth Shield button for quick target selection",
-							width = 1.3,
+							width = "full",
 							hidden = function(info)
 								return not ShamanPower:HasEarthShield()
 							end,
@@ -419,16 +534,15 @@ ShamanPower.options = {
 						},
 						drop_order_header = {
 							order = 2.5,
-							type = "description",
-							name = "\n|cffffd200Drop Order:|r Choose the order totems are dropped",
-							fontSize = "medium",
+							type = "header",
+							name = "Drop Order",
 						},
 						drop_order_1 = {
 							order = 2.6,
 							type = "select",
-							name = "1st",
+							name = "1st Position",
 							desc = "First totem to drop",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -454,9 +568,9 @@ ShamanPower.options = {
 						drop_order_2 = {
 							order = 2.7,
 							type = "select",
-							name = "2nd",
+							name = "2nd Position",
 							desc = "Second totem to drop",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -482,9 +596,9 @@ ShamanPower.options = {
 						drop_order_3 = {
 							order = 2.8,
 							type = "select",
-							name = "3rd",
+							name = "3rd Position",
 							desc = "Third totem to drop",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -510,9 +624,9 @@ ShamanPower.options = {
 						drop_order_4 = {
 							order = 2.9,
 							type = "select",
-							name = "4th",
+							name = "4th Position",
 							desc = "Fourth totem to drop",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -537,16 +651,15 @@ ShamanPower.options = {
 						},
 						exclude_from_drop_all_header = {
 							order = 2.901,
-							type = "description",
-							name = "\n|cffffd200Exclude from Drop All:|r Skip these totems when using Drop All",
-							fontSize = "medium",
+							type = "header",
+							name = "Exclude from Drop All",
 						},
 						exclude_earth = {
 							order = 2.902,
 							type = "toggle",
-							name = "Earth",
+							name = "Exclude Earth",
 							desc = "Exclude Earth totem from the Drop All button",
-							width = 0.5,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeEarthFromDropAll
 							end,
@@ -559,9 +672,9 @@ ShamanPower.options = {
 						exclude_fire = {
 							order = 2.903,
 							type = "toggle",
-							name = "Fire",
+							name = "Exclude Fire",
 							desc = "Exclude Fire totem from the Drop All button",
-							width = 0.5,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeFireFromDropAll
 							end,
@@ -574,9 +687,9 @@ ShamanPower.options = {
 						exclude_water = {
 							order = 2.904,
 							type = "toggle",
-							name = "Water",
+							name = "Exclude Water",
 							desc = "Exclude Water totem from the Drop All button",
-							width = 0.5,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeWaterFromDropAll
 							end,
@@ -589,9 +702,9 @@ ShamanPower.options = {
 						exclude_air = {
 							order = 2.905,
 							type = "toggle",
-							name = "Air",
+							name = "Exclude Air",
 							desc = "Exclude Air totem from the Drop All button",
-							width = 0.5,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeAirFromDropAll
 							end,
@@ -622,7 +735,6 @@ ShamanPower.options = {
 					order = 3.5,
 					name = "Macros",
 					type = "group",
-					inline = true,
 					disabled = function(info)
 						return ShamanPower.opt.enabled == false or not isShaman
 					end,
@@ -653,7 +765,6 @@ ShamanPower.options = {
 					order = 4,
 					name = "Element Buttons",
 					type = "group",
-					inline = true,
 					hidden = true,  -- Hidden - not functional in current shaman implementation
 					disabled = function(info)
 						return ShamanPower.opt.enabled == false or not isShaman
@@ -720,24 +831,18 @@ ShamanPower.options = {
 		fluffy = {
 			order = 3,
 			name = "Look & Feel",
-			desc = "UI customization options (requested by FluffyKable)",
+			desc = "UI customization options",
 			type = "group",
+			childGroups = "tree",
 			cmdHidden = true,
 			disabled = function(info)
 				return ShamanPower.opt.enabled == false
 			end,
 			args = {
-				fluffy_header = {
-					order = 0,
-					type = "description",
-					name = "    |cffffd200Fluffy Settings|r\n    UI customization options - dedicated to |cff0070deFluffyKable|r from the Shaman Discord.",
-					fontSize = "medium",
-				},
 				layout_section = {
-					order = 0.5,
+					order = 1,
 					name = "Layout",
 					type = "group",
-					inline = true,
 					args = {
 						layout = {
 							order = 1,
@@ -916,10 +1021,9 @@ ShamanPower.options = {
 					}
 				},
 				scale_section = {
-					order = 1,
+					order = 2,
 					name = "Scale",
 					type = "group",
-					inline = true,
 					args = {
 						buffscale = {
 							order = 1,
@@ -987,10 +1091,9 @@ ShamanPower.options = {
 					}
 				},
 				opacity_section = {
-					order = 1.5,
+					order = 3,
 					name = "Opacity",
 					type = "group",
-					inline = true,
 					args = {
 						totemBarOpacity = {
 							order = 1,
@@ -1079,10 +1182,9 @@ ShamanPower.options = {
 					}
 				},
 				padding_section = {
-					order = 2,
+					order = 4,
 					name = "Button Padding",
 					type = "group",
-					inline = true,
 					args = {
 						totemBarPadding = {
 							order = 1,
@@ -1127,10 +1229,9 @@ ShamanPower.options = {
 					}
 				},
 				visibility_section = {
-					order = 3,
+					order = 5,
 					name = "Frame Visibility",
 					type = "group",
-					inline = true,
 					args = {
 						hide_totem_bar_frame = {
 							order = 1,
@@ -1227,10 +1328,9 @@ ShamanPower.options = {
 					}
 				},
 				texture_section = {
-					order = 4,
+					order = 6,
 					name = "Textures",
 					type = "group",
-					inline = true,
 					args = {
 						skin = {
 							order = 1,
@@ -1275,10 +1375,9 @@ ShamanPower.options = {
 					}
 				},
 				cooldown_display_section = {
-					order = 5,
+					order = 7,
 					name = "Cooldown Display",
 					type = "group",
-					inline = true,
 					hidden = function(info)
 						return not ShamanPower.opt.showCooldownBar
 					end,
@@ -1286,9 +1385,9 @@ ShamanPower.options = {
 						cdbar_show_progress_bars = {
 							order = 1,
 							type = "toggle",
-							name = "Progress Bars",
+							name = "Show Progress Bars",
 							desc = "Show colored progress bars on the edges of cooldown buttons",
-							width = 0.8,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.cdbarShowProgressBars ~= false
 							end,
@@ -1299,9 +1398,9 @@ ShamanPower.options = {
 						cdbar_show_color_sweep = {
 							order = 2,
 							type = "toggle",
-							name = "Color Sweep",
+							name = "Show Color Sweep Overlay",
 							desc = "Show greyed-out sweep overlay as time depletes",
-							width = 0.8,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.cdbarShowColorSweep ~= false
 							end,
@@ -1312,9 +1411,9 @@ ShamanPower.options = {
 						cdbar_show_cd_text = {
 							order = 3,
 							type = "toggle",
-							name = "CD Text",
+							name = "Show Cooldown Text",
 							desc = "Show cooldown time remaining as text",
-							width = 0.6,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.cdbarShowCDText ~= false
 							end,
@@ -1325,9 +1424,9 @@ ShamanPower.options = {
 						shield_charge_colors = {
 							order = 4,
 							type = "toggle",
-							name = "Shield Charge Colors",
+							name = "Color Shield Charges by Count",
 							desc = "Color shield charge count based on remaining charges (Green=full, Yellow=half, Red=low). Disable for plain white text.",
-							width = 1.0,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.shieldChargeColors ~= false
 							end,
@@ -1338,15 +1437,15 @@ ShamanPower.options = {
 						spacer1 = {
 							order = 5,
 							type = "description",
-							name = "",
+							name = "\n",
 							width = "full",
 						},
 						cdbar_progress_position = {
 							order = 6,
 							type = "select",
-							name = "Bar Position",
+							name = "Progress Bar Position",
 							desc = "Position of the progress bar relative to icons",
-							width = 1.1,
+							width = "full",
 							values = {
 								["left"] = "Left",
 								["right"] = "Right",
@@ -1366,9 +1465,9 @@ ShamanPower.options = {
 						cdbar_progress_height = {
 							order = 7,
 							type = "range",
-							name = "Bar Size",
+							name = "Progress Bar Size",
 							desc = "Size of the duration bar (height for horizontal bars, width for vertical bars)",
-							width = 0.8,
+							width = "full",
 							min = 3,
 							max = 16,
 							step = 1,
@@ -1384,9 +1483,9 @@ ShamanPower.options = {
 						cdbar_duration_text = {
 							order = 8,
 							type = "select",
-							name = "Show Duration",
+							name = "Duration Text Location",
 							desc = "Where to show the remaining duration time",
-							width = 0.9,
+							width = "full",
 							values = {
 								["none"] = "None",
 								["inside"] = "Inside Bar",
@@ -1403,10 +1502,9 @@ ShamanPower.options = {
 					}
 				},
 				color_section = {
-					order = 6,
-					name = L["Change the status colors of the buff buttons"],
+					order = 8,
+					name = "Status Colors",
 					type = "group",
-					inline = true,
 					disabled = function(info)
 						return ShamanPower.opt.enabled == false or not isShaman
 					end,
@@ -1463,10 +1561,9 @@ ShamanPower.options = {
 					}
 				},
 				raid_cd_section = {
-					order = 7,
+					order = 9,
 					name = "Raid Cooldowns",
 					type = "group",
-					inline = true,
 					args = {
 						raidCDButtonScale = {
 							order = 1,
@@ -1557,10 +1654,9 @@ ShamanPower.options = {
 					}
 				},
 				sprange_section = {
-					order = 8,
-					name = "Totem Range Tracker (SPRange)",
+					order = 10,
+					name = "Totem Range Tracker",
 					type = "group",
-					inline = true,
 					args = {
 						sprange_opacity = {
 							order = 1,
@@ -1652,17 +1748,21 @@ ShamanPower.options = {
 					}
 				},
 				estrack_section = {
-					order = 8.5,
+					order = 11,
 					name = "Earth Shield Tracker",
 					type = "group",
-					inline = true,
 					args = {
+						estrack_desc = {
+							order = 0,
+							type = "description",
+							name = "Track all Earth Shields in your party/raid. ALT+drag to move the frame.",
+						},
 						estrack_enabled = {
-							order = 0.5,
-							name = "Enable",
+							order = 1,
+							name = "Enable Earth Shield Tracker",
 							desc = "Enable the Earth Shield tracker to show all Earth Shields in your party/raid",
 							type = "toggle",
-							width = 0.6,
+							width = "full",
 							get = function(info)
 								return ShamanPower_ESTracker and ShamanPower_ESTracker.enabled or false
 							end,
@@ -1674,11 +1774,11 @@ ShamanPower.options = {
 							end
 						},
 						estrack_opacity = {
-							order = 1,
+							order = 2,
 							name = "Opacity",
 							desc = "Adjust the opacity of the Earth Shield tracker",
 							type = "range",
-							width = 1.3,
+							width = "full",
 							min = 0.2,
 							max = 1.0,
 							step = 0.1,
@@ -1693,11 +1793,11 @@ ShamanPower.options = {
 							end
 						},
 						estrack_icon_size = {
-							order = 2,
+							order = 3,
 							name = "Icon Size",
 							desc = "Adjust the size of the Earth Shield tracker icons",
 							type = "range",
-							width = 1.5,
+							width = "full",
 							min = 20,
 							max = 60,
 							step = 4,
@@ -1711,12 +1811,17 @@ ShamanPower.options = {
 								end
 							end
 						},
+						estrack_options_header = {
+							order = 4,
+							type = "header",
+							name = "Display Options",
+						},
 						estrack_vertical = {
-							order = 3,
+							order = 5,
 							name = "Vertical Layout",
 							desc = "Stack Earth Shield icons vertically instead of horizontally",
 							type = "toggle",
-							width = 1.0,
+							width = "full",
 							get = function(info)
 								return ShamanPower_ESTracker and ShamanPower_ESTracker.vertical or false
 							end,
@@ -1729,11 +1834,11 @@ ShamanPower.options = {
 							end
 						},
 						estrack_hide_names = {
-							order = 4,
+							order = 6,
 							name = "Hide Names",
 							desc = "Hide player names on the Earth Shield tracker",
 							type = "toggle",
-							width = 1.0,
+							width = "full",
 							get = function(info)
 								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideNames or false
 							end,
@@ -1745,11 +1850,11 @@ ShamanPower.options = {
 							end
 						},
 						estrack_hide_border = {
-							order = 5,
+							order = 7,
 							name = "Hide Border",
 							desc = "Hide the frame border and title (use ALT+drag to move when hidden)",
 							type = "toggle",
-							width = 1.0,
+							width = "full",
 							get = function(info)
 								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideBorder or false
 							end,
@@ -1761,11 +1866,11 @@ ShamanPower.options = {
 							end
 						},
 						estrack_hide_charges = {
-							order = 6,
+							order = 8,
 							name = "Hide Charges",
 							desc = "Hide the charge count on Earth Shield icons",
 							type = "toggle",
-							width = 1.0,
+							width = "full",
 							get = function(info)
 								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideCharges or false
 							end,
@@ -1778,18 +1883,152 @@ ShamanPower.options = {
 						},
 					}
 				},
+				shieldcharges_section = {
+					order = 12,
+					name = "Shield Charge Display",
+					type = "group",
+					args = {
+						shieldcharges_desc = {
+							order = 0,
+							type = "description",
+							name = "Large on-screen numbers showing your shield charges and Earth Shield charges on your target. ALT+drag to move when unlocked.",
+						},
+						shieldcharges_player = {
+							order = 1,
+							name = "Show Player Shield Charges",
+							desc = "Show Lightning Shield or Water Shield charge count",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.showPlayerShield
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.showPlayerShield = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_earth = {
+							order = 2,
+							name = "Show Earth Shield Charges",
+							desc = "Show Earth Shield charge count on your current target",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.showEarthShield
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.showEarthShield = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_scale = {
+							order = 3,
+							name = "Scale",
+							desc = "Adjust the size of the shield charge numbers",
+							type = "range",
+							width = "full",
+							min = 0.5,
+							max = 3.0,
+							step = 0.1,
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.scale or 1.0
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.scale = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_opacity = {
+							order = 4,
+							name = "Opacity",
+							desc = "Adjust the opacity of the shield charge display",
+							type = "range",
+							width = "full",
+							min = 0.1,
+							max = 1.0,
+							step = 0.1,
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.opacity or 1.0
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.opacity = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_locked = {
+							order = 5,
+							name = "Lock Position",
+							desc = "Lock the shield charge displays in place (click-through)",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.locked
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.locked = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_hide_ooc = {
+							order = 6,
+							name = "Hide Out of Combat",
+							desc = "Hide the shield charge display when not in combat",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.hideOutOfCombat
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.hideOutOfCombat = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_hide_none = {
+							order = 7,
+							name = "Hide When No Shields",
+							desc = "Hide the display when no shields are active",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.hideNoShields
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.hideNoShields = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+					}
+				},
 				totembar_items_section = {
-					order = 9,
+					order = 13,
 					name = "Totem Bar Items",
 					type = "group",
-					inline = true,
 					args = {
+						totembar_desc = {
+							order = 0,
+							type = "description",
+							name = "Choose which buttons appear on the mini totem bar.",
+						},
 						totembar_show_earth = {
 							order = 1,
 							type = "toggle",
-							name = "Earth",
+							name = "Show Earth Totem",
 							desc = "Show Earth totem button on the mini totem bar",
-							width = 0.5,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.totemBarShowEarth ~= false
 							end,
@@ -1801,9 +2040,9 @@ ShamanPower.options = {
 						totembar_show_fire = {
 							order = 2,
 							type = "toggle",
-							name = "Fire",
+							name = "Show Fire Totem",
 							desc = "Show Fire totem button on the mini totem bar",
-							width = 0.45,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.totemBarShowFire ~= false
 							end,
@@ -1815,9 +2054,9 @@ ShamanPower.options = {
 						totembar_show_water = {
 							order = 3,
 							type = "toggle",
-							name = "Water",
+							name = "Show Water Totem",
 							desc = "Show Water totem button on the mini totem bar",
-							width = 0.5,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.totemBarShowWater ~= false
 							end,
@@ -1829,9 +2068,9 @@ ShamanPower.options = {
 						totembar_show_air = {
 							order = 4,
 							type = "toggle",
-							name = "Air",
+							name = "Show Air Totem",
 							desc = "Show Air totem button on the mini totem bar",
-							width = 0.4,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.totemBarShowAir ~= false
 							end,
@@ -1843,9 +2082,9 @@ ShamanPower.options = {
 						totembar_show_earthshield = {
 							order = 5,
 							type = "toggle",
-							name = "Earth Shield",
+							name = "Show Earth Shield",
 							desc = "Show Earth Shield button on the mini totem bar (if you have the talent)",
-							width = 0.8,
+							width = "full",
 							get = function(info)
 								return ShamanPower.opt.totemBarShowEarthShield ~= false
 							end,
@@ -1857,17 +2096,21 @@ ShamanPower.options = {
 					}
 				},
 				totembar_order_section = {
-					order = 10,
+					order = 14,
 					name = "Totem Bar Order",
 					type = "group",
-					inline = true,
 					args = {
+						totembar_order_desc = {
+							order = 0,
+							type = "description",
+							name = "Choose the order of totem buttons on the mini totem bar.",
+						},
 						totem_bar_order_1 = {
 							order = 1,
 							type = "select",
-							name = "1st",
+							name = "1st Position",
 							desc = "First totem button position",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -1892,9 +2135,9 @@ ShamanPower.options = {
 						totem_bar_order_2 = {
 							order = 2,
 							type = "select",
-							name = "2nd",
+							name = "2nd Position",
 							desc = "Second totem button position",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -1919,9 +2162,9 @@ ShamanPower.options = {
 						totem_bar_order_3 = {
 							order = 3,
 							type = "select",
-							name = "3rd",
+							name = "3rd Position",
 							desc = "Third totem button position",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -1946,9 +2189,9 @@ ShamanPower.options = {
 						totem_bar_order_4 = {
 							order = 4,
 							type = "select",
-							name = "4th",
+							name = "4th Position",
 							desc = "Fourth totem button position",
-							width = 0.5,
+							width = 1.2,
 							values = {
 								[1] = "Earth",
 								[2] = "Fire",
@@ -1973,10 +2216,9 @@ ShamanPower.options = {
 					}
 				},
 				totembar_duration_section = {
-					order = 10.5,
-					name = "Totem Bar Duration",
+					order = 15,
+					name = "Totem Duration Bars",
 					type = "group",
-					inline = true,
 					args = {
 						duration_bar_position = {
 							order = 1,
@@ -2089,10 +2331,9 @@ ShamanPower.options = {
 					}
 				},
 				cdbar_items_section = {
-					order = 11,
-					name = "Cooldown Bar",
+					order = 16,
+					name = "Cooldown Bar Items",
 					type = "group",
-					inline = true,
 					args = {
 						show_cooldown_bar = {
 							order = 0,
@@ -2244,10 +2485,9 @@ ShamanPower.options = {
 					}
 				},
 				cdbar_order_section = {
-					order = 12,
+					order = 17,
 					name = "Cooldown Bar Order",
 					type = "group",
-					inline = true,
 					hidden = function(info)
 						return not ShamanPower.opt.showCooldownBar
 					end,
@@ -2255,17 +2495,17 @@ ShamanPower.options = {
 						cooldown_bar_order_1 = {
 							order = 1,
 							type = "select",
-							name = "1st",
+							name = "1st Position",
 							desc = "First cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[1] or 1
@@ -2285,17 +2525,17 @@ ShamanPower.options = {
 						cooldown_bar_order_2 = {
 							order = 2,
 							type = "select",
-							name = "2nd",
+							name = "2nd Position",
 							desc = "Second cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[2] or 2
@@ -2315,17 +2555,17 @@ ShamanPower.options = {
 						cooldown_bar_order_3 = {
 							order = 3,
 							type = "select",
-							name = "3rd",
+							name = "3rd Position",
 							desc = "Third cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[3] or 3
@@ -2345,17 +2585,17 @@ ShamanPower.options = {
 						cooldown_bar_order_4 = {
 							order = 4,
 							type = "select",
-							name = "4th",
+							name = "4th Position",
 							desc = "Fourth cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[4] or 4
@@ -2375,17 +2615,17 @@ ShamanPower.options = {
 						cooldown_bar_order_5 = {
 							order = 5,
 							type = "select",
-							name = "5th",
+							name = "5th Position",
 							desc = "Fifth cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[5] or 5
@@ -2405,17 +2645,17 @@ ShamanPower.options = {
 						cooldown_bar_order_6 = {
 							order = 6,
 							type = "select",
-							name = "6th",
+							name = "6th Position",
 							desc = "Sixth cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[6] or 6
@@ -2435,17 +2675,17 @@ ShamanPower.options = {
 						cooldown_bar_order_7 = {
 							order = 7,
 							type = "select",
-							name = "7th",
+							name = "7th Position",
 							desc = "Seventh cooldown button position",
-							width = 0.42,
+							width = 1.5,
 							values = {
 								[1] = "Shield",
-								[2] = "Recall",
-								[3] = "Ankh",
-								[4] = "NS",
-								[5] = "Mana Tide",
-								[6] = "BL/Hero",
-								[7] = "Imbue",
+								[2] = "Totemic Call",
+								[3] = "Reincarnation",
+								[4] = "Nature's Swiftness",
+								[5] = "Mana Tide Totem",
+								[6] = "Bloodlust/Heroism",
+								[7] = "Weapon Imbue",
 							},
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOrder and ShamanPower.opt.cooldownBarOrder[7] or 7
@@ -2465,10 +2705,9 @@ ShamanPower.options = {
 					}
 				},
 				popout_section = {
-					order = 13,
+					order = 18,
 					name = "Pop-Out Trackers",
 					type = "group",
-					inline = true,
 					args = {
 						popout_desc = {
 							order = 0,

@@ -193,7 +193,21 @@ function ShamanPower:OnInitialize()
 				end
 			end,
 			["OnClick"] = function(_, button)
+				local playerIsShaman = select(2, UnitClass("player")) == "SHAMAN"
+
 				if (button == "LeftButton") then
+					if playerIsShaman then
+						ShamanPowerBlessings_Toggle()
+					else
+						-- Non-shaman: open SPRange
+						ShamanPower:InitSPRange()
+						if not ShamanPower.spRangeFrame then
+							ShamanPower:CreateSPRangeFrame()
+						end
+						ShamanPower:ShowSPRangeConfig()
+					end
+				elseif (button == "MiddleButton") then
+					-- Middle click: open /sp totems (for non-shamans, or anyone)
 					ShamanPowerBlessings_Toggle()
 				else
 					self:OpenConfigWindow()
@@ -312,6 +326,8 @@ function ShamanPower:OnEnable()
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET", "UNIT_AURA"}, 1, "UpdateRoster")
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
+	-- Reset Drop All castsequence when combat ends
+	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	if isShaman then
 		self:ScheduleRepeatingTimer(self.ScanInventory, 60, self)
 		self.ButtonsUpdate(self)
@@ -321,6 +337,13 @@ function ShamanPower:OnEnable()
 	end
 	self:BindKeys()
 	self:UpdateRoster()
+end
+
+-- Called when combat ends - reset Drop All castsequence
+function ShamanPower:OnCombatEnd()
+	-- Force rebuild of the Drop All macro to reset the castsequence
+	self.dropAllLastMacro = ""
+	self:UpdateDropAllButton()
 end
 
 -- Create a macro for Earth Shield that users can keybind
@@ -572,6 +595,8 @@ function ShamanPowerBlessings_Toggle()
 			ShamanPower:SendSelf()
 			ShamanPower:SendMessage("REQ")
 		end
+		-- Setup Tools dropdown on first show
+		ShamanPower:SetupToolsDropdown()
 		ShamanPowerBlessingsFrame:Show()
 		PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN)
 		table.insert(UISpecialFrames, "ShamanPowerBlessingsFrame")
@@ -584,6 +609,102 @@ function ShamanPowerMinimapIcon_Toggle()
 	else
 		ShamanPower.MinimapIcon:Show("ShamanPower")
 	end
+end
+
+-- Setup Tools dropdown to replace Totem Range, Raid CDs, Options buttons
+function ShamanPower:SetupToolsDropdown()
+	if self.toolsDropdownSetup then return end
+	self.toolsDropdownSetup = true
+
+	local frame = _G["ShamanPowerBlessingsFrame"]
+	if not frame then return end
+
+	-- Hide the old buttons
+	local totemRangeBtn = _G["ShamanPowerBlessingsFrameTotemRange"]
+	local raidCDsBtn = _G["ShamanPowerBlessingsFrameRaidCDs"]
+	local optionsBtn = _G["ShamanPowerBlessingsFrameOptions"]
+
+	if totemRangeBtn then totemRangeBtn:Hide() end
+	if raidCDsBtn then raidCDsBtn:Hide() end
+	if optionsBtn then optionsBtn:Hide() end
+
+	-- Create Tools dropdown button
+	local toolsBtn = CreateFrame("Button", "ShamanPowerBlessingsFrameTools", frame, "UIPanelButtonTemplate")
+	toolsBtn:SetSize(60, 22)
+	toolsBtn:SetText("Tools")
+
+	-- Position it where Options was (left of Auto-Assign)
+	local autoAssignBtn = _G["ShamanPowerBlessingsFrameAutoAssign"]
+	if autoAssignBtn then
+		toolsBtn:SetPoint("BOTTOMRIGHT", autoAssignBtn, "BOTTOMLEFT", -4, 0)
+	end
+
+	-- Create dropdown menu frame
+	local dropdownMenu = CreateFrame("Frame", "ShamanPowerToolsDropdownMenu", UIParent, "UIDropDownMenuTemplate")
+
+	toolsBtn:SetScript("OnClick", function()
+		LUIDDM:ToggleDropDownMenu(1, nil, dropdownMenu, toolsBtn, 0, 0)
+	end)
+
+	toolsBtn:SetScript("OnEnter", function(self)
+		if ShamanPower.opt.ShowTooltips then
+			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+			GameTooltip:SetText("Open tools menu")
+			GameTooltip:Show()
+		end
+	end)
+
+	toolsBtn:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+
+	-- Initialize the dropdown
+	LUIDDM:UIDropDownMenu_Initialize(dropdownMenu, function(self, level)
+		local info = LUIDDM:UIDropDownMenu_CreateInfo()
+
+		-- Totem Range
+		info.text = "Totem Range"
+		info.notCheckable = true
+		info.func = function()
+			ShamanPower:InitSPRange()
+			if not ShamanPower.spRangeFrame then
+				ShamanPower:CreateSPRangeFrame()
+			end
+			ShamanPower:ShowSPRangeConfig()
+		end
+		LUIDDM:UIDropDownMenu_AddButton(info, level)
+
+		-- Raid CDs
+		info.text = "Raid CDs"
+		info.notCheckable = true
+		info.func = function()
+			ShamanPower:ToggleRaidCooldownPanel()
+		end
+		LUIDDM:UIDropDownMenu_AddButton(info, level)
+
+		-- ES Tracker
+		info.text = "ES Tracker"
+		info.notCheckable = true
+		info.func = function()
+			ShamanPower:ToggleESTracker()
+		end
+		LUIDDM:UIDropDownMenu_AddButton(info, level)
+
+		-- Separator
+		info.text = ""
+		info.disabled = true
+		info.notCheckable = true
+		LUIDDM:UIDropDownMenu_AddButton(info, level)
+
+		-- Options
+		info.text = "Options"
+		info.disabled = false
+		info.notCheckable = true
+		info.func = function()
+			ShamanPower:OpenConfigWindow()
+		end
+		LUIDDM:UIDropDownMenu_AddButton(info, level)
+	end, "MENU")
 end
 
 function ShamanPowerBlessings_ShowCredits(self)
@@ -1290,6 +1411,34 @@ function ShamanPower:IsTotemActive(element)
 	return haveTotem and (startTime + duration > GetTime())
 end
 
+-- Find the totem index for a given element based on the active totem name
+-- Used for Dynamic Mode to determine which totem is currently placed
+function ShamanPower:GetActiveTotemIndex(element)
+	local slot = self.ElementToSlot[element]
+	if not slot then return nil end
+
+	local haveTotem, activeTotemName = GetTotemInfo(slot)
+	if not haveTotem or not activeTotemName then return nil end
+
+	-- Search through all totems for this element to find a match
+	local totemNames = self.TotemNames[element]
+	if not totemNames then return nil end
+
+	for totemIndex, totemName in pairs(totemNames) do
+		-- Check if the active totem name contains or matches this totem's name
+		if totemName and activeTotemName then
+			-- Use string.find for partial matching (totem names may have rank numbers, etc.)
+			local ok1, result1 = pcall(string.find, activeTotemName, totemName, 1, true)
+			local ok2, result2 = pcall(string.find, totemName, activeTotemName, 1, true)
+			if (ok1 and result1) or (ok2 and result2) then
+				return totemIndex
+			end
+		end
+	end
+
+	return nil
+end
+
 -- Get status of all assigned totems: returns active count, total assigned
 function ShamanPower:GetTotemStatus()
 	local playerName = self.player
@@ -1310,6 +1459,56 @@ function ShamanPower:GetTotemStatus()
 	end
 
 	return activeCount, assignedCount
+end
+
+-- Update totem assignments and icons for Dynamic Mode
+-- When a totem is placed, it becomes the new assignment for that element
+function ShamanPower:UpdateDynamicTotemIcons()
+	if not self.opt.dynamicTotemMode then return end
+
+	local playerName = self.player
+	if not ShamanPower_Assignments[playerName] then
+		ShamanPower_Assignments[playerName] = {}
+	end
+	local assignments = ShamanPower_Assignments[playerName]
+
+	local needsFullUpdate = false
+
+	for element = 1, 4 do
+		local activeIndex = self:GetActiveTotemIndex(element)
+
+		-- If there's an active totem and it's different from the assignment, update it
+		if activeIndex and activeIndex ~= assignments[element] then
+			assignments[element] = activeIndex
+			needsFullUpdate = true
+		end
+
+		-- Update the icon regardless
+		local totemIndex = assignments[element] or 0
+		local icon = self.ElementIcons[element]  -- Default
+		if totemIndex and totemIndex > 0 then
+			icon = self:GetTotemIcon(element, totemIndex)
+		end
+
+		-- Update the XML button icon
+		local iconTexture = _G["ShamanPowerAutoTotem" .. element .. "Icon"]
+		if iconTexture then
+			iconTexture:SetTexture(icon)
+		end
+
+		-- Update the Lua button icon (if exists)
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn and btn.icon then
+			btn.icon:SetTexture(icon)
+		end
+	end
+
+	-- If assignments changed and we're not in combat, do a full update
+	if needsFullUpdate and not InCombatLockdown() then
+		self:UpdateMiniTotemBar()
+		self:UpdateTotemButtons()
+		self:UpdateDropAllButton()
+	end
 end
 
 -- ============================================================================
@@ -1966,27 +2165,17 @@ function ShamanPower:SetupTwistTimer()
 	local airButton = self.totemButtons[4]
 	if not airButton then return end
 
-	-- Create cooldown frame if it doesn't exist
-	if not self.twistCooldown then
-		self.twistCooldown = CreateFrame("Cooldown", "ShamanPowerTwistCooldown", airButton, "CooldownFrameTemplate")
-		self.twistCooldown:SetAllPoints(airButton)
-		self.twistCooldown:SetDrawEdge(true)
-		self.twistCooldown:SetDrawSwipe(true)
-		self.twistCooldown:SetSwipeColor(1, 1, 1, 0.8)  -- White swipe
-		self.twistCooldown:SetHideCountdownNumbers(false)
-		self.twistCooldown:SetReverse(true)  -- Fills up instead of emptying
-	end
+	-- Create twist timer display on top of air totem icon
+	if not self.twistTimerFrame then
+		self.twistTimerFrame = CreateFrame("Frame", "ShamanPowerTwistTimerFrame", airButton)
+		self.twistTimerFrame:SetAllPoints(airButton)
+		self.twistTimerFrame:SetFrameStrata("HIGH")
 
-	-- Create border glow for urgency
-	if not self.twistBorder then
-		self.twistBorder = airButton:CreateTexture("ShamanPowerTwistBorder", "OVERLAY", nil, 7)
-		self.twistBorder:SetPoint("TOPLEFT", airButton, "TOPLEFT", -2, 2)
-		self.twistBorder:SetPoint("BOTTOMRIGHT", airButton, "BOTTOMRIGHT", 2, -2)
-		self.twistBorder:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-		self.twistBorder:SetBlendMode("ADD")
-		self.twistBorder:SetVertexColor(1, 1, 1)  -- White border
-		self.twistBorder:SetAlpha(0)
-		self.twistBorder:Hide()
+		self.twistTimerText = self.twistTimerFrame:CreateFontString(nil, "OVERLAY")
+		self.twistTimerText:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+		self.twistTimerText:SetPoint("CENTER", airButton, "CENTER", 0, 0)
+		self.twistTimerText:SetTextColor(1, 1, 1)
+		self.twistTimerFrame:Hide()
 	end
 
 	-- Create tracking frame for Air totem changes
@@ -2000,16 +2189,13 @@ function ShamanPower:SetupTwistTimer()
 end
 
 function ShamanPower:HideTwistTimer()
-	if self.twistCooldown then
-		self.twistCooldown:Clear()
-	end
-	if self.twistBorder then
-		self.twistBorder:SetAlpha(0)
-		self.twistBorder:Hide()
+	if self.twistTimerFrame then
+		self.twistTimerFrame:Hide()
 	end
 	if self.twistTrackFrame then
 		self.twistTrackFrame:Hide()
 	end
+	self.twistStartTime = nil
 end
 
 function ShamanPower:UpdateTwistTimer()
@@ -2022,70 +2208,69 @@ function ShamanPower:UpdateTwistTimer()
 	local haveTotem, name, startTime, duration = GetTotemInfo(4)
 
 	-- Update the Air button icon based on what's currently down
-	-- Show the NEXT totem to cast (opposite of what's active)
 	local airButton = self.totemButtons[4]
 	local iconTexture = airButton and airButton.icon
 	if iconTexture then
-		local wfName = GetSpellInfo(25587) or "Windfury Totem"
-		local goaName = GetSpellInfo(25359) or "Grace of Air Totem"
-
 		if haveTotem and name then
-			-- Check which totem is down and show the other one's icon
 			if name:find("Windfury") then
-				-- Windfury is down, show Grace of Air icon (next to cast)
 				iconTexture:SetTexture("Interface\\Icons\\Spell_Nature_InvisibilityTotem")
 			elseif name:find("Grace") then
-				-- Grace of Air is down, show Windfury icon (next to cast)
 				iconTexture:SetTexture("Interface\\Icons\\Spell_Nature_Windfury")
 			else
-				-- Some other Air totem, show Windfury (first in sequence)
 				iconTexture:SetTexture("Interface\\Icons\\Spell_Nature_Windfury")
 			end
 		else
-			-- No totem down, show Windfury (first in sequence)
 			iconTexture:SetTexture("Interface\\Icons\\Spell_Nature_Windfury")
 		end
 	end
 
 	if haveTotem and startTime and startTime > 0 then
-		local elapsed = GetTime() - startTime
-		local remaining = self.TWIST_WINDOW - elapsed
+		-- Restart timer every time WINDFURY is placed
+		local isWindfury = name and name:find("Windfury")
 
-		-- Start cooldown animation if not already running for this totem drop
-		if not self.twistStartTime or self.twistStartTime ~= startTime then
+		if isWindfury and self.twistStartTime ~= startTime then
+			-- New Windfury placed - reset the 10 second timer
 			self.twistStartTime = startTime
-			if self.twistCooldown then
-				self.twistCooldown:SetCooldown(startTime, self.TWIST_WINDOW)
-			end
 		end
 
-		-- Show urgency border when time is running low (last 3 seconds)
-		if self.twistBorder then
-			if remaining > 0 and remaining <= 3 then
-				-- Pulse the border with increasing urgency
-				local pulse = (math.sin(GetTime() * 6) + 1) / 2  -- Fast pulse
-				self.twistBorder:SetAlpha(0.5 + pulse * 0.5)
-				self.twistBorder:SetVertexColor(1, 0.3, 0.3)  -- Red when urgent
-				self.twistBorder:Show()
-			elseif remaining > 3 and remaining <= 5 then
-				-- Yellow warning
-				self.twistBorder:SetAlpha(0.4)
-				self.twistBorder:SetVertexColor(1, 1, 0.3)
-				self.twistBorder:Show()
-			else
-				self.twistBorder:SetAlpha(0)
-				self.twistBorder:Hide()
+		-- If no timer running, hide and return
+		if not self.twistStartTime then
+			if self.twistTimerFrame then
+				self.twistTimerFrame:Hide()
+			end
+			return
+		end
+
+		-- Calculate remaining time
+		local elapsed = GetTime() - self.twistStartTime
+		local remaining = self.TWIST_WINDOW - elapsed
+
+		-- Show center-screen timer
+		if remaining > 0 then
+			if self.twistTimerFrame and self.twistTimerText then
+				self.twistTimerText:SetText(string.format("%.1f", remaining))
+				-- Color: white > 3s, yellow > 1s, red <= 1s
+				if remaining <= 1 then
+					self.twistTimerText:SetTextColor(1, 0.2, 0.2)
+				elseif remaining <= 3 then
+					self.twistTimerText:SetTextColor(1, 1, 0.2)
+				else
+					self.twistTimerText:SetTextColor(1, 1, 1)
+				end
+				self.twistTimerFrame:Show()
+			end
+		else
+			-- Timer expired, reset
+			self.twistStartTime = nil
+			if self.twistTimerFrame then
+				self.twistTimerFrame:Hide()
 			end
 		end
 	else
 		-- No Air totem active
 		self.twistStartTime = nil
-		if self.twistCooldown then
-			self.twistCooldown:Clear()
-		end
-		if self.twistBorder then
-			self.twistBorder:SetAlpha(0)
-			self.twistBorder:Hide()
+		if self.twistTimerFrame then
+			self.twistTimerFrame:Hide()
 		end
 	end
 end
@@ -2531,6 +2716,12 @@ function ShamanPower:SetupTotemProgressBars()
 			frame.elapsed = 0
 
 			ShamanPower:UpdateTotemProgressBars()
+
+			-- Dynamic Mode: update totem icons to reflect currently placed totems
+			-- (Icons can be updated during combat, but full UpdateMiniTotemBar can't)
+			if ShamanPower.opt.dynamicTotemMode then
+				ShamanPower:UpdateDynamicTotemIcons()
+			end
 		end)
 		self.progressBarFrame:Show()
 	end
@@ -4430,6 +4621,9 @@ function ShamanPower:CreateTotemButtons()
 		-- Middle-click to pop out element with flyout (or SHIFT+Middle-click for settings when popped out)
 		btn:HookScript("OnClick", function(self, button)
 			if button == "MiddleButton" then
+				-- Check if pop-out is enabled
+				if ShamanPower.opt.enableMiddleClickPopOut == false then return end
+
 				-- Debounce to prevent double-firing on down+up (same button is reparented)
 				local now = GetTime()
 				if ShamanPower.lastElementPopOutTime and (now - ShamanPower.lastElementPopOutTime) < 0.3 then
@@ -4550,8 +4744,19 @@ function ShamanPower:UpdateTotemButtons()
 		if btn then
 			local isPoppedOut = self:IsElementPoppedOut(element)
 
-			-- Get assigned totem spell (always update, even if popped out)
-			local totemIndex = assignments[element] or 0
+			-- Get totem spell - Dynamic Mode uses active totem, Normal Mode uses assignment
+			local totemIndex
+			if self.opt.dynamicTotemMode then
+				local activeIndex = self:GetActiveTotemIndex(element)
+				if activeIndex then
+					totemIndex = activeIndex
+				else
+					totemIndex = assignments[element] or 0
+				end
+			else
+				totemIndex = assignments[element] or 0
+			end
+
 			local spellID = nil
 			local spellName = nil
 			local icon = self.ElementIcons[element]
@@ -4819,6 +5024,9 @@ function ShamanPower:CreateTotemFlyout(element)
 				else
 					GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 1, 1, 1)
 					GameTooltip:AddLine("|cffffcc00Right-click:|r Set as assigned totem", 1, 1, 1)
+				end
+				if ShamanPower.opt.enableMiddleClickPopOut ~= false then
+					GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out element", 1, 1, 1)
 				end
 				GameTooltip:Show()
 			end)
@@ -5764,6 +5972,9 @@ function ShamanPower:CreateCooldownBar()
 					else
 						GameTooltip:AddLine("No shield active", 1, 0.5, 0.5)
 					end
+					if ShamanPower.opt.enableMiddleClickPopOut ~= false then
+						GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
+					end
 					GameTooltip:Show()
 				end)
 
@@ -5774,6 +5985,9 @@ function ShamanPower:CreateCooldownBar()
 				btn:SetScript("OnEnter", function(self)
 					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 					GameTooltip:SetSpellByID(self.spellID)
+					if ShamanPower.opt.enableMiddleClickPopOut ~= false then
+						GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
+					end
 					GameTooltip:Show()
 				end)
 				btn:SetScript("OnLeave", function()
@@ -5784,6 +5998,9 @@ function ShamanPower:CreateCooldownBar()
 			-- Middle-click to pop out cooldown item (or return/settings if already popped)
 			btn:HookScript("OnClick", function(self, button)
 				if button == "MiddleButton" then
+					-- Check if pop-out is enabled
+					if ShamanPower.opt.enableMiddleClickPopOut == false then return end
+
 					local cdType = self.cooldownType
 					local key = "cd_" .. cdType
 
@@ -7414,10 +7631,124 @@ end
 -- Mini Totem Bar (built-in totem buttons when TotemTimers is not used)
 -- ============================================================================
 
+-- Check if any totems are currently placed
+function ShamanPower:HasAnyTotemsPlaced()
+	for element = 1, 4 do
+		local slot = self.ElementToSlot[element]
+		if slot then
+			local haveTotem = GetTotemInfo(slot)
+			if haveTotem then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Update totem bar visibility based on combat and totem state
+function ShamanPower:UpdateTotemBarVisibility()
+	if not self.autoButton then return end
+
+	local shouldHide = false
+
+	-- Check hide out of combat option
+	if self.opt.hideOutOfCombat then
+		local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
+		if not inCombat then
+			shouldHide = true
+		end
+	end
+
+	-- Check hide when no totems option (only hide if not already hidden by combat check)
+	if not shouldHide and self.opt.hideWhenNoTotems then
+		if not self:HasAnyTotemsPlaced() then
+			shouldHide = true
+		end
+	end
+
+	-- Skip update if state hasn't changed (prevents blinking)
+	if self.totemBarHidden == shouldHide then return end
+	self.totemBarHidden = shouldHide
+
+	-- Apply visibility (can't change in combat lockdown for secure frames)
+	if not InCombatLockdown() then
+		if shouldHide then
+			-- Hide everything
+			self.autoButton:Hide()
+
+			if self.totemButtons then
+				for element = 1, 4 do
+					local btn = self.totemButtons[element]
+					if btn then btn:Hide() end
+				end
+			end
+
+			-- Hide Drop All button
+			local dropAllBtn = _G["ShamanPowerAutoDropAll"]
+			if dropAllBtn then dropAllBtn:Hide() end
+
+			-- Hide Earth Shield button
+			local esBtn = _G["ShamanPowerEarthShieldBtn"]
+			if esBtn then esBtn:Hide() end
+		else
+			-- Show everything with proper opacity
+			local alpha = self.opt.totemBarOpacity or 1.0
+
+			self.autoButton:Show()
+			self.autoButton:SetAlpha(alpha)
+
+			if self.totemButtons then
+				for element = 1, 4 do
+					local btn = self.totemButtons[element]
+					if btn then
+						btn:Show()
+						btn:SetAlpha(alpha)
+					end
+				end
+			end
+
+			-- Show Drop All button (if enabled)
+			local dropAllBtn = _G["ShamanPowerAutoDropAll"]
+			if dropAllBtn and self.opt.showDropAllButton ~= false then
+				dropAllBtn:Show()
+				dropAllBtn:SetAlpha(alpha)
+			end
+
+			-- Show Earth Shield button (if it should be visible)
+			local esBtn = _G["ShamanPowerEarthShieldBtn"]
+			if esBtn and self:HasEarthShield() then
+				esBtn:Show()
+				esBtn:SetAlpha(alpha)
+			end
+		end
+	end
+end
+
+-- Set up visibility update timer
+function ShamanPower:SetupTotemBarVisibilityUpdater()
+	if self.totemBarVisibilityFrame then return end
+
+	self.totemBarVisibilityFrame = CreateFrame("Frame")
+	self.totemBarVisibilityFrame.elapsed = 0
+	self.totemBarVisibilityFrame:SetScript("OnUpdate", function(frame, elapsed)
+		frame.elapsed = frame.elapsed + elapsed
+		if frame.elapsed < 0.2 then return end
+		frame.elapsed = 0
+
+		-- Only update if either option is enabled
+		if ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems then
+			ShamanPower:UpdateTotemBarVisibility()
+		end
+	end)
+end
+
 -- Update the mini totem bar icons and spells based on current assignments
 function ShamanPower:UpdateMiniTotemBar()
 	if not self.autoButton then return end
 	if InCombatLockdown() then return end
+
+	-- Don't show buttons if totem bar should be hidden
+	if self.totemBarHidden then return end
 
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
@@ -7486,7 +7817,22 @@ function ShamanPower:UpdateMiniTotemBar()
 				visiblePosition = visiblePosition + 1
 				totemButton:Show()
 
-				local totemIndex = assignments[element] or 0
+				-- Dynamic Mode: use currently active totem instead of assignment
+				local totemIndex
+				if self.opt.dynamicTotemMode then
+					-- First try to get the active totem
+					local activeIndex = self:GetActiveTotemIndex(element)
+					if activeIndex then
+						totemIndex = activeIndex
+					else
+						-- No active totem - fall back to assignment
+						totemIndex = assignments[element] or 0
+					end
+				else
+					-- Normal mode: use assignment
+					totemIndex = assignments[element] or 0
+				end
+
 				local spellID = nil
 				local spellName = nil
 				local icon = self.ElementIcons[element]  -- Default to element icon
@@ -7731,6 +8077,9 @@ function ShamanPower:TotemBarTooltip(button, element)
 	else
 		GameTooltip:AddLine("No totem assigned", 1, 0, 0)
 	end
+	if self.opt.enableMiddleClickPopOut ~= false then
+		GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
+	end
 	GameTooltip:Show()
 end
 
@@ -7863,6 +8212,9 @@ function ShamanPower:CreateEarthShieldButton()
 		else
 			GameTooltip:AddLine("Click to cast on current target", 0.7, 0.7, 0.7)
 		end
+		if ShamanPower.opt.enableMiddleClickPopOut ~= false then
+			GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
+		end
 		GameTooltip:Show()
 	end)
 	esBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -7924,6 +8276,9 @@ function ShamanPower:CreateEarthShieldButton()
 	-- Middle-click to pop out (or return/settings if already popped)
 	esBtn:HookScript("OnClick", function(self, button)
 		if button == "MiddleButton" then
+			-- Check if pop-out is enabled
+			if ShamanPower.opt.enableMiddleClickPopOut == false then return end
+
 			-- Debounce
 			local now = GetTime()
 			if ShamanPower.lastESPopOutTime and (now - ShamanPower.lastESPopOutTime) < 0.3 then
@@ -8500,6 +8855,12 @@ function ShamanPower:UpdateEarthShieldButton()
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if not esBtn then return end
 
+	-- Check if totem bar is hidden (hide out of combat / hide when no totems)
+	if self.totemBarHidden then
+		esBtn:Hide()
+		return
+	end
+
 	-- Check if Earth Shield button should be hidden
 	if self.opt.totemBarShowEarthShield == false then
 		esBtn:Hide()
@@ -8720,6 +9081,219 @@ function ShamanPower:UpdateAutoButtonSize()
 end
 
 -- ============================================================================
+-- Shield Charge Display (large on-screen numbers)
+-- ============================================================================
+
+ShamanPower.shieldChargeFrames = {}
+
+-- Create or update the shield charge display frames
+function ShamanPower:CreateShieldChargeDisplays()
+	local settings = self.opt.shieldChargeDisplay
+	if not settings then
+		self:EnsureProfileTable("shieldChargeDisplay")
+		settings = self.opt.shieldChargeDisplay
+	end
+
+	-- Create player shield frame (Lightning/Water Shield)
+	if not self.shieldChargeFrames.player then
+		local frame = CreateFrame("Frame", "ShamanPowerPlayerShieldCharge", UIParent)
+		frame:SetSize(60, 60)
+		frame:SetPoint("CENTER", UIParent, "CENTER", settings.playerShieldX or -50, settings.playerShieldY or -100)
+		frame:SetFrameStrata("HIGH")
+
+		local text = frame:CreateFontString(nil, "OVERLAY")
+		text:SetFont("Fonts\\FRIZQT__.TTF", 48, "OUTLINE")
+		text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+		text:SetTextColor(0.2, 0.6, 1.0)  -- Blue for Lightning/Water Shield
+		frame.text = text
+
+		-- Make movable when unlocked
+		frame:SetMovable(true)
+		frame:RegisterForDrag("LeftButton")
+		frame:SetScript("OnDragStart", function(self)
+			if not ShamanPower.opt.shieldChargeDisplay.locked then
+				self:StartMoving()
+			end
+		end)
+		frame:SetScript("OnDragStop", function(self)
+			self:StopMovingOrSizing()
+			local _, _, _, x, y = self:GetPoint()
+			ShamanPower.opt.shieldChargeDisplay.playerShieldX = x
+			ShamanPower.opt.shieldChargeDisplay.playerShieldY = y
+		end)
+
+		frame:Hide()
+		self.shieldChargeFrames.player = frame
+	end
+
+	-- Create Earth Shield frame
+	if not self.shieldChargeFrames.earth then
+		local frame = CreateFrame("Frame", "ShamanPowerEarthShieldCharge", UIParent)
+		frame:SetSize(60, 60)
+		frame:SetPoint("CENTER", UIParent, "CENTER", settings.earthShieldX or 50, settings.earthShieldY or -100)
+		frame:SetFrameStrata("HIGH")
+
+		local text = frame:CreateFontString(nil, "OVERLAY")
+		text:SetFont("Fonts\\FRIZQT__.TTF", 48, "OUTLINE")
+		text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+		text:SetTextColor(0.2, 0.8, 0.2)  -- Green for Earth Shield
+		frame.text = text
+
+		-- Make movable when unlocked
+		frame:SetMovable(true)
+		frame:RegisterForDrag("LeftButton")
+		frame:SetScript("OnDragStart", function(self)
+			if not ShamanPower.opt.shieldChargeDisplay.locked then
+				self:StartMoving()
+			end
+		end)
+		frame:SetScript("OnDragStop", function(self)
+			self:StopMovingOrSizing()
+			local _, _, _, x, y = self:GetPoint()
+			ShamanPower.opt.shieldChargeDisplay.earthShieldX = x
+			ShamanPower.opt.shieldChargeDisplay.earthShieldY = y
+		end)
+
+		frame:Hide()
+		self.shieldChargeFrames.earth = frame
+	end
+
+	-- Set up OnUpdate for periodic refresh
+	if not self.shieldChargeUpdateFrame then
+		self.shieldChargeUpdateFrame = CreateFrame("Frame")
+		self.shieldChargeUpdateFrame.elapsed = 0
+		self.shieldChargeUpdateFrame:SetScript("OnUpdate", function(frame, elapsed)
+			frame.elapsed = frame.elapsed + elapsed
+			if frame.elapsed < 0.1 then return end
+			frame.elapsed = 0
+			ShamanPower:UpdateShieldChargeDisplays()
+		end)
+	end
+
+	self:UpdateShieldChargeDisplays()
+end
+
+-- Get color based on charges remaining
+function ShamanPower:GetShieldChargeColor(charges, maxCharges, isEarthShield)
+	if isEarthShield then
+		-- Earth Shield: 6 charges max, yellow at 3, red at 1-2
+		if charges >= 4 then
+			return 0.2, 0.8, 0.2  -- Green
+		elseif charges >= 3 then
+			return 1.0, 0.8, 0.0  -- Yellow
+		else
+			return 1.0, 0.2, 0.2  -- Red
+		end
+	else
+		-- Lightning/Water Shield: 3-4 charges max, yellow at 2, red at 1
+		if charges >= 3 then
+			return 0.2, 0.6, 1.0  -- Blue (full)
+		elseif charges == 2 then
+			return 1.0, 0.8, 0.0  -- Yellow (medium)
+		else
+			return 1.0, 0.2, 0.2  -- Red (low)
+		end
+	end
+end
+
+-- Update the shield charge displays
+function ShamanPower:UpdateShieldChargeDisplays()
+	local settings = self.opt.shieldChargeDisplay
+	if not settings then return end
+
+	local playerFrame = self.shieldChargeFrames.player
+	local earthFrame = self.shieldChargeFrames.earth
+	if not playerFrame or not earthFrame then return end
+
+	local scale = settings.scale or 1.0
+	local opacity = settings.opacity or 1.0
+	local locked = settings.locked
+	local hideOOC = settings.hideOutOfCombat
+	local hideNoShields = settings.hideNoShields
+
+	-- Check combat state
+	local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
+
+	-- Update player shield (Lightning/Water Shield)
+	if settings.showPlayerShield ~= false then
+		local charges = 0
+		local maxCharges = 3  -- Default for Lightning/Water Shield
+		local hasShield = false
+
+		-- Check for Lightning Shield or Water Shield
+		for i = 1, 40 do
+			local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
+			if not name then break end
+			if name:find("Lightning Shield") or name:find("Water Shield") then
+				charges = count or 0
+				-- If charges is 0 but we have the buff, it might be stored differently
+				if charges == 0 then
+					-- Try getting it from the 3rd return value directly
+					local _, _, c = UnitBuff("player", i)
+					charges = c or 3  -- Default to 3 if we can't get count
+				end
+				hasShield = true
+				break
+			end
+		end
+
+		-- Determine visibility
+		local shouldShow = hasShield or not hideNoShields
+		if hideOOC and not inCombat then
+			shouldShow = false
+		end
+
+		if shouldShow then
+			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, false)
+			playerFrame.text:SetText(charges)
+			playerFrame.text:SetTextColor(r, g, b)
+			playerFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
+			playerFrame:SetAlpha(opacity)
+			playerFrame:EnableMouse(not locked)
+			playerFrame:Show()
+		else
+			playerFrame:Hide()
+		end
+	else
+		playerFrame:Hide()
+	end
+
+	-- Update Earth Shield
+	if settings.showEarthShield ~= false then
+		local charges = 0
+		local maxCharges = 6  -- Earth Shield has 6 charges
+		local hasShield = false
+
+		-- Get Earth Shield charges from FindEarthShieldTarget
+		local esTarget, esCharges = self:FindEarthShieldTarget()
+		if esTarget and esCharges and esCharges > 0 then
+			charges = esCharges
+			hasShield = true
+		end
+
+		-- Determine visibility
+		local shouldShow = hasShield or not hideNoShields
+		if hideOOC and not inCombat then
+			shouldShow = false
+		end
+
+		if shouldShow then
+			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, true)
+			earthFrame.text:SetText(charges)
+			earthFrame.text:SetTextColor(r, g, b)
+			earthFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
+			earthFrame:SetAlpha(opacity)
+			earthFrame:EnableMouse(not locked)
+			earthFrame:Show()
+		else
+			earthFrame:Hide()
+		end
+	else
+		earthFrame:Hide()
+	end
+end
+
+-- ============================================================================
 -- Drop All Button - cycles through all 4 totems
 -- ============================================================================
 
@@ -8746,6 +9320,9 @@ function ShamanPower:UpdateDropAllButton()
 		self.dropAllMiddleClickHooked = true
 		dropAllBtn:HookScript("OnClick", function(self, button)
 			if button == "MiddleButton" then
+				-- Check if pop-out is enabled
+				if ShamanPower.opt.enableMiddleClickPopOut == false then return end
+
 				-- Debounce
 				local now = GetTime()
 				if ShamanPower.lastDropAllPopOutTime and (now - ShamanPower.lastDropAllPopOutTime) < 0.3 then
@@ -8931,6 +9508,9 @@ function ShamanPower:DropAllTooltip(button)
 
 	GameTooltip:AddLine(" ", 1, 1, 1)
 	GameTooltip:AddLine("Resets when combat ends", 0.5, 0.5, 0.5)
+	if self.opt.enableMiddleClickPopOut ~= false then
+		GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
+	end
 	GameTooltip:Show()
 end
 
@@ -9528,6 +10108,16 @@ function ShamanPower:PLAYER_ENTERING_WORLD()
 	C_Timer.After(2.5, function()
 		self:RestorePoppedOutTrackers()
 	end)
+
+	-- Initialize Shield Charge Display (large on-screen numbers)
+	C_Timer.After(3, function()
+		self:CreateShieldChargeDisplays()
+	end)
+
+	-- Set up totem bar visibility updater (hide out of combat / hide when no totems)
+	C_Timer.After(1, function()
+		self:SetupTotemBarVisibilityUpdater()
+	end)
 end
 
 function ShamanPower:ZONE_CHANGED()
@@ -9668,6 +10258,13 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 		local spellName = GetSpellInfo(spellID)
 		if spellName and spellName:find("Totem") then
 			self:TriggerGCDSwipe()
+			-- Dynamic Mode: immediately update assignment when totem is cast
+			if self.opt.dynamicTotemMode then
+				-- Small delay to let GetTotemInfo update
+				C_Timer.After(0.01, function()
+					self:UpdateDynamicTotemIcons()
+				end)
+			end
 		end
 	end
 
@@ -13119,6 +13716,11 @@ keybindEventFrame:SetScript("OnEvent", function(self, event)
 			end
 			ShamanPower.pendingAssignments = nil
 			-- Silent save, like TotemTimers
+		end
+		-- Dynamic Mode: update button attributes now that we're out of combat
+		if ShamanPower.opt.dynamicTotemMode then
+			ShamanPower:UpdateMiniTotemBar()
+			ShamanPower:UpdateTotemButtons()
 		end
 		return
 	end

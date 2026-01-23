@@ -1,5 +1,35 @@
 # ShamanPower Changelog
 
+## [v1.3.8](https://github.com/taubut/ShamanPower/releases/tag/v1.3.8) (2026-01-22)
+
+### New Features
+- **Shield Charge Display**: Large on-screen charge numbers for Lightning Shield, Water Shield, and Earth Shield
+  - Separate toggles for player shield and Earth Shield on target
+  - Options for scale, opacity, lock position, hide out of combat, hide when no shields
+  - When "Hide When No Shields" is unchecked, shows 0 instead of hiding
+- **PVP/Dynamic Mode**: Totem bar shows whatever totem is currently placed (no pre-assignment needed)
+  - Enable in Settings tab under "Dynamic Totem Mode"
+- **Totem Bar Visibility Options**: Hide out of combat, hide when no totems placed
+- **Pop-Out Control**: Option to disable middle-click pop-out feature (Settings > Pop-Out Trackers)
+- **Earth Shield Tracker Button**: Added button in Settings to open `/spestrack` configuration
+
+### UI Improvements
+- **Reorganized Look & Feel Tab**: Now uses sidebar navigation for cleaner organization
+- **Reorganized Buttons Tab**: Now uses sidebar navigation matching Look & Feel
+- All options use full-width elements for better readability
+- Renamed "Totem Range (SPRange)" to "Totem Range Tracker"
+- Moved Shield Charge Display options to Look & Feel tab
+- Fixed cramped layouts throughout (Totem Bar Items, Totem Bar Order, Earth Shield Tracker, Cooldown Bar Order)
+- Dropdown menus now use full names instead of abbreviations
+
+### Tooltip Improvements
+- Added "Middle-click to pop out" hint to button tooltips
+
+### Bug Fixes
+- Fix totem twisting timer restarting on second totem
+- Fix Drop All Totems cast sequence not resetting after combat ends
+- Fix Shield Charge Display "Hide When No Shields" option (now properly shows 0 when unchecked)
+
 ## [v1.3.7](https://github.com/taubut/ShamanPower/releases/tag/v1.3.7) (2026-01-22)
 
 ### Pop-Out Individual Trackers
