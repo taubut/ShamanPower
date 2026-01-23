@@ -1424,15 +1424,13 @@ function ShamanPower:GetActiveTotemIndex(element)
 	local totemNames = self.TotemNames[element]
 	if not totemNames then return nil end
 
+	-- Convert to lowercase once for faster comparison
+	local activeLower = activeTotemName:lower()
+
 	for totemIndex, totemName in pairs(totemNames) do
-		-- Check if the active totem name contains or matches this totem's name
-		if totemName and activeTotemName then
-			-- Use string.find for partial matching (totem names may have rank numbers, etc.)
-			local ok1, result1 = pcall(string.find, activeTotemName, totemName, 1, true)
-			local ok2, result2 = pcall(string.find, totemName, activeTotemName, 1, true)
-			if (ok1 and result1) or (ok2 and result2) then
-				return totemIndex
-			end
+		-- Check if the active totem name contains this totem's name (plain text match)
+		if totemName and activeLower:find(totemName:lower(), 1, true) then
+			return totemIndex
 		end
 	end
 
@@ -1475,31 +1473,36 @@ function ShamanPower:UpdateDynamicTotemIcons()
 	local needsFullUpdate = false
 
 	for element = 1, 4 do
-		local activeIndex = self:GetActiveTotemIndex(element)
+		-- Skip Air (element 4) when totem twisting is enabled - twist manages Air specially
+		if element == 4 and self.opt.enableTotemTwisting then
+			-- Don't update Air assignment or icon in dynamic mode when twisting
+		else
+			local activeIndex = self:GetActiveTotemIndex(element)
 
-		-- If there's an active totem and it's different from the assignment, update it
-		if activeIndex and activeIndex ~= assignments[element] then
-			assignments[element] = activeIndex
-			needsFullUpdate = true
-		end
+			-- If there's an active totem and it's different from the assignment, update it
+			if activeIndex and activeIndex ~= assignments[element] then
+				assignments[element] = activeIndex
+				needsFullUpdate = true
+			end
 
-		-- Update the icon regardless
-		local totemIndex = assignments[element] or 0
-		local icon = self.ElementIcons[element]  -- Default
-		if totemIndex and totemIndex > 0 then
-			icon = self:GetTotemIcon(element, totemIndex)
-		end
+			-- Update the icon regardless
+			local totemIndex = assignments[element] or 0
+			local icon = self.ElementIcons[element]  -- Default
+			if totemIndex and totemIndex > 0 then
+				icon = self:GetTotemIcon(element, totemIndex)
+			end
 
-		-- Update the XML button icon
-		local iconTexture = _G["ShamanPowerAutoTotem" .. element .. "Icon"]
-		if iconTexture then
-			iconTexture:SetTexture(icon)
-		end
+			-- Update the XML button icon
+			local iconTexture = _G["ShamanPowerAutoTotem" .. element .. "Icon"]
+			if iconTexture then
+				iconTexture:SetTexture(icon)
+			end
 
-		-- Update the Lua button icon (if exists)
-		local btn = self.totemButtons and self.totemButtons[element]
-		if btn and btn.icon then
-			btn.icon:SetTexture(icon)
+			-- Update the Lua button icon (if exists)
+			local btn = self.totemButtons and self.totemButtons[element]
+			if btn and btn.icon then
+				btn.icon:SetTexture(icon)
+			end
 		end
 	end
 
@@ -1615,6 +1618,11 @@ function ShamanPower:CreatePulseOverlay(button)
 	-- Update the wipe progress (0 = just pulsed/no coverage, 1 = about to pulse/full coverage)
 	container.UpdateWipe = function(self, progress)
 		if self.wipe then
+			-- Don't show if pulse bar is disabled
+			if self.isDisabled then
+				self.wipe:Hide()
+				return
+			end
 			if progress > 0 and progress < 1 then
 				local size = self.maxSize * progress
 				if self.isVertical then
@@ -1647,29 +1655,35 @@ function ShamanPower:CreatePulseOverlay(button)
 		end
 
 		local timeText = string.format("%.1f", timeRemaining)
+		local textSize = ShamanPower.opt.pulseTextSize or 8
 
 		if displayOption == "inside_top" then
 			if self.barTimeTextTop then
+				self.barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 				self.barTimeTextTop:SetText(timeText)
 				self.barTimeTextTop:Show()
 			end
 		elseif displayOption == "inside_bottom" then
 			if self.barTimeTextBottom then
+				self.barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 				self.barTimeTextBottom:SetText(timeText)
 				self.barTimeTextBottom:Show()
 			end
 		elseif displayOption == "above" then
 			if self.aboveTimeText then
+				self.aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 				self.aboveTimeText:SetText(timeText)
 				self.aboveTimeText:Show()
 			end
 		elseif displayOption == "below" then
 			if self.belowTimeText then
+				self.belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 				self.belowTimeText:SetText(timeText)
 				self.belowTimeText:Show()
 			end
 		elseif displayOption == "on_icon" then
 			if self.iconTimeText then
+				self.iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 				self.iconTimeText:SetText(timeText)
 				self.iconTimeText:Show()
 			end
@@ -1696,10 +1710,20 @@ function ShamanPower:PositionPulseWipe(container)
 	local wipeFrame = container.wipeFrame
 	local wipe = container.wipe
 	local position = self.opt.pulseBarPosition or "on_icon"
-	local barSize = 4  -- Size of the external bar
+	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
 
 	wipe:ClearAllPoints()
 	wipeFrame:ClearAllPoints()
+
+	-- Handle "none" position - hide the pulse bar
+	if position == "none" then
+		wipe:Hide()
+		wipeFrame:Hide()
+		container.isDisabled = true
+		return
+	end
+
+	container.isDisabled = false
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -1722,10 +1746,10 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetWidth()
 	elseif position == "above_vert" then
 		-- Vertical bar above the icon, fills bottom to top (same height as icon)
-		wipeFrame:SetPoint("BOTTOMLEFT", button, "TOPLEFT", 0, 1)
-		wipeFrame:SetSize(button:GetWidth(), button:GetHeight())
+		wipeFrame:SetPoint("BOTTOM", button, "TOP", 0, 1)
+		wipeFrame:SetSize(barSize, button:GetHeight())
 		wipe:SetPoint("BOTTOMLEFT", wipeFrame, "BOTTOMLEFT", 0, 0)
-		wipe:SetWidth(button:GetWidth())
+		wipe:SetWidth(barSize)
 		wipe:SetHeight(1)
 		container.isVertical = true
 		container.isOnIcon = false
@@ -1742,10 +1766,10 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetWidth()
 	elseif position == "below_vert" then
 		-- Vertical bar below the icon, fills top to bottom (same height as icon)
-		wipeFrame:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -1)
-		wipeFrame:SetSize(button:GetWidth(), button:GetHeight())
+		wipeFrame:SetPoint("TOP", button, "BOTTOM", 0, -1)
+		wipeFrame:SetSize(barSize, button:GetHeight())
 		wipe:SetPoint("TOPLEFT", wipeFrame, "TOPLEFT", 0, 0)
-		wipe:SetWidth(button:GetWidth())
+		wipe:SetWidth(barSize)
 		wipe:SetHeight(1)
 		container.isVertical = true
 		container.isOnIcon = false
@@ -1797,10 +1821,20 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	local wipeFrame = overlay.wipeFrame
 	local wipe = overlay.wipe
 	local position = self.opt.pulseBarPosition or "on_icon"
-	local barSize = 4  -- Size of the external bar
+	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
 
 	wipe:ClearAllPoints()
 	if wipeFrame then wipeFrame:ClearAllPoints() end
+
+	-- Handle "none" position - hide the pulse bar
+	if position == "none" then
+		wipe:Hide()
+		if wipeFrame then wipeFrame:Hide() end
+		overlay.isDisabled = true
+		return
+	end
+
+	overlay.isDisabled = false
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -1826,11 +1860,11 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	elseif position == "above_vert" then
 		-- Vertical bar above the frame, fills bottom to top (same height as icon)
 		if wipeFrame then
-			wipeFrame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 0, 1)
-			wipeFrame:SetSize(frame:GetWidth(), frame:GetHeight())
+			wipeFrame:SetPoint("BOTTOM", frame, "TOP", 0, 1)
+			wipeFrame:SetSize(barSize, frame:GetHeight())
 		end
 		wipe:SetPoint("BOTTOMLEFT", wipeFrame or frame, "BOTTOMLEFT", 0, 0)
-		wipe:SetWidth(frame:GetWidth())
+		wipe:SetWidth(barSize)
 		wipe:SetHeight(1)
 		overlay.isVertical = true
 		overlay.isOnIcon = false
@@ -1850,11 +1884,11 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	elseif position == "below_vert" then
 		-- Vertical bar below the frame, fills top to bottom (same height as icon)
 		if wipeFrame then
-			wipeFrame:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 0, -1)
-			wipeFrame:SetSize(frame:GetWidth(), frame:GetHeight())
+			wipeFrame:SetPoint("TOP", frame, "BOTTOM", 0, -1)
+			wipeFrame:SetSize(barSize, frame:GetHeight())
 		end
 		wipe:SetPoint("TOPLEFT", wipeFrame or frame, "TOPLEFT", 0, 0)
-		wipe:SetWidth(frame:GetWidth())
+		wipe:SetWidth(barSize)
 		wipe:SetHeight(1)
 		overlay.isVertical = true
 		overlay.isOnIcon = false
@@ -1920,11 +1954,16 @@ function ShamanPower:SetupPulseOverlays()
 		end
 	end
 
-	-- Start continuous pulse tracking
+	-- Start continuous pulse tracking (throttled to reduce CPU usage)
 	if not self.pulseFrame then
 		self.pulseFrame = CreateFrame("Frame")
+		self.pulseFrame.elapsed = 0
 
 		self.pulseFrame:SetScript("OnUpdate", function(frame, elapsed)
+			frame.elapsed = frame.elapsed + elapsed
+			if frame.elapsed < 0.05 then return end  -- Update 20 times per second
+			frame.elapsed = 0
+
 			-- Check Earth totem (slot 2)
 			local earthData, earthStart = ShamanPower:GetActivePulsingTotem(2)
 			ShamanPower:UpdatePulseGlow(1, earthData, earthStart)
@@ -1952,10 +1991,10 @@ function ShamanPower:UpdatePoppedOutPulse(element, slot, totemData, startTime)
 
 			-- Check if this pop-out's totem matches the active totem
 			if haveTotem and activeTotemName and overlay.spellName then
-				-- Try matching spell names
-				local ok1, result1 = pcall(string.find, activeTotemName, overlay.spellName, 1, true)
-				local ok2, result2 = pcall(string.find, overlay.spellName, activeTotemName, 1, true)
-				if (ok1 and result1) or (ok2 and result2) then
+				-- Simple case-insensitive substring match
+				local activeLower = activeTotemName:lower()
+				local spellLower = overlay.spellName:lower()
+				if activeLower:find(spellLower, 1, true) or spellLower:find(activeLower, 1, true) then
 					matchesTotem = true
 				end
 			end
@@ -2079,7 +2118,10 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 
 		if useOverlay and activeOverlay.wipe then
 			-- Update overlay's wipe using its positioning settings
-			if cyclePos > 0 and cyclePos < 1 then
+			-- Check if pulse bar is disabled
+			if activeOverlay.isDisabled then
+				activeOverlay.wipe:Hide()
+			elseif cyclePos > 0 and cyclePos < 1 then
 				local maxSize = activeOverlay.maxSize or 22
 				local size = maxSize * cyclePos
 				if activeOverlay.isVertical then
@@ -2100,7 +2142,13 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 
 		-- Update pulse time display
 		local displayOption = self.opt.pulseTimeDisplay or "none"
-		if glow.UpdateTime then
+		if useOverlay and activeOverlay.UpdateTime then
+			-- Update time on active overlay
+			activeOverlay:UpdateTime(timeRemaining, displayOption)
+			-- Hide time on main overlay
+			if glow.HideTime then glow:HideTime() end
+		elseif glow.UpdateTime then
+			-- Update time on main overlay
 			glow:UpdateTime(timeRemaining, displayOption)
 		end
 
@@ -2147,6 +2195,7 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 					overlayGlow:SetAlpha(0)
 				end
 			end
+			if activeOverlay.HideTime then activeOverlay:HideTime() end
 		end
 	end
 end
@@ -2178,10 +2227,14 @@ function ShamanPower:SetupTwistTimer()
 		self.twistTimerFrame:Hide()
 	end
 
-	-- Create tracking frame for Air totem changes
+	-- Create tracking frame for Air totem changes (throttled to reduce CPU usage)
 	if not self.twistTrackFrame then
 		self.twistTrackFrame = CreateFrame("Frame")
+		self.twistTrackFrame.elapsed = 0
 		self.twistTrackFrame:SetScript("OnUpdate", function(frame, elapsed)
+			frame.elapsed = frame.elapsed + elapsed
+			if frame.elapsed < 0.05 then return end  -- Update 20 times per second
+			frame.elapsed = 0
 			self:UpdateTwistTimer()
 		end)
 	end
@@ -2380,29 +2433,25 @@ function ShamanPower:GetActiveTotemBuffName(element)
 	local buffNames = self.TotemBuffNames[element]
 	if not buffNames then return nil end
 
-	-- First try: match based on assignments
-	local assignments = ShamanPower_Assignments[self.player]
-	if assignments then
-		local totemIndex = assignments[element]
-		if totemIndex and totemIndex > 0 and buffNames[totemIndex] then
-			return buffNames[totemIndex]
-		end
-	end
-
-	-- Second try: match based on actual totem name from GetTotemInfo
+	-- Match based on actual totem name from GetTotemInfo (not assignments!)
+	-- This ensures we check the buff for the ACTIVE totem, not the assigned one
 	-- Strip rank number from totem name for matching (e.g., "Windfury Totem VII" -> "Windfury Totem")
 	local totemBaseName = totemName:gsub("%s+[IVXLCDM]+$", ""):gsub("%s+%d+$", "")
+	local totemLower = totemBaseName:lower()
+	local fullNameLower = totemName:lower()
 
-	for _, buffName in pairs(buffNames) do
+	for totemIndex, buffName in pairs(buffNames) do
 		if type(buffName) == "string" then
+			local buffLower = buffName:lower()
 			-- Check if totem name contains the buff search term
-			if totemBaseName:lower():find(buffName:lower(), 1, true) or
-			   totemName:lower():find(buffName:lower(), 1, true) then
+			if totemLower:find(buffLower, 1, true) or fullNameLower:find(buffLower, 1, true) then
 				return buffName
 			end
 		end
 	end
 
+	-- No matching buff found - this totem doesn't have a trackable buff
+	-- (e.g., Tremor, Disease Cleansing, Searing, etc.)
 	return nil
 end
 
@@ -2516,6 +2565,7 @@ function ShamanPower:UpdatePartyRangeDots()
 						-- Special case: Air element (4) with no buffName = Windfury Totem
 						-- We can't check other players' buffs with UnitBuff, so use
 						-- the broadcast system where each player reports their own buff status
+						-- Only show dots for players who have ShamanPower and are reporting
 						local isWindfury = (element == 4 and not buffName)
 						if isWindfury then
 							local playerName = UnitName(unit)
@@ -2527,15 +2577,18 @@ function ShamanPower:UpdatePartyRangeDots()
 								else
 									dot:SetVertexColor(0, 1, 0)  -- Green
 								end
+								dot:Show()
+								if useOverlay and mainDot then mainDot:Hide() end
 							elseif wfStatus == false then
 								-- Player reported NOT having Windfury enchant - out of range
 								dot:SetVertexColor(1, 0, 0)
+								dot:Show()
+								if useOverlay and mainDot then mainDot:Hide() end
 							else
-								-- No data yet - show yellow (unknown/waiting for report)
-								dot:SetVertexColor(1, 1, 0)
+								-- No data - player doesn't have ShamanPower, hide dot
+								dot:Hide()
+								if useOverlay and mainDot then mainDot:Hide() end
 							end
-							dot:Show()
-							if useOverlay and mainDot then mainDot:Hide() end
 						elseif hasBuff then
 							-- In range - show class-colored dot
 							if classColor then
@@ -2551,13 +2604,9 @@ function ShamanPower:UpdatePartyRangeDots()
 							dot:Show()
 							if useOverlay and mainDot then mainDot:Hide() end
 						else
-							-- No buff to check (damage totem, etc.) - show class color
-							if classColor then
-								dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
-							else
-								dot:SetVertexColor(0.5, 0.5, 0.5)  -- Gray
-							end
-							dot:Show()
+							-- No buff to check (Tremor, Earthbind, Searing, etc.) - hide dot
+							-- These totems can't be tracked via buffs
+							dot:Hide()
 							if useOverlay and mainDot then mainDot:Hide() end
 						end
 					else
@@ -2565,6 +2614,408 @@ function ShamanPower:UpdatePartyRangeDots()
 						dot:Hide()
 						if useOverlay and mainDot then mainDot:Hide() end
 					end
+				end
+			end
+		end
+	end
+
+	-- Update range counters after updating dots
+	self:UpdateRangeCounters()
+end
+
+-- ============================================================================
+-- Range Counter (shows number of players in range as a number)
+-- ============================================================================
+
+ShamanPower.rangeCounterTexts = {}     -- Text elements on totem buttons
+ShamanPower.rangeCounterFrames = {}    -- Unlocked movable frames
+
+-- Element colors for range counters
+ShamanPower.RangeCounterColors = {
+	[1] = {0.2, 0.9, 0.2},  -- Earth - green
+	[2] = {0.9, 0.2, 0.2},  -- Fire - red
+	[3] = {0.2, 0.6, 1.0},  -- Water - blue
+	[4] = {1.0, 1.0, 1.0},  -- Air - white
+}
+
+-- Create range counter text on a totem button
+function ShamanPower:CreateRangeCounterText(button, element)
+	if not button then return end
+	if self.rangeCounterTexts[element] then return end
+
+	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
+	local text = button:CreateFontString(nil, "OVERLAY")
+	text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+	text:SetPoint("CENTER", button, "CENTER", 0, 0)
+	text:SetTextColor(1, 1, 1)
+	text:Hide()
+
+	self.rangeCounterTexts[element] = text
+end
+
+-- Create unlocked range counter frame for an element
+function ShamanPower:CreateRangeCounterFrame(element)
+	if self.rangeCounterFrames[element] then return self.rangeCounterFrames[element] end
+
+	local elementNames = { "Earth", "Fire", "Water", "Air" }
+	local frameName = "ShamanPowerRangeCounter" .. elementNames[element]
+
+	local frame = CreateFrame("Frame", frameName, UIParent, "BackdropTemplate")
+	frame:SetSize(40, 40)
+	frame:SetMovable(true)
+	frame:EnableMouse(true)
+	frame:SetClampedToScreen(true)
+	frame:RegisterForDrag("LeftButton")
+	frame.element = element
+
+	-- Background
+	frame:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 8,
+		insets = { left = 2, right = 2, top = 2, bottom = 2 }
+	})
+	frame:SetBackdropColor(0, 0, 0, 0.7)
+	frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+
+	-- Counter text
+	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
+	local text = frame:CreateFontString(nil, "OVERLAY")
+	text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+	text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+	text:SetTextColor(1, 1, 1)
+	frame.text = text
+
+	-- Element label below the number
+	local label = frame:CreateFontString(nil, "OVERLAY")
+	label:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	label:SetPoint("BOTTOM", frame, "BOTTOM", 0, 4)
+	label:SetText(elementNames[element])
+	local colors = self.RangeCounterColors[element]
+	label:SetTextColor(colors[1], colors[2], colors[3])
+	frame.label = label
+
+	-- Restore position
+	local rcOpt = self.opt.rangeCounter
+	if rcOpt and rcOpt.positions and rcOpt.positions[element] then
+		local pos = rcOpt.positions[element]
+		frame:SetPoint(pos.point or "CENTER", UIParent, pos.relPoint or "CENTER", pos.x or 0, pos.y or 0)
+	else
+		-- Default position: above the totem bar, matching totem button positions
+		-- Always use CENTER anchor so scaling works properly
+		local totemBtn = self.totemButtons and self.totemButtons[element]
+		if totemBtn and totemBtn:GetCenter() then
+			-- Get totem button's screen position and place frame above it
+			local btnX, btnY = totemBtn:GetCenter()
+			local btnTop = btnY + (totemBtn:GetHeight() / 2)
+			local frameHeight = frame:GetHeight() or 40
+			-- Calculate center position (above totem button)
+			local centerY = btnTop + 5 + (frameHeight / 2)
+			-- Convert to offset from screen center
+			local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
+			local offsetX = btnX - (screenWidth / 2)
+			local offsetY = centerY - (screenHeight / 2)
+			frame:SetPoint("CENTER", UIParent, "CENTER", offsetX, offsetY)
+		else
+			-- Fallback: spread horizontally near center of screen
+			local xOffset = (element - 2.5) * 55
+			frame:SetPoint("CENTER", UIParent, "CENTER", xOffset, 0)
+		end
+	end
+
+	-- Apply scale and opacity
+	if rcOpt then
+		frame:SetScale(rcOpt.scale or 1.0)
+		frame:SetAlpha(rcOpt.opacity or 1.0)
+
+		-- Apply hide frame setting
+		if rcOpt.hideFrame then
+			frame:SetBackdrop(nil)
+		end
+
+		-- Apply hide label setting
+		if rcOpt.hideLabel then
+			label:Hide()
+		end
+
+		-- Adjust frame size based on what's visible
+		if rcOpt.hideFrame and rcOpt.hideLabel then
+			frame:SetSize(30, 25)
+		elseif rcOpt.hideLabel then
+			frame:SetSize(40, 35)
+		end
+
+		-- Apply lock setting (click-through)
+		if rcOpt.locked then
+			frame:EnableMouse(false)
+			frame:SetMovable(false)
+		end
+	end
+
+	-- Drag to move (ALT+drag)
+	frame:SetScript("OnDragStart", function(self)
+		if IsAltKeyDown() then
+			self:StartMoving()
+		end
+	end)
+
+	frame:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		-- Save position as CENTER coordinates (so scaling works properly)
+		local centerX, centerY = self:GetCenter()
+		local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
+		-- Convert to offset from screen center
+		local x = centerX - (screenWidth / 2)
+		local y = centerY - (screenHeight / 2)
+		if not ShamanPower.opt.rangeCounter.positions then
+			ShamanPower.opt.rangeCounter.positions = {}
+		end
+		ShamanPower.opt.rangeCounter.positions[element] = {
+			point = "CENTER", relPoint = "CENTER", x = x, y = y
+		}
+		-- Re-anchor to CENTER so scaling works properly
+		self:ClearAllPoints()
+		self:SetPoint("CENTER", UIParent, "CENTER", x, y)
+	end)
+
+	-- Tooltip
+	frame:SetScript("OnEnter", function(self)
+		if ShamanPower.opt.ShowTooltips then
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText(elementNames[element] .. " Range Counter")
+			GameTooltip:AddLine("Players in range of your " .. elementNames[element] .. " totem", 1, 1, 1)
+			GameTooltip:AddLine(" ")
+			GameTooltip:AddLine("ALT+Drag to move", 0.7, 0.7, 0.7)
+			GameTooltip:Show()
+		end
+	end)
+
+	frame:SetScript("OnLeave", function(self)
+		GameTooltip:Hide()
+	end)
+
+	frame:Hide()
+	self.rangeCounterFrames[element] = frame
+	return frame
+end
+
+-- Setup range counters on all totem buttons
+function ShamanPower:SetupRangeCounters()
+	for element = 1, 4 do
+		local button = self.totemButtons[element]
+		if button then
+			self:CreateRangeCounterText(button, element)
+		end
+	end
+end
+
+-- Update frame lock state (click-through)
+function ShamanPower:UpdateRangeCounterLock()
+	local rcOpt = self.opt.rangeCounter
+	if not rcOpt then return end
+
+	local locked = rcOpt.locked
+	for element = 1, 4 do
+		local frame = self.rangeCounterFrames[element]
+		if frame then
+			frame:EnableMouse(not locked)
+			frame:SetMovable(not locked)
+		end
+	end
+end
+
+-- Update frame style (hide frame background and/or label)
+function ShamanPower:UpdateRangeCounterFrameStyle()
+	local rcOpt = self.opt.rangeCounter
+	if not rcOpt then return end
+
+	for element = 1, 4 do
+		local frame = self.rangeCounterFrames[element]
+		if frame then
+			-- Hide/show frame background
+			if rcOpt.hideFrame then
+				frame:SetBackdrop(nil)
+			else
+				frame:SetBackdrop({
+					bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+					edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+					tile = true, tileSize = 16, edgeSize = 8,
+					insets = { left = 2, right = 2, top = 2, bottom = 2 }
+				})
+				frame:SetBackdropColor(0, 0, 0, 0.7)
+				frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+			end
+
+			-- Hide/show element label
+			if frame.label then
+				if rcOpt.hideLabel then
+					frame.label:Hide()
+				else
+					frame.label:Show()
+				end
+			end
+
+			-- Adjust frame size based on what's visible
+			if rcOpt.hideFrame and rcOpt.hideLabel then
+				-- Just the number - make frame smaller
+				frame:SetSize(30, 25)
+			elseif rcOpt.hideLabel then
+				-- Frame but no label
+				frame:SetSize(40, 35)
+			else
+				-- Full frame with label
+				frame:SetSize(40, 40)
+			end
+		end
+	end
+end
+
+-- Update range counter displays
+function ShamanPower:UpdateRangeCounters()
+	local rcOpt = self.opt.rangeCounter
+	if not rcOpt or not rcOpt.enabled then
+		-- Hide all counters when disabled
+		for element = 1, 4 do
+			if self.rangeCounterTexts[element] then
+				self.rangeCounterTexts[element]:Hide()
+			end
+			if self.rangeCounterFrames[element] then
+				self.rangeCounterFrames[element]:Hide()
+			end
+		end
+		return
+	end
+
+	-- Build list of party units (same logic as UpdatePartyRangeDots)
+	local partyUnits = {}
+	local totalPartyMembers = 0
+	if IsInRaid() then
+		local mySubgroup = 1
+		for i = 1, 40 do
+			local name, _, subgroup = GetRaidRosterInfo(i)
+			if name == UnitName("player") then
+				mySubgroup = subgroup
+				break
+			end
+		end
+		for i = 1, 40 do
+			local name, _, subgroup = GetRaidRosterInfo(i)
+			if name and subgroup == mySubgroup and name ~= UnitName("player") then
+				totalPartyMembers = totalPartyMembers + 1
+				partyUnits[totalPartyMembers] = "raid" .. i
+				if totalPartyMembers >= 4 then break end
+			end
+		end
+	elseif IsInGroup() then
+		for i = 1, 4 do
+			if UnitExists("party" .. i) then
+				totalPartyMembers = totalPartyMembers + 1
+				partyUnits[totalPartyMembers] = "party" .. i
+			end
+		end
+	end
+
+	-- Count players in range for each element
+	for element = 1, 4 do
+		local inRangeCount = 0
+		local slot = self.ElementToSlot[element]
+		local haveTotem = slot and GetTotemInfo(slot)
+
+		if haveTotem and totalPartyMembers > 0 then
+			local buffName = self:GetActiveTotemBuffName(element)
+
+			for _, unit in ipairs(partyUnits) do
+				if UnitExists(unit) then
+					-- Special case: Air element with Windfury
+					local isWindfury = (element == 4 and not buffName)
+					if isWindfury then
+						local playerName = UnitName(unit)
+						local wfStatus = self:IsPlayerInWindfuryRange(playerName)
+						if wfStatus == true then
+							inRangeCount = inRangeCount + 1
+						end
+					elseif buffName then
+						local hasBuff = self:UnitHasBuff(unit, buffName)
+						if hasBuff then
+							inRangeCount = inRangeCount + 1
+						end
+					end
+				end
+			end
+		end
+
+		-- Determine which display to use
+		local useUnlocked = (rcOpt.location == "unlocked")
+		local counterText = nil
+		local counterFrame = nil
+
+		if useUnlocked then
+			-- Use unlocked frame
+			counterFrame = self.rangeCounterFrames[element] or self:CreateRangeCounterFrame(element)
+			counterText = counterFrame and counterFrame.text
+			-- Hide icon text
+			if self.rangeCounterTexts[element] then
+				self.rangeCounterTexts[element]:Hide()
+			end
+		else
+			-- Use icon text
+			counterText = self.rangeCounterTexts[element]
+			-- Hide unlocked frame
+			if self.rangeCounterFrames[element] then
+				self.rangeCounterFrames[element]:Hide()
+			end
+		end
+
+		-- Update the counter display
+		if counterText then
+			if useUnlocked and counterFrame and totalPartyMembers > 0 then
+				-- Unlocked frames: always show all 4 frames when in a party
+				counterFrame:Show()
+
+				if haveTotem then
+					-- Totem is active - show the count
+					counterText:SetText(tostring(inRangeCount))
+					counterText:Show()
+				else
+					-- No totem - show nothing
+					counterText:SetText("")
+					counterText:Hide()
+				end
+
+				-- Set color
+				if rcOpt.useElementColors ~= false then
+					local colors = self.RangeCounterColors[element]
+					counterText:SetTextColor(colors[1], colors[2], colors[3])
+				else
+					counterText:SetTextColor(1, 1, 1)
+				end
+
+				-- Update font size
+				local fontSize = rcOpt.fontSize or 14
+				counterText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+
+			elseif not useUnlocked and haveTotem and totalPartyMembers > 0 then
+				-- On-icon mode: only show when totem is active
+				counterText:SetText(tostring(inRangeCount))
+
+				-- Set color
+				if rcOpt.useElementColors ~= false then
+					local colors = self.RangeCounterColors[element]
+					counterText:SetTextColor(colors[1], colors[2], colors[3])
+				else
+					counterText:SetTextColor(1, 1, 1)
+				end
+
+				-- Update font size
+				local fontSize = rcOpt.fontSize or 14
+				counterText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+
+				counterText:Show()
+			else
+				-- No totem (on-icon mode) or no party - hide
+				counterText:Hide()
+				if useUnlocked and counterFrame then
+					counterFrame:Hide()
 				end
 			end
 		end
@@ -2629,7 +3080,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			-- Duration text ON the icon
 			local iconText = totemButton:CreateFontString(nil, "OVERLAY")
-			iconText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+			iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
 			iconText:Hide()
@@ -2689,7 +3140,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.iconText then
 				local iconText = totemButton:CreateFontString(nil, "OVERLAY")
-				iconText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+				iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
 				iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 				iconText:SetTextColor(1, 1, 1)
 				iconText:Hide()
@@ -2721,6 +3172,11 @@ function ShamanPower:SetupTotemProgressBars()
 			-- (Icons can be updated during combat, but full UpdateMiniTotemBar can't)
 			if ShamanPower.opt.dynamicTotemMode then
 				ShamanPower:UpdateDynamicTotemIcons()
+			end
+
+			-- Update totem bar opacity (for "full opacity when active" option)
+			if ShamanPower.opt.totemBarFullOpacityWhenActive then
+				ShamanPower:UpdateTotemBarOpacity()
 			end
 		end)
 		self.progressBarFrame:Show()
@@ -2755,12 +3211,12 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("BOTTOM", bars.bg, "TOP", 0, 1) end
 				if bars.belowBarText then bars.belowBarText:SetPoint("TOP", bars.bg, "BOTTOM", 0, -1) end
 			elseif barPosition == "bottom_vert" then
-				-- Vertical bar below the icon (centered)
+				-- Vertical bar below the icon (centered), shrinks UP toward icon
 				bars.bg:SetWidth(barSize)
 				bars.bg:SetPoint("TOP", totemButton, "BOTTOM", 0, -1)
 				bars.bg:SetHeight(totemButton:GetHeight())
 				bars.bar:SetWidth(barSize)
-				bars.bar:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 0)
+				bars.bar:SetPoint("TOP", bars.bg, "TOP", 0, 0)
 				if bars.insideTextTop then bars.insideTextTop:SetPoint("TOP", bars.bg, "TOP", 0, -1) end
 				if bars.insideTextBottom then bars.insideTextBottom:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 1) end
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("BOTTOM", bars.bg, "TOP", 0, 1) end
@@ -2816,7 +3272,16 @@ end
 
 -- Format duration time as M:SS or just seconds
 local function FormatDuration(seconds)
-	if seconds >= 60 then
+	if seconds >= 3600 then
+		-- 1 hour or more: show "1h", "2h", etc.
+		local hours = math.floor(seconds / 3600)
+		return string.format("%dh", hours)
+	elseif seconds >= 600 then
+		-- 10 minutes or more: show "10m", "55m", etc. (compact)
+		local mins = math.floor(seconds / 60)
+		return string.format("%dm", mins)
+	elseif seconds >= 60 then
+		-- 1-10 minutes: show "M:SS" format
 		local mins = math.floor(seconds / 60)
 		local secs = math.floor(seconds % 60)
 		return string.format("%d:%02d", mins, secs)
@@ -2830,6 +3295,8 @@ function ShamanPower:UpdateTotemProgressBars()
 	local textLocation = self.opt.durationTextLocation or "none"
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
+	local textSize = self.opt.durationTextSize or 8
+	local barDisabled = (barPosition == "none")
 	local isVertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert")
 
 	for element = 1, 4 do
@@ -2867,18 +3334,24 @@ function ShamanPower:UpdateTotemProgressBars()
 				local pct = remaining / duration
 
 				if pct > 0 and pct <= 1 then
-					-- Update bar size based on remaining time and orientation
-					if isVertical then
-						local height = (bars.maxHeight or 26) * pct
-						bars.bar:SetHeight(math.max(1, height))
-						bars.bar:SetWidth(barSize)
+					-- Show/hide bars based on whether bar position is "none"
+					if barDisabled then
+						bars.bg:Hide()
+						bars.bar:Hide()
 					else
-						local width = (bars.maxWidth or 26) * pct
-						bars.bar:SetWidth(math.max(1, width))
-						bars.bar:SetHeight(barSize)
+						-- Update bar size based on remaining time and orientation
+						if isVertical then
+							local height = (bars.maxHeight or 26) * pct
+							bars.bar:SetHeight(math.max(1, height))
+							bars.bar:SetWidth(barSize)
+						else
+							local width = (bars.maxWidth or 26) * pct
+							bars.bar:SetWidth(math.max(1, width))
+							bars.bar:SetHeight(barSize)
+						end
+						bars.bg:Show()
+						bars.bar:Show()
 					end
-					bars.bg:Show()
-					bars.bar:Show()
 
 					-- Update duration text based on option
 					local durationStr = FormatDuration(remaining)
@@ -2890,29 +3363,34 @@ function ShamanPower:UpdateTotemProgressBars()
 					if bars.belowBarText then bars.belowBarText:Hide() end
 					if bars.iconText then bars.iconText:Hide() end
 
-					-- Show the appropriate text element
+					-- Show the appropriate text element (apply text size)
 					if textLocation == "inside_top" then
 						if bars.insideTextTop then
+							bars.insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 							bars.insideTextTop:SetText(durationStr)
 							bars.insideTextTop:Show()
 						end
 					elseif textLocation == "inside_bottom" then
 						if bars.insideTextBottom then
+							bars.insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 							bars.insideTextBottom:SetText(durationStr)
 							bars.insideTextBottom:Show()
 						end
 					elseif textLocation == "above" then
 						if bars.aboveBarText then
+							bars.aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 							bars.aboveBarText:SetText(durationStr)
 							bars.aboveBarText:Show()
 						end
 					elseif textLocation == "below" then
 						if bars.belowBarText then
+							bars.belowBarText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 							bars.belowBarText:SetText(durationStr)
 							bars.belowBarText:Show()
 						end
 					elseif textLocation == "icon" then
 						if bars.iconText then
+							bars.iconText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
 							bars.iconText:SetText(durationStr)
 							bars.iconText:Show()
 						end
@@ -3142,6 +3620,102 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 		overlay.dots[i] = dot
 	end
 
+	-- Create pulse time text elements (same as main pulse overlay)
+	-- Time text inside the bar (top)
+	local barTimeTextTop = wipeFrame:CreateFontString(nil, "OVERLAY")
+	barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	barTimeTextTop:SetPoint("TOP", wipeFrame, "TOP", 0, -1)
+	barTimeTextTop:SetTextColor(1, 1, 1)
+	barTimeTextTop:Hide()
+	overlay.barTimeTextTop = barTimeTextTop
+
+	-- Time text inside the bar (bottom)
+	local barTimeTextBottom = wipeFrame:CreateFontString(nil, "OVERLAY")
+	barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	barTimeTextBottom:SetPoint("BOTTOM", wipeFrame, "BOTTOM", 0, 1)
+	barTimeTextBottom:SetTextColor(1, 1, 1)
+	barTimeTextBottom:Hide()
+	overlay.barTimeTextBottom = barTimeTextBottom
+
+	-- Time text above the bar
+	local aboveTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
+	aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	aboveTimeText:SetPoint("BOTTOM", wipeFrame, "TOP", 0, 1)
+	aboveTimeText:SetTextColor(1, 1, 1)
+	aboveTimeText:Hide()
+	overlay.aboveTimeText = aboveTimeText
+
+	-- Time text below the bar
+	local belowTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
+	belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	belowTimeText:SetPoint("TOP", wipeFrame, "BOTTOM", 0, -1)
+	belowTimeText:SetTextColor(1, 1, 1)
+	belowTimeText:Hide()
+	overlay.belowTimeText = belowTimeText
+
+	-- Time text on the icon
+	local iconTimeText = frame:CreateFontString(nil, "OVERLAY")
+	iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	iconTimeText:SetPoint("CENTER", frame, "CENTER", 0, 0)
+	iconTimeText:SetTextColor(1, 1, 1)
+	iconTimeText:Hide()
+	overlay.iconTimeText = iconTimeText
+
+	-- Helper to hide all time texts
+	local function hideAllTimeTexts(ov)
+		if ov.barTimeTextTop then ov.barTimeTextTop:Hide() end
+		if ov.barTimeTextBottom then ov.barTimeTextBottom:Hide() end
+		if ov.aboveTimeText then ov.aboveTimeText:Hide() end
+		if ov.belowTimeText then ov.belowTimeText:Hide() end
+		if ov.iconTimeText then ov.iconTimeText:Hide() end
+	end
+
+	-- UpdateTime method for active overlay
+	overlay.UpdateTime = function(self, timeRemaining, displayOption)
+		hideAllTimeTexts(self)
+		if not displayOption or displayOption == "none" then return end
+
+		local timeText = string.format("%.1f", timeRemaining)
+		local textSize = ShamanPower.opt.pulseTextSize or 8
+
+		if displayOption == "inside_top" then
+			if self.barTimeTextTop then
+				self.barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				self.barTimeTextTop:SetText(timeText)
+				self.barTimeTextTop:Show()
+			end
+		elseif displayOption == "inside_bottom" then
+			if self.barTimeTextBottom then
+				self.barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				self.barTimeTextBottom:SetText(timeText)
+				self.barTimeTextBottom:Show()
+			end
+		elseif displayOption == "above" then
+			if self.aboveTimeText then
+				self.aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				self.aboveTimeText:SetText(timeText)
+				self.aboveTimeText:Show()
+			end
+		elseif displayOption == "below" then
+			if self.belowTimeText then
+				self.belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				self.belowTimeText:SetText(timeText)
+				self.belowTimeText:Show()
+			end
+		elseif displayOption == "on_icon" then
+			if self.iconTimeText then
+				self.iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				self.iconTimeText:SetText(timeText)
+				self.iconTimeText:Show()
+			end
+		end
+	end
+
+	-- HideTime method for active overlay
+	overlay.HideTime = function(self)
+		hideAllTimeTexts(self)
+	end
+
 	overlay.frame = frame
 	overlay.buttonHeight = frame:GetHeight() - 4
 	return overlay
@@ -3284,9 +3858,10 @@ function ShamanPower:UpdateActiveTotemOverlays()
 					end
 				end
 
+				-- Don't reset desaturation here - let UpdatePlayerTotemRange handle it
+				-- based on whether the player is in range of the totem buff
 				if iconTexture then
-					iconTexture:SetDesaturated(false)
-					iconTexture:SetAlpha(1)
+					iconTexture:SetAlpha(1)  -- Only restore alpha, not desaturation
 				end
 			end
 		end
@@ -5593,27 +6168,53 @@ end
 -- Update player's own totem range (desaturate icons when out of range)
 function ShamanPower:UpdatePlayerTotemRange()
 	for element = 1, 4 do
-		local totemBtn = self.totemButtons[element]
-		local iconTexture = totemBtn and totemBtn.icon
-		if iconTexture then
-			local slot = self.ElementToSlot[element]
-			local haveTotem = slot and GetTotemInfo(slot)
+		local slot = self.ElementToSlot[element]
+		local haveTotem = slot and GetTotemInfo(slot)
 
-			if haveTotem then
-				-- Totem is active - check if player has the buff
+		-- Check if active overlay is showing (different totem than assigned)
+		local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
+		local overlayActive = activeOverlay and activeOverlay.isActive
+
+		if overlayActive then
+			-- Active overlay is showing - grey the OVERLAY icon if out of range
+			-- (main icon is already grey from UpdateActiveTotemOverlays)
+			if haveTotem and activeOverlay.icon then
 				local buffName = self:GetActiveTotemBuffName(element)
-
 				if buffName then
 					local hasBuff = self:UnitHasBuff("player", buffName)
-					-- Desaturate (grey out) if out of range
-					iconTexture:SetDesaturated(not hasBuff)
+					activeOverlay.icon:SetDesaturated(not hasBuff)
+					if not hasBuff then
+						activeOverlay.icon:SetVertexColor(0.6, 0.6, 0.6)
+					else
+						activeOverlay.icon:SetVertexColor(1, 1, 1)
+					end
 				else
-					-- Damage totem or no trackable buff - show normal
+					-- No trackable buff (Tremor, etc.) - show normal
+					activeOverlay.icon:SetDesaturated(false)
+					activeOverlay.icon:SetVertexColor(1, 1, 1)
+				end
+			end
+		else
+			-- No overlay - grey the MAIN icon if out of range
+			local totemBtn = self.totemButtons[element]
+			local iconTexture = totemBtn and totemBtn.icon
+			if iconTexture then
+				if haveTotem then
+					-- Totem is active - check if player has the buff
+					local buffName = self:GetActiveTotemBuffName(element)
+
+					if buffName then
+						local hasBuff = self:UnitHasBuff("player", buffName)
+						-- Desaturate (grey out) if out of range
+						iconTexture:SetDesaturated(not hasBuff)
+					else
+						-- Damage totem or no trackable buff - show normal
+						iconTexture:SetDesaturated(false)
+					end
+				else
+					-- No totem active - show normal (not greyed)
 					iconTexture:SetDesaturated(false)
 				end
-			else
-				-- No totem active - show normal (not greyed)
-				iconTexture:SetDesaturated(false)
 			end
 		end
 	end
@@ -5882,7 +6483,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Duration text ON the icon
 			local iconText = btn:CreateFontString(nil, "OVERLAY")
-			iconText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+			iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
 			iconText:Hide()
@@ -6059,6 +6660,11 @@ function ShamanPower:CreateCooldownBar()
 			frame.elapsed = 0
 			ShamanPower:UpdateCooldownButtons()
 			ShamanPower:UpdateWeaponImbueButton()
+
+			-- Update cooldown bar opacity (for "full opacity when active" option)
+			if ShamanPower.opt.cooldownBarFullOpacityWhenActive then
+				ShamanPower:UpdateCooldownBarOpacity()
+			end
 		end)
 	end
 end
@@ -6103,10 +6709,14 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 
 	btn.glowTexture:Show()
 
-	-- Start animation
+	-- Start animation (throttled to ~30fps to reduce CPU usage)
 	btn.alertElapsed = 0
+	btn.alertUpdateElapsed = 0
 	btn:SetScript("OnUpdate", function(self, elapsed)
 		self.alertElapsed = (self.alertElapsed or 0) + elapsed
+		self.alertUpdateElapsed = (self.alertUpdateElapsed or 0) + elapsed
+		if self.alertUpdateElapsed < 0.033 then return end  -- ~30fps
+		self.alertUpdateElapsed = 0
 
 		-- Glow pulse
 		local glowAlpha = 0.5 + 0.5 * math.sin(self.alertElapsed * 6)
@@ -6114,11 +6724,7 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 			self.glowTexture:SetAlpha(glowAlpha)
 		end
 
-		-- Shake effect
-		local shakeX = math.sin(self.alertElapsed * 30) * 2
-		local shakeY = math.cos(self.alertElapsed * 25) * 2
-
-		-- Scale pulse (grow to 1.3x then back)
+		-- Scale pulse (grow to 1.15x then back) - removed shake for performance
 		local scale = 1.0 + 0.15 * math.sin(self.alertElapsed * 4)
 		local newWidth = (self.originalWidth or 22) * scale
 		local newHeight = (self.originalHeight or 22) * scale
@@ -6822,24 +7428,87 @@ end
 
 function ShamanPower:UpdateTotemBarOpacity()
 	local opacity = self.opt.totemBarOpacity or 1.0
+	local fullWhenActive = self.opt.totemBarFullOpacityWhenActive
+
 	if self.autoButton then
 		self.autoButton:SetAlpha(opacity)
 	end
-	-- Also set alpha on the totem buttons (parented to UIParent, not autoButton)
+
+	-- Set alpha on totem buttons - full opacity if totem is placed and option enabled
 	if self.totemButtons then
 		for element = 1, 4 do
 			local btn = self.totemButtons[element]
 			if btn then
-				btn:SetAlpha(opacity)
+				if fullWhenActive then
+					local slot = self.ElementToSlot and self.ElementToSlot[element]
+					local haveTotem = slot and GetTotemInfo(slot)
+					btn:SetAlpha(haveTotem and 1.0 or opacity)
+				else
+					btn:SetAlpha(opacity)
+				end
 			end
 		end
+	end
+
+	-- Also set alpha on Earth Shield button
+	local esBtn = _G["ShamanPowerEarthShieldBtn"]
+	if esBtn then
+		esBtn:SetAlpha(opacity)
 	end
 end
 
 function ShamanPower:UpdateCooldownBarOpacity()
 	local opacity = self.opt.cooldownBarOpacity or 1.0
+	local fullWhenActive = self.opt.cooldownBarFullOpacityWhenActive
+
 	if self.cooldownBar then
-		self.cooldownBar:SetAlpha(opacity)
+		if fullWhenActive and self.cooldownButtons then
+			-- Set bar to full opacity, but we'll control individual button opacity
+			self.cooldownBar:SetAlpha(1.0)
+
+			-- Check each button for active state
+			for _, btn in ipairs(self.cooldownButtons) do
+				local isActive = false
+
+				if btn.spellType == "shield" then
+					-- Shield is active if player has the buff
+					local shieldID = btn.activeShieldID or btn.spellID
+					local shieldName = GetSpellInfo(shieldID)
+					if shieldName then
+						for i = 1, 40 do
+							local name = UnitBuff("player", i)
+							if not name then break end
+							if name == shieldName then
+								isActive = true
+								break
+							end
+						end
+					end
+				elseif btn.spellType == "cooldown" then
+					-- Cooldown is active if on cooldown
+					local start, duration = GetSpellCooldown(btn.spellID)
+					if start and start > 0 and duration > 1.5 then
+						isActive = true
+					end
+				elseif btn.spellType == "imbue" then
+					-- Imbue is active if weapon is enchanted
+					local hasMain, _, _, _, _, _, hasOff = GetWeaponEnchantInfo()
+					if hasMain or hasOff then
+						isActive = true
+					end
+				end
+
+				btn:SetAlpha(isActive and 1.0 or opacity)
+			end
+		else
+			self.cooldownBar:SetAlpha(opacity)
+			-- Reset all buttons to inherit bar opacity
+			if self.cooldownButtons then
+				for _, btn in ipairs(self.cooldownButtons) do
+					btn:SetAlpha(1.0)  -- Full relative to parent
+				end
+			end
+		end
 	end
 end
 
@@ -7242,38 +7911,53 @@ function ShamanPower:LayoutShieldFlyout()
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
 	local isHorizontalBar = (cdLayout == "Horizontal")
 	local isVerticalLeft = (cdLayout == "VerticalLeft")
+	local isLocked = (self.opt.cooldownBarLocked ~= false)
 
-	-- For horizontal bar: flyout goes vertical (upward)
-	-- For vertical bar: flyout goes horizontal (direction based on layout)
+	-- For horizontal bar: flyout goes vertical
+	-- For vertical bar: flyout goes horizontal
 	local flyoutIsHorizontal = not isHorizontalBar
 
 	if flyoutIsHorizontal then
-		if isVerticalLeft then
-			-- VerticalLeft: horizontal flyout extends to the LEFT
-			for i, btn in ipairs(buttons) do
-				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", shieldButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
-			end
+		-- When locked to totem bar, go OPPOSITE direction to avoid clipping
+		-- When unlocked, go same direction as layout
+		local goRight
+		if isLocked then
+			-- Locked: opposite direction
+			goRight = isVerticalLeft  -- VerticalLeft -> go right, VerticalRight -> go left
 		else
-			-- Vertical (Right): horizontal flyout extends to the RIGHT
+			-- Unlocked: same direction as layout
+			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
+		end
+
+		if goRight then
+			-- Extend to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
 				btn:SetPoint("LEFT", shieldButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+			end
+		else
+			-- Extend to the LEFT
+			for i, btn in ipairs(buttons) do
+				btn:ClearAllPoints()
+				btn:SetPoint("RIGHT", shieldButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
 		-- Vertical flyout: buttons extend upward or downward based on option
 		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
-		local goAbove = (flyoutDir == "above") or (flyoutDir == "auto")
 
-		if flyoutDir == "below" then
+		-- When "auto" and locked to totem bar, go below (to avoid clipping into totem icons)
+		-- When "auto" and unlocked, go above
+		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
+
+		if goBelow then
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
 				btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
 			end
 		else
-			-- Extend upward (default/auto)
+			-- Extend upward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
 				btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
@@ -7416,37 +8100,53 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
 	local isHorizontalBar = (cdLayout == "Horizontal")
 	local isVerticalLeft = (cdLayout == "VerticalLeft")
+	local isLocked = (self.opt.cooldownBarLocked ~= false)
 
-	-- For horizontal bar: flyout goes vertical (upward)
-	-- For vertical bar: flyout goes horizontal (direction based on layout)
+	-- For horizontal bar: flyout goes vertical
+	-- For vertical bar: flyout goes horizontal
 	local flyoutIsHorizontal = not isHorizontalBar
 
 	if flyoutIsHorizontal then
-		if isVerticalLeft then
-			-- VerticalLeft: horizontal flyout extends to the LEFT
-			for i, btn in ipairs(buttons) do
-				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", imbueButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
-			end
+		-- When locked to totem bar, go OPPOSITE direction to avoid clipping
+		-- When unlocked, go same direction as layout
+		local goRight
+		if isLocked then
+			-- Locked: opposite direction
+			goRight = isVerticalLeft  -- VerticalLeft -> go right, VerticalRight -> go left
 		else
-			-- Vertical (Right): horizontal flyout extends to the RIGHT
+			-- Unlocked: same direction as layout
+			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
+		end
+
+		if goRight then
+			-- Extend to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
 				btn:SetPoint("LEFT", imbueButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+			end
+		else
+			-- Extend to the LEFT
+			for i, btn in ipairs(buttons) do
+				btn:ClearAllPoints()
+				btn:SetPoint("RIGHT", imbueButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
 		-- Vertical flyout: buttons extend upward or downward based on option
 		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
 
-		if flyoutDir == "below" then
+		-- When "auto" and locked to totem bar, go below (to avoid clipping into totem icons)
+		-- When "auto" and unlocked, go above
+		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
+
+		if goBelow then
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
 				btn:SetPoint("TOP", imbueButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
 			end
 		else
-			-- Extend upward (default/auto)
+			-- Extend upward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
 				btn:SetPoint("BOTTOM", imbueButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
@@ -7962,6 +8662,9 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Setup party range dots
 	self:SetupPartyRangeDots()
+
+	-- Setup range counters (shows number of players in range)
+	self:SetupRangeCounters()
 
 	-- Setup totem duration progress bars
 	self:SetupTotemProgressBars()
@@ -8880,14 +9583,27 @@ function ShamanPower:UpdateEarthShieldButton()
 		local spellName = self:GetEarthShieldSpell()
 		if spellName then
 			-- Determine who to cast on:
-			-- 1. If assigned target exists and is alive, use them
-			-- 2. Else if someone currently/recently had ES (currentTarget), use them
-			-- 3. Otherwise, cast on current target
+			-- Dynamic mode: prioritize current target (refresh existing shield)
+			-- Normal mode: prioritize assigned target
 			local castTarget = nil
-			if assignedTarget and not self:IsPlayerDead(assignedTarget) then
-				castTarget = assignedTarget
-			elseif currentTarget and not self:IsPlayerDead(currentTarget) then
-				castTarget = currentTarget
+			if self.opt.dynamicTotemMode then
+				-- Dynamic mode: prefer whoever currently has ES, fall back to assigned
+				if currentTarget and not self:IsPlayerDead(currentTarget) then
+					castTarget = currentTarget
+					-- Update assignment to match current target
+					if currentTarget ~= assignedTarget then
+						ShamanPower_EarthShieldAssignments[self.player] = currentTarget
+					end
+				elseif assignedTarget and not self:IsPlayerDead(assignedTarget) then
+					castTarget = assignedTarget
+				end
+			else
+				-- Normal mode: prefer assigned target, fall back to current
+				if assignedTarget and not self:IsPlayerDead(assignedTarget) then
+					castTarget = assignedTarget
+				elseif currentTarget and not self:IsPlayerDead(currentTarget) then
+					castTarget = currentTarget
+				end
 			end
 
 			if castTarget then
@@ -9887,6 +10603,55 @@ function ShamanPower:ScanTalents()
 	end
 end
 
+-- Safe default totems for each element (used when talent-required totems become unavailable)
+-- These are totems that all shamans can use regardless of spec
+ShamanPower.DefaultTotems = {
+	[1] = 1,  -- Earth: Strength of Earth (index 1)
+	[2] = 2,  -- Fire: Searing Totem (index 2) - index 1 is Totem of Wrath (Elemental talent)
+	[3] = 1,  -- Water: Mana Spring (index 1) - index 3 is Mana Tide (Resto talent)
+	[4] = 1,  -- Air: Windfury (index 1)
+}
+
+-- Validate totem assignments after respec - reset talent-gated totems if player no longer has them
+function ShamanPower:ValidateAssignmentsForSpec()
+	if not self.player then return end
+
+	local assignments = ShamanPower_Assignments[self.player]
+	if not assignments then return end
+
+	local changed = false
+
+	-- Check each element's assigned totem
+	for element = 1, SHAMANPOWER_MAXELEMENTS do
+		local totemIndex = assignments[element]
+		if totemIndex and totemIndex > 0 then
+			-- Get the spell ID for this totem
+			local spellID = self.Totems[element] and self.Totems[element][totemIndex]
+			if spellID then
+				-- Check if this is a talent-required totem
+				local talentInfo = self.TalentTotems[spellID]
+				if talentInfo then
+					-- This totem requires a talent - check if player knows it
+					local spellName = GetSpellInfo(spellID)
+					if not spellName or not IsSpellKnown(spellID) then
+						-- Player doesn't have this spell anymore - reset to default
+						local defaultTotem = self.DefaultTotems[element] or 1
+						assignments[element] = defaultTotem
+						changed = true
+
+						local elementName = self.Elements[element] or "Unknown"
+						local oldTotemName = self.TotemNames[element] and self.TotemNames[element][totemIndex] or "Unknown"
+						local newTotemName = self.TotemNames[element] and self.TotemNames[element][defaultTotem] or "Unknown"
+						self:Print("|cffff9900Respec detected:|r " .. elementName .. " totem reset from " .. oldTotemName .. " to " .. newTotemName)
+					end
+				end
+			end
+		end
+	end
+
+	return changed
+end
+
 -- Called when talents change (respec, dual spec switch, etc.)
 function ShamanPower:OnTalentsChanged()
 	if InCombatLockdown() then
@@ -9899,11 +10664,20 @@ function ShamanPower:OnTalentsChanged()
 	self:ScanTalents()
 	self:ScanSpells()
 
+	-- Validate assignments - reset any talent-gated totems the player no longer has
+	local assignmentsChanged = self:ValidateAssignmentsForSpec()
+
 	-- Recreate cooldown bar to pick up new talent-based abilities (NS, Mana Tide, etc.)
 	self:RecreateCooldownBar()
 
 	-- Update keybindings for the new buttons
 	self:SetupKeybindings()
+
+	-- If assignments changed, update UI and macros
+	if assignmentsChanged then
+		self:UpdateLayout()
+		self:UpdateSPMacros()
+	end
 end
 
 function ShamanPower:ScanSpells()
@@ -10080,6 +10854,13 @@ end
 function ShamanPower:PLAYER_ENTERING_WORLD()
 	--self:Debug("EVENT: PLAYER_ENTERING_WORLD")
 	ShamanPower.realm = GetNormalizedRealmName() --GetRealmName()
+
+	-- Validate assignments in case player respecced while logged out
+	local assignmentsChanged = self:ValidateAssignmentsForSpec()
+	if assignmentsChanged then
+		self:UpdateSPMacros()
+	end
+
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:ReportChannels()
@@ -15194,6 +15975,34 @@ ShamanPower.TrackableTotemShortNames = {
 
 -- Initialize SPRange settings
 function ShamanPower:InitSPRange()
+	-- Ensure profile table exists for visual settings
+	self:EnsureProfileTable("rangeTracker")
+
+	-- Migrate old global settings to profile if they exist
+	if ShamanPower_RangeTracker then
+		if ShamanPower_RangeTracker.opacity and ShamanPower_RangeTracker.opacity ~= 1.0 then
+			self.opt.rangeTracker.opacity = ShamanPower_RangeTracker.opacity
+			ShamanPower_RangeTracker.opacity = nil
+		end
+		if ShamanPower_RangeTracker.iconSize and ShamanPower_RangeTracker.iconSize ~= 36 then
+			self.opt.rangeTracker.iconSize = ShamanPower_RangeTracker.iconSize
+			ShamanPower_RangeTracker.iconSize = nil
+		end
+		if ShamanPower_RangeTracker.vertical then
+			self.opt.rangeTracker.vertical = ShamanPower_RangeTracker.vertical
+			ShamanPower_RangeTracker.vertical = nil
+		end
+		if ShamanPower_RangeTracker.hideNames then
+			self.opt.rangeTracker.hideNames = ShamanPower_RangeTracker.hideNames
+			ShamanPower_RangeTracker.hideNames = nil
+		end
+		if ShamanPower_RangeTracker.hideBorder then
+			self.opt.rangeTracker.hideBorder = ShamanPower_RangeTracker.hideBorder
+			ShamanPower_RangeTracker.hideBorder = nil
+		end
+	end
+
+	-- Runtime state stays in global SavedVariable
 	if not ShamanPower_RangeTracker then
 		ShamanPower_RangeTracker = {}
 	end
@@ -15314,7 +16123,7 @@ function ShamanPower:CreateSPRangeFrame()
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", function(self)
 		-- If border is hidden, require ALT to drag
-		if ShamanPower_RangeTracker.hideBorder and not IsAltKeyDown() then
+		if ShamanPower.opt.rangeTracker.hideBorder and not IsAltKeyDown() then
 			return
 		end
 		self:StartMoving()
@@ -15328,7 +16137,7 @@ function ShamanPower:CreateSPRangeFrame()
 
 	-- Right-click to configure (when border is hidden)
 	frame:SetScript("OnMouseUp", function(self, button)
-		if button == "RightButton" and ShamanPower_RangeTracker.hideBorder then
+		if button == "RightButton" and ShamanPower.opt.rangeTracker.hideBorder then
 			ShamanPower:ShowSPRangeConfig()
 		end
 	end)
@@ -15338,7 +16147,7 @@ function ShamanPower:CreateSPRangeFrame()
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:AddLine("Totem Range Tracker", 1, 0.82, 0)
 		GameTooltip:AddLine(" ")
-		if ShamanPower_RangeTracker.hideBorder then
+		if ShamanPower.opt.rangeTracker.hideBorder then
 			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
 			GameTooltip:AddLine("Right-click to configure", 0.7, 0.7, 0.7)
 		else
@@ -15359,7 +16168,7 @@ end
 
 -- Create a totem button for SPRange
 function ShamanPower:CreateSPRangeTotemButton(parent, totemData, index)
-	local iconSize = ShamanPower_RangeTracker.iconSize or 36
+	local iconSize = ShamanPower.opt.rangeTracker.iconSize or 36
 	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
 	btn:SetSize(iconSize, iconSize)
 
@@ -15407,7 +16216,7 @@ function ShamanPower:CreateSPRangeTotemButton(parent, totemData, index)
 	nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 	nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:sub(1, 6))
 	nameText:SetTextColor(0.8, 0.8, 0.8)
-	if ShamanPower_RangeTracker.hideNames then
+	if ShamanPower.opt.rangeTracker.hideNames then
 		nameText:Hide()
 	end
 	btn.nameText = nameText
@@ -15471,11 +16280,11 @@ function ShamanPower:UpdateSPRangeFrame()
 	end
 
 	-- Calculate frame size based on icon size setting
-	local buttonSize = ShamanPower_RangeTracker.iconSize or 36
+	local buttonSize = ShamanPower.opt.rangeTracker.iconSize or 36
 	local padding = 6
 	local numButtons = #trackedList
-	local nameSpace = ShamanPower_RangeTracker.hideNames and 0 or 14
-	local isVertical = ShamanPower_RangeTracker.vertical
+	local nameSpace = ShamanPower.opt.rangeTracker.hideNames and 0 or 14
+	local isVertical = ShamanPower.opt.rangeTracker.vertical
 
 	local width, height
 	if isVertical then
@@ -15842,7 +16651,7 @@ end
 function ShamanPower:UpdateSPRangeBorder()
 	if not self.spRangeFrame then return end
 
-	local hideBorder = ShamanPower_RangeTracker.hideBorder
+	local hideBorder = ShamanPower.opt.rangeTracker.hideBorder
 
 	if hideBorder then
 		-- Hide border and background
@@ -15875,7 +16684,7 @@ end
 -- Update SPRange frame opacity
 function ShamanPower:UpdateSPRangeOpacity()
 	if not self.spRangeFrame then return end
-	local opacity = ShamanPower_RangeTracker.opacity or 1.0
+	local opacity = ShamanPower.opt.rangeTracker.opacity or 1.0
 	self.spRangeFrame:SetAlpha(opacity)
 end
 
@@ -16107,7 +16916,6 @@ end
 -- Raid Earth Shield Tracker: Shows all Earth Shields in raid/party
 -- ============================================================================
 
-ShamanPower_ESTracker = ShamanPower_ESTracker or {}
 ShamanPower.earthShields = {}  -- { [targetGUID] = { target, caster, charges, expiration } }
 
 -- Earth Shield spell ID (for icon)
@@ -16115,32 +16923,38 @@ ShamanPower.EarthShieldSpellID = 32594  -- Rank 1, we just need the icon
 
 -- Initialize Earth Shield tracker settings
 function ShamanPower:InitESTracker()
-	if not ShamanPower_ESTracker then
-		ShamanPower_ESTracker = {}
-	end
-	if ShamanPower_ESTracker.enabled == nil then
-		ShamanPower_ESTracker.enabled = false
-	end
-	if not ShamanPower_ESTracker.position then
-		ShamanPower_ESTracker.position = { point = "CENTER", x = 200, y = 0 }
-	end
-	if ShamanPower_ESTracker.opacity == nil then
-		ShamanPower_ESTracker.opacity = 1.0
-	end
-	if ShamanPower_ESTracker.iconSize == nil then
-		ShamanPower_ESTracker.iconSize = 40
-	end
-	if ShamanPower_ESTracker.vertical == nil then
-		ShamanPower_ESTracker.vertical = false
-	end
-	if ShamanPower_ESTracker.hideNames == nil then
-		ShamanPower_ESTracker.hideNames = false
-	end
-	if ShamanPower_ESTracker.hideBorder == nil then
-		ShamanPower_ESTracker.hideBorder = false
-	end
-	if ShamanPower_ESTracker.hideCharges == nil then
-		ShamanPower_ESTracker.hideCharges = false
+	-- Ensure profile table exists
+	self:EnsureProfileTable("esTracker")
+
+	-- Migrate from old global variable if it exists
+	if ShamanPower_ESTracker and next(ShamanPower_ESTracker) then
+		-- Copy old settings to profile if profile is empty/default
+		if ShamanPower.opt.esTracker.enabled == false and ShamanPower.opt.esTracker.enabled then
+			ShamanPower.opt.esTracker.enabled = ShamanPower.opt.esTracker.enabled
+		end
+		if ShamanPower.opt.esTracker.position then
+			self.opt.esTracker.position = ShamanPower.opt.esTracker.position
+		end
+		if ShamanPower.opt.esTracker.opacity and ShamanPower.opt.esTracker.opacity ~= 1.0 then
+			self.opt.esTracker.opacity = ShamanPower.opt.esTracker.opacity
+		end
+		if ShamanPower.opt.esTracker.iconSize and ShamanPower.opt.esTracker.iconSize ~= 40 then
+			self.opt.esTracker.iconSize = ShamanPower.opt.esTracker.iconSize
+		end
+		if ShamanPower.opt.esTracker.vertical then
+			self.opt.esTracker.vertical = ShamanPower.opt.esTracker.vertical
+		end
+		if ShamanPower.opt.esTracker.hideNames then
+			self.opt.esTracker.hideNames = ShamanPower.opt.esTracker.hideNames
+		end
+		if ShamanPower.opt.esTracker.hideBorder then
+			self.opt.esTracker.hideBorder = ShamanPower.opt.esTracker.hideBorder
+		end
+		if ShamanPower.opt.esTracker.hideCharges then
+			self.opt.esTracker.hideCharges = ShamanPower.opt.esTracker.hideCharges
+		end
+		-- Clear the old global after migration
+		ShamanPower_ESTracker = nil
 	end
 end
 
@@ -16182,7 +16996,7 @@ function ShamanPower:CreateESTrackerFrame()
 	-- Drag to move (ALT+drag when borderless, normal drag when bordered)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", function(self)
-		if ShamanPower_ESTracker.hideBorder and not IsAltKeyDown() then
+		if ShamanPower.opt.esTracker.hideBorder and not IsAltKeyDown() then
 			return
 		end
 		self:StartMoving()
@@ -16190,7 +17004,7 @@ function ShamanPower:CreateESTrackerFrame()
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
 		local point, _, _, x, y = self:GetPoint()
-		ShamanPower_ESTracker.position = { point = point, x = x, y = y }
+		ShamanPower.opt.esTracker.position = { point = point, x = x, y = y }
 	end)
 
 	-- Tooltip
@@ -16198,7 +17012,7 @@ function ShamanPower:CreateESTrackerFrame()
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:AddLine("Earth Shield Tracker", 0.4, 0.8, 0.4)
 		GameTooltip:AddLine(" ")
-		if ShamanPower_ESTracker.hideBorder then
+		if ShamanPower.opt.esTracker.hideBorder then
 			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
 		else
 			GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
@@ -16240,7 +17054,7 @@ end
 
 -- Create an Earth Shield button for the tracker
 function ShamanPower:CreateESTrackerButton(parent, esData, index)
-	local iconSize = ShamanPower_ESTracker.iconSize or 40
+	local iconSize = ShamanPower.opt.esTracker.iconSize or 40
 	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
 	btn:SetSize(iconSize, iconSize)
 
@@ -16277,7 +17091,7 @@ function ShamanPower:CreateESTrackerButton(parent, esData, index)
 	chargesText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -2, -2)
 	chargesText:SetText(esData.charges or "?")
 	chargesText:SetTextColor(0.4, 1, 0.4)
-	if ShamanPower_ESTracker.hideCharges then
+	if ShamanPower.opt.esTracker.hideCharges then
 		chargesText:Hide()
 	end
 	btn.chargesText = chargesText
@@ -16290,7 +17104,7 @@ function ShamanPower:CreateESTrackerButton(parent, esData, index)
 	-- Color by caster's class
 	local r, g, b = self:GetClassColor(esData.casterClass)
 	casterText:SetTextColor(r, g, b)
-	if ShamanPower_ESTracker.hideNames then
+	if ShamanPower.opt.esTracker.hideNames then
 		casterText:Hide()
 	end
 	btn.casterText = casterText
@@ -16343,11 +17157,11 @@ function ShamanPower:UpdateESTrackerFrame()
 	end
 
 	-- Calculate frame size
-	local buttonSize = ShamanPower_ESTracker.iconSize or 40
+	local buttonSize = ShamanPower.opt.esTracker.iconSize or 40
 	local padding = 6
 	local numButtons = #esList
-	local nameSpace = ShamanPower_ESTracker.hideNames and 0 or 14
-	local isVertical = ShamanPower_ESTracker.vertical
+	local nameSpace = ShamanPower.opt.esTracker.hideNames and 0 or 14
+	local isVertical = ShamanPower.opt.esTracker.vertical
 
 	local width, height
 	if isVertical then
@@ -16380,7 +17194,7 @@ function ShamanPower:UpdateESTrackerFrame()
 	end
 
 	-- Apply opacity
-	frame:SetAlpha(ShamanPower_ESTracker.opacity or 1.0)
+	frame:SetAlpha(ShamanPower.opt.esTracker.opacity or 1.0)
 end
 
 -- Scan for Earth Shields in the raid/party
@@ -16436,7 +17250,7 @@ function ShamanPower:UpdateESTrackerBorder()
 	local frame = self.esTrackerFrame
 	if not frame then return end
 
-	if ShamanPower_ESTracker.hideBorder then
+	if ShamanPower.opt.esTracker.hideBorder then
 		frame:SetBackdrop(nil)
 		if frame.title then frame.title:Hide() end
 	else
@@ -16456,7 +17270,7 @@ end
 function ShamanPower:UpdateESTrackerOpacity()
 	local frame = self.esTrackerFrame
 	if frame then
-		frame:SetAlpha(ShamanPower_ESTracker.opacity or 1.0)
+		frame:SetAlpha(ShamanPower.opt.esTracker.opacity or 1.0)
 	end
 end
 
@@ -16469,10 +17283,10 @@ function ShamanPower:ToggleESTracker()
 
 	if self.esTrackerFrame:IsShown() then
 		self.esTrackerFrame:Hide()
-		ShamanPower_ESTracker.enabled = false
+		ShamanPower.opt.esTracker.enabled = false
 	else
 		-- Restore saved position
-		local pos = ShamanPower_ESTracker.position
+		local pos = ShamanPower.opt.esTracker.position
 		if pos then
 			self.esTrackerFrame:ClearAllPoints()
 			self.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
@@ -16480,7 +17294,7 @@ function ShamanPower:ToggleESTracker()
 		self:UpdateESTrackerBorder()
 		self:ScanEarthShields()
 		self.esTrackerFrame:Show()
-		ShamanPower_ESTracker.enabled = true
+		ShamanPower.opt.esTracker.enabled = true
 	end
 end
 
@@ -16540,8 +17354,8 @@ function ShamanPower:InitializeESTracker()
 	self:SetupESTrackerUpdater()
 
 	-- Show if it was enabled
-	if ShamanPower_ESTracker.enabled then
-		local pos = ShamanPower_ESTracker.position
+	if ShamanPower.opt.esTracker.enabled then
+		local pos = ShamanPower.opt.esTracker.position
 		if pos then
 			self.esTrackerFrame:ClearAllPoints()
 			self.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
@@ -16565,7 +17379,7 @@ SlashCmdList["SPESTRACK"] = function(msg)
 		if not ShamanPower.esTrackerFrame then
 			ShamanPower:CreateESTrackerFrame()
 		end
-		local pos = ShamanPower_ESTracker.position
+		local pos = ShamanPower.opt.esTracker.position
 		if pos then
 			ShamanPower.esTrackerFrame:ClearAllPoints()
 			ShamanPower.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
@@ -16573,12 +17387,12 @@ SlashCmdList["SPESTRACK"] = function(msg)
 		ShamanPower:UpdateESTrackerBorder()
 		ShamanPower:ScanEarthShields()
 		ShamanPower.esTrackerFrame:Show()
-		ShamanPower_ESTracker.enabled = true
+		ShamanPower.opt.esTracker.enabled = true
 	elseif msg == "hide" then
 		if ShamanPower.esTrackerFrame then
 			ShamanPower.esTrackerFrame:Hide()
 		end
-		ShamanPower_ESTracker.enabled = false
+		ShamanPower.opt.esTracker.enabled = false
 	else
 		print("|cff00ff00ShamanPower:|r Earth Shield Tracker commands:")
 		print("  /spestrack - Toggle the tracker")

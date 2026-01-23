@@ -485,20 +485,6 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBar()
 							end
 						},
-						show_party_range = {
-							order = 2.1,
-							type = "toggle",
-							name = "Show Party Range Dots",
-							desc = "[Enable/Disable] Show colored dots indicating which party members are in range of your totems (party only, not raid)",
-							width = "full",
-							get = function(info)
-								return ShamanPower.opt.showPartyRangeDots
-							end,
-							set = function(info, val)
-								ShamanPower.opt.showPartyRangeDots = val
-								ShamanPower:UpdatePartyRangeDots()
-							end
-						},
 						show_totem_flyouts = {
 							order = 2.25,
 							type = "toggle",
@@ -1122,6 +1108,23 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemBarOpacity()
 							end
 						},
+						totemBarFullOpacityWhenActive = {
+							order = 1.5,
+							name = "Full Opacity When Totem Placed",
+							desc = "Show totem buttons at full opacity when that element's totem is active (overrides the opacity setting above)",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman
+							end,
+							get = function(info)
+								return ShamanPower.opt.totemBarFullOpacityWhenActive
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemBarFullOpacityWhenActive = val
+								ShamanPower:UpdateTotemBarOpacity()
+							end
+						},
 						cooldownBarOpacity = {
 							order = 2,
 							name = "Cooldown Bar",
@@ -1140,6 +1143,23 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cooldownBarOpacity = val
+								ShamanPower:UpdateCooldownBarOpacity()
+							end
+						},
+						cooldownBarFullOpacityWhenActive = {
+							order = 2.5,
+							name = "Full Opacity When Active",
+							desc = "Show cooldown buttons at full opacity when the buff is active or the ability is on cooldown",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.cooldownBarFullOpacityWhenActive
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cooldownBarFullOpacityWhenActive = val
 								ShamanPower:UpdateCooldownBarOpacity()
 							end
 						},
@@ -1674,13 +1694,12 @@ ShamanPower.options = {
 							max = 1.0,
 							step = 0.1,
 							get = function(info)
-								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.opacity or 1.0
+								return ShamanPower.opt.rangeTracker and ShamanPower.opt.rangeTracker.opacity or 1.0
 							end,
 							set = function(info, val)
-								if ShamanPower_RangeTracker then
-									ShamanPower_RangeTracker.opacity = val
-									ShamanPower:UpdateSPRangeOpacity()
-								end
+								ShamanPower:EnsureProfileTable("rangeTracker")
+								ShamanPower.opt.rangeTracker.opacity = val
+								ShamanPower:UpdateSPRangeOpacity()
 							end
 						},
 						sprange_icon_size = {
@@ -1693,13 +1712,12 @@ ShamanPower.options = {
 							max = 60,
 							step = 4,
 							get = function(info)
-								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.iconSize or 36
+								return ShamanPower.opt.rangeTracker and ShamanPower.opt.rangeTracker.iconSize or 36
 							end,
 							set = function(info, val)
-								if ShamanPower_RangeTracker then
-									ShamanPower_RangeTracker.iconSize = val
-									ShamanPower:UpdateSPRangeFrame()
-								end
+								ShamanPower:EnsureProfileTable("rangeTracker")
+								ShamanPower.opt.rangeTracker.iconSize = val
+								ShamanPower:UpdateSPRangeFrame()
 							end
 						},
 						sprange_vertical = {
@@ -1709,14 +1727,13 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							get = function(info)
-								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.vertical or false
+								return ShamanPower.opt.rangeTracker and ShamanPower.opt.rangeTracker.vertical or false
 							end,
 							set = function(info, val)
-								if ShamanPower_RangeTracker then
-									ShamanPower_RangeTracker.vertical = val
-									ShamanPower:UpdateSPRangeFrame()
-									ShamanPower:UpdateSPRangeBorder()
-								end
+								ShamanPower:EnsureProfileTable("rangeTracker")
+								ShamanPower.opt.rangeTracker.vertical = val
+								ShamanPower:UpdateSPRangeFrame()
+								ShamanPower:UpdateSPRangeBorder()
 							end
 						},
 						sprange_hide_names = {
@@ -1726,13 +1743,12 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							get = function(info)
-								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.hideNames or false
+								return ShamanPower.opt.rangeTracker and ShamanPower.opt.rangeTracker.hideNames or false
 							end,
 							set = function(info, val)
-								if ShamanPower_RangeTracker then
-									ShamanPower_RangeTracker.hideNames = val
-									ShamanPower:UpdateSPRangeFrame()
-								end
+								ShamanPower:EnsureProfileTable("rangeTracker")
+								ShamanPower.opt.rangeTracker.hideNames = val
+								ShamanPower:UpdateSPRangeFrame()
 							end
 						},
 						sprange_hide_border = {
@@ -1742,13 +1758,285 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							get = function(info)
-								return ShamanPower_RangeTracker and ShamanPower_RangeTracker.hideBorder or false
+								return ShamanPower.opt.rangeTracker and ShamanPower.opt.rangeTracker.hideBorder or false
 							end,
 							set = function(info, val)
-								if ShamanPower_RangeTracker then
-									ShamanPower_RangeTracker.hideBorder = val
-									ShamanPower:UpdateSPRangeBorder()
+								ShamanPower:EnsureProfileTable("rangeTracker")
+								ShamanPower.opt.rangeTracker.hideBorder = val
+								ShamanPower:UpdateSPRangeBorder()
+							end
+						},
+					}
+				},
+				partybuff_section = {
+					order = 10.5,
+					name = "Party Buff Tracker",
+					type = "group",
+					args = {
+						partybuff_desc = {
+							order = 0,
+							type = "description",
+							name = "Shows which party members are in range of YOUR totems. Different from Totem Range Tracker which shows OTHER shamans' totems affecting you.\n",
+						},
+						partybuff_display_mode = {
+							order = 1,
+							type = "select",
+							name = "Display Mode",
+							desc = "Choose how to display party member range information",
+							width = 1.5,
+							values = {
+								["dots"] = "Dots Only",
+								["numbers"] = "Numbers Only",
+								["both"] = "Both Dots and Numbers",
+								["none"] = "Disabled",
+							},
+							get = function(info)
+								local showDots = ShamanPower.opt.showPartyRangeDots
+								local showNumbers = ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled
+								if showDots and showNumbers then return "both"
+								elseif showDots then return "dots"
+								elseif showNumbers then return "numbers"
+								else return "none" end
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
 								end
+								if val == "dots" then
+									ShamanPower.opt.showPartyRangeDots = true
+									ShamanPower.opt.rangeCounter.enabled = false
+								elseif val == "numbers" then
+									ShamanPower.opt.showPartyRangeDots = false
+									ShamanPower.opt.rangeCounter.enabled = true
+								elseif val == "both" then
+									ShamanPower.opt.showPartyRangeDots = true
+									ShamanPower.opt.rangeCounter.enabled = true
+								else
+									ShamanPower.opt.showPartyRangeDots = false
+									ShamanPower.opt.rangeCounter.enabled = false
+								end
+								ShamanPower:UpdatePartyRangeDots()
+								ShamanPower:UpdateRangeCounters()
+							end
+						},
+						partybuff_header_numbers = {
+							order = 2,
+							type = "header",
+							name = "Number Counter Settings",
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+							end,
+						},
+						partybuff_location = {
+							order = 3,
+							type = "select",
+							name = "Counter Location",
+							desc = "Where to display the range counter numbers",
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+							end,
+							values = {
+								["icon"] = "On Totem Icon",
+								["unlocked"] = "Separate Movable Frame",
+							},
+							get = function(info)
+								return (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location) or "icon"
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.location = val
+								ShamanPower:UpdateRangeCounters()
+							end
+						},
+						partybuff_colors = {
+							order = 4,
+							type = "toggle",
+							name = "Use Element Colors",
+							desc = "Color the numbers by element (Green=Earth, Red=Fire, Blue=Water, White=Air)",
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+							end,
+							get = function(info)
+								return ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.useElementColors ~= false
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.useElementColors = val
+								ShamanPower:UpdateRangeCounters()
+							end
+						},
+						partybuff_fontsize = {
+							order = 5,
+							type = "range",
+							name = "Font Size",
+							desc = "Size of the counter number",
+							min = 8, max = 32, step = 1,
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+							end,
+							get = function(info)
+								return (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.fontSize) or 14
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.fontSize = val
+								ShamanPower:UpdateRangeCounters()
+							end
+						},
+						partybuff_header_frame = {
+							order = 6,
+							type = "header",
+							name = "Unlocked Frame Settings",
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+						},
+						partybuff_locked = {
+							order = 6.5,
+							type = "toggle",
+							name = "Lock Frames (Click-through)",
+							desc = "Lock the frames so they can't be moved and won't block mouse clicks",
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+							get = function(info)
+								return ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.locked
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.locked = val
+								ShamanPower:UpdateRangeCounterLock()
+							end
+						},
+						partybuff_hide_frame = {
+							order = 7,
+							type = "toggle",
+							name = "Hide Frame Background",
+							desc = "Hide the frame border/background, showing only the number",
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+							get = function(info)
+								return ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.hideFrame
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.hideFrame = val
+								ShamanPower:UpdateRangeCounterFrameStyle()
+							end
+						},
+						partybuff_hide_label = {
+							order = 8,
+							type = "toggle",
+							name = "Hide Element Label",
+							desc = "Hide the element name below the counter (Earth, Fire, Water, Air)",
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+							get = function(info)
+								return ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.hideLabel
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.hideLabel = val
+								ShamanPower:UpdateRangeCounterFrameStyle()
+							end
+						},
+						partybuff_scale = {
+							order = 9,
+							type = "range",
+							name = "Frame Scale",
+							desc = "Scale of the unlocked counter frames",
+							min = 0.5, max = 3.0, step = 0.1,
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+							get = function(info)
+								return (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.scale) or 1.0
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.scale = val
+								for element = 1, 4 do
+									if ShamanPower.rangeCounterFrames[element] then
+										ShamanPower.rangeCounterFrames[element]:SetScale(val)
+									end
+								end
+							end
+						},
+						partybuff_opacity = {
+							order = 10,
+							type = "range",
+							name = "Frame Opacity",
+							desc = "Opacity of the unlocked counter frames",
+							min = 10, max = 100, step = 5,
+							width = 1.5,
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+							get = function(info)
+								local val = (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.opacity) or 1.0
+								return val * 100
+							end,
+							set = function(info, val)
+								if not ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter = {}
+								end
+								ShamanPower.opt.rangeCounter.opacity = val / 100
+								for element = 1, 4 do
+									if ShamanPower.rangeCounterFrames[element] then
+										ShamanPower.rangeCounterFrames[element]:SetAlpha(val / 100)
+									end
+								end
+							end
+						},
+						partybuff_reset = {
+							order = 11,
+							type = "execute",
+							name = "Reset Frame Positions",
+							desc = "Reset unlocked counter frames to default positions",
+							hidden = function()
+								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
+									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
+							end,
+							func = function()
+								if ShamanPower.opt.rangeCounter then
+									ShamanPower.opt.rangeCounter.positions = {}
+								end
+								for element = 1, 4 do
+									if ShamanPower.rangeCounterFrames[element] then
+										ShamanPower.rangeCounterFrames[element]:Hide()
+										ShamanPower.rangeCounterFrames[element] = nil
+									end
+								end
+								ShamanPower:UpdateRangeCounters()
 							end
 						},
 					}
@@ -1770,13 +2058,12 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.enabled or false
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.enabled or false
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.enabled = val
-									ShamanPower:ToggleESTracker()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.enabled = val
+								ShamanPower:ToggleESTracker()
 							end
 						},
 						estrack_opacity = {
@@ -1789,13 +2076,12 @@ ShamanPower.options = {
 							max = 1.0,
 							step = 0.1,
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.opacity or 1.0
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.opacity or 1.0
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.opacity = val
-									ShamanPower:UpdateESTrackerOpacity()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.opacity = val
+								ShamanPower:UpdateESTrackerOpacity()
 							end
 						},
 						estrack_icon_size = {
@@ -1808,13 +2094,12 @@ ShamanPower.options = {
 							max = 60,
 							step = 4,
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.iconSize or 36
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.iconSize or 40
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.iconSize = val
-									ShamanPower:UpdateESTrackerFrame()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.iconSize = val
+								ShamanPower:UpdateESTrackerFrame()
 							end
 						},
 						estrack_options_header = {
@@ -1829,14 +2114,13 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.vertical or false
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.vertical or false
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.vertical = val
-									ShamanPower:UpdateESTrackerFrame()
-									ShamanPower:UpdateESTrackerBorder()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.vertical = val
+								ShamanPower:UpdateESTrackerFrame()
+								ShamanPower:UpdateESTrackerBorder()
 							end
 						},
 						estrack_hide_names = {
@@ -1846,13 +2130,12 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideNames or false
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.hideNames or false
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.hideNames = val
-									ShamanPower:UpdateESTrackerFrame()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.hideNames = val
+								ShamanPower:UpdateESTrackerFrame()
 							end
 						},
 						estrack_hide_border = {
@@ -1862,13 +2145,12 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideBorder or false
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.hideBorder or false
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.hideBorder = val
-									ShamanPower:UpdateESTrackerBorder()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.hideBorder = val
+								ShamanPower:UpdateESTrackerBorder()
 							end
 						},
 						estrack_hide_charges = {
@@ -1878,13 +2160,12 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							get = function(info)
-								return ShamanPower_ESTracker and ShamanPower_ESTracker.hideCharges or false
+								return ShamanPower.opt.esTracker and ShamanPower.opt.esTracker.hideCharges or false
 							end,
 							set = function(info, val)
-								if ShamanPower_ESTracker then
-									ShamanPower_ESTracker.hideCharges = val
-									ShamanPower:UpdateESTrackerFrame()
-								end
+								ShamanPower:EnsureProfileTable("esTracker")
+								ShamanPower.opt.esTracker.hideCharges = val
+								ShamanPower:UpdateESTrackerFrame()
 							end
 						},
 					}
@@ -2230,9 +2511,10 @@ ShamanPower.options = {
 							order = 1,
 							type = "select",
 							name = "Bar Position",
-							desc = "Position of the duration bar relative to totem icons",
+							desc = "Position of the duration bar relative to totem icons (or None to disable)",
 							width = 1.1,
 							values = {
+								["none"] = "None (Disabled)",
 								["bottom"] = "Bottom (Horizontal)",
 								["bottom_vert"] = "Bottom (Vertical)",
 								["top"] = "Top (Horizontal)",
@@ -2255,9 +2537,12 @@ ShamanPower.options = {
 							name = "Bar Size",
 							desc = "Size of the duration bar (height for horizontal bars, width for vertical bars)",
 							width = 0.8,
-							min = 3,
-							max = 16,
+							min = 2,
+							max = 26,
 							step = 1,
+							hidden = function()
+								return ShamanPower.opt.durationBarPosition == "none"
+							end,
 							get = function(info)
 								return ShamanPower.opt.durationBarHeight or 3
 							end,
@@ -2289,6 +2574,27 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemProgressBars()
 							end
 						},
+						duration_text_size = {
+							order = 3.5,
+							type = "range",
+							name = "Duration Text Size",
+							desc = "Font size for the duration time text",
+							width = 1.0,
+							min = 6,
+							max = 20,
+							step = 1,
+							hidden = function()
+								return ShamanPower.opt.durationTextLocation == "none" or ShamanPower.opt.durationTextLocation == nil
+							end,
+							get = function(info)
+								return ShamanPower.opt.durationTextSize or 8
+							end,
+							set = function(info, val)
+								ShamanPower.opt.durationTextSize = val
+								ShamanPower:UpdateTotemProgressBarPositions()
+								ShamanPower:UpdateTotemProgressBars()
+							end
+						},
 						pulse_bar_position = {
 							order = 4,
 							type = "select",
@@ -2296,6 +2602,7 @@ ShamanPower.options = {
 							desc = "Position of the white pulse countdown bar for pulsing totems (Tremor, Healing Stream, etc)",
 							width = 1.2,
 							values = {
+								["none"] = "None (Disabled)",
 								["on_icon"] = "On Icon",
 								["above"] = "Above (Horizontal)",
 								["above_vert"] = "Above (Vertical)",
@@ -2309,6 +2616,26 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.pulseBarPosition = val
+								ShamanPower:UpdatePulseBarPositions()
+							end
+						},
+						pulse_bar_size = {
+							order = 4.5,
+							type = "range",
+							name = "Pulse Bar Size",
+							desc = "Size of the pulse bar (height for horizontal bars, width for vertical bars)",
+							width = 0.8,
+							min = 2,
+							max = 26,
+							step = 1,
+							hidden = function()
+								return ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseBarPosition == "on_icon"
+							end,
+							get = function(info)
+								return ShamanPower.opt.pulseBarSize or 4
+							end,
+							set = function(info, val)
+								ShamanPower.opt.pulseBarSize = val
 								ShamanPower:UpdatePulseBarPositions()
 							end
 						},
@@ -2331,6 +2658,26 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.pulseTimeDisplay = val
+								ShamanPower:UpdatePulseBarPositions()
+							end
+						},
+						pulse_text_size = {
+							order = 5.5,
+							type = "range",
+							name = "Pulse Text Size",
+							desc = "Font size for the pulse time text",
+							width = 1.0,
+							min = 6,
+							max = 20,
+							step = 1,
+							hidden = function()
+								return ShamanPower.opt.pulseTimeDisplay == "none" or ShamanPower.opt.pulseTimeDisplay == nil
+							end,
+							get = function(info)
+								return ShamanPower.opt.pulseTextSize or 8
+							end,
+							set = function(info, val)
+								ShamanPower.opt.pulseTextSize = val
 								ShamanPower:UpdatePulseBarPositions()
 							end
 						},

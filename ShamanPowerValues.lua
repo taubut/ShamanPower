@@ -113,7 +113,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarPadding = 2,  -- Padding between totem bar buttons (pixels)
         cooldownBarPadding = 2,  -- Padding between cooldown bar buttons (pixels)
         totemBarOpacity = 1.0,  -- Opacity of totem bar (0.1 to 1.0)
+        totemBarFullOpacityWhenActive = false,  -- Show totem at full opacity when placed
         cooldownBarOpacity = 1.0,  -- Opacity of cooldown bar (0.1 to 1.0)
+        cooldownBarFullOpacityWhenActive = false,  -- Show CD button at full opacity when buff active or on cooldown
         totemFlyoutOpacity = 1.0,  -- Opacity of totem bar flyout menus (0.1 to 1.0)
         cooldownFlyoutOpacity = 1.0,  -- Opacity of cooldown bar flyout menus (0.1 to 1.0)
         showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
@@ -157,6 +159,33 @@ SHAMANPOWER_DEFAULT_VALUES = {
         enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
         hideOutOfCombat = false,  -- Hide totem bar when not in combat
         hideWhenNoTotems = false,  -- Hide totem bar when no totems are placed
+        -- Duration Bar settings (shows totem remaining time)
+        durationBarPosition = "bottom",  -- "none", "bottom", "bottom_vert", "top", "top_vert", "left", "right"
+        durationBarHeight = 3,           -- Size of duration bar (2-26)
+        durationTextLocation = "none",   -- "none", "inside_top", "inside_bottom", "above", "below", "icon"
+        durationTextSize = 8,            -- Font size for duration text (6-20)
+        -- Pulse Bar settings (shows pulse countdown for pulsing totems)
+        pulseBarPosition = "on_icon",    -- "none", "on_icon", "above", "above_vert", "below", "below_vert", "left", "right"
+        pulseBarSize = 4,                -- Size of pulse bar (2-16)
+        pulseTimeDisplay = "none",       -- "none", "inside_top", "inside_bottom", "above", "below", "on_icon"
+        pulseTextSize = 8,               -- Font size for pulse time text (6-20)
+        -- Range Counter settings (shows number of players in range of each totem)
+        rangeCounter = {
+            enabled = false,           -- Enable range counter feature
+            location = "icon",         -- "icon" = on totem button, "unlocked" = separate movable frame
+            fontSize = 14,             -- Font size for the counter
+            showZero = true,           -- Show "0" when no players in range (but party exists)
+            useElementColors = true,   -- Use element colors (green/red/blue/white) vs white
+            hideFrame = false,         -- Hide frame background (just show number)
+            hideLabel = false,         -- Hide element label below number
+            locked = false,            -- Lock frames (click-through, no ALT+drag)
+            -- Unlocked frame positions per element (only used when location = "unlocked")
+            positions = {
+                -- [1] = Earth, [2] = Fire, [3] = Water, [4] = Air
+            },
+            scale = 1.0,               -- Scale for unlocked frames
+            opacity = 1.0,             -- Opacity for unlocked frames
+        },
         -- Shield Charge Display (large on-screen numbers)
         shieldChargeDisplay = {
             showPlayerShield = true,  -- Show Lightning/Water Shield charges
@@ -170,6 +199,25 @@ SHAMANPOWER_DEFAULT_VALUES = {
             playerShieldY = -100,
             earthShieldX = 50,
             earthShieldY = -100,
+        },
+        -- Earth Shield Tracker (raid/party ES tracking)
+        esTracker = {
+            enabled = false,
+            opacity = 1.0,
+            iconSize = 40,
+            vertical = false,
+            hideNames = false,
+            hideBorder = false,
+            hideCharges = false,
+            position = { point = "CENTER", x = 200, y = 0 },
+        },
+        -- Totem Range Tracker (SPRange)
+        rangeTracker = {
+            opacity = 1.0,
+            iconSize = 36,
+            vertical = false,
+            hideNames = false,
+            hideBorder = false,
         },
     }
 }
