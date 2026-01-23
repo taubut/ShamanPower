@@ -29,6 +29,7 @@
 - Fix totem twisting timer restarting on second totem
 - Fix Drop All Totems cast sequence not resetting after combat ends
 - Fix Shield Charge Display "Hide When No Shields" option (now properly shows 0 when unchecked)
+- Fix "Allow custom scripts?" warning when right-clicking totems (now uses Totemic Call instead of DestroyTotem)
 
 ## [v1.3.7](https://github.com/taubut/ShamanPower/releases/tag/v1.3.7) (2026-01-22)
 
