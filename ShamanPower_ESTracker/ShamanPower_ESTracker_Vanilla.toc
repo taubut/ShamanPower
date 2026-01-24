@@ -1,0 +1,12 @@
+## Interface: 11503
+## Author: taubut
+## Title: |cff0070ddShamanPower|r |cffffd200[Raid ES Tracker]|r
+## Version: 1.5.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Track Earth Shields cast by OTHER shamans in your raid/party (not your own)
+## Dependencies: ShamanPower
+## LoadOnDemand: 0
+## DefaultState: enabled
+## SavedVariables: ShamanPower_ESTracker
+
+ShamanPower_ESTracker.lua

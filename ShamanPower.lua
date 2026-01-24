@@ -27,6 +27,12 @@ local format = string.format
 local EarthShamans, FireShamans, WaterShamans, AirShamans = {}, {}, {}, {}
 local classlist, classes = {}, {}
 
+-- Pre-initialize classes subtables to avoid garbage generation
+-- (avoids creating new tables every UpdateRoster call)
+for i = 1, 4 do
+	classes[i] = {}
+end
+
 ShamanPower.player = UnitName("player")
 ShamanPower_Talents = {}
 ShamanPower_Assignments = {}
@@ -42,6 +48,77 @@ local initialized = false
 local isShaman = false
 
 AC_Leader = false
+
+-- ============================================================================
+-- CONSOLIDATED ONUPDATE SYSTEM
+-- Instead of 10+ separate OnUpdate frames each being called every frame,
+-- we use ONE master frame that manages all timed updates efficiently.
+-- Uses array-based active list for fastest iteration (ipairs > pairs)
+-- ============================================================================
+ShamanPower.updateSystem = {
+	frame = nil,
+	subsystems = {},  -- {name = {interval=seconds, elapsed=0, callback=func, enabled=false}}
+	activeList = {},  -- Array of enabled subsystem references for fast iteration
+}
+
+function ShamanPower:InitUpdateSystem()
+	if self.updateSystem.frame then return end
+
+	self.updateSystem.frame = CreateFrame("Frame")
+	local activeList = self.updateSystem.activeList  -- Local reference for speed
+
+	self.updateSystem.frame:SetScript("OnUpdate", function(frame, elapsed)
+		-- Fast array iteration (no pairs overhead, no garbage)
+		for i = 1, #activeList do
+			local sys = activeList[i]
+			sys.elapsed = sys.elapsed + elapsed
+			if sys.elapsed >= sys.interval then
+				sys.elapsed = 0
+				sys.callback()
+			end
+		end
+	end)
+end
+
+function ShamanPower:RegisterUpdateSubsystem(name, interval, callback)
+	self.updateSystem.subsystems[name] = {
+		name = name,
+		interval = interval,
+		elapsed = 0,
+		callback = callback,
+		enabled = false,
+	}
+end
+
+function ShamanPower:EnableUpdateSubsystem(name)
+	local sys = self.updateSystem.subsystems[name]
+	if sys and not sys.enabled then
+		sys.enabled = true
+		sys.elapsed = 0
+		-- Add to active list
+		self.updateSystem.activeList[#self.updateSystem.activeList + 1] = sys
+	end
+end
+
+function ShamanPower:DisableUpdateSubsystem(name)
+	local sys = self.updateSystem.subsystems[name]
+	if sys and sys.enabled then
+		sys.enabled = false
+		-- Remove from active list
+		local activeList = self.updateSystem.activeList
+		for i = #activeList, 1, -1 do
+			if activeList[i].name == name then
+				table.remove(activeList, i)
+				break
+			end
+		end
+	end
+end
+
+function ShamanPower:IsUpdateSubsystemEnabled(name)
+	return self.updateSystem.subsystems[name] and self.updateSystem.subsystems[name].enabled
+end
+-- ============================================================================
 
 -- Helper function to check if player knows a spell by name (works with any rank in Classic)
 local function PlayerKnowsSpellByName(spellName)
@@ -69,7 +146,15 @@ local raid_units = {}
 local leaders = {}
 local roster = {}
 local raidmaintanks = {}
+
 local classmaintanks = {}
+
+-- Pre-allocated unit tables to avoid garbage (60 = 40 raid + pets)
+local unitTables = {}
+for i = 1, 60 do
+	unitTables[i] = {}
+end
+local unitTableIndex = 0
 local raidmainassists = {}
 
 local lastMsg = ""
@@ -107,6 +192,9 @@ end
 -- Ace Framework Events
 -------------------------------------------------------------------
 function ShamanPower:OnInitialize()
+	-- Initialize the consolidated update system (single OnUpdate for all timed updates)
+	self:InitUpdateSystem()
+
 	-- Migrate old AncestralCouncil settings to ShamanPower
 	if AncestralCouncilDB and not ShamanPowerDB then
 		ShamanPowerDB = AncestralCouncilDB
@@ -273,6 +361,29 @@ function ShamanPower:OnInitialize()
 		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	end
 
+	-- Optimize BlessingsFrame: Only run OnUpdate when frame is visible
+	-- The XML defines an OnUpdate that was running every frame even when hidden
+	local blessingsFrame = _G["ShamanPowerBlessingsFrame"]
+	if blessingsFrame then
+		-- Store the original OnUpdate function
+		local originalOnUpdate = function(frame, elapsed)
+			ShamanPowerBlessingsGrid_Update(frame, elapsed)
+		end
+
+		-- Disable OnUpdate by default (frame starts hidden)
+		blessingsFrame:SetScript("OnUpdate", nil)
+
+		-- Enable OnUpdate only when frame is shown
+		blessingsFrame:HookScript("OnShow", function(frame)
+			frame:SetScript("OnUpdate", originalOnUpdate)
+		end)
+
+		-- Disable OnUpdate when frame is hidden
+		blessingsFrame:HookScript("OnHide", function(frame)
+			frame:SetScript("OnUpdate", nil)
+		end)
+	end
+
 end
 
 -- Helper function to ensure nested tables exist in the profile for proper saving
@@ -314,6 +425,8 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ZONE_CHANGED")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+	self:RegisterEvent("UNIT_SPELLCAST_SENT")  -- For ES cast tracking
+	self:RegisterEvent("UNIT_AURA")  -- For ES charge updates
 	self:RegisterEvent("GROUP_JOINED")
 	self:RegisterEvent("GROUP_LEFT")
 	self:RegisterEvent("PLAYER_ROLES_ASSIGNED")
@@ -324,7 +437,7 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "OnTalentsChanged")  -- Wrath dual spec switch
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET", "UNIT_AURA"}, 1, "UpdateRoster")
+	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET"}, 1, "UpdateRoster")
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
@@ -906,15 +1019,20 @@ function ShamanPowerBlessingsFrame_MouseDown(self, button)
 end
 
 function ShamanPowerBlessingsGrid_Update(self, elapsed)
-	if not initialized then
-		return
-	end
+	-- OnUpdate only runs when frame is visible (controlled by OnShow/OnHide hooks)
+	if not initialized then return end
+
+	-- Throttle to 5 updates per second
+	self.gridUpdateElapsed = (self.gridUpdateElapsed or 0) + elapsed
+	if self.gridUpdateElapsed < 0.2 then return end
+	self.gridUpdateElapsed = 0
+
 	-- Ensure assignment tables are initialized
 	if not ShamanPower_Assignments then ShamanPower_Assignments = {} end
 	if not ShamanPower_NormalAssignments then ShamanPower_NormalAssignments = {} end
 	if not ShamanPower_AuraAssignments then ShamanPower_AuraAssignments = {} end
-	if ShamanPowerBlessingsFrame:IsVisible() then
-		local numShamans = 0
+
+	local numShamans = 0
 		local numMaxClass = 0
 		-- Hide all ClassGroups and AuraGroups - Shamans don't need these
 		-- Totems affect the whole party, not individual players
@@ -1111,7 +1229,6 @@ function ShamanPowerBlessingsGrid_Update(self, elapsed)
 			end
 		end
 		ShamanPowerBlessingsFrameFreeAssign:SetChecked(ShamanPower.opt.freeassign)
-	end
 end
 
 function ShamanPower_StartScaling(self, button)
@@ -1799,6 +1916,14 @@ end
 
 -- Update all pulse bar positions when option changes
 function ShamanPower:UpdatePulseBarPositions()
+	-- Enable/disable pulse subsystem based on whether pulse bar is enabled
+	local pulseEnabled = (self.opt.pulseBarPosition ~= "none")
+	if pulseEnabled then
+		self:EnableUpdateSubsystem("pulse")
+	else
+		self:DisableUpdateSubsystem("pulse")
+	end
+
 	for element, container in pairs(self.pulseOverlays) do
 		if container then
 			self:PositionPulseWipe(container)
@@ -1954,27 +2079,27 @@ function ShamanPower:SetupPulseOverlays()
 		end
 	end
 
-	-- Start continuous pulse tracking (throttled to reduce CPU usage)
-	if not self.pulseFrame then
-		self.pulseFrame = CreateFrame("Frame")
-		self.pulseFrame.elapsed = 0
-
-		self.pulseFrame:SetScript("OnUpdate", function(frame, elapsed)
-			frame.elapsed = frame.elapsed + elapsed
-			if frame.elapsed < 0.05 then return end  -- Update 20 times per second
-			frame.elapsed = 0
-
+	-- Register pulse tracking with consolidated update system (20fps)
+	-- Only register once, but only enable if feature is on
+	if not self.updateSystem.subsystems["pulse"] then
+		self:RegisterUpdateSubsystem("pulse", 0.05, function()
 			-- Check Earth totem (slot 2)
 			local earthData, earthStart = ShamanPower:GetActivePulsingTotem(2)
 			ShamanPower:UpdatePulseGlow(1, earthData, earthStart)
-			ShamanPower:UpdatePoppedOutPulse(1, 2, earthData, earthStart)  -- element 1, slot 2
+			ShamanPower:UpdatePoppedOutPulse(1, 2, earthData, earthStart)
 
 			-- Check Water totem (slot 3)
 			local waterData, waterStart = ShamanPower:GetActivePulsingTotem(3)
 			ShamanPower:UpdatePulseGlow(3, waterData, waterStart)
-			ShamanPower:UpdatePoppedOutPulse(3, 3, waterData, waterStart)  -- element 3, slot 3
+			ShamanPower:UpdatePoppedOutPulse(3, 3, waterData, waterStart)
 		end)
-		self.pulseFrame:Show()
+	end
+	-- Only enable if pulse bar is not disabled (pulseBarPosition != "none")
+	local pulseEnabled = (self.opt.pulseBarPosition ~= "none")
+	if pulseEnabled then
+		self:EnableUpdateSubsystem("pulse")
+	else
+		self:DisableUpdateSubsystem("pulse")
 	end
 end
 
@@ -2227,27 +2352,20 @@ function ShamanPower:SetupTwistTimer()
 		self.twistTimerFrame:Hide()
 	end
 
-	-- Create tracking frame for Air totem changes (throttled to reduce CPU usage)
-	if not self.twistTrackFrame then
-		self.twistTrackFrame = CreateFrame("Frame")
-		self.twistTrackFrame.elapsed = 0
-		self.twistTrackFrame:SetScript("OnUpdate", function(frame, elapsed)
-			frame.elapsed = frame.elapsed + elapsed
-			if frame.elapsed < 0.05 then return end  -- Update 20 times per second
-			frame.elapsed = 0
-			self:UpdateTwistTimer()
+	-- Register twist tracking with consolidated update system (20fps)
+	if not self.updateSystem.subsystems["twist"] then
+		self:RegisterUpdateSubsystem("twist", 0.05, function()
+			ShamanPower:UpdateTwistTimer()
 		end)
 	end
-	self.twistTrackFrame:Show()
+	self:EnableUpdateSubsystem("twist")
 end
 
 function ShamanPower:HideTwistTimer()
 	if self.twistTimerFrame then
 		self.twistTimerFrame:Hide()
 	end
-	if self.twistTrackFrame then
-		self.twistTrackFrame:Hide()
-	end
+	self:DisableUpdateSubsystem("twist")
 	self.twistStartTime = nil
 end
 
@@ -2328,688 +2446,6 @@ function ShamanPower:UpdateTwistTimer()
 	end
 end
 
--- ============================================================================
--- Party Range Dots (shows which party members are in totem range)
--- ============================================================================
-
-ShamanPower.partyRangeDots = {}  -- [element][partyIndex] = dot texture
-
--- Buff names that totems apply to party members (used for range detection)
--- Use partial names to match more reliably across different versions/localizations
--- NOTE: Some totems (like Windfury) don't apply visible buffs detectable via UnitBuff
-ShamanPower.TotemBuffNames = {
-	[1] = {  -- Earth
-		[1] = "Strength of Earth",
-		[2] = "Stoneskin",
-		-- Tremor, Earthbind, Stoneclaw, Earth Elemental don't have party buffs
-	},
-	[2] = {  -- Fire
-		[1] = "Totem of Wrath",
-		[5] = "Flametongue",
-		[6] = "Frost Resistance",
-		-- Searing, Magma, Fire Nova are damage totems with no party buff
-	},
-	[3] = {  -- Water
-		[1] = "Mana Spring",
-		[2] = "Healing Stream",  -- This heals, doesn't buff
-		[3] = "Mana Tide",
-		[6] = "Fire Resistance",
-		-- Poison/Disease cleansing don't have visible buffs
-	},
-	[4] = {  -- Air
-		-- [1] = Windfury Totem - uses broadcast system since we can't check other players' buffs
-		[2] = "Grace of Air",
-		[3] = "Wrath of Air",
-		[4] = "Tranquil Air",
-		[6] = "Nature Resistance",
-		[7] = "Windwall",
-	},
-}
-
--- Create party range dots for a totem button
-function ShamanPower:CreatePartyRangeDots(button, element)
-	if not button then return end
-	if self.partyRangeDots[element] then return end  -- Already created
-
-	self.partyRangeDots[element] = {}
-
-	for i = 1, 4 do
-		local dot = button:CreateTexture(nil, "OVERLAY")
-		dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot")
-		dot:SetSize(5, 5)  -- Smaller dots for inside corners
-
-		-- Position dots inside the button corners (2x2 grid)
-		-- 1=top-left, 2=top-right, 3=bottom-left, 4=bottom-right
-		if i == 1 then
-			dot:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
-		elseif i == 2 then
-			dot:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
-		elseif i == 3 then
-			dot:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
-		else
-			dot:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-		end
-
-		dot:SetVertexColor(1, 1, 1)  -- Default white, will be colored by class
-		dot:Hide()
-		self.partyRangeDots[element][i] = dot
-	end
-end
-
--- Setup all party range dots for the mini totem bar
-function ShamanPower:SetupPartyRangeDots()
-	for element = 1, 4 do
-		local button = self.totemButtons[element]
-		if button then
-			self:CreatePartyRangeDots(button, element)
-		end
-	end
-
-	-- Start the range tracking update if not already running
-	if not self.partyRangeFrame then
-		self.partyRangeFrame = CreateFrame("Frame")
-		self.partyRangeFrame.elapsed = 0
-
-		self.partyRangeFrame:SetScript("OnUpdate", function(frame, elapsed)
-			frame.elapsed = frame.elapsed + elapsed
-			if frame.elapsed < 0.5 then return end  -- Update every 0.5 seconds
-			frame.elapsed = 0
-
-			ShamanPower:UpdatePartyRangeDots()
-			ShamanPower:UpdatePlayerTotemRange()
-		end)
-		self.partyRangeFrame:Show()
-	end
-end
-
--- Get the buff name for the currently active totem of an element
-function ShamanPower:GetActiveTotemBuffName(element)
-	local slot = self.ElementToSlot[element]
-	if not slot then return nil end
-
-	local haveTotem, totemName = GetTotemInfo(slot)
-	if not haveTotem or not totemName then return nil end
-
-	local buffNames = self.TotemBuffNames[element]
-	if not buffNames then return nil end
-
-	-- Match based on actual totem name from GetTotemInfo (not assignments!)
-	-- This ensures we check the buff for the ACTIVE totem, not the assigned one
-	-- Strip rank number from totem name for matching (e.g., "Windfury Totem VII" -> "Windfury Totem")
-	local totemBaseName = totemName:gsub("%s+[IVXLCDM]+$", ""):gsub("%s+%d+$", "")
-	local totemLower = totemBaseName:lower()
-	local fullNameLower = totemName:lower()
-
-	for totemIndex, buffName in pairs(buffNames) do
-		if type(buffName) == "string" then
-			local buffLower = buffName:lower()
-			-- Check if totem name contains the buff search term
-			if totemLower:find(buffLower, 1, true) or fullNameLower:find(buffLower, 1, true) then
-				return buffName
-			end
-		end
-	end
-
-	-- No matching buff found - this totem doesn't have a trackable buff
-	-- (e.g., Tremor, Disease Cleansing, Searing, etc.)
-	return nil
-end
-
--- Check if a unit has a specific buff
-function ShamanPower:UnitHasBuff(unit, buffName)
-	if not buffName then return false end
-
-	-- Convert to lowercase for case-insensitive matching
-	local searchLower = buffName:lower()
-
-	for i = 1, 40 do
-		local name = UnitBuff(unit, i)
-		if not name then break end
-		-- Case-insensitive partial match
-		if name:lower():find(searchLower, 1, true) then
-			return true
-		end
-	end
-	return false
-end
-
--- Update all party range dots
-function ShamanPower:UpdatePartyRangeDots()
-	-- Always update range counters (even if dots are disabled)
-	self:UpdateRangeCounters()
-
-	-- Check if dots feature is enabled
-	if not self.opt.showPartyRangeDots then
-		-- Hide all dots when disabled
-		for element = 1, 4 do
-			if self.partyRangeDots[element] then
-				for i = 1, 4 do
-					if self.partyRangeDots[element][i] then
-						self.partyRangeDots[element][i]:Hide()
-					end
-				end
-			end
-		end
-		return
-	end
-
-	-- Build list of units to check (party/raid members only, not player)
-	local partyUnits = {}
-	if IsInRaid() then
-		-- Find our subgroup number
-		local mySubgroup = 1
-		for i = 1, 40 do
-			local name, _, subgroup = GetRaidRosterInfo(i)
-			if name == UnitName("player") then
-				mySubgroup = subgroup
-				break
-			end
-		end
-		-- Find other members in our subgroup
-		local count = 0
-		for i = 1, 40 do
-			local name, _, subgroup = GetRaidRosterInfo(i)
-			if name and subgroup == mySubgroup and name ~= UnitName("player") then
-				count = count + 1
-				partyUnits[count] = "raid" .. i
-				if count >= 4 then break end
-			end
-		end
-	elseif IsInGroup() then
-		-- In a party, use party1-4
-		for i = 1, 4 do
-			if UnitExists("party" .. i) then
-				partyUnits[#partyUnits + 1] = "party" .. i
-			end
-		end
-	end
-	-- If solo, partyUnits is empty (no dots shown)
-
-	-- Update dots for each party member
-	for partyIndex = 1, 4 do
-		local unit = partyUnits[partyIndex]
-		local exists = unit and UnitExists(unit)
-
-		-- Get class color for this party member
-		local classColor = nil
-		if exists then
-			local _, class = UnitClass(unit)
-			if class and RAID_CLASS_COLORS[class] then
-				classColor = RAID_CLASS_COLORS[class]
-			end
-		end
-
-		-- Check each element
-		for element = 1, 4 do
-			local mainDot = self.partyRangeDots[element] and self.partyRangeDots[element][partyIndex]
-
-			-- Check if active overlay is showing for this element
-			local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
-			local useOverlay = activeOverlay and activeOverlay.isActive and activeOverlay.dots
-			local overlayDot = useOverlay and activeOverlay.dots[partyIndex]
-
-			-- Determine which dot to update (overlay if active, else main)
-			local dot = useOverlay and overlayDot or mainDot
-
-			if dot then
-				if not exists then
-					dot:Hide()
-					-- Also hide the other dot
-					if useOverlay and mainDot then mainDot:Hide() end
-				else
-					local slot = self.ElementToSlot[element]
-					local haveTotem, totemName = GetTotemInfo(slot)
-
-					if haveTotem then
-						-- Totem is active - check if party member has the buff
-						local buffName = self:GetActiveTotemBuffName(element)
-						local hasBuff = buffName and self:UnitHasBuff(unit, buffName)
-
-						-- Special case: Air element (4) with no buffName = Windfury Totem
-						-- We can't check other players' buffs with UnitBuff, so use
-						-- the broadcast system where each player reports their own buff status
-						-- Only show dots for players who have ShamanPower and are reporting
-						local isWindfury = (element == 4 and not buffName)
-						if isWindfury then
-							local playerName = UnitName(unit)
-							local wfStatus = self:IsPlayerInWindfuryRange(playerName)
-							if wfStatus == true then
-								-- Player reported having Windfury enchant - in range
-								if classColor then
-									dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
-								else
-									dot:SetVertexColor(0, 1, 0)  -- Green
-								end
-								dot:Show()
-								if useOverlay and mainDot then mainDot:Hide() end
-							elseif wfStatus == false then
-								-- Player reported NOT having Windfury enchant - out of range
-								dot:SetVertexColor(1, 0, 0)
-								dot:Show()
-								if useOverlay and mainDot then mainDot:Hide() end
-							else
-								-- No data - player doesn't have ShamanPower, hide dot
-								dot:Hide()
-								if useOverlay and mainDot then mainDot:Hide() end
-							end
-						elseif hasBuff then
-							-- In range - show class-colored dot
-							if classColor then
-								dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
-							else
-								dot:SetVertexColor(0, 1, 0)  -- Green
-							end
-							dot:Show()
-							if useOverlay and mainDot then mainDot:Hide() end
-						elseif buffName then
-							-- Has a buff to check but doesn't have it - out of range (red)
-							dot:SetVertexColor(1, 0, 0)
-							dot:Show()
-							if useOverlay and mainDot then mainDot:Hide() end
-						else
-							-- No buff to check (Tremor, Earthbind, Searing, etc.) - hide dot
-							-- These totems can't be tracked via buffs
-							dot:Hide()
-							if useOverlay and mainDot then mainDot:Hide() end
-						end
-					else
-						-- No totem active for this element
-						dot:Hide()
-						if useOverlay and mainDot then mainDot:Hide() end
-					end
-				end
-			end
-		end
-	end
-end
-
--- ============================================================================
--- Range Counter (shows number of players in range as a number)
--- ============================================================================
-
-ShamanPower.rangeCounterTexts = {}     -- Text elements on totem buttons
-ShamanPower.rangeCounterFrames = {}    -- Unlocked movable frames
-
--- Element colors for range counters
-ShamanPower.RangeCounterColors = {
-	[1] = {0.2, 0.9, 0.2},  -- Earth - green
-	[2] = {0.9, 0.2, 0.2},  -- Fire - red
-	[3] = {0.2, 0.6, 1.0},  -- Water - blue
-	[4] = {1.0, 1.0, 1.0},  -- Air - white
-}
-
--- Create range counter text on a totem button
-function ShamanPower:CreateRangeCounterText(button, element)
-	if not button then return end
-	if self.rangeCounterTexts[element] then return end
-
-	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
-	local text = button:CreateFontString(nil, "OVERLAY")
-	text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-	text:SetPoint("CENTER", button, "CENTER", 0, 0)
-	text:SetTextColor(1, 1, 1)
-	text:Hide()
-
-	self.rangeCounterTexts[element] = text
-end
-
--- Create unlocked range counter frame for an element
-function ShamanPower:CreateRangeCounterFrame(element)
-	if self.rangeCounterFrames[element] then return self.rangeCounterFrames[element] end
-
-	local elementNames = { "Earth", "Fire", "Water", "Air" }
-	local frameName = "ShamanPowerRangeCounter" .. elementNames[element]
-
-	local frame = CreateFrame("Frame", frameName, UIParent, "BackdropTemplate")
-	frame:SetSize(40, 40)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:SetClampedToScreen(true)
-	frame:RegisterForDrag("LeftButton")
-	frame.element = element
-
-	-- Background
-	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 8,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 }
-	})
-	frame:SetBackdropColor(0, 0, 0, 0.7)
-	frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
-
-	-- Counter text
-	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
-	local text = frame:CreateFontString(nil, "OVERLAY")
-	text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-	text:SetPoint("CENTER", frame, "CENTER", 0, 0)
-	text:SetTextColor(1, 1, 1)
-	frame.text = text
-
-	-- Element label below the number
-	local label = frame:CreateFontString(nil, "OVERLAY")
-	label:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
-	label:SetPoint("BOTTOM", frame, "BOTTOM", 0, 4)
-	label:SetText(elementNames[element])
-	local colors = self.RangeCounterColors[element]
-	label:SetTextColor(colors[1], colors[2], colors[3])
-	frame.label = label
-
-	-- Restore position
-	local rcOpt = self.opt.rangeCounter
-	if rcOpt and rcOpt.positions and rcOpt.positions[element] then
-		local pos = rcOpt.positions[element]
-		frame:SetPoint(pos.point or "CENTER", UIParent, pos.relPoint or "CENTER", pos.x or 0, pos.y or 0)
-	else
-		-- Default position: spread horizontally near center of screen
-		-- Element 1=Earth, 2=Fire, 3=Water, 4=Air -> spread from left to right
-		local xOffset = (element - 2.5) * 55  -- -82.5, -27.5, 27.5, 82.5
-		frame:SetPoint("CENTER", UIParent, "CENTER", xOffset, 0)
-	end
-
-	-- Apply scale and opacity
-	if rcOpt then
-		frame:SetScale(rcOpt.scale or 1.0)
-		frame:SetAlpha(rcOpt.opacity or 1.0)
-
-		-- Apply hide frame setting
-		if rcOpt.hideFrame then
-			frame:SetBackdrop(nil)
-		end
-
-		-- Apply hide label setting
-		if rcOpt.hideLabel then
-			label:Hide()
-		end
-
-		-- Adjust frame size based on what's visible
-		if rcOpt.hideFrame and rcOpt.hideLabel then
-			frame:SetSize(30, 25)
-		elseif rcOpt.hideLabel then
-			frame:SetSize(40, 35)
-		end
-
-		-- Apply lock setting (click-through)
-		if rcOpt.locked then
-			frame:EnableMouse(false)
-			frame:SetMovable(false)
-		end
-	end
-
-	-- Drag to move (ALT+drag)
-	frame:SetScript("OnDragStart", function(self)
-		if IsAltKeyDown() then
-			self:StartMoving()
-		end
-	end)
-
-	frame:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		-- Save position as CENTER coordinates (so scaling works properly)
-		local centerX, centerY = self:GetCenter()
-		local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
-		-- Convert to offset from screen center
-		local x = centerX - (screenWidth / 2)
-		local y = centerY - (screenHeight / 2)
-		if not ShamanPower.opt.rangeCounter.positions then
-			ShamanPower.opt.rangeCounter.positions = {}
-		end
-		ShamanPower.opt.rangeCounter.positions[element] = {
-			point = "CENTER", relPoint = "CENTER", x = x, y = y
-		}
-		-- Re-anchor to CENTER so scaling works properly
-		self:ClearAllPoints()
-		self:SetPoint("CENTER", UIParent, "CENTER", x, y)
-	end)
-
-	-- Tooltip
-	frame:SetScript("OnEnter", function(self)
-		if ShamanPower.opt.ShowTooltips then
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetText(elementNames[element] .. " Range Counter")
-			GameTooltip:AddLine("Players in range of your " .. elementNames[element] .. " totem", 1, 1, 1)
-			GameTooltip:AddLine(" ")
-			GameTooltip:AddLine("ALT+Drag to move", 0.7, 0.7, 0.7)
-			GameTooltip:Show()
-		end
-	end)
-
-	frame:SetScript("OnLeave", function(self)
-		GameTooltip:Hide()
-	end)
-
-	frame:Hide()
-	self.rangeCounterFrames[element] = frame
-	return frame
-end
-
--- Setup range counters on all totem buttons
-function ShamanPower:SetupRangeCounters()
-	for element = 1, 4 do
-		local button = self.totemButtons[element]
-		if button then
-			self:CreateRangeCounterText(button, element)
-		end
-	end
-end
-
--- Update frame lock state (click-through)
-function ShamanPower:UpdateRangeCounterLock()
-	local rcOpt = self.opt.rangeCounter
-	if not rcOpt then return end
-
-	local locked = rcOpt.locked
-	for element = 1, 4 do
-		local frame = self.rangeCounterFrames[element]
-		if frame then
-			frame:EnableMouse(not locked)
-			frame:SetMovable(not locked)
-		end
-	end
-end
-
--- Update frame style (hide frame background and/or label)
-function ShamanPower:UpdateRangeCounterFrameStyle()
-	local rcOpt = self.opt.rangeCounter
-	if not rcOpt then return end
-
-	for element = 1, 4 do
-		local frame = self.rangeCounterFrames[element]
-		if frame then
-			-- Hide/show frame background
-			if rcOpt.hideFrame then
-				frame:SetBackdrop(nil)
-			else
-				frame:SetBackdrop({
-					bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-					edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-					tile = true, tileSize = 16, edgeSize = 8,
-					insets = { left = 2, right = 2, top = 2, bottom = 2 }
-				})
-				frame:SetBackdropColor(0, 0, 0, 0.7)
-				frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
-			end
-
-			-- Hide/show element label
-			if frame.label then
-				if rcOpt.hideLabel then
-					frame.label:Hide()
-				else
-					frame.label:Show()
-				end
-			end
-
-			-- Adjust frame size based on what's visible
-			if rcOpt.hideFrame and rcOpt.hideLabel then
-				-- Just the number - make frame smaller
-				frame:SetSize(30, 25)
-			elseif rcOpt.hideLabel then
-				-- Frame but no label
-				frame:SetSize(40, 35)
-			else
-				-- Full frame with label
-				frame:SetSize(40, 40)
-			end
-		end
-	end
-end
-
--- Update range counter displays
-function ShamanPower:UpdateRangeCounters()
-	local rcOpt = self.opt.rangeCounter
-	if not rcOpt or not rcOpt.enabled then
-		-- Hide all counters when disabled
-		for element = 1, 4 do
-			if self.rangeCounterTexts[element] then
-				self.rangeCounterTexts[element]:Hide()
-			end
-			if self.rangeCounterFrames[element] then
-				self.rangeCounterFrames[element]:Hide()
-			end
-		end
-		return
-	end
-
-	-- Build list of party units (same logic as UpdatePartyRangeDots)
-	local partyUnits = {}
-	local totalPartyMembers = 0
-	if IsInRaid() then
-		local mySubgroup = 1
-		for i = 1, 40 do
-			local name, _, subgroup = GetRaidRosterInfo(i)
-			if name == UnitName("player") then
-				mySubgroup = subgroup
-				break
-			end
-		end
-		for i = 1, 40 do
-			local name, _, subgroup = GetRaidRosterInfo(i)
-			if name and subgroup == mySubgroup and name ~= UnitName("player") then
-				totalPartyMembers = totalPartyMembers + 1
-				partyUnits[totalPartyMembers] = "raid" .. i
-				if totalPartyMembers >= 4 then break end
-			end
-		end
-	elseif IsInGroup() then
-		for i = 1, 4 do
-			if UnitExists("party" .. i) then
-				totalPartyMembers = totalPartyMembers + 1
-				partyUnits[totalPartyMembers] = "party" .. i
-			end
-		end
-	end
-
-	-- Count players in range for each element
-	for element = 1, 4 do
-		local inRangeCount = 0
-		local slot = self.ElementToSlot[element]
-		local haveTotem = slot and GetTotemInfo(slot)
-		local hasTrackableBuff = false  -- Track if this totem can be tracked
-
-		if haveTotem and totalPartyMembers > 0 then
-			local buffName = self:GetActiveTotemBuffName(element)
-
-			for _, unit in ipairs(partyUnits) do
-				if UnitExists(unit) then
-					-- Special case: Air element with Windfury
-					local isWindfury = (element == 4 and not buffName)
-					if isWindfury then
-						hasTrackableBuff = true  -- Windfury is trackable via broadcast
-						local playerName = UnitName(unit)
-						local wfStatus = self:IsPlayerInWindfuryRange(playerName)
-						if wfStatus == true then
-							inRangeCount = inRangeCount + 1
-						end
-					elseif buffName then
-						hasTrackableBuff = true  -- Has a trackable buff
-						local hasBuff = self:UnitHasBuff(unit, buffName)
-						if hasBuff then
-							inRangeCount = inRangeCount + 1
-						end
-					end
-					-- If no buffName and not Windfury, hasTrackableBuff stays false
-					-- (e.g., Tremor, Searing, Disease Cleansing, Earthbind, etc.)
-				end
-			end
-		end
-
-		-- Determine which display to use
-		local useUnlocked = (rcOpt.location == "unlocked")
-		local counterText = nil
-		local counterFrame = nil
-
-		if useUnlocked then
-			-- Use unlocked frame
-			counterFrame = self.rangeCounterFrames[element] or self:CreateRangeCounterFrame(element)
-			counterText = counterFrame and counterFrame.text
-			-- Hide icon text
-			if self.rangeCounterTexts[element] then
-				self.rangeCounterTexts[element]:Hide()
-			end
-		else
-			-- Use icon text
-			counterText = self.rangeCounterTexts[element]
-			-- Hide unlocked frame
-			if self.rangeCounterFrames[element] then
-				self.rangeCounterFrames[element]:Hide()
-			end
-		end
-
-		-- Update the counter display
-		if counterText then
-			if useUnlocked and counterFrame and totalPartyMembers > 0 then
-				-- Unlocked frames: always show all 4 frames when in a party
-				counterFrame:Show()
-
-				if haveTotem and hasTrackableBuff then
-					-- Totem is active and has trackable buff - show the count
-					counterText:SetText(tostring(inRangeCount))
-					counterText:Show()
-				else
-					-- No totem or totem has no trackable buff - show nothing
-					counterText:SetText("")
-					counterText:Hide()
-				end
-
-				-- Set color
-				if rcOpt.useElementColors ~= false then
-					local colors = self.RangeCounterColors[element]
-					counterText:SetTextColor(colors[1], colors[2], colors[3])
-				else
-					counterText:SetTextColor(1, 1, 1)
-				end
-
-				-- Update font size
-				local fontSize = rcOpt.fontSize or 14
-				counterText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-
-			elseif not useUnlocked and haveTotem and hasTrackableBuff and totalPartyMembers > 0 then
-				-- On-icon mode: only show when totem is active and has trackable buff
-				counterText:SetText(tostring(inRangeCount))
-
-				-- Set color
-				if rcOpt.useElementColors ~= false then
-					local colors = self.RangeCounterColors[element]
-					counterText:SetTextColor(colors[1], colors[2], colors[3])
-				else
-					counterText:SetTextColor(1, 1, 1)
-				end
-
-				-- Update font size
-				local fontSize = rcOpt.fontSize or 14
-				counterText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-
-				counterText:Show()
-			else
-				-- No totem, no trackable buff, or no party - hide
-				counterText:Hide()
-				if useUnlocked and counterFrame then
-					counterFrame:Hide()
-				end
-			end
-		end
-	end
-end
 
 -- ============================================================================
 -- Totem Duration Progress Bar (shows time remaining on totems)
@@ -3145,20 +2581,12 @@ function ShamanPower:SetupTotemProgressBars()
 	-- Position bars based on setting
 	self:UpdateTotemProgressBarPositions()
 
-	-- Create OnUpdate frame for smooth progress bar animation
-	if not self.progressBarFrame then
-		self.progressBarFrame = CreateFrame("Frame")
-		self.progressBarFrame.elapsed = 0
-
-		self.progressBarFrame:SetScript("OnUpdate", function(frame, elapsed)
-			frame.elapsed = frame.elapsed + elapsed
-			if frame.elapsed < 0.1 then return end  -- Update every 0.1 seconds for smooth animation
-			frame.elapsed = 0
-
+	-- Register progress bar updates with consolidated update system (10fps)
+	if not self.updateSystem.subsystems["progressBars"] then
+		self:RegisterUpdateSubsystem("progressBars", 0.1, function()
 			ShamanPower:UpdateTotemProgressBars()
 
 			-- Dynamic Mode: update totem icons to reflect currently placed totems
-			-- (Icons can be updated during combat, but full UpdateMiniTotemBar can't)
 			if ShamanPower.opt.dynamicTotemMode then
 				ShamanPower:UpdateDynamicTotemIcons()
 			end
@@ -3168,7 +2596,15 @@ function ShamanPower:SetupTotemProgressBars()
 				ShamanPower:UpdateTotemBarOpacity()
 			end
 		end)
-		self.progressBarFrame:Show()
+	end
+	-- Only enable if any of these features are on
+	local needsProgressBars = self.opt.showDurationBars ~= false
+		or self.opt.dynamicTotemMode
+		or self.opt.totemBarFullOpacityWhenActive
+	if needsProgressBars then
+		self:EnableUpdateSubsystem("progressBars")
+	else
+		self:DisableUpdateSubsystem("progressBars")
 	end
 end
 
@@ -3176,6 +2612,18 @@ end
 function ShamanPower:UpdateTotemProgressBarPositions()
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
+
+	-- Enable/disable progressBars subsystem based on whether any features need it
+	local barDisabled = (barPosition == "none")
+	local textDisabled = (self.opt.durationTextLocation == "none" or self.opt.durationTextLocation == nil)
+	local needsProgressBars = (not barDisabled) or (not textDisabled)
+		or self.opt.dynamicTotemMode
+		or self.opt.totemBarFullOpacityWhenActive
+	if needsProgressBars then
+		self:EnableUpdateSubsystem("progressBars")
+	else
+		self:DisableUpdateSubsystem("progressBars")
+	end
 
 	for element = 1, 4 do
 		local totemButton = self.totemButtons[element]
@@ -4061,7 +3509,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 
 	-- Drag to move (no ALT needed - drag from title area or frame edge)
 	frame:SetScript("OnDragStart", function(self)
-		self:StartMoving()
+		if self:IsMovable() then self:StartMoving() end
 	end)
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
@@ -4524,7 +3972,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	-- ALT+drag on button to move frame (works when frame is hidden)
 	btn:RegisterForDrag("LeftButton")
 	btn:SetScript("OnDragStart", function(self)
-		if IsAltKeyDown() then
+		if IsAltKeyDown() and frame:IsMovable() then
 			frame:StartMoving()
 		end
 	end)
@@ -6639,14 +6087,9 @@ function ShamanPower:CreateCooldownBar()
 		bar:SetSize(1, 1)
 	end
 
-	-- Start the update timer
-	if not self.cooldownUpdateFrame then
-		self.cooldownUpdateFrame = CreateFrame("Frame")
-		self.cooldownUpdateFrame.elapsed = 0
-		self.cooldownUpdateFrame:SetScript("OnUpdate", function(frame, elapsed)
-			frame.elapsed = frame.elapsed + elapsed
-			if frame.elapsed < 0.2 then return end
-			frame.elapsed = 0
+	-- Register cooldown updates with consolidated update system (5fps)
+	if not self.updateSystem.subsystems["cooldownBar"] then
+		self:RegisterUpdateSubsystem("cooldownBar", 0.2, function()
 			ShamanPower:UpdateCooldownButtons()
 			ShamanPower:UpdateWeaponImbueButton()
 
@@ -6656,6 +6099,7 @@ function ShamanPower:CreateCooldownBar()
 			end
 		end)
 	end
+	-- Note: Enabled/disabled in UpdateCooldownBarVisibility
 end
 
 -- Find a cooldown button by spell ID
@@ -7209,15 +6653,13 @@ function ShamanPower:UpdateCooldownBar()
 			self:UpdateCooldownBarPosition()
 		end
 		self.cooldownBar:Show()
-		self.cooldownUpdateFrame:Show()
+		self:EnableUpdateSubsystem("cooldownBar")
 
 		-- Apply scale
 		self:UpdateCooldownBarScale()
 	else
 		self.cooldownBar:Hide()
-		if self.cooldownUpdateFrame then
-			self.cooldownUpdateFrame:Hide()
-		end
+		self:DisableUpdateSubsystem("cooldownBar")
 	end
 end
 
@@ -8333,6 +7775,13 @@ end
 
 -- Update totem bar visibility based on combat and totem state
 function ShamanPower:UpdateTotemBarVisibility()
+	-- Enable/disable totemVisibility subsystem based on whether auto-hide features are on
+	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
+		self:EnableUpdateSubsystem("totemVisibility")
+	else
+		self:DisableUpdateSubsystem("totemVisibility")
+	end
+
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -8412,20 +7861,18 @@ end
 
 -- Set up visibility update timer
 function ShamanPower:SetupTotemBarVisibilityUpdater()
-	if self.totemBarVisibilityFrame then return end
-
-	self.totemBarVisibilityFrame = CreateFrame("Frame")
-	self.totemBarVisibilityFrame.elapsed = 0
-	self.totemBarVisibilityFrame:SetScript("OnUpdate", function(frame, elapsed)
-		frame.elapsed = frame.elapsed + elapsed
-		if frame.elapsed < 0.2 then return end
-		frame.elapsed = 0
-
-		-- Only update if either option is enabled
-		if ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems then
+	-- Register visibility updates with consolidated update system (5fps)
+	if not self.updateSystem.subsystems["totemVisibility"] then
+		self:RegisterUpdateSubsystem("totemVisibility", 0.2, function()
 			ShamanPower:UpdateTotemBarVisibility()
-		end
-	end)
+		end)
+	end
+	-- Only enable if auto-hide features are on
+	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
+		self:EnableUpdateSubsystem("totemVisibility")
+	else
+		self:DisableUpdateSubsystem("totemVisibility")
+	end
 end
 
 -- Update the mini totem bar icons and spells based on current assignments
@@ -8908,18 +8355,13 @@ function ShamanPower:CreateEarthShieldButton()
 	end)
 	esBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
-	-- Update charges and button periodically
-	esBtn:SetScript("OnUpdate", function(self, elapsed)
-		self.timeSinceLastUpdate = (self.timeSinceLastUpdate or 0) + elapsed
-		if self.timeSinceLastUpdate > 0.5 then  -- Update every 0.5 seconds
-			self.timeSinceLastUpdate = 0
+	-- Register ES button updates with consolidated update system (2fps)
+	if not self.updateSystem.subsystems["esButton"] then
+		self:RegisterUpdateSubsystem("esButton", 0.5, function()
 			ShamanPower:UpdateEarthShieldCharges()
-
-			-- Update active overlay (shows current target above when different from assigned)
 			ShamanPower:UpdateESActiveOverlay()
 
 			-- Update button display (name color) based on current target
-			-- Only update if overlay is NOT showing (overlay handles greying when visible)
 			local overlay = ShamanPower.esActiveOverlay
 			local overlayShowing = overlay and overlay.frame and overlay.frame:IsShown()
 
@@ -8957,8 +8399,14 @@ function ShamanPower:CreateEarthShieldButton()
 					end
 				end
 			end
-		end
-	end)
+		end)
+	end
+	-- Only enable if ES button is visible
+	if self.opt.totemBarShowEarthShield ~= false and self:HasEarthShield() then
+		self:EnableUpdateSubsystem("esButton")
+	else
+		self:DisableUpdateSubsystem("esButton")
+	end
 
 	esBtn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -9160,97 +8608,123 @@ end
 -- ============================================================================
 -- Earth Shield Flyout (for quickly casting ES on party/raid members)
 -- ============================================================================
+-- ES Flyout - OPTIMIZED: Reuses frames, no garbage creation
+-- ============================================================================
 
-ShamanPower.esFlyoutButtons = {}
+ShamanPower.esFlyoutButtons = {}  -- Pool of reusable buttons
+ShamanPower.esFlyoutButtonCount = 0  -- How many buttons currently in use
+ShamanPower.lastESFlyoutSize = 0  -- Track group size to avoid unnecessary rebuilds
 
-function ShamanPower:CreateEarthShieldFlyout()
+-- Pre-computed unit strings for ES flyout (avoids "raid" .. i garbage)
+local esFlyoutUnits_raid = {}
+local esFlyoutUnits_party = {"player", "party1", "party2", "party3", "party4"}
+for i = 1, 40 do
+	esFlyoutUnits_raid[i] = "raid" .. i
+end
+
+function ShamanPower:CreateEarthShieldFlyout(forceRebuild)
+	-- CHECK DISABLED FIRST - before any work
+	if self.opt.enableESFlyout == false then
+		local esBtn = _G["ShamanPowerEarthShieldBtn"]
+		if esBtn then
+			esBtn:SetAttribute("OpenMenu", nil)
+		end
+		-- Hide all existing buttons
+		for i = 1, self.esFlyoutButtonCount do
+			if self.esFlyoutButtons[i] then
+				self.esFlyoutButtons[i]:Hide()
+			end
+		end
+		self.esFlyoutButtonCount = 0
+		return
+	end
+
 	if not self:HasEarthShield() then return end
+
+	-- Skip rebuild if group size hasn't changed
+	local currentSize = GetNumGroupMembers()
+	if not forceRebuild and currentSize == self.lastESFlyoutSize then
+		return
+	end
+	self.lastESFlyoutSize = currentSize
 
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if not esBtn then return end
 
-	-- Clear existing flyout buttons
-	for _, btn in pairs(self.esFlyoutButtons) do
-		btn:Hide()
-		btn:SetParent(nil)
-	end
-	wipe(self.esFlyoutButtons)
-
-	-- Check if ES flyout is enabled
-	if self.opt.enableESFlyout == false then
-		-- Disable the flyout by setting OpenMenu to nil
-		esBtn:SetAttribute("OpenMenu", nil)
-		return
-	else
-		-- Enable the flyout
-		esBtn:SetAttribute("OpenMenu", "mouseover")
-	end
-
-	-- Get party/raid members
-	local members = {}
-	if IsInRaid() then
-		for i = 1, 40 do
-			local name, _, _, _, _, classFilename = GetRaidRosterInfo(i)
-			if name then
-				table.insert(members, { name = name, class = classFilename, unit = "raid" .. i })
-			end
-		end
-	elseif IsInGroup() then
-		-- Add player first
-		local _, classFilename = UnitClass("player")
-		table.insert(members, { name = UnitName("player"), class = classFilename, unit = "player" })
-		for i = 1, 4 do
-			local unit = "party" .. i
-			if UnitExists(unit) then
-				local name = UnitName(unit)
-				local _, classFilename = UnitClass(unit)
-				if name then
-					table.insert(members, { name = name, class = classFilename, unit = unit })
-				end
-			end
-		end
-	else
-		-- Solo - just player
-		local _, classFilename = UnitClass("player")
-		table.insert(members, { name = UnitName("player"), class = classFilename, unit = "player" })
-	end
+	-- Enable the flyout
+	esBtn:SetAttribute("OpenMenu", "mouseover")
 
 	local buttonSize = 28
 	local spacing = 0
 	local spellName = self:GetEarthShieldSpell()
 	local swapped = self.opt.swapFlyoutClickButtons
+	local layout = self.opt.layout or "Horizontal"
+	local flyoutDir = self.opt.totemFlyoutDirection or "auto"
 
-	for i, member in ipairs(members) do
-		local btn = CreateFrame("Button", "ShamanPowerESFlyoutBtn" .. i, esBtn, "SecureActionButtonTemplate, SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate")
-		btn:SetParent(esBtn)
+	-- Count and update buttons directly - NO intermediate members table
+	local buttonIndex = 0
+
+	if IsInRaid() then
+		for i = 1, 40 do
+			local name, _, _, _, _, classFilename = GetRaidRosterInfo(i)
+			if name then
+				buttonIndex = buttonIndex + 1
+				self:UpdateOrCreateESFlyoutButton(buttonIndex, name, classFilename, esFlyoutUnits_raid[i], esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
+			end
+		end
+	elseif IsInGroup() then
+		-- Player first
+		local _, classFilename = UnitClass("player")
+		buttonIndex = buttonIndex + 1
+		self:UpdateOrCreateESFlyoutButton(buttonIndex, UnitName("player"), classFilename, "player", esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
+		-- Party members
+		for i = 1, 4 do
+			local unit = esFlyoutUnits_party[i + 1]  -- party1-4
+			if UnitExists(unit) then
+				local name = UnitName(unit)
+				local _, classFilename = UnitClass(unit)
+				if name then
+					buttonIndex = buttonIndex + 1
+					self:UpdateOrCreateESFlyoutButton(buttonIndex, name, classFilename, unit, esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
+				end
+			end
+		end
+	else
+		-- Solo
+		local _, classFilename = UnitClass("player")
+		buttonIndex = buttonIndex + 1
+		self:UpdateOrCreateESFlyoutButton(buttonIndex, UnitName("player"), classFilename, "player", esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
+	end
+
+	-- Hide any extra buttons from previous larger group
+	for i = buttonIndex + 1, self.esFlyoutButtonCount do
+		if self.esFlyoutButtons[i] then
+			self.esFlyoutButtons[i]:Hide()
+		end
+	end
+	self.esFlyoutButtonCount = buttonIndex
+end
+
+-- Update an existing button or create a new one if needed
+function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
+	local btn = self.esFlyoutButtons[index]
+
+	-- Create button only if we don't have one at this index
+	if not btn then
+		btn = CreateFrame("Button", "ShamanPowerESFlyoutBtn" .. index, esBtn, "SecureActionButtonTemplate, SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate")
 		btn:SetSize(buttonSize, buttonSize)
-		btn:Hide()
 		btn:SetFrameStrata("DIALOG")
 
-		-- Class icon
+		-- Class icon (created once, updated each time)
 		local icon = btn:CreateTexture(nil, "ARTWORK")
 		icon:SetAllPoints()
-		local classIcon = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
-		local coords = CLASS_ICON_TCOORDS[member.class]
-		if coords then
-			icon:SetTexture(classIcon)
-			icon:SetTexCoord(unpack(coords))
-		else
-			icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-		end
 		btn.icon = icon
 
-		-- Player name text (inside icon, centered)
+		-- Player name text
 		local nameText = btn:CreateFontString(nil, "OVERLAY")
 		nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
 		nameText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 		nameText:SetTextColor(1, 1, 1)
-		local shortName = Ambiguate(member.name, "short")
-		-- Truncate name if too long
-		if #shortName > 5 then
-			shortName = shortName:sub(1, 5)
-		end
-		nameText:SetText(shortName)
 		btn.nameText = nameText
 
 		-- Highlight texture
@@ -9258,7 +8732,7 @@ function ShamanPower:CreateEarthShieldFlyout()
 		highlight:SetAllPoints()
 		highlight:SetColorTexture(1, 1, 1, 0.3)
 
-		-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
+		-- SECURE HANDLER: Respond to parent's ChildUpdate
 		btn:SetAttribute("_childupdate-show", [[
 			if message then
 				self:Show()
@@ -9267,46 +8741,24 @@ function ShamanPower:CreateEarthShieldFlyout()
 			end
 		]])
 
-		-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
+		-- SECURE HANDLER: Check parent on leave
 		btn:SetAttribute("_onleave", [[
 			if not self:GetParent():IsUnderMouse(true) then
 				self:GetParent():ChildUpdate("show", false)
 			end
 		]])
 
-		-- Store member info
-		btn:SetAttribute("memberName", member.name)
-		btn:SetAttribute("memberUnit", member.unit)
-
-		-- Set up casting and assignment
-		btn:SetAttribute("type1", nil)
-		btn:SetAttribute("macrotext1", nil)
-		btn:SetAttribute("type2", nil)
-		btn:SetAttribute("macrotext2", nil)
-
-		local castMacro = "/target " .. member.name .. "\n/cast " .. spellName .. "\n/targetlasttarget"
-
-		if swapped then
-			-- Swapped: right-click casts, left-click assigns
-			btn:SetAttribute("type2", "macro")
-			btn:SetAttribute("macrotext2", castMacro)
-			btn:SetAttribute("assignButton", "LeftButton")
-		else
-			-- Normal: left-click casts, right-click assigns
-			btn:SetAttribute("type1", "macro")
-			btn:SetAttribute("macrotext1", castMacro)
-			btn:SetAttribute("assignButton", "RightButton")
-		end
-
 		btn:RegisterForClicks("AnyUp", "AnyDown")
 
-		-- Tooltip
+		-- Tooltip (uses stored attributes)
 		btn:SetScript("OnEnter", function(self)
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:AddLine(member.name, 1, 1, 1)
-			local classColor = RAID_CLASS_COLORS[member.class]
-			if classColor then
-				GameTooltip:AddLine(member.class, classColor.r, classColor.g, classColor.b)
+			local memberName = self:GetAttribute("memberName")
+			local memberClass = self:GetAttribute("memberClass")
+			GameTooltip:AddLine(memberName or "Unknown", 1, 1, 1)
+			if memberClass and RAID_CLASS_COLORS[memberClass] then
+				local classColor = RAID_CLASS_COLORS[memberClass]
+				GameTooltip:AddLine(memberClass, classColor.r, classColor.g, classColor.b)
 			end
 			GameTooltip:AddLine(" ")
 			if ShamanPower.opt.swapFlyoutClickButtons then
@@ -9320,13 +8772,12 @@ function ShamanPower:CreateEarthShieldFlyout()
 		end)
 		btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-		-- Handle assignment (PostClick for Lua-side updates)
+		-- Handle assignment
 		btn:SetScript("PostClick", function(self, button)
 			local assignButton = ShamanPower.opt.swapFlyoutClickButtons and "LeftButton" or "RightButton"
 			if button == assignButton then
 				local memberName = self:GetAttribute("memberName")
 				if memberName then
-					-- Assign this member as ES target
 					ShamanPower_EarthShieldAssignments[ShamanPower.player] = memberName
 					ShamanPower:UpdateEarthShieldButton()
 					ShamanPower:SendMessage("ES_ASSIGN " .. ShamanPower.player .. " " .. memberName)
@@ -9334,27 +8785,65 @@ function ShamanPower:CreateEarthShieldFlyout()
 			end
 		end)
 
-		-- Position button in flyout
-		btn:ClearAllPoints()
-		local layout = self.opt.layout or "Horizontal"
-		if layout == "Horizontal" then
-			-- Flyout goes up or down based on option
-			local flyoutDir = self.opt.totemFlyoutDirection or "auto"
-			if flyoutDir == "below" then
-				btn:SetPoint("TOP", esBtn, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
-			else
-				btn:SetPoint("BOTTOM", esBtn, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
-			end
-		elseif layout == "VerticalLeft" then
-			-- Flyout goes right
-			btn:SetPoint("LEFT", esBtn, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
-		else
-			-- Vertical - flyout goes left
-			btn:SetPoint("RIGHT", esBtn, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
-		end
-
-		table.insert(self.esFlyoutButtons, btn)
+		self.esFlyoutButtons[index] = btn
 	end
+
+	-- UPDATE existing button with new data (no frame creation, just attribute updates)
+	btn:SetParent(esBtn)
+
+	-- Update icon
+	local coords = CLASS_ICON_TCOORDS[class]
+	if coords then
+		btn.icon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+		btn.icon:SetTexCoord(unpack(coords))
+	else
+		btn.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+		btn.icon:SetTexCoord(0, 1, 0, 1)
+	end
+
+	-- Update name text
+	local shortName = Ambiguate(name, "short")
+	if #shortName > 5 then
+		shortName = shortName:sub(1, 5)
+	end
+	btn.nameText:SetText(shortName)
+
+	-- Store member info as attributes
+	btn:SetAttribute("memberName", name)
+	btn:SetAttribute("memberUnit", unit)
+	btn:SetAttribute("memberClass", class)
+
+	-- Set up casting macro
+	local castMacro = "/target " .. name .. "\n/cast " .. spellName .. "\n/targetlasttarget"
+
+	btn:SetAttribute("type1", nil)
+	btn:SetAttribute("macrotext1", nil)
+	btn:SetAttribute("type2", nil)
+	btn:SetAttribute("macrotext2", nil)
+
+	if swapped then
+		btn:SetAttribute("type2", "macro")
+		btn:SetAttribute("macrotext2", castMacro)
+	else
+		btn:SetAttribute("type1", "macro")
+		btn:SetAttribute("macrotext1", castMacro)
+	end
+
+	-- Position button
+	btn:ClearAllPoints()
+	if layout == "Horizontal" then
+		if flyoutDir == "below" then
+			btn:SetPoint("TOP", esBtn, "BOTTOM", 0, -spacing - (index - 1) * (buttonSize + spacing))
+		else
+			btn:SetPoint("BOTTOM", esBtn, "TOP", 0, spacing + (index - 1) * (buttonSize + spacing))
+		end
+	elseif layout == "VerticalLeft" then
+		btn:SetPoint("LEFT", esBtn, "RIGHT", spacing + (index - 1) * (buttonSize + spacing), 0)
+	else
+		btn:SetPoint("RIGHT", esBtn, "LEFT", -spacing - (index - 1) * (buttonSize + spacing), 0)
+	end
+
+	btn:Hide()  -- Hidden by default, shown on hover via secure handler
 end
 
 function ShamanPower:UpdateEarthShieldFlyout()
@@ -9449,47 +8938,144 @@ function ShamanPower:GetEarthShieldCharges(targetName)
 	return 0
 end
 
--- Find who currently has YOUR Earth Shield buff (scans party/raid)
+-- ============================================================================
+-- Earth Shield Tracking (Event-based, like TotemTimers)
+-- Tracks who has ES by watching your casts, NOT by scanning all raid members
+-- ============================================================================
+
+-- Tracked ES target info (set when you cast ES)
+ShamanPower.esTrackedTarget = nil      -- Name of player with your ES
+ShamanPower.esTrackedTargetGUID = nil  -- GUID of player with your ES
+ShamanPower.esTrackedCharges = 0       -- Current charges
+ShamanPower.esLastCastTarget = nil     -- Pending cast target (from SENT)
+ShamanPower.esLastCastGUID = nil       -- Pending cast GUID
+ShamanPower.cachedESSpellName = nil    -- Cached spell name
+
+-- Get the ES spell name (cached)
+function ShamanPower:GetESSpellName()
+	if self.cachedESSpellName then return self.cachedESSpellName end
+	if not self.EarthShield then return nil end
+	self.cachedESSpellName = GetSpellInfo(self.EarthShield.rank3) or GetSpellInfo(self.EarthShield.rank2) or GetSpellInfo(self.EarthShield.rank1)
+	return self.cachedESSpellName
+end
+
+-- Handle ES spell cast events
+function ShamanPower:OnEarthShieldCastSent(target, castGUID, spellID)
+	local esSpellName = self:GetESSpellName()
+	if not esSpellName then return end
+
+	local spellName = GetSpellInfo(spellID)
+	if spellName == esSpellName then
+		-- Store pending cast info
+		self.esLastCastTarget = target
+		self.esLastCastGUID = UnitGUID(target)
+		-- If we can't get GUID from target name, try current target/focus
+		if not self.esLastCastGUID then
+			if target == UnitName("target") then
+				self.esLastCastGUID = UnitGUID("target")
+			elseif target == UnitName("focus") then
+				self.esLastCastGUID = UnitGUID("focus")
+			end
+		end
+	end
+end
+
+function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
+	if unit ~= "player" then return end
+
+	local esSpellName = self:GetESSpellName()
+	if not esSpellName then return end
+
+	local spellName = GetSpellInfo(spellID)
+	if spellName == esSpellName and self.esLastCastTarget then
+		-- Cast succeeded! Update tracked target
+		self.esTrackedTarget = self.esLastCastTarget
+		self.esTrackedTargetGUID = self.esLastCastGUID
+		self.esTrackedCharges = 6  -- Full charges on fresh cast (will be updated by UNIT_AURA)
+
+		-- Clear pending
+		self.esLastCastTarget = nil
+		self.esLastCastGUID = nil
+
+		-- Update display
+		self:UpdateEarthShieldButton()
+	end
+end
+
+-- Handle aura changes on tracked target
+function ShamanPower:OnEarthShieldAuraChange(unit)
+	if not self.esTrackedTargetGUID then return end
+
+	-- Only process if this is our ES target
+	if UnitGUID(unit) ~= self.esTrackedTargetGUID then return end
+
+	local esSpellName = self:GetESSpellName()
+	if not esSpellName then return end
+
+	-- Check this ONE unit for ES buff
+	local found = false
+	for i = 1, 40 do
+		local name, _, count, _, _, _, source = UnitBuff(unit, i)
+		if not name then break end
+		if name == esSpellName and source == "player" then
+			self.esTrackedCharges = count or 0
+			found = true
+			break
+		end
+	end
+
+	if not found then
+		-- ES fell off
+		self.esTrackedTarget = nil
+		self.esTrackedTargetGUID = nil
+		self.esTrackedCharges = 0
+	end
+
+	-- Update display (but not full rebuild)
+	self:UpdateEarthShieldCharges()
+end
+
+-- Find who currently has YOUR Earth Shield (uses tracked data, NO scanning!)
 function ShamanPower:FindEarthShieldTarget()
 	if not self.EarthShield then return nil, 0 end
 
-	-- Get the localized spell name for Earth Shield
-	local esSpellName = GetSpellInfo(self.EarthShield.rank3) or GetSpellInfo(self.EarthShield.rank2) or GetSpellInfo(self.EarthShield.rank1)
-	if not esSpellName then return nil, 0 end
-
-	local playerName = self.player
-
-	-- Helper function to check a unit for Earth Shield cast by player
-	local function checkUnit(unit)
-		if not UnitExists(unit) then return nil, 0 end
-		for i = 1, 40 do
-			local name, icon, count, debuffType, duration, expirationTime, source = UnitBuff(unit, i)
-			if not name then break end
-			if name == esSpellName then
-				-- Check if we cast it (source is "player" for our own buffs)
-				if source == "player" then
-					local unitName = UnitName(unit)
-					return unitName, count or 0
+	-- Just return the tracked target (set by cast events)
+	if self.esTrackedTarget and self.esTrackedTargetGUID then
+		-- Verify they still exist and have ES (quick single-unit check)
+		local unit = nil
+		-- Try to find a valid unit ID for the tracked GUID
+		if UnitGUID("target") == self.esTrackedTargetGUID then
+			unit = "target"
+		elseif UnitGUID("focus") == self.esTrackedTargetGUID then
+			unit = "focus"
+		elseif UnitGUID("player") == self.esTrackedTargetGUID then
+			unit = "player"
+		else
+			-- Check party/raid
+			if IsInRaid() then
+				for i = 1, 40 do
+					if UnitGUID("raid" .. i) == self.esTrackedTargetGUID then
+						unit = "raid" .. i
+						break
+					end
+				end
+			else
+				for i = 1, 4 do
+					if UnitGUID("party" .. i) == self.esTrackedTargetGUID then
+						unit = "party" .. i
+						break
+					end
 				end
 			end
 		end
-		return nil, 0
-	end
 
-	-- Check player first
-	local foundName, foundCharges = checkUnit("player")
-	if foundName then return foundName, foundCharges end
-
-	-- Check raid or party members
-	if IsInRaid() then
-		for i = 1, 40 do
-			foundName, foundCharges = checkUnit("raid" .. i)
-			if foundName then return foundName, foundCharges end
-		end
-	else
-		for i = 1, 4 do
-			foundName, foundCharges = checkUnit("party" .. i)
-			if foundName then return foundName, foundCharges end
+		if unit and UnitExists(unit) then
+			return self.esTrackedTarget, self.esTrackedCharges
+		else
+			-- Target left group or doesn't exist
+			self.esTrackedTarget = nil
+			self.esTrackedTargetGUID = nil
+			self.esTrackedCharges = 0
 		end
 	end
 
@@ -9543,6 +9129,14 @@ function ShamanPower:UpdateEarthShieldButton()
 
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if not esBtn then return end
+
+	-- Enable/disable esButton subsystem based on visibility
+	local shouldShow = (self.opt.totemBarShowEarthShield ~= false) and self:HasEarthShield() and not self.totemBarHidden
+	if shouldShow then
+		self:EnableUpdateSubsystem("esButton")
+	else
+		self:DisableUpdateSubsystem("esButton")
+	end
 
 	-- Check if totem bar is hidden (hide out of combat / hide when no totems)
 	if self.totemBarHidden then
@@ -9782,218 +9376,6 @@ function ShamanPower:UpdateAutoButtonSize()
 	end
 end
 
--- ============================================================================
--- Shield Charge Display (large on-screen numbers)
--- ============================================================================
-
-ShamanPower.shieldChargeFrames = {}
-
--- Create or update the shield charge display frames
-function ShamanPower:CreateShieldChargeDisplays()
-	local settings = self.opt.shieldChargeDisplay
-	if not settings then
-		self:EnsureProfileTable("shieldChargeDisplay")
-		settings = self.opt.shieldChargeDisplay
-	end
-
-	-- Create player shield frame (Lightning/Water Shield)
-	if not self.shieldChargeFrames.player then
-		local frame = CreateFrame("Frame", "ShamanPowerPlayerShieldCharge", UIParent)
-		frame:SetSize(60, 60)
-		frame:SetPoint("CENTER", UIParent, "CENTER", settings.playerShieldX or -50, settings.playerShieldY or -100)
-		frame:SetFrameStrata("HIGH")
-
-		local text = frame:CreateFontString(nil, "OVERLAY")
-		text:SetFont("Fonts\\FRIZQT__.TTF", 48, "OUTLINE")
-		text:SetPoint("CENTER", frame, "CENTER", 0, 0)
-		text:SetTextColor(0.2, 0.6, 1.0)  -- Blue for Lightning/Water Shield
-		frame.text = text
-
-		-- Make movable when unlocked
-		frame:SetMovable(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", function(self)
-			if not ShamanPower.opt.shieldChargeDisplay.locked then
-				self:StartMoving()
-			end
-		end)
-		frame:SetScript("OnDragStop", function(self)
-			self:StopMovingOrSizing()
-			local _, _, _, x, y = self:GetPoint()
-			ShamanPower.opt.shieldChargeDisplay.playerShieldX = x
-			ShamanPower.opt.shieldChargeDisplay.playerShieldY = y
-		end)
-
-		frame:Hide()
-		self.shieldChargeFrames.player = frame
-	end
-
-	-- Create Earth Shield frame
-	if not self.shieldChargeFrames.earth then
-		local frame = CreateFrame("Frame", "ShamanPowerEarthShieldCharge", UIParent)
-		frame:SetSize(60, 60)
-		frame:SetPoint("CENTER", UIParent, "CENTER", settings.earthShieldX or 50, settings.earthShieldY or -100)
-		frame:SetFrameStrata("HIGH")
-
-		local text = frame:CreateFontString(nil, "OVERLAY")
-		text:SetFont("Fonts\\FRIZQT__.TTF", 48, "OUTLINE")
-		text:SetPoint("CENTER", frame, "CENTER", 0, 0)
-		text:SetTextColor(0.2, 0.8, 0.2)  -- Green for Earth Shield
-		frame.text = text
-
-		-- Make movable when unlocked
-		frame:SetMovable(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", function(self)
-			if not ShamanPower.opt.shieldChargeDisplay.locked then
-				self:StartMoving()
-			end
-		end)
-		frame:SetScript("OnDragStop", function(self)
-			self:StopMovingOrSizing()
-			local _, _, _, x, y = self:GetPoint()
-			ShamanPower.opt.shieldChargeDisplay.earthShieldX = x
-			ShamanPower.opt.shieldChargeDisplay.earthShieldY = y
-		end)
-
-		frame:Hide()
-		self.shieldChargeFrames.earth = frame
-	end
-
-	-- Set up OnUpdate for periodic refresh
-	if not self.shieldChargeUpdateFrame then
-		self.shieldChargeUpdateFrame = CreateFrame("Frame")
-		self.shieldChargeUpdateFrame.elapsed = 0
-		self.shieldChargeUpdateFrame:SetScript("OnUpdate", function(frame, elapsed)
-			frame.elapsed = frame.elapsed + elapsed
-			if frame.elapsed < 0.1 then return end
-			frame.elapsed = 0
-			ShamanPower:UpdateShieldChargeDisplays()
-		end)
-	end
-
-	self:UpdateShieldChargeDisplays()
-end
-
--- Get color based on charges remaining
-function ShamanPower:GetShieldChargeColor(charges, maxCharges, isEarthShield)
-	if isEarthShield then
-		-- Earth Shield: 6 charges max, yellow at 3, red at 1-2
-		if charges >= 4 then
-			return 0.2, 0.8, 0.2  -- Green
-		elseif charges >= 3 then
-			return 1.0, 0.8, 0.0  -- Yellow
-		else
-			return 1.0, 0.2, 0.2  -- Red
-		end
-	else
-		-- Lightning/Water Shield: 3-4 charges max, yellow at 2, red at 1
-		if charges >= 3 then
-			return 0.2, 0.6, 1.0  -- Blue (full)
-		elseif charges == 2 then
-			return 1.0, 0.8, 0.0  -- Yellow (medium)
-		else
-			return 1.0, 0.2, 0.2  -- Red (low)
-		end
-	end
-end
-
--- Update the shield charge displays
-function ShamanPower:UpdateShieldChargeDisplays()
-	local settings = self.opt.shieldChargeDisplay
-	if not settings then return end
-
-	local playerFrame = self.shieldChargeFrames.player
-	local earthFrame = self.shieldChargeFrames.earth
-	if not playerFrame or not earthFrame then return end
-
-	local scale = settings.scale or 1.0
-	local opacity = settings.opacity or 1.0
-	local locked = settings.locked
-	local hideOOC = settings.hideOutOfCombat
-	local hideNoShields = settings.hideNoShields
-
-	-- Check combat state
-	local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
-
-	-- Update player shield (Lightning/Water Shield)
-	if settings.showPlayerShield ~= false then
-		local charges = 0
-		local maxCharges = 3  -- Default for Lightning/Water Shield
-		local hasShield = false
-
-		-- Check for Lightning Shield or Water Shield
-		for i = 1, 40 do
-			local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
-			if not name then break end
-			if name:find("Lightning Shield") or name:find("Water Shield") then
-				charges = count or 0
-				-- If charges is 0 but we have the buff, it might be stored differently
-				if charges == 0 then
-					-- Try getting it from the 3rd return value directly
-					local _, _, c = UnitBuff("player", i)
-					charges = c or 3  -- Default to 3 if we can't get count
-				end
-				hasShield = true
-				break
-			end
-		end
-
-		-- Determine visibility
-		local shouldShow = hasShield or not hideNoShields
-		if hideOOC and not inCombat then
-			shouldShow = false
-		end
-
-		if shouldShow then
-			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, false)
-			playerFrame.text:SetText(charges)
-			playerFrame.text:SetTextColor(r, g, b)
-			playerFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
-			playerFrame:SetAlpha(opacity)
-			playerFrame:EnableMouse(not locked)
-			playerFrame:Show()
-		else
-			playerFrame:Hide()
-		end
-	else
-		playerFrame:Hide()
-	end
-
-	-- Update Earth Shield
-	if settings.showEarthShield ~= false then
-		local charges = 0
-		local maxCharges = 6  -- Earth Shield has 6 charges
-		local hasShield = false
-
-		-- Get Earth Shield charges from FindEarthShieldTarget
-		local esTarget, esCharges = self:FindEarthShieldTarget()
-		if esTarget and esCharges and esCharges > 0 then
-			charges = esCharges
-			hasShield = true
-		end
-
-		-- Determine visibility
-		local shouldShow = hasShield or not hideNoShields
-		if hideOOC and not inCombat then
-			shouldShow = false
-		end
-
-		if shouldShow then
-			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, true)
-			earthFrame.text:SetText(charges)
-			earthFrame.text:SetTextColor(r, g, b)
-			earthFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
-			earthFrame:SetAlpha(opacity)
-			earthFrame:EnableMouse(not locked)
-			earthFrame:Show()
-		else
-			earthFrame:Hide()
-		end
-	else
-		earthFrame:Hide()
-	end
-end
 
 -- ============================================================================
 -- Drop All Button - cycles through all 4 totems
@@ -11020,6 +10402,9 @@ function ShamanPower:UpdateAllShamans()
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
+	-- Track Earth Shield casts (event-based tracking, no scanning!)
+	self:OnEarthShieldCastSucceeded(unitTarget, castGUID, spellID)
+
 	-- Trigger GCD swipe when player casts a totem
 	if unitTarget == "player" then
 		local spellName = GetSpellInfo(spellID)
@@ -11067,6 +10452,21 @@ function ShamanPower:PLAYER_ROLES_ASSIGNED(event)
 			end
 		end
 	)
+end
+
+-- Earth Shield cast tracking (tracks who you cast ES on)
+function ShamanPower:UNIT_SPELLCAST_SENT(event, unit, target, castGUID, spellID)
+	if unit == "player" then
+		self:OnEarthShieldCastSent(target, castGUID, spellID)
+	end
+end
+
+-- Earth Shield aura tracking (updates charges when aura changes on tracked target)
+function ShamanPower:UNIT_AURA(event, unit)
+	-- Only process if we have a tracked ES target
+	if self.esTrackedTargetGUID then
+		self:OnEarthShieldAuraChange(unit)
+	end
 end
 
 function ShamanPower:ParseMessage(sender, msg)
@@ -11531,10 +10931,14 @@ end
 
 function ShamanPower:UpdateRoster()
 	--self:Debug("UpdateRoster()")
+	-- Skip if not in a group (no roster to update)
+	if GetNumGroupMembers() == 0 then
+		return
+	end
 	local units
 	for i = 1, SHAMANPOWER_MAXCLASSES do
 		classlist[i] = 0
-		classes[i] = {}
+		twipe(classes[i])  -- Reuse existing tables instead of creating new ones
 		classmaintanks[i] = false
 	end
 	if IsInRaid() then
@@ -11544,9 +10948,17 @@ function ShamanPower:UpdateRoster()
 	end
 	twipe(roster)
 	twipe(leaders)
+	unitTableIndex = 0  -- Reset for this pass
 	for _, unitid in pairs(units) do
 		if unitid and UnitExists(unitid) then
-			local tmp = {}
+			unitTableIndex = unitTableIndex + 1
+			local tmp = unitTables[unitTableIndex]
+			if not tmp then
+				tmp = {}
+				unitTables[unitTableIndex] = tmp
+			else
+				twipe(tmp)  -- Clear old data
+			end
 			tmp.unitid = unitid
 			tmp.name = GetUnitName(unitid, true)
 			local isPet = tmp.unitid:find("pet")
@@ -14501,2894 +13913,146 @@ keybindEventFrame:SetScript("OnEvent", function(self, event)
 end)
 
 -- ============================================================================
--- RAID COOLDOWN COORDINATION SYSTEM
--- Allows raid leaders to assign and call for Bloodlust/Heroism and Mana Tide
+-- MODULE CHECK STUBS
+-- These functions provide fallbacks when optional modules are not loaded
+-- Modules: ShamanPower [SPRange], ShamanPower [Raid Cooldowns],
+--          ShamanPower [Raid ES Tracker], ShamanPower [Party Range],
+--          ShamanPower [Shield Charge Display]
 -- ============================================================================
 
--- Initialize the SavedVariable
-function ShamanPower:InitRaidCooldowns()
-	if not ShamanPower_RaidCooldowns then
-		ShamanPower_RaidCooldowns = {}
+-- Raid Cooldowns module stubs (loaded by ShamanPower_RaidCooldowns addon)
+if not ShamanPower.RaidCooldownsLoaded then
+	-- Provide stub functions when module not loaded
+	function ShamanPower:InitRaidCooldowns() end
+	function ShamanPower:ToggleRaidCooldownPanel()
+		print("|cffff8800ShamanPower:|r Raid Cooldowns module not loaded. Enable 'ShamanPower [Raid Cooldowns]' in your addon list.")
 	end
-	if not ShamanPower_RaidCooldowns.bloodlust then
-		ShamanPower_RaidCooldowns.bloodlust = {
-			primary = nil,
-			backup1 = nil,
-			backup2 = nil,
-			caller = nil,
-		}
-	end
-	if not ShamanPower_RaidCooldowns.manatide then
-		ShamanPower_RaidCooldowns.manatide = {}
-	end
-end
+	function ShamanPower:UpdateCallerButtons() end
+	function ShamanPower:HandleRaidCooldownMessage() end
+	function ShamanPower:CallBloodlust() end
+	function ShamanPower:CallManaTide() end
+	function ShamanPower:RestoreCallerCooldowns() end
+	function ShamanPower:AddCooldownButtonAlert() end
+	function ShamanPower:RemoveCooldownButtonAlert() end
+	function ShamanPower:EnableCallerCooldownTracking() end
+	function ShamanPower:DisableCallerCooldownTracking() end
+	function ShamanPower:UpdateCallerButtonOpacity() end
+	function ShamanPower:UpdateCallerButtonScale() end
 
--- Check if player can assign raid cooldowns (RL or assist)
-function ShamanPower:CanAssignRaidCooldowns()
-	-- Allow solo players to manage their own settings
-	if GetNumGroupMembers() == 0 then
-		return true
-	end
-	return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
-end
-
--- Check if player can call raid cooldowns
-function ShamanPower:CanCallRaidCooldowns()
-	if self:CanAssignRaidCooldowns() then return true end
-	local playerName = self.player
-	local bl = ShamanPower_RaidCooldowns.bloodlust
-	if bl and bl.caller and bl.caller == playerName then
-		return true
-	end
-	return false
-end
-
--- Get the shaman who should use BL (checks if primary is dead, falls back to backups)
-function ShamanPower:GetBloodlustTarget()
-	local bl = ShamanPower_RaidCooldowns.bloodlust
-	if not bl then return nil end
-
-	-- Check primary
-	if bl.primary and not UnitIsDeadOrGhost(bl.primary) then
-		return bl.primary
-	end
-	-- Check backup1
-	if bl.backup1 and not UnitIsDeadOrGhost(bl.backup1) then
-		return bl.backup1
-	end
-	-- Check backup2
-	if bl.backup2 and not UnitIsDeadOrGhost(bl.backup2) then
-		return bl.backup2
-	end
-	return nil
-end
-
--- Toggle the raid cooldown panel
-function ShamanPower:ToggleRaidCooldownPanel()
-	if not self.raidCooldownPanel then
-		self:CreateRaidCooldownPanel()
-	end
-
-	if self.raidCooldownPanel:IsShown() then
-		self.raidCooldownPanel:Hide()
-	else
-		self:UpdateRaidCooldownPanel()
-		self.raidCooldownPanel:Show()
+	-- Register /spraid slash command (shows module not loaded message)
+	SLASH_SPRAID1 = "/spraid"
+	SlashCmdList["SPRAID"] = function(msg)
+		ShamanPower:ToggleRaidCooldownPanel()
 	end
 end
 
--- Create the raid cooldown panel UI
-function ShamanPower:CreateRaidCooldownPanel()
-	if self.raidCooldownPanel then return end
-
-	local panel = CreateFrame("Frame", "ShamanPowerRaidCooldownPanel", UIParent, "BackdropTemplate")
-	panel:SetSize(300, 380)
-	panel:SetPoint("CENTER")
-	panel:SetMovable(true)
-	panel:EnableMouse(true)
-	panel:RegisterForDrag("LeftButton")
-	panel:SetScript("OnDragStart", panel.StartMoving)
-	panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
-	panel:SetFrameStrata("DIALOG")
-	panel:Hide()
-
-	-- Match main ShamanPower frame styling
-	panel:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true,
-		tileEdge = true,
-		tileSize = 16,
-		edgeSize = 16,
-		insets = {left = 4, right = 4, top = 4, bottom = 4},
-	})
-	panel:SetBackdropColor(0.02, 0.02, 0.02, 0.95)
-	panel:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.9)
-
-	-- Title with gold color like main frame
-	local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOP", 0, -12)
-	title:SetText("|cffffd200Raid Cooldowns|r")
-
-	-- Close button (small X)
-	local closeBtn = CreateFrame("Button", nil, panel)
-	closeBtn:SetSize(16, 16)
-	closeBtn:SetPoint("TOPRIGHT", -6, -6)
-	closeBtn:SetNormalTexture("Interface\\Buttons\\UI-StopButton")
-	closeBtn:SetHighlightTexture("Interface\\Buttons\\UI-StopButton", "ADD")
-	closeBtn:GetHighlightTexture():SetVertexColor(1, 0, 0)
-	closeBtn:SetScript("OnClick", function() panel:Hide() end)
-
-	-- Determine if Alliance (Heroism) or Horde (Bloodlust)
-	local faction = UnitFactionGroup("player")
-	local blName = (faction == "Alliance") and "Heroism" or "Bloodlust"
-
-	-- Horizontal separator under title
-	local sep1 = panel:CreateTexture(nil, "ARTWORK")
-	sep1:SetHeight(1)
-	sep1:SetPoint("TOPLEFT", 10, -32)
-	sep1:SetPoint("TOPRIGHT", -10, -32)
-	sep1:SetColorTexture(0.5, 0.5, 0.5, 0.5)
-
-	-- BL/Heroism Section Header
-	local blHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	blHeader:SetPoint("TOPLEFT", 15, -42)
-	blHeader:SetText("|cffff8800" .. blName .. " Assignment|r")
-
-	-- Primary dropdown
-	local primaryLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	primaryLabel:SetPoint("TOPLEFT", 25, -65)
-	primaryLabel:SetText("|cffffffffPrimary:|r")
-
-	local primaryDropdown = CreateFrame("Frame", "ShamanPowerRCPrimaryDropdown", panel, "UIDropDownMenuTemplate")
-	primaryDropdown:SetPoint("TOPLEFT", 85, -60)
-	UIDropDownMenu_SetWidth(primaryDropdown, 130)
-	panel.primaryDropdown = primaryDropdown
-
-	-- Backup 1 dropdown
-	local backup1Label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	backup1Label:SetPoint("TOPLEFT", 25, -95)
-	backup1Label:SetText("|cffffffffBackup 1:|r")
-
-	local backup1Dropdown = CreateFrame("Frame", "ShamanPowerRCBackup1Dropdown", panel, "UIDropDownMenuTemplate")
-	backup1Dropdown:SetPoint("TOPLEFT", 85, -90)
-	UIDropDownMenu_SetWidth(backup1Dropdown, 130)
-	panel.backup1Dropdown = backup1Dropdown
-
-	-- Backup 2 dropdown
-	local backup2Label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	backup2Label:SetPoint("TOPLEFT", 25, -125)
-	backup2Label:SetText("|cffffffffBackup 2:|r")
-
-	local backup2Dropdown = CreateFrame("Frame", "ShamanPowerRCBackup2Dropdown", panel, "UIDropDownMenuTemplate")
-	backup2Dropdown:SetPoint("TOPLEFT", 85, -120)
-	UIDropDownMenu_SetWidth(backup2Dropdown, 130)
-	panel.backup2Dropdown = backup2Dropdown
-
-	-- Caller dropdown
-	local callerLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	callerLabel:SetPoint("TOPLEFT", 25, -155)
-	callerLabel:SetText("|cffffffffCaller:|r")
-
-	local callerDropdown = CreateFrame("Frame", "ShamanPowerRCCallerDropdown", panel, "UIDropDownMenuTemplate")
-	callerDropdown:SetPoint("TOPLEFT", 85, -150)
-	UIDropDownMenu_SetWidth(callerDropdown, 130)
-	panel.callerDropdown = callerDropdown
-
-	-- Separator before Mana Tide section
-	local sep2 = panel:CreateTexture(nil, "ARTWORK")
-	sep2:SetHeight(1)
-	sep2:SetPoint("TOPLEFT", 10, -185)
-	sep2:SetPoint("TOPRIGHT", -10, -185)
-	sep2:SetColorTexture(0.5, 0.5, 0.5, 0.5)
-
-	-- Mana Tide Section Header
-	local mtHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	mtHeader:SetPoint("TOPLEFT", 15, -197)
-	mtHeader:SetText("|cff0088ffMana Tide Assignments|r")
-
-	local mtDesc = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	mtDesc:SetPoint("TOPLEFT", 25, -215)
-	mtDesc:SetText("|cff888888Assign a caller for each shaman's Mana Tide|r")
-
-	-- Column headers with gold color
-	local shamanHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	shamanHeader:SetPoint("TOPLEFT", 25, -235)
-	shamanHeader:SetText("|cffffd200Shaman (Group)|r")
-
-	local callerHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	callerHeader:SetPoint("TOPLEFT", 150, -235)
-	callerHeader:SetText("|cffffd200Caller|r")
-
-	-- Container for MT assignments (will be populated dynamically)
-	local mtContainer = CreateFrame("Frame", "ShamanPowerMTContainer", panel)
-	mtContainer:SetPoint("TOPLEFT", 25, -253)
-	mtContainer:SetSize(280, 120)
-	panel.mtContainer = mtContainer
-	panel.mtRows = {}
-
-	self.raidCooldownPanel = panel
-end
-
--- Get list of shamans in the raid/party
-function ShamanPower:GetRaidShamans()
-	local shamans = {}
-	local prefix, maxMembers
-
-	if IsInRaid() then
-		prefix = "raid"
-		maxMembers = 40
-	elseif IsInGroup() then
-		prefix = "party"
-		maxMembers = 4
-		-- Include self
-		local _, class = UnitClass("player")
-		if class == "SHAMAN" then
-			local name = UnitName("player")
-			table.insert(shamans, name)
-		end
-	else
-		-- Solo
-		local _, class = UnitClass("player")
-		if class == "SHAMAN" then
-			local name = UnitName("player")
-			table.insert(shamans, name)
-		end
-		return shamans
-	end
-
-	for i = 1, maxMembers do
-		local unit = prefix .. i
-		if UnitExists(unit) then
-			local _, class = UnitClass(unit)
-			if class == "SHAMAN" then
-				local name = UnitName(unit)
-				table.insert(shamans, name)
-			end
-		end
-	end
-
-	return shamans
-end
-
--- Get list of all raid/party members
-function ShamanPower:GetRaidMembers()
-	local members = {}
-	local prefix, maxMembers
-
-	if IsInRaid() then
-		prefix = "raid"
-		maxMembers = 40
-	elseif IsInGroup() then
-		prefix = "party"
-		maxMembers = 4
-		local name = UnitName("player")
-		table.insert(members, name)
-	else
-		local name = UnitName("player")
-		table.insert(members, name)
-		return members
-	end
-
-	for i = 1, maxMembers do
-		local unit = prefix .. i
-		if UnitExists(unit) then
-			local name = UnitName(unit)
-			table.insert(members, name)
-		end
-	end
-
-	return members
-end
-
--- Update the raid cooldown panel dropdowns
-function ShamanPower:UpdateRaidCooldownPanel()
-	if not self.raidCooldownPanel then return end
-
-	self:InitRaidCooldowns()
-
-	local shamans = self:GetRaidShamans()
-	local members = self:GetRaidMembers()
-	local bl = ShamanPower_RaidCooldowns.bloodlust
-
-	-- Helper to create dropdown menu
-	local function InitShamanDropdown(dropdown, field)
-		UIDropDownMenu_Initialize(dropdown, function(self, level)
-			-- Read current value each time dropdown opens
-			local currentValue = bl[field]
-			local info = UIDropDownMenu_CreateInfo()
-
-			-- None option
-			info.text = "-- None --"
-			info.value = nil
-			info.checked = (currentValue == nil)
-			info.func = function()
-				bl[field] = nil
-				UIDropDownMenu_SetText(dropdown, "-- None --")
-				ShamanPower:SendRaidCooldownSync()
-			end
-			UIDropDownMenu_AddButton(info)
-
-			-- Shaman options
-			for _, name in ipairs(shamans) do
-				info.text = name
-				info.value = name
-				info.checked = (currentValue == name)
-				info.func = function()
-					bl[field] = name
-					UIDropDownMenu_SetText(dropdown, name)
-					ShamanPower:SendRaidCooldownSync()
-				end
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-		UIDropDownMenu_SetText(dropdown, bl[field] or "-- None --")
-	end
-
-	-- Helper for caller dropdown (all members)
-	local function InitCallerDropdown(dropdown)
-		UIDropDownMenu_Initialize(dropdown, function(self, level)
-			-- Read current value each time dropdown opens
-			local currentValue = bl.caller
-			local info = UIDropDownMenu_CreateInfo()
-
-			info.text = "-- None --"
-			info.value = nil
-			info.checked = (currentValue == nil)
-			info.func = function()
-				bl.caller = nil
-				UIDropDownMenu_SetText(dropdown, "-- None --")
-				ShamanPower:SendRaidCooldownSync()
-				ShamanPower:UpdateCallerButtons()
-			end
-			UIDropDownMenu_AddButton(info)
-
-			for _, name in ipairs(members) do
-				info.text = name
-				info.value = name
-				info.checked = (currentValue == name)
-				info.func = function()
-					bl.caller = name
-					UIDropDownMenu_SetText(dropdown, name)
-					ShamanPower:SendRaidCooldownSync()
-					ShamanPower:UpdateCallerButtons()
-				end
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-		UIDropDownMenu_SetText(dropdown, bl.caller or "-- None --")
-	end
-
-	-- Initialize dropdowns
-	InitShamanDropdown(self.raidCooldownPanel.primaryDropdown, "primary")
-	InitShamanDropdown(self.raidCooldownPanel.backup1Dropdown, "backup1")
-	InitShamanDropdown(self.raidCooldownPanel.backup2Dropdown, "backup2")
-	InitCallerDropdown(self.raidCooldownPanel.callerDropdown)
-
-	-- Update Mana Tide rows
-	self:UpdateManaTideRows(members)
-
-	-- Update floating caller buttons
-	self:UpdateCallerButtons()
-end
-
--- Get shamans who have Mana Tide with their group number
-function ShamanPower:GetManaTideShamans()
-	local mtShamans = {}
-	local prefix, maxMembers
-
-	if IsInRaid() then
-		prefix = "raid"
-		maxMembers = 40
-	elseif IsInGroup() then
-		prefix = "party"
-		maxMembers = 4
-		-- Check self
-		local _, class = UnitClass("player")
-		if class == "SHAMAN" then
-			-- Check if we have Mana Tide (spell ID 16190)
-			if IsSpellKnown(16190) then
-				local name = UnitName("player")
-				table.insert(mtShamans, {name = name, group = 1})
-			end
-		end
-	else
-		-- Solo
-		local _, class = UnitClass("player")
-		if class == "SHAMAN" and IsSpellKnown(16190) then
-			local name = UnitName("player")
-			table.insert(mtShamans, {name = name, group = 1})
-		end
-		return mtShamans
-	end
-
-	for i = 1, maxMembers do
-		local unit = prefix .. i
-		if UnitExists(unit) then
-			local _, class = UnitClass(unit)
-			if class == "SHAMAN" then
-				local name = UnitName(unit)
-				-- Check if this shaman has Mana Tide via AllShamans data
-				-- For now, add all shamans and let them self-report MT capability
-				local group = 1
-				if IsInRaid() then
-					local _, _, subgroup = GetRaidRosterInfo(i)
-					group = subgroup or 1
-				end
-				-- Add all shamans - if they don't have MT, assignment just won't work for them
-				table.insert(mtShamans, {name = name, group = group})
-			end
-		end
-	end
-
-	return mtShamans
-end
-
--- Update Mana Tide assignment rows
-function ShamanPower:UpdateManaTideRows(members)
-	local panel = self.raidCooldownPanel
-	if not panel or not panel.mtContainer then return end
-
-	-- Hide existing rows
-	for _, row in ipairs(panel.mtRows or {}) do
-		if row.label then row.label:Hide() end
-		if row.dropdown then row.dropdown:Hide() end
-	end
-	panel.mtRows = {}
-
-	-- Get shamans with Mana Tide
-	local mtShamans = self:GetManaTideShamans()
-	local mt = ShamanPower_RaidCooldowns.manatide
-
-	local yOffset = 0
-	for i, shamanInfo in ipairs(mtShamans) do
-		local shamanName = shamanInfo.name
-		local group = shamanInfo.group
-
-		-- Create row elements
-		local row = {}
-
-		-- Shaman name label
-		row.label = panel.mtContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		row.label:SetPoint("TOPLEFT", 0, yOffset)
-		row.label:SetText(shamanName .. " (G" .. group .. ")")
-		row.label:SetTextColor(1, 1, 1)
-
-		-- Caller dropdown
-		row.dropdown = CreateFrame("Frame", "ShamanPowerMTCaller" .. i, panel.mtContainer, "UIDropDownMenuTemplate")
-		row.dropdown:SetPoint("TOPLEFT", 100, yOffset + 5)
-		UIDropDownMenu_SetWidth(row.dropdown, 90)
-
-		UIDropDownMenu_Initialize(row.dropdown, function(self, level)
-			-- Read current value each time dropdown opens
-			local currentCaller = mt[shamanName] and mt[shamanName].caller or nil
-			local info = UIDropDownMenu_CreateInfo()
-
-			info.text = "-- None --"
-			info.value = nil
-			info.checked = (currentCaller == nil)
-			info.func = function()
-				if not mt[shamanName] then mt[shamanName] = {} end
-				mt[shamanName].caller = nil
-				UIDropDownMenu_SetText(row.dropdown, "-- None --")
-				ShamanPower:SendRaidCooldownSync()
-				ShamanPower:UpdateCallerButtons()
-			end
-			UIDropDownMenu_AddButton(info)
-
-			for _, memberName in ipairs(members) do
-				info.text = memberName
-				info.value = memberName
-				info.checked = (currentCaller == memberName)
-				info.func = function()
-					if not mt[shamanName] then mt[shamanName] = {} end
-					mt[shamanName].caller = memberName
-					UIDropDownMenu_SetText(row.dropdown, memberName)
-					ShamanPower:SendRaidCooldownSync()
-					ShamanPower:UpdateCallerButtons()
-				end
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-		local initialCaller = mt[shamanName] and mt[shamanName].caller or nil
-		UIDropDownMenu_SetText(row.dropdown, initialCaller or "-- None --")
-
-		table.insert(panel.mtRows, row)
-		yOffset = yOffset - 30
-	end
-
-	-- Resize panel based on content
-	local baseHeight = 280
-	local mtHeight = #mtShamans * 30
-	panel:SetHeight(baseHeight + mtHeight)
-end
-
--- Call Mana Tide for a specific shaman
-function ShamanPower:CallManaTideForShaman(shamanName)
-	local mt = ShamanPower_RaidCooldowns.manatide
-	local canCall = self:CanAssignRaidCooldowns() or (mt[shamanName] and mt[shamanName].caller == self.player)
-
-	if not canCall then
-		print("|cffff0000ShamanPower:|r You don't have permission to call Mana Tide for " .. shamanName)
-		return
-	end
-
-	self:SendMessage("MTCALL|" .. shamanName)
-
-	if shamanName == self.player then
-		self:ShowManaTideAlert()
-	end
-
-	print("|cff00ff00ShamanPower:|r Called Mana Tide from " .. shamanName)
-end
-
--- Send raid cooldown sync to group
-function ShamanPower:SendRaidCooldownSync()
-	local bl = ShamanPower_RaidCooldowns.bloodlust
-	local data = string.format("RCSYNC|%s|%s|%s|%s",
-		bl.primary or "",
-		bl.backup1 or "",
-		bl.backup2 or "",
-		bl.caller or ""
-	)
-	self:SendMessage(data)
-
-	-- Also send MT assignments (always send, even if empty, so receivers can clear)
-	local mt = ShamanPower_RaidCooldowns.manatide
-	local mtParts = {}
-	for shamanName, mtData in pairs(mt) do
-		if mtData.caller then
-			table.insert(mtParts, shamanName .. ":" .. mtData.caller)
-		end
-	end
-	self:SendMessage("MTSYNC|" .. table.concat(mtParts, ","))
-end
-
--- Call for Bloodlust/Heroism
-function ShamanPower:CallBloodlust()
-	if not self:CanCallRaidCooldowns() then
-		print("|cffff0000ShamanPower:|r You don't have permission to call for Bloodlust.")
-		return
-	end
-
-	local target = self:GetBloodlustTarget()
-	if not target then
-		print("|cffff0000ShamanPower:|r No shaman assigned for Bloodlust!")
-		return
-	end
-
-	-- Send call message
-	self:SendMessage("BLCALL|" .. target)
-
-	-- Show alert if we're the target
-	if target == self.player then
-		self:ShowBloodlustAlert()
-	end
-
-	local faction = UnitFactionGroup("player")
-	local blName = (faction == "Alliance") and "Heroism" or "Bloodlust"
-	print("|cff00ff00ShamanPower:|r Called " .. blName .. " from " .. target)
-end
-
--- Call for Mana Tide
-function ShamanPower:CallManaTide()
-	if not self:CanCallRaidCooldowns() then
-		print("|cffff0000ShamanPower:|r You don't have permission to call for Mana Tide.")
-		return
-	end
-
-	-- Send call to all shamans with Mana Tide
-	self:SendMessage("MTCALL")
-	print("|cff00ff00ShamanPower:|r Called for Mana Tide!")
-end
-
--- Show alert when called for Bloodlust
-function ShamanPower:ShowBloodlustAlert()
-	local faction = UnitFactionGroup("player")
-	local blName = (faction == "Alliance") and "HEROISM" or "BLOODLUST"
-	local icon = (faction == "Alliance") and "Interface\\Icons\\Ability_Shaman_Heroism" or "Interface\\Icons\\Spell_Nature_Bloodlust"
-
-	-- Show center screen alert
-	self:ShowCenterScreenAlert(icon, "USE " .. blName .. " NOW!")
-
-	-- Also add glow/shake to cooldown bar button
-	local blSpellID = (faction == "Alliance") and 32182 or 2825
-	self:AddCooldownButtonAlert(blSpellID)
-end
-
--- Show alert when called for Mana Tide
-function ShamanPower:ShowManaTideAlert()
-	-- Show center screen alert
-	self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE MANA TIDE NOW!")
-
-	-- Also add glow/shake to cooldown bar button
-	self:AddCooldownButtonAlert(16190)  -- Mana Tide Totem spell ID
-end
-
--- Show a center screen alert with icon and text
-function ShamanPower:ShowCenterScreenAlert(iconPath, text)
-	-- Check if any alerts are enabled
-	local showIcon = self.opt.raidCDShowWarningIcon ~= false
-	local showText = self.opt.raidCDShowWarningText ~= false
-	local playSound = self.opt.raidCDPlaySound ~= false
-
-	-- If nothing to show, just play sound if enabled
-	if not showIcon and not showText then
-		if playSound then
-			PlaySound(8959) -- PVPFLAGTAKEN
-		end
-		return
-	end
-
-	if not self.centerAlert then
-		local frame = CreateFrame("Frame", "ShamanPowerCenterAlert", UIParent)
-		frame:SetSize(150, 150)
-		frame:SetPoint("CENTER", 0, 100)
-		frame:SetFrameStrata("FULLSCREEN_DIALOG")
-
-		local iconTex = frame:CreateTexture(nil, "ARTWORK")
-		iconTex:SetSize(128, 128)
-		iconTex:SetPoint("CENTER")
-		iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		frame.icon = iconTex
-
-		local alertText = frame:CreateFontString(nil, "OVERLAY")
-		alertText:SetFont("Fonts\\FRIZQT__.TTF", 24, "OUTLINE")
-		alertText:SetPoint("TOP", frame, "BOTTOM", 0, -10)
-		alertText:SetTextColor(1, 0.3, 0)
-		frame.text = alertText
-
-		frame:Hide()
-		self.centerAlert = frame
-	end
-
-	-- Show/hide icon based on option
-	if showIcon then
-		self.centerAlert.icon:SetTexture(iconPath)
-		self.centerAlert.icon:Show()
-	else
-		self.centerAlert.icon:Hide()
-	end
-
-	-- Show/hide text based on option
-	if showText then
-		self.centerAlert.text:SetText(text)
-		self.centerAlert.text:Show()
-	else
-		self.centerAlert.text:Hide()
-	end
-
-	self.centerAlert:Show()
-
-	-- Pulse animation
-	self.centerAlert.elapsed = 0
-	self.centerAlert:SetScript("OnUpdate", function(self, elapsed)
-		self.elapsed = self.elapsed + elapsed
-		local alpha = 0.6 + 0.4 * math.sin(self.elapsed * 4)
-		self:SetAlpha(alpha)
-		if showIcon then
-			local scale = 1 + 0.05 * math.sin(self.elapsed * 5)
-			self.icon:SetSize(128 * scale, 128 * scale)
-		end
-	end)
-
-	-- Hide after 5 seconds
-	C_Timer.After(5, function()
-		if ShamanPower.centerAlert then
-			ShamanPower.centerAlert:Hide()
-			ShamanPower.centerAlert:SetScript("OnUpdate", nil)
-		end
-	end)
-
-	-- Play sound if enabled
-	if playSound then
-		PlaySound(8959) -- PVPFLAGTAKEN
-	end
-end
-
--- Handle incoming raid cooldown messages
-function ShamanPower:HandleRaidCooldownMessage(prefix, message, sender)
-	local cmd, rest = strsplit("|", message, 2)
-
-	if cmd == "RCSYNC" then
-		-- Sync from raid leader
-		local primary, backup1, backup2, caller = strsplit("|", rest)
-		self:InitRaidCooldowns()
-		local bl = ShamanPower_RaidCooldowns.bloodlust
-		bl.primary = (primary ~= "") and primary or nil
-		bl.backup1 = (backup1 ~= "") and backup1 or nil
-		bl.backup2 = (backup2 ~= "") and backup2 or nil
-		bl.caller = (caller ~= "") and caller or nil
-
-		if self.raidCooldownPanel and self.raidCooldownPanel:IsShown() then
-			self:UpdateRaidCooldownPanel()
-		end
-
-	elseif cmd == "BLCALL" then
-		-- Called for Bloodlust
-		local target = rest
-		if target == self.player then
-			self:ShowBloodlustAlert()
-		end
-
-	elseif cmd == "MTCALL" then
-		-- Called for Mana Tide - check if it's for us specifically or broadcast
-		local targetShaman = rest
-		if targetShaman and targetShaman ~= "" then
-			-- Specific shaman called
-			if targetShaman == self.player and IsSpellKnown(16190) then
-				self:ShowManaTideAlert()
-			end
-		else
-			-- Broadcast to all MT shamans
-			if IsSpellKnown(16190) then
-				self:ShowManaTideAlert()
-			end
-		end
-
-	elseif cmd == "MTSYNC" then
-		-- Sync MT assignments from raid leader
-		self:InitRaidCooldowns()
-		local mt = ShamanPower_RaidCooldowns.manatide
-		-- Clear existing
-		for k in pairs(mt) do mt[k] = nil end
-		-- Parse new assignments
-		if rest and rest ~= "" then
-			for pair in string.gmatch(rest, "[^,]+") do
-				local shamanName, callerName = strsplit(":", pair)
-				if shamanName and callerName then
-					mt[shamanName] = {caller = callerName}
-				end
-			end
-		end
-
-		if self.raidCooldownPanel and self.raidCooldownPanel:IsShown() then
-			self:UpdateRaidCooldownPanel()
-		end
-		self:UpdateCallerButtons()
-	end
-end
-
--- Register slash command
-SLASH_SPRAID1 = "/spraid"
-SlashCmdList["SPRAID"] = function(msg)
-	ShamanPower:ToggleRaidCooldownPanel()
-end
-
--- ============================================================================
--- FLOATING CALLER BUTTONS
--- Shows buttons on screen for assigned callers to quickly call BL/MT
--- ============================================================================
-
-function ShamanPower:CreateCallerButtonFrame()
-	if self.callerButtonFrame then return self.callerButtonFrame end
-
-	local frame = CreateFrame("Frame", "ShamanPowerCallerButtons", UIParent, "BackdropTemplate")
-	frame:SetSize(100, 60)
-	frame:SetPoint("CENTER", UIParent, "CENTER", 200, 200)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		-- Save position
-		local point, _, relPoint, x, y = self:GetPoint()
-		if not ShamanPower_RaidCooldowns.callerButtonPos then
-			ShamanPower_RaidCooldowns.callerButtonPos = {}
-		end
-		ShamanPower_RaidCooldowns.callerButtonPos.point = point
-		ShamanPower_RaidCooldowns.callerButtonPos.relPoint = relPoint
-		ShamanPower_RaidCooldowns.callerButtonPos.x = x
-		ShamanPower_RaidCooldowns.callerButtonPos.y = y
-	end)
-	frame:SetFrameStrata("HIGH")
-	frame:Hide()
-
-	frame:SetBackdrop({
-		bgFile = "Interface\\Buttons\\WHITE8x8",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		edgeSize = 14,
-		insets = {left = 3, right = 3, top = 3, bottom = 3},
-	})
-	frame:SetBackdropColor(0.1, 0.1, 0.1, 0.85)
-	frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-
-	-- Heroism/Bloodlust button
-	local faction = UnitFactionGroup("player")
-	local blIcon = (faction == "Alliance") and "Interface\\Icons\\Ability_Shaman_Heroism" or "Interface\\Icons\\Spell_Nature_Bloodlust"
-
-	local blBtn = CreateFrame("Button", "ShamanPowerCallerBLBtn", frame)
-	blBtn:SetSize(40, 40)
-	blBtn:SetPoint("TOPLEFT", 8, -8)
-
-	-- Icon texture (inset from border)
-	local blIconTex = blBtn:CreateTexture(nil, "ARTWORK")
-	blIconTex:SetPoint("TOPLEFT", 3, -3)
-	blIconTex:SetPoint("BOTTOMRIGHT", -3, 3)
-	blIconTex:SetTexture(blIcon)
-	blIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	blBtn.icon = blIconTex
-
-	-- Orange border for BL button (4 edge textures)
-	local borderSize = 3
-	local borderColor = {1, 0.5, 0, 1}  -- Orange
-
-	local blBorderTop = blBtn:CreateTexture(nil, "BORDER")
-	blBorderTop:SetPoint("TOPLEFT", 0, 0)
-	blBorderTop:SetPoint("TOPRIGHT", 0, 0)
-	blBorderTop:SetHeight(borderSize)
-	blBorderTop:SetColorTexture(unpack(borderColor))
-
-	local blBorderBottom = blBtn:CreateTexture(nil, "BORDER")
-	blBorderBottom:SetPoint("BOTTOMLEFT", 0, 0)
-	blBorderBottom:SetPoint("BOTTOMRIGHT", 0, 0)
-	blBorderBottom:SetHeight(borderSize)
-	blBorderBottom:SetColorTexture(unpack(borderColor))
-
-	local blBorderLeft = blBtn:CreateTexture(nil, "BORDER")
-	blBorderLeft:SetPoint("TOPLEFT", 0, 0)
-	blBorderLeft:SetPoint("BOTTOMLEFT", 0, 0)
-	blBorderLeft:SetWidth(borderSize)
-	blBorderLeft:SetColorTexture(unpack(borderColor))
-
-	local blBorderRight = blBtn:CreateTexture(nil, "BORDER")
-	blBorderRight:SetPoint("TOPRIGHT", 0, 0)
-	blBorderRight:SetPoint("BOTTOMRIGHT", 0, 0)
-	blBorderRight:SetWidth(borderSize)
-	blBorderRight:SetColorTexture(unpack(borderColor))
-
-	local blHighlight = blBtn:CreateTexture(nil, "HIGHLIGHT")
-	blHighlight:SetAllPoints(blIconTex)
-	blHighlight:SetColorTexture(1, 1, 1, 0.3)
-
-	blBtn:SetScript("OnClick", function()
-		ShamanPower:CallBloodlust()
-	end)
-	blBtn:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		local name = (UnitFactionGroup("player") == "Alliance") and "Heroism" or "Bloodlust"
-		GameTooltip:SetText("Call " .. name)
-		local target = ShamanPower:GetBloodlustTarget()
-		if target then
-			GameTooltip:AddLine("Will call: " .. target, 0, 1, 0)
-		end
-		GameTooltip:Show()
-	end)
-	blBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-	-- Name label under BL button (shows who will use BL)
-	local blNameLabel = blBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	blNameLabel:SetPoint("TOP", blBtn, "BOTTOM", 0, -2)
-	blNameLabel:SetText("")
-	blBtn.nameLabel = blNameLabel
-
-	frame.blBtn = blBtn
-
-	-- Container for MT buttons (can have multiple)
-	frame.mtButtons = {}
-
-	self.callerButtonFrame = frame
-
-	-- Restore saved position
-	if ShamanPower_RaidCooldowns and ShamanPower_RaidCooldowns.callerButtonPos then
-		local pos = ShamanPower_RaidCooldowns.callerButtonPos
-		frame:ClearAllPoints()
-		frame:SetPoint(pos.point or "CENTER", UIParent, pos.relPoint or "CENTER", pos.x or 200, pos.y or 200)
-	end
-
-	return frame
-end
-
-function ShamanPower:UpdateCallerButtons()
-	self:InitRaidCooldowns()
-
-	-- Don't show caller buttons when not in a group
-	if GetNumGroupMembers() == 0 then
-		if self.callerButtonFrame then
-			self.callerButtonFrame:Hide()
-		end
-		return
-	end
-
-	local playerName = self.player
-	local bl = ShamanPower_RaidCooldowns.bloodlust
-	local mt = ShamanPower_RaidCooldowns.manatide
-
-	-- Check if player is a BL caller or MT caller for any shaman
-	-- Only consider BL callable if there's a caller assigned AND (player is RL/assist or is the caller)
-	local isBLCaller = bl.caller and (self:CanAssignRaidCooldowns() or bl.caller == playerName)
-	local mtCallsFor = {}
-
-	-- Check if player is caller for any shaman's MT
-	for shamanName, data in pairs(mt) do
-		if data.caller == playerName then
-			table.insert(mtCallsFor, shamanName)
-		end
-	end
-
-	-- Also show if RL/assist (they can call anything that has a caller assigned)
-	if self:CanAssignRaidCooldowns() then
-		-- Get all MT shamans for RL/assist, but only if they have a caller assigned
-		local mtShamans = self:GetManaTideShamans()
-		for _, info in ipairs(mtShamans) do
-			-- Only add if this shaman has a caller assigned
-			if mt[info.name] and mt[info.name].caller then
-				local found = false
-				for _, name in ipairs(mtCallsFor) do
-					if name == info.name then found = true break end
-				end
-				if not found then
-					table.insert(mtCallsFor, info.name)
-				end
-			end
-		end
-	end
-
-	-- Determine if buttons will actually be shown
-	local showBLButton = isBLCaller and (bl.primary or bl.backup1 or bl.backup2)
-	local showFrame = showBLButton or #mtCallsFor > 0
-
-	if not showFrame then
-		if self.callerButtonFrame then
-			self.callerButtonFrame:Hide()
-		end
-		return
-	end
-
-	local frame = self:CreateCallerButtonFrame()
-
-	-- Show/hide BL button
-	if showBLButton then
-		frame.blBtn:Show()
-	else
-		frame.blBtn:Hide()
-	end
-
-	-- Clear old MT buttons
-	for _, btn in ipairs(frame.mtButtons) do
-		btn:Hide()
-	end
-	frame.mtButtons = {}
-
-	-- Create MT buttons
-	local xOffset = isBLCaller and (bl.primary or bl.backup1 or bl.backup2) and 52 or 8
-	local borderSize = 3
-	local mtBorderColor = {0.2, 0.6, 1, 1}  -- Blue
-
-	for i, shamanName in ipairs(mtCallsFor) do
-		local mtBtn = CreateFrame("Button", "ShamanPowerCallerMTBtn" .. i, frame)
-		mtBtn:SetSize(40, 40)
-		mtBtn:SetPoint("TOPLEFT", xOffset, -8)
-
-		-- Icon texture (inset from border)
-		local mtIconTex = mtBtn:CreateTexture(nil, "ARTWORK")
-		mtIconTex:SetPoint("TOPLEFT", 3, -3)
-		mtIconTex:SetPoint("BOTTOMRIGHT", -3, 3)
-		mtIconTex:SetTexture("Interface\\Icons\\Spell_Frost_SummonWaterElemental")
-		mtIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		mtBtn.icon = mtIconTex
-
-		-- Blue border for MT button (4 edge textures)
-		local mtBorderTop = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderTop:SetPoint("TOPLEFT", 0, 0)
-		mtBorderTop:SetPoint("TOPRIGHT", 0, 0)
-		mtBorderTop:SetHeight(borderSize)
-		mtBorderTop:SetColorTexture(unpack(mtBorderColor))
-
-		local mtBorderBottom = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderBottom:SetPoint("BOTTOMLEFT", 0, 0)
-		mtBorderBottom:SetPoint("BOTTOMRIGHT", 0, 0)
-		mtBorderBottom:SetHeight(borderSize)
-		mtBorderBottom:SetColorTexture(unpack(mtBorderColor))
-
-		local mtBorderLeft = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderLeft:SetPoint("TOPLEFT", 0, 0)
-		mtBorderLeft:SetPoint("BOTTOMLEFT", 0, 0)
-		mtBorderLeft:SetWidth(borderSize)
-		mtBorderLeft:SetColorTexture(unpack(mtBorderColor))
-
-		local mtBorderRight = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderRight:SetPoint("TOPRIGHT", 0, 0)
-		mtBorderRight:SetPoint("BOTTOMRIGHT", 0, 0)
-		mtBorderRight:SetWidth(borderSize)
-		mtBorderRight:SetColorTexture(unpack(mtBorderColor))
-
-		local mtHighlight = mtBtn:CreateTexture(nil, "HIGHLIGHT")
-		mtHighlight:SetAllPoints(mtIconTex)
-		mtHighlight:SetColorTexture(1, 1, 1, 0.3)
-
-		mtBtn.shamanName = shamanName
-		mtBtn:SetScript("OnClick", function(self)
-			ShamanPower:CallManaTideForShaman(self.shamanName)
-		end)
-		mtBtn:SetScript("OnEnter", function(self)
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetText("Call Mana Tide")
-			GameTooltip:AddLine("From: " .. self.shamanName, 0, 0.7, 1)
-			GameTooltip:Show()
-		end)
-		mtBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-		-- Name label under MT button (shows shaman name)
-		local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		mtNameLabel:SetPoint("TOP", mtBtn, "BOTTOM", 0, -2)
-		mtNameLabel:SetText(shamanName)
-		mtBtn.nameLabel = mtNameLabel
-
-		table.insert(frame.mtButtons, mtBtn)
-		xOffset = xOffset + 44
-	end
-
-	-- Update BL button's name label with the active target
-	if frame.blBtn and frame.blBtn.nameLabel then
-		local activeTarget = self:GetBloodlustTarget()
-		if activeTarget then
-			frame.blBtn.nameLabel:SetText(activeTarget)
-		else
-			frame.blBtn.nameLabel:SetText("")
-		end
-	end
-
-	-- Resize frame based on buttons (taller to fit name labels)
-	local numButtons = (isBLCaller and (bl.primary or bl.backup1 or bl.backup2) and 1 or 0) + #mtCallsFor
-	local width = math.max(60, numButtons * 44 + 16)
-	frame:SetSize(width, 62)  -- 40 button + 2 gap + 12 text + 8 padding
-
-	frame:Show()
-
-	-- Apply scale and opacity settings
-	self:UpdateCallerButtonScale()
-	self:UpdateCallerButtonOpacity()
-
-	-- Start cooldown tracking update
-	self:StartCallerCooldownTracking()
-end
-
--- ============================================================================
--- CALLER BUTTON COOLDOWN TRACKING
--- Tracks when BL/MT are used and shows cooldown on caller buttons
--- ============================================================================
-
-ShamanPower.callerCooldowns = {}  -- {[shamanName] = {bl = {start, duration}, mt = {start, duration}}}
-
--- Cooldown durations
-local BL_COOLDOWN = 600  -- 10 minutes
-local MT_COOLDOWN = 300  -- 5 minutes
-
--- Track spell casts via combat log
-function ShamanPower:SetupCallerCooldownTracking()
-	if self.callerCooldownFrame then return end
-
-	local frame = CreateFrame("Frame")
-	frame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-	frame:SetScript("OnEvent", function(self, event)
-		ShamanPower:OnCombatLogEvent()
-	end)
-	self.callerCooldownFrame = frame
-end
-
-function ShamanPower:OnCombatLogEvent()
-	local _, subEvent, _, sourceGUID, sourceName, _, _, _, _, _, _, spellID = CombatLogGetCurrentEventInfo()
-
-	if subEvent ~= "SPELL_CAST_SUCCESS" then return end
-
-	-- Check for Bloodlust/Heroism
-	if spellID == 2825 or spellID == 32182 then
-		if sourceName then
-			sourceName = self:RemoveRealmName(sourceName)
-			if not self.callerCooldowns[sourceName] then
-				self.callerCooldowns[sourceName] = {}
-			end
-			self.callerCooldowns[sourceName].bl = {
-				start = GetTime(),
-				duration = BL_COOLDOWN
-			}
-			-- Save to SavedVariables (use time() for persistence across reloads)
-			self:SaveCallerCooldown(sourceName, "bl", BL_COOLDOWN)
-			-- Also clear the alert on this shaman's cooldown bar button
-			local blSpellID = (UnitFactionGroup("player") == "Alliance") and 32182 or 2825
-			if sourceName == self.player then
-				self:RemoveCooldownButtonAlert(blSpellID)
-			end
-		end
-	end
-
-	-- Check for Mana Tide Totem
-	if spellID == 16190 then
-		if sourceName then
-			sourceName = self:RemoveRealmName(sourceName)
-			if not self.callerCooldowns[sourceName] then
-				self.callerCooldowns[sourceName] = {}
-			end
-			self.callerCooldowns[sourceName].mt = {
-				start = GetTime(),
-				duration = MT_COOLDOWN
-			}
-			-- Save to SavedVariables
-			self:SaveCallerCooldown(sourceName, "mt", MT_COOLDOWN)
-			-- Also clear the alert
-			if sourceName == self.player then
-				self:RemoveCooldownButtonAlert(16190)
-			end
-		end
-	end
-end
-
--- Save cooldown to SavedVariables for persistence across reloads
-function ShamanPower:SaveCallerCooldown(shamanName, cdType, duration)
-	if not ShamanPower_RaidCooldowns.cooldownTimes then
-		ShamanPower_RaidCooldowns.cooldownTimes = {}
-	end
-	if not ShamanPower_RaidCooldowns.cooldownTimes[shamanName] then
-		ShamanPower_RaidCooldowns.cooldownTimes[shamanName] = {}
-	end
-	-- Store using time() (Unix epoch) so it persists across reloads
-	ShamanPower_RaidCooldowns.cooldownTimes[shamanName][cdType] = {
-		timestamp = time(),
-		duration = duration
-	}
-end
-
--- Restore cooldowns from SavedVariables on login/reload
-function ShamanPower:RestoreCallerCooldowns()
-	if not ShamanPower_RaidCooldowns or not ShamanPower_RaidCooldowns.cooldownTimes then
-		return
-	end
-
-	local now = time()
-	local gameNow = GetTime()
-
-	for shamanName, cds in pairs(ShamanPower_RaidCooldowns.cooldownTimes) do
-		if not self.callerCooldowns[shamanName] then
-			self.callerCooldowns[shamanName] = {}
-		end
-
-		for cdType, cdData in pairs(cds) do
-			local elapsed = now - cdData.timestamp
-			local remaining = cdData.duration - elapsed
-
-			if remaining > 0 then
-				-- Cooldown still active, restore it
-				-- Calculate what GetTime() would have been when it started
-				local adjustedStart = gameNow - elapsed
-				self.callerCooldowns[shamanName][cdType] = {
-					start = adjustedStart,
-					duration = cdData.duration
-				}
-			else
-				-- Cooldown expired, clear it
-				ShamanPower_RaidCooldowns.cooldownTimes[shamanName][cdType] = nil
-			end
-		end
-	end
-end
-
--- Start the cooldown tracking OnUpdate
-function ShamanPower:StartCallerCooldownTracking()
-	self:SetupCallerCooldownTracking()
-
-	local frame = self.callerButtonFrame
-	if not frame then return end
-
-	-- Set up throttled OnUpdate for cooldown display (every 0.2 seconds, not every frame)
-	frame.cdUpdateElapsed = 0
-	frame:SetScript("OnUpdate", function(self, elapsed)
-		self.cdUpdateElapsed = (self.cdUpdateElapsed or 0) + elapsed
-		if self.cdUpdateElapsed < 0.2 then return end
-		self.cdUpdateElapsed = 0
-		ShamanPower:UpdateCallerButtonCooldowns()
-	end)
-end
-
--- Update cooldown displays on caller buttons
-function ShamanPower:UpdateCallerButtonCooldowns()
-	local frame = self.callerButtonFrame
-	if not frame or not frame:IsShown() then return end
-
-	local now = GetTime()
-
-	-- Update BL button cooldown
-	if frame.blBtn and frame.blBtn:IsShown() then
-		local activeTarget = self:GetBloodlustTarget()
-		local cdInfo = activeTarget and self.callerCooldowns[activeTarget] and self.callerCooldowns[activeTarget].bl
-
-		if cdInfo then
-			local elapsed = now - cdInfo.start
-			local remaining = cdInfo.duration - elapsed
-
-			if remaining > 0 then
-				-- Show cooldown
-				self:SetCallerButtonCooldown(frame.blBtn, cdInfo.start, cdInfo.duration)
-			else
-				-- Cooldown done
-				self:ClearCallerButtonCooldown(frame.blBtn)
-				self.callerCooldowns[activeTarget].bl = nil
-			end
-		else
-			self:ClearCallerButtonCooldown(frame.blBtn)
-		end
-	end
-
-	-- Update MT button cooldowns
-	for _, mtBtn in ipairs(frame.mtButtons or {}) do
-		if mtBtn:IsShown() then
-			local shamanName = mtBtn.shamanName
-			local cdInfo = shamanName and self.callerCooldowns[shamanName] and self.callerCooldowns[shamanName].mt
-
-			if cdInfo then
-				local elapsed = now - cdInfo.start
-				local remaining = cdInfo.duration - elapsed
-
-				if remaining > 0 then
-					self:SetCallerButtonCooldown(mtBtn, cdInfo.start, cdInfo.duration)
-				else
-					self:ClearCallerButtonCooldown(mtBtn)
-					self.callerCooldowns[shamanName].mt = nil
-				end
-			else
-				self:ClearCallerButtonCooldown(mtBtn)
-			end
-		end
-	end
-end
-
--- Set cooldown display on a caller button
-function ShamanPower:SetCallerButtonCooldown(btn, start, duration)
-	-- Check if animation is enabled
-	if self.opt.raidCDShowButtonAnimation == false then
-		return
-	end
-
-	-- Create cooldown frame if needed
-	if not btn.cooldownFrame then
-		local cd = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate")
-		cd:SetAllPoints(btn.icon or btn)
-		cd:SetDrawEdge(false)
-		cd:SetDrawBling(false)
-		cd:SetDrawSwipe(true)
-		cd:SetSwipeColor(0, 0, 0, 0.8)
-		btn.cooldownFrame = cd
-	end
-
-	btn.cooldownFrame:SetCooldown(start, duration)
-
-	-- Desaturate the icon
-	if btn.icon then
-		btn.icon:SetDesaturated(true)
-	end
-end
-
--- Clear cooldown display on a caller button
-function ShamanPower:ClearCallerButtonCooldown(btn)
-	if btn.cooldownFrame then
-		btn.cooldownFrame:Clear()
-	end
-
-	-- Restore icon color
-	if btn.icon then
-		btn.icon:SetDesaturated(false)
-	end
-end
-
--- Update opacity of caller button frame
-function ShamanPower:UpdateCallerButtonOpacity()
-	if self.callerButtonFrame then
-		local opacity = self.opt.raidCDButtonOpacity or 1.0
-		self.callerButtonFrame:SetAlpha(opacity)
-	end
-end
-
--- Update scale of caller button frame
-function ShamanPower:UpdateCallerButtonScale()
-	if self.callerButtonFrame then
-		local scale = self.opt.raidCDButtonScale or 1.0
-		self.callerButtonFrame:SetScale(scale)
-	end
-end
-
--- ============================================================================
--- SPRange: Totem Range Tracker for Non-Shamans
--- ============================================================================
-
-ShamanPower_RangeTracker = ShamanPower_RangeTracker or {}
-
--- Trackable totems with their detection methods
--- detection: "buff" = check for buff, "weapon" = check weapon enchant
-ShamanPower.TrackableTotems = {
-	-- Earth
-	{
-		id = "soe",
-		name = "Strength of Earth",
-		element = 1,
-		index = 1,
-		spellID = 8075,
-		detection = "buff",
-		buffName = "Strength of Earth",
-	},
-	{
-		id = "stoneskin",
-		name = "Stoneskin",
-		element = 1,
-		index = 2,
-		spellID = 8071,
-		detection = "buff",
-		buffName = "Stoneskin",
-	},
-	-- Fire
-	{
-		id = "tow",
-		name = "Totem of Wrath",
-		element = 2,
-		index = 1,
-		spellID = 30706,
-		detection = "buff",
-		buffName = "Totem of Wrath",
-	},
-	{
-		id = "flametongue",
-		name = "Flametongue Totem",
-		element = 2,
-		index = 5,
-		spellID = 8227,
-		detection = "buff",
-		buffName = "Flametongue Totem",
-	},
-	{
-		id = "frostresist",
-		name = "Frost Resistance",
-		element = 2,
-		index = 6,
-		spellID = 8181,
-		detection = "buff",
-		buffName = "Frost Resistance",
-	},
-	-- Water
-	{
-		id = "manaspring",
-		name = "Mana Spring",
-		element = 3,
-		index = 1,
-		spellID = 5675,
-		detection = "buff",
-		buffName = "Mana Spring",
-	},
-	{
-		id = "healingstream",
-		name = "Healing Stream",
-		element = 3,
-		index = 2,
-		spellID = 5394,
-		detection = "buff",
-		buffName = "Healing Stream",
-	},
-	{
-		id = "fireresist",
-		name = "Fire Resistance",
-		element = 3,
-		index = 6,
-		spellID = 8184,
-		detection = "buff",
-		buffName = "Fire Resistance",
-	},
-	{
-		id = "manatide",
-		name = "Mana Tide Totem",
-		element = 3,
-		index = 3,
-		spellID = 16190,
-		detection = "buff",
-		buffName = "Mana Tide",
-	},
-	-- Air
-	{
-		id = "windfury",
-		name = "Windfury Totem",
-		element = 4,
-		index = 1,
-		spellID = 8512,
-		detection = "weapon",  -- Special: check weapon enchant
-		buffName = "Windfury",
-	},
-	{
-		id = "graceofair",
-		name = "Grace of Air",
-		element = 4,
-		index = 2,
-		spellID = 8835,
-		detection = "buff",
-		buffName = "Grace of Air",
-	},
-	{
-		id = "wrathofair",
-		name = "Wrath of Air",
-		element = 4,
-		index = 3,
-		spellID = 3738,
-		detection = "buff",
-		buffName = "Wrath of Air",
-	},
-	{
-		id = "tranquilair",
-		name = "Tranquil Air",
-		element = 4,
-		index = 4,
-		spellID = 25908,
-		detection = "buff",
-		buffName = "Tranquil Air",
-	},
-	{
-		id = "natureresist",
-		name = "Nature Resistance",
-		element = 4,
-		index = 6,
-		spellID = 10595,
-		detection = "buff",
-		buffName = "Nature Resistance",
-	},
-	{
-		id = "windwall",
-		name = "Windwall",
-		element = 4,
-		index = 7,
-		spellID = 15107,
-		detection = "buff",
-		buffName = "Windwall",
-	},
-}
-
--- Build lookup by ID
-ShamanPower.TrackableTotemsByID = {}
-for _, totem in ipairs(ShamanPower.TrackableTotems) do
-	ShamanPower.TrackableTotemsByID[totem.id] = totem
-end
-
--- Short names for display
-ShamanPower.TrackableTotemShortNames = {
-	soe = "SoE",
-	stoneskin = "Stone",
-	tow = "ToW",
-	flametongue = "FT",
-	frostresist = "FrRes",
-	manaspring = "Mana",
-	healingstream = "Heal",
-	fireresist = "FiRes",
-	manatide = "Mana Tide",
-	windfury = "WF",
-	graceofair = "GoA",
-	wrathofair = "WoA",
-	tranquilair = "Tranq",
-	natureresist = "NaRes",
-	windwall = "Wind",
-}
-
--- Initialize SPRange settings
-function ShamanPower:InitSPRange()
-	-- Ensure profile table exists for visual settings
-	self:EnsureProfileTable("rangeTracker")
-
-	-- Migrate old global settings to profile if they exist
-	if ShamanPower_RangeTracker then
-		if ShamanPower_RangeTracker.opacity and ShamanPower_RangeTracker.opacity ~= 1.0 then
-			self.opt.rangeTracker.opacity = ShamanPower_RangeTracker.opacity
-			ShamanPower_RangeTracker.opacity = nil
-		end
-		if ShamanPower_RangeTracker.iconSize and ShamanPower_RangeTracker.iconSize ~= 36 then
-			self.opt.rangeTracker.iconSize = ShamanPower_RangeTracker.iconSize
-			ShamanPower_RangeTracker.iconSize = nil
-		end
-		if ShamanPower_RangeTracker.vertical then
-			self.opt.rangeTracker.vertical = ShamanPower_RangeTracker.vertical
-			ShamanPower_RangeTracker.vertical = nil
-		end
-		if ShamanPower_RangeTracker.hideNames then
-			self.opt.rangeTracker.hideNames = ShamanPower_RangeTracker.hideNames
-			ShamanPower_RangeTracker.hideNames = nil
-		end
-		if ShamanPower_RangeTracker.hideBorder then
-			self.opt.rangeTracker.hideBorder = ShamanPower_RangeTracker.hideBorder
-			ShamanPower_RangeTracker.hideBorder = nil
-		end
-	end
-
-	-- Runtime state stays in global SavedVariable
-	if not ShamanPower_RangeTracker then
-		ShamanPower_RangeTracker = {}
-	end
-	if not ShamanPower_RangeTracker.tracked then
-		-- Default: track Windfury and Grace of Air
-		ShamanPower_RangeTracker.tracked = {
-			windfury = true,
-			graceofair = true,
-		}
-	end
-	if not ShamanPower_RangeTracker.position then
-		ShamanPower_RangeTracker.position = { point = "CENTER", x = 0, y = 0 }
-	end
-	if ShamanPower_RangeTracker.shown == nil then
-		ShamanPower_RangeTracker.shown = false
-	end
-end
-
--- Check if player has a specific buff (case-insensitive partial match)
-function ShamanPower:SPRangeHasBuff(buffName)
-	if not buffName then return false end
-	local searchLower = buffName:lower()
-
-	for i = 1, 40 do
-		local name = UnitBuff("player", i)
-		if not name then break end
-		if name:lower():find(searchLower, 1, true) then
-			return true
-		end
-	end
-	return false
-end
-
--- Check if player has Windfury weapon enchant
-function ShamanPower:SPRangeHasWindfuryWeapon()
-	local hasMainHandEnchant, mainHandExpiration, mainHandCharges, mainHandEnchantID,
-	      hasOffHandEnchant, offHandExpiration, offHandCharges, offHandEnchantID = GetWeaponEnchantInfo()
-
-	-- Windfury weapon enchant IDs (from Windfury Totem)
-	-- The enchant applied by Windfury Totem is different from the shaman's self-buff
-	-- We check if either hand has any temporary enchant as an approximation
-	-- More accurate: check for specific Windfury buff on weapon
-	if hasMainHandEnchant or hasOffHandEnchant then
-		-- Check if we also have the Windfury buff indicator
-		-- Windfury Totem applies "Windfury Totem" buff in some versions
-		-- or we can check for the weapon enchant directly
-		return true, mainHandExpiration, offHandExpiration
-	end
-	return false, nil, nil
-end
-
--- Check if player is in range of a tracked totem
-function ShamanPower:SPRangeCheckTotem(totemData)
-	if totemData.detection == "weapon" then
-		-- Special case: Windfury - check weapon enchant
-		local hasEnchant = self:SPRangeHasWindfuryWeapon()
-		return hasEnchant
-	else
-		-- Standard buff check
-		return self:SPRangeHasBuff(totemData.buffName)
-	end
-end
-
--- Create the SPRange frame
-function ShamanPower:CreateSPRangeFrame()
-	if self.spRangeFrame then return self.spRangeFrame end
-
-	local frame = CreateFrame("Frame", "ShamanPowerRangeFrame", UIParent, "BackdropTemplate")
-	frame:SetSize(150, 40)
-	frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:SetClampedToScreen(true)
-
-	-- Backdrop
-	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 }
-	})
-	frame:SetBackdropColor(0, 0, 0, 0.8)
-	frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
-
-	-- Title
-	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	title:SetPoint("TOP", frame, "TOP", 0, -6)
-	title:SetText("Totem Range")
-	title:SetTextColor(1, 0.82, 0)
-	frame.title = title
-
-	-- Settings button (cog icon in top right)
-	local settingsBtn = CreateFrame("Button", nil, frame)
-	settingsBtn:SetSize(14, 14)
-	settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
-	settingsBtn:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
-	settingsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
-	settingsBtn:SetScript("OnClick", function()
-		ShamanPower:ShowSPRangeConfig()
-	end)
-	settingsBtn:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Configure Totem Range", 1, 1, 1)
-		GameTooltip:Show()
-	end)
-	settingsBtn:SetScript("OnLeave", function()
-		GameTooltip:Hide()
-	end)
-	frame.settingsBtn = settingsBtn
-
-	-- Container for totem icons
-	local iconContainer = CreateFrame("Frame", nil, frame)
-	iconContainer:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -20)
-	iconContainer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
-	frame.iconContainer = iconContainer
-
-	-- Drag to move (ALT+drag when borderless, normal drag when bordered)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", function(self)
-		-- If border is hidden, require ALT to drag
-		if ShamanPower.opt.rangeTracker.hideBorder and not IsAltKeyDown() then
-			return
-		end
-		self:StartMoving()
-	end)
-	frame:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		-- Save position
-		local point, _, _, x, y = self:GetPoint()
-		ShamanPower_RangeTracker.position = { point = point, x = x, y = y }
-	end)
-
-	-- Right-click to configure (when border is hidden)
-	frame:SetScript("OnMouseUp", function(self, button)
-		if button == "RightButton" and ShamanPower.opt.rangeTracker.hideBorder then
-			ShamanPower:ShowSPRangeConfig()
-		end
-	end)
-
-	-- Tooltip
-	frame:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:AddLine("Totem Range Tracker", 1, 0.82, 0)
-		GameTooltip:AddLine(" ")
-		if ShamanPower.opt.rangeTracker.hideBorder then
-			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
-			GameTooltip:AddLine("Right-click to configure", 0.7, 0.7, 0.7)
-		else
-			GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
-		end
-		GameTooltip:Show()
-	end)
-	frame:SetScript("OnLeave", function(self)
-		GameTooltip:Hide()
-	end)
-
-	frame.totemButtons = {}
-	frame:Hide()
-
-	self.spRangeFrame = frame
-	return frame
-end
-
--- Create a totem button for SPRange
-function ShamanPower:CreateSPRangeTotemButton(parent, totemData, index)
-	local iconSize = ShamanPower.opt.rangeTracker.iconSize or 36
-	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-	btn:SetSize(iconSize, iconSize)
-
-	-- Background
-	btn:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Buttons\\WHITE8X8",
-		tile = true, tileSize = 16, edgeSize = 2,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 }
-	})
-	btn:SetBackdropColor(0, 0, 0, 0.7)
-	btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-
-	-- Icon
-	local icon = btn:CreateTexture(nil, "ARTWORK")
-	icon:SetPoint("TOPLEFT", 3, -3)
-	icon:SetPoint("BOTTOMRIGHT", -3, 3)
-	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-	-- Get icon from spell
-	local _, _, spellIcon = GetSpellInfo(totemData.spellID)
-	icon:SetTexture(spellIcon)
-	btn.icon = icon
-
-	-- Range indicator overlay (red tint)
-	local rangeOverlay = btn:CreateTexture(nil, "OVERLAY")
-	rangeOverlay:SetAllPoints(icon)
-	rangeOverlay:SetColorTexture(0.3, 0, 0, 0.6)  -- Darker red overlay
-	rangeOverlay:Hide()
-	btn.rangeOverlay = rangeOverlay
-
-	-- Status text (shows "OUT OF RANGE" or "MISSING")
-	local statusText = btn:CreateFontString(nil, "OVERLAY")
-	statusText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
-	statusText:SetPoint("CENTER", btn, "CENTER", 0, 0)
-	statusText:SetTextColor(1, 0.2, 0.2)  -- Red text
-	statusText:SetShadowColor(0, 0, 0, 1)
-	statusText:SetShadowOffset(1, -1)
-	statusText:Hide()
-	btn.statusText = statusText
-
-	-- Short totem name below icon
-	local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-	nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:sub(1, 6))
-	nameText:SetTextColor(0.8, 0.8, 0.8)
-	if ShamanPower.opt.rangeTracker.hideNames then
-		nameText:Hide()
-	end
-	btn.nameText = nameText
-
-	-- In-range state
-	btn.inRange = false
-	btn.status = "unknown"  -- "inrange", "outofrange", "missing"
-
-	-- Tooltip
-	btn:EnableMouse(true)
-	btn:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine(totemData.name, 1, 1, 1)
-		if totemData.detection == "weapon" then
-			GameTooltip:AddLine("Detected via: Weapon Enchant", 0.7, 0.7, 0.7)
-		else
-			GameTooltip:AddLine("Detected via: Buff", 0.7, 0.7, 0.7)
-		end
-		if self.status == "inrange" then
-			GameTooltip:AddLine("Status: IN RANGE", 0, 1, 0)
-		elseif self.status == "missing" then
-			GameTooltip:AddLine("Status: MISSING (no shaman in group)", 0.7, 0.7, 0.7)
-		else
-			GameTooltip:AddLine("Status: OUT OF RANGE", 1, 0, 0)
-		end
-		GameTooltip:Show()
-	end)
-	btn:SetScript("OnLeave", function(self)
-		GameTooltip:Hide()
-	end)
-
-	btn.totemData = totemData
-	return btn
-end
-
--- Update SPRange frame with tracked totems
-function ShamanPower:UpdateSPRangeFrame()
-	local frame = self.spRangeFrame
-	if not frame then return end
-
-	-- Clear existing buttons
-	for _, btn in pairs(frame.totemButtons) do
-		btn:Hide()
-	end
-	frame.totemButtons = {}
-
-	-- Get tracked totems
-	local tracked = ShamanPower_RangeTracker.tracked or {}
-	local trackedList = {}
-
-	for _, totemData in ipairs(self.TrackableTotems) do
-		if tracked[totemData.id] then
-			table.insert(trackedList, totemData)
-		end
-	end
-
-	if #trackedList == 0 then
-		frame:SetSize(120, 50)
-		frame.title:SetText("Totem Range (none)")
-		return
-	end
-
-	-- Calculate frame size based on icon size setting
-	local buttonSize = ShamanPower.opt.rangeTracker.iconSize or 36
-	local padding = 6
-	local numButtons = #trackedList
-	local nameSpace = ShamanPower.opt.rangeTracker.hideNames and 0 or 14
-	local isVertical = ShamanPower.opt.rangeTracker.vertical
-
-	local width, height
-	if isVertical then
-		-- Vertical layout
-		width = buttonSize + 24 + nameSpace
-		height = (buttonSize * numButtons) + (padding * (numButtons - 1)) + 28  -- Title + padding
-	else
-		-- Horizontal layout
-		local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
-		width = buttonsWidth + 24
-		height = buttonSize + 26 + nameSpace
-	end
-
-	frame:SetSize(math.max(80, width), height)
-	frame.title:SetText("Totem Range")
-
-	-- Create buttons
-	for i, totemData in ipairs(trackedList) do
-		local btn = self:CreateSPRangeTotemButton(frame.iconContainer, totemData, i)
-
-		if isVertical then
-			-- Vertical: stack top to bottom
-			local startY = -20
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, startY - (i - 1) * (buttonSize + padding))
-		else
-			-- Horizontal: left to right, centered
-			local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
-			local startX = (frame:GetWidth() - buttonsWidth) / 2
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", startX + (i - 1) * (buttonSize + padding), -20)
-		end
-
-		btn:Show()
-		frame.totemButtons[totemData.id] = btn
-	end
-end
-
--- Check if ANYONE in the group has a specific buff (indicates totem is down somewhere)
-function ShamanPower:SPRangeAnyoneHasBuff(buffName)
-	if not buffName then return false end
-	local searchLower = buffName:lower()
-
-	-- Check player first
-	for i = 1, 40 do
-		local name = UnitBuff("player", i)
-		if not name then break end
-		if name:lower():find(searchLower, 1, true) then
-			return true
-		end
-	end
-
-	-- Check group members
-	if IsInRaid() then
-		-- Find our subgroup first
-		local mySubgroup = 1
-		for i = 1, 40 do
-			local name, _, subgroup = GetRaidRosterInfo(i)
-			if name == UnitName("player") then
-				mySubgroup = subgroup
-				break
-			end
-		end
-		-- Check raid members in our subgroup
-		for i = 1, 40 do
-			local name, _, subgroup = GetRaidRosterInfo(i)
-			if name and subgroup == mySubgroup then
-				local unit = "raid" .. i
-				for j = 1, 40 do
-					local buffNameCheck = UnitBuff(unit, j)
-					if not buffNameCheck then break end
-					if buffNameCheck:lower():find(searchLower, 1, true) then
-						return true
-					end
-				end
-			end
-		end
-	elseif IsInGroup() then
-		-- Check party members
-		for i = 1, 4 do
-			local unit = "party" .. i
-			if UnitExists(unit) then
-				for j = 1, 40 do
-					local name = UnitBuff(unit, j)
-					if not name then break end
-					if name:lower():find(searchLower, 1, true) then
-						return true
-					end
-				end
-			end
-		end
-	end
-
-	return false
-end
-
--- Check if anyone has Windfury weapon enchant (special case)
-function ShamanPower:SPRangeAnyoneHasWindfury()
-	-- For Windfury, we can only reliably check our own weapon
-	-- But if we have the enchant, the totem is definitely up
-	local hasEnchant = self:SPRangeHasWindfuryWeapon()
-	if hasEnchant then
-		return true
-	end
-
-	-- We can't check other players' weapon enchants directly
-	-- So we'll have to rely on seeing if melee in the group are proccing it
-	-- For now, return false if we don't have it ourselves
-	-- This means for Windfury specifically, we can only know if WE are in range
-	return false
-end
-
--- Update range status for all tracked totems
-function ShamanPower:UpdateSPRangeStatus()
-	local frame = self.spRangeFrame
-	if not frame or not frame:IsShown() then return end
-
-	for id, btn in pairs(frame.totemButtons) do
-		local totemData = btn.totemData
-		local playerHasBuff = self:SPRangeCheckTotem(totemData)
-
-		-- Check if anyone in the group has the buff (totem is down)
-		local totemIsDown
-		if totemData.detection == "weapon" then
-			-- Windfury special case - can only check ourselves
-			totemIsDown = playerHasBuff  -- If we have it, it's down. Otherwise unknown.
-		else
-			totemIsDown = self:SPRangeAnyoneHasBuff(totemData.buffName)
-		end
-
-		btn.inRange = playerHasBuff
-
-		if playerHasBuff then
-			-- IN RANGE - we have the buff
-			btn:SetBackdropBorderColor(0, 1, 0, 1)
-			btn.rangeOverlay:Hide()
-			btn.icon:SetDesaturated(false)
-			btn.icon:SetAlpha(1)
-			btn.statusText:Hide()
-			btn.nameText:SetTextColor(0, 1, 0.4)  -- Green name
-			btn.status = "inrange"
-		elseif totemIsDown then
-			-- OUT OF RANGE - totem is down (someone has buff) but we don't
-			btn:SetBackdropBorderColor(0.8, 0, 0, 1)
-			btn.rangeOverlay:Show()
-			btn.icon:SetDesaturated(true)
-			btn.icon:SetAlpha(0.6)
-			btn.statusText:SetText("OUT OF\nRANGE")
-			btn.statusText:SetTextColor(1, 0.2, 0.2)  -- Red text
-			btn.statusText:Show()
-			btn.nameText:SetTextColor(0.8, 0.3, 0.3)  -- Red name
-			btn.status = "outofrange"
-		else
-			-- MISSING - no one has the buff, totem not down
-			btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)  -- Grey border
-			btn.rangeOverlay:Hide()
-			btn.icon:SetDesaturated(true)
-			btn.icon:SetAlpha(0.4)
-			btn.statusText:SetText("MISSING")
-			btn.statusText:SetTextColor(0.7, 0.7, 0.7)  -- Grey text
-			btn.statusText:Show()
-			btn.nameText:SetTextColor(0.5, 0.5, 0.5)  -- Grey name
-			btn.status = "missing"
-		end
-	end
-end
-
--- Show SPRange configuration
-function ShamanPower:ShowSPRangeConfig()
-	-- Create config frame if needed
-	if not self.spRangeConfigFrame then
-		local elementNames = { "Earth", "Fire", "Water", "Air" }
-		local elementColors = {
-			{ r = 0.4, g = 0.25, b = 0.1 },    -- Earth (brown)
-			{ r = 0.5, g = 0.2, b = 0.1 },     -- Fire (dark red/orange)
-			{ r = 0.1, g = 0.25, b = 0.4 },    -- Water (blue)
-			{ r = 0.2, g = 0.3, b = 0.35 },    -- Air (grey-blue)
-		}
-		local elementBorderColors = {
-			{ r = 0.6, g = 0.4, b = 0.2 },     -- Earth border
-			{ r = 1.0, g = 0.5, b = 0.2 },     -- Fire border
-			{ r = 0.3, g = 0.6, b = 1.0 },     -- Water border
-			{ r = 0.5, g = 0.8, b = 1.0 },     -- Air border
-		}
-
-		-- Group totems by element
-		local totemsByElement = { {}, {}, {}, {} }
-		for _, totemData in ipairs(self.TrackableTotems) do
-			table.insert(totemsByElement[totemData.element], totemData)
-		end
-
-		-- Find max totems in any element for sizing
-		local maxTotems = 0
-		for e = 1, 4 do
-			if #totemsByElement[e] > maxTotems then
-				maxTotems = #totemsByElement[e]
-			end
-		end
-
-		local columnWidth = 70
-		local iconSize = 40
-		local rowHeight = iconSize + 18  -- Icon + name text
-		local headerHeight = 22
-		local padding = 4
-
-		local contentWidth = (4 * columnWidth) + (5 * padding)
-		local contentHeight = headerHeight + (maxTotems * rowHeight) + (2 * padding) + 30 + 35  -- +30 for title, +35 for toggle button
-
-		local config = CreateFrame("Frame", "ShamanPowerRangeConfigFrame", UIParent, "BackdropTemplate")
-		config:SetSize(contentWidth, contentHeight)
-		config:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-		config:SetMovable(true)
-		config:EnableMouse(true)
-		config:SetClampedToScreen(true)
-		config:SetFrameStrata("DIALOG")
-
-		config:SetBackdrop({
-			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 16,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 }
-		})
-		config:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-		config:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-
-		-- Title
-		local title = config:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		title:SetPoint("TOP", config, "TOP", 0, -8)
-		title:SetText("Totem Range - Click totems to track")
-		title:SetTextColor(1, 0.82, 0)
-
-		-- Close button
-		local closeBtn = CreateFrame("Button", nil, config, "UIPanelCloseButton")
-		closeBtn:SetPoint("TOPRIGHT", config, "TOPRIGHT", -2, -2)
-		closeBtn:SetScript("OnClick", function() config:Hide() end)
-
-		-- Drag to move
-		config:RegisterForDrag("LeftButton")
-		config:SetScript("OnDragStart", function(self) self:StartMoving() end)
-		config:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-
-		config.totemButtons = {}
-		config.columns = {}
-
-		-- Create columns for each element
-		for element = 1, 4 do
-			local xOffset = padding + ((element - 1) * (columnWidth + padding))
-			local c = elementColors[element]
-			local bc = elementBorderColors[element]
-
-			-- Column background frame
-			local column = CreateFrame("Frame", nil, config, "BackdropTemplate")
-			local columnHeight = headerHeight + (#totemsByElement[element] * rowHeight) + padding
-			column:SetSize(columnWidth, columnHeight)
-			column:SetPoint("TOPLEFT", config, "TOPLEFT", xOffset, -26)
-
-			column:SetBackdrop({
-				bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-				tile = true, tileSize = 16, edgeSize = 12,
-				insets = { left = 2, right = 2, top = 2, bottom = 2 }
-			})
-			column:SetBackdropColor(c.r, c.g, c.b, 0.8)
-			column:SetBackdropBorderColor(c.r * 1.5, c.g * 1.5, c.b * 1.5, 0.6)
-
-			config.columns[element] = column
-
-			-- Element header label
-			local header = column:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			header:SetPoint("TOP", column, "TOP", 0, -4)
-			header:SetText(elementNames[element])
-			header:SetTextColor(bc.r, bc.g, bc.b)
-
-			-- Create totem icons for this element (stacked vertically)
-			local totems = totemsByElement[element]
-			for i, totemData in ipairs(totems) do
-				local yOffset = -headerHeight - ((i - 1) * rowHeight)
-
-				local btn = CreateFrame("Button", nil, column)
-				btn:SetSize(iconSize, iconSize)
-				btn:SetPoint("TOP", column, "TOP", 0, yOffset)
-
-				-- Icon
-				local icon = btn:CreateTexture(nil, "ARTWORK")
-				icon:SetAllPoints()
-				icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-				local _, _, spellIcon = GetSpellInfo(totemData.spellID)
-				icon:SetTexture(spellIcon)
-				btn.icon = icon
-
-				-- Name below icon
-				local nameText = btn:CreateFontString(nil, "OVERLAY")
-				nameText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
-				nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-				nameText:SetWidth(columnWidth - 4)
-				nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:gsub(" Totem", ""))
-				btn.nameText = nameText
-
-				btn.totemData = totemData
-				btn.elementColors = bc
-
-				-- Click to toggle
-				btn:SetScript("OnClick", function(self)
-					local id = self.totemData.id
-					ShamanPower_RangeTracker.tracked[id] = not ShamanPower_RangeTracker.tracked[id]
-					ShamanPower:UpdateSPRangeConfigButtons()
-					ShamanPower:UpdateSPRangeFrame()
-				end)
-
-				-- Tooltip
-				btn:SetScript("OnEnter", function(self)
-					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-					GameTooltip:AddLine(self.totemData.name, 1, 1, 1)
-					if ShamanPower_RangeTracker.tracked[self.totemData.id] then
-						GameTooltip:AddLine("Currently tracking", 0, 1, 0)
-						GameTooltip:AddLine("Click to stop tracking", 0.7, 0.7, 0.7)
-					else
-						GameTooltip:AddLine("Not tracking", 0.5, 0.5, 0.5)
-						GameTooltip:AddLine("Click to track", 0.7, 0.7, 0.7)
-					end
-					GameTooltip:Show()
-				end)
-				btn:SetScript("OnLeave", function()
-					GameTooltip:Hide()
-				end)
-
-				config.totemButtons[totemData.id] = btn
-			end
-		end
-
-		-- Settings section - clean layout (position below tallest column)
-		local settingsY = -26 - (maxTotems * rowHeight) - headerHeight - 15
-
-		-- Show/Hide Overlay button (above sliders)
-		local toggleBtn = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
-		toggleBtn:SetPoint("TOPLEFT", config, "TOPLEFT", 12, settingsY)
-		toggleBtn:SetSize(130, 22)
-		local function updateToggleBtnText()
-			if ShamanPower.spRangeFrame and ShamanPower.spRangeFrame:IsShown() then
-				toggleBtn:SetText("Hide Overlay")
-			else
-				toggleBtn:SetText("Show Overlay")
-			end
-		end
-		updateToggleBtnText()
-		toggleBtn:SetScript("OnClick", function()
-			ShamanPower:ToggleSPRange()
-			updateToggleBtnText()
-		end)
-		config.toggleBtn = toggleBtn
-		config.updateToggleBtnText = updateToggleBtnText
-
-		-- Note: Appearance settings (opacity, icon size, vertical, hide names, hide border)
-		-- are now in the Look & Feel options panel
-
-		config:Hide()
-		self.spRangeConfigFrame = config
-	end
-
-	-- Update button states
-	self:UpdateSPRangeConfigButtons()
-	self.spRangeConfigFrame:Show()
-end
-
--- Update SPRange frame border visibility
-function ShamanPower:UpdateSPRangeBorder()
-	if not self.spRangeFrame then return end
-
-	local hideBorder = ShamanPower.opt.rangeTracker.hideBorder
-
-	if hideBorder then
-		-- Hide border and background
-		self.spRangeFrame:SetBackdrop(nil)
-		if self.spRangeFrame.title then
-			self.spRangeFrame.title:Hide()
-		end
-		if self.spRangeFrame.settingsBtn then
-			self.spRangeFrame.settingsBtn:Hide()
-		end
-	else
-		-- Show border and background
-		self.spRangeFrame:SetBackdrop({
-			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 16,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 }
-		})
-		self.spRangeFrame:SetBackdropColor(0, 0, 0, 0.8)
-		self.spRangeFrame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
-		if self.spRangeFrame.title then
-			self.spRangeFrame.title:Show()
-		end
-		if self.spRangeFrame.settingsBtn then
-			self.spRangeFrame.settingsBtn:Show()
-		end
-	end
-end
-
--- Update SPRange frame opacity
-function ShamanPower:UpdateSPRangeOpacity()
-	if not self.spRangeFrame then return end
-	local opacity = ShamanPower.opt.rangeTracker.opacity or 1.0
-	self.spRangeFrame:SetAlpha(opacity)
-end
-
--- Update config button visual states
-function ShamanPower:UpdateSPRangeConfigButtons()
-	if not self.spRangeConfigFrame or not self.spRangeConfigFrame.totemButtons then return end
-
-	for id, btn in pairs(self.spRangeConfigFrame.totemButtons) do
-		local isTracked = ShamanPower_RangeTracker.tracked[id]
-		local c = btn.elementColors
-
-		if isTracked then
-			-- Tracked - full color
-			btn.icon:SetDesaturated(false)
-			btn.icon:SetAlpha(1)
-			btn.nameText:SetTextColor(1, 1, 1)
-		else
-			-- Not tracked - grey
-			btn.icon:SetDesaturated(true)
-			btn.icon:SetAlpha(0.4)
-			btn.nameText:SetTextColor(0.5, 0.5, 0.5)
-		end
-	end
-end
-
--- Toggle SPRange visibility
-function ShamanPower:ToggleSPRange()
-	self:InitSPRange()
-
-	if not self.spRangeFrame then
-		self:CreateSPRangeFrame()
-	end
-
-	if self.spRangeFrame:IsShown() then
-		self.spRangeFrame:Hide()
-		self.spRangeManuallyOpened = false  -- User closed it manually
-		ShamanPower_RangeTracker.shown = false
-		self:Print("SPRange hidden. Use /sprange to show.")
-	else
-		-- Restore position
-		local pos = ShamanPower_RangeTracker.position
-		if pos then
-			self.spRangeFrame:ClearAllPoints()
-			self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-
-		self:UpdateSPRangeFrame()
-		self:UpdateSPRangeBorder()
-		self:UpdateSPRangeOpacity()
-		self.spRangeFrame:Show()
-		self.spRangeManuallyOpened = true  -- User opened it manually
-		ShamanPower_RangeTracker.shown = true
-		self:Print("SPRange shown. Click settings cog to configure.")
-	end
-end
-
--- Broadcast Windfury Totem status to group (same detection as SPRange)
--- NOTE: This sends directly via ChatThrottleLib to bypass the lastMsg check in SendMessage
--- which would block repeated "WFBUFF 1" messages. We need periodic broadcasts so the shaman
--- knows party members are still in range.
-function ShamanPower:BroadcastWindfuryStatus()
-	if not IsInGroup() then return end
-
-	-- Use SAME detection as SPRange - check weapon enchant from GetWeaponEnchantInfo()
-	local hasWindfury = self:SPRangeHasWindfuryWeapon()
-	local status = hasWindfury and "1" or "0"
-
-	-- Send every 2 seconds or when status changes
-	if self.lastWFStatus ~= status or not self.lastWFBroadcast or (GetTime() - self.lastWFBroadcast) > 2 then
-		self.lastWFStatus = status
-		self.lastWFBroadcast = GetTime()
-
-		-- Determine channel
-		local channel
-		if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-			channel = "INSTANCE_CHAT"
-		elseif IsInRaid() then
-			channel = "RAID"
-		else
-			channel = "PARTY"
-		end
-
-		-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
-		ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
-	end
-end
-
--- Get Windfury range data for a specific player
-function ShamanPower:GetWindfuryRangeStatus(playerName)
-	if not self.WindfuryRangeData then return nil end
-	local data = self.WindfuryRangeData[playerName]
-	if not data then return nil end
-
-	-- Data expires after 10 seconds
-	if (GetTime() - data.timestamp) > 10 then
-		self.WindfuryRangeData[playerName] = nil
-		return nil
-	end
-
-	return data.hasWindfury
-end
-
--- Check if a player is in range of Windfury totem (using reported data)
-function ShamanPower:IsPlayerInWindfuryRange(playerName)
-	-- Check self first
-	if playerName == self.player then
-		return self:SPRangeHasWindfuryWeapon()
-	end
-
-	-- Check reported data from other players
-	return self:GetWindfuryRangeStatus(playerName)
-end
-
--- Setup SPRange update timer
-function ShamanPower:SetupSPRangeUpdater()
-	if self.spRangeUpdater then return end
-
-	self.spRangeUpdater = CreateFrame("Frame")
-	self.spRangeUpdater.elapsed = 0
-	self.spRangeUpdater.broadcastElapsed = 0
-
-	self.spRangeUpdater:SetScript("OnUpdate", function(frame, elapsed)
-		frame.elapsed = frame.elapsed + elapsed
-		frame.broadcastElapsed = frame.broadcastElapsed + elapsed
-
-		-- Update display 5 times per second
-		if frame.elapsed >= 0.2 then
-			frame.elapsed = 0
-			ShamanPower:UpdateSPRangeStatus()
-		end
-
-		-- Broadcast Windfury status every 2 seconds when in a group
-		if frame.broadcastElapsed >= 2 then
-			frame.broadcastElapsed = 0
-			ShamanPower:BroadcastWindfuryStatus()
-		end
-	end)
-end
-
--- Check if there's a shaman anywhere in the group (not just subgroup)
-function ShamanPower:SPRangeHasAnyShamanInGroup()
-	-- If player is a shaman, don't auto-show SPRange (they have the full UI)
-	local _, playerClass = UnitClass("player")
-	if playerClass == "SHAMAN" then
-		return false
-	end
-
-	if IsInRaid() then
-		for i = 1, 40 do
-			local name, _, _, _, _, class = GetRaidRosterInfo(i)
-			if name and class == "SHAMAN" then
-				return true
-			end
-		end
-	elseif IsInGroup() then
-		for i = 1, 4 do
-			if UnitExists("party" .. i) then
-				local _, class = UnitClass("party" .. i)
-				if class == "SHAMAN" then
-					return true
-				end
-			end
-		end
-	end
-
-	return false
-end
-
--- Auto-show/hide SPRange based on group composition
-function ShamanPower:UpdateSPRangeVisibility()
-	if not self.spRangeFrame then return end
-
-	-- Don't auto-hide if user manually opened it (shamans may want to track their own totems)
-	if self.spRangeManuallyOpened then
-		return
-	end
-
-	local shouldShow = self:SPRangeHasAnyShamanInGroup()
-
-	if shouldShow then
-		if not self.spRangeFrame:IsShown() then
-			-- Restore position
-			local pos = ShamanPower_RangeTracker.position
-			if pos then
-				self.spRangeFrame:ClearAllPoints()
-				self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-			end
-			self:UpdateSPRangeFrame()
-			self:UpdateSPRangeBorder()
-			self:UpdateSPRangeOpacity()
-			self.spRangeFrame:Show()
-		end
-	else
-		if self.spRangeFrame:IsShown() then
-			self.spRangeFrame:Hide()
-		end
-	end
-end
-
--- Initialize SPRange on addon load (for non-shamans primarily, but works for all)
-function ShamanPower:InitializeSPRange()
-	self:InitSPRange()
-	self:CreateSPRangeFrame()
-	self:SetupSPRangeUpdater()
-
-	-- Check if we should auto-show (in group with a shaman)
-	self:UpdateSPRangeVisibility()
-end
-
--- Register /sprange slash command
-SLASH_SPRANGE1 = "/sprange"
-SlashCmdList["SPRANGE"] = function(msg)
-	msg = msg:lower():trim()
-
-	if msg == "toggle" or msg == "show" or msg == "hide" then
-		-- Toggle the overlay visibility
+-- SPRange module stubs (loaded by ShamanPower_SPRange addon)
+if not ShamanPower.SPRangeLoaded then
+	-- Provide stub functions when module not loaded
+	function ShamanPower:InitSPRange() end
+	function ShamanPower:CreateSPRangeFrame() end
+	function ShamanPower:ToggleSPRange()
+		print("|cffff8800ShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+	end
+	function ShamanPower:ShowSPRangeConfig()
+		print("|cffff8800ShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+	end
+	function ShamanPower:InitializeSPRange() end
+	function ShamanPower:UpdateSPRangeVisibility() end
+	function ShamanPower:UpdateSPRangeFrame() end
+	function ShamanPower:UpdateSPRangeBorder() end
+	function ShamanPower:UpdateSPRangeOpacity() end
+	function ShamanPower:SPRangeHasWindfuryWeapon() return false end
+	function ShamanPower:IsPlayerInWindfuryRange() return false end
+
+	-- Register /sprange slash command (shows module not loaded message)
+	SLASH_SPRANGE1 = "/sprange"
+	SlashCmdList["SPRANGE"] = function(msg)
 		ShamanPower:ToggleSPRange()
-	else
-		-- Default: show the config menu
-		ShamanPower:InitSPRange()
-		if not ShamanPower.spRangeFrame then
-			ShamanPower:CreateSPRangeFrame()
-		end
-		ShamanPower:ShowSPRangeConfig()
 	end
 end
 
--- ============================================================================
--- Raid Earth Shield Tracker: Shows all Earth Shields in raid/party
--- ============================================================================
-
-ShamanPower.earthShields = {}  -- { [targetGUID] = { target, caster, charges, expiration } }
-
--- Earth Shield spell ID (for icon)
-ShamanPower.EarthShieldSpellID = 32594  -- Rank 1, we just need the icon
-
--- Initialize Earth Shield tracker settings
-function ShamanPower:InitESTracker()
-	-- Ensure profile table exists
-	self:EnsureProfileTable("esTracker")
-
-	-- Migrate from old global variable if it exists
-	if ShamanPower_ESTracker and next(ShamanPower_ESTracker) then
-		-- Copy old settings to profile if profile is empty/default
-		if ShamanPower.opt.esTracker.enabled == false and ShamanPower.opt.esTracker.enabled then
-			ShamanPower.opt.esTracker.enabled = ShamanPower.opt.esTracker.enabled
-		end
-		if ShamanPower.opt.esTracker.position then
-			self.opt.esTracker.position = ShamanPower.opt.esTracker.position
-		end
-		if ShamanPower.opt.esTracker.opacity and ShamanPower.opt.esTracker.opacity ~= 1.0 then
-			self.opt.esTracker.opacity = ShamanPower.opt.esTracker.opacity
-		end
-		if ShamanPower.opt.esTracker.iconSize and ShamanPower.opt.esTracker.iconSize ~= 40 then
-			self.opt.esTracker.iconSize = ShamanPower.opt.esTracker.iconSize
-		end
-		if ShamanPower.opt.esTracker.vertical then
-			self.opt.esTracker.vertical = ShamanPower.opt.esTracker.vertical
-		end
-		if ShamanPower.opt.esTracker.hideNames then
-			self.opt.esTracker.hideNames = ShamanPower.opt.esTracker.hideNames
-		end
-		if ShamanPower.opt.esTracker.hideBorder then
-			self.opt.esTracker.hideBorder = ShamanPower.opt.esTracker.hideBorder
-		end
-		if ShamanPower.opt.esTracker.hideCharges then
-			self.opt.esTracker.hideCharges = ShamanPower.opt.esTracker.hideCharges
-		end
-		-- Clear the old global after migration
-		ShamanPower_ESTracker = nil
+-- ES Tracker module stubs (loaded by ShamanPower_ESTracker addon)
+-- This module tracks Earth Shields cast by OTHER shamans in your raid/party
+if not ShamanPower.ESTrackerLoaded then
+	-- Provide stub functions when module not loaded
+	function ShamanPower:InitESTracker() end
+	function ShamanPower:CreateESTrackerFrame() end
+	function ShamanPower:ToggleESTracker()
+		print("|cffff8800ShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
 	end
-end
+	function ShamanPower:InitializeESTracker() end
+	function ShamanPower:UpdateESTrackerFrame() end
+	function ShamanPower:UpdateESTrackerBorder() end
+	function ShamanPower:UpdateESTrackerOpacity() end
+	function ShamanPower:ScanEarthShields() end
+	function ShamanPower:SetupESTrackerUpdater() end
+	function ShamanPower:EnableESTrackerEvents() end
+	function ShamanPower:DisableESTrackerEvents() end
+	function ShamanPower:ClearESTracker() end
+	function ShamanPower:GetClassColorForUnit() return 1, 1, 1 end
+	function ShamanPower:GetClassColor() return 1, 1, 1 end
 
--- Create the Earth Shield tracker frame
-function ShamanPower:CreateESTrackerFrame()
-	if self.esTrackerFrame then return self.esTrackerFrame end
-
-	local frame = CreateFrame("Frame", "ShamanPowerESTrackerFrame", UIParent, "BackdropTemplate")
-	frame:SetSize(150, 60)
-	frame:SetPoint("CENTER", UIParent, "CENTER", 200, 0)
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:SetClampedToScreen(true)
-	frame:SetFrameStrata("MEDIUM")
-
-	-- Backdrop
-	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 }
-	})
-	frame:SetBackdropColor(0, 0, 0, 0.8)
-	frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
-
-	-- Title
-	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	title:SetPoint("TOP", frame, "TOP", 0, -6)
-	title:SetText("Earth Shields")
-	title:SetTextColor(0.4, 0.8, 0.4)  -- Green tint for Earth
-	frame.title = title
-
-	-- Container for ES icons
-	local iconContainer = CreateFrame("Frame", nil, frame)
-	iconContainer:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -20)
-	iconContainer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -8, 8)
-	frame.iconContainer = iconContainer
-
-	-- Drag to move (ALT+drag when borderless, normal drag when bordered)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", function(self)
-		if ShamanPower.opt.esTracker.hideBorder and not IsAltKeyDown() then
-			return
-		end
-		self:StartMoving()
-	end)
-	frame:SetScript("OnDragStop", function(self)
-		self:StopMovingOrSizing()
-		local point, _, _, x, y = self:GetPoint()
-		ShamanPower.opt.esTracker.position = { point = point, x = x, y = y }
-	end)
-
-	-- Tooltip
-	frame:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:AddLine("Earth Shield Tracker", 0.4, 0.8, 0.4)
-		GameTooltip:AddLine(" ")
-		if ShamanPower.opt.esTracker.hideBorder then
-			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
-		else
-			GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
-		end
-		GameTooltip:Show()
-	end)
-	frame:SetScript("OnLeave", function(self)
-		GameTooltip:Hide()
-	end)
-
-	frame.esButtons = {}
-	frame:Hide()
-
-	self.esTrackerFrame = frame
-	return frame
-end
-
--- Get class color for a unit
-function ShamanPower:GetClassColorForUnit(unit)
-	if not unit or not UnitExists(unit) then
-		return 1, 1, 1
-	end
-	local _, class = UnitClass(unit)
-	if class and RAID_CLASS_COLORS[class] then
-		local color = RAID_CLASS_COLORS[class]
-		return color.r, color.g, color.b
-	end
-	return 1, 1, 1
-end
-
--- Get class color by class name
-function ShamanPower:GetClassColor(class)
-	if class and RAID_CLASS_COLORS[class] then
-		local color = RAID_CLASS_COLORS[class]
-		return color.r, color.g, color.b
-	end
-	return 1, 1, 1
-end
-
--- Create an Earth Shield button for the tracker
-function ShamanPower:CreateESTrackerButton(parent, esData, index)
-	local iconSize = ShamanPower.opt.esTracker.iconSize or 40
-	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-	btn:SetSize(iconSize, iconSize)
-
-	-- Background
-	btn:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Buttons\\WHITE8X8",
-		tile = true, tileSize = 16, edgeSize = 2,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 }
-	})
-	btn:SetBackdropColor(0, 0, 0, 0.7)
-	btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
-
-	-- Icon (Earth Shield icon)
-	local icon = btn:CreateTexture(nil, "ARTWORK")
-	icon:SetPoint("TOPLEFT", 3, -3)
-	icon:SetPoint("BOTTOMRIGHT", -3, 3)
-	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	local _, _, spellIcon = GetSpellInfo(self.EarthShieldSpellID)
-	icon:SetTexture(spellIcon or "Interface\\Icons\\Spell_Nature_SkinofEarth")
-	btn.icon = icon
-
-	-- Target name (inside the icon area, at bottom)
-	local targetText = btn:CreateFontString(nil, "OVERLAY")
-	targetText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
-	targetText:SetPoint("BOTTOM", btn, "BOTTOM", 0, 5)
-	targetText:SetText(esData.targetName or "?")
-	targetText:SetTextColor(1, 1, 1)
-	btn.targetText = targetText
-
-	-- Charges (top right corner)
-	local chargesText = btn:CreateFontString(nil, "OVERLAY")
-	chargesText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
-	chargesText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -2, -2)
-	chargesText:SetText(esData.charges or "?")
-	chargesText:SetTextColor(0.4, 1, 0.4)
-	if ShamanPower.opt.esTracker.hideCharges then
-		chargesText:Hide()
-	end
-	btn.chargesText = chargesText
-
-	-- Caster name (below the icon)
-	local casterText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	casterText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
-	casterText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-	casterText:SetText(esData.casterName or "?")
-	-- Color by caster's class
-	local r, g, b = self:GetClassColor(esData.casterClass)
-	casterText:SetTextColor(r, g, b)
-	if ShamanPower.opt.esTracker.hideNames then
-		casterText:Hide()
-	end
-	btn.casterText = casterText
-
-	-- Tooltip
-	btn:EnableMouse(true)
-	btn:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Earth Shield", 0.4, 0.8, 0.4)
-		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Target: " .. (esData.targetName or "Unknown"), 1, 1, 1)
-		GameTooltip:AddLine("Caster: " .. (esData.casterName or "Unknown"), 1, 0.82, 0)
-		GameTooltip:AddLine("Charges: " .. (esData.charges or "?"), 0.4, 1, 0.4)
-		GameTooltip:Show()
-	end)
-	btn:SetScript("OnLeave", function(self)
-		GameTooltip:Hide()
-	end)
-
-	btn.esData = esData
-	return btn
-end
-
--- Update the Earth Shield tracker display
-function ShamanPower:UpdateESTrackerFrame()
-	local frame = self.esTrackerFrame
-	if not frame then return end
-
-	-- Clear existing buttons
-	for _, btn in pairs(frame.esButtons) do
-		btn:Hide()
-	end
-	frame.esButtons = {}
-
-	-- Get all tracked Earth Shields
-	local esList = {}
-	for guid, esData in pairs(self.earthShields) do
-		table.insert(esList, esData)
-	end
-
-	-- Sort by caster name for consistency
-	table.sort(esList, function(a, b)
-		return (a.casterName or "") < (b.casterName or "")
-	end)
-
-	if #esList == 0 then
-		frame:SetSize(120, 50)
-		frame.title:SetText("Earth Shields (none)")
-		return
-	end
-
-	-- Calculate frame size
-	local buttonSize = ShamanPower.opt.esTracker.iconSize or 40
-	local padding = 6
-	local numButtons = #esList
-	local nameSpace = ShamanPower.opt.esTracker.hideNames and 0 or 14
-	local isVertical = ShamanPower.opt.esTracker.vertical
-
-	local width, height
-	if isVertical then
-		width = buttonSize + 24 + nameSpace
-		height = (buttonSize * numButtons) + (padding * (numButtons - 1)) + 28 + nameSpace
-	else
-		local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
-		width = buttonsWidth + 24
-		height = buttonSize + 26 + nameSpace
-	end
-
-	frame:SetSize(math.max(100, width), height)
-	frame.title:SetText("Earth Shields")
-
-	-- Create buttons
-	for i, esData in ipairs(esList) do
-		local btn = self:CreateESTrackerButton(frame.iconContainer, esData, i)
-
-		if isVertical then
-			local startY = -20
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, startY - (i - 1) * (buttonSize + padding + nameSpace))
-		else
-			local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
-			local startX = (frame:GetWidth() - buttonsWidth) / 2
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", startX + (i - 1) * (buttonSize + padding), -20)
-		end
-
-		btn:Show()
-		table.insert(frame.esButtons, btn)
-	end
-
-	-- Apply opacity
-	frame:SetAlpha(ShamanPower.opt.esTracker.opacity or 1.0)
-end
-
--- Scan for Earth Shields in the raid/party
-function ShamanPower:ScanEarthShields()
-	self.earthShields = {}
-
-	local units = {}
-	if IsInRaid() then
-		for i = 1, 40 do
-			table.insert(units, "raid" .. i)
-		end
-	elseif IsInGroup() then
-		table.insert(units, "player")
-		for i = 1, 4 do
-			table.insert(units, "party" .. i)
-		end
-	else
-		table.insert(units, "player")
-	end
-
-	-- Scan each unit for Earth Shield buff
-	for _, unit in ipairs(units) do
-		if UnitExists(unit) then
-			for i = 1, 40 do
-				local name, icon, count, _, duration, expirationTime, caster = UnitBuff(unit, i)
-				if not name then break end
-
-				if name == "Earth Shield" then
-					local targetGUID = UnitGUID(unit)
-					local targetName = UnitName(unit)
-					local casterName = caster and UnitName(caster) or "Unknown"
-					local _, casterClass = caster and UnitClass(caster) or nil, nil
-
-					self.earthShields[targetGUID] = {
-						targetGUID = targetGUID,
-						targetName = targetName,
-						casterName = casterName,
-						casterClass = casterClass,
-						charges = count or 0,
-						expirationTime = expirationTime,
-						icon = icon
-					}
-				end
-			end
-		end
-	end
-
-	self:UpdateESTrackerFrame()
-end
-
--- Update Earth Shield tracker border visibility
-function ShamanPower:UpdateESTrackerBorder()
-	local frame = self.esTrackerFrame
-	if not frame then return end
-
-	if ShamanPower.opt.esTracker.hideBorder then
-		frame:SetBackdrop(nil)
-		if frame.title then frame.title:Hide() end
-	else
-		frame:SetBackdrop({
-			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 16,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 }
-		})
-		frame:SetBackdropColor(0, 0, 0, 0.8)
-		frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
-		if frame.title then frame.title:Show() end
-	end
-end
-
--- Update Earth Shield tracker opacity
-function ShamanPower:UpdateESTrackerOpacity()
-	local frame = self.esTrackerFrame
-	if frame then
-		frame:SetAlpha(ShamanPower.opt.esTracker.opacity or 1.0)
-	end
-end
-
--- Toggle Earth Shield tracker visibility
-function ShamanPower:ToggleESTracker()
-	self:InitESTracker()
-	if not self.esTrackerFrame then
-		self:CreateESTrackerFrame()
-	end
-
-	if self.esTrackerFrame:IsShown() then
-		self.esTrackerFrame:Hide()
-		ShamanPower.opt.esTracker.enabled = false
-	else
-		-- Restore saved position
-		local pos = ShamanPower.opt.esTracker.position
-		if pos then
-			self.esTrackerFrame:ClearAllPoints()
-			self.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-		self:UpdateESTrackerBorder()
-		self:ScanEarthShields()
-		self.esTrackerFrame:Show()
-		ShamanPower.opt.esTracker.enabled = true
-	end
-end
-
--- Setup Earth Shield tracker update timer
-function ShamanPower:SetupESTrackerUpdater()
-	if self.esTrackerUpdateFrame then return end
-
-	local updateFrame = CreateFrame("Frame")
-	updateFrame.elapsed = 0
-	updateFrame:SetScript("OnUpdate", function(self, elapsed)
-		self.elapsed = self.elapsed + elapsed
-		if self.elapsed >= 0.5 then  -- Update every 0.5 seconds
-			self.elapsed = 0
-			if ShamanPower.esTrackerFrame and ShamanPower.esTrackerFrame:IsShown() then
-				ShamanPower:ScanEarthShields()
-			end
-		end
-	end)
-
-	-- Also listen for UNIT_AURA to catch changes immediately
-	updateFrame:RegisterEvent("UNIT_AURA")
-	updateFrame:RegisterEvent("GROUP_LEFT")
-	updateFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-	updateFrame:SetScript("OnEvent", function(self, event, unit)
-		if event == "GROUP_LEFT" then
-			ShamanPower:ClearESTracker()
-		elseif event == "GROUP_ROSTER_UPDATE" then
-			if not IsInGroup() then
-				ShamanPower:ClearESTracker()
-			else
-				self.needsUpdate = true
-			end
-		elseif ShamanPower.esTrackerFrame and ShamanPower.esTrackerFrame:IsShown() then
-			self.needsUpdate = true
-		end
-	end)
-
-	self.esTrackerUpdateFrame = updateFrame
-end
-
-function ShamanPower:ClearESTracker()
-	if self.trackedEarthShields then
-		wipe(self.trackedEarthShields)
-	end
-	if self.esTrackerButtons then
-		for _, btn in pairs(self.esTrackerButtons) do
-			btn:Hide()
-		end
-	end
-	self:UpdateESTrackerFrame()
-end
-
--- Initialize Earth Shield tracker
-function ShamanPower:InitializeESTracker()
-	self:InitESTracker()
-	self:CreateESTrackerFrame()
-	self:SetupESTrackerUpdater()
-
-	-- Show if it was enabled
-	if ShamanPower.opt.esTracker.enabled then
-		local pos = ShamanPower.opt.esTracker.position
-		if pos then
-			self.esTrackerFrame:ClearAllPoints()
-			self.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-		self:UpdateESTrackerBorder()
-		self:ScanEarthShields()
-		self.esTrackerFrame:Show()
-	end
-end
-
--- Register /spestrack slash command
-SLASH_SPESTRACK1 = "/spestrack"
-SLASH_SPESTRACK2 = "/spearthshield"
-SlashCmdList["SPESTRACK"] = function(msg)
-	msg = (msg or ""):lower():trim()
-
-	if msg == "toggle" or msg == "" then
+	-- Register /spestrack slash command (shows module not loaded message)
+	SLASH_SPESTRACK1 = "/spestrack"
+	SLASH_SPESTRACK2 = "/spearthshield"
+	SlashCmdList["SPESTRACK"] = function(msg)
 		ShamanPower:ToggleESTracker()
-	elseif msg == "show" then
-		ShamanPower:InitESTracker()
-		if not ShamanPower.esTrackerFrame then
-			ShamanPower:CreateESTrackerFrame()
-		end
-		local pos = ShamanPower.opt.esTracker.position
-		if pos then
-			ShamanPower.esTrackerFrame:ClearAllPoints()
-			ShamanPower.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-		ShamanPower:UpdateESTrackerBorder()
-		ShamanPower:ScanEarthShields()
-		ShamanPower.esTrackerFrame:Show()
-		ShamanPower.opt.esTracker.enabled = true
-	elseif msg == "hide" then
-		if ShamanPower.esTrackerFrame then
-			ShamanPower.esTrackerFrame:Hide()
-		end
-		ShamanPower.opt.esTracker.enabled = false
-	else
-		print("|cff00ff00ShamanPower:|r Earth Shield Tracker commands:")
-		print("  /spestrack - Toggle the tracker")
-		print("  /spestrack show - Show the tracker")
-		print("  /spestrack hide - Hide the tracker")
 	end
 end
+
+-- Party Range module stubs (loaded by ShamanPower_PartyRange addon)
+-- This module shows party members in/out of totem range via dots and counters
+if not ShamanPower.PartyRangeLoaded then
+	-- Provide stub functions when module not loaded
+	function ShamanPower:CreatePartyRangeDots() end
+	function ShamanPower:SetupPartyRangeDots() end
+	function ShamanPower:UpdatePartyRangeDots() end
+	function ShamanPower:GetActiveTotemBuffName() return nil end
+	function ShamanPower:UnitHasBuff() return false end
+	function ShamanPower:GetCachedPartyUnits() return {}, 0 end
+	function ShamanPower:CreateRangeCounterText() end
+	function ShamanPower:CreateRangeCounterFrame() end
+	function ShamanPower:SetupRangeCounters() end
+	function ShamanPower:UpdateRangeCounterLock() end
+	function ShamanPower:UpdateRangeCounterFrameStyle() end
+	function ShamanPower:UpdateRangeCounters() end
+
+	-- Initialize empty tables
+	ShamanPower.partyRangeDots = {}
+	ShamanPower.partyUnitsCache = {}
+	ShamanPower.emptyTable = {}
+	ShamanPower.rangeCounterTexts = {}
+	ShamanPower.rangeCounterFrames = {}
+	ShamanPower.RangeCounterColors = {
+		[1] = {0.2, 0.9, 0.2},
+		[2] = {0.9, 0.2, 0.2},
+		[3] = {0.2, 0.6, 1.0},
+		[4] = {1.0, 1.0, 1.0},
+	}
+	ShamanPower.TotemBuffNames = {}
+end
+
+-- Shield Charges module stubs (loaded by ShamanPower_ShieldCharges addon)
+-- Large on-screen numbers showing your shield charges and Earth Shield charges
+if not ShamanPower.ShieldChargesLoaded then
+	-- Provide stub functions when module not loaded
+	function ShamanPower:CreateShieldChargeDisplays() end
+	function ShamanPower:UpdateShieldChargeDisplays() end
+	function ShamanPower:GetShieldChargeColor() return 1, 1, 1 end
+
+	-- Initialize empty table
+	ShamanPower.shieldChargeFrames = {}
+end
+
+-- NOTE: The actual implementations of these functions are in:
+-- - ShamanPower_RaidCooldowns/ShamanPower_RaidCooldowns.lua
+-- - ShamanPower_SPRange/ShamanPower_SPRange.lua
+-- - ShamanPower_ESTracker/ShamanPower_ESTracker.lua
+-- - ShamanPower_PartyRange/ShamanPower_PartyRange.lua
+-- - ShamanPower_ShieldCharges/ShamanPower_ShieldCharges.lua
+-- When those modules are loaded, they override these stub functions.
+
 
 -- ============================================================================
 -- SPThanks: Special feature for Srumar to thank ShamanPower users
@@ -17496,3 +14160,4 @@ SlashCmdList["SPCENTER"] = function(msg)
 
 	print("|cff00ff00ShamanPower:|r Frames reset to center. Use ALT+drag to reposition.")
 end
+

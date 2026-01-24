@@ -1,7 +1,8 @@
 ## Interface: 20505
 ## Author: taubut (based on PallyPower by Aznamir, Dyaxler, Es, gallantron)
-## Title: ShamanPower
-## Version: 1.4.0
+## Title: |cff0070ddShamanPower|r
+## Version: 1.5.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Raid/Party Shaman Totem Coordination
 ## Notes-esES: Coordinacion de Totems de Chaman para Grupo/Banda
 ## Notes-zhCN: 萨满图腾协调管理

@@ -1591,6 +1591,11 @@ ShamanPower.options = {
 					name = "Raid Cooldowns",
 					type = "group",
 					args = {
+						raid_cd_desc = {
+							order = 0,
+							type = "description",
+							name = "Manage Bloodlust/Heroism and Mana Tide calling for your raid.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Raid Cooldowns]|r module to be enabled in your AddOns list.\n",
+						},
 						raidCDButtonScale = {
 							order = 1,
 							name = "Caller Button Scale",
@@ -1684,6 +1689,11 @@ ShamanPower.options = {
 					name = "Totem Range Tracker",
 					type = "group",
 					args = {
+						sprange_desc = {
+							order = 0,
+							type = "description",
+							name = "For non-shamans: Shows when you're in/out of range of party totem buffs from OTHER shamans.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Totem Range]|r module to be enabled in your AddOns list.\n",
+						},
 						sprange_opacity = {
 							order = 1,
 							name = "Opacity",
@@ -1776,7 +1786,7 @@ ShamanPower.options = {
 						partybuff_desc = {
 							order = 0,
 							type = "description",
-							name = "Shows which party members are in range of YOUR totems. Different from Totem Range Tracker which shows OTHER shamans' totems affecting you.\n",
+							name = "Shows which party members are in range of YOUR totems. Different from Totem Range Tracker which shows OTHER shamans' totems affecting you.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Party Totem Range]|r module to be enabled in your AddOns list.\n",
 						},
 						partybuff_display_mode = {
 							order = 1,
@@ -2052,7 +2062,7 @@ ShamanPower.options = {
 						estrack_desc = {
 							order = 0,
 							type = "description",
-							name = "Track all Earth Shields in your party/raid. ALT+drag to move the frame.",
+							name = "Track all Earth Shields cast by OTHER shamans in your party/raid. ALT+drag to move the frame.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Raid ES Tracker]|r module to be enabled in your AddOns list.\n",
 						},
 						estrack_enabled = {
 							order = 1,
@@ -2181,7 +2191,7 @@ ShamanPower.options = {
 						shieldcharges_desc = {
 							order = 0,
 							type = "description",
-							name = "Large on-screen numbers showing your shield charges and Earth Shield charges on your target. ALT+drag to move when unlocked.",
+							name = "Large on-screen numbers showing your shield charges and Earth Shield charges on your target. ALT+drag to move when unlocked.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Shield Charge Display]|r module to be enabled in your AddOns list.\n",
 						},
 						shieldcharges_player = {
 							order = 1,

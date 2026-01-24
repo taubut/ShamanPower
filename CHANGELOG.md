@@ -1,6 +1,26 @@
 # ShamanPower Changelog
 
-## [v1.4.0](https://github.com/taubut/ShamanPower/releases/tag/v1.4.0) (2026-01-23)
+## [v1.5.0](https://github.com/taubut/ShamanPower/releases/tag/v1.5.0) (2026-01-24)
+
+### Major Performance Improvements
+- **Massive memory optimization**: Memory usage in 40-man raids reduced from 60MB+ spikes to stable 2-9MB
+- **Event-based Earth Shield tracking**: Replaced full raid scanning with event-driven tracking (inspired by TotemTimers)
+  - Now tracks who has your ES when you cast it, instead of scanning all 40 players every update
+  - Reduced `FindEarthShieldTarget` memory allocation from ~507KB/call to near 0
+- **Earth Shield flyout optimization**: Reuses frames instead of creating new ones when group size changes
+  - Pre-computed unit strings eliminate string concatenation garbage
+  - Checks if disabled BEFORE doing any work
+- **Earth Shield flyout disabled by default** for performance (can enable in Settings)
+
+### Modularization
+Split optional features into standalone addon modules:
+- **ShamanPower_ESTracker**: Raid ES Tracker - tracks Earth Shields cast by OTHER shamans
+- **ShamanPower_PartyRange**: Party Totem Range - shows party members in/out of totem range
+- **ShamanPower_SPRange**: Totem Range (for non-shamans) - shows when you're in range of totem buffs
+- **ShamanPower_RaidCooldowns**: Raid Cooldown Management - BL/Heroism and Mana Tide calling
+- **ShamanPower_ShieldCharges**: Shield Charge Display - large on-screen shield charge numbers
+
+All modules are optional and can be enabled/disabled independently via the WoW addon list.
 
 ### Party Buff Tracker Fixes
 - Fix numbers not updating when display mode set to "Numbers Only" (was only updating when dots enabled)

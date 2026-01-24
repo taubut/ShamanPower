@@ -141,6 +141,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarShowWater = true,  -- Show Water totem button on mini bar
         totemBarShowAir = true,    -- Show Air totem button on mini bar
         totemBarShowEarthShield = true,  -- Show Earth Shield button on mini bar
+        enableESFlyout = false,  -- Enable Earth Shield flyout menu (disabled by default for performance)
         cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7},  -- Order of cooldown bar items: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=BL/Hero, 7=Imbues
         -- Pop-out tracker settings
         -- Keys: "totem_earth", "totem_fire", "totem_water", "totem_air" (element with flyout)
