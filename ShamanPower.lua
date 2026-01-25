@@ -6884,7 +6884,13 @@ function ShamanPower:UpdateTotemBarOpacity()
 	-- Also set alpha on Earth Shield button
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if esBtn then
-		esBtn:SetAlpha(opacity)
+		if fullWhenActive then
+			-- Check if someone has our Earth Shield active
+			local hasActiveES = self.esTrackedTarget and self.esTrackedCharges and self.esTrackedCharges > 0
+			esBtn:SetAlpha(hasActiveES and 1.0 or opacity)
+		else
+			esBtn:SetAlpha(opacity)
+		end
 	end
 end
 

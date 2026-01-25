@@ -1,5 +1,11 @@
 # ShamanPower Changelog
 
+## [v1.5.1](https://github.com/taubut/ShamanPower/releases/tag/v1.5.1) (2026-01-25)
+
+### UI Improvements
+- **Earth Shield full opacity when active**: ES button now respects the "Full Opacity When Totem Placed" setting
+- **Section descriptions**: Added helpful descriptions to all Look & Feel option sections explaining what each section controls
+
 ## [v1.5.0](https://github.com/taubut/ShamanPower/releases/tag/v1.5.0) (2026-01-24)
 
 ### Major Performance Improvements

@@ -836,6 +836,11 @@ ShamanPower.options = {
 					name = "Layout",
 					type = "group",
 					args = {
+						layout_desc = {
+							order = 0,
+							type = "description",
+							name = "Control the orientation of your bars and how flyout menus appear.",
+						},
 						layout = {
 							order = 1,
 							type = "select",
@@ -1017,6 +1022,11 @@ ShamanPower.options = {
 					name = "Scale",
 					type = "group",
 					args = {
+						scale_desc = {
+							order = 0,
+							type = "description",
+							name = "Adjust the overall size of your bars and buttons.",
+						},
 						buffscale = {
 							order = 1,
 							name = "Totem Bar Scale",
@@ -1087,6 +1097,11 @@ ShamanPower.options = {
 					name = "Opacity",
 					type = "group",
 					args = {
+						opacity_desc = {
+							order = 0,
+							type = "description",
+							name = "Control transparency of your bars. Use 'Full Opacity When Active' to highlight active totems/cooldowns.",
+						},
 						totemBarOpacity = {
 							order = 1,
 							name = "Totem Bar",
@@ -1212,6 +1227,11 @@ ShamanPower.options = {
 					name = "Button Padding",
 					type = "group",
 					args = {
+						padding_desc = {
+							order = 0,
+							type = "description",
+							name = "Adjust the spacing between buttons on your bars.",
+						},
 						totemBarPadding = {
 							order = 1,
 							name = "Totem Bar Padding",
@@ -1259,6 +1279,11 @@ ShamanPower.options = {
 					name = "Frame Visibility",
 					type = "group",
 					args = {
+						visibility_desc = {
+							order = 0,
+							type = "description",
+							name = "Show or hide various UI elements like frames, text, keybinds, and drag handles.",
+						},
 						hide_totem_bar_frame = {
 							order = 1,
 							type = "toggle",
@@ -1358,6 +1383,11 @@ ShamanPower.options = {
 					name = "Textures",
 					type = "group",
 					args = {
+						texture_desc = {
+							order = 0,
+							type = "description",
+							name = "Customize the background and border textures for your bars.",
+						},
 						skin = {
 							order = 1,
 							name = L["Background Textures"],
@@ -1408,6 +1438,11 @@ ShamanPower.options = {
 						return not ShamanPower.opt.showCooldownBar
 					end,
 					args = {
+						cdbar_display_desc = {
+							order = 0,
+							type = "description",
+							name = "Customize how cooldowns and durations are displayed on the cooldown bar.",
+						},
 						cdbar_show_progress_bars = {
 							order = 1,
 							type = "toggle",
@@ -1535,6 +1570,11 @@ ShamanPower.options = {
 						return ShamanPower.opt.enabled == false or not isShaman
 					end,
 					args = {
+						color_desc = {
+							order = 0,
+							type = "description",
+							name = "Customize the colors used to indicate buff status in the assignment panel.",
+						},
 						color_good = {
 							order = 1,
 							name = L["Fully Buffed"],
@@ -2520,6 +2560,11 @@ ShamanPower.options = {
 					name = "Totem Duration Bars",
 					type = "group",
 					args = {
+						duration_desc = {
+							order = 0,
+							type = "description",
+							name = "Show progress bars on totem buttons indicating remaining duration.",
+						},
 						duration_bar_position = {
 							order = 1,
 							type = "select",
@@ -2701,6 +2746,11 @@ ShamanPower.options = {
 					name = "Cooldown Bar Items",
 					type = "group",
 					args = {
+						cdbar_items_desc = {
+							order = -1,
+							type = "description",
+							name = "Choose which buttons appear on the cooldown bar.",
+						},
 						show_cooldown_bar = {
 							order = 0,
 							type = "toggle",
@@ -2858,6 +2908,11 @@ ShamanPower.options = {
 						return not ShamanPower.opt.showCooldownBar
 					end,
 					args = {
+						cdbar_order_desc = {
+							order = 0,
+							type = "description",
+							name = "Choose the order of buttons on the cooldown bar.",
+						},
 						cooldown_bar_order_1 = {
 							order = 1,
 							type = "select",
