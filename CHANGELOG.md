@@ -1,5 +1,15 @@
 # ShamanPower Changelog
 
+## [v1.5.2](https://github.com/taubut/ShamanPower/releases/tag/v1.5.2) (2026-01-30)
+
+### New Features
+- **Flyouts Require Right-Click**: Totem Flyouts now have the option to require Right-Click to show
+- **TotemTimers Style Display**: New Totem Bar Mode to change the way Active and Non-Active Totems look
+- **Totemic Call On Totem Bar**: New option in Cooldown Bar Items to move the Totemic Call icon to the Totem Bar
+
+### Bug Fixes
+- Fixed the Totem Bar from showing range of totems when party range indicators were completely turned off
+
 ## [v1.5.1](https://github.com/taubut/ShamanPower/releases/tag/v1.5.1) (2026-01-25)
 
 ### Memory Optimizations
