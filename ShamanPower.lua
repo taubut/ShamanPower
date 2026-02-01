@@ -5753,13 +5753,21 @@ function ShamanPower:UpdatePlayerTotemRange()
 	local buffLowerCache = self.buffNameLowerCache or {}
 	self.buffNameLowerCache = buffLowerCache
 
+	-- Track if Air totem is Windfury (needs special weapon enchant check)
+	local isWindfuryAir = false
+
 	-- Reset results and collect buff names
 	for element = 1, 4 do
 		results[element] = false
 		local slot = self.ElementToSlot[element]
-		local haveTotem = slot and GetTotemInfo(slot)
+		local haveTotem, totemName = GetTotemInfo(slot)
 		if haveTotem then
 			buffNames[element] = self:GetActiveTotemBuffName(element)
+			-- Special case: Air element (4) with Windfury Totem
+			-- Windfury doesn't have a buff we can check - it applies a weapon enchant
+			if element == 4 and not buffNames[element] and totemName and totemName:find("Windfury") then
+				isWindfuryAir = true
+			end
 		else
 			buffNames[element] = nil
 		end
@@ -5794,6 +5802,13 @@ function ShamanPower:UpdatePlayerTotemRange()
 		end
 	end
 
+	-- Special case: Check Windfury via weapon enchant (shaman's own totem)
+	-- This uses the same detection as SPRange - check GetWeaponEnchantInfo()
+	if isWindfuryAir then
+		local hasWindfury = self:SPRangeHasWindfuryWeapon()
+		results[4] = hasWindfury
+	end
+
 	-- Now apply the results to icons
 	for element = 1, 4 do
 		local slot = self.ElementToSlot[element]
@@ -5804,9 +5819,12 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
 		local overlayActive = activeOverlay and activeOverlay.isActive
 
+		-- Determine if this element has trackable range (buff or Windfury weapon check)
+		local hasTrackableRange = buffNames[element] or (element == 4 and isWindfuryAir)
+
 		if overlayActive then
 			if haveTotem and activeOverlay.icon then
-				if buffNames[element] then
+				if hasTrackableRange then
 					activeOverlay.icon:SetDesaturated(not hasBuff)
 					if not hasBuff then
 						activeOverlay.icon:SetVertexColor(0.6, 0.6, 0.6)
@@ -5823,7 +5841,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 			local iconTexture = totemBtn and totemBtn.icon
 			if iconTexture then
 				if haveTotem then
-					if buffNames[element] then
+					if hasTrackableRange then
 						iconTexture:SetDesaturated(not hasBuff)
 					else
 						iconTexture:SetDesaturated(false)

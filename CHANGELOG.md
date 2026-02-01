@@ -1,5 +1,12 @@
 # ShamanPower Changelog
 
+## [v1.5.4](https://github.com/taubut/ShamanPower/releases/tag/v1.5.4) (2026-02-01)
+
+### Bug Fixes
+- **Windfury Totem self-range tracking**: Fixed Windfury Totem not greying out when the shaman walks out of range of their own totem
+  - Now detects Windfury range via weapon enchant (same method as SPRange module)
+  - Works correctly when "Party Buff Tracker" is disabled - shaman can still see their own totem range
+
 ## [v1.5.3](https://github.com/taubut/ShamanPower/releases/tag/v1.5.3) (2026-01-30)
 
 ### New Features

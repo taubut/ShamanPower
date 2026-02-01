@@ -1,7 +1,7 @@
 ## Interface: 30403
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Totem Range]|r |cffff4444(Non-Shamans Enable This!)|r
-## Version: 1.5.2
+## Version: 1.5.4
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: For non-shamans - Shows when you're in/out of range of party totem buffs
 ## Dependencies: ShamanPower
