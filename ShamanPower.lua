@@ -5753,8 +5753,9 @@ function ShamanPower:UpdatePlayerTotemRange()
 	local buffLowerCache = self.buffNameLowerCache or {}
 	self.buffNameLowerCache = buffLowerCache
 
-	-- Track if Air totem is Windfury (needs special weapon enchant check)
-	local isWindfuryAir = false
+	-- Track weapon enchant totems (need special weapon enchant check instead of buff check)
+	local isWindfuryAir = false      -- Air (4) with Windfury Totem
+	local isFlametongueFire = false  -- Fire (2) with Flametongue Totem
 
 	-- Reset results and collect buff names
 	for element = 1, 4 do
@@ -5763,10 +5764,18 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local haveTotem, totemName = GetTotemInfo(slot)
 		if haveTotem then
 			buffNames[element] = self:GetActiveTotemBuffName(element)
-			-- Special case: Air element (4) with Windfury Totem
-			-- Windfury doesn't have a buff we can check - it applies a weapon enchant
-			if element == 4 and not buffNames[element] and totemName and totemName:find("Windfury") then
-				isWindfuryAir = true
+			-- Special case: Totems that apply weapon enchants instead of buffs
+			-- These need weapon enchant detection, not buff detection
+			if totemName then
+				if element == 4 and totemName:find("Windfury") then
+					-- Windfury Totem (Air) - applies weapon enchant
+					isWindfuryAir = true
+					buffNames[element] = nil  -- Clear buff name so we use weapon check
+				elseif element == 2 and totemName:find("Flametongue") then
+					-- Flametongue Totem (Fire) - applies weapon enchant
+					isFlametongueFire = true
+					buffNames[element] = nil  -- Clear buff name so we use weapon check
+				end
 			end
 		else
 			buffNames[element] = nil
@@ -5802,11 +5811,16 @@ function ShamanPower:UpdatePlayerTotemRange()
 		end
 	end
 
-	-- Special case: Check Windfury via weapon enchant (shaman's own totem)
-	-- This uses the same detection as SPRange - check GetWeaponEnchantInfo()
-	if isWindfuryAir then
-		local hasWindfury = self:SPRangeHasWindfuryWeapon()
-		results[4] = hasWindfury
+	-- Special case: Check weapon enchant totems via GetWeaponEnchantInfo()
+	-- This uses the same detection as SPRange module
+	if isWindfuryAir or isFlametongueFire then
+		local hasWeaponEnchant = self:SPRangeHasWindfuryWeapon()
+		if isWindfuryAir then
+			results[4] = hasWeaponEnchant
+		end
+		if isFlametongueFire then
+			results[2] = hasWeaponEnchant
+		end
 	end
 
 	-- Now apply the results to icons
@@ -5819,8 +5833,8 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
 		local overlayActive = activeOverlay and activeOverlay.isActive
 
-		-- Determine if this element has trackable range (buff or Windfury weapon check)
-		local hasTrackableRange = buffNames[element] or (element == 4 and isWindfuryAir)
+		-- Determine if this element has trackable range (buff or weapon enchant check)
+		local hasTrackableRange = buffNames[element] or (element == 4 and isWindfuryAir) or (element == 2 and isFlametongueFire)
 
 		if overlayActive then
 			if haveTotem and activeOverlay.icon then
