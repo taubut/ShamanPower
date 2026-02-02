@@ -1,7 +1,7 @@
 ## Interface: 11503
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Reactive Totems]|r
-## Version: 1.5.6
+## Version: 1.5.7
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Shows large totem icons when you have fear, disease, or poison debuffs
 ## Dependencies: ShamanPower

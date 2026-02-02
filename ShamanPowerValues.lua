@@ -160,6 +160,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         weaponEnchant = 1,  -- Default weapon enchant (Windfury)
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
+        rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
         enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
         hideOutOfCombat = false,  -- Hide totem bar when not in combat
         hideWhenNoTotems = false,  -- Hide totem bar when no totems are placed

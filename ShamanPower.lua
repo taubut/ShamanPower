@@ -3411,9 +3411,11 @@ function ShamanPower:UpdateActiveTotemOverlays()
 					end
 
 					-- Change main button icon to active totem
+					-- Note: Don't set desaturation here - let UpdatePlayerTotemRange handle it
+					-- based on whether the player is in range of the totem buff
 					if iconTexture then
 						iconTexture:SetTexture(activeIcon)
-						iconTexture:SetDesaturated(false)
+						-- Don't call SetDesaturated - UpdatePlayerTotemRange handles range display
 						iconTexture:SetAlpha(1)
 					end
 
@@ -5053,11 +5055,23 @@ function ShamanPower:UpdateTotemButtons()
 				btn:SetAttribute("spell1", spellName)
 			end
 
-			-- Right-click behavior: Totemic Call by default, or flyout trigger if option enabled
+			-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
 			if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
 				-- Right-click shows flyout instead of Totemic Call
 				btn:SetAttribute("type2", nil)
 				btn:SetAttribute("spell2", nil)
+			elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
+				-- TotemTimers mode: right-click casts the assigned totem (shown in corner)
+				local assignedIndex = assignments[element] or 0
+				local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
+				local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
+				if assignedSpellName then
+					btn:SetAttribute("type2", "spell")
+					btn:SetAttribute("spell2", assignedSpellName)
+				else
+					btn:SetAttribute("type2", "spell")
+					btn:SetAttribute("spell2", GetSpellInfo(36936))  -- Totemic Call
+				end
 			else
 				-- Right-click to cast Totemic Call (destroys all totems)
 				btn:SetAttribute("type2", "spell")
@@ -5864,6 +5878,9 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 	local enabled = self.opt.showTotemFlyouts
 	local requiresClick = self.opt.flyoutRequiresClick
 	local totemicCallName = GetSpellInfo(36936)  -- Totemic Call
+	local useRightClickAssigned = self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned
+	local playerName = self.player
+	local assignments = ShamanPower_Assignments[playerName] or {}
 
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
@@ -5871,8 +5888,22 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 			if not enabled then
 				-- Flyouts disabled
 				btn:SetAttribute("OpenMenu", nil)
-				btn:SetAttribute("type2", "spell")
-				btn:SetAttribute("spell2", totemicCallName)
+				-- Check if right-click should cast assigned totem
+				if useRightClickAssigned then
+					local assignedIndex = assignments[element] or 0
+					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
+					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
+					if assignedSpellName then
+						btn:SetAttribute("type2", "spell")
+						btn:SetAttribute("spell2", assignedSpellName)
+					else
+						btn:SetAttribute("type2", "spell")
+						btn:SetAttribute("spell2", totemicCallName)
+					end
+				else
+					btn:SetAttribute("type2", "spell")
+					btn:SetAttribute("spell2", totemicCallName)
+				end
 				-- Hide any visible flyout buttons directly
 				local flyout = self.totemFlyouts[element]
 				if flyout and flyout.buttons then
@@ -5888,8 +5919,22 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 			else
 				-- Flyouts enabled, mouseover to show (default)
 				btn:SetAttribute("OpenMenu", "mouseover")
-				btn:SetAttribute("type2", "spell")
-				btn:SetAttribute("spell2", totemicCallName)
+				-- Check if right-click should cast assigned totem
+				if useRightClickAssigned then
+					local assignedIndex = assignments[element] or 0
+					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
+					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
+					if assignedSpellName then
+						btn:SetAttribute("type2", "spell")
+						btn:SetAttribute("spell2", assignedSpellName)
+					else
+						btn:SetAttribute("type2", "spell")
+						btn:SetAttribute("spell2", totemicCallName)
+					end
+				else
+					btn:SetAttribute("type2", "spell")
+					btn:SetAttribute("spell2", totemicCallName)
+				end
 			end
 		end
 	end
@@ -8519,11 +8564,25 @@ function ShamanPower:UpdateMiniTotemBar()
 					totemButton:SetAttribute("spell1", spellName)
 				end
 
-				-- Right-click behavior: Totemic Call by default, or flyout trigger if option enabled
+				-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
 				if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
 					-- Right-click shows flyout instead of Totemic Call
 					totemButton:SetAttribute("type2", nil)
 					totemButton:SetAttribute("spell2", nil)
+				elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
+					-- TotemTimers mode: right-click casts the assigned totem (shown in corner)
+					-- Get the assigned totem spell (not the active one)
+					local assignedIndex = assignments[element] or 0
+					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
+					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
+					if assignedSpellName then
+						totemButton:SetAttribute("type2", "spell")
+						totemButton:SetAttribute("spell2", assignedSpellName)
+					else
+						-- No assigned totem, fall back to Totemic Call
+						totemButton:SetAttribute("type2", "spell")
+						totemButton:SetAttribute("spell2", GetSpellInfo(36936))  -- Totemic Call
+					end
 				else
 					-- Right-click to cast Totemic Call (destroys all totems)
 					totemButton:SetAttribute("type2", "spell")
@@ -8767,7 +8826,14 @@ function ShamanPower:TotemBarTooltip(button, element)
 	if spellID then
 		GameTooltip:AddLine(totemName, 0, 1, 0)
 		GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("|cffffcc00Right-click:|r Totemic Call", 0.7, 0.7, 0.7)
+		-- Right-click behavior depends on options
+		if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Show flyout", 0.7, 0.7, 0.7)
+		elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
+		else
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Totemic Call", 0.7, 0.7, 0.7)
+		end
 	else
 		GameTooltip:AddLine("No totem assigned", 1, 0, 0)
 	end

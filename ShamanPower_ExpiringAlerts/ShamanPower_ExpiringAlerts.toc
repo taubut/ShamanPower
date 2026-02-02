@@ -1,7 +1,7 @@
 ## Interface: 20505
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Expiring Alerts]|r
-## Version: 1.5.6
+## Version: 1.5.7
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Scrolling combat text alerts for expiring shields, totems, and weapon imbues
 ## Dependencies: ShamanPower

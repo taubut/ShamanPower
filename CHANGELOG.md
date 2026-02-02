@@ -1,5 +1,16 @@
 # ShamanPower Changelog
 
+## [v1.5.7](https://github.com/taubut/ShamanPower/releases/tag/v1.5.7) (2026-02-02)
+
+### New Features
+- **Right-Click Drops Corner Totem**: New option in Settings > Totem Bar Mode (appears when TotemTimers Style Display is enabled)
+  - When enabled, right-clicking a totem button drops the assigned totem (shown in the corner indicator) instead of casting Totemic Call
+  - Useful for quickly switching between your active and assigned totems
+
+### Bug Fixes
+- **TotemTimers range display fix**: Fixed totem icons flickering between grey and normal when moving in/out of range while using TotemTimers Style Display
+  - The range check (greying out icons when out of totem range) now works correctly with TotemTimers mode
+
 ## [v1.5.6](https://github.com/taubut/ShamanPower/releases/tag/v1.5.6) (2026-02-02)
 
 ### New Features

@@ -197,6 +197,26 @@ ShamanPower.options = {
 								ShamanPower:UpdateActiveTotemOverlays()
 							end
 						},
+						rightClickCastsAssigned = {
+							order = 4.5,
+							name = "Right-Click Drops Corner Totem",
+							desc = "When enabled, right-clicking a totem button will drop the totem shown in the corner indicator instead of casting Totemic Call. Useful for quickly switching between your active and assigned totems.",
+							type = "toggle",
+							width = "full",
+							hidden = function(info)
+								return not ShamanPower.opt.activeTotemAsMain
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.rightClickCastsAssigned
+							end,
+							set = function(info, val)
+								ShamanPower.opt.rightClickCastsAssigned = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
 						twistSpacer = {
 							order = 5,
 							type = "description",
