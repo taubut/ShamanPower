@@ -1,7 +1,7 @@
 ## Interface: 11503
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Raid Cooldowns]|r
-## Version: 1.5.4
+## Version: 1.5.5
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Raid Cooldown Management - BL/Heroism and Mana Tide calling
 ## Dependencies: ShamanPower

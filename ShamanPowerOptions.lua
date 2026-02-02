@@ -1537,6 +1537,19 @@ ShamanPower.options = {
 								ShamanPower.opt.shieldChargeColors = val
 							end
 						},
+						show_ankh_count = {
+							order = 4.5,
+							type = "toggle",
+							name = "Show Ankh Count on Reincarnation",
+							desc = "Display the number of Ankhs in your inventory on the Reincarnation icon",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.showAnkhCount
+							end,
+							set = function(info, val)
+								ShamanPower.opt.showAnkhCount = val
+							end
+						},
 						spacer1 = {
 							order = 5,
 							type = "description",

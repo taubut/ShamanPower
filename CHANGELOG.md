@@ -1,5 +1,18 @@
 # ShamanPower Changelog
 
+## [v1.5.5](https://github.com/taubut/ShamanPower/releases/tag/v1.5.5) (2026-02-02)
+
+### New Features
+- **Reincarnation Ankh tracking**: The Reincarnation icon on the cooldown bar now shows reagent status
+  - Icon greys out when you have no Ankhs in your inventory
+  - Optional Ankh count display in bottom right corner (enable in Look & Feel > Cooldown Display)
+  - Count is color coded: Red (0), Yellow (1-3), White (4+)
+
+### Improvements
+- **Macro icons now use dynamic spell icons**: All ShamanPower-created macros now use the `?` icon, allowing `#showtooltip` to dynamically display the correct spell icon
+  - Affects totem macros (SP_Earth, SP_Fire, SP_Water, SP_Air), Drop All (SP_DropAll), Totemic Call (SP_Recall), and Earth Shield macro
+  - One-time automatic migration for existing users updating from v1.5.4 or earlier
+
 ## [v1.5.4](https://github.com/taubut/ShamanPower/releases/tag/v1.5.4) (2026-02-01)
 
 ### New Features
@@ -43,6 +56,7 @@
   - Affects both Windfury Totem (Air) and Flametongue Totem (Fire)
   - Works correctly when "Party Buff Tracker" is disabled - shaman can still see their own totem range
 - **TOC Interface version**: Updated all module TOC files to correct Interface version (20505) so they no longer show as "Out of date" in the addon list
+- **ES Tracker caster name**: Fixed Earth Shield Tracker showing "Unknown" for caster name due to broken API return value handling in Classic TBC
 
 ## [v1.5.3](https://github.com/taubut/ShamanPower/releases/tag/v1.5.3) (2026-01-30)
 

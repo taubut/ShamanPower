@@ -481,9 +481,9 @@ end
 -- Create a macro for Earth Shield that users can keybind
 function ShamanPower:CreateEarthShieldMacro()
 	local macroName = "AC EarthShield"
-	local macroBody = "/click ShamanPowerESMacroBtn"
-	-- CreateMacro needs just the icon name, not the full path
-	local macroIcon = "Spell_Nature_SkinOfEarth"
+	local macroBody = "#showtooltip Earth Shield\n/click ShamanPowerESMacroBtn"
+	-- Use ? icon so #showtooltip shows the correct spell icon dynamically
+	local macroIcon = "INV_Misc_QuestionMark"
 
 	-- Check if macro already exists
 	local existingIndex = GetMacroIndexByName(macroName)
@@ -6167,6 +6167,14 @@ function ShamanPower:CreateCooldownBar()
 				btn.chargeText = chargeText
 			end
 
+			-- Ankh count text for Reincarnation button (bottom right corner)
+			if spellID == 20608 then
+				local ankhCountText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ankhCountText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
+				ankhCountText:SetText("")
+				btn.ankhCountText = ankhCountText
+			end
+
 			-- Store spell info
 			btn.spellID = spellID
 			btn.spellName = spellName
@@ -6719,6 +6727,8 @@ function ShamanPower:UpdateCooldownButtons()
 				btn.cooldown:Clear()
 				btn.darkOverlay:Hide()
 				btn.icon:SetDesaturated(false)
+				-- Hide Ankh count when on cooldown
+				if btn.ankhCountText then btn.ankhCountText:Hide() end
 
 				-- Calculate remaining time
 				local remaining = (start + duration) - GetTime()
@@ -6816,7 +6826,6 @@ function ShamanPower:UpdateCooldownButtons()
 			else
 				btn.cooldown:Clear()
 				btn.darkOverlay:Hide()
-				btn.icon:SetDesaturated(false)
 				if btn.progressBar then btn.progressBar:Hide() end
 				if btn.bgBar then btn.bgBar:Hide() end
 				if btn.greyOverlay then btn.greyOverlay:Hide() end
@@ -6825,6 +6834,31 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.outsideText then btn.outsideText:Hide() end
 				if btn.belowText and btn.belowText ~= btn.outsideText then btn.belowText:Hide() end
 				if btn.iconText then btn.iconText:Hide() end
+
+				-- Special case: Reincarnation - grey out if no Ankhs, show count if enabled
+				if btn.spellID == 20608 then
+					local ankhCount = GetItemCount(17030)  -- Ankh item ID
+					btn.icon:SetDesaturated(ankhCount == 0)
+					-- Show Ankh count if option enabled
+					if btn.ankhCountText then
+						if self.opt.showAnkhCount then
+							btn.ankhCountText:SetText(ankhCount > 0 and tostring(ankhCount) or "0")
+							-- Color based on count
+							if ankhCount == 0 then
+								btn.ankhCountText:SetTextColor(1, 0, 0)  -- Red when empty
+							elseif ankhCount <= 3 then
+								btn.ankhCountText:SetTextColor(1, 1, 0)  -- Yellow when low
+							else
+								btn.ankhCountText:SetTextColor(1, 1, 1)  -- White when plenty
+							end
+							btn.ankhCountText:Show()
+						else
+							btn.ankhCountText:Hide()
+						end
+					end
+				else
+					btn.icon:SetDesaturated(false)
+				end
 			end
 		end
 	end
@@ -14107,6 +14141,33 @@ ShamanPower.MacroNames = {
 	TotemicCall = "SP_Recall",
 }
 
+-- Migrate macro icons to ? icon (one-time migration for v1.5.4+)
+function ShamanPower:MigrateMacroIcons()
+	if InCombatLockdown() then return end
+
+	-- Check if already migrated
+	if self.opt and self.opt.macroIconMigrationV1 then
+		return
+	end
+
+	-- Force update all macros (will use new ? icon)
+	self:UpdateSPMacros()
+
+	-- Also update Earth Shield macro if it exists
+	local esIndex = GetMacroIndexByName("AC EarthShield")
+	if esIndex and esIndex > 0 then
+		local esBody = "#showtooltip Earth Shield\n/click ShamanPowerESMacroBtn"
+		EditMacro(esIndex, "AC EarthShield", "INV_Misc_QuestionMark", esBody)
+	end
+
+	-- Set migration flag
+	if self.opt then
+		self.opt.macroIconMigrationV1 = true
+	end
+
+	print("|cff00ff00ShamanPower:|r Macro icons updated to use dynamic spell icons.")
+end
+
 -- Create or update a WoW macro
 function ShamanPower:CreateOrUpdateMacro(name, icon, body)
 	if InCombatLockdown() then return end
@@ -14141,37 +14202,27 @@ function ShamanPower:UpdateSPMacros()
 	if not assignments then return end
 
 	local elementNames = {"Earth", "Fire", "Water", "Air"}
-	local defaultIcons = {
-		"INV_Stone_10",           -- Earth
-		"Spell_Fire_Fire",        -- Fire
-		"Spell_Frost_SummonWaterElemental", -- Water
-		"Spell_Nature_InvisibilityTotem",   -- Air
-	}
+	-- Use ? icon so #showtooltip shows the correct spell icon dynamically
+	local defaultIcon = "INV_Misc_QuestionMark"
 
 	-- Create/update individual totem macros
 	for element = 1, 4 do
 		local macroName = self.MacroNames[elementNames[element]]
 		local totemIndex = assignments[element] or 0
 		local body = "#showtooltip\n/cast "
-		local icon = defaultIcons[element]
+		local icon = defaultIcon  -- ? icon lets #showtooltip show correct spell
 
 		-- Special handling for Air totem when twisting is enabled
 		if element == 4 and self.opt.enableTotemTwisting then
 			local wfName = GetSpellInfo(25587) or "Windfury Totem"  -- Windfury Totem
 			local goaName = GetSpellInfo(25359) or "Grace of Air Totem"  -- Grace of Air Totem
 			body = "#showtooltip\n/castsequence reset=10 " .. wfName .. ", " .. goaName
-			icon = "Spell_Nature_Windfury"  -- Windfury icon
 		elseif totemIndex > 0 then
 			local spellID = self:GetTotemSpell(element, totemIndex)
 			if spellID then
 				local spellName = GetSpellInfo(spellID)
 				if spellName then
 					body = body .. spellName
-					-- Use totem icon
-					local totemIcon = self:GetTotemIcon(element, totemIndex)
-					if totemIcon then
-						icon = totemIcon:gsub("Interface\\Icons\\", "")
-					end
 				else
 					body = body .. "-- No totem assigned"
 				end
@@ -14217,21 +14268,13 @@ function ShamanPower:UpdateSPMacros()
 	else
 		dropAllBody = dropAllBody .. "/cast -- No totems assigned"
 	end
-	self:CreateOrUpdateMacro(self.MacroNames.DropAll, "inv_hammer_02", dropAllBody)
+	self:CreateOrUpdateMacro(self.MacroNames.DropAll, "INV_Misc_QuestionMark", dropAllBody)
 
 	-- Create Totemic Call macro
-	local tcSpellName, _, tcIcon = GetSpellInfo(36936)
+	local tcSpellName = GetSpellInfo(36936)
 	if tcSpellName then
 		local tcBody = "#showtooltip\n/cast " .. tcSpellName
-		local tcIconName
-		if type(tcIcon) == "string" then
-			tcIconName = tcIcon:match("Interface\\Icons\\(.+)") or tcIcon
-		elseif type(tcIcon) == "number" then
-			tcIconName = tcIcon  -- Use texture ID directly
-		else
-			tcIconName = "INV_Misc_QuestionMark"
-		end
-		self:CreateOrUpdateMacro(self.MacroNames.TotemicCall, tcIconName, tcBody)
+		self:CreateOrUpdateMacro(self.MacroNames.TotemicCall, "INV_Misc_QuestionMark", tcBody)
 	end
 
 	self.macroUpdatePending = false
@@ -14915,6 +14958,12 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 		C_Timer.After(2.0, function()
 			if ShamanPower.UpdateButtonKeybindText then
 				ShamanPower:UpdateButtonKeybindText()
+			end
+		end)
+		-- One-time migration of macro icons to ? icon (v1.5.5)
+		C_Timer.After(3.0, function()
+			if ShamanPower.MigrateMacroIcons then
+				ShamanPower:MigrateMacroIcons()
 			end
 		end)
 	end
