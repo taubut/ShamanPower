@@ -16,6 +16,11 @@
   - Hide totems you never use to keep your flyouts cleaner
   - All totems enabled by default
 
+### Improvements
+- **Improved macro reset timers**: Drop All and Twist macros now use `reset=combat/15` instead of just combat reset
+  - Macros will reset 15 seconds after last use OR when leaving combat, whichever comes first
+  - Prevents macros from getting stuck mid-sequence if combat ends unexpectedly
+
 ### Bug Fixes
 - **TotemTimers style + Twisting fix**: Fixed Air totem icon rapidly flickering when both "TotemTimers Style Display" and "Twist" options are enabled
   - Now correctly shows the currently active totem icon (Windfury or Grace of Air) instead of always showing the assigned totem

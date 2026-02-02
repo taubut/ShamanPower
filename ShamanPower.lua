@@ -5047,7 +5047,7 @@ function ShamanPower:UpdateTotemButtons()
 				local wfName = GetSpellInfo(25587) or "Windfury Totem"
 				local goaName = GetSpellInfo(25359) or "Grace of Air Totem"
 				btn:SetAttribute("type1", "macro")
-				btn:SetAttribute("macrotext1", "/castsequence reset=10 " .. wfName .. ", " .. goaName)
+				btn:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. goaName)
 			elseif spellName then
 				btn:SetAttribute("type1", "spell")
 				btn:SetAttribute("spell1", spellName)
@@ -8508,7 +8508,7 @@ function ShamanPower:UpdateMiniTotemBar()
 					local wfName = GetSpellInfo(25587) or "Windfury Totem"
 					local goaName = GetSpellInfo(25359) or "Grace of Air Totem"
 					totemButton:SetAttribute("type1", "macro")
-					totemButton:SetAttribute("macrotext1", "/castsequence reset=10 " .. wfName .. ", " .. goaName)
+					totemButton:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. goaName)
 					-- Update icon to Windfury
 					local twistIcon = _G["ShamanPowerAutoTotem" .. element .. "Icon"]
 					if twistIcon then
@@ -10050,7 +10050,7 @@ function ShamanPower:UpdateDropAllButton()
 	-- Build the macro text to check if it changed
 	local macroText = ""
 	if #totemSpells > 0 then
-		macroText = "/castsequence reset=combat " .. table.concat(totemSpells, ", ")
+		macroText = "/castsequence reset=combat/15 " .. table.concat(totemSpells, ", ")
 	end
 
 	-- Only update sequence and macro if the spell list actually changed
@@ -14418,7 +14418,7 @@ function ShamanPower:UpdateSPMacros()
 		if element == 4 and self.opt.enableTotemTwisting then
 			local wfName = GetSpellInfo(25587) or "Windfury Totem"  -- Windfury Totem
 			local goaName = GetSpellInfo(25359) or "Grace of Air Totem"  -- Grace of Air Totem
-			body = "#showtooltip\n/castsequence reset=10 " .. wfName .. ", " .. goaName
+			body = "#showtooltip\n/castsequence reset=combat/15 " .. wfName .. ", " .. goaName
 		elseif totemIndex > 0 then
 			local spellID = self:GetTotemSpell(element, totemIndex)
 			if spellID then
@@ -14466,7 +14466,7 @@ function ShamanPower:UpdateSPMacros()
 
 	local dropAllBody = "#showtooltip\n"
 	if #totemSpells > 0 then
-		dropAllBody = dropAllBody .. "/castsequence reset=combat " .. table.concat(totemSpells, ", ")
+		dropAllBody = dropAllBody .. "/castsequence reset=combat/15 " .. table.concat(totemSpells, ", ")
 	else
 		dropAllBody = dropAllBody .. "/cast -- No totems assigned"
 	end
