@@ -337,27 +337,29 @@ function SP:ScanEarthShields()
 	-- Scan each unit for Earth Shield buff
 	for _, unit in ipairs(units) do
 		if UnitExists(unit) then
-			-- Use optimized direct lookup if available
-			local name, icon, count, _, duration, expirationTime, caster
-			if AuraUtil and AuraUtil.FindAuraByName then
-				name, icon, count, _, duration, expirationTime, _, _, _, _, _, _, _, _, _, _, _, _, _, _, caster = AuraUtil.FindAuraByName("Earth Shield", unit)
-			else
-				-- Fallback: scan first 20 buffs
-				for i = 1, 20 do
-					local buffName, buffIcon, buffCount, _, buffDuration, buffExpiration, buffCaster = UnitBuff(unit, i)
-					if not buffName then break end
-					if buffName == "Earth Shield" then
-						name, icon, count, duration, expirationTime, caster = buffName, buffIcon, buffCount, buffDuration, buffExpiration, buffCaster
-						break
-					end
+			-- Scan for Earth Shield buff
+			-- Classic TBC UnitBuff returns: name, icon, count, debuffType, duration, expirationTime, caster
+			local name, icon, count, expirationTime, caster
+			for i = 1, 40 do
+				local buffName, buffIcon, buffCount, _, buffDuration, buffExpiration, buffCaster = UnitBuff(unit, i)
+				if not buffName then break end
+				if buffName == "Earth Shield" then
+					name, icon, count, expirationTime, caster = buffName, buffIcon, buffCount, buffExpiration, buffCaster
+					break
 				end
 			end
 
 			if name then
 				local targetGUID = UnitGUID(unit)
 				local targetName = UnitName(unit)
-				local casterName = caster and UnitName(caster) or "Unknown"
-				local _, casterClass = caster and UnitClass(caster) or nil, nil
+				local casterName = "Unknown"
+				local casterClass = nil
+
+				-- Get caster info - need to check if caster unit is valid
+				if caster and UnitExists(caster) then
+					casterName = UnitName(caster) or "Unknown"
+					_, casterClass = UnitClass(caster)
+				end
 
 				self.earthShields[targetGUID] = {
 					targetGUID = targetGUID,
