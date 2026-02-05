@@ -1118,7 +1118,7 @@ ShamanPower.options = {
 							order = 3,
 							type = "toggle",
 							name = "Flyout Requires Right-Click",
-							desc = "Flyouts only appear when you right-click the totem button instead of on mouseover. Right-click the flyout totem to assign it. Note: Disables right-click to destroy totems.",
+							desc = "Flyouts only appear when you right-click the button instead of on mouseover. Applies to both totem bar and cooldown bar (shield/imbue) flyouts. Right-click the flyout totem to assign it. Note: Disables right-click to destroy totems.",
 							width = "full",
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
@@ -1701,6 +1701,24 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarDurationTextLocation = val
+							end
+						},
+						cdbar_duration_text_size = {
+							order = 10,
+							type = "range",
+							name = "Duration Text Size",
+							desc = "Font size for duration text on the cooldown bar",
+							width = "full",
+							min = 6, max = 20, step = 1,
+							hidden = function()
+								return (ShamanPower.opt.cdbarDurationTextLocation or "none") == "none"
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarDurationTextSize or 8
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarDurationTextSize = val
+								ShamanPower:ApplyCdbarTextSize()
 							end
 						},
 					}
@@ -4629,6 +4647,23 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowImbues = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_elemental_mastery = {
+							order = 10,
+							type = "toggle",
+							name = "Elemental Mastery",
+							desc = "Show Elemental Mastery cooldown on cooldown bar (Elemental talent)",
+							width = "full",
+							hidden = function() return not ShamanPower.opt.showCooldownBar end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowElementalMastery ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowElementalMastery = val
 								if not InCombatLockdown() then
 									ShamanPower:RecreateCooldownBar()
 								end

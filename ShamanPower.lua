@@ -2099,8 +2099,11 @@ ShamanPower.PulsingTotems = {
 	-- Earth totems (element 1, slot 2)
 	["Tremor"] = { element = 1, slot = 2, interval = 3 },
 	["Earthbind"] = { element = 1, slot = 2, interval = 3 },
+	-- Fire totems (element 2, slot 1)
+	["Magma"] = { element = 2, slot = 1, interval = 2 },
 	-- Water totems (element 3, slot 3)
 	["Mana Tide"] = { element = 3, slot = 3, interval = 3 },
+	["Mana Spring"] = { element = 3, slot = 3, interval = 2 },
 	["Healing Stream"] = { element = 3, slot = 3, interval = 2 },
 	["Poison Cleansing"] = { element = 3, slot = 3, interval = 5 },
 	["Disease Cleansing"] = { element = 3, slot = 3, interval = 5 },
@@ -2119,8 +2122,8 @@ function ShamanPower:GetActivePulsingTotem(slot)
 end
 
 function ShamanPower:SetupPulseOverlays()
-	-- Create pulse overlays for Earth (1) and Water (3) totem buttons
-	local elements = {1, 3}  -- Earth and Water can have pulsing totems
+	-- Create pulse overlays for Earth (1), Fire (2), and Water (3) totem buttons
+	local elements = {1, 2, 3}  -- Earth, Fire, and Water can have pulsing totems
 	for _, element in ipairs(elements) do
 		local button = self.totemButtons[element]
 		if button and not self.pulseOverlays[element] then
@@ -2136,6 +2139,11 @@ function ShamanPower:SetupPulseOverlays()
 			local earthData, earthStart = ShamanPower:GetActivePulsingTotem(2)
 			ShamanPower:UpdatePulseGlow(1, earthData, earthStart)
 			ShamanPower:UpdatePoppedOutPulse(1, 2, earthData, earthStart)
+
+			-- Check Fire totem (slot 1)
+			local fireData, fireStart = ShamanPower:GetActivePulsingTotem(1)
+			ShamanPower:UpdatePulseGlow(2, fireData, fireStart)
+			ShamanPower:UpdatePoppedOutPulse(2, 1, fireData, fireStart)
 
 			-- Check Water totem (slot 3)
 			local waterData, waterStart = ShamanPower:GetActivePulsingTotem(3)
@@ -4254,8 +4262,8 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	frame.spellID = spellID
 	frame.spellName = spellName
 
-	-- Create pulse overlay on the visible iconHolder (Earth and Water totems can pulse)
-	if element == 1 or element == 3 then
+	-- Create pulse overlay on the visible iconHolder (Earth, Fire, and Water totems can pulse)
+	if element == 1 or element == 2 or element == 3 then
 		local pulseOverlay = self:CreatePulseOverlay(iconHolder)
 		if pulseOverlay then
 			self.poppedOutOverlays[key] = pulseOverlay
@@ -6002,6 +6010,44 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 			end
 		end
 	end
+
+	-- Also update cooldown bar flyouts (shield and weapon imbue buttons)
+	self:UpdateCooldownBarFlyoutEnabled()
+end
+
+-- Toggle cooldown bar flyouts (shield/imbue) based on flyoutRequiresClick option
+function ShamanPower:UpdateCooldownBarFlyoutEnabled()
+	if InCombatLockdown() then return end
+
+	local requiresClick = self.opt.flyoutRequiresClick
+
+	-- Shield button
+	if self.shieldButton then
+		if requiresClick then
+			self.shieldButton:SetAttribute("OpenMenu", "click")
+		else
+			self.shieldButton:SetAttribute("OpenMenu", "mouseover")
+		end
+	end
+
+	-- Weapon imbue button
+	if self.weaponImbueButton then
+		if requiresClick then
+			self.weaponImbueButton:SetAttribute("OpenMenu", "click")
+			-- Disable off-hand cast on right-click so it only opens the flyout
+			self.weaponImbueButton:SetAttribute("type2", nil)
+			self.weaponImbueButton:SetAttribute("macrotext2", nil)
+		else
+			self.weaponImbueButton:SetAttribute("OpenMenu", "mouseover")
+			-- Restore off-hand cast on right-click
+			local currentImbue = self.weaponImbueButton.currentImbueName
+			if currentImbue then
+				local offHandMacro = "/cast [@none] " .. currentImbue .. "\n/use 17\n/click StaticPopup1Button1"
+				self.weaponImbueButton:SetAttribute("type2", "macro")
+				self.weaponImbueButton:SetAttribute("macrotext2", offHandMacro)
+			end
+		end
+	end
 end
 
 -- Recreate all totem flyouts (used when major changes require full rebuild)
@@ -6204,6 +6250,7 @@ ShamanPower.TrackedCooldowns = {
 	{30823, "Shamanistic Rage", "cooldown", "cdbarShowShamanisticRage"},  -- Shamanistic Rage cooldown (Enhancement talent)
 	{2825, "Bloodlust", "cooldown", "cdbarShowBloodlust"},  -- Bloodlust (Horde)
 	{32182, "Heroism", "cooldown", "cdbarShowBloodlust"},  -- Heroism (Alliance)
+	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery"},  -- Elemental Mastery (Elemental talent)
 }
 
 -- Spell colors for progress bars (used when cdbarSpellColors is enabled)
@@ -6218,6 +6265,7 @@ ShamanPower.SpellBarColors = {
 	[30823] = {0.8, 0.5, 0.1},   -- Shamanistic Rage - orange
 	[2825]  = {0.8, 0.1, 0.1},   -- Bloodlust - red
 	[32182] = {0.8, 0.1, 0.1},   -- Heroism - red
+	[16166] = {0.9, 0.6, 0.1},   -- Elemental Mastery - golden
 }
 
 -- Weapon imbue colors (by imbue type index)
@@ -6399,7 +6447,7 @@ function ShamanPower:CreateCooldownBar()
 			local templateString
 			if spellType == "shield" then
 				-- Shield button needs secure handler templates for combat-functional flyout
-				templateString = "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerBaseTemplate"
+				templateString = "SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerMouseUpDownTemplate, SecureHandlerBaseTemplate"
 			else
 				templateString = "SecureActionButtonTemplate"
 			end
@@ -6549,6 +6597,14 @@ function ShamanPower:CreateCooldownBar()
 				btn:SetAttribute("_onleave", [[
 					if not self:IsUnderMouse(true) then
 						self:ChildUpdate("show", false)
+					end
+				]])
+
+				-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
+				btn:SetAttribute("_onmouseup", [[
+					local button = button
+					if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
+						self:ChildUpdate("show", true)
 					end
 				]])
 			else
@@ -6769,18 +6825,20 @@ local function GetTimerBarColor(expiration)
 	end
 end
 
--- Get progress bar color: spell color if enabled, otherwise time-based
+-- Get progress bar color: spell color when healthy, yellow/red when low
 local function GetBarColor(expiration, spellID)
-	if ShamanPower.opt.cdbarSpellColors and spellID then
+	local mins = expiration / 60000
+	if ShamanPower.opt.cdbarSpellColors and spellID and mins >= 10 then
 		local c = ShamanPower.SpellBarColors[spellID]
 		if c then return c[1], c[2], c[3] end
 	end
 	return GetTimerBarColor(expiration)
 end
 
--- Get imbue bar color: imbue color if enabled, otherwise time-based
+-- Get imbue bar color: imbue color when healthy, yellow/red when low
 local function GetImbueBarColor(expiration, imbueType)
-	if ShamanPower.opt.cdbarSpellColors and imbueType then
+	local mins = expiration / 60000
+	if ShamanPower.opt.cdbarSpellColors and imbueType and mins >= 10 then
 		local c = ShamanPower.ImbueBarColors[imbueType]
 		if c then return c[1], c[2], c[3] end
 	end
@@ -6854,12 +6912,11 @@ function ShamanPower:UpdateCooldownBarLayout()
 			rightPadding = progressBarSize + 2
 			if hasImbueButton then leftPadding = progressBarSize + 2 end
 			extraSpacing = progressBarSize + 1
-		elseif barPosition == "on_icon" or barPosition == "top_vert" or barPosition == "bottom_vert" then
+		elseif barPosition == "on_icon" then
+			-- Bars render ON the icon itself, no extra padding or spacing needed
+		elseif barPosition == "top_vert" or barPosition == "bottom_vert" then
 			leftPadding = progressBarSize + 2
 			rightPadding = progressBarSize + 2
-			if barPosition == "on_icon" then
-				extraSpacing = (progressBarSize + 1) * 2
-			end
 		end
 	end
 	local topPadding = (showBars and (barPosition == "top" or barPosition == "top_vert")) and (progressBarSize + 2) or 0
@@ -7003,7 +7060,9 @@ function ShamanPower:UpdateCooldownButtons()
 						-- Vertical bar
 						local progressHeight = math.max(buttonHeight * percent, 1)
 						btn.progressBar:SetSize(barHeight, progressHeight)
-						if barPosition == "left" or barPosition == "on_icon" then
+						if barPosition == "on_icon" then
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+						elseif barPosition == "left" then
 							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
 						elseif barPosition == "right" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
@@ -7124,7 +7183,9 @@ function ShamanPower:UpdateCooldownButtons()
 						-- Vertical bar
 						local progressHeight = math.max(buttonHeight * percent, 1)
 						btn.progressBar:SetSize(barHeight, progressHeight)
-						if barPosition == "left" or barPosition == "on_icon" then
+						if barPosition == "on_icon" then
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+						elseif barPosition == "left" then
 							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
 						elseif barPosition == "right" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
@@ -7308,7 +7369,18 @@ function ShamanPower:UpdateCooldownButtons()
 						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 						if bgOff then bgOff:Hide() end
 					end
-				elseif barPosition == "left" or barPosition == "on_icon" then
+				elseif barPosition == "on_icon" then
+					if both then
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+						bgOff:SetSize(barHeight, buttonHeight)
+						bgOff:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+					else
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "left" then
 					if both then
 						bgMain:SetSize(barHeight, buttonHeight)
 						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
@@ -7335,14 +7407,14 @@ function ShamanPower:UpdateCooldownButtons()
 				if insideMain then
 					insideMain:ClearAllPoints()
 					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
-					local fontSize = math.max(7, barHeight - 2)
+					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
 					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 				end
 				if insideOff then
 					if both then
 						insideOff:ClearAllPoints()
 						insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
-						local fontSize = math.max(7, barHeight - 2)
+						local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
 						insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 					else
 						insideOff:Hide()
@@ -7385,14 +7457,42 @@ function ShamanPower:UpdateCooldownButtons()
 
 			if hasMain or hasOff then
 				-- Track each hand separately
-				local mainType = hasMain and (self.EnchantIDToImbue[mainID] or 1) or 1
-				local offType = hasOff and (self.EnchantIDToImbue[offID] or 2) or mainType
+				local mainType = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or 1
+				local offType = hasOff and (self.EnchantIDToImbue[offID] or self.lastOffHandImbue or 2) or mainType
 
 				btn.hasMainActive = hasMain
 				btn.hasOffActive = hasOff
 
-				btn.icon:SetTexture(self.WeaponIcons[mainType])
-				btn.icon:SetDesaturated(false)
+				-- Update grey sweep overlay textures to match current imbues
+				btn.greyOverlayMain:SetTexture(self.WeaponIcons[mainType])
+				btn.greyOverlayOff:SetTexture(self.WeaponIcons[offType])
+
+				-- Split icon display when both hands have different imbues
+				if hasMain and hasOff and mainType ~= offType then
+					-- Left half = main hand
+					btn.icon:ClearAllPoints()
+					btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+					btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOM", 0, 0)
+					btn.icon:SetTexture(self.WeaponIcons[mainType])
+					btn.icon:SetTexCoord(0.08, 0.50, 0.08, 0.92)
+					btn.icon:SetDesaturated(false)
+					-- Right half = off hand
+					btn.icon2:ClearAllPoints()
+					btn.icon2:SetPoint("TOPLEFT", btn, "TOP", 0, 0)
+					btn.icon2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+					btn.icon2:SetTexture(self.WeaponIcons[offType])
+					btn.icon2:SetTexCoord(0.50, 0.92, 0.08, 0.92)
+					btn.icon2:Show()
+				else
+					-- Single imbue or same on both hands - full icon
+					btn.icon:ClearAllPoints()
+					btn.icon:SetAllPoints()
+					local displayType = hasMain and mainType or offType
+					btn.icon:SetTexture(self.WeaponIcons[displayType])
+					btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+					btn.icon:SetDesaturated(false)
+					btn.icon2:Hide()
+				end
 				btn.darkOverlay:Hide()
 
 				local function updateHand(hasHand, expMS, imbueType, bg, bar, grey, inside, outside, iconTextField, alignLeft)
@@ -7431,21 +7531,28 @@ function ShamanPower:UpdateCooldownButtons()
 
 					if showSweep and grey then
 						local depletedPercent = 1 - percent
-						local sweepLength = (isVerticalBar and buttonHeight or (buttonWidth / 2)) * depletedPercent
-						if sweepLength > 1 then
+						local greyHeight = buttonHeight * depletedPercent
+						if greyHeight > 1 then
 							grey:ClearAllPoints()
-							if isVerticalBar then
-								grey:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
-								grey:SetPoint("TOPRIGHT", bg, "TOPRIGHT", 0, 0)
-								grey:SetHeight(sweepLength)
-								local texBottom = 0.08 + (depletedPercent * 0.84)
-								grey:SetTexCoord(0.08, 0.92, 0.08, texBottom)
+							-- Sweep on the icon itself (like other CD bar buttons)
+							if alignLeft and btn.icon2:IsShown() then
+								-- Split icon: left half (main hand)
+								grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+								grey:SetWidth(buttonWidth / 2)
+								grey:SetHeight(greyHeight)
+								grey:SetTexCoord(0.08, 0.50, 0.08, 0.08 + (depletedPercent * 0.84))
+							elseif not alignLeft and btn.icon2:IsShown() then
+								-- Split icon: right half (off hand)
+								grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+								grey:SetWidth(buttonWidth / 2)
+								grey:SetHeight(greyHeight)
+								grey:SetTexCoord(0.50, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
 							else
-								grey:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
-								grey:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
-								grey:SetWidth(sweepLength)
-								local texRight = 0.08 + (depletedPercent * 0.84)
-								grey:SetTexCoord(0.08, texRight, 0.08, 0.92)
+								-- Full icon (single imbue or same on both)
+								grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+								grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+								grey:SetHeight(greyHeight)
+								grey:SetTexCoord(0.08, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
 							end
 							grey:Show()
 						else
@@ -7502,8 +7609,12 @@ function ShamanPower:UpdateCooldownButtons()
 				updateHand(hasMain, mainExp, mainType, btn.bgBarMain, btn.progressBarMain, btn.greyOverlayMain, btn.insideText, btn.outsideText, btn.iconText, true)
 				updateHand(hasOff, offExp, offType, btn.bgBarOff, btn.progressBarOff, btn.greyOverlayOff, btn.insideText2, btn.outsideText2, btn.iconText2, false)
 			else
-				-- No imbue active
+				-- No imbue active - restore full icon
+				btn.icon:ClearAllPoints()
+				btn.icon:SetAllPoints()
+				btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 				btn.icon:SetDesaturated(true)
+				btn.icon2:Hide()
 				btn.darkOverlay:Show()
 				if btn.progressBarMain then btn.progressBarMain:Hide() end
 				if btn.progressBarOff then btn.progressBarOff:Hide() end
@@ -7560,6 +7671,12 @@ function ShamanPower:UpdateCooldownBar()
 	if self.shieldButton and not self.shieldFlyout then
 		self:CreateShieldFlyout()
 	end
+
+	-- Apply flyout right-click mode to cooldown bar buttons
+	self:UpdateCooldownBarFlyoutEnabled()
+
+	-- Apply saved text size
+	self:ApplyCdbarTextSize()
 
 	if not self.cooldownBar then return end
 
@@ -7755,7 +7872,11 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				elseif barPosition == "top_vert" then
 					btn.bgBar:SetSize(barSize, buttonHeight)
 					btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1)
-				elseif barPosition == "left" or barPosition == "on_icon" then
+				elseif barPosition == "on_icon" then
+					btn.bgBar:SetSize(barSize, buttonSize)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+				elseif barPosition == "left" then
 					btn.bgBar:SetSize(barSize, buttonSize)
 					btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
 					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
@@ -7769,7 +7890,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 			if btn.insideText and btn.bgBar then
 				btn.insideText:ClearAllPoints()
 				btn.insideText:SetPoint("CENTER", btn.bgBar, "CENTER", 0, 0)
-				local fontSize = math.max(7, barSize - 2)
+				local fontSize = self.opt.cdbarDurationTextSize or 8
 				btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 			end
 
@@ -7779,7 +7900,9 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 					btn.outsideText:SetPoint("TOP", btn.bgBar, "BOTTOM", 0, -1)
 				elseif barPosition == "top" or barPosition == "top_vert" then
 					btn.outsideText:SetPoint("BOTTOM", btn.bgBar, "TOP", 0, 1)
-				elseif barPosition == "left" or barPosition == "on_icon" then
+				elseif barPosition == "on_icon" then
+					btn.outsideText:SetPoint("RIGHT", btn, "LEFT", -1, 0)
+				elseif barPosition == "left" then
 					btn.outsideText:SetPoint("RIGHT", btn.bgBar, "LEFT", -1, 0)
 				elseif barPosition == "right" then
 					btn.outsideText:SetPoint("LEFT", btn.bgBar, "RIGHT", 1, 0)
@@ -7842,7 +7965,18 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 						if bgOff then bgOff:Hide() end
 					end
-				elseif barPosition == "left" or barPosition == "on_icon" then
+				elseif barPosition == "on_icon" then
+					if both then
+						bgMain:SetSize(barSize, buttonSize)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+						bgOff:SetSize(barSize, buttonSize)
+						bgOff:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+					else
+						bgMain:SetSize(barSize, buttonSize)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "left" then
 					if both then
 						bgMain:SetSize(barSize, buttonSize)
 						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
@@ -7869,13 +8003,13 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				if insideMain then
 					insideMain:ClearAllPoints()
 					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
-					local fontSize = math.max(7, barSize - 2)
+					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
 					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 				end
 				if insideOff and hasOff and both then
 					insideOff:ClearAllPoints()
 					insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
-					local fontSize = math.max(7, barSize - 2)
+					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
 					insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 				elseif insideOff then
 					insideOff:Hide()
@@ -8052,6 +8186,19 @@ function ShamanPower:UpdateTotemFlyoutOpacity()
 	end
 end
 
+-- Apply duration text size to all cooldown bar text elements
+function ShamanPower:ApplyCdbarTextSize()
+	local size = self.opt.cdbarDurationTextSize or 8
+	for _, btn in ipairs(self.cooldownButtons) do
+		if btn.insideText then btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.outsideText then btn.outsideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.iconText then btn.iconText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.insideText2 then btn.insideText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.outsideText2 then btn.outsideText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.iconText2 then btn.iconText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+	end
+end
+
 function ShamanPower:UpdateCooldownFlyoutOpacity()
 	local opacity = self.opt.cooldownFlyoutOpacity or 1.0
 	-- Update cooldown bar flyouts (shield selector, imbue selector)
@@ -8164,7 +8311,7 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Create the button with secure templates for combat-functional flyout
 	local btn = CreateFrame("Button", "ShamanPowerWeaponImbue", self.cooldownBar,
-		"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerBaseTemplate")
+		"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerMouseUpDownTemplate, SecureHandlerBaseTemplate")
 	btn:SetSize(buttonSize, buttonSize)
 	btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp", "RightButtonDown")
 
@@ -8304,6 +8451,14 @@ function ShamanPower:CreateWeaponImbueButton()
 		end
 	]])
 
+	-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
+	btn:SetAttribute("_onmouseup", [[
+		local button = button
+		if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
+			self:ChildUpdate("show", true)
+		end
+	]])
+
 	-- Tooltip (Lua hooks work alongside secure handlers)
 	btn:HookScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -8351,6 +8506,7 @@ function ShamanPower:CreateWeaponImbueButton()
 		btn:SetAttribute("macrotext1", mainHandMacro)
 		btn:SetAttribute("type2", "macro")
 		btn:SetAttribute("macrotext2", offHandMacro)
+		btn.currentImbueName = defaultImbue
 	end
 
 	self.weaponImbueButton = btn

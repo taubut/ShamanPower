@@ -12,10 +12,16 @@
   - Routes through the Dialog sound channel — requires Dialog volume set to 100% in WoW audio settings
 - **Cooldown Text Color Picker**: Added a color picker for totem cooldown text (under the "Show Totem Cooldowns" toggle)
   - Defaults to white; disabled when cooldowns are toggled off
+- **Elemental Mastery on Cooldown Bar**: Added Elemental Mastery as a trackable cooldown bar item (Elemental talent)
+- **Split Imbue Icon**: Weapon imbue icon vertically splits to show both imbue icons when main hand and off hand have different imbues
+- **Imbue Sweep Overlay**: Weapon imbue icon now shows a color-to-grey vertical sweep as the imbue expires, matching the other cooldown bar icons
+- **Duration Text Size Slider**: Added an independent font size slider (6-20) for cooldown bar duration text, separate from progress bar size
 
 ### Improvements
 - **Totemic Call icon desaturated when no totems active**: The Totemic Call icon on the cooldown bar is now greyed out when no totems are placed, and colorizes when any totem is active
 - **Weapon imbue bars unified and dual-tracking**: Weapon imbues now use the same progress-bar system as other cooldowns and show separate bars for main-hand and off-hand when both are active; single imbues expand to full-width.
+- **Flyout Requires Right-Click applies to Cooldown Bar**: The "Flyout Requires Right-Click" option now also applies to shield and weapon imbue flyouts on the cooldown bar
+- **Spell-colored progress bars preserve urgency colors**: Spell-colored bars now only replace the green (healthy) color; yellow and red time-based colors still show when time is running low
 
 ### Changes
 - **Play Sound defaults to OFF**: The "Play Sound" toggle for Reactive Totems, Expiring Alerts (shields, totems, weapon imbues), and Tremor Reminder now defaults to off for new users
@@ -25,6 +31,9 @@
 - **Cooldown text visibility**: Fixed cooldown text rendering behind the cooldown swipe overlay, making it hard to read
 - **Cooldown bar progress bar position**: Fixed "Bottom (Horizontal)" progress bars appearing at the top of the frame instead of the bottom
 - **Cooldown bar dynamic frame sizing**: The cooldown bar frame now only expands to make room for progress bars when a cooldown is actually active, instead of always reserving the space
+- **Missing pulse bars**: Added pulse tracking for Magma Totem (Fire) and Mana Spring Totem (Water) which were missing from the pulse overlay system
+- **"On Icon" progress bar position**: Fixed "On Icon (Left & Right)" progress bars adding extra padding/spacing instead of rendering on the icon itself
+- **Rockbiter imbue icon**: Fixed Rockbiter weapon imbue showing as Windfury icon due to missing enchant ID fallback
 
 ## [v1.5.7](https://github.com/taubut/ShamanPower/releases/tag/v1.5.7) (2026-02-02)
 
