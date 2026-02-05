@@ -625,7 +625,7 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 	-- If nothing to show, just play sound if enabled
 	if not showIcon and not showText then
 		if playSound then
-			PlaySound(8959) -- PVPFLAGTAKEN
+			ShamanPower:PlaySoundWithVolume(8959, self.opt.raidCDSoundVolume, false)
 		end
 		return
 	end
@@ -697,7 +697,7 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 
 	-- Play sound if enabled
 	if playSound then
-		PlaySound(8959) -- PVPFLAGTAKEN
+		ShamanPower:PlaySoundWithVolume(8959, self.opt.raidCDSoundVolume, false)
 	end
 end
 

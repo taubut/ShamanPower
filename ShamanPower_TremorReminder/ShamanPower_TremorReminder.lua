@@ -93,8 +93,9 @@ local defaults = {
     opacity = 100,
     showGlow = true,
     glowColor = { r = 1, g = 0.8, b = 0 },
-    playSound = true,
+    playSound = false,
     soundFile = "Sound\\Interface\\RaidWarning.ogg",
+    soundVolume = 100,
     position = { point = "CENTER", x = 0, y = 150 },
     locked = true,
     hideWhenTremorActive = true,
@@ -321,7 +322,7 @@ local function ShowReminder()
 
     -- Play sound
     if sv.playSound and sv.soundFile then
-        PlaySoundFile(sv.soundFile, "Master")
+        ShamanPower:PlaySoundWithVolume(sv.soundFile, sv.soundVolume, true)
     end
 end
 
@@ -373,7 +374,7 @@ local function CheckTarget()
 
     if not isShowing then
         if shouldSound and sv.playSound and sv.soundFile then
-            PlaySoundFile(sv.soundFile, "Master")
+            ShamanPower:PlaySoundWithVolume(sv.soundFile, sv.soundVolume, true)
         end
     end
 

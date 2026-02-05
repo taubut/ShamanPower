@@ -1,5 +1,31 @@
 # ShamanPower Changelog
 
+## v1.5.9 (2026-02-05)
+
+### New Features
+- **Weapon Imbue Left/Right-Click**: Left-click applies imbue to main hand, right-click applies to off hand (both on parent button and flyout)
+  - Uses the `/cast [@none]` + `/use slot` macro pattern for reliable weapon targeting
+  - Auto-confirms the replacement dialog via `/click StaticPopup1Button1`
+  - Tooltips now show click hints (off hand hint only visible if dual wielding)
+- **Sound Volume Sliders**: Added volume sliders next to each "Play Sound" toggle across Raid Cooldowns, Reactive Totems, Expiring Alerts, and Tremor Reminder
+  - Control alert volume from 0% to 100% per module
+  - Routes through the Dialog sound channel — requires Dialog volume set to 100% in WoW audio settings
+- **Cooldown Text Color Picker**: Added a color picker for totem cooldown text (under the "Show Totem Cooldowns" toggle)
+  - Defaults to white; disabled when cooldowns are toggled off
+
+### Improvements
+- **Totemic Call icon desaturated when no totems active**: The Totemic Call icon on the cooldown bar is now greyed out when no totems are placed, and colorizes when any totem is active
+- **Weapon imbue bars unified and dual-tracking**: Weapon imbues now use the same progress-bar system as other cooldowns and show separate bars for main-hand and off-hand when both are active; single imbues expand to full-width.
+
+### Changes
+- **Play Sound defaults to OFF**: The "Play Sound" toggle for Reactive Totems, Expiring Alerts (shields, totems, weapon imbues), and Tremor Reminder now defaults to off for new users
+- **Totem/Cooldown Bar opacity minimum lowered to 0%**: Both bars can now be fully transparent
+
+### Bug Fixes
+- **Cooldown text visibility**: Fixed cooldown text rendering behind the cooldown swipe overlay, making it hard to read
+- **Cooldown bar progress bar position**: Fixed "Bottom (Horizontal)" progress bars appearing at the top of the frame instead of the bottom
+- **Cooldown bar dynamic frame sizing**: The cooldown bar frame now only expands to make room for progress bars when a cooldown is actually active, instead of always reserving the space
+
 ## [v1.5.7](https://github.com/taubut/ShamanPower/releases/tag/v1.5.7) (2026-02-02)
 
 ### New Features

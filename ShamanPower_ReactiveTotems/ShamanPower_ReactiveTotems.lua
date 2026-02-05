@@ -100,8 +100,9 @@ local defaultSettings = {
 	colorByDebuffType = true,
 
 	-- Audio
-	playSound = true,
+	playSound = false,
 	soundID = 8959,
+	soundVolume = 100,
 
 	-- Behavior
 	clickToCast = true,
@@ -493,7 +494,7 @@ function SP:UpdateReactiveTotemDisplay()
 
 			-- Sound (only once per debuff application)
 			if sv.playSound and not frame.soundPlayed then
-				PlaySound(sv.soundID or 8959)
+				ShamanPower:PlaySoundWithVolume(sv.soundID or 8959, sv.soundVolume, false)
 				frame.soundPlayed = true
 			end
 
@@ -808,7 +809,7 @@ function SP:TestReactiveAlerts()
 	end
 
 	if sv.playSound then
-		PlaySound(sv.soundID or 8959)
+		ShamanPower:PlaySoundWithVolume(sv.soundID or 8959, sv.soundVolume, false)
 	end
 
 	-- Hide after 3 seconds

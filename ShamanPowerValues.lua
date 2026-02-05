@@ -129,6 +129,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         raidCDShowWarningIcon = true,  -- Show raid warning icon when calling cooldowns
         raidCDShowWarningText = true,  -- Show raid warning text when calling cooldowns
         raidCDPlaySound = true,  -- Play sound when calling cooldowns
+        raidCDSoundVolume = 100,  -- Volume for raid cooldown sounds (0-100)
         raidCDShowButtonAnimation = true,  -- Show cooldown animation on caller buttons
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
@@ -169,6 +170,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         durationBarHeight = 3,           -- Size of duration bar (2-26)
         durationTextLocation = "none",   -- "none", "inside_top", "inside_bottom", "above", "below", "icon"
         durationTextSize = 8,            -- Font size for duration text (6-20)
+        totemCooldownTextColor = { r = 1, g = 1, b = 1 },  -- Color for totem cooldown text
         -- Pulse Bar settings (shows pulse countdown for pulsing totems)
         pulseBarPosition = "on_icon",    -- "none", "on_icon", "above", "above_vert", "below", "below_vert", "left", "right"
         pulseBarSize = 4,                -- Size of pulse bar (2-16)

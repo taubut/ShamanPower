@@ -200,6 +200,36 @@ function ShamanPower:Debug(s)
 	end
 end
 
+function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
+	if not volume or volume >= 100 then
+		if isFile then
+			PlaySoundFile(soundOrFile, "Master")
+		else
+			PlaySound(soundOrFile, "Master")
+		end
+		return
+	end
+	if volume <= 0 then return end
+	-- Route through the Dialog channel to avoid affecting other game sounds
+	local origDialogVol = GetCVar("Sound_DialogVolume")
+	local origDialogEnabled = GetCVar("Sound_EnableDialog")
+	if origDialogEnabled == "0" then
+		SetCVar("Sound_EnableDialog", "1")
+	end
+	SetCVar("Sound_DialogVolume", tostring(volume / 100))
+	if isFile then
+		PlaySoundFile(soundOrFile, "Dialog")
+	else
+		PlaySound(soundOrFile, "Dialog")
+	end
+	C_Timer.After(5, function()
+		SetCVar("Sound_DialogVolume", origDialogVol)
+		if origDialogEnabled == "0" then
+			SetCVar("Sound_EnableDialog", origDialogEnabled)
+		end
+	end)
+end
+
 -------------------------------------------------------------------
 -- Ace Framework Events
 -------------------------------------------------------------------
@@ -4851,10 +4881,14 @@ function ShamanPower:CreateTotemButtons()
 		cdFrame:SetHideCountdownNumbers(true)  -- We'll show our own text
 		btn.cooldown = cdFrame
 
-		-- Create cooldown text overlay for main totem button
-		local cdText = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		-- Create cooldown text overlay for main totem button (above the cooldown swipe)
+		local cdTextFrame = CreateFrame("Frame", nil, btn)
+		cdTextFrame:SetAllPoints(btn)
+		cdTextFrame:SetFrameLevel(cdFrame:GetFrameLevel() + 1)
+		local cdText = cdTextFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		cdText:SetPoint("CENTER", btn, "CENTER", 0, 0)
-		cdText:SetTextColor(1, 1, 1)
+		local cdColor = self.opt.totemCooldownTextColor
+		cdText:SetTextColor(cdColor and cdColor.r or 1, cdColor and cdColor.g or 1, cdColor and cdColor.b or 1)
 		cdText:SetShadowOffset(1, -1)
 		cdText:Hide()
 		btn.cooldownText = cdText
@@ -5337,10 +5371,14 @@ function ShamanPower:CreateTotemFlyout(element)
 			cdFrame:SetHideCountdownNumbers(true)  -- We'll show our own text
 			btn.cooldown = cdFrame
 
-			-- Create cooldown text overlay
-			local cdText = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			-- Create cooldown text overlay (above the cooldown swipe)
+			local cdTextFrame = CreateFrame("Frame", nil, btn)
+			cdTextFrame:SetAllPoints(btn)
+			cdTextFrame:SetFrameLevel(cdFrame:GetFrameLevel() + 1)
+			local cdText = cdTextFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 			cdText:SetPoint("CENTER", btn, "CENTER", 0, 0)
-			cdText:SetTextColor(1, 1, 1)
+			local cdColor = self.opt.totemCooldownTextColor
+			cdText:SetTextColor(cdColor and cdColor.r or 1, cdColor and cdColor.g or 1, cdColor and cdColor.b or 1)
 			cdText:SetShadowOffset(1, -1)
 			cdText:Hide()
 			btn.cooldownText = cdText
@@ -6168,6 +6206,28 @@ ShamanPower.TrackedCooldowns = {
 	{32182, "Heroism", "cooldown", "cdbarShowBloodlust"},  -- Heroism (Alliance)
 }
 
+-- Spell colors for progress bars (used when cdbarSpellColors is enabled)
+ShamanPower.SpellBarColors = {
+	-- Cooldown bar spells (by spellID)
+	[324]   = {0.4, 0.6, 1.0},   -- Lightning Shield - blue
+	[24398] = {0.2, 0.7, 1.0},   -- Water Shield - light blue
+	[36936] = {0.6, 0.4, 0.2},   -- Totemic Call - earthy brown
+	[20608] = {0.8, 0.2, 0.2},   -- Reincarnation - red
+	[16188] = {0.2, 0.8, 0.3},   -- Nature's Swiftness - green
+	[16190] = {0.2, 0.5, 1.0},   -- Mana Tide Totem - blue
+	[30823] = {0.8, 0.5, 0.1},   -- Shamanistic Rage - orange
+	[2825]  = {0.8, 0.1, 0.1},   -- Bloodlust - red
+	[32182] = {0.8, 0.1, 0.1},   -- Heroism - red
+}
+
+-- Weapon imbue colors (by imbue type index)
+ShamanPower.ImbueBarColors = {
+	[1] = {0.6, 0.8, 1.0},   -- Windfury - white/light blue
+	[2] = {1.0, 0.4, 0.1},   -- Flametongue - orange/red
+	[3] = {0.3, 0.6, 1.0},   -- Frostbrand - blue
+	[4] = {0.6, 0.4, 0.2},   -- Rockbiter - brown
+}
+
 -- Shield spell IDs for the combined shield button
 ShamanPower.ShieldSpells = {
 	{324, "Lightning Shield"},   -- Lightning Shield
@@ -6596,7 +6656,6 @@ function ShamanPower:CreateCooldownBar()
 	if not self.updateSystem.subsystems["cooldownBar"] then
 		self:RegisterUpdateSubsystem("cooldownBar", 0.2, function()
 			ShamanPower:UpdateCooldownButtons()
-			ShamanPower:UpdateWeaponImbueButton()
 			if ShamanPower.opt.cooldownBarFullOpacityWhenActive then
 				ShamanPower:UpdateCooldownBarOpacity()
 			end
@@ -6710,6 +6769,24 @@ local function GetTimerBarColor(expiration)
 	end
 end
 
+-- Get progress bar color: spell color if enabled, otherwise time-based
+local function GetBarColor(expiration, spellID)
+	if ShamanPower.opt.cdbarSpellColors and spellID then
+		local c = ShamanPower.SpellBarColors[spellID]
+		if c then return c[1], c[2], c[3] end
+	end
+	return GetTimerBarColor(expiration)
+end
+
+-- Get imbue bar color: imbue color if enabled, otherwise time-based
+local function GetImbueBarColor(expiration, imbueType)
+	if ShamanPower.opt.cdbarSpellColors and imbueType then
+		local c = ShamanPower.ImbueBarColors[imbueType]
+		if c then return c[1], c[2], c[3] end
+	end
+	return GetTimerBarColor(expiration)
+end
+
 -- Update cooldown bar layout (horizontal or vertical)
 function ShamanPower:UpdateCooldownBarLayout()
 	if not self.cooldownBar then return end
@@ -6749,13 +6826,42 @@ function ShamanPower:UpdateCooldownBarLayout()
 	local numButtons = #visibleButtons
 
 	-- Extra padding for progress bars based on position
+	-- Only reserve space when progress bars are enabled AND at least one is currently visible
 	local showBars = self.opt.cdbarShowProgressBars ~= false
+	if showBars then
+		local anyBarVisible = false
+		for _, btn in ipairs(self.cooldownButtons) do
+			if btn.progressBar and btn.progressBar:IsShown() then
+				anyBarVisible = true
+				break
+			end
+		end
+		showBars = anyBarVisible
+	end
 	local barPosition = self.opt.cdbarProgressPosition or "left"
 	local progressBarSize = self.opt.cdbarProgressBarHeight or 3
 
-	-- Calculate padding based on bar position
-	local leftPadding = (showBars and barPosition == "left") and (progressBarSize + 2) or 0
-	local rightPadding = (showBars and barPosition == "right") and (progressBarSize + 2) or 0
+	-- Calculate padding based on bar position (add extra room for imbue dual bars)
+	local leftPadding, rightPadding = 0, 0
+	local extraSpacing = 0  -- Additional spacing between buttons when bars stick out sideways
+	if showBars then
+		local hasImbueButton = self.weaponImbueButton ~= nil
+		if barPosition == "left" then
+			leftPadding = progressBarSize + 2
+			if hasImbueButton then rightPadding = progressBarSize + 2 end
+			extraSpacing = progressBarSize + 1
+		elseif barPosition == "right" then
+			rightPadding = progressBarSize + 2
+			if hasImbueButton then leftPadding = progressBarSize + 2 end
+			extraSpacing = progressBarSize + 1
+		elseif barPosition == "on_icon" or barPosition == "top_vert" or barPosition == "bottom_vert" then
+			leftPadding = progressBarSize + 2
+			rightPadding = progressBarSize + 2
+			if barPosition == "on_icon" then
+				extraSpacing = (progressBarSize + 1) * 2
+			end
+		end
+	end
 	local topPadding = (showBars and (barPosition == "top" or barPosition == "top_vert")) and (progressBarSize + 2) or 0
 	local bottomPadding = (showBars and (barPosition == "bottom" or barPosition == "bottom_vert")) and (progressBarSize + 2) or 0
 	-- Vertical bars on top/bottom need extra height for the bar length
@@ -6771,8 +6877,7 @@ function ShamanPower:UpdateCooldownBarLayout()
 		for i, btn in ipairs(visibleButtons) do
 			btn:ClearAllPoints()
 			local xOffset = (leftPadding - rightPadding) / 2
-			local yOffset = (topPadding - bottomPadding) / 2
-			btn:SetPoint("TOP", bar, "TOP", xOffset, -padding - topPadding - (i - 1) * (buttonSize + spacing) + yOffset)
+			btn:SetPoint("TOP", bar, "TOP", xOffset, -padding - topPadding - (i - 1) * (buttonSize + spacing))
 			btn:Show()
 		end
 
@@ -6783,15 +6888,14 @@ function ShamanPower:UpdateCooldownBarLayout()
 		end
 	else
 		-- Horizontal: buttons left to right
-		local barWidth = (buttonSize * numButtons) + (spacing * math.max(numButtons - 1, 0)) + (padding * 2) + leftPadding + rightPadding
+		local barWidth = (buttonSize * numButtons) + (spacing * math.max(numButtons - 1, 0)) + (extraSpacing * math.max(numButtons - 1, 0)) + (padding * 2) + leftPadding + rightPadding
 		local barHeight = buttonSize + (padding * 2) + topPadding + bottomPadding
 		bar:SetSize(barWidth, barHeight)
 
 		for i, btn in ipairs(visibleButtons) do
 			btn:ClearAllPoints()
-			local xOffset = (leftPadding - rightPadding) / 2
-			local yOffset = (topPadding - bottomPadding) / 2
-			btn:SetPoint("LEFT", bar, "LEFT", padding + leftPadding + (i - 1) * (buttonSize + spacing) - xOffset, yOffset)
+			local yOffset = (bottomPadding - topPadding) / 2
+			btn:SetPoint("LEFT", bar, "LEFT", padding + leftPadding + (i - 1) * (buttonSize + spacing + extraSpacing), yOffset)
 			btn:Show()
 		end
 
@@ -6814,6 +6918,7 @@ function ShamanPower:UpdateCooldownButtons()
 	local barPosition = self.opt.cdbarProgressPosition or "left"
 	local barHeight = self.opt.cdbarProgressBarHeight or 3
 	local textLocation = self.opt.cdbarDurationTextLocation or "none"
+	local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 
 	-- Use numeric for loop instead of ipairs to avoid iterator garbage
 	for i = 1, #self.cooldownButtons do
@@ -6886,10 +6991,10 @@ function ShamanPower:UpdateCooldownButtons()
 				end
 
 				-- Progress bar (for shields, show based on time remaining)
-				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert")
+				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 				if showBars and btn.progressBar and shieldDuration > 0 then
 					local percent = math.min(remaining / maxDuration, 1)
-					local r, g, b = GetTimerBarColor(remaining * 1000)
+					local r, g, b = GetBarColor(remaining * 1000, activeShieldID)
 
 					if btn.bgBar then btn.bgBar:Show() end
 					btn.progressBar:ClearAllPoints()
@@ -6898,7 +7003,7 @@ function ShamanPower:UpdateCooldownButtons()
 						-- Vertical bar
 						local progressHeight = math.max(buttonHeight * percent, 1)
 						btn.progressBar:SetSize(barHeight, progressHeight)
-						if barPosition == "left" then
+						if barPosition == "left" or barPosition == "on_icon" then
 							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
 						elseif barPosition == "right" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
@@ -7008,9 +7113,9 @@ function ShamanPower:UpdateCooldownButtons()
 				local percent = math.min(remaining / duration, 1)
 
 				-- Progress bar
-				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert")
+				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 				if showBars and btn.progressBar then
-					local r, g, b = GetTimerBarColor(remaining * 1000)
+					local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
 
 					if btn.bgBar then btn.bgBar:Show() end
 					btn.progressBar:ClearAllPoints()
@@ -7019,7 +7124,7 @@ function ShamanPower:UpdateCooldownButtons()
 						-- Vertical bar
 						local progressHeight = math.max(buttonHeight * percent, 1)
 						btn.progressBar:SetSize(barHeight, progressHeight)
-						if barPosition == "left" then
+						if barPosition == "left" or barPosition == "on_icon" then
 							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
 						elseif barPosition == "right" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
@@ -7129,10 +7234,310 @@ function ShamanPower:UpdateCooldownButtons()
 							btn.ankhCountText:Hide()
 						end
 					end
+				-- Special case: Totemic Call - grey out if no totems are placed
+				elseif btn.spellID == 36936 then
+					local anyTotem = false
+					for slot = 1, 4 do
+						local haveTotem = GetTotemInfo(slot)
+						if haveTotem then
+							anyTotem = true
+							break
+						end
+					end
+					btn.icon:SetDesaturated(not anyTotem)
 				else
 					btn.icon:SetDesaturated(false)
 				end
 			end
+		elseif btn.spellType == "weaponImbue" then
+			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
+			local buttonHeight = btn:GetHeight()
+			local buttonWidth = btn:GetWidth()
+			local maxDuration = 1800000 -- 30 minutes (ms)
+			-- Local layout helper (duplicate of UpdateCooldownBarProgressBars logic, scoped here)
+			local function positionDual(bgMain, bgOff, insideMain, insideOff, outsideMain, outsideOff)
+				local both = hasMain and hasOff
+
+				if not hasMain and not hasOff then
+					if bgMain then bgMain:Hide() end
+					if bgOff then bgOff:Hide() end
+					return
+				end
+
+				if barPosition == "bottom" then
+					if both then
+						bgMain:SetSize(buttonWidth / 2, barHeight)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						bgOff:SetSize(buttonWidth / 2, barHeight)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -1)
+					else
+						bgMain:SetSize(buttonWidth, barHeight)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "top" then
+					if both then
+						bgMain:SetSize(buttonWidth / 2, barHeight)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						bgOff:SetSize(buttonWidth / 2, barHeight)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1)
+					else
+						bgMain:SetSize(buttonWidth, barHeight)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "top_vert" then
+					if both then
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1)
+						bgOff:SetSize(barHeight, buttonHeight)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1)
+					else
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "bottom_vert" then
+					if both then
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -1)
+						bgOff:SetSize(barHeight, buttonHeight)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -1)
+					else
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "left" or barPosition == "on_icon" then
+					if both then
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						bgOff:SetSize(barHeight, buttonHeight)
+						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+					else
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "right" then
+					if both then
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgOff:SetSize(barHeight, buttonHeight)
+						bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
+					else
+						bgMain:SetSize(barHeight, buttonHeight)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						if bgOff then bgOff:Hide() end
+					end
+				end
+
+				if insideMain then
+					insideMain:ClearAllPoints()
+					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
+					local fontSize = math.max(7, barHeight - 2)
+					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				end
+				if insideOff then
+					if both then
+						insideOff:ClearAllPoints()
+						insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
+						local fontSize = math.max(7, barHeight - 2)
+						insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+					else
+						insideOff:Hide()
+					end
+				end
+
+				if outsideMain then
+					outsideMain:ClearAllPoints()
+					if barPosition == "bottom" then
+						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", both and -2 or 0, -1)
+					elseif barPosition == "top" then
+						outsideMain:SetPoint("BOTTOM", bgMain, "TOP", both and -2 or 0, 1)
+					elseif barPosition == "top_vert" then
+						outsideMain:SetPoint("BOTTOM", bgMain, "TOP", 0, 1)
+					elseif barPosition == "bottom_vert" then
+						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
+					else
+						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1, 0)
+					end
+				end
+				if outsideOff then
+					if both then
+						outsideOff:ClearAllPoints()
+						if barPosition == "bottom" then
+							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 2, -1)
+						elseif barPosition == "top" then
+							outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 2, 1)
+						elseif barPosition == "top_vert" then
+							outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 0, 1)
+						elseif barPosition == "bottom_vert" then
+							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
+						else
+							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1, 0)
+						end
+					else
+						outsideOff:Hide()
+					end
+				end
+			end
+
+			if hasMain or hasOff then
+				-- Track each hand separately
+				local mainType = hasMain and (self.EnchantIDToImbue[mainID] or 1) or 1
+				local offType = hasOff and (self.EnchantIDToImbue[offID] or 2) or mainType
+
+				btn.hasMainActive = hasMain
+				btn.hasOffActive = hasOff
+
+				btn.icon:SetTexture(self.WeaponIcons[mainType])
+				btn.icon:SetDesaturated(false)
+				btn.darkOverlay:Hide()
+
+				local function updateHand(hasHand, expMS, imbueType, bg, bar, grey, inside, outside, iconTextField, alignLeft)
+					if not (hasHand and bar and bg) then
+						if bar then bar:Hide() end
+						if bg then bg:Hide() end
+						if grey then grey:Hide() end
+						if inside then inside:Hide() end
+						if outside then outside:Hide() end
+						if iconTextField then iconTextField:Hide() end
+						return
+					end
+
+					local percent = math.min(expMS / maxDuration, 1)
+					local r, g, b = GetImbueBarColor(expMS, imbueType)
+
+					bg:Show()
+					bar:ClearAllPoints()
+
+					if isVerticalBar then
+						local progressHeight = math.max(buttonHeight * percent, 1)
+						bar:SetSize(barHeight, progressHeight)
+						if alignLeft then
+							bar:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+						else
+							bar:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+						end
+					else
+						local progressWidth = math.max((buttonWidth / 2) * percent, 1)
+						bar:SetSize(progressWidth, barHeight)
+						bar:SetPoint("LEFT", bg, "LEFT", 0, 0)
+					end
+
+					bar:SetColorTexture(r, g, b, 0.9)
+					bar:Show()
+
+					if showSweep and grey then
+						local depletedPercent = 1 - percent
+						local sweepLength = (isVerticalBar and buttonHeight or (buttonWidth / 2)) * depletedPercent
+						if sweepLength > 1 then
+							grey:ClearAllPoints()
+							if isVerticalBar then
+								grey:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
+								grey:SetPoint("TOPRIGHT", bg, "TOPRIGHT", 0, 0)
+								grey:SetHeight(sweepLength)
+								local texBottom = 0.08 + (depletedPercent * 0.84)
+								grey:SetTexCoord(0.08, 0.92, 0.08, texBottom)
+							else
+								grey:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
+								grey:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+								grey:SetWidth(sweepLength)
+								local texRight = 0.08 + (depletedPercent * 0.84)
+								grey:SetTexCoord(0.08, texRight, 0.08, 0.92)
+							end
+							grey:Show()
+						else
+							grey:Hide()
+						end
+					elseif grey then
+						grey:Hide()
+					end
+
+					local durationStr = FormatDuration(expMS / 1000)
+					if inside then
+						inside:SetText(durationStr)
+					end
+					if outside then
+						outside:SetText(durationStr)
+					end
+					if iconTextField then
+						iconTextField:SetText(durationStr)
+					end
+
+					if textLocation == "inside" then
+						if inside then inside:Show() end
+						if outside then outside:Hide() end
+						if iconTextField then iconTextField:Hide() end
+						if btn.timeText then btn.timeText:SetText("") end
+					elseif textLocation == "outside" then
+						if outside then outside:Show() end
+						if inside then inside:Hide() end
+						if iconTextField then iconTextField:Hide() end
+						if btn.timeText then btn.timeText:SetText("") end
+					elseif textLocation == "icon" then
+						if iconTextField then iconTextField:Show() end
+						if inside then inside:Hide() end
+						if outside then outside:Hide() end
+						if btn.timeText then btn.timeText:SetText("") end
+					elseif textLocation == "none" and showText then
+						if btn.timeText then btn.timeText:SetText(durationStr) end
+						if inside then inside:Hide() end
+						if outside then outside:Hide() end
+						if iconTextField then iconTextField:Hide() end
+					else
+						if btn.timeText then btn.timeText:SetText("") end
+						if inside then inside:Hide() end
+						if outside then outside:Hide() end
+						if iconTextField then iconTextField:Hide() end
+					end
+				end
+
+				-- Layout backgrounds first (uses hasMainActive/hasOffActive)
+				if btn.bgBarMain and btn.bgBarOff then
+					positionDual(btn.bgBarMain, btn.bgBarOff, btn.insideText, btn.insideText2, btn.outsideText, btn.outsideText2)
+				end
+
+				updateHand(hasMain, mainExp, mainType, btn.bgBarMain, btn.progressBarMain, btn.greyOverlayMain, btn.insideText, btn.outsideText, btn.iconText, true)
+				updateHand(hasOff, offExp, offType, btn.bgBarOff, btn.progressBarOff, btn.greyOverlayOff, btn.insideText2, btn.outsideText2, btn.iconText2, false)
+			else
+				-- No imbue active
+				btn.icon:SetDesaturated(true)
+				btn.darkOverlay:Show()
+				if btn.progressBarMain then btn.progressBarMain:Hide() end
+				if btn.progressBarOff then btn.progressBarOff:Hide() end
+				if btn.bgBarMain then btn.bgBarMain:Hide() end
+				if btn.bgBarOff then btn.bgBarOff:Hide() end
+				if btn.greyOverlayMain then btn.greyOverlayMain:Hide() end
+				if btn.greyOverlayOff then btn.greyOverlayOff:Hide() end
+				if btn.timeText then btn.timeText:SetText("") end
+				if btn.insideText then btn.insideText:Hide() end
+				if btn.outsideText then btn.outsideText:Hide() end
+				if btn.belowText and btn.belowText ~= btn.outsideText then btn.belowText:Hide() end
+				if btn.iconText then btn.iconText:Hide() end
+				if btn.insideText2 then btn.insideText2:Hide() end
+				if btn.outsideText2 then btn.outsideText2:Hide() end
+				if btn.iconText2 then btn.iconText2:Hide() end
+			end
+		end
+	end
+
+	-- Check if progress bar visibility changed and relayout if needed
+	if self.opt.cdbarShowProgressBars ~= false then
+		local anyBarVisible = false
+		for i = 1, #self.cooldownButtons do
+			local btn = self.cooldownButtons[i]
+			if (btn.progressBar and btn.progressBar:IsShown()) or
+			   (btn.progressBarMain and btn.progressBarMain:IsShown()) or
+			   (btn.progressBarOff and btn.progressBarOff:IsShown()) then
+				anyBarVisible = true
+				break
+			end
+		end
+		if anyBarVisible ~= self.cdbarAnyProgressVisible then
+			self.cdbarAnyProgressVisible = anyBarVisible
+			self:UpdateCooldownBarLayout()
 		end
 	end
 end
@@ -7332,58 +7737,186 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 		local buttonSize = btn:GetWidth()
 		local buttonHeight = btn:GetHeight()
 
-		if btn.bgBar then
-			btn.bgBar:ClearAllPoints()
-			if barPosition == "bottom" then
-				-- Horizontal bar below
-				btn.bgBar:SetSize(buttonSize, barSize)
-				btn.bgBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
-				btn.bgBar:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -1)
-			elseif barPosition == "bottom_vert" then
-				-- Vertical bar below (centered)
-				btn.bgBar:SetSize(barSize, buttonHeight)
-				btn.bgBar:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-			elseif barPosition == "top" then
-				-- Horizontal bar above
-				btn.bgBar:SetSize(buttonSize, barSize)
-				btn.bgBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
-				btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 1)
-			elseif barPosition == "top_vert" then
-				-- Vertical bar above (centered)
-				btn.bgBar:SetSize(barSize, buttonHeight)
-				btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1)
-			elseif barPosition == "left" then
-				-- Vertical bar on left
-				btn.bgBar:SetSize(barSize, buttonSize)
-				btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
-				btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
-			elseif barPosition == "right" then
-				-- Vertical bar on right
-				btn.bgBar:SetSize(barSize, buttonSize)
-				btn.bgBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
-				btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+		-- Normal buttons (single bar)
+		if btn.spellType ~= "weaponImbue" then
+			if btn.bgBar then
+				btn.bgBar:ClearAllPoints()
+				if barPosition == "bottom" then
+					btn.bgBar:SetSize(buttonSize, barSize)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+					btn.bgBar:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -1)
+				elseif barPosition == "bottom_vert" then
+					btn.bgBar:SetSize(barSize, buttonHeight)
+					btn.bgBar:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+				elseif barPosition == "top" then
+					btn.bgBar:SetSize(buttonSize, barSize)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 1)
+				elseif barPosition == "top_vert" then
+					btn.bgBar:SetSize(barSize, buttonHeight)
+					btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+				elseif barPosition == "left" or barPosition == "on_icon" then
+					btn.bgBar:SetSize(barSize, buttonSize)
+					btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+				elseif barPosition == "right" then
+					btn.bgBar:SetSize(barSize, buttonSize)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+				end
 			end
-		end
 
-		-- Update inside text position to stay centered in the bar
-		if btn.insideText and btn.bgBar then
-			btn.insideText:ClearAllPoints()
-			btn.insideText:SetPoint("CENTER", btn.bgBar, "CENTER", 0, 0)
-			local fontSize = math.max(7, barSize - 2)
-			btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-		end
+			if btn.insideText and btn.bgBar then
+				btn.insideText:ClearAllPoints()
+				btn.insideText:SetPoint("CENTER", btn.bgBar, "CENTER", 0, 0)
+				local fontSize = math.max(7, barSize - 2)
+				btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			end
 
-		-- Update outside text position based on bar position
-		if btn.outsideText and btn.bgBar then
-			btn.outsideText:ClearAllPoints()
-			if barPosition == "bottom" or barPosition == "bottom_vert" then
-				btn.outsideText:SetPoint("TOP", btn.bgBar, "BOTTOM", 0, -1)
-			elseif barPosition == "top" or barPosition == "top_vert" then
-				btn.outsideText:SetPoint("BOTTOM", btn.bgBar, "TOP", 0, 1)
-			elseif barPosition == "left" then
-				btn.outsideText:SetPoint("RIGHT", btn.bgBar, "LEFT", -1, 0)
-			elseif barPosition == "right" then
-				btn.outsideText:SetPoint("LEFT", btn.bgBar, "RIGHT", 1, 0)
+			if btn.outsideText and btn.bgBar then
+				btn.outsideText:ClearAllPoints()
+				if barPosition == "bottom" or barPosition == "bottom_vert" then
+					btn.outsideText:SetPoint("TOP", btn.bgBar, "BOTTOM", 0, -1)
+				elseif barPosition == "top" or barPosition == "top_vert" then
+					btn.outsideText:SetPoint("BOTTOM", btn.bgBar, "TOP", 0, 1)
+				elseif barPosition == "left" or barPosition == "on_icon" then
+					btn.outsideText:SetPoint("RIGHT", btn.bgBar, "LEFT", -1, 0)
+				elseif barPosition == "right" then
+					btn.outsideText:SetPoint("LEFT", btn.bgBar, "RIGHT", 1, 0)
+				end
+			end
+		else
+			-- Weapon imbue: two bars (main / off)
+			local function positionDual(bgMain, bgOff, insideMain, insideOff, outsideMain, outsideOff)
+				local hasMain = btn.hasMainActive
+				local hasOff = btn.hasOffActive
+				local both = hasMain and hasOff
+
+				if not hasMain and not hasOff then
+					if bgMain then bgMain:Hide() end
+					if bgOff then bgOff:Hide() end
+					return
+				end
+
+				if barPosition == "bottom" then
+					if both then
+						bgMain:SetSize(buttonSize / 2, barSize)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						bgOff:SetSize(buttonSize / 2, barSize)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -1)
+					else
+						bgMain:SetSize(buttonSize, barSize)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "top" then
+					if both then
+						bgMain:SetSize(buttonSize / 2, barSize)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						bgOff:SetSize(buttonSize / 2, barSize)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1)
+					else
+						bgMain:SetSize(buttonSize, barSize)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "top_vert" then
+					if both then
+						bgMain:SetSize(barSize, buttonHeight)
+						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1)
+						bgOff:SetSize(barSize, buttonHeight)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1)
+					else
+						bgMain:SetSize(barSize, buttonHeight)
+						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "bottom_vert" then
+					if both then
+						bgMain:SetSize(barSize, buttonHeight)
+						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -1)
+						bgOff:SetSize(barSize, buttonHeight)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -1)
+					else
+						bgMain:SetSize(barSize, buttonHeight)
+						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "left" or barPosition == "on_icon" then
+					if both then
+						bgMain:SetSize(barSize, buttonSize)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						bgOff:SetSize(barSize, buttonSize)
+						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+					else
+						bgMain:SetSize(barSize, buttonSize)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						if bgOff then bgOff:Hide() end
+					end
+				elseif barPosition == "right" then
+					if both then
+						bgMain:SetSize(barSize, buttonSize)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgOff:SetSize(barSize, buttonSize)
+						bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
+					else
+						bgMain:SetSize(barSize, buttonSize)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						if bgOff then bgOff:Hide() end
+					end
+				end
+
+				if insideMain then
+					insideMain:ClearAllPoints()
+					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
+					local fontSize = math.max(7, barSize - 2)
+					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				end
+				if insideOff and hasOff and both then
+					insideOff:ClearAllPoints()
+					insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
+					local fontSize = math.max(7, barSize - 2)
+					insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				elseif insideOff then
+					insideOff:Hide()
+				end
+
+				if outsideMain then
+					outsideMain:ClearAllPoints()
+					if barPosition == "bottom" then
+						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", both and -2 or 0, -1)
+					elseif barPosition == "top" then
+						outsideMain:SetPoint("BOTTOM", bgMain, "TOP", both and -2 or 0, 1)
+					elseif barPosition == "top_vert" then
+						outsideMain:SetPoint("BOTTOM", bgMain, "TOP", 0, 1)
+					elseif barPosition == "bottom_vert" then
+						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
+					else
+						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1, 0)
+					end
+				end
+				if outsideOff then
+					if hasOff and both then
+						outsideOff:ClearAllPoints()
+						if barPosition == "bottom" then
+							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 2, -1)
+						elseif barPosition == "top" then
+							outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 2, 1)
+						elseif barPosition == "top_vert" then
+							outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 0, 1)
+						elseif barPosition == "bottom_vert" then
+							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
+						else
+							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1, 0)
+						end
+					else
+						outsideOff:Hide()
+					end
+				end
+			end
+
+			if btn.bgBarMain and btn.bgBarOff then
+				positionDual(btn.bgBarMain, btn.bgBarOff, btn.insideText, btn.insideText2, btn.outsideText, btn.outsideText2)
 			end
 		end
 	end
@@ -7535,6 +8068,30 @@ function ShamanPower:UpdateCooldownFlyoutOpacity()
 	end
 end
 
+-- Apply totem cooldown text color to all existing buttons
+function ShamanPower:ApplyTotemCooldownTextColor()
+	local c = self.opt.totemCooldownTextColor
+	local r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
+	-- Main totem buttons
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn and btn.cooldownText then
+			btn.cooldownText:SetTextColor(r, g, b)
+		end
+	end
+	-- Flyout buttons
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.buttons then
+			for _, btn in ipairs(flyout.buttons) do
+				if btn.cooldownText then
+					btn.cooldownText:SetTextColor(r, g, b)
+				end
+			end
+		end
+	end
+end
+
 -- Apply all opacity settings (called on load/profile change)
 function ShamanPower:ApplyAllOpacity()
 	self:UpdateTotemBarOpacity()
@@ -7634,59 +8191,93 @@ function ShamanPower:CreateWeaponImbueButton()
 	dark:Hide()
 	btn.darkOverlay = dark
 
-	-- Progress bar for main hand (outside left edge)
-	local barWidth = 3
-	local mainBar = btn:CreateTexture(nil, "OVERLAY")
-	mainBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)  -- Outside left edge
-	mainBar:SetSize(barWidth, buttonSize)
-	mainBar:SetColorTexture(0.2, 0.8, 0.2, 0.9)  -- Green
-	mainBar:Hide()
-	btn.mainHandBar = mainBar
+	-- Dual progress bars (main hand / off hand) + backgrounds
+	local barSize = self.opt.cdbarProgressBarHeight or 3
 
-	-- Progress bar for off hand (outside right edge)
-	local offBar = btn:CreateTexture(nil, "OVERLAY")
-	offBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)  -- Outside right edge
-	offBar:SetSize(barWidth, buttonSize)
-	offBar:SetColorTexture(0.2, 0.8, 0.2, 0.9)  -- Green
-	offBar:Hide()
-	btn.offHandBar = offBar
+	local bgBarMain = btn:CreateTexture(nil, "OVERLAY")
+	bgBarMain:SetColorTexture(0, 0, 0, 0.7)
+	bgBarMain:Hide()
+	btn.bgBarMain = bgBarMain
 
-	-- Grey sweep overlay for single weapon (shows depleted portion from bottom)
-	local greyOverlay = btn:CreateTexture(nil, "ARTWORK", nil, 1)  -- Sublevel 1 to be above icon
-	greyOverlay:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
-	greyOverlay:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-	greyOverlay:SetHeight(0)
-	greyOverlay:SetTexture(self.WeaponIcons[1])
-	greyOverlay:SetDesaturated(true)
-	greyOverlay:SetVertexColor(0.5, 0.5, 0.5)  -- Darken it a bit
-	greyOverlay:Hide()
-	btn.greyOverlay = greyOverlay
+	local progressBarMain = btn:CreateTexture(nil, "OVERLAY", nil, 1)
+	progressBarMain:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+	progressBarMain:Hide()
+	btn.progressBarMain = progressBarMain
 
-	-- Grey sweep overlay for main hand (left half) in split display
-	local greyOverlay1 = btn:CreateTexture(nil, "ARTWORK", nil, 1)
-	greyOverlay1:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
-	greyOverlay1:SetSize(buttonSize / 2, 0)
-	greyOverlay1:SetTexture(self.WeaponIcons[1])
-	greyOverlay1:SetDesaturated(true)
-	greyOverlay1:SetVertexColor(0.5, 0.5, 0.5)
-	greyOverlay1:Hide()
-	btn.greyOverlay1 = greyOverlay1
+	local bgBarOff = btn:CreateTexture(nil, "OVERLAY")
+	bgBarOff:SetColorTexture(0, 0, 0, 0.7)
+	bgBarOff:Hide()
+	btn.bgBarOff = bgBarOff
 
-	-- Grey sweep overlay for off hand (right half) in split display
-	local greyOverlay2 = btn:CreateTexture(nil, "ARTWORK", nil, 1)
-	greyOverlay2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-	greyOverlay2:SetSize(buttonSize / 2, 0)
-	greyOverlay2:SetTexture(self.WeaponIcons[2])
-	greyOverlay2:SetDesaturated(true)
-	greyOverlay2:SetVertexColor(0.5, 0.5, 0.5)
-	greyOverlay2:Hide()
-	btn.greyOverlay2 = greyOverlay2
+	local progressBarOff = btn:CreateTexture(nil, "OVERLAY", nil, 1)
+	progressBarOff:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+	progressBarOff:Hide()
+	btn.progressBarOff = progressBarOff
 
-	-- Time text for showing remaining duration
+	-- Grey sweep overlays (one per hand)
+	local greyOverlayMain = btn:CreateTexture(nil, "ARTWORK", nil, 1)
+	greyOverlayMain:SetTexture(self.WeaponIcons[1])
+	greyOverlayMain:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	greyOverlayMain:SetDesaturated(true)
+	greyOverlayMain:SetVertexColor(0.5, 0.5, 0.5)
+	greyOverlayMain:Hide()
+	btn.greyOverlayMain = greyOverlayMain
+
+	local greyOverlayOff = btn:CreateTexture(nil, "ARTWORK", nil, 1)
+	greyOverlayOff:SetTexture(self.WeaponIcons[2])
+	greyOverlayOff:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	greyOverlayOff:SetDesaturated(true)
+	greyOverlayOff:SetVertexColor(0.5, 0.5, 0.5)
+	greyOverlayOff:Hide()
+	btn.greyOverlayOff = greyOverlayOff
+
+	-- Time text for showing remaining duration (legacy)
 	local timeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
 	timeText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	timeText:SetText("")
 	btn.timeText = timeText
+
+	-- Duration text INSIDE the bar
+	local insideText = btn:CreateFontString(nil, "OVERLAY", nil, 7)
+	insideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	insideText:SetTextColor(1, 1, 1)
+	insideText:Hide()
+	btn.insideText = insideText
+
+	-- Duration text OUTSIDE the bar
+	local outsideText = btn:CreateFontString(nil, "OVERLAY")
+	outsideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	outsideText:SetTextColor(1, 1, 1)
+	outsideText:Hide()
+	btn.outsideText = outsideText
+	btn.belowText = outsideText
+
+	-- Duration text ON the icon
+	local iconText = btn:CreateFontString(nil, "OVERLAY")
+	iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	iconText:SetPoint("CENTER", btn, "CENTER", 0, 0)
+	iconText:SetTextColor(1, 1, 1)
+	iconText:Hide()
+	btn.iconText = iconText
+
+	-- Off-hand duration text (mirrors main-hand options)
+	local insideText2 = btn:CreateFontString(nil, "OVERLAY", nil, 7)
+	insideText2:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	insideText2:SetTextColor(1, 1, 1)
+	insideText2:Hide()
+	btn.insideText2 = insideText2
+
+	local outsideText2 = btn:CreateFontString(nil, "OVERLAY")
+	outsideText2:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	outsideText2:SetTextColor(1, 1, 1)
+	outsideText2:Hide()
+	btn.outsideText2 = outsideText2
+
+	local iconText2 = btn:CreateFontString(nil, "OVERLAY")
+	iconText2:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	iconText2:SetTextColor(1, 1, 1)
+	iconText2:Hide()
+	btn.iconText2 = iconText2
 
 	-- Keybind text (top right corner, like standard action buttons)
 	local keybindText = btn:CreateFontString(nil, "OVERLAY")
@@ -7738,6 +8329,11 @@ function ShamanPower:CreateWeaponImbueButton()
 			end
 		end
 
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+		if ShamanPower:CanDualWield() then
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+		end
 		GameTooltip:Show()
 	end)
 
@@ -7749,10 +8345,12 @@ function ShamanPower:CreateWeaponImbueButton()
 	local defaultImbue = self:GetHighestRankImbue(1) or self:GetHighestRankImbue(2) or
 	                     self:GetHighestRankImbue(3) or self:GetHighestRankImbue(4)
 	if defaultImbue then
-		btn:SetAttribute("type1", "spell")
-		btn:SetAttribute("spell1", defaultImbue)
-		btn:SetAttribute("type2", "spell")
-		btn:SetAttribute("spell2", defaultImbue)
+		local mainHandMacro = "/cast [@none] " .. defaultImbue .. "\n/use 16\n/click StaticPopup1Button1"
+		local offHandMacro = "/cast [@none] " .. defaultImbue .. "\n/use 17\n/click StaticPopup1Button1"
+		btn:SetAttribute("type1", "macro")
+		btn:SetAttribute("macrotext1", mainHandMacro)
+		btn:SetAttribute("type2", "macro")
+		btn:SetAttribute("macrotext2", offHandMacro)
 	end
 
 	self.weaponImbueButton = btn
@@ -8014,9 +8612,13 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				end
 			]])
 
-			-- Click to cast imbue spell
-			btn:SetAttribute("type1", "spell")
-			btn:SetAttribute("spell", spellName)
+			-- Click to cast imbue spell (left=main hand, right=off hand)
+			local mainHandMacro = "/cast [@none] " .. spellName .. "\n/use 16\n/click StaticPopup1Button1"
+			local offHandMacro = "/cast [@none] " .. spellName .. "\n/use 17\n/click StaticPopup1Button1"
+			btn:SetAttribute("type1", "macro")
+			btn:SetAttribute("macrotext1", mainHandMacro)
+			btn:SetAttribute("type2", "macro")
+			btn:SetAttribute("macrotext2", offHandMacro)
 
 			-- Icon
 			local iconTex = btn:CreateTexture(nil, "ARTWORK")
@@ -8055,6 +8657,11 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			btn:HookScript("OnEnter", function(self)
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(ShamanPower.WeaponImbueSpells[imbueIndex])
+				GameTooltip:AddLine(" ")
+				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+				if ShamanPower:CanDualWield() then
+					GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+				end
 				GameTooltip:Show()
 			end)
 			btn:HookScript("OnLeave", function()
@@ -8158,162 +8765,8 @@ end
 
 -- Update the weapon imbue button appearance based on current enchants
 function ShamanPower:UpdateWeaponImbueButton()
-	local btn = self.weaponImbueButton
-	if not btn then return end
-
-	local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
-	local maxDuration = 1800000  -- 30 minutes in milliseconds
-	local buttonHeight = btn:GetHeight()
-
-	-- Get display options
-	local showBars = self.opt.cdbarShowProgressBars ~= false
-	local showSweep = self.opt.cdbarShowColorSweep ~= false
-	local showText = self.opt.cdbarShowCDText ~= false
-
-	if hasMain then
-		local imbueType = self.EnchantIDToImbue[mainID] or 1
-		btn.icon:SetTexture(self.WeaponIcons[imbueType])
-		btn.icon:SetDesaturated(false)
-		btn.darkOverlay:Hide()
-
-		local mainPercent = math.min(mainExp / maxDuration, 1)
-
-		-- Update main hand progress bar (outside left edge)
-		if showBars then
-			local mainBarHeight = math.max(buttonHeight * mainPercent, 1)
-			btn.mainHandBar:SetHeight(mainBarHeight)
-			btn.mainHandBar:ClearAllPoints()
-			btn.mainHandBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
-			local r, g, b = GetTimerBarColor(mainExp)
-			btn.mainHandBar:SetColorTexture(r, g, b, 0.9)
-			btn.mainHandBar:Show()
-		else
-			btn.mainHandBar:Hide()
-		end
-
-		-- Update time text (show main hand time)
-		if showText then
-			local mins = math.floor(mainExp / 60000)
-			btn.timeText:SetText(MinuteStrings[mins] or (mins .. "m"))
-			btn.timeText:Show()
-		else
-			btn.timeText:SetText("")
-			btn.timeText:Hide()
-		end
-
-		-- If dual wielding, show split display (left half = main hand, right half = off hand)
-		if self:CanDualWield() and hasOff then
-			local offImbueType = self.EnchantIDToImbue[offID] or 2
-			local offPercent = math.min(offExp / maxDuration, 1)
-
-			-- Main hand icon - left half of button (full height), showing left half of texture
-			btn.icon:ClearAllPoints()
-			btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-			btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOM", 0, 0)
-			btn.icon:SetTexCoord(0.08, 0.5, 0.08, 0.92)
-
-			-- Off hand icon - right half of button (full height), showing right half of texture
-			btn.icon2:ClearAllPoints()
-			btn.icon2:SetPoint("TOPLEFT", btn, "TOP", 0, 0)
-			btn.icon2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
-			btn.icon2:SetTexture(self.WeaponIcons[offImbueType])
-			btn.icon2:SetTexCoord(0.5, 0.92, 0.08, 0.92)
-			btn.icon2:Show()
-
-			-- Update off hand progress bar (outside right edge)
-			if showBars then
-				local offBarHeight = math.max(buttonHeight * offPercent, 1)
-				btn.offHandBar:SetHeight(offBarHeight)
-				btn.offHandBar:ClearAllPoints()
-				btn.offHandBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
-				local r2, g2, b2 = GetTimerBarColor(offExp)
-				btn.offHandBar:SetColorTexture(r2, g2, b2, 0.9)
-				btn.offHandBar:Show()
-			else
-				btn.offHandBar:Hide()
-			end
-
-			-- Grey sweep overlays for split display (depleted portion from top)
-			if showSweep then
-				local mainDepletedPercent = 1 - mainPercent
-				local mainGreyHeight = buttonHeight * mainDepletedPercent
-				if mainGreyHeight > 1 then
-					btn.greyOverlay1:SetTexture(self.WeaponIcons[imbueType])
-					btn.greyOverlay1:ClearAllPoints()
-					btn.greyOverlay1:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-					btn.greyOverlay1:SetSize(buttonHeight / 2, mainGreyHeight)
-					local texBottom = 0.08 + (mainDepletedPercent * 0.84)
-					btn.greyOverlay1:SetTexCoord(0.08, 0.5, 0.08, texBottom)
-					btn.greyOverlay1:Show()
-				else
-					btn.greyOverlay1:Hide()
-				end
-
-				local offDepletedPercent = 1 - offPercent
-				local offGreyHeight = buttonHeight * offDepletedPercent
-				if offGreyHeight > 1 then
-					btn.greyOverlay2:SetTexture(self.WeaponIcons[offImbueType])
-					btn.greyOverlay2:ClearAllPoints()
-					btn.greyOverlay2:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-					btn.greyOverlay2:SetSize(buttonHeight / 2, offGreyHeight)
-					local texBottom = 0.08 + (offDepletedPercent * 0.84)
-					btn.greyOverlay2:SetTexCoord(0.5, 0.92, 0.08, texBottom)
-					btn.greyOverlay2:Show()
-				else
-					btn.greyOverlay2:Hide()
-				end
-			else
-				btn.greyOverlay1:Hide()
-				btn.greyOverlay2:Hide()
-			end
-
-			btn.greyOverlay:Hide()
-		else
-			-- Single weapon display
-			btn.icon:ClearAllPoints()
-			btn.icon:SetAllPoints()
-			btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-			btn.icon2:Hide()
-			btn.offHandBar:Hide()
-
-			-- Grey sweep overlay for single display (depleted portion from top)
-			if showSweep then
-				local depletedPercent = 1 - mainPercent
-				local greyHeight = buttonHeight * depletedPercent
-				if greyHeight > 1 then
-					btn.greyOverlay:SetTexture(self.WeaponIcons[imbueType])
-					btn.greyOverlay:ClearAllPoints()
-					btn.greyOverlay:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-					btn.greyOverlay:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-					btn.greyOverlay:SetHeight(greyHeight)
-					local texBottom = 0.08 + (depletedPercent * 0.84)
-					btn.greyOverlay:SetTexCoord(0.08, 0.92, 0.08, texBottom)
-					btn.greyOverlay:Show()
-				else
-					btn.greyOverlay:Hide()
-				end
-			else
-				btn.greyOverlay:Hide()
-			end
-
-			btn.greyOverlay1:Hide()
-			btn.greyOverlay2:Hide()
-		end
-	else
-		-- No enchant - show default icon desaturated
-		btn.icon:ClearAllPoints()
-		btn.icon:SetAllPoints()
-		btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		btn.icon:SetDesaturated(true)
-		btn.icon2:Hide()
-		btn.mainHandBar:Hide()
-		btn.offHandBar:Hide()
-		btn.darkOverlay:Show()
-		btn.greyOverlay:Hide()
-		btn.greyOverlay1:Hide()
-		btn.greyOverlay2:Hide()
-		btn.timeText:SetText("")
-	end
+	-- Imbue visuals are now updated in UpdateCooldownButtons; this function is kept
+	-- for backward compatibility with any external callers.
 end
 
 -- ============================================================================
@@ -15628,5 +16081,3 @@ SlashCmdList["SPCENTER"] = function(msg)
 
 	print("|cff00ff00ShamanPower:|r Frames reset to center. Use ALT+drag to reposition.")
 end
-
-

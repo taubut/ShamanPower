@@ -1224,7 +1224,7 @@ ShamanPower.options = {
 							desc = "Adjust the opacity/transparency of the totem bar",
 							type = "range",
 							width = 1.2,
-							min = 0.1,
+							min = 0,
 							max = 1.0,
 							step = 0.05,
 							isPercent = true,
@@ -1262,7 +1262,7 @@ ShamanPower.options = {
 							desc = "Adjust the opacity/transparency of the cooldown bar",
 							type = "range",
 							width = 1.2,
-							min = 0.1,
+							min = 0,
 							max = 1.0,
 							step = 0.05,
 							isPercent = true,
@@ -1643,6 +1643,7 @@ ShamanPower.options = {
 								["top_vert"] = "Top (Vertical)",
 								["bottom"] = "Bottom (Horizontal)",
 								["bottom_vert"] = "Bottom (Vertical)",
+								["on_icon"] = "On Icon (Left & Right)",
 							},
 							get = function(info)
 								return ShamanPower.opt.cdbarProgressPosition or "left"
@@ -1670,8 +1671,21 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBarLayout()
 							end
 						},
-						cdbar_duration_text = {
+						cdbar_spell_colors = {
 							order = 8,
+							type = "toggle",
+							name = "Spell-Colored Progress Bars",
+							desc = "Color progress bars based on the spell (e.g. Lightning Shield = blue, Reincarnation = red, Flametongue = orange) instead of using the time-based green/yellow/red colors",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.cdbarSpellColors or false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarSpellColors = val
+							end
+						},
+						cdbar_duration_text = {
+							order = 9,
 							type = "select",
 							name = "Duration Text Location",
 							desc = "Where to show the remaining duration time",
@@ -1837,6 +1851,29 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.raidCDPlaySound = val
 							end
+						},
+						raidCDSoundVolume = {
+							order = 5.5,
+							name = "Sound Volume",
+							desc = "Volume for raid cooldown sounds",
+							type = "range",
+							min = 0,
+							max = 100,
+							step = 5,
+							width = "full",
+							disabled = function() return not ShamanPower.opt.raidCDPlaySound end,
+							get = function(info)
+								return ShamanPower.opt.raidCDSoundVolume or 100
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDSoundVolume = val
+							end
+						},
+						raidCDSoundVolumeNote = {
+							order = 5.6,
+							type = "description",
+							name = "|cff888888Must have Dialog sound at 100% for this slider to work.|r",
+							width = "full",
 						},
 						raidCDShowButtonAnimation = {
 							order = 6,
@@ -2849,6 +2886,39 @@ ShamanPower.options = {
 								end
 							end
 						},
+						reactive_sound_volume = {
+							order = 14.3,
+							name = "Sound Volume",
+							desc = "Volume for reactive totem alert sounds",
+							type = "range",
+							min = 0,
+							max = 100,
+							step = 5,
+							width = "full",
+							disabled = function()
+								if ShamanPower_ReactiveTotems then
+									return not ShamanPower_ReactiveTotems.playSound
+								end
+								return true
+							end,
+							get = function(info)
+								if ShamanPower_ReactiveTotems then
+									return ShamanPower_ReactiveTotems.soundVolume or 100
+								end
+								return 100
+							end,
+							set = function(info, val)
+								if ShamanPower_ReactiveTotems then
+									ShamanPower_ReactiveTotems.soundVolume = val
+								end
+							end
+						},
+						reactive_sound_volume_note = {
+							order = 14.4,
+							type = "description",
+							name = "|cff888888Must have Dialog sound at 100% for this slider to work.|r",
+							width = "full",
+						},
 						reactive_font_outline = {
 							order = 14.6,
 							name = "Font Outline",
@@ -3203,7 +3273,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields then
 									return ShamanPowerExpiringAlertsDB.shields.sound or false
 								end
-								return true
+								return false
 							end,
 							set = function(info, val)
 								if ShamanPowerExpiringAlertsDB then
@@ -3211,6 +3281,42 @@ ShamanPower.options = {
 									ShamanPowerExpiringAlertsDB.shields.sound = val
 								end
 							end
+						},
+						alerts_sound_volume = {
+							order = 8.5,
+							name = "Sound Volume",
+							desc = "Volume for all expiring alert sounds (shields, totems, imbues)",
+							type = "range",
+							min = 0,
+							max = 100,
+							step = 5,
+							width = 1.5,
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB then
+									local shieldSound = ShamanPowerExpiringAlertsDB.shields and ShamanPowerExpiringAlertsDB.shields.sound
+									local totemSound = ShamanPowerExpiringAlertsDB.totems and ShamanPowerExpiringAlertsDB.totems.sound
+									local imbueSound = ShamanPowerExpiringAlertsDB.weaponImbues and ShamanPowerExpiringAlertsDB.weaponImbues.sound
+									return not (shieldSound or totemSound or imbueSound)
+								end
+								return true
+							end,
+							get = function(info)
+								if ShamanPowerExpiringAlertsDB then
+									return ShamanPowerExpiringAlertsDB.soundVolume or 100
+								end
+								return 100
+							end,
+							set = function(info, val)
+								if ShamanPowerExpiringAlertsDB then
+									ShamanPowerExpiringAlertsDB.soundVolume = val
+								end
+							end
+						},
+						alerts_sound_volume_note = {
+							order = 8.6,
+							type = "description",
+							name = "|cff888888Must have Dialog sound at 100% for this slider to work.|r",
+							width = "full",
 						},
 						alerts_header_totems = {
 							order = 20,
@@ -3360,7 +3466,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems then
 									return ShamanPowerExpiringAlertsDB.totems.sound or false
 								end
-								return true
+								return false
 							end,
 							set = function(info, val)
 								if ShamanPowerExpiringAlertsDB then
@@ -3441,7 +3547,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.weaponImbues then
 									return ShamanPowerExpiringAlertsDB.weaponImbues.sound or false
 								end
-								return true
+								return false
 							end,
 							set = function(info, val)
 								if ShamanPowerExpiringAlertsDB then
@@ -3772,15 +3878,48 @@ ShamanPower.options = {
 							width = "full",
 							get = function(info)
 								if ShamanPowerTremorReminderDB then
-									return ShamanPowerTremorReminderDB.playSound ~= false
+									return ShamanPowerTremorReminderDB.playSound or false
 								end
-								return true
+								return false
 							end,
 							set = function(info, val)
 								if ShamanPowerTremorReminderDB then
 									ShamanPowerTremorReminderDB.playSound = val
 								end
 							end
+						},
+						tremor_sound_volume = {
+							order = 32,
+							name = "Sound Volume",
+							desc = "Volume for tremor reminder sounds",
+							type = "range",
+							min = 0,
+							max = 100,
+							step = 5,
+							width = "full",
+							disabled = function()
+								if ShamanPowerTremorReminderDB then
+									return not ShamanPowerTremorReminderDB.playSound
+								end
+								return true
+							end,
+							get = function(info)
+								if ShamanPowerTremorReminderDB then
+									return ShamanPowerTremorReminderDB.soundVolume or 100
+								end
+								return 100
+							end,
+							set = function(info, val)
+								if ShamanPowerTremorReminderDB then
+									ShamanPowerTremorReminderDB.soundVolume = val
+								end
+							end
+						},
+						tremor_sound_volume_note = {
+							order = 33,
+							type = "description",
+							name = "|cff888888Must have Dialog sound at 100% for this slider to work.|r",
+							width = "full",
 						},
 						tremor_header_commands = {
 							order = 40,
@@ -4192,6 +4331,32 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.showTotemCooldowns = val
 								ShamanPower:SetupTotemProgressBars()  -- Re-enable/disable the update subsystem
+							end
+						},
+						totem_cooldown_text_color = {
+							order = 3.8,
+							type = "color",
+							name = "Cooldown Text Color",
+							desc = "Color of the cooldown remaining time text on totem buttons",
+							width = 1.0,
+							disabled = function()
+								return ShamanPower.opt.showTotemCooldowns == false
+							end,
+							get = function(info)
+								local c = ShamanPower.opt.totemCooldownTextColor
+								if c then
+									return c.r or 1, c.g or 1, c.b or 1
+								end
+								return 1, 1, 1
+							end,
+							set = function(info, r, g, b)
+								if not ShamanPower.opt.totemCooldownTextColor then
+									ShamanPower.opt.totemCooldownTextColor = {}
+								end
+								ShamanPower.opt.totemCooldownTextColor.r = r
+								ShamanPower.opt.totemCooldownTextColor.g = g
+								ShamanPower.opt.totemCooldownTextColor.b = b
+								ShamanPower:ApplyTotemCooldownTextColor()
 							end
 						},
 						pulse_bar_position = {

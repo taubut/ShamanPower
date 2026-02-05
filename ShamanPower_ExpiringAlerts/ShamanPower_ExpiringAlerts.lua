@@ -116,13 +116,14 @@ local defaultSettings = {
 	duration = 2.5,
 	opacity = 100,
 	fontOutline = true,
+	soundVolume = 100,
 
 	shields = {
 		enabled = true,
 		lightning = true,
 		water = true,
 		earthShield = true,
-		sound = true,
+		sound = false,
 		soundFile = "Sound\\Interface\\RaidWarning.ogg",
 		color = { r = 0.5, g = 0.5, b = 1.0 },
 	},
@@ -134,14 +135,14 @@ local defaultSettings = {
 		fire = true,
 		water = true,
 		air = true,
-		sound = true,
+		sound = false,
 		soundFile = "Sound\\Interface\\AlarmClockWarning3.ogg",
 	},
 	weaponImbues = {
 		enabled = true,
 		mainHand = true,
 		offHand = true,
-		sound = true,
+		sound = false,
 		soundFile = "Sound\\Interface\\RaidWarning.ogg",
 		color = { r = 1.0, g = 0.5, b = 0.0 },
 	},
@@ -541,7 +542,7 @@ function SP:PlayAlertSound(alertType)
 	end
 
 	if playSound and soundFile then
-		PlaySoundFile(soundFile, "Master")
+		ShamanPower:PlaySoundWithVolume(soundFile, sv.soundVolume, true)
 	end
 end
 
