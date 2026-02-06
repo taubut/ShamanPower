@@ -506,11 +506,7 @@ function ShamanPower:OnCombatEnd()
 	-- Force rebuild of the Drop All macro to reset the castsequence
 	self.dropAllLastMacro = ""
 	self:UpdateDropAllButton()
-	-- Deferred cooldown bar updates if blocked during combat
-	if self.cdbarLayoutPending then
-		self.cdbarLayoutPending = false
-		self:UpdateCooldownBarLayout()
-	end
+	-- Deferred cooldown bar visibility update if blocked during combat
 	if self.cdbarVisibilityPending then
 		self.cdbarVisibilityPending = false
 		self:UpdateCooldownBar()
@@ -6858,10 +6854,6 @@ end
 function ShamanPower:UpdateCooldownBarLayout()
 	if not self.cooldownBar then return end
 	if #self.cooldownButtons == 0 then return end
-	if InCombatLockdown() then
-		self.cdbarLayoutPending = true
-		return
-	end
 
 	-- Sort cooldownButtons by cooldownBarOrder
 	local cooldownBarOrder = self.opt.cooldownBarOrder or {1, 2, 3, 4, 5, 6, 7}
