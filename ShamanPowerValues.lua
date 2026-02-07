@@ -45,6 +45,7 @@ ShamanPower.CONFIG_RESIZEGRIP = "Drag to resize"
 
 ShamanPower.commPrefix = "SHPWR"
 C_ChatInfo.RegisterAddonMessagePrefix(ShamanPower.commPrefix)
+C_ChatInfo.RegisterAddonMessagePrefix("WFTracker")  -- Listen for popular WF tracking WeakAura
 
 -- Constants
 SHAMANPOWER_MAXGROUPS = 8          -- Max party groups in a raid

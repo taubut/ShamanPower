@@ -11736,6 +11736,19 @@ function ShamanPower:CHAT_MSG_ADDON(event, prefix, message, distribution, source
 	if prefix == self.commPrefix and (distribution == "PARTY" or distribution == "RAID" or distribution == "INSTANCE_CHAT" or distribution == "WHISPER") and sender then
 		self:ParseMessage(sender, message)
 	end
+	-- Listen for popular WF tracking WeakAura (prefix "WFTracker", message format "PlayerName:Status:TimeRemaining")
+	if prefix == "WFTracker" and sender then
+		local _, status = message:match("^([^:]+):([01]):")
+		if status then
+			if not self.WindfuryRangeData then
+				self.WindfuryRangeData = {}
+			end
+			self.WindfuryRangeData[sender] = {
+				hasWindfury = (status == "1"),
+				timestamp = GetTime()
+			}
+		end
+	end
 end
 
 function ShamanPower:GROUP_JOINED(event)
