@@ -132,6 +132,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         raidCDPlaySound = true,  -- Play sound when calling cooldowns
         raidCDSoundVolume = 100,  -- Volume for raid cooldown sounds (0-100)
         raidCDShowButtonAnimation = true,  -- Show cooldown animation on caller buttons
+        twistTotem = 2,  -- Air totem for twisting: index into ShamanPower.AirTotems (2=Grace of Air, 3=Wrath of Air, etc.)
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
@@ -158,12 +159,19 @@ SHAMANPOWER_DEFAULT_VALUES = {
         poppedOutDefaultOpacity = 1.0,  -- Default opacity for new pop-outs
         skin = "Smooth",
         SmartBuffs = true,
-        syncToTotemTimers = false,  -- Sync assignments to TotemTimers addon (if installed)
+
         weaponEnchant = 1,  -- Default weapon enchant (Windfury)
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
         rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
         enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
+        -- Totem Loadout bar settings
+        showLoadoutBar = false,         -- Show/hide the loadout flyout anchor (off until first loadout saved)
+        activeLoadout = nil,            -- Currently active loadout index (or nil)
+        loadoutBarPosition = nil,       -- {point, relPoint, x, y} saved position
+        loadoutBarScale = 1.0,          -- Scale of the loadout bar (0.5 to 2.0)
+        loadoutBarOpacity = 1.0,        -- Opacity of the loadout bar (0.1 to 1.0)
+        loadoutBarLocked = false,       -- Lock the loadout bar position (prevent dragging)
         hideOutOfCombat = false,  -- Hide totem bar when not in combat
         hideWhenNoTotems = false,  -- Hide totem bar when no totems are placed
         -- Duration Bar settings (shows totem remaining time)

@@ -11,7 +11,7 @@
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, SharedMedia
 ## X-Category: Shaman
 ## X-Embeds: Ace3, LibClassicDurations, LibSharedMedia-3.0, LibUIDropDownMenu
-## SavedVariables: ShamanPowerDB, ShamanPower_Assignments, ShamanPower_WeaponAssignments, ShamanPower_SavedPresets, ShamanPower_EarthShieldAssignments, ShamanPower_TwistAssignments
+## SavedVariables: ShamanPowerDB, ShamanPower_Assignments, ShamanPower_WeaponAssignments, ShamanPower_SavedPresets, ShamanPower_EarthShieldAssignments, ShamanPower_TwistAssignments, ShamanPower_TotemLoadouts
 
 #@no-lib-strip@
 embeds.xml

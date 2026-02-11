@@ -16587,6 +16587,10 @@ function ShamanPower:CreateLoadoutBar()
 	-- Anchor drag (ALT+drag to move)
 	anchor:SetScript("OnDragStart", function(btn)
 		if self.opt.loadoutBarLocked then return end
+		if InCombatLockdown() then
+			print("|cffff0000ShamanPower:|r Cannot move loadout bar during combat")
+			return
+		end
 		if IsAltKeyDown() then
 			anchor:StartMoving()
 			anchor.isMoving = true

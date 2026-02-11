@@ -29,16 +29,6 @@ A totem coordination addon for Shamans in World of Warcraft TBC Anniversary. Thi
 - Track Windfury, Flametongue, and other weapon enchants
 - Coordinate weapon buffs for optimal raid DPS
 
-## TotemTimers Integration
-
-ShamanPower integrates with [TotemTimers](https://github.com/taubut/TotemTimers) (taubut's fork) to provide seamless totem management:
-
-- **Sync Assignments:** Your ShamanPower totem assignments automatically sync to your TotemTimers totem bar
-- **One Addon, Two UIs:** Use ShamanPower's grid for raid coordination, TotemTimers for personal totem tracking and timers
-- **No Double Configuration:** Set your totems in ShamanPower and they appear on your TotemTimers bar
-
-To enable sync, make sure "Sync to TotemTimers" is enabled in ShamanPower options (enabled by default).
-
 ## Installation
 
 1. Download the latest release from the [Releases page](https://github.com/taubut/ShamanPower/releases)
