@@ -1,5 +1,13 @@
 # ShamanPower Changelog
 
+## v1.6.1 (2026-02-09)
+
+### Bug Fixes
+- **TotemPlates NPC ID fixes**: Fixed several incorrect totem NPC IDs that prevented TotemPlates from recognizing certain totem ranks on nameplates
+  - Windfury Totem Ranks 4 and 5 now correctly identified (were using wrong NPC IDs)
+  - Frost Resistance Totem Ranks 2 and 3 no longer conflict with Fire Resistance Totem entries
+  - Removed non-TBC era NPC IDs from Searing Totem, Tremor Totem, and Grounding Totem
+
 ## v1.6.0 (2026-02-05)
 
 ### New Features

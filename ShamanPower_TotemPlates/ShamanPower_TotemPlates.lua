@@ -142,9 +142,6 @@ local npcIdToTotemName = {
     [7400] = "Searing Totem",
     [7402] = "Searing Totem",
     [15480] = "Searing Totem",
-    [31162] = "Searing Totem",
-    [31164] = "Searing Totem",
-    [31165] = "Searing Totem",
 
     -- Magma Totem (all ranks)
     [5929] = "Magma Totem",
@@ -170,10 +167,10 @@ local npcIdToTotemName = {
     [15485] = "Flametongue Totem",
 
     -- Frost Resistance Totem (all ranks)
-    [5926] = "Frost Resistance Totem",
-    [7424] = "Frost Resistance Totem",
-    [7425] = "Frost Resistance Totem",
-    [15486] = "Frost Resistance Totem",
+    [5926] = "Frost Resistance Totem",  -- Rank 1
+    [7412] = "Frost Resistance Totem",  -- Rank 2
+    [7413] = "Frost Resistance Totem",  -- Rank 3
+    [15486] = "Frost Resistance Totem", -- Rank 4 (TBC)
 
     -- Fire Elemental Totem
     [15439] = "Fire Elemental Totem",
@@ -224,8 +221,6 @@ local npcIdToTotemName = {
 
     -- Tremor Totem
     [5913] = "Tremor Totem",
-    [41938] = "Tremor Totem",
-    [41939] = "Tremor Totem",
 
     -- Earthbind Totem
     [2630] = "Earthbind Totem",
@@ -266,15 +261,13 @@ local npcIdToTotemName = {
 
     -- Grounding Totem
     [5925] = "Grounding Totem",
-    [128537] = "Grounding Totem",
-    [136251] = "Grounding Totem",
 
     -- Windfury Totem (all ranks)
-    [6112] = "Windfury Totem",
-    [7483] = "Windfury Totem",
-    [7484] = "Windfury Totem",
-    [15503] = "Windfury Totem",
-    [15504] = "Windfury Totem",
+    [6112] = "Windfury Totem",   -- Rank 1
+    [7483] = "Windfury Totem",   -- Rank 2
+    [7484] = "Windfury Totem",   -- Rank 3
+    [15496] = "Windfury Totem",  -- Rank 4 (TBC)
+    [15497] = "Windfury Totem",  -- Rank 5 (TBC)
 
     -- Grace of Air Totem (all ranks)
     [7486] = "Grace of Air Totem",
