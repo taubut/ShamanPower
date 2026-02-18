@@ -124,7 +124,7 @@ local defaultSettings = {
 		water = true,
 		earthShield = true,
 		sound = false,
-		soundFile = "Sound\\Interface\\RaidWarning.ogg",
+		soundName = "Raid Warning",
 		color = { r = 0.5, g = 0.5, b = 1.0 },
 	},
 	totems = {
@@ -136,14 +136,14 @@ local defaultSettings = {
 		water = true,
 		air = true,
 		sound = false,
-		soundFile = "Sound\\Interface\\AlarmClockWarning3.ogg",
+		soundName = "Alarm Clock Warning 3",
 	},
 	weaponImbues = {
 		enabled = true,
 		mainHand = true,
 		offHand = true,
 		sound = false,
-		soundFile = "Sound\\Interface\\RaidWarning.ogg",
+		soundName = "Raid Warning",
 		color = { r = 1.0, g = 0.5, b = 0.0 },
 	},
 }
@@ -527,22 +527,22 @@ end
 function SP:PlayAlertSound(alertType)
 	local sv = ShamanPowerExpiringAlertsDB
 
-	local soundFile = nil
+	local soundName = nil
 	local playSound = false
 
 	if alertType == "shield" and sv.shields and sv.shields.sound then
-		soundFile = sv.shields.soundFile
+		soundName = sv.shields.soundName or "Raid Warning"
 		playSound = true
 	elseif alertType == "totem" and sv.totems and sv.totems.sound then
-		soundFile = sv.totems.soundFile
+		soundName = sv.totems.soundName or "Alarm Clock Warning 3"
 		playSound = true
 	elseif alertType == "imbue" and sv.weaponImbues and sv.weaponImbues.sound then
-		soundFile = sv.weaponImbues.soundFile
+		soundName = sv.weaponImbues.soundName or "Raid Warning"
 		playSound = true
 	end
 
-	if playSound and soundFile then
-		ShamanPower:PlaySoundWithVolume(soundFile, sv.soundVolume, true)
+	if playSound then
+		ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(soundName), sv.soundVolume, true)
 	end
 end
 

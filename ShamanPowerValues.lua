@@ -133,6 +133,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         raidCDSoundVolume = 100,  -- Volume for raid cooldown sounds (0-100)
         raidCDShowButtonAnimation = true,  -- Show cooldown animation on caller buttons
         twistTotem = 2,  -- Air totem for twisting: index into ShamanPower.AirTotems (2=Grace of Air, 3=Wrath of Air, etc.)
+        twistSoundEnabled = false,     -- Play a sound when the twist timer reaches the threshold
+        twistSoundThreshold = 3,       -- Seconds remaining when beep plays
+        twistSoundName = "Raid Warning",
+        twistSoundVolume = 100,
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air

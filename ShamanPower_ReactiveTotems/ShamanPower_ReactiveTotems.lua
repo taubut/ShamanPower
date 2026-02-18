@@ -33,6 +33,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Fear", "Charm", "Horrify"},
 		totemName = "Tremor Totem",
 		totemSpellID = 8143,
+		totemSlot = 1,  -- Earth slot
 		icon = "Interface\\Icons\\Spell_Nature_TremorTotem",
 		color = {r = 0.8, g = 0.2, b = 0.8},  -- Purple
 		defaultPos = { point = "CENTER", x = -80, y = 150 },
@@ -43,6 +44,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Poison"},
 		totemName = "Poison Cleansing Totem",
 		totemSpellID = 8166,
+		totemSlot = 3,  -- Water slot
 		icon = "Interface\\Icons\\Spell_Nature_PoisonCleansingTotem",
 		color = {r = 0.2, g = 0.8, b = 0.2},  -- Green
 		defaultPos = { point = "CENTER", x = 0, y = 150 },
@@ -53,6 +55,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Disease"},
 		totemName = "Disease Cleansing Totem",
 		totemSpellID = 8170,
+		totemSlot = 3,  -- Water slot
 		icon = "Interface\\Icons\\Spell_Nature_DiseaseCleansingTotem",
 		color = {r = 0.6, g = 0.4, b = 0.2},  -- Brown
 		defaultPos = { point = "CENTER", x = 80, y = 150 },
@@ -101,11 +104,13 @@ local defaultSettings = {
 
 	-- Audio
 	playSound = false,
-	soundID = 8959,
+	soundName = "Raid Warning",
 	soundVolume = 100,
 
 	-- Behavior
 	clickToCast = true,
+	onlyInInstance = false,       -- Only show alerts inside instances (dungeons/raids/PvP)
+	hideWhenTotemActive = true,   -- Hide alert when the relevant totem is already placed
 
 	-- Per-totem tracking toggles
 	trackFear = true,
@@ -288,7 +293,6 @@ function SP:CreateReactiveTotemFrame(totemId)
 			if self.currentDebuffName then
 				GameTooltip:AddLine("Debuff: " .. self.currentDebuffName, c.r, c.g, c.b)
 			end
-			GameTooltip:AddLine("Click to cast: " .. self.totemData.totemName, 0.7, 0.7, 0.7)
 			if not ShamanPower_ReactiveTotems.locked then
 				GameTooltip:AddLine(" ")
 				GameTooltip:AddLine("Drag to move | Right-click for options", 0.5, 0.5, 0.5)
@@ -398,6 +402,11 @@ function SP:ScanForReactiveDebuffs()
 	local sv = ShamanPower_ReactiveTotems
 	if not sv or not sv.enabled then return {} end
 
+	if sv.onlyInInstance then
+		local inInstance, instanceType = IsInInstance()
+		if not inInstance then return {} end
+	end
+
 	local found = {
 		fear = nil,
 		poison = nil,
@@ -470,6 +479,17 @@ function SP:UpdateReactiveTotemDisplay()
 
 		local debuffData = found[totemId]
 
+		-- Check if relevant totem is already active
+		if debuffData and sv.hideWhenTotemActive then
+			local slot = totemData.totemSlot
+			if slot then
+				local haveTotem, totemName = GetTotemInfo(slot)
+				if haveTotem and totemName and totemName:find(totemData.totemName, 1, true) then
+					debuffData = nil
+				end
+			end
+		end
+
 		if debuffData then
 			-- Show this totem's frame
 			frame.currentDebuffName = debuffData.debuffName
@@ -494,7 +514,7 @@ function SP:UpdateReactiveTotemDisplay()
 
 			-- Sound (only once per debuff application)
 			if sv.playSound and not frame.soundPlayed then
-				ShamanPower:PlaySoundWithVolume(sv.soundID or 8959, sv.soundVolume, false)
+				ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
 				frame.soundPlayed = true
 			end
 
@@ -522,6 +542,8 @@ function SP:SetupReactiveTotemsEvents()
 	eventFrame:RegisterEvent("UNIT_AURA")
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+	eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 
 	-- Throttle updates to max 20 per second (0.05s between updates)
 	local lastUpdate = 0
@@ -549,7 +571,8 @@ function SP:SetupReactiveTotemsEvents()
 			if unit == "player" or unit == "party1" or unit == "party2" or unit == "party3" or unit == "party4" then
 				RequestUpdate()
 			end
-		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
+			or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TOTEM_UPDATE" then
 			RequestUpdate()
 		end
 	end)
@@ -809,7 +832,7 @@ function SP:TestReactiveAlerts()
 	end
 
 	if sv.playSound then
-		ShamanPower:PlaySoundWithVolume(sv.soundID or 8959, sv.soundVolume, false)
+		ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
 	end
 
 	-- Hide after 3 seconds

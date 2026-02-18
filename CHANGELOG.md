@@ -1,8 +1,18 @@
 # ShamanPower Changelog
 
-## v1.6.1 (2026-02-09)
+## v1.6.1 (2026-02-18)
+
+### New Features
+- **Sound Picker Dropdowns**: Added LibSharedMedia sound picker dropdowns to Reactive Totems, Tremor Reminder, and Expiring Alerts (shields, totems, weapon imbues) so users can choose which alert sound plays from a curated list of WoW built-in sounds (plus any sounds added by the SharedMedia addon if installed)
+- **Twist Beep Sound**: Play a configurable sound when the totem twist timer reaches a threshold (default 3 seconds remaining). Includes sound picker, volume slider, and threshold slider — all under Settings when Totem Twisting is enabled
+- **Reactive Totems: Only Alert in Instances**: New toggle to suppress reactive totem alerts in the open world and only show them inside dungeons, raids, and battlegrounds (off by default)
+- **Reactive Totems: Hide When Totem Active**: New toggle (on by default) that hides the reactive alert when the matching cleansing totem is already placed (e.g. Tremor Totem down → fear alert hidden)
 
 ### Bug Fixes
+- **PallyPower compatibility**: Moved `SetNormalBlessings`, `GetNormalBlessings`, `SyncList`, `AllShamans`, and `AC_DebugEnabled` out of the global namespace and onto the `ShamanPower` table, resolving conflicts where ShamanPower would overwrite PallyPower's identically-named globals (broke PallyPower's per-player blessing mousewheel assignment)
+- **Show Tooltips now respected globally**: The "Show Tooltips" setting now gates all tooltips across every ShamanPower element — totem flyouts, cooldown bar items, shield/imbue flyouts, Earth Shield flyout, pop-out frames, loadout bar, and the Tremor Reminder icon. Previously only the main totem bar buttons checked this setting
+- **Reactive Totems "Click to cast" tooltip removed**: Removed the misleading "Click to cast" line from Reactive Totems tooltips and updated the options description since click-to-cast was non-functional
+- **Shield Charges rendering above UI panels**: Lowered Shield Charges frame strata so the charge numbers no longer display on top of the talent window and other standard UI panels
 - **TotemPlates NPC ID fixes**: Fixed several incorrect totem NPC IDs that prevented TotemPlates from recognizing certain totem ranks on nameplates
   - Windfury Totem Ranks 4 and 5 now correctly identified (were using wrong NPC IDs)
   - Frost Resistance Totem Ranks 2 and 3 no longer conflict with Fire Resistance Totem entries

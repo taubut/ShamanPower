@@ -10,6 +10,23 @@ if not L then
 end
 local LSM3 = LibStub("LibSharedMedia-3.0")
 local AceGUI = LibStub("AceGUI-3.0")
+
+-- Register WoW built-in sounds with LibSharedMedia
+-- (LSM:Register rejects "Sound\\" prefix, so insert directly into MediaTable)
+local SP_SOUNDS = {
+	["Raid Warning"]          = [[Sound\Interface\RaidWarning.ogg]],
+	["Alarm Clock Warning 1"] = [[Sound\Interface\AlarmClockWarning1.ogg]],
+	["Alarm Clock Warning 2"] = [[Sound\Interface\AlarmClockWarning2.ogg]],
+	["Alarm Clock Warning 3"] = [[Sound\Interface\AlarmClockWarning3.ogg]],
+	["Ready Check"]           = [[Sound\Interface\ReadyCheck.ogg]],
+	["Map Ping"]              = [[Sound\Interface\MapPing.ogg]],
+	["PVP Flag Taken"]        = [[Sound\Interface\PVPFlagTaken.ogg]],
+	["Quest Failed"]          = [[Sound\Interface\igQuestFailed.ogg]],
+	["Level Up"]              = [[Sound\Interface\LevelUp.ogg]],
+}
+for name, path in pairs(SP_SOUNDS) do
+	LSM3.MediaTable.sound[name] = path
+end
 local LUIDDM = LibStub("LibUIDropDownMenu-4.0")
 
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
@@ -52,9 +69,9 @@ ShamanPower_WeaponAssignments = {}
 ShamanPower_EarthShieldAssignments = {}  -- Maps shamanName -> targetName
 ShamanPower_TwistAssignments = {}  -- Maps shamanName -> true/false for totem twisting
 
-AllShamans = {}
-SyncList = {}
-AC_DebugEnabled = false
+ShamanPower.AllShamans = {}
+ShamanPower.SyncList = {}
+ShamanPower.AC_DebugEnabled = false
 
 local initialized = false
 local isShaman = false
@@ -195,7 +212,7 @@ ShamanPower.Credits1 = "ShamanPower - Shaman Totem Coordination"
 ShamanPower.Credits2 = "Based on PallyPower by Aznamir, Dyaxler, Es, gallantron. Adapted by taubut."
 
 function ShamanPower:Debug(s)
-	if (AC_DebugEnabled) then
+	if (ShamanPower.AC_DebugEnabled) then
 		DEFAULT_CHAT_FRAME:AddMessage("[PP] " .. tostring(s), 1, 0, 0)
 	end
 end
@@ -228,6 +245,10 @@ function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
 			SetCVar("Sound_EnableDialog", origDialogEnabled)
 		end
 	end)
+end
+
+function ShamanPower:GetSoundFile(soundName)
+	return LSM3:Fetch("sound", soundName) or [[Sound\Interface\RaidWarning.ogg]]
 end
 
 -------------------------------------------------------------------
@@ -505,7 +526,7 @@ function ShamanPower:OnEnable()
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET"}, 1, "UpdateRoster")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
+	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateShamanPower.AllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	if isShaman then
@@ -910,7 +931,7 @@ function ShamanPowerBlessings_ShowCredits(self)
 	end
 end
 
-function GetNormalBlessings(pname, class, tname)
+function ShamanPower.GetNormalBlessings(pname, class, tname)
 	if ShamanPower_NormalAssignments[pname] and ShamanPower_NormalAssignments[pname][class] then
 		local blessing = ShamanPower_NormalAssignments[pname][class][tname]
 		if blessing then
@@ -921,7 +942,7 @@ function GetNormalBlessings(pname, class, tname)
 	end
 end
 
-function SetNormalBlessings(pname, class, tname, value)
+function ShamanPower.SetNormalBlessings(pname, class, tname, value)
 	if not ShamanPower_NormalAssignments[pname] then
 		ShamanPower_NormalAssignments[pname] = {}
 	end
@@ -966,7 +987,7 @@ function ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 		tinsert(menu, {text = L["a Normal Blessing from:"], isTitle = true, isNotRadio = true, notCheckable = 1})
 
 		local pre, suf
-		for pally in pairs(AllShamans) do
+		for pally in pairs(ShamanPower.AllShamans) do
 			local pallyMenu = {}
 			local control = ShamanPower:CanControl(pally)
 			if not control then
@@ -979,8 +1000,8 @@ function ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 
 			tinsert(pallyMenu, {
 				text = format("%s%s%s", pre, "(none)", suf),
-				checked = function() if GetNormalBlessings(pally, class, pname) == "0" then return true end end,
-				func = function() LUIDDM:CloseDropDownMenus(); SetNormalBlessings(pally, class, pname, 0) end
+				checked = function() if ShamanPower.GetNormalBlessings(pally, class, pname) == "0" then return true end end,
+				func = function() LUIDDM:CloseDropDownMenus(); ShamanPower.SetNormalBlessings(pally, class, pname, 0) end
 			})
 
 			for index, blessing in ipairs(ShamanPower.Spells) do
@@ -989,8 +1010,8 @@ function ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 					if ShamanPower:CanBuffBlessing(index, 0, unitID, true) then
 						tinsert(pallyMenu, {
 							text = format("%s%s%s", pre, blessing, suf),
-							checked = function() if GetNormalBlessings(pally, class, pname) == tostring(index) then return true end end,
-							func = function() LUIDDM:CloseDropDownMenus(); if control then SetNormalBlessings(pally, class, pname, index + 0) end end
+							checked = function() if ShamanPower.GetNormalBlessings(pally, class, pname) == tostring(index) then return true end end,
+							func = function() LUIDDM:CloseDropDownMenus(); if control then ShamanPower.SetNormalBlessings(pally, class, pname, index + 0) end end
 						})
 					end
 				end
@@ -1006,7 +1027,7 @@ function ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 					if ShamanPower_NormalAssignments[pally] and ShamanPower_NormalAssignments[pally][class] and ShamanPower_NormalAssignments[pally][class][pname] then
 						return true
 					else
-						SetNormalBlessings(pally, class, pname, 0)
+						ShamanPower.SetNormalBlessings(pally, class, pname, 0)
 					end
 				end
 			})
@@ -1017,7 +1038,7 @@ function ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
 		LUIDDM:EasyMenu(menu, ShamanPower.menuFrame, "cursor", 0 , 0, "MENU")
 
 	elseif (mouseBtn == "RightButton") then
-		for pally in pairs(AllShamans) do
+		for pally in pairs(ShamanPower.AllShamans) do
 			if ShamanPower_NormalAssignments[pally] and ShamanPower_NormalAssignments[pally][class] and ShamanPower_NormalAssignments[pally][class][pname] then
 				ShamanPower_NormalAssignments[pally][class][pname] = nil
 			end
@@ -1130,10 +1151,10 @@ function ShamanPowerBlessingsGrid_Update(self, elapsed)
 			auraGroup:Hide()
 		end
 		ShamanPowerBlessingsFrame:SetScale(ShamanPower.opt.configscale)
-		for i, name in pairs(SyncList) do
+		for i, name in pairs(ShamanPower.SyncList) do
 			local fname = "ShamanPowerBlessingsFramePlayer" .. i
 			local playerFrame = _G[fname]
-			local SkillInfo = AllShamans[name]
+			local SkillInfo = ShamanPower.AllShamans[name]
 			local BuffInfo = ShamanPower_Assignments[name]
 			if not BuffInfo then BuffInfo = {} end
 			local NormalBuffInfo = ShamanPower_NormalAssignments[name]
@@ -1185,7 +1206,7 @@ function ShamanPowerBlessingsGrid_Update(self, elapsed)
 			local aura1Btn = _G[fname .. "Aura1"]
 			local aura1Icon = _G[fname .. "Aura1Icon"]
 			if aura1Btn and aura1Icon then
-				if AllShamans[name] and AllShamans[name].hasEarthShield and ShamanPower.EarthShield then
+				if ShamanPower.AllShamans[name] and ShamanPower.AllShamans[name].hasEarthShield and ShamanPower.EarthShield then
 					-- Reposition Aura1 to be before Class1 (to the left)
 					aura1Btn:ClearAllPoints()
 					aura1Btn:SetPoint("TOPLEFT", _G[fname], "TOPLEFT", 56, 0)
@@ -1469,10 +1490,10 @@ function ShamanPower:Report(type, chanNum)
 				end
 			end
 			if self:CheckLeader(self.player) and type ~= "INSTANCE_CHAT" then
-				if #SyncList > 0 then
+				if #ShamanPower.SyncList > 0 then
 					SendChatMessage(L["--- Shaman assignments ---"], type)
 					local list = {}
-					for name in pairs(AllShamans) do
+					for name in pairs(ShamanPower.AllShamans) do
 						local blessings
 						for i = 1, self.isWrath and 4 or 6 do
 							list[i] = 0
@@ -1522,7 +1543,7 @@ function ShamanPower:Report(type, chanNum)
 		if ((type and (type ~= "INSTANCE_CHAT" or type ~= "RAID" or type ~= "PARTY")) and chanNum and (IsInRaid() or IsInGroup())) then
 			SendChatMessage(L["--- Shaman assignments ---"], type, nil, chanNum)
 			local list = {}
-			for name in pairs(AllShamans) do
+			for name in pairs(ShamanPower.AllShamans) do
 				local blessings
 				for i = 1, self.isWrath and 4 or 6 do
 					list[i] = 0
@@ -2493,6 +2514,7 @@ function ShamanPower:UpdateTwistTimer()
 		if isWindfury and self.twistStartTime ~= startTime then
 			-- New Windfury placed - reset the 10 second timer
 			self.twistStartTime = startTime
+			self.twistSoundPlayed = false
 		end
 
 		-- If no timer running, hide and return
@@ -2512,6 +2534,13 @@ function ShamanPower:UpdateTwistTimer()
 			if self.twistTimerFrame and self.twistTimerText then
 				local format = self.opt.twistTimerNoDecimals and "%.0f" or "%.1f"
 				self.twistTimerText:SetText(string.format(format, remaining))
+				-- Twist beep sound
+				if self.opt.twistSoundEnabled and not self.twistSoundPlayed then
+					if remaining <= self.opt.twistSoundThreshold then
+						self:PlaySoundWithVolume(self:GetSoundFile(self.opt.twistSoundName or "Raid Warning"), self.opt.twistSoundVolume, true)
+						self.twistSoundPlayed = true
+					end
+				end
 				-- Color: white > 3s, yellow > 1s, red <= 1s
 				if remaining <= 1 then
 					self.twistTimerText:SetTextColor(1, 0.2, 0.2)
@@ -2525,6 +2554,7 @@ function ShamanPower:UpdateTwistTimer()
 		else
 			-- Timer expired, reset
 			self.twistStartTime = nil
+			self.twistSoundPlayed = false
 			if self.twistTimerFrame then
 				self.twistTimerFrame:Hide()
 			end
@@ -2538,6 +2568,7 @@ function ShamanPower:UpdateTwistTimer()
 			if remaining <= 0 then
 				-- Timer expired, safe to reset
 				self.twistStartTime = nil
+				self.twistSoundPlayed = false
 				if self.twistTimerFrame then
 					self.twistTimerFrame:Hide()
 				end
@@ -3756,6 +3787,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 		ShamanPower:ShowPopOutSettingsPanel(key, frame)
 	end)
 	cogBtn:SetScript("OnEnter", function(self)
+		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Settings")
 		GameTooltip:Show()
@@ -4226,6 +4258,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 
 	-- Tooltip
 	btn:SetScript("OnEnter", function(self)
+		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		if spellID then
 			GameTooltip:SetSpellByID(spellID)
@@ -5414,6 +5447,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- Tooltip (Lua hook, works alongside secure handlers)
 			btn:HookScript("OnEnter", function(self)
+				if not ShamanPower.opt.ShowTooltips then return end
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(spellID)
 				GameTooltip:AddLine(" ")
@@ -6640,6 +6674,7 @@ function ShamanPower:CreateCooldownBar()
 			if spellType == "shield" then
 				-- Use HookScript for tooltip (works alongside secure handlers)
 				btn:HookScript("OnEnter", function(self)
+					if not ShamanPower.opt.ShowTooltips then return end
 					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 					GameTooltip:SetText("Shield Spells")
 					if self.activeShieldID then
@@ -6659,6 +6694,7 @@ function ShamanPower:CreateCooldownBar()
 				end)
 			else
 				btn:SetScript("OnEnter", function(self)
+					if not ShamanPower.opt.ShowTooltips then return end
 					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 					GameTooltip:SetSpellByID(self.spellID)
 					if ShamanPower.opt.enableMiddleClickPopOut ~= false then
@@ -8492,6 +8528,7 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Tooltip (Lua hooks work alongside secure handlers)
 	btn:HookScript("OnEnter", function(self)
+		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Weapon Imbues")
 
@@ -8527,9 +8564,11 @@ function ShamanPower:CreateWeaponImbueButton()
 		GameTooltip:Hide()
 	end)
 
-	-- Set default spell for quick cast (last used imbue or first known)
-	local defaultImbue = self:GetHighestRankImbue(1) or self:GetHighestRankImbue(2) or
-	                     self:GetHighestRankImbue(3) or self:GetHighestRankImbue(4)
+	-- Set default spell for quick cast (preferred imbue, or first known)
+	local prefIdx = self.opt.preferredImbue
+	local defaultImbue = (prefIdx and self:GetHighestRankImbue(prefIdx))
+		or self:GetHighestRankImbue(1) or self:GetHighestRankImbue(2)
+		or self:GetHighestRankImbue(3) or self:GetHighestRankImbue(4)
 	if defaultImbue then
 		local mainHandMacro = "/cast [@none] " .. defaultImbue .. "\n/use 16\n/click StaticPopup1Button1"
 		local offHandMacro = "/cast [@none] " .. defaultImbue .. "\n/use 17\n/click StaticPopup1Button1"
@@ -8586,7 +8625,7 @@ function ShamanPower:CreateShieldFlyout()
 				"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate")
 			btn:SetSize(buttonSize, buttonSize)
 			btn:SetFrameStrata("DIALOG")
-			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown")
+			btn:RegisterForClicks("AnyUp")
 			btn:Hide()
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
@@ -8617,11 +8656,11 @@ function ShamanPower:CreateShieldFlyout()
 				end
 			]])
 
-			-- Click to cast shield
+			-- Left-click casts shield; right-click has no type2 so no cast happens
 			btn:SetAttribute("type1", "spell")
 			btn:SetAttribute("spell", spellName)
 
-			-- Update the main shield button's spell when clicked (out of combat only)
+			-- PostClick: both clicks assign default; left-click also casts (via type1 above)
 			btn:HookScript("PostClick", function(self, button)
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
@@ -8643,14 +8682,26 @@ function ShamanPower:CreateShieldFlyout()
 							shieldBtn.icon:SetTexture(newIcon)
 						end
 					end
+
+					-- Persist preferred shield
+					for idx, shieldData in ipairs(ShamanPower.ShieldSpells) do
+						if shieldData[2] == spellName then
+							ShamanPower.opt.preferredShield = idx
+							break
+						end
+					end
 				end
 				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
 			end)
 
 			-- Tooltip (Lua hooks work alongside secure handlers)
 			btn:HookScript("OnEnter", function(self)
+				if not ShamanPower.opt.ShowTooltips then return end
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(spellID)
+				GameTooltip:AddLine(" ")
+				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast and set as default", 1, 1, 1)
+				GameTooltip:AddLine("|cffffcc00Right-click:|r Set as default (no cast)", 1, 1, 1)
 				GameTooltip:Show()
 			end)
 			btn:HookScript("OnLeave", function()
@@ -8835,6 +8886,21 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				-- Remember last used imbue
 				if button == "LeftButton" then
 					ShamanPower.lastMainHandImbue = imbueIndex
+					ShamanPower.opt.preferredImbue = imbueIndex
+					-- Update main imbue button's macros to match new default
+					local imbueBtn = ShamanPower.weaponImbueButton
+					if imbueBtn and not InCombatLockdown() then
+						local newSpell = ShamanPower:GetHighestRankImbue(imbueIndex)
+						if newSpell then
+							imbueBtn:SetAttribute("macrotext1", "/cast [@none] " .. newSpell .. "\n/use 16\n/click StaticPopup1Button1")
+							imbueBtn:SetAttribute("macrotext2", "/cast [@none] " .. newSpell .. "\n/use 17\n/click StaticPopup1Button1")
+							imbueBtn.currentImbueName = newSpell
+							-- Update the icon
+							if ShamanPower.WeaponIcons and ShamanPower.WeaponIcons[imbueIndex] then
+								imbueBtn.icon:SetTexture(ShamanPower.WeaponIcons[imbueIndex])
+							end
+						end
+					end
 				else
 					ShamanPower.lastOffHandImbue = imbueIndex
 				end
@@ -8842,10 +8908,11 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 			-- Tooltip (Lua hooks work alongside secure handlers)
 			btn:HookScript("OnEnter", function(self)
+				if not ShamanPower.opt.ShowTooltips then return end
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(ShamanPower.WeaponImbueSpells[imbueIndex])
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand (sets default)", 1, 1, 1)
 				if ShamanPower:CanDualWield() then
 					GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
 				end
@@ -10042,6 +10109,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 
 		-- Tooltip (uses stored attributes)
 		btn:SetScript("OnEnter", function(self)
+			if not ShamanPower.opt.ShowTooltips then return end
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			local memberName = self:GetAttribute("memberName")
 			local memberClass = self:GetAttribute("memberClass")
@@ -11209,13 +11277,13 @@ function ShamanPower:PerformPlayerCycle(delta, pname, class)
 			break
 		end
 	end
-	SetNormalBlessings(self.player, class, pname, test)
+	ShamanPower.SetNormalBlessings(self.player, class, pname, test)
 end
 
 function ShamanPower:AssignPlayerAsClass(pname, pclass, tclass)
 	local greater, target, targetsorted, freepallies = {}, {}, {}, {}
 	for pally, classes in pairs(ShamanPower_Assignments) do
-		if AllShamans[pally] and classes[tclass] and classes[tclass] > 0 then
+		if ShamanPower.AllShamans[pally] and classes[tclass] and classes[tclass] > 0 then
 			target[classes[tclass]] = pally
 			tinsert(targetsorted, classes[tclass])
 		end
@@ -11226,7 +11294,7 @@ function ShamanPower:AssignPlayerAsClass(pname, pclass, tclass)
 			return a == 2 or a == 1 and b ~= 2
 		end
 	)
-	for pally, info in pairs(AllShamans) do
+	for pally, info in pairs(ShamanPower.AllShamans) do
 		if ShamanPower_Assignments[pally] and ShamanPower_Assignments[pally][pclass] then
 			local blessing = ShamanPower_Assignments[pally][pclass]
 			greater[blessing] = pally
@@ -11241,7 +11309,7 @@ function ShamanPower:AssignPlayerAsClass(pname, pclass, tclass)
 		if greater[blessing] then
 			local pally = greater[blessing]
 			if ShamanPower_NormalAssignments[pally] and ShamanPower_NormalAssignments[pally][pclass] and ShamanPower_NormalAssignments[pally][pclass][pname] then
-				SetNormalBlessings(pally, pclass, pname, 0)
+				ShamanPower.SetNormalBlessings(pally, pclass, pname, 0)
 			end
 		else
 			local maxname, maxrank, maxtalent = nil, 0, 0
@@ -11260,7 +11328,7 @@ function ShamanPower:AssignPlayerAsClass(pname, pclass, tclass)
 			end
 			if maxname then
 				freepallies[maxname] = nil
-				SetNormalBlessings(maxname, pclass, pname, blessing)
+				ShamanPower.SetNormalBlessings(maxname, pclass, pname, blessing)
 			end
 		end
 	end
@@ -11269,12 +11337,12 @@ end
 function ShamanPower:CanBuff(name, totemIndex, element)
 	-- For shamans, all totems are considered available
 	-- The element parameter is optional - if not provided, assume the totem is available
-	if not AllShamans[name] then
+	if not ShamanPower.AllShamans[name] then
 		return false
 	end
 	-- If we have element info, check the specific totem
-	if element and AllShamans[name][element] then
-		local totemData = AllShamans[name][element][totemIndex]
+	if element and ShamanPower.AllShamans[name][element] then
+		local totemData = ShamanPower.AllShamans[name][element][totemIndex]
 		if totemData and totemData.known then
 			return true
 		end
@@ -11377,7 +11445,7 @@ function ShamanPower:NeedsBuff_OLD(class, test, playerName)
 	end
 	if playerName then
 		for pname, classes in pairs(ShamanPower_NormalAssignments) do
-			if AllShamans[pname] and not pname == self.player then
+			if ShamanPower.AllShamans[pname] and not pname == self.player then
 				for _, tnames in pairs(classes) do
 					for _, blessing_id in pairs(tnames) do
 						if blessing_id == test then
@@ -11389,7 +11457,7 @@ function ShamanPower:NeedsBuff_OLD(class, test, playerName)
 		end
 	end
 	for name, skills in pairs(ShamanPower_Assignments) do
-		if (AllShamans[name]) and ((skills[class]) and (skills[class] == test)) then
+		if (ShamanPower.AllShamans[name]) and ((skills[class]) and (skills[class] == test)) then
 			return false
 		end
 	end
@@ -11488,16 +11556,16 @@ function ShamanPower:ScanSpells()
 	--self:Debug("[ScanSpells]")
 	if isShaman then
 		self:SyncAdd(self.player)
-		AllShamans[self.player] = {}
+		ShamanPower.AllShamans[self.player] = {}
 
 		-- Mark all totems as available for each element (Earth=1, Fire=2, Water=3, Air=4)
 		-- We don't check spell ranks - just show all totem types and let the shaman pick
 		for element = 1, SHAMANPOWER_MAXELEMENTS do
-			AllShamans[self.player][element] = {}
+			ShamanPower.AllShamans[self.player][element] = {}
 			local totemNames = self.TotemNames[element]
 			if totemNames then
 				for totemIndex, totemName in pairs(totemNames) do
-					AllShamans[self.player][element][totemIndex] = {
+					ShamanPower.AllShamans[self.player][element][totemIndex] = {
 						known = true,
 						name = totemName
 					}
@@ -11506,25 +11574,25 @@ function ShamanPower:ScanSpells()
 		end
 
 		-- Mark all weapon enchants as available
-		AllShamans[self.player].WeaponEnchants = {}
+		ShamanPower.AllShamans[self.player].WeaponEnchants = {}
 		local enchantNames = {"Windfury Weapon", "Flametongue Weapon", "Frostbrand Weapon", "Rockbiter Weapon"}
 		for enchantIndex, enchantName in ipairs(enchantNames) do
-			AllShamans[self.player].WeaponEnchants[enchantIndex] = {
+			ShamanPower.AllShamans[self.player].WeaponEnchants[enchantIndex] = {
 				known = true,
 				name = enchantName
 			}
 		end
 
 		-- Check if player has Earth Shield (Restoration talent)
-		AllShamans[self.player].hasEarthShield = self:HasEarthShield()
+		ShamanPower.AllShamans[self.player].hasEarthShield = self:HasEarthShield()
 
 		-- Compatibility placeholders (for code still expecting Paladin structures)
-		AllShamans[self.player].AuraInfo = {}
-		AllShamans[self.player].CooldownInfo = {}
+		ShamanPower.AllShamans[self.player].AuraInfo = {}
+		ShamanPower.AllShamans[self.player].CooldownInfo = {}
 
 		isShaman = true
-		if not AllShamans[self.player].subgroup then
-			AllShamans[self.player].subgroup = 1
+		if not ShamanPower.AllShamans[self.player].subgroup then
+			ShamanPower.AllShamans[self.player].subgroup = 1
 		end
 	end
 	initialized = true
@@ -11560,7 +11628,7 @@ function ShamanPower:SendSelf(sender)
 
 	-- Simplified sync for totems - send available totems by element
 	local s = ""
-	local TotemInfo = AllShamans[self.player]
+	local TotemInfo = ShamanPower.AllShamans[self.player]
 	if TotemInfo then
 		-- Send which totems are available for each element
 		for element = 1, SHAMANPOWER_MAXELEMENTS do
@@ -11609,8 +11677,8 @@ function ShamanPower:SendSelf(sender)
 	end
 
 	-- Set freeassign option locally
-	if AllShamans[self.player] then
-		AllShamans[self.player].freeassign = self.opt and self.opt.freeassign or false
+	if ShamanPower.AllShamans[self.player] then
+		ShamanPower.AllShamans[self.player].freeassign = self.opt and self.opt.freeassign or false
 	end
 
 end
@@ -11753,8 +11821,8 @@ end
 
 function ShamanPower:GROUP_JOINED(event)
 	--self:Debug("[Event] GROUP_JOINED")
-	AllShamans = {}
-	SyncList = {}
+	ShamanPower.AllShamans = {}
+	ShamanPower.SyncList = {}
 	ShamanPower_NormalAssignments = {}
 	self:ScanSpells()
 	self:ScanCooldowns()
@@ -11773,8 +11841,8 @@ end
 
 function ShamanPower:GROUP_LEFT(event)
 	--self:Debug("[Event] GROUP_LEFT")
-	AllShamans = {}
-	SyncList = {}
+	ShamanPower.AllShamans = {}
+	ShamanPower.SyncList = {}
 	ShamanPower_NormalAssignments = {}
 	for pname in pairs(ShamanPower_Assignments) do
 		local match = false
@@ -11817,7 +11885,7 @@ function ShamanPower:GROUP_LEFT(event)
 	self:UpdateCallerButtons()
 end
 
-function ShamanPower:UpdateAllShamans()
+function ShamanPower:UpdateShamanPower.AllShamans()
 	if not initialized then
 		return
 	end
@@ -11829,22 +11897,22 @@ function ShamanPower:UpdateAllShamans()
 		units = party_units
 	end
 
-	local countAllShamans = 0
-	for _ in pairs(AllShamans) do countAllShamans = countAllShamans + 1 end
+	local countShamanPower.AllShamans = 0
+	for _ in pairs(ShamanPower.AllShamans) do countShamanPower.AllShamans = countShamanPower.AllShamans + 1 end
 
 	local found = 0
 	for _, unitid in pairs(units) do
 		if unitid and (not unitid:find("pet")) and UnitExists(unitid) then
-			if AllShamans[GetUnitName(unitid, true)] then found = found + 1 end
+			if ShamanPower.AllShamans[GetUnitName(unitid, true)] then found = found + 1 end
 		end
 	end
 
-	if found < countAllShamans then -- Zid: if AllShamans count is reduced do a fresh setup
+	if found < countShamanPower.AllShamans then -- Zid: if ShamanPower.AllShamans count is reduced do a fresh setup
 		C_Timer.After(
 			0.5,
 			function()
-				AllShamans = {}
-				SyncList = {}
+				ShamanPower.AllShamans = {}
+				ShamanPower.SyncList = {}
 				self:ScanSpells()
 				self:ScanCooldowns()
 				self:ScanInventory()
@@ -11999,7 +12067,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if strfind(msg, "^SELF") then
 		ShamanPower_NormalAssignments[sender] = {}
 		ShamanPower_Assignments[sender] = {}
-		AllShamans[sender] = {}
+		ShamanPower.AllShamans[sender] = {}
 		self:SyncAdd(sender)
 
 		-- Parse the shaman totem format: SELF <earth>|<fire>|<water>|<air>|@<assignments>#<hasES>:<esTarget>
@@ -12026,12 +12094,12 @@ function ShamanPower:ParseMessage(sender, msg)
 				if element > SHAMANPOWER_MAXELEMENTS then break end
 
 				if elementTotems and elementTotems ~= "" and elementTotems ~= "n" then
-					AllShamans[sender][element] = {}
+					ShamanPower.AllShamans[sender][element] = {}
 					-- Each character in elementTotems is a known totem index
 					for i = 1, #elementTotems do
 						local totemIndex = tonumber(strsub(elementTotems, i, i))
 						if totemIndex then
-							AllShamans[sender][element][totemIndex] = { known = true }
+							ShamanPower.AllShamans[sender][element][totemIndex] = { known = true }
 						end
 					end
 				end
@@ -12063,19 +12131,19 @@ function ShamanPower:ParseMessage(sender, msg)
 			-- Parse Earth Shield
 			local _, _, hasES, esTarget = strfind(esData, "([01]):?(.*)")
 			if hasES == "1" then
-				AllShamans[sender].hasEarthShield = true
+				ShamanPower.AllShamans[sender].hasEarthShield = true
 				if esTarget and esTarget ~= "" then
 					ShamanPower_EarthShieldAssignments[sender] = esTarget
 				end
 			else
-				AllShamans[sender].hasEarthShield = false
+				ShamanPower.AllShamans[sender].hasEarthShield = false
 			end
 
 			-- Parse freeassign flag
 			if freeassignFlag == "1" then
-				AllShamans[sender].freeassign = true
+				ShamanPower.AllShamans[sender].freeassign = true
 			else
-				AllShamans[sender].freeassign = false
+				ShamanPower.AllShamans[sender].freeassign = false
 			end
 		end
 	end
@@ -12180,34 +12248,34 @@ function ShamanPower:ParseMessage(sender, msg)
 
 	if strfind(msg, "SYMCOUNT") then
 		local _, _, symcount = strfind(msg, "SYMCOUNT ([0-9]*)")
-		if AllShamans[sender] then
+		if ShamanPower.AllShamans[sender] then
 			if symcount == nil or symcount == "0" then
-				AllShamans[sender].symbols = 0
+				ShamanPower.AllShamans[sender].symbols = 0
 			else
-				AllShamans[sender].symbols = symcount
+				ShamanPower.AllShamans[sender].symbols = symcount
 			end
 		end
 	end
 
 	if strfind(msg, "COOLDOWNS") then
 		local _, duration1, remaining1, duration2, remaining2 = strsplit(":", msg)
-		if AllShamans[sender] then
-			if not AllShamans[sender].CooldownInfo then
-				AllShamans[sender].CooldownInfo = {}
+		if ShamanPower.AllShamans[sender] then
+			if not ShamanPower.AllShamans[sender].CooldownInfo then
+				ShamanPower.AllShamans[sender].CooldownInfo = {}
 			end
-			if not AllShamans[sender].CooldownInfo[1] and remaining1 ~= "n" then
-				AllShamans[sender].CooldownInfo[1] = {}
+			if not ShamanPower.AllShamans[sender].CooldownInfo[1] and remaining1 ~= "n" then
+				ShamanPower.AllShamans[sender].CooldownInfo[1] = {}
 				duration1 = tonumber(duration1)
 				remaining1 = tonumber(remaining1)
-				AllShamans[sender].CooldownInfo[1].start = GetTime() - (duration1 - remaining1)
-				AllShamans[sender].CooldownInfo[1].duration = duration1
+				ShamanPower.AllShamans[sender].CooldownInfo[1].start = GetTime() - (duration1 - remaining1)
+				ShamanPower.AllShamans[sender].CooldownInfo[1].duration = duration1
 			end
-			if not AllShamans[sender].CooldownInfo[2] and remaining2 ~= "n" then
-				AllShamans[sender].CooldownInfo[2] = {}
+			if not ShamanPower.AllShamans[sender].CooldownInfo[2] and remaining2 ~= "n" then
+				ShamanPower.AllShamans[sender].CooldownInfo[2] = {}
 				duration2 = tonumber(duration2)
 				remaining2 = tonumber(remaining2)
-				AllShamans[sender].CooldownInfo[2].start = GetTime() - (duration2 - remaining2)
-				AllShamans[sender].CooldownInfo[2].duration = duration2
+				ShamanPower.AllShamans[sender].CooldownInfo[2].start = GetTime() - (duration2 - remaining2)
+				ShamanPower.AllShamans[sender].CooldownInfo[2].duration = duration2
 			end
 		end
 	end
@@ -12220,28 +12288,28 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "FREEASSIGN YES") and AllShamans[sender] then
-		AllShamans[sender].freeassign = true
+	if strfind(msg, "FREEASSIGN YES") and ShamanPower.AllShamans[sender] then
+		ShamanPower.AllShamans[sender].freeassign = true
 	end
 
-	if strfind(msg, "FREEASSIGN NO") and AllShamans[sender] then
-		AllShamans[sender].freeassign = false
+	if strfind(msg, "FREEASSIGN NO") and ShamanPower.AllShamans[sender] then
+		ShamanPower.AllShamans[sender].freeassign = false
 	end
 
 	if strfind(msg, "^ASELF") then
 		ShamanPower_AuraAssignments[sender] = 0
-		if AllShamans[sender] then
-			if not AllShamans[sender].AuraInfo then
-				AllShamans[sender].AuraInfo = {}
+		if ShamanPower.AllShamans[sender] then
+			if not ShamanPower.AllShamans[sender].AuraInfo then
+				ShamanPower.AllShamans[sender].AuraInfo = {}
 			end
 			local _, _, numbers, assign = strfind(msg, "ASELF ([0-9a-fn]*)@([0-9n]*)")
 			for i = 1, SHAMANPOWER_MAXAURAS do
 				local rank = strsub(numbers, (i - 1) * 2 + 1, (i - 1) * 2 + 1)
 				local talent = strsub(numbers, (i - 1) * 2 + 2, (i - 1) * 2 + 2)
 				if rank ~= "n" then
-					AllShamans[sender].AuraInfo[i] = {}
-					AllShamans[sender].AuraInfo[i].rank = tonumber(rank, 16)
-					AllShamans[sender].AuraInfo[i].talent = tonumber(talent)
+					ShamanPower.AllShamans[sender].AuraInfo[i] = {}
+					ShamanPower.AllShamans[sender].AuraInfo[i].rank = tonumber(rank, 16)
+					ShamanPower.AllShamans[sender].AuraInfo[i].talent = tonumber(talent)
 				end
 			end
 			if assign then
@@ -12310,12 +12378,12 @@ end
 
 function ShamanPower:CanControl(name)
 	if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-		return (name == self.player) or (AllShamans[name] and (AllShamans[name].freeassign == true))
+		return (name == self.player) or (ShamanPower.AllShamans[name] and (ShamanPower.AllShamans[name].freeassign == true))
 	else
 		if UnitIsGroupLeader(self.player) or UnitIsGroupAssistant(self.player) then
 			return true
 		else
-			return (name == self.player) or (AllShamans[name] and (AllShamans[name].freeassign == true))
+			return (name == self.player) or (ShamanPower.AllShamans[name] and (ShamanPower.AllShamans[name].freeassign == true))
 		end
 	end
 end
@@ -12363,20 +12431,20 @@ function ShamanPower:ClearAssignments(sender, skipAuras)
 end
 
 function ShamanPower:SyncClear()
-	SyncList = {}
+	ShamanPower.SyncList = {}
 end
 
 function ShamanPower:SyncAdd(name)
 	local chk = 0
-	for _, v in ipairs(SyncList) do
+	for _, v in ipairs(ShamanPower.SyncList) do
 		if v == name then
 			chk = 1
 		end
 	end
 	if chk == 0 then
-		tinsert(SyncList, name)
+		tinsert(ShamanPower.SyncList, name)
 		tsort(
-			SyncList,
+			ShamanPower.SyncList,
 			function(a, b)
 				return a < b
 			end
@@ -12516,7 +12584,7 @@ function ShamanPower:UpdateRoster()
 						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainTankSpellsW then
 							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsW and (raidtank == "MAINTANK" and self.opt.mainTank) then
 							else
-								SetNormalBlessings(self.player, class, tmp.name, 0)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
 								raidmaintanks[tmp.name] = false
 							end
 						end
@@ -12525,20 +12593,20 @@ function ShamanPower:UpdateRoster()
 						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainAssistSpellsW then
 							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsW and (raidtank == "MAINASSIST" and self.opt.mainAssist) then
 							else
-								SetNormalBlessings(self.player, class, tmp.name, 0)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
 								raidmainassists[tmp.name] = false
 							end
 						end
 					end
 					if (raidtank == "MAINTANK" and self.opt.mainTank) then
 						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsW and (raidmaintanks[tmp.name] == false or raidmaintanks[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainTankSpellsW and raidmaintanks[tmp.name] == true) then
-							SetNormalBlessings(self.player, class, tmp.name, self.opt.mainTankSpellsW)
+							ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainTankSpellsW)
 							raidmaintanks[tmp.name] = true
 						end
 					end
 					if (raidtank == "MAINASSIST" and self.opt.mainAssist) then
 						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsW and (raidmainassists[tmp.name] == false or raidmainassists[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainAssistSpellsW and raidmainassists[tmp.name] == true) then
-							SetNormalBlessings(self.player, class, tmp.name, self.opt.mainAssistSpellsW)
+							ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainAssistSpellsW)
 							raidmainassists[tmp.name] = true
 						end
 					end
@@ -12549,7 +12617,7 @@ function ShamanPower:UpdateRoster()
 						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainTankSpellsDP then
 							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsDP and (raidtank == "MAINTANK" and self.opt.mainTank) then
 							else
-								SetNormalBlessings(self.player, class, tmp.name, 0)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
 								raidmaintanks[tmp.name] = false
 							end
 						end
@@ -12558,7 +12626,7 @@ function ShamanPower:UpdateRoster()
 						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainAssistSpellsDP then
 							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsDP and (raidtank == "MAINASSIST" and self.opt.mainAssist) then
 							else
-								SetNormalBlessings(self.player, class, tmp.name, 0)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
 								raidmainassists[tmp.name] = false
 							end
 						end
@@ -12566,9 +12634,9 @@ function ShamanPower:UpdateRoster()
 					if (raidtank == "MAINTANK" and self.opt.mainTank) then
 						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsDP and (raidmaintanks[tmp.name] == false or raidmaintanks[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainTankSpellsDP and raidmaintanks[tmp.name] == true) then
 							if (self.player == tmp.name and self.opt.mainTankSpellsDP == 7) then
-								SetNormalBlessings(self.player, class, tmp.name, 0)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
 							else
-								SetNormalBlessings(self.player, class, tmp.name, self.opt.mainTankSpellsDP)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainTankSpellsDP)
 							end
 							raidmaintanks[tmp.name] = true
 						end
@@ -12576,9 +12644,9 @@ function ShamanPower:UpdateRoster()
 					if (raidtank == "MAINASSIST" and self.opt.mainAssist) then
 						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsDP and (raidmainassists[tmp.name] == false or raidmainassists[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainAssistSpellsDP and raidmainassists[tmp.name] == true) then
 							if (self.player == tmp.name and self.opt.mainTankSpellsDP == 7) then
-								SetNormalBlessings(self.player, class, tmp.name, 0)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
 							else
-								SetNormalBlessings(self.player, class, tmp.name, self.opt.mainAssistSpellsDP)
+								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainAssistSpellsDP)
 							end
 							raidmainassists[tmp.name] = true
 						end
@@ -12593,8 +12661,8 @@ function ShamanPower:UpdateRoster()
 				tmp.subgroup = 1
 			end
 			if tmp.class == "SHAMAN" and (not isPet) then
-				if AllShamans[tmp.name] then
-					AllShamans[tmp.name].subgroup = tmp.subgroup
+				if ShamanPower.AllShamans[tmp.name] then
+					ShamanPower.AllShamans[tmp.name].subgroup = tmp.subgroup
 				end
 			end
 			if tmp.name and (tmp.rank > 0) then
@@ -12886,7 +12954,7 @@ function ShamanPower:UpdateLayout()
 	if self.opt.auras then
 		self:UpdateAuraButton(ShamanPower_AuraAssignments[self.player])
 	end
-	if isShaman and self.opt.enabled and self.opt.auras and AllShamans[self.player].AuraInfo[1] and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
+	if isShaman and self.opt.enabled and self.opt.auras and ShamanPower.AllShamans[self.player].AuraInfo[1] and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
 		auraBtn:Show()
 	else
 		auraBtn:Hide()
@@ -14270,7 +14338,7 @@ function ShamanPower:AutoAssign()
 		C_Timer.After(
 			0.25,
 			function()
-				for name in pairs(AllShamans) do
+				for name in pairs(ShamanPower.AllShamans) do
 					local s = ""
 					local BuffInfo = ShamanPower_Assignments[name]
 					if not BuffInfo then BuffInfo = {} end
@@ -14318,7 +14386,7 @@ function ShamanPower:LoadPreset()
 	C_Timer.After(
 		0.25,
 		function() -- send Class-Assignments
-			for name in pairs(AllShamans) do
+			for name in pairs(ShamanPower.AllShamans) do
 				local s = ""
 				local BuffInfo = ShamanPower_Assignments[name]
 				if not BuffInfo then BuffInfo = {} end
@@ -14335,7 +14403,7 @@ function ShamanPower:LoadPreset()
 				0.25,
 				function() -- send Single-Assignments
 					for pname, passignments in pairs(ShamanPower_NormalAssignments) do
-						if (AllShamans[pname] and ShamanPower:GetUnitIdByName(pname) and passignments) then
+						if (ShamanPower.AllShamans[pname] and ShamanPower:GetUnitIdByName(pname) and passignments) then
 							for class, cassignments in pairs(passignments) do
 								if cassignments then 
 									for tname, value in pairs(cassignments) do
@@ -14362,11 +14430,11 @@ function ShamanPower:CalcSkillRanks(name)
 	-- For Shamans, return what totems they have available per element
 	-- Returns: earth, fire, water, air (boolean flags)
 	local earth, fire, water, air = false, false, false, false
-	if AllShamans[name] then
-		if AllShamans[name][1] and next(AllShamans[name][1]) then earth = true end
-		if AllShamans[name][2] and next(AllShamans[name][2]) then fire = true end
-		if AllShamans[name][3] and next(AllShamans[name][3]) then water = true end
-		if AllShamans[name][4] and next(AllShamans[name][4]) then air = true end
+	if ShamanPower.AllShamans[name] then
+		if ShamanPower.AllShamans[name][1] and next(ShamanPower.AllShamans[name][1]) then earth = true end
+		if ShamanPower.AllShamans[name][2] and next(ShamanPower.AllShamans[name][2]) then fire = true end
+		if ShamanPower.AllShamans[name][3] and next(ShamanPower.AllShamans[name][3]) then water = true end
+		if ShamanPower.AllShamans[name][4] and next(ShamanPower.AllShamans[name][4]) then air = true end
 	end
 	return earth, fire, water, air
 end
@@ -14384,8 +14452,8 @@ function ShamanPower:AutoAssignBlessings(shift)
 
 	-- Get shamans organized by their party group
 	local shamansByGroup = {}
-	for name in pairs(AllShamans) do
-		local subgroup = AllShamans[name].subgroup or 1
+	for name in pairs(ShamanPower.AllShamans) do
+		local subgroup = ShamanPower.AllShamans[name].subgroup or 1
 		if not shamansByGroup[subgroup] then
 			shamansByGroup[subgroup] = {}
 		end
@@ -14404,10 +14472,10 @@ function ShamanPower:AutoAssignBlessings(shift)
 	end
 
 	-- Assign totems to each shaman
-	for name in pairs(AllShamans) do
+	for name in pairs(ShamanPower.AllShamans) do
 		local canAssign = (name == self.player) or self:CanControl(name)
 		if canAssign then
-			local subgroup = AllShamans[name].subgroup or 1
+			local subgroup = ShamanPower.AllShamans[name].subgroup or 1
 			local comp = groupComposition[subgroup] or {melee = 0, caster = 0, agiUsers = 0, total = 0}
 
 			if not ShamanPower_Assignments[name] then
@@ -14601,9 +14669,9 @@ end
 
 -- Check if a shaman has Totem of Wrath (Elemental talent)
 function ShamanPower:ShamanHasTotemOfWrath(shamanName)
-	if AllShamans[shamanName] and AllShamans[shamanName].Fire then
+	if ShamanPower.AllShamans[shamanName] and ShamanPower.AllShamans[shamanName].Fire then
 		-- Check if they have ToW in their available fire totems
-		for totemID, _ in pairs(AllShamans[shamanName].Fire or {}) do
+		for totemID, _ in pairs(ShamanPower.AllShamans[shamanName].Fire or {}) do
 			if totemID == 1 then  -- ToW is index 1 in fire totems
 				return true
 			end
@@ -14618,9 +14686,9 @@ end
 
 -- Check if a shaman has Mana Tide (Resto talent)
 function ShamanPower:ShamanHasManaTide(shamanName)
-	if AllShamans[shamanName] and AllShamans[shamanName].Water then
+	if ShamanPower.AllShamans[shamanName] and ShamanPower.AllShamans[shamanName].Water then
 		-- Check if they have Mana Tide in their available water totems
-		for totemID, _ in pairs(AllShamans[shamanName].Water or {}) do
+		for totemID, _ in pairs(ShamanPower.AllShamans[shamanName].Water or {}) do
 			if totemID == 3 then  -- Mana Tide is index 3 in water totems
 				return true
 			end
@@ -14667,7 +14735,7 @@ function ShamanPowerAuraButton_OnClick(btn, mouseBtn)
 	end
 
 	-- Check if this shaman has Earth Shield
-	if not AllShamans[pname] or not AllShamans[pname].hasEarthShield then
+	if not ShamanPower.AllShamans[pname] or not ShamanPower.AllShamans[pname].hasEarthShield then
 		return false
 	end
 
@@ -14813,10 +14881,10 @@ end
 
 function ShamanPower:HasAura(name, test)
 	-- Shamans don't have auras like Paladins - this is kept for compatibility
-	if not AllShamans[name] or not AllShamans[name].AuraInfo then
+	if not ShamanPower.AllShamans[name] or not ShamanPower.AllShamans[name].AuraInfo then
 		return false
 	end
-	if (not AllShamans[name].AuraInfo[test]) or (AllShamans[name].AuraInfo[test].rank == 0) then
+	if (not ShamanPower.AllShamans[name].AuraInfo[test]) or (ShamanPower.AllShamans[name].AuraInfo[test].rank == 0) then
 		return false
 	end
 	return true
@@ -14910,8 +14978,8 @@ function ShamanPower:UpdateAuraButton(aura)
 	local auraBtn = _G["ShamanPowerAura"]
 	local auraIcon = _G["ShamanPowerAuraIcon"]
 	if (aura and aura > 0) then
-		for name in pairs(AllShamans) do
-			if (name ~= self.player) and (AllShamans[name].subgroup == AllShamans[self.player].subgroup) and (aura == ShamanPower_AuraAssignments[name]) then
+		for name in pairs(ShamanPower.AllShamans) do
+			if (name ~= self.player) and (ShamanPower.AllShamans[name].subgroup == ShamanPower.AllShamans[self.player].subgroup) and (aura == ShamanPower_AuraAssignments[name]) then
 				tinsert(pallys, name)
 			end
 		end
@@ -14958,9 +15026,9 @@ function ShamanPower:AutoAssignAuras(precedence)
 	for i = 1, 8 do
 		pallys[("subgroup%d"):format(i)] = {}
 	end
-	for name in pairs(AllShamans) do
-		if AllShamans[name].subgroup then
-			local subgroup = "subgroup" .. AllShamans[name].subgroup
+	for name in pairs(ShamanPower.AllShamans) do
+		if ShamanPower.AllShamans[name].subgroup then
+			local subgroup = "subgroup" .. ShamanPower.AllShamans[name].subgroup
 			if self:CanControl(name) then
 				tinsert(pallys[subgroup], name)
 			end
@@ -14972,10 +15040,10 @@ function ShamanPower:AutoAssignAuras(precedence)
 			local testRank = 0
 			local testTalent = 0
 			for _, pally in pairs(subgroup) do
-				if self:HasAura(pally, aura) and (AllShamans[pally].AuraInfo[aura].rank >= testRank) then
-					testRank = AllShamans[pally].AuraInfo[aura].rank
-					if AllShamans[pally].AuraInfo[aura].talent >= testTalent then
-						testTalent = AllShamans[pally].AuraInfo[aura].talent
+				if self:HasAura(pally, aura) and (ShamanPower.AllShamans[pally].AuraInfo[aura].rank >= testRank) then
+					testRank = ShamanPower.AllShamans[pally].AuraInfo[aura].rank
+					if ShamanPower.AllShamans[pally].AuraInfo[aura].talent >= testTalent then
+						testTalent = ShamanPower.AllShamans[pally].AuraInfo[aura].talent
 						assignee = pally
 					end
 				end
@@ -16606,6 +16674,7 @@ function ShamanPower:CreateLoadoutBar()
 
 	-- Anchor tooltip (HookScript so secure _onenter/_onleave still fires)
 	anchor:HookScript("OnEnter", function(btn)
+		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
 		GameTooltip:AddLine("Totem Sets", 1, 1, 1)
 		if self.opt.activeLoadout and ShamanPower_TotemLoadouts[self.opt.activeLoadout] then
@@ -16723,6 +16792,7 @@ function ShamanPower:CreateLoadoutBar()
 
 		-- Tooltip (HookScript so secure _onleave still fires)
 		btn:HookScript("OnEnter", function(self)
+			if not ShamanPower.opt.ShowTooltips then return end
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			local set = ShamanPower_TotemLoadouts[self.nr]
 			if set then

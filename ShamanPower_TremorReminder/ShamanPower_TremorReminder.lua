@@ -94,7 +94,7 @@ local defaults = {
     showGlow = true,
     glowColor = { r = 1, g = 0.8, b = 0 },
     playSound = false,
-    soundFile = "Sound\\Interface\\RaidWarning.ogg",
+    soundName = "Raid Warning",
     soundVolume = 100,
     position = { point = "CENTER", x = 0, y = 150 },
     locked = true,
@@ -212,15 +212,17 @@ local function CreateReminderFrame()
 
     -- Tooltip
     frame:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Tremor Totem Reminder", 1, 0.82, 0)
-        local targetName = UnitName("target")
-        if targetName then
-            GameTooltip:AddLine("Target: " .. targetName .. " (fear-caster)", 1, 0.5, 0.5)
+        if SP.opt and SP.opt.ShowTooltips then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText("Tremor Totem Reminder", 1, 0.82, 0)
+            local targetName = UnitName("target")
+            if targetName then
+                GameTooltip:AddLine("Target: " .. targetName .. " (fear-caster)", 1, 0.5, 0.5)
+            end
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("ALT+drag to move", 0.5, 0.5, 0.5)
+            GameTooltip:Show()
         end
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("ALT+drag to move", 0.5, 0.5, 0.5)
-        GameTooltip:Show()
     end)
     frame:SetScript("OnLeave", function()
         GameTooltip:Hide()
@@ -321,8 +323,8 @@ local function ShowReminder()
     end
 
     -- Play sound
-    if sv.playSound and sv.soundFile then
-        ShamanPower:PlaySoundWithVolume(sv.soundFile, sv.soundVolume, true)
+    if sv.playSound then
+        ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
     end
 end
 
@@ -373,8 +375,8 @@ local function CheckTarget()
     lastTargetName = targetName
 
     if not isShowing then
-        if shouldSound and sv.playSound and sv.soundFile then
-            ShamanPower:PlaySoundWithVolume(sv.soundFile, sv.soundVolume, true)
+        if shouldSound and sv.playSound then
+            ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
         end
     end
 

@@ -896,6 +896,89 @@ ShamanPower.options = {
 								ShamanPower.opt.twistTimerNoDecimals = val
 							end
 						},
+						twistSoundEnabled = {
+							order = 7.5,
+							name = "Play Twist Sound",
+							desc = "Play a sound when the twist timer reaches the threshold",
+							type = "toggle",
+							width = "full",
+							hidden = function(info)
+								return not ShamanPower.opt.enableTotemTwisting
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.twistSoundEnabled
+							end,
+							set = function(info, val)
+								ShamanPower.opt.twistSoundEnabled = val
+							end
+						},
+						twistSoundThreshold = {
+							order = 7.6,
+							name = "Sound Threshold (seconds)",
+							desc = "Play the twist sound when this many seconds remain",
+							type = "range",
+							min = 0,
+							max = 10,
+							step = 1,
+							width = "double",
+							hidden = function(info)
+								return not ShamanPower.opt.enableTotemTwisting or not ShamanPower.opt.twistSoundEnabled
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.twistSoundThreshold or 3
+							end,
+							set = function(info, val)
+								ShamanPower.opt.twistSoundThreshold = val
+							end
+						},
+						twistSoundPicker = {
+							order = 7.7,
+							name = "Twist Sound",
+							desc = "Choose which sound to play",
+							type = "select",
+							dialogControl = "LSM30_Sound",
+							values = AceGUIWidgetLSMlists.sound,
+							width = "double",
+							hidden = function(info)
+								return not ShamanPower.opt.enableTotemTwisting or not ShamanPower.opt.twistSoundEnabled
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.twistSoundName or "Raid Warning"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.twistSoundName = val
+							end
+						},
+						twistSoundVolume = {
+							order = 7.8,
+							name = "Twist Sound Volume",
+							type = "range",
+							min = 0,
+							max = 100,
+							step = 1,
+							width = "double",
+							hidden = function(info)
+								return not ShamanPower.opt.enableTotemTwisting or not ShamanPower.opt.twistSoundEnabled
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.twistSoundVolume or 100
+							end,
+							set = function(info, val)
+								ShamanPower.opt.twistSoundVolume = val
+							end
+						},
 					}
 				},
 				settings_visibility = {
@@ -3179,7 +3262,7 @@ ShamanPower.options = {
 						reactive_desc = {
 							order = 0,
 							type = "description",
-							name = "Shows large totem icons when you have fear, disease, or poison debuffs. Click to cast the appropriate cleansing totem.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Reactive Totems]|r module to be enabled in your AddOns list.\n",
+							name = "Shows large totem icons when party members have fear, disease, or poison debuffs.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Reactive Totems]|r module to be enabled in your AddOns list.\n",
 						},
 						reactive_enabled = {
 							order = 1,
@@ -3217,6 +3300,48 @@ ShamanPower.options = {
 							set = function(info, val)
 								if ShamanPower_ReactiveTotems then
 									ShamanPower_ReactiveTotems.locked = val
+								end
+							end
+						},
+						reactive_only_instance = {
+							order = 1.6,
+							name = "Only Alert in Instances",
+							desc = "Only show reactive totem alerts inside dungeons, raids, and battlegrounds",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								if ShamanPower_ReactiveTotems then
+									return ShamanPower_ReactiveTotems.onlyInInstance or false
+								end
+								return false
+							end,
+							set = function(info, val)
+								if ShamanPower_ReactiveTotems then
+									ShamanPower_ReactiveTotems.onlyInInstance = val
+									if ShamanPower.UpdateReactiveTotems then
+										ShamanPower:UpdateReactiveTotems()
+									end
+								end
+							end
+						},
+						reactive_hide_when_active = {
+							order = 1.7,
+							name = "Hide When Totem Active",
+							desc = "Hide the alert when the relevant cleansing totem is already placed",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								if ShamanPower_ReactiveTotems then
+									return ShamanPower_ReactiveTotems.hideWhenTotemActive ~= false
+								end
+								return true
+							end,
+							set = function(info, val)
+								if ShamanPower_ReactiveTotems then
+									ShamanPower_ReactiveTotems.hideWhenTotemActive = val
+									if ShamanPower.UpdateReactiveTotems then
+										ShamanPower:UpdateReactiveTotems()
+									end
 								end
 							end
 						},
@@ -3537,6 +3662,32 @@ ShamanPower.options = {
 									ShamanPower_ReactiveTotems.playSound = val
 								end
 							end
+						},
+						reactive_sound_picker = {
+							order = 14.1,
+							name = "Alert Sound",
+							desc = "Choose which sound to play for reactive totem alerts",
+							type = "select",
+							dialogControl = "LSM30_Sound",
+							values = AceGUIWidgetLSMlists.sound,
+							width = "double",
+							disabled = function()
+								if ShamanPower_ReactiveTotems then
+									return not ShamanPower_ReactiveTotems.playSound
+								end
+								return true
+							end,
+							get = function()
+								if ShamanPower_ReactiveTotems then
+									return ShamanPower_ReactiveTotems.soundName or "Raid Warning"
+								end
+								return "Raid Warning"
+							end,
+							set = function(_, val)
+								if ShamanPower_ReactiveTotems then
+									ShamanPower_ReactiveTotems.soundName = val
+								end
+							end,
 						},
 						reactive_sound_volume = {
 							order = 14.3,
@@ -3934,6 +4085,33 @@ ShamanPower.options = {
 								end
 							end
 						},
+						alerts_shields_sound_picker = {
+							order = 15.5,
+							name = "Shield Alert Sound",
+							desc = "Choose which sound to play for shield alerts",
+							type = "select",
+							dialogControl = "LSM30_Sound",
+							values = AceGUIWidgetLSMlists.sound,
+							width = "double",
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields then
+									return not ShamanPowerExpiringAlertsDB.shields.sound
+								end
+								return true
+							end,
+							get = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields then
+									return ShamanPowerExpiringAlertsDB.shields.soundName or "Raid Warning"
+								end
+								return "Raid Warning"
+							end,
+							set = function(_, val)
+								if ShamanPowerExpiringAlertsDB then
+									if not ShamanPowerExpiringAlertsDB.shields then ShamanPowerExpiringAlertsDB.shields = {} end
+									ShamanPowerExpiringAlertsDB.shields.soundName = val
+								end
+							end,
+						},
 						alerts_sound_volume = {
 							order = 8.5,
 							name = "Sound Volume",
@@ -4127,6 +4305,33 @@ ShamanPower.options = {
 								end
 							end
 						},
+						alerts_totems_sound_picker = {
+							order = 28.5,
+							name = "Totem Alert Sound",
+							desc = "Choose which sound to play for totem alerts",
+							type = "select",
+							dialogControl = "LSM30_Sound",
+							values = AceGUIWidgetLSMlists.sound,
+							width = "double",
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems then
+									return not ShamanPowerExpiringAlertsDB.totems.sound
+								end
+								return true
+							end,
+							get = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems then
+									return ShamanPowerExpiringAlertsDB.totems.soundName or "Alarm Clock Warning 3"
+								end
+								return "Alarm Clock Warning 3"
+							end,
+							set = function(_, val)
+								if ShamanPowerExpiringAlertsDB then
+									if not ShamanPowerExpiringAlertsDB.totems then ShamanPowerExpiringAlertsDB.totems = {} end
+									ShamanPowerExpiringAlertsDB.totems.soundName = val
+								end
+							end,
+						},
 						alerts_header_imbues = {
 							order = 30,
 							type = "header",
@@ -4207,6 +4412,33 @@ ShamanPower.options = {
 									ShamanPowerExpiringAlertsDB.weaponImbues.sound = val
 								end
 							end
+						},
+						alerts_imbues_sound_picker = {
+							order = 34.5,
+							name = "Imbue Alert Sound",
+							desc = "Choose which sound to play for weapon imbue alerts",
+							type = "select",
+							dialogControl = "LSM30_Sound",
+							values = AceGUIWidgetLSMlists.sound,
+							width = "double",
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.weaponImbues then
+									return not ShamanPowerExpiringAlertsDB.weaponImbues.sound
+								end
+								return true
+							end,
+							get = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.weaponImbues then
+									return ShamanPowerExpiringAlertsDB.weaponImbues.soundName or "Raid Warning"
+								end
+								return "Raid Warning"
+							end,
+							set = function(_, val)
+								if ShamanPowerExpiringAlertsDB then
+									if not ShamanPowerExpiringAlertsDB.weaponImbues then ShamanPowerExpiringAlertsDB.weaponImbues = {} end
+									ShamanPowerExpiringAlertsDB.weaponImbues.soundName = val
+								end
+							end,
 						},
 						alerts_header_testing = {
 							order = 40,
@@ -4539,6 +4771,32 @@ ShamanPower.options = {
 									ShamanPowerTremorReminderDB.playSound = val
 								end
 							end
+						},
+						tremor_sound_picker = {
+							order = 31.5,
+							name = "Alert Sound",
+							desc = "Choose which sound to play for tremor reminders",
+							type = "select",
+							dialogControl = "LSM30_Sound",
+							values = AceGUIWidgetLSMlists.sound,
+							width = "double",
+							disabled = function()
+								if ShamanPowerTremorReminderDB then
+									return not ShamanPowerTremorReminderDB.playSound
+								end
+								return true
+							end,
+							get = function()
+								if ShamanPowerTremorReminderDB then
+									return ShamanPowerTremorReminderDB.soundName or "Raid Warning"
+								end
+								return "Raid Warning"
+							end,
+							set = function(_, val)
+								if ShamanPowerTremorReminderDB then
+									ShamanPowerTremorReminderDB.soundName = val
+								end
+							end,
 						},
 						tremor_sound_volume = {
 							order = 32,
