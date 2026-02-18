@@ -526,7 +526,7 @@ function ShamanPower:OnEnable()
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET"}, 1, "UpdateRoster")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateShamanPower.AllShamans")
+	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	if isShaman then
@@ -11885,7 +11885,7 @@ function ShamanPower:GROUP_LEFT(event)
 	self:UpdateCallerButtons()
 end
 
-function ShamanPower:UpdateShamanPower.AllShamans()
+function ShamanPower:UpdateAllShamans()
 	if not initialized then
 		return
 	end
@@ -11897,8 +11897,8 @@ function ShamanPower:UpdateShamanPower.AllShamans()
 		units = party_units
 	end
 
-	local countShamanPower.AllShamans = 0
-	for _ in pairs(ShamanPower.AllShamans) do countShamanPower.AllShamans = countShamanPower.AllShamans + 1 end
+	local countAllShamans = 0
+	for _ in pairs(ShamanPower.AllShamans) do countAllShamans = countAllShamans + 1 end
 
 	local found = 0
 	for _, unitid in pairs(units) do
@@ -11907,7 +11907,7 @@ function ShamanPower:UpdateShamanPower.AllShamans()
 		end
 	end
 
-	if found < countShamanPower.AllShamans then -- Zid: if ShamanPower.AllShamans count is reduced do a fresh setup
+	if found < countAllShamans then -- Zid: if ShamanPower.AllShamans count is reduced do a fresh setup
 		C_Timer.After(
 			0.5,
 			function()
