@@ -737,7 +737,7 @@ ShamanPower.options = {
 						}
 					}
 				},
-				-- settings_buffs removed - was PallyPower blessing options not applicable to Shamans
+				-- settings_buffs removed (legacy)
 				settings_totemMode = {
 					order = 2,
 					name = "Totem Bar Mode",

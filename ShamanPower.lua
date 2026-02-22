@@ -209,7 +209,7 @@ do
 end
 
 ShamanPower.Credits1 = "ShamanPower - Shaman Totem Coordination"
-ShamanPower.Credits2 = "Based on PallyPower by Aznamir, Dyaxler, Es, gallantron. Adapted by taubut."
+ShamanPower.Credits2 = "Created by Srumar. Originally adapted from PallyPower."
 
 function ShamanPower:Debug(s)
 	if (ShamanPower.AC_DebugEnabled) then

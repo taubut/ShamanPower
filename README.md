@@ -82,9 +82,8 @@ If you previously used this addon under the name "AncestralCouncil", your settin
 
 ## Credits
 
-- **Author:** taubut
-- **Based on:** [PallyPower](https://www.curseforge.com/wow/addons/pally-power) by Aznamir, Dyaxler, Es, gallantron
-- Adapted from Paladin blessings to Shaman totems for TBC Anniversary
+- **Author:** Srumar
+- Originally adapted from PallyPower's UI framework for Shaman totem coordination
 
 ## Links
 

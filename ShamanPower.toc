@@ -1,5 +1,5 @@
 ## Interface: 20505
-## Author: taubut (based on PallyPower by Aznamir, Dyaxler, Es, gallantron)
+## Author: Srumar
 ## Title: |cff0070ddShamanPower|r
 ## Version: 1.6.1
 ## IconTexture: Interface\Icons\ClassIcon_Shaman

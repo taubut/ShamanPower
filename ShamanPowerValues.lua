@@ -53,7 +53,7 @@ SHAMANPOWER_MAXELEMENTS = 4        -- Earth, Fire, Water, Air
 SHAMANPOWER_MAXPERELEMENT = 8      -- Max totems per element
 SHAMANPOWER_TOTEMDURATION = 2 * 60 -- 2 minutes base duration (some vary)
 
--- Compatibility constants (for code still referencing old PallyPower structure)
+-- Compatibility constants
 SHAMANPOWER_MAXCLASSES = 4         -- Using elements instead of classes
 SHAMANPOWER_MAXAURAS = 0           -- Shamans don't have auras like Paladins
 SHAMANPOWER_MAXPERCLASS = 8        -- Max shamans to display
@@ -678,7 +678,7 @@ ShamanPower.WeaponIcons = {
 }
 
 -- ============================================================================
--- UI LAYOUTS (compatible with PallyPower layout format)
+-- UI LAYOUTS
 -- c = class/element buttons, p = player buttons, ab = auto button, rf = seal/weapon button
 -- ============================================================================
 
@@ -831,7 +831,7 @@ end
 
 -- ============================================================================
 -- COMPATIBILITY STRUCTURES
--- These are placeholders for code still referencing old PallyPower structures
+-- Legacy compatibility structures
 -- ============================================================================
 
 -- Spell arrays for compatibility - maps to element/totem names
