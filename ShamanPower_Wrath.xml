@@ -1969,13 +1969,13 @@
 						ShamanPower.opt.freeassign = self:GetChecked();
 						if ShamanPower.opt.freeassign then
 							ShamanPower:SendMessage("FREEASSIGN YES");
-							if AllShamans[ShamanPower.player] then
-								AllShamans[ShamanPower.player].freeassign = true
+							if ShamanPower.AllShamans[ShamanPower.player] then
+								ShamanPower.AllShamans[ShamanPower.player].freeassign = true
 							end
 						else
 							ShamanPower:SendMessage("FREEASSIGN NO");
-							if AllShamans[ShamanPower.player] then
-								AllShamans[ShamanPower.player].freeassign = false
+							if ShamanPower.AllShamans[ShamanPower.player] then
+								ShamanPower.AllShamans[ShamanPower.player].freeassign = false
 							end
 						end
 					</OnClick>
