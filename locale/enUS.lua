@@ -232,3 +232,8 @@ L["Use in Party"] = "Use in Party"
 L["Use when Solo"] = "Use when Solo"
 L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon."
 L["...with Normal..."] = "...with Normal..."
+
+-- Right-click clears assignment option
+L["Right-Click Clears Assignment"] = "Right-Click Clears Assignment"
+L["RIGHTCLICK_CLEARS_ASSIGNMENT_DESC"] = "When enabled, right-clicking a totem button will clear (unassign) the totem for that slot instead of casting Totemic Call. Only works outside of combat."
+L["Cannot clear assignment during combat"] = "Cannot clear assignment during combat"
