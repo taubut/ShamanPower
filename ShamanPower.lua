@@ -5292,7 +5292,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
 			btn:SetAttribute("_childupdate-show", [[
 				if message then
-					if not self:GetAttribute("isCurrentAssignment") then
+					if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("isHiddenFromFlyout") then
 						self:Show()
 					end
 				else
@@ -5315,8 +5315,8 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- SECURE HANDLER: Relayout this button after assignment change (WORKS IN COMBAT)
 			-- Each button counts visible siblings before it and positions itself accordingly
 			btn:SetAttribute("_childupdate-relayout", [[
-				-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
-				if self:GetAttribute("isCurrentAssignment") then
+				-- If I'm the current assignment or otherwise hidden, don't position myself
+				if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("isHiddenFromFlyout") then
 					return
 				end
 
@@ -5335,7 +5335,7 @@ function ShamanPower:CreateTotemFlyout(element)
 					local sibling = children[i]
 					if sibling:GetAttribute("isFlyoutButton") then
 						local sibIndex = sibling:GetAttribute("myTotemIndex") or 0
-						if sibIndex < myIndex and not sibling:GetAttribute("isCurrentAssignment") then
+						if sibIndex < myIndex and not sibling:GetAttribute("isCurrentAssignment") and not sibling:GetAttribute("isHiddenFromFlyout") then
 							visibleBefore = visibleBefore + 1
 						end
 					end
@@ -5542,11 +5542,13 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- Only add to active buttons if enabled in flyout settings
 			if isEnabledInFlyout then
 				btn.isDisabledInFlyout = false
+				btn:SetAttribute("isHiddenFromFlyout", false)
 				table.insert(flyout.buttons, btn)
 			else
 				btn.isDisabledInFlyout = true
 				btn:Hide()
-				btn:SetAttribute("isCurrentAssignment", true)  -- Treat as hidden
+				btn:SetAttribute("isCurrentAssignment", true)  -- Keep for legacy tracking
+				btn:SetAttribute("isHiddenFromFlyout", true)  -- Prevent show handler from revealing
 			end
 		end
 	end
@@ -5778,17 +5780,6 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	local assignments = ShamanPower_Assignments[self.player]
 	local currentTotemIndex = assignments and assignments[element] or 0
 
-	-- In TotemTimers style mode (activeTotemAsMain), the main button ICON shows the active totem.
-	-- So we should hide the ACTIVE totem from the flyout, not the assigned one.
-	-- This prevents the visual confusion of the same totem appearing on the main button and in the flyout.
-	local hideIndex = currentTotemIndex
-	if self.opt.activeTotemAsMain then
-		local activeIndex = self:GetActiveTotemIndex(element)
-		if activeIndex then
-			hideIndex = activeIndex
-		end
-	end
-
 	-- For horizontal bar, flyout is vertical. For vertical bar (both "Vertical" and "VerticalLeft"), flyout is horizontal.
 	local isHorizontalBar = (self.opt.layout == "Horizontal")
 	local isVerticalLeft = (self.opt.layout == "VerticalLeft")
@@ -5808,18 +5799,26 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	local visibleIndex = 0
 	local visibleButtons = {}
 
-	-- First pass: determine which buttons should be visible (hide totem shown on main button and popped-out totems)
+	-- First pass: determine which buttons should be visible.
+	-- Hide: the assigned totem (already on main button, avoid duplication) and popped-out totems.
+	-- Show: everything else, including the active totem if it differs from the assignment.
 	for _, btn in ipairs(flyout.buttons) do
 		local totemIdx = btn.totemIndex
 		local isPoppedOut = self:IsSingleTotemPoppedOut(element, totemIdx)
+		local isAssigned = (totemIdx == currentTotemIndex)
 
-		if totemIdx == hideIndex or isPoppedOut then
-			-- Mark this button to be hidden (via attribute so secure handler knows)
+		if isPoppedOut then
+			-- Popped-out totems are shown via their own floating button, hide from flyout
+			btn:SetAttribute("isHiddenFromFlyout", true)
+			btn:SetAttribute("isCurrentAssignment", isAssigned)
+			btn:Hide()  -- Explicitly hide popped-out totems
+		elseif isAssigned then
+			-- Assigned totem is already on the main button, hide to avoid duplication
+			btn:SetAttribute("isHiddenFromFlyout", false)
 			btn:SetAttribute("isCurrentAssignment", true)
-			if isPoppedOut then
-				btn:Hide()  -- Explicitly hide popped-out totems
-			end
 		else
+			-- All other totems (including the active totem if it differs) remain visible
+			btn:SetAttribute("isHiddenFromFlyout", false)
 			btn:SetAttribute("isCurrentAssignment", false)
 			visibleIndex = visibleIndex + 1
 			table.insert(visibleButtons, btn)
@@ -6130,11 +6129,13 @@ function ShamanPower:RecreateTotemFlyouts()
 				if isEnabled then
 					btn.isDisabledInFlyout = false
 					btn:SetAttribute("isCurrentAssignment", false)
+					btn:SetAttribute("isHiddenFromFlyout", false)
 					table.insert(flyout.buttons, btn)
 				else
 					btn:Hide()
 					btn.isDisabledInFlyout = true
-					btn:SetAttribute("isCurrentAssignment", true)  -- Treat as hidden
+					btn:SetAttribute("isCurrentAssignment", true)  -- Keep for legacy tracking
+					btn:SetAttribute("isHiddenFromFlyout", true)  -- Prevent show handler from revealing
 				end
 			end
 
