@@ -5038,6 +5038,25 @@ function ShamanPower:CreateTotemButtons()
 			end
 		end)
 
+		-- PostClick hook: right-click clears the assigned totem for this slot (when option enabled)
+		btn:HookScript("PostClick", function(self, button)
+			if button == "RightButton" and ShamanPower.opt.rightClickClearsAssignment then
+				if InCombatLockdown() then
+					print("|cffff0000ShamanPower:|r " .. L["Cannot clear assignment during combat"])
+					return
+				end
+				local elem = self.element
+				if not ShamanPower_Assignments[ShamanPower.player] then
+					ShamanPower_Assignments[ShamanPower.player] = {}
+				end
+				ShamanPower_Assignments[ShamanPower.player][elem] = 0
+				ShamanPower:UpdateMiniTotemBar()
+				ShamanPower:UpdateDropAllButton()
+				ShamanPower:UpdateSPMacros()
+				ShamanPower:SendMessage("ASSIGN " .. ShamanPower.player .. " " .. elem .. " 0")
+			end
+		end)
+
 		btn:Show()
 		self.totemButtons[element] = btn
 	end
@@ -5194,6 +5213,10 @@ function ShamanPower:UpdateTotemButtons()
 					btn:SetAttribute("type2", "spell")
 					btn:SetAttribute("spell2", GetSpellInfo(36936))  -- Totemic Call
 				end
+			elseif self.opt.rightClickClearsAssignment then
+				-- Right-click clears the assigned totem for this slot (handled by PostClick hook)
+				btn:SetAttribute("type2", nil)
+				btn:SetAttribute("spell2", nil)
 			else
 				-- Right-click to cast Totemic Call (destroys all totems)
 				btn:SetAttribute("type2", "spell")
@@ -6026,6 +6049,10 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 						btn:SetAttribute("type2", "spell")
 						btn:SetAttribute("spell2", totemicCallName)
 					end
+				elseif self.opt.rightClickClearsAssignment then
+					-- Right-click clears the assigned totem for this slot (handled by PostClick hook)
+					btn:SetAttribute("type2", nil)
+					btn:SetAttribute("spell2", nil)
 				else
 					btn:SetAttribute("type2", "spell")
 					btn:SetAttribute("spell2", totemicCallName)
@@ -6057,6 +6084,10 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 						btn:SetAttribute("type2", "spell")
 						btn:SetAttribute("spell2", totemicCallName)
 					end
+				elseif self.opt.rightClickClearsAssignment then
+					-- Right-click clears the assigned totem for this slot (handled by PostClick hook)
+					btn:SetAttribute("type2", nil)
+					btn:SetAttribute("spell2", nil)
 				else
 					btn:SetAttribute("type2", "spell")
 					btn:SetAttribute("spell2", totemicCallName)
@@ -9316,6 +9347,10 @@ function ShamanPower:UpdateMiniTotemBar()
 						totemButton:SetAttribute("type2", "spell")
 						totemButton:SetAttribute("spell2", GetSpellInfo(36936))  -- Totemic Call
 					end
+				elseif self.opt.rightClickClearsAssignment then
+					-- Right-click clears the assigned totem for this slot (handled by PostClick hook)
+					totemButton:SetAttribute("type2", nil)
+					totemButton:SetAttribute("spell2", nil)
 				else
 					-- Right-click to cast Totemic Call (destroys all totems)
 					totemButton:SetAttribute("type2", "spell")
@@ -9564,6 +9599,8 @@ function ShamanPower:TotemBarTooltip(button, element)
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Show flyout", 0.7, 0.7, 0.7)
 		elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
+		elseif self.opt.rightClickClearsAssignment then
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Clear assignment", 0.7, 0.7, 0.7)
 		else
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Totemic Call", 0.7, 0.7, 0.7)
 		end
