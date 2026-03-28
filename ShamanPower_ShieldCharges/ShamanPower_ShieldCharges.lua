@@ -93,6 +93,16 @@ function SP:CreateShieldChargeDisplays()
 			SP:UpdateShieldChargeDisplays()
 		end)
 	end
+
+	-- Register talent swap handler to re-evaluate Earth Shield talent
+	if not self.shieldChargeFrames.talentEventFrame then
+		local talentFrame = CreateFrame("Frame")
+		talentFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+		talentFrame:SetScript("OnEvent", function()
+			SP:UpdateShieldChargeDisplays()
+		end)
+		self.shieldChargeFrames.talentEventFrame = talentFrame
+	end
 	-- Only enable if shield charge display is configured to show something
 	local showAny = (settings.showPlayerShield ~= false) or (settings.showEarthShield ~= false)
 	if showAny then
@@ -133,7 +143,8 @@ function SP:UpdateShieldChargeDisplays()
 	if not settings then return end
 
 	-- Enable/disable the shieldCharge subsystem based on settings
-	local showAny = (settings.showPlayerShield ~= false) or (settings.showEarthShield ~= false)
+	local hasEarthShieldTalent = C_SpellBook.IsSpellKnown(974)  -- Earth Shield spell ID
+	local showAny = (settings.showPlayerShield ~= false) or (settings.showEarthShield ~= false and hasEarthShieldTalent)
 	if showAny then
 		self:EnableUpdateSubsystem("shieldCharge")
 	else
@@ -198,7 +209,7 @@ function SP:UpdateShieldChargeDisplays()
 	end
 
 	-- Update Earth Shield
-	if settings.showEarthShield ~= false then
+	if settings.showEarthShield ~= false and hasEarthShieldTalent then
 		local charges = 0
 		local maxCharges = 6  -- Earth Shield has 6 charges
 		local hasShield = false
@@ -231,3 +242,5 @@ function SP:UpdateShieldChargeDisplays()
 		earthFrame:Hide()
 	end
 end
+
+
