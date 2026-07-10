@@ -4960,8 +4960,17 @@ function ShamanPower:CreateTotemButtons()
 
 		-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
 		btn:SetAttribute("_onleave", [[
-			if not self:IsUnderMouse(true) then
-				self:ChildUpdate("show", false)
+			if not self:IsUnderMouse() then
+				local overChild = false
+				local children = newtable(self:GetChildren())
+				for i = 1, #children do
+					if children[i]:IsUnderMouse() then
+						overChild = true
+					end
+				end
+				if not overChild then
+					self:ChildUpdate("show", false)
+				end
 			end
 		]])
 
@@ -5360,8 +5369,18 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			btn:SetAttribute("_onleave", [[
-				if not self:GetParent():IsUnderMouse(true) then
-					self:GetParent():ChildUpdate("show", false)
+				if not self:GetParent():IsUnderMouse() then
+					local parent = self:GetParent()
+					local overChild = false
+					local children = newtable(parent:GetChildren())
+					for i = 1, #children do
+						if children[i]:IsUnderMouse() then
+							overChild = true
+						end
+					end
+					if not overChild then
+						parent:ChildUpdate("show", false)
+					end
 				end
 			]])
 
@@ -6649,8 +6668,17 @@ function ShamanPower:CreateCooldownBar()
 
 				-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
 				btn:SetAttribute("_onleave", [[
-					if not self:IsUnderMouse(true) then
-						self:ChildUpdate("show", false)
+					if not self:IsUnderMouse() then
+						local overChild = false
+						local children = newtable(self:GetChildren())
+						for i = 1, #children do
+							if children[i]:IsUnderMouse() then
+								overChild = true
+							end
+						end
+						if not overChild then
+							self:ChildUpdate("show", false)
+						end
 					end
 				]])
 
@@ -8513,8 +8541,17 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
 	btn:SetAttribute("_onleave", [[
-		if not self:IsUnderMouse(true) then
-			self:ChildUpdate("show", false)
+		if not self:IsUnderMouse() then
+			local overChild = false
+			local children = newtable(self:GetChildren())
+			for i = 1, #children do
+				if children[i]:IsUnderMouse() then
+					overChild = true
+				end
+			end
+			if not overChild then
+				self:ChildUpdate("show", false)
+			end
 		end
 	]])
 
@@ -8651,8 +8688,18 @@ function ShamanPower:CreateShieldFlyout()
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			btn:SetAttribute("_onleave", [[
-				if not self:GetParent():IsUnderMouse(true) then
-					self:GetParent():ChildUpdate("show", false)
+				if not self:GetParent():IsUnderMouse() then
+					local parent = self:GetParent()
+					local overChild = false
+					local children = newtable(parent:GetChildren())
+					for i = 1, #children do
+						if children[i]:IsUnderMouse() then
+							overChild = true
+						end
+					end
+					if not overChild then
+						parent:ChildUpdate("show", false)
+					end
 				end
 			]])
 
@@ -8845,8 +8892,18 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			btn:SetAttribute("_onleave", [[
-				if not self:GetParent():IsUnderMouse(true) then
-					self:GetParent():ChildUpdate("show", false)
+				if not self:GetParent():IsUnderMouse() then
+					local parent = self:GetParent()
+					local overChild = false
+					local children = newtable(parent:GetChildren())
+					for i = 1, #children do
+						if children[i]:IsUnderMouse() then
+							overChild = true
+						end
+					end
+					if not overChild then
+						parent:ChildUpdate("show", false)
+					end
 				end
 			]])
 
@@ -9640,8 +9697,17 @@ function ShamanPower:CreateEarthShieldButton()
 		end
 	]])
 	esBtn:SetAttribute("_onleave", [[
-		if not self:IsUnderMouse(true) then
-			self:ChildUpdate("show", false)
+		if not self:IsUnderMouse() then
+			local overChild = false
+			local children = newtable(self:GetChildren())
+			for i = 1, #children do
+				if children[i]:IsUnderMouse() then
+					overChild = true
+				end
+			end
+			if not overChild then
+				self:ChildUpdate("show", false)
+			end
 		end
 	]])
 
@@ -10100,8 +10166,18 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 
 		-- SECURE HANDLER: Check parent on leave
 		btn:SetAttribute("_onleave", [[
-			if not self:GetParent():IsUnderMouse(true) then
-				self:GetParent():ChildUpdate("show", false)
+			if not self:GetParent():IsUnderMouse() then
+				local parent = self:GetParent()
+				local overChild = false
+				local children = newtable(parent:GetChildren())
+				for i = 1, #children do
+					if children[i]:IsUnderMouse() then
+						overChild = true
+					end
+				end
+				if not overChild then
+					parent:ChildUpdate("show", false)
+				end
 			end
 		]])
 
@@ -16604,8 +16680,17 @@ function ShamanPower:CreateLoadoutBar()
 	]])
 
 	anchor:SetAttribute("_onleave", [[
-		if not self:IsUnderMouse(true) then
-			self:ChildUpdate("show", false)
+		if not self:IsUnderMouse() then
+			local overChild = false
+			local children = newtable(self:GetChildren())
+			for i = 1, #children do
+				if children[i]:IsUnderMouse() then
+					overChild = true
+				end
+			end
+			if not overChild then
+				self:ChildUpdate("show", false)
+			end
 		end
 	]])
 
@@ -16704,8 +16789,18 @@ function ShamanPower:CreateLoadoutBar()
 		-- SECURE HANDLER: Hide flyout when mouse leaves set button (if not over parent anchor)
 		-- Same pattern as totem flyout _onleave
 		btn:SetAttribute("_onleave", [[
-			if not self:GetParent():IsUnderMouse(true) then
-				self:GetParent():ChildUpdate("show", false)
+			if not self:GetParent():IsUnderMouse() then
+				local parent = self:GetParent()
+				local overChild = false
+				local children = newtable(parent:GetChildren())
+				for i = 1, #children do
+					if children[i]:IsUnderMouse() then
+						overChild = true
+					end
+				end
+				if not overChild then
+					parent:ChildUpdate("show", false)
+				end
 			end
 		]])
 

@@ -1,4 +1,4 @@
-## Interface: 20505
+## Interface: 20506
 ## Author: taubut (based on PallyPower by Aznamir, Dyaxler, Es, gallantron)
 ## Title: |cff0070ddShamanPower|r
 ## Version: 1.6.1
