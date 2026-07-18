@@ -1,5 +1,13 @@
 # ShamanPower Changelog
 
+## v1.6.2 (2026-07-18)
+
+### Bug Fixes
+- **Fixed all flyouts closing instantly on mouse-leave (patch 2.5.6)**: The 2.5.6 client's retail-ported restricted environment broke the recursive `IsUnderMouse(true)` check used by every flyout `_onleave` secure handler (the engine now stops after inspecting only the first child frame, so "is the cursor over me or my children?" almost always answered no). All 10 handlers across the totem bar, cooldown-bar shield, weapon imbue, Earth Shield, and totem loadout bar flyouts now walk their child buttons explicitly using the still-working non-recursive `IsUnderMouse()`. Flyouts open, traverse, and close correctly again, in and out of combat. Fix contributed by 0xdcb (#17); fixes #18 and #15
+
+### Misc
+- Bumped Interface to 20506 for the 2.5.6 anniversary client (removes the "out of date" flag in the AddOns list)
+
 ## v1.6.1 (2026-02-18)
 
 ### New Features

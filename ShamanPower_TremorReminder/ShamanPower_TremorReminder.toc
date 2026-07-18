@@ -1,7 +1,7 @@
-## Interface: 20505
+## Interface: 20506
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Tremor Reminder]|r
-## Version: 1.6.1
+## Version: 1.6.2
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Proactive Tremor Totem reminder when targeting fear-casting mobs
 ## Dependencies: ShamanPower
