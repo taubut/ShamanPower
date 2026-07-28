@@ -167,3 +167,10 @@ L["Wait for Players"] = "啟用等待玩家"
 L["What to buff with ShamanPower"] = "要用聖騎威能施放何種增益"
 L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "當您在團隊副本時，將所有在常規隊伍外的玩家隱藏。 例如，如果您在10人副本中，則第3隊或其他排在更後面的隊伍玩家都將被隱藏。"
 
+-- Right-click clears assignment option
+--[[Translation missing --]]
+L["Right-Click Clears Assignment"] = "Right-Click Clears Assignment"
+--[[Translation missing --]]
+L["RIGHTCLICK_CLEARS_ASSIGNMENT_DESC"] = "When enabled, right-clicking a totem button will clear (unassign) the totem for that slot instead of casting Totemic Call. Only works outside of combat."
+--[[Translation missing --]]
+L["Cannot clear assignment during combat"] = "Cannot clear assignment during combat"

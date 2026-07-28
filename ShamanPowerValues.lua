@@ -168,6 +168,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
         rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
+        rightClickClearsAssignment = false,  -- Right-click a totem button to clear (unassign) that slot instead of casting Totemic Call
         enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
         -- Totem Loadout bar settings
         showLoadoutBar = false,         -- Show/hide the loadout flyout anchor (off until first loadout saved)

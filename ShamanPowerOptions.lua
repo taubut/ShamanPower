@@ -810,6 +810,26 @@ ShamanPower.options = {
 								ShamanPower:UpdateMiniTotemBar()
 							end
 						},
+						rightClickClearsAssignment = {
+							order = 4.7,
+							name = L["Right-Click Clears Assignment"],
+							desc = L["RIGHTCLICK_CLEARS_ASSIGNMENT_DESC"],
+							type = "toggle",
+							width = "full",
+							hidden = function(info)
+								return ShamanPower.opt.flyoutRequiresClick or (ShamanPower.opt.activeTotemAsMain and ShamanPower.opt.rightClickCastsAssigned)
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.rightClickClearsAssignment
+							end,
+							set = function(info, val)
+								ShamanPower.opt.rightClickClearsAssignment = val
+								ShamanPower:UpdateMiniTotemBar()
+							end
+						},
 						twistSpacer = {
 							order = 5,
 							type = "description",
