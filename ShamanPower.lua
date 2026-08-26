@@ -200,7 +200,6 @@ local party_units = {}
 local raid_units = {}
 local leaders = {}
 local roster = {}
-local raidmaintanks = {}
 
 local classmaintanks = {}
 
@@ -210,7 +209,6 @@ for i = 1, 60 do
 	unitTables[i] = {}
 end
 local unitTableIndex = 0
-local raidmainassists = {}
 
 local lastMsg = ""
 local prevBuffDuration
@@ -12316,14 +12314,6 @@ function ShamanPower:CheckLeader(nick)
 	end
 end
 
-function ShamanPower:CheckMainTanks(nick)
-	return raidmaintanks[nick]
-end
-
-function ShamanPower:CheckMainAssists(nick)
-	return raidmainassists[nick]
-end
-
 function ShamanPower:ClearAssignments(sender, skipAuras)
 	local leader = self:CheckLeader(sender)
 	for name in pairs(ShamanPower_Assignments) do
@@ -12495,84 +12485,9 @@ function ShamanPower:UpdateRoster()
 				end
 				
 				local raidtank = select(10, GetRaidRosterInfo(n))
-				tmp.tank = ((raidtank == "MAINTANK") or (self.opt.mainAssist and (raidtank == "MAINASSIST")))
+				tmp.tank = (raidtank == "MAINTANK")
 				
 				local class = self:GetClassID(pclass)
-				-- Warriors and Death Knights
-				if (class == 1 or (self.isWrath and class == 10)) then
-					if (raidmaintanks[tmp.name] == true) then
-						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainTankSpellsW then
-							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsW and (raidtank == "MAINTANK" and self.opt.mainTank) then
-							else
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
-								raidmaintanks[tmp.name] = false
-							end
-						end
-					end
-					if (raidmainassists[tmp.name] == true) then
-						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainAssistSpellsW then
-							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsW and (raidtank == "MAINASSIST" and self.opt.mainAssist) then
-							else
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
-								raidmainassists[tmp.name] = false
-							end
-						end
-					end
-					if (raidtank == "MAINTANK" and self.opt.mainTank) then
-						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsW and (raidmaintanks[tmp.name] == false or raidmaintanks[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainTankSpellsW and raidmaintanks[tmp.name] == true) then
-							ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainTankSpellsW)
-							raidmaintanks[tmp.name] = true
-						end
-					end
-					if (raidtank == "MAINASSIST" and self.opt.mainAssist) then
-						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsW and (raidmainassists[tmp.name] == false or raidmainassists[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainAssistSpellsW and raidmainassists[tmp.name] == true) then
-							ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainAssistSpellsW)
-							raidmainassists[tmp.name] = true
-						end
-					end
-				end
-				-- Druids and Paladins
-				if (class == 4 or class == 5) then
-					if (raidmaintanks[tmp.name] == true) then
-						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainTankSpellsDP then
-							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsDP and (raidtank == "MAINTANK" and self.opt.mainTank) then
-							else
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
-								raidmaintanks[tmp.name] = false
-							end
-						end
-					end
-					if (raidmainassists[tmp.name] == true) then
-						if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] == self.opt.mainAssistSpellsDP then
-							if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsDP and (raidtank == "MAINASSIST" and self.opt.mainAssist) then
-							else
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
-								raidmainassists[tmp.name] = false
-							end
-						end
-					end
-					if (raidtank == "MAINTANK" and self.opt.mainTank) then
-						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainTankGSpellsDP and (raidmaintanks[tmp.name] == false or raidmaintanks[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainTankSpellsDP and raidmaintanks[tmp.name] == true) then
-							if (self.player == tmp.name and self.opt.mainTankSpellsDP == 7) then
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
-							else
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainTankSpellsDP)
-							end
-							raidmaintanks[tmp.name] = true
-						end
-					end
-					if (raidtank == "MAINASSIST" and self.opt.mainAssist) then
-						if (ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][class] == self.opt.mainAssistGSpellsDP and (raidmainassists[tmp.name] == false or raidmainassists[tmp.name] == nil)) or (ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][tmp.name] ~= self.opt.mainAssistSpellsDP and raidmainassists[tmp.name] == true) then
-							if (self.player == tmp.name and self.opt.mainTankSpellsDP == 7) then
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, 0)
-							else
-								ShamanPower.SetNormalBlessings(self.player, class, tmp.name, self.opt.mainAssistSpellsDP)
-							end
-							raidmainassists[tmp.name] = true
-						end
-					end
-				end
-
 				if raidtank == "MAINTANK" then
 					classmaintanks[class] = true
 				end
