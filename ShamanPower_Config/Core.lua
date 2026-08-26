@@ -286,4 +286,125 @@ function Core:ClampLabel(fontString, maxWidth, fullText)
 	fontString.spTruncated = true
 end
 
+-- ---------------------------------------------------------------------------
+-- Scrollbar
+-- A thin track + thumb for a ScrollFrame, drawn from primitives. Shows only
+-- when the scroll child is taller than the viewport; the thumb is draggable
+-- and clicking the track pages toward the click. Follows wheel scrolling
+-- through the ScrollFrame's own OnVerticalScroll / OnScrollRangeChanged.
+-- ---------------------------------------------------------------------------
+function Core:AttachScrollbar(scroll, child, opts)
+	opts = opts or {}
+	local width  = opts.width or 4
+	local offset = opts.offset or 6      -- gap between viewport edge and track
+	local minThumb = 24
+
+	local track = CreateFrame("Button", nil, scroll:GetParent())
+	track:SetWidth(width)
+	track:SetPoint("TOPRIGHT", scroll, "TOPRIGHT", offset + width, -2)
+	track:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", offset + width, 2)
+	track:SetFrameLevel(scroll:GetFrameLevel() + 5)
+	track.bg = track:CreateTexture(nil, "BACKGROUND")
+	track.bg:SetAllPoints(track)
+	track.bg:SetColorTexture(self:Color("border", 0.5))
+	track:Hide()
+
+	local thumb = CreateFrame("Button", nil, track)
+	thumb:SetWidth(width)
+	thumb:SetPoint("TOP", track, "TOP", 0, 0)
+	thumb.tex = thumb:CreateTexture(nil, "ARTWORK")
+	thumb.tex:SetAllPoints(thumb)
+	thumb.tex:SetColorTexture(self:Color("textMute"))
+	-- Wider hit area than the 4px visual so it is easy to grab.
+	thumb:SetHitRectInsets(-6, -6, 0, 0)
+	track:SetHitRectInsets(-6, -6, 0, 0)
+
+	local function Range()
+		local viewH = scroll:GetHeight()
+		local contentH = child:GetHeight()
+		return viewH, contentH, math.max(0, contentH - viewH)
+	end
+
+	local function Update()
+		local viewH, contentH, maxScroll = Range()
+		if maxScroll <= 1 or viewH <= 0 then track:Hide() return end
+		track:Show()
+		local trackH = track:GetHeight()
+		local thumbH = math.max(minThumb, math.floor(trackH * (viewH / contentH)))
+		if thumbH > trackH then thumbH = trackH end
+		thumb:SetHeight(thumbH)
+		local frac = scroll:GetVerticalScroll() / maxScroll
+		if frac > 1 then frac = 1 elseif frac < 0 then frac = 0 end
+		thumb:ClearAllPoints()
+		thumb:SetPoint("TOP", track, "TOP", 0, -math.floor((trackH - thumbH) * frac))
+	end
+
+	local function ScrollToFraction(frac)
+		local _, _, maxScroll = Range()
+		if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
+		scroll:SetVerticalScroll(maxScroll * frac)
+	end
+
+	-- Follow the scroll frame itself, whatever moved it (wheel, code, drag).
+	scroll:HookScript("OnVerticalScroll", Update)
+	scroll:HookScript("OnScrollRangeChanged", Update)
+	scroll:HookScript("OnSizeChanged", Update)
+	scroll:HookScript("OnShow", Update)
+
+	-- Thumb drag: keep the grab point under the cursor.
+	local dragging, grabOffset = false, 0
+	local function CursorY()
+		local _, y = GetCursorPosition()
+		return y / track:GetEffectiveScale()
+	end
+	thumb:SetScript("OnMouseDown", function(self)
+		dragging = true
+		grabOffset = self:GetTop() - CursorY()
+		self.tex:SetColorTexture(Core:Color("accentHi"))
+	end)
+	thumb:SetScript("OnMouseUp", function(self)
+		dragging = false
+		self.tex:SetColorTexture(Core:Color(self:IsMouseOver() and "accent" or "textMute"))
+	end)
+	thumb:SetScript("OnEnter", function(self) if not dragging then self.tex:SetColorTexture(Core:Color("accent")) end end)
+	thumb:SetScript("OnLeave", function(self) if not dragging then self.tex:SetColorTexture(Core:Color("textMute")) end end)
+	thumb:SetScript("OnUpdate", function(self)
+		if not dragging then return end
+		if not IsMouseButtonDown("LeftButton") then
+			dragging = false
+			self.tex:SetColorTexture(Core:Color("textMute"))
+			return
+		end
+		local trackH, thumbH = track:GetHeight(), self:GetHeight()
+		local travel = trackH - thumbH
+		if travel <= 0 then return end
+		local topWanted = CursorY() + grabOffset
+		local frac = (track:GetTop() - topWanted) / travel
+		ScrollToFraction(frac)
+	end)
+
+	-- Click on the track (outside the thumb): page toward the click.
+	track:SetScript("OnClick", function(self)
+		local y = CursorY()
+		local viewH, _, maxScroll = Range()
+		if maxScroll <= 0 then return end
+		local cur = scroll:GetVerticalScroll()
+		if y > thumb:GetTop() then
+			scroll:SetVerticalScroll(math.max(0, cur - viewH))
+		elseif y < thumb:GetBottom() then
+			scroll:SetVerticalScroll(math.min(maxScroll, cur + viewH))
+		end
+	end)
+	-- Wheel over the bar behaves like wheel over the content.
+	track:EnableMouseWheel(true)
+	track:SetScript("OnMouseWheel", function(_, delta)
+		local h = scroll:GetScript("OnMouseWheel")
+		if h then h(scroll, delta) end
+	end)
+
+	scroll.spScrollbar = track
+	scroll.spScrollbarUpdate = Update
+	return track
+end
+
 return Core

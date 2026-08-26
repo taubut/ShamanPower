@@ -133,48 +133,86 @@ local POWER_SHIELDCHARGES = {
 	end,
 }
 
+-- Sidebar information architecture.
+-- An entry is either { label, path = {...} } (one option group = one page) or
+-- { label, tabs = { { label, paths = { {...}, ... } }, ... } } (a composed
+-- page: each tab shows one or more option groups; with several groups in a
+-- tab each gets a section header, overridable with path.label). Anything the
+-- map never mentions is appended under "More" automatically.
+local function P(...) return { ... } end
+
 local NAV = {
 	{ group = "General", entries = {
-		{ label = "Settings",            path = { "settings" }, lock = true },
-		{ label = "Buttons & Bars",      path = { "buttons" }, lock = true },
-		{ label = "Raid",                path = { "raids" }, lock = true },
-		{ label = "Profiles",            path = { "profiles" }, lock = true },
-	}},
-	{ group = "Modules", power = true, entries = {
-		-- Raid Cooldowns has no user on/off: the caller buttons appear purely
-		-- from raid assignments (UpdateCallerButtons) and the panel is a dialog.
-		-- Only the addon module itself can be disabled, so no dot.
-		{ label = "Raid Cooldowns",       path = { "fluffy", "raid_cd_section" }, power = false },
-		{ label = "Totem Range Tracker",  path = { "fluffy", "sprange_section" }, power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker",   path = { "fluffy", "partybuff_section" }, power = POWER_PARTYBUFF },
-		{ label = "Earth Shield Tracker", path = { "fluffy", "estrack_section" } },
-		{ label = "Shield Charges",       path = { "fluffy", "shieldcharges_section" }, power = POWER_SHIELDCHARGES },
-		{ label = "Reactive Totems",      path = { "fluffy", "reactivetotems_section" } },
-		{ label = "Expiring Alerts",      path = { "fluffy", "expiringalerts_section" } },
-		{ label = "Tremor Reminder",      path = { "fluffy", "tremorreminder_section" } },
-		{ label = "Totem Plates",         path = { "fluffy", "totemplates_section" } },
-	}},
-	{ group = "Appearance", entries = {
-		{ label = "Layout",             path = { "fluffy", "layout_section" }, lock = true },
-		{ label = "Scale",              path = { "fluffy", "scale_section" }, lock = true },
-		{ label = "Opacity",            path = { "fluffy", "opacity_section" } },
-		{ label = "Button Padding",     path = { "fluffy", "padding_section" }, lock = true },
-		{ label = "Frame Visibility",   path = { "fluffy", "visibility_section" }, lock = true },
-		{ label = "Textures",           path = { "fluffy", "texture_section" }, lock = true },
-		{ label = "Cooldown Display",   path = { "fluffy", "cooldown_display_section" }, lock = true },
-		{ label = "Status Colors",      path = { "fluffy", "color_section" } },
+		{ label = "General", lock = true, desc = "Global behaviour, interface and raid settings.", tabs = {
+			{ label = "Main",      paths = { P("settings", "settings_show") } },
+			{ label = "Interface", paths = { P("settings", "settings_newui") } },
+			{ label = "Raid",      paths = { P("raids", "visibility") } },
+			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
+		}},
+		{ label = "Profiles", path = P("profiles"), lock = true },
 	}},
 	{ group = "Bars", entries = {
-		{ label = "Totem Bar Items",    path = { "fluffy", "totembar_items_section" }, lock = true },
-		{ label = "Totem Bar Order",    path = { "fluffy", "totembar_order_section" }, lock = true },
-		{ label = "Totem Durations",    path = { "fluffy", "totembar_duration_section" }, lock = true },
-		{ label = "Cooldown Bar Items", path = { "fluffy", "cdbar_items_section" }, lock = true },
-		{ label = "Cooldown Bar Order", path = { "fluffy", "cdbar_order_section" }, lock = true },
-		{ label = "Pop-Out Trackers",   path = { "fluffy", "popout_section" } },
-		{ label = "Totem Flyouts",      path = { "fluffy", "totemflyouts_section" }, lock = true },
-		{ label = "Loadout Bar",        path = { "fluffy", "loadoutbar_section" }, lock = true },
+		{ label = "Mode & Twisting", lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
+			{ label = "Mode & Twisting", paths = { P("settings", "settings_totemMode") } },
+		}},
+		{ label = "Appearance", lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
+			{ label = "Layout",            paths = { P("fluffy", "layout_section") } },
+			{ label = "Scale & Opacity",   paths = { P("fluffy", "scale_section"), P("fluffy", "opacity_section"), P("fluffy", "padding_section") } },
+			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
+			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
+		}},
+		{ label = "Totem Bar", lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
+			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
+			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
+			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
+			{ label = "Duration Bars", paths = { P("fluffy", "totembar_duration_section") } },
+			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
+			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
+			{ label = "Loadouts",      paths = { P("buttons", "loadouts_section") } },
+			{ label = "Loadout Bar",   paths = { P("fluffy", "loadoutbar_section") } },
+		}},
+		{ label = "Cooldown Bar", lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
+			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
+			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
+			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
+		}},
+	}},
+	{ group = "Modules", power = true, entries = {
+		{ label = "Raid Cooldowns",       path = P("fluffy", "raid_cd_section"), power = false },
+		{ label = "Totem Range Tracker",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
+		{ label = "Party Buff Tracker",   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
+		{ label = "Earth Shield Tracker", path = P("fluffy", "estrack_section") },
+		{ label = "Shield Charges",       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
+		{ label = "Reactive Totems",      path = P("fluffy", "reactivetotems_section") },
+		{ label = "Expiring Alerts",      path = P("fluffy", "expiringalerts_section") },
+		{ label = "Tremor Reminder",      path = P("fluffy", "tremorreminder_section") },
+		{ label = "Totem Plates",         path = P("fluffy", "totemplates_section") },
+		{ label = "Pop-Out Trackers", power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
+			{ label = "Pop-Out Trackers", paths = {
+				{ "settings", "settings_popout", label = "Middle-Click Pop-Out" },
+				{ "fluffy",   "popout_section",  label = "Popped-Out Trackers" },
+			}},
+		}},
 	}},
 }
+
+-- Every option-group path an entry draws from.
+local function EntryPaths(entry)
+	if entry.path then return { entry.path } end
+	local out = {}
+	for _, t in ipairs(entry.tabs or {}) do
+		for _, pth in ipairs(t.paths) do out[#out + 1] = pth end
+	end
+	return out
+end
+
+local function EntryHasPath(entry, path)
+	local want = table.concat(path, "/")
+	for _, pth in ipairs(EntryPaths(entry)) do
+		if table.concat(pth, "/") == want then return true end
+	end
+	return false
+end
 
 -- Any top-level group the map above doesn't mention gets collected here so a
 -- newly added tab still shows up without editing NAV.
@@ -185,8 +223,9 @@ local function AppendUnmapped(nav)
 	local claimed = {}
 	for _, g in ipairs(nav) do
 		for _, e in ipairs(g.entries) do
-			if #e.path == 1 then claimed[e.path[1]] = true end
-			if e.path[1] then claimed[e.path[1] .. "/" .. (e.path[2] or "")] = true end
+			for _, pth in ipairs(EntryPaths(e)) do
+				if pth[1] then claimed[pth[1]] = true end
+			end
 		end
 	end
 
@@ -263,7 +302,13 @@ local function BuildWindow()
 	local brandRule = side:CreateTexture(nil, "ARTWORK")
 	brandRule:SetHeight(1)
 	brandRule:SetPoint("TOPLEFT", brand, "BOTTOMLEFT", 0, -10)
-	brandRule:SetWidth(72)
+	-- Underline exactly the word "Shaman": measure it in the brand font rather
+	-- than guessing a pixel width.
+	local measure = side:CreateFontString(nil, "OVERLAY")
+	measure:SetFontObject(Core.fonts.brand)
+	measure:SetText("Shaman")
+	brandRule:SetWidth(math.ceil(measure:GetStringWidth()))
+	measure:Hide()
 	brandRule:SetColorTexture(Core:Color("accent"))
 
 	local ver = side:CreateFontString(nil, "OVERLAY")
@@ -303,6 +348,7 @@ local function BuildWindow()
 		self:SetVerticalScroll(math.max(0, math.min(maxS, self:GetVerticalScroll() - delta * 30)))
 	end)
 	frame.navScroll, frame.navList = navScroll, navList
+	Core:AttachScrollbar(navScroll, navList, { offset = 3 })
 
 	-- Content ---------------------------------------------------------------
 	local content = CreateFrame("Frame", nil, frame)
@@ -396,6 +442,7 @@ local function BuildWindow()
 	frame.emptyText = emptyText
 
 	frame.bodyScroll, frame.body = bodyScroll, body
+	Core:AttachScrollbar(bodyScroll, body, { offset = 6 })
 
 	-- Footer
 	local footRule = content:CreateTexture(nil, "ARTWORK")
@@ -534,7 +581,7 @@ local function ResolvePower(entry)
 		if type(pw.get) ~= "function" or type(pw.set) ~= "function" then return nil end
 		return pw.get, pw.set, pw.label or entry.label, pw.desc
 	end
-	local enableEntry = Tree:FindEnableToggle(entry._node, entry.path, entry._chain)
+	local enableEntry = Tree:FindEnableToggle(entry._node, entry._firstPath or entry.path, entry._chain)
 	if not enableEntry then return nil end
 	return Tree:MakeGetter(enableEntry.node, enableEntry.chain, enableEntry.info),
 		Tree:MakeSetter(enableEntry.node, enableEntry.chain, enableEntry.info),
@@ -569,10 +616,22 @@ function SPConfig:RenderNav(query)
 	for _, groupDef in ipairs(nav) do
 		local visibleEntries = {}
 		for _, entry in ipairs(groupDef.entries) do
-			local node, chain = Tree:Resolve(entry.path)
+			local node, chain, firstPath
+			for _, pth in ipairs(EntryPaths(entry)) do
+				local n, c = Tree:Resolve(pth)
+				if n then node, chain, firstPath = n, c, pth break end
+			end
 			if node then
-				entry._node, entry._chain = node, chain
-				entry._terms = entry._terms or Tree:IndexPage(node, entry.path, chain)
+				entry._node, entry._chain, entry._firstPath = node, chain, firstPath
+				if not entry._terms then
+					entry._terms = {}
+					for _, pth in ipairs(EntryPaths(entry)) do
+						local n, c = Tree:Resolve(pth)
+						if n then
+							for _, term in ipairs(Tree:IndexPage(n, pth, c)) do entry._terms[#entry._terms + 1] = term end
+						end
+					end
+				end
 				local labelMatch = (not query) or query == ""
 					or strfind(strlower(entry.label), query, 1, true)
 				if labelMatch or Tree:TermsMatch(entry._terms, query) then
@@ -679,6 +738,7 @@ function SPConfig:RenderNav(query)
 	end
 
 	list:SetHeight(math.max(y, 1))
+	if frame.navScroll.spScrollbarUpdate then frame.navScroll.spScrollbarUpdate() end
 	return firstVisible
 end
 
@@ -769,12 +829,89 @@ local function OptionOpts(entry, sectionRef, x, y, width, onChanged)
 	}
 end
 
+local function FilterList(list, query)
+	if not (query and query ~= "") then return list end
+	local filtered, pendingSection = {}, nil
+	for _, e in ipairs(list) do
+		if e.kind == "section" then
+			pendingSection = e
+		else
+			local hay = strlower((e.label or "") .. " " .. (e.desc or ""))
+			if strfind(hay, query, 1, true) then
+				if pendingSection then
+					table.insert(filtered, pendingSection)
+					pendingSection = nil
+				end
+				table.insert(filtered, e)
+			end
+		end
+	end
+	return filtered
+end
+
+local function PickTab(tabs, onPick, drawTabs, searching)
+	local active
+	for _, t in ipairs(tabs) do
+		if t.key == frame._activeTab then active = t break end
+	end
+	active = active or tabs[1]
+	if drawTabs then
+		frame._activeTab = active.key
+		if #tabs >= 2 then
+			RenderTabs(tabs, searching and nil or active.key, onPick)
+		else
+			RenderTabs({}, nil, function() end)
+		end
+	end
+	return active
+end
+
+local function OnTabPick(key)
+	frame._activeTab = key
+	SPConfig:RenderPage(frame._current, nil)
+end
+
+-- Composed page: entry.tabs -> each tab draws one or more option groups.
+local function ResolveComposed(entry, query, drawTabs)
+	local searching = (query and query ~= "")
+	local tabs = {}
+	for _, t in ipairs(entry.tabs) do
+		local live = {}
+		for _, pth in ipairs(t.paths) do
+			local n, c = Tree:Resolve(pth)
+			if n and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
+				live[#live + 1] = { node = n, chain = c, path = pth }
+			end
+		end
+		if #live > 0 then tabs[#tabs + 1] = { key = t.label, name = t.label, live = live } end
+	end
+	if #tabs == 0 then
+		if drawTabs then RenderTabs({}, nil, function() end) end
+		return {}, {}
+	end
+	local active = PickTab(tabs, OnTabPick, drawTabs, searching)
+	local list = {}
+	for _, t in ipairs(searching and tabs or { active }) do
+		for _, lv in ipairs(t.live) do
+			if #t.live > 1 or (searching and #tabs > 1) then
+				local info = Tree:BuildInfo(lv.path, lv.node, lv.chain)
+				local label = lv.path.label or Tree:StripColor(Tree:GetName(lv.node, info))
+				if searching and #tabs > 1 and #t.live == 1 then label = t.name end
+				table.insert(list, { kind = "section", label = label, depth = 0 })
+			end
+			Tree:BuildRenderList(lv.node, lv.path, lv.chain, list, 0)
+		end
+	end
+	return FilterList(list, query), tabs
+end
+
 -- Resolve a sidebar entry to the exact list of rows that should be on screen:
 -- tab selection, hidden= evaluation (inside BuildRenderList) and the page
 -- search filter. Used by RenderPage to draw, and by onChanged to detect that
--- a set() just changed which rows are visible (an option whose hidden=
--- depends on another option).
+-- a set() just changed which rows are visible.
 local function ResolvePageList(entry, query, drawTabs)
+	if entry.tabs then return ResolveComposed(entry, query, drawTabs) end
+
 	local node, chain = Tree:Resolve(entry.path)
 	if not node then return nil end
 
@@ -783,20 +920,8 @@ local function ResolvePageList(entry, query, drawTabs)
 	local searching = (query and query ~= "")
 
 	local renderNode, renderPath, renderChain = node, entry.path, chain
-
 	if useTabs then
-		local active
-		for _, g in ipairs(groups) do
-			if g.key == frame._activeTab then active = g break end
-		end
-		active = active or groups[1]
-		if drawTabs then
-			frame._activeTab = active.key
-			RenderTabs(groups, searching and nil or active.key, function(key)
-				frame._activeTab = key
-				SPConfig:RenderPage(frame._current, nil)
-			end)
-		end
+		local active = PickTab(groups, OnTabPick, drawTabs, searching)
 		if not searching then
 			renderNode, renderPath, renderChain = active.node, active.path, active.chain
 		end
@@ -805,27 +930,7 @@ local function ResolvePageList(entry, query, drawTabs)
 	end
 
 	local list = Tree:BuildRenderList(renderNode, renderPath, renderChain)
-
-	if searching then
-		local filtered = {}
-		local pendingSection
-		for _, e in ipairs(list) do
-			if e.kind == "section" then
-				pendingSection = e
-			else
-				local hay = strlower((e.label or "") .. " " .. (e.desc or ""))
-				if strfind(hay, query, 1, true) then
-					if pendingSection then
-						table.insert(filtered, pendingSection)
-						pendingSection = nil
-					end
-					table.insert(filtered, e)
-				end
-			end
-		end
-		list = filtered
-	end
-	return list, groups
+	return FilterList(list, query), groups
 end
 
 -- Fingerprint of what is visible: tab keys plus every row's path/label.
@@ -846,12 +951,13 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	ClearPage()
 	if not entry then return end
 
-	local node, chain = Tree:Resolve(entry.path)
+	local firstPath = entry._firstPath or entry.path or EntryPaths(entry)[1]
+	local node, chain = firstPath and Tree:Resolve(firstPath)
 	if not node then return end
 
-	local info = Tree:BuildInfo(entry.path, node, chain)
+	local info = Tree:BuildInfo(firstPath, node, chain)
 	frame.title:SetText(Tree:StripColor(entry.label))
-	frame.subtitle:SetText(Tree:StripColor(Tree:GetDesc(node, info) or ""))
+	frame.subtitle:SetText(Tree:StripColor(entry.desc or Tree:GetDesc(node, info) or ""))
 
 	local list, groups = ResolvePageList(entry, query, true)
 	if not list then return end
@@ -1067,7 +1173,7 @@ function SPConfig:Open(path)
 	local first = self:RenderNav(nil)
 	if path then
 		for _, r in ipairs(navRows) do
-			if r.entry and table.concat(r.entry.path, "/") == table.concat(path, "/") then
+			if r.entry and EntryHasPath(r.entry, path) then
 				SelectEntry(r.entry)
 				return
 			end

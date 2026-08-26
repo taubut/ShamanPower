@@ -633,6 +633,7 @@ local function BuildFrame()
 		self:SetVerticalScroll(math.max(0, math.min(maxS, self:GetVerticalScroll() - delta * ROW_H)))
 	end)
 	frame.scroll, frame.body = scroll, body
+	Core:AttachScrollbar(scroll, body, { offset = 4 })
 
 	local empty = body:CreateFontString(nil, "OVERLAY")
 	empty:SetFontObject(Core.fonts.rowDim)
