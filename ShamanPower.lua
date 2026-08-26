@@ -8169,6 +8169,20 @@ function ShamanPower:UpdateTotemBarOpacity()
 	end
 end
 
+-- AuraUtil.FindAuraByName is broken on the 2.5.x client (its data provider
+-- lacks GetAuraDataBySpellName and throws). Scan the player's buffs directly.
+local function PlayerHasBuff(spellName)
+	if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
+		return C_UnitAuras.GetAuraDataBySpellName("player", spellName, "HELPFUL") ~= nil
+	end
+	for i = 1, 40 do
+		local name = UnitAura("player", i, "HELPFUL")
+		if not name then break end
+		if name == spellName then return true end
+	end
+	return false
+end
+
 function ShamanPower:UpdateCooldownBarOpacity()
 	local opacity = self.opt.cooldownBarOpacity or 1.0
 	local fullWhenActive = self.opt.cooldownBarFullOpacityWhenActive
@@ -8194,15 +8208,15 @@ function ShamanPower:UpdateCooldownBarOpacity()
 					-- Check for specific buff-based abilities
 					if spellID == 16188 then
 						-- Nature's Swiftness - check if NS buff is active
-						isActive = AuraUtil.FindAuraByName("Nature's Swiftness", "player", "HELPFUL") ~= nil
+						isActive = PlayerHasBuff("Nature's Swiftness")
 					elseif spellID == 30823 then
 						-- Shamanistic Rage - check if SR buff is active
-						isActive = AuraUtil.FindAuraByName("Shamanistic Rage", "player", "HELPFUL") ~= nil
+						isActive = PlayerHasBuff("Shamanistic Rage")
 					elseif spellID == 2825 or spellID == 32182 then
 						-- Bloodlust/Heroism - check if buff is active
-						local hasBL = AuraUtil.FindAuraByName("Bloodlust", "player", "HELPFUL")
-						local hasHero = AuraUtil.FindAuraByName("Heroism", "player", "HELPFUL")
-						isActive = hasBL ~= nil or hasHero ~= nil
+						local hasBL = PlayerHasBuff("Bloodlust")
+						local hasHero = PlayerHasBuff("Heroism")
+						isActive = hasBL or hasHero
 					elseif spellID == 16190 then
 						-- Mana Tide Totem - check if MTT is active (water totem slot 3)
 						local haveTotem, totemName = GetTotemInfo(3)
