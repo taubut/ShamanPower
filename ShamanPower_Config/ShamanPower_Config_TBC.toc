@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Config UI]|r
 ## Version: 1.6.2
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Experimental replacement options UI. Disable to fall back to the standard options.
+## Notes: New options UI and totem assignment window for ShamanPower.
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

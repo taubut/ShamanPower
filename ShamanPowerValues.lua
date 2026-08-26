@@ -2,12 +2,6 @@ local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower", true) or {}
 
 -- Global constants for XML text references
 SHAMANPOWER_NAME = "ShamanPower"
-SHAMANPOWER_REFRESH = "Refresh"
-SHAMANPOWER_CLEAR = "Clear"
-SHAMANPOWER_AUTOASSIGN = "Auto-Assign"
-SHAMANPOWER_OPTIONS = "Options"
-SHAMANPOWER_PRESET = "Preset"
-SHAMANPOWER_REPORT = "Report"
 SHAMANPOWER_FREEASSIGN = "Free Assignment"
 
 -- Keybinding names (displayed in WoW's keybinding menu)
@@ -34,57 +28,39 @@ BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 SHAMANPOWER_REFRESH_DESC = "Refresh the shaman list"
 SHAMANPOWER_CLEAR_DESC = "Clear all totem assignments"
 SHAMANPOWER_AUTOASSIGN_DESC = "Auto-assign totems based on available shamans"
-SHAMANPOWER_OPTIONS_DESC = "Open ShamanPower options"
-SHAMANPOWER_PRESET_DESC = "Save or load totem assignment presets"
-SHAMANPOWER_REPORT_DESC = "Report totem assignments to raid/party chat"
 SHAMANPOWER_FREEASSIGN_DESC = "Allow others to change your assignments without leader/assist"
 
 -- Tooltip strings for UI elements
 ShamanPower.CONFIG_DRAGHANDLE = L["DRAGHANDLE_TOOLTIP"] or "|cffffffffLeft-Click|r Lock/Unlock ShamanPower\n|cffffffffLeft-Click-Hold|r Move ShamanPower\n|cffffffffRight-Click|r Open Totem Assignments\n|cffffffffShift-Right-Click|r Open Options"
-ShamanPower.CONFIG_RESIZEGRIP = "Drag to resize"
 
 ShamanPower.commPrefix = "SHPWR"
 C_ChatInfo.RegisterAddonMessagePrefix(ShamanPower.commPrefix)
 C_ChatInfo.RegisterAddonMessagePrefix("WFTracker")  -- Listen for popular WF tracking WeakAura
 
 -- Constants
-SHAMANPOWER_MAXGROUPS = 8          -- Max party groups in a raid
 SHAMANPOWER_MAXELEMENTS = 4        -- Earth, Fire, Water, Air
 SHAMANPOWER_MAXPERELEMENT = 8      -- Max totems per element
 SHAMANPOWER_TOTEMDURATION = 2 * 60 -- 2 minutes base duration (some vary)
 
--- Compatibility constants
-SHAMANPOWER_MAXCLASSES = 4         -- Using elements instead of classes
-SHAMANPOWER_MAXAURAS = 0           -- Shamans don't have auras like Paladins
-SHAMANPOWER_MAXPERCLASS = 8        -- Max shamans to display
 
 -- Default configuration values
 SHAMANPOWER_DEFAULT_VALUES = {
     profile = {
-        autobuff = {
+        miniBar = {
             autobutton = true,
-            waitforpeople = true
         },
         border = "Blizzard Tooltip",
         buffscale = 0.90,
         cBuffNeedAll = {r = 1.0, g = 0.0, b = 0.0, t = 0.5},
         cBuffNeedSome = {r = 1.0, g = 1.0, b = 0.5, t = 0.5},
-        cBuffNeedSpecial = {r = 0.0, g = 0.0, b = 1.0, t = 0.5},
         cBuffGood = {r = 0.0, g = 0.7, b = 0.0, t = 0.5},
         configscale = 0.90,
         display = {
-            buffDuration = true,
             buttonWidth = 100,
             buttonHeight = 34,
             enableDragHandle = true,
             frameLocked = false,
-            HideKeyText = false,
-            HideCount = false,
-            HideCountText = false,
-            HideTimerText = false,
             LockBuffBars = false,
-            showShamanButtons = true,
-            showElementButtons = true,
             offsetX = 0,
             offsetY = 0
         },
@@ -94,7 +70,6 @@ SHAMANPOWER_DEFAULT_VALUES = {
             ["minimapPos"] = 190,
             ["show"] = true,
         },
-        ReportChannel = 0,
         ShowInParty = true,
         ShowTooltips = true,
         ShowWhenSolo = true,
@@ -162,9 +137,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         poppedOutDefaultScale = 1.0,  -- Default scale for new pop-outs
         poppedOutDefaultOpacity = 1.0,  -- Default opacity for new pop-outs
         skin = "Smooth",
-        SmartBuffs = true,
 
-        weaponEnchant = 1,  -- Default weapon enchant (Windfury)
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
         rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
@@ -264,30 +237,21 @@ SHAMANPOWER_DEFAULT_VALUES = {
 -- Non-shaman profile (minimal display)
 SHAMANPOWER_OTHER_VALUES = {
     profile = {
-        autobuff = {
+        miniBar = {
             autobutton = false,
-            waitforpeople = false
         },
         border = "Blizzard Tooltip",
         buffscale = 0.90,
         cBuffNeedAll = {r = 1.0, g = 0.0, b = 0.0, t = 0.5},
         cBuffNeedSome = {r = 1.0, g = 1.0, b = 0.5, t = 0.5},
-        cBuffNeedSpecial = {r = 0.0, g = 0.0, b = 1.0, t = 0.5},
         cBuffGood = {r = 0.0, g = 0.7, b = 0.0, t = 0.5},
         configscale = 0.90,
         display = {
-            buffDuration = false,
             buttonWidth = 100,
             buttonHeight = 34,
             enableDragHandle = false,
             frameLocked = false,
-            HideKeyText = false,
-            HideCount = false,
-            HideCountText = false,
-            HideTimerText = false,
             LockBuffBars = false,
-            showShamanButtons = false,
-            showElementButtons = false
         },
         enabled = true,
         layout = "Vertical",
@@ -295,18 +259,14 @@ SHAMANPOWER_OTHER_VALUES = {
             ["minimapPos"] = 190,
             ["show"] = true,
         },
-        ReportChannel = 0,
         ShowInParty = true,
         ShowTooltips = true,
         ShowWhenSolo = true,
         showDropAllButton = true,
         skin = "Smooth",
-        SmartBuffs = false,
-        weaponEnchant = 0,
     }
 }
 
-ShamanPower.BuffBarTitle = "Totem Buffs (%d)"
 
 -- Element IDs
 ShamanPower.Elements = {
@@ -332,16 +292,6 @@ ShamanPower.ElementColors = {
 }
 
 -- Group names for display
-ShamanPower.GroupNames = {
-    [1] = "Group 1",
-    [2] = "Group 2",
-    [3] = "Group 3",
-    [4] = "Group 4",
-    [5] = "Group 5",
-    [6] = "Group 6",
-    [7] = "Group 7",
-    [8] = "Group 8",
-}
 
 -- ============================================================================
 -- TOTEM SPELL DATA
@@ -679,68 +629,25 @@ ShamanPower.WeaponIcons = {
 
 -- ============================================================================
 -- UI LAYOUTS
--- c = class/element buttons, p = player buttons, ab = auto button, rf = seal/weapon button
+-- ab = mini totem bar button, dh = drag handle
 -- ============================================================================
 
 -- Helper to create player button positions
-local function createPlayerPositions(startX, startY, spacing, count)
-    local positions = {}
-    for i = 1, count do
-        positions[i] = {x = startX, y = startY + (i-1) * spacing}
-    end
-    return positions
-end
 
 ShamanPower.Layouts = {
     ["Vertical"] = {
         -- Vertical layout - buttons stack down, players expand right
-        c = {
-            [1] = {x = 0, y = 0, p = createPlayerPositions(1, 0, 0, 8)},   -- Earth
-            [2] = {x = 0, y = -1, p = createPlayerPositions(1, 0, 0, 8)},  -- Fire
-            [3] = {x = 0, y = -2, p = createPlayerPositions(1, 0, 0, 8)},  -- Water
-            [4] = {x = 0, y = -3, p = createPlayerPositions(1, 0, 0, 8)},  -- Air
-        },
         ab = {x = 0, y = -4},
-        rf = {x = 0, y = -5},
-        rfd = {x = 0, y = -4},  -- rf disabled position
-        aura = {x = 0, y = 1},
-        au = {x = 0, y = 1},
-        aud1 = {x = 0, y = 1},
-        aud2 = {x = 0, y = 1},
         dh = {x = 0, y = -6},
     },
     ["Horizontal"] = {
         -- Horizontal layout - buttons go right, players expand down
-        c = {
-            [1] = {x = 0, y = 0, p = createPlayerPositions(0, -1, -1, 8)},   -- Earth
-            [2] = {x = 1, y = 0, p = createPlayerPositions(0, -1, -1, 8)},   -- Fire
-            [3] = {x = 2, y = 0, p = createPlayerPositions(0, -1, -1, 8)},   -- Water
-            [4] = {x = 3, y = 0, p = createPlayerPositions(0, -1, -1, 8)},   -- Air
-        },
         ab = {x = 4, y = 0},
-        rf = {x = 5, y = 0},
-        rfd = {x = 4, y = 0},  -- rf disabled position
-        aura = {x = -1, y = 0},
-        au = {x = -1, y = 0},
-        aud1 = {x = -1, y = 0},
-        aud2 = {x = -1, y = 0},
         dh = {x = 6, y = 0},
     },
     ["VerticalLeft"] = {
         -- Vertical Left layout - same as Vertical but flyouts expand to the left
-        c = {
-            [1] = {x = 0, y = 0, p = createPlayerPositions(1, 0, 0, 8)},   -- Earth
-            [2] = {x = 0, y = -1, p = createPlayerPositions(1, 0, 0, 8)},  -- Fire
-            [3] = {x = 0, y = -2, p = createPlayerPositions(1, 0, 0, 8)},  -- Water
-            [4] = {x = 0, y = -3, p = createPlayerPositions(1, 0, 0, 8)},  -- Air
-        },
         ab = {x = 0, y = -4},
-        rf = {x = 0, y = -5},
-        rfd = {x = 0, y = -4},  -- rf disabled position
-        aura = {x = 0, y = 1},
-        au = {x = 0, y = 1},
-        aud1 = {x = 0, y = 1},
-        aud2 = {x = 0, y = 1},
         dh = {x = 0, y = -6},
     },
 }
@@ -829,60 +736,3 @@ function ShamanPower:GetTotemTalentRequirement(spellID)
     return self.TalentTotems[spellID]
 end
 
--- ============================================================================
--- COMPATIBILITY STRUCTURES
--- Legacy compatibility structures
--- ============================================================================
-
--- Spell arrays for compatibility - maps to element/totem names
--- Used for reporting assignments to chat
-ShamanPower.Spells = {
-    [1] = "Earth Totem",
-    [2] = "Fire Totem",
-    [3] = "Water Totem",
-    [4] = "Air Totem",
-}
-ShamanPower.GSpells = {
-    [1] = "Earth Totem",
-    [2] = "Fire Totem",
-    [3] = "Water Totem",
-    [4] = "Air Totem",
-}
-ShamanPower.Auras = {}
--- Seals maps to weapon enchant names for Options compatibility
-ShamanPower.Seals = {
-    [1] = GetSpellInfo(25505) or "Windfury Weapon",    -- Windfury Weapon
-    [2] = GetSpellInfo(25489) or "Flametongue Weapon", -- Flametongue Weapon
-    [3] = GetSpellInfo(25500) or "Frostbrand Weapon",  -- Frostbrand Weapon
-    [4] = GetSpellInfo(25508) or "Rockbiter Weapon",   -- Rockbiter Weapon
-}
-ShamanPower.Cooldowns = {}
-ShamanPower.NormalBuffs = {}
-ShamanPower.GreaterBuffs = {}
-
--- Class ID mapping (for compatibility - will be replaced with group-based)
-ShamanPower.ClassID = {
-    [1] = "EARTH",
-    [2] = "FIRE",
-    [3] = "WATER",
-    [4] = "AIR",
-}
-
-ShamanPower.ClassToID = {
-    ["EARTH"] = 1,
-    ["FIRE"] = 2,
-    ["WATER"] = 3,
-    ["AIR"] = 4,
-}
-
--- Empty icon arrays for compatibility
-ShamanPower.BlessingIcons = {}
-ShamanPower.NormalBlessingIcons = {}
-ShamanPower.AuraIcons = {}
-ShamanPower.SealIcons = {}
-ShamanPower.ClassIcons = {
-    [1] = ShamanPower.ElementIcons[1],  -- Earth
-    [2] = ShamanPower.ElementIcons[2],  -- Fire
-    [3] = ShamanPower.ElementIcons[3],  -- Water
-    [4] = ShamanPower.ElementIcons[4],  -- Air
-}

@@ -1,6 +1,6 @@
 -- ShamanPower_Config :: Assign
 -- The totem assignment window, rebuilt in pure Lua on the Core/Widgets kit.
--- Replaces ShamanPowerBlessingsFrame (XML). Nothing here is secure, so the
+-- Replaces the legacy XML assignment window. Nothing here is secure, so the
 -- window may be built, shown and redrawn in combat; only the actions that
 -- reach macros / secure bars are gated, and the engine already gates those.
 --
@@ -655,7 +655,6 @@ local function BuildFrame()
 			{ key = "raidcd",  text = "Raid CDs" },
 			{ key = "es",      text = "ES Tracker" },
 			{ key = "options", text = "Options" },
-			{ key = "legacy",  text = "|cff8A94A6Legacy window|r" },
 		}, nil, function(key)
 			if key == "range" then
 				if SP.InitSPRange then SP:InitSPRange() end
@@ -667,13 +666,10 @@ local function BuildFrame()
 				if SP.ToggleESTracker then SP:ToggleESTracker() end
 			elseif key == "options" then
 				if ns.SPConfig and ns.SPConfig.Toggle then ns.SPConfig:Toggle() else SP:OpenConfigWindow() end
-			elseif key == "legacy" then
-				Assign:Hide()
-				if ns.LegacyAssignToggle then ns.LegacyAssignToggle() end
 			end
 		end, { above = true, width = 160 })
 	end)
-	Core:AttachTooltip(tools, "Tools", "Trackers, options and the legacy window")
+	Core:AttachTooltip(tools, "Tools", "Trackers and options")
 
 	local auto = FooterButton(frame, "Auto-Assign", 100, true)
 	auto:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, 11)
@@ -688,7 +684,7 @@ local function BuildFrame()
 	clear:SetPoint("RIGHT", auto, "LEFT", -8, 0)
 	clear:SetScript("OnClick", function()
 		if CombatBlocked() then return end
-		ShamanPowerBlessings_Clear()
+		ShamanPower_ClearAssignments()
 		MarkDirty()
 	end)
 	Core:AttachTooltip(clear, "Clear", SHAMANPOWER_CLEAR_DESC)
@@ -696,7 +692,7 @@ local function BuildFrame()
 	local refresh = FooterButton(frame, "Refresh", 76, false)
 	refresh:SetPoint("RIGHT", clear, "LEFT", -8, 0)
 	refresh:SetScript("OnClick", function()
-		ShamanPowerBlessings_Refresh()
+		ShamanPower_RefreshAssignments()
 		MarkDirty()
 	end)
 	Core:AttachTooltip(refresh, "Refresh", SHAMANPOWER_REFRESH_DESC)
@@ -803,13 +799,11 @@ end
 -- ---------------------------------------------------------------------------
 -- Wiring
 -- ---------------------------------------------------------------------------
--- Every existing entry point (minimap click, /sp totems, drag-handle click)
--- calls the global ShamanPowerBlessings_Toggle at call time, so replacing it
--- here routes them all to this window. The XML window stays reachable from
--- Tools -> Legacy window while this is being evaluated.
-if type(ShamanPowerBlessings_Toggle) == "function" then
-	ns.LegacyAssignToggle = ShamanPowerBlessings_Toggle
-	ShamanPowerBlessings_Toggle = function() Assign:Toggle() end
+-- Every entry point (minimap click, /sp totems, drag-handle click, keybind)
+-- calls this global at call time, so defining it here routes them all to
+-- this window.
+function ShamanPower_ToggleAssignments()
+	ShamanPowerAssign:Toggle()
 end
 
 -- Immediate redraw on the engine's de-facto state-changed hook.

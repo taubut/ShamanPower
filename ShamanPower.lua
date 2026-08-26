@@ -78,20 +78,9 @@ for i = 0, 60 do
 	MinuteStrings[i] = i .. "m"
 end
 
--- Shaman tracking tables by element
-local EarthShamans, FireShamans, WaterShamans, AirShamans = {}, {}, {}, {}
-local classlist, classes = {}, {}
-
--- Pre-initialize classes subtables to avoid garbage generation
--- (avoids creating new tables every UpdateRoster call)
-for i = 1, 4 do
-	classes[i] = {}
-end
-
 ShamanPower.player = UnitName("player")
 ShamanPower_Talents = {}
 ShamanPower_Assignments = {}
-ShamanPower_WeaponAssignments = {}
 ShamanPower_EarthShieldAssignments = {}  -- Maps shamanName -> targetName
 ShamanPower_TwistAssignments = {}  -- Maps shamanName -> true/false for totem twisting
 
@@ -199,19 +188,8 @@ end
 local party_units = {}
 local raid_units = {}
 local leaders = {}
-local roster = {}
-
-local classmaintanks = {}
-
--- Pre-allocated unit tables to avoid garbage (60 = 40 raid + pets)
-local unitTables = {}
-for i = 1, 60 do
-	unitTables[i] = {}
-end
-local unitTableIndex = 0
 
 local lastMsg = ""
-local prevBuffDuration
 
 do
 	table.insert(party_units, "player")
@@ -278,6 +256,37 @@ end
 -------------------------------------------------------------------
 -- Ace Framework Events
 -------------------------------------------------------------------
+-- The assignment window lives in the optional ShamanPower_Config module
+function ShamanPower:ToggleAssignmentWindow()
+	if ShamanPower_ToggleAssignments then
+		ShamanPower_ToggleAssignments()
+	else
+		print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for the assignment window")
+	end
+end
+
+-- One-time profile migration: the mini totem bar settings moved from
+-- profile.autobuff to profile.miniBar (sub-keys unchanged).
+-- rawget is required because AceDB profile tables fall through to defaults.
+local function MigrateMiniBarProfile(db, opt)
+	local old = rawget(db.profile, "autobuff")
+	if type(old) == "table" then
+		if type(opt.miniBar) ~= "table" then
+			opt.miniBar = {}
+		end
+		-- Copy only keys the current defaults know about, so stale keys from
+		-- old profiles are not carried forward.
+		local known = SHAMANPOWER_DEFAULT_VALUES and SHAMANPOWER_DEFAULT_VALUES.profile
+			and SHAMANPOWER_DEFAULT_VALUES.profile.miniBar
+		for k, v in pairs(old) do
+			if not known or known[k] ~= nil then
+				opt.miniBar[k] = v
+			end
+		end
+		db.profile.autobuff = nil
+	end
+end
+
 function ShamanPower:OnInitialize()
 	-- Initialize the consolidated update system (single OnUpdate for all timed updates)
 	self:InitUpdateSystem()
@@ -305,6 +314,7 @@ function ShamanPower:OnInitialize()
 	self.db.RegisterCallback(self, "OnProfileReset", "OnProfileChanged")
 
 	self.opt = self.db.profile
+	MigrateMiniBarProfile(self.db, self.opt)
 
 	-- Sync twist setting from shared assignments table (source of truth for sync)
 	if ShamanPower_TwistAssignments and ShamanPower_TwistAssignments[self.player] ~= nil then
@@ -337,8 +347,6 @@ function ShamanPower:OnInitialize()
 		self:ApplySkin(self.opt.skin)
 	end
 
-	self.AutoBuffedList = {}
-	self.PreviousAutoBuffedUnit = nil
 	self.menuFrame = LUIDDM:Create_UIDropDownMenu("ShamanPowerMenuFrame", UIParent)
 
 	if not ShamanPowerConfigFrame then
@@ -381,7 +389,7 @@ function ShamanPower:OnInitialize()
 
 				if (button == "LeftButton") then
 					if playerIsShaman then
-						ShamanPowerBlessings_Toggle()
+						ShamanPower:ToggleAssignmentWindow()
 					else
 						-- Non-shaman: open SPRange
 						ShamanPower:InitSPRange()
@@ -392,7 +400,7 @@ function ShamanPower:OnInitialize()
 					end
 				elseif (button == "MiddleButton") then
 					-- Middle click: open /sp totems (for non-shamans, or anyone)
-					ShamanPowerBlessings_Toggle()
+					ShamanPower:ToggleAssignmentWindow()
 				else
 					self:OpenConfigWindow()
 				end
@@ -418,13 +426,6 @@ function ShamanPower:OnInitialize()
 		self.opt.WrathTransition = true
 	end
 
-	if not ShamanPower_SavedPresets then
-		ShamanPower_SavedPresets = {}
-		ShamanPower_SavedPresets["ShamanPower_Assignments"] = {[0] = {}}
-		ShamanPower_SavedPresets["ShamanPower_NormalAssignments"] = {[0] = {}}
-		ShamanPower_SavedPresets["ShamanPower_AuraAssignments"] = {[0] = {}}
-	end
-
 	if not ShamanPower_TotemLoadouts then
 		ShamanPower_TotemLoadouts = {}
 	end
@@ -436,15 +437,6 @@ function ShamanPower:OnInitialize()
 	-- Initialize assignment tables if they don't exist
 	if not ShamanPower_Assignments then
 		ShamanPower_Assignments = {}
-	end
-	if not ShamanPower_NormalAssignments then
-		ShamanPower_NormalAssignments = {}
-	end
-	if not ShamanPower_AuraAssignments then
-		ShamanPower_AuraAssignments = {}
-	end
-	if not ShamanPower_WeaponAssignments then
-		ShamanPower_WeaponAssignments = {}
 	end
 	if not ShamanPower_EarthShieldAssignments then
 		ShamanPower_EarthShieldAssignments = {}
@@ -463,29 +455,6 @@ function ShamanPower:OnInitialize()
 	else
 		-- Default to center of screen if no saved position
 		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	end
-
-	-- Optimize BlessingsFrame: Only run OnUpdate when frame is visible
-	-- The XML defines an OnUpdate that was running every frame even when hidden
-	local blessingsFrame = _G["ShamanPowerBlessingsFrame"]
-	if blessingsFrame then
-		-- Store the original OnUpdate function
-		local originalOnUpdate = function(frame, elapsed)
-			ShamanPowerBlessingsGrid_Update(frame, elapsed)
-		end
-
-		-- Disable OnUpdate by default (frame starts hidden)
-		blessingsFrame:SetScript("OnUpdate", nil)
-
-		-- Enable OnUpdate only when frame is shown
-		blessingsFrame:HookScript("OnShow", function(frame)
-			frame:SetScript("OnUpdate", originalOnUpdate)
-		end)
-
-		-- Disable OnUpdate when frame is hidden
-		blessingsFrame:HookScript("OnHide", function(frame)
-			frame:SetScript("OnUpdate", nil)
-		end)
 	end
 
 end
@@ -541,7 +510,6 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("GROUP_LEFT")
 	self:RegisterEvent("PLAYER_ROLES_ASSIGNED")
 	self:RegisterEvent("UPDATE_BINDINGS", "BindKeys")
-	self:RegisterEvent("CHANNEL_UI_UPDATE", "ReportChannels")
 	self:RegisterEvent("CHARACTER_POINTS_CHANGED", "OnTalentsChanged")  -- Classic talent changes
 	self:RegisterEvent("PLAYER_TALENT_UPDATE", "OnTalentsChanged")  -- Talent updates
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "OnTalentsChanged")  -- Wrath dual spec switch
@@ -614,13 +582,7 @@ end
 
 function ShamanPower:OnDisable()
 	self.opt.enable = false
-	for i = 1, SHAMANPOWER_MAXCLASSES do
-		classlist[i] = 0
-		classes[i] = {}
-	end
 	self:UpdateRoster()
-	self.auraButton:Hide()
-	self.rfButton:Hide()
 	self.autoButton:Hide()
 	ShamanPowerAnchor:Hide()
 	self:UnbindKeys()
@@ -652,6 +614,7 @@ function ShamanPower:OnProfileChanged()
 	end
 
 	self.opt = self.db.profile
+	MigrateMiniBarProfile(self.db, self.opt)
 
 	-- Reset frame positions when profile changes (prevents off-screen issues)
 	if not InCombatLockdown() then
@@ -676,13 +639,6 @@ function ShamanPower:OnProfileChanged()
 			self.opt.cooldownBarPoint = self.opt.cooldownBarPoint or "CENTER"
 			self.opt.cooldownBarRelPoint = self.opt.cooldownBarRelPoint or "CENTER"
 			self:UpdateCooldownBarPosition(true)  -- true = force reposition from profile
-		end
-
-		-- Reset assignment window position
-		local c = _G["ShamanPowerBlessingsFrame"]
-		if c then
-			c:ClearAllPoints()
-			c:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 		end
 	end
 
@@ -717,14 +673,7 @@ end
 -- Config Window Functionality
 -------------------------------------------------------------------
 function ShamanPower:Purge()
-	ShamanPower_Assignments = nil
-	ShamanPower_NormalAssignments = nil
-	ShamanPower_AuraAssignments = nil
 	ShamanPower_Assignments = {}
-	ShamanPower_NormalAssignments = {}
-	ShamanPower_AuraAssignments = {}
-
-	ShamanPower_SavedPresets = nil
 end
 
 function ShamanPower:Reset()
@@ -745,20 +694,12 @@ function ShamanPower:Reset()
 	self.opt.skin = "Smooth"
 	self.opt.configscale = 0.9
 
-	-- Reset assignment window to center
-	local c = _G["ShamanPowerBlessingsFrame"]
-	c:ClearAllPoints()
-	c:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-
 	self:ApplySkin()
 	self:UpdateLayout()
 end
 
 function ShamanPower:OpenConfigWindow()
-	if ShamanPowerBlessingsFrame:IsVisible() then
-		ShamanPowerBlessingsFrame:Hide()
-		LUIDDM:CloseDropDownMenus()
-	end
+	if ShamanPowerAssign then ShamanPowerAssign:Hide() end
 	if not ShamanPowerConfigFrame:IsShown() then
 		ShamanPowerConfigFrame:Show()
 		PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN)
@@ -768,20 +709,7 @@ function ShamanPower:OpenConfigWindow()
 	end
 end
 
-local function tablecopy(tbl)
-	if type(tbl) ~= "table" then return tbl end
-	local t = {}
-	for i,v in pairs(tbl) do
-	  t[i] = tablecopy(v)
-	end
-	return t
-  end
-
-local function safeget(t,k) -- always return nil or t[k] if at least t is a table / Treeston
-	return t and t[k]    
-end
-
-function ShamanPowerBlessings_Clear()
+function ShamanPower_ClearAssignments()
 	if InCombatLockdown() then return end
 
 	if GetNumGroupMembers() > 0 and ShamanPower:CheckLeader(ShamanPower.player) then
@@ -799,8 +727,8 @@ function ShamanPowerBlessings_Clear()
 	ShamanPower:UpdateRoster()
 end
 
-function ShamanPowerBlessings_Refresh()
-	ShamanPower:Debug("ShamanPowerBlessings_Refresh")
+function ShamanPower_RefreshAssignments()
+	ShamanPower:Debug("ShamanPower_RefreshAssignments")
 	ShamanPower:ScanSpells()
 	if GetNumGroupMembers() > 0 then
 		ShamanPower:SendSelf()
@@ -810,790 +738,11 @@ function ShamanPowerBlessings_Refresh()
 	ShamanPower:UpdateRoster()
 end
 
-function ShamanPowerBlessings_Toggle()
-	if ShamanPower.configFrame and ShamanPower.configFrame:IsShown() then
-		ShamanPower.configFrame:Hide()
-	end
-	if ShamanPowerBlessingsFrame:IsVisible() then
-		ShamanPowerBlessingsFrame:Hide()
-		LUIDDM:CloseDropDownMenus()
-		PlaySound(SOUNDKIT.IG_SPELLBOOK_CLOSE)
-	else
-		local c = _G["ShamanPowerBlessingsFrame"]
-		c:ClearAllPoints()
-		c:SetPoint("CENTER", "UIParent", "CENTER", 0, 0)
-		ShamanPower:ScanSpells()
-		if GetNumGroupMembers() > 0 then
-			ShamanPower:SendSelf()
-			ShamanPower:SendMessage("REQ")
-		end
-		-- Setup Tools dropdown on first show
-		ShamanPower:SetupToolsDropdown()
-		ShamanPowerBlessingsFrame:Show()
-		PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN)
-		table.insert(UISpecialFrames, "ShamanPowerBlessingsFrame")
-	end
-end
-
 function ShamanPowerMinimapIcon_Toggle()
 	if (ShamanPower.opt.minimap.show == false) then
 		ShamanPower.MinimapIcon:Hide("ShamanPower")
 	else
 		ShamanPower.MinimapIcon:Show("ShamanPower")
-	end
-end
-
--- Setup Tools dropdown to replace Totem Range, Raid CDs, Options buttons
-function ShamanPower:SetupToolsDropdown()
-	if self.toolsDropdownSetup then return end
-	self.toolsDropdownSetup = true
-
-	local frame = _G["ShamanPowerBlessingsFrame"]
-	if not frame then return end
-
-	-- Hide the old buttons
-	local totemRangeBtn = _G["ShamanPowerBlessingsFrameTotemRange"]
-	local raidCDsBtn = _G["ShamanPowerBlessingsFrameRaidCDs"]
-	local optionsBtn = _G["ShamanPowerBlessingsFrameOptions"]
-
-	if totemRangeBtn then totemRangeBtn:Hide() end
-	if raidCDsBtn then raidCDsBtn:Hide() end
-	if optionsBtn then optionsBtn:Hide() end
-
-	-- Create Tools dropdown button
-	local toolsBtn = CreateFrame("Button", "ShamanPowerBlessingsFrameTools", frame, "UIPanelButtonTemplate")
-	toolsBtn:SetSize(60, 22)
-	toolsBtn:SetText("Tools")
-
-	-- Position it where Options was (left of Auto-Assign)
-	local autoAssignBtn = _G["ShamanPowerBlessingsFrameAutoAssign"]
-	if autoAssignBtn then
-		toolsBtn:SetPoint("BOTTOMRIGHT", autoAssignBtn, "BOTTOMLEFT", -4, 0)
-	end
-
-	-- Create dropdown menu frame
-	local dropdownMenu = CreateFrame("Frame", "ShamanPowerToolsDropdownMenu", UIParent, "UIDropDownMenuTemplate")
-
-	toolsBtn:SetScript("OnClick", function()
-		LUIDDM:ToggleDropDownMenu(1, nil, dropdownMenu, toolsBtn, 0, 0)
-	end)
-
-	toolsBtn:SetScript("OnEnter", function(self)
-		if ShamanPower.opt.ShowTooltips then
-			GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-			GameTooltip:SetText("Open tools menu")
-			GameTooltip:Show()
-		end
-	end)
-
-	toolsBtn:SetScript("OnLeave", function()
-		GameTooltip:Hide()
-	end)
-
-	-- Initialize the dropdown
-	LUIDDM:UIDropDownMenu_Initialize(dropdownMenu, function(self, level)
-		local info = LUIDDM:UIDropDownMenu_CreateInfo()
-
-		-- Totem Range
-		info.text = "Totem Range"
-		info.notCheckable = true
-		info.func = function()
-			ShamanPower:InitSPRange()
-			if not ShamanPower.spRangeFrame then
-				ShamanPower:CreateSPRangeFrame()
-			end
-			ShamanPower:ShowSPRangeConfig()
-		end
-		LUIDDM:UIDropDownMenu_AddButton(info, level)
-
-		-- Raid CDs
-		info.text = "Raid CDs"
-		info.notCheckable = true
-		info.func = function()
-			ShamanPower:ToggleRaidCooldownPanel()
-		end
-		LUIDDM:UIDropDownMenu_AddButton(info, level)
-
-		-- ES Tracker
-		info.text = "ES Tracker"
-		info.notCheckable = true
-		info.func = function()
-			ShamanPower:ToggleESTracker()
-		end
-		LUIDDM:UIDropDownMenu_AddButton(info, level)
-
-		-- Separator
-		info.text = ""
-		info.disabled = true
-		info.notCheckable = true
-		LUIDDM:UIDropDownMenu_AddButton(info, level)
-
-		-- Options
-		info.text = "Options"
-		info.disabled = false
-		info.notCheckable = true
-		info.func = function()
-			ShamanPower:OpenConfigWindow()
-		end
-		LUIDDM:UIDropDownMenu_AddButton(info, level)
-	end, "MENU")
-end
-
-function ShamanPowerBlessings_ShowCredits(self)
-	if ShamanPower.opt.ShowTooltips then
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText(ShamanPower.Credits1, 1, 1, 1)
-		GameTooltip:AddLine(ShamanPower.Credits2, 1, 1, 1)
-		GameTooltip:Show()
-	end
-end
-
-function ShamanPower.GetNormalBlessings(pname, class, tname)
-	if ShamanPower_NormalAssignments[pname] and ShamanPower_NormalAssignments[pname][class] then
-		local blessing = ShamanPower_NormalAssignments[pname][class][tname]
-		if blessing then
-			return tostring(blessing)
-		else
-			return "0"
-		end
-	end
-end
-
-function ShamanPower.SetNormalBlessings(pname, class, tname, value)
-	if not ShamanPower_NormalAssignments[pname] then
-		ShamanPower_NormalAssignments[pname] = {}
-	end
-	if not ShamanPower_NormalAssignments[pname][class] then
-		ShamanPower_NormalAssignments[pname][class] = {}
-	end
-	if value == 0 then
-		value = nil
-	end
-	ShamanPower_NormalAssignments[pname][class][tname] = value
-	local msgQueue
-	msgQueue =
-		C_Timer.NewTimer(
-		2.0,
-		function()
-			if ShamanPower_NormalAssignments and ShamanPower_NormalAssignments[pname] and ShamanPower_NormalAssignments[pname][class] and ShamanPower_NormalAssignments[pname][class][tname] then
-				ShamanPower:SendNormalBlessings(pname, class, tname)
-				ShamanPower:UpdateLayout()
-				msgQueue:Cancel()
-			end
-		end
-	)
-end
-
--- sends blessing to tname as previously set in ShamanPower_NormalAssignments[pname]...
-function ShamanPower:SendNormalBlessings(pname, class, tname)
-	local value = safeget(safeget(safeget(ShamanPower_NormalAssignments, pname), class), tname)
-	if value == nil then value = 0 end
-	self:SendMessage("NASSIGN " .. pname .. " " .. class .. " " .. tname .. " " .. value)
-end
-
-function ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
-	if InCombatLockdown() then return end
-
-	if (mouseBtn == "LeftButton") then
-
-		local menu = {}
-
-		local shortname = strsplit("%-", pname)
-
-		tinsert(menu, {text = "|cffffffff" .. shortname .. "|r " .. L["can be assigned"], isTitle = true, isNotRadio = true, notCheckable = 1})
-		tinsert(menu, {text = L["a Normal Blessing from:"], isTitle = true, isNotRadio = true, notCheckable = 1})
-
-		local pre, suf
-		for pally in pairs(ShamanPower.AllShamans) do
-			local pallyMenu = {}
-			local control = ShamanPower:CanControl(pally)
-			if not control then
-				pre = "|cff999999"
-				suf = "|r"
-			else
-				pre = ""
-				suf = ""
-			end
-
-			tinsert(pallyMenu, {
-				text = format("%s%s%s", pre, "(none)", suf),
-				checked = function() if ShamanPower.GetNormalBlessings(pally, class, pname) == "0" then return true end end,
-				func = function() LUIDDM:CloseDropDownMenus(); ShamanPower.SetNormalBlessings(pally, class, pname, 0) end
-			})
-
-			for index, blessing in ipairs(ShamanPower.Spells) do
-				if ShamanPower:CanBuff(pally, index) then
-					local unitID = ShamanPower:GetUnitIdByName(pname)
-					if ShamanPower:CanBuffBlessing(index, 0, unitID, true) then
-						tinsert(pallyMenu, {
-							text = format("%s%s%s", pre, blessing, suf),
-							checked = function() if ShamanPower.GetNormalBlessings(pally, class, pname) == tostring(index) then return true end end,
-							func = function() LUIDDM:CloseDropDownMenus(); if control then ShamanPower.SetNormalBlessings(pally, class, pname, index + 0) end end
-						})
-					end
-				end
-			end
-
-			local shortname = strsplit("%-", pally)
-
-			tinsert(menu, {
-				text = format("%s%s%s", pre, shortname, suf),
-				hasArrow = true,
-				menuList = pallyMenu,
-				checked = function()
-					if ShamanPower_NormalAssignments[pally] and ShamanPower_NormalAssignments[pally][class] and ShamanPower_NormalAssignments[pally][class][pname] then
-						return true
-					else
-						ShamanPower.SetNormalBlessings(pally, class, pname, 0)
-					end
-				end
-			})
-		end
-
-		tinsert(menu, {text = _G.CANCEL, func = function() end, isNotRadio = true, notCheckable = 1})
-
-		LUIDDM:EasyMenu(menu, ShamanPower.menuFrame, "cursor", 0 , 0, "MENU")
-
-	elseif (mouseBtn == "RightButton") then
-		for pally in pairs(ShamanPower.AllShamans) do
-			if ShamanPower_NormalAssignments[pally] and ShamanPower_NormalAssignments[pally][class] and ShamanPower_NormalAssignments[pally][class][pname] then
-				ShamanPower_NormalAssignments[pally][class][pname] = nil
-			end
-			ShamanPower:SendNormalBlessings(pally, class, pname)
-			ShamanPower:UpdateLayout()
-		end
-	end
-end
-
-function ShamanPowerPlayerButton_OnClick(btn, mouseBtn)
-	if InCombatLockdown() then return end
-
-	local _, _, class, pnum = strfind(btn:GetName(), "ShamanPowerBlessingsFrameClassGroup(.+)PlayerButton(.+)")
-	class = tonumber(class)
-	pnum = tonumber(pnum)
-	local pname = classes[class][pnum].name
-
-	ShamanPowerGrid_NormalBlessingMenu(btn, mouseBtn, pname, class)
-end
-
-function ShamanPowerPlayerButton_OnMouseWheel(btn, arg1)
-	if InCombatLockdown() then return end
-
-	local _, _, class, pnum = strfind(btn:GetName(), "ShamanPowerBlessingsFrameClassGroup(.+)PlayerButton(.+)")
-	class = tonumber(class)
-	pnum = tonumber(pnum)
-	local pname = classes[class][pnum].name
-	ShamanPower:PerformPlayerCycle(arg1, pname, class)
-end
-
-function ShamanPowerGridButton_OnClick(btn, mouseBtn)
-	if InCombatLockdown() then return end
-
-	local _, _, pnum, class = strfind(btn:GetName(), "ShamanPowerBlessingsFramePlayer(.+)Class(.+)")
-	class = tonumber(class)
-	pnum = tonumber(pnum)
-	local pname = _G["ShamanPowerBlessingsFramePlayer" .. pnum .. "Name"]:GetText()
-	if not ShamanPower:CanControl(pname) then
-		return false
-	end
-	if (mouseBtn == "RightButton") then
-		-- Right-click cycles backward through totems
-		ShamanPower:PerformCycleBackwards(pname, class)
-	else
-		-- Left-click cycles forward through totems
-		ShamanPower:PerformCycle(pname, class)
-	end
-end
-
-function ShamanPowerGridButton_OnMouseWheel(btn, arg1)
-	if InCombatLockdown() then return end
-
-	local _, _, pnum, class = strfind(btn:GetName(), "ShamanPowerBlessingsFramePlayer(.+)Class(.+)")
-	class = tonumber(class)
-	pnum = tonumber(pnum)
-	local pname = _G["ShamanPowerBlessingsFramePlayer" .. pnum .. "Name"]:GetText()
-	if not ShamanPower:CanControl(pname) then
-		return false
-	end
-	if (arg1 == -1) then --mouse wheel down
-		ShamanPower:PerformCycle(pname, class)
-	else
-		ShamanPower:PerformCycleBackwards(pname, class)
-	end
-end
-
-function ShamanPowerBlessingsFrame_MouseUp()
-	if (ShamanPowerBlessingsFrame.isMoving) then
-		ShamanPowerBlessingsFrame:StopMovingOrSizing()
-		ShamanPowerBlessingsFrame.isMoving = false
-	end
-end
-
-function ShamanPowerBlessingsFrame_MouseDown(self, button)
-	if (((not ShamanPowerBlessingsFrame.isLocked) or (ShamanPowerBlessingsFrame.isLocked == 0)) and (button == "LeftButton")) then
-		ShamanPowerBlessingsFrame:StartMoving()
-		ShamanPowerBlessingsFrame:SetClampedToScreen(true)
-		ShamanPowerBlessingsFrame.isMoving = true
-	end
-end
-
-function ShamanPowerBlessingsGrid_Update(self, elapsed)
-	-- OnUpdate only runs when frame is visible (controlled by OnShow/OnHide hooks)
-	if not initialized then return end
-
-	-- Throttle to 5 updates per second
-	self.gridUpdateElapsed = (self.gridUpdateElapsed or 0) + elapsed
-	if self.gridUpdateElapsed < 0.2 then return end
-	self.gridUpdateElapsed = 0
-
-	-- Ensure assignment tables are initialized
-	if not ShamanPower_Assignments then ShamanPower_Assignments = {} end
-	if not ShamanPower_NormalAssignments then ShamanPower_NormalAssignments = {} end
-	if not ShamanPower_AuraAssignments then ShamanPower_AuraAssignments = {} end
-
-	local numShamans = 0
-		local numMaxClass = 0
-		-- Hide all ClassGroups and AuraGroups - Shamans don't need these
-		-- Totems affect the whole party, not individual players
-		for i = 1, 9 do  -- Hide all possible ClassGroups
-			local fname = "ShamanPowerBlessingsFrameClassGroup" .. i
-			local classGroup = _G[fname]
-			if classGroup then
-				classGroup:Hide()
-			end
-		end
-		-- Hide AuraGroup (Shamans don't have auras like Paladins)
-		local auraGroup = _G["ShamanPowerBlessingsFrameAuraGroup1"]
-		if auraGroup then
-			auraGroup:Hide()
-		end
-		ShamanPowerBlessingsFrame:SetScale(ShamanPower.opt.configscale)
-		for i, name in pairs(ShamanPower.SyncList) do
-			local fname = "ShamanPowerBlessingsFramePlayer" .. i
-			local playerFrame = _G[fname]
-			local SkillInfo = ShamanPower.AllShamans[name]
-			local BuffInfo = ShamanPower_Assignments[name]
-			if not BuffInfo then BuffInfo = {} end
-			local NormalBuffInfo = ShamanPower_NormalAssignments[name]
-
-			-- Add alternating row background for readability
-			local rowBg = _G[fname .. "RowBG"]
-			if not rowBg then
-				rowBg = playerFrame:CreateTexture(fname .. "RowBG", "BACKGROUND")
-				rowBg:SetPoint("TOPLEFT", playerFrame, "TOPLEFT", 0, 0)
-				rowBg:SetPoint("BOTTOMRIGHT", playerFrame, "BOTTOMRIGHT", 0, 5)
-			end
-			if i % 2 == 0 then
-				rowBg:SetColorTexture(1, 1, 1, 0.03)  -- Subtle light for even rows
-			else
-				rowBg:SetColorTexture(0, 0, 0, 0.1)  -- Subtle dark for odd rows
-			end
-			rowBg:Show()
-
-			_G[fname .. "Name"]:SetText(name)
-			if ShamanPower:CanControl(name) then
-				_G[fname .. "Name"]:SetTextColor(1, 1, 1)
-			else
-				if ShamanPower:CheckLeader(name) then
-					_G[fname .. "Name"]:SetTextColor(0, 1, 0)
-				else
-					_G[fname .. "Name"]:SetTextColor(1, 0, 0)
-				end
-			end
-			-- Hide symbols (not needed for Shamans)
-			_G[fname .. "Symbols"]:SetText("")
-
-			-- Hide all the paladin-specific skill icons (Icon1-6, Skill1-6)
-			for id = 1, 6 do
-				local icon = _G[fname .. "Icon" .. id]
-				local skill = _G[fname .. "Skill" .. id]
-				if icon then icon:Hide() end
-				if skill then skill:Hide() end
-			end
-
-			-- Hide aura icons (AIcon1-3, ASkill1-3) - Shamans don't have auras
-			for id = 1, 3 do
-				local aicon = _G[fname .. "AIcon" .. id]
-				local askill = _G[fname .. "ASkill" .. id]
-				if aicon then aicon:Hide() end
-				if askill then askill:Hide() end
-			end
-
-			-- Show Earth Shield button if shaman has the talent
-			local aura1Btn = _G[fname .. "Aura1"]
-			local aura1Icon = _G[fname .. "Aura1Icon"]
-			if aura1Btn and aura1Icon then
-				if ShamanPower.AllShamans[name] and ShamanPower.AllShamans[name].hasEarthShield and ShamanPower.EarthShield then
-					-- Reposition Aura1 to be before Class1 (to the left)
-					aura1Btn:ClearAllPoints()
-					aura1Btn:SetPoint("TOPLEFT", _G[fname], "TOPLEFT", 56, 0)
-
-					-- Show Earth Shield icon
-					aura1Icon:SetTexture(ShamanPower.EarthShield.icon)
-					aura1Btn:Show()
-
-					-- Show target name below the icon
-					local targetName = ShamanPower_EarthShieldAssignments[name]
-					local targetText = _G[fname .. "Aura1Text"]
-					if not targetText then
-						-- Create target text if it doesn't exist
-						targetText = aura1Btn:CreateFontString(fname .. "Aura1Text", "OVERLAY", "GameFontHighlightSmall")
-						targetText:SetPoint("TOP", aura1Icon, "BOTTOM", 0, -2)
-						targetText:SetWidth(60)
-					end
-					if targetName then
-						local shortName = Ambiguate(targetName, "short")
-						targetText:SetText(shortName)
-						targetText:SetTextColor(0, 1, 0)  -- Green for assigned
-					else
-						targetText:SetText("Click to assign")
-						targetText:SetTextColor(0.5, 0.5, 0.5)  -- Gray for unassigned
-					end
-					targetText:Show()
-
-					-- Update button color based on ES status
-					if ShamanPower.opt then
-						local btnColour = ShamanPower.opt.cBuffNeedAll  -- Red = needs assignment
-						if targetName then
-							btnColour = ShamanPower.opt.cBuffGood  -- Green = has target
-						end
-						ShamanPower:ApplyBackdrop(aura1Btn, btnColour)
-					end
-				else
-					-- Hide if shaman doesn't have Earth Shield
-					aura1Icon:SetTexture(nil)
-					aura1Btn:Hide()
-					local targetText = _G[fname .. "Aura1Text"]
-					if targetText then targetText:Hide() end
-				end
-			end
-
-			-- Create or update Twist checkbox for this shaman
-			local twistCheck = _G[fname .. "TwistCheck"]
-			if not twistCheck then
-				twistCheck = CreateFrame("CheckButton", fname .. "TwistCheck", playerFrame, "UICheckButtonTemplate")
-				twistCheck:SetSize(20, 20)
-				twistCheck:SetPoint("TOPLEFT", playerFrame, "TOPLEFT", 0, -32)
-				twistCheck.text = twistCheck:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-				twistCheck.text:SetPoint("LEFT", twistCheck, "RIGHT", 2, 0)
-				twistCheck.text:SetText("Twist")
-			end
-			-- Store fname reference for the click handler
-			twistCheck.shamanFrame = fname
-			-- Always update the click handler (in case code changed)
-			twistCheck:SetScript("OnClick", function(self)
-				local frameName = self.shamanFrame
-				local shamanName = _G[frameName .. "Name"]:GetText()
-				local enabled = self:GetChecked()
-				ShamanPower_TwistAssignments[shamanName] = enabled
-				-- Send the twist assignment to other clients
-				ShamanPower:SendMessage("TWIST " .. shamanName .. " " .. (enabled and "1" or "0"))
-				-- If this is us, update our local setting
-				if shamanName == ShamanPower.player then
-					ShamanPower.opt.enableTotemTwisting = enabled
-					ShamanPower:UpdateMiniTotemBar()
-					ShamanPower:UpdateSPMacros()
-					-- Show/hide the twist totem dropdown
-					local twistDrop = _G[frameName .. "TwistDrop"]
-					if twistDrop then
-						if enabled then twistDrop:Show() else twistDrop:Hide() end
-					end
-					-- Refresh Options panel if it's open
-					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
-					if enabled then
-						ShamanPower:SetupTwistTimer()
-					else
-						ShamanPower:HideTwistTimer()
-					end
-				end
-			end)
-			twistCheck:SetScript("OnEnter", function(self)
-				if ShamanPower.opt.ShowTooltips then
-					GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-					GameTooltip:SetText("Totem Twisting")
-					GameTooltip:AddLine("Enable Air totem twisting (Windfury + " .. ShamanPower:GetTwistTotemName() .. ")", 1, 1, 1, true)
-					GameTooltip:Show()
-				end
-			end)
-			twistCheck:SetScript("OnLeave", function() GameTooltip:Hide() end)
-			-- Set checkbox state from saved data
-			local twistEnabled = ShamanPower_TwistAssignments[name] or false
-			twistCheck:SetChecked(twistEnabled)
-			twistCheck:Show()
-
-			-- Create or update Twist Totem dropdown (only for local player)
-			if name == self.player then
-				local twistDrop = _G[fname .. "TwistDrop"]
-				if not twistDrop then
-					twistDrop = CreateFrame("Button", fname .. "TwistDrop", playerFrame)
-					twistDrop:SetSize(110, 18)
-					twistDrop:SetPoint("LEFT", twistCheck.text, "RIGHT", 8, 0)
-
-					twistDrop.bg = twistDrop:CreateTexture(nil, "BACKGROUND")
-					twistDrop.bg:SetAllPoints()
-					twistDrop.bg:SetColorTexture(0.15, 0.15, 0.15, 0.8)
-
-					twistDrop.text = twistDrop:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-					twistDrop.text:SetPoint("LEFT", 4, 0)
-					twistDrop.text:SetPoint("RIGHT", -12, 0)
-					twistDrop.text:SetJustifyH("LEFT")
-
-					twistDrop.arrow = twistDrop:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-					twistDrop.arrow:SetPoint("RIGHT", -2, 0)
-					twistDrop.arrow:SetText("v")
-
-					twistDrop:SetScript("OnClick", function(btn)
-						local menu = {}
-						-- 2=Grace of Air, 3=Wrath of Air, 4=Tranquil Air, 6=Nature Resistance
-						for _, i in ipairs({2, 3, 4, 6}) do
-							local spellName = GetSpellInfo(ShamanPower.AirTotems[i])
-							if spellName then
-								tinsert(menu, {
-									text = spellName,
-									checked = (ShamanPower.opt.twistTotem or 2) == i,
-									func = function()
-										ShamanPower.opt.twistTotem = i
-										btn.text:SetText(spellName)
-										ShamanPower:UpdateMiniTotemBar()
-										ShamanPower:UpdateSPMacros()
-										LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
-										LUIDDM:CloseDropDownMenus()
-									end
-								})
-							end
-						end
-						LUIDDM:EasyMenu(menu, ShamanPower.menuFrame, btn, 0, 0, "MENU")
-					end)
-				end
-				twistDrop.text:SetText(self:GetTwistTotemName())
-				if twistEnabled then
-					twistDrop:Show()
-				else
-					twistDrop:Hide()
-				end
-			end
-
-			-- Hide cooldown icons (CIcon1-2, CSkill1-2)
-			for id = 1, 2 do
-				local cicon = _G[fname .. "CIcon" .. id]
-				local cskill = _G[fname .. "CSkill" .. id]
-				if cicon then cicon:Hide() end
-				if cskill then cskill:Hide() end
-			end
-			for id = 1, SHAMANPOWER_MAXCLASSES do
-				if BuffInfo and BuffInfo[id] and BuffInfo[id] > 0 then
-					-- Use TotemIcons: id is the element, BuffInfo[id] is the totem index
-					local totemIcon = ShamanPower.TotemIcons[id] and ShamanPower.TotemIcons[id][BuffInfo[id]]
-					_G[fname .. "Class" .. id .. "Icon"]:SetTexture(totemIcon)
-				else
-					_G[fname .. "Class" .. id .. "Icon"]:SetTexture(nil)
-				end
-			end
-			i = i + 1
-			numShamans = numShamans + 1
-		end
-		-- Simplified height for Shaman addon (no class rows needed)
-		-- Compact layout: title(24) + headers(20) + rows(55 each) + checkbox(25) + buttons(35)
-		ShamanPowerBlessingsFrame:SetHeight(50 + (numShamans * 55) + 55)
-		_G["ShamanPowerBlessingsFramePlayer1"]:SetPoint("TOPLEFT", 8, -48)
-		for i = 1, SHAMANPOWER_MAXPERCLASS do
-			local fname = "ShamanPowerBlessingsFramePlayer" .. i
-			if i <= numShamans then
-				_G[fname]:Show()
-			else
-				_G[fname]:Hide()
-			end
-		end
-		ShamanPowerBlessingsFrameFreeAssign:SetChecked(ShamanPower.opt.freeassign)
-end
-
-function ShamanPower_StartScaling(self, button)
-	if button == "RightButton" then
-		ShamanPower.opt.configscale = 0.9
-		local c = _G["ShamanPowerBlessingsFrame"]
-		c:ClearAllPoints()
-		c:SetPoint("CENTER", "UIParent", "CENTER", 0, 0)
-		ShamanPowerBlessingsFrame:Show()
-	end
-	if button == "LeftButton" then
-		self:LockHighlight()
-		ShamanPower.FrameToScale = self:GetParent()
-		ShamanPower.ScalingWidth = self:GetParent():GetWidth() * ShamanPower.FrameToScale:GetParent():GetEffectiveScale()
-		ShamanPower.ScalingHeight = self:GetParent():GetHeight() * ShamanPower.FrameToScale:GetParent():GetEffectiveScale()
-		ShamanPowerScalingFrame:Show()
-	end
-end
-
-function ShamanPower_StopScaling(self, button)
-	if button == "LeftButton" then
-		ShamanPowerScalingFrame:Hide()
-		ShamanPower.FrameToScale = nil
-		self:UnlockHighlight()
-	end
-end
-
-function ShamanPower_ScaleFrame(scale)
-	local frame = ShamanPower.FrameToScale
-	local oldscale = frame:GetScale() or 1
-	local framex = (frame:GetLeft() or ShamanPowerPerOptions.XPos) * oldscale
-	local framey = (frame:GetTop() or ShamanPowerPerOptions.YPos) * oldscale
-	frame:SetScale(scale)
-	if frame:GetName() == "ShamanPowerBlessingsFrame" then
-		frame:SetClampedToScreen(true)
-		frame:ClearAllPoints()
-		frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", framex / scale, framey / scale)
-		ShamanPower.opt.configscale = scale
-	end
-end
-
-function ShamanPower_ScalingFrame_Update(self, elapsed)
-	if not ShamanPower.ScalingTime then
-		ShamanPower.ScalingTime = 0
-	end
-	ShamanPower.ScalingTime = ShamanPower.ScalingTime + elapsed
-	if ShamanPower.ScalingTime > 0.25 then
-		ShamanPower.ScalingTime = 0
-		local frame = ShamanPower.FrameToScale
-		local oldscale = frame:GetEffectiveScale()
-		local framex, framey, cursorx, cursory = frame:GetLeft() * oldscale, frame:GetTop() * oldscale, GetCursorPosition()
-		if ShamanPower.ScalingWidth > ShamanPower.ScalingHeight then
-			if (cursorx - framex) > 32 then
-				local newscale = (cursorx - framex) / ShamanPower.ScalingWidth
-				if newscale < 0.5 then
-					ShamanPower_ScaleFrame(0.5)
-				else
-					ShamanPower_ScaleFrame(newscale)
-				end
-			end
-		else
-			if (framey - cursory) > 32 then
-				local newscale = (framey - cursory) / ShamanPower.ScalingHeight
-				if newscale < 0.5 then
-					ShamanPower_ScaleFrame(0.5)
-				else
-					ShamanPower_ScaleFrame(newscale)
-				end
-			end
-		end
-	end
-end
-
--------------------------------------------------------------------
--- Main Functionality
--------------------------------------------------------------------
-function ShamanPower:ReportChannels()
-	local channels = {GetChannelList()}
-	ShamanPower_ChanNames = {}
-	ShamanPower_ChanNames[0] = "None"
-	for i = 1, #channels / 3 do
-		local chanName = channels[i * 3 - 1]
-		if chanName ~= "LookingForGroup" and chanName ~= "General" and chanName ~= "Trade" and chanName ~= "LocalDefense" and chanName ~= "WorldDefense" and chanName ~= "GuildRecruitment" then
-			ShamanPower_ChanNames[i] = chanName
-		end
-	end
-	return ShamanPower_ChanNames
-end
-
-function ShamanPower:Report(type, chanNum)
-	if not type then
-		if GetNumGroupMembers() > 0 then
-			if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-				type = "INSTANCE_CHAT"
-			else
-				if IsInRaid() then
-					type = "RAID"
-				elseif IsInGroup(LE_PARTY_CATEGORY_HOME) then
-					type = "PARTY"
-				end
-			end
-			if self:CheckLeader(self.player) and type ~= "INSTANCE_CHAT" then
-				if #ShamanPower.SyncList > 0 then
-					SendChatMessage(L["--- Shaman assignments ---"], type)
-					local list = {}
-					for name in pairs(ShamanPower.AllShamans) do
-						local blessings
-						for i = 1, self.isWrath and 4 or 6 do
-							list[i] = 0
-						end
-						local assignments = ShamanPower_Assignments[name] or {}
-						for id = 1, SHAMANPOWER_MAXCLASSES do
-							local bid = assignments[id]
-							if bid and bid > 0 then
-								list[bid] = list[bid] + 1
-							end
-						end
-						for id = 1, self.isWrath and 4 or 6 do
-							if (list[id] > 0) then
-								if (blessings) then
-									blessings = blessings .. ", "
-								else
-									blessings = ""
-								end
-								local spell = self.Spells[id]
-								blessings = blessings .. spell
-							end
-						end
-						if not (blessings) then
-							blessings = "Nothing"
-						end
-						SendChatMessage(name .. ": " .. blessings, type)
-					end
-					SendChatMessage(L["--- End of assignments ---"], type)
-				end
-			else
-				if type == "INSTANCE_CHAT" then
-					self:Print("Blessings Report is disabled in Battlegrounds.")
-				elseif type == "RAID" then
-					self:Print("You are not the raid leader or do not have raid assist.")
-				else
-					self:Print(ERR_NOT_LEADER)
-				end
-			end
-		else
-			if type == "RAID" then
-				self:Print(ERR_NOT_IN_RAID)
-			else
-				self:Print(ERR_NOT_IN_GROUP)
-			end
-		end
-	else
-		if ((type and (type ~= "INSTANCE_CHAT" or type ~= "RAID" or type ~= "PARTY")) and chanNum and (IsInRaid() or IsInGroup())) then
-			SendChatMessage(L["--- Shaman assignments ---"], type, nil, chanNum)
-			local list = {}
-			for name in pairs(ShamanPower.AllShamans) do
-				local blessings
-				for i = 1, self.isWrath and 4 or 6 do
-					list[i] = 0
-				end
-				local assignments = ShamanPower_Assignments[name] or {}
-				for id = 1, SHAMANPOWER_MAXCLASSES do
-					local bid = assignments[id]
-					if bid and bid > 0 then
-						list[bid] = list[bid] + 1
-					end
-				end
-				for id = 1, self.isWrath and 4 or 6 do
-					if (list[id] > 0) then
-						if (blessings) then
-							blessings = blessings .. ", "
-						else
-							blessings = ""
-						end
-						local spell = self.Spells[id]
-						blessings = blessings .. spell
-					end
-				end
-				if not (blessings) then
-					blessings = "Nothing"
-				end
-				SendChatMessage(name .. ": " .. blessings, type, nil, chanNum)
-			end
-			SendChatMessage(L["--- End of assignments ---"], type, nil, chanNum)
-		elseif not IsInGroup() then
-			self:Print(ERR_NOT_IN_GROUP)
-		elseif not IsInRaid() then
-			self:Print(ERR_NOT_IN_RAID)
-		end
 	end
 end
 
@@ -11114,12 +10263,7 @@ function ShamanPower:UpdateTotemicCallButton()
 end
 
 function ShamanPower:PerformCycle(name, class, skipzero)
-	local shift = (IsShiftKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
-	local control = (IsControlKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
 	local cur
-	if shift then
-		class = 5
-	end
 	if not ShamanPower_Assignments[name] then
 		ShamanPower_Assignments[name] = {}
 	end
@@ -11144,49 +10288,28 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 			cur = 0
 		end
 	end
-	if shift then
-		for testC = 1, SHAMANPOWER_MAXCLASSES do
-			ShamanPower_Assignments[name][testC] = cur
-		end
-		local msgQueue
-		msgQueue =
-			C_Timer.NewTimer(
-			2.0,
-			function()
-				self:SendMessage("MASSIGN " .. name .. " " .. ShamanPower_Assignments[name][class])
-				self:UpdateLayout()
-				msgQueue:Cancel()
-			end
-		)
-	else
-		ShamanPower_Assignments[name][class] = cur
-		if name == self.player and class >= 1 and class <= 4 then
-			-- Also update the mini totem bar
-			self:UpdateMiniTotemBar()
-			self:UpdateDropAllButton()
-			-- Update macros when assignment changes
-			self:UpdateSPMacros()
-		end
-		local msgQueue
-		msgQueue =
-			C_Timer.NewTimer(
-			2.0,
-			function()
-				self:SendMessage("ASSIGN " .. name .. " " .. class .. " " .. ShamanPower_Assignments[name][class])
-				self:UpdateLayout()
-				msgQueue:Cancel()
-			end
-		)
+	ShamanPower_Assignments[name][class] = cur
+	if name == self.player and class >= 1 and class <= 4 then
+		-- Also update the mini totem bar
+		self:UpdateMiniTotemBar()
+		self:UpdateDropAllButton()
+		-- Update macros when assignment changes
+		self:UpdateSPMacros()
 	end
+	local msgQueue
+	msgQueue =
+		C_Timer.NewTimer(
+		2.0,
+		function()
+			self:SendMessage("ASSIGN " .. name .. " " .. class .. " " .. ShamanPower_Assignments[name][class])
+			self:UpdateLayout()
+			msgQueue:Cancel()
+		end
+	)
 end
 
 function ShamanPower:PerformCycleBackwards(name, class, skipzero)
-	local shift = (IsShiftKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
-	local control = (IsControlKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
 	local cur
-	if shift then
-		class = 5
-	end
 	if name and not ShamanPower_Assignments[name] then
 		ShamanPower_Assignments[name] = {}
 	end
@@ -11212,213 +10335,24 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 			cur = maxTotems
 		end
 	end
-	if shift then
-		for testC = 1, SHAMANPOWER_MAXCLASSES do
-			ShamanPower_Assignments[name][testC] = cur
-		end
-		local msgQueue
-		msgQueue =
-			C_Timer.NewTimer(
-			2.0,
-			function()
-				self:SendMessage("MASSIGN " .. name .. " " .. ShamanPower_Assignments[name][class])
-				self:UpdateLayout()
-				msgQueue:Cancel()
-			end
-		)
-	else
-		ShamanPower_Assignments[name][class] = cur
-		if name == self.player and class >= 1 and class <= 4 then
-			-- Also update the mini totem bar
-			self:UpdateMiniTotemBar()
-			self:UpdateDropAllButton()
-			-- Update macros when assignment changes
-			self:UpdateSPMacros()
-		end
-		local msgQueue
-		msgQueue =
-			C_Timer.NewTimer(
-			2.0,
-			function()
-				self:SendMessage("ASSIGN " .. name .. " " .. class .. " " .. ShamanPower_Assignments[name][class])
-				self:UpdateLayout()
-				msgQueue:Cancel()
-			end
-		)
+	ShamanPower_Assignments[name][class] = cur
+	if name == self.player and class >= 1 and class <= 4 then
+		-- Also update the mini totem bar
+		self:UpdateMiniTotemBar()
+		self:UpdateDropAllButton()
+		-- Update macros when assignment changes
+		self:UpdateSPMacros()
 	end
-end
-
-function ShamanPower:PerformPlayerCycle(delta, pname, class)
-	local control = (IsControlKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
-	local blessing = 0
-	if not isShaman then
-		return
-	end
-	if ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][class] and ShamanPower_NormalAssignments[self.player][class][pname] then
-		blessing = ShamanPower_NormalAssignments[self.player][class][pname]
-	end
-	local count
-	-- Can't give Blessing of Sacrifice to yourself
-	if self.isWrath then
-		count = 5
-	else
-		if pname == self.player then
-			count = 7
-		else
-			count = 8
-		end
-	end
-	local test = (blessing - delta) % count
-	while not (ShamanPower:CanBuff(self.player, test) or control) and test > 0 do
-		test = (test - delta) % count
-		if test == blessing then
-			test = 0
-			break
-		end
-	end
-	ShamanPower.SetNormalBlessings(self.player, class, pname, test)
-end
-
-function ShamanPower:AssignPlayerAsClass(pname, pclass, tclass)
-	local greater, target, targetsorted, freepallies = {}, {}, {}, {}
-	for pally, classes in pairs(ShamanPower_Assignments) do
-		if ShamanPower.AllShamans[pally] and classes[tclass] and classes[tclass] > 0 then
-			target[classes[tclass]] = pally
-			tinsert(targetsorted, classes[tclass])
-		end
-	end
-	tsort(
-		targetsorted,
-		function(a, b)
-			return a == 2 or a == 1 and b ~= 2
+	local msgQueue
+	msgQueue =
+		C_Timer.NewTimer(
+		2.0,
+		function()
+			self:SendMessage("ASSIGN " .. name .. " " .. class .. " " .. ShamanPower_Assignments[name][class])
+			self:UpdateLayout()
+			msgQueue:Cancel()
 		end
 	)
-	for pally, info in pairs(ShamanPower.AllShamans) do
-		if ShamanPower_Assignments[pally] and ShamanPower_Assignments[pally][pclass] then
-			local blessing = ShamanPower_Assignments[pally][pclass]
-			greater[blessing] = pally
-			if not target[blessing] then
-				freepallies[pally] = info
-			end
-		else
-			freepallies[pally] = info
-		end
-	end
-	for _, blessing in pairs(targetsorted) do
-		if greater[blessing] then
-			local pally = greater[blessing]
-			if ShamanPower_NormalAssignments[pally] and ShamanPower_NormalAssignments[pally][pclass] and ShamanPower_NormalAssignments[pally][pclass][pname] then
-				ShamanPower.SetNormalBlessings(pally, pclass, pname, 0)
-			end
-		else
-			local maxname, maxrank, maxtalent = nil, 0, 0
-			local targetpally = target[blessing]
-			for pally, blessinginfo in pairs(freepallies) do
-				local blessinginfo = blessinginfo[blessing]
-				local rank, talent = 0, 0
-				if blessinginfo then
-					rank, talent = blessinginfo.rank, blessinginfo.talent
-				end
-				if rank > maxrank or (rank == maxrank and talent > maxtalent) or pally == targetpally then
-					maxname = pally
-					maxrank = rank
-					maxtalent = talent
-				end
-			end
-			if maxname then
-				freepallies[maxname] = nil
-				ShamanPower.SetNormalBlessings(maxname, pclass, pname, blessing)
-			end
-		end
-	end
-end
-
-function ShamanPower:CanBuff(name, totemIndex, element)
-	-- For shamans, all totems are considered available
-	-- The element parameter is optional - if not provided, assume the totem is available
-	if not ShamanPower.AllShamans[name] then
-		return false
-	end
-	-- If we have element info, check the specific totem
-	if element and ShamanPower.AllShamans[name][element] then
-		local totemData = ShamanPower.AllShamans[name][element][totemIndex]
-		if totemData and totemData.known then
-			return true
-		end
-	end
-	-- For simplified mode, just return true for all valid totem indexes
-	return totemIndex and totemIndex > 0
-end
-
-function ShamanPower:CanBuffBlessing(spellId, gspellId, unitId, config)
-	if unitId and spellId or gspellId then
-		local normSpell, greatSpell
-		if UnitLevel(unitId) >= 60 then
-			if spellId > 0 then
-				if not self.isWrath and spellId == 7 and GetUnitName(unitId, false) == self.player then
-					normSpell = nil
-				else
-					normSpell = self.Spells[spellId]
-				end
-			else
-				normSpell = nil
-			end
-			if gspellId > 0 then
-				greatSpell = self.GSpells[gspellId]
-			else
-				greatSpell = nil
-			end
-			return normSpell, greatSpell
-		end
-		if spellId > 0 then
-			for _, v in pairs(self.NormalBuffs[spellId]) do
-				if IsSpellKnown(v[2]) or config then
-					if UnitLevel(unitId) >= v[1] then
-						local spellName = GetSpellInfo(v[2])
-						local spellRank = GetSpellSubtext(v[2])
-						if spellName and spellRank then
-							if spellId == 3 or spellId == 4 then
-								normSpell = spellName
-							else
-								normSpell = spellName .. "(" .. spellRank .. ")"
-							end
-						end
-						if not self.isWrath and spellId == 7 and GetUnitName(unitId, false) == self.player then
-							normSpell = nil
-						end
-						break
-					else
-						normSpell = nil
-					end
-				end
-			end
-		else
-			normSpell = nil
-		end
-		if gspellId > 0 and UnitLevel(unitId) > 49 then
-			for _, v in pairs(self.GreaterBuffs[gspellId]) do
-				if IsSpellKnown(v[2]) then
-					if UnitLevel(unitId) >= v[1] then
-						local gspellName = GetSpellInfo(v[2])
-						local gspellRank = GetSpellSubtext(v[2])
-						if gspellName and gspellRank then
-							if gspellId == 3 or gspellId == 4 then
-								greatSpell = gspellName
-							else
-								greatSpell = gspellName .. "(" .. gspellRank .. ")"
-							end
-						end
-						break
-					else
-						greatSpell = nil
-					end
-				end
-			end
-		else
-			greatSpell = nil
-		end
-		return normSpell, greatSpell
-	end
 end
 
 function ShamanPower:ScanTalents()
@@ -11543,10 +10477,6 @@ function ShamanPower:ScanSpells()
 		-- Check if player has Earth Shield (Restoration talent)
 		ShamanPower.AllShamans[self.player].hasEarthShield = self:HasEarthShield()
 
-		-- Compatibility placeholders (for code still expecting Paladin structures)
-		ShamanPower.AllShamans[self.player].AuraInfo = {}
-		ShamanPower.AllShamans[self.player].CooldownInfo = {}
-
 		isShaman = true
 		if not ShamanPower.AllShamans[self.player].subgroup then
 			ShamanPower.AllShamans[self.player].subgroup = 1
@@ -11558,9 +10488,6 @@ end
 function ShamanPower:SendSelf(sender)
 	if not initialized or GetNumGroupMembers() == 0 then
 		return
-	end
-	if ShamanPower:CheckLeader(self.player) then
-		self:SendMessage("ACLEADER " .. self.player)
 	end
 	if not isShaman then
 		return
@@ -11674,7 +10601,6 @@ function ShamanPower:PLAYER_ENTERING_WORLD()
 
 	self:UpdateLayout()
 	self:UpdateRoster()
-	self:ReportChannels()
 
 	-- Apply flyout click mode setting after layout is set up
 	C_Timer.After(0.5, function()
@@ -11762,7 +10688,6 @@ function ShamanPower:GROUP_JOINED(event)
 	--self:Debug("[Event] GROUP_JOINED")
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
-	ShamanPower_NormalAssignments = {}
 	self:ScanSpells()
 	C_Timer.After(
 		2.0,
@@ -11780,7 +10705,6 @@ function ShamanPower:GROUP_LEFT(event)
 	--self:Debug("[Event] GROUP_LEFT")
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
-	ShamanPower_NormalAssignments = {}
 	for pname in pairs(ShamanPower_Assignments) do
 		local match = false
 		if pname == self.player then
@@ -11876,23 +10800,6 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 			end
 		end
 	end
-
-	if select(2, UnitClass(unitTarget)) == "SHAMAN" then
-		for _, spells in pairs(self.Cooldowns) do
-			for _, spell in pairs(spells) do
-				if spellID == spell then
-					C_Timer.After(
-						2.0,
-						function()
-							if GetNumGroupMembers() > 0 then
-								ShamanPower:SendSelf()
-							end
-						end
-					)
-				end
-			end
-		end
-	end
 end
 
 function ShamanPower:PLAYER_ROLES_ASSIGNED(event)
@@ -11974,14 +10881,6 @@ end
 function ShamanPower:ParseMessage(sender, msg)
 	sender = self:RemoveRealmName(sender)
 
-	if strfind(msg, "^PPLEADER") then
-		local _, _, name = strfind(msg, "^PPLEADER (.*)")
-		name = self:RemoveRealmName(name)
-		if self:CheckLeader(name) then
-			AC_Leader = true
-		end
-	end
-
 	if (sender == self.player or sender == nil) or not initialized then return end
 
 	--self:Debug("[Parse Message] sender: " .. sender .. " | msg: " .. msg)
@@ -11997,7 +10896,6 @@ function ShamanPower:ParseMessage(sender, msg)
 	end
 
 	if strfind(msg, "^SELF") then
-		ShamanPower_NormalAssignments[sender] = {}
 		ShamanPower_Assignments[sender] = {}
 		ShamanPower.AllShamans[sender] = {}
 		self:SyncAdd(sender)
@@ -12132,34 +11030,13 @@ function ShamanPower:ParseMessage(sender, msg)
 			ShamanPower_Assignments[name] = {}
 		end
 		if assign then
-			for i = 1, SHAMANPOWER_MAXCLASSES do
+			for i = 1, SHAMANPOWER_MAXELEMENTS do
 				local tmp = strsub(assign, i, i)
 				if tmp == "n" or tmp == "" then
 					tmp = 0
 				end
 				ShamanPower_Assignments[name][i] = tmp + 0
 			end
-		end
-	end
-
-	if strfind(msg, "^NASSIGN") then
-		for pname, class, tname, skill in string.gmatch(strsub(msg, 9), "([^@]*) ([^@]*) ([^@]*) ([^@]*)") do
-			local name = self:RemoveRealmName(pname)
-			if name ~= sender and not (leader or self.opt.freeassign) then
-				return
-			end
-			if not ShamanPower_NormalAssignments[name] then
-				ShamanPower_NormalAssignments[name] = {}
-			end
-			class = class + 0
-			if not ShamanPower_NormalAssignments[name][class] then
-				ShamanPower_NormalAssignments[name][class] = {}
-			end
-			skill = skill + 0
-			if skill == 0 then
-				skill = nil
-			end
-			ShamanPower_NormalAssignments[name][class][tname] = skill
 		end
 	end
 
@@ -12173,50 +11050,16 @@ function ShamanPower:ParseMessage(sender, msg)
 			ShamanPower_Assignments[name] = {}
 		end
 		skill = skill + 0
-		for i = 1, SHAMANPOWER_MAXCLASSES do
+		for i = 1, SHAMANPOWER_MAXELEMENTS do
 			ShamanPower_Assignments[name][i] = skill
-		end
-	end
-
-	if strfind(msg, "SYMCOUNT") then
-		local _, _, symcount = strfind(msg, "SYMCOUNT ([0-9]*)")
-		if ShamanPower.AllShamans[sender] then
-			if symcount == nil or symcount == "0" then
-				ShamanPower.AllShamans[sender].symbols = 0
-			else
-				ShamanPower.AllShamans[sender].symbols = symcount
-			end
-		end
-	end
-
-	if strfind(msg, "COOLDOWNS") then
-		local _, duration1, remaining1, duration2, remaining2 = strsplit(":", msg)
-		if ShamanPower.AllShamans[sender] then
-			if not ShamanPower.AllShamans[sender].CooldownInfo then
-				ShamanPower.AllShamans[sender].CooldownInfo = {}
-			end
-			if not ShamanPower.AllShamans[sender].CooldownInfo[1] and remaining1 ~= "n" then
-				ShamanPower.AllShamans[sender].CooldownInfo[1] = {}
-				duration1 = tonumber(duration1)
-				remaining1 = tonumber(remaining1)
-				ShamanPower.AllShamans[sender].CooldownInfo[1].start = GetTime() - (duration1 - remaining1)
-				ShamanPower.AllShamans[sender].CooldownInfo[1].duration = duration1
-			end
-			if not ShamanPower.AllShamans[sender].CooldownInfo[2] and remaining2 ~= "n" then
-				ShamanPower.AllShamans[sender].CooldownInfo[2] = {}
-				duration2 = tonumber(duration2)
-				remaining2 = tonumber(remaining2)
-				ShamanPower.AllShamans[sender].CooldownInfo[2].start = GetTime() - (duration2 - remaining2)
-				ShamanPower.AllShamans[sender].CooldownInfo[2].duration = duration2
-			end
 		end
 	end
 
 	if strfind(msg, "^CLEAR") then
 		if leader then
-			self:ClearAssignments(sender, strfind(msg, "SKIP"))
+			self:ClearAssignments(sender)
 		elseif self.opt.freeassign then
-			self:ClearAssignments(self.player, strfind(msg, "SKIP"))
+			self:ClearAssignments(self.player)
 		end
 	end
 
@@ -12226,44 +11069,6 @@ function ShamanPower:ParseMessage(sender, msg)
 
 	if strfind(msg, "FREEASSIGN NO") and ShamanPower.AllShamans[sender] then
 		ShamanPower.AllShamans[sender].freeassign = false
-	end
-
-	if strfind(msg, "^ASELF") then
-		ShamanPower_AuraAssignments[sender] = 0
-		if ShamanPower.AllShamans[sender] then
-			if not ShamanPower.AllShamans[sender].AuraInfo then
-				ShamanPower.AllShamans[sender].AuraInfo = {}
-			end
-			local _, _, numbers, assign = strfind(msg, "ASELF ([0-9a-fn]*)@([0-9n]*)")
-			for i = 1, SHAMANPOWER_MAXAURAS do
-				local rank = strsub(numbers, (i - 1) * 2 + 1, (i - 1) * 2 + 1)
-				local talent = strsub(numbers, (i - 1) * 2 + 2, (i - 1) * 2 + 2)
-				if rank ~= "n" then
-					ShamanPower.AllShamans[sender].AuraInfo[i] = {}
-					ShamanPower.AllShamans[sender].AuraInfo[i].rank = tonumber(rank, 16)
-					ShamanPower.AllShamans[sender].AuraInfo[i].talent = tonumber(talent)
-				end
-			end
-			if assign then
-				if assign == "n" or assign == "" then
-					assign = 0
-				end
-				ShamanPower_AuraAssignments[sender] = assign + 0
-			end
-		end
-	end
-
-	if strfind(msg, "^AASSIGN") then
-		local _, _, name, aura = strfind(msg, "^AASSIGN (.*) (.*)")
-		name = self:RemoveRealmName(name)
-		if name ~= sender and not (leader or self.opt.freeassign) then
-			return false
-		end
-		if not ShamanPower_AuraAssignments[name] then
-			ShamanPower_AuraAssignments[name] = {}
-		end
-		aura = aura + 0
-		ShamanPower_AuraAssignments[name] = aura
 	end
 
 	-- Earth Shield assignment sync
@@ -12328,28 +11133,13 @@ function ShamanPower:CheckLeader(nick)
 	end
 end
 
-function ShamanPower:ClearAssignments(sender, skipAuras)
+function ShamanPower:ClearAssignments(sender)
 	local leader = self:CheckLeader(sender)
 	for name in pairs(ShamanPower_Assignments) do
 		if leader or name == self.player then
-			for i = 1, SHAMANPOWER_MAXCLASSES do
+			for i = 1, SHAMANPOWER_MAXELEMENTS do
 				ShamanPower_Assignments[name][i] = 0
 			end
-		end
-	end
-	for pname, classes in pairs(ShamanPower_NormalAssignments) do
-		if leader or pname == self.player then
-			for _, tnames in pairs(classes) do
-				for tname in pairs(tnames) do
-					tnames[tname] = nil
-				end
-			end
-		end
-	end
-	if skipAuras then return end
-	for name in pairs(ShamanPower_AuraAssignments) do
-		if leader or name == self.player then
-			ShamanPower_AuraAssignments[name] = 0
 		end
 	end
 end
@@ -12376,16 +11166,8 @@ function ShamanPower:SyncAdd(name)
 	end
 	-- Ensure assignment tables have entries for this player
 	if not ShamanPower_Assignments then ShamanPower_Assignments = {} end
-	if not ShamanPower_NormalAssignments then ShamanPower_NormalAssignments = {} end
-	if not ShamanPower_AuraAssignments then ShamanPower_AuraAssignments = {} end
 	if not ShamanPower_Assignments[name] then
 		ShamanPower_Assignments[name] = {}
-	end
-	if not ShamanPower_NormalAssignments[name] then
-		ShamanPower_NormalAssignments[name] = {}
-	end
-	if not ShamanPower_AuraAssignments[name] then
-		ShamanPower_AuraAssignments[name] = 0
 	end
 end
 
@@ -12414,15 +11196,6 @@ function ShamanPower:RemoveRealmName(unitID)
 	end
 end
 
-function ShamanPower:GetClassID(class)
-	for id, name in pairs(self.ClassID) do
-		if (name == class) then
-			return id
-		end
-	end
-	return -1
-end
-
 function ShamanPower:UpdateRoster()
 	--self:Debug("UpdateRoster()")
 	-- Skip if not in a group (no roster to update)
@@ -12430,109 +11203,47 @@ function ShamanPower:UpdateRoster()
 		return
 	end
 	local units
-	for i = 1, SHAMANPOWER_MAXCLASSES do
-		classlist[i] = 0
-		twipe(classes[i])  -- Reuse existing tables instead of creating new ones
-		classmaintanks[i] = false
-	end
 	if IsInRaid() then
 		units = raid_units
 	else
 		units = party_units
 	end
-	twipe(roster)
 	twipe(leaders)
-	unitTableIndex = 0  -- Reset for this pass
 	for _, unitid in pairs(units) do
 		if unitid and UnitExists(unitid) then
-			unitTableIndex = unitTableIndex + 1
-			local tmp = unitTables[unitTableIndex]
-			if not tmp then
-				tmp = {}
-				unitTables[unitTableIndex] = tmp
-			else
-				twipe(tmp)  -- Clear old data
-			end
-			tmp.unitid = unitid
-			tmp.name = GetUnitName(unitid, true)
-			local isPet = tmp.unitid:find("pet")
-			local ShowPets = self.opt.ShowPets
+			local isPet = unitid:find("pet")
+			local name = GetUnitName(unitid, true)
 			local pclass = (UnitClassBase(unitid))
-			if ShowPets or (not isPet) then
-				tmp.class = pclass
-				if isPet then
-					if not ShamanPower.petsShareBaseClass then
-						tmp.class = "PET"
-					end
-					local unitType, _, _, _, _, npcId = strsplit("-", UnitGUID(unitid))
-					-- 510: Water Elemental, 19668: Shadowfiend, 1863: Succubus, 26125: Risen Ghoul, 185317: Incubus
-					if  (unitType ~= "Pet") and (npcId == "510" or npcId == "19668" or npcId == "1863" or npcId == "26125" or npcId == "185317") then
-						tmp.class = false
-					else
-						local i = 1
-						local isPhased = false
-						local buffSpellId = select(10, UnitBuff(unitid, i))
-						while buffSpellId do
-							if (buffSpellId == 4511) then -- 4511: Phase Shift (Imp)
-								tmp.class = false
-								break
-							end
-							i = i + 1
-							buffSpellId = select(10, UnitBuff(unitid, i))
-						end
-					end
-				end
-			end
+			local rank, subgroup
 			if IsInRaid() and (not isPet) then
 				local n = select(3, unitid:find("(%d+)"))
-				tmp.name, tmp.rank, tmp.subgroup = GetRaidRosterInfo(n)
-				tmp.zone = select(7, GetRaidRosterInfo(n))
-				
+				name, rank, subgroup = GetRaidRosterInfo(n)
+
 				if self.opt.hideHighGroups then
 					local maxPlayerCount = (select(5, GetInstanceInfo()))
 					if maxPlayerCount and (maxPlayerCount > 5) then
 						local numVisibleSubgroups = math.ceil(maxPlayerCount/5)
-						if not (tmp.subgroup <= numVisibleSubgroups) then
-							tmp.class = nil
+						if not (subgroup <= numVisibleSubgroups) then
+							pclass = nil
 						end
 					end
 				end
-				
-				local raidtank = select(10, GetRaidRosterInfo(n))
-				tmp.tank = (raidtank == "MAINTANK")
-				
-				local class = self:GetClassID(pclass)
-				if raidtank == "MAINTANK" then
-					classmaintanks[class] = true
-				end
 			else
-				tmp.rank = UnitIsGroupLeader(unitid) and 2 or 0
-				tmp.subgroup = 1
+				rank = UnitIsGroupLeader(unitid) and 2 or 0
+				subgroup = 1
 			end
-			if tmp.class == "SHAMAN" and (not isPet) then
-				if ShamanPower.AllShamans[tmp.name] then
-					ShamanPower.AllShamans[tmp.name].subgroup = tmp.subgroup
+			-- Track which raid subgroup each known shaman is in (used by auto-assign)
+			if pclass == "SHAMAN" and (not isPet) then
+				if ShamanPower.AllShamans[name] then
+					ShamanPower.AllShamans[name].subgroup = subgroup
 				end
 			end
-			if tmp.name and (tmp.rank > 0) then
+			if name and (rank > 0) then
 				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
 				else
-					leaders[tmp.name] = true
-					if tmp.name == self.player and AC_Leader == false then
+					leaders[name] = true
+					if name == self.player and AC_Leader == false then
 						AC_Leader = true
-					end
-				end
-			end
-			if tmp.class and tmp.subgroup then
-				tinsert(roster, tmp)
-				for i = 1, SHAMANPOWER_MAXCLASSES do
-					if tmp.class == self.ClassID[i] then
-						tmp.visible = false
-						tmp.hasbuff = false
-						tmp.specialbuff = false
-						tmp.dead = false
-						classlist[i] = classlist[i] + 1
-						tinsert(classes[i], tmp)
 					end
 				end
 			end
@@ -12546,29 +11257,6 @@ function ShamanPower:UpdateRoster()
 	-- Update Earth Shield flyout when group composition changes
 	if not InCombatLockdown() then
 		self:CreateEarthShieldFlyout()
-	end
-end
-
-function ShamanPower:ScanClass(classID)
-	for _, unit in pairs(classes[classID]) do
-		if unit.unitid then
-			local spellID, gspellID = self:GetSpellID(classID, unit.name)
-			local spell = self.Spells[spellID]
-			local spell2 = self.GSpells[spellID]
-			local gspell = self.GSpells[gspellID]
-			local isMainTank = false
-			if IsInRaid() then
-				local n = select(3, unit.unitid:find("(%d+)"))
-				if unit.zone then
-					unit.zone = select(7, GetRaidRosterInfo(n))
-				end
-			end
-			unit.inrange = IsSpellInRange(spell, unit.unitid) == 1
-			unit.visible = UnitIsVisible(unit.unitid) and UnitIsConnected(unit.unitid)
-			unit.dead = UnitIsDeadOrGhost(unit.unitid)
-			unit.hasbuff = self:IsBuffActive(spell, spell2, unit.unitid)
-			unit.specialbuff = (spellID ~= gspellID)
-		end
 	end
 end
 
@@ -12597,109 +11285,7 @@ function ShamanPower:CreateLayout()
 			ShamanPower.isDragging = false
 		end
 	end)
-	self.rfButton = CreateFrame("Button", "ShamanPowerRF", self.Header, "ShamanPowerRFButtonTemplate")
-	self.rfButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
-	self.auraButton = CreateFrame("Button", "ShamanPowerAura", self.Header, "ShamanPowerAuraButtonTemplate")
-	self.auraButton:RegisterForClicks("LeftButtonDown")
-	self.classButtons = {}
-	self.playerButtons = {}
-	self.autoButton:Execute([[childs = table.new()]])
-	for cbNum = 1, SHAMANPOWER_MAXCLASSES do
-		-- create class buttons
-		local cButton = CreateFrame("Button", "ShamanPowerC" .. cbNum, self.Header, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, SecureActionButtonTemplate, ShamanPowerButtonTemplate")
-		SecureHandlerSetFrameRef(self.autoButton, "child", cButton)
-		SecureHandlerExecute(self.autoButton, [[
-			local child = self:GetFrameRef("child")
-			childs[#childs+1] = child;
-		]])
-		cButton:Execute([[others = table.new()]])
-		cButton:Execute([[childs = table.new()]])
-		cButton:SetAttribute("_onenter", [[
-			for _, other in ipairs(others) do
-					other:SetAttribute("state-inactive", self)
-			end
-			local leadChild;
-			for _, child in ipairs(childs) do
-					if child:GetAttribute("Display") == 1 then
-							child:Show()
-							if (leadChild) then
-									leadChild:AddToAutoHide(child)
-							else
-									leadChild = child
-									leadChild:RegisterAutoHide(2)
-							end
-					end
-			end
-			if (leadChild) then
-					leadChild:AddToAutoHide(self)
-			end
-		]])
-		cButton:SetAttribute("_onstate-inactive", [[
-			childs[1]:Hide()
-		]])
-		cButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
-		cButton:EnableMouseWheel(1)
-		self.classButtons[cbNum] = cButton
-		self.playerButtons[cbNum] = {}
-		local pButtons = self.playerButtons[cbNum]
-		local leadChild
-		for pbNum = 1, SHAMANPOWER_MAXPERCLASS do
-			local pButton = CreateFrame("Button", "ShamanPowerC" .. cbNum .. "P" .. pbNum, UIParent, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureActionButtonTemplate, ShamanPowerPopupTemplate")
-			pButton:SetParent(cButton)
-			pButton:SetFrameStrata("DIALOG")
-			SecureHandlerSetFrameRef(cButton, "child", pButton)
-			SecureHandlerExecute(cButton, [[
-				local child = self:GetFrameRef("child")
-				childs[#childs+1] = child;
-			]])
-			if pbNum == 1 then
-				pButton:Execute([[siblings = table.new()]])
-				pButton:SetAttribute("_onhide", [[
-					for _, sibling in ipairs(siblings) do
-						sibling:Hide()
-					end
-				]])
-				leadChild = pButton
-			else
-				SecureHandlerSetFrameRef(leadChild, "sibling", pButton)
-				SecureHandlerExecute(leadChild, [[
-					local sibling = self:GetFrameRef("sibling")
-					siblings[#siblings+1] = sibling;
-				]])
-			end
-			pButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
-			pButton:EnableMouseWheel(1)
-			pButton:Hide()
-			pButtons[pbNum] = pButton
-		end -- by pbNum
-	end -- by classIndex
-	for cbNum = 1, SHAMANPOWER_MAXCLASSES do
-		local cButton = self.classButtons[cbNum]
-		for cbOther = 1, SHAMANPOWER_MAXCLASSES do
-			if (cbOther ~= cbNum) then
-				local oButton = self.classButtons[cbOther]
-				SecureHandlerSetFrameRef(cButton, "other", oButton)
-				SecureHandlerExecute(cButton, [[
-					local other = self:GetFrameRef("other")
-					others[#others+1] = other;
-				]])
-			end
-		end
-	end
 	self:UpdateLayout()
-end
-
-function ShamanPower:CountClasses()
-	local val = 0
-	if not classes then
-		return 0
-	end
-	for i = 1, SHAMANPOWER_MAXCLASSES do
-		if classlist[i] and classlist[i] > 0 then
-			val = val + 1
-		end
-	end
-	return val
 end
 
 function ShamanPower:UpdateLayout()
@@ -12712,31 +11298,11 @@ function ShamanPower:UpdateLayout()
 	local x = self.opt.display.buttonWidth
 	local y = self.opt.display.buttonHeight
 	local point = "TOPLEFT"
-	local pointOpposite = "BOTTOMLEFT"
 	local layout = self.Layouts[self.opt.layout]
 	if not layout then
 		-- Fallback to Vertical (Right) if the configured layout doesn't exist
 		self.opt.layout = "Vertical"
 		layout = self.Layouts["Vertical"]
-	end
-	for cbNum = 1, SHAMANPOWER_MAXCLASSES do
-		local cx = layout.c[cbNum].x
-		local cy = layout.c[cbNum].y
-		local cButton = self.classButtons[cbNum]
-		self:SetButton("ShamanPowerC" .. cbNum)
-		cButton.x = cx * x
-		cButton.y = cy * y
-		cButton:ClearAllPoints()
-		cButton:SetPoint(point, self.Header, "CENTER", cButton.x, cButton.y)
-		local pButtons = self.playerButtons[cbNum]
-		for pbNum = 1, SHAMANPOWER_MAXPERCLASS do
-			local px = layout.c[cbNum].p[pbNum].x
-			local py = layout.c[cbNum].p[pbNum].y
-			local pButton = pButtons[pbNum]
-			self:SetPButton("ShamanPowerC" .. cbNum .. "P" .. pbNum)
-			pButton:ClearAllPoints()
-			pButton:SetPoint(point, self.Header, "CENTER", cButton.x + px * x, cButton.y + py * y)
-		end
 	end
 	local ox = layout.ab.x * x
 	local oy = layout.ab.y * y
@@ -12747,7 +11313,7 @@ function ShamanPower:UpdateLayout()
 	-- Show mini totem bar only if:
 	-- 1. Is a shaman, addon enabled, autobutton option on
 	-- 2. In party/raid or solo (based on settings)
-	local showMiniBar = isShaman and self.opt.enabled and self.opt.autobuff.autobutton
+	local showMiniBar = isShaman and self.opt.enabled and self.opt.miniBar.autobutton
 		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
 	if showMiniBar then
 		autob:Show()
@@ -12758,571 +11324,19 @@ function ShamanPower:UpdateLayout()
 	else
 		autob:Hide()
 	end
-	local rfb = self.rfButton
-	if self.opt.autobuff.autobutton then
-		ox = layout.rf.x * x
-		oy = layout.rf.y * y
-		rfb:ClearAllPoints()
-		rfb:SetPoint(point, self.Header, "CENTER", ox, oy)
-	else
-		ox = layout.rfd.x * x
-		oy = layout.rfd.y * y
-		rfb:ClearAllPoints()
-		rfb:SetPoint(point, self.Header, "CENTER", ox, oy)
-	end
-	rfb:SetAttribute("type1", "spell")
-	rfb:SetAttribute("unit1", "player")
-	rfb:SetAttribute("type2", "spell")
-	rfb:SetAttribute("unit2", "player")
-	self.opt.seal = self.opt.seal or 0 -- legacy Paladin seal slot has no default; ButtonsUpdate() compares it numerically
-	if isShaman and self.opt.enabled and self.opt.rfbuff and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
-		rfb:Show()
-	else
-		rfb:Hide()
-	end
-	local auraBtn = self.auraButton
-	if (not self.opt.autobuff.autobutton and self.opt.rfbuff) or (self.opt.autobuff.autobutton and not self.opt.rfbuff) then
-		ox = layout.aud1.x * x
-		oy = layout.aud1.y * y
-		auraBtn:ClearAllPoints()
-		auraBtn:SetPoint(point, self.Header, "CENTER", ox, oy)
-	elseif not self.opt.autobuff.autobutton and not self.opt.rfbuff then
-		ox = layout.aud2.x * x
-		oy = layout.aud2.y * y
-		auraBtn:ClearAllPoints()
-		auraBtn:SetPoint(point, self.Header, "CENTER", ox, oy)
-	else
-		ox = layout.au.x * x
-		oy = layout.au.y * y
-		auraBtn:ClearAllPoints()
-		auraBtn:SetPoint(point, self.Header, "CENTER", ox, oy)
-	end
-	auraBtn:SetAttribute("type1", "spell")
-	auraBtn:SetAttribute("unit1", "player")
-	if isShaman and self.opt.enabled and self.opt.auras and ShamanPower.AllShamans[self.player].AuraInfo[1] and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
-		auraBtn:Show()
-	else
-		auraBtn:Hide()
-	end
-	local cbNum = 0
-	for classIndex = 1, SHAMANPOWER_MAXCLASSES do
-		local _, gspellID = self:GetSpellID(classIndex)
-		if (classlist[classIndex] and classlist[classIndex] ~= 0 and (gspellID ~= 0 or self:NormalBlessingCount(classIndex) > 0)) then
-			cbNum = cbNum + 1
-			local cButton = self.classButtons[cbNum]
-			if cbNum == 1 then
-				if self.opt.display.showClassButtons then
-					self.autoButton:SetAttribute("_onenter", [[
-						for _, child in ipairs(childs) do
-							if child:GetAttribute("Display") == 1 then
-								child:Show()
-							end
-						end
-					]])
-					cButton:SetAttribute("_onhide", nil)
-				else
-					self.autoButton:SetAttribute("_onenter", [[
-						local leadChild
-						for _, child in ipairs(childs) do
-							if child:GetAttribute("Display") == 1 then
-								child:Show()
-								if (leadChild) then
-									leadChild:AddToAutoHide(child)
-								else
-									leadChild = child
-									leadChild:RegisterAutoHide(5)
-								end
-							end
-						end
-						if (leadChild) then
-							leadChild:AddToAutoHide(self)
-						end
-					]])
-					cButton:SetAttribute("_onhide", [[
-						for _, other in ipairs(others) do
-							other:Hide()
-						end
-					]])
-				end
-			end
-			if isShaman and self.opt.enabled and self.opt.display.showClassButtons and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
-				cButton:Show()
-			else
-				cButton:Hide()
-			end
-			cButton:SetAttribute("Display", 1)
-			cButton:SetAttribute("classID", classIndex)
-			cButton:SetAttribute("type1", "macro")
-			cButton:SetAttribute("type2", "macro")
-			if (cButton:GetAttribute("macrotext1") == nil) then
-				if IsInRaid() then
-					ShamanPower:ButtonPostClick(cButton, "LeftButton")
-				else
-					ShamanPower:ButtonPreClick(cButton, "LeftButton")
-				end
-			end
-			local pButtons = self.playerButtons[cbNum]
-			for pbNum = 1, math.min(classlist[classIndex], SHAMANPOWER_MAXPERCLASS) do
-				local pButton = pButtons[pbNum]
-				if self.opt.display.showPlayerButtons then
-					pButton:SetAttribute("Display", 1)
-				else
-					pButton:SetAttribute("Display", 0)
-				end
-				pButton:SetAttribute("classID", classIndex)
-				pButton:SetAttribute("playerID", pbNum)
-				local unit = self:GetUnit(classIndex, pbNum)
-				local spellID, gspellID = self:GetSpellID(classIndex, unit.name)
-				local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-				-- Greater Blessings (Left Mouse Button [1]) - disable Greater Blessing of Salvation globally. Enabled in PButtonPreClick().
-				pButton:SetAttribute("type1", "spell")
-				pButton:SetAttribute("unit1", unit.unitid)
-				if not self.isWrath and IsInRaid() and gspellID == 4 and (classIndex == 1 or classIndex == 4 or classIndex == 5) and not self.opt.SalvInCombat then
-					pButton:SetAttribute("spell1", nil)
-				else
-					pButton:SetAttribute("spell1", gSpell)
-				end
-				-- Set Maintank role in a raid
-				if IsInRaid() then
-					pButton:SetAttribute("ctrl-type1", "maintank")
-					pButton:SetAttribute("ctrl-action1", "toggle")
-					pButton:SetAttribute("ctrl-unit1", unit.unitid)
-				end
-				-- Normal Blessings (Right Mouse Button [2]) - disable Normal Blessing of Salvation globally. Enabled in PButtonPreClick().
-				pButton:SetAttribute("type2", "spell")
-				pButton:SetAttribute("unit2", unit.unitid)
-				if not self.isWrath and IsInRaid() and spellID == 4 and (classIndex == 1 or classIndex == 4 or classIndex == 5) and not self.opt.SalvInCombat then
-					pButton:SetAttribute("spell2", nil)
-				else
-					pButton:SetAttribute("spell2", nSpell)
-				end
-				-- Reset Alternate Blessings
-				if unit and unit.name and classIndex then
-					pButton:SetAttribute("ctrl-type2", "macro")
-					pButton:SetAttribute("ctrl-macrotext2", "/run ShamanPower_NormalAssignments['" .. self.player .. "'][" .. classIndex .. "]['" .. unit.name .. "'] = nil")
-				end
-			end
-			for pbNum = classlist[classIndex] + 1, SHAMANPOWER_MAXPERCLASS do
-				local pButton = pButtons[pbNum]
-				pButton:SetAttribute("Display", 0)
-				pButton:SetAttribute("classID", 0)
-				pButton:SetAttribute("playerID", 0)
-			end
-		end
-	end
-	cbNum = cbNum + 1
-	for i = cbNum, SHAMANPOWER_MAXCLASSES do
-		local cButton = self.classButtons[i]
-		cButton:SetAttribute("Display", 0)
-		cButton:SetAttribute("classID", 0)
-		cButton:Hide()
-		local pButtons = self.playerButtons[cbNum]
-		for pbNum = 1, SHAMANPOWER_MAXPERCLASS do
-			local pButton = pButtons[pbNum]
-			pButton:SetAttribute("Display", 0)
-			pButton:SetAttribute("classID", 0)
-			pButton:SetAttribute("playerID", 0)
-			pButton:Hide()
-		end
-	end
-
-	-- Preset and Report buttons are disabled - hide them always
-	local presetButton = _G["ShamanPowerBlessingsFramePreset"]
-	local reportButton = _G["ShamanPowerBlessingsFrameReport"]
-	if presetButton then presetButton:Hide() end
-	if reportButton then reportButton:Hide() end
 
 	-- Apply opacity settings
 	self:ApplyAllOpacity()
 
 	self:ButtonsUpdate()
-	self:UpdateAnchor(displayedButtons)
-end
-
-function ShamanPower:SetButton(baseName)
-	local time = _G[baseName .. "Time"]
-	local text = _G[baseName .. "Text"]
-	if (self.opt.display.HideCountText) then
-		text:Hide()
-	else
-		text:Show()
-	end
-	if (self.opt.display.HideTimerText) then
-		time:Hide()
-	else
-		time:Show()
-	end
-end
-
-function ShamanPower:SetPButton(baseName)
-	local rng = _G[baseName .. "Rng"]
-	local dead = _G[baseName .. "Dead"]
-	local name = _G[baseName .. "Name"]
-	if (self.opt.display.HideRngText) then
-		rng:Hide()
-	else
-		rng:Show()
-	end
-	if (self.opt.display.HideDeadText) then
-		dead:Hide()
-	else
-		dead:Show()
-	end
-	if (self.opt.display.HideNameText) then
-		name:Hide()
-	else
-		name:Show()
-	end
-end
-
-function ShamanPower:UpdateButtonOnPostClick(button, mousebutton)
-	local classID = button:GetAttribute("classID")
-	if classID and classID > 0 then
-		local _, _, cbNum = strfind(button:GetName(), "ShamanPowerC(.+)")
-		self:UpdateButton(button, "ShamanPowerC" .. cbNum, classID)
-		self:ButtonsUpdate()
-		C_Timer.After(
-		1.0,
-		function()
-			self:UpdateButton(button, "ShamanPowerC" .. cbNum, classID)
-			self:ButtonsUpdate()
-		end
-		)
-	end
-end
-
--- returns:
--- "need_big" for missing greater blessing
--- "need_small" for missing single blessing
--- "have" for no missing buff
-local function ClassifyUnitBuffStateForButton(unit)
-	-- do not highlight dead players in combat
-	if unit.dead and InCombatLockdown() then
-		return "have"
-	end
-	if not unit.hasbuff then
-		if unit.specialbuff then
-			return "need_small"
-		else
-			return "need_big"
-		end
-	else
-		return "have"
-	end
-end
-
-function ShamanPower:UpdateButton(button, baseName, classID)
-	local button = _G[baseName]
-	local classIcon = _G[baseName .. "ClassIcon"]
-	local buffIcon = _G[baseName .. "BuffIcon"]
-	local time = _G[baseName .. "Time"]
-	local time2 = _G[baseName .. "Time2"]
-	local text = _G[baseName .. "Text"]
-	local nneed = 0
-	local nspecial = 0
-	local nhave = 0
-	for _, unit in pairs(classes[classID]) do
-		local state = ClassifyUnitBuffStateForButton(unit)
-		-- do not show tanks clicking off salvation on the class button
-		if not self.isWrath and unit.tank and (state == "need_big") and (self:GetSpellID(classID, unit.name) == 4) then
-			state = "have"
-		end
-		-- do not show unreachable units on the class button
-		if (not unit.visible) and InCombatLockdown() then
-			state = "have"
-		end
-		
-		if state == "need_big" then
-			nneed = nneed + 1
-		elseif state == "need_small" then
-			nspecial = nspecial + 1
-		else
-			nhave = nhave + 1
-		end
-	end
-	classIcon:SetTexture(self.ClassIcons[classID])
-	classIcon:SetVertexColor(1, 1, 1)
-	local _, gspellID = self:GetSpellID(classID)
-	-- Use TotemIcons: classID is element, gspellID is totem index
-	local totemIcon = self.TotemIcons[classID] and self.TotemIcons[classID][gspellID]
-	buffIcon:SetTexture(totemIcon)
-	local classExpire, classDuration, specialExpire, specialDuration = self:GetBuffExpiration(classID)
-	time:SetText(self:FormatTime(classExpire))
-	time:SetTextColor(self:GetSeverityColor(classExpire and classDuration and classDuration > 0 and (classExpire / classDuration) or 0))
-	time2:SetText(self:FormatTime(specialExpire))
-	time2:SetTextColor(self:GetSeverityColor(specialExpire and specialDuration and specialDuration > 0 and (specialExpire / specialDuration) or 0))
-	if (nneed + nspecial > 0) then
-		text:SetText(nneed + nspecial)
-	else
-		text:SetText("")
-	end
-	-- Use totem status detection for shamans: classID is the element ID
-	local totemAssigned = gspellID and gspellID > 0
-	local totemActive = self:IsTotemActive(classID)
-	if not totemAssigned then
-		-- No totem assigned for this element
-		self:ApplyBackdrop(button, self.opt.cBuffGood)
-	elseif totemActive then
-		-- Totem is active
-		self:ApplyBackdrop(button, self.opt.cBuffGood)
-	else
-		-- Totem assigned but not active
-		self:ApplyBackdrop(button, self.opt.cBuffNeedAll)
-	end
-	return classExpire, classDuration, specialExpire, specialDuration, nhave, nneed, nspecial
-end
-
-function ShamanPower:GetSeverityColor(percent)
-	if (percent >= 0.5) then
-		return (1.0 - percent) * 2, 1.0, 0.0
-	else
-		return 1.0, percent * 2, 0.0
-	end
-end
-
-function ShamanPower:GetBuffExpiration(classID)
-	local class = classes[classID]
-	local classExpire, classDuration, specialExpire, specialDuration = 9999, 9999, 9999, 9999
-	for _, unit in pairs(class) do
-		if unit.unitid then
-			local j = 1
-			local spellID, gspellID = self:GetSpellID(classID, unit.name)
-			local isMight = (spellID == 2) or (gspellID == 2)
-			local spell = self.Spells[spellID]
-			local gspell = self.GSpells[gspellID]
-			local buffName = UnitBuff(unit.unitid, j)
-			while buffName do
-				if (buffName == gspell) or (not isWrath and isMight and buffName == ShamanPower.Spells[8]) then
-					local _, _, _, _, buffDuration, buffExpire = UnitAura(unit.unitid, j, "HELPFUL")
-					if buffExpire then
-						if buffExpire == 0 then
-							buffExpire = 0
-						else
-							buffExpire = buffExpire - GetTime()
-						end
-						classExpire = min(classExpire, buffExpire)
-						classDuration = min(classDuration, buffDuration)
-						--self:Debug("[GetBuffExpiration] buffName: "..buffName.." | classExpire: "..classExpire.." | classDuration: "..classDuration)
-						break
-					end
-				elseif (buffName == spell) or (not isWrath and isMight and buffName == ShamanPower.Spells[8]) then
-					local _, _, _, _, buffDuration, buffExpire = UnitAura(unit.unitid, j, "HELPFUL")
-					if buffExpire then
-						if buffExpire == 0 then
-							buffExpire = 0
-						else
-							buffExpire = buffExpire - GetTime()
-						end
-						specialExpire = min(specialExpire, buffExpire)
-						specialDuration = min(specialDuration, buffDuration)
-						--self:Debug("[GetBuffExpiration] buffName: "..buffName.." | specialExpire: "..classExpire.." | specialDuration: "..classDuration)
-						break
-					end
-				end
-				j = j + 1
-				buffName = UnitBuff(unit.unitid, j)
-			end
-		end
-	end
-	return classExpire, classDuration, specialExpire, specialDuration
-end
-
-function ShamanPower:UpdatePButtonOnPostClick(button, mousebutton)
-	local classID = button:GetAttribute("classID")
-	local playerID = button:GetAttribute("playerID")
-	if classID and playerID then
-		local _, _, cbNum, pbNum = strfind(button:GetName(), "ShamanPowerC(.+)P(.+)")
-		self:UpdatePButton(button, "ShamanPowerC" .. cbNum .. "P" .. pbNum, classID, playerID, mousebutton)
-		self:ButtonsUpdate()
-		C_Timer.After(
-			1.0,
-			function()
-				self:UpdatePButton(button, "ShamanPowerC" .. cbNum .. "P" .. pbNum, classID, playerID, mousebutton)
-				self:ButtonsUpdate()
-			end
-		)
-	end
-end
-
-function ShamanPower:PButtonPreClick(button, mousebutton)
-	if InCombatLockdown() then return end
-
-	local classID = button:GetAttribute("classID")
-	local playerID = button:GetAttribute("playerID")
-	if not self.isWrath and classID and playerID then
-		local unit = classes[classID][playerID]
-		local spellID, gspellID = self:GetSpellID(classID, unit.name)
-		local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-		-- Enable Greater Blessing of Salvation on everyone but do not allow Blessing of Salvation on tanks if SalvInCombat is disabled
-		if IsInRaid() and (spellID == 4 or gspellID == 4) and not self.opt.SalvInCombat then
-			for k, v in pairs(classmaintanks) do
-				-- If for some reason the targeted unit is in combat and there is a tank present
-				-- in the Class Group then disable Greater Blessing of Salvation for this unit.
-				if UnitAffectingCombat(unit.unitid) and gspellID == 4 and (k == classID and v == true) then
-					gSpell = nil
-				end
-				if k == unit.unitid and v == true then
-					-- Do not allow Salvation on tanks - Blessings [disabled]
-					if (spellID == 4) then
-						nSpell = nil
-					end
-					if (gspellID == 4) then
-						gSpell = nil
-					end
-				end
-			end
-			-- Greater Blessing of Salvation [enabled for non-tanks]
-			button:SetAttribute("spell1", gSpell)
-			-- Normal Blessing of Salvation [enabled for non-tanks]
-			button:SetAttribute("spell2", nSpell)
-		end
-	end
-end
-
-function ShamanPower:UpdatePButton(button, baseName, classID, playerID, mousebutton)
-	--self:Debug("UpdatePButton()")
-	local button = _G[baseName]
-	local buffIcon = _G[baseName .. "BuffIcon"]
-	local tankIcon = _G[baseName .. "TankIcon"]
-	local rng = _G[baseName .. "Rng"]
-	local dead = _G[baseName .. "Dead"]
-	local name = _G[baseName .. "Name"]
-	local time = _G[baseName .. "Time"]
-	local unit = classes[classID][playerID]
-	local raidtank
-	if unit then
-		local spellID, gspellID = self:GetSpellID(classID, unit.name)
-		tankIcon[unit.tank and "Show" or "Hide"](tankIcon)
-		-- Use TotemIcons: classID is element, spellID is totem index
-		local totemIcon = self.TotemIcons[classID] and self.TotemIcons[classID][spellID]
-		buffIcon:SetTexture(totemIcon)
-		buffIcon:SetVertexColor(1, 1, 1)
-		time:SetText(self:FormatTime(unit.hasbuff))
-		
-		-- The following logic keeps Blessing of Salvation from being assigned to Warrior, Druid and Paladin tanks while in a RAID
-		-- and SalvInCombat isn't enabled. Allows Normal Blessing of Salvation on everyone else and all other blessings.
-		if not InCombatLockdown() then
-			local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-			-- Normal Blessing of Salvation [enabled] and Greater Blessing of Salvation [disabled] in a raid and SalvInCombat isn't allowed
-			if not self.isWrath and IsInRaid() and (spellID == 4 or gspellID == 4) and not self.opt.SalvInCombat then
-				for k, v in pairs(classmaintanks) do
-					-- If for some reason the targeted unit is in combat and there is a tank present
-					-- in the Class Group then disable Greater Blessing of Salvation for this unit.
-					if gspellID == 4 and (k == classID and v == true) then
-						-- This assignment is enabled by the PButtonPreClick() function for non-tanks on a per-click basis while not in combat
-						gSpell = nil
-					end
-					if k == unit.unitid and v == true then
-						-- Do not allow Salvation on tanks - Blessings [disabled]
-						if (spellID == 4) then
-							nSpell = nil
-						end
-						if (gspellID == 4) then
-							gSpell = nil
-						end
-					end
-				end
-				-- Greater Blessing of Salvation [enabled for non-tanks]
-				button:SetAttribute("spell1", gSpell)
-				-- Normal Blessing of Salvation [enabled for non-tanks]
-				button:SetAttribute("spell2", nSpell)
-			else
-				-- Greater Blessings [enabled]
-				button:SetAttribute("spell1", gSpell)
-				-- Normal Blessings [enabled]
-				button:SetAttribute("spell2", nSpell)
-			end
-		end
-		
-		local state = ClassifyUnitBuffStateForButton(unit)
-		if state == "need_big" then
-			self:ApplyBackdrop(button, self.opt.cBuffNeedAll)
-		elseif state == "need_small" then
-			self:ApplyBackdrop(button, self.opt.cBuffNeedSpecial)
-		else
-			self:ApplyBackdrop(button, self.opt.cBuffGood)
-		end
-		
-		if unit.hasbuff then
-			buffIcon:SetAlpha(1)
-			if not unit.visible and not unit.inrange then
-				rng:SetVertexColor(1, 0, 0)
-				rng:SetAlpha(1)
-			elseif unit.visible and not unit.inrange then
-				rng:SetVertexColor(1, 1, 0)
-				rng:SetAlpha(1)
-			else
-				rng:SetVertexColor(0, 1, 0)
-				rng:SetAlpha(1)
-			end
-			dead:SetAlpha(0)
-		else
-			buffIcon:SetAlpha(0.4)
-			if not unit.visible and not unit.inrange then
-				rng:SetVertexColor(1, 0, 0)
-				rng:SetAlpha(1)
-			elseif unit.visible and not unit.inrange then
-				rng:SetVertexColor(1, 1, 0)
-				rng:SetAlpha(1)
-			else
-				rng:SetVertexColor(0, 1, 0)
-				rng:SetAlpha(1)
-			end
-			if unit.dead then
-				dead:SetVertexColor(1, 0, 0)
-				dead:SetAlpha(1)
-			else
-				dead:SetVertexColor(0, 1, 0)
-				dead:SetAlpha(0)
-			end
-		end
-		if unit.name then
-			local shortname = Ambiguate(unit.name, "short")
-			if unit.unitid:find("pet") then
-				name:SetText("|T132242:0|t "..shortname)
-			else
-				name:SetText(shortname)
-			end
-		end
-	else
-		self:ApplyBackdrop(button, self.opt.cBuffGood)
-		buffIcon:SetAlpha(0)
-		rng:SetAlpha(0)
-		dead:SetAlpha(0)
-	end
+	self:UpdateAnchor()
 end
 
 function ShamanPower:ButtonsUpdate()
 	--self:Debug("ButtonsUpdate()")
-	local minClassExpire, minClassDuration, minSpecialExpire, minSpecialDuration, sumnhave, sumnneed, sumnspecial = 9999, 9999, 9999, 9999, 0, 0, 0
-	for cbNum = 1, SHAMANPOWER_MAXCLASSES do -- scan classes and if populated then assign textures, etc
-		local cButton = self.classButtons[cbNum]
-		local classIndex = cButton:GetAttribute("classID")
-		if classIndex > 0 then
-			self:ScanClass(classIndex) -- scanning for in-range and buffs
-			local classExpire, classDuration, specialExpire, specialDuration, nhave, nneed, nspecial = self:UpdateButton(cButton, "ShamanPowerC" .. cbNum, classIndex)
-			minClassExpire = min(minClassExpire, classExpire)
-			minSpecialExpire = min(minSpecialExpire, specialExpire)
-			minClassDuration = min(minClassDuration, classDuration)
-			minSpecialDuration = min(minSpecialDuration, specialDuration)
-			sumnhave = sumnhave + nhave
-			sumnneed = sumnneed + nneed
-			sumnspecial = sumnspecial + nspecial
-			local pButtons = self.playerButtons[cbNum]
-			for pbNum = 1, SHAMANPOWER_MAXPERCLASS do
-				local pButton = pButtons[pbNum]
-				local playerIndex = pButton:GetAttribute("playerID")
-				if playerIndex > 0 then
-					self:UpdatePButton(pButton, "ShamanPowerC" .. cbNum .. "P" .. pbNum, classIndex, playerIndex)
-				end
-			end -- by pbnum
-		end -- class has players
-	end -- by cnum
 	local autobutton = _G["ShamanPowerAuto"]
-	local time = _G["ShamanPowerAutoTime"]
-	local time2 = _G["ShamanPowerAutoTime2"]
-	local text = _G["ShamanPowerAutoText"]
-	-- Use totem status detection for shamans instead of paladin buff logic
+	if not autobutton then return end
+	-- Colour the mini totem bar by how many of the assigned totems are currently down
 	local activeCount, assignedCount = self:GetTotemStatus()
 	if assignedCount == 0 then
 		-- No totems assigned
@@ -13337,54 +11351,9 @@ function ShamanPower:ButtonsUpdate()
 		-- All assigned totems are active
 		self:ApplyBackdrop(autobutton, self.opt.cBuffGood)
 	end
-	time:SetText(self:FormatTime(minClassExpire))
-	time:SetTextColor(self:GetSeverityColor(minClassExpire and minClassDuration and minClassDuration > 0 and (minClassExpire / minClassDuration) or 0))
-	time2:SetText(self:FormatTime(minSpecialExpire))
-	time2:SetTextColor(self:GetSeverityColor(minSpecialExpire and minSpecialDuration and minSpecialDuration > 0 and (minSpecialExpire / minSpecialDuration) or 0))
-	if (sumnneed + sumnspecial > 0) then
-		text:SetText(sumnneed + sumnspecial)
-	else
-		text:SetText("")
-	end
-	local rfbutton = _G["ShamanPowerRF"]
-	local time1 = _G["ShamanPowerRFTime1"] -- rf timer
-	local time2 = _G["ShamanPowerRFTime2"] -- seal timer
-	-- Righteous Fury / Seal tracking was Paladin-only; Shamans have nothing to track here, so both read as "inactive"
-	local expire1, duration1 = 9999, 1
-	local expire2, duration2 = 9999, 1
-	if self.opt.rf then
-		time1:SetText(self:FormatTime(expire1))
-		time1:SetTextColor(self:GetSeverityColor(expire1 / duration1))
-		if self.opt.display.buffDuration == true and expire1 < 1800 then
-			prevBuffDuration = true
-			self.opt.display.buffDuration = false
-		elseif self.opt.display.buffDuration == false and prevBuffDuration == true then
-			prevBuffDuration = nil
-			self.opt.display.buffDuration = true
-		end
-	else
-		time1:SetText("")
-	end
-	time2:SetText(self:FormatTime(expire2))
-	time2:SetTextColor(self:GetSeverityColor(expire2 / duration2))
-	if (expire1 == 9999 and self.opt.rf) and (expire2 == 9999 and self.opt.seal == 0) then
-		self:ApplyBackdrop(rfbutton, self.opt.cBuffNeedAll)
-	elseif (expire1 == 9999 and self.opt.rf) or (expire2 == 9999 and self.opt.seal > 0) then
-		self:ApplyBackdrop(rfbutton, self.opt.cBuffNeedSome)
-	else
-		self:ApplyBackdrop(rfbutton, self.opt.cBuffGood)
-	end
-	if minClassExpire ~= 9999 or minSpecialExpire ~= 9999 or expire1 ~= 9999 or expire2 ~= 9999 then
-		if isShaman and not self.buttonUpdate then
-			self.buttonUpdate = self:ScheduleRepeatingTimer(self.ButtonsUpdate, 1, self)
-		end
-	else
-		self:CancelTimer(self.buttonUpdate)
-		self.buttonUpdate = nil
-	end
 end
 
-function ShamanPower:UpdateAnchor(displayedButtons)
+function ShamanPower:UpdateAnchor()
 	ShamanPowerAnchor:SetChecked(self.opt.display.frameLocked)
 	if self.opt.display.enableDragHandle and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
 		ShamanPowerAnchor:ClearAllPoints()
@@ -13399,397 +11368,6 @@ function ShamanPower:UpdateAnchor(displayedButtons)
 	else
 		ShamanPowerAnchor:Hide()
 	end
-end
-
-function ShamanPower:NormalBlessingCount(classID)
-	local nbcount = 0
-	if classlist[classID] then
-		for pbNum = 1, math.min(classlist[classID], SHAMANPOWER_MAXPERCLASS) do
-			local unit = self:GetUnit(classID, pbNum)
-			if unit and unit.name and ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][classID] and ShamanPower_NormalAssignments[self.player][classID][unit.name] then
-				nbcount = nbcount + 1
-			end
-		end -- by pbnum
-	end
-	return nbcount
-end
-
-function ShamanPower:GetSpellID(classID, playerName)
-	local normal = 0
-	local greater = 0
-	if playerName and ShamanPower_NormalAssignments[self.player] and ShamanPower_NormalAssignments[self.player][classID] and ShamanPower_NormalAssignments[self.player][classID][playerName] then
-		normal = ShamanPower_NormalAssignments[self.player][classID][playerName]
-	end
-	if ShamanPower_Assignments[self.player] and ShamanPower_Assignments[self.player][classID] then
-		greater = ShamanPower_Assignments[self.player][classID]
-	end
-	if normal == 0 then
-		normal = greater
-	end
-	return normal, greater
-end
-
-function ShamanPower:GetUnit(classID, playerID)
-	return classes[classID][playerID]
-end
-
-function ShamanPower:GetUnitIdByName(name)
-	for _, unit in ipairs(roster) do
-		if unit.name == name then
-			return unit.unitid
-		end
-	end
-end
-
-function ShamanPower:GetUnitAndSpellSmart(classid, mousebutton)
-	local class = classes[classid]
-	local now = time()
-	-- Greater Blessings
-	if (mousebutton == "LeftButton") then
-		local minExpire, classMinExpire, classNeedsBuff, classMinUnitPenalty, classMinUnit, classMinSpell, classMaxSpell = 600, 600, true, 600, nil, nil, nil
-		for _, unit in pairs(class) do
-			local spellID, gspellID = self:GetSpellID(classid, unit.name)
-			local spell = self.Spells[spellID]
-			local gspell = self.GSpells[gspellID]
-			if (not unit.specialbuff) and (IsSpellInRange(gspell, unit.unitid) == 1) and (not UnitIsDeadOrGhost(unit.unitid)) then
-				local penalty = 0
-				local buffExpire, buffDuration, buffName = self:IsBuffActive(spell, gspell, unit.unitid)
-				local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-				local recipients = #classes[classid]
-
-				if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < recipients*1.65) then
-					penalty = SHAMANPOWER_GREATERBLESSINGDURATION
-				end
-				if (self.PreviousAutoBuffedUnit and (unit.hasbuff and unit.hasbuff > minExpire) and unit.name == self.PreviousAutoBuffedUnit.name and GetNumGroupMembers() > 0) then
-					penalty = SHAMANPOWER_GREATERBLESSINGDURATION
-				else
-					penalty = 0
-				end
-				-- Buff Duration option disabled - allow spamming buffs
-				if not self.opt.display.buffDuration then
-					for i = 1, recipients do
-						local unitID = classes[classid][i]
-						if IsSpellInRange(gspell, unitID.unitid) ~= 1 or UnitIsDeadOrGhost(unitID.unitid) or UnitIsAFK(unitID.unitid) or not UnitIsConnected(unitID.unitid) then
-							recipients = recipients - 1
-						end
-					end
-					if not self.AutoBuffedList[unit.name] or now - self.AutoBuffedList[unit.name] > (1.65 * recipients) then
-						buffExpire = 0
-						penalty = 0
-					end
-				else
-					-- If normal blessing - set duration to zero and buff it - but only if an alternate blessing isn't assigned
-					if (buffName and buffName == spell and spellID == gspellID) then
-						buffExpire = 0
-						penalty = 0
-					end
-				end
-
-				if not self.isWrath and gspellID == 4 then
-					-- Skip tanks if Salv is assigned. This allows autobuff to work since some tanks
-					-- have addons and/or scripts to auto cancel Salvation. Prevents getting stuck
-					-- buffing a tank when auto buff rotates among players in the class group.
-					if unit.tank then
-						buffExpire = 9999
-						penalty = 9999
-					end
-				end
-
-				if (not ShamanPower.petsShareBaseClass) and unit.unitid:find("pet") then
-					-- in builds where pets do not share greater blessings, we don't autobuff them with such
-					buffExpire = 9999
-					penalty = 9999
-				end
-				-- Refresh any greater blessing under a 10 min duration
-				if ((not buffExpire or (buffExpire < classMinExpire) and buffExpire < SHAMANPOWER_GREATERBLESSINGDURATION) and classMinExpire > 0) then
-					if (penalty < classMinUnitPenalty) then
-						classMinUnit = unit
-						classMinUnitPenalty = penalty
-					end
-					classMinSpell = nSpell
-					classMaxSpell = gSpell
-					classMinExpire = (buffExpire or 0)
-				end
-			elseif (UnitIsVisible(unit.unitid) == false and not UnitIsAFK(unit.unitid) and UnitIsConnected(unit.unitid)) and (IsInRaid() == false or #classes[classid] > 3) then
-				classNeedsBuff = false
-			end
-		end
-		-- Refresh any greater blessing under a 10 min duration
-		if (classMinUnit and classMinUnit.name and (classNeedsBuff or not self.opt.autobuff.waitforpeople) and classMinExpire + classMinUnitPenalty < minExpire and minExpire > 0) then
-			self.AutoBuffedList[classMinUnit.name] = now
-			self.PreviousAutoBuffedUnit = classMinUnit
-			return classMinUnit.unitid, classMinSpell, classMaxSpell
-		end
-	-- Normal Blessings
-	elseif (mousebutton == "RightButton") then
-		local minExpire = 240
-		for _, unit in pairs(class) do
-			local spellID, gspellID = self:GetSpellID(classid, unit.name)
-			local spell = self.Spells[spellID]
-			local spell2 = self.GSpells[spellID]
-			local gspell = self.GSpells[gspellID]
-			if (IsSpellInRange(spell, unit.unitid) == 1) and (not UnitIsDeadOrGhost(unit.unitid)) then
-				local penalty = 0
-				local greaterBlessing = false
-				local buffExpire, buffDuration, buffName = self:IsBuffActive(spell, spell2, unit.unitid)
-				local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-				local recipients = #classes[classid]
-
-				if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < recipients*1.65) then
-					penalty = SHAMANPOWER_NORMALBLESSINGDURATION
-				end
-				if (self.PreviousAutoBuffedUnit and (unit.hasbuff and unit.hasbuff > minExpire) and unit.name == self.PreviousAutoBuffedUnit.name and GetNumGroupMembers() > 0) then
-					penalty = SHAMANPOWER_NORMALBLESSINGDURATION
-				else
-					penalty = 0
-				end
-				-- Flag valid Greater Blessings | If it falls below 4 min refresh it with a Normal Blessing
-				if buffName and buffName == gspell and buffExpire > minExpire then
-					greaterBlessing = true
-					penalty = SHAMANPOWER_NORMALBLESSINGDURATION
-				elseif buffName and buffName == gspell and buffExpire < minExpire then
-					greaterBlessing = false
-					penalty = 0
-				end
-				if (buffName and buffName == gspell) then
-					-- If we're using Blessing of Sacrifice then set the expiration to match Normal Blessings so Auto Buff works.
-					if not self.isWrath and (spell == self.Spells[7]) then
-						greaterBlessing = false
-						buffExpire = 270
-						penalty = 0
-					-- Alternate Blessing assigned then always allow buffing over a Greater Blessing: Set duration to zero and buff it.
-					elseif (self.isWrath and spellID ~= gspellID) or (spell ~= self.Spells[7] and spellID ~= gspellID) then
-						greaterBlessing = false
-						buffExpire = 0
-						penalty = 0
-					end
-				end
-				-- Buff Duration option disabled - allow spamming buffs
-				-- This logic counts the number of players in a class and subtracts the ratio from the
-				-- buffs overall duration resulting in a "round robin" approach for spamming buffs so
-				-- auto buff doesn't get stuck on one person. The ratio is reduced when a player has
-				-- a Greater Blessing, is out of range, dead, afk, or not connected.
-				if not self.opt.display.buffDuration then
-					for i = 1, recipients do
-						local unitID = classes[classid][i]
-						if (unitID.hasbuff and unitID.hasbuff > 300) or IsSpellInRange(nSpell, unitID.unitid) ~= 1 or UnitIsDeadOrGhost(unitID.unitid) or UnitIsAFK(unitID.unitid) or not UnitIsConnected(unitID.unitid) then
-							recipients = recipients - 1
-						end
-					end
-					-- Blessing of Sacrifice
-					if not self.isWrath and (spell == self.Spells[7]) then
-						if not buffExpire or buffExpire < (30 - ((1.65 * recipients) - 1.65)) then
-							buffExpire = 0
-							penalty = 0
-						end
-					-- Normal Blessings
-					elseif self.isWrath or (spell ~= self.Spells[7]) then
-						if not buffExpire or buffExpire < (300 - ((1.65 * recipients) - 1.65)) then
-							buffExpire = 0
-							penalty = 0
-						end
-					end
-				end
-				if not self.isWrath and IsInRaid() then
-					-- Skip tanks if Salv is assigned. This allows autobuff to work since some tanks
-					-- have addons and/or scripts to auto cancel Salvation. Tanks shouldn't have a
-					-- Normal Blessing of Salvation but sometimes there are way more Paladins in a
-					-- Raid than there are buffs to assign so an Alternate Blessing might not be in
-					-- use to wipe Salvation from a tank. Prevents getting stuck buffing a tank when
-					-- auto buff rotates among players in the class group.
-					for k, v in pairs(classmaintanks) do
-						if k == unit.unitid and v == true then
-							if (spellID == 4 and not self.opt.SalvInCombat) then
-								buffExpire = 9999
-								penalty = 9999
-							end
-						end
-					end
-				end
-				-- Refresh any normal blessing under a 4 min duration
-				if ((not buffExpire or buffExpire + penalty < minExpire and buffExpire < SHAMANPOWER_NORMALBLESSINGDURATION) and minExpire > 0 and not greaterBlessing) then
-					self.AutoBuffedList[unit.name] = now
-					self.PreviousAutoBuffedUnit = unit
-					return unit.unitid, nSpell, gSpell
-				end
-			end
-		end
-	end
-	return nil, "", ""
-end
-
-function ShamanPower:IsBuffActive(spellName, gspellName, unitID)
-	local isMight = (spellName == ShamanPower.Spells[2]) or (gSpellName == ShamanPower.GSpells[2])
-	local j = 1
-	local buffName = UnitBuff(unitID, j)
-	while buffName do
-		if (buffName == spellName) or (buffName == gspellName) or (not isWrath and isMight and buffName == ShamanPower.Spells[8] )then
-			local _, _, _, _, buffDuration, buffExpire = UnitAura(unitID, j, "HELPFUL")
-			if buffExpire then
-				if buffExpire == 0 then
-					buffExpire = 0
-				else
-					buffExpire = buffExpire - GetTime()
-				end
-			end
-			--self:Debug("[IsBuffActive] buffName: "..buffName.." | buffExpire: "..buffExpire.." | buffDuration: "..buffDuration)
-			return buffExpire, buffDuration, buffName
-		end
-		j = j + 1
-		buffName = UnitBuff(unitID, j)
-	end
-	return nil
-end
-
-function ShamanPower:ButtonPreClick(button, mousebutton)
-	if InCombatLockdown() then return end
-
-	-- Greater Blessing: Clear
-	button:SetAttribute("macrotext1", nil)
-	button:SetAttribute("spellName1", nil)
-	button:SetAttribute("step1", nil)
-	button:UnwrapScript(button, "OnClick")
-	-- Normal Blessing: Clear
-	button:SetAttribute("macrotext2", nil)
-	local classid = button:GetAttribute("classID")
-	local spell, gspell, unitName, unitid
-	if classid and classid > 0 then
-		if IsInRaid() and (mousebutton == "LeftButton") and ((self.isWrath and classid ~= 11) or (not self.isWrath and classid ~= 10)) then
-			unitid, spell, gspell = self:GetUnitAndSpellSmart(classid, mousebutton)
-			if unitid and classid then
-				unitName = GetUnitName(unitid, true)
-			end
-			spell = false
-		elseif not IsInRaid() or ((IsInRaid() and mousebutton == "RightButton")) then
-			unitid, spell, gspell = self:GetUnitAndSpellSmart(classid, mousebutton)
-			if unitid then
-				if (self.isWrath and classid == 11) or (not self.isWrath and classid == 10) then
-					local unitPrefix = "party"
-					local offSet = 9
-					if (unitid:find("raid")) then
-						unitPrefix = "raid"
-						offSet = 8
-					end
-					unitName = GetUnitName(unitPrefix .. unitid:sub(offSet), true) .. "-pet"
-				else
-					unitName = GetUnitName(unitid, true)
-				end
-			end
-			if mousebutton == "LeftButton" then
-				spell = false
-			end
-			if mousebutton == "RightButton" then
-				gspell = false
-			end
-		end
-		if unitName then
-			local spellID, gspellID = self:GetSpellID(classid, unitName)
-			-- Enable Greater Blessing of Salvation on everyone but do not allow Normal Blessing of Salvation on tanks if SalvInCombat is disabled
-			if not self.isWrath then
-				if IsInRaid() and (spellID == 4 or gspellID == 4) and (not self.opt.SalvInCombat) then
-					for k, v in pairs(classmaintanks) do
-						-- If the buff recipient unit(s) is in combat and there is a tank present in
-						-- the Class Group then disable Greater Blessing of Salvation for this unit(s).
-						if UnitAffectingCombat(unitid) and (gspellID == 4) and (k == classid and v == true) then
-							gspell = false
-						end
-						if k == unitid and v == true then
-							-- Do not allow Salvation on tanks - Blessings [disabled]
-							if (spellID == 4) then
-								spell = false
-							end
-							if (gspellID == 4) then
-								gspell = false
-							end
-						end
-					end
-				end
-			end
-			-- Set Greater Blessing: left click
-			if gspell then
-				local gspellMacro = "/cast [@" .. unitName .. ",help,nodead] " .. gspell
-				button:SetAttribute("macrotext1", gspellMacro)
-				--self:Debug("Single Unit Macro Executed: "..gspellMacro)
-			end
-			-- Set Normal Blessing: right click (Only works while not in combat. Cleared in PostClick.)
-			if spell then
-				local spellMacro = "/cast [@" .. unitName .. ",help,nodead] " .. spell
-				button:SetAttribute("macrotext2", spellMacro)
-				--self:Debug("Single Unit Macro Executed: "..spellMacro)
-			end
-		end
-	end
-end
-
-function ShamanPower:ButtonPostClick(button, mousebutton)
-	if InCombatLockdown() then return end
-
-	if IsInRaid() then
-		-- Greater Blessing: Clear current macro
-		button:SetAttribute("macrotext1", nil)
-		button:SetAttribute("spellName1", nil)
-		button:SetAttribute("step1", nil)
-		button:UnwrapScript(button, "OnClick")
-		-- Create a list of viable players for in-combat script
-		local targetNames = {}
-		local gSpell = false
-		local numPlayers = 0
-		local classid = button:GetAttribute("classID")
-		if (mousebutton == "LeftButton") and (classid ~= 10) then
-			for i = 1, SHAMANPOWER_MAXPERCLASS do
-				if numPlayers < 9 and classid and classes[classid] and classes[classid][i] then
-					local unit = classes[classid][i]
-					local spellID, gspellID = self:GetSpellID(classid, unit.name)
-					local _, gspell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-					if gspell and (IsSpellInRange(gspell, unit.unitid) == 1) and (not UnitIsDeadOrGhost(unit.unitid)) and (not UnitIsAFK(unit.unitid)) and UnitIsConnected(unit.unitid) then
-						local unitName = GetUnitName(classes[classid][i].unitid, true)
-						table.insert(targetNames, unitName)
-						numPlayers = numPlayers + 1
-						gSpell = gspell
-					end
-				else
-					break
-				end
-			end
-		end
-		-- If there is a tank present for this "classid" then disable Greater Blessing of Salvation.
-		if not self.isWrath then
-			if gSpell and strfind(gSpell, self.GSpells[4]) and not self.opt.SalvInCombat then
-				for k, v in pairs(classmaintanks) do
-					if (k == classid and v == true) then
-						gSpell = false
-					end
-				end
-			end
-		end
-		if gSpell and numPlayers > 0 then
-			button:SetAttribute("spellName1", gSpell)
-			button:SetAttribute("step1", 1)
-
-			button:Execute("unitNames = newtable([=[" .. strjoin("]=],[=[", unpack(targetNames)) .. "]=])\n")
-
-			button:WrapScript(button, "OnClick", [=[
-				local spellName = self:GetAttribute("spellName1")
-				local step = self:GetAttribute("step1")
-
-				if step > table.maxn(unitNames) then
-					step = 1
-				end
-
-				if unitNames[step] and SecureCmdOptionParse("[@" .. unitNames[step] .. ",help,nodead]") then
-					local gspellMacro = "/cast %s %s"
-					local targetName = "[@" .. unitNames[step] .. ",help,nodead]"
-					gspellMacro = format(gspellMacro, targetName, spellName)
-					self:SetAttribute("macrotext1", gspellMacro)
-					print("Secure Macro: "..gspellMacro)
-				end
-				self:SetAttribute("step1", step + 1)
-
-			]=])
-		end
-	end
-	-- Normal Blessing: Clear current macro
-	button:SetAttribute("macrotext2", nil)
 end
 
 function ShamanPower:ClickHandle(button, mousebutton)
@@ -13807,7 +11385,7 @@ function ShamanPower:ClickHandle(button, mousebutton)
 			self:OpenConfigWindow()
 			button:SetChecked(self.opt.display.frameLocked)
 		else
-			ShamanPowerBlessings_Toggle()
+			ShamanPower:ToggleAssignmentWindow()
 			button:SetChecked(self.opt.display.frameLocked)
 		end
 	elseif (mousebutton == "LeftButton") then
@@ -13846,233 +11424,18 @@ function ShamanPower:DragStop()
 	self:SaveFramePosition(h)
 end
 
-function ShamanPower:AutoBuff(button, mousebutton)
-	if InCombatLockdown() then return end
-
-	local now = time()
-	local greater = (mousebutton == "LeftButton" or mousebutton == "Hotkey2")
-	if greater then
-		-- Greater Blessings
-		local minExpire, minUnit, minSpell, maxSpell = 600, nil, nil, nil
-		for i = 1, SHAMANPOWER_MAXCLASSES do
-			local classMinExpire, classNeedsBuff, classMinUnitPenalty, classMinUnit, classMinSpell, classMaxSpell = 600, true, 600, nil, nil, nil
-			for j = 1, SHAMANPOWER_MAXPERCLASS do
-				if (classes[i] and classes[i][j]) then
-					local unit = classes[i][j]
-					local spellID, gspellID = self:GetSpellID(i, unit.name)
-					local spell = self.Spells[spellID]
-					local gspell = self.GSpells[gspellID]
-					if (not unit.specialbuff) and (IsSpellInRange(gspell, unit.unitid) == 1) and not UnitIsDeadOrGhost(unit.unitid) then
-						local penalty = 0
-						local buffExpire, buffDuration, buffName = self:IsBuffActive(spell, gspell, unit.unitid)
-						local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-						local recipients = #classes[i]
-
-						if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < recipients*1.65) then
-							penalty = SHAMANPOWER_GREATERBLESSINGDURATION
-						end
-
-						if (self.PreviousAutoBuffedUnit and (unit.hasbuff and unit.hasbuff > minExpire) and unit.name == self.PreviousAutoBuffedUnit.name and GetNumGroupMembers() > 0) then
-							penalty = SHAMANPOWER_GREATERBLESSINGDURATION
-						else
-							penalty = 0
-						end
-						-- If normal blessing - set duration to zero and buff it - but only if an alternate blessing isn't assigned
-						if buffName and buffName == spell and spellID == gspellID then
-							buffExpire = 0
-							penalty = 0
-						end
-						
-						if not self.isWrath and gspellID == 4 then
-							-- If for some reason the targeted unit is in combat and there is a tank present
-							-- in the Class Group then disable Greater Blessing of Salvation for this unit.
-							if (not self.opt.SalvInCombat) and UnitAffectingCombat(unit.unitid) and classmaintanks[classID] then
-								buffExpire = 9999
-								penalty = 9999
-							end
-							-- Skip tanks if Salv is assigned. This allows autobuff to work since some tanks
-							-- have addons and/or scripts to auto cancel Salvation. Prevents getting stuck
-							-- buffing a tank when auto buff rotates among players in the class group.
-							if unit.tank then
-								buffExpire = 9999
-								penalty = 9999
-							end
-						end
-						
-						if (not ShamanPower.petsShareBaseClass) and unit.unitid:find("pet") then
-							buffExpire = 9999
-							penalty = 9999
-						end
-
-						-- Refresh any greater blessing under a 10 min duration
-						if ((not buffExpire or buffExpire < classMinExpire and buffExpire < SHAMANPOWER_GREATERBLESSINGDURATION) and classMinExpire > 0) then
-							if (penalty < classMinUnitPenalty) then
-								classMinUnit = unit
-								classMinUnitPenalty = penalty
-							end
-
-							classMaxSpell = gSpell
-							classMinExpire = (buffExpire or 0)
-						end
-					elseif (UnitIsVisible(unit.unitid) == false and not UnitIsAFK(unit.unitid) and UnitIsConnected(unit.unitid)) and (IsInRaid() == false or #classes[i] > 3) then
-						classNeedsBuff = false
-					end
-				end
-			end
-			if ((classNeedsBuff or not self.opt.autobuff.waitforpeople) and classMinExpire + classMinUnitPenalty < minExpire and minExpire > 0) then
-				minExpire = classMinExpire + classMinUnitPenalty
-				minUnit = classMinUnit
-				maxSpell = classMaxSpell
-			end
-		end
-		if (minExpire < 600) then
-			local button = self.autoButton
-			button:SetAttribute("unit", minUnit.unitid)
-			button:SetAttribute("spell", maxSpell)
-			self.AutoBuffedList[minUnit.name] = now
-			self.PreviousAutoBuffedUnit = minUnit
-			C_Timer.After(
-				1.0,
-				function()
-					local _, unitClass = UnitClass(minUnit.unitid)
-					local cID = self.ClassToID[unitClass]
-					self:UpdateButton(nil, "ShamanPowerC" .. cID, cID)
-					self:ButtonsUpdate()
-				end
-			)
-		end
-	else
-		-- Normal Blessings
-		local minExpire, minUnit, minSpell = 240, nil, nil
-		for _, unit in ipairs(roster) do
-			local spellID, gspellID = self:GetSpellID(self:GetClassID(unit.class), unit.name)
-			local spell = self.Spells[spellID]
-			local spell2 = self.GSpells[spellID]
-			local gspell = self.GSpells[gspellID]
-			if (IsSpellInRange(spell, unit.unitid) == 1) and not UnitIsDeadOrGhost(unit.unitid) then
-				local penalty = 0
-				local buffExpire, buffDuration, buffName = self:IsBuffActive(spell, spell2, unit.unitid)
-				local nSpell, gSpell = self:CanBuffBlessing(spellID, gspellID, unit.unitid)
-				local recipients = #roster
-
-				if (self.AutoBuffedList[unit.name] and now - self.AutoBuffedList[unit.name] < recipients*1.65) then
-					penalty = SHAMANPOWER_NORMALBLESSINGDURATION
-				end
-				if (self.PreviousAutoBuffedUnit and (unit.hasbuff and unit.hasbuff > minExpire) and unit.name == self.PreviousAutoBuffedUnit.name and GetNumGroupMembers() > 0) then
-					penalty = SHAMANPOWER_NORMALBLESSINGDURATION
-				else
-					penalty = 0
-				end
-				-- If a Greater Blessing falls below 4 min, refresh it with a Normal Blessing
-				if buffName and buffName == gspell and buffExpire > minExpire then
-					penalty = SHAMANPOWER_NORMALBLESSINGDURATION
-				elseif buffName and buffName == gspell and buffExpire < minExpire then
-					penalty = 0
-				end
-				if (buffName and buffName == gspell) then
-					-- If we're using Blessing of Sacrifice then set the expiration to match Normal Blessings so Auto Buff works.
-					if not self.isWrath and (spell == self.Spells[7]) then
-						buffExpire = 270
-						penalty = 0
-					-- Alternate Blessing assigned then always allow buffing over a Greater Blessing: Set duration to zero and buff it.
-					elseif (self.isWrath and spellID ~= gspellID) or (spell ~= self.Spells[7] and spellID ~= gspellID) then
-						buffExpire = 0
-						penalty = 0
-					end
-				end
-				if IsInRaid() then
-					-- Skip tanks if Salv is assigned. This allows autobuff to work since some tanks
-					-- have addons and/or scripts to auto cancel Salvation. Tanks shouldn't have a
-					-- Normal Blessing of Salvation but sometimes there are way more Paladins in a
-					-- Raid than there are buffs to assign so an Alternate Blessing might not be in
-					-- use to wipe Salvation from a tank. Prevents getting stuck buffing a tank when
-					-- auto buff rotates among players in the class group.
-					
-					if unit.tank then
-						if not self.isWrath and (spellID == 4 and not self.opt.SalvInCombat) then
-							buffExpire = 9999
-							penalty = 9999
-						end
-					end
-				end
-				-- Refresh any blessing under a 4 min duration
-				if ((not buffExpire or buffExpire + penalty < minExpire and buffExpire < SHAMANPOWER_NORMALBLESSINGDURATION) and minExpire > 0) then
-					minExpire = (buffExpire or 0) + penalty
-					minUnit = unit
-					minSpell = nSpell
-				end
-			end
-		end
-		if (minExpire < 240) then
-			local button = self.autoButton
-			button:SetAttribute("unit", minUnit.unitid)
-			button:SetAttribute("spell", minSpell)
-			self.AutoBuffedList[minUnit.name] = now
-			self.PreviousAutoBuffedUnit = minUnit
-			C_Timer.After(
-				1.0,
-				function()
-					local _, unitClass = UnitClass(minUnit.unitid)
-					local cID = self.ClassToID[unitClass]
-					if cID then
-						self:UpdateButton(nil, "ShamanPowerC" .. cID, cID)
-					end
-					self:ButtonsUpdate()
-				end
-			)
-		end
-	end
-end
-
-function ShamanPower:AutoBuffClear(button, mousebutton)
-	if InCombatLockdown() then return end
-
-	local button = self.autoButton
-	if not button:GetAttribute("unit") == nil then
-		local abUnit = button:GetAttribute("unit")
-		local abName = UnitName(abUnit)
-		for _, unit in ipairs(roster) do
-			if unit.unitid == abUnit and unit.name == abName then
-				local classIndex = self.ClassToID[unit.class]
-				self:UpdateButton(button, "ShamanPowerC" .. classIndex, classIndex)
-			end
-		end
-	end
-	button:SetAttribute("unit", nil)
-	button:SetAttribute("spell", nil)
-end
-
 function ShamanPower:ApplySkin()
 	local border = LSM3:Fetch("border", self.opt.border)
 	local background = LSM3:Fetch("background", self.opt.skin)
 	local tmp = {bgFile = background, edgeFile = border, tile = false, tileSize = 8, edgeSize = 8, insets = {left = 0, right = 0, top = 0, bottom = 0}}
 	if BackdropTemplateMixin then
-		Mixin(ShamanPowerAura, BackdropTemplateMixin)
-		Mixin(ShamanPowerRF, BackdropTemplateMixin)
 		Mixin(ShamanPowerAuto, BackdropTemplateMixin)
 	end
-	ShamanPowerAura:SetBackdrop(tmp)
-	ShamanPowerRF:SetBackdrop(tmp)
 	-- Only apply backdrop to totem bar if not hidden
 	if self.opt.hideTotemBarFrame then
 		ShamanPowerAuto:SetBackdrop(nil)
 	else
 		ShamanPowerAuto:SetBackdrop(tmp)
-	end
-	for cbNum = 1, SHAMANPOWER_MAXCLASSES do
-		local cButton = self.classButtons[cbNum]
-		if BackdropTemplateMixin then
-			Mixin(cButton, BackdropTemplateMixin)
-		end
-		cButton:SetBackdrop(tmp)
-		local pButtons = self.playerButtons[cbNum]
-		for pbNum = 1, SHAMANPOWER_MAXPERCLASS do
-			local pButton = pButtons[pbNum]
-			if BackdropTemplateMixin then
-				Mixin(pButton, BackdropTemplateMixin)
-			end
-			pButton:SetBackdrop(tmp)
-		end
 	end
 end
 
@@ -14120,11 +11483,10 @@ end
 function ShamanPower:AutoAssign()
 	if InCombatLockdown() then return end
 
-	local shift = (IsShiftKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
 	if self:CheckLeader(self.player) or AC_Leader == false then
 		self:ClearAssignments(self.player)
 		self:SendMessage("CLEAR")
-		self:AutoAssignBlessings(shift)
+		self:AutoAssignTotems()
 		self:UpdateRoster()
 		C_Timer.After(
 			0.25,
@@ -14133,7 +11495,7 @@ function ShamanPower:AutoAssign()
 					local s = ""
 					local BuffInfo = ShamanPower_Assignments[name]
 					if not BuffInfo then BuffInfo = {} end
-					for i = 1, SHAMANPOWER_MAXCLASSES do
+					for i = 1, SHAMANPOWER_MAXELEMENTS do
 						if not BuffInfo[i] or BuffInfo[i] == 0 then
 							s = s .. "n"
 						else
@@ -14153,70 +11515,7 @@ function ShamanPower:AutoAssign()
 	end
 end
 
-function ShamanPower:StorePreset()
-	ShamanPower_SavedPresets = {}
-	ShamanPower_SavedPresets["ShamanPower_Assignments"] = {[0] = {}}
-	ShamanPower_SavedPresets["ShamanPower_NormalAssignments"] = {[0] = {}}
-	ShamanPower_SavedPresets["ShamanPower_AuraAssignments"] = {[0] = {}}
-	--save current Assignments to preset
-	ShamanPower_SavedPresets["ShamanPower_Assignments"][0] = tablecopy(ShamanPower_Assignments)
-	ShamanPower_SavedPresets["ShamanPower_NormalAssignments"][0] = tablecopy(ShamanPower_NormalAssignments)
-	ShamanPower_SavedPresets["ShamanPower_AuraAssignments"][0] = tablecopy(ShamanPower_AuraAssignments)
-end
-
-function ShamanPower:LoadPreset()
-	-- if leader, load preset and publish to other pallys if possible
-	if not ShamanPower:CheckLeader(ShamanPower.player) then return end
-
-	ShamanPower:ClearAssignments(ShamanPower.player, true)
-	ShamanPower:SendMessage("CLEAR SKIP")
-	ShamanPower_Assignments = tablecopy(ShamanPower_SavedPresets["ShamanPower_Assignments"][0])
-	ShamanPower_NormalAssignments = tablecopy(ShamanPower_SavedPresets["ShamanPower_NormalAssignments"][0])
-	ShamanPower_AuraAssignments = tablecopy(ShamanPower_SavedPresets["ShamanPower_AuraAssignments"][0])
-	C_Timer.After(
-		0.25,
-		function() -- send Class-Assignments
-			for name in pairs(ShamanPower.AllShamans) do
-				local s = ""
-				local BuffInfo = ShamanPower_Assignments[name]
-				if not BuffInfo then BuffInfo = {} end
-				for i = 1, SHAMANPOWER_MAXCLASSES do
-					if not BuffInfo[i] or BuffInfo[i] == 0 then
-						s = s .. "n"
-					else
-						s = s .. BuffInfo[i]
-					end
-				end
-				ShamanPower:SendMessage("PASSIGN " .. name .. "@" .. s)
-			end
-			C_Timer.After(
-				0.25,
-				function() -- send Single-Assignments
-					for pname, passignments in pairs(ShamanPower_NormalAssignments) do
-						if (ShamanPower.AllShamans[pname] and ShamanPower:GetUnitIdByName(pname) and passignments) then
-							for class, cassignments in pairs(passignments) do
-								if cassignments then 
-									for tname, value in pairs(cassignments) do
-										ShamanPower:SendNormalBlessings(pname, class, tname)
-									end
-								end
-							end
-						end
-					end
-					C_Timer.After(
-						0.25,
-						function()
-							ShamanPower:UpdateLayout()
-							ShamanPower:UpdateRoster()
-						end
-					)
-				end
-			)
-		end
-	)
-end
-
-function ShamanPower:AutoAssignBlessings(shift)
+function ShamanPower:AutoAssignTotems()
 	-- Smart Shaman Auto-Assign: Assign totems based on party composition and shaman spec
 	-- Totem indices:
 	-- Earth: 1=Strength of Earth, 2=Stoneskin
@@ -14476,162 +11775,6 @@ function ShamanPower:ShamanHasManaTide(shamanName)
 		return IsSpellKnown(16190)  -- Mana Tide Totem spell ID
 	end
 	return false
-end
-
--- Earth Shield target selection dropdown
-function ShamanPowerAuraButton_OnClick(btn, mouseBtn)
-	if InCombatLockdown() then return end
-
-	local _, _, pnum = strfind(btn:GetName(), "ShamanPowerBlessingsFramePlayer(.+)Aura1")
-	pnum = pnum + 0
-	local pname = _G["ShamanPowerBlessingsFramePlayer" .. pnum .. "Name"]:GetText()
-	if not ShamanPower:CanControl(pname) then
-		return false
-	end
-
-	-- Check if this shaman has Earth Shield
-	if not ShamanPower.AllShamans[pname] or not ShamanPower.AllShamans[pname].hasEarthShield then
-		return false
-	end
-
-	if (mouseBtn == "RightButton") then
-		-- Right click clears the assignment
-		ShamanPower_EarthShieldAssignments[pname] = nil
-		ShamanPower:SendMessage("ESASSIGN " .. pname .. " NONE")
-		ShamanPower:UpdateLayout()
-		if pname == ShamanPower.player then
-			ShamanPower:UpdateEarthShieldMacroButton()
-		end
-	else
-		-- Left click opens dropdown
-		ShamanPower:ShowEarthShieldDropdown(btn, pname)
-	end
-end
-
-function ShamanPowerAuraButton_OnMouseWheel(btn, arg1)
-	-- Not used for Earth Shield - use dropdown instead
-end
-
--- Store current shaman for dropdown callback
-ShamanPower.currentEarthShieldShaman = nil
-
--- Show dropdown menu for Earth Shield target selection
-function ShamanPower:ShowEarthShieldDropdown(anchor, shamanName)
-	-- Store the shaman name for the initialization function
-	self.currentEarthShieldShaman = shamanName
-
-	-- Create dropdown frame if it doesn't exist
-	if not self.earthShieldDropdown then
-		self.earthShieldDropdown = CreateFrame("Frame", "ShamanPowerESDropdown", UIParent, "UIDropDownMenuTemplate")
-	end
-
-	-- Initialize and show
-	UIDropDownMenu_Initialize(self.earthShieldDropdown, ShamanPower_EarthShieldDropdown_Initialize, "MENU")
-	ToggleDropDownMenu(1, nil, self.earthShieldDropdown, anchor, 0, 0)
-end
-
--- Dropdown initialization function
-function ShamanPower_EarthShieldDropdown_Initialize(self, level)
-	local shamanName = ShamanPower.currentEarthShieldShaman
-	if not shamanName then return end
-
-	level = level or 1
-
-	local info = UIDropDownMenu_CreateInfo()
-
-	-- Add "None" option at top
-	info.text = "None"
-	info.notCheckable = true
-	info.func = function()
-		ShamanPower_EarthShieldAssignments[shamanName] = nil
-		ShamanPower:SendMessage("ESASSIGN " .. shamanName .. " NONE")
-		ShamanPower:UpdateLayout()
-		if shamanName == ShamanPower.player then
-			ShamanPower:UpdateEarthShieldMacroButton()
-		end
-		CloseDropDownMenus()
-	end
-	UIDropDownMenu_AddButton(info, level)
-
-	-- Add separator
-	info = UIDropDownMenu_CreateInfo()
-	info.text = ""
-	info.disabled = true
-	info.notCheckable = true
-	UIDropDownMenu_AddButton(info, level)
-
-	-- Get raid/party members
-	local members = {}
-	local numMembers = GetNumGroupMembers()
-	local inRaid = IsInRaid()
-
-	if numMembers > 0 then
-		if inRaid then
-			for i = 1, numMembers do
-				local name, _, subgroup, _, _, class = GetRaidRosterInfo(i)
-				if name then
-					table.insert(members, {name = name, class = class, subgroup = subgroup})
-				end
-			end
-		else
-			-- Party
-			table.insert(members, {name = UnitName("player"), class = select(2, UnitClass("player")), subgroup = 1})
-			for i = 1, 4 do
-				local unit = "party" .. i
-				if UnitExists(unit) then
-					local name = UnitName(unit)
-					local class = select(2, UnitClass(unit))
-					table.insert(members, {name = name, class = class, subgroup = 1})
-				end
-			end
-		end
-	else
-		-- Solo
-		table.insert(members, {name = UnitName("player"), class = select(2, UnitClass("player")), subgroup = 1})
-	end
-
-	-- Sort by subgroup then name
-	table.sort(members, function(a, b)
-		if a.subgroup ~= b.subgroup then
-			return a.subgroup < b.subgroup
-		end
-		return a.name < b.name
-	end)
-
-	-- Add members to menu
-	local currentGroup = 0
-	for _, member in ipairs(members) do
-		-- Add group header if new group (in raid)
-		if inRaid and member.subgroup ~= currentGroup then
-			currentGroup = member.subgroup
-			info = UIDropDownMenu_CreateInfo()
-			info.text = "Group " .. currentGroup
-			info.isTitle = true
-			info.notCheckable = true
-			UIDropDownMenu_AddButton(info, level)
-		end
-
-		-- Add player entry
-		local classColor = RAID_CLASS_COLORS[member.class] or {r = 1, g = 1, b = 1}
-		local isAssigned = (ShamanPower_EarthShieldAssignments[shamanName] == member.name)
-
-		info = UIDropDownMenu_CreateInfo()
-		info.text = member.name
-		info.colorCode = ("|cff%02x%02x%02x"):format(classColor.r * 255, classColor.g * 255, classColor.b * 255)
-		info.checked = isAssigned
-		info.func = function()
-			ShamanPower_EarthShieldAssignments[shamanName] = member.name
-			ShamanPower:SendMessage("ESASSIGN " .. shamanName .. " " .. member.name)
-			ShamanPower:UpdateLayout()
-			ShamanPower:UpdateMiniTotemBar()
-			ShamanPower:UpdateEarthShieldButton()
-			if shamanName == ShamanPower.player then
-				ShamanPower:UpdateEarthShieldMacroButton()
-			end
-			CloseDropDownMenus()
-		end
-		UIDropDownMenu_AddButton(info, level)
-	end
 end
 
 -- ============================================================================

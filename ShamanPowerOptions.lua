@@ -716,25 +716,6 @@ ShamanPower.options = {
 								ShamanPower:UpdateRoster()
 							end
 						},
-						reportchannel = {
-							order = 7,
-							type = "select",
-							name = L["Totems Report Channel"],
-							desc = L["REPORT_CHANNEL_OPTION_TOOLTIP"],
-							width = 1.0,
-							values = function()
-								return ShamanPower:ReportChannels()
-							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
-							get = function(info)
-								return ShamanPower.opt.ReportChannel
-							end,
-							set = function(info, val)
-								ShamanPower.opt.ReportChannel = val
-							end
-						}
 					}
 				},
 				-- settings_buffs removed (legacy)
@@ -1099,138 +1080,6 @@ ShamanPower.options = {
 				return ShamanPower.opt.enabled == false
 			end,
 			args = {
-				aura_button = {
-					order = 1,
-					name = L["Aura Button"],
-					type = "group",
-					hidden = true,  -- Hidden - paladin auras not applicable to Shamans
-					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
-					end,
-					args = {
-						aura_desc = {
-							order = 0,
-							type = "description",
-							name = L["[|cffffd200Enable|r/|cffffd200Disable|r] The Aura Button or select the Aura you want to track."]
-						},
-						aura_enable = {
-							order = 1,
-							type = "toggle",
-							name = L["Aura Button"],
-							desc = L["[Enable/Disable] The Aura Button"],
-							width = 1.1,
-							get = function(info)
-								return ShamanPower.opt.auras
-							end,
-							set = function(info, val)
-								ShamanPower.opt.auras = val
-								ShamanPower:UpdateRoster()
-							end
-						},
-						aura = {
-							order = 2,
-							type = "select",
-							name = L["Aura Tracker"],
-							desc = L["Select the Aura you want to track"],
-							get = function(info)
-								return ShamanPower_AuraAssignments[ShamanPower.player]
-							end,
-							set = function(info, val)
-								ShamanPower_AuraAssignments[ShamanPower.player] = val
-							end,
-							values = ShamanPower.isWrath and {
-								[0] = L["None"],
-								[1] = ShamanPower.Auras[1], -- Devotion Aura
-								[2] = ShamanPower.Auras[2], -- Retribution Aura
-								[3] = ShamanPower.Auras[3], -- Concentration Aura
-								[4] = ShamanPower.Auras[4], -- Shadow Resistance Aura
-								[5] = ShamanPower.Auras[5], -- Frost Resistance Aura
-								[6] = ShamanPower.Auras[6], -- Fire Resistance Aura
-								[7] = ShamanPower.Auras[8] -- Crusader Aura
-							} or {
-								[0] = L["None"],
-								[1] = ShamanPower.Auras[1], -- Devotion Aura
-								[2] = ShamanPower.Auras[2], -- Retribution Aura
-								[3] = ShamanPower.Auras[3], -- Concentration Aura
-								[4] = ShamanPower.Auras[4], -- Shadow Resistance Aura
-								[5] = ShamanPower.Auras[5], -- Frost Resistance Aura
-								[6] = ShamanPower.Auras[6], -- Fire Resistance Aura
-								[7] = ShamanPower.Auras[7], -- Sanctity Aura
-								[8] = ShamanPower.Auras[8] -- Crusader Aura
-							}
-						}
-					}
-				},
-				seal_button = {
-					order = 2,
-					name = L["Weapon Enchant"],
-					type = "group",
-					hidden = true,  -- Hidden - weapon enchants are personal choice, not raid coordination
-					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
-					end,
-					args = {
-						seal_desc = {
-							order = 0,
-							type = "description",
-							name = "[|cffffd200Enable|r/|cffffd200Disable|r] The Weapon Enchant button or select the enchant you want to track."
-						},
-						seal_enable = {
-							order = 1,
-							type = "toggle",
-							name = L["Weapon Enchant"],
-							desc = "[Enable/Disable] The Weapon Enchant button",
-							width = 1.1,
-							get = function(info)
-								return ShamanPower.opt.rfbuff
-							end,
-							set = function(info, val)
-								ShamanPower.opt.rfbuff = val
-								if not ShamanPower.opt.rfbuff then
-									ShamanPower.opt.rf = false
-								end
-								ShamanPower:UpdateRoster()
-							end
-						},
-						rfury = {
-							order = 2,
-							type = "toggle",
-							name = L["Righteous Fury"],
-							desc = L["[Enable/Disable] Righteous Fury"],
-							width = 1.1,
-							hidden = true,  -- Hidden - paladin Righteous Fury not applicable to Shamans
-							disabled = function(info)
-								return ShamanPower.opt.rfbuff == false or ShamanPower.opt.enabled == false or not isShaman
-							end,
-							get = function(info)
-								return ShamanPower.opt.rf
-							end,
-							set = function(info, val)
-								ShamanPower.opt.rf = val
-							end
-						},
-						seal = {
-							order = 3,
-							type = "select",
-							name = L["Weapon Enchant"],
-							desc = L["Select the Weapon Enchant you want to track"],
-							width = .9,
-							get = function(info)
-								return ShamanPower.opt.seal
-							end,
-							set = function(info, val)
-								ShamanPower.opt.seal = val
-							end,
-							values = {
-								[0] = L["None"],
-								[1] = ShamanPower.Seals[1], -- Windfury Weapon
-								[2] = ShamanPower.Seals[2], -- Flametongue Weapon
-								[3] = ShamanPower.Seals[3], -- Frostbrand Weapon
-								[4] = ShamanPower.Seals[4], -- Rockbiter Weapon
-							}
-						}
-					}
-				},
 				auto_button = {
 					order = 3,
 					name = "Mini Totem Bar",
@@ -1251,11 +1100,11 @@ ShamanPower.options = {
 							desc = "[Enable/Disable] The Mini Totem Bar",
 							width = "full",
 							get = function(info)
-								return ShamanPower.opt.autobuff.autobutton
+								return ShamanPower.opt.miniBar.autobutton
 							end,
 							set = function(info, val)
-								ShamanPower:EnsureProfileTable("autobuff")
-								ShamanPower.opt.autobuff.autobutton = val
+								ShamanPower:EnsureProfileTable("miniBar")
+								ShamanPower.opt.miniBar.autobutton = val
 								ShamanPower:UpdateRoster()
 							end
 						},
@@ -1504,21 +1353,6 @@ ShamanPower.options = {
 								ShamanPower:UpdateSPMacros()
 							end
 						},
-						auto_wait = {
-							order = 3,
-							type = "toggle",
-							name = L["Wait for Players"],
-							desc = L["If this option is enabled then the Auto Buff Button and the Class Buff Button(s) will not auto buff a Greater Blessing if recipient(s) are not within the Paladins range (100yds). This range check excludes AFK, Dead and Offline players."],
-							hidden = true,  -- Hidden - paladin range check not applicable to Shamans (totems are ground-based)
-							get = function(info)
-								return ShamanPower.opt.autobuff.waitforpeople
-							end,
-							set = function(info, val)
-								ShamanPower:EnsureProfileTable("autobuff")
-								ShamanPower.opt.autobuff.waitforpeople = val
-								ShamanPower:UpdateRoster()
-							end
-						}
 					}
 				},
 				macros_section = {
@@ -1560,71 +1394,6 @@ ShamanPower.options = {
 					end,
 					args = loadoutArgs,
 				},
-				cp_button = {
-					order = 4,
-					name = "Element Buttons",
-					type = "group",
-					hidden = true,  -- Hidden - not functional in current shaman implementation
-					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
-					end,
-					args = {
-						cp_desc = {
-							order = 0,
-							type = "description",
-							name = "[|cffffd200Enable|r/|cffffd200Disable|r] The Element buttons (Earth, Fire, Water, Air)."
-						},
-						class_enable = {
-							order = 1,
-							type = "toggle",
-							name = "Element Buttons",
-							desc = "[Enable/Disable] Element Buttons",
-							width = 1.1,
-							get = function(info)
-								return ShamanPower.opt.display.showClassButtons
-							end,
-							set = function(info, val)
-								ShamanPower:EnsureProfileTable("display")
-								ShamanPower.opt.display.showClassButtons = val
-								ShamanPower:UpdateRoster()
-							end
-						},
-						player_enable = {
-							order = 2,
-							type = "toggle",
-							name = "Shaman Buttons",
-							desc = "Show buttons for individual shamans in the raid.",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
-							end,
-							get = function(info)
-								return ShamanPower.opt.display.showPlayerButtons
-							end,
-							set = function(info, val)
-								ShamanPower:EnsureProfileTable("display")
-								ShamanPower.opt.display.showPlayerButtons = val
-								ShamanPower:UpdateRoster()
-							end
-						},
-						buff_Duration = {
-							order = 3,
-							type = "toggle",
-							name = "Totem Duration",
-							desc = "If disabled, element buttons will ignore totem duration, allowing totems to be recast at will.",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
-							end,
-							get = function(info)
-								return ShamanPower.opt.display.buffDuration
-							end,
-							set = function(info, val)
-								ShamanPower:EnsureProfileTable("display")
-								ShamanPower.opt.display.buffDuration = val
-								ShamanPower:UpdateRoster()
-							end
-						}
-					}
-				}
 			}
 		},
 		fluffy = {
@@ -6555,7 +6324,6 @@ ShamanPower.options = {
 			desc = L["Raid only options"],
 			type = "group",
 			cmdHidden = true,
-			hidden = true,  -- Hidden - paladin-specific Main Tank/Assist blessing options not applicable to Shamans
 			disabled = function(info)
 				return ShamanPower.opt.enabled == false or not isShaman
 			end,
@@ -6591,7 +6359,7 @@ ShamanPower.options = {
 			guiHidden = true,
 			func = function()
 				if not (UnitAffectingCombat("player")) then
-					ShamanPowerBlessings_Toggle()
+					ShamanPower:ToggleAssignmentWindow()
 				end
 			end
 		},
