@@ -769,19 +769,15 @@ local function OptionOpts(entry, sectionRef, x, y, width, onChanged)
 	}
 end
 
-function SPConfig:RenderPage(entry, query)
-	ClearPage()
-	if not entry then return end
-
+-- Resolve a sidebar entry to the exact list of rows that should be on screen:
+-- tab selection, hidden= evaluation (inside BuildRenderList) and the page
+-- search filter. Used by RenderPage to draw, and by onChanged to detect that
+-- a set() just changed which rows are visible (an option whose hidden=
+-- depends on another option).
+local function ResolvePageList(entry, query, drawTabs)
 	local node, chain = Tree:Resolve(entry.path)
-	if not node then return end
+	if not node then return nil end
 
-	local info = Tree:BuildInfo(entry.path, node, chain)
-	frame.title:SetText(Tree:StripColor(entry.label))
-	frame.subtitle:SetText(Tree:StripColor(Tree:GetDesc(node, info) or ""))
-
-	-- Tab selection. While a page search is active the tabs are bypassed and
-	-- every group is searched, otherwise matches in other tabs stay invisible.
 	local groups = ChildGroups(node, entry.path, chain)
 	local useTabs = (#groups >= TAB_MIN_GROUPS)
 	local searching = (query and query ~= "")
@@ -794,22 +790,23 @@ function SPConfig:RenderPage(entry, query)
 			if g.key == frame._activeTab then active = g break end
 		end
 		active = active or groups[1]
-		frame._activeTab = active.key
-		RenderTabs(groups, searching and nil or active.key, function(key)
-			frame._activeTab = key
-			SPConfig:RenderPage(frame._current, nil)
-		end)
+		if drawTabs then
+			frame._activeTab = active.key
+			RenderTabs(groups, searching and nil or active.key, function(key)
+				frame._activeTab = key
+				SPConfig:RenderPage(frame._current, nil)
+			end)
+		end
 		if not searching then
 			renderNode, renderPath, renderChain = active.node, active.path, active.chain
 		end
-	else
+	elseif drawTabs then
 		RenderTabs({}, nil, function() end)
 	end
 
 	local list = Tree:BuildRenderList(renderNode, renderPath, renderChain)
 
-	-- Filter
-	if query and query ~= "" then
+	if searching then
 		local filtered = {}
 		local pendingSection
 		for _, e in ipairs(list) do
@@ -828,6 +825,38 @@ function SPConfig:RenderPage(entry, query)
 		end
 		list = filtered
 	end
+	return list, groups
+end
+
+-- Fingerprint of what is visible: tab keys plus every row's path/label.
+local function PageSignature(list, groups)
+	local parts = {}
+	for _, g in ipairs(groups or {}) do parts[#parts + 1] = "T:" .. tostring(g.key) end
+	for _, e in ipairs(list or {}) do
+		if e.kind == "section" then
+			parts[#parts + 1] = "S:" .. tostring(e.label)
+		else
+			parts[#parts + 1] = table.concat(e.path, "/")
+		end
+	end
+	return table.concat(parts, "|")
+end
+
+function SPConfig:RenderPage(entry, query, keepScroll)
+	ClearPage()
+	if not entry then return end
+
+	local node, chain = Tree:Resolve(entry.path)
+	if not node then return end
+
+	local info = Tree:BuildInfo(entry.path, node, chain)
+	frame.title:SetText(Tree:StripColor(entry.label))
+	frame.subtitle:SetText(Tree:StripColor(Tree:GetDesc(node, info) or ""))
+
+	local list, groups = ResolvePageList(entry, query, true)
+	if not list then return end
+	frame._query = query
+	frame._pageSig = PageSignature(list, groups)
 
 	local body = frame.body
 	local fullW = frame.bodyScroll:GetWidth() - 8
@@ -850,6 +879,21 @@ function SPConfig:RenderPage(entry, query)
 	end
 
 	local onChanged = function()
+		-- A set() may flip another option's hidden= (e.g. TotemTimers Style
+		-- Display reveals Right-Click Drops Corner Totem). Re-resolve the page
+		-- and redraw only when the visible row set actually changed.
+		local cur = frame._current
+		if cur then
+			local newList, newGroups = ResolvePageList(cur, frame._query, false)
+			if newList and PageSignature(newList, newGroups) ~= frame._pageSig then
+				SPConfig:RenderPage(cur, frame._query, frame.bodyScroll:GetVerticalScroll())
+				if LibStub then
+					local reg = LibStub("AceConfigRegistry-3.0", true)
+					if reg then reg:NotifyChange("ShamanPower") end
+				end
+				return
+			end
+		end
 		Widgets:RefreshAll(body)
 		for _, r in ipairs(navRows) do
 			if r.paintPower and r:IsShown() then r.paintPower() end
@@ -956,7 +1000,8 @@ function SPConfig:RenderPage(entry, query)
 	BreakRow()
 	if col == 1 and rowMaxH > 0 then y = rowY + rowMaxH end
 	body:SetHeight(math.max(y + 20, 1))
-	frame.bodyScroll:SetVerticalScroll(0)
+	local maxScroll = math.max(0, body:GetHeight() - frame.bodyScroll:GetHeight())
+	frame.bodyScroll:SetVerticalScroll(math.max(0, math.min(keepScroll or 0, maxScroll)))
 
 	if #pageWidgets == 0 then
 		frame.emptyText:SetText(
