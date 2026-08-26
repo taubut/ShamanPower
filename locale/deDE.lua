@@ -5,7 +5,7 @@ L["--- Paladin assignments ---"] = "--- Paladin-Zuweisungen ---"
 L["...with Normal..."] = "... mit ..."
 L["[|cffffd200Enable|r/|cffffd200Disable|r] The Aura Button or select the Aura you want to track."] = "[|cffffd200Aktiviere|r / |cffffd200Deaktiviere|r] die Aura-Schaltfläche oder wähle die Aura aus, die du überwachen möchtest."
 L["[|cffffd200Enable|r/|cffffd200Disable|r] The Auto Buff Button or [|cffffd200Enable|r/|cffffd200Disable|r] Wait for Players."] = "[|cffffd200Aktiviere|r / |cffffd200Deaktiviere|r] die Auto-Buff Schaltfläche oder [|cffffd200aktiviere|r / |cffffd200deaktiviere|r]die zugehörige Funktion \"Auf Gruppenmitglieder warten\"."
-L["[|cffffd200Enable|r/|cffffd200Disable|r] The Drag Handle Button."] = "[|cffffd200Aktiviere|r / |cffffd200Deaktiviere|r] den Anfasser zum verschieben von Pallypower"
+L["[|cffffd200Enable|r/|cffffd200Disable|r] The Drag Handle Button."] = "[|cffffd200Aktiviere|r / |cffffd200Deaktiviere|r] den Anfasser zum Verschieben von ShamanPower"
 L["[|cffffd200Enable|r/|cffffd200Disable|r] The Player(s) or Class Buttons."] = "[|cffffd200Aktiviere|r / |cffffd200Deaktiviere|r] die Spieler- oder Klassen-Schaltflächen."
 L["[|cffffd200Enable|r/|cffffd200Disable|r] The Seal Button, Enable/Disable Righteous Fury or select the Seal you want to track."] = "[|cffffd200Aktiviere|r / |cffffd200Deaktiviere|r] die Siegel-Schaltfläche. Mit der Siegel-Schaltfläche kannst du Zorn der Gerechtigkeit aktivieren/überwachen und/oder das Siegel auswählen, das überwacht werden soll."
 --[[Translation missing --]]
@@ -56,7 +56,7 @@ L["Class & Player Buttons"] = "Klassen- und Spieler-Schaltflächen"
 L["Class Buttons"] = "Klassen-Schaltflächen"
 L["Clear"] = "Löschen"
 L["Drag Handle"] = "Anfasser anzeigen."
-L["Drag Handle Button"] = "Pallypower verschieben"
+L["Drag Handle Button"] = "ShamanPower verschieben"
 L["DRAGHANDLE_TOOLTIP"] = [=[|cffffffff [Linksklick]|r |cffff0000Sperre|r / |cff00ff00Entsperre|r ShamanPower
 |cffffffff [Linksklick-Halten]|r ShamanPower verschieben
 |cffffffff [Rechtsklick]|r Segen-Zuweisungen öffnen

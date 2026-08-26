@@ -101,15 +101,6 @@
 				</FontString>
 			</Layer>
 		</Layers>
-		<Scripts>
-			<OnMouseWheel>
-				if (delta==-1) then
-					ShamanPower:SealCycle();
-				else
-					ShamanPower:SealCycleBackward();
-				end
-			</OnMouseWheel>
-		</Scripts>
 	</Button>
 
 	<Button name = "ShamanPowerAuraButtonTemplate" virtual = "true" frameStrata = "LOW" inherits = "SecureActionButtonTemplate">
@@ -159,17 +150,6 @@
 				</FontString>
 			</Layer>
 		</Layers>
-		<Scripts>
-			<OnMouseWheel>
-				if InCombatLockdown() then return false end
-				if (delta==-1) then  --mouse wheel down
-					ShamanPower:PerformAuraCycle(ShamanPower.player, true);
-				else
-					ShamanPower:PerformAuraCycleBackwards(ShamanPower.player, true);
-				end
-				ShamanPower:ButtonsUpdate();
-			</OnMouseWheel>
-		</Scripts>
 	</Button>
 
 	<!-- Mini Totem Bar - 4 clickable totem buttons + Drop All (VERTICAL layout) -->

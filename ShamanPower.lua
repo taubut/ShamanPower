@@ -333,7 +333,6 @@ function ShamanPower:OnInitialize()
 
 	self.zone = GetRealZoneText()
 
-	self:ScanInventory()
 	self:CreateLayout()
 
 	if self.opt.skin then
@@ -534,7 +533,6 @@ function ShamanPower:OnEnable()
 	self.opt.enable = true
 	self:ScanTalents()
 	self:ScanSpells()
-	self:ScanCooldowns()
 	self:RegisterEvent("CHAT_MSG_ADDON")
 	self:RegisterEvent("ZONE_CHANGED")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -556,7 +554,6 @@ function ShamanPower:OnEnable()
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	if isShaman then
-		self:ScheduleRepeatingTimer(self.ScanInventory, 60, self)
 		self.ButtonsUpdate(self)
 		-- Create Earth Shield macro button and macro for keybinding
 		self:UpdateEarthShieldMacroButton()
@@ -807,8 +804,6 @@ end
 function ShamanPowerBlessings_Refresh()
 	ShamanPower:Debug("ShamanPowerBlessings_Refresh")
 	ShamanPower:ScanSpells()
-	ShamanPower:ScanCooldowns()
-	ShamanPower:ScanInventory()
 	if GetNumGroupMembers() > 0 then
 		ShamanPower:SendSelf()
 		ShamanPower:SendMessage("REQ")
@@ -830,8 +825,6 @@ function ShamanPowerBlessings_Toggle()
 		c:ClearAllPoints()
 		c:SetPoint("CENTER", "UIParent", "CENTER", 0, 0)
 		ShamanPower:ScanSpells()
-		ShamanPower:ScanCooldowns()
-		ShamanPower:ScanInventory()
 		if GetNumGroupMembers() > 0 then
 			ShamanPower:SendSelf()
 			ShamanPower:SendMessage("REQ")
@@ -11264,7 +11257,7 @@ function ShamanPower:PerformPlayerCycle(delta, pname, class)
 		end
 	end
 	local test = (blessing - delta) % count
-	while not (ShamanPower:CanBuff(self.player, test) and ShamanPower:NeedsBuff(class, test, pname) or control) and test > 0 do
+	while not (ShamanPower:CanBuff(self.player, test) or control) and test > 0 do
 		test = (test - delta) % count
 		if test == blessing then
 			test = 0
@@ -11416,48 +11409,6 @@ function ShamanPower:CanBuffBlessing(spellId, gspellId, unitId, config)
 	end
 end
 
-function ShamanPower:NeedsBuff(class, test, playerName)
-	-- For Shamans, all totems are always valid options
-	-- No filtering needed like Paladins have with blessings
-	return true
-end
-
-function ShamanPower:NeedsBuff_OLD(class, test, playerName)
-	-- OLD PALADIN LOGIC - kept for reference
-	if (self.isWrath and test == 10) or (not self.isWrath and test == 9) or test == 0 then
-		return true
-	end
-	if self.opt.SmartBuffs then
-		-- no wisdom for warriors, rogues, and death knights
-		if (class == 1 or class == 2 or (self.isWrath and class == 10)) and test == 1 then
-			return false
-		end
-		-- no might for casters (and hunters in Classic)
-		if (class == 3 or class == 7 or class == 8) and test == 2 then -- removed (self.isVanilla and class == 6) or
-			return false
-		end
-	end
-	if playerName then
-		for pname, classes in pairs(ShamanPower_NormalAssignments) do
-			if ShamanPower.AllShamans[pname] and not pname == self.player then
-				for _, tnames in pairs(classes) do
-					for _, blessing_id in pairs(tnames) do
-						if blessing_id == test then
-							return false
-						end
-					end
-				end
-			end
-		end
-	end
-	for name, skills in pairs(ShamanPower_Assignments) do
-		if (ShamanPower.AllShamans[name]) and ((skills[class]) and (skills[class] == test)) then
-			return false
-		end
-	end
-	return true
-end
-
 function ShamanPower:ScanTalents()
 	local numTabs = GetNumTalentTabs()
 	for t = 1, numTabs do
@@ -11592,23 +11543,6 @@ function ShamanPower:ScanSpells()
 	initialized = true
 end
 
-function ShamanPower:ScanCooldowns()
-	--self:Debug("[ScanCooldowns]")
-	-- Shamans don't have the same cooldown tracking as Paladins
-	-- This function is a placeholder for future elemental totem cooldowns
-	if not initialized or not isShaman then
-		return
-	end
-end
-
-function ShamanPower:ScanInventory()
-	-- Shamans don't use symbols like Paladins
-	-- This function is a placeholder
-	if not initialized or not isShaman then
-		return
-	end
-end
-
 function ShamanPower:SendSelf(sender)
 	if not initialized or GetNumGroupMembers() == 0 then
 		return
@@ -11712,7 +11646,6 @@ function ShamanPower:SPELLS_CHANGED()
 		return
 	end
 	ShamanPower:ScanSpells()
-	ShamanPower:ScanCooldowns()
 	ShamanPower:SendSelf()
 	ShamanPower:UpdateLayout()
 end
@@ -11819,8 +11752,6 @@ function ShamanPower:GROUP_JOINED(event)
 	ShamanPower.SyncList = {}
 	ShamanPower_NormalAssignments = {}
 	self:ScanSpells()
-	self:ScanCooldowns()
-	self:ScanInventory()
 	C_Timer.After(
 		2.0,
 		function()
@@ -11871,8 +11802,6 @@ function ShamanPower:GROUP_LEFT(event)
 	}
 
 	self:ScanSpells()
-	self:ScanCooldowns()
-	self:ScanInventory()
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:UpdateEarthShieldButton()
@@ -11908,8 +11837,6 @@ function ShamanPower:UpdateAllShamans()
 				ShamanPower.AllShamans = {}
 				ShamanPower.SyncList = {}
 				self:ScanSpells()
-				self:ScanCooldowns()
-				self:ScanInventory()
 				self:SendSelf()
 				self:SendMessage("REQ")
 				self:UpdateLayout()
@@ -11945,7 +11872,6 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 					C_Timer.After(
 						2.0,
 						function()
-							ShamanPower:ScanCooldowns()
 							if GetNumGroupMembers() > 0 then
 								ShamanPower:SendSelf()
 							end
@@ -12917,10 +12843,9 @@ function ShamanPower:UpdateLayout()
 	end
 	rfb:SetAttribute("type1", "spell")
 	rfb:SetAttribute("unit1", "player")
-	self:RFAssign(self.opt.rf)
 	rfb:SetAttribute("type2", "spell")
 	rfb:SetAttribute("unit2", "player")
-	self:SealAssign(self.opt.seal)
+	self.opt.seal = self.opt.seal or 0 -- legacy Paladin seal slot has no default; ButtonsUpdate() compares it numerically
 	if isShaman and self.opt.enabled and self.opt.rfbuff and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
 		rfb:Show()
 	else
@@ -12945,9 +12870,6 @@ function ShamanPower:UpdateLayout()
 	end
 	auraBtn:SetAttribute("type1", "spell")
 	auraBtn:SetAttribute("unit1", "player")
-	if self.opt.auras then
-		self:UpdateAuraButton(ShamanPower_AuraAssignments[self.player])
-	end
 	if isShaman and self.opt.enabled and self.opt.auras and ShamanPower.AllShamans[self.player].AuraInfo[1] and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
 		auraBtn:Show()
 	else
@@ -13276,18 +13198,6 @@ function ShamanPower:GetBuffExpiration(classID)
 	return classExpire, classDuration, specialExpire, specialDuration
 end
 
-function ShamanPower:GetRFExpiration()
-	-- Shamans don't have Righteous Fury, return safe defaults
-	-- This could be repurposed for weapon enchant tracking later
-	return 9999, 1
-end
-
-function ShamanPower:GetSealExpiration()
-	-- Shamans don't have Seals, return safe defaults
-	-- This could be repurposed for weapon enchant tracking later
-	return 9999, 1
-end
-
 function ShamanPower:UpdatePButtonOnPostClick(button, mousebutton)
 	local classID = button:GetAttribute("classID")
 	local playerID = button:GetAttribute("playerID")
@@ -13510,8 +13420,9 @@ function ShamanPower:ButtonsUpdate()
 	local rfbutton = _G["ShamanPowerRF"]
 	local time1 = _G["ShamanPowerRFTime1"] -- rf timer
 	local time2 = _G["ShamanPowerRFTime2"] -- seal timer
-	local expire1, duration1 = self:GetRFExpiration()
-	local expire2, duration2 = self:GetSealExpiration()
+	-- Righteous Fury / Seal tracking was Paladin-only; Shamans have nothing to track here, so both read as "inactive"
+	local expire1, duration1 = 9999, 1
+	local expire2, duration2 = 9999, 1
 	if self.opt.rf then
 		time1:SetText(self:FormatTime(expire1))
 		time1:SetTextColor(self:GetSeverityColor(expire1 / duration1))
@@ -13533,9 +13444,6 @@ function ShamanPower:ButtonsUpdate()
 		self:ApplyBackdrop(rfbutton, self.opt.cBuffNeedSome)
 	else
 		self:ApplyBackdrop(rfbutton, self.opt.cBuffGood)
-	end
-	if self.opt.auras then
-		self:UpdateAuraButton(ShamanPower_AuraAssignments[self.player])
 	end
 	if minClassExpire ~= 9999 or minSpecialExpire ~= 9999 or expire1 ~= 9999 or expire2 ~= 9999 then
 		if isShaman and not self.buttonUpdate then
@@ -14280,51 +14188,11 @@ function ShamanPower:UpdateCooldownBarFrame()
 	end
 end
 
-function ShamanPower:SetSeal(seal)
-	-- Shamans don't have seals, no-op
-	self.opt.seal = seal or 0
-end
-
-function ShamanPower:SealCycle()
-	-- Shamans don't have seals, no-op
-	-- Could be repurposed for weapon enchant cycling later
-end
-
-function ShamanPower:SealCycleBackward()
-	-- Shamans don't have seals, no-op
-	-- Could be repurposed for weapon enchant cycling later
-end
-
-function ShamanPower:RFAssign()
-	-- Shamans don't have Righteous Fury, no-op
-	-- Could be repurposed for Lightning Shield or similar later
-end
-
-function ShamanPower:SealAssign(seal)
-	-- Shamans don't have seals, no-op
-	self.opt.seal = seal or 0
-end
-
 function ShamanPower:AutoAssign()
 	if InCombatLockdown() then return end
 
 	local shift = (IsShiftKeyDown() and ShamanPowerBlessingsFrame:IsMouseOver())
-	local precedence
-	if IsInRaid() and not (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() or shift) then
-		if self.isWrath then
-			precedence = {6, 1, 3, 2, 4, 5, 7} -- fire, devotion, concentration, retribution, shadow, frost, crusader
-		else
-			precedence = {6, 1, 3, 2, 4, 5, 7, 8} -- fire, devotion, concentration, retribution, shadow, frost, sanctity, crusader
-		end
-	else
-		if self.isWrath then
-			precedence = {1, 3, 2, 4, 5, 6, 7} -- devotion, concentration, retribution, shadow, frost, fire, crusader
-		else
-			precedence = {1, 3, 2, 4, 5, 6, 7, 8} -- devotion, concentration, retribution, shadow, frost, fire, sanctity, crusader
-		end
-	end
 	if self:CheckLeader(self.player) or AC_Leader == false then
-		WisdomPallys, MightPallys, KingsPallys, SalvPallys, LightPallys, SancPallys = {}, {}, {}, {}, {}, {}
 		self:ClearAssignments(self.player)
 		self:SendMessage("CLEAR")
 		self:AutoAssignBlessings(shift)
@@ -14348,7 +14216,6 @@ function ShamanPower:AutoAssign()
 				C_Timer.After(
 					0.25,
 					function()
-						self:AutoAssignAuras(precedence)
 						self:UpdateLayout()
 					end
 				)
@@ -14418,19 +14285,6 @@ function ShamanPower:LoadPreset()
 			)
 		end
 	)
-end
-
-function ShamanPower:CalcSkillRanks(name)
-	-- For Shamans, return what totems they have available per element
-	-- Returns: earth, fire, water, air (boolean flags)
-	local earth, fire, water, air = false, false, false, false
-	if ShamanPower.AllShamans[name] then
-		if ShamanPower.AllShamans[name][1] and next(ShamanPower.AllShamans[name][1]) then earth = true end
-		if ShamanPower.AllShamans[name][2] and next(ShamanPower.AllShamans[name][2]) then fire = true end
-		if ShamanPower.AllShamans[name][3] and next(ShamanPower.AllShamans[name][3]) then water = true end
-		if ShamanPower.AllShamans[name][4] and next(ShamanPower.AllShamans[name][4]) then air = true end
-	end
-	return earth, fire, water, air
 end
 
 function ShamanPower:AutoAssignBlessings(shift)
@@ -14695,28 +14549,6 @@ function ShamanPower:ShamanHasManaTide(shamanName)
 	return false
 end
 
-function ShamanPower:AssignNewBuffRatings(BuffPallys)
-	-- No-op for Shamans (Paladin blessing rating system not used)
-end
-
-function ShamanPower:DownRateDefaultBuffs(name, rating)
-	-- No-op for Shamans (Paladin blessing rating system not used)
-end
-
-function ShamanPower:SelectBuffsByClass(pallycount, class, prioritylist)
-	-- No-op for Shamans (Paladin class-based blessing system not used)
-end
-
-function ShamanPower:BuffSelections(buff, class, pallys)
-	-- No-op for Shamans (Paladin blessing selection not used)
-	return ""
-end
-
-function ShamanPower:PallyAvailable(pally, pallys)
-	-- No-op for Shamans - kept for compatibility
-	return false
-end
-
 -- Earth Shield target selection dropdown
 function ShamanPowerAuraButton_OnClick(btn, mouseBtn)
 	if InCombatLockdown() then return end
@@ -14870,188 +14702,6 @@ function ShamanPower_EarthShieldDropdown_Initialize(self, level)
 			CloseDropDownMenus()
 		end
 		UIDropDownMenu_AddButton(info, level)
-	end
-end
-
-function ShamanPower:HasAura(name, test)
-	-- Shamans don't have auras like Paladins - this is kept for compatibility
-	if not ShamanPower.AllShamans[name] or not ShamanPower.AllShamans[name].AuraInfo then
-		return false
-	end
-	if (not ShamanPower.AllShamans[name].AuraInfo[test]) or (ShamanPower.AllShamans[name].AuraInfo[test].rank == 0) then
-		return false
-	end
-	return true
-end
-
-function ShamanPower:PerformAuraCycle(name, skipzero)
-	if not ShamanPower_AuraAssignments[name] then
-		ShamanPower_AuraAssignments[name] = 0
-	end
-	local cur = ShamanPower_AuraAssignments[name]
-	for test = cur + 1, SHAMANPOWER_MAXAURAS do
-		if self:HasAura(name, test) then
-			cur = test
-			do
-				break
-			end
-		end
-	end
-	if (cur == ShamanPower_AuraAssignments[name]) then
-		if skipzero and self:HasAura(name, 1) then
-			cur = 1
-		else
-			cur = 0
-		end
-	end
-	ShamanPower_AuraAssignments[name] = cur
-	local msgQueue
-	msgQueue =
-		C_Timer.NewTimer(
-		2.0,
-		function()
-			self:SendMessage("AASSIGN " .. name .. " " .. ShamanPower_AuraAssignments[name])
-			self:UpdateLayout()
-			msgQueue:Cancel()
-		end
-	)
-end
-
-function ShamanPower:PerformAuraCycleBackwards(name, skipzero)
-	if not ShamanPower_AuraAssignments[name] then
-		ShamanPower_AuraAssignments[name] = 0
-	end
-	local cur = ShamanPower_AuraAssignments[name] - 1
-	if (cur < 0) or (skipzero and (cur < 1)) then
-		cur = SHAMANPOWER_MAXAURAS
-	end
-	for test = cur, 0, -1 do
-		if self:HasAura(name, test) or (test == 0 and not skipzero) then
-			ShamanPower_AuraAssignments[name] = test
-			local msgQueue
-			msgQueue =
-				C_Timer.NewTimer(
-				2.0,
-				function()
-					self:SendMessage("AASSIGN " .. name .. " " .. ShamanPower_AuraAssignments[name])
-					self:UpdateLayout()
-					msgQueue:Cancel()
-				end
-			)
-			do
-				break
-			end
-		end
-	end
-end
-
-function ShamanPower:IsAuraActive(aura)
-	local bFound = false
-	local bSelfCast = false
-	if (aura and aura > 0) then
-		local spell = self.Auras[aura]
-		local j = 1
-		local buffName, _, _, _, _, buffExpire, castBy = UnitBuff("player", j)
-		while buffExpire do
-			if buffName == spell then
-				bFound = true
-				bSelfCast = (castBy == "player")
-				do
-					break
-				end
-			end
-			j = j + 1
-			buffName, _, _, _, _, buffExpire, castBy = UnitBuff("player", j)
-		end
-	end
-	return bFound, bSelfCast
-end
-
-function ShamanPower:UpdateAuraButton(aura)
-	local pallys = {}
-	local auraBtn = _G["ShamanPowerAura"]
-	local auraIcon = _G["ShamanPowerAuraIcon"]
-	if (aura and aura > 0) then
-		for name in pairs(ShamanPower.AllShamans) do
-			if (name ~= self.player) and (ShamanPower.AllShamans[name].subgroup == ShamanPower.AllShamans[self.player].subgroup) and (aura == ShamanPower_AuraAssignments[name]) then
-				tinsert(pallys, name)
-			end
-		end
-		local name, _, icon = GetSpellInfo(self.Auras[aura])
-		if (not InCombatLockdown()) then
-			auraIcon:SetTexture(icon)
-			auraBtn:SetAttribute("spell", name)
-		end
-	else
-		if (not InCombatLockdown()) then
-			auraIcon:SetTexture(nil)
-			auraBtn:SetAttribute("spell", "")
-		end
-	end
-	-- only support two lines of text, so only deal with the first two players in the list...
-	local player1 = _G["ShamanPowerAuraPlayer1"]
-	if pallys[1] then
-		local shortpally1 = Ambiguate(pallys[1], "short")
-		player1:SetText(shortpally1)
-		player1:SetTextColor(1.0, 1.0, 1.0)
-	else
-		player1:SetText("")
-	end
-	local player2 = _G["ShamanPowerAuraPlayer2"]
-	if pallys[2] then
-		local shortpally2 = Ambiguate(pallys[2], "short")
-		player2:SetText(shortpally2)
-		player2:SetTextColor(1.0, 1.0, 1.0)
-	else
-		player2:SetText("")
-	end
-	local btnColour = self.opt.cBuffGood
-	local active, selfCast = self:IsAuraActive(aura)
-	if (active == false) then
-		btnColour = self.opt.cBuffNeedAll
-	elseif (selfCast == false) then
-		btnColour = self.opt.cBuffNeedSome
-	end
-	self:ApplyBackdrop(auraBtn, btnColour)
-end
-
-function ShamanPower:AutoAssignAuras(precedence)
-	local pallys = {}
-	for i = 1, 8 do
-		pallys[("subgroup%d"):format(i)] = {}
-	end
-	for name in pairs(ShamanPower.AllShamans) do
-		if ShamanPower.AllShamans[name].subgroup then
-			local subgroup = "subgroup" .. ShamanPower.AllShamans[name].subgroup
-			if self:CanControl(name) then
-				tinsert(pallys[subgroup], name)
-			end
-		end
-	end
-	for _, subgroup in pairs(pallys) do
-		for _, aura in pairs(precedence) do
-			local assignee = ""
-			local testRank = 0
-			local testTalent = 0
-			for _, pally in pairs(subgroup) do
-				if self:HasAura(pally, aura) and (ShamanPower.AllShamans[pally].AuraInfo[aura].rank >= testRank) then
-					testRank = ShamanPower.AllShamans[pally].AuraInfo[aura].rank
-					if ShamanPower.AllShamans[pally].AuraInfo[aura].talent >= testTalent then
-						testTalent = ShamanPower.AllShamans[pally].AuraInfo[aura].talent
-						assignee = pally
-					end
-				end
-			end
-			if assignee ~= "" then
-				for i, name in pairs(subgroup) do
-					if assignee == name then
-						tremove(subgroup, i)
-						ShamanPower_AuraAssignments[assignee] = aura
-						self:SendMessage("AASSIGN " .. assignee .. " " .. aura)
-					end
-				end
-			end
-		end
 	end
 end
 

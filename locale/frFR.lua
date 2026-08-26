@@ -131,7 +131,7 @@ L["REPORT_CHANNEL_OPTION_TOOLTIP"] = [=[Définissez le canal souhaité pour diff
 |cffffd200 [Liste des chaînes]|r Une liste de canaux remplie automatiquement en fonction des canaux auxquelles le joueur appartient. Les canaux par défaut tels que Trade, General, etc. sont automatiquement filtrés de la liste.
 
 |cffffff00Remarque: si vous modifiez l'ordre des canaux, vous devrez recharger votre interface utilisateur et vérifier qu'elle diffuse sur le canal appropriée.|r]=]
-L["Reset all ShamanPower frames back to center"] = "Réinitialiser la position de toutes les fenêtre pallypower au centre de l’écran"
+L["Reset all ShamanPower frames back to center"] = "Réinitialiser la position de toutes les fenêtres ShamanPower au centre de l’écran"
 L["Reset Frames"] = "Reset Frames"
 L["RESIZEGRIP_TOOLTIP"] = [=[Clic gauche pour redimensionner
 Le clic droit réinitialise la taille par défaut]=]

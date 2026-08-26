@@ -1124,7 +1124,6 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.auras = val
-								ShamanPower:RFAssign(ShamanPower.opt.auras)
 								ShamanPower:UpdateRoster()
 							end
 						},
@@ -1208,7 +1207,6 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.rf = val
-								ShamanPower:RFAssign(ShamanPower.opt.rf)
 							end
 						},
 						seal = {
@@ -1222,7 +1220,6 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.seal = val
-								ShamanPower:SealAssign(ShamanPower.opt.seal)
 							end,
 							values = {
 								[0] = L["None"],
