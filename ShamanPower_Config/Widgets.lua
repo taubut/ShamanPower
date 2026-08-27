@@ -902,7 +902,16 @@ local function CreateInput(parent)
 	row.box = box
 
 	box:SetScript("OnEditFocusGained", function() Core:SetBorderColor(box, "accent") end)
-	box:SetScript("OnEditFocusLost", function() Core:SetBorderColor(box, "border") end)
+	-- Commit on focus loss too (typing a loadout name then clicking Create must
+	-- not lose the name); Escape reverts first, so it still cancels.
+	box:SetScript("OnEditFocusLost", function(self)
+		Core:SetBorderColor(box, "border")
+		local opts = row.opts
+		if opts and not self._spReverting and self:GetText() ~= (opts.get() or "") then
+			opts.set(self:GetText())
+			if opts.onChanged then opts.onChanged() end
+		end
+	end)
 	box:SetScript("OnEnterPressed", function(self)
 		local opts = row.opts
 		if not opts then self:ClearFocus() return end
@@ -912,8 +921,10 @@ local function CreateInput(parent)
 	end)
 	box:SetScript("OnEscapePressed", function(self)
 		local opts = row.opts
+		self._spReverting = true
 		self:SetText(opts and opts.get() or "")
 		self:ClearFocus()
+		self._spReverting = nil
 	end)
 
 	row.spSetControlEnabled = function(_, enabled)

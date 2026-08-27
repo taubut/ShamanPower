@@ -220,6 +220,7 @@ end
 local function CellOnClick(cell, button)
 	local row = cell.row
 	if not row or not row.name then return end
+	if Assign.demo then return end
 	if CombatBlocked() then return end
 	if not SP:CanControl(row.name) then return end
 	if button == "RightButton" then
@@ -308,6 +309,7 @@ local function TwistOnClick(check)
 	local row = check.row
 	local name = row and row.name
 	if not name then return end
+	if Assign.demo then return end
 	-- Self always; others only with control (the receiver enforces this too).
 	if name ~= SP.player and not SP:CanControl(name) then return end
 	ShamanPower_TwistAssignments = ShamanPower_TwistAssignments or {}
@@ -327,6 +329,7 @@ end
 local function EsOnClick(btn, button)
 	local row = btn.row
 	if not row or not row.name then return end
+	if Assign.demo then return end
 	if CombatBlocked() then return end
 	if not SP:CanControl(row.name) then return end
 	local info = SP.AllShamans and SP.AllShamans[row.name]
@@ -736,7 +739,7 @@ function Assign:Redraw()
 
 	Core:SyncOpacity()
 	local scale = o.configscale or 0.9
-	if math.abs(frame:GetScale() - scale) > 0.001 then
+	if not Assign.demo and math.abs(frame:GetScale() - scale) > 0.001 then
 		SP:SetFrameScaleKeepCenter(frame, scale)
 		SavePosition()
 	end
@@ -799,6 +802,68 @@ end
 
 function Assign:IsShown()
 	return frame and frame:IsShown() or false
+end
+
+-- ---------------------------------------------------------------------------
+-- Setup-wizard preview: a fake three-shaman roster (you + two others who also
+-- run ShamanPower), drawn by the real rows; one of them keeps changing an
+-- assignment so the window is seen doing its job. No comms, no clicks.
+-- ---------------------------------------------------------------------------
+local DEMO_OTHERS = {
+	{ name = "Nazgrel",  assign = { 1, 6, 2, 1 }, es = true,  esTarget = "Tank" },
+	{ name = "Drakthul", assign = { 2, 1, 3, 2 }, es = false },
+}
+function Assign:Demo(on)
+	BuildFrame()
+	if on then
+		if self.demo then self:Redraw() return end
+		self.demo = true
+		self._savedSync = SP.SyncList
+		SP.AllShamans = SP.AllShamans or {}
+		ShamanPower_Assignments = ShamanPower_Assignments or {}
+		ShamanPower_TwistAssignments = ShamanPower_TwistAssignments or {}
+		ShamanPower_EarthShieldAssignments = ShamanPower_EarthShieldAssignments or {}
+		local list = { SP.player }
+		for _, d in ipairs(DEMO_OTHERS) do
+			list[#list + 1] = d.name
+			SP.AllShamans[d.name] = { hasEarthShield = d.es, freeassign = true, _demo = true }
+			ShamanPower_Assignments[d.name] = { d.assign[1], d.assign[2], d.assign[3], d.assign[4] }
+			ShamanPower_TwistAssignments[d.name] = (d.name == "Nazgrel")
+			if d.esTarget then ShamanPower_EarthShieldAssignments[d.name] = d.esTarget end
+		end
+		SP.SyncList = list
+		frame:Show()
+		self:Redraw()
+		-- Nazgrel's fire totem keeps getting re-assigned by the raid leader
+		local tick = 0
+		if self._demoTicker then self._demoTicker:Cancel() end
+		self._demoTicker = C_Timer.NewTicker(2.0, function()
+			if not Assign.demo then return end
+			tick = tick + 1
+			local a = ShamanPower_Assignments["Nazgrel"]
+			local n = SP.TotemNames and SP.TotemNames[2] and #SP.TotemNames[2] or 6
+			if a then a[2] = (a[2] % n) + 1 end
+			Assign:Redraw()
+		end)
+	else
+		if not self.demo then return end
+		self.demo = false
+		if self._demoTicker then self._demoTicker:Cancel(); self._demoTicker = nil end
+		for _, d in ipairs(DEMO_OTHERS) do
+			if SP.AllShamans and SP.AllShamans[d.name] and SP.AllShamans[d.name]._demo then SP.AllShamans[d.name] = nil end
+			if ShamanPower_Assignments then ShamanPower_Assignments[d.name] = nil end
+			if ShamanPower_TwistAssignments then ShamanPower_TwistAssignments[d.name] = nil end
+			if ShamanPower_EarthShieldAssignments then ShamanPower_EarthShieldAssignments[d.name] = nil end
+		end
+		SP.SyncList = self._savedSync
+		self._savedSync = nil
+		frame:Hide()
+		self:Redraw()
+	end
+end
+function SP:AssignDemo(on) Assign:Demo(on) end
+if SP.RegisterPreview then
+	SP:RegisterPreview("assign", { frame = "ShamanPowerAssignFrame", demo = "SP:AssignDemo", pad = 24 })
 end
 
 -- ---------------------------------------------------------------------------

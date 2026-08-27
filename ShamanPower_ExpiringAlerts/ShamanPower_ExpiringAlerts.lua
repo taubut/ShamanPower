@@ -933,9 +933,8 @@ SlashCmdList["SPALERTS"] = function(msg)
 		SP:Print("Expiring Alerts " .. (ShamanPowerExpiringAlertsDB.enabled and "enabled" or "disabled"))
 	else
 		-- Open options
-		if LibStub and LibStub("AceConfigDialog-3.0", true) then
-			LibStub("AceConfigDialog-3.0"):Open("ShamanPower")
-			LibStub("AceConfigDialog-3.0"):SelectGroup("ShamanPower", "fluffy", "expiringalerts_section")
+		if ShamanPowerConfig then
+			ShamanPowerConfig:Open({ "fluffy", "expiringalerts_section" })
 		else
 			SP:Print("Expiring Alerts Commands:")
 			SP:Print("  /spalerts - Open options")

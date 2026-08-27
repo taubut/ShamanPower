@@ -361,7 +361,7 @@ function ShamanPower:OpenIconPicker(loadoutIndex, callback)
 	InitializeScrollFrame()
 	-- Anchor to right side of config frame as a pop-out panel
 	iconPickerFrame:ClearAllPoints()
-	local configFrame = _G["ShamanPowerConfigFrame"]
+	local configFrame = _G["ShamanPowerConfigUIFrame"]
 	if configFrame and configFrame:IsShown() then
 		iconPickerFrame:SetPoint("TOPLEFT", configFrame, "TOPRIGHT", -2, 0)
 	else

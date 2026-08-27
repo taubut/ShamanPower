@@ -169,6 +169,14 @@ local STEPS = {
 	    "Normal: assigned totems stay put; a different dropped totem pops up above its slot.",
 	    "TotemTimers style: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "Dynamic: the bar is simply whatever you last dropped. Great for PvP.",
+	    "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
+	  } },
+	{ id = "assign", title = "Assignments", roles = ALL, build = "BuildAssignStep",
+	  desc = "The assignments window: every shaman in your group who runs ShamanPower, side by side, with the totem each one should drop for Earth, Fire, Water and Air.",
+	  bullets = {
+	    "Your row is always yours to set. The raid leader or an assistant can set everyone's - or a shaman can allow it with Free Assign.",
+	    "Left-click a cell (or wheel) for the next totem, right-click for the previous. Twisting and the Earth Shield target are here too.",
+	    "Open it any time with /sp totems, the minimap icon, or the totem bar's handle.",
 	  } },
 	{ id = "durationbars", title = "Duration Bars", roles = ALL, build = "BuildDurationBarsStep",
 	  desc = "How each totem shows its remaining time, cooldown and pulse timer.",
@@ -659,7 +667,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			-- duration bar
 			s.dbg:SetShown(activeNow); s.dbar:SetShown(activeNow); s.dbar:SetWidth(math.max(0.5, SIZE * frac))
 			if m == "normal" then
-				s.over:SetShown(activeNow)
+				s.over:SetShown(activeNow and not s.flyOpen)
 				s.mIcon:SetTexture(e.icon)
 				s.mIcon:SetDesaturated(activeNow); s.mIcon:SetAlpha(activeNow and 0.5 or 1)
 				s.inset:Hide(); s.insetBd:Hide()
@@ -675,6 +683,93 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.inset:Hide(); s.insetBd:Hide()
 			end
 		end
+	end)
+
+	-- ---- flyout demo on the Fire slot ------------------------------------
+	-- A pretend cursor hovers the slot, the flyout opens with the real Fire
+	-- totem icons, left-click drops one, right-click assigns one.
+	local fire = slots[2]
+	local FIRE_ICONS = (SP.TotemIcons and SP.TotemIcons[2]) or {}
+	local FB = SIZE                                  -- flyout buttons match the totem size
+	local fly = CreateFrame("Frame", nil, bar); fly:SetFrameLevel(bar:GetFrameLevel() + 12); fly:SetSize(1, 1); fly:SetPoint("CENTER", fire.main); fly:Hide()
+	local flyBtns, flyIdx = {}, { 2, 3, 4 }        -- shown in the flyout (the assigned one is never listed)
+	for i = 1, 3 do
+		local b = CreateFrame("Frame", nil, fly); b:SetSize(FB, FB)
+		local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(b); bg:SetColorTexture(0, 0, 0, 0.75)
+		local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetPoint("TOPLEFT", 2, -2); ic:SetPoint("BOTTOMRIGHT", -2, 2); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		Core:MakeBorder(b, "border")
+		local hl = b:CreateTexture(nil, "OVERLAY"); hl:SetAllPoints(b); hl:SetColorTexture(1, 1, 1, 0.25); hl:Hide()
+		flyBtns[i] = { f = b, ic = ic, hl = hl }
+	end
+	local function paintFly()
+		for i, b in ipairs(flyBtns) do b.ic:SetTexture(FIRE_ICONS[flyIdx[i]] or fire.e.active); b.hl:Hide() end
+	end
+	local function layoutFly()
+		local lay = SP.opt.layout or "Horizontal"
+		for i, b in ipairs(flyBtns) do
+			b.f:ClearAllPoints()
+			if lay == "Horizontal" then b.f:SetPoint("BOTTOM", fire.main, "TOP", 0, 2 + (i - 1) * FB)
+			elseif lay == "VerticalLeft" then b.f:SetPoint("RIGHT", fire.main, "LEFT", -((i - 1) * FB), 0)
+			else b.f:SetPoint("LEFT", fire.main, "RIGHT", (i - 1) * FB, 0) end
+		end
+	end
+	paintFly()
+	-- the pretend cursor (tip at its top-left) + a click flash
+	local cur = CreateFrame("Frame", nil, inner); cur:SetSize(26, 26); cur:SetFrameLevel(inner:GetFrameLevel() + 40); cur:Hide()
+	local curTex = cur:CreateTexture(nil, "OVERLAY"); curTex:SetAllPoints(cur); curTex:SetTexture("Interface\\Cursor\\Point")
+	local flash = cur:CreateTexture(nil, "OVERLAY"); flash:SetSize(44, 44); flash:SetPoint("CENTER", cur, "TOPLEFT", 3, -3)
+	flash:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); flash:SetBlendMode("ADD"); flash:SetAlpha(0)
+	local flyCap = inner:CreateFontString(nil, "OVERLAY"); flyCap:SetFontObject(Core.fonts.row)
+	flyCap:SetPoint("BOTTOM", styleCap, "TOP", 0, 12); flyCap:SetWidth(inner:GetWidth() - 40); flyCap:SetJustifyH("CENTER"); flyCap:SetWordWrap(true)
+
+	-- position the cursor tip on a frame's centre, in inner's coordinates
+	local cx, cy, tx, ty = 0, 0, 0, 0
+	local function targetOf(f)
+		local x, y = f:GetCenter(); if not x then return end
+		local es, is = f:GetEffectiveScale(), inner:GetEffectiveScale()
+		tx = x * es / is - inner:GetLeft()
+		ty = y * es / is - inner:GetBottom()
+	end
+	local function parkOffscreen() tx, ty = inner:GetWidth() - 30, 60 end
+	parkOffscreen(); cx, cy = tx, ty
+
+	-- choreography: { at = seconds, do = function }
+	local SCRIPT = {
+		{ at = 0.0,  go = function() cur:Show(); parkOffscreen(); flyCap:SetText("") end },
+		{ at = 0.8,  go = function() targetOf(fire.main); flyCap:SetText("Mouse over a totem on the bar...") end },
+		{ at = 2.0,  go = function() fire.flyOpen = true; layoutFly(); paintFly(); fly:Show(); flyCap:SetText("...and its flyout opens with your other totems of that element.") end },
+		{ at = 3.0,  go = function() targetOf(flyBtns[3].f); flyBtns[3].hl:Show() end },
+		{ at = 4.0,  go = function()
+			flash:SetVertexColor(1, 1, 1); flash:SetAlpha(1)
+			fire.e.active = FIRE_ICONS[flyIdx[3]] or fire.e.active; fire.t = 0     -- dropped right now
+			flyCap:SetText("|cffffffffLeft-click|r drops that totem right now.")
+		end },
+		{ at = 5.0,  go = function() fly:Hide(); fire.flyOpen = nil; parkOffscreen() end },
+		{ at = 7.0,  go = function() targetOf(fire.main); flyCap:SetText("Now the other click...") end },
+		{ at = 8.0,  go = function() fire.flyOpen = true; layoutFly(); paintFly(); fly:Show() end },
+		{ at = 9.0,  go = function() targetOf(flyBtns[1].f); flyBtns[1].hl:Show() end },
+		{ at = 10.0, go = function()
+			flash:SetVertexColor(0.3, 0.7, 1); flash:SetAlpha(1)
+			local newAssigned = flyIdx[1]
+			local old = fire.assignedIdx or 1
+			fire.e.icon = FIRE_ICONS[newAssigned] or fire.e.icon; fire.assignedIdx = newAssigned
+			flyIdx[1] = old; paintFly()                                          -- the old one is back in the flyout
+			flyCap:SetText("|cffffffffRight-click|r makes it your |cffffffffassigned|r Fire totem - the one that lives on the bar and drops with your keybind.")
+		end },
+		{ at = 11.2, go = function() fly:Hide(); fire.flyOpen = nil; parkOffscreen() end },
+		{ at = 13.5, go = function() cur:Hide(); flyCap:SetText("") end },
+	}
+	local CYCLE, ft, fi = 14.5, 0, 0
+	local demo = CreateFrame("Frame", nil, inner)
+	demo:SetScript("OnUpdate", function(_, el)
+		ft = ft + el
+		if ft >= CYCLE then ft = 0; fi = 0 end
+		while SCRIPT[fi + 1] and SCRIPT[fi + 1].at <= ft do fi = fi + 1; SCRIPT[fi].go() end
+		-- glide the cursor, fade the flash
+		cx = cx + (tx - cx) * math.min(1, el * 6); cy = cy + (ty - cy) * math.min(1, el * 6)
+		cur:ClearAllPoints(); cur:SetPoint("TOPLEFT", inner, "BOTTOMLEFT", cx, cy)
+		if flash:GetAlpha() > 0 then flash:SetAlpha(math.max(0, flash:GetAlpha() - el * 2.5)) end
+		if fly:IsShown() then layoutFly() end
 	end)
 
 	local buttons = {}
@@ -1971,6 +2066,49 @@ function SP.Wizard.BuildRangeStep(card, inner, y)
 	return y
 end
 
+-- Assignments: the real window with a fake three-shaman roster.
+function SP.Wizard.BuildAssignStep(card, inner, y)
+	local Widgets = ns.Widgets
+	inner.previewInsetBottom = 60
+	inner.previewMaxScale = 1.0
+	local function fit() if inner:IsShown() and inner:GetWidth() > 0 then SP:ShowPreview("assign", inner) end end
+	C_Timer.After(0.02, fit)
+	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
+	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
+	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
+	legend:SetText("You plus two other shamans who also run ShamanPower. Watch the raid leader change Nazgrel's Fire totem - everyone's window updates instantly.")
+
+	-- other shamans need the addon too
+	local box = CreateFrame("Frame", nil, card); box:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); box:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
+	Core:SolidTex(box, "accent", "BACKGROUND", 0.10); Core:MakeBorder(box, "accent")
+	local bw = card:GetWidth() - 36 - 24
+	local bh = box:CreateFontString(nil, "OVERLAY"); bh:SetFontObject(Core.fonts.row); bh:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10); bh:SetWidth(bw)
+	bh:SetJustifyH("LEFT"); bh:SetWordWrap(true); bh:SetTextColor(Core:Color("accentHi")); bh:SetText("OTHER SHAMANS SHOW UP ONLY IF THEY RUN SHAMANPOWER")
+	local bb = box:CreateFontString(nil, "OVERLAY"); bb:SetFontObject(Core.fonts.rowDim); bb:SetPoint("TOPLEFT", bh, "BOTTOMLEFT", 0, -6); bb:SetWidth(bw)
+	bb:SetJustifyH("LEFT"); bb:SetWordWrap(true)
+	bb:SetText("Shamans talk to each other through the addon. A shaman without it will not appear in this list and cannot receive assignments - tell your fellow shamans to install it.")
+	box:SetHeight(20 + bh:GetStringHeight() + 6 + bb:GetStringHeight() + 12)
+	y = y + box:GetHeight() + 14
+
+	local W = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, W
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	row("Toggle", { label = "Free Assign", desc = "Let anyone in the group set your totems, not just the leader and assistants.",
+		get = function() return SP.opt.freeassign and true or false end,
+		set = function(v)
+			SP.opt.freeassign = v
+			local me = SP.AllShamans and SP.AllShamans[SP.player]; if me then me.freeassign = v end
+			if SP.SendSelf and IsInGroup() then pcall(SP.SendSelf, SP) end
+			notify(); if ShamanPowerAssign and ShamanPowerAssign.Redraw then ShamanPowerAssign:Redraw() end
+		end })
+	row("Slider", { label = "Window size", min = 0.4, max = 3.0, step = 0.05, get = function() return SP.opt.configscale or 0.9 end,
+		set = function(v) SP.opt.configscale = v; safecall("UpdateLayout"); safecall("UpdateRoster"); notify() end })
+	return y
+end
+
 function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	local Widgets = ns.Widgets
 	local horde = UnitFactionGroup and UnitFactionGroup("player") == "Horde"
@@ -2364,6 +2502,18 @@ function SP.Wizard:RenderRole()
 	sub:SetWidth(560); sub:SetJustifyH("CENTER")
 	sub:SetText("Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later.")
 
+	-- Loud, on purpose: first-timers should not skip this.
+	local warn = track(CreateFrame("Frame", nil, c))
+	warn:SetSize(640, 10); warn:SetPoint("TOP", sub, "BOTTOM", 0, -14)
+	Core:SolidTex(warn, "warn", "BACKGROUND", 0.12); Core:MakeBorder(warn, "warn", 2)
+	local wh = warn:CreateFontString(nil, "OVERLAY"); wh:SetFontObject(Core.fonts.title)
+	wh:SetPoint("TOP", warn, "TOP", 0, -12); wh:SetWidth(600); wh:SetJustifyH("CENTER"); wh:SetWordWrap(true)
+	wh:SetTextColor(Core:Color("warn")); wh:SetText("FIRST TIME HERE?  DO NOT SKIP THIS SETUP")
+	local wb = warn:CreateFontString(nil, "OVERLAY"); wb:SetFontObject(Core.fonts.row)
+	wb:SetPoint("TOP", wh, "BOTTOM", 0, -6); wb:SetWidth(600); wb:SetJustifyH("CENTER"); wb:SetWordWrap(true)
+	wb:SetText("ShamanPower does a LOT more than a totem bar. This walkthrough shows every feature working and lets you set it up as you go - it is the fastest way to get the most out of the addon.")
+	warn:SetHeight(12 + wh:GetStringHeight() + 6 + wb:GetStringHeight() + 12)
+
 	local roles = {
 		{ key = "restoration", name = "Restoration", blurb = "Healing.\nEarth Shield, Mana Tide, shield charges." },
 		{ key = "enhancement", name = "Enhancement", blurb = "Melee.\nTotem twisting, Windfury, reactive totems." },
@@ -2375,7 +2525,7 @@ function SP.Wizard:RenderRole()
 	for i, r in ipairs(roles) do
 		local card = track(CreateFrame("Button", nil, c))
 		card:SetSize(cardW, cardH)
-		card:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + (i - 1) * (cardW + gap), -136)
+		card:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + (i - 1) * (cardW + gap), -216)
 
 		local bg = card:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(card)
 		local glow = card:CreateTexture(nil, "ARTWORK")
@@ -2423,7 +2573,7 @@ function SP.Wizard:RenderRole()
 	if preset and preset.str then
 		local qbtn = track(Core:MakeButton(c, "Use " .. preset.name .. "  (Quick Setup)", 320, true))
 		qbtn:SetSize(320, 34)
-		qbtn:SetPoint("TOP", c, "TOP", 0, -(136 + cardH + 30))
+		qbtn:SetPoint("TOP", c, "TOP", 0, -(216 + cardH + 24))
 		qbtn:SetScript("OnClick", function()
 			SP:ApplyPreset(preset.key, "overwrite")
 			SP.opt.setupDone = true

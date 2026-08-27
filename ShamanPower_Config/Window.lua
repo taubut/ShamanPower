@@ -477,13 +477,6 @@ local function BuildWindow()
 	local reload, reloadW = FooterButton("Reload UI", 100, "left", CONTENT_PAD, false)
 	reload:SetScript("OnClick", function() ReloadUI() end)
 
-	local aceBtn = FooterButton("Old Options", 110, "left", CONTENT_PAD + reloadW + 8, false)
-	aceBtn:SetScript("OnClick", function()
-		frame:Hide()
-		local acd = LibStub and LibStub("AceConfigDialog-3.0", true)
-		if acd then acd:Open("ShamanPower") end
-	end)
-
 	local done = FooterButton("Done", 110, "right", -CONTENT_PAD, true)
 	done:SetScript("OnClick", function() frame:Hide() end)
 
@@ -1205,6 +1198,14 @@ function SPConfig:UpdateCombatLock()
 		-- Raise above the scroll child's regions, which can otherwise draw over
 		-- a plain sibling frame.
 		block:SetFrameLevel(frame.body:GetFrameLevel() + 25)
+	end
+end
+
+-- Redraw the current page (options table changed shape, e.g. a loadout was
+-- added or renamed). Keeps the scroll position.
+function SPConfig:RefreshCurrent()
+	if frame and frame:IsShown() and frame._current then
+		self:RenderPage(frame._current, frame._query, frame.bodyScroll:GetVerticalScroll())
 	end
 end
 

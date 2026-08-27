@@ -9,7 +9,6 @@ if not L then
 	L = setmetatable({}, {__index = function(t, k) return k end})
 end
 local LSM3 = LibStub("LibSharedMedia-3.0")
-local AceGUI = LibStub("AceGUI-3.0")
 
 -- Register WoW built-in sounds with LibSharedMedia
 -- (LSM:Register rejects "Sound\\" prefix, so insert directly into MediaTable)
@@ -331,8 +330,10 @@ function ShamanPower:OnInitialize()
 
 	self.options.args.profiles = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
 
-	LibStub("AceConfig-3.0"):RegisterOptionsTable("ShamanPower", self.options, {"sp", "shamanpower"})
-	self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions("ShamanPower", "ShamanPower")
+	-- The options table drives the ShamanPower_Config window; no slash
+	-- commands here (AceConfigCmd would open the retired AceGUI dialog).
+	LibStub("AceConfig-3.0"):RegisterOptionsTable("ShamanPower", self.options)
+	self:CreateInterfaceOptionsPanel()
 
 	LSM3:Register("background", "None", "Interface\\Tooltips\\UI-Tooltip-Background")
 	LSM3:Register("background", "Banto", "Interface\\AddOns\\ShamanPower\\Skins\\Banto")
@@ -353,24 +354,12 @@ function ShamanPower:OnInitialize()
 
 	self.menuFrame = LUIDDM:Create_UIDropDownMenu("ShamanPowerMenuFrame", UIParent)
 
-	if not ShamanPowerConfigFrame then
-		local ConfigFrame = AceGUI:Create("Frame")
-		ConfigFrame:EnableResize(false)
-		LibStub("AceConfigDialog-3.0"):SetDefaultSize("ShamanPower", 625, 580)
-		LibStub("AceConfigDialog-3.0"):Open("ShamanPower", ConfigFrame)
-		ConfigFrame:Hide()
-		_G["ShamanPowerConfigFrame"] = ConfigFrame.frame
-		self.configWidget = ConfigFrame
-		table.insert(UISpecialFrames, "ShamanPowerConfigFrame")
-	end
-
+	-- Re-sync the settings window after the options table changed shape
+	-- (loadouts added/renamed, etc.).
 	self.RefreshConfig = function(self)
-		if self.configWidget then
-			LibStub("AceConfigDialog-3.0"):Open("ShamanPower", self.configWidget)
-			-- Hook the "Loadout Name" editbox so typing updates _newLoadoutName live
-			-- (AceConfig inputs only fire set on Enter press)
-			self:HookLoadoutNameEditBox(self.configWidget)
-		end
+		local reg = LibStub("AceConfigRegistry-3.0", true)
+		if reg then reg:NotifyChange("ShamanPower") end
+		if ShamanPowerConfig and ShamanPowerConfig.RefreshCurrent then ShamanPowerConfig:RefreshCurrent() end
 	end
 
 	self.MinimapIcon = LibStub("LibDBIcon-1.0")
@@ -711,14 +700,54 @@ function ShamanPower:Reset()
 	self:UpdateLayout()
 end
 
-function ShamanPower:OpenConfigWindow()
+-- Settings live in the optional ShamanPower_Config module.
+function ShamanPower:OpenConfigWindow(path)
 	if ShamanPowerAssign then ShamanPowerAssign:Hide() end
-	if not ShamanPowerConfigFrame:IsShown() then
-		ShamanPowerConfigFrame:Show()
-		PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN)
+	if ShamanPowerConfig then
+		if path then ShamanPowerConfig:Open(path) else ShamanPowerConfig:Toggle() end
 	else
-		ShamanPowerConfigFrame:Hide()
-		PlaySound(SOUNDKIT.IG_SPELLBOOK_CLOSE)
+		print("|cff0070ddShamanPower|r: enable the |cff00ff00ShamanPower_Config|r module in your AddOns list to open settings.")
+	end
+end
+
+-- Interface > AddOns entry: a single button into the settings window (the
+-- AceConfig-rendered panel is retired).
+function ShamanPower:CreateInterfaceOptionsPanel()
+	if self.optionsFrame or not InterfaceOptions_AddCategory then return end
+	local panel = CreateFrame("Frame", "ShamanPowerInterfacePanel", UIParent)
+	panel.name = "ShamanPower"
+	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	title:SetPoint("TOPLEFT", 16, -16); title:SetText("ShamanPower")
+	local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+	desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8); desc:SetWidth(560); desc:SetJustifyH("LEFT")
+	desc:SetText("All ShamanPower settings live in their own window. Type /sp, right-click the minimap icon, or press the button below.")
+	local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+	btn:SetSize(200, 26); btn:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -16); btn:SetText("Open ShamanPower Settings")
+	btn:SetScript("OnClick", function()
+		if InterfaceOptionsFrame then InterfaceOptionsFrame:Hide() end
+		if GameMenuFrame then GameMenuFrame:Hide() end
+		ShamanPower:OpenConfigWindow()
+	end)
+	InterfaceOptions_AddCategory(panel)
+	self.optionsFrame = panel
+end
+
+-- /sp and /shamanpower
+SLASH_SHAMANPOWER1 = "/sp"
+SLASH_SHAMANPOWER2 = "/shamanpower"
+SlashCmdList["SHAMANPOWER"] = function(msg)
+	msg = strtrim(strlower(msg or ""))
+	if msg == "" or msg == "config" or msg == "options" or msg == "settings" then
+		ShamanPower:OpenConfigWindow()
+	elseif msg == "totems" or msg == "to" or msg == "assign" then
+		ShamanPower:ToggleAssignmentWindow()
+	elseif msg == "setup" then
+		if ShamanPower.Wizard and ShamanPower.Wizard.Open then ShamanPower.Wizard:Open() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
+	elseif msg == "range" then
+		if ShamanPower.ToggleSPRange then ShamanPower:ToggleSPRange() end
+	else
+		print("|cff0070ddShamanPower|r commands:")
+		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay")
 	end
 end
 
@@ -13342,34 +13371,6 @@ function ShamanPower:SetLoadoutIcon(index, iconPath)
 	if not loadout then return end
 	loadout.icon = iconPath
 	self:UpdateLoadoutBar()
-end
-
--- Hook the "Loadout Name" editbox to capture text as user types (no Enter needed)
-function ShamanPower:HookLoadoutNameEditBox(container)
-	local function scanWidgets(widgets)
-		if not widgets then return end
-		for _, widget in ipairs(widgets) do
-			if widget.type == "EditBox" and widget.label
-				and widget.label:GetText() == "Loadout Name" then
-				if widget.editbox and not widget.editbox._spNameHooked then
-					widget.editbox._spNameHooked = true
-					widget.editbox:HookScript("OnTextChanged", function(eb, userInput)
-						if userInput then
-							ShamanPower._newLoadoutName = eb:GetText()
-						end
-					end)
-				end
-				return
-			end
-			-- Recurse into container children
-			if widget.children then
-				scanWidgets(widget.children)
-			end
-		end
-	end
-	if container and container.children then
-		scanWidgets(container.children)
-	end
 end
 
 -- Get the display icon for a loadout (same as TotemTimers.GetLoadoutIcon):

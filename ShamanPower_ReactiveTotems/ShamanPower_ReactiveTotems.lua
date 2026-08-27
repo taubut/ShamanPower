@@ -315,9 +315,8 @@ function SP:CreateReactiveTotemFrame(totemId)
 	frame:SetScript("OnClick", function(self, button)
 		if button == "RightButton" then
 			-- Open Look & Feel settings
-			if LibStub and LibStub("AceConfigDialog-3.0", true) then
-				LibStub("AceConfigDialog-3.0"):Open("ShamanPower")
-				LibStub("AceConfigDialog-3.0"):SelectGroup("ShamanPower", "fluffy", "reactivetotems_section")
+			if ShamanPowerConfig then
+				ShamanPowerConfig:Open({ "fluffy", "reactivetotems_section" })
 			end
 		end
 	end)
@@ -934,9 +933,8 @@ SlashCmdList["SPREACTIVE"] = function(msg)
 		SP:HideAllReactiveFrames()
 	else
 		-- Open ShamanPower options to Look & Feel > Reactive Totems using AceConfigDialog
-		if LibStub and LibStub("AceConfigDialog-3.0", true) then
-			LibStub("AceConfigDialog-3.0"):Open("ShamanPower")
-			LibStub("AceConfigDialog-3.0"):SelectGroup("ShamanPower", "fluffy", "reactivetotems_section")
+		if ShamanPowerConfig then
+			ShamanPowerConfig:Open({ "fluffy", "reactivetotems_section" })
 		else
 			SP:Print("Type /sp to open ShamanPower settings, then go to Look & Feel > Reactive Totems")
 		end
