@@ -446,17 +446,7 @@ function ShamanPower:OnInitialize()
 		ShamanPower_TwistAssignments = {}
 	end
 
-	local h = _G["ShamanPowerFrame"]
-	h:ClearAllPoints()
-	local x = self.opt.display.offsetX
-	local y = self.opt.display.offsetY
-	if x and y and x ~= 0 and y ~= 0 then
-		-- Restore absolute position (CENTER of frame at saved x,y screen coordinates)
-		h:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-	else
-		-- Default to center of screen if no saved position
-		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	end
+	self:RestoreTotemBarPosition()
 
 end
 
@@ -487,12 +477,32 @@ end
 
 -- Helper to save frame position to profile (ensures display table exists)
 -- Saves absolute screen position for exact restore
+-- profile.display.position (record). Legacy profiles used absolute frame-unit
+-- offsetX/Y; those convert the first time they are restored.
+function ShamanPower:RestoreTotemBarPosition()
+	local h = _G["ShamanPowerFrame"]
+	if not h then return end
+	self:EnsureProfileTable("display")
+	local d = self.opt.display
+	h:SetScale(self.opt.buffscale or 0.9)   -- records are scale-free; SetPoint is not
+	self._barScaleApplied = true
+	if d.position and d.position.anchor then
+		self:ApplyPositionRecord(h, d.position)
+	elseif d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0 then
+		h:ClearAllPoints()
+		h:SetPoint("CENTER", UIParent, "BOTTOMLEFT", d.offsetX, d.offsetY)
+		d.position = self:SavePositionRecord(h)
+		d.offsetX, d.offsetY = nil, nil
+	else
+		h:ClearAllPoints()
+		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
+end
+
 function ShamanPower:SaveFramePosition(frame)
 	self:EnsureProfileTable("display")
-	-- Save the frame's center as absolute screen coordinates
-	local x, y = frame:GetCenter()
-	self.db.profile.display.offsetX = x
-	self.db.profile.display.offsetY = y
+	self.db.profile.display.position = self:SavePositionRecord(frame)
+	self.db.profile.display.offsetX, self.db.profile.display.offsetY = nil, nil
 end
 
 function ShamanPower:OnEnable()
@@ -619,24 +629,7 @@ function ShamanPower:OnProfileChanged()
 
 	-- Reset frame positions when profile changes (prevents off-screen issues)
 	if not InCombatLockdown() then
-		local h = _G["ShamanPowerFrame"]
-		if h then
-			-- Scale before anchoring: the saved offsets are in frame units of
-			-- the new profile's scale. Then let UpdateLayout treat this as a
-			-- fresh first application rather than a change to compensate.
-			h:SetScale(self.opt.buffscale or 0.9)
-			self._barScaleApplied = true
-			h:ClearAllPoints()
-			local x = self.opt.display and self.opt.display.offsetX
-			local y = self.opt.display and self.opt.display.offsetY
-			if x and y and x ~= 0 and y ~= 0 then
-				-- Restore absolute position (CENTER of frame at saved x,y screen coordinates)
-				h:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-			else
-				-- Default to center of screen if no saved position
-				h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-			end
-		end
+		self:RestoreTotemBarPosition()
 		if self.loadoutAnchor then
 			self.loadoutAnchor:SetScale(self.opt.loadoutBarScale or 1.0)
 			self.loadoutAnchor._scaleApplied = true
@@ -695,8 +688,9 @@ function ShamanPower:Reset()
 	h:ClearAllPoints()
 	h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	self:EnsureProfileTable("display")
-	self.opt.display.offsetX = 0
-	self.opt.display.offsetY = 0
+	self.opt.display.offsetX = nil
+	self.opt.display.offsetY = nil
+	self.opt.display.position = nil
 
 	-- Reset visual settings to defaults
 	self.opt.buffscale = 0.9
@@ -3143,8 +3137,11 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 
 	-- Restore position or default to center
 	local pos = self.opt.poppedOutPositions and self.opt.poppedOutPositions[key]
-	if pos then
+	if pos and pos.anchor then
+		self:ApplyPositionRecord(frame, pos)
+	elseif pos then
 		frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+		self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
 	else
 		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	end
@@ -3170,9 +3167,8 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	end)
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
-		local point, _, relPoint, x, y = self:GetPoint()
 		ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-		ShamanPower.opt.poppedOutPositions[key] = {point=point, relPoint=relPoint, x=x, y=y}
+		ShamanPower.opt.poppedOutPositions[key] = ShamanPower:SavePositionRecord(self)
 	end)
 
 	-- Middle-click on frame to return to bar
@@ -3218,9 +3214,8 @@ function ShamanPower:SetPopOutScale(key, scale)
 			frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", centerX / scale, centerY / scale)
 
 			-- Save new position
-			local point, _, relPoint, x, y = frame:GetPoint()
 			self.opt.poppedOutPositions = self.opt.poppedOutPositions or {}
-			self.opt.poppedOutPositions[key] = {point=point, relPoint=relPoint, x=x, y=y}
+			self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
 		else
 			frame:SetScale(scale)
 		end
@@ -5456,11 +5451,9 @@ function ShamanPower:CreateCooldownBar()
 		-- Only save position if we were actually dragging
 		if ShamanPower.cooldownBarDragging then
 			-- Save full anchor info so restore uses exact same positioning
-			local point, _, relPoint, x, y = self:GetPoint()
-			ShamanPower.opt.cooldownBarPoint = point
-			ShamanPower.opt.cooldownBarRelPoint = relPoint
-			ShamanPower.opt.cooldownBarPosX = x
-			ShamanPower.opt.cooldownBarPosY = y
+			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(self)
+			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
+			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
 			ShamanPower.cooldownBarDragging = false
 		end
 	end)
@@ -5504,11 +5497,9 @@ function ShamanPower:CreateCooldownBar()
 		-- Only save position if we were actually dragging
 		if ShamanPower.cooldownBarDragging then
 			-- Save full anchor info so restore uses exact same positioning
-			local point, _, relPoint, x, y = ShamanPower.cooldownBar:GetPoint()
-			ShamanPower.opt.cooldownBarPoint = point
-			ShamanPower.opt.cooldownBarRelPoint = relPoint
-			ShamanPower.opt.cooldownBarPosX = x
-			ShamanPower.opt.cooldownBarPosY = y
+			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
+			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
+			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
 			ShamanPower.cooldownBarDragging = false
 		end
 	end)
@@ -6968,9 +6959,16 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 			self.cooldownBar:SetScale(self.opt.cooldownBarScale or 0.9)
 			self.cooldownBar._scaleApplied = true
 			-- Use saved anchor point if available, otherwise default to CENTER
-			local point = self.opt.cooldownBarPoint or "CENTER"
-			local relPoint = self.opt.cooldownBarRelPoint or "CENTER"
-			self.cooldownBar:SetPoint(point, UIParent, relPoint, self.opt.cooldownBarPosX, self.opt.cooldownBarPosY)
+			if self.opt.cooldownBarPosition and self.opt.cooldownBarPosition.anchor then
+				self:ApplyPositionRecord(self.cooldownBar, self.opt.cooldownBarPosition)
+			else
+				local point = self.opt.cooldownBarPoint or "CENTER"
+				local relPoint = self.opt.cooldownBarRelPoint or "CENTER"
+				self.cooldownBar:SetPoint(point, UIParent, relPoint, self.opt.cooldownBarPosX or 0, self.opt.cooldownBarPosY or 0)
+				self.opt.cooldownBarPosition = self:SavePositionRecord(self.cooldownBar)
+				self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
+				self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
+			end
 		end
 
 		self.cooldownBar:EnableMouse(true)
@@ -7000,11 +6998,7 @@ function ShamanPower:UpdateCooldownBarScale()
 			bar._scaleApplied = true
 		elseif math.abs(bar:GetScale() - cdScale) > 0.001 then
 			self:SetFrameScaleKeepCenter(bar, cdScale)
-			local point, _, relPoint, x, y = bar:GetPoint()
-			if point then
-				self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = point, relPoint
-				self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = x, y
-			end
+			self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
 		end
 	end
 end
@@ -13668,15 +13662,19 @@ end
 function ShamanPower:SaveLoadoutBarPosition()
 	local anchor = self.loadoutAnchor
 	if not anchor then return end
-	local point, _, relPoint, x, y = anchor:GetPoint()
-	self.opt.loadoutBarPosition = {point = point, relPoint = relPoint, x = x, y = y}
+	self.opt.loadoutBarPosition = self:SavePositionRecord(anchor)
 end
 
 function ShamanPower:RestoreLoadoutBarPosition()
 	local pos = self.opt.loadoutBarPosition
 	if pos and self.loadoutAnchor then
 		self.loadoutAnchor:ClearAllPoints()
-		self.loadoutAnchor:SetPoint(pos.point or "CENTER", UIParent, pos.relPoint or "CENTER", pos.x or 0, pos.y or -200)
+		if pos.anchor then
+			self:ApplyPositionRecord(self.loadoutAnchor, pos)
+		else
+			self.loadoutAnchor:SetPoint(pos.point or "CENTER", UIParent, pos.relPoint or "CENTER", pos.x or 0, pos.y or -200)
+			self.opt.loadoutBarPosition = self:SavePositionRecord(self.loadoutAnchor)
+		end
 	end
 end
 

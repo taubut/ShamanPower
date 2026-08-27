@@ -486,18 +486,17 @@ end
 -- Window
 -- ---------------------------------------------------------------------------
 local function SavePosition()
-	local o = Opt()
-	local point, _, relPoint, x, y = frame:GetPoint(1)
-	if point then
-		o.assignWindowPos = { point = point, relPoint = relPoint, x = x, y = y }
-	end
+	Opt().assignWindowPos = SP:SavePositionRecord(frame)
 end
 
 local function RestorePosition()
 	local pos = Opt().assignWindowPos
 	frame:ClearAllPoints()
-	if pos and pos.point then
+	if pos and pos.anchor then
+		SP:ApplyPositionRecord(frame, pos)
+	elseif pos and pos.point then
 		frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+		Opt().assignWindowPos = SP:SavePositionRecord(frame)
 	else
 		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	end
