@@ -5,6 +5,7 @@
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: New options UI and totem assignment window for ShamanPower.
 ## Dependencies: ShamanPower
+## OptionalDeps: ShamanPower_RaidCooldowns, ShamanPower_SPRange, ShamanPower_ReactiveTotems, ShamanPower_TremorReminder, ShamanPower_ESTracker, ShamanPower_PartyRange, ShamanPower_ExpiringAlerts
 ## LoadOnDemand: 0
 ## DefaultState: enabled
 
@@ -13,3 +14,7 @@ Widgets.lua
 Tree.lua
 Window.lua
 Assign.lua
+FrameSettings.lua
+PopOut.lua
+RaidCD.lua
+SPRange.lua

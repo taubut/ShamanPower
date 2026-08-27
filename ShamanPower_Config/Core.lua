@@ -407,4 +407,112 @@ function Core:AttachScrollbar(scroll, child, opts)
 	return track
 end
 
+-- ---------------------------------------------------------------------------
+-- Buttons and dialog chrome
+-- Shared by every window in the module so they all look like one product.
+-- ---------------------------------------------------------------------------
+function Core:MakeButton(parent, text, width, primary)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetHeight(26)
+	local bg = b:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(b)
+	bg:SetColorTexture(self:Color("accent", primary and 0.30 or 0.12))
+	self:MakeBorder(b, primary and "accent" or "border")
+	local t = b:CreateFontString(nil, "OVERLAY")
+	t:SetFontObject(self.fonts.button)
+	t:SetPoint("CENTER")
+	t:SetText(text)
+	t:SetTextColor(self:Color(primary and "accentHi" or "text"))
+	b:SetWidth(math.max(width or 0, t:GetStringWidth() + 28))
+	b:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", primary and 0.48 or 0.26)) end)
+	b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
+	b.text, b.bg = t, bg
+	return b
+end
+
+-- A window shell: dark panel, 2px accent border, header band with title and
+-- subtitle, accent rule, close button, drag-anywhere, toplevel, optional
+-- Escape-to-close. Returns the frame; content goes in frame.body, which
+-- spans from under the header to opts.footer pixels above the bottom.
+--   opts = { name, width, height, title, subtitle, footer, special, strata }
+function Core:CreateDialog(opts)
+	local HEADER_H, PAD = opts.headerHeight or 46, opts.pad or 14
+	local f = CreateFrame("Frame", opts.name, UIParent)
+	f:SetSize(opts.width or 320, opts.height or 200)
+	-- A frame with no anchor never renders; callers may re-anchor later.
+	f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	f:SetFrameStrata(opts.strata or "HIGH")
+	f:SetToplevel(true)
+	f:SetClampedToScreen(true)
+	f:EnableMouse(true)
+	f:SetMovable(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", f.StartMoving)
+	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); if self.spOnMoved then self:spOnMoved() end end)
+	f:Hide()
+	if opts.special and opts.name then tinsert(UISpecialFrames, opts.name) end
+
+	self:SolidTex(f, "windowBg", "BACKGROUND", nil, true)
+	self:MakeBorder(f, "accent", 2)
+
+	local header = CreateFrame("Frame", nil, f)
+	header:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
+	header:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
+	header:SetHeight(HEADER_H)
+	self:SolidTex(header, "sidebarBg", "BACKGROUND", nil, true)
+	f.header = header
+
+	local title = header:CreateFontString(nil, "OVERLAY")
+	title:SetFontObject(self.fonts.brand)
+	title:SetPoint("LEFT", header, "LEFT", PAD, 6)
+	title:SetText(opts.title or "")
+	f.title = title
+
+	local sub = header:CreateFontString(nil, "OVERLAY")
+	sub:SetFontObject(self.fonts.tiny)
+	sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -2)
+	sub:SetText(opts.subtitle and strupper(opts.subtitle) or "")
+	f.subtitle = sub
+
+	local glow = self:AccentGlow(f, 2)
+	glow:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -(HEADER_H + 2))
+	glow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -(HEADER_H + 2))
+
+	local close = CreateFrame("Button", nil, f)
+	close:SetSize(22, 22)
+	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -12)
+	self:MakeBorder(close, "border")
+	local x = close:CreateFontString(nil, "OVERLAY")
+	x:SetFontObject(self.fonts.row)
+	x:SetPoint("CENTER")
+	x:SetText("X")
+	x:SetTextColor(self:Color("textDim"))
+	close:SetScript("OnEnter", function() Core:SetBorderColor(close, "warn"); x:SetTextColor(Core:Color("warn")) end)
+	close:SetScript("OnLeave", function() Core:SetBorderColor(close, "border"); x:SetTextColor(Core:Color("textDim")) end)
+	close:SetScript("OnClick", function() f:Hide() end)
+	f.close = close
+
+	local body = CreateFrame("Frame", nil, f)
+	body:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -(HEADER_H + 4 + (opts.bodyTop or 10)))
+	body:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, (opts.footer or 0) + PAD)
+	f.body = body
+	f.pad = PAD
+
+	f:SetScript("OnShow", function(self)
+		Core:SyncOpacity()
+		self:Raise()
+		if self.spOnShow then self:spOnShow() end
+	end)
+	f:SetScript("OnHide", function(self)
+		if ns and ns.Widgets and ns.Widgets.HidePopup then ns.Widgets:HidePopup() end
+		if self.spOnHide then self:spOnHide() end
+	end)
+
+	function f:SetTitles(t, st)
+		self.title:SetText(t or "")
+		self.subtitle:SetText(st and strupper(st) or "")
+	end
+	return f
+end
+
 return Core

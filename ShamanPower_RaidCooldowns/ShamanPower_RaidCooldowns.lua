@@ -74,151 +74,13 @@ function SP:GetBloodlustTarget()
 end
 
 -- Toggle the raid cooldown panel
+-- The panel lives in ShamanPower_Config (RaidCD.lua), which replaces these
+-- two functions; without that module there is no window.
 function SP:ToggleRaidCooldownPanel()
-	if not self.raidCooldownPanel then
-		self:CreateRaidCooldownPanel()
-	end
-
-	if self.raidCooldownPanel:IsShown() then
-		self.raidCooldownPanel:Hide()
-	else
-		self:UpdateRaidCooldownPanel()
-		self.raidCooldownPanel:Show()
-	end
+	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for the Raid Cooldowns window")
 end
 
 -- Create the raid cooldown panel UI
-function SP:CreateRaidCooldownPanel()
-	if self.raidCooldownPanel then return end
-
-	local panel = CreateFrame("Frame", "ShamanPowerRaidCooldownPanel", UIParent, "BackdropTemplate")
-	panel:SetSize(300, 380)
-	panel:SetPoint("CENTER")
-	panel:SetMovable(true)
-	panel:EnableMouse(true)
-	panel:RegisterForDrag("LeftButton")
-	panel:SetScript("OnDragStart", panel.StartMoving)
-	panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
-	panel:SetFrameStrata("DIALOG")
-	panel:Hide()
-
-	-- Match main ShamanPower frame styling
-	panel:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true,
-		tileEdge = true,
-		tileSize = 16,
-		edgeSize = 16,
-		insets = {left = 4, right = 4, top = 4, bottom = 4},
-	})
-	panel:SetBackdropColor(0.02, 0.02, 0.02, 0.95)
-	panel:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.9)
-
-	-- Title with gold color like main frame
-	local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOP", 0, -12)
-	title:SetText("|cffffd200Raid Cooldowns|r")
-
-	-- Close button (small X)
-	local closeBtn = CreateFrame("Button", nil, panel)
-	closeBtn:SetSize(16, 16)
-	closeBtn:SetPoint("TOPRIGHT", -6, -6)
-	closeBtn:SetNormalTexture("Interface\\Buttons\\UI-StopButton")
-	closeBtn:SetHighlightTexture("Interface\\Buttons\\UI-StopButton", "ADD")
-	closeBtn:GetHighlightTexture():SetVertexColor(1, 0, 0)
-	closeBtn:SetScript("OnClick", function() panel:Hide() end)
-
-	-- Determine if Alliance (Heroism) or Horde (Bloodlust)
-	local faction = UnitFactionGroup("player")
-	local blName = (faction == "Alliance") and "Heroism" or "Bloodlust"
-
-	-- Horizontal separator under title
-	local sep1 = panel:CreateTexture(nil, "ARTWORK")
-	sep1:SetHeight(1)
-	sep1:SetPoint("TOPLEFT", 10, -32)
-	sep1:SetPoint("TOPRIGHT", -10, -32)
-	sep1:SetColorTexture(0.5, 0.5, 0.5, 0.5)
-
-	-- BL/Heroism Section Header
-	local blHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	blHeader:SetPoint("TOPLEFT", 15, -42)
-	blHeader:SetText("|cffff8800" .. blName .. " Assignment|r")
-
-	-- Primary dropdown
-	local primaryLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	primaryLabel:SetPoint("TOPLEFT", 25, -65)
-	primaryLabel:SetText("|cffffffffPrimary:|r")
-
-	local primaryDropdown = CreateFrame("Frame", "ShamanPowerRCPrimaryDropdown", panel, "UIDropDownMenuTemplate")
-	primaryDropdown:SetPoint("TOPLEFT", 85, -60)
-	UIDropDownMenu_SetWidth(primaryDropdown, 130)
-	panel.primaryDropdown = primaryDropdown
-
-	-- Backup 1 dropdown
-	local backup1Label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	backup1Label:SetPoint("TOPLEFT", 25, -95)
-	backup1Label:SetText("|cffffffffBackup 1:|r")
-
-	local backup1Dropdown = CreateFrame("Frame", "ShamanPowerRCBackup1Dropdown", panel, "UIDropDownMenuTemplate")
-	backup1Dropdown:SetPoint("TOPLEFT", 85, -90)
-	UIDropDownMenu_SetWidth(backup1Dropdown, 130)
-	panel.backup1Dropdown = backup1Dropdown
-
-	-- Backup 2 dropdown
-	local backup2Label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	backup2Label:SetPoint("TOPLEFT", 25, -125)
-	backup2Label:SetText("|cffffffffBackup 2:|r")
-
-	local backup2Dropdown = CreateFrame("Frame", "ShamanPowerRCBackup2Dropdown", panel, "UIDropDownMenuTemplate")
-	backup2Dropdown:SetPoint("TOPLEFT", 85, -120)
-	UIDropDownMenu_SetWidth(backup2Dropdown, 130)
-	panel.backup2Dropdown = backup2Dropdown
-
-	-- Caller dropdown
-	local callerLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	callerLabel:SetPoint("TOPLEFT", 25, -155)
-	callerLabel:SetText("|cffffffffCaller:|r")
-
-	local callerDropdown = CreateFrame("Frame", "ShamanPowerRCCallerDropdown", panel, "UIDropDownMenuTemplate")
-	callerDropdown:SetPoint("TOPLEFT", 85, -150)
-	UIDropDownMenu_SetWidth(callerDropdown, 130)
-	panel.callerDropdown = callerDropdown
-
-	-- Separator before Mana Tide section
-	local sep2 = panel:CreateTexture(nil, "ARTWORK")
-	sep2:SetHeight(1)
-	sep2:SetPoint("TOPLEFT", 10, -185)
-	sep2:SetPoint("TOPRIGHT", -10, -185)
-	sep2:SetColorTexture(0.5, 0.5, 0.5, 0.5)
-
-	-- Mana Tide Section Header
-	local mtHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	mtHeader:SetPoint("TOPLEFT", 15, -197)
-	mtHeader:SetText("|cff0088ffMana Tide Assignments|r")
-
-	local mtDesc = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	mtDesc:SetPoint("TOPLEFT", 25, -215)
-	mtDesc:SetText("|cff888888Assign a caller for each shaman's Mana Tide|r")
-
-	-- Column headers with gold color
-	local shamanHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	shamanHeader:SetPoint("TOPLEFT", 25, -235)
-	shamanHeader:SetText("|cffffd200Shaman (Group)|r")
-
-	local callerHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-	callerHeader:SetPoint("TOPLEFT", 150, -235)
-	callerHeader:SetText("|cffffd200Caller|r")
-
-	-- Container for MT assignments (will be populated dynamically)
-	local mtContainer = CreateFrame("Frame", "ShamanPowerMTContainer", panel)
-	mtContainer:SetPoint("TOPLEFT", 25, -253)
-	mtContainer:SetSize(280, 120)
-	panel.mtContainer = mtContainer
-	panel.mtRows = {}
-
-	self.raidCooldownPanel = panel
-end
 
 -- Get list of shamans in the raid/party
 function SP:GetRaidShamans()
@@ -293,92 +155,6 @@ end
 
 -- Update the raid cooldown panel dropdowns
 function SP:UpdateRaidCooldownPanel()
-	if not self.raidCooldownPanel then return end
-
-	self:InitRaidCooldowns()
-
-	local shamans = self:GetRaidShamans()
-	local members = self:GetRaidMembers()
-	local bl = ShamanPower_RaidCooldowns.bloodlust
-
-	-- Helper to create dropdown menu
-	local function InitShamanDropdown(dropdown, field)
-		UIDropDownMenu_Initialize(dropdown, function(self, level)
-			-- Read current value each time dropdown opens
-			local currentValue = bl[field]
-			local info = UIDropDownMenu_CreateInfo()
-
-			-- None option
-			info.text = "-- None --"
-			info.value = nil
-			info.checked = (currentValue == nil)
-			info.func = function()
-				bl[field] = nil
-				UIDropDownMenu_SetText(dropdown, "-- None --")
-				SP:SendRaidCooldownSync()
-			end
-			UIDropDownMenu_AddButton(info)
-
-			-- Shaman options
-			for _, name in ipairs(shamans) do
-				info.text = name
-				info.value = name
-				info.checked = (currentValue == name)
-				info.func = function()
-					bl[field] = name
-					UIDropDownMenu_SetText(dropdown, name)
-					SP:SendRaidCooldownSync()
-				end
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-		UIDropDownMenu_SetText(dropdown, bl[field] or "-- None --")
-	end
-
-	-- Helper for caller dropdown (all members)
-	local function InitCallerDropdown(dropdown)
-		UIDropDownMenu_Initialize(dropdown, function(self, level)
-			-- Read current value each time dropdown opens
-			local currentValue = bl.caller
-			local info = UIDropDownMenu_CreateInfo()
-
-			info.text = "-- None --"
-			info.value = nil
-			info.checked = (currentValue == nil)
-			info.func = function()
-				bl.caller = nil
-				UIDropDownMenu_SetText(dropdown, "-- None --")
-				SP:SendRaidCooldownSync()
-				SP:UpdateCallerButtons()
-			end
-			UIDropDownMenu_AddButton(info)
-
-			for _, name in ipairs(members) do
-				info.text = name
-				info.value = name
-				info.checked = (currentValue == name)
-				info.func = function()
-					bl.caller = name
-					UIDropDownMenu_SetText(dropdown, name)
-					SP:SendRaidCooldownSync()
-					SP:UpdateCallerButtons()
-				end
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-		UIDropDownMenu_SetText(dropdown, bl.caller or "-- None --")
-	end
-
-	-- Initialize dropdowns
-	InitShamanDropdown(self.raidCooldownPanel.primaryDropdown, "primary")
-	InitShamanDropdown(self.raidCooldownPanel.backup1Dropdown, "backup1")
-	InitShamanDropdown(self.raidCooldownPanel.backup2Dropdown, "backup2")
-	InitCallerDropdown(self.raidCooldownPanel.callerDropdown)
-
-	-- Update Mana Tide rows
-	self:UpdateManaTideRows(members)
-
-	-- Update floating caller buttons
 	self:UpdateCallerButtons()
 end
 
@@ -435,83 +211,6 @@ function SP:GetManaTideShamans()
 end
 
 -- Update Mana Tide assignment rows
-function SP:UpdateManaTideRows(members)
-	local panel = self.raidCooldownPanel
-	if not panel or not panel.mtContainer then return end
-
-	-- Hide existing rows
-	for _, row in ipairs(panel.mtRows or {}) do
-		if row.label then row.label:Hide() end
-		if row.dropdown then row.dropdown:Hide() end
-	end
-	panel.mtRows = {}
-
-	-- Get shamans with Mana Tide
-	local mtShamans = self:GetManaTideShamans()
-	local mt = ShamanPower_RaidCooldowns.manatide
-
-	local yOffset = 0
-	for i, shamanInfo in ipairs(mtShamans) do
-		local shamanName = shamanInfo.name
-		local group = shamanInfo.group
-
-		-- Create row elements
-		local row = {}
-
-		-- Shaman name label
-		row.label = panel.mtContainer:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		row.label:SetPoint("TOPLEFT", 0, yOffset)
-		row.label:SetText(shamanName .. " (G" .. group .. ")")
-		row.label:SetTextColor(1, 1, 1)
-
-		-- Caller dropdown
-		row.dropdown = CreateFrame("Frame", "ShamanPowerMTCaller" .. i, panel.mtContainer, "UIDropDownMenuTemplate")
-		row.dropdown:SetPoint("TOPLEFT", 100, yOffset + 5)
-		UIDropDownMenu_SetWidth(row.dropdown, 90)
-
-		UIDropDownMenu_Initialize(row.dropdown, function(self, level)
-			-- Read current value each time dropdown opens
-			local currentCaller = mt[shamanName] and mt[shamanName].caller or nil
-			local info = UIDropDownMenu_CreateInfo()
-
-			info.text = "-- None --"
-			info.value = nil
-			info.checked = (currentCaller == nil)
-			info.func = function()
-				if not mt[shamanName] then mt[shamanName] = {} end
-				mt[shamanName].caller = nil
-				UIDropDownMenu_SetText(row.dropdown, "-- None --")
-				SP:SendRaidCooldownSync()
-				SP:UpdateCallerButtons()
-			end
-			UIDropDownMenu_AddButton(info)
-
-			for _, memberName in ipairs(members) do
-				info.text = memberName
-				info.value = memberName
-				info.checked = (currentCaller == memberName)
-				info.func = function()
-					if not mt[shamanName] then mt[shamanName] = {} end
-					mt[shamanName].caller = memberName
-					UIDropDownMenu_SetText(row.dropdown, memberName)
-					SP:SendRaidCooldownSync()
-					SP:UpdateCallerButtons()
-				end
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-		local initialCaller = mt[shamanName] and mt[shamanName].caller or nil
-		UIDropDownMenu_SetText(row.dropdown, initialCaller or "-- None --")
-
-		table.insert(panel.mtRows, row)
-		yOffset = yOffset - 30
-	end
-
-	-- Resize panel based on content
-	local baseHeight = 280
-	local mtHeight = #mtShamans * 30
-	panel:SetHeight(baseHeight + mtHeight)
-end
 
 -- Call Mana Tide for a specific shaman
 function SP:CallManaTideForShaman(shamanName)
@@ -800,14 +499,7 @@ function SP:CreateCallerButtonFrame()
 	frame:SetFrameStrata("HIGH")
 	frame:Hide()
 
-	frame:SetBackdrop({
-		bgFile = "Interface\\Buttons\\WHITE8x8",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		edgeSize = 14,
-		insets = {left = 3, right = 3, top = 3, bottom = 3},
-	})
-	frame:SetBackdropColor(0.1, 0.1, 0.1, 0.85)
-	frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+	SP:ApplyPanelBackdrop(frame)
 
 	-- Heroism/Bloodlust button
 	local faction = UnitFactionGroup("player")
@@ -873,7 +565,7 @@ function SP:CreateCallerButtonFrame()
 	blBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 	-- Name label under BL button (shows who will use BL)
-	local blNameLabel = blBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	local blNameLabel = blBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	blNameLabel:SetPoint("TOP", blBtn, "BOTTOM", 0, -2)
 	blNameLabel:SetText("")
 	blBtn.nameLabel = blNameLabel
@@ -893,7 +585,26 @@ function SP:CreateCallerButtonFrame()
 		SP:DisableUpdateSubsystem("callerButtons")
 	end)
 
+	-- Settings button (scale / opacity / hide frame) in the corner.
+	local cog = CreateFrame("Button", nil, frame)
+	cog:SetSize(12, 12)
+	cog:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -3)
+	SP:StyleSettingsButton(cog)
+	cog:SetScript("OnClick", function() SP:OpenFrameSettings("raidcd", frame) end)
+	cog:SetScript("OnEnter", function(self)
+		if not SP.opt.ShowTooltips then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Settings")
+		GameTooltip:Show()
+	end)
+	cog:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	frame.cogBtn = cog
+
 	self.callerButtonFrame = frame
+	self:UpdateCallerButtonFrameStyle()
+
+	-- Apply the saved scale before the saved offsets (they are in frame units).
+	frame:SetScale(self.opt.raidCDButtonScale or 1.0)
 
 	-- Restore saved position
 	if ShamanPower_RaidCooldowns and ShamanPower_RaidCooldowns.callerButtonPos then
@@ -1040,7 +751,7 @@ function SP:UpdateCallerButtons()
 		mtBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 		-- Name label under MT button (shows shaman name)
-		local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		mtNameLabel:SetPoint("TOP", mtBtn, "BOTTOM", 0, -2)
 		mtNameLabel:SetText(shamanName)
 		mtBtn.nameLabel = mtNameLabel
@@ -1322,6 +1033,19 @@ function SP:ClearCallerButtonCooldown(btn)
 end
 
 -- Update opacity of caller button frame
+-- Panel or icons-only, per opt.raidCDButtonHideFrame.
+function SP:UpdateCallerButtonFrameStyle()
+	local frame = self.callerButtonFrame
+	if not frame then return end
+	if self.opt.raidCDButtonHideFrame then
+		frame:SetBackdrop(nil)
+		if frame.cogBtn then frame.cogBtn:Hide() end
+	else
+		self:ApplyPanelBackdrop(frame)
+		if frame.cogBtn then frame.cogBtn:Show() end
+	end
+end
+
 function SP:UpdateCallerButtonOpacity()
 	if self.callerButtonFrame then
 		local opacity = self.opt.raidCDButtonOpacity or 1.0

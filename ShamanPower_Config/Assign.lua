@@ -508,6 +508,8 @@ local function BuildFrame()
 
 	frame = CreateFrame("Frame", "ShamanPowerAssignFrame", UIParent)
 	frame:SetSize(WIN_W, HEADER_H + COLHEAD_H + ROW_H + FOOTER_H)
+	-- Saved position is in frame units: apply the saved scale before it.
+	frame:SetScale(Opt().configscale or 0.9)
 	frame:SetFrameStrata("HIGH")
 	frame:SetToplevel(true)
 	frame:SetClampedToScreen(true)
@@ -735,7 +737,10 @@ function Assign:Redraw()
 
 	Core:SyncOpacity()
 	local scale = o.configscale or 0.9
-	if math.abs(frame:GetScale() - scale) > 0.001 then frame:SetScale(scale) end
+	if math.abs(frame:GetScale() - scale) > 0.001 then
+		SP:SetFrameScaleKeepCenter(frame, scale)
+		SavePosition()
+	end
 
 	for i, name in ipairs(list) do
 		local row = rows[i]

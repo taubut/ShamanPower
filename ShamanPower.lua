@@ -1748,7 +1748,6 @@ function ShamanPower:UpdateTwistTimer()
 	end
 end
 
-
 -- ============================================================================
 -- Totem Duration Progress Bar (shows time remaining on totems)
 -- ============================================================================
@@ -2910,6 +2909,140 @@ ShamanPower.poppedOutOverlays = {}
 ShamanPower.poppedOutProgressBars = {}
 
 -- Create a pop-out frame container with cog wheel (top-right) and title below icon
+-- ---------------------------------------------------------------------------
+-- Flat panel look shared by the HUD frames (pop-outs, trackers). A plain
+-- white texture tinted from code, so every frame matches the options UI
+-- instead of the tooltip-style Blizzard backdrop.
+-- ---------------------------------------------------------------------------
+ShamanPower.PANEL_BACKDROP = {
+	bgFile = "Interface\\Buttons\\WHITE8x8",
+	edgeFile = "Interface\\Buttons\\WHITE8x8",
+	edgeSize = 2,
+	insets = { left = 0, right = 0, top = 0, bottom = 0 },
+}
+ShamanPower.PANEL_BG     = { 0.086, 0.098, 0.122, 0.92 }
+ShamanPower.PANEL_BORDER = { 0.180, 0.204, 0.243, 1.00 }
+ShamanPower.PANEL_ACCENT = { 0.000, 0.439, 0.867, 1.00 }
+
+-- Size a pop-out frame so its label always fits: at least the icon plus
+-- padding, wider when the name needs it. Scaling is uniform, so a frame that
+-- fits at 1x fits at any scale.
+function ShamanPower:FitPopOutFrame(frame)
+	local buttonSize = frame.buttonSize or 32
+	local cogSize = 12
+	local textW, textH = 0, 12
+	if frame.titleText then
+		textW = frame.titleText:GetStringWidth() or 0
+		textH = math.max(12, frame.titleText:GetStringHeight() or 12)
+	end
+	local width = math.max(buttonSize + 20, math.ceil(textW) + 16)
+	local height = buttonSize + textH + cogSize + 12
+	frame:SetSize(width, height)
+end
+
+-- Opened by the settings button on HUD frames; the ShamanPower_Config module
+-- replaces this with the real panel. Without the module it does nothing.
+function ShamanPower:OpenFrameSettings(key, frame) end
+
+-- Rescale a frame around its on-screen centre instead of its anchor point.
+-- SetScale alone scales the anchor offset too, so a frame anchored 300px from
+-- the left edge ends up 600px away at 2x -- it slides as it grows.
+function ShamanPower:SetFrameScaleKeepCenter(frame, scale)
+	local old = frame:GetScale() or 1
+	local cx, cy = frame:GetCenter()
+	if cx and cy and old > 0 then
+		cx, cy = cx * old, cy * old              -- screen (UIParent) coordinates
+		frame:SetScale(scale)
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / scale, cy / scale)
+	else
+		frame:SetScale(scale)
+	end
+end
+
+-- On-screen centre (physical pixels) of the visible totem bar: the mini bar
+-- frame plus every visible totem button that is still on the bar. The buttons
+-- are parented to UIParent and hang off the frame's top-left, so the frame's
+-- own centre is not the bar's centre.
+function ShamanPower:GetTotemBarScreenCenter()
+	local l, r, t, b
+	local function add(f)
+		if not f or not f:IsShown() or not f:GetLeft() then return end
+		local es = f:GetEffectiveScale()
+		local fl, fr, ft, fb = f:GetLeft() * es, f:GetRight() * es, f:GetTop() * es, f:GetBottom() * es
+		l = (not l or fl < l) and fl or l
+		r = (not r or fr > r) and fr or r
+		t = (not t or ft > t) and ft or t
+		b = (not b or fb < b) and fb or b
+	end
+	add(self.autoButton)
+	for element, btn in pairs(self.totemButtons or {}) do
+		if not self:IsElementPoppedOut(element) then add(btn) end
+	end
+	if not l then return nil end
+	return (l + r) / 2, (t + b) / 2
+end
+
+-- Re-anchor a UIParent-parented frame as CENTER -> UIParent CENTER (offsets in
+-- the frame's own units) and return those offsets. Modules that save
+-- {point, x, y} and restore with point used for both ends need this after a
+-- keep-centre rescale, which leaves the anchor on UIParent's BOTTOMLEFT.
+function ShamanPower:AnchorToScreenCenter(frame)
+	local cx, cy = frame:GetCenter()
+	if not cx then return nil end
+	local s = frame:GetScale() or 1
+	local x = cx - (UIParent:GetWidth() / 2) / s
+	local y = cy - (UIParent:GetHeight() / 2) / s
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", UIParent, "CENTER", x, y)
+	return x, y
+end
+
+function ShamanPower:ApplyPanelBackdrop(frame, border)
+	if not frame.SetBackdrop then Mixin(frame, BackdropTemplateMixin) end
+	frame:SetBackdrop(self.PANEL_BACKDROP)
+	local bg = self.PANEL_BG
+	frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
+	local b = border or self.PANEL_BORDER
+	frame:SetBackdropBorderColor(b[1], b[2], b[3], b[4])
+end
+
+-- Small settings button: dark square, 1px border, three bars. Replaces the
+-- Blizzard gear texture on the pop-out frames.
+function ShamanPower:StyleSettingsButton(btn)
+	local bg = btn:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(btn)
+	bg:SetColorTexture(0.055, 0.063, 0.078, 0.9)
+	local edges = {}
+	for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+		local t = btn:CreateTexture(nil, "BORDER")
+		t:SetColorTexture(0.180, 0.204, 0.243, 1)
+		if side == "TOP" or side == "BOTTOM" then
+			t:SetHeight(1); t:SetPoint(side .. "LEFT"); t:SetPoint(side .. "RIGHT")
+		else
+			t:SetWidth(1); t:SetPoint("TOP" .. side); t:SetPoint("BOTTOM" .. side)
+		end
+		edges[#edges + 1] = t
+	end
+	local bars = {}
+	for i = -1, 1 do
+		local bar = btn:CreateTexture(nil, "ARTWORK")
+		bar:SetHeight(1)
+		bar:SetPoint("LEFT", btn, "LEFT", 4, i * 3)
+		bar:SetPoint("RIGHT", btn, "RIGHT", -4, i * 3)
+		bar:SetColorTexture(0.541, 0.580, 0.651, 1)
+		bars[#bars + 1] = bar
+	end
+	btn.spPaint = function(hover)
+		local r, g, b = 0.541, 0.580, 0.651
+		if hover then r, g, b = 0.247, 0.663, 1.000 end
+		for _, bar in ipairs(bars) do bar:SetColorTexture(r, g, b, 1) end
+		for _, e in ipairs(edges) do e:SetColorTexture(hover and 0.0 or 0.180, hover and 0.439 or 0.204, hover and 0.867 or 0.243, 1) end
+	end
+	btn:HookScript("OnEnter", function() btn.spPaint(true) end)
+	btn:HookScript("OnLeave", function() btn.spPaint(false) end)
+end
+
 function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	-- key: "totem_earth", "single_1_3", "cd_1", etc.
 	if self.poppedOutFrames[key] then
@@ -2932,23 +3065,13 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	frame.title = title
 
 	-- Background frame
-	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 12,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 }
-	})
-	frame:SetBackdropColor(0, 0, 0, 0.8)
-	frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+	self:ApplyPanelBackdrop(frame)
 
 	-- Cog wheel settings button (top-right corner)
 	local cogBtn = CreateFrame("Button", frame:GetName() .. "Cog", frame)
 	cogBtn:SetSize(cogSize, cogSize)
 	cogBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
-	cogBtn:SetNormalTexture("Interface\\WorldMap\\Gear_64")
-	cogBtn:GetNormalTexture():SetTexCoord(0, 0.5, 0, 0.5)
-	cogBtn:SetHighlightTexture("Interface\\WorldMap\\Gear_64")
-	cogBtn:GetHighlightTexture():SetTexCoord(0, 0.5, 0, 0.5)
+	self:StyleSettingsButton(cogBtn)
 	cogBtn:SetScript("OnClick", function()
 		ShamanPower:ShowPopOutSettingsPanel(key, frame)
 	end)
@@ -2967,8 +3090,12 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	local titleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	titleText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 4)
 	titleText:SetText(title or "Pop-Out")
-	titleText:SetTextColor(1, 0.82, 0)  -- Gold color
+	titleText:SetFont(STANDARD_TEXT_FONT, 11, "")
+	titleText:SetShadowOffset(1, -1)
+	titleText:SetShadowColor(0, 0, 0, 0.8)
+	titleText:SetTextColor(0.902, 0.918, 0.941)
 	frame.titleText = titleText
+	self:FitPopOutFrame(frame)
 
 	-- Restore position or default to center
 	local pos = self.opt.poppedOutPositions and self.opt.poppedOutPositions[key]
@@ -3020,244 +3147,11 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 end
 
 -- Settings panel for pop-out frames (with sliders)
-ShamanPower.popOutSettingsPanel = nil
 
+-- The pop-out settings panel lives in ShamanPower_Config (FrameSettings);
+-- this stub only reports when that module is missing.
 function ShamanPower:ShowPopOutSettingsPanel(key, popOutFrame)
-	-- Close existing panel if open for different key
-	if self.popOutSettingsPanel and self.popOutSettingsPanel:IsShown() then
-		if self.popOutSettingsPanel.currentKey == key then
-			-- Don't close if we just opened it (debounce for double-click events)
-			local openTime = self.popOutSettingsPanel.openTime or 0
-			if GetTime() - openTime < 0.3 then
-				return  -- Too soon, ignore this toggle
-			end
-			self.popOutSettingsPanel:Hide()
-			return
-		end
-		self.popOutSettingsPanel:Hide()
-	end
-
-	-- Create panel if it doesn't exist
-	if not self.popOutSettingsPanel then
-		local panel = CreateFrame("Frame", "ShamanPowerPopOutSettingsPanel", UIParent, "BackdropTemplate")
-		panel:SetSize(180, 200)  -- Taller to fit flyout direction option
-		panel:SetFrameStrata("DIALOG")
-		panel:SetMovable(true)
-		panel:EnableMouse(true)
-		panel:SetClampedToScreen(true)
-		panel:RegisterForDrag("LeftButton")
-		panel:SetScript("OnDragStart", panel.StartMoving)
-		panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
-
-		panel:SetBackdrop({
-			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 16,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 }
-		})
-		panel:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
-		panel:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
-
-		-- Title
-		local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		title:SetPoint("TOP", panel, "TOP", 0, -8)
-		title:SetText("Pop-Out Settings")
-		title:SetTextColor(1, 0.82, 0)
-		panel.title = title
-
-		-- Close button
-		local closeBtn = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
-		closeBtn:SetSize(20, 20)
-		closeBtn:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -2, -2)
-
-		-- Scale slider
-		local scaleLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		scaleLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -28)
-		scaleLabel:SetText("Scale:")
-
-		local scaleValue = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		scaleValue:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -28)
-		panel.scaleValue = scaleValue
-
-		local scaleSlider = CreateFrame("Slider", "ShamanPowerPopOutScaleSlider", panel, "OptionsSliderTemplate")
-		scaleSlider:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -42)
-		scaleSlider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -42)
-		scaleSlider:SetHeight(17)
-		scaleSlider:SetMinMaxValues(0.5, 3.0)
-		scaleSlider:SetValueStep(0.05)
-		scaleSlider:SetObeyStepOnDrag(true)
-		scaleSlider.Low:SetText("50%")
-		scaleSlider.High:SetText("300%")
-		scaleSlider.Text:SetText("")
-		-- Add visible track background
-		local scaleBg = scaleSlider:CreateTexture(nil, "BACKGROUND")
-		scaleBg:SetPoint("TOPLEFT", scaleSlider, "TOPLEFT", 0, -5)
-		scaleBg:SetPoint("BOTTOMRIGHT", scaleSlider, "BOTTOMRIGHT", 0, 5)
-		scaleBg:SetColorTexture(0.3, 0.3, 0.3, 0.8)
-		local scaleBorder = scaleSlider:CreateTexture(nil, "BORDER")
-		scaleBorder:SetPoint("TOPLEFT", scaleBg, "TOPLEFT", -1, 1)
-		scaleBorder:SetPoint("BOTTOMRIGHT", scaleBg, "BOTTOMRIGHT", 1, -1)
-		scaleBorder:SetColorTexture(0.5, 0.5, 0.5, 1)
-		scaleSlider:SetScript("OnValueChanged", function(self, value)
-			value = math.floor(value * 20 + 0.5) / 20  -- Round to nearest 0.05
-			panel.scaleValue:SetText(math.floor(value * 100) .. "%")
-			if panel.currentKey then
-				ShamanPower:SetPopOutScale(panel.currentKey, value)
-			end
-		end)
-		panel.scaleSlider = scaleSlider
-
-		-- Opacity slider
-		local opacityLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		opacityLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -70)
-		opacityLabel:SetText("Opacity:")
-
-		local opacityValue = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		opacityValue:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -70)
-		panel.opacityValue = opacityValue
-
-		local opacitySlider = CreateFrame("Slider", "ShamanPowerPopOutOpacitySlider", panel, "OptionsSliderTemplate")
-		opacitySlider:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -84)
-		opacitySlider:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -84)
-		opacitySlider:SetHeight(17)
-		opacitySlider:SetMinMaxValues(0.1, 1.0)
-		opacitySlider:SetValueStep(0.05)
-		opacitySlider:SetObeyStepOnDrag(true)
-		opacitySlider.Low:SetText("10%")
-		opacitySlider.High:SetText("100%")
-		opacitySlider.Text:SetText("")
-		-- Add visible track background
-		local opacityBg = opacitySlider:CreateTexture(nil, "BACKGROUND")
-		opacityBg:SetPoint("TOPLEFT", opacitySlider, "TOPLEFT", 0, -5)
-		opacityBg:SetPoint("BOTTOMRIGHT", opacitySlider, "BOTTOMRIGHT", 0, 5)
-		opacityBg:SetColorTexture(0.3, 0.3, 0.3, 0.8)
-		local opacityBorder = opacitySlider:CreateTexture(nil, "BORDER")
-		opacityBorder:SetPoint("TOPLEFT", opacityBg, "TOPLEFT", -1, 1)
-		opacityBorder:SetPoint("BOTTOMRIGHT", opacityBg, "BOTTOMRIGHT", 1, -1)
-		opacityBorder:SetColorTexture(0.5, 0.5, 0.5, 1)
-		opacitySlider:SetScript("OnValueChanged", function(self, value)
-			value = math.floor(value * 20 + 0.5) / 20  -- Round to nearest 0.05
-			panel.opacityValue:SetText(math.floor(value * 100) .. "%")
-			if panel.currentKey then
-				ShamanPower:SetPopOutOpacity(panel.currentKey, value)
-			end
-		end)
-		panel.opacitySlider = opacitySlider
-
-		-- Hide Frame checkbox
-		local hideFrameCheck = CreateFrame("CheckButton", "ShamanPowerPopOutHideFrameCheck", panel, "UICheckButtonTemplate")
-		hideFrameCheck:SetSize(22, 22)
-		hideFrameCheck:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -108)
-		hideFrameCheck.text = hideFrameCheck:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		hideFrameCheck.text:SetPoint("LEFT", hideFrameCheck, "RIGHT", 2, 0)
-		hideFrameCheck.text:SetText("Hide Frame (icon only)")
-		hideFrameCheck:SetScript("OnClick", function(self)
-			if panel.currentKey then
-				ShamanPower:TogglePopOutFrame(panel.currentKey)
-			end
-		end)
-		panel.hideFrameCheck = hideFrameCheck
-
-		-- Flyout Direction section (only for element pop-outs)
-		local flyoutLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		flyoutLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -132)
-		flyoutLabel:SetText("Flyout Direction:")
-		panel.flyoutLabel = flyoutLabel
-
-		-- Create direction buttons
-		local directions = {"Top", "Bottom", "Left", "Right"}
-		local dirButtons = {}
-		local btnWidth = 38
-		local btnSpacing = 2
-		local startX = 12
-
-		for i, dir in ipairs(directions) do
-			local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-			btn:SetSize(btnWidth, 18)
-			btn:SetPoint("TOPLEFT", panel, "TOPLEFT", startX + (i-1) * (btnWidth + btnSpacing), -145)
-			btn:SetText(dir)
-			btn:GetFontString():SetFont("Fonts\\FRIZQT__.TTF", 9)
-			btn.direction = dir:lower()
-			btn:SetScript("OnClick", function(self)
-				if panel.currentKey then
-					ShamanPower:SetPopOutFlyoutDirection(panel.currentKey, self.direction)
-					-- Update button highlights
-					for _, b in ipairs(dirButtons) do
-						if b.direction == self.direction then
-							b:SetNormalFontObject("GameFontHighlight")
-						else
-							b:SetNormalFontObject("GameFontNormalSmall")
-						end
-					end
-				end
-			end)
-			dirButtons[i] = btn
-		end
-		panel.flyoutDirButtons = dirButtons
-
-		-- Return to Bar button
-		local returnBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-		returnBtn:SetSize(120, 22)
-		returnBtn:SetPoint("BOTTOM", panel, "BOTTOM", 0, 8)
-		returnBtn:SetText("Return to Bar")
-		returnBtn:SetScript("OnClick", function()
-			if panel.currentKey then
-				panel:Hide()
-				ShamanPower:ReturnPopOutToBar(panel.currentKey)
-			end
-		end)
-		panel.returnBtn = returnBtn
-
-		self.popOutSettingsPanel = panel
-	end
-
-	local panel = self.popOutSettingsPanel
-	panel.currentKey = key
-
-	-- Get current settings
-	local settings = self.opt.poppedOutSettings and self.opt.poppedOutSettings[key] or {}
-	local currentScale = settings.scale or self.opt.poppedOutDefaultScale or 1.0
-	local currentOpacity = settings.opacity or self.opt.poppedOutDefaultOpacity or 1.0
-	local currentHideFrame = settings.hideFrame or false
-	local currentFlyoutDir = settings.flyoutDirection or "bottom"
-
-	-- Update controls
-	panel.scaleSlider:SetValue(currentScale)
-	panel.scaleValue:SetText(math.floor(currentScale * 100) .. "%")
-	panel.opacitySlider:SetValue(currentOpacity)
-	panel.opacityValue:SetText(math.floor(currentOpacity * 100) .. "%")
-	panel.hideFrameCheck:SetChecked(currentHideFrame)
-
-	-- Show/hide flyout direction option (only for element pop-outs)
-	local isElementPopOut = key:match("^totem_") ~= nil
-	if panel.flyoutLabel then
-		if isElementPopOut then
-			panel.flyoutLabel:Show()
-			for _, btn in ipairs(panel.flyoutDirButtons) do
-				btn:Show()
-				-- Highlight current direction
-				if btn.direction == currentFlyoutDir then
-					btn:SetNormalFontObject("GameFontHighlight")
-				else
-					btn:SetNormalFontObject("GameFontNormalSmall")
-				end
-			end
-			panel:SetHeight(200)
-		else
-			panel.flyoutLabel:Hide()
-			for _, btn in ipairs(panel.flyoutDirButtons) do
-				btn:Hide()
-			end
-			panel:SetHeight(160)
-		end
-	end
-
-	-- Position near the pop-out frame
-	panel:ClearAllPoints()
-	panel:SetPoint("TOPLEFT", popOutFrame, "TOPRIGHT", 5, 0)
-
-	panel.openTime = GetTime()  -- Track when opened for debounce
-	panel:Show()
+	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for pop-out settings")
 end
 
 -- Set scale for a pop-out frame
@@ -3343,20 +3237,13 @@ function ShamanPower:TogglePopOutFrame(key)
 			end
 		else
 			-- Show full frame with decorations
-			frame:SetBackdrop({
-				bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-				tile = true, tileSize = 16, edgeSize = 12,
-				insets = { left = 2, right = 2, top = 2, bottom = 2 }
-			})
-			frame:SetBackdropColor(0, 0, 0, 0.8)
-			frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+			self:ApplyPanelBackdrop(frame)
 			if frame.titleText then frame.titleText:Show() end
 			if frame.cogBtn then frame.cogBtn:Show() end
 			-- Resize to full size (cog at top, icon in middle, title at bottom)
 			local titleHeight = 14
 			local cogSize = 12
-			frame:SetSize(frame.buttonSize + 20, frame.buttonSize + titleHeight + cogSize + 12)
+			self:FitPopOutFrame(frame)
 			-- Reposition button (center, slightly above bottom to make room for title)
 			if frame.button then
 				frame.button:ClearAllPoints()
@@ -3366,9 +3253,6 @@ function ShamanPower:TogglePopOutFrame(key)
 	end
 
 	-- Update the settings panel checkbox if it's open for this key
-	if self.popOutSettingsPanel and self.popOutSettingsPanel:IsShown() and self.popOutSettingsPanel.currentKey == key then
-		self.popOutSettingsPanel.hideFrameCheck:SetChecked(settings.hideFrame)
-	end
 end
 
 -- Pop out a single totem from a flyout
@@ -4138,7 +4022,6 @@ function ShamanPower:CreateTotemButtons()
 		-- Store layout info as attributes for secure relayout
 		btn:SetAttribute("flyoutButtonSize", 28)
 		btn:SetAttribute("flyoutSpacing", 0)
-
 
 		-- Spell casting (type1 = left click)
 		btn:SetAttribute("type1", "spell")
@@ -9887,7 +9770,6 @@ function ShamanPower:UpdateAutoButtonSize()
 	end
 end
 
-
 -- ============================================================================
 -- Drop All Button - cycles through all 4 totems
 -- ============================================================================
@@ -12938,7 +12820,6 @@ if not ShamanPower.TremorReminderLoaded then
 		print("|cffff8800ShamanPower:|r Tremor Reminder module not loaded. Enable 'ShamanPower [Tremor Reminder]' in your AddOns.")
 	end
 end
-
 
 -- ============================================================================
 -- SPThanks: Special feature for Srumar to thank ShamanPower users
