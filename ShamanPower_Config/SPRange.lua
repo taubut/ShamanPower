@@ -158,4 +158,53 @@ function SP:ShowSPRangeConfig()
 	dlg:Show()
 end
 
+-- Settings panel for the on-screen overlay (its corner button).
+local FS = ns.FrameSettings
+if FS then
+	local function RT()
+		SP.opt.rangeTracker = SP.opt.rangeTracker or {}
+		return SP.opt.rangeTracker
+	end
+	local function Notify()
+		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+		if reg then reg:NotifyChange("ShamanPower") end
+	end
+	FS.specs.sprange = function(frame)
+		return {
+			key = "sprange", title = "Totem Range", subtitle = "overlay",
+			opacity = {
+				min = 20, max = 100,
+				get = function() return math.floor((RT().opacity or 1) * 100 + 0.5) end,
+				set = function(v) RT().opacity = v / 100; SP:UpdateSPRangeOpacity(); Notify() end,
+			},
+			hideFrame = {
+				get = function() return RT().hideBorder and true or false end,
+				set = function(v) RT().hideBorder = v and true or false; SP:UpdateSPRangeBorder(); Notify() end,
+			},
+			rows = function(Row)
+				Row("Slider", {
+					label = "Icon Size", desc = "Size of the totem icons on the overlay.",
+					min = 20, max = 60, step = 4,
+					get = function() return RT().iconSize or 36 end,
+					set = function(v) RT().iconSize = v; SP:UpdateSPRangeFrame(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Hide Names", desc = "Show only the icons, without totem names.",
+					get = function() return RT().hideNames and true or false end,
+					set = function(v) RT().hideNames = v and true or false; SP:UpdateSPRangeFrame(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Vertical Layout", desc = "Stack the icons vertically instead of in a row.",
+					get = function() return RT().vertical and true or false end,
+					set = function(v) RT().vertical = v and true or false; SP:UpdateSPRangeFrame(); SP:UpdateSPRangeBorder(); Notify() end,
+				})
+			end,
+			actions = {
+				{ text = "Choose Totems", desc = "Pick which totems the overlay tracks.",
+				  func = function() FS:Hide(); SP:ShowSPRangeConfig() end },
+			},
+		}
+	end
+end
+
 return true

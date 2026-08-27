@@ -294,30 +294,24 @@ function SP:CreateSPRangeFrame()
 	frame:SetClampedToScreen(true)
 
 	-- Backdrop
-	frame:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-		tile = true, tileSize = 16, edgeSize = 16,
-		insets = { left = 4, right = 4, top = 4, bottom = 4 }
-	})
-	frame:SetBackdropColor(0, 0, 0, 0.8)
-	frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+	SP:ApplyPanelBackdrop(frame)
 
 	-- Title
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	title:SetPoint("TOP", frame, "TOP", 0, -6)
 	title:SetText("Totem Range")
-	title:SetTextColor(1, 0.82, 0)
+	title:SetFont(STANDARD_TEXT_FONT, 11, "")
+	title:SetShadowOffset(1, -1)
+	title:SetTextColor(0.902, 0.918, 0.941)
 	frame.title = title
 
 	-- Settings button (cog icon in top right)
 	local settingsBtn = CreateFrame("Button", nil, frame)
 	settingsBtn:SetSize(14, 14)
 	settingsBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
-	settingsBtn:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
-	settingsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+	SP:StyleSettingsButton(settingsBtn)
 	settingsBtn:SetScript("OnClick", function()
-		SP:ShowSPRangeConfig()
+		SP:OpenFrameSettings("sprange", frame)
 	end)
 	settingsBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -399,14 +393,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 	btn:SetSize(iconSize, iconSize)
 
 	-- Background
-	btn:SetBackdrop({
-		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-		edgeFile = "Interface\\Buttons\\WHITE8X8",
-		tile = true, tileSize = 16, edgeSize = 2,
-		insets = { left = 2, right = 2, top = 2, bottom = 2 }
-	})
-	btn:SetBackdropColor(0, 0, 0, 0.7)
-	btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+	SP:ApplyPanelBackdrop(btn)
 
 	-- Icon
 	local icon = btn:CreateTexture(nil, "ARTWORK")
