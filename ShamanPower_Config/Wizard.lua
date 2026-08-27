@@ -664,8 +664,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			local activeNow = s.t < e.dur
 			local frac = activeNow and (1 - s.t / e.dur) or 0
 			s.main:GetParent():SetAlpha((fullActive and activeNow) and 1 or opacity)
-			-- duration bar
-			s.dbg:SetShown(activeNow); s.dbar:SetShown(activeNow); s.dbar:SetWidth(math.max(0.5, SIZE * frac))
+			-- duration bars have their own step; keep this one about the styles
+			s.dbg:Hide(); s.dbar:Hide()
 			if m == "normal" then
 				s.over:SetShown(activeNow and not s.flyOpen)
 				s.mIcon:SetTexture(e.icon)
