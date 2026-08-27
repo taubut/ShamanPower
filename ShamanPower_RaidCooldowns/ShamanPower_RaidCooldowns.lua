@@ -1055,8 +1055,17 @@ end
 
 -- Update scale of caller button frame
 function SP:UpdateCallerButtonScale()
-	if self.callerButtonFrame then
+	local frame = self.callerButtonFrame
+	if frame then
 		local scale = self.opt.raidCDButtonScale or 1.0
-		self.callerButtonFrame:SetScale(scale)
+		-- Only compensate on an actual change; the creation path already
+		-- applied the saved scale before restoring the saved offsets.
+		if math.abs(frame:GetScale() - scale) > 0.001 then
+			self:SetFrameScaleKeepCenter(frame, scale)
+			local point, _, relPoint, x, y = frame:GetPoint()
+			if point then
+				ShamanPower_RaidCooldowns.callerButtonPos = { point = point, relPoint = relPoint, x = x, y = y }
+			end
+		end
 	end
 end

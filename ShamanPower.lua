@@ -620,6 +620,11 @@ function ShamanPower:OnProfileChanged()
 	if not InCombatLockdown() then
 		local h = _G["ShamanPowerFrame"]
 		if h then
+			-- Scale before anchoring: the saved offsets are in frame units of
+			-- the new profile's scale. Then let UpdateLayout treat this as a
+			-- fresh first application rather than a change to compensate.
+			h:SetScale(self.opt.buffscale or 0.9)
+			self._barScaleApplied = true
 			h:ClearAllPoints()
 			local x = self.opt.display and self.opt.display.offsetX
 			local y = self.opt.display and self.opt.display.offsetY
@@ -630,6 +635,11 @@ function ShamanPower:OnProfileChanged()
 				-- Default to center of screen if no saved position
 				h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 			end
+		end
+		if self.loadoutAnchor then
+			self.loadoutAnchor:SetScale(self.opt.loadoutBarScale or 1.0)
+			self.loadoutAnchor._scaleApplied = true
+			if self.RestoreLoadoutBarPosition then self:RestoreLoadoutBarPosition() end
 		end
 
 		-- Apply cooldown bar position from new profile (force reposition to use profile's saved position)
@@ -693,6 +703,11 @@ function ShamanPower:Reset()
 	self.opt.layout = "Vertical"
 	self.opt.skin = "Smooth"
 	self.opt.configscale = 0.9
+
+	-- Position was just cleared; apply the default scale as a fresh first
+	-- application so UpdateLayout does not compensate and re-save it.
+	h:SetScale(self.opt.buffscale)
+	self._barScaleApplied = true
 
 	self:ApplySkin()
 	self:UpdateLayout()
@@ -6918,6 +6933,11 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 			self.cooldownBar:SetFrameStrata("MEDIUM")
 			self.cooldownBar:SetFrameLevel(100)
 			self.cooldownBar:ClearAllPoints()
+			-- Saved offsets are in the bar's own units at its detached scale:
+			-- apply that scale first, and mark it applied so the next
+			-- UpdateCooldownBarScale does not "compensate" a fresh anchor.
+			self.cooldownBar:SetScale(self.opt.cooldownBarScale or 0.9)
+			self.cooldownBar._scaleApplied = true
 			-- Use saved anchor point if available, otherwise default to CENTER
 			local point = self.opt.cooldownBarPoint or "CENTER"
 			local relPoint = self.opt.cooldownBarRelPoint or "CENTER"
@@ -6945,7 +6965,18 @@ function ShamanPower:UpdateCooldownBarScale()
 		self.cooldownBar:SetScale(cdScale / parentScale)
 	else
 		-- When unlocked (parented to UIParent), apply directly
-		self.cooldownBar:SetScale(cdScale)
+		local bar = self.cooldownBar
+		if not bar._scaleApplied then
+			bar:SetScale(cdScale)
+			bar._scaleApplied = true
+		elseif math.abs(bar:GetScale() - cdScale) > 0.001 then
+			self:SetFrameScaleKeepCenter(bar, cdScale)
+			local point, _, relPoint, x, y = bar:GetPoint()
+			if point then
+				self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = point, relPoint
+				self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = x, y
+			end
+		end
 	end
 end
 
@@ -11174,7 +11205,35 @@ function ShamanPower:UpdateLayout()
 	--self:Debug("UpdateLayout()")
 	if InCombatLockdown() then return end
 
-	ShamanPowerFrame:SetScale(self.opt.buffscale)
+	-- Scale around the on-screen centre so the bar does not slide as it grows.
+	-- The first application at login is a plain SetScale: the saved position
+	-- has not been restored yet, and saving here would overwrite it.
+	local buffscale = self.opt.buffscale or 0.9
+	if not self._barScaleApplied then
+		ShamanPowerFrame:SetScale(buffscale)
+		self._barScaleApplied = true
+	elseif math.abs(ShamanPowerFrame:GetScale() - buffscale) > 0.001 then
+		-- The whole bar (mini-bar frame + buttons hanging off its top-left)
+		-- scales linearly about the root frame, so the shift that keeps the
+		-- bar's centre fixed can be computed now -- no deferred correction,
+		-- which would show one wrong frame per slider tick and flicker.
+		local bx, by = self:GetTotemBarScreenCenter()
+		local f = ShamanPowerFrame
+		local fcx, fcy = f:GetCenter()
+		if bx and fcx then
+			local esOld = f:GetEffectiveScale()
+			fcx, fcy = fcx * esOld, fcy * esOld
+			f:SetScale(buffscale)
+			local esNew = f:GetEffectiveScale()
+			local k = esNew / esOld
+			local nx, ny = bx - (bx - fcx) * k, by - (by - fcy) * k
+			f:ClearAllPoints()
+			f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", nx / esNew, ny / esNew)
+		else
+			self:SetFrameScaleKeepCenter(f, buffscale)
+		end
+		self:SaveFramePosition(f)
+	end
 	-- Update cooldown bar scale to compensate for parent scale change
 	self:UpdateCooldownBarScale()
 	local x = self.opt.display.buttonWidth
@@ -13439,7 +13498,14 @@ function ShamanPower:UpdateLoadoutBar()
 	-- Apply scale and opacity
 	local scale = self.opt.loadoutBarScale or 1.0
 	local opacity = self.opt.loadoutBarOpacity or 1.0
-	self.loadoutAnchor:SetScale(scale)
+	local anchor = self.loadoutAnchor
+	if not anchor._scaleApplied then
+		anchor:SetScale(scale)
+		anchor._scaleApplied = true
+	elseif math.abs(anchor:GetScale() - scale) > 0.001 then
+		self:SetFrameScaleKeepCenter(anchor, scale)
+		self:SaveLoadoutBarPosition()
+	end
 	self.loadoutAnchor:SetAlpha(opacity)
 
 	-- Update anchor: show active loadout's icon and name

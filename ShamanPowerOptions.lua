@@ -1473,6 +1473,7 @@ ShamanPower.options = {
 											if point and xOfs and yOfs then
 												frame:ClearAllPoints()
 												frame:SetPoint(point, relativeTo, relativePoint, xOfs + deltaX, yOfs + deltaY)
+												ShamanPower:SaveFramePosition(frame)
 											end
 										end
 									end
@@ -2701,8 +2702,10 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.rangeCounter.scale = val
 								for element = 1, 4 do
-									if ShamanPower.rangeCounterFrames[element] then
-										ShamanPower.rangeCounterFrames[element]:SetScale(val)
+									local frame = ShamanPower.rangeCounterFrames[element]
+									if frame then
+										ShamanPower:SetFrameScaleKeepCenter(frame, val)
+										ShamanPower:SaveRangeCounterPosition(element)
 									end
 								end
 							end

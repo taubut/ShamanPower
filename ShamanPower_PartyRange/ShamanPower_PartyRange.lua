@@ -461,21 +461,7 @@ function SP:CreateRangeCounterFrame(element)
 
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
-		-- Save position as CENTER coordinates (so scaling works properly)
-		local centerX, centerY = self:GetCenter()
-		local screenWidth, screenHeight = UIParent:GetWidth(), UIParent:GetHeight()
-		-- Convert to offset from screen center
-		local x = centerX - (screenWidth / 2)
-		local y = centerY - (screenHeight / 2)
-		if not SP.opt.rangeCounter.positions then
-			SP.opt.rangeCounter.positions = {}
-		end
-		SP.opt.rangeCounter.positions[element] = {
-			point = "CENTER", relPoint = "CENTER", x = x, y = y
-		}
-		-- Re-anchor to CENTER so scaling works properly
-		self:ClearAllPoints()
-		self:SetPoint("CENTER", UIParent, "CENTER", x, y)
+		SP:SaveRangeCounterPosition(element)
 	end)
 
 	-- Tooltip
@@ -525,6 +511,24 @@ function SP:UpdateRangeCounterLock()
 end
 
 -- Update frame style (hide frame background and/or label)
+-- Save a range counter's position as a CENTER offset from screen centre, in
+-- the frame's own units (what the restore at creation expects), and re-anchor
+-- the same way so drag and scale changes agree.
+function SP:SaveRangeCounterPosition(element)
+	local frame = self.rangeCounterFrames and self.rangeCounterFrames[element]
+	if not frame then return end
+	local cx, cy = frame:GetCenter()
+	if not cx then return end
+	local scale = frame:GetScale() or 1
+	local x = cx - (UIParent:GetWidth() / 2) / scale
+	local y = cy - (UIParent:GetHeight() / 2) / scale
+	self.opt.rangeCounter = self.opt.rangeCounter or {}
+	self.opt.rangeCounter.positions = self.opt.rangeCounter.positions or {}
+	self.opt.rangeCounter.positions[element] = { point = "CENTER", relPoint = "CENTER", x = x, y = y }
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", UIParent, "CENTER", x, y)
+end
+
 function SP:UpdateRangeCounterFrameStyle()
 	local rcOpt = self.opt.rangeCounter
 	if not rcOpt then return end
