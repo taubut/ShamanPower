@@ -39,7 +39,6 @@ L["FREE_ASSIGN_TOOLTIP"] = [=[파티장 / 공격대 관리자가 아닌
 바꿀 수 있도록 허용합니다.]=]
 L["Fully Buffed"] = "전체 버프됨"
 --[[Translation missing --]]
-L["Hide Bench (by Subgroup)"] = "Hide Bench (by Subgroup)"
 L["Horizontal Left | Down"] = "수평 왼쪽 | 아래"
 L["Horizontal Left | Up"] = "수평 왼쪽 | 위"
 L["Horizontal Right | Down"] = "수평 오른쪽 | 아래"
@@ -56,7 +55,6 @@ L["Partially Buffed"] = "일부만 버프됨"
 L["Player Buttons"] = "플레이어 버튼"
 --[[Translation missing --]]
 L["Preset"] = "Preset"
-L["Raid only options"] = "공격대 전용 옵션"
 L["Refresh"] = "새로고침"
 L["Reset all ShamanPower frames back to center"] = "모든 ShamanPower 프레임을 중앙으로 초기화"
 L["Reset Frames"] = "프레임 초기화"
@@ -73,8 +71,6 @@ L["Vertical Down | Right"] = "수직 아래 | 오른쪽"
 L["Vertical Up | Left"] = "수직 위 | 왼쪽"
 L["Vertical Up | Right"] = "수직 위 | 오른쪽"
 --[[Translation missing --]]
-L["Visibility Settings"] = "Visibility Settings"
 L["What to buff with ShamanPower"] = "ShamanPower로 버프할 내용"
 --[[Translation missing --]]
-L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."
 

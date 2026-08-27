@@ -7,6 +7,9 @@
 local ADDON, ns = ...
 local Core = ns.Core
 local SP = ShamanPower
+-- Mocks read options through OPT() so the Quick Setup preview can point them
+-- at a decoded preset profile instead of the live one.
+local function OPT() return SP.Wizard.optOverride or SP.opt end
 if not SP or not Core then return end
 
 -- Preferred size; Build() shrinks it to fit small screens.
@@ -79,6 +82,14 @@ local BIND = {
 		set = function(v) SP:EnsureProfileTable("totemPlates"); SP.opt.totemPlates.enabled = v; safecall("ToggleTotemPlates"); notify()
 			if SP.totemPlatesDemoActive then SP:TotemPlatesDemo(true) end
 			if ns.Widgets and SP.Wizard._platesCard then ns.Widgets:RefreshAll(SP.Wizard._platesCard) end end,
+	},
+	totembar = {
+		get = function() return SP.opt.miniBar and SP.opt.miniBar.autobutton and true or false end,
+		set = function(v)
+			SP:EnsureProfileTable("miniBar"); SP.opt.miniBar.autobutton = v
+			if not v and SP.opt.cooldownBarLocked then SP.opt.cooldownBarLocked = nil; safecall("UpdateCooldownBarPosition") end
+			safecall("UpdateLayout"); safecall("UpdateRoster"); notify()
+		end,
 	},
 	cdprogress = {
 		get = function() return SP.opt.cdbarShowProgressBars ~= false end,
@@ -170,7 +181,8 @@ local STEPS = {
 	    "TotemTimers style: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "Dynamic: the bar is simply whatever you last dropped. Great for PvP.",
 	    "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
-	  } },
+	  },
+	  toggles = { { label = "Show the totem bar", bind = "totembar" } } },
 	{ id = "assign", title = "Assignments", roles = ALL, build = "BuildAssignStep",
 	  desc = "The assignments window: every shaman in your group who runs ShamanPower, side by side, with the totem each one should drop for Earth, Fire, Water and Air.",
 	  bullets = {
@@ -567,16 +579,16 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	}
 	local STYLES = {
 		{ key = "normal", label = "Normal",
-		  set = function() SP.opt.activeTotemAsMain = false; SP.opt.dynamicTotemMode = false end,
-		  is  = function() return not SP.opt.activeTotemAsMain and not SP.opt.dynamicTotemMode end,
+		  set = function() OPT().activeTotemAsMain = false; OPT().dynamicTotemMode = false end,
+		  is  = function() return not OPT().activeTotemAsMain and not OPT().dynamicTotemMode end,
 		  caption = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one greys out until it expires." },
 		{ key = "totemtimers", label = "TotemTimers Style",
-		  set = function() SP.opt.activeTotemAsMain = true; SP.opt.dynamicTotemMode = false end,
-		  is  = function() return SP.opt.activeTotemAsMain and not SP.opt.dynamicTotemMode end,
+		  set = function() OPT().activeTotemAsMain = true; OPT().dynamicTotemMode = false end,
+		  is  = function() return OPT().activeTotemAsMain and not OPT().dynamicTotemMode end,
 		  caption = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires." },
 		{ key = "dynamic", label = "Dynamic (PvP)",
-		  set = function() SP.opt.dynamicTotemMode = true; SP.opt.activeTotemAsMain = false end,
-		  is  = function() return SP.opt.dynamicTotemMode end,
+		  set = function() OPT().dynamicTotemMode = true; OPT().activeTotemAsMain = false end,
+		  is  = function() return OPT().dynamicTotemMode end,
 		  caption = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP." },
 	}
 	local SIZE, GAP, STEP = 46, 12, 58
@@ -615,8 +627,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	styleCap:SetJustifyH("CENTER"); styleCap:SetWordWrap(true)
 
 	local function mode()
-		if SP.opt.dynamicTotemMode then return "dynamic" end
-		if SP.opt.activeTotemAsMain then return "tt" end
+		if OPT().dynamicTotemMode then return "dynamic" end
+		if OPT().activeTotemAsMain then return "tt" end
 		return "normal"
 	end
 
@@ -651,11 +663,13 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 
 	bar:SetScript("OnUpdate", function(_, el)
 		local m = mode()
-		local lay = SP.opt.layout or "Horizontal"
+		local lay = OPT().layout or "Horizontal"
 		if lay ~= lastLay or m ~= lastMode then lastLay, lastMode = lay, m; relayout(lay, m) end
-		bar:SetScale(SP.opt.buffscale or 1)
-		local opacity, fullActive = SP.opt.totemBarOpacity or 1, SP.opt.totemBarFullOpacityWhenActive
-		frameBg:SetShown(not SP.opt.hideTotemBarFrame); frameBd:SetShown(not SP.opt.hideTotemBarFrame)
+		local sc = OPT().buffscale or 1
+		if SP.Wizard.previewOnly then sc = math.min(sc, (inner:GetHeight() - 6) / math.max(1, bar:GetHeight() + 16)) end
+		bar:SetScale(sc)
+		local opacity, fullActive = OPT().totemBarOpacity or 1, OPT().totemBarFullOpacityWhenActive
+		frameBg:SetShown(not OPT().hideTotemBarFrame); frameBd:SetShown(not OPT().hideTotemBarFrame)
 		for _, s in ipairs(slots) do
 			local e = s.e
 			s.t = s.t + el
@@ -685,6 +699,10 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		end
 	end)
 
+	if SP.Wizard.previewOnly then
+		for _, st in ipairs(STYLES) do if st.is() then styleCap:SetText(st.caption) end end
+		return y
+	end
 	-- ---- flyout demo on the Fire slot ------------------------------------
 	-- A pretend cursor hovers the slot, the flyout opens with the real Fire
 	-- totem icons, left-click drops one, right-click assigns one.
@@ -705,7 +723,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		for i, b in ipairs(flyBtns) do b.ic:SetTexture(FIRE_ICONS[flyIdx[i]] or fire.e.active); b.hl:Hide() end
 	end
 	local function layoutFly()
-		local lay = SP.opt.layout or "Horizontal"
+		local lay = OPT().layout or "Horizontal"
 		for i, b in ipairs(flyBtns) do
 			b.f:ClearAllPoints()
 			if lay == "Horizontal" then b.f:SetPoint("BOTTOM", fire.main, "TOP", 0, 2 + (i - 1) * FB)
@@ -806,16 +824,16 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local _, h = Widgets[kind](Widgets, card, opts)
 		y = y + h
 	end
-	row("Dropdown", { label = "Layout", get = function() return SP.opt.layout or "Horizontal" end,
+	row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
 		set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
-	row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return SP.opt.buffscale or 1 end,
-		set = function(v) SP.opt.buffscale = v; safecall("UpdateLayout"); safecall("UpdateCooldownBarScale"); safecall("UpdateRoster"); notify() end })
-	row("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return SP.opt.totemBarOpacity or 1 end,
-		set = function(v) SP.opt.totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
-	row("Toggle", { label = "Full opacity while a totem is down", get = function() return SP.opt.totemBarFullOpacityWhenActive and true or false end,
-		set = function(v) SP.opt.totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
-	row("Toggle", { label = "Show frame behind the bar", get = function() return not SP.opt.hideTotemBarFrame end,
-		set = function(v) SP.opt.hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
+	row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
+		set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("UpdateCooldownBarScale"); safecall("UpdateRoster"); notify() end })
+	row("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().totemBarOpacity or 1 end,
+		set = function(v) OPT().totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
+	row("Toggle", { label = "Full opacity while a totem is down", get = function() return OPT().totemBarFullOpacityWhenActive and true or false end,
+		set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
+	row("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideTotemBarFrame end,
+		set = function(v) OPT().hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
 	return y
 end
 
@@ -824,6 +842,8 @@ end
 function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	local Widgets = ns.Widgets
 	local SIZE = 46
+	local K = SIZE / 26          -- real totem buttons are 26px; bar/text sizes scale with the icon
+	local function px(v) return math.max(1, math.floor(v * K + 0.5)) end
 	local ELE = {
 		{ r = 0.72, g = 0.52, b = 0.32, dur = 9,  gap = 2.5, off = 0.0, pulse = 3,
 		  icon = "Interface\\Icons\\Spell_Nature_TremorTotem" },                -- Earth: pulsing (Tremor)
@@ -853,6 +873,9 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			s.cdf = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate"); s.cdf:SetAllPoints(b); s.cdf:SetDrawEdge(false)
 			if s.cdf.SetHideCountdownNumbers then s.cdf:SetHideCountdownNumbers(true) end
 			s.cdt = b:CreateFontString(nil, "OVERLAY", nil, 7); s.cdt:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE"); s.cdt:SetPoint("CENTER", b, "CENTER"); s.cdt:Hide()
+			-- vertical sweep alternative (grey grows down from the top, like the cooldown bar)
+			s.cdgray = b:CreateTexture(nil, "ARTWORK", nil, 1); s.cdgray:SetPoint("TOPLEFT", icon, "TOPLEFT"); s.cdgray:SetPoint("TOPRIGHT", icon, "TOPRIGHT")
+			s.cdgray:SetTexture(e.icon); s.cdgray:SetDesaturated(true); s.cdgray:SetVertexColor(0.5, 0.5, 0.5); s.cdgray:Hide()
 		end
 		-- pulse wipe (Earth only): white overlay, plus its text slots
 		if e.pulse then
@@ -866,19 +889,19 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		slots[i] = s
 	end
 
-	local function O(k, d) local v = SP.opt[k]; if v == nil then return d end; return v end
+	local function O(k, d) local v = OPT()[k]; if v == nil then return d end; return v end
 	local function sideSpace()
 		local dp, pp = O("durationBarPosition", "bottom"), O("pulseBarPosition", "on_icon")
 		local n = 0
-		if dp == "left" or dp == "right" then n = n + O("durationBarHeight", 3) + 2 end
-		if pp == "left" or pp == "right" then n = n + O("pulseBarSize", 4) + 2 end
+		if dp == "left" or dp == "right" then n = n + px(O("durationBarHeight", 3)) + 2 end
+		if pp == "left" or pp == "right" then n = n + px(O("pulseBarSize", 4)) + 2 end
 		return n
 	end
 
 	-- Re-anchor everything from the current options (called on any change).
 	local function layout()
-		local dp, ds = O("durationBarPosition", "bottom"), O("durationBarHeight", 3)
-		local pp, ps = O("pulseBarPosition", "on_icon"), O("pulseBarSize", 4)
+		local dp, ds = O("durationBarPosition", "bottom"), px(O("durationBarHeight", 3))
+		local pp, ps = O("pulseBarPosition", "on_icon"), px(O("pulseBarSize", 4))
 		local step = SIZE + 14 + sideSpace()
 		bar:SetSize(4 * step - 14 - sideSpace(), SIZE)
 		for i, s in ipairs(slots) do
@@ -937,9 +960,9 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	end
 
 	bar:SetScript("OnUpdate", function(_, el)
-		local dp, tl, ts = O("durationBarPosition", "bottom"), O("durationTextLocation", "none"), O("durationTextSize", 8)
-		local showCd, cdc = O("showTotemCooldowns", true), SP.opt.totemCooldownTextColor
-		local pp, ptl, pts = O("pulseBarPosition", "on_icon"), O("pulseTimeDisplay", "none"), O("pulseTextSize", 8)
+		local dp, tl, ts = O("durationBarPosition", "bottom"), O("durationTextLocation", "none"), px(O("durationTextSize", 8))
+		local showCd, cdc = O("showTotemCooldowns", true), OPT().totemCooldownTextColor
+		local pp, ptl, pts = O("pulseBarPosition", "on_icon"), O("pulseTimeDisplay", "none"), px(O("pulseTextSize", 8))
 		for _, s in ipairs(slots) do
 			local e = s.e
 			s.t = s.t + el
@@ -961,13 +984,26 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			end
 			-- totem cooldown (starts when the totem is dropped)
 			if s.cdf then
-				if active and not s.wasActive then s.cdStart = GetTime(); if showCd then s.cdf:SetCooldown(s.cdStart, e.cd) end end
+				local cdStyleOpt = O("totemCooldownSweep", "radial")
+				local vertical = (cdStyleOpt == "vertical" or cdStyleOpt == "reverse")
+				if active and not s.wasActive then s.cdStart = GetTime(); s.cdStyle = nil end
 				local cdRemain = s.cdStart and (s.cdStart + e.cd - GetTime()) or 0
 				if showCd and cdRemain > 0 then
-					s.cdt:SetText(tostring(math.ceil(cdRemain))); s.cdt:Show()
-					if cdc then s.cdt:SetTextColor(cdc.r or 1, cdc.g or 1, cdc.b or 1) else s.cdt:SetTextColor(1, 1, 1) end
+					local style = cdStyleOpt
+					if s.cdStyle ~= style then
+						s.cdStyle = style
+						if vertical then s.cdf:Clear() else s.cdf:SetCooldown(s.cdStart, e.cd) end
+					end
+					if vertical then
+						local dep = (cdStyleOpt == "reverse") and (cdRemain / e.cd) or (1 - cdRemain / e.cd)
+						s.cdgray:SetHeight(math.max(0.5, (SIZE - 4) * dep)); s.cdgray:SetTexCoord(0.08, 0.92, 0.08, 0.08 + dep * 0.84); s.cdgray:Show()
+					else s.cdgray:Hide() end
+					if O("totemCooldownText", true) ~= false then
+						s.cdt:SetText(tostring(math.ceil(cdRemain))); s.cdt:Show()
+						if cdc then s.cdt:SetTextColor(cdc.r or 1, cdc.g or 1, cdc.b or 1) else s.cdt:SetTextColor(1, 1, 1) end
+					else s.cdt:Hide() end
 				else
-					s.cdt:Hide(); if not showCd then s.cdf:Clear() end
+					s.cdt:Hide(); s.cdgray:Hide(); s.cdf:Clear(); s.cdStyle = nil
 				end
 			end
 			-- pulse wipe: fills up to the next pulse, then resets
@@ -990,6 +1026,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		end
 	end)
 
+	if SP.Wizard.previewOnly then layout(); return y end
 	-- ---- controls (same widget kit as the options screen) ----
 	local W = card:GetWidth() - 36
 	local function row(kind, opts)
@@ -1000,33 +1037,42 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	end
 	local function upd(...) for _, fn in ipairs({ ... }) do safecall(fn) end; notify(); layout() end
 	row("Dropdown", { label = "Bar position", get = function() return O("durationBarPosition", "bottom") end,
-		set = function(v) SP.opt.durationBarPosition = v; upd("UpdateTotemProgressBarPositions", "UpdateMiniTotemBar") end,
+		set = function(v) OPT().durationBarPosition = v; upd("UpdateTotemProgressBarPositions", "UpdateMiniTotemBar") end,
 		values = function() return { none = "None", bottom = "Bottom (Horizontal)", bottom_vert = "Bottom (Vertical)", top = "Top (Horizontal)", top_vert = "Top (Vertical)", left = "Left", right = "Right" } end,
 		order = function() return { "none", "bottom", "bottom_vert", "top", "top_vert", "left", "right" } end })
 	row("Slider", { label = "Bar size", min = 2, max = 26, step = 1, get = function() return O("durationBarHeight", 3) end,
-		set = function(v) SP.opt.durationBarHeight = v; upd("UpdateTotemProgressBarHeight") end })
+		set = function(v) OPT().durationBarHeight = v; upd("UpdateTotemProgressBarHeight") end })
 	row("Dropdown", { label = "Show duration", get = function() return O("durationTextLocation", "none") end,
-		set = function(v) SP.opt.durationTextLocation = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end,
+		set = function(v) OPT().durationTextLocation = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end,
 		values = function() return { none = "None", inside_top = "Inside Bar (Top)", inside_bottom = "Inside Bar (Bottom)", above = "Above Bar", below = "Below Bar", icon = "On Icon" } end,
 		order = function() return { "none", "inside_top", "inside_bottom", "above", "below", "icon" } end })
 	row("Slider", { label = "Text size", min = 6, max = 20, step = 1, get = function() return O("durationTextSize", 8) end,
-		set = function(v) SP.opt.durationTextSize = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end })
+		set = function(v) OPT().durationTextSize = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end })
 	row("Toggle", { label = "Show totem cooldowns", get = function() return O("showTotemCooldowns", true) end,
-		set = function(v) SP.opt.showTotemCooldowns = v; upd("SetupTotemProgressBars") end })
-	row("Color", { label = "Cooldown text color", get = function() local c = SP.opt.totemCooldownTextColor; if c then return c.r or 1, c.g or 1, c.b or 1 end; return 1, 1, 1 end,
-		set = function(r, g, b) SP.opt.totemCooldownTextColor = SP.opt.totemCooldownTextColor or {}; local c = SP.opt.totemCooldownTextColor; c.r, c.g, c.b = r, g, b; upd("ApplyTotemCooldownTextColor") end })
+		set = function(v) OPT().showTotemCooldowns = v; upd("SetupTotemProgressBars"); Widgets:RefreshAll(card) end })
+	row("Dropdown", { label = "Cooldown style", disabled = function() return O("showTotemCooldowns", true) == false end,
+		get = function() return O("totemCooldownSweep", "radial") end,
+		set = function(v) OPT().totemCooldownSweep = v; upd("UpdateTotemCooldowns") end,
+		values = function() return { radial = "Radial swipe", vertical = "Vertical sweep (greys out)", reverse = "Vertical sweep (fills back in)" } end, order = function() return { "radial", "vertical", "reverse" } end })
+	row("Toggle", { label = "Show cooldown time", desc = "The remaining seconds on the totem. Off = just the swipe.",
+		disabled = function() return O("showTotemCooldowns", true) == false end,
+		get = function() return O("totemCooldownText", true) ~= false end,
+		set = function(v) OPT().totemCooldownText = v; upd("UpdateTotemCooldowns"); Widgets:RefreshAll(card) end })
+	row("Color", { label = "Cooldown text color", disabled = function() return O("showTotemCooldowns", true) == false or O("totemCooldownText", true) == false end,
+		get = function() local c = OPT().totemCooldownTextColor; if c then return c.r or 1, c.g or 1, c.b or 1 end; return 1, 1, 1 end,
+		set = function(r, g, b) OPT().totemCooldownTextColor = OPT().totemCooldownTextColor or {}; local c = OPT().totemCooldownTextColor; c.r, c.g, c.b = r, g, b; upd("ApplyTotemCooldownTextColor") end })
 	row("Dropdown", { label = "Pulse position", get = function() return O("pulseBarPosition", "on_icon") end,
-		set = function(v) SP.opt.pulseBarPosition = v; upd("UpdatePulseBarPositions") end,
+		set = function(v) OPT().pulseBarPosition = v; upd("UpdatePulseBarPositions") end,
 		values = function() return { none = "None", on_icon = "On Icon", above = "Above (Horizontal)", above_vert = "Above (Vertical)", below = "Below (Horizontal)", below_vert = "Below (Vertical)", left = "Left", right = "Right" } end,
 		order = function() return { "none", "on_icon", "above", "above_vert", "below", "below_vert", "left", "right" } end })
 	row("Slider", { label = "Pulse size", min = 2, max = 26, step = 1, get = function() return O("pulseBarSize", 4) end,
-		set = function(v) SP.opt.pulseBarSize = v; upd("UpdatePulseBarPositions") end })
+		set = function(v) OPT().pulseBarSize = v; upd("UpdatePulseBarPositions") end })
 	row("Dropdown", { label = "Pulse time", get = function() return O("pulseTimeDisplay", "none") end,
-		set = function(v) SP.opt.pulseTimeDisplay = v; upd("UpdatePulseBarPositions") end,
+		set = function(v) OPT().pulseTimeDisplay = v; upd("UpdatePulseBarPositions") end,
 		values = function() return { none = "None", inside_top = "Inside Bar (Top)", inside_bottom = "Inside Bar (Bottom)", above = "Above Bar", below = "Below Bar", on_icon = "On Icon" } end,
 		order = function() return { "none", "inside_top", "inside_bottom", "above", "below", "on_icon" } end })
 	row("Slider", { label = "Pulse text size", min = 6, max = 20, step = 1, get = function() return O("pulseTextSize", 8) end,
-		set = function(v) SP.opt.pulseTextSize = v; upd("UpdatePulseBarPositions") end })
+		set = function(v) OPT().pulseTextSize = v; upd("UpdatePulseBarPositions") end })
 	local endY = y
 
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
@@ -2124,7 +2170,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
 		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
 	}
-	local function visible(sp) return (not sp.roles or sp.roles[state.role]) and SP.opt[sp.opt] ~= false end
+	local function visible(sp) return (not sp.roles or sp.roles[state.role] or SP.Wizard.previewOnly) and OPT()[sp.opt] ~= false end
 	local function roleSees(sp) return not sp.roles or sp.roles[state.role] end
 
 	-- ---- mock bar (mirrors the real bar: dark backdrop, 36px buttons) ----
@@ -2138,24 +2184,68 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		local btn = CreateFrame("Frame", nil, bar); btn:SetSize(SIZE, SIZE)
 		local icon = btn:CreateTexture(nil, "ARTWORK"); icon:SetAllPoints(btn)
 		icon:SetTexture(GetSpellTexture(sp.id)); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		-- Grayed sweep overlay (rises from the bottom as the cooldown runs).
-		local gray = btn:CreateTexture(nil, "ARTWORK", nil, 1); gray:SetPoint("BOTTOMLEFT"); gray:SetPoint("BOTTOMRIGHT"); gray:SetHeight(0)
+		-- Grayed sweep overlay: like the real bar it grows DOWN from the top as
+		-- the cooldown depletes (no radial swipe on cooldown-type buttons).
+		local gray = btn:CreateTexture(nil, "ARTWORK", nil, 1); gray:SetPoint("TOPLEFT"); gray:SetPoint("TOPRIGHT"); gray:SetHeight(0)
 		gray:SetTexture(GetSpellTexture(sp.id)); gray:SetDesaturated(true); gray:SetVertexColor(0.5, 0.5, 0.5); gray:Hide()
-		-- Progress bar on the left edge (3px), depletes top-down.
-		local pbg = btn:CreateTexture(nil, "BACKGROUND"); pbg:SetSize(3, SIZE); pbg:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0); pbg:SetColorTexture(0, 0, 0, 0.6)
-		local pb = btn:CreateTexture(nil, "ARTWORK"); pb:SetWidth(3); pb:SetPoint("BOTTOMLEFT", pbg, "BOTTOMLEFT"); pb:SetPoint("BOTTOMRIGHT", pbg, "BOTTOMRIGHT")
-		pb:SetHeight(SIZE); pb:SetColorTexture(sp.color[1], sp.color[2], sp.color[3], 1)
-		local txt = btn:CreateFontString(nil, "OVERLAY"); txt:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE"); txt:SetPoint("CENTER"); txt:SetTextColor(1, 1, 1)
+		-- radial swipe (only used when Sweep style is "Radial swipe")
+		local cdr = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate"); cdr:SetAllPoints(icon); cdr:SetDrawEdge(false); cdr:SetSwipeColor(0, 0, 0, 0.8)
+		if cdr.SetHideCountdownNumbers then cdr:SetHideCountdownNumbers(true) end
+		-- Progress bar (position follows cdbarProgressPosition, laid out below).
+		local pbg = btn:CreateTexture(nil, "BACKGROUND", nil, 2); pbg:SetColorTexture(0, 0, 0, 0.6); pbg:SetSize(3, SIZE)
+		local pb = btn:CreateTexture(nil, "ARTWORK", nil, 2); pb:SetColorTexture(sp.color[1], sp.color[2], sp.color[3], 1); pb:SetSize(3, SIZE)
+		local txt = btn:CreateFontString(nil, "OVERLAY", nil, 7); txt:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE"); txt:SetPoint("CENTER"); txt:SetTextColor(1, 1, 1)
 		local corner = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal"); corner:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 		corner:SetText(sp.charges or sp.count or "")
 		local lbl = btn:CreateFontString(nil, "OVERLAY"); lbl:SetFontObject(Core.fonts.tiny); lbl:SetPoint("TOP", btn, "BOTTOM", 0, -8)
 		lbl:SetText(sp.name); lbl:SetWidth(SIZE + GAP + 14); lbl:SetJustifyH("CENTER"); lbl:SetWordWrap(false)
 		-- Staggered sim clock so the bar is not in lockstep.
-		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, lbl = lbl, pbg = pbg, pb = pb, txt = txt, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
+		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
 	end
 
+	-- Progress bar + duration text geometry, same anchors as
+	-- UpdateCooldownBarProgressBars / the duration text locations.
+	local function layoutBars()
+		local pos, size = OPT().cdbarProgressPosition or "left", OPT().cdbarProgressBarHeight or 3
+		local tl, ts = OPT().cdbarDurationTextLocation or "none", OPT().cdbarDurationTextSize or 8
+		for _, b in ipairs(buttons) do
+			local f, pbg, pb, txt = b.f, b.pbg, b.pb, b.txt
+			pbg:ClearAllPoints(); pb:ClearAllPoints(); txt:ClearAllPoints()
+			b.vert = (pos == "left" or pos == "right" or pos == "top_vert" or pos == "bottom_vert" or pos == "on_icon")
+			if pos == "bottom" then
+				pbg:SetSize(SIZE, size); pbg:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -1); pb:SetSize(SIZE, size); pb:SetPoint("TOPLEFT", pbg, "TOPLEFT")
+			elseif pos == "top" then
+				pbg:SetSize(SIZE, size); pbg:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1); pb:SetSize(SIZE, size); pb:SetPoint("TOPLEFT", pbg, "TOPLEFT")
+			elseif pos == "bottom_vert" then
+				pbg:SetSize(size, SIZE); pbg:SetPoint("TOP", f, "BOTTOM", 0, -1); pb:SetSize(size, SIZE); pb:SetPoint("BOTTOMLEFT", pbg, "BOTTOMLEFT")
+			elseif pos == "top_vert" then
+				pbg:SetSize(size, SIZE); pbg:SetPoint("BOTTOM", f, "TOP", 0, 1); pb:SetSize(size, SIZE); pb:SetPoint("BOTTOMLEFT", pbg, "BOTTOMLEFT")
+			elseif pos == "on_icon" then
+				pbg:SetSize(size, SIZE); pbg:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0); pb:SetSize(size, SIZE); pb:SetPoint("BOTTOMLEFT", pbg, "BOTTOMLEFT")
+			elseif pos == "right" then
+				pbg:SetSize(size, SIZE); pbg:SetPoint("TOPLEFT", f, "TOPRIGHT", 1, 0); pb:SetSize(size, SIZE); pb:SetPoint("BOTTOMLEFT", pbg, "BOTTOMLEFT")
+			else -- left
+				pbg:SetSize(size, SIZE); pbg:SetPoint("TOPRIGHT", f, "TOPLEFT", -1, 0); pb:SetSize(size, SIZE); pb:SetPoint("BOTTOMLEFT", pbg, "BOTTOMLEFT")
+			end
+			b.textMode = tl
+			if tl == "inside" then
+				txt:SetFont("Fonts\\FRIZQT__.TTF", ts, "OUTLINE"); txt:SetPoint("CENTER", pbg, "CENTER")
+			elseif tl == "outside" then
+				txt:SetFont("Fonts\\FRIZQT__.TTF", ts, "OUTLINE")
+				if pos == "bottom" or pos == "bottom_vert" then txt:SetPoint("TOP", pbg, "BOTTOM", 0, -1)
+				elseif pos == "top" or pos == "top_vert" then txt:SetPoint("BOTTOM", pbg, "TOP", 0, 1)
+				elseif pos == "right" then txt:SetPoint("LEFT", pbg, "RIGHT", 1, 0)
+				else txt:SetPoint("RIGHT", pbg, "LEFT", -1, 0) end
+			elseif tl == "icon" then
+				txt:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
+			else -- "none": legacy centre text, only if the CD Text toggle is on
+				txt:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
+			end
+		end
+	end
+	local lastGeom
 	local function layoutMock()
-		local lay = SP.opt.cdbarLayout or SP.opt.layout or "Horizontal"
+		local lay = OPT().cdbarLayout or OPT().layout or "Horizontal"
 		local vertical = (lay ~= "Horizontal")
 		local n, x = 0, 10
 		for _, b in ipairs(buttons) do
@@ -2168,21 +2258,29 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 					b.f:SetPoint("LEFT", bar, "LEFT", x, 6)
 					b.lbl:SetPoint("TOP", b.f, "BOTTOM", 0, -8); b.lbl:SetJustifyH("CENTER"); b.lbl:SetWidth(SIZE + GAP + 14)
 				end
-				b.f:Show()
+				b.f:Show(); b.lbl:SetShown(not SP.Wizard.previewOnly)
 				x = x + SIZE + GAP + 4; n = n + 1
 			else b.f:Hide() end
 		end
-		if vertical then bar:SetSize(SIZE + 120, math.max(60, x + 6)) else bar:SetSize(math.max(60, x + 6), SIZE + 12 + 24) end
+		local labelH = SP.Wizard.previewOnly and 0 or 24
+		if vertical then bar:SetSize(SIZE + (SP.Wizard.previewOnly and 20 or 120), math.max(60, x + 6)) else bar:SetSize(math.max(60, x + 6), SIZE + 12 + labelH) end
+		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", 0, SP.Wizard.previewOnly and 0 or 10)
+		layoutBars()
 	end
 
 	bar:SetScript("OnUpdate", function(_, e)
-		local showBars  = SP.opt.cdbarShowProgressBars ~= false
-		local showSweep = SP.opt.cdbarShowColorSweep ~= false
-		local showText  = SP.opt.cdbarShowCDText ~= false
-		local opacity, fullActive = SP.opt.cooldownBarOpacity or 1, SP.opt.cooldownBarFullOpacityWhenActive
-		bar:SetScale(SP.opt.cooldownBarScale or 0.9)
-		local hideFrame = SP.opt.hideCooldownBarFrame
-		bg:SetShown(not hideFrame); Core:SetBorderColor(bar, hideFrame and "windowBg" or "border")
+		local showBars  = OPT().cdbarShowProgressBars ~= false
+		local showSweep = OPT().cdbarShowColorSweep ~= false
+		local showText  = OPT().cdbarShowCDText ~= false
+		local geom = tostring(OPT().cdbarProgressPosition) .. tostring(OPT().cdbarProgressBarHeight) .. tostring(OPT().cdbarDurationTextLocation) .. tostring(OPT().cdbarDurationTextSize)
+		if geom ~= lastGeom then lastGeom = geom; layoutBars() end
+		local opacity, fullActive = OPT().cooldownBarOpacity or 1, OPT().cooldownBarFullOpacityWhenActive
+		local sc = OPT().cooldownBarScale or 0.9
+		if SP.Wizard.previewOnly then sc = math.min(sc, (inner:GetHeight() - 6) / math.max(1, bar:GetHeight())) end
+		bar:SetScale(sc)
+		local hideFrame = OPT().hideCooldownBarFrame
+		bg:SetShown(not hideFrame)
+		for _, t in pairs(bar.spBorder or {}) do t:SetShown(not hideFrame) end
 		for _, b in ipairs(buttons) do
 			if b.f:IsShown() then
 				local sp = b.sp
@@ -2197,23 +2295,39 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 					if onCd then
 						local remain = sp.cd - b.t
 						local frac = remain / sp.cd
-						b.pb:SetHeight(math.max(0.5, SIZE * frac))
-						b.txt:SetText(showText and tostring(math.ceil(remain)) or "")
-						if showSweep then
-							b.gray:Show(); b.gray:SetHeight(math.max(0.5, SIZE * (1 - frac)))
-							b.gray:SetTexCoord(0.08, 0.92, 0.92 - 0.84 * (1 - frac), 0.92)
-						else b.gray:Hide() end
+						if b.vert then b.pb:SetHeight(math.max(0.5, SIZE * frac)) else b.pb:SetWidth(math.max(0.5, SIZE * frac)) end
+						-- duration text: chosen location, or the legacy centre text when the toggle is on
+						local wantText = (b.textMode ~= "none" and b.textMode ~= nil) or showText
+						b.txt:SetText(wantText and tostring(math.ceil(remain)) or "")
+						local style = OPT().cdbarSweepStyle or "greys"
+						if showSweep and style == "radial" then
+							b.gray:Hide()
+							if not b.radialSet then b.cdr:SetCooldown(GetTime() - b.t, sp.cd); b.radialSet = true end
+						elseif showSweep then
+							if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
+							local dep = (style == "fills") and frac or (1 - frac)
+							b.gray:Show(); b.gray:SetHeight(math.max(0.5, SIZE * dep))
+							b.gray:SetTexCoord(0.08, 0.92, 0.08, 0.08 + 0.84 * dep)
+						else
+							b.gray:Hide(); if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
+						end
+						if sp.count then b.corner:Hide() end          -- Ankh count hides while on cooldown
 					else
-						b.pb:SetHeight(SIZE); b.txt:SetText(""); b.gray:Hide()
+						if b.vert then b.pb:SetHeight(SIZE) else b.pb:SetWidth(SIZE) end
+						b.txt:SetText(""); b.gray:Hide()
+						if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
+						if sp.count then b.corner:Show() end
 					end
 				else
 					-- Shield / imbues: always "up" in the demo.
-					b.pb:SetHeight(SIZE); b.gray:Hide(); b.txt:SetText("")
+					if b.vert then b.pb:SetHeight(SIZE) else b.pb:SetWidth(SIZE) end
+					b.gray:Hide(); b.txt:SetText("")
 				end
 			end
 		end
 	end)
 
+	if SP.Wizard.previewOnly then layoutMock(); return y end
 	-- ---- spell chips in the card: which spells appear on the bar ----
 	local hdr = card:CreateFontString(nil, "OVERLAY"); hdr:SetFontObject(Core.fonts.tiny)
 	hdr:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); hdr:SetText("SPELLS ON THE BAR"); hdr:SetTextColor(Core:Color("textDim"))
@@ -2221,7 +2335,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	local chipW = math.floor((card:GetWidth() - 36 - 8) / 2)
 	local chips, col, row = {}, 0, 0
 	local function paintChip(c)
-		local on = SP.opt[c.sp.opt] ~= false
+		local on = OPT()[c.sp.opt] ~= false
 		c.bg:SetColorTexture(Core:Color("accent", on and 0.28 or 0.06))
 		Core:SetBorderColor(c, on and "accent" or "border")
 		c.lbl:SetTextColor(Core:Color(on and "accentHi" or "textDim"))
@@ -2239,7 +2353,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			c.lbl:SetPoint("RIGHT", c, "RIGHT", -6, 0); c.lbl:SetJustifyH("LEFT"); c.lbl:SetText(sp.long or sp.name)
 			c.sp = sp
 			c:SetScript("OnClick", function()
-				SP.opt[sp.opt] = not (SP.opt[sp.opt] ~= false)
+				OPT()[sp.opt] = not (OPT()[sp.opt] ~= false)
 				if not InCombatLockdown() and SP.RecreateCooldownBar then pcall(SP.RecreateCooldownBar, SP) end
 				local reg = LibStub and LibStub("AceConfigRegistry-3.0", true); if reg then reg:NotifyChange("ShamanPower") end
 				paintChip(c); layoutMock()
@@ -2261,17 +2375,34 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		local _, h = Widgets[kind](Widgets, card, opts)
 		y = y + h
 	end
-	wrow("Dropdown", { label = "Layout", get = function() return SP.opt.cdbarLayout or SP.opt.layout or "Horizontal" end,
-		set = function(v) SP.opt.cdbarLayout = v; safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); safecall("LayoutShieldFlyout"); safecall("LayoutWeaponImbueFlyout"); notify(); layoutMock() end,
+	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
+		get = function() return OPT().cdbarSweepStyle or "greys" end,
+		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("UpdateCooldownBar"); notify() end,
+		values = function() return { greys = "Vertical - greys out", fills = "Vertical - fills back in", radial = "Radial swipe" } end,
+		order = function() return { "greys", "fills", "radial" } end })
+	wrow("Dropdown", { label = "Progress bar position", get = function() return OPT().cdbarProgressPosition or "left" end,
+		set = function(v) SP.opt.cdbarProgressPosition = v; if not InCombatLockdown() then safecall("RecreateCooldownBar") end; notify(); layoutMock() end,
+		values = function() return { left = "Left", right = "Right", top = "Top (horizontal)", top_vert = "Top (vertical)", bottom = "Bottom (horizontal)", bottom_vert = "Bottom (vertical)", on_icon = "On the icon" } end,
+		order = function() return { "left", "right", "top", "top_vert", "bottom", "bottom_vert", "on_icon" } end })
+	wrow("Slider", { label = "Progress bar size", min = 3, max = 16, step = 1, get = function() return OPT().cdbarProgressBarHeight or 3 end,
+		set = function(v) SP.opt.cdbarProgressBarHeight = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBar"); notify(); layoutMock() end })
+	wrow("Dropdown", { label = "Time text", get = function() return OPT().cdbarDurationTextLocation or "none" end,
+		set = function(v) SP.opt.cdbarDurationTextLocation = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); notify(); layoutMock() end,
+		values = function() return { none = "None (centre number if Time text is on)", inside = "Inside the bar", outside = "Beside the bar", icon = "On the icon" } end,
+		order = function() return { "none", "inside", "outside", "icon" } end })
+	wrow("Slider", { label = "Time text size", min = 6, max = 20, step = 1, get = function() return OPT().cdbarDurationTextSize or 8 end,
+		set = function(v) SP.opt.cdbarDurationTextSize = v; safecall("ApplyCdbarTextSize"); safecall("UpdateCooldownBarProgressBars"); notify(); layoutMock() end })
+	wrow("Dropdown", { label = "Layout", get = function() return OPT().cdbarLayout or OPT().layout or "Horizontal" end,
+		set = function(v) OPT().cdbarLayout = v; safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); safecall("LayoutShieldFlyout"); safecall("LayoutWeaponImbueFlyout"); notify(); layoutMock() end,
 		values = LAYOUT_VALUES, order = LAYOUT_ORDER })
-	wrow("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return SP.opt.cooldownBarScale or 0.9 end,
-		set = function(v) SP.opt.cooldownBarScale = v; safecall("UpdateCooldownBarScale"); notify() end })
-	wrow("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return SP.opt.cooldownBarOpacity or 1 end,
-		set = function(v) SP.opt.cooldownBarOpacity = v; safecall("UpdateCooldownBarOpacity"); notify() end })
-	wrow("Toggle", { label = "Full opacity while on cooldown", get = function() return SP.opt.cooldownBarFullOpacityWhenActive and true or false end,
-		set = function(v) SP.opt.cooldownBarFullOpacityWhenActive = v; safecall("UpdateCooldownBarOpacity"); notify() end })
-	wrow("Toggle", { label = "Show frame behind the bar", get = function() return not SP.opt.hideCooldownBarFrame end,
-		set = function(v) SP.opt.hideCooldownBarFrame = (not v) or nil; safecall("UpdateCooldownBarFrame"); notify() end })
+	wrow("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().cooldownBarScale or 0.9 end,
+		set = function(v) OPT().cooldownBarScale = v; safecall("UpdateCooldownBarScale"); notify() end })
+	wrow("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().cooldownBarOpacity or 1 end,
+		set = function(v) OPT().cooldownBarOpacity = v; safecall("UpdateCooldownBarOpacity"); notify() end })
+	wrow("Toggle", { label = "Full opacity while on cooldown", get = function() return OPT().cooldownBarFullOpacityWhenActive and true or false end,
+		set = function(v) OPT().cooldownBarFullOpacityWhenActive = v; safecall("UpdateCooldownBarOpacity"); notify() end })
+	wrow("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideCooldownBarFrame end,
+		set = function(v) OPT().hideCooldownBarFrame = (not v) or nil; safecall("UpdateCooldownBarFrame"); notify() end })
 
 	layoutMock()
 	return y
@@ -2488,6 +2619,137 @@ local SPEC_ICON = {
 	elemental   = "Interface\\Icons\\Spell_Nature_Lightning",
 }
 
+-- ---------------------------------------------------------------------------
+-- Quick Setup preview: what a built-in preset looks like and what it sets,
+-- decoded from the preset string itself, before the user commits to it.
+-- ---------------------------------------------------------------------------
+local previewDlg
+local function PresetSummary(preset)
+	local payload = SP.DecodeShare and SP:DecodeShare(preset.str)
+	local p = payload and payload.profile or {}
+	local x = payload and payload.extras or {}
+	local function on(v) return v and "|cff40ff40on|r" or "|cff8090a0off|r" end
+	local style = p.dynamicTotemMode and "Dynamic (PvP)" or (p.activeTotemAsMain and "TotemTimers style" or "Normal")
+	local dbp = ({ none = "none", bottom = "bottom", bottom_vert = "bottom (vertical)", top = "top", top_vert = "top (vertical)", left = "left", right = "right" })[p.durationBarPosition or "bottom"] or tostring(p.durationBarPosition)
+	local dots = (p.showPartyRangeDots and (p.rangeCounter and p.rangeCounter.enabled) and "dots + numbers") or (p.showPartyRangeDots and "dots") or ((p.rangeCounter and p.rangeCounter.enabled) and "numbers") or "off"
+	local lines = {
+		{ "Totem bar", string.format("%s, %s, size %.2f%s", p.layout or "Horizontal", style, p.buffscale or 1, p.hideTotemBarFrame and ", no frame" or "") },
+		{ "Duration bars", dbp .. ((p.durationTextLocation and p.durationTextLocation ~= "none") and (", time " .. p.durationTextLocation) or "") },
+		{ "Cooldown bar", (p.showCooldownBar == false) and "off" or string.format("%s, size %.2f%s", p.cdbarLayout or p.layout or "Horizontal", p.cooldownBarScale or 0.9, p.hideCooldownBarFrame and ", no frame" or "") },
+		{ "Totem twisting", on(p.enableTotemTwisting) },
+		{ "Earth Shield tracker", on(p.esTracker and p.esTracker.enabled) },
+		{ "Shield charges", on(p.shieldChargeDisplay and p.shieldChargeDisplay.showPlayerShield ~= false) },
+		{ "Party Buff Tracker", dots .. (p.partyDotPosition and p.partyDotPosition ~= "corners" and (", dots " .. p.partyDotPosition) or "") },
+		{ "Totem Plates", on(p.totemPlates and p.totemPlates.enabled) },
+		{ "Reactive Totems", on(x.ShamanPower_ReactiveTotems and x.ShamanPower_ReactiveTotems.enabled ~= false) },
+		{ "Tremor Reminder", on(x.ShamanPowerTremorReminderDB and x.ShamanPowerTremorReminderDB.enabled ~= false) },
+		{ "Expiring Alerts", on(x.ShamanPowerExpiringAlertsDB and x.ShamanPowerExpiringAlertsDB.enabled ~= false) },
+	}
+	return lines, payload ~= nil
+end
+
+function SP.Wizard:ShowPresetPreview(preset)
+	if not previewDlg then
+		previewDlg = Core:CreateDialog({
+			name = "ShamanPowerPresetPreview", width = 940, height = 560,
+			title = preset.name, subtitle = "quick setup - preview before you apply", headerHeight = 46, footer = 52, strata = "FULLSCREEN_DIALOG",
+		})
+		local body = previewDlg.body
+		-- opaque: this sits over the welcome screen and must be readable
+		local solid = previewDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2); solid:SetColorTexture(Core:Color("windowBg", 1))
+		local solidH = previewDlg.header:CreateTexture(nil, "BACKGROUND", nil, 1); solidH:SetAllPoints(previewDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
+		-- live mocks of the preset (rebuilt on every open, see below)
+		local shot = CreateFrame("Frame", nil, body); shot:SetSize(520, 400); shot:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
+		previewDlg.shot = shot
+		local desc = body:CreateFontString(nil, "OVERLAY"); desc:SetFontObject(Core.fonts.rowDim); desc:SetPoint("TOPLEFT", shot, "BOTTOMLEFT", 0, -8); desc:SetWidth(520); desc:SetJustifyH("LEFT"); desc:SetWordWrap(true)
+		previewDlg.desc = desc
+		previewDlg:SetScript("OnHide", function() SP.Wizard.optOverride = nil; SP.Wizard.previewOnly = nil end)
+		-- summary
+		local hdr = body:CreateFontString(nil, "OVERLAY"); hdr:SetFontObject(Core.fonts.tiny); hdr:SetPoint("TOPLEFT", shot, "TOPRIGHT", 22, 0); hdr:SetText("WHAT IT SETS"); hdr:SetTextColor(Core:Color("textDim"))
+		previewDlg.rows = {}
+		for i = 1, 12 do
+			-- rows are re-stacked after filling so long values can wrap to two lines
+			local k = body:CreateFontString(nil, "OVERLAY"); k:SetFontObject(Core.fonts.rowDim); k:SetWidth(128); k:SetJustifyH("LEFT"); k:SetJustifyV("TOP")
+			local v = body:CreateFontString(nil, "OVERLAY"); v:SetFontObject(Core.fonts.row); v:SetPoint("TOPLEFT", k, "TOPRIGHT", 6, 0); v:SetWidth(240); v:SetJustifyH("LEFT"); v:SetJustifyV("TOP"); v:SetWordWrap(true)
+			previewDlg.rows[i] = { k = k, v = v }
+		end
+		previewDlg.hdr = hdr
+		local note = body:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetWidth(370); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
+		previewDlg.note = note
+		note:SetText("Positions, colors, sounds and every other setting come along too. Your totem choices and raid assignments are not touched.")
+		-- footer
+		local apply = Core:MakeButton(previewDlg, "Apply this layout & reload", 220, true)
+		apply:SetPoint("BOTTOMRIGHT", previewDlg, "BOTTOMRIGHT", -14, 12)
+		apply:SetScript("OnClick", function()
+			local p = previewDlg.preset
+			previewDlg:Hide()
+			SP:ApplyPreset(p.key, "overwrite")
+			SP.opt.setupDone = true
+			SP.Wizard:Close(true)
+			ReloadUI()
+		end)
+		local cont = Core:MakeButton(previewDlg, "Apply & continue the setup", 220, false)
+		cont:SetPoint("RIGHT", apply, "LEFT", -8, 0)
+		cont:SetScript("OnClick", function()
+			local p = previewDlg.preset
+			previewDlg:Hide()
+			local ok = SP:ApplyPreset(p.key, "overwrite")   -- applies live, no reload needed
+			state.presetApplied = ok and p or nil
+			print("|cff0070ddShamanPower|r: " .. p.name .. " applied. The setup will keep it as your starting point.")
+			RenderStep()
+		end)
+		local back = Core:MakeButton(previewDlg, "Back", 90, false)
+		back:SetPoint("RIGHT", cont, "LEFT", -8, 0)
+		back:SetScript("OnClick", function() previewDlg:Hide() end)
+	end
+	previewDlg.preset = preset
+	previewDlg:SetTitles(preset.name, "quick setup - preview before you apply")
+	previewDlg.desc:SetText(preset.desc or "")
+	-- Rebuild the mocks against the preset's own profile.
+	local payload = SP.DecodeShare and SP:DecodeShare(preset.str)
+	if previewDlg.host then previewDlg.host:Hide(); previewDlg.host:SetParent(nil) end
+	local host = CreateFrame("Frame", nil, previewDlg.shot); host:SetAllPoints(previewDlg.shot)
+	previewDlg.host = host
+	if payload and payload.profile then
+		SP.Wizard.optOverride = payload.profile
+		SP.Wizard.previewOnly = true
+		local dummyCard = CreateFrame("Frame", nil, host); dummyCard:SetSize(400, 10); dummyCard:Hide()
+		local PANELS = {
+			{ label = "Totem bar",     build = "BuildTotemBarStep",     h = 176 },
+			{ label = "Duration bars", build = "BuildDurationBarsStep", h = 108 },
+			{ label = "Cooldown bar",  build = "BuildCooldownBarStep",  h = 108 },
+		}
+		local yy = 0
+		for _, pdef in ipairs(PANELS) do
+			local panel = CreateFrame("Frame", nil, host); panel:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -yy); panel:SetSize(520, pdef.h)
+			Core:SolidTex(panel, "contentBg", "BACKGROUND"); Core:MakeBorder(panel, "border")
+			local lbl = panel:CreateFontString(nil, "OVERLAY"); lbl:SetFontObject(Core.fonts.tiny); lbl:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -6); lbl:SetText(strupper(pdef.label)); lbl:SetTextColor(Core:Color("textDim"))
+			local inner = CreateFrame("Frame", nil, panel); inner:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -18); inner:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4); inner:SetClipsChildren(true)
+			local fn = SP.Wizard[pdef.build]
+			if fn then pcall(fn, dummyCard, inner, 0) end
+			-- the mocks' own captions are for the step pages, not this card
+			for _, r in ipairs({ inner:GetRegions() }) do if r.IsObjectType and r:IsObjectType("FontString") then r:Hide() end end
+			yy = yy + pdef.h + 4
+		end
+	else
+		local t = host:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.rowDim); t:SetPoint("CENTER"); t:SetText("Could not read this preset.")
+	end
+	local lines, decoded = PresetSummary(preset)
+	local yy, last = 8, nil
+	for i, r in ipairs(previewDlg.rows) do
+		local l = lines[i]
+		if l then
+			r.k:SetText(l[1]); r.v:SetText(l[2]); r.k:Show(); r.v:Show()
+			r.k:ClearAllPoints(); r.k:SetPoint("TOPLEFT", previewDlg.hdr, "BOTTOMLEFT", 0, -yy)
+			local h = math.max(r.k:GetStringHeight(), r.v:GetStringHeight(), 14)
+			yy = yy + h + 8
+		else r.k:Hide(); r.v:Hide() end
+	end
+	previewDlg.note:ClearAllPoints(); previewDlg.note:SetPoint("TOPLEFT", previewDlg.hdr, "BOTTOMLEFT", 0, -(yy + 6))
+	if not decoded then previewDlg.rows[1].k:Show(); previewDlg.rows[1].k:ClearAllPoints(); previewDlg.rows[1].k:SetPoint("TOPLEFT", previewDlg.hdr, "BOTTOMLEFT", 0, -8); previewDlg.rows[1].k:SetText("Could not read this preset"); previewDlg.rows[1].v:SetText("") end
+	previewDlg:Show()
+end
+
 function SP.Wizard:RenderRole()
 	local c = wiz.content
 	local cw = c:GetWidth()
@@ -2561,7 +2823,7 @@ function SP.Wizard:RenderRole()
 		end)
 		card:SetScript("OnClick", function()
 			state.role = r.key
-			SP.Wizard.ApplyRoleDefaults(r.key)
+			if not state.presetApplied then SP.Wizard.ApplyRoleDefaults(r.key) end   -- a preset is the baseline instead
 			state.steps = VisibleSteps()
 			RenderStep()
 		end)
@@ -2574,17 +2836,15 @@ function SP.Wizard:RenderRole()
 		local qbtn = track(Core:MakeButton(c, "Use " .. preset.name .. "  (Quick Setup)", 320, true))
 		qbtn:SetSize(320, 34)
 		qbtn:SetPoint("TOP", c, "TOP", 0, -(216 + cardH + 24))
-		qbtn:SetScript("OnClick", function()
-			SP:ApplyPreset(preset.key, "overwrite")
-			SP.opt.setupDone = true
-			if wiz then wiz:Hide() end
-			ReloadUI()
-		end)
+		qbtn:SetScript("OnClick", function() SP.Wizard:ShowPresetPreview(preset) end)
+		if state.presetApplied then
+			qbtn.text:SetText(preset.name .. " applied - pick your spec to continue")
+		end
 		local qhint = track(c:CreateFontString(nil, "OVERLAY"))
 		qhint:SetFontObject(Core.fonts.tiny)
 		qhint:SetPoint("TOP", qbtn, "BOTTOM", 0, -8)
 		qhint:SetWidth(560); qhint:SetJustifyH("CENTER"); qhint:SetTextColor(Core:Color("textMute"))
-		qhint:SetText("Applies the author's complete setup and reloads. Your current totems and raid assignments are kept.")
+		qhint:SetText("Shows you the layout first - nothing is applied until you confirm.")
 	end
 end
 
@@ -2669,18 +2929,61 @@ function SP.Wizard:Open()
 	Build()
 	Core:SyncOpacity()
 	state.role = nil
+	state.presetApplied = nil
 	state.step = 1
 	state.steps = VisibleSteps()
 	wiz:Show()
 	RenderStep()
 end
 
+-- Someone upgrading from an older ShamanPower already has a configured bar:
+-- assigned totems, loadouts, or saved bar positions. A brand-new install has
+-- none of those.
+local function LooksLikeExistingUser()
+	local a = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
+	if a then for e = 1, 4 do if (a[e] or 0) > 0 then return true end end end
+	if ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts > 0 then return true end
+	if SP.opt.totemBarPosition or SP.opt.cooldownBarPosition then return true end
+	return false
+end
+
+-- Small one-time card for upgraders: a lot changed, here is the tour.
+local upgradeDlg
+function SP.Wizard:ShowUpgradePrompt()
+	if InCombatLockdown() then C_Timer.After(5, function() SP.Wizard:ShowUpgradePrompt() end) return end
+	if not upgradeDlg then
+		upgradeDlg = Core:CreateDialog({
+			name = "ShamanPowerUpgradePrompt", width = 480, height = 250,
+			title = "ShamanPower has changed", subtitle = "new settings window, new guided setup", headerHeight = 46, footer = 52,
+		})
+		upgradeDlg:SetFrameStrata("DIALOG")
+		local t = upgradeDlg.body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
+		t:SetPoint("TOPLEFT", upgradeDlg.body, "TOPLEFT", 0, -4); t:SetWidth(440); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
+		t:SetText("This version replaces the old options screen with a new settings window, and adds a guided setup that shows every feature of the addon working live - quite a few of them are easy to miss.\n\nIf you want to see what is new, take the tour. It only takes a few minutes, nothing is changed until you choose it, and you can run it again any time with |cffffffff/spsetup|r.")
+		local go = Core:MakeButton(upgradeDlg, "Take the tour", 150, true)
+		go:SetPoint("BOTTOMRIGHT", upgradeDlg, "BOTTOMRIGHT", -14, 12)
+		go:SetScript("OnClick", function() upgradeDlg:Hide(); SP.Wizard:Open() end)
+		local later = Core:MakeButton(upgradeDlg, "Not now", 110, false)
+		later:SetPoint("RIGHT", go, "LEFT", -8, 0)
+		later:SetScript("OnClick", function()
+			upgradeDlg:Hide()
+			SP.opt.setupDone = true      -- do not nag again; /spsetup is always there
+			print("|cff0070ddShamanPower|r: run the guided setup any time with /spsetup.")
+		end)
+	end
+	upgradeDlg:Show()
+end
+
 -- Auto-open on first login for shamans (once profile data is ready).
+-- New install: straight into the setup. Upgrade: a small prompt first.
 local function MaybeAutoOpen()
 	if not SP.opt then return end
 	if SP.opt.setupDone then return end
 	if select(2, UnitClass("player")) ~= "SHAMAN" then SP.opt.setupDone = true; return end
-	C_Timer.After(1.5, function() if not SP.opt.setupDone then SP.Wizard:Open() end end)
+	C_Timer.After(1.5, function()
+		if SP.opt.setupDone then return end
+		if LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:Open() end
+	end)
 end
 
 local f = CreateFrame("Frame")

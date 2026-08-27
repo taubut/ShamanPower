@@ -939,6 +939,19 @@ ShamanPower.options = {
 								ShamanPower.opt.twistSoundName = val
 							end
 						},
+						twistSoundPicker_testsound = {
+							order = 7.7 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPower.opt.twistSoundName or "Raid Warning"), ShamanPower.opt.twistSoundVolume or 100, true)
+							end,
+						},
 						twistSoundVolume = {
 							order = 7.8,
 							name = "Twist Sound Volume",
@@ -1117,7 +1130,7 @@ ShamanPower.options = {
 							order = 1,
 							type = "toggle",
 							name = "Enable Mini Totem Bar",
-							desc = "[Enable/Disable] The Mini Totem Bar",
+							desc = "Turn the totem bar off entirely - for shamans who keybind their totems and only want the cooldown bar. The cooldown bar keeps working on its own.",
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.miniBar.autobutton
@@ -1125,6 +1138,12 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower:EnsureProfileTable("miniBar")
 								ShamanPower.opt.miniBar.autobutton = val
+								-- a cooldown bar attached to the totem bar would vanish with it
+								if not val and ShamanPower.opt.cooldownBarLocked then
+									ShamanPower.opt.cooldownBarLocked = nil
+									ShamanPower:UpdateCooldownBarPosition(true)
+								end
+								ShamanPower:UpdateLayout()
 								ShamanPower:UpdateRoster()
 							end
 						},
@@ -2056,6 +2075,28 @@ ShamanPower.options = {
 								ShamanPower.opt.cdbarShowColorSweep = val
 							end
 						},
+						cdbar_sweep_style = {
+							order = 2.5,
+							type = "select",
+							name = "Sweep Style",
+							desc = "Greys out: the grey grows down from the top as time runs out. Fills back in: the icon starts grey and the color returns as time runs down. Radial: the classic clock swipe (shields and cooldowns; weapon imbues keep the vertical sweep).",
+							width = 1.2,
+							values = {
+								["greys"] = "Vertical - greys out",
+								["fills"] = "Vertical - fills back in",
+								["radial"] = "Radial swipe",
+							},
+							disabled = function()
+								return ShamanPower.opt.cdbarShowColorSweep == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.cdbarSweepStyle or "greys"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarSweepStyle = val
+								ShamanPower:UpdateCooldownBar()
+							end
+						},
 						cdbar_show_cd_text = {
 							order = 3,
 							type = "toggle",
@@ -2373,6 +2414,16 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.raidCDSoundVolume = val
 							end
+						},
+						raidCDSoundVolume_testsound = {
+							order = 5.5 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(8959, ShamanPower.opt.raidCDSoundVolume or 100, false)
+							end,
 						},
 						raidCDSoundVolumeNote = {
 							order = 5.6,
@@ -3459,6 +3510,22 @@ ShamanPower.options = {
 								end
 							end,
 						},
+						reactive_sound_picker_testsound = {
+							order = 14.1 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							disabled = function()
+								if ShamanPower_ReactiveTotems then
+									return not ShamanPower_ReactiveTotems.playSound
+								end
+								return true
+							end,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.soundName or "Raid Warning"), ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.soundVolume or 100, true)
+							end,
+						},
 						reactive_sound_volume = {
 							order = 14.3,
 							name = "Sound Volume",
@@ -3882,6 +3949,22 @@ ShamanPower.options = {
 								end
 							end,
 						},
+						alerts_shields_sound_picker_testsound = {
+							order = 15.5 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields then
+									return not ShamanPowerExpiringAlertsDB.shields.sound
+								end
+								return true
+							end,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields and ShamanPowerExpiringAlertsDB.shields.soundName or "Raid Warning"), ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.soundVolume or 100, true)
+							end,
+						},
 						alerts_sound_volume = {
 							order = 8.5,
 							name = "Sound Volume",
@@ -4102,6 +4185,22 @@ ShamanPower.options = {
 								end
 							end,
 						},
+						alerts_totems_sound_picker_testsound = {
+							order = 28.5 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems then
+									return not ShamanPowerExpiringAlertsDB.totems.sound
+								end
+								return true
+							end,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems and ShamanPowerExpiringAlertsDB.totems.soundName or "Alarm Clock Warning 3"), ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.soundVolume or 100, true)
+							end,
+						},
 						alerts_header_imbues = {
 							order = 30,
 							type = "header",
@@ -4208,6 +4307,22 @@ ShamanPower.options = {
 									if not ShamanPowerExpiringAlertsDB.weaponImbues then ShamanPowerExpiringAlertsDB.weaponImbues = {} end
 									ShamanPowerExpiringAlertsDB.weaponImbues.soundName = val
 								end
+							end,
+						},
+						alerts_imbues_sound_picker_testsound = {
+							order = 34.5 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							disabled = function()
+								if ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.weaponImbues then
+									return not ShamanPowerExpiringAlertsDB.weaponImbues.sound
+								end
+								return true
+							end,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.weaponImbues and ShamanPowerExpiringAlertsDB.weaponImbues.soundName or "Raid Warning"), ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.soundVolume or 100, true)
 							end,
 						},
 						alerts_header_testing = {
@@ -4542,6 +4657,22 @@ ShamanPower.options = {
 								if ShamanPowerTremorReminderDB then
 									ShamanPowerTremorReminderDB.soundName = val
 								end
+							end,
+						},
+						tremor_sound_picker_testsound = {
+							order = 31.5 + 0.05,
+							type = "execute",
+							name = "Test Sound",
+							desc = "Play the selected sound at the selected volume.",
+							width = 0.7,
+							disabled = function()
+								if ShamanPowerTremorReminderDB then
+									return not ShamanPowerTremorReminderDB.playSound
+								end
+								return true
+							end,
+							func = function()
+								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPowerTremorReminderDB and ShamanPowerTremorReminderDB.soundName or "Raid Warning"), ShamanPowerTremorReminderDB and ShamanPowerTremorReminderDB.soundVolume or 100, true)
 							end,
 						},
 						tremor_sound_volume = {
@@ -4989,6 +5120,45 @@ ShamanPower.options = {
 								ShamanPower:SetupTotemProgressBars()  -- Re-enable/disable the update subsystem
 							end
 						},
+						totem_cooldown_sweep = {
+							order = 3.75,
+							type = "select",
+							name = "Cooldown Style",
+							desc = "How a totem's spell cooldown is drawn on its button: the classic radial swipe, or the vertical grey sweep the cooldown bar uses.",
+							width = 1.0,
+							values = {
+								["radial"] = "Radial Swipe",
+								["vertical"] = "Vertical Sweep (greys out)",
+								["reverse"] = "Vertical Sweep (fills back in)",
+							},
+							disabled = function()
+								return ShamanPower.opt.showTotemCooldowns == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.totemCooldownSweep or "radial"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemCooldownSweep = val
+								ShamanPower:UpdateTotemCooldowns()
+							end
+						},
+						totem_cooldown_text = {
+							order = 3.78,
+							type = "toggle",
+							name = "Show Cooldown Time",
+							desc = "Show the remaining time as a number on the totem. Turn off for just the swipe.",
+							width = "full",
+							disabled = function()
+								return ShamanPower.opt.showTotemCooldowns == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.totemCooldownText ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemCooldownText = val
+								ShamanPower:UpdateTotemCooldowns()
+							end
+						},
 						totem_cooldown_text_color = {
 							order = 3.8,
 							type = "color",
@@ -4996,7 +5166,7 @@ ShamanPower.options = {
 							desc = "Color of the cooldown remaining time text on totem buttons",
 							width = 1.0,
 							disabled = function()
-								return ShamanPower.opt.showTotemCooldowns == false
+								return ShamanPower.opt.showTotemCooldowns == false or ShamanPower.opt.totemCooldownText == false
 							end,
 							get = function(info)
 								local c = ShamanPower.opt.totemCooldownTextColor
@@ -6308,40 +6478,6 @@ ShamanPower.options = {
 							end,
 						},
 					}
-				},
-			}
-		},
-		raids = {
-			order = 4,
-			name = _G.RAID,
-			desc = L["Raid only options"],
-			type = "group",
-			cmdHidden = true,
-			disabled = function(info)
-				return ShamanPower.opt.enabled == false or not isShaman
-			end,
-			args = {
-				visibility = {
-					order = 1,
-					name = L["Visibility Settings"],
-					type = "group",
-					inline = true,
-					args = {
-						hide_high = {
-							order = 1,
-							type = "toggle",
-							name = L["Hide Bench (by Subgroup)"],
-							desc = L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."],
-							width = "full",
-							get = function()
-								return ShamanPower.opt.hideHighGroups
-							end,
-							set = function(info, val)
-								ShamanPower.opt.hideHighGroups = val
-								ShamanPower:UpdateRoster()
-							end
-						},
-					},
 				},
 			}
 		},

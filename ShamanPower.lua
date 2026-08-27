@@ -2245,6 +2245,48 @@ local function FormatCooldownTime(seconds)
 	end
 end
 
+-- Totem cooldown visual (opt.totemCooldownSweep):
+--   "radial"   classic radial swipe
+--   "vertical" grey grows down from the top as the cooldown runs (like the cooldown bar)
+--   "reverse"  starts fully grey and the color comes back from the bottom up
+function ShamanPower:ApplyTotemCooldownVisual(btn, start, duration)
+	local style = self.opt.totemCooldownSweep or "radial"
+	if style == "vertical" or style == "reverse" then
+		btn.cooldown:Clear()
+		local icon = btn.icon
+		if not btn.cdSweep and icon then
+			local g = btn:CreateTexture(nil, "ARTWORK", nil, 1)
+			g:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+			g:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
+			g:SetDesaturated(true)
+			g:SetVertexColor(0.5, 0.5, 0.5)
+			btn.cdSweep = g
+		end
+		if btn.cdSweep then
+			local remaining = (start + duration) - GetTime()
+			local frac = math.max(0, math.min(1, remaining / duration))
+			local depleted = (style == "reverse") and frac or (1 - frac)   -- reverse: grey shrinks as time runs down
+			local h = (icon and icon:GetHeight() or btn:GetHeight()) * depleted
+			if h > 1 then
+				btn.cdSweep:SetTexture(icon:GetTexture())
+				btn.cdSweep:SetHeight(h)
+				btn.cdSweep:SetTexCoord(0.08, 0.92, 0.08, 0.08 + depleted * 0.84)
+				btn.cdSweep:Show()
+			else
+				btn.cdSweep:Hide()
+			end
+		end
+	else
+		if btn.cdSweep then btn.cdSweep:Hide() end
+		btn.cooldown:SetCooldown(start, duration)
+	end
+end
+
+function ShamanPower:ClearTotemCooldownVisual(btn)
+	btn.cooldown:Clear()
+	if btn.cdSweep then btn.cdSweep:Hide() end
+end
+
 -- Update cooldown displays on totem buttons and flyout buttons
 function ShamanPower:UpdateTotemCooldowns()
 	-- Update main totem buttons
@@ -2264,23 +2306,23 @@ function ShamanPower:UpdateTotemCooldowns()
 				local start, duration, enabled = GetSpellCooldown(spellID)
 				-- Only show cooldown if it's longer than GCD (1.5 sec)
 				if start and duration and duration > 1.5 and enabled == 1 then
-					btn.cooldown:SetCooldown(start, duration)
+					self:ApplyTotemCooldownVisual(btn, start, duration)
 					-- Calculate remaining time for text
 					local remaining = (start + duration) - GetTime()
-					if remaining > 0 and btn.cooldownText then
+					if remaining > 0 and btn.cooldownText and self.opt.totemCooldownText ~= false then
 						btn.cooldownText:SetText(FormatCooldownTime(remaining))
 						btn.cooldownText:Show()
 					elseif btn.cooldownText then
 						btn.cooldownText:Hide()
 					end
 				else
-					btn.cooldown:Clear()
+					self:ClearTotemCooldownVisual(btn)
 					if btn.cooldownText then
 						btn.cooldownText:Hide()
 					end
 				end
 			else
-				btn.cooldown:Clear()
+				self:ClearTotemCooldownVisual(btn)
 				if btn.cooldownText then
 					btn.cooldownText:Hide()
 				end
@@ -2297,17 +2339,17 @@ function ShamanPower:UpdateTotemCooldowns()
 					local start, duration, enabled = GetSpellCooldown(btn.spellID)
 					-- Only show cooldown if it's longer than GCD (1.5 sec)
 					if start and duration and duration > 1.5 and enabled == 1 then
-						btn.cooldown:SetCooldown(start, duration)
+						self:ApplyTotemCooldownVisual(btn, start, duration)
 						-- Calculate remaining time for text
 						local remaining = (start + duration) - GetTime()
-						if remaining > 0 and btn.cooldownText then
+						if remaining > 0 and btn.cooldownText and self.opt.totemCooldownText ~= false then
 							btn.cooldownText:SetText(FormatCooldownTime(remaining))
 							btn.cooldownText:Show()
 						elseif btn.cooldownText then
 							btn.cooldownText:Hide()
 						end
 					else
-						btn.cooldown:Clear()
+						self:ClearTotemCooldownVisual(btn)
 						if btn.cooldownText then
 							btn.cooldownText:Hide()
 						end
@@ -6414,9 +6456,12 @@ function ShamanPower:UpdateCooldownButtons()
 				end
 
 				-- Grey sweep overlay
-				if showSweep and btn.greyOverlay and shieldDuration > 0 then
+				if showSweep and self.opt.cdbarSweepStyle == "radial" and shieldDuration > 0 then
+					if btn.greyOverlay then btn.greyOverlay:Hide() end
+					btn.cooldown:SetCooldown(shieldExpiration - maxDuration, maxDuration)
+				elseif showSweep and btn.greyOverlay and shieldDuration > 0 then
 					local percent = math.min(remaining / maxDuration, 1)
-					local depletedPercent = 1 - percent
+					local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
 					local greyHeight = buttonHeight * depletedPercent
 					if greyHeight > 1 then
 						btn.greyOverlay:ClearAllPoints()
@@ -6469,6 +6514,7 @@ function ShamanPower:UpdateCooldownButtons()
 				btn.darkOverlay:Show()
 				btn.icon:SetDesaturated(true)
 				btn.activeShieldID = nil
+				btn.cooldown:Clear()
 				if btn.chargeText then btn.chargeText:SetText("") end
 				if btn.progressBar then btn.progressBar:Hide() end
 				if btn.bgBar then btn.bgBar:Hide() end
@@ -6479,14 +6525,18 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.belowText and btn.belowText ~= btn.outsideText then btn.belowText:Hide() end
 				if btn.iconText then btn.iconText:Hide() end
 			end
-			btn.cooldown:Clear()
+			if not (showSweep and self.opt.cdbarSweepStyle == "radial") then btn.cooldown:Clear() end
 
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
 			if start and start > 0 and duration > 1.5 then
-				-- Clear radial swipe - use vertical grey sweep instead (like shields/imbues)
-				btn.cooldown:Clear()
+				-- Radial swipe only when chosen; otherwise the vertical grey sweep below
+				if showSweep and self.opt.cdbarSweepStyle == "radial" then
+					btn.cooldown:SetCooldown(start, duration)
+				else
+					btn.cooldown:Clear()
+				end
 				btn.darkOverlay:Hide()
 				btn.icon:SetDesaturated(false)
 				-- Hide Ankh count when on cooldown
@@ -6537,8 +6587,8 @@ function ShamanPower:UpdateCooldownButtons()
 				end
 
 				-- Grey sweep overlay (vertical, from top)
-				if showSweep and btn.greyOverlay then
-					local depletedPercent = 1 - percent
+				if showSweep and btn.greyOverlay and self.opt.cdbarSweepStyle ~= "radial" then
+					local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
 					local greyHeight = buttonHeight * depletedPercent
 					if greyHeight > 1 then
 						btn.greyOverlay:ClearAllPoints()
@@ -6855,7 +6905,7 @@ function ShamanPower:UpdateCooldownButtons()
 					bar:Show()
 
 					if showSweep and grey then
-						local depletedPercent = 1 - percent
+						local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
 						local greyHeight = buttonHeight * depletedPercent
 						if greyHeight > 1 then
 							grey:ClearAllPoints()
@@ -8384,7 +8434,44 @@ function ShamanPower:HasAnyTotemsPlaced()
 end
 
 -- Update totem bar visibility based on combat and totem state
+-- "Enable Mini Totem Bar" off = no totem bar at all (some shamans keybind
+-- their totems and only want the cooldown bar). The four totem buttons, the
+-- Drop All / Earth Shield / Totemic Call buttons are all UIParent children,
+-- so hiding the anchor alone never hid them.
+function ShamanPower:TotemBarEnabled()
+	return self.opt.enabled ~= false and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
+end
+
+function ShamanPower:SetTotemBarFramesShown(shown)
+	if InCombatLockdown() then self._totemBarShownPending = shown; return end
+	self._totemBarShownPending = nil
+	if self.autoButton then self.autoButton:SetShown(shown) end
+	if self.totemButtons then
+		for element = 1, 4 do
+			local btn = self.totemButtons[element]
+			if btn then btn:SetShown(shown) end
+		end
+	end
+	local dropAll = _G["ShamanPowerAutoDropAll"]
+	if dropAll then dropAll:SetShown(shown and self.opt.showDropAllButton ~= false) end
+	local esBtn = _G["ShamanPowerEarthShieldBtn"]
+	if esBtn then esBtn:SetShown(shown and self.HasEarthShield and self:HasEarthShield() or false) end
+	local tcBtn = _G["ShamanPowerTotemicCallBtn"]
+	if tcBtn and not shown then tcBtn:Hide() end
+end
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_REGEN_ENABLED")
+	f:SetScript("OnEvent", function()
+		if ShamanPower._totemBarShownPending ~= nil then
+			ShamanPower:SetTotemBarFramesShown(ShamanPower._totemBarShownPending)
+			if ShamanPower._totemBarShownPending ~= false then ShamanPower:UpdateMiniTotemBar() end
+		end
+	end)
+end
+
 function ShamanPower:UpdateTotemBarVisibility()
+	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
 	-- Enable/disable totemVisibility subsystem based on whether auto-hide features are on
 	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
 		self:EnableUpdateSubsystem("totemVisibility")
@@ -11412,16 +11499,6 @@ function ShamanPower:UpdateRoster()
 			if IsInRaid() and (not isPet) then
 				local n = select(3, unitid:find("(%d+)"))
 				name, rank, subgroup = GetRaidRosterInfo(n)
-
-				if self.opt.hideHighGroups then
-					local maxPlayerCount = (select(5, GetInstanceInfo()))
-					if maxPlayerCount and (maxPlayerCount > 5) then
-						local numVisibleSubgroups = math.ceil(maxPlayerCount/5)
-						if not (subgroup <= numVisibleSubgroups) then
-							pclass = nil
-						end
-					end
-				end
 			else
 				rank = UnitIsGroupLeader(unitid) and 2 or 0
 				subgroup = 1
@@ -11539,13 +11616,13 @@ function ShamanPower:UpdateLayout()
 	local showMiniBar = isShaman and self.opt.enabled and self.opt.miniBar.autobutton
 		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
 	if showMiniBar then
-		autob:Show()
+		self:SetTotemBarFramesShown(true)
 		-- Update the mini totem bar icons and spells
 		self:UpdateMiniTotemBar()
 		self:UpdateDropAllButton()
 		-- Note: UpdateSPMacros() is called only when assignments change, not on every layout update
 	else
-		autob:Hide()
+		self:SetTotemBarFramesShown(false)
 	end
 
 	-- Apply opacity settings
@@ -13246,7 +13323,7 @@ SlashCmdList["SPCENTER"] = function(msg)
 	end
 
 	-- Make sure bars are visible
-	if ShamanPower.autoButton then
+	if ShamanPower.autoButton and ShamanPower:TotemBarEnabled() then
 		ShamanPower.autoButton:Show()
 	end
 

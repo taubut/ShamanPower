@@ -37,7 +37,6 @@ L["Free Assignment"] = "Affectation libre"
 L["FREE_ASSIGN_TOOLTIP"] = "Autorisez les autres à modifier vos bénédictions sans être RL ou raid assist"
 L["Fully Buffed"] = "Entièrement buffé"
 --[[Translation missing --]]
-L["Hide Bench (by Subgroup)"] = "Hide Bench (by Subgroup)"
 L["Horizontal Left | Down"] = "Horizontal gauche | bas"
 L["Horizontal Left | Up"] = "Horizontal gauche | Haut"
 L["Horizontal Right | Down"] = "Horizontal Droite | Bas"
@@ -56,7 +55,6 @@ L["Partially Buffed"] = "Partiellement buffé"
 L["Player Buttons"] = "Boutons de joueur"
 --[[Translation missing --]]
 L["Preset"] = "Preset"
-L["Raid only options"] = "Options de raid uniquement"
 L["Refresh"] = "Actualiser"
 L["Reset all ShamanPower frames back to center"] = "Réinitialiser la position de toutes les fenêtres ShamanPower au centre de l’écran"
 L["Reset Frames"] = "Reset Frames"
@@ -73,8 +71,6 @@ L["Vertical Down | Right"] = "Vertical Down | Right"
 L["Vertical Up | Left"] = "Vertical Haut | Gauche"
 L["Vertical Up | Right"] = "Vertical Up | Right"
 --[[Translation missing --]]
-L["Visibility Settings"] = "Visibility Settings"
 L["What to buff with ShamanPower"] = "Que buff avec ShamanPower"
 --[[Translation missing --]]
-L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."
 

@@ -39,7 +39,6 @@ bênçãos sem ser parte
 Assistente de Líder / Raide.]=]
 L["Fully Buffed"] = "Totalmente polido"
 --[[Translation missing --]]
-L["Hide Bench (by Subgroup)"] = "Hide Bench (by Subgroup)"
 L["Horizontal Left | Down"] = "Horizontal à esquerda | Para baixo"
 L["Horizontal Left | Up"] = "Horizontal à esquerda | Para cima"
 L["Horizontal Right | Down"] = "Horizontal à direita | Abaixo"
@@ -58,7 +57,6 @@ L["Partially Buffed"] = "Parcialmente polido"
 L["Player Buttons"] = "Botões do jogador"
 --[[Translation missing --]]
 L["Preset"] = "Preset"
-L["Raid only options"] = "Opções somente de invasão"
 L["Refresh"] = "Atualizar"
 L["Reset all ShamanPower frames back to center"] = "Redefinir todos os quadros ShamanPower de volta ao centro"
 L["Reset Frames"] = "Redefinir quadros"
@@ -75,8 +73,6 @@ L["Vertical Down | Right"] = "Vertical Abaixo | Direita"
 L["Vertical Up | Left"] = "Vertical para cima | Esquerda"
 L["Vertical Up | Right"] = "Vertical para cima | Direita"
 --[[Translation missing --]]
-L["Visibility Settings"] = "Visibility Settings"
 L["What to buff with ShamanPower"] = "O que buffar com o ShamanPower"
 --[[Translation missing --]]
-L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."
 

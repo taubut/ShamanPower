@@ -143,10 +143,9 @@ local function P(...) return { ... } end
 
 local NAV = {
 	{ group = "General", entries = {
-		{ label = "General", lock = true, desc = "Global behaviour, interface and raid settings.", tabs = {
+		{ label = "General", lock = true, desc = "Global behaviour and interface settings.", tabs = {
 			{ label = "Main",      paths = { P("settings", "settings_show") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
-			{ label = "Raid",      paths = { P("raids", "visibility") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
 		{ label = "Profiles", path = P("profiles"), lock = true },

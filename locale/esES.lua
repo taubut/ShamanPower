@@ -37,7 +37,6 @@ L["Free Assignment"] = "Asignación gratuita"
 L["FREE_ASSIGN_TOOLTIP"] = "Permitir que otros cambien su bendiciones sin ser Asistente o Líder de Banda."
 L["Fully Buffed"] = "Completamente pulido"
 --[[Translation missing --]]
-L["Hide Bench (by Subgroup)"] = "Hide Bench (by Subgroup)"
 L["Horizontal Left | Down"] = "Horizontal izquierda | Abajo"
 L["Horizontal Left | Up"] = "Horizontal izquierda | Arriba"
 L["Horizontal Right | Down"] = "Horizontal derecha | Abajo"
@@ -56,7 +55,6 @@ L["Partially Buffed"] = "Parcialmente pulido"
 L["Player Buttons"] = "Botones de jugador"
 --[[Translation missing --]]
 L["Preset"] = "Preset"
-L["Raid only options"] = "Opciones de banda"
 L["Refresh"] = "Actualizar"
 L["Reset all ShamanPower frames back to center"] = "Restablecer todos los marcos de ShamanPower de nuevo al centro"
 L["Reset Frames"] = "Restablecer marcos"
@@ -73,8 +71,6 @@ L["Vertical Down | Right"] = "Vertical hacia abajo | Derecha"
 L["Vertical Up | Left"] = "Vertical arriba | izquierda"
 L["Vertical Up | Right"] = "Vertical Arriba | Derecha"
 --[[Translation missing --]]
-L["Visibility Settings"] = "Visibility Settings"
 L["What to buff with ShamanPower"] = "Qué mejorar con ShamanPower"
 --[[Translation missing --]]
-L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."
 

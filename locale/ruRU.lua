@@ -37,7 +37,6 @@ L["FREE_ASSIGN_TOOLTIP"] = [=[Разрешает другим паладинам
 благословения, не являясь лидером
 группы (рейда) / помощником в рейде.]=]
 L["Fully Buffed"] = "Полные баффы"
-L["Hide Bench (by Subgroup)"] = "Скрыть запасных (по подгруппам)"
 L["Horizontal Left | Down"] = "По горизонтали слева | вниз"
 L["Horizontal Left | Up"] = "По горизонтали слева | вверх"
 L["Horizontal Right | Down"] = "По горизонтальное вправо | вниз"
@@ -54,7 +53,6 @@ L["ShamanPower Classic"] = "ShamanPower"
 L["Partially Buffed"] = "Неполные баффы"
 L["Player Buttons"] = "Кнопки Игроков"
 L["Preset"] = "Предустановка"
-L["Raid only options"] = "Настройки только для рейда"
 L["Refresh"] = "Обновить"
 L["Reset all ShamanPower frames back to center"] = "Вернуть все рамки ShamanPower в центр"
 L["Reset Frames"] = "Сброс рамок"
@@ -70,7 +68,5 @@ L["Vertical Down | Left"] = "По вертикали вниз | слева"
 L["Vertical Down | Right"] = "По вертикали вниз | справа"
 L["Vertical Up | Left"] = "По вертикали вверх | слева"
 L["Vertical Up | Right"] = "По вертикали вверх | справа"
-L["Visibility Settings"] = "Настройки видимости"
 L["What to buff with ShamanPower"] = "Что баффать при помощи ShamanPower"
-L["While you are in a Raid dungeon, hide any players outside of the usual subgroups for that dungeon. For example, if you are in a 10-player dungeon, any players in Group 3 or higher will be hidden."] = "Пока вы находитесь в рейдовом подземелье, скроет всех игроков, не входящих в обычные подгруппы для этого подземелья. Например, если вы находитесь в подземелье на 10 игроков, все игроки из группы 3 и выше будут скрыты."
 

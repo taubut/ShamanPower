@@ -19,4 +19,5 @@ PopOut.lua
 RaidCD.lua
 SPRange.lua
 Share.lua
+MobList.lua
 Wizard.lua
