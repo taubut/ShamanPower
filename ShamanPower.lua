@@ -1081,6 +1081,7 @@ function ShamanPower:PositionPulseWipe(container)
 	local wipe = container.wipe
 	local position = self.opt.pulseBarPosition or "on_icon"
 	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
+	local padT, padB, padL, padR = self:GetPartyDotPads()
 
 	wipe:ClearAllPoints()
 	wipeFrame:ClearAllPoints()
@@ -1106,7 +1107,7 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = container.buttonHeight
 	elseif position == "above" then
 		-- Horizontal bar above the icon, fills left to right
-		wipeFrame:SetPoint("BOTTOMLEFT", button, "TOPLEFT", 0, 1)
+		wipeFrame:SetPoint("BOTTOMLEFT", button, "TOPLEFT", 0, 1 + padT)
 		wipeFrame:SetSize(button:GetWidth(), barSize)
 		wipe:SetPoint("LEFT", wipeFrame, "LEFT", 0, 0)
 		wipe:SetHeight(barSize)
@@ -1116,7 +1117,7 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetWidth()
 	elseif position == "above_vert" then
 		-- Vertical bar above the icon, fills bottom to top (same height as icon)
-		wipeFrame:SetPoint("BOTTOM", button, "TOP", 0, 1)
+		wipeFrame:SetPoint("BOTTOM", button, "TOP", 0, 1 + padT)
 		wipeFrame:SetSize(barSize, button:GetHeight())
 		wipe:SetPoint("BOTTOMLEFT", wipeFrame, "BOTTOMLEFT", 0, 0)
 		wipe:SetWidth(barSize)
@@ -1126,7 +1127,7 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetHeight()
 	elseif position == "below" then
 		-- Horizontal bar below the icon, fills left to right
-		wipeFrame:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -1)
+		wipeFrame:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -(1 + padB))
 		wipeFrame:SetSize(button:GetWidth(), barSize)
 		wipe:SetPoint("LEFT", wipeFrame, "LEFT", 0, 0)
 		wipe:SetHeight(barSize)
@@ -1136,7 +1137,7 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetWidth()
 	elseif position == "below_vert" then
 		-- Vertical bar below the icon, fills top to bottom (same height as icon)
-		wipeFrame:SetPoint("TOP", button, "BOTTOM", 0, -1)
+		wipeFrame:SetPoint("TOP", button, "BOTTOM", 0, -(1 + padB))
 		wipeFrame:SetSize(barSize, button:GetHeight())
 		wipe:SetPoint("TOPLEFT", wipeFrame, "TOPLEFT", 0, 0)
 		wipe:SetWidth(barSize)
@@ -1146,7 +1147,7 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetHeight()
 	elseif position == "left" then
 		-- Vertical bar to the left, fills bottom to top
-		wipeFrame:SetPoint("TOPRIGHT", button, "TOPLEFT", -1, 0)
+		wipeFrame:SetPoint("TOPRIGHT", button, "TOPLEFT", -(1 + padL), 0)
 		wipeFrame:SetSize(barSize, button:GetHeight())
 		wipe:SetPoint("BOTTOMLEFT", wipeFrame, "BOTTOMLEFT", 0, 0)
 		wipe:SetWidth(barSize)
@@ -1156,7 +1157,7 @@ function ShamanPower:PositionPulseWipe(container)
 		container.maxSize = button:GetHeight()
 	elseif position == "right" then
 		-- Vertical bar to the right, fills bottom to top
-		wipeFrame:SetPoint("TOPLEFT", button, "TOPRIGHT", 1, 0)
+		wipeFrame:SetPoint("TOPLEFT", button, "TOPRIGHT", 1 + padR, 0)
 		wipeFrame:SetSize(barSize, button:GetHeight())
 		wipe:SetPoint("BOTTOMLEFT", wipeFrame, "BOTTOMLEFT", 0, 0)
 		wipe:SetWidth(barSize)
@@ -1932,6 +1933,7 @@ end
 function ShamanPower:UpdateTotemProgressBarPositions()
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
+	local padT, padB, padL, padR = self:GetPartyDotPads()
 
 	-- Enable/disable progressBars subsystem based on whether any features need it
 	local barDisabled = (barPosition == "none")
@@ -1960,10 +1962,10 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			if barPosition == "bottom" then
 				-- Horizontal bar below the icon
 				bars.bg:SetHeight(barSize)
-				bars.bg:SetPoint("TOPLEFT", totemButton, "BOTTOMLEFT", 0, -1)
-				bars.bg:SetPoint("TOPRIGHT", totemButton, "BOTTOMRIGHT", 0, -1)
+				bars.bg:SetPoint("TOPLEFT", totemButton, "BOTTOMLEFT", 0, -(1 + padB))
+				bars.bg:SetPoint("TOPRIGHT", totemButton, "BOTTOMRIGHT", 0, -(1 + padB))
 				bars.bar:SetHeight(barSize)
-				bars.bar:SetPoint("TOPLEFT", totemButton, "BOTTOMLEFT", 0, -1)
+				bars.bar:SetPoint("TOPLEFT", totemButton, "BOTTOMLEFT", 0, -(1 + padB))
 				if bars.insideTextTop then bars.insideTextTop:SetPoint("TOP", bars.bg, "TOP", 0, -1) end
 				if bars.insideTextBottom then bars.insideTextBottom:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 1) end
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("BOTTOM", bars.bg, "TOP", 0, 1) end
@@ -1971,7 +1973,7 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			elseif barPosition == "bottom_vert" then
 				-- Vertical bar below the icon (centered), shrinks UP toward icon
 				bars.bg:SetWidth(barSize)
-				bars.bg:SetPoint("TOP", totemButton, "BOTTOM", 0, -1)
+				bars.bg:SetPoint("TOP", totemButton, "BOTTOM", 0, -(1 + padB))
 				bars.bg:SetHeight(totemButton:GetHeight())
 				bars.bar:SetWidth(barSize)
 				bars.bar:SetPoint("TOP", bars.bg, "TOP", 0, 0)
@@ -1982,10 +1984,10 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			elseif barPosition == "top" then
 				-- Horizontal bar above the icon
 				bars.bg:SetHeight(barSize)
-				bars.bg:SetPoint("BOTTOMLEFT", totemButton, "TOPLEFT", 0, 1)
-				bars.bg:SetPoint("BOTTOMRIGHT", totemButton, "TOPRIGHT", 0, 1)
+				bars.bg:SetPoint("BOTTOMLEFT", totemButton, "TOPLEFT", 0, 1 + padT)
+				bars.bg:SetPoint("BOTTOMRIGHT", totemButton, "TOPRIGHT", 0, 1 + padT)
 				bars.bar:SetHeight(barSize)
-				bars.bar:SetPoint("BOTTOMLEFT", totemButton, "TOPLEFT", 0, 1)
+				bars.bar:SetPoint("BOTTOMLEFT", totemButton, "TOPLEFT", 0, 1 + padT)
 				if bars.insideTextTop then bars.insideTextTop:SetPoint("TOP", bars.bg, "TOP", 0, -1) end
 				if bars.insideTextBottom then bars.insideTextBottom:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 1) end
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("BOTTOM", bars.bg, "TOP", 0, 1) end
@@ -1993,7 +1995,7 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			elseif barPosition == "top_vert" then
 				-- Vertical bar above the icon (centered)
 				bars.bg:SetWidth(barSize)
-				bars.bg:SetPoint("BOTTOM", totemButton, "TOP", 0, 1)
+				bars.bg:SetPoint("BOTTOM", totemButton, "TOP", 0, 1 + padT)
 				bars.bg:SetHeight(totemButton:GetHeight())
 				bars.bar:SetWidth(barSize)
 				bars.bar:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 0)
@@ -2004,10 +2006,10 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			elseif barPosition == "left" then
 				-- Vertical bar to the left of the icon
 				bars.bg:SetWidth(barSize)
-				bars.bg:SetPoint("TOPRIGHT", totemButton, "TOPLEFT", -1, 0)
-				bars.bg:SetPoint("BOTTOMRIGHT", totemButton, "BOTTOMLEFT", -1, 0)
+				bars.bg:SetPoint("TOPRIGHT", totemButton, "TOPLEFT", -(1 + padL), 0)
+				bars.bg:SetPoint("BOTTOMRIGHT", totemButton, "BOTTOMLEFT", -(1 + padL), 0)
 				bars.bar:SetWidth(barSize)
-				bars.bar:SetPoint("BOTTOMRIGHT", totemButton, "BOTTOMLEFT", -1, 0)
+				bars.bar:SetPoint("BOTTOMRIGHT", totemButton, "BOTTOMLEFT", -(1 + padL), 0)
 				if bars.insideTextTop then bars.insideTextTop:SetPoint("TOP", bars.bg, "TOP", 0, -1) end
 				if bars.insideTextBottom then bars.insideTextBottom:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 1) end
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("RIGHT", bars.bg, "LEFT", -1, 0) end
@@ -2015,10 +2017,10 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			elseif barPosition == "right" then
 				-- Vertical bar to the right of the icon
 				bars.bg:SetWidth(barSize)
-				bars.bg:SetPoint("TOPLEFT", totemButton, "TOPRIGHT", 1, 0)
-				bars.bg:SetPoint("BOTTOMLEFT", totemButton, "BOTTOMRIGHT", 1, 0)
+				bars.bg:SetPoint("TOPLEFT", totemButton, "TOPRIGHT", 1 + padR, 0)
+				bars.bg:SetPoint("BOTTOMLEFT", totemButton, "BOTTOMRIGHT", 1 + padR, 0)
 				bars.bar:SetWidth(barSize)
-				bars.bar:SetPoint("BOTTOMLEFT", totemButton, "BOTTOMRIGHT", 1, 0)
+				bars.bar:SetPoint("BOTTOMLEFT", totemButton, "BOTTOMRIGHT", 1 + padR, 0)
 				if bars.insideTextTop then bars.insideTextTop:SetPoint("TOP", bars.bg, "TOP", 0, -1) end
 				if bars.insideTextBottom then bars.insideTextBottom:SetPoint("BOTTOM", bars.bg, "BOTTOM", 0, 1) end
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("LEFT", bars.bg, "RIGHT", 1, 0) end
@@ -2470,19 +2472,11 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 		local dot = frame:CreateTexture(nil, "OVERLAY")
 		dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot")
 		dot:SetSize(5, 5)
-		if i == 1 then
-			dot:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
-		elseif i == 2 then
-			dot:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
-		elseif i == 3 then
-			dot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
-		else
-			dot:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-		end
 		dot:SetVertexColor(1, 1, 1)
 		dot:Hide()
 		overlay.dots[i] = dot
 	end
+	self:PositionPartyDots(overlay.dots, frame)
 
 	-- Create pulse time text elements (same as main pulse overlay)
 	-- Time text inside the bar (top)
@@ -7386,6 +7380,63 @@ end
 -- ============================================================================
 -- Opacity Functions
 -- ============================================================================
+
+-- Party-range dots: where they sit relative to a totem button.
+-- opt.partyDotPosition: "corners" (default) | "above" | "below" | "left" | "right"
+function ShamanPower:PositionPartyDots(dots, frame)
+	if not dots or not frame then return end
+	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
+	local size, gap = 5, 2
+	local span = 4 * size + 3 * gap
+	for i = 1, 4 do
+		local dot = dots[i]
+		if dot then
+			dot:ClearAllPoints()
+			local along = (i - 1) * (size + gap)
+			if pos == "above" then
+				dot:SetPoint("BOTTOMLEFT", frame, "TOP", along - span / 2, 2)
+			elseif pos == "below" then
+				dot:SetPoint("TOPLEFT", frame, "BOTTOM", along - span / 2, -2)
+			elseif pos == "left" then
+				dot:SetPoint("TOPRIGHT", frame, "LEFT", -2, span / 2 - along)
+			elseif pos == "right" then
+				dot:SetPoint("TOPLEFT", frame, "RIGHT", 2, span / 2 - along)
+			elseif i == 1 then
+				dot:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+			elseif i == 2 then
+				dot:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
+			elseif i == 3 then
+				dot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
+			else
+				dot:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+			end
+		end
+	end
+end
+
+-- Extra distance (px) a bar on a given side must keep from the button so it
+-- does not sit on top of the party dots. Returns top, bottom, left, right.
+function ShamanPower:GetPartyDotPads()
+	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
+	if not (self.opt and self.opt.showPartyRangeDots) then return 0, 0, 0, 0 end
+	local pad = 8   -- 5px dot + 2px gap + 1px breathing room
+	return (pos == "above") and pad or 0, (pos == "below") and pad or 0,
+	       (pos == "left") and pad or 0, (pos == "right") and pad or 0
+end
+
+-- Re-anchor every party dot (main buttons + active-totem overlays) after the
+-- position option changes, and move the duration / pulse bars out of their way.
+function ShamanPower:UpdatePartyDotPositions()
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		local dots = self.partyRangeDots and self.partyRangeDots[element]
+		if btn and dots then self:PositionPartyDots(dots, btn) end
+		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
+		if ov and ov.dots and ov.frame then self:PositionPartyDots(ov.dots, ov.frame) end
+	end
+	if self.UpdateTotemProgressBarPositions then self:UpdateTotemProgressBarPositions() end
+	if self.UpdatePulseBarPositions then self:UpdatePulseBarPositions() end
+end
 
 function ShamanPower:UpdateTotemBarOpacity()
 	local opacity = self.opt.totemBarOpacity or 1.0

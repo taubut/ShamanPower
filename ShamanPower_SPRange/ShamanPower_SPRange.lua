@@ -582,6 +582,7 @@ end
 
 -- Update range status for all tracked totems
 function SP:UpdateSPRangeStatus()
+	if self.sprangeDemoActive then return end
 	local frame = self.spRangeFrame
 	if not frame or not frame:IsShown() then return end
 
@@ -729,6 +730,7 @@ end
 -- which would block repeated "WFBUFF 1" messages. We need periodic broadcasts so the shaman
 -- knows party members are still in range.
 function SP:BroadcastWindfuryStatus()
+	if self.sprangeDemoActive then return end
 	if not IsInGroup() then return end
 
 	-- Use SAME detection as SPRange - check weapon enchant from GetWeaponEnchantInfo()
@@ -896,4 +898,123 @@ SlashCmdList["SPRANGE"] = function(msg)
 		end
 		SP:ShowSPRangeConfig()
 	end
+end
+
+-- ============================================================================
+-- Setup Wizard preview: fill the range overlay with sample totems (no group)
+-- ============================================================================
+function SP:SPRangeDemo(on)
+	if on then
+		local frame = self.spRangeFrame or self:CreateSPRangeFrame()
+		if not frame then return end
+		if not self.opt or not self.opt.rangeTracker then return end
+		if frame.settingsBtn then frame.settingsBtn:Hide() end
+		self:InitSPRange()
+
+		-- Style one button from a fake status (same visuals as UpdateSPRangeStatus).
+		local function style(btn, status)
+			if status == "inrange" then
+				btn:SetBackdropBorderColor(0, 1, 0, 1); btn.rangeOverlay:Hide()
+				btn.icon:SetDesaturated(false); btn.icon:SetAlpha(1); btn.statusText:Hide()
+				btn.nameText:SetTextColor(0, 1, 0.4)
+			elseif status == "outofrange" then
+				btn:SetBackdropBorderColor(0.8, 0, 0, 1); btn.rangeOverlay:Show()
+				btn.icon:SetDesaturated(true); btn.icon:SetAlpha(0.6)
+				btn.statusText:SetText("OUT OF\nRANGE"); btn.statusText:SetTextColor(1, 0.2, 0.2); btn.statusText:Show()
+				btn.nameText:SetTextColor(0.8, 0.3, 0.3)
+			else
+				btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1); btn.rangeOverlay:Hide()
+				btn.icon:SetDesaturated(true); btn.icon:SetAlpha(0.4)
+				btn.statusText:SetText("MISSING"); btn.statusText:SetTextColor(0.7, 0.7, 0.7); btn.statusText:Show()
+				btn.nameText:SetTextColor(0.5, 0.5, 0.5)
+			end
+			btn.status = status; btn.inRange = (status == "inrange")
+		end
+
+		-- (Re)build the frame from the user's tracked set. Called on every
+		-- option change, so keep the per-totem sim state across rebuilds.
+		local d = self.sprangeDemo or { states = {}, tick = 0 }
+		self.sprangeDemo = d
+		local function build()
+			for _, btn in pairs(frame.totemButtons) do btn:Hide() end
+			frame.totemButtons = {}
+			local list = {}
+			local tracked = ShamanPower_RangeTracker and ShamanPower_RangeTracker.tracked or {}
+			for _, t in ipairs(self.TrackableTotems) do
+				if tracked[t.id] then list[#list + 1] = t end
+			end
+			d.list = list
+			local buttonSize = SP.opt.rangeTracker.iconSize or 36
+			local padding, n = 6, #list
+			local nameSpace = SP.opt.rangeTracker.hideNames and 0 or 14
+			local isVertical = SP.opt.rangeTracker.vertical
+			local width, height
+			if n == 0 then
+				width, height = 150, 50
+			elseif isVertical then
+				width = buttonSize + 24 + nameSpace
+				height = (buttonSize * n) + (padding * (n - 1)) + 28
+			else
+				width = (buttonSize * n) + (padding * (n - 1)) + 24
+				height = buttonSize + 26 + nameSpace
+			end
+			frame:SetSize(math.max(80, width), height)
+			if frame.title then frame.title:SetText(n == 0 and "Totem Range (pick totems)" or "Totem Range") end
+			for i, t in ipairs(list) do
+				local btn = self:CreateSPRangeTotemButton(frame.iconContainer, t, i)
+				if isVertical then
+					btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -20 - (i - 1) * (buttonSize + padding))
+				else
+					local bw = (buttonSize * n) + (padding * (n - 1))
+					btn:SetPoint("TOPLEFT", frame, "TOPLEFT", (frame:GetWidth() - bw) / 2 + (i - 1) * (buttonSize + padding), -20)
+				end
+				d.states[t.id] = d.states[t.id] or ((i % 3 == 0) and "outofrange" or "inrange")
+				style(btn, d.states[t.id])
+				btn:Show()
+				frame.totemButtons[t.id] = btn
+			end
+			self:UpdateSPRangeBorder()
+			self:UpdateSPRangeOpacity()
+			frame:Show()
+		end
+		d.build = build
+		build()
+
+		if not self.sprangeDemoActive then
+			self.sprangeDemoActive = true
+			-- Sim: every couple of seconds one totem changes state, as if you
+			-- walked around (or its shaman stopped dropping it).
+			if self.sprangeDemoTicker then self.sprangeDemoTicker:Cancel() end
+			self.sprangeDemoTicker = C_Timer.NewTicker(2.2, function()
+				if not self.sprangeDemoActive or not d.list or #d.list == 0 then return end
+				d.tick = d.tick + 1
+				local t = d.list[(d.tick % #d.list) + 1]
+				local cur = d.states[t.id] or "inrange"
+				local nxt = (cur == "inrange") and "outofrange" or (cur == "outofrange" and (d.tick % 5 == 0) and "missing") or "inrange"
+				d.states[t.id] = nxt
+				local btn = frame.totemButtons[t.id]
+				if btn then style(btn, nxt) end
+				local short = self.TrackableTotemShortNames[t.id] or t.name
+				self.sprangeDemoStatus =
+					(nxt == "outofrange" and ("You walked out of range of the shaman's " .. t.name))
+					or (nxt == "missing" and ("Nobody has " .. t.name .. " down right now"))
+					or ("Back in range of " .. t.name)
+			end)
+		end
+	else
+		self.sprangeDemoActive = false
+		if self.sprangeDemoTicker then self.sprangeDemoTicker:Cancel(); self.sprangeDemoTicker = nil end
+		self.sprangeDemo = nil
+		self.sprangeDemoStatus = nil
+		if self.spRangeFrame and self.spRangeFrame.settingsBtn then self.spRangeFrame.settingsBtn:Show() end
+		-- Clear sample data and let real data take over
+		self:UpdateSPRangeFrame()
+		self:UpdateSPRangeStatus()
+		self:UpdateSPRangeVisibility()
+	end
+end
+
+-- Register the range overlay with the setup wizard preview harness
+if ShamanPower.RegisterPreview then
+	ShamanPower:RegisterPreview("sprange", { frame = "ShamanPowerRangeFrame", demo = "SP:SPRangeDemo", pad = 24 })
 end

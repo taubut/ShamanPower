@@ -78,23 +78,12 @@ function SP:CreatePartyRangeDots(button, element)
 		local dot = button:CreateTexture(nil, "OVERLAY")
 		dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot")
 		dot:SetSize(5, 5)  -- Smaller dots for inside corners
-
-		-- Position dots inside the button corners (2x2 grid)
-		-- 1=top-left, 2=top-right, 3=bottom-left, 4=bottom-right
-		if i == 1 then
-			dot:SetPoint("TOPLEFT", button, "TOPLEFT", 1, -1)
-		elseif i == 2 then
-			dot:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
-		elseif i == 3 then
-			dot:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 1, 1)
-		else
-			dot:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-		end
-
 		dot:SetVertexColor(1, 1, 1)  -- Default white, will be colored by class
 		dot:Hide()
 		self.partyRangeDots[element][i] = dot
 	end
+	-- Placement (corners / above / below / left / right) from opt.partyDotPosition
+	if self.PositionPartyDots then self:PositionPartyDots(self.partyRangeDots[element], button) end
 end
 
 -- Setup all party range dots for the mini totem bar
@@ -576,6 +565,8 @@ end
 
 -- Update range counter displays
 function SP:UpdateRangeCounters()
+	-- Setup-wizard preview: keep sample data while a demo is showing
+	if self.partyRangeDemoActive then return end
 	local rcOpt = self.opt.rangeCounter
 	if not rcOpt or not rcOpt.enabled then
 		-- Hide all counters when disabled
@@ -703,4 +694,61 @@ function SP:UpdateRangeCounters()
 			end
 		end
 	end
+end
+
+-- ============================================================================
+-- Setup-wizard preview: borrow the Earth range-counter frame and fill it with
+-- believable sample data so the user sees what the range counter looks like
+-- without needing a live party/totem. No comms, no timers, no SavedVariables.
+-- ============================================================================
+function SP:PartyRangeDemo(on)
+	if on then
+		self.partyRangeDemoActive = true
+		-- Reuse the module's own counter frame + rendering; only the data is faked.
+		local frame = (self.rangeCounterFrames and self.rangeCounterFrames[1]) or self:CreateRangeCounterFrame(1)
+		if not frame then return end
+		-- Force the default (visible) frame style so the preview reads clearly,
+		-- regardless of the user's hideFrame/hideLabel options.
+		if frame.SetBackdrop then
+			frame:SetBackdrop({
+				bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+				tile = true, tileSize = 16, edgeSize = 8,
+				insets = { left = 2, right = 2, top = 2, bottom = 2 }
+			})
+			frame:SetBackdropColor(0, 0, 0, 0.7)
+			frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+		end
+		frame:SetSize(40, 40)
+		if frame.label then frame.label:Show() end
+		if frame.text then
+			local colors = self.RangeCounterColors[1]
+			frame.text:SetTextColor(colors[1], colors[2], colors[3])
+			frame.text:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
+			-- Sample: 3 of a 5-member subgroup are inside Earth totem range.
+			frame.text:SetText("3")
+			frame.text:Show()
+		end
+		frame:Show()
+	else
+		self.partyRangeDemoActive = nil
+		local frame = self.rangeCounterFrames and self.rangeCounterFrames[1]
+		if frame then
+			if frame.text then frame.text:SetText("") end
+			frame:Hide()
+		end
+		-- Restore the user's real frame style (hideFrame/hideLabel/size) that
+		-- Demo(true) forcibly overrode, then repaint real data.
+		if self.UpdateRangeCounterFrameStyle then self:UpdateRangeCounterFrameStyle() end
+		if self.UpdateRangeCounters then self:UpdateRangeCounters() end
+	end
+end
+
+-- Register the range-counter frame with the setup-wizard preview harness.
+if ShamanPower.RegisterPreview then
+	ShamanPower:RegisterPreview("partyrange", {
+		frame = function() return ShamanPower:CreateRangeCounterFrame(1) end,
+		demo = "SP:PartyRangeDemo",
+		pad = 24,
+	})
 end

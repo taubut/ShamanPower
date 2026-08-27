@@ -65,6 +65,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
             offsetY = 0
         },
         enabled = true,
+        setupDone = false,
         layout = "Vertical",
         minimap = {
             ["minimapPos"] = 190,
@@ -254,6 +255,7 @@ SHAMANPOWER_OTHER_VALUES = {
             LockBuffBars = false,
         },
         enabled = true,
+        setupDone = false,
         layout = "Vertical",
         minimap = {
             ["minimapPos"] = 190,

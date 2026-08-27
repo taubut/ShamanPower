@@ -422,6 +422,7 @@ end
 function SP:ShowExpiringAlert(alertType, spellName, spellIcon, color)
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled then return end
+	if self.expiringAlertsDemoActive then return end
 
 	-- Queue the alert
 	tinsert(self.alertQueue, {
@@ -805,6 +806,70 @@ function SP:ExpiringAlertsTest()
 	end)
 end
 
+function SP:ExpiringAlertsDemo(on)
+	-- Setup-wizard preview: feed sample alerts through the REAL queue and
+	-- animation pipeline, so style / duration / sizes / sounds all show.
+	self:CreateExpiringAlertsFrame()
+	local frame = self.expiringAlertsFrame
+	if not frame then return end
+
+	if on then
+		if self.expiringAlertsDemoActive then return end   -- re-entrant: nothing to reset
+		self.expiringAlertsDemoActive = true
+		frame:Show()
+		local sv = ShamanPowerExpiringAlertsDB
+		local SCENE = {
+			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.lightning end,
+			  name = "Lightning Shield", icon = ShieldSpells.lightningShield.icon, color = ElementColors.lightning,
+			  story = "Your Lightning Shield just ran out" },
+			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.destroyed end,
+			  name = "Tremor Totem Destroyed!", icon = "Interface\\Icons\\Spell_Nature_TremorTotem", color = TotemElements[1].color,
+			  story = "A mob killed your Tremor Totem" },
+			{ type = "imbue", cond = function() return sv.weaponImbues.enabled and sv.weaponImbues.mainHand end,
+			  name = "Weapon Imbue (MH)", icon = WeaponImbues.windfury.icon, color = sv.weaponImbues.color,
+			  story = "Windfury Weapon faded from your main hand" },
+			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.water end,
+			  name = "Water Shield", icon = ShieldSpells.waterShield.icon, color = ElementColors.water,
+			  story = "Your Water Shield just ran out" },
+			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.expired end,
+			  name = "Mana Spring Totem Expired", icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", color = TotemElements[3].color,
+			  story = "Your Mana Spring Totem timed out" },
+			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.earthShield end,
+			  name = "Earth Shield (Tank)", icon = ShieldSpells.earthShield.icon, color = ElementColors.earth,
+			  story = "Earth Shield dropped off your tank" },
+		}
+		local idx = 0
+		local function fire()
+			if not self.expiringAlertsDemoActive then return end
+			for _ = 1, #SCENE do
+				idx = (idx % #SCENE) + 1
+				local a = SCENE[idx]
+				if a.cond() then
+					self.expiringDemoStatus = a.story
+					tinsert(self.alertQueue, { alertType = a.type, spellName = a.name, spellIcon = a.icon, color = a.color })
+					self:ProcessAlertQueue()
+					return
+				end
+			end
+			self.expiringDemoStatus = "Nothing is switched on to alert about"
+		end
+		if self.expiringDemoTicker then self.expiringDemoTicker:Cancel() end
+		self.expiringDemoTicker = C_Timer.NewTicker(3.0, fire)
+		fire()
+	else
+		self.expiringAlertsDemoActive = false
+		if self.expiringDemoTicker then self.expiringDemoTicker:Cancel(); self.expiringDemoTicker = nil end
+		self.expiringDemoStatus = nil
+		wipe(self.alertQueue)
+		for i = #self.activeAlerts, 1, -1 do
+			local f = self.activeAlerts[i]
+			f.animGroup:Stop()
+			self:ReleaseAlertFrame(f)
+			self.activeAlerts[i] = nil
+		end
+	end
+end
+
 function SP:ExpiringAlertsReset()
 	local sv = ShamanPowerExpiringAlertsDB
 	sv.position = { point = "CENTER", x = 0, y = 150 }
@@ -891,3 +956,11 @@ end
 C_Timer.After(0.5, function()
 	SP:InitExpiringAlerts()
 end)
+
+-- ============================================================================
+-- Setup Wizard Preview
+-- ============================================================================
+
+if ShamanPower.RegisterPreview then
+	ShamanPower:RegisterPreview("expiring", { frame = "ShamanPowerExpiringAlertsFrame", demo = "SP:ExpiringAlertsDemo", pad = 24 })
+end

@@ -129,6 +129,7 @@ end
 
 -- Update the shield charge displays
 function SP:UpdateShieldChargeDisplays()
+	if self.shieldChargesDemoActive then return end
 	local settings = self.opt.shieldChargeDisplay
 	if not settings then return end
 
@@ -230,4 +231,95 @@ function SP:UpdateShieldChargeDisplays()
 	else
 		earthFrame:Hide()
 	end
+end
+
+-- ============================================================================
+-- Setup wizard preview: fill both shield frames with sample charge counts
+-- ============================================================================
+-- Setup-wizard preview: show BOTH numbers with simulated charges being used
+-- up (blue/green -> yellow -> red) and the shields re-applied, rendered with
+-- the same font/scale/opacity rules as the live display.
+function SP:ShieldChargesDemoRefresh()
+	local playerFrame = self.shieldChargeFrames.player
+	local earthFrame = self.shieldChargeFrames.earth
+	if not playerFrame or not earthFrame then return end
+	local settings = self.opt.shieldChargeDisplay or {}
+	local scale, opacity = settings.scale or 1.0, settings.opacity or 1.0
+	local d = self.shieldChargesDemoState or { player = 3, earth = 6 }
+
+	if settings.showPlayerShield ~= false then
+		local r, g, b = self:GetShieldChargeColor(d.player, 3, false)
+		playerFrame.text:SetText(d.player)
+		playerFrame.text:SetTextColor(r, g, b)
+		playerFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
+		playerFrame:SetAlpha(opacity)
+		playerFrame:EnableMouse(false)
+		playerFrame:Show()
+	else
+		playerFrame:Hide()
+	end
+	if settings.showEarthShield ~= false then
+		local r, g, b = self:GetShieldChargeColor(d.earth, 6, true)
+		earthFrame.text:SetText(d.earth)
+		earthFrame.text:SetTextColor(r, g, b)
+		earthFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
+		earthFrame:SetAlpha(opacity)
+		earthFrame:EnableMouse(false)
+		earthFrame:Show()
+	else
+		earthFrame:Hide()
+	end
+end
+
+function SP:ShieldChargesDemo(on)
+	if on then
+		self:CreateShieldChargeDisplays()
+		if not (self.shieldChargeFrames.player and self.shieldChargeFrames.earth) then return end
+		if self.shieldChargesDemoActive then
+			self:ShieldChargesDemoRefresh()   -- re-entrant: options changed
+			return
+		end
+		self.shieldChargesDemoActive = true
+		self.shieldChargesDemoState = { player = 3, earth = 6 }
+		if self.shieldChargesDemoTicker then self.shieldChargesDemoTicker:Cancel() end
+		local tick = 0
+		self.shieldChargesDemoTicker = C_Timer.NewTicker(1.2, function()
+			if not self.shieldChargesDemoActive then return end
+			tick = tick + 1
+			local d = self.shieldChargesDemoState
+			-- player shield loses a charge every tick; re-applied after 0
+			d.player = d.player - 1
+			if d.player < 0 then d.player = 3 end
+			-- earth shield loses a charge every other tick (it lasts longer)
+			if tick % 2 == 0 then
+				d.earth = d.earth - 1
+				if d.earth < 0 then d.earth = 6 end
+			end
+			self:ShieldChargesDemoRefresh()
+		end)
+		self:ShieldChargesDemoRefresh()
+	else
+		self.shieldChargesDemoActive = nil
+		if self.shieldChargesDemoTicker then self.shieldChargesDemoTicker:Cancel(); self.shieldChargesDemoTicker = nil end
+		self.shieldChargesDemoState = nil
+		local settings = self.opt.shieldChargeDisplay
+		local locked = settings and settings.locked
+		if self.shieldChargeFrames.player then self.shieldChargeFrames.player:EnableMouse(not locked) end
+		if self.shieldChargeFrames.earth then self.shieldChargeFrames.earth:EnableMouse(not locked) end
+		self:UpdateShieldChargeDisplays()
+	end
+end
+
+if ShamanPower.RegisterPreview then
+	ShamanPower:RegisterPreview("shieldcharges", {
+		frames = {
+			function()
+				if not SP.shieldChargeFrames.player then SP:CreateShieldChargeDisplays() end
+				return SP.shieldChargeFrames.player
+			end,
+			function() return SP.shieldChargeFrames.earth end,
+		},
+		demo = "SP:ShieldChargesDemo",
+		pad = 24,
+	})
 end

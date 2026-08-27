@@ -1040,6 +1040,13 @@ ShamanPower.options = {
 					type = "group",
 					inline = true,
 					args = {
+						runSetup = {
+							order = 0.5,
+							type = "execute",
+							name = "Run First-Time Setup",
+							desc = "Open the guided setup again.",
+							func = function() if ShamanPower.Wizard then ShamanPower.Wizard:Open() end end,
+						},
 						reset_center = {
 							order = 1,
 							name = "Reset Frames to Center",
@@ -2531,6 +2538,28 @@ ShamanPower.options = {
 								end
 								ShamanPower:UpdatePartyRangeDots()
 								ShamanPower:UpdateRangeCounters()
+								ShamanPower:UpdatePartyDotPositions()   -- bars pad away from dots only while dots show
+							end
+						},
+						partybuff_dot_position = {
+							order = 1.5,
+							type = "select",
+							name = "Dot Position",
+							desc = "Where the party dots sit on each totem button. Rows suit a horizontal bar; columns suit a vertical bar.",
+							width = 1.2,
+							values = {
+								["corners"] = "Icon Corners",
+								["above"] = "Above Icon (row)",
+								["below"] = "Below Icon (row)",
+								["left"] = "Left of Icon (column)",
+								["right"] = "Right of Icon (column)",
+							},
+							get = function(info)
+								return ShamanPower.opt.partyDotPosition or "corners"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.partyDotPosition = val
+								ShamanPower:UpdatePartyDotPositions()
 							end
 						},
 						partybuff_header_numbers = {

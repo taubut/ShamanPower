@@ -463,6 +463,9 @@ function SP:UpdateReactiveTotemDisplay()
 	-- Skip updates during positioning mode
 	if self.reactivePositioningMode then return end
 
+	-- Setup-wizard preview: don't let live scans overwrite the sample data.
+	if self.reactiveDemoActive then return end
+
 	local sv = ShamanPower_ReactiveTotems
 	if not sv or not sv.enabled then
 		-- Hide all frames
@@ -971,6 +974,89 @@ end
 -- Note: HideAllReactiveFrames is defined above, this just ensures consistent naming
 
 -- ============================================================================
+-- Setup Wizard Preview (frame borrowed by ShamanPowerPreview.lua)
+-- ============================================================================
+
+-- Which reactive totem to showcase in the wizard preview (Tremor Totem).
+local PREVIEW_TOTEM = "fear"
+
+-- Fill the reactive totem frame with believable sample data for the wizard.
+-- Reuses the same render the test/live paths use (debuffText + glow); only the
+-- data is faked. Unlike TestReactiveAlerts this plays no sound and never
+-- auto-expires, and it does NOT call frame:Show() itself -- the preview harness
+-- shows the frame, so the frame's real (hidden) state is preserved for a clean
+-- restore. reactiveDemoActive guards UpdateReactiveTotemDisplay meanwhile.
+function SP:ReactiveDemo(on)
+	local sv = ShamanPower_ReactiveTotems
+	self.reactiveFrames = self.reactiveFrames or {}
+	for id in pairs(self.ReactiveTotems) do
+		if not self.reactiveFrames[id] then self:CreateReactiveTotemFrame(id) end
+	end
+
+	local function clearAll()
+		for id, frame in pairs(self.reactiveFrames) do
+			frame.glowAnim:Stop(); frame.glow:Hide()
+			frame.debuffText:SetText(""); frame.currentDebuffName = nil; frame.soundPlayed = nil
+			frame:Hide()
+		end
+	end
+
+	if on then
+		if self.reactiveDemoActive then
+			self:UpdateReactiveFrameAppearance()   -- re-entrant: options changed
+			return
+		end
+		self.reactiveDemoActive = true
+		self:UpdateReactiveFrameAppearance()
+
+		-- A short raid scene, looped: each beat is { totem, "who: debuff", seconds }.
+		local SCENE = {
+			{ "fear",    "Tank: Intimidating Shout", 4.0, story = "The tank got feared - drop Tremor Totem" },
+			{ nil,       nil,                        1.5, story = "Tremor is down, fear broken" },
+			{ "poison",  "Rogue: Deadly Poison",     4.0, story = "Rogue is poisoned - drop Poison Cleansing Totem" },
+			{ nil,       nil,                        1.5, story = "Cleansed" },
+			{ "disease", "Priest: Plague",           4.0, story = "Priest is diseased - drop Disease Cleansing Totem" },
+			{ nil,       nil,                        2.0, story = "All clear" },
+		}
+		local track = { fear = "trackFear", poison = "trackPoison", disease = "trackDisease" }
+		local beat, left = 0, 0
+		local function apply(b)
+			clearAll()
+			local id, text = b[1], b[2]
+			self.reactiveDemoStatus = b.story
+			if id and sv[track[id]] ~= false then
+				local frame = self.reactiveFrames[id]
+				frame.debuffText:SetText(text); frame.currentDebuffName = text
+				if sv.showGlow ~= false then frame.glow:Show(); frame.glowAnim:Play() end
+				if sv.playSound then
+					self:PlaySoundWithVolume(self:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+				end
+				frame:Show()
+			elseif id then
+				self.reactiveDemoStatus = b.story .. "  (tracking for this debuff is off)"
+			end
+		end
+		if self.reactiveDemoTicker then self.reactiveDemoTicker:Cancel() end
+		self.reactiveDemoTicker = C_Timer.NewTicker(0.25, function()
+			if not self.reactiveDemoActive then return end
+			left = left - 0.25
+			if left <= 0 then
+				beat = (beat % #SCENE) + 1
+				left = SCENE[beat][3]
+				apply(SCENE[beat])
+			end
+		end)
+	else
+		self.reactiveDemoActive = false
+		if self.reactiveDemoTicker then self.reactiveDemoTicker:Cancel(); self.reactiveDemoTicker = nil end
+		self.reactiveDemoStatus = nil
+		clearAll()
+		-- Hand control back to the real scan (frames hide when no debuff).
+		self:UpdateReactiveTotemDisplay()
+	end
+end
+
+-- ============================================================================
 -- Module Initialization
 -- ============================================================================
 
@@ -990,3 +1076,19 @@ initFrame:SetScript("OnEvent", function(self, event)
 		end)
 	end
 end)
+
+-- ============================================================================
+-- Setup Wizard Preview Registration
+-- ============================================================================
+
+if ShamanPower.RegisterPreview then
+	ShamanPower:RegisterPreview("reactive", {
+		frames = {
+			function() SP.reactiveFrames = SP.reactiveFrames or {}; return SP.reactiveFrames.fear or SP:CreateReactiveTotemFrame("fear") end,
+			function() return SP.reactiveFrames.poison or SP:CreateReactiveTotemFrame("poison") end,
+			function() return SP.reactiveFrames.disease or SP:CreateReactiveTotemFrame("disease") end,
+		},
+		demo = "SP:ReactiveDemo",
+		pad = 24,
+	})
+end

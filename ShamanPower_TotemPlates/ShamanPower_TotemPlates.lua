@@ -596,7 +596,7 @@ function SP:OnTotemPlateUnitAdded(unitId)
 
     -- Start pulse timer if this totem pulses
     local pulseInterval = TOTEM_PULSE_INTERVALS[totemInfo.name]
-    if pulseInterval and settings.showPulseTimer then
+    if pulseInterval and settings.showPulseTimer ~= false then
         self:StartPulseTimer(frame, pulseInterval)
     else
         self:StopPulseTimer(frame)
@@ -662,7 +662,7 @@ function SP:StartPulseTimer(frame, pulseInterval)
     if not pulseInterval or pulseInterval <= 0 then return end
 
     local settings = self.opt.totemPlates or {}
-    if not settings.showPulseTimer then return end
+    if settings.showPulseTimer == false then return end
 
     frame.pulseInterval = pulseInterval
     frame.pulseStartTime = GetTime()
@@ -680,10 +680,10 @@ function SP:StartPulseTimer(frame, pulseInterval)
     end
 
     -- Show pulse elements based on settings
-    if settings.showPulseText then
+    if settings.showPulseText ~= false then
         frame.pulseText:Show()
     end
-    if settings.showPulseBar then
+    if settings.showPulseBar ~= false then
         frame.pulseBar:Show()
     end
 
@@ -728,7 +728,7 @@ function SP:UpdatePulseTimer(frame)
     end
 
     -- Update pulse text
-    if settings.showPulseText and frame.pulseText then
+    if settings.showPulseText ~= false and frame.pulseText then
         frame.pulseText:SetText(string.format("%.1f", remaining))
 
         -- Color based on urgency (green -> yellow -> red)
@@ -743,7 +743,7 @@ function SP:UpdatePulseTimer(frame)
     end
 
     -- Update pulse bar
-    if settings.showPulseBar and frame.pulseBar then
+    if settings.showPulseBar ~= false and frame.pulseBar then
         local pct = remaining / frame.pulseInterval
         frame.pulseBar:SetValue(pct)
 
@@ -788,13 +788,13 @@ function SP:UpdateTotemPlatesPulseSettings()
 
             if frame.pulseInterval then
                 -- Update visibility based on new settings
-                if settings.showPulseText then
+                if settings.showPulseText ~= false then
                     frame.pulseText:Show()
                 else
                     frame.pulseText:Hide()
                 end
 
-                if settings.showPulseBar then
+                if settings.showPulseBar ~= false then
                     frame.pulseBar:Show()
                 else
                     frame.pulseBar:Hide()
@@ -805,7 +805,7 @@ function SP:UpdateTotemPlatesPulseSettings()
                 end
 
                 -- If all pulse options are disabled, stop the timer
-                if not settings.showPulseTimer then
+                if settings.showPulseTimer == false then
                     self:StopPulseTimer(frame)
                 end
             end
@@ -907,4 +907,136 @@ function SP:InitializeTotemPlates()
         self:SetupTotemPlatesEvents()
         self:EnableTotemPlatesEvents()
     end
+end
+
+-- ============================================================================
+-- Setup Wizard Preview
+-- Real plate frames (CreateTotemPlateFrame / StartPulseTimer) on mock
+-- nameplates, registered in activeTotemPlates so the module's own size and
+-- pulse updaters drive the preview exactly like live plates.
+-- ============================================================================
+-- npc = creature id (fallback model); element picks the faction model below
+local DEMO_PLATES = {
+    { name = "Tremor Totem",      enemy = true,  x = -120, y = 180, npc = 5913,  element = "earth" },
+    { name = "Grounding Totem",   enemy = true,  x = 0,    y = 180, npc = 5925,  element = "air" },
+    { name = "Windfury Totem",    enemy = true,  x = 120,  y = 180, npc = 15497, element = "air" },
+    { name = "Mana Spring Totem", enemy = false, x = 0,    y = -60, npc = 15489, element = "water" },
+}
+-- Totem models differ by faction in TBC: Draenei have their own set, the
+-- Horde races share the classic one. Display IDs (from the Draenei quest
+-- totems 19636-19639 and the classic totem creatures).
+local DEMO_MODELS = {
+    draenei = { earth = 19073, fire = 19074, water = 19075, air = 19071 },
+    horde   = { earth = 4588,  fire = 4589,  water = 4587,  air = 4590 },
+}
+local function ApplyDemoModel(m, d)
+    local alliance = UnitFactionGroup("player") == "Alliance"
+    local set = (d.enemy ~= alliance) and "draenei" or "horde"   -- enemy of Alliance = Horde look, etc.
+    local id = DEMO_MODELS[set][d.element]
+    if id then m:SetDisplayInfo(id) else m:SetCreature(d.npc) end
+    -- the classic totem's beam makes it much taller than the Draenei crystal:
+    -- pull its camera further back so the base stays inside the frame
+    pcall(m.SetCamDistanceScale, m, (set == "draenei") and 1.6 or 2.0)
+    pcall(m.SetPosition, m, 0, 0, 0)
+    pcall(m.SetFacing, m, 0.35)
+    -- how tall the totem body is inside the model frame (px from its bottom),
+    -- so the plate can sit just above the head like a real nameplate
+    m.bodyTop = (set == "draenei") and 84 or 60
+end
+
+function SP:TotemPlatesDemo(on)
+    self:EnsureProfileTable("totemPlates")
+    local settings = self.opt.totemPlates
+    if not self.totemPlatesDemoFrame then
+        local c = CreateFrame("Frame", "ShamanPowerTotemPlatesDemo", UIParent)
+        c:SetSize(400, 470)
+        c:SetPoint("CENTER")
+        c:Hide()
+        c.plates = {}
+        for i, d in ipairs(DEMO_PLATES) do
+            -- the real totem, standing where it would in the world
+            local m = CreateFrame("PlayerModel", nil, c)
+            m:SetSize(130, 160)
+            m:SetPoint("TOP", c, "CENTER", d.x, d.y)
+            ApplyDemoModel(m, d)
+            -- the nameplate hugs the totem body; the beam rises through it
+            local np = CreateFrame("Frame", nil, c)
+            np:SetSize(120, 40)
+            np:SetPoint("CENTER", m, "BOTTOM", 0, (m.bodyTop or 72) + 26)
+            np:SetFrameLevel(m:GetFrameLevel() + 5)
+            np.demo = d
+            np.model = m
+            c.plates[i] = np
+        end
+        self.totemPlatesDemoFrame = c
+    end
+    local c = self.totemPlatesDemoFrame
+
+    local function fill(np)
+        local d = np.demo
+        local frame = np.totemPlateFrame
+        if not frame then
+            frame = self:CreateTotemPlateFrame(np)
+            np.totemPlateFrame = frame
+        end
+        local hidden = (d.enemy and settings.showEnemy == false) or (not d.enemy and settings.showFriendly == false)
+            or (settings.enabled == false)
+        frame.totemInfo = { name = d.name, texture = GetTotemIcon(d.name) }
+        frame.isEnemy = d.enemy
+        frame.icon:SetTexture(GetTotemIcon(d.name))
+        if d.enemy then
+            frame:SetBackdropBorderColor(0.82, 0.15, 0.08, 1)
+        else
+            frame:SetBackdropBorderColor(0.08, 0.82, 0.09, 1)
+        end
+        frame:SetSize(settings.iconSize or 40, settings.iconSize or 40)
+        frame:SetAlpha(settings.alpha or 0.9)
+        -- plate sits just above the totem body whatever the icon size
+        if np.model then
+            np:ClearAllPoints()
+            np:SetPoint("CENTER", np.model, "BOTTOM", 0, (np.model.bodyTop or 72) + 6 + ((settings.iconSize or 40) / 2) + (settings.showName and 12 or 0))
+            frame:SetFrameLevel(np:GetFrameLevel() + 2)   -- draw over the beam
+        end
+        if settings.showName then
+            frame.name:SetText(d.name)
+            frame.name:Show()
+        else
+            frame.name:Hide()
+        end
+        local pulseInterval = TOTEM_PULSE_INTERVALS[d.name]
+        if pulseInterval and settings.showPulseTimer ~= false then
+            if not frame.pulseInterval then self:StartPulseTimer(frame, pulseInterval) end
+        else
+            self:StopPulseTimer(frame)
+        end
+        frame:SetShown(not hidden)
+    end
+
+    if on then
+        self.totemPlatesDemoActive = true
+        for i, np in ipairs(c.plates) do
+            fill(np)
+            self.activeTotemPlates["demo" .. i] = np
+        end
+        c:Show()
+    else
+        self.totemPlatesDemoActive = false
+        for i, np in ipairs(c.plates) do
+            local frame = np.totemPlateFrame
+            if frame then
+                self:StopPulseTimer(frame)
+                frame:Hide()
+                frame:SetParent(nil)
+                frame:ClearAllPoints()
+                table.insert(self.totemPlateCache, frame)
+                np.totemPlateFrame = nil
+            end
+            self.activeTotemPlates["demo" .. i] = nil
+        end
+        c:Hide()
+    end
+end
+
+if ShamanPower.RegisterPreview then
+    ShamanPower:RegisterPreview("totemplates", { frame = "ShamanPowerTotemPlatesDemo", demo = "SP:TotemPlatesDemo", pad = 24 })
 end

@@ -309,9 +309,104 @@ function SP:UpdateESTrackerFrame()
 	frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
 end
 
+-- Setup-wizard preview: fill the tracker with a believable raid's worth of
+-- Earth Shields (three shamans, three targets) and animate charges being
+-- consumed and shields dropping off / being re-applied, all through the
+-- tracker's real render path.
+function SP:ESTrackerDemo(on)
+	if on then
+		if not (self.opt and self.opt.esTracker) then
+			self:InitESTracker()
+		end
+		if not self.esTrackerFrame then
+			self:CreateESTrackerFrame()
+		end
+		local frame = self.esTrackerFrame
+		if not frame then return end
+
+		-- Re-entrant: the wizard re-fits the preview on option changes; keep
+		-- the running simulation instead of resetting it.
+		if self.esTrackerDemoActive then
+			self:UpdateESTrackerBorder()
+			self:UpdateESTrackerFrame()
+			frame:Show()
+			return
+		end
+		self.esTrackerDemoActive = true
+
+		local sample = {
+			{ guid = "Player-Demo-ES-1", target = "Tank",    caster = "Srumar",   charges = 6 },
+			{ guid = "Player-Demo-ES-2", target = "Offtank", caster = "Nazgrel",  charges = 4 },
+			{ guid = "Player-Demo-ES-3", target = "Priest",  caster = "Drakthul", charges = 2 },
+		}
+		self.earthShields = {}
+		for _, s in ipairs(sample) do
+			self.earthShields[s.guid] = {
+				targetGUID = s.guid, targetName = s.target,
+				casterName = s.caster, casterClass = "SHAMAN",
+				charges = s.charges, expirationTime = 0, icon = nil,
+			}
+		end
+
+		-- Simulation: every tick one shield absorbs a hit; at 0 it drops off,
+		-- and a couple of ticks later its shaman re-applies it at 6 charges.
+		local tick, gone = 0, {}
+		if self.esTrackerDemoTicker then self.esTrackerDemoTicker:Cancel() end
+		self.esTrackerDemoTicker = C_Timer.NewTicker(1.4, function()
+			if not self.esTrackerDemoActive then return end
+			tick = tick + 1
+			-- re-apply anything that has been gone long enough
+			for guid, info in pairs(gone) do
+				if tick - info.at >= 3 then
+					self.earthShields[guid] = info.data
+					info.data.charges = 6
+					gone[guid] = nil
+				end
+			end
+			-- consume a charge on a rotating shield
+			local live = {}
+			for guid, d in pairs(self.earthShields) do live[#live + 1] = guid end
+			table.sort(live)
+			if #live > 0 then
+				local guid = live[(tick % #live) + 1]
+				local d = self.earthShields[guid]
+				d.charges = (d.charges or 1) - 1
+				if d.charges <= 0 then
+					gone[guid] = { at = tick, data = d }
+					self.earthShields[guid] = nil
+				end
+			end
+			self:UpdateESTrackerFrame()
+		end)
+
+		self:UpdateESTrackerBorder()
+		self:UpdateESTrackerFrame()
+		frame:Show()
+	else
+		self.esTrackerDemoActive = false
+		if self.esTrackerDemoTicker then self.esTrackerDemoTicker:Cancel(); self.esTrackerDemoTicker = nil end
+		self.earthShields = {}
+
+		local frame = self.esTrackerFrame
+		if frame then
+			self:UpdateESTrackerBorder()
+			if SP.opt and SP.opt.esTracker and SP.opt.esTracker.enabled and frame:IsShown() then
+				-- Real tracker is enabled: let live auras repopulate it
+				self:ScanEarthShields()
+			else
+				self:UpdateESTrackerFrame()
+				frame:Hide()
+			end
+		end
+	end
+end
+
 -- Scan for Earth Shields in the raid/party
 -- Optimized: uses direct buff lookup and caches unit list
 function SP:ScanEarthShields()
+	-- Setup-wizard preview owns the data while active; don't clobber it
+	if self.esTrackerDemoActive then return end
+
 	self.earthShields = {}
 
 	-- Build unit list (cached on group changes)
@@ -552,4 +647,9 @@ SlashCmdList["SPESTRACK"] = function(msg)
 		print("  /spestrack show - Show the tracker")
 		print("  /spestrack hide - Hide the tracker")
 	end
+end
+
+-- Register the tracker frame with the setup-wizard preview harness (safe if absent)
+if SP.RegisterPreview then
+	SP:RegisterPreview("estracker", { frame = "ShamanPowerESTrackerFrame", demo = "SP:ESTrackerDemo", pad = 24 })
 end

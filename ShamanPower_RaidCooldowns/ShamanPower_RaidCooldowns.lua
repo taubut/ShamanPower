@@ -755,7 +755,74 @@ function SP:CreateCallerButtonFrame()
 	return frame
 end
 
+function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
+	local borderSize = 3
+	local mtBorderColor = {0.2, 0.6, 1, 1}  -- Blue
+
+	local mtBtn = CreateFrame("Button", "ShamanPowerCallerMTBtn" .. i, frame)
+	mtBtn:SetSize(40, 40)
+	mtBtn:SetPoint("TOPLEFT", xOffset, -8)
+
+	-- Icon texture (inset from border)
+	local mtIconTex = mtBtn:CreateTexture(nil, "ARTWORK")
+	mtIconTex:SetPoint("TOPLEFT", 3, -3)
+	mtIconTex:SetPoint("BOTTOMRIGHT", -3, 3)
+	mtIconTex:SetTexture("Interface\\Icons\\Spell_Frost_SummonWaterElemental")
+	mtIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	mtBtn.icon = mtIconTex
+
+	-- Blue border for MT button (4 edge textures)
+	local mtBorderTop = mtBtn:CreateTexture(nil, "BORDER")
+	mtBorderTop:SetPoint("TOPLEFT", 0, 0)
+	mtBorderTop:SetPoint("TOPRIGHT", 0, 0)
+	mtBorderTop:SetHeight(borderSize)
+	mtBorderTop:SetColorTexture(unpack(mtBorderColor))
+
+	local mtBorderBottom = mtBtn:CreateTexture(nil, "BORDER")
+	mtBorderBottom:SetPoint("BOTTOMLEFT", 0, 0)
+	mtBorderBottom:SetPoint("BOTTOMRIGHT", 0, 0)
+	mtBorderBottom:SetHeight(borderSize)
+	mtBorderBottom:SetColorTexture(unpack(mtBorderColor))
+
+	local mtBorderLeft = mtBtn:CreateTexture(nil, "BORDER")
+	mtBorderLeft:SetPoint("TOPLEFT", 0, 0)
+	mtBorderLeft:SetPoint("BOTTOMLEFT", 0, 0)
+	mtBorderLeft:SetWidth(borderSize)
+	mtBorderLeft:SetColorTexture(unpack(mtBorderColor))
+
+	local mtBorderRight = mtBtn:CreateTexture(nil, "BORDER")
+	mtBorderRight:SetPoint("TOPRIGHT", 0, 0)
+	mtBorderRight:SetPoint("BOTTOMRIGHT", 0, 0)
+	mtBorderRight:SetWidth(borderSize)
+	mtBorderRight:SetColorTexture(unpack(mtBorderColor))
+
+	local mtHighlight = mtBtn:CreateTexture(nil, "HIGHLIGHT")
+	mtHighlight:SetAllPoints(mtIconTex)
+	mtHighlight:SetColorTexture(1, 1, 1, 0.3)
+
+	mtBtn.shamanName = shamanName
+	mtBtn:SetScript("OnClick", function(self)
+		SP:CallManaTideForShaman(self.shamanName)
+	end)
+	mtBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Call Mana Tide")
+		GameTooltip:AddLine("From: " .. self.shamanName, 0, 0.7, 1)
+		GameTooltip:Show()
+	end)
+	mtBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	-- Name label under MT button (shows shaman name)
+	local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	mtNameLabel:SetPoint("TOP", mtBtn, "BOTTOM", 0, -2)
+	mtNameLabel:SetText(shamanName)
+	mtBtn.nameLabel = mtNameLabel
+
+	return mtBtn
+end
+
 function SP:UpdateCallerButtons()
+	if self.raidCDDemoActive then return end
 	self:InitRaidCooldowns()
 
 	-- Don't show caller buttons when not in a group
@@ -836,69 +903,8 @@ function SP:UpdateCallerButtons()
 
 	-- Create MT buttons
 	local xOffset = isBLCaller and (bl.primary or bl.backup1 or bl.backup2) and 52 or 8
-	local borderSize = 3
-	local mtBorderColor = {0.2, 0.6, 1, 1}  -- Blue
-
 	for i, shamanName in ipairs(mtCallsFor) do
-		local mtBtn = CreateFrame("Button", "ShamanPowerCallerMTBtn" .. i, frame)
-		mtBtn:SetSize(40, 40)
-		mtBtn:SetPoint("TOPLEFT", xOffset, -8)
-
-		-- Icon texture (inset from border)
-		local mtIconTex = mtBtn:CreateTexture(nil, "ARTWORK")
-		mtIconTex:SetPoint("TOPLEFT", 3, -3)
-		mtIconTex:SetPoint("BOTTOMRIGHT", -3, 3)
-		mtIconTex:SetTexture("Interface\\Icons\\Spell_Frost_SummonWaterElemental")
-		mtIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		mtBtn.icon = mtIconTex
-
-		-- Blue border for MT button (4 edge textures)
-		local mtBorderTop = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderTop:SetPoint("TOPLEFT", 0, 0)
-		mtBorderTop:SetPoint("TOPRIGHT", 0, 0)
-		mtBorderTop:SetHeight(borderSize)
-		mtBorderTop:SetColorTexture(unpack(mtBorderColor))
-
-		local mtBorderBottom = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderBottom:SetPoint("BOTTOMLEFT", 0, 0)
-		mtBorderBottom:SetPoint("BOTTOMRIGHT", 0, 0)
-		mtBorderBottom:SetHeight(borderSize)
-		mtBorderBottom:SetColorTexture(unpack(mtBorderColor))
-
-		local mtBorderLeft = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderLeft:SetPoint("TOPLEFT", 0, 0)
-		mtBorderLeft:SetPoint("BOTTOMLEFT", 0, 0)
-		mtBorderLeft:SetWidth(borderSize)
-		mtBorderLeft:SetColorTexture(unpack(mtBorderColor))
-
-		local mtBorderRight = mtBtn:CreateTexture(nil, "BORDER")
-		mtBorderRight:SetPoint("TOPRIGHT", 0, 0)
-		mtBorderRight:SetPoint("BOTTOMRIGHT", 0, 0)
-		mtBorderRight:SetWidth(borderSize)
-		mtBorderRight:SetColorTexture(unpack(mtBorderColor))
-
-		local mtHighlight = mtBtn:CreateTexture(nil, "HIGHLIGHT")
-		mtHighlight:SetAllPoints(mtIconTex)
-		mtHighlight:SetColorTexture(1, 1, 1, 0.3)
-
-		mtBtn.shamanName = shamanName
-		mtBtn:SetScript("OnClick", function(self)
-			SP:CallManaTideForShaman(self.shamanName)
-		end)
-		mtBtn:SetScript("OnEnter", function(self)
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			GameTooltip:SetText("Call Mana Tide")
-			GameTooltip:AddLine("From: " .. self.shamanName, 0, 0.7, 1)
-			GameTooltip:Show()
-		end)
-		mtBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-		-- Name label under MT button (shows shaman name)
-		local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		mtNameLabel:SetPoint("TOP", mtBtn, "BOTTOM", 0, -2)
-		mtNameLabel:SetText(shamanName)
-		mtBtn.nameLabel = mtNameLabel
-
+		local mtBtn = self:BuildCallerMTButton(frame, i, shamanName, xOffset)
 		table.insert(frame.mtButtons, mtBtn)
 		xOffset = xOffset + 44
 	end
@@ -1222,4 +1228,70 @@ function SP:UpdateCallerButtonScale()
 			end
 		end
 	end
+end
+
+-- ============================================================================
+-- SETUP WIZARD PREVIEW
+-- ============================================================================
+
+-- Fill the caller-button frame with representative sample data so the setup
+-- wizard can show what the callers look like without a real group/assignments.
+-- Builds from local fake data only: no comms, no SavedVar writes, no timers.
+function SP:RaidCDDemo(on)
+	if on then
+		self.raidCDDemoActive = true
+		local frame = self:CreateCallerButtonFrame()
+		if frame and frame.cogBtn then frame.cogBtn:Hide() end
+
+		-- Sample Bloodlust/Heroism button (reuses the persistent BL button)
+		if frame.blBtn then
+			if frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText("Srumar") end
+			frame.blBtn:Show()
+		end
+
+		-- Clear any existing MT buttons, then build sample ones
+		for _, btn in ipairs(frame.mtButtons) do btn:Hide() end
+		frame.mtButtons = {}
+
+		local xOffset = 52  -- past the BL button
+		local sampleMT = { "Group 1", "Group 3" }
+		for i, name in ipairs(sampleMT) do
+			local mtBtn = self:BuildCallerMTButton(frame, i, name, xOffset)
+			-- Inert in preview: don't let a click attempt a real call
+			mtBtn:SetScript("OnClick", nil)
+			table.insert(frame.mtButtons, mtBtn)
+			xOffset = xOffset + 44
+		end
+
+		-- Sample Drums button (reuses the persistent drum button)
+		if frame.drumBtn then
+			frame.drumBtn:ClearAllPoints()
+			frame.drumBtn:SetPoint("TOPLEFT", xOffset, -8)
+			if frame.drumBtn.nameLabel then frame.drumBtn.nameLabel:SetText("Kabum") end
+			frame.drumBtn:Show()
+			xOffset = xOffset + 44
+		end
+
+		-- BL + 2 MT + Drums = 4 buttons
+		local numButtons = 1 + #sampleMT + 1
+		local width = math.max(60, numButtons * 44 + 16)
+		frame:SetSize(width, 62)
+		frame:Show()
+		self:UpdateCallerButtonOpacity()
+	else
+		self.raidCDDemoActive = false
+		local frame = self.callerButtonFrame
+		if frame then
+			for _, btn in ipairs(frame.mtButtons) do btn:Hide() end
+			frame.mtButtons = {}
+			if frame.blBtn and frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText("") end
+			if frame.drumBtn then frame.drumBtn:Hide() end
+		end
+		-- Let real data take over (hides the frame when solo / unassigned)
+		self:UpdateCallerButtons()
+	end
+end
+
+if ShamanPower.RegisterPreview then
+	ShamanPower:RegisterPreview("raidcd", { frame = "ShamanPowerCallerButtons", demo = "SP:RaidCDDemo", pad = 24 })
 end

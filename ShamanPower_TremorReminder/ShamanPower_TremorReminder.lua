@@ -345,6 +345,7 @@ end
 
 -- Check if we should show the reminder
 local function CheckTarget()
+    if SP.TremorDemoActive then return end
     local sv = ShamanPowerTremorReminderDB
     if not sv or not sv.enabled then
         HideReminder()
@@ -547,6 +548,70 @@ function SP:TremorReminderTest()
     reminderFrame.icon:SetDesaturated(false)
     if ShamanPowerTremorReminderDB.showGlow then
         reminderFrame.glowAnim:Play()
+    end
+end
+
+-- Setup-wizard preview: show a believable sample alert without a live target
+function SP:TremorDemo(on)
+    if not reminderFrame then CreateReminderFrame() end
+    local sv = ShamanPowerTremorReminderDB
+    if on then
+        if self.TremorDemoActive then
+            UpdateAppearance()                  -- re-entrant: options changed
+            return
+        end
+        self.TremorDemoActive = true
+        -- A short targeting scene, looped. Rendered through the real
+        -- appearance path so Display Mode / size / glow all show correctly.
+        local SCENE = {
+            { show = true,  secs = 4.0, story = "You target |cffff8080Coilfang Siren|r - a known fear-caster. Get Tremor down." },
+            { show = false, secs = 2.0, story = "Tremor Totem is down - reminder hidden.", tremor = true },
+            { show = true,  secs = 3.5, story = "New target: |cffff8080Sethekk Prophet|r. Tremor has expired - reminder is back." },
+            { show = false, secs = 2.0, story = "You target a harmless mob - nothing to remind you about." },
+        }
+        local beat, left = 0, 0
+        local function apply(b)
+            self.tremorDemoStatus = b.story
+            local show = b.show and sv.enabled ~= false
+            if b.tremor and sv.hideWhenTremorActive == false then
+                show = true
+                self.tremorDemoStatus = "Tremor Totem is down, but the reminder stays (Hide When Tremor Active is off)."
+            end
+            if show then
+                UpdateAppearance()
+                reminderFrame.icon:SetDesaturated(false)
+                reminderFrame:Show()
+                if sv.showGlow and (sv.displayMode or "icon") ~= "text" then reminderFrame.glowAnim:Play() end
+                if sv.playSound and b.show then
+                    ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+                end
+            else
+                reminderFrame.glowAnim:Stop()
+                reminderFrame:Hide()
+            end
+        end
+        if self.tremorDemoTicker then self.tremorDemoTicker:Cancel() end
+        self.tremorDemoTicker = C_Timer.NewTicker(0.25, function()
+            if not self.TremorDemoActive then return end
+            left = left - 0.25
+            if left <= 0 then
+                beat = (beat % #SCENE) + 1
+                left = SCENE[beat].secs
+                apply(SCENE[beat])
+            end
+        end)
+    else
+        self.TremorDemoActive = false
+        if self.tremorDemoTicker then self.tremorDemoTicker:Cancel(); self.tremorDemoTicker = nil end
+        self.tremorDemoStatus = nil
+        if reminderFrame then
+            reminderFrame.glowAnim:Stop()
+            reminderFrame.icon:SetDesaturated(false)
+            reminderFrame:Hide()
+        end
+        isShowing = false
+        -- Restore real state (hidden unless a live fear-caster is targeted).
+        CheckTarget()
     end
 end
 
@@ -797,4 +862,9 @@ function SP:ToggleMobList()
     else
         SP:ShowMobList()
     end
+end
+
+-- Register this module's frame with the setup-wizard preview harness.
+if ShamanPower.RegisterPreview then
+    ShamanPower:RegisterPreview("tremor", { frame = "ShamanPowerTremorReminderFrame", demo = "SP:TremorDemo", pad = 24 })
 end

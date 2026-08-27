@@ -12,7 +12,7 @@ if not SP or not Core then return end
 -- Export dialog: a read-only, pre-selected multiline box.
 -- ---------------------------------------------------------------------------
 local exportDlg
-function SP:ShowExportDialog(str, title)
+function SP:ShowExportDialog(str, title, heading)
 	if not str then
 		print("|cff0070ddShamanPower|r: nothing to export.")
 		return
@@ -58,9 +58,15 @@ function SP:ShowExportDialog(str, title)
 		sel:SetScript("OnClick", function() edit:SetFocus(); edit:HighlightText() end)
 	end
 
-	exportDlg:SetTitles("Export", title and title or "copy this string")
+	exportDlg:SetTitles(heading or "Export", title and title or "copy this string")
 	exportDlg.edit.spText = str
 	exportDlg.edit:SetText(str)
+	-- Size the dialog to the content: a link or short string gets a one-line
+	-- box; long strings (profiles, WeakAuras) keep the big scrolling box.
+	local short = #str <= 80 and not str:find("\n")
+	exportDlg:SetHeight(short and 168 or 300)
+	local sb = _G["ShamanPowerExportScrollScrollBar"]
+	if sb then sb:SetShown(not short) end
 	exportDlg:Show()
 	exportDlg.edit:SetFocus()
 	exportDlg.edit:HighlightText()
@@ -166,5 +172,50 @@ local function InjectProfileButtons()
 	}
 end
 InjectProfileButtons()
+
+-- ---------------------------------------------------------------------------
+-- Windfury Companion: its own page in Settings so a shaman can hand the
+-- WeakAura to a melee again any time.
+function SP:ShowWindfuryCompanion(link)
+	local comp = self.Companions and self.Companions.windfury
+	if not comp then print("|cff0070ddShamanPower|r: companion data missing.") return end
+	if link then
+		self:ShowExportDialog(comp.url, "send this link to your melee", "Windfury Companion")
+	else
+		self:ShowExportDialog(comp.str, "send this to your melee - they import it in WeakAuras", "Windfury Companion")
+	end
+end
+
+local function InjectCompanionPage()
+	local root = SP.options
+	if not (root and root.args) or root.args.spWindfuryCompanion then return end
+	root.args.spWindfuryCompanion = {
+		order = 96, type = "group", name = "Windfury Companion",
+		args = {
+			warn = {
+				order = 1, type = "description", fontSize = "large",
+				name = "|cffFFB000THIS IS FOR YOUR MELEE - NOT FOR YOU|r",
+			},
+			desc = {
+				order = 2, type = "description", fontSize = "medium",
+				name = "The game never shows Windfury Totem's weapon buff on other players, so ShamanPower cannot see who has it. "
+					.. "This small WeakAura, installed by the |cffE6EAF0rogues, warriors and paladins|r in your group, quietly tells your addon they have Windfury. "
+					.. "Your Air slot then counts them and shows a dot for each one, yellow when they are in range of your totem.\n\n"
+					.. "You do |cffE6EAF0not|r install it. Send it to your melee; they import it into WeakAuras once and never touch it again.",
+			},
+			str = {
+				order = 3, type = "execute", name = "Show WeakAura String",
+				desc = "Opens the import string so you can copy it and send it to a melee.",
+				func = function() SP:ShowWindfuryCompanion(false) end,
+			},
+			link = {
+				order = 4, type = "execute", name = "Show wago.io Link",
+				desc = "Opens the wago.io link for the companion aura.",
+				func = function() SP:ShowWindfuryCompanion(true) end,
+			},
+		},
+	}
+end
+InjectCompanionPage()
 
 return true

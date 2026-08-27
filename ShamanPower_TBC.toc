@@ -24,4 +24,5 @@ ShamanPowerValues.lua
 ShamanPowerOptions.lua
 ShamanPowerShare.lua
 ShamanPowerPresets.lua
+ShamanPowerPreview.lua
 ShamanPower_TBC.xml
