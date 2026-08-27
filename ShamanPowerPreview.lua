@@ -55,7 +55,8 @@ function SP:ShowPreview(key, container)
 		local existed = {}
 		for _, f in ipairs(frames) do existed[f] = true end
 		if #frames == 0 and demoFn then
-			pcall(demoFn, self, true)
+			local ok, err = pcall(demoFn, self, true)
+			if not ok then print("|cffff4040ShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
 			frames = ResolveFrames(def)
 		end
 		if #frames == 0 then return nil end
@@ -73,7 +74,10 @@ function SP:ShowPreview(key, container)
 	end
 
 	-- Let the module create/populate the frame with sample data.
-	if demoFn then pcall(demoFn, self, true) end
+	if demoFn then
+		local ok, err = pcall(demoFn, self, true)
+		if not ok then print("|cffff4040ShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
+	end
 	local frames = ResolveFrames(def)
 	if #frames == 0 then return nil end
 

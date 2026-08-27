@@ -657,7 +657,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false
+								return ShamanPower.opt.enabled == false or not isShaman   -- bar visibility: shaman only
 							end,
 							get = function(info)
 								return ShamanPower.opt.ShowInParty
@@ -689,7 +689,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false
+								return ShamanPower.opt.enabled == false or not isShaman   -- bar visibility: shaman only
 							end,
 							get = function(info)
 								return ShamanPower.opt.ShowWhenSolo
@@ -2610,6 +2610,34 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.partyDotPosition = val
+								ShamanPower:UpdatePartyDotPositions()
+							end
+						},
+						partybuff_dot_outline = {
+							order = 1.6,
+							type = "toggle",
+							name = "Dot Outline",
+							desc = "Draw a thin dark ring under each dot so it stays visible on bright totem icons.",
+							width = 0.9,
+							get = function(info)
+								return ShamanPower.opt.partyDotOutline ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.partyDotOutline = val
+								ShamanPower:UpdatePartyDotPositions()
+							end
+						},
+						partybuff_dot_size = {
+							order = 1.7,
+							type = "range",
+							name = "Dot Size",
+							min = 4, max = 10, step = 1,
+							width = 0.9,
+							get = function(info)
+								return ShamanPower.opt.partyDotSize or 5
+							end,
+							set = function(info, val)
+								ShamanPower.opt.partyDotSize = val
 								ShamanPower:UpdatePartyDotPositions()
 							end
 						},

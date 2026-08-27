@@ -151,16 +151,16 @@ local NAV = {
 		{ label = "Profiles", path = P("profiles"), lock = true },
 	}},
 	{ group = "Bars", entries = {
-		{ label = "Mode & Twisting", lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
+		{ label = "Mode & Twisting", shamanOnly = true, lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
 			{ label = "Mode & Twisting", paths = { P("settings", "settings_totemMode") } },
 		}},
-		{ label = "Appearance", lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
+		{ label = "Appearance", shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Layout",            paths = { P("fluffy", "layout_section") } },
 			{ label = "Scale & Opacity",   paths = { P("fluffy", "scale_section"), P("fluffy", "opacity_section"), P("fluffy", "padding_section") } },
 			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
-		{ label = "Totem Bar", lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
+		{ label = "Totem Bar", shamanOnly = true, lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
 			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
 			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
@@ -170,7 +170,7 @@ local NAV = {
 			{ label = "Loadouts",      paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar",   paths = { P("fluffy", "loadoutbar_section") } },
 		}},
-		{ label = "Cooldown Bar", lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
+		{ label = "Cooldown Bar", shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
 			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
 			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
@@ -179,14 +179,14 @@ local NAV = {
 	{ group = "Modules", power = true, entries = {
 		{ label = "Raid Cooldowns",       path = P("fluffy", "raid_cd_section"), power = false },
 		{ label = "Totem Range Tracker",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker",   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
-		{ label = "Earth Shield Tracker", path = P("fluffy", "estrack_section") },
-		{ label = "Shield Charges",       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
-		{ label = "Reactive Totems",      path = P("fluffy", "reactivetotems_section") },
-		{ label = "Expiring Alerts",      path = P("fluffy", "expiringalerts_section") },
-		{ label = "Tremor Reminder",      path = P("fluffy", "tremorreminder_section") },
+		{ label = "Party Buff Tracker", shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
+		{ label = "Earth Shield Tracker", shamanOnly = true, path = P("fluffy", "estrack_section") },
+		{ label = "Shield Charges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
+		{ label = "Reactive Totems", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
+		{ label = "Expiring Alerts", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
+		{ label = "Tremor Reminder", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Totem Plates",         path = P("fluffy", "totemplates_section") },
-		{ label = "Pop-Out Trackers", power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
+		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
 			{ label = "Pop-Out Trackers", paths = {
 				{ "settings", "settings_popout", label = "Middle-Click Pop-Out" },
 				{ "fluffy",   "popout_section",  label = "Popped-Out Trackers" },
@@ -674,10 +674,15 @@ function SPConfig:RenderNav(query)
 				row.accent:Hide()
 				row.text:SetFontObject(Core.fonts.nav)
 				row.text:SetText(Tree:StripColor(entry.label))
+				-- Shaman-only pages stay visible but greyed for other classes.
+				row.shamanOnly = entry.shamanOnly and select(2, UnitClass("player")) ~= "SHAMAN"
+				row.text:SetTextColor(Core:Color(row.shamanOnly and "textMute" or "text"))
+				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Shaman only - these features do not run on this class.") else Core:AttachTooltip(row, "", nil) end
 
 				-- Power dot: an explicit binding on the entry wins, otherwise an
 				-- "Enable ..." toggle found in the page is promoted.
-				if groupDef.power then
+				if row.power then row.power:Hide() end
+				if groupDef.power and not row.shamanOnly then
 					local getter, setter, tipTitle, tipBody = ResolvePower(entry)
 					if getter then
 						local pw = row.power
@@ -717,7 +722,7 @@ function SPConfig:RenderNav(query)
 						self.bg:SetColorTexture(0, 0, 0, 0)
 					end
 				end)
-				row:SetScript("OnClick", function(self) SelectEntry(self.entry) end)
+				row:SetScript("OnClick", function(self) if not self.shamanOnly then SelectEntry(self.entry) end end)
 
 				table.insert(navRows, row)
 				y = y + NAV_ROW_H

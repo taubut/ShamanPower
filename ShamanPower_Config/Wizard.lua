@@ -136,6 +136,12 @@ local LAYOUT_ORDER  = function() return { "Horizontal", "Vertical", "VerticalLef
 -- still be changed on the steps that follow; this only sets the starting point.
 -- ---------------------------------------------------------------------------
 function SP.Wizard.ApplyRoleDefaults(role)
+	if role == "nonshaman" then
+		SP:EnsureProfileTable("rangeTracker"); SP.opt.rangeTracker.hideBorder = true; safecall("UpdateSPRangeBorder")
+		SP.opt.raidCDButtonHideFrame = true; safecall("UpdateCallerButtonFrameStyle")
+		notify()
+		return
+	end
 	local resto, enh, ele = role == "restoration", role == "enhancement", role == "elemental"
 	-- Earth Shield is Resto-only: tracker and the Earth Shield charge number.
 	SP:EnsureProfileTable("esTracker");           SP.opt.esTracker.enabled = resto
@@ -171,7 +177,9 @@ end
 -- Steps. roles = which specs see the step. previewKey = which module frame to
 -- borrow into the preview panel (nil = a drawn mock or none).
 -- ---------------------------------------------------------------------------
-local ALL = { restoration = true, enhancement = true, elemental = true }
+local ALL = { restoration = true, enhancement = true, elemental = true }                   -- shaman specs
+local EVERYONE = { restoration = true, enhancement = true, elemental = true, nonshaman = true }
+local IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 
 local STEPS = {
 	{ id = "totembar", title = "Totem Bar", roles = ALL, build = "BuildTotemBarStep",
@@ -207,7 +215,7 @@ local STEPS = {
 	    { label = "Cooldown sweep",     bind = "cdsweep" },
 	    { label = "Time remaining text", bind = "cdtext" },
 	  } },
-	{ id = "estracker", title = "Earth Shield Tracker", roles = { restoration = true }, build = "BuildESTrackerStep",
+	{ id = "estracker", title = "Earth Shield Tracker", roles = { restoration = true }, module = "ShamanPower_ESTracker", flag = "ESTrackerLoaded", build = "BuildESTrackerStep",
 	  desc = "Every Earth Shield in your raid - not just yours - with who it is on, who cast it, and how many charges are left.",
 	  bullets = {
 	    "One icon per shield: target name inside, charges top-right, caster below in class color.",
@@ -215,7 +223,7 @@ local STEPS = {
 	    "Grows and shrinks with the raid; drag it anywhere once setup is done.",
 	  },
 	  toggles = { { label = "Enable Earth Shield Tracker", bind = "estracker" } } },
-	{ id = "shieldcharges", title = "Shield Charges", roles = ALL, build = "BuildShieldChargesStep",
+	{ id = "shieldcharges", title = "Shield Charges", roles = ALL, module = "ShamanPower_ShieldCharges", flag = "ShieldChargesLoaded", build = "BuildShieldChargesStep",
 	  desc = "Large on-screen numbers for your shield charges, so you re-apply before they run out.",
 	  bullets = {
 	    "Your Lightning / Water Shield charges - useful to every shaman.",
@@ -234,14 +242,20 @@ local STEPS = {
 	    "Optional sound when it is time to re-drop Windfury. On by default for Enhancement.",
 	  },
 	  toggles = { { label = "Enable Totem Twisting", bind = "twisting" } } },
-	{ id = "raidcd", title = "Raid Cooldowns", roles = ALL, build = "BuildRaidCDStep",
+	{ id = "raidcd", title = "Raid Cooldowns", roles = EVERYONE,
+	  descNonShaman = "As raid leader or assistant you can call for your shamans' Bloodlust / Heroism, Mana Tide and Drums of Battle with one press - the shaman gets an alert they cannot miss.",
+	  bulletsNonShaman = {
+	    "Assign which shaman does what in Settings > Raid Cooldowns.",
+	    "Your buttons appear only when you are allowed to call, or a shaman gives you control.",
+	    "Try it: press a button in the preview to see what the shaman sees.",
+	  }, module = "ShamanPower_RaidCooldowns", flag = "RaidCooldownsLoaded", build = "BuildRaidCDStep",
 	  desc = "One-press callers for Bloodlust / Heroism, Mana Tide and Drums of Battle - the whole raid is told, and the assigned player gets an alert they cannot miss.",
 	  bullets = {
 	    "Assign who does what in Settings > Raid Cooldowns (raid leader or assistant).",
 	    "Callers appear only for people allowed to call; you can give control to anyone.",
 	    "Try it: press a button in the preview to see what the assigned player sees.",
 	  } },
-	{ id = "reactive", title = "Reactive Totems", roles = ALL, build = "BuildReactiveStep",
+	{ id = "reactive", title = "Reactive Totems", roles = ALL, module = "ShamanPower_ReactiveTotems", flag = "ReactiveTotemsLoaded", build = "BuildReactiveStep",
 	  desc = "Big on-screen alerts the instant someone in your group gets feared, poisoned or diseased - telling you which totem fixes it.",
 	  bullets = {
 	    "Tremor for fear and charm, Poison Cleansing for poison, Disease Cleansing for disease.",
@@ -249,7 +263,7 @@ local STEPS = {
 	    "Each alert can be dragged to its own spot later.",
 	  },
 	  toggles = { { label = "Enable Reactive Totems", bind = "reactive" } } },
-	{ id = "tremor", title = "Tremor Reminder", roles = ALL, build = "BuildTremorStep",
+	{ id = "tremor", title = "Tremor Reminder", roles = ALL, module = "ShamanPower_TremorReminder", flag = "TremorReminderLoaded", build = "BuildTremorStep",
 	  desc = "A heads-up to drop Tremor Totem the moment you target a mob that is known to fear - before anyone in your group gets feared.",
 	  bullets = {
 	    "Built-in list of hundreds of fear-casting dungeon and raid mobs; add your own.",
@@ -257,34 +271,44 @@ local STEPS = {
 	    "Icon, text or both, with an optional glow and sound.",
 	  },
 	  toggles = { { label = "Enable Tremor Reminder", bind = "tremor" } } },
-	{ id = "expiring", title = "Expiring Alerts", roles = ALL, build = "BuildExpiringStep",
+	{ id = "expiring", title = "Expiring Alerts", roles = ALL, module = "ShamanPower_ExpiringAlerts", flag = "ExpiringAlertsLoaded", build = "BuildExpiringStep",
 	  desc = "Scrolling-combat-text style alerts the moment a shield runs out, a totem dies or times out, or a weapon imbue fades.",
 	  bullets = {
 	    "Lightning / Water Shield, Earth Shield on your target, totems destroyed or expired, main- and off-hand imbues.",
 	    "Pick the look and animation; turn on a sound per category.",
 	  },
 	  toggles = { { label = "Enable Expiring Alerts", bind = "expiring" } } },
-	{ id = "partybuff", title = "Party Buff Tracker", roles = ALL, build = "BuildPartyBuffStep",
+	{ id = "partybuff", title = "Party Buff Tracker", roles = ALL, module = "ShamanPower_PartyRange", flag = "PartyRangeLoaded", build = "BuildPartyBuffStep",
 	  desc = "Shows, right on your totem bar, which party members your totems are actually reaching.",
 	  bullets = {
 	    "A corner dot per party member - class color when your totem buff is on them, red when they are out of range.",
 	    "Or a number: how many of them the totem reaches. Or both.",
 	    "This is about YOUR totems. Totem Range (later) is about other shamans' totems reaching you.",
 	  } },
-	{ id = "wfcompanion", title = "Windfury Companion", roles = ALL, build = "BuildWFCompanionStep",
+	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
+	  descNonShaman = "The game never shows Windfury Totem's weapon buff on other players, so your shaman's addon cannot see that you have it. A tiny WeakAura on YOUR side fixes that.",
+	  bulletsNonShaman = {
+	    "Import it into WeakAuras once. Nothing to configure.",
+	    "Only matters if you are melee (warrior, rogue, paladin). Casters can skip this step.",
+	  }, build = "BuildWFCompanionStep",
 	  desc = "The game never shows Windfury Totem's weapon buff on other players, so ShamanPower cannot see who has it. A tiny WeakAura on your melee fixes that.",
 	  bullets = {
 	    "Melee who run it quietly tell your addon they have Windfury.",
 	    "Your Air slot then counts them and shows whether each is in range.",
 	  } },
-	{ id = "range", title = "Totem Range", roles = ALL, build = "BuildRangeStep",
+	{ id = "range", title = "Totem Range", roles = EVERYONE,
+	  descNonShaman = "Are you standing in range of your shaman's totems? A small overlay that goes green, red or gray per totem - this is the main reason a non-shaman runs ShamanPower.",
+	  bulletsNonShaman = {
+	    "Pick the totems you care about: green in range, red out of range, gray when nobody has it down.",
+	    "Shows up automatically whenever there is a shaman in your group.",
+	  }, module = "ShamanPower_SPRange", flag = "SPRangeLoaded", build = "BuildRangeStep",
 	  desc = "Are you standing in range of the OTHER shamans' totems? A small overlay that goes green, red or gray per totem.",
 	  bullets = {
 	    "Tracks the totems you pick: green in range, red out of range, gray when nobody has it down.",
 	    "Shows up automatically whenever there is a shaman in your group.",
 	    "The opposite of Party Buff Tracker, which is about YOUR totems reaching THEM.",
 	  } },
-	{ id = "totemplates", title = "Totem Plates", roles = ALL, build = "BuildTotemPlatesStep",
+	{ id = "totemplates", title = "Totem Plates", roles = EVERYONE, module = "ShamanPower_TotemPlates", flag = "TotemPlatesLoaded", build = "BuildTotemPlatesStep",
 	  desc = "Replaces the tiny nameplate on every totem with a big icon, so you can see exactly which totem that is - and kill the right one.",
 	  bullets = {
 	    "Red border for enemy totems, green for friendly. Optional name under the icon.",
@@ -292,7 +316,12 @@ local STEPS = {
 	    "|cffFFB000Friendly totems do NOT show inside dungeons or raids|r (the game hides those nameplates there). Enemy totems work everywhere.",
 	  },
 	  toggles = { { label = "Enable Totem Plates", bind = "totemplates" } } },
-	{ id = "position", title = "Position", roles = ALL, build = "BuildPositionStep",
+	{ id = "position", title = "Position", roles = EVERYONE,
+	  descNonShaman = "Put the Totem Range overlay where you want it.",
+	  bulletsNonShaman = {
+	    "Setup steps aside; drag the overlay, then click Done.",
+	    "The caller buttons can be dragged any time they are on screen.",
+	  }, build = "BuildPositionStep",
 	  desc = "Move your bars and frames wherever you like.",
 	  bullets = {
 	    "Setup fills the whole screen, so we'll step aside while you drag.",
@@ -303,7 +332,7 @@ local STEPS = {
 }
 
 local function VisibleSteps()
-	local out = { { id = "role", title = "Your Spec" } }
+	local out = { { id = "role", title = IS_SHAMAN and "Your Spec" or "Welcome" } }
 	if not state.role then return out end
 	for _, s in ipairs(STEPS) do
 		if s.roles[state.role] then out[#out + 1] = s end
@@ -1339,9 +1368,11 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 		ic:SetTexture("Interface\\Icons\\Spell_Nature_Windfury"); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		Core:MakeBorder(b, "border")
 		local key = b:CreateFontString(nil, "OVERLAY"); key:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
-		local dots = {}
+		local dots, rings = {}, {}
 		for d = 1, 4 do
-			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); dot:SetSize(6, 6); dot:Hide(); dots[d] = dot
+			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
+			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); dot:SetSize(6, 6); dot:Hide()
+			ring:SetPoint("CENTER", dot, "CENTER"); dots[d] = dot; rings[d] = ring
 		end
 		local n = b:CreateFontString(nil, "OVERLAY", nil, 7); n:SetPoint("CENTER", b, "CENTER", 0, 0); n:Hide()
 		-- separate counter frame (if the user chose that style)
@@ -1349,14 +1380,15 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 		local cbg = cf:CreateTexture(nil, "BACKGROUND"); cbg:SetAllPoints(cf); cbg:SetColorTexture(0, 0, 0, 0.7); Core:MakeBorder(cf, "border")
 		local ct = cf:CreateFontString(nil, "OVERLAY"); ct:SetPoint("CENTER", cf, "CENTER", 0, 0)
 		local cl = cf:CreateFontString(nil, "OVERLAY"); cl:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE"); cl:SetPoint("BOTTOM", cf, "BOTTOM", 0, 4); cl:SetText("Air"); cl:SetTextColor(unpack(AIR))
-		return { holder = holder, f = b, dots = dots, n = n, cf = cf, cbg = cbg, ct = ct, cl = cl }
+		return { holder = holder, f = b, dots = dots, rings = rings, n = n, cf = cf, cbg = cbg, ct = ct, cl = cl }
 	end
 	local function placeDots(sl)
 		local pos = SP.opt.partyDotPosition or "corners"
-		local size, gap = 6, 2
+		local size, gap = math.floor((SP.opt.partyDotSize or 5) * 1.2 + 0.5), 2
 		local span = 4 * size + 3 * gap
 		for d = 1, 4 do
 			local dot, along = sl.dots[d], (d - 1) * (size + gap)
+			dot:SetSize(size, size); sl.rings[d]:SetSize(size + 2, size + 2)
 			dot:ClearAllPoints()
 			if pos == "above" then dot:SetPoint("BOTTOMLEFT", sl.f, "TOP", along - span / 2, 2)
 			elseif pos == "below" then dot:SetPoint("TOPLEFT", sl.f, "BOTTOM", along - span / 2, -2)
@@ -1371,11 +1403,15 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 	-- paint a slot: `known` = the rogue runs the companion (dot 1 is the rogue)
 	local function paint(sl, known)
 		local rc = SP.opt.rangeCounter or {}
-		local showDots, showNum = SP.opt.showPartyRangeDots and true or false, rc.enabled and true or false
-		local separate = showNum and rc.location == "unlocked"
+		-- always dots + numbers on this page so the two slots read differently
+		local showDots, showNum = true, true
+		local separate = rc.location == "unlocked"
 		local fontSize, useEle = rc.fontSize or 14, rc.useElementColors ~= false
-		for d = 1, 4 do sl.dots[d]:Hide() end
-		if known and showDots then sl.dots[1]:SetVertexColor(ROGUE.r, ROGUE.g, ROGUE.b); sl.dots[1]:Show() end
+		for d = 1, 4 do sl.dots[d]:Hide(); sl.rings[d]:Hide() end
+		if known and showDots then
+			sl.dots[1]:SetVertexColor(ROGUE.r, ROGUE.g, ROGUE.b); sl.dots[1]:Show()
+			sl.rings[1]:SetShown(SP.opt.partyDotOutline ~= false)
+		end
 		local count = known and 1 or 0
 		if showNum and not separate then
 			sl.n:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
@@ -1411,12 +1447,13 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 	local modeNote = inner:CreateFontString(nil, "OVERLAY"); modeNote:SetFontObject(Core.fonts.tiny); modeNote:SetPoint("TOP", inner, "TOP", 0, -8); modeNote:SetTextColor(Core:Color("textDim"))
 	local lastPos
 	inner:SetScript("OnUpdate", function()
-		local pos = SP.opt.partyDotPosition or "corners"
+		local pos = (SP.opt.partyDotPosition or "corners") .. (SP.opt.partyDotSize or 5)
 		if pos ~= lastPos then lastPos = pos; placeDots(without); placeDots(with) end
 		paint(without, false); paint(with, true)
 		local rc = SP.opt.rangeCounter or {}
 		local d, n = SP.opt.showPartyRangeDots, rc.enabled
-		modeNote:SetText("Shown with your Party Buff Tracker choice: " .. ((d and n) and "dots and numbers" or d and "dots only" or n and "numbers only" or "|cffff6060nothing (it is switched off)|r"))
+		local yours = (d and n) and "dots and numbers" or d and "dots only" or n and "numbers only" or "nothing"
+		modeNote:SetText("Shown with dots and numbers on. Your Party Buff Tracker is set to: " .. yours .. (yours == "nothing" and "  |cffff6060(turn it on to get this)|r" or ""))
 	end)
 
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
@@ -1430,14 +1467,15 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 	local calW = card:GetWidth() - 36 - 24
 	local h = callout:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row); h:SetPoint("TOPLEFT", callout, "TOPLEFT", 12, -10); h:SetWidth(calW)
 	h:SetJustifyH("LEFT"); h:SetWordWrap(true); h:SetTextColor(Core:Color("warn"))
-	h:SetText("THIS IS FOR YOUR MELEE - NOT FOR YOU")
+	h:SetText(IS_SHAMAN and "THIS IS FOR YOUR MELEE - NOT FOR YOU" or "THIS ONE IS FOR YOU")
 	local body = callout:CreateFontString(nil, "OVERLAY"); body:SetFontObject(Core.fonts.rowDim); body:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -6); body:SetWidth(calW)
 	body:SetJustifyH("LEFT"); body:SetWordWrap(true)
-	body:SetText("You do NOT install this. Send it to the rogues, warriors and paladins in your group. They import it into WeakAuras once, nothing to set up, and from then on your totem bar can see their Windfury.")
+	body:SetText(IS_SHAMAN and "You do NOT install this. Send it to the rogues, warriors and paladins in your group. They import it into WeakAuras once, nothing to set up, and from then on your totem bar can see their Windfury."
+		or "You are the melee. Import this WeakAura once and your shaman's totem bar can see that you have Windfury and whether you are in range of the totem. Nothing to configure.")
 	callout:SetHeight(20 + h:GetStringHeight() + 6 + body:GetStringHeight() + 12)
 	y = y + callout:GetHeight() + 14
 
-	local b1 = Core:MakeButton(card, "Show the WeakAura string to copy", 10, true)
+	local b1 = Core:MakeButton(card, IS_SHAMAN and "Show the WeakAura string to copy" or "Show the WeakAura string (copy, then import in WeakAuras)", 10, true)
 	b1:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); b1:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
 	b1:SetScript("OnClick", function()
 		if comp and SP.ShowExportDialog then SP:ShowExportDialog(comp.str, "send this to your melee - they import it in WeakAuras", "Windfury Companion") end
@@ -1475,7 +1513,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		{ name = "Priest",  r = 1.00, g = 1.00, b = 1.00, period = 9.0, off = 4.5 },
 		{ name = "Hunter",  r = 0.67, g = 0.83, b = 0.45, period = 6.0, off = 1.0 },
 	}
-	local bar = CreateFrame("Frame", nil, inner); bar:SetSize(4 * STEP - (STEP - SIZE), SIZE); bar:SetPoint("CENTER", inner, "CENTER", 0, 30)
+	local bar = CreateFrame("Frame", nil, inner); bar:SetSize(4 * STEP - (STEP - SIZE), SIZE); bar:SetPoint("CENTER", inner, "CENTER", 0, 130)
 	local slots = {}
 	for i, e in ipairs(ELE) do
 		local b = CreateFrame("Frame", nil, bar); b:SetSize(SIZE, SIZE); b:SetPoint("LEFT", bar, "LEFT", (i - 1) * STEP, 0)
@@ -1483,13 +1521,15 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetPoint("TOPLEFT", 2, -2); ic:SetPoint("BOTTOMRIGHT", -2, 2); ic:SetTexture(e.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		Core:MakeBorder(b, "border")
 		local key = b:CreateFontString(nil, "OVERLAY"); key:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
-		local dots = {}
+		local dots, rings = {}, {}
 		for d = 1, 4 do
+			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
 			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); dot:SetSize(6, 6)
-			dots[d] = dot
+			ring:SetPoint("CENTER", dot, "CENTER")
+			dots[d] = dot; rings[d] = ring
 		end
 		local n = b:CreateFontString(nil, "OVERLAY", nil, 7); n:SetPoint("CENTER", b, "CENTER", 0, 0)
-		slots[i] = { e = e, f = b, dots = dots, n = n }
+		slots[i] = { e = e, f = b, dots = dots, rings = rings, n = n }
 	end
 	-- "Separate movable frames" counter style: one small frame per element,
 	-- drawn like CreateRangeCounterFrame (dark backdrop, number, element label).
@@ -1513,15 +1553,38 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Each corner dot is a party member, in their class color when your totem is reaching them and red when it is not. The number is how many it reaches. Windfury (Air) only knows about melee running the companion aura - next step.")
-	local names = inner:CreateFontString(nil, "OVERLAY"); names:SetFontObject(Core.fonts.tiny); names:SetPoint("TOP", bar, "BOTTOM", 0, -12)
-	names:SetText("|cffFFF569Rogue|r  |cffC79C6EWarrior|r  |cffFFFFFFPriest|r  |cffABD473Hunter|r"); names:SetTextColor(Core:Color("textDim"))
+	legend:SetText("Every totem has its own bubble, so someone can be inside Strength of Earth's range and outside Windfury's at the same time. A dot per member: class color = getting that totem, red = out of its range. The number = how many it reaches. Windfury (Air) only knows about melee running the companion aura - next step.")
+	-- who is inside which totem's bubble right now (each totem has its own range)
+	local ENAME = { "Earth", "Fire", "Water", "Air" }
+	-- a small grid: member down the side, element across the top, in / out in the cells
+	local NAME_W, COL_W, ROW_H = 76, 62, 22
+	local readout = CreateFrame("Frame", nil, inner); readout:SetSize(NAME_W + 4 * COL_W, 20 + ROW_H * 5); readout:SetPoint("TOP", bar, "BOTTOM", 0, -70)
+	local rh = readout:CreateFontString(nil, "OVERLAY"); rh:SetFontObject(Core.fonts.tiny); rh:SetPoint("TOPLEFT", readout, "TOPLEFT", 0, 0); rh:SetTextColor(Core:Color("textDim"))
+	rh:SetText("WHO IS IN RANGE OF WHICH TOTEM")
+	for i = 1, 4 do
+		local h = readout:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.rowDim); h:SetPoint("TOPLEFT", readout, "TOPLEFT", NAME_W + (i - 1) * COL_W, -18)
+		h:SetWidth(COL_W); h:SetJustifyH("CENTER"); h:SetText(ENAME[i]); h:SetTextColor(unpack(ELE[i].col))
+	end
+	local lines = {}
+	for d, m in ipairs(PARTY) do
+		local yrow = -(18 + ROW_H * d)
+		local n = readout:CreateFontString(nil, "OVERLAY"); n:SetFontObject(Core.fonts.row); n:SetPoint("TOPLEFT", readout, "TOPLEFT", 0, yrow); n:SetWidth(NAME_W); n:SetJustifyH("LEFT"); n:SetWordWrap(false)
+		n:SetText(m.name); n:SetTextColor(m.r, m.g, m.b)
+		local cells = {}
+		for i = 1, 4 do
+			local c = readout:CreateFontString(nil, "OVERLAY"); c:SetFontObject(Core.fonts.row); c:SetPoint("TOPLEFT", readout, "TOPLEFT", NAME_W + (i - 1) * COL_W, yrow)
+			c:SetWidth(COL_W); c:SetJustifyH("CENTER"); c:SetWordWrap(false)
+			cells[i] = c
+		end
+		lines[d] = cells
+	end
 
 	-- dot placement, same geometry as ShamanPower:PositionPartyDots (6px dots here)
 	local lastDotPos
 	local function placeDots()
 		local pos = SP.opt.partyDotPosition or "corners"
-		local size, gap = 6, 2
+		local size, gap = math.floor((SP.opt.partyDotSize or 5) * 1.2 + 0.5), 2   -- mock icon is bigger than the real 26px button
+		for _, s in ipairs(slots) do for d = 1, 4 do s.dots[d]:SetSize(size, size); s.rings[d]:SetSize(size + 2, size + 2) end end
 		local span = 4 * size + 3 * gap
 		for _, s in ipairs(slots) do
 			for d = 1, 4 do
@@ -1537,12 +1600,13 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 				else dot:SetPoint("BOTTOMRIGHT", s.f, "BOTTOMRIGHT", -1, 1) end
 			end
 		end
-		lastDotPos = pos
 	end
 	local t = 0
 	bar:SetScript("OnUpdate", function(_, el)
 		t = t + el
-		if (SP.opt.partyDotPosition or "corners") ~= lastDotPos then placeDots() end
+		local dotKey = (SP.opt.partyDotPosition or "corners") .. (SP.opt.partyDotSize or 5)
+		if dotKey ~= lastDotPos then placeDots(); lastDotPos = dotKey end
+		local outline = SP.opt.partyDotOutline ~= false
 		local showDots = SP.opt.showPartyRangeDots and true or false
 		local rc = SP.opt.rangeCounter or {}
 		local showNum = rc.enabled and true or false
@@ -1555,12 +1619,15 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 			for d, m in ipairs(PARTY) do
 				local dot = s.dots[d]
 				local known = (i ~= 4) or m.wf          -- Windfury: only companion users are visible
+				local cell = lines[d][i]
 				if not known then
-					dot:Hide()
+					dot:Hide(); s.rings[d]:Hide()
+					cell:SetText("|cff607080?|r")
 				else
 					local ok = inRange(m, i, t)
 					if ok then count = count + 1; dot:SetVertexColor(m.r, m.g, m.b) else dot:SetVertexColor(1, 0, 0) end
-					dot:SetShown(showDots)
+					dot:SetShown(showDots); s.rings[d]:SetShown(showDots and outline)
+					cell:SetText(ok and "|cff40ff40in|r" or "|cffff5050out|r")
 				end
 			end
 			if showNum and not separate then
@@ -1613,6 +1680,10 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		set = function(v) SP.opt.partyDotPosition = v; safecall("UpdatePartyDotPositions"); upd() end,
 		values = function() return { corners = "Icon corners", above = "Row above the icon", below = "Row below the icon", left = "Column left of the icon", right = "Column right of the icon" } end,
 		order = function() return { "corners", "above", "below", "left", "right" } end })
+	row("Toggle", { label = "Outline the dots", desc = "A thin dark ring under each dot so it shows on bright icons like Windfury.", disabled = function() return not SP.opt.showPartyRangeDots end,
+		get = function() return SP.opt.partyDotOutline ~= false end, set = function(v) SP.opt.partyDotOutline = v; safecall("UpdatePartyDotPositions"); upd() end })
+	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = function() return not SP.opt.showPartyRangeDots end,
+		get = function() return SP.opt.partyDotSize or 5 end, set = function(v) SP.opt.partyDotSize = v; safecall("UpdatePartyDotPositions"); upd() end })
 	local function noNum() return not (SP.opt.rangeCounter and SP.opt.rangeCounter.enabled) end
 	row("Toggle", { label = "Color numbers by element", disabled = noNum, get = function() return not (SP.opt.rangeCounter and SP.opt.rangeCounter.useElementColors == false) end,
 		set = function(v) rc().useElementColors = v; upd() end })
@@ -1883,7 +1954,7 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Target a mob that is known to fear and the reminder appears BEFORE anyone gets feared. Drop Tremor and it goes away.")
+	legend:SetText("Target a mob that is known to fear and this appears BEFORE anyone gets feared; drop Tremor and it goes away. It is its own floating frame - by default just above the middle of your screen, not part of the totem bar - and you can drag it anywhere in the Position step.")
 	inner:SetScript("OnUpdate", function() story:SetText(SP.tremorDemoStatus or "") end)
 
 	local W = card:GetWidth() - 36
@@ -1951,8 +2022,13 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	local measure = inner:CreateFontString(nil, "OVERLAY"); measure:Hide()
 	local LONGEST = "Mana Spring Totem Expired FADED!"
 	local lastKey
+	local offMsg = inner:CreateFontString(nil, "OVERLAY"); offMsg:SetFontObject(Core.fonts.rowDim); offMsg:SetPoint("CENTER", inner, "CENTER", 0, 40); offMsg:SetWidth(inner:GetWidth() - 60); offMsg:SetJustifyH("CENTER"); offMsg:SetWordWrap(true); offMsg:Hide()
+	offMsg:SetText("|cffff6060Every alert type is switched off|r - turn one on in the card to see it fire here.")
 	inner:SetScript("OnUpdate", function()
 		story:SetText(SP.expiringDemoStatus or "")
+		local db = ShamanPowerExpiringAlertsDB
+		local anyOn = db and get("enabled", true) and ((db.shields and db.shields.enabled) or (db.totems and db.totems.enabled) or (db.weaponImbues and db.weaponImbues.enabled))
+		offMsg:SetShown(not anyOn)
 		local f = SP.expiringAlertsFrame
 		if not (f and f:GetParent() == inner) then return end
 		local ts, is, dm, ol = get("textSize", 24), get("iconSize", 32), get("displayMode", "both"), get("fontOutline", true)
@@ -2052,10 +2128,11 @@ function SP.Wizard.BuildRangeStep(card, inner, y)
 	local bw = card:GetWidth() - 36 - 24
 	local bh = box:CreateFontString(nil, "OVERLAY"); bh:SetFontObject(Core.fonts.row); bh:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -10); bh:SetWidth(bw)
 	bh:SetJustifyH("LEFT"); bh:SetWordWrap(true); bh:SetTextColor(Core:Color("accentHi"))
-	bh:SetText("NOT JUST FOR SHAMANS")
+	bh:SetText(IS_SHAMAN and "NOT JUST FOR SHAMANS" or "THIS IS THE ONE FOR YOU")
 	local bb = box:CreateFontString(nil, "OVERLAY"); bb:SetFontObject(Core.fonts.rowDim); bb:SetPoint("TOPLEFT", bh, "BOTTOMLEFT", 0, -6); bb:SetWidth(bw)
 	bb:SetJustifyH("LEFT"); bb:SetWordWrap(true)
-	bb:SetText("Any class can install ShamanPower and enable only the |cffE6EAF0Totem Range|r module to see whether they are standing in range of their shaman's totems. As a shaman, keep it on if you run with other shamans and want to track their totems too.")
+	bb:SetText(IS_SHAMAN and "Any class can install ShamanPower and enable only the |cffE6EAF0Totem Range|r module to see whether they are standing in range of their shaman's totems. As a shaman, keep it on if you run with other shamans and want to track their totems too."
+		or "Green means you are getting that totem's buff, red means the totem is down but you are standing outside it - move closer to your shaman. It only appears when there is a shaman in your group.")
 	box:SetHeight(20 + bh:GetStringHeight() + 6 + bb:GetStringHeight() + 12)
 	y = y + box:GetHeight() + 14
 
@@ -2472,7 +2549,7 @@ end
 function SP.Wizard.BuildFinishNote(card, inner, y) end
 
 function SP.Wizard.BuildPositionStep(card, inner, y)
-	local btn = Core:MakeButton(card, "Unlock & Position My Frames", 10, true)
+	local btn = Core:MakeButton(card, IS_SHAMAN and "Unlock & Position My Frames" or "Position the Range Overlay", 10, true)
 	btn:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y)
 	btn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
 	btn:SetScript("OnClick", function() SP.Wizard:EnterPositioning() end)
@@ -2480,14 +2557,24 @@ function SP.Wizard.BuildPositionStep(card, inner, y)
 	local pic = inner:CreateFontString(nil, "OVERLAY")
 	pic:SetFontObject(Core.fonts.rowDim); pic:SetPoint("CENTER"); pic:SetWidth(inner:GetWidth() - 24)
 	pic:SetJustifyH("CENTER"); pic:SetWordWrap(true)
-	pic:SetText("The setup screen will step aside so you can drag your totem bar and cooldown bar. A small bar appears at the top - click Done when you are finished.")
+	pic:SetText(IS_SHAMAN and "The setup screen will step aside so you can drag your totem bar and cooldown bar. A small bar appears at the top - click Done when you are finished."
+		or "The setup screen will step aside and show the Totem Range overlay so you can drag it where you want. A small bar appears at the top - click Done when you are finished.")
 end
 
 local posBar
 function SP.Wizard:EnterPositioning()
 	if wiz then wiz:Hide() end
-	if SP.SetTotemBarUnlocked then SP:SetTotemBarUnlocked(true) end
-	if SP.SetCooldownBarUnlocked then SP:SetCooldownBarUnlocked(true) end
+	if not IS_SHAMAN then
+		-- nothing to unlock: put the range overlay on screen so it can be dragged
+		if SP.InitSPRange then SP:InitSPRange() end
+		local f = SP.spRangeFrame or (SP.CreateSPRangeFrame and SP:CreateSPRangeFrame())
+		if f then safecall("UpdateSPRangeFrame"); safecall("UpdateSPRangeBorder"); f:Show(); SP._rangeShownForPositioning = true end
+	end
+	-- anything else of ours on screen would sit over the bars being moved
+	local cfg = _G["ShamanPowerConfigUIFrame"]; if cfg and cfg:IsShown() then cfg:Hide() end
+	if ShamanPowerAssign and ShamanPowerAssign.Hide then ShamanPowerAssign:Hide() end
+	if IS_SHAMAN and SP.SetTotemBarUnlocked then SP:SetTotemBarUnlocked(true) end
+	if IS_SHAMAN and SP.SetCooldownBarUnlocked then SP:SetCooldownBarUnlocked(true) end
 	if not posBar then
 		posBar = CreateFrame("Frame", "ShamanPowerWizardPosBar", UIParent)
 		posBar:SetSize(420, 52); posBar:SetPoint("TOP", UIParent, "TOP", 0, -80)
@@ -2504,8 +2591,9 @@ function SP.Wizard:EnterPositioning()
 end
 
 function SP.Wizard:ExitPositioning()
-	if SP.SetTotemBarUnlocked then SP:SetTotemBarUnlocked(false) end
-	if SP.SetCooldownBarUnlocked then SP:SetCooldownBarUnlocked(false) end
+	if IS_SHAMAN and SP.SetTotemBarUnlocked then SP:SetTotemBarUnlocked(false) end
+	if IS_SHAMAN and SP.SetCooldownBarUnlocked then SP:SetCooldownBarUnlocked(false) end
+	if SP._rangeShownForPositioning then SP._rangeShownForPositioning = nil; safecall("UpdateSPRangeVisibility") end
 	if posBar then posBar:Hide() end
 	if wiz then wiz:Show(); RenderStep() end
 end
@@ -2560,12 +2648,13 @@ function RenderStep()
 	desc:SetFontObject(Core.fonts.rowDim)
 	desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 	desc:SetWidth(card:GetWidth() - 36); desc:SetJustifyH("LEFT")
-	desc:SetText(s.desc)
+	desc:SetText((state.role == "nonshaman" and s.descNonShaman) or s.desc)
 
 	local y = 78 + math.max(desc:GetStringHeight(), 30)
 
-	if s.bullets then
-		for _, line in ipairs(s.bullets) do
+	local blist = (state.role == "nonshaman" and s.bulletsNonShaman) or s.bullets
+	if blist then
+		for _, line in ipairs(blist) do
 			local roles
 			if type(line) == "table" then roles = line.roles; line = line[1] end
 			if roles and not roles[state.role] then line = nil end
@@ -2591,8 +2680,27 @@ function RenderStep()
 		end
 	end
 
-	if s.build and SP.Wizard[s.build] then
-		local endY = SP.Wizard[s.build](card, box.inner, y + 4)
+	-- A step that borrows a module's frame needs that module running.
+	local missing
+	if s.module then
+		if IsAddOnLoaded and not IsAddOnLoaded(s.module) then
+			missing = "The |cffffffff" .. s.module .. "|r module is not enabled.\n\nEnable it in the AddOns list (character select > AddOns, or the AddOns button at the main menu) and /reload, then come back to this step."
+		elseif s.flag and not SP[s.flag] then
+			missing = "The |cffffffff" .. s.module .. "|r module is loaded but did not start - it only runs on a Shaman."
+		end
+	end
+	if missing then
+		local t = box.inner:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row); t:SetPoint("CENTER", box.inner, "CENTER", 0, 20)
+		t:SetWidth(box.inner:GetWidth() - 60); t:SetJustifyH("CENTER"); t:SetWordWrap(true); t:SetTextColor(Core:Color("warn")); t:SetText(missing)
+		FitCardBody(cardFrame, y + 4)
+	elseif s.build and SP.Wizard[s.build] then
+		local ok, endY = pcall(SP.Wizard[s.build], card, box.inner, y + 4)
+		if not ok then
+			print("|cffff4040ShamanPower setup|r: step '" .. s.id .. "' failed: " .. tostring(endY))
+			local err = box.inner:CreateFontString(nil, "OVERLAY"); err:SetFontObject(Core.fonts.rowDim); err:SetPoint("CENTER"); err:SetWidth(box.inner:GetWidth() - 40); err:SetJustifyH("CENTER"); err:SetWordWrap(true)
+			err:SetText("This preview hit an error - please report the message printed in chat.")
+			endY = nil
+		end
 		FitCardBody(cardFrame, type(endY) == "number" and (endY + 24) or (y + 4))
 	elseif s.previewKey then
 		FitCardBody(cardFrame, y)
@@ -2764,6 +2872,32 @@ function SP.Wizard:RenderRole()
 	sub:SetWidth(560); sub:SetJustifyH("CENTER")
 	sub:SetText("Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later.")
 
+	-- Not a shaman: a short, tailored run (no spec, no preset).
+	if not IS_SHAMAN then
+		local box = track(CreateFrame("Frame", nil, c))
+		box:SetSize(640, 10); box:SetPoint("TOP", sub, "BOTTOM", 0, -18)
+		Core:SolidTex(box, "accent", "BACKGROUND", 0.10); Core:MakeBorder(box, "accent")
+		local h = box:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.title); h:SetPoint("TOP", box, "TOP", 0, -14); h:SetWidth(600); h:SetJustifyH("CENTER")
+		h:SetTextColor(Core:Color("accentHi")); h:SetText("You are not a shaman - this will be quick")
+		local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.row); b:SetPoint("TOP", h, "BOTTOM", 0, -8); b:SetWidth(600); b:SetJustifyH("CENTER"); b:SetWordWrap(true)
+		b:SetText("The bars and most modules only run on a shaman, so we will skip them. What ShamanPower does for you:\n\n"
+			.. "|cffE6EAF0Totem Range|r - see whether you are inside your shaman's totem buffs\n"
+			.. "|cffE6EAF0Raid Cooldowns|r - call for Bloodlust, Mana Tide and Drums as leader or assistant\n"
+			.. "|cffE6EAF0Windfury Companion|r - a WeakAura so your shaman can see your Windfury (melee)\n"
+			.. "|cffE6EAF0Totem Plates|r - big icons on enemy totems so you kill the right one")
+		box:SetHeight(14 + h:GetStringHeight() + 8 + b:GetStringHeight() + 16)
+		local go = track(Core:MakeButton(c, "Start", 200, true))
+		go:SetSize(200, 34); go:SetPoint("TOP", box, "BOTTOM", 0, -22)
+		go:SetScript("OnClick", function()
+			state.role = "nonshaman"
+			SP.Wizard.ApplyRoleDefaults("nonshaman")
+			state.steps = VisibleSteps()
+			SP.Wizard:Go(2)          -- straight into the first step
+		end)
+		if wiz.next then wiz.next:Hide() end   -- Start is the only way forward here
+		return
+	end
+	SP.Wizard._welcomeExtra = 0
 	-- Loud, on purpose: first-timers should not skip this.
 	local warn = track(CreateFrame("Frame", nil, c))
 	warn:SetSize(640, 10); warn:SetPoint("TOP", sub, "BOTTOM", 0, -14)
@@ -2787,7 +2921,7 @@ function SP.Wizard:RenderRole()
 	for i, r in ipairs(roles) do
 		local card = track(CreateFrame("Button", nil, c))
 		card:SetSize(cardW, cardH)
-		card:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + (i - 1) * (cardW + gap), -216)
+		card:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + (i - 1) * (cardW + gap), -(216 + (SP.Wizard._welcomeExtra or 0)))
 
 		local bg = card:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(card)
 		local glow = card:CreateTexture(nil, "ARTWORK")
@@ -2835,7 +2969,7 @@ function SP.Wizard:RenderRole()
 	if preset and preset.str then
 		local qbtn = track(Core:MakeButton(c, "Use " .. preset.name .. "  (Quick Setup)", 320, true))
 		qbtn:SetSize(320, 34)
-		qbtn:SetPoint("TOP", c, "TOP", 0, -(216 + cardH + 24))
+		qbtn:SetPoint("TOP", c, "TOP", 0, -(216 + (SP.Wizard._welcomeExtra or 0) + cardH + 24))
 		qbtn:SetScript("OnClick", function() SP.Wizard:ShowPresetPreview(preset) end)
 		if state.presetApplied then
 			qbtn.text:SetText(preset.name .. " applied - pick your spec to continue")
@@ -2979,10 +3113,9 @@ end
 local function MaybeAutoOpen()
 	if not SP.opt then return end
 	if SP.opt.setupDone then return end
-	if select(2, UnitClass("player")) ~= "SHAMAN" then SP.opt.setupDone = true; return end
 	C_Timer.After(1.5, function()
 		if SP.opt.setupDone then return end
-		if LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:Open() end
+		if IS_SHAMAN and LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:Open() end
 	end)
 end
 

@@ -7465,11 +7465,29 @@ end
 function ShamanPower:PositionPartyDots(dots, frame)
 	if not dots or not frame then return end
 	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
-	local size, gap = 5, 2
+	local size, gap = (self.opt and self.opt.partyDotSize) or 5, 2
+	local outline = not (self.opt and self.opt.partyDotOutline == false)
 	local span = 4 * size + 3 * gap
 	for i = 1, 4 do
 		local dot = dots[i]
 		if dot then
+			dot:SetSize(size, size)
+			-- 1px dark ring under the dot so it reads on bright icons; it
+			-- follows the dot's own Show/Hide.
+			if not dot.spOutline then
+				local parent = dot:GetParent()
+				local o = parent:CreateTexture(nil, "OVERLAY", nil, -1)
+				o:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot")
+				o:SetVertexColor(0, 0, 0, 0.9)
+				o:SetPoint("CENTER", dot, "CENTER", 0, 0)
+				o:Hide()
+				dot.spOutline = o
+				hooksecurefunc(dot, "Show", function(d) if d.spOutline and d.spOutlineOn then d.spOutline:Show() end end)
+				hooksecurefunc(dot, "Hide", function(d) if d.spOutline then d.spOutline:Hide() end end)
+			end
+			dot.spOutlineOn = outline
+			dot.spOutline:SetSize(size + 2, size + 2)
+			dot.spOutline:SetShown(outline and dot:IsShown())
 			dot:ClearAllPoints()
 			local along = (i - 1) * (size + gap)
 			if pos == "above" then
