@@ -31,6 +31,9 @@ function SP:InitRaidCooldowns()
 	if not ShamanPower_RaidCooldowns.manatide then
 		ShamanPower_RaidCooldowns.manatide = {}
 	end
+	if not ShamanPower_RaidCooldowns.drums then
+		ShamanPower_RaidCooldowns.drums = { drummers = {}, caller = nil }
+	end
 end
 
 -- Check if player can assign raid cooldowns (RL or assist)
@@ -251,9 +254,87 @@ function SP:SendRaidCooldownSync()
 		end
 	end
 	self:SendMessage("MTSYNC|" .. table.concat(mtParts, ","))
+
+	-- Drums: per-group drummers and the caller
+	local drums = ShamanPower_RaidCooldowns.drums or { drummers = {} }
+	local dParts = {}
+	for group, name in pairs(drums.drummers or {}) do
+		if name and name ~= "" then table.insert(dParts, tostring(group) .. ":" .. name) end
+	end
+	self:SendMessage("DRUMSYNC|" .. table.concat(dParts, ",") .. "|" .. (drums.caller or ""))
 end
 
 -- Call for Bloodlust/Heroism
+-- ---------------------------------------------------------------------------
+-- Drums of Battle: one drummer per party group, plus a caller.
+-- ---------------------------------------------------------------------------
+local DRUMS_ICON = "Interface\\Icons\\INV_Misc_Drum_02"
+
+-- { [group] = { names } } for the current raid (party = group 1)
+function SP:GetGroupMembers()
+	local groups = {}
+	if IsInRaid() then
+		for i = 1, GetNumGroupMembers() do
+			local name, _, subgroup = GetRaidRosterInfo(i)
+			if name then
+				groups[subgroup] = groups[subgroup] or {}
+				table.insert(groups[subgroup], name)
+			end
+		end
+	else
+		groups[1] = self:GetRaidMembers()
+	end
+	for _, list in pairs(groups) do table.sort(list) end
+	return groups
+end
+
+function SP:GetDrummers()
+	local drums = ShamanPower_RaidCooldowns and ShamanPower_RaidCooldowns.drums
+	local out = {}
+	if not drums or not drums.drummers then return out end
+	for _, name in pairs(drums.drummers) do
+		if name and name ~= "" then table.insert(out, name) end
+	end
+	table.sort(out)
+	return out
+end
+
+function SP:CanCallDrums()
+	if self:CanAssignRaidCooldowns() then return true end
+	local drums = ShamanPower_RaidCooldowns.drums
+	return (drums and drums.caller == self.player) and true or false
+end
+
+function SP:ShowDrumsAlert()
+	self:ShowCenterScreenAlert(DRUMS_ICON, "USE DRUMS NOW")
+end
+
+function SP:IsDrummer(name)
+	local drums = ShamanPower_RaidCooldowns and ShamanPower_RaidCooldowns.drums
+	if not drums or not drums.drummers then return false end
+	for _, n in pairs(drums.drummers) do
+		if n == name then return true end
+	end
+	return false
+end
+
+function SP:CallDrums()
+	if not self:CanCallDrums() then
+		print("|cffff0000ShamanPower:|r You don't have permission to call for Drums.")
+		return
+	end
+	local drummers = self:GetDrummers()
+	if #drummers == 0 then
+		print("|cffff0000ShamanPower:|r No drummers assigned!")
+		return
+	end
+	self:SendMessage("DRUMCALL", nil, nil, true)
+	if self:IsDrummer(self.player) then
+		self:ShowDrumsAlert()
+	end
+	print("|cff00ff00ShamanPower:|r Called Drums of Battle (" .. table.concat(drummers, ", ") .. ")")
+end
+
 function SP:CallBloodlust()
 	if not self:CanCallRaidCooldowns() then
 		print("|cffff0000ShamanPower:|r You don't have permission to call for Bloodlust.")
@@ -440,6 +521,26 @@ function SP:HandleRaidCooldownMessage(prefix, message, sender)
 			end
 		end
 
+	elseif cmd == "DRUMCALL" then
+		if self:IsDrummer(self.player) then
+			self:ShowDrumsAlert()
+		end
+	elseif cmd == "DRUMSYNC" then
+		self:InitRaidCooldowns()
+		local list, caller = strsplit("|", rest or "")
+		local drums = ShamanPower_RaidCooldowns.drums
+		for k in pairs(drums.drummers) do drums.drummers[k] = nil end
+		if list and list ~= "" then
+			for pair in string.gmatch(list, "[^,]+") do
+				local group, name = strsplit(":", pair)
+				if group and name then drums.drummers[tonumber(group) or group] = name end
+			end
+		end
+		drums.caller = (caller and caller ~= "") and caller or nil
+		if self.raidCooldownPanel and self.raidCooldownPanel:IsShown() then
+			self:UpdateRaidCooldownPanel()
+		end
+		self:UpdateCallerButtons()
 	elseif cmd == "MTSYNC" then
 		-- Sync MT assignments from raid leader
 		self:InitRaidCooldowns()
@@ -572,6 +673,44 @@ function SP:CreateCallerButtonFrame()
 
 	frame.blBtn = blBtn
 
+	-- Drums button (shown by UpdateCallerButtons when the player may call)
+	local drumBtn = CreateFrame("Button", "ShamanPowerCallerDrumBtn", frame)
+	drumBtn:SetSize(40, 40)
+	drumBtn:SetPoint("TOPLEFT", 8, -8)
+	local drumIcon = drumBtn:CreateTexture(nil, "ARTWORK")
+	drumIcon:SetPoint("TOPLEFT", 3, -3)
+	drumIcon:SetPoint("BOTTOMRIGHT", -3, 3)
+	drumIcon:SetTexture(DRUMS_ICON)
+	drumIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	drumBtn.icon = drumIcon
+	for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+		local t = drumBtn:CreateTexture(nil, "BORDER")
+		t:SetColorTexture(0.9, 0.65, 0.2, 1)
+		if side == "TOP" or side == "BOTTOM" then
+			t:SetHeight(3); t:SetPoint(side .. "LEFT", 0, 0); t:SetPoint(side .. "RIGHT", 0, 0)
+		else
+			t:SetWidth(3); t:SetPoint("TOP" .. side, 0, 0); t:SetPoint("BOTTOM" .. side, 0, 0)
+		end
+	end
+	local drumHl = drumBtn:CreateTexture(nil, "HIGHLIGHT")
+	drumHl:SetAllPoints(drumIcon)
+	drumHl:SetColorTexture(1, 1, 1, 0.3)
+	drumBtn:SetScript("OnClick", function() SP:CallDrums() end)
+	drumBtn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Call Drums of Battle")
+		local d = SP:GetDrummers()
+		GameTooltip:AddLine(#d > 0 and ("Drummers: " .. table.concat(d, ", ")) or "No drummers assigned", 0.9, 0.7, 0.3, true)
+		GameTooltip:Show()
+	end)
+	drumBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	local drumLabel = drumBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	drumLabel:SetPoint("TOP", drumBtn, "BOTTOM", 0, -2)
+	drumLabel:SetText("")
+	drumBtn.nameLabel = drumLabel
+	drumBtn:Hide()
+	frame.drumBtn = drumBtn
+
 	-- Container for MT buttons (can have multiple)
 	frame.mtButtons = {}
 
@@ -632,6 +771,10 @@ function SP:UpdateCallerButtons()
 	local playerName = self.player
 	local bl = ShamanPower_RaidCooldowns.bloodlust
 	local mt = ShamanPower_RaidCooldowns.manatide
+	local drums = ShamanPower_RaidCooldowns.drums or { drummers = {} }
+	local drummers = self:GetDrummers()
+	local isDrumsCaller = drums.caller and (self:CanAssignRaidCooldowns() or drums.caller == playerName)
+	local showDrumsButton = isDrumsCaller and #drummers > 0
 
 	-- Check if player is a BL caller or MT caller for any shaman
 	-- Only consider BL callable if there's a caller assigned AND (player is RL/assist or is the caller)
@@ -665,7 +808,7 @@ function SP:UpdateCallerButtons()
 
 	-- Determine if buttons will actually be shown
 	local showBLButton = isBLCaller and (bl.primary or bl.backup1 or bl.backup2)
-	local showFrame = showBLButton or #mtCallsFor > 0
+	local showFrame = showBLButton or #mtCallsFor > 0 or showDrumsButton
 
 	if not showFrame then
 		if self.callerButtonFrame then
@@ -760,6 +903,17 @@ function SP:UpdateCallerButtons()
 		xOffset = xOffset + 44
 	end
 
+	-- Drums button after the Mana Tide buttons
+	if showDrumsButton and frame.drumBtn then
+		frame.drumBtn:ClearAllPoints()
+		frame.drumBtn:SetPoint("TOPLEFT", xOffset, -8)
+		frame.drumBtn.nameLabel:SetText(#drummers == 1 and drummers[1] or (#drummers .. " drummers"))
+		frame.drumBtn:Show()
+		xOffset = xOffset + 44
+	elseif frame.drumBtn then
+		frame.drumBtn:Hide()
+	end
+
 	-- Update BL button's name label with the active target
 	if frame.blBtn and frame.blBtn.nameLabel then
 		local activeTarget = self:GetBloodlustTarget()
@@ -771,7 +925,7 @@ function SP:UpdateCallerButtons()
 	end
 
 	-- Resize frame based on buttons (taller to fit name labels)
-	local numButtons = (isBLCaller and (bl.primary or bl.backup1 or bl.backup2) and 1 or 0) + #mtCallsFor
+	local numButtons = (isBLCaller and (bl.primary or bl.backup1 or bl.backup2) and 1 or 0) + #mtCallsFor + (showDrumsButton and 1 or 0)
 	local width = math.max(60, numButtons * 44 + 16)
 	frame:SetSize(width, 62)  -- 40 button + 2 gap + 12 text + 8 padding
 

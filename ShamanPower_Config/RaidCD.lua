@@ -23,7 +23,7 @@ local function Build()
 		name = "ShamanPowerRaidCooldownPanel",
 		width = WIDTH, height = 300,
 		title = "Raid Cooldowns",
-		subtitle = ((faction == "Alliance") and "Heroism" or "Bloodlust") .. " & Mana Tide",
+		subtitle = ((faction == "Alliance") and "Heroism" or "Bloodlust") .. ", Mana Tide & Drums",
 		headerHeight = 46, bodyTop = 6,
 	})
 	dlg:SetFrameStrata("DIALOG")
@@ -107,6 +107,41 @@ local function Populate()
 			set = function(v)
 				mt[name] = mt[name] or {}
 				mt[name].caller = (v ~= NONE) and v or nil
+				SP:SendRaidCooldownSync()
+				SP:UpdateCallerButtons()
+			end,
+			disabled = function() return not CanAssign() end,
+		})
+	end
+
+	-- Drums of Battle --------------------------------------------------------
+	y = y + 4
+	Row("SectionHeader", { label = "Drums of Battle", note = "one drummer per group" })
+	local drums = ShamanPower_RaidCooldowns.drums
+	Row("Dropdown", {
+		label = "Caller", desc = "Who is allowed to call for Drums (besides leader/assists)." .. lockNote,
+		values = memberValues, order = memberOrder,
+		get = function() return drums.caller or NONE end,
+		set = function(v)
+			drums.caller = (v ~= NONE) and v or nil
+			SP:SendRaidCooldownSync()
+			SP:UpdateCallerButtons()
+		end,
+		disabled = function() return not CanAssign() end,
+	})
+	local groups = SP:GetGroupMembers()
+	local groupIds = {}
+	for g in pairs(groups) do table.insert(groupIds, g) end
+	table.sort(groupIds)
+	for _, g in ipairs(groupIds) do
+		local gValues, gOrder = ListValues(groups[g])
+		Row("Dropdown", {
+			label = IsInRaid() and ("Group " .. tostring(g)) or "Party",
+			desc = "Drummer for this group. Drums only affect the drummer's own group." .. lockNote,
+			values = gValues, order = gOrder,
+			get = function() return drums.drummers[g] or NONE end,
+			set = function(v)
+				drums.drummers[g] = (v ~= NONE) and v or nil
 				SP:SendRaidCooldownSync()
 				SP:UpdateCallerButtons()
 			end,

@@ -11015,7 +11015,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	end
 
 	-- Raid cooldown coordination messages
-	if strfind(msg, "^RCSYNC") or strfind(msg, "^BLCALL") or strfind(msg, "^MTCALL") or strfind(msg, "^MTSYNC") then
+	if strfind(msg, "^RCSYNC") or strfind(msg, "^BLCALL") or strfind(msg, "^MTCALL") or strfind(msg, "^MTSYNC") or strfind(msg, "^DRUMCALL") or strfind(msg, "^DRUMSYNC") then
 		self:HandleRaidCooldownMessage(nil, msg, sender)
 	end
 
