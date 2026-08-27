@@ -3194,7 +3194,7 @@ ShamanPower.options = {
 							type = "range",
 							width = 1.5,
 							min = 32,
-							max = 128,
+							max = 256,
 							step = 4,
 							get = function(info)
 								if ShamanPower_ReactiveTotems then
@@ -3205,30 +3205,6 @@ ShamanPower.options = {
 							set = function(info, val)
 								if ShamanPower_ReactiveTotems then
 									ShamanPower_ReactiveTotems.iconSize = val
-									if ShamanPower.UpdateReactiveTotemAppearance then
-										ShamanPower:UpdateReactiveTotemAppearance()
-									end
-								end
-							end
-						},
-						reactive_scale = {
-							order = 7,
-							name = "Scale",
-							desc = "Additional scale multiplier for the icons",
-							type = "range",
-							width = 1.5,
-							min = 0.5,
-							max = 2.0,
-							step = 0.1,
-							get = function(info)
-								if ShamanPower_ReactiveTotems then
-									return ShamanPower_ReactiveTotems.scale or 1.0
-								end
-								return 1.0
-							end,
-							set = function(info, val)
-								if ShamanPower_ReactiveTotems then
-									ShamanPower_ReactiveTotems.scale = val
 									if ShamanPower.UpdateReactiveTotemAppearance then
 										ShamanPower:UpdateReactiveTotemAppearance()
 									end
@@ -4374,7 +4350,7 @@ ShamanPower.options = {
 							desc = "Size of the reminder icon",
 							type = "range",
 							min = 32,
-							max = 128,
+							max = 256,
 							step = 1,
 							width = 1.5,
 							get = function(info)
@@ -4386,30 +4362,6 @@ ShamanPower.options = {
 							set = function(info, val)
 								if ShamanPowerTremorReminderDB then
 									ShamanPowerTremorReminderDB.iconSize = val
-									if ShamanPower.UpdateTremorReminderAppearance then
-										ShamanPower:UpdateTremorReminderAppearance()
-									end
-								end
-							end
-						},
-						tremor_scale = {
-							order = 12,
-							name = "Scale",
-							desc = "Scale multiplier for the reminder frame",
-							type = "range",
-							min = 0.5,
-							max = 2.0,
-							step = 0.1,
-							width = 1.5,
-							get = function(info)
-								if ShamanPowerTremorReminderDB then
-									return ShamanPowerTremorReminderDB.scale or 1.0
-								end
-								return 1.0
-							end,
-							set = function(info, val)
-								if ShamanPowerTremorReminderDB then
-									ShamanPowerTremorReminderDB.scale = val
 									if ShamanPower.UpdateTremorReminderAppearance then
 										ShamanPower:UpdateTremorReminderAppearance()
 									end
@@ -4442,7 +4394,7 @@ ShamanPower.options = {
 						},
 						tremor_text_size = {
 							order = 14,
-							name = "Text Size",
+							name = "Font Size",
 							desc = "Size of the reminder text (for Text or Icon+Text modes)",
 							type = "range",
 							min = 12,

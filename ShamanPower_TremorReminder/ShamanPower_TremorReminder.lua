@@ -259,8 +259,12 @@ local function UpdateAppearance()
     local size = sv.iconSize or 64
     reminderFrame:SetSize(size, size)
 
-    local scale = sv.scale or 1.0
-    reminderFrame:SetScale(scale)
+    -- One-time merge of the old separate Scale into Size (iconSize).
+    if sv.scale and math.abs(sv.scale - 1) > 0.001 then
+        sv.iconSize = math.floor((sv.iconSize or 64) * sv.scale + 0.5)
+        sv.scale = 1.0
+        reminderFrame:SetSize(sv.iconSize, sv.iconSize)
+    end
 
     local alpha = (sv.opacity or 100) / 100
     reminderFrame:SetAlpha(alpha)

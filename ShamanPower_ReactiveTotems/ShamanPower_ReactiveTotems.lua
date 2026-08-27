@@ -130,6 +130,12 @@ local defaultSettings = {
 -- ============================================================================
 
 function SP:InitReactiveTotems()
+	-- One-time merge of the old separate Scale into Size (iconSize).
+	local db = ShamanPower_ReactiveTotems
+	if db and db.scale and math.abs(db.scale - 1) > 0.001 then
+		db.iconSize = math.floor((db.iconSize or 64) * db.scale + 0.5)
+		db.scale = 1.0
+	end
 	local sv = ShamanPower_ReactiveTotems
 
 	-- Apply defaults for missing settings
@@ -316,7 +322,6 @@ function SP:CreateReactiveTotemFrame(totemId)
 		end
 	end)
 
-	frame:SetScale(sv.scale or 1.0)
 	frame:SetAlpha(sv.opacity or 1.0)
 	frame:Hide()
 
@@ -342,7 +347,6 @@ function SP:UpdateReactiveFrameAppearance(totemId)
 
 		local size = sv.iconSize or 64
 		frame:SetSize(size, size)
-		frame:SetScale(sv.scale or 1.0)
 		frame:SetAlpha(sv.opacity or 1.0)
 
 		-- Background
@@ -710,10 +714,7 @@ function SP:ShowReactiveTotemsConfig()
 		section3:SetTextColor(1, 0.82, 0)
 		yOffset = yOffset - 20
 
-		config.sizeSlider = CreateSlider(content, "Icon Size", "iconSize", 32, 128, 4, function()
-			SP:UpdateReactiveFrameAppearance()
-		end)
-		config.scaleSlider = CreateSlider(content, "Scale", "scale", 0.5, 2.0, 0.1, function()
+		config.sizeSlider = CreateSlider(content, "Icon Size", "iconSize", 32, 256, 4, function()
 			SP:UpdateReactiveFrameAppearance()
 		end)
 		config.opacitySlider = CreateSlider(content, "Opacity", "opacity", 0.2, 1.0, 0.1, function()
@@ -794,7 +795,6 @@ function SP:ShowReactiveTotemsConfig()
 	config.poisonCheck:SetChecked(sv.trackPoison)
 	config.diseaseCheck:SetChecked(sv.trackDisease)
 	config.sizeSlider:SetValue(sv.iconSize or 64)
-	config.scaleSlider:SetValue(sv.scale or 1.0)
 	config.opacitySlider:SetValue(sv.opacity or 1.0)
 	config.fontSizeSlider:SetValue(sv.fontSize or 14)
 	config.hideBorderCheck:SetChecked(sv.hideBorder)
