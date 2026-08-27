@@ -80,7 +80,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showButtonKeybinds = false,  -- Show keybind text on buttons (top-right corner)
         hideTotemBarFrame = false,  -- Hide the background/border around totem bar (icons only)
         hideCooldownBarFrame = false,  -- Hide the background/border around cooldown bar (icons only)
-        cooldownBarLocked = true,  -- When false, CD bar can be moved independently from totem bar
+        cooldownBarLocked = false, -- CD bar floats free of the totem bar; use Unlock Bar to move it
         cooldownBarFrameLocked = false,  -- When CD bar is independent, this locks its position (red=locked, green=movable)
         cooldownBarScale = 0.90,  -- Separate scale for CD bar
         cooldownBarPoint = "CENTER",  -- Saved anchor point

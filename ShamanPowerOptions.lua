@@ -1088,6 +1088,19 @@ ShamanPower.options = {
 						return ShamanPower.opt.enabled == false or not isShaman
 					end,
 					args = {
+						unlock_totem_bar = {
+							order = 0.5,
+							name = "Unlock Bar (move)",
+							desc = "Show a movable overlay so you can drag the totem bar anywhere. Turn it off when done.",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.display and ShamanPower.opt.display.moverUnlocked or false
+							end,
+							set = function(info, val)
+								ShamanPower:SetTotemBarUnlocked(val)
+							end
+						},
 						auto_desc = {
 							order = 0,
 							type = "description",
@@ -1941,39 +1954,6 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.showButtonKeybinds = val
 								ShamanPower:UpdateButtonKeybindText()
-							end
-						},
-						unlock_cooldown_bar = {
-							order = 5,
-							type = "toggle",
-							name = "Unlock Cooldown Bar",
-							desc = "Allow the cooldown bar to be moved independently from the totem bar (ALT+drag or use drag handle)",
-							width = 1.5,
-							disabled = function(info)
-								return not ShamanPower.opt.showCooldownBar
-							end,
-							get = function(info)
-								return not ShamanPower.opt.cooldownBarLocked
-							end,
-							set = function(info, val)
-								ShamanPower.opt.cooldownBarLocked = not val
-								ShamanPower:UpdateCooldownBarPosition()
-							end
-						},
-						drag_enable = {
-							order = 6,
-							type = "toggle",
-							name = L["Drag Handle"],
-							desc = L["[Enable/Disable] The Drag Handle"],
-							width = 1.5,
-							get = function(info)
-								return ShamanPower.opt.display.enableDragHandle
-							end,
-							set = function(info, val)
-								ShamanPower:EnsureProfileTable("display")
-								ShamanPower.opt.display.enableDragHandle = val
-								ShamanPower:UpdateRoster()
-								ShamanPower:UpdateCooldownBarPosition()
 							end
 						},
 					}
@@ -5099,6 +5079,19 @@ ShamanPower.options = {
 					name = "Cooldown Bar Items",
 					type = "group",
 					args = {
+						unlock_cd_bar = {
+							order = 0.5,
+							name = "Unlock Bar (move)",
+							desc = "Show a movable overlay so you can drag the cooldown bar anywhere. Turn it off when done.",
+							type = "toggle",
+							width = "full",
+							get = function(info)
+							return ShamanPower.cdBarMoverShown or false
+							end,
+							set = function(info, val)
+							ShamanPower:SetCooldownBarUnlocked(val)
+							end
+						},
 						cdbar_items_desc = {
 							order = 0,
 							type = "description",

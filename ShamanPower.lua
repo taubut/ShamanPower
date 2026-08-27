@@ -316,6 +316,9 @@ function ShamanPower:OnInitialize()
 
 	self.opt = self.db.profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	-- The cooldown bar now always floats free of the totem bar (the old
+	-- attach option was removed). Detach any profile still attached.
+	if self.opt.cooldownBarLocked then self.opt.cooldownBarLocked = nil end
 
 	-- Sync twist setting from shared assignments table (source of truth for sync)
 	if ShamanPower_TwistAssignments and ShamanPower_TwistAssignments[self.player] ~= nil then
@@ -2957,6 +2960,176 @@ function ShamanPower:OpenFrameSettings(key, frame) end
 -- Rescale a frame around its on-screen centre instead of its anchor point.
 -- SetScale alone scales the anchor offset too, so a frame anchored 300px from
 -- the left edge ends up 600px away at 2x -- it slides as it grows.
+local ANCHOR_POINTS = { "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "CENTER", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }
+local function AnchorXY(name, W, H)
+	local x = (strfind(name, "LEFT") and 0) or (strfind(name, "RIGHT") and W) or W / 2
+	local y = (strfind(name, "TOP") and H) or (strfind(name, "BOTTOM") and 0) or H / 2
+	return x, y
+end
+
+-- Resolution-independent position: the frame's CENTER relative to the nearest
+-- of UIParent's nine anchors, in UIParent units. A record survives resolution
+-- and UI-scale changes and can be shared between players.
+-- ---------------------------------------------------------------------------
+-- Bar movers
+-- A labelled, grab-anywhere overlay for repositioning a bar without its drag
+-- handle. Non-secure (a sibling frame), so it never taints the bar's secure
+-- children; on release it moves the real frame and saves a position record.
+-- ---------------------------------------------------------------------------
+ShamanPower.barMovers = ShamanPower.barMovers or {}
+
+function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
+	local mover = self.barMovers[key]
+	if mover then
+		mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
+		if label then mover.text:SetText(label) end
+		return mover
+	end
+	mover = CreateFrame("Frame", "ShamanPowerMover_" .. key, UIParent)
+	mover:SetFrameStrata("FULLSCREEN_DIALOG")
+	mover:EnableMouse(true)
+	mover:SetMovable(true)
+	mover:RegisterForDrag("LeftButton")
+	mover:Hide()
+
+	local bg = mover:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(mover)
+	bg:SetColorTexture(0, 0.439, 0.867, 0.35)
+	local edge = {}
+	for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+		local t = mover:CreateTexture(nil, "BORDER")
+		t:SetColorTexture(0.247, 0.663, 1, 0.9)
+		if side == "TOP" or side == "BOTTOM" then
+			t:SetHeight(2); t:SetPoint(side .. "LEFT"); t:SetPoint(side .. "RIGHT")
+		else
+			t:SetWidth(2); t:SetPoint("TOP" .. side); t:SetPoint("BOTTOM" .. side)
+		end
+	end
+	local text = mover:CreateFontString(nil, "OVERLAY")
+	text:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+	text:SetPoint("CENTER")
+	text:SetTextColor(1, 1, 1)
+	mover.text = text
+
+	mover:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	mover:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		local mf, sf = self.moveFrame, self.sizeFrame
+		if mf and sf then
+			-- Shift the moved frame by how far the mover moved from the bar,
+			-- in physical px. Works even when the moved frame is a 1x1 anchor.
+			local mcx, mcy = self:GetCenter()
+			local scx, scy = sf:GetCenter()
+			if mcx and scx then
+				local mes, ses = self:GetEffectiveScale(), sf:GetEffectiveScale()
+				local dx = mcx * mes - scx * ses
+				local dy = mcy * mes - scy * ses
+				local point, rel, relPoint, x, y = mf:GetPoint()
+				local mes2 = mf:GetEffectiveScale()
+				if point then
+					mf:ClearAllPoints()
+					mf:SetPoint(point, rel, relPoint, x + dx / mes2, y + dy / mes2)
+				end
+			end
+			if self.onMoved then self.onMoved() end
+			-- Re-place the overlay over the bar's new spot.
+			ShamanPower:ShowBarMover(self.key, mf, sf, nil, self.onMoved)
+		end
+	end)
+	mover.key = key
+	self.barMovers[key] = mover
+	mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
+	mover.text:SetText(label or "Move")
+	return mover
+end
+
+function ShamanPower:ShowBarMover(key, moveFrame, sizeFrame, label, onMoved)
+	if InCombatLockdown() then
+		print("|cff0070ddShamanPower|r: can't unlock bars in combat")
+		return
+	end
+	sizeFrame = sizeFrame or moveFrame
+	local mover = self:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
+	if not sizeFrame or not sizeFrame:GetLeft() then return end
+	local es = sizeFrame:GetEffectiveScale()
+	local W = (sizeFrame:GetRight() - sizeFrame:GetLeft()) * es
+	local H = (sizeFrame:GetTop() - sizeFrame:GetBottom()) * es
+	local cx = (sizeFrame:GetLeft() + sizeFrame:GetRight()) / 2 * es
+	local cy = (sizeFrame:GetTop() + sizeFrame:GetBottom()) / 2 * es
+	local mes = mover:GetEffectiveScale()
+	mover:ClearAllPoints()
+	mover:SetSize(math.max(W / mes, 60), math.max(H / mes, 24))
+	mover:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / mes, cy / mes)
+	mover:Show()
+end
+
+function ShamanPower:HideBarMover(key)
+	local mover = self.barMovers[key]
+	if mover then mover:Hide() end
+end
+
+function ShamanPower:GetPositionRecord(frame)
+	local cx, cy = frame:GetCenter()
+	if not cx then return nil end
+	local fs = frame:GetScale() or 1
+	cx, cy = cx * fs, cy * fs
+	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+	local best, bestD, bx, by
+	for _, a in ipairs(ANCHOR_POINTS) do
+		local ax, ay = AnchorXY(a, W, H)
+		local d = (cx - ax) ^ 2 + (cy - ay) ^ 2
+		if not bestD or d < bestD then best, bestD, bx, by = a, d, ax, ay end
+	end
+	return { anchor = best, x = cx - bx, y = cy - by }
+end
+
+function ShamanPower:ApplyPositionRecord(frame, rec)
+	if not (rec and rec.anchor) then return false end
+	local fs = frame:GetScale() or 1
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", UIParent, rec.anchor, (rec.x or 0) / fs, (rec.y or 0) / fs)
+	return true
+end
+
+function ShamanPower:SavePositionRecord(frame)
+	local rec = self:GetPositionRecord(frame)
+	if rec then self:ApplyPositionRecord(frame, rec) end
+	return rec
+end
+
+-- Unlock/lock the totem bar for free dragging via a mover overlay.
+function ShamanPower:SetTotemBarUnlocked(unlocked)
+	self:EnsureProfileTable("display")
+	self.opt.display.moverUnlocked = unlocked and true or nil
+	if unlocked then
+		self:ShowBarMover("totembar", _G["ShamanPowerFrame"], self.autoButton, "Totem Bar", function()
+			ShamanPower:SaveFramePosition(_G["ShamanPowerFrame"])
+		end)
+	else
+		self:HideBarMover("totembar")
+	end
+end
+
+-- Unlock/lock the cooldown bar.
+function ShamanPower:SetCooldownBarUnlocked(unlocked)
+	self.cdBarMoverShown = unlocked and true or nil
+	if unlocked then
+		-- Moving only makes sense detached from the totem bar; detach (once)
+		-- and reposition, but NEVER re-attach when the mover is turned off.
+		if self.opt.cooldownBarLocked then
+			self.opt.cooldownBarLocked = nil
+			self:UpdateCooldownBarPosition(true)
+		end
+		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", function()
+			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
+			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
+			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
+		end)
+	else
+		self:HideBarMover("cooldownbar")
+	end
+end
+
 function ShamanPower:SetFrameScaleKeepCenter(frame, scale)
 	local old = frame:GetScale() or 1
 	local cx, cy = frame:GetCenter()
@@ -5439,8 +5612,8 @@ function ShamanPower:CreateCooldownBar()
 
 	-- Add drag handlers for independent positioning (ALT+drag on bar itself)
 	bar:SetScript("OnDragStart", function(self)
-		-- ALT+drag always works when bar is unlocked (ignores frame position lock)
-		if not ShamanPower.opt.cooldownBarLocked and IsAltKeyDown() then
+		-- Unlocked = drag the bar directly, no modifier. (Alt+drag also still works.)
+		if not ShamanPower.opt.cooldownBarLocked then
 			ShamanPower.cooldownBarDragging = true
 			self:StartMoving()
 		end
@@ -6940,11 +7113,7 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 		-- CD bar is independent
 		if self.cooldownBarDragHandle then
 			self.cooldownBarDragHandle:SetChecked(self.opt.cooldownBarFrameLocked)
-			if self.opt.display.enableDragHandle then
-				self.cooldownBarDragHandle:Show()
-			else
-				self.cooldownBarDragHandle:Hide()
-			end
+			self.cooldownBarDragHandle:Hide()
 		end
 
 		-- Position the bar when first unlocking OR when forcing reposition (profile change)
@@ -11214,7 +11383,8 @@ function ShamanPower:CreateLayout()
 	-- ALT+drag to move the frame
 	self.autoButton:RegisterForDrag("LeftButton")
 	self.autoButton:HookScript("OnDragStart", function(btn)
-		if IsAltKeyDown() and not InCombatLockdown() then
+		local unlocked = ShamanPower.opt.display and ShamanPower.opt.display.moverUnlocked
+		if (IsAltKeyDown() or unlocked) and not InCombatLockdown() then
 			local frame = ShamanPowerFrame
 			frame:SetMovable(true)
 			frame:StartMoving()
@@ -11327,20 +11497,8 @@ function ShamanPower:ButtonsUpdate()
 end
 
 function ShamanPower:UpdateAnchor()
-	ShamanPowerAnchor:SetChecked(self.opt.display.frameLocked)
-	if self.opt.display.enableDragHandle and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty)) then
-		ShamanPowerAnchor:ClearAllPoints()
-		-- Position the anchor relative to the mini totem bar (autoButton) if it's visible
-		if self.autoButton and self.autoButton:IsShown() then
-			ShamanPowerAnchor:SetPoint("BOTTOM", self.autoButton, "TOP", 0, 4)
-		elseif self.Header then
-			-- Fallback: position relative to the Header when mini totem bar is hidden (e.g., TotemTimers sync enabled)
-			ShamanPowerAnchor:SetPoint("TOP", self.Header, "BOTTOM", 0, -4)
-		end
-		ShamanPowerAnchor:Show()
-	else
-		ShamanPowerAnchor:Hide()
-	end
+	-- The drag handle was replaced by the Unlock Bar mover; keep it hidden.
+	ShamanPowerAnchor:Hide()
 end
 
 function ShamanPower:ClickHandle(button, mousebutton)
