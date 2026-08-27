@@ -18,3 +18,4 @@ FrameSettings.lua
 PopOut.lua
 RaidCD.lua
 SPRange.lua
+Share.lua

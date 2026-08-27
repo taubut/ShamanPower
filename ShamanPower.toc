@@ -22,4 +22,6 @@ locale\enUS.lua
 ShamanPower.lua
 ShamanPowerValues.lua
 ShamanPowerOptions.lua
+ShamanPowerShare.lua
+ShamanPowerPresets.lua
 ShamanPower_TBC.xml

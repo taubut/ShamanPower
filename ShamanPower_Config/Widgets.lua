@@ -822,8 +822,8 @@ local function CreateButton(parent)
 	local row = CreateRow(parent)
 
 	local btn = CreateFrame("Button", nil, row)
-	btn:SetHeight(22)
-	btn:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
+	btn:SetPoint("TOPLEFT", row, "TOPLEFT", PAD, -3)
+	btn:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -PAD, 3)
 	local bg = btn:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(btn)
 	bg:SetColorTexture(Core:Color("accent", 0.18))
@@ -868,20 +868,17 @@ function Widgets:Button(parent, opts)
 	txt.spTruncated = false
 	txt:SetText(caption)
 
-	-- Grow the button to fit its caption rather than clipping at a fixed width.
-	-- Captions wider than the row get ellipsised instead of overflowing.
-	local maxW = (opts.width or 300) - (PAD * 2)
-	local desired = txt:GetStringWidth() + 28
-	row.btn:SetWidth(math.max(opts.buttonWidth or BUTTON_W, math.min(desired, maxW)))
-	if desired > maxW then
-		Core:ClampLabel(txt, maxW - 24, caption)
-	end
+	-- The button fills the whole row card, so it reads as a real button rather
+	-- than a small control in an empty box.
 
 	-- The button carries its own caption, so the row label stays empty.
 	-- (FinishRow's clamp runs against _fullLabel, so blank that too.)
 	row._fullLabel = ""
 	ApplyDisabled(row, false)
 	row.label:SetText("")
+	if row.spBg then row.spBg:SetColorTexture(0, 0, 0, 0) end
+	if row.spBorder then for _, t in pairs(row.spBorder) do t:SetColorTexture(0, 0, 0, 0) end end
+	row.spOnEnter, row.spOnLeave = nil, nil   -- no card hover behind the button
 	RegisterRefresh(parent, row.refresh)
 	row.refresh()
 	return row, ROW_H + ROW_GAP
