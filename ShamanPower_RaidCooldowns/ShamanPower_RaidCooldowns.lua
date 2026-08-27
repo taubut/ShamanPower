@@ -222,7 +222,7 @@ function SP:CallManaTideForShaman(shamanName)
 		return
 	end
 
-	self:SendMessage("MTCALL|" .. shamanName)
+	self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
 
 	if shamanName == self.player then
 		self:ShowManaTideAlert()
@@ -267,7 +267,7 @@ function SP:CallBloodlust()
 	end
 
 	-- Send call message
-	self:SendMessage("BLCALL|" .. target)
+	self:SendMessage("BLCALL|" .. target, nil, nil, true)
 
 	-- Show alert if we're the target
 	if target == self.player then
@@ -287,7 +287,7 @@ function SP:CallManaTide()
 	end
 
 	-- Send call to all shamans with Mana Tide
-	self:SendMessage("MTCALL")
+	self:SendMessage("MTCALL", nil, nil, true)
 	print("|cff00ff00ShamanPower:|r Called for Mana Tide!")
 end
 

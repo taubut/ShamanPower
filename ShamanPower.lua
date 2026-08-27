@@ -190,6 +190,7 @@ local raid_units = {}
 local leaders = {}
 
 local lastMsg = ""
+local lastMsgTime = 0
 
 do
 	table.insert(party_units, "player")
@@ -10463,12 +10464,21 @@ function ShamanPower:SendSelf(sender)
 
 end
 
-function ShamanPower:SendMessage(msg, type, target)
+-- Duplicate suppression exists to swallow rapid repeats from the assignment
+-- timers. Keyed on the exact text with no time limit, it silently ate every
+-- repeat of a one-shot command (a non-shaman caller pressing the same call
+-- button twice sends identical text and nothing else in between). Repeats
+-- are now only dropped within a short window, and one-shot commands pass
+-- `force` to bypass it entirely.
+local DEDUP_WINDOW = 2
+function ShamanPower:SendMessage(msg, type, target, force)
 	if GetNumGroupMembers() > 0 then
 		-- Dedup key includes target so broadcast vs whisper of the same msg are distinct
 		local dedupKey = target and (msg .. "\001" .. target) or msg
-		if lastMsg ~= dedupKey then
+		local now = GetTime()
+		if force or lastMsg ~= dedupKey or (now - lastMsgTime) > DEDUP_WINDOW then
 			lastMsg = dedupKey
+			lastMsgTime = now
 			if not type then
 				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
 					type = "INSTANCE_CHAT"
