@@ -1193,10 +1193,10 @@ function SP:UpdateCallerButtonFrameStyle()
 	if not frame then return end
 	if self.opt.raidCDButtonHideFrame then
 		frame:SetBackdrop(nil)
-		if frame.cogBtn then frame.cogBtn:Hide() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 	else
 		self:ApplyPanelBackdrop(frame)
-		if frame.cogBtn then frame.cogBtn:Show() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, false)
 	end
 end
 

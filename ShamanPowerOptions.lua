@@ -2315,6 +2315,22 @@ ShamanPower.options = {
 								ShamanPower:UpdateCallerButtonOpacity()
 							end
 						},
+						raidCDButtonShowFrame = {
+							order = 2.5,
+							name = "Show Caller Button Frame",
+							desc = "Show the panel and border behind the caller buttons. Turn this off (or use Hide Frame on the buttons' settings) for icons only.",
+							type = "toggle",
+							width = 1.5,
+							get = function(info)
+								return not ShamanPower.opt.raidCDButtonHideFrame
+							end,
+							set = function(info, val)
+								ShamanPower.opt.raidCDButtonHideFrame = (not val) or nil
+								if ShamanPower.UpdateCallerButtonFrameStyle then
+									ShamanPower:UpdateCallerButtonFrameStyle()
+								end
+							end
+						},
 						raidCDShowWarningIcon = {
 							order = 3,
 							name = "Show Warning Icon",

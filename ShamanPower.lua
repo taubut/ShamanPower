@@ -3014,6 +3014,34 @@ function ShamanPower:AnchorToScreenCenter(frame)
 	return x, y
 end
 
+-- Icon-only mode must not strand the user: instead of hiding the settings
+-- button outright, show it only while the mouse is over the frame.
+function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
+	if not frame or not cog then return end
+	if enabled then
+		cog:Hide()
+		if not frame.spCogWatcher then
+			frame.spCogWatcher = CreateFrame("Frame", nil, frame)
+		end
+		local w = frame.spCogWatcher
+		w.t = 0
+		w:SetScript("OnUpdate", function(self, elapsed)
+			self.t = self.t + elapsed
+			if self.t < 0.1 then return end
+			self.t = 0
+			local over = frame:IsMouseOver() or cog:IsMouseOver()
+			if over ~= self.over then
+				self.over = over
+				cog:SetShown(over)
+			end
+		end)
+		w:Show()
+	else
+		if frame.spCogWatcher then frame.spCogWatcher:SetScript("OnUpdate", nil) end
+		cog:Show()
+	end
+end
+
 function ShamanPower:ApplyPanelBackdrop(frame, border)
 	if not frame.SetBackdrop then Mixin(frame, BackdropTemplateMixin) end
 	frame:SetBackdrop(self.PANEL_BACKDROP)
@@ -3243,7 +3271,7 @@ function ShamanPower:TogglePopOutFrame(key)
 			-- Hide frame decorations, show only icon
 			frame:SetBackdrop(nil)
 			if frame.titleText then frame.titleText:Hide() end
-			if frame.cogBtn then frame.cogBtn:Hide() end
+			self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 			-- Resize to just fit the button
 			frame:SetSize(frame.buttonSize + 4, frame.buttonSize + 4)
 			-- Reposition button
@@ -3255,7 +3283,7 @@ function ShamanPower:TogglePopOutFrame(key)
 			-- Show full frame with decorations
 			self:ApplyPanelBackdrop(frame)
 			if frame.titleText then frame.titleText:Show() end
-			if frame.cogBtn then frame.cogBtn:Show() end
+			self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, false)
 			-- Resize to full size (cog at top, icon in middle, title at bottom)
 			local titleHeight = 14
 			local cogSize = 12
@@ -3451,7 +3479,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 		-- Actually just apply the hidden state directly
 		frame:SetBackdrop(nil)
 		if frame.titleText then frame.titleText:Hide() end
-		if frame.cogBtn then frame.cogBtn:Hide() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 		frame:SetSize(frame.buttonSize + 4, frame.buttonSize + 4)
 		iconHolder:ClearAllPoints()
 		iconHolder:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -3525,7 +3553,7 @@ function ShamanPower:PopOutElementWithFlyout(element)
 	if settings.hideFrame then
 		frame:SetBackdrop(nil)
 		if frame.titleText then frame.titleText:Hide() end
-		if frame.cogBtn then frame.cogBtn:Hide() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 		frame:SetSize(frame.buttonSize + 4, frame.buttonSize + 4)
 		totemBtn:ClearAllPoints()
 		totemBtn:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -3622,7 +3650,7 @@ function ShamanPower:PopOutCooldownItem(cooldownType)
 	if settings.hideFrame then
 		frame:SetBackdrop(nil)
 		if frame.titleText then frame.titleText:Hide() end
-		if frame.cogBtn then frame.cogBtn:Hide() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 		frame:SetSize(frame.buttonSize + 4, frame.buttonSize + 4)
 		btn:ClearAllPoints()
 		btn:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -3691,7 +3719,7 @@ function ShamanPower:PopOutEarthShield()
 	if settings.hideFrame then
 		frame:SetBackdrop(nil)
 		if frame.titleText then frame.titleText:Hide() end
-		if frame.cogBtn then frame.cogBtn:Hide() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 		frame:SetSize(frame.buttonSize + 4, frame.buttonSize + 4)
 		esBtn:ClearAllPoints()
 		esBtn:SetPoint("CENTER", frame, "CENTER", 0, 0)
@@ -3760,7 +3788,7 @@ function ShamanPower:PopOutDropAll()
 	if settings.hideFrame then
 		frame:SetBackdrop(nil)
 		if frame.titleText then frame.titleText:Hide() end
-		if frame.cogBtn then frame.cogBtn:Hide() end
+		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 		frame:SetSize(frame.buttonSize + 4, frame.buttonSize + 4)
 		dropAllBtn:ClearAllPoints()
 		dropAllBtn:SetPoint("CENTER", frame, "CENTER", 0, 0)

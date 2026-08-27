@@ -653,25 +653,14 @@ function SP:UpdateSPRangeBorder()
 		if self.spRangeFrame.title then
 			self.spRangeFrame.title:Hide()
 		end
-		if self.spRangeFrame.settingsBtn then
-			self.spRangeFrame.settingsBtn:Hide()
-		end
+		self:SetSettingsButtonHoverOnly(self.spRangeFrame, self.spRangeFrame.settingsBtn, true)
 	else
 		-- Show border and background
-		self.spRangeFrame:SetBackdrop({
-			bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 16,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 }
-		})
-		self.spRangeFrame:SetBackdropColor(0, 0, 0, 0.8)
-		self.spRangeFrame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+		SP:ApplyPanelBackdrop(self.spRangeFrame)
 		if self.spRangeFrame.title then
 			self.spRangeFrame.title:Show()
 		end
-		if self.spRangeFrame.settingsBtn then
-			self.spRangeFrame.settingsBtn:Show()
-		end
+		self:SetSettingsButtonHoverOnly(self.spRangeFrame, self.spRangeFrame.settingsBtn, false)
 	end
 end
 
