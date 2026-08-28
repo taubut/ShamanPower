@@ -21,6 +21,10 @@ function SP:ApplyPreset(key, mode, profileName)
 	for _, p in ipairs(self.Presets) do
 		if p.key == key then
 			if not p.str then return nil, "preset has no data" end
+			-- Never lose what the user had: snapshot everything first.
+			if self.BackupCurrentSetup and self:BackupCurrentSetup("Before " .. p.name) then
+				print("|cff0070ddShamanPower|r: your previous setup was backed up - restore it any time from Settings > Profiles > Built-in Layouts.")
+			end
 			return self:ImportShare(p.str, mode or "newProfile", profileName or p.name)
 		end
 	end

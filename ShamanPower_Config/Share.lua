@@ -177,6 +177,15 @@ local function InjectProfileButtons()
 			order = 0.45, type = "description", fontSize = "medium",
 			name = "A complete, ready-made setup - bars, scales, colors, positions and every module tuned. You get to see it before anything is applied; your totem choices and raid assignments are never touched.",
 		}
+		profiles.args.spRestoreBackup = {
+			order = 0.9, type = "execute", name = "Restore My Previous Setup",
+			desc = function()
+				local b = SP.db.global.setupBackups and SP.db.global.setupBackups[1]
+				return b and ("Backed up " .. b.date .. " (" .. b.reason .. "). Comes back as a new profile; your current profile is kept.") or ""
+			end,
+			hidden = function() return not (SP.db.global.setupBackups and SP.db.global.setupBackups[1]) end,
+			func = function() SP:RestoreSetupBackup(1) end,
+		}
 		for i, preset in ipairs(SP.Presets) do
 			profiles.args["spPreset" .. i] = {
 				order = 0.5 + i * 0.01, type = "execute", name = "Preview " .. preset.name,

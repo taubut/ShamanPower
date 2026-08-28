@@ -1,5 +1,16 @@
 # ShamanPower Changelog
 
+## v2.0.1 (2026-08-28)
+
+### Your existing setup is safe
+- **Re-running the setup never changes your settings.** The per-spec starting defaults (twisting, Earth Shield tracker and charges, spec cooldown-bar spells, frames off) now apply only on a genuinely fresh install. Existing setups keep every value; the welcome screen says so
+- **Automatic backup before anything replaces your setup.** Picking a spec on an existing setup, or applying a built-in layout, first snapshots your whole configuration - profile, every module's settings and all positions - and tells you in a dialog what was saved and where to get it back. The last three backups are kept
+- **Restore My Previous Setup** on Settings > Profiles > Built-in Layouts brings a backup back as a new profile (named "<profile> (restored <date>)"), so nothing gets overwritten during the restore either
+- Applying a layout with reload now shows the backup notice first and reloads when you press OK
+
+### Also
+- Profiles page: **Preview Srumar's Layout** - the same preview-then-apply dialog the setup uses, so the tour is not the only way to get the built-in layout
+
 ## v2.0.0 (2026-08-28)
 
 A ground-up rework of how you configure ShamanPower. The addon's features are the same ones you know; the way you find, set up and understand them is new. Requires the TBC Anniversary client (2.5.x).

@@ -105,6 +105,29 @@ function SP:DecodeShare(str)
 	return payload
 end
 
+-- Safety net: snapshot the whole current setup (profile + module tables)
+-- before a preset replaces it. Account-wide, last three kept.
+function SP:BackupCurrentSetup(reason)
+	local str = self:ExportCurrentProfile()
+	if not str then return nil end
+	self.db.global.setupBackups = self.db.global.setupBackups or {}
+	local list = self.db.global.setupBackups
+	table.insert(list, 1, { reason = reason or "backup", profile = self.db:GetCurrentProfile(), date = date("%Y-%m-%d %H:%M"), str = str })
+	while #list > 3 do table.remove(list) end
+	return list[1]
+end
+
+-- Bring a backup back as a NEW profile (the current one is left alone) and
+-- put the module tables back the way they were.
+function SP:RestoreSetupBackup(index)
+	local list = self.db.global.setupBackups
+	local b = list and list[index or 1]
+	if not b then return nil, "no backup saved" end
+	local ok, res = self:ImportShare(b.str, "newProfile", (b.profile or "Profile") .. " (restored " .. b.date .. ")")
+	if ok then print("|cff0070ddShamanPower|r: restored your setup from " .. b.date .. " into profile '" .. tostring(res) .. "'.") end
+	return ok, res
+end
+
 -- Full export of the current profile (+ module tables) as a string.
 function SP:ExportCurrentProfile()
 	return self:EncodeShare(self:BuildSharePayload({ includeExtras = true }))

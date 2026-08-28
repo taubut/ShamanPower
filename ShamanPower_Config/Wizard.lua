@@ -22,6 +22,7 @@ SP.Wizard = SP.Wizard or {}
 local wiz            -- the frame
 local state = { role = nil, step = 1, steps = {} }
 local RenderStep   -- defined further down; forward-declared so earlier code (positioning) can call it
+local LooksLikeExistingUser   -- defined near the login hook; used by Open()
 
 -- ---------------------------------------------------------------------------
 -- Enable bindings: get/set for each feature's on/off, reused from the options.
@@ -2796,7 +2797,8 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 			SP:ApplyPreset(p.key, "overwrite")
 			SP.opt.setupDone = true
 			SP.Wizard:Close(true)
-			ReloadUI()
+			local b = SP.db.global.setupBackups and SP.db.global.setupBackups[1]
+			SP.Wizard:ShowBackupNotice(b, p.name .. " is applied. The UI will reload when you press OK.", function() ReloadUI() end)
 		end)
 		local cont = Core:MakeButton(previewDlg, "Apply & continue the setup", 220, false)
 		cont:SetPoint("RIGHT", apply, "LEFT", -8, 0)
@@ -2808,6 +2810,8 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 			state.presetApplied = ok and p or nil
 			print("|cff0070ddShamanPower|r: " .. p.name .. " applied. The setup will keep it as your starting point.")
 			RenderStep()
+			local b = SP.db.global.setupBackups and SP.db.global.setupBackups[1]
+			SP.Wizard:ShowBackupNotice(b, p.name .. " is now your starting point - pick your spec to continue.")
 		end)
 		local back = Core:MakeButton(previewDlg, "Back", 90, false)
 		back:SetScript("OnClick", function() previewDlg:Hide() end)
@@ -2877,7 +2881,9 @@ function SP.Wizard:RenderRole()
 	sub:SetFontObject(Core.fonts.rowDim)
 	sub:SetPoint("TOP", intro, "BOTTOM", 0, -8)
 	sub:SetWidth(560); sub:SetJustifyH("CENTER")
-	sub:SetText("Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later.")
+	sub:SetText(state.freshInstall
+		and "Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later."
+		or "Pick your spec and we will walk you through the features that matter for it, showing each one live. Your current settings are kept - nothing changes unless you change it here.")
 
 	-- Not a shaman: a short, tailored run (no spec, no preset).
 	if not IS_SHAMAN then
@@ -2897,9 +2903,13 @@ function SP.Wizard:RenderRole()
 		go:SetSize(200, 34); go:SetPoint("TOP", box, "BOTTOM", 0, -22)
 		go:SetScript("OnClick", function()
 			state.role = "nonshaman"
-			SP.Wizard.ApplyRoleDefaults("nonshaman")
+			if state.freshInstall then SP.Wizard.ApplyRoleDefaults("nonshaman") end
 			state.steps = VisibleSteps()
 			SP.Wizard:Go(2)          -- straight into the first step
+			if not state.freshInstall and not state.tourBackup and SP.BackupCurrentSetup then
+				state.tourBackup = SP:BackupCurrentSetup("Before the setup tour")
+				SP.Wizard:ShowBackupNotice(state.tourBackup, "You can change anything in the steps that follow without worrying about it.")
+			end
 		end)
 		if wiz.next then wiz.next:Hide() end   -- Start is the only way forward here
 		return
@@ -2964,9 +2974,14 @@ function SP.Wizard:RenderRole()
 		end)
 		card:SetScript("OnClick", function()
 			state.role = r.key
-			if not state.presetApplied then SP.Wizard.ApplyRoleDefaults(r.key) end   -- a preset is the baseline instead
+			if state.freshInstall and not state.presetApplied then SP.Wizard.ApplyRoleDefaults(r.key) end   -- existing setups are never touched
 			state.steps = VisibleSteps()
 			RenderStep()
+			-- an existing setup gets a safety snapshot before the tour can change anything
+			if not state.freshInstall and not state.presetApplied and not state.tourBackup and SP.BackupCurrentSetup then
+				state.tourBackup = SP:BackupCurrentSetup("Before the setup tour")
+				SP.Wizard:ShowBackupNotice(state.tourBackup, "You can change anything in the steps that follow without worrying about it.")
+			end
 		end)
 		paint()
 	end
@@ -3071,16 +3086,45 @@ function SP.Wizard:Open()
 	Core:SyncOpacity()
 	state.role = nil
 	state.presetApplied = nil
+	-- Only a brand-new install gets the per-spec starting defaults. Anyone
+	-- re-running the tour keeps every setting exactly as it is.
+	state.freshInstall = (not SP.opt.setupDone) and not LooksLikeExistingUser()
 	state.step = 1
 	state.steps = VisibleSteps()
 	wiz:Show()
 	RenderStep()
 end
 
+-- "We backed up your setup" - shown whenever the wizard takes a snapshot.
+local backupDlg
+function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
+	if not backup then if onOk then onOk() end return end
+	if not backupDlg then
+		backupDlg = Core:CreateDialog({
+			name = "ShamanPowerBackupNotice", width = 520, height = 236,
+			title = "Your setup is backed up", subtitle = "nothing you had is lost", headerHeight = 46, footer = 52, strata = "FULLSCREEN_DIALOG",
+		})
+		local solid = backupDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2); solid:SetColorTexture(Core:Color("windowBg", 1))
+		local t = backupDlg.body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
+		t:SetPoint("TOPLEFT", backupDlg.body, "TOPLEFT", 0, -2); t:SetWidth(490); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
+		backupDlg.text = t
+		local ok = Core:MakeButton(backupDlg, "OK", 120, true)
+		ok:SetPoint("BOTTOMRIGHT", backupDlg, "BOTTOMRIGHT", -14, 12)
+		ok:SetScript("OnClick", function() backupDlg:Hide(); if backupDlg.onOk then local f = backupDlg.onOk; backupDlg.onOk = nil; f() end end)
+		backupDlg.close:SetScript("OnClick", function() ok:Click() end)
+	end
+	backupDlg.onOk = onOk
+	backupDlg.text:SetText(string.format(
+		"A complete snapshot of your current setup - profile |cffFFD100%s|r, every module's settings and all positions - was just saved (|cffFFD100%s|r).\n\n"
+		.. "If you ever want it back: |cff3FA9F5Settings > Profiles > Built-in Layouts > Restore My Previous Setup|r. It comes back as a new profile named |cffFFD100%s (restored ...)|r, so nothing gets overwritten.%s",
+		backup.profile or "?", backup.date or "", backup.profile or "?", extra and ("\n\n" .. extra) or ""))
+	backupDlg:Show()
+end
+
 -- Someone upgrading from an older ShamanPower already has a configured bar:
 -- assigned totems, loadouts, or saved bar positions. A brand-new install has
 -- none of those.
-local function LooksLikeExistingUser()
+function LooksLikeExistingUser()
 	local a = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
 	if a then for e = 1, 4 do if (a[e] or 0) > 0 then return true end end end
 	if ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts > 0 then return true end
