@@ -12,6 +12,16 @@ All-in-one totem management, cooldown tracking and raid coordination for Shamans
 - **Modules** — Earth Shield Tracker, Shield Charges, Reactive Totems, Tremor Reminder, Expiring Alerts, Totem Range (all classes), Totem Plates (all classes)
 - **Guided setup, sharing, presets** — `/spsetup` walks you through everything with live previews; profiles export as a copyable string; a complete built-in layout can be previewed and applied in one click
 
+## Guided setup
+
+The first time you log in on a Shaman, ShamanPower opens a setup that walks through every feature with a live preview — pick your spec, and each step shows the real thing working (totems dropping, bars running down, alerts firing) with the actual options next to it. Nothing is applied until you change it. Run it again any time with `/spsetup`.
+
+![Guided setup welcome](screenshots/22-setup-wizard-welcome.png)
+
+| | |
+|---|---|
+| ![Totem bar step](screenshots/23-setup-wizard-totem-bar-step.png) Every step: options on the left, live preview on the right | ![Live preview](screenshots/21-setup-wizard-totem-bar-live-preview.gif) The preview drops, runs down and expires for real |
+
 ## Requirements
 
 - TBC Anniversary client (2.5.x). Vanilla and Wrath clients are not supported.
