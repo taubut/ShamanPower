@@ -213,8 +213,29 @@ function ShamanPower:Debug(s)
 	end
 end
 
+-- Sound at a custom volume. WoW has no per-sound volume, so anything below 100
+-- is routed through the Dialog channel with Sound_DialogVolume temporarily
+-- lowered. Rules that keep this from hurting the client:
+--   * never touch Sound_Enable* CVars - toggling one restarts the sound engine,
+--     which is a visible freeze; if Dialog is disabled we just play on Master
+--   * only SetCVar when the value actually changes
+--   * one shared restore timer, and the ORIGINAL volume is captured once,
+--     before the first change, so overlapping alerts cannot drift it
+local soundRestoreOriginal   -- user's Sound_DialogVolume before we touched it
+local soundRestoreTimer
+local function RestoreDialogVolume()
+	soundRestoreTimer = nil
+	if soundRestoreOriginal ~= nil then
+		if GetCVar("Sound_DialogVolume") ~= soundRestoreOriginal then
+			SetCVar("Sound_DialogVolume", soundRestoreOriginal)
+		end
+		soundRestoreOriginal = nil
+	end
+end
+
 function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
-	if not volume or volume >= 100 then
+	if not volume or volume >= 100 or GetCVar("Sound_EnableDialog") == "0" then
+		if volume and volume <= 0 then return end
 		if isFile then
 			PlaySoundFile(soundOrFile, "Master")
 		else
@@ -223,24 +244,20 @@ function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
 		return
 	end
 	if volume <= 0 then return end
-	-- Route through the Dialog channel to avoid affecting other game sounds
-	local origDialogVol = GetCVar("Sound_DialogVolume")
-	local origDialogEnabled = GetCVar("Sound_EnableDialog")
-	if origDialogEnabled == "0" then
-		SetCVar("Sound_EnableDialog", "1")
+	if soundRestoreOriginal == nil then
+		soundRestoreOriginal = GetCVar("Sound_DialogVolume")
 	end
-	SetCVar("Sound_DialogVolume", tostring(volume / 100))
+	local target = tostring(volume / 100)
+	if GetCVar("Sound_DialogVolume") ~= target then
+		SetCVar("Sound_DialogVolume", target)
+	end
 	if isFile then
 		PlaySoundFile(soundOrFile, "Dialog")
 	else
 		PlaySound(soundOrFile, "Dialog")
 	end
-	C_Timer.After(5, function()
-		SetCVar("Sound_DialogVolume", origDialogVol)
-		if origDialogEnabled == "0" then
-			SetCVar("Sound_EnableDialog", origDialogEnabled)
-		end
-	end)
+	if soundRestoreTimer then soundRestoreTimer:Cancel() end
+	soundRestoreTimer = C_Timer.NewTimer(5, RestoreDialogVolume)
 end
 
 function ShamanPower:GetSoundFile(soundName)
