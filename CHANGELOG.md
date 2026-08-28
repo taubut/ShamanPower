@@ -1,5 +1,14 @@
 # ShamanPower Changelog
 
+## v2.0.2 (2026-08-28)
+
+### Fixes
+- **Totem Assignments**: left-clicking past the last totem now wraps back to "none", the same way right-clicking already wrapped in the other direction. Previously that click did nothing.
+
+### Housekeeping
+- Removed dead legacy code: an unused duplicate of the Totemic Call button, an old settings migration that could never run, and a few unused helpers. No behavior change.
+- The code base now passes a static check (Lua language server with WoW API annotations, plus luacheck) with no real findings. Nothing user-visible.
+
 ## v2.0.1 (2026-08-28)
 
 ### Your existing setup is safe
