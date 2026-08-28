@@ -1,5 +1,11 @@
 # ShamanPower Changelog
 
+## v2.0.3 (2026-08-28)
+
+### Fixes
+- **Stutter when an alert sound played at reduced volume.** Any alert with its volume set below 100 (Expiring Alerts, Tremor Reminder, Reactive Totems, twisting, raid cooldown calls) briefly enabled the Dialog sound channel if you had it turned off, which restarts the game's sound engine and caused a visible hitch, twice per alert. If Dialog is disabled the sound now plays on the Master channel instead. Volume 100 was never affected.
+- Overlapping alerts could leave your Dialog volume changed after the addon restored it. The original value is now captured once and restored once.
+
 ## v2.0.2 (2026-08-28)
 
 ### Fixes
