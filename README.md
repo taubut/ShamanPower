@@ -1,95 +1,110 @@
 # ShamanPower
 
-A totem coordination addon for Shamans in World of Warcraft TBC Anniversary. Think of it as **PallyPower for Shamans** - coordinate totem assignments across your raid so every party gets the buffs they need.
+All-in-one totem management, cooldown tracking and raid coordination for Shamans in **World of Warcraft: TBC Anniversary** — with a guided setup that shows you every feature working before you decide.
 
-## Features
+![ShamanPower totem bar and cooldown bar](screenshots/01-overview-totem-bar-and-cooldown-bar.png)
 
-### Totem Assignment Grid
-- Visual grid showing all shamans in your raid and their totem assignments
-- Assign Earth, Fire, Water, and Air totems per shaman
-- See which totems each shaman has available (based on their spec and level)
-- Raid leaders and assists can assign totems for all shamans
+- **Totem bar** — drop, assign and twist totems from one bar with flyouts, duration bars, pulse timers and cooldown swipes. Three display styles: Normal, TotemTimers-style and Dynamic (PvP)
+- **Cooldown bar** — shield charges and flyout, weapon imbues, Ankh, Nature's Swiftness, Mana Tide, Shamanistic Rage, Bloodlust/Heroism, Elemental Mastery, Totemic Call
+- **Party Buff Tracker** — a dot per party member on each totem (class colour in range, red out of range) or a count, or both
+- **Raid Cooldowns** — assign and call Bloodlust/Heroism, Mana Tide and Drums of Battle; the assigned player gets a big "USE … NOW" alert. Callers can be any class
+- **Totem assignments** — every shaman in the group in one window, synced to everyone running the addon
+- **Modules** — Earth Shield Tracker, Shield Charges, Reactive Totems, Tremor Reminder, Expiring Alerts, Totem Range (all classes), Totem Plates (all classes)
+- **Guided setup, sharing, presets** — `/spsetup` walks you through everything with live previews; profiles export as a copyable string; a complete built-in layout can be previewed and applied in one click
 
-### Auto-Drop Button
-- One-click totem dropping based on your assignments
-- Cycles through your assigned totems (Earth → Fire → Water → Air)
-- Configurable via keybinds for fast totem management
+## Requirements
 
-### Earth Shield Tracking
-- Assign Earth Shield targets for Restoration shamans
-- Visual button to quickly cast Earth Shield on your assigned target
-- See Earth Shield assignments across all resto shamans in raid
-
-### Raid Sync
-- All shamans running ShamanPower automatically sync their assignments
-- Changes made by raid leaders instantly update for everyone
-- See real-time totem availability from all shamans
-
-### Weapon Enchant Tracking
-- Track Windfury, Flametongue, and other weapon enchants
-- Coordinate weapon buffs for optimal raid DPS
+- TBC Anniversary client (2.5.x). Vanilla and Wrath clients are not supported.
+- The `ShamanPower_Config` module is required for the settings window and the guided setup. The other modules are optional and can be disabled individually in the AddOns list.
 
 ## Installation
 
-1. Download the latest release from the [Releases page](https://github.com/taubut/ShamanPower/releases)
-2. Extract the `ShamanPower` folder to your `Interface/AddOns/` directory
-3. Restart WoW or `/reload` if already in-game
+1. Download `ShamanPower-x.y.z.zip` from the [Releases page](https://github.com/taubut/ShamanPower/releases).
+2. Extract **all** of the folders inside it (`ShamanPower`, `ShamanPower_Config`, `ShamanPower_ESTracker`, …) into `World of Warcraft/_anniversary_/Interface/AddOns/`.
+3. Restart the game (a `/reload` is not enough for a first install).
+4. Log in on a Shaman — the guided setup opens by itself. Run it again any time with `/spsetup`.
 
-## Commands
+Upgrading from 1.x: your settings are kept. You will be offered a short tour of what is new; taking it never changes anything you have not chosen to change, and applying a built-in layout backs your setup up first (Settings > Profiles > Built-in Layouts > Restore My Previous Setup).
 
-| Command | Description |
-|---------|-------------|
-| `/sp` | Open ShamanPower options |
-| `/shamanpower` | Open ShamanPower options |
+## Quick start
 
-## Usage
+| Command | What it does |
+|---|---|
+| `/sp` (or `/spui`) | Settings window |
+| `/spsetup` | Guided setup |
+| `/sp totems` or `/spa` | Totem assignments window |
+| `/spraid` | Raid cooldown assignments |
+| `/sprange` | Totem Range overlay |
+| `/spl <name>` | Switch totem loadout |
 
-### Opening the Assignment Window
-- Click the ShamanPower minimap icon, or
-- Right-click the drag handle on the ShamanPower frame, or
-- Type `/sp`
+Right-clicking the minimap icon opens the settings; left-click opens the assignments window.
 
-### Assigning Totems
-1. Open the assignment window
-2. Click on a totem slot for any shaman
-3. Select the totem from the dropdown
-4. Assignments sync automatically to all shamans
+## Screenshots
 
-### Auto-Drop Totems
-1. Set up your totem assignments in the grid
-2. Use the Auto-Drop button or keybind to drop totems in sequence
-3. Each press drops the next totem in your rotation
+| | |
+|---|---|
+| ![Normal style](screenshots/02-totem-bar-customization-style-a-dropped-totems-above.png) Normal style: a dropped totem pops up above its slot | ![TotemTimers style](screenshots/04-totem-bar-totemtimers-style.png) TotemTimers style: the dropped totem becomes the big icon |
+| ![Cooldown bar](screenshots/11-cooldown-bar.png) Cooldown bar | ![Pulse and duration text](screenshots/06-totem-bar-customization-style-b-pulse-and-duration-text.png) Pulse timers and duration text |
+| ![Assignments](screenshots/07-totem-assignments-window.png) Totem assignments | ![Raid cooldown alert](screenshots/14-raid-cooldown-alert-use-mana-tide-now.png) What the called shaman sees |
+| ![Totem Range](screenshots/15-totem-range-picker-and-overlay.png) Totem Range picker and overlay | ![Settings](screenshots/17-settings-totem-bar-page.png) Settings window |
 
-### For Raid Leaders
-- You can assign totems for all shamans in your raid
-- Use "Auto-Assign" to automatically distribute totems based on party composition
-- Use "Report" to post assignments to raid chat
+## Features in more detail
 
-## Totem Priority (Auto-Assign)
+**Totem bar** — left-click drops, right-click destroys; hover a slot for a flyout of every totem of that element (click to drop, right-click to make it the assigned one). Drop All button and per-element keybinds, auto-updating macros, totem loadouts with an on-screen loadout bar, duration bars and text, pulse timers, totem cooldown swipes (radial or vertical), horizontal or vertical layout, scale, opacity, unlock-and-drag positioning.
 
-When using Auto-Assign, ShamanPower prioritizes totems based on party composition:
+**Totem twisting** — alternate Windfury with Grace of Air or Wrath of Air; a countdown on the Air slot shows when to drop Windfury again, with an optional warning sound.
 
-| Element | Melee Party | Caster Party | Healer Party |
-|---------|-------------|--------------|--------------|
-| Air | Windfury | Wrath of Air | Wrath of Air |
-| Earth | Strength of Earth | Strength of Earth | Tremor |
-| Fire | Searing/Totem of Wrath | Totem of Wrath | Searing |
-| Water | Mana Spring | Mana Spring | Mana Spring |
+**Cooldown bar** — every item can be turned off or reordered; progress bars, vertical or radial sweep, time-remaining text; floats free of the totem bar.
 
-## Migration from AncestralCouncil
+**Party Buff Tracker** — dots in the icon corners or in a row/column around it, with an outline so they read on bright icons; numbers on the icon or in separate movable frames. Windfury on other players cannot be seen by addons — the **Windfury Companion** WeakAura (Settings > Windfury Companion) fixes that for your melee.
 
-If you previously used this addon under the name "AncestralCouncil", your settings will automatically migrate when you first load ShamanPower. No action needed!
+**Earth Shield Tracker / Shield Charges** — every Earth Shield in the raid with target, caster and charges; big on-screen numbers for your shield and Earth Shield charges.
+
+**Raid Cooldowns** — assign Bloodlust/Heroism, a Mana Tide caller per group and a Drums of Battle drummer per group. One-press caller buttons; anyone with control can call, but callers need ShamanPower installed too.
+
+**Reactive Totems** — big alerts the moment someone is feared, poisoned or diseased, telling you which totem fixes it.
+
+**Tremor Reminder** — target a known fear-caster and a reminder appears before anyone gets feared; 40+ TBC mobs built in, add your own.
+
+**Expiring Alerts** — scrolling-combat-text alerts when a shield runs out, a totem is destroyed or expires, or a weapon imbue fades.
+
+**Totem Range** (any class) — green / red / gray per totem: in range, out of range, nobody has it down. Appears automatically when a shaman is in your group.
+
+**Totem Plates** (any class) — enemy totem nameplates replaced with big icons so you can kill the Grounding or Tremor instantly; pulse countdown on pulsing totems.
+
+## Not a Shaman?
+
+Install it anyway. Other classes get a short tailored setup covering Totem Range, Raid Cooldowns (raid leaders and assistants can call their shamans' cooldowns), the Windfury Companion (for melee) and Totem Plates. Shaman-only settings are greyed out.
+
+## Sharing setups
+
+Settings > Profiles can export the current profile — every setting, position and module — as a copyable `SP1:` string, and import one live as a new profile. A complete built-in layout is available under Profiles > Built-in Layouts (and as Quick Setup in the guided setup); it is previewed before it is applied and your previous setup is backed up automatically.
+
+## Modules
+
+| Folder | Purpose | Required |
+|---|---|---|
+| `ShamanPower` | Core: totem bar, cooldown bar, assignments engine, twisting, loadouts, macros | yes |
+| `ShamanPower_Config` | Settings window, guided setup, assignments window, sharing | yes |
+| `ShamanPower_PartyRange` | Party Buff Tracker | optional |
+| `ShamanPower_RaidCooldowns` | Raid cooldown callers and alerts | optional |
+| `ShamanPower_ESTracker` | Earth Shield Tracker | optional |
+| `ShamanPower_ShieldCharges` | Shield charge numbers | optional |
+| `ShamanPower_ReactiveTotems` | Fear / poison / disease alerts | optional |
+| `ShamanPower_TremorReminder` | Fear-caster reminder | optional |
+| `ShamanPower_ExpiringAlerts` | Expiry alerts | optional |
+| `ShamanPower_SPRange` | Totem Range overlay (any class) | optional |
+| `ShamanPower_TotemPlates` | Totem nameplate icons (any class) | optional |
+
+## Issues and feedback
+
+Bugs and requests: [GitHub Issues](https://github.com/taubut/ShamanPower/issues). If a preview or feature misbehaves, enable `/console scriptErrors 1` (or BugSack) and include the error text.
 
 ## Credits
 
-- **Author:** Srumar
-- Originally adapted from PallyPower's UI framework for Shaman totem coordination
-
-## Links
-
-- [TotemTimers Fork](https://github.com/taubut/TotemTimers) - Recommended companion addon
-- [Report Issues](https://github.com/taubut/ShamanPower/issues)
+- Author: Srumar (taubut)
+- ShamanPower started life as a shaman adaptation of [PallyPower](https://www.curseforge.com/wow/addons/pallypower) and has since been rewritten from the ground up
 
 ## License
 
-See [LICENSE.txt](LICENSE.txt) for details.
+GNU General Public License v2 or later — see [LICENSE.txt](LICENSE.txt). Bundled libraries follow their own licenses.
