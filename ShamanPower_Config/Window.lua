@@ -949,7 +949,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	if not entry then return end
 
 	local firstPath = entry._firstPath or entry.path or EntryPaths(entry)[1]
-	local node, chain = firstPath and Tree:Resolve(firstPath)
+	local node, chain
+	if firstPath then node, chain = Tree:Resolve(firstPath) end
 	if not node then return end
 
 	local info = Tree:BuildInfo(firstPath, node, chain)

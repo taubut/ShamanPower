@@ -71,12 +71,6 @@ for i = 0, 20 do
 	NumberStrings[i] = tostring(i)
 end
 
--- Pre-built minute strings "0m" to "60m" for weapon imbue timer (avoids concat garbage)
-local MinuteStrings = {}
-for i = 0, 60 do
-	MinuteStrings[i] = i .. "m"
-end
-
 ShamanPower.player = UnitName("player")
 ShamanPower_Talents = {}
 ShamanPower_Assignments = {}
@@ -290,17 +284,6 @@ end
 function ShamanPower:OnInitialize()
 	-- Initialize the consolidated update system (single OnUpdate for all timed updates)
 	self:InitUpdateSystem()
-
-	-- Migrate old AncestralCouncil settings to ShamanPower
-	if AncestralCouncilDB and not ShamanPowerDB then
-		ShamanPowerDB = AncestralCouncilDB
-		print("|cff00ff00ShamanPower:|r Migrated settings from AncestralCouncil.")
-	end
-
-	-- Migrate old assignments table
-	if ShamanPower_Assignments == nil and AncestralCouncil_Assignments then
-		ShamanPower_Assignments = AncestralCouncil_Assignments
-	end
 
 	if select(2, UnitClass("player")) == "SHAMAN" then
 		self.db = LibStub("AceDB-3.0"):New("ShamanPowerDB", SHAMANPOWER_DEFAULT_VALUES, "Default")
@@ -10463,95 +10446,6 @@ function ShamanPower:UpdateTotemicCallOpacity()
 	end
 end
 
--- ============================================================================
--- TOTEMIC CALL BUTTON (on totem bar, optional) - Legacy dynamic version
--- ============================================================================
-
-function ShamanPower:CreateTotemicCallButton()
-	if self.totemicCallButton then return self.totemicCallButton end
-	if not self.autoButton then return nil end
-
-	-- Create secure button for Totemic Call
-	local btn = CreateFrame("Button", "ShamanPowerTotemicCall", self.autoButton, "SecureActionButtonTemplate")
-	btn:SetSize(26, 26)
-	btn:SetFrameLevel(self.autoButton:GetFrameLevel() + 10)
-	btn:RegisterForClicks("AnyUp", "AnyDown")
-	btn:Hide()
-
-	-- Icon
-	local icon = btn:CreateTexture(nil, "ARTWORK")
-	icon:SetAllPoints()
-	icon:SetTexture(GetSpellTexture(36936))  -- Totemic Call icon
-	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	btn.icon = icon
-
-	-- Border
-	local border = btn:CreateTexture(nil, "OVERLAY")
-	border:SetPoint("TOPLEFT", -1, 1)
-	border:SetPoint("BOTTOMRIGHT", 1, -1)
-	border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-	border:SetBlendMode("ADD")
-	border:SetVertexColor(0.6, 0.6, 0.6, 0.5)
-	btn.border = border
-
-	-- Highlight
-	local highlight = btn:CreateTexture(nil, "HIGHLIGHT")
-	highlight:SetAllPoints()
-	highlight:SetColorTexture(1, 1, 1, 0.2)
-
-	-- Set up spell casting
-	local spellName = GetSpellInfo(36936)
-	if spellName then
-		btn:SetAttribute("type1", "spell")
-		btn:SetAttribute("spell1", spellName)
-	end
-
-	-- Cooldown frame
-	local cooldown = CreateFrame("Cooldown", "ShamanPowerTotemicCallCD", btn, "CooldownFrameTemplate")
-	cooldown:SetAllPoints()
-	btn.cooldown = cooldown
-
-	-- Tooltip
-	btn:SetScript("OnEnter", function(self)
-		if not ShamanPower.opt.ShowTooltips then return end
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetSpellByID(36936)
-		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("|cff888888Recalls all active totems|r", 1, 1, 1)
-		GameTooltip:Show()
-	end)
-	btn:SetScript("OnLeave", function(self)
-		GameTooltip:Hide()
-	end)
-
-	self.totemicCallButton = btn
-	return btn
-end
-
-function ShamanPower:UpdateTotemicCallButton()
-	local showOnTotemBar = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
-
-	if showOnTotemBar then
-		if not self.totemicCallButton then
-			self:CreateTotemicCallButton()
-		end
-
-		if self.totemicCallButton then
-			-- Update cooldown display
-			local start, duration = GetSpellCooldown(36936)
-			if start and start > 0 and duration > 1.5 then
-				self.totemicCallButton.cooldown:SetCooldown(start, duration)
-			else
-				self.totemicCallButton.cooldown:Clear()
-			end
-		end
-	else
-		if self.totemicCallButton then
-			self.totemicCallButton:Hide()
-		end
-	end
-end
-
 function ShamanPower:PerformCycle(name, class, skipzero)
 	local cur
 	if not ShamanPower_Assignments[name] then
@@ -10565,11 +10459,8 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 	ShamanPower_Assignments[name][class] = 0
 	-- Get the max number of totems for this element
 	local maxTotems = self.TotemNames[class] and #self.TotemNames[class] or 8
-	for testB = cur + 1, maxTotems do
-		cur = testB
-		-- For shamans, all totems are available - just cycle through them
-		break
-	end
+	-- Advance to the next totem; wrap-around is handled below
+	cur = cur + 1
 	if cur > maxTotems then
 		-- Wrap around to 0 (no totem) or 1 (first totem)
 		if skipzero then
@@ -11866,7 +11757,6 @@ function ShamanPower:AutoAssignTotems()
 
 			-- Determine shaman spec
 			local isElemental = self:ShamanHasTotemOfWrath(name)
-			local isResto = self:ShamanHasManaTide(name)
 
 			-- === EARTH TOTEM ===
 			local earthTotem = 1  -- Default: Strength of Earth

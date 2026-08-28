@@ -571,30 +571,6 @@ local function ToggleRow(parent, y, label, bind)
 	return row
 end
 
--- Shared: an icon row inside a preview container (for mock previews).
-local function MockIconRow(inner, icons, labels, size, gap)
-	size = size or 48; gap = gap or 8
-	local n = #icons
-	local row = CreateFrame("Frame", nil, inner)
-	row:SetSize(n * size + (n - 1) * gap, size + 16)
-	row:SetPoint("CENTER", inner, "CENTER", 0, 0)
-	local made = {}
-	for i = 1, n do
-		local slot = CreateFrame("Frame", nil, row)
-		slot:SetSize(size, size + 16)
-		slot:SetPoint("LEFT", row, "LEFT", (i - 1) * (size + gap), 0)
-		local ic = slot:CreateTexture(nil, "ARTWORK"); ic:SetSize(size, size); ic:SetPoint("TOP")
-		ic:SetTexture(icons[i]); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		Core:MakeBorder(slot, "border")
-		if labels and labels[i] then
-			local l = slot:CreateFontString(nil, "OVERLAY"); l:SetFontObject(Core.fonts.tiny)
-			l:SetPoint("TOP", ic, "BOTTOM", 0, -3); l:SetText(labels[i]); l:SetTextColor(Core:Color("textDim"))
-		end
-		made[i] = slot
-	end
-	return row, made
-end
-
 function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	-- assigned = what is on the bar; active = a different totem you dropped.
 	local ELE = {
@@ -1350,8 +1326,6 @@ end
 -- the Air slot, and hand out the import string / link.
 function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 	local comp = SP.Companions and SP.Companions.windfury
-	local S = 1.5
-	local SIZE = math.floor(40 * S)
 
 	-- ---- preview: the Air slot without / with a melee running the aura ----
 	-- Drawn exactly like the Party Buff Tracker mock, from the SAME options the
