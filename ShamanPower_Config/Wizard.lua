@@ -2756,7 +2756,8 @@ local function PresetSummary(preset)
 	return lines, payload ~= nil
 end
 
-function SP.Wizard:ShowPresetPreview(preset)
+function SP.Wizard:ShowPresetPreview(preset, opts)
+	opts = opts or {}
 	if not previewDlg then
 		previewDlg = Core:CreateDialog({
 			name = "ShamanPowerPresetPreview", width = 940, height = 560,
@@ -2788,6 +2789,7 @@ function SP.Wizard:ShowPresetPreview(preset)
 		-- footer
 		local apply = Core:MakeButton(previewDlg, "Apply this layout & reload", 220, true)
 		apply:SetPoint("BOTTOMRIGHT", previewDlg, "BOTTOMRIGHT", -14, 12)
+		previewDlg.apply = apply
 		apply:SetScript("OnClick", function()
 			local p = previewDlg.preset
 			previewDlg:Hide()
@@ -2798,6 +2800,7 @@ function SP.Wizard:ShowPresetPreview(preset)
 		end)
 		local cont = Core:MakeButton(previewDlg, "Apply & continue the setup", 220, false)
 		cont:SetPoint("RIGHT", apply, "LEFT", -8, 0)
+		previewDlg.cont = cont
 		cont:SetScript("OnClick", function()
 			local p = previewDlg.preset
 			previewDlg:Hide()
@@ -2807,11 +2810,15 @@ function SP.Wizard:ShowPresetPreview(preset)
 			RenderStep()
 		end)
 		local back = Core:MakeButton(previewDlg, "Back", 90, false)
-		back:SetPoint("RIGHT", cont, "LEFT", -8, 0)
 		back:SetScript("OnClick", function() previewDlg:Hide() end)
+		previewDlg.back = back
 	end
 	previewDlg.preset = preset
-	previewDlg:SetTitles(preset.name, "quick setup - preview before you apply")
+	previewDlg:SetTitles(preset.name, opts.fromSettings and "built-in layout - preview before you apply" or "quick setup - preview before you apply")
+	-- outside the setup there is no setup to continue: Back sits next to Apply
+	previewDlg.cont:SetShown(not opts.fromSettings)
+	previewDlg.back:ClearAllPoints()
+	previewDlg.back:SetPoint("RIGHT", opts.fromSettings and previewDlg.apply or previewDlg.cont, "LEFT", -8, 0)
 	previewDlg.desc:SetText(preset.desc or "")
 	-- Rebuild the mocks against the preset's own profile.
 	local payload = SP.DecodeShare and SP:DecodeShare(preset.str)

@@ -170,6 +170,27 @@ local function InjectProfileButtons()
 		desc = "Paste a ShamanPower string to load it as a new profile.",
 		func = function() SP:ShowImportDialog() end,
 	}
+	-- Built-in layouts: the same preview-then-apply dialog the setup uses.
+	if SP.Presets and SP.Presets[1] then
+		profiles.args.spPresetHeader = { order = 0.4, type = "header", name = "Built-in Layouts" }
+		profiles.args.spPresetDesc = {
+			order = 0.45, type = "description", fontSize = "medium",
+			name = "A complete, ready-made setup - bars, scales, colors, positions and every module tuned. You get to see it before anything is applied; your totem choices and raid assignments are never touched.",
+		}
+		for i, preset in ipairs(SP.Presets) do
+			profiles.args["spPreset" .. i] = {
+				order = 0.5 + i * 0.01, type = "execute", name = "Preview " .. preset.name,
+				desc = preset.desc,
+				func = function()
+					if SP.Wizard and SP.Wizard.ShowPresetPreview then
+						SP.Wizard:ShowPresetPreview(preset, { fromSettings = true })
+					else
+						SP:ApplyPreset(preset.key, "overwrite"); ReloadUI()
+					end
+				end,
+			}
+		end
+	end
 end
 InjectProfileButtons()
 

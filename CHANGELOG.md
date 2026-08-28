@@ -1,5 +1,52 @@
 # ShamanPower Changelog
 
+## v2.0.0 (2026-08-28)
+
+A ground-up rework of how you configure ShamanPower. The addon's features are the same ones you know; the way you find, set up and understand them is new. Requires the TBC Anniversary client (2.5.x).
+
+### Highlights
+- **New settings window (`/sp` or `/spui`)**: Replaces the old options dialog entirely. Sidebar navigation grouped into General, Bars and Modules with module power dots, tabbed pages, global and per-page search, scrollbars everywhere, combat lock only on pages that need it, and a background-opacity setting. Everything opens here now: `/sp`, the minimap icon, Interface > AddOns, and right-clicking module frames
+- **First-run setup (`/spsetup`)**: A guided walkthrough that opens on first login. Pick your spec, then every feature is explained on the left and shown working live on the right - your real frames fed with sample data, or faithful animated mocks for the secure bars - with the real options next to them. Steps are gated by spec (Earth Shield for Resto, twisting defaults for Enhancement, and so on). Existing users get a small "there's a lot new, take the tour?" card instead of the full screen
+- **Non-shaman setup**: Other classes get a short tailored run - Totem Range, Raid Cooldowns, the Windfury Companion (worded for the melee installing it), Totem Plates and Position - and shaman-only settings pages are greyed out for them
+- **Built-in layout + sharing**: "Srumar's Layout" is a complete ready-made setup you can preview (live mocks and a what-it-sets summary) before applying, from the setup's Quick Setup or Profiles > Built-in Layouts. Profiles can also be exported as a copyable `SP1:` string and imported live - no reload
+- **Windfury Companion**: A small WeakAura for your melee (warriors, rogues, paladins). With it, your Air slot counts who has Windfury and shows whether each is in range. Available from the setup and Settings > Windfury Companion, with the string and the wago.io link
+
+### Setup wizard details
+- Totem Bar step: the three display styles (Normal / TotemTimers / Dynamic) animated, an animated flyout demo (hover, left-click drops, right-click assigns), layout, size, opacity, frame
+- Assignments step: the real assignments window with a sample three-shaman roster, plus Free Assign and window size
+- Duration Bars, Cooldown Bar, Earth Shield Tracker, Shield Charges, Totem Twisting, Raid Cooldowns (click a caller to see the alert the target sees), Reactive Totems, Tremor Reminder, Expiring Alerts, Party Buff Tracker (who is in range of which totem), Totem Range, Totem Plates (real 3D totem models under the plates, faction-correct) - each with its full option set
+- Position step steps the wizard aside so you can drag your bars; Finish reloads and can open the full settings window
+- Steps tell you when a module is disabled or does not run on your class; preview errors print to chat
+
+### New options
+- **Totem Bar**: Enable Mini Totem Bar now truly removes the bar (for shamans who keybind totems and only want the cooldown bar); an attached cooldown bar detaches automatically
+- **Duration Bars**: Cooldown Style for totem cooldowns (radial swipe, vertical greys-out, vertical fills-back-in) and Show Cooldown Time
+- **Cooldown Bar**: Sweep Style (vertical greys-out / fills-back-in / radial) for cooldowns and shields
+- **Party Buff Tracker**: Dot Position (corners, row above/below, column left/right - duration and pulse bars pad away from the dots automatically), Dot Outline (dark ring so dots read on bright icons, on by default) and Dot Size
+- **Raid Cooldowns**: Drums of Battle callers - a caller and one drummer per raid group; pressing it shows every assigned drummer a "USE DRUMS NOW" alert. Also Show Caller Button Frame
+- **Unlock Bar (move)** toggles on the Totem Bar and Cooldown Bar pages: a grab-anywhere overlay for repositioning, no Alt key, no drag handles
+- Test Sound buttons next to every sound picker
+
+### Changes
+- Frame positions are stored resolution-independently (relative to the nearest screen anchor), so they survive resolution and UI-scale changes and can be shared; existing positions migrate once
+- Scaling a frame keeps it in place instead of sliding it across the screen; saved scales apply before saved positions
+- Pop-out trackers, the Raid Cooldowns window, the Totem Range overlay and its click-to-track window, the fear-caster mob list and the totem assignment window were all rebuilt in the new style; frame settings buttons stay reachable in icon-only mode
+- Reactive Totems and Tremor Reminder: Icon Size and Scale merged into one Icon Size option (existing scale folded in, nothing moves)
+- Text inputs commit when they lose focus, so typing a loadout name and clicking Create keeps the name
+- Options whose visibility depends on another option now appear immediately
+- The cooldown bar always floats free of the totem bar (the attach option is gone; existing profiles are detached once)
+- Totem Plates: pulse timer, countdown text and pulse bar are on by default, matching what the options page showed
+- Unused locale strings pruned; dead legacy code and options with no working feature behind them removed (including the Hide Bench raid option and the old Main Tank / Main Assist role options)
+
+### Bug Fixes
+- Nature's Swiftness, Shamanistic Rage and Bloodlust buttons never showed their active state on 2.5.x (`AuraUtil.FindAuraByName` errors); replaced with a direct aura scan
+- Repeated raid cooldown calls were silently dropped after the first press for non-shaman callers
+- Flyout, frame-settings and dropdown popups layering fixes throughout the new UI
+
+### Removed
+- Vanilla and Wrath support: only the TBC Anniversary client is supported
+- The old AceGUI options dialog and the XML assignment window
+
 ## v1.6.2 (2026-07-18)
 
 ### Bug Fixes
