@@ -1486,6 +1486,14 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	local glow = self.pulseOverlays[element]
 	if not glow then return end
 
+	-- Compact style paints the pulse inside the line
+	if self:CompactActive() then
+		glow:SetAlpha(0); glow:Hide()
+		if glow.HideWipe then glow:HideWipe() end
+		if glow.HideTime then glow:HideTime() end
+		return
+	end
+
 	-- Check if active overlay is showing for this element
 	-- In TotemTimers style mode (activeTotemAsMain), always use main button even when overlay is "active"
 	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
@@ -2110,6 +2118,24 @@ function ShamanPower:UpdateTotemProgressBars()
 	local barDisabled = (barPosition == "none")
 	local isVertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert")
 
+	-- Compact style draws duration itself: keep the icon-style bars hidden
+	if self:CompactActive() then
+		for element = 1, 4 do
+			local bars = self.totemProgressBars[element]
+			if bars then
+				bars.bg:Hide(); bars.bar:Hide()
+				if bars.insideTextTop then bars.insideTextTop:Hide() end
+				if bars.insideTextBottom then bars.insideTextBottom:Hide() end
+				if bars.aboveBarText then bars.aboveBarText:Hide() end
+				if bars.belowBarText then bars.belowBarText:Hide() end
+				if bars.iconText then bars.iconText:Hide() end
+			end
+		end
+		self:UpdatePoppedOutProgressBars()
+		self:UpdateActiveTotemOverlays()
+		return
+	end
+
 	for element = 1, 4 do
 		local bars = self.totemProgressBars[element]
 		if bars then
@@ -2292,7 +2318,11 @@ function ShamanPower:UpdateTotemCooldowns()
 	-- Update main totem buttons
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
-		if btn and btn.cooldown then
+		if btn and btn.cooldown and btn.compactLayoutOn then
+			-- Compact style: no cooldown sweep on a line
+			self:ClearTotemCooldownVisual(btn)
+			if btn.cooldownText then btn.cooldownText:Hide() end
+		elseif btn and btn.cooldown then
 			-- Get the assigned totem's spell ID
 			local assignments = ShamanPower_Assignments[self.player]
 			local totemIndex = assignments and assignments[element] or 0
@@ -2660,6 +2690,12 @@ function ShamanPower:UpdateActiveTotemOverlays()
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
 	if not assignments then return end
+
+	-- Compact style: the line is whatever is down, no pop-above overlay
+	if self:CompactActive() then
+		self:HideActiveTotemOverlaysForCompact()
+		return
+	end
 
 	for element = 1, 4 do
 		-- Create overlay if needed
@@ -4371,8 +4407,9 @@ function ShamanPower:PositionTotemButtons()
 
 	local padding = 4
 	local spacing = self.opt.totemBarPadding or 2
-	local buttonSize = 26
-	local isHorizontal = (self.opt.layout == "Horizontal")
+	local isHorizontal = self:IsTotemBarHorizontal()
+	-- Compact style: buttons are lines (bw x bh) inside a slot that may also hold an icon square
+	local bw, bh, sw, sh, offX, offY = self:GetTotemSlotDims()
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 
 	-- Check which totem buttons should be visible (not hidden and not popped out)
@@ -4396,12 +4433,12 @@ function ShamanPower:PositionTotemButtons()
 			else
 				visiblePosition = visiblePosition + 1
 				btn:ClearAllPoints()
-				btn:SetSize(buttonSize, buttonSize)
+				btn:SetSize(bw, bh)
 
 				if isHorizontal then
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (buttonSize + spacing), -padding)
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (sw + spacing) + offX, -padding + offY)
 				else
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -padding - (visiblePosition - 1) * (buttonSize + spacing))
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + offX, -padding - (visiblePosition - 1) * (sh + spacing) + offY)
 				end
 
 				-- Match the scale of the visual container
@@ -4425,8 +4462,9 @@ function ShamanPower:UpdateTotemButtons()
 
 	local padding = 4
 	local spacing = self.opt.totemBarPadding or 2
-	local buttonSize = 26
-	local isHorizontal = (self.opt.layout == "Horizontal")
+	local isHorizontal = self:IsTotemBarHorizontal()
+	-- Compact style: buttons are lines (bw x bh) inside a slot that may also hold an icon square
+	local bw, bh, sw, sh, offX, offY = self:GetTotemSlotDims()
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 
 	-- Check which totem buttons should be visible (not hidden in options and not popped out)
@@ -4527,6 +4565,8 @@ function ShamanPower:UpdateTotemButtons()
 				-- Hide only if not popped out (popped out buttons are reparented)
 				if not isPoppedOut then
 					btn:Hide()
+				elseif self.ApplyCompactButtonLayout then
+					self:ApplyCompactButtonLayout(btn, true)   -- pop-outs keep their icon
 				end
 			else
 				visiblePosition = visiblePosition + 1
@@ -4534,14 +4574,17 @@ function ShamanPower:UpdateTotemButtons()
 
 				-- Position button relative to visual container
 				btn:ClearAllPoints()
+				btn:SetSize(bw, bh)
 				if isHorizontal then
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (buttonSize + spacing), -padding)
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (sw + spacing) + offX, -padding + offY)
 				else
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -padding - (visiblePosition - 1) * (buttonSize + spacing))
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + offX, -padding - (visiblePosition - 1) * (sh + spacing) + offY)
 				end
 
 				-- Match the scale of the visual container
 				btn:SetScale(self.opt.buffscale or 0.9)
+				-- Compact style: draw the line visuals (or restore the icon)
+				if self.ApplyCompactButtonLayout then self:ApplyCompactButtonLayout(btn) end
 			end
 		end
 	end
@@ -4942,12 +4985,12 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 
 	-- Default: if bar is horizontal, flyout is vertical (and vice versa)
 	if flyoutIsHorizontal == nil then
-		local isHorizontalBar = (self.opt.layout == "Horizontal")
+		local isHorizontalBar = self:IsTotemBarHorizontal()
 		-- Both "Vertical" and "VerticalLeft" result in horizontal flyouts
 		flyoutIsHorizontal = not isHorizontalBar
 	end
 
-	local isVerticalLeft = (self.opt.layout == "VerticalLeft")
+	local isVerticalLeft = (self.opt.layout == "VerticalLeft") and not self:CompactActive()
 
 	-- Determine flyout direction for vertical flyouts (when horizontal bar)
 	local flyoutDir = self.opt.totemFlyoutDirection or "auto"
@@ -5003,8 +5046,8 @@ end
 function ShamanPower:PositionFlyout(flyout, totemButton)
 	if not flyout or not totemButton then return end
 
-	local isHorizontalBar = (self.opt.layout == "Horizontal")
-	local isVerticalLeft = (self.opt.layout == "VerticalLeft")
+	local isHorizontalBar = self:IsTotemBarHorizontal()
+	local isVerticalLeft = (self.opt.layout == "VerticalLeft") and not self:CompactActive()
 
 	-- Match the scale of the parent button's frame
 	local parentScale = totemButton:GetEffectiveScale() / UIParent:GetEffectiveScale()
@@ -5108,8 +5151,8 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	end
 
 	-- For horizontal bar, flyout is vertical. For vertical bar (both "Vertical" and "VerticalLeft"), flyout is horizontal.
-	local isHorizontalBar = (self.opt.layout == "Horizontal")
-	local isVerticalLeft = (self.opt.layout == "VerticalLeft")
+	local isHorizontalBar = self:IsTotemBarHorizontal()
+	local isVerticalLeft = (self.opt.layout == "VerticalLeft") and not self:CompactActive()
 	local flyoutIsHorizontal = not isHorizontalBar
 
 	-- Determine flyout direction for vertical flyouts (when horizontal bar)
@@ -7490,7 +7533,17 @@ function ShamanPower:PositionPartyDots(dots, frame)
 			dot.spOutline:SetShown(outline and dot:IsShown())
 			dot:ClearAllPoints()
 			local along = (i - 1) * (size + gap)
-			if pos == "above" then
+			if frame.compactLayoutOn and self:CompactActive() then
+				-- Compact style: dots sit at the far end of the line (after the
+				-- range-counter number when that is on too)
+				local co = self:CompactOpts()
+				local shift = self:CompactCounterShift(frame)
+				if co.vertical then
+					dot:SetPoint("BOTTOM", frame, "BOTTOM", 0, co.ow + 2 + shift + along)
+				else
+					dot:SetPoint("RIGHT", frame, "RIGHT", -(co.ow + 3 + shift + along), 0)
+				end
+			elseif pos == "above" then
 				dot:SetPoint("BOTTOMLEFT", frame, "TOP", along - span / 2, 2)
 			elseif pos == "below" then
 				dot:SetPoint("TOPLEFT", frame, "BOTTOM", along - span / 2, -2)
@@ -8603,8 +8656,12 @@ function ShamanPower:UpdateMiniTotemBar()
 	if not assignments then return end
 
 	-- Determine layout orientation
-	local isHorizontal = (self.opt.layout == "Horizontal")
+	local isHorizontal = self:IsTotemBarHorizontal()
 	local buttonSize = 26
+	-- Compact style: totem slots are lines, not 26px squares
+	local bw, bh, sw, sh = self:GetTotemSlotDims()
+	local slotAlong = isHorizontal and sw or sh   -- slot size along the bar
+	local slotCross = isHorizontal and sh or sw   -- slot size across the bar
 	local spacing = self.opt.totemBarPadding or 2
 	local padding = 4
 	local separatorSize = 12  -- Extra gap for separator
@@ -8639,22 +8696,22 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	if isHorizontal then
 		-- Horizontal: wide and short
-		local totalWidth = (buttonSize * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
+		local totalWidth = (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
 		if extraButtonCount > 0 and visibleCount > 0 then
 			totalWidth = totalWidth + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1))
 		elseif extraButtonCount > 0 then
 			totalWidth = (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1)) + (padding * 2)
 		end
-		self.autoButton:SetSize(math.max(totalWidth, buttonSize + (padding * 2)), buttonSize + (padding * 2))
+		self.autoButton:SetSize(math.max(totalWidth, buttonSize + (padding * 2)), math.max(slotCross, extraButtonCount > 0 and buttonSize or 0) + (padding * 2))
 	else
 		-- Vertical: narrow and tall
-		local totalHeight = (buttonSize * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
+		local totalHeight = (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
 		if extraButtonCount > 0 and visibleCount > 0 then
 			totalHeight = totalHeight + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1))
 		elseif extraButtonCount > 0 then
 			totalHeight = (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1)) + (padding * 2)
 		end
-		self.autoButton:SetSize(buttonSize + (padding * 2), math.max(totalHeight, buttonSize + (padding * 2)))
+		self.autoButton:SetSize(math.max(slotCross, extraButtonCount > 0 and buttonSize or 0) + (padding * 2), math.max(totalHeight, buttonSize + (padding * 2)))
 	end
 
 	-- Get the order to display totem buttons
@@ -8799,13 +8856,13 @@ function ShamanPower:UpdateMiniTotemBar()
 		separator:ClearAllPoints()
 		if isHorizontal then
 			-- Vertical separator line
-			separator:SetSize(2, buttonSize)
-			local separatorX = padding + (buttonSize * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (separatorSize / 2) - 1
+			separator:SetSize(2, slotCross)
+			local separatorX = padding + (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (separatorSize / 2) - 1
 			separator:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", separatorX, -padding)
 		else
 			-- Horizontal separator line
-			separator:SetSize(buttonSize, 2)
-			local separatorY = -padding - (buttonSize * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - (separatorSize / 2) + 1
+			separator:SetSize(slotCross, 2)
+			local separatorY = -padding - (slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - (separatorSize / 2) + 1
 			separator:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, separatorY)
 		end
 		separator:Show()
@@ -8817,10 +8874,10 @@ function ShamanPower:UpdateMiniTotemBar()
 		if showDropAllHere and dropAllButton then
 			dropAllButton:ClearAllPoints()
 			if isHorizontal then
-				local dropAllX = padding + (buttonSize * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
+				local dropAllX = padding + (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
 				dropAllButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", dropAllX, -padding)
 			else
-				local dropAllY = -padding - (buttonSize * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
+				local dropAllY = -padding - (slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
 				dropAllButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, dropAllY)
 			end
 			dropAllButton:Show()
@@ -8833,10 +8890,10 @@ function ShamanPower:UpdateMiniTotemBar()
 		if showTotemicCall and totemicCallButton then
 			totemicCallButton:ClearAllPoints()
 			if isHorizontal then
-				local tcX = padding + (buttonSize * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
+				local tcX = padding + (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
 				totemicCallButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", tcX, -padding)
 			else
-				local tcY = -padding - (buttonSize * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
+				local tcY = -padding - (slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
 				totemicCallButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, tcY)
 			end
 			totemicCallButton:Show()
@@ -8898,6 +8955,9 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Setup range counters (shows number of players in range)
 	self:SetupRangeCounters()
+
+	-- Compact style tick + per-button line visuals (after counters/dots exist)
+	if self.SetupCompactStyle then self:SetupCompactStyle() end
 
 	-- Setup totem duration progress bars
 	self:SetupTotemProgressBars()
@@ -8978,7 +9038,8 @@ function ShamanPower:TriggerGCDSwipe()
 
 	for i = 1, 5 do
 		local cdFrame = self.gcdCooldowns[i]
-		if cdFrame then
+		local btn = i <= 4 and self.totemButtons and self.totemButtons[i]
+		if cdFrame and not (btn and btn.compactLayoutOn) then   -- no swipe on Compact lines
 			cdFrame:SetCooldown(start, duration)
 		end
 	end
@@ -9346,6 +9407,12 @@ function ShamanPower:UpdateESActiveOverlay()
 
 	local overlay = self.esActiveOverlay
 	if not overlay then return end
+
+	-- Compact style: the segmented line carries the target name itself
+	if esBtn.compactLayoutOn then
+		if overlay.frame then overlay.frame:Hide() end
+		return
+	end
 
 	local assignedTarget = ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[self.player]
 	local currentTarget, charges = self:FindEarthShieldTarget()
@@ -10065,7 +10132,7 @@ function ShamanPower:RepositionEarthShieldButton()
 	-- Match scale of other totem buttons
 	esBtn:SetScale(self.opt.buffscale or 0.9)
 
-	local isHorizontal = (self.opt.layout == "Horizontal")
+	local isHorizontal = self:IsTotemBarHorizontal()
 	local buttonSize = 26
 	local spacing = self.opt.totemBarPadding or 2
 	local showDropAll = self.opt.showDropAllButton ~= false
@@ -10107,7 +10174,14 @@ function ShamanPower:RepositionEarthShieldButton()
 	esBtn:ClearAllPoints()
 
 	if anchorFrame then
-		if isHorizontal then
+		if self:CompactActive() then
+			-- Compact: the ES line lines up with the totem lines' edge
+			if isHorizontal then
+				esBtn:SetPoint("TOPLEFT", anchorFrame, "TOPRIGHT", spacing, 0)
+			else
+				esBtn:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -spacing)
+			end
+		elseif isHorizontal then
 			-- Position to the right of anchor with padding
 			esBtn:SetPoint("LEFT", anchorFrame, "RIGHT", spacing, 0)
 		else
@@ -10134,7 +10208,9 @@ function ShamanPower:UpdateAutoButtonSize()
 	local padding = 4
 	local buttonSize = 26
 	local spacing = self.opt.totemBarPadding or 2
-	local isHorizontal = (self.opt.layout == "Horizontal")
+	local isHorizontal = self:IsTotemBarHorizontal()
+	local _, _, sw, sh = self:GetTotemSlotDims()
+	local slotAlong = isHorizontal and sw or sh
 	local showDropAll = self.opt.showDropAllButton ~= false and not self:IsDropAllPoppedOut()
 	local showES = self.opt.totemBarShowEarthShield ~= false and self:HasEarthShield() and not self:IsEarthShieldPoppedOut()
 
@@ -10145,7 +10221,7 @@ function ShamanPower:UpdateAutoButtonSize()
 	if self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3) then visibleCount = visibleCount + 1 end
 	if self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4) then visibleCount = visibleCount + 1 end
 
-	local baseSize = (buttonSize * visibleCount) + (spacing * math.max(0, visibleCount - 1))
+	local baseSize = (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1))
 
 	if isHorizontal then
 		local totalWidth = padding * 2
@@ -10158,7 +10234,7 @@ function ShamanPower:UpdateAutoButtonSize()
 			totalWidth = totalWidth + buttonSize
 		end
 		if showES then
-			totalWidth = totalWidth + spacing + buttonSize
+			totalWidth = totalWidth + spacing + (self:CompactActive() and slotAlong or buttonSize)
 		end
 		self.autoButton:SetWidth(math.max(totalWidth, buttonSize + padding * 2))
 	else
@@ -10172,7 +10248,7 @@ function ShamanPower:UpdateAutoButtonSize()
 			totalHeight = totalHeight + buttonSize
 		end
 		if showES then
-			totalHeight = totalHeight + spacing + buttonSize
+			totalHeight = totalHeight + spacing + (self:CompactActive() and slotAlong or buttonSize)
 		end
 		self.autoButton:SetHeight(math.max(totalHeight, buttonSize + padding * 2))
 	end

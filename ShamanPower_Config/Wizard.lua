@@ -585,17 +585,21 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	}
 	local STYLES = {
 		{ key = "normal", label = "Normal",
-		  set = function() OPT().activeTotemAsMain = false; OPT().dynamicTotemMode = false end,
-		  is  = function() return not OPT().activeTotemAsMain and not OPT().dynamicTotemMode end,
+		  set = function() OPT().activeTotemAsMain = false; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
+		  is  = function() return not OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle end,
 		  caption = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one greys out until it expires." },
 		{ key = "totemtimers", label = "TotemTimers Style",
-		  set = function() OPT().activeTotemAsMain = true; OPT().dynamicTotemMode = false end,
-		  is  = function() return OPT().activeTotemAsMain and not OPT().dynamicTotemMode end,
+		  set = function() OPT().activeTotemAsMain = true; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
+		  is  = function() return OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle end,
 		  caption = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires." },
 		{ key = "dynamic", label = "Dynamic (PvP)",
-		  set = function() OPT().dynamicTotemMode = true; OPT().activeTotemAsMain = false end,
-		  is  = function() return OPT().dynamicTotemMode end,
+		  set = function() OPT().dynamicTotemMode = true; OPT().activeTotemAsMain = false; OPT().compactStyle = false end,
+		  is  = function() return OPT().dynamicTotemMode and not OPT().compactStyle end,
 		  caption = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP." },
+		{ key = "compact", label = "Compact (lines)",
+		  set = function() OPT().compactStyle = true; OPT().dynamicTotemMode = false; OPT().activeTotemAsMain = false end,
+		  is  = function() return OPT().compactStyle and true or false end,
+		  caption = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged." },
 	}
 	local SIZE, GAP, STEP = 46, 12, 58
 	local bar = CreateFrame("Frame", nil, inner)
@@ -633,6 +637,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	styleCap:SetJustifyH("CENTER"); styleCap:SetWordWrap(true)
 
 	local function mode()
+		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
 		if OPT().activeTotemAsMain then return "tt" end
 		return "normal"
@@ -665,6 +670,87 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if vertical then bar:SetSize(SIZE + (normal and (SIZE + 4) or 0), 4 * (SIZE + 14 + 8) - 8)
 		else bar:SetSize(4 * STEP - GAP, normal and (SIZE * 2 + 30) or (SIZE + 14)) end
 		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", (vertical and normal) and (-side * (SIZE + 4) / 2) or 0, vertical and 10 or (normal and 8 or -14))
+	end
+
+	-- ---- Compact style mock: painted by the SAME code as the real bar ----
+	local cm = CreateFrame("Frame", nil, inner); cm:Hide()
+	local cmBg = cm:CreateTexture(nil, "BACKGROUND", nil, -1); cmBg:SetPoint("TOPLEFT", cm, "TOPLEFT", -8, 8); cmBg:SetPoint("BOTTOMRIGHT", cm, "BOTTOMRIGHT", 8, -8); cmBg:SetColorTexture(0, 0, 0, 0.7)
+	local cmBd = CreateFrame("Frame", nil, cm); cmBd:SetPoint("TOPLEFT", cmBg); cmBd:SetPoint("BOTTOMRIGHT", cmBg); Core:MakeBorder(cmBd, "border")
+	local cl = {}
+	for i = 1, 4 do
+		local f = CreateFrame("Frame", nil, cm)
+		cl[i] = { f = f, c = SP.CreateCompactVisuals and SP:CreateCompactVisuals(f) }
+	end
+	-- Earth Shield line (segments = charges), shown when this character has ES
+	local esMock
+	if SP.HasEarthShield and SP:HasEarthShield() and SP.LayoutCompactSegments then
+		local f = CreateFrame("Frame", nil, cm)
+		local nameFs = f:CreateFontString(nil, "OVERLAY", nil, 7); nameFs:SetTextColor(0.2, 1, 0.2)
+		esMock = { f = f, c = SP:CreateCompactVisuals(f), name = nameFs, t = 0 }
+	end
+	local cmSig
+	local function layoutCompact()
+		if not SP.CompactOpts then return end
+		local o = OPT()
+		local co = SP:CompactOpts(o)
+		local bw, bh, sw, sh, ox, oy = SP:GetTotemSlotDims(o)
+		local sp = o.totemBarPadding or 2
+		local sig = table.concat({ tostring(co.vertical), co.L, co.T, co.ow, tostring(co.fill), co.sq, co.iq, tostring(co.pulseText), tostring(co.pulseBar), sp }, ":")
+		if sig == cmSig then return end
+		cmSig = sig
+		for i, l in ipairs(cl) do
+			l.f:SetSize(bw, bh); l.f:ClearAllPoints()
+			if co.vertical then l.f:SetPoint("TOPLEFT", cm, "TOPLEFT", (i - 1) * (sw + sp) + ox, oy)
+			else l.f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -(i - 1) * (sh + sp) + oy) end
+			SP:LayoutCompactVisuals(l.c, l.f, co, bw, bh)
+		end
+		local n = 4
+		if esMock then
+			n = 5
+			local f = esMock.f
+			f:SetSize(bw, bh); f:ClearAllPoints()
+			if co.vertical then f:SetPoint("TOPLEFT", cm, "TOPLEFT", 4 * (sw + sp) + ox, oy)
+			else f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -4 * (sh + sp) + oy) end
+			SP:LayoutCompactVisuals(esMock.c, f, co, bw, bh); esMock.c.line:Hide()
+			SP:LayoutCompactSegments(f, esMock.c, 6)
+			esMock.name:ClearAllPoints(); esMock.name:SetFont("Fonts\\FRIZQT__.TTF", math.max(7, math.min(12, co.T - 3)), "OUTLINE")
+			if co.vertical then esMock.name:SetPoint("TOP", f, "BOTTOM", 0, -2) else esMock.name:SetPoint("CENTER", f, "CENTER", 0, 0) end
+			esMock.name:SetText(UnitName("player") or "Target")
+		end
+		if co.vertical then cm:SetSize(n * sw + (n - 1) * sp, sh) else cm:SetSize(sw, n * sh + (n - 1) * sp) end
+		cm:ClearAllPoints(); cm:SetPoint("CENTER", inner, "CENTER", 0, 10)
+	end
+	local PULSE = { 3, nil, 2, nil }        -- Tremor pulses every 3s, Mana Spring every 2s
+	local function paintCompact(el)
+		if not SP.PaintCompactVisuals then return end
+		layoutCompact()
+		local K = 1.8 * (OPT().buffscale or 1)
+		if SP.Wizard.previewOnly then K = math.min(K, (inner:GetHeight() - 30) / math.max(1, cm:GetHeight() + 16), (inner:GetWidth() - 30) / math.max(1, cm:GetWidth() + 16)) end
+		cm:SetScale(K)
+		cmBg:SetShown(not OPT().hideTotemBarFrame); cmBd:SetShown(not OPT().hideTotemBarFrame)
+		local opacity, fullActive = OPT().totemBarOpacity or 1, OPT().totemBarFullOpacityWhenActive
+		for i, s in ipairs(slots) do
+			local e, l = s.e, cl[i]
+			local activeNow = s.t < e.dur
+			l.f:SetAlpha((fullActive and activeNow) and 1 or opacity)
+			if activeNow then
+				local pp, pr
+				if PULSE[i] then pp = (s.t % PULSE[i]) / PULSE[i]; pr = PULSE[i] * (1 - pp) end
+				SP:PaintCompactVisuals(l.c, SP.ElementColors[i], 1 - s.t / e.dur, false, pp, pr, e.active, 1)
+			else
+				SP:PaintCompactVisuals(l.c, nil, 0, false, nil, nil, e.icon, 0.35)
+			end
+		end
+		if esMock then
+			-- charges tick down 6 -> 1, then the shield is recast
+			esMock.t = esMock.t + (el or 0)
+			local cyc = 14
+			if esMock.t >= cyc then esMock.t = esMock.t - cyc end
+			local charges = 6 - math.floor(esMock.t / 2)
+			esMock.f:SetAlpha(opacity)
+			SP:PaintCompactSegments(esMock.f.compactSeg, math.max(0, charges), charges > 0, OPT().shieldChargeColors)
+			esMock.c.bg:Show()
+		end
 	end
 
 	bar:SetScript("OnUpdate", function(_, el)
@@ -703,6 +789,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.inset:Hide(); s.insetBd:Hide()
 			end
 		end
+		if m == "compact" then bar:SetAlpha(0); cm:Show(); paintCompact(el) else bar:SetAlpha(1); cm:Hide() end
 	end)
 
 	if SP.Wizard.previewOnly then
@@ -786,6 +873,10 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	local CYCLE, ft, fi = 14.5, 0, 0
 	local demo = CreateFrame("Frame", nil, inner)
 	demo:SetScript("OnUpdate", function(_, el)
+		if mode() == "compact" then
+			cur:Hide(); fly:Hide(); fire.flyOpen = nil; flyCap:SetText(""); ft, fi = 0, 0
+			return
+		end
 		ft = ft + el
 		if ft >= CYCLE then ft = 0; fi = 0 end
 		while SCRIPT[fi + 1] and SCRIPT[fi + 1].at <= ft do fi = fi + 1; SCRIPT[fi].go() end
@@ -810,11 +901,15 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local btn = Core:MakeButton(card, st.label, 10, false)
 		btn:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); btn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
 		btn:SetScript("OnClick", function()
+			local wasCompact = OPT().compactStyle and true or false
 			st.set()
+			if SP.ApplyCompactStyle then pcall(SP.ApplyCompactStyle, SP) end
 			if SP.UpdateLayout then pcall(SP.UpdateLayout, SP) end
 			if SP.UpdateMiniTotemBar then pcall(SP.UpdateMiniTotemBar, SP) end
 			local reg = LibStub and LibStub("AceConfigRegistry-3.0", true); if reg then reg:NotifyChange("ShamanPower") end
 			refresh()
+			-- the Compact options sit under the style buttons: rebuild the step when it toggles
+			if (OPT().compactStyle and true or false) ~= wasCompact then SP.Wizard:Go(state.step) end
 		end)
 		buttons[st.key] = btn
 		y = y + 40
@@ -830,8 +925,10 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local _, h = Widgets[kind](Widgets, card, opts)
 		y = y + h
 	end
-	row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
-		set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+	if not OPT().compactStyle then
+		row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
+			set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+	end
 	row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
 		set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("UpdateCooldownBarScale"); safecall("UpdateRoster"); notify() end })
 	row("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().totemBarOpacity or 1 end,
@@ -840,6 +937,39 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
 	row("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideTotemBarFrame end,
 		set = function(v) OPT().hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
+	if OPT().compactStyle then
+		-- ---- Compact style options (Settings > Totem Bar > Compact Style) ----
+		local function cset(key) return function(v) OPT()[key] = v; safecall("ApplyCompactStyle"); notify() end end
+		y = y + 6
+		row("Dropdown", { label = "Lines", get = function() return OPT().compactOrientation or "horizontal" end, set = cset("compactOrientation"),
+			values = function() return { horizontal = "Horizontal (stacked)", vertical = "Vertical (side by side)" } end,
+			order = function() return { "horizontal", "vertical" } end })
+		row("Dropdown", { label = "Duration shown as", get = function() return OPT().compactDurationMode or "auto" end, set = cset("compactDurationMode"),
+			values = function() return { auto = "Auto (outline / fill by orientation)", outline = "Outline draining around the line", fill = "Line draining" } end,
+			order = function() return { "auto", "outline", "fill" } end })
+		row("Slider", { label = "Line length", min = 40, max = 300, step = 2, get = function() return OPT().compactLength or 120 end, set = cset("compactLength") })
+		row("Slider", { label = "Line thickness", desc = "Pulse text needs at least 14", min = 4, max = 30, step = 1,
+			get = function() return SP.CompactOpts and SP:CompactOpts(OPT()).T or 10 end, set = cset("compactThickness") })
+		row("Slider", { label = "Outline width", min = 1, max = 4, step = 1, get = function() return OPT().compactOutlineWidth or 2 end, set = cset("compactOutlineWidth") })
+		row("Dropdown", { label = "Outline color", get = function() return OPT().compactOutlineColorMode or "element" end, set = cset("compactOutlineColorMode"),
+			values = function() return { element = "Element color", custom = "Custom" } end,
+			order = function() return { "element", "custom" } end })
+		row("Color", { label = "Custom outline color", disabled = function() return (OPT().compactOutlineColorMode or "element") ~= "custom" end,
+			get = function() local c = OPT().compactOutlineColor; if c then return c.r or 1, c.g or 1, c.b or 1 end; return 1, 1, 1 end,
+			set = function(r, g, b) OPT().compactOutlineColor = OPT().compactOutlineColor or {}; local c = OPT().compactOutlineColor; c.r, c.g, c.b = r, g, b; safecall("ApplyCompactStyle"); notify() end })
+		row("Slider", { label = "Gap between lines", min = 0, max = 20, step = 1, get = function() return OPT().totemBarPadding or 2 end,
+			set = function(v) OPT().totemBarPadding = v; safecall("ApplyCompactStyle"); notify() end })
+		row("Dropdown", { label = "Icon squares", set = cset("compactIconSquares"),
+			get = function() local v = OPT().compactIconSquares or "off"; if v == "above" then v = "before" elseif v == "below" then v = "after" end; return v end,
+			values = function()
+				if SP.CompactOpts and SP:CompactOpts(OPT()).vertical then return { off = "Off", before = "Above the line", after = "Below the line" } end
+				return { off = "Off", before = "Left of the line", after = "Right of the line" }
+			end,
+			order = function() return { "off", "before", "after" } end })
+		row("Slider", { label = "Icon square size", min = 8, max = 24, step = 1, get = function() return OPT().compactIconSize or 12 end, set = cset("compactIconSize") })
+		row("Toggle", { label = "Pulse refill in the line", get = function() return OPT().compactPulseBar ~= false end, set = cset("compactPulseBar") })
+		row("Toggle", { label = "Pulse countdown text", get = function() return OPT().compactPulseText ~= false end, set = cset("compactPulseText") })
+	end
 	return y
 end
 
@@ -1033,6 +1163,16 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	end)
 
 	if SP.Wizard.previewOnly then layout(); return y end
+	if OPT().compactStyle then
+		-- Compact style draws duration and pulse inside its lines; say so up front.
+		local calW = card:GetWidth() - 36 - 24
+		local callout = CreateFrame("Frame", nil, card); callout:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); callout:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
+		Core:SolidTex(callout, "warn", "BACKGROUND", 0.10); Core:MakeBorder(callout, "warn")
+		local body = callout:CreateFontString(nil, "OVERLAY"); body:SetFontObject(Core.fonts.row); body:SetPoint("TOPLEFT", callout, "TOPLEFT", 12, -10); body:SetWidth(calW); body:SetJustifyH("LEFT"); body:SetWordWrap(true)
+		body:SetText("You picked the Compact style, which draws duration and pulse inside its lines. The options below only apply to the icon styles (Normal, TotemTimers, Dynamic).")
+		callout:SetHeight(20 + body:GetStringHeight())
+		y = y + callout:GetHeight() + 14
+	end
 	-- ---- controls (same widget kit as the options screen) ----
 	local W = card:GetWidth() - 36
 	local function row(kind, opts)

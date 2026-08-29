@@ -142,6 +142,19 @@ SHAMANPOWER_DEFAULT_VALUES = {
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
         rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
+        -- Compact style: element-colored lines instead of icons (see ShamanPowerCompact.lua)
+        compactStyle = false,
+        compactOrientation = "horizontal",  -- "horizontal" (lines stacked) / "vertical" (lines side by side)
+        compactLength = 120,                -- line length px
+        compactThickness = nil,             -- line thickness px (nil = 10 horizontal / 16 vertical)
+        compactOutlineWidth = 2,            -- duration outline px
+        compactOutlineColorMode = "element", -- "element" (lightened element color) / "custom"
+        compactOutlineColor = { r = 1, g = 1, b = 1 },
+        compactDurationMode = "auto",       -- "auto" (outline horizontal / fill vertical), "outline", "fill"
+        compactIconSquares = "off",         -- "off", "before", "after" (left/right of a horizontal line, above/below a vertical one)
+        compactIconSize = 12,               -- icon square px
+        compactPulseText = true,            -- pulse countdown text inside the line
+        compactPulseBar = true,             -- pulse refill inside the line
         enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
         -- Totem Loadout bar settings
         showLoadoutBar = false,         -- Show/hide the loadout flyout anchor (off until first loadout saved)

@@ -739,6 +739,10 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.dynamicTotemMode = val
+								if val and ShamanPower.opt.compactStyle then
+									ShamanPower.opt.compactStyle = false
+									ShamanPower:ApplyCompactStyle()
+								end
 								ShamanPower:UpdateMiniTotemBar()
 							end
 						},
@@ -768,6 +772,10 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.activeTotemAsMain = val
+								if val and ShamanPower.opt.compactStyle then
+									ShamanPower.opt.compactStyle = false
+									ShamanPower:ApplyCompactStyle()
+								end
 								ShamanPower:UpdateActiveTotemOverlays()
 							end
 						},
@@ -790,6 +798,167 @@ ShamanPower.options = {
 								ShamanPower.opt.rightClickCastsAssigned = val
 								ShamanPower:UpdateMiniTotemBar()
 							end
+						},
+						compactSpacer = {
+							order = 4.6,
+							type = "description",
+							name = " ",
+							width = "full",
+						},
+						compactStyle = {
+							order = 4.7,
+							name = "Compact Style (lines instead of icons)",
+							desc = "Each totem slot becomes an element-colored line. The totem's duration drains as an outline around the line (or the line itself drains), the pulse countdown refills inside it, and a tiny icon square can sit above or below. Clicks, keybinds and flyouts work exactly as before.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.compactStyle
+							end,
+							set = function(info, val)
+								ShamanPower.opt.compactStyle = val
+								ShamanPower:ApplyCompactStyle()
+							end
+						},
+						compactOptions = {
+							order = 4.8,
+							type = "group",
+							inline = true,
+							name = "Compact Style",
+							hidden = function(info)
+								return not ShamanPower.opt.compactStyle
+							end,
+							args = {
+								compactOrientation = {
+									order = 1,
+									type = "select",
+									name = "Lines",
+									desc = "Horizontal lines stack top to bottom; vertical lines sit side by side.",
+									width = 1.2,
+									values = { horizontal = "Horizontal (stacked)", vertical = "Vertical (side by side)" },
+									get = function(info) return ShamanPower.opt.compactOrientation or "horizontal" end,
+									set = function(info, val) ShamanPower.opt.compactOrientation = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactDurationMode = {
+									order = 2,
+									type = "select",
+									name = "Duration Shown As",
+									desc = "Auto uses the outline for horizontal lines and a draining line for vertical ones.",
+									width = 1.2,
+									values = { auto = "Auto", outline = "Outline draining around the line", fill = "Line draining" },
+									get = function(info) return ShamanPower.opt.compactDurationMode or "auto" end,
+									set = function(info, val) ShamanPower.opt.compactDurationMode = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactLength = {
+									order = 3,
+									type = "range",
+									name = "Line Length",
+									min = 40, max = 300, step = 2,
+									width = 1.2,
+									get = function(info) return ShamanPower.opt.compactLength or 120 end,
+									set = function(info, val) ShamanPower.opt.compactLength = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactThickness = {
+									order = 4,
+									type = "range",
+									name = "Line Thickness",
+									desc = "The pulse countdown text needs at least 14.",
+									min = 4, max = 30, step = 1,
+									width = 1.2,
+									get = function(info) return ShamanPower:CompactOpts().T end,
+									set = function(info, val) ShamanPower.opt.compactThickness = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactOutlineWidth = {
+									order = 5,
+									type = "range",
+									name = "Outline Width",
+									min = 1, max = 4, step = 1,
+									width = 1.2,
+									get = function(info) return ShamanPower.opt.compactOutlineWidth or 2 end,
+									set = function(info, val) ShamanPower.opt.compactOutlineWidth = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactOutlineColorMode = {
+									order = 5.5,
+									type = "select",
+									name = "Outline Color",
+									width = 1.2,
+									values = { element = "Element color", custom = "Custom" },
+									get = function(info) return ShamanPower.opt.compactOutlineColorMode or "element" end,
+									set = function(info, val) ShamanPower.opt.compactOutlineColorMode = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactOutlineColor = {
+									order = 5.6,
+									type = "color",
+									name = "Custom Outline Color",
+									width = 1.2,
+									hidden = function(info) return (ShamanPower.opt.compactOutlineColorMode or "element") ~= "custom" end,
+									get = function(info)
+										local c = ShamanPower.opt.compactOutlineColor or {}
+										return c.r or 1, c.g or 1, c.b or 1
+									end,
+									set = function(info, r, g, b)
+										ShamanPower:EnsureProfileTable("compactOutlineColor")
+										local c = ShamanPower.opt.compactOutlineColor
+										c.r, c.g, c.b = r, g, b
+										ShamanPower:ApplyCompactStyle()
+									end,
+								},
+								compactIconSquares = {
+									order = 6,
+									type = "select",
+									name = "Icon Squares",
+									desc = "A tiny icon of the totem that is down (ghosted: the assigned totem when nothing is down). Left/right of a horizontal line, above/below a vertical one.",
+									width = 1.2,
+									values = function(info)
+										if ShamanPower:CompactOpts().vertical then
+											return { off = "Off", before = "Above the line", after = "Below the line" }
+										end
+										return { off = "Off", before = "Left of the line", after = "Right of the line" }
+									end,
+									sorting = { "off", "before", "after" },
+									get = function(info)
+										local v = ShamanPower.opt.compactIconSquares or "off"
+										if v == "above" then v = "before" elseif v == "below" then v = "after" end
+										return v
+									end,
+									set = function(info, val) ShamanPower.opt.compactIconSquares = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactIconSize = {
+									order = 7,
+									type = "range",
+									name = "Icon Square Size",
+									min = 8, max = 24, step = 1,
+									width = 1.2,
+									hidden = function(info) return (ShamanPower.opt.compactIconSquares or "off") == "off" end,
+									get = function(info) return ShamanPower.opt.compactIconSize or 12 end,
+									set = function(info, val) ShamanPower.opt.compactIconSize = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactPulseBar = {
+									order = 8,
+									type = "toggle",
+									name = "Pulse Refill In The Line",
+									width = 1.2,
+									get = function(info) return ShamanPower.opt.compactPulseBar ~= false end,
+									set = function(info, val) ShamanPower.opt.compactPulseBar = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactPulseText = {
+									order = 9,
+									type = "toggle",
+									name = "Pulse Countdown Text",
+									desc = "Shown when the line is at least 14 px thick.",
+									width = 1.2,
+									get = function(info) return ShamanPower.opt.compactPulseText ~= false end,
+									set = function(info, val) ShamanPower.opt.compactPulseText = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactNote = {
+									order = 10,
+									type = "description",
+									width = "full",
+									name = "|cff888888Compact style draws duration and pulse itself, so the Duration Bars page and the totem cooldown sweep do not apply while it is on. Button Spacing sets the gap between lines. Party dots and the range counter sit at the far end of each line.|r",
+								},
+							}
 						},
 						twistSpacer = {
 							order = 5,
