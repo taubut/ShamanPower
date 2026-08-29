@@ -478,8 +478,14 @@ function ShamanPower:RestoreTotemBarPosition()
 	local d = self.opt.display
 	h:SetScale(self.opt.buffscale or 0.9)   -- records are scale-free; SetPoint is not
 	self._barScaleApplied = true
-	if d.position and d.position.anchor then
-		self:ApplyPositionRecord(h, d.position)
+	-- Compact style uses its own saved spot once it has one; until then it
+	-- starts wherever the icon bar is.
+	local rec = d.position
+	if self.CompactActive and self:CompactActive() and d.compactPosition and d.compactPosition.anchor then
+		rec = d.compactPosition
+	end
+	if rec and rec.anchor then
+		self:ApplyPositionRecord(h, rec)
 	elseif d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0 then
 		h:ClearAllPoints()
 		h:SetPoint("CENTER", UIParent, "BOTTOMLEFT", d.offsetX, d.offsetY)
@@ -493,6 +499,13 @@ end
 
 function ShamanPower:SaveFramePosition(frame)
 	self:EnsureProfileTable("display")
+	-- The Compact style keeps its own spot: it is small enough to tuck away
+	-- somewhere the icon bar would not fit, and switching back brings the icon
+	-- bar home again.
+	if frame == _G["ShamanPowerFrame"] and self.CompactActive and self:CompactActive() then
+		self.db.profile.display.compactPosition = self:SavePositionRecord(frame)
+		return
+	end
 	self.db.profile.display.position = self:SavePositionRecord(frame)
 	self.db.profile.display.offsetX, self.db.profile.display.offsetY = nil, nil
 end
@@ -683,6 +696,7 @@ function ShamanPower:Reset()
 	self.opt.display.offsetX = nil
 	self.opt.display.offsetY = nil
 	self.opt.display.position = nil
+	self.opt.display.compactPosition = nil
 
 	-- Reset visual settings to defaults
 	self.opt.buffscale = 0.9

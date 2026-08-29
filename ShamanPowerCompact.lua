@@ -536,6 +536,8 @@ function SP:ApplyCompactStyle()
 		self.opt.dynamicTotemMode = false
 	end
 	self:SetupCompactStyle()
+	-- each style remembers its own screen position
+	if self.RestoreTotemBarPosition then self:RestoreTotemBarPosition() end
 	if self.UpdateLayout then self:UpdateLayout() end
 	if self.UpdateMiniTotemBar then self:UpdateMiniTotemBar() end
 	if self.UpdateActiveTotemOverlays then self:UpdateActiveTotemOverlays() end
