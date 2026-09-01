@@ -142,6 +142,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
         rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
+        activeOverlayDirection = "auto",
+        esFlyoutRoles = {},               -- ES flyout filter: show only these group roles (TANK/HEALER/DAMAGER); empty = everyone
+        esFlyoutClasses = {},             -- ES flyout filter: show only these classes (WARRIOR, ...); combined with roles as OR  -- Dropped-totem indicator: "auto" (above, or flyout side on vertical bars), "above", "below", "left", "right"
         -- Compact style: element-colored lines instead of icons (see ShamanPowerCompact.lua)
         compactStyle = false,
         compactOrientation = "horizontal",  -- "horizontal" (lines stacked) / "vertical" (lines side by side)
@@ -155,6 +158,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         compactIconSize = 12,               -- icon square px
         compactPulseText = true,            -- pulse countdown text inside the line
         compactPulseBar = true,             -- pulse refill inside the line
+        compactShieldLine = false,          -- your Lightning / Water Shield as a 3-segment line at the start of the bar
         enableMiddleClickPopOut = true,  -- Allow middle-click to pop out buttons as standalone trackers
         -- Totem Loadout bar settings
         showLoadoutBar = false,         -- Show/hide the loadout flyout anchor (off until first loadout saved)
@@ -445,7 +449,7 @@ ShamanPower.TotemShortNames = {
 -- Talent-required totems (talent tree, required points)
 ShamanPower.TalentTotems = {
     [30706] = {1, 41},   -- Totem of Wrath (Elemental 41 points)
-    [17359] = {3, 31},   -- Mana Tide Totem (Restoration 31 points)
+    [16190] = {3, 31},   -- Mana Tide Totem (Restoration 31 points; keyed by Rank 1, which is what the totem tables and assignments resolve to)
 }
 
 -- ============================================================================

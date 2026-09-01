@@ -681,6 +681,12 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local f = CreateFrame("Frame", nil, cm)
 		cl[i] = { f = f, c = SP.CreateCompactVisuals and SP:CreateCompactVisuals(f) }
 	end
+	-- Your shield line (3 segments) at the start of the bar, when that option is on
+	local shMock
+	if SP.LayoutCompactSegments then
+		local f = CreateFrame("Frame", nil, cm)
+		shMock = { f = f, c = SP:CreateCompactVisuals(f), t = 0 }
+	end
 	-- Earth Shield line (segments = charges), shown when this character has ES
 	local esMock
 	if SP.HasEarthShield and SP:HasEarthShield() and SP.LayoutCompactSegments then
@@ -695,22 +701,30 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local co = SP:CompactOpts(o)
 		local bw, bh, sw, sh, ox, oy = SP:GetTotemSlotDims(o)
 		local sp = o.totemBarPadding or 2
-		local sig = table.concat({ tostring(co.vertical), co.L, co.T, co.ow, tostring(co.fill), co.sq, co.iq, tostring(co.pulseText), tostring(co.pulseBar), sp }, ":")
+		local sig = table.concat({ tostring(co.vertical), co.L, co.T, co.ow, tostring(co.fill), co.sq, co.iq, tostring(co.pulseText), tostring(co.pulseBar), sp, tostring(o.compactShieldLine) }, ":")
 		if sig == cmSig then return end
 		cmSig = sig
+		local first = (shMock and o.compactShieldLine) and 1 or 0
+		if shMock then
+			local f = shMock.f
+			f:SetSize(bw, bh); f:ClearAllPoints(); f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, oy)
+			SP:LayoutCompactVisuals(shMock.c, f, co, bw, bh); shMock.c.line:Hide()
+			SP:LayoutCompactSegments(f, shMock.c, 3)
+			f:SetShown(first == 1)
+		end
 		for i, l in ipairs(cl) do
 			l.f:SetSize(bw, bh); l.f:ClearAllPoints()
-			if co.vertical then l.f:SetPoint("TOPLEFT", cm, "TOPLEFT", (i - 1) * (sw + sp) + ox, oy)
-			else l.f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -(i - 1) * (sh + sp) + oy) end
+			if co.vertical then l.f:SetPoint("TOPLEFT", cm, "TOPLEFT", (i - 1 + first) * (sw + sp) + ox, oy)
+			else l.f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -(i - 1 + first) * (sh + sp) + oy) end
 			SP:LayoutCompactVisuals(l.c, l.f, co, bw, bh)
 		end
-		local n = 4
+		local n = 4 + first
 		if esMock then
-			n = 5
+			n = n + 1
 			local f = esMock.f
 			f:SetSize(bw, bh); f:ClearAllPoints()
-			if co.vertical then f:SetPoint("TOPLEFT", cm, "TOPLEFT", 4 * (sw + sp) + ox, oy)
-			else f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -4 * (sh + sp) + oy) end
+			if co.vertical then f:SetPoint("TOPLEFT", cm, "TOPLEFT", (4 + first) * (sw + sp) + ox, oy)
+			else f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -(4 + first) * (sh + sp) + oy) end
 			SP:LayoutCompactVisuals(esMock.c, f, co, bw, bh); esMock.c.line:Hide()
 			SP:LayoutCompactSegments(f, esMock.c, 6)
 			esMock.name:ClearAllPoints(); esMock.name:SetFont("Fonts\\FRIZQT__.TTF", math.max(7, math.min(12, co.T - 3)), "OUTLINE")
@@ -740,6 +754,15 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			else
 				SP:PaintCompactVisuals(l.c, nil, 0, false, nil, nil, e.icon, 0.35)
 			end
+		end
+		if shMock and shMock.f:IsShown() then
+			-- Water Shield: 3 charges used over ~9s, then recast
+			shMock.t = shMock.t + (el or 0)
+			if shMock.t >= 11 then shMock.t = shMock.t - 11 end
+			local ch = 3 - math.floor(shMock.t / 3)
+			shMock.f:SetAlpha(opacity)
+			SP:PaintCompactSegments(shMock.f.compactSeg, math.max(0, ch), ch > 0, OPT().shieldChargeColors, { r = 0.35, g = 0.65, b = 1.0 })
+			shMock.c.bg:Show()
 		end
 		if esMock then
 			-- charges tick down 6 -> 1, then the shield is recast
@@ -969,6 +992,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		row("Slider", { label = "Icon square size", min = 8, max = 24, step = 1, get = function() return OPT().compactIconSize or 12 end, set = cset("compactIconSize") })
 		row("Toggle", { label = "Pulse refill in the line", get = function() return OPT().compactPulseBar ~= false end, set = cset("compactPulseBar") })
 		row("Toggle", { label = "Pulse countdown text", get = function() return OPT().compactPulseText ~= false end, set = cset("compactPulseText") })
+		row("Toggle", { label = "Your shield line (Lightning / Water)", get = function() return OPT().compactShieldLine and true or false end, set = cset("compactShieldLine") })
 	end
 	return y
 end

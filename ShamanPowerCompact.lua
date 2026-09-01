@@ -301,12 +301,15 @@ function SP:LayoutCompactSegments(frame, c, n, gap)
 end
 
 -- charges = filled segments; active = false paints everything gray.
--- useColors mirrors the Shield Charges option: green / yellow / red as they run low.
-function SP:PaintCompactSegments(seg, charges, active, useColors)
+-- useColors mirrors the Shield Charges option: green / yellow / red as they
+-- run low (thresholds scale with the segment count). base = the healthy color.
+function SP:PaintCompactSegments(seg, charges, active, useColors, base)
 	if not seg then return end
 	local r, g, b = 0.25, 0.85, 0.3
+	if base then r, g, b = base.r, base.g, base.b end
 	if useColors then
-		if charges <= 2 then r, g, b = 1, 0.25, 0.25 elseif charges <= 4 then r, g, b = 1, 0.85, 0.2 end
+		local n = seg.n or #seg
+		if charges <= n / 3 then r, g, b = 1, 0.25, 0.25 elseif charges <= 2 * n / 3 then r, g, b = 1, 0.85, 0.2 end
 	end
 	for i = 1, seg.n or #seg do
 		if active and i <= charges then
@@ -447,6 +450,112 @@ function SP:ApplyCompactESLayout()
 	self:UpdateCompactES()
 end
 
+-- ---------------------------------------------------------------------------
+-- Your own shield (Lightning / Water) as a 3-segment line at the START of the
+-- bar - the Earth Shield line sits at the end. Optional (compactShieldLine).
+-- ---------------------------------------------------------------------------
+local SHIELD_MAX_CHARGES = 3
+local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 } }
+
+-- Spell name to cast: the shield that is up, else the preferred one, else any known.
+function SP:CompactKnownShield()
+	local cache = self.shieldCache
+	if cache and cache.hasShield and cache.shieldID then
+		for _, d in ipairs(self.ShieldSpells or {}) do
+			if d[1] == cache.shieldID and GetSpellInfo(d[2]) then return d[2], d[1] end
+		end
+	end
+	local pref = self.ShieldSpells and self.ShieldSpells[self.opt.preferredShield or 1]
+	if pref and GetSpellInfo(pref[2]) then return pref[2], pref[1] end
+	for _, d in ipairs(self.ShieldSpells or {}) do
+		if GetSpellInfo(d[2]) then return d[2], d[1] end
+	end
+	return nil
+end
+
+function SP:CompactShieldLineActive()
+	return self:CompactActive() and self.opt.compactShieldLine and self:CompactKnownShield() ~= nil and true or false
+end
+
+-- Space the shield line takes at the start of the bar (0 when off).
+function SP:CompactStartOffset()
+	if not self:CompactShieldLineActive() then return 0 end
+	local _, _, sw, sh = self:GetTotemSlotDims()
+	return (self:IsTotemBarHorizontal() and sw or sh) + (self.opt.totemBarPadding or 2)
+end
+
+function SP:EnsureCompactShieldButton()
+	local btn = _G["ShamanPowerCompactShieldBtn"]
+	if btn then return btn end
+	btn = CreateFrame("Button", "ShamanPowerCompactShieldBtn", UIParent, "SecureActionButtonTemplate")
+	btn:SetFrameStrata("MEDIUM")
+	btn:RegisterForClicks("AnyUp", "AnyDown")
+	btn:SetAttribute("type1", "spell")
+	btn:Hide()
+	btn:HookScript("OnEnter", function(b)
+		if not ShamanPower.opt.ShowTooltips then return end
+		local cache = ShamanPower.shieldCache
+		local name = b.spShieldName or "Shield"
+		GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+		GameTooltip:AddLine(name, 0.4, 0.7, 1)
+		if cache and cache.hasShield then
+			GameTooltip:AddLine("Charges: " .. (cache.shieldCharges or 0), 1, 1, 1)
+		else
+			GameTooltip:AddLine("Not active", 1, 0.3, 0.3)
+		end
+		GameTooltip:AddLine("Click to recast", 0.7, 0.7, 0.7)
+		GameTooltip:Show()
+	end)
+	btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+	return btn
+end
+
+function SP:ApplyCompactShieldLayout()
+	local on = self:CompactShieldLineActive() and self.autoButton and not self.totemBarHidden
+	local btn = _G["ShamanPowerCompactShieldBtn"]
+	if not on then
+		if btn then btn:Hide() end
+		return
+	end
+	btn = self:EnsureCompactShieldButton()
+	local c = self:EnsureCompactVisuals(btn)
+	local co = self:CompactOpts()
+	local bw, bh, _, _, ox, oy = self:GetTotemSlotDims()
+	btn:SetSize(bw, bh)
+	btn:SetScale(self.opt.buffscale or 0.9)
+	btn:ClearAllPoints()
+	btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", 4 + ox, -4 + oy)
+	self:LayoutCompactVisuals(c, btn, co, bw, bh)
+	c.line:Hide()
+	self:LayoutCompactSegments(btn, c, SHIELD_MAX_CHARGES)
+	if not InCombatLockdown() then
+		local name = self:CompactKnownShield()
+		btn.spShieldName = name
+		btn:SetAttribute("spell1", name)
+	end
+	btn:Show()
+	self:UpdateCompactShield()
+end
+
+function SP:UpdateCompactShield()
+	local btn = _G["ShamanPowerCompactShieldBtn"]
+	if not btn or not btn:IsShown() or not btn.compactSeg then return end
+	local cache = self.shieldCache
+	local active = cache and cache.hasShield and (cache.shieldCharges or 0) > 0
+	local base = active and SHIELD_COLORS[cache.shieldID] or nil
+	self:PaintCompactSegments(btn.compactSeg, active and cache.shieldCharges or 0, active and true or false, self.opt.shieldChargeColors, base)
+	if btn.compact then btn.compact.bg:Show() end
+	-- keep the click on the shield that is actually up
+	if not InCombatLockdown() then
+		local name = self:CompactKnownShield()
+		if name and name ~= btn.spShieldName then
+			btn.spShieldName = name
+			btn:SetAttribute("spell1", name)
+		end
+	end
+	btn:SetAlpha(self.opt.totemBarOpacity or 1)
+end
+
 -- Charges come from the ES button's own updater (esButton subsystem, 2 Hz),
 -- which keeps the charge text and cached target current.
 function SP:UpdateCompactES()
@@ -490,6 +599,7 @@ function SP:UpdateCompactTotems()
 		end
 	end
 	self:UpdateCompactES()
+	self:UpdateCompactShield()
 end
 
 -- Compact style has no "dropped totem pops above the assigned one": the line
@@ -523,6 +633,7 @@ function SP:SetupCompactStyle()
 		end
 	end
 	self:ApplyCompactESLayout()
+	self:ApplyCompactShieldLayout()
 end
 
 -- Option change entry point (settings window + wizard).

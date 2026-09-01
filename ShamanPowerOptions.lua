@@ -799,6 +799,25 @@ ShamanPower.options = {
 								ShamanPower:UpdateMiniTotemBar()
 							end
 						},
+						activeOverlayDirection = {
+							order = 4.55,
+							type = "select",
+							name = "Dropped Totem Indicator Position",
+							desc = "Where the indicator for a dropped, non-assigned totem (and the Earth Shield one) pops out from its button. Auto puts it above a horizontal bar and on the flyout side of a vertical one.",
+							width = 1.4,
+							values = { auto = "Auto", above = "Above", below = "Below", left = "Left", right = "Right" },
+							sorting = { "auto", "above", "below", "left", "right" },
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.activeOverlayDirection or "auto"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.activeOverlayDirection = val
+								ShamanPower:PositionActiveOverlays()
+							end
+						},
 						compactSpacer = {
 							order = 4.6,
 							type = "description",
@@ -951,6 +970,15 @@ ShamanPower.options = {
 									width = 1.2,
 									get = function(info) return ShamanPower.opt.compactPulseText ~= false end,
 									set = function(info, val) ShamanPower.opt.compactPulseText = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactShieldLine = {
+									order = 9.5,
+									type = "toggle",
+									name = "Your Shield Line (Lightning / Water)",
+									desc = "A 3-segment line at the start of the bar showing your Lightning or Water Shield charges. Click it to recast. Earth Shield has its own line at the end of the bar whenever the Earth Shield button is shown.",
+									width = "full",
+									get = function(info) return ShamanPower.opt.compactShieldLine and true or false end,
+									set = function(info, val) ShamanPower.opt.compactShieldLine = val; ShamanPower:ApplyCompactStyle() end,
 								},
 								compactNote = {
 									order = 10,
@@ -1378,6 +1406,168 @@ ShamanPower.options = {
 									ShamanPower:UpdateEarthShieldButton()
 								end
 							end
+						},
+						es_flyout_filter = {
+							order = 2.27,
+							type = "group",
+							inline = true,
+							name = "Earth Shield Flyout Filter",
+							hidden = function(info)
+								return not ShamanPower:HasEarthShield() or ShamanPower.opt.enableESFlyout == false
+							end,
+							args = {
+								esf_desc = {
+									order = 1,
+									type = "description",
+									width = "full",
+									name = "|cff888888Only show these players in the Earth Shield flyout. Roles use the built-in group roles (raid Main Tanks count as Tanks). Selections combine: a player shows if their role OR class is picked. Nothing selected = everyone. Your assigned target is always shown.|r",
+								},
+								esf_role_TANK = {
+									order = 2,
+									type = "toggle",
+									name = "Tanks",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutRoles and ShamanPower.opt.esFlyoutRoles.TANK or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutRoles")
+										ShamanPower.opt.esFlyoutRoles.TANK = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_role_HEALER = {
+									order = 3,
+									type = "toggle",
+									name = "Healers",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutRoles and ShamanPower.opt.esFlyoutRoles.HEALER or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutRoles")
+										ShamanPower.opt.esFlyoutRoles.HEALER = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_role_DAMAGER = {
+									order = 4,
+									type = "toggle",
+									name = "Damage",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutRoles and ShamanPower.opt.esFlyoutRoles.DAMAGER or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutRoles")
+										ShamanPower.opt.esFlyoutRoles.DAMAGER = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_spacer = { order = 9, type = "description", name = " ", width = "full" },
+								esf_class_WARRIOR = {
+									order = 10,
+									type = "toggle",
+									name = "|cffC79C6EWarriors|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.WARRIOR or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.WARRIOR = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_PALADIN = {
+									order = 11,
+									type = "toggle",
+									name = "|cffF58CBAPaladins|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.PALADIN or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.PALADIN = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_HUNTER = {
+									order = 12,
+									type = "toggle",
+									name = "|cffABD473Hunters|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.HUNTER or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.HUNTER = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_ROGUE = {
+									order = 13,
+									type = "toggle",
+									name = "|cffFFF569Rogues|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.ROGUE or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.ROGUE = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_PRIEST = {
+									order = 14,
+									type = "toggle",
+									name = "|cffFFFFFFPriests|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.PRIEST or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.PRIEST = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_SHAMAN = {
+									order = 15,
+									type = "toggle",
+									name = "|cff0070DEShamans|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.SHAMAN or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.SHAMAN = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_MAGE = {
+									order = 16,
+									type = "toggle",
+									name = "|cff69CCF0Mages|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.MAGE or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.MAGE = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_WARLOCK = {
+									order = 17,
+									type = "toggle",
+									name = "|cff9482C9Warlocks|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.WARLOCK or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.WARLOCK = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+								esf_class_DRUID = {
+									order = 18,
+									type = "toggle",
+									name = "|cffFF7D0ADruids|r",
+									width = 0.7,
+									get = function(info) return ShamanPower.opt.esFlyoutClasses and ShamanPower.opt.esFlyoutClasses.DRUID or false end,
+									set = function(info, val)
+										ShamanPower:EnsureProfileTable("esFlyoutClasses")
+										ShamanPower.opt.esFlyoutClasses.DRUID = val or nil
+										ShamanPower:CreateEarthShieldFlyout(true)
+									end,
+								},
+							}
 						},
 						drop_order_header = {
 							order = 2.5,

@@ -2497,6 +2497,69 @@ end
 
 ShamanPower.activeTotemOverlays = {}
 
+-- Flyout vertical direction. "auto" is screen-aware: the flyout extends
+-- downward when the bar sits in the top part of the screen, upward otherwise
+-- (issue #20 - flyouts used to always extend up and could run off screen).
+function ShamanPower:FlyoutGoesBelow(anchorBtn)
+	local dir = self.opt.totemFlyoutDirection or "auto"
+	if dir == "below" then return true end
+	if dir == "above" then return false end
+	-- Auto is decided by where the BAR sits (one decision for the totem
+	-- flyouts, the ES flyout and the dropped-totem indicators together), with
+	-- a dead zone so a bar near the middle of the screen cannot flip back and
+	-- forth as the container resizes by a few pixels.
+	local bar = _G["ShamanPowerFrame"] or self.autoButton or anchorBtn
+	local below = self._flyoutAutoBelow or false
+	if bar then
+		local _, cy = bar:GetCenter()
+		if cy then
+			local frac = cy * bar:GetEffectiveScale() / (UIParent:GetHeight() * UIParent:GetEffectiveScale())
+			if below then
+				if frac < 0.45 then below = false end
+			else
+				if frac > 0.60 then below = true end
+			end
+			self._flyoutAutoBelow = below
+		end
+	end
+	return below
+end
+
+-- Where the dropped-totem indicator (and the ES one) pops out, relative to
+-- its button. opt.activeOverlayDirection: "auto" follows the bar layout -
+-- above a horizontal bar, on the flyout side of a vertical one (issue #20).
+function ShamanPower:GetActiveOverlayAnchor()
+	local dir = self.opt.activeOverlayDirection or "auto"
+	if dir == "auto" then
+		if self.opt.layout == "VerticalLeft" then dir = "left"
+		elseif self.opt.layout == "Vertical" then dir = "right"
+		else dir = self:FlyoutGoesBelow() and "below" or "above" end
+	end
+	if dir == "below" then return "TOP", "BOTTOM", 0, -2
+	elseif dir == "left" then return "RIGHT", "LEFT", -2, 0
+	elseif dir == "right" then return "LEFT", "RIGHT", 2, 0
+	end
+	return "BOTTOM", "TOP", 0, 2
+end
+
+function ShamanPower:PositionActiveOverlays()
+	local p, rp, ox, oy = self:GetActiveOverlayAnchor()
+	for element = 1, 4 do
+		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
+		local btn = self.totemButtons and self.totemButtons[element]
+		if ov and ov.frame and btn then
+			ov.frame:ClearAllPoints()
+			ov.frame:SetPoint(p, btn, rp, ox, oy)
+		end
+	end
+	local esOv = self.esActiveOverlay
+	local esBtn = _G["ShamanPowerEarthShieldBtn"]
+	if esOv and esOv.frame and esBtn then
+		esOv.frame:ClearAllPoints()
+		esOv.frame:SetPoint(p, esBtn, rp, ox, oy)
+	end
+end
+
 function ShamanPower:CreateActiveTotemOverlay(element)
 	local totemButton = self.totemButtons[element]
 	if not totemButton then return nil end
@@ -2506,7 +2569,10 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	-- Create a frame to hold the active totem icon (appears above the button)
 	local frame = CreateFrame("Frame", "ShamanPowerActiveOverlay" .. element, totemButton)
 	frame:SetSize(26, 26)
-	frame:SetPoint("BOTTOM", totemButton, "TOP", 0, 2)
+	do
+		local p, rp, ox, oy = self:GetActiveOverlayAnchor()
+		frame:SetPoint(p, totemButton, rp, ox, oy)
+	end
 	frame:SetFrameLevel(totemButton:GetFrameLevel() + 5)
 	frame:Hide()
 
@@ -4424,6 +4490,7 @@ function ShamanPower:PositionTotemButtons()
 	local isHorizontal = self:IsTotemBarHorizontal()
 	-- Compact style: buttons are lines (bw x bh) inside a slot that may also hold an icon square
 	local bw, bh, sw, sh, offX, offY = self:GetTotemSlotDims()
+	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0   -- Compact shield line at the start
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 
 	-- Check which totem buttons should be visible (not hidden and not popped out)
@@ -4450,9 +4517,9 @@ function ShamanPower:PositionTotemButtons()
 				btn:SetSize(bw, bh)
 
 				if isHorizontal then
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (sw + spacing) + offX, -padding + offY)
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + startOff + (visiblePosition - 1) * (sw + spacing) + offX, -padding + offY)
 				else
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + offX, -padding - (visiblePosition - 1) * (sh + spacing) + offY)
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + offX, -padding - startOff - (visiblePosition - 1) * (sh + spacing) + offY)
 				end
 
 				-- Match the scale of the visual container
@@ -4479,6 +4546,7 @@ function ShamanPower:UpdateTotemButtons()
 	local isHorizontal = self:IsTotemBarHorizontal()
 	-- Compact style: buttons are lines (bw x bh) inside a slot that may also hold an icon square
 	local bw, bh, sw, sh, offX, offY = self:GetTotemSlotDims()
+	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0   -- Compact shield line at the start
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 
 	-- Check which totem buttons should be visible (not hidden in options and not popped out)
@@ -4590,9 +4658,9 @@ function ShamanPower:UpdateTotemButtons()
 				btn:ClearAllPoints()
 				btn:SetSize(bw, bh)
 				if isHorizontal then
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (sw + spacing) + offX, -padding + offY)
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + startOff + (visiblePosition - 1) * (sw + spacing) + offX, -padding + offY)
 				else
-					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + offX, -padding - (visiblePosition - 1) * (sh + spacing) + offY)
+					btn:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + offX, -padding - startOff - (visiblePosition - 1) * (sh + spacing) + offY)
 				end
 
 				-- Match the scale of the visual container
@@ -4648,12 +4716,16 @@ function ShamanPower:CreateTotemFlyout(element)
 		local spellName = GetSpellInfo(spellID)
 		local totemName = totemNames and totemNames[totemIndex]
 		local isKnown = PlayerKnowsTotem(spellID, totemName)
+		-- Talent-gated totems (Totem of Wrath, Mana Tide) always get a button, so
+		-- a respec can show/hide them through the normal flyout filter with no
+		-- /reload - exactly like the settings toggles do
+		local isTalentTotem = self.TalentTotems and self.TalentTotems[spellID] ~= nil
 
 		-- Check if totem is enabled in flyout settings (default to true if not set)
 		local flyoutKey = elementKey .. "_" .. totemIndex
 		local isEnabledInFlyout = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
 
-		if isKnown then
+		if isKnown or isTalentTotem then
 			-- Create button as CHILD of totem button using SPFlyoutButtonTemplate
 			-- Parent is totemButton (parented to UIParent) for combat flyout support
 			local btn = CreateFrame("Button",
@@ -4671,7 +4743,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
 			btn:SetAttribute("_childupdate-show", [[
 				if message then
-					if not self:GetAttribute("isCurrentAssignment") then
+					if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then
 						self:Show()
 					end
 				else
@@ -4695,7 +4767,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- Each button counts visible siblings before it and positions itself accordingly
 			btn:SetAttribute("_childupdate-relayout", [[
 				-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
-				if self:GetAttribute("isCurrentAssignment") then
+				if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then
 					return
 				end
 
@@ -4714,7 +4786,7 @@ function ShamanPower:CreateTotemFlyout(element)
 					local sibling = children[i]
 					if sibling:GetAttribute("isFlyoutButton") then
 						local sibIndex = sibling:GetAttribute("myTotemIndex") or 0
-						if sibIndex < myIndex and not sibling:GetAttribute("isCurrentAssignment") then
+						if sibIndex < myIndex and not sibling:GetAttribute("isCurrentAssignment") and not sibling:GetAttribute("flyoutHidden") then
 							visibleBefore = visibleBefore + 1
 						end
 					end
@@ -4910,18 +4982,22 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			btn.totemIndex = totemIndex
 			btn.spellID = spellID
+			btn.talentSpellID = isTalentTotem and spellID or nil
 
 			-- Always add to allButtons (for rebuilding when settings change)
 			table.insert(flyout.allButtons, btn)
 
-			-- Only add to active buttons if enabled in flyout settings
-			if isEnabledInFlyout then
+			-- Only add to active buttons if enabled in flyout settings and, for
+			-- talent-gated totems, currently known
+			if isEnabledInFlyout and (not isTalentTotem or isKnown) then
 				btn.isDisabledInFlyout = false
+				btn:SetAttribute("flyoutHidden", false)
 				table.insert(flyout.buttons, btn)
 			else
 				btn.isDisabledInFlyout = true
 				btn:Hide()
 				btn:SetAttribute("isCurrentAssignment", true)  -- Treat as hidden
+				btn:SetAttribute("flyoutHidden", true)         -- unlike isCurrentAssignment, survives assignment broadcasts
 			end
 		end
 	end
@@ -5008,7 +5084,7 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 
 	-- Determine flyout direction for vertical flyouts (when horizontal bar)
 	local flyoutDir = self.opt.totemFlyoutDirection or "auto"
-	local flyoutGoesBelow = (flyoutDir == "below")
+	local flyoutGoesBelow = self:FlyoutGoesBelow(totemButton)
 
 	flyout.isHorizontal = flyoutIsHorizontal
 
@@ -5171,7 +5247,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 
 	-- Determine flyout direction for vertical flyouts (when horizontal bar)
 	local flyoutDir = self.opt.totemFlyoutDirection or "auto"
-	local flyoutGoesBelow = (flyoutDir == "below")
+	local flyoutGoesBelow = self:FlyoutGoesBelow(totemButton)
 
 	-- Store layout info on parent button for secure relayout handler
 	totemButton:SetAttribute("isVerticalLeft", isVerticalLeft)
@@ -5501,15 +5577,21 @@ function ShamanPower:RecreateTotemFlyouts()
 				local totemIdx = btn.totemIndex
 				local flyoutKey = elementKey .. "_" .. totemIdx
 				local isEnabled = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
+				-- Talent-gated totems only show while the talent is actually known
+				if btn.talentSpellID and not IsSpellKnown(btn.talentSpellID) then
+					isEnabled = false
+				end
 
 				if isEnabled then
 					btn.isDisabledInFlyout = false
 					btn:SetAttribute("isCurrentAssignment", false)
+					btn:SetAttribute("flyoutHidden", false)
 					table.insert(flyout.buttons, btn)
 				else
 					btn:Hide()
 					btn.isDisabledInFlyout = true
 					btn:SetAttribute("isCurrentAssignment", true)  -- Treat as hidden
+					btn:SetAttribute("flyoutHidden", true)
 				end
 			end
 
@@ -8543,6 +8625,8 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	if esBtn then esBtn:SetShown(shown and self.HasEarthShield and self:HasEarthShield() or false) end
 	local tcBtn = _G["ShamanPowerTotemicCallBtn"]
 	if tcBtn and not shown then tcBtn:Hide() end
+	local shBtn = _G["ShamanPowerCompactShieldBtn"]
+	if shBtn then shBtn:SetShown(shown and self.CompactShieldLineActive and self:CompactShieldLineActive() or false) end
 end
 do
 	local f = CreateFrame("Frame")
@@ -8676,6 +8760,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	local bw, bh, sw, sh = self:GetTotemSlotDims()
 	local slotAlong = isHorizontal and sw or sh   -- slot size along the bar
 	local slotCross = isHorizontal and sh or sw   -- slot size across the bar
+	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0   -- Compact shield line at the start
 	local spacing = self.opt.totemBarPadding or 2
 	local padding = 4
 	local separatorSize = 12  -- Extra gap for separator
@@ -8710,7 +8795,7 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	if isHorizontal then
 		-- Horizontal: wide and short
-		local totalWidth = (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
+		local totalWidth = (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
 		if extraButtonCount > 0 and visibleCount > 0 then
 			totalWidth = totalWidth + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1))
 		elseif extraButtonCount > 0 then
@@ -8719,7 +8804,7 @@ function ShamanPower:UpdateMiniTotemBar()
 		self.autoButton:SetSize(math.max(totalWidth, buttonSize + (padding * 2)), math.max(slotCross, extraButtonCount > 0 and buttonSize or 0) + (padding * 2))
 	else
 		-- Vertical: narrow and tall
-		local totalHeight = (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
+		local totalHeight = (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
 		if extraButtonCount > 0 and visibleCount > 0 then
 			totalHeight = totalHeight + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1))
 		elseif extraButtonCount > 0 then
@@ -8871,12 +8956,12 @@ function ShamanPower:UpdateMiniTotemBar()
 		if isHorizontal then
 			-- Vertical separator line
 			separator:SetSize(2, slotCross)
-			local separatorX = padding + (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (separatorSize / 2) - 1
+			local separatorX = padding + (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (separatorSize / 2) - 1
 			separator:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", separatorX, -padding)
 		else
 			-- Horizontal separator line
 			separator:SetSize(slotCross, 2)
-			local separatorY = -padding - (slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - (separatorSize / 2) + 1
+			local separatorY = -padding - (startOff + slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - (separatorSize / 2) + 1
 			separator:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, separatorY)
 		end
 		separator:Show()
@@ -8888,10 +8973,10 @@ function ShamanPower:UpdateMiniTotemBar()
 		if showDropAllHere and dropAllButton then
 			dropAllButton:ClearAllPoints()
 			if isHorizontal then
-				local dropAllX = padding + (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
+				local dropAllX = padding + (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
 				dropAllButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", dropAllX, -padding)
 			else
-				local dropAllY = -padding - (slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
+				local dropAllY = -padding - (startOff + slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
 				dropAllButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, dropAllY)
 			end
 			dropAllButton:Show()
@@ -8904,10 +8989,10 @@ function ShamanPower:UpdateMiniTotemBar()
 		if showTotemicCall and totemicCallButton then
 			totemicCallButton:ClearAllPoints()
 			if isHorizontal then
-				local tcX = padding + (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
+				local tcX = padding + (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + separatorSize + (extraPos * (buttonSize + spacing))
 				totemicCallButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", tcX, -padding)
 			else
-				local tcY = -padding - (slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
+				local tcY = -padding - (startOff + slotAlong * visibleCount) - (spacing * math.max(0, visibleCount - 1)) - separatorSize - (extraPos * (buttonSize + spacing))
 				totemicCallButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, tcY)
 			end
 			totemicCallButton:Show()
@@ -9343,7 +9428,10 @@ function ShamanPower:CreateESActiveOverlay()
 	-- Create frame above the ES button
 	local frame = CreateFrame("Frame", "ShamanPowerESActiveOverlay", esBtn)
 	frame:SetSize(26, 26)
-	frame:SetPoint("BOTTOM", esBtn, "TOP", 0, 2)
+	do
+		local p, rp, ox, oy = self:GetActiveOverlayAnchor()
+		frame:SetPoint(p, esBtn, rp, ox, oy)
+	end
 	frame:SetFrameLevel(esBtn:GetFrameLevel() + 5)
 	frame:Hide()
 
@@ -9503,6 +9591,31 @@ for i = 1, 40 do
 	esFlyoutUnits_raid[i] = "raid" .. i
 end
 
+-- Earth Shield flyout filter (issue request): only show players whose group
+-- role or class is selected. Empty selection = everyone. The assigned ES
+-- target always shows. Raid Main Tanks count as Tanks when they
+-- have no LFG role set.
+function ShamanPower:ESFlyoutPassesFilter(name, classFilename, unit, raidRole)
+	local roles = self.opt.esFlyoutRoles
+	local classes = self.opt.esFlyoutClasses
+	local anyRole = roles and (roles.TANK or roles.HEALER or roles.DAMAGER)
+	local anyClass = false
+	if classes then
+		for _, v in pairs(classes) do if v then anyClass = true; break end end
+	end
+	if not anyRole and not anyClass then return true end
+	local short = name and Ambiguate(name, "short")
+	local assigned = ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[self.player]
+	if assigned and short == Ambiguate(assigned, "short") then return true end
+	if anyClass and classFilename and classes[classFilename] then return true end
+	if anyRole then
+		local r = unit and UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "NONE"
+		if (not r or r == "NONE") and raidRole == "MAINTANK" then r = "TANK" end
+		if r and roles[r] then return true end
+	end
+	return false
+end
+
 function ShamanPower:CreateEarthShieldFlyout(forceRebuild)
 	-- CHECK DISABLED FIRST - before any work
 	if self.opt.enableESFlyout == false then
@@ -9522,12 +9635,14 @@ function ShamanPower:CreateEarthShieldFlyout(forceRebuild)
 
 	if not self:HasEarthShield() then return end
 
-	-- Skip rebuild if group size hasn't changed
+	-- Skip rebuild if the group size and flyout direction haven't changed
 	local currentSize = GetNumGroupMembers()
-	if not forceRebuild and currentSize == self.lastESFlyoutSize then
+	local dirSig = (self.opt.layout or "Horizontal") .. (self:FlyoutGoesBelow(_G["ShamanPowerEarthShieldBtn"]) and "b" or "a")
+	if not forceRebuild and currentSize == self.lastESFlyoutSize and dirSig == self.lastESFlyoutDir then
 		return
 	end
 	self.lastESFlyoutSize = currentSize
+	self.lastESFlyoutDir = dirSig
 
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if not esBtn then return end
@@ -9540,15 +9655,15 @@ function ShamanPower:CreateEarthShieldFlyout(forceRebuild)
 	local spellName = self:GetEarthShieldSpell()
 	local swapped = self.opt.swapFlyoutClickButtons
 	local layout = self.opt.layout or "Horizontal"
-	local flyoutDir = self.opt.totemFlyoutDirection or "auto"
+	local flyoutDir = self:FlyoutGoesBelow(_G["ShamanPowerEarthShieldBtn"]) and "below" or "above"
 
 	-- Count and update buttons directly - NO intermediate members table
 	local buttonIndex = 0
 
 	if IsInRaid() then
 		for i = 1, 40 do
-			local name, _, _, _, _, classFilename = GetRaidRosterInfo(i)
-			if name then
+			local name, _, _, _, _, classFilename, _, _, _, raidRole = GetRaidRosterInfo(i)
+			if name and self:ESFlyoutPassesFilter(name, classFilename, esFlyoutUnits_raid[i], raidRole) then
 				buttonIndex = buttonIndex + 1
 				self:UpdateOrCreateESFlyoutButton(buttonIndex, name, classFilename, esFlyoutUnits_raid[i], esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
 			end
@@ -9564,7 +9679,7 @@ function ShamanPower:CreateEarthShieldFlyout(forceRebuild)
 			if UnitExists(unit) then
 				local name = UnitName(unit)
 				local _, classFilename = UnitClass(unit)
-				if name then
+				if name and self:ESFlyoutPassesFilter(name, classFilename, unit) then
 					buttonIndex = buttonIndex + 1
 					self:UpdateOrCreateESFlyoutButton(buttonIndex, name, classFilename, unit, esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
 				end
@@ -9577,9 +9692,11 @@ function ShamanPower:CreateEarthShieldFlyout(forceRebuild)
 		self:UpdateOrCreateESFlyoutButton(buttonIndex, UnitName("player"), classFilename, "player", esBtn, spellName, swapped, buttonSize, spacing, layout, flyoutDir)
 	end
 
-	-- Hide any extra buttons from previous larger group
-	for i = buttonIndex + 1, self.esFlyoutButtonCount do
+	-- Hide any extra buttons (smaller group, or filtered out) and gate them
+	-- off from the secure hover-show
+	for i = buttonIndex + 1, #self.esFlyoutButtons do
 		if self.esFlyoutButtons[i] then
+			self.esFlyoutButtons[i]:SetAttribute("esInactive", true)
 			self.esFlyoutButtons[i]:Hide()
 		end
 	end
@@ -9616,7 +9733,9 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		-- SECURE HANDLER: Respond to parent's ChildUpdate
 		btn:SetAttribute("_childupdate-show", [[
 			if message then
-				self:Show()
+				if not self:GetAttribute("esInactive") then
+					self:Show()
+				end
 			else
 				self:Hide()
 			end
@@ -9628,7 +9747,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		btn:RegisterForClicks("AnyUp", "AnyDown")
 
 		-- Tooltip (uses stored attributes)
-		btn:SetScript("OnEnter", function(self)
+		btn:HookScript("OnEnter", function(self)
 			if not ShamanPower.opt.ShowTooltips then return end
 			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			local memberName = self:GetAttribute("memberName")
@@ -9648,7 +9767,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 			end
 			GameTooltip:Show()
 		end)
-		btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
 		-- Handle assignment
 		btn:SetScript("PostClick", function(self, button)
@@ -9659,6 +9778,13 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 					ShamanPower_EarthShieldAssignments[ShamanPower.player] = memberName
 					ShamanPower:UpdateEarthShieldButton()
 					ShamanPower:SendMessage("ES_ASSIGN " .. ShamanPower.player .. " " .. memberName)
+				end
+			end
+			-- Close the flyout after picking someone, like the totem flyouts
+			-- (out of combat only; in combat the secure mouse-leave closes it)
+			if not InCombatLockdown() then
+				for _, b in ipairs(ShamanPower.esFlyoutButtons) do
+					b:Hide()
 				end
 			end
 		end)
@@ -9707,6 +9833,10 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		btn:SetAttribute("macrotext1", castMacro)
 	end
 
+	-- This button is in use (filtered-out and shrunken-group buttons are gated
+	-- off so the secure hover-show cannot bring them back)
+	btn:SetAttribute("esInactive", false)
+
 	-- Position button
 	btn:ClearAllPoints()
 	if layout == "Horizontal" then
@@ -9716,9 +9846,11 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 			btn:SetPoint("BOTTOM", esBtn, "TOP", 0, spacing + (index - 1) * (buttonSize + spacing))
 		end
 	elseif layout == "VerticalLeft" then
-		btn:SetPoint("LEFT", esBtn, "RIGHT", spacing + (index - 1) * (buttonSize + spacing), 0)
-	else
+		-- VerticalLeft: flyouts go LEFT, same as the totem flyouts
 		btn:SetPoint("RIGHT", esBtn, "LEFT", -spacing - (index - 1) * (buttonSize + spacing), 0)
+	else
+		-- Vertical: flyouts go RIGHT, same as the totem flyouts
+		btn:SetPoint("LEFT", esBtn, "RIGHT", spacing + (index - 1) * (buttonSize + spacing), 0)
 	end
 
 	btn:Hide()  -- Hidden by default, shown on hover via secure handler
@@ -10126,6 +10258,12 @@ function ShamanPower:UpdateEarthShieldButton()
 
 			-- Create/update ES flyout for party/raid members
 			self:CreateEarthShieldFlyout()
+
+			-- Re-apply the overlay pass in this same frame: this repaint colors
+			-- the icon/name, and without this the 0.5s overlay tick greys them
+			-- again half a second later - the two alternate visibly (the ES
+			-- "blink" with an unassigned active shield)
+			self:UpdateESActiveOverlay()
 		else
 			esBtn:Hide()
 		end
@@ -10225,6 +10363,7 @@ function ShamanPower:UpdateAutoButtonSize()
 	local isHorizontal = self:IsTotemBarHorizontal()
 	local _, _, sw, sh = self:GetTotemSlotDims()
 	local slotAlong = isHorizontal and sw or sh
+	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0
 	local showDropAll = self.opt.showDropAllButton ~= false and not self:IsDropAllPoppedOut()
 	local showES = self.opt.totemBarShowEarthShield ~= false and self:HasEarthShield() and not self:IsEarthShieldPoppedOut()
 
@@ -10235,7 +10374,7 @@ function ShamanPower:UpdateAutoButtonSize()
 	if self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3) then visibleCount = visibleCount + 1 end
 	if self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4) then visibleCount = visibleCount + 1 end
 
-	local baseSize = (slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1))
+	local baseSize = (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1))
 
 	if isHorizontal then
 		local totalWidth = padding * 2
@@ -10721,6 +10860,11 @@ function ShamanPower:OnTalentsChanged()
 	-- Recreate cooldown bar to pick up new talent-based abilities (NS, Mana Tide, etc.)
 	self:RecreateCooldownBar()
 
+	-- Re-filter the totem flyouts so talent-gated totems (Totem of Wrath,
+	-- Mana Tide) appear or disappear with the spec - no /reload needed. The
+	-- buttons always exist; this only flips the same filter the settings use.
+	self:RecreateTotemFlyouts()
+
 	-- Update keybindings for the new buttons
 	self:SetupKeybindings()
 
@@ -10883,6 +11027,9 @@ function ShamanPower:SPELLS_CHANGED()
 	end
 	ShamanPower:ScanSpells()
 	ShamanPower:SendSelf()
+	if not InCombatLockdown() then
+		ShamanPower:RecreateTotemFlyouts()
+	end
 	ShamanPower:UpdateLayout()
 end
 
@@ -11645,6 +11792,7 @@ function ShamanPower:UpdateLayout()
 	self:ApplyAllOpacity()
 
 	self:ButtonsUpdate()
+	self:PositionActiveOverlays()
 	self:UpdateAnchor()
 end
 
@@ -11726,6 +11874,8 @@ function ShamanPower:DragStop()
 	h:StopMovingOrSizing()
 	-- Save position to profile (ensures display table exists for proper persistence)
 	self:SaveFramePosition(h)
+	-- Auto directions depend on where the bar sits on screen
+	self:PositionActiveOverlays()
 end
 
 function ShamanPower:ApplySkin()
