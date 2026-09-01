@@ -21,3 +21,4 @@ SPRange.lua
 Share.lua
 MobList.lua
 Wizard.lua
+WhatsNew.lua
