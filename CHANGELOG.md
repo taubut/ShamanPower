@@ -1,5 +1,21 @@
 # ShamanPower Changelog
 
+## v2.0.4 (2026-09-01)
+
+### New
+- **Earth Shield Flyout Filter** - show only the players you would actually shield: pick group roles (Tanks / Healers / Damage - raid Main Tanks count as Tanks), classes, or both. Picks combine, nothing picked shows everyone, and your assigned target always shows. Settings > Totem Bar > Flyouts
+- **Screen-aware flyout direction** - with the flyout direction on Auto, the totem bar and Earth Shield flyouts open away from the screen edge (downward when the bar sits near the top, upward near the bottom). Above / Below still force a direction
+- **Dropped Totem Indicator Position** - choose where the indicator for a dropped, non-assigned totem (and the Earth Shield one) pops out: Auto, Above, Below, Left or Right
+- **Talent totems appear without a reload** - Totem of Wrath and Mana Tide now show up in (and disappear from) the flyouts when you respec, no /reload needed
+- **What's-new popup** - a small once-per-update card highlighting big changes; re-open it any time with /spwhatsnew
+
+### Fixes
+- Earth Shield flyout no longer sticks open: it closes on mouse-leave again and also closes after clicking a member, like the totem flyouts
+- Earth Shield flyout opened on the wrong side on vertical layouts, and did not re-check its direction when the bar moved
+- The Earth Shield button no longer flickers between grey and colored while your shield is on someone who is not the assigned target
+- Respeccing out of Restoration now resets a Mana Tide assignment the same way Totem of Wrath's is reset
+- Totems disabled in the flyout settings could sneak back into the flyout after a right-click assignment; they stay hidden now
+
 ## v2.0.3 (2026-08-28)
 
 ### Fixes
