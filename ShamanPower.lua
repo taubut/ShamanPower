@@ -9315,6 +9315,15 @@ function ShamanPower:CreateEarthShieldButton()
 	end)
 	esBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
+	-- Re-check the flyout direction on hover, like the totem flyouts do (the
+	-- size/direction guard inside CreateEarthShieldFlyout makes this a no-op
+	-- unless the bar moved across the screen or the layout changed)
+	esBtn:HookScript("OnEnter", function()
+		if not InCombatLockdown() then
+			ShamanPower:CreateEarthShieldFlyout()
+		end
+	end)
+
 	-- Register ES button updates with consolidated update system (2fps)
 	if not self.updateSystem.subsystems["esButton"] then
 		self:RegisterUpdateSubsystem("esButton", 0.5, function()
