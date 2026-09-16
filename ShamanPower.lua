@@ -52,22 +52,41 @@ local SP_SECURE_ONLEAVE_SELF = [[
 	self:ChildUpdate("show", false)
 ]]
 
--- Retail fires OnLeave (motion=true) the instant a secure click casts and
--- drops mouse focus while the cursor is still over the button. At that moment
--- the button itself and any decoration parked at the same spot (pulse frame,
--- active overlay) are geometrically "under the mouse", so only siblings that
--- take part in the flyout protocol (they carry an _onleave snippet) may keep
--- the flyout open.
-local SP_SECURE_ONLEAVE_PARENT = [[
+-- Flyout button leave, Classic clients (verified on Anniversary, issue #17):
+-- any shown sibling under the cursor keeps the flyout open, so moving between
+-- adjacent flyout buttons never closes it.
+local SP_SECURE_ONLEAVE_PARENT_CLASSIC = [[
 	local parent = self:GetParent()
 	if parent:IsUnderMouse() then return end
 	local children = newtable(parent:GetChildren())
 	for i = 1, #children do
 		local c = children[i]
-		if c ~= self and c:GetAttribute("_onleave") and c:IsShown() and c:IsUnderMouse() then return end
+		if c:IsShown() and c:IsUnderMouse() then return end
 	end
 	parent:ChildUpdate("show", false)
 ]]
+
+-- Mainline (retail / Forever) fires OnLeave (motion=true) the instant a secure
+-- click casts and drops mouse focus while the cursor is still over the button.
+-- At that moment the button itself and any decoration parked at the same spot
+-- (pulse frame, active overlay) are geometrically "under the mouse", so only
+-- siblings that take part in the flyout protocol may keep the flyout open.
+-- They are marked with the spFlyoutProtocol attribute: the restricted
+-- environment refuses to read any attribute whose name starts with "_", so
+-- testing for the _onleave snippet itself always came back nil.
+local SP_SECURE_ONLEAVE_PARENT_MAINLINE = [[
+	local parent = self:GetParent()
+	if parent:IsUnderMouse() then return end
+	local children = newtable(parent:GetChildren())
+	for i = 1, #children do
+		local c = children[i]
+		if c ~= self and c:GetAttribute("spFlyoutProtocol") and c:IsShown() and c:IsUnderMouse() then return end
+	end
+	parent:ChildUpdate("show", false)
+]]
+
+local SP_SECURE_ONLEAVE_PARENT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+	and SP_SECURE_ONLEAVE_PARENT_MAINLINE or SP_SECURE_ONLEAVE_PARENT_CLASSIC
 
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
 local UnitAura = LCD and LCD.UnitAuraWrapper or UnitAura
@@ -5117,6 +5136,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Store spell info as attributes for secure snippets
 			btn:SetAttribute("mySpell", spellName)
@@ -8719,6 +8739,7 @@ function ShamanPower:CreateShieldFlyout()
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Left-click casts shield; right-click has no type2 so no cast happens
 			btn:SetAttribute("type1", "spell")
@@ -8910,6 +8931,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Click to cast imbue spell (left=main hand, right=off hand)
 			local mainHandMacro = "/cast [@none] " .. spellName .. "\n/use 16\n/click StaticPopup1Button1"
@@ -10252,6 +10274,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 
 		-- SECURE HANDLER: Check parent on leave
 		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 		btn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -14572,6 +14595,7 @@ function ShamanPower:CreateLoadoutBar()
 		-- SECURE HANDLER: Hide flyout when mouse leaves set button (if not over parent anchor)
 		-- Same pattern as totem flyout _onleave
 		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 		-- SECURE HANDLER: Toggle visibility on parent ChildUpdate("toggle")
 		-- Same as TotemTimers: _childupdate-toggle

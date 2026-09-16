@@ -130,7 +130,7 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16y"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-16z"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -662,7 +662,7 @@ SlashCmdList["SPFLYOUT"] = function(msg)
 	local out = { string.format("=== ShamanPower flyout trace (compat build %s, leave snippet %s) ===", SPCompat.BUILD or "?",
 		(ShamanPower and ShamanPower.totemButtons and ShamanPower.totemButtons[1] and ShamanPower.totemFlyouts and ShamanPower.totemFlyouts[1]
 			and ShamanPower.totemFlyouts[1].allButtons and ShamanPower.totemFlyouts[1].allButtons[1]
-			and tostring(ShamanPower.totemFlyouts[1].allButtons[1]:GetAttribute("_onleave")):find('GetAttribute("_onleave")', 1, true)) and "NEW2" or "old"),
+			and tostring(ShamanPower.totemFlyouts[1].allButtons[1]:GetAttribute("_onleave")):find('spFlyoutProtocol', 1, true)) and "MAINLINE" or "CLASSIC"),
 		"--- snapshot now ---" }
 	flyoutSnapshot(out)
 	out[#out + 1] = "--- events (oldest first) ---"
