@@ -972,7 +972,7 @@ end
 function SP:EnableCallerCooldownTracking()
 	self:SetupCallerCooldownTracking()
 	if self.callerCooldownFrame and not self.callerCooldownTrackingEnabled then
-		self.callerCooldownFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+		pcall(self.callerCooldownFrame.RegisterEvent, self.callerCooldownFrame, "COMBAT_LOG_EVENT_UNFILTERED")
 		self.callerCooldownTrackingEnabled = true
 	end
 end
@@ -986,6 +986,7 @@ function SP:DisableCallerCooldownTracking()
 end
 
 function SP:OnCombatLogEvent()
+	if not CombatLogGetCurrentEventInfo then return end
 	local _, subEvent, _, sourceGUID, sourceName, _, _, _, _, _, _, spellID = CombatLogGetCurrentEventInfo()
 
 	if subEvent ~= "SPELL_CAST_SUCCESS" then return end

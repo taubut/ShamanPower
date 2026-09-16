@@ -577,13 +577,12 @@ function SP:UpdateCompactTotems()
 		local btn = self.totemButtons[element]
 		local c = btn and btn.compact
 		if c and btn.compactLayoutOn and btn:IsShown() then
-			local slot = self.ElementToSlot[element]
-			local haveTotem, _, startTime, duration, icon = GetTotemInfo(slot)
+			local haveTotem, _, startTime, duration, icon = self:GetElementTotemInfo(element)
 			if haveTotem and duration and duration > 0 then
 				local frac = ((startTime + duration) - now) / duration
 				if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
 				local pulsePos, pulseRemain
-				local pdata = self:GetActivePulsingTotem(slot)
+				local pdata = self:GetActivePulsingTotem(element)
 				if pdata then
 					pulsePos = ((now - startTime) % pdata.interval) / pdata.interval
 					pulseRemain = pdata.interval * (1 - pulsePos)

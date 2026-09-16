@@ -113,10 +113,7 @@ end
 
 -- Get the buff name for the currently active totem of an element
 function SP:GetActiveTotemBuffName(element)
-	local slot = self.ElementToSlot[element]
-	if not slot then return nil end
-
-	local haveTotem, totemName = GetTotemInfo(slot)
+	local haveTotem, totemName = self:GetElementTotemInfo(element)
 	if not haveTotem or not totemName then
 		self.totemBuffCache[element] = nil
 		return nil
@@ -274,8 +271,7 @@ function SP:UpdatePartyRangeDots()
 					dot:Hide()
 					if useOverlay and mainDot then mainDot:Hide() end
 				else
-					local slot = self.ElementToSlot[element]
-					local haveTotem, totemName = GetTotemInfo(slot)
+					local haveTotem, totemName = self:GetElementTotemInfo(element)
 
 					if haveTotem then
 						local buffName = self:GetActiveTotemBuffName(element)
@@ -587,8 +583,7 @@ function SP:UpdateRangeCounters()
 	-- Count players in range for each element
 	for element = 1, 4 do
 		local inRangeCount = 0
-		local slot = self.ElementToSlot[element]
-		local haveTotem = slot and GetTotemInfo(slot)
+		local haveTotem = self:GetElementTotemInfo(element)
 		local hasTrackableBuff = false  -- Track if this totem can be tracked
 
 		if haveTotem and totalPartyMembers > 0 then

@@ -33,7 +33,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Fear", "Charm", "Horrify"},
 		totemName = "Tremor Totem",
 		totemSpellID = 8143,
-		totemSlot = 1,  -- Earth slot
+		totemElement = 1,  -- Earth
 		icon = "Interface\\Icons\\Spell_Nature_TremorTotem",
 		color = {r = 0.8, g = 0.2, b = 0.8},  -- Purple
 		defaultPos = { point = "CENTER", x = -80, y = 150 },
@@ -44,7 +44,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Poison"},
 		totemName = "Poison Cleansing Totem",
 		totemSpellID = 8166,
-		totemSlot = 3,  -- Water slot
+		totemElement = 3,  -- Water
 		icon = "Interface\\Icons\\Spell_Nature_PoisonCleansingTotem",
 		color = {r = 0.2, g = 0.8, b = 0.2},  -- Green
 		defaultPos = { point = "CENTER", x = 0, y = 150 },
@@ -55,7 +55,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Disease"},
 		totemName = "Disease Cleansing Totem",
 		totemSpellID = 8170,
-		totemSlot = 3,  -- Water slot
+		totemElement = 3,  -- Water
 		icon = "Interface\\Icons\\Spell_Nature_DiseaseCleansingTotem",
 		color = {r = 0.6, g = 0.4, b = 0.2},  -- Brown
 		defaultPos = { point = "CENTER", x = 80, y = 150 },
@@ -487,9 +487,9 @@ function SP:UpdateReactiveTotemDisplay()
 
 		-- Check if relevant totem is already active
 		if debuffData and sv.hideWhenTotemActive then
-			local slot = totemData.totemSlot
-			if slot then
-				local haveTotem, totemName = GetTotemInfo(slot)
+			local element = totemData.totemElement
+			if element then
+				local haveTotem, totemName = ShamanPower:GetElementTotemInfo(element)
 				if haveTotem and totemName and totemName:find(totemData.totemName, 1, true) then
 					debuffData = nil
 				end

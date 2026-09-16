@@ -52,13 +52,19 @@ local SP_SECURE_ONLEAVE_SELF = [[
 	self:ChildUpdate("show", false)
 ]]
 
+-- Retail fires OnLeave (motion=true) the instant a secure click casts and
+-- drops mouse focus while the cursor is still over the button. At that moment
+-- the button itself and any decoration parked at the same spot (pulse frame,
+-- active overlay) are geometrically "under the mouse", so only siblings that
+-- take part in the flyout protocol (they carry an _onleave snippet) may keep
+-- the flyout open.
 local SP_SECURE_ONLEAVE_PARENT = [[
 	local parent = self:GetParent()
 	if parent:IsUnderMouse() then return end
 	local children = newtable(parent:GetChildren())
 	for i = 1, #children do
 		local c = children[i]
-		if c:IsShown() and c:IsUnderMouse() then return end
+		if c ~= self and c:GetAttribute("_onleave") and c:IsShown() and c:IsUnderMouse() then return end
 	end
 	parent:ChildUpdate("show", false)
 ]]
@@ -417,8 +423,9 @@ function ShamanPower:OnInitialize()
 		end
 	)
 
-	if self.isVanilla then
-		LCD:Register("ShamanPower")
+	if self.isVanilla and LCD then
+		-- LCD registers COMBAT_LOG_EVENT_UNFILTERED; a client that forbids it must not abort OnEnable
+		pcall(LCD.Register, LCD, "ShamanPower")
 	end
 
 	-- the transition from TBC Classic to Wrath Classic has caused some errors for players with SavedVariables values intended for the 2.5.4 clients and earlier
@@ -837,21 +844,112 @@ ShamanPower.ElementToSlot = {
 	[4] = 4,  -- Air -> slot 4
 }
 
+-- Classic clients keep each element in its fixed slot above. The retail client
+-- (and possibly Forever) fills the slots in cast order instead, so a lone Earth
+-- totem lands in slot 1. Every "which totem of this element is down" lookup
+-- goes through GetElementTotemInfo: it trusts the fixed slot until it sees a
+-- totem of another element sitting there, then resolves by totem name for the
+-- rest of the session.
+ShamanPower.dynamicTotemSlots = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+local totemNameElementCache = {}
+
+-- Teach the resolver a totem name (used by discovery on clients whose totem
+-- list differs from the static tables). Also clears a cached miss.
+function ShamanPower:RegisterTotemElement(totemName, element)
+	if totemName and element then
+		totemNameElementCache[totemName] = element
+	end
+end
+
+-- Element (1-4) a totem name belongs to, or nil if it matches nothing known.
+-- Longest matching table entry wins so a future "Fire" style entry cannot
+-- steal "Fire Resistance".
+function ShamanPower:TotemNameElement(totemName)
+	if not totemName or totemName == "" then return nil end
+	local cached = totemNameElementCache[totemName]
+	if cached ~= nil then return cached or nil end
+
+	local lowerName = totemName:lower()
+	local found, foundLen = nil, 0
+	for element = 1, 4 do
+		local names = self.TotemNames and self.TotemNames[element]
+		if names then
+			for _, name in pairs(names) do
+				if name and #name > foundLen and lowerName:find(name:lower(), 1, true) then
+					found, foundLen = element, #name
+				end
+			end
+		end
+	end
+	totemNameElementCache[totemName] = found or false
+	return found
+end
+
+-- Element (1-4) of a totem spell ID from the static tables, or nil.
+local totemSpellElementCache
+function ShamanPower:TotemSpellElement(spellID)
+	if type(spellID) ~= "number" or spellID == 0 then return nil end
+	if not totemSpellElementCache then
+		totemSpellElementCache = {}
+		for element = 1, 4 do
+			for _, id in pairs(self.Totems and self.Totems[element] or {}) do
+				if type(id) == "number" then totemSpellElementCache[id] = element end
+			end
+		end
+		for id, info in pairs(self.TalentTotems or {}) do
+			if type(info) == "table" and info[1] then totemSpellElementCache[id] = info[1] end
+		end
+	end
+	return totemSpellElementCache[spellID]
+end
+
+-- Element a slot's totem belongs to: the spell ID when the client reports one
+-- (retail's 7th GetTotemInfo return), else the name tables. nil = unknown.
+local function slotTotemElement(self, totemName, spellID)
+	return self:TotemSpellElement(spellID) or self:TotemNameElement(totemName)
+end
+
+-- GetTotemInfo for the totem of an element, wherever the client put it.
+-- Returns the GetTotemInfo tuple (haveTotem, name, startTime, duration, icon)
+-- plus the slot it was found in.
+function ShamanPower:GetElementTotemInfo(element)
+	local fixedSlot = self.ElementToSlot[element]
+	if not fixedSlot then return false end
+
+	local haveTotem, totemName, startTime, duration, icon, _, spellID = GetTotemInfo(fixedSlot)
+	if haveTotem and totemName and totemName ~= "" then
+		local slotElement = slotTotemElement(self, totemName, spellID)
+		if not slotElement or slotElement == element then
+			return haveTotem, totemName, startTime, duration, icon, fixedSlot
+		end
+		self.dynamicTotemSlots = true
+	end
+	if not self.dynamicTotemSlots then
+		return false, nil, nil, nil, nil, fixedSlot
+	end
+
+	for slot = 1, 4 do
+		if slot ~= fixedSlot then
+			local h, n, s, d, i, _, id = GetTotemInfo(slot)
+			if h and n and slotTotemElement(self, n, id) == element then
+				return h, n, s, d, i, slot
+			end
+		end
+	end
+	return false, nil, nil, nil, nil, nil
+end
+
 -- Check if a specific totem element is currently active
 function ShamanPower:IsTotemActive(element)
-	local slot = self.ElementToSlot[element]
-	if not slot then return false end
-	local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+	local haveTotem, _, startTime, duration = self:GetElementTotemInfo(element)
 	return haveTotem and (startTime + duration > GetTime())
 end
 
 -- Find the totem index for a given element based on the active totem name
 -- Used for Dynamic Mode to determine which totem is currently placed
 function ShamanPower:GetActiveTotemIndex(element)
-	local slot = self.ElementToSlot[element]
-	if not slot then return nil end
-
-	local haveTotem, activeTotemName = GetTotemInfo(slot)
+	local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 	if not haveTotem or not activeTotemName then return nil end
 
 	-- Search through all totems for this element to find a match
@@ -1365,24 +1463,24 @@ end
 
 -- Pulsing totem data: totemName pattern -> { element, interval }
 ShamanPower.PulsingTotems = {
-	-- Earth totems (element 1, slot 2)
-	["Tremor"] = { element = 1, slot = 2, interval = 3 },
-	["Earthbind"] = { element = 1, slot = 2, interval = 3 },
-	-- Fire totems (element 2, slot 1)
-	["Magma"] = { element = 2, slot = 1, interval = 2 },
-	-- Water totems (element 3, slot 3)
-	["Mana Tide"] = { element = 3, slot = 3, interval = 3 },
-	["Mana Spring"] = { element = 3, slot = 3, interval = 2 },
-	["Healing Stream"] = { element = 3, slot = 3, interval = 2 },
-	["Poison Cleansing"] = { element = 3, slot = 3, interval = 5 },
-	["Disease Cleansing"] = { element = 3, slot = 3, interval = 5 },
+	-- Earth totems
+	["Tremor"] = { element = 1, interval = 3 },
+	["Earthbind"] = { element = 1, interval = 3 },
+	-- Fire totems
+	["Magma"] = { element = 2, interval = 2 },
+	-- Water totems
+	["Mana Tide"] = { element = 3, interval = 3 },
+	["Mana Spring"] = { element = 3, interval = 2 },
+	["Healing Stream"] = { element = 3, interval = 2 },
+	["Poison Cleansing"] = { element = 3, interval = 5 },
+	["Disease Cleansing"] = { element = 3, interval = 5 },
 }
 
-function ShamanPower:GetActivePulsingTotem(slot)
-	local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+function ShamanPower:GetActivePulsingTotem(element)
+	local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 	if haveTotem and totemName then
 		for pattern, data in pairs(self.PulsingTotems) do
-			if data.slot == slot and totemName:find(pattern) then
+			if data.element == element and totemName:find(pattern) then
 				return data, startTime, duration
 			end
 		end
@@ -1404,20 +1502,12 @@ function ShamanPower:SetupPulseOverlays()
 	-- Only register once, but only enable if feature is on
 	if not self.updateSystem.subsystems["pulse"] then
 		self:RegisterUpdateSubsystem("pulse", 0.05, function()
-			-- Check Earth totem (slot 2)
-			local earthData, earthStart = ShamanPower:GetActivePulsingTotem(2)
-			ShamanPower:UpdatePulseGlow(1, earthData, earthStart)
-			ShamanPower:UpdatePoppedOutPulse(1, 2, earthData, earthStart)
-
-			-- Check Fire totem (slot 1)
-			local fireData, fireStart = ShamanPower:GetActivePulsingTotem(1)
-			ShamanPower:UpdatePulseGlow(2, fireData, fireStart)
-			ShamanPower:UpdatePoppedOutPulse(2, 1, fireData, fireStart)
-
-			-- Check Water totem (slot 3)
-			local waterData, waterStart = ShamanPower:GetActivePulsingTotem(3)
-			ShamanPower:UpdatePulseGlow(3, waterData, waterStart)
-			ShamanPower:UpdatePoppedOutPulse(3, 3, waterData, waterStart)
+			-- Earth, Fire, Water (elements 1-3) can have pulsing totems
+			for element = 1, 3 do
+				local data, start = ShamanPower:GetActivePulsingTotem(element)
+				ShamanPower:UpdatePulseGlow(element, data, start)
+				ShamanPower:UpdatePoppedOutPulse(element, data, start)
+			end
 		end)
 	end
 	-- Only enable if pulse bar is not disabled (pulseBarPosition != "none")
@@ -1430,9 +1520,9 @@ function ShamanPower:SetupPulseOverlays()
 end
 
 -- Update pulse effects on popped-out single totems
-function ShamanPower:UpdatePoppedOutPulse(element, slot, totemData, startTime)
+function ShamanPower:UpdatePoppedOutPulse(element, totemData, startTime)
 	-- Get the active totem name to match against pop-outs
-	local haveTotem, activeTotemName = GetTotemInfo(slot)
+	local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 
 	-- Iterate through all popped-out overlays for this element
 	for key, overlay in pairs(self.poppedOutOverlays or {}) do
@@ -1537,8 +1627,7 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	-- Check if the active totem is popped out - if so, don't show pulse on main bar
 	local totemIsPoppedOut = false
 	if totemData then
-		local slot = self.ElementToSlot and self.ElementToSlot[element] or element
-		local haveTotem, activeTotemName = GetTotemInfo(slot)
+		local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 		if haveTotem and activeTotemName then
 			-- Check if any popped-out single totem matches
 			for key, overlay in pairs(self.poppedOutOverlays or {}) do
@@ -1736,8 +1825,8 @@ function ShamanPower:UpdateTwistTimer()
 		return
 	end
 
-	-- Check if Air totem is active (slot 4)
-	local haveTotem, name, startTime, duration = GetTotemInfo(4)
+	-- Check if Air totem is active
+	local haveTotem, name, startTime, duration = self:GetElementTotemInfo(4)
 
 	-- Only update icon in classic mode (not TotemTimers mode)
 	-- In TotemTimers mode, UpdateActiveTotemOverlays handles the icon
@@ -2174,8 +2263,7 @@ function ShamanPower:UpdateTotemProgressBars()
 	for element = 1, 4 do
 		local bars = self.totemProgressBars[element]
 		if bars then
-			local slot = self.ElementToSlot[element]
-			local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+			local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 
 			-- Check if the active totem is popped out as a single totem
 			local totemIsPoppedOut = false
@@ -2435,8 +2523,7 @@ function ShamanPower:UpdatePoppedOutProgressBars()
 	for key, bars in pairs(self.poppedOutProgressBars) do
 		local frame = self.poppedOutFrames[key]
 		if frame and bars.element and bars.spellName then
-			local slot = self.ElementToSlot[bars.element]
-			local haveTotem, activeTotemName, startTime, duration = GetTotemInfo(slot)
+			local haveTotem, activeTotemName, startTime, duration = self:GetElementTotemInfo(bars.element)
 
 			-- Check if this pop-out's totem is the active one
 			local isActive = false
@@ -2805,11 +2892,9 @@ function ShamanPower:UpdateActiveTotemOverlays()
 		end
 
 		local overlay = self.activeTotemOverlays[element]
-		local slot = self.ElementToSlot[element]
 
-		-- Only process if we have both overlay and slot
-		if overlay and slot then
-			local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+		if overlay then
+			local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 
 			-- Get assigned totem info
 			local assignedIndex = assignments[element] or 0
@@ -3014,8 +3099,7 @@ function ShamanPower:UpdatePoppedOutActiveBorders()
 	for key, frame in pairs(self.poppedOutFrames) do
 		if key:match("^single_") and frame.element and frame.spellName then
 			local element = frame.element
-			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
-			local haveTotem, activeTotemName = GetTotemInfo(slot)
+			local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 
 			local isActive = false
 			if haveTotem and activeTotemName and frame.spellName then
@@ -5648,8 +5732,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 	-- Reset results and collect buff names
 	for element = 1, 4 do
 		results[element] = false
-		local slot = self.ElementToSlot[element]
-		local haveTotem, totemName = GetTotemInfo(slot)
+		local haveTotem, totemName = self:GetElementTotemInfo(element)
 		if haveTotem and totemName then
 			-- Check if this is a weapon enchant totem (Windfury or Flametongue)
 			if element == 4 and totemName:find("Windfury") then
@@ -5714,8 +5797,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 
 	-- Now apply the results to icons
 	for element = 1, 4 do
-		local slot = self.ElementToSlot[element]
-		local haveTotem = slot and GetTotemInfo(slot)
+		local haveTotem = self:GetElementTotemInfo(element)
 		local hasBuff = results[element]
 
 		-- Determine if this element has trackable range
@@ -7719,8 +7801,7 @@ function ShamanPower:UpdateTotemBarOpacity()
 			local btn = self.totemButtons[element]
 			if btn then
 				if fullWhenActive then
-					local slot = self.ElementToSlot and self.ElementToSlot[element]
-					local haveTotem = slot and GetTotemInfo(slot)
+					local haveTotem = self:GetElementTotemInfo(element)
 					btn:SetAlpha(haveTotem and 1.0 or opacity)
 				else
 					btn:SetAlpha(opacity)
@@ -7791,8 +7872,8 @@ function ShamanPower:UpdateCooldownBarOpacity()
 						local hasHero = PlayerHasBuff("Heroism")
 						isActive = hasBL or hasHero
 					elseif spellID == 16190 then
-						-- Mana Tide Totem - check if MTT is active (water totem slot 3)
-						local haveTotem, totemName = GetTotemInfo(3)
+						-- Mana Tide Totem - check if MTT is active (water totem)
+						local haveTotem, totemName = self:GetElementTotemInfo(3)
 						if haveTotem and totemName and totemName:find("Mana Tide") then
 							isActive = true
 						end
@@ -8609,13 +8690,10 @@ end
 
 -- Check if any totems are currently placed
 function ShamanPower:HasAnyTotemsPlaced()
-	for element = 1, 4 do
-		local slot = self.ElementToSlot[element]
-		if slot then
-			local haveTotem = GetTotemInfo(slot)
-			if haveTotem then
-				return true
-			end
+	for slot = 1, 4 do
+		local haveTotem = GetTotemInfo(slot)
+		if haveTotem then
+			return true
 		end
 	end
 	return false
@@ -10813,6 +10891,8 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 end
 
 function ShamanPower:ScanTalents()
+	-- classic talent API only; modern clients use trait trees (no equivalent yet)
+	if not GetNumTalentTabs or not GetNumTalents or not GetTalentInfo then return end
 	local numTabs = GetNumTalentTabs()
 	for t = 1, numTabs do
 		for i = 1, GetNumTalents(t) do

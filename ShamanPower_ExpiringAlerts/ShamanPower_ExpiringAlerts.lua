@@ -559,6 +559,8 @@ function SP:UpdateExpiringAlertsState()
 end
 
 function SP:CheckShieldState(initializing)
+	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
+	if SPCompat and SPCompat.combatDataSecret then return end
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.shields or not sv.shields.enabled then return end
 
@@ -593,13 +595,15 @@ function SP:CheckShieldState(initializing)
 end
 
 function SP:CheckTotemState(initializing)
+	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
+	if SPCompat and SPCompat.combatDataSecret then return end
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.totems or not sv.totems.enabled then return end
 
-	for slot = 1, 4 do
-		local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+	for element = 1, 4 do
+		local haveTotem, totemName, startTime, duration = ShamanPower:GetElementTotemInfo(element)
 
-		local prev = previousState.totems[slot]
+		local prev = previousState.totems[element]
 		local wasActive = prev.active
 		local prevName = prev.name
 		local prevStart = prev.startTime
@@ -607,8 +611,8 @@ function SP:CheckTotemState(initializing)
 
 		if not initializing and wasActive and not haveTotem then
 			-- Totem is gone - determine if destroyed or expired
-			local elementName = TotemElements[slot] and TotemElements[slot].name or "Totem"
-			local elementColor = TotemElements[slot] and TotemElements[slot].color or {r=1, g=1, b=1}
+			local elementName = TotemElements[element] and TotemElements[element].name or "Totem"
+			local elementColor = TotemElements[element] and TotemElements[element].color or {r=1, g=1, b=1}
 
 			-- Check element-specific toggle
 			local elementKey = elementName:lower()
@@ -619,7 +623,7 @@ function SP:CheckTotemState(initializing)
 				if isExpired then
 					-- Totem expired naturally
 					if sv.totems.expired then
-						local icon = GetTotemInfo(slot) and select(2, GetTotemInfo(slot)) or "Interface\\Icons\\Spell_Shaman_TotemRecall"
+						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
 						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Expired", icon, elementColor)
 					end
 				else
@@ -641,6 +645,8 @@ function SP:CheckTotemState(initializing)
 end
 
 function SP:CheckWeaponEnchantState(initializing)
+	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
+	if SPCompat and SPCompat.combatDataSecret then return end
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then return end
 
@@ -678,6 +684,7 @@ function SP:CheckWeaponEnchantState(initializing)
 end
 
 function SP:CheckEarthShieldState(unit, initializing)
+	if SPCompat and SPCompat.combatDataSecret then return end
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.shields or not sv.shields.enabled or not sv.shields.earthShield then return end
 
