@@ -3201,6 +3201,18 @@ ShamanPower.flyoutHooksInstalled = {}
 -- Storage for popped-out frames by key
 ShamanPower.poppedOutFrames = {}
 
+-- Global lock for every pop-out tracker: no frame drag, no ALT-drag on the icon.
+function ShamanPower:PopOutsLocked()
+	return self.opt and self.opt.poppedOutLocked and true or false
+end
+
+function ShamanPower:SetPopOutsLocked(locked)
+	self.opt.poppedOutLocked = locked and true or nil
+	for _, frame in pairs(self.poppedOutFrames or {}) do
+		if frame.SetMovable then frame:SetMovable(not locked) end
+	end
+end
+
 -- Storage for pop-out pulse/active overlays (for single totem pop-outs)
 ShamanPower.poppedOutOverlays = {}
 
@@ -3553,7 +3565,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 
 	local frame = CreateFrame("Frame", "ShamanPowerPopOut_" .. key, UIParent, "BackdropTemplate")
 	frame:SetSize(frameWidth, frameHeight)
-	frame:SetMovable(true)
+	frame:SetMovable(not self:PopOutsLocked())
 	frame:EnableMouse(true)
 	frame:SetClampedToScreen(true)
 	frame:RegisterForDrag("LeftButton")
@@ -3631,7 +3643,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 
 	-- Drag to move (no ALT needed - drag from title area or frame edge)
 	frame:SetScript("OnDragStart", function(self)
-		if self:IsMovable() then self:StartMoving() end
+		if self:IsMovable() and not ShamanPower:PopOutsLocked() then self:StartMoving() end
 	end)
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
@@ -3850,7 +3862,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	-- ALT+drag on button to move frame (works when frame is hidden)
 	btn:RegisterForDrag("LeftButton")
 	btn:SetScript("OnDragStart", function(self)
-		if IsAltKeyDown() and frame:IsMovable() then
+		if IsAltKeyDown() and frame:IsMovable() and not ShamanPower:PopOutsLocked() then
 			frame:StartMoving()
 		end
 	end)
@@ -3997,7 +4009,7 @@ function ShamanPower:PopOutElementWithFlyout(element)
 	-- ALT+drag on totem button to move frame (works when frame is hidden)
 	totemBtn:RegisterForDrag("LeftButton")
 	totemBtn:HookScript("OnDragStart", function(self)
-		if IsAltKeyDown() then
+		if IsAltKeyDown() and not ShamanPower:PopOutsLocked() then
 			frame:StartMoving()
 		end
 	end)
@@ -4086,7 +4098,7 @@ function ShamanPower:PopOutCooldownItem(cooldownType)
 		btn:HookScript("OnDragStart", function(self)
 			if IsAltKeyDown() then
 				local popOutFrame = ShamanPower.poppedOutFrames["cd_" .. self.cooldownType]
-				if popOutFrame then
+				if popOutFrame and not ShamanPower:PopOutsLocked() then
 					popOutFrame:StartMoving()
 				end
 			end
@@ -4155,7 +4167,7 @@ function ShamanPower:PopOutEarthShield()
 		esBtn:HookScript("OnDragStart", function(self)
 			if IsAltKeyDown() then
 				local popOutFrame = ShamanPower.poppedOutFrames["earthshield"]
-				if popOutFrame then
+				if popOutFrame and not ShamanPower:PopOutsLocked() then
 					popOutFrame:StartMoving()
 				end
 			end
@@ -4223,7 +4235,7 @@ function ShamanPower:PopOutDropAll()
 		dropAllBtn:HookScript("OnDragStart", function(self)
 			if IsAltKeyDown() then
 				local popOutFrame = ShamanPower.poppedOutFrames["dropall"]
-				if popOutFrame then
+				if popOutFrame and not ShamanPower:PopOutsLocked() then
 					popOutFrame:StartMoving()
 				end
 			end
