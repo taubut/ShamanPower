@@ -71,6 +71,10 @@ local SP_SECURE_ONLEAVE_PARENT = [[
 
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
 local UnitAura = LCD and LCD.UnitAuraWrapper or UnitAura
+-- Guarded natives on restricted clients; the globals stay untouched so Blizzard
+-- code is never tainted by calling into us (see SPCompat)
+local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo
+local GetSpellCooldown = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
 
 local tinsert = table.insert
 local tremove = table.remove
@@ -568,6 +572,18 @@ end
 
 -- Called when combat ends - reset Drop All castsequence
 function ShamanPower:OnCombatEnd()
+	-- Layout skipped because the addon loaded (or was reloaded) mid-combat:
+	-- run the parts of the login sequence that could not touch secure frames.
+	if self._layoutPendingCombat then
+		self._layoutPendingCombat = nil
+		self:UpdateLayout()
+		self:UpdateRoster()
+		self:BindKeys()
+		C_Timer.After(0.5, function()
+			if not InCombatLockdown() then self:UpdateTotemFlyoutEnabled() end
+		end)
+		self.cdbarVisibilityPending = true
+	end
 	-- Force rebuild of the Drop All macro to reset the castsequence
 	self.dropAllLastMacro = ""
 	self:UpdateDropAllButton()
@@ -6754,6 +6770,18 @@ function ShamanPower:UpdateCooldownBarLayout()
 	self:UpdateCooldownBarProgressBars()
 end
 
+function ShamanPower:EngineCooldownStop(btn)
+	if SPCompat and SPCompat.Trace then SPCompat.Trace("ENGINE CD stop %s", tostring(btn.spellID)) end
+	btn._engineCDSpell = nil
+	if btn.cooldown then
+		pcall(btn.cooldown.SetCooldownFromDurationObject, btn.cooldown, nil)
+		pcall(btn.cooldown.SetCooldown, btn.cooldown, 0, 0)
+		btn.cooldown:Clear()
+	end
+	if btn._engineSweep then btn._engineSweep:Hide() end
+	if btn._engineBar then btn._engineBar:Hide() end
+end
+
 function ShamanPower:UpdateCooldownButtons()
 	-- Get display options
 	local showBars = self.opt.cdbarShowProgressBars ~= false
@@ -11522,6 +11550,10 @@ end
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
 	-- Own totem casts feed the shadow totem model (never secret, even in combat)
 	self:ShadowTotemCast(unitTarget, spellID)
+	-- Own casts also stamp the shadow cooldown model (see SPCompat.GetSpellCooldown)
+	if unitTarget == "player" and SPCompat and SPCompat.ShadowCooldownCast then
+		SPCompat.ShadowCooldownCast(spellID)
+	end
 
 	-- Track Earth Shield casts (event-based tracking, no scanning!)
 	self:OnEarthShieldCastSucceeded(unitTarget, castGUID, spellID)
@@ -12021,7 +12053,12 @@ end
 
 function ShamanPower:UpdateLayout()
 	--self:Debug("UpdateLayout()")
-	if InCombatLockdown() then return end
+	if InCombatLockdown() then
+		-- A /reload during a fight lands here from PLAYER_ENTERING_WORLD with
+		-- nothing built yet; OnCombatEnd finishes the login sequence.
+		self._layoutPendingCombat = true
+		return
+	end
 
 	-- Scale around the on-screen centre so the bar does not slide as it grows.
 	-- The first application at login is a plain SetScale: the saved position

@@ -1,3 +1,4 @@
+local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo  -- guarded on restricted clients
 --[[
     ShamanPower_TremorReminder
     Proactive Tremor Totem reminder when targeting fear-casting mobs

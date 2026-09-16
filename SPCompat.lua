@@ -130,10 +130,16 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16l"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-16p"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
+-- Guarded versions of natives Blizzard's own UI calls (GetTotemInfo, GetSpellCooldown)
+-- are exposed HERE and aliased by our files; the globals are never replaced,
+-- because secure Blizzard code calling into addon code becomes tainted and
+-- then cannot read its own secret values (BuffFrame errors in combat).
+SPCompat.GetTotemInfo = GetTotemInfo
+SPCompat.GetSpellCooldown = GetSpellCooldown
 if not issecretvalue then
 	function issecretvalue() return false end
 end
@@ -197,7 +203,7 @@ if SPCompat.secretsRegime then
 
 	if GetTotemInfo then
 		local origGetTotemInfo = GetTotemInfo
-		function GetTotemInfo(slot)
+		SPCompat.GetTotemInfo = function(slot)
 			-- retail adds a 7th return: the spell ID of the totem in the slot
 			local have, name, start, dur, icon, modRate, spellID = origGetTotemInfo(slot)
 			if issecretvalue(have) or issecretvalue(name) or issecretvalue(start) or issecretvalue(dur) or issecretvalue(spellID) then
@@ -232,19 +238,64 @@ if SPCompat.secretsRegime then
 	end
 	SPCompat.AnyRestrictionActive = anyRestrictionActive
 
+	-- Shadow cooldown model: cooldown numbers go secret in combat, but the
+	-- player's own casts never do. A cast stamps the start time; the cooldown
+	-- length is learned the first time it is seen readable (login, out of
+	-- combat). While secret, a stamped spell whose never-secret isActive flag
+	-- is still true reports (castTime, learnedDuration) - plain numbers, so the
+	-- existing display code draws exactly what it draws out of combat.
+	-- Keyed by spell NAME so ranks and table IDs meet.
+	local shadowCD = {}
+	SPCompat.shadowCooldowns = shadowCD
+	local function cdKey(spell)
+		if type(spell) == "number" then
+			local name = GetSpellInfo and GetSpellInfo(spell)
+			return name or spell
+		end
+		return spell
+	end
+	function SPCompat.ShadowCooldownCast(spellID)
+		local key = cdKey(spellID)
+		if not key then return end
+		local e = shadowCD[key] or {}
+		e.start, e.id = GetTime(), spellID
+		shadowCD[key] = e
+	end
 	if GetSpellCooldown then
 		local origGetSpellCooldown = GetSpellCooldown
-		function GetSpellCooldown(spell)
-			if cooldownsSecretNow() then
-				hit("cooldown")
-				return 0, 0, 1, 1
-			end
+		SPCompat.GetSpellCooldown = function(spell)
 			local start, dur, enabled, modRate = origGetSpellCooldown(spell)
-			if issecretvalue(start) or issecretvalue(dur) then
-				hit("cooldown")
-				return 0, 0, 1, 1
+			if not (issecretvalue(start) or issecretvalue(dur)) then
+				-- readable: learn/refresh the model from the truth
+				local key = cdKey(spell)
+				if key then
+					if start and dur and start > 0 and dur > 1.5 then
+						local e = shadowCD[key] or {}
+						e.start, e.duration = start, dur
+						shadowCD[key] = e
+					elseif shadowCD[key] and (not dur or dur == 0) then
+						shadowCD[key].start = nil   -- keep the learned length, forget the run
+					end
+				end
+				return start, dur, enabled, modRate
 			end
-			return start, dur, enabled, modRate
+			hit("cooldown")
+			local key = cdKey(spell)
+			local e = key and shadowCD[key]
+			if e and e.start and e.duration then
+				local remaining = (e.start + e.duration) - GetTime()
+				if remaining > 0 then
+					-- confirm with the never-secret flag (a reset cooldown reads inactive)
+					local active = true
+					local id = e.id or (type(spell) == "number" and spell)
+					if id and C_Spell and C_Spell.GetSpellCooldown then
+						local okc, cd = pcall(C_Spell.GetSpellCooldown, id)
+						if okc and type(cd) == "table" and cd.isActive == false then active = false end
+					end
+					if active then return e.start, e.duration, 1, 1 end
+				end
+			end
+			return 0, 0, 1, 1
 		end
 	end
 
@@ -809,6 +860,7 @@ local function traceEvent(fmt, ...)
 	eventTrace[#eventTrace + 1] = string.format("%.3f  " .. fmt, GetTime(), ...)
 	if #eventTrace > 500 then table.remove(eventTrace, 1) end
 end
+SPCompat.Trace = traceEvent   -- other files log into /sptrace through this
 SLASH_SPTRACE1 = "/sptrace"
 SlashCmdList["SPTRACE"] = function(msg)
 	msg = strtrim(msg or ""):lower()
@@ -851,6 +903,36 @@ SlashCmdList["SPDIAG"] = function(msg)
 	msg = strtrim(msg or ""):lower()
 	if msg == "combat" then return SPDiagCombat() end
 	if msg == "frames" then return SPDiagFrames() end
+	if msg == "cdbar" then
+		local out = {}
+		local function say(fmt, ...) out[#out + 1] = string.format(fmt, ...) end
+		local SP = ShamanPower
+		say("=== ShamanPower cooldown bar under restriction  %s ===", date and date("%H:%M:%S") or "")
+		say("restrictions %s   regime=%s   AnyRestrictionActive=%s   GetSpellCooldownDuration=%s   SetCooldownFromDurationObject=%s",
+			SPR(), tostring(SPCompat.secretsRegime), tostring(SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive()),
+			tostring(C_Spell and type(C_Spell.GetSpellCooldownDuration)), tostring(type(CreateFrame("Cooldown").SetCooldownFromDurationObject)))
+		say("cdbarSweepStyle=%s  showSweep opt=%s  showBars opt=%s", tostring(SP.opt.cdbarSweepStyle), tostring(SP.opt.cdbarShowSweep), tostring(SP.opt.cdbarShowProgressBars))
+		for key, e in pairs(SPCompat.shadowCooldowns or {}) do
+			say("shadow cooldown [%s]: start=%s duration=%s remaining=%s", tostring(key), tostring(e.start), tostring(e.duration),
+				(e.start and e.duration) and string.format("%.1f", (e.start + e.duration) - GetTime()) or "-")
+		end
+		for i, btn in ipairs(SP.cooldownButtons or {}) do
+			if btn.spellType == "cooldown" then
+				local ok, cd = pcall(C_Spell.GetSpellCooldown, btn.spellID)
+				local okd, dur = pcall(C_Spell.GetSpellCooldownDuration, btn.spellID)
+				local w = btn.cooldown
+				local wStart, wDur = "-", "-"
+				if w and w.GetCooldownTimes then local okt, s, d = pcall(w.GetCooldownTimes, w) if okt then wStart, wDur = SPV(s), SPV(d) end end
+				say("[%d] %s (%s): shown=%s  isActive=%s isOnGCD=%s isEnabled=%s  durationObj=%s  _engineCDSpell=%s  widget: shown=%s times=%s/%s hideNumbers=%s",
+					i, tostring(btn.spellName or (GetSpellInfo and GetSpellInfo(btn.spellID))), tostring(btn.spellID), tostring(btn:IsShown()),
+					ok and type(cd) == "table" and SPV(cd.isActive) or ("err " .. tostring(cd)), ok and type(cd) == "table" and SPV(cd.isOnGCD) or "-",
+					ok and type(cd) == "table" and SPV(cd.isEnabled) or "-", okd and type(dur) or ("err " .. tostring(dur)), tostring(btn._engineCDSpell),
+					tostring(w and w:IsShown()), wStart, wDur, tostring(w and w.GetHideCountdownNumbers and w:GetHideCountdownNumbers()))
+			end
+		end
+		ShowCopyWindow("ShamanPower cooldown bar probe", table.concat(out, "\n"))
+		return
+	end
 	if msg == "popout" then
 		-- Pop-out frame geometry vs the saved position record (drift diagnosis)
 		local out = {}
@@ -889,13 +971,15 @@ SlashCmdList["SPDIAG"] = function(msg)
 	end
 	if msg == "hideswipe" then if SPProbeCD then SPProbeCD:Hide() end return end
 	if msg == "force" or msg == "force 1" or msg == "force on" or msg == "force 0" or msg == "force off" then
-		-- retail 12.1 test cvar: pretend the Combat restriction is active while out of combat
+		-- The forced-restriction cvar must be set from the chat line, not from addon
+		-- code: a tainted cvar write taints every Blizzard frame that later reads
+		-- the restriction state (BuffFrame errors on secret counts for the rest of
+		-- the session). So print the untainted command instead of calling SetCVar.
 		local on = not (msg == "force 0" or msg == "force off")
-		local ok, err = pcall(SetCVar, "addonCombatRestrictionsForced", on and "1" or "0")
 		local okv, v = pcall(GetCVar, "addonCombatRestrictionsForced")
+		print(string.format("|cff4cc776ShamanPower:|r addonCombatRestrictionsForced is %s. Type this yourself (untainted):  |cffffd100/console addonCombatRestrictionsForced %s|r   then /spdiag combat%s",
+			okv and tostring(v) or "?", on and "1" or "0", on and "" or "   (a /reload afterwards clears any taint left from earlier runs)"))
 		if not on and SPCompat.ClearIfUnrestricted then C_Timer.After(0, SPCompat.ClearIfUnrestricted) end
-		print(string.format("|cff4cc776ShamanPower:|r addonCombatRestrictionsForced -> %s%s   (now run /spdiag combat; %s)",
-			okv and tostring(v) or "?", ok and "" or (" set failed: " .. tostring(err)), on and "/spdiag force off to end the rehearsal" or "rehearsal off"))
 		return
 	end
 	local out = {}
@@ -1022,7 +1106,7 @@ SlashCmdList["SPDIAG"] = function(msg)
 	if GetTotemInfo then
 		for slot = 1, 4 do
 			local have, name, start, dur = GetTotemInfo(slot)
-			say("slot %d: %s %s %s", slot, tostring(have), tostring(name), dur and ("dur " .. tostring(dur)) or "")
+			say("slot %d: %s %s dur %s", slot, SPV(have), SPV(name), SPV(dur))
 		end
 		if ShamanPower and ShamanPower.GetElementTotemInfo then
 			local names = { "Earth", "Fire", "Water", "Air" }
