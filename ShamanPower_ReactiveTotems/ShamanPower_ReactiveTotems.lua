@@ -458,6 +458,14 @@ end
 -- Display Updates
 -- ============================================================================
 
+-- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
+-- resolver handles clients that fill slots in cast order; otherwise the fixed
+-- slot map applies (WoW slot 1 is Fire, slot 2 is Earth).
+local function ElementTotemInfo(element)
+	if ShamanPower.GetElementTotemInfo then return ShamanPower:GetElementTotemInfo(element) end
+	return GetTotemInfo(ShamanPower.ElementToSlot[element])
+end
+
 function SP:UpdateReactiveTotemDisplay()
 	-- Skip updates during positioning mode
 	if self.reactivePositioningMode then return end
@@ -489,7 +497,7 @@ function SP:UpdateReactiveTotemDisplay()
 		if debuffData and sv.hideWhenTotemActive then
 			local element = totemData.totemElement
 			if element then
-				local haveTotem, totemName = ShamanPower:GetElementTotemInfo(element)
+				local haveTotem, totemName = ElementTotemInfo(element)
 				if haveTotem and totemName and totemName:find(totemData.totemName, 1, true) then
 					debuffData = nil
 				end
