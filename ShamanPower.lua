@@ -3489,23 +3489,32 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	frame.titleText = titleText
 	self:FitPopOutFrame(frame)
 
-	-- Restore position or default to center
-	local pos = self.opt.poppedOutPositions and self.opt.poppedOutPositions[key]
-	if pos and pos.anchor then
-		self:ApplyPositionRecord(frame, pos)
-	elseif pos then
-		frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
-		self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
-	else
-		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	end
-
-	-- Apply scale/opacity from settings
+	-- Apply scale/opacity from settings BEFORE the position: position records
+	-- are scale-free but SetPoint offsets are not, so a frame placed first and
+	-- scaled afterwards slides to a different spot on every reload.
 	local settings = self.opt.poppedOutSettings and self.opt.poppedOutSettings[key] or {}
 	local scale = settings.scale or self.opt.poppedOutDefaultScale or 1.0
 	local opacity = settings.opacity or self.opt.poppedOutDefaultOpacity or 1.0
 	frame:SetScale(scale)
 	frame:SetAlpha(opacity)
+
+	-- Restore position or default to center
+	local pos = self.opt.poppedOutPositions and self.opt.poppedOutPositions[key]
+	if pos and pos.anchor then
+		self:ApplyPositionRecord(frame, pos)
+	elseif pos then
+		-- Old edge-anchored format. The edge is only right once the caller has
+		-- sized the frame (title width, hidden-frame mode), so convert it to a
+		-- center record on the next frame, not now.
+		frame:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+		C_Timer.After(0, function()
+			if self.poppedOutFrames[key] == frame and self.opt.poppedOutPositions and not (self.opt.poppedOutPositions[key] or {}).anchor then
+				self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
+			end
+		end)
+	else
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
 
 	-- Check if frame should be hidden (show only icon)
 	local hideFrame = settings.hideFrame
@@ -3742,9 +3751,8 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	end)
 	btn:SetScript("OnDragStop", function(self)
 		frame:StopMovingOrSizing()
-		local point, _, relPoint, x, y = frame:GetPoint()
 		ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-		ShamanPower.opt.poppedOutPositions[key] = {point=point, relPoint=relPoint, x=x, y=y}
+		ShamanPower.opt.poppedOutPositions[key] = ShamanPower:SavePositionRecord(frame)
 	end)
 
 	-- Store references
@@ -3890,9 +3898,8 @@ function ShamanPower:PopOutElementWithFlyout(element)
 	end)
 	totemBtn:HookScript("OnDragStop", function(self)
 		frame:StopMovingOrSizing()
-		local point, _, relPoint, x, y = frame:GetPoint()
 		ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-		ShamanPower.opt.poppedOutPositions[key] = {point=point, relPoint=relPoint, x=x, y=y}
+		ShamanPower.opt.poppedOutPositions[key] = ShamanPower:SavePositionRecord(frame)
 	end)
 
 	-- Note: SHIFT+Middle-click for settings is handled by the main totem button OnClick handler
@@ -3984,9 +3991,8 @@ function ShamanPower:PopOutCooldownItem(cooldownType)
 			local popOutFrame = ShamanPower.poppedOutFrames[cdKey]
 			if popOutFrame then
 				popOutFrame:StopMovingOrSizing()
-				local point, _, relPoint, x, y = popOutFrame:GetPoint()
 				ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-				ShamanPower.opt.poppedOutPositions[cdKey] = {point=point, relPoint=relPoint, x=x, y=y}
+				ShamanPower.opt.poppedOutPositions[cdKey] = ShamanPower:SavePositionRecord(popOutFrame)
 			end
 		end)
 	end
@@ -4053,9 +4059,8 @@ function ShamanPower:PopOutEarthShield()
 			local popOutFrame = ShamanPower.poppedOutFrames["earthshield"]
 			if popOutFrame then
 				popOutFrame:StopMovingOrSizing()
-				local point, _, relPoint, x, y = popOutFrame:GetPoint()
 				ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-				ShamanPower.opt.poppedOutPositions["earthshield"] = {point=point, relPoint=relPoint, x=x, y=y}
+				ShamanPower.opt.poppedOutPositions["earthshield"] = ShamanPower:SavePositionRecord(popOutFrame)
 			end
 		end)
 	end
@@ -4122,9 +4127,8 @@ function ShamanPower:PopOutDropAll()
 			local popOutFrame = ShamanPower.poppedOutFrames["dropall"]
 			if popOutFrame then
 				popOutFrame:StopMovingOrSizing()
-				local point, _, relPoint, x, y = popOutFrame:GetPoint()
 				ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-				ShamanPower.opt.poppedOutPositions["dropall"] = {point=point, relPoint=relPoint, x=x, y=y}
+				ShamanPower.opt.poppedOutPositions["dropall"] = ShamanPower:SavePositionRecord(popOutFrame)
 			end
 		end)
 	end
