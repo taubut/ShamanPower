@@ -33,7 +33,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Fear", "Charm", "Horrify"},
 		totemName = "Tremor Totem",
 		totemSpellID = 8143,
-		totemSlot = 1,  -- Earth slot
+		totemElement = 1,  -- Earth
 		icon = "Interface\\Icons\\Spell_Nature_TremorTotem",
 		color = {r = 0.8, g = 0.2, b = 0.8},  -- Purple
 		defaultPos = { point = "CENTER", x = -80, y = 150 },
@@ -44,7 +44,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Poison"},
 		totemName = "Poison Cleansing Totem",
 		totemSpellID = 8166,
-		totemSlot = 3,  -- Water slot
+		totemElement = 3,  -- Water
 		icon = "Interface\\Icons\\Spell_Nature_PoisonCleansingTotem",
 		color = {r = 0.2, g = 0.8, b = 0.2},  -- Green
 		defaultPos = { point = "CENTER", x = 0, y = 150 },
@@ -55,7 +55,7 @@ SP.ReactiveTotems = {
 		debuffTypes = {"Disease"},
 		totemName = "Disease Cleansing Totem",
 		totemSpellID = 8170,
-		totemSlot = 3,  -- Water slot
+		totemElement = 3,  -- Water
 		icon = "Interface\\Icons\\Spell_Nature_DiseaseCleansingTotem",
 		color = {r = 0.6, g = 0.4, b = 0.2},  -- Brown
 		defaultPos = { point = "CENTER", x = 80, y = 150 },
@@ -458,6 +458,14 @@ end
 -- Display Updates
 -- ============================================================================
 
+-- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
+-- resolver handles clients that fill slots in cast order; otherwise the fixed
+-- slot map applies (WoW slot 1 is Fire, slot 2 is Earth).
+local function ElementTotemInfo(element)
+	if ShamanPower.GetElementTotemInfo then return ShamanPower:GetElementTotemInfo(element) end
+	return GetTotemInfo(ShamanPower.ElementToSlot[element])
+end
+
 function SP:UpdateReactiveTotemDisplay()
 	-- Skip updates during positioning mode
 	if self.reactivePositioningMode then return end
@@ -487,9 +495,9 @@ function SP:UpdateReactiveTotemDisplay()
 
 		-- Check if relevant totem is already active
 		if debuffData and sv.hideWhenTotemActive then
-			local slot = totemData.totemSlot
-			if slot then
-				local haveTotem, totemName = GetTotemInfo(slot)
+			local element = totemData.totemElement
+			if element then
+				local haveTotem, totemName = ElementTotemInfo(element)
 				if haveTotem and totemName and totemName:find(totemData.totemName, 1, true) then
 					debuffData = nil
 				end
