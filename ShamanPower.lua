@@ -556,6 +556,13 @@ function ShamanPower:OnEnable()
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
+	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
+	if SPCompat and SPCompat.OnUnrestricted then
+		SPCompat.OnUnrestricted(function()
+			self:ScanPlayerShield()
+			self:RefreshEarthShieldTarget()
+		end)
+	end
 	if isShaman then
 		self.ButtonsUpdate(self)
 		-- Create Earth Shield macro button and macro for keybinding
@@ -10510,6 +10517,20 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 
 		-- Update display
 		self:UpdateEarthShieldButton()
+	end
+end
+
+-- Re-read the tracked Earth Shield target's aura once it is readable again
+function ShamanPower:RefreshEarthShieldTarget()
+	if not self.esTrackedTargetGUID then return end
+	local tokens = { "player", "target", "focus" }
+	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+	for _, u in ipairs(tokens) do
+		if UnitExists(u) and UnitGUID(u) == self.esTrackedTargetGUID then
+			self:OnEarthShieldAuraChange(u)
+			return
+		end
 	end
 end
 

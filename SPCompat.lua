@@ -130,7 +130,7 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16u"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-16w"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -329,16 +329,37 @@ if SPCompat.secretsRegime then
 	guardAura("UnitDebuff")
 	guardAura("UnitAura")
 
+	local unrestrictedCallbacks = {}
+	function SPCompat.OnUnrestricted(fn) unrestrictedCallbacks[#unrestrictedCallbacks + 1] = fn end
+	local wasRestricted = false
 	local function clearIfUnrestricted()
-		if anyRestrictionActive() then return end
+		if anyRestrictionActive() then
+			wasRestricted = true
+			return
+		end
 		auraBlocked = false
 		SPCompat.combatDataSecret = false
+		-- restrictions clear ~2 s after PLAYER_REGEN_ENABLED, and the state may
+		-- still read active while the change event is dispatched; callers retry.
+		-- State served from shadow models is re-read from the real API once.
+		if wasRestricted then
+			wasRestricted = false
+			if SPCompat.Trace then SPCompat.Trace("UNRESTRICTED -> re-reading shadowed state (%d callbacks)", #unrestrictedCallbacks) end
+			for _, fn in ipairs(unrestrictedCallbacks) do pcall(fn) end
+		end
 	end
 	SPCompat.ClearIfUnrestricted = clearIfUnrestricted
+	-- the totem/cooldown/aura guards observe restrictions too: remember it
+	local origHit = hit
+	hit = function(kind) wasRestricted = true; origHit(kind) end
 	local regen = CreateFrame("Frame")
 	regen:RegisterEvent("PLAYER_REGEN_ENABLED")
 	pcall(regen.RegisterEvent, regen, "ADDON_RESTRICTION_STATE_CHANGED")   -- fires for the forced-cvar rehearsal too
-	regen:SetScript("OnEvent", clearIfUnrestricted)
+	regen:SetScript("OnEvent", function()
+		clearIfUnrestricted()
+		C_Timer.After(0.3, clearIfUnrestricted)
+		C_Timer.After(2.5, clearIfUnrestricted)
+	end)
 end
 
 if not GetUnitName then
