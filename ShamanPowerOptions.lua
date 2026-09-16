@@ -791,25 +791,6 @@ ShamanPower.options = {
 								ShamanPower:UpdateMiniTotemBar()
 							end
 						},
-						activeOverlayDirection = {
-							order = 4.55,
-							type = "select",
-							name = "Dropped Totem Indicator Position",
-							desc = "Where the indicator for a dropped, non-assigned totem (and the Earth Shield one) pops out from its button. Auto puts it above a horizontal bar and on the flyout side of a vertical one.",
-							width = 1.4,
-							values = { auto = "Auto", above = "Above", below = "Below", left = "Left", right = "Right" },
-							sorting = { "auto", "above", "below", "left", "right" },
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
-							get = function(info)
-								return ShamanPower.opt.activeOverlayDirection or "auto"
-							end,
-							set = function(info, val)
-								ShamanPower.opt.activeOverlayDirection = val
-								ShamanPower:PositionActiveOverlays()
-							end
-						},
 						twistSpacer = {
 							order = 5,
 							type = "description",
@@ -1738,6 +1719,25 @@ ShamanPower.options = {
 									ShamanPower:CreateEarthShieldFlyout()
 								end
 							end,
+						},
+						activeOverlayDirection = {
+							order = 1.3,
+							type = "select",
+							name = "Dropped Totem Indicator Position",
+							desc = "Where the indicator for a dropped, non-assigned totem (and the Earth Shield one) pops out from its button. Auto puts it above a horizontal bar and on the flyout side of a vertical one.",
+							width = 1.4,
+							values = { auto = "Auto", above = "Above", below = "Below", left = "Left", right = "Right" },
+							sorting = { "auto", "above", "below", "left", "right" },
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.activeOverlayDirection or "auto"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.activeOverlayDirection = val
+								ShamanPower:PositionActiveOverlays()
+							end
 						},
 						cdbarLayout = {
 							order = 1.5,
