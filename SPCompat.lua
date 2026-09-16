@@ -130,7 +130,7 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16p"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-16u"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -269,7 +269,7 @@ if SPCompat.secretsRegime then
 				-- readable: learn/refresh the model from the truth
 				local key = cdKey(spell)
 				if key then
-					if start and dur and start > 0 and dur > 1.5 then
+					if start and dur and start > 0 and dur > 2.5 then   -- > GCD: a real cooldown, not the global one
 						local e = shadowCD[key] or {}
 						e.start, e.duration = start, dur
 						shadowCD[key] = e
@@ -869,7 +869,7 @@ SlashCmdList["SPTRACE"] = function(msg)
 			eventTraceFrame = CreateFrame("Frame")
 			eventTraceFrame:SetScript("OnEvent", function(_, e, a, b, c, d)
 				if e == "UNIT_SPELLCAST_SUCCEEDED" then
-					if a == "player" then traceEvent("%s unit=%s spellID=%s", e, SPV(a), SPV(c)) end
+					if a == "player" then traceEvent("%s unit=%s spellID=%s name=%s", e, SPV(a), SPV(c), SPV((GetSpellInfo and not SPS(c)) and GetSpellInfo(c) or "?")) end
 				elseif e == "UNIT_SPELLCAST_SENT" then
 					if a == "player" then traceEvent("%s unit=%s target=%s spellID=%s", e, SPV(a), SPV(b), SPV(d)) end
 				elseif e == "CHAT_MSG_ADDON" then
@@ -903,6 +903,85 @@ SlashCmdList["SPDIAG"] = function(msg)
 	msg = strtrim(msg or ""):lower()
 	if msg == "combat" then return SPDiagCombat() end
 	if msg == "frames" then return SPDiagFrames() end
+	if msg == "auratest" or msg == "auratest off" then
+		-- Which slot filter shape matches a SECRET aura? Four engine containers at
+		-- screen center, each with a different filter, each showing an icon+count
+		-- when it matches. Run out of restriction (all should show something), then
+		-- under the restriction: the ones that still show name the working shape.
+		if msg == "auratest off" then
+			for i = 1, 4 do local c = _G["SPAuraTest" .. i] if c then c:Hide() end end
+			return
+		end
+		if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+		local ids = ShamanPower and ShamanPower.ShieldAuraSpellIDs or { 324, 24398, 52127, 192106 }
+		local idsMap = {}
+		for _, id in ipairs(ids) do idsMap[id] = true end
+		local modes = {
+			{ label = "ids list", filter = "HELPFUL|PLAYER", cf = { includeSpellIDs = ids } },
+			{ label = "ids map",  filter = "HELPFUL|PLAYER", cf = { includeSpellIDs = idsMap } },
+			{ label = "no ids",   filter = "HELPFUL|PLAYER" },
+			{ label = "HELPFUL",  filter = "HELPFUL" },
+		}
+		local out = {}
+		for i, m in ipairs(modes) do
+			local name = "SPAuraTest" .. i
+			local c = _G[name]
+			if not c then
+				local ok, cc = pcall(CreateFrame, "AuraContainer", name, UIParent, "CustomAuraContainerTemplate")
+				if not ok then out[#out + 1] = name .. " create failed: " .. tostring(cc) break end
+				c = cc
+				c:SetSize(48, 48)
+				c:SetPoint("CENTER", UIParent, "CENTER", (i - 2.5) * 64, 140)
+				local bg = c:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(c); bg:SetColorTexture(0, 0, 0, 0.5)
+				local lbl = c:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); lbl:SetPoint("TOP", c, "BOTTOM", 0, -2); lbl:SetText(m.label)
+				local opts = {
+					initializeFrame = function(b)
+						b:ClearAllPoints(); b:SetAllPoints(c)
+						local icon = b:CreateTexture(nil, "ARTWORK"); icon:SetAllPoints(b); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+						pcall(b.SetIcon, b, icon)
+						local carrier = CreateFrame("Frame", nil, b); carrier:SetAllPoints(b)
+						local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal"); count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+						pcall(b.SetApplicationCount, b, count, {})
+					end,
+				}
+				if m.cf then opts.candidateFilters = m.cf end
+				local okA, err = pcall(c.AddAuraSlot, c, "t", m.filter, opts)
+				out[#out + 1] = string.format("%s (%s): AddAuraSlot=%s%s", name, m.label, tostring(okA), okA and "" or (" " .. tostring(err)))
+				pcall(c.SetUnit, c, "player")
+				pcall(c.UpdateAllAuras, c)
+			end
+			c:Show()
+		end
+		print("|cff4cc776ShamanPower:|r " .. table.concat(out, " | "))
+		print("|cff4cc776ShamanPower:|r four aura test squares above screen center (labels under them). /spdiag auratest off hides them.")
+		return
+	end
+	if msg == "sbtest" then
+		-- Does a StatusBar CUT its texture at the fill line or SQUEEZE it? Two 64px
+		-- bars at screen center wearing the Bloodlust icon at 50%: cut = half an
+		-- icon, squeeze = a whole icon flattened into half the bar.
+		local tex = "Interface\\Icons\\Spell_Nature_BloodLust"
+		for i, orient in ipairs({ "VERTICAL", "HORIZONTAL" }) do
+			local name = "SPProbeSB" .. i
+			local sb = _G[name] or CreateFrame("StatusBar", name, UIParent)
+			sb:SetSize(64, 64)
+			sb:SetPoint("CENTER", UIParent, "CENTER", (i - 1) * 90 - 45, 0)
+			sb:SetStatusBarTexture(tex)
+			sb:SetOrientation(orient)
+			sb:SetReverseFill(orient == "VERTICAL")
+			sb:SetMinMaxValues(0, 1)
+			sb:SetValue(0.5)
+			local bg = sb.bg or sb:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints(sb); bg:SetColorTexture(0, 0, 0, 0.6); sb.bg = bg
+			sb:Show()
+		end
+		print("|cff4cc776ShamanPower:|r two StatusBars at screen center (vertical from top, horizontal) at 50%. Screenshot them; /spdiag sbtest off hides them.")
+		return
+	end
+	if msg == "sbtest off" then
+		for i = 1, 2 do local sb = _G["SPProbeSB" .. i] if sb then sb:Hide() end end
+		return
+	end
 	if msg == "cdbar" then
 		local out = {}
 		local function say(fmt, ...) out[#out + 1] = string.format(fmt, ...) end
@@ -928,6 +1007,26 @@ SlashCmdList["SPDIAG"] = function(msg)
 					ok and type(cd) == "table" and SPV(cd.isActive) or ("err " .. tostring(cd)), ok and type(cd) == "table" and SPV(cd.isOnGCD) or "-",
 					ok and type(cd) == "table" and SPV(cd.isEnabled) or "-", okd and type(dur) or ("err " .. tostring(dur)), tostring(btn._engineCDSpell),
 					tostring(w and w:IsShown()), wStart, wDur, tostring(w and w.GetHideCountdownNumbers and w:GetHideCountdownNumbers()))
+			end
+		end
+		local sb = SP.shieldButton
+		if sb then
+			local c = sb.chargeContainer
+			local s = SP.shadowShield
+			say("shield button: container=%s shown=%s unit=%s   cache: has=%s charges=%s engineCount=%s   model: %s", tostring(c ~= nil),
+				tostring(c and c:IsShown()), tostring(c and c.GetUnit and c:GetUnit()), tostring(SP.shieldCache and SP.shieldCache.hasShield),
+				tostring(SP.shieldCache and SP.shieldCache.shieldCharges), tostring(SP.shieldCache and SP.shieldCache.engineCount),
+				s and string.format("%s charges=%s remaining=%.0f", tostring(s.name), tostring(s.charges), (s.start + s.duration) - GetTime()) or "-")
+			if c then
+				local kids = { c:GetChildren() }
+				say("  container children=%d (sizes/positions of engine containers are secret and not printed)", #kids)
+				for i, k in ipairs(kids) do
+					local okS, shown = pcall(k.IsShown, k)
+					local okT, typ = pcall(k.GetObjectType, k)
+					local okF, forb = pcall(k.IsForbidden, k)
+					say("  child %d: type=%s shown=%s forbidden=%s regions=%s", i, okT and tostring(typ) or "?", okS and SPV(shown) or ("err " .. tostring(shown)),
+						okF and tostring(forb) or "?", (function() local okR, n = pcall(function() return select("#", k:GetRegions()) end) return okR and tostring(n) or "?" end)())
+				end
 			end
 		end
 		ShowCopyWindow("ShamanPower cooldown bar probe", table.concat(out, "\n"))

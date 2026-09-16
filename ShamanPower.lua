@@ -6378,6 +6378,7 @@ function ShamanPower:CreateCooldownBar()
 			-- Store reference to shield button for flyout
 			if spellType == "shield" then
 				self.shieldButton = btn
+				self:EnsureShieldChargeContainer(btn)
 			end
 
 			-- Set up click action
@@ -6782,6 +6783,160 @@ function ShamanPower:EngineCooldownStop(btn)
 	if btn._engineBar then btn._engineBar:Hide() end
 end
 
+-- Engine-drawn shield button for restricted clients. A shield can end early
+-- (charges used up, cancelled, purged) with no event the addon can see in
+-- combat, so while auras are secret an AuraContainer bound to the player
+-- draws the whole shield state - icon, charge count, sweep, bar, text - as
+-- regions of its own aura button, which the engine hides the instant the aura
+-- is gone. Regions are created in the initializeFrame window (the only moment
+-- the button subtree may be written) and styled to match the addon's own
+-- rendering; out of combat the container stays hidden and the addon draws.
+-- Spell IDs per shield, all ranks (Forever/TBC) plus the retail test-bed IDs.
+ShamanPower.ShieldAuraSets = {
+	{ name = "Lightning Shield", ids = { 324, 325, 905, 945, 8134, 10431, 10432, 25469, 25472, 192106 } },
+	{ name = "Water Shield",     ids = { 24398, 33736, 52127 } },
+}
+
+function ShamanPower:EnsureShieldChargeContainer(btn)
+	if not (SPCompat and SPCompat.secretsRegime) then return end
+	if btn.chargeContainer then return end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
+	if not ok or not container then
+		if SPCompat.Trace then SPCompat.Trace("SHIELD container create failed: %s", tostring(container)) end
+		return
+	end
+	container:SetAllPoints(btn)
+	container:SetFrameLevel(btn:GetFrameLevel() + 6)
+
+	local opt = self.opt
+	local showSweep = opt.cdbarShowColorSweep ~= false
+	local sweepStyle = opt.cdbarSweepStyle
+	local showBars = opt.cdbarShowProgressBars ~= false
+	local barPosition = opt.cdbarProgressPosition or "left"
+	local textLocation = opt.cdbarDurationTextLocation or "none"
+	local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+	local Dir = Enum and Enum.StatusBarTimerDirection or {}
+
+	-- One slot per shield: the engine matches by spell ID (a MAP of id -> true;
+	-- a list matches nothing) and each slot carries that shield's own icon file,
+	-- so the icon and the greyed sweep copy never depend on the engine painting.
+	local function buildSlot(set)
+		local idMap = {}
+		for _, id in ipairs(set.ids) do idMap[id] = true end
+		local iconFile = GetSpellTexture and GetSpellTexture(set.ids[1]) or select(3, GetSpellInfo(set.ids[1]))
+		local slotKey = "shield_" .. set.name:gsub("%s", "")
+		return pcall(function()
+			container:AddAuraSlot(slotKey, "HELPFUL|PLAYER", {
+				candidateFilters = { includeSpellIDs = idMap },
+				initializeFrame = function(button)
+					local T = SPCompat and SPCompat.Trace or function() end
+					local function reg(label, ok, err) T("SHIELD init %s %s: %s%s", set.name, label, tostring(ok), ok and "" or (" " .. tostring(err))) end
+					button:ClearAllPoints()
+					button:SetAllPoints(btn)
+					if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+					if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+
+					-- icon: this shield's own file (SetIcon registered too, in case the engine paints)
+					local icon = button:CreateTexture(nil, "ARTWORK")
+					icon:SetAllPoints(button)
+					icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+					if iconFile then icon:SetTexture(iconFile) end
+					reg("SetIcon", pcall(button.SetIcon, button, icon))
+
+					-- duration source: the cooldown widget (swipe drawn only for the radial style)
+					local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+					cd:SetAllPoints(button)
+					cd:SetDrawEdge(false)
+					cd:SetDrawBling(false)
+					cd:SetHideCountdownNumbers(true)
+					cd:SetDrawSwipe(showSweep and sweepStyle == "radial")
+					reg("SetDurationCooldown", pcall(button.SetDurationCooldown, button, cd))
+
+					-- vertical sweep: greyed copy of this shield's icon on a StatusBar the
+					-- engine fills from the top; oversized in a clip so the untrimmed
+					-- texture lines up with the trimmed icon
+					if showSweep and sweepStyle ~= "radial" and iconFile and (Dir.ElapsedTime or Dir.RemainingTime) then
+						local clip = CreateFrame("Frame", nil, button)
+						clip:SetAllPoints(button)
+						clip:SetClipsChildren(true)
+						local sb = CreateFrame("StatusBar", nil, clip)
+						local margin = (0.08 / 0.84) * btn:GetWidth()
+						sb:SetPoint("TOPLEFT", clip, "TOPLEFT", -margin, margin)
+						sb:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", margin, -margin)
+						sb:SetStatusBarTexture(iconFile)
+						local sbt = sb:GetStatusBarTexture()
+						if sbt then sbt:SetDesaturated(true); sbt:SetVertexColor(0.5, 0.5, 0.5) end
+						sb:SetOrientation("VERTICAL")
+						sb:SetReverseFill(true)
+						local direction = (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime
+						reg("SetDurationBar(sweep)", pcall(button.SetDurationBar, button, sb, { interpolation = Interp, direction = direction }))
+					end
+
+					-- charge count: same font and corner as the addon's, white
+					local carrier = CreateFrame("Frame", nil, button)
+					carrier:SetAllPoints(button)
+					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+					count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+					count:SetTextColor(1, 1, 1)
+					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, {}))
+
+					-- progress bar in the addon's bar slot: black background + engine-filled bar
+					if showBars and btn.bgBar and Dir.RemainingTime then
+						local bg = carrier:CreateTexture(nil, "BACKGROUND")
+						bg:SetAllPoints(btn.bgBar)
+						bg:SetColorTexture(0, 0, 0, 0.7)
+						local bar = CreateFrame("StatusBar", nil, carrier)
+						bar:SetAllPoints(btn.bgBar)
+						bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+						local bt = bar:GetStatusBarTexture()
+						if bt then bt:SetVertexColor(0.2, 0.8, 0.2, 0.9) end
+						local vertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
+						bar:SetOrientation(vertical and "VERTICAL" or "HORIZONTAL")
+						reg("SetDurationBar(bar)", pcall(button.SetDurationBar, button, bar, { interpolation = Interp, direction = Dir.RemainingTime }))
+					end
+
+					-- duration text where the addon puts it
+					local src = (textLocation == "inside" and btn.insideText) or (textLocation == "outside" and btn.outsideText)
+						or (textLocation == "icon" and btn.iconText)
+					if src then
+						local fs = carrier:CreateFontString(nil, "OVERLAY")
+						local font, size, flags = src:GetFont()
+						if font then fs:SetFont(font, size, flags) end
+						local r, g, b = src:GetTextColor()
+						fs:SetTextColor(r or 1, g or 1, b or 1)
+						local point, rel, relPoint, x, y = src:GetPoint(1)
+						if point then fs:SetPoint(point, rel or btn, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", button, "CENTER", 0, 0) end
+						reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
+					end
+					T("SHIELD init end %s", set.name)
+				end,
+			})
+		end)
+	end
+	for _, set in ipairs(self.ShieldAuraSets) do
+		local okAdd, err = buildSlot(set)
+		if not okAdd and SPCompat.Trace then SPCompat.Trace("SHIELD AddAuraSlot %s failed: %s", set.name, tostring(err)) end
+	end
+	pcall(container.SetUnit, container, "player")
+	pcall(container.UpdateAllAuras, container)
+	container:Hide()   -- shown only while auras are secret
+	btn.chargeContainer = container
+	if SPCompat.Trace then SPCompat.Trace("SHIELD container ready on %s (sweep=%s bars=%s text=%s)", tostring(btn:GetName()), tostring(sweepStyle), tostring(showBars), tostring(textLocation)) end
+end
+
+-- Preferred shield or display options changed: the greyed copy and layout were
+-- baked in at creation, so build a fresh container (out of combat only).
+function ShamanPower:RebuildShieldChargeContainer()
+	local btn = self.shieldButton
+	if not btn or InCombatLockdown() then return end
+	if btn.chargeContainer then
+		btn.chargeContainer:Hide()
+		btn.chargeContainer = nil
+	end
+	self:EnsureShieldChargeContainer(btn)
+end
+
 function ShamanPower:UpdateCooldownButtons()
 	-- Get display options
 	local showBars = self.opt.cdbarShowProgressBars ~= false
@@ -6801,6 +6956,10 @@ function ShamanPower:UpdateCooldownButtons()
 		if btn.spellType == "shield" then
 			-- Use cached shield state from UNIT_AURA event (no UnitBuff calls here!)
 			local cache = self.shieldCache
+			if btn.chargeContainer then
+				local restricted = totemsSecretNow()
+				if restricted ~= btn.chargeContainer:IsShown() then btn.chargeContainer:SetShown(restricted) end
+			end
 			local hasShield = false
 			local activeShieldID = nil
 			local activeShieldIcon = nil
@@ -6844,7 +7003,7 @@ function ShamanPower:UpdateCooldownButtons()
 				-- Show charge count with optional coloring
 				if btn.chargeText then
 					if shieldCharges > 0 then
-						btn.chargeText:SetText(NumberStrings[shieldCharges] or tostring(shieldCharges))
+						btn.chargeText:SetText((cache and cache.engineCount) and "" or (NumberStrings[shieldCharges] or tostring(shieldCharges)))
 						-- Color based on charges if enabled
 						if self.opt.shieldChargeColors then
 							if shieldCharges >= 3 then
@@ -8031,16 +8190,43 @@ end
 
 -- AuraUtil.FindAuraByName is broken on the 2.5.x client (its data provider
 -- lacks GetAuraDataBySpellName and throws). Scan the player's buffs directly.
+-- Shadow buff model for the player's own short buffs (Bloodlust, Nature's
+-- Swiftness, Shamanistic Rage ...): aura reads go secret in combat, own casts
+-- never do. A cast stamps the start; the length is learned while readable.
+ShamanPower.shadowBuffs = {}   -- [spellName] = { start, duration }
+function ShamanPower:ShadowBuffCast(spellID)
+	local name = GetSpellInfo(spellID)
+	if not name then return end
+	local e = self.shadowBuffs[name] or {}
+	e.start = GetTime()
+	self.shadowBuffs[name] = e
+end
+
 local function PlayerHasBuff(spellName)
+	if totemsSecretNow() then
+		local e = ShamanPower.shadowBuffs[spellName]
+		if not (e and e.start) then return false end
+		local duration = e.duration or 30   -- unknown length (Nature's Swiftness has none): assume a short window
+		return e.start + duration > GetTime()
+	end
+	local found, duration, expiration
 	if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
-		return C_UnitAuras.GetAuraDataBySpellName("player", spellName, "HELPFUL") ~= nil
+		local a = C_UnitAuras.GetAuraDataBySpellName("player", spellName, "HELPFUL")
+		if a then found, duration, expiration = true, a.duration, a.expirationTime end
+	else
+		for i = 1, 40 do
+			local name, _, _, _, dur, exp = UnitAura("player", i, "HELPFUL")
+			if not name then break end
+			if name == spellName then found, duration, expiration = true, dur, exp break end
+		end
 	end
-	for i = 1, 40 do
-		local name = UnitAura("player", i, "HELPFUL")
-		if not name then break end
-		if name == spellName then return true end
+	if found and duration and duration > 0 then
+		local e = ShamanPower.shadowBuffs[spellName] or {}
+		e.duration = duration
+		if expiration and expiration > 0 then e.start = expiration - duration end
+		ShamanPower.shadowBuffs[spellName] = e
 	end
-	return false
+	return found and true or false
 end
 
 function ShamanPower:UpdateCooldownBarOpacity()
@@ -8561,6 +8747,7 @@ function ShamanPower:CreateShieldFlyout()
 							break
 						end
 					end
+					ShamanPower:RebuildShieldChargeContainer()
 				end
 				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
 			end)
@@ -10329,6 +10516,9 @@ end
 -- Handle aura changes on tracked target
 function ShamanPower:OnEarthShieldAuraChange(unit)
 	if not self.esTrackedTargetGUID then return end
+	-- Charges on another player cannot be read while auras are secret; keep the
+	-- last known state rather than treating "nothing readable" as "fell off".
+	if totemsSecretNow() then return end
 
 	-- Only process if this is our ES target
 	if UnitGUID(unit) ~= self.esTrackedTargetGUID then return end
@@ -11554,6 +11744,10 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 	if unitTarget == "player" and SPCompat and SPCompat.ShadowCooldownCast then
 		SPCompat.ShadowCooldownCast(spellID)
 	end
+	if unitTarget == "player" then
+		self:ShadowBuffCast(spellID)
+		self:ShadowShieldCast(unitTarget, spellID)
+	end
 
 	-- Track Earth Shield casts (event-based tracking, no scanning!)
 	self:OnEarthShieldCastSucceeded(unitTarget, castGUID, spellID)
@@ -11610,6 +11804,45 @@ function ShamanPower:UNIT_AURA(event, unit)
 end
 
 -- Scan player buffs for shield (called on UNIT_AURA, not every update tick)
+-- Shadow shield model: your Lightning / Water Shield from your own casts.
+-- A cast opens the record (icon from spell data, length and charge maximum
+-- learned from the real aura while readable); a proc of the same shield name
+-- under a different spell ID takes a charge off; the real scan re-syncs the
+-- record whenever auras are readable, so it is exact when combat starts.
+ShamanPower.shadowShield = nil          -- { name, spellID, icon, start, duration, charges }
+local shieldLearned = {}                -- [name] = { duration, maxCharges }
+
+local function shieldNameFor(spellID)
+	local name = GetSpellInfo(spellID)
+	if not name then return nil end
+	for _, data in ipairs(ShamanPower.ShieldSpells) do
+		if data[2] == name then return name, data[1] end
+	end
+	return nil
+end
+
+function ShamanPower:ShadowShieldCast(unit, spellID)
+	if unit ~= "player" then return end
+	local name, tableID = shieldNameFor(spellID)
+	if not name then return end
+	local cur = self.shadowShield
+	local isRecast = (spellID == tableID) or IsPlayerSpell and IsPlayerSpell(spellID)
+	if cur and cur.name == name and not isRecast then
+		-- same name, not the castable spell: a proc consumed a charge
+		cur.charges = math.max(0, (cur.charges or 0) - 1)
+		if SPCompat and SPCompat.Trace then SPCompat.Trace("SHIELD proc %s (%d) charges=%d", name, spellID, cur.charges) end
+		if cur.charges == 0 then self.shadowShield = nil end
+		return
+	end
+	local learned = shieldLearned[name] or {}
+	local _, _, icon = GetSpellInfo(spellID)
+	self.shadowShield = {
+		name = name, spellID = tableID, icon = icon,
+		start = GetTime(), duration = learned.duration or 600, charges = learned.maxCharges or 3,
+	}
+	if SPCompat and SPCompat.Trace then SPCompat.Trace("SHIELD cast %s (%d) dur=%s charges=%d", name, spellID, tostring(self.shadowShield.duration), self.shadowShield.charges) end
+end
+
 function ShamanPower:ScanPlayerShield()
 	local hasShield = false
 	local shieldID = nil
@@ -11618,6 +11851,14 @@ function ShamanPower:ScanPlayerShield()
 	local shieldDuration = 0
 	local shieldExpiration = 0
 	local shieldBuffIndex = nil
+
+	if totemsSecretNow() then
+		-- auras are secret: serve the shadow record (plain numbers, same display code)
+		-- the AuraContainer on the shield button draws the shield while auras are
+		-- secret; the addon's own rendering shows the empty base underneath
+		self.shieldCache = { hasShield = false, shieldCharges = 0, shieldDuration = 0, shieldExpiration = 0, engineCount = true }
+		return
+	end
 
 	for i = 1, 40 do
 		local name, icon, count, _, duration, expirationTime = UnitBuff("player", i)
@@ -11636,6 +11877,25 @@ function ShamanPower:ScanPlayerShield()
 			end
 		end
 		if hasShield then break end
+	end
+
+	-- Readable: re-sync the shadow record from the truth and learn the shield's numbers
+	if hasShield then
+		local name = nil
+		for _, data in ipairs(self.ShieldSpells) do if data[1] == shieldID then name = data[2] end end
+		if name then
+			local learned = shieldLearned[name] or {}
+			if shieldDuration > 0 then learned.duration = shieldDuration end
+			if shieldCharges > (learned.maxCharges or 0) then learned.maxCharges = shieldCharges end
+			shieldLearned[name] = learned
+			self.shadowShield = {
+				name = name, spellID = shieldID, icon = shieldIcon, charges = shieldCharges,
+				duration = shieldDuration > 0 and shieldDuration or (learned.duration or 600),
+				start = (shieldExpiration > 0 and shieldDuration > 0) and (shieldExpiration - shieldDuration) or GetTime(),
+			}
+		end
+	else
+		self.shadowShield = nil
 	end
 
 	-- Cache the result
