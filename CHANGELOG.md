@@ -1,5 +1,10 @@
 # ShamanPower Changelog
 
+## v2.1.1 (2026-09-16)
+
+### Fixes
+- **Reactive Totems: "Hide when totem active" never worked for Tremor Totem.** The Tremor entry read the wrong totem slot, so the fear alert stayed up even with a Tremor Totem down. Poison and Disease Cleansing were unaffected
+
 ## v2.1.0 (2026-09-16)
 
 ### New
