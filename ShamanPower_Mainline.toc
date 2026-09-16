@@ -1,0 +1,30 @@
+## Interface: 120100
+## Author: Srumar
+## Title: |cff0070ddShamanPower|r
+## Version: 2.0.4
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Raid/Party Shaman Totem Coordination
+## Notes-esES: Coordinacion de Totems de Chaman para Grupo/Banda
+## Notes-zhCN: 萨满图腾协调管理
+## DefaultState: enabled
+## Dependencies:
+## OptionalDeps: Ace3, LibSharedMedia-3.0, SharedMedia
+## X-Category: Shaman
+## X-Embeds: Ace3, LibClassicDurations, LibSharedMedia-3.0, LibUIDropDownMenu
+## SavedVariables: ShamanPowerDB, ShamanPower_Assignments, ShamanPower_EarthShieldAssignments, ShamanPower_TwistAssignments, ShamanPower_RaidCooldowns, ShamanPower_RangeTracker, ShamanPower_TotemLoadouts, ShamanPowerErrorLog
+
+#@no-lib-strip@
+embeds.xml
+#@end-no-lib-strip@
+
+locale\enUS.lua
+
+SPCompat.lua
+ShamanPower.lua
+ShamanPowerValues.lua
+ShamanPowerOptions.lua
+ShamanPowerShare.lua
+ShamanPowerPresets.lua
+ShamanPowerPreview.lua
+ShamanPowerCompact.lua
+ShamanPower_TBC.xml
