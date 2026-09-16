@@ -161,8 +161,11 @@ local function BuildDialog()
 		local pv = Core:MakeButton(dlg, "Preview the Compact style", 200, false)
 		pv:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", 14, 12)
 		pv:SetScript("OnClick", function() ShowCompactPreview() end)
-		-- already on Compact: the preview is what they are looking at
-		dlg:HookScript("OnShow", function() pv:SetShown(not (SP.opt and SP.opt.compactStyle)) end)
+		-- shamans only, and not when Compact is already what they are looking at
+		dlg:HookScript("OnShow", function()
+			local isShaman = select(2, UnitClass("player")) == "SHAMAN"
+			pv:SetShown(isShaman and not (SP.opt and SP.opt.compactStyle))
+		end)
 	end
 	return dlg
 end
