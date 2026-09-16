@@ -1,5 +1,10 @@
 # ShamanPower Changelog
 
+## v2.0.7 (2026-09-16)
+
+### Fixes
+- **Earth Shield tracking survives a /reload and untargeted casts.** The Earth Shield button, the Shield Charges number and the ES Tracker only learned who carries your shield from a cast on your current target; a self-cast or a cast on an untargeted party member left them blank, and a /reload lost the tracking until the next cast. The cast target is now resolved through yourself, party and raid, and an Earth Shield already out is picked up at login
+
 ## v2.0.6 (2026-09-16)
 
 ### New
