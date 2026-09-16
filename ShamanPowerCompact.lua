@@ -421,6 +421,7 @@ function SP:ApplyCompactESLayout()
 			if name then
 				name:ClearAllPoints(); name:SetPoint("TOP", esBtn, "BOTTOM", 0, -1)
 				name:SetWidth(40); name:SetHeight(10); name:SetFontObject("GameFontHighlightSmall")
+				name:Show()
 			end
 			esBtn.compactLayoutOn = nil
 		end
@@ -437,16 +438,8 @@ function SP:ApplyCompactESLayout()
 	self:LayoutCompactVisuals(c, esBtn, co, bw, bh)
 	c.line:Hide()
 	self:LayoutCompactSegments(esBtn, c, ES_MAX_CHARGES)
-	if name then
-		name:ClearAllPoints()
-		name:SetFont(FONT, math.max(7, math.min(12, co.T - 3)), "OUTLINE")
-		name:SetHeight(0)
-		if co.vertical then
-			name:SetPoint("TOP", esBtn, "BOTTOM", 0, -2); name:SetWidth(0)
-		else
-			name:SetPoint("CENTER", esBtn, "CENTER", 0, 0); name:SetWidth(c.lineLen)
-		end
-	end
+	-- No target name on the compact line: at line size it only adds clutter
+	if name then name:Hide() end
 	self:UpdateCompactES()
 end
 

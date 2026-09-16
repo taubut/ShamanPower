@@ -701,7 +701,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local co = SP:CompactOpts(o)
 		local bw, bh, sw, sh, ox, oy = SP:GetTotemSlotDims(o)
 		local sp = o.totemBarPadding or 2
-		local sig = table.concat({ tostring(co.vertical), co.L, co.T, co.ow, tostring(co.fill), co.sq, co.iq, tostring(co.pulseText), tostring(co.pulseBar), sp, tostring(o.compactShieldLine) }, ":")
+		local esOn = esMock ~= nil and o.totemBarShowEarthShield ~= false
+		local sig = table.concat({ tostring(co.vertical), co.L, co.T, co.ow, tostring(co.fill), co.sq, co.iq, tostring(co.pulseText), tostring(co.pulseBar), sp, tostring(o.compactShieldLine), tostring(esOn) }, ":")
 		if sig == cmSig then return end
 		cmSig = sig
 		local first = (shMock and o.compactShieldLine) and 1 or 0
@@ -719,7 +720,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			SP:LayoutCompactVisuals(l.c, l.f, co, bw, bh)
 		end
 		local n = 4 + first
-		if esMock then
+		if esMock then esMock.f:SetShown(esOn) end
+		if esOn then
 			n = n + 1
 			local f = esMock.f
 			f:SetSize(bw, bh); f:ClearAllPoints()
@@ -729,7 +731,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			SP:LayoutCompactSegments(f, esMock.c, 6)
 			esMock.name:ClearAllPoints(); esMock.name:SetFont("Fonts\\FRIZQT__.TTF", math.max(7, math.min(12, co.T - 3)), "OUTLINE")
 			if co.vertical then esMock.name:SetPoint("TOP", f, "BOTTOM", 0, -2) else esMock.name:SetPoint("CENTER", f, "CENTER", 0, 0) end
-			esMock.name:SetText(UnitName("player") or "Target")
+			esMock.name:SetText("")   -- the real line carries no name (too big on a compact bar); the mock matches
 		end
 		if co.vertical then cm:SetSize(n * sw + (n - 1) * sp, sh) else cm:SetSize(sw, n * sh + (n - 1) * sp) end
 		cm:ClearAllPoints(); cm:SetPoint("CENTER", inner, "CENTER", 0, 10)
@@ -764,7 +766,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			SP:PaintCompactSegments(shMock.f.compactSeg, math.max(0, ch), ch > 0, OPT().shieldChargeColors, { r = 0.35, g = 0.65, b = 1.0 })
 			shMock.c.bg:Show()
 		end
-		if esMock then
+		if esMock and esMock.f:IsShown() then
 			-- charges tick down 6 -> 1, then the shield is recast
 			esMock.t = esMock.t + (el or 0)
 			local cyc = 14
@@ -993,6 +995,9 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		row("Toggle", { label = "Pulse refill in the line", get = function() return OPT().compactPulseBar ~= false end, set = cset("compactPulseBar") })
 		row("Toggle", { label = "Pulse countdown text", get = function() return OPT().compactPulseText ~= false end, set = cset("compactPulseText") })
 		row("Toggle", { label = "Your shield line (Lightning / Water)", get = function() return OPT().compactShieldLine and true or false end, set = cset("compactShieldLine") })
+		-- the Earth Shield line is the Earth Shield button: same setting as Totem Bar > Items > Show Earth Shield
+		row("Toggle", { label = "Earth Shield line", get = function() return OPT().totemBarShowEarthShield ~= false end,
+			set = function(v) OPT().totemBarShowEarthShield = v; safecall("UpdateEarthShieldButton"); safecall("ApplyCompactStyle"); notify() end })
 	end
 	return y
 end

@@ -956,10 +956,23 @@ ShamanPower.options = {
 									order = 9.5,
 									type = "toggle",
 									name = "Your Shield Line (Lightning / Water)",
-									desc = "A 3-segment line at the start of the bar showing your Lightning or Water Shield charges. Click it to recast. Earth Shield has its own line at the end of the bar whenever the Earth Shield button is shown.",
+									desc = "A 3-segment line at the start of the bar showing your Lightning or Water Shield charges. Click it to recast.",
 									width = "full",
 									get = function(info) return ShamanPower.opt.compactShieldLine and true or false end,
 									set = function(info, val) ShamanPower.opt.compactShieldLine = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactESLine = {
+									order = 9.6,
+									type = "toggle",
+									name = "Earth Shield Line",
+									desc = "A segmented line at the end of the bar showing your Earth Shield charges (one segment per charge). Click it to recast. This is the Earth Shield button in Compact style, so it is the same setting as Totem Bar > Items > Show Earth Shield.",
+									width = "full",
+									get = function(info) return ShamanPower.opt.totemBarShowEarthShield ~= false end,
+									set = function(info, val)
+										ShamanPower.opt.totemBarShowEarthShield = val
+										ShamanPower:UpdateEarthShieldButton()
+										ShamanPower:ApplyCompactStyle()
+									end,
 								},
 								compactNote = {
 									order = 10,
