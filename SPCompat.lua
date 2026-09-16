@@ -384,6 +384,8 @@ local function record(store, msg, explicitStack)
 		e.count = e.count + 1
 		e.last = date and date("%H:%M:%S") or ""
 	else
+		-- bounded: the log lives in a SavedVariable and only /sperrors clear empties it
+		if (store.__n or 0) >= 200 then return end
 		store[key] = {
 			count = 1,
 			first = date and date("%Y-%m-%d %H:%M:%S") or "",
@@ -877,7 +879,9 @@ end
 -- ---------------------------------------------------------------------------
 local eventTrace = {}
 local eventTraceFrame
+local eventTraceOn = false   -- nothing is formatted or kept until /sptrace on
 local function traceEvent(fmt, ...)
+	if not eventTraceOn then return end
 	eventTrace[#eventTrace + 1] = string.format("%.3f  " .. fmt, GetTime(), ...)
 	if #eventTrace > 500 then table.remove(eventTrace, 1) end
 end
@@ -906,9 +910,11 @@ SlashCmdList["SPTRACE"] = function(msg)
 			"ENCOUNTER_START", "ENCOUNTER_END", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "CHAT_MSG_ADDON" }) do
 			pcall(eventTraceFrame.RegisterEvent, eventTraceFrame, e)
 		end
+		eventTraceOn = true
 		print("|cff4cc776ShamanPower:|r event trace on (own casts, totem updates, restriction/encounter changes, SHPWR comms). /sptrace to view, /sptrace off to stop")
 	elseif msg == "off" then
 		if eventTraceFrame then eventTraceFrame:UnregisterAllEvents() end
+		eventTraceOn = false
 		print("|cff4cc776ShamanPower:|r event trace off")
 	elseif msg == "clear" then
 		eventTrace = {}

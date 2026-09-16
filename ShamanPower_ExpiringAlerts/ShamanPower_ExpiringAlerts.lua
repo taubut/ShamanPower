@@ -595,6 +595,14 @@ function SP:CheckShieldState(initializing)
 	previousState.shields.water = hasWaterShield
 end
 
+-- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
+-- resolver handles clients that fill slots in cast order; otherwise the fixed
+-- slot map applies (WoW slot 1 is Fire, slot 2 is Earth).
+local function ElementTotemInfo(element)
+	if ShamanPower.GetElementTotemInfo then return ShamanPower:GetElementTotemInfo(element) end
+	return GetTotemInfo(ShamanPower.ElementToSlot[element])
+end
+
 function SP:CheckTotemState(initializing)
 	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
 	if SPCompat and SPCompat.combatDataSecret then return end
@@ -602,7 +610,7 @@ function SP:CheckTotemState(initializing)
 	if not sv.enabled or not sv.totems or not sv.totems.enabled then return end
 
 	for element = 1, 4 do
-		local haveTotem, totemName, startTime, duration = ShamanPower:GetElementTotemInfo(element)
+		local haveTotem, totemName, startTime, duration = ElementTotemInfo(element)
 
 		local prev = previousState.totems[element]
 		local wasActive = prev.active
