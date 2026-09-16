@@ -128,6 +128,92 @@ function SP:GetShieldChargeColor(charges, maxCharges, isEarthShield)
 end
 
 -- Update the shield charge displays
+-- ============================================================================
+-- Restricted clients (retail rules): while auras are secret the charge numbers
+-- are drawn by the engine. Each display frame gets an AuraContainer whose aura
+-- button carries a FontString in the same font/size/position (white); the
+-- container is shown only while restricted and the addon's own text is blank.
+-- The Earth Shield container is pointed at the group token of the player who
+-- carries your shield, and re-pointed whenever that changes.
+-- ============================================================================
+function SP:ShieldChargesRestricted()
+	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
+end
+
+local ES_SPELL_IDS = { 974, 32593, 32594, 383648 }   -- Earth Shield ranks; retail's AURA is 383648 (cast 974)
+
+local function buildChargeContainer(frame, scale, sets, r, g, b)
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, frame, "CustomAuraContainerTemplate")
+	if not ok or not container then return nil end
+	container:SetAllPoints(frame)
+	container:SetFrameLevel(frame:GetFrameLevel() + 2)
+	for _, set in ipairs(sets) do
+		local idMap = {}
+		for _, id in ipairs(set.ids) do idMap[id] = true end
+		pcall(function()
+			container:AddAuraSlot("charges_" .. set.name:gsub("%s", ""), "HELPFUL|PLAYER", {
+				candidateFilters = { includeSpellIDs = idMap },
+				initializeFrame = function(button)
+					button:ClearAllPoints()
+					button:SetAllPoints(frame)
+					if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+					if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+					local carrier = CreateFrame("Frame", nil, button)
+					carrier:SetAllPoints(button)
+					local count = carrier:CreateFontString(nil, "OVERLAY")
+					count:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
+					count:SetPoint("CENTER", button, "CENTER", 0, 0)
+					count:SetTextColor(r or 1, g or 1, b or 1)   -- a fixed color: no per-charge decision is possible
+					pcall(button.SetApplicationCount, button, count, {})
+				end,
+			})
+		end)
+	end
+	container:Hide()
+	return container
+end
+
+-- Group token of the player carrying your Earth Shield (nil if not in view)
+function SP:EarthShieldTargetToken()
+	local guid = ShamanPower.esTrackedTargetGUID
+	if not guid then return nil end
+	local tokens = { "player" }
+	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+	for _, u in ipairs(tokens) do
+		if UnitExists(u) and UnitGUID(u) == guid then return u end
+	end
+	return nil
+end
+
+-- Make sure each frame has an engine container for the current scale and unit
+function SP:EnsureShieldChargeEngine(frame, kind, scale)
+	if not (SPCompat and SPCompat.secretsRegime) then return end
+	if frame.engine and frame.engineScale ~= scale then
+		frame.engine:Hide()
+		frame.engine = nil
+	end
+	if not frame.engine then
+		local sets = (kind == "player") and (ShamanPower.ShieldAuraSets or {}) or { { name = "Earth Shield", ids = ES_SPELL_IDS } }
+		if kind == "player" then
+			frame.engine = buildChargeContainer(frame, scale, sets, 0.2, 0.6, 1.0)   -- blue, like the module at full charges
+		else
+			frame.engine = buildChargeContainer(frame, scale, sets, 0.2, 0.8, 0.2)   -- green
+		end
+		frame.engineScale = scale
+		frame.engineUnit = nil
+	end
+	local c = frame.engine
+	if not c then return end
+	local unit = (kind == "player") and "player" or (self:EarthShieldTargetToken() or "none")
+	if frame.engineUnit ~= unit then
+		frame.engineUnit = unit
+		pcall(c.SetUnit, c, unit)
+		pcall(c.UpdateAllAuras, c)
+	end
+end
+
 function SP:UpdateShieldChargeDisplays()
 	if self.shieldChargesDemoActive then return end
 	local settings = self.opt.shieldChargeDisplay
@@ -160,22 +246,30 @@ function SP:UpdateShieldChargeDisplays()
 		local maxCharges = 3  -- Default for Lightning/Water Shield
 		local hasShield = false
 
-		-- Check for Lightning Shield or Water Shield
-		for i = 1, 40 do
-			local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
-			if not name then break end
-			if name:find("Lightning Shield") or name:find("Water Shield") then
-				charges = count or 0
-				-- If charges is 0 but we have the buff, it might be stored differently
-				if charges == 0 then
-					-- Try getting it from the 3rd return value directly
-					local _, _, c = UnitBuff("player", i)
-					charges = c or 3  -- Default to 3 if we can't get count
+		local restricted = self:ShieldChargesRestricted()
+		if restricted then
+			-- auras are secret: the engine draws the count (nothing while no shield)
+			hasShield = true
+			self:EnsureShieldChargeEngine(playerFrame, "player", scale)
+		else
+			-- Check for Lightning Shield or Water Shield
+			for i = 1, 40 do
+				local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
+				if not name then break end
+				if name:find("Lightning Shield") or name:find("Water Shield") then
+					charges = count or 0
+					-- If charges is 0 but we have the buff, it might be stored differently
+					if charges == 0 then
+						-- Try getting it from the 3rd return value directly
+						local _, _, c = UnitBuff("player", i)
+						charges = c or 3  -- Default to 3 if we can't get count
+					end
+					hasShield = true
+					break
 				end
-				hasShield = true
-				break
 			end
 		end
+		if playerFrame.engine then playerFrame.engine:SetShown(restricted) end
 
 		-- Determine visibility
 		local shouldShow = hasShield or not hideNoShields
@@ -185,7 +279,7 @@ function SP:UpdateShieldChargeDisplays()
 
 		if shouldShow then
 			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, false)
-			playerFrame.text:SetText(charges)
+			playerFrame.text:SetText(restricted and "" or charges)
 			playerFrame.text:SetTextColor(r, g, b)
 			playerFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
 			playerFrame:SetAlpha(opacity)
@@ -204,12 +298,20 @@ function SP:UpdateShieldChargeDisplays()
 		local maxCharges = 6  -- Earth Shield has 6 charges
 		local hasShield = false
 
-		-- Get Earth Shield charges from FindEarthShieldTarget
-		local esTarget, esCharges = self:FindEarthShieldTarget()
-		if esTarget and esCharges and esCharges > 0 then
-			charges = esCharges
-			hasShield = true
+		local restricted = self:ShieldChargesRestricted()
+		if restricted then
+			-- auras are secret: the engine draws the count on the tracked target
+			hasShield = ShamanPower.esTrackedTargetGUID ~= nil
+			self:EnsureShieldChargeEngine(earthFrame, "earth", scale)
+		else
+			-- Get Earth Shield charges from FindEarthShieldTarget
+			local esTarget, esCharges = self:FindEarthShieldTarget()
+			if esTarget and esCharges and esCharges > 0 then
+				charges = esCharges
+				hasShield = true
+			end
 		end
+		if earthFrame.engine then earthFrame.engine:SetShown(restricted) end
 
 		-- Determine visibility
 		local shouldShow = hasShield or not hideNoShields
@@ -219,7 +321,7 @@ function SP:UpdateShieldChargeDisplays()
 
 		if shouldShow then
 			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, true)
-			earthFrame.text:SetText(charges)
+			earthFrame.text:SetText(restricted and "" or charges)
 			earthFrame.text:SetTextColor(r, g, b)
 			earthFrame.text:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
 			earthFrame:SetAlpha(opacity)

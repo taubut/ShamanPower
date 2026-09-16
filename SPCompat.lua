@@ -130,7 +130,7 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16w"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-16y"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -1049,6 +1049,24 @@ SlashCmdList["SPDIAG"] = function(msg)
 						okF and tostring(forb) or "?", (function() local okR, n = pcall(function() return select("#", k:GetRegions()) end) return okR and tostring(n) or "?" end)())
 				end
 			end
+		end
+		do
+			local f = SP.shieldChargeFrames or {}
+			local pf, ef = f.player, f.earth
+			local tok = SP.EarthShieldTargetToken and SP:EarthShieldTargetToken() or "n/a"
+			if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
+				local parts = {}
+				for _, nm in ipairs({ "Earth Shield", "Water Shield", "Lightning Shield" }) do
+					local ok, a = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", nm, "HELPFUL")
+					parts[#parts + 1] = string.format("%s=%s", nm, (ok and type(a) == "table") and (SPV(a.spellId) .. " x" .. SPV(a.applications) .. " src=" .. SPV(a.sourceUnit)) or "none")
+				end
+				say("own shield auras by name (readable only): %s", table.concat(parts, "  "))
+			end
+			say("earth shield tracking: target=%s guid=%s charges=%s token=%s  esSpellName=%s", tostring(SP.esTrackedTarget), tostring(SP.esTrackedTargetGUID),
+				tostring(SP.esTrackedCharges), tostring(tok), tostring(SP.GetESSpellName and SP:GetESSpellName()))
+			say("charge displays: player frame shown=%s engine=%s engineShown=%s unit=%s | earth frame shown=%s engine=%s engineShown=%s unit=%s",
+				tostring(pf and pf:IsShown()), tostring(pf and pf.engine ~= nil), tostring(pf and pf.engine and pf.engine:IsShown()), tostring(pf and pf.engineUnit),
+				tostring(ef and ef:IsShown()), tostring(ef and ef.engine ~= nil), tostring(ef and ef.engine and ef.engine:IsShown()), tostring(ef and ef.engineUnit))
 		end
 		ShowCopyWindow("ShamanPower cooldown bar probe", table.concat(out, "\n"))
 		return

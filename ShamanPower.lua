@@ -6885,7 +6885,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					carrier:SetAllPoints(button)
 					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-					count:SetTextColor(1, 1, 1)
+					count:SetTextColor(0.2, 0.6, 1.0)   -- fixed blue; a per-charge color would need the secret value
 					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, {}))
 
 					-- progress bar in the addon's bar slot: black background + engine-filled bar
@@ -10487,12 +10487,22 @@ function ShamanPower:OnEarthShieldCastSent(target, castGUID, spellID)
 		-- Store pending cast info
 		self.esLastCastTarget = target
 		self.esLastCastGUID = UnitGUID(target)
-		-- If we can't get GUID from target name, try current target/focus
-		if not self.esLastCastGUID then
-			if target == UnitName("target") then
-				self.esLastCastGUID = UnitGUID("target")
-			elseif target == UnitName("focus") then
-				self.esLastCastGUID = UnitGUID("focus")
+		-- The SENT target is a name; resolve it through the tokens that can carry
+		-- your shield: yourself, target, focus, party, raid (group identity stays
+		-- readable in combat on restricted clients).
+		if not self.esLastCastGUID and target then
+			local bare = target:match("^[^%-]+") or target
+			local tokens = { "player", "target", "focus" }
+			for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+			if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+			for _, u in ipairs(tokens) do
+				if UnitExists(u) then
+					local n = UnitName(u)
+					if n == target or n == bare then
+						self.esLastCastGUID = UnitGUID(u)
+						break
+					end
+				end
 			end
 		end
 	end
@@ -10520,9 +10530,38 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 	end
 end
 
+-- Find who carries your Earth Shield when nothing is tracked (login, /reload,
+-- restrictions clearing): scan yourself, party and raid for the aura you cast.
+function ShamanPower:DiscoverEarthShieldTarget()
+	if self.esTrackedTargetGUID or totemsSecretNow() then return end
+	local esSpellName = self:GetESSpellName()
+	if not esSpellName then return end
+	local tokens = { "player" }
+	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+	for _, u in ipairs(tokens) do
+		if UnitExists(u) then
+			for i = 1, 40 do
+				local name, _, count, _, _, _, source = UnitBuff(u, i)
+				if not name then break end
+				if name == esSpellName and source == "player" then
+					self.esTrackedTarget = UnitName(u)
+					self.esTrackedTargetGUID = UnitGUID(u)
+					self.esTrackedCharges = count or 0
+					self:UpdateEarthShieldButton()
+					return
+				end
+			end
+		end
+	end
+end
+
 -- Re-read the tracked Earth Shield target's aura once it is readable again
 function ShamanPower:RefreshEarthShieldTarget()
-	if not self.esTrackedTargetGUID then return end
+	if not self.esTrackedTargetGUID then
+		self:DiscoverEarthShieldTarget()
+		return
+	end
 	local tokens = { "player", "target", "focus" }
 	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
 	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
@@ -11573,6 +11612,9 @@ function ShamanPower:PLAYER_ENTERING_WORLD()
 
 	self:UpdateLayout()
 	self:UpdateRoster()
+
+	-- Pick up an Earth Shield that was already out before this login/reload
+	C_Timer.After(1.0, function() self:DiscoverEarthShieldTarget() end)
 
 	-- Apply flyout click mode setting after layout is set up
 	C_Timer.After(0.5, function()
