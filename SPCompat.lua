@@ -130,7 +130,7 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16j"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-16l"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -851,6 +851,42 @@ SlashCmdList["SPDIAG"] = function(msg)
 	msg = strtrim(msg or ""):lower()
 	if msg == "combat" then return SPDiagCombat() end
 	if msg == "frames" then return SPDiagFrames() end
+	if msg == "popout" then
+		-- Pop-out frame geometry vs the saved position record (drift diagnosis)
+		local out = {}
+		local function say(fmt, ...) out[#out + 1] = string.format(fmt, ...) end
+		local SP = ShamanPower
+		local ok, pw, ph = pcall(GetPhysicalScreenSize)
+		say("=== ShamanPower pop-out geometry  %s ===", date and date("%H:%M:%S") or "")
+		say("UIParent %.0fx%.0f  effScale %.4f   physical %sx%s   poppedOutDefaultScale=%s",
+			UIParent:GetWidth(), UIParent:GetHeight(), UIParent:GetEffectiveScale(), tostring(ok and pw), tostring(ok and ph),
+			tostring(SP and SP.opt and SP.opt.poppedOutDefaultScale))
+		local frames = SP and SP.poppedOutFrames or {}
+		local any = false
+		for key, f in pairs(frames) do
+			any = true
+			local cx, cy = f:GetCenter()
+			local s = f:GetScale()
+			local pt, rel, rp, x, y = f:GetPoint()
+			say("[%s] shown=%s scale=%.3f eff=%.4f size=%.0fx%.0f clamped=%s", key, tostring(f:IsShown()), s, f:GetEffectiveScale(),
+				f:GetWidth(), f:GetHeight(), tostring(f:IsClampedToScreen()))
+			say("    center raw=(%.1f,%.1f) in UIParent units=(%.1f,%.1f)   point=%s rel=%s %s x=%.1f y=%.1f",
+				cx or 0, cy or 0, (cx or 0) * s, (cy or 0) * s, tostring(pt), rel and (rel.GetName and rel:GetName() or "?") or "nil", tostring(rp), x or 0, y or 0)
+			local rec = SP.opt and SP.opt.poppedOutPositions and SP.opt.poppedOutPositions[key]
+			if rec and rec.anchor then
+				say("    saved record: anchor=%s x=%.1f y=%.1f", rec.anchor, rec.x or 0, rec.y or 0)
+			elseif rec then
+				say("    saved LEGACY: point=%s relPoint=%s x=%.1f y=%.1f", tostring(rec.point), tostring(rec.relPoint), rec.x or 0, rec.y or 0)
+			else
+				say("    saved: none")
+			end
+			local st = SP.opt and SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[key]
+			say("    settings: scale=%s opacity=%s hideFrame=%s", tostring(st and st.scale), tostring(st and st.opacity), tostring(st and st.hideFrame))
+		end
+		if not any then say("(no pop-out frames)") end
+		ShowCopyWindow("ShamanPower pop-out geometry", table.concat(out, "\n"))
+		return
+	end
 	if msg == "hideswipe" then if SPProbeCD then SPProbeCD:Hide() end return end
 	if msg == "force" or msg == "force 1" or msg == "force on" or msg == "force 0" or msg == "force off" then
 		-- retail 12.1 test cvar: pretend the Combat restriction is active while out of combat
@@ -902,9 +938,16 @@ SlashCmdList["SPDIAG"] = function(msg)
 		lockBehavior = okL and tostring(vL) or ("err: " .. tostring(vL))
 	end
 	say("BEHAVIOR (this is the real test): issecretvalue(UnitHealth) = |cffffd100%s|r (false = nothing is secret)   InChatMessagingLockdown() = |cffffd100%s|r (false/nil = comms open)", secretBehavior, lockBehavior)
-	local f = CreateFrame("Frame")
-	local ok, err = pcall(f.RegisterEvent, f, "COMBAT_LOG_EVENT_UNFILTERED")
-	say("CLEU RegisterEvent: %s%s", ok and "|cff4cc776ok|r" or "|cffe5534bBLOCKED|r", ok and "" or (" (" .. tostring(err) .. ")"))
+	-- Registering the combat log is a PROTECTED action while a restriction is
+	-- active: the client blocks it and fires ADDON_ACTION_FORBIDDEN (a popup),
+	-- not a Lua error, so pcall would report "ok". Only probe when unrestricted.
+	if SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then
+		say("CLEU RegisterEvent: |cffffd100skipped|r (a restriction is active - registering now is a forbidden protected action)")
+	else
+		local f = CreateFrame("Frame")
+		local ok, err = pcall(f.RegisterEvent, f, "COMBAT_LOG_EVENT_UNFILTERED")
+		say("CLEU RegisterEvent: %s%s  (out of restriction; forbidden while one is active)", ok and "|cff4cc776ok|r" or "|cffe5534bBLOCKED|r", ok and "" or (" (" .. tostring(err) .. ")"))
+	end
 	say("secrets regime detected at load = |cffffd100%s|r   C_Secrets.HasSecretRestrictions() = %s   restrictions now (0=Combat 1=Encounter 2=M+ 3=PvP 4=Map 5=Chat): %s",
 		tostring(SPCompat.secretsRegime), tostring(SPC("HasSecretRestrictions")), SPR())
 	do
@@ -930,6 +973,16 @@ SlashCmdList["SPDIAG"] = function(msg)
 		if type(gr) == "table" then for k in pairs(gr) do grFns[#grFns + 1] = tostring(k) end table.sort(grFns) end
 		say("game-type probes: %s", #hits > 0 and table.concat(hits, "  ") or "no CAMELOT/GameType/GameMode/GameRule globals or enums")
 		say("  C_GameRules: %s", #grFns > 0 and table.concat(grFns, ", ") or "absent")
+		if type(gr) == "table" then
+			local function call(n) local f = gr[n]; if not f then return "n/a" end local ok, v = pcall(f) return ok and tostring(v) or ("err: " .. tostring(v)) end
+			local modes = {}
+			if Enum and type(Enum.GameMode) == "table" then
+				for k, v in pairs(Enum.GameMode) do if type(v) == "number" then modes[#modes + 1] = k .. "=" .. v end end
+				table.sort(modes)
+			end
+			say("  active game mode: GetActiveGameMode()=%s  IsStandard()=%s  IsPlunderstorm()=%s   Enum.GameMode: %s",
+				call("GetActiveGameMode"), call("IsStandard"), call("IsPlunderstorm"), table.concat(modes, " "))
+		end
 	end
 	say("totem slot secrecy flags (ShouldTotemSlotBeSecret 1-4): %s %s %s %s", tostring(SPC("ShouldTotemSlotBeSecret", 1)),
 		tostring(SPC("ShouldTotemSlotBeSecret", 2)), tostring(SPC("ShouldTotemSlotBeSecret", 3)), tostring(SPC("ShouldTotemSlotBeSecret", 4)))
@@ -978,6 +1031,14 @@ SlashCmdList["SPDIAG"] = function(msg)
 				say("resolver %s: %s %s (slot %s)", names[element], tostring(have), tostring(name), tostring(slot))
 			end
 			say("dynamicTotemSlots (cast-order fill detected) = %s", tostring(ShamanPower.dynamicTotemSlots))
+			if ShamanPower.shadowTotems then
+				local parts = {}
+				for element = 1, 4 do
+					local e = ShamanPower.shadowTotems[element]
+					parts[#parts + 1] = string.format("%s=%s", names[element], e and string.format("%s slot%s %.0fs/%ds", tostring(e.name), tostring(e.slot), GetTime() - (e.startTime or 0), e.duration or 0) or "-")
+				end
+				say("shadow totem model (own casts; used while totems are secret): %s", table.concat(parts, "  "))
+			end
 		end
 	end
 
