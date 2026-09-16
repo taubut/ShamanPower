@@ -10327,9 +10327,10 @@ function ShamanPower:UpdateEarthShieldButton()
 				end
 			end
 
-			-- Show who currently has Earth Shield (unless hidden by option)
+			-- Show who currently has Earth Shield (unless hidden by option, or
+			-- the button is a Compact line, which never carries a name)
 			if esName then
-				if self.opt.hideEarthShieldText then
+				if self.opt.hideEarthShieldText or esBtn.compactLayoutOn then
 					esName:Hide()
 				else
 					if currentTarget then
