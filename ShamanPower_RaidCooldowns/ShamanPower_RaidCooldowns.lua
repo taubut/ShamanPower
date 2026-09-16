@@ -970,6 +970,10 @@ end
 
 -- Enable COMBAT_LOG_EVENT_UNFILTERED tracking (called when caller buttons are shown)
 function SP:EnableCallerCooldownTracking()
+	-- Secret-value clients: the combat log carries secret arguments in combat and
+	-- registering it while a restriction is active is a forbidden protected action
+	-- (ADDON_ACTION_FORBIDDEN popup). Caller tracking cannot work there; skip it.
+	if SPCompat and SPCompat.secretsRegime then return end
 	self:SetupCallerCooldownTracking()
 	if self.callerCooldownFrame and not self.callerCooldownTrackingEnabled then
 		pcall(self.callerCooldownFrame.RegisterEvent, self.callerCooldownFrame, "COMBAT_LOG_EVENT_UNFILTERED")

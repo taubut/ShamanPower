@@ -537,6 +537,7 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 	self:RegisterEvent("UNIT_SPELLCAST_SENT")  -- For ES cast tracking
+	self:RegisterEvent("PLAYER_TOTEM_UPDATE")  -- shadow totem model slot binding
 	self:RegisterEvent("UNIT_AURA")  -- For ES charge updates
 	self:RegisterEvent("GROUP_JOINED")
 	self:RegisterEvent("GROUP_LEFT")
@@ -910,22 +911,135 @@ local function slotTotemElement(self, totemName, spellID)
 	return self:TotemSpellElement(spellID) or self:TotemNameElement(totemName)
 end
 
+-- ----------------------------------------------------------------------------
+-- Shadow totem model. On a restricted client (retail rules, Forever) the
+-- totem API returns secret values in combat, but the player's own casts never
+-- do. So we keep our own record of what we dropped: UNIT_SPELLCAST_SUCCEEDED
+-- for a totem spell opens an entry for its element (name/icon from the static
+-- spell data, duration learned from the API while it was readable), and
+-- PLAYER_TOTEM_UPDATE binds it to a slot or, arriving with no cast behind it,
+-- retires whatever sat in that slot (expired, destroyed, recalled). While the
+-- API is readable the model is simply refreshed from it, so it is exact at the
+-- moment combat starts. On classic clients the model is maintained but never
+-- consulted.
+-- ----------------------------------------------------------------------------
+ShamanPower.shadowTotems = {}          -- [element] = { spellID, name, icon, startTime, duration, slot }
+local shadowLearnedDuration = {}       -- [spellID] = duration seen from the API
+local SHADOW_DEFAULT_DURATION = 120    -- until the real duration has been observed once
+local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE
+local shadowPendingCast                -- { element, at } waiting for its slot update
+local shadowPendingSlot                -- { slot, at } update that arrived before its cast event
+
+local function totemsSecretNow()
+	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
+end
+
+-- Element a cast totem spell belongs to (exact rank IDs are not in the tables,
+-- so fall back to the spell name).
+function ShamanPower:TotemCastElement(spellID)
+	local element = self:TotemSpellElement(spellID)
+	if element then return element end
+	local name = GetSpellInfo(spellID)
+	if not name or (type(name) == "string" and not name:find("Totem")) then return nil end
+	return self:TotemNameElement(name)
+end
+
+function ShamanPower:ShadowTotemCast(unit, spellID)
+	if unit ~= "player" or type(spellID) ~= "number" then return end
+	local element = self:TotemCastElement(spellID)
+	if not element then return end
+	local name, _, icon = GetSpellInfo(spellID)
+	local now = GetTime()
+	local entry = {
+		spellID = spellID,
+		name = name,
+		icon = icon,
+		startTime = now,
+		duration = shadowLearnedDuration[spellID] or SHADOW_DEFAULT_DURATION,
+		slot = nil,
+	}
+	-- the same element can only hold one totem; the old one is replaced
+	self.shadowTotems[element] = entry
+	if shadowPendingSlot and now - shadowPendingSlot.at <= SHADOW_BIND_WINDOW then
+		entry.slot = shadowPendingSlot.slot
+		shadowPendingSlot = nil
+	else
+		shadowPendingCast = { element = element, at = now }
+	end
+end
+
+function ShamanPower:ShadowTotemSlotUpdate(slot)
+	if type(slot) ~= "number" then return end
+	local now = GetTime()
+	if shadowPendingCast and now - shadowPendingCast.at <= SHADOW_BIND_WINDOW then
+		local entry = self.shadowTotems[shadowPendingCast.element]
+		if entry then entry.slot = slot end
+		shadowPendingCast = nil
+		return
+	end
+	-- no cast behind this update: the totem that lived in the slot is gone
+	local retired = false
+	for element, entry in pairs(self.shadowTotems) do
+		if entry.slot == slot then
+			self.shadowTotems[element] = nil
+			retired = true
+		end
+	end
+	if not retired then
+		-- an update we could not attribute: remember it briefly in case the cast event trails it
+		shadowPendingSlot = { slot = slot, at = now }
+	end
+end
+
+-- Refresh one element's entry from readable API data (called on every readable lookup).
+local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, duration, icon, slot, spellID)
+	if haveTotem and name and name ~= "" then
+		local entry = self.shadowTotems[element]
+		if not entry or entry.name ~= name then
+			entry = { spellID = spellID }
+			self.shadowTotems[element] = entry
+		end
+		entry.name, entry.icon, entry.startTime, entry.duration, entry.slot = name, icon, startTime, duration, slot
+		if type(spellID) == "number" and spellID ~= 0 then entry.spellID = spellID end
+		if entry.spellID and duration and duration > 0 then shadowLearnedDuration[entry.spellID] = duration end
+	else
+		self.shadowTotems[element] = nil
+	end
+end
+
+local function shadowLookup(self, element)
+	local entry = self.shadowTotems[element]
+	if not entry then return false, nil, nil, nil, nil, nil end
+	if entry.startTime + entry.duration <= GetTime() then
+		self.shadowTotems[element] = nil
+		return false, nil, nil, nil, nil, nil
+	end
+	return true, entry.name, entry.startTime, entry.duration, entry.icon, entry.slot
+end
+
 -- GetTotemInfo for the totem of an element, wherever the client put it.
 -- Returns the GetTotemInfo tuple (haveTotem, name, startTime, duration, icon)
--- plus the slot it was found in.
+-- plus the slot it was found in. Falls back to the shadow model while the
+-- API is secret.
 function ShamanPower:GetElementTotemInfo(element)
 	local fixedSlot = self.ElementToSlot[element]
 	if not fixedSlot then return false end
+
+	if totemsSecretNow() then
+		return shadowLookup(self, element)
+	end
 
 	local haveTotem, totemName, startTime, duration, icon, _, spellID = GetTotemInfo(fixedSlot)
 	if haveTotem and totemName and totemName ~= "" then
 		local slotElement = slotTotemElement(self, totemName, spellID)
 		if not slotElement or slotElement == element then
+			shadowSyncFromAPI(self, element, haveTotem, totemName, startTime, duration, icon, fixedSlot, spellID)
 			return haveTotem, totemName, startTime, duration, icon, fixedSlot
 		end
 		self.dynamicTotemSlots = true
 	end
 	if not self.dynamicTotemSlots then
+		shadowSyncFromAPI(self, element, false)
 		return false, nil, nil, nil, nil, fixedSlot
 	end
 
@@ -933,10 +1047,12 @@ function ShamanPower:GetElementTotemInfo(element)
 		if slot ~= fixedSlot then
 			local h, n, s, d, i, _, id = GetTotemInfo(slot)
 			if h and n and slotTotemElement(self, n, id) == element then
+				shadowSyncFromAPI(self, element, h, n, s, d, i, slot, id)
 				return h, n, s, d, i, slot
 			end
 		end
 	end
+	shadowSyncFromAPI(self, element, false)
 	return false, nil, nil, nil, nil, nil
 end
 
@@ -6978,7 +7094,7 @@ function ShamanPower:UpdateCooldownButtons()
 				elseif btn.spellID == 36936 then
 					local anyTotem = false
 					for slot = 1, 4 do
-						local haveTotem = GetTotemInfo(slot)
+						local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 						if haveTotem then
 							anyTotem = true
 							break
@@ -7942,7 +8058,7 @@ function ShamanPower:UpdateCooldownBarOpacity()
 					elseif spellID == 36936 then
 						-- Totemic Call - active if any totems are placed
 						for slot = 1, 4 do
-							local haveTotem = GetTotemInfo(slot)
+							local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 							if haveTotem then
 								isActive = true
 								break
@@ -8753,7 +8869,7 @@ end
 -- Check if any totems are currently placed
 function ShamanPower:HasAnyTotemsPlaced()
 	for slot = 1, 4 do
-		local haveTotem = GetTotemInfo(slot)
+		local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 		if haveTotem then
 			return true
 		end
@@ -10842,7 +10958,7 @@ function ShamanPower:UpdateTotemicCallOpacity()
 		-- Check if any totems are placed
 		local hasTotem = false
 		for slot = 1, 4 do
-			local haveTotem = GetTotemInfo(slot)
+			local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 			if haveTotem then
 				hasTotem = true
 				break
@@ -11399,7 +11515,14 @@ function ShamanPower:UpdateAllShamans()
 	end
 end
 
+function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
+	self:ShadowTotemSlotUpdate(slot)
+end
+
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
+	-- Own totem casts feed the shadow totem model (never secret, even in combat)
+	self:ShadowTotemCast(unitTarget, spellID)
+
 	-- Track Earth Shield casts (event-based tracking, no scanning!)
 	self:OnEarthShieldCastSucceeded(unitTarget, castGUID, spellID)
 
