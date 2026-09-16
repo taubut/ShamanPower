@@ -1,5 +1,13 @@
 # ShamanPower Changelog
 
+## v2.0.6 (2026-09-16)
+
+### New
+- **Lock All Pop-Out Trackers** (Settings > Pop-Out Trackers): while on, no pop-out can be dragged, including ALT-drag on the icon. Turn it off to rearrange them
+
+### Fixes
+- **Pop-out trackers no longer move on /reload.** Moving a pop-out with ALT-drag on its icon saved its position in a way that depended on the frame's width, and on reload it was restored before the frame had shrunk to icon size, so it landed a bit to the side every time. Scaled pop-outs had a second, smaller version of the same problem. Existing positions convert automatically
+
 ## v2.0.5 (2026-09-16)
 
 ### Fixes
