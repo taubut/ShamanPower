@@ -1,5 +1,16 @@
 # ShamanPower Changelog
 
+## v2.1.0 (2026-09-16)
+
+### New
+- **Compact totem bar style** (Settings > Mode & Twisting > Compact Style, and the setup tour's Totem Bar step). A fourth look for the totem bar: no icons, each element is a colored line that drains as the totem runs down and refills with every pulse. Stacked or side by side, any length and thickness, outline or fill for the duration, optional icon squares, pulse countdown text. Your Lightning / Water Shield can be a 3-segment charge line at the start of the bar and Earth Shield a charge line at the end, each with its own toggle. Clicks, flyouts, party dots, the range counter and keybinds work as before. Off until you turn it on
+- **Only Show Learned Elements** (Settings > Totem Bar > Items, on by default). A new shaman's bar grows with them: nothing before the Earth quest, then Fire, Water and Air appear as each totem is learned, and the bar stays centered while it grows. Characters with all four totems see no change
+- The what's-new card has a **Preview the Compact style** button: a live preview drawn with your own bar settings, with "Turn it on" to switch. /spwhatsnew preview opens it directly
+
+### Fixes
+- **Expiring Alerts: Earth and Fire totem alerts were swapped.** A lost Fire totem showed Earth's color and obeyed the Earth toggle, and vice versa; Water and Air were fine. If you had turned off Earth or Fire totem alerts to work around this, re-check those toggles
+- **ShamanPower is back under Options > AddOns.** The entry had been silently missing since the 2.5.6 client removed the old registration call
+
 ## v2.0.7 (2026-09-16)
 
 ### Fixes
