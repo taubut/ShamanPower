@@ -5219,6 +5219,24 @@ ShamanPower.options = {
 							type = "description",
 							name = "Choose which buttons appear on the mini totem bar.",
 						},
+						totembar_hide_unlearned = {
+							order = 0.5,
+							name = "Only Show Learned Elements",
+							desc = "Hide an element's button until you have learned a totem for it. A new shaman starts with Earth and gains Fire, Water and Air as they level; the bar grows with them. Turn off to always show all four.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.hideUnlearnedElements ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.hideUnlearnedElements = val
+								ShamanPower:InvalidateElementLearned()
+								ShamanPower:UpdateLayout()
+							end
+						},
 						totembar_show_earth = {
 							order = 1,
 							type = "toggle",

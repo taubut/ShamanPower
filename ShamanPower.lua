@@ -3054,7 +3054,7 @@ local function PlayerKnowsTotem(spellID, totemName)
 		table.insert(searchNames, totemName)
 		-- Also try with " Totem" suffix removed/added
 		if totemName:find(" Totem$") then
-			table.insert(searchNames, totemName:gsub(" Totem$", ""))
+			table.insert(searchNames, (totemName:gsub(" Totem$", "")))  -- gsub returns two values; insert must see one
 		else
 			table.insert(searchNames, totemName .. " Totem")
 		end
@@ -4498,6 +4498,52 @@ function ShamanPower:CreateTotemButtons()
 end
 
 -- Position totem buttons over the visual container
+-- Which elements the bar shows: the per-element toggle, and (option, default
+-- on) only elements the player has learned a totem for - a fresh shaman has
+-- Earth alone until Fire at 10, Water at 20 and Air at 30. If detection finds
+-- no totem at all (unknown client data) every element counts as learned.
+local elementLearnedCache
+function ShamanPower:InvalidateElementLearned()
+	elementLearnedCache = nil
+end
+
+function ShamanPower:IsElementLearned(element)
+	if not elementLearnedCache then
+		elementLearnedCache = {}
+		local any = false
+		for e = 1, 4 do
+			local known = false
+			for _, id in pairs(self.Totems and self.Totems[e] or {}) do
+				if type(id) == "number" and (IsSpellKnown(id) or PlayerKnowsTotem(id, (GetSpellInfo(id)))) then
+					known = true
+					break
+				end
+			end
+			if not known then
+				for id, info in pairs(self.TalentTotems or {}) do
+					if type(info) == "table" and info[1] == e and IsSpellKnown(id) then known = true break end
+				end
+			end
+			elementLearnedCache[e] = known
+			any = any or known
+		end
+		-- No totem found at all: below 10 that is a real new shaman (Earth's
+		-- quest is at 4, Fire's at 10); at 10+ every shaman has totems, so an
+		-- empty result means the spell tables do not fit this client - show all.
+		if not any and (UnitLevel("player") or 0) >= 10 then
+			for e = 1, 4 do elementLearnedCache[e] = true end
+		end
+	end
+	return elementLearnedCache[element] and true or false
+end
+
+local ELEMENT_SHOW_KEY = { "totemBarShowEarth", "totemBarShowFire", "totemBarShowWater", "totemBarShowAir" }
+function ShamanPower:IsElementShown(element)
+	if self.opt[ELEMENT_SHOW_KEY[element]] == false then return false end
+	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element) then return false end
+	return true
+end
+
 function ShamanPower:PositionTotemButtons()
 	if not self.autoButton then return end
 
@@ -4511,10 +4557,10 @@ function ShamanPower:PositionTotemButtons()
 
 	-- Check which totem buttons should be visible (not hidden and not popped out)
 	local elementVisible = {
-		[1] = self.opt.totemBarShowEarth ~= false and not self:IsElementPoppedOut(1),
-		[2] = self.opt.totemBarShowFire ~= false and not self:IsElementPoppedOut(2),
-		[3] = self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3),
-		[4] = self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4),
+		[1] = self:IsElementShown(1) and not self:IsElementPoppedOut(1),
+		[2] = self:IsElementShown(2) and not self:IsElementPoppedOut(2),
+		[3] = self:IsElementShown(3) and not self:IsElementPoppedOut(3),
+		[4] = self:IsElementShown(4) and not self:IsElementPoppedOut(4),
 	}
 
 	local visiblePosition = 0
@@ -4567,10 +4613,10 @@ function ShamanPower:UpdateTotemButtons()
 
 	-- Check which totem buttons should be visible (not hidden in options and not popped out)
 	local elementVisible = {
-		[1] = self.opt.totemBarShowEarth ~= false and not self:IsElementPoppedOut(1),
-		[2] = self.opt.totemBarShowFire ~= false and not self:IsElementPoppedOut(2),
-		[3] = self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3),
-		[4] = self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4),
+		[1] = self:IsElementShown(1) and not self:IsElementPoppedOut(1),
+		[2] = self:IsElementShown(2) and not self:IsElementPoppedOut(2),
+		[3] = self:IsElementShown(3) and not self:IsElementPoppedOut(3),
+		[4] = self:IsElementShown(4) and not self:IsElementPoppedOut(4),
 	}
 
 	local visiblePosition = 0
@@ -8787,10 +8833,10 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Check which totem buttons should be visible (not hidden in options and not popped out)
 	local elementVisible = {
-		[1] = self.opt.totemBarShowEarth ~= false and not self:IsElementPoppedOut(1),  -- Earth
-		[2] = self.opt.totemBarShowFire ~= false and not self:IsElementPoppedOut(2),   -- Fire
-		[3] = self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3),  -- Water
-		[4] = self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4),    -- Air
+		[1] = self:IsElementShown(1) and not self:IsElementPoppedOut(1),  -- Earth
+		[2] = self:IsElementShown(2) and not self:IsElementPoppedOut(2),   -- Fire
+		[3] = self:IsElementShown(3) and not self:IsElementPoppedOut(3),  -- Water
+		[4] = self:IsElementShown(4) and not self:IsElementPoppedOut(4),    -- Air
 	}
 
 	-- Count visible buttons
@@ -10332,10 +10378,10 @@ function ShamanPower:RepositionEarthShieldButton()
 		-- Exclude popped-out elements (they're reparented elsewhere)
 		local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 		local elementVisible = {
-			[1] = self.opt.totemBarShowEarth ~= false and not self:IsElementPoppedOut(1),
-			[2] = self.opt.totemBarShowFire ~= false and not self:IsElementPoppedOut(2),
-			[3] = self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3),
-			[4] = self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4),
+			[1] = self:IsElementShown(1) and not self:IsElementPoppedOut(1),
+			[2] = self:IsElementShown(2) and not self:IsElementPoppedOut(2),
+			[3] = self:IsElementShown(3) and not self:IsElementPoppedOut(3),
+			[4] = self:IsElementShown(4) and not self:IsElementPoppedOut(4),
 		}
 
 		-- Find the last visible element in order
@@ -10394,10 +10440,10 @@ function ShamanPower:UpdateAutoButtonSize()
 
 	-- Count visible totem buttons (not hidden in options and not popped out)
 	local visibleCount = 0
-	if self.opt.totemBarShowEarth ~= false and not self:IsElementPoppedOut(1) then visibleCount = visibleCount + 1 end
-	if self.opt.totemBarShowFire ~= false and not self:IsElementPoppedOut(2) then visibleCount = visibleCount + 1 end
-	if self.opt.totemBarShowWater ~= false and not self:IsElementPoppedOut(3) then visibleCount = visibleCount + 1 end
-	if self.opt.totemBarShowAir ~= false and not self:IsElementPoppedOut(4) then visibleCount = visibleCount + 1 end
+	if self:IsElementShown(1) and not self:IsElementPoppedOut(1) then visibleCount = visibleCount + 1 end
+	if self:IsElementShown(2) and not self:IsElementPoppedOut(2) then visibleCount = visibleCount + 1 end
+	if self:IsElementShown(3) and not self:IsElementPoppedOut(3) then visibleCount = visibleCount + 1 end
+	if self:IsElementShown(4) and not self:IsElementPoppedOut(4) then visibleCount = visibleCount + 1 end
 
 	local baseSize = (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1))
 
@@ -10902,6 +10948,7 @@ end
 
 function ShamanPower:ScanSpells()
 	--self:Debug("[ScanSpells]")
+	self:InvalidateElementLearned()
 	if isShaman then
 		self:SyncAdd(self.player)
 		ShamanPower.AllShamans[self.player] = {}
