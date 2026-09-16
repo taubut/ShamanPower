@@ -1,5 +1,12 @@
 # ShamanPower Changelog
 
+## v2.0.5 (2026-09-16)
+
+### Fixes
+- **Earth Shield fade alert** (Expiring Alerts) now fires. The Earth Shield check was never started at login and skipped the case where the shield is on yourself, so it could never trigger. It now follows the player your shield is actually on (or your assigned target), including yourself, in party and raid
+- **Dropped Totem Indicator Position** moved from Mode & Twisting to Appearance > Layout, next to Totem Flyout Direction
+- Settings window: option labels are no longer cut short with "..." when the line has room; a row that needs the space now takes the whole line
+
 ## v2.0.4 (2026-09-01)
 
 ### New
