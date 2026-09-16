@@ -556,6 +556,7 @@ function SP:UpdateExpiringAlertsState()
 	self:CheckShieldState(true)
 	self:CheckTotemState(true)
 	self:CheckWeaponEnchantState(true)
+	self:CheckEarthShieldState(nil, true)
 end
 
 function SP:CheckShieldState(initializing)
@@ -681,22 +682,43 @@ function SP:CheckEarthShieldState(unit, initializing)
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.shields or not sv.shields.enabled or not sv.shields.earthShield then return end
 
-	-- Only check if we have a tracked Earth Shield target
-	local esTarget = ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[SP.player]
+	-- The player your Earth Shield is actually on (cast tracking), else the assigned
+	-- target, else the last name we saw: the core clears its tracking on the same
+	-- UNIT_AURA that tells us the shield fell off, so the name must survive that moment
+	local esTarget = ShamanPower.esTrackedTarget
+		or (ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[SP.player])
+		or previousState.earthShieldTarget
 	if not esTarget then return end
+	esTarget = esTarget:match("^[^%-]+") or esTarget
 
 	-- Check if ES is still on the target
 	local hasES = false
 	local targetUnit = nil
 
-	-- Find the unit for the target name
-	local units = {"target", "focus", "party1", "party2", "party3", "party4", "player"}
-	for _, u in ipairs(units) do
-		if UnitExists(u) and UnitName(u) == esTarget then
-			targetUnit = u
-			break
+	-- The event handler passes the unit that changed; otherwise find them in the group
+	if unit and UnitExists(unit) and UnitName(unit) == esTarget then
+		targetUnit = unit
+	else
+		local units = {"player", "target", "focus", "party1", "party2", "party3", "party4"}
+		for _, u in ipairs(units) do
+			if UnitExists(u) and UnitName(u) == esTarget then
+				targetUnit = u
+				break
+			end
+		end
+		if not targetUnit and IsInRaid() then
+			for i = 1, 40 do
+				local u = "raid" .. i
+				if UnitExists(u) and UnitName(u) == esTarget then
+					targetUnit = u
+					break
+				end
+			end
 		end
 	end
+	-- Nobody we can see carries that name: keep the last known state rather than
+	-- reporting a shield we simply cannot observe as expired
+	if not targetUnit then return end
 
 	if targetUnit then
 		for i = 1, 40 do
@@ -753,11 +775,20 @@ function SP:SetupExpiringAlertsEvents()
 		end
 	end
 
+	local function IsEarthShieldUnit(unit)
+		local esTarget = ShamanPower.esTrackedTarget
+			or (ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[SP.player])
+			or previousState.earthShieldTarget
+		if not esTarget or not unit or not UnitExists(unit) then return false end
+		return UnitName(unit) == (esTarget:match("^[^%-]+") or esTarget)
+	end
+
 	eventFrame:SetScript("OnEvent", function(self, event, unit)
 		if event == "UNIT_AURA" then
 			if unit == "player" then
 				RequestAuraUpdate()
-			elseif previousState.earthShieldTarget and UnitExists(unit) and UnitName(unit) == previousState.earthShieldTarget then
+			end
+			if IsEarthShieldUnit(unit) then
 				SP:CheckEarthShieldState(unit, false)
 			end
 		elseif event == "PLAYER_TOTEM_UPDATE" then
