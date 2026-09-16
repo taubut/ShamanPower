@@ -165,6 +165,45 @@ function SP:GetClassColor(class)
 end
 
 -- Create an Earth Shield button for the tracker
+-- Rows are pooled (one frame per slot, reused between updates) so a row can
+-- own an engine aura container: on restricted clients the charge count is
+-- drawn by the engine from the carrier's unit while auras are secret.
+local function esTrackerAuraIDs()
+	return ShamanPower.EarthShieldAuraIDs or { 974, 32593, 32594, 383648 }
+end
+
+local function buildESRowContainer(btn)
+	if not (SPCompat and SPCompat.secretsRegime) then return nil end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
+	if not ok or not container then return nil end
+	container:SetAllPoints(btn)
+	container:SetFrameLevel(btn:GetFrameLevel() + 3)
+	local idMap = {}
+	for _, id in ipairs(esTrackerAuraIDs()) do idMap[id] = true end
+	pcall(function()
+		container:AddAuraSlot("es", "HELPFUL", {   -- any shaman's Earth Shield on this unit
+			candidateFilters = { includeSpellIDs = idMap },
+			initializeFrame = function(button)
+				button:ClearAllPoints()
+				button:SetAllPoints(btn)
+				if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+				if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+				local carrier = CreateFrame("Frame", nil, button)
+				carrier:SetAllPoints(button)
+				local count = carrier:CreateFontString(nil, "OVERLAY")
+				count:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+				count:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
+				count:SetTextColor(0.4, 1, 0.4)
+				pcall(button.SetApplicationCount, button, count, {})
+			end,
+		})
+	end)
+	pcall(container.SetUnit, container, "none")
+	container:Hide()
+	return container
+end
+
 function SP:CreateESTrackerButton(parent, esData, index)
 	local iconSize = SP.opt.esTracker.iconSize or 40
 	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -193,7 +232,6 @@ function SP:CreateESTrackerButton(parent, esData, index)
 	local targetText = btn:CreateFontString(nil, "OVERLAY")
 	targetText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
 	targetText:SetPoint("BOTTOM", btn, "BOTTOM", 0, 5)
-	targetText:SetText(esData.targetName or "?")
 	targetText:SetTextColor(1, 1, 1)
 	btn.targetText = targetText
 
@@ -201,43 +239,68 @@ function SP:CreateESTrackerButton(parent, esData, index)
 	local chargesText = btn:CreateFontString(nil, "OVERLAY")
 	chargesText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
 	chargesText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -2, -2)
-	chargesText:SetText(esData.charges or "?")
 	chargesText:SetTextColor(0.4, 1, 0.4)
-	if SP.opt.esTracker.hideCharges then
-		chargesText:Hide()
-	end
 	btn.chargesText = chargesText
 
 	-- Caster name (below the icon)
 	local casterText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	casterText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
 	casterText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-	casterText:SetText(esData.casterName or "?")
-	-- Color by caster's class
-	local r, g, b = self:GetClassColor(esData.casterClass)
-	casterText:SetTextColor(r, g, b)
-	if SP.opt.esTracker.hideNames then
-		casterText:Hide()
-	end
 	btn.casterText = casterText
 
-	-- Tooltip
+	-- Tooltip (reads the row's current data)
 	btn:EnableMouse(true)
 	btn:SetScript("OnEnter", function(self)
+		local d = self.esData or {}
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:AddLine("Earth Shield", 0.4, 0.8, 0.4)
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Target: " .. (esData.targetName or "Unknown"), 1, 1, 1)
-		GameTooltip:AddLine("Caster: " .. (esData.casterName or "Unknown"), 1, 0.82, 0)
-		GameTooltip:AddLine("Charges: " .. (esData.charges or "?"), 0.4, 1, 0.4)
+		GameTooltip:AddLine("Target: " .. (d.targetName or "Unknown"), 1, 1, 1)
+		GameTooltip:AddLine("Caster: " .. (d.casterName or "Unknown"), 1, 0.82, 0)
+		GameTooltip:AddLine("Charges: " .. (d.charges or "?"), 0.4, 1, 0.4)
 		GameTooltip:Show()
 	end)
 	btn:SetScript("OnLeave", function(self)
 		GameTooltip:Hide()
 	end)
 
-	btn.esData = esData
+	btn.engine = buildESRowContainer(btn)
+	self:FillESTrackerButton(btn, esData)
 	return btn
+end
+
+-- Put an entry's data on a (possibly reused) row
+function SP:FillESTrackerButton(btn, esData)
+	btn.esData = esData
+	btn.targetText:SetText(esData.targetName or "?")
+	btn.chargesText:SetText(esData.charges or "?")
+	if SP.opt.esTracker.hideCharges then btn.chargesText:Hide() else btn.chargesText:Show() end
+	btn.casterText:SetText(esData.casterName or "?")
+	local r, g, b = self:GetClassColor(esData.casterClass)
+	btn.casterText:SetTextColor(r, g, b)
+	if SP.opt.esTracker.hideNames then btn.casterText:Hide() else btn.casterText:Show() end
+	if btn.engine and esData.unit and btn.engineUnit ~= esData.unit then
+		btn.engineUnit = esData.unit
+		pcall(btn.engine.SetUnit, btn.engine, esData.unit)
+		pcall(btn.engine.UpdateAllAuras, btn.engine)
+	end
+end
+
+-- Restricted client: rows keep their last readable data; the engine draws the
+-- live count while secret, the addon's count while readable
+function SP:ESTrackerSetRestricted(restricted)
+	local frame = self.esTrackerFrame
+	if not frame or not frame.esButtons then return end
+	for _, btn in ipairs(frame.esButtons) do
+		if btn.engine then
+			if btn.engine:IsShown() ~= restricted then btn.engine:SetShown(restricted) end
+			if restricted then
+				btn.chargesText:SetText("")
+			elseif btn.esData and not SP.opt.esTracker.hideCharges then
+				btn.chargesText:SetText(btn.esData.charges or "?")
+			end
+		end
+	end
 end
 
 -- Update the Earth Shield tracker display
@@ -245,7 +308,8 @@ function SP:UpdateESTrackerFrame()
 	local frame = self.esTrackerFrame
 	if not frame then return end
 
-	-- Clear existing buttons
+	-- Hide current rows; they are reused from the pool below
+	frame.esButtonPool = frame.esButtonPool or {}
 	for _, btn in pairs(frame.esButtons) do
 		btn:Hide()
 	end
@@ -288,9 +352,19 @@ function SP:UpdateESTrackerFrame()
 	frame:SetSize(math.max(100, width), height)
 	frame.title:SetText("Earth Shields")
 
-	-- Create buttons
+	-- Rows from the pool (created once, refilled each update)
 	for i, esData in ipairs(esList) do
-		local btn = self:CreateESTrackerButton(frame.iconContainer, esData, i)
+		local btn = frame.esButtonPool[i]
+		if btn and (btn:GetWidth() ~= buttonSize) then
+			btn:SetSize(buttonSize, buttonSize)
+		end
+		if btn then
+			self:FillESTrackerButton(btn, esData)
+		else
+			btn = self:CreateESTrackerButton(frame.iconContainer, esData, i)
+			frame.esButtonPool[i] = btn
+		end
+		btn:ClearAllPoints()
 
 		if isVertical then
 			local startY = -20
@@ -304,6 +378,7 @@ function SP:UpdateESTrackerFrame()
 		btn:Show()
 		table.insert(frame.esButtons, btn)
 	end
+	self:ESTrackerSetRestricted(false)
 
 	-- Apply opacity
 	frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
@@ -404,6 +479,13 @@ end
 -- Scan for Earth Shields in the raid/party
 -- Optimized: uses direct buff lookup and caches unit list
 function SP:ScanEarthShields()
+	-- Restricted client: aura reads return nothing while secret, which would read
+	-- as every shield having fallen off. Keep the last readable picture instead;
+	-- SPCompat re-runs the scan once restrictions clear.
+	if SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then
+		self:ESTrackerSetRestricted(true)
+		return
+	end
 	-- Setup-wizard preview owns the data while active; don't clobber it
 	if self.esTrackerDemoActive then return end
 
@@ -458,6 +540,7 @@ function SP:ScanEarthShields()
 
 				self.earthShields[targetGUID] = {
 					targetGUID = targetGUID,
+					unit = unit,
 					targetName = targetName,
 					casterName = casterName,
 					casterClass = casterClass,
@@ -652,4 +735,9 @@ end
 -- Register the tracker frame with the setup-wizard preview harness (safe if absent)
 if SP.RegisterPreview then
 	SP:RegisterPreview("estracker", { frame = "ShamanPowerESTrackerFrame", demo = "SP:ESTrackerDemo", pad = 24 })
+end
+
+-- Refresh the tracker when a restricted client's secrets lift
+if SPCompat and SPCompat.OnUnrestricted then
+	SPCompat.OnUnrestricted(function() if SP.ScanEarthShields then SP:ScanEarthShields() end end)
 end

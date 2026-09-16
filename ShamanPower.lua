@@ -9759,6 +9759,7 @@ function ShamanPower:CreateEarthShieldButton()
 	chargeText:SetJustifyH("RIGHT")
 	chargeText:SetTextColor(1, 1, 1)  -- White
 	chargeText:SetText("")
+	self:EnsureESButtonContainer(esBtn)
 
 	-- Target name text (optional, shows below button)
 	local nameText = esBtn:CreateFontString("ShamanPowerEarthShieldBtnName", "OVERLAY", "GameFontHighlightSmall")
@@ -10657,9 +10658,83 @@ function ShamanPower:FindEarthShieldTarget()
 end
 
 -- Update the charge display on the button
+-- Earth Shield aura IDs: TBC ranks plus retail's aura (383648; the cast is 974)
+ShamanPower.EarthShieldAuraIDs = { 974, 32593, 32594, 383648 }
+
+-- Group token of the player carrying your Earth Shield (nil if not in view)
+function ShamanPower:EarthShieldUnitToken()
+	local guid = self.esTrackedTargetGUID
+	if not guid then return nil end
+	local tokens = { "player" }
+	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+	for _, u in ipairs(tokens) do
+		if UnitExists(u) and UnitGUID(u) == guid then return u end
+	end
+	return nil
+end
+
+-- Engine-drawn Earth Shield charge count on the totem bar button for restricted
+-- clients: while auras are secret an AuraContainer pointed at the carrier's
+-- group token draws the real count in the button's corner (fixed green); the
+-- addon's own count shows out of combat.
+function ShamanPower:EnsureESButtonContainer(esBtn)
+	if not (SPCompat and SPCompat.secretsRegime) then return end
+	if esBtn.chargeContainer then return end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, esBtn, "CustomAuraContainerTemplate")
+	if not ok or not container then return end
+	container:SetAllPoints(esBtn)
+	container:SetFrameLevel(esBtn:GetFrameLevel() + 6)
+	local idMap = {}
+	for _, id in ipairs(self.EarthShieldAuraIDs) do idMap[id] = true end
+	pcall(function()
+		container:AddAuraSlot("es", "HELPFUL|PLAYER", {
+			candidateFilters = { includeSpellIDs = idMap },
+			initializeFrame = function(button)
+				button:ClearAllPoints()
+				button:SetAllPoints(esBtn)
+				if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+				if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+				local carrier = CreateFrame("Frame", nil, button)
+				carrier:SetAllPoints(button)
+				local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+				count:SetJustifyH("RIGHT")
+				count:SetTextColor(0, 1, 0)   -- fixed green; a per-charge color would need the secret value
+				pcall(button.SetApplicationCount, button, count, {})
+			end,
+		})
+	end)
+	pcall(container.SetUnit, container, "none")
+	container:Hide()
+	esBtn.chargeContainer = container
+end
+
 function ShamanPower:UpdateEarthShieldCharges()
 	local chargeText = _G["ShamanPowerEarthShieldBtnCharges"]
 	if not chargeText then return end
+
+	-- Restricted client: the engine draws the count on the carrier's unit
+	local esBtn = _G["ShamanPowerEarthShieldBtn"]
+	local container = esBtn and esBtn.chargeContainer
+	if container then
+		local restricted = totemsSecretNow()
+		if restricted then
+			local unit = self:EarthShieldUnitToken() or "none"
+			if container.engineUnit ~= unit then
+				container.engineUnit = unit
+				pcall(container.SetUnit, container, unit)
+				pcall(container.UpdateAllAuras, container)
+			end
+		end
+		if container:IsShown() ~= restricted then container:SetShown(restricted) end
+		if restricted then
+			chargeText:SetText("")
+			self.currentEarthShieldTarget = self.esTrackedTarget
+			return
+		end
+	end
 
 	-- Find who currently has our Earth Shield
 	local currentTarget, charges = self:FindEarthShieldTarget()
