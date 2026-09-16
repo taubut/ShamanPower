@@ -110,6 +110,17 @@ local isShowing = false
 local lastTargetName = nil
 
 -- Check if a mob name is in the fear-caster list
+-- Restricted clients: unit identity (name/GUID) is secret on instanced maps.
+-- Ask the client before touching it so nothing here ever branches on a secret.
+local function SPIdentitySecret(unit)
+	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
+		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
+		if ok and v == true then return true end
+	end
+	if issecretvalue and issecretvalue((UnitGUID(unit))) then return true end
+	return false
+end
+
 local function IsFearCaster(name)
     if not name then return false end
 
@@ -346,6 +357,7 @@ end
 
 -- Check if we should show the reminder
 local function CheckTarget()
+    if SPIdentitySecret("target") then return end   -- instanced map on a restricted client: names are secret
     if SP.TremorDemoActive then return end
     local sv = ShamanPowerTremorReminderDB
     if not sv or not sv.enabled then
@@ -738,7 +750,7 @@ function SP:ShowMobList()
     targetBtn:SetPoint("TOPLEFT", addLabel, "BOTTOMLEFT", 0, -8)
     targetBtn:SetText("Add Target")
     targetBtn:SetScript("OnClick", function()
-        local name = UnitName("target")
+        local name = not SPIdentitySecret("target") and UnitName("target") or nil
         if name and UnitCanAttack("player", "target") then
             ShamanPowerTremorReminderDB.fearCasters[name] = true
             SP:RefreshMobList()

@@ -511,7 +511,19 @@ end
 -- Update Totem Plate Highlights (for target selection)
 -- ============================================================================
 
+-- Restricted clients: unit identity (name/GUID) is secret on instanced maps.
+-- Ask the client before touching it so nothing here ever branches on a secret.
+local function SPIdentitySecret(unit)
+	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
+		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
+		if ok and v == true then return true end
+	end
+	if issecretvalue and issecretvalue((UnitGUID(unit))) then return true end
+	return false
+end
+
 function SP:UpdateTotemPlateHighlights()
+    if SPIdentitySecret("target") then return end
     local targetGUID = UnitGUID("target")
 
     for unitId, nameplate in pairs(self.activeTotemPlates) do
@@ -532,6 +544,7 @@ end
 -- ============================================================================
 
 function SP:OnTotemPlateUnitAdded(unitId)
+    if SPIdentitySecret(unitId) then return end   -- instanced map on a restricted client: Blizzard's own totem plates apply
     local settings = self.opt.totemPlates
     if not settings or not settings.enabled then return end
 
