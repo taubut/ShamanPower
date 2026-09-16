@@ -727,7 +727,11 @@ end
 -- Interface > AddOns entry: a single button into the settings window (the
 -- AceConfig-rendered panel is retired).
 function ShamanPower:CreateInterfaceOptionsPanel()
-	if self.optionsFrame or not InterfaceOptions_AddCategory then return end
+	if self.optionsFrame then return end
+	-- 2.5.6 removed InterfaceOptions_AddCategory; the modern Settings API is
+	-- the live path now, the legacy call kept as a fallback for older clients
+	local canModern = Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory
+	if not canModern and not InterfaceOptions_AddCategory then return end
 	local panel = CreateFrame("Frame", "ShamanPowerInterfacePanel", UIParent)
 	panel.name = "ShamanPower"
 	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -742,7 +746,15 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		if GameMenuFrame then GameMenuFrame:Hide() end
 		ShamanPower:OpenConfigWindow()
 	end)
-	InterfaceOptions_AddCategory(panel)
+	if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+		local category = Settings.RegisterCanvasLayoutCategory(panel, "ShamanPower")
+		if category then
+			category.ID = "ShamanPower"
+			Settings.RegisterAddOnCategory(category)
+		end
+	elseif InterfaceOptions_AddCategory then
+		InterfaceOptions_AddCategory(panel)
+	end
 	self.optionsFrame = panel
 end
 
