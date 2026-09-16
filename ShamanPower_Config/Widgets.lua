@@ -218,10 +218,23 @@ end
 -- occupant's muted label), then the widget's own refresh syncs the value.
 local function FinishRow(row, parent, controlWidth)
 	ApplyDisabled(row, false)
+	row._controlWidth = controlWidth
 	ClampRowLabel(row, controlWidth)
 	RegisterRefresh(parent, row.refresh)
 	row.refresh()
 	return row, ROW_H + ROW_GAP
+end
+
+-- The page renderer asks this after placing a row in a column: a label that
+-- had to be cut gets the whole line instead (controls anchor to the row's
+-- right edge, so only the width changes).
+function Widgets:LabelTruncated(row)
+	return row and row.label and row.label.spTruncated or false
+end
+
+function Widgets:Widen(row, width)
+	row:SetWidth(width)
+	ClampRowLabel(row, row._controlWidth or 0)
 end
 
 -- ---------------------------------------------------------------------------

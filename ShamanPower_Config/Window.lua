@@ -1080,6 +1080,19 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			end
 
 			if f and h then
+				-- Never show an ellipsis while there is room: a column that cannot
+				-- hold the label hands the row the full width.
+				if span == 1 and Widgets:LabelTruncated(f) then
+					if col == 2 then
+						y = rowY + rowMaxH
+						rowY = y
+						col, rowMaxH = 1, 0
+					end
+					f:ClearAllPoints()
+					f:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -rowY)
+					Widgets:Widen(f, fullW)
+					span = 2
+				end
 				table.insert(pageWidgets, f)
 				if span == 2 then
 					y = rowY + h
