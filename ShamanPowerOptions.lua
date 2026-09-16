@@ -1039,6 +1039,22 @@ ShamanPower.options = {
 								ShamanPower.opt.enableMiddleClickPopOut = val
 							end
 						},
+						lockPopOuts = {
+							order = 1.5,
+							name = "Lock All Pop-Out Trackers",
+							desc = "Pop-out trackers can no longer be dragged, including ALT-drag on the icon. Turn this off to rearrange them.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.poppedOutLocked and true or false
+							end,
+							set = function(info, val)
+								ShamanPower:SetPopOutsLocked(val)
+							end
+						},
 						popOutDesc = {
 							order = 2,
 							name = "|cff888888When enabled: Middle-click any totem button, cooldown bar item, Earth Shield, or Drop All to pop it out.\nSHIFT+Middle-click on popped-out frame for settings. ALT+drag to move.|r",
