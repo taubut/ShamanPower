@@ -799,6 +799,29 @@ ShamanPower.options = {
 								ShamanPower:UpdateMiniTotemBar()
 							end
 						},
+						rightClickDestroysTotem = {
+							order = 4.6,
+							name = "Right-Click Pulls That Totem Back",
+							desc = "Right-clicking a totem button destroys just that element's totem instead of casting Totemic Call. Shift+right-click still casts Totemic Call. If the flyout is set to open on right-click, the flyout keeps priority.",
+							type = "toggle",
+							width = "full",
+							hidden = function(info)
+								return not (ShamanPower.TotemDestroySupported and ShamanPower:TotemDestroySupported())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.rightClickDestroysTotem == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.rightClickDestroysTotem = val
+								if not InCombatLockdown() then
+									ShamanPower:UpdateMiniTotemBar()
+									ShamanPower:UpdateTotemFlyoutEnabled()
+								end
+							end
+						},
 						compactSpacer = {
 							order = 4.6,
 							type = "description",
@@ -1368,6 +1391,33 @@ ShamanPower.options = {
 								if not InCombatLockdown() then
 									ShamanPower:UpdateMiniTotemBar()
 								end
+							end
+						},
+						-- Totem sets (WoW: Forever only; hidden elsewhere)
+						dropall_totem_sets = {
+							order = 2.1,
+							type = "toggle",
+							name = "Drop All Casts Call of the Elements",
+							desc = "On clients with totem sets, the Drop All button casts Call of the Elements (Shift: Call of the Ancestors, Ctrl: Call of the Spirits, right-click: Totemic Recall) instead of dropping one totem per click.",
+							width = "full",
+							hidden = function() return not (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) end,
+							get = function(info) return ShamanPower.opt.dropAllUsesTotemSets ~= false end,
+							set = function(info, val)
+								ShamanPower.opt.dropAllUsesTotemSets = val
+								if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
+							end
+						},
+						dropall_totem_sets_sync = {
+							order = 2.2,
+							type = "toggle",
+							name = "Call of the Elements Follows My Assignments",
+							desc = "Whenever your totem assignments change, the four totems in Call of the Elements are updated to match (out of combat). Use /spl set 2 <loadout> and /spl set 3 <loadout> to fill Call of the Ancestors and Call of the Spirits from saved loadouts.",
+							width = "full",
+							hidden = function() return not (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) end,
+							get = function(info) return ShamanPower.opt.totemSetsSyncAssignments ~= false end,
+							set = function(info, val)
+								ShamanPower.opt.totemSetsSyncAssignments = val
+								if val and not InCombatLockdown() and ShamanPower.SyncTotemSetFromAssignments then ShamanPower:SyncTotemSetFromAssignments() end
 							end
 						},
 						show_cooldown_bar = {
@@ -3260,6 +3310,10 @@ ShamanPower.options = {
 					order = 16,
 					name = "|cff0070ddEarth Shield Tracker|r",
 					type = "group",
+					-- No Earth Shield on this client means nothing to track. The
+					-- nav list drops any entry whose page resolves to nothing, so
+					-- hiding the group removes the sidebar row with it.
+					hidden = function() return ShamanPower.ESTrackerUnavailable == true end,
 					args = {
 						estrack_desc = {
 							order = 0,
@@ -5924,6 +5978,41 @@ ShamanPower.options = {
 								end
 							end
 						},
+						-- WoW: Forever cooldowns; hidden on clients whose data lacks the spell
+						cdbar_show_rage_of_the_farseer = {
+							order = 10.1,
+							type = "toggle",
+							name = "Rage of the Farseer",
+							desc = "Show the Rage of the Farseer cooldown on the cooldown bar (Enhancement capstone talent, WoW: Forever)",
+							width = "full",
+							hidden = function() return not ShamanPower.opt.showCooldownBar or not SPCompat.SpellExists(425336) end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowRageOfTheFarseer ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowRageOfTheFarseer = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
+						cdbar_show_totemic_projection = {
+							order = 10.2,
+							type = "toggle",
+							name = "Totemic Projection",
+							desc = "Show the Totemic Projection cooldown on the cooldown bar (WoW: Forever)",
+							width = "full",
+							hidden = function() return not ShamanPower.opt.showCooldownBar or not SPCompat.SpellExists(437009) end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShowTotemicProjection ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowTotemicProjection = val
+								if not InCombatLockdown() then
+									ShamanPower:RecreateCooldownBar()
+								end
+							end
+						},
 					}
 				},
 				cdbar_order_section = {
@@ -6259,6 +6348,7 @@ ShamanPower.options = {
 							name = "Strength of Earth",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_1 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[1]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.earth_1 = val
@@ -6271,6 +6361,7 @@ ShamanPower.options = {
 							name = "Stoneskin",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_2 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[2]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.earth_2 = val
@@ -6283,6 +6374,7 @@ ShamanPower.options = {
 							name = "Tremor",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_3 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[3]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.earth_3 = val
@@ -6295,6 +6387,7 @@ ShamanPower.options = {
 							name = "Earthbind",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_4 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[4]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.earth_4 = val
@@ -6307,6 +6400,7 @@ ShamanPower.options = {
 							name = "Stoneclaw",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_5 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[5]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.earth_5 = val
@@ -6319,6 +6413,7 @@ ShamanPower.options = {
 							name = "Earth Elemental",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_6 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[6]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.earth_6 = val
@@ -6337,6 +6432,7 @@ ShamanPower.options = {
 							name = "Totem of Wrath",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_1 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[1]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_1 = val
@@ -6349,6 +6445,7 @@ ShamanPower.options = {
 							name = "Searing",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_2 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[2]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_2 = val
@@ -6361,6 +6458,7 @@ ShamanPower.options = {
 							name = "Magma",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_3 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[3]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_3 = val
@@ -6373,6 +6471,7 @@ ShamanPower.options = {
 							name = "Fire Nova",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_4 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[4]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_4 = val
@@ -6385,6 +6484,7 @@ ShamanPower.options = {
 							name = "Flametongue",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_5 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[5]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_5 = val
@@ -6397,6 +6497,7 @@ ShamanPower.options = {
 							name = "Frost Resistance",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_6 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[6]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_6 = val
@@ -6409,6 +6510,7 @@ ShamanPower.options = {
 							name = "Fire Elemental",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_7 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[7]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.fire_7 = val
@@ -6427,6 +6529,7 @@ ShamanPower.options = {
 							name = "Mana Spring",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_1 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[1]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.water_1 = val
@@ -6439,6 +6542,7 @@ ShamanPower.options = {
 							name = "Healing Stream",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_2 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[2]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.water_2 = val
@@ -6451,6 +6555,7 @@ ShamanPower.options = {
 							name = "Mana Tide",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_3 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[3]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.water_3 = val
@@ -6463,6 +6568,7 @@ ShamanPower.options = {
 							name = "Poison Cleansing",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_4 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[4]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.water_4 = val
@@ -6475,6 +6581,7 @@ ShamanPower.options = {
 							name = "Disease Cleansing",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_5 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[5]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.water_5 = val
@@ -6487,6 +6594,7 @@ ShamanPower.options = {
 							name = "Fire Resistance",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_6 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[6]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.water_6 = val
@@ -6505,6 +6613,7 @@ ShamanPower.options = {
 							name = "Windfury",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_1 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[1]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_1 = val
@@ -6517,6 +6626,7 @@ ShamanPower.options = {
 							name = "Grace of Air",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_2 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[2]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_2 = val
@@ -6529,6 +6639,7 @@ ShamanPower.options = {
 							name = "Wrath of Air",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_3 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[3]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_3 = val
@@ -6541,6 +6652,7 @@ ShamanPower.options = {
 							name = "Tranquil Air",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_4 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[4]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_4 = val
@@ -6553,6 +6665,7 @@ ShamanPower.options = {
 							name = "Grounding",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_5 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[5]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_5 = val
@@ -6565,6 +6678,7 @@ ShamanPower.options = {
 							name = "Nature Resistance",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_6 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[6]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_6 = val
@@ -6577,6 +6691,7 @@ ShamanPower.options = {
 							name = "Windwall",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_7 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[7]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_7 = val
@@ -6589,6 +6704,7 @@ ShamanPower.options = {
 							name = "Sentry",
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_8 ~= false end,
+							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[8]) end,   -- totem not in this client's data
 							set = function(_, val)
 								ShamanPower.opt.flyoutTotems = ShamanPower.opt.flyoutTotems or {}
 								ShamanPower.opt.flyoutTotems.air_8 = val

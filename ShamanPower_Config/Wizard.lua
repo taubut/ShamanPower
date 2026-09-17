@@ -64,6 +64,11 @@ local BIND = {
 		set = function(v) ShamanPower_ReactiveTotems = ShamanPower_ReactiveTotems or {}; ShamanPower_ReactiveTotems.enabled = v; safecall("UpdateReactiveTotems"); notify()
 			if ns.Widgets and SP.Wizard._reactiveCard then ns.Widgets:RefreshAll(SP.Wizard._reactiveCard) end end,
 	},
+	readyreminders = {
+		get = function() return ShamanPower_ReadyReminders and ShamanPower_ReadyReminders.enabled ~= false end,
+		set = function(v) ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}; ShamanPower_ReadyReminders.enabled = v; safecall("UpdateReadyReminders"); notify()
+			if ns.Widgets and SP.Wizard._readyCard then ns.Widgets:RefreshAll(SP.Wizard._readyCard) end end,
+	},
 	tremor = {
 		get = function() return ShamanPowerTremorReminderDB and ShamanPowerTremorReminderDB.enabled ~= false end,
 		set = function(v) ShamanPowerTremorReminderDB = ShamanPowerTremorReminderDB or {}; ShamanPowerTremorReminderDB.enabled = v; safecall("UpdateTremorReminderAppearance"); notify()
@@ -145,9 +150,11 @@ function SP.Wizard.ApplyRoleDefaults(role)
 	end
 	local resto, enh, ele = role == "restoration", role == "enhancement", role == "elemental"
 	-- Earth Shield is Resto-only: tracker and the Earth Shield charge number.
-	SP:EnsureProfileTable("esTracker");           SP.opt.esTracker.enabled = resto
+	-- Where the spell has no acquisition path, leave both off for every spec.
+	local hasES = not SP.ESTrackerUnavailable
+	SP:EnsureProfileTable("esTracker");           SP.opt.esTracker.enabled = resto and hasES
 	SP:EnsureProfileTable("shieldChargeDisplay"); SP.opt.shieldChargeDisplay.showPlayerShield = true
-	SP.opt.shieldChargeDisplay.showEarthShield = resto
+	SP.opt.shieldChargeDisplay.showEarthShield = resto and hasES
 	-- Twisting: on by default for Enhancement only.
 	if SP.opt.enableTotemTwisting ~= enh then
 		SP.opt.enableTotemTwisting = enh
@@ -158,6 +165,7 @@ function SP.Wizard.ApplyRoleDefaults(role)
 	-- Cooldown bar: spec talents only where they exist (the bar also hides unknown spells).
 	SP.opt.cdbarShowNS = resto; SP.opt.cdbarShowManaTide = resto
 	SP.opt.cdbarShowShamanisticRage = enh
+	SP.opt.cdbarShowRageOfTheFarseer = enh   -- WoW: Forever Enhancement capstone
 	SP.opt.cdbarShowElementalMastery = ele
 	-- Clean look by default: no black panel / border behind any frame. Each
 	-- step still has a "Show frame" / "Show border" toggle to bring it back.
@@ -217,6 +225,9 @@ local STEPS = {
 	    { label = "Time remaining text", bind = "cdtext" },
 	  } },
 	{ id = "estracker", title = "Earth Shield Tracker", roles = { restoration = true }, module = "ShamanPower_ESTracker", flag = "ESTrackerLoaded", build = "BuildESTrackerStep",
+	  -- Skipped outright where Earth Shield has no acquisition path, rather than
+	  -- shown with the generic "module did not start" note, which would be wrong.
+	  when = function() return not SP.ESTrackerUnavailable end,
 	  desc = "Every Earth Shield in your raid - not just yours - with who it is on, who cast it, and how many charges are left.",
 	  bullets = {
 	    "One icon per shield: target name inside, charges top-right, caster below in class color.",
@@ -264,6 +275,14 @@ local STEPS = {
 	    "Each alert can be dragged to its own spot later.",
 	  },
 	  toggles = { { label = "Enable Reactive Totems", bind = "reactive" } } },
+	{ id = "readyreminders", title = "Ready Reminders", roles = ALL, module = "ShamanPower_ReadyReminders", flag = "ReadyRemindersLoaded", build = "BuildReadyRemindersStep",
+	  desc = "An icon per spell that appears the moment the spell comes off cooldown - Earth Shock, Stormstrike, Lava Burst, Riptide - placed anywhere you like.",
+	  bullets = {
+	    "Only when ready: the icon shows up when you can press the spell and vanishes while it recharges.",
+	    "Always: the icon stays put, dimmed with a countdown, and lights up when ready.",
+	    "Pick the spells below; icons only appear for spells you know.",
+	  },
+	  toggles = { { label = "Enable Ready Reminders", bind = "readyreminders" } } },
 	{ id = "tremor", title = "Tremor Reminder", roles = ALL, module = "ShamanPower_TremorReminder", flag = "TremorReminderLoaded", build = "BuildTremorStep",
 	  desc = "A heads-up to drop Tremor Totem the moment you target a mob that is known to fear - before anyone in your group gets feared.",
 	  bullets = {
@@ -287,6 +306,8 @@ local STEPS = {
 	    "This is about YOUR totems. Totem Range (later) is about other shamans' totems reaching you.",
 	  } },
 	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
+	  -- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): the step does not exist there
+	  when = function() return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end,
 	  descNonShaman = "The game never shows Windfury Totem's weapon buff on other players, so your shaman's addon cannot see that you have it. A tiny WeakAura on YOUR side fixes that.",
 	  bulletsNonShaman = {
 	    "Import it into WeakAuras once. Nothing to configure.",
@@ -336,7 +357,7 @@ local function VisibleSteps()
 	local out = { { id = "role", title = IS_SHAMAN and "Your Spec" or "Welcome" } }
 	if not state.role then return out end
 	for _, s in ipairs(STEPS) do
-		if s.roles[state.role] then out[#out + 1] = s end
+		if s.roles[state.role] and (not s.when or s.when()) then out[#out + 1] = s end
 	end
 	out[#out + 1] = { id = "finish", title = "Finish" }
 	return out
@@ -2080,6 +2101,92 @@ function SP.Wizard.BuildReactiveStep(card, inner, y)
 	return y
 end
 
+-- Ready Reminders: the real icons running a staggered pretend-cooldown scene,
+-- laid out in a row inside the preview, with the main options live in the card.
+function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
+	local Widgets = ns.Widgets
+	SP.Wizard._readyCard = card
+	local function sv() ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}; return ShamanPower_ReadyReminders end
+	local function get(k, d) local v = sv()[k]; if v == nil then return d end; return v end
+
+	inner.previewInsetBottom = 110
+	inner.previewMaxScale = 1.0
+	local function shownEntries()
+		local out = {}
+		for _, entry in ipairs(SP.ReadyReminderSpells or {}) do
+			if SP.ReadyReminderOn and SP.ReadyReminderOn(entry) and SP.ReadyReminderUsable and SP.ReadyReminderUsable(entry) then out[#out + 1] = entry end
+		end
+		return out
+	end
+	-- The harness sizes the borrowed frames as a vertical stack of EVERY usable
+	-- spell, which shrinks them; lay the enabled ones out as a life-size row
+	-- instead (scaled down only if the row would not fit).
+	local function fit()
+		if not (inner:IsShown() and inner:GetWidth() > 0) then return end
+		SP:ShowPreview("readyreminders", inner)
+		local entries = shownEntries()
+		local size = get("iconSize", 48)
+		local n = #entries
+		local gap = get("showNames", false) and math.max(size + 14, 104) or (size + 14)
+		local rowW = n * size + math.max(0, n - 1) * (gap - size)
+		local scale = math.min(1, (inner:GetWidth() - 40) / math.max(rowW, 1))
+		for _, entry in ipairs(SP.ReadyReminderSpells or {}) do
+			local f = SP.readyReminderFrames and SP.readyReminderFrames[entry.key]
+			if f and f:GetParent() == inner then f:SetScale(scale) end
+		end
+		for i, entry in ipairs(entries) do
+			local f = SP.readyReminderFrames and SP.readyReminderFrames[entry.key]
+			if f and f:GetParent() == inner then
+				f:ClearAllPoints(); f:SetPoint("CENTER", inner, "CENTER", (i - (n + 1) / 2) * gap, 40 / scale)
+			end
+		end
+	end
+	C_Timer.After(0.02, fit)
+	local story = inner:CreateFontString(nil, "OVERLAY"); story:SetFontObject(Core.fonts.row)
+	story:SetPoint("BOTTOM", inner, "BOTTOM", 0, 78); story:SetWidth(inner:GetWidth() - 40); story:SetJustifyH("CENTER"); story:SetWordWrap(true)
+	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
+	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
+	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
+	legend:SetText("Each icon is running a pretend cooldown. In play they sit wherever you drag them: turn on Unlock Positions in Settings > Modules > Ready Reminders.")
+	inner:SetScript("OnUpdate", function() story:SetText(SP.readyDemoStatus or "") end)
+
+	local W = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, W
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.readyDemoActive then SP:ReadyRemindersDemo(true) end; fit(); Widgets:RefreshAll(card) end
+	local function off() return not get("enabled", true) end
+	row("Dropdown", { label = "Show", disabled = off, get = function() return get("mode", "ready") end, set = function(v) sv().mode = v; upd("UpdateAllReadyReminderAppearance") end,
+		values = function() return { ready = "Only when ready", always = "Always (dim + countdown)" } end, order = function() return { "ready", "always" } end })
+	row("Dropdown", { label = "Ready effect", disabled = off, get = function() return get("readyEffect", "glow") end, set = function(v) sv().readyEffect = v; upd("UpdateAllReadyReminderAppearance") end,
+		values = function() return { glow = "Glow", pulse = "Pulse", both = "Glow + pulse", none = "None" } end, order = function() return { "glow", "pulse", "both", "none" } end })
+	row("Dropdown", { label = "Sweep while on cooldown", disabled = function() return off() or get("mode", "ready") ~= "always" end,
+		get = function() return get("sweepStyle", "radial") end, set = function(v) sv().sweepStyle = v; upd("UpdateAllReadyReminderAppearance") end,
+		values = function() return { radial = "Radial (clock)", vertical = "Vertical (fills up)", none = "None" } end, order = function() return { "radial", "vertical", "none" } end })
+	row("Slider", { label = "Icon size", min = 24, max = 96, step = 2, disabled = off, get = function() return get("iconSize", 48) end, set = function(v) sv().iconSize = v; upd("UpdateAllReadyReminderAppearance") end })
+	row("Slider", { label = "Opacity", min = 0.2, max = 1.0, step = 0.05, disabled = off, get = function() return get("opacity", 1.0) end, set = function(v) sv().opacity = v; upd("UpdateAllReadyReminderAppearance") end })
+	row("Toggle", { label = "Show spell names", disabled = off, get = function() return get("showNames", false) end, set = function(v) sv().showNames = v; upd("UpdateAllReadyReminderAppearance") end })
+	row("Toggle", { label = "Only in combat", disabled = off, get = function() return get("onlyInCombat", false) end, set = function(v) sv().onlyInCombat = v; upd() end })
+	row("Toggle", { label = "Sound when a long cooldown is ready", disabled = off, get = function() return get("soundOnReady", false) end, set = function(v) sv().soundOnReady = v; upd() end })
+	-- the spells this client has
+	local any = false
+	for _, entry in ipairs(SP.ReadyReminderSpells or {}) do
+		if SP.ReadyReminderUsable and SP.ReadyReminderUsable(entry) then
+			any = true
+			row("Toggle", { label = entry.name, disabled = off,
+				get = function() return SP.ReadyReminderOn(entry) end,
+				set = function(v) sv().spells = sv().spells or {}; sv().spells[entry.key] = v; upd("UpdateReadyReminders") end })
+		end
+	end
+	if not any then
+		local t = card:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.rowDim); t:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); t:SetText("No reminder spells exist on this client.")
+		y = y + 24
+	end
+	return y
+end
+
 -- Tremor Reminder: the REAL reminder frame running a targeting scene, with
 -- every option from its settings page live in the card.
 function SP.Wizard.BuildTremorStep(card, inner, y)
@@ -2389,10 +2496,14 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		{ id = 30823, name = "Sham. Rage", long = "Shamanistic Rage", opt = "cdbarShowShamanisticRage", cd = 8, ready = 5,  color = {0.8, 0.5, 0.1}, roles = { enhancement = true } },
 		{ id = horde and 2825 or 32182, name = horde and "Bloodlust" or "Heroism", opt = "cdbarShowBloodlust", cd = 16, ready = 4, color = {0.8, 0.1, 0.1} },
 		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
+		-- WoW: Forever only; the chips exist only where the client has the spell
+		{ id = 425336, name = "Farseer", long = "Rage of the Farseer", opt = "cdbarShowRageOfTheFarseer", cd = 16, ready = 4, color = {0.8, 0.1, 0.1}, roles = { enhancement = true }, only = function() return GetSpellInfo(425336) ~= nil end },
+		{ id = 437009, name = "Projection", long = "Totemic Projection", opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
 		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
 	}
-	local function visible(sp) return (not sp.roles or sp.roles[state.role] or SP.Wizard.previewOnly) and OPT()[sp.opt] ~= false end
-	local function roleSees(sp) return not sp.roles or sp.roles[state.role] end
+	local function onClient(sp) return not sp.only or sp.only() end   -- spell exists in this client's data
+	local function visible(sp) return onClient(sp) and (not sp.roles or sp.roles[state.role] or SP.Wizard.previewOnly) and OPT()[sp.opt] ~= false end
+	local function roleSees(sp) return onClient(sp) and (not sp.roles or sp.roles[state.role]) end
 
 	-- ---- mock bar (mirrors the real bar: dark backdrop, 36px buttons) ----
 	local SIZE, GAP = 36, 6
@@ -2889,7 +3000,6 @@ local function PresetSummary(preset)
 		{ "Duration bars", dbp .. ((p.durationTextLocation and p.durationTextLocation ~= "none") and (", time " .. p.durationTextLocation) or "") },
 		{ "Cooldown bar", (p.showCooldownBar == false) and "off" or string.format("%s, size %.2f%s", p.cdbarLayout or p.layout or "Horizontal", p.cooldownBarScale or 0.9, p.hideCooldownBarFrame and ", no frame" or "") },
 		{ "Totem twisting", on(p.enableTotemTwisting) },
-		{ "Earth Shield tracker", on(p.esTracker and p.esTracker.enabled) },
 		{ "Shield charges", on(p.shieldChargeDisplay and p.shieldChargeDisplay.showPlayerShield ~= false) },
 		{ "Party Buff Tracker", dots .. (p.partyDotPosition and p.partyDotPosition ~= "corners" and (", dots " .. p.partyDotPosition) or "") },
 		{ "Totem Plates", on(p.totemPlates and p.totemPlates.enabled) },
@@ -2897,6 +3007,11 @@ local function PresetSummary(preset)
 		{ "Tremor Reminder", on(x.ShamanPowerTremorReminderDB and x.ShamanPowerTremorReminderDB.enabled ~= false) },
 		{ "Expiring Alerts", on(x.ShamanPowerExpiringAlertsDB and x.ShamanPowerExpiringAlertsDB.enabled ~= false) },
 	}
+	-- Inserted rather than placed inline: a nil inside the constructor would put
+	-- a hole in the array and silently drop every row after it.
+	if not SP.ESTrackerUnavailable then
+		table.insert(lines, 5, { "Earth Shield tracker", on(p.esTracker and p.esTracker.enabled) })
+	end
 	return lines, payload ~= nil
 end
 
@@ -3039,7 +3154,7 @@ function SP.Wizard:RenderRole()
 		b:SetText("The bars and most modules only run on a shaman, so we will skip them. What ShamanPower does for you:\n\n"
 			.. "|cffE6EAF0Totem Range|r - see whether you are inside your shaman's totem buffs\n"
 			.. "|cffE6EAF0Raid Cooldowns|r - call for Bloodlust, Mana Tide and Drums as leader or assistant\n"
-			.. "|cffE6EAF0Windfury Companion|r - a WeakAura so your shaman can see your Windfury (melee)\n"
+			.. ((WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and "|cffE6EAF0Windfury Companion|r - a WeakAura so your shaman can see your Windfury (melee)\n" or "")
 			.. "|cffE6EAF0Totem Plates|r - big icons on enemy totems so you kill the right one")
 		box:SetHeight(14 + h:GetStringHeight() + 8 + b:GetStringHeight() + 16)
 		local go = track(Core:MakeButton(c, "Start", 200, true))

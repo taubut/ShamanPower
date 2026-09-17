@@ -183,6 +183,7 @@ local NAV = {
 		{ label = "Earth Shield Tracker", shamanOnly = true, path = P("fluffy", "estrack_section") },
 		{ label = "Shield Charges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
+		{ label = "Ready Reminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
 		{ label = "Expiring Alerts", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Totem Plates",         path = P("fluffy", "totemplates_section") },
@@ -611,7 +612,12 @@ function SPConfig:RenderNav(query)
 			local node, chain, firstPath
 			for _, pth in ipairs(EntryPaths(entry)) do
 				local n, c = Tree:Resolve(pth)
-				if n then node, chain, firstPath = n, c, pth break end
+				-- Resolve only walks the path, so a group that hides itself still
+				-- resolves. Skip those here or the sidebar keeps a row that opens
+				-- an empty page (every row on it filtered out by the same flag).
+				if n and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
+					node, chain, firstPath = n, c, pth break
+				end
 			end
 			if node then
 				entry._node, entry._chain, entry._firstPath = node, chain, firstPath

@@ -92,6 +92,44 @@ if not GetSpellBookItemName and C_SpellBook and C_SpellBook.GetSpellBookItemName
 	end
 end
 
+-- IsSpellKnown / IsPlayerSpell / FindSpellBookSlotBySpellID only exist on the
+-- Mainline line behind the loadDeprecationFallbacks CVar, so they can be nil.
+-- The addon calls all three bare in core paths (learned-element checks, shield
+-- detection, raid cooldown setup), where a nil would throw rather than return
+-- false. These mirror Blizzard's own deprecated shims so behaviour matches the
+-- client when the fallbacks are loaded.
+do
+	local function spellBank(isPet)
+		local E = Enum and Enum.SpellBookSpellBank
+		if not E then return isPet and 1 or 0 end
+		return isPet and E.Pet or E.Player
+	end
+
+	if not IsPlayerSpell and C_SpellBook and C_SpellBook.IsSpellKnown then
+		function IsPlayerSpell(spellID)
+			return C_SpellBook.IsSpellKnown(spellID, spellBank(false))
+		end
+	end
+
+	if not IsSpellKnown and C_SpellBook and C_SpellBook.IsSpellInSpellBook then
+		function IsSpellKnown(spellID, isPet)
+			return C_SpellBook.IsSpellInSpellBook(spellID, spellBank(isPet), false)
+		end
+	end
+
+	if not IsSpellKnownOrOverridesKnown and C_SpellBook and C_SpellBook.IsSpellInSpellBook then
+		function IsSpellKnownOrOverridesKnown(spellID, isPet)
+			return C_SpellBook.IsSpellInSpellBook(spellID, spellBank(isPet), true)
+		end
+	end
+
+	if not FindSpellBookSlotBySpellID and C_SpellBook and C_SpellBook.FindSpellBookSlotForSpell then
+		function FindSpellBookSlotBySpellID(spell, includeHidden)
+			return (C_SpellBook.FindSpellBookSlotForSpell(spell, includeHidden and true or false))
+		end
+	end
+end
+
 if not GetAddOnMetadata and C_AddOns and C_AddOns.GetAddOnMetadata then
 	GetAddOnMetadata = C_AddOns.GetAddOnMetadata
 end
@@ -130,7 +168,92 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-16z"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-17b"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+
+-- ---------------------------------------------------------------------------
+-- Does a spell exist for this player, on this client?
+--
+-- GetSpellInfo returning a name is NOT that answer, and it is wrong in both
+-- directions on the Forever line:
+--
+--   * Resolves but is unobtainable. Earth Shield 974 has a SpellName row but
+--     no trainer entry and no talent node, so nothing can ever learn it.
+--   * Real but does not resolve. That build ships ~540 encrypted SpellName
+--     rows; Elemental Mastery 16166 is a live Elemental capstone whose name
+--     comes back nil. Treating that as "absent" silently drops the spell.
+--
+-- So: consult the two hand-checked lists first (derived from the client's own
+-- SkillLineAbility/Trait tables, which Lua cannot read), then the name, then
+-- the spellbook by ID. The spellbook step needs no name at all, which is the
+-- point: it is the only check that survives an encrypted string.
+--
+-- On the Classic line every real spell resolves by name, both lists are empty
+-- there, and the second step always answers, so this returns exactly what a
+-- bare GetSpellInfo check returns today.
+-- ---------------------------------------------------------------------------
+local UNOBTAINABLE = {}   -- has a name, but nothing can learn it
+local REAL_UNNAMED = {}   -- no readable name, but genuinely castable
+
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	-- Earth Shield: 974 has no SkillLineAbility row at all; 408514 has one but
+	-- AcquireMethod 3 with no TraitDefinition and no Talent row, i.e. granted by
+	-- nothing. (Water Shield 408510 is also AcquireMethod 3 but DOES have a
+	-- TraitDefinition row, which is why it is real and these are not.)
+	UNOBTAINABLE[974] = true
+	UNOBTAINABLE[32593] = true
+	UNOBTAINABLE[32594] = true
+	UNOBTAINABLE[408514] = true
+
+	-- Present in SkillLineAbility, name encrypted in SpellName.
+	REAL_UNNAMED[16166] = true   -- Elemental Mastery, Elemental capstone
+	REAL_UNNAMED[25908] = true   -- Tranquil Air Totem, SkillLine 374
+end
+
+SPCompat.spellDenyList = UNOBTAINABLE
+SPCompat.spellAllowList = REAL_UNNAMED
+
+-- Cached because option `hidden` callbacks run on every settings redraw.
+-- Wiped on SPELLS_CHANGED: the spellbook is empty while addons load, so any
+-- answer worked out at load time would be answering before the data exists.
+local spellExistsCache = {}
+
+function SPCompat.SpellExists(id)
+	if type(id) ~= "number" then return false end
+	local hit = spellExistsCache[id]
+	if hit ~= nil then return hit end
+
+	local found
+	if UNOBTAINABLE[id] then
+		found = false
+	elseif REAL_UNNAMED[id] then
+		found = true
+	elseif GetSpellInfo(id) then
+		found = true
+	else
+		-- No readable name. Ask the spellbook by ID, which ignores strings.
+		found = false
+		if IsPlayerSpell and IsPlayerSpell(id) then found = true end
+		if not found and IsSpellKnown and IsSpellKnown(id) then found = true end
+	end
+
+	spellExistsCache[id] = found
+	return found
+end
+
+function SPCompat.WipeSpellExistsCache()
+	spellExistsCache = {}
+end
+
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("SPELLS_CHANGED")
+	f:RegisterEvent("PLAYER_ENTERING_WORLD")
+	f:SetScript("OnEvent", SPCompat.WipeSpellExistsCache)
+end
+
+-- Kept as its own name because it gates a whole module, not one spell.
+-- Derived from the deny list so there is a single source of truth.
+SPCompat.earthShieldExists = not UNOBTAINABLE[408514]
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -544,6 +667,12 @@ local SPELL_SWEEP = {
 	{ 36936, "Totemic Call" },
 	{ 30706, "Totem of Wrath" },
 	{ 3738,  "Wrath of Air" },
+	{ 408510, "Water Shield (Forever talent id)" },
+	{ 408490, "Lava Burst R1 (Forever)" },
+	{ 408521, "Riptide R1 (Forever)" },
+	{ 425336, "Rage of the Farseer (Forever)" },
+	{ 437009, "Totemic Projection (Forever)" },
+	{ 66842, "Call of the Elements" },
 	{ 16190, "Mana Tide R1" },
 	{ 8017,  "Rockbiter Weapon R1" },
 	{ 51505, "Lava Burst (wrath id)" },
@@ -930,6 +1059,16 @@ SlashCmdList["SPDIAG"] = function(msg)
 	msg = strtrim(msg or ""):lower()
 	if msg == "combat" then return SPDiagCombat() end
 	if msg == "frames" then return SPDiagFrames() end
+	if msg == "sets" then
+		local lines = (ShamanPower and ShamanPower.TotemSetsDiag and ShamanPower:TotemSetsDiag())
+			or { "totem sets module not loaded on this client (it ships in the Mainline TOC only)" }
+		return ShowCopyWindow("ShamanPower totem sets probe", table.concat(lines, "\n"))
+	end
+	if msg == "ready" then
+		local lines = (ShamanPower and ShamanPower.ReadyRemindersDiag and ShamanPower:ReadyRemindersDiag())
+			or { "Ready Reminders module not loaded" }
+		return ShowCopyWindow("ShamanPower ready reminders probe", table.concat(lines, "\n"))
+	end
 	if msg == "auratest" or msg == "auratest off" then
 		-- Which slot filter shape matches a SECRET aura? Four engine containers at
 		-- screen center, each with a different filter, each showing an icon+count
@@ -1151,6 +1290,41 @@ SlashCmdList["SPDIAG"] = function(msg)
 	say("InterfaceOptions_AddCategory %s  Settings.RegisterAddOnCategory %s  FauxScrollFrame_Update %s", exists(rawget(_G, "InterfaceOptions_AddCategory")), exists(Settings and Settings.RegisterAddOnCategory), exists(rawget(_G, "FauxScrollFrame_Update")))
 	local okC, cv = pcall(GetCVar, "ActionButtonUseKeyDown")
 	say("ActionButtonUseKeyDown cvar = %s (secure buttons register AnyUp+AnyDown and let the template pick)", okC and tostring(cv) or "absent")
+
+	say("--- day-one unknowns (these decide whether today's fixes were load-bearing) ---")
+	local okD, dv = pcall(GetCVarBool, "loadDeprecationFallbacks")
+	say("loadDeprecationFallbacks = %s  -> if false, the spellbook globals below are OUR shims, not Blizzard's",
+		okD and tostring(dv) or "absent")
+	say("IsSpellKnown %s  IsPlayerSpell %s  IsSpellKnownOrOverridesKnown %s  FindSpellBookSlotBySpellID %s",
+		exists(rawget(_G, "IsSpellKnown")), exists(rawget(_G, "IsPlayerSpell")),
+		exists(rawget(_G, "IsSpellKnownOrOverridesKnown")), exists(rawget(_G, "FindSpellBookSlotBySpellID")))
+	say("C_SpellBook.IsSpellKnown %s  .IsSpellInSpellBook %s  .FindSpellBookSlotForSpell %s",
+		exists(C_SpellBook and C_SpellBook.IsSpellKnown), exists(C_SpellBook and C_SpellBook.IsSpellInSpellBook),
+		exists(C_SpellBook and C_SpellBook.FindSpellBookSlotForSpell))
+
+	-- SpellExists vs a bare name lookup. Any row where they disagree is a spell
+	-- the old code got wrong: "name nil / exists yes" was being dropped,
+	-- "name ok / exists no" was being offered but is unobtainable.
+	say("SpellExists vs GetSpellInfo (disagreement is the whole point of the helper):")
+	for _, e in ipairs({
+		{ 974,    "Earth Shield r1" },      { 408514, "Earth Shield fvr" },
+		{ 408510, "Water Shield fvr" },     { 24398,  "Water Shield tbc" },
+		{ 16166,  "Elemental Mastery" },    { 25908,  "Tranquil Air" },
+		{ 425336, "Rage of Farseer" },      { 437009, "Totemic Projection" },
+		{ 30706,  "Totem of Wrath" },       { 16190,  "Mana Tide" },
+	}) do
+		local nm = GetSpellInfo(e[1])
+		local ex = SPCompat.SpellExists(e[1])
+		say("  %-20s %-7d name=%-18s exists=%s%s", e[2], e[1], tostring(nm), tostring(ex),
+			((nm ~= nil) ~= (ex == true)) and "   |cffffd100<- differs|r" or "")
+	end
+
+	say("earthShieldExists = %s   ESTrackerUnavailable = %s   ESTrackerLoaded = %s",
+		tostring(SPCompat.earthShieldExists), tostring(ShamanPower and ShamanPower.ESTrackerUnavailable),
+		tostring(ShamanPower and ShamanPower.ESTrackerLoaded))
+	local tds = ShamanPower and ShamanPower.TotemDestroySupported and ShamanPower:TotemDestroySupported()
+	say("TotemDestroySupported = %s  DestroyTotem %s  (this feature has never run in game - verify it)",
+		tostring(tds), exists(rawget(_G, "DestroyTotem")))
 
 	say("--- Midnight restriction probes ---")
 	say("namespaces present (shared client exports these EVERYWHERE - presence alone is NOT a restriction):")

@@ -448,7 +448,8 @@ end
 -- bar - the Earth Shield line sits at the end. Optional (compactShieldLine).
 -- ---------------------------------------------------------------------------
 local SHIELD_MAX_CHARGES = 3
-local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 } }
+local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 },
+	[408510] = { r = 0.35, g = 0.65, b = 1.0 } }   -- Water Shield on WoW: Forever (talent, Season of Discovery spell ID)
 
 -- Spell name to cast: the shield that is up, else the preferred one, else any known.
 function SP:CompactKnownShield()

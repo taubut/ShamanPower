@@ -217,6 +217,8 @@ function SP:ShowWindfuryCompanion(link)
 end
 
 local function InjectCompanionPage()
+	-- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): no page there
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end
 	local root = SP.options
 	if not (root and root.args) or root.args.spWindfuryCompanion then return end
 	root.args.spWindfuryCompanion = {

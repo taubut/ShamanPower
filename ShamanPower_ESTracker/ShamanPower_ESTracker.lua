@@ -6,6 +6,17 @@
 local SP = ShamanPower
 if not SP then return end
 
+-- Earth Shield is not an obtainable spell on the Mainline/Forever line. The
+-- spell data ships (974 and 408514 both resolve by name) but neither carries a
+-- trainer entry or a talent node on build 1.60.1, so no shaman can learn or
+-- cast it and there is nothing here to track.
+-- Bail before creating a single frame, registering an event or touching the
+-- saved variable. The core defines no-op stubs for every ES Tracker entry
+-- point, and the setup tour hides its step while ESTrackerLoaded is unset, so
+-- nothing downstream needs to know.
+-- If Earth Shield is ever turned on, delete this block.
+if SP.ESTrackerUnavailable then return end
+
 -- Mark module as loaded
 SP.ESTrackerLoaded = true
 

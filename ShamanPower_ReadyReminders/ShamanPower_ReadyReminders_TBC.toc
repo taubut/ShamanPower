@@ -1,0 +1,12 @@
+## Interface: 20506
+## Author: taubut
+## Title: |cff0070ddShamanPower|r |cffffd200[Ready Reminders]|r
+## Version: 2.1.1
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Placeable icons that appear when a spell is off cooldown
+## Dependencies: ShamanPower
+## LoadOnDemand: 0
+## DefaultState: enabled
+## SavedVariables: ShamanPower_ReadyReminders
+
+ShamanPower_ReadyReminders.lua

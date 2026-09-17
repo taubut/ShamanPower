@@ -4206,6 +4206,10 @@ local CooldownTypeNames = {
 	[5] = "Mana Tide",
 	[6] = "Bloodlust",
 	[7] = "Imbue",
+	[8] = "Shamanistic Rage",
+	[9] = "Elemental Mastery",
+	[10] = "Rage of the Farseer",
+	[11] = "Totemic Projection",
 }
 
 -- Pop out a cooldown bar item
@@ -4931,7 +4935,7 @@ function ShamanPower:UpdateTotemButtons()
 
 			-- Set up spell casting (same logic as XML buttons)
 			if element == 4 and self.opt.enableTotemTwisting then
-				local wfName = GetSpellInfo(25587) or "Windfury Totem"
+				local wfName = GetSpellInfo(8512) or "Windfury Totem"
 				local twistName = self:GetTwistTotemName()
 				btn:SetAttribute("type1", "macro")
 				btn:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. twistName)
@@ -4945,10 +4949,14 @@ function ShamanPower:UpdateTotemButtons()
 			end
 
 			-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
+			btn:SetAttribute("shift-type2", nil)
+			btn:SetAttribute("shift-spell2", nil)
 			if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
 				-- Right-click shows flyout instead of Totemic Call
 				btn:SetAttribute("type2", nil)
 				btn:SetAttribute("spell2", nil)
+			elseif self:RightClickDestroysTotems() then
+				self:ApplyTotemDestroyAttributes(btn, element)
 			elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 				-- TotemTimers mode: right-click casts the assigned totem (shown in corner)
 				local assignedIndex = assignments[element] or 0
@@ -5043,8 +5051,11 @@ function ShamanPower:CreateTotemFlyout(element)
 		local isKnown = PlayerKnowsTotem(spellID, totemName)
 		-- Talent-gated totems (Totem of Wrath, Mana Tide) always get a button, so
 		-- a respec can show/hide them through the normal flyout filter with no
-		-- /reload - exactly like the settings toggles do
-		local isTalentTotem = self.TalentTotems and self.TalentTotems[spellID] ~= nil
+		-- /reload - exactly like the settings toggles do.
+		-- spellName must resolve: a talent totem the client has no spell data for
+		-- (Totem of Wrath on the Mainline line) would otherwise force a nameless,
+		-- iconless, uncastable button into the flyout.
+		local isTalentTotem = self.TalentTotems and self.TalentTotems[spellID] ~= nil and spellName ~= nil
 
 		-- Check if totem is enabled in flyout settings (default to true if not set)
 		local flyoutKey = elementKey .. "_" .. totemIndex
@@ -5772,6 +5783,55 @@ function ShamanPower:UpdateFlyoutClickBehavior()
 end
 
 -- Toggle totem flyouts on/off based on showTotemFlyouts option
+-- Right-click pulls back that one totem: the secure "destroytotem" action with
+-- a "totem-slot" attribute.
+-- Fixed-slot clients get a constant slot per element, so nothing has to change
+-- in combat; on cast-order clients the resolver's current slot is used and
+-- refreshed on PLAYER_TOTEM_UPDATE out of combat.
+-- Mainline family only: Classic clients block DestroyTotem for addons even
+-- though the secure action is declared there, so the project id is the only
+-- usable discriminator.
+-- Do NOT test SECURE_ACTIONS here: it is a file-local table inside Blizzard's
+-- secure templates, never published as a global, so any check against it is
+-- always false and silently disables the whole feature.
+function ShamanPower:TotemDestroySupported()
+	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function"
+end
+
+function ShamanPower:RightClickDestroysTotems()
+	return self.opt.rightClickDestroysTotem == true and self:TotemDestroySupported()
+end
+
+function ShamanPower:TotemDestroySlot(element)
+	local slot = self.ElementToSlot[element]
+	if self.dynamicTotemSlots then
+		local haveTotem, _, _, _, _, resolved = self:GetElementTotemInfo(element)
+		if haveTotem and type(resolved) == "number" then slot = resolved end
+	end
+	return slot
+end
+
+function ShamanPower:ApplyTotemDestroyAttributes(btn, element)
+	btn:SetAttribute("type2", "destroytotem")
+	btn:SetAttribute("spell2", nil)
+	btn:SetAttribute("totem-slot2", self:TotemDestroySlot(element))
+	-- Shift+right-click keeps Totemic Call / Totemic Recall
+	btn:SetAttribute("shift-type2", "spell")
+	btn:SetAttribute("shift-spell2", GetSpellInfo(36936))
+end
+
+-- Cast-order clients only: keep the slot attribute current between fights.
+function ShamanPower:RefreshTotemDestroySlots()
+	if not (self.dynamicTotemSlots and self:RightClickDestroysTotems()) then return end
+	if InCombatLockdown() or not self.totemButtons then return end
+	for element = 1, 4 do
+		local btn = self.totemButtons[element]
+		if btn and btn:GetAttribute("type2") == "destroytotem" then
+			btn:SetAttribute("totem-slot2", self:TotemDestroySlot(element))
+		end
+	end
+end
+
 function ShamanPower:UpdateTotemFlyoutEnabled()
 	if InCombatLockdown() then
 		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
@@ -5792,7 +5852,11 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				-- Flyouts disabled
 				btn:SetAttribute("OpenMenu", nil)
 				-- Check if right-click should cast assigned totem
-				if useRightClickAssigned then
+				btn:SetAttribute("shift-type2", nil)
+				btn:SetAttribute("shift-spell2", nil)
+				if self:RightClickDestroysTotems() then
+					self:ApplyTotemDestroyAttributes(btn, element)
+				elseif useRightClickAssigned then
 					local assignedIndex = assignments[element] or 0
 					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
@@ -5823,7 +5887,11 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				-- Flyouts enabled, mouseover to show (default)
 				btn:SetAttribute("OpenMenu", "mouseover")
 				-- Check if right-click should cast assigned totem
-				if useRightClickAssigned then
+				btn:SetAttribute("shift-type2", nil)
+				btn:SetAttribute("shift-spell2", nil)
+				if self:RightClickDestroysTotems() then
+					self:ApplyTotemDestroyAttributes(btn, element)
+				elseif useRightClickAssigned then
 					local assignedIndex = assignments[element] or 0
 					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
@@ -6076,16 +6144,20 @@ ShamanPower.cooldownButtons = {}
 
 -- Spells to track on the cooldown bar
 -- Format: {spellID, name, type} where type is "buff", "cooldown", or "shield"
+-- 5th field = cooldownType (pop-out key, order list, keybinds); 7 is the imbue button.
 ShamanPower.TrackedCooldowns = {
-	{324, "Lightning Shield", "shield", "cdbarShowShields"},   -- Lightning/Water Shield (combined)
-	{36936, "Totemic Call", "cooldown", "cdbarShowRecall"},  -- Totemic Call (recall totems)
-	{20608, "Reincarnation", "cooldown", "cdbarShowReincarnation"},  -- Ankh cooldown
-	{16188, "Nature's Swiftness", "cooldown", "cdbarShowNS"},  -- NS cooldown (Resto talent)
-	{16190, "Mana Tide Totem", "cooldown", "cdbarShowManaTide"},  -- Mana Tide cooldown (Resto talent)
-	{30823, "Shamanistic Rage", "cooldown", "cdbarShowShamanisticRage"},  -- Shamanistic Rage cooldown (Enhancement talent)
-	{2825, "Bloodlust", "cooldown", "cdbarShowBloodlust"},  -- Bloodlust (Horde)
-	{32182, "Heroism", "cooldown", "cdbarShowBloodlust"},  -- Heroism (Alliance)
-	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery"},  -- Elemental Mastery (Elemental talent)
+	{324, "Lightning Shield", "shield", "cdbarShowShields", 1},   -- Lightning/Water Shield (combined)
+	{36936, "Totemic Call", "cooldown", "cdbarShowRecall", 2},  -- Totemic Call (recall totems)
+	{20608, "Reincarnation", "cooldown", "cdbarShowReincarnation", 3},  -- Ankh cooldown
+	{16188, "Nature's Swiftness", "cooldown", "cdbarShowNS", 4},  -- NS cooldown (Resto talent)
+	{16190, "Mana Tide Totem", "cooldown", "cdbarShowManaTide", 5},  -- Mana Tide cooldown (Resto talent)
+	{30823, "Shamanistic Rage", "cooldown", "cdbarShowShamanisticRage", 8},  -- Shamanistic Rage cooldown (Enhancement talent)
+	{2825, "Bloodlust", "cooldown", "cdbarShowBloodlust", 6},  -- Bloodlust (Horde)
+	{32182, "Heroism", "cooldown", "cdbarShowBloodlust", 6},  -- Heroism (Alliance)
+	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery", 9},  -- Elemental Mastery (Elemental talent)
+	-- WoW: Forever only (the spells do not exist on other clients, so the buttons never appear there)
+	{425336, "Rage of the Farseer", "cooldown", "cdbarShowRageOfTheFarseer", 10},  -- Enhancement capstone, 3 min
+	{437009, "Totemic Projection", "cooldown", "cdbarShowTotemicProjection", 11},  -- level 22, 1 min
 }
 
 -- Spell colors for progress bars (used when cdbarSpellColors is enabled)
@@ -6093,6 +6165,7 @@ ShamanPower.SpellBarColors = {
 	-- Cooldown bar spells (by spellID)
 	[324]   = {0.4, 0.6, 1.0},   -- Lightning Shield - blue
 	[24398] = {0.2, 0.7, 1.0},   -- Water Shield - light blue
+	[408510] = {0.2, 0.7, 1.0},  -- Water Shield on WoW: Forever (talent, Season of Discovery spell ID)
 	[36936] = {0.6, 0.4, 0.2},   -- Totemic Call - earthy brown
 	[20608] = {0.8, 0.2, 0.2},   -- Reincarnation - red
 	[16188] = {0.2, 0.8, 0.3},   -- Nature's Swiftness - green
@@ -6101,6 +6174,8 @@ ShamanPower.SpellBarColors = {
 	[2825]  = {0.8, 0.1, 0.1},   -- Bloodlust - red
 	[32182] = {0.8, 0.1, 0.1},   -- Heroism - red
 	[16166] = {0.9, 0.6, 0.1},   -- Elemental Mastery - golden
+	[425336] = {0.8, 0.1, 0.1},  -- Rage of the Farseer (Forever) - red, the Bloodlust slot
+	[437009] = {0.6, 0.4, 0.2},  -- Totemic Projection (Forever) - earthy brown
 }
 
 -- Weapon imbue colors (by imbue type index)
@@ -6111,10 +6186,16 @@ ShamanPower.ImbueBarColors = {
 	[4] = {0.6, 0.4, 0.2},   -- Rockbiter - brown
 }
 
--- Shield spell IDs for the combined shield button
+-- Shield spell IDs for the combined shield button. Water Shield's ID differs per
+-- client: 24398 on TBC, 408510 on WoW: Forever (Restoration talent, Season of
+-- Discovery spell ID), 52127 on retail. Take the first one the client knows.
+local WATER_SHIELD_ID = 24398
+for _, id in ipairs({ 24398, 408510, 52127 }) do
+	if SPCompat.SpellExists(id) then WATER_SHIELD_ID = id break end
+end
 ShamanPower.ShieldSpells = {
-	{324, "Lightning Shield"},   -- Lightning Shield
-	{24398, "Water Shield"},     -- Water Shield (TBC)
+	{324, "Lightning Shield"},          -- Lightning Shield
+	{WATER_SHIELD_ID, "Water Shield"},  -- Water Shield
 }
 
 function ShamanPower:CreateCooldownBar()
@@ -6266,13 +6347,25 @@ function ShamanPower:CreateCooldownBar()
 				end
 			end
 		else
-			-- Try IsSpellKnown first, fall back to name check for Classic compatibility
-			knowsSpell = name and (IsSpellKnown(spellID) or PlayerKnowsSpellByName(spellName))
+			-- IsSpellKnown answers by ID and needs no string at all, which is the
+			-- point: a client can ship a live spell with its name encrypted
+			-- (Elemental Mastery 16166 on the Forever line), and requiring a
+			-- readable name here dropped the button for a talent the player
+			-- actually had. The name check stays as the Classic fallback.
+			knowsSpell = IsSpellKnown(spellID) or PlayerKnowsSpellByName(spellName)
 		end
 
 		-- Only create button if player knows this spell and it's enabled
 		if knowsSpell and isEnabled then
 			numButtons = numButtons + 1
+
+			-- An encrypted name means GetSpellInfo gave us no icon either, so
+			-- fall back rather than drawing a blank button.
+			if not icon then
+				icon = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID))
+					or (GetSpellTexture and GetSpellTexture(spellID))
+					or "Interface\\Icons\\INV_Misc_QuestionMark"
+			end
 
 			-- Use different templates for shield (needs combat flyout) vs other buttons
 			local templateString
@@ -6393,14 +6486,10 @@ function ShamanPower:CreateCooldownBar()
 			btn.spellType = spellType
 			btn.defaultShieldSpell = defaultShieldSpell
 
-			-- Assign cooldownType for ordering (1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL/Hero, 7=Imbue)
-			-- TrackedCooldowns indices: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL, 7=Hero
-			-- BL and Heroism both map to type 6
-			if i <= 5 then
-				btn.cooldownType = i
-			else
-				btn.cooldownType = 6  -- Both BL (index 6) and Heroism (index 7) are type 6
-			end
+			-- cooldownType keys the pop-out record, the order list and the keybinds
+			-- (1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL/Hero, 7=Imbue, 8+ see TrackedCooldowns).
+			-- Every entry carries its own type as the 5th field so two buttons never share a key.
+			btn.cooldownType = spellData[5] or (i <= 5 and i or 6)
 
 			-- Store reference to shield button for flyout
 			if spellType == "shield" then
@@ -6821,7 +6910,7 @@ end
 -- Spell IDs per shield, all ranks (Forever/TBC) plus the retail test-bed IDs.
 ShamanPower.ShieldAuraSets = {
 	{ name = "Lightning Shield", ids = { 324, 325, 905, 945, 8134, 10431, 10432, 25469, 25472, 192106 } },
-	{ name = "Water Shield",     ids = { 24398, 33736, 52127 } },
+	{ name = "Water Shield",     ids = { 24398, 33736, 52127, 408510, 408511, 409941 } },
 }
 
 function ShamanPower:EnsureShieldChargeContainer(btn)
@@ -8713,7 +8802,11 @@ function ShamanPower:CreateShieldFlyout()
 				"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate")
 			btn:SetSize(buttonSize, buttonSize)
 			btn:SetFrameStrata("DIALOG")
-			btn:RegisterForClicks("AnyUp")
+			-- Both edges: secure clicks are gated on the ActionButtonUseKeyDown
+			-- CVar, so a button registered for only one edge silently never
+			-- fires for anyone whose setting points the other way. Every other
+			-- flyout button here already registers both.
+			btn:RegisterForClicks("AnyUp", "AnyDown")
 			btn:Hide()
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
@@ -9407,7 +9500,7 @@ function ShamanPower:UpdateMiniTotemBar()
 				-- Left-click: cast totem (or castsequence for Air totem twisting)
 				if element == 4 and self.opt.enableTotemTwisting then
 					-- Air totem with twisting: use castsequence macro
-					local wfName = GetSpellInfo(25587) or "Windfury Totem"
+					local wfName = GetSpellInfo(8512) or "Windfury Totem"
 					local twistName = self:GetTwistTotemName()
 					totemButton:SetAttribute("type1", "macro")
 					totemButton:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. twistName)
@@ -9422,10 +9515,14 @@ function ShamanPower:UpdateMiniTotemBar()
 				end
 
 				-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
+				totemButton:SetAttribute("shift-type2", nil)
+				totemButton:SetAttribute("shift-spell2", nil)
 				if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
 					-- Right-click shows flyout instead of Totemic Call
 					totemButton:SetAttribute("type2", nil)
 					totemButton:SetAttribute("spell2", nil)
+				elseif self:RightClickDestroysTotems() then
+					self:ApplyTotemDestroyAttributes(totemButton, element)
 				elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 					-- TotemTimers mode: right-click casts the assigned totem (shown in corner)
 					-- Get the assigned totem spell (not the active one)
@@ -9690,6 +9787,9 @@ function ShamanPower:TotemBarTooltip(button, element)
 		-- Right-click behavior depends on options
 		if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Show flyout", 0.7, 0.7, 0.7)
+		elseif self:RightClickDestroysTotems() then
+			GameTooltip:AddLine("|cffffcc00Right-click:|r Pull this totem back", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("|cffffcc00Shift+right-click:|r " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
 		elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
 		else
@@ -11136,6 +11236,9 @@ function ShamanPower:UpdateDropAllButton()
 		end)
 	end
 
+	-- Clients with totem sets (WoW: Forever): the button casts the sets instead
+	if self.UpdateDropAllButtonForTotemSets and self:UpdateDropAllButtonForTotemSets(dropAllBtn) then return end
+
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
 	if not assignments then return end
@@ -11219,6 +11322,7 @@ end
 
 -- Update just the icon (can be called in combat)
 function ShamanPower:UpdateDropAllIcon()
+	if self.dropAllTotemSetsActive then return end   -- totem sets own the icon
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
 	if not dropAllBtn then return end
 
@@ -11257,6 +11361,7 @@ end
 -- Tooltip for drop all button
 function ShamanPower:DropAllTooltip(button)
 	if not self.opt.ShowTooltips then return end
+	if self.dropAllTotemSetsActive and self.DropAllTotemSetsTooltip then return self:DropAllTotemSetsTooltip(button) end
 
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	GameTooltip:AddLine("Drop All Totems", 1, 0.8, 0)
@@ -11897,6 +12002,7 @@ end
 
 function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
 	self:ShadowTotemSlotUpdate(slot)
+	self:RefreshTotemDestroySlots()   -- cast-order clients: keep right-click destroy on the right slot
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
@@ -13155,7 +13261,7 @@ function ShamanPower:UpdateSPMacros()
 
 		-- Special handling for Air totem when twisting is enabled
 		if element == 4 and self.opt.enableTotemTwisting then
-			local wfName = GetSpellInfo(25587) or "Windfury Totem"  -- Windfury Totem
+			local wfName = GetSpellInfo(8512) or "Windfury Totem"  -- Windfury Totem
 			local twistName = self:GetTwistTotemName()
 			body = "#showtooltip\n/castsequence reset=combat/15 " .. wfName .. ", " .. twistName
 		elseif totemIndex > 0 then
@@ -13982,6 +14088,11 @@ if not ShamanPower.SPRangeLoaded then
 	end
 end
 
+-- Set from the compat layer rather than by the tracker module, so the settings
+-- page, the setup tour and the role defaults all agree even when the tracker
+-- addon is switched off in the AddOns list.
+ShamanPower.ESTrackerUnavailable = (SPCompat and SPCompat.earthShieldExists == false) or nil
+
 -- ES Tracker module stubs (loaded by ShamanPower_ESTracker addon)
 -- This module tracks Earth Shields cast by OTHER shamans in your raid/party
 if not ShamanPower.ESTrackerLoaded then
@@ -13989,7 +14100,11 @@ if not ShamanPower.ESTrackerLoaded then
 	function ShamanPower:InitESTracker() end
 	function ShamanPower:CreateESTrackerFrame() end
 	function ShamanPower:ToggleESTracker()
-		print("|cffff8800ShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
+		if ShamanPower.ESTrackerUnavailable then
+			print("|cffff8800ShamanPower:|r Earth Shield does not exist on this client, so the tracker stays off.")
+		else
+			print("|cffff8800ShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
+		end
 	end
 	function ShamanPower:InitializeESTracker() end
 	function ShamanPower:UpdateESTrackerFrame() end
@@ -14902,6 +15017,27 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 		print("  /spl <name>          - Switch to loadout by name")
 		print("  /spl list            - List all saved loadouts")
 		print("  /spl delete <number> - Delete a loadout by index")
+		if ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() then
+			print("  /spl set <1-3> <loadout> - Send a loadout to Call of the Elements / Ancestors / Spirits")
+		end
+		return
+	end
+
+	-- /spl set <1|2|3> <number|name>  (clients with totem sets)
+	local setPage, setWhich = msg:match("^[Ss][Ee][Tt]%s+([123])%s+(.+)$")
+	if setPage then
+		if not (ShamanPower.PushLoadoutToTotemSet and ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) then
+			print("|cffff0000ShamanPower:|r totem sets are not available on this client")
+			return
+		end
+		local idx = tonumber(setWhich)
+		if not idx then
+			for i, l in ipairs(ShamanPower_TotemLoadouts) do
+				if l.name and l.name:lower() == setWhich:lower() then idx = i break end
+			end
+		end
+		if not idx then print("|cffff0000ShamanPower:|r no loadout '" .. setWhich .. "'") return end
+		ShamanPower:PushLoadoutToTotemSet(idx, tonumber(setPage))
 		return
 	end
 

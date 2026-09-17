@@ -46,8 +46,9 @@ local ShieldSpells = {
 		icon = "Interface\\Icons\\Spell_Nature_LightningShield",
 	},
 	waterShield = {
-		id = 24398,
-		name = GetSpellInfo(24398) or "Water Shield",
+		-- 24398 on TBC, 408510 on WoW: Forever (Restoration talent), 52127 on retail
+		id = (GetSpellInfo(24398) and 24398) or (GetSpellInfo(408510) and 408510) or (GetSpellInfo(52127) and 52127) or 24398,
+		name = GetSpellInfo(24398) or GetSpellInfo(408510) or GetSpellInfo(52127) or "Water Shield",
 		icon = "Interface\\Icons\\Ability_Shaman_WaterShield",
 	},
 	earthShield = {
