@@ -3056,7 +3056,7 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 			SP.opt.setupDone = true
 			SP.Wizard:Close(true)
 			local b = SP.db.global.setupBackups and SP.db.global.setupBackups[1]
-			SP.Wizard:ShowBackupNotice(b, p.name .. " is applied. The UI will reload when you press OK.", function() ReloadUI() end)
+			SP.Wizard:ShowBackupNotice(b, p.name .. " is applied.", function() Core:RequestReload(p.name .. " is applied.") end)
 		end)
 		local cont = Core:MakeButton(previewDlg, "Apply & continue the setup", 220, false)
 		cont:SetPoint("RIGHT", apply, "LEFT", -8, 0)
@@ -3328,7 +3328,7 @@ end
 function SP.Wizard:Finish()
 	SP.opt.setupDone = true
 	self:Close(false)
-	ReloadUI()
+	Core:RequestReload("Setup finished.")
 end
 
 function SP.Wizard:Close(markDone)

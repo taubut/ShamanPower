@@ -57,7 +57,13 @@ end
 -- (orientation, colorObj, colorObj) after. 2.5.6 predates the change, so probe
 -- once at load and route accordingly.
 -- ---------------------------------------------------------------------------
-local probe = UIParent:CreateTexture(nil, "BACKGROUND")
+-- The probe lives on a throwaway frame of ours, NOT on UIParent. An addon
+-- region parented to UIParent sits in Blizzard's own frame for the whole
+-- session, and UIParent:Show() is on the path that rebuilds the party frames.
+-- There is no reason to put it there for a one-off capability check.
+local probeHost = CreateFrame("Frame")
+probeHost:Hide()
+local probe = probeHost:CreateTexture(nil, "BACKGROUND")
 local hasColorObjectGradient = false
 if probe.SetGradient and CreateColor then
 	hasColorObjectGradient = pcall(function()
@@ -428,6 +434,77 @@ function Core:MakeButton(parent, text, width, primary)
 	b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
 	b.text, b.bg = t, bg
 	return b
+end
+
+-- Ask for a UI reload.
+--
+-- On the Mainline/Forever line C_UI.Reload is PROTECTED: an addon calling it
+-- from its own OnClick is refused outright with "Interface action failed
+-- because of an AddOn" and no Lua error at all, so the button silently does
+-- nothing. The client's own API docs do not flag it as protected; we found it
+-- because ADDON_ACTION_BLOCKED names the function.
+--
+-- A SecureActionButtonTemplate running the /reload macro does work, because
+-- the player's own click supplies the hardware event and the macro runs
+-- untainted. So on that client we put up a small dialog whose single button is
+-- exactly that, instead of reloading for them.
+--
+-- One mechanism for every reload path in the addon, so nothing calls ReloadUI
+-- directly any more.
+local reloadDlg
+
+function Core:RequestReload(reason)
+	-- Classic line: the direct call has always worked, keep it instant.
+	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+		ReloadUI()
+		return
+	end
+
+	if not reloadDlg then
+		local f = self:CreateDialog({
+			name = "ShamanPowerReloadPrompt", width = 430, height = 168,
+			title = "One more click", footer = 46, special = true, strata = "FULLSCREEN_DIALOG",
+		})
+		local t = f.body:CreateFontString(nil, "OVERLAY")
+		t:SetFontObject(self.fonts.row)
+		t:SetPoint("TOPLEFT", f.body, "TOPLEFT", 0, -2)
+		t:SetWidth(390); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
+		f.text = t
+
+		-- The secure button IS the reload. It cannot be created in combat, and
+		-- its attributes cannot be changed in combat either, so build it once
+		-- here and never touch the attributes again.
+		local okSecure, s = pcall(CreateFrame, "Button", nil, f, "SecureActionButtonTemplate")
+		if okSecure and s then
+			s:SetSize(150, 26)
+			s:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -14, 12)
+			s:RegisterForClicks("AnyUp", "AnyDown")   -- ActionButtonUseKeyDown gates one edge
+			s:SetAttribute("type", "macro")
+			s:SetAttribute("macrotext", "/reload")
+			local bg = s:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints(s)
+			bg:SetColorTexture(self:Color("accent", 0.30))
+			self:MakeBorder(s, "accent")
+			local st = s:CreateFontString(nil, "OVERLAY")
+			st:SetFontObject(self.fonts.button)
+			st:SetPoint("CENTER")
+			st:SetText("Reload now")
+			st:SetTextColor(self:Color("accentHi"))
+			s:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", 0.48)) end)
+			s:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", 0.30)) end)
+			f.secureBtn = s
+		end
+
+		local later = self:MakeButton(f, "Later", 100, false)
+		later:SetPoint("RIGHT", f.secureBtn or f, "LEFT", -8, 0)
+		later:SetScript("OnClick", function() f:Hide() end)
+		reloadDlg = f
+	end
+
+	reloadDlg.text:SetText((reason and (reason .. "\n\n") or "")
+		.. "This client does not let an addon reload the UI for you, so the button below does it "
+		.. "instead. |cff808080Typing |cffFFD100/reload|r|cff808080 yourself works just as well.|r")
+	reloadDlg:Show()
 end
 
 -- A window shell: dark panel, 2px accent border, header band with title and

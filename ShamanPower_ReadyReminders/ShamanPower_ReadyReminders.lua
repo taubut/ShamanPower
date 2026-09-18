@@ -115,7 +115,7 @@ local function clientSpellID(entry)
 	-- spell names, so GetSpellInfo returns nil for live spells such as
 	-- Elemental Mastery 16166 and the entry would be written off as absent.
 	for _, id in ipairs(entry.ids) do
-		if SPCompat.SpellExists(id) then entry.clientID = id; return id end
+		if SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(id) then entry.clientID = id; return id end
 	end
 	entry.clientID = false
 	return nil

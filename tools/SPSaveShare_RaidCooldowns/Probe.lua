@@ -1,0 +1,3 @@
+-- Intentionally no initialization or writes.
+-- This addon's only role is to declare a second owner for one diagnostic
+-- SavedVariable. The client, not this file, performs any saved-data injection.

@@ -475,7 +475,7 @@ local function BuildWindow()
 	end
 
 	local reload, reloadW = FooterButton("Reload UI", 100, "left", CONTENT_PAD, false)
-	reload:SetScript("OnClick", function() ReloadUI() end)
+	reload:SetScript("OnClick", function() Core:RequestReload() end)
 
 	local done = FooterButton("Done", 110, "right", -CONTENT_PAD, true)
 	done:SetScript("OnClick", function() frame:Hide() end)

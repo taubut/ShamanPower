@@ -194,7 +194,7 @@ local function InjectProfileButtons()
 					if SP.Wizard and SP.Wizard.ShowPresetPreview then
 						SP.Wizard:ShowPresetPreview(preset, { fromSettings = true })
 					else
-						SP:ApplyPreset(preset.key, "overwrite"); ReloadUI()
+						SP:ApplyPreset(preset.key, "overwrite"); Core:RequestReload("Preset applied.")
 					end
 				end,
 			}

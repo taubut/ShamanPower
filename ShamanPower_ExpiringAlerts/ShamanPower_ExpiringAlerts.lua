@@ -4,6 +4,9 @@
 -- ============================================================================
 
 local SP = ShamanPower
+-- Forever returns a LIST of enchants per weapon; the legacy global reports only
+-- the first entry, which is empty when the imbue lands in the second.
+local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 if not SP then
 	print("|cffff0000ShamanPower [Expiring Alerts]:|r Core addon not found!")
 	return

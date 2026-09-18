@@ -14,6 +14,19 @@
 --      stores it in the SavedVariable so it can be read from the WTF folder.
 -- ============================================================================
 
+-- The table is created here, before the polyfill section, because a couple of
+-- the shims below hang functions off it. It is assigned again lower down
+-- where the rest of its fields are set; that second line is a harmless no-op.
+SPCompat = SPCompat or {}
+
+-- Last-resort stub. If anything below this line throws, the rest of the file
+-- never runs, and every caller that does SPCompat.SpellExists(id) would error
+-- on a hot path. Defining it up front means a broken compat layer degrades to
+-- "trust the name lookup" instead of thousands of errors a second.
+if not SPCompat.SpellExists then
+	function SPCompat.SpellExists(id) return GetSpellInfo and GetSpellInfo(id) ~= nil end
+end
+
 -- ---------------------------------------------------------------------------
 -- 1. Polyfills (inert wherever the classic globals still exist)
 -- ---------------------------------------------------------------------------
@@ -68,19 +81,58 @@ do
 	end
 end
 
--- Retail 12.1 keeps GetWeaponEnchantInfo only as a deprecated shim slated for
--- removal; C_PaperDollInfo.GetTemporaryEnchantmentInfo(16/17) is the backend.
-if not GetWeaponEnchantInfo and C_PaperDollInfo and C_PaperDollInfo.GetTemporaryEnchantmentInfo then
-	local function slotInfo(slot)
-		local ok, t = pcall(C_PaperDollInfo.GetTemporaryEnchantmentInfo, slot)
-		if not ok or type(t) ~= "table" or not t.enchantID or t.enchantID == 0 then return false, nil, nil, nil end
-		return true, t.remainingTimeMs, t.chargesRemaining, t.enchantID
+-- ---------------------------------------------------------------------------
+-- Weapon imbues.
+--
+-- MEASURED on Forever beta 1.60.1.69913 with Rockbiter applied:
+--   GetWeaponEnchantInfo()                        -> [1]=false [5]=false [9]=false
+--   C_PaperDollInfo.GetTemporaryEnchantmentInfo(16) -> nothing
+--   C_Item.GetWeaponEnchantInfo(0)                -> a LIST:
+--        [1] = { hasEnchant = false, enchantID = 0, ... }
+--        [2] = { hasEnchant = true,  enchantID = 29, timeLeft = 3542889,
+--                charges = 0, enchantIconID = 136086, enchantType = 3 }
+--
+-- This client allows MORE THAN ONE enchant per weapon, so the read returns a
+-- list. The legacy global only ever describes the first entry, which was empty,
+-- so it reported "no enchant" while the imbue sat in the second. That is why
+-- the cooldown bar imbue icon stayed grey with Rockbiter clearly active.
+--
+-- Blizzard's own buff frame uses the list form
+-- (Blizzard_BuffFrame/BuffFrame.lua:749-756, iterating Enum.WeaponSlot and
+-- testing enchant.hasEnchant), so that is the supported read.
+--
+-- Slot ids come from Enum.WeaponSlot (MainHand = 0, OffHand = 1, Ranged = 2),
+-- NOT the old INVSLOT numbers 16/17.
+--
+-- Exposed as SPCompat.GetWeaponEnchantInfo rather than overwriting the global:
+-- taking over a Blizzard global is what caused the party-frame taint error
+-- earlier today, and there is no reason to repeat it.
+-- ---------------------------------------------------------------------------
+do
+	local function firstEnchant(slotID)
+		if slotID == nil then return false end
+		local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slotID)
+		if not ok or type(list) ~= "table" then return false end
+		for _, e in pairs(list) do
+			if type(e) == "table" and e.hasEnchant then
+				-- timeLeft is milliseconds, same unit the classic tuple used
+				return true, e.timeLeft, e.charges, e.enchantID
+			end
+		end
+		return false
 	end
-	function GetWeaponEnchantInfo()
-		local hm, me, mc, mid = slotInfo(16)
-		local ho, oe, oc, oid = slotInfo(17)
-		-- classic order: hasMain, mainExpiration, mainCharges, mainEnchantID, hasOff, offExpiration, offCharges, offEnchantID
-		return hm, me, mc, mid, ho, oe, oc, oid
+
+	local useList = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+		and C_Item and C_Item.GetWeaponEnchantInfo and Enum and Enum.WeaponSlot
+
+	function SPCompat.GetWeaponEnchantInfo()
+		if useList then
+			local hm, me, mc, mid = firstEnchant(Enum.WeaponSlot.MainHand)
+			local ho, oe, oc, oid = firstEnchant(Enum.WeaponSlot.OffHand)
+			return hm, me, mc, mid, ho, oe, oc, oid
+		end
+		if _G.GetWeaponEnchantInfo then return _G.GetWeaponEnchantInfo() end
+		return false
 	end
 end
 
@@ -146,12 +198,29 @@ end
 
 -- Constants the classic FrameXML defines as globals and modern clients do not
 -- (retail 12.1: MAX_*_MACROS gone - the macro code compared numbers against nil)
-MAX_ACCOUNT_MACROS   = MAX_ACCOUNT_MACROS   or 120
-MAX_CHARACTER_MACROS = MAX_CHARACTER_MACROS or 18
-MAX_PARTY_MEMBERS    = MAX_PARTY_MEMBERS    or 4
-MAX_RAID_MEMBERS     = MAX_RAID_MEMBERS     or 40
-LE_PARTY_CATEGORY_HOME     = LE_PARTY_CATEGORY_HOME     or 1
-LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
+--
+-- These MUST be written only when genuinely absent. `X = X or 4` is not a
+-- conditional: Lua emits the SETGLOBAL either way, so it re-stores the same
+-- value and the addon becomes the global's last writer. On a client with the
+-- secrets regime armed that is a live grenade, because whoever last wrote a
+-- global owns its taint and every function that READS it runs tainted.
+--
+-- MAX_PARTY_MEMBERS is the proven case: Blizzard sets it at
+-- Blizzard_UnitFrame/Shared/PartyFrame.lua:1 and reads it back at :55 inside
+-- PartyFrameMixin:InitializePartyMemberFrames. Taking it over meant that
+-- function ran tainted, so when it reached UnitHealthMax("partypet1") on a
+-- solo character and got a secret back, comparing it was blocked. One stray
+-- assignment, four party frames that never finished initialising.
+local function defaultGlobal(name, value)
+	if rawget(_G, name) == nil then _G[name] = value end
+end
+
+defaultGlobal("MAX_ACCOUNT_MACROS", 120)
+defaultGlobal("MAX_CHARACTER_MACROS", 18)
+defaultGlobal("MAX_PARTY_MEMBERS", 4)
+defaultGlobal("MAX_RAID_MEMBERS", 40)
+defaultGlobal("LE_PARTY_CATEGORY_HOME", 1)
+defaultGlobal("LE_PARTY_CATEGORY_INSTANCE", 2)
 
 -- ---------------------------------------------------------------------------
 -- 1b. Midnight "secret value" guards (retail 12.x, and Forever if it inherits
@@ -168,7 +237,7 @@ LE_PARTY_CATEGORY_INSTANCE = LE_PARTY_CATEGORY_INSTANCE or 2
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-17b"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-18p"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 
 -- ---------------------------------------------------------------------------
 -- Does a spell exist for this player, on this client?
@@ -254,6 +323,111 @@ end
 -- Kept as its own name because it gates a whole module, not one spell.
 -- Derived from the deny list so there is a single source of truth.
 SPCompat.earthShieldExists = not UNOBTAINABLE[408514]
+
+-- ---------------------------------------------------------------------------
+-- Can this client compile secure handler snippets at all?
+--
+-- On Forever beta 1.60.1.69913 it cannot. Blizzard's RestrictedExecution.lua:22
+-- does `local loadstring_untainted = loadstring_untainted`, and on this client
+-- that capture yields nil, so every snippet body dies at its line 79 with
+-- "attempt to call a nil value" on first use. It surfaces as a Lua error on
+-- every mouseover of a button carrying an _onenter / _onleave snippet.
+--
+-- WHY it is nil is NOT known, and an earlier explanation in this comment was
+-- wrong. Measured 2026-09-18: that Blizzard file is BYTE-IDENTICAL to retail's
+-- (md5 18034e9c6a08c7d435ce2fafbf5e5bae) and the addon's TOC differs only by
+-- adding `camelot` to AllowLoadGameType. The same ShamanPower snippets compile
+-- on retail and give working in-combat flyouts there. `loadstring_untainted`
+-- reads nil from chat on BOTH clients, so it is withdrawn from _G after load
+-- either way and that test cannot tell them apart. The difference is engine
+-- side, below anything readable from Lua.
+--
+-- An addon cannot repair an upvalue captured inside Blizzard's chunk, so the
+-- only option is the plain-script fallback. Probe rather than hardcode a client
+-- check: the moment it starts working, the secure path returns with no patch.
+--
+-- SecureHandlerExecute runs the same compile path synchronously, so a pcall
+-- around a trivial body is a safe, complete test.
+-- ---------------------------------------------------------------------------
+local snippetsWork, snippetProbeErr
+
+-- Manual override, persisted per session only: "on" forces the secure snippet
+-- path regardless of what the probe thinks, "off" forces the fallback, nil
+-- probes. The probe has been wrong before, and this client's snippets compile
+-- on retail from a byte-identical Blizzard file, so the probe answering "no"
+-- is not proof. /spflyout secure flips it without a code change.
+-- PROVEN 2026-09-18, both directions, on build 1.60.1.69913:
+--   * Blizzard's RestrictedExecution.lua here is BYTE-IDENTICAL to retail's
+--     (md5 18034e9c6a08c7d435ce2fafbf5e5bae, and the addon's TOC differs only
+--     by adding `camelot` to AllowLoadGameType), and the same ShamanPower
+--     snippets compile and give working in-combat flyouts on retail.
+--   * Forcing the secure path on here still throws "attempt to call a nil
+--     value" at RestrictedExecution.lua:79 on the first mouseover, in and out
+--     of combat. Its line 22 captured `loadstring_untainted` as nil.
+-- So the Lua is the same and the engine is not providing that function to this
+-- client. An addon cannot repair an upvalue captured inside Blizzard's chunk,
+-- which is why the fallback exists at all.
+-- /spflyout secure forces it back on for re-testing after a client patch.
+SPCompat.snippetOverride = nil   -- probe decides; "on"/"off" via /spflyout
+
+function SPCompat.SecureSnippetsWork()
+	if SPCompat.snippetOverride == "on" then return true end
+	if SPCompat.snippetOverride == "off" then return false end
+	if snippetsWork ~= nil then return snippetsWork end
+	-- The probe writes an attribute on a protected frame, which combat blocks
+	-- for its own reasons. Answer "no" for now but do NOT cache it, so a reload
+	-- mid-fight cannot bake in a false negative for the rest of the session.
+	if InCombatLockdown and InCombatLockdown() then return false end
+	if type(SecureHandlerExecute) ~= "function" or type(CreateFrame) ~= "function" then
+		snippetsWork, snippetProbeErr = false, "SecureHandlerExecute missing"
+		return false
+	end
+	local okF, probe = pcall(CreateFrame, "Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+	if not okF or not probe then
+		snippetsWork, snippetProbeErr = false, "could not create a probe frame"
+		return false
+	end
+	-- must be EXPLICITLY protected or SecureHandlerExecute refuses regardless
+	local okP, _, explicit = pcall(probe.IsProtected, probe)
+	if not okP or not explicit then
+		snippetsWork, snippetProbeErr = false, "probe frame is not explicitly protected"
+		return false
+	end
+	-- SecureHandlerExecute does NOT run the body inline. It ends with
+	--     LOCAL_API_Frame:SetAttribute("_apiframe", frame)
+	--     LOCAL_API_Frame:SetAttribute("_execute", body)
+	-- so the compile happens inside an OnAttributeChanged handler that C
+	-- invokes. An error in a script handler is reported to the error handler
+	-- and does NOT propagate back out through the C call, so pcall here returns
+	-- TRUE even when the snippet failed to compile. Relying on it made this
+	-- probe answer "snippets work" every time.
+	--
+	-- Detect it the only way that actually observes the failure: install a
+	-- recording error handler for the duration of the call. The marker
+	-- attribute is corroboration, not the verdict, because a handle method
+	-- could be restricted for unrelated reasons.
+	local failed, firstErr = false, nil
+	local prev = geterrorhandler and geterrorhandler()
+	if seterrorhandler then
+		pcall(seterrorhandler, function(msg)
+			failed = true
+			firstErr = firstErr or tostring(msg)
+		end)
+	end
+
+	pcall(probe.SetAttribute, probe, "spSnippetProbe", nil)
+	local ok = pcall(SecureHandlerExecute, probe, "self:SetAttribute('spSnippetProbe', 1)")
+	if seterrorhandler and prev then pcall(seterrorhandler, prev) end
+
+	local okMark, marked = pcall(probe.GetAttribute, probe, "spSnippetProbe")
+	SPCompat.snippetProbeMarked = okMark and marked or nil
+
+	snippetsWork = (ok and not failed) and true or false
+	snippetProbeErr = (not snippetsWork) and (firstErr or "probe call refused") or nil
+	return snippetsWork
+end
+
+function SPCompat.SecureSnippetError() return snippetProbeErr end
 SPCompat.combatDataSecret = false
 SPCompat.secretHits = { totem = 0, cooldown = 0, aura = 0 }
 SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
@@ -532,6 +706,26 @@ if seterrorhandler then
 	end)
 end
 
+-- A blocked or forbidden action does NOT raise a Lua error, so the handler
+-- above never sees it. All the player gets is "Interface action failed because
+-- of an AddOn", with no clue which call it was. These two events carry the
+-- addon and the exact function name, so record them like errors and let
+-- /sperrors answer the question directly.
+do
+	local blocked = CreateFrame("Frame")
+	blocked:RegisterEvent("ADDON_ACTION_BLOCKED")
+	blocked:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+	blocked:SetScript("OnEvent", function(_, event, addon, func)
+		addon = tostring(addon or "?")
+		func = tostring(func or "?")
+		-- other addons' blocks are noise in our log
+		if not addon:find("ShamanPower", 1, true) then return end
+		local label = string.format("[%s] %s tried to call %s()",
+			event == "ADDON_ACTION_FORBIDDEN" and "FORBIDDEN" or "BLOCKED", addon, func)
+		pcall(record, errlog or pending, label, (debugstack and debugstack(2, 12, 0)) or "")
+	end)
+end
+
 local function hookBugGrabber()
 	local bg = _G.BugGrabber
 	if not bg or not bg.RegisterCallback then return false end
@@ -548,9 +742,21 @@ ef:RegisterEvent("ADDON_LOADED")
 ef:RegisterEvent("PLAYER_LOGIN")
 ef:SetScript("OnEvent", function(self, event, addon)
 	if event == "ADDON_LOADED" and addon == "ShamanPower" then
+		-- Persistence probe. ShamanPowerErrorLog is a RAW SavedVariable, nothing
+		-- to do with AceDB, so this separates "the client is not loading saved
+		-- variables" from "our database layer is resetting the profile".
+		-- bootCount only goes up if the previous session's table came back.
+		SPCompat.svBefore = (ShamanPowerErrorLog ~= nil) and "table" or "nil"
+		SPCompat.svBootWas = ShamanPowerErrorLog and ShamanPowerErrorLog.bootCount or nil
+		SPCompat.svLastSession = ShamanPowerErrorLog and ShamanPowerErrorLog.session or nil
+
 		ShamanPowerErrorLog = ShamanPowerErrorLog or {}
 		ShamanPowerErrorLog.errors = ShamanPowerErrorLog.errors or {}
-		ShamanPowerErrorLog.session = date and date("%Y-%m-%d %H:%M") or ""
+		ShamanPowerErrorLog.bootCount = (ShamanPowerErrorLog.bootCount or 0) + 1
+		SPCompat.svBootNow = ShamanPowerErrorLog.bootCount
+		-- keep the PREVIOUS session stamp visible next boot
+		ShamanPowerErrorLog.prevSession = ShamanPowerErrorLog.session
+		ShamanPowerErrorLog.session = date and date("%Y-%m-%d %H:%M:%S") or ""
 		errlog = ShamanPowerErrorLog.errors
 		for k, v in pairs(pending) do
 			if k ~= "__n" then errlog[k] = errlog[k] or v end
@@ -788,6 +994,23 @@ SlashCmdList["SPFLYOUT"] = function(msg)
 	elseif msg == "clear" then
 		flyoutTrace = {}
 		print("|cff4cc776ShamanPower:|r flyout trace cleared")
+		return
+	elseif msg == "secure" or msg == "fallback" or msg == "auto" then
+		SPCompat.snippetOverride = (msg == "secure" and "on") or (msg == "fallback" and "off") or nil
+		local what = (msg == "secure" and "SECURE snippets (combat flyouts, retail path)")
+			or (msg == "fallback" and "plain-script fallback (out of combat only)")
+			or "auto (probe decides)"
+		print("|cff4cc776ShamanPower:|r flyout mode -> " .. what)
+		-- Rebuild immediately rather than asking for a reload: the override is
+		-- session-only and SavedVariables are not persisting on this build, so
+		-- a reload would throw the setting away before it could be tested.
+		if InCombatLockdown() then
+			print("|cffe5534bShamanPower:|r leave combat first, then run this again.")
+		elseif ShamanPower and ShamanPower.RecreateTotemFlyouts then
+			local ok, err = pcall(ShamanPower.RecreateTotemFlyouts, ShamanPower)
+			print(ok and "|cff4cc776ShamanPower:|r flyouts rebuilt. Pull something and test."
+				or ("|cffe5534bShamanPower:|r rebuild failed: " .. tostring(err)))
+		end
 		return
 	end
 	local out = { string.format("=== ShamanPower flyout trace (compat build %s, leave snippet %s) ===", SPCompat.BUILD or "?",
@@ -1325,6 +1548,34 @@ SlashCmdList["SPDIAG"] = function(msg)
 	local tds = ShamanPower and ShamanPower.TotemDestroySupported and ShamanPower:TotemDestroySupported()
 	say("TotemDestroySupported = %s  DestroyTotem %s  (this feature has never run in game - verify it)",
 		tostring(tds), exists(rawget(_G, "DestroyTotem")))
+
+	-- Saved-variable persistence. bootCount rising across reloads means saved
+	-- variables ARE coming back and any "my settings reset" is our problem;
+	-- stuck at 1 means the client is not loading them and no addon can help.
+	say("--- saved variables ---")
+	say("raw SV at ADDON_LOADED = %s   bootCount %s -> %s   last session %s",
+		tostring(SPCompat.svBefore), tostring(SPCompat.svBootWas), tostring(SPCompat.svBootNow),
+		tostring(SPCompat.svLastSession))
+	local dbOK = ShamanPower and ShamanPower.db and ShamanPower.db.profile
+	say("AceDB profile '%s'   setupDone %s   global.lastSeenVersion %s",
+		tostring(ShamanPower and ShamanPower.db and ShamanPower.db:GetCurrentProfile()),
+		tostring(dbOK and ShamanPower.db.profile.setupDone),
+		tostring(ShamanPower and ShamanPower.db and ShamanPower.db.global and ShamanPower.db.global.lastSeenVersion))
+	if SPCompat.svBootNow == 1 and SPCompat.svBefore == "nil" then
+		say("  |cffe5534bbootCount is 1 and the table was absent: saved variables did NOT load.|r")
+		say("  Reload once and run this again - if it is still 1, nothing addon-side can fix it.")
+	end
+
+	local snip = SPCompat.SecureSnippetsWork()
+	say("secure snippets compile = %s  (probe marker %s)%s", tostring(snip), tostring(SPCompat.snippetProbeMarked),
+		snip and "" or ("   |cffe5534bflyout hover/secure show-hide is OFF|r  (" .. tostring(SPCompat.SecureSnippetError()) .. ")"))
+	if not snip then
+		say("  ^ RestrictedExecution.lua:22 captured loadstring_untainted as nil, so every snippet")
+		say("    body dies at its line 79. Cause unknown and engine-side: that Blizzard file is")
+		say("    byte-identical to retail's, where the same snippets compile and in-combat flyouts")
+		say("    work. Flyouts fall back to plain scripts, out of combat only. /spflyout secure")
+		say("    forces the secure path back on to re-test after a client patch.")
+	end
 
 	say("--- Midnight restriction probes ---")
 	say("namespaces present (shared client exports these EVERYWHERE - presence alone is NOT a restriction):")

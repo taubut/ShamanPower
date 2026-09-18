@@ -88,11 +88,167 @@ local SP_SECURE_ONLEAVE_PARENT_MAINLINE = [[
 local SP_SECURE_ONLEAVE_PARENT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 	and SP_SECURE_ONLEAVE_PARENT_MAINLINE or SP_SECURE_ONLEAVE_PARENT_CLASSIC
 
+-- Every secure snippet write goes through here.
+--
+-- A client that cannot compile snippet bodies throws a Lua error every single
+-- time the script fires, which on an _onenter snippet means an error per
+-- mouseover. Forever beta 1.60.1.69913 is such a client: Blizzard's
+-- RestrictedExecution.lua captures `loadstring_untainted` as an upvalue, but
+-- that global only exists in the secure environment, so the upvalue is nil and
+-- compilation dies at its line 79. Writing the attribute there buys nothing
+-- (the snippet can never run) and costs an error storm, so we simply do not
+-- write it, and actively clear any stale value.
+--
+-- SPCompat.SecureSnippetsWork() probes rather than checking the client, so the
+-- secure path returns by itself the moment Blizzard fixes it.
+function ShamanPower:SetSnippet(frame, attr, body)
+	if not frame or not frame.SetAttribute then return false end
+	if SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork() then
+		frame:SetAttribute(attr, nil)
+		ShamanPower:WireFlyoutFallback(frame, attr)
+		return false
+	end
+	frame:SetAttribute(attr, body)
+	return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Plain-script flyout fallback.
+--
+-- The secure snippets ARE the flyout: the parent broadcasts ChildUpdate("show")
+-- on enter, each child decides whether to appear, and leave hides them once the
+-- cursor is off the parent and every shown child. On a client that cannot
+-- compile snippets none of that runs, so flyouts never open at all and there is
+-- no way to pick a different totem.
+--
+-- This reproduces the same protocol with ordinary scripts. It only works out of
+-- combat, because Show and Hide are protected methods on this client, and that
+-- is the honest trade: a flyout that works while you are standing still beats
+-- one that never works. In combat the buttons keep whatever the bar assigned.
+--
+-- Wired from SetSnippet so every flyout in the addon is covered by the same
+-- code, and so it disappears by itself the moment snippets start working again.
+-- ---------------------------------------------------------------------------
+local FLYOUT_LEAVE_GRACE = 0.08   -- lets the cursor cross the gap parent->child
+
+local function spFlyoutChildren(parent)
+	local out = {}
+	if not parent or not parent.GetChildren then return out end
+	for _, c in ipairs({ parent:GetChildren() }) do
+		if c.spFlyoutChild then out[#out + 1] = c end
+	end
+	return out
+end
+
+local function spFlyoutMouseIsOn(parent)
+	if not parent then return false end
+	if parent.IsMouseOver and parent:IsMouseOver() then return true end
+	-- Buttons may hang from the totem button (secure path) or from the
+	-- unprotected host (fallback path). Check both, or moving the cursor onto a
+	-- flyout button reads as "left the flyout" and closes it instantly.
+	for _, c in ipairs(spFlyoutChildren(parent)) do
+		if c:IsShown() and c.IsMouseOver and c:IsMouseOver() then return true end
+	end
+	return false
+end
+
+-- Parents with a flyout left open when combat started, so it can be closed the
+-- moment the fight ends rather than hanging there.
+local spFlyoutStuck = {}
+
+function ShamanPower:FlyoutFallbackSetShown(parent, show)
+	local inCombat = InCombatLockdown()
+
+	-- The buttons are children of the totem button, which is a secure action
+	-- button and therefore protected, so showing them in combat is refused.
+	-- An unprotected container was tried and removed: protection propagates
+	-- upward from the secure buttons inside it, so it changed nothing and cost
+	-- the buttons the totem button's scale. Blizzard's own MultiCastFlyoutFrame
+	-- only escapes this because its buttons assign totems rather than cast them.
+	--
+	-- Opening in combat is therefore declined. Closing is always attempted, so
+	-- a flyout open when a fight starts cannot hang there.
+	if show and inCombat then return end
+	for _, c in ipairs(spFlyoutChildren(parent)) do
+		if show then
+			if not c:GetAttribute("isCurrentAssignment") and not c:GetAttribute("flyoutHidden") then
+				c:Show()
+			end
+		else
+			local ok = pcall(c.Hide, c)
+			if not ok or (inCombat and c:IsShown()) then
+				spFlyoutStuck[parent] = true
+			end
+		end
+	end
+end
+
+-- Safety net: close anything combat refused to close, the instant it ends.
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_REGEN_ENABLED")
+	f:SetScript("OnEvent", function()
+		if not next(spFlyoutStuck) then return end
+		for parent in pairs(spFlyoutStuck) do
+			if parent and parent.GetChildren then
+				for _, c in ipairs(spFlyoutChildren(parent)) do pcall(c.Hide, c) end
+			end
+		end
+		wipe(spFlyoutStuck)
+	end)
+end
+
+local function spFlyoutScheduleClose(parent)
+	if not parent then return end
+	C_Timer.After(FLYOUT_LEAVE_GRACE, function()
+		if parent and not spFlyoutMouseIsOn(parent) then
+			ShamanPower:FlyoutFallbackSetShown(parent, false)
+		end
+	end)
+end
+
+function ShamanPower:WireFlyoutFallback(frame, attr)
+	if attr == "_onenter" then
+		if frame.spFlyoutHostWired then return end
+		frame.spFlyoutHostWired = true   -- hook-once marker, not a frame
+		frame:HookScript("OnEnter", function(self)
+			if self:GetAttribute("OpenMenu") == "mouseover" then
+				ShamanPower:FlyoutFallbackSetShown(self, true)
+			end
+		end)
+		frame:HookScript("OnLeave", function(self) spFlyoutScheduleClose(self) end)
+		-- click mode: the snippet path toggles on click, so mirror that
+		frame:HookScript("OnClick", function(self)
+			if self:GetAttribute("OpenMenu") == "click" then
+				local anyShown = false
+				for _, c in ipairs(spFlyoutChildren(self)) do
+					if c:IsShown() then anyShown = true break end
+				end
+				ShamanPower:FlyoutFallbackSetShown(self, not anyShown)
+			end
+		end)
+
+	elseif attr == "_childupdate-show" then
+		-- mark it so the parent can find it, and close when the cursor leaves
+		frame.spFlyoutChild = true
+		if frame.spFlyoutChildWired then return end
+		frame.spFlyoutChildWired = true
+		frame:HookScript("OnLeave", function(self) spFlyoutScheduleClose(self:GetParent()) end)
+		frame:HookScript("OnClick", function(self)
+			-- picking one closes the flyout, matching the secure behaviour
+			spFlyoutScheduleClose(self:GetParent())
+		end)
+	end
+end
+
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
 local UnitAura = LCD and LCD.UnitAuraWrapper or UnitAura
 -- Guarded natives on restricted clients; the globals stay untouched so Blizzard
 -- code is never tainted by calling into us (see SPCompat)
 local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo
+-- Forever returns a LIST of enchants per weapon; the legacy global only ever
+-- describes the first entry, which is empty when the imbue lands in the second.
+local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 local GetSpellCooldown = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
 
 local tinsert = table.insert
@@ -110,10 +266,15 @@ for i = 0, 20 do
 end
 
 ShamanPower.player = UnitName("player")
+-- These three are DECLARED SavedVariables. Assigning a fresh table at file
+-- scope throws away whatever was restored, so they must be `or {}`.
+-- It is harmless on a client that restores after the chunk runs and essential
+-- on one that restores before it, and nothing downstream can tell the
+-- difference. ShamanPower_Talents is not a SavedVariable, so it is fine as is.
 ShamanPower_Talents = {}
-ShamanPower_Assignments = {}
-ShamanPower_EarthShieldAssignments = {}  -- Maps shamanName -> targetName
-ShamanPower_TwistAssignments = {}  -- Maps shamanName -> true/false for totem twisting
+ShamanPower_Assignments = ShamanPower_Assignments or {}
+ShamanPower_EarthShieldAssignments = ShamanPower_EarthShieldAssignments or {}  -- Maps shamanName -> targetName
+ShamanPower_TwistAssignments = ShamanPower_TwistAssignments or {}  -- Maps shamanName -> true/false for totem twisting
 
 ShamanPower.AllShamans = {}
 ShamanPower.SyncList = {}
@@ -4678,17 +4839,17 @@ function ShamanPower:CreateTotemButtons()
 
 		-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 		btn:SetAttribute("OpenMenu", "mouseover")
-		btn:SetAttribute("_onenter", [[
+		ShamanPower:SetSnippet(btn, "_onenter", [[
 			if self:GetAttribute("OpenMenu") == "mouseover" then
 				self:ChildUpdate("show", true)
 			end
 		]])
 
 		-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
-		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 		-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
-		btn:SetAttribute("_onmouseup", [[
+		ShamanPower:SetSnippet(btn, "_onmouseup", [[
 			local button = button
 			if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
 				self:ChildUpdate("show", true)
@@ -5040,6 +5201,7 @@ function ShamanPower:CreateTotemFlyout(element)
 		totemButton = parentButton
 	}
 
+
 	-- Element names for flyout settings lookup
 	local elementKeys = { [1] = "earth", [2] = "fire", [3] = "water", [4] = "air" }
 	local elementKey = elementKeys[element]
@@ -5064,9 +5226,14 @@ function ShamanPower:CreateTotemFlyout(element)
 		if isKnown or isTalentTotem then
 			-- Create button as CHILD of totem button using SPFlyoutButtonTemplate
 			-- Parent is totemButton (parented to UIParent) for combat flyout support
+			-- Parent is the totem button: ChildUpdate needs it on the secure
+			-- path, and the buttons inherit its scale, which a separate host
+			-- frame does not. An unprotected host was tried and removed - it
+			-- cannot be shown in combat anyway, because protection propagates
+			-- up from the secure buttons inside it.
 			local btn = CreateFrame("Button",
 				"ShamanPowerFlyout" .. element .. "Btn" .. totemIndex,
-				parentButton,  -- CRITICAL: Parent is the totem button!
+				parentButton,
 				"SPFlyoutButtonTemplate")
 
 			-- IMPORTANT: CreateFrame returns existing frame if name exists, but doesn't re-parent it
@@ -5077,7 +5244,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			btn:SetAttribute("_childupdate-show", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 				if message then
 					if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then
 						self:Show()
@@ -5089,7 +5256,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Respond to assignment changes (WORKS IN COMBAT)
 			-- Updates isCurrentAssignment based on whether this button's spell matches the new assignment
-			btn:SetAttribute("_childupdate-assignment", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-assignment", [[
 				local newSpell = message
 				local mySpell = self:GetAttribute("mySpell")
 				if newSpell == mySpell then
@@ -5101,7 +5268,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Relayout this button after assignment change (WORKS IN COMBAT)
 			-- Each button counts visible siblings before it and positions itself accordingly
-			btn:SetAttribute("_childupdate-relayout", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-relayout", [[
 				-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
 				if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then
 					return
@@ -5146,7 +5313,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			]])
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
-			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
 			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Store spell info as attributes for secure snippets
@@ -5180,7 +5347,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- SECURE HANDLER: Handle assignment via right-click (WORKS IN COMBAT)
 			-- Use _onmouseup to change parent's spell and update flyout
 			-- This runs after the click action, so it won't interfere with left-click casting
-			btn:SetAttribute("_onmouseup", [[
+			ShamanPower:SetSnippet(btn, "_onmouseup", [[
 				local button = button
 				local assignBtn = self:GetAttribute("assignButton")
 				if button == assignBtn then
@@ -6191,7 +6358,7 @@ ShamanPower.ImbueBarColors = {
 -- Discovery spell ID), 52127 on retail. Take the first one the client knows.
 local WATER_SHIELD_ID = 24398
 for _, id in ipairs({ 24398, 408510, 52127 }) do
-	if SPCompat.SpellExists(id) then WATER_SHIELD_ID = id break end
+	if SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(id) then WATER_SHIELD_ID = id break end
 end
 ShamanPower.ShieldSpells = {
 	{324, "Lightning Shield"},          -- Lightning Shield
@@ -6508,17 +6675,17 @@ function ShamanPower:CreateCooldownBar()
 
 				-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 				btn:SetAttribute("OpenMenu", "mouseover")
-				btn:SetAttribute("_onenter", [[
+				ShamanPower:SetSnippet(btn, "_onenter", [[
 					if self:GetAttribute("OpenMenu") == "mouseover" then
 						self:ChildUpdate("show", true)
 					end
 				]])
 
 				-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
-				btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+				ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 				-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
-				btn:SetAttribute("_onmouseup", [[
+				ShamanPower:SetSnippet(btn, "_onmouseup", [[
 					local button = button
 					if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
 						self:ChildUpdate("show", true)
@@ -7412,7 +7579,7 @@ function ShamanPower:UpdateCooldownButtons()
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 			local buttonHeight = btn:GetHeight()
 			local buttonWidth = btn:GetWidth()
-			local maxDuration = 1800000 -- 30 minutes (ms)
+			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
 			-- Local layout helper (duplicate of UpdateCooldownBarProgressBars logic, scoped here)
 			local function positionDual(bgMain, bgOff, insideMain, insideOff, outsideMain, outsideOff)
 				local both = hasMain and hasOff
@@ -7707,7 +7874,14 @@ function ShamanPower:UpdateCooldownButtons()
 				updateHand(hasMain, mainExp, mainType, btn.bgBarMain, btn.progressBarMain, btn.greyOverlayMain, btn.insideText, btn.outsideText, btn.iconText, true)
 				updateHand(hasOff, offExp, offType, btn.bgBarOff, btn.progressBarOff, btn.greyOverlayOff, btn.insideText2, btn.outsideText2, btn.iconText2, false)
 			else
-				-- No imbue active - restore full icon
+				-- No imbue active - restore full icon.
+				-- Show the imbue this button would actually cast. Without this
+				-- the texture keeps whatever was set at creation, so a shaman
+				-- who has only Rockbiter sees a greyed Windfury icon.
+				local restIdx = self:DefaultImbueIndex() or self.lastMainHandImbue
+				if restIdx and self.WeaponIcons[restIdx] then
+					btn.icon:SetTexture(self.WeaponIcons[restIdx])
+				end
 				btn.icon:ClearAllPoints()
 				btn.icon:SetAllPoints()
 				btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -8518,6 +8692,18 @@ function ShamanPower:CanDualWield()
 	return false
 end
 
+-- Which imbue the button would cast right now: the preferred one when it is
+-- actually known, otherwise the first one that is. Used for the resting icon
+-- so an unenchanted weapon shows the imbue you have rather than a fixed guess.
+function ShamanPower:DefaultImbueIndex()
+	local pref = self.opt and self.opt.preferredImbue
+	if pref and self:GetHighestRankImbue(pref) then return pref end
+	for i = 1, 4 do
+		if self:GetHighestRankImbue(i) then return i end
+	end
+	return nil
+end
+
 -- Get the highest rank of a weapon imbue spell that the player knows
 function ShamanPower:GetHighestRankImbue(imbueIndex)
 	local baseSpellID = self.WeaponImbueSpells[imbueIndex]
@@ -8566,7 +8752,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	-- Icon texture (will be updated based on current enchants)
 	local iconTex = btn:CreateTexture(nil, "ARTWORK")
 	iconTex:SetAllPoints()
-	iconTex:SetTexture(self.WeaponIcons[1])  -- Default to Windfury icon
+	iconTex:SetTexture(self.WeaponIcons[self:DefaultImbueIndex() or 1])  -- the imbue this button would cast, not a fixed Windfury
 	iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	btn.icon = iconTex
 
@@ -8686,17 +8872,17 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 	btn:SetAttribute("OpenMenu", "mouseover")
-	btn:SetAttribute("_onenter", [[
+	ShamanPower:SetSnippet(btn, "_onenter", [[
 		if self:GetAttribute("OpenMenu") == "mouseover" then
 			self:ChildUpdate("show", true)
 		end
 	]])
 
 	-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
-	btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+	ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 	-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
-	btn:SetAttribute("_onmouseup", [[
+	ShamanPower:SetSnippet(btn, "_onmouseup", [[
 		local button = button
 		if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
 			self:ChildUpdate("show", true)
@@ -8822,7 +9008,7 @@ function ShamanPower:CreateShieldFlyout()
 			highlight:SetColorTexture(1, 1, 1, 0.3)
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			btn:SetAttribute("_childupdate-show", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 				if message then
 					self:Show()
 				else
@@ -8831,7 +9017,7 @@ function ShamanPower:CreateShieldFlyout()
 			]])
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
-			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
 			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Left-click casts shield; right-click has no type2 so no cast happens
@@ -9014,7 +9200,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			btn:SetAttribute("_childupdate-show", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 				if message then
 					self:Show()
 				else
@@ -9023,7 +9209,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			]])
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
-			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
 			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Click to cast imbue spell (left=main hand, right=off hand)
@@ -9862,12 +10048,12 @@ function ShamanPower:CreateEarthShieldButton()
 
 	-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 	esBtn:SetAttribute("OpenMenu", "mouseover")
-	esBtn:SetAttribute("_onenter", [[
+	ShamanPower:SetSnippet(esBtn, "_onenter", [[
 		if self:GetAttribute("OpenMenu") == "mouseover" then
 			self:ChildUpdate("show", true)
 		end
 	]])
-	esBtn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+	ShamanPower:SetSnippet(esBtn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 	-- Icon (use the template's icon - $parentIcon becomes ShamanPowerEarthShieldBtnIcon)
 	local icon = _G[esBtn:GetName() .. "Icon"]
@@ -10362,7 +10548,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		highlight:SetColorTexture(1, 1, 1, 0.3)
 
 		-- SECURE HANDLER: Respond to parent's ChildUpdate
-		btn:SetAttribute("_childupdate-show", [[
+		ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 			if message then
 				if not self:GetAttribute("esInactive") then
 					self:Show()
@@ -10373,7 +10559,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		]])
 
 		-- SECURE HANDLER: Check parent on leave
-		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
 		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 		btn:RegisterForClicks("AnyUp", "AnyDown")
@@ -14609,11 +14795,11 @@ function ShamanPower:CreateLoadoutBar()
 
 	-- SECURE HANDLER: Show flyout on hover (WORKS IN COMBAT)
 	-- Same pattern as totem button _onenter/_onleave
-	anchor:SetAttribute("_onenter", [[
+	ShamanPower:SetSnippet(anchor, "_onenter", [[
 		self:ChildUpdate("show", true)
 	]])
 
-	anchor:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+	ShamanPower:SetSnippet(anchor, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 	-- Anchor normal texture (standard WoW action button look)
 	local normalTex = anchor:CreateTexture(nil, "BORDER")
@@ -14709,12 +14895,12 @@ function ShamanPower:CreateLoadoutBar()
 
 		-- SECURE HANDLER: Hide flyout when mouse leaves set button (if not over parent anchor)
 		-- Same pattern as totem flyout _onleave
-		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
 		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 		-- SECURE HANDLER: Toggle visibility on parent ChildUpdate("toggle")
 		-- Same as TotemTimers: _childupdate-toggle
-		btn:SetAttribute("_childupdate-toggle", [[
+		ShamanPower:SetSnippet(btn, "_childupdate-toggle", [[
 			if not self:GetAttribute("inactive") then
 				if self:IsVisible() then
 					self:Hide()
@@ -14726,7 +14912,7 @@ function ShamanPower:CreateLoadoutBar()
 
 		-- SECURE HANDLER: Show/hide on parent ChildUpdate("show", bool)
 		-- Same as TotemTimers: _childupdate-show
-		btn:SetAttribute("_childupdate-show", [[
+		ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 			if message and not self:GetAttribute("inactive") then
 				self:Show()
 			else
