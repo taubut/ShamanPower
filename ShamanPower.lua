@@ -166,17 +166,20 @@ function ShamanPower:FlyoutFallbackSetShown(parent, show)
 	-- the buttons the totem button's scale. Blizzard's own MultiCastFlyoutFrame
 	-- only escapes this because its buttons assign totems rather than cast them.
 	--
-	-- Opening in combat is therefore declined. Closing is always attempted, so
-	-- a flyout open when a fight starts cannot hang there.
+	-- Opening in combat is therefore declined, and so is closing: Hide on a
+	-- secure button is refused in combat even when it is already hidden, and
+	-- every refusal prints "Interface action failed because of an AddOn". So
+	-- only buttons that are actually open are touched, and in combat those are
+	-- left for the PLAYER_REGEN_ENABLED sweep below, which closes them the
+	-- moment the fight ends.
 	if show and inCombat then return end
 	for _, c in ipairs(spFlyoutChildren(parent)) do
 		if show then
 			if not c:GetAttribute("isCurrentAssignment") and not c:GetAttribute("flyoutHidden") then
 				c:Show()
 			end
-		else
-			local ok = pcall(c.Hide, c)
-			if not ok or (inCombat and c:IsShown()) then
+		elseif c:IsShown() then
+			if inCombat or not pcall(c.Hide, c) then
 				spFlyoutStuck[parent] = true
 			end
 		end
