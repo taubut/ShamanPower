@@ -285,6 +285,16 @@ function SP:SPRangeCheckTotem(totemData)
 	end
 end
 
+-- Our own totem of this kind, if it's the one down for its element: in range by
+-- distance from where we dropped it (see ShamanPower:TotemDropInRange).
+-- nil = not ours, or no position to measure from.
+function SP:SPRangeOwnTotemInRange(totemData)
+	if not self.TotemDropInRange or not self.GetElementTotemInfo then return nil end
+	local have, name = self:GetElementTotemInfo(totemData.element)
+	if not have or type(name) ~= "string" or not name:find(totemData.name, 1, true) then return nil end
+	return self:TotemDropInRange(totemData.element)
+end
+
 -- Create the SPRange frame
 function SP:CreateSPRangeFrame()
 	if self.spRangeFrame then return self.spRangeFrame end
@@ -600,6 +610,20 @@ function SP:UpdateSPRangeStatus()
 			totemIsDown = playerHasBuff  -- If we have it, it's down. Otherwise unknown.
 		else
 			totemIsDown = self:SPRangeAnyoneHasBuff(totemData.buffName)
+		end
+
+		-- In combat on the Mainline family the buff reads above come back empty
+		-- because they're blocked, which flipped every totem to MISSING. Our own
+		-- totems are measured by distance instead; anything else keeps what this
+		-- button showed before the reads went dark.
+		if totemData.detection ~= "weapon" and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
+			local near = self:SPRangeOwnTotemInRange(totemData)
+			if near ~= nil then
+				playerHasBuff, totemIsDown = near, true
+			elseif btn.status then
+				playerHasBuff = (btn.status == "inrange")
+				totemIsDown = (btn.status ~= "missing")
+			end
 		end
 
 		btn.inRange = playerHasBuff
