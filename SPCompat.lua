@@ -237,7 +237,7 @@ defaultGlobal("LE_PARTY_CATEGORY_INSTANCE", 2)
 -- without issecretvalue (the classic family today).
 -- ---------------------------------------------------------------------------
 SPCompat = SPCompat or {}
-SPCompat.BUILD = "2026-09-18p"   -- bump when the diag tooling changes so a paste shows whether /reload happened
+SPCompat.BUILD = "2026-09-19a"   -- bump when the diag tooling changes so a paste shows whether /reload happened
 
 -- ---------------------------------------------------------------------------
 -- Does a spell exist for this player, on this client?
@@ -625,6 +625,13 @@ if SPCompat.secretsRegime then
 	guardAura("UnitBuff")
 	guardAura("UnitDebuff")
 	guardAura("UnitAura")
+
+	-- True while an empty aura read means "not allowed to look" rather than
+	-- "nothing there". Anything that infers from a buff's absence (the totem
+	-- range check) must switch to another source while this holds.
+	function SPCompat.AurasUnreadable()
+		return aurasSecretNow() or (auraBlocked and anyRestrictionActive())
+	end
 
 	local unrestrictedCallbacks = {}
 	function SPCompat.OnUnrestricted(fn) unrestrictedCallbacks[#unrestrictedCallbacks + 1] = fn end

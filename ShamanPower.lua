@@ -1137,6 +1137,46 @@ local function totemsSecretNow()
 	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
 end
 
+-- ----------------------------------------------------------------------------
+-- Where our totems went down. Range to our own totem is read from its buff,
+-- but combat hides buffs on the Mainline family and a hidden buff reads the
+-- same as a missing one, so every totem greyed out as "out of range" the
+-- moment a fight started. A totem lands at the shaman's feet, so the player's
+-- own position at the drop is the totem's position, and distance from it is
+-- range. UnitPosition stays readable in combat in the open world; where it
+-- doesn't (instances), the range check keeps what it last knew.
+-- ----------------------------------------------------------------------------
+local TRACK_TOTEM_DROPS = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local TOTEM_AURA_RANGE = 30            -- yards: every buff totem's radius in the Forever 1.60.1 spell data
+ShamanPower.totemDropPos = {}          -- [element] = { x, y, map }
+ShamanPower.totemRangeLast = {}        -- [element] = last range answer while buffs were readable
+
+local function playerPosition()
+	if not UnitPosition then return nil end
+	local ok, y, x, _, map = pcall(UnitPosition, "player")
+	if not ok or type(x) ~= "number" or type(y) ~= "number" then return nil end
+	if issecretvalue and (issecretvalue(x) or issecretvalue(y)) then return nil end
+	return x, y, map
+end
+
+function ShamanPower:RecordTotemDrop(element)
+	if not TRACK_TOTEM_DROPS or not element then return end
+	local x, y, map = playerPosition()
+	self.totemDropPos[element] = x and { x = x, y = y, map = map } or nil
+	self.totemRangeLast[element] = nil   -- a new totem: the old answer no longer applies
+end
+
+-- true/false = within/outside totem range of where this element's totem was
+-- dropped; nil = can't tell (no drop recorded, or no position right now).
+function ShamanPower:TotemDropInRange(element)
+	local drop = self.totemDropPos[element]
+	if not drop then return nil end
+	local x, y, map = playerPosition()
+	if not x or map ~= drop.map then return nil end
+	local dx, dy = x - drop.x, y - drop.y
+	return dx * dx + dy * dy <= TOTEM_AURA_RANGE * TOTEM_AURA_RANGE
+end
+
 -- Element a cast totem spell belongs to (exact rank IDs are not in the tables,
 -- so fall back to the spell name).
 function ShamanPower:TotemCastElement(spellID)
@@ -1151,6 +1191,7 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 	if unit ~= "player" or type(spellID) ~= "number" then return end
 	local element = self:TotemCastElement(spellID)
 	if not element then return end
+	self:RecordTotemDrop(element)
 	local name, _, icon = GetSpellInfo(spellID)
 	local now = GetTime()
 	local entry = {
@@ -1218,6 +1259,17 @@ local function shadowLookup(self, element)
 		return false, nil, nil, nil, nil, nil
 	end
 	return true, entry.name, entry.startTime, entry.duration, entry.icon, entry.slot
+end
+
+-- A totem that just appeared in a slot without a cast of its own (Call of the
+-- Elements drops several from one spell): record its drop here instead.
+function ShamanPower:RecordTotemDropFromSlot(slot)
+	if not TRACK_TOTEM_DROPS or type(slot) ~= "number" then return end
+	local have, name, startTime, _, _, _, spellID = GetTotemInfo(slot)
+	if not have or not name or name == "" or not startTime then return end
+	if GetTime() - startTime > 1.5 then return end   -- not a fresh drop
+	local element = slotTotemElement(self, name, spellID)
+	if element then self:RecordTotemDrop(element) end
 end
 
 -- GetTotemInfo for the totem of an element, wherever the client put it.
@@ -6245,6 +6297,27 @@ function ShamanPower:UpdatePlayerTotemRange()
 				hasWeaponEnchant = self:SPRangeHasWindfuryWeapon()
 			end
 			results[element] = hasWeaponEnchant
+		end
+	end
+
+	-- Combat hides buffs from addons on the Mainline family, and an empty read
+	-- there means "not allowed to look", not "no buff". Measure distance from
+	-- where each totem was dropped instead; with no position, keep the last
+	-- answer from while buffs were readable, and never grey out on a guess.
+	if TRACK_TOTEM_DROPS then
+		local blind = SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
+		local lastRange = self.totemRangeLast
+		for element = 1, 4 do
+			if buffNames[element] then
+				if blind then
+					local near = self:TotemDropInRange(element)
+					if near == nil then near = lastRange[element] end
+					if near == nil then near = true end
+					results[element] = near
+				else
+					lastRange[element] = results[element]
+				end
+			end
 		end
 	end
 
@@ -12188,6 +12261,7 @@ end
 
 function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
 	self:ShadowTotemSlotUpdate(slot)
+	self:RecordTotemDropFromSlot(slot)
 	self:RefreshTotemDestroySlots()   -- cast-order clients: keep right-click destroy on the right slot
 end
 
