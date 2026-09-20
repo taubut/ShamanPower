@@ -585,6 +585,11 @@ function SP:CheckShieldState(initializing)
 		end
 	end
 
+	-- A blocked read in combat returns nothing, same as "no shield". The flag at
+	-- the top is only raised BY a blocked read, so the first one of a fight gets
+	-- this far: keep the old state instead of calling a shield that's still on faded.
+	if SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return end
+
 	-- Detect fade
 	if not initializing then
 		if previousState.shields.lightning and not hasLightningShield and sv.shields.lightning then
@@ -658,8 +663,8 @@ function SP:CheckTotemState(initializing)
 end
 
 function SP:CheckWeaponEnchantState(initializing)
-	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
-	if SPCompat and SPCompat.combatDataSecret then return end
+	-- Weapon enchants are not hidden in combat the way buffs are (the cooldown
+	-- bar reads them every update mid-fight), so imbue alerts keep working there.
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then return end
 
@@ -835,6 +840,13 @@ function SP:SetupExpiringAlertsEvents()
 		end
 	end)
 	self.weaponCheckFrame = weaponCheckFrame
+
+	-- Combat hides aura reads, so a shield that fell off during a fight goes
+	-- unnoticed until the next buff change, which may be minutes away. Re-check
+	-- the moment restrictions lift and report it then.
+	if SPCompat and SPCompat.OnUnrestricted then
+		SPCompat.OnUnrestricted(function() SP:CheckShieldState(false) end)
+	end
 end
 
 -- ============================================================================
