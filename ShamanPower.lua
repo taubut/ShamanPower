@@ -1154,9 +1154,9 @@ local TOTEM_AURA_RANGE = 30            -- yards: every buff totem's radius in th
 ShamanPower.totemDropPos = {}          -- [element] = { x, y, map }
 ShamanPower.totemRangeLast = {}        -- [element] = last range answer while buffs were readable
 
-local function playerPosition()
+local function unitPosition(unit)
 	if not UnitPosition then return nil end
-	local ok, y, x, _, map = pcall(UnitPosition, "player")
+	local ok, y, x, _, map = pcall(UnitPosition, unit)
 	if not ok or type(x) ~= "number" or type(y) ~= "number" then return nil end
 	if issecretvalue and (issecretvalue(x) or issecretvalue(y)) then return nil end
 	return x, y, map
@@ -1164,17 +1164,19 @@ end
 
 function ShamanPower:RecordTotemDrop(element)
 	if not TRACK_TOTEM_DROPS or not element then return end
-	local x, y, map = playerPosition()
+	local x, y, map = unitPosition("player")
 	self.totemDropPos[element] = x and { x = x, y = y, map = map } or nil
 	self.totemRangeLast[element] = nil   -- a new totem: the old answer no longer applies
 end
 
 -- true/false = within/outside totem range of where this element's totem was
 -- dropped; nil = can't tell (no drop recorded, or no position right now).
-function ShamanPower:TotemDropInRange(element)
+-- unit defaults to the player; party members measure the same way (UnitPosition
+-- returns plain numbers for them in combat in the open world, measured).
+function ShamanPower:TotemDropInRange(element, unit)
 	local drop = self.totemDropPos[element]
 	if not drop then return nil end
-	local x, y, map = playerPosition()
+	local x, y, map = unitPosition(unit or "player")
 	if not x or map ~= drop.map then return nil end
 	local dx, dy = x - drop.x, y - drop.y
 	return dx * dx + dy * dy <= TOTEM_AURA_RANGE * TOTEM_AURA_RANGE

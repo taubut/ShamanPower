@@ -157,17 +157,33 @@ function SP:GetActiveTotemBuffName(element)
 	return nil
 end
 
--- Check if a unit has a specific buff (same approach as TotemTimers)
-function SP:UnitHasBuff(unit, buffName)
+-- Check if a unit has a specific buff (same approach as TotemTimers).
+--
+-- On the Mainline family, combat hides other players' buffs, and an empty read
+-- looks exactly like "no buff", which turned every dot red the moment a fight
+-- started. When reads are blocked and the caller says which element it is
+-- asking about, coverage is answered by distance from where that totem was
+-- dropped instead (the same model the totem bar's own range check uses). With
+-- no position to measure (instances), the last readable answer is kept.
+SP.partyRangeLast = {}   -- [unit .. element] = last answer while buffs were readable
+function SP:UnitHasBuff(unit, buffName, element)
 	if not buffName then return false end
 
+	if element and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
+		local near = ShamanPower.TotemDropInRange and ShamanPower:TotemDropInRange(element, unit)
+		if near == nil then near = self.partyRangeLast[unit .. element] end
+		if near == nil then near = true end   -- never call someone uncovered on a guess
+		return near
+	end
+
+	local has = false
 	for i = 1, 32 do
 		local name = UnitBuff(unit, i)
 		if not name then break end
-		if name == buffName then return true end
+		if name == buffName then has = true break end
 	end
-
-	return false
+	if element then self.partyRangeLast[unit .. element] = has end
+	return has
 end
 
 -- Reusable table for party units (avoids creating garbage every call)
@@ -275,7 +291,7 @@ function SP:UpdatePartyRangeDots()
 
 					if haveTotem then
 						local buffName = self:GetActiveTotemBuffName(element)
-						local hasBuff = buffName and self:UnitHasBuff(unit, buffName)
+						local hasBuff = buffName and self:UnitHasBuff(unit, buffName, element)
 
 						-- Special case: Air element (4) with no buffName = Windfury Totem
 						local isWindfury = (element == 4 and not buffName)
@@ -602,7 +618,7 @@ function SP:UpdateRangeCounters()
 						end
 					elseif buffName then
 						hasTrackableBuff = true  -- Has a trackable buff
-						local hasBuff = self:UnitHasBuff(unit, buffName)
+						local hasBuff = self:UnitHasBuff(unit, buffName, element)
 						if hasBuff then
 							inRangeCount = inRangeCount + 1
 						end
