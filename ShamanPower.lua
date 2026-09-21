@@ -162,12 +162,14 @@ local ARROW_OPEN = {
 	{ 99 / 128, 127 / 128, 122 / 256, 140 / 256 },   -- fire
 	{ 99 / 128, 127 / 128, 199 / 256, 217 / 256 },   -- water
 	{ 99 / 128, 127 / 128, 237 / 256, 255 / 256 },   -- air
+	{ 99 / 128, 127 / 128,  84 / 256, 102 / 256 },   -- neutral ("summon"): cooldown bar flyouts
 }
 local ARROW_CLOSE = {
 	{ 99 / 128, 127 / 128, 141 / 256, 159 / 256 },
 	{ 99 / 128, 127 / 128, 103 / 256, 121 / 256 },
 	{ 99 / 128, 127 / 128, 180 / 256, 198 / 256 },
 	{ 99 / 128, 127 / 128, 218 / 256, 236 / 256 },
+	{ 99 / 128, 127 / 128,  65 / 256,  83 / 256 },
 }
 local ARROW_GLOW_OPEN  = { 0.5625, 0.71875, 0.34375, 0.3828125 }      -- up-arrow shaped
 local ARROW_GLOW_CLOSE = { 0.5625, 0.71875, 0.26953125, 0.30859375 }  -- down-arrow shaped
@@ -290,11 +292,11 @@ do
 	local function setCombatLayout(on)
 		spFlyoutCombatLayout = on
 		ShamanPower.flyoutArrowGap = on and FLYOUT_ARROW or 0
-		for element = 1, 4 do
-			local flyout = ShamanPower.totemFlyouts and ShamanPower.totemFlyouts[element]
+		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+			local flyout = entry.flyout
 			if flyout and flyout.box then
 				flyout.leadGap = on and FLYOUT_ARROW or 0
-				ShamanPower:UpdateFlyoutVisibility(element)   -- re-lays out, then places the arrows
+				pcall(entry.relayout)   -- re-lays out, then places the arrows
 			end
 		end
 		if ShamanPower.PositionActiveOverlays then ShamanPower:PositionActiveOverlays() end
@@ -307,8 +309,9 @@ do
 		end
 		-- box mode: anything opened during the fight closes now, unless the
 		-- cursor is still on it
-		for _, btn in pairs(ShamanPower.totemButtons or {}) do
-			local box = btn.spFlyoutBox
+		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+			local btn = entry.button
+			local box = btn and btn.spFlyoutBox
 			if box and box:IsShown() and not spFlyoutMouseIsOn(btn) then
 				box:SetAttribute("unit", "none")
 				box:Hide()
@@ -321,6 +324,7 @@ do
 		end
 		wipe(spFlyoutStuck)
 		setCombatLayout(false)
+		if ShamanPower.flyoutArrowModePending then ShamanPower:ApplyFlyoutArrowMode() end
 	end)
 end
 
@@ -5426,9 +5430,16 @@ local function spFlyoutMakeArrow(name, parent, box, unitValue)
 	return b
 end
 
--- Create (once) the watched box and its two arrows for an element's flyout.
-function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout)
+-- Every flyout running in box mode, by key: 1-4 for the totem elements, "S" for
+-- the shield flyout and "I" for the weapon imbue flyout on the cooldown bar.
+-- { flyout =, button =, relayout = function } - relayout re-runs that flyout's
+-- own layout, which is how the combat layout (arrow gap) is applied and undone.
+ShamanPower.boxFlyouts = {}
+
+-- Create (once per button) the watched box and its two arrows for a flyout.
+function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 	if InCombatLockdown() then return totemButton.spFlyoutBox end
+	self.boxFlyouts[element] = { flyout = flyout, button = totemButton, relayout = relayout or function() end }
 	local box = totemButton.spFlyoutBox
 	if not box then
 		box = _G["ShamanPowerFlyoutBox" .. element]
@@ -5445,9 +5456,28 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout)
 		local open = spFlyoutMakeArrow("ShamanPowerFlyoutOpen" .. element, totemButton, box, "player")
 		local close = spFlyoutMakeArrow("ShamanPowerFlyoutClose" .. element, box, box, "none")
 		open.spOwner, close.spOwner = totemButton, totemButton
+		-- Invisible press targets for macros: SPFO<n> opens this box, SPFC<n>
+		-- closes it. Short names keep the "close the others, open mine" macro
+		-- (eight /click lines) far below the macro length limit.
+		for _, def in ipairs({ { "SPFO", "player" }, { "SPFC", "none" } }) do
+			local h = _G[def[1] .. element] or CreateFrame("Button", def[1] .. element, totemButton, "SecureActionButtonTemplate")
+			h:SetParent(totemButton)   -- a rebuilt cooldown bar hands us a new button
+			h:SetSize(1, 1)
+			h:SetPoint("CENTER", totemButton, "CENTER")
+			h:EnableMouse(false)
+			h:RegisterForClicks("AnyUp", "AnyDown")
+			h:SetAttribute("type", "attribute")
+			h:SetAttribute("attribute-frame", box)
+			h:SetAttribute("attribute-name", "unit")
+			h:SetAttribute("attribute-value", def[2])
+		end
 		open.spHideWhileShown = box
-		box:HookScript("OnShow", function() spFlyoutArrowAlpha(open, false) end)
-		box:HookScript("OnHide", function() spFlyoutArrowAlpha(open, false) end)
+		if not box.spArrowHooked then
+			box.spArrowHooked = true
+			box:HookScript("OnShow", function(self) spFlyoutArrowAlpha(self.spOpenArrow, false) end)
+			box:HookScript("OnHide", function(self) spFlyoutArrowAlpha(self.spOpenArrow, false) end)
+		end
+		box.spOpenArrow = open
 		open:SetFrameLevel(totemButton:GetFrameLevel() + 7)
 		close:SetFrameLevel(totemButton:GetFrameLevel() + 12)   -- covers the open arrow while the box is up
 		totemButton.spFlyoutOpenArrow, totemButton.spFlyoutCloseArrow = open, close
@@ -5459,20 +5489,60 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout)
 	end
 	flyout.box = box
 	flyout.leadGap = spFlyoutCombatLayout and FLYOUT_ARROW or 0
+	self:ApplyFlyoutArrowMode()
 	return box
+end
+
+-- opt.flyoutSingleOpen (default on): an arrow closes every other flyout before
+-- opening its own, so only one is ever open. Off: the arrow just opens its own
+-- and the rest stay until picked from or closed. A macro cannot set attributes,
+-- so the "on" form presses the SPFC/SPFO helper buttons instead.
+function ShamanPower:ApplyFlyoutArrowMode()
+	if InCombatLockdown() then
+		self.flyoutArrowModePending = true
+		return
+	end
+	self.flyoutArrowModePending = nil
+	local single = self.opt.flyoutSingleOpen ~= false
+	-- One /click per helper, in the form this client's key-down setting listens
+	-- for: six flyouts' worth of both forms would overrun the macro length cap.
+	local down = (GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")) and "1" or "0"
+	for element, entry in pairs(self.boxFlyouts) do
+		local btn = entry.button
+		local open = btn and btn.spFlyoutOpenArrow
+		if open then
+			if single then
+				local lines = {}
+				for other in pairs(self.boxFlyouts) do
+					if other ~= element then
+						lines[#lines + 1] = "/click SPFC" .. other .. " LeftButton " .. down
+					end
+				end
+				lines[#lines + 1] = "/click SPFO" .. element .. " LeftButton " .. down
+				open:SetAttribute("type", "macro")
+				open:SetAttribute("macrotext", table.concat(lines, "\n"))
+			else
+				open:SetAttribute("type", "attribute")
+				open:SetAttribute("macrotext", nil)
+			end
+		end
+	end
 end
 
 -- Put both arrows on the edge the flyout opens from, pointing the right way.
 function ShamanPower:PlaceFlyoutArrows(flyout)
-	local btn = flyout and flyout.totemButton
+	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
 	if not btn or not btn.spFlyoutOpenArrow or InCombatLockdown() then return end
-	local dir = self:FlyoutDirection(flyout)
-	local element = flyout.element or 1
+	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	local element = flyout.artIndex or flyout.element or 5
 	local sideways = (dir == "left" or dir == "right")
 	for _, arrow in ipairs({ btn.spFlyoutOpenArrow, btn.spFlyoutCloseArrow }) do
 		-- the tab sits centred on the edge the flyout opens from, tucked 2 px in
 		arrow:ClearAllPoints()
-		arrow:SetSize(sideways and ARROW_H or ARROW_W, sideways and ARROW_W or ARROW_H)
+		-- never wider than the button it belongs to (cooldown bar buttons are 22 px)
+		local k = math.min(1, (btn:GetWidth() or ARROW_W) / ARROW_W)
+		local tw, th = ARROW_W * k, ARROW_H * k
+		arrow:SetSize(sideways and th or tw, sideways and tw or th)
 		if dir == "bottom" then
 			arrow:SetPoint("TOP", btn, "BOTTOM", 0, 2)
 		elseif dir == "left" then
@@ -5485,9 +5555,10 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		local isClose = (arrow == btn.spFlyoutCloseArrow)
 		local art = (isClose and ARROW_CLOSE or ARROW_OPEN)[element] or ARROW_OPEN[1]
 		arrow.tex:SetTexCoord(spArrowCoords(art, dir))
-		arrow.glow:SetSize(sideways and 11 or 20, sideways and 20 or 11)
+		arrow.glow:SetSize((sideways and 11 or 20) * k, (sideways and 20 or 11) * k)
 		arrow.glow:SetTexCoord(spArrowCoords(isClose and ARROW_GLOW_CLOSE or ARROW_GLOW_OPEN, dir))
-		arrow:SetShown((self.opt.showTotemFlyouts and spFlyoutCombatLayout) and true or false)   -- combat only, and only with flyouts on
+		local enabled = flyout.isCdbarFlyout or self.opt.showTotemFlyouts
+		arrow:SetShown((enabled and spFlyoutCombatLayout) and true or false)   -- combat only, and only with flyouts on
 		spFlyoutArrowAlpha(arrow, false)
 	end
 end
@@ -5538,7 +5609,8 @@ function ShamanPower:CreateTotemFlyout(element)
 	-- box is its child, so position and scale are unchanged.
 	local buttonParent = parentButton
 	if spFlyoutBoxMode() and not InCombatLockdown() then
-		buttonParent = self:EnsureFlyoutBox(element, parentButton, flyout) or parentButton
+		buttonParent = self:EnsureFlyoutBox(element, parentButton, flyout,
+			function() ShamanPower:UpdateFlyoutVisibility(element) end) or parentButton
 	end
 
 	-- Element names for flyout settings lookup
@@ -9353,6 +9425,14 @@ end
 
 -- Create the flyout menu for shields (combat-functional architecture)
 -- Flyout buttons are parented directly to shieldButton for ChildUpdate to work
+-- Box mode for the cooldown bar flyouts: every button stays shown inside the
+-- (hidden) box, since nothing can show them one by one during a fight.
+function ShamanPower:SyncCdbarFlyout(flyout)
+	if not flyout or not flyout.box or InCombatLockdown() then return end
+	for _, btn in ipairs(flyout.buttons or {}) do btn:Show() end
+	self:PlaceFlyoutArrows(flyout)
+end
+
 function ShamanPower:CreateShieldFlyout()
 	if self.shieldFlyout then return end
 	if InCombatLockdown() then return end
@@ -9369,6 +9449,14 @@ function ShamanPower:CreateShieldFlyout()
 		shieldButton = parentButton
 	}
 
+	-- Box mode: same click-to-open arrows as the totem flyouts
+	local buttonParent = parentButton
+	if spFlyoutBoxMode() then
+		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex = true, parentButton, 5
+		buttonParent = self:EnsureFlyoutBox("S", parentButton, flyout,
+			function() ShamanPower:LayoutShieldFlyout() end) or parentButton
+	end
+
 	-- Create buttons for each known shield as children of the shield button
 	for i, shieldData in ipairs(self.ShieldSpells) do
 		local spellID, spellName = shieldData[1], shieldData[2]
@@ -9378,8 +9466,9 @@ function ShamanPower:CreateShieldFlyout()
 			local name, _, icon = GetSpellInfo(spellName)
 
 			-- Create as CHILD of shield button for ChildUpdate to work
-			local btn = CreateFrame("Button", "ShamanPowerShieldFlyout" .. i, parentButton,
+			local btn = CreateFrame("Button", "ShamanPowerShieldFlyout" .. i, buttonParent,
 				"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate")
+			btn:SetParent(buttonParent)
 			btn:SetSize(buttonSize, buttonSize)
 			btn:SetFrameStrata("DIALOG")
 			-- Both edges: secure clicks are gated on the ActionButtonUseKeyDown
@@ -9417,13 +9506,21 @@ function ShamanPower:CreateShieldFlyout()
 			-- Left-click casts shield; right-click has no type2 so no cast happens
 			btn:SetAttribute("type1", "spell")
 			btn:SetAttribute("spell", spellName)
+			if flyout.box then
+				-- box mode: cast and close the flyout in the same click
+				btn:SetAttribute("type1", "macro")
+				btn:SetAttribute("macrotext1", "/cast " .. spellName
+					.. "\n/click SPFCS LeftButton 1\n/click SPFCS LeftButton 0")
+			end
 
 			-- PostClick: both clicks assign default; left-click also casts (via type1 above)
 			btn:HookScript("PostClick", function(self, button)
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
 					local flyoutData = ShamanPower.shieldFlyout
-					if flyoutData and flyoutData.buttons then
+					if flyoutData and flyoutData.box then
+						ShamanPower:FlyoutFallbackSetShown(flyoutData.shieldButton, false)
+					elseif flyoutData and flyoutData.buttons then
 						for _, flyoutBtn in ipairs(flyoutData.buttons) do
 							flyoutBtn:Hide()
 						end
@@ -9493,6 +9590,7 @@ function ShamanPower:LayoutShieldFlyout()
 
 	local buttonSize = flyout.buttonSize
 	local spacing = flyout.spacing
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow tab in combat
 
 	-- Determine flyout direction based on CD bar layout
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
@@ -9516,17 +9614,18 @@ function ShamanPower:LayoutShieldFlyout()
 			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
 		end
 
+		flyout.arrowDir = goRight and "right" or "left"
 		if goRight then
 			-- Extend to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", shieldButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", shieldButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Extend to the LEFT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", shieldButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", shieldButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -9537,20 +9636,23 @@ function ShamanPower:LayoutShieldFlyout()
 		-- When "auto" and unlocked, go above
 		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
 
+		flyout.arrowDir = goBelow and "bottom" or "top"
 		if goBelow then
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
+
+	self:SyncCdbarFlyout(flyout)
 end
 
 -- Show shield flyout (for backward compatibility, mostly handled by secure handlers now)
@@ -9580,13 +9682,22 @@ function ShamanPower:CreateWeaponImbueFlyout()
 		imbueButton = parentButton
 	}
 
+	-- Box mode: same click-to-open arrows as the totem flyouts
+	local buttonParent = parentButton
+	if spFlyoutBoxMode() then
+		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex = true, parentButton, 5
+		buttonParent = self:EnsureFlyoutBox("I", parentButton, flyout,
+			function() ShamanPower:LayoutWeaponImbueFlyout() end) or parentButton
+	end
+
 	-- Create buttons for each known imbue as children of the imbue button
 	for imbueIndex = 1, 4 do
 		local spellName = self:GetHighestRankImbue(imbueIndex)
 		if spellName then
 			-- Create as CHILD of imbue button for ChildUpdate to work
-			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, parentButton,
+			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, buttonParent,
 				"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate")
+			btn:SetParent(buttonParent)
 			btn:SetSize(buttonSize, buttonSize)
 			btn:SetFrameStrata("DIALOG")
 			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp", "RightButtonDown")
@@ -9609,6 +9720,11 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			-- Click to cast imbue spell (left=main hand, right=off hand)
 			local mainHandMacro = "/cast [@none] " .. spellName .. "\n/use 16\n/click StaticPopup1Button1"
 			local offHandMacro = "/cast [@none] " .. spellName .. "\n/use 17\n/click StaticPopup1Button1"
+			if flyout.box then
+				-- box mode: apply the imbue and close the flyout in the same click
+				local closeLines = "\n/click SPFCI LeftButton 1\n/click SPFCI LeftButton 0"
+				mainHandMacro, offHandMacro = mainHandMacro .. closeLines, offHandMacro .. closeLines
+			end
 			btn:SetAttribute("type1", "macro")
 			btn:SetAttribute("macrotext1", mainHandMacro)
 			btn:SetAttribute("type2", "macro")
@@ -9631,7 +9747,9 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
 					local flyoutData = ShamanPower.weaponImbueFlyout
-					if flyoutData and flyoutData.buttons then
+					if flyoutData and flyoutData.box then
+						ShamanPower:FlyoutFallbackSetShown(flyoutData.imbueButton, false)
+					elseif flyoutData and flyoutData.buttons then
 						for _, flyoutBtn in ipairs(flyoutData.buttons) do
 							flyoutBtn:Hide()
 						end
@@ -9704,6 +9822,7 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 
 	local buttonSize = flyout.buttonSize
 	local spacing = flyout.spacing
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow tab in combat
 
 	-- Determine flyout direction based on CD bar layout
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
@@ -9727,17 +9846,18 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
 		end
 
+		flyout.arrowDir = goRight and "right" or "left"
 		if goRight then
 			-- Extend to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", imbueButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", imbueButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Extend to the LEFT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", imbueButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", imbueButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -9748,20 +9868,23 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 		-- When "auto" and unlocked, go above
 		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
 
+		flyout.arrowDir = goBelow and "bottom" or "top"
 		if goBelow then
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", imbueButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", imbueButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", imbueButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", imbueButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
+
+	self:SyncCdbarFlyout(flyout)
 end
 
 -- Show weapon imbue flyout (for backward compatibility, mostly handled by secure handlers now)

@@ -99,6 +99,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
         swapFlyoutClickButtons = false,  -- Swap flyout mouse buttons (left=assign, right=cast instead of default)
         flyoutRequiresClick = false,  -- Require right-click to show flyout instead of mouseover
+        flyoutSingleOpen = true,      -- In-combat arrow flyouts: opening one closes the others (false = they stay open)
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
         -- Raid Cooldown caller button options
         raidCDButtonOpacity = 1.0,  -- Opacity of raid cooldown caller buttons (0.1 to 1.0)

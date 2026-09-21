@@ -2092,6 +2092,30 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemFlyoutEnabled()
 							end
 						},
+						flyout_single_open = {
+							order = 4,
+							type = "toggle",
+							name = "In Combat: Opening One Flyout Closes the Others",
+							desc = "In combat, flyouts open from the arrow tab on each totem button. With this on, clicking an arrow closes any other open flyout, so only one is ever open. Turn it off to let several stay open until you pick a totem or close them.",
+							width = "full",
+							-- only meaningful where the arrow flyouts exist (clients whose secure snippets are broken)
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutSingleOpen ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutSingleOpen = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect after combat.")
+								end
+								ShamanPower:ApplyFlyoutArrowMode()
+							end
+						},
 					}
 				},
 				scale_section = {
