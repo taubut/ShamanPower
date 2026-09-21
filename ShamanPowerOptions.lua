@@ -884,6 +884,13 @@ ShamanPower.options = {
 								return not ShamanPower.opt.compactStyle
 							end,
 							args = {
+								compactReset = {
+									order = 99,
+									type = "execute",
+									name = "Reset Compact Style to Defaults",
+									desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
+									func = function() ShamanPower:ConfirmResetSection("compact") end,
+								},
 								compactOrientation = {
 									order = 1,
 									type = "select",
@@ -1969,6 +1976,87 @@ ShamanPower.options = {
 							type = "description",
 							name = "Control the orientation of your bars and how flyout menus appear.",
 						},
+						element_color_palette = {
+							order = 0.5,
+							type = "select",
+							name = "Element Colours",
+							desc = "The colour each element is drawn in: Compact lines, alerts, party counters and anything else coloured by element. ShamanPower classic has brown Earth and pale Air. Blizzard matches the game's own totem bar (and our flyout arrows): green Earth, orange Fire, blue Water, purple Air. Custom lets you pick all four.",
+							width = 1.4,
+							values = { classic = "ShamanPower classic (brown Earth)", blizzard = "Blizzard totem bar (green Earth)", custom = "Custom" },
+							sorting = { "classic", "blizzard", "custom" },
+							get = function(info) return ShamanPower.opt.elementColorPalette or "classic" end,
+							set = function(info, val)
+								if val == "custom" and not ShamanPower.opt.elementColorsCustom then
+									-- start from whatever is showing now
+									local t = {}
+									for e = 1, 4 do local r, g, b = ShamanPower:ElementPaletteColor(e); t[e] = { r = r, g = g, b = b } end
+									ShamanPower.opt.elementColorsCustom = t
+								end
+								ShamanPower.opt.elementColorPalette = val
+								ShamanPower:ApplyElementColors()
+							end,
+						},
+						element_color_1 = {
+							order = 0.51,
+							type = "color",
+							name = "Earth",
+							width = 0.6,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							get = function(info) return ShamanPower:ElementPaletteColor(1) end,
+							set = function(info, r, g, b)
+								ShamanPower:EnsureProfileTable("elementColorsCustom")
+								ShamanPower.opt.elementColorsCustom[1] = { r = r, g = g, b = b }
+								ShamanPower:ApplyElementColors()
+							end,
+						},
+						element_color_2 = {
+							order = 0.52,
+							type = "color",
+							name = "Fire",
+							width = 0.6,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							get = function(info) return ShamanPower:ElementPaletteColor(2) end,
+							set = function(info, r, g, b)
+								ShamanPower:EnsureProfileTable("elementColorsCustom")
+								ShamanPower.opt.elementColorsCustom[2] = { r = r, g = g, b = b }
+								ShamanPower:ApplyElementColors()
+							end,
+						},
+						element_color_3 = {
+							order = 0.53,
+							type = "color",
+							name = "Water",
+							width = 0.6,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							get = function(info) return ShamanPower:ElementPaletteColor(3) end,
+							set = function(info, r, g, b)
+								ShamanPower:EnsureProfileTable("elementColorsCustom")
+								ShamanPower.opt.elementColorsCustom[3] = { r = r, g = g, b = b }
+								ShamanPower:ApplyElementColors()
+							end,
+						},
+						element_color_4 = {
+							order = 0.54,
+							type = "color",
+							name = "Air",
+							width = 0.6,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							get = function(info) return ShamanPower:ElementPaletteColor(4) end,
+							set = function(info, r, g, b)
+								ShamanPower:EnsureProfileTable("elementColorsCustom")
+								ShamanPower.opt.elementColorsCustom[4] = { r = r, g = g, b = b }
+								ShamanPower:ApplyElementColors()
+							end,
+						},
+						element_color_reset = {
+							order = 0.59,
+							type = "execute",
+							name = "Reset Element Colours",
+							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
+							width = 1.0,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") == "classic" end,
+							func = function() ShamanPower:ConfirmResetSection("colors") end,
+						},
 						layout = {
 							order = 1,
 							type = "select",
@@ -2323,6 +2411,16 @@ ShamanPower.options = {
 								if ShamanPower.RouteFlyoutBarKeys then ShamanPower:RouteFlyoutBarKeys() end
 							end
 						},
+						flyout_reset = {
+							order = 6.9,
+							type = "execute",
+							name = "Reset Flyout Settings to Defaults",
+							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							func = function() ShamanPower:ConfirmResetSection("flyouts") end,
+						},
 						flyout_arrows_always = {
 							order = 4.2,
 							type = "toggle",
@@ -2427,6 +2525,13 @@ ShamanPower.options = {
 					name = "Scale",
 					type = "group",
 					args = {
+						scale_reset = {
+							order = 99,
+							type = "execute",
+							name = "Reset Scale Settings to Defaults",
+							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
+							func = function() ShamanPower:ConfirmResetSection("scale") end,
+						},
 						scale_desc = {
 							order = 0,
 							type = "description",
@@ -2509,6 +2614,13 @@ ShamanPower.options = {
 					name = "Opacity",
 					type = "group",
 					args = {
+						opacity_reset = {
+							order = 99,
+							type = "execute",
+							name = "Reset Opacity Settings to Defaults",
+							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
+							func = function() ShamanPower:ConfirmResetSection("opacity") end,
+						},
 						opacity_desc = {
 							order = 0,
 							type = "description",
@@ -2639,6 +2751,13 @@ ShamanPower.options = {
 					name = "Button Padding",
 					type = "group",
 					args = {
+						padding_reset = {
+							order = 99,
+							type = "execute",
+							name = "Reset Button Padding to Defaults",
+							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
+							func = function() ShamanPower:ConfirmResetSection("padding") end,
+						},
 						padding_desc = {
 							order = 0,
 							type = "description",

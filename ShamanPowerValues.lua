@@ -104,6 +104,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarFullOpacityWhenActive = false,  -- Show totem at full opacity when placed
         cooldownBarOpacity = 1.0,  -- Opacity of cooldown bar (0.1 to 1.0)
         cooldownBarFullOpacityWhenActive = false,  -- Show CD button at full opacity when buff active or on cooldown
+        elementColorPalette = "classic",  -- "classic" (brown earth), "blizzard" (green earth, purple air) or "custom"
         totemFlyoutButtonSize = 28,     -- Totem flyout icon size on the icon bar
         compactFlyoutButtonSize = 28,   -- Totem flyout icon size on the Compact bar
         cooldownFlyoutButtonSize = 22,  -- Shield / imbue flyout icon size on the cooldown bar

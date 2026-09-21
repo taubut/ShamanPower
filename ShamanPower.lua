@@ -422,7 +422,7 @@ do
 		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
 			local flyout = entry.flyout
 			if flyout and flyout.box then
-				flyout.leadGap = spFlyoutLeadGap()
+				flyout.leadGap = ShamanPower:FlyoutLeadGap(flyout)
 				pcall(entry.relayout)   -- re-lays out, then places the arrows
 			end
 		end
@@ -466,14 +466,41 @@ do
 	end)
 end
 
+-- True while the cursor is inside the rectangle spanning a button and its open
+-- box-mode flyout. The space between them (arrow strip, Compact's icon square)
+-- belongs to no frame, and the leave grace is far too short to cross it.
+local function spFlyoutCursorInSpan(parent)
+	local box = parent and parent.spFlyoutBox
+	if not (box and box:IsShown()) then return false end
+	local x, y = GetCursorPosition()
+	local l, r, t, b
+	local function add(f)
+		if not (f and f:IsVisible() and f:GetLeft()) then return end
+		local s = f:GetEffectiveScale()
+		local fl, fr, ft, fb = f:GetLeft() * s, f:GetRight() * s, f:GetTop() * s, f:GetBottom() * s
+		l = l and math.min(l, fl) or fl
+		r = r and math.max(r, fr) or fr
+		t = t and math.max(t, ft) or ft
+		b = b and math.min(b, fb) or fb
+	end
+	add(parent)
+	for _, c in ipairs(spFlyoutChildren(parent)) do add(c) end
+	return (l and x >= l and x <= r and y >= b and y <= t) and true or false
+end
+
 local function spFlyoutScheduleClose(parent)
 	if not parent then return end
 	-- opened with the arrow or a key, closed the same way (or by picking)
 	if parent.spFlyoutBox and ShamanPower:FlyoutArrowOnly() then return end
 	C_Timer.After(FLYOUT_LEAVE_GRACE, function()
-		if parent and not spFlyoutMouseIsOn(parent) then
-			ShamanPower:FlyoutFallbackSetShown(parent, false)
+		if not parent or spFlyoutMouseIsOn(parent) then return end
+		if spFlyoutCursorInSpan(parent) then
+			-- between the button and its flyout: no frame there will report a leave,
+			-- so keep watching until the cursor lands on something or moves away
+			spFlyoutScheduleClose(parent)
+			return
 		end
+		ShamanPower:FlyoutFallbackSetShown(parent, false)
 	end)
 end
 
@@ -789,6 +816,7 @@ function ShamanPower:OnInitialize()
 
 	self.opt = self.db.profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	if self.ApplyElementColors then self:ApplyElementColors() end
 	-- The cooldown bar now always floats free of the totem bar (the old
 	-- attach option was removed). Detach any profile still attached.
 	if self.opt.cooldownBarLocked then self.opt.cooldownBarLocked = nil end
@@ -1126,6 +1154,7 @@ function ShamanPower:OnProfileChanged()
 
 	self.opt = self.db.profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	if self.ApplyElementColors then self:ApplyElementColors() end
 
 	-- Reset frame positions when profile changes (prevents off-screen issues)
 	if not InCombatLockdown() then
@@ -3554,6 +3583,11 @@ function ShamanPower:UpdateActiveTotemOverlays()
 		-- Create overlay if needed
 		if not self.activeTotemOverlays[element] then
 			self.activeTotemOverlays[element] = self:CreateActiveTotemOverlay(element)
+			-- A new overlay is anchored flat against its button. When the flyout arrow
+			-- tabs are showing it has to sit out past them, and nothing re-ran that
+			-- placement for overlays created late (first seen coming back from Compact
+			-- with the arrows always on: the tab was drawn over the overlay).
+			self:PositionActiveOverlays()
 		end
 
 		local overlay = self.activeTotemOverlays[element]
@@ -5680,7 +5714,7 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		end
 	end
 	flyout.box = box
-	flyout.leadGap = spFlyoutLeadGap()
+	flyout.leadGap = self:FlyoutLeadGap(flyout)
 	self.flyoutArrowGap = spFlyoutArrowLayout() and FLYOUT_ARROW or 0
 	self:ApplyFlyoutArrowMode()
 	return box
@@ -5862,6 +5896,56 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		spFlyoutArrowAlpha(arrow, false)
 	end
 	self:DressFlyoutFrame(flyout)
+	if self.RefreshCompactSquares then self:RefreshCompactSquares() end   -- Compact's icon square steps out past the tab
+end
+
+-- How far a button's arrow tab sticks out on `side` ("top"/"bottom"/"left"/
+-- "right"); 0 when there is no tab there right now.
+-- How far an arrow tab WILL stick out of a button on `dir` while the arrow layout
+-- is on. From the button's size, not the tab frame: the flyout is laid out
+-- before the tabs are placed.
+function ShamanPower:FlyoutArrowAcross(btn, dir)
+	if not (btn and spFlyoutArrowLayout()) then return 0 end
+	local sideways = (dir == "left" or dir == "right")
+	local edge = sideways and btn:GetHeight() or btn:GetWidth()
+	local k = math.min(1, ((edge and edge > 0) and edge or ARROW_W) / ARROW_W)
+	return math.max(0, math.floor(ARROW_H * k - 2 + 0.5))   -- the tab is tucked 2 px into the button
+end
+
+-- Room between a button and the first icon of its flyout, measured so the pieces
+-- butt up against each other with no gap and no overlap:
+--   button | arrow tab | (Compact: the icon square, when it is on this end) | flyout
+-- The tab is scaled to the edge it sits on (a thin Compact line or a 22 px
+-- cooldown button gets a smaller tab than a 28 px totem button), so the room is
+-- the tab's real size, not a constant. The icons-only style keeps the tab clear;
+-- in the frame style the first icon covers the open tab, so only the square counts.
+function ShamanPower:FlyoutLeadGap(flyout)
+	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
+	if not btn then return spFlyoutLeadGap() end
+	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	local across = self:FlyoutArrowAcross(btn, dir)
+	local lead = (spFlyoutLeadGap() > 0) and across or 0
+	if flyout.element and self.CompactSquareExtent then
+		local sq = self:CompactSquareExtent(btn, dir)        -- square plus its border, 0 if none on this end
+		if sq > 0 then lead = math.max(lead, self:CompactSquareOffset(across) - 1 + sq) end
+	end
+	return lead
+end
+
+-- Where Compact's icon square starts, measured from the end of the line: hard
+-- against the arrow tab when there is one (1 px is the square's own border),
+-- otherwise the usual 2 px off the line.
+function ShamanPower:CompactSquareOffset(across)
+	return (across and across > 0) and (across + 1) or 2
+end
+
+function ShamanPower:FlyoutArrowGapOn(btn, side)
+	local arrow = btn and btn.spFlyoutOpenArrow
+	if not (arrow and arrow:IsShown() and spFlyoutArrowLayout()) then return 0 end
+	local flyout = btn.element and self.totemFlyouts and self.totemFlyouts[btn.element]
+	local dir = flyout and (flyout.arrowDir or self:FlyoutDirection(flyout))
+	if dir ~= side then return 0 end
+	return self:FlyoutArrowAcross(btn, dir)
 end
 
 -- Optional Blizzard-style frame around an open flyout (opt.flyoutStyle ==
@@ -6734,6 +6818,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	local currentTotemIndex = assignments and assignments[element] or 0
 
 	self:RescueFilteredFlyout(flyout)
+	if flyout.box then flyout.leadGap = self:FlyoutLeadGap(flyout) end   -- Compact's icon square may have moved or resized
 
 	-- Box mode: nothing in the flyout can be shown or hidden during a fight, while
 	-- the assignment can change (another totem, or Empty). So the flyout holds
@@ -7243,6 +7328,135 @@ function ShamanPower:ClickLabel(main, shift)
 	local text = right and "Right-click" or "Left-click"
 	if shift then text = "Shift+" .. text:lower() end
 	return (main and "|cff00ff00" or "|cffffcc00") .. text .. ":|r"
+end
+
+-- ---------------------------------------------------------------------------
+-- "Reset to defaults" per settings section
+-- ---------------------------------------------------------------------------
+-- A cleared profile value falls back to its default, so a section reset is a
+-- list of setting names to clear plus that section's normal refresh. Positions
+-- are not part of this (they belong to the unlock mode). Out of combat only:
+-- most of these touch secure frames.
+ShamanPower.ResetSections = {
+	compact = {
+		label = "Compact Style",
+		note = "Compact stays on; only its look goes back to default.",
+		keys = { "compactOrientation", "compactDurationMode", "compactLineTexture", "compactIdleColor", "compactIdleOutline",
+			"compactLength", "compactThickness", "compactOutlineWidth", "compactOutlineColorMode", "compactOutlineColor",
+			"compactIconSquares", "compactIconSize", "compactFlyoutButtonSize", "compactPulseBar", "compactPulseText",
+			"compactShieldLine", "compactESLine" },
+		apply = function(self) self:ApplyCompactStyle() end,
+	},
+	flyouts = {
+		label = "Flyout",
+		note = "Your left/right click swap is not touched.",
+		keys = { "flyoutStyle", "flyoutFrameOpacity", "flyoutCloseOnCast", "flyoutRouteBarKeys", "flyoutArrowsAlways",
+			"flyoutArrowOnly", "flyoutShowEmpty", "flyoutSingleOpen", "totemFlyoutButtonSize" },
+		apply = function(self)
+			for element = 1, 4 do self:RebuildTotemFlyout(element) end
+			self:ApplyFlyoutArrowMode()
+			self:ApplyFlyoutPickMacros()
+			self:UpdateTotemFlyoutEnabled()
+			self:RefreshFlyoutLayout()
+			self:ApplyTotemFlyoutButtonSize()
+			if self.RouteFlyoutBarKeys then self:RouteFlyoutBarKeys() end
+			for _, entry in pairs(self.boxFlyouts or {}) do pcall(entry.relayout) end
+		end,
+	},
+	colors = {
+		label = "Element Colour",
+		keys = { "elementColorPalette", "elementColorsCustom" },
+		apply = function(self) self:ApplyElementColors() end,
+	},
+	scale = {
+		label = "Scale",
+		keys = { "buffscale", "cooldownBarScale", "configscale", "cooldownFlyoutButtonSize" },
+		apply = function(self)
+			self:UpdateLayout(); self:UpdateCooldownBarScale(); self:UpdateRoster()
+			self:ApplyCooldownFlyoutButtonSize()
+		end,
+	},
+	opacity = {
+		label = "Opacity",
+		keys = { "totemBarOpacity", "totemBarFullOpacityWhenActive", "cooldownBarOpacity", "cooldownBarFullOpacityWhenActive",
+			"totemFlyoutOpacity", "cooldownFlyoutOpacity" },
+		apply = function(self)
+			self:UpdateTotemBarOpacity(); self:UpdateCooldownBarOpacity()
+			self:UpdateTotemFlyoutOpacity(); self:UpdateCooldownFlyoutOpacity()
+		end,
+	},
+	padding = {
+		label = "Button Padding",
+		keys = { "totemBarPadding", "cooldownBarPadding" },
+		apply = function(self) self:UpdateRoster(); self:UpdateCooldownBar() end,
+	},
+}
+
+function ShamanPower:ResetSection(id)
+	local def = self.ResetSections[id]
+	if not def then return end
+	if InCombatLockdown() then
+		print("|cffff0000ShamanPower:|r settings cannot be reset in combat")
+		return
+	end
+	for _, key in ipairs(def.keys) do self.opt[key] = nil end
+	local ok, err = pcall(def.apply, self)
+	if not ok then print("|cffff0000ShamanPower:|r reset applied, but refreshing failed: " .. tostring(err) .. " (a /reload will finish it)") end
+	print("|cff0070ddShamanPower|r: " .. def.label .. " settings are back to their defaults.")
+	if self.RefreshConfig then pcall(self.RefreshConfig, self) end
+	local ui = _G.ShamanPowerConfig   -- the custom settings window re-reads the page it is showing
+	if ui and ui.RefreshCurrent then pcall(ui.RefreshCurrent, ui) end
+end
+
+StaticPopupDialogs["SHAMANPOWER_RESET_SECTION"] = {
+	text = "%s",
+	button1 = YES,
+	button2 = NO,
+	whileDead = 1,
+	hideOnEscape = 1,
+	timeout = 0,
+	preferredIndex = 3,
+	OnAccept = function(self, data) ShamanPower:ResetSection(data) end,
+}
+
+function ShamanPower:ConfirmResetSection(id)
+	local def = self.ResetSections[id]
+	if not def then return end
+	local text = "Reset the " .. def.label .. " settings to their defaults?"
+	if def.note then text = text .. "\n\n" .. def.note end
+	local dialog = StaticPopup_Show("SHAMANPOWER_RESET_SECTION", text)
+	if dialog then dialog.data = id end
+end
+
+-- Element colours. ShamanPower has always used its own set (earth brown, air
+-- pale blue); Blizzard's totem bar art uses green / orange / blue / purple, and
+-- the flyout arrow tabs and the empty-slot art are that art, so the two sets
+-- sat side by side. opt.elementColorPalette picks one, or "custom" with a colour
+-- per element. The shared ElementColors tables are changed in place, so every
+-- reader (Compact lines, alerts, party counters, the wizard) follows.
+local ELEMENT_PALETTES = {
+	classic  = { { 0.60, 0.40, 0.20 }, { 1.00, 0.40, 0.10 }, { 0.20, 0.60, 1.00 }, { 0.80, 0.80, 1.00 } },
+	-- sampled from Interface\\Buttons\\UI-TotemBar (slot borders), lifted a little so they read on a thin line
+	blizzard = { { 0.36, 0.72, 0.21 }, { 0.92, 0.37, 0.17 }, { 0.28, 0.70, 0.88 }, { 0.60, 0.32, 1.00 } },
+}
+
+function ShamanPower:ElementPaletteColor(element)
+	local mode = self.opt and self.opt.elementColorPalette or "classic"
+	if mode == "custom" then
+		local c = self.opt.elementColorsCustom and self.opt.elementColorsCustom[element]
+		if c then return c.r or 1, c.g or 1, c.b or 1 end
+		mode = "classic"
+	end
+	local p = (ELEMENT_PALETTES[mode] or ELEMENT_PALETTES.classic)[element]
+	return p[1], p[2], p[3]
+end
+
+function ShamanPower:ApplyElementColors()
+	for element = 1, 4 do
+		local c = self.ElementColors and self.ElementColors[element]
+		if c then c.r, c.g, c.b = self:ElementPaletteColor(element) end
+	end
+	if self.UpdateCompactTotems then pcall(self.UpdateCompactTotems, self) end
 end
 
 -- Flyout icon sizes. The totem flyout icons were a fixed 28 (which towers over a

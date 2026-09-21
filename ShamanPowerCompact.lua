@@ -234,20 +234,50 @@ function SP:LayoutCompactVisuals(c, frame, co, bw, bh)
 	c.textOk = co.pulseText and co.T >= 14
 
 	-- icon square above / below
-	c.sq:ClearAllPoints(); c.sqBd:ClearAllPoints()
+	c.sqBd:ClearAllPoints()
 	if co.sq == "off" then
 		c.sqOn = false
+		c.sq:ClearAllPoints()
 	else
 		c.sqOn = true
 		c.sq:SetSize(co.iq, co.iq); c.sqBd:SetSize(co.iq + 2, co.iq + 2)
-		if co.vertical then
-			if co.sq == "before" then c.sq:SetPoint("BOTTOM", frame, "TOP", 0, 2) else c.sq:SetPoint("TOP", frame, "BOTTOM", 0, -2) end
-		else
-			if co.sq == "before" then c.sq:SetPoint("RIGHT", frame, "LEFT", -2, 0) else c.sq:SetPoint("LEFT", frame, "RIGHT", 2, 0) end
-		end
+		c.sqSize = co.iq
+		c.sqSide = co.vertical and (co.sq == "before" and "top" or "bottom") or (co.sq == "before" and "left" or "right")
+		SP:AnchorCompactSquare(c, frame)
 		c.sqBd:SetPoint("CENTER", c.sq, "CENTER", 0, 0)
 	end
 	c.bg:Show()
+end
+
+-- The square sits just off one end of the line. A flyout arrow tab can sit on
+-- that same end (in a fight, or always with the arrow options); then the
+-- square moves out past the tab instead of being cut off by it.
+function SP:AnchorCompactSquare(c, frame)
+	if not (c and c.sqOn and c.sqSide and frame) then return end
+	local across = (self.FlyoutArrowGapOn and self:FlyoutArrowGapOn(frame, c.sqSide)) or 0
+	local gap = self.CompactSquareOffset and self:CompactSquareOffset(across) or 2
+	c.sq:ClearAllPoints()
+	if c.sqSide == "top" then c.sq:SetPoint("BOTTOM", frame, "TOP", 0, gap)
+	elseif c.sqSide == "bottom" then c.sq:SetPoint("TOP", frame, "BOTTOM", 0, -gap)
+	elseif c.sqSide == "left" then c.sq:SetPoint("RIGHT", frame, "LEFT", -gap, 0)
+	else c.sq:SetPoint("LEFT", frame, "RIGHT", gap, 0) end
+end
+
+-- Room the icon square takes on one end of a line (0 when there is none there).
+-- The flyout on that end starts past it: the active totem stays in view under
+-- an open flyout, exactly as the totem button does on the icon bar.
+function SP:CompactSquareExtent(btn, side)
+	local c = btn and btn.compact
+	if not (c and btn.compactLayoutOn and c.sqOn and c.sqSide == side) then return 0 end
+	return (c.sqSize or 12) + 2   -- the square plus its 1 px border either side
+end
+
+function SP:RefreshCompactSquares()
+	if not (self:CompactActive() and self.totemButtons) then return end
+	for element = 1, 4 do
+		local btn = self.totemButtons[element]
+		if btn and btn.compact and btn.compactLayoutOn then self:AnchorCompactSquare(btn.compact, btn) end
+	end
 end
 
 -- Outline for the remaining fraction: the far cap goes first, then both long
@@ -721,6 +751,7 @@ function SP:ApplyCompactStyle()
 	if self.RecreateTotemFlyouts then pcall(self.RecreateTotemFlyouts, self) end
 	-- the icon bar and the Compact bar each keep their own flyout icon size
 	if self.ApplyTotemFlyoutButtonSize then self:ApplyTotemFlyoutButtonSize() end
+	if self.RefreshFlyoutLayout then self:RefreshFlyoutLayout() end   -- flyouts start past the icon square
 	if self.UpdateTotemBarOpacity then self:UpdateTotemBarOpacity() end
 	if self.UpdateCooldownBarScale then self:UpdateCooldownBarScale() end
 end
