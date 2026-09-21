@@ -89,8 +89,29 @@ function SP:CreateShieldChargeDisplays()
 
 	-- Register shield charge updates with consolidated update system (10fps)
 	if not self.updateSystem.subsystems["shieldCharge"] then
+		-- What this display shows changes with the player's (or the Earth Shield target's)
+		-- auras and with entering / leaving combat - in combat on a restricted client the
+		-- engine draws the count by itself and this function only decides visibility. So it
+		-- runs when one of those events asks, and once a second as a safety net, instead of
+		-- ten times a second (measured with /spperf: the top idle cost, and 3 KB/s in combat).
+		local idleTicks = 0
 		self:RegisterUpdateSubsystem("shieldCharge", 0.1, function()
+			if not SP._shieldWake then
+				idleTicks = idleTicks + 1
+				if idleTicks < 10 then return end
+			end
+			idleTicks = 0
+			SP._shieldWake = nil
 			SP:UpdateShieldChargeDisplays()
+		end)
+		local wake = CreateFrame("Frame")
+		for _, ev in ipairs({ "UNIT_AURA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }) do
+			pcall(wake.RegisterEvent, wake, ev)
+		end
+		wake:SetScript("OnEvent", function(_, ev, unit)
+			-- someone else's auras only matter while an Earth Shield is being tracked on them
+			if ev == "UNIT_AURA" and unit ~= "player" and not ShamanPower.esTrackedTargetGUID then return end
+			SP._shieldWake = true
 		end)
 	end
 	-- Only enable if shield charge display is configured to show something

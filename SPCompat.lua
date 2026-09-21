@@ -31,9 +31,27 @@ end
 -- 1. Polyfills (inert wherever the classic globals still exist)
 -- ---------------------------------------------------------------------------
 if not GetSpellInfo and C_Spell and C_Spell.GetSpellInfo then
+	-- C_Spell.GetSpellInfo builds a NEW table on every call; the classic global
+	-- it stands in for returned plain values and cost nothing. The addon calls
+	-- GetSpellInfo(id) from its 10 Hz loops (every totem and flyout button, the
+	-- cooldown model's name lookup, Ready Reminders), which on this client came to
+	-- about 100 KB of garbage per second (measured with /spperf: progressBars
+	-- 8 KB per call). A spell ID's info never changes, so it is kept: one table
+	-- per distinct ID for the session instead of one per call.
+	-- Only numeric IDs are kept. A NAME lookup answers "is this in my spellbook
+	-- right now", which changes with training and respecs, and the addon uses it
+	-- as exactly that test. A nil answer is never kept either (spell data can
+	-- arrive late while the UI loads).
+	local infoByID = {}
 	function GetSpellInfo(spell)
+		local isID = type(spell) == "number"
+		if isID then
+			local c = infoByID[spell]
+			if c then return c[1], "", c[2], c[3], c[4], c[5], c[6] end
+		end
 		local s = C_Spell.GetSpellInfo(spell)
 		if not s then return nil end
+		if isID then infoByID[spell] = { s.name, s.iconID, s.castTime, s.minRange, s.maxRange, s.spellID } end
 		-- classic order: name, rank, icon, castTime, minRange, maxRange, spellID
 		return s.name, "", s.iconID, s.castTime, s.minRange, s.maxRange, s.spellID
 	end
@@ -46,8 +64,46 @@ if not GetSpellTexture and C_Spell and C_Spell.GetSpellTexture then
 end
 
 if not GetSpellCooldown and C_Spell and C_Spell.GetSpellCooldown then
+	-- C_Spell.GetSpellCooldown also builds a new table per call, and the loops ask
+	-- ten times a second per spell. A cooldown's (start, duration) pair does not
+	-- change between the client's own change notices, so the answer is kept until
+	-- the next SPELL_UPDATE_COOLDOWN (or charges / spellbook / combat edge), with
+	-- two safety nets: nothing is kept longer than five seconds, and a run that has
+	-- ended by the clock is read again at once. Measured with /spperf: the two
+	-- 10 Hz loops were at 1 KB per call from this alone.
+	-- In combat the numbers are secret values: they are kept and handed on like
+	-- any other value, never compared or added here.
+	local cdCache, cdStamp = {}, {}
+	local CD_TTL = 5.0
+	local function cooldownTable(spell)
+		if spell == nil then return nil end
+		local now = GetTime()
+		local c = cdCache[spell]
+		if c ~= nil and (now - cdStamp[spell]) < CD_TTL then
+			if c == false then return nil end
+			local st, du = c.startTime, c.duration
+			local secret = issecretvalue and (issecretvalue(st) or issecretvalue(du))
+			if secret or type(st) ~= "number" or type(du) ~= "number" or st <= 0 or (st + du) > now then
+				return c
+			end
+			-- ran out by the clock: fall through and read the new state
+		end
+		c = C_Spell.GetSpellCooldown(spell)
+		cdCache[spell], cdStamp[spell] = c or false, now
+		return c
+	end
+	SPCompat = SPCompat or {}
+	SPCompat.CooldownTable = cooldownTable
+	do
+		local f = CreateFrame("Frame")
+		for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
+			pcall(f.RegisterEvent, f, ev)
+		end
+		f:SetScript("OnEvent", function() wipe(cdCache) end)
+	end
+
 	function GetSpellCooldown(spell)
-		local c = C_Spell.GetSpellCooldown(spell)
+		local c = cooldownTable(spell)
 		if not c then return 0, 0, 0 end
 		-- classic order: start, duration, enabled (number), modRate
 		return c.startTime, c.duration, c.isEnabled and 1 or 0, c.modRate
@@ -615,7 +671,8 @@ if SPCompat.secretsRegime then
 					local active = true
 					local id = e.id or (type(spell) == "number" and spell)
 					if id and C_Spell and C_Spell.GetSpellCooldown then
-						local okc, cd = pcall(C_Spell.GetSpellCooldown, id)
+						-- the kept table when there is one: a second fresh read per call is a second table
+						local okc, cd = pcall(SPCompat.CooldownTable or C_Spell.GetSpellCooldown, id)
 						if okc and type(cd) == "table" and cd.isActive == false then active = false end
 					end
 					if active then return e.start, e.duration, 1, 1 end
@@ -1775,4 +1832,128 @@ SlashCmdList["SPDIAG"] = function(msg)
 	ShamanPowerErrorLog.diag = table.concat(out, "\n")
 	ShowCopyWindow("ShamanPower Diagnostics", ShamanPowerErrorLog.diag)
 	print("|cff3fa9f5SPDiag|r report opened in a copy window (also saved to ShamanPowerErrorLog - log out to flush to disk).")
+end
+
+-- ---------------------------------------------------------------------------
+-- /spperf [seconds]  - where does the time and the garbage go?
+-- Wraps every subsystem of the central update loop for a few seconds and reports
+-- calls, milliseconds and kilobytes allocated per subsystem, the addon's memory
+-- growth over the window, and the client's own profiler numbers when it has them.
+-- Costs nothing while it is not running.
+-- ---------------------------------------------------------------------------
+SLASH_SPPERF1 = "/spperf"
+SlashCmdList["SPPERF"] = function(msg)
+	local SP = ShamanPower
+	local us = SP and SP.updateSystem
+	if not (us and us.subsystems) then print("spperf: no update system") return end
+	if SP._perfRunning then print("spperf: already running") return end
+	local secs = tonumber(msg) or 10
+	if secs < 2 then secs = 2 elseif secs > 120 then secs = 120 end
+	SP._perfRunning = true
+
+	local stats, originals = {}, {}
+	for name, sys in pairs(us.subsystems) do
+		local cb = sys.callback
+		local st = { calls = 0, ms = 0, kb = 0, enabled = sys.enabled, interval = sys.interval }
+		stats[name], originals[name] = st, cb
+		sys.callback = function()
+			local m0, t0 = collectgarbage("count"), debugprofilestop()
+			cb()
+			local dt, dm = debugprofilestop() - t0, collectgarbage("count") - m0
+			st.ms = st.ms + dt
+			if dm > 0 then st.kb = st.kb + dm end   -- a negative delta is a GC step, not an allocation
+			st.calls = st.calls + 1
+		end
+	end
+
+	-- the methods those loops spend their time in (wrapped on the addon table, so only
+	-- calls made as SP:Method() are seen; nested time is counted in both caller and callee)
+	local FUNCS = { "GetElementTotemInfo", "GetActivePulsingTotem", "UpdatePulseGlow", "UpdatePoppedOutPulse", "UpdateTotemProgressBars",
+		"UpdatePoppedOutProgressBars", "UpdateActiveTotemOverlays", "UpdateTotemCooldowns", "UpdateTotemBarOpacity", "UpdateDynamicTotemIcons",
+		"UpdateCompactTotems", "UpdateReadyReminders", "UpdateCooldownButtons", "UpdateShieldChargeDisplays", "UpdatePartyRangeDots",
+		"UpdatePlayerTotemRange", "UpdateRangeCounters" }
+	-- plus every event handler (AceEvent calls SP[EVENT_NAME], looked up at call time)
+	for key, value in pairs(SP) do
+		if type(key) == "string" and type(value) == "function" and key:find("^[A-Z][A-Z0-9_]+$") then FUNCS[#FUNCS + 1] = key end
+	end
+	local fstats, forig = {}, {}
+	for _, fname in ipairs(FUNCS) do
+		local fn = rawget(SP, fname)
+		if type(fn) == "function" then
+			local st = { calls = 0, ms = 0, kb = 0 }
+			fstats[fname], forig[fname] = st, fn
+			SP[fname] = function(...)
+				local m0, t0 = collectgarbage("count"), debugprofilestop()
+				local a, b, c, d, e, f, g, h = fn(...)
+				local dt, dm = debugprofilestop() - t0, collectgarbage("count") - m0
+				st.ms = st.ms + dt; st.calls = st.calls + 1
+				if dm > 0 then st.kb = st.kb + dm end
+				return a, b, c, d, e, f, g, h
+			end
+		end
+	end
+
+	local addons = {}
+	local n = (C_AddOns and C_AddOns.GetNumAddOns or GetNumAddOns)()
+	local getInfo = C_AddOns and C_AddOns.GetAddOnInfo or GetAddOnInfo
+	for i = 1, n do
+		local name = getInfo(i)
+		if type(name) == "string" and name:find("^ShamanPower") then addons[#addons + 1] = name end
+	end
+	UpdateAddOnMemoryUsage()
+	local mem0 = {}
+	for _, a in ipairs(addons) do mem0[a] = GetAddOnMemoryUsage(a) end
+	local lua0, t0 = collectgarbage("count"), GetTime()
+	print(string.format("|cff00ccffspperf|r measuring for %d s ... (combat=%s)", secs, tostring(InCombatLockdown())))
+
+	C_Timer.After(secs, function()
+		for name, sys in pairs(us.subsystems) do
+			if originals[name] then sys.callback = originals[name] end
+		end
+		for fname, fn in pairs(forig) do SP[fname] = fn end
+		SP._perfRunning = nil
+		local window = GetTime() - t0
+		UpdateAddOnMemoryUsage()   -- before the report below builds its own strings
+		local memNow, luaNow = {}, collectgarbage("count")
+		for _, a in ipairs(addons) do memNow[a] = GetAddOnMemoryUsage(a) end
+		local rows = {}
+		for name, st in pairs(stats) do rows[#rows + 1] = { name = name, st = st } end
+		table.sort(rows, function(a, b) return a.st.ms > b.st.ms end)
+		print(string.format("|cff00ccffspperf|r %.1f s window. Subsystems (central update loop):", window))
+		local totalMs, totalKb = 0, 0
+		for _, r in ipairs(rows) do
+			local st = r.st
+			totalMs, totalKb = totalMs + st.ms, totalKb + st.kb
+			print(string.format("  %-16s %s every %.2fs  calls=%d  %.2f ms total (%.3f ms/call)  alloc %.1f KB (%.2f KB/s)",
+				r.name, st.enabled and "ON " or "off", st.interval or 0, st.calls, st.ms, st.calls > 0 and st.ms / st.calls or 0, st.kb, st.kb / window))
+		end
+		print(string.format("  subsystems total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", totalMs, totalMs / (window * 10), totalKb, totalKb / window))
+		local frows = {}
+		for fname, st in pairs(fstats) do if st.calls > 0 then frows[#frows + 1] = { name = fname, st = st } end end
+		table.sort(frows, function(a, b) return a.st.ms > b.st.ms end)
+		print("  Methods (time includes whatever they call):")
+		for _, r in ipairs(frows) do
+			print(string.format("    %-28s calls=%-5d %.2f ms (%.4f ms/call)  alloc %.1f KB", r.name, r.st.calls, r.st.ms, r.st.ms / r.st.calls, r.st.kb))
+		end
+		for _, a in ipairs(addons) do
+			local now = memNow[a]
+			local grew = now - (mem0[a] or now)
+			if math.abs(grew) > 0.5 or a == "ShamanPower" then
+				print(string.format("  memory %-32s %.0f KB  (%+.1f KB over the window, %+.2f KB/s)", a, now, grew, grew / window))
+			end
+		end
+		print(string.format("  whole Lua heap: %+.1f KB over the window", luaNow - lua0))
+		if C_AddOnProfiler and C_AddOnProfiler.GetAddOnMetric and Enum and Enum.AddOnProfilerMetric then
+			local M = Enum.AddOnProfilerMetric
+			for _, a in ipairs(addons) do
+				local ok, recent = pcall(C_AddOnProfiler.GetAddOnMetric, a, M.RecentAverageTime)
+				local ok2, peak = pcall(C_AddOnProfiler.GetAddOnMetric, a, M.PeakTime)
+				local ok3, session = pcall(C_AddOnProfiler.GetAddOnMetric, a, M.SessionAverageTime)
+				if ok and type(recent) == "number" and (recent > 0.005 or a == "ShamanPower") then
+					print(string.format("  client profiler %-28s recent %.3f ms/frame  session %.3f  peak %.2f", a, recent, ok3 and session or 0, ok2 and peak or 0))
+				end
+			end
+		end
+		print("|cff00ccffspperf|r done. Anything NOT in the subsystem list (event handlers, module OnUpdates) shows only in the memory / client profiler lines.")
+	end)
 end

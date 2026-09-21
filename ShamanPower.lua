@@ -599,6 +599,44 @@ ShamanPower.updateSystem = {
 	activeList = {},  -- Array of enabled subsystem references for fast iteration
 }
 
+-- The per-tick loops (pulse 20 Hz, progress bars 10 Hz) used to do their full work
+-- with no totem on the ground - most of what the addon cost while idle. This is
+-- the question they sleep on. The answer is kept for half a second and dropped at
+-- once on PLAYER_TOTEM_UPDATE (a totem placed, expired, destroyed or recalled), so
+-- a drop is seen on the next tick. Any doubt (an error, an unreadable value) counts
+-- as "yes": the loops then simply run as they always did.
+local function spElementHasTotem(self, element)
+	local have = self:GetElementTotemInfo(element)
+	if have then return true end
+	return false
+end
+
+function ShamanPower:AnyTotemDown()
+	local now = GetTime()
+	if self._totemDownAt and (now - self._totemDownAt) < 0.5 then return self._totemDown end
+	self._totemDownAt = now
+	local down = false
+	for element = 1, 4 do
+		local ok, res = pcall(spElementHasTotem, self, element)
+		if not ok or res then down = true break end
+	end
+	self._totemDown = down
+	return down
+end
+
+-- Runs fn while a totem is down, and twice more after the last one goes so the
+-- bars / glows it drew are cleared; then not at all until a totem is down again.
+local function spWhileTotemsDown(state, fn)
+	if ShamanPower:AnyTotemDown() then
+		state.idle = 0
+	else
+		state.idle = (state.idle or 0) + 1
+		if state.idle > 2 then return end
+	end
+	fn()
+end
+ShamanPower._whileTotemsDown = spWhileTotemsDown
+
 function ShamanPower:InitUpdateSystem()
 	if self.updateSystem.frame then return end
 
@@ -1295,6 +1333,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		ShamanPower:ToggleAssignmentWindow()
 	elseif msg == "setup" then
 		if ShamanPower.Wizard and ShamanPower.Wizard.Open then ShamanPower.Wizard:Open() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
+	elseif msg == "unlock" or msg == "move" then
+		if ShamanPower.ToggleMasterUnlock then ShamanPower:ToggleMasterUnlock() end
 	elseif msg == "range" then
 		if ShamanPower.ToggleSPRange then ShamanPower:ToggleSPRange() end
 	else
@@ -1588,7 +1628,38 @@ end
 -- Returns the GetTotemInfo tuple (haveTotem, name, startTime, duration, icon)
 -- plus the slot it was found in. Falls back to the shadow model while the
 -- API is secret.
+-- GetElementTotemInfo is asked by every loop, several times a tick (pulse x3 at
+-- 20 Hz, bars / opacity / overlays x4 at 10 Hz, range x4 ...), and on cast-order
+-- clients each ask scans all four slots and re-syncs the shadow model. What it
+-- answers only changes when a totem is placed, replaced, expires, dies or is
+-- recalled - all PLAYER_TOTEM_UPDATE - or, under the secrets regime, when the
+-- player casts. So the answer is kept per element until one of those bumps the
+-- generation (plus the combat edges, where the regime changes), with two safety
+-- nets: half a second at most, and a totem that has run out by the clock is read
+-- again at once. Measured with /spperf: ~950 calls / 15 s while idle.
+local totemInfoCache = {}
+ShamanPower._totemInfoGen = 0
+function ShamanPower:InvalidateTotemInfo()
+	self._totemInfoGen = (self._totemInfoGen or 0) + 1
+	self._totemDownAt = nil   -- AnyTotemDown asks again too
+end
+
 function ShamanPower:GetElementTotemInfo(element)
+	local c = totemInfoCache[element]
+	local now = GetTime()
+	if c and c.gen == self._totemInfoGen and (now - c.at) < 0.5 then
+		local s, d = c.s, c.d
+		if not (c.h == true and type(s) == "number" and type(d) == "number" and d > 0 and (s + d) <= now) then
+			return c.h, c.n, c.s, c.d, c.i, c.slot
+		end
+	end
+	local h, n, s, d, i, slot = self:ReadElementTotemInfo(element)
+	if not c then c = {}; totemInfoCache[element] = c end
+	c.gen, c.at, c.h, c.n, c.s, c.d, c.i, c.slot = self._totemInfoGen, now, h, n, s, d, i, slot
+	return h, n, s, d, i, slot
+end
+
+function ShamanPower:ReadElementTotemInfo(element)
 	local fixedSlot = self.ElementToSlot[element]
 	if not fixedSlot then return false end
 
@@ -2160,14 +2231,20 @@ ShamanPower.PulsingTotems = {
 	["Disease Cleansing"] = { element = 3, interval = 5 },
 }
 
+local pulsingByName = {}   -- [element .. name] = PulsingTotems entry, or false
 function ShamanPower:GetActivePulsingTotem(element)
 	local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 	if haveTotem and totemName then
-		for pattern, data in pairs(self.PulsingTotems) do
-			if data.element == element and totemName:find(pattern) then
-				return data, startTime, duration
+		local key = element .. totemName
+		local data = pulsingByName[key]
+		if data == nil then
+			data = false
+			for pattern, entry in pairs(self.PulsingTotems) do
+				if entry.element == element and totemName:find(pattern) then data = entry break end
 			end
+			pulsingByName[key] = data
 		end
+		if data then return data, startTime, duration end
 	end
 	return nil, nil, nil
 end
@@ -2185,13 +2262,33 @@ function ShamanPower:SetupPulseOverlays()
 	-- Register pulse tracking with consolidated update system (20fps)
 	-- Only register once, but only enable if feature is on
 	if not self.updateSystem.subsystems["pulse"] then
-		self:RegisterUpdateSubsystem("pulse", 0.05, function()
+		local pulseState = {}
+		local function pulsePass()
 			-- Earth, Fire, Water (elements 1-3) can have pulsing totems
-			for element = 1, 3 do
-				local data, start = ShamanPower:GetActivePulsingTotem(element)
-				ShamanPower:UpdatePulseGlow(element, data, start)
-				ShamanPower:UpdatePoppedOutPulse(element, data, start)
+			-- which totem pulses (and since when) only changes with the totems: look it up
+			-- when they change or twice a second, not twenty times a second
+			local gen, now = ShamanPower._totemInfoGen, GetTime()
+			if pulseState.gen ~= gen or (now - (pulseState.at or 0)) > 0.5 then
+				pulseState.gen, pulseState.at = gen, now
+				pulseState.data, pulseState.start = pulseState.data or {}, pulseState.start or {}
+				for element = 1, 3 do
+					pulseState.data[element], pulseState.start[element] = ShamanPower:GetActivePulsingTotem(element)
+				end
 			end
+			for element = 1, 3 do
+				local data, start = pulseState.data[element], pulseState.start[element]
+				-- Only an element whose totem pulses needs 20 passes a second; one that
+				-- just stopped gets a single pass to clear its glow. (With Stoneskin and
+				-- Searing down, nothing pulses and this loop now does no drawing at all.)
+				if data or pulseState[element] then
+					ShamanPower:UpdatePulseGlow(element, data, start)
+					ShamanPower:UpdatePoppedOutPulse(element, data, start)
+				end
+				pulseState[element] = data and true or nil
+			end
+		end
+		self:RegisterUpdateSubsystem("pulse", 0.05, function()
+			spWhileTotemsDown(pulseState, pulsePass)   -- nothing pulses with no totem down
 		end)
 	end
 	-- Only enable if pulse bar is not disabled (pulseBarPosition != "none")
@@ -2743,24 +2840,47 @@ function ShamanPower:SetupTotemProgressBars()
 
 	-- Register progress bar updates with consolidated update system (10fps)
 	if not self.updateSystem.subsystems["progressBars"] then
+		local barState = {}
+		local function barPass() ShamanPower:UpdateTotemProgressBars() end
 		self:RegisterUpdateSubsystem("progressBars", 0.1, function()
-			ShamanPower:UpdateTotemProgressBars()
+			spWhileTotemsDown(barState, barPass)   -- duration bars / texts / dropped-totem overlays need a totem down
 
 			-- Dynamic Mode: update totem icons to reflect currently placed totems
 			if ShamanPower.opt.dynamicTotemMode then
 				ShamanPower:UpdateDynamicTotemIcons()
 			end
 
-			-- Update totem bar opacity (for "full opacity when active" option)
-			if ShamanPower.opt.totemBarFullOpacityWhenActive then
+			-- Update totem bar opacity (for "full opacity when active" option). It only
+			-- changes when a totem does, and PLAYER_TOTEM_UPDATE asks for a pass through
+			-- _barWake; the once-a-second pass is a safety net.
+			barState.n = (barState.n or 0) + 1
+			local slowPass = barState.n >= 10
+			if slowPass then barState.n = 0 end
+			local woke = ShamanPower._barWake
+			ShamanPower._barWake = nil
+			if ShamanPower.opt.totemBarFullOpacityWhenActive and (woke or slowPass) then
 				ShamanPower:UpdateTotemBarOpacity()
 			end
 
-			-- Update totem cooldowns on main buttons and flyout buttons
-			if ShamanPower.opt.showTotemCooldowns ~= false then
+			-- Update totem cooldowns on main buttons and flyout buttons: every tick while a
+			-- cooldown is being drawn (its text counts down), otherwise only when the client
+			-- says a cooldown changed, a flyout opened, or once a second.
+			if ShamanPower.opt.showTotemCooldowns ~= false and (ShamanPower._totemCdShown or woke or slowPass) then
 				ShamanPower:UpdateTotemCooldowns()
 			end
 		end)
+		if not self._barWakeFrame then
+			local f = CreateFrame("Frame")
+			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "PLAYER_TOTEM_UPDATE", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED" }) do
+				pcall(f.RegisterEvent, f, ev)
+			end
+			f:SetScript("OnEvent", function(_, ev)
+				ShamanPower._barWake = true
+				ShamanPower._ovWake = true
+				if ev == "PLAYER_REGEN_DISABLED" or ev == "PLAYER_REGEN_ENABLED" then ShamanPower:InvalidateTotemInfo() end
+			end)
+			self._barWakeFrame = f
+		end
 	end
 	-- Only enable if any of these features are on
 	local needsProgressBars = self.opt.showDurationBars ~= false
@@ -2940,7 +3060,7 @@ function ShamanPower:UpdateTotemProgressBars()
 			end
 		end
 		self:UpdatePoppedOutProgressBars()
-		self:UpdateActiveTotemOverlays()
+		self:UpdateActiveTotemOverlaysIfDue()
 		return
 	end
 
@@ -3064,7 +3184,7 @@ function ShamanPower:UpdateTotemProgressBars()
 	self:UpdatePoppedOutProgressBars()
 
 	-- Update active totem overlays
-	self:UpdateActiveTotemOverlays()
+	self:UpdateActiveTotemOverlaysIfDue()
 end
 
 -- Format cooldown time for display
@@ -3122,6 +3242,7 @@ end
 
 -- Update cooldown displays on totem buttons and flyout buttons
 function ShamanPower:UpdateTotemCooldowns()
+	local drawing = false   -- any cooldown on screen? decides whether the loop keeps ticking this
 	-- Update main totem buttons
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
@@ -3143,7 +3264,7 @@ function ShamanPower:UpdateTotemCooldowns()
 				local start, duration, enabled = GetSpellCooldown(spellID)
 				-- Only show cooldown if it's longer than GCD (1.5 sec)
 				if start and duration and duration > 1.5 and enabled == 1 then
-					self:ApplyTotemCooldownVisual(btn, start, duration)
+					self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 					-- Calculate remaining time for text
 					local remaining = (start + duration) - GetTime()
 					if remaining > 0 and btn.cooldownText and self.opt.totemCooldownText ~= false then
@@ -3172,11 +3293,15 @@ function ShamanPower:UpdateTotemCooldowns()
 		local flyout = self.totemFlyouts[element]
 		if flyout and flyout.buttons then
 			for _, btn in ipairs(flyout.buttons) do
-				if btn.cooldown and btn.spellID then
+				-- Only a flyout that is actually on screen: every cooldown read on a
+				-- Mainline client builds a table (C_Spell.GetSpellCooldown), and this ran
+				-- for every flyout button ten times a second whether or not any flyout
+				-- was open. An opening flyout is caught up within one tick.
+				if btn.cooldown and btn.spellID and btn:IsVisible() then
 					local start, duration, enabled = GetSpellCooldown(btn.spellID)
 					-- Only show cooldown if it's longer than GCD (1.5 sec)
 					if start and duration and duration > 1.5 and enabled == 1 then
-						self:ApplyTotemCooldownVisual(btn, start, duration)
+						self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 						-- Calculate remaining time for text
 						local remaining = (start + duration) - GetTime()
 						if remaining > 0 and btn.cooldownText and self.opt.totemCooldownText ~= false then
@@ -3194,7 +3319,7 @@ function ShamanPower:UpdateTotemCooldowns()
 				end
 			end
 		end
-	end
+	end	self._totemCdShown = drawing
 end
 
 -- Update progress bars on popped-out single totems
@@ -3564,6 +3689,24 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	return overlay
 end
 
+-- UpdateActiveTotemOverlays only applies state (which overlay is up, which icon, what
+-- is greyed): nothing in it moves with time, yet the 10 Hz bar loop ran it on every
+-- tick (measured with /spperf: over half of that loop's cost in combat). From the
+-- loop it now runs when a totem or an assignment changed, when something asked
+-- (_ovWake), and once a second as a safety net. Direct callers are unaffected.
+function ShamanPower:UpdateActiveTotemOverlaysIfDue()
+	local now = GetTime()
+	local a = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
+	local a1, a2, a3, a4 = a and a[1], a and a[2], a and a[3], a and a[4]
+	if not self._ovWake and self._ovGen == self._totemInfoGen and (now - (self._ovAt or 0)) < 1
+		and self._ovA1 == a1 and self._ovA2 == a2 and self._ovA3 == a3 and self._ovA4 == a4 then
+		return
+	end
+	self._ovWake, self._ovGen, self._ovAt = nil, self._totemInfoGen, now
+	self._ovA1, self._ovA2, self._ovA3, self._ovA4 = a1, a2, a3, a4
+	self:UpdateActiveTotemOverlays()
+end
+
 function ShamanPower:UpdateActiveTotemOverlays()
 	-- Safety checks for early calls before addon is fully initialized
 	if not self.player then return end
@@ -3616,7 +3759,18 @@ function ShamanPower:UpdateActiveTotemOverlays()
 			local showOverlay = false
 			local activeIcon = nil
 
-			if haveTotem and totemName and totemName ~= "" then
+			-- Working out whether the dropped totem differs from the assigned one, and which
+			-- icon it gets, walks the element's totems with name lookups and string finds.
+			-- That answer only changes with the totem or the assignment, so it is kept on the
+			-- overlay and redone when either changes; the ten-a-second part is the timer
+			-- drawing further down. (Not kept for Air while twisting: that rule has more inputs.)
+			local twistingAir = (element == 4 and self.opt and self.opt.enableTotemTwisting) and true or false
+			local nowName, nowHave = totemName or false, haveTotem and true or false
+			local kept = (not twistingAir) and overlay.cName == nowName and overlay.cHave == nowHave and overlay.cAssigned == assignedIndex
+
+			if kept then
+				showOverlay, activeIcon = overlay.cShow, overlay.cIcon
+			elseif haveTotem and totemName and totemName ~= "" then
 				-- Check if active totem matches assigned
 				local matches = false
 
@@ -3668,6 +3822,10 @@ function ShamanPower:UpdateActiveTotemOverlays()
 						activeIcon = icon
 					end
 				end
+			end
+
+			if not kept and not twistingAir then
+				overlay.cName, overlay.cHave, overlay.cAssigned, overlay.cShow, overlay.cIcon = nowName, nowHave, assignedIndex, showOverlay, activeIcon
 			end
 
 			local totemButton = self.totemButtons[element]
@@ -5695,6 +5853,7 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 			box.spArrowHooked = true
 			box:HookScript("OnShow", function(self)
 				spFlyoutArrowAlpha(self.spOpenArrow, false)
+				ShamanPower._barWake = true   -- its buttons' cooldowns are only read while it is on screen
 				-- opened by its arrow or key out of combat: same refresh a hover-open gets
 				local entry = ShamanPower.boxFlyouts[element]
 				if entry and not InCombatLockdown() and not self.spRelayouting then
@@ -7758,7 +7917,9 @@ function ShamanPower:UpdatePlayerTotemRange()
 	self.buffNameLowerCache = buffLowerCache
 
 	-- Track weapon enchant totems (need special weapon enchant check instead of buff check)
-	local isWeaponEnchantTotem = {false, false, false, false}  -- [element] = true if weapon enchant totem
+	local isWeaponEnchantTotem = self._rangeEnchantScratch   -- [element] = true if weapon enchant totem (reused: this runs twice a second)
+	if not isWeaponEnchantTotem then isWeaponEnchantTotem = {}; self._rangeEnchantScratch = isWeaponEnchantTotem end
+	isWeaponEnchantTotem[1], isWeaponEnchantTotem[2], isWeaponEnchantTotem[3], isWeaponEnchantTotem[4] = false, false, false, false
 
 	-- Reset results and collect buff names
 	for element = 1, 4 do
@@ -7787,7 +7948,11 @@ function ShamanPower:UpdatePlayerTotemRange()
 	local scannedCache = self.scannedBuffLowerCache or {}
 	self.scannedBuffLowerCache = scannedCache
 
-	for i = 1, 20 do
+	-- When buffs cannot be read (combat on the Mainline family) the answer comes from the
+	-- drop-distance model further down, so there is nothing to scan for - and each aura
+	-- read on that client builds a table.
+	local blindNow = TRACK_TOTEM_DROPS and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
+	for i = 1, (blindNow and 0 or 20) do
 		local name = UnitBuff("player", i)
 		if not name then break end
 
@@ -11192,6 +11357,7 @@ end
 
 -- Update the mini totem bar icons and spells based on current assignments
 function ShamanPower:UpdateMiniTotemBar()
+	self._ovWake = true   -- this repaints the totem icons: the dropped-totem overlay state is re-applied on the next bar tick
 	if not self.autoButton then return end
 	if InCombatLockdown() then return end
 
@@ -13846,12 +14012,16 @@ function ShamanPower:UpdateAllShamans()
 end
 
 function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
+	self:InvalidateTotemInfo()   -- the loops read the new state on their next tick
 	self:ShadowTotemSlotUpdate(slot)
 	self:RecordTotemDropFromSlot(slot)
 	self:RefreshTotemDestroySlots()   -- cast-order clients: keep right-click destroy on the right slot
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
+	-- Under the secrets regime the totem model is fed by the player's own casts, not
+	-- by the API, so a cast is a "totems may have changed" moment too.
+	if unitTarget == "player" then self:InvalidateTotemInfo() end
 	-- Own totem casts feed the shadow totem model (never secret, even in combat)
 	self:ShadowTotemCast(unitTarget, spellID)
 	-- Own casts also stamp the shadow cooldown model (see SPCompat.GetSpellCooldown)

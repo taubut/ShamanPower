@@ -354,7 +354,7 @@ local function setReady(f, ready)
 	local sv = SV()
 	if ready then
 		f.icon:SetDesaturated(false)
-		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText("")
+		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 		f:SetAlpha(sv.opacity or 1)
 		local fx = sv.readyEffect or "glow"
 		if (fx == "glow" or fx == "both") then
@@ -384,8 +384,13 @@ local function drawCooldown(f, start, duration, remaining)
 	local sv = SV()
 	setReady(f, false)
 	if sv.showCountdown ~= false then
-		f.count:SetText(remaining >= 60 and string.format("%dm", math.floor(remaining / 60)) or string.format("%d", math.ceil(remaining)))
-	else f.count:SetText("") end
+		-- the text only changes once a second (or once a minute): build the string then, not ten times a second
+		local shown = remaining >= 60 and -math.floor(remaining / 60) or math.ceil(remaining)
+		if f.countShown ~= shown then
+			f.countShown = shown
+			f.count:SetText(shown < 0 and string.format("%dm", -shown) or string.format("%d", shown))
+		end
+	elseif f.countShown ~= false then f.countShown = false; f.count:SetText("") end
 	local frac = duration > 0 and math.max(0, math.min(1, remaining / duration)) or 0
 	local style = sv.sweepStyle or "radial"
 	if style == "radial" then
@@ -413,9 +418,11 @@ function SP:UpdateReadyReminders()
 	local hideAll = not sv.enabled or (sv.onlyInCombat and not InCombatLockdown())
 	if hideAll then
 		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil end
+		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
 		return
 	end
 	local now = GetTime()
+	local cooling = false   -- anything still counting down? if not, the ticker can sleep (see the subsystem callback)
 	for _, entry in ipairs(self.ReadyReminderSpells) do
 		local f = frames[entry.key]
 		local want = spellOn(entry) and usable(entry) and playerKnows(entry)
@@ -427,6 +434,7 @@ function SP:UpdateReadyReminders()
 				remaining = start + duration - now
 				ready = remaining <= 0
 			end
+			if not ready then cooling = true end
 			if ready then
 				if f.wasReady == false then readySound(entry, f.lastDuration) end
 				f.wasReady = true
@@ -445,6 +453,7 @@ function SP:UpdateReadyReminders()
 			f:Hide(); f.wasReady = nil
 		end
 	end
+	self.readyCooling = cooling
 end
 
 -- ---------------------------------------------------------------------------
@@ -457,7 +466,7 @@ function SP:ShowAllReadyReminders()
 		if spellOn(entry) and usable(entry) then
 			local f = self:CreateReadyReminderFrame(entry)
 			stopEffects(f)
-			f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText("")
+			f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 			f.icon:SetDesaturated(false); f:SetAlpha(SV().opacity or 1)
 			f.label:SetShown(SV().showNames == true); f:Show()
 		end
@@ -525,7 +534,7 @@ function SP:ReadyRemindersDemo(on)
 		self.readyDemoActive = nil
 		if self.readyDemoTicker then self.readyDemoTicker:Cancel(); self.readyDemoTicker = nil end
 		self.readyDemoStatus = nil
-		for _, f in pairs(frames) do stopEffects(f); f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f:Hide() end
+		for _, f in pairs(frames) do stopEffects(f); f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil; f:Hide() end
 		self:UpdateReadyReminders()
 	end
 end
@@ -707,7 +716,28 @@ ef:SetScript("OnEvent", function(_, event)
 		InjectOptions()
 		seedShadowDurations()
 		if SP.RegisterUpdateSubsystem then
-			SP:RegisterUpdateSubsystem("readyReminders", 0.1, function() SP:UpdateReadyReminders() end)
+			-- Ten passes a second are only needed while something is counting down. With
+			-- every spell ready nothing on screen can change until the client says a
+			-- cooldown changed, so the ticker sleeps and these events wake it; one pass a
+			-- second runs regardless, as a safety net.
+			local idleTicks = 0
+			-- Five passes a second while something counts down: the number changes once a second, the
+			-- radial sweep animates by itself, and a spell coming ready is noticed within 0.2 s. (Ten a
+			-- second was this module's whole in-combat cost, measured with /spperf.)
+			SP:RegisterUpdateSubsystem("readyReminders", 0.2, function()
+				if SP.readyCooling == false and not SP.readyWake then
+					idleTicks = idleTicks + 1
+					if idleTicks < 5 then return end
+				end
+				idleTicks = 0
+				SP.readyWake = nil
+				SP:UpdateReadyReminders()
+			end)
+			local wake = CreateFrame("Frame")
+			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
+				pcall(wake.RegisterEvent, wake, ev)
+			end
+			wake:SetScript("OnEvent", function() SP.readyWake = true end)
 			if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
 		else
 			C_Timer.NewTicker(0.1, function() SP:UpdateReadyReminders() end)

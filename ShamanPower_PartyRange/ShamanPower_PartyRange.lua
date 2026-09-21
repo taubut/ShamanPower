@@ -97,13 +97,19 @@ function SP:SetupPartyRangeDots()
 
 	-- Register range tracking with consolidated update system (2fps)
 	if not self.updateSystem.subsystems["partyRange"] then
-		self:RegisterUpdateSubsystem("partyRange", 0.5, function()
+		local rangeState = {}
+		local function rangePass()
 			-- Always update player's own totem range (greying out when out of range)
 			SP:UpdatePlayerTotemRange()
 			-- Only update party range dots/counters if those features are enabled
 			if SP.opt.showPartyRangeDots or (SP.opt.rangeCounter and SP.opt.rangeCounter.enabled) then   -- was a key nothing ever wrote: "Numbers Only" never refreshed
 				SP:UpdatePartyRangeDots()
 			end
+		end
+		self:RegisterUpdateSubsystem("partyRange", 0.5, function()
+			-- range to a totem only means something while one is down (two more passes after the last
+			-- one goes, so the dots and the greying are cleared)
+			if SP._whileTotemsDown then SP._whileTotemsDown(rangeState, rangePass) else rangePass() end
 		end)
 	end
 	-- Always enable this subsystem - player's own range tracking should always work
