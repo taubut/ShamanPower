@@ -6820,12 +6820,93 @@ function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 	end
 end
 
+-- A flyout only has buttons for the totems that were known when it was built,
+-- and re-filtering cannot show a button that does not exist: a totem learned
+-- mid-session never appeared until a /reload (found with a first fire totem:
+-- allButtons was 0 after training Searing). Rebuild any element whose known
+-- totems are not all represented. Out of combat only.
+function ShamanPower:AddMissingFlyoutButtons()
+	if InCombatLockdown() then return end
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts[element]
+		local totems = self.Totems[element]
+		if flyout and totems then
+			local have = {}
+			for _, btn in ipairs(flyout.allButtons or {}) do have[btn.totemIndex] = true end
+			local missing = false
+			for totemIndex, spellID in pairs(totems) do
+				if not have[totemIndex] then
+					local totemName = self.TotemNames[element] and self.TotemNames[element][totemIndex]
+					if PlayerKnowsTotem(spellID, totemName) then missing = true break end
+				end
+			end
+			if missing then
+				-- retire the old buttons: the rebuild makes new frames under the same names
+				for _, btn in ipairs(flyout.allButtons or {}) do
+					btn:Hide()
+					btn.spFlyoutChild = nil
+					btn:SetParent(nil)
+				end
+				self.totemFlyouts[element] = nil
+				self:CreateTotemFlyout(element)
+			end
+		end
+	end
+end
+
+-- An element that has never had a totem assigned gets one as soon as the player
+-- knows any: the usual default if known, else the first known one, the way
+-- Blizzard's own totem bar fills a slot the moment its first totem is trained.
+-- Only a never-set (nil) assignment is touched; an explicit "none" (0) is the
+-- player's choice and stays.
+function ShamanPower:EnsureElementAssignments()
+	if InCombatLockdown() or not self.player then return end
+	ShamanPower_Assignments[self.player] = ShamanPower_Assignments[self.player] or {}
+	local assignments = ShamanPower_Assignments[self.player]
+	local changed = false
+	for element = 1, 4 do
+		local totems = self.Totems[element]
+		if assignments[element] == nil and totems then
+			local function known(idx)
+				local spellID = idx and totems[idx]
+				local name = self.TotemNames[element] and self.TotemNames[element][idx]
+				return spellID and PlayerKnowsTotem(spellID, name)
+			end
+			local pick = self.DefaultTotems and self.DefaultTotems[element]
+			if not known(pick) then
+				pick = nil
+				local indices = {}
+				for idx in pairs(totems) do indices[#indices + 1] = idx end
+				table.sort(indices)
+				for _, idx in ipairs(indices) do
+					if known(idx) then pick = idx break end
+				end
+			end
+			if pick then
+				assignments[element] = pick
+				changed = true
+				self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. pick)
+			end
+		end
+	end
+	if changed then
+		self:UpdateMiniTotemBar()
+		self:UpdateDropAllButton()
+		self:UpdateSPMacros()
+		for element = 1, 4 do self:UpdateFlyoutVisibility(element) end
+	end
+	return changed
+end
+
 -- Recreate all totem flyouts (used when major changes require full rebuild)
 function ShamanPower:RecreateTotemFlyouts()
 	if InCombatLockdown() then
 		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
+
+	-- a totem learned since the flyouts were built needs a button first
+	self:AddMissingFlyoutButtons()
 
 	-- Instead of destroying and recreating buttons (which breaks secure handlers),
 	-- just update which buttons are enabled/disabled and rebuild the buttons table
@@ -12760,6 +12841,7 @@ function ShamanPower:SPELLS_CHANGED()
 	ShamanPower:SendSelf()
 	if not InCombatLockdown() then
 		ShamanPower:RecreateTotemFlyouts()
+		ShamanPower:EnsureElementAssignments()   -- an element's first totem gets assigned by itself
 	end
 	ShamanPower:UpdateLayout()
 end
