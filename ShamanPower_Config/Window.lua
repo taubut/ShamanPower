@@ -1046,6 +1046,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.min  = Tree:EvalPlain(e.node.min, e.info) or 0
 				opts.max  = Tree:EvalPlain(e.node.max, e.info) or 100
 				opts.step = Tree:EvalPlain(e.node.step, e.info) or 1
+				opts.isPercent = e.node.isPercent and true or false
 				f, h = Widgets:Slider(body, opts)
 
 			elseif e.type == "select" then

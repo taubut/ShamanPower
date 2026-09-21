@@ -353,6 +353,8 @@ end
 -- Slider with numeric readout
 -- ---------------------------------------------------------------------------
 local function SliderFormat(row, v)
+	-- isPercent (AceConfig): the value is a 0-1 fraction, shown as a percentage
+	if row.isPercent then return string.format("%d%%", math.floor(v * 100 + 0.5)) end
 	if row.step < 1 then return string.format("%.2f", v) end
 	return tostring(math.floor(v + 0.5))
 end
@@ -416,7 +418,12 @@ local function CreateSlider(parent)
 	end)
 
 	box:SetScript("OnEnterPressed", function(self)
-		local v = tonumber(self:GetText())
+		local text = self:GetText() or ""
+		local v = tonumber((text:gsub("%%", "")))
+		if v and row.isPercent then
+			-- "50" and "50%" mean 50%; a typed fraction like "0.5" is taken as one
+			if not (v <= 1 and text:find(".", 1, true)) then v = v / 100 end
+		end
 		if v then
 			v = math.max(row.min, math.min(row.max, v))
 			slider:SetValue(v)
@@ -456,6 +463,7 @@ function Widgets:Slider(parent, opts)
 	row.min  = opts.min or 0
 	row.max  = opts.max or 100
 	row.step = opts.step or 1
+	row.isPercent = opts.isPercent and true or false   -- rows are pooled: always reset
 
 	-- Changing the range can clamp the current value and fire OnValueChanged;
 	-- that must never reach the new opts.set.
