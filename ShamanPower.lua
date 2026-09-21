@@ -14724,6 +14724,7 @@ function ShamanPower:UpdateButtonKeybindText()
 		if self.weaponImbueButton and self.weaponImbueButton.keybindText then
 			self.weaponImbueButton.keybindText:Hide()
 		end
+		self:UpdateFlyoutKeybindText(false)
 		return
 	end
 
@@ -14825,6 +14826,51 @@ function ShamanPower:UpdateButtonKeybindText()
 			self.weaponImbueButton.keybindText:Hide()
 		end
 	end
+
+	self:UpdateFlyoutKeybindText(true)
+end
+
+-- Keybind text on the flyout icons too: each one is a specific spell, so the key
+-- it is bound to on the action bars is looked up the same way as for the main
+-- buttons. (There is no ShamanPower binding per flyout totem, so a spell that
+-- is not on a bound bar slot simply shows nothing.)
+function ShamanPower:UpdateFlyoutKeybindText(enabled)
+	local function apply(btn, spellName)
+		if not btn then return end
+		if not btn.keybindText then
+			if InCombatLockdown() then return end   -- make it after the fight; text alone is fine in combat
+			-- its own frame, above the cooldown swipe (a child frame of the button)
+			local holder = CreateFrame("Frame", nil, btn)
+			holder:SetAllPoints(btn)
+			holder:SetFrameLevel(btn:GetFrameLevel() + 4)
+			local fs = holder:CreateFontString(nil, "OVERLAY")
+			fs:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+			fs:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
+			fs:SetTextColor(0.9, 0.9, 0.9, 1)
+			btn.keybindText = fs
+		end
+		local key = enabled and spellName and self:GetKeybindForSpell(spellName)
+		local text = key and GetShortKeybindText(key)
+		if text then
+			btn.keybindText:SetText(text)
+			btn.keybindText:Show()
+		else
+			btn.keybindText:SetText("")
+			btn.keybindText:Hide()
+		end
+	end
+
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
+			apply(btn, btn.spellID and GetSpellInfo(btn.spellID))
+		end
+	end
+	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+		for _, btn in ipairs(flyout and flyout.buttons or {}) do
+			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)))
+		end
+	end
 end
 
 function ShamanPower:SetupKeybindings()
@@ -14886,6 +14932,28 @@ keybindEventFrame:RegisterEvent("PLAYER_LOGIN")
 keybindEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 keybindEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 keybindEventFrame:RegisterEvent("ADDON_LOADED")
+-- The key shown on a button is looked up from the action bars first, so it has
+-- to follow the bars as well as the bindings: putting a spell on a bound slot,
+-- taking it off, or paging the bar all change what should be shown.
+keybindEventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+keybindEventFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+keybindEventFrame:RegisterEvent("SPELLS_CHANGED")
+
+-- Coalesced refresh of the keybind text. Action bar events arrive in bursts
+-- (dozens at login), and a spell's name can come back empty the first time it
+-- is asked for, so one quick pass is followed by a second a moment later.
+-- Text only, so it is safe in combat.
+function ShamanPower:QueueKeybindTextRefresh()
+	if self.keybindTextRefreshQueued then return end
+	self.keybindTextRefreshQueued = true
+	C_Timer.After(0.2, function()
+		ShamanPower.keybindTextRefreshQueued = nil
+		if ShamanPower.UpdateButtonKeybindText then ShamanPower:UpdateButtonKeybindText() end
+	end)
+	C_Timer.After(1.0, function()
+		if ShamanPower.UpdateButtonKeybindText then ShamanPower:UpdateButtonKeybindText() end
+	end)
+end
 
 -- Action bar addons that we want to detect for keybind scanning
 local actionBarAddons = {
@@ -14925,6 +14993,13 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 		if ShamanPower.opt.dynamicTotemMode then
 			ShamanPower:UpdateMiniTotemBar()
 			ShamanPower:UpdateTotemButtons()
+		end
+		return
+	end
+
+	if event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" or event == "SPELLS_CHANGED" then
+		if ShamanPower.opt and ShamanPower.opt.showButtonKeybinds then
+			ShamanPower:QueueKeybindTextRefresh()
 		end
 		return
 	end

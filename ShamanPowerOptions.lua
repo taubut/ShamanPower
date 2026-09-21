@@ -2494,6 +2494,9 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.showButtonKeybinds = val
 								ShamanPower:UpdateButtonKeybindText()
+								-- and again shortly after, in case the first pass ran before the
+								-- spell names were available
+								if val and ShamanPower.QueueKeybindTextRefresh then ShamanPower:QueueKeybindTextRefresh() end
 							end
 						},
 					}
