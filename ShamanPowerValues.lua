@@ -24,6 +24,16 @@ BINDING_NAME_SHAMANPOWER_CD_MANATIDE = "Mana Tide Totem"
 BINDING_NAME_SHAMANPOWER_CD_BLOODLUST = "Bloodlust / Heroism"
 BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 
+-- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
+BINDING_HEADER_SHAMANPOWER_FLYOUT = "ShamanPower Flyouts"
+BINDING_NAME_SHAMANPOWER_FLYOUT_EARTH = "Toggle Earth Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_FIRE = "Toggle Fire Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_WATER = "Toggle Water Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_AIR = "Toggle Air Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_SHIELD = "Toggle Shield Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_IMBUE = "Toggle Weapon Imbue Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_CLOSE = "Close All Flyouts"
+
 -- Tooltip descriptions
 SHAMANPOWER_REFRESH_DESC = "Refresh the shaman list"
 SHAMANPOWER_CLEAR_DESC = "Clear all totem assignments"
@@ -100,6 +110,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         swapFlyoutClickButtons = false,  -- Swap flyout mouse buttons (left=assign, right=cast instead of default)
         flyoutRequiresClick = false,  -- Require right-click to show flyout instead of mouseover
         flyoutSingleOpen = true,      -- In-combat arrow flyouts: opening one closes the others (false = they stay open)
+        flyoutStyle = "icons",        -- "icons" (bare icons) or "frame" (Blizzard's totem bar flyout frame)
+        flyoutFrameOpacity = 1.0,     -- Opacity of the frame's border and fill in the "frame" style
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
         -- Raid Cooldown caller button options
         raidCDButtonOpacity = 1.0,  -- Opacity of raid cooldown caller buttons (0.1 to 1.0)

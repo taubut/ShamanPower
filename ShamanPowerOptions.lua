@@ -2092,6 +2092,54 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemFlyoutEnabled()
 							end
 						},
+						flyout_style = {
+							order = 5,
+							type = "select",
+							name = "Flyout Style",
+							desc = "|cffffd100Icons only|r: the flyout is just the totem icons.\n|cffffd100Blizzard frame|r: the icons sit in Blizzard's totem bar flyout frame, tinted per element, with the close tab at the far end.",
+							width = "full",
+							values = { icons = "Icons only", frame = "Blizzard frame" },
+							sorting = { "icons", "frame" },
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutStyle or "icons"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutStyle = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect after combat.")
+									return
+								end
+								for _, entry in pairs(ShamanPower.boxFlyouts or {}) do pcall(entry.relayout) end
+							end
+						},
+						flyout_frame_opacity = {
+							order = 6,
+							type = "range",
+							name = "Frame Opacity",
+							desc = "How solid the Blizzard frame's border and background are. Lower is lighter and more see-through.",
+							min = 0.1, max = 1.0, step = 0.05,
+							width = "full",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+									or (ShamanPower.opt.flyoutStyle or "icons") ~= "frame"
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutFrameOpacity or 1.0
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutFrameOpacity = val
+								-- artwork only, so this is safe to apply at any time, even in combat
+								for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+									ShamanPower:DressFlyoutFrame(entry.flyout)
+								end
+							end
+						},
 						flyout_single_open = {
 							order = 4,
 							type = "toggle",

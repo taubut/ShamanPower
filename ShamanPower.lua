@@ -171,6 +171,37 @@ local ARROW_CLOSE = {
 	{ 99 / 128, 127 / 128, 218 / 256, 236 / 256 },
 	{ 99 / 128, 127 / 128,  65 / 256,  83 / 256 },
 }
+-- Blizzard's flyout frame (opt.flyoutStyle == "frame"): a 32x20 cap that holds
+-- the close tab, over a band that stretches behind the buttons. Same indexing
+-- as the tabs; 5 is the neutral set. From FLYOUT_TOP/MIDDLE_TCOORDS.
+local FRAME_CAP = {
+	{  0 / 128, 32 / 128, 46 / 256,  68 / 256 },   -- earth
+	{ 33 / 128, 65 / 128, 46 / 256,  68 / 256 },   -- fire
+	{  0 / 128, 32 / 128,  1 / 256,  23 / 256 },   -- water
+	{  0 / 128, 32 / 128, 91 / 256, 113 / 256 },   -- air
+	{ 33 / 128, 65 / 128,  1 / 256,  23 / 256 },   -- neutral
+}
+local FRAME_BAND = {
+	{  0 / 128, 32 / 128,  68 / 256,  88 / 256 },
+	{ 33 / 128, 65 / 128,  68 / 256,  88 / 256 },
+	{  0 / 128, 32 / 128,  23 / 256,  43 / 256 },
+	{  0 / 128, 32 / 128, 113 / 256, 133 / 256 },
+	{ 33 / 128, 65 / 128,  23 / 256,  43 / 256 },
+}
+
+-- The flyout panel art has no bottom edge: on Blizzard's bar it stands on the
+-- square border drawn round the slot button (SLOT_OVERLAY_TCOORDS, 34 px round
+-- a 30 px button). Drawn round our totem button it closes the frame off the
+-- same way. The fifth, brown square is in the texture but unused by Blizzard;
+-- it serves as the neutral one for the cooldown bar.
+local FRAME_SLOT = {
+	{  1 / 128, 35 / 128, 172 / 256, 206 / 256 },   -- earth
+	{ 36 / 128, 70 / 128, 172 / 256, 206 / 256 },   -- fire
+	{  1 / 128, 35 / 128, 207 / 256, 240 / 256 },   -- water
+	{ 36 / 128, 70 / 128, 137 / 256, 171 / 256 },   -- air
+	{  1 / 128, 35 / 128, 137 / 256, 171 / 256 },   -- neutral
+}
+
 local ARROW_GLOW_OPEN  = { 0.5625, 0.71875, 0.34375, 0.3828125 }      -- up-arrow shaped
 local ARROW_GLOW_CLOSE = { 0.5625, 0.71875, 0.26953125, 0.30859375 }  -- down-arrow shaped
 
@@ -190,6 +221,16 @@ end
 -- that is where the flyouts shift out to make room and the arrows appear; both
 -- are undone when the fight ends. Out of combat nothing is different.
 local spFlyoutCombatLayout = false
+
+-- Room kept between the totem button and its first flyout icon. Only the
+-- icons-only style needs any, and only in combat: there the close tab sits
+-- against the button while the flyout is open. In the frame style the close tab
+-- is at the far end, and the open tab is simply covered by the first icon.
+local function spFlyoutLeadGap()
+	if not spFlyoutCombatLayout then return 0 end
+	if ShamanPower.opt and ShamanPower.opt.flyoutStyle == "frame" then return 0 end
+	return FLYOUT_ARROW
+end
 
 local function spFlyoutBoxMode()
 	return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
@@ -249,8 +290,17 @@ function ShamanPower:FlyoutFallbackSetShown(parent, show)
 			if not show then spFlyoutStuck[parent] = true end
 			return
 		end
+		if show then
+			-- Which buttons belong (the assigned totem does not) is only known
+			-- to the flyout's own layout pass, and at login that has not run
+			-- yet, so the assigned totem showed up twice. Refresh on every open.
+			for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+				if entry.button == parent then pcall(entry.relayout) break end
+			end
+		end
 		box:SetAttribute("unit", show and "player" or "none")
 		box:SetShown(show and true or false)
+		ShamanPower:SyncFlyoutToggle(parent, show)
 		return
 	end
 
@@ -295,7 +345,7 @@ do
 		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
 			local flyout = entry.flyout
 			if flyout and flyout.box then
-				flyout.leadGap = on and FLYOUT_ARROW or 0
+				flyout.leadGap = spFlyoutLeadGap()
 				pcall(entry.relayout)   -- re-lays out, then places the arrows
 			end
 		end
@@ -316,6 +366,7 @@ do
 				box:SetAttribute("unit", "none")
 				box:Hide()
 			end
+			if box and not box:IsShown() then ShamanPower:SyncFlyoutToggle(btn, false) end
 		end
 		for parent in pairs(spFlyoutStuck) do
 			if parent and parent.GetChildren and not parent.spFlyoutBox then
@@ -5456,21 +5507,43 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		local open = spFlyoutMakeArrow("ShamanPowerFlyoutOpen" .. element, totemButton, box, "player")
 		local close = spFlyoutMakeArrow("ShamanPowerFlyoutClose" .. element, box, box, "none")
 		open.spOwner, close.spOwner = totemButton, totemButton
-		-- Invisible press targets for macros: SPFO<n> opens this box, SPFC<n>
-		-- closes it. Short names keep the "close the others, open mine" macro
-		-- (eight /click lines) far below the macro length limit.
-		for _, def in ipairs({ { "SPFO", "player" }, { "SPFC", "none" } }) do
-			local h = _G[def[1] .. element] or CreateFrame("Button", def[1] .. element, totemButton, "SecureActionButtonTemplate")
+		-- Invisible press targets for macros (short names keep every macro far
+		-- below the length limit). Per flyout key K:
+		--   SPFO<K> / SPFC<K>  attribute: open / close the box
+		--   SPFT<K>            macro: the TOGGLE the keybind presses
+		--   SPFA<K> / SPFR<K>  attribute: rewrite SPFT's macrotext to its "close"
+		--                      / "open" form (arm / reset)
+		--   SPFX<K>            macro: close the box AND reset the toggle
+		-- A key cannot ask whether the flyout is open (hidden buttons still
+		-- answer /click, measured), so the toggle carries its own state: each
+		-- press rewrites what the next press will do, and every other way a
+		-- flyout closes goes through SPFX so the toggle never falls out of step.
+		-- The macro texts themselves are filled in by ApplyFlyoutArrowMode.
+		local function helper(prefix)
+			local h = _G[prefix .. element] or CreateFrame("Button", prefix .. element, totemButton, "SecureActionButtonTemplate")
 			h:SetParent(totemButton)   -- a rebuilt cooldown bar hands us a new button
 			h:SetSize(1, 1)
 			h:SetPoint("CENTER", totemButton, "CENTER")
 			h:EnableMouse(false)
 			h:RegisterForClicks("AnyUp", "AnyDown")
+			return h
+		end
+		for _, def in ipairs({ { "SPFO", "player" }, { "SPFC", "none" } }) do
+			local h = helper(def[1])
 			h:SetAttribute("type", "attribute")
 			h:SetAttribute("attribute-frame", box)
 			h:SetAttribute("attribute-name", "unit")
 			h:SetAttribute("attribute-value", def[2])
 		end
+		local toggle = helper("SPFT")
+		toggle:SetAttribute("type", "macro")
+		for _, prefix in ipairs({ "SPFA", "SPFR" }) do
+			local h = helper(prefix)
+			h:SetAttribute("type", "attribute")
+			h:SetAttribute("attribute-frame", toggle)
+			h:SetAttribute("attribute-name", "macrotext")
+		end
+		helper("SPFX"):SetAttribute("type", "macro")
 		open.spHideWhileShown = box
 		if not box.spArrowHooked then
 			box.spArrowHooked = true
@@ -5488,7 +5561,7 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		end
 	end
 	flyout.box = box
-	flyout.leadGap = spFlyoutCombatLayout and FLYOUT_ARROW or 0
+	flyout.leadGap = spFlyoutLeadGap()
 	self:ApplyFlyoutArrowMode()
 	return box
 end
@@ -5505,26 +5578,65 @@ function ShamanPower:ApplyFlyoutArrowMode()
 	self.flyoutArrowModePending = nil
 	local single = self.opt.flyoutSingleOpen ~= false
 	-- One /click per helper, in the form this client's key-down setting listens
-	-- for: six flyouts' worth of both forms would overrun the macro length cap.
-	local down = (GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")) and "1" or "0"
-	for element, entry in pairs(self.boxFlyouts) do
-		local btn = entry.button
-		local open = btn and btn.spFlyoutOpenArrow
-		if open then
-			if single then
-				local lines = {}
-				for other in pairs(self.boxFlyouts) do
-					if other ~= element then
-						lines[#lines + 1] = "/click SPFC" .. other .. " LeftButton " .. down
-					end
-				end
-				lines[#lines + 1] = "/click SPFO" .. element .. " LeftButton " .. down
-				open:SetAttribute("type", "macro")
-				open:SetAttribute("macrotext", table.concat(lines, "\n"))
-			else
-				open:SetAttribute("type", "attribute")
-				open:SetAttribute("macrotext", nil)
+	-- for (both forms for every helper would overrun the macro length cap).
+	local d = " LeftButton " .. ((GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")) and "1" or "0")
+
+	for key, entry in pairs(self.boxFlyouts) do
+		-- close: shut the box, reset the toggle
+		local mClose = "/click SPFC" .. key .. d .. "\n/click SPFR" .. key .. d
+		-- open: (single-open) close+reset every other flyout, open mine, arm the toggle
+		local lines = {}
+		if single then
+			for other in pairs(self.boxFlyouts) do
+				if other ~= key then lines[#lines + 1] = "/click SPFX" .. other .. d end
 			end
+		end
+		lines[#lines + 1] = "/click SPFO" .. key .. d
+		lines[#lines + 1] = "/click SPFA" .. key .. d
+		local mOpen = table.concat(lines, "\n")
+		entry.mOpen, entry.mClose = mOpen, mClose
+
+		local X, A, R, T = _G["SPFX" .. key], _G["SPFA" .. key], _G["SPFR" .. key], _G["SPFT" .. key]
+		if X and A and R and T then
+			X:SetAttribute("macrotext", mClose)
+			A:SetAttribute("attribute-value", mClose)   -- armed: next press closes
+			R:SetAttribute("attribute-value", mOpen)    -- reset: next press opens
+			local box = entry.button and entry.button.spFlyoutBox
+			T:SetAttribute("macrotext", (box and box:IsShown()) and mClose or mOpen)
+		end
+		-- the visible tabs do exactly what the toggle does
+		local btn = entry.button
+		if btn and btn.spFlyoutOpenArrow then
+			btn.spFlyoutOpenArrow:SetAttribute("type", "macro")
+			btn.spFlyoutOpenArrow:SetAttribute("macrotext", mOpen)
+		end
+		if btn and btn.spFlyoutCloseArrow then
+			btn.spFlyoutCloseArrow:SetAttribute("type", "macro")
+			btn.spFlyoutCloseArrow:SetAttribute("macrotext", mClose)
+		end
+	end
+
+	-- SPFCALL: one invisible button that closes every flyout (keybind target)
+	local all = _G.SPFCALL or CreateFrame("Button", "SPFCALL", UIParent, "SecureActionButtonTemplate")
+	all:SetSize(1, 1)
+	all:EnableMouse(false)
+	all:RegisterForClicks("AnyUp", "AnyDown")
+	local lines = {}
+	for key in pairs(self.boxFlyouts) do lines[#lines + 1] = "/click SPFX" .. key .. d end
+	all:SetAttribute("type", "macro")
+	all:SetAttribute("macrotext", table.concat(lines, "\n"))
+end
+
+-- Out of combat the box is opened and closed directly (hover, assignment, the
+-- end-of-fight sweep), so the toggle is put in step directly too.
+function ShamanPower:SyncFlyoutToggle(button, shown)
+	for key, entry in pairs(self.boxFlyouts) do
+		if entry.button == button then
+			local T = _G["SPFT" .. key]
+			if T and entry.mOpen and not InCombatLockdown() then
+				T:SetAttribute("macrotext", shown and entry.mClose or entry.mOpen)
+			end
+			return
 		end
 	end
 end
@@ -5561,6 +5673,119 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		arrow:SetShown((enabled and spFlyoutCombatLayout) and true or false)   -- combat only, and only with flyouts on
 		spFlyoutArrowAlpha(arrow, false)
 	end
+	self:DressFlyoutFrame(flyout)
+end
+
+-- Optional Blizzard-style frame around an open flyout (opt.flyoutStyle ==
+-- "frame"). Pure artwork: textures on the box, so they appear and vanish with
+-- the flyout by themselves, in and out of combat. Blizzard's proportions are
+-- for 24 px buttons in a 32 px frame, scaled here to our button size. As on
+-- Blizzard's bar the close tab moves to the far end, into the cap's notch; a
+-- copy of the tab art is drawn there as decoration so the cap never looks
+-- empty out of combat, where the real tab is hidden.
+function ShamanPower:DressFlyoutFrame(flyout)
+	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
+	local box = flyout and flyout.box
+	if not btn or not box then return end
+	if not box.frameArt then
+		-- The panel wraps the totem button too, so it is drawn on a plain frame
+		-- one level BELOW the button (the box itself sits above it): the button's
+		-- icon stays on top of the panel's fill. It is the box's child, so it
+		-- still comes and goes with the flyout.
+		local art = CreateFrame("Frame", nil, box)
+		art:SetAllPoints(btn)
+		box.frameArt = art
+		-- Blizzard's panel art is translucent, so the world shows through it. A
+		-- dark backing inside the border gives it a solid body; it follows the
+		-- Frame Opacity slider with the rest of the panel.
+		box.frameFill = art:CreateTexture(nil, "BACKGROUND", nil, -3)
+		box.frameFill:SetColorTexture(0, 0, 0, 1)
+		box.frameBand = art:CreateTexture(nil, "BACKGROUND", nil, -2)
+		box.frameCap = art:CreateTexture(nil, "BACKGROUND", nil, -1)
+		box.frameFoot = art:CreateTexture(nil, "BACKGROUND", nil, -1)
+		box.frameTab = box:CreateTexture(nil, "BORDER")   -- the tab stays above everything
+		for _, t in ipairs({ box.frameBand, box.frameCap, box.frameFoot, box.frameTab }) do t:SetTexture(ARROW_TEXTURE) end
+	end
+	box.frameArt:SetFrameLevel(math.max(0, btn:GetFrameLevel() - 1))
+	local band, cap, foot, tab = box.frameBand, box.frameCap, box.frameFoot, box.frameTab
+	if box.frameSlot then box.frameSlot:Hide() end
+
+	local count = 0
+	for _, b in ipairs(flyout.buttons or {}) do
+		if b:IsShown() then count = count + 1 end
+	end
+	local fill = box.frameFill
+	if self.opt.flyoutStyle ~= "frame" or count == 0 then
+		band:Hide(); cap:Hide(); foot:Hide(); tab:Hide(); fill:Hide()
+		return false
+	end
+
+	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	local opposite = ({ top = "bottom", bottom = "top", left = "right", right = "left" })[dir] or "bottom"
+	local sideways = (dir == "left" or dir == "right")
+	local art = flyout.artIndex or flyout.element or 5
+	local size = flyout.buttonSize or 28
+	local f = size / 24                                  -- Blizzard's art is for 24 px icons
+	local lead = flyout.leadGap or 0
+	local bw, bh = btn:GetWidth() or 30, btn:GetHeight() or 30
+	local bAlong, bAcross = sideways and bw or bh, sideways and bh or bw
+	-- One even border all the way round: Blizzard shows 4 px of panel beside a
+	-- 24 px icon, so the same margin (scaled) is kept beside the totem button,
+	-- which is the widest thing inside the frame, and below it.
+	local margin = 4 * f
+	local pad = margin                                   -- how far the frame reaches past the totem button
+	local capLen, tabW, tabH = 20 * f, ARROW_W * f, ARROW_H * f
+	local wide = math.max(32 * f, bAcross + 2 * margin)
+	-- Distances are measured along the flyout's direction from the button edge
+	-- it opens from: positive is out into the flyout, negative is back across
+	-- the totem button.
+	local length = lead + count * (size + (flyout.spacing or 0)) + 20 * f   -- 2 px pad + the 18 px tab
+	local farCapStart = length - 30 * f                                      -- the far cap starts 10 px in from the end
+	local footStart = -bAlong - pad
+
+	local function place(region, start, len, across)
+		region:ClearAllPoints()
+		if dir == "bottom" then
+			region:SetPoint("TOP", btn, "BOTTOM", 0, -start);  region:SetSize(across, len)
+		elseif dir == "left" then
+			region:SetPoint("RIGHT", btn, "LEFT", -start, 0);  region:SetSize(len, across)
+		elseif dir == "right" then
+			region:SetPoint("LEFT", btn, "RIGHT", start, 0);   region:SetSize(len, across)
+		else
+			region:SetPoint("BOTTOM", btn, "TOP", 0, start);   region:SetSize(across, len)
+		end
+	end
+
+	-- backing: inside the border, from the foot to the far cap's outer edge
+	local inset = 2 * f
+	local fillStart, fillEnd = footStart + inset, (length - 10 * f) - inset
+	place(fill, fillStart, fillEnd - fillStart, wide - 2 * inset)
+	place(foot, footStart, capLen, wide)                                   -- closes the frame under the button
+	place(band, footStart + capLen, farCapStart - (footStart + capLen), wide)
+	place(cap, farCapStart, capLen, wide)
+	place(tab, length - tabH, tabH, tabW)
+	-- the foot is the cap turned to face the other way
+	foot:SetTexCoord(spArrowCoords(FRAME_CAP[art] or FRAME_CAP[5], opposite))
+	band:SetTexCoord(spArrowCoords(FRAME_BAND[art] or FRAME_BAND[5], dir))
+	cap:SetTexCoord(spArrowCoords(FRAME_CAP[art] or FRAME_CAP[5], dir))
+	tab:SetTexCoord(spArrowCoords(ARROW_CLOSE[art] or ARROW_CLOSE[5], dir))
+
+	-- The panel (border and fill) has its own opacity on top of the flyout's; the
+	-- tab keeps the flyout's, so it never fades out of reach.
+	local alpha = self.opt.totemFlyoutOpacity or 1.0
+	local panelAlpha = alpha * (self.opt.flyoutFrameOpacity or 1.0)
+	for _, t in ipairs({ band, cap, foot }) do t:SetAlpha(panelAlpha); t:Show() end
+	fill:SetAlpha(panelAlpha * 0.85); fill:Show()
+	tab:SetAlpha(alpha); tab:Show()
+
+	-- The real close tab sits exactly on the decorative one. It is anchored to the
+	-- totem button with the same numbers rather than to the texture: a protected
+	-- frame may not be anchored to a region.
+	local close = btn.spFlyoutCloseArrow
+	if close and not InCombatLockdown() then
+		place(close, length - tabH, tabH, tabW)
+	end
+	return true
 end
 
 -- Box mode keeps every eligible button SHOWN inside the (hidden) box, because
@@ -5946,7 +6171,9 @@ function ShamanPower:CreateTotemFlyout(element)
 	self:LayoutFlyoutButtons(flyout)
 
 	self.totemFlyouts[element] = flyout
-	self:SyncCombatFlyoutButtons(element)
+	if flyout.box then
+		self:UpdateFlyoutVisibility(element)   -- decides which buttons belong, then syncs
+	end
 
 	return flyout
 end
@@ -9510,7 +9737,7 @@ function ShamanPower:CreateShieldFlyout()
 				-- box mode: cast and close the flyout in the same click
 				btn:SetAttribute("type1", "macro")
 				btn:SetAttribute("macrotext1", "/cast " .. spellName
-					.. "\n/click SPFCS LeftButton 1\n/click SPFCS LeftButton 0")
+					.. "\n/click SPFXS LeftButton 1\n/click SPFXS LeftButton 0")
 			end
 
 			-- PostClick: both clicks assign default; left-click also casts (via type1 above)
@@ -9722,7 +9949,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			local offHandMacro = "/cast [@none] " .. spellName .. "\n/use 17\n/click StaticPopup1Button1"
 			if flyout.box then
 				-- box mode: apply the imbue and close the flyout in the same click
-				local closeLines = "\n/click SPFCI LeftButton 1\n/click SPFCI LeftButton 0"
+				local closeLines = "\n/click SPFXI LeftButton 1\n/click SPFXI LeftButton 0"
 				mainHandMacro, offHandMacro = mainHandMacro .. closeLines, offHandMacro .. closeLines
 			end
 			btn:SetAttribute("type1", "macro")
@@ -13808,6 +14035,17 @@ ShamanPower.KeybindButtons = {
 	["SHAMANPOWER_AIR_TOTEM"] = "ShamanPowerTotemBtn4",
 	["SHAMANPOWER_EARTH_SHIELD"] = "ShamanPowerEarthShieldBtn",
 	["SHAMANPOWER_TOTEMIC_CALL"] = "ShamanPowerTotemicCallBtn",
+	-- Flyouts (box mode): each key presses that flyout's TOGGLE helper (SPFT<K>,
+	-- see EnsureFlyoutBox), so one key opens and closes, in or out of combat,
+	-- and obeys the single-open setting. On clients without box mode these
+	-- buttons do not exist and the bindings are inert.
+	["SHAMANPOWER_FLYOUT_EARTH"] = "SPFT1",
+	["SHAMANPOWER_FLYOUT_FIRE"] = "SPFT2",
+	["SHAMANPOWER_FLYOUT_WATER"] = "SPFT3",
+	["SHAMANPOWER_FLYOUT_AIR"] = "SPFT4",
+	["SHAMANPOWER_FLYOUT_SHIELD"] = "SPFTS",
+	["SHAMANPOWER_FLYOUT_IMBUE"] = "SPFTI",
+	["SHAMANPOWER_FLYOUT_CLOSE"] = "SPFCALL",
 }
 
 -- Map cooldown bar binding names to cooldownType values
