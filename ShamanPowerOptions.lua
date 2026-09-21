@@ -2092,6 +2092,14 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemFlyoutEnabled()
 							end
 						},
+						flyout_combat_header = {
+							order = 3.5,
+							type = "header",
+							name = "Flyouts (totem bar and cooldown bar)",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+						},
 						flyout_style = {
 							order = 5,
 							type = "select",
@@ -2139,6 +2147,53 @@ ShamanPower.options = {
 								for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
 									ShamanPower:DressFlyoutFrame(entry.flyout)
 								end
+							end
+						},
+						flyout_close_on_cast = {
+							order = 4.5,
+							type = "toggle",
+							name = "Close Flyout After Casting From It",
+							desc = "Clicking a totem, shield or imbue in a flyout casts it and closes the flyout in the same click. Turn it off to keep the flyout open until you close it yourself (handy for dropping several totems in a row).",
+							width = "full",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutCloseOnCast ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutCloseOnCast = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect after combat.")
+								end
+								ShamanPower:ApplyFlyoutPickMacros()
+							end
+						},
+						flyout_route_bar_keys = {
+							order = 4.6,
+							type = "toggle",
+							name = "Action Bar Keys Also Close the Flyout",
+							desc = "If a totem, shield or imbue from a flyout is also on your action bars with a keybind, that key is sent through ShamanPower's own button: it casts the same spell and closes the flyout, even in combat.\n\nOnly for bar slots holding the plain spell, never a macro. Blizzard's action button will not show the press animation for those keys. Turn this off to leave your action bar keys completely alone.",
+							width = "full",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+									or ShamanPower.opt.flyoutCloseOnCast == false
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutRouteBarKeys ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutRouteBarKeys = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect after combat.")
+								end
+								ShamanPower:SetupKeybindings()
 							end
 						},
 						flyout_single_open = {

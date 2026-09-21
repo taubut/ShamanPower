@@ -376,6 +376,7 @@ do
 		wipe(spFlyoutStuck)
 		setCombatLayout(false)
 		if ShamanPower.flyoutArrowModePending then ShamanPower:ApplyFlyoutArrowMode() end
+		if ShamanPower.flyoutPickPending then ShamanPower:ApplyFlyoutPickMacros() end
 	end)
 end
 
@@ -5513,12 +5514,21 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		--   SPFT<K>            macro: the TOGGLE the keybind presses
 		--   SPFA<K> / SPFR<K>  attribute: rewrite SPFT's macrotext to its "close"
 		--                      / "open" form (arm / reset)
-		--   SPFX<K>            macro: close the box AND reset the toggle
 		-- A key cannot ask whether the flyout is open (hidden buttons still
 		-- answer /click, measured), so the toggle carries its own state: each
 		-- press rewrites what the next press will do, and every other way a
-		-- flyout closes goes through SPFX so the toggle never falls out of step.
+		-- flyout closes presses SPFC + SPFR so the toggle never falls out of step.
 		-- The macro texts themselves are filled in by ApplyFlyoutArrowMode.
+		--
+		-- Two rules learned the hard way (both measured in game):
+		--   * a macro may press attribute buttons, but a macro-type button
+		--     pressed from inside a macro does not run, so every macro here is
+		--     flat: it presses SPFO/SPFC/SPFA/SPFR directly, never another macro;
+		--   * the attribute helpers set useOnKeyDown = false, so they act on a
+		--     click RELEASE whatever the player's key-down setting is, and a bare
+		--     "/click NAME" (which sends a release) is all a macro needs. That
+		--     keeps the longest macro (close five others, open mine) near 150
+		--     characters, well inside the macro length limit.
 		local function helper(prefix)
 			local h = _G[prefix .. element] or CreateFrame("Button", prefix .. element, totemButton, "SecureActionButtonTemplate")
 			h:SetParent(totemButton)   -- a rebuilt cooldown bar hands us a new button
@@ -5530,20 +5540,21 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		end
 		for _, def in ipairs({ { "SPFO", "player" }, { "SPFC", "none" } }) do
 			local h = helper(def[1])
+			h:SetAttribute("useOnKeyDown", false)
 			h:SetAttribute("type", "attribute")
 			h:SetAttribute("attribute-frame", box)
 			h:SetAttribute("attribute-name", "unit")
 			h:SetAttribute("attribute-value", def[2])
 		end
-		local toggle = helper("SPFT")
+		local toggle = helper("SPFT")   -- pressed by a real key: follows the player's key-down setting
 		toggle:SetAttribute("type", "macro")
 		for _, prefix in ipairs({ "SPFA", "SPFR" }) do
 			local h = helper(prefix)
+			h:SetAttribute("useOnKeyDown", false)
 			h:SetAttribute("type", "attribute")
 			h:SetAttribute("attribute-frame", toggle)
 			h:SetAttribute("attribute-name", "macrotext")
 		end
-		helper("SPFX"):SetAttribute("type", "macro")
 		open.spHideWhileShown = box
 		if not box.spArrowHooked then
 			box.spArrowHooked = true
@@ -5577,28 +5588,27 @@ function ShamanPower:ApplyFlyoutArrowMode()
 	end
 	self.flyoutArrowModePending = nil
 	local single = self.opt.flyoutSingleOpen ~= false
-	-- One /click per helper, in the form this client's key-down setting listens
-	-- for (both forms for every helper would overrun the macro length cap).
-	local d = " LeftButton " .. ((GetCVarBool and GetCVarBool("ActionButtonUseKeyDown")) and "1" or "0")
 
 	for key, entry in pairs(self.boxFlyouts) do
 		-- close: shut the box, reset the toggle
-		local mClose = "/click SPFC" .. key .. d .. "\n/click SPFR" .. key .. d
-		-- open: (single-open) close+reset every other flyout, open mine, arm the toggle
+		local mClose = "/click SPFC" .. key .. "\n/click SPFR" .. key
+		-- open: (single-open) close and reset every other flyout, open mine, arm the toggle
 		local lines = {}
 		if single then
 			for other in pairs(self.boxFlyouts) do
-				if other ~= key then lines[#lines + 1] = "/click SPFX" .. other .. d end
+				if other ~= key then
+					lines[#lines + 1] = "/click SPFC" .. other
+					lines[#lines + 1] = "/click SPFR" .. other
+				end
 			end
 		end
-		lines[#lines + 1] = "/click SPFO" .. key .. d
-		lines[#lines + 1] = "/click SPFA" .. key .. d
+		lines[#lines + 1] = "/click SPFO" .. key
+		lines[#lines + 1] = "/click SPFA" .. key
 		local mOpen = table.concat(lines, "\n")
 		entry.mOpen, entry.mClose = mOpen, mClose
 
-		local X, A, R, T = _G["SPFX" .. key], _G["SPFA" .. key], _G["SPFR" .. key], _G["SPFT" .. key]
-		if X and A and R and T then
-			X:SetAttribute("macrotext", mClose)
+		local A, R, T = _G["SPFA" .. key], _G["SPFR" .. key], _G["SPFT" .. key]
+		if A and R and T then
 			A:SetAttribute("attribute-value", mClose)   -- armed: next press closes
 			R:SetAttribute("attribute-value", mOpen)    -- reset: next press opens
 			local box = entry.button and entry.button.spFlyoutBox
@@ -5622,9 +5632,35 @@ function ShamanPower:ApplyFlyoutArrowMode()
 	all:EnableMouse(false)
 	all:RegisterForClicks("AnyUp", "AnyDown")
 	local lines = {}
-	for key in pairs(self.boxFlyouts) do lines[#lines + 1] = "/click SPFX" .. key .. d end
+	for key in pairs(self.boxFlyouts) do
+		lines[#lines + 1] = "/click SPFC" .. key
+		lines[#lines + 1] = "/click SPFR" .. key
+	end
 	all:SetAttribute("type", "macro")
 	all:SetAttribute("macrotext", table.concat(lines, "\n"))
+end
+
+-- What clicking an icon inside a box-mode flyout does. Each button carries its
+-- plain cast text per mouse button in btn.spPick (set where the button is
+-- built); opt.flyoutCloseOnCast (default on) appends the two presses that close
+-- the flyout and put its toggle key back to "open".
+function ShamanPower:ApplyFlyoutPickMacros()
+	if InCombatLockdown() then
+		self.flyoutPickPending = true
+		return
+	end
+	self.flyoutPickPending = nil
+	local closeOnCast = self.opt.flyoutCloseOnCast ~= false
+	for key, entry in pairs(self.boxFlyouts) do
+		local flyout = entry.flyout
+		local tail = closeOnCast and ("\n/click SPFC" .. key .. "\n/click SPFR" .. key) or ""
+		for _, btn in ipairs(flyout.allButtons or flyout.buttons or {}) do
+			for n, base in pairs(btn.spPick or {}) do
+				btn:SetAttribute("type" .. n, "macro")
+				btn:SetAttribute("macrotext" .. n, base .. tail)
+			end
+		end
+	end
 end
 
 -- Out of combat the box is opened and closed directly (hover, assignment, the
@@ -5987,12 +6023,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- works in combat again (PostClick below already handles the rest).
 			if flyout.box and spellName then
 				local castN, assignN = swapped and "2" or "1", swapped and "1" or "2"
-				local closeName = "ShamanPowerFlyoutClose" .. element
-				btn:SetAttribute("type" .. castN, "macro")
-				btn:SetAttribute("macrotext" .. castN,
-					"/cast " .. spellName
-					.. "\n/click " .. closeName .. " LeftButton 1"
-					.. "\n/click " .. closeName .. " LeftButton 0")
+				btn.spPick = { [castN] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
 				btn:SetAttribute("type" .. assignN, "attribute")
 				btn:SetAttribute("attribute-frame" .. assignN, parentButton)
 				btn:SetAttribute("attribute-name" .. assignN, "spell1")
@@ -6172,6 +6203,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 	self.totemFlyouts[element] = flyout
 	if flyout.box then
+		self:ApplyFlyoutPickMacros()
 		self:UpdateFlyoutVisibility(element)   -- decides which buttons belong, then syncs
 	end
 
@@ -9735,9 +9767,7 @@ function ShamanPower:CreateShieldFlyout()
 			btn:SetAttribute("spell", spellName)
 			if flyout.box then
 				-- box mode: cast and close the flyout in the same click
-				btn:SetAttribute("type1", "macro")
-				btn:SetAttribute("macrotext1", "/cast " .. spellName
-					.. "\n/click SPFXS LeftButton 1\n/click SPFXS LeftButton 0")
+				btn.spPick = { ["1"] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
 			end
 
 			-- PostClick: both clicks assign default; left-click also casts (via type1 above)
@@ -9798,6 +9828,7 @@ function ShamanPower:CreateShieldFlyout()
 	end
 
 	self.shieldFlyout = flyout
+	if flyout.box then self:ApplyFlyoutPickMacros() end
 
 	-- Layout the flyout buttons
 	self:LayoutShieldFlyout()
@@ -9948,9 +9979,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			local mainHandMacro = "/cast [@none] " .. spellName .. "\n/use 16\n/click StaticPopup1Button1"
 			local offHandMacro = "/cast [@none] " .. spellName .. "\n/use 17\n/click StaticPopup1Button1"
 			if flyout.box then
-				-- box mode: apply the imbue and close the flyout in the same click
-				local closeLines = "\n/click SPFXI LeftButton 1\n/click SPFXI LeftButton 0"
-				mainHandMacro, offHandMacro = mainHandMacro .. closeLines, offHandMacro .. closeLines
+				btn.spPick = { ["1"] = mainHandMacro, ["2"] = offHandMacro }   -- finished by ApplyFlyoutPickMacros
 			end
 			btn:SetAttribute("type1", "macro")
 			btn:SetAttribute("macrotext1", mainHandMacro)
@@ -10030,6 +10059,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	end
 
 	self.weaponImbueFlyout = flyout
+	if flyout.box then self:ApplyFlyoutPickMacros() end
 
 	-- Layout the flyout buttons
 	self:LayoutWeaponImbueFlyout()
@@ -14307,16 +14337,24 @@ function ShamanPower:GetActiveActionBarAddon()
 end
 
 -- Get spell name from an action slot
+-- Filled by every scan: spells that sit on the bars as the plain spell, and
+-- spells that are only reached through a macro. Key routing (RouteFlyoutBarKeys)
+-- takes over a key only for the first kind; a macro may do something smarter
+-- than a plain cast and is left alone.
+ShamanPower.barPlainSpells, ShamanPower.barMacroSpells = {}, {}
+
 local function GetSpellNameFromActionSlot(slot)
 	local actionType, id, subType = GetActionInfo(slot)
 	if actionType == "spell" and id then
 		local spellName = GetSpellInfo(id)
+		if spellName then ShamanPower.barPlainSpells[spellName] = true end
 		return spellName, id
 	elseif actionType == "macro" then
 		-- Check if macro casts a spell we care about
 		local macroSpell = GetMacroSpell(id)
 		if macroSpell then
 			local spellName = GetSpellInfo(macroSpell)
+			if spellName then ShamanPower.barMacroSpells[spellName] = true end
 			return spellName, macroSpell
 		end
 	end
@@ -14539,6 +14577,8 @@ end
 function ShamanPower:ScanActionBarKeybinds()
 	local addon = self:GetActiveActionBarAddon()
 	local keybinds = {}
+	wipe(self.barPlainSpells)
+	wipe(self.barMacroSpells)
 
 	-- Always scan default bars first (provides fallback)
 	local defaultKeybinds = self:ScanDefaultActionBarKeybinds()
@@ -14923,6 +14963,38 @@ function ShamanPower:SetupKeybindings()
 
 	-- Update keybind text on buttons if enabled
 	self:UpdateButtonKeybindText()
+
+	-- (after the scan above) action bar keys for flyout spells go through the flyout
+	self:RouteFlyoutBarKeys()
+end
+
+-- In combat a flyout can only be closed by a press on one of OUR secure buttons,
+-- so a totem cast from the player's own action bar key left the flyout standing
+-- open. With opt.flyoutRouteBarKeys (default on) the key a flyout spell has on
+-- the action bars is pointed at that spell's flyout button instead: the same
+-- spell is cast, and the button's macro closes the flyout as it does for a
+-- click. Only for plain-spell slots (never a macro), only in box mode, and only
+-- as override bindings owned by our keybind frame, so clearing them restores
+-- the player's keys untouched. Hidden buttons answer binding presses, so this
+-- works whether or not the flyout is open.
+function ShamanPower:RouteFlyoutBarKeys()
+	if InCombatLockdown() or not self.keybindFrame then return end
+	if self.opt.flyoutRouteBarKeys == false or not self.opt.showTotemFlyouts then return end
+	if self.opt.flyoutCloseOnCast == false then return end   -- nothing to gain: leave the player's keys alone
+	if not next(self.boxFlyouts or {}) then return end   -- not in box mode
+
+	local castButton = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"
+	for key, entry in pairs(self.boxFlyouts) do
+		local flyout = entry.flyout
+		local mouse = (type(key) == "number") and castButton or "LeftButton"   -- shield/imbue cast on left
+		for _, btn in ipairs(flyout.allButtons or flyout.buttons or {}) do
+			local name = btn.spellName or btn:GetAttribute("mySpell") or (btn.spellID and GetSpellInfo(btn.spellID))
+			local bound = name and self.actionBarKeybinds and self.actionBarKeybinds[name]
+			if bound and btn:GetName() and self.barPlainSpells[name] and not self.barMacroSpells[name] then
+				SetOverrideBindingClick(self.keybindFrame, false, bound, btn:GetName(), mouse)
+			end
+		end
+	end
 end
 
 -- Register for binding updates
@@ -15000,6 +15072,18 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 	if event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" or event == "SPELLS_CHANGED" then
 		if ShamanPower.opt and ShamanPower.opt.showButtonKeybinds then
 			ShamanPower:QueueKeybindTextRefresh()
+		end
+		-- routed keys follow the bars too; bindings are secure, so defer in combat
+		if ShamanPower.opt and ShamanPower.opt.flyoutRouteBarKeys ~= false and next(ShamanPower.boxFlyouts or {}) then
+			if InCombatLockdown() then
+				ShamanPower.keybindsPending = true
+			elseif not ShamanPower.flyoutRouteQueued then
+				ShamanPower.flyoutRouteQueued = true
+				C_Timer.After(0.5, function()
+					ShamanPower.flyoutRouteQueued = nil
+					ShamanPower:SetupKeybindings()
+				end)
+			end
 		end
 		return
 	end

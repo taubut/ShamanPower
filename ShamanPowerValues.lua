@@ -110,6 +110,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         swapFlyoutClickButtons = false,  -- Swap flyout mouse buttons (left=assign, right=cast instead of default)
         flyoutRequiresClick = false,  -- Require right-click to show flyout instead of mouseover
         flyoutSingleOpen = true,      -- In-combat arrow flyouts: opening one closes the others (false = they stay open)
+        flyoutCloseOnCast = true,     -- Box-mode flyouts: picking from a flyout closes it (false = it stays open)
+        flyoutRouteBarKeys = true,    -- Box-mode flyouts: action bar keys for flyout spells press the flyout's own button, so they close it too
         flyoutStyle = "icons",        -- "icons" (bare icons) or "frame" (Blizzard's totem bar flyout frame)
         flyoutFrameOpacity = 1.0,     -- Opacity of the frame's border and fill in the "frame" style
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
