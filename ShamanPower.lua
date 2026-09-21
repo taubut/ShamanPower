@@ -1174,6 +1174,10 @@ end
 -- unit defaults to the player; party members measure the same way (UnitPosition
 -- returns plain numbers for them in combat in the open world, measured).
 function ShamanPower:TotemDropInRange(element, unit)
+	-- dev switch: behave as if inside an instance, where the client gives out no
+	-- positions, so the no-position fallbacks can be tested in the open world
+	-- (/run ShamanPower.debugNoPositions = true)
+	if self.debugNoPositions then return nil end
 	local drop = self.totemDropPos[element]
 	if not drop then return nil end
 	local x, y, map = unitPosition(unit or "player")

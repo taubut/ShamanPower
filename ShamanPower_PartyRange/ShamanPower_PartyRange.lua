@@ -166,11 +166,31 @@ end
 -- dropped instead (the same model the totem bar's own range check uses). With
 -- no position to measure (instances), the last readable answer is kept.
 SP.partyRangeLast = {}   -- [unit .. element] = last answer while buffs were readable
+
+-- Instances give out no positions, so distance from the totem cannot be
+-- measured there. What the client does still answer in combat is whether a unit
+-- is within range of a spell (measured: C_Spell.IsSpellInRange("Healing Wave",
+-- "party1") is true next to the shaman and false far away, mid-fight). It is an
+-- approximation on two counts, and only used where nothing better exists: it
+-- measures from the SHAMAN rather than from the totem, and Healing Wave reaches
+-- 40 yd against a totem's 30. It is right whenever the shaman stands by their
+-- totems, and unlike a frozen dot it keeps updating during the fight.
+local RANGE_SPELL_ID = 331   -- Healing Wave (Rank 1): every shaman knows it
+function SP:UnitNearShaman(unit)
+	if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
+	local name = GetSpellInfo(RANGE_SPELL_ID)   -- localized, matches any rank
+	local ok, inRange = pcall(C_Spell.IsSpellInRange, name or RANGE_SPELL_ID, unit)
+	if not ok or inRange == nil then return nil end
+	if issecretvalue and issecretvalue(inRange) then return nil end
+	return inRange and true or false
+end
+
 function SP:UnitHasBuff(unit, buffName, element)
 	if not buffName then return false end
 
 	if element and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
 		local near = ShamanPower.TotemDropInRange and ShamanPower:TotemDropInRange(element, unit)
+		if near == nil then near = self:UnitNearShaman(unit) end          -- no positions (instances)
 		if near == nil then near = self.partyRangeLast[unit .. element] end
 		if near == nil then near = true end   -- never call someone uncovered on a guess
 		return near
