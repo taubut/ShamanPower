@@ -1006,13 +1006,13 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		row("Slider", { label = "Gap between lines", min = 0, max = 20, step = 1, get = function() return OPT().totemBarPadding or 2 end,
 			set = function(v) OPT().totemBarPadding = v; safecall("ApplyCompactStyle"); notify() end })
 		row("Dropdown", { label = "Icon squares", set = cset("compactIconSquares"),
-			get = function() local v = OPT().compactIconSquares or "off"; if v == "above" then v = "before" elseif v == "below" then v = "after" end; return v end,
+			get = function() local v = OPT().compactIconSquares or (SP.CompactLookDefaults and SP.CompactLookDefaults.compactIconSquares) or "off"; if v == "above" then v = "before" elseif v == "below" then v = "after" end; return v end,
 			values = function()
 				if SP.CompactOpts and SP:CompactOpts(OPT()).vertical then return { off = "Off", before = "Above the line", after = "Below the line" } end
 				return { off = "Off", before = "Left of the line", after = "Right of the line" }
 			end,
 			order = function() return { "off", "before", "after" } end })
-		row("Slider", { label = "Icon square size", min = 8, max = 24, step = 1, get = function() return OPT().compactIconSize or 15 end, set = cset("compactIconSize") })
+		row("Slider", { label = "Icon square size", min = 8, max = 24, step = 1, get = function() return OPT().compactIconSize or (SP.CompactLookDefaults and SP.CompactLookDefaults.compactIconSize) or 15 end, set = cset("compactIconSize") })
 		row("Toggle", { label = "Pulse refill in the line", get = function() return OPT().compactPulseBar ~= false end, set = cset("compactPulseBar") })
 		row("Toggle", { label = "Pulse countdown text", get = function() return OPT().compactPulseText ~= false end, set = cset("compactPulseText") })
 		row("Toggle", { label = "Your shield line (Lightning / Water)", get = function() return OPT().compactShieldLine and true or false end, set = cset("compactShieldLine") })

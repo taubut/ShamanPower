@@ -963,7 +963,7 @@ ShamanPower.options = {
 									desc = "The texture the lines are drawn with, tinted in each element's colour. Flat is a plain colour fill. The ShamanPower ones ship with the addon; the rest come from your other addons (anything that registers bar textures).",
 									width = 1.2,
 									values = function() return ShamanPower:CompactLineTextureList() end,
-									get = function(info) return ShamanPower.opt.compactLineTexture or "Flat" end,
+									get = function(info) return ShamanPower.opt.compactLineTexture or ShamanPower.CompactLookDefaults.compactLineTexture end,
 									set = function(info, val) ShamanPower.opt.compactLineTexture = val; ShamanPower:ApplyCompactStyle() end,
 								},
 								compactIdleColor = {
@@ -983,7 +983,7 @@ ShamanPower.options = {
 									desc = "The outline of a line while no totem of that element is down. None: the outline only appears with a totem out (and drains with its duration). Element colour: every line always wears an outline in its element's colour (or your custom outline colour), a little dimmer than a live totem's.",
 									width = 1.2,
 									values = { none = "None", element = "Element colour" },
-									get = function(info) return ShamanPower.opt.compactIdleOutline or "none" end,
+									get = function(info) return ShamanPower.opt.compactIdleOutline or ShamanPower.CompactLookDefaults.compactIdleOutline end,
 									set = function(info, val) ShamanPower.opt.compactIdleOutline = val; ShamanPower:ApplyCompactStyle() end,
 								},
 								compactLength = {
@@ -1054,7 +1054,7 @@ ShamanPower.options = {
 									end,
 									sorting = { "off", "before", "after" },
 									get = function(info)
-										local v = ShamanPower.opt.compactIconSquares or "off"
+										local v = ShamanPower.opt.compactIconSquares or ShamanPower.CompactLookDefaults.compactIconSquares
 										if v == "above" then v = "before" elseif v == "below" then v = "after" end
 										return v
 									end,
@@ -1066,8 +1066,8 @@ ShamanPower.options = {
 									name = "Icon Square Size",
 									min = 8, max = 24, step = 1,
 									width = 1.2,
-									hidden = function(info) return (ShamanPower.opt.compactIconSquares or "off") == "off" end,
-									get = function(info) return ShamanPower.opt.compactIconSize or 15 end,
+									hidden = function(info) return (ShamanPower.opt.compactIconSquares or ShamanPower.CompactLookDefaults.compactIconSquares) == "off" end,
+									get = function(info) return ShamanPower.opt.compactIconSize or ShamanPower.CompactLookDefaults.compactIconSize end,
 									set = function(info, val) ShamanPower.opt.compactIconSize = val; ShamanPower:ApplyCompactStyle() end,
 								},
 								compactFlyoutSize = FlyoutSizeOption(7.5, 1.2, "compactFlyoutButtonSize", 15,
@@ -2054,7 +2054,7 @@ ShamanPower.options = {
 							width = 1.4,
 							values = { classic = "ShamanPower classic (brown Earth)", blizzard = "Blizzard totem bar (green Earth)", custom = "Custom" },
 							sorting = { "classic", "blizzard", "custom" },
-							get = function(info) return ShamanPower.opt.elementColorPalette or "classic" end,
+							get = function(info) return ShamanPower.opt.elementColorPalette or ShamanPower:DefaultElementPalette() end,
 							set = function(info, val)
 								if val == "custom" and not ShamanPower.opt.elementColorsCustom then
 									-- start from whatever is showing now
@@ -2071,7 +2071,7 @@ ShamanPower.options = {
 							type = "color",
 							name = "Earth",
 							width = 0.6,
-							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or ShamanPower:DefaultElementPalette()) ~= "custom" end,
 							get = function(info) return ShamanPower:ElementPaletteColor(1) end,
 							set = function(info, r, g, b)
 								ShamanPower:EnsureProfileTable("elementColorsCustom")
@@ -2084,7 +2084,7 @@ ShamanPower.options = {
 							type = "color",
 							name = "Fire",
 							width = 0.6,
-							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or ShamanPower:DefaultElementPalette()) ~= "custom" end,
 							get = function(info) return ShamanPower:ElementPaletteColor(2) end,
 							set = function(info, r, g, b)
 								ShamanPower:EnsureProfileTable("elementColorsCustom")
@@ -2097,7 +2097,7 @@ ShamanPower.options = {
 							type = "color",
 							name = "Water",
 							width = 0.6,
-							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or ShamanPower:DefaultElementPalette()) ~= "custom" end,
 							get = function(info) return ShamanPower:ElementPaletteColor(3) end,
 							set = function(info, r, g, b)
 								ShamanPower:EnsureProfileTable("elementColorsCustom")
@@ -2110,7 +2110,7 @@ ShamanPower.options = {
 							type = "color",
 							name = "Air",
 							width = 0.6,
-							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") ~= "custom" end,
+							hidden = function(info) return (ShamanPower.opt.elementColorPalette or ShamanPower:DefaultElementPalette()) ~= "custom" end,
 							get = function(info) return ShamanPower:ElementPaletteColor(4) end,
 							set = function(info, r, g, b)
 								ShamanPower:EnsureProfileTable("elementColorsCustom")
@@ -2124,7 +2124,7 @@ ShamanPower.options = {
 							name = "Reset Element Colours",
 							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
 							width = 1.0,
-							hidden = function(info) return (ShamanPower.opt.elementColorPalette or "classic") == "classic" end,
+							hidden = function(info) return ShamanPower.opt.elementColorPalette == nil or ShamanPower.opt.elementColorPalette == ShamanPower:DefaultElementPalette() end,
 							func = function() ShamanPower:ConfirmResetSection("colors") end,
 						},
 						layout = {

@@ -816,6 +816,7 @@ function ShamanPower:OnInitialize()
 
 	self.opt = self.db.profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
 	if self.ApplyElementColors then self:ApplyElementColors() end
 	-- The cooldown bar now always floats free of the totem bar (the old
 	-- attach option was removed). Detach any profile still attached.
@@ -1154,6 +1155,7 @@ function ShamanPower:OnProfileChanged()
 
 	self.opt = self.db.profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
 	if self.ApplyElementColors then self:ApplyElementColors() end
 
 	-- Reset frame positions when profile changes (prevents off-screen issues)
@@ -7521,8 +7523,15 @@ local ELEMENT_PALETTES = {
 	blizzard = { { 0.36, 0.72, 0.21 }, { 0.92, 0.37, 0.17 }, { 0.28, 0.70, 0.88 }, { 0.60, 0.32, 1.00 } },
 }
 
+-- On WoW: Forever Blizzard's totem bar art is on screen next to ours (arrow tabs,
+-- empty-slot totems), so its colours are the default there. Elsewhere the look
+-- ShamanPower always had.
+function ShamanPower:DefaultElementPalette()
+	return (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "blizzard" or "classic"
+end
+
 function ShamanPower:ElementPaletteColor(element)
-	local mode = self.opt and self.opt.elementColorPalette or "classic"
+	local mode = self.opt and self.opt.elementColorPalette or self:DefaultElementPalette()
 	if mode == "custom" then
 		local c = self.opt.elementColorsCustom and self.opt.elementColorsCustom[element]
 		if c then return c.r or 1, c.g or 1, c.b or 1 end

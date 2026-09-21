@@ -104,9 +104,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarFullOpacityWhenActive = false,  -- Show totem at full opacity when placed
         cooldownBarOpacity = 1.0,  -- Opacity of cooldown bar (0.1 to 1.0)
         cooldownBarFullOpacityWhenActive = false,  -- Show CD button at full opacity when buff active or on cooldown
-        elementColorPalette = "classic",  -- "classic" (brown earth), "blizzard" (green earth, purple air) or "custom"
+        -- elementColorPalette: no default here; nil = ShamanPower:DefaultElementPalette() (Blizzard's colours on WoW: Forever, classic elsewhere)
         totemFlyoutButtonSize = 28,     -- Totem flyout icon size on the icon bar
-        compactFlyoutButtonSize = 15,   -- Totem flyout icon size on the Compact bar (small on purpose: the lines are thin)
+        -- compactFlyoutButtonSize / compactIconSize / compactIconSquares / compactLineTexture / compactIdleOutline:
+        -- no defaults here on purpose, see the look defaults in ShamanPowerCompact.lua
         cooldownFlyoutButtonSize = 22,  -- Shield / imbue flyout icon size on the cooldown bar
         totemFlyoutOpacity = 1.0,  -- Opacity of totem bar flyout menus (0.1 to 1.0)
         cooldownFlyoutOpacity = 1.0,  -- Opacity of cooldown bar flyout menus (0.1 to 1.0)
@@ -171,13 +172,11 @@ SHAMANPOWER_DEFAULT_VALUES = {
         compactStyle = false,
         compactOrientation = "horizontal",  -- "horizontal" (lines stacked) / "vertical" (lines side by side)
         compactLength = 120,                -- line length px
-        compactThickness = nil,             -- line thickness px (nil = 10 horizontal / 16 vertical)
+        compactThickness = nil,             -- line thickness px (nil = 14 horizontal / 16 vertical)
         compactOutlineWidth = 2,            -- duration outline px
         compactOutlineColorMode = "element", -- "element" (lightened element color) / "custom"
         compactOutlineColor = { r = 1, g = 1, b = 1 },
         compactDurationMode = "auto",       -- "auto" (outline horizontal / fill vertical), "outline", "fill"
-        compactIconSquares = "off",         -- "off", "before", "after" (left/right of a horizontal line, above/below a vertical one)
-        compactIconSize = 15,               -- icon square px (matches the Compact flyout icons)
         compactPulseText = true,            -- pulse countdown text inside the line
         compactPulseBar = true,             -- pulse refill inside the line
         compactShieldLine = false,          -- your Lightning / Water Shield as a 3-segment line at the start of the bar

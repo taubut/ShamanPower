@@ -70,6 +70,54 @@ local function PaintBar(t, tex, vertical, r, g, b, a)
 end
 
 -- ---------------------------------------------------------------------------
+-- Look defaults
+-- ---------------------------------------------------------------------------
+-- What an unset look setting means. Version 2 (textured lines, element-coloured
+-- outlines at rest, icon squares on, thicker horizontal lines so the pulse
+-- countdown fits, 15 px icons). These keys deliberately have NO AceDB default:
+-- "nil in the profile" has to mean "never chosen", which is what lets
+-- PreserveCompactLook tell an existing Compact user from a new one.
+local LOOK = {
+	compactLineTexture = "ShamanPower Smooth",
+	compactIdleOutline = "element",
+	compactIconSquares = "before",
+	compactIconSize = 15,
+	compactFlyoutButtonSize = 15,
+}
+-- What the same unset settings meant up to 2.1.x.
+local LEGACY_LOOK = {
+	compactLineTexture = "Flat",
+	compactIdleOutline = "none",
+	compactIconSquares = "off",
+	compactIconSize = 12,
+	compactFlyoutButtonSize = 28,
+}
+SP.CompactLookDefaults = LOOK
+
+function SP:CompactDefaultThickness(vertical, legacy)
+	if vertical then return 16 end
+	return legacy and 10 or 14   -- 14: the pulse countdown text needs at least that to be drawn
+end
+
+-- Runs once per profile. Someone already using Compact keeps exactly what is on
+-- their screen: every look setting they never touched is written down at its OLD
+-- meaning before the new defaults take over. Everyone else (and anyone pressing
+-- "Reset Compact Style to Defaults") gets the new look.
+function SP:PreserveCompactLook()
+	local o = self.opt
+	if not o or o.compactLookVersion then return end
+	if o.compactStyle then
+		for key, value in pairs(LEGACY_LOOK) do
+			if o[key] == nil then o[key] = value end
+		end
+		if o.compactThickness == nil then
+			o.compactThickness = self:CompactDefaultThickness((o.compactOrientation or "horizontal") == "vertical", true)
+		end
+	end
+	o.compactLookVersion = 2
+end
+
+-- ---------------------------------------------------------------------------
 -- Option access
 -- ---------------------------------------------------------------------------
 function SP:CompactActive()
@@ -82,10 +130,10 @@ function SP:CompactOpts(o)
 	o = o or self.opt
 	local vertical = (o.compactOrientation or "horizontal") == "vertical"
 	local T = o.compactThickness
-	if T == nil then T = vertical and 16 or 10 end
+	if T == nil then T = self:CompactDefaultThickness(vertical) end
 	local mode = o.compactDurationMode
 	if mode == nil or mode == "auto" then mode = vertical and "fill" or "outline" end
-	local sq = o.compactIconSquares or "off"
+	local sq = o.compactIconSquares or LOOK.compactIconSquares
 	if sq == "above" then sq = "before" elseif sq == "below" then sq = "after" end   -- old values
 	return {
 		vertical  = vertical,
@@ -95,10 +143,10 @@ function SP:CompactOpts(o)
 		olColor   = (o.compactOutlineColorMode == "custom") and o.compactOutlineColor or nil,
 		fill      = (mode == "fill"),
 		sq        = sq,
-		iq        = o.compactIconSize or 15,
+		iq        = o.compactIconSize or LOOK.compactIconSize,
 		pulseText = o.compactPulseText ~= false,
 		pulseBar  = o.compactPulseBar ~= false,
-		tex       = LineTexturePath(o.compactLineTexture),
+		tex       = LineTexturePath(o.compactLineTexture or LOOK.compactLineTexture),
 	}
 end
 
@@ -672,7 +720,7 @@ function SP:UpdateCompactTotems()
 		if c and btn.compactLayoutOn and btn:IsShown() then
 			local haveTotem, _, startTime, duration, icon = self:GetElementTotemInfo(element)
 			c.idleCol = (self.opt.compactIdleColor == "element") and self.ElementColors[element] or nil
-			c.idleOl = (self.opt.compactIdleOutline == "element") and self.ElementColors[element] or nil
+			c.idleOl = ((self.opt.compactIdleOutline or LOOK.compactIdleOutline) == "element") and self.ElementColors[element] or nil
 			if haveTotem and duration and duration > 0 then
 				local frac = ((startTime + duration) - now) / duration
 				if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
