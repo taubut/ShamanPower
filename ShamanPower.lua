@@ -259,14 +259,35 @@ local spFlyoutCombatLayout = false
 -- icons-only style needs any, and only in combat: there the close tab sits
 -- against the button while the flyout is open. In the frame style the close tab
 -- is at the far end, and the open tab is simply covered by the first icon.
-local function spFlyoutLeadGap()
-	if not spFlyoutCombatLayout then return 0 end
-	if ShamanPower.opt and ShamanPower.opt.flyoutStyle == "frame" then return 0 end
-	return FLYOUT_ARROW
-end
-
 local function spFlyoutBoxMode()
 	return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
+end
+
+-- The arrow strip is laid out during a fight, and all the time for players who
+-- asked for that: opt.flyoutArrowsAlways, or opt.flyoutArrowOnly (flyouts open
+-- from the arrow or a key and never from hovering, which needs the arrow there).
+local function spFlyoutArrowLayout()
+	if spFlyoutCombatLayout then return true end
+	local o = ShamanPower.opt
+	return (o and (o.flyoutArrowsAlways or o.flyoutArrowOnly) and spFlyoutBoxMode()) and true or false
+end
+
+function ShamanPower:FlyoutArrowOnly()
+	return (self.opt and self.opt.flyoutArrowOnly and spFlyoutBoxMode()) and true or false
+end
+
+-- "Flyout requires right-click" is a snippet-era mode: the right-click opened the
+-- flyout through a secure handler, in combat too. Box mode has no such handler
+-- (arrows and keys open flyouts there), so the option is retired in box mode and
+-- right-click keeps its normal job.
+function ShamanPower:FlyoutOpensOnRightClick()
+	return (self.opt and self.opt.flyoutRequiresClick and not spFlyoutBoxMode()) and true or false
+end
+
+local function spFlyoutLeadGap()
+	if not spFlyoutArrowLayout() then return 0 end
+	if ShamanPower.opt and ShamanPower.opt.flyoutStyle == "frame" then return 0 end
+	return FLYOUT_ARROW
 end
 
 -- Flyout buttons hang from the box in box mode; hooks written against the
@@ -305,6 +326,28 @@ local function spFlyoutMouseIsOn(parent)
 		if c:IsShown() and c.IsMouseOver and c:IsMouseOver() then return true end
 	end
 	return false
+end
+
+-- A rebuilt flyout makes new buttons under the names the old ones had. The
+-- template's icon used to be fetched through its GLOBAL name, and after a rebuild
+-- that name still led to the retired button's texture: the new buttons were laid
+-- out, clickable and labelled, with no icon on them (found by toggling the click
+-- swap, which rebuilds). Take the region from the button itself, then point the
+-- globals at the live objects so name lookups (key bindings, /click) agree.
+local function spOwnIcon(btn)
+	local name = btn:GetName()
+	local icon
+	if name then
+		for _, region in ipairs({ btn:GetRegions() }) do
+			if region.GetName and region:GetName() == name .. "Icon" then icon = region break end
+		end
+	end
+	icon = icon or btn:CreateTexture(nil, "ARTWORK")
+	if name then
+		_G[name] = btn
+		_G[name .. "Icon"] = icon
+	end
+	return icon
 end
 
 -- Parents with a flyout left open when combat started, so it can be closed the
@@ -374,7 +417,7 @@ do
 	-- PLAYER_REGEN_DISABLED the UI is not locked yet, a frame later it is.
 	local function setCombatLayout(on)
 		spFlyoutCombatLayout = on
-		ShamanPower.flyoutArrowGap = on and FLYOUT_ARROW or 0
+		ShamanPower.flyoutArrowGap = spFlyoutArrowLayout() and FLYOUT_ARROW or 0
 		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
 			local flyout = entry.flyout
 			if flyout and flyout.box then
@@ -384,6 +427,13 @@ do
 		end
 		if ShamanPower.PositionActiveOverlays then ShamanPower:PositionActiveOverlays() end
 		if on and ShamanPower.RefreshTotemBarHelpers then ShamanPower:RefreshTotemBarHelpers() end
+	end
+
+	-- the arrow options changed: lay everything out again (out of combat; a change
+	-- made mid-fight is picked up by the relayout when the fight ends)
+	function ShamanPower:RefreshFlyoutLayout()
+		if InCombatLockdown() then return end
+		setCombatLayout(false)
 	end
 
 	f:SetScript("OnEvent", function(_, event)
@@ -396,7 +446,7 @@ do
 		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
 			local btn = entry.button
 			local box = btn and btn.spFlyoutBox
-			if box and box:IsShown() and not spFlyoutMouseIsOn(btn) then
+			if box and box:IsShown() and not spFlyoutMouseIsOn(btn) and not ShamanPower:FlyoutArrowOnly() then
 				box:SetAttribute("unit", "none")
 				box:Hide()
 			end
@@ -410,12 +460,15 @@ do
 		wipe(spFlyoutStuck)
 		setCombatLayout(false)
 		if ShamanPower.flyoutArrowModePending then ShamanPower:ApplyFlyoutArrowMode() end
+		if ShamanPower.clickSwapPending then ShamanPower:ApplyClickSwap() end
 		if ShamanPower.flyoutPickPending then ShamanPower:ApplyFlyoutPickMacros() end
 	end)
 end
 
 local function spFlyoutScheduleClose(parent)
 	if not parent then return end
+	-- opened with the arrow or a key, closed the same way (or by picking)
+	if parent.spFlyoutBox and ShamanPower:FlyoutArrowOnly() then return end
 	C_Timer.After(FLYOUT_LEAVE_GRACE, function()
 		if parent and not spFlyoutMouseIsOn(parent) then
 			ShamanPower:FlyoutFallbackSetShown(parent, false)
@@ -428,7 +481,7 @@ function ShamanPower:WireFlyoutFallback(frame, attr)
 		if frame.spFlyoutHostWired then return end
 		frame.spFlyoutHostWired = true   -- hook-once marker, not a frame
 		frame:HookScript("OnEnter", function(self)
-			if self:GetAttribute("OpenMenu") == "mouseover" then
+			if self:GetAttribute("OpenMenu") == "mouseover" and not (self.spFlyoutBox and ShamanPower:FlyoutArrowOnly()) then
 				ShamanPower:FlyoutFallbackSetShown(self, true)
 			end
 		end)
@@ -437,8 +490,13 @@ function ShamanPower:WireFlyoutFallback(frame, attr)
 		frame:HookScript("OnClick", function(self)
 			if self:GetAttribute("OpenMenu") == "click" then
 				local anyShown = false
-				for _, c in ipairs(spFlyoutChildren(self)) do
-					if c:IsShown() then anyShown = true break end
+				if self.spFlyoutBox then
+					-- box mode keeps its buttons shown inside a hidden box
+					anyShown = self.spFlyoutBox:IsShown()
+				else
+					for _, c in ipairs(spFlyoutChildren(self)) do
+						if c:IsShown() then anyShown = true break end
+					end
 				end
 				ShamanPower:FlyoutFallbackSetShown(self, not anyShown)
 			end
@@ -5404,7 +5462,7 @@ function ShamanPower:UpdateTotemButtons()
 			-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
 			btn:SetAttribute("shift-type2", nil)
 			btn:SetAttribute("shift-spell2", nil)
-			if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+			if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
 				-- Right-click shows flyout instead of Totemic Call
 				btn:SetAttribute("type2", nil)
 				btn:SetAttribute("spell2", nil)
@@ -5482,18 +5540,18 @@ function ShamanPower:FlyoutDirection(flyout)
 	return self:FlyoutGoesBelow(flyout.totemButton) and "bottom" or "top"
 end
 
--- Arrows exist in combat only (see spFlyoutCombatLayout). Texture alpha is used
--- for the hover highlight because regions are never protected.
+-- Arrows exist while the arrow layout is on (see spFlyoutArrowLayout). Texture
+-- alpha is used for the hover highlight because regions are never protected.
 local function spFlyoutArrowAlpha(arrow, hovered)
 	if not arrow then return end
 	local a = 0
-	if spFlyoutCombatLayout then a = hovered and 1 or 0.85 end
+	if spFlyoutArrowLayout() then a = hovered and 1 or 0.85 end
 	-- The close tab sits on top of the open tab while the flyout is up, and its
 	-- art has transparent parts, so the open tab's art goes away for that time.
 	-- (The frame cannot be hidden in combat; its textures can.)
 	if arrow.spHideWhileShown and arrow.spHideWhileShown:IsShown() then a, hovered = 0, false end
 	arrow.tex:SetAlpha(a)
-	arrow.glow:SetAlpha((spFlyoutCombatLayout and hovered) and 1 or 0)
+	arrow.glow:SetAlpha((spFlyoutArrowLayout() and hovered) and 1 or 0)
 end
 
 local function spFlyoutMakeArrow(name, parent, box, unitValue)
@@ -5598,7 +5656,16 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		open.spHideWhileShown = box
 		if not box.spArrowHooked then
 			box.spArrowHooked = true
-			box:HookScript("OnShow", function(self) spFlyoutArrowAlpha(self.spOpenArrow, false) end)
+			box:HookScript("OnShow", function(self)
+				spFlyoutArrowAlpha(self.spOpenArrow, false)
+				-- opened by its arrow or key out of combat: same refresh a hover-open gets
+				local entry = ShamanPower.boxFlyouts[element]
+				if entry and not InCombatLockdown() and not self.spRelayouting then
+					self.spRelayouting = true
+					pcall(entry.relayout)
+					self.spRelayouting = nil
+				end
+			end)
 			box:HookScript("OnHide", function(self) spFlyoutArrowAlpha(self.spOpenArrow, false) end)
 		end
 		box.spOpenArrow = open
@@ -5613,6 +5680,7 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 	end
 	flyout.box = box
 	flyout.leadGap = spFlyoutLeadGap()
+	self.flyoutArrowGap = spFlyoutArrowLayout() and FLYOUT_ARROW or 0
 	self:ApplyFlyoutArrowMode()
 	return box
 end
@@ -5786,8 +5854,8 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		for _, b in ipairs(flyout.buttons or {}) do
 			if b:IsShown() then anything = true break end
 		end
-		-- combat only, only with flyouts on, and never for a flyout with nothing in it
-		arrow:SetShown((enabled and anything and spFlyoutCombatLayout) and true or false)
+		-- in the arrow layout only, only with flyouts on, and never for a flyout with nothing in it
+		arrow:SetShown((enabled and anything and spFlyoutArrowLayout()) and true or false)
 		spFlyoutArrowAlpha(arrow, false)
 	end
 	self:DressFlyoutFrame(flyout)
@@ -6143,10 +6211,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			]])
 
 			-- Set up icon (use template's icon child or create one)
-			btn.icon = _G[btn:GetName() .. "Icon"]
-			if not btn.icon then
-				btn.icon = btn:CreateTexture(nil, "ARTWORK")
-			end
+			btn.icon = spOwnIcon(btn)
 			-- Always reset icon state (button may be reused after SetParent(nil))
 			btn.icon:ClearAllPoints()
 			btn.icon:SetAllPoints()
@@ -6329,7 +6394,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			btn:SetAttribute("macrotext" .. n, macro)
 		end
 
-		btn.icon = _G[name .. "Icon"] or btn:CreateTexture(nil, "ARTWORK")
+		btn.icon = spOwnIcon(btn)
 		btn.icon:ClearAllPoints()
 		btn.icon:SetAllPoints()
 		btn.icon:SetTexture(ARROW_TEXTURE)
@@ -6628,10 +6693,10 @@ function ShamanPower:RescueFilteredFlyout(flyout)
 	end
 end
 
--- The combat layout has to keep the assigned totem in the flyout (see
+-- Box-mode flyouts keep the assigned totem in the list (see
 -- UpdateFlyoutVisibility). It cannot be hidden mid-fight, but its icon is only a
 -- texture, so the choice that is on the totem button right now is drawn faded
--- and follows every swap made during the fight.
+-- and follows every swap, in a fight or out of one.
 function ShamanPower:MarkAssignedInFlyout(element)
 	local flyout = self.totemFlyouts and self.totemFlyouts[element]
 	if not (flyout and flyout.box) then return end
@@ -6642,7 +6707,7 @@ function ShamanPower:MarkAssignedInFlyout(element)
 	end
 	for _, btn in ipairs(flyout.allButtons or {}) do
 		if btn.icon then
-			local on = spFlyoutCombatLayout and btn.totemIndex == cur
+			local on = btn.totemIndex == cur
 			btn.icon:SetAlpha(on and 0.3 or 1)
 			btn.icon:SetDesaturated(on and true or false)
 		end
@@ -6667,11 +6732,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 
 	self:RescueFilteredFlyout(flyout)
 
-	-- Box mode, fight starting: nothing in the flyout can be shown or hidden until
-	-- it ends, while the assignment can change (another totem, or Empty). So the
-	-- combat layout holds every choice, the assigned totem and Empty included, as
-	-- Blizzard's own flyout does. Out of combat the assigned one stays tucked away.
-	local keepAll = flyout.box and spFlyoutCombatLayout
+	-- Box mode: nothing in the flyout can be shown or hidden during a fight, while
+	-- the assignment can change (another totem, or Empty). So the flyout holds
+	-- every choice, the assigned totem and Empty included, as Blizzard's own
+	-- flyout does - and it holds them out of combat too, so the flyout is the
+	-- same list in the same order whenever it is opened. The choice that is on
+	-- the button is drawn faded (MarkAssignedInFlyout).
+	local keepAll = flyout.box and true or false
 
 	-- In TotemTimers style mode (activeTotemAsMain), the main button ICON shows the active totem.
 	-- So we should hide the ACTIVE totem from the flyout, not the assigned one.
@@ -6867,7 +6934,12 @@ function ShamanPower:UpdateFlyoutClickBehavior()
 
 	for element = 1, 4 do
 		local flyout = self.totemFlyouts[element]
-		if flyout and flyout.buttons then
+		if flyout and flyout.box then
+			-- Box mode buttons cast and assign through macros, not plain spell
+			-- attributes; rewriting those here left them half configured (cast
+			-- worked, assign only out of combat) until a reload. Rebuild instead.
+			self:RebuildTotemFlyout(element)
+		elseif flyout and flyout.buttons then
 			for _, btn in ipairs(flyout.buttons) do
 				local spellName = btn:GetAttribute("mySpell")
 
@@ -6956,7 +7028,8 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 	end
 
 	local enabled = self.opt.showTotemFlyouts
-	local requiresClick = self.opt.flyoutRequiresClick
+	local requiresClick = self:FlyoutOpensOnRightClick()
+	local hoverMode = self:FlyoutArrowOnly() and "arrow" or "mouseover"   -- "arrow": nothing opens it but its arrow or key
 	local totemicCallName = GetSpellInfo(36936)  -- Totemic Call
 	local useRightClickAssigned = self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned
 	local playerName = self.player
@@ -7004,7 +7077,7 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				btn:SetAttribute("spell2", nil)
 			else
 				-- Flyouts enabled, mouseover to show (default)
-				btn:SetAttribute("OpenMenu", "mouseover")
+				btn:SetAttribute("OpenMenu", hoverMode)
 				-- Check if right-click should cast assigned totem
 				btn:SetAttribute("shift-type2", nil)
 				btn:SetAttribute("shift-spell2", nil)
@@ -7031,20 +7104,22 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 
 	-- Also update cooldown bar flyouts (shield and weapon imbue buttons)
 	self:UpdateCooldownBarFlyoutEnabled()
+	self:ApplyClickSwap()
 end
 
 -- Toggle cooldown bar flyouts (shield/imbue) based on flyoutRequiresClick option
 function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 	if InCombatLockdown() then return end
 
-	local requiresClick = self.opt.flyoutRequiresClick
+	local requiresClick = self:FlyoutOpensOnRightClick()
+	local hoverMode = self:FlyoutArrowOnly() and "arrow" or "mouseover"   -- "arrow": nothing opens it but its arrow or key
 
 	-- Shield button
 	if self.shieldButton then
 		if requiresClick then
 			self.shieldButton:SetAttribute("OpenMenu", "click")
 		else
-			self.shieldButton:SetAttribute("OpenMenu", "mouseover")
+			self.shieldButton:SetAttribute("OpenMenu", hoverMode)
 		end
 	end
 
@@ -7056,7 +7131,7 @@ function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 			self.weaponImbueButton:SetAttribute("type2", nil)
 			self.weaponImbueButton:SetAttribute("macrotext2", nil)
 		else
-			self.weaponImbueButton:SetAttribute("OpenMenu", "mouseover")
+			self.weaponImbueButton:SetAttribute("OpenMenu", hoverMode)
 			-- Restore off-hand cast on right-click
 			local currentImbue = self.weaponImbueButton.currentImbueName
 			if currentImbue then
@@ -7073,6 +7148,100 @@ end
 -- mid-session never appeared until a /reload (found with a first fire totem:
 -- allButtons was 0 after training Searing). Rebuild any element whose known
 -- totems are not all represented. Out of combat only.
+-- ---------------------------------------------------------------------------
+-- Swap left and right click (opt.swapFlyoutClickButtons, Mainline clients)
+-- ---------------------------------------------------------------------------
+-- The option used to flip the totem flyout buttons only, which left the totem
+-- button itself the other way round: right-click dropped a totem in the flyout
+-- and pulled it back on the bar. Now it flips the mouse on everything with two
+-- click meanings: totem buttons, Drop All, the imbue button and the shield and
+-- imbue flyouts. (Totem flyout buttons keep their own attribute swap.)
+--
+-- It is done with the secure templates' own button remap rather than by
+-- mirroring attributes: a button with a "unit" it can assist looks up
+-- "helpbutton<N>" and treats the click as that button instead. With unit =
+-- player and the two buttons pointed at each other, every writer of type1 /
+-- spell1 / type2 / shift-type2 (assign helpers, destroy, twisting, imbue macros)
+-- stays exactly as it is - only the mouse is flipped. The "*" form covers every
+-- modifier. None of the flipped actions takes a target, so unit = player is inert.
+--
+-- Cooldown buttons with a single action are not flipped (some may be targeted
+-- spells, and unit = player would force a self-cast): they get the same action
+-- on the other click instead, so neither click is ever dead.
+-- The Classic line keeps the flyout-only behaviour it shipped with.
+local CLICK_SWAP_SUPPORTED = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+function ShamanPower:ClicksSwapped()
+	return (CLICK_SWAP_SUPPORTED and self.opt and self.opt.swapFlyoutClickButtons) and true or false
+end
+
+local function spSetAttr(frame, key, value)
+	if frame:GetAttribute(key) ~= value then frame:SetAttribute(key, value) end
+end
+
+local function spFlipClicks(frame, on)
+	if not frame then return end
+	on = on and true or false
+	spSetAttr(frame, "unit", on and "player" or nil)
+	spSetAttr(frame, "*helpbutton1", on and "RightButton" or nil)
+	spSetAttr(frame, "*helpbutton2", on and "LeftButton" or nil)
+	frame.spClickFlipped = on or nil
+end
+
+local FILL_KEYS = { "type", "spell", "macrotext" }
+local function spFillOtherClick(frame, on)
+	if not frame then return end
+	if on and (frame.spClickFilled or frame:GetAttribute("type2") == nil) then
+		for _, k in ipairs(FILL_KEYS) do spSetAttr(frame, k .. "2", frame:GetAttribute(k .. "1")) end
+		frame.spClickFilled = true
+	elseif not on and frame.spClickFilled then
+		for _, k in ipairs(FILL_KEYS) do frame:SetAttribute(k .. "2", nil) end
+		frame.spClickFilled = nil
+	end
+end
+
+function ShamanPower:ApplyClickSwap()
+	if not CLICK_SWAP_SUPPORTED then return end
+	if InCombatLockdown() then self.clickSwapPending = true return end
+	self.clickSwapPending = nil
+	local on = self:ClicksSwapped()
+	for element = 1, 4 do spFlipClicks(self.totemButtons and self.totemButtons[element], on) end
+	spFlipClicks(_G["ShamanPowerAutoDropAll"], on)
+	local fill = on and not self:FlyoutOpensOnRightClick()
+	for _, btn in ipairs(self.cooldownButtons or {}) do
+		if btn == self.weaponImbueButton then spFlipClicks(btn, on) else spFillOtherClick(btn, fill) end
+	end
+	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+		for _, btn in ipairs(flyout and (flyout.allButtons or flyout.buttons) or {}) do spFlipClicks(btn, on) end
+	end
+end
+
+-- The mouse button a handler should reason about: what the click MEANT.
+function ShamanPower:LogicalButton(frame, button)
+	if frame and frame.spClickFlipped then
+		if button == "LeftButton" then return "RightButton" end
+		if button == "RightButton" then return "LeftButton" end
+	end
+	return button
+end
+
+-- The mouse button a KEY has to press to get a button's main action.
+function ShamanPower:KeyMouseButton(buttonName)
+	if not self:ClicksSwapped() or not buttonName then return "LeftButton" end
+	if buttonName:match("^ShamanPowerTotemBtn%d$") or buttonName == "ShamanPowerAutoDropAll" then return "RightButton" end
+	local f = _G[buttonName]
+	if f and f == self.weaponImbueButton then return "RightButton" end
+	return "LeftButton"
+end
+
+-- Tooltip labels that follow the swap: main = the cast click, other = the second one.
+function ShamanPower:ClickLabel(main, shift)
+	local right = (main and self:ClicksSwapped()) or (not main and not self:ClicksSwapped())
+	local text = right and "Right-click" or "Left-click"
+	if shift then text = "Shift+" .. text:lower() end
+	return (main and "|cff00ff00" or "|cffffcc00") .. text .. ":|r"
+end
+
 -- Throw an element's flyout away and build it again. The old buttons are
 -- retired first: the rebuild makes new frames under the same names.
 function ShamanPower:RebuildTotemFlyout(element)
@@ -7870,6 +8039,7 @@ function ShamanPower:CreateCooldownBar()
 		end)
 	end
 	-- Note: Enabled/disabled in UpdateCooldownBarVisibility
+	self:ApplyClickSwap()
 end
 
 -- Find a cooldown button by spell ID
@@ -9978,9 +10148,9 @@ function ShamanPower:CreateWeaponImbueButton()
 		end
 
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+		GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Apply to Main Hand", 1, 1, 1)
 		if ShamanPower:CanDualWield() then
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+			GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Apply to Off Hand", 1, 1, 1)
 		end
 		GameTooltip:Show()
 	end)
@@ -10124,6 +10294,7 @@ function ShamanPower:CreateShieldFlyout()
 					local shieldBtn = ShamanPower.shieldButton
 					if shieldBtn then
 						shieldBtn:SetAttribute("spell1", spellName)
+						if shieldBtn.spClickFilled then shieldBtn:SetAttribute("spell2", spellName) end
 						shieldBtn.defaultShieldSpell = spellName
 						-- Update the icon
 						local _, _, newIcon = GetSpellInfo(spellName)
@@ -10150,8 +10321,8 @@ function ShamanPower:CreateShieldFlyout()
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(spellID)
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast and set as default", 1, 1, 1)
-				GameTooltip:AddLine("|cffffcc00Right-click:|r Set as default (no cast)", 1, 1, 1)
+				GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Cast and set as default", 1, 1, 1)
+				GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Set as default (no cast)", 1, 1, 1)
 				GameTooltip:Show()
 			end)
 			btn:HookScript("OnLeave", function()
@@ -10166,6 +10337,7 @@ function ShamanPower:CreateShieldFlyout()
 
 	self.shieldFlyout = flyout
 	if flyout.box then self:ApplyFlyoutPickMacros() end
+	self:ApplyClickSwap()
 
 	-- Layout the flyout buttons
 	self:LayoutShieldFlyout()
@@ -10351,7 +10523,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
 
 				-- Remember last used imbue
-				if button == "LeftButton" then
+				if ShamanPower:LogicalButton(self, button) == "LeftButton" then
 					ShamanPower.lastMainHandImbue = imbueIndex
 					ShamanPower.opt.preferredImbue = imbueIndex
 					-- Update main imbue button's macros to match new default
@@ -10379,9 +10551,9 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(ShamanPower.WeaponImbueSpells[imbueIndex])
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand (sets default)", 1, 1, 1)
+				GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Apply to Main Hand (sets default)", 1, 1, 1)
 				if ShamanPower:CanDualWield() then
-					GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+					GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Apply to Off Hand", 1, 1, 1)
 				end
 				GameTooltip:Show()
 			end)
@@ -10397,6 +10569,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 	self.weaponImbueFlyout = flyout
 	if flyout.box then self:ApplyFlyoutPickMacros() end
+	self:ApplyClickSwap()
 
 	-- Layout the flyout buttons
 	self:LayoutWeaponImbueFlyout()
@@ -10814,7 +10987,7 @@ function ShamanPower:UpdateMiniTotemBar()
 				-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
 				totemButton:SetAttribute("shift-type2", nil)
 				totemButton:SetAttribute("shift-spell2", nil)
-				if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+				if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
 					-- Right-click shows flyout instead of Totemic Call
 					totemButton:SetAttribute("type2", nil)
 					totemButton:SetAttribute("spell2", nil)
@@ -11080,17 +11253,17 @@ function ShamanPower:TotemBarTooltip(button, element)
 	GameTooltip:AddLine(elementName .. " Totem", 1, 1, 1)
 	if spellID then
 		GameTooltip:AddLine(totemName, 0, 1, 0)
-		GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 0.7, 0.7, 0.7)
-		-- Right-click behavior depends on options
-		if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+		GameTooltip:AddLine(self:ClickLabel(true) .. " Cast totem", 0.7, 0.7, 0.7)
+		-- The other click depends on options
+		if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Show flyout", 0.7, 0.7, 0.7)
 		elseif self:RightClickDestroysTotems() then
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Pull this totem back", 0.7, 0.7, 0.7)
-			GameTooltip:AddLine("|cffffcc00Shift+right-click:|r " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false) .. " Pull this totem back", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false, true) .. " " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
 		elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false) .. " Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
 		else
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Totemic Call", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false) .. " Totemic Call", 0.7, 0.7, 0.7)
 		end
 	else
 		GameTooltip:AddLine("No totem assigned", 1, 0, 0)
@@ -15257,6 +15430,7 @@ function ShamanPower:SetupKeybindings()
 		self.keybindsPending = true
 		return
 	end
+	self:ApplyClickSwap()   -- the keys below press whichever mouse button means "main action"
 
 	-- Need a frame to own the bindings
 	if not self.keybindFrame then
@@ -15272,11 +15446,12 @@ function ShamanPower:SetupKeybindings()
 	-- Set up override bindings for totem bar buttons (static button names)
 	for bindingName, buttonName in pairs(self.KeybindButtons) do
 		local key1, key2 = GetBindingKey(bindingName)
+		local mouse = self:KeyMouseButton(buttonName)
 		if key1 then
-			SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, "LeftButton")
+			SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, mouse)
 		end
 		if key2 then
-			SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, "LeftButton")
+			SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, mouse)
 		end
 	end
 
@@ -15287,11 +15462,12 @@ function ShamanPower:SetupKeybindings()
 			local buttonName = btn:GetName()
 			if buttonName then
 				local key1, key2 = GetBindingKey(bindingName)
+				local mouse = self:KeyMouseButton(buttonName)
 				if key1 then
-					SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, "LeftButton")
+					SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, mouse)
 				end
 				if key2 then
-					SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, "LeftButton")
+					SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, mouse)
 				end
 			end
 		end

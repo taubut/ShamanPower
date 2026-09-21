@@ -2086,6 +2086,10 @@ ShamanPower.options = {
 							type = "toggle",
 							name = "Swap Flyout Click Buttons",
 							desc = "Swap mouse buttons on totem flyout menus: Left-click assigns totem, Right-click casts (default is Left=cast, Right=assign)",
+							-- Mainline clients get the full swap in Appearance instead (same saved setting)
+							hidden = function(info)
+								return (ShamanPower.ApplyClickSwap and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and true or false
+							end,
 							width = "full",
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman
@@ -2105,6 +2109,10 @@ ShamanPower.options = {
 							name = "Flyout Requires Right-Click",
 							desc = "Flyouts only appear when you right-click the button instead of on mouseover. Applies to both totem bar and cooldown bar (shield/imbue) flyouts. Right-click the flyout totem to assign it. Note: Disables right-click to destroy totems.",
 							width = "full",
+							-- retired where flyouts open from arrows ("Open Flyouts Only From the Arrow" replaces it)
+							hidden = function(info)
+								return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
+							end,
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
 							end,
@@ -2218,6 +2226,82 @@ ShamanPower.options = {
 									print("|cff0070ddShamanPower|r: takes effect after combat.")
 								end
 								ShamanPower:SetupKeybindings()
+							end
+						},
+						swap_all_clicks = {
+							order = 3.6,
+							type = "toggle",
+							name = "Swap Left and Right Click",
+							desc = "Flips the mouse on ShamanPower's buttons, so right-click is the main action everywhere.\n\nTotem buttons: right-click drops the totem, left-click does the other action (pull it back or Totemic Call, shift for the shifted one).\nTotem flyouts: right-click casts, left-click assigns.\nShield flyout: right-click casts and sets the default, left-click only sets it.\nWeapon imbues: right-click is the main hand, left-click the off hand.\nDrop All: right-click drops, left-click recalls.\n\nCooldown buttons with a single action work with either click. Your keybinds keep doing what they did.",
+							width = "full",
+							hidden = function(info)
+								return not (ShamanPower.ApplyClickSwap and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman
+							end,
+							get = function(info)
+								return ShamanPower.opt.swapFlyoutClickButtons == true
+							end,
+							set = function(info, val)
+								if InCombatLockdown() then
+									print("|cffff0000ShamanPower:|r the mouse buttons cannot be swapped in combat")
+									return
+								end
+								ShamanPower.opt.swapFlyoutClickButtons = val
+								ShamanPower:UpdateFlyoutClickBehavior()   -- totem flyouts (rebuilt in box mode)
+								ShamanPower:ApplyClickSwap()
+								ShamanPower:SetupKeybindings()
+								if ShamanPower.RouteFlyoutBarKeys then ShamanPower:RouteFlyoutBarKeys() end
+							end
+						},
+						flyout_arrows_always = {
+							order = 4.2,
+							type = "toggle",
+							name = "Always Show the Flyout Arrows",
+							desc = "Keeps the small arrow tab on every button that has a flyout, out of combat as well. Off: the arrows only appear when a fight starts, and out of combat flyouts simply open when you hover.",
+							width = "full",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or ShamanPower.opt.flyoutArrowOnly == true
+							end,
+							get = function(info)
+								return (ShamanPower.opt.flyoutArrowsAlways or ShamanPower.opt.flyoutArrowOnly) and true or false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutArrowsAlways = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect when the fight ends.")
+									return
+								end
+								ShamanPower:RefreshFlyoutLayout()
+							end
+						},
+						flyout_arrow_only = {
+							order = 4.3,
+							type = "toggle",
+							name = "Open Flyouts Only From the Arrow or a Keybind",
+							desc = "Hovering a button never opens its flyout, in or out of combat. A flyout opens from its arrow or its toggle keybind, and stays open until you pick from it, press the arrow again, or press the key again. The arrows are always shown in this mode.",
+							width = "full",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutArrowOnly == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutArrowOnly = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect when the fight ends.")
+									return
+								end
+								ShamanPower:UpdateTotemFlyoutEnabled()
+								ShamanPower:RefreshFlyoutLayout()
 							end
 						},
 						flyout_show_empty = {

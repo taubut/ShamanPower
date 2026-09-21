@@ -112,6 +112,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         flyoutSingleOpen = true,      -- In-combat arrow flyouts: opening one closes the others (false = they stay open)
         flyoutCloseOnCast = true,     -- Box-mode flyouts: picking from a flyout closes it (false = it stays open)
         flyoutShowEmpty = true,       -- Box-mode totem flyouts offer an "Empty" choice (leave the element unassigned), as on Blizzard's bar
+        flyoutArrowsAlways = false,   -- Box-mode flyouts: keep the arrow tabs on the bar out of combat too
+        flyoutArrowOnly = false,      -- Box-mode flyouts: never open on hover, only from the arrow or a key (implies the arrows stay)
         flyoutRouteBarKeys = true,    -- Box-mode flyouts: action bar keys for flyout spells press the flyout's own button, so they close it too
         flyoutStyle = "icons",        -- "icons" (bare icons) or "frame" (Blizzard's totem bar flyout frame)
         flyoutFrameOpacity = 1.0,     -- Opacity of the frame's border and fill in the "frame" style
