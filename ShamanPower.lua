@@ -6044,7 +6044,8 @@ function ShamanPower:DressFlyoutFrame(flyout)
 
 	-- The panel (border and fill) has its own opacity on top of the flyout's; the
 	-- tab keeps the flyout's, so it never fades out of reach.
-	local alpha = self.opt.totemFlyoutOpacity or 1.0
+	-- a shield / imbue flyout follows the CD Flyouts opacity, not the totem one
+	local alpha = (flyout.isCdbarFlyout and self.opt.cooldownFlyoutOpacity or self.opt.totemFlyoutOpacity) or 1.0
 	local panelAlpha = alpha * (self.opt.flyoutFrameOpacity or 1.0)
 	for _, t in ipairs({ band, cap, foot }) do t:SetAlpha(panelAlpha); t:Show() end
 	fill:SetAlpha(panelAlpha * 0.85); fill:Show()
@@ -7428,6 +7429,86 @@ function ShamanPower:ConfirmResetSection(id)
 	if dialog then dialog.data = id end
 end
 
+-- ---------------------------------------------------------------------------
+-- What exists on this client
+-- ---------------------------------------------------------------------------
+-- One code base serves clients with different spell lists (no Bloodlust,
+-- Shamanistic Rage, Earth/Fire Elemental, Totem of Wrath or Wrath of Air on WoW:
+-- Forever; no Rage of the Farseer or Totemic Projection anywhere else). The
+-- client is asked (SPCompat.SpellExists: a readable spell name, minus the
+-- known name-only leftovers), nothing is assumed per game version.
+local function spSpellExists(id)
+	if not id then return false end
+	if SPCompat and SPCompat.SpellExists then return SPCompat.SpellExists(id) end
+	return GetSpellInfo(id) ~= nil
+end
+
+function ShamanPower:TotemExistsOnClient(element, totemIndex)
+	if not totemIndex or totemIndex == 0 then return true end
+	local id = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
+	if not id then return true end   -- no ID to ask about: leave it alone
+	return spSpellExists(id)
+end
+
+-- Cooldown bar button types (the 5th field of TrackedCooldowns; 7 = weapon imbue).
+ShamanPower.CooldownTypeLabels = {
+	[1] = "Shield", [2] = "Totemic Call", [3] = "Reincarnation", [4] = "Nature's Swiftness", [5] = "Mana Tide Totem",
+	[6] = "Bloodlust/Heroism", [7] = "Weapon Imbue", [8] = "Shamanistic Rage", [9] = "Elemental Mastery",
+	[10] = "Rage of the Farseer", [11] = "Totemic Projection",
+}
+ShamanPower.COOLDOWN_TYPE_COUNT = 11
+
+function ShamanPower:CooldownTypeExists(cooldownType)
+	if cooldownType == 1 or cooldownType == 7 then return true end   -- a shield and an imbue exist everywhere
+	for _, entry in ipairs(self.TrackedCooldowns or {}) do
+		if entry[5] == cooldownType and spSpellExists(entry[1]) then return true end
+	end
+	return false
+end
+
+-- The order the bar is sorted by: the saved order, limited to what this client
+-- has, with anything it has that the saved order never mentioned added at the end
+-- (the saved list was 8 long; Elemental Mastery, Rage of the Farseer and Totemic
+-- Projection could not be placed at all).
+function ShamanPower:GetCooldownBarOrder()
+	local out, seen = {}, {}
+	for _, t in ipairs(self.opt.cooldownBarOrder or {}) do
+		if not seen[t] and self:CooldownTypeExists(t) then out[#out + 1] = t; seen[t] = true end
+	end
+	for t = 1, self.COOLDOWN_TYPE_COUNT do
+		if not seen[t] and self:CooldownTypeExists(t) then out[#out + 1] = t; seen[t] = true end
+	end
+	return out
+end
+
+function ShamanPower:CooldownBarOrderChoices()
+	local t = {}
+	for _, cooldownType in ipairs(self:GetCooldownBarOrder()) do
+		local label = self.CooldownTypeLabels[cooldownType] or ("Button " .. cooldownType)
+		if cooldownType == 2 then label = GetSpellInfo(36936) or label end   -- "Totemic Recall" on some clients
+		t[cooldownType] = label
+	end
+	return t
+end
+
+function ShamanPower:SetCooldownBarOrderSlot(position, cooldownType)
+	local order = self:GetCooldownBarOrder()
+	if not order[position] then return end
+	for j, t in ipairs(order) do
+		if t == cooldownType then order[j] = order[position] break end
+	end
+	order[position] = cooldownType
+	-- types this client does not have stay in the saved list (after the rest), so a
+	-- profile used on another client keeps where they were
+	local seen = {}
+	for _, t in ipairs(order) do seen[t] = true end
+	for _, t in ipairs(self.opt.cooldownBarOrder or {}) do
+		if not seen[t] then order[#order + 1] = t; seen[t] = true end
+	end
+	self.opt.cooldownBarOrder = order
+	if not InCombatLockdown() then self:RecreateCooldownBar() end
+end
+
 -- Element colours. ShamanPower has always used its own set (earth brown, air
 -- pale blue); Blizzard's totem bar art uses green / orange / blue / purple, and
 -- the flyout arrow tabs and the empty-slot art are that art, so the two sets
@@ -8445,7 +8526,7 @@ function ShamanPower:UpdateCooldownBarLayout()
 	if InCombatLockdown() then return end
 
 	-- Sort cooldownButtons by cooldownBarOrder
-	local cooldownBarOrder = self.opt.cooldownBarOrder or {1, 2, 3, 4, 5, 6, 7}
+	local cooldownBarOrder = self:GetCooldownBarOrder()
 
 	-- Create a lookup table for order position (cooldownType -> position)
 	local orderLookup = {}
@@ -13218,15 +13299,20 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 	ShamanPower_Assignments[name][class] = 0
 	-- Get the max number of totems for this element
 	local maxTotems = self.TotemNames[class] and #self.TotemNames[class] or 8
-	-- Advance to the next totem; wrap-around is handled below
-	cur = cur + 1
-	if cur > maxTotems then
-		-- Wrap around to 0 (no totem) or 1 (first totem)
-		if skipzero then
-			cur = 1
-		else
-			cur = 0
+	-- Advance to the next totem; wrap-around is handled below. Totems this client
+	-- does not have (Totem of Wrath, the Elementals, Wrath of Air on WoW: Forever)
+	-- are stepped over, so the cycle never lands on something nobody can cast.
+	for _ = 1, maxTotems + 1 do
+		cur = cur + 1
+		if cur > maxTotems then
+			-- Wrap around to 0 (no totem) or 1 (first totem)
+			if skipzero then
+				cur = 1
+			else
+				cur = 0
+			end
 		end
+		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
 	end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
@@ -13265,15 +13351,19 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 		end
 	end
 	ShamanPower_Assignments[name][class] = 0
-	-- Simple backwards cycle - go to previous totem
-	cur = cur - 1
-	if cur < 0 then
-		-- Wrap around to max totem or 0
-		if skipzero then
-			cur = maxTotems
-		else
-			cur = maxTotems
+	-- Simple backwards cycle - go to previous totem (stepping over totems this
+	-- client does not have, as the forward cycle does)
+	for _ = 1, maxTotems + 1 do
+		cur = cur - 1
+		if cur < 0 then
+			-- Wrap around to max totem or 0
+			if skipzero then
+				cur = maxTotems
+			else
+				cur = maxTotems
+			end
 		end
+		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
 	end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
@@ -14157,6 +14247,13 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
+	-- Blizzard's totem bar follows our assignments even with our own totem bar
+	-- switched off: UpdateLayout only refreshes (and syncs) while that bar is
+	-- shown, so an assignment sent by another shaman never reached Blizzard's bar
+	-- for someone running without ours. Cheap and idempotent; in combat it marks
+	-- itself pending and lands when the fight ends (only a hardware click may
+	-- write that bar mid-fight).
+	if self.SyncTotemSetFromAssignments then self:SyncTotemSetFromAssignments() end
 	self:UpdateLayout()
 end
 

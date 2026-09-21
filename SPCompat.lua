@@ -273,9 +273,15 @@ if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 	UNOBTAINABLE[32594] = true
 	UNOBTAINABLE[408514] = true
 
+	-- Elemental Mastery: NOT on this client. It was allow-listed here on the strength
+	-- of Talent.db2 (record 573, "Elemental capstone"), but that table is the
+	-- untouched vanilla leftover. The real talents live in the trait tables: tree
+	-- 1081 (Elemental) has 16 nodes, all named, and row 7 is Lava Burst - the same
+	-- list Wowhead's Forever calculator shows. Nothing grants 16166.
+	UNOBTAINABLE[16166] = true
+
 	-- Present in SkillLineAbility, name encrypted in SpellName.
-	REAL_UNNAMED[16166] = true   -- Elemental Mastery, Elemental capstone
-	REAL_UNNAMED[25908] = true   -- Tranquil Air Totem, SkillLine 374
+	REAL_UNNAMED[25908] = true   -- Tranquil Air Totem, SkillLine 374 (not on the trainer list by level; verify at the trainer)
 end
 
 SPCompat.spellDenyList = UNOBTAINABLE

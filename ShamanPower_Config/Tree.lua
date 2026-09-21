@@ -323,6 +323,26 @@ function Tree:TermsMatch(terms, query)
 end
 
 -- Strip WoW color escapes so search and sidebar labels read cleanly.
+-- Description text is drawn in the window's own colours, so colour codes are
+-- stripped - except NOTES, which should stand out the same way on every page:
+--   "|cffffa040 ... |r"      the "this is being overridden by X" notes
+--   "|cffff8800Note:|r ..."  the older hand-written notes (module requirements etc);
+--                            only the word was coloured, now the whole line is
+-- Both come out in one note colour; every other colour code is dropped.
+local NOTE_COLOR = "|cffffa040"
+function Tree:ThemeText(s)
+	if not s then return "" end
+	if not (s:find("|cffffa040", 1, true) or s:find("|cffff8800Note:", 1, true)) then return self:StripColor(s) end
+	s = gsub(s, "|cffffa040(.-)|r", "\1%1\2")
+	s = gsub(s, "|cffff8800Note:|r", "\1Note:")
+	s = gsub(s, "|c%x%x%x%x%x%x%x%x", "")
+	s = gsub(s, "|r", "")
+	s = gsub(s, "\1([^\n\2]*)\2?", function(body) return NOTE_COLOR .. body .. "|r" end)
+	s = gsub(s, "^%s+", "")
+	s = gsub(s, "%s+$", "")
+	return s
+end
+
 function Tree:StripColor(s)
 	if not s then return "" end
 	s = gsub(s, "|c%x%x%x%x%x%x%x%x", "")

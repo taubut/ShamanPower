@@ -101,7 +101,7 @@ function SP:SetupPartyRangeDots()
 			-- Always update player's own totem range (greying out when out of range)
 			SP:UpdatePlayerTotemRange()
 			-- Only update party range dots/counters if those features are enabled
-			if SP.opt.showPartyRangeDots or SP.opt.showRangeCounters then
+			if SP.opt.showPartyRangeDots or (SP.opt.rangeCounter and SP.opt.rangeCounter.enabled) then   -- was a key nothing ever wrote: "Numbers Only" never refreshed
 				SP:UpdatePartyRangeDots()
 			end
 		end)

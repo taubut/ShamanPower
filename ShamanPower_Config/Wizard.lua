@@ -2501,7 +2501,13 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		{ id = 437009, name = "Projection", long = "Totemic Projection", opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
 		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
 	}
-	local function onClient(sp) return not sp.only or sp.only() end   -- spell exists in this client's data
+	-- spell exists in this client's data (asked of the client for every chip: WoW: Forever has no
+	-- Bloodlust, Shamanistic Rage ...; other clients have no Rage of the Farseer / Totemic Projection)
+	local function onClient(sp)
+		if sp.only and not sp.only() then return false end
+		if SPCompat and SPCompat.SpellExists and sp.id then return SPCompat.SpellExists(sp.id) end
+		return true
+	end
 	local function visible(sp) return onClient(sp) and (not sp.roles or sp.roles[state.role] or SP.Wizard.previewOnly) and OPT()[sp.opt] ~= false end
 	local function roleSees(sp) return onClient(sp) and (not sp.roles or sp.roles[state.role]) end
 

@@ -1076,7 +1076,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				f, h = Widgets:Button(body, opts)
 
 			elseif e.type == "description" then
-				opts.text = Tree:StripColor(e.label)
+				opts.text = Tree:ThemeText(e.label)   -- plain text, with notes in the note colour
 				BreakRow()
 				opts.x, opts.y, opts.width = 0, rowY, fullW
 				f, h = Widgets:Description(body, opts)
