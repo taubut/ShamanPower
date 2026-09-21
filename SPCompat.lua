@@ -551,11 +551,33 @@ if SPCompat.secretsRegime then
 		end
 		return spell
 	end
+	-- A cooldown's length is normally learned the first time it is seen readable,
+	-- which left one hole: a spell whose first use of the session happens IN
+	-- combat has no learned length, so the model answered "no cooldown" and the
+	-- button looked ready for the whole 30 seconds (Stoneclaw Totem, measured).
+	-- GetSpellBaseCooldown is spell data, not state: it returns plain numbers in
+	-- and out of combat (measured: 30000, 1000 for 5730 both ways), so it fills
+	-- that hole for any spell and rank with no table to maintain. It ignores
+	-- talent reductions, so it is only a stand-in: a readable observation
+	-- replaces it, and the never-secret isActive flag ends the display early if
+	-- the real cooldown is shorter.
+	local function baseDuration(id)
+		if type(id) ~= "number" or not GetSpellBaseCooldown then return nil end
+		local ok, ms = pcall(GetSpellBaseCooldown, id)
+		if not ok or type(ms) ~= "number" or issecretvalue(ms) then return nil end
+		if ms <= 2500 then return nil end   -- global cooldown only: not a real cooldown
+		return ms / 1000
+	end
+
 	function SPCompat.ShadowCooldownCast(spellID)
 		local key = cdKey(spellID)
 		if not key then return end
 		local e = shadowCD[key] or {}
 		e.start, e.id = GetTime(), spellID
+		if not e.duration then
+			e.duration = baseDuration(spellID)
+			e.seeded = e.duration and true or nil
+		end
 		shadowCD[key] = e
 	end
 	if GetSpellCooldown then
@@ -569,6 +591,7 @@ if SPCompat.secretsRegime then
 					if start and dur and start > 0 and dur > 2.5 then   -- > GCD: a real cooldown, not the global one
 						local e = shadowCD[key] or {}
 						e.start, e.duration = start, dur
+						e.seeded = nil   -- the real, talent-adjusted length now
 						shadowCD[key] = e
 					elseif shadowCD[key] and (not dur or dur == 0) then
 						shadowCD[key].start = nil   -- keep the learned length, forget the run
