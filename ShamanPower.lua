@@ -202,6 +202,39 @@ local FRAME_SLOT = {
 	{  1 / 128, 35 / 128, 137 / 256, 171 / 256 },   -- neutral
 }
 
+-- The faded totem Blizzard's bar shows for "leave this slot empty"
+-- (SLOT_EMPTY_TCOORDS), per element; used for the flyout's Empty choice.
+local SLOT_EMPTY = {
+	{ 66 / 128, 96 / 128,   3 / 256,  33 / 256 },   -- earth
+	{ 67 / 128, 97 / 128, 100 / 256, 130 / 256 },   -- fire
+	{ 39 / 128, 69 / 128, 209 / 256, 239 / 256 },   -- water
+	{ 66 / 128, 96 / 128,  36 / 256,  66 / 256 },   -- air
+}
+
+-- A totem button with nothing assigned wears the same faded totem, in its
+-- element's colour, instead of a spell icon that reads as a real totem. It is a
+-- texture laid over the icon, so it can change mid-fight. Forever only: the
+-- Classic line keeps the look it shipped with.
+local EMPTY_SLOT_ART = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+function ShamanPower:ShowEmptySlotArt(element, empty)
+	if not EMPTY_SLOT_ART then return end
+	local btn = self.totemButtons and self.totemButtons[element]
+	if not (btn and btn.icon) then return end
+	if element == 4 and self.opt.enableTotemTwisting then empty = false end   -- twisting draws Air itself
+	local art = btn.emptyArt
+	if empty and not art then
+		art = btn:CreateTexture(nil, "ARTWORK", nil, 1)
+		art:SetAllPoints(btn.icon)
+		art:SetTexture(ARROW_TEXTURE)
+		local c = SLOT_EMPTY[element] or SLOT_EMPTY[1]
+		art:SetTexCoord(c[1], c[2], c[3], c[4])
+		btn.emptyArt = art
+	end
+	if art then art:SetShown(empty and true or false) end
+	if empty then btn.icon:SetTexture(nil) end   -- the art has rounded corners; nothing should peek out behind them
+end
+
 local ARROW_GLOW_OPEN  = { 0.5625, 0.71875, 0.34375, 0.3828125 }      -- up-arrow shaped
 local ARROW_GLOW_CLOSE = { 0.5625, 0.71875, 0.26953125, 0.30859375 }  -- down-arrow shaped
 
@@ -350,6 +383,7 @@ do
 			end
 		end
 		if ShamanPower.PositionActiveOverlays then ShamanPower:PositionActiveOverlays() end
+		if on and ShamanPower.RefreshTotemBarHelpers then ShamanPower:RefreshTotemBarHelpers() end
 	end
 
 	f:SetScript("OnEvent", function(_, event)
@@ -1594,6 +1628,7 @@ function ShamanPower:UpdateDynamicTotemIcons()
 			if btn and btn.icon then
 				btn.icon:SetTexture(icon)
 			end
+			self:ShowEmptySlotArt(element, totemIndex == 0)
 		end
 	end
 
@@ -5337,6 +5372,7 @@ function ShamanPower:UpdateTotemButtons()
 			if btn.icon and not (element == 4 and self.opt.enableTotemTwisting) then
 				btn.icon:SetTexture(icon)
 			end
+			self:ShowEmptySlotArt(element, (totemIndex or 0) == 0)
 
 			-- Always update spell attributes (even for popped out elements)
 			-- Clear old attributes
@@ -5359,6 +5395,10 @@ function ShamanPower:UpdateTotemButtons()
 			elseif spellName then
 				btn:SetAttribute("type1", "spell")
 				btn:SetAttribute("spell1", spellName)
+			elseif EMPTY_SLOT_ART then
+				-- Empty: keep the cast type, so a totem assigned from the flyout mid-fight
+				-- (which can only write spell1) still casts. A spell action with no spell does nothing.
+				btn:SetAttribute("type1", "spell")
 			end
 
 			-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
@@ -5644,6 +5684,42 @@ end
 -- plain cast text per mouse button in btn.spPick (set where the button is
 -- built); opt.flyoutCloseOnCast (default on) appends the two presses that close
 -- the flyout and put its toggle key back to "open".
+-- A hidden secure button a flyout macro presses with a bare /click: it acts on
+-- release whatever ActionButtonUseKeyDown says, and needs no size or mouse.
+function ShamanPower:FlyoutAssignHelper(name, parent)
+	local h = _G[name] or CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
+	h:SetParent(parent)
+	h:SetSize(1, 1)
+	h:ClearAllPoints()
+	h:SetPoint("CENTER", parent, "CENTER")
+	h:EnableMouse(false)
+	h:RegisterForClicks("AnyUp", "AnyDown")
+	h:SetAttribute("useOnKeyDown", false)
+	return h
+end
+
+-- Point every SPFM helper at the right slot and spell of Blizzard's totem bar
+-- (ranks, the sync option and the Drop All excludes all change the answer).
+-- Out of combat only; the start of a fight is the last call.
+function ShamanPower:RefreshTotemBarHelpers()
+	if InCombatLockdown() then return end
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.box then
+			for _, btn in ipairs(flyout.allButtons or {}) do
+				local M = _G["SPFM" .. element .. "_" .. btn.totemIndex]
+				if M then
+					local action, spell
+					if self.TotemBarSlotSpell then action, spell = self:TotemBarSlotSpell(element, btn.totemIndex) end
+					M:SetAttribute("type", action and "multispell" or nil)
+					M:SetAttribute("action", action)
+					M:SetAttribute("spell", spell)
+				end
+			end
+		end
+	end
+end
+
 function ShamanPower:ApplyFlyoutPickMacros()
 	if InCombatLockdown() then
 		self.flyoutPickPending = true
@@ -5706,7 +5782,12 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		arrow.glow:SetSize((sideways and 11 or 20) * k, (sideways and 20 or 11) * k)
 		arrow.glow:SetTexCoord(spArrowCoords(isClose and ARROW_GLOW_CLOSE or ARROW_GLOW_OPEN, dir))
 		local enabled = flyout.isCdbarFlyout or self.opt.showTotemFlyouts
-		arrow:SetShown((enabled and spFlyoutCombatLayout) and true or false)   -- combat only, and only with flyouts on
+		local anything = false
+		for _, b in ipairs(flyout.buttons or {}) do
+			if b:IsShown() then anything = true break end
+		end
+		-- combat only, only with flyouts on, and never for a flyout with nothing in it
+		arrow:SetShown((enabled and anything and spFlyoutCombatLayout) and true or false)
 		spFlyoutArrowAlpha(arrow, false)
 	end
 	self:DressFlyoutFrame(flyout)
@@ -6024,10 +6105,21 @@ function ShamanPower:CreateTotemFlyout(element)
 			if flyout.box and spellName then
 				local castN, assignN = swapped and "2" or "1", swapped and "1" or "2"
 				btn.spPick = { [castN] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
-				btn:SetAttribute("type" .. assignN, "attribute")
-				btn:SetAttribute("attribute-frame" .. assignN, parentButton)
-				btn:SetAttribute("attribute-name" .. assignN, "spell1")
-				btn:SetAttribute("attribute-value" .. assignN, spellName)
+				-- Assigning presses two helpers from one macro: SPFS writes the totem
+				-- button's spell, SPFM writes the same totem into Blizzard's totem bar
+				-- (the "multispell" action, the only way to reach that bar mid-fight;
+				-- Call of the Elements casts what the bar holds, not what we show).
+				-- Then the flyout closes and its toggle key resets.
+				local tag = element .. "_" .. totemIndex
+				local S = self:FlyoutAssignHelper("SPFS" .. tag, parentButton)
+				S:SetAttribute("type", "attribute")
+				S:SetAttribute("attribute-frame", parentButton)
+				S:SetAttribute("attribute-name", "spell1")
+				S:SetAttribute("attribute-value", spellName)
+				self:FlyoutAssignHelper("SPFM" .. tag, parentButton)   -- filled by RefreshTotemBarHelpers
+				btn:SetAttribute("type" .. assignN, "macro")
+				btn:SetAttribute("macrotext" .. assignN, "/click SPFS" .. tag .. "\n/click SPFM" .. tag
+					.. "\n/click SPFC" .. element .. "\n/click SPFR" .. element)
 			end
 
 			-- SECURE HANDLER: Handle assignment via right-click (WORKS IN COMBAT)
@@ -6121,6 +6213,7 @@ function ShamanPower:CreateTotemFlyout(element)
 							local icons = ShamanPower.TotemIcons[elem]
 							if icons and icons[totemIdx] then
 								totemBtn.icon:SetTexture(icons[totemIdx])
+								ShamanPower:ShowEmptySlotArt(elem, false)
 							end
 						end
 						-- Queue the Lua-side updates for when combat ends (silently, like TotemTimers)
@@ -6128,6 +6221,7 @@ function ShamanPower:CreateTotemFlyout(element)
 							ShamanPower.pendingAssignments = {}
 						end
 						ShamanPower.pendingAssignments[elem] = totemIdx
+						ShamanPower:MarkAssignedInFlyout(elem)
 					else
 						-- Out of combat: do all updates immediately
 						if not ShamanPower_Assignments[ShamanPower.player] then
@@ -6194,9 +6288,94 @@ function ShamanPower:CreateTotemFlyout(element)
 		end
 	end
 
+	-- "Empty": leave this element unassigned, as on Blizzard's totem bar (there it
+	-- is how an element is kept out of a totem set). totemIndex 0 is the
+	-- addon's existing "nothing assigned" state, so the rest of the flyout code
+	-- treats it like any other button: it sorts first, next to the totem button,
+	-- and hides itself while nothing is assigned. Box mode only for now: it sets
+	-- the totem button's spell through a secure helper, and the snippet clients
+	-- would need their own plumbing.
+	if flyout.box and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
+		local name = "ShamanPowerFlyout" .. element .. "Btn0"
+		local btn = CreateFrame("Button", name, buttonParent, "SPFlyoutButtonTemplate")
+		btn:SetParent(buttonParent)
+		btn:SetSize(flyout.buttonSize, flyout.buttonSize)
+		btn:Hide()
+		btn:SetIgnoreParentAlpha(true)
+		ShamanPower:SetSnippet(btn, "_childupdate-show", "")   -- wires the hover-leave fallback like its siblings
+		btn:SetAttribute("spFlyoutProtocol", true)
+		btn:SetAttribute("myElement", element)
+		btn:SetAttribute("myTotemIndex", 0)
+		btn:SetAttribute("isFlyoutButton", true)
+		btn:SetAttribute("flyoutHidden", false)
+
+		-- SPFN<element>: clears the totem button's spell (works in combat)
+		local clear = _G["SPFN" .. element] or CreateFrame("Button", "SPFN" .. element, parentButton, "SecureActionButtonTemplate")
+		clear:SetParent(parentButton)
+		clear:SetSize(1, 1)
+		clear:SetPoint("CENTER", parentButton, "CENTER")
+		clear:EnableMouse(false)
+		clear:RegisterForClicks("AnyUp", "AnyDown")
+		clear:SetAttribute("useOnKeyDown", false)
+		clear:SetAttribute("type", "attribute")
+		clear:SetAttribute("attribute-frame", parentButton)
+		clear:SetAttribute("attribute-name", "spell1")
+		clear:SetAttribute("attribute-value", nil)
+		-- either mouse button: clear the spell, close the flyout, reset its toggle key
+		self:FlyoutAssignHelper("SPFM" .. element .. "_0", parentButton)   -- empties Blizzard's slot too
+		local macro = "/click SPFN" .. element .. "\n/click SPFM" .. element .. "_0\n/click SPFC" .. element .. "\n/click SPFR" .. element
+		for _, n in ipairs({ "1", "2" }) do
+			btn:SetAttribute("type" .. n, "macro")
+			btn:SetAttribute("macrotext" .. n, macro)
+		end
+
+		btn.icon = _G[name .. "Icon"] or btn:CreateTexture(nil, "ARTWORK")
+		btn.icon:ClearAllPoints()
+		btn.icon:SetAllPoints()
+		btn.icon:SetTexture(ARROW_TEXTURE)
+		local c = SLOT_EMPTY[element] or SLOT_EMPTY[1]
+		btn.icon:SetTexCoord(c[1], c[2], c[3], c[4])
+		btn.icon:Show()
+
+		btn:HookScript("OnEnter", function(self)
+			if not ShamanPower.opt.ShowTooltips then return end
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText("Empty")
+			GameTooltip:AddLine("Leave this element with no totem assigned.", 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
+		btn:SetScript("PostClick", function(self)
+			local elem = element
+			if InCombatLockdown() then
+				-- the secure helper already cleared the spell; show it now, save it after the fight
+				ShamanPower:ShowEmptySlotArt(elem, true)
+				ShamanPower.pendingAssignments = ShamanPower.pendingAssignments or {}
+				ShamanPower.pendingAssignments[elem] = 0
+				ShamanPower:MarkAssignedInFlyout(elem)
+			else
+				ShamanPower_Assignments[ShamanPower.player] = ShamanPower_Assignments[ShamanPower.player] or {}
+				ShamanPower_Assignments[ShamanPower.player][elem] = 0
+				ShamanPower:UpdateMiniTotemBar()
+				ShamanPower:UpdateDropAllButton()
+				ShamanPower:UpdateSPMacros()
+				ShamanPower:SendMessage("ASSIGN " .. ShamanPower.player .. " " .. elem .. " 0")
+				ShamanPower:UpdateFlyoutVisibility(elem)
+				ShamanPower:FlyoutFallbackSetShown(ShamanPower.totemButtons[elem], false)
+			end
+		end)
+
+		btn.totemIndex = 0
+		btn.isDisabledInFlyout = false
+		table.insert(flyout.allButtons, btn)
+		table.insert(flyout.buttons, btn)
+	end
+
 	-- Sort buttons by totemIndex for consistent ordering
 	table.sort(flyout.allButtons, function(a, b) return a.totemIndex < b.totemIndex end)
 	table.sort(flyout.buttons, function(a, b) return a.totemIndex < b.totemIndex end)
+	self:RefreshTotemBarHelpers()
 
 	-- Initial layout
 	self:LayoutFlyoutButtons(flyout)
@@ -6411,6 +6590,65 @@ end
 -- Update flyout to hide currently assigned totem and reposition
 -- For horizontal bar: flyout is VERTICAL (buttons stacked top to bottom)
 -- For vertical bar: flyout is HORIZONTAL (buttons in a row left to right)
+-- The flyout list in the options can hide every totem an element has. With an
+-- Empty choice on the bar that would strand the element: once it is emptied
+-- (possibly mid-fight, when nothing can be shown any more) there would be no
+-- way to pick a totem again. So a list that leaves an element with nothing is
+-- ignored for that element, and applies again once it lists something known.
+-- Box mode only: the Classic line has no Empty choice and keeps its behaviour.
+function ShamanPower:RescueFilteredFlyout(flyout)
+	if not flyout.box then return end
+	local listed = 0
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		if btn.totemIndex > 0 and not btn.isDisabledInFlyout and not btn.spRescued then listed = listed + 1 end
+	end
+	local want = listed == 0
+	local changed = false
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		if btn.totemIndex > 0 then
+			if want and btn.isDisabledInFlyout and (not btn.talentSpellID or IsSpellKnown(btn.talentSpellID)) then
+				btn.spRescued, btn.isDisabledInFlyout = true, false
+				btn:SetAttribute("flyoutHidden", false)
+				changed = true
+			elseif not want and btn.spRescued then
+				btn.spRescued, btn.isDisabledInFlyout = nil, true
+				btn:Hide()
+				btn:SetAttribute("isCurrentAssignment", true)
+				btn:SetAttribute("flyoutHidden", true)
+				changed = true
+			end
+		end
+	end
+	if changed then
+		flyout.buttons = {}
+		for _, btn in ipairs(flyout.allButtons) do
+			if not btn.isDisabledInFlyout then table.insert(flyout.buttons, btn) end
+		end
+		table.sort(flyout.buttons, function(a, b) return a.totemIndex < b.totemIndex end)
+	end
+end
+
+-- The combat layout has to keep the assigned totem in the flyout (see
+-- UpdateFlyoutVisibility). It cannot be hidden mid-fight, but its icon is only a
+-- texture, so the choice that is on the totem button right now is drawn faded
+-- and follows every swap made during the fight.
+function ShamanPower:MarkAssignedInFlyout(element)
+	local flyout = self.totemFlyouts and self.totemFlyouts[element]
+	if not (flyout and flyout.box) then return end
+	local cur = self.pendingAssignments and self.pendingAssignments[element]
+	if cur == nil then
+		local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player]
+		cur = a and a[element] or 0
+	end
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		if btn.icon then
+			local on = spFlyoutCombatLayout and btn.totemIndex == cur
+			btn.icon:SetAlpha(on and 0.3 or 1)
+			btn.icon:SetDesaturated(on and true or false)
+		end
+	end
+end
+
 function ShamanPower:UpdateFlyoutVisibility(element)
 	local flyout = self.totemFlyouts[element]
 	if not flyout or not flyout.buttons then return end
@@ -6426,6 +6664,14 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	-- Get current assignment
 	local assignments = ShamanPower_Assignments[self.player]
 	local currentTotemIndex = assignments and assignments[element] or 0
+
+	self:RescueFilteredFlyout(flyout)
+
+	-- Box mode, fight starting: nothing in the flyout can be shown or hidden until
+	-- it ends, while the assignment can change (another totem, or Empty). So the
+	-- combat layout holds every choice, the assigned totem and Empty included, as
+	-- Blizzard's own flyout does. Out of combat the assigned one stays tucked away.
+	local keepAll = flyout.box and spFlyoutCombatLayout
 
 	-- In TotemTimers style mode (activeTotemAsMain), the main button ICON shows the active totem.
 	-- So we should hide the ACTIVE totem from the flyout, not the assigned one.
@@ -6463,7 +6709,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 		local totemIdx = btn.totemIndex
 		local isPoppedOut = self:IsSingleTotemPoppedOut(element, totemIdx)
 
-		if totemIdx == hideIndex or isPoppedOut then
+		if (totemIdx == hideIndex and not keepAll) or isPoppedOut then
 			-- Mark this button to be hidden (via attribute so secure handler knows)
 			btn:SetAttribute("isCurrentAssignment", true)
 			if isPoppedOut then
@@ -6475,6 +6721,8 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 			table.insert(visibleButtons, btn)
 		end
 	end
+
+	self:MarkAssignedInFlyout(element)
 
 	-- No visible buttons, nothing to layout
 	if visibleIndex == 0 then
@@ -6825,6 +7073,22 @@ end
 -- mid-session never appeared until a /reload (found with a first fire totem:
 -- allButtons was 0 after training Searing). Rebuild any element whose known
 -- totems are not all represented. Out of combat only.
+-- Throw an element's flyout away and build it again. The old buttons are
+-- retired first: the rebuild makes new frames under the same names.
+function ShamanPower:RebuildTotemFlyout(element)
+	if InCombatLockdown() then return end
+	local flyout = self.totemFlyouts[element]
+	if flyout then
+		for _, btn in ipairs(flyout.allButtons or {}) do
+			btn:Hide()
+			btn.spFlyoutChild = nil
+			btn:SetParent(nil)
+		end
+	end
+	self.totemFlyouts[element] = nil
+	self:CreateTotemFlyout(element)
+end
+
 function ShamanPower:AddMissingFlyoutButtons()
 	if InCombatLockdown() then return end
 	for element = 1, 4 do
@@ -6840,16 +7104,7 @@ function ShamanPower:AddMissingFlyoutButtons()
 					if PlayerKnowsTotem(spellID, totemName) then missing = true break end
 				end
 			end
-			if missing then
-				-- retire the old buttons: the rebuild makes new frames under the same names
-				for _, btn in ipairs(flyout.allButtons or {}) do
-					btn:Hide()
-					btn.spFlyoutChild = nil
-					btn:SetParent(nil)
-				end
-				self.totemFlyouts[element] = nil
-				self:CreateTotemFlyout(element)
-			end
+			if missing then self:RebuildTotemFlyout(element) end
 		end
 	end
 end
@@ -6923,6 +7178,7 @@ function ShamanPower:RecreateTotemFlyouts()
 				local totemIdx = btn.totemIndex
 				local flyoutKey = elementKey .. "_" .. totemIdx
 				local isEnabled = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
+				btn.spRescued = nil
 				-- Talent-gated totems only show while the talent is actually known
 				if btn.talentSpellID and not IsSpellKnown(btn.talentSpellID) then
 					isEnabled = false

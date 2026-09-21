@@ -47,6 +47,13 @@ function SP:HasTotemSets()
 	return haveAPI() and known(SUMMON[1]) and true or false
 end
 
+-- True when the client has Blizzard's totem bar at all. The bar and its first
+-- page exist from the first totem on, long before Call of the Elements is
+-- trainable, so keeping it in step with assignments must not wait for that spell.
+function SP:HasTotemBar()
+	return haveAPI()
+end
+
 -- Action slot holding page/element. Blizzard: action = buttonID + (multiCastBarIndex - 1) * 12,
 -- with buttonID = (page - 1) * 4 + WoW totem slot (Fire 1, Earth 2, Water 3, Air 4).
 local function setActionSlot(page, element)
@@ -103,8 +110,9 @@ end
 -- false clears it, nil leaves it alone. Out of combat only.
 -- Returns written, skipped, reason.
 function SP:WriteTotemSet(page, spells)
-	if not self:HasTotemSets() then return 0, 0, "no totem sets on this client" end
-	if not self:KnownTotemSetPages()[page] then return 0, 0, (PAGE_NAMES[page] or "that set") .. " is not known yet" end
+	if not self:HasTotemBar() then return 0, 0, "no totem sets on this client" end
+	-- page 1 is the bar itself; pages 2 and 3 only exist once their spell is known
+	if page ~= 1 and not self:KnownTotemSetPages()[page] then return 0, 0, (PAGE_NAMES[page] or "that set") .. " is not known yet" end
 	if InCombatLockdown() then return 0, 0, "in combat" end
 	local written, skipped = 0, 0
 	for element = 1, 4 do
@@ -164,12 +172,33 @@ end
 -- client fires UPDATE_MULTI_CAST_ACTIONBAR after a real write anyway.
 function SP:SyncTotemSetFromAssignments()
 	if self.opt.totemSetsSyncAssignments == false then return end
-	if not self:HasTotemSets() or InCombatLockdown() then
-		self.totemSetsSyncPending = self:HasTotemSets() or nil
+	if not self:HasTotemBar() or InCombatLockdown() then
+		self.totemSetsSyncPending = self:HasTotemBar() or nil
 		return
 	end
 	self.totemSetsSyncPending = nil
 	self:WriteTotemSet(1, self:TotemSetSpellsFromAssignments())
+end
+
+-- What a flyout pick writes into Blizzard's bar: the page-1 action slot of an
+-- element and the spell to put there (0 = leave the slot empty). nil when the
+-- bar should be left alone (no API, sync turned off, element kept out of Drop
+-- All, or a totem the slot does not take). Used by the flyouts' "multispell"
+-- helpers, which are the only way to write the bar during a fight.
+function SP:TotemBarSlotSpell(element, totemIndex)
+	if not haveAPI() or self.opt.totemSetsSyncAssignments == false then return nil end
+	local exclude = {
+		[1] = self.opt.excludeEarthFromDropAll, [2] = self.opt.excludeFireFromDropAll,
+		[3] = self.opt.excludeWaterFromDropAll, [4] = self.opt.excludeAirFromDropAll,
+	}
+	if exclude[element] then return nil end
+	local action = setActionSlot(1, element)
+	if not action then return nil end
+	if not totemIndex or totemIndex == 0 then return action, 0 end
+	local id = self:GetTotemSpell(element, totemIndex)
+	id = id and resolveInSlot(allowedInSlot(element), id)
+	if not id then return nil end
+	return action, id
 end
 
 -- Send a saved loadout to a set page (2 = Ancestors, 3 = Spirits, 1 = Elements).
@@ -195,6 +224,7 @@ end
 
 -- Called first thing from UpdateDropAllButton. Returns true when the sets own the button.
 function SP:UpdateDropAllButtonForTotemSets(btn)
+	self:SyncTotemSetFromAssignments()   -- the bar follows assignments even before the sets are trainable
 	local on = self:HasTotemSets() and self.opt.dropAllUsesTotemSets ~= false
 	if not on then
 		if self.dropAllTotemSetsActive then
@@ -225,7 +255,6 @@ function SP:UpdateDropAllButtonForTotemSets(btn)
 	end
 	local icon = btn.icon or _G["ShamanPowerAutoDropAllIcon"]
 	if icon then icon:SetTexture(spellIcon(pages[1]) or 136024) end
-	self:SyncTotemSetFromAssignments()
 	return true
 end
 
@@ -318,6 +347,6 @@ ef:SetScript("OnEvent", function(_, event)
 			C_Timer.After(0.5, function() if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end end)
 		end
 	elseif event == "SPELLS_CHANGED" or event == "UPDATE_MULTI_CAST_ACTIONBAR" then
-		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemSets()) then SP:UpdateDropAllButton() end
+		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
 	end
 end)

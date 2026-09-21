@@ -1755,7 +1755,13 @@ ShamanPower.options = {
 							order = 2.902,
 							type = "toggle",
 							name = "Exclude Earth",
-							desc = "Exclude Earth totem from the Drop All button",
+							desc = function()
+								local d = "Exclude Earth totem from the Drop All button"
+								if ShamanPower.HasTotemBar and ShamanPower:HasTotemBar() then
+									d = d .. ".\n\nCall of the Elements drops whatever Blizzard's totem bar holds, so while this is on the Earth slot of that bar is kept empty. Your own Earth button still casts and assigns as usual."
+								end
+								return d
+							end,
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeEarthFromDropAll
@@ -1770,7 +1776,13 @@ ShamanPower.options = {
 							order = 2.903,
 							type = "toggle",
 							name = "Exclude Fire",
-							desc = "Exclude Fire totem from the Drop All button",
+							desc = function()
+								local d = "Exclude Fire totem from the Drop All button"
+								if ShamanPower.HasTotemBar and ShamanPower:HasTotemBar() then
+									d = d .. ".\n\nCall of the Elements drops whatever Blizzard's totem bar holds, so while this is on the Fire slot of that bar is kept empty. Your own Fire button still casts and assigns as usual."
+								end
+								return d
+							end,
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeFireFromDropAll
@@ -1785,7 +1797,13 @@ ShamanPower.options = {
 							order = 2.904,
 							type = "toggle",
 							name = "Exclude Water",
-							desc = "Exclude Water totem from the Drop All button",
+							desc = function()
+								local d = "Exclude Water totem from the Drop All button"
+								if ShamanPower.HasTotemBar and ShamanPower:HasTotemBar() then
+									d = d .. ".\n\nCall of the Elements drops whatever Blizzard's totem bar holds, so while this is on the Water slot of that bar is kept empty. Your own Water button still casts and assigns as usual."
+								end
+								return d
+							end,
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeWaterFromDropAll
@@ -1800,7 +1818,13 @@ ShamanPower.options = {
 							order = 2.905,
 							type = "toggle",
 							name = "Exclude Air",
-							desc = "Exclude Air totem from the Drop All button",
+							desc = function()
+								local d = "Exclude Air totem from the Drop All button"
+								if ShamanPower.HasTotemBar and ShamanPower:HasTotemBar() then
+									d = d .. ".\n\nCall of the Elements drops whatever Blizzard's totem bar holds, so while this is on the Air slot of that bar is kept empty. Your own Air button still casts and assigns as usual."
+								end
+								return d
+							end,
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.excludeAirFromDropAll
@@ -2194,6 +2218,30 @@ ShamanPower.options = {
 									print("|cff0070ddShamanPower|r: takes effect after combat.")
 								end
 								ShamanPower:SetupKeybindings()
+							end
+						},
+						flyout_show_empty = {
+							order = 4.7,
+							type = "toggle",
+							name = "Offer an \"Empty\" Choice in Totem Flyouts",
+							desc = "Adds a faded totem to each totem flyout, as on Blizzard's totem bar. Picking it leaves that element with no totem assigned, so the button casts nothing until you pick a totem again.",
+							width = "full",
+							hidden = function(info)
+								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutShowEmpty ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutShowEmpty = val
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower|r: takes effect after a /reload or your next login.")
+									return
+								end
+								for element = 1, 4 do ShamanPower:RebuildTotemFlyout(element) end
 							end
 						},
 						flyout_single_open = {
