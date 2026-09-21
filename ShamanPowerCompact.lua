@@ -21,6 +21,55 @@ local EMPTY = { r = 0.32, g = 0.32, b = 0.32 }   -- "nothing down" line color
 local ES_MAX_CHARGES = 6
 
 -- ---------------------------------------------------------------------------
+-- Line textures
+-- ---------------------------------------------------------------------------
+-- The lines were plain colour fills. opt.compactLineTexture names a statusbar
+-- texture from LibSharedMedia instead ("Flat" = the plain fill, the default), so
+-- the list holds whatever the player's other addons registered plus the four
+-- small greyscale bars shipped in Media/. A texture is tinted with the line's
+-- colour, and turned a quarter for vertical lines so its grain runs along them.
+local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+local FLAT = "Flat"
+if LSM then
+	local dir = "Interface\\AddOns\\ShamanPower\\Media\\"
+	LSM:Register("statusbar", "ShamanPower Smooth", dir .. "bar-smooth.tga")
+	LSM:Register("statusbar", "ShamanPower Gloss",  dir .. "bar-gloss.tga")
+	LSM:Register("statusbar", "ShamanPower Round",  dir .. "bar-round.tga")
+	LSM:Register("statusbar", "ShamanPower Bevel",  dir .. "bar-bevel.tga")
+end
+
+function SP:CompactLineTextureList()
+	local t = { [FLAT] = "Minimal (flat colour)" }
+	if LSM then
+		for _, name in ipairs(LSM:List("statusbar")) do t[name] = name end
+	end
+	return t
+end
+
+local function LineTexturePath(name)
+	if not name or name == FLAT or not LSM then return nil end
+	return LSM:Fetch("statusbar", name, true)
+end
+
+-- Colour one bar piece, textured or flat. Only touches the texture when it changes.
+local function PaintBar(t, tex, vertical, r, g, b, a)
+	if tex then
+		if t.spTex ~= tex then t:SetTexture(tex); t.spTex = tex; t.spTexVert = nil end
+		if t.spTexVert ~= vertical then
+			if vertical then t:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) else t:SetTexCoord(0, 1, 0, 1) end
+			t.spTexVert = vertical
+		end
+		t:SetVertexColor(r, g, b, a)
+	else
+		if t.spTex then
+			t:SetVertexColor(1, 1, 1, 1); t:SetTexCoord(0, 1, 0, 1)
+			t.spTex, t.spTexVert = nil, nil
+		end
+		t:SetColorTexture(r, g, b, a)
+	end
+end
+
+-- ---------------------------------------------------------------------------
 -- Option access
 -- ---------------------------------------------------------------------------
 function SP:CompactActive()
@@ -49,6 +98,7 @@ function SP:CompactOpts(o)
 		iq        = o.compactIconSize or 12,
 		pulseText = o.compactPulseText ~= false,
 		pulseBar  = o.compactPulseBar ~= false,
+		tex       = LineTexturePath(o.compactLineTexture),
 	}
 end
 
@@ -119,6 +169,7 @@ function SP:LayoutCompactVisuals(c, frame, co, bw, bh)
 	c.lineLen = (co.vertical and bh or bw) - 2 * ow
 	c.pulseBar = co.pulseBar
 	c.olColor = co.olColor
+	c.tex = co.tex
 
 	-- the line: inset by the outline; in fill mode only the start edge is anchored
 	c.line:ClearAllPoints()
@@ -231,11 +282,16 @@ end
 function SP:PaintCompactVisuals(c, col, frac, dim, pulsePos, pulseRemain, icon, iconAlpha)
 	local active = col ~= nil
 	local r, g, b, a = EMPTY.r, EMPTY.g, EMPTY.b, 0.6
+	if not active and c.idleCol then
+		-- opt.compactIdleColor = "element": an idle line keeps its element's colour,
+		-- dimmed and without an outline, so the bar reads earth/fire/water/air at rest
+		r, g, b, a = c.idleCol.r * 0.45, c.idleCol.g * 0.45, c.idleCol.b * 0.45, 0.8
+	end
 	if active then
 		local k = dim and 0.5 or 1
 		r, g, b, a = col.r * k, col.g * k, col.b * k, 0.95
 	end
-	c.line:SetColorTexture(r, g, b, a)
+	PaintBar(c.line, c.tex, c.vertical, r, g, b, a)
 	if c.fill then
 		local len = active and math.max(1, c.lineLen * frac) or c.lineLen
 		if c.vertical then c.line:SetHeight(len) else c.line:SetWidth(len) end
@@ -243,7 +299,13 @@ function SP:PaintCompactVisuals(c, col, frac, dim, pulsePos, pulseRemain, icon, 
 	c.line:Show()
 
 	local oFrac = active and (c.fill and 1 or frac) or 0
-	if c.olColor then
+	if not active and c.idleOl then
+		-- opt.compactIdleOutline = "element": an idle line keeps a full outline in its
+		-- element's colour (or the custom outline colour), dimmed so a live totem's
+		-- brighter outline still stands apart
+		local o = c.olColor or c.idleOl
+		SetOutline(c, 1, (o.r or 1) * 0.7, (o.g or 1) * 0.7, (o.b or 1) * 0.7)
+	elseif c.olColor then
 		SetOutline(c, oFrac, c.olColor.r or 1, c.olColor.g or 1, c.olColor.b or 1)
 	else
 		SetOutline(c, oFrac, r * 0.55 + 0.45, g * 0.55 + 0.45, b * 0.55 + 0.45)
@@ -297,6 +359,7 @@ function SP:LayoutCompactSegments(frame, c, n, gap)
 	end
 	for i = n + 1, #seg do seg[i]:Hide() end
 	seg.n = n
+	seg.tex, seg.vertical = c.tex, c.vertical
 	return seg
 end
 
@@ -313,9 +376,9 @@ function SP:PaintCompactSegments(seg, charges, active, useColors, base)
 	end
 	for i = 1, seg.n or #seg do
 		if active and i <= charges then
-			seg[i]:SetColorTexture(r, g, b, 0.95)
+			PaintBar(seg[i], seg.tex, seg.vertical, r, g, b, 0.95)
 		else
-			seg[i]:SetColorTexture(EMPTY.r, EMPTY.g, EMPTY.b, active and 0.45 or 0.6)
+			PaintBar(seg[i], seg.tex, seg.vertical, EMPTY.r, EMPTY.g, EMPTY.b, active and 0.45 or 0.6)
 		end
 		seg[i]:Show()
 	end
@@ -359,6 +422,11 @@ function SP:ApplyCompactButtonLayout(btn, forceOff)
 		if btn.compactLayoutOn then
 			self:HideCompactVisuals(btn.compact)
 			if btn.icon then btn.icon:Show() end
+			if self.ShowEmptySlotArt and btn.element then
+				local a = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
+				btn.compactLayoutOn = nil
+				self:ShowEmptySlotArt(btn.element, ((a and a[btn.element]) or 0) == 0)
+			end
 			if rc then rc:ClearAllPoints(); rc:SetPoint("CENTER", btn, "CENTER", 0, 0) end
 			if btn.keybindText then btn.keybindText:ClearAllPoints(); btn.keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0) end
 			if gcd then gcd:Show() end
@@ -372,6 +440,7 @@ function SP:ApplyCompactButtonLayout(btn, forceOff)
 	local c = self:EnsureCompactVisuals(btn)
 	btn.compactLayoutOn = true
 	if btn.icon then btn.icon:Hide() end
+	if btn.emptyArt then btn.emptyArt:Hide() end
 	if btn.assignedIndicator then btn.assignedIndicator:Hide() end
 	if btn.cooldownText then btn.cooldownText:Hide() end
 	if btn.cooldown then btn.cooldown:Clear() end
@@ -572,6 +641,8 @@ function SP:UpdateCompactTotems()
 		local c = btn and btn.compact
 		if c and btn.compactLayoutOn and btn:IsShown() then
 			local haveTotem, _, startTime, duration, icon = self:GetElementTotemInfo(element)
+			c.idleCol = (self.opt.compactIdleColor == "element") and self.ElementColors[element] or nil
+			c.idleOl = (self.opt.compactIdleOutline == "element") and self.ElementColors[element] or nil
 			if haveTotem and duration and duration > 0 then
 				local frac = ((startTime + duration) - now) / duration
 				if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
@@ -648,6 +719,8 @@ function SP:ApplyCompactStyle()
 	if self.UpdateTotemProgressBarPositions then self:UpdateTotemProgressBarPositions() end
 	if self.UpdatePulseBarPositions then self:UpdatePulseBarPositions() end
 	if self.RecreateTotemFlyouts then pcall(self.RecreateTotemFlyouts, self) end
+	-- the icon bar and the Compact bar each keep their own flyout icon size
+	if self.ApplyTotemFlyoutButtonSize then self:ApplyTotemFlyoutButtonSize() end
 	if self.UpdateTotemBarOpacity then self:UpdateTotemBarOpacity() end
 	if self.UpdateCooldownBarScale then self:UpdateCooldownBarScale() end
 end

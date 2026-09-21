@@ -222,6 +222,7 @@ function ShamanPower:ShowEmptySlotArt(element, empty)
 	local btn = self.totemButtons and self.totemButtons[element]
 	if not (btn and btn.icon) then return end
 	if element == 4 and self.opt.enableTotemTwisting then empty = false end   -- twisting draws Air itself
+	if btn.compactLayoutOn then empty = false end   -- Compact draws a line, not an icon
 	local art = btn.emptyArt
 	if empty and not art then
 		art = btn:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -5202,7 +5203,7 @@ function ShamanPower:CreateTotemButtons()
 		]])
 
 		-- Store layout info as attributes for secure relayout
-		btn:SetAttribute("flyoutButtonSize", 28)
+		btn:SetAttribute("flyoutButtonSize", ShamanPower:TotemFlyoutButtonSize())
 		btn:SetAttribute("flyoutSpacing", 0)
 
 		-- Spell casting (type1 = left click)
@@ -5831,8 +5832,10 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 	for _, arrow in ipairs({ btn.spFlyoutOpenArrow, btn.spFlyoutCloseArrow }) do
 		-- the tab sits centred on the edge the flyout opens from, tucked 2 px in
 		arrow:ClearAllPoints()
-		-- never wider than the button it belongs to (cooldown bar buttons are 22 px)
-		local k = math.min(1, (btn:GetWidth() or ARROW_W) / ARROW_W)
+		-- never longer than the edge it sits on (cooldown bar buttons are 22 px; a
+		-- Compact row is a thin bar, and a sideways tab runs along its HEIGHT)
+		local edge = sideways and btn:GetHeight() or btn:GetWidth()
+		local k = math.min(1, ((edge and edge > 0) and edge or ARROW_W) / ARROW_W)
 		local tw, th = ARROW_W * k, ARROW_H * k
 		arrow:SetSize(sideways and th or tw, sideways and tw or th)
 		if dir == "bottom" then
@@ -6006,7 +6009,7 @@ function ShamanPower:CreateTotemFlyout(element)
 	local flyout = {
 		buttons = {},      -- Active/enabled buttons only
 		allButtons = {},   -- All known totem buttons (for rebuilding when settings change)
-		buttonSize = 28,
+		buttonSize = self:TotemFlyoutButtonSize(),
 		padding = 4,
 		spacing = 0,  -- No gap between buttons to prevent menu closing when moving mouse
 		element = element,
@@ -7240,6 +7243,64 @@ function ShamanPower:ClickLabel(main, shift)
 	local text = right and "Right-click" or "Left-click"
 	if shift then text = "Shift+" .. text:lower() end
 	return (main and "|cff00ff00" or "|cffffcc00") .. text .. ":|r"
+end
+
+-- Flyout icon sizes. The totem flyout icons were a fixed 28 (which towers over a
+-- thin Compact line) and the cooldown bar's a fixed 22. Each style keeps its own
+-- size, because what suits an icon bar does not suit a line:
+--   opt.totemFlyoutButtonSize     totem flyouts on the icon bar   (28)
+--   opt.compactFlyoutButtonSize   totem flyouts on the Compact bar (28)
+--   opt.cooldownFlyoutButtonSize  shield / imbue flyouts           (22)
+local function spClampSize(v, default)
+	v = tonumber(v) or default
+	if v < 12 then v = 12 elseif v > 56 then v = 56 end
+	return v
+end
+
+function ShamanPower:TotemFlyoutButtonSize()
+	if self.CompactActive and self:CompactActive() then
+		return spClampSize(self.opt and self.opt.compactFlyoutButtonSize, 28)
+	end
+	return spClampSize(self.opt and self.opt.totemFlyoutButtonSize, 28)
+end
+
+function ShamanPower:CooldownFlyoutButtonSize()
+	return spClampSize(self.opt and self.opt.cooldownFlyoutButtonSize, 22)
+end
+
+function ShamanPower:ApplyCooldownFlyoutButtonSize()
+	if InCombatLockdown() then
+		print("|cffff0000ShamanPower:|r the flyout size cannot change in combat")
+		return
+	end
+	local size = self:CooldownFlyoutButtonSize()
+	for _, def in ipairs({ { self.shieldFlyout, "LayoutShieldFlyout" }, { self.weaponImbueFlyout, "LayoutWeaponImbueFlyout" } }) do
+		local flyout = def[1]
+		if flyout then
+			flyout.buttonSize = size
+			for _, b in ipairs(flyout.allButtons or flyout.buttons or {}) do b:SetSize(size, size) end
+			if self[def[2]] then self[def[2]](self) end
+		end
+	end
+end
+
+function ShamanPower:ApplyTotemFlyoutButtonSize()
+	if InCombatLockdown() then
+		print("|cffff0000ShamanPower:|r the flyout size cannot change in combat")
+		return
+	end
+	local size = self:TotemFlyoutButtonSize()
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn then btn:SetAttribute("flyoutButtonSize", size) end   -- read by the secure relayout
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout then
+			flyout.buttonSize = size
+			for _, b in ipairs(flyout.allButtons or {}) do b:SetSize(size, size) end
+			self:LayoutFlyoutButtons(flyout)
+			self:UpdateFlyoutVisibility(element)
+		end
+	end
 end
 
 -- Throw an element's flyout away and build it again. The old buttons are
@@ -10205,7 +10266,7 @@ function ShamanPower:CreateShieldFlyout()
 	if not self.shieldButton then return end
 
 	local parentButton = self.shieldButton
-	local buttonSize = 22
+	local buttonSize = self:CooldownFlyoutButtonSize()
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
 	local flyout = {
@@ -10439,7 +10500,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	if not self.weaponImbueButton then return end
 
 	local parentButton = self.weaponImbueButton
-	local buttonSize = 22
+	local buttonSize = self:CooldownFlyoutButtonSize()
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
 	local flyout = {

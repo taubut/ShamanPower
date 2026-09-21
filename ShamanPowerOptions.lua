@@ -614,6 +614,36 @@ end
 -------------------------------------------------------------------
 -- AceConfig
 -------------------------------------------------------------------
+-- Flyout icon size sliders. Each style has its own saved size and its slider
+-- sits with that style's settings: the icon bar's in Appearance, the Compact
+-- bar's with the Compact Style options, the cooldown bar's next to its scale.
+local function FlyoutSizeOption(order, width, key, default, name, desc, apply, extraDisabled)
+	return {
+		order = order,
+		type = "range",
+		name = name,
+		desc = desc,
+		width = width,
+		min = 12,
+		max = 56,
+		step = 1,
+		disabled = function(info)
+			return ShamanPower.opt.enabled == false or not isShaman or (extraDisabled and extraDisabled()) or false
+		end,
+		get = function(info)
+			return ShamanPower.opt[key] or default
+		end,
+		set = function(info, val)
+			if InCombatLockdown() then
+				print("|cffff0000ShamanPower:|r the flyout size cannot change in combat")
+				return
+			end
+			ShamanPower.opt[key] = val
+			ShamanPower[apply](ShamanPower)
+		end
+	}
+end
+
 ShamanPower.options = {
 	name = "  " .. L["ShamanPower Classic"],
 	type = "group",
@@ -874,6 +904,36 @@ ShamanPower.options = {
 									get = function(info) return ShamanPower.opt.compactDurationMode or "auto" end,
 									set = function(info, val) ShamanPower.opt.compactDurationMode = val; ShamanPower:ApplyCompactStyle() end,
 								},
+								compactLineTexture = {
+									order = 2.5,
+									type = "select",
+									name = "Line Texture",
+									desc = "The texture the lines are drawn with, tinted in each element's colour. Flat is a plain colour fill. The ShamanPower ones ship with the addon; the rest come from your other addons (anything that registers bar textures).",
+									width = 1.2,
+									values = function() return ShamanPower:CompactLineTextureList() end,
+									get = function(info) return ShamanPower.opt.compactLineTexture or "Flat" end,
+									set = function(info, val) ShamanPower.opt.compactLineTexture = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactIdleColor = {
+									order = 2.6,
+									type = "select",
+									name = "Idle Line Colour",
+									desc = "The inside of a line while no totem of that element is down. Grey: the line only takes its colour when a totem is out. Element colour: the line always shows its element, dimmed, and brightens when a totem is out.",
+									width = 1.2,
+									values = { grey = "Grey", element = "Element colour (dimmed)" },
+									get = function(info) return ShamanPower.opt.compactIdleColor or "grey" end,
+									set = function(info, val) ShamanPower.opt.compactIdleColor = val; ShamanPower:ApplyCompactStyle() end,
+								},
+								compactIdleOutline = {
+									order = 2.7,
+									type = "select",
+									name = "Idle Outline",
+									desc = "The outline of a line while no totem of that element is down. None: the outline only appears with a totem out (and drains with its duration). Element colour: every line always wears an outline in its element's colour (or your custom outline colour), a little dimmer than a live totem's.",
+									width = 1.2,
+									values = { none = "None", element = "Element colour" },
+									get = function(info) return ShamanPower.opt.compactIdleOutline or "none" end,
+									set = function(info, val) ShamanPower.opt.compactIdleOutline = val; ShamanPower:ApplyCompactStyle() end,
+								},
 								compactLength = {
 									order = 3,
 									type = "range",
@@ -958,6 +1018,10 @@ ShamanPower.options = {
 									get = function(info) return ShamanPower.opt.compactIconSize or 12 end,
 									set = function(info, val) ShamanPower.opt.compactIconSize = val; ShamanPower:ApplyCompactStyle() end,
 								},
+								compactFlyoutSize = FlyoutSizeOption(7.5, 1.2, "compactFlyoutButtonSize", 28,
+									"Flyout Icon Size",
+									"How big the icons in the totem flyouts are while Compact style is on. 28 is the classic size; thin lines usually want something smaller. The icon bar keeps its own size (Appearance). The totem bar's scale still applies on top.",
+									"ApplyTotemFlyoutButtonSize", function() return not ShamanPower.opt.showTotemFlyouts end),
 								compactPulseBar = {
 									order = 8,
 									type = "toggle",
@@ -2124,6 +2188,10 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemFlyoutEnabled()
 							end
 						},
+						totem_flyout_button_size = FlyoutSizeOption(3.4, "full", "totemFlyoutButtonSize", 28,
+							"Totem Flyout Icon Size (icon bar)",
+							"How big the icons in the totem flyouts are while the totem bar shows icons. 28 is the classic size. The Compact style has its own size, with the Compact Style settings. The totem bar's scale still applies on top.",
+							"ApplyTotemFlyoutButtonSize", function() return not ShamanPower.opt.showTotemFlyouts end),
 						flyout_combat_header = {
 							order = 3.5,
 							type = "header",
@@ -2387,6 +2455,10 @@ ShamanPower.options = {
 								ShamanPower:UpdateRoster()
 							end
 						},
+						cooldownFlyoutButtonSize = FlyoutSizeOption(2.1, 1.5, "cooldownFlyoutButtonSize", 22,
+							"Cooldown Bar Flyout Icon Size",
+							"How big the icons in the shield and weapon imbue flyouts are. 22 is the classic size. The cooldown bar's scale still applies on top.",
+							"ApplyCooldownFlyoutButtonSize", function() return not ShamanPower.opt.showCooldownBar end),
 						cooldownBarScale = {
 							order = 2,
 							name = "Cooldown Bar Scale",
