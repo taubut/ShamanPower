@@ -95,7 +95,7 @@ function SP:CompactOpts(o)
 		olColor   = (o.compactOutlineColorMode == "custom") and o.compactOutlineColor or nil,
 		fill      = (mode == "fill"),
 		sq        = sq,
-		iq        = o.compactIconSize or 12,
+		iq        = o.compactIconSize or 15,
 		pulseText = o.compactPulseText ~= false,
 		pulseBar  = o.compactPulseBar ~= false,
 		tex       = LineTexturePath(o.compactLineTexture),

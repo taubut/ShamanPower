@@ -106,7 +106,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cooldownBarFullOpacityWhenActive = false,  -- Show CD button at full opacity when buff active or on cooldown
         elementColorPalette = "classic",  -- "classic" (brown earth), "blizzard" (green earth, purple air) or "custom"
         totemFlyoutButtonSize = 28,     -- Totem flyout icon size on the icon bar
-        compactFlyoutButtonSize = 28,   -- Totem flyout icon size on the Compact bar
+        compactFlyoutButtonSize = 15,   -- Totem flyout icon size on the Compact bar (small on purpose: the lines are thin)
         cooldownFlyoutButtonSize = 22,  -- Shield / imbue flyout icon size on the cooldown bar
         totemFlyoutOpacity = 1.0,  -- Opacity of totem bar flyout menus (0.1 to 1.0)
         cooldownFlyoutOpacity = 1.0,  -- Opacity of cooldown bar flyout menus (0.1 to 1.0)
@@ -177,7 +177,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         compactOutlineColor = { r = 1, g = 1, b = 1 },
         compactDurationMode = "auto",       -- "auto" (outline horizontal / fill vertical), "outline", "fill"
         compactIconSquares = "off",         -- "off", "before", "after" (left/right of a horizontal line, above/below a vertical one)
-        compactIconSize = 12,               -- icon square px
+        compactIconSize = 15,               -- icon square px (matches the Compact flyout icons)
         compactPulseText = true,            -- pulse countdown text inside the line
         compactPulseBar = true,             -- pulse refill inside the line
         compactShieldLine = false,          -- your Lightning / Water Shield as a 3-segment line at the start of the bar

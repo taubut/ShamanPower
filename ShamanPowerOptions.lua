@@ -617,6 +617,14 @@ end
 -- Flyout icon size sliders. Each style has its own saved size and its slider
 -- sits with that style's settings: the icon bar's in Appearance, the Compact
 -- bar's with the Compact Style options, the cooldown bar's next to its scale.
+-- The Textures and Status Colors sections only style the panel behind the totem
+-- buttons. With "Hide Totem Bar Frame" on there is no panel, and the settings
+-- looked broken (they did nothing, with no hint why). Say so, and grey them out.
+local PANEL_HIDDEN_NOTE = "\n\n|cffffa040The totem bar's panel is hidden right now, so nothing here is visible. Turn off \"Hide Totem Bar Frame\" (Appearance > Visibility) to see it.|r"
+local function PanelHidden()
+	return ShamanPower.opt and ShamanPower.opt.hideTotemBarFrame and true or false
+end
+
 local function FlyoutSizeOption(order, width, key, default, name, desc, apply, extraDisabled)
 	return {
 		order = order,
@@ -1022,12 +1030,12 @@ ShamanPower.options = {
 									min = 8, max = 24, step = 1,
 									width = 1.2,
 									hidden = function(info) return (ShamanPower.opt.compactIconSquares or "off") == "off" end,
-									get = function(info) return ShamanPower.opt.compactIconSize or 12 end,
+									get = function(info) return ShamanPower.opt.compactIconSize or 15 end,
 									set = function(info, val) ShamanPower.opt.compactIconSize = val; ShamanPower:ApplyCompactStyle() end,
 								},
-								compactFlyoutSize = FlyoutSizeOption(7.5, 1.2, "compactFlyoutButtonSize", 28,
+								compactFlyoutSize = FlyoutSizeOption(7.5, 1.2, "compactFlyoutButtonSize", 15,
 									"Flyout Icon Size",
-									"How big the icons in the totem flyouts are while Compact style is on. 28 is the classic size; thin lines usually want something smaller. The icon bar keeps its own size (Appearance). The totem bar's scale still applies on top.",
+									"How big the icons in the totem flyouts are while Compact style is on. The default is 15, the same as the icon squares, so a flyout sits neatly beside the lines instead of spilling over its neighbours (the icon bar uses 28, and keeps its own size in Appearance). The totem bar's scale still applies on top.",
 									"ApplyTotemFlyoutButtonSize", function() return not ShamanPower.opt.showTotemFlyouts end),
 								compactPulseBar = {
 									order = 8,
@@ -2887,18 +2895,21 @@ ShamanPower.options = {
 						texture_desc = {
 							order = 0,
 							type = "description",
-							name = "Customize the background and border textures for your bars.",
+							name = function()
+								return "The background and border of the totem bar's panel - the box drawn behind the four totem buttons. (The icons, the flyouts, the cooldown bar and the Compact lines are not skinned by this.)"
+									.. (PanelHidden() and PANEL_HIDDEN_NOTE or "")
+							end,
 						},
 						skin = {
 							order = 1,
 							name = L["Background Textures"],
-							desc = L["Change the Button Background Textures"],
+							desc = "The texture that fills the totem bar's panel (the box behind the totem buttons).",
 							type = "select",
 							width = 1.5,
 							dialogControl = "LSM30_Background",
 							values = AceGUIWidgetLSMlists.background,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
 							end,
 							get = function(info)
 								return ShamanPower.opt.skin
@@ -2912,13 +2923,13 @@ ShamanPower.options = {
 						edges = {
 							order = 2,
 							name = L["Borders"],
-							desc = L["Change the Button Borders"],
+							desc = "The border drawn around the totem bar's panel (the box behind the totem buttons).",
 							type = "select",
 							width = 1.5,
 							dialogControl = "LSM30_Border",
 							values = AceGUIWidgetLSMlists.border,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
 							end,
 							get = function(info)
 								return ShamanPower.opt.border
@@ -3135,13 +3146,16 @@ ShamanPower.options = {
 					name = "Status Colors",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
+						return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
 					end,
 					args = {
 						color_desc = {
 							order = 0,
 							type = "description",
-							name = "Customize the colors used to indicate buff status in the assignment panel.",
+							name = function()
+								return "The totem bar's panel is tinted by how many of your assigned totems are down: all of them, some of them, or none."
+									.. (PanelHidden() and PANEL_HIDDEN_NOTE or "")
+							end,
 						},
 						color_good = {
 							order = 1,

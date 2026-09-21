@@ -7463,7 +7463,7 @@ end
 -- thin Compact line) and the cooldown bar's a fixed 22. Each style keeps its own
 -- size, because what suits an icon bar does not suit a line:
 --   opt.totemFlyoutButtonSize     totem flyouts on the icon bar   (28)
---   opt.compactFlyoutButtonSize   totem flyouts on the Compact bar (28)
+--   opt.compactFlyoutButtonSize   totem flyouts on the Compact bar (15, matching its icon squares)
 --   opt.cooldownFlyoutButtonSize  shield / imbue flyouts           (22)
 local function spClampSize(v, default)
 	v = tonumber(v) or default
@@ -7473,7 +7473,7 @@ end
 
 function ShamanPower:TotemFlyoutButtonSize()
 	if self.CompactActive and self:CompactActive() then
-		return spClampSize(self.opt and self.opt.compactFlyoutButtonSize, 28)
+		return spClampSize(self.opt and self.opt.compactFlyoutButtonSize, 15)
 	end
 	return spClampSize(self.opt and self.opt.totemFlyoutButtonSize, 28)
 end

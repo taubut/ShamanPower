@@ -1012,7 +1012,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				return { off = "Off", before = "Left of the line", after = "Right of the line" }
 			end,
 			order = function() return { "off", "before", "after" } end })
-		row("Slider", { label = "Icon square size", min = 8, max = 24, step = 1, get = function() return OPT().compactIconSize or 12 end, set = cset("compactIconSize") })
+		row("Slider", { label = "Icon square size", min = 8, max = 24, step = 1, get = function() return OPT().compactIconSize or 15 end, set = cset("compactIconSize") })
 		row("Toggle", { label = "Pulse refill in the line", get = function() return OPT().compactPulseBar ~= false end, set = cset("compactPulseBar") })
 		row("Toggle", { label = "Pulse countdown text", get = function() return OPT().compactPulseText ~= false end, set = cset("compactPulseText") })
 		row("Toggle", { label = "Your shield line (Lightning / Water)", get = function() return OPT().compactShieldLine and true or false end, set = cset("compactShieldLine") })
