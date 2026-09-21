@@ -142,6 +142,26 @@ end
 
 local ES_SPELL_IDS = { 974, 32593, 32594, 383648 }   -- Earth Shield ranks; retail's AURA is 383648 (cast 974)
 
+-- The engine draws the count and never shows us the number, but it applies a
+-- NumericRuleFormatter we hand it first (CustomAuraButtonApplicationCountOptions
+-- .formatter, per the client's own API docs). One breakpoint per count decides
+-- the text and colour, which is how 1 gets drawn at all: by default the client
+-- hides a count of 1, the way stack counts work everywhere else.
+local function chargeFormatter(maxCharges, isES)
+	if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return nil end
+	local ok, fmt = pcall(C_StringUtil.CreateNumericRuleFormatter)
+	if not ok or not fmt or not fmt.AddBreakpoint then return nil end
+	for n = 0, maxCharges do
+		local cr, cg, cb = ShamanPower:GetShieldChargeColor(n, maxCharges, isES)
+		pcall(fmt.AddBreakpoint, fmt, {
+			threshold = n,
+			format = ("|cff%02x%02x%02x%%d|r"):format(
+				math.floor(cr * 255 + 0.5), math.floor(cg * 255 + 0.5), math.floor(cb * 255 + 0.5)),
+		})
+	end
+	return fmt
+end
+
 local function buildChargeContainer(frame, scale, sets, r, g, b)
 	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, frame, "CustomAuraContainerTemplate")
@@ -164,8 +184,10 @@ local function buildChargeContainer(frame, scale, sets, r, g, b)
 					local count = carrier:CreateFontString(nil, "OVERLAY")
 					count:SetFont("Fonts\\FRIZQT__.TTF", 48 * scale, "OUTLINE")
 					count:SetPoint("CENTER", button, "CENTER", 0, 0)
-					count:SetTextColor(r or 1, g or 1, b or 1)   -- a fixed color: no per-charge decision is possible
-					pcall(button.SetApplicationCount, button, count, {})
+					count:SetTextColor(r or 1, g or 1, b or 1)   -- fallback if the formatter is unavailable
+					local isES = (set.name == "Earth Shield")
+					pcall(button.SetApplicationCount, button, count,
+						{ formatter = chargeFormatter(isES and 6 or 3, isES) })
 				end,
 			})
 		end)
