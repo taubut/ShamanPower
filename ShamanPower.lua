@@ -131,11 +131,86 @@ end
 -- ---------------------------------------------------------------------------
 local FLYOUT_LEAVE_GRACE = 0.08   -- lets the cursor cross the gap parent->child
 
+-- ---------------------------------------------------------------------------
+-- Click-to-open flyouts that work IN COMBAT without snippets ("box mode").
+--
+-- Measured on the Forever beta (2026-09-21), all three in combat:
+--   * a SecureActionButton of type "attribute" may set an attribute on a
+--     protected frame (SECURE_ACTIONS.attribute is plain Lua, no snippet);
+--   * a protected frame registered with RegisterUnitWatch is shown/hidden by
+--     Blizzard's own manager according to its "unit" attribute ("player"
+--     exists -> shown, "none" -> hidden), re-checked every 0.2 s;
+--   * a macro may press such a button with "/click Name LeftButton 1" (the
+--     bare form sends a release, which key-down casting ignores).
+-- So each element's flyout buttons live in one watched box; an arrow on the
+-- totem button opens it, a second arrow inside it closes it, and picking a
+-- totem casts and closes in the same click. Out of combat the hover behaviour
+-- is unchanged, it just drives the same box. Only used while snippets are
+-- broken, so it retires itself when Blizzard fixes them.
+-- ---------------------------------------------------------------------------
+local FLYOUT_ARROW = 16   -- room the arrow tab takes between the totem button and its flyout
+
+-- Blizzard's own totem-bar flyout tabs (Interface\\Buttons\\UI-TotemBar, 128x256):
+-- a 28x18 tab per element, one pointing away from the button (open) and one
+-- pointing back at it (close), plus a 20x11 additive glow for hover. Values
+-- are the ones in Blizzard_ActionBar/Shared/MultiCastActionBarFrame.lua.
+-- Indexed by ShamanPower element: 1 Earth, 2 Fire, 3 Water, 4 Air.
+local ARROW_TEXTURE = "Interface\\Buttons\\UI-TotemBar"
+local ARROW_W, ARROW_H = 28, 18
+local ARROW_OPEN = {
+	{ 99 / 128, 127 / 128, 160 / 256, 178 / 256 },   -- earth
+	{ 99 / 128, 127 / 128, 122 / 256, 140 / 256 },   -- fire
+	{ 99 / 128, 127 / 128, 199 / 256, 217 / 256 },   -- water
+	{ 99 / 128, 127 / 128, 237 / 256, 255 / 256 },   -- air
+}
+local ARROW_CLOSE = {
+	{ 99 / 128, 127 / 128, 141 / 256, 159 / 256 },
+	{ 99 / 128, 127 / 128, 103 / 256, 121 / 256 },
+	{ 99 / 128, 127 / 128, 180 / 256, 198 / 256 },
+	{ 99 / 128, 127 / 128, 218 / 256, 236 / 256 },
+}
+local ARROW_GLOW_OPEN  = { 0.5625, 0.71875, 0.34375, 0.3828125 }      -- up-arrow shaped
+local ARROW_GLOW_CLOSE = { 0.5625, 0.71875, 0.26953125, 0.30859375 }  -- down-arrow shaped
+
+-- The art is drawn for a flyout that opens upward. For the other three
+-- directions the texture is turned by remapping its corners (UL, LL, UR, LR),
+-- which stays inside the tab's own rectangle; SetRotation would not.
+local function spArrowCoords(c, dir)
+	local l, r, t, b = c[1], c[2], c[3], c[4]
+	if dir == "bottom" then return r, b, r, t, l, b, l, t end
+	if dir == "left" then return r, t, l, t, r, b, l, b end
+	if dir == "right" then return l, b, r, b, l, t, r, t end
+	return l, t, l, b, r, t, r, b
+end
+
+-- The arrow strip only exists during a fight. PLAYER_REGEN_DISABLED fires just
+-- BEFORE the UI locks, which is the last moment secure frames may be moved, so
+-- that is where the flyouts shift out to make room and the arrows appear; both
+-- are undone when the fight ends. Out of combat nothing is different.
+local spFlyoutCombatLayout = false
+
+local function spFlyoutBoxMode()
+	return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
+end
+
+-- Flyout buttons hang from the box in box mode; hooks written against the
+-- totem button find it through here.
+local function spFlyoutOwner(child)
+	local p = child and child:GetParent()
+	return (p and p.spFlyoutOwner) or p
+end
+
 local function spFlyoutChildren(parent)
 	local out = {}
 	if not parent or not parent.GetChildren then return out end
 	for _, c in ipairs({ parent:GetChildren() }) do
 		if c.spFlyoutChild then out[#out + 1] = c end
+	end
+	local box = parent.spFlyoutBox
+	if box then
+		for _, c in ipairs({ box:GetChildren() }) do
+			if c.spFlyoutChild then out[#out + 1] = c end
+		end
 	end
 	return out
 end
@@ -143,6 +218,10 @@ end
 local function spFlyoutMouseIsOn(parent)
 	if not parent then return false end
 	if parent.IsMouseOver and parent:IsMouseOver() then return true end
+	-- the arrow strip sits between the totem button and its flyout
+	local open, close = parent.spFlyoutOpenArrow, parent.spFlyoutCloseArrow
+	if open and open:IsVisible() and open:IsMouseOver() then return true end
+	if close and close:IsVisible() and close:IsMouseOver() then return true end
 	-- Buttons may hang from the totem button (secure path) or from the
 	-- unprotected host (fallback path). Check both, or moving the cursor onto a
 	-- flyout button reads as "left the flyout" and closes it instantly.
@@ -158,6 +237,20 @@ local spFlyoutStuck = {}
 
 function ShamanPower:FlyoutFallbackSetShown(parent, show)
 	local inCombat = InCombatLockdown()
+
+	-- Box mode: one watched container per flyout. Out of combat we set its unit
+	-- and show it directly (no 0.2 s wait); in combat only the arrows may touch
+	-- it, so a hover-close there is left for the sweep when the fight ends.
+	local box = parent and parent.spFlyoutBox
+	if box then
+		if inCombat then
+			if not show then spFlyoutStuck[parent] = true end
+			return
+		end
+		box:SetAttribute("unit", show and "player" or "none")
+		box:SetShown(show and true or false)
+		return
+	end
 
 	-- The buttons are children of the totem button, which is a secure action
 	-- button and therefore protected, so showing them in combat is refused.
@@ -190,14 +283,44 @@ end
 do
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("PLAYER_REGEN_ENABLED")
-	f:SetScript("OnEvent", function()
-		if not next(spFlyoutStuck) then return end
+	f:RegisterEvent("PLAYER_REGEN_DISABLED")
+	-- Shift every box-mode flyout to the combat layout (room for the arrows,
+	-- arrows shown) or back. Must run synchronously inside the event: on
+	-- PLAYER_REGEN_DISABLED the UI is not locked yet, a frame later it is.
+	local function setCombatLayout(on)
+		spFlyoutCombatLayout = on
+		ShamanPower.flyoutArrowGap = on and FLYOUT_ARROW or 0
+		for element = 1, 4 do
+			local flyout = ShamanPower.totemFlyouts and ShamanPower.totemFlyouts[element]
+			if flyout and flyout.box then
+				flyout.leadGap = on and FLYOUT_ARROW or 0
+				ShamanPower:UpdateFlyoutVisibility(element)   -- re-lays out, then places the arrows
+			end
+		end
+		if ShamanPower.PositionActiveOverlays then ShamanPower:PositionActiveOverlays() end
+	end
+
+	f:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_DISABLED" then
+			setCombatLayout(true)
+			return
+		end
+		-- box mode: anything opened during the fight closes now, unless the
+		-- cursor is still on it
+		for _, btn in pairs(ShamanPower.totemButtons or {}) do
+			local box = btn.spFlyoutBox
+			if box and box:IsShown() and not spFlyoutMouseIsOn(btn) then
+				box:SetAttribute("unit", "none")
+				box:Hide()
+			end
+		end
 		for parent in pairs(spFlyoutStuck) do
-			if parent and parent.GetChildren then
+			if parent and parent.GetChildren and not parent.spFlyoutBox then
 				for _, c in ipairs(spFlyoutChildren(parent)) do pcall(c.Hide, c) end
 			end
 		end
 		wipe(spFlyoutStuck)
+		setCombatLayout(false)
 	end)
 end
 
@@ -236,10 +359,10 @@ function ShamanPower:WireFlyoutFallback(frame, attr)
 		frame.spFlyoutChild = true
 		if frame.spFlyoutChildWired then return end
 		frame.spFlyoutChildWired = true
-		frame:HookScript("OnLeave", function(self) spFlyoutScheduleClose(self:GetParent()) end)
+		frame:HookScript("OnLeave", function(self) spFlyoutScheduleClose(spFlyoutOwner(self)) end)
 		frame:HookScript("OnClick", function(self)
 			-- picking one closes the flyout, matching the secure behaviour
-			spFlyoutScheduleClose(self:GetParent())
+			spFlyoutScheduleClose(spFlyoutOwner(self))
 		end)
 	end
 end
@@ -3023,21 +3146,33 @@ function ShamanPower:GetActiveOverlayAnchor()
 		elseif self.opt.layout == "Vertical" then dir = "right"
 		else dir = self:FlyoutGoesBelow() and "below" or "above" end
 	end
-	if dir == "below" then return "TOP", "BOTTOM", 0, -2
-	elseif dir == "left" then return "RIGHT", "LEFT", -2, 0
-	elseif dir == "right" then return "LEFT", "RIGHT", 2, 0
+	-- fifth return: the side of the button it sits on, in FlyoutDirection's terms
+	if dir == "below" then return "TOP", "BOTTOM", 0, -2, "bottom"
+	elseif dir == "left" then return "RIGHT", "LEFT", -2, 0, "left"
+	elseif dir == "right" then return "LEFT", "RIGHT", 2, 0, "right"
 	end
-	return "BOTTOM", "TOP", 0, 2
+	return "BOTTOM", "TOP", 0, 2, "top"
 end
 
 function ShamanPower:PositionActiveOverlays()
-	local p, rp, ox, oy = self:GetActiveOverlayAnchor()
+	local p, rp, ox, oy, side = self:GetActiveOverlayAnchor()
+	-- In combat the flyout arrow sits against the totem button; an overlay on the
+	-- same side moves out past it rather than covering it.
+	local gap = self.flyoutArrowGap or 0
 	for element = 1, 4 do
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
 		local btn = self.totemButtons and self.totemButtons[element]
 		if ov and ov.frame and btn then
+			local gx, gy = 0, 0
+			local flyout = self.totemFlyouts and self.totemFlyouts[element]
+			if gap > 0 and flyout and flyout.box and self:FlyoutDirection(flyout) == side then
+				if side == "top" then gy = gap
+				elseif side == "bottom" then gy = -gap
+				elseif side == "left" then gx = -gap
+				else gx = gap end
+			end
 			ov.frame:ClearAllPoints()
-			ov.frame:SetPoint(p, btn, rp, ox, oy)
+			ov.frame:SetPoint(p, btn, rp, ox + gx, oy + gy)
 		end
 	end
 	local esOv = self.esActiveOverlay
@@ -5236,6 +5371,141 @@ function ShamanPower:UpdateTotemButtons()
 end
 
 -- Create flyout menu for an element
+-- Which way this element's flyout opens: "top", "bottom", "left" or "right".
+function ShamanPower:FlyoutDirection(flyout)
+	local element = flyout and flyout.element
+	if element and self:IsElementPoppedOut(element) then
+		local key = "totem_" .. self.Elements[element]:lower()
+		local settings = self.opt.poppedOutSettings and self.opt.poppedOutSettings[key]
+		if settings and settings.flyoutDirection then return settings.flyoutDirection end
+	end
+	if not self:IsTotemBarHorizontal() then
+		local isVerticalLeft = (self.opt.layout == "VerticalLeft") and not self:CompactActive()
+		return isVerticalLeft and "left" or "right"
+	end
+	return self:FlyoutGoesBelow(flyout.totemButton) and "bottom" or "top"
+end
+
+-- Arrows exist in combat only (see spFlyoutCombatLayout). Texture alpha is used
+-- for the hover highlight because regions are never protected.
+local function spFlyoutArrowAlpha(arrow, hovered)
+	if not arrow then return end
+	local a = 0
+	if spFlyoutCombatLayout then a = hovered and 1 or 0.85 end
+	-- The close tab sits on top of the open tab while the flyout is up, and its
+	-- art has transparent parts, so the open tab's art goes away for that time.
+	-- (The frame cannot be hidden in combat; its textures can.)
+	if arrow.spHideWhileShown and arrow.spHideWhileShown:IsShown() then a, hovered = 0, false end
+	arrow.tex:SetAlpha(a)
+	arrow.glow:SetAlpha((spFlyoutCombatLayout and hovered) and 1 or 0)
+end
+
+local function spFlyoutMakeArrow(name, parent, box, unitValue)
+	local b = _G[name] or CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
+	b:SetParent(parent)
+	b:RegisterForClicks("AnyUp", "AnyDown")
+	b:SetAttribute("type", "attribute")
+	b:SetAttribute("attribute-frame", box)
+	b:SetAttribute("attribute-name", "unit")
+	b:SetAttribute("attribute-value", unitValue)
+	if not b.tex then
+		b.tex = b:CreateTexture(nil, "ARTWORK")
+		b.tex:SetAllPoints()
+		b.tex:SetTexture(ARROW_TEXTURE)
+		b.glow = b:CreateTexture(nil, "OVERLAY")
+		b.glow:SetPoint("CENTER")
+		b.glow:SetTexture(ARROW_TEXTURE)
+		b.glow:SetBlendMode("ADD")
+		b.glow:SetAlpha(0)
+		b:HookScript("OnEnter", function(self) spFlyoutArrowAlpha(self, true) end)
+		b:HookScript("OnLeave", function(self)
+			spFlyoutArrowAlpha(self, false)
+			if self.spOwner then spFlyoutScheduleClose(self.spOwner) end
+		end)
+	end
+	return b
+end
+
+-- Create (once) the watched box and its two arrows for an element's flyout.
+function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout)
+	if InCombatLockdown() then return totemButton.spFlyoutBox end
+	local box = totemButton.spFlyoutBox
+	if not box then
+		box = _G["ShamanPowerFlyoutBox" .. element]
+			or CreateFrame("Frame", "ShamanPowerFlyoutBox" .. element, totemButton, "SecureFrameTemplate")
+		box:SetParent(totemButton)
+		box:SetFrameLevel(totemButton:GetFrameLevel() + 8)   -- above the active-totem overlay (+5)
+		box:SetAllPoints(totemButton)
+		box:SetAttribute("unit", "none")
+		box:Hide()
+		RegisterUnitWatch(box)
+		box.spFlyoutOwner = totemButton
+		totemButton.spFlyoutBox = box
+
+		local open = spFlyoutMakeArrow("ShamanPowerFlyoutOpen" .. element, totemButton, box, "player")
+		local close = spFlyoutMakeArrow("ShamanPowerFlyoutClose" .. element, box, box, "none")
+		open.spOwner, close.spOwner = totemButton, totemButton
+		open.spHideWhileShown = box
+		box:HookScript("OnShow", function() spFlyoutArrowAlpha(open, false) end)
+		box:HookScript("OnHide", function() spFlyoutArrowAlpha(open, false) end)
+		open:SetFrameLevel(totemButton:GetFrameLevel() + 7)
+		close:SetFrameLevel(totemButton:GetFrameLevel() + 12)   -- covers the open arrow while the box is up
+		totemButton.spFlyoutOpenArrow, totemButton.spFlyoutCloseArrow = open, close
+		if not totemButton.spFlyoutArrowHooked then
+			totemButton.spFlyoutArrowHooked = true
+			totemButton:HookScript("OnEnter", function(self) spFlyoutArrowAlpha(self.spFlyoutOpenArrow, true) end)
+			totemButton:HookScript("OnLeave", function(self) spFlyoutArrowAlpha(self.spFlyoutOpenArrow, false) end)
+		end
+	end
+	flyout.box = box
+	flyout.leadGap = spFlyoutCombatLayout and FLYOUT_ARROW or 0
+	return box
+end
+
+-- Put both arrows on the edge the flyout opens from, pointing the right way.
+function ShamanPower:PlaceFlyoutArrows(flyout)
+	local btn = flyout and flyout.totemButton
+	if not btn or not btn.spFlyoutOpenArrow or InCombatLockdown() then return end
+	local dir = self:FlyoutDirection(flyout)
+	local element = flyout.element or 1
+	local sideways = (dir == "left" or dir == "right")
+	for _, arrow in ipairs({ btn.spFlyoutOpenArrow, btn.spFlyoutCloseArrow }) do
+		-- the tab sits centred on the edge the flyout opens from, tucked 2 px in
+		arrow:ClearAllPoints()
+		arrow:SetSize(sideways and ARROW_H or ARROW_W, sideways and ARROW_W or ARROW_H)
+		if dir == "bottom" then
+			arrow:SetPoint("TOP", btn, "BOTTOM", 0, 2)
+		elseif dir == "left" then
+			arrow:SetPoint("RIGHT", btn, "LEFT", 2, 0)
+		elseif dir == "right" then
+			arrow:SetPoint("LEFT", btn, "RIGHT", -2, 0)
+		else
+			arrow:SetPoint("BOTTOM", btn, "TOP", 0, -2)
+		end
+		local isClose = (arrow == btn.spFlyoutCloseArrow)
+		local art = (isClose and ARROW_CLOSE or ARROW_OPEN)[element] or ARROW_OPEN[1]
+		arrow.tex:SetTexCoord(spArrowCoords(art, dir))
+		arrow.glow:SetSize(sideways and 11 or 20, sideways and 20 or 11)
+		arrow.glow:SetTexCoord(spArrowCoords(isClose and ARROW_GLOW_CLOSE or ARROW_GLOW_OPEN, dir))
+		arrow:SetShown((self.opt.showTotemFlyouts and spFlyoutCombatLayout) and true or false)   -- combat only, and only with flyouts on
+		spFlyoutArrowAlpha(arrow, false)
+	end
+end
+
+-- Box mode keeps every eligible button SHOWN inside the (hidden) box, because
+-- nothing can show them individually once a fight starts. Out of combat only.
+function ShamanPower:SyncCombatFlyoutButtons(element)
+	local flyout = self.totemFlyouts[element]
+	if not flyout or not flyout.box or InCombatLockdown() then return end
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		local show = not btn.isDisabledInFlyout
+			and not btn:GetAttribute("isCurrentAssignment")
+			and not btn:GetAttribute("flyoutHidden")
+		btn:SetShown(show and true or false)
+	end
+	self:PlaceFlyoutArrows(flyout)
+end
+
 function ShamanPower:CreateTotemFlyout(element)
 	if self.totemFlyouts[element] then return self.totemFlyouts[element] end
 
@@ -5262,6 +5532,14 @@ function ShamanPower:CreateTotemFlyout(element)
 		totemButton = parentButton
 	}
 
+
+	-- Box mode (snippets broken): the buttons hang from a watched box so a click
+	-- can open them in combat. Anchors still point at the totem button, and the
+	-- box is its child, so position and scale are unchanged.
+	local buttonParent = parentButton
+	if spFlyoutBoxMode() and not InCombatLockdown() then
+		buttonParent = self:EnsureFlyoutBox(element, parentButton, flyout) or parentButton
+	end
 
 	-- Element names for flyout settings lookup
 	local elementKeys = { [1] = "earth", [2] = "fire", [3] = "water", [4] = "air" }
@@ -5294,12 +5572,12 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- up from the secure buttons inside it.
 			local btn = CreateFrame("Button",
 				"ShamanPowerFlyout" .. element .. "Btn" .. totemIndex,
-				parentButton,
+				buttonParent,
 				"SPFlyoutButtonTemplate")
 
 			-- IMPORTANT: CreateFrame returns existing frame if name exists, but doesn't re-parent it
 			-- Must explicitly set parent when reusing frames after RecreateTotemFlyouts()
-			btn:SetParent(parentButton)
+			btn:SetParent(buttonParent)
 			btn:SetSize(flyout.buttonSize, flyout.buttonSize)
 			btn:Hide()  -- Start hidden (template handles this too)
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
@@ -5403,6 +5681,25 @@ function ShamanPower:CreateTotemFlyout(element)
 				btn:SetAttribute("type1", "spell")
 				btn:SetAttribute("spell1", spellName)
 				btn:SetAttribute("assignButton", "RightButton")
+			end
+
+			-- Box mode: picking a totem casts it AND closes the flyout in the same
+			-- click, by pressing the close arrow from a macro. The assign click
+			-- writes the totem button's spell through the "attribute" action,
+			-- which is what the dead _onmouseup snippet used to do, so assigning
+			-- works in combat again (PostClick below already handles the rest).
+			if flyout.box and spellName then
+				local castN, assignN = swapped and "2" or "1", swapped and "1" or "2"
+				local closeName = "ShamanPowerFlyoutClose" .. element
+				btn:SetAttribute("type" .. castN, "macro")
+				btn:SetAttribute("macrotext" .. castN,
+					"/cast " .. spellName
+					.. "\n/click " .. closeName .. " LeftButton 1"
+					.. "\n/click " .. closeName .. " LeftButton 0")
+				btn:SetAttribute("type" .. assignN, "attribute")
+				btn:SetAttribute("attribute-frame" .. assignN, parentButton)
+				btn:SetAttribute("attribute-name" .. assignN, "spell1")
+				btn:SetAttribute("attribute-value" .. assignN, spellName)
 			end
 
 			-- SECURE HANDLER: Handle assignment via right-click (WORKS IN COMBAT)
@@ -5517,7 +5814,9 @@ function ShamanPower:CreateTotemFlyout(element)
 						ShamanPower:UpdateFlyoutVisibility(elem)
 						-- Hide flyout buttons
 						local flyoutData = ShamanPower.totemFlyouts[elem]
-						if flyoutData and flyoutData.buttons then
+						if flyoutData and flyoutData.box then
+							ShamanPower:FlyoutFallbackSetShown(flyoutData.totemButton, false)
+						elseif flyoutData and flyoutData.buttons then
 							for _, flyoutBtn in ipairs(flyoutData.buttons) do
 								flyoutBtn:Hide()
 							end
@@ -5575,6 +5874,7 @@ function ShamanPower:CreateTotemFlyout(element)
 	self:LayoutFlyoutButtons(flyout)
 
 	self.totemFlyouts[element] = flyout
+	self:SyncCombatFlyoutButtons(element)
 
 	return flyout
 end
@@ -5584,6 +5884,7 @@ end
 -- For vertical bar: flyout is HORIZONTAL (buttons in a row)
 function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 	if not flyout or not flyout.buttons then return end
+	self:PlaceFlyoutArrows(flyout)
 
 	local totemButton = flyout.totemButton
 	if not totemButton then return end
@@ -5592,6 +5893,7 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 	local numButtons = #buttons
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow strip
 
 	-- Check if this element is popped out and has a custom flyout direction
 	local element = flyout.element or (totemButton and totemButton.element)
@@ -5617,22 +5919,22 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 		if poppedOutDirection == "top" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "bottom" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "left" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		elseif poppedOutDirection == "right" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 		return
@@ -5667,13 +5969,13 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 			-- VerticalLeft: horizontal flyout extends to the LEFT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Vertical (Right): horizontal flyout extends to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -5682,13 +5984,13 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward (default/auto)
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
@@ -5821,6 +6123,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow strip
 	local visibleIndex = 0
 	local visibleButtons = {}
 
@@ -5844,6 +6147,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 
 	-- No visible buttons, nothing to layout
 	if visibleIndex == 0 then
+		self:SyncCombatFlyoutButtons(element)
 		return
 	end
 
@@ -5864,22 +6168,22 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 		if poppedOutDirection == "top" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "bottom" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "left" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		elseif poppedOutDirection == "right" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	elseif flyoutIsHorizontal then
@@ -5887,13 +6191,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 			-- VerticalLeft: horizontal flyout extends to the LEFT
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Vertical (Right): horizontal flyout extends to the RIGHT
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -5902,13 +6206,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 			-- Extend downward
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward (default/auto)
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
@@ -5918,6 +6222,8 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	for _, btn in ipairs(flyout.buttons) do
 		btn:SetAlpha(opacity)
 	end
+
+	self:SyncCombatFlyoutButtons(element)
 end
 
 -- Setup all flyout menus
@@ -6065,6 +6371,10 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts[element]
+		if flyout and flyout.box then self:PlaceFlyoutArrows(flyout) end
+	end
 
 	local enabled = self.opt.showTotemFlyouts
 	local requiresClick = self.opt.flyoutRequiresClick
@@ -6101,7 +6411,9 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				end
 				-- Hide any visible flyout buttons directly
 				local flyout = self.totemFlyouts[element]
-				if flyout and flyout.buttons then
+				if flyout and flyout.box then
+					self:FlyoutFallbackSetShown(btn, false)
+				elseif flyout and flyout.buttons then
 					for _, flyoutBtn in ipairs(flyout.buttons) do
 						flyoutBtn:Hide()
 					end
