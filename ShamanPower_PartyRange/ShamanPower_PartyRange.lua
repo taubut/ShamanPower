@@ -95,6 +95,22 @@ for element, buffs in pairs(SP.TotemBuffSpellIDs) do
 	end
 end
 
+-- On Forever a totem's name may differ from its effect aura's name. Cache all
+-- rank/effect IDs once; leave Anniversary's existing name-only scan unchanged.
+SP.TotemBuffIDSets = {}
+if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	for _, list in pairs(SP.TotemBuffSpellIDs) do
+		for _, base in pairs(list) do
+			local name = GetSpellInfo(base)
+			if not issecretvalue(name) and name then
+				local set = SP.TotemBuffIDSets[name] or {}
+				for _, id in ipairs(SP.TotemBuffRanks[base] or { base }) do set[id] = true end
+				SP.TotemBuffIDSets[name] = set
+			end
+		end
+	end
+end
+
 -- Pre-computed lowercase versions for totem name matching in GetActiveTotemBuffName
 SP.TotemBuffNamesLower = {}
 for element, buffs in pairs(SP.TotemBuffNames) do
@@ -236,6 +252,7 @@ function SP:UnitNearShaman(unit)
 end
 
 function SP:UnitHasBuff(unit, buffName, element)
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and issecretvalue(buffName) then return false end
 	if not buffName then return false end
 
 	if element and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
@@ -247,10 +264,26 @@ function SP:UnitHasBuff(unit, buffName, element)
 	end
 
 	local has = false
-	for i = 1, 32 do
-		local name = UnitBuff(unit, i)
-		if not name then break end
-		if name == buffName then has = true break end
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		local ids = SP.TotemBuffIDSets[buffName]
+		if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+			for i = 1, 40 do
+				local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
+				if issecretvalue(aura) or not aura then break end
+				local name, spellId = aura.name, aura.spellId
+				if (not issecretvalue(name) and name == buffName)
+					or (not issecretvalue(spellId) and spellId and ids and ids[spellId]) then
+					has = true
+					break
+				end
+			end
+		end
+	else
+		for i = 1, 32 do
+			local name = UnitBuff(unit, i)
+			if not name then break end
+			if name == buffName then has = true break end
+		end
 	end
 	if element then self.partyRangeLast[unit .. element] = has end
 	return has
