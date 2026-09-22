@@ -173,6 +173,16 @@ for _, totem in ipairs(SP.TrackableTotems) do
 	end
 end
 
+-- Only totems this client has. WoW: Forever has no Totem of Wrath and no Wrath
+-- of Air; a tracked totem the client lacks would sit at MISSING forever.
+if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+	local kept = {}
+	for _, totem in ipairs(SP.TrackableTotems) do
+		if SPCompat.SpellExists(totem.spellID) then kept[#kept + 1] = totem end
+	end
+	SP.TrackableTotems = kept
+end
+
 -- Build lookup by ID
 SP.TrackableTotemsByID = {}
 for _, totem in ipairs(SP.TrackableTotems) do
