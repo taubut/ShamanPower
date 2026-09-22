@@ -15,6 +15,15 @@ local loadoutElementNames = {
 
 -- Build totem dropdown values for a given element
 local function GetTotemValues(element)
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		return function()
+			local values = { [0] = "None" }
+			for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
+				if ShamanPower:TotemExistsOnClient(element, idx) then values[idx] = name end
+			end
+			return values
+		end
+	end
 	local values = { [0] = "None" }
 	local names = ShamanPower.TotemNames[element]
 	if names then
@@ -27,6 +36,16 @@ end
 
 -- Build sorted key list for totem dropdown
 local function GetTotemSorting(element)
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		return function()
+			local sorting = { 0 }
+			for idx in pairs(ShamanPower.TotemNames[element] or {}) do
+				if ShamanPower:TotemExistsOnClient(element, idx) then tinsert(sorting, idx) end
+			end
+			table.sort(sorting)
+			return sorting
+		end
+	end
 	local sorting = {0}
 	local names = ShamanPower.TotemNames[element]
 	if names then
