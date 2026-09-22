@@ -1098,9 +1098,14 @@ function ShamanPower:OnEnable()
 	end
 	if isShaman then
 		self.ButtonsUpdate(self)
-		-- Create Earth Shield macro button and macro for keybinding
+		-- Keep the binding button, but do not leave a dead macro on clients without Earth Shield.
 		self:UpdateEarthShieldMacroButton()
-		self:CreateEarthShieldMacro()
+		if not self.ESTrackerUnavailable then
+			self:CreateEarthShieldMacro()
+		else
+			local idx = GetMacroIndexByName("AC EarthShield")
+			if idx and idx > 0 and not InCombatLockdown() then DeleteMacro(idx) end
+		end
 	end
 	self:BindKeys()
 	self:UpdateRoster()
