@@ -88,10 +88,59 @@ function SP:ShowPreview(key, container)
 	if #frames == 0 then return nil end
 
 	local pad = def.pad or 24
+	-- In the settings pane a re-run (a setting changed) must not flash frames
+	-- the demo keeps hidden (icons on cooldown): shown once per mount there,
+	-- and the demo owns their visibility from then on.
+	local function showFrame(frame)
+		if container.previewPane then
+			if frame.spPaneShown then return end
+			frame.spPaneShown = true
+		end
+		frame:Show()
+	end
+	-- def.stage = "player": the player's own character, dimmed, behind the
+	-- borrowed frames - for displays that float near the character on screen
+	-- (shield charges), so the preview says where they live.
+	if def.stage == "player" then
+		local stage = container.previewStage
+		if not stage then
+			stage = CreateFrame("PlayerModel", nil, container)
+			stage:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+			stage:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+			stage:SetFrameLevel(container:GetFrameLevel() + 2)
+			stage:SetAlpha(0.55)
+			-- camera, placement and the spell visual only take once the model has
+			-- loaded; applied there, so the character does not jump on the first
+			-- refresh after loading
+			local function dress(m)
+				pcall(m.SetCamDistanceScale, m, 1.7)
+				pcall(m.SetPosition, m, 0, 0, -0.35)   -- lowered a little; the display is lifted above the head (lift)
+				pcall(m.SetFacing, m, 0.3)
+				-- def.stageKit: a spell visual kit played on the character (Lightning Shield's orbs)
+				if m.spKit and m.ApplySpellVisualKit then pcall(m.ApplySpellVisualKit, m, m.spKit, false) end
+			end
+			stage:SetScript("OnModelLoaded", dress)
+			stage.dress = dress
+			container.previewStage = stage
+		end
+		stage.spKit = def.stageKit
+		stage.spCastKit = def.stageCastKit
+		stage.spAuraKit = def.stageKit
+		-- a model forgets its unit once hidden: set it every time (OnModelLoaded dresses it)
+		pcall(stage.SetUnit, stage, "player")
+		stage.dress(stage)
+		stage:Show()
+		self.previewStageActive = stage
+	elseif container.previewStage then
+		container.previewStage:Hide()
+		if self.previewStageActive == container.previewStage then self.previewStageActive = nil end
+	end
 	-- A container may reserve a strip at the bottom (e.g. for a caption) and
 	-- cap how far the frame is enlarged (so previews stay life-sized).
 	local reserve = container.previewInsetBottom or 0
 	local maxScale = container.previewMaxScale or 2.5
+	-- with a character on stage the display floats above its head, not on it
+	local lift = (def.stage and (def.stageLift or 70)) or 0
 	-- The settings window's tall, narrow preview pane flags itself and reads
 	-- the registration's `pane` hints (overlap, grid, maxScale). The wizard's
 	-- containers never do, so its step pages keep their own layout.
@@ -124,8 +173,9 @@ function SP:ShowPreview(key, container)
 			frame:SetFrameLevel(container:GetFrameLevel() + 5)
 			frame:SetScale(scale)
 			frame:ClearAllPoints()
-			frame:SetPoint("CENTER", container, "CENTER", 0, reserve / 2)
-			frame:Show()
+			-- anchor offsets are in the frame's own scaled units: parent pixels / scale
+			frame:SetPoint("CENTER", container, "CENTER", 0, (reserve / 2 + lift) / scale)
+			showFrame(frame)
 		end
 		return frames[1]
 	end
@@ -148,8 +198,9 @@ function SP:ShowPreview(key, container)
 			frame:SetFrameLevel(container:GetFrameLevel() + 5)
 			frame:SetScale(scale)
 			frame:ClearAllPoints()
-			frame:SetPoint("CENTER", container, "CENTER", (c - (cols - 1) / 2) * cellW * scale, ((rows - 1) / 2 - r) * cellH * scale + reserve / 2)
-			frame:Show()
+			-- cell geometry is in frame units already; the pixel extras are divided by the scale
+			frame:SetPoint("CENTER", container, "CENTER", (c - (cols - 1) / 2) * cellW, ((rows - 1) / 2 - r) * cellH + (reserve / 2 + lift) / scale)
+			showFrame(frame)
 		end
 		return frames[1]
 	end
@@ -160,11 +211,33 @@ function SP:ShowPreview(key, container)
 		frame:SetFrameLevel(container:GetFrameLevel() + 5)
 		frame:SetScale(scale)
 		frame:ClearAllPoints()
-		frame:SetPoint("CENTER", container, "CENTER", 0, (y - frame:GetHeight() / 2) * scale + reserve / 2)
-		frame:Show()
+		frame:SetPoint("CENTER", container, "CENTER", 0, (y - frame:GetHeight() / 2) * scale + reserve / 2 + lift)
+		showFrame(frame)
 		y = y - frame:GetHeight() - 16
 	end
 	return frames[1]
+end
+
+-- A demo can act out its story on the staged character: "cast" reloads the
+-- model (which drops the aura visual), then plays a cast animation with the
+-- cast kit; "aura" puts the aura visual back. Nothing happens without a stage.
+function SP:PreviewStageEvent(what)
+	local stage = self.previewStageActive
+	if not (stage and stage:IsShown()) then return end
+	if what == "cast" then
+		stage.spKit = nil                       -- the reload must not dress the orbs back on
+		pcall(stage.SetUnit, stage, "player")   -- a fresh model: no aura visual
+		C_Timer.After(0.3, function()
+			if not stage:IsShown() then return end
+			local anim = (Enum and Enum.AnimationDataEnum and Enum.AnimationDataEnum.SpellCastDirected) or 53
+			pcall(stage.SetAnimation, stage, anim)
+			if stage.spCastKit then pcall(stage.ApplySpellVisualKit, stage, stage.spCastKit, true) end
+		end)
+	elseif what == "aura" then
+		stage.spKit = stage.spAuraKit
+		if stage.spKit then pcall(stage.ApplySpellVisualKit, stage, stage.spKit, false) end
+		pcall(stage.SetAnimation, stage, 0)
+	end
 end
 
 -- Restore one borrowed frame to exactly how it was.
@@ -174,6 +247,7 @@ function SP:RestorePreview(key)
 	local def = self.PreviewRegistry[key]
 	for _, saved in ipairs(b.saved) do
 		local frame = saved.frame
+		frame.spPaneShown = nil
 		frame:SetParent(saved.parent or UIParent)
 		frame:SetFrameStrata(saved.strata or "MEDIUM")
 		frame:SetScale(saved.scale or 1)

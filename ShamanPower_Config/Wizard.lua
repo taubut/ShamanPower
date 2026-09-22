@@ -1339,7 +1339,7 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 	local function get(k, d) local t = SP.opt.shieldChargeDisplay; local v = t and t[k]; if v == nil then return d end; return v end
 
 	local resto = state.role == "restoration"
-	if not resto then sc().showEarthShield = false end   -- Enhancement / Elemental cannot cast Earth Shield
+	if not resto or SP.ESTrackerUnavailable then sc().showEarthShield = false end   -- Enhancement / Elemental cannot cast Earth Shield; Forever has none
 	inner.previewInsetBottom = 60
 	inner.previewMaxScale = 1.0     -- the Scale option is the real size control
 	local lblL = inner:CreateFontString(nil, "OVERLAY"); lblL:SetFontObject(Core.fonts.rowDim); lblL:SetText("Lightning / Water Shield")
@@ -1703,7 +1703,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	local ENAMES = { "Earth", "Fire", "Water", "Air" }
 	local cframes = {}
 	for i = 1, 4 do
-		local f = CreateFrame("Frame", nil, inner); f:SetSize(40, 40); f:SetPoint("TOP", bar, "BOTTOM", (i - 2.5) * 55, -34)
+		local f = CreateFrame("Frame", nil, inner); f:SetSize(40, 40); f:SetPoint("BOTTOM", bar, "TOP", (i - 2.5) * STEP, 10)   -- above its own totem, clear of the readout
 		local fbg = f:CreateTexture(nil, "BACKGROUND"); fbg:SetAllPoints(f); fbg:SetColorTexture(0, 0, 0, 0.7)
 		Core:MakeBorder(f, "border")
 		local t = f:CreateFontString(nil, "OVERLAY"); t:SetPoint("CENTER", f, "CENTER", 0, 0)
@@ -1806,8 +1806,16 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 			end
 			local c = cframes[i]
 			if separate then
-				c.f:Show(); c.f:SetScale(cScale); c.f:SetAlpha(cAlpha)
-				c.bg:SetShown(not rc.hideFrame); Core:SetBorderColor(c.f, rc.hideFrame and "windowBg" or "border")
+				c.f:Show(); c.f:SetAlpha(cAlpha)
+				if c.scaleApplied ~= cScale then
+					-- offsets are in the frame's own (scaled) units: divide, or the four spread out with the scale
+					c.scaleApplied = cScale
+					c.f:SetScale(cScale)
+					c.f:ClearAllPoints()
+					c.f:SetPoint("BOTTOM", bar, "TOP", (i - 2.5) * STEP / cScale, 10 / cScale)
+				end
+				c.bg:SetShown(not rc.hideFrame)
+				for _, t in pairs(c.f.spBorder or {}) do t:SetShown(not rc.hideFrame) end   -- no frame background = no box at all
 				c.l:SetShown(not rc.hideLabel)
 				if rc.hideFrame and rc.hideLabel then c.f:SetSize(30, 25) elseif rc.hideLabel then c.f:SetSize(40, 35) else c.f:SetSize(40, 40) end
 				c.t:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
@@ -2943,7 +2951,7 @@ function RenderStep()
 	if s.toggles then
 		y = y + 6
 		for _, tg in ipairs(s.toggles) do
-			if not tg.roles or tg.roles[state.role] then
+			if (not tg.roles or tg.roles[state.role]) and not (tg.bind == "earthshieldcharge" and SP.ESTrackerUnavailable) then
 				ToggleRow(card, y, tg.label, tg.bind)
 				y = y + 34
 			end

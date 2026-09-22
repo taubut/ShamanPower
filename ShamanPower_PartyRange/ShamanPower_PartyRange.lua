@@ -935,6 +935,35 @@ end
 -- without needing a live party/totem. No comms, no timers, no SavedVariables.
 -- ============================================================================
 function SP:PartyRangeDemo(on)
+	-- The wizard borrows one frame (Earth). The unlock UI shows all four
+	-- movers and asks for sample numbers in each (SP.unlockDemoAll), so
+	-- they can be lined up against real content.
+	if self.unlockDemoAll then
+		local SAMPLE = { 3, 1, 2, 4 }
+		for element = 1, 4 do
+			local frame = (self.rangeCounterFrames and self.rangeCounterFrames[element]) or self:CreateRangeCounterFrame(element)
+			if frame and frame.text then
+				if on then
+					self.partyRangeDemoActive = true
+					local colors = self.RangeCounterColors[element]
+					frame.text:SetTextColor(colors[1], colors[2], colors[3])
+					frame.text:SetText(tostring(SAMPLE[element]))
+					frame.text:Show()
+					if frame.label then frame.label:Show() end
+					frame:Show()
+				else
+					frame.text:SetText("")
+					frame:Hide()
+				end
+			end
+		end
+		if not on then
+			self.partyRangeDemoActive = nil
+			if self.UpdateRangeCounterFrameStyle then self:UpdateRangeCounterFrameStyle() end
+			if self.UpdateRangeCounters then self:UpdateRangeCounters() end
+		end
+		return
+	end
 	if on then
 		self.partyRangeDemoActive = true
 		-- Reuse the module's own counter frame + rendering; only the data is faked.

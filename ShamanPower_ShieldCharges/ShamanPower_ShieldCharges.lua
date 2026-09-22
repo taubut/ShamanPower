@@ -16,6 +16,13 @@ SP.ShieldChargesLoaded = true
 SP.shieldChargeFrames = {}
 
 -- Create or update the shield charge display frames
+-- Earth Shield does not exist on every client (WoW: Forever has none): the
+-- second number, its options and its preview stand down there.
+local function earthShieldWanted(settings)
+	if ShamanPower.ESTrackerUnavailable then return false end
+	return settings.showEarthShield ~= false
+end
+
 function SP:CreateShieldChargeDisplays()
 	local settings = self.opt.shieldChargeDisplay
 	if not settings then
@@ -115,7 +122,7 @@ function SP:CreateShieldChargeDisplays()
 		end)
 	end
 	-- Only enable if shield charge display is configured to show something
-	local showAny = (settings.showPlayerShield ~= false) or (settings.showEarthShield ~= false)
+	local showAny = (settings.showPlayerShield ~= false) or earthShieldWanted(settings)
 	if showAny then
 		self:EnableUpdateSubsystem("shieldCharge")
 	else
@@ -263,7 +270,7 @@ function SP:UpdateShieldChargeDisplays()
 	if not settings then return end
 
 	-- Enable/disable the shieldCharge subsystem based on settings
-	local showAny = (settings.showPlayerShield ~= false) or (settings.showEarthShield ~= false)
+	local showAny = (settings.showPlayerShield ~= false) or earthShieldWanted(settings)
 	if showAny then
 		self:EnableUpdateSubsystem("shieldCharge")
 	else
@@ -336,7 +343,7 @@ function SP:UpdateShieldChargeDisplays()
 	end
 
 	-- Update Earth Shield
-	if settings.showEarthShield ~= false then
+	if earthShieldWanted(settings) then
 		local charges = 0
 		local maxCharges = 6  -- Earth Shield has 6 charges
 		local hasShield = false
@@ -403,7 +410,7 @@ function SP:ShieldChargesDemoRefresh()
 	else
 		playerFrame:Hide()
 	end
-	if settings.showEarthShield ~= false then
+	if earthShieldWanted(settings) then
 		local r, g, b = self:GetShieldChargeColor(d.earth, 6, true)
 		earthFrame.text:SetText(d.earth)
 		earthFrame.text:SetTextColor(r, g, b)
@@ -435,6 +442,10 @@ function SP:ShieldChargesDemo(on)
 			-- player shield loses a charge every tick; re-applied after 0
 			d.player = d.player - 1
 			if d.player < 0 then d.player = 3 end
+			-- the staged character (preview) acts it out: shield gone at 0, recast brings it back
+			if self.PreviewStageEvent then
+				if d.player == 0 then self:PreviewStageEvent("cast") elseif d.player == 3 then self:PreviewStageEvent("aura") end
+			end
 			-- earth shield loses a charge every other tick (it lasts longer)
 			if tick % 2 == 0 then
 				d.earth = d.earth - 1
@@ -462,9 +473,12 @@ if ShamanPower.RegisterPreview then
 				if not SP.shieldChargeFrames.player then SP:CreateShieldChargeDisplays() end
 				return SP.shieldChargeFrames.player
 			end,
-			function() return SP.shieldChargeFrames.earth end,
+			function() if ShamanPower.ESTrackerUnavailable then return nil end; return SP.shieldChargeFrames.earth end,
 		},
 		demo = "SP:ShieldChargesDemo",
 		pad = 24,
+		stage = "player",   -- the player's own character behind the number: it floats near them on screen
+		stageKit = 292,     -- Lightning Shield's aura visual (SpellVisualEvent kit for spell visual 37, Forever 1.60.1 data)
+		stageCastKit = 237275,   -- its cast visual, played once when the demo recasts
 	})
 end

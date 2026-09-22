@@ -3786,6 +3786,27 @@ ShamanPower.options = {
 								ShamanPower:UpdateRangeCounters()
 							end
 						},
+						partybuff_move_counters = {
+							order = 3.05,
+							type = "execute",
+							name = "Move the Counter Frames",
+							desc = "Unlocks just the four counter frames: drag their boxes where you want them (over your totem bar, wherever), then press Done to come back here.",
+							width = 1.4,
+							hidden = function()
+								local rc = ShamanPower.opt.rangeCounter
+								return not (rc and rc.enabled and rc.location == "unlocked" and ShamanPower.UnlockModuleFrames)
+							end,
+							func = function() ShamanPower:UnlockModuleFrames("partyrange") end,
+						},
+						partybuff_move_counters_note = {
+							order = 3.06,
+							type = "description",
+							name = "|cffffa040Separate frames start wherever they last were; use the button to place them.|r",
+							hidden = function()
+								local rc = ShamanPower.opt.rangeCounter
+								return not (rc and rc.enabled and rc.location == "unlocked")
+							end,
+						},
 						partybuff_colors = {
 							order = 4,
 							type = "toggle",
@@ -4154,7 +4175,12 @@ ShamanPower.options = {
 						shieldcharges_desc = {
 							order = 0,
 							type = "description",
-							name = "Large on-screen numbers showing your shield charges and Earth Shield charges on your target. ALT+drag to move when unlocked.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Shield Charge Display]|r module to be enabled in your AddOns list.\n",
+							name = function()
+								if ShamanPower.ESTrackerUnavailable then
+									return "A large on-screen number showing your shield charges (Lightning or Water Shield). ALT+drag to move when unlocked.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Shield Charge Display]|r module to be enabled in your AddOns list.\n"
+								end
+								return "Large on-screen numbers showing your shield charges and Earth Shield charges on your target. ALT+drag to move when unlocked.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Shield Charge Display]|r module to be enabled in your AddOns list.\n"
+							end,
 						},
 						shieldcharges_player = {
 							order = 1,
@@ -4173,6 +4199,7 @@ ShamanPower.options = {
 							end
 						},
 						shieldcharges_earth = {
+							hidden = function() return ShamanPower.ESTrackerUnavailable == true end,   -- no Earth Shield on this client
 							hidden = function(info) return (SPCompat and SPCompat.earthShieldExists == false) and true or false end,
 							order = 2,
 							name = "Show Earth Shield Charges",

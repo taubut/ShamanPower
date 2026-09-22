@@ -231,6 +231,7 @@ function SP:CreateReadyReminderFrame(entry)
 	cd:SetAllPoints(icon)
 	cd:SetDrawEdge(false)
 	cd:SetHideCountdownNumbers(true)
+	if cd.SetIgnoreParentAlpha then cd:SetIgnoreParentAlpha(true) end   -- its countdown stays readable while the icon dims
 	cd:Hide()
 	f.cooldown = cd
 	-- vertical sweep: a grey sheet over the top part of the icon, shrinking as the cooldown ends
@@ -242,6 +243,7 @@ function SP:CreateReadyReminderFrame(entry)
 	local bar = CreateFrame("StatusBar", nil, f)
 	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
 	bar:SetMinMaxValues(0, 1); bar:SetValue(1); bar:Hide()
+	if bar.SetIgnoreParentAlpha then bar:SetIgnoreParentAlpha(true) end   -- the dim is for the icon, not the bar
 	local barBg = bar:CreateTexture(nil, "BACKGROUND"); barBg:SetAllPoints(bar); barBg:SetColorTexture(0, 0, 0, 0.6)
 	f.bar = bar
 	local count = f:CreateFontString(nil, "OVERLAY")
@@ -293,9 +295,11 @@ function SP:CreateReadyReminderFrame(entry)
 	f:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	f:Hide()
 	frames[entry.key] = f
-	self:UpdateReadyReminderAppearance(entry.key)
+	self:UpdateReadyReminderAppearance(entry.key)   -- styles the engine string too
 	return f
 end
+
+local styleEngine   -- defined with the engine helpers below; used by the appearance update
 
 function SP:UpdateReadyReminderAppearance(key)
 	local f = frames[key]; if not f then return end
@@ -334,6 +338,7 @@ function SP:UpdateReadyReminderAppearance(key)
 	f.icon:SetTexture(tex or 136024)
 	f:SetAlpha(sv.opacity or 1)
 	applyPos(f)
+	styleEngine(f)
 end
 
 function SP:UpdateAllReadyReminderAppearance()
@@ -355,6 +360,8 @@ local function setReady(f, ready)
 	if ready then
 		f.icon:SetDesaturated(false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
+		f.ecdOn = nil
+		if f.engineSheet then f.engineSheet:Hide() end
 		f:SetAlpha(sv.opacity or 1)
 		local fx = sv.readyEffect or "glow"
 		if (fx == "glow" or fx == "both") then
@@ -379,10 +386,92 @@ local function readySound(entry, duration)
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- Engine-drawn countdown on the Mainline family (the core's totem buttons
+-- do the same): the Cooldown widget draws the sweep and the numbers from a
+-- duration object handed over once per cooldown; the vertical sheet and the
+-- bar are StatusBars the engine fills. The addon keeps the ready / dim state.
+-- The demo's cooldowns are made up, so it stays on the addon's own path.
+-- ---------------------------------------------------------------------------
+local function engineOn()
+	return SP.EngineCooldownsOn and SP:EngineCooldownsOn() or false
+end
+
+-- The engine's countdown string takes the addon text's font, colour and place.
+styleEngine = function(f)
+	if not engineOn() or not f.cooldown then return end
+	local sv = SV()
+	local cd = f.cooldown
+	cd:SetHideCountdownNumbers(sv.showCountdown == false)
+	pcall(cd.SetMinimumCountdownDuration, cd, 2000)
+	pcall(cd.SetCountdownMillisecondsThreshold, cd, 0)
+	cd:SetFrameLevel(f:GetFrameLevel() + 3)   -- above the engine sheet, so the numbers stay readable
+	local ok, fs = pcall(cd.GetCountdownFontString, cd)
+	if ok and fs then
+		local font, size, flags = f.count:GetFont()
+		if font then fs:SetFont(font, size, flags) end
+		local r, g, b = f.count:GetTextColor()
+		fs:SetTextColor(r or 1, g or 1, b or 1)
+		fs:ClearAllPoints()
+		local point, rel, relPoint, x, y = f.count:GetPoint(1)
+		if point then fs:SetPoint(point, rel or f, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", f, "CENTER", 0, 0) end
+	end
+	f.ecdOn = nil   -- re-fed with the new look
+end
+
+local function drawEngineCooldown(f, sv)
+	local style = sv.sweepStyle or "radial"
+	local barOn = (sv.barStyle or "none") ~= "none"
+	-- a sweep is the dimming: the covered part is the cooldown left, the rest
+	-- is the icon coming back in colour. Desaturating as well hides that.
+	if style ~= "none" then f.icon:SetDesaturated(false) end
+	if f.ecdOn and f.ecdStyle == style and f.ecdBar == barOn then return end
+	local id = clientSpellID(f.entry)
+	if not id then return end
+	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)   -- true: not the global cooldown
+	if not ok or d == nil then return end   -- tried again next pass
+	f.ecdOn, f.ecdStyle, f.ecdBar = true, style, barOn
+	local cd = f.cooldown
+	if f.countShown ~= false then f.countShown = false; f.count:SetText("") end   -- the engine's string counts
+	f.overlay:Hide()
+	cd:SetDrawSwipe(style == "radial")
+	if not cd:IsShown() then cd:Show() end
+	pcall(cd.SetCooldownFromDurationObject, cd, d, true)
+	local Dir = Enum and Enum.StatusBarTimerDirection or {}
+	local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+	-- the vertical sheet: an engine-filled bar in place of the addon's overlay
+	if style == "vertical" then
+		local sheet = f.engineSheet
+		if not sheet then
+			sheet = CreateFrame("StatusBar", nil, f)
+			sheet:SetPoint("TOPLEFT", f.icon, "TOPLEFT", 0, 0)
+			sheet:SetPoint("BOTTOMRIGHT", f.icon, "BOTTOMRIGHT", 0, 0)
+			sheet:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+			sheet:SetStatusBarColor(0, 0, 0, 0.65)
+			sheet:SetOrientation("VERTICAL")
+			sheet:SetReverseFill(true)
+			if sheet.SetFillStyle then sheet:SetFillStyle("STANDARD") end
+			sheet:SetFrameLevel(f:GetFrameLevel() + 1)
+			f.engineSheet = sheet
+		end
+		local okb = pcall(sheet.SetTimerDuration, sheet, d, Interp, Dir.RemainingTime)
+		sheet:SetShown(okb and true or false)
+	elseif f.engineSheet then
+		f.engineSheet:Hide()
+	end
+	if barOn then
+		local okb = pcall(f.bar.SetTimerDuration, f.bar, d, Interp, Dir.RemainingTime)
+		f.bar:SetShown(okb and true or false)
+	elseif f.bar:IsShown() then
+		f.bar:Hide()
+	end
+end
+
 -- "Always" mode, on cooldown: dim, countdown, sweep, bar.
 local function drawCooldown(f, start, duration, remaining)
 	local sv = SV()
 	setReady(f, false)
+	if engineOn() and not SP.readyDemoActive then return drawEngineCooldown(f, sv) end
 	if sv.showCountdown ~= false then
 		-- the text only changes once a second (or once a minute): build the string then, not ten times a second
 		local shown = remaining >= 60 and -math.floor(remaining / 60) or math.ceil(remaining)
@@ -584,9 +673,28 @@ local function InjectOptions()
 			enabled = { order = 1, type = "toggle", name = "Enable Ready Reminders", width = "full",
 				get = function() return SV().enabled end, set = function(_, v) SV().enabled = v; refresh() end },
 			mode = { order = 2, type = "select", name = "Show", width = 1.4,
-				desc = "Only when ready: the icon appears when the spell is off cooldown. Always: the icon stays on screen, dimmed with a countdown while on cooldown, and lights up when ready.",
-				values = { ready = "Only when ready", always = "Always (dim + countdown)" },
-				get = function() return SV().mode or "ready" end, set = function(_, v) SV().mode = v; refresh() end },
+				desc = "Only when ready: the icon appears when the spell is off cooldown. Always: the icon stays on screen with the sweep and countdown while on cooldown. Always, dimmed: the same, but greyed and faded until it is ready.",
+				values = { ready = "Only when ready", always_bright = "Always (sweep + countdown)", always = "Always, dimmed while on cooldown" },
+				sorting = { "ready", "always_bright", "always" },
+				get = function()
+					local sv = SV()
+					if (sv.mode or "ready") ~= "always" then return "ready" end
+					-- "always" split by how the icon looks on cooldown: full colour, or dimmed
+					if sv.desaturate == false and (sv.dimOpacity or 0.35) >= 1 then return "always_bright" end
+					return "always"
+				end,
+				set = function(_, v)
+					local sv = SV()
+					if v == "ready" then
+						sv.mode = "ready"
+					elseif v == "always_bright" then
+						sv.mode = "always"; sv.desaturate = false; sv.dimOpacity = 1
+					else
+						sv.mode = "always"; sv.desaturate = true
+						if (sv.dimOpacity or 0.35) >= 1 then sv.dimOpacity = 0.35 end
+					end
+					refresh()
+				end },
 			onlyInCombat = { order = 2.5, type = "toggle", name = "Only In Combat", desc = "Hide every icon while you are out of combat.", width = 1.0,
 				get = function() return SV().onlyInCombat == true end, set = function(_, v) SV().onlyInCombat = v; refresh() end },
 			unlock = { order = 3, type = "toggle", name = "Unlock Positions", width = 1.0,
@@ -603,7 +711,7 @@ local function InjectOptions()
 			lookHeader = { order = 6, type = "header", name = "Look" },
 			iconSize = { order = 6.1, type = "range", name = "Icon Size", min = 24, max = 96, step = 2, width = 1.2,
 				get = function() return SV().iconSize or 48 end, set = function(_, v) SV().iconSize = v; refresh() end },
-			opacity = { order = 6.2, type = "range", name = "Opacity", min = 0.2, max = 1, step = 0.05, width = 1.2,
+			opacity = { order = 6.2, type = "range", name = "Opacity", min = 0.2, max = 1, step = 0.05, width = 1.2, isPercent = true,
 				get = function() return SV().opacity or 1 end, set = function(_, v) SV().opacity = v; refresh() end },
 			hideBackground = { order = 6.3, type = "toggle", name = "Hide Background & Border", width = 1.0,
 				get = function() return SV().hideBackground end, set = function(_, v) SV().hideBackground = v; refresh() end },
@@ -642,7 +750,7 @@ local function InjectOptions()
 			cdHeader = { order = 8, type = "header", name = "While On Cooldown (Always mode)" },
 			cdNote = { order = 8.05, type = "description", name = "These apply when Show is set to Always; in Only-when-ready mode the icon is simply hidden.\n",
 				hidden = function() return (SV().mode or "ready") == "always" end },
-			dimOpacity = { order = 8.1, type = "range", name = "Opacity While On Cooldown", min = 0.1, max = 1, step = 0.05, width = 1.2,
+			dimOpacity = { order = 8.1, type = "range", name = "Opacity While On Cooldown", min = 0.1, max = 1, step = 0.05, width = 1.2, isPercent = true,
 				hidden = function() return (SV().mode or "ready") ~= "always" end,
 				get = function() return SV().dimOpacity or 0.35 end, set = function(_, v) SV().dimOpacity = v; refresh() end },
 			desaturate = { order = 8.2, type = "toggle", name = "Grey Out The Icon", width = 1.0,
@@ -665,7 +773,8 @@ local function InjectOptions()
 				set = function(_, r, g, b) SV().barColor = { r = r, g = g, b = b }; refresh() end },
 			showCountdown = { order = 8.7, type = "toggle", name = "Countdown Text", width = 1.0,
 				hidden = function() return (SV().mode or "ready") ~= "always" end,
-				get = function() return SV().showCountdown ~= false end, set = function(_, v) SV().showCountdown = v; refresh() end },
+				get = function() return SV().showCountdown ~= false end,
+				set = function(_, v) SV().showCountdown = v; if v and SP.EnableCountdownNumbers then SP:EnableCountdownNumbers() end; refresh() end },
 			textPosition = { order = 8.8, type = "select", name = "Countdown Position", width = 1.0,
 				hidden = function() return (SV().mode or "ready") ~= "always" or SV().showCountdown == false end,
 				values = { center = "Center", top = "Top", bottom = "Bottom", below = "Below the icon", above = "Above the icon" },

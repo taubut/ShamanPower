@@ -224,7 +224,10 @@ end
 -- ---------------------------------------------------------------------------
 function SP:IsMasterUnlocked() return ACTIVE end
 
-function SP:SetMasterUnlock(on)
+-- `only`: unlock just one module's frames (its key in MODULES) and nothing
+-- else - the settings pages use it for "move these" buttons. The settings
+-- window that asked comes back when Done is pressed.
+function SP:SetMasterUnlock(on, only)
 	on = on and true or false
 	if on == ACTIVE then return end
 	if on and InCombatLockdown() then
@@ -252,20 +255,29 @@ function SP:SetMasterUnlock(on)
 			if demo then pcall(demo, self, false) end
 		end
 		wipe(demos)
+		self.unlockDemoAll = nil
 		for frame in pairs(forced) do
 			if frame:IsShown() then pcall(frame.Hide, frame) end
 		end
 		wipe(forced)
 		if doneBar then doneBar:Hide() end
+		if self.unlockReturnToConfig then
+			self.unlockReturnToConfig = nil
+			local cfg = rawget(_G, "ShamanPowerConfig")
+			if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+		end
 		return
 	end
 
 	ACTIVE = true
+	self.unlockDemoAll = true   -- demos fill every frame they own, not just the one the wizard borrows
 	-- our own windows would sit on top of what is being moved
-	local cfg = _G["ShamanPowerConfigUIFrame"]; if cfg and cfg:IsShown() then cfg:Hide() end
+	local cfg = _G["ShamanPowerConfigUIFrame"]
+	if cfg and cfg:IsShown() then cfg:Hide(); self.unlockReturnToConfig = true end
 	if ShamanPowerAssign and ShamanPowerAssign.Hide then pcall(ShamanPowerAssign.Hide, ShamanPowerAssign) end
 
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
+	if only then isShaman = false end   -- one module only: the bars stay locked
 	if isShaman and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked then
 		self:SetTotemBarUnlocked(true)
 		shown.totembar = { bar = true, reset = ResetTotemBar }
@@ -279,7 +291,7 @@ function SP:SetMasterUnlock(on)
 
 	for _, m in ipairs(MODULES) do
 		local def = self.PreviewRegistry and self.PreviewRegistry[m.key]   -- nil when the module is not loaded
-		local wanted = def ~= nil
+		local wanted = def ~= nil and (only == nil or only == m.key)
 		if wanted and m.enabled then
 			local ok, res = pcall(m.enabled)
 			wanted = ok and res and true or false
@@ -314,6 +326,12 @@ function SP:SetMasterUnlock(on)
 end
 
 function SP:ToggleMasterUnlock() self:SetMasterUnlock(not ACTIVE) end
+
+-- Unlock one module's frames only (a "move these" button on its settings page).
+function SP:UnlockModuleFrames(key)
+	if ACTIVE then self:SetMasterUnlock(false) end
+	self:SetMasterUnlock(true, key)
+end
 
 -- a fight ends the mode: protected frames cannot be moved, and the sample content should not sit over combat
 do
