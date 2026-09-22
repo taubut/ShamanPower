@@ -21,7 +21,8 @@ local SP = ShamanPower
 -- Geometry -------------------------------------------------------------------
 local PAD        = 14
 local NAME_W     = 150
-local ES_W       = 56
+-- The Earth Shield column only exists where Earth Shield does (not on WoW: Forever)
+local ES_W       = ShamanPower.ESTrackerUnavailable and 0 or 56
 local CELL_W     = 84
 local CELL_H     = 50
 local CELL_GAP   = 6
@@ -389,7 +390,7 @@ local function MakeRow(parent, index)
 	es.text = es:CreateFontString(nil, "OVERLAY")
 	es.text:SetFontObject(Core.fonts.tiny)
 	es.text:SetPoint("BOTTOM", es, "BOTTOM", 0, 4)
-	es.text:SetWidth(ES_W - 6)
+	es.text:SetWidth(50)
 	es.text:SetJustifyH("CENTER")
 	es:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	es:SetScript("OnClick", EsOnClick)
@@ -446,7 +447,7 @@ local function ConfigureRow(row, name, index, inCombat)
 
 	-- Earth Shield
 	local info = SP.AllShamans and SP.AllShamans[name]
-	local hasES = info and info.hasEarthShield
+	local hasES = ES_W > 0 and info and info.hasEarthShield
 	row.es._control = control and not inCombat
 	if hasES then
 		row.es:Show()
@@ -604,10 +605,12 @@ local function BuildFrame()
 	shamanLbl:SetPoint("BOTTOMLEFT", colhead, "BOTTOMLEFT", 12, 6)
 	shamanLbl:SetText("SHAMAN")
 
-	local esLbl = colhead:CreateFontString(nil, "OVERLAY")
-	esLbl:SetFontObject(Core.fonts.section)
-	esLbl:SetPoint("BOTTOM", colhead, "BOTTOMLEFT", NAME_W + 4 + 22, 6)
-	esLbl:SetText("ES")
+	if ES_W > 0 then
+		local esLbl = colhead:CreateFontString(nil, "OVERLAY")
+		esLbl:SetFontObject(Core.fonts.section)
+		esLbl:SetPoint("BOTTOM", colhead, "BOTTOMLEFT", NAME_W + 4 + 22, 6)
+		esLbl:SetText("ES")
+	end
 
 	for e = 1, 4 do
 		local el = ELEMENTS[e]
@@ -655,12 +658,13 @@ local function BuildFrame()
 	local tools = FooterButton(frame, "Tools", 70, false)
 	tools:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 11)
 	tools:SetScript("OnClick", function(self)
-		Widgets:ShowPopup(self, {
+		local items = {
 			{ key = "range",   text = "Totem Range" },
 			{ key = "raidcd",  text = "Raid CDs" },
-			{ key = "es",      text = "ES Tracker" },
-			{ key = "options", text = "Options" },
-		}, nil, function(key)
+		}
+		if not ShamanPower.ESTrackerUnavailable then items[#items + 1] = { key = "es", text = "ES Tracker" } end
+		items[#items + 1] = { key = "options", text = "Options" }
+		Widgets:ShowPopup(self, items, nil, function(key)
 			if key == "range" then
 				if SP.InitSPRange then SP:InitSPRange() end
 				if SP.CreateSPRangeFrame then SP:CreateSPRangeFrame() end

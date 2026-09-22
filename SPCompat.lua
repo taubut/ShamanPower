@@ -386,6 +386,32 @@ end
 -- Derived from the deny list so there is a single source of truth.
 SPCompat.earthShieldExists = not UNOBTAINABLE[408514]
 
+-- Raid Cooldowns gates. The Forever line has no Bloodlust / Heroism
+-- (2825 / 32182) and no Drums of Battle (35476): none of the three has a
+-- SpellName row in 1.60.1 (checked against SpellName.db2), so only Mana Tide
+-- calling is left there. Every other client answers true. Functions rather
+-- than constants because SpellExists caches and is wiped once the spellbook
+-- arrives.
+function SPCompat.HasBloodlust()
+	return SPCompat.SpellExists(2825) or SPCompat.SpellExists(32182)
+end
+
+function SPCompat.HasDrums()
+	return SPCompat.SpellExists(35476)
+end
+
+-- "Bloodlust / Heroism, Mana Tide and Drums of Battle" for descriptions, with
+-- the ones this client lacks left out. blName overrides the Bloodlust word
+-- (a faction-specific name, say); conj is the final joiner ("and" by default).
+function SPCompat.RaidCooldownNames(blName, conj)
+	local parts = {}
+	if SPCompat.HasBloodlust() then parts[#parts + 1] = blName or "Bloodlust / Heroism" end
+	parts[#parts + 1] = "Mana Tide"
+	if SPCompat.HasDrums() then parts[#parts + 1] = "Drums of Battle" end
+	if #parts == 1 then return parts[1] end
+	return table.concat(parts, ", ", 1, #parts - 1) .. " " .. (conj or "and") .. " " .. parts[#parts]
+end
+
 -- ---------------------------------------------------------------------------
 -- Can this client compile secure handler snippets at all?
 --

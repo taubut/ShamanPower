@@ -201,12 +201,13 @@ if FS then
 					get = function() return CO().freeCells and true or false end,
 					set = function(v) CO().freeCells = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
 				})
-				for i, name in ipairs({ "Earth", "Fire", "Water", "Air" }) do
-					if CO().freeCells then
+				if CO().freeCells and SP.CoverageWatchedCells then
+					for _, cell in ipairs(SP:CoverageWatchedCells()) do
+						local key = cell.cellKey
 						Row("Slider", {
-							label = name .. " Cell Size", min = 20, max = 80, step = 4,
-							get = function() local c = CO().cells and CO().cells[i]; return (c and c.iconSize) or CO().iconSize or 36 end,
-							set = function(v) CO().cells = CO().cells or {}; CO().cells[i] = CO().cells[i] or {}; CO().cells[i].iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
+							label = cell.cellLabel .. " Size", min = 20, max = 80, step = 4,
+							get = function() local c = CO().cells and CO().cells[key]; return (c and c.iconSize) or CO().iconSize or 36 end,
+							set = function(v) CO().cells = CO().cells or {}; CO().cells[key] = CO().cells[key] or {}; CO().cells[key].iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
 						})
 					end
 				end
@@ -214,11 +215,6 @@ if FS then
 					label = "Vertical Layout", desc = "Stack the cells instead of a row (when not placed freely).",
 					get = function() return CO().vertical and true or false end,
 					set = function(v) CO().vertical = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
-				})
-				Row("Toggle", {
-					label = "Show Buffed Names", desc = "Off: only members without the buff are named (red). On: buffed members too, in class colour.",
-					get = function() return CO().showCoveredNames ~= false end,
-					set = function(v) CO().showCoveredNames = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
 				})
 				Row("Toggle", {
 					label = "Skip Totems Everyone Has", desc = "A totem every party member carries is left out (in combat: by the distance model).",

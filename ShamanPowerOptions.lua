@@ -3388,7 +3388,10 @@ ShamanPower.options = {
 						raid_cd_desc = {
 							order = 0,
 							type = "description",
-							name = "Manage Bloodlust/Heroism and Mana Tide calling for your raid.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Raid Cooldowns]|r module to be enabled in your AddOns list.\n",
+							name = function()
+								local what = (SPCompat and SPCompat.RaidCooldownNames) and SPCompat.RaidCooldownNames("Bloodlust/Heroism") or "Bloodlust/Heroism, Mana Tide and Drums of Battle"
+								return "Manage " .. what .. " calling for your raid.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Raid Cooldowns]|r module to be enabled in your AddOns list.\n"
+							end,
 						},
 						raidCDButtonScale = {
 							order = 1,
@@ -4017,27 +4020,6 @@ ShamanPower.options = {
 								if ShamanPower.UpdateCoverage then ShamanPower:UpdateCoverage() end
 							end,
 						},
-						coverage_show_covered = {
-							order = 11.534,
-							type = "toggle",
-							name = "Show Buffed Names",
-							desc = "On: every member's name under the totem, class colour when buffed, red when not. Off: buffed members' names are hidden and only the red ones show. Needs the frame shown - a hidden name hides in the panel - so with Hide Frame on this does nothing.",
-							width = 1.0,
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
-							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) or (ShamanPower.opt.coverage and ShamanPower.opt.coverage.hideBorder) end,
-							get = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.showCoveredNames == false) end,
-							set = function(_, val)
-								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
-								ShamanPower.opt.coverage.showCoveredNames = val
-								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
-							end,
-						},
-						coverage_show_covered_note = {
-							order = 11.5341,
-							type = "description",
-							name = "|cffffa040Hide Frame is on, so buffed names cannot be hidden (there is no panel to hide them in) - they show in class colour.|r",
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.hideBorder and ShamanPower.opt.coverage.showCoveredNames == false) end,
-						},
 						coverage_icon_size = {
 							order = 11.535,
 							type = "range",
@@ -4072,7 +4054,7 @@ ShamanPower.options = {
 							order = 11.5405,
 							type = "toggle",
 							name = "Place Each Totem Freely",
-							desc = "Every totem's cell gets its own spot on the screen and its own size (below). Use Move the Coverage List to drag them, or ALT+drag a cell. Off: the cells sit together in a row or column.",
+							desc = "Every watched totem gets a cell of its own on the screen, with its own spot and size (below). Use Move the Coverage List to drag them, or ALT+drag a cell. Off: one cell per element, together in a row or column.",
 							width = "full",
 							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
 							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
@@ -4083,79 +4065,429 @@ ShamanPower.options = {
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
 						},
-						coverage_cell_size_1 = {
-							order = 11.5406 + 1 * 0.0001,
+						coverage_sizes_desc = {
+							order = 11.5406,
+							type = "description",
+							name = "Each watched totem's cell has a size of its own while placed freely:",
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.freeCells) end,
+						},
+						coverage_size_1_1 = {
+							order = 11.5411,
 							type = "range",
-							name = "Earth Cell Size",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[1] and ShamanPower.TotemBuffSpellIDs[1][1]
+								return ((base and GetSpellInfo(base)) or "Strength of Earth") .. " Size"
+							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.freeCells) end,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(1, 1)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(1, 1)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
 							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
 							get = function()
 								local co = ShamanPower.opt.coverage or {}
-								local c = co.cells and co.cells[1]
+								local c = co.cells and co.cells[101]
 								return (c and c.iconSize) or co.iconSize or 36
 							end,
 							set = function(_, val)
-								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[1] = co.cells[1] or {}
-								co.cells[1].iconSize = val
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[101] = co.cells[101] or {}
+								co.cells[101].iconSize = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
 						},
-						coverage_cell_size_2 = {
-							order = 11.5406 + 2 * 0.0001,
+						coverage_size_1_2 = {
+							order = 11.5416,
 							type = "range",
-							name = "Fire Cell Size",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[1] and ShamanPower.TotemBuffSpellIDs[1][2]
+								return ((base and GetSpellInfo(base)) or "Stoneskin") .. " Size"
+							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.freeCells) end,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(1, 2)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(1, 2)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
 							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
 							get = function()
 								local co = ShamanPower.opt.coverage or {}
-								local c = co.cells and co.cells[2]
+								local c = co.cells and co.cells[102]
 								return (c and c.iconSize) or co.iconSize or 36
 							end,
 							set = function(_, val)
-								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[2] = co.cells[2] or {}
-								co.cells[2].iconSize = val
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[102] = co.cells[102] or {}
+								co.cells[102].iconSize = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
 						},
-						coverage_cell_size_3 = {
-							order = 11.5406 + 3 * 0.0001,
+						coverage_size_2_1 = {
+							order = 11.5421,
 							type = "range",
-							name = "Water Cell Size",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[2] and ShamanPower.TotemBuffSpellIDs[2][1]
+								return ((base and GetSpellInfo(base)) or "Totem of Wrath") .. " Size"
+							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.freeCells) end,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(2, 1)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(2, 1)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
 							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
 							get = function()
 								local co = ShamanPower.opt.coverage or {}
-								local c = co.cells and co.cells[3]
+								local c = co.cells and co.cells[201]
 								return (c and c.iconSize) or co.iconSize or 36
 							end,
 							set = function(_, val)
-								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[3] = co.cells[3] or {}
-								co.cells[3].iconSize = val
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[201] = co.cells[201] or {}
+								co.cells[201].iconSize = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
 						},
-						coverage_cell_size_4 = {
-							order = 11.5406 + 4 * 0.0001,
+						coverage_size_2_5 = {
+							order = 11.5426,
 							type = "range",
-							name = "Air Cell Size",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[2] and ShamanPower.TotemBuffSpellIDs[2][5]
+								return ((base and GetSpellInfo(base)) or "Flametongue Totem") .. " Size"
+							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.freeCells) end,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(2, 5)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(2, 5)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
 							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
 							get = function()
 								local co = ShamanPower.opt.coverage or {}
-								local c = co.cells and co.cells[4]
+								local c = co.cells and co.cells[205]
 								return (c and c.iconSize) or co.iconSize or 36
 							end,
 							set = function(_, val)
-								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[4] = co.cells[4] or {}
-								co.cells[4].iconSize = val
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[205] = co.cells[205] or {}
+								co.cells[205].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_2_6 = {
+							order = 11.5431,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[2] and ShamanPower.TotemBuffSpellIDs[2][6]
+								return ((base and GetSpellInfo(base)) or "Frost Resistance") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(2, 6)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(2, 6)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[206]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[206] = co.cells[206] or {}
+								co.cells[206].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_3_1 = {
+							order = 11.5436,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][1]
+								return ((base and GetSpellInfo(base)) or "Mana Spring") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(3, 1)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(3, 1)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[301]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[301] = co.cells[301] or {}
+								co.cells[301].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_3_2 = {
+							order = 11.5441,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][2]
+								return ((base and GetSpellInfo(base)) or "Healing Stream") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(3, 2)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(3, 2)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[302]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[302] = co.cells[302] or {}
+								co.cells[302].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_3_3 = {
+							order = 11.5446,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][3]
+								return ((base and GetSpellInfo(base)) or "Mana Tide") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(3, 3)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(3, 3)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[303]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[303] = co.cells[303] or {}
+								co.cells[303].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_3_6 = {
+							order = 11.5451,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][6]
+								return ((base and GetSpellInfo(base)) or "Fire Resistance") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(3, 6)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(3, 6)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[306]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[306] = co.cells[306] or {}
+								co.cells[306].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_4_1 = {
+							order = 11.5456,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][1]
+								return ((base and GetSpellInfo(base)) or "Windfury Totem") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(4, 1)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(4, 1)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[401]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[401] = co.cells[401] or {}
+								co.cells[401].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_4_2 = {
+							order = 11.5461,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][2]
+								return ((base and GetSpellInfo(base)) or "Grace of Air") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(4, 2)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(4, 2)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[402]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[402] = co.cells[402] or {}
+								co.cells[402].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_4_3 = {
+							order = 11.5466,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][3]
+								return ((base and GetSpellInfo(base)) or "Wrath of Air") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(4, 3)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(4, 3)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[403]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[403] = co.cells[403] or {}
+								co.cells[403].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_4_4 = {
+							order = 11.5471,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][4]
+								return ((base and GetSpellInfo(base)) or "Tranquil Air") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(4, 4)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(4, 4)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[404]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[404] = co.cells[404] or {}
+								co.cells[404].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_4_6 = {
+							order = 11.5476,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][6]
+								return ((base and GetSpellInfo(base)) or "Nature Resistance") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(4, 6)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(4, 6)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[406]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[406] = co.cells[406] or {}
+								co.cells[406].iconSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_size_4_7 = {
+							order = 11.5481,
+							type = "range",
+							name = function()
+								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][7]
+								return ((base and GetSpellInfo(base)) or "Windwall") .. " Size"
+							end,
+							min = 20, max = 80, step = 4,
+							width = 1.0,
+							hidden = function()
+								local co = ShamanPower.opt.coverage
+								if not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and co and co.freeCells) then return true end
+								if not (ShamanPower.CoverageWatches and ShamanPower:CoverageWatches(4, 7)) then return true end
+								local totem = ShamanPower.GetTotemSpell and ShamanPower:GetTotemSpell(4, 7)
+								return not (totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem))
+							end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function()
+								local co = ShamanPower.opt.coverage or {}
+								local c = co.cells and co.cells[407]
+								return (c and c.iconSize) or co.iconSize or 36
+							end,
+							set = function(_, val)
+								local co = ShamanPower.opt.coverage; co.cells = co.cells or {}; co.cells[407] = co.cells[407] or {}
+								co.cells[407].iconSize = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
 						},

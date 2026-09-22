@@ -85,12 +85,11 @@ local MODULES = {
 		frames = function()
 			local f = SP.CreateCoverageFrame and SP:CreateCoverageFrame()
 			if not f then return {} end
-			if SP.opt.coverage and SP.opt.coverage.freeCells then   -- one box per cell
-				return { f.buttons[1], f.buttons[2], f.buttons[3], f.buttons[4] }
+			if SP.opt.coverage and SP.opt.coverage.freeCells and SP.CoverageWatchedCells then   -- one box per watched totem
+				return SP:CoverageWatchedCells()
 			end
 			return { f }
-		end,
-		labels = { "Coverage: Earth", "Coverage: Fire", "Coverage: Water", "Coverage: Air" } },
+		end },
 	{ key = "sprange", label = "Totem Range" },
 	{ key = "raidcd", label = "Raid Cooldown Callers" },
 	{ key = "estracker", label = "Earth Shield Tracker",
@@ -327,7 +326,7 @@ function SP:SetMasterUnlock(on, only)
 				resetFn = function() SP[name](SP) end
 			end
 			for i, frame in ipairs(frames) do
-				local label = (m.labels and m.labels[i]) or (#frames > 1 and (m.label .. " " .. i) or m.label)
+				local label = frame.spMoverLabel or (m.labels and m.labels[i]) or (#frames > 1 and (m.label .. " " .. i) or m.label)
 				ShowBox("unlock_" .. m.key .. "_" .. i, frame, label, m.save or SaveThroughOwnScripts, resetFn)
 			end
 		end

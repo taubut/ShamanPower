@@ -12,6 +12,19 @@ end
 -- Mark module as loaded
 SP.RaidCooldownsLoaded = true
 
+-- WoW: Forever has neither Bloodlust / Heroism nor Drums of Battle, so there
+-- the module is Mana Tide only: no BL or Drums button, nothing to call. Both
+-- answer true on every other client.
+local function HasBloodlust() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
+local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+
+-- Preview (settings pane / unlock) sample data. The Bloodlust sample is keyed
+-- in callerCooldowns under a name no player can have (it holds a space) so a
+-- demo click never touches a real shaman's cooldown.
+local DEMO_BL_TARGET = "Srumar"
+local DEMO_BL_KEY = "demo bl"
+local DEMO_CD = { bl = 14, mt = 10 }
+
 -- ============================================================================
 -- RAID COOLDOWN MANAGEMENT
 -- ============================================================================
@@ -319,6 +332,10 @@ function SP:IsDrummer(name)
 end
 
 function SP:CallDrums()
+	if not HasDrums() then
+		print("|cffff0000ShamanPower:|r Drums of Battle do not exist on this client.")
+		return
+	end
 	if not self:CanCallDrums() then
 		print("|cffff0000ShamanPower:|r You don't have permission to call for Drums.")
 		return
@@ -336,6 +353,10 @@ function SP:CallDrums()
 end
 
 function SP:CallBloodlust()
+	if not HasBloodlust() then
+		print("|cffff0000ShamanPower:|r Bloodlust / Heroism does not exist on this client.")
+		return
+	end
 	if not self:CanCallRaidCooldowns() then
 		print("|cffff0000ShamanPower:|r You don't have permission to call for Bloodlust.")
 		return
@@ -650,8 +671,8 @@ function SP:CreateCallerButtonFrame()
 	blHighlight:SetAllPoints(blIconTex)
 	blHighlight:SetColorTexture(1, 1, 1, 0.3)
 
-	blBtn:SetScript("OnClick", function()
-		SP:CallBloodlust()
+	blBtn:SetScript("OnClick", function(self)
+		if SP.raidCDDemoActive then SP:RaidCDDemoClick("bl", self) else SP:CallBloodlust() end
 	end)
 	blBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -695,7 +716,9 @@ function SP:CreateCallerButtonFrame()
 	local drumHl = drumBtn:CreateTexture(nil, "HIGHLIGHT")
 	drumHl:SetAllPoints(drumIcon)
 	drumHl:SetColorTexture(1, 1, 1, 0.3)
-	drumBtn:SetScript("OnClick", function() SP:CallDrums() end)
+	drumBtn:SetScript("OnClick", function(self)
+		if SP.raidCDDemoActive then SP:RaidCDDemoClick("drums", self) else SP:CallDrums() end
+	end)
 	drumBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Call Drums of Battle")
@@ -802,7 +825,7 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 
 	mtBtn.shamanName = shamanName
 	mtBtn:SetScript("OnClick", function(self)
-		SP:CallManaTideForShaman(self.shamanName)
+		if SP.raidCDDemoActive then SP:RaidCDDemoClick("mt", self) else SP:CallManaTideForShaman(self.shamanName) end
 	end)
 	mtBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -840,12 +863,12 @@ function SP:UpdateCallerButtons()
 	local mt = ShamanPower_RaidCooldowns.manatide
 	local drums = ShamanPower_RaidCooldowns.drums or { drummers = {} }
 	local drummers = self:GetDrummers()
-	local isDrumsCaller = drums.caller and (self:CanAssignRaidCooldowns() or drums.caller == playerName)
+	local isDrumsCaller = HasDrums() and drums.caller and (self:CanAssignRaidCooldowns() or drums.caller == playerName)
 	local showDrumsButton = isDrumsCaller and #drummers > 0
 
 	-- Check if player is a BL caller or MT caller for any shaman
 	-- Only consider BL callable if there's a caller assigned AND (player is RL/assist or is the caller)
-	local isBLCaller = bl.caller and (self:CanAssignRaidCooldowns() or bl.caller == playerName)
+	local isBLCaller = HasBloodlust() and bl.caller and (self:CanAssignRaidCooldowns() or bl.caller == playerName)
 	local mtCallsFor = {}
 
 	-- Check if player is caller for any shaman's MT
@@ -1116,7 +1139,7 @@ function SP:UpdateCallerButtonCooldowns()
 
 	-- Update BL button cooldown
 	if frame.blBtn and frame.blBtn:IsShown() then
-		local activeTarget = self:GetBloodlustTarget()
+		local activeTarget = self.raidCDDemoActive and DEMO_BL_KEY or self:GetBloodlustTarget()
 		local cdInfo = activeTarget and self.callerCooldowns[activeTarget] and self.callerCooldowns[activeTarget].bl
 
 		if cdInfo then
@@ -1242,43 +1265,81 @@ end
 -- Fill the caller-button frame with representative sample data so the setup
 -- wizard can show what the callers look like without a real group/assignments.
 -- Builds from local fake data only: no comms, no SavedVar writes, no timers.
+-- A sample caller button pressed in the settings pane (or while unlocked)
+-- shows the assigned player's REAL centre-screen alert - icon, text, sound and
+-- volume exactly as set on the Raid Cooldowns page - and puts the button on
+-- the same cooldown sweep a real call would (Show Button Animation applies).
+-- So the page's options can be judged without a raid. The tutorial's Raid
+-- Cooldowns step has its own mock and is not involved.
+function SP:RaidCDDemoClick(kind, btn)
+	if kind == "bl" then
+		local faction = UnitFactionGroup("player")
+		local icon = (faction == "Alliance") and "Interface\\Icons\\Ability_Shaman_Heroism" or "Interface\\Icons\\Spell_Nature_Bloodlust"
+		self:ShowCenterScreenAlert(icon, "USE " .. ((faction == "Alliance") and "HEROISM" or "BLOODLUST") .. " NOW!")
+		self.callerCooldowns[DEMO_BL_KEY] = self.callerCooldowns[DEMO_BL_KEY] or {}
+		self.callerCooldowns[DEMO_BL_KEY].bl = { start = GetTime(), duration = DEMO_CD.bl }
+	elseif kind == "mt" then
+		self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE MANA TIDE NOW!")
+		local name = btn and btn.shamanName
+		if name then
+			self.callerCooldowns[name] = self.callerCooldowns[name] or {}
+			self.callerCooldowns[name].mt = { start = GetTime(), duration = DEMO_CD.mt }
+		end
+	elseif kind == "drums" then
+		-- the real Drums button has no cooldown sweep either
+		self:ShowDrumsAlert()
+	end
+	self:UpdateCallerButtonCooldowns()
+end
+
 function SP:RaidCDDemo(on)
 	if on then
 		self.raidCDDemoActive = true
 		local frame = self:CreateCallerButtonFrame()
 		if frame and frame.cogBtn then frame.cogBtn:Hide() end
 
-		-- Sample Bloodlust/Heroism button (reuses the persistent BL button)
+		local xOffset, numButtons = 8, 0
+
+		-- Sample Bloodlust/Heroism button (reuses the persistent BL button);
+		-- a client without the spell never shows one
 		if frame.blBtn then
-			if frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText("Srumar") end
-			frame.blBtn:Show()
+			if HasBloodlust() then
+				if frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText(DEMO_BL_TARGET) end
+				frame.blBtn:Show()
+				xOffset = xOffset + 44
+				numButtons = numButtons + 1
+			else
+				frame.blBtn:Hide()
+			end
 		end
 
 		-- Clear any existing MT buttons, then build sample ones
 		for _, btn in ipairs(frame.mtButtons) do btn:Hide() end
 		frame.mtButtons = {}
 
-		local xOffset = 52  -- past the BL button
 		local sampleMT = { "Group 1", "Group 3" }
 		for i, name in ipairs(sampleMT) do
+			-- Clickable: a press shows the sample alert (see RaidCDDemoClick)
 			local mtBtn = self:BuildCallerMTButton(frame, i, name, xOffset)
-			-- Inert in preview: don't let a click attempt a real call
-			mtBtn:SetScript("OnClick", nil)
 			table.insert(frame.mtButtons, mtBtn)
 			xOffset = xOffset + 44
+			numButtons = numButtons + 1
 		end
 
 		-- Sample Drums button (reuses the persistent drum button)
 		if frame.drumBtn then
-			frame.drumBtn:ClearAllPoints()
-			frame.drumBtn:SetPoint("TOPLEFT", xOffset, -8)
-			if frame.drumBtn.nameLabel then frame.drumBtn.nameLabel:SetText("Kabum") end
-			frame.drumBtn:Show()
-			xOffset = xOffset + 44
+			if HasDrums() then
+				frame.drumBtn:ClearAllPoints()
+				frame.drumBtn:SetPoint("TOPLEFT", xOffset, -8)
+				if frame.drumBtn.nameLabel then frame.drumBtn.nameLabel:SetText("Kabum") end
+				frame.drumBtn:Show()
+				xOffset = xOffset + 44
+				numButtons = numButtons + 1
+			else
+				frame.drumBtn:Hide()
+			end
 		end
 
-		-- BL + 2 MT + Drums = 4 buttons
-		local numButtons = 1 + #sampleMT + 1
 		local width = math.max(60, numButtons * 44 + 16)
 		frame:SetSize(width, 62)
 		frame:Show()
@@ -1287,10 +1348,19 @@ function SP:RaidCDDemo(on)
 		self.raidCDDemoActive = false
 		local frame = self.callerButtonFrame
 		if frame then
-			for _, btn in ipairs(frame.mtButtons) do btn:Hide() end
+			for _, btn in ipairs(frame.mtButtons) do
+				btn:Hide()
+				-- sample names hold a space, so these are never a real shaman's
+				if btn.shamanName then self.callerCooldowns[btn.shamanName] = nil end
+				self:ClearCallerButtonCooldown(btn)
+			end
 			frame.mtButtons = {}
-			if frame.blBtn and frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText("") end
+			if frame.blBtn then
+				if frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText("") end
+				self:ClearCallerButtonCooldown(frame.blBtn)
+			end
 			if frame.drumBtn then frame.drumBtn:Hide() end
+			self.callerCooldowns[DEMO_BL_KEY] = nil
 		end
 		-- Let real data take over (hides the frame when solo / unassigned)
 		self:UpdateCallerButtons()

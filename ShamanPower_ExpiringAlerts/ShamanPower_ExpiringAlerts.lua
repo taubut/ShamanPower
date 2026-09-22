@@ -1000,7 +1000,7 @@ function SP:ExpiringAlertsDemo(on)
 			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.expired end,
 			  name = "Mana Spring Totem Expired", icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", color = TotemElements[3].color,
 			  story = "Your Mana Spring Totem timed out" },
-			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.earthShield end,
+			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.earthShield and not (SPCompat and SPCompat.earthShieldExists == false) end,
 			  name = "Earth Shield (Tank)", icon = ShieldSpells.earthShield.icon, color = ElementColors.earth,
 			  story = "Earth Shield dropped off your tank" },
 		}

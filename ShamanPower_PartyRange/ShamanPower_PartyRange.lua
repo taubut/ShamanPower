@@ -467,25 +467,22 @@ local function CoverageOpts()
 	return SP.opt.coverage
 end
 local function CoverageFont() return (CoverageOpts().fontSize or 9) end
--- "Show buffed names" off hides a covered name behind a strip in the panel's
--- colour; without the panel there is nothing to hide it in, so names stay on.
-local function CoverageNamesOn()
-	local co = CoverageOpts()
-	return co.showCoveredNames ~= false or co.hideBorder
-end
 local function CoverageRowH() return CoverageFont() + 3 end
 local function CoverageIconSize() return CoverageOpts().iconSize or 36 end
--- "Place each totem freely": every cell has its own spot and its own size
-local function CellOpts(element)
+-- "Place each totem freely": every watched TOTEM gets a cell of its own
+-- with its own spot and size (keyed element * 100 + totem index); the panel
+-- layouts use one cell per element (keyed by element).
+local function CellOpts(key)
 	local co = CoverageOpts()
 	co.cells = co.cells or {}
-	co.cells[element] = co.cells[element] or {}
-	return co.cells[element]
+	co.cells[key] = co.cells[key] or {}
+	return co.cells[key]
 end
-local function CellIconSize(element)
-	if CoverageOpts().freeCells then return CellOpts(element).iconSize or CoverageIconSize() end
+local function CellIconSize(key)
+	if CoverageOpts().freeCells then return CellOpts(key).iconSize or CoverageIconSize() end
 	return CoverageIconSize()
 end
+local function TotemCellKey(element, totemIndex) return element * 100 + totemIndex end
 local ELEMENT_LABELS = { "Earth", "Fire", "Water", "Air" }
 
 -- Which totems the overlay watches (by the buff's base spell ID; all on
@@ -581,10 +578,9 @@ function SP:CreateCoverageFrame()
 	frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	if not self:ApplyPositionRecord(frame, co.position) then frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120) end
 
-	-- one cell per element: icon, status, and the name rows under the icon,
-	-- all inside the cell's own panel so the engine's strips match it
-	frame.buttons = {}
-	for element = 1, 4 do
+	-- a cell: icon, status, and the name rows under the icon. The panel
+	-- layouts use one per element; free placement one per watched totem.
+	local function NewCell(key, element, label)
 		local btn = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 		SP:ApplyPanelBackdrop(btn)
 		local icon = btn:CreateTexture(nil, "ARTWORK")
@@ -609,11 +605,6 @@ function SP:CreateCoverageFrame()
 			-- a name-tag pill under the icon: the dark tag is what the engine's
 			-- strip can match to cover the red name
 			local row = CreateFrame("Frame", nil, btn)
-			local pill = row:CreateTexture(nil, "BACKGROUND")
-			pill:SetAllPoints(row)
-			local pr, pg, pb = btn:GetBackdropColor()
-			pill:SetColorTexture(pr or 0.05, pg or 0.05, pb or 0.06, 0.95)
-			row.pill = pill
 			local t = row:CreateFontString(nil, "OVERLAY")
 			t:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
 			t:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -625,7 +616,8 @@ function SP:CreateCoverageFrame()
 			row:Hide()
 			btn.rows[i] = row
 		end
-		btn.element = element
+		btn.element, btn.cellKey, btn.cellLabel = element, key, label
+		btn.spMoverLabel = "Coverage: " .. label
 		btn:SetMovable(true)
 		btn:SetClampedToScreen(true)
 		btn:RegisterForDrag("LeftButton")
@@ -634,19 +626,23 @@ function SP:CreateCoverageFrame()
 		end)
 		btn:SetScript("OnDragStop", function(self)
 			self:StopMovingOrSizing()
-			if CoverageOpts().freeCells then CellOpts(self.element).position = SP:SavePositionRecord(self) end
+			if CoverageOpts().freeCells then CellOpts(self.cellKey).position = SP:SavePositionRecord(self) end
 		end)
 		btn:SetScript("OnEnter", function(self)
 			if not CoverageOpts().freeCells then return end
 			GameTooltip:SetOwner(self, "ANCHOR_TOP")
-			GameTooltip:AddLine("Totem Coverage: " .. ELEMENT_LABELS[self.element], 1, 0.82, 0)
+			GameTooltip:AddLine("Totem Coverage: " .. self.cellLabel, 1, 0.82, 0)
 			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
 			GameTooltip:Show()
 		end)
 		btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		btn:Hide()
-		frame.buttons[element] = btn
+		return btn
 	end
+	frame.NewCell = NewCell
+	frame.buttons = {}
+	for element = 1, 4 do frame.buttons[element] = NewCell(element, element, ELEMENT_LABELS[element]) end
+	frame.totemCells = {}   -- [element * 100 + totemIndex] = cell, made when first needed
 	frame:Hide()
 	self.coverageFrame = frame
 	self:UpdateCoverageBorder()
@@ -654,7 +650,7 @@ function SP:CreateCoverageFrame()
 	return frame
 end
 
-local SizeCell   -- defined with the layout helpers below
+local SizeCell, HideAllCells   -- defined with the layout helpers below
 
 local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 	local unit = SP.partyUnitStrings[partyIndex]
@@ -671,26 +667,17 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 			button:SetAllPoints(row)
 			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
 			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-			if CoverageNamesOn() then
-				-- the covered look: the same name, same font and place, in class
-				-- colour - identical glyphs, so the red one underneath disappears
-				-- under it. No tag, no strip: names float, frame or no frame.
-				local t = button:CreateFontString(nil, "OVERLAY")
-				t:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-				t:SetPoint("LEFT", button, "LEFT", 2, 0)
-				t:SetPoint("RIGHT", button, "RIGHT", -2, 0)
-				t:SetJustifyH("CENTER")
-				t:SetWordWrap(false)
-				t:SetTextColor(r, g, b)
-				t:SetText(name)
-			else
-				-- names off (panel shown): a strip in the panel's own colour hides
-				-- the red name and vanishes into the panel
-				local strip = button:CreateTexture(nil, "BACKGROUND")
-				strip:SetAllPoints(button)
-				local pr, pg, pb = btn:GetBackdropColor()
-				strip:SetColorTexture(pr or 0.05, pg or 0.05, pb or 0.06, 1)
-			end
+			-- the covered look: the same name, same font and place, in class
+			-- colour - identical glyphs, so the red one underneath disappears
+			-- under it. No tag, no strip: names float, frame or no frame.
+			local t = button:CreateFontString(nil, "OVERLAY")
+			t:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			t:SetPoint("LEFT", button, "LEFT", 2, 0)
+			t:SetPoint("RIGHT", button, "RIGHT", -2, 0)
+			t:SetJustifyH("CENTER")
+			t:SetWordWrap(false)
+			t:SetTextColor(r, g, b)
+			t:SetText(name)
 		end,
 	})
 	if not okAdd then container:Hide() return nil end
@@ -700,9 +687,77 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 	return container
 end
 
--- Rows for the current party under every cell (names, classes, font);
--- keyed, so a roster or font change rebuilds only what changed. Out of
--- combat only.
+-- The cell of one watched totem (free placement), made on first use.
+function SP:CoverageTotemCell(element, totemIndex)
+	local frame = self:CreateCoverageFrame()
+	local key = TotemCellKey(element, totemIndex)
+	local btn = frame.totemCells[key]
+	if not btn then
+		local base = self.TotemBuffSpellIDs[element] and self.TotemBuffSpellIDs[element][totemIndex]
+		local label = (base and GetSpellInfo(base)) or (ELEMENT_LABELS[element] .. " " .. totemIndex)
+		btn = frame.NewCell(key, element, label)
+		btn.totemIndex = totemIndex
+		local totem = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
+		local _, _, tex = totem and GetSpellInfo(totem)
+		if tex then btn.icon:SetTexture(tex); btn.iconTex = tex end
+		frame.totemCells[key] = btn
+	end
+	return btn
+end
+
+-- Every watched totem this client has, as cells (free placement).
+function SP:CoverageWatchedCells()
+	local out = {}
+	for element = 1, 4 do
+		for idx in pairs(self.TotemBuffSpellIDs[element] or {}) do
+			if self:CoverageWatches(element, idx) and self:TotemExistsOnClient(element, idx) then
+				local totem = self.GetTotemSpell and self:GetTotemSpell(element, idx)
+				if totem and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totem) then
+					out[#out + 1] = self:CoverageTotemCell(element, idx)
+				end
+			end
+		end
+	end
+	table.sort(out, function(a, b) return a.cellKey < b.cellKey end)
+	return out
+end
+
+-- Rows for the current party under one cell (names, classes, font); keyed,
+-- so a roster or font change rebuilds only what changed.
+local function BuildCellRows(self, btn, rowsKey, element)
+	local fontSize, rowH = CoverageFont(), CoverageRowH()
+	SizeCell(btn, CellIconSize(btn.cellKey))   -- the tags size themselves against the cell
+	self.coverageRows[rowsKey] = self.coverageRows[rowsKey] or {}
+	for i = 1, 4 do
+		local unit = self.partyUnitStrings[i]
+		local exists = UnitExists(unit)
+		local name = exists and (UnitName(unit) or "?") or "-"
+		local _, class = UnitClass(unit)
+		local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(btn.cellKey) .. "|" .. CoverageWatchSig(element)
+		local slot = self.coverageRows[rowsKey][i]
+		local row = btn.rows[i]
+		if not slot or slot.key ~= key then
+			if slot and slot.container then
+				pcall(slot.container.SetEnabled, slot.container, false)
+				slot.container:Hide()
+			end
+			row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			row.text:SetText(name)
+			-- as wide as the cell, wider for a long name (never cut): flush under the icon
+			row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
+			row:ClearAllPoints()
+			row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
+			local cr, cg, cb = 0.4, 1, 0.4
+			local color = class and RAID_CLASS_COLORS[class]
+			if color then cr, cg, cb = color.r, color.g, color.b end
+			local container = exists and BuildCoverageRow(element, i, btn, row, name, cr, cg, cb) or nil
+			self.coverageRows[rowsKey][i] = { container = container, key = key }
+		end
+		row:SetShown(exists)
+	end
+end
+
+-- Rows for every cell in use. Out of combat only.
 function SP:RebuildCoverage()
 	local co = self.opt.coverage
 	if not (co and co.enabled and EngineDotsAvailable()) then
@@ -713,39 +768,10 @@ function SP:RebuildCoverage()
 	coveragePending = false
 	local frame = self:CreateCoverageFrame()
 	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
-	local fontSize, rowH, iconSize = CoverageFont(), CoverageRowH(), CoverageIconSize()
-	for element = 1, 4 do
-		local btn = frame.buttons[element]
-		SizeCell(btn, CellIconSize(element))   -- the tags size themselves against the cell
-		self.coverageRows[element] = self.coverageRows[element] or {}
-		for i = 1, 4 do
-			local unit = self.partyUnitStrings[i]
-			local exists = UnitExists(unit)
-			local name = exists and (UnitName(unit) or "?") or "-"
-			local _, class = UnitClass(unit)
-			local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(element) .. (CoverageNamesOn() and "|n" or "|-") .. "|" .. CoverageWatchSig(element)
-			local slot = self.coverageRows[element][i]
-			local row = btn.rows[i]
-			if not slot or slot.key ~= key then
-				if slot and slot.container then
-					pcall(slot.container.SetEnabled, slot.container, false)
-					slot.container:Hide()
-				end
-				row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-				row.text:SetText(name)
-				row.pill:Hide()   -- no tags: names float; a strip only ever appears against the panel
-				-- as wide as the cell, wider for a long name (never cut): flush under the icon
-				row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
-				row:ClearAllPoints()
-				row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
-				local cr, cg, cb = 0.4, 1, 0.4
-				local color = class and RAID_CLASS_COLORS[class]
-				if color then cr, cg, cb = color.r, color.g, color.b end
-				local container = exists and BuildCoverageRow(element, i, btn, row, name, cr, cg, cb) or nil
-				self.coverageRows[element][i] = { container = container, key = key }
-			end
-			row:SetShown(exists)
-		end
+	if co.freeCells then
+		for _, btn in ipairs(self:CoverageWatchedCells()) do BuildCellRows(self, btn, "t" .. btn.cellKey, btn.element) end
+	else
+		for element = 1, 4 do BuildCellRows(self, frame.buttons[element], element, element) end
 	end
 	frame.layoutKey = nil
 	self:UpdateCoverage()
@@ -758,19 +784,21 @@ end
 
 -- Free placement: each cell lives on its own, parented to the screen, at its
 -- saved spot (or spread in a row to start), at its own size.
+local freeOrder = 0
 local function PlaceFreeCell(btn)
-	local element = btn.element
 	if btn:GetParent() ~= UIParent then
 		btn:SetParent(UIParent)
 		btn:SetFrameStrata("MEDIUM")
 	end
 	btn:EnableMouse(true)
-	SizeCell(btn, CellIconSize(element))
+	SizeCell(btn, CellIconSize(btn.cellKey))
 	if not btn.freePlaced then
 		btn.freePlaced = true
-		if not SP:ApplyPositionRecord(btn, CellOpts(element).position) then
+		if not SP:ApplyPositionRecord(btn, CellOpts(btn.cellKey).position) then
+			-- never placed: spread in a row above the character, in the order they first appear
+			freeOrder = freeOrder + 1
 			btn:ClearAllPoints()
-			btn:SetPoint("CENTER", UIParent, "CENTER", (element - 2.5) * 70, 120)
+			btn:SetPoint("CENTER", UIParent, "CENTER", (freeOrder - 3) * 70, 120)
 		end
 	end
 end
@@ -832,9 +860,10 @@ end
 
 -- Which cells show and what their borders say. Runs on the range pass while
 -- totems are down; lays out again only when the set of cells changes.
-local function HideAllCells(frame)
+HideAllCells = function(frame)
 	frame:Hide()
 	for element = 1, 4 do frame.buttons[element]:Hide() end
+	for _, btn in pairs(frame.totemCells or {}) do btn:Hide() end
 end
 
 function SP:UpdateCoverage()
@@ -849,7 +878,6 @@ function SP:UpdateCoverage()
 	if count == 0 then HideAllCells(frame) return end
 	local shown, mask = {}, 0
 	for element = 1, 4 do
-		local btn = frame.buttons[element]
 		local haveTotem, _, _, _, icon = self:GetElementTotemInfo(element)
 		local buffName, totemIndex
 		if haveTotem then buffName, totemIndex = self:GetActiveTotemBuffName(element) end
@@ -867,6 +895,8 @@ function SP:UpdateCoverage()
 			if missing == 0 and co.hideWhenCovered ~= false then show = false end
 		end
 		if show then
+			-- the panel's cell for the element, or the totem's own cell when placed freely
+			local btn = co.freeCells and self:CoverageTotemCell(element, totemIndex) or frame.buttons[element]
 			if icon ~= nil and not issecretvalue(icon) and btn.iconTex ~= icon then btn.iconTex = icon; btn.icon:SetTexture(icon) end
 			PaintCoverageCell(btn, state, missing)
 			shown[#shown + 1] = btn
@@ -874,10 +904,10 @@ function SP:UpdateCoverage()
 		end
 	end
 	if co.freeCells then
-		-- no panel: every cell shows or hides on its own, where it was put
+		-- no panel: every totem's cell shows or hides on its own, where it was put
 		frame:Hide()
-		for element = 1, 4 do
-			local btn = frame.buttons[element]
+		for element = 1, 4 do if frame.buttons[element]:IsShown() then frame.buttons[element]:Hide() end end
+		for _, btn in pairs(frame.totemCells) do
 			local wanted = false
 			for _, b in ipairs(shown) do if b == btn then wanted = true break end end
 			if wanted then
@@ -890,6 +920,7 @@ function SP:UpdateCoverage()
 		frame.layoutKey = nil
 		return
 	end
+	for _, btn in pairs(frame.totemCells) do if btn:IsShown() then btn:Hide() end end
 	for element = 1, 4 do ReturnCellToFrame(frame, frame.buttons[element]) end
 	if #shown == 0 then frame:Hide() return end
 	local layoutKey = mask * 100 + count * 10 + (co.vertical and 1 or 0)
@@ -912,6 +943,8 @@ function SP:ResetCoveragePositions()
 		frame:ClearAllPoints()
 		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
 		for element = 1, 4 do frame.buttons[element].freePlaced = nil end
+		for _, btn in pairs(frame.totemCells) do btn.freePlaced = nil end
+		freeOrder = 0
 	end
 	self:UpdateCoverageLayout()
 end
@@ -919,7 +952,6 @@ end
 function SP:UpdateCoverageBorder()
 	local frame = self.coverageFrame
 	if not frame then return end
-	if not self.coverageDemoActive then self:RebuildCoverage() end   -- the frame decides whether names can be hidden
 	if CoverageOpts().hideBorder then
 		frame:SetBackdrop(nil)
 		frame.title:Hide()
@@ -968,6 +1000,12 @@ function SP:CoverageDemo(on)
 		local wasActive = self.coverageDemoActive
 		self.coverageDemoActive = true
 		if frame.settingsBtn then frame.settingsBtn:Hide() end
+		-- the live engine covers (real party names) would draw over the sample rows
+		for element = 1, 4 do
+			for _, slot in pairs(self.coverageRows[element] or {}) do
+				if slot.container then slot.container:Hide() end
+			end
+		end
 		-- the unlock movers show free cells at their own spots; a preview (wizard, pane) shows the panel
 		local freeDemo = CoverageOpts().freeCells and self.unlockDemoAll
 		local d = self.coverageDemo or { beat = 1 }
@@ -978,32 +1016,43 @@ function SP:CoverageDemo(on)
 			local beat = COVERAGE_SCENE[d.beat]
 			self.coverageDemoStatus = beat.story
 			for element = 1, 4 do frame.buttons[element]:Hide() end
+			for _, btn in pairs(frame.totemCells) do btn:Hide() end
 			local shown = {}
-			local cells = freeDemo and { [1] = beat.cells[1], [2] = { true, true, true, true }, [3] = beat.cells[3], [4] = { false, true, true, true } } or beat.cells
-			for element = 1, 4 do
-				local has = cells[element]
-				if has then
-					local btn = frame.buttons[element]
-					btn.icon:SetTexture(COVERAGE_DEMO_ICONS[element])
-					SizeCell(btn, freeDemo and CellIconSize(element) or CoverageIconSize())
+			-- free placement: every watched totem's own cell, with sample rows (so each can be placed);
+			-- the panel: the scene's cells
+			local targets = {}
+			if freeDemo then
+				for _, btn in ipairs(self:CoverageWatchedCells()) do
+					targets[#targets + 1] = { btn = btn, has = beat.cells[btn.element] or { true, true, true, true } }
+				end
+			else
+				for element = 1, 4 do
+					if beat.cells[element] then targets[#targets + 1] = { btn = frame.buttons[element], has = beat.cells[element], icon = COVERAGE_DEMO_ICONS[element] } end
+				end
+			end
+			for _, tg in ipairs(targets) do
+				local btn, has = tg.btn, tg.has
+				do
+					if tg.icon then
+						btn.icon:SetTexture(tg.icon)
+						btn.iconTex = nil   -- the live update must put the real totem's icon back afterwards
+					end
+					SizeCell(btn, freeDemo and CellIconSize(btn.cellKey) or CoverageIconSize())
 					local missing = 0
 					for i = 1, 4 do
 						local row = btn.rows[i]
 						row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 						row.text:SetText(COVERAGE_DEMO_NAMES[i])
-						row.pill:Hide()
-						local visible = true
 						if has[i] then
 							local c = COVERAGE_DEMO_COLORS[i]
 							row.text:SetTextColor(c[1], c[2], c[3])
-							if not CoverageNamesOn() then visible = false end   -- hidden in the panel's colour
 						else
 							row.text:SetTextColor(1, 0.25, 0.25); missing = missing + 1
 						end
 						row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
 						row:ClearAllPoints()
 						row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
-						row:SetShown(visible)
+						row:Show()
 					end
 					btn.state = nil
 					PaintCoverageCell(btn, missing == 0 and "covered" or "missing", missing)
@@ -1042,6 +1091,7 @@ function SP:CoverageDemo(on)
 		self.coverageDemoStatus = nil
 		self.coverageDemo = nil
 		if frame.settingsBtn then frame.settingsBtn:Show() end
+		for element = 1, 4 do frame.buttons[element].iconTex = nil; frame.buttons[element].state = nil end
 		for element = 1, 4 do
 			for i = 1, 4 do frame.buttons[element].rows[i].text:SetTextColor(1, 0.25, 0.25) end
 		end

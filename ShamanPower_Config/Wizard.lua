@@ -33,6 +33,15 @@ local function notify()
 end
 local function safecall(fn) if SP[fn] then pcall(SP[fn], SP) end end
 
+-- The mocks' Fire totem: Totem of Wrath where the client has it (TBC), else
+-- Searing Totem (WoW: Forever has no Totem of Wrath).
+function SP.Wizard.FireMockIcon()
+	if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(30706) then
+		return "Interface\\Icons\\Spell_Fire_SearingTotem"
+	end
+	return "Interface\\Icons\\Spell_Fire_TotemOfWrath"
+end
+
 local BIND = {
 	coverage = {
 		get = function() return SP.opt.coverage and SP.opt.coverage.enabled or false end,
@@ -195,6 +204,16 @@ local ALL = { restoration = true, enhancement = true, elemental = true }        
 local EVERYONE = { restoration = true, enhancement = true, elemental = true, nonshaman = true }
 local IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 
+-- Which raid cooldowns this client can call, for the texts below: WoW: Forever
+-- has neither Bloodlust / Heroism nor Drums of Battle, so only Mana Tide is
+-- named (and mocked) there.
+local function HasBL() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
+local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+local function RaidCDNames(blName, conj)
+	if SPCompat and SPCompat.RaidCooldownNames then return SPCompat.RaidCooldownNames(blName, conj) end
+	return (blName or "Bloodlust / Heroism") .. ", Mana Tide " .. (conj or "and") .. " Drums of Battle"
+end
+
 local STEPS = {
 	{ id = "totembar", title = "Totem Bar", roles = ALL, build = "BuildTotemBarStep",
 	  desc = "Your totem bar can show totems three ways. Click a style and watch the preview drop, run down and expire.",
@@ -209,7 +228,7 @@ local STEPS = {
 	  desc = "The assignments window: every shaman in your group who runs ShamanPower, side by side, with the totem each one should drop for Earth, Fire, Water and Air.",
 	  bullets = {
 	    "Your row is always yours to set. The raid leader or an assistant can set everyone's - or a shaman can allow it with Free Assign.",
-	    "Left-click a cell (or wheel) for the next totem, right-click for the previous. Twisting and the Earth Shield target are here too.",
+	    function() return "Left-click a cell (or wheel) for the next totem, right-click for the previous. Twisting" .. (SP.ESTrackerUnavailable and "" or " and the Earth Shield target") .. " are here too." end,
 	    "Open it any time with /sp totems, the minimap icon, or the totem bar's handle.",
 	  } },
 	{ id = "durationbars", title = "Duration Bars", roles = ALL, build = "BuildDurationBarsStep",
@@ -260,13 +279,13 @@ local STEPS = {
 	  },
 	  toggles = { { label = "Enable Totem Twisting", bind = "twisting" } } },
 	{ id = "raidcd", title = "Raid Cooldowns", roles = EVERYONE,
-	  descNonShaman = "As raid leader or assistant you can call for your shamans' Bloodlust / Heroism, Mana Tide and Drums of Battle with one press - the shaman gets an alert they cannot miss.",
+	  descNonShaman = function() return "As raid leader or assistant you can call for your shamans' " .. RaidCDNames() .. " with one press - the shaman gets an alert they cannot miss." end,
 	  bulletsNonShaman = {
 	    "Assign which shaman does what in Settings > Raid Cooldowns.",
 	    "Your buttons appear only when you are allowed to call, or a shaman gives you control.",
 	    "Try it: press a button in the preview to see what the shaman sees.",
 	  }, module = "ShamanPower_RaidCooldowns", flag = "RaidCooldownsLoaded", build = "BuildRaidCDStep",
-	  desc = "One-press callers for Bloodlust / Heroism, Mana Tide and Drums of Battle - the whole raid is told, and the assigned player gets an alert they cannot miss.",
+	  desc = function() return "One-press callers for " .. RaidCDNames() .. " - the whole raid is told, and the assigned player gets an alert they cannot miss." end,
 	  bullets = {
 	    "Assign who does what in Settings > Raid Cooldowns (raid leader or assistant).",
 	    "Callers appear only for people allowed to call; you can give control to anyone.",
@@ -299,7 +318,7 @@ local STEPS = {
 	{ id = "expiring", title = "Expiring Alerts", roles = ALL, module = "ShamanPower_ExpiringAlerts", flag = "ExpiringAlertsLoaded", build = "BuildExpiringStep",
 	  desc = "Scrolling-combat-text style alerts the moment a shield runs out, a totem dies or times out, or a weapon imbue fades.",
 	  bullets = {
-	    "Lightning / Water Shield, Earth Shield on your target, totems destroyed or expired, main- and off-hand imbues.",
+	    function() return (SP.ESTrackerUnavailable and "Lightning / Water Shield, " or "Lightning / Water Shield, Earth Shield on your target, ") .. "totems destroyed or expired, main- and off-hand imbues." end,
 	    "Pick the look and animation; turn on a sound per category.",
 	  },
 	  toggles = { { label = "Enable Expiring Alerts", bind = "expiring" } } },
@@ -614,7 +633,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		{ n = "Earth", r = 0.72, g = 0.52, b = 0.32, dur = 9,  gap = 2.5, off = 0.0,
 		  icon = "Interface\\Icons\\Spell_Nature_EarthBindTotem", active = "Interface\\Icons\\Spell_Nature_StoneClawTotem" },
 		{ n = "Fire",  r = 1.00, g = 0.36, b = 0.22, dur = 7,  gap = 2.0, off = 3.1,
-		  icon = "Interface\\Icons\\Spell_Fire_TotemOfWrath",   active = "Interface\\Icons\\Spell_Fire_SealOfFire" },
+		  icon = SP.Wizard.FireMockIcon(),                          active = "Interface\\Icons\\Spell_Fire_SealOfFire" },
 		{ n = "Water", r = 0.42, g = 0.58, b = 1.00, dur = 11, gap = 2.5, off = 6.4,
 		  icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", active = "Interface\\Icons\\Spell_Frost_SummonWaterElemental" },
 		{ n = "Air",   r = 0.86, g = 0.88, b = 0.98, dur = 8,  gap = 2.0, off = 1.7,
@@ -1683,7 +1702,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	local SIZE, STEP = 46, 62
 	local ELE = {
 		{ icon = "Interface\\Icons\\Spell_Nature_EarthBindTotem",       col = { 0.2, 0.9, 0.2 } },   -- Strength of Earth uses the EarthBind art
-		{ icon = "Interface\\Icons\\Spell_Fire_TotemOfWrath",          col = { 0.9, 0.2, 0.2 } },
+		{ icon = SP.Wizard.FireMockIcon(),                                col = { 0.9, 0.2, 0.2 } },
 		{ icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem",      col = { 0.2, 0.6, 1.0 } },
 		{ icon = "Interface\\Icons\\Spell_Nature_Windfury",            col = { 1.0, 1.0, 1.0 } },
 	}
@@ -1918,12 +1937,16 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	local BL_NAME = horde and "BLOODLUST" or "HEROISM"
 	local MT_ICON = "Interface\\Icons\\Spell_Frost_SummonWaterElemental"
 	local DRUM_ICON = "Interface\\Icons\\INV_Misc_Drum_02"
-	local CALLERS = {
-		{ key = "bl",   icon = BL_ICON,   border = { 1, 0.5, 0 },       who = "Srumar",  alert = "USE " .. BL_NAME .. " NOW!", cd = 14 },
-		{ key = "mt1",  icon = MT_ICON,   border = { 0.3, 0.6, 1 },     who = "Group 1", alert = "USE MANA TIDE NOW!",        cd = 10 },
-		{ key = "mt2",  icon = MT_ICON,   border = { 0.3, 0.6, 1 },     who = "Group 3", alert = "USE MANA TIDE NOW!",        cd = 10 },
-		{ key = "drum", icon = DRUM_ICON, border = { 0.9, 0.65, 0.2 },  who = "Kabum",   alert = "USE DRUMS NOW!",            cd = 8 },
-	}
+	-- Only the callers this client can have (no Bloodlust / Drums on WoW: Forever)
+	local CALLERS = {}
+	if HasBL() then
+		CALLERS[#CALLERS + 1] = { key = "bl",   icon = BL_ICON,   border = { 1, 0.5, 0 },       who = "Srumar",  alert = "USE " .. BL_NAME .. " NOW!", cd = 14 }
+	end
+	CALLERS[#CALLERS + 1] = { key = "mt1",  icon = MT_ICON,   border = { 0.3, 0.6, 1 },     who = "Group 1", alert = "USE MANA TIDE NOW!",        cd = 10 }
+	CALLERS[#CALLERS + 1] = { key = "mt2",  icon = MT_ICON,   border = { 0.3, 0.6, 1 },     who = "Group 3", alert = "USE MANA TIDE NOW!",        cd = 10 }
+	if HasDrums() then
+		CALLERS[#CALLERS + 1] = { key = "drum", icon = DRUM_ICON, border = { 0.9, 0.65, 0.2 },  who = "Kabum",   alert = "USE DRUMS NOW!",            cd = 8 }
+	end
 	local function O(k, d) local v = SP.opt[k]; if v == nil then return d end; return v end
 
 	-- ---- the caller bar ----
@@ -1961,7 +1984,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Raid leaders, assistants and anyone you give control to see these buttons. One press and the assigned shaman or drummer gets this alert.")
+	legend:SetText("Raid leaders, assistants and anyone you give control to see these buttons. One press and the assigned " .. (HasDrums() and "shaman or drummer" or "shaman") .. " gets this alert.")
 
 	local alertT, alertUntil = 0, 0
 	alertFn = function(c, b)
@@ -2007,7 +2030,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	rh:SetText("CALLERS NEED SHAMANPOWER TOO - EVEN IF THEY ARE NOT A SHAMAN")
 	local rb = req:CreateFontString(nil, "OVERLAY"); rb:SetFontObject(Core.fonts.rowDim); rb:SetPoint("TOPLEFT", rh, "BOTTOMLEFT", 0, -6); rb:SetWidth(reqW)
 	rb:SetJustifyH("LEFT"); rb:SetWordWrap(true)
-	rb:SetText("Callers do not have to be shamans: a warrior raid leader or a mage you give control to can call for your Bloodlust, Mana Tide or Drums. But whoever calls must have |cffE6EAF0ShamanPower|r installed with the |cffE6EAF0Raid Cooldowns|r module enabled in their AddOns list - otherwise they see no buttons at all. Tell them.")
+	rb:SetText("Callers do not have to be shamans: a warrior raid leader or a mage you give control to can call for your " .. RaidCDNames("Bloodlust", "or") .. ". But whoever calls must have |cffE6EAF0ShamanPower|r installed with the |cffE6EAF0Raid Cooldowns|r module enabled in their AddOns list - otherwise they see no buttons at all. Tell them.")
 	req:SetHeight(20 + rh:GetStringHeight() + 6 + rb:GetStringHeight() + 12)
 	y = y + req:GetHeight() + 14
 
@@ -2246,8 +2269,6 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 	local function off() return not get("enabled", false) end
 	row("Toggle", { label = "Skip totems everyone has", desc = "A totem every party member carries is left out of the list.", disabled = off,
 		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
-	row("Toggle", { label = "Show buffed names", desc = "Off: only the red names show (needs the frame shown - a buffed name hides in the panel).", disabled = function() return off() or get("hideBorder", false) end,
-		get = function() return get("showCoveredNames", true) ~= false end, set = function(v) co().showCoveredNames = v; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Name size", min = 7, max = 14, step = 1, disabled = off, get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Place each totem freely", desc = "Every cell gets its own spot and size (Settings > Party Buff Tracker has a size per totem).", disabled = off,
@@ -2983,16 +3004,19 @@ function RenderStep()
 	desc:SetFontObject(Core.fonts.rowDim)
 	desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
 	desc:SetWidth(card:GetWidth() - 36); desc:SetJustifyH("LEFT")
-	desc:SetText((state.role == "nonshaman" and s.descNonShaman) or s.desc)
+	local d = (state.role == "nonshaman" and s.descNonShaman) or s.desc
+	desc:SetText(type(d) == "function" and d() or d)   -- a description may depend on the client
 
 	local y = 78 + math.max(desc:GetStringHeight(), 30)
 
 	local blist = (state.role == "nonshaman" and s.bulletsNonShaman) or s.bullets
 	if blist then
 		for _, line in ipairs(blist) do
-			local roles
-			if type(line) == "table" then roles = line.roles; line = line[1] end
+			local roles, when
+			if type(line) == "table" then roles = line.roles; when = line.when; line = line[1] end
 			if roles and not roles[state.role] then line = nil end
+			if when and not when() then line = nil end          -- e.g. a spell this client does not have
+			if type(line) == "function" then line = line() end   -- text that depends on the client
 			if line then
 			local dot = card:CreateFontString(nil, "OVERLAY")
 			dot:SetFontObject(Core.fonts.row); dot:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y)
@@ -3233,7 +3257,7 @@ function SP.Wizard:RenderRole()
 		local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.row); b:SetPoint("TOP", h, "BOTTOM", 0, -8); b:SetWidth(600); b:SetJustifyH("CENTER"); b:SetWordWrap(true)
 		b:SetText("The bars and most modules only run on a shaman, so we will skip them. What ShamanPower does for you:\n\n"
 			.. "|cffE6EAF0Totem Range|r - see whether you are inside your shaman's totem buffs\n"
-			.. "|cffE6EAF0Raid Cooldowns|r - call for Bloodlust, Mana Tide and Drums as leader or assistant\n"
+			.. "|cffE6EAF0Raid Cooldowns|r - call for " .. RaidCDNames("Bloodlust") .. " as leader or assistant\n"
 			.. ((WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and "|cffE6EAF0Windfury Companion|r - a WeakAura so your shaman can see your Windfury (melee)\n" or "")
 			.. "|cffE6EAF0Totem Plates|r - big icons on enemy totems so you kill the right one")
 		box:SetHeight(14 + h:GetStringHeight() + 8 + b:GetStringHeight() + 16)
