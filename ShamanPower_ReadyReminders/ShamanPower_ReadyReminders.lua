@@ -695,6 +695,10 @@ local function InjectOptions()
 					end
 					refresh()
 				end },
+			move = { order = 1.5, type = "execute", name = "Move the Icons", width = 1.2,
+				desc = "Unlocks just the reminder icons: drag each box where you want it, then press Done to come back here.",
+				hidden = function() return not SP.UnlockModuleFrames end,
+				func = function() SP:UnlockModuleFrames("readyreminders") end },
 			onlyInCombat = { order = 2.5, type = "toggle", name = "Only In Combat", desc = "Hide every icon while you are out of combat.", width = 1.0,
 				get = function() return SV().onlyInCombat == true end, set = function(_, v) SV().onlyInCombat = v; refresh() end },
 			unlock = { order = 3, type = "toggle", name = "Unlock Positions", width = 1.0,

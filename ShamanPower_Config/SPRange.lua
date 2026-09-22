@@ -169,6 +169,70 @@ if FS then
 		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
 		if reg then reg:NotifyChange("ShamanPower") end
 	end
+	-- Totem Coverage: the shaman's own overlay (Party Range module), same chrome
+	local function CO() SP.opt.coverage = SP.opt.coverage or {}; return SP.opt.coverage end
+	FS.specs.coverage = function(frame)
+		return {
+			key = "coverage", title = "Totem Coverage", subtitle = "who is out of range",
+			opacity = {
+				min = 20, max = 100,
+				get = function() return math.floor((CO().opacity or 1) * 100 + 0.5) end,
+				set = function(v) CO().opacity = v / 100; SP:UpdateCoverageOpacity(); Notify() end,
+			},
+			hideFrame = {
+				get = function() return CO().hideBorder and true or false end,
+				set = function(v) CO().hideBorder = v and true or false; SP:UpdateCoverageBorder(); Notify() end,
+			},
+			rows = function(Row)
+				Row("Slider", {
+					label = "Icon Size", desc = "Size of the totem cells.",
+					min = 20, max = 60, step = 4,
+					get = function() return CO().iconSize or 36 end,
+					set = function(v) CO().iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Slider", {
+					label = "Name Size", desc = "Size of the party names under each totem.",
+					min = 7, max = 14, step = 1,
+					get = function() return CO().fontSize or 9 end,
+					set = function(v) CO().fontSize = v; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Place Each Totem Freely", desc = "Each cell gets its own spot and size; ALT+drag a cell or use Move the Coverage List.",
+					get = function() return CO().freeCells and true or false end,
+					set = function(v) CO().freeCells = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				for i, name in ipairs({ "Earth", "Fire", "Water", "Air" }) do
+					if CO().freeCells then
+						Row("Slider", {
+							label = name .. " Cell Size", min = 20, max = 80, step = 4,
+							get = function() local c = CO().cells and CO().cells[i]; return (c and c.iconSize) or CO().iconSize or 36 end,
+							set = function(v) CO().cells = CO().cells or {}; CO().cells[i] = CO().cells[i] or {}; CO().cells[i].iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
+						})
+					end
+				end
+				Row("Toggle", {
+					label = "Vertical Layout", desc = "Stack the cells instead of a row (when not placed freely).",
+					get = function() return CO().vertical and true or false end,
+					set = function(v) CO().vertical = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Show Buffed Names", desc = "Off: only members without the buff are named (red). On: buffed members too, in class colour.",
+					get = function() return CO().showCoveredNames ~= false end,
+					set = function(v) CO().showCoveredNames = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Skip Totems Everyone Has", desc = "A totem every party member carries is left out (in combat: by the distance model).",
+					get = function() return CO().hideWhenCovered ~= false end,
+					set = function(v) CO().hideWhenCovered = v and true or false; SP:UpdateCoverage(); Notify() end,
+				})
+			end,
+			actions = {
+				{ text = "Choose Totems", desc = "Pick which totems the overlay watches.",
+				  func = function() FS:Hide(); if ShamanPowerConfig then ShamanPowerConfig:Open({ "fluffy", "partybuff_section" }) end end },
+			},
+		}
+	end
+
 	FS.specs.sprange = function(frame)
 		return {
 			key = "sprange", title = "Totem Range", subtitle = "overlay",

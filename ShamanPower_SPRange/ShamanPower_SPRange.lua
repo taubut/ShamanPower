@@ -166,6 +166,9 @@ SP.TrackableTotems = {
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 for _, totem in ipairs(SP.TrackableTotems) do
 	if totem.buffSpellID then
+		-- Forever reuses 8215 (TBC's Flametongue Totem buff) for "Rapid Cast"; the
+		-- aura party members carry there is the effect spell
+		if totem.id == "flametongue" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then totem.buffSpellID = 8230 end
 		totem.buffName = GetSpellInfo(totem.buffSpellID)
 	end
 end

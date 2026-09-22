@@ -80,6 +80,17 @@ local MODULES = {
 			return out
 		end,
 		labels = { "Range: Earth", "Range: Fire", "Range: Water", "Range: Air" } },
+	{ key = "coverage", label = "Totem Coverage", reset = "ResetCoveragePositions",
+		enabled = function() return SP.opt.coverage and SP.opt.coverage.enabled and true or false end,
+		frames = function()
+			local f = SP.CreateCoverageFrame and SP:CreateCoverageFrame()
+			if not f then return {} end
+			if SP.opt.coverage and SP.opt.coverage.freeCells then   -- one box per cell
+				return { f.buttons[1], f.buttons[2], f.buttons[3], f.buttons[4] }
+			end
+			return { f }
+		end,
+		labels = { "Coverage: Earth", "Coverage: Fire", "Coverage: Water", "Coverage: Air" } },
 	{ key = "sprange", label = "Totem Range" },
 	{ key = "raidcd", label = "Raid Cooldown Callers" },
 	{ key = "estracker", label = "Earth Shield Tracker",
