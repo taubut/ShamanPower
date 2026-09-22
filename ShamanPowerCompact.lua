@@ -598,9 +598,56 @@ local SHIELD_MAX_CHARGES = 3
 local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 },
 	[408510] = { r = 0.35, g = 0.65, b = 1.0 } }   -- Water Shield on WoW: Forever (talent, Season of Discovery spell ID)
 
+-- Mainline's GetSpellInfo polyfill allocates: validate shield names on spellbook
+-- changes, not in the 10 Hz painter. ScanPlayerShield replaces shieldCache on
+-- aura events, so keep these spellbook answers separately from its aura state.
+local compactShieldNames
+local compactShieldGeneration = 0
+if _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE then
+	compactShieldNames = {}
+	local function RefreshCompactShieldNames()
+		for id in pairs(compactShieldNames) do compactShieldNames[id] = nil end
+		for _, data in ipairs(SP.ShieldSpells) do
+			if _G.GetSpellInfo(data[2]) then compactShieldNames[data[1]] = data[2] end
+		end
+		compactShieldGeneration = compactShieldGeneration + 1
+	end
+	RefreshCompactShieldNames()
+	_G.hooksecurefunc(SP, "SPELLS_CHANGED", RefreshCompactShieldNames)
+end
+
 -- Spell name to cast: the shield that is up, else the preferred one, else any known.
 function SP:CompactKnownShield()
 	local cache = self.shieldCache
+	if compactShieldNames then
+		local shieldID = cache and cache.hasShield and cache.shieldID or nil
+		local preferred = self.opt.preferredShield or 1
+		if cache and cache.compactGeneration == compactShieldGeneration
+			and cache.compactActiveID == shieldID and cache.compactPreferred == preferred then
+			return cache.compactName, cache.compactID
+		end
+		local id = shieldID
+		local name = id and compactShieldNames[id]
+		if not name then
+			local pref = self.ShieldSpells[preferred]
+			id = pref and pref[1]
+			name = id and compactShieldNames[id]
+		end
+		if not name then
+			for _, data in ipairs(self.ShieldSpells) do
+				if compactShieldNames[data[1]] then
+					id, name = data[1], compactShieldNames[data[1]]
+					break
+				end
+			end
+		end
+		if not name then id = nil end
+		if cache then
+			cache.compactGeneration, cache.compactActiveID = compactShieldGeneration, shieldID
+			cache.compactPreferred, cache.compactName, cache.compactID = preferred, name, id
+		end
+		return name, id
+	end
 	if cache and cache.hasShield and cache.shieldID then
 		for _, d in ipairs(self.ShieldSpells or {}) do
 			if d[1] == cache.shieldID and GetSpellInfo(d[2]) then return d[2], d[1] end
