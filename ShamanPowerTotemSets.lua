@@ -13,6 +13,25 @@ local SUMMON = { 66842, 66843, 66844 }   -- Call of the Elements / Ancestors / S
 local RECALL = 36936                     -- Totemic Recall
 local PAGE_NAMES = { "Call of the Elements", "Call of the Ancestors", "Call of the Spirits" }
 local SLOTS_PER_PAGE = 4
+local boundPages = {} -- Session-only: owner record, readiness, actual slots and deferred work.
+local selfWriteDepth = 0
+local boundRefreshPending = false
+local boundRefreshQueued = false
+
+local function boundLoadout(page)
+	for index, loadout in ipairs(ShamanPower_TotemLoadouts or {}) do
+		if loadout.setPage == page then return loadout, index end
+	end
+end
+
+-- ACTIONBAR_SLOT_CHANGED is synchronous (ActionBar API docs). Ignore those
+-- callbacks during our writes, restoring the guard even if the API raises.
+local function writeSlot(action, spellID)
+	selfWriteDepth = selfWriteDepth + 1
+	local ok, err = pcall(SetMultiCastSpell, action, spellID)
+	selfWriteDepth = selfWriteDepth - 1
+	if not ok then error(err, 0) end
+end
 
 local function spellName(id)
 	if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(id) end
@@ -29,7 +48,8 @@ end
 
 -- The client API the sets need. All three are Wrath-era globals.
 local function haveAPI()
-	return type(SetMultiCastSpell) == "function" and type(GetMultiCastTotemSpells) == "function"
+	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		and type(SetMultiCastSpell) == "function" and type(GetMultiCastTotemSpells) == "function"
 		and C_ActionBar and type(C_ActionBar.GetMultiCastBarIndex) == "function"
 end
 
@@ -131,7 +151,7 @@ function SP:WriteTotemSet(page, spells)
 				local kind = GetActionInfo(action)
 				if kind then
 					-- clear: the client accepts spell 0 for "nothing in this slot"
-					pcall(SetMultiCastSpell, action, 0)
+					pcall(writeSlot, action, 0)
 					if GetActionInfo(action) then skipped = skipped + 1 else written = written + 1 end
 				end
 			else
@@ -139,7 +159,7 @@ function SP:WriteTotemSet(page, spells)
 				if spellID then
 					local kind, cur = GetActionInfo(action)
 					if not (kind == "spell" and sameSpell(cur, spellID)) then
-						SetMultiCastSpell(action, spellID)
+						writeSlot(action, spellID)
 						written = written + 1
 					end
 				else
@@ -147,6 +167,12 @@ function SP:WriteTotemSet(page, spells)
 				end
 			end
 		end
+	end
+	local state = boundPages[page]
+	if state and state.loadout == boundLoadout(page) then
+		-- Snapshot actual slots, not requested spells: a skipped unlearned slot
+		-- must not erase saved intent when a later action-bar event is delivered.
+		state.actual = self:ReadTotemSet(page)
 	end
 	return written, skipped
 end
@@ -201,6 +227,134 @@ local function totemIndexForSpell(element, spellID)
 		if sameSpell(SP:GetTotemSpell(element, i), spellID) then return i end
 	end
 	return nil
+end
+
+local function refreshLoadouts()
+	if SP.UpdateLoadoutBar then SP:UpdateLoadoutBar() end
+	if SP.RefreshLoadoutArgs then SP:RefreshLoadoutArgs() end
+	local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if registry then registry:NotifyChange("ShamanPower") end
+end
+
+local function stateFor(page, loadout)
+	local state = boundPages[page]
+	if not state or state.loadout ~= loadout then
+		state = { loadout = loadout, pendingWrite = true }
+		boundPages[page] = state
+	end
+	return state
+end
+
+-- Only pages 2/3 are loadout-owned; assignments retain page 1. At login the
+-- first valid saved owner wins, so malformed/duplicate bindings cannot race.
+local function normalizeBindings()
+	if not SP.opt or not ShamanPower_TotemLoadouts or not SP:HasTotemBar() then return false end
+	local owners, changed = {}, false
+	for _, loadout in ipairs(ShamanPower_TotemLoadouts) do
+		local page = loadout.setPage
+		if page ~= nil then
+			if (page ~= 2 and page ~= 3) or owners[page] then
+				loadout.setPage, changed = nil, true
+			else
+				owners[page] = loadout
+			end
+		end
+	end
+	for page = 2, 3 do
+		if boundPages[page] and boundPages[page].loadout ~= owners[page] then boundPages[page] = nil end
+	end
+	if changed then refreshLoadouts() end
+	return true
+end
+
+-- Returns success, reason, written, skipped. Combat queues record identity,
+-- never an array index: deleting an earlier loadout cannot redirect the write.
+function SP:SyncBoundLoadout(index)
+	if not self.opt or not self:HasTotemBar() then return false, "no totem bar on this client" end
+	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	local page = loadout and loadout.setPage
+	if page ~= 2 and page ~= 3 then return false, "loadout is not bound to a set page" end
+	if boundLoadout(page) ~= loadout then return false, "another loadout owns that set page" end
+	local state = stateFor(page, loadout)
+	state.pendingWrite = true
+	if InCombatLockdown() then return false, "queued until combat ends" end
+	local spells = {}
+	for element = 1, 4 do
+		local totem = loadout[element] or 0
+		spells[element] = totem > 0 and self:GetTotemSpell(element, totem) or false
+	end
+	local written, skipped, reason = self:WriteTotemSet(page, spells)
+	if reason then return false, reason, written, skipped end
+	state.ready, state.pendingWrite, state.pendingAdopt = true, nil, nil
+	return true, nil, written, skipped
+end
+
+function SP:BoundLoadoutSummon(index)
+	if not self:HasTotemBar() then return nil end
+	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	local page = loadout and loadout.setPage
+	if (page == 2 or page == 3) and known(SUMMON[page]) then return SUMMON[page] end
+end
+
+function SP:BindLoadoutToTotemSet(index, page)
+	if not self.opt or not self:HasTotemBar() then return false, "no totem bar on this client" end
+	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	if not loadout then return false, "loadout does not exist" end
+	if page == 0 then page = nil end
+	if page ~= nil and page ~= 2 and page ~= 3 then return false, "only Ancestors or Spirits can be bound" end
+	if page and not known(SUMMON[page]) then return false, "that set page is not known yet" end
+	local oldPage = loadout.setPage
+	if oldPage then boundPages[oldPage] = nil end
+	if page then
+		for _, other in ipairs(ShamanPower_TotemLoadouts) do
+			if other ~= loadout and other.setPage == page then other.setPage = nil end
+		end
+		boundPages[page] = nil
+	end
+	loadout.setPage = page
+	local reason
+	if page then
+		local synced
+		synced, reason = self:SyncBoundLoadout(index)
+		if synced then reason = nil end
+	end
+	refreshLoadouts()
+	return true, reason
+end
+
+local function adoptBoundPage(page)
+	local loadout = boundLoadout(page)
+	local state = boundPages[page]
+	if not loadout or not state or state.loadout ~= loadout then boundPages[page] = nil; return end
+	if not state.ready or state.pendingWrite then return end
+	if InCombatLockdown() then state.pendingAdopt = true; return end
+	state.pendingAdopt = nil
+	local slots = SP:ReadTotemSet(page)
+	local changed = false
+	if SP.opt.totemSetsAdoptFromBar ~= false then
+		for element = 1, 4 do
+			if slots[element] ~= state.actual[element] then
+				local index
+				if slots[element] then index = totemIndexForSpell(element, slots[element]) else index = 0 end
+				-- Unknown spells are not loadout entries; unchanged skipped slots
+				-- stay at their saved selection instead of becoming zero.
+				if index ~= nil and index ~= (loadout[element] or 0) then
+					loadout[element], changed = index, true
+				end
+			end
+		end
+	end
+	state.actual = slots
+	if changed then refreshLoadouts() end
+end
+
+local function syncAllBoundLoadouts()
+	if not normalizeBindings() then return end
+	for page = 2, 3 do
+		local loadout, index = boundLoadout(page)
+		if loadout then SP:SyncBoundLoadout(index) end
+	end
+	if SP.UpdateLoadoutBar then SP:UpdateLoadoutBar() end
 end
 
 function SP:AdoptTotemBarAssignments()
@@ -399,40 +553,110 @@ ef:RegisterEvent("SPELLS_CHANGED")
 pcall(ef.RegisterEvent, ef, "UPDATE_MULTI_CAST_ACTIONBAR")
 pcall(ef.RegisterEvent, ef, "ACTIONBAR_SLOT_CHANGED")   -- a pick on Blizzard's bar lands in an action slot
 
--- Blizzard's bar changed: read it on the next frame (the slot's content is
--- current by then), adopt, then bring the bar to the assignments. Coalesced.
+-- Read only the affected page on the next frame. A page-2/3 pick must not
+-- rewrite page 1, and an unrelated action-slot event must not write anything.
 local barChangeQueued = false
+local changedPages = {}
+local function FlushBarChanges()
+	barChangeQueued = false
+	if not SP.opt or not SP:HasTotemBar() then return end
+	for page = 1, 3 do
+		if changedPages[page] then
+			changedPages[page] = nil
+			if page == 1 then
+				if SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
+				if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
+			else
+				adoptBoundPage(page)
+			end
+		end
+	end
+end
+
+-- Spellbook/zoning refreshes are not edits. Existing ready pages adopt queued
+-- bar picks first; only a new owner or an explicit pending edit leads the bar.
+local function RefreshBoundAfterBarChanges()
+	boundRefreshQueued = false
+	if not SP.opt or not SP:HasTotemBar() or InCombatLockdown() then return end
+	FlushBarChanges()
+	for page = 2, 3 do
+		local state = boundPages[page]
+		if state and state.pendingAdopt then adoptBoundPage(page) end
+	end
+	boundRefreshPending = false
+	syncAllBoundLoadouts()
+end
+
+local function QueueBoundRefresh()
+	boundRefreshPending = true
+	if boundRefreshQueued or InCombatLockdown() then return end
+	boundRefreshQueued = true
+	C_Timer.After(0, RefreshBoundAfterBarChanges)
+end
+
 local function OnTotemBarChanged(event, slot)
+	if selfWriteDepth > 0 or not SP.opt or not SP:HasTotemBar() then return end
+	local changedPage
 	if event == "ACTIONBAR_SLOT_CHANGED" then
 		local bar = C_ActionBar and C_ActionBar.GetMultiCastBarIndex and C_ActionBar.GetMultiCastBarIndex()
+		if issecretvalue and (issecretvalue(bar) or issecretvalue(slot)) then return end
 		if not (bar and bar >= 1 and type(slot) == "number") then return end
 		local first = (bar - 1) * (NUM_ACTIONBAR_BUTTONS or 12) + 1
-		if slot < first or slot > first + (NUM_ACTIONBAR_BUTTONS or 12) - 1 then return end
+		if slot < first or slot >= first + 3 * SLOTS_PER_PAGE then return end
+		changedPage = math.floor((slot - first) / SLOTS_PER_PAGE) + 1
 	end
 	if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS bar change via %s %s", event, tostring(slot)) end
+	for page = changedPage or 1, changedPage or 3 do
+		if page == 1 or boundLoadout(page) then changedPages[page] = true end
+	end
 	if barChangeQueued then return end
 	barChangeQueued = true
-	C_Timer.After(0, function()
-		barChangeQueued = false
-		if SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
-		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
-	end)
+	C_Timer.After(0, FlushBarChanges)
 end
 
 ef:SetScript("OnEvent", function(_, event, slot)
+	if not SP:HasTotemBar() then return end
 	if event == "PLAYER_ENTERING_WORLD" then
-		C_Timer.After(3, function() if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end end)
+		C_Timer.After(3, function()
+			if not SP.opt then return end
+			if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
+			QueueBoundRefresh()
+		end)
 	elseif event == "PLAYER_REGEN_ENABLED" then
-		if SP.dropAllTotemSetsActive or SP.totemSetsSyncPending or SP.totemSetsAdoptPending then
+		if not SP.opt then return end
+		local boundPending = false
+		for page = 2, 3 do
+			local state = boundPages[page]
+			if state and (state.pendingWrite or state.pendingAdopt) then boundPending = true end
+		end
+		if SP.dropAllTotemSetsActive or SP.totemSetsSyncPending or SP.totemSetsAdoptPending
+			or boundPending or boundRefreshPending then
 			C_Timer.After(0.5, function()
 				-- Blizzard's bar first: a pick made there during the fight is the newest intent
 				if SP.totemSetsAdoptPending and SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
 				if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
+				for page = 2, 3 do
+					local loadout, index = boundLoadout(page)
+					local state = boundPages[page]
+					if not loadout or not state or state.loadout ~= loadout then
+						boundPages[page] = nil
+					elseif state.pendingWrite then
+						-- A saved edit wins over a queued read; Sync records actual
+						-- post-write slots before bar changes may lead again.
+						SP:SyncBoundLoadout(index)
+					elseif state.pendingAdopt then
+						adoptBoundPage(page)
+					end
+				end
+				if boundRefreshPending then QueueBoundRefresh() end
+				if boundPending and SP.UpdateLoadoutBar then SP:UpdateLoadoutBar() end
 			end)
 		end
 	elseif event == "UPDATE_MULTI_CAST_ACTIONBAR" or event == "ACTIONBAR_SLOT_CHANGED" then
 		OnTotemBarChanged(event, slot)
 	elseif event == "SPELLS_CHANGED" then
+		if not SP.opt then return end
 		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
+		QueueBoundRefresh()
 	end
 end)

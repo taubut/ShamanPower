@@ -390,6 +390,20 @@ function ShamanPower:OpenIconPicker(loadoutIndex, callback)
 	iconPickerFrame:Raise()
 end
 
+local function HasLoadoutSetControls()
+	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()
+end
+
+local function LoadoutSetPageValues()
+	local values = { [0] = "None" }
+	if HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages then
+		local known = ShamanPower:KnownTotemSetPages()
+		if known[2] then values[2] = "Call of the Ancestors" end
+		if known[3] then values[3] = "Call of the Spirits" end
+	end
+	return values
+end
+
 local function RefreshLoadoutArgs()
 	-- Guard: ShamanPower_TotemLoadouts may not exist yet at file load time (SavedVariable)
 	if not ShamanPower_TotemLoadouts then return end
@@ -618,6 +632,46 @@ local function RefreshLoadoutArgs()
 					end,
 				}
 			end
+			loadoutArgs["lo_set_page_" .. idx] = {
+				order = baseOrder + 9, type = "select", name = "Set Page", width = 1.5,
+				desc = "Bind this loadout to one known Blizzard totem set. Each page holds one loadout; "
+					.. "rebinding a page unbinds its previous loadout. Call of the Elements stays with assignments. "
+					.. "None keeps normal loadout selection. Unknown saved bindings are retained until available again.",
+				hidden = function() return not HasLoadoutSetControls() end,
+				disabled = function() return not ShamanPower.BindLoadoutToTotemSet end,
+				values = LoadoutSetPageValues,
+				get = function()
+					local lo = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[idx]
+					if lo and HasLoadoutSetControls() and ShamanPower.BoundLoadoutSummon
+						and ShamanPower:BoundLoadoutSummon(idx) then return lo.setPage end
+					return 0
+				end,
+				set = function(_, page)
+					if not HasLoadoutSetControls() or not ShamanPower.BindLoadoutToTotemSet then return end
+					local ok, reason = ShamanPower:BindLoadoutToTotemSet(idx, page)
+					if not ok and reason then ShamanPower:Print(reason) end
+					RefreshLoadoutArgs()
+					ShamanPower:RefreshConfig()
+					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
+				end,
+			}
+			loadoutArgs["lo_send_set_" .. idx] = {
+				order = baseOrder + 10, type = "execute", name = "Send to Set Now", width = 1.5,
+				desc = "Write all four saved totems to the bound set; None clears a slot. Combat changes wait until combat ends.",
+				hidden = function() return not HasLoadoutSetControls() end,
+				disabled = function()
+					return not (HasLoadoutSetControls() and ShamanPower.SyncBoundLoadout
+						and ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(idx))
+				end,
+				func = function()
+					if not HasLoadoutSetControls() or not ShamanPower.SyncBoundLoadout
+						or not ShamanPower.BoundLoadoutSummon or not ShamanPower:BoundLoadoutSummon(idx) then return end
+					local ok, reason = ShamanPower:SyncBoundLoadout(idx)
+					if not ok and reason then ShamanPower:Print(reason) end
+					ShamanPower:RefreshConfig()
+					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
+				end,
+			}
 		end
 	end
 end
