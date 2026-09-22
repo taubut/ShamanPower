@@ -15231,6 +15231,10 @@ function ShamanPower:AutoAssign()
 end
 
 function ShamanPower:AutoAssignTotems()
+	local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local function have(element, idx)
+		return not forever or self:TotemExistsOnClient(element, idx)
+	end
 	-- Smart Shaman Auto-Assign: Assign totems based on party composition and shaman spec
 	-- Totem indices:
 	-- Earth: 1=Strength of Earth, 2=Stoneskin
@@ -15289,18 +15293,25 @@ function ShamanPower:AutoAssignTotems()
 
 			-- === FIRE TOTEM ===
 			local fireTotem = 2  -- Default: Searing
-			if isElemental and not assignedInGroup[subgroup][2][1] then
+			if isElemental and have(2, 1) and not assignedInGroup[subgroup][2][1] then
 				fireTotem = 1  -- Totem of Wrath for Elemental shamans
 				assignedInGroup[subgroup][2][1] = true
-			elseif comp.caster > comp.melee and not assignedInGroup[subgroup][2][5] then
+			elseif comp.caster > comp.melee and have(2, 5) and not assignedInGroup[subgroup][2][5] then
 				fireTotem = 5  -- Flametongue for caster groups
 				assignedInGroup[subgroup][2][5] = true
 			else
-				if not assignedInGroup[subgroup][2][2] then
+				if have(2, 2) and not assignedInGroup[subgroup][2][2] then
 					fireTotem = 2  -- Searing
 					assignedInGroup[subgroup][2][2] = true
 				end
 			end
+			if not have(2, fireTotem) then
+				fireTotem = nil
+				for _, idx in ipairs({ 5, 4, 1, 6 }) do
+					if have(2, idx) then fireTotem = idx break end
+				end
+			end
+			if forever and fireTotem then assignedInGroup[subgroup][2][fireTotem] = true end
 			ShamanPower_Assignments[name][2] = fireTotem
 
 			-- === WATER TOTEM ===
@@ -15320,29 +15331,36 @@ function ShamanPower:AutoAssignTotems()
 			local airTotem = 1  -- Default: Windfury
 			if comp.caster > comp.melee and comp.caster > comp.agiUsers then
 				-- Caster-heavy group
-				if not assignedInGroup[subgroup][4][3] then
+				if have(4, 3) and not assignedInGroup[subgroup][4][3] then
 					airTotem = 3  -- Wrath of Air
 					assignedInGroup[subgroup][4][3] = true
 				end
 			elseif comp.agiUsers > 0 and comp.agiUsers >= comp.melee then
 				-- AGI users (hunters, rogues, feral druids) prefer Grace of Air
-				if not assignedInGroup[subgroup][4][2] then
+				if have(4, 2) and not assignedInGroup[subgroup][4][2] then
 					airTotem = 2  -- Grace of Air
 					assignedInGroup[subgroup][4][2] = true
-				elseif not assignedInGroup[subgroup][4][1] then
+				elseif have(4, 1) and not assignedInGroup[subgroup][4][1] then
 					airTotem = 1  -- Windfury as backup
 					assignedInGroup[subgroup][4][1] = true
 				end
 			else
 				-- Melee group (warriors, paladins, etc.) want Windfury
-				if not assignedInGroup[subgroup][4][1] then
+				if have(4, 1) and not assignedInGroup[subgroup][4][1] then
 					airTotem = 1  -- Windfury
 					assignedInGroup[subgroup][4][1] = true
-				elseif not assignedInGroup[subgroup][4][2] then
+				elseif have(4, 2) and not assignedInGroup[subgroup][4][2] then
 					airTotem = 2  -- Grace of Air as backup
 					assignedInGroup[subgroup][4][2] = true
 				end
 			end
+			if not have(4, airTotem) then
+				airTotem = nil
+				for _, idx in ipairs({ 1, 2, 4, 6, 7 }) do
+					if have(4, idx) then airTotem = idx break end
+				end
+			end
+			if forever and airTotem then assignedInGroup[subgroup][4][airTotem] = true end
 			ShamanPower_Assignments[name][4] = airTotem
 		end
 	end
