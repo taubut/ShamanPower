@@ -3,15 +3,6 @@ ShamanPower = LibStub("AceAddon-3.0"):NewAddon("ShamanPower", "AceConsole-3.0", 
 ShamanPower.isVanilla = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_CLASSIC)
 ShamanPower.isBCC = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
 ShamanPower.isWrath = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_WRATH_CLASSIC)
--- WoW Forever (Classic+): no confirmed project constant or interface number
--- exists yet. Detect a Forever-specific constant if Blizzard adds one, else
--- fall back to the interface band guessed for the 1.60.x client line. Inert
--- on every current client; corrected with real values on beta day.
-do
-	local iface = select(4, GetBuildInfo()) or 0
-	ShamanPower.isForever = (_G.WOW_PROJECT_FOREVER ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_FOREVER)
-		or (iface >= 15000 and iface < 20000)
-end
 
 local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower", true)
 if not L then
