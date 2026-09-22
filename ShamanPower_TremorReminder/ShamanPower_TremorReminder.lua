@@ -142,6 +142,13 @@ end
 
 -- Check if Tremor Totem is currently active
 local function IsTremorTotemActive()
+    -- On Forever the Earth slot may be secret; the core resolver falls back
+    -- to the addon's own-cast shadow model instead of treating it as empty.
+    if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+        local haveTotem, totemName = ShamanPower:GetElementTotemInfo(1)
+        if issecretvalue(haveTotem) or issecretvalue(totemName) then return false end
+        return haveTotem and type(totemName) == "string" and totemName:find("Tremor", 1, true) ~= nil
+    end
     for slot = 1, 4 do
         local haveTotem, totemName = GetTotemInfo(slot)
         if haveTotem and totemName and totemName:find("Tremor") then
