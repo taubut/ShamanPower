@@ -257,7 +257,19 @@ function SP:InitSPRange()
 end
 
 -- Check if player has a specific buff (same approach as TotemTimers)
+local function MainlineHasNamedBuff(unit, buffName)
+	if issecretvalue(buffName) or not buffName then return false end
+	if SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return false end
+	if not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then return false end
+	local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buffName, "HELPFUL")
+	-- The native lookup already selected the name; do not inspect secret fields.
+	return not issecretvalue(aura) and aura ~= nil
+end
+
 function SP:SPRangeHasBuff(buffName)
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		return MainlineHasNamedBuff("player", buffName)
+	end
 	if not buffName then return false end
 
 	for i = 1, 32 do
@@ -563,7 +575,18 @@ end
 -- Check if ANYONE in the group has a specific buff (indicates totem is down somewhere)
 -- Optimized: party1-4 works in both party AND raid (refers to subgroup in raids)
 -- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
+local rangePartyUnits = { "party1", "party2", "party3", "party4" }
 function SP:SPRangeAnyoneHasBuff(buffName)
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		if MainlineHasNamedBuff("player", buffName) then return true end
+		if IsInGroup() then
+			for _, unit in ipairs(rangePartyUnits) do
+				local exists = UnitExists(unit)
+				if not issecretvalue(exists) and exists and MainlineHasNamedBuff(unit, buffName) then return true end
+			end
+		end
+		return false
+	end
 	if not buffName then return false end
 
 	-- Check player first
