@@ -3247,6 +3247,7 @@ function ShamanPower:ApplyTotemCooldownVisual(btn, start, duration)
 		end
 	else
 		if btn.cdSweep then btn.cdSweep:Hide() end
+		btn.cooldown:SetDrawEdge(self.opt.totemCooldownEdge ~= false)
 		btn.cooldown:SetCooldown(start, duration)
 	end
 end
@@ -3254,11 +3255,188 @@ end
 function ShamanPower:ClearTotemCooldownVisual(btn)
 	btn.cooldown:Clear()
 	if btn.cdSweep then btn.cdSweep:Hide() end
+	if btn.cdBar then btn.cdBar:Hide() end
+	btn._engineCDKey = nil   -- the next pass hands the engine whatever is running
+end
+
+-- ============================================================================
+-- Engine-drawn totem cooldowns (Mainline family)
+-- ============================================================================
+-- Cooldown numbers are secret in combat, so the addon's own text counted down
+-- a shadow model there (own cast time plus a learned or base length). The
+-- client's Cooldown widget draws its own countdown from a duration object,
+-- which C_Spell.GetSpellCooldownDuration hands out secret-safe, in combat
+-- (measured, /spdiag engine timer pipeline). So on this family the engine is
+-- handed a cooldown once when it starts or ends (SPELL_UPDATE_COOLDOWN wakes
+-- the pass; the shadow model only says whether one is running) and draws the
+-- sweep and the numbers itself from then on: nothing per tick, the real
+-- talent-adjusted length, and the same numbers as the action bars. The
+-- numbers obey the client's "Show Numbers for Cooldowns" setting; turning the
+-- addon's text option on turns that on too, turning it off leaves it alone.
+local COUNTDOWN_CVAR = "countdownForCooldowns"
+
+function ShamanPower:EngineCooldownsOn()
+	if self._engineCD == nil then
+		local on = false
+		if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and C_Spell and C_Spell.GetSpellCooldownDuration then
+			local ok, probe = pcall(CreateFrame, "Cooldown", nil, UIParent, "CooldownFrameTemplate")
+			if ok and probe then
+				on = probe.SetCooldownFromDurationObject ~= nil and probe.GetCountdownFontString ~= nil
+					and probe.SetMinimumCountdownDuration ~= nil
+				probe:Hide()
+			end
+		end
+		self._engineCD = on
+	end
+	return self._engineCD
+end
+
+function ShamanPower:CountdownNumbersEnabled()
+	return GetCVarBool ~= nil and GetCVarBool(COUNTDOWN_CVAR) or false
+end
+
+-- The addon's cooldown text wants the client's numbers: turn them on, once,
+-- and say so (they show on the action bars too). Never turned off from here.
+function ShamanPower:EnableCountdownNumbers()
+	if not self:EngineCooldownsOn() or self:CountdownNumbersEnabled() then return end
+	SetCVar(COUNTDOWN_CVAR, "1")
+	self:Print("Turned on WoW's |cffffd100Show Numbers for Cooldowns|r so cooldown time can show on the totems (this also shows numbers on your action bars).")
+end
+
+-- The text settings the engine strings were last styled with (plain fields:
+-- this is compared on every cooldown pass and must not build strings).
+local function EngineTextChanged(self)
+	local c = self.opt.totemCooldownTextColor
+	local hide = self.opt.totemCooldownText == false
+	local r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
+	local t = self._engineText
+	if t and t.hide == hide and t.r == r and t.g == g and t.b == b then return false end
+	self._engineText = { hide = hide, r = r, g = g, b = b }
+	return true
+end
+
+-- One Cooldown widget styled like the addon's own text.
+function ShamanPower:StyleEngineCooldown(cd)
+	if not (cd and self:EngineCooldownsOn()) then return end
+	cd:SetHideCountdownNumbers(self.opt.totemCooldownText == false)
+	pcall(cd.SetMinimumCountdownDuration, cd, 2000)        -- the global cooldown stays numberless
+	pcall(cd.SetCountdownMillisecondsThreshold, cd, 10)    -- tenths under 10 s, like the addon's text
+	pcall(cd.SetCountdownFont, cd, "GameFontNormalSmall")
+	local ok, fs = pcall(cd.GetCountdownFontString, cd)
+	if ok and fs then
+		local c = self.opt.totemCooldownTextColor
+		fs:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+		fs:SetShadowOffset(1, -1)
+	end
+end
+
+function ShamanPower:RestyleEngineCooldowns()
+	if not self:EngineCooldownsOn() then return end
+	EngineTextChanged(self)   -- remember what is being applied
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn and btn.cooldown then self:StyleEngineCooldown(btn.cooldown) end
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.buttons then
+			for _, b in ipairs(flyout.buttons) do if b.cooldown then self:StyleEngineCooldown(b.cooldown) end end
+		end
+	end
+end
+
+-- "Show Totem Cooldowns" off: whatever the engine was drawing goes too.
+function ShamanPower:ClearEngineCooldowns()
+	if not self:EngineCooldownsOn() then return end
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn and btn.cooldown then self:ClearTotemCooldownVisual(btn) end
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.buttons then
+			for _, b in ipairs(flyout.buttons) do if b.cooldown then self:ClearTotemCooldownVisual(b) end end
+		end
+	end
+end
+
+-- The vertical sweep as a StatusBar the engine fills from the duration
+-- object: the greyed icon on a bar filled from the top, oversized inside a
+-- clip by the icon's own trim so the untrimmed bar texture lines up.
+local function EngineSweepBar(btn)
+	local icon = btn.icon
+	if not icon then return nil end
+	if not btn.cdBar then
+		local clip = CreateFrame("Frame", nil, btn)
+		clip:SetAllPoints(icon)
+		clip:SetClipsChildren(true)
+		clip:SetFrameLevel(btn:GetFrameLevel() + 1)
+		local bar = CreateFrame("StatusBar", nil, clip)
+		bar:SetOrientation("VERTICAL")
+		bar:SetReverseFill(true)
+		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end   -- texture cropped to the fill, never stretched into it
+		btn.cdBar, btn.cdBarClip = bar, clip
+	end
+	local bar = btn.cdBar
+	local left, _, _, _, right = icon:GetTexCoord()
+	local trim = (left and right and right > left) and (left / (right - left)) or 0
+	local margin = trim * icon:GetWidth()
+	bar:ClearAllPoints()
+	bar:SetPoint("TOPLEFT", btn.cdBarClip, "TOPLEFT", -margin, margin)
+	bar:SetPoint("BOTTOMRIGHT", btn.cdBarClip, "BOTTOMRIGHT", margin, -margin)
+	bar:SetStatusBarTexture(icon:GetTexture())
+	-- grey at the bar level: the engine's fill re-applies the bar colour each
+	-- frame, so a vertex colour set on the texture alone does not stick
+	if bar.SetStatusBarDesaturated then bar:SetStatusBarDesaturated(true) end
+	bar:SetStatusBarColor(0.5, 0.5, 0.5, 1)
+	local t = bar:GetStatusBarTexture()
+	if t then t:SetDesaturated(true); t:SetVertexColor(0.5, 0.5, 0.5) end
+	return bar
+end
+
+-- Hand the engine a button's cooldown. Called from the cooldown pass with
+-- the shadow model's answer to "is one running"; only does anything when
+-- that, the spell or the style changed since the last call.
+function ShamanPower:FeedEngineCooldown(btn, spellID, running)
+	local cd = btn.cooldown
+	if not cd then return end
+	if EngineTextChanged(self) then self:RestyleEngineCooldowns() end
+	local style = self.opt.totemCooldownSweep or "radial"
+	running = running and true or false
+	if btn._engineCDKey and btn._ecdSpell == spellID and btn._ecdRunning == running and btn._ecdStyle == style then return end
+	btn._engineCDKey, btn._ecdSpell, btn._ecdRunning, btn._ecdStyle = true, spellID, running, style
+	if btn.cdSweep then btn.cdSweep:Hide() end   -- the addon's own vertical sweep: never on this path
+	if not (spellID and running) then
+		cd:Clear()
+		if btn.cdBar then btn.cdBar:Hide() end
+		return
+	end
+	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)   -- true: the global cooldown is not one
+	if not ok or d == nil then
+		cd:Clear()
+		if btn.cdBar then btn.cdBar:Hide() end
+		btn._engineCDKey = nil   -- ask again next pass
+		return
+	end
+	if style == "radial" then
+		cd:SetDrawSwipe(true)
+		cd:SetDrawEdge(self.opt.totemCooldownEdge ~= false)
+		if btn.cdBar then btn.cdBar:Hide() end
+	else
+		cd:SetDrawSwipe(false)   -- the numbers stay; the sweep is the bar
+		cd:SetDrawEdge(false)    -- and the radial swipe's travelling edge goes with it
+		local bar = EngineSweepBar(btn)
+		if bar then
+			local Dir = Enum and Enum.StatusBarTimerDirection or {}
+			local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+			local direction = (style == "reverse") and Dir.RemainingTime or Dir.ElapsedTime
+			local okb = pcall(bar.SetTimerDuration, bar, d, Interp, direction)
+			bar:SetShown(okb and true or false)
+		end
+	end
+	pcall(cd.SetCooldownFromDurationObject, cd, d, true)   -- clearIfZero
 end
 
 -- Update cooldown displays on totem buttons and flyout buttons
 function ShamanPower:UpdateTotemCooldowns()
 	local drawing = false   -- any cooldown on screen? decides whether the loop keeps ticking this
+	local engine = self:EngineCooldownsOn()   -- the engine draws and counts; this pass only hands it changes
 	-- Update main totem buttons
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
@@ -3279,7 +3457,9 @@ function ShamanPower:UpdateTotemCooldowns()
 			if spellID then
 				local start, duration, enabled = GetSpellCooldown(spellID)
 				-- Only show cooldown if it's longer than GCD (1.5 sec)
-				if start and duration and duration > 1.5 and enabled == 1 then
+				if engine then
+					self:FeedEngineCooldown(btn, spellID, start and duration and duration > 1.5 and enabled == 1)
+				elseif start and duration and duration > 1.5 and enabled == 1 then
 					self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 					-- Calculate remaining time for text
 					local remaining = (start + duration) - GetTime()
@@ -3316,7 +3496,9 @@ function ShamanPower:UpdateTotemCooldowns()
 				if btn.cooldown and btn.spellID and btn:IsVisible() then
 					local start, duration, enabled = GetSpellCooldown(btn.spellID)
 					-- Only show cooldown if it's longer than GCD (1.5 sec)
-					if start and duration and duration > 1.5 and enabled == 1 then
+					if engine then
+						self:FeedEngineCooldown(btn, btn.spellID, start and duration and duration > 1.5 and enabled == 1)
+					elseif start and duration and duration > 1.5 and enabled == 1 then
 						self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 						-- Calculate remaining time for text
 						local remaining = (start + duration) - GetTime()
@@ -5379,6 +5561,7 @@ function ShamanPower:CreateTotemButtons()
 		cdFrame:SetDrawEdge(true)
 		cdFrame:SetSwipeColor(0, 0, 0, 0.8)
 		cdFrame:SetHideCountdownNumbers(true)  -- We'll show our own text
+		self:StyleEngineCooldown(cdFrame)       -- ...except where the engine draws the numbers
 		btn.cooldown = cdFrame
 
 		-- Create cooldown text overlay for main totem button (above the cooldown swipe)
@@ -6490,6 +6673,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			cdFrame:SetDrawEdge(true)
 			cdFrame:SetSwipeColor(0, 0, 0, 0.8)
 			cdFrame:SetHideCountdownNumbers(true)  -- We'll show our own text
+			self:StyleEngineCooldown(cdFrame)       -- ...except where the engine draws the numbers
 			btn.cooldown = cdFrame
 
 			-- Create cooldown text overlay (above the cooldown swipe)
@@ -10438,6 +10622,7 @@ end
 function ShamanPower:ApplyTotemCooldownTextColor()
 	local c = self.opt.totemCooldownTextColor
 	local r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
+	self:RestyleEngineCooldowns()
 	-- Main totem buttons
 	for element = 1, 4 do
 		local btn = self.totemButtons and self.totemButtons[element]

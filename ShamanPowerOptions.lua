@@ -6357,6 +6357,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.showTotemCooldowns = val
 								ShamanPower:SetupTotemProgressBars()  -- Re-enable/disable the update subsystem
+								if not val and ShamanPower.ClearEngineCooldowns then ShamanPower:ClearEngineCooldowns() end
 							end
 						},
 						totem_cooldown_sweep = {
@@ -6381,6 +6382,24 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemCooldowns()
 							end
 						},
+						totem_cooldown_edge = {
+							order = 3.76,
+							type = "toggle",
+							name = "Radial Edge Line",
+							desc = "The bright line that travels around the icon with the radial swipe. Off for a plain dark swipe.",
+							width = 1.0,
+							disabled = function()
+								return ShamanPower.opt.showTotemCooldowns == false or (ShamanPower.opt.totemCooldownSweep or "radial") ~= "radial"
+							end,
+							get = function(info)
+								return ShamanPower.opt.totemCooldownEdge ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemCooldownEdge = val
+								if ShamanPower.ClearEngineCooldowns then ShamanPower:ClearEngineCooldowns() end   -- re-fed with the new edge setting
+								ShamanPower:UpdateTotemCooldowns()
+							end
+						},
 						totem_cooldown_text = {
 							order = 3.78,
 							type = "toggle",
@@ -6395,8 +6414,30 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.totemCooldownText = val
+								if val and ShamanPower.EnableCountdownNumbers then ShamanPower:EnableCountdownNumbers() end
 								ShamanPower:UpdateTotemCooldowns()
 							end
+						},
+						totem_cooldown_numbers_note = {
+							order = 3.785,
+							type = "description",
+							name = "|cffffa040On this client the time is drawn by the game, and WoW's own \"Show Numbers for Cooldowns\" setting is off, so nothing can show.|r",
+							hidden = function()
+								return not (ShamanPower.EngineCooldownsOn and ShamanPower:EngineCooldownsOn() and ShamanPower.opt.showTotemCooldowns ~= false
+									and ShamanPower.opt.totemCooldownText ~= false and not ShamanPower:CountdownNumbersEnabled())
+							end,
+						},
+						totem_cooldown_numbers_button = {
+							order = 3.786,
+							type = "execute",
+							name = "Turn on Show Numbers for Cooldowns",
+							desc = "Turns on WoW's own cooldown numbers (Options > Action Bars). They then show on your action bars as well.",
+							width = 1.6,
+							hidden = function()
+								return not (ShamanPower.EngineCooldownsOn and ShamanPower:EngineCooldownsOn() and ShamanPower.opt.showTotemCooldowns ~= false
+									and ShamanPower.opt.totemCooldownText ~= false and not ShamanPower:CountdownNumbersEnabled())
+							end,
+							func = function() ShamanPower:EnableCountdownNumbers() end,
 						},
 						totem_cooldown_text_color = {
 							order = 3.8,
