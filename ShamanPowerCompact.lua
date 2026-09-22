@@ -121,6 +121,7 @@ end
 -- Option access
 -- ---------------------------------------------------------------------------
 function SP:CompactActive()
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then return false end
 	return self.opt and self.opt.compactStyle and true or false
 end
 

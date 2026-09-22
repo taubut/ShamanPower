@@ -29,4 +29,5 @@ ShamanPowerPreview.lua
 ShamanPowerCompact.lua
 ShamanPowerUnlock.lua
 ShamanPowerTotemSets.lua
+ShamanPower_BlizzardTotemBar\BlizzardTotemBar.lua
 ShamanPower_TBC.xml

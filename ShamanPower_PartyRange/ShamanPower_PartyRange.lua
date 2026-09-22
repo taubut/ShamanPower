@@ -128,6 +128,11 @@ end
 -- Cache for totem name lookups (avoids repeated string operations)
 SP.totemBuffCache = {}
 
+local function PartyRangeHost(element)
+	return (SP.GetTotemOverlayHost and SP:GetTotemOverlayHost(element))
+		or (SP.totemButtons and SP.totemButtons[element])
+end
+
 -- Create party range dots for a totem button
 function SP:CreatePartyRangeDots(button, element)
 	if not button then return end
@@ -147,10 +152,41 @@ function SP:CreatePartyRangeDots(button, element)
 	if self.PositionPartyDots then self:PositionPartyDots(self.partyRangeDots[element], button) end
 end
 
+-- The native manager defers host changes until combat ends. Only ordinary
+-- addon regions move here; unlocked counters retain their screen positions.
+function SP:RefreshPartyRangeHosts()
+	if InCombatLockdown() then return end
+	local native = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
+	for element = 1, 4 do
+		local button = PartyRangeHost(element)
+		local dots = self.partyRangeDots[element]
+		if button and dots then
+			for i = 1, 4 do
+				local dot = dots[i]
+				if dot:GetParent() ~= button then dot:SetParent(button) end
+				local outline = dot.spOutline
+				if outline and outline:GetParent() ~= button then outline:SetParent(button) end
+			end
+			if self.PositionPartyDots then self:PositionPartyDots(dots, button) end
+		end
+		local text = self.rangeCounterTexts and self.rangeCounterTexts[element]
+		if button and text then
+			if text:GetParent() ~= button then text:SetParent(button) end
+			local _, relativeTo = text:GetPoint(1)
+			-- Preserve a compact anchor already restored by the custom layout.
+			if native or relativeTo ~= button then
+				text:ClearAllPoints()
+				text:SetPoint("CENTER", button, "CENTER", 0, 0)
+			end
+		end
+	end
+	self:RebuildEnginePartyDots()
+end
+
 -- Setup all party range dots for the mini totem bar
 function SP:SetupPartyRangeDots()
 	for element = 1, 4 do
-		local button = self.totemButtons[element]
+		local button = PartyRangeHost(element)
 		if button then
 			self:CreatePartyRangeDots(button, element)
 		end
@@ -425,7 +461,7 @@ function SP:RebuildEnginePartyDots()
 	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
 	local built = false
 	for element = 1, 4 do
-		local btn = self.totemButtons and self.totemButtons[element]
+		local btn = PartyRangeHost(element)
 		if btn then
 			self.engineDots[element] = self.engineDots[element] or {}
 			for i = 1, 4 do
@@ -439,14 +475,15 @@ function SP:RebuildEnginePartyDots()
 				local key = (exists and (class or "?") or "-") .. "|" .. tostring(self.opt.partyDotSize or 5) .. "|"
 					.. tostring(self.opt.partyDotOutline ~= false) .. "|" .. point .. relPoint .. x .. "," .. y
 				local slot = self.engineDots[element][i]
-				if not slot or slot.key ~= key then
+				-- The slot initializer captures its host, so a move needs a rebuild.
+				if not slot or slot.key ~= key or slot.host ~= btn then
 					if slot and slot.container then
 						pcall(slot.container.SetEnabled, slot.container, false)
 						slot.container:Hide()
 					end
 					local container = exists and BuildEngineDot(element, i, btn, r, g, b) or nil
 					if container then container:SetShown(self.opt.showPartyRangeDots and true or false) end
-					self.engineDots[element][i] = { container = container, key = key }
+					self.engineDots[element][i] = { container = container, key = key, host = btn }
 				end
 				if self.engineDots[element][i].container then built = true end
 			end
@@ -1172,6 +1209,7 @@ function SP:UpdatePartyRangeDots()
 
 	if self.engineDotsBuilt then self:SetEnginePartyDotsShown(dotsEnabled) end
 	local engine = self:EngineDotsOn()
+	local native = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
 
 	-- Check if dots feature is enabled
 	if not dotsEnabled then
@@ -1211,8 +1249,11 @@ function SP:UpdatePartyRangeDots()
 
 			-- Check if active overlay is showing for this element
 			local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
-			local useOverlay = activeOverlay and activeOverlay.isActive and activeOverlay.dots
+			local useOverlay = not native and activeOverlay and activeOverlay.isActive and activeOverlay.dots
 			local overlayDot = useOverlay and activeOverlay.dots[partyIndex]
+			if native and activeOverlay and activeOverlay.dots and activeOverlay.dots[partyIndex] then
+				activeOverlay.dots[partyIndex]:Hide()
+			end
 
 			-- Determine which dot to update (overlay if active, else main)
 			local dot = useOverlay and overlayDot or mainDot
@@ -1435,7 +1476,7 @@ end
 -- Setup range counters on all totem buttons
 function SP:SetupRangeCounters()
 	for element = 1, 4 do
-		local button = self.totemButtons[element]
+		local button = PartyRangeHost(element)
 		if button then
 			self:CreateRangeCounterText(button, element)
 		end

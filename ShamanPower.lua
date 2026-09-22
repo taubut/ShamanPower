@@ -2404,6 +2404,7 @@ end
 function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	local glow = self.pulseOverlays[element]
 	if not glow then return end
+	local nativeBar = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
 
 	-- Compact style paints the pulse inside the line
 	if self:CompactActive() then
@@ -2416,11 +2417,11 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	-- Check if active overlay is showing for this element
 	-- In TotemTimers style mode (activeTotemAsMain), always use main button even when overlay is "active"
 	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
-	local useOverlay = activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
+	local useOverlay = not nativeBar and activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
 
 	-- Check if the active totem is popped out - if so, don't show pulse on main bar
 	local totemIsPoppedOut = false
-	if totemData then
+	if totemData and not nativeBar then
 		local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 		if haveTotem and activeTotemName then
 			-- Check if any popped-out single totem matches
@@ -2900,6 +2901,7 @@ function ShamanPower:SetupTotemProgressBars()
 		or self.opt.dynamicTotemMode
 		or self.opt.totemBarFullOpacityWhenActive
 		or self.opt.showTotemCooldowns ~= false
+		or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
 	if needsProgressBars then
 		self:EnableUpdateSubsystem("progressBars")
 	else
@@ -2920,6 +2922,7 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 		or self.opt.dynamicTotemMode
 		or self.opt.totemBarFullOpacityWhenActive
 		or self.opt.showTotemCooldowns ~= false
+		or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
 	if needsProgressBars then
 		self:EnableUpdateSubsystem("progressBars")
 	else
@@ -3052,6 +3055,13 @@ end
 
 -- Update progress bars based on totem duration
 function ShamanPower:UpdateTotemProgressBars()
+	-- Native hosts use this existing driver; the engine animates their lifetime
+	-- widgets between model changes. Do not draw hidden custom duration bars.
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:UpdatePoppedOutProgressBars()
+		self:UpdateActiveTotemOverlaysIfDue()
+		return
+	end
 	local textLocation = self.opt.durationTextLocation or "none"
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
@@ -3903,6 +3913,12 @@ function ShamanPower:UpdateActiveTotemOverlaysIfDue()
 end
 
 function ShamanPower:UpdateActiveTotemOverlays()
+	-- A native/loadout cast need not have a custom-bar assignment.
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:UpdateBlizzardTotemOverlays()
+		self:UpdatePoppedOutActiveBorders()
+		return
+	end
 	-- Safety checks for early calls before addon is fully initialized
 	if not self.player then return end
 	if not self.ElementToSlot then return end
@@ -7481,6 +7497,7 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 	end
 
 	local enabled = self.opt.showTotemFlyouts
+		and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
 	local requiresClick = self:FlyoutOpensOnRightClick()
 	local hoverMode = self:FlyoutArrowOnly() and "arrow" or "mouseover"   -- "arrow": nothing opens it but its arrow or key
 	local totemicCallName = GetSpellInfo(36936)  -- Totemic Call
@@ -10565,7 +10582,8 @@ end
 -- position option changes, and move the duration / pulse bars out of their way.
 function ShamanPower:UpdatePartyDotPositions()
 	for element = 1, 4 do
-		local btn = self.totemButtons and self.totemButtons[element]
+		local btn = self.GetTotemOverlayHost and self:GetTotemOverlayHost(element)
+			or (self.totemButtons and self.totemButtons[element])
 		local dots = self.partyRangeDots and self.partyRangeDots[element]
 		if btn and dots then self:PositionPartyDots(dots, btn) end
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
@@ -11656,6 +11674,7 @@ end
 function ShamanPower:SetTotemBarFramesShown(shown)
 	if InCombatLockdown() then self._totemBarShownPending = shown; return end
 	self._totemBarShownPending = nil
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then shown = false end
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -11672,6 +11691,31 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	local shBtn = _G["ShamanPowerCompactShieldBtn"]
 	if shBtn then shBtn:SetShown(shown and self.CompactShieldLineActive and self:CompactShieldLineActive() or false) end
 end
+
+-- Leave hidden secure spell/keybinding targets configured. Only presentation
+-- is suppressed, out of combat, after the normal assignment/layout paths run.
+function ShamanPower:HideCustomTotemBarForBlizzard()
+	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then return end
+	if InCombatLockdown() then return end
+	self:SetTotemBarFramesShown(false)
+	self:HideActiveTotemOverlaysForCompact()
+	local recall = _G.ShamanPowerAutoTotemicCall
+	if recall then recall:Hide() end
+	for element = 1, 4 do
+		local legacyButton = _G["ShamanPowerAutoTotem" .. element]
+		if legacyButton then legacyButton:Hide() end
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn then
+			btn:SetAttribute("OpenMenu", nil)
+			local flyout = self.totemFlyouts and self.totemFlyouts[element]
+			if flyout and flyout.box then
+				self:FlyoutFallbackSetShown(btn, false)
+			elseif flyout and flyout.buttons then
+				for _, child in ipairs(flyout.buttons) do child:Hide() end
+			end
+		end
+	end
+end
 do
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -11684,6 +11728,11 @@ do
 end
 
 function ShamanPower:UpdateTotemBarVisibility()
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:DisableUpdateSubsystem("totemVisibility")
+		self:HideCustomTotemBarForBlizzard()
+		return
+	end
 	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
 	-- Enable/disable totemVisibility subsystem based on whether auto-hide features are on
 	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
@@ -11778,7 +11827,8 @@ function ShamanPower:SetupTotemBarVisibilityUpdater()
 		end)
 	end
 	-- Only enable if auto-hide features are on
-	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
+	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+		and (self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems) then
 		self:EnableUpdateSubsystem("totemVisibility")
 	else
 		self:DisableUpdateSubsystem("totemVisibility")
@@ -11819,7 +11869,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	if InCombatLockdown() then return end
 
 	-- Don't show buttons if totem bar should be hidden
-	if self.totemBarHidden then return end
+	if self.totemBarHidden and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then return end
 
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
