@@ -3573,6 +3573,12 @@ ShamanPower.options = {
 							name = "|cffffa040This module is not loaded, so nothing on this page does anything right now (toggles may even snap back). Enable the ShamanPower [Party Range] addon in the AddOns list and /reload.|r",
 							hidden = function() return not (not ShamanPower.PartyRangeLoaded) end,
 						},
+						partybuff_engine_note = {
+							order = 0.02,
+							type = "description",
+							name = "|cffffa040On this client the dots are drawn by the game engine from each party member's actual totem buff, so they stay right in combat and in instances. A red dot means that player is not carrying the buff; the numbers-only counter still guesses in combat.|r",
+							hidden = function() return not (SPCompat and SPCompat.secretsRegime) end,
+						},
 						partybuff_desc = {
 							order = 0,
 							type = "description",
@@ -4210,6 +4216,12 @@ ShamanPower.options = {
 							name = "|cffffa040Reactive Totems is disabled, so the settings below have no live effect.|r",
 							hidden = function() return not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.enabled == false) end,
 						},
+						engine_note = {
+							order = 0.04,
+							type = "description",
+							name = "|cffffa040On this client the alerts are drawn by the game engine straight from the debuffs, so they work in combat. What that changes: the alert shows the affected player's name, the debuff's icon and its time left instead of the debuff's name; the Fear alert fires for any crowd control (the client has no fear-only filter); the sound can only play out of combat.|r",
+							hidden = function() return not (SPCompat and SPCompat.secretsRegime) end,
+						},
 						instance_only_note = {
 							order = 0.05,
 							type = "description",
@@ -4511,6 +4523,28 @@ ShamanPower.options = {
 							set = function(info, val)
 								if ShamanPower_ReactiveTotems then
 									ShamanPower_ReactiveTotems.showDebuffName = not val
+									if ShamanPower.UpdateReactiveTotemAppearance then
+										ShamanPower:UpdateReactiveTotemAppearance()
+									end
+								end
+							end
+						},
+						reactive_show_debuff_icon = {
+							order = 11.15,
+							name = "Show Debuff Icon",
+							desc = "Add the debuff's own icon as a small badge in the corner of the alert (the engine paints it; the debuff's name cannot be read in combat on this client). Off: just the totem to drop.",
+							type = "toggle",
+							width = 1.0,
+							hidden = function() return not (SPCompat and SPCompat.secretsRegime) end,
+							get = function(info)
+								if ShamanPower_ReactiveTotems then
+									return ShamanPower_ReactiveTotems.showDebuffIcon and true or false
+								end
+								return false
+							end,
+							set = function(info, val)
+								if ShamanPower_ReactiveTotems then
+									ShamanPower_ReactiveTotems.showDebuffIcon = val
 									if ShamanPower.UpdateReactiveTotemAppearance then
 										ShamanPower:UpdateReactiveTotemAppearance()
 									end

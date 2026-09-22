@@ -335,7 +335,9 @@ local STEPS = {
 	  bullets = {
 	    "Red border for enemy totems, green for friendly. Optional name under the icon.",
 	    "Pulsing totems get a countdown to their next tick: text, bar, or swipe.",
-	    "|cffFFB000Friendly totems do NOT show inside dungeons or raids|r (the game hides those nameplates there). Enemy totems work everywhere.",
+	    (SPCompat and SPCompat.secretsRegime)
+	      and "|cffFFB000Friendly totems inside dungeons and raids are not confirmed on this client yet|r - the game keeps friendly nameplates away from addons there on every other client. Enemy totems work everywhere."
+	      or "|cffFFB000Friendly totems do NOT show inside dungeons or raids|r (the game hides those nameplates there). Enemy totems work everywhere.",
 	  },
 	  toggles = { { label = "Enable Totem Plates", bind = "totemplates" } } },
 	{ id = "position", title = "Position", roles = EVERYONE,
@@ -2086,6 +2088,10 @@ function SP.Wizard.BuildReactiveStep(card, inner, y)
 	row("Slider", { label = "Text size", min = 8, max = 24, step = 1, disabled = off, get = function() return get("fontSize", 14) end, set = function(v) sv().fontSize = v; upd("UpdateReactiveTotemAppearance") end })
 	row("Toggle", { label = "Show who has the debuff", disabled = off, get = function() return get("showDebuffName", true) end, set = function(v) sv().showDebuffName = v; upd("UpdateReactiveTotemAppearance") end })
 	row("Toggle", { label = "Show totem name", disabled = off, get = function() return get("showTotemName", true) end, set = function(v) sv().showTotemName = v; upd("UpdateReactiveTotemAppearance") end })
+	if SPCompat and SPCompat.secretsRegime then
+		row("Toggle", { label = "Show the debuff's icon", desc = "A small badge in the corner with the debuff's own icon, painted by the game (its name cannot be read in combat on this client).",
+			disabled = off, get = function() return get("showDebuffIcon", false) and true or false end, set = function(v) sv().showDebuffIcon = v; upd("UpdateReactiveTotemAppearance") end })
+	end
 	row("Toggle", { label = "Show border", disabled = off, get = function() return not get("hideBorder", false) end, set = function(v) sv().hideBorder = not v; upd("UpdateReactiveTotemAppearance") end })
 	row("Toggle", { label = "Show background", disabled = off, get = function() return not get("hideBackground", false) end, set = function(v) sv().hideBackground = not v; upd("UpdateReactiveTotemAppearance") end })
 	row("Toggle", { label = "Pulsing glow", disabled = off, get = function() return get("showGlow", true) end, set = function(v) sv().showGlow = v; upd("UpdateReactiveTotemAppearance") end })
@@ -2791,7 +2797,9 @@ function SP.Wizard.BuildTotemPlatesStep(card, inner, y)
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.totemPlatesDemoActive then SP:TotemPlatesDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", false) end
 	row("Toggle", { label = "Enemy totems", disabled = off, get = function() return get("showEnemy", true) ~= false end, set = function(v) tp().showEnemy = v; upd() end })
-	row("Toggle", { label = "Friendly totems", desc = "Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
+	row("Toggle", { label = "Friendly totems", desc = (SPCompat and SPCompat.secretsRegime)
+			and "Works in the open world and battlegrounds. Inside dungeons and raids it is not confirmed on this client yet: every other client keeps friendly nameplates away from addons there. Enemy totems work everywhere."
+			or "Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
 		disabled = off, get = function() return get("showFriendly", true) ~= false end, set = function(v) tp().showFriendly = v; upd() end })
 	row("Slider", { label = "Icon size", min = 20, max = 80, step = 2, disabled = off, get = function() return get("iconSize", 40) end, set = function(v) tp().iconSize = v; upd("UpdateTotemPlatesSize") end })
 	row("Slider", { label = "Opacity", min = 0.3, max = 1.0, step = 0.1, disabled = off, get = function() return get("alpha", 0.9) end, set = function(v) tp().alpha = v; upd() end })

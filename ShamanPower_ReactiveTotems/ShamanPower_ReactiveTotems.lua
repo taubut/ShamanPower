@@ -94,6 +94,7 @@ local defaultSettings = {
 	-- Text options
 	showDebuffName = true,
 	showTotemName = true,
+	showDebuffIcon = false,       -- engine-drawn alerts: the debuff's own icon as a corner badge (opt-in)
 	fontSize = 14,
 	fontOutline = true,
 
@@ -390,6 +391,7 @@ function SP:UpdateReactiveFrameAppearance(totemId)
 			updateFrame(id)
 		end
 	end
+	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end   -- engine copies of the art (no-op unless it changed)
 end
 
 -- ============================================================================
@@ -474,6 +476,26 @@ function SP:UpdateReactiveTotemDisplay()
 	if self.reactiveDemoActive then return end
 
 	local sv = ShamanPower_ReactiveTotems
+	if self:ReactiveEngineLive() then
+		-- The engine draws the alerts (below). The host frames are anchors only,
+		-- and the sound is the one thing left to the scan, while it can read.
+		self:SetReactiveHostMode()
+		self:ApplyReactiveEngineVisibility()
+		if sv and sv.enabled and sv.playSound and not (SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
+			local found = self:ScanForReactiveDebuffs()
+			for totemId, frame in pairs(self.reactiveFrames) do
+				if found[totemId] then
+					if not frame.soundPlayed then
+						ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+						frame.soundPlayed = true
+					end
+				else
+					frame.soundPlayed = nil
+				end
+			end
+		end
+		return
+	end
 	if not sv or not sv.enabled then
 		-- Hide all frames
 		for id, frame in pairs(self.reactiveFrames) do
@@ -545,6 +567,293 @@ function SP:UpdateReactiveTotemDisplay()
 end
 
 -- ============================================================================
+-- Engine-drawn alerts (secrets regime: Forever / retail)
+-- ============================================================================
+-- In combat the scan above reads nothing (party debuffs are blocked), which is
+-- the only time a cleansing call matters. An AuraContainer bound to each unit
+-- (player, party1-4) shows its own copy of the alert art whenever that unit
+-- carries a matching debuff and hides it the moment the debuff is gone, in
+-- combat, with no reads: poison and disease by dispel type (a filter the
+-- client does not tie to spell identity), fear by the client's CROWD_CONTROL
+-- class. That class covers every crowd-control effect and the client offers
+-- no fear-only filter, so on this family the Tremor alert means "crowd
+-- controlled". The debuff's own icon and time left are painted by the engine;
+-- the unit's name is static text set when the display is built (party names
+-- are public out of combat). The sound cannot come from the engine (a sound
+-- registration is per spell ID), so it plays only while the scan can read.
+-- Built out of combat only; a rebuild asked for in a fight waits for regen.
+SP.reactiveEngine = {}     -- [totemId][unitIndex] = { container = frame, key = string }
+local reactivePending = false
+local REACTIVE_UNITS = { "player", "party1", "party2", "party3", "party4" }
+local REACTIVE_TRACK = { fear = "trackFear", poison = "trackPoison", disease = "trackDisease" }
+
+local function ReactiveEngineAvailable()
+	return SPCompat ~= nil and SPCompat.secretsRegime == true and C_AddOns ~= nil and C_AddOns.LoadAddOn ~= nil
+end
+
+-- true while the engine's displays are the live alerts
+function SP:ReactiveEngineLive()
+	return self.reactiveEngineBuilt == true and not self.reactivePositioningMode and not self.reactiveDemoActive
+		and not self.reactiveTestActive
+end
+
+-- Everything about the art the display was built with; a change rebuilds it.
+local function ReactiveAppearanceKey()
+	local sv = ShamanPower_ReactiveTotems
+	return table.concat({ tostring(sv.iconSize or 64), tostring(sv.hideBackground and 1 or 0), tostring(sv.hideBorder and 1 or 0),
+		tostring(sv.showGlow ~= false and 1 or 0), tostring(sv.glowIntensity or 0.8), tostring(sv.fontSize or 14),
+		tostring(sv.fontOutline and 1 or 0), tostring(sv.showDebuffName ~= false and 1 or 0), tostring(sv.showTotemName ~= false and 1 or 0),
+		tostring(sv.showDebuffIcon and 1 or 0) }, "|")
+end
+
+local function ReactiveShouldShow(totemId)
+	local sv = ShamanPower_ReactiveTotems
+	if not sv or not sv.enabled then return false end
+	if SP.reactivePositioningMode or SP.reactiveDemoActive then return false end
+	if sv[REACTIVE_TRACK[totemId]] == false then return false end
+	if sv.onlyInInstance and not IsInInstance() then return false end
+	if sv.hideWhenTotemActive then
+		local data = SP.ReactiveTotems[totemId]
+		local haveTotem, totemName = ElementTotemInfo(data.totemElement)
+		if haveTotem and type(totemName) == "string" and not issecretvalue(totemName) and totemName:find(data.totemName, 1, true) then
+			return false
+		end
+	end
+	return true
+end
+
+function SP:ApplyReactiveEngineVisibility()
+	if not self.reactiveEngineBuilt then return end
+	for totemId, list in pairs(self.reactiveEngine) do
+		local show = ReactiveShouldShow(totemId)
+		for _, slot in pairs(list) do
+			local c = slot.container
+			if c and c:IsShown() ~= show then c:SetShown(show) end
+		end
+	end
+end
+
+-- In engine mode the host frame is an anchor: its own art shows only for
+-- positioning and the wizard demo; the engine's copies are the live alerts.
+function SP:SetReactiveHostMode()
+	if not self.reactiveEngineBuilt then return end
+	local sv = ShamanPower_ReactiveTotems
+	local live = self:ReactiveEngineLive()
+	for _, frame in pairs(self.reactiveFrames) do
+		if live then
+			frame.bg:Hide(); frame.icon:Hide(); frame.borderFrame:Hide()
+			frame.glow:Hide(); frame.glowAnim:Stop()
+			frame.debuffText:Hide(); frame.totemText:Hide()
+			frame:EnableMouse(false)
+			frame:SetAlpha(sv.opacity or 1.0)
+			frame:Show()
+		elseif not frame.icon:IsShown() then
+			frame.icon:Show()
+			frame.bg:SetShown(not sv.hideBackground)
+			frame.borderFrame:SetShown(not sv.hideBorder)
+			frame.debuffText:SetShown(sv.showDebuffName and true or false)
+			frame.totemText:SetShown(sv.showTotemName and true or false)
+			frame:EnableMouse(true)
+		end
+	end
+end
+
+local reactiveLog = {}   -- one line per display built or refused, for /spreactive status
+
+local function BuildReactiveContainer(totemId, unitIndex, host)
+	local sv = ShamanPower_ReactiveTotems
+	local data = SP.ReactiveTotems[totemId]
+	local unit = REACTIVE_UNITS[unitIndex]
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, host, "CustomAuraContainerTemplate")
+	if not ok or not container then
+		reactiveLog[#reactiveLog + 1] = totemId .. "/" .. unit .. " create: " .. tostring(container)
+		if SPCompat.Trace then SPCompat.Trace("REACTIVE container %s/%s create failed: %s", totemId, unit, tostring(container)) end
+		return nil
+	end
+	container:SetAllPoints(host)
+	container:SetFrameLevel(host:GetFrameLevel() + 5)
+	local filter, options = "HARMFUL", {}
+	if totemId == "fear" then
+		filter = "HARMFUL|CROWD_CONTROL"
+	elseif totemId == "poison" then
+		options.candidateFilters = { includeDispelTypes = { Poison = true } }
+	else
+		options.candidateFilters = { includeDispelTypes = { Disease = true } }
+	end
+	-- decided now, drawn by the engine later
+	local size = sv.iconSize or 64
+	local c = data.color
+	local fontSize = sv.fontSize or 14
+	local outline = sv.fontOutline and "OUTLINE" or ""
+	local label = (unit == "player") and "You" or (UnitName(unit) or unit)
+	local lr, lg, lb = c.r, c.g, c.b
+	local _, class = UnitClass(unit)
+	if class and RAID_CLASS_COLORS[class] then
+		lr, lg, lb = RAID_CLASS_COLORS[class].r, RAID_CLASS_COLORS[class].g, RAID_CLASS_COLORS[class].b
+	end
+	options.initializeFrame = function(button)
+		button:ClearAllPoints()
+		button:SetAllPoints(host)
+		if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+		if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+		if not sv.hideBackground then
+			local bg = button:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints(button)
+			bg:SetColorTexture(0, 0, 0, 0.6)
+		end
+		local icon = button:CreateTexture(nil, "ARTWORK")
+		icon:SetPoint("TOPLEFT", 3, -3)
+		icon:SetPoint("BOTTOMRIGHT", -3, 3)
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		icon:SetTexture(data.icon)
+		if not sv.hideBorder then
+			local border = CreateFrame("Frame", nil, button, "BackdropTemplate")
+			border:SetPoint("TOPLEFT", -2, 2)
+			border:SetPoint("BOTTOMRIGHT", 2, -2)
+			border:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
+			border:SetBackdropBorderColor(c.r, c.g, c.b, 1)
+		end
+		if sv.showGlow ~= false then
+			local glow = button:CreateTexture(nil, "OVERLAY", nil, 1)
+			glow:SetPoint("TOPLEFT", -12, 12)
+			glow:SetPoint("BOTTOMRIGHT", 12, -12)
+			glow:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
+			glow:SetTexCoord(0.00781250, 0.50781250, 0.27734375, 0.52734375)
+			glow:SetBlendMode("ADD")
+			glow:SetVertexColor(c.r, c.g, c.b)
+			glow:SetAlpha(0.2)
+			local ag = glow:CreateAnimationGroup()
+			ag:SetLooping("REPEAT")
+			local a1 = ag:CreateAnimation("Alpha"); a1:SetFromAlpha(0.2); a1:SetToAlpha(sv.glowIntensity or 0.8); a1:SetDuration(0.4); a1:SetOrder(1)
+			local a2 = ag:CreateAnimation("Alpha"); a2:SetFromAlpha(sv.glowIntensity or 0.8); a2:SetToAlpha(0.2); a2:SetDuration(0.4); a2:SetOrder(2)
+			ag:Play()
+		end
+		-- the debuff itself: its icon as a badge hanging off the corner, painted
+		-- by the engine; a dark edge keeps it from reading as a copy of the totem.
+		-- Opt-in: off, the badge is still registered (the engine wants an icon
+		-- region) but stays invisible.
+		local badge = CreateFrame("Frame", nil, button)
+		if not sv.showDebuffIcon then badge:SetAlpha(0) end
+		local dsize = math.floor(size * 0.4)
+		badge:SetSize(dsize, dsize)
+		badge:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 6, -6)
+		badge:SetFrameLevel(button:GetFrameLevel() + 3)
+		local edge = badge:CreateTexture(nil, "BACKGROUND")
+		edge:SetPoint("TOPLEFT", -2, 2)
+		edge:SetPoint("BOTTOMRIGHT", 2, -2)
+		edge:SetColorTexture(0, 0, 0, 1)
+		local debuff = badge:CreateTexture(nil, "ARTWORK")
+		debuff:SetAllPoints(badge)
+		debuff:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		pcall(button.SetIcon, button, debuff)
+		-- who and how long: one row per unit, so several alerts read as a list
+		local carrier = CreateFrame("Frame", nil, button)
+		carrier:SetAllPoints(button)
+		if sv.showDebuffName ~= false then
+			local who = carrier:CreateFontString(nil, "OVERLAY")
+			who:SetFont("Fonts\\FRIZQT__.TTF", fontSize, outline)
+			who:SetPoint("TOP", button, "BOTTOM", 0, -4 - (unitIndex - 1) * (fontSize + 2))
+			who:SetTextColor(lr, lg, lb)
+			who:SetShadowColor(0, 0, 0, 1)
+			who:SetShadowOffset(1, -1)
+			who:SetText(label)
+			local left = carrier:CreateFontString(nil, "OVERLAY")
+			left:SetFont("Fonts\\FRIZQT__.TTF", fontSize, outline)
+			left:SetPoint("LEFT", who, "RIGHT", 4, 0)
+			left:SetTextColor(1, 1, 1)
+			left:SetShadowColor(0, 0, 0, 1)
+			left:SetShadowOffset(1, -1)
+			pcall(button.SetDurationText, button, left, {})
+		end
+		if sv.showTotemName ~= false then
+			local totem = carrier:CreateFontString(nil, "OVERLAY")
+			totem:SetFont("Fonts\\FRIZQT__.TTF", fontSize - 2, outline)
+			totem:SetPoint("BOTTOM", button, "TOP", 0, 3)
+			totem:SetText(data.totemName)
+			totem:SetTextColor(1, 0.82, 0)
+			totem:SetShadowColor(0, 0, 0, 1)
+			totem:SetShadowOffset(1, -1)
+		end
+	end
+	local okAdd, err = pcall(container.AddAuraSlot, container, "alert", filter, options)
+	if not okAdd then
+		reactiveLog[#reactiveLog + 1] = totemId .. "/" .. unit .. " slot: " .. tostring(err)
+		if SPCompat.Trace then SPCompat.Trace("REACTIVE AddAuraSlot %s/%s failed: %s", totemId, unit, tostring(err)) end
+		container:Hide()
+		return nil
+	end
+	local okU, errU = pcall(container.SetUnit, container, unit)
+	local okE, errE = pcall(container.SetEnabled, container, true)
+	local okA, errA = pcall(container.UpdateAllAuras, container)
+	reactiveLog[#reactiveLog + 1] = ("%s/%s ok (unit %s, enable %s, update %s)"):format(totemId, unit,
+		okU and "ok" or tostring(errU), okE and "ok" or tostring(errE), okA and "ok" or tostring(errA))
+	container:Hide()   -- ApplyReactiveEngineVisibility decides
+	return container
+end
+
+-- /spreactive status: what the engine displays are doing, for testing on the beta.
+function SP:ReactiveEngineReport()
+	local sv = ShamanPower_ReactiveTotems
+	self:Print(("Reactive engine: available=%s built=%s live=%s combat=%s enabled=%s instanceOnly=%s hideWhenTotem=%s"):format(
+		tostring(ReactiveEngineAvailable()), tostring(self.reactiveEngineBuilt), tostring(self:ReactiveEngineLive()),
+		tostring(InCombatLockdown()), tostring(sv and sv.enabled), tostring(sv and sv.onlyInInstance), tostring(sv and sv.hideWhenTotemActive)))
+	self:Print(("  look: size=%s glow=%s debuffName=%s totemName=%s font=%s border=%s background=%s"):format(
+		tostring(sv and sv.iconSize), tostring(sv and sv.showGlow), tostring(sv and sv.showDebuffName), tostring(sv and sv.showTotemName),
+		tostring(sv and sv.fontSize), tostring(not (sv and sv.hideBorder)), tostring(not (sv and sv.hideBackground))))
+	for totemId in pairs(self.ReactiveTotems) do
+		local host = self.reactiveFrames[totemId]
+		local parts = {}
+		for i, unit in ipairs(REACTIVE_UNITS) do
+			local slot = self.reactiveEngine[totemId] and self.reactiveEngine[totemId][i]
+			local c = slot and slot.container
+			parts[#parts + 1] = unit .. "=" .. (c and (c:IsShown() and "shown" or "hidden") or "-")
+		end
+		self:Print(("  %s: shouldShow=%s host=%s track=%s  %s"):format(totemId, tostring(ReactiveShouldShow(totemId)),
+			host and (host:IsShown() and "shown" or "hidden") or "none", tostring(sv and sv[REACTIVE_TRACK[totemId]]), table.concat(parts, " ")))
+	end
+	self:Print("  built: " .. (#reactiveLog > 0 and table.concat(reactiveLog, "; ") or "(nothing built yet)"))
+end
+
+-- Build, or rebuild where a unit's name / class or the art changed. Cheap when
+-- nothing changed (one key per display), so options and roster code call it freely.
+function SP:RebuildReactiveEngine()
+	if not ReactiveEngineAvailable() then return end
+	if InCombatLockdown() then reactivePending = true return end
+	reactivePending = false
+	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
+	local look = ReactiveAppearanceKey()
+	local built = false
+	for totemId in pairs(self.ReactiveTotems) do
+		local host = self.reactiveFrames[totemId] or self:CreateReactiveTotemFrame(totemId)
+		if host then
+			self.reactiveEngine[totemId] = self.reactiveEngine[totemId] or {}
+			local list = self.reactiveEngine[totemId]
+			for i, unit in ipairs(REACTIVE_UNITS) do
+				local exists = UnitExists(unit)
+				local _, class = UnitClass(unit)
+				local key = (exists and ((UnitName(unit) or "?") .. "/" .. tostring(class)) or "-") .. "|" .. look
+				local slot = list[i]
+				if not slot or slot.key ~= key then
+					if slot and slot.container then
+						pcall(slot.container.SetEnabled, slot.container, false)
+						slot.container:Hide()
+					end
+					list[i] = { container = exists and BuildReactiveContainer(totemId, i, host) or nil, key = key }
+				end
+				if list[i].container then built = true end
+			end
+		end
+	end
+	self.reactiveEngineBuilt = built or nil
+	self:SetReactiveHostMode()
+	self:ApplyReactiveEngineVisibility()
+end
+
+function SP:ReactiveEngineRegen()
+	if reactivePending then self:RebuildReactiveEngine() end
+end
+
+-- ============================================================================
 -- Event Handling
 -- ============================================================================
 
@@ -558,6 +867,7 @@ function SP:SetupReactiveTotemsEvents()
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 	eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
+	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- engine displays rebuilt after a fight if asked for in one
 
 	-- Throttle updates to max 20 per second (0.05s between updates)
 	local lastUpdate = 0
@@ -583,10 +893,15 @@ function SP:SetupReactiveTotemsEvents()
 		if event == "UNIT_AURA" then
 			-- Only check player and party units (totems are party-wide only)
 			if unit == "player" or unit == "party1" or unit == "party2" or unit == "party3" or unit == "party4" then
+				-- engine mode: aura changes are the engine's business; the scan only serves the sound
+				if SP:ReactiveEngineLive() and not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.playSound) then return end
 				RequestUpdate()
 			end
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			SP:ReactiveEngineRegen()
 		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
 			or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TOTEM_UPDATE" then
+			if event ~= "PLAYER_TOTEM_UPDATE" then SP:RebuildReactiveEngine() end   -- names / classes may have changed
 			RequestUpdate()
 		end
 	end)
@@ -823,6 +1138,9 @@ end
 -- Test all alerts
 function SP:TestReactiveAlerts()
 	local sv = ShamanPower_ReactiveTotems
+	self.reactiveTestActive = true
+	self:SetReactiveHostMode()
+	self:ApplyReactiveEngineVisibility()
 
 	for totemId, totemData in pairs(self.ReactiveTotems) do
 		local frame = self.reactiveFrames[totemId]
@@ -852,12 +1170,17 @@ function SP:TestReactiveAlerts()
 			frame.glow:Hide()
 			frame:Hide()
 		end
+		SP.reactiveTestActive = nil
+		SP:SetReactiveHostMode()
+		SP:ApplyReactiveEngineVisibility()
 	end)
 end
 
 -- Show all frames for positioning (disables click-to-cast so user can drag freely)
 function SP:ShowAllReactiveFrames()
 	self.reactivePositioningMode = true
+	self:SetReactiveHostMode()
+	self:ApplyReactiveEngineVisibility()
 
 	for totemId, totemData in pairs(self.ReactiveTotems) do
 		local frame = self.reactiveFrames[totemId]
@@ -893,6 +1216,8 @@ function SP:HideAllReactiveFrames()
 		end
 	end
 
+	self:SetReactiveHostMode()
+	self:ApplyReactiveEngineVisibility()
 	SP:Print("Positioning mode ended.")
 end
 
@@ -935,6 +1260,15 @@ SlashCmdList["SPREACTIVE"] = function(msg)
 		SP:TestReactiveAlerts()
 	elseif msg == "reset" then
 		SP:ResetReactivePositions()
+	elseif msg == "status" then
+		SP:ReactiveEngineReport()
+	elseif msg == "rebuild" then
+		wipe(reactiveLog)
+		for _, list in pairs(SP.reactiveEngine) do
+			for _, slot in pairs(list) do slot.key = "" end   -- force every display to be built again
+		end
+		SP:RebuildReactiveEngine()
+		SP:ReactiveEngineReport()
 	elseif msg == "show" then
 		SP:ShowAllReactiveFrames()
 	elseif msg == "hide" then
@@ -1013,6 +1347,8 @@ function SP:ReactiveDemo(on)
 			return
 		end
 		self.reactiveDemoActive = true
+		self:SetReactiveHostMode()
+		self:ApplyReactiveEngineVisibility()
 		self:UpdateReactiveFrameAppearance()
 
 		-- A short raid scene, looped: each beat is { totem, "who: debuff", seconds }.
@@ -1070,6 +1406,7 @@ function SP:InitializeReactiveTotems()
 	self:InitReactiveTotems()
 	self:CreateAllReactiveFrames()
 	self:SetupReactiveTotemsEvents()
+	self:RebuildReactiveEngine()
 	self:UpdateReactiveTotemDisplay()
 end
 

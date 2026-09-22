@@ -806,8 +806,12 @@ function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
 end
 
 function ShamanPower:GetSoundFile(soundName)
-	-- a FileDataID (number) on the Mainline family, a path elsewhere; PlaySoundFile takes either
-	return LSM3:Fetch("sound", soundName) or (SP_SOUND_BY_ID and 567397 or [[Sound\Interface\RaidWarning.ogg]])
+	-- a FileDataID (number) on the Mainline family, a path elsewhere; PlaySoundFile takes either.
+	-- noDefault: an unregistered name (a stale saved value) must not fall through to
+	-- SharedMedia's default, which is the silent "None" - it gets Raid Warning instead.
+	local file = soundName and LSM3:Fetch("sound", soundName, true)
+	if file == nil or file == "" then file = LSM3:Fetch("sound", "Raid Warning", true) end
+	return file or (SP_SOUND_BY_ID and 567397 or [[Sound\Interface\RaidWarning.ogg]])
 end
 
 -------------------------------------------------------------------
