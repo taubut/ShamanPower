@@ -3404,7 +3404,10 @@ function SP.Wizard:RenderFinish()
 	h:SetTextColor(Core:Color("accentHi")); h:SetText("There is a LOT more in Settings")
 	local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
 	b:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -8); b:SetWidth(520); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
-	b:SetText("This walkthrough only covered the essentials. The full settings window has far more: every totem bar and cooldown bar option, flyouts, macros, loadouts and the loadout bar, pop-out trackers, mini bar, assignments, colors, sounds, keybinds, profiles, the Windfury Companion, and more.")
+	b:SetText("This walkthrough only covered the essentials. The full settings window has far more:"
+		.. " every totem bar and cooldown bar option, flyouts, macros, loadouts and the loadout bar,"
+		.. " pop-out trackers, mini bar, assignments, colors, sounds, keybinds, profiles"
+		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. ", and more.")
 	local cmd = box:CreateFontString(nil, "OVERLAY"); cmd:SetFontObject(Core.fonts.row)
 	cmd:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -10); cmd:SetWidth(520); cmd:SetJustifyH("LEFT"); cmd:SetWordWrap(true)
 	cmd:SetText("Open it any time with  |cffFFFFFF/spui|r  or the settings button on your totem bar.")

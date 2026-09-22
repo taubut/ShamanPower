@@ -6684,7 +6684,12 @@ ShamanPower.options = {
 						tremor_use_defaults = {
 							order = 3,
 							name = "Use Default Mob List",
-							desc = "Include the built-in list of TBC fear-casting mobs",
+							desc = function()
+								if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+									return "Include the built-in list of fear-casting dungeon and raid mobs"
+								end
+								return "Include the built-in list of TBC fear-casting mobs"
+							end,
 							type = "toggle",
 							width = "full",
 							get = function(info)
@@ -7402,7 +7407,16 @@ ShamanPower.options = {
 							order = 3.7,
 							type = "toggle",
 							name = "Show Totem Cooldowns",
-							desc = "Show cooldown swipe and remaining time on totems that have cooldowns (Grounding, Mana Tide, Elementals, etc). Displays on both the main totem button and in the flyout menu.",
+							desc = function()
+								local elementals = ", Elementals"
+								if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+									and SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(2894) then
+									elementals = ""
+								end
+								return "Show cooldown swipe and remaining time on totems that have cooldowns"
+									.. " (Grounding, Mana Tide" .. elementals
+									.. ", etc). Displays on both the main totem button and in the flyout menu."
+							end,
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.showTotemCooldowns ~= false

@@ -22,56 +22,6 @@ local TREMOR_TOTEM_ICON = select(3, GetSpellInfo(8143)) or 136108
 
 -- Default known fear-casting mobs (from Sweb's WeakAura + additions)
 local DEFAULT_FEAR_CASTERS = {
-    -- TBC Dungeons
-    ["Nexus Terror"] = true,
-    ["Sethekk Prophet"] = true,
-    ["Nazan"] = true,
-    ["Coilfang Ray"] = true,
-    ["Coilfang Siren"] = true,
-    ["Durnholde Warden"] = true,
-    ["Ambassador Hellmaw"] = true,
-    ["Fel Overseer"] = true,
-    ["Shadowmoon Darkcaster"] = true,
-    ["Warbringer O'mrogg"] = true,
-    ["Rift Keeper"] = true,
-    ["Mutate Fear-Shrieker"] = true,
-    ["Bloodwarder Physician"] = true,
-    ["Harbinger Skyriss"] = true,
-    ["Bleeding Hollow Scryer"] = true,
-
-    -- Karazhan
-    ["Nightbane"] = true,
-    ["The Big Bad Wolf"] = true,
-    ["Spectral Charger"] = true,
-    ["Dorothee"] = true,
-    ["Roar"] = true,
-    ["Concubine"] = true,
-
-    -- Magtheridon's Lair
-    ["Hellfire Warder"] = true,
-    ["Hellfire Channeler"] = true,
-
-    -- Serpentshrine Cavern
-    ["Coilfang Priestess"] = true,
-    ["Greyheart Tidecaller"] = true,
-
-    -- Tempest Keep
-    ["Tempest-Smith"] = true,
-    ["Astromancer"] = true,
-
-    -- Black Temple
-    ["Illidari Heartseeker"] = true,
-    ["Bonechewer Taskmaster"] = true,
-    ["Dragonmaw Wind Reaver"] = true,
-    ["Ashtongue Mystic"] = true,
-
-    -- Hyjal Summit
-    ["Banshee"] = true,
-    ["Crypt Fiend"] = true,
-
-    -- Sunwell Plateau
-    ["Sunblade Vindicator"] = true,
-
     -- Classic Dungeons
     ["Scarlet Monk"] = true,
     ["Scarlet Champion"] = true,
@@ -83,6 +33,62 @@ local DEFAULT_FEAR_CASTERS = {
     ["Magmadar"] = true,
     ["Golemagg the Incinerator"] = true,
 }
+
+if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+    local tbcFearCasters = {
+        -- TBC Dungeons
+        ["Nexus Terror"] = true,
+        ["Sethekk Prophet"] = true,
+        ["Nazan"] = true,
+        ["Coilfang Ray"] = true,
+        ["Coilfang Siren"] = true,
+        ["Durnholde Warden"] = true,
+        ["Ambassador Hellmaw"] = true,
+        ["Fel Overseer"] = true,
+        ["Shadowmoon Darkcaster"] = true,
+        ["Warbringer O'mrogg"] = true,
+        ["Rift Keeper"] = true,
+        ["Mutate Fear-Shrieker"] = true,
+        ["Bloodwarder Physician"] = true,
+        ["Harbinger Skyriss"] = true,
+        ["Bleeding Hollow Scryer"] = true,
+
+        -- Karazhan
+        ["Nightbane"] = true,
+        ["The Big Bad Wolf"] = true,
+        ["Spectral Charger"] = true,
+        ["Dorothee"] = true,
+        ["Roar"] = true,
+        ["Concubine"] = true,
+
+        -- Magtheridon's Lair
+        ["Hellfire Warder"] = true,
+        ["Hellfire Channeler"] = true,
+
+        -- Serpentshrine Cavern
+        ["Coilfang Priestess"] = true,
+        ["Greyheart Tidecaller"] = true,
+
+        -- Tempest Keep
+        ["Tempest-Smith"] = true,
+        ["Astromancer"] = true,
+
+        -- Black Temple
+        ["Illidari Heartseeker"] = true,
+        ["Bonechewer Taskmaster"] = true,
+        ["Dragonmaw Wind Reaver"] = true,
+        ["Ashtongue Mystic"] = true,
+
+        -- Hyjal Summit
+        ["Banshee"] = true,
+        ["Crypt Fiend"] = true,
+
+        -- Sunwell Plateau
+        ["Sunblade Vindicator"] = true,
+
+    }
+    for name, enabled in pairs(tbcFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
+end
 
 -- Default settings
 local defaults = {
@@ -584,9 +590,13 @@ function SP:TremorDemo(on)
         -- A short targeting scene, looped. Rendered through the real
         -- appearance path so Display Mode / size / glow all show correctly.
         local SCENE = {
-            { show = true,  secs = 4.0, story = "You target |cffff8080Coilfang Siren|r - a known fear-caster. Get Tremor down." },
+            { show = true, secs = 4.0, story = "You target |cffff8080"
+                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Scarlet Monk" or "Coilfang Siren")
+                .. "|r - a known fear-caster. Get Tremor down." },
             { show = false, secs = 2.0, story = "Tremor Totem is down - reminder hidden.", tremor = true },
-            { show = true,  secs = 3.5, story = "New target: |cffff8080Sethekk Prophet|r. Tremor has expired - reminder is back." },
+            { show = true, secs = 3.5, story = "New target: |cffff8080"
+                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Thuzadin Shadowcaster" or "Sethekk Prophet")
+                .. "|r. Tremor has expired - reminder is back." },
             { show = false, secs = 2.0, story = "You target a harmless mob - nothing to remind you about." },
         }
         local beat, left = 0, 0
