@@ -759,19 +759,74 @@ function SP:CheckTotemState(initializing)
 	end
 end
 
+local mainlineWeaponChecks = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local isSecretValue = _G.issecretvalue or function() return false end
+local weaponExpiryTimer
+
+local function CancelWeaponExpiry()
+	if weaponExpiryTimer then weaponExpiryTimer:Cancel() weaponExpiryTimer = nil end
+end
+
+local function WeaponExpiryReached()
+	weaponExpiryTimer = nil
+	SP:CheckWeaponEnchantState(false)
+end
+
+-- Read the native list: the compatibility tuple turns failed reads into false.
+-- Unknown/secret data must preserve the previous state, not announce a fade.
+local function ReadMainlineWeaponEnchant(inventorySlot, weaponSlot)
+	local link = _G.GetInventoryItemLink("player", inventorySlot)
+	if isSecretValue(link) then return end
+	local enchants = _G.C_Item.GetWeaponEnchantInfo(weaponSlot)
+	if isSecretValue(enchants) or type(enchants) ~= "table" then return end
+	local active, timeLeft = false, nil
+	for _, enchant in pairs(enchants) do
+		if isSecretValue(enchant) or type(enchant) ~= "table" then return end
+		local hasEnchant = enchant.hasEnchant
+		if isSecretValue(hasEnchant) or type(hasEnchant) ~= "boolean" then return end
+		if hasEnchant then
+			active = true
+			local remaining = enchant.timeLeft
+			if not isSecretValue(remaining) and type(remaining) == "number" and remaining > 0 then
+				if not timeLeft or remaining < timeLeft then timeLeft = remaining end
+			end
+		end
+	end
+	return link ~= nil, active, timeLeft
+end
+
 function SP:CheckWeaponEnchantState(initializing)
 	-- Weapon enchants are not hidden in combat the way buffs are (the cooldown
 	-- bar reads them every update mid-fight), so imbue alerts keep working there.
 	local sv = ShamanPowerExpiringAlertsDB
-	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then return end
+	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then
+		if not mainlineWeaponChecks then return end
+		-- Settings can flip without an update callback. Keep the event-driven
+		-- baseline/deadline while disabled, but never emit an expiration alert.
+		initializing = true
+	end
 
 	-- Check if weapons are equipped (nil if no weapon in slot)
 	-- Slot 16 = MainHandSlot, Slot 17 = SecondaryHandSlot (off-hand)
-	local hasMainHandWeapon = GetInventoryItemLink("player", 16) ~= nil
-	local hasOffHandWeapon = GetInventoryItemLink("player", 17) ~= nil
-
-	-- GetWeaponEnchantInfo returns: hasMain, mainExp, mainCharges, mainID, hasOff, offExp, offCharges, offID
-	local hasMainHandEnchant, _, _, _, hasOffHandEnchant = GetWeaponEnchantInfo()
+	local hasMainHandWeapon, hasOffHandWeapon, hasMainHandEnchant, hasOffHandEnchant
+	local mainTimeLeft, offTimeLeft
+	if mainlineWeaponChecks then
+		local slots = _G.Enum and _G.Enum.WeaponSlot
+		if not (slots and _G.C_Item and _G.C_Item.GetWeaponEnchantInfo) then return end
+		local mainOK, offOK
+		mainOK, hasMainHandWeapon, hasMainHandEnchant, mainTimeLeft =
+			pcall(ReadMainlineWeaponEnchant, 16, slots.MainHand)
+		offOK, hasOffHandWeapon, hasOffHandEnchant, offTimeLeft =
+			pcall(ReadMainlineWeaponEnchant, 17, slots.OffHand)
+		if not mainOK or not offOK or hasMainHandWeapon == nil or hasOffHandWeapon == nil then return end
+		CancelWeaponExpiry()
+	else
+		hasMainHandWeapon = GetInventoryItemLink("player", 16) ~= nil
+		hasOffHandWeapon = GetInventoryItemLink("player", 17) ~= nil
+		-- Classic tuple: hasMain, mainExp, mainCharges, mainID, hasOff, offExp, offCharges, offID.
+		local main, _, _, _, off = GetWeaponEnchantInfo()
+		hasMainHandEnchant, hasOffHandEnchant = main, off
+	end
 
 	-- Convert to explicit booleans (API may return 1/nil instead of true/false)
 	local mainHandEnchanted = hasMainHandWeapon and hasMainHandEnchant and true or false
@@ -796,6 +851,13 @@ function SP:CheckWeaponEnchantState(initializing)
 	-- Store as explicit booleans
 	previousState.weaponEnchants.mainHand = mainHandEnchanted
 	previousState.weaponEnchants.offHand = offHandEnchanted
+	if mainlineWeaponChecks then
+		local delay = mainHandEnchanted and mainTimeLeft or nil
+		if offHandEnchanted and offTimeLeft and (not delay or offTimeLeft < delay) then delay = offTimeLeft end
+		-- One cancellable deadline, no idle polling. The callback confirms actual
+		-- absence; an elapsed prediction by itself never triggers an alert.
+		if delay then weaponExpiryTimer = _G.C_Timer.NewTimer(delay / 1000, WeaponExpiryReached) end
+	end
 end
 
 function SP:CheckEarthShieldState(unit, initializing)
@@ -874,6 +936,10 @@ function SP:SetupExpiringAlertsEvents()
 	eventFrame:RegisterEvent("UNIT_AURA")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	if mainlineWeaponChecks then
+		eventFrame:RegisterEvent("WEAPON_ENCHANT_CHANGED")
+		eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	end
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- shield-sound registration deferred out of a fight
 	eventFrame:RegisterEvent("PLAYER_LOGOUT")          -- engine sound IDs kept counting across /reload (41.. after a reload): drop ours before the UI goes
@@ -906,7 +972,14 @@ function SP:SetupExpiringAlertsEvents()
 		return UnitName(unit) == (esTarget:match("^[^%-]+") or esTarget)
 	end
 
-	eventFrame:SetScript("OnEvent", function(self, event, unit)
+	local weaponCheckPending = false
+	local function CheckWeaponsAfterCast()
+		if not weaponCheckPending then return end
+		weaponCheckPending = false
+		SP:CheckWeaponEnchantState(false)
+	end
+
+	eventFrame:SetScript("OnEvent", function(_, event, unit, _castGUID, spellID)
 		if event == "UNIT_AURA" then
 			if unit == "player" then
 				RequestAuraUpdate()
@@ -917,8 +990,26 @@ function SP:SetupExpiringAlertsEvents()
 		elseif event == "PLAYER_TOTEM_UPDATE" then
 			SP:CheckTotemState(false)
 		elseif event == "UNIT_INVENTORY_CHANGED" then
-			if unit == "player" then
+			if (not mainlineWeaponChecks or not isSecretValue(unit)) and unit == "player" then
 				SP:CheckWeaponEnchantState(false)
+			end
+		elseif mainlineWeaponChecks and event == "WEAPON_ENCHANT_CHANGED" then
+			SP:CheckWeaponEnchantState(false)
+		elseif mainlineWeaponChecks and event == "UNIT_SPELLCAST_SUCCEEDED" then
+			if not isSecretValue(unit) and unit == "player" and not isSecretValue(spellID)
+				and type(spellID) == "number" and not weaponCheckPending
+				and _G.C_Spell and _G.C_Spell.GetSpellName then
+				local ok, name = pcall(_G.C_Spell.GetSpellName, spellID)
+				if ok and not isSecretValue(name) and type(name) == "string" then
+					for _, imbue in pairs(WeaponImbues) do
+						if name == imbue.name then
+							-- Cast success can arrive before the enchant list changes.
+							weaponCheckPending = true
+							_G.C_Timer.After(0, CheckWeaponsAfterCast)
+							break
+						end
+					end
+				end
 			end
 		elseif event == "PLAYER_ENTERING_WORLD" then
 			SP:UpdateExpiringAlertsState()
@@ -927,23 +1018,25 @@ function SP:SetupExpiringAlertsEvents()
 			if shieldSoundPending then SP:UpdateShieldSounds() end
 		elseif event == "PLAYER_LOGOUT" then
 			SP:RemoveShieldSounds()
+			if mainlineWeaponChecks then CancelWeaponExpiry() weaponCheckPending = false end
 		end
 	end)
 
 	self.expiringAlertsEventFrame = eventFrame
 
-	-- Weapon enchants don't have a reliable event when they expire
-	-- Use a periodic check (every 0.5 seconds) to detect enchant changes
-	local lastWeaponCheck = 0
-	local weaponCheckFrame = CreateFrame("Frame")
-	weaponCheckFrame:SetScript("OnUpdate", function(self, elapsed)
-		lastWeaponCheck = lastWeaponCheck + elapsed
-		if lastWeaponCheck >= 0.5 then
-			lastWeaponCheck = 0
-			SP:CheckWeaponEnchantState(false)
-		end
-	end)
-	self.weaponCheckFrame = weaponCheckFrame
+	-- Classic keeps the periodic check; Mainline uses events and one expiry timer.
+	if not mainlineWeaponChecks then
+		local lastWeaponCheck = 0
+		local weaponCheckFrame = CreateFrame("Frame")
+		weaponCheckFrame:SetScript("OnUpdate", function(_, elapsed)
+			lastWeaponCheck = lastWeaponCheck + elapsed
+			if lastWeaponCheck >= 0.5 then
+				lastWeaponCheck = 0
+				SP:CheckWeaponEnchantState(false)
+			end
+		end)
+		self.weaponCheckFrame = weaponCheckFrame
+	end
 
 	-- Combat hides aura reads, so a shield that fell off during a fight goes
 	-- unnoticed until the next buff change, which may be minutes away. Re-check
@@ -954,6 +1047,7 @@ function SP:SetupExpiringAlertsEvents()
 			-- Re-baseline silently after secret totem slots become readable, so a
 			-- later totem event cannot announce a stale in-combat expiration.
 			SP:CheckTotemState(true)
+			if mainlineWeaponChecks then SP:CheckWeaponEnchantState(false) end
 		end)
 	end
 end
