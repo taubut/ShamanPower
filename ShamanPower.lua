@@ -1094,6 +1094,7 @@ function ShamanPower:OnEnable()
 		SPCompat.OnUnrestricted(function()
 			self:ScanPlayerShield()
 			self:RefreshEarthShieldTarget()
+			self:RefreshPlayerBuffCache()
 		end)
 	end
 	if isShaman then
@@ -10604,8 +10605,52 @@ end
 -- Swiftness, Shamanistic Rage ...): aura reads go secret in combat, own casts
 -- never do. A cast stamps the start; the length is learned while readable.
 ShamanPower.shadowBuffs = {}   -- [spellName] = { start, duration }
+local cachePlayerBuffs = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local buffIsSecret = _G.issecretvalue or function() return false end
+
+-- Opacity watches share the shadow entries, but only public aura observations
+-- populate this cache. Unknown reads are retried on aura/restriction events.
+local function RefreshPlayerBuffEntry(spellName, entry)
+	entry.opacityKnown = nil
+	if totemsSecretNow() or (_G.SPCompat and _G.SPCompat.AurasUnreadable and _G.SPCompat.AurasUnreadable()) then
+		return
+	end
+	local api = _G.C_UnitAuras
+	if not (api and api.GetAuraDataBySpellName) then return end
+	-- RequiresNonSecretAura may hide a particular spell even outside combat.
+	local policy = _G.C_Secrets and _G.C_Secrets.ShouldSpellAuraBeSecret
+	if not policy then return end
+	local policyOK, secret = pcall(policy, spellName)
+	if not policyOK or buffIsSecret(secret) or secret ~= false then return end
+	local ok, aura = pcall(api.GetAuraDataBySpellName, "player", spellName, "HELPFUL")
+	if not ok or buffIsSecret(aura) then return end
+	if aura == nil then
+		entry.opacityKnown, entry.opacityPresent, entry.opacityExpiration = true, false, nil
+		entry.start = nil
+		return
+	end
+	if type(aura) ~= "table" then return end
+	local name, duration, expiration = aura.name, aura.duration, aura.expirationTime
+	if buffIsSecret(name) or buffIsSecret(duration) or buffIsSecret(expiration) then return end
+	if type(name) ~= "string" or name ~= spellName then return end
+	if type(duration) ~= "number" or type(expiration) ~= "number" then return end
+	entry.opacityKnown, entry.opacityPresent, entry.opacityExpiration = true, true, expiration
+	if duration > 0 then
+		entry.duration = duration
+		if expiration > 0 then entry.start = expiration - duration end
+	end
+end
+
+function _G.ShamanPower:RefreshPlayerBuffCache()
+	if not cachePlayerBuffs then return end
+	for name, entry in pairs(self.shadowBuffs) do
+		if entry.opacityWatched then RefreshPlayerBuffEntry(name, entry) end
+	end
+end
+
 function ShamanPower:ShadowBuffCast(spellID)
 	local name = GetSpellInfo(spellID)
+	if cachePlayerBuffs and buffIsSecret(name) then return end
 	if not name then return end
 	local e = self.shadowBuffs[name] or {}
 	e.start = GetTime()
@@ -10618,6 +10663,19 @@ local function PlayerHasBuff(spellName)
 		if not (e and e.start) then return false end
 		local duration = e.duration or 30   -- unknown length (Nature's Swiftness has none): assume a short window
 		return e.start + duration > GetTime()
+	end
+	if cachePlayerBuffs then
+		local e = _G.ShamanPower.shadowBuffs[spellName]
+		if not e then
+			e = {}
+			_G.ShamanPower.shadowBuffs[spellName] = e
+		end
+		if not e.opacityWatched then
+			e.opacityWatched = true
+			RefreshPlayerBuffEntry(spellName, e)
+		end
+		if not e.opacityKnown then return false end
+		return e.opacityPresent and (e.opacityExpiration == 0 or e.opacityExpiration > _G.GetTime())
 	end
 	local found, duration, expiration
 	if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
@@ -14475,6 +14533,7 @@ function ShamanPower:UNIT_AURA(event, unit)
 	-- Scan for shield buffs when player auras change (avoids polling)
 	if unit == "player" then
 		self:ScanPlayerShield()
+		if cachePlayerBuffs then self:RefreshPlayerBuffCache() end
 	end
 end
 
