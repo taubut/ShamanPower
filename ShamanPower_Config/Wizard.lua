@@ -2587,7 +2587,8 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	-- Spells the real bar can track, in bar order. roles = who sees the chip.
 	local SPELLS = {
 		{ id = 324,   name = "Shield",         opt = "cdbarShowShields",          cd = 0,  ready = 0,  charges = "3", color = {0.4, 0.6, 1.0} },
-		{ id = 36936, name = "Recall", long = "Totemic Call",   opt = "cdbarShowRecall",           cd = 6,  ready = 5,  color = {0.6, 0.4, 0.2} },
+		{ id = 36936, name = "Recall", long = GetSpellInfo(36936) or "Totemic Call",
+		  opt = "cdbarShowRecall", cd = 6, ready = 5, color = {0.6, 0.4, 0.2} },
 		{ id = 20608, name = "Ankh",           opt = "cdbarShowReincarnation",    cd = 14, ready = 6,  count = "2", color = {0.8, 0.2, 0.2} },
 		{ id = 16188, name = "NS", long = "Nature's Swiftness", opt = "cdbarShowNS",           cd = 9,  ready = 4,  color = {0.2, 0.8, 0.3}, roles = { restoration = true } },
 		{ id = 16190, name = "Mana Tide",      opt = "cdbarShowManaTide",         cd = 11, ready = 3,  color = {0.2, 0.5, 1.0}, roles = { restoration = true } },

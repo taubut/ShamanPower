@@ -7824,7 +7824,8 @@ end
 
 -- Cooldown bar button types (the 5th field of TrackedCooldowns; 7 = weapon imbue).
 ShamanPower.CooldownTypeLabels = {
-	[1] = "Shield", [2] = "Totemic Call", [3] = "Reincarnation", [4] = "Nature's Swiftness", [5] = "Mana Tide Totem",
+	[1] = "Shield", [2] = GetSpellInfo(36936) or "Totemic Call", [3] = "Reincarnation",
+	[4] = "Nature's Swiftness", [5] = "Mana Tide Totem",
 	[6] = "Bloodlust/Heroism", [7] = "Weapon Imbue", [8] = "Shamanistic Rage", [9] = "Elemental Mastery",
 	[10] = "Rage of the Farseer", [11] = "Totemic Projection",
 }
@@ -12180,7 +12181,7 @@ function ShamanPower:TotemBarTooltip(button, element)
 		elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 			GameTooltip:AddLine(self:ClickLabel(false) .. " Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
 		else
-			GameTooltip:AddLine(self:ClickLabel(false) .. " Totemic Call", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false) .. " " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
 		end
 	else
 		GameTooltip:AddLine("No totem assigned", 1, 0, 0)
@@ -15780,7 +15781,7 @@ SlashCmdList["SPMACROS"] = function()
 	print("ShamanPower: Macros updated! Look for these in your macro list:")
 	print("  SP_Earth, SP_Fire, SP_Water, SP_Air - Cast assigned totem")
 	print("  SP_DropAll - Cast all totems in sequence")
-	print("  SP_Recall - Totemic Call")
+	print("  SP_Recall - " .. (GetSpellInfo(36936) or "Totemic Call"))
 	print("Drag them to your action bar - they auto-update when you change assignments!")
 end
 
