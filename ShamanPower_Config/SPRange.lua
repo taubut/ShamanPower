@@ -26,6 +26,10 @@ local HEADER_H = 46
 local FOOTER_H = 48
 
 local dlg
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+local function Notify()
+	if registry then registry:NotifyChange("ShamanPower") end
+end
 
 local function ShortName(t)
 	return SP.TrackableTotemShortNames[t.id] or (t.name and t.name:gsub(" Totem", "")) or ""
@@ -97,6 +101,7 @@ local function Build()
 				ShamanPower_RangeTracker.tracked[id] = not ShamanPower_RangeTracker.tracked[id]
 				SP:UpdateSPRangeConfigButtons()
 				SP:UpdateSPRangeFrame()
+				Notify()
 			end)
 			btn:SetScript("OnEnter", function(self)
 				for _, tex in pairs(self.spBorder) do tex:SetColorTexture(el.r, el.g, el.b, 0.9) end
@@ -136,6 +141,7 @@ local function Build()
 	toggle:SetScript("OnClick", function()
 		SP:ToggleSPRange()
 		PaintToggle()
+		Notify()
 	end)
 	Core:AttachTooltip(toggle, "Overlay", "Show or hide the on-screen range overlay for the tracked totems.")
 	dlg.updateToggleBtnText = PaintToggle
@@ -163,10 +169,6 @@ if FS then
 	local function RT()
 		SP.opt.rangeTracker = SP.opt.rangeTracker or {}
 		return SP.opt.rangeTracker
-	end
-	local function Notify()
-		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
-		if reg then reg:NotifyChange("ShamanPower") end
 	end
 	-- Totem Coverage: the shaman's own overlay (Party Range module), same chrome
 	local function CO() SP.opt.coverage = SP.opt.coverage or {}; return SP.opt.coverage end
@@ -264,6 +266,14 @@ if FS then
 			},
 		}
 	end
+end
+
+if registry and registry.RegisterCallback then
+	registry.RegisterCallback({}, "ConfigTableChange", function(_, appName)
+		if appName ~= "ShamanPower" or not (dlg and dlg:IsShown()) then return end
+		SP:UpdateSPRangeConfigButtons()
+		dlg.updateToggleBtnText()
+	end)
 end
 
 return true

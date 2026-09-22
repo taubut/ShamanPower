@@ -913,9 +913,38 @@ end
 -- Configuration UI
 -- ============================================================================
 
-function SP:ShowReactiveTotemsConfig()
-	local sv = ShamanPower_ReactiveTotems
+local function NotifyReactiveConfig()
+	local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if registry then registry:NotifyChange("ShamanPower") end
+end
 
+-- Both settings surfaces edit the same saved fields. Programmatic slider
+-- refreshes must not write those values back or trigger another notification.
+local function RefreshReactiveConfig()
+	local config, sv = SP.reactiveConfigFrame, ShamanPower_ReactiveTotems
+	if not config or not sv then return end
+	config.refreshing = true
+	config.enableCheck:SetChecked(sv.enabled)
+	config.lockCheck:SetChecked(sv.locked)
+	config.fearCheck:SetChecked(sv.trackFear)
+	config.poisonCheck:SetChecked(sv.trackPoison)
+	config.diseaseCheck:SetChecked(sv.trackDisease)
+	config.sizeSlider:SetValue(sv.iconSize or 64)
+	config.opacitySlider:SetValue(sv.opacity or 1.0)
+	config.fontSizeSlider:SetValue(sv.fontSize or 14)
+	config.hideBorderCheck:SetChecked(sv.hideBorder)
+	config.hideBackgroundCheck:SetChecked(sv.hideBackground)
+	config.showDebuffNameCheck:SetChecked(sv.showDebuffName)
+	config.showTotemNameCheck:SetChecked(sv.showTotemName)
+	config.showGlowCheck:SetChecked(sv.showGlow)
+	config.glowSlider:SetValue(sv.glowIntensity or 0.8)
+	config.playSoundCheck:SetChecked(sv.playSound)
+	config.clickToCastCheck:SetChecked(sv.clickToCast)
+	config.fontOutlineCheck:SetChecked(sv.fontOutline)
+	config.refreshing = nil
+end
+
+function SP:ShowReactiveTotemsConfig()
 	if not self.reactiveConfigFrame then
 		local config = CreateFrame("Frame", "ShamanPowerReactiveConfigFrame", UIParent, "BackdropTemplate")
 		config:SetSize(320, 480)
@@ -970,6 +999,7 @@ function SP:ShowReactiveTotemsConfig()
 			check:SetScript("OnClick", function(self)
 				ShamanPower_ReactiveTotems[settingKey] = self:GetChecked()
 				if callback then callback() end
+				NotifyReactiveConfig()
 			end)
 			yOffset = yOffset - 24
 			return check
@@ -991,9 +1021,11 @@ function SP:ShowReactiveTotemsConfig()
 			slider.High:SetText(tostring(max))
 			slider.settingKey = settingKey
 			slider:SetScript("OnValueChanged", function(self, value)
-				ShamanPower_ReactiveTotems[settingKey] = value
 				self.Text:SetText(string.format("%.1f", value))
+				if config.refreshing then return end
+				ShamanPower_ReactiveTotems[settingKey] = value
 				if callback then callback() end
+				NotifyReactiveConfig()
 			end)
 			yOffset = yOffset - 35
 			return slider
@@ -1098,6 +1130,7 @@ function SP:ShowReactiveTotemsConfig()
 		resetBtn:SetText("Reset Pos")
 		resetBtn:SetScript("OnClick", function()
 			SP:ResetReactivePositions()
+			NotifyReactiveConfig()
 		end)
 
 		local unlockBtn = CreateFrame("Button", nil, config, "UIPanelButtonTemplate")
@@ -1110,29 +1143,16 @@ function SP:ShowReactiveTotemsConfig()
 
 		config:Hide()
 		self.reactiveConfigFrame = config
+		local registry = LibStub and LibStub("AceConfigRegistry-3.0", true)
+		if registry and registry.RegisterCallback then
+			registry.RegisterCallback(config, "ConfigTableChange", function(_, appName)
+				if appName == "ShamanPower" and config:IsShown() then RefreshReactiveConfig() end
+			end)
+		end
 	end
 
-	-- Update controls
-	local config = self.reactiveConfigFrame
-	config.enableCheck:SetChecked(sv.enabled)
-	config.lockCheck:SetChecked(sv.locked)
-	config.fearCheck:SetChecked(sv.trackFear)
-	config.poisonCheck:SetChecked(sv.trackPoison)
-	config.diseaseCheck:SetChecked(sv.trackDisease)
-	config.sizeSlider:SetValue(sv.iconSize or 64)
-	config.opacitySlider:SetValue(sv.opacity or 1.0)
-	config.fontSizeSlider:SetValue(sv.fontSize or 14)
-	config.hideBorderCheck:SetChecked(sv.hideBorder)
-	config.hideBackgroundCheck:SetChecked(sv.hideBackground)
-	config.showDebuffNameCheck:SetChecked(sv.showDebuffName)
-	config.showTotemNameCheck:SetChecked(sv.showTotemName)
-	config.showGlowCheck:SetChecked(sv.showGlow)
-	config.glowSlider:SetValue(sv.glowIntensity or 0.8)
-	config.playSoundCheck:SetChecked(sv.playSound)
-	config.clickToCastCheck:SetChecked(sv.clickToCast)
-	config.fontOutlineCheck:SetChecked(sv.fontOutline)
-
-	config:Show()
+	RefreshReactiveConfig()
+	self.reactiveConfigFrame:Show()
 end
 
 -- Test all alerts

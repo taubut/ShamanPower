@@ -8688,6 +8688,400 @@ ShamanPower.options = {
 	}
 }
 
+-- Window and cog controls use the same saved fields as their module pages.
+-- Keep this UI-only wiring together; no module is required at options load time.
+do
+	local SP = ShamanPower
+	local pages = SP.options.args.fluffy.args
+	local function Notify()
+		local registry = LibStub("AceConfigRegistry-3.0", true)
+		if registry then registry:NotifyChange("ShamanPower") end
+	end
+	local function OpenButton(name, method, loaded)
+		return {
+			order = 0.5, type = "execute", name = "Open " .. name, width = "full",
+			disabled = function() return (loaded and not SP[loaded]) or not SP[method] end,
+			func = function() if SP[method] then SP[method](SP) end end,
+		}
+	end
+	SP.options.args.settings.args.settings_show.args.open_assignments =
+		OpenButton("Totem Assignments", "ToggleAssignmentWindow")
+	SP.options.args.settings.args.settings_show.args.open_assignments.disabled = function() return InCombatLockdown() end
+	local range = pages.sprange_section.args
+	range.open_window = OpenButton("Totem Range Picker", "ShowSPRangeConfig", "SPRangeLoaded")
+	range.show_overlay = {
+		order = 0.6, type = "toggle", name = "Show Overlay", width = "full",
+		disabled = function() return not SP.SPRangeLoaded end,
+		get = function() return SP.spRangeFrame and SP.spRangeFrame:IsShown() or false end,
+		set = function(_, value)
+			if not SP.SPRangeLoaded then return end
+			local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown() or false
+			if shown ~= value then SP:ToggleSPRange() end
+		end,
+	}
+	range.tracked_header = { order = 6, type = "header", name = "Totems to Track" }
+	-- The settings renderer supports individual toggles, not Ace multiselects.
+	-- Resolve labels and availability from the module's filtered source table.
+	local trackableIds = {
+		"soe", "stoneskin", "tow", "flametongue", "frostresist",
+		"manaspring", "healingstream", "fireresist", "manatide",
+		"windfury", "graceofair", "wrathofair", "tranquilair", "natureresist", "windwall",
+	}
+	for position, id in ipairs(trackableIds) do
+		range["tracked_" .. id] = {
+			order = 6 + position / 100, type = "toggle", width = 1.5,
+			name = function()
+				local totem = SP.TrackableTotemsByID and SP.TrackableTotemsByID[id]
+				return totem and totem.name or id
+			end,
+			hidden = function() return not (SP.TrackableTotemsByID and SP.TrackableTotemsByID[id]) end,
+			disabled = function() return not SP.SPRangeLoaded end,
+			get = function()
+				return ShamanPower_RangeTracker and ShamanPower_RangeTracker.tracked
+					and ShamanPower_RangeTracker.tracked[id] or false
+			end,
+			set = function(_, value)
+				if not SP.SPRangeLoaded then return end
+				SP:InitSPRange()
+				ShamanPower_RangeTracker.tracked[id] = value
+				SP:UpdateSPRangeConfigButtons()
+				SP:UpdateSPRangeFrame()
+			end,
+		}
+	end
+	pages.partybuff_section.args.open_coverage = {
+		order = 0.5, type = "execute", name = "Open Totem Coverage Settings", width = "full",
+		hidden = function() return not (SP.CoverageAvailable and SP:CoverageAvailable()) end,
+		func = function() SP:OpenFrameSettings("coverage", SP.coverageFrame) end,
+	}
+	local es = pages.estrack_section.args
+	es.open_window = OpenButton("Earth Shield Tracker", "ToggleESTracker", "ESTrackerLoaded")
+	es.open_window.hidden = function() return SP.ESTrackerUnavailable == true end
+	es.open_window.func = function()
+		if not SP.ESTrackerUnavailable and SP.ESTrackerLoaded then SP:ToggleESTracker(); Notify() end
+	end
+	local reactive = pages.reactivetotems_section.args
+	reactive.open_window = OpenButton("Reactive Totems Configuration", "ShowReactiveTotemsConfig", "ReactiveTotemsLoaded")
+	reactive.click_to_cast = {
+		order = 1.55, type = "toggle", name = "Click to Cast Totem (legacy preference)", width = "full",
+		desc = "Mirrors the separate window's saved preference. Current alert frames are not secure cast buttons; "
+			.. "enabling this does not make them cast totems.",
+		disabled = function() return not SP.ReactiveTotemsLoaded end,
+		get = function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.clickToCast ~= false end,
+		set = function(_, value)
+			if not ShamanPower_ReactiveTotems then return end
+			ShamanPower_ReactiveTotems.clickToCast = value
+			if SP.UpdateReactiveTotemAppearance then SP:UpdateReactiveTotemAppearance() end
+		end,
+	}
+
+	-- Assignment selectors are UI state only. No new SavedVariables or protocol.
+	local selectedShaman, selectedGroup = "", 1
+	local function RaidDB()
+		if not SP.RaidCooldownsLoaded or not SP.InitRaidCooldowns then return nil end
+		SP:InitRaidCooldowns()
+		return ShamanPower_RaidCooldowns
+	end
+	local function RaidLocked()
+		return not (SP.RaidCooldownsLoaded and SP.CanAssignRaidCooldowns and SP:CanAssignRaidCooldowns())
+	end
+	local function NameValues(method)
+		local values = { [""] = "None" }
+		if SP.RaidCooldownsLoaded and SP[method] then
+			for _, name in ipairs(SP[method](SP)) do values[name] = name end
+		end
+		return values
+	end
+	local function AssignmentChanged()
+		SP:SendRaidCooldownSync()
+		SP:UpdateRaidCooldownPanel()
+	end
+	local function HasBloodlust() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
+	local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+	local raid = pages.raid_cd_section.args
+	raid.open_window = OpenButton("Raid Cooldown Assignments", "ToggleRaidCooldownPanel", "RaidCooldownsLoaded")
+	raid.assignment_header = { order = 7, type = "header", name = "Cooldown Assignments" }
+	for index, field in ipairs({ "primary", "backup1", "backup2", "caller" }) do
+		local label = ({ "Primary", "Backup 1", "Backup 2", "Caller" })[index]
+		raid["bloodlust_" .. field] = {
+			order = 7 + index / 10, type = "select", width = 1.5,
+			name = function()
+				return (UnitFactionGroup("player") == "Alliance" and "Heroism " or "Bloodlust ") .. label
+			end,
+			hidden = function() return not HasBloodlust() end,
+			disabled = RaidLocked,
+			values = function() return NameValues(field == "caller" and "GetRaidMembers" or "GetRaidShamans") end,
+			get = function() local db = RaidDB(); return db and db.bloodlust[field] or "" end,
+			set = function(_, value)
+				if RaidLocked() then return end
+				RaidDB().bloodlust[field] = value ~= "" and value or nil
+				AssignmentChanged()
+			end,
+		}
+	end
+	local function ManaTideValues()
+		local values = { [""] = "Select a shaman" }
+		if SP.RaidCooldownsLoaded and SP.GetManaTideShamans then
+			for _, info in ipairs(SP:GetManaTideShamans()) do
+				values[info.name] = info.name .. " (Group " .. info.group .. ")"
+			end
+		end
+		return values
+	end
+	local function SelectedManaTide()
+		if selectedShaman ~= "" and ManaTideValues()[selectedShaman] then return selectedShaman end
+		return ""
+	end
+	raid.manatide_shaman = {
+		order = 8, type = "select", name = "Mana Tide Shaman", width = 1.5,
+		disabled = function() return not SP.RaidCooldownsLoaded end,
+		values = ManaTideValues, get = SelectedManaTide,
+		set = function(_, value) selectedShaman = value end,
+	}
+	raid.manatide_caller = {
+		order = 8.1, type = "select", name = "Selected Shaman's Mana Tide Caller", width = 1.5,
+		disabled = function() return RaidLocked() or SelectedManaTide() == "" end,
+		values = function() return NameValues("GetRaidMembers") end,
+		get = function()
+			local db = RaidDB()
+			local assignment = db and db.manatide[SelectedManaTide()]
+			return assignment and assignment.caller or ""
+		end,
+		set = function(_, value)
+			local name = SelectedManaTide()
+			if RaidLocked() or name == "" then return end
+			local mt = RaidDB().manatide
+			mt[name] = mt[name] or {}
+			mt[name].caller = value ~= "" and value or nil
+			AssignmentChanged()
+		end,
+	}
+	raid.drums_caller = {
+		order = 9, type = "select", name = "Drums Caller", width = 1.5,
+		hidden = function() return not HasDrums() end, disabled = RaidLocked,
+		values = function() return NameValues("GetRaidMembers") end,
+		get = function() local db = RaidDB(); return db and db.drums.caller or "" end,
+		set = function(_, value)
+			if RaidLocked() then return end
+			RaidDB().drums.caller = value ~= "" and value or nil
+			AssignmentChanged()
+		end,
+	}
+	local function GroupValues()
+		local values = {}
+		if SP.RaidCooldownsLoaded and SP.GetGroupMembers then
+			for group in pairs(SP:GetGroupMembers()) do values[group] = "Group " .. group end
+		end
+		return values
+	end
+	local function SelectedGroup()
+		if GroupValues()[selectedGroup] then return selectedGroup end
+		return nil
+	end
+	raid.drums_group = {
+		order = 9.1, type = "select", name = "Drums Group", width = 1.5,
+		hidden = function() return not HasDrums() end,
+		disabled = function() return not SP.RaidCooldownsLoaded end,
+		values = GroupValues, get = SelectedGroup,
+		set = function(_, value) selectedGroup = value end,
+	}
+	raid.drums_drummer = {
+		order = 9.2, type = "select", name = "Selected Group's Drummer", width = 1.5,
+		hidden = function() return not HasDrums() end,
+		disabled = function() return RaidLocked() or not SelectedGroup() end,
+		values = function()
+			local values = { [""] = "None" }
+			if SP.RaidCooldownsLoaded and SP.GetGroupMembers then
+				for _, name in ipairs(SP:GetGroupMembers()[selectedGroup] or {}) do values[name] = name end
+			end
+			return values
+		end,
+		get = function() local db = RaidDB(); return db and db.drums.drummers[selectedGroup] or "" end,
+		set = function(_, value)
+			if RaidLocked() or not SelectedGroup() then return end
+			RaidDB().drums.drummers[selectedGroup] = value ~= "" and value or nil
+			AssignmentChanged()
+		end,
+	}
+
+	local tremor = pages.tremorreminder_section.args
+	tremor.tremor_manage_mobs.order = 0.5
+	tremor.tremor_manage_mobs.name = "Open Fear-Caster Mob List"
+	tremor.tremor_manage_mobs.disabled = function() return not SP.TremorReminderLoaded end
+	local selectedMob = ""
+	local function FearDB()
+		if not SP.TremorReminderLoaded or not ShamanPowerTremorReminderDB then return nil end
+		ShamanPowerTremorReminderDB.fearCasters = ShamanPowerTremorReminderDB.fearCasters or {}
+		return ShamanPowerTremorReminderDB
+	end
+	local function FearDefaults() return SP.GetDefaultFearCasters and SP:GetDefaultFearCasters() or {} end
+	local function FearChanged()
+		if SP.RefreshMobList then SP:RefreshMobList() end
+	end
+	local function AddFearName(name)
+		if issecretvalue and issecretvalue(name) then return end
+		local db = FearDB()
+		if not db or type(name) ~= "string" then return end
+		name = strtrim(name)
+		if name == "" then return end
+		db.fearCasters[name] = true
+		FearChanged()
+	end
+	local function FearValues()
+		local values = { [""] = "Select a mob" }
+		local db = FearDB()
+		if not db then return values end
+		local defaults = FearDefaults()
+		if db.useDefaultList ~= false then
+			for name in pairs(defaults) do if db.fearCasters[name] ~= false then values[name] = name end end
+		end
+		for name, enabled in pairs(db.fearCasters) do
+			if enabled and not defaults[name] then values[name] = name end
+		end
+		return values
+	end
+	tremor.fear_add_name = {
+		order = 5, type = "input", name = "Add a Mob by Name", width = "full",
+		desc = "Enter the exact mob name and press Enter to add it to the fear-caster list.",
+		disabled = function() return not SP.TremorReminderLoaded end,
+		get = function() return "" end, set = function(_, value) AddFearName(value) end,
+	}
+	tremor.fear_add_target = {
+		order = 5.1, type = "execute", name = "Add Current Target", width = 1.5,
+		disabled = function() return not SP.TremorReminderLoaded end,
+		func = function()
+			local name, hostile = UnitName("target"), UnitCanAttack("player", "target")
+			if issecretvalue and (issecretvalue(name) or issecretvalue(hostile)) then
+				SP:Print("This target's identity is hidden; add its name manually out of combat.")
+			elseif name and hostile then AddFearName(name); Notify()
+			else SP:Print("Target an enemy first.") end
+		end,
+	}
+	tremor.fear_remove_select = {
+		order = 5.2, type = "select", name = "Fear-Caster Mob", width = 1.5,
+		disabled = function() return not SP.TremorReminderLoaded end,
+		values = FearValues,
+		get = function() return FearValues()[selectedMob] and selectedMob or "" end,
+		set = function(_, value) selectedMob = value end,
+	}
+	tremor.fear_remove = {
+		order = 5.3, type = "execute", name = "Remove Selected Mob", width = 1.5,
+		disabled = function() return not SP.TremorReminderLoaded or selectedMob == "" or not FearValues()[selectedMob] end,
+		func = function()
+			local db = FearDB()
+			if not db or selectedMob == "" or not FearValues()[selectedMob] then return end
+			if FearDefaults()[selectedMob] then db.fearCasters[selectedMob] = false
+			else db.fearCasters[selectedMob] = nil end
+			selectedMob = ""
+			FearChanged(); Notify()
+		end,
+	}
+	tremor.fear_restore_defaults = {
+		order = 5.4, type = "execute", name = "Restore Removed Defaults", width = "full",
+		desc = "Restore hidden built-in mobs without removing custom additions.",
+		disabled = function() return not SP.TremorReminderLoaded end,
+		func = function()
+			local db = FearDB()
+			if not db then return end
+			local defaults = FearDefaults()
+			for name, enabled in pairs(db.fearCasters) do
+				if enabled == false and defaults[name] then db.fearCasters[name] = nil end
+			end
+			FearChanged(); Notify()
+		end,
+	}
+
+	local popout = pages.popout_section.args
+	local selectedPopout = ""
+	local function PopoutKey()
+		if SP.poppedOutFrames and SP.poppedOutFrames[selectedPopout] then return selectedPopout end
+		return nil
+	end
+	local function PopoutSettings()
+		local key = PopoutKey()
+		return key and SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[key] or {}
+	end
+	local function PopoutLocked() return InCombatLockdown() or not PopoutKey() end
+	popout.open_window = {
+		order = 0.5, type = "execute", name = "Open Pop-Out Settings", width = "full",
+		disabled = function() return not PopoutKey() end,
+		func = function()
+			local key = PopoutKey()
+			if key then SP:ShowPopOutSettingsPanel(key, SP.poppedOutFrames[key]) end
+		end,
+	}
+	popout.selected_tracker = {
+		order = 3, type = "select", name = "Popped-Out Tracker", width = "full",
+		values = function()
+			local values = { [""] = "Select a popped-out tracker" }
+			for key, frame in pairs(SP.poppedOutFrames or {}) do
+				values[key] = frame.title and frame.title ~= "" and frame.title or key
+			end
+			return values
+		end,
+		get = function() return PopoutKey() or "" end,
+		set = function(_, value) selectedPopout = value end,
+	}
+	popout.selected_scale = {
+		order = 3.1, type = "range", name = "Selected Tracker Scale", width = 1.5,
+		min = 0.5, max = 3, step = 0.05, isPercent = true, disabled = PopoutLocked,
+		get = function() return PopoutSettings().scale or SP.opt.poppedOutDefaultScale or 1 end,
+		set = function(_, value) if not PopoutLocked() then SP:SetPopOutScale(PopoutKey(), value) end end,
+	}
+	popout.selected_opacity = {
+		order = 3.2, type = "range", name = "Selected Tracker Opacity", width = 1.5,
+		min = 0.1, max = 1, step = 0.05, isPercent = true, disabled = PopoutLocked,
+		get = function() return PopoutSettings().opacity or SP.opt.poppedOutDefaultOpacity or 1 end,
+		set = function(_, value) if not PopoutLocked() then SP:SetPopOutOpacity(PopoutKey(), value) end end,
+	}
+	popout.selected_hide_frame = {
+		order = 3.3, type = "toggle", name = "Hide Selected Tracker Frame", width = "full", disabled = PopoutLocked,
+		get = function() return PopoutSettings().hideFrame or false end,
+		set = function(_, value)
+			if not PopoutLocked() and (PopoutSettings().hideFrame or false) ~= value then SP:TogglePopOutFrame(PopoutKey()) end
+		end,
+	}
+	popout.selected_flyout_direction = {
+		order = 3.4, type = "select", name = "Selected Tracker Flyout Direction", width = 1.5,
+		values = { top = "Top", bottom = "Bottom", left = "Left", right = "Right" },
+		sorting = { "top", "bottom", "left", "right" }, disabled = PopoutLocked,
+		hidden = function() local key = PopoutKey(); return not (key and key:match("^totem_")) end,
+		get = function() return PopoutSettings().flyoutDirection or "bottom" end,
+		set = function(_, value) if not PopoutLocked() then SP:SetPopOutFlyoutDirection(PopoutKey(), value) end end,
+	}
+	popout.selected_return = {
+		order = 3.5, type = "execute", name = "Return Selected Tracker to Bar", width = "full", disabled = PopoutLocked,
+		func = function()
+			if PopoutLocked() then return end
+			SP:ReturnPopOutToBar(PopoutKey())
+			selectedPopout = ""
+			Notify()
+		end,
+	}
+
+	-- Existing page setters also publish changes, so a dialog/cog that is already
+	-- open refreshes. Wrapping once at definition time preserves their behaviour.
+	local function NotifySetters(args, prefix)
+		for key, option in pairs(args) do
+			if (not prefix or key:sub(1, #prefix) == prefix) and type(option.set) == "function" then
+				local setter = option.set
+				option.set = function(...) setter(...); Notify() end
+			end
+		end
+	end
+	NotifySetters(range)
+	NotifySetters(raid)
+	NotifySetters(es)
+	NotifySetters(reactive)
+	NotifySetters(tremor)
+	NotifySetters(popout)
+	NotifySetters(pages.partybuff_section.args, "coverage_")
+	local resetMobs = tremor.tremor_reset_moblist.func
+	tremor.tremor_reset_moblist.func = function(...) resetMobs(...); Notify() end
+	local returnPopouts = popout.popout_return_all.func
+	popout.popout_return_all.func = function(...) returnPopouts(...); Notify() end
+end
+
 -- Cooldown bar order: one dropdown per button that can exist on this client.
 -- These were eight hand-written copies of one fixed list (Shield ... Shamanistic
 -- Rage), so clients without some of those spells still offered them, and the

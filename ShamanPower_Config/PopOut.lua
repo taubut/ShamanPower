@@ -7,6 +7,10 @@ local FS = ns.FrameSettings
 
 local SP = ShamanPower
 if not SP or not FS then return end
+local function Notify()
+	local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+	if registry then registry:NotifyChange("ShamanPower") end
+end
 
 local DIRS  = { top = "Top", bottom = "Bottom", left = "Left", right = "Right" }
 local ORDER = { "top", "bottom", "left", "right" }
@@ -51,19 +55,19 @@ local function Spec(key, popOutFrame)
 		scale = {
 			min = 50, max = 300,
 			get = function() return math.floor(Settings(key).scale * 100 + 0.5) end,
-			set = function(v) SP:SetPopOutScale(key, v / 100) end,
+			set = function(v) SP:SetPopOutScale(key, v / 100); Notify() end,
 		},
 		opacity = {
 			get = function() return math.floor(Settings(key).opacity * 100 + 0.5) end,
-			set = function(v) SP:SetPopOutOpacity(key, v / 100) end,
+			set = function(v) SP:SetPopOutOpacity(key, v / 100); Notify() end,
 		},
 		hideFrame = {
 			get = function() return Settings(key).hideFrame end,
-			set = function(v) if Settings(key).hideFrame ~= v then SP:TogglePopOutFrame(key) end end,
+			set = function(v) if Settings(key).hideFrame ~= v then SP:TogglePopOutFrame(key); Notify() end end,
 		},
 		actions = {
 			{ text = "Return to Bar", desc = "Put this tracker back on its bar.",
-			  func = function() FS:Hide(); SP:ReturnPopOutToBar(key) end },
+			  func = function() FS:Hide(); SP:ReturnPopOutToBar(key); Notify() end },
 		},
 	}
 	if key:match("^totem_") then
@@ -73,7 +77,7 @@ local function Spec(key, popOutFrame)
 				values = function() return DIRS end,
 				order  = function() return ORDER end,
 				get = function() return Settings(key).flyoutDir end,
-				set = function(v) SP:SetPopOutFlyoutDirection(key, v) end,
+				set = function(v) SP:SetPopOutFlyoutDirection(key, v); Notify() end,
 			})
 		end
 	end

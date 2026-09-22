@@ -26,6 +26,16 @@ ns.FrameSettings = FS
 local PANEL_W = 316
 local panel
 
+-- Only rebuild when the set of rows changes; refreshing a slider must not
+-- release the control currently being dragged.
+local function RowShape(spec)
+	local shape = (spec.scale and "s" or "") .. (spec.opacity and "o" or "") .. (spec.hideFrame and "h" or "")
+	if spec.rows then
+		spec.rows(function(kind, opts) shape = shape .. ":" .. kind .. ":" .. (opts.label or "") end)
+	end
+	return shape
+end
+
 local function Build()
 	if panel then return panel end
 	panel = Core:CreateDialog({
@@ -98,6 +108,7 @@ function FS:Open(anchorFrame, spec)
 	end
 
 	panel.currentKey = spec.key
+	panel.currentSpec, panel.rowShape = spec, RowShape(spec)
 	panel:SetTitles(spec.title or "Frame Settings", spec.subtitle)
 	Populate(spec)
 
@@ -122,6 +133,26 @@ if ShamanPower then
 		local build = FS.specs[key]
 		if build then FS:Open(frame, build(frame)) end
 	end
+end
+
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+if registry and registry.RegisterCallback then
+	local queued = false
+	registry.RegisterCallback(FS, "ConfigTableChange", function(_, appName)
+		if appName ~= "ShamanPower" or queued or not (panel and panel:IsShown()) then return end
+		queued = true
+		_G.C_Timer.After(0, function()
+			queued = false
+			if not (panel and panel:IsShown() and panel.currentSpec) then return end
+			local shape = RowShape(panel.currentSpec)
+			if shape ~= panel.rowShape then
+				panel.rowShape = shape
+				Populate(panel.currentSpec)
+			else
+				Widgets:RefreshAll(panel.body)
+			end
+		end)
+	end)
 end
 
 return FS

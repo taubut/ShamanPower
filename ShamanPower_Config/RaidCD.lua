@@ -17,6 +17,10 @@ if not SP or not SP.GetRaidShamans or not SP.SendRaidCooldownSync then return en
 local WIDTH = 380
 local NONE  = ""
 local dlg
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+local function Notify()
+	if registry then registry:NotifyChange("ShamanPower") end
+end
 
 local function HasBL() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
 local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
@@ -95,6 +99,7 @@ local function Populate()
 					bl[field] = (v ~= NONE) and v or nil
 					SP:SendRaidCooldownSync()
 					if extra then extra() end
+					Notify()
 				end,
 				disabled = function() return not CanAssign() end,
 			})
@@ -125,6 +130,7 @@ local function Populate()
 				mt[name].caller = (v ~= NONE) and v or nil
 				SP:SendRaidCooldownSync()
 				SP:UpdateCallerButtons()
+				Notify()
 			end,
 			disabled = function() return not CanAssign() end,
 		})
@@ -143,6 +149,7 @@ local function Populate()
 				drums.caller = (v ~= NONE) and v or nil
 				SP:SendRaidCooldownSync()
 				SP:UpdateCallerButtons()
+				Notify()
 			end,
 			disabled = function() return not CanAssign() end,
 		})
@@ -161,6 +168,7 @@ local function Populate()
 					drums.drummers[g] = (v ~= NONE) and v or nil
 					SP:SendRaidCooldownSync()
 					SP:UpdateCallerButtons()
+					Notify()
 				end,
 				disabled = function() return not CanAssign() end,
 			})
@@ -205,10 +213,6 @@ end)
 -- Settings panel for the floating caller buttons (the corner button).
 local FS = ns.FrameSettings
 if FS then
-	local function Notify()
-		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
-		if reg then reg:NotifyChange("ShamanPower") end
-	end
 	FS.specs.raidcd = function(frame)
 		return {
 			key = "raidcd", title = "Caller Buttons", subtitle = "Raid cooldowns",
@@ -223,10 +227,25 @@ if FS then
 			},
 			hideFrame = {
 				get = function() return SP.opt.raidCDButtonHideFrame and true or false end,
-				set = function(v) SP.opt.raidCDButtonHideFrame = v and true or nil; SP:UpdateCallerButtonFrameStyle() end,
+				set = function(v)
+					SP.opt.raidCDButtonHideFrame = v and true or nil
+					SP:UpdateCallerButtonFrameStyle(); Notify()
+				end,
 			},
 		}
 	end
+end
+
+if registry and registry.RegisterCallback then
+	local queued = false
+	registry.RegisterCallback({}, "ConfigTableChange", function(_, appName)
+		if appName ~= "ShamanPower" or queued or not (dlg and dlg:IsShown()) then return end
+		queued = true
+		_G.C_Timer.After(0, function()
+			queued = false
+			if dlg and dlg:IsShown() then Populate() end
+		end)
+	end)
 end
 
 return true
