@@ -41,12 +41,13 @@ SP.TotemBuffSpellIDs = {
 		[7] = 15108,  -- Windwall
 	},
 }
--- Forever's Windfury Totem is a party BUFF ("Attack Power increased by $s1.
--- Granted $s2 Extra Attack.", Spell.db2 1.60.1: 8516 / 10608 / 10610), not the
--- weapon enchant the classic family applies, so there it is tracked like any
--- other totem buff and the Windfury comms special case never runs.
+-- Windfury Totem on WoW: Forever: SpellEffect.db2 1.60.1 shows vanilla's layout
+-- (8515 passive party-area dummy aura, 8516/10608/10610 the on-hit proc), i.e.
+-- a weapon enchant, not a readable party buff. UNVERIFIED in game (the beta's
+-- level cap is below Windfury Totem). So the TBC path (weapon enchant + WFBUFF
+-- comms) stays, and the aura IDs are only added to the engine-drawn dots as
+-- extras: a dot lights if the client ever reports them, nothing is lost if not.
 if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
-	SP.TotemBuffSpellIDs[4][1] = 8516
 	-- Forever reuses 8215 (TBC's Flametongue Totem buff) for a spell called
 	-- "Rapid Cast", which broke the name match. There the entry is the totem
 	-- spell itself (its name matches) and its buffs are the effect auras.
@@ -74,6 +75,12 @@ SP.TotemBuffRanks = {
 	[8516]  = { 8516, 10608, 10610 },                       -- Windfury Totem (Forever)
 	[8227]  = { 8230, 8250, 10521, 15036 },                 -- Flametongue Totem on Forever: the effect auras party members carry
 }
+
+-- Extra aura IDs for the engine-drawn dots only (see the Windfury note above).
+SP.ExtraEngineAuraIDs = {}
+if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	SP.ExtraEngineAuraIDs[4] = { 8515, 10609, 10612, 8516, 10608, 10610 } -- Windfury Totem passive + proc
+end
 
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 -- This guarantees exact name matching with UnitBuff results
@@ -322,6 +329,7 @@ local function ElementBuffMap(element)
 	for _, base in pairs(SP.TotemBuffSpellIDs[element] or {}) do
 		for _, id in ipairs(SP.TotemBuffRanks[base] or { base }) do map[id] = true end
 	end
+	for _, id in ipairs(SP.ExtraEngineAuraIDs[element] or {}) do map[id] = true end
 	return map
 end
 
