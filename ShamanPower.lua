@@ -4206,6 +4206,12 @@ local function PlayerKnowsTotem(spellID, totemName)
 
 	-- First try GetSpellInfo - if it returns nil, the spell doesn't exist
 	local spellName = GetSpellInfo(spellID)
+	-- An absent totem must not match an unrelated trainer spell by short name.
+	-- Only encrypted, allow-listed names may still use the spellbook fallback.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not spellName
+		and not (SPCompat and SPCompat.spellAllowList and SPCompat.spellAllowList[spellID]) then
+		return false
+	end
 
 	-- Build a list of names to search for
 	local searchNames = {}
@@ -6492,7 +6498,7 @@ function ShamanPower:CreateTotemFlyout(element)
 		local flyoutKey = elementKey .. "_" .. totemIndex
 		local isEnabledInFlyout = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
 
-		if isKnown or isTalentTotem then
+		if (isKnown and (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or spellName)) or isTalentTotem then
 			-- Create button as CHILD of totem button using SPFlyoutButtonTemplate
 			-- Parent is totemButton (parented to UIParent) for combat flyout support
 			-- Parent is the totem button: ChildUpdate needs it on the secure
