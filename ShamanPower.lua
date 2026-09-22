@@ -15303,206 +15303,185 @@ function ShamanPower:AutoAssign()
 	end
 end
 
-function ShamanPower:AutoAssignTotems()
-	local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-	local function have(element, idx)
-		return not forever or self:TotemExistsOnClient(element, idx)
+-- Composition-driven priorities (first existing, unused choice; repeat first
+-- after the useful choices are exhausted). No Tremor or Mana Tide auto-picks.
+--             Physical DPS / tank             Caster-only
+-- Earth       Strength, Stoneskin               Stoneskin, Strength
+-- Fire        ToW if Elemental (Classic only); Flametongue if casters > melee,
+--             otherwise Searing; the other usable Fire choices follow.
+-- Water       Mana Spring with any mana user, otherwise Healing Stream; swap
+--             to the other choice for another shaman in the same subgroup.
+-- Air         Windfury; Grace if AGI > WF users Classic: Wrath, Windfury, Grace
+--                                               Forever: Tranquil, Windfury, Grace
+-- Forever tankless physical groups keep their physical first choice (including
+-- shaman + warrior => Windfury); Tranquil is next for a second shaman.
+do
+	local priorities = {
+		earthPhysical = { 1, 2 }, earthCaster = { 2, 1 },
+		fireCaster = { 5, 2 }, firePhysical = { 2, 5 },
+		fireElementalCaster = { 1, 5, 2 }, fireElementalPhysical = { 1, 2, 5 },
+		waterMana = { 1, 2 }, waterHealth = { 2, 1 },
+		airMelee = { 1, 2 }, airAgility = { 2, 1 },
+		airMeleeThreat = { 1, 4, 2 }, airAgilityThreat = { 2, 4, 1 },
+		airCasterClassic = { 3, 1, 2 }, airCasterForever = { 4, 1, 2 },
+	}
+	local manaClasses = { PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true,
+		MAGE = true, WARLOCK = true, DRUID = true }
+	local function Public(value)
+		if issecretvalue and issecretvalue(value) then return nil end
+		return value
 	end
-	-- Smart Shaman Auto-Assign: Assign totems based on party composition and shaman spec
-	-- Totem indices:
-	-- Earth: 1=Strength of Earth, 2=Stoneskin
-	-- Fire: 1=Totem of Wrath, 2=Searing, 5=Flametongue
-	-- Water: 1=Mana Spring, 2=Healing Stream, 3=Mana Tide
-	-- Air: 1=Windfury, 2=Grace of Air, 3=Wrath of Air
-
-	-- First, analyze party composition for each group
-	local groupComposition = self:AnalyzeGroupComposition()
-
-	-- Get shamans organized by their party group
-	local shamansByGroup = {}
-	for name in pairs(ShamanPower.AllShamans) do
-		local subgroup = ShamanPower.AllShamans[name].subgroup or 1
-		if not shamansByGroup[subgroup] then
-			shamansByGroup[subgroup] = {}
+	local function Subgroup(value, fallback)
+		if issecretvalue and issecretvalue(value) then return nil end
+		if value == nil then return fallback end
+		if type(value) == "number" and value >= 1 and value <= 8 and value % 1 == 0 then return value end
+	end
+	local function Composition()
+		-- meleeDPS includes rogues/cats; agilityDPS overlaps those and hunters.
+		-- Historical aliases preserve the preference comparison: melee means
+		-- Windfury-favoured units (including physical tanks), caster includes
+		-- healers, agiUsers includes feral tanks as well as agility DPS.
+		return { tank = 0, healer = 0, meleeDPS = 0, rangedCaster = 0,
+			agilityDPS = 0, manaUsers = 0, melee = 0, caster = 0, agiUsers = 0, total = 0 }
+	end
+	local function CountUnit(self, comp, unit, raidRole, forever, playerEnhancement)
+		if Public(UnitExists(unit)) ~= true then return end
+		comp.total = comp.total + 1
+		local _, class = UnitClass(unit)
+		class = Public(class)
+		local role = UnitGroupRolesAssigned and Public(UnitGroupRolesAssigned(unit))
+		if role ~= "TANK" and role ~= "HEALER" and role ~= "DAMAGER" then role = nil end
+		local power
+		if class == "DRUID" and UnitPowerType then power = Public(UnitPowerType(unit)) end
+		if not role then
+			if Public(raidRole) == "MAINTANK" then role = "TANK"
+			elseif class == "DRUID" and power == 1 then role = "TANK"
+			else role = "DAMAGER" end
 		end
-		table.insert(shamansByGroup[subgroup], name)
-	end
+		if role == "TANK" then comp.tank = comp.tank + 1 end
+		if role == "HEALER" then comp.healer = comp.healer + 1; comp.caster = comp.caster + 1 end
+		-- An unreadable class never becomes a guessed DPS or mana user.
+		if not class then return end
+		if manaClasses[class] then comp.manaUsers = comp.manaUsers + 1 end
+		if role == "HEALER" then return end
 
-	-- Track which totems are already assigned in each group (to avoid duplicates)
-	local assignedInGroup = {}
-	for i = 1, 8 do
-		assignedInGroup[i] = {
-			[1] = {},  -- Earth totems assigned
-			[2] = {},  -- Fire totems assigned
-			[3] = {},  -- Water totems assigned
-			[4] = {},  -- Air totems assigned
-		}
-	end
-
-	-- Assign totems to each shaman
-	for name in pairs(ShamanPower.AllShamans) do
-		local canAssign = (name == self.player) or self:CanControl(name)
-		if canAssign then
-			local subgroup = ShamanPower.AllShamans[name].subgroup or 1
-			local comp = groupComposition[subgroup] or {melee = 0, caster = 0, agiUsers = 0, total = 0}
-
-			if not ShamanPower_Assignments[name] then
-				ShamanPower_Assignments[name] = {}
-			end
-
-			-- Determine shaman spec
-			local isElemental = self:ShamanHasTotemOfWrath(name)
-
-			-- === EARTH TOTEM ===
-			local earthTotem = 1  -- Default: Strength of Earth
-			if not assignedInGroup[subgroup][1][1] then
-				earthTotem = 1  -- Strength of Earth
-				assignedInGroup[subgroup][1][1] = true
-			elseif not assignedInGroup[subgroup][1][2] then
-				earthTotem = 2  -- Stoneskin (if SoE already assigned)
-				assignedInGroup[subgroup][1][2] = true
-			end
-			ShamanPower_Assignments[name][1] = earthTotem
-
-			-- === FIRE TOTEM ===
-			local fireTotem = 2  -- Default: Searing
-			if isElemental and have(2, 1) and not assignedInGroup[subgroup][2][1] then
-				fireTotem = 1  -- Totem of Wrath for Elemental shamans
-				assignedInGroup[subgroup][2][1] = true
-			elseif comp.caster > comp.melee and have(2, 5) and not assignedInGroup[subgroup][2][5] then
-				fireTotem = 5  -- Flametongue for caster groups
-				assignedInGroup[subgroup][2][5] = true
-			else
-				if have(2, 2) and not assignedInGroup[subgroup][2][2] then
-					fireTotem = 2  -- Searing
-					assignedInGroup[subgroup][2][2] = true
-				end
-			end
-			if not have(2, fireTotem) then
-				fireTotem = nil
-				for _, idx in ipairs({ 5, 4, 1, 6 }) do
-					if have(2, idx) then fireTotem = idx break end
-				end
-			end
-			if forever and fireTotem then assignedInGroup[subgroup][2][fireTotem] = true end
-			ShamanPower_Assignments[name][2] = fireTotem
-
-			-- === WATER TOTEM ===
-			-- Mana Spring preferred, Healing Stream as fallback (Mana Tide is a cooldown, not auto-assigned)
-			local waterTotem = 1  -- Default: Mana Spring
-			if not assignedInGroup[subgroup][3][1] then
-				waterTotem = 1  -- Mana Spring
-				assignedInGroup[subgroup][3][1] = true
-			elseif not assignedInGroup[subgroup][3][2] then
-				waterTotem = 2  -- Healing Stream (if Mana Spring already assigned)
-				assignedInGroup[subgroup][3][2] = true
-			end
-			ShamanPower_Assignments[name][3] = waterTotem
-
-			-- === AIR TOTEM ===
-			-- Windfury for warriors/enh shamans, Grace of Air for hunters/rogues/ferals, Wrath of Air for casters
-			local airTotem = 1  -- Default: Windfury
-			if comp.caster > comp.melee and comp.caster > comp.agiUsers then
-				-- Caster-heavy group
-				if have(4, 3) and not assignedInGroup[subgroup][4][3] then
-					airTotem = 3  -- Wrath of Air
-					assignedInGroup[subgroup][4][3] = true
-				end
-			elseif comp.agiUsers > 0 and comp.agiUsers >= comp.melee then
-				-- AGI users (hunters, rogues, feral druids) prefer Grace of Air
-				if have(4, 2) and not assignedInGroup[subgroup][4][2] then
-					airTotem = 2  -- Grace of Air
-					assignedInGroup[subgroup][4][2] = true
-				elseif have(4, 1) and not assignedInGroup[subgroup][4][1] then
-					airTotem = 1  -- Windfury as backup
-					assignedInGroup[subgroup][4][1] = true
-				end
-			else
-				-- Melee group (warriors, paladins, etc.) want Windfury
-				if have(4, 1) and not assignedInGroup[subgroup][4][1] then
-					airTotem = 1  -- Windfury
-					assignedInGroup[subgroup][4][1] = true
-				elseif have(4, 2) and not assignedInGroup[subgroup][4][2] then
-					airTotem = 2  -- Grace of Air as backup
-					assignedInGroup[subgroup][4][2] = true
-				end
-			end
-			if not have(4, airTotem) then
-				airTotem = nil
-				for _, idx in ipairs({ 1, 2, 4, 6, 7 }) do
-					if have(4, idx) then airTotem = idx break end
-				end
-			end
-			if forever and airTotem then assignedInGroup[subgroup][4][airTotem] = true end
-			ShamanPower_Assignments[name][4] = airTotem
+		local feral = class == "DRUID" and (power == 1 or power == 3 or role == "TANK")
+		if class == "DRUID" and not feral and not forever then feral = self:IsDruidFeral(unit) end
+		local enhancement = false
+		if class == "SHAMAN" then
+			local isPlayer = unit == "player" or (UnitIsUnit and Public(UnitIsUnit(unit, "player")) == true)
+			enhancement = isPlayer and playerEnhancement or false
+			if not enhancement and not forever then enhancement = self:IsShamanEnhancement(unit) end
+		end
+		local windfury = class == "WARRIOR" or class == "PALADIN" or enhancement
+		local agility = class == "ROGUE" or class == "HUNTER" or feral
+		if windfury then comp.melee = comp.melee + 1 end
+		if agility then comp.agiUsers = comp.agiUsers + 1 end
+		if role == "TANK" then return end
+		if agility then comp.agilityDPS = comp.agilityDPS + 1 end
+		if windfury or class == "ROGUE" or feral then
+			comp.meleeDPS = comp.meleeDPS + 1
+		elseif class ~= "HUNTER" and manaClasses[class] then
+			comp.rangedCaster = comp.rangedCaster + 1
+			comp.caster = comp.caster + 1
 		end
 	end
 
-	self:SendMessage("SHPWR_ASSIGNMENTSUPDATED")
-	self:UpdateRoster()
-	self:Print("Totems have been smart-assigned based on party composition.")
-end
-
--- Analyze the composition of each party group
-function ShamanPower:AnalyzeGroupComposition()
-	local composition = {}
-	for i = 1, 8 do
-		composition[i] = {melee = 0, caster = 0, agiUsers = 0, total = 0}
+	function ShamanPower:AutoAssignTotems()
+		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local composition = self:AnalyzeGroupComposition()
+		local names, groups, controllable, assigned = {}, {}, {}, {}
+		local fallbackGroup
+		if not IsInRaid() then fallbackGroup = 1 end
+		for group = 1, 8 do assigned[group] = { {}, {}, {}, {} } end
+		for name, info in pairs(self.AllShamans) do
+			local group = Subgroup(info.subgroup, fallbackGroup)
+			if group then
+				names[#names + 1] = name
+				groups[name] = group
+				controllable[name] = name == self.player or Public(self:CanControl(name)) == true
+			end
+		end
+		table.sort(names)
+		-- Preserve others' assignments and count them before picking our slots.
+		for _, name in ipairs(names) do
+			if not controllable[name] then
+				local existing = ShamanPower_Assignments[name]
+				for element = 1, 4 do
+					local index = existing and Public(existing[element])
+					if type(index) == "number" and index > 0 and self:TotemExistsOnClient(element, index) then
+						assigned[groups[name]][element][index] = true
+					end
+				end
+			end
+		end
+		local function Pick(group, element, choices)
+			local first
+			for _, index in ipairs(choices) do
+				if self:TotemExistsOnClient(element, index) then
+					first = first or index
+					if not assigned[group][element][index] then
+						assigned[group][element][index] = true
+						return index
+					end
+				end
+			end
+			return first or 0 -- Nothing eligible: leave that element unassigned.
+		end
+		for _, name in ipairs(names) do
+			if controllable[name] then
+				local group = groups[name]
+				local comp = composition[group]
+				local physical = comp.tank > 0 or comp.meleeDPS > 0
+				local casterHeavy = comp.caster > comp.meleeDPS + comp.tank
+				local elemental = not forever and self:TotemExistsOnClient(2, 1) and self:ShamanHasTotemOfWrath(name)
+				local fire = casterHeavy and priorities.fireCaster or priorities.firePhysical
+				if elemental then fire = casterHeavy and priorities.fireElementalCaster or priorities.fireElementalPhysical end
+				local air
+				if not physical and comp.agiUsers == 0 then
+					air = forever and priorities.airCasterForever or priorities.airCasterClassic
+				elseif comp.agiUsers > comp.melee then
+					air = forever and comp.tank == 0 and priorities.airAgilityThreat or priorities.airAgility
+				else
+					air = forever and comp.tank == 0 and priorities.airMeleeThreat or priorities.airMelee
+				end
+				local loadout = ShamanPower_Assignments[name] or {}
+				ShamanPower_Assignments[name] = loadout
+				loadout[1] = Pick(group, 1, physical and priorities.earthPhysical or priorities.earthCaster)
+				loadout[2] = Pick(group, 2, fire)
+				loadout[3] = Pick(group, 3, comp.manaUsers > 0 and priorities.waterMana or priorities.waterHealth)
+				loadout[4] = Pick(group, 4, air)
+			end
+		end
+		self:SendMessage("SHPWR_ASSIGNMENTSUPDATED")
+		self:UpdateRoster()
+		self:Print("Totems have been smart-assigned based on party composition and roles.")
 	end
 
-	local numMembers = GetNumGroupMembers()
-	local isRaid = IsInRaid()
-
-	if numMembers == 0 then
-		-- Solo
-		composition[1].total = 1
+	function ShamanPower:AnalyzeGroupComposition()
+		local composition = {}
+		for group = 1, 8 do composition[group] = Composition() end
+		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local knows = IsPlayerSpell or IsSpellKnown
+		-- Stormstrike is already catalogued in Ready Reminders (17364). This is
+		-- local spellbook knowledge, never an aura/spec read from another shaman.
+		local playerEnhancement = knows and Public(knows(17364)) == true
+		local members, raid = GetNumGroupMembers(), IsInRaid()
+		if members == 0 then
+			CountUnit(self, composition[1], "player", nil, forever, playerEnhancement)
+			return composition
+		end
+		for index = 1, members do
+			local unit = raid and ("raid" .. index) or (index == members and "player" or ("party" .. index))
+			local group, raidRole = 1, nil
+			if raid then
+				local _, _, subgroup, _, _, _, _, _, _, role = GetRaidRosterInfo(index)
+				group, raidRole = Subgroup(subgroup), role
+			end
+			if group then CountUnit(self, composition[group], unit, raidRole, forever, playerEnhancement) end
+		end
 		return composition
 	end
-
-	for i = 1, numMembers do
-		local unit = isRaid and ("raid" .. i) or (i == numMembers and "player" or ("party" .. i))
-		if UnitExists(unit) then
-			local _, class = UnitClass(unit)
-			local subgroup = 1
-			if isRaid then
-				local name, _, sg = GetRaidRosterInfo(i)
-				subgroup = sg or 1
-			end
-
-			composition[subgroup].total = composition[subgroup].total + 1
-
-			-- Classify by class
-			if class == "WARRIOR" or class == "PALADIN" then
-				-- Warriors and Paladins benefit from Windfury
-				composition[subgroup].melee = composition[subgroup].melee + 1
-			elseif class == "ROGUE" then
-				-- Rogues want Grace of Air (AGI)
-				composition[subgroup].agiUsers = composition[subgroup].agiUsers + 1
-			elseif class == "HUNTER" then
-				-- Hunters want Grace of Air (AGI)
-				composition[subgroup].agiUsers = composition[subgroup].agiUsers + 1
-			elseif class == "DRUID" then
-				-- Druids: check if they're feral (melee/AGI) or caster
-				if self:IsDruidFeral(unit) then
-					composition[subgroup].agiUsers = composition[subgroup].agiUsers + 1
-				else
-					composition[subgroup].caster = composition[subgroup].caster + 1
-				end
-			elseif class == "SHAMAN" then
-				-- Shamans: Enhancement = melee, Elemental/Resto = caster
-				if self:IsShamanEnhancement(unit) then
-					composition[subgroup].melee = composition[subgroup].melee + 1
-				else
-					composition[subgroup].caster = composition[subgroup].caster + 1
-				end
-			elseif class == "MAGE" or class == "WARLOCK" or class == "PRIEST" then
-				-- Pure casters
-				composition[subgroup].caster = composition[subgroup].caster + 1
-			end
-		end
-	end
-
-	return composition
 end
 
 -- Check if a druid is feral (cat/bear) vs caster (balance/resto)
