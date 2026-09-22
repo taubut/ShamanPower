@@ -74,6 +74,7 @@ function SP:ShowPreview(key, container)
 		end
 		borrowed[key] = { saved = saved }
 	end
+	borrowed[key].container = container   -- so the stage on it can be put away with the frame
 
 	-- Let the module create/populate the frame with sample data. A demo may
 	-- read previewPaneActive to lay itself out for the settings window's tall,
@@ -245,6 +246,8 @@ function SP:RestorePreview(key)
 	local b = borrowed[key]
 	if not b then return end
 	local def = self.PreviewRegistry[key]
+	if b.container and b.container.previewStage then b.container.previewStage:Hide() end
+	if self.previewStageActive and b.container and self.previewStageActive == b.container.previewStage then self.previewStageActive = nil end
 	for _, saved in ipairs(b.saved) do
 		local frame = saved.frame
 		frame.spPaneShown = nil

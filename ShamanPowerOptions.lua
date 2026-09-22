@@ -4021,16 +4021,22 @@ ShamanPower.options = {
 							order = 11.534,
 							type = "toggle",
 							name = "Show Buffed Names",
-							desc = "On: every member has a name tag under the totem, class colour when buffed, red when not. Off: buffed members' tags are blank, only the red names read.",
+							desc = "On: every member's name under the totem, class colour when buffed, red when not. Off: buffed members' names are hidden and only the red ones show. Needs the frame shown - a hidden name hides in the panel - so with Hide Frame on this does nothing.",
 							width = 1.0,
 							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
-							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) or (ShamanPower.opt.coverage and ShamanPower.opt.coverage.hideBorder) end,
 							get = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.showCoveredNames == false) end,
 							set = function(_, val)
 								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
 								ShamanPower.opt.coverage.showCoveredNames = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
+						},
+						coverage_show_covered_note = {
+							order = 11.5341,
+							type = "description",
+							name = "|cffffa040Hide Frame is on, so buffed names cannot be hidden (there is no panel to hide them in) - they show in class colour.|r",
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable() and ShamanPower.opt.coverage and ShamanPower.opt.coverage.hideBorder and ShamanPower.opt.coverage.showCoveredNames == false) end,
 						},
 						coverage_icon_size = {
 							order = 11.535,

@@ -47,7 +47,9 @@ local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotem
 local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsStep" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
-local MOCK_PARTY    = { mocks = { { label = "Party Buff Tracker", build = "BuildPartyBuffStep" } } }
+local MOCK_PARTY    = { mocks = { { label = "Party Buff Tracker", build = "BuildPartyBuffStep", weight = 2.3, shiftY = 85 },
+                                 { label = "Totem Coverage", preview = "coverage", maxScale = 1.3, weight = 1,
+                                   when = function() local sp = SP(); return sp and sp.CoverageAvailable and sp:CoverageAvailable() or false end } } }
 
 -- Totem Range Tracker: the module's on/off is the overlay frame itself.
 -- ShamanPower_SPRange.lua ToggleSPRange() is the only writer of
@@ -345,6 +347,13 @@ end
 -- discarded, as the wizard does.
 local function ReleaseMocks()
 	local pane = frame and frame.preview
+	if pane and pane.mockPreviews then
+		local sp = SP()
+		for key in pairs(pane.mockPreviews) do
+			if sp and sp.RestorePreview then sp:RestorePreview(key) end
+		end
+		wipe(pane.mockPreviews)
+	end
 	if pane and pane.mockHost then
 		pane.mockHost:Hide()
 		pane.mockHost:SetParent(nil)
@@ -360,21 +369,31 @@ local function MountMocks(spec)
 	local pane = frame.preview
 	if not (W and pane) then return false end
 	local inner = pane.inner
+	if inner.previewStage then inner.previewStage:Hide() end   -- a module's staged character does not belong under mocks
 	local host = CreateFrame("Frame", nil, inner)
 	host:SetAllPoints(inner)
 	pane.mockHost, pane.mockSpec = host, spec
-	local n = #spec.mocks
+	local list = {}
+	for _, m in ipairs(spec.mocks) do
+		if not m.when or m.when() then list[#list + 1] = m end
+	end
+	local n = #list
 	local gap = 6
 	local ih = inner:GetHeight()
 	if ih < 50 then ih = WIN_H - 62 end   -- anchors not resolved yet on the first draw
-	local h = math.floor((ih - gap * (n - 1)) / n)
+	-- panels share the height by weight (a mock drawn for the wizard's tall panel needs more of it)
+	local totalW = 0
+	for _, m in ipairs(list) do totalW = totalW + (m.weight or 1) end
+	local usable = ih - gap * (n - 1)
+	pane.mockPreviews = pane.mockPreviews or {}
 	local wasPreviewOnly = W.previewOnly
 	W.previewOnly = true
 	local dummyCard = CreateFrame("Frame", nil, host)
 	dummyCard:SetSize(400, 10)
 	dummyCard:Hide()
 	local yy = 0
-	for _, m in ipairs(spec.mocks) do
+	for _, m in ipairs(list) do
+		local h = math.floor(usable * (m.weight or 1) / totalW)
 		local panel = CreateFrame("Frame", nil, host)
 		panel:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -yy)
 		panel:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, -yy)
@@ -387,13 +406,28 @@ local function MountMocks(spec)
 		lbl:SetText(strupper(m.label))
 		lbl:SetTextColor(Core:Color("textDim"))
 		local pin = CreateFrame("Frame", nil, panel)
+		-- shiftY: a mock laid out for the wizard's taller panel (content above
+		-- its centre) needs its centre lower here. The pin's top stays at the
+		-- panel top (it clips there); its bottom is extended by twice the shift,
+		-- which moves the centre - where the mock anchors - down by the shift.
+		local shift = m.shiftY or 0
 		pin:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -18)
-		pin:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4)
+		pin:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4 - 2 * shift)
 		pin:SetClipsChildren(true)
-		local fn = W[m.build]
-		if fn then
-			local ok, err = pcall(fn, dummyCard, pin, 0)
-			if not ok then print("|cffff4040ShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
+		if m.preview then
+			-- a module preview: the real frame with its demo, through the harness
+			pin.previewPane = true
+			pin.previewMaxScale = m.maxScale or 1.3
+			if sp.ShowPreview and sp.PreviewRegistry and sp.PreviewRegistry[m.preview] then
+				sp:ShowPreview(m.preview, pin)
+				pane.mockPreviews[m.preview] = true
+			end
+		else
+			local fn = W[m.build]
+			if fn then
+				local ok, err = pcall(fn, dummyCard, pin, 0)
+				if not ok then print("|cffff4040ShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
+			end
 		end
 		-- the mocks' captions belong to the wizard's step pages
 		for _, r in ipairs({ pin:GetRegions() }) do
@@ -403,12 +437,17 @@ local function MountMocks(spec)
 		-- only, and from their own OnUpdate); a bar wider than this pane is
 		-- shrunk to fit, on the pane's own container so the wizard never sees
 		-- it. Measured a frame later, once the mock has applied its own scale.
+		-- Width only, on shown children: a bar wider than this pane is shrunk to
+		-- fit (the mocks size themselves by height for the wizard's panel, and
+		-- park helper frames off-screen, so height is not measured here).
 		local function fit()
 			if not pin:IsShown() then return end
 			local widest = 0
 			for _, ch in ipairs({ pin:GetChildren() }) do
-				local w = ch:GetWidth() * ch:GetScale()
-				if w > widest then widest = w end
+				if ch:IsShown() then
+					local w = ch:GetWidth() * ch:GetScale()
+					if w > widest then widest = w end
+				end
 			end
 			local avail = (pin:GetWidth() * pin:GetScale()) - 12
 			if avail < 40 then avail = PREVIEW_W - 40 end

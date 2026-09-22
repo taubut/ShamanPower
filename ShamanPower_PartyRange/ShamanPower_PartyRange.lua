@@ -467,6 +467,12 @@ local function CoverageOpts()
 	return SP.opt.coverage
 end
 local function CoverageFont() return (CoverageOpts().fontSize or 9) end
+-- "Show buffed names" off hides a covered name behind a strip in the panel's
+-- colour; without the panel there is nothing to hide it in, so names stay on.
+local function CoverageNamesOn()
+	local co = CoverageOpts()
+	return co.showCoveredNames ~= false or co.hideBorder
+end
 local function CoverageRowH() return CoverageFont() + 3 end
 local function CoverageIconSize() return CoverageOpts().iconSize or 36 end
 -- "Place each totem freely": every cell has its own spot and its own size
@@ -665,15 +671,10 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 			button:SetAllPoints(row)
 			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
 			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-			-- opaque strip in the cell's colour: the red name underneath must not show through
-			local strip = button:CreateTexture(nil, "BACKGROUND")
-			strip:SetAllPoints(button)
-			local pr, pg, pb = btn:GetBackdropColor()
-			strip:SetColorTexture(pr or 0.05, pg or 0.05, pb or 0.06, 1)   -- the tag's own colour, opaque
-			-- the covered look: the name in class colour, or (default) nothing at
-			-- all, so a fully covered cell in combat is just the icon and only the
-			-- missing names ever appear
-			if CoverageOpts().showCoveredNames ~= false then
+			if CoverageNamesOn() then
+				-- the covered look: the same name, same font and place, in class
+				-- colour - identical glyphs, so the red one underneath disappears
+				-- under it. No tag, no strip: names float, frame or no frame.
 				local t = button:CreateFontString(nil, "OVERLAY")
 				t:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 				t:SetPoint("LEFT", button, "LEFT", 2, 0)
@@ -682,6 +683,13 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 				t:SetWordWrap(false)
 				t:SetTextColor(r, g, b)
 				t:SetText(name)
+			else
+				-- names off (panel shown): a strip in the panel's own colour hides
+				-- the red name and vanishes into the panel
+				local strip = button:CreateTexture(nil, "BACKGROUND")
+				strip:SetAllPoints(button)
+				local pr, pg, pb = btn:GetBackdropColor()
+				strip:SetColorTexture(pr or 0.05, pg or 0.05, pb or 0.06, 1)
 			end
 		end,
 	})
@@ -715,7 +723,7 @@ function SP:RebuildCoverage()
 			local exists = UnitExists(unit)
 			local name = exists and (UnitName(unit) or "?") or "-"
 			local _, class = UnitClass(unit)
-			local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(element) .. (co.showCoveredNames ~= false and "|n" or "|-") .. "|" .. CoverageWatchSig(element)
+			local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(element) .. (CoverageNamesOn() and "|n" or "|-") .. "|" .. CoverageWatchSig(element)
 			local slot = self.coverageRows[element][i]
 			local row = btn.rows[i]
 			if not slot or slot.key ~= key then
@@ -725,6 +733,7 @@ function SP:RebuildCoverage()
 				end
 				row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
 				row.text:SetText(name)
+				row.pill:Hide()   -- no tags: names float; a strip only ever appears against the panel
 				-- as wide as the cell, wider for a long name (never cut): flush under the icon
 				row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
 				row:ClearAllPoints()
@@ -910,6 +919,7 @@ end
 function SP:UpdateCoverageBorder()
 	local frame = self.coverageFrame
 	if not frame then return end
+	if not self.coverageDemoActive then self:RebuildCoverage() end   -- the frame decides whether names can be hidden
 	if CoverageOpts().hideBorder then
 		frame:SetBackdrop(nil)
 		frame.title:Hide()
@@ -932,59 +942,105 @@ function SP:UpdateCoverageLayout()
 	if self.coverageDemoActive then self:CoverageDemo(true) else self:RebuildCoverage() end
 end
 
--- Setup-wizard / settings-pane preview and the unlock mover: sample cells.
+-- Setup-wizard / settings-pane preview and the unlock mover: sample cells
+-- acting out a short scene (members stepping out and back), looped.
+local COVERAGE_SCENE = {
+	-- each beat: per cell, who has the buff; story = the line under the preview
+	{ story = "Earth and Water are down. The Warrior wandered out of Earth's reach.",
+	  cells = { [1] = { true, false, true, true }, [3] = { true, true, true, true } } },
+	{ story = "Now the Priest and Hunter are outside Mana Spring too.",
+	  cells = { [1] = { true, false, true, true }, [3] = { true, true, false, false } } },
+	{ story = "The Warrior is back in range: Earth's cell has nothing to say and drops out.",
+	  cells = { [1] = { true, true, true, true }, [3] = { true, true, false, false } } },
+	{ story = "Hunter back too - only the Priest is still missing Mana Spring.",
+	  cells = { [1] = { true, true, true, true }, [3] = { true, true, true, false } } },
+	{ story = "Everyone covered: nothing to show.",
+	  cells = { [1] = { true, true, true, true }, [3] = { true, true, true, true } } },
+}
+local COVERAGE_DEMO_ICONS = { [1] = "Interface\\Icons\\Spell_Nature_EarthBindTotem", [2] = "Interface\\Icons\\Spell_Fire_SearingTotem",
+	[3] = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", [4] = "Interface\\Icons\\Spell_Nature_Windfury" }
+local COVERAGE_DEMO_NAMES = { "Rogue", "Warrior", "Priest", "Hunter" }
+local COVERAGE_DEMO_COLORS = { { 1.00, 0.96, 0.41 }, { 0.78, 0.61, 0.43 }, { 1, 1, 1 }, { 0.67, 0.83, 0.45 } }
+
 function SP:CoverageDemo(on)
 	local frame = self:CreateCoverageFrame()
 	if on then
+		local wasActive = self.coverageDemoActive
 		self.coverageDemoActive = true
 		if frame.settingsBtn then frame.settingsBtn:Hide() end
-		local SCENE = {
-			{ element = 1, icon = "Interface\\Icons\\Spell_Nature_EarthBindTotem",  names = { { "Rogue", true }, { "Warrior", false }, { "Priest", true }, { "Hunter", true } } },
-			{ element = 3, icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", names = { { "Rogue", true }, { "Warrior", true }, { "Priest", false }, { "Hunter", false } } },
-		}
-		if CoverageOpts().freeCells then   -- every cell has a spot of its own to show
-			SCENE[3] = { element = 2, icon = "Interface\\Icons\\Spell_Fire_SearingTotem",  names = { { "Rogue", true }, { "Warrior", true }, { "Priest", true }, { "Hunter", true } } }
-			SCENE[4] = { element = 4, icon = "Interface\\Icons\\Spell_Nature_Windfury",   names = { { "Rogue", false }, { "Warrior", true }, { "Priest", true }, { "Hunter", true } } }
-		end
-		local fontSize, rowH, iconSize = CoverageFont(), CoverageRowH(), CoverageIconSize()
-		for element = 1, 4 do frame.buttons[element]:Hide() end
-		local shown = {}
-		for _, sc in ipairs(SCENE) do
-			local btn = frame.buttons[sc.element]
-			btn.icon:SetTexture(sc.icon)
-			if CoverageOpts().freeCells then SizeCell(btn, CellIconSize(sc.element)) end
-			local missing = 0
-			for i = 1, 4 do
-				local row, d = btn.rows[i], sc.names[i]
-				row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-				row.text:SetText(d[1])
-				if d[2] then
-					row.text:SetTextColor(0.4, 1, 0.4)
-					if CoverageOpts().showCoveredNames == false then row.text:SetText("") end
-				else
-					row.text:SetTextColor(1, 0.25, 0.25); missing = missing + 1
+		-- the unlock movers show free cells at their own spots; a preview (wizard, pane) shows the panel
+		local freeDemo = CoverageOpts().freeCells and self.unlockDemoAll
+		local d = self.coverageDemo or { beat = 1 }
+		self.coverageDemo = d
+		local function paint()
+			local co = CoverageOpts()
+			local fontSize, rowH = CoverageFont(), CoverageRowH()
+			local beat = COVERAGE_SCENE[d.beat]
+			self.coverageDemoStatus = beat.story
+			for element = 1, 4 do frame.buttons[element]:Hide() end
+			local shown = {}
+			local cells = freeDemo and { [1] = beat.cells[1], [2] = { true, true, true, true }, [3] = beat.cells[3], [4] = { false, true, true, true } } or beat.cells
+			for element = 1, 4 do
+				local has = cells[element]
+				if has then
+					local btn = frame.buttons[element]
+					btn.icon:SetTexture(COVERAGE_DEMO_ICONS[element])
+					SizeCell(btn, freeDemo and CellIconSize(element) or CoverageIconSize())
+					local missing = 0
+					for i = 1, 4 do
+						local row = btn.rows[i]
+						row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+						row.text:SetText(COVERAGE_DEMO_NAMES[i])
+						row.pill:Hide()
+						local visible = true
+						if has[i] then
+							local c = COVERAGE_DEMO_COLORS[i]
+							row.text:SetTextColor(c[1], c[2], c[3])
+							if not CoverageNamesOn() then visible = false end   -- hidden in the panel's colour
+						else
+							row.text:SetTextColor(1, 0.25, 0.25); missing = missing + 1
+						end
+						row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
+						row:ClearAllPoints()
+						row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
+						row:SetShown(visible)
+					end
+					btn.state = nil
+					PaintCoverageCell(btn, missing == 0 and "covered" or "missing", missing)
+					-- a fully covered cell drops out, as it does for real (movers keep every cell)
+					if missing > 0 or co.hideWhenCovered == false or freeDemo then shown[#shown + 1] = btn end
 				end
-				-- as wide as the cell, wider for a long name (never cut): flush under the icon
-				row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
-				row:ClearAllPoints()
-				row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
-				row:Show()
 			end
-			btn.state = nil
-			PaintCoverageCell(btn, "missing", missing)
-			shown[#shown + 1] = btn
+			if freeDemo then
+				frame:Hide()
+				for _, btn in ipairs(shown) do PlaceFreeCell(btn); btn:Show() end
+			else
+				for element = 1, 4 do ReturnCellToFrame(frame, frame.buttons[element]) end
+				if #shown > 0 then
+					LayoutCoverage(frame, shown, 4)
+					for _, btn in ipairs(shown) do btn:Show() end
+					frame:Show()
+				else
+					frame:SetSize(150, 50)   -- keeps its spot in the preview while empty
+					frame:Show()
+				end
+			end
 		end
-		if CoverageOpts().freeCells then
-			frame:Hide()
-			for _, btn in ipairs(shown) do PlaceFreeCell(btn); btn:Show() end
-		else
-			for element = 1, 4 do ReturnCellToFrame(frame, frame.buttons[element]) end
-			LayoutCoverage(frame, shown, 4)
-			for _, btn in ipairs(shown) do btn:Show() end
-			frame:Show()
+		d.paint = paint
+		paint()
+		if not wasActive then
+			if self.coverageDemoTicker then self.coverageDemoTicker:Cancel() end
+			self.coverageDemoTicker = C_Timer.NewTicker(2.2, function()
+				if not self.coverageDemoActive then return end
+				d.beat = (d.beat % #COVERAGE_SCENE) + 1
+				if d.paint then d.paint() end
+			end)
 		end
 	else
 		self.coverageDemoActive = nil
+		if self.coverageDemoTicker then self.coverageDemoTicker:Cancel(); self.coverageDemoTicker = nil end
+		self.coverageDemoStatus = nil
+		self.coverageDemo = nil
 		if frame.settingsBtn then frame.settingsBtn:Show() end
 		for element = 1, 4 do
 			for i = 1, 4 do frame.buttons[element].rows[i].text:SetTextColor(1, 0.25, 0.25) end

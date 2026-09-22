@@ -34,6 +34,11 @@ end
 local function safecall(fn) if SP[fn] then pcall(SP[fn], SP) end end
 
 local BIND = {
+	coverage = {
+		get = function() return SP.opt.coverage and SP.opt.coverage.enabled or false end,
+		set = function(v) SP.opt.coverage = SP.opt.coverage or {}; SP.opt.coverage.enabled = v; safecall("RebuildCoverage"); safecall("UpdatePartyRangeDots"); notify()
+			if SP.coverageDemoActive then SP:CoverageDemo(true) end; if SP.Wizard._coverageFit then SP.Wizard._coverageFit() end end,
+	},
 	estracker = {
 		get = function() return SP.opt.esTracker and SP.opt.esTracker.enabled end,
 		set = function(v) SP.opt.esTracker = SP.opt.esTracker or {}; SP.opt.esTracker.enabled = v; safecall("UpdateESTracker"); notify() end,
@@ -305,6 +310,15 @@ local STEPS = {
 	    "Or a number: how many of them the totem reaches. Or both.",
 	    "This is about YOUR totems. Totem Range (later) is about other shamans' totems reaching you.",
 	  } },
+	{ id = "coverage", title = "Totem Coverage", roles = ALL, module = "ShamanPower_PartyRange", flag = "PartyRangeLoaded", build = "BuildCoverageStep",
+	  when = function() return SP.CoverageAvailable and SP:CoverageAvailable() or false end,
+	  desc = "Your own Totem Range: for every totem you have down, WHO is out of its range - by name.",
+	  bullets = {
+	    "One cell per totem, the party members' names under it: class color when they have the buff, red when they don't.",
+	    "Drawn by the game engine straight from their buffs, so it keeps working in combat and in dungeons.",
+	    "A totem everyone has drops out of the list; pick which totems it watches in Settings.",
+	  },
+	  toggles = { { label = "Enable Totem Coverage", bind = "coverage" } } },
 	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
 	  -- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): the step does not exist there
 	  when = function() return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end,
@@ -2199,6 +2213,49 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 		local t = card:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.rowDim); t:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); t:SetText("No reminder spells exist on this client.")
 		y = y + 24
 	end
+	return y
+end
+
+-- Totem Coverage: the REAL overlay with sample cells, every option live.
+function SP.Wizard.BuildCoverageStep(card, inner, y)
+	local Widgets = ns.Widgets
+	local function co() SP.opt.coverage = SP.opt.coverage or {}; return SP.opt.coverage end
+	local function get(k, d) local v = co()[k]; if v == nil then return d end; return v end
+
+	inner.previewInsetBottom = 70
+	inner.previewMaxScale = 1.4
+	local function fit() if inner:IsShown() and inner:GetWidth() > 0 then SP:ShowPreview("coverage", inner) end end
+	SP.Wizard._coverageFit = fit
+	C_Timer.After(0.02, fit)
+
+	local story = inner:CreateFontString(nil, "OVERLAY"); story:SetFontObject(Core.fonts.row)
+	story:SetPoint("BOTTOM", inner, "BOTTOM", 0, 64); story:SetWidth(inner:GetWidth() - 40); story:SetJustifyH("CENTER"); story:SetWordWrap(true)
+	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
+	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
+	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
+	legend:SetText("Red = out of range, colored = has the buff. Place it in the Position step or with Move the Coverage List in Settings.")
+	inner:SetScript("OnUpdate", function() story:SetText(SP.coverageDemoStatus or "") end)
+
+	local W = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, W
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.coverageDemoActive then SP:CoverageDemo(true) end; fit(); Widgets:RefreshAll(card) end
+	local function off() return not get("enabled", false) end
+	row("Toggle", { label = "Skip totems everyone has", desc = "A totem every party member carries is left out of the list.", disabled = off,
+		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
+	row("Toggle", { label = "Show buffed names", desc = "Off: only the red names show (needs the frame shown - a buffed name hides in the panel).", disabled = function() return off() or get("hideBorder", false) end,
+		get = function() return get("showCoveredNames", true) ~= false end, set = function(v) co().showCoveredNames = v; upd("UpdateCoverageLayout") end })
+	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
+	row("Slider", { label = "Name size", min = 7, max = 14, step = 1, disabled = off, get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Place each totem freely", desc = "Every cell gets its own spot and size (Settings > Party Buff Tracker has a size per totem).", disabled = off,
+		get = function() return get("freeCells", false) and true or false end, set = function(v) co().freeCells = v; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Vertical layout", disabled = function() return off() or get("freeCells", false) end,
+		get = function() return get("vertical", false) and true or false end, set = function(v) co().vertical = v; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Hide the frame", desc = "Only the cells; ALT+drag to move, right-click a cell's panel to configure.", disabled = off,
+		get = function() return get("hideBorder", false) and true or false end, set = function(v) co().hideBorder = v; upd("UpdateCoverageBorder") end })
 	return y
 end
 
