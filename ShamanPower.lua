@@ -7810,7 +7810,7 @@ end
 function ShamanPower:TotemExistsOnClient(element, totemIndex)
 	if not totemIndex or totemIndex == 0 then return true end
 	local id = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
-	if not id then return true end   -- no ID to ask about: leave it alone
+	if not id then return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end
 	return spSpellExists(id)
 end
 
@@ -13909,7 +13909,7 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 	end
 	ShamanPower_Assignments[name][class] = 0
 	-- Get the max number of totems for this element
-	local maxTotems = self.TotemNames[class] and #self.TotemNames[class] or 8
+	local maxTotems = self:GetTotemIndexLimit(class)
 	-- Advance to the next totem; wrap-around is handled below. Totems this client
 	-- does not have (Totem of Wrath, the Elementals, Wrath of Air on WoW: Forever)
 	-- are stepped over, so the cycle never lands on something nobody can cast.
@@ -13925,6 +13925,7 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 		end
 		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
 	end
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and maxTotems == 0 then cur = 0 end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
 		-- Also update the mini totem bar
@@ -13951,8 +13952,14 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 		ShamanPower_Assignments[name] = {}
 	end
 	-- Get max totems for this element
-	local maxTotems = self.TotemNames[class] and #self.TotemNames[class] or 8
-	if not ShamanPower_Assignments[name][class] then
+	local maxTotems = self:GetTotemIndexLimit(class)
+	local sparse = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and class >= 1 and class <= 4
+	if sparse then
+		cur = ShamanPower_Assignments[name][class] or 0
+		-- The loop decrements first; begin above the last valid index when
+		-- wrapping, including a saved index pruned from the end of the table.
+		if cur <= 0 or cur > maxTotems then cur = maxTotems + 1 end
+	elseif not ShamanPower_Assignments[name][class] then
 		cur = maxTotems
 	else
 		cur = ShamanPower_Assignments[name][class]
@@ -13974,8 +13981,10 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 				cur = maxTotems
 			end
 		end
-		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
+		if not (sparse and skipzero and cur == 0)
+			and (class < 1 or class > 4 or self:TotemExistsOnClient(class, cur)) then break end
 	end
+	if sparse and maxTotems == 0 then cur = 0 end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
 		-- Also update the mini totem bar

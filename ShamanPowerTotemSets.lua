@@ -197,8 +197,7 @@ end
 -- Out of combat only (assigning writes secure attributes); a change seen in
 -- a fight is adopted at regen.
 local function totemIndexForSpell(element, spellID)
-	local names = SP.TotemNames and SP.TotemNames[element]
-	for i = 1, (names and #names or 8) do
+	for i = 1, SP:GetTotemIndexLimit(element) do
 		if sameSpell(SP:GetTotemSpell(element, i), spellID) then return i end
 	end
 	return nil

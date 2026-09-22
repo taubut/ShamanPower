@@ -846,7 +846,19 @@ function Assign:Demo(on)
 			tick = tick + 1
 			local a = ShamanPower_Assignments["Nazgrel"]
 			local n = SP.TotemNames and SP.TotemNames[2] and #SP.TotemNames[2] or 6
-			if a then a[2] = (a[2] % n) + 1 end
+			if a and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE then
+				n = SP:GetTotemIndexLimit(2)
+				if n == 0 then
+					a[2] = 0
+				else
+					for _ = 1, n do
+						a[2] = (a[2] % n) + 1
+						if SP:TotemExistsOnClient(2, a[2]) then break end
+					end
+				end
+			elseif a then
+				a[2] = (a[2] % n) + 1
+			end
 			Assign:Redraw()
 		end)
 	else

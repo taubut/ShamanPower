@@ -777,3 +777,34 @@ function ShamanPower:GetTotemTalentRequirement(spellID)
     return self.TalentTotems[spellID]
 end
 
+-- Mainline source tables are sparse: #list can stop before later valid slots.
+-- Keep the legacy bound on Classic, including the non-element fallback.
+function ShamanPower:GetTotemIndexLimit(element)
+    local names = self.TotemNames and self.TotemNames[element]
+    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or not names then
+        return names and #names or 8
+    end
+    local highest = 0
+    for index in pairs(names) do
+        if type(index) == "number" and index > highest then highest = index end
+    end
+    return highest
+end
+
+-- Totems holds the same Earth/Fire/Water/Air tables, so these removals also
+-- update every per-element alias. SpellExists retains allow-listed spells
+-- such as name-encrypted Tranquil Air. Saved assignment indexes stay intact.
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+    for element, list in pairs(ShamanPower.Totems) do
+        for index, spellID in pairs(list) do
+            if not SPCompat.SpellExists(spellID) then
+                list[index] = nil
+                local names = ShamanPower.TotemNames[element]
+                if names then names[index] = nil end
+                -- A stale saved loadout must not draw the removed spell's icon.
+                local icons = ShamanPower.TotemIcons[element]
+                if icons then icons[index] = nil end
+            end
+        end
+    end
+end
