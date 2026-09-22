@@ -1781,7 +1781,9 @@ SlashCmdList["SPDIAG"] = function(msg)
 			cvar("addonCombatRestrictionsForced"), cvar("addonEncounterRestrictionsForced"), cvar("addonChatRestrictionsForced"))
 	end
 	if C_Secrets and C_Secrets.GetSpellAuraSecrecy then
-		local ids = { 324, 24398, 974, 8512, 8143, 8166, 2484, 5394, 8075, 20608, 2825, 16190 }
+		local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local ids = { 324, mainline and 408510 or 24398, mainline and 408514 or 974,
+			8512, 8143, 3599, 2484, 5675, 8075, 20608, 2825, 16190 }
 		local parts = {}
 		for _, id in ipairs(ids) do
 			parts[#parts + 1] = string.format("%d:a%s/c%s", id, tostring(SPC("GetSpellAuraSecrecy", id)), tostring(SPC("GetSpellCooldownSecrecy", id)))
