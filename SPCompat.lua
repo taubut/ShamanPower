@@ -332,7 +332,7 @@ if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 	-- Elemental Mastery: NOT on this client. It was allow-listed here on the strength
 	-- of Talent.db2 (record 573, "Elemental capstone"), but that table is the
 	-- untouched vanilla leftover. The real talents live in the trait tables: tree
-	-- 1081 (Elemental) has 16 nodes, all named, and row 7 is Lava Burst - the same
+	-- 1082 holds all three specs in one 50-node tree (measured in game 2026-09-22); its Elemental branch ends in Lava Burst - the same
 	-- list Wowhead's Forever calculator shows. Nothing grants 16166.
 	UNOBTAINABLE[16166] = true
 
@@ -745,7 +745,18 @@ if SPCompat.secretsRegime then
 	local regen = CreateFrame("Frame")
 	regen:RegisterEvent("PLAYER_REGEN_ENABLED")
 	pcall(regen.RegisterEvent, regen, "ADDON_RESTRICTION_STATE_CHANGED")   -- fires for the forced-cvar rehearsal too
-	regen:SetScript("OnEvent", function()
+	regen:SetScript("OnEvent", function(_, event, rtype, state)
+		-- ADDON_RESTRICTION_STATE_CHANGED is dispatched BEFORE a restriction becomes
+		-- active (state = Activating) and after one is deactivated (Inactive), and the
+		-- client's docs say IsAddOnRestrictionActive always answers false during that
+		-- dispatch. So the payload, not a query, decides: a restriction starting is
+		-- remembered and nothing is cleared (asking would have said "all clear" at the
+		-- very start of a fight and re-read the shadow models from an API about to go
+		-- secret). Deactivation and PLAYER_REGEN_ENABLED go on to the check below.
+		if event == "ADDON_RESTRICTION_STATE_CHANGED" and state ~= nil and state ~= 0 then
+			wasRestricted = true
+			return
+		end
 		clearIfUnrestricted()
 		C_Timer.After(0.3, clearIfUnrestricted)
 		C_Timer.After(2.5, clearIfUnrestricted)
@@ -1684,16 +1695,13 @@ SlashCmdList["SPDIAG"] = function(msg)
 		lockBehavior = okL and tostring(vL) or ("err: " .. tostring(vL))
 	end
 	say("BEHAVIOR (this is the real test): issecretvalue(UnitHealth) = |cffffd100%s|r (false = nothing is secret)   InChatMessagingLockdown() = |cffffd100%s|r (false/nil = comms open)", secretBehavior, lockBehavior)
-	-- Registering the combat log is a PROTECTED action while a restriction is
-	-- active: the client blocks it and fires ADDON_ACTION_FORBIDDEN (a popup),
-	-- not a Lua error, so pcall would report "ok". Only probe when unrestricted.
-	if SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then
-		say("CLEU RegisterEvent: |cffffd100skipped|r (a restriction is active - registering now is a forbidden protected action)")
-	else
-		local f = CreateFrame("Frame")
-		local ok, err = pcall(f.RegisterEvent, f, "COMBAT_LOG_EVENT_UNFILTERED")
-		say("CLEU RegisterEvent: %s%s  (out of restriction; forbidden while one is active)", ok and "|cff4cc776ok|r" or "|cffe5534bBLOCKED|r", ok and "" or (" (" .. tostring(err) .. ")"))
-	end
+	-- Registering the combat log is a forbidden protected action on this client
+	-- in AND out of combat (measured: the ADDON_ACTION_FORBIDDEN popup, not a Lua
+	-- error, so pcall reports "ok"). This diagnostic used to try it whenever no
+	-- restriction was active, and so popped the dialog itself. Report the
+	-- client's own answer instead of provoking it.
+	local okR, restricted = pcall(function() return C_CombatLog and C_CombatLog.IsCombatLogRestricted and C_CombatLog.IsCombatLogRestricted() end)
+	say("Combat log: C_CombatLog.IsCombatLogRestricted() = |cffffd100%s|r  (true = closed; registering CLEU is a forbidden action here, so it is not attempted)", okR and tostring(restricted) or ("err: " .. tostring(restricted)))
 	say("secrets regime detected at load = |cffffd100%s|r   C_Secrets.HasSecretRestrictions() = %s   restrictions now (0=Combat 1=Encounter 2=M+ 3=PvP 4=Map 5=Chat): %s",
 		tostring(SPCompat.secretsRegime), tostring(SPC("HasSecretRestrictions")), SPR())
 	do

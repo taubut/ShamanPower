@@ -186,8 +186,9 @@ function SP:UnitNearShaman(unit)
 	if not (C_Spell and C_Spell.IsSpellInRange) then return nil end
 	local name = GetSpellInfo(RANGE_SPELL_ID)   -- localized, matches any rank
 	local ok, inRange = pcall(C_Spell.IsSpellInRange, name or RANGE_SPELL_ID, unit)
-	if not ok or inRange == nil then return nil end
-	if issecretvalue and issecretvalue(inRange) then return nil end
+	if not ok then return nil end
+	if issecretvalue and issecretvalue(inRange) then return nil end   -- before any comparison: a secret must not be compared, even to nil
+	if inRange == nil then return nil end
 	return inRange and true or false
 end
 

@@ -1126,6 +1126,11 @@ function ShamanPower:OnCombatEnd()
 		self.pendingLoadoutBarUpdate = false
 		self:UpdateLoadoutBar()
 	end
+	-- A macro refresh asked for during the fight (UpdateSPMacros refuses in combat)
+	if self.macroUpdatePending then
+		self.macroUpdatePending = false
+		self:UpdateSPMacros()
+	end
 end
 
 -- Create a macro for Earth Shield that users can keybind
@@ -8842,6 +8847,27 @@ ShamanPower.ShieldAuraSets = {
 	{ name = "Water Shield",     ids = { 24398, 33736, 52127, 408510, 408511, 409941 } },
 }
 
+-- The colour the cooldown bar's shield count is drawn in for `charges` (the
+-- addon's own text out of combat, the engine formatter in combat).
+function ShamanPower:ShieldCountColor(charges)
+	if not self.opt.shieldChargeColors then return 1, 1, 1 end
+	if charges >= 3 then return 0, 1, 0 elseif charges == 2 then return 1, 1, 0 else return 1, 0, 0 end
+end
+
+function ShamanPower:ShieldCountFormatter(maxCharges)
+	if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return nil end
+	local ok, fmt = pcall(C_StringUtil.CreateNumericRuleFormatter)
+	if not ok or not fmt or not fmt.AddBreakpoint then return nil end
+	for n = 0, maxCharges do
+		local r, g, b = self:ShieldCountColor(n)
+		pcall(fmt.AddBreakpoint, fmt, {
+			threshold = n,
+			format = ("|cff%02x%02x%02x%%d|r"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)),
+		})
+	end
+	return fmt
+end
+
 function ShamanPower:EnsureShieldChargeContainer(btn)
 	if not (SPCompat and SPCompat.secretsRegime) then return end
 	if btn.chargeContainer then return end
@@ -8918,13 +8944,19 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						reg("SetDurationBar(sweep)", pcall(button.SetDurationBar, button, sb, { interpolation = Interp, direction = direction }))
 					end
 
-					-- charge count: same font and corner as the addon's, white
+					-- charge count: same font and corner as the addon's own text. The engine
+					-- draws the secret count and applies a NumericRuleFormatter we hand it:
+					-- one breakpoint per count, coloured by the same rule as the addon's own
+					-- text (green / yellow / red with "Color Shield Charges by Count", white
+					-- without). That is also what draws a count of 1, which the client hides
+					-- by default. (The Shield Charges module got this first; this button had
+					-- kept a fixed blue and an empty options table.)
 					local carrier = CreateFrame("Frame", nil, button)
 					carrier:SetAllPoints(button)
 					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-					count:SetTextColor(0.2, 0.6, 1.0)   -- fixed blue; a per-charge color would need the secret value
-					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, {}))
+					count:SetTextColor(1, 1, 1)
+					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3) }))
 
 					-- progress bar in the addon's bar slot: black background + engine-filled bar
 					if showBars and btn.bgBar and Dir.RemainingTime then
@@ -9049,18 +9081,7 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.chargeText then
 					if shieldCharges > 0 then
 						btn.chargeText:SetText((cache and cache.engineCount) and "" or (NumberStrings[shieldCharges] or tostring(shieldCharges)))
-						-- Color based on charges if enabled
-						if self.opt.shieldChargeColors then
-							if shieldCharges >= 3 then
-								btn.chargeText:SetTextColor(0, 1, 0)  -- Green (full/high)
-							elseif shieldCharges == 2 then
-								btn.chargeText:SetTextColor(1, 1, 0)  -- Yellow (half)
-							else
-								btn.chargeText:SetTextColor(1, 0, 0)  -- Red (low - 1 charge)
-							end
-						else
-							btn.chargeText:SetTextColor(1, 1, 1)  -- White (default)
-						end
+						btn.chargeText:SetTextColor(self:ShieldCountColor(shieldCharges))   -- same rule the engine formatter uses in combat
 					else
 						btn.chargeText:SetText("")
 					end
