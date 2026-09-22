@@ -1819,6 +1819,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		end
 	end)
 
+	if SP.Wizard.previewOnly then return y end   -- the settings window's pane mounts the mock alone
 	-- ---- controls ----
 	local W = card:GetWidth() - 36
 	local function row(kind, opts)

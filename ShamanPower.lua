@@ -8893,6 +8893,124 @@ local function GetImbueBarColor(expiration, imbueType)
 	return GetTimerBarColor(expiration)
 end
 
+-- ----------------------------------------------------------------------------
+-- Cooldown bar buttons of type "cooldown" on the Mainline family: the same
+-- hand-off as the totem buttons. The engine draws the radial swipe or the
+-- greyed-icon sweep, fills the progress bar and counts the time where the
+-- addon's own text sits; the addon keeps the ready / dark state (from the
+-- never-secret "is it running") and the bar's colour rule, from the shadow
+-- remaining once a pass - a colour, never a number.
+local function EngineProgressBar(btn)
+	if not btn.engineBar then
+		local bar = CreateFrame("StatusBar", nil, btn)
+		bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+		bar:SetFrameLevel(btn:GetFrameLevel() + 2)
+		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end
+		btn.engineBar = bar
+	end
+	return btn.engineBar
+end
+
+-- The engine's countdown string takes the place, font and colour of the
+-- addon's text for the chosen location; none chosen, no numbers.
+local function PlaceEngineBarText(self, btn, textLocation, showText)
+	local cd = btn.cooldown
+	local ok, fs = pcall(cd.GetCountdownFontString, cd)
+	if not ok or not fs then return end
+	local src
+	if textLocation == "inside" then src = btn.insideText
+	elseif textLocation == "outside" then src = btn.outsideText
+	elseif textLocation == "icon" then src = btn.iconText
+	elseif showText then src = btn.timeText end
+	cd:SetHideCountdownNumbers(src == nil)
+	if not src then return end
+	local font, size, flags = src:GetFont()
+	if font then fs:SetFont(font, size, flags) end
+	local r, g, b = src:GetTextColor()
+	fs:SetTextColor(r or 1, g or 1, b or 1)
+	fs:ClearAllPoints()
+	local point, rel, relPoint, x, y = src:GetPoint(1)
+	if point then fs:SetPoint(point, rel or btn, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", btn, "CENTER", 0, 0) end
+	pcall(cd.SetMinimumCountdownDuration, cd, 2000)
+	pcall(cd.SetCountdownMillisecondsThreshold, cd, 10)
+end
+
+function ShamanPower:ClearEngineBarCooldown(btn)
+	btn._ebSpell = nil
+	if btn.cooldown then btn.cooldown:Clear() end
+	if btn.cdBar then btn.cdBar:Hide() end
+	if btn.engineBar then btn.engineBar:Hide() end
+end
+
+-- Layout changed (bar side, sizes, text location): the next pass re-places
+-- every engine display.
+function ShamanPower:ResetEngineBarCooldowns()
+	if not (self.cooldownButtons and self:EngineCooldownsOn()) then return end
+	for i = 1, #self.cooldownButtons do self.cooldownButtons[i]._ebText = nil end
+end
+
+function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
+	btn.darkOverlay:Hide()
+	btn.icon:SetDesaturated(false)
+	if btn.ankhCountText then btn.ankhCountText:Hide() end
+	local sweepStyle = showSweep and (self.opt.cdbarSweepStyle or "greys") or "none"
+	local textKey = showText and (textLocation .. "+") or textLocation
+	if btn._ebSpell ~= btn.spellID or btn._ebSweep ~= sweepStyle or btn._ebBars ~= showBars
+		or btn._ebText ~= textKey or btn._ebPos ~= barPosition then
+		local ok, d = pcall(C_Spell.GetSpellCooldownDuration, btn.spellID, true)   -- true: not the global cooldown
+		if not ok or d == nil then self:ClearEngineBarCooldown(btn) return end
+		btn._ebSpell, btn._ebSweep, btn._ebBars, btn._ebText, btn._ebPos = btn.spellID, sweepStyle, showBars, textKey, barPosition
+		local cd = btn.cooldown
+		local Dir = Enum and Enum.StatusBarTimerDirection or {}
+		local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+		-- the addon's own drawings of the same things
+		if btn.greyOverlay then btn.greyOverlay:Hide() end
+		if btn.progressBar then btn.progressBar:Hide() end
+		if btn.timeText then btn.timeText:SetText("") end
+		if btn.insideText then btn.insideText:Hide() end
+		if btn.outsideText then btn.outsideText:Hide() end
+		if btn.iconText then btn.iconText:Hide() end
+		-- radial swipe, or the greyed icon on an engine-filled bar
+		cd:SetDrawSwipe(sweepStyle == "radial")
+		if sweepStyle == "greys" or sweepStyle == "fills" then
+			local bar = EngineSweepBar(btn)
+			if bar then
+				local okb = pcall(bar.SetTimerDuration, bar, d, Interp, (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime)
+				bar:SetShown(okb and true or false)
+			end
+		elseif btn.cdBar then
+			btn.cdBar:Hide()
+		end
+		-- progress bar: remaining time, filled from the bottom / left like the addon's
+		if showBars and btn.bgBar then
+			local bar = EngineProgressBar(btn)
+			bar:ClearAllPoints()
+			bar:SetAllPoints(btn.bgBar)
+			local vertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
+			bar:SetOrientation(vertical and "VERTICAL" or "HORIZONTAL")
+			bar:SetReverseFill(false)
+			local okb = pcall(bar.SetTimerDuration, bar, d, Interp, Dir.RemainingTime)
+			bar:SetShown(okb and true or false)
+			btn.bgBar:Show()
+			btn._ebColorR = nil
+		else
+			if btn.engineBar then btn.engineBar:Hide() end
+			if btn.bgBar then btn.bgBar:Hide() end
+		end
+		PlaceEngineBarText(self, btn, textLocation, showText)
+		pcall(cd.SetCooldownFromDurationObject, cd, d, true)
+	end
+	-- the bar's colour rule, from the shadow remaining
+	if showBars and btn.engineBar and btn.engineBar:IsShown() then
+		local remaining = (start + duration) - GetTime()
+		local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
+		if r ~= btn._ebColorR or g ~= btn._ebColorG or b ~= btn._ebColorB then
+			btn._ebColorR, btn._ebColorG, btn._ebColorB = r, g, b
+			btn.engineBar:SetStatusBarColor(r, g, b, 0.9)
+		end
+	end
+end
+
 -- Update cooldown bar layout (horizontal or vertical)
 function ShamanPower:UpdateCooldownBarLayout()
 	if not self.cooldownBar then return end
@@ -9218,6 +9336,7 @@ function ShamanPower:UpdateCooldownButtons()
 	local barHeight = self.opt.cdbarProgressBarHeight or 3
 	local textLocation = self.opt.cdbarDurationTextLocation or "none"
 	local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
+	local engine = self:EngineCooldownsOn()   -- the engine draws and counts the cooldown buttons; this pass hands it changes
 
 	-- Use numeric for loop instead of ipairs to avoid iterator garbage
 	for i = 1, #self.cooldownButtons do
@@ -9398,7 +9517,9 @@ function ShamanPower:UpdateCooldownButtons()
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
-			if start and start > 0 and duration > 1.5 then
+			if engine and start and start > 0 and duration > 1.5 then
+				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
+			elseif start and start > 0 and duration > 1.5 then
 				-- Radial swipe only when chosen; otherwise the vertical grey sweep below
 				if showSweep and self.opt.cdbarSweepStyle == "radial" then
 					btn.cooldown:SetCooldown(start, duration)
@@ -9506,6 +9627,7 @@ function ShamanPower:UpdateCooldownButtons()
 					end
 				end
 			else
+				if engine and btn._ebSpell then self:ClearEngineBarCooldown(btn) end
 				btn.cooldown:Clear()
 				btn.darkOverlay:Hide()
 				if btn.progressBar then btn.progressBar:Hide() end
@@ -10124,6 +10246,7 @@ end
 function ShamanPower:UpdateCooldownBarProgressBars()
 	local barPosition = self.opt.cdbarProgressPosition or "left"
 	local barSize = self.opt.cdbarProgressBarHeight or 3
+	self:ResetEngineBarCooldowns()   -- engine strings and bars follow the new anchors on the next pass
 
 	for _, btn in ipairs(self.cooldownButtons) do
 		local buttonSize = btn:GetWidth()
@@ -10591,6 +10714,7 @@ end
 
 -- Apply duration text size to all cooldown bar text elements
 function ShamanPower:ApplyCdbarTextSize()
+	self:ResetEngineBarCooldowns()   -- the engine strings copy the font on their next placement
 	local size = self.opt.cdbarDurationTextSize or 8
 	for _, btn in ipairs(self.cooldownButtons) do
 		if btn.insideText then btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
@@ -11576,8 +11700,35 @@ function ShamanPower:SetupTotemBarVisibilityUpdater()
 end
 
 -- Update the mini totem bar icons and spells based on current assignments
+-- Out of combat: set one element's assignment and do everything a flyout pick
+-- does (bar icon, Drop All / Blizzard's bar, macros, party message, flyout
+-- marks). In combat nothing is written: callers queue for the regen pass.
+function ShamanPower:ApplyAssignment(element, totemIndex)
+	if InCombatLockdown() then return false end
+	ShamanPower_Assignments[self.player] = ShamanPower_Assignments[self.player] or {}
+	ShamanPower_Assignments[self.player][element] = totemIndex or 0
+	self:UpdateMiniTotemBar()
+	self:UpdateDropAllButton()
+	self:UpdateSPMacros()
+	self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (totemIndex or 0))
+	self:UpdateFlyoutVisibility(element)
+	if self.ShowEmptySlotArt then self:ShowEmptySlotArt(element, (totemIndex or 0) == 0) end
+	return true
+end
+
+-- The settings window shows assignment-dependent notes; let it redraw when
+-- one changes while it is open (AceConfig's change notification, which the
+-- window listens to). Nothing happens while it is closed.
+function ShamanPower:AssignmentsChanged()
+	local cfg = rawget(_G, "ShamanPowerConfig")
+	if not (cfg and cfg.IsOpen and cfg:IsOpen()) then return end
+	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if reg then reg:NotifyChange("ShamanPower") end
+end
+
 function ShamanPower:UpdateMiniTotemBar()
 	self._ovWake = true   -- this repaints the totem icons: the dropped-totem overlay state is re-applied on the next bar tick
+	self:AssignmentsChanged()
 	if not self.autoButton then return end
 	if InCombatLockdown() then return end
 

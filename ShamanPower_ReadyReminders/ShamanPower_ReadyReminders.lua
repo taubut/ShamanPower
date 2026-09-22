@@ -549,7 +549,8 @@ if SP.RegisterPreview then
 			return frames[entry.key] or SP:CreateReadyReminderFrame(entry)
 		end
 	end
-	SP:RegisterPreview("readyreminders", { frames = list, demo = "SP:ReadyRemindersDemo", pad = 24 })
+	SP:RegisterPreview("readyreminders", { frames = list, demo = "SP:ReadyRemindersDemo", pad = 24,
+		pane = { grid = true, columns = 2, maxScale = 2.4 } })   -- settings-window pane only: big icons in a grid
 end
 
 -- ---------------------------------------------------------------------------

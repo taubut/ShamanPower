@@ -39,6 +39,16 @@ local NAV_GROUP_H    = 24
 -- ---------------------------------------------------------------------------
 local function SP() return _G.ShamanPower end
 
+-- Live-preview specs for the bar pages: the setup wizard's own mocks of the
+-- bars, drawn from the live options (they follow style, Compact, layout and
+-- the rest as they change). A module page names its registered preview
+-- instead (a string, see ShamanPowerPreview).
+local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotemBarStep" } } }
+local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsStep" } } }
+local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
+local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
+local MOCK_PARTY    = { mocks = { { label = "Party Buff Tracker", build = "BuildPartyBuffStep" } } }
+
 -- Totem Range Tracker: the module's on/off is the overlay frame itself.
 -- ShamanPower_SPRange.lua ToggleSPRange() is the only writer of
 -- ShamanPower_RangeTracker.shown / spRangeManuallyOpened; the live truth is
@@ -151,42 +161,42 @@ local NAV = {
 		{ label = "Profiles", path = P("profiles"), lock = true },
 	}},
 	{ group = "Bars", entries = {
-		{ label = "Mode & Twisting", shamanOnly = true, lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
+		{ label = "Mode & Twisting", preview = MOCK_TOTEM, shamanOnly = true, lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
 			{ label = "Mode & Twisting", paths = { P("settings", "settings_totemMode") } },
 		}},
-		{ label = "Appearance", shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
+		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Layout",            paths = { P("fluffy", "layout_section") } },
 			{ label = "Scale & Opacity",   paths = { P("fluffy", "scale_section"), P("fluffy", "opacity_section"), P("fluffy", "padding_section") } },
 			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
-		{ label = "Totem Bar", shamanOnly = true, lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
+		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
 			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
 			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
-			{ label = "Duration Bars", paths = { P("fluffy", "totembar_duration_section") } },
+			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
 			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
 			{ label = "Loadouts",      paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar",   paths = { P("fluffy", "loadoutbar_section") } },
 		}},
-		{ label = "Cooldown Bar", shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
+		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
 			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
 			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
 		}},
 	}},
 	{ group = "Modules", power = true, entries = {
-		{ label = "Raid Cooldowns",       path = P("fluffy", "raid_cd_section"), power = false },
-		{ label = "Totem Range Tracker",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker", shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
-		{ label = "Earth Shield Tracker", shamanOnly = true, path = P("fluffy", "estrack_section") },
-		{ label = "Shield Charges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
-		{ label = "Reactive Totems", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
-		{ label = "Ready Reminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
-		{ label = "Expiring Alerts", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
-		{ label = "Tremor Reminder", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
-		{ label = "Totem Plates",         path = P("fluffy", "totemplates_section") },
+		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section"), power = false },
+		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
+		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
+		{ label = "Earth Shield Tracker", preview = "estracker", shamanOnly = true, path = P("fluffy", "estrack_section") },
+		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
+		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
+		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
+		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
+		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
+		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
 		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
 			{ label = "Pop-Out Trackers", paths = {
 				{ "settings", "settings_popout", label = "Middle-Click Pop-Out" },
@@ -255,6 +265,251 @@ end
 -- Frame construction
 -- ---------------------------------------------------------------------------
 local frame
+
+-- ---------------------------------------------------------------------------
+-- Live preview pane. The current page's module frame, borrowed through
+-- ShamanPowerPreview (the wizard's harness: real frame, sample data from the
+-- module's own Demo, restored on exit) into a panel hung off the window's
+-- right edge, re-fed after every change. A tab on the edge pops it out or
+-- tucks it away; the choice is remembered.
+-- ---------------------------------------------------------------------------
+local PREVIEW_W = 380
+
+local function PreviewStore()
+	local sp = SP()
+	if not sp then return nil end
+	if sp.db and sp.db.global then return sp.db.global end
+	return sp.opt
+end
+local function PreviewOpenWanted()
+	local st = PreviewStore()
+	if st and st.configPreviewOpen ~= nil then return st.configPreviewOpen and true or false end
+	return false   -- tucked away until asked for; the tab on the edge is the invitation
+end
+
+function SPConfig:BuildPreviewPane()
+	if frame.preview then return end
+	local pane = CreateFrame("Frame", nil, frame)
+	pane:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
+	pane:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 4, 0)
+	pane:SetWidth(PREVIEW_W)
+	Core:SolidTex(pane, "windowBg", "BACKGROUND", nil, true)
+	Core:MakeBorder(pane, "accent", 2)
+	local cap = pane:CreateFontString(nil, "OVERLAY")
+	cap:SetFontObject(Core.fonts.tiny)
+	cap:SetPoint("TOP", pane, "TOP", 0, -12)
+	cap:SetText("|cff5A6678LIVE PREVIEW|r")
+	local title = pane:CreateFontString(nil, "OVERLAY")
+	title:SetFontObject(Core.fonts.navOn)
+	title:SetPoint("TOP", cap, "BOTTOM", 0, -4)
+	pane.title = title
+	local inner = CreateFrame("Frame", nil, pane)
+	inner:SetPoint("TOPLEFT", pane, "TOPLEFT", 10, -52)
+	inner:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -10, 10)
+	inner:SetClipsChildren(true)
+	inner.previewMaxScale = 1.6
+	inner.previewPane = true   -- ShowPreview reads the registrations' pane hints for this container only
+	pane.inner = inner
+	local note = inner:CreateFontString(nil, "OVERLAY")
+	note:SetFontObject(Core.fonts.nav)
+	note:SetPoint("CENTER", inner, "CENTER", 0, 0)
+	note:SetWidth(PREVIEW_W - 60)
+	note:SetJustifyH("CENTER")
+	note:SetTextColor(Core:Color("textDim"))
+	pane.note = note
+	pane:Hide()
+	frame.preview = pane
+
+	local tab = CreateFrame("Button", nil, frame)
+	tab:SetSize(18, 64)
+	tab:SetFrameLevel(frame:GetFrameLevel() + 30)
+	Core:SolidTex(tab, "sidebarBg", "BACKGROUND")
+	Core:MakeBorder(tab, "accent")
+	local arrow = tab:CreateFontString(nil, "OVERLAY")
+	arrow:SetFontObject(Core.fonts.navOn)
+	arrow:SetPoint("CENTER", tab, "CENTER", 0, 0)
+	tab.arrow = arrow
+	tab:SetScript("OnClick", function() SPConfig:TogglePreviewPane() end)
+	tab:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(frame._previewOpen and "Hide the live preview" or "Show the live preview", 1, 1, 1)
+		GameTooltip:AddLine("A sample of this page's module, redrawn as you change its settings.", 0.7, 0.7, 0.7, true)
+		GameTooltip:Show()
+	end)
+	tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	frame.previewTab = tab
+end
+
+-- The wizard's bar mocks, stacked in the pane. Rebuilt on page / tab
+-- changes and (throttled) after a setting changes; the previous set is
+-- discarded, as the wizard does.
+local function ReleaseMocks()
+	local pane = frame and frame.preview
+	if pane and pane.mockHost then
+		pane.mockHost:Hide()
+		pane.mockHost:SetParent(nil)
+		pane.mockHost = nil
+	end
+	if pane then pane.mockSpec = nil end
+end
+
+local function MountMocks(spec)
+	ReleaseMocks()
+	local sp = SP()
+	local W = sp and sp.Wizard
+	local pane = frame.preview
+	if not (W and pane) then return false end
+	local inner = pane.inner
+	local host = CreateFrame("Frame", nil, inner)
+	host:SetAllPoints(inner)
+	pane.mockHost, pane.mockSpec = host, spec
+	local n = #spec.mocks
+	local gap = 6
+	local ih = inner:GetHeight()
+	if ih < 50 then ih = WIN_H - 62 end   -- anchors not resolved yet on the first draw
+	local h = math.floor((ih - gap * (n - 1)) / n)
+	local wasPreviewOnly = W.previewOnly
+	W.previewOnly = true
+	local dummyCard = CreateFrame("Frame", nil, host)
+	dummyCard:SetSize(400, 10)
+	dummyCard:Hide()
+	local yy = 0
+	for _, m in ipairs(spec.mocks) do
+		local panel = CreateFrame("Frame", nil, host)
+		panel:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -yy)
+		panel:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, -yy)
+		panel:SetHeight(h)
+		Core:SolidTex(panel, "contentBg", "BACKGROUND")
+		Core:MakeBorder(panel, "border")
+		local lbl = panel:CreateFontString(nil, "OVERLAY")
+		lbl:SetFontObject(Core.fonts.tiny)
+		lbl:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -6)
+		lbl:SetText(strupper(m.label))
+		lbl:SetTextColor(Core:Color("textDim"))
+		local pin = CreateFrame("Frame", nil, panel)
+		pin:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -18)
+		pin:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4)
+		pin:SetClipsChildren(true)
+		local fn = W[m.build]
+		if fn then
+			local ok, err = pcall(fn, dummyCard, pin, 0)
+			if not ok then print("|cffff4040ShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
+		end
+		-- the mocks' captions belong to the wizard's step pages
+		for _, r in ipairs({ pin:GetRegions() }) do
+			if r.IsObjectType and r:IsObjectType("FontString") then r:Hide() end
+		end
+		-- The mocks size themselves for the wizard's wide panel (by height
+		-- only, and from their own OnUpdate); a bar wider than this pane is
+		-- shrunk to fit, on the pane's own container so the wizard never sees
+		-- it. Measured a frame later, once the mock has applied its own scale.
+		local function fit()
+			if not pin:IsShown() then return end
+			local widest = 0
+			for _, ch in ipairs({ pin:GetChildren() }) do
+				local w = ch:GetWidth() * ch:GetScale()
+				if w > widest then widest = w end
+			end
+			local avail = (pin:GetWidth() * pin:GetScale()) - 12
+			if avail < 40 then avail = PREVIEW_W - 40 end
+			if widest > 0 then pin:SetScale(math.min(1, avail / widest)) end
+		end
+		fit()
+		C_Timer.After(0, fit)
+		C_Timer.After(0.2, fit)
+		yy = yy + h + gap
+	end
+	W.previewOnly = wasPreviewOnly
+	return true
+end
+
+-- Give the borrowed frame back (window closing, page changing).
+function SPConfig:ReleasePreview()
+	local sp = SP()
+	if frame and frame._previewKey and sp and sp.RestorePreview then sp:RestorePreview(frame._previewKey) end
+	if frame then frame._previewKey = nil end
+	ReleaseMocks()
+end
+
+function SPConfig:SetPreviewPaneOpen(on, silent)
+	if not frame then return end
+	self:BuildPreviewPane()
+	on = on and true or false
+	frame._previewOpen = on
+	local pane, tab = frame.preview, frame.previewTab
+	pane:SetShown(on)
+	tab:ClearAllPoints()
+	tab:SetPoint("LEFT", on and pane or frame, "RIGHT", 0, 0)
+	tab.arrow:SetText(on and "<" or ">")
+	-- keep the whole assembly on screen when the window is dragged
+	frame:SetClampRectInsets(0, on and (PREVIEW_W + 4 + 18) or 18, 0, 0)
+	if not silent then
+		local st = PreviewStore()
+		if st then st.configPreviewOpen = on end
+	end
+	if not on then self:ReleasePreview() end
+	self:UpdatePreviewPane()
+end
+
+-- A setting changed: module previews re-feed at once (no new frames); the
+-- bar mocks are rebuilt, at most a couple of times a second while a slider
+-- is being dragged.
+local remountQueued = false
+function SPConfig:PreviewChanged()
+	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
+	if frame.preview.mockSpec then
+		if remountQueued then return end
+		remountQueued = true
+		C_Timer.After(0.4, function()
+			remountQueued = false
+			SPConfig:UpdatePreviewPane(true)
+		end)
+	else
+		self:UpdatePreviewPane()
+	end
+end
+
+function SPConfig:TogglePreviewPane()
+	self:SetPreviewPaneOpen(not (frame and frame._previewOpen))
+end
+
+-- Show the current page's preview (or say why there is none). Re-running it
+-- for the same key re-feeds the sample data, which is how setters reach it.
+function SPConfig:UpdatePreviewPane(remount)
+	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
+	local sp = SP()
+	local entry = frame._current
+	local spec = entry and entry.preview or nil
+	if entry and entry.tabs and frame._activeTab then
+		for _, t in ipairs(entry.tabs) do
+			if t.label == frame._activeTab and t.preview then spec = t.preview break end
+		end
+	end
+	local pane = frame.preview
+	pane.title:SetText(entry and entry.label or "")
+	if type(spec) == "table" then
+		-- the wizard's bar mocks
+		if frame._previewKey then self:ReleasePreview() end
+		if pane.mockSpec ~= spec or remount then MountMocks(spec) end
+		pane.note:Hide()
+		return
+	end
+	ReleaseMocks()
+	local key = spec
+	if frame._previewKey and frame._previewKey ~= key then self:ReleasePreview() end
+	local def = key and sp and sp.PreviewRegistry and sp.PreviewRegistry[key]
+	if def and sp.ShowPreview then
+		local shown = sp:ShowPreview(key, pane.inner)
+		frame._previewKey = shown and key or nil
+		pane.note:SetShown(shown == nil)
+		if shown == nil then pane.note:SetText("This module is not loaded, so there is nothing to preview.") end
+	else
+		frame._previewKey = nil
+		pane.note:Show()
+		pane.note:SetText(key and "This module is not loaded, so there is nothing to preview."
+			or "No preview for this page: its settings change the bars themselves, which stay on screen while this window is open.")
+	end
+end
 
 local function BuildWindow()
 	if frame then return frame end
@@ -515,10 +770,16 @@ local function BuildWindow()
 	frame.combatBlock = combatBlock
 
 	-- Catch the case where the window is opened while already in combat.
-	frame:SetScript("OnShow", function() SPConfig:UpdateCombatLock() end)
+	frame:SetScript("OnShow", function()
+		SPConfig:UpdateCombatLock()
+		SPConfig:SetPreviewPaneOpen(PreviewOpenWanted(), true)
+	end)
 	-- The dropdown popup is parented to UIParent so it can escape the scroll
 	-- clip; it must not outlive the window.
-	frame:SetScript("OnHide", function() Widgets:HidePopup() end)
+	frame:SetScript("OnHide", function()
+		Widgets:HidePopup()
+		SPConfig:ReleasePreview()
+	end)
 
 	-- Safety net. The regen events below are the real mechanism; this only
 	-- covers a state change that arrives without one. Four comparisons a
@@ -543,6 +804,7 @@ end
 -- Sidebar rendering
 -- ---------------------------------------------------------------------------
 local navRows = {}
+local selfNotify = false   -- the window's own change notifications are not news to it
 local navPool = {}
 local navPoolUsed = 0
 
@@ -587,6 +849,7 @@ local function SelectEntry(entry)
 	frame.pageSearch:SetText("")
 	frame.pageSearch.placeholder:Show()
 	SPConfig:RenderPage(entry, nil)
+	SPConfig:UpdatePreviewPane()
 	for _, r in ipairs(navRows) do
 		local on = (r.entry == entry)
 		r.accent:SetShown(on)
@@ -872,6 +1135,7 @@ end
 local function OnTabPick(key)
 	frame._activeTab = key
 	SPConfig:RenderPage(frame._current, nil)
+	SPConfig:UpdatePreviewPane()
 end
 
 -- Composed page: entry.tabs -> each tab draws one or more option groups.
@@ -992,6 +1256,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		-- A set() may flip another option's hidden= (e.g. TotemTimers Style
 		-- Display reveals Right-Click Drops Corner Totem). Re-resolve the page
 		-- and redraw only when the visible row set actually changed.
+		selfNotify = true
 		local cur = frame._current
 		if cur then
 			local newList, newGroups = ResolvePageList(cur, frame._query, false)
@@ -1001,6 +1266,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 					local reg = LibStub("AceConfigRegistry-3.0", true)
 					if reg then reg:NotifyChange("ShamanPower") end
 				end
+				selfNotify = false
+				SPConfig:PreviewChanged()   -- this path returns early: the preview still needs the new settings
 				return
 			end
 		end
@@ -1012,7 +1279,10 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			local reg = LibStub("AceConfigRegistry-3.0", true)
 			if reg then reg:NotifyChange("ShamanPower") end
 		end
+		selfNotify = false
+		SPConfig:PreviewChanged()   -- the sample data is re-fed with the new settings
 	end
+	frame._onChanged = onChanged
 
 	for _, e in ipairs(list) do
 		if e.kind == "section" then
@@ -1214,6 +1484,30 @@ combatWatcher:SetScript("OnEvent", function()
 		Widgets:RefreshAll(frame.body)
 	end
 end)
+
+-- Something outside the window changed the addon's state while it is open
+-- (an assignment from a flyout or Blizzard's totem bar, a loadout applied):
+-- the core raises AceConfig's change notification, and the open page redraws
+-- as if one of its own rows had been set. Coalesced to one redraw per frame.
+do
+	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if reg and reg.RegisterCallback then
+		local queued = false
+		reg.RegisterCallback(SPConfig, "ConfigTableChange", function(_, appName)
+			if appName ~= "ShamanPower" or selfNotify or queued then return end
+			if not (frame and frame:IsShown() and frame._onChanged) then return end
+			queued = true
+			C_Timer.After(0, function()
+				queued = false
+				if frame and frame:IsShown() and frame._onChanged then frame._onChanged() end
+			end)
+		end)
+	end
+end
+
+function SPConfig:IsOpen()
+	return frame ~= nil and frame:IsShown() and true or false
+end
 
 function SPConfig:UpdateCombatLock()
 	if not frame or not frame.combatBlock then return end

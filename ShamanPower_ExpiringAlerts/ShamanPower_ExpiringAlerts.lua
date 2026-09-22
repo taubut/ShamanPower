@@ -1133,5 +1133,6 @@ end)
 -- ============================================================================
 
 if ShamanPower.RegisterPreview then
-	ShamanPower:RegisterPreview("expiring", { frame = "ShamanPowerExpiringAlertsFrame", demo = "SP:ExpiringAlertsDemo", pad = 24 })
+	ShamanPower:RegisterPreview("expiring", { frame = "ShamanPowerExpiringAlertsFrame", demo = "SP:ExpiringAlertsDemo", pad = 24,
+		pane = { maxScale = 1.0 } })   -- settings-window pane only: life-size, the text is wider than the frame
 end

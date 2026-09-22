@@ -55,7 +55,9 @@ function SP:ShowPreview(key, container)
 		local existed = {}
 		for _, f in ipairs(frames) do existed[f] = true end
 		if #frames == 0 and demoFn then
+			self.previewPaneActive = container.previewPane and true or nil
 			local ok, err = pcall(demoFn, self, true)
+			self.previewPaneActive = nil
 			if not ok then print("|cffff4040ShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
 			frames = ResolveFrames(def)
 		end
@@ -73,9 +75,13 @@ function SP:ShowPreview(key, container)
 		borrowed[key] = { saved = saved }
 	end
 
-	-- Let the module create/populate the frame with sample data.
+	-- Let the module create/populate the frame with sample data. A demo may
+	-- read previewPaneActive to lay itself out for the settings window's tall,
+	-- narrow pane; the wizard's containers never set it.
 	if demoFn then
+		self.previewPaneActive = container.previewPane and true or nil
 		local ok, err = pcall(demoFn, self, true)
+		self.previewPaneActive = nil
 		if not ok then print("|cffff4040ShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
 	end
 	local frames = ResolveFrames(def)
@@ -86,6 +92,11 @@ function SP:ShowPreview(key, container)
 	-- cap how far the frame is enlarged (so previews stay life-sized).
 	local reserve = container.previewInsetBottom or 0
 	local maxScale = container.previewMaxScale or 2.5
+	-- The settings window's tall, narrow preview pane flags itself and reads
+	-- the registration's `pane` hints (overlap, grid, maxScale). The wizard's
+	-- containers never do, so its step pages keep their own layout.
+	local hints = container.previewPane and def.pane or nil
+	if hints and hints.maxScale then maxScale = hints.maxScale end
 	local cw, ch = container:GetWidth() - pad, container:GetHeight() - pad - reserve
 	-- Measure the group (largest width, summed heights).
 	local totalH, maxW = 0, 0
@@ -97,6 +108,50 @@ function SP:ShowPreview(key, container)
 	local scale = 1
 	if maxW > 0 and totalH > 0 and cw > 0 and ch > 0 then
 		scale = math.max(math.min(cw / maxW, ch / totalH, maxScale), 0.4)
+	end
+	-- pane hint overlap: the frames take turns (the demo lights one at a
+	-- time), so they share one centred spot instead of a mostly empty stack.
+	if hints and hints.overlap then
+		local maxH = 0
+		for _, frame in ipairs(frames) do maxH = math.max(maxH, frame:GetHeight()) end
+		scale = 1
+		if maxW > 0 and maxH > 0 and cw > 0 and ch > 0 then
+			scale = math.max(math.min(cw / maxW, ch / maxH, maxScale), 0.4)
+		end
+		for _, frame in ipairs(frames) do
+			frame:SetParent(container)
+			frame:SetFrameStrata(container:GetFrameStrata())
+			frame:SetFrameLevel(container:GetFrameLevel() + 5)
+			frame:SetScale(scale)
+			frame:ClearAllPoints()
+			frame:SetPoint("CENTER", container, "CENTER", 0, reserve / 2)
+			frame:Show()
+		end
+		return frames[1]
+	end
+	-- pane hint grid: icons in a centred grid, enlarged to fill the pane
+	if hints and hints.grid and #frames > 1 then
+		local n = #frames
+		local cols = math.min(hints.columns or math.ceil(math.sqrt(n)), n)
+		local rows = math.ceil(n / cols)
+		local maxH = 0
+		for _, frame in ipairs(frames) do maxH = math.max(maxH, frame:GetHeight()) end
+		local cellW, cellH = maxW + 12, maxH + 12
+		scale = 1
+		if maxW > 0 and maxH > 0 and cw > 0 and ch > 0 then
+			scale = math.max(math.min(cw / (cols * cellW), ch / (rows * cellH), maxScale), 0.4)
+		end
+		for i, frame in ipairs(frames) do
+			local r, c = math.floor((i - 1) / cols), (i - 1) % cols
+			frame:SetParent(container)
+			frame:SetFrameStrata(container:GetFrameStrata())
+			frame:SetFrameLevel(container:GetFrameLevel() + 5)
+			frame:SetScale(scale)
+			frame:ClearAllPoints()
+			frame:SetPoint("CENTER", container, "CENTER", (c - (cols - 1) / 2) * cellW * scale, ((rows - 1) / 2 - r) * cellH * scale + reserve / 2)
+			frame:Show()
+		end
+		return frames[1]
 	end
 	local y = totalH / 2
 	for _, frame in ipairs(frames) do

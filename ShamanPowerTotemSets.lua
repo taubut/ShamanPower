@@ -178,6 +178,59 @@ function SP:SyncTotemSetFromAssignments()
 	end
 	self.totemSetsSyncPending = nil
 	self:WriteTotemSet(1, self:TotemSetSpellsFromAssignments())
+	self.totemSetsSyncedOnce = true   -- from here on Blizzard's bar may lead (AdoptTotemBarAssignments)
+end
+
+-- The other direction: a totem picked on Blizzard's bar (its own flyouts)
+-- becomes the assignment here. Page 1 is read after the client reports a
+-- change; an element whose slot differs from the assignment is re-assigned,
+-- an emptied slot un-assigns. Elements kept out of Drop All are skipped
+-- (their slot is deliberately empty), so is a spell our tables do not know.
+-- Not before the first sync of a session: at login the saved assignments are
+-- the truth and Blizzard's bar is brought to them, not the other way round.
+-- Out of combat only (assigning writes secure attributes); a change seen in
+-- a fight is adopted at regen.
+local function totemIndexForSpell(element, spellID)
+	local names = SP.TotemNames and SP.TotemNames[element]
+	for i = 1, (names and #names or 8) do
+		if sameSpell(SP:GetTotemSpell(element, i), spellID) then return i end
+	end
+	return nil
+end
+
+function SP:AdoptTotemBarAssignments()
+	if self.opt.totemSetsAdoptFromBar == false or not self:HasTotemBar() or not self.totemSetsSyncedOnce then
+		if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS adopt skipped: option=%s bar=%s syncedOnce=%s", tostring(self.opt.totemSetsAdoptFromBar), tostring(self:HasTotemBar()), tostring(self.totemSetsSyncedOnce)) end
+		return
+	end
+	if InCombatLockdown() then self.totemSetsAdoptPending = true return end
+	self.totemSetsAdoptPending = nil
+	local assignments = ShamanPower_Assignments and ShamanPower_Assignments[self.player]
+	if not assignments then return end
+	local exclude = {
+		[1] = self.opt.excludeEarthFromDropAll, [2] = self.opt.excludeFireFromDropAll,
+		[3] = self.opt.excludeWaterFromDropAll, [4] = self.opt.excludeAirFromDropAll,
+	}
+	local slots = self:ReadTotemSet(1)
+	if SPCompat and SPCompat.Trace then
+		SPCompat.Trace("TOTEMSETS adopt read: E=%s F=%s W=%s A=%s  assigned %s/%s/%s/%s", tostring(slots[1]), tostring(slots[2]), tostring(slots[3]), tostring(slots[4]),
+			tostring(assignments[1]), tostring(assignments[2]), tostring(assignments[3]), tostring(assignments[4]))
+	end
+	for element = 1, 4 do
+		if not exclude[element] then
+			local current = assignments[element] or 0
+			local want
+			if slots[element] then
+				want = totemIndexForSpell(element, slots[element])   -- nil: not one of ours, leave it
+			else
+				want = 0
+			end
+			if want ~= nil and want ~= current then
+				if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS adopt element %d: %d -> %d", element, current, want) end
+				self:ApplyAssignment(element, want)
+			end
+		end
+	end
 end
 
 -- What a flyout pick writes into Blizzard's bar: the page-1 action slot of an
@@ -339,14 +392,42 @@ ef:RegisterEvent("PLAYER_ENTERING_WORLD")
 ef:RegisterEvent("PLAYER_REGEN_ENABLED")
 ef:RegisterEvent("SPELLS_CHANGED")
 pcall(ef.RegisterEvent, ef, "UPDATE_MULTI_CAST_ACTIONBAR")
-ef:SetScript("OnEvent", function(_, event)
+pcall(ef.RegisterEvent, ef, "ACTIONBAR_SLOT_CHANGED")   -- a pick on Blizzard's bar lands in an action slot
+
+-- Blizzard's bar changed: read it on the next frame (the slot's content is
+-- current by then), adopt, then bring the bar to the assignments. Coalesced.
+local barChangeQueued = false
+local function OnTotemBarChanged(event, slot)
+	if event == "ACTIONBAR_SLOT_CHANGED" then
+		local bar = C_ActionBar and C_ActionBar.GetMultiCastBarIndex and C_ActionBar.GetMultiCastBarIndex()
+		if not (bar and bar >= 1 and type(slot) == "number") then return end
+		local first = (bar - 1) * (NUM_ACTIONBAR_BUTTONS or 12) + 1
+		if slot < first or slot > first + (NUM_ACTIONBAR_BUTTONS or 12) - 1 then return end
+	end
+	if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS bar change via %s %s", event, tostring(slot)) end
+	if barChangeQueued then return end
+	barChangeQueued = true
+	C_Timer.After(0, function()
+		barChangeQueued = false
+		if SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
+		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
+	end)
+end
+
+ef:SetScript("OnEvent", function(_, event, slot)
 	if event == "PLAYER_ENTERING_WORLD" then
 		C_Timer.After(3, function() if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end end)
 	elseif event == "PLAYER_REGEN_ENABLED" then
-		if SP.dropAllTotemSetsActive or SP.totemSetsSyncPending then
-			C_Timer.After(0.5, function() if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end end)
+		if SP.dropAllTotemSetsActive or SP.totemSetsSyncPending or SP.totemSetsAdoptPending then
+			C_Timer.After(0.5, function()
+				-- Blizzard's bar first: a pick made there during the fight is the newest intent
+				if SP.totemSetsAdoptPending and SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
+				if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
+			end)
 		end
-	elseif event == "SPELLS_CHANGED" or event == "UPDATE_MULTI_CAST_ACTIONBAR" then
+	elseif event == "UPDATE_MULTI_CAST_ACTIONBAR" or event == "ACTIONBAR_SLOT_CHANGED" then
+		OnTotemBarChanged(event, slot)
+	elseif event == "SPELLS_CHANGED" then
 		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
 	end
 end)

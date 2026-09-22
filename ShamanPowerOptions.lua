@@ -1541,6 +1541,21 @@ ShamanPower.options = {
 								if val and not InCombatLockdown() and ShamanPower.SyncTotemSetFromAssignments then ShamanPower:SyncTotemSetFromAssignments() end
 							end
 						},
+						dropall_totem_sets_adopt = {
+							order = 2.25,
+							type = "toggle",
+							name = "My Assignments Follow Blizzard's Totem Bar",
+							desc = "Pick a totem on Blizzard's own totem bar and the matching ShamanPower button takes it (clearing a slot there un-assigns it here). Elements kept out of Drop All are left alone. Out of combat; a change made during a fight is picked up when it ends.",
+							width = "full",
+							hidden = function() return not (ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()) end,
+							get = function(info)
+								return ShamanPower.opt.totemSetsAdoptFromBar ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.totemSetsAdoptFromBar = val
+								if val and ShamanPower.AdoptTotemBarAssignments then ShamanPower:AdoptTotemBarAssignments() end
+							end
+						},
 						show_cooldown_bar = {
 							order = 2.05,
 							type = "toggle",
@@ -1975,6 +1990,42 @@ ShamanPower.options = {
 								ShamanPower:UpdateDropAllButton()
 								ShamanPower:UpdateSPMacros()
 							end
+						},
+						exclude_earth_empty_note = {
+							order = 2.9025,
+							type = "description",
+							name = "|cffffa040Earth is set to Empty on the totem bar, so Drop All skips it already; this toggle only matters once a totem is assigned there.|r",
+							hidden = function()
+								local a = ShamanPower_Assignments and ShamanPower.player and ShamanPower_Assignments[ShamanPower.player]
+								return not (a and (a[1] or 0) == 0)
+							end,
+						},
+						exclude_fire_empty_note = {
+							order = 2.9035,
+							type = "description",
+							name = "|cffffa040Fire is set to Empty on the totem bar, so Drop All skips it already; this toggle only matters once a totem is assigned there.|r",
+							hidden = function()
+								local a = ShamanPower_Assignments and ShamanPower.player and ShamanPower_Assignments[ShamanPower.player]
+								return not (a and (a[2] or 0) == 0)
+							end,
+						},
+						exclude_water_empty_note = {
+							order = 2.9045,
+							type = "description",
+							name = "|cffffa040Water is set to Empty on the totem bar, so Drop All skips it already; this toggle only matters once a totem is assigned there.|r",
+							hidden = function()
+								local a = ShamanPower_Assignments and ShamanPower.player and ShamanPower_Assignments[ShamanPower.player]
+								return not (a and (a[3] or 0) == 0)
+							end,
+						},
+						exclude_air_empty_note = {
+							order = 2.9055,
+							type = "description",
+							name = "|cffffa040Air is set to Empty on the totem bar, so Drop All skips it already; this toggle only matters once a totem is assigned there.|r",
+							hidden = function()
+								local a = ShamanPower_Assignments and ShamanPower.player and ShamanPower_Assignments[ShamanPower.player]
+								return not (a and (a[4] or 0) == 0)
+							end,
 						},
 					}
 				},
@@ -3091,7 +3142,29 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowCDText = val
+								if val and ShamanPower.EnableCountdownNumbers then ShamanPower:EnableCountdownNumbers() end
 							end
+						},
+						cdbar_numbers_note = {
+							order = 3.05,
+							type = "description",
+							name = "|cffffa040On this client the time is drawn by the game, and WoW's own \"Show Numbers for Cooldowns\" setting is off, so no time can show on the cooldown bar.|r",
+							hidden = function()
+								return not (ShamanPower.EngineCooldownsOn and ShamanPower:EngineCooldownsOn() and not ShamanPower:CountdownNumbersEnabled()
+									and (ShamanPower.opt.cdbarShowCDText ~= false or (ShamanPower.opt.cdbarDurationTextLocation or "none") ~= "none"))
+							end,
+						},
+						cdbar_numbers_button = {
+							order = 3.06,
+							type = "execute",
+							name = "Turn on Show Numbers for Cooldowns",
+							desc = "Turns on WoW's own cooldown numbers (Options > Action Bars). They then show on your action bars as well.",
+							width = 1.6,
+							hidden = function()
+								return not (ShamanPower.EngineCooldownsOn and ShamanPower:EngineCooldownsOn() and not ShamanPower:CountdownNumbersEnabled()
+									and (ShamanPower.opt.cdbarShowCDText ~= false or (ShamanPower.opt.cdbarDurationTextLocation or "none") ~= "none"))
+							end,
+							func = function() ShamanPower:EnableCountdownNumbers() end,
 						},
 						shield_charge_colors = {
 							disabled = function(info) return (ShamanPower.opt.cdbarShowShields == false) and true or false end,
@@ -3205,6 +3278,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.cdbarDurationTextLocation = val
 								if ShamanPower.RebuildShieldChargeContainer then ShamanPower:RebuildShieldChargeContainer() end   -- the engine-drawn shield display reads these once, when built
+								if val ~= "none" and ShamanPower.EnableCountdownNumbers then ShamanPower:EnableCountdownNumbers() end
 							end
 						},
 						cdbar_duration_text_size = {

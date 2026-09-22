@@ -1433,5 +1433,6 @@ if ShamanPower.RegisterPreview then
 		},
 		demo = "SP:ReactiveDemo",
 		pad = 24,
+		pane = { overlap = true },   -- settings-window pane only: the scene lights one alert at a time, so one centred spot
 	})
 end

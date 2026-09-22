@@ -942,9 +942,51 @@ local DEMO_MODELS = {
     draenei = { earth = 19073, fire = 19074, water = 19075, air = 19071 },
     horde   = { earth = 4588,  fire = 4589,  water = 4587,  air = 4590 },
 }
+-- A client without the Draenei race (WoW: Forever) has no Draenei totem
+-- models either: those display IDs load as nothing, so every totem gets the
+-- classic model there.
+local function HasDraeneiModels()
+    if C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
+        local ok, info = pcall(C_CreatureInfo.GetRaceInfo, 11)   -- 11 = Draenei
+        return ok and info ~= nil
+    end
+    return true
+end
+
+-- WoW: Forever (Mainline family) gives each shaman race its own totem models.
+-- The preview follows: the player's race for their totem, a rival's for the
+-- enemy ones, by model file (SetModel with the FileDataID; these all exist in
+-- that client's data). Races without a set of their own (Tauren) fall back to
+-- the classic totem display below. Anniversary keeps its faction split.
+local RACE_TOTEM_MODELS = {
+    Orc      = { air = 329291, earth = 329292, fire = 329293, water = 329294 },
+    Troll    = { air = 328323, earth = 328324, fire = 328325, water = 328326 },
+    Dwarf    = { air = 328197, earth = 328198, fire = 328199, water = 328200 },
+    Goblin   = { air = 365458, earth = 365271, fire = 364737, water = 365615 },
+    Draenei  = { air = 126004, earth = 126005, fire = 126006, water = 126007 },
+    Pandaren = { air = 608631, earth = 608634, fire = 608637, water = 608640 },
+}
+local function ApplyRaceModel(m, d)
+    if not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then return false end
+    local _, race = UnitRace("player")
+    local alliance = UnitFactionGroup("player") == "Alliance"
+    local set = d.enemy and RACE_TOTEM_MODELS[alliance and "Orc" or "Dwarf"] or RACE_TOTEM_MODELS[race or ""]
+    local fdid = set and set[d.element]
+    if not fdid then return false end
+    local ok = pcall(m.SetModel, m, fdid)
+    if not ok then return false end
+    pcall(m.SetCamDistanceScale, m, 1.8)
+    pcall(m.SetPosition, m, 0, 0, 0)
+    pcall(m.SetFacing, m, 0.35)
+    m.bodyTop = 70
+    return true
+end
+
 local function ApplyDemoModel(m, d)
+    if ApplyRaceModel(m, d) then return end
     local alliance = UnitFactionGroup("player") == "Alliance"
     local set = (d.enemy ~= alliance) and "draenei" or "horde"   -- enemy of Alliance = Horde look, etc.
+    if set == "draenei" and not HasDraeneiModels() then set = "horde" end
     local id = DEMO_MODELS[set][d.element]
     if id then m:SetDisplayInfo(id) else m:SetCreature(d.npc) end
     -- the classic totem's beam makes it much taller than the Draenei crystal:
@@ -984,6 +1026,23 @@ function SP:TotemPlatesDemo(on)
         self.totemPlatesDemoFrame = c
     end
     local c = self.totemPlatesDemoFrame
+
+    -- The settings window's preview pane is tall and narrow: there the four
+    -- plates sit two by two on a narrower frame (so the pane can draw them
+    -- larger). The wizard's row layout is left exactly as it is.
+    local paneLayout = self.previewPaneActive and true or false
+    if on and c.paneLayout ~= paneLayout then
+        c.paneLayout = paneLayout
+        local PANE_POS = { { -70, 210 }, { 70, 210 }, { -70, -10 }, { 70, -10 } }
+        c:SetSize(paneLayout and 290 or 400, 470)
+        for i, np in ipairs(c.plates) do
+            local d = np.demo
+            local x, y = d.x, d.y
+            if paneLayout and PANE_POS[i] then x, y = PANE_POS[i][1], PANE_POS[i][2] end
+            np.model:ClearAllPoints()
+            np.model:SetPoint("TOP", c, "CENTER", x, y)
+        end
+    end
 
     local function fill(np)
         local d = np.demo
@@ -1028,6 +1087,9 @@ function SP:TotemPlatesDemo(on)
     if on then
         self.totemPlatesDemoActive = true
         for i, np in ipairs(c.plates) do
+            -- a PlayerModel forgets its model once hidden or re-parented (the
+            -- preview harness does both when it hands the frame back): set it again
+            if np.model then ApplyDemoModel(np.model, np.demo) end
             fill(np)
             self.activeTotemPlates["demo" .. i] = np
         end
@@ -1051,5 +1113,5 @@ function SP:TotemPlatesDemo(on)
 end
 
 if ShamanPower.RegisterPreview then
-    ShamanPower:RegisterPreview("totemplates", { frame = "ShamanPowerTotemPlatesDemo", demo = "SP:TotemPlatesDemo", pad = 24 })
+    ShamanPower:RegisterPreview("totemplates", { frame = "ShamanPowerTotemPlatesDemo", demo = "SP:TotemPlatesDemo", pad = 24 , pane = { maxScale = 1.5 } })   -- pane hint: settings window only
 end
