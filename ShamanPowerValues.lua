@@ -12,6 +12,7 @@ BINDING_NAME_SHAMANPOWER_FIRE_TOTEM = "Cast Assigned Fire Totem"
 BINDING_NAME_SHAMANPOWER_WATER_TOTEM = "Cast Assigned Water Totem"
 BINDING_NAME_SHAMANPOWER_AIR_TOTEM = "Cast Assigned Air Totem"
 BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast Earth Shield on Assigned Target"
+    .. (ShamanPower.ESTrackerUnavailable and " (not on this client)" or "")
 BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall Totems)"
 
 -- Cooldown Bar keybindings

@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Raid ES Tracker]|r
 ## Version: 2.1.1
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Track Earth Shields cast by OTHER shamans in your raid/party (not your own)
+## Notes: Track Earth Shields cast by OTHER shamans in your raid/party (not your own) (Earth Shield clients only; inert on WoW: Forever)
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

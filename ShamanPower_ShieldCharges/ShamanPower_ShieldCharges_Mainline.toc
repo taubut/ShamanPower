@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Shield Charge Display]|r
 ## Version: 2.1.1
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Large on-screen numbers showing your shield charges and Earth Shield charges
+## Notes: Large on-screen numbers showing your shield charges
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

@@ -263,7 +263,8 @@ local STEPS = {
 	  desc = "Large on-screen numbers for your shield charges, so you re-apply before they run out.",
 	  bullets = {
 	    "Your Lightning / Water Shield charges - useful to every shaman.",
-	    { "Earth Shield charges on your target - for Resto healing a tank.", roles = { restoration = true } },
+	    { "Earth Shield charges on your target - for Resto healing a tank.", roles = { restoration = true },
+	      when = function() return not SP.ESTrackerUnavailable end },
 	    "Numbers turn yellow, then red, as charges drop.",
 	  },
 	  toggles = {
@@ -1052,8 +1053,14 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		row("Toggle", { label = "Pulse countdown text", get = function() return OPT().compactPulseText ~= false end, set = cset("compactPulseText") })
 		row("Toggle", { label = "Your shield line (Lightning / Water)", get = function() return OPT().compactShieldLine and true or false end, set = cset("compactShieldLine") })
 		-- the Earth Shield line is the Earth Shield button: same setting as Totem Bar > Items > Show Earth Shield
-		row("Toggle", { label = "Earth Shield line", get = function() return OPT().totemBarShowEarthShield ~= false end,
-			set = function(v) OPT().totemBarShowEarthShield = v; safecall("UpdateEarthShieldButton"); safecall("ApplyCompactStyle"); notify() end })
+		if not SP.ESTrackerUnavailable then
+			row("Toggle", { label = "Earth Shield line",
+				get = function() return OPT().totemBarShowEarthShield ~= false end,
+				set = function(v)
+					OPT().totemBarShowEarthShield = v
+					safecall("UpdateEarthShieldButton"); safecall("ApplyCompactStyle"); notify()
+				end })
+		end
 	end
 	return y
 end
@@ -2423,7 +2430,11 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	row("Toggle", { label = "Shields", disabled = off, get = function() return sget("shields", "enabled", true) end, set = function(v) sub("shields").enabled = v; upd() end })
 	row("Toggle", { label = "    Lightning Shield", disabled = shOff, get = function() return sget("shields", "lightning", true) end, set = function(v) sub("shields").lightning = v; upd() end })
 	row("Toggle", { label = "    Water Shield", disabled = shOff, get = function() return sget("shields", "water", true) end, set = function(v) sub("shields").water = v; upd() end })
-	row("Toggle", { label = "    Earth Shield on your target", disabled = shOff, get = function() return sget("shields", "earthShield", true) end, set = function(v) sub("shields").earthShield = v; upd() end })
+	if not SP.ESTrackerUnavailable then
+		row("Toggle", { label = "    Earth Shield on your target", disabled = shOff,
+			get = function() return sget("shields", "earthShield", true) end,
+			set = function(v) sub("shields").earthShield = v; upd() end })
+	end
 	row("Toggle", { label = "    Sound", disabled = shOff, get = function() return sget("shields", "sound", false) end, set = function(v) sub("shields").sound = v; upd() end })
 	local function toOff() return off() or not sget("totems", "enabled", true) end
 	row("Toggle", { label = "Totems", disabled = off, get = function() return sget("totems", "enabled", true) end, set = function(v) sub("totems").enabled = v; upd() end })
@@ -3296,7 +3307,8 @@ function SP.Wizard:RenderRole()
 	warn:SetHeight(12 + wh:GetStringHeight() + 6 + wb:GetStringHeight() + 12)
 
 	local roles = {
-		{ key = "restoration", name = "Restoration", blurb = "Healing.\nEarth Shield, Mana Tide, shield charges." },
+		{ key = "restoration", name = "Restoration", blurb = SP.ESTrackerUnavailable
+			and "Healing.\nMana Tide, shield charges." or "Healing.\nEarth Shield, Mana Tide, shield charges." },
 		{ key = "enhancement", name = "Enhancement", blurb = "Melee.\nTotem twisting, Windfury, reactive totems." },
 		{ key = "elemental",   name = "Elemental",   blurb = "Caster.\nTotems, cooldowns, reactive utility." },
 	}

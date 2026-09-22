@@ -652,6 +652,14 @@ local function WithNotes(base, ...)
 	end
 end
 local function CompactOn() return ShamanPower.CompactActive and ShamanPower:CompactActive() or false end
+local function AvailableShieldNotes(describe)
+	return function()
+		local text = describe()
+		if not ShamanPower.ESTrackerUnavailable then return text end
+		return (text:gsub(" %(and the Earth Shield one%)", "")
+			:gsub("so only the Earth Shield indicator uses this%.", "so no separate indicator is shown."))
+	end
+end
 local function SetsOwnDropAll()
 	return (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() and ShamanPower.opt.dropAllUsesTotemSets ~= false) and true or false
 end
@@ -1415,7 +1423,12 @@ ShamanPower.options = {
 						},
 						popOutDesc = {
 							order = 2,
-							name = "|cff888888When enabled: Middle-click any totem button, cooldown bar item, Earth Shield, or Drop All to pop it out.\nSHIFT+Middle-click on popped-out frame for settings. ALT+drag to move.|r",
+							name = function()
+								local shield = ShamanPower.ESTrackerUnavailable and "" or ", Earth Shield"
+								return "|cff888888When enabled: Middle-click any totem button, cooldown bar item"
+									.. shield .. ", or Drop All to pop it out.\nSHIFT+Middle-click on popped-out frame"
+									.. " for settings. ALT+drag to move.|r"
+							end,
 							type = "description",
 							width = "full",
 						}
@@ -2304,10 +2317,14 @@ ShamanPower.options = {
 							order = 1.3,
 							type = "select",
 							name = "Dropped Totem Indicator Position",
-							desc = WithNotes("Where the indicator for a dropped, non-assigned totem (and the Earth Shield one) pops out from its button. Auto puts it above a horizontal bar and on the flyout side of a vertical one.",
+							desc = AvailableShieldNotes(WithNotes("Where the indicator for a dropped, non-assigned totem"
+								.. " (and the Earth Shield one) pops out from its button. Auto puts it above a horizontal bar"
+								.. " and on the flyout side of a vertical one.",
 								CompactOn, "Compact style is on: it has no pop-out indicator (the line is whatever is down), so this does nothing right now.",
 								function() return not CompactOn() and ShamanPower.opt.activeTotemAsMain end, "TotemTimers Style is on: the dropped totem is shown on the button itself with the assigned one in the corner, so only the Earth Shield indicator uses this.",
-								function() return not CompactOn() and ShamanPower.opt.dynamicTotemMode end, "Dynamic Mode is on: whatever you drop becomes the assigned totem, so there is never a separate dropped-totem indicator to place."),
+								function() return not CompactOn() and ShamanPower.opt.dynamicTotemMode end,
+								"Dynamic Mode is on: whatever you drop becomes the assigned totem,"
+									.. " so there is never a separate dropped-totem indicator to place.")),
 							width = 1.4,
 							values = { auto = "Auto", above = "Above", below = "Below", left = "Left", right = "Right" },
 							sorting = { "auto", "above", "below", "left", "right" },
