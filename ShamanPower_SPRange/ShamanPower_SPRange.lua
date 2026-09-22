@@ -793,6 +793,7 @@ function SP:BroadcastWindfuryStatus()
 		end
 
 		-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
+		if SPK and SPK() == true then return false end
 		ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
 	end
 end

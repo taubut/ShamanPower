@@ -14153,6 +14153,10 @@ end
 -- `force` to bypass it entirely.
 local DEDUP_WINDOW = 2
 function ShamanPower:SendMessage(msg, type, target, force)
+	if SPK and SPK() == true then
+		-- Do not claim delivery while the client's chat messaging lock is active.
+		return false
+	end
 	if GetNumGroupMembers() > 0 then
 		-- Dedup key includes target so broadcast vs whisper of the same msg are distinct
 		local dedupKey = target and (msg .. "\001" .. target) or msg
