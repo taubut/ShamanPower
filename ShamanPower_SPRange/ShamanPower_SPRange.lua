@@ -142,6 +142,7 @@ SP.TrackableTotems = {
 		spellID = 25908,
 		detection = "buff",
 		buffSpellID = 25909,
+		buffSpellIDs = { 25909 },
 		-- name AND icon rows are encrypted on WoW: Forever; the client cannot draw it
 		icon = "Interface\\Icons\\Spell_Nature_Brilliance",
 	},
@@ -172,6 +173,13 @@ for _, totem in ipairs(SP.TrackableTotems) do
 		-- aura party members carry there is the effect spell
 		if totem.id == "flametongue" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then totem.buffSpellID = 8230 end
 		totem.buffName = GetSpellInfo(totem.buffSpellID)
+	end
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		-- Build once, after client-specific ID overrides; nameless auras need
+		-- ID matching, while named entries retain the single native lookup.
+		totem.buffSpellIDs = totem.buffSpellIDs or { totem.buffSpellID }
+		totem.buffSpellIDSet = {}
+		for _, spellID in ipairs(totem.buffSpellIDs) do totem.buffSpellIDSet[spellID] = true end
 	end
 end
 
@@ -267,18 +275,31 @@ function SP:InitSPRange()
 end
 
 -- Check if player has a specific buff (same approach as TotemTimers)
-local function MainlineHasNamedBuff(unit, buffName)
-	if issecretvalue(buffName) or not buffName then return false end
+local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
+	if issecretvalue(buffName) then return false end
 	if SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return false end
-	if not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then return false end
-	local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buffName, "HELPFUL")
-	-- The native lookup already selected the name; do not inspect secret fields.
-	return not issecretvalue(aura) and aura ~= nil
+	if buffName then
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then return false end
+		local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buffName, "HELPFUL")
+		-- The native lookup already selected the name; do not inspect secret fields.
+		return not issecretvalue(aura) and aura ~= nil
+	end
+	if not (buffSpellIDSet and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false end
+	-- Tranquil Air's name is encrypted. Only public IDs from readable auras
+	-- can match here; this does not bypass combat aura restrictions.
+	for index = 1, 40 do
+		local aura = C_UnitAuras.GetAuraDataByIndex(unit, index, "HELPFUL")
+		if issecretvalue(aura) then return false end
+		if not aura then break end
+		local spellID = aura.spellId
+		if not issecretvalue(spellID) and spellID and buffSpellIDSet[spellID] then return true end
+	end
+	return false
 end
 
-function SP:SPRangeHasBuff(buffName)
+function SP:SPRangeHasBuff(buffName, buffSpellIDSet)
 	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
-		return MainlineHasNamedBuff("player", buffName)
+		return MainlineHasNamedBuff("player", buffName, buffSpellIDSet)
 	end
 	if not buffName then return false end
 
@@ -316,7 +337,7 @@ function SP:SPRangeCheckTotem(totemData)
 		return hasEnchant
 	else
 		-- Standard buff check
-		return self:SPRangeHasBuff(totemData.buffName)
+		return self:SPRangeHasBuff(totemData.buffName, totemData.buffSpellIDSet)
 	end
 end
 
@@ -585,13 +606,14 @@ end
 -- Optimized: party1-4 works in both party AND raid (refers to subgroup in raids)
 -- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
 local rangePartyUnits = { "party1", "party2", "party3", "party4" }
-function SP:SPRangeAnyoneHasBuff(buffName)
+function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
 	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
-		if MainlineHasNamedBuff("player", buffName) then return true end
+		if MainlineHasNamedBuff("player", buffName, buffSpellIDSet) then return true end
 		if IsInGroup() then
 			for _, unit in ipairs(rangePartyUnits) do
 				local exists = UnitExists(unit)
-				if not issecretvalue(exists) and exists and MainlineHasNamedBuff(unit, buffName) then return true end
+				if not issecretvalue(exists) and exists
+					and MainlineHasNamedBuff(unit, buffName, buffSpellIDSet) then return true end
 			end
 		end
 		return false
@@ -654,7 +676,7 @@ function SP:UpdateSPRangeStatus()
 			-- Windfury special case - can only check ourselves
 			totemIsDown = playerHasBuff  -- If we have it, it's down. Otherwise unknown.
 		else
-			totemIsDown = self:SPRangeAnyoneHasBuff(totemData.buffName)
+			totemIsDown = self:SPRangeAnyoneHasBuff(totemData.buffName, totemData.buffSpellIDSet)
 		end
 
 		-- In combat on the Mainline family the buff reads above come back empty
