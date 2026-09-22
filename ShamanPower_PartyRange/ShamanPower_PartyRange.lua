@@ -41,6 +41,34 @@ SP.TotemBuffSpellIDs = {
 		[7] = 15108,  -- Windwall
 	},
 }
+-- Forever's Windfury Totem is a party BUFF ("Attack Power increased by $s1.
+-- Granted $s2 Extra Attack.", Spell.db2 1.60.1: 8516 / 10608 / 10610), not the
+-- weapon enchant the classic family applies, so there it is tracked like any
+-- other totem buff and the Windfury comms special case never runs.
+if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	SP.TotemBuffSpellIDs[4][1] = 8516
+end
+
+-- Every rank of each buff above (Forever 1.60.1 Spell.db2; the TBC IDs are the
+-- same spells). The engine matches auras by exact spell ID, so a rank the list
+-- lacks is a dot that never shows.
+SP.TotemBuffRanks = {
+	[8076]  = { 8076, 8162, 8163, 10441, 25362 },          -- Strength of Earth
+	[8072]  = { 8072, 8156, 8157, 10403, 10404, 10405 },   -- Stoneskin
+	[30708] = { 30708 },                                    -- Totem of Wrath
+	[8215]  = { 8215, 8230, 8250, 10521, 15036 },          -- Flametongue Totem (effect auras)
+	[8182]  = { 8182, 10476, 10477 },                       -- Frost Resistance
+	[5677]  = { 5677, 10491, 10493, 10494 },                -- Mana Spring
+	[5672]  = { 5672, 6371, 6372, 10460, 10461 },           -- Healing Stream
+	[16191] = { 16191, 17355, 17360 },                      -- Mana Tide
+	[8185]  = { 8185, 10534, 10535 },                       -- Fire Resistance
+	[8836]  = { 8836, 10626, 25360 },                       -- Grace of Air
+	[2895]  = { 2895 },                                     -- Wrath of Air
+	[25909] = { 25909 },                                    -- Tranquil Air
+	[10596] = { 10596, 10598, 10599 },                      -- Nature Resistance
+	[15108] = { 15108, 15109, 15110 },                      -- Windwall
+	[8516]  = { 8516, 10608, 10610 },                       -- Windfury Totem (Forever)
+}
 
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 -- This guarantees exact name matching with UnitBuff results
@@ -115,6 +143,8 @@ function SP:SetupPartyRangeDots()
 	-- Always enable this subsystem - player's own range tracking should always work
 	-- The party dots are conditionally updated inside the callback
 	self:EnableUpdateSubsystem("partyRange")
+	engineDotsReady = true
+	self:RebuildEnginePartyDots()
 end
 
 -- Get the buff name for the currently active totem of an element
@@ -251,6 +281,157 @@ function SP:GetCachedPartyUnits()
 	return partyUnits, count
 end
 
+-- ============================================================================
+-- Engine-drawn party dots (secrets regime: Forever / retail)
+-- ============================================================================
+-- In combat other players' buffs cannot be read, so the dot logic below was
+-- guessing there (distance from the drop point, or a spell range check). An
+-- AuraContainer bound to the party token draws a child texture whenever that
+-- unit carries a totem buff and hides it the instant the buff is gone - in
+-- combat, in instances, with no reads and nothing ticking (measured
+-- 2026-09-22 on party1 with Stoneskin: shows, and goes blank out of range).
+-- One container per totem button and party slot; the slot's filter is every
+-- buff any totem of that element can give, all ranks (only one totem per
+-- element is ever down, so whichever buff is present is the right one). The
+-- class-coloured dot is a static child of the engine's aura button; the red
+-- "no buff" dot stays the addon's own texture underneath, covered whenever the
+-- engine's dot shows. Built out of combat only (the button subtree may only be
+-- written in initializeFrame, and a container is registered out of combat);
+-- a rebuild asked for in combat waits for PLAYER_REGEN_ENABLED.
+SP.engineDots = {}            -- [element][partyIndex] = { container = frame|nil, key = string }
+local engineDotsPending = false
+local engineDotsReady = false -- SetupPartyRangeDots has run (buttons exist)
+
+local function EngineDotsAvailable()
+	return SPCompat ~= nil and SPCompat.secretsRegime == true and C_AddOns ~= nil and C_AddOns.LoadAddOn ~= nil
+end
+
+-- true while the engine is drawing the coloured dots (so the addon draws only the red ones)
+function SP:EngineDotsOn()
+	return self.engineDotsBuilt == true and self.opt.showPartyRangeDots and true or false
+end
+
+local function ElementBuffMap(element)
+	local map = {}
+	for _, base in pairs(SP.TotemBuffSpellIDs[element] or {}) do
+		for _, id in ipairs(SP.TotemBuffRanks[base] or { base }) do map[id] = true end
+	end
+	return map
+end
+
+local DOT_TEXTURE = "Interface\\AddOns\\ShamanPower\\textures\\dot"
+
+local function BuildEngineDot(element, partyIndex, btn, r, g, b)
+	local unit = SP.partyUnitStrings[partyIndex]
+	local size = SP.opt.partyDotSize or 5
+	local outline = SP.opt.partyDotOutline ~= false
+	local point, relPoint, x, y = ShamanPower:PartyDotAnchor(partyIndex, btn)
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
+	if not ok or not container then
+		if SPCompat.Trace then SPCompat.Trace("DOTS container %d/%d create failed: %s", element, partyIndex, tostring(container)) end
+		return nil
+	end
+	container:SetAllPoints(btn)
+	container:SetFrameLevel(btn:GetFrameLevel() + 10)   -- above the button art and the active-totem overlay
+	local okAdd, err = pcall(container.AddAuraSlot, container, "dot", "HELPFUL", {
+		candidateFilters = { includeSpellIDs = ElementBuffMap(element) },
+		initializeFrame = function(button)
+			button:ClearAllPoints()
+			button:SetSize(size, size)
+			button:SetPoint(point, btn, relPoint, x, y)
+			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+			if outline then
+				local o = button:CreateTexture(nil, "OVERLAY", nil, -1)
+				o:SetTexture(DOT_TEXTURE)
+				o:SetVertexColor(0, 0, 0, 0.9)
+				o:SetPoint("CENTER", button, "CENTER", 0, 0)
+				o:SetSize(size + 2, size + 2)
+			end
+			local dot = button:CreateTexture(nil, "OVERLAY")
+			dot:SetTexture(DOT_TEXTURE)
+			dot:SetVertexColor(r, g, b)
+			dot:SetAllPoints(button)
+		end,
+	})
+	if not okAdd then
+		if SPCompat.Trace then SPCompat.Trace("DOTS AddAuraSlot %d/%d failed: %s", element, partyIndex, tostring(err)) end
+		container:Hide()
+		return nil
+	end
+	pcall(container.SetUnit, container, unit)
+	pcall(container.SetEnabled, container, true)
+	pcall(container.UpdateAllAuras, container)
+	return container
+end
+
+-- Build, or rebuild where the class colour or the placement changed. Cheap
+-- when nothing changed (one key per slot), so layout code calls it freely.
+function SP:RebuildEnginePartyDots()
+	if not (engineDotsReady and EngineDotsAvailable()) then return end
+	if InCombatLockdown() then engineDotsPending = true return end
+	engineDotsPending = false
+	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
+	local built = false
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn then
+			self.engineDots[element] = self.engineDots[element] or {}
+			for i = 1, 4 do
+				local unit = self.partyUnitStrings[i]
+				local exists = UnitExists(unit)
+				local _, class = UnitClass(unit)
+				local color = class and RAID_CLASS_COLORS[class]
+				local r, g, b = 0, 1, 0
+				if color then r, g, b = color.r, color.g, color.b end
+				local point, relPoint, x, y = ShamanPower:PartyDotAnchor(i, btn)
+				local key = (exists and (class or "?") or "-") .. "|" .. tostring(self.opt.partyDotSize or 5) .. "|"
+					.. tostring(self.opt.partyDotOutline ~= false) .. "|" .. point .. relPoint .. x .. "," .. y
+				local slot = self.engineDots[element][i]
+				if not slot or slot.key ~= key then
+					if slot and slot.container then
+						pcall(slot.container.SetEnabled, slot.container, false)
+						slot.container:Hide()
+					end
+					local container = exists and BuildEngineDot(element, i, btn, r, g, b) or nil
+					if container then container:SetShown(self.opt.showPartyRangeDots and true or false) end
+					self.engineDots[element][i] = { container = container, key = key }
+				end
+				if self.engineDots[element][i].container then built = true end
+			end
+		end
+	end
+	self.engineDotsBuilt = built or nil
+	self.engineDotsShown = nil   -- re-applied by the next dots pass
+end
+
+function SP:SetEnginePartyDotsShown(on)
+	on = on and true or false
+	if self.engineDotsShown == on then return end
+	self.engineDotsShown = on
+	for element = 1, 4 do
+		local slots = self.engineDots[element]
+		if slots then
+			for i = 1, 4 do
+				local c = slots[i] and slots[i].container
+				if c then c:SetShown(on) end
+			end
+		end
+	end
+end
+
+-- Roster changes recolour (or add / drop) a slot; a fight defers it.
+local engineDotEvents = CreateFrame("Frame")
+engineDotEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
+engineDotEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+engineDotEvents:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_REGEN_ENABLED" then
+		if engineDotsPending then SP:RebuildEnginePartyDots() end
+	else
+		SP:RebuildEnginePartyDots()
+	end
+end)
+
 -- Update all party range dots
 function SP:UpdatePartyRangeDots()
 	-- Always update range counters (even if dots are disabled)
@@ -264,6 +445,9 @@ function SP:UpdatePartyRangeDots()
 	else
 		self:DisableUpdateSubsystem("partyRange")
 	end
+
+	if self.engineDotsBuilt then self:SetEnginePartyDotsShown(dotsEnabled) end
+	local engine = self:EngineDotsOn()
 
 	-- Check if dots feature is enabled
 	if not dotsEnabled then
@@ -316,7 +500,18 @@ function SP:UpdatePartyRangeDots()
 				else
 					local haveTotem, totemName = self:GetElementTotemInfo(element)
 
-					if haveTotem then
+					if haveTotem and engine then
+						-- Engine mode: the class-coloured dot is the engine's; this one is
+						-- the red "no buff" underneath, shown for any totem that gives a
+						-- buff at all and covered as soon as the unit carries it.
+						if self:GetActiveTotemBuffName(element) then
+							dot:SetVertexColor(1, 0, 0)
+							dot:Show()
+						else
+							dot:Hide()
+						end
+						if useOverlay and mainDot then mainDot:Hide() end
+					elseif haveTotem then
 						local buffName = self:GetActiveTotemBuffName(element)
 						local hasBuff = buffName and self:UnitHasBuff(unit, buffName, element)
 

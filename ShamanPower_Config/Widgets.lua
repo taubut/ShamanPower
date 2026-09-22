@@ -607,6 +607,13 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 	p:Show()
 end
 
+-- A SharedMedia picker (dialogControl LSM30_*) is fed the LSM list, which
+-- is name -> file; the name is both the stored value and the label.
+local function DropdownText(opts, values, k)
+	if opts.keyIsLabel then return tostring(k) end
+	return tostring(values[k])
+end
+
 local function DropdownItems(opts)
 	local values = opts.values()
 	local order  = opts.order and opts.order() or nil
@@ -614,7 +621,7 @@ local function DropdownItems(opts)
 	if order then
 		for _, k in ipairs(order) do
 			if values[k] ~= nil then
-				table.insert(items, { key = k, text = tostring(values[k]) })
+				table.insert(items, { key = k, text = DropdownText(opts, values, k) })
 			end
 		end
 	else
@@ -622,7 +629,7 @@ local function DropdownItems(opts)
 		for k in pairs(values) do table.insert(keys, k) end
 		table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
 		for _, k in ipairs(keys) do
-			table.insert(items, { key = k, text = tostring(values[k]) })
+			table.insert(items, { key = k, text = DropdownText(opts, values, k) })
 		end
 	end
 	return items, values
@@ -633,7 +640,7 @@ local function DropdownPaint(row)
 	if not opts then return end
 	local _, values = DropdownItems(opts)
 	local cur = opts.get()
-	local label = values and values[cur]
+	local label = values and cur ~= nil and values[cur] ~= nil and DropdownText(opts, values, cur) or nil
 	local text = label and tostring(label) or "|cff8A94A6-|r"
 	-- Button is sized to the longest option below; this is the fallback for a
 	-- value that is still too wide (very long localized strings).

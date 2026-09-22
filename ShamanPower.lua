@@ -21,19 +21,25 @@ local LSM3 = LibStub("LibSharedMedia-3.0")
 
 -- Register WoW built-in sounds with LibSharedMedia
 -- (LSM:Register rejects "Sound\\" prefix, so insert directly into MediaTable)
+-- The Classic line plays these by path. The Mainline family (WoW: Forever)
+-- refuses a "Sound\\..." path outright - PlaySoundFile returns nothing and
+-- every alert picked from this list was silent there - and plays Blizzard's
+-- files by FileDataID only, so each entry carries both (IDs from the client's
+-- file list; 567397 = RaidWarning.ogg was measured to play on Forever).
 local SP_SOUNDS = {
-	["Raid Warning"]          = [[Sound\Interface\RaidWarning.ogg]],
-	["Alarm Clock Warning 1"] = [[Sound\Interface\AlarmClockWarning1.ogg]],
-	["Alarm Clock Warning 2"] = [[Sound\Interface\AlarmClockWarning2.ogg]],
-	["Alarm Clock Warning 3"] = [[Sound\Interface\AlarmClockWarning3.ogg]],
-	["Ready Check"]           = [[Sound\Interface\ReadyCheck.ogg]],
-	["Map Ping"]              = [[Sound\Interface\MapPing.ogg]],
-	["PVP Flag Taken"]        = [[Sound\Interface\PVPFlagTaken.ogg]],
-	["Quest Failed"]          = [[Sound\Interface\igQuestFailed.ogg]],
-	["Level Up"]              = [[Sound\Interface\LevelUp.ogg]],
+	["Raid Warning"]          = { [[Sound\Interface\RaidWarning.ogg]],          567397 },
+	["Alarm Clock Warning 1"] = { [[Sound\Interface\AlarmClockWarning1.ogg]],  567436 },
+	["Alarm Clock Warning 2"] = { [[Sound\Interface\AlarmClockWarning2.ogg]],  567399 },
+	["Alarm Clock Warning 3"] = { [[Sound\Interface\AlarmClockWarning3.ogg]],  567458 },
+	["Ready Check"]           = { [[Sound\Interface\ReadyCheck.ogg]],           567409 },
+	["Map Ping"]              = { [[Sound\Interface\MapPing.ogg]],              567416 },
+	["PVP Flag Taken"]        = { [[Sound\Interface\PVPFlagTaken.ogg]],         567466 },   -- PVPFlagTakenMono.ogg on Mainline
+	["Quest Failed"]          = { [[Sound\Interface\igQuestFailed.ogg]],        567459 },
+	["Level Up"]              = { [[Sound\Interface\LevelUp.ogg]],              567431 },
 }
-for name, path in pairs(SP_SOUNDS) do
-	LSM3.MediaTable.sound[name] = path
+local SP_SOUND_BY_ID = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+for name, entry in pairs(SP_SOUNDS) do
+	LSM3.MediaTable.sound[name] = SP_SOUND_BY_ID and entry[2] or entry[1]
 end
 local LUIDDM = LibStub("LibUIDropDownMenu-4.0")
 
@@ -800,7 +806,8 @@ function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
 end
 
 function ShamanPower:GetSoundFile(soundName)
-	return LSM3:Fetch("sound", soundName) or [[Sound\Interface\RaidWarning.ogg]]
+	-- a FileDataID (number) on the Mainline family, a path elsewhere; PlaySoundFile takes either
+	return LSM3:Fetch("sound", soundName) or (SP_SOUND_BY_ID and 567397 or [[Sound\Interface\RaidWarning.ogg]])
 end
 
 -------------------------------------------------------------------
@@ -10169,36 +10176,39 @@ function ShamanPower:PositionPartyDots(dots, frame)
 			dot.spOutline:SetSize(size + 2, size + 2)
 			dot.spOutline:SetShown(outline and dot:IsShown())
 			dot:ClearAllPoints()
-			local along = (i - 1) * (size + gap)
-			if frame.compactLayoutOn and self:CompactActive() then
-				-- Compact style: dots sit at the far end of the line (after the
-				-- range-counter number when that is on too)
-				local co = self:CompactOpts()
-				local shift = self:CompactCounterShift(frame)
-				if co.vertical then
-					dot:SetPoint("BOTTOM", frame, "BOTTOM", 0, co.ow + 2 + shift + along)
-				else
-					dot:SetPoint("RIGHT", frame, "RIGHT", -(co.ow + 3 + shift + along), 0)
-				end
-			elseif pos == "above" then
-				dot:SetPoint("BOTTOMLEFT", frame, "TOP", along - span / 2, 2)
-			elseif pos == "below" then
-				dot:SetPoint("TOPLEFT", frame, "BOTTOM", along - span / 2, -2)
-			elseif pos == "left" then
-				dot:SetPoint("TOPRIGHT", frame, "LEFT", -2, span / 2 - along)
-			elseif pos == "right" then
-				dot:SetPoint("TOPLEFT", frame, "RIGHT", 2, span / 2 - along)
-			elseif i == 1 then
-				dot:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
-			elseif i == 2 then
-				dot:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
-			elseif i == 3 then
-				dot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
-			else
-				dot:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-			end
+			local point, relPoint, x, y = self:PartyDotAnchor(i, frame)
+			dot:SetPoint(point, frame, relPoint, x, y)
 		end
 	end
+	-- engine-drawn dots are anchored when built: re-anchoring means rebuilding
+	-- (a no-op while nothing about the placement changed)
+	if self.RebuildEnginePartyDots then self:RebuildEnginePartyDots() end
+end
+
+-- Where party dot `i` sits on `frame` (point, relative point, x, y) under the
+-- position option. Shared by the addon's own dots and the engine-drawn ones
+-- (Party Range module), which cover each other and so must anchor identically.
+function ShamanPower:PartyDotAnchor(i, frame)
+	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
+	local size, gap = (self.opt and self.opt.partyDotSize) or 5, 2
+	local span = 4 * size + 3 * gap
+	local along = (i - 1) * (size + gap)
+	if frame.compactLayoutOn and self:CompactActive() then
+		-- Compact style: dots sit at the far end of the line (after the
+		-- range-counter number when that is on too)
+		local co = self:CompactOpts()
+		local shift = self:CompactCounterShift(frame)
+		if co.vertical then return "BOTTOM", "BOTTOM", 0, co.ow + 2 + shift + along end
+		return "RIGHT", "RIGHT", -(co.ow + 3 + shift + along), 0
+	elseif pos == "above" then return "BOTTOMLEFT", "TOP", along - span / 2, 2
+	elseif pos == "below" then return "TOPLEFT", "BOTTOM", along - span / 2, -2
+	elseif pos == "left" then return "TOPRIGHT", "LEFT", -2, span / 2 - along
+	elseif pos == "right" then return "TOPLEFT", "RIGHT", 2, span / 2 - along
+	elseif i == 1 then return "TOPLEFT", "TOPLEFT", 1, -1
+	elseif i == 2 then return "TOPRIGHT", "TOPRIGHT", -1, -1
+	elseif i == 3 then return "BOTTOMLEFT", "BOTTOMLEFT", 1, 1
+	end
+	return "BOTTOMRIGHT", "BOTTOMRIGHT", -1, 1
 end
 
 -- Extra distance (px) a bar on a given side must keep from the button so it

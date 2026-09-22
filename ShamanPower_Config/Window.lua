@@ -1055,6 +1055,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.set = function(v) setter(v) end
 				opts.values = Tree:MakeValues(e.node, e.info)
 				opts.order  = Tree:MakeSorting(e.node, e.info)
+				local control = e.node.dialogControl
+				opts.keyIsLabel = type(control) == "string" and control:sub(1, 6) == "LSM30_"
 				f, h = Widgets:Dropdown(body, opts)
 
 			elseif e.type == "color" then

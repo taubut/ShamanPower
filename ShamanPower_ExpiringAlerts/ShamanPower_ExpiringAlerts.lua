@@ -529,6 +529,8 @@ function SP:ProcessAlertQueue()
 	self:PlayAlertSound(alertData.alertType)
 end
 
+local shieldSoundDebug = false      -- /spalerts sound turns this on for a session
+
 function SP:PlayAlertSound(alertType)
 	local sv = ShamanPowerExpiringAlertsDB
 
@@ -547,8 +549,103 @@ function SP:PlayAlertSound(alertType)
 	end
 
 	if playSound then
+		-- With the engine playing the shield sound (below), it also fires for the
+		-- out-of-combat fade this alert is announcing; one sound per drop, not two.
+		if alertType == "shield" and SP.shieldSoundEngineActive then
+			if shieldSoundDebug then SP:Print("shield alert: engine owns the sound, Lua sound skipped") end
+			return
+		end
+		if alertType == "shield" and shieldSoundDebug then SP:Print("shield alert: Lua sound played") end
 		ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(soundName), sv.soundVolume, true)
 	end
+end
+
+-- ============================================================================
+-- Shield-dropped sound in combat (Mainline family)
+-- ============================================================================
+-- In combat the addon cannot see the shield fall off (measured: aura reads
+-- return nothing, orb discharges fire no cast event), so the visual alert
+-- only fires once reads come back. C_UnitAuras.AddAuraSound hands the ENGINE
+-- a sound to play when a given aura leaves the player, and the engine does
+-- that in combat (measured 2026-09-22: registered out of combat on Lightning
+-- Shield, played the moment the last orb was consumed). Audio only: nothing
+-- is learned, and no count can be read from it.
+-- Registered out of combat only (a registration in combat inside instanced
+-- PvE is a blocked action), one per shield rank the client knows, and torn
+-- down when the option goes off. Uses the player's chosen shield alert sound.
+local shieldSoundIDs = {}
+local shieldSoundKey = nil          -- what the current registrations were made with
+local shieldSoundPending = false
+local shieldSoundLog = {}          -- one entry per rank tried, read by /spalerts sound
+
+local function shieldSoundWanted()
+	local sv = ShamanPowerExpiringAlertsDB
+	if not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then return false end
+	if not (C_UnitAuras and C_UnitAuras.AddAuraSound and Enum and Enum.UnitAuraSoundTrigger) then return false end
+	if not (sv and sv.enabled ~= false and sv.shields and sv.shields.enabled ~= false and sv.shields.sound) then return false end
+	return true
+end
+
+function SP:RemoveShieldSounds()
+	if C_UnitAuras and C_UnitAuras.RemoveAuraSound then
+		for _, id in ipairs(shieldSoundIDs) do pcall(C_UnitAuras.RemoveAuraSound, id) end
+	end
+	wipe(shieldSoundIDs)
+	shieldSoundKey = nil
+	self.shieldSoundEngineActive = nil
+end
+
+function SP:UpdateShieldSounds()
+	if not shieldSoundWanted() then
+		if #shieldSoundIDs > 0 then self:RemoveShieldSounds() end
+		return
+	end
+	local sv = ShamanPowerExpiringAlertsDB
+	local sound = ShamanPower:GetSoundFile(sv.shields.soundName or "Raid Warning")
+	local key = tostring(sound) .. "|" .. tostring(sv.shields.lightning ~= false) .. "|" .. tostring(sv.shields.water ~= false)
+	if key == shieldSoundKey and #shieldSoundIDs > 0 then return end
+	if InCombatLockdown() then shieldSoundPending = true return end
+	shieldSoundPending = false
+	self:RemoveShieldSounds()
+	wipe(shieldSoundLog)
+	local info = { unitToken = "player", outputChannel = "Master", throttleSeconds = 1 }
+	if type(sound) == "number" then info.soundFileID = sound else info.soundFileName = sound end
+	for _, set in ipairs(ShamanPower.ShieldAuraSets or {}) do
+		local on = (set.name == "Lightning Shield" and sv.shields.lightning ~= false)
+			or (set.name == "Water Shield" and sv.shields.water ~= false)
+		if on then
+			for _, spellID in ipairs(set.ids) do
+				if self.shieldSoundSolo and spellID ~= self.shieldSoundSolo then
+					shieldSoundLog[#shieldSoundLog + 1] = spellID .. " solo-off"
+				elseif not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(spellID) then
+					info.spellID = spellID
+					local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Removed, info)
+					if ok and type(id) == "number" then
+						shieldSoundIDs[#shieldSoundIDs + 1] = id
+						shieldSoundLog[#shieldSoundLog + 1] = spellID .. "=" .. id
+					else
+						shieldSoundLog[#shieldSoundLog + 1] = spellID .. (ok and "=nil" or (":" .. tostring(id)))
+					end
+				else
+					shieldSoundLog[#shieldSoundLog + 1] = spellID .. " skipped"
+				end
+			end
+		end
+	end
+	shieldSoundKey = key
+	self.shieldSoundEngineActive = (#shieldSoundIDs > 0) or nil
+end
+
+-- /spalerts sound: what the engine registration did, for testing on the beta.
+function SP:ShieldSoundReport()
+	local sv = ShamanPowerExpiringAlertsDB
+	self:Print(("Shield sound: wanted=%s engine=%s pending=%s combat=%s"):format(
+		tostring(shieldSoundWanted()), tostring(self.shieldSoundEngineActive), tostring(shieldSoundPending),
+		tostring(InCombatLockdown())))
+	local sound = ShamanPower:GetSoundFile(sv and sv.shields and sv.shields.soundName or "Raid Warning")
+	self:Print(("  sound=%s (%s) name=%s key=%s"):format(tostring(sound), type(sound),
+		tostring(sv and sv.shields and sv.shields.soundName), tostring(shieldSoundKey):gsub("|", "/")))
+	self:Print("  registered " .. #shieldSoundIDs .. ": " .. table.concat(shieldSoundLog, ", "))
 end
 
 -- ============================================================================
@@ -778,6 +875,8 @@ function SP:SetupExpiringAlertsEvents()
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- shield-sound registration deferred out of a fight
+	eventFrame:RegisterEvent("PLAYER_LOGOUT")          -- engine sound IDs kept counting across /reload (41.. after a reload): drop ours before the UI goes
 
 	-- Throttle updates
 	local lastAuraUpdate = 0
@@ -823,6 +922,11 @@ function SP:SetupExpiringAlertsEvents()
 			end
 		elseif event == "PLAYER_ENTERING_WORLD" then
 			SP:UpdateExpiringAlertsState()
+			SP:UpdateShieldSounds()
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			if shieldSoundPending then SP:UpdateShieldSounds() end
+		elseif event == "PLAYER_LOGOUT" then
+			SP:RemoveShieldSounds()
 		end
 	end)
 
@@ -993,6 +1097,12 @@ SlashCmdList["SPALERTS"] = function(msg)
 	elseif msg == "toggle" then
 		ShamanPowerExpiringAlertsDB.enabled = not ShamanPowerExpiringAlertsDB.enabled
 		SP:Print("Expiring Alerts " .. (ShamanPowerExpiringAlertsDB.enabled and "enabled" or "disabled"))
+	elseif msg == "sound" or msg == "sound solo" or msg == "sound all" then
+		shieldSoundDebug = true
+		if msg == "sound solo" then SP.shieldSoundSolo = 324 elseif msg == "sound all" then SP.shieldSoundSolo = nil end
+		if msg ~= "sound" then SP:RemoveShieldSounds() end
+		SP:UpdateShieldSounds()
+		SP:ShieldSoundReport()
 	else
 		-- Open options
 		if ShamanPowerConfig then

@@ -4791,6 +4791,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								if ShamanPowerExpiringAlertsDB then
 									ShamanPowerExpiringAlertsDB.enabled = val
+										if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 								end
 							end
 						},
@@ -4981,6 +4982,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB then
 									if not ShamanPowerExpiringAlertsDB.shields then ShamanPowerExpiringAlertsDB.shields = {} end
 									ShamanPowerExpiringAlertsDB.shields.enabled = val
+										if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 								end
 							end
 						},
@@ -5001,6 +5003,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB then
 									if not ShamanPowerExpiringAlertsDB.shields then ShamanPowerExpiringAlertsDB.shields = {} end
 									ShamanPowerExpiringAlertsDB.shields.lightning = val
+										if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 								end
 							end
 						},
@@ -5021,6 +5024,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB then
 									if not ShamanPowerExpiringAlertsDB.shields then ShamanPowerExpiringAlertsDB.shields = {} end
 									ShamanPowerExpiringAlertsDB.shields.water = val
+										if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 								end
 							end
 						},
@@ -5049,7 +5053,8 @@ ShamanPower.options = {
 							disabled = function(info) return (not (ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields and ShamanPowerExpiringAlertsDB.shields.enabled ~= false)) and true or false end,
 							order = 15,
 							name = "Play Sound",
-							desc = "Play a sound when shield alerts appear",
+							desc = WithNotes("Play a sound when shield alerts appear.",
+								function() return WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end, "On this client the game itself plays this sound the moment your shield's last charge is used, in combat too - the one place the addon cannot see the shield fall. Out of combat you get the on-screen alert as well."),
 							type = "toggle",
 							width = 1.0,
 							get = function(info)
@@ -5062,6 +5067,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB then
 									if not ShamanPowerExpiringAlertsDB.shields then ShamanPowerExpiringAlertsDB.shields = {} end
 									ShamanPowerExpiringAlertsDB.shields.sound = val
+										if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 								end
 							end
 						},
@@ -5089,6 +5095,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB then
 									if not ShamanPowerExpiringAlertsDB.shields then ShamanPowerExpiringAlertsDB.shields = {} end
 									ShamanPowerExpiringAlertsDB.shields.soundName = val
+										if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 								end
 							end,
 						},
