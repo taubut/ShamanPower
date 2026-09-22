@@ -949,7 +949,12 @@ function SP:SetupExpiringAlertsEvents()
 	-- unnoticed until the next buff change, which may be minutes away. Re-check
 	-- the moment restrictions lift and report it then.
 	if SPCompat and SPCompat.OnUnrestricted then
-		SPCompat.OnUnrestricted(function() SP:CheckShieldState(false) end)
+		SPCompat.OnUnrestricted(function()
+			SP:CheckShieldState(false)
+			-- Re-baseline silently after secret totem slots become readable, so a
+			-- later totem event cannot announce a stale in-combat expiration.
+			SP:CheckTotemState(true)
+		end)
 	end
 end
 
