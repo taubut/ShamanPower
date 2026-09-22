@@ -14,6 +14,11 @@ SP.PartyRangeLoaded = true
 -- ============================================================================
 
 SP.partyRangeDots = {}  -- [element][partyIndex] = dot texture
+-- Declared here, ABOVE SetupPartyRangeDots: that function sets it, and a local
+-- declared further down would leave its write going to a global while the
+-- engine-dot rebuild read the local (always false). Found by the round-2 review;
+-- the engine dots had never been built.
+local engineDotsReady = false -- SetupPartyRangeDots has run (buttons exist)
 
 -- Buff spell IDs for totem buffs (same approach as TotemTimers)
 -- These are the BUFF spell IDs (auras on party members), NOT the cast spell IDs
@@ -346,7 +351,6 @@ end
 -- a rebuild asked for in combat waits for PLAYER_REGEN_ENABLED.
 SP.engineDots = {}            -- [element][partyIndex] = { container = frame|nil, key = string }
 local engineDotsPending = false
-local engineDotsReady = false -- SetupPartyRangeDots has run (buttons exist)
 
 local function EngineDotsAvailable()
 	return SPCompat ~= nil and SPCompat.secretsRegime == true and C_AddOns ~= nil and C_AddOns.LoadAddOn ~= nil
