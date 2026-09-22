@@ -2517,7 +2517,7 @@ function SP.Wizard.BuildRangeStep(card, inner, y)
 			c:SetPoint("TOPLEFT", card, "TOPLEFT", 18 + col * (chipW + 8), -(y + row * 32))
 			c.bg = c:CreateTexture(nil, "BACKGROUND"); c.bg:SetAllPoints(c); Core:MakeBorder(c, "border")
 			c.ic = c:CreateTexture(nil, "ARTWORK"); c.ic:SetSize(18, 18); c.ic:SetPoint("LEFT", c, "LEFT", 5, 0)
-			c.ic:SetTexture(GetSpellTexture(t.spellID)); c.ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			c.ic:SetTexture(SP.TrackableTotemIcon and SP:TrackableTotemIcon(t) or GetSpellTexture(t.spellID)); c.ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 			c.lbl = c:CreateFontString(nil, "OVERLAY"); c.lbl:SetFontObject(Core.fonts.row); c.lbl:SetPoint("LEFT", c.ic, "RIGHT", 7, 0)
 			c.lbl:SetPoint("RIGHT", c, "RIGHT", -6, 0); c.lbl:SetJustifyH("LEFT"); c.lbl:SetText(t.name)
 			c.id = t.id

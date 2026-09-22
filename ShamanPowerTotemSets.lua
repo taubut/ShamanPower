@@ -77,7 +77,9 @@ function SP:ReadTotemSet(page)
 	return t
 end
 
--- Totems the client allows in a slot, as a set of spell IDs (nil when the API has none).
+-- Totems the client allows in a slot, as a set of spell IDs. nil when the list
+-- is empty, which on this client means the player knows no totem for that slot
+-- yet (a level-11 shaman and Air): nothing may be written there.
 local function allowedInSlot(element)
 	local wowSlot = SP.ElementToSlot and SP.ElementToSlot[element] or element
 	local list = { GetMultiCastTotemSpells(wowSlot) }
@@ -90,7 +92,11 @@ end
 -- The slot list holds the rank the player would cast, our tables hold rank-1
 -- IDs: match by name and hand back the slot's own ID.
 local function resolveInSlot(allowed, spellID)
-	if not allowed or allowed[spellID] then return spellID end
+	-- No allowed list = the slot takes nothing yet. Writing anyway made the
+	-- client shout "Only Air totems can go in that slot" on every assignment
+	-- change before the first Air totem was learned.
+	if not allowed then return nil end
+	if allowed[spellID] then return spellID end
 	local want = spellName(spellID)
 	if not want then return nil end
 	for id in pairs(allowed) do

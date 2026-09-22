@@ -142,6 +142,8 @@ SP.TrackableTotems = {
 		spellID = 25908,
 		detection = "buff",
 		buffSpellID = 25909,
+		-- name AND icon rows are encrypted on WoW: Forever; the client cannot draw it
+		icon = "Interface\\Icons\\Spell_Nature_Brilliance",
 	},
 	{
 		id = "natureresist",
@@ -181,6 +183,14 @@ if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat
 		if SPCompat.SpellExists(totem.spellID) then kept[#kept + 1] = totem end
 	end
 	SP.TrackableTotems = kept
+end
+
+-- Icon for a trackable totem. Tranquil Air (25908) has no readable icon row on
+-- WoW: Forever (encrypted, like its name), so an entry may carry a static one.
+function SP:TrackableTotemIcon(totem)
+	local tex = GetSpellTexture and GetSpellTexture(totem.spellID)
+	if not tex then tex = select(3, GetSpellInfo(totem.spellID)) end
+	return tex or totem.icon
 end
 
 -- Build lookup by ID
@@ -440,8 +450,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 	-- Get icon from spell
-	local _, _, spellIcon = GetSpellInfo(totemData.spellID)
-	icon:SetTexture(spellIcon)
+	icon:SetTexture(self:TrackableTotemIcon(totemData))
 	btn.icon = icon
 
 	-- Range indicator overlay (red tint)

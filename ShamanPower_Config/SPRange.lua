@@ -78,7 +78,7 @@ local function Build()
 			local icon = btn:CreateTexture(nil, "ARTWORK")
 			icon:SetAllPoints(btn)
 			icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-			icon:SetTexture(GetSpellTexture(t.spellID))
+			icon:SetTexture(SP.TrackableTotemIcon and SP:TrackableTotemIcon(t) or GetSpellTexture(t.spellID))
 			Core:MakeBorder(btn, "borderSoft")
 
 			local name = btn:CreateFontString(nil, "OVERLAY")

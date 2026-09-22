@@ -165,30 +165,65 @@ end
 -- earlier today, and there is no reason to repeat it.
 -- ---------------------------------------------------------------------------
 do
-	local function firstEnchant(slotID)
-		if slotID == nil then return false end
-		local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slotID)
-		if not ok or type(list) ~= "table" then return false end
-		for _, e in pairs(list) do
-			if type(e) == "table" and e.hasEnchant then
-				-- timeLeft is milliseconds, same unit the classic tuple used
-				return true, e.timeLeft, e.charges, e.enchantID
-			end
-		end
-		return false
-	end
-
 	local useList = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 		and C_Item and C_Item.GetWeaponEnchantInfo and Enum and Enum.WeaponSlot
 
+	-- The list read builds fresh tables for both hands on every call. The cooldown
+	-- bar's imbue button asked five times a second, which alone was ~16 KB/s of
+	-- idle garbage (measured 2026-09-22). So: read once, keep the EXPIRY instead of
+	-- the remaining time, and re-read only when an event says the enchants
+	-- changed (or every REFRESH seconds as insurance).
+	local REFRESH = 5
+	local cache = { main = { has = false }, off = { has = false }, at = -REFRESH }
+	local secret = issecretvalue or function() return false end
+
+	local function readHand(slotID, t)
+		t.has, t.expiresAt, t.charges, t.id = false, nil, nil, nil
+		if slotID == nil then return end
+		local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slotID)
+		if not ok or type(list) ~= "table" then return end
+		for _, e in pairs(list) do
+			if type(e) == "table" and e.hasEnchant == true then
+				t.has, t.charges, t.id = true, e.charges, e.enchantID
+				-- timeLeft is milliseconds, same unit the classic tuple used
+				if type(e.timeLeft) == "number" and not secret(e.timeLeft) then
+					t.expiresAt = GetTime() * 1000 + e.timeLeft
+				end
+				return
+			end
+		end
+	end
+
+	local function refresh()
+		cache.at = GetTime()
+		readHand(Enum.WeaponSlot.MainHand, cache.main)
+		readHand(Enum.WeaponSlot.OffHand, cache.off)
+	end
+
+	local function remaining(t)
+		if not t.has or not t.expiresAt then return nil end
+		local ms = t.expiresAt - GetTime() * 1000
+		if ms <= 0 then cache.at = -REFRESH return 0 end   -- ran out: re-read next time
+		return ms
+	end
+
 	function SPCompat.GetWeaponEnchantInfo()
 		if useList then
-			local hm, me, mc, mid = firstEnchant(Enum.WeaponSlot.MainHand)
-			local ho, oe, oc, oid = firstEnchant(Enum.WeaponSlot.OffHand)
-			return hm, me, mc, mid, ho, oe, oc, oid
+			if GetTime() - cache.at >= REFRESH then refresh() end
+			local m, o = cache.main, cache.off
+			return m.has, remaining(m), m.charges, m.id, o.has, remaining(o), o.charges, o.id
 		end
 		if _G.GetWeaponEnchantInfo then return _G.GetWeaponEnchantInfo() end
 		return false
+	end
+
+	if useList then
+		local f = CreateFrame("Frame")
+		pcall(f.RegisterEvent, f, "WEAPON_ENCHANT_CHANGED")
+		f:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+		f:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+		f:RegisterEvent("PLAYER_ENTERING_WORLD")
+		f:SetScript("OnEvent", function() cache.at = -REFRESH end)   -- the next read re-reads
 	end
 end
 
