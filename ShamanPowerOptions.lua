@@ -1192,8 +1192,13 @@ ShamanPower.options = {
 								local vals = {}
 								-- 2=Grace of Air, 3=Wrath of Air, 4=Tranquil Air, 6=Nature Resistance
 								for _, i in ipairs({2, 3, 4, 6}) do
-									local name = GetSpellInfo(ShamanPower.AirTotems[i])
-									if name then
+									local id = ShamanPower.AirTotems[i]
+									local name = GetSpellInfo(id)
+									if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+										if not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(id) then
+											vals[i] = name or ShamanPower.TotemNames[4][i]
+										end
+									elseif name then
 										vals[i] = name
 									end
 								end

@@ -1513,7 +1513,12 @@ function SP.Wizard.BuildTwistingStep(card, inner, y)
 	local function twistValues()
 		local v = {}
 		for idx, spellID in pairs(SP.AirTotems or {}) do
-			if SP.TwistTotemIcons and SP.TwistTotemIcons[idx] then v[idx] = GetSpellInfo(spellID) or ("Air totem " .. idx) end
+			local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+			local exists = not forever or not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(spellID)
+			if exists and SP.TwistTotemIcons and SP.TwistTotemIcons[idx] then
+				local fallback = forever and SP.TotemNames and SP.TotemNames[4] and SP.TotemNames[4][idx]
+				v[idx] = GetSpellInfo(spellID) or fallback or ("Air totem " .. idx)
+			end
 		end
 		return v
 	end
