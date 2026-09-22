@@ -17,6 +17,7 @@ SP.RaidCooldownsLoaded = true
 -- answer true on every other client.
 local function HasBloodlust() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
 local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+local callerRequestEstimates = _G.SPCompat and _G.SPCompat.secretsRegime
 
 -- Preview (settings pane / unlock) sample data. The Bloodlust sample is keyed
 -- in callerCooldowns under a name no player can have (it holds a space) so a
@@ -242,7 +243,12 @@ function SP:CallManaTideForShaman(shamanName)
 		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
 		return
 	end
-	self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
+	local sent = self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
+	if callerRequestEstimates and sent ~= false then
+		self:RecordManaTideRequest(shamanName)
+		self:UpdateCallerButtonCooldowns()
+		self:StartCallerCooldownTracking()
+	end
 
 	if shamanName == self.player then
 		self:ShowManaTideAlert()
@@ -405,7 +411,13 @@ function SP:CallManaTide()
 		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
 		return
 	end
-	self:SendMessage("MTCALL", nil, nil, true)
+	local sent = self:SendMessage("MTCALL", nil, nil, true)
+	if callerRequestEstimates and sent ~= false then
+		-- The broadcast has no named recipient; estimate only configured shamans.
+		for name in pairs(_G.ShamanPower_RaidCooldowns.manatide) do self:RecordManaTideRequest(name) end
+		self:UpdateCallerButtonCooldowns()
+		self:StartCallerCooldownTracking()
+	end
 	print("|cff00ff00ShamanPower:|r Called for Mana Tide!")
 end
 
@@ -755,8 +767,12 @@ function SP:CreateCallerButtonFrame()
 
 	-- Enable/disable caller button systems based on visibility
 	frame:HookScript("OnShow", function()
-		SP:EnableCallerCooldownTracking()
-		SP:EnableUpdateSubsystem("callerButtons")
+		if callerRequestEstimates then
+			SP:StartCallerCooldownTracking()
+		else
+			SP:EnableCallerCooldownTracking()
+			SP:EnableUpdateSubsystem("callerButtons")
+		end
 	end)
 	frame:HookScript("OnHide", function()
 		SP:DisableCallerCooldownTracking()
@@ -847,6 +863,9 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Call Mana Tide")
 		GameTooltip:AddLine("From: " .. self.shamanName, 0, 0.7, 1)
+		if callerRequestEstimates then
+			_G.GameTooltip:AddLine("Request-based cooldowns are estimates; casts are not confirmed.", 1, 0.8, 0.2, true)
+		end
 		GameTooltip:Show()
 	end)
 	mtBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -995,6 +1014,25 @@ SP.callerCooldowns = {}  -- {[shamanName] = {bl = {start, duration}, mt = {start
 local BL_COOLDOWN = 600  -- 10 minutes
 local MT_COOLDOWN = 300  -- 5 minutes
 
+-- UNVERIFIED: a request is not a confirmed cast. These local estimates are
+-- never persisted as observed cooldowns, and do not read another unit's casts.
+function SP:RecordManaTideRequest(shamanName)
+	if not callerRequestEstimates then return end
+	if _G.issecretvalue and _G.issecretvalue(shamanName) then return end
+	if type(shamanName) ~= "string" then return end
+	self.callerCooldowns[shamanName] = self.callerCooldowns[shamanName] or {}
+	self.callerCooldowns[shamanName].mt = { start = _G.GetTime(), duration = MT_COOLDOWN }
+end
+
+local function HasLiveCallerCooldown(self, now)
+	for _, cooldowns in pairs(self.callerCooldowns) do
+		for _, cooldown in pairs(cooldowns) do
+			if cooldown.start + cooldown.duration > now then return true end
+		end
+	end
+	return false
+end
+
 -- Track spell casts via combat log
 function SP:SetupCallerCooldownTracking()
 	if self.callerCooldownFrame then return end
@@ -1123,6 +1161,10 @@ function SP:RestoreCallerCooldowns()
 			end
 		end
 	end
+	if callerRequestEstimates then
+		self:UpdateCallerButtonCooldowns()
+		self:StartCallerCooldownTracking()
+	end
 end
 
 -- Start the cooldown tracking OnUpdate
@@ -1136,8 +1178,10 @@ function SP:StartCallerCooldownTracking()
 			SP:UpdateCallerButtonCooldowns()
 		end)
 	end
-	-- Only enable if caller buttons frame is shown
-	if frame:IsShown() then
+	-- With no combat-log feed, an idle Forever frame has nothing to poll.
+	local run = frame:IsShown() and (not callerRequestEstimates or self.raidCDDemoActive
+		or HasLiveCallerCooldown(self, _G.GetTime()))
+	if run then
 		self:EnableCallerCooldownTracking()  -- Also registers COMBAT_LOG_EVENT_UNFILTERED
 		self:EnableUpdateSubsystem("callerButtons")
 	else
@@ -1195,6 +1239,9 @@ function SP:UpdateCallerButtonCooldowns()
 				self:ClearCallerButtonCooldown(mtBtn)
 			end
 		end
+	end
+	if callerRequestEstimates and not self.raidCDDemoActive and not HasLiveCallerCooldown(self, now) then
+		self:DisableUpdateSubsystem("callerButtons")
 	end
 end
 
@@ -1360,6 +1407,7 @@ function SP:RaidCDDemo(on)
 		frame:SetSize(width, 62)
 		frame:Show()
 		self:UpdateCallerButtonOpacity()
+		if callerRequestEstimates then self:StartCallerCooldownTracking() end
 	else
 		self.raidCDDemoActive = false
 		local frame = self.callerButtonFrame
