@@ -9219,7 +9219,11 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 	local function buildSlot(set)
 		local idMap = {}
 		for _, id in ipairs(set.ids) do idMap[id] = true end
-		local iconFile = GetSpellTexture and GetSpellTexture(set.ids[1]) or select(3, GetSpellInfo(set.ids[1]))
+		local iconFile
+		for _, id in ipairs(set.ids) do
+			iconFile = (GetSpellTexture and GetSpellTexture(id)) or select(3, GetSpellInfo(id))
+			if iconFile then break end
+		end
 		local slotKey = "shield_" .. set.name:gsub("%s", "")
 		return pcall(function()
 			container:AddAuraSlot(slotKey, "HELPFUL|PLAYER", {
