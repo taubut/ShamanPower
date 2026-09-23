@@ -951,7 +951,19 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	local FIRE_ICONS = (SP.TotemIcons and SP.TotemIcons[2]) or {}
 	local FB = SIZE                                  -- flyout buttons match the totem size
 	local fly = CreateFrame("Frame", nil, bar); fly:SetFrameLevel(bar:GetFrameLevel() + 12); fly:SetSize(1, 1); fly:SetPoint("CENTER", fire.main); fly:Hide()
-	local flyBtns, flyIdx = {}, { 2, 3, 4 }        -- shown in the flyout (the assigned one is never listed)
+	-- The flyout lists the client's other fire totems (never the assigned one): on
+	-- WoW: Forever Totem of Wrath and Fire Nova Totem do not exist, so a fixed
+	-- 2-3-4 pick showed Searing twice and Magma in Fire Nova's place.
+	local fireAssigned = (SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(30706)) and 2 or 1   -- matches FireMockIcon
+	local flyBtns, flyIdx = {}, {}
+	for idx = 1, 7 do
+		if idx ~= fireAssigned and FIRE_ICONS[idx] and (not SP.TotemExistsOnClient or SP:TotemExistsOnClient(2, idx)) then
+			flyIdx[#flyIdx + 1] = idx
+			if #flyIdx == 3 then break end
+		end
+	end
+	if #flyIdx < 3 then flyIdx = { 2, 3, 4 } end   -- totem data not ready: the classic pick
+	fire.assignedIdx = fire.assignedIdx or fireAssigned
 	for i = 1, 3 do
 		local b = CreateFrame("Frame", nil, fly); b:SetSize(FB, FB)
 		local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(b); bg:SetColorTexture(0, 0, 0, 0.75)
