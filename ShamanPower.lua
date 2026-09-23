@@ -8246,7 +8246,19 @@ function ShamanPower:UpdatePlayerTotemRange()
 	-- drop-distance model further down, so there is nothing to scan for - and each aura
 	-- read on that client builds a table.
 	local blindNow = TRACK_TOTEM_DROPS and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
-	for i = 1, (blindNow and 0 or 20) do
+	-- The buff list only changes on an aura event: reuse the last scan until then.
+	local scan = self._rangeScan
+	if not scan then scan = { hits = {}, names = {} }; self._rangeScan = scan end
+	local reuse = not blindNow and self:AuraCacheValid("player", scan.gen, scan.at)
+	if reuse then
+		for element = 1, 4 do
+			if scan.names[element] ~= buffNames[element] then reuse = false break end
+		end
+	end
+	if reuse then
+		for element = 1, 4 do results[element] = scan.hits[element] end
+	end
+	for i = 1, ((blindNow or reuse) and 0 or 20) do
 		local name = UnitBuff("player", i)
 		if not name then break end
 
@@ -8269,6 +8281,11 @@ function ShamanPower:UpdatePlayerTotemRange()
 				end
 			end
 		end
+	end
+
+	if not blindNow and not reuse then
+		scan.gen, scan.at = self.auraGen["player"] or 0, GetTime()
+		for element = 1, 4 do scan.hits[element], scan.names[element] = results[element], buffNames[element] end
 	end
 
 	-- Check weapon enchant totems via GetWeaponEnchantInfo()
@@ -14685,7 +14702,18 @@ function ShamanPower:UNIT_SPELLCAST_SENT(event, unit, target, castGUID, spellID)
 end
 
 -- Earth Shield aura tracking (updates charges when aura changes on tracked target)
+-- Aura generation per unit: bumped on every UNIT_AURA, so a caller can keep an
+-- answer about a unit's buffs until that unit's auras actually change. On the
+-- Mainline family every aura read builds a table; polling party buffs twice a
+-- second was the range pass's whole idle garbage.
+ShamanPower.auraGen = {}
+function ShamanPower:AuraCacheValid(unit, gen, at)
+	-- same aura generation and under 5 s old (a party slot can change hands without an aura event)
+	return gen ~= nil and gen == (self.auraGen[unit] or 0) and at and (GetTime() - at) < 5
+end
+
 function ShamanPower:UNIT_AURA(event, unit)
+	if unit then self.auraGen[unit] = (self.auraGen[unit] or 0) + 1 end
 	-- Only process if we have a tracked ES target
 	if self.esTrackedTargetGUID then
 		self:OnEarthShieldAuraChange(unit)

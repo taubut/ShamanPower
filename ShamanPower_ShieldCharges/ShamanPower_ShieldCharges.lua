@@ -302,7 +302,12 @@ function SP:UpdateShieldChargeDisplays()
 			hasShield = true
 			self:EnsureShieldChargeEngine(playerFrame, "player", scale)
 		else
-			-- Check for Lightning Shield or Water Shield
+			-- Check for Lightning Shield or Water Shield; the answer holds until the next aura event
+			local sc = self._shieldChargeScan
+			if not sc then sc = {}; self._shieldChargeScan = sc end
+			if self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
+				charges, hasShield = sc.charges, sc.hasShield
+			else
 			for i = 1, 40 do
 				local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
 				if not name then break end
@@ -317,6 +322,8 @@ function SP:UpdateShieldChargeDisplays()
 					hasShield = true
 					break
 				end
+			end
+			sc.gen, sc.at, sc.charges, sc.hasShield = ShamanPower.auraGen and ShamanPower.auraGen["player"] or 0, GetTime(), charges, hasShield
 			end
 		end
 		if playerFrame.engine then playerFrame.engine:SetShown(restricted) end

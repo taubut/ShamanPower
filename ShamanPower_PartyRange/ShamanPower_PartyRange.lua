@@ -304,6 +304,17 @@ function SP:UnitHasBuff(unit, buffName, element)
 		return near
 	end
 
+	-- Same unit, same buff, no aura event since the last look: same answer.
+	local cache = self._unitBuffCache
+	if not cache then cache = {}; self._unitBuffCache = cache end
+	local uc = cache[unit]
+	if not uc then uc = { gen = {}, at = {}, has = {} }; cache[unit] = uc end
+	if self:AuraCacheValid(unit, uc.gen[buffName], uc.at[buffName]) then
+		local has = uc.has[buffName]
+		if element then self.partyRangeLast[unit .. element] = has end
+		return has
+	end
+
 	local has = false
 	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 		local ids = SP.TotemBuffIDSets[buffName]
@@ -326,6 +337,7 @@ function SP:UnitHasBuff(unit, buffName, element)
 			if name == buffName then has = true break end
 		end
 	end
+	uc.gen[buffName], uc.at[buffName], uc.has[buffName] = self.auraGen[unit] or 0, GetTime(), has
 	if element then self.partyRangeLast[unit .. element] = has end
 	return has
 end
