@@ -166,6 +166,12 @@ local function BuildIconList()
 	filteredIcons = allIcons
 end
 
+-- The Config dialog and the fallback use the same lazily built catalogue.
+function ShamanPower.GetLoadoutIconChoices()
+	BuildIconList()
+	return allIcons
+end
+
 local function UpdateVisibleButtons()
 	if not iconPickerFrame then return end
 
@@ -348,6 +354,10 @@ local function CreateIconPickerFrame()
 end
 
 function ShamanPower:OpenIconPicker(loadoutIndex, callback)
+	if self.OpenConfigIconPicker then
+		if iconPickerFrame then iconPickerFrame:Hide() end
+		return self:OpenConfigIconPicker(loadoutIndex, callback)
+	end
 	BuildIconList()
 	CreateIconPickerFrame()
 

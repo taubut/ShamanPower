@@ -11,6 +11,7 @@
 
 Core.lua
 Widgets.lua
+IconPicker.lua
 Tree.lua
 Window.lua
 Assign.lua
