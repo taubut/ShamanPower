@@ -3449,11 +3449,13 @@ function SP.Wizard:RenderRole()
 
 	local intro = track(c:CreateFontString(nil, "OVERLAY"))
 	intro:SetFontObject(Core.fonts.title)
-	intro:SetPoint("TOP", c, "TOP", 0, -46)
-	intro:SetText("Welcome to ShamanPower")
+	intro:SetPoint("TOP", c, "TOP", 0, -40)
+	intro:SetText("Welcome to |cffffd200ShamanPower|r")
+	local introRule = track(c:CreateTexture(nil, "ARTWORK"))
+	introRule:SetSize(60, 2); introRule:SetPoint("TOP", intro, "BOTTOM", 0, -6); introRule:SetColorTexture(1, 0.82, 0, 0.8)
 	local sub = track(c:CreateFontString(nil, "OVERLAY"))
 	sub:SetFontObject(Core.fonts.rowDim)
-	sub:SetPoint("TOP", intro, "BOTTOM", 0, -8)
+	sub:SetPoint("TOP", introRule, "BOTTOM", 0, -6)
 	sub:SetWidth(560); sub:SetJustifyH("CENTER")
 	sub:SetText(state.freshInstall
 		and "Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later."
