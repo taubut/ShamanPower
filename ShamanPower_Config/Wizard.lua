@@ -391,7 +391,7 @@ local STEPS = {
 	    "Red border for enemy totems, green for friendly. Optional name under the icon.",
 	    "Pulsing totems get a countdown to their next tick: text, bar, or swipe.",
 	    (SPCompat and SPCompat.secretsRegime)
-	      and "|cffFFB000Friendly totems inside dungeons and raids are not confirmed on this client yet|r - the game keeps friendly nameplates away from addons there on every other client. Enemy totems work everywhere."
+	      and "|cffFFB000Friendly totems do not show inside dungeons and raids|r - the game keeps friendly nameplates away from addons there. Enemy totems work everywhere."
 	      or "|cffFFB000Friendly totems do NOT show inside dungeons or raids|r (the game hides those nameplates there). Enemy totems work everywhere.",
 	  },
 	  toggles = { { label = "Enable Totem Plates", bind = "totemplates" } } },
@@ -3013,7 +3013,7 @@ function SP.Wizard.BuildTotemPlatesStep(card, inner, y)
 	local function off() return not get("enabled", false) end
 	row("Toggle", { label = "Enemy totems", disabled = off, get = function() return get("showEnemy", true) ~= false end, set = function(v) tp().showEnemy = v; upd() end })
 	row("Toggle", { label = "Friendly totems", desc = (SPCompat and SPCompat.secretsRegime)
-			and "Works in the open world and battlegrounds. Inside dungeons and raids it is not confirmed on this client yet: every other client keeps friendly nameplates away from addons there. Enemy totems work everywhere."
+			and "Works in the open world and battlegrounds. Not inside dungeons and raids: the game keeps friendly nameplates away from addons there. Enemy totems work everywhere."
 			or "Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
 		disabled = off, get = function() return get("showFriendly", true) ~= false end, set = function(v) tp().showFriendly = v; upd() end })
 	row("Slider", { label = "Icon size", min = 20, max = 80, step = 2, disabled = off, get = function() return get("iconSize", 40) end, set = function(v) tp().iconSize = v; upd("UpdateTotemPlatesSize") end })
