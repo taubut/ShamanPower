@@ -16,21 +16,21 @@ local NOTES = {
 	-- of the release that ships these notes, or the card stays quiet.
 	version = "3.0.0",
 	items = {
-		{ h = "ShamanPower now runs on WoW: Forever",
+		{ icon = "Interface\\Icons\\ClassIcon_Shaman", h = "ShamanPower now runs on WoW: Forever",
 		  b = "One download for both games. On Forever the game itself draws ShamanPower's totem timers, party dots and alerts, so they keep working in combat, and totems that game does not have are hidden everywhere. Forever characters start with the setup tour." },
 		{ h = "Blizzard's totem bar, powered by ShamanPower", try = "blizzard",
 		  when = function() return SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil end,   -- Forever only
 		  b = "Keep the game's own totem bar and get ShamanPower's countdowns, duration bars, pulse timers and party dots drawn on its buttons. Blizzard's three totem sets stay in step with your assignments and loadouts."
 		    .. "\n|cff3FA9F5Settings > General > Totem Bar Style|r  -  hover a style there to see it in the live preview" },
-		{ h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
+		{ icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02", h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
 		  b = "The reverse of Totem Range. Under each of your totems, the names of the party members who do NOT have its buff, in red or class colour. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
 		    .. "\n|cff3FA9F5Settings > Party Buff Tracker > Totem Coverage|r" },
-		{ h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
+		{ icon = "Interface\\Icons\\INV_Misc_Map_01", h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
 		  b = "A pin where each totem was dropped and a ring for its reach, turning with the minimap. Open world only."
 		    .. "\n|cff3FA9F5Settings > Totem Range Tracker|r" },
-		{ h = "Auto-Assign picks by who is in the group",
+		{ icon = "Interface\\Icons\\Spell_Nature_StoneSkinTotem", h = "Auto-Assign picks by who is in the group",
 		  b = "Stoneskin for caster-only groups and Strength of Earth with melee; Mana Spring with mana users, Healing Stream otherwise; the Air totem by who benefits. This changes what Auto-Assign picks for existing characters too." },
-		{ h = "The settings window shows what it changes",
+		{ icon = "Interface\\Icons\\INV_Misc_Gear_01", h = "The settings window shows what it changes",
 		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
 	footer = "Also: a Grid style that shows every totem at once (Settings > General > Totem Bar Style), a Move button and Unlock UI box for the loadout bar, an icon picker with search, and an alignment grid in Unlock UI. The full list is in the changelog. Help, bugs and test builds: the ShamanPower Discord, linked on Settings > General.",
@@ -137,7 +137,7 @@ local function BuildDialog()
 	if dlg then return dlg end
 	dlg = Core:CreateDialog({
 		name = "ShamanPowerWhatsNew", width = 560, height = 200,
-		title = "What's new in ShamanPower " .. NOTES.version,
+		title = "What's new",
 		subtitle = "shown once per update", headerHeight = 46, footer = 52, special = true,
 	})
 	dlg:SetFrameStrata("DIALOG")
@@ -147,11 +147,40 @@ local function BuildDialog()
 
 	local W, y = 526, 2
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
+	local GOLD = { 1, 0.82, 0.15 }
+
+	-- the banner: big gold version title over a gold glow, like the Discord heading
+	do
+		local band = CreateFrame("Frame", nil, dlg.body)
+		band:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, 0); band:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, 0)
+		band:SetHeight(62)
+		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band); glow:SetColorTexture(1, 1, 1, 1)
+		Core:Gradient(glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.26, GOLD[1], GOLD[2], GOLD[3], 0)
+		local rule = band:CreateTexture(nil, "ARTWORK"); rule:SetHeight(2)
+		rule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); rule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
+		rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
+		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\Icons\\ClassIcon_Shaman"); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		local title = band:CreateFontString(nil, "OVERLAY")
+		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
+		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
+		title:SetText("ShamanPower " .. (NOTES.version:gsub("%.0$", "")))
+		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
+		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
+		sub:SetText("Now on |cff3FA9F5WoW: Forever|r and TBC Anniversary")
+		y = y + 62 + 14
+	end
 	for _, it in ipairs(NOTES.items) do
 	  if not it.when or it.when() then   -- an item for a feature this client lacks stays out
 		-- a totem bar style gets its picture on the left and a Try it button on the right
 		local tryIt = it.try and isShaman and SP.TotemBarStyle and SP:TotemBarStyle(it.try) ~= nil
 		local x, w = 0, W
+		if not tryIt and it.icon then
+			local ic = dlg.body:CreateTexture(nil, "ARTWORK"); ic:SetSize(30, 30)
+			ic:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 4, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			x, w = 44, W - 44
+		end
 		if tryIt then
 			if ns.DrawStyleThumb then
 				local th = ns.DrawStyleThumb(dlg.body, it.try, 72, 34)
@@ -166,13 +195,30 @@ local function BuildDialog()
 		end
 		local h = dlg.body:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
 		h:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); h:SetWidth(w); h:SetJustifyH("LEFT")
-		h:SetText(it.h); h:SetTextColor(Core:Color("accentHi"))
+		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		y = y + h:GetStringHeight() + 4
 		local b = dlg.body:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
 		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
 		b:SetText(it.b)
 		y = y + b:GetStringHeight() + 14
 	  end
+	end
+	-- Discord strip: logo, invite line, Copy Link
+	do
+		local strip = CreateFrame("Frame", nil, dlg.body)
+		strip:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); strip:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -y)
+		strip:SetHeight(40)
+		local bg = strip:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(strip); bg:SetColorTexture(1, 1, 1, 1)
+		Core:Gradient(bg, "HORIZONTAL", 0.345, 0.396, 0.949, 0.22, 0.345, 0.396, 0.949, 0.04)
+		local logo = strip:CreateTexture(nil, "ARTWORK"); logo:SetSize(30, 30)
+		logo:SetPoint("LEFT", strip, "LEFT", 6, 0); logo:SetTexture("Interface\\AddOns\\ShamanPower\\Media\\discord")
+		local copy = Core:MakeButton(strip, "Copy Link", 100, true)
+		copy:SetPoint("RIGHT", strip, "RIGHT", -6, 0)
+		copy:SetScript("OnClick", function() if StaticPopupDialogs["SHAMANPOWER_COPY_LINK"] then StaticPopup_Show("SHAMANPOWER_COPY_LINK") end end)
+		local t = strip:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
+		t:SetPoint("LEFT", logo, "RIGHT", 10, 0); t:SetPoint("RIGHT", copy, "LEFT", -10, 0); t:SetJustifyH("LEFT")
+		t:SetText("|cff8C9EFFJoin the ShamanPower Discord|r - help, bug reports and early test builds")
+		y = y + 40 + 12
 	end
 	if NOTES.footer then
 		local f = dlg.body:CreateFontString(nil, "OVERLAY"); f:SetFontObject(Core.fonts.tiny)
