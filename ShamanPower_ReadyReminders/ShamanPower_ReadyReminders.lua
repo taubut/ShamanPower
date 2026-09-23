@@ -587,10 +587,16 @@ function SP:ReadyRemindersDemo(on)
 		local wasActive = self.readyDemoActive
 		self.readyDemoActive = true
 		self:UpdateAllReadyReminderAppearance()
-		if wasActive then return end   -- re-entrant: options changed, keep cycling
+		-- The preview shows every borrowed icon (enabled or not) before calling
+		-- this; sorting them right here, in the same frame, means the disabled
+		-- ones never get drawn. Waiting for the first tick flashed them all.
+		if wasActive then
+			if self.readyDemoTick then self.readyDemoTick() end
+			return   -- re-entrant: options changed, keep cycling
+		end
 		local t0 = GetTime()
 		if self.readyDemoTicker then self.readyDemoTicker:Cancel() end
-		self.readyDemoTicker = C_Timer.NewTicker(0.1, function()
+		local function tick()
 			if not self.readyDemoActive then return end
 			local sv = SV()
 			local now = GetTime()
@@ -617,14 +623,20 @@ function SP:ReadyRemindersDemo(on)
 					f:Hide()
 				end
 			end
+			-- tell the preview which icons this demo is keeping hidden (see ShamanPowerPreview showFrame)
+			for _, fr in pairs(frames) do fr.spDemoHidden = not fr:IsShown() end
 			self.readyDemoStatus = total == 0 and "No spells enabled - tick some below."
 				or string.format("%d of %d ready - the rest are counting down", readyCount, total)
-		end)
+		end
+		self.readyDemoTick = tick
+		self.readyDemoTicker = C_Timer.NewTicker(0.1, tick)
+		tick()
 	else
 		self.readyDemoActive = nil
+		self.readyDemoTick = nil
 		if self.readyDemoTicker then self.readyDemoTicker:Cancel(); self.readyDemoTicker = nil end
 		self.readyDemoStatus = nil
-		for _, f in pairs(frames) do stopEffects(f); f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil; f:Hide() end
+		for _, f in pairs(frames) do stopEffects(f); f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil; f.spDemoHidden = nil; f:Hide() end
 		self:UpdateReadyReminders()
 	end
 end

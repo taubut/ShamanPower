@@ -93,6 +93,9 @@ function SP:ShowPreview(key, container)
 	-- the demo keeps hidden (icons on cooldown): shown once per mount there,
 	-- and the demo owns their visibility from then on.
 	local function showFrame(frame)
+		-- a demo that runs its own show/hide (icons on cooldown, spells ticked off)
+		-- marks the frames it is keeping hidden; showing them here flashed them
+		if frame.spDemoHidden then return end
 		if container.previewPane then
 			if frame.spPaneShown then return end
 			frame.spPaneShown = true
