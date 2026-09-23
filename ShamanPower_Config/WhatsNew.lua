@@ -161,7 +161,7 @@ local function BuildDialog()
 		rule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); rule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
 		rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
 		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
-		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\Icons\\ClassIcon_Shaman"); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
 		local title = band:CreateFontString(nil, "OVERLAY")
 		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)

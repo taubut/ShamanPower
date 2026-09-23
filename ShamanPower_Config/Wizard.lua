@@ -3456,7 +3456,7 @@ function SP.Wizard:RenderRole()
 	bandRule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); bandRule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
 	bandRule:SetColorTexture(1, 0.82, 0.15, 0.9)
 	local bandIcon = band:CreateTexture(nil, "ARTWORK"); bandIcon:SetSize(44, 44)
-	bandIcon:SetPoint("TOPLEFT", band, "TOPLEFT", 8, -9); bandIcon:SetTexture("Interface\\Icons\\ClassIcon_Shaman"); bandIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	bandIcon:SetPoint("TOPLEFT", band, "TOPLEFT", 8, -9); bandIcon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); bandIcon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
 	local intro = band:CreateFontString(nil, "OVERLAY")
 	intro:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); intro:SetTextColor(1, 0.82, 0.15)
 	intro:SetShadowColor(0, 0, 0, 1); intro:SetShadowOffset(2, -2)
