@@ -533,31 +533,36 @@ end
 -- preset preview, which own that override themselves.
 function SPConfig:HoverStyle(key)
 	local sp = SP()
+	local pane = frame and frame.preview
+	local function refit()
+		-- the mocks re-lay themselves out on their next frame; a wider style must still fit the pane
+		local fits = pane and pane.mockFits
+		if not fits then return end
+		local function run() if pane.mockFits == fits then for _, f in ipairs(fits) do f() end end end
+		C_Timer.After(0, run)
+		C_Timer.After(0.2, run)
+	end
 	if not key then
 		if frame and frame._hoverStyle then
 			frame._hoverStyle = nil
-			if sp and sp.Wizard then sp.Wizard.optOverride = nil end
+			-- only the copy this window set; a style preview or the tour may own the override by now
+			if sp and sp.Wizard and sp.Wizard.optOverride == frame._hoverOverride then sp.Wizard.optOverride = nil end
+			frame._hoverOverride = nil
+			refit()
 		end
 		return
 	end
-	local pane = frame and frame.preview
 	if not (pane and frame._previewOpen and pane.mockSpec and frame:IsShown()) then return end
 	if not (sp and sp.Wizard and sp.opt and sp.ApplyTotemBarStyleTo) then return end
 	local wiz = _G["ShamanPowerWizard"]
 	if wiz and wiz:IsShown() then return end
-	if sp.Wizard.optOverride and not frame._hoverStyle then return end
+	if sp.Wizard.optOverride and sp.Wizard.optOverride ~= frame._hoverOverride then return end   -- someone else's override
 	local o = {}
 	for k, v in pairs(sp.opt) do o[k] = v end   -- shallow copy; the mocks only read nested tables
 	if not sp:ApplyTotemBarStyleTo(o, key) then return end
 	sp.Wizard.optOverride = o
-	frame._hoverStyle = key
-	-- the mocks re-lay themselves out on their next frame; a wider style must still fit the pane
-	local fits = pane.mockFits
-	if fits then
-		local function refit() if pane.mockFits == fits then for _, f in ipairs(fits) do f() end end end
-		C_Timer.After(0, refit)
-		C_Timer.After(0.2, refit)
-	end
+	frame._hoverStyle, frame._hoverOverride = key, o
+	refit()
 end
 
 -- Show the current page's preview (or say why there is none). Re-running it

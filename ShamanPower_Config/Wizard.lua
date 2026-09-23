@@ -682,7 +682,10 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	-- Grid style shows the settings pane's grid mock instead of the bar
 	local gridHost
 	if ns.PaneBuilders and ns.PaneBuilders.BuildGridMock then
-		gridHost = CreateFrame("Frame", nil, inner); gridHost:SetAllPoints(inner); gridHost:Hide()
+		-- centred and sized to the grid mock itself (below), never filling the panel:
+		-- the settings pane fits its mocks by their width, and a host as wide as
+		-- the pane would make that fit shrink the pane a little on every pass
+		gridHost = CreateFrame("Frame", nil, inner); gridHost:SetPoint("CENTER", inner, "CENTER", 0, 0); gridHost:SetSize(1, 1); gridHost:Hide()
 		pcall(ns.PaneBuilders.BuildGridMock, gridHost)
 	end
 	-- frame behind the bar (Hide Totem Bar Frame option)
@@ -722,9 +725,11 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	-- A style card under the mouse previews its style without changing anything.
 	local hoverKey
 	local HOVER_MODE = { normal = "normal", totemtimers = "tt", dynamic = "dynamic", compact = "compact", grid = "grid", blizzard = "blizzard" }
+	-- a profile written on Forever can carry the Blizzard-bar flag onto a client without that bar
+	local blizzardStyle = SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil
 	local function mode()
 		if hoverKey then return HOVER_MODE[hoverKey] or "normal" end
-		if OPT().useBlizzardTotemBar then return "blizzard" end
+		if blizzardStyle and OPT().useBlizzardTotemBar then return "blizzard" end
 		if OPT().gridStyle then return "grid" end
 		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
@@ -922,7 +927,18 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if m == "compact" then bar:SetAlpha(0); cm:Show(); paintCompact(el)
 		elseif m == "grid" then bar:SetAlpha(0); cm:Hide()
 		else bar:SetAlpha(1); cm:Hide() end
-		if gridHost then gridHost:SetShown(m == "grid") end
+		if gridHost then
+			gridHost:SetShown(m == "grid")
+			local root = gridHost.gridMock
+			if m == "grid" and root then
+				local w, h = root:GetWidth() * root:GetScale(), root:GetHeight() * root:GetScale()
+				gridHost:SetSize(math.max(1, w), math.max(1, h))
+				-- a small panel (what's-new card, preset preview) gets the grid shrunk to fit, like the bar
+				if SP.Wizard.previewOnly then
+					gridHost:SetScale(math.max(0.2, math.min(1, (inner:GetHeight() - 6) / math.max(1, h + 16), (inner:GetWidth() - 6) / math.max(1, w + 16))))
+				end
+			end
+		end
 	end)
 
 	if SP.Wizard.previewOnly then

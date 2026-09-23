@@ -207,8 +207,10 @@ end
 
 SLASH_SPWHATSNEW1 = "/spwhatsnew"
 SlashCmdList["SPWHATSNEW"] = function(msg)
-	local key = strtrim(msg or ""):lower():match("^preview%s*(%S*)")
-	if key then ShowStylePreview(key ~= "" and key or "grid") return end
+	local m = strtrim(msg or ""):lower()
+	if m == "preview" then ShowStylePreview("grid") return end
+	local key = m:match("^preview%s+(%S+)$")
+	if key then ShowStylePreview(key) return end
 	SP:ShowWhatsNew(true)
 end
 

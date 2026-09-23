@@ -321,6 +321,10 @@ local function CreateToggle(parent)
 	knob:SetColorTexture(0.95, 0.96, 0.98, 1)
 
 	row.track, row.trackTex, row.knob = track, trackTex, knob
+	-- The switch is a mouse-enabled child: sliding onto it fires the row's
+	-- OnLeave. Keep the row's hover hooks (a style preview) alive across it.
+	track:HookScript("OnEnter", function() if row.spOnEnter then row:spOnEnter() end end)
+	track:HookScript("OnLeave", function() if row.spOnLeave then row:spOnLeave() end end)
 
 	track:SetScript("OnClick", function()
 		local opts = row.opts

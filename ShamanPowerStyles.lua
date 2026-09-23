@@ -93,14 +93,27 @@ function SP:SetTotemBarStyle(key)
 		return false
 	end
 	local o = self.opt
-	local wasGrid, wasBlizzard = o.gridStyle == true, o.useBlizzardTotemBar == true
-	if wasGrid and key ~= "grid" and self.SetGridStyle then self:SetGridStyle(false) end
+	-- Leave the current style through its own setter first, while the new flags
+	-- are still off: Grid tears its rows down, Blizzard's bar gives the custom
+	-- bar back, Compact restores the icon bar. Doing this after the new flags
+	-- landed would run those teardowns with the next style already "on"
+	-- (ApplyCompactStyle's layout pass is hooked by the Blizzard-bar code).
+	if o.gridStyle and key ~= "grid" and self.SetGridStyle then self:SetGridStyle(false) end
+	if o.useBlizzardTotemBar and key ~= "blizzard" then
+		o.useBlizzardTotemBar = nil
+		if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end
+	end
+	if o.compactStyle and key ~= "compact" then
+		o.compactStyle = false
+		if self.ApplyCompactStyle then self:ApplyCompactStyle() end
+	end
 	st.apply(o)
 	if key == "grid" then
-		if self.SetGridStyle then self:SetGridStyle(true) end   -- clears the other flags and refreshes the bar itself
+		if self.SetGridStyle then self:SetGridStyle(true) end   -- builds the rows and refreshes the bar itself
+	elseif key == "blizzard" then
+		if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end   -- what the Mode & Twisting toggle does
 	else
 		if self.ApplyCompactStyle then self:ApplyCompactStyle() end
-		if (wasBlizzard or key == "blizzard") and self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end
 		if self.UpdateLayout then self:UpdateLayout() end
 		if self.UpdateMiniTotemBar then self:UpdateMiniTotemBar() end
 		if self.UpdateActiveTotemOverlays then self:UpdateActiveTotemOverlays() end
