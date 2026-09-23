@@ -9578,6 +9578,17 @@ do
 		get = function() return SP:GetTotemBarStyle() end,
 		set = function(_, value) SP:SetTotemBarStyle(value) end,
 	}
+	-- right under the style picker too (same setting as on Mode & Twisting)
+	main.hide_blizzard_totem_bar = {
+		order = 1.55, type = "toggle", name = "Hide Blizzard's Totem Bar", width = "full",
+		desc = "While you use ShamanPower's bar, keep Blizzard's own totem bar hidden so you do not get two. It still shows in Edit Mode. Turn this off to keep both.",
+		hidden = function() return not isShaman or not HasLoadoutSetControls() or NativeTotemBarSelected() end,
+		get = function() return SP.opt.hideBlizzardTotemBar ~= false end,
+		set = function(_, value)
+			SP.opt.hideBlizzardTotemBar = value and nil or false
+			if SP.ApplyBlizzardTotemBarHiding then SP:ApplyBlizzardTotemBarHiding() end
+		end,
+	}
 	SP.OptionHoverStyle = {
 		[main.totemBarStyle] = "select",
 		[mode.dynamicMode] = "dynamic",
