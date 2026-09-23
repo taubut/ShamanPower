@@ -1765,10 +1765,20 @@ function ShamanPower:GetTotemStatus()
 	return activeCount, assignedCount
 end
 
+-- Does a dropped totem become the assignment? Dynamic mode always; Grid style
+-- too unless "Left-Click Also Assigns" is off (every totem is on screen there,
+-- so the one you click is the one you mean).
+function ShamanPower:DropSetsAssignment()
+	local o = self.opt
+	if not o then return false end
+	if o.dynamicTotemMode then return true end
+	return o.gridStyle == true and o.gridDropAssigns ~= false and self.GridActive and self:GridActive() or false
+end
+
 -- Update totem assignments and icons for Dynamic Mode
 -- When a totem is placed, it becomes the new assignment for that element
 function ShamanPower:UpdateDynamicTotemIcons()
-	if not self.opt.dynamicTotemMode then return end
+	if not self:DropSetsAssignment() then return end
 
 	local playerName = self.player
 	if not ShamanPower_Assignments[playerName] then
@@ -2866,8 +2876,8 @@ function ShamanPower:SetupTotemProgressBars()
 		self:RegisterUpdateSubsystem("progressBars", 0.1, function()
 			spWhileTotemsDown(barState, barPass)   -- duration bars / texts / dropped-totem overlays need a totem down
 
-			-- Dynamic Mode: update totem icons to reflect currently placed totems
-			if ShamanPower.opt.dynamicTotemMode then
+			-- Dynamic Mode (and Grid): update totem icons to reflect currently placed totems
+			if ShamanPower:DropSetsAssignment() then
 				ShamanPower:UpdateDynamicTotemIcons()
 			end
 
@@ -14668,8 +14678,8 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 		local spellName = GetSpellInfo(spellID)
 		if spellName and spellName:find("Totem") then
 			self:TriggerGCDSwipe()
-			-- Dynamic Mode: immediately update assignment when totem is cast
-			if self.opt.dynamicTotemMode then
+			-- Dynamic Mode (and Grid): immediately update assignment when totem is cast
+			if self:DropSetsAssignment() then
 				-- Small delay to let GetTotemInfo update
 				C_Timer.After(0.01, function()
 					self:UpdateDynamicTotemIcons()
@@ -16762,8 +16772,8 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 			ShamanPower.pendingAssignments = nil
 			-- Silent save, like TotemTimers
 		end
-		-- Dynamic Mode: update button attributes now that we're out of combat
-		if ShamanPower.opt.dynamicTotemMode then
+		-- Dynamic Mode (and Grid): update button attributes now that we're out of combat
+		if ShamanPower:DropSetsAssignment() then
 			ShamanPower:UpdateMiniTotemBar()
 			ShamanPower:UpdateTotemButtons()
 		end

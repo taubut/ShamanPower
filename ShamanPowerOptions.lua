@@ -9460,6 +9460,15 @@ do
 			NotifyGrid()
 		end,
 	}
+	mode.gridDropAssigns = {
+		order = 4.765, type = "toggle", name = "Left-Click Also Assigns", width = "full",
+		desc = "Clicking a totem in the Grid drops it AND makes it that element's assigned totem, the way Dynamic Mode "
+			.. "treats every drop: the highlight moves to it, and your keybind and Drop All cast it next. "
+			.. "Off: left-click only drops, right-click assigns.",
+		hidden = function() return not SP.opt.gridStyle end,
+		get = function() return SP.opt.gridDropAssigns ~= false end,
+		set = function(_, value) SP.opt.gridDropAssigns = value; NotifyGrid() end,
+	}
 	mode.gridSplit = {
 		order = 4.77, type = "toggle", name = "Split by Element", width = "full",
 		desc = "Give each row its own pop-out frame. Unlock UI moves the four rows; "
