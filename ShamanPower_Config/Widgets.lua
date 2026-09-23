@@ -469,7 +469,15 @@ function Widgets:Slider(parent, opts)
 	row.min  = opts.min or 0
 	row.max  = opts.max or 100
 	row.step = opts.step or 1
-	row.isPercent = opts.isPercent and true or false   -- rows are pooled: always reset
+	-- Percent display: AceConfig pages say so explicitly (true/false). Sliders built
+	-- by hand (the setup tour, module windows) do not; a fractional step on a
+	-- 0-3 range is a scale or an opacity there, so it shows as 70% / 180% too.
+	-- Seconds sliders (e.g. Duration 1-5) run past 3 and keep their decimals.
+	if opts.isPercent ~= nil then
+		row.isPercent = opts.isPercent and true or false   -- rows are pooled: always reset
+	else
+		row.isPercent = row.step < 1 and row.min >= 0 and row.max <= 3
+	end
 
 	-- Changing the range can clamp the current value and fire OnValueChanged;
 	-- that must never reach the new opts.set.
