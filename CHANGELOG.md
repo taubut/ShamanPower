@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v2.2.0 (unreleased)
+## v3.0.0 (unreleased)
 
 ### New
 - **WoW: Forever support.** ShamanPower runs on the Forever beta from the same download as Anniversary. Where the game hides combat data from addons, the game itself draws the totem timers and countdown numbers, the party buff dots, the reactive and expiring alerts and the cooldown sweeps, so they keep working in combat. Spells that do not exist on Forever (Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, the Elementals, Fire Nova Totem) are hidden everywhere: pages, previews, dropdowns, assignments, Auto-Assign. Forever characters start with the setup tour, which has a WoW: Forever step and a Totem Sets step.

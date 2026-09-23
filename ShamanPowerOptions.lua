@@ -9584,10 +9584,40 @@ do
 	local SP = ShamanPower
 	local main = SP.options.args.settings.args.settings_show.args
 	local INVITE = "https://discord.gg/eCtNeBqE8U"
-	main.discord_link = {
-		order = 90, type = "input", name = "ShamanPower Discord", width = "full",
-		desc = "Help, bug reports, suggestions and test builds. Click the box, press Ctrl+A then Ctrl+C, and paste the link into your browser.",
-		get = function() return INVITE end,
-		set = function() end,   -- read-only: the box always shows the invite
+	-- WoW gives addons no clipboard: "Copy Link" opens a small box with the link
+	-- already selected, so one Ctrl+C copies it (the usual way addons do this).
+	StaticPopupDialogs["SHAMANPOWER_COPY_LINK"] = {
+		text = "The ShamanPower Discord link is selected - press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
+		button1 = CLOSE or "Close",
+		hasEditBox = 1, editBoxWidth = 260,
+		timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
+		OnShow = function(self)
+			local eb = self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox())
+			if not eb then return end
+			eb:SetText(INVITE); eb:SetFocus(); eb:HighlightText()
+			eb:SetScript("OnTextChanged", function(box) if box:GetText() ~= INVITE then box:SetText(INVITE); box:HighlightText() end end)
+		end,
+		EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+		EditBoxOnEnterPressed = function(box) box:GetParent():Hide() end,
+	}
+	main.community = {
+		order = 90, type = "group", inline = true, name = "ShamanPower Discord",
+		args = {
+			about = {
+				order = 1, type = "description", width = "full",
+				name = "|cff3FA9F5Questions, bug reports, suggestions and early test builds all live on the ShamanPower Discord.|r It is the best way to reach me directly.",
+			},
+			link = {
+				order = 2, type = "input", name = "Invite link", width = "full",
+				desc = "Click Copy Link, or click the box and press Ctrl+A then Ctrl+C, then paste it into your browser.",
+				get = function() return INVITE end,
+				set = function() end,   -- read-only: the box always shows the invite
+			},
+			copy = {
+				order = 3, type = "execute", name = "Copy Link", width = "full",
+				desc = "Opens a small box with the link selected: press Ctrl+C to copy it.",
+				func = function() StaticPopup_Show("SHAMANPOWER_COPY_LINK") end,
+			},
+		},
 	}
 end

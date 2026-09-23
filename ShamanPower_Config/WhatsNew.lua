@@ -14,10 +14,13 @@ if not SP then return end
 local NOTES = {
 	-- PLACEHOLDER until the release is versioned: must equal the TOC version
 	-- of the release that ships these notes, or the card stays quiet.
-	version = "2.2.0",
+	version = "3.0.0",
 	items = {
-		{ h = "Grid style: every totem on screen", try = "grid",
-		  b = "A fifth look for the totem bar. Every totem of every element sits in rows: click one to drop it, the assigned one is highlighted and the dropped one carries the timer. Split by Element gives each row its own movable frame and direction."
+		{ h = "ShamanPower now runs on WoW: Forever",
+		  b = "One download for both games. On Forever the game itself draws ShamanPower's totem timers, party dots and alerts, so they keep working in combat, and totems that game does not have are hidden everywhere. Forever characters start with the setup tour." },
+		{ h = "Blizzard's totem bar, powered by ShamanPower", try = "blizzard",
+		  when = function() return SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil end,   -- Forever only
+		  b = "Keep the game's own totem bar and get ShamanPower's countdowns, duration bars, pulse timers and party dots drawn on its buttons. Blizzard's three totem sets stay in step with your assignments and loadouts."
 		    .. "\n|cff3FA9F5Settings > General > Totem Bar Style|r  -  hover a style there to see it in the live preview" },
 		{ h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
 		  b = "The reverse of Totem Range. Under each of your totems, the names of the party members who do NOT have its buff, in red or class colour. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
@@ -30,7 +33,7 @@ local NOTES = {
 		{ h = "The settings window shows what it changes",
 		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
-	footer = "Also: the loadout bar has a Move button and a box in Unlock All, the loadout icon picker is rebuilt with a search box, and ShamanPower now runs on WoW: Forever - Forever characters get the setup tour instead of this card. The full list is in the changelog. Help, bugs and test builds: the ShamanPower Discord, linked on Settings > General.",
+	footer = "Also: a Grid style that shows every totem at once (Settings > General > Totem Bar Style), a Move button and Unlock UI box for the loadout bar, an icon picker with search, and an alignment grid in Unlock UI. The full list is in the changelog. Help, bugs and test builds: the ShamanPower Discord, linked on Settings > General.",
 }
 
 local function BaseVersion(v)
@@ -210,7 +213,7 @@ end
 SLASH_SPWHATSNEW1 = "/spwhatsnew"
 SlashCmdList["SPWHATSNEW"] = function(msg)
 	local m = strtrim(msg or ""):lower()
-	if m == "preview" then ShowStylePreview("grid") return end
+	if m == "preview" then ShowStylePreview(SP.TotemBarStyle and SP:TotemBarStyle("blizzard") and "blizzard" or "compact") return end
 	local key = m:match("^preview%s+(%S+)$")
 	if key then ShowStylePreview(key) return end
 	SP:ShowWhatsNew(true)

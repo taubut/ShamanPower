@@ -1006,11 +1006,24 @@ local function CreateInput(parent)
 	return row
 end
 
+local inputMeasure
 function Widgets:Input(parent, opts)
 	local row = Acquire("input", parent, CreateInput)
 	ConfigureRow(row, parent, opts)
 	Core:SetBorderColor(row.box, "border")
-	return FinishRow(row, parent, DROPDOWN_W)
+	-- the box is wide enough for its whole value (a link, a long name): never a
+	-- cut-off field. It grows up to about two thirds of the row.
+	local w = DROPDOWN_W
+	local ok, value = pcall(opts.get)
+	if ok and value ~= nil and value ~= "" then
+		inputMeasure = inputMeasure or UIParent:CreateFontString(nil, "OVERLAY")
+		inputMeasure:SetFontObject(Core.fonts.row)
+		inputMeasure:SetText(tostring(value))
+		local need = math.ceil(inputMeasure:GetStringWidth()) + 24
+		w = math.max(DROPDOWN_W, math.min(need, math.floor((opts.width or 300) * 0.66)))
+	end
+	row.box:SetWidth(w)
+	return FinishRow(row, parent, w)
 end
 
 -- ---------------------------------------------------------------------------
