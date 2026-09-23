@@ -112,8 +112,9 @@ function SP:ShowPreview(key, container)
 			-- the character lives in the bottom half of the box only; the display
 			-- floats above the centre line (lift), so the two can never overlap,
 			-- whatever the box size
-			stage:SetPoint("TOPLEFT", container, "LEFT", 0, -6)
-			stage:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
+			stage:SetPoint("TOPLEFT", container, "LEFT", 0, 30)
+			-- stop above the caption under the preview (the container's bottom inset)
+			stage:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, (container.previewInsetBottom or 0) + 60)
 			stage:SetFrameLevel(container:GetFrameLevel() + 2)
 			stage:SetAlpha(0.55)
 			-- camera, placement and the spell visual only take once the model has
@@ -121,7 +122,7 @@ function SP:ShowPreview(key, container)
 			-- refresh after loading
 			local function dress(m)
 				pcall(m.SetCamDistanceScale, m, 1.7)
-				pcall(m.SetPosition, m, 0, 0, -0.35)   -- lowered a little; the display is lifted above the head (lift)
+				pcall(m.SetPosition, m, 0, 0, 0)   -- centred in its (lower) frame; the display sits above it
 				pcall(m.SetFacing, m, 0.3)
 				-- def.stageKit: a spell visual kit played on the character (Lightning Shield's orbs)
 				if m.spKit and m.ApplySpellVisualKit then pcall(m.ApplySpellVisualKit, m, m.spKit, false) end
@@ -216,9 +217,9 @@ function SP:ShowPreview(key, container)
 		-- UPWARD from just above the centre line, so none of them reaches down
 		-- into the character. Offsets are in the frame's own scaled units.
 		-- The upper half is all there is: shrink to fit it.
-		local half = (container:GetHeight() / 2) - 12
+		local half = (container:GetHeight() / 2) - 60
 		if totalH > 0 and half > 0 then scale = math.min(scale, half / totalH) end
-		local up = 8
+		local up = 48
 		for i = #frames, 1, -1 do
 			local frame = frames[i]
 			frame:SetParent(container)
