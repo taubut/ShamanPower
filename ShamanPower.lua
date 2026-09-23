@@ -15431,7 +15431,10 @@ function ShamanPower:ApplySkin()
 		Mixin(ShamanPowerAuto, BackdropTemplateMixin)
 	end
 	-- Only apply backdrop to totem bar if not hidden
-	if self.opt.hideTotemBarFrame then
+	-- Grid lays the totems out in its own rows and Blizzard's bar replaces ours:
+	-- the old bar's frame would be an empty box on screen
+	local noBarFrame = (self.GridActive and self:GridActive()) or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+	if self.opt.hideTotemBarFrame or noBarFrame then
 		ShamanPowerAuto:SetBackdrop(nil)
 	else
 		ShamanPowerAuto:SetBackdrop(tmp)
@@ -15450,8 +15453,9 @@ function ShamanPower:UpdateTotemBarFrame()
 	-- Show or hide the totem bar frame (background/border)
 	if not ShamanPowerAuto then return end
 
-	if self.opt.hideTotemBarFrame then
-		-- Hide the frame - set backdrop to nil
+	local noBarFrame = (self.GridActive and self:GridActive()) or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+	if self.opt.hideTotemBarFrame or noBarFrame then
+		-- Hide the frame - set backdrop to nil (Grid / Blizzard's bar: there is no bar of ours to frame)
 		ShamanPowerAuto:SetBackdrop(nil)
 	else
 		-- Show the frame - reapply skin

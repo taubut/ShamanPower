@@ -1075,12 +1075,13 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		btn:HookScript("OnLeave", function() if hoverKey == st.key then hoverKey = nil end; refresh() end)
 		btn:SetScript("OnClick", function()
 			local wasCompact = OPT().compactStyle and true or false
-			local wasBlizzard = SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT()) == "blizzard"
+			local wasStyle = SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT())
 			if not (SP.SetTotemBarStyle and SP:SetTotemBarStyle(st.key)) then return end   -- in combat: it says so
 			hoverKey = nil
 			refresh()
 			-- the Compact options sit under the style cards: rebuild the step when it toggles
-			if (OPT().compactStyle and true or false) ~= wasCompact or (st.key == "blizzard") ~= wasBlizzard then SP.Wizard:Go(state.step) end
+			-- the settings under the cards differ per style: redraw them whenever it changes
+			if SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT()) ~= wasStyle then SP.Wizard:Go(state.step) end
 		end)
 		buttons[st.key] = btn
 	end
@@ -1112,6 +1113,17 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				notify()
 			end })
 		row("Description", { text = "|cffffa040Blizzard's bar keeps its own layout: move it with Edit Mode. Size is relative to Blizzard's normal size.|r" })
+	elseif SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT()) == "grid" then
+		-- Grid: its rows are laid out by Layout (or per row when split), sized by
+		-- Size; it has no bar frame of its own and no bar opacity
+		if not OPT().gridSplit then
+			row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
+				set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+		end
+		row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
+			set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("RefreshGridStyle"); notify() end })
+		row("Toggle", { label = "Split by element (each row its own frame)", get = function() return OPT().gridSplit == true end,
+			set = function(v) OPT().gridSplit = v or nil; safecall("RefreshGridStyle"); notify(); SP.Wizard:Go(state.step) end })
 	else
 		if not OPT().compactStyle then
 			row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,

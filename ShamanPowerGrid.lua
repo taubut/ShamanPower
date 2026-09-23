@@ -441,6 +441,8 @@ function SP:RefreshGridStyle()
 	end
 	if requested() then apply() else restore() end
 	self._gridRefreshing = false
+	-- the old bar's frame: hidden while Grid is on, back when it is off
+	if self.UpdateTotemBarFrame then self:UpdateTotemBarFrame() end
 end
 
 function SP:GridLayoutElement(element)
