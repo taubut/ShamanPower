@@ -9158,6 +9158,7 @@ do
 	local root = SP.options.args
 	local pages = root.fluffy.args
 	local bar = root.buttons.args.auto_button.args
+	local mode = root.settings.args.settings_totemMode.args   -- Mode & Twisting: where the display modes live
 	local duration = pages.totembar_duration_section.args
 	local function NotifyNative()
 		if SP.RefreshConfig then SP:RefreshConfig() end
@@ -9167,14 +9168,15 @@ do
 	local function NativeLocked()
 		return not HasLoadoutSetControls() or not SP.RefreshBlizzardTotemBar or InCombatLockdown()
 	end
+	local scaleRefreshQueued = false
 	local function RefreshNative()
 		if NativeTotemBarSelected() and SP.RefreshBlizzardTotemBar then
 			SP:RefreshBlizzardTotemBar()
 			NotifyNative()
 		end
 	end
-	bar.use_blizzard_totem_bar = {
-		order = 0.45, type = "toggle", name = "Use Blizzard's Totem Bar", width = "full",
+	mode.use_blizzard_totem_bar = {
+		order = 4.85, type = "toggle", name = "Use Blizzard's Totem Bar", width = "full",
 		desc = "Use Blizzard's buttons and flyouts with ShamanPower's lifetime, pulse and party overlays. "
 			.. "Change out of combat.",
 		hidden = function() return not HasLoadoutSetControls() end,
@@ -9187,17 +9189,15 @@ do
 			NotifyNative()
 		end,
 	}
-	bar.blizzard_totem_bar_note = {
-		order = 0.46, type = "description", width = "full",
+	mode.blizzard_totem_bar_note = {
+		order = 4.86, type = "description", width = "full",
 		hidden = function() return not NativeTotemBarSelected() end,
-		name = "Blizzard controls the bar's layout, visibility and flyouts; custom bar settings do not apply. "
-			.. "ShamanPower adds active-totem lifetime numbers and a swipe from its own totem model, not spell cooldowns. "
-			.. "Pulse, party dots, counters, assignments and shared cooldown-bar settings remain available. "
-			.. "Party counters remain geometry estimates; engine-drawn buff dots keep their existing meaning. "
-			.. "Native integration and optional scaling are experimental and UNVERIFIED in game.",
+		name = "|cffffa040Blizzard controls the bar's layout, visibility and flyouts, so the custom bar settings do not apply. "
+			.. "ShamanPower adds the totem countdown and swipe from its own totem model (not spell cooldowns), the pulse bars, "
+			.. "party dots and counters. The dropped totem shows as a corner icon for now; the style choices come later.|r",
 	}
-	bar.blizzard_totem_bar_scale_override = {
-		order = 0.47, type = "toggle", name = "Override Blizzard Bar Scale", width = "full",
+	mode.blizzard_totem_bar_scale_override = {
+		order = 4.87, type = "toggle", name = "Override Blizzard Bar Scale", width = "full",
 		desc = "Optional: scale relative to Blizzard's original bar size. Off leaves that size alone. Out of combat only.",
 		hidden = function() return not NativeTotemBarSelected() end,
 		disabled = NativeLocked,
@@ -9209,8 +9209,8 @@ do
 			NotifyNative()
 		end,
 	}
-	bar.blizzard_totem_bar_scale = {
-		order = 0.48, type = "range", name = "Blizzard Bar Relative Scale", width = 1.5,
+	mode.blizzard_totem_bar_scale = {
+		order = 4.88, type = "range", name = "Blizzard Bar Relative Scale", width = 1.5,
 		min = 0.5, max = 2, step = 0.05, isPercent = true,
 		desc = "100% is Blizzard's original bar scale, not ShamanPower's custom bar scale. Reapplied after Edit Mode.",
 		hidden = function() return not NativeTotemBarSelected() end,
@@ -9220,12 +9220,19 @@ do
 			if NativeLocked() or not NativeTotemBarSelected() or SP.opt.blizzardTotemBarScale == nil then return end
 			if type(value) ~= "number" or value ~= value or value < 0.5 or value > 2 then return end
 			SP.opt.blizzardTotemBarScale = value
-			SP:RefreshBlizzardTotemBar()
-			NotifyNative()
+			-- A drag sets this many times a second; the full bar refresh is heavy.
+			-- Apply once, shortly after the last change.
+			if not scaleRefreshQueued then
+				scaleRefreshQueued = true
+				C_Timer.After(0.15, function()
+					scaleRefreshQueued = false
+					if SP.RefreshBlizzardTotemBar then SP:RefreshBlizzardTotemBar() end
+				end)
+			end
 		end,
 	}
-	bar.blizzard_totem_bar_scale_reset = {
-		order = 0.49, type = "execute", name = "Restore Blizzard Bar Scale", width = 1.5,
+	mode.blizzard_totem_bar_scale_reset = {
+		order = 4.89, type = "execute", name = "Restore Blizzard Bar Scale", width = 1.5,
 		desc = "Remove the override and restore the original native bar scale. Out of combat only.",
 		hidden = function() return not NativeTotemBarSelected() end,
 		disabled = function() return NativeLocked() or SP.opt.blizzardTotemBarScale == nil end,
