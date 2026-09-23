@@ -57,14 +57,16 @@ function ns.DrawStyleThumb(parent, key, w, h)
 			Box(f, 7, y + 1, (lw - 2) * FILL[i], lh - 2, c[1], c[2], c[3], 1, "ARTWORK", 1)
 		end
 	elseif key == "grid" then
-		-- four rows of three small squares; the first of each row is the assigned one
-		local rows, cols, gap = 4, 3, 2
-		local s = math.floor(math.min((h - 8 - gap * (rows - 1)) / rows, (w - 12 - gap * (cols - 1)) / cols))
-		local x0 = math.floor((w - (cols * s + (cols - 1) * gap)) / 2)
-		local y0 = math.floor((h - (rows * s + (rows - 1) * gap)) / 2)
-		for r = 1, rows do
-			for c = 1, cols do
-				Slot(f, x0 + (c - 1) * (s + gap), y0 + (r - 1) * (s + gap), s, ELE[r], c ~= 1)
+		-- four element columns, three totems each, spread across the picture so it
+		-- fills the box like the other styles; the top one of each is the assigned one
+		local rows, cols, vgap = 3, 4, 2
+		local s = math.floor((h - 6 - vgap * (rows - 1)) / rows)
+		local hgap = math.floor(math.min(s * 1.6, (w - 12 - cols * s) / (cols - 1)))
+		local x0 = math.floor((w - (cols * s + (cols - 1) * hgap)) / 2)
+		local y0 = math.floor((h - (rows * s + (rows - 1) * vgap)) / 2)
+		for c = 1, cols do
+			for r = 1, rows do
+				Slot(f, x0 + (c - 1) * (s + hgap), y0 + (r - 1) * (s + vgap), s, ELE[c], r ~= 1)
 			end
 		end
 	else
