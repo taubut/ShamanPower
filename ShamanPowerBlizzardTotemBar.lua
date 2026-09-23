@@ -588,3 +588,61 @@ events:SetScript("OnEvent", function(_, event)
 	if pending or applied or requested() or scaleFrame then SP:QueueBlizzardTotemBarRefresh() end
 end)
 installHooks()
+
+-- ---------------------------------------------------------------------------
+-- Blizzard's own bar while ShamanPower's bar is the style: hidden by default,
+-- so the player does not get two totem bars ("Hide Blizzard's Totem Bar" on
+-- Mode & Twisting turns this off). Blizzard shows the bar from
+-- UpdateShownState (whenever a totem slot is active); a secure post-hook hides
+-- it again. Left alone in Edit Mode (to position it) and while the Blizzard-
+-- bar style is on. In combat a frame holding action buttons cannot be hidden,
+-- so it only goes invisible there and is properly hidden once combat ends.
+-- ---------------------------------------------------------------------------
+local nativeHideHooked, nativeHiddenByUs, nativeHideApplying, nativeHidePending
+
+local function wantNativeHidden(bar)
+	local o = SP.opt
+	return o and o.enabled ~= false and o.useBlizzardTotemBar ~= true and o.hideBlizzardTotemBar ~= false
+		and not bar.isInEditMode
+end
+
+function SP:ApplyBlizzardTotemBarHiding()
+	local bar = MultiCastActionBarFrame
+	if not bar or nativeHideApplying then return end
+	nativeHideApplying = true
+	if not nativeHideHooked and type(bar.UpdateShownState) == "function" then
+		nativeHideHooked = true
+		hooksecurefunc(bar, "UpdateShownState", function() SP:ApplyBlizzardTotemBarHiding() end)
+		-- leaving Edit Mode does not always re-run UpdateShownState: hide again on exit
+		if type(bar.SetIsInEditMode) == "function" then
+			hooksecurefunc(bar, "SetIsInEditMode", function() C_Timer.After(0, function() SP:ApplyBlizzardTotemBarHiding() end) end)
+		end
+	end
+	if wantNativeHidden(bar) then
+		if InCombatLockdown() then
+			bar:SetAlpha(0)
+			nativeHidePending = true
+		else
+			bar:SetAlpha(1)
+			if bar:IsShown() then bar:Hide() end
+			nativeHidePending = nil
+		end
+		nativeHiddenByUs = true
+	elseif nativeHiddenByUs then
+		-- give the bar back: Blizzard's own rule decides whether it shows
+		nativeHiddenByUs = nil
+		bar:SetAlpha(1)
+		if not InCombatLockdown() and type(bar.UpdateShownState) == "function" then pcall(bar.UpdateShownState, bar) else nativeHidePending = true end
+	end
+	nativeHideApplying = nil
+end
+
+local nativeHideEvents = CreateFrame("Frame")
+nativeHideEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+nativeHideEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+nativeHideEvents:RegisterEvent("SPELLS_CHANGED")
+nativeHideEvents:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_REGEN_ENABLED" and not nativeHidePending then return end
+	SP:ApplyBlizzardTotemBarHiding()
+end)
+hooksecurefunc(SP, "RefreshBlizzardTotemBar", function() SP:ApplyBlizzardTotemBarHiding() end)

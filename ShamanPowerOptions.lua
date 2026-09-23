@@ -9262,6 +9262,16 @@ do
 			NotifyNative()
 		end,
 	}
+	mode.hide_blizzard_totem_bar = {
+		order = 4.855, type = "toggle", name = "Hide Blizzard's Totem Bar", width = "full",
+		desc = "While you use ShamanPower's bar, keep Blizzard's own totem bar hidden so you do not get two. It still shows in Edit Mode. Turn this off to keep both.",
+		hidden = function() return not HasLoadoutSetControls() or NativeTotemBarSelected() end,
+		get = function() return SP.opt.hideBlizzardTotemBar ~= false end,
+		set = function(_, value)
+			SP.opt.hideBlizzardTotemBar = value and nil or false
+			if SP.ApplyBlizzardTotemBarHiding then SP:ApplyBlizzardTotemBarHiding() end
+		end,
+	}
 	mode.blizzard_totem_bar_note = {
 		order = 4.86, type = "description", width = "full",
 		hidden = function() return not NativeTotemBarSelected() end,
