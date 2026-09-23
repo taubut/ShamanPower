@@ -141,7 +141,11 @@ function SP:ShowPreview(key, container)
 	local reserve = container.previewInsetBottom or 0
 	local maxScale = container.previewMaxScale or 2.5
 	-- with a character on stage the display floats above its head, not on it
-	local lift = (def.stage and (def.stageLift or 70)) or 0
+	-- The character fills the container, so its head sits a fixed FRACTION of the
+	-- container's height above the centre: a fixed 70 px left the number on the
+	-- chest in the tall tour and settings panes. About a fifth of the height puts
+	-- it above the head at every size.
+	local lift = (def.stage and (def.stageLift or math.max(70, math.floor(container:GetHeight() * 0.21)))) or 0
 	-- The settings window's tall, narrow preview pane flags itself and reads
 	-- the registration's `pane` hints (overlap, grid, maxScale). The wizard's
 	-- containers never do, so its step pages keep their own layout.
