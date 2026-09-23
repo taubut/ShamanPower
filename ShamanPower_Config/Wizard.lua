@@ -46,11 +46,14 @@ local BIND = {
 	coverage = {
 		get = function() return SP.opt.coverage and SP.opt.coverage.enabled or false end,
 		set = function(v) SP.opt.coverage = SP.opt.coverage or {}; SP.opt.coverage.enabled = v; safecall("RebuildCoverage"); safecall("UpdatePartyRangeDots"); notify()
-			if SP.coverageDemoActive then SP:CoverageDemo(true) end; if SP.Wizard._coverageFit then SP.Wizard._coverageFit() end end,
+			if SP.coverageDemoActive then SP:CoverageDemo(true) end; if SP.Wizard._coverageFit then SP.Wizard._coverageFit() end
+			-- the step's options are greyed out while Coverage is off: redraw them
+			if ns.Widgets and SP.Wizard._coverageCard then ns.Widgets:RefreshAll(SP.Wizard._coverageCard) end end,
 	},
 	estracker = {
 		get = function() return SP.opt.esTracker and SP.opt.esTracker.enabled end,
-		set = function(v) SP.opt.esTracker = SP.opt.esTracker or {}; SP.opt.esTracker.enabled = v; safecall("UpdateESTracker"); notify() end,
+		set = function(v) SP.opt.esTracker = SP.opt.esTracker or {}; SP.opt.esTracker.enabled = v
+			if SP.SetESTrackerEnabled then pcall(SP.SetESTrackerEnabled, SP, v) end; notify() end,
 	},
 	playershield = {
 		get = function() return SP.opt.shieldChargeDisplay and SP.opt.shieldChargeDisplay.showPlayerShield ~= false end,
@@ -66,6 +69,9 @@ local BIND = {
 		get = function() return SP.opt.enableTotemTwisting end,
 		set = function(v)
 			SP.opt.enableTotemTwisting = v
+			-- the load reads the player's twist state from the assignments table: keep it in step
+			ShamanPower_TwistAssignments = ShamanPower_TwistAssignments or {}
+			if SP.player then ShamanPower_TwistAssignments[SP.player] = v end
 			if SP.SendMessage and SP.player then pcall(SP.SendMessage, SP, "TWIST " .. SP.player .. " " .. (v and "1" or "0")) end
 			safecall("UpdateMiniTotemBar"); safecall("UpdateSPMacros")
 			if v then safecall("SetupTwistTimer") else safecall("HideTwistTimer") end
@@ -117,7 +123,8 @@ local BIND = {
 	},
 	cdsweep = {
 		get = function() return SP.opt.cdbarShowColorSweep ~= false end,
-		set = function(v) SP.opt.cdbarShowColorSweep = v; safecall("UpdateCooldownBar"); notify() end,
+		set = function(v) SP.opt.cdbarShowColorSweep = v; safecall("UpdateCooldownBar"); notify()
+			if ns.Widgets and SP.Wizard._cdbarCard then ns.Widgets:RefreshAll(SP.Wizard._cdbarCard) end end,   -- Sweep style depends on it
 	},
 	cdtext = {
 		get = function() return SP.opt.cdbarShowCDText ~= false end,
@@ -172,6 +179,8 @@ function SP.Wizard.ApplyRoleDefaults(role)
 	-- Twisting: on by default for Enhancement only.
 	if SP.opt.enableTotemTwisting ~= enh then
 		SP.opt.enableTotemTwisting = enh
+		ShamanPower_TwistAssignments = ShamanPower_TwistAssignments or {}
+		if SP.player then ShamanPower_TwistAssignments[SP.player] = enh end
 		if SP.SendMessage and SP.player then pcall(SP.SendMessage, SP, "TWIST " .. SP.player .. " " .. (enh and "1" or "0")) end
 		safecall("UpdateMiniTotemBar"); safecall("UpdateSPMacros")
 		if enh then safecall("SetupTwistTimer") else safecall("HideTwistTimer") end
@@ -191,7 +200,8 @@ function SP.Wizard.ApplyRoleDefaults(role)
 	SP.opt.rangeCounter = SP.opt.rangeCounter or {}; SP.opt.rangeCounter.hideFrame = true; safecall("UpdateRangeCounterFrameStyle")
 	ShamanPower_ReactiveTotems = ShamanPower_ReactiveTotems or {}
 	ShamanPower_ReactiveTotems.hideBackground = true; safecall("UpdateReactiveTotemAppearance")
-	safecall("UpdateESTracker"); safecall("UpdateShieldChargeDisplays")
+	if SP.SetESTrackerEnabled and SP.opt.esTracker then pcall(SP.SetESTrackerEnabled, SP, SP.opt.esTracker.enabled) end
+	safecall("UpdateShieldChargeDisplays")
 	if not InCombatLockdown() then safecall("RecreateCooldownBar") end
 	notify()
 end
@@ -2391,6 +2401,7 @@ end
 
 -- Totem Coverage: the REAL overlay with sample cells, every option live.
 function SP.Wizard.BuildCoverageStep(card, inner, y)
+	if not SP.Wizard.previewOnly then SP.Wizard._coverageCard = card end   -- its switch redraws the step's rows
 	local Widgets = ns.Widgets
 	local function co() SP.opt.coverage = SP.opt.coverage or {}; return SP.opt.coverage end
 	local function get(k, d) local v = co()[k]; if v == nil then return d end; return v end
@@ -2754,6 +2765,7 @@ function SP.Wizard.BuildAssignStep(card, inner, y)
 end
 
 function SP.Wizard.BuildCooldownBarStep(card, inner, y)
+	if not SP.Wizard.previewOnly then SP.Wizard._cdbarCard = card end   -- its switch redraws the step's rows
 	local Widgets = ns.Widgets
 	local horde = UnitFactionGroup and UnitFactionGroup("player") == "Horde"
 	-- Spells the real bar can track, in bar order. roles = who sees the chip.

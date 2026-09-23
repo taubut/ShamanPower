@@ -5113,7 +5113,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower:EnsureProfileTable("esTracker")
 								ShamanPower.opt.esTracker.enabled = val
-								ShamanPower:ToggleESTracker()
+								if ShamanPower.SetESTrackerEnabled then ShamanPower:SetESTrackerEnabled(val) end
 							end
 						},
 						estrack_opacity = {

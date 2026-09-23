@@ -595,7 +595,30 @@ function SP:UpdateESTrackerOpacity()
 	end
 end
 
--- Toggle Earth Shield tracker visibility
+-- Set the Earth Shield tracker on or off explicitly (settings and the tour use
+-- this; flipping on IsShown() went backwards while a preview had the frame shown).
+function SP:SetESTrackerEnabled(on)
+	self:InitESTracker()
+	if not self.esTrackerFrame then self:CreateESTrackerFrame() end
+	SP.opt.esTracker.enabled = on and true or false
+	if self.esTrackerDemoActive then return end   -- a preview owns the frame; its restore follows the setting
+	if on then
+		local pos = SP.opt.esTracker.position
+		if pos then
+			self.esTrackerFrame:ClearAllPoints()
+			self.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
+		end
+		self:UpdateESTrackerBorder()
+		self:ScanEarthShields()
+		self.esTrackerFrame:Show()
+		self:EnableESTrackerEvents()
+	else
+		self.esTrackerFrame:Hide()
+		self:DisableESTrackerEvents()
+	end
+end
+
+-- Toggle Earth Shield tracker visibility (the Open button, /sp es)
 function SP:ToggleESTracker()
 	self:InitESTracker()
 	if not self.esTrackerFrame then

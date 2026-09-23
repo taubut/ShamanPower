@@ -580,7 +580,7 @@ engineDotEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 engineDotEvents:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_REGEN_ENABLED" then
 		if engineDotsPending then SP:RebuildEnginePartyDots() end
-		if coveragePending and SP.RebuildCoverage then SP:RebuildCoverage() end
+		if SP._coveragePending and SP.RebuildCoverage then SP:RebuildCoverage() end   -- was a local read before it existed
 	else
 		SP:RebuildEnginePartyDots()
 		if SP.RebuildCoverage then SP:RebuildCoverage() end
@@ -604,7 +604,6 @@ end)
 -- "all covered"). Rows are built out of combat (names, classes); a roster
 -- change in a fight rebuilds at regen.
 SP.coverageRows = {}   -- [element][partyIndex] = { container = frame|nil, key = string }
-local coveragePending = false
 
 function SP:CoverageAvailable() return EngineDotsAvailable() end
 
@@ -912,8 +911,8 @@ function SP:RebuildCoverage()
 		if self.coverageFrame then HideAllCells(self.coverageFrame) end
 		return
 	end
-	if InCombatLockdown() then coveragePending = true return end
-	coveragePending = false
+	if InCombatLockdown() then SP._coveragePending = true return end
+	SP._coveragePending = false
 	local frame = self:CreateCoverageFrame()
 	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
 	if co.freeCells then
