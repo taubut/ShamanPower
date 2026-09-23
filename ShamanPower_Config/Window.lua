@@ -43,8 +43,8 @@ local function SP() return _G.ShamanPower end
 -- bars, drawn from the live options (they follow style, Compact, layout and
 -- the rest as they change). A module page names its registered preview
 -- instead (a string, see ShamanPowerPreview).
-local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotemBarStep" } } }
-local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsStep" } } }
+local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotemBarPane" } } }
+local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsPane" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
 local MOCK_LOADOUT  = { mocks = {

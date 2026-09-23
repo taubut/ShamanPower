@@ -9429,3 +9429,80 @@ do
 		end
 	end
 end
+
+-- Grid is a visual style; Dynamic Mode remains an independent assignment policy.
+do
+	local SP = ShamanPower
+	local mode = SP.options.args.settings.args.settings_totemMode.args
+	local function GridLocked()
+		return SP.opt.enabled == false or InCombatLockdown() or not SP.SetGridStyle or not SP.RefreshGridStyle
+	end
+	local function NotifyGrid()
+		if SP.RefreshConfig then SP:RefreshConfig() end
+		local config = rawget(_G, "ShamanPowerConfig")
+		if config and config.PreviewChanged then config:PreviewChanged() end
+	end
+	mode.gridStyle = {
+		order = 4.76, type = "toggle", name = "Grid Style", width = "full",
+		desc = "Keep each element's existing totem choices visible in a row. "
+			.. "Clicks and assignments keep their flyout controls. "
+			.. "Only Show Learned Elements still applies. Change style out of combat.",
+		disabled = GridLocked,
+		get = function() return SP.opt.gridStyle == true end,
+		set = function(_, value)
+			if GridLocked() then return end
+			SP:SetGridStyle(value)
+			NotifyGrid()
+		end,
+	}
+	mode.gridSplit = {
+		order = 4.77, type = "toggle", name = "Split by Element", width = "full",
+		desc = "Give each row its own pop-out frame. Unlock UI moves the four rows; "
+			.. "positions use the existing pop-out settings. Middle-clicking a row splits the Grid; "
+			.. "returning one row recombines it. Grid rows always keep their element border.",
+		hidden = function() return not SP.opt.gridStyle end,
+		disabled = GridLocked,
+		get = function() return SP.opt.gridSplit == true end,
+		set = function(_, value)
+			if GridLocked() or not SP.opt.gridStyle then return end
+			SP.opt.gridSplit = value
+			SP:RefreshGridStyle()
+			NotifyGrid()
+		end,
+	}
+	local elementNames = { "Earth", "Fire", "Water", "Air" }
+	for element, name in ipairs(elementNames) do
+		local index = element
+		mode["gridOrientation" .. element] = {
+			order = 4.78 + element * 0.001, type = "select", name = name .. " Row Direction", width = 1.5,
+			values = { horizontal = "Horizontal", vertical = "Vertical" },
+			sorting = { "horizontal", "vertical" },
+			hidden = function() return not (SP.opt.gridStyle and SP.opt.gridSplit) end,
+			disabled = GridLocked,
+			get = function() return SP.opt.gridOrientation and SP.opt.gridOrientation[index] or "horizontal" end,
+			set = function(_, value)
+				if GridLocked() or not (SP.opt.gridStyle and SP.opt.gridSplit) then return end
+				if value ~= "horizontal" and value ~= "vertical" then return end
+				SP.opt.gridOrientation = SP.opt.gridOrientation or {}
+				SP.opt.gridOrientation[index] = value
+				SP:RefreshGridStyle()
+				NotifyGrid()
+			end,
+		}
+	end
+	local function ClearGridBefore(option)
+		if not option or not option.set then return end
+		local setter = option.set
+		option.set = function(info, value, ...)
+			if value and SP.opt.gridStyle then
+				if InCombatLockdown() or not SP.SetGridStyle then return end
+				SP:SetGridStyle(false)
+				if SP.opt.gridStyle then return end
+			end
+			setter(info, value, ...)
+		end
+	end
+	ClearGridBefore(mode.compactStyle)
+	ClearGridBefore(mode.activeTotemAsMain)
+	ClearGridBefore(mode.use_blizzard_totem_bar)
+end

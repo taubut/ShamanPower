@@ -118,6 +118,26 @@ local MODULES = {
 		end },
 }
 
+-- Movers resolve existing split-row pop-outs lazily; these registrations are
+-- never borrowed into a settings preview (the rows have secure children).
+for element, name in ipairs({ "earth", "fire", "water", "air" }) do
+	local index = element
+	local key = "grid_" .. name
+	local function rowFrame()
+		return SP.GetGridRowFrame and SP:GetGridRowFrame(index)
+	end
+	if SP.RegisterPreview then SP:RegisterPreview(key, { frame = rowFrame }) end
+	MODULES[#MODULES + 1] = {
+		key = key, label = "Grid: " .. name:sub(1, 1):upper() .. name:sub(2),
+		enabled = function()
+			return SP.GridActive and SP:GridActive() and SP.opt.gridSplit and rowFrame() ~= nil
+		end,
+		reset = function()
+			if SP.ResetGridRowPosition then SP:ResetGridRowPosition(index) end
+		end,
+	}
+end
+
 local function ResolveFrames(def)
 	local out = {}
 	local function one(f)
