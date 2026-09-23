@@ -933,10 +933,9 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			if m == "grid" and root then
 				local w, h = root:GetWidth() * root:GetScale(), root:GetHeight() * root:GetScale()
 				gridHost:SetSize(math.max(1, w), math.max(1, h))
-				-- a small panel (what's-new card, preset preview) gets the grid shrunk to fit, like the bar
-				if SP.Wizard.previewOnly then
-					gridHost:SetScale(math.max(0.2, math.min(1, (inner:GetHeight() - 6) / math.max(1, h + 16), (inner:GetWidth() - 6) / math.max(1, w + 16))))
-				end
+				-- shrink the grid to fit whatever panel shows it (the tour's own preview,
+				-- the what's-new card, a preset preview): split rows can be wider than any of them
+				gridHost:SetScale(math.max(0.2, math.min(1, (inner:GetHeight() - 6) / math.max(1, h + 16), (inner:GetWidth() - 6) / math.max(1, w + 16))))
 			end
 		end
 	end)
