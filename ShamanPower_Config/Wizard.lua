@@ -192,7 +192,7 @@ function SP.Wizard.ApplyRoleDefaults(role)
 	SP.opt.cdbarShowElementalMastery = ele
 	-- WoW: Forever: Ready Reminders follow the spec's talents (read from the client's
 	-- trait tree). Elemental Mastery is not in Forever's tree, so Elemental's cooldowns
-	-- are Lava Burst, the shocks, Fire Nova (Improved Fire Nova) and Earthbind (Earthbound).
+	-- are Lava Burst and the shocks. Fire Nova and Earthbind stay opt-in (AoE / PvP).
 	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 		SP.opt.cdbarShowElementalMastery = false
 		ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
@@ -200,7 +200,7 @@ function SP.Wizard.ApplyRoleDefaults(role)
 		local rr = ShamanPower_ReadyReminders.spells
 		rr.riptide, rr.manatide, rr.ns, rr.watershield = resto, resto, resto, resto
 		rr.stormstrike, rr.farseer = enh, enh
-		rr.lavaburst, rr.firenova, rr.earthbind = ele, ele, ele
+		rr.lavaburst = ele
 		rr.earthshock = true                             -- the interrupt, for every spec
 		rr.flameshock, rr.frostshock = not resto, not resto
 		safecall("UpdateReadyReminders")
@@ -3510,7 +3510,7 @@ function SP.Wizard:RenderRole()
 	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 		roles[1].blurb = "Healing.\nMana Tide, Nature's Swiftness, Riptide and Water Shield reminders."
 		roles[2].blurb = "Melee.\nStormstrike and Rage of the Farseer reminders, totem twisting."
-		roles[3].blurb = "Caster.\nLava Burst, shock, Fire Nova and Earthbind reminders."
+		roles[3].blurb = "Caster.\nLava Burst and shock reminders."
 	end
 	local cardW, cardH, gap = 244, 264, 26
 	local totalW = #roles * cardW + (#roles - 1) * gap

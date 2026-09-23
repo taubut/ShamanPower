@@ -64,7 +64,7 @@ SP.ReadyReminderSpells = {
 	{ key = "lavaburst",    name = "Lava Burst",          ids = { 408490, 51505 },        def = true,  cd = 10 },
 	{ key = "riptide",      name = "Riptide",             ids = { 408521, 61295 },        def = true,  cd = 6 },
 	{ key = "farseer",      name = "Rage of the Farseer", ids = { 425336 },               def = true,  cd = 180 },
-	{ key = "firenova",     name = "Fire Nova",           ids = { 408341, 1535 },         def = false, cd = 10 },
+	{ key = "firenova",     name = "Fire Nova",           ids = { 408341, 1535 },         def = false, cd = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 10 or 15 },
 	{ key = "projection",   name = "Totemic Projection",  ids = { 437009 },               def = false, cd = 60 },
 	{ key = "grounding",    name = "Grounding Totem",     ids = { 8177 },                 def = false, cd = 15 },
 	{ key = "watershield",  name = "Water Shield",        ids = { 24398, 408510, 52127 }, def = false, cd = 15, noCooldownIDs = { [24398] = true } },
