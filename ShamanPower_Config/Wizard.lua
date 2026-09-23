@@ -215,12 +215,24 @@ local function RaidCDNames(blName, conj)
 end
 
 local STEPS = {
+	{ id = "forever", title = "WoW: Forever", roles = EVERYONE, build = "BuildForeverStep",
+	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
+	  desc = "This is the Classic+ line. A few things ShamanPower does elsewhere do not exist here, and a few work differently because the game hides combat data from addons.",
+	  bullets = {
+	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air and the Elementals. Their pages, mocks and options are hidden.",
+	    "In combat the game itself draws the timers, party dots, alerts and cooldown numbers, so they keep working; some sounds can only start out of combat.",
+	    "Blizzard's own totem bar is a style choice here, and its three totem sets stay in step with your assignments and loadouts.",
+	  } },
 	{ id = "totembar", title = "Totem Bar", roles = ALL, build = "BuildTotemBarStep",
 	  desc = "Your totem bar can show totems three ways. Click a style and watch the preview drop, run down and expire.",
 	  bullets = {
 	    "Normal: assigned totems stay put; a different dropped totem pops up above its slot.",
 	    "TotemTimers style: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "Dynamic: the bar is simply whatever you last dropped. Great for PvP.",
+	    { "Grid: every totem of every element visible in rows, together or split into one frame per element.",
+	      when = function() return SP.SetGridStyle ~= nil end },
+	    { "Blizzard's totem bar: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots.",
+	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
 	    "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
 	  },
 	  toggles = { { label = "Show the totem bar", bind = "totembar" } } },
@@ -230,6 +242,14 @@ local STEPS = {
 	    "Your row is always yours to set. The raid leader or an assistant can set everyone's - or a shaman can allow it with Free Assign.",
 	    function() return "Left-click a cell (or wheel) for the next totem, right-click for the previous. Twisting" .. (SP.ESTrackerUnavailable and "" or " and the Earth Shield target") .. " are here too." end,
 	    "Open it any time with /sp totems, the minimap icon, or the totem bar's handle.",
+	  } },
+	{ id = "totemsets", title = "Totem Sets", roles = ALL, build = "BuildTotemSetsStep",
+	  when = function() return SP.HasTotemBar and SP:HasTotemBar() end,
+	  desc = "Blizzard's totem bar has three sets: Call of the Elements at 20, Ancestors at 30 and Spirits at 40. ShamanPower keeps them in step with what you set here.",
+	  bullets = {
+	    "Call of the Elements always holds your assignments: change one here and the set changes; pick a totem on Blizzard's bar and the assignment follows.",
+	    "Ancestors and Spirits each take a saved loadout (Loadouts tab, Set Page). That loadout's bar button then casts the whole set in one press.",
+	    "Drop All can cast the set instead of dropping four totems one after another.",
 	  } },
 	{ id = "durationbars", title = "Duration Bars", roles = ALL, build = "BuildDurationBarsStep",
 	  desc = "How each totem shows its remaining time, cooldown and pulse timer.",
@@ -634,33 +654,67 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		{ n = "Earth", r = 0.72, g = 0.52, b = 0.32, dur = 9,  gap = 2.5, off = 0.0,
 		  icon = "Interface\\Icons\\Spell_Nature_EarthBindTotem", active = "Interface\\Icons\\Spell_Nature_StoneClawTotem" },
 		{ n = "Fire",  r = 1.00, g = 0.36, b = 0.22, dur = 7,  gap = 2.0, off = 3.1,
-		  icon = SP.Wizard.FireMockIcon(),                          active = "Interface\\Icons\\Spell_Fire_SealOfFire" },
+		  icon = SP.Wizard.FireMockIcon(),
+		  -- Fire Nova Totem is not on WoW: Forever; its icon gives way to Magma there
+		  active = (SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(1535)) and "Interface\\Icons\\Spell_Fire_SelfDestruct" or "Interface\\Icons\\Spell_Fire_SealOfFire" },
 		{ n = "Water", r = 0.42, g = 0.58, b = 1.00, dur = 11, gap = 2.5, off = 6.4,
 		  icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", active = "Interface\\Icons\\Spell_Frost_SummonWaterElemental" },
 		{ n = "Air",   r = 0.86, g = 0.88, b = 0.98, dur = 8,  gap = 2.0, off = 1.7,
 		  icon = "Interface\\Icons\\Spell_Nature_Windfury",     active = "Interface\\Icons\\Spell_Nature_InvisibilityTotem" },
 	}
+	-- Grid and Blizzard's bar are styles too; the four classic ones must switch them off.
+	local function extra() return OPT().gridStyle == true or OPT().useBlizzardTotemBar == true end
+	local function clearExtra()
+		if InCombatLockdown() then return end
+		if OPT().gridStyle and SP.SetGridStyle then SP:SetGridStyle(false) end
+		if OPT().useBlizzardTotemBar then
+			OPT().useBlizzardTotemBar = nil
+			if SP.RefreshBlizzardTotemBar then pcall(SP.RefreshBlizzardTotemBar, SP) end
+		end
+	end
 	local STYLES = {
 		{ key = "normal", label = "Normal",
-		  set = function() OPT().activeTotemAsMain = false; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
-		  is  = function() return not OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle end,
+		  set = function() clearExtra(); OPT().activeTotemAsMain = false; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
+		  is  = function() return (not OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle) and not extra() end,
 		  caption = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one greys out until it expires." },
 		{ key = "totemtimers", label = "TotemTimers Style",
-		  set = function() OPT().activeTotemAsMain = true; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
-		  is  = function() return OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle end,
+		  set = function() clearExtra(); OPT().activeTotemAsMain = true; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
+		  is  = function() return (OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle) and not extra() end,
 		  caption = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires." },
 		{ key = "dynamic", label = "Dynamic (PvP)",
-		  set = function() OPT().dynamicTotemMode = true; OPT().activeTotemAsMain = false; OPT().compactStyle = false end,
-		  is  = function() return OPT().dynamicTotemMode and not OPT().compactStyle end,
+		  set = function() clearExtra(); OPT().dynamicTotemMode = true; OPT().activeTotemAsMain = false; OPT().compactStyle = false end,
+		  is  = function() return (OPT().dynamicTotemMode and not OPT().compactStyle) and not extra() end,
 		  caption = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP." },
 		{ key = "compact", label = "Compact (lines)",
-		  set = function() OPT().compactStyle = true; OPT().dynamicTotemMode = false; OPT().activeTotemAsMain = false end,
-		  is  = function() return OPT().compactStyle and true or false end,
+		  set = function() clearExtra(); OPT().compactStyle = true; OPT().dynamicTotemMode = false; OPT().activeTotemAsMain = false end,
+		  is  = function() return (OPT().compactStyle and true or false) and not extra() end,
 		  caption = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged." },
+		{ key = "grid", label = "Grid (every totem)",
+		  only = function() return SP.SetGridStyle ~= nil end,
+		  set = function() if SP.SetGridStyle and not InCombatLockdown() then OPT().useBlizzardTotemBar = nil; SP:SetGridStyle(true) end end,
+		  is  = function() return OPT().gridStyle == true end,
+		  caption = "Every totem of every element stays visible in rows. Click one to drop it; the assigned one is highlighted and the dropped one carries the timer. Split by Element (Mode & Twisting) gives each row its own frame." },
+		{ key = "blizzard", label = "Blizzard's totem bar",
+		  only = function() return SP.HasTotemBar and SP:HasTotemBar() and SP.RefreshBlizzardTotemBar ~= nil end,
+		  set = function()
+		  	if InCombatLockdown() then return end
+		  	if OPT().gridStyle and SP.SetGridStyle then SP:SetGridStyle(false) end
+		  	OPT().compactStyle = false; OPT().useBlizzardTotemBar = true
+		  	pcall(SP.RefreshBlizzardTotemBar, SP)
+		  end,
+		  is  = function() return OPT().useBlizzardTotemBar == true end,
+		  caption = "Hide ShamanPower's bar and use Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout." },
 	}
+	do local kept = {}; for _, st in ipairs(STYLES) do if not st.only or st.only() then kept[#kept + 1] = st end end; STYLES = kept end
 	local SIZE, GAP, STEP = 46, 12, 58
 	local bar = CreateFrame("Frame", nil, inner)
 	bar:SetSize(4 * STEP - GAP, SIZE * 2 + 30); bar:SetPoint("CENTER", inner, "CENTER", 0, 8)
+	-- Grid style shows the settings pane's grid mock instead of the bar
+	local gridHost
+	if ns.PaneBuilders and ns.PaneBuilders.BuildGridMock then
+		gridHost = CreateFrame("Frame", nil, inner); gridHost:SetAllPoints(inner); gridHost:Hide()
+		pcall(ns.PaneBuilders.BuildGridMock, gridHost)
+	end
 	-- frame behind the bar (Hide Totem Bar Frame option)
 	local frameBg = bar:CreateTexture(nil, "BACKGROUND", nil, -1); frameBg:SetPoint("TOPLEFT", bar, "TOPLEFT", -8, 8); frameBg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 8, -8); frameBg:SetColorTexture(0, 0, 0, 0.7)
 	local frameBd = CreateFrame("Frame", nil, bar); frameBd:SetPoint("TOPLEFT", frameBg); frameBd:SetPoint("BOTTOMRIGHT", frameBg); Core:MakeBorder(frameBd, "border")
@@ -694,6 +748,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	styleCap:SetJustifyH("CENTER"); styleCap:SetWordWrap(true)
 
 	local function mode()
+		if OPT().gridStyle then return "grid" end
 		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
 		if OPT().activeTotemAsMain then return "tt" end
@@ -871,7 +926,10 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.inset:Hide(); s.insetBd:Hide()
 			end
 		end
-		if m == "compact" then bar:SetAlpha(0); cm:Show(); paintCompact(el) else bar:SetAlpha(1); cm:Hide() end
+		if m == "compact" then bar:SetAlpha(0); cm:Show(); paintCompact(el)
+		elseif m == "grid" then bar:SetAlpha(0); cm:Hide()
+		else bar:SetAlpha(1); cm:Hide() end
+		if gridHost then gridHost:SetShown(m == "grid") end
 	end)
 
 	if SP.Wizard.previewOnly then
@@ -3564,6 +3622,52 @@ f:SetScript("OnEvent", function(self)
 		C_Timer.After(2, function() if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open() end end)
 	end
 end)
+
+-- WoW: Forever intro: what is not here and what the engine draws. Text only.
+function SP.Wizard.BuildForeverStep(card, inner, y)
+	local gone = { "Earth Shield", "Bloodlust / Heroism", "Drums of Battle", "Totem of Wrath", "Wrath of Air", "Earth / Fire Elemental" }
+	local engine = { "Totem timers and countdown numbers", "Party buff dots and range counters", "Reactive and expiring alerts", "Cooldown sweeps and Ready Reminders" }
+	local function column(title, items, x)
+		local h = inner:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.section); h:SetPoint("TOPLEFT", inner, "TOPLEFT", x, -14)
+		h:SetTextColor(Core:Color("accentHi")); h:SetText(title)
+		local yy = 36
+		for _, item in ipairs(items) do
+			local t = inner:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row); t:SetPoint("TOPLEFT", inner, "TOPLEFT", x, -yy)
+			t:SetWidth(inner:GetWidth() / 2 - 24); t:SetJustifyH("LEFT"); t:SetWordWrap(true); t:SetText("- " .. item)
+			yy = yy + t:GetStringHeight() + 6
+		end
+	end
+	column("NOT IN THIS GAME", gone, 14)
+	column("DRAWN BY THE GAME IN COMBAT", engine, inner:GetWidth() / 2 + 6)
+	local foot = inner:CreateFontString(nil, "OVERLAY"); foot:SetFontObject(Core.fonts.rowDim)
+	foot:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 14, 12); foot:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -14, 12)
+	foot:SetJustifyH("LEFT"); foot:SetWordWrap(true)
+	foot:SetText("Everything else works as it does on Anniversary. The settings window marks the rest with orange notes where a page needs one.")
+	return y
+end
+
+-- Totem sets (WoW: Forever): the pane's two-row mock plus the three sync toggles.
+function SP.Wizard.BuildTotemSetsStep(card, inner, y)
+	local Widgets = ns.Widgets
+	if ns.PaneBuilders and ns.PaneBuilders.BuildLoadoutSetsPane then pcall(ns.PaneBuilders.BuildLoadoutSetsPane, card, inner) end
+	local W = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, W
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	local function after() safecall("SyncTotemSetFromAssignments"); safecall("UpdateDropAllButton"); notify() end
+	row("Toggle", { label = "Keep Call of the Elements in step with my assignments",
+		get = function() return OPT().totemSetsSyncAssignments ~= false end,
+		set = function(v) OPT().totemSetsSyncAssignments = v; after() end })
+	row("Toggle", { label = "Adopt totems picked on Blizzard's bar as my assignments",
+		get = function() return OPT().totemSetsAdoptFromBar ~= false end,
+		set = function(v) OPT().totemSetsAdoptFromBar = v; after() end })
+	row("Toggle", { label = "Drop All casts the set (one press for all four totems)",
+		get = function() return OPT().dropAllUsesTotemSets ~= false end,
+		set = function(v) OPT().dropAllUsesTotemSets = v; after() end })
+	return y
+end
 
 SLASH_SHAMANPOWERSETUP1 = "/spsetup"
 SlashCmdList["SHAMANPOWERSETUP"] = function() SP.Wizard:Open() end

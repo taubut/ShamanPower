@@ -209,6 +209,9 @@ local function BuildGrid(inner)
 	inner.gridMock, root.rows = root, rows
 end
 
+-- The setup tour's Totem Bar step mounts the same mock for its Grid style.
+ns.PaneBuilders.BuildGridMock = BuildGrid
+
 function ns.PaneBuilders.BuildTotemBarPane(card, inner, y)
 	if SP.GridActive and SP:GridActive() then return BuildGrid(inner) end
 	return SP.Wizard.BuildTotemBarStep(card, inner, y)
