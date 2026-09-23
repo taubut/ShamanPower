@@ -217,7 +217,7 @@ end
 local STEPS = {
 	{ id = "forever", title = "WoW: Forever", roles = EVERYONE, build = "BuildForeverStep",
 	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
-	  desc = "This is the Classic+ line. A few things ShamanPower does elsewhere do not exist here, and a few work differently because the game hides combat data from addons.",
+	  desc = "Welcome to WoW: Forever. A few things ShamanPower does on other versions of the game do not exist here, and a few work differently because the game hides combat data from addons.",
 	  bullets = {
 	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air and the Elementals. Their pages, mocks and options are hidden.",
 	    "In combat the game itself draws the timers, party dots, alerts and cooldown numbers, so they keep working; some sounds can only start out of combat.",
@@ -3661,7 +3661,7 @@ function SP.Wizard.BuildForeverStep(card, inner, y)
 	local foot = inner:CreateFontString(nil, "OVERLAY"); foot:SetFontObject(Core.fonts.rowDim)
 	foot:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 14, 12); foot:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -14, 12)
 	foot:SetJustifyH("LEFT"); foot:SetWordWrap(true)
-	foot:SetText("Everything else works as it does on Anniversary. The settings window marks the rest with orange notes where a page needs one.")
+	foot:SetText("Everything else works as usual. Where a setting behaves differently on WoW: Forever, its page says so in an orange note.")
 	return y
 end
 
