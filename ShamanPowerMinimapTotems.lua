@@ -1,6 +1,15 @@
 -- Own-totem minimap markers. Geometry is plain world-yard data, never aura coverage.
 local SP = ShamanPower
 if not SP then return end
+-- The markers need the minimap's view radius in yards. The Anniversary client
+-- has no C_Minimap.GetViewRadius, so there the feature is off entirely: no
+-- events, no retries on every step, and the options stay hidden.
+if not (C_Minimap and C_Minimap.GetViewRadius) then
+	function SP.RefreshMinimapTotems() end
+	SP.MinimapTotemsAvailable = false
+	return
+end
+SP.MinimapTotemsAvailable = true
 local secret = issecretvalue or function() return false end
 local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local pins, classicDrops, blockedDrops, blocked = {}, {}, {}, {}
