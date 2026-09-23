@@ -9626,7 +9626,11 @@ do
 		args = {
 			about = {
 				order = 1, type = "description", width = "full",
-				name = "|cff3FA9F5Questions, bug reports, suggestions and early test builds all live on the ShamanPower Discord.|r It is the best way to reach me directly.",
+				name = "|TInterface\\Icons\\ClassIcon_Shaman:18:18|t  |cff5865F2Join the ShamanPower Discord|r - the best way to reach me directly.\n"
+					.. "|cffffd200>|r  Get help setting ShamanPower up\n"
+					.. "|cffffd200>|r  Report bugs straight to the developer\n"
+					.. "|cffffd200>|r  Suggest new features and vote on ideas\n"
+					.. "|cffffd200>|r  Try new builds before anyone else",
 			},
 			link = {
 				order = 2, type = "input", name = "Invite link", width = "full",

@@ -330,8 +330,25 @@ end
 --                            only the word was coloured, now the whole line is
 -- Both come out in one note colour; every other colour code is dropped.
 local NOTE_COLOR = "|cffffa040"
+-- A few deliberate brand colours survive too, so a page can put flair on one
+-- spot (the Discord section): Discord blurple, ShamanPower blue, WoW gold.
+local KEEP_COLORS = { ["5865f2"] = true, ["3fa9f5"] = true, ["ffd200"] = true }
 function Tree:ThemeText(s)
 	if not s then return "" end
+	local kept
+	s = gsub(s, "|c[fF][fF](%x%x%x%x%x%x)(.-)|r", function(hex, body)
+		if KEEP_COLORS[strlower(hex)] then
+			kept = kept or {}
+			kept[#kept + 1] = "|cff" .. hex .. body .. "|r"
+			return "\3" .. #kept .. "\4"
+		end
+	end)
+	s = self:ThemeTextNotes(s)
+	if kept then s = gsub(s, "\3(%d+)\4", function(i) return kept[tonumber(i)] end) end
+	return s
+end
+
+function Tree:ThemeTextNotes(s)
 	if not (s:find("|cffffa040", 1, true) or s:find("|cffff8800Note:", 1, true)) then return self:StripColor(s) end
 	s = gsub(s, "|cffffa040(.-)|r", "\1%1\2")
 	s = gsub(s, "|cffff8800Note:|r", "\1Note:")
