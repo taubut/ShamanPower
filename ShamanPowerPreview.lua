@@ -109,7 +109,10 @@ function SP:ShowPreview(key, container)
 		local stage = container.previewStage
 		if not stage then
 			stage = CreateFrame("PlayerModel", nil, container)
-			stage:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
+			-- the character lives in the bottom half of the box only; the display
+			-- floats above the centre line (lift), so the two can never overlap,
+			-- whatever the box size
+			stage:SetPoint("TOPLEFT", container, "LEFT", 0, -6)
 			stage:SetPoint("BOTTOMRIGHT", container, "BOTTOMRIGHT", 0, 0)
 			stage:SetFrameLevel(container:GetFrameLevel() + 2)
 			stage:SetAlpha(0.55)
@@ -144,11 +147,7 @@ function SP:ShowPreview(key, container)
 	local reserve = container.previewInsetBottom or 0
 	local maxScale = container.previewMaxScale or 2.5
 	-- with a character on stage the display floats above its head, not on it
-	-- The character fills the container, so its head sits a fixed FRACTION of the
-	-- container's height above the centre: a fixed 70 px left the number on the
-	-- chest in the tall tour and settings panes. About a fifth of the height puts
-	-- it above the head at every size.
-	local lift = (def.stage and (def.stageLift or math.max(70, math.floor(container:GetHeight() * 0.21)))) or 0
+	local lift = (def.stage and (def.stageLift or 70)) or 0
 	-- The settings window's tall, narrow preview pane flags itself and reads
 	-- the registration's `pane` hints (overlap, grid, maxScale). The wizard's
 	-- containers never do, so its step pages keep their own layout.
@@ -209,6 +208,27 @@ function SP:ShowPreview(key, container)
 			-- cell geometry is in frame units already; the pixel extras are divided by the scale
 			frame:SetPoint("CENTER", container, "CENTER", (c - (cols - 1) / 2) * cellW, ((rows - 1) / 2 - r) * cellH + (reserve / 2 + lift) / scale)
 			showFrame(frame)
+		end
+		return frames[1]
+	end
+	if def.stage then
+		-- with a character on stage (bottom half of the box) the frames stack
+		-- UPWARD from just above the centre line, so none of them reaches down
+		-- into the character. Offsets are in the frame's own scaled units.
+		-- The upper half is all there is: shrink to fit it.
+		local half = (container:GetHeight() / 2) - 12
+		if totalH > 0 and half > 0 then scale = math.min(scale, half / totalH) end
+		local up = 8
+		for i = #frames, 1, -1 do
+			local frame = frames[i]
+			frame:SetParent(container)
+			frame:SetFrameStrata(container:GetFrameStrata())
+			frame:SetFrameLevel(container:GetFrameLevel() + 5)
+			frame:SetScale(scale)
+			frame:ClearAllPoints()
+			frame:SetPoint("BOTTOM", container, "CENTER", 0, up / scale)
+			showFrame(frame)
+			up = up + (frame:GetHeight() + 16) * scale
 		end
 		return frames[1]
 	end
