@@ -3504,16 +3504,17 @@ function SP.Wizard:RenderRole()
 	-- Each card: the role in gold, then what picking it sets up, one spell per row.
 	-- Items are { spellID or list of IDs (first the client has), text }.
 	local FOREVER = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-	local SHOCKS = { 8042, "Earth, Flame and Frost Shock" }
 	local roles = FOREVER and {
 		{ key = "restoration", name = "Restoration", role = "Healer", items = {
 			{ 16190, "Mana Tide Totem" }, { 16188, "Nature's Swiftness" },
 			{ 408521, "Riptide" }, { 408510, "Water Shield" } } },
 		{ key = "enhancement", name = "Enhancement", role = "Melee", items = {
 			{ 17364, "Stormstrike" }, { 425336, "Rage of the Farseer" },
-			SHOCKS, { 8512, "Totem twisting" } } },
+			{ 8042, "Earth Shock" }, { 8050, "Flame Shock" }, { 8056, "Frost Shock" },
+			{ 8512, "Totem twisting" } } },
 		{ key = "elemental",   name = "Elemental",   role = "Caster", items = {
-			{ 408490, "Lava Burst" }, SHOCKS } },
+			{ 408490, "Lava Burst" },
+			{ 8042, "Earth Shock" }, { 8050, "Flame Shock" }, { 8056, "Frost Shock" } } },
 	} or {
 		{ key = "restoration", name = "Restoration", role = "Healer", items = {
 			not SP.ESTrackerUnavailable and { 974, "Earth Shield tracker" } or nil,
@@ -3533,7 +3534,10 @@ function SP.Wizard:RenderRole()
 		end
 		return "Interface\\Icons\\INV_Misc_QuestionMark"
 	end
-	local cardW, cardH, gap = 244, 264, 26
+	-- tall enough for the longest list (header ~135 px, 27 px a row)
+	local most = 0
+	for _, r in ipairs(roles) do local n = 0; for idx = 1, 8 do if r.items[idx] then n = n + 1 end end; most = math.max(most, n) end
+	local cardW, cardH, gap = 244, math.max(264, 150 + most * 27), 26
 	local totalW = #roles * cardW + (#roles - 1) * gap
 	local x0 = (cw - totalW) / 2
 	for i, r in ipairs(roles) do
