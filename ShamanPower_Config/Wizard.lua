@@ -1537,7 +1537,7 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 		local showE = resto and get("showEarthShield", true) ~= false
 		if e then e:SetShown(showE) end
 		if not showE then dx = 0 end        -- one number: center it
-		local cy = math.min(40, inner:GetHeight() / 2 - th / 2 - 16)
+		local cy = math.min(140, inner:GetHeight() / 2 - th / 2 - 16)   -- well above the staged character's head
 		if p then p:ClearAllPoints(); p:SetPoint("CENTER", inner, "CENTER", -dx, cy) end
 		if e then e:ClearAllPoints(); e:SetPoint("CENTER", inner, "CENTER", dx, cy) end
 		local ly = cy - th / 2 - 8
