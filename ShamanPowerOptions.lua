@@ -3672,13 +3672,35 @@ ShamanPower.options = {
 						module_missing_note = {
 							order = 0.01,
 							type = "description",
-							name = "|cffffa040This module is not loaded, so nothing on this page does anything right now (toggles may even snap back). Enable the ShamanPower [Totem Range] addon in the AddOns list and /reload.|r",
+							name = "|cffffa040The range overlay module is not loaded. Enable ShamanPower [Totem Range]"
+								.. " in the AddOns list and /reload to use its overlay controls."
+								.. " Shaman minimap markers below work without that module.|r",
 							hidden = function() return not (not ShamanPower.SPRangeLoaded) end,
 						},
 						sprange_desc = {
 							order = 0,
 							type = "description",
-							name = "For non-shamans: Shows when you're in/out of range of party totem buffs from OTHER shamans.\n\n|cffff8800Note:|r Requires the |cff00ff00ShamanPower [Totem Range]|r module to be enabled in your AddOns list.\n",
+							name = "The optional range overlay shows non-shamans whether OTHER shamans' party buffs are in range."
+								.. " It requires ShamanPower [Totem Range].\n\nShamans can also show their own recorded"
+								.. " totem drops on the minimap in the open world. Missing map calibration hides markers;"
+								.. " instances never show them.\n",
+						},
+						minimapTotemMarkers = {
+							order = 0.1, type = "toggle", name = "Totem markers on the minimap", width = "full",
+							get = function() return ShamanPower.opt.minimapTotemMarkers ~= false end,
+							set = function(_, value) ShamanPower.opt.minimapTotemMarkers = value; ShamanPower:RefreshMinimapTotems() end,
+						},
+						minimapTotemRings = {
+							order = 0.2, type = "toggle", name = "Estimated totem radius rings", width = "full",
+							desc = "Uses the addon's range model, not guaranteed exact spell or talent-modified reach."
+								.. " Unknown radii show only a pin. Relocated totems need a fresh drop.",
+							get = function() return ShamanPower.opt.minimapTotemRings ~= false end,
+							set = function(_, value) ShamanPower.opt.minimapTotemRings = value; ShamanPower:RefreshMinimapTotems() end,
+						},
+						minimapTotemPinSize = {
+							order = 0.3, type = "range", name = "Minimap totem pin size", min = 8, max = 28, step = 1,
+							get = function() return ShamanPower.opt.minimapTotemPinSize or 14 end,
+							set = function(_, value) ShamanPower.opt.minimapTotemPinSize = value; ShamanPower:RefreshMinimapTotems() end,
 						},
 						sprange_opacity = {
 							order = 1,

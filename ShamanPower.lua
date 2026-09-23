@@ -1510,6 +1510,11 @@ local TOTEM_AURA_RANGE = 30            -- yards: every buff totem's radius in th
 ShamanPower.totemDropPos = {}          -- [element] = { x, y, map }
 ShamanPower.totemRangeLast = {}        -- [element] = last range answer while buffs were readable
 
+-- Shared model radius, not a promise of exact per-spell or talent-modified reach.
+function ShamanPower.GetTotemRangeModelRadius()
+	return TOTEM_AURA_RANGE
+end
+
 local function unitPosition(unit)
 	if not UnitPosition then return nil end
 	local ok, y, x, _, map = pcall(UnitPosition, unit)

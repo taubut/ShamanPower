@@ -30,4 +30,5 @@ ShamanPowerCompact.lua
 ShamanPowerUnlock.lua
 ShamanPowerTotemSets.lua
 ShamanPowerBlizzardTotemBar.lua
+ShamanPowerMinimapTotems.lua
 ShamanPower_TBC.xml
