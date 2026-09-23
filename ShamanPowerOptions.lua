@@ -2329,7 +2329,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								-- Don't change layout in combat
-								if InCombatLockdown() then return end
+								if InCombatLockdown() then print("|cffff0000ShamanPower:|r the bar layout cannot change during combat - try again after the fight."); return end
 
 								-- Initialize cdbarLayout if not set, so changing totem bar doesn't affect CD bar
 								if ShamanPower.opt.cdbarLayout == nil then
@@ -2452,7 +2452,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								-- Don't change layout in combat
-								if InCombatLockdown() then return end
+								if InCombatLockdown() then print("|cffff0000ShamanPower:|r the bar layout cannot change during combat - try again after the fight."); return end
 								ShamanPower.opt.cdbarLayout = val
 								ShamanPower:UpdateCooldownBarLayout()
 								ShamanPower:UpdateCooldownBar()
@@ -3390,7 +3390,7 @@ ShamanPower.options = {
 							type = "toggle",
 							name = "Spell-Colored Progress Bars",
 							desc = WithNotes("Color progress bars based on the spell (e.g. Lightning Shield = blue, Reincarnation = red, Flametongue = orange). The spell colour replaces the green \"plenty of time\" colour only: with less than 10 minutes left a bar still turns yellow, then red.",
-								function() return not ShamanPower.opt.cdbarShowProgressBars end, "\"Show Progress Bars\" is off, so there are no bars to colour."),
+								function() return ShamanPower.opt.cdbarShowProgressBars == false end, "\"Show Progress Bars\" is off, so there are no bars to colour."),
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.cdbarSpellColors or false
@@ -5277,8 +5277,8 @@ ShamanPower.options = {
 							end
 						},
 						shieldcharges_earth = {
-							hidden = function() return ShamanPower.ESTrackerUnavailable == true end,   -- no Earth Shield on this client
-							hidden = function(info) return (SPCompat and SPCompat.earthShieldExists == false) and true or false end,
+							-- no Earth Shield on this client (one hidden: a second key silently replaced the first)
+							hidden = function(info) return ShamanPower.ESTrackerUnavailable == true or (SPCompat and SPCompat.earthShieldExists == false) and true or false end,
 							order = 2,
 							name = "Show Earth Shield Charges",
 							desc = "Show Earth Shield charge count on your current target",
@@ -7823,9 +7823,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowShields = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_recall = {
@@ -7880,9 +7878,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowReincarnation = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_ns = {
@@ -7897,9 +7893,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowNS = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_manatide = {
@@ -7914,9 +7908,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowManaTide = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_shamanistic_rage = {
@@ -7931,9 +7923,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowShamanisticRage = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_bloodlust = {
@@ -7948,9 +7938,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowBloodlust = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_imbues = {
@@ -7965,9 +7953,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowImbues = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_elemental_mastery = {
@@ -7982,9 +7968,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowElementalMastery = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						-- WoW: Forever cooldowns; hidden on clients whose data lacks the spell
@@ -8000,9 +7984,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowRageOfTheFarseer = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 						cdbar_show_totemic_projection = {
@@ -8017,9 +7999,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowTotemicProjection = val
-								if not InCombatLockdown() then
-									ShamanPower:RecreateCooldownBar()
-								end
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
 					}
@@ -8079,8 +8059,9 @@ ShamanPower.options = {
 								for key, frame in pairs(ShamanPower.poppedOutFrames) do
 									ShamanPower.opt.poppedOutSettings = ShamanPower.opt.poppedOutSettings or {}
 									ShamanPower.opt.poppedOutSettings[key] = ShamanPower.opt.poppedOutSettings[key] or {}
-									local wasHidden = ShamanPower.opt.poppedOutSettings[key].hideFrame
-									if val ~= wasHidden then
+									-- never toggled = frame shown (nil counts as false)
+									local wasHidden = ShamanPower.opt.poppedOutSettings[key].hideFrame and true or false
+									if (val and true or false) ~= wasHidden then
 										ShamanPower:TogglePopOutFrame(key)
 									end
 								end
@@ -9258,6 +9239,8 @@ do
 		set = function(_, value)
 			if NativeLocked() then return end
 			SP.opt.useBlizzardTotemBar = value
+			-- the bar's move overlay would stay behind with its checkbox hidden
+			if value and SP.SetTotemBarUnlocked and SP.opt.display and SP.opt.display.moverUnlocked then SP:SetTotemBarUnlocked(false) end
 			SP:RefreshBlizzardTotemBar()
 			NotifyNative()
 		end,

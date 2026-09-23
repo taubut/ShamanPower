@@ -1111,6 +1111,7 @@ end
 
 -- Called when combat ends - reset Drop All castsequence
 function ShamanPower:OnCombatEnd()
+	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
 	-- Layout skipped because the addon loaded (or was reloaded) mid-combat:
 	-- run the parts of the login sequence that could not touch secure frames.
 	if self._layoutPendingCombat then
@@ -4515,6 +4516,17 @@ function ShamanPower:SavePositionRecord(frame)
 end
 
 -- Unlock/lock the totem bar for free dragging via a mover overlay.
+-- Unlocking is a one-session action: at login the saved flag is cleared, so a
+-- checkbox left ticked never outlives the overlay it stands for.
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_LOGIN")
+	f:SetScript("OnEvent", function()
+		local d = ShamanPower.opt and ShamanPower.opt.display
+		if d then d.moverUnlocked = nil end
+	end)
+end
+
 function ShamanPower:SetTotemBarUnlocked(unlocked)
 	self:EnsureProfileTable("display")
 	self.opt.display.moverUnlocked = unlocked and true or nil
@@ -7983,7 +7995,7 @@ function ShamanPower:SetCooldownBarOrderSlot(position, cooldownType)
 		if not seen[t] then order[#order + 1] = t; seen[t] = true end
 	end
 	self.opt.cooldownBarOrder = order
-	if not InCombatLockdown() then self:RecreateCooldownBar() end
+	self:RecreateCooldownBar()   -- waits for the end of combat by itself
 end
 
 -- Element colours. ShamanPower has always used its own set (earth brown, air
@@ -10276,7 +10288,9 @@ function ShamanPower:UpdateCooldownBar()
 end
 
 function ShamanPower:RecreateCooldownBar()
-	if InCombatLockdown() then return end
+	-- a change made in combat (an item ticked off, the order) is applied when combat ends
+	if InCombatLockdown() then self._cdBarRebuildPending = true; return end
+	self._cdBarRebuildPending = nil
 
 	-- Destroy existing cooldown bar and drag handle
 	if self.cooldownBarDragHandle then

@@ -111,6 +111,7 @@ function SP:SetTotemBarStyle(key)
 	if key == "grid" then
 		if self.SetGridStyle then self:SetGridStyle(true) end   -- builds the rows and refreshes the bar itself
 	elseif key == "blizzard" then
+		if self.SetTotemBarUnlocked and o.display and o.display.moverUnlocked then self:SetTotemBarUnlocked(false) end
 		if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end   -- what the Mode & Twisting toggle does
 	else
 		if self.ApplyCompactStyle then self:ApplyCompactStyle() end
