@@ -280,8 +280,19 @@ local function CreateSection(parent)
 	rule:SetPoint("RIGHT", h, "RIGHT", -PAD, 0)
 	rule:SetColorTexture(Core:Color("border", 0.6))
 	h.rule = rule
+
+	-- featured heading extras (hidden on ordinary sections)
+	h.icon = h:CreateTexture(nil, "ARTWORK")
+	h.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	h.icon:Hide()
+	h.glow = h:CreateTexture(nil, "BACKGROUND")
+	h.glow:SetColorTexture(1, 1, 1, 1)
+	h.glow:Hide()
 	return h
 end
+
+local FEATURED_H = 44
+local GOLD = { 1, 0.82, 0.15 }
 
 function Widgets:SectionHeader(parent, opts)
 	local h = Acquire("section", parent, CreateSection)
@@ -289,7 +300,42 @@ function Widgets:SectionHeader(parent, opts)
 	h:SetSize(opts.width or 300, SECTION_H)
 	h:SetPoint("TOPLEFT", parent, "TOPLEFT", opts.x or 0, -((opts.y or 0) + SECTION_TOP))
 
-	h.label:SetText(strupper(opts.label or ""))
+	local featured = opts.featured
+	h.label:ClearAllPoints(); h.rule:ClearAllPoints()
+	if featured then
+		-- the big gold heading: icon, large bold gold title, gold glow and rule
+		h:SetHeight(FEATURED_H)
+		h.icon:SetTexture(type(featured) == "string" and featured or "Interface\\Icons\\ClassIcon_Shaman")
+		h.icon:SetSize(30, 30)
+		h.icon:ClearAllPoints(); h.icon:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", PAD, 4)
+		h.icon:Show()
+		h.label:SetFontObject(Core.fonts.title)
+		h.label:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		h.label:SetShadowColor(0, 0, 0, 1); h.label:SetShadowOffset(2, -2)
+		h.label:SetPoint("LEFT", h.icon, "RIGHT", 10, 1)
+		h.label:SetText(opts.label or "")
+		h.rule:SetHeight(2)
+		h.rule:SetPoint("TOPLEFT", h, "BOTTOMLEFT", PAD, 0)
+		h.rule:SetPoint("TOPRIGHT", h, "BOTTOMRIGHT", -PAD, 0)
+		h.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+		h.glow:ClearAllPoints()
+		h.glow:SetPoint("TOPLEFT", h, "TOPLEFT", PAD, -2)
+		h.glow:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -PAD, 0)
+		Core:Gradient(h.glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.22, GOLD[1], GOLD[2], GOLD[3], 0)
+		h.glow:Show()
+	else
+		h:SetHeight(SECTION_H)
+		h.icon:Hide(); h.glow:Hide()
+		h.label:SetFontObject(Core.fonts.section)
+		h.label:SetTextColor(Core:Color("textDim"))
+		h.label:SetShadowOffset(0, 0)
+		h.label:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", PAD, 2)
+		h.label:SetText(strupper(opts.label or ""))
+		h.rule:SetHeight(1)
+		h.rule:SetPoint("BOTTOMLEFT", h.label, "BOTTOMRIGHT", 10, 3)
+		h.rule:SetPoint("RIGHT", h, "RIGHT", -PAD, 0)
+		h.rule:SetColorTexture(Core:Color("border", 0.6))
+	end
 	if opts.note then
 		h.note:SetText(opts.note)
 		h.note:Show()
@@ -299,7 +345,7 @@ function Widgets:SectionHeader(parent, opts)
 	end
 
 	self:TagSection(h, opts.label)
-	return h, SECTION_H + SECTION_TOP + SECTION_BOT
+	return h, (featured and FEATURED_H + 6 or SECTION_H) + SECTION_TOP + SECTION_BOT
 end
 
 -- ---------------------------------------------------------------------------

@@ -1386,8 +1386,11 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	for _, e in ipairs(list) do
 		if e.kind == "section" then
 			BreakRow()
+			-- a featured section (SP.OptionFeaturedHeader, keyed by the option group) gets the big gold heading
+			local sp0 = SP()
+			local featured = sp0 and sp0.OptionFeaturedHeader and e.node and sp0.OptionFeaturedHeader[e.node]
 			local f, h = Widgets:SectionHeader(body, {
-				label = Tree:StripColor(e.label), x = 0, y = y, width = fullW,
+				label = Tree:StripColor(e.label), x = 0, y = y, width = fullW, featured = featured,
 			})
 			table.insert(pageWidgets, f)
 			currentSection = f

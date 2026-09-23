@@ -240,6 +240,7 @@ function Tree:BuildRenderList(pageNode, pagePath, pageChain, out, depth)
 					label = self:GetName(c.node, c.info),
 					desc  = self:GetDesc(c.node, c.info),
 					depth = depth,
+					node  = c.node,
 				})
 				self:BuildRenderList(c.node, c.path, c.chain, out, depth + 1)
 			elseif t == "header" then

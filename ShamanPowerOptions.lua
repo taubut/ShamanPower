@@ -9626,7 +9626,7 @@ do
 		args = {
 			about = {
 				order = 1, type = "description", width = "full",
-				name = "|TInterface\\Icons\\ClassIcon_Shaman:18:18|t  |cff5865F2Join the ShamanPower Discord|r - the best way to reach me directly.\n"
+				name = "|cff5865F2Join the ShamanPower Discord|r - the best way to reach me directly.\n"
 					.. "|cffffd200>|r  Get help setting ShamanPower up\n"
 					.. "|cffffd200>|r  Report bugs straight to the developer\n"
 					.. "|cffffd200>|r  Suggest new features and vote on ideas\n"
@@ -9645,4 +9645,7 @@ do
 			},
 		},
 	}
+	-- the Discord section's heading is the big gold featured one (Widgets SectionHeader)
+	SP.OptionFeaturedHeader = SP.OptionFeaturedHeader or {}
+	SP.OptionFeaturedHeader[main.community] = "Interface\\Icons\\ClassIcon_Shaman"
 end
