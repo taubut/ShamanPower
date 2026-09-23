@@ -127,6 +127,7 @@ local function ShowStylePreview(key)
 		t:SetPoint("CENTER"); t:SetText("Could not build the preview.")
 	end
 	previewDlg:Show()
+	previewDlg:Raise()   -- above the what's-new card it was opened from
 end
 
 -- ---------------------------------------------------------------------------
@@ -238,7 +239,12 @@ end
 -- force = true (the /spwhatsnew test command) bypasses the version gate and
 -- never stamps anything. "/spwhatsnew preview <style>" opens a style preview.
 function SP:ShowWhatsNew(force)
-	if force then BuildDialog():Show() return end
+	if force then
+		-- opened on request (tour, settings button, /spwhatsnew): on top of the tour's layer
+		local d = BuildDialog()
+		d:SetFrameStrata("FULLSCREEN_DIALOG"); d:Show(); d:Raise()
+		return
+	end
 	local cur = GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version")
 	local g = self.db and self.db.global
 	if not cur or not g then return end

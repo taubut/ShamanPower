@@ -761,6 +761,13 @@ local function BuildWindow()
 	Core:MakeBorder(pageSearch, "border")
 	frame.pageSearch = pageSearch
 
+	-- What's new: always one click away, left of the page search
+	local whatsNew = Core:MakeButton(content, "What's New", 100, false)
+	whatsNew:SetPoint("RIGHT", pageSearch, "LEFT", -10, 0)
+	whatsNew:SetHeight(22)
+	whatsNew:SetScript("OnClick", function() local sp = SP(); if sp and sp.ShowWhatsNew then sp:ShowWhatsNew(true) end end)
+	frame.whatsNewBtn = whatsNew
+
 	local pagePlaceholder = pageSearch:CreateFontString(nil, "OVERLAY")
 	pagePlaceholder:SetFontObject(Core.fonts.rowDim)
 	pagePlaceholder:SetPoint("LEFT", pageSearch, "LEFT", 8, 0)

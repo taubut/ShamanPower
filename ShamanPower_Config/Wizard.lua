@@ -3609,6 +3609,13 @@ function SP.Wizard:RenderFinish()
 	tl:SetText("Open the full settings window after the reload")
 
 	box:SetHeight(16 + h:GetStringHeight() + 8 + b:GetStringHeight() + 10 + cmd:GetStringHeight() + 14 + 18 + 18)
+
+	-- the release highlights, for anyone curious (never shown automatically after the tour)
+	if SP.ShowWhatsNew then
+		local wn = track(Core:MakeButton(c, "What's new in ShamanPower 3.0", 240, false))
+		wn:SetPoint("TOP", box, "BOTTOM", 0, -18)
+		wn:SetScript("OnClick", function() SP:ShowWhatsNew(true) end)
+	end
 end
 
 -- ===========================================================================
