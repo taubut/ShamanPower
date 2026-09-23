@@ -1120,8 +1120,35 @@ function SP:ReactiveDemo(on)
 		if not self.reactiveFrames[id] then self:CreateReactiveTotemFrame(id) end
 	end
 
+	-- The live alert's debuff badge is drawn by the game; the preview draws its own
+	-- copy (same corner, same size, same dark edge) with a sample debuff icon.
+	local DEMO_DEBUFF_ICON = {
+		fear = "Interface\\Icons\\Ability_GolemThunderClap",    -- Intimidating Shout
+		poison = "Interface\\Icons\\Ability_Rogue_DualWeild",   -- Deadly Poison
+		disease = "Interface\\Icons\\Spell_Shadow_CallofBone",  -- Plague
+	}
+	local function demoBadge(frame, id)
+		local b = frame.spDemoBadge
+		if not b then
+			b = CreateFrame("Frame", nil, frame)
+			local edge = b:CreateTexture(nil, "BACKGROUND")
+			edge:SetPoint("TOPLEFT", -2, 2); edge:SetPoint("BOTTOMRIGHT", 2, -2)
+			edge:SetColorTexture(0, 0, 0, 1)
+			b.icon = b:CreateTexture(nil, "ARTWORK")
+			b.icon:SetAllPoints(b); b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			frame.spDemoBadge = b
+		end
+		local dsize = math.floor(frame:GetWidth() * 0.4)
+		b:SetSize(dsize, dsize)
+		b:ClearAllPoints(); b:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 6, -6)
+		b:SetFrameLevel(frame:GetFrameLevel() + 6)
+		b.icon:SetTexture(DEMO_DEBUFF_ICON[id])
+		b:Show()
+	end
+
 	local function clearAll()
 		for id, frame in pairs(self.reactiveFrames) do
+			if frame.spDemoBadge then frame.spDemoBadge:Hide() end
 			frame.glowAnim:Stop(); frame.glow:Hide()
 			frame.debuffText:SetText(""); frame.currentDebuffName = nil; frame.soundPlayed = nil
 			frame:Hide()
@@ -1157,6 +1184,7 @@ function SP:ReactiveDemo(on)
 				local frame = self.reactiveFrames[id]
 				frame.debuffText:SetText(text); frame.currentDebuffName = text
 				if sv.showGlow ~= false then frame.glow:Show(); frame.glowAnim:Play() end
+				if sv.showDebuffIcon then demoBadge(frame, id) end
 				if sv.playSound then
 					self:PlaySoundWithVolume(self:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
 				end
