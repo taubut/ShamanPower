@@ -641,6 +641,18 @@ function SP:ReadyRemindersDemo(on)
 	end
 end
 
+-- The icons that are switched on (and usable on this client): Unlock UI boxes
+-- only these, never a row of every reminder the player turned off.
+function SP:ReadyReminderEnabledFrames()
+	local out = {}
+	for _, entry in ipairs(self.ReadyReminderSpells) do
+		if spellOn(entry) and usable(entry) then
+			out[#out + 1] = frames[entry.key] or self:CreateReadyReminderFrame(entry)
+		end
+	end
+	return out
+end
+
 if SP.RegisterPreview then
 	local list = {}
 	for _, entry in ipairs(SP.ReadyReminderSpells) do

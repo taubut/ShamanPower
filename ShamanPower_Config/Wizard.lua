@@ -3041,7 +3041,7 @@ function SP.Wizard.BuildPositionStep(card, inner, y)
 	local pic = inner:CreateFontString(nil, "OVERLAY")
 	pic:SetFontObject(Core.fonts.rowDim); pic:SetPoint("CENTER"); pic:SetWidth(inner:GetWidth() - 24)
 	pic:SetJustifyH("CENTER"); pic:SetWordWrap(true)
-	pic:SetText(IS_SHAMAN and "The setup screen will step aside so you can drag your totem bar and cooldown bar. A small bar appears at the top - click Done when you are finished."
+	pic:SetText(IS_SHAMAN and "The setup screen will step aside so you can drag your totem bar, cooldown bar and every frame you turned on in this setup. A small bar appears at the top - click Done when you are finished. Settings > General > Unlock UI (move everything) does the same any time."
 		or "The setup screen will step aside and show the Totem Range overlay so you can drag it where you want. A small bar appears at the top - click Done when you are finished.")
 end
 
@@ -3057,6 +3057,13 @@ function SP.Wizard:EnterPositioning()
 	-- anything else of ours on screen would sit over the bars being moved
 	local cfg = _G["ShamanPowerConfigUIFrame"]; if cfg and cfg:IsShown() then cfg:Hide() end
 	if ShamanPowerAssign and ShamanPowerAssign.Hide then ShamanPowerAssign:Hide() end
+	-- Shamans get the full Unlock: the bars plus every module switched on in the
+	-- tour (ticked-off modules get no box). Its own Done bar brings the tour back.
+	if IS_SHAMAN and SP.SetMasterUnlock then
+		SP.unlockOnDone = function() if wiz then wiz:Show(); RenderStep() end end
+		SP:SetMasterUnlock(true)
+		return
+	end
 	if IS_SHAMAN and SP.SetTotemBarUnlocked then SP:SetTotemBarUnlocked(true) end
 	if IS_SHAMAN and SP.SetCooldownBarUnlocked then SP:SetCooldownBarUnlocked(true) end
 	if not posBar then

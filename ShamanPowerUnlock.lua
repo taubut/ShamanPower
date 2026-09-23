@@ -59,8 +59,15 @@ local MODULES = {
 			local f = SP.shieldChargeFrames
 			if f and f.player then f.player:ClearAllPoints(); f.player:SetPoint("CENTER", UIParent, "CENTER", -50, -100) end
 			if f and f.earth then f.earth:ClearAllPoints(); f.earth:SetPoint("CENTER", UIParent, "CENTER", 50, -100) end
+		end,
+		enabled = function()
+			local s = SP.opt.shieldChargeDisplay
+			return not s or s.showPlayerShield ~= false or s.showEarthShield == true
 		end },
-	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions" },
+	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions",
+		-- only the reminders that are switched on get a box
+		frames = function() return SP.ReadyReminderEnabledFrames and SP:ReadyReminderEnabledFrames() or {} end,
+		enabled = function() local d = DB("ShamanPower_ReadyReminders"); return not d or d.enabled ~= false end },
 	{ key = "expiring", label = "Expiring Alerts", reset = "ExpiringAlertsReset",
 		enabled = function() local d = DB("ShamanPowerExpiringAlertsDB"); return not d or d.enabled ~= false end,
 		save = function(frame)
@@ -317,6 +324,12 @@ function SP:SetMasterUnlock(on, only)
 		end
 		wipe(forced)
 		if doneBar then doneBar:Hide() end
+		-- whoever opened the unlock (the setup tour) gets control back
+		if self.unlockOnDone then
+			local fn = self.unlockOnDone
+			self.unlockOnDone = nil
+			pcall(fn)
+		end
 		if self.unlockReturnToConfig then
 			self.unlockReturnToConfig = nil
 			local cfg = rawget(_G, "ShamanPowerConfig")
