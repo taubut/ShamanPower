@@ -1146,9 +1146,10 @@ function SP:CoverageDemo(on)
 		local wasActive = self.coverageDemoActive
 		self.coverageDemoActive = true
 		if frame.settingsBtn then frame.settingsBtn:Hide() end
-		-- the live engine covers (real party names) would draw over the sample rows
-		for element = 1, 4 do
-			for _, slot in pairs(self.coverageRows[element] or {}) do
+		-- the live engine covers (real party names) would draw over the sample rows:
+		-- every cell's, the panel's (keyed 1-4) and the free-placement cells' alike
+		for _, rows in pairs(self.coverageRows) do
+			for _, slot in pairs(rows) do
 				if slot.container then slot.container:Hide() end
 			end
 		end
@@ -1237,12 +1238,25 @@ function SP:CoverageDemo(on)
 		self.coverageDemoStatus = nil
 		self.coverageDemo = nil
 		if frame.settingsBtn then frame.settingsBtn:Show() end
-		for element = 1, 4 do frame.buttons[element].iconTex = nil; frame.buttons[element].state = nil end
-		for element = 1, 4 do
-			for i = 1, 4 do frame.buttons[element].rows[i].text:SetTextColor(1, 0.25, 0.25) end
+		-- every cell the demo painted (the panel's four and the free-placement cells)
+		local cells = {}
+		for element = 1, 4 do cells[#cells + 1] = frame.buttons[element] end
+		for _, btn in pairs(frame.totemCells or {}) do cells[#cells + 1] = btn end
+		for _, btn in ipairs(cells) do
+			btn.iconTex, btn.state = nil, nil
+			for i = 1, 4 do
+				local row = btn.rows and btn.rows[i]
+				if row then row.text:SetText(""); row.text:SetTextColor(1, 0.25, 0.25) end
+			end
 		end
 		HideAllCells(frame)
-		for element = 1, 4 do self.coverageRows[element] = nil end   -- rows carry demo names: rebuild
+		-- rows carry demo names: retire every live cover and rebuild them all
+		for _, rows in pairs(self.coverageRows) do
+			for _, slot in pairs(rows) do
+				if slot.container then pcall(slot.container.SetEnabled, slot.container, false); slot.container:Hide() end
+			end
+		end
+		wipe(self.coverageRows)
 		self:RebuildCoverage()
 	end
 end
