@@ -425,6 +425,20 @@ local function RefreshLoadoutArgs()
 		type = "description",
 		name = "Save and switch between personal totem loadouts (up to 8). Each loadout remembers your 4 assigned totems.\n\nUse |cffffd200/spl save <name>|r to save, |cffffd200/spl <name>|r to switch, or manage below.\n",
 	}
+	loadoutArgs.loadouts_sets_note = {
+		order = 0.5,
+		type = "description",
+		width = "full",
+		-- The Set Page picker below only lists set pages the character knows; say why it is empty.
+		name = function()
+			local known = ShamanPower.KnownTotemSetPages and ShamanPower:KnownTotemSetPages() or {}
+			if known[2] or known[3] then
+				return "Blizzard's totem sets: pick a loadout's |cffffd200Set Page|r below to put it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments.\n"
+			end
+			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) with its Set Page picker below. The picker offers them once your character knows them. Call of the Elements always follows your assignments.|r\n"
+		end,
+		hidden = function() return not HasLoadoutSetControls() end,
+	}
 	loadoutArgs.show_bar = {
 		order = 1,
 		type = "toggle",
