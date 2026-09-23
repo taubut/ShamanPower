@@ -281,9 +281,58 @@ function SP:UpdateBlizzardTotemOverlays()
 	end
 end
 
+local function publicNumber(value)
+	return not secret(value) and type(value) == "number" and value > -math.huge and value < math.huge
+end
+
+local function scaleAndAnchor(bar, scale, x, y)
+	bar:SetScale(scale)
+	local actual = bar:GetScale()
+	if not publicNumber(actual) or math.abs(actual - scale) > 0.000001 then error("Native bar scale rejected", 0) end
+	local effective = bar:GetEffectiveScale()
+	if not publicNumber(effective) or effective <= 0 then error("Native bar scale unavailable", 0) end
+	x, y = x / effective, y / effective
+	if not publicNumber(x) or not publicNumber(y) then error("Native bar centre unavailable", 0) end
+	bar:ClearAllPoints()
+	bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+end
+
+-- Edit Mode normally anchors an edge. Preserve physical screen centre instead
+-- of allowing that edge to drag the bar across the screen as its size changes.
+-- Snapshot anchors only on an OOC scale change, so a rejected call can roll back.
+local function setScaleInPlace(bar, scale)
+	if InCombatLockdown() or not publicNumber(scale) or scale <= 0 then return nil end
+	local centerOK, x, y = pcall(bar.GetCenter, bar)
+	local scaleOK, old = pcall(bar.GetScale, bar)
+	local effectiveOK, effective = pcall(bar.GetEffectiveScale, bar)
+	if not centerOK or not scaleOK or not effectiveOK or not publicNumber(x) or not publicNumber(y)
+		or not publicNumber(old) or old <= 0 or not publicNumber(effective) or effective <= 0 then return nil end
+	local nextEffective = effective * scale / old
+	x, y = x * effective, y * effective
+	if not publicNumber(nextEffective) or nextEffective <= 0 or not publicNumber(x) or not publicNumber(y)
+		or not publicNumber(x / nextEffective) or not publicNumber(y / nextEffective) then return nil end
+	local pointsOK, count = pcall(bar.GetNumPoints, bar)
+	if not pointsOK or not publicNumber(count) or count < 1 then return nil end
+	local points = {}
+	for i = 1, count do
+		local ok, point, relative, relativePoint, px, py = pcall(bar.GetPoint, bar, i)
+		if not ok or secret(point) or secret(relative) or secret(relativePoint)
+			or type(point) ~= "string" or type(relativePoint) ~= "string"
+			or not publicNumber(px) or not publicNumber(py) then return nil end
+		points[i] = { point, relative, relativePoint, px, py }
+	end
+	local ok = pcall(scaleAndAnchor, bar, scale, x, y)
+	if not ok then
+		pcall(bar.SetScale, bar, old)
+		pcall(bar.ClearAllPoints, bar)
+		for i = 1, count do pcall(bar.SetPoint, bar, unpack(points[i], 1, 5)) end
+	end
+	return ok
+end
+
 local function restoreScale()
 	if not scaleFrame then return true end
-	local ok = pcall(scaleFrame.SetScale, scaleFrame, scaleBase)
+	local ok = setScaleInPlace(scaleFrame, scaleBase)
 	if ok then scaleFrame, scaleBase, scaleFactor = nil, nil, nil end
 	return ok
 end
@@ -307,7 +356,8 @@ local function updateScale(bar)
 	end
 	if scaleFactor ~= factor then
 		local desired = scaleBase * factor
-		local ok = desired < math.huge and pcall(bar.SetScale, bar, desired)
+		local ok = desired < math.huge and setScaleInPlace(bar, desired)
+		if ok == nil then return end -- Geometry is not available yet; retry after layout.
 		local readOK, actual = pcall(bar.GetScale, bar)
 		if ok and readOK and not secret(actual) and type(actual) == "number"
 			and math.abs(actual - desired) <= 0.000001 then
