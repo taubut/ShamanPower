@@ -385,8 +385,8 @@ end
 -- engine's dot shows. Built out of combat only (the button subtree may only be
 -- written in initializeFrame, and a container is registered out of combat);
 -- a rebuild asked for in combat waits for PLAYER_REGEN_ENABLED.
-SP.engineDots = {}            -- [element][partyIndex] = { container = frame|nil, key = string }
-local engineDotsPending = false
+SP.engineDots = {}            -- [element][partyIndex] = { main = record, overlay = record }
+local engineDotsPending, engineDotsBuilding = false, false
 
 local function EngineDotsAvailable()
 	return SPCompat ~= nil and SPCompat.secretsRegime == true and C_AddOns ~= nil and C_AddOns.LoadAddOn ~= nil
@@ -452,59 +452,110 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 	return container
 end
 
--- Build, or rebuild where the class colour or the placement changed. Cheap
--- when nothing changed (one key per slot), so layout code calls it freely.
-function SP:RebuildEnginePartyDots()
-	if not (engineDotsReady and EngineDotsAvailable()) then return end
-	if InCombatLockdown() then engineDotsPending = true return end
-	engineDotsPending = false
-	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
-	local built = false
-	for element = 1, 4 do
-		local btn = PartyRangeHost(element)
-		if btn then
-			self.engineDots[element] = self.engineDots[element] or {}
-			for i = 1, 4 do
-				local unit = self.partyUnitStrings[i]
-				local exists = UnitExists(unit)
-				local _, class = UnitClass(unit)
-				local color = class and RAID_CLASS_COLORS[class]
-				local r, g, b = 0, 1, 0
-				if color then r, g, b = color.r, color.g, color.b end
-				local point, relPoint, x, y = ShamanPower:PartyDotAnchor(i, btn)
-				local key = (exists and (class or "?") or "-") .. "|" .. tostring(self.opt.partyDotSize or 5) .. "|"
-					.. tostring(self.opt.partyDotOutline ~= false) .. "|" .. point .. relPoint .. x .. "," .. y
-				local slot = self.engineDots[element][i]
-				-- The slot initializer captures its host, so a move needs a rebuild.
-				if not slot or slot.key ~= key or slot.host ~= btn then
-					if slot and slot.container then
-						pcall(slot.container.SetEnabled, slot.container, false)
-						slot.container:Hide()
-					end
-					local container = exists and BuildEngineDot(element, i, btn, r, g, b) or nil
-					if container then container:SetShown(self.opt.showPartyRangeDots and true or false) end
-					self.engineDots[element][i] = { container = container, key = key, host = btn }
-				end
-				if self.engineDots[element][i].container then built = true end
-			end
-		end
+local function UseEngineOverlay(element)
+	if SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() then return false end
+	if SP.opt.activeTotemAsMain or (SP.CompactActive and SP:CompactActive()) then return false end
+	local overlay = SP.activeTotemOverlays and SP.activeTotemOverlays[element]
+	return overlay and overlay.isActive and overlay.dots and true or false
+end
+
+-- This is our own visibility intent, never a read from the aura subtree.
+local function ShowEngineRecord(record, shown)
+	if record and record.container and record.shown ~= shown then
+		record.container:SetShown(shown)
+		record.shown = shown
 	end
-	self.engineDotsBuilt = built or nil
-	self.engineDotsShown = nil   -- re-applied by the next dots pass
+end
+
+local function RetireEngineRecord(record)
+	if record and record.container then
+		pcall(record.container.SetEnabled, record.container, false)
+		ShowEngineRecord(record, false)
+	end
+end
+
+local function RebuildEngineRecord(record, element, i, host, exists, class, r, g, b)
+	if not host then RetireEngineRecord(record); return nil end
+	local point, relPoint, x, y = SP:PartyDotAnchor(i, host)
+	local key = (exists and (class or "?") or "-") .. "|" .. tostring(SP.opt.partyDotSize or 5) .. "|"
+		.. tostring(SP.opt.partyDotOutline ~= false) .. "|" .. point .. relPoint .. x .. "," .. y
+	if record and record.key == key and record.host == host and (record.container or not exists) then return record end
+	RetireEngineRecord(record)
+	local container = exists and BuildEngineDot(element, i, host, r, g, b) or nil
+	if container then container:Hide() end
+	return { container = container, key = key, host = host, shown = false }
 end
 
 function SP:SetEnginePartyDotsShown(on)
 	on = on and true or false
-	if self.engineDotsShown == on then return end
 	self.engineDotsShown = on
 	for element = 1, 4 do
 		local slots = self.engineDots[element]
+		local overlay = UseEngineOverlay(element)
 		if slots then
 			for i = 1, 4 do
-				local c = slots[i] and slots[i].container
-				if c then c:SetShown(on) end
+				local slot = slots[i]
+				if slot then
+					-- Hide the old destination first, including when both are disabled.
+					if overlay then
+						ShowEngineRecord(slot.main, false); ShowEngineRecord(slot.overlay, on)
+					else
+						ShowEngineRecord(slot.overlay, false); ShowEngineRecord(slot.main, on)
+					end
+				end
 			end
 		end
+	end
+end
+
+local function RebuildEngineDots(self)
+	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
+	local native = SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar()
+	local built, created = false, false
+	for element = 1, 4 do
+		local btn = PartyRangeHost(element)
+		local overlay = SP.activeTotemOverlays and SP.activeTotemOverlays[element]
+		-- Prebuild while safe: the first differing cast may arrive in combat.
+		-- Its factory calls PositionPartyDots, so the outer rebuild is reentry guarded.
+		if btn and not native and not overlay and SP.activeTotemOverlays and SP.CreateActiveTotemOverlay then
+			overlay = SP:CreateActiveTotemOverlay(element)
+			SP.activeTotemOverlays[element] = overlay
+			created = created or overlay ~= nil
+		end
+		local overlayHost = not native and overlay and overlay.frame or nil
+		SP.engineDots[element] = SP.engineDots[element] or {}
+		for i = 1, 4 do
+			local unit = SP.partyUnitStrings[i]
+			local exists = UnitExists(unit)
+			if issecretvalue(exists) then exists = false end
+			local _, class = UnitClass(unit)
+			if issecretvalue(class) then class = nil end
+			local color = class and RAID_CLASS_COLORS[class]
+			local r, g, b = 0, 1, 0
+			if color then r, g, b = color.r, color.g, color.b end
+			local slot = SP.engineDots[element][i] or {}
+			slot.main = RebuildEngineRecord(slot.main, element, i, btn, exists, class, r, g, b)
+			slot.overlay = RebuildEngineRecord(slot.overlay, element, i, btn and overlayHost, exists, class, r, g, b)
+			SP.engineDots[element][i] = slot
+			if (slot.main and slot.main.container) or (slot.overlay and slot.overlay.container) then built = true end
+		end
+	end
+	if created and SP.PositionActiveOverlays then SP:PositionActiveOverlays() end
+	self.engineDotsBuilt = built or nil
+	self:SetEnginePartyDotsShown(self.opt.showPartyRangeDots)
+end
+
+-- Build only out of combat. A failed factory may be retried on the next rebuild.
+function SP:RebuildEnginePartyDots()
+	if engineDotsBuilding or not (engineDotsReady and EngineDotsAvailable()) then return end
+	if InCombatLockdown() then engineDotsPending = true return end
+	engineDotsPending = false
+	engineDotsBuilding = true
+	local ok, err = pcall(RebuildEngineDots, self)
+	engineDotsBuilding = false
+	if not ok then
+		engineDotsPending = true
+		if SPCompat.Trace then SPCompat.Trace("DOTS rebuild failed: %s", tostring(err)) end
 	end
 end
 
@@ -1215,6 +1266,10 @@ function SP:UpdatePartyRangeDots()
 	if not dotsEnabled then
 		-- Hide all dots when disabled
 		for element = 1, 4 do
+			local overlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
+			if self.engineDotsBuilt and overlay and overlay.dots then
+				for i = 1, 4 do overlay.dots[i]:Hide() end
+			end
 			if self.partyRangeDots[element] then
 				for i = 1, 4 do
 					if self.partyRangeDots[element][i] then
@@ -1231,7 +1286,8 @@ function SP:UpdatePartyRangeDots()
 
 	-- Update dots for each party member
 	for partyIndex = 1, 4 do
-		local unit = partyUnits[partyIndex]
+		-- Engine slots bind fixed party tokens, even if another slot is empty.
+		local unit = engine and self.partyUnitStrings[partyIndex] or partyUnits[partyIndex]
 		local exists = unit and UnitExists(unit)
 
 		-- Get class color for this party member
@@ -1250,18 +1306,10 @@ function SP:UpdatePartyRangeDots()
 			-- Check if active overlay is showing for this element
 			local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
 			local useOverlay = not native and activeOverlay and activeOverlay.isActive and activeOverlay.dots
+			if engine then useOverlay = UseEngineOverlay(element) end
 			local overlayDot = useOverlay and activeOverlay.dots[partyIndex]
-			if native and activeOverlay and activeOverlay.dots and activeOverlay.dots[partyIndex] then
+			if (native or (engine and not useOverlay)) and activeOverlay and activeOverlay.dots and activeOverlay.dots[partyIndex] then
 				activeOverlay.dots[partyIndex]:Hide()
-			end
-			-- The engine dot sits on the main button and lights for ANY buff of the
-			-- element. While the dropped totem is shown in the overlay above, hide it
-			-- there so the overlay's own dot is the only answer (the proper fix is an
-			-- engine dot on the overlay too - round 3).
-			if engine then
-				local slot = self.engineDots[element] and self.engineDots[element][partyIndex]
-				local c = slot and slot.container
-				if c then c:SetShown((not useOverlay) and self.engineDotsShown == true) end
 			end
 
 			-- Determine which dot to update (overlay if active, else main)
