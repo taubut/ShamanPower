@@ -29,4 +29,5 @@ ShamanPowerPreview.lua
 ShamanPowerCompact.lua
 ShamanPowerUnlock.lua
 ShamanPowerMinimapTotems.lua
+ShamanPowerGrid.lua
 ShamanPower_TBC.xml

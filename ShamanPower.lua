@@ -353,6 +353,7 @@ end
 local spFlyoutStuck = {}
 
 function ShamanPower:FlyoutFallbackSetShown(parent, show)
+	if parent and parent.spGridPinned then return end
 	local inCombat = InCombatLockdown()
 
 	-- Box mode: one watched container per flyout. Out of combat we set its unit
@@ -444,14 +445,15 @@ do
 		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
 			local btn = entry.button
 			local box = btn and btn.spFlyoutBox
-			if box and box:IsShown() and not spFlyoutMouseIsOn(btn) and not ShamanPower:FlyoutArrowOnly() then
+			if box and not btn.spGridPinned and box:IsShown()
+				and not spFlyoutMouseIsOn(btn) and not ShamanPower:FlyoutArrowOnly() then
 				box:SetAttribute("unit", "none")
 				box:Hide()
 			end
 			if box and not box:IsShown() then ShamanPower:SyncFlyoutToggle(btn, false) end
 		end
 		for parent in pairs(spFlyoutStuck) do
-			if parent and parent.GetChildren and not parent.spFlyoutBox then
+			if parent and parent.GetChildren and not parent.spFlyoutBox and not parent.spGridPinned then
 				for _, c in ipairs(spFlyoutChildren(parent)) do pcall(c.Hide, c) end
 			end
 		end
@@ -486,11 +488,11 @@ local function spFlyoutCursorInSpan(parent)
 end
 
 local function spFlyoutScheduleClose(parent)
-	if not parent then return end
+	if not parent or parent.spGridPinned then return end
 	-- opened with the arrow or a key, closed the same way (or by picking)
 	if parent.spFlyoutBox and ShamanPower:FlyoutArrowOnly() then return end
 	C_Timer.After(FLYOUT_LEAVE_GRACE, function()
-		if not parent or spFlyoutMouseIsOn(parent) then return end
+		if not parent or parent.spGridPinned or spFlyoutMouseIsOn(parent) then return end
 		if spFlyoutCursorInSpan(parent) then
 			-- between the button and its flyout: no frame there will report a leave,
 			-- so keep watching until the cursor lands on something or moves away
@@ -2907,6 +2909,7 @@ function ShamanPower:SetupTotemProgressBars()
 		or self.opt.totemBarFullOpacityWhenActive
 		or self.opt.showTotemCooldowns ~= false
 		or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+		or (self.GridActive and self:GridActive())
 	if needsProgressBars then
 		self:EnableUpdateSubsystem("progressBars")
 	else
@@ -2928,6 +2931,7 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 		or self.opt.totemBarFullOpacityWhenActive
 		or self.opt.showTotemCooldowns ~= false
 		or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+		or (self.GridActive and self:GridActive())
 	if needsProgressBars then
 		self:EnableUpdateSubsystem("progressBars")
 	else
@@ -3060,6 +3064,12 @@ end
 
 -- Update progress bars based on totem duration
 function ShamanPower:UpdateTotemProgressBars()
+	if self.GridActive and self:GridActive() then
+		self:UpdateGridTotems()
+		self:UpdatePoppedOutProgressBars()
+		self:UpdateActiveTotemOverlaysIfDue()
+		return
+	end
 	-- Native hosts use this existing driver; the engine animates their lifetime
 	-- widgets between model changes. Do not draw hidden custom duration bars.
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
@@ -3919,6 +3929,11 @@ function ShamanPower:UpdateActiveTotemOverlaysIfDue()
 end
 
 function ShamanPower:UpdateActiveTotemOverlays()
+	if self.GridActive and self:GridActive() then
+		self:UpdateGridTotems()
+		self:UpdatePoppedOutActiveBorders()
+		return
+	end
 	-- A native/loadout cast need not have a custom-bar assignment.
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
 		self:UpdateBlizzardTotemOverlays()
@@ -5051,6 +5066,7 @@ end
 
 -- Pop out an entire element with its flyout
 function ShamanPower:PopOutElementWithFlyout(element)
+	if not self._gridRefreshing and self.GridPopOutElement and self:GridPopOutElement(element) then return end
 	local elementName = self.Elements[element]:lower()  -- "earth", "fire", "water", "air"
 	local key = "totem_" .. elementName
 	if self.opt.poppedOut and self.opt.poppedOut[key] then return end
@@ -5088,18 +5104,34 @@ function ShamanPower:PopOutElementWithFlyout(element)
 	frame.button = totemBtn  -- For TogglePopOutFrame compatibility
 	frame.element = element
 
-	-- ALT+drag on totem button to move frame (works when frame is hidden)
-	totemBtn:RegisterForDrag("LeftButton")
-	totemBtn:HookScript("OnDragStart", function(self)
-		if IsAltKeyDown() and not ShamanPower:PopOutsLocked() then
-			frame:StartMoving()
-		end
-	end)
-	totemBtn:HookScript("OnDragStop", function(self)
-		frame:StopMovingOrSizing()
-		ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-		ShamanPower.opt.poppedOutPositions[key] = ShamanPower:SavePositionRecord(frame)
-	end)
+	-- The same button can return and split again. Hook once and resolve the live
+	-- frame, rather than retaining every retired pop-out in another drag closure.
+	totemBtn.spElementPopOutKey = key
+	if not totemBtn.spElementPopOutDragHooked then
+		totemBtn.spElementPopOutDragHooked = true
+		totemBtn:RegisterForDrag("LeftButton")
+		totemBtn:HookScript("OnDragStart", function(button)
+			if InCombatLockdown() then return end
+			local currentKey = button.spElementPopOutKey
+			local current = ShamanPower.poppedOutFrames[currentKey]
+			local popped = ShamanPower.opt.poppedOut
+			if current and current.totemButton == button and popped and popped[currentKey]
+				and IsAltKeyDown() and not ShamanPower:PopOutsLocked() then
+				current:StartMoving()
+			end
+		end)
+		totemBtn:HookScript("OnDragStop", function(button)
+			if InCombatLockdown() then return end
+			local currentKey = button.spElementPopOutKey
+			local current = ShamanPower.poppedOutFrames[currentKey]
+			local popped = ShamanPower.opt.poppedOut
+			if current and current.totemButton == button and popped and popped[currentKey] then
+				current:StopMovingOrSizing()
+				ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
+				ShamanPower.opt.poppedOutPositions[currentKey] = ShamanPower:SavePositionRecord(current)
+			end
+		end)
+	end
 
 	-- Note: SHIFT+Middle-click for settings is handled by the main totem button OnClick handler
 
@@ -5370,6 +5402,7 @@ end
 
 -- Return a popped-out item to its original bar
 function ShamanPower:ReturnPopOutToBar(key)
+	if not self._gridRefreshing and self.GridReturnPopOut and self:GridReturnPopOut(key) then return end
 	if not self.opt.poppedOut then return end
 	self.opt.poppedOut[key] = nil
 
@@ -5450,9 +5483,12 @@ function ShamanPower:RestorePoppedOutTrackers()
 				local elementName = key:match("^totem_(.+)$")
 				if elementName then
 					local element = self.ElementToID[elementName:upper()]
-					if element then
+					if element and not (self.GridOwnsElementPopouts and self:GridOwnsElementPopouts()) then
+						local profile, popouts, requested = self.opt, self.opt.poppedOut, isPopped
 						-- Delay slightly to ensure buttons exist
 						C_Timer.After(0.1, function()
+							if self.opt ~= profile or profile.poppedOut ~= popouts or popouts[key] ~= requested then return end
+							if self.GridOwnsElementPopouts and self:GridOwnsElementPopouts() then return end
 							self.opt.poppedOut[key] = nil  -- Clear so PopOutElementWithFlyout can proceed
 							self:PopOutElementWithFlyout(element)
 						end)
@@ -6245,6 +6281,12 @@ end
 function ShamanPower:PlaceFlyoutArrows(flyout)
 	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
 	if not btn or not btn.spFlyoutOpenArrow or InCombatLockdown() then return end
+	if btn.spGridPinned then
+		btn.spFlyoutOpenArrow:Hide()
+		if btn.spFlyoutCloseArrow then btn.spFlyoutCloseArrow:Hide() end
+		self:DressFlyoutFrame(flyout)
+		return
+	end
 	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
 	local element = flyout.artIndex or flyout.element or 5
 	local sideways = (dir == "left" or dir == "right")
@@ -6344,6 +6386,15 @@ function ShamanPower:DressFlyoutFrame(flyout)
 	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
 	local box = flyout and flyout.box
 	if not btn or not box then return end
+	if btn.spGridPinned then
+		if box.frameFill then box.frameFill:Hide() end
+		if box.frameBand then box.frameBand:Hide() end
+		if box.frameCap then box.frameCap:Hide() end
+		if box.frameFoot then box.frameFoot:Hide() end
+		if box.frameTab then box.frameTab:Hide() end
+		if box.frameSlot then box.frameSlot:Hide() end
+		return false
+	end
 	if not box.frameArt then
 		-- The panel wraps the totem button too, so it is drawn on a plain frame
 		-- one level BELOW the button (the box itself sits above it): the button's
@@ -6451,6 +6502,7 @@ end
 function ShamanPower:SyncCombatFlyoutButtons(element)
 	local flyout = self.totemFlyouts[element]
 	if not flyout or not flyout.box or InCombatLockdown() then return end
+	if self.GridLayoutElement and self:GridLayoutElement(element) then return end
 	for _, btn in ipairs(flyout.allButtons or {}) do
 		local show = not btn.isDisabledInFlyout
 			and not btn:GetAttribute("isCurrentAssignment")
@@ -6539,6 +6591,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
 			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
+				if self:GetAttribute("spGridPinned") then return end
 				if message then
 					if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then
 						self:Show()
@@ -6563,6 +6616,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			-- SECURE HANDLER: Relayout this button after assignment change (WORKS IN COMBAT)
 			-- Each button counts visible siblings before it and positions itself accordingly
 			ShamanPower:SetSnippet(btn, "_childupdate-relayout", [[
+				if self:GetAttribute("spGridPinned") then return end
 				-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
 				if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then
 					return
@@ -6777,7 +6831,7 @@ function ShamanPower:CreateTotemFlyout(element)
 						local flyoutData = ShamanPower.totemFlyouts[elem]
 						if flyoutData and flyoutData.box then
 							ShamanPower:FlyoutFallbackSetShown(flyoutData.totemButton, false)
-						elseif flyoutData and flyoutData.buttons then
+						elseif flyoutData and flyoutData.buttons and not parentButton.spGridPinned then
 							for _, flyoutBtn in ipairs(flyoutData.buttons) do
 								flyoutBtn:Hide()
 							end
@@ -6933,6 +6987,11 @@ end
 -- For vertical bar: flyout is HORIZONTAL (buttons in a row)
 function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 	if not flyout or not flyout.buttons then return end
+	if flyout.totemButton and flyout.totemButton.spGridPinned and InCombatLockdown() then return end
+	-- Creation lays out its local table before publishing it. Refreshing Grid
+	-- there would ask SetupTotemFlyouts to build that same missing element again.
+	if flyout.element and self.totemFlyouts[flyout.element] == flyout
+		and self.GridLayoutElement and self:GridLayoutElement(flyout.element) then return end
 	self:PlaceFlyoutArrows(flyout)
 
 	local totemButton = flyout.totemButton
@@ -7172,6 +7231,7 @@ end
 -- texture, so the choice that is on the totem button right now is drawn faded
 -- and follows every swap, in a fight or out of one.
 function ShamanPower:MarkAssignedInFlyout(element)
+	if self.GridActive and self:GridActive() then self:UpdateGridTotems(); return end
 	local flyout = self.totemFlyouts and self.totemFlyouts[element]
 	if not (flyout and flyout.box) then return end
 	local cur = self.pendingAssignments and self.pendingAssignments[element]
@@ -7196,6 +7256,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	if InCombatLockdown() then
 		return
 	end
+	if self.GridLayoutElement and self:GridLayoutElement(element) then return end
 
 	local totemButton = flyout.totemButton
 	if not totemButton then return end
@@ -7349,7 +7410,7 @@ end
 
 -- Setup all flyout menus
 function ShamanPower:SetupTotemFlyouts()
-	if not self.opt.showTotemFlyouts then return end
+	if not self.opt.showTotemFlyouts and not self.opt.gridStyle then return end
 
 	-- Ensure totem buttons exist and are positioned
 	self:CreateTotemButtons()
@@ -7495,6 +7556,12 @@ end
 function ShamanPower:UpdateTotemFlyoutEnabled()
 	if InCombatLockdown() then
 		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		return
+	end
+	if self.GridActive and self:GridActive() then
+		for element = 1, 4 do self:GridLayoutElement(element) end
+		self:UpdateCooldownBarFlyoutEnabled()
+		self:ApplyClickSwap()
 		return
 	end
 	for element = 1, 4 do

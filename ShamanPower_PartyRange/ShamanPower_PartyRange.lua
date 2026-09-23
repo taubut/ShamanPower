@@ -453,6 +453,7 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 end
 
 local function UseEngineOverlay(element)
+	if SP.GridActive and SP:GridActive() then return false end
 	if SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() then return false end
 	if SP.opt.activeTotemAsMain or (SP.CompactActive and SP:CompactActive()) then return false end
 	local overlay = SP.activeTotemOverlays and SP.activeTotemOverlays[element]
@@ -1261,6 +1262,7 @@ function SP:UpdatePartyRangeDots()
 	if self.engineDotsBuilt then self:SetEnginePartyDotsShown(dotsEnabled) end
 	local engine = self:EngineDotsOn()
 	local native = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
+	local grid = self.GridActive and self:GridActive()
 
 	-- Check if dots feature is enabled
 	if not dotsEnabled then
@@ -1305,10 +1307,11 @@ function SP:UpdatePartyRangeDots()
 
 			-- Check if active overlay is showing for this element
 			local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
-			local useOverlay = not native and activeOverlay and activeOverlay.isActive and activeOverlay.dots
+			local useOverlay = not native and not grid and activeOverlay and activeOverlay.isActive and activeOverlay.dots
 			if engine then useOverlay = UseEngineOverlay(element) end
 			local overlayDot = useOverlay and activeOverlay.dots[partyIndex]
-			if (native or (engine and not useOverlay)) and activeOverlay and activeOverlay.dots and activeOverlay.dots[partyIndex] then
+			if (native or grid or (engine and not useOverlay)) and activeOverlay
+				and activeOverlay.dots and activeOverlay.dots[partyIndex] then
 				activeOverlay.dots[partyIndex]:Hide()
 			end
 
