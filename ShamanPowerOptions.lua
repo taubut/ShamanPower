@@ -9647,5 +9647,5 @@ do
 	}
 	-- the Discord section's heading is the big gold featured one (Widgets SectionHeader)
 	SP.OptionFeaturedHeader = SP.OptionFeaturedHeader or {}
-	SP.OptionFeaturedHeader[main.community] = "Interface\\Icons\\ClassIcon_Shaman"
+	SP.OptionFeaturedHeader[main.community] = "Interface\\AddOns\\ShamanPower\\Media\\discord"   -- Discord's logo, transparent
 end

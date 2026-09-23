@@ -305,8 +305,11 @@ function Widgets:SectionHeader(parent, opts)
 	if featured then
 		-- the big gold heading: icon, large bold gold title, gold glow and rule
 		h:SetHeight(FEATURED_H)
-		h.icon:SetTexture(type(featured) == "string" and featured or "Interface\\Icons\\ClassIcon_Shaman")
-		h.icon:SetSize(30, 30)
+		local path = type(featured) == "string" and featured or "Interface\\Icons\\ClassIcon_Shaman"
+		h.icon:SetTexture(path)
+		-- spell icons carry a dark frame to trim; our own art (transparent) is used whole
+		if path:find("Interface\\Icons\\", 1, true) then h.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) else h.icon:SetTexCoord(0, 1, 0, 1) end
+		h.icon:SetSize(32, 32)
 		h.icon:ClearAllPoints(); h.icon:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", PAD, 4)
 		h.icon:Show()
 		h.label:SetFontObject(Core.fonts.title)
