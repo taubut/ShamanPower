@@ -245,10 +245,57 @@ StaticPopupDialogs["SHAMANPOWER_UNLOCK_RESET_ALL"] = {
 	OnAccept = function() SP:ResetAllUnlockPositions() end,
 }
 
+-- ---------------------------------------------------------------------------
+-- Alignment grid: lines every GRID_STEP pixels from the screen centre (the two
+-- centre lines brighter). While it is on, a box dropped anywhere snaps its
+-- top-left corner to the nearest lines (ShowBarMover reads SP:UnlockGridStep()).
+-- ---------------------------------------------------------------------------
+local GRID_STEP = 16
+local gridFrame
+local function EnsureGrid()
+	if gridFrame then return gridFrame end
+	local g = CreateFrame("Frame", "ShamanPowerUnlockGrid", UIParent)
+	g:SetAllPoints(UIParent)
+	g:SetFrameStrata("BACKGROUND")
+	g:EnableMouse(false)
+	local w, h = UIParent:GetWidth(), UIParent:GetHeight()
+	local function line(vertical, offset, centre)
+		local t = g:CreateTexture(nil, "ARTWORK")
+		if centre then t:SetColorTexture(0.25, 0.66, 1, 0.55) else t:SetColorTexture(1, 1, 1, 0.12) end
+		if vertical then
+			t:SetWidth(1); t:SetPoint("TOP", g, "TOP", offset, 0); t:SetPoint("BOTTOM", g, "BOTTOM", offset, 0)
+		else
+			t:SetHeight(1); t:SetPoint("LEFT", g, "LEFT", 0, offset); t:SetPoint("RIGHT", g, "RIGHT", 0, offset)
+		end
+	end
+	for k = 0, math.ceil(w / 2 / GRID_STEP) do
+		line(true, k * GRID_STEP, k == 0)
+		if k > 0 then line(true, -k * GRID_STEP, false) end
+	end
+	for k = 0, math.ceil(h / 2 / GRID_STEP) do
+		line(false, k * GRID_STEP, k == 0)
+		if k > 0 then line(false, -k * GRID_STEP, false) end
+	end
+	g:Hide()
+	gridFrame = g
+	return g
+end
+
+-- Snap step in UIParent pixels while Unlock UI's grid is on, else nil.
+function SP:UnlockGridStep()
+	return ACTIVE and self.opt and self.opt.unlockGrid and GRID_STEP or nil
+end
+
+local function ApplyGrid()
+	local on = ACTIVE and SP.opt and SP.opt.unlockGrid and true or false
+	if on then EnsureGrid():Show() elseif gridFrame then gridFrame:Hide() end
+	if doneBar and doneBar.gridBtn then doneBar.gridBtn:SetText(on and "Grid: On" or "Grid: Off") end
+end
+
 local function EnsureDoneBar()
 	if doneBar then return doneBar end
 	local f = CreateFrame("Frame", "ShamanPowerUnlockBar", UIParent)
-	f:SetSize(560, 46)
+	f:SetSize(660, 46)
 	f:SetPoint("TOP", UIParent, "TOP", 0, -70)
 	f:SetFrameStrata("FULLSCREEN_DIALOG")
 	f:SetFrameLevel(50)
@@ -268,6 +315,20 @@ local function EnsureDoneBar()
 	local all = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
 	all:SetSize(150, 24); all:SetPoint("RIGHT", done, "LEFT", -8, 0); all:SetText("Reset All Positions")
 	all:SetScript("OnClick", function() StaticPopup_Show("SHAMANPOWER_UNLOCK_RESET_ALL") end)
+	local grid = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+	grid:SetSize(90, 24); grid:SetPoint("RIGHT", all, "LEFT", -8, 0); grid:SetText("Grid: Off")
+	grid:SetScript("OnClick", function()
+		SP.opt.unlockGrid = not SP.opt.unlockGrid or nil
+		ApplyGrid()
+	end)
+	grid:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+		GameTooltip:SetText("Alignment grid", 1, 1, 1)
+		GameTooltip:AddLine("Shows lines across the screen and snaps each box you drop to them, so frames line up exactly. Remembered for next time.", 0.8, 0.8, 0.8, true)
+		GameTooltip:Show()
+	end)
+	grid:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	f.gridBtn = grid
 	f:Hide()
 	doneBar = f
 	return f
@@ -324,6 +385,7 @@ function SP:SetMasterUnlock(on, only)
 		end
 		wipe(forced)
 		if doneBar then doneBar:Hide() end
+		if gridFrame then gridFrame:Hide() end
 		-- whoever opened the unlock (the setup tour) gets control back
 		if self.unlockOnDone then
 			local fn = self.unlockOnDone
@@ -392,6 +454,7 @@ function SP:SetMasterUnlock(on, only)
 	end
 
 	EnsureDoneBar():Show()
+	ApplyGrid()
 end
 
 function SP:ToggleMasterUnlock() self:SetMasterUnlock(not ACTIVE) end

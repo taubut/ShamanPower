@@ -4425,6 +4425,18 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 			-- in physical px. Works even when the moved frame is a 1x1 anchor.
 			local mcx, mcy = self:GetCenter()
 			local scx, scy = sf:GetCenter()
+			-- Unlock UI's alignment grid: snap the box's top-left corner to the
+			-- nearest grid lines (lines run from the screen centre, in UIParent pixels)
+			local step = ShamanPower.UnlockGridStep and ShamanPower:UnlockGridStep()
+			if step and mcx and self:GetLeft() then
+				local mes, uis = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
+				local l, t = self:GetLeft() * mes / uis, self:GetTop() * mes / uis
+				local cx, cy = UIParent:GetWidth() / 2, UIParent:GetHeight() / 2
+				local sl = cx + math.floor((l - cx) / step + 0.5) * step
+				local st = cy + math.floor((t - cy) / step + 0.5) * step
+				mcx = mcx + (sl - l) * uis / mes
+				mcy = mcy + (st - t) * uis / mes
+			end
 			if mcx and scx then
 				local mes, ses = self:GetEffectiveScale(), sf:GetEffectiveScale()
 				local dx = mcx * mes - scx * ses
