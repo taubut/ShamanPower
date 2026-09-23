@@ -3058,6 +3058,7 @@ function ShamanPower:UpdateTotemProgressBars()
 	-- Native hosts use this existing driver; the engine animates their lifetime
 	-- widgets between model changes. Do not draw hidden custom duration bars.
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:UpdateBlizzardTotemOverlays()
 		self:UpdatePoppedOutProgressBars()
 		self:UpdateActiveTotemOverlaysIfDue()
 		return

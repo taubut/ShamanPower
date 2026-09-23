@@ -9151,8 +9151,8 @@ do
 	popout.popout_return_all.func = function(...) returnPopouts(...); Notify() end
 end
 
--- Native bar mode keeps our overlays, not our custom bar presentation. Lifetime
--- numbers belong to our own host Cooldown; Blizzard's cooldowns stay untouched.
+-- Native hosts share the custom display options; native layout and actions stay
+-- Blizzard-owned. Lifetime widgets never touch Blizzard's spell cooldowns.
 do
 	local SP = ShamanPower
 	local root = SP.options.args
@@ -9192,9 +9192,9 @@ do
 	mode.blizzard_totem_bar_note = {
 		order = 4.86, type = "description", width = "full",
 		hidden = function() return not NativeTotemBarSelected() end,
-		name = "|cffffa040Blizzard controls the bar's layout, visibility and flyouts, so the custom bar settings do not apply. "
-			.. "ShamanPower adds the totem countdown and swipe from its own totem model (not spell cooldowns), the pulse bars, "
-			.. "party dots and counters. The dropped totem shows as a corner icon for now; the style choices come later.|r",
+		name = "|cffffa040Blizzard controls layout, visibility and flyouts. Icons / TotemTimers style, duration bars, text, "
+			.. "pulse, party dots and counters apply to ShamanPower's overlays. Lifetime swipes use our totem model; "
+			.. "Blizzard's spell cooldowns are unchanged. Compact style requires the custom bar.|r",
 	}
 	mode.blizzard_totem_bar_scale_override = {
 		order = 4.87, type = "toggle", name = "Override Blizzard Bar Scale", width = "full",
@@ -9260,23 +9260,46 @@ do
 		"texture_section", "color_section" })
 	HideFields(bar, { "unlock_totem_bar", "auto_enable", "show_dropall", "show_totem_flyouts" })
 	HideFields(root.settings.args.settings_totemMode.args, { "dynamicMode", "dynamicModeDesc", "activeAsMainSpacer",
-		"activeTotemAsMain", "rightClickCastsAssigned", "rightClickDestroysTotem",
-		"compactSpacer", "compactStyle", "compactOptions" })
+		"rightClickCastsAssigned", "rightClickDestroysTotem", "compactOptions" })
 	HideFields(root.settings.args.settings_show.args, { "showparty", "showsingle" })
 	HideFields(root.settings.args.settings_visibility.args, { "hideOutOfCombat", "hideWhenNoTotems" })
 	HideFields(pages.layout_section.args, { "layout", "totem_flyout_direction", "totem_flyout_button_size",
-		"swap_flyout_clicks", "flyout_show_empty", "activeOverlayDirection" })
+		"swap_flyout_clicks", "flyout_show_empty" })
 	HideFields(pages.scale_section.args, { "buffscale" })
 	HideFields(pages.opacity_section.args, { "totemBarOpacity", "totemBarFullOpacityWhenActive", "totemFlyoutOpacity" })
 	HideFields(pages.padding_section.args, { "totemBarPadding" })
 	HideFields(pages.visibility_section.args, { "hide_totem_bar_frame" })
-	HideFields(duration, { "compact_override_note", "duration_bar_position", "duration_bar_height", "show_duration_text",
-		"duration_text_size", "show_totem_cooldowns", "totem_cooldown_sweep", "totem_cooldown_edge" })
+	HideFields(duration, { "compact_override_note" })
+	local compactDisabled, compactSetter = mode.compactStyle.disabled, mode.compactStyle.set
+	mode.compactStyle.disabled = function(info)
+		if NativeTotemBarSelected() then return true end
+		return compactDisabled(info)
+	end
+	mode.compactStyle.set = function(...)
+		if not NativeTotemBarSelected() then compactSetter(...) end
+	end
+	mode.blizzard_compact_note = {
+		order = 4.75, type = "description", width = "full",
+		hidden = function() return not NativeTotemBarSelected() end,
+		name = "Compact style is available only on ShamanPower's custom bar.",
+	}
+	-- Rebuild geometry only after a settings action, never from the update tick.
+	local function RefreshAfter(option)
+		local setter = option.set
+		option.set = function(...) setter(...); RefreshNative() end
+	end
+	RefreshAfter(mode.activeTotemAsMain)
+	RefreshAfter(pages.layout_section.args.activeOverlayDirection)
+	for _, name in ipairs({ "duration_bar_position", "duration_bar_height",
+		"show_duration_text", "duration_text_size" }) do
+		RefreshAfter(duration[name])
+	end
 	local durationDescription = duration.duration_desc.name
 	duration.duration_desc.name = function()
 		if NativeTotemBarSelected() then
-			return "ShamanPower's own overlay draws active-totem lifetime on Blizzard's bar. "
-				.. "The engine draws its swipe and numbers; Blizzard's spell cooldowns are unchanged."
+			return "Duration bars and text share the custom bar's settings. On Icon uses the engine countdown; "
+				.. "other text locations use the plain totem-duration model. Swipe settings below control our lifetime "
+				.. "overlay, not Blizzard's spell cooldowns."
 		end
 		return durationDescription
 	end
@@ -9300,17 +9323,28 @@ do
 		end
 		option.set = function(...) oldSetter(...); RefreshNative() end
 	end
-	LifetimeOption(duration.totem_cooldown_text, "Show Totem Lifetime",
-		"Show the remaining active-totem lifetime as an engine-drawn number on ShamanPower's overlay. Off keeps the swipe.")
+	LifetimeOption(duration.show_totem_cooldowns, "Show Totem Lifetime Swipe",
+		"Show ShamanPower's active-totem lifetime swipe. Duration bars and positioned text are independent; "
+			.. "Blizzard's spell cooldowns are untouched.")
+	LifetimeOption(duration.totem_cooldown_sweep, "Lifetime Swipe Style",
+		"Draw the totem lifetime as a radial swipe, a vertical grey sweep, or a reverse vertical sweep.",
+		function() return SP.opt.showTotemCooldowns == false end)
+	LifetimeOption(duration.totem_cooldown_edge, "Radial Edge Line",
+		"Draw the bright edge on ShamanPower's radial lifetime swipe.",
+		function() return SP.opt.showTotemCooldowns == false or (SP.opt.totemCooldownSweep or "radial") ~= "radial" end)
+	LifetimeOption(duration.totem_cooldown_text, "Show On-Icon Lifetime Number",
+		"When Show Duration is On Icon, show the engine-drawn number. Other text locations are independent.",
+		function() return SP.opt.durationTextLocation ~= "icon" end)
 	LifetimeOption(duration.totem_cooldown_text_color, "Lifetime Text Color",
 		"Color of the engine-drawn lifetime numbers on ShamanPower's overlay.",
-		function() return SP.opt.totemCooldownText == false end)
+		function() return SP.opt.totemCooldownText == false or SP.opt.durationTextLocation ~= "icon" end)
 	for _, name in ipairs({ "totem_cooldown_numbers_note", "totem_cooldown_numbers_button" }) do
 		local option = duration[name]
 		local oldHidden = option.hidden
 		option.hidden = function(info)
 			if not NativeTotemBarSelected() then return oldHidden(info) end
-			return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and SP.opt.totemCooldownText ~= false
+			return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and SP.opt.durationTextLocation == "icon"
+				and SP.opt.totemCooldownText ~= false
 				and not SP:CountdownNumbersEnabled())
 		end
 	end
