@@ -648,7 +648,10 @@ if SP.RegisterPreview then
 		-- step lands inside the preview); the demo shows only the enabled ones
 		list[#list + 1] = function()
 			if not usable(entry) then return nil end
-			return frames[entry.key] or SP:CreateReadyReminderFrame(entry)
+			local f = frames[entry.key] or SP:CreateReadyReminderFrame(entry)
+			-- created after the demo sorted its icons (first mount): a ticked-off spell stays hidden
+			if SP.readyDemoActive and not spellOn(entry) then f.spDemoHidden = true end
+			return f
 		end
 	end
 	SP:RegisterPreview("readyreminders", { frames = list, demo = "SP:ReadyRemindersDemo", pad = 24,
