@@ -1217,7 +1217,7 @@ local function PickTab(tabs, onPick, drawTabs, searching)
 	if drawTabs then
 		frame._activeTab = active.key
 		if #tabs >= 2 then
-			RenderTabs(tabs, searching and nil or active.key, onPick)
+			RenderTabs(tabs, (not searching) and active.key or nil, onPick)   -- no tab lit while search results span them all
 		else
 			RenderTabs({}, nil, function() end)
 		end

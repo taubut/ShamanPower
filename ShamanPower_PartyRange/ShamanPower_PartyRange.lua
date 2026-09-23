@@ -643,7 +643,9 @@ end
 function SP:SetCoverageWatch(base, on)
 	local co = CoverageOpts()
 	co.tracked = co.tracked or {}
-	co.tracked[base] = on and nil or false
+	-- watched = no entry (the default), unwatched = false. Not "on and nil or false":
+	-- "and nil" is always nil, so that form wrote false for both.
+	if on then co.tracked[base] = nil else co.tracked[base] = false end
 	self:UpdateCoverageLayout()
 end
 local function CoverageBuffMap(element)
