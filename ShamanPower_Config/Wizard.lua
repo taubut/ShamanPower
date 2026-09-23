@@ -2427,6 +2427,29 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 		get = function() return get("vertical", false) and true or false end, set = function(v) co().vertical = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Hide the frame", desc = "Only the cells; ALT+drag to move, right-click a cell's panel to configure.", disabled = off,
 		get = function() return get("hideBorder", false) and true or false end, set = function(v) co().hideBorder = v; upd("UpdateCoverageBorder") end })
+	-- Which totems it watches: fewer ticked = fewer cells on screen (and fewer boxes
+	-- in Unlock UI). Only totems that exist on this client, labelled by totem name.
+	if SP.TotemBuffSpellIDs and SP.SetCoverageWatch and SP.CoverageWatches then
+		y = y + 6
+		row("SectionHeader", { label = "Totems to watch" })
+		for element = 1, 4 do
+			local list = SP.TotemBuffSpellIDs[element] or {}
+			local idxs = {}
+			for idx in pairs(list) do idxs[#idxs + 1] = idx end
+			table.sort(idxs)
+			for _, idx in ipairs(idxs) do
+				local base = list[idx]
+				local totemSpell = SP.GetTotemSpell and SP:GetTotemSpell(element, idx)
+				local exists = totemSpell and SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(totemSpell)
+				if base and exists then
+					local name = GetSpellInfo(totemSpell) or GetSpellInfo(base) or "?"
+					row("Toggle", { label = name, disabled = off,
+						get = function() return SP:CoverageWatches(element, idx) and true or false end,
+						set = function(v) SP:SetCoverageWatch(base, v); upd("UpdateCoverage") end })
+				end
+			end
+		end
+	end
 	return y
 end
 
