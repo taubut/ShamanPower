@@ -3501,16 +3501,37 @@ function SP.Wizard:RenderRole()
 	wb:SetText("ShamanPower does a LOT more than a totem bar. This walkthrough shows every feature working and lets you set it up as you go - it is the fastest way to get the most out of the addon.")
 	warn:SetHeight(12 + wh:GetStringHeight() + 6 + wb:GetStringHeight() + 12)
 
-	local roles = {
-		{ key = "restoration", name = "Restoration", blurb = SP.ESTrackerUnavailable
-			and "Healing.\nMana Tide, shield charges." or "Healing.\nEarth Shield, Mana Tide, shield charges." },
-		{ key = "enhancement", name = "Enhancement", blurb = "Melee.\nTotem twisting, Windfury, reactive totems." },
-		{ key = "elemental",   name = "Elemental",   blurb = "Caster.\nTotems, cooldowns, reactive utility." },
+	-- Each card: the role in gold, then what picking it sets up, one spell per row.
+	-- Items are { spellID or list of IDs (first the client has), text }.
+	local FOREVER = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local SHOCKS = { 8042, "Earth, Flame and Frost Shock" }
+	local roles = FOREVER and {
+		{ key = "restoration", name = "Restoration", role = "Healer", items = {
+			{ 16190, "Mana Tide Totem" }, { 16188, "Nature's Swiftness" },
+			{ 408521, "Riptide" }, { 408510, "Water Shield" } } },
+		{ key = "enhancement", name = "Enhancement", role = "Melee", items = {
+			{ 17364, "Stormstrike" }, { 425336, "Rage of the Farseer" },
+			SHOCKS, { 8512, "Totem twisting" } } },
+		{ key = "elemental",   name = "Elemental",   role = "Caster", items = {
+			{ 408490, "Lava Burst" }, SHOCKS } },
+	} or {
+		{ key = "restoration", name = "Restoration", role = "Healer", items = {
+			not SP.ESTrackerUnavailable and { 974, "Earth Shield tracker" } or nil,
+			{ 16190, "Mana Tide Totem" }, { 16188, "Nature's Swiftness" },
+			{ { 24398, 324 }, "Shield charges" } } },
+		{ key = "enhancement", name = "Enhancement", role = "Melee", items = {
+			{ 8512, "Totem twisting" }, { 30823, "Shamanistic Rage" } } },
+		{ key = "elemental",   name = "Elemental",   role = "Caster", items = {
+			{ 16166, "Elemental Mastery" } } },
 	}
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
-		roles[1].blurb = "Healing.\nMana Tide, Nature's Swiftness, Riptide and Water Shield reminders."
-		roles[2].blurb = "Melee.\nStormstrike and Rage of the Farseer reminders, totem twisting."
-		roles[3].blurb = "Caster.\nLava Burst and shock reminders."
+	local spellTex = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
+	local function itemIcon(ids)
+		if type(ids) ~= "table" then ids = { ids } end
+		for _, id in ipairs(ids) do
+			local ok, tex = pcall(spellTex, id)
+			if ok and tex then return tex end
+		end
+		return "Interface\\Icons\\INV_Misc_QuestionMark"
 	end
 	local cardW, cardH, gap = 244, 264, 26
 	local totalW = #roles * cardW + (#roles - 1) * gap
@@ -3526,16 +3547,28 @@ function SP.Wizard:RenderRole()
 		glow:SetColorTexture(Core:Color("accent"))
 
 		local icon = card:CreateTexture(nil, "ARTWORK")
-		icon:SetSize(72, 72); icon:SetPoint("TOP", card, "TOP", 0, -26)
+		icon:SetSize(56, 56); icon:SetPoint("TOP", card, "TOP", 0, -20)
 		icon:SetTexture(SPEC_ICON[r.key]); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 		local nm = card:CreateFontString(nil, "OVERLAY"); nm:SetFontObject(Core.fonts.brand)
-		nm:SetPoint("TOP", icon, "BOTTOM", 0, -14); nm:SetText(r.name)
+		nm:SetPoint("TOP", icon, "BOTTOM", 0, -10); nm:SetText(r.name)
+		local tag = card:CreateFontString(nil, "OVERLAY"); tag:SetFontObject(Core.fonts.tiny)
+		tag:SetPoint("TOP", nm, "BOTTOM", 0, -4); tag:SetText(r.role:upper()); tag:SetTextColor(1, 0.82, 0)
 		local rule = card:CreateTexture(nil, "ARTWORK")
-		rule:SetSize(40, 1); rule:SetPoint("TOP", nm, "BOTTOM", 0, -8); rule:SetColorTexture(Core:Color("accent", 0.7))
-		local bl = card:CreateFontString(nil, "OVERLAY"); bl:SetFontObject(Core.fonts.rowDim)
-		bl:SetPoint("TOP", rule, "BOTTOM", 0, -12); bl:SetWidth(cardW - 24); bl:SetJustifyH("CENTER")
-		bl:SetText(r.blurb)
+		rule:SetSize(40, 1); rule:SetPoint("TOP", tag, "BOTTOM", 0, -8); rule:SetColorTexture(Core:Color("accent", 0.7))
+
+		-- the list, left-aligned in a centred column
+		local listW = cardW - 56
+		local y = -8
+		for idx = 1, 8 do local it = r.items[idx]; if it then   -- a gated item can leave a hole
+			local ic = card:CreateTexture(nil, "ARTWORK")
+			ic:SetSize(20, 20); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92); ic:SetTexture(itemIcon(it[1]))
+			ic:SetPoint("TOPLEFT", rule, "BOTTOM", -listW / 2, y)
+			local tx = card:CreateFontString(nil, "OVERLAY"); tx:SetFontObject(Core.fonts.row)
+			tx:SetPoint("LEFT", ic, "RIGHT", 8, 0); tx:SetWidth(listW - 28); tx:SetJustifyH("LEFT"); tx:SetWordWrap(true)
+			tx:SetText(it[2]); tx:SetTextColor(Core:Color("text"))
+			y = y - math.max(20, tx:GetStringHeight()) - 7
+		end end
 
 		local function paint()
 			local sel = (state.role == r.key)
