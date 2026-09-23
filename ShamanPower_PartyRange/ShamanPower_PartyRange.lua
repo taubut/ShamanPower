@@ -1031,7 +1031,16 @@ function SP:UpdateCoverage()
 		if haveTotem then buffName, totemIndex = self:GetActiveTotemBuffName(element) end
 		local show = (haveTotem and buffName and totemIndex and self:CoverageWatches(element, totemIndex)) and true or false
 		local state, missing = "combat", 0
-		if show then
+		-- In combat inside an instance the game gives out no positions, so the
+		-- distance model can only ask "is this player near the SHAMAN", which is
+		-- wrong whenever the shaman walks away from the totem. There the border
+		-- stays neutral grey and says nothing; the game-drawn names (from the
+		-- real buffs) are the answer. Measured in RFC, 2026-09-23.
+		local noPositions = show and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
+			and self.TotemDropInRange and self:TotemDropInRange(element) == nil
+		if noPositions then
+			state = "combat"
+		elseif show then
 			-- out of combat these are reads; in combat UnitHasBuff answers from
 			-- the distance model, the same one the counters and Totem Range use
 			for i = 1, count do
