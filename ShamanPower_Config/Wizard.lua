@@ -3466,7 +3466,8 @@ function SP.Wizard:RenderRole()
 	sub:SetFontObject(Core.fonts.row)
 	sub:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 1, -3)
 	sub:SetWidth(640 - 64 - 12); sub:SetJustifyH("LEFT"); sub:SetWordWrap(true)
-	sub:SetText(state.freshInstall
+	sub:SetText(not IS_SHAMAN and "A quick look at what ShamanPower does for your class, then you are done."
+		or state.freshInstall
 		and "Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later."
 		or "Pick your spec and we will walk you through the features that matter for it, showing each one live. Your current settings are kept - nothing changes unless you change it here.")
 	band:SetHeight(math.max(62, 9 + intro:GetStringHeight() + 3 + sub:GetStringHeight() + 12))
@@ -3476,15 +3477,31 @@ function SP.Wizard:RenderRole()
 		local box = track(CreateFrame("Frame", nil, c))
 		box:SetSize(640, 10); box:SetPoint("TOP", band, "BOTTOM", 0, -18)
 		Core:SolidTex(box, "accent", "BACKGROUND", 0.10); Core:MakeBorder(box, "accent")
-		local h = box:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.title); h:SetPoint("TOP", box, "TOP", 0, -14); h:SetWidth(600); h:SetJustifyH("CENTER")
+		local h = box:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.title); h:SetPoint("TOP", box, "TOP", 0, -16); h:SetWidth(600); h:SetJustifyH("CENTER")
 		h:SetTextColor(Core:Color("accentHi")); h:SetText("You are not a shaman - this will be quick")
-		local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.row); b:SetPoint("TOP", h, "BOTTOM", 0, -8); b:SetWidth(600); b:SetJustifyH("CENTER"); b:SetWordWrap(true)
-		b:SetText("The bars and most modules only run on a shaman, so we will skip them. What ShamanPower does for you:\n\n"
-			.. "|cffE6EAF0Totem Range|r - see whether you are inside your shaman's totem buffs\n"
-			.. "|cffE6EAF0Raid Cooldowns|r - call for " .. RaidCDNames("Bloodlust") .. " as leader or assistant\n"
-			.. ((WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and "|cffE6EAF0Windfury Companion|r - a WeakAura so your shaman can see your Windfury (melee)\n" or "")
-			.. "|cffE6EAF0Totem Plates|r - big icons on enemy totems so you kill the right one")
-		box:SetHeight(14 + h:GetStringHeight() + 8 + b:GetStringHeight() + 16)
+		local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim); b:SetPoint("TOP", h, "BOTTOM", 0, -6); b:SetWidth(560); b:SetJustifyH("CENTER"); b:SetWordWrap(true)
+		b:SetText("The totem bars and most modules only run on a shaman, so we skip them. Here is what ShamanPower does for you:")
+		local hr = box:CreateTexture(nil, "ARTWORK"); hr:SetSize(560, 1); hr:SetPoint("TOP", b, "BOTTOM", 0, -12); hr:SetColorTexture(Core:Color("accent", 0.4))
+		-- one row per feature: icon, name, what it does
+		local spellTex = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
+		local function tex(id) local ok, t = pcall(spellTex, id); return ok and t or "Interface\\Icons\\INV_Misc_QuestionMark" end
+		local feats = {
+			{ 8075, "Totem Range", "See whether you are inside your shaman's totem buffs." },
+			{ HasBL() and 2825 or 16190, "Raid Cooldowns", "Call for " .. RaidCDNames("Bloodlust") .. " as leader or assistant." },
+			(WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and { 8512, "Windfury Companion", "A WeakAura so your shaman can see your Windfury (melee)." } or nil,
+			{ 8177, "Totem Plates", "Big icons on enemy totems so you kill the right one." },
+		}
+		local rowX, rowW, y = -250, 500, -12
+		for idx = 1, 4 do local f = feats[idx]; if f then
+			local ic = box:CreateTexture(nil, "ARTWORK"); ic:SetSize(32, 32); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92); ic:SetTexture(tex(f[1]))
+			ic:SetPoint("TOPLEFT", hr, "BOTTOM", rowX, y)
+			local nm = box:CreateFontString(nil, "OVERLAY"); nm:SetFontObject(Core.fonts.row); nm:SetTextColor(1, 0.82, 0)
+			nm:SetPoint("TOPLEFT", ic, "TOPRIGHT", 12, -1); nm:SetText(f[2])
+			local ds = box:CreateFontString(nil, "OVERLAY"); ds:SetFontObject(Core.fonts.rowDim)
+			ds:SetPoint("TOPLEFT", nm, "BOTTOMLEFT", 0, -3); ds:SetWidth(rowW - 44); ds:SetJustifyH("LEFT"); ds:SetWordWrap(true); ds:SetText(f[3])
+			y = y - math.max(32, nm:GetStringHeight() + 3 + ds:GetStringHeight()) - 12
+		end end
+		box:SetHeight(16 + h:GetStringHeight() + 6 + b:GetStringHeight() + 12 + 1 - y + 6)
 		local go = track(Core:MakeButton(c, "Start", 200, true))
 		go:SetSize(200, 34); go:SetPoint("TOP", box, "BOTTOM", 0, -22)
 		go:SetScript("OnClick", function()
