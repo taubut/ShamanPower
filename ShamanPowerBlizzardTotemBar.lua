@@ -285,6 +285,32 @@ local function publicNumber(value)
 	return not secret(value) and type(value) == "number" and value > -math.huge and value < math.huge
 end
 
+-- Screen centre of the buttons that are actually showing. Blizzard's frame is
+-- a fixed 230 px wide; a low-level shaman fills only its left part, so scaling
+-- about the frame's own centre swung the visible buttons out sideways.
+local VISIBLE_BUTTONS = { "MultiCastSummonSpellButton", "MultiCastSlotButton1", "MultiCastSlotButton2",
+	"MultiCastSlotButton3", "MultiCastSlotButton4", "MultiCastRecallSpellButton" }
+local function visibleCenter()
+	local l, r, b, t
+	for _, name in ipairs(VISIBLE_BUTTONS) do
+		local btn = _G[name]
+		local okS, shown = pcall(function() return btn and btn:IsShown() end)
+		if okS and shown == true then
+			local ok, bl, bb, bw, bh = pcall(btn.GetRect, btn)
+			local okE, es = pcall(btn.GetEffectiveScale, btn)
+			if ok and okE and publicNumber(bl) and publicNumber(bb) and publicNumber(bw) and publicNumber(bh) and publicNumber(es) then
+				bl, bb, bw, bh = bl * es, bb * es, bw * es, bh * es
+				l = l and math.min(l, bl) or bl
+				b = b and math.min(b, bb) or bb
+				r = r and math.max(r, bl + bw) or bl + bw
+				t = t and math.max(t, bb + bh) or bb + bh
+			end
+		end
+	end
+	if not l then return nil end
+	return (l + r) / 2, (b + t) / 2
+end
+
 local function scaleAndAnchor(bar, scale, x, y)
 	bar:SetScale(scale)
 	local actual = bar:GetScale()
@@ -309,6 +335,13 @@ local function setScaleInPlace(bar, scale)
 		or not publicNumber(old) or old <= 0 or not publicNumber(effective) or effective <= 0 then return nil end
 	local nextEffective = effective * scale / old
 	x, y = x * effective, y * effective
+	-- keep the VISIBLE buttons' centre where it is: the frame centre moves by the
+	-- (scaled) offset between the two
+	local vx, vy = visibleCenter()
+	if vx and publicNumber(vx) and publicNumber(vy) then
+		local ox, oy = (vx - x) / effective, (vy - y) / effective
+		x, y = vx - ox * nextEffective, vy - oy * nextEffective
+	end
 	if not publicNumber(nextEffective) or nextEffective <= 0 or not publicNumber(x) or not publicNumber(y)
 		or not publicNumber(x / nextEffective) or not publicNumber(y / nextEffective) then return nil end
 	local pointsOK, count = pcall(bar.GetNumPoints, bar)

@@ -14730,8 +14730,10 @@ end
 -- second was the range pass's whole idle garbage.
 ShamanPower.auraGen = {}
 function ShamanPower:AuraCacheValid(unit, gen, at)
-	-- same aura generation and under 5 s old (a party slot can change hands without an aura event)
-	return gen ~= nil and gen == (self.auraGen[unit] or 0) and at and (GetTime() - at) < 5
+	-- same aura generation; party slots also expire after 5 s (a slot can change
+	-- hands without an aura event). The player is always the player: no expiry.
+	if gen == nil or gen ~= (self.auraGen[unit] or 0) or not at then return false end
+	return unit == "player" or (GetTime() - at) < 5
 end
 
 function ShamanPower:UNIT_AURA(event, unit)
