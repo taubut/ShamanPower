@@ -240,7 +240,7 @@ local function RaidCDNames(blName, conj)
 end
 
 local STEPS = {
-	{ id = "forever", title = "WoW: Forever", roles = EVERYONE, build = "BuildForeverStep",
+	{ id = "forever", title = "WoW: Forever", roles = ALL, build = "BuildForeverStep",   -- shaman-only content; the Raid Cooldowns step covers what a non-shaman needs
 	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
 	  desc = "Welcome to WoW: Forever. A few things ShamanPower does on other versions of the game do not exist here, and a few work differently because the game hides combat data from addons.",
 	  bullets = {
