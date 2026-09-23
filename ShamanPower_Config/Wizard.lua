@@ -219,7 +219,7 @@ local STEPS = {
 	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
 	  desc = "Welcome to WoW: Forever. A few things ShamanPower does on other versions of the game do not exist here, and a few work differently because the game hides combat data from addons.",
 	  bullets = {
-	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air and the Elementals. Their pages, mocks and options are hidden.",
+	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, Fire Nova Totem and the Elementals. Their pages, mocks and options are hidden.",
 	    "In combat the game itself draws the timers, party dots, alerts and cooldown numbers, so they keep working; some sounds can only start out of combat.",
 	    "Blizzard's own totem bar is a style choice here, and its three totem sets stay in step with your assignments and loadouts.",
 	  } },
@@ -3644,7 +3644,7 @@ end)
 
 -- WoW: Forever intro: what is not here and what the engine draws. Text only.
 function SP.Wizard.BuildForeverStep(card, inner, y)
-	local gone = { "Earth Shield", "Bloodlust / Heroism", "Drums of Battle", "Totem of Wrath", "Wrath of Air", "Earth / Fire Elemental" }
+	local gone = { "Earth Shield", "Bloodlust / Heroism", "Drums of Battle", "Totem of Wrath", "Wrath of Air", "Fire Nova Totem", "Earth / Fire Elemental" }
 	local engine = { "Totem timers and countdown numbers", "Party buff dots and range counters", "Reactive and expiring alerts", "Cooldown sweeps and Ready Reminders" }
 	local function column(title, items, x)
 		local h = inner:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.section); h:SetPoint("TOPLEFT", inner, "TOPLEFT", x, -14)
@@ -3661,6 +3661,7 @@ function SP.Wizard.BuildForeverStep(card, inner, y)
 	local foot = inner:CreateFontString(nil, "OVERLAY"); foot:SetFontObject(Core.fonts.rowDim)
 	foot:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 14, 12); foot:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -14, 12)
 	foot:SetJustifyH("LEFT"); foot:SetWordWrap(true)
+	foot:SetTextColor(1, 0.627, 0.251)   -- the settings window's note orange (|cffffa040)
 	foot:SetText("Everything else works as usual. Where a setting behaves differently on WoW: Forever, its page says so in an orange note.")
 	return y
 end
