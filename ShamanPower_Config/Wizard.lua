@@ -1075,11 +1075,12 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		btn:HookScript("OnLeave", function() if hoverKey == st.key then hoverKey = nil end; refresh() end)
 		btn:SetScript("OnClick", function()
 			local wasCompact = OPT().compactStyle and true or false
+			local wasBlizzard = SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT()) == "blizzard"
 			if not (SP.SetTotemBarStyle and SP:SetTotemBarStyle(st.key)) then return end   -- in combat: it says so
 			hoverKey = nil
 			refresh()
 			-- the Compact options sit under the style cards: rebuild the step when it toggles
-			if (OPT().compactStyle and true or false) ~= wasCompact then SP.Wizard:Go(state.step) end
+			if (OPT().compactStyle and true or false) ~= wasCompact or (st.key == "blizzard") ~= wasBlizzard then SP.Wizard:Go(state.step) end
 		end)
 		buttons[st.key] = btn
 	end
@@ -1095,18 +1096,36 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local _, h = Widgets[kind](Widgets, card, opts)
 		y = y + h
 	end
-	if not OPT().compactStyle then
-		row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
-			set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+	-- Only the settings the chosen style actually uses. Blizzard's bar has its own
+	-- layout (Edit Mode) and ignores the bar's layout, size, opacity and frame; its
+	-- one ShamanPower setting is the scale override.
+	if SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT()) == "blizzard" then
+		local scaleQueued
+		row("Slider", { label = "Size", min = 0.5, max = 2, step = 0.05, isPercent = true,
+			get = function() return OPT().blizzardTotemBarScale or 1 end,
+			set = function(v)
+				OPT().blizzardTotemBarScale = v
+				if not scaleQueued then   -- a drag sets this many times a second; refresh once after it
+					scaleQueued = true
+					C_Timer.After(0.15, function() scaleQueued = false; safecall("RefreshBlizzardTotemBar") end)
+				end
+				notify()
+			end })
+		row("Description", { text = "|cffffa040Blizzard's bar keeps its own layout: move it with Edit Mode. Size is relative to Blizzard's normal size.|r" })
+	else
+		if not OPT().compactStyle then
+			row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
+				set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+		end
+		row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
+			set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("UpdateCooldownBarScale"); safecall("UpdateRoster"); notify() end })
+		row("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().totemBarOpacity or 1 end,
+			set = function(v) OPT().totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
+		row("Toggle", { label = "Full opacity while a totem is down", get = function() return OPT().totemBarFullOpacityWhenActive and true or false end,
+			set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
+		row("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideTotemBarFrame end,
+			set = function(v) OPT().hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
 	end
-	row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
-		set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("UpdateCooldownBarScale"); safecall("UpdateRoster"); notify() end })
-	row("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().totemBarOpacity or 1 end,
-		set = function(v) OPT().totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
-	row("Toggle", { label = "Full opacity while a totem is down", get = function() return OPT().totemBarFullOpacityWhenActive and true or false end,
-		set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
-	row("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideTotemBarFrame end,
-		set = function(v) OPT().hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
 	if OPT().compactStyle then
 		-- ---- Compact style options (Settings > Totem Bar > Compact Style) ----
 		local function cset(key) return function(v) OPT()[key] = v; safecall("ApplyCompactStyle"); notify() end end
