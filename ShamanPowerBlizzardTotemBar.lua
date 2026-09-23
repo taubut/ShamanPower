@@ -198,6 +198,10 @@ local function updateDisplay(host, element, active, name, icon, remaining, durat
 	local assigned = assignments and assignments[element] or 0
 	local names = SP.TotemNames and SP.TotemNames[element]
 	local assignedName = names and names[assigned]
+	-- Blizzard's bar works like our Dynamic mode: whatever sits in the slot is
+	-- what you drop, so the slot's own spell is the assignment here. The window's
+	-- assignment is only a fallback for a slot we could not read.
+	if host.slotSpellName then assignedName = host.slotSpellName end
 	local matches = not secret(name) and type(name) == "string" and assignedName
 		and (string.find(name, assignedName, 1, true) or string.find(assignedName, name, 1, true))
 	local twisting = element == 4 and SP.opt.enableTotemTwisting
@@ -236,14 +240,10 @@ local function updateDisplay(host, element, active, name, icon, remaining, durat
 		if host.textLocation ~= "none" and host.textLocation ~= "icon" then
 			host.durationText:SetText(durationLabel(remaining)); host.durationText:Show()
 		else host.durationText:Hide() end
-		if host.showSweep and host.sweepStyle ~= "radial" then
-			local depleted = host.sweepStyle == "reverse" and fraction or (1 - fraction)
-			local texture = showIcon and host.activeAsMain and icon or assignedIcon
-			if host.sweepTexture ~= texture then host.sweep:SetTexture(texture); host.sweepTexture = texture end
-			host.sweep:SetHeight(math.max(0.01, host.height * depleted))
-			host.sweep:SetTexCoord(0.08, 0.92, 0.08, 0.08 + depleted * 0.84)
-			if host.height * depleted > 1 then host.sweep:Show() else host.sweep:Hide() end
-		else host.sweep:Hide() end
+		-- Lifetime is the duration bar and its text here. On our own bar the grey
+		-- sweep belongs to SPELL cooldowns, which Blizzard's button already draws,
+		-- so drawing it for lifetime showed the same timer twice.
+		host.sweep:Hide()
 	else
 		host.durationBackground:Hide(); host.durationBar:Hide(); host.durationText:Hide(); host.sweep:Hide()
 	end
@@ -414,6 +414,15 @@ local function mapHosts()
 			host:Show()
 			if host.widgetBlocked then host.lifetime:Hide() else host.lifetime:Show() end
 			styleHost(host, element)
+			host.slotSpellName = nil
+			if SP.ReadTotemSet then
+				local okRead, slots = pcall(SP.ReadTotemSet, SP, 1)
+				local id = okRead and slots and slots[element]
+				if id and not secret(id) then
+					local spellName = GetSpellInfo(id)
+					if type(spellName) == "string" then host.slotSpellName = spellName end
+				end
+			end
 			elementHosts[element] = host
 			if element <= 3 and SP.pulseOverlays and SP.totemButtons[element] then
 				local original = SP.pulseOverlays[element] or SP:CreatePulseOverlay(SP.totemButtons[element])
