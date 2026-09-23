@@ -9268,7 +9268,7 @@ do
 		hidden = function() return not HasLoadoutSetControls() or NativeTotemBarSelected() end,
 		get = function() return SP.opt.hideBlizzardTotemBar ~= false end,
 		set = function(_, value)
-			SP.opt.hideBlizzardTotemBar = value and nil or false
+			if value then SP.opt.hideBlizzardTotemBar = nil else SP.opt.hideBlizzardTotemBar = false end
 			if SP.ApplyBlizzardTotemBarHiding then SP:ApplyBlizzardTotemBarHiding() end
 		end,
 	}
@@ -9585,7 +9585,7 @@ do
 		hidden = function() return not isShaman or not HasLoadoutSetControls() or NativeTotemBarSelected() end,
 		get = function() return SP.opt.hideBlizzardTotemBar ~= false end,
 		set = function(_, value)
-			SP.opt.hideBlizzardTotemBar = value and nil or false
+			if value then SP.opt.hideBlizzardTotemBar = nil else SP.opt.hideBlizzardTotemBar = false end
 			if SP.ApplyBlizzardTotemBarHiding then SP:ApplyBlizzardTotemBarHiding() end
 		end,
 	}
