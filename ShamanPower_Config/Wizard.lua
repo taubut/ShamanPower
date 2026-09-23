@@ -930,6 +930,11 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if gridHost then
 			gridHost:SetShown(m == "grid")
 			local root = gridHost.gridMock
+			-- the mock follows the Size setting live (it was read once at build)
+			if m == "grid" and root then
+				local want = OPT().buffscale or 1
+				if math.abs(root:GetScale() - want) > 0.001 then root:SetScale(want) end
+			end
 			if m == "grid" and root then
 				local w, h = root:GetWidth() * root:GetScale(), root:GetHeight() * root:GetScale()
 				gridHost:SetSize(math.max(1, w), math.max(1, h))
@@ -1121,7 +1126,17 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
 		end
 		row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
-			set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("RefreshGridStyle"); notify() end })
+			set = function(v)
+				OPT().buffscale = v
+				safecall("UpdateLayout")
+				-- split rows are pop-out frames with their own scale: Size sets all four
+				if OPT().gridSplit and SP.SetPopOutScale and not InCombatLockdown() then
+					for _, key in ipairs({ "totem_earth", "totem_fire", "totem_water", "totem_air" }) do
+						if SP.poppedOutFrames and SP.poppedOutFrames[key] then pcall(SP.SetPopOutScale, SP, key, v) end
+					end
+				end
+				notify()
+			end })
 		row("Toggle", { label = "Split by element (each row its own frame)", get = function() return OPT().gridSplit == true end,
 			set = function(v) OPT().gridSplit = v or nil; safecall("RefreshGridStyle"); notify(); SP.Wizard:Go(state.step) end })
 	else
