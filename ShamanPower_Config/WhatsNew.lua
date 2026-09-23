@@ -19,7 +19,7 @@ local NOTES = {
 		{ h = "Grid style: every totem on screen", try = "grid",
 		  b = "A fifth look for the totem bar. Every totem of every element sits in rows: click one to drop it, the assigned one is highlighted and the dropped one carries the timer. Split by Element gives each row its own movable frame and direction."
 		    .. "\n|cff3FA9F5Settings > General > Totem Bar Style|r  -  hover a style there to see it in the live preview" },
-		{ h = "Totem Coverage: who is missing your buff",
+		{ h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
 		  b = "The reverse of Totem Range. Under each of your totems, the names of the party members who do NOT have its buff, in red or class colour. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
 		    .. "\n|cff3FA9F5Settings > Party Buff Tracker > Totem Coverage|r" },
 		{ h = "Totem markers on the minimap",
@@ -145,6 +145,7 @@ local function BuildDialog()
 	local W, y = 526, 2
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
 	for _, it in ipairs(NOTES.items) do
+	  if not it.when or it.when() then   -- an item for a feature this client lacks stays out
 		-- a totem bar style gets its picture on the left and a Try it button on the right
 		local tryIt = it.try and isShaman and SP.TotemBarStyle and SP:TotemBarStyle(it.try) ~= nil
 		local x, w = 0, W
@@ -168,6 +169,7 @@ local function BuildDialog()
 		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
 		b:SetText(it.b)
 		y = y + b:GetStringHeight() + 14
+	  end
 	end
 	if NOTES.footer then
 		local f = dlg.body:CreateFontString(nil, "OVERLAY"); f:SetFontObject(Core.fonts.tiny)
