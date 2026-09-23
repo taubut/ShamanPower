@@ -51,28 +51,28 @@ local DEFAULTS = {
 }
 
 -- Catalog. ids: every spell ID the spell has had across clients; the first one
--- the client knows is used. cd: the cooldown in seconds, used only to seed the
--- compat shadow model so the first in-combat cast on a secret-value client has
--- a known length (the real length replaces it once seen readable). noCooldownIDs:
--- client IDs where the spell has no real cooldown (never shown there).
+-- the client knows is used. No cooldown lengths here: on a secret-value client
+-- the compat shadow model takes each cast's length from the game's own spell
+-- data (GetSpellBaseCooldown), then the real one once seen readable.
+-- noCooldownIDs: client IDs where the spell has no real cooldown (never shown there).
 -- def: on by default. order: default placement (a row, left to right).
 SP.ReadyReminderSpells = {
-	{ key = "earthshock",   name = "Earth Shock",         ids = { 8042 },                 def = true,  cd = 6 },
-	{ key = "flameshock",   name = "Flame Shock",         ids = { 8050 },                 def = true,  cd = 6 },
-	{ key = "frostshock",   name = "Frost Shock",         ids = { 8056 },                 def = true,  cd = 6 },
-	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true,  cd = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 8 or 10 },
-	{ key = "lavaburst",    name = "Lava Burst",          ids = { 408490, 51505 },        def = true,  cd = 10 },
-	{ key = "riptide",      name = "Riptide",             ids = { 408521, 61295 },        def = true,  cd = 6 },
-	{ key = "farseer",      name = "Rage of the Farseer", ids = { 425336 },               def = true,  cd = 180 },
-	{ key = "firenova",     name = "Fire Nova",           ids = { 408341, 1535 },         def = false, cd = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 10 or 15 },
-	{ key = "projection",   name = "Totemic Projection",  ids = { 437009 },               def = false, cd = 60 },
-	{ key = "grounding",    name = "Grounding Totem",     ids = { 8177 },                 def = false, cd = 15 },
-	{ key = "watershield",  name = "Water Shield",        ids = { 24398, 408510, 52127 }, def = false, cd = 15, noCooldownIDs = { [24398] = true } },
-	{ key = "ns",           name = "Nature's Swiftness",  ids = { 16188 },                def = false, cd = 180 },
-	{ key = "manatide",     name = "Mana Tide Totem",     ids = { 16190 },                def = false, cd = 300 },
-	{ key = "shamrage",     name = "Shamanistic Rage",    ids = { 30823 },                def = false, cd = 120 },
-	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false, cd = 180 },
-	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false, cd = 15 },
+	{ key = "earthshock",   name = "Earth Shock",         ids = { 8042 },                 def = true },
+	{ key = "flameshock",   name = "Flame Shock",         ids = { 8050 },                 def = true },
+	{ key = "frostshock",   name = "Frost Shock",         ids = { 8056 },                 def = true },
+	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true },
+	{ key = "lavaburst",    name = "Lava Burst",          ids = { 408490, 51505 },        def = true },
+	{ key = "riptide",      name = "Riptide",             ids = { 408521, 61295 },        def = true },
+	{ key = "farseer",      name = "Rage of the Farseer", ids = { 425336 },               def = true },
+	{ key = "firenova",     name = "Fire Nova",           ids = { 408341, 1535 },         def = false },
+	{ key = "projection",   name = "Totemic Projection",  ids = { 437009 },               def = false },
+	{ key = "grounding",    name = "Grounding Totem",     ids = { 8177 },                 def = false },
+	{ key = "watershield",  name = "Water Shield",        ids = { 24398, 408510, 52127 }, def = false, noCooldownIDs = { [24398] = true } },
+	{ key = "ns",           name = "Nature's Swiftness",  ids = { 16188 },                def = false },
+	{ key = "manatide",     name = "Mana Tide Totem",     ids = { 16190 },                def = false },
+	{ key = "shamrage",     name = "Shamanistic Rage",    ids = { 30823 },                def = false },
+	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false },
+	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false },
 }
 
 local frames = {}
@@ -131,23 +131,6 @@ local function usable(entry)
 end
 SP.ReadyReminderUsable = usable
 SP.ReadyReminderOn = spellOn
-
--- Secret-value clients: seed the compat shadow model with each spell's cooldown
--- length (keyed by spell name, like the model itself) so a first in-combat cast
--- is not read as "no cooldown". A readable observation overwrites the seed.
-local function seedShadowDurations()
-	local shadow = SPCompat and SPCompat.shadowCooldowns
-	if not shadow then return end
-	for _, entry in ipairs(SP.ReadyReminderSpells) do
-		local id = entry.cd and clientSpellID(entry)
-		local name = id and GetSpellInfoC(id)
-		if name then
-			local e = shadow[name] or {}
-			if not e.duration then e.duration = entry.cd end
-			shadow[name] = e
-		end
-	end
-end
 
 -- Does the player know the spell (any rank)? Cached until SPELLS_CHANGED.
 local knownCache = {}
@@ -860,7 +843,6 @@ ef:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then
 		SV()
 		InjectOptions()
-		seedShadowDurations()
 		if SP.RegisterUpdateSubsystem then
 			-- Ten passes a second are only needed while something is counting down. With
 			-- every spell ready nothing on screen can change until the client says a
@@ -891,7 +873,6 @@ ef:SetScript("OnEvent", function(_, event)
 	else
 		knownCache = {}
 		for _, entry in ipairs(SP.ReadyReminderSpells) do entry.clientID = nil end
-		seedShadowDurations()
 		SP:UpdateAllReadyReminderAppearance()
 	end
 end)
