@@ -357,7 +357,7 @@ local STEPS = {
 	  bullets = {
 	    "One cell per totem, the party members' names under it: class color when they have the buff, red when they don't.",
 	    "Drawn by the game engine straight from their buffs, so it keeps working in combat and in dungeons.",
-	    "A totem everyone has drops out of the list; pick which totems it watches in Settings.",
+	    "Once everyone is in range of a totem, it drops out of the list; pick which totems it watches in Settings.",
 	  },
 	  toggles = { { label = "Enable Totem Coverage", bind = "coverage" } } },
 	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
@@ -2390,7 +2390,7 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 	end
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.coverageDemoActive then SP:CoverageDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", false) end
-	row("Toggle", { label = "Skip totems everyone has", desc = "A totem every party member carries is left out of the list.", disabled = off,
+	row("Toggle", { label = "Hide a totem once everyone is in range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.", disabled = off,
 		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
 	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Name size", min = 7, max = 14, step = 1, disabled = off, get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
