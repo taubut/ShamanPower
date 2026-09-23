@@ -10025,7 +10025,21 @@ function ShamanPower:UpdateCooldownButtons()
 				-- Show the imbue this button would actually cast. Without this
 				-- the texture keeps whatever was set at creation, so a shaman
 				-- who has only Rockbiter sees a greyed Windfury icon.
-				local restIdx = self:DefaultImbueIndex() or self.lastMainHandImbue
+				local restIdx
+				if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+					-- Name-based spellbook checks allocate modern API result tables.
+					-- Keep the resting choice (including nil) until spells or preference change.
+					local generation = self._imbueSpellGeneration or 0
+					if not btn._restImbueReady or btn._restImbueGeneration ~= generation
+						or btn._restImbuePreference ~= self.opt.preferredImbue then
+						btn._restImbueIndex = self:DefaultImbueIndex()
+						btn._restImbueGeneration, btn._restImbuePreference = generation, self.opt.preferredImbue
+						btn._restImbueReady = true
+					end
+					restIdx = btn._restImbueIndex or self.lastMainHandImbue
+				else
+					restIdx = self:DefaultImbueIndex() or self.lastMainHandImbue
+				end
 				if restIdx and self.WeaponIcons[restIdx] then
 					btn.icon:SetTexture(self.WeaponIcons[restIdx])
 				end
@@ -14174,6 +14188,9 @@ end
 
 function ShamanPower:ScanSpells()
 	--self:Debug("[ScanSpells]")
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		self._imbueSpellGeneration = (self._imbueSpellGeneration or 0) + 1
+	end
 	self:InvalidateElementLearned()
 	if isShaman then
 		self:SyncAdd(self.player)
