@@ -47,6 +47,13 @@ local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotem
 local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsStep" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
+local MOCK_LOADOUT  = { mocks = {
+	{ label = "Loadout bar", build = "BuildLoadoutBarPane" },
+	{ label = "Blizzard totem sets", build = "BuildLoadoutSetsPane", when = function()
+		local sp = SP()
+		return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and sp and sp.HasTotemBar and sp:HasTotemBar()
+	end },
+} }
 local MOCK_PARTY    = { mocks = { { label = "Party Buff Tracker", build = "BuildPartyBuffStep", weight = 2.3, shiftY = 85 },
                                  { label = "Totem Coverage", preview = "coverage", maxScale = 1.3, weight = 1,
                                    when = function() local sp = SP(); return sp and sp.CoverageAvailable and sp:CoverageAvailable() or false end } } }
@@ -179,8 +186,8 @@ local NAV = {
 			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
 			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
-			{ label = "Loadouts",      paths = { P("buttons", "loadouts_section") } },
-			{ label = "Loadout Bar",   paths = { P("fluffy", "loadoutbar_section") } },
+			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
+			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 		}},
 		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
@@ -423,7 +430,7 @@ local function MountMocks(spec)
 				pane.mockPreviews[m.preview] = true
 			end
 		else
-			local fn = W[m.build]
+			local fn = (ns.PaneBuilders and ns.PaneBuilders[m.build]) or W[m.build]
 			if fn then
 				local ok, err = pcall(fn, dummyCard, pin, 0)
 				if not ok then print("|cffff4040ShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
