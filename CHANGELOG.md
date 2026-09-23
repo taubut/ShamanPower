@@ -8,8 +8,8 @@
 - **Totem sets** (Forever). Call of the Elements always holds your assignments. Ancestors and Spirits can each take a saved loadout (Loadouts tab > Set Page); that loadout's bar button then casts the set in one press. Drop All can cast the set.
 - **Grid style** (both clients). Every totem of every element visible in rows: click to drop, the assigned one highlighted, the timer on the dropped one. "Split by Element" makes each row its own movable frame with its own direction.
 - **Totem Bar Style in one place.** Settings > General > Main has a dropdown with every style (Normal, TotemTimers, Dynamic, Compact, Grid, and Blizzard's bar on Forever). Hovering a style there, or a style toggle on Mode & Twisting, shows it in the live preview without changing anything. The setup tour shows the styles as cards with a picture each; hovering a card plays it in the preview.
-- **Totem Coverage** (Party Buff Tracker). The reverse of Totem Range: under each of your totems, the names of party members who do NOT have its buff, red or class colour. Per-totem placement and sizes; choose which totems to watch; hides itself once everyone is covered, in combat too.
-- **Minimap totem markers** (both clients, open world). A pin where each totem was dropped with a ring for its reach, turning with the minimap. Totem Range Tracker page. Off inside instances.
+- **Totem Coverage** (Party Buff Tracker, Forever). The reverse of Totem Range: under each of your totems, the names of party members who do NOT have its buff, red or class colour. Per-totem placement and sizes; choose which totems to watch; hides itself once everyone is covered, in combat too.
+- **Minimap totem markers** (Forever, open world). A pin where each totem was dropped with a ring for its reach, turning with the minimap. Totem Range Tracker page. Off inside instances.
 - **Auto-Assign picks by who is in the group.** Stoneskin for caster-only groups, Strength of Earth with melee; Mana Spring with mana users, else Healing Stream; the Air totem by who benefits. This changes what Anniversary players get from Auto-Assign too.
 - **Live preview pane** in the settings window (arrow tab on the right): every module page shows its frames with your current settings, updating as you change them. The Loadouts page previews the bar and, on Forever, the three set pages.
 - **Every window from its page.** Totem Range picker, Totem Coverage, Raid Cooldowns assignments, the fear-caster mob list, Totem Assignments: one button on the module's page, and every option those windows hold is on the page too. Test buttons hide the settings window while they run and bring it back after.
@@ -35,7 +35,7 @@
 ### Known
 - Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
 - If the game blocks addon messages in an instance fight, Raid Cooldown callers are told so instead of shown "sent".
-- Minimap totem markers depend on an API the Anniversary client may not have; if so they simply do not draw there.
+- Minimap totem markers are Forever only: the Anniversary minimap has no view-radius API, so the option is hidden there.
 
 ## v2.1.1 (2026-09-16)
 
