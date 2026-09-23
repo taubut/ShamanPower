@@ -765,6 +765,12 @@ local function BuildWindow()
 	local whatsNew = Core:MakeButton(content, "What's New", 100, false)
 	whatsNew:SetPoint("RIGHT", pageSearch, "LEFT", -10, 0)
 	whatsNew:SetHeight(22)
+	-- Gold, so it stands out from the plain header buttons.
+	whatsNew.text:SetTextColor(1, 0.82, 0)
+	for _, edge in pairs(whatsNew.spBorder) do edge:SetColorTexture(1, 0.82, 0, 0.85) end
+	whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10)
+	whatsNew:SetScript("OnEnter", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.24) end)
+	whatsNew:SetScript("OnLeave", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10) end)
 	whatsNew:SetScript("OnClick", function() local sp = SP(); if sp and sp.ShowWhatsNew then sp:ShowWhatsNew(true) end end)
 	frame.whatsNewBtn = whatsNew
 
