@@ -182,9 +182,25 @@ end
 
 -- Truncate the label so it can never run under the control cluster.
 -- Row width must already be set (ConfigureRow does that) before this runs.
+-- Labels are never cut short. One that does not fit beside the control wraps
+-- onto more lines and the row grows to hold them. spTruncated still tells the
+-- settings page renderer "this needed more room", so it can hand the row the
+-- whole width first; only a label too long even then ends up wrapped.
 local function ClampRowLabel(row, controlWidth)
 	local avail = row:GetWidth() - controlWidth - (PAD * 2) - 8
-	Core:ClampLabel(row.label, avail, row._fullLabel or "")
+	local label = row.label
+	label:SetWordWrap(false)
+	label:SetWidth(0)
+	label:SetText(row._fullLabel or "")
+	local tooLong = avail > 0 and label:GetStringWidth() > avail
+	label.spTruncated = tooLong
+	if tooLong then
+		label:SetWidth(avail)
+		label:SetWordWrap(true)
+		row:SetHeight(math.max(ROW_H, math.ceil(label:GetStringHeight()) + 14))
+	else
+		row:SetHeight(ROW_H)
+	end
 end
 
 local function ApplyDisabled(row, isDisabled)
@@ -224,7 +240,7 @@ local function FinishRow(row, parent, controlWidth)
 	ClampRowLabel(row, controlWidth)
 	RegisterRefresh(parent, row.refresh)
 	row.refresh()
-	return row, ROW_H + ROW_GAP
+	return row, row:GetHeight() + ROW_GAP   -- taller when the label wrapped
 end
 
 -- The page renderer asks this after placing a row in a column: a label that
@@ -237,6 +253,7 @@ end
 function Widgets:Widen(row, width)
 	row:SetWidth(width)
 	ClampRowLabel(row, row._controlWidth or 0)
+	return row:GetHeight() + ROW_GAP   -- the new height: one line again, or wrapped
 end
 
 -- ---------------------------------------------------------------------------

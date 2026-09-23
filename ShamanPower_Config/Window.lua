@@ -1477,7 +1477,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 					end
 					f:ClearAllPoints()
 					f:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -rowY)
-					Widgets:Widen(f, fullW)
+					h = Widgets:Widen(f, fullW) or h
 					span = 2
 				end
 				table.insert(pageWidgets, f)
