@@ -217,9 +217,9 @@ function SP:ShowPreview(key, container)
 		-- UPWARD from just above the centre line, so none of them reaches down
 		-- into the character. Offsets are in the frame's own scaled units.
 		-- The upper half is all there is: shrink to fit it.
-		local half = (container:GetHeight() / 2) - 60
+		local half = (container:GetHeight() / 2) - 140
 		if totalH > 0 and half > 0 then scale = math.min(scale, half / totalH) end
-		local up = 48
+		local up = 128   -- the label hangs below the number's frame: clear the character's head with it
 		for i = #frames, 1, -1 do
 			local frame = frames[i]
 			frame:SetParent(container)
