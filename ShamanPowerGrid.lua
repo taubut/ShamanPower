@@ -50,10 +50,30 @@ local function ensureVisual(button)
 	frame:SetFrameLevel((button.cooldown and button.cooldown:GetFrameLevel() or button:GetFrameLevel()) + 3)
 	frame:EnableMouse(false)
 	local v = { frame = frame }
-	v.assigned = frame:CreateTexture(nil, "OVERLAY")
-	v.assigned:SetAllPoints(button)
-	v.assigned:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-	v.assigned:SetBlendMode("ADD")
+	-- The assigned totem gets a plain element-coloured border on the icon's edge.
+	-- Not UI-ActionButton-Border: that texture's ring is drawn well outside the
+	-- button, so fitted to the button it leaves a glowing box INSIDE the icon (the
+	-- main bar hit the same artifact and dropped it).
+	local ring = CreateFrame("Frame", nil, frame)
+	ring:SetAllPoints(button)
+	ring.edges = {}
+	for i, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+		local t = ring:CreateTexture(nil, "OVERLAY", nil, 4)
+		if side == "TOP" or side == "BOTTOM" then
+			t:SetPoint(side .. "LEFT", button, side .. "LEFT", -1, side == "TOP" and 1 or -1)
+			t:SetPoint(side .. "RIGHT", button, side .. "RIGHT", 1, side == "TOP" and 1 or -1)
+			t:SetHeight(2)
+		else
+			t:SetPoint("TOP" .. side, button, "TOP" .. side, side == "LEFT" and -1 or 1, 1)
+			t:SetPoint("BOTTOM" .. side, button, "BOTTOM" .. side, side == "LEFT" and -1 or 1, -1)
+			t:SetWidth(2)
+		end
+		ring.edges[i] = t
+	end
+	function ring:SetVertexColor(r, g, b, a)
+		for _, t in ipairs(self.edges) do t:SetColorTexture(r, g, b, a or 1) end
+	end
+	v.assigned = ring
 	v.bg = frame:CreateTexture(nil, "OVERLAY", nil, 1)
 	v.bg:SetColorTexture(0, 0, 0, 0.8)
 	v.bar = frame:CreateTexture(nil, "OVERLAY", nil, 2)
