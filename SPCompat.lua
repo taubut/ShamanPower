@@ -44,6 +44,8 @@ if not GetSpellInfo and C_Spell and C_Spell.GetSpellInfo then
 	-- arrive late while the UI loads).
 	local infoByID = {}
 	function GetSpellInfo(spell)
+		-- the classic global answers nil for nil; C_Spell.GetSpellInfo throws on it
+		if spell == nil then return nil end
 		local isID = type(spell) == "number"
 		if isID then
 			local c = infoByID[spell]

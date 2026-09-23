@@ -42,6 +42,14 @@ local function DB(name) return _G[name] end
 -- Modules in the order they are listed. `frames` overrides the registry's own
 -- list; `enabled` keeps a module the player has switched off out of the way;
 -- `save` / `reset` replace the generic ones.
+-- The unlock loop below boxes a module only when a preview is registered under
+-- the same key (PreviewRegistry[m.key] ~= nil). The loadout bar never had one,
+-- so its entry was skipped before any box could be drawn; give it a frame-only
+-- registration here (Preview.lua has loaded by now).
+if SP.RegisterPreview and SP.PreviewRegistry and not SP.PreviewRegistry.loadoutbar then
+	SP:RegisterPreview("loadoutbar", { frame = "ShamanPowerSetAnchor" })
+end
+
 local MODULES = {
 	{ key = "shieldcharges", label = "Shield Charges", labels = { "Shield Charges", "Earth Shield Charges" },
 		reset = function()
@@ -89,6 +97,17 @@ local MODULES = {
 				return SP:CoverageWatchedCells()
 			end
 			return { f }
+		end },
+	{ key = "loadoutbar", label = "Loadout Bar",
+		enabled = function() return SP.opt.showLoadoutBar and true or false end,
+		frames = function() return SP.loadoutAnchor and { SP.loadoutAnchor } or {} end,
+		-- the anchor's own drag scripts want ALT and an unlocked bar; the box moves it directly
+		save = function() if SP.SaveLoadoutBarPosition then SP:SaveLoadoutBarPosition() end end,
+		reset = function()
+			local a = SP.loadoutAnchor
+			if not a then return end
+			a:ClearAllPoints(); a:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
+			if SP.SaveLoadoutBarPosition then SP:SaveLoadoutBarPosition() end
 		end },
 	{ key = "sprange", label = "Totem Range" },
 	{ key = "raidcd", label = "Raid Cooldown Callers" },
@@ -140,11 +159,18 @@ local function AddReset(moverKey, resetFn)
 	mover.spReset:SetShown(resetFn ~= nil)
 end
 
+-- A frame may name (or compute) the frame the box should be sized to.
+local function MoverSize(frame)
+	local size = frame.spMoverSize
+	if type(size) == "function" then size = size() end
+	return size or frame
+end
+
 local function ShowBox(moverKey, frame, label, save, resetFn)
 	if not (frame and frame.GetLeft) then return end
 	if not frame:IsShown() then forced[frame] = true; frame:Show() end
 	if not frame:GetLeft() then return end   -- still not laid out: nothing to put a box on
-	SP:ShowBarMover(moverKey, frame, frame, label, function() save(frame) end)
+	SP:ShowBarMover(moverKey, frame, MoverSize(frame), label, function() save(frame) end)
 	shown[moverKey] = { frame = frame, label = label, save = save, reset = resetFn }
 	AddReset(moverKey, resetFn)
 end
@@ -156,7 +182,7 @@ function SP:RefreshUnlockBoxes()
 			-- the two bars re-place their own movers
 			if moverKey == "totembar" then SP:SetTotemBarUnlocked(true) else SP:SetCooldownBarUnlocked(true) end
 		elseif e.frame and e.frame:GetLeft() then
-			SP:ShowBarMover(moverKey, e.frame, e.frame, e.label, function() e.save(e.frame) end)
+			SP:ShowBarMover(moverKey, e.frame, MoverSize(e.frame), e.label, function() e.save(e.frame) end)
 		end
 		AddReset(moverKey, e.reset)
 	end
@@ -371,4 +397,34 @@ do
 			func = function() ShamanPower:SetMasterUnlock(true) end,
 		}
 	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Page actions that show live frames ("Test All Frames", "Show All (Position)")
+-- would otherwise play behind the settings window, or not at all while the
+-- preview pane's demo owns the frames. Hide the window (which releases the
+-- pane's mocks) for the length of the action and bring it back after: a timed
+-- action passes its seconds; a mode that ends through another button (Hide
+-- All, Done) passes nil and that button calls SettingsTestDone.
+-- ---------------------------------------------------------------------------
+function ShamanPower:RunWithSettingsHidden(seconds, fn)
+	local cfg = _G["ShamanPowerConfigUIFrame"]
+	if cfg and cfg:IsShown() then
+		local api = rawget(_G, "ShamanPowerConfig")
+		if api and api.ReleasePreview then pcall(api.ReleasePreview, api) end
+		cfg:Hide()
+		self.settingsTestReturn = true
+	end
+	if fn then fn() end
+	if seconds then
+		C_Timer.After(seconds, function() ShamanPower:SettingsTestDone() end)
+	end
+end
+
+function ShamanPower:SettingsTestDone()
+	if not self.settingsTestReturn then return end
+	self.settingsTestReturn = nil
+	if InCombatLockdown() then return end   -- the window is not for combat; the user reopens it
+	local cfg = rawget(_G, "ShamanPowerConfig")
+	if cfg and cfg.Open then pcall(cfg.Open, cfg) end
 end

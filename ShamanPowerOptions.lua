@@ -429,6 +429,16 @@ local function RefreshLoadoutArgs()
 			ShamanPower:UpdateLoadoutBar()
 		end
 	}
+	loadoutArgs.move_bar = {
+		order = 1.5, type = "execute", width = "full",
+		name = "Move the Loadout Bar",
+		desc = "Hides this window and draws a box around the loadout bar on your screen. Drag it where you want it, then press Done to come back here.",
+		disabled = function()
+			return ShamanPower.opt.enabled == false or not ShamanPower.opt.showLoadoutBar
+				or not ShamanPower.UnlockModuleFrames or InCombatLockdown()
+		end,
+		func = function() ShamanPower:UnlockModuleFrames("loadoutbar") end,
+	}
 	loadoutArgs.new_header = {
 		order = 2,
 		type = "header",
@@ -1260,8 +1270,8 @@ ShamanPower.options = {
 								local vals = {}
 								-- 2=Grace of Air, 3=Wrath of Air, 4=Tranquil Air, 6=Nature Resistance
 								for _, i in ipairs({2, 3, 4, 6}) do
-									local id = ShamanPower.AirTotems[i]
-									local name = GetSpellInfo(id)
+									local id = ShamanPower.AirTotems[i]   -- nil where this client lacks the totem (pruned tables)
+									local name = id and GetSpellInfo(id)
 									if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 										if not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(id) then
 											vals[i] = name or ShamanPower.TotemNames[4][i]
@@ -5861,7 +5871,7 @@ ShamanPower.options = {
 							desc = "Show all reactive totem frames for 3 seconds with glow effect",
 							func = function()
 								if ShamanPower.TestReactiveTotems then
-									ShamanPower:TestReactiveTotems()
+									ShamanPower:RunWithSettingsHidden(3.5, function() ShamanPower:TestReactiveTotems() end)
 								end
 							end
 						},
@@ -5873,7 +5883,7 @@ ShamanPower.options = {
 								function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.locked end, "\"Lock Positions\" is on, so the frames cannot be dragged. Turn it off, then ALT+drag."),
 							func = function()
 								if ShamanPower.ShowAllReactiveFrames then
-									ShamanPower:ShowAllReactiveFrames()
+									ShamanPower:RunWithSettingsHidden(nil, function() ShamanPower:ShowAllReactiveFrames() end)
 								end
 							end
 						},
@@ -8671,8 +8681,8 @@ ShamanPower.options = {
 						},
 						loadoutbar_locked = {
 							order = 3,
-							name = "Lock Position",
-							desc = "Prevent the loadout bar from being moved (ALT+Drag is disabled when locked)",
+							name = "Lock ALT+Drag",
+							desc = "The bar's anchor button can also be moved by holding ALT and dragging it. On, that shortcut is off so the bar cannot be nudged by accident. The Move button above works either way.",
 							type = "toggle",
 							width = "full",
 							disabled = function()
@@ -8821,7 +8831,6 @@ do
 		if not SP.ESTrackerUnavailable and SP.ESTrackerLoaded then SP:ToggleESTracker(); Notify() end
 	end
 	local reactive = pages.reactivetotems_section.args
-	reactive.open_window = OpenButton("Reactive Totems Configuration", "ShowReactiveTotemsConfig", "ReactiveTotemsLoaded")
 	reactive.click_to_cast = {
 		order = 1.55, type = "toggle", name = "Click to Cast Totem (legacy preference)", width = "full",
 		desc = "Mirrors the separate window's saved preference. Current alert frames are not secure cast buttons; "

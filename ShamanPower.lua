@@ -17289,6 +17289,13 @@ function ShamanPower:CreateLoadoutBar()
 	anchor:SetFrameStrata("MEDIUM")
 	anchor:SetClampedToScreen(true)
 	anchor:SetMovable(true)
+	-- The client's layout cache remembered where an ALT-drag once left this
+	-- named frame and put it back there after every reload, on top of the
+	-- position the addon saved: the bar sat behind action bars whatever was
+	-- saved, and the move box appeared at the saved spot instead. Never let the
+	-- client place it.
+	anchor:SetUserPlaced(false)
+	if anchor.SetDontSavePosition then anchor:SetDontSavePosition(true) end
 	anchor:EnableMouse(true)
 	anchor:RegisterForDrag("LeftButton")
 	self.loadoutAnchor = anchor
@@ -17359,6 +17366,7 @@ function ShamanPower:CreateLoadoutBar()
 	anchor:SetScript("OnDragStop", function(btn)
 		if anchor.isMoving then
 			anchor:StopMovingOrSizing()
+			anchor:SetUserPlaced(false)
 			anchor.isMoving = false
 			self:SaveLoadoutBarPosition()
 		end
@@ -17618,19 +17626,27 @@ function ShamanPower:UpdateLoadoutBar()
 				btn:ClearAllPoints()
 				btn:SetPoint(loadoutButtonLocations[btnIndex][1], self.loadoutAnchor, loadoutButtonLocations[btnIndex][2])
 
-				-- Update 4 corner icons with totem textures
-				for element = 1, 4 do
-					local totemIdx = loadout[element] or 0
-					if totemIdx > 0 then
-						btn.miniIcons[element]:SetTexture(self:GetTotemIcon(element, totemIdx))
-					else
-						btn.miniIcons[element]:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+				if loadout.icon then
+					-- The player chose an icon for this loadout: show it, not the four totems
+					for element = 1, 4 do btn.miniIcons[element]:Hide() end
+					btn.icon:SetTexture(loadout.icon)
+					btn.icon:SetAlpha(1.0)
+				else
+					-- Update 4 corner icons with totem textures
+					for element = 1, 4 do
+						local totemIdx = loadout[element] or 0
+						if totemIdx > 0 then
+							btn.miniIcons[element]:SetTexture(self:GetTotemIcon(element, totemIdx))
+						else
+							btn.miniIcons[element]:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+						end
+						btn.miniIcons[element]:Show()
 					end
-				end
 
-				-- Show loadout icon as dimmed background (same as TotemTimers: 0.3 alpha)
-				btn.icon:SetTexture(self:GetLoadoutIcon(i))
-				btn.icon:SetAlpha(0.3)
+					-- Show loadout icon as dimmed background (same as TotemTimers: 0.3 alpha)
+					btn.icon:SetTexture(self:GetLoadoutIcon(i))
+					btn.icon:SetAlpha(0.3)
+				end
 				btn.nr = i
 				btn:SetAttribute("loadoutIndex", i)
 				if self.HasTotemBar and self:HasTotemBar() then

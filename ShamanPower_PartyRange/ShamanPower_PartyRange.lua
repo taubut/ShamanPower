@@ -1254,6 +1254,15 @@ function SP:UpdatePartyRangeDots()
 			if native and activeOverlay and activeOverlay.dots and activeOverlay.dots[partyIndex] then
 				activeOverlay.dots[partyIndex]:Hide()
 			end
+			-- The engine dot sits on the main button and lights for ANY buff of the
+			-- element. While the dropped totem is shown in the overlay above, hide it
+			-- there so the overlay's own dot is the only answer (the proper fix is an
+			-- engine dot on the overlay too - round 3).
+			if engine then
+				local slot = self.engineDots[element] and self.engineDots[element][partyIndex]
+				local c = slot and slot.container
+				if c then c:SetShown((not useOverlay) and self.engineDotsShown == true) end
+			end
 
 			-- Determine which dot to update (overlay if active, else main)
 			local dot = useOverlay and overlayDot or mainDot
