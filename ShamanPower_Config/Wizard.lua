@@ -190,6 +190,21 @@ function SP.Wizard.ApplyRoleDefaults(role)
 	SP.opt.cdbarShowShamanisticRage = enh
 	SP.opt.cdbarShowRageOfTheFarseer = enh   -- WoW: Forever Enhancement capstone
 	SP.opt.cdbarShowElementalMastery = ele
+	-- WoW: Forever: Ready Reminders follow the spec's talents (read from the client's
+	-- trait tree). Elemental Mastery is not in Forever's tree, so Elemental's cooldowns
+	-- are Lava Burst, the shocks, Fire Nova (Improved Fire Nova) and Earthbind (Earthbound).
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		SP.opt.cdbarShowElementalMastery = false
+		ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
+		ShamanPower_ReadyReminders.spells = ShamanPower_ReadyReminders.spells or {}
+		local rr = ShamanPower_ReadyReminders.spells
+		rr.riptide, rr.manatide, rr.ns, rr.watershield = resto, resto, resto, resto
+		rr.stormstrike, rr.farseer = enh, enh
+		rr.lavaburst, rr.firenova, rr.earthbind = ele, ele, ele
+		rr.earthshock = true                             -- the interrupt, for every spec
+		rr.flameshock, rr.frostshock = not resto, not resto
+		safecall("UpdateReadyReminders")
+	end
 	-- Clean look by default: no black panel / border behind any frame. Each
 	-- step still has a "Show frame" / "Show border" toggle to bring it back.
 	SP.opt.hideTotemBarFrame = true;                 safecall("UpdateTotemBarFrame")
@@ -3492,6 +3507,11 @@ function SP.Wizard:RenderRole()
 		{ key = "enhancement", name = "Enhancement", blurb = "Melee.\nTotem twisting, Windfury, reactive totems." },
 		{ key = "elemental",   name = "Elemental",   blurb = "Caster.\nTotems, cooldowns, reactive utility." },
 	}
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		roles[1].blurb = "Healing.\nMana Tide, Nature's Swiftness, Riptide and Water Shield reminders."
+		roles[2].blurb = "Melee.\nStormstrike and Rage of the Farseer reminders, totem twisting."
+		roles[3].blurb = "Caster.\nLava Burst, shock, Fire Nova and Earthbind reminders."
+	end
 	local cardW, cardH, gap = 244, 264, 26
 	local totalW = #roles * cardW + (#roles - 1) * gap
 	local x0 = (cw - totalW) / 2

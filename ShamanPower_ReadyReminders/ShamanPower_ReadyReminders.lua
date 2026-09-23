@@ -60,7 +60,7 @@ SP.ReadyReminderSpells = {
 	{ key = "earthshock",   name = "Earth Shock",         ids = { 8042 },                 def = true,  cd = 6 },
 	{ key = "flameshock",   name = "Flame Shock",         ids = { 8050 },                 def = true,  cd = 6 },
 	{ key = "frostshock",   name = "Frost Shock",         ids = { 8056 },                 def = true,  cd = 6 },
-	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true,  cd = 10 },
+	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true,  cd = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 8 or 10 },
 	{ key = "lavaburst",    name = "Lava Burst",          ids = { 408490, 51505 },        def = true,  cd = 10 },
 	{ key = "riptide",      name = "Riptide",             ids = { 408521, 61295 },        def = true,  cd = 6 },
 	{ key = "farseer",      name = "Rage of the Farseer", ids = { 425336 },               def = true,  cd = 180 },
@@ -72,6 +72,7 @@ SP.ReadyReminderSpells = {
 	{ key = "manatide",     name = "Mana Tide Totem",     ids = { 16190 },                def = false, cd = 300 },
 	{ key = "shamrage",     name = "Shamanistic Rage",    ids = { 30823 },                def = false, cd = 120 },
 	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false, cd = 180 },
+	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false, cd = 15 },
 }
 
 local frames = {}
