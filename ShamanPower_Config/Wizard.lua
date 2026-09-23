@@ -1295,6 +1295,10 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	end
 
 	bar:SetScript("OnUpdate", function(_, el)
+		-- same size as the Totem Bar step's preview: the bar's Size setting, shrunk only to fit the panel
+		local sc = OPT().buffscale or 1
+		sc = math.min(sc, (inner:GetHeight() - 20) / math.max(1, bar:GetHeight() + 60), (inner:GetWidth() - 20) / math.max(1, bar:GetWidth() + 60))
+		if sc > 0 and math.abs(bar:GetScale() - sc) > 0.01 then bar:SetScale(sc) end
 		local dp, tl, ts = O("durationBarPosition", "bottom"), O("durationTextLocation", "none"), px(O("durationTextSize", 8))
 		local showCd, cdc = O("showTotemCooldowns", true), OPT().totemCooldownTextColor
 		local pp, ptl, pts = O("pulseBarPosition", "on_icon"), O("pulseTimeDisplay", "none"), px(O("pulseTextSize", 8))
