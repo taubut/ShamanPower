@@ -9577,3 +9577,17 @@ do
 	if mode.gridStyle then SP.OptionHoverStyle[mode.gridStyle] = "grid" end
 	if mode.use_blizzard_totem_bar then SP.OptionHoverStyle[mode.use_blizzard_totem_bar] = "blizzard" end
 end
+
+-- General > Main: where to get help. WoW cannot open links, so the invite sits in
+-- a box the player can select and copy (Ctrl+A, Ctrl+C); typing in it changes nothing.
+do
+	local SP = ShamanPower
+	local main = SP.options.args.settings.args.settings_show.args
+	local INVITE = "https://discord.gg/eCtNeBqE8U"
+	main.discord_link = {
+		order = 90, type = "input", name = "ShamanPower Discord", width = "full",
+		desc = "Help, bug reports, suggestions and test builds. Click the box, press Ctrl+A then Ctrl+C, and paste the link into your browser.",
+		get = function() return INVITE end,
+		set = function() end,   -- read-only: the box always shows the invite
+	}
+end

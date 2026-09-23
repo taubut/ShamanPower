@@ -30,7 +30,7 @@ local NOTES = {
 		{ h = "The settings window shows what it changes",
 		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
-	footer = "Also: the loadout bar has a Move button and a box in Unlock All, the loadout icon picker is rebuilt with a search box, and ShamanPower now runs on WoW: Forever - Forever characters get the setup tour instead of this card. The full list is in the changelog.",
+	footer = "Also: the loadout bar has a Move button and a box in Unlock All, the loadout icon picker is rebuilt with a search box, and ShamanPower now runs on WoW: Forever - Forever characters get the setup tour instead of this card. The full list is in the changelog. Help, bugs and test builds: the ShamanPower Discord, linked on Settings > General.",
 }
 
 local function BaseVersion(v)
