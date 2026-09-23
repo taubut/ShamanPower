@@ -90,6 +90,183 @@ if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
     for name, enabled in pairs(tbcFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
 end
 
+-- Vanilla fear/charm/sleep casters; keep these defaults off the Anniversary path.
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLINE
+    local foreverFearCasters = {
+        -- Wailing Caverns
+        ["Boahn"] = true,
+        ["Deviate Dreadfang"] = true,
+        ["Druid of the Fang"] = true,
+        ["Lady Anacondra"] = true,
+        ["Lord Cobrahn"] = true,
+        ["Lord Pythas"] = true,
+        ["Lord Serpentis"] = true,
+        ["Mutanus the Devourer"] = true,
+
+        -- The Deadmines
+        ["Marisa du'Paige"] = true,
+        ["Sneed's Shredder"] = true,
+
+        -- Shadowfang Keep
+        ["Sever"] = true,
+
+        -- Blackfathom Deeps
+        ["Twilight Lord Kelris"] = true,
+
+        -- The Stockade
+        ["Dextren Ward"] = true,
+
+        -- Scarlet Monastery - Graveyard
+        ["Scarlet Scryer"] = true,
+
+        -- Scarlet Monastery - Cathedral
+        ["High Inquisitor Fairbanks"] = true,
+
+        -- Uldaman
+        ["Jadespine Basilisk"] = true,
+
+        -- Maraudon
+        ["Princess Theradras"] = true,
+
+        -- The Temple of Atal'Hakkar
+        ["Atal'ai Deathwalker"] = true,
+        ["Nightmare Wyrmkin"] = true,
+
+        -- Blackrock Depths
+        ["High Interrogator Gerstahn"] = true,
+
+        -- Lower Blackrock Spire
+        ["Mor Grayhoof"] = true,
+        ["Urok Doomhowl"] = true,
+
+        -- Upper Blackrock Spire
+        ["The Beast"] = true,
+
+        -- Dire Maul - East
+        ["Wildspawn Felsworn"] = true,
+
+        -- Dire Maul - North
+        ["Captain Kromcrush"] = true,
+        ["Cho'Rush the Observer"] = true,
+        ["Gordok Captain"] = true,
+
+        -- Dire Maul - West
+        ["Lord Hel'nurath"] = true,
+
+        -- Stratholme
+        ["Balzaphon"] = true,
+        ["Hearthsinger Forresten"] = true,
+        ["Postmaster Malown"] = true,
+        ["Rockwing Screecher"] = true,
+        ["Sothos"] = true,
+
+        -- Scholomance
+        ["Lady Illucia Barov"] = true,
+        ["Ras Frostwhisper"] = true,
+        ["Scholomance Neophyte"] = true,
+
+        -- Zul'Gurub
+        ["Bloodlord Mandokir"] = true,
+        ["Gurubashi Berserker"] = true,
+        ["Hakkari Priest"] = true,
+        ["Hakkari Shadow Hunter"] = true,
+        ["Soulflayer"] = true,
+
+        -- Ruins of Ahn'Qiraj
+        ["Captain Qeez"] = true,
+
+        -- Blackwing Lair
+        ["Lord Victor Nefarius"] = true,
+        ["Nefarian"] = true,
+
+        -- Temple of Ahn'Qiraj
+        ["Anubisath Warder"] = true,
+        ["Princess Yauj"] = true,
+        ["Qiraji Champion"] = true,
+
+        -- Naxxramas
+        ["Death Knight"] = true,
+        ["Gluth"] = true,
+        ["Living Monstrosity"] = true,
+
+        -- World raid bosses
+        ["Taerar"] = true,
+
+        -- Open world - Alterac Mountains
+        ["Skhowl"] = true,
+
+        -- Open world - Arathi Highlands
+        ["Syndicate Conjuror"] = true,
+
+        -- Open world - Ashenvale
+        ["Diathorus the Seeker"] = true,
+        ["Dreamstalker"] = true,
+        ["Mist Howler"] = true,
+        ["Wrathtail Priestess"] = true,
+
+        -- Open world - Badlands
+        ["Shadowforge Chanter"] = true,
+
+        -- Open world - Desolace
+        ["Gritjaw Basilisk"] = true,
+        ["Hulking Gritjaw Basilisk"] = true,
+
+        -- Open world - Duskwood
+        ["Skeletal Horror"] = true,
+
+        -- Open world - Eastern Plaguelands
+        ["Blighted Horror"] = true,
+        ["Death Singer"] = true,
+        ["Plaguebat"] = true,
+        ["Scarlet Enchanter"] = true,
+
+        -- Open world - Searing Gorge
+        ["Shleipnarr"] = true,
+
+        -- Open world - Silithus
+        ["Mistress Natalia Mar'alith"] = true,
+        ["Twilight Keeper Mayna"] = true,
+        ["Twilight Prophet"] = true,
+
+        -- Open world - Stonetalon Mountains
+        ["Scorched Basilisk"] = true,
+        ["Singed Basilisk"] = true,
+        ["Taskmaster Whipfang"] = true,
+
+        -- Open world - Stranglethorn Vale
+        ["Cold Eye Basilisk"] = true,
+
+        -- Open world - Swamp of Sorrows
+        ["Dreaming Whelp"] = true,
+        ["Wyrmkin Dreamwalker"] = true,
+
+        -- Open world - The Barrens
+        ["Captain Fairmount"] = true,
+        ["Captain Shatterskull"] = true,
+
+        -- Open world - The Hinterlands
+        ["Dreamtracker"] = true,
+
+        -- Open world - Thousand Needles
+        ["Saltstone Basilisk"] = true,
+        ["Scorpid Terror"] = true,
+
+        -- Open world - Un'Goro Crater
+        ["Frenzied Pterrordax"] = true,
+        ["King Mosh"] = true,
+        ["Pterrordax"] = true,
+        ["Tyrant Devilsaur"] = true,
+
+        -- Open world - Western Plaguelands
+        ["Skeletal Terror"] = true,
+
+        -- Open world - Winterspring
+        ["Mezzir the Howler"] = true,
+        ["Rak'shiri"] = true,
+    }
+    for name, enabled in pairs(foreverFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
+end
+
 -- Default settings
 local defaults = {
     enabled = true,
