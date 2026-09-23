@@ -212,8 +212,10 @@ end
 -- The setup tour's Totem Bar step mounts the same mock for its Grid style.
 ns.PaneBuilders.BuildGridMock = BuildGrid
 
+-- The wizard's Totem Bar mock draws Grid itself (through BuildGridMock) and
+-- switches between every style as the options - or a hover preview - change,
+-- so the pane always mounts that one mock.
 function ns.PaneBuilders.BuildTotemBarPane(card, inner, y)
-	if SP.GridActive and SP:GridActive() then return BuildGrid(inner) end
 	return SP.Wizard.BuildTotemBarStep(card, inner, y)
 end
 

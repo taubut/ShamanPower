@@ -9248,7 +9248,7 @@ do
 		hidden = function() return not NativeTotemBarSelected() end,
 		name = "|cffffa040Blizzard controls layout, visibility and flyouts. Icons / TotemTimers style, duration bars, text, "
 			.. "pulse, party dots and counters apply to ShamanPower's overlays. Lifetime swipes use our totem model; "
-			.. "Blizzard's spell cooldowns are unchanged. Compact style requires the custom bar.|r",
+			.. "Blizzard's spell cooldowns are unchanged. Compact style needs ShamanPower's bar.|r",
 	}
 	mode.blizzard_totem_bar_scale_override = {
 		order = 4.87, type = "toggle", name = "Override Blizzard Bar Scale", width = "full",
@@ -9266,7 +9266,7 @@ do
 	mode.blizzard_totem_bar_scale = {
 		order = 4.88, type = "range", name = "Blizzard Bar Relative Scale", width = 1.5,
 		min = 0.5, max = 2, step = 0.05, isPercent = true,
-		desc = "100% is Blizzard's original bar scale, not ShamanPower's custom bar scale. Reapplied after Edit Mode.",
+		desc = "100% is Blizzard's original bar scale, not ShamanPower's bar scale. Reapplied after Edit Mode.",
 		hidden = function() return not NativeTotemBarSelected() end,
 		disabled = function() return NativeLocked() or SP.opt.blizzardTotemBarScale == nil end,
 		get = function() return SP.opt.blizzardTotemBarScale or 1 end,
@@ -9335,7 +9335,7 @@ do
 	mode.blizzard_compact_note = {
 		order = 4.75, type = "description", width = "full",
 		hidden = function() return not NativeTotemBarSelected() end,
-		name = "Compact style is available only on ShamanPower's custom bar.",
+		name = "Compact style is available only on ShamanPower's bar.",
 	}
 	-- Rebuild geometry only after a settings action, never from the update tick.
 	local function RefreshAfter(option)
@@ -9351,7 +9351,7 @@ do
 	local durationDescription = duration.duration_desc.name
 	duration.duration_desc.name = function()
 		if NativeTotemBarSelected() then
-			return "Duration bars and text share the custom bar's settings. On Icon uses the engine countdown; "
+			return "Duration bars and text share ShamanPower's bar settings. On Icon uses the engine countdown; "
 				.. "other text locations use the plain totem-duration model. Swipe settings below control our lifetime "
 				.. "overlay, not Blizzard's spell cooldowns."
 		end
@@ -9505,4 +9505,47 @@ do
 	ClearGridBefore(mode.compactStyle)
 	ClearGridBefore(mode.activeTotemAsMain)
 	ClearGridBefore(mode.use_blizzard_totem_bar)
+end
+
+-- General > Main: one dropdown for the totem bar's style, so the choice made in
+-- the setup tour is one click away afterwards. It reads and writes the same
+-- flags as the Mode & Twisting toggles, through ShamanPowerStyles.lua. The
+-- settings window previews a style while it is hovered in the list, and the
+-- style toggles on Mode & Twisting do the same; OptionHoverStyle tells it
+-- which options those are (keyed by the option table: AceConfig allows no
+-- extra keys inside one).
+do
+	local SP = ShamanPower
+	local main = SP.options.args.settings.args.settings_show.args
+	local mode = SP.options.args.settings.args.settings_totemMode.args
+	main.totemBarStyle = {
+		order = 1.5, type = "select", name = "Totem Bar Style", width = 1.5,
+		desc = function()
+			local d = "Which bar you play with: one of the four looks of ShamanPower's bar, every totem laid out in a grid"
+			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then d = d .. ", or Blizzard's own totem bar with ShamanPower's timers, bars and dots on its slots" end
+			return d .. ". Hover a style in the list to see it in the live preview (the arrow tab on the right). Mode & Twisting has each style's own settings. Change out of combat."
+		end,
+		hidden = function() return not isShaman or not SP.TotemBarStyleList end,
+		disabled = function() return SP.opt.enabled == false or InCombatLockdown() end,
+		values = function()
+			local v = {}
+			for _, st in ipairs(SP:TotemBarStyleList()) do v[st.key] = st.label end
+			return v
+		end,
+		sorting = function()
+			local order = {}
+			for _, st in ipairs(SP:TotemBarStyleList()) do order[#order + 1] = st.key end
+			return order
+		end,
+		get = function() return SP:GetTotemBarStyle() end,
+		set = function(_, value) SP:SetTotemBarStyle(value) end,
+	}
+	SP.OptionHoverStyle = {
+		[main.totemBarStyle] = "select",
+		[mode.dynamicMode] = "dynamic",
+		[mode.activeTotemAsMain] = "totemtimers",
+		[mode.compactStyle] = "compact",
+	}
+	if mode.gridStyle then SP.OptionHoverStyle[mode.gridStyle] = "grid" end
+	if mode.use_blizzard_totem_bar then SP.OptionHoverStyle[mode.use_blizzard_totem_bar] = "blizzard" end
 end

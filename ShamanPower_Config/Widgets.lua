@@ -173,6 +173,8 @@ local function ConfigureRow(row, parent, opts)
 	row.label.spTruncated = false
 	row._fullLabel = opts.label
 	row._disabled = false
+	-- optional card hover hooks (style previews); pooled rows must not keep old ones
+	row.spOnEnter, row.spOnLeave = opts.onEnter, opts.onLeave
 
 	Core:AttachTooltip(row, opts.label, opts.desc)
 	Widgets:TagRow(row, opts.label, opts.desc, opts.section)
@@ -528,6 +530,8 @@ local function GetPopup()
 	popup:SetScript("OnHide", function()
 		popup.owner = nil
 		popup.catcher:Hide()
+		if popup.onHoverEnd then popup.onHoverEnd() end
+		popup.onHover, popup.onHoverEnd = nil, nil
 	end)
 	return popup
 end
@@ -544,6 +548,8 @@ local MAX_POPUP_H = 260
 local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 	local p = GetPopup()
 	p.owner = anchorTo
+	-- per-show hover callbacks (a style list previews the hovered style)
+	p.onHover, p.onHoverEnd = popts and popts.onHover or nil, popts and popts.onHoverEnd or nil
 
 	for _, b in ipairs(p.buttons) do b:Hide() end
 
@@ -561,6 +567,7 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 			b.text:SetJustifyH("LEFT")
 			b:SetScript("OnEnter", function(self)
 				self.bg:SetColorTexture(Core:Color("accent", 0.35))
+				if p.onHover then p.onHover(self._key) end
 			end)
 			b:SetScript("OnLeave", function(self)
 				if self._selected then
@@ -568,6 +575,7 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 				else
 					self.bg:SetColorTexture(0, 0, 0, 0)
 				end
+				if p.onHoverEnd then p.onHoverEnd() end
 			end)
 			-- Installed once; per-show data lives on the button.
 			b:SetScript("OnClick", function(self)
@@ -710,7 +718,7 @@ local function CreateDropdown(parent)
 			opts.set(key)
 			if row.opts == opts then DropdownPaint(row) end
 			if opts.onChanged then opts.onChanged() end
-		end)
+		end, { onHover = opts.onHover, onHoverEnd = opts.onHoverEnd })
 	end)
 
 	row.spSetControlEnabled = function(_, enabled)

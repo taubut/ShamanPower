@@ -160,10 +160,12 @@ local POWER_SHIELDCHARGES = {
 -- map never mentions is appended under "More" automatically.
 local function P(...) return { ... } end
 
+local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 local NAV = {
 	{ group = "General", entries = {
 		{ label = "General", lock = true, desc = "Global behaviour and interface settings.", tabs = {
-			{ label = "Main",      paths = { P("settings", "settings_show") } },
+			-- the Totem Bar Style dropdown is on Main: a shaman sees the bar change as they hover its list
+			{ label = "Main",      preview = PLAYER_IS_SHAMAN and MOCK_TOTEM or nil, paths = { P("settings", "settings_show") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
@@ -354,6 +356,7 @@ end
 -- discarded, as the wizard does.
 local function ReleaseMocks()
 	local pane = frame and frame.preview
+	SPConfig:HoverStyle(nil)
 	if pane and pane.mockPreviews then
 		local sp = SP()
 		for key in pairs(pane.mockPreviews) do
@@ -366,7 +369,7 @@ local function ReleaseMocks()
 		pane.mockHost:SetParent(nil)
 		pane.mockHost = nil
 	end
-	if pane then pane.mockSpec = nil end
+	if pane then pane.mockSpec = nil; pane.mockFits = nil end
 end
 
 local function MountMocks(spec)
@@ -380,6 +383,7 @@ local function MountMocks(spec)
 	local host = CreateFrame("Frame", nil, inner)
 	host:SetAllPoints(inner)
 	pane.mockHost, pane.mockSpec = host, spec
+	pane.mockFits = {}
 	local list = {}
 	for _, m in ipairs(spec.mocks) do
 		if not m.when or m.when() then list[#list + 1] = m end
@@ -463,6 +467,7 @@ local function MountMocks(spec)
 		fit()
 		C_Timer.After(0, fit)
 		C_Timer.After(0.2, fit)
+		pane.mockFits[#pane.mockFits + 1] = fit   -- a hover preview re-fits without remounting
 		yy = yy + h + gap
 	end
 	W.previewOnly = wasPreviewOnly
@@ -517,6 +522,42 @@ end
 
 function SPConfig:TogglePreviewPane()
 	self:SetPreviewPaneOpen(not (frame and frame._previewOpen))
+end
+
+-- Hover preview of a totem bar style. A style toggle on Mode & Twisting, or a
+-- style in the General page's dropdown, under the mouse shows that style in
+-- the live preview without changing a setting. The wizard's mocks read
+-- SP.Wizard.optOverride every frame, so pointing it at a copy of the options
+-- with the style's flags set is the whole trick; nil puts the live options
+-- back. Only while a mock pane is up, and never over the setup tour or a
+-- preset preview, which own that override themselves.
+function SPConfig:HoverStyle(key)
+	local sp = SP()
+	if not key then
+		if frame and frame._hoverStyle then
+			frame._hoverStyle = nil
+			if sp and sp.Wizard then sp.Wizard.optOverride = nil end
+		end
+		return
+	end
+	local pane = frame and frame.preview
+	if not (pane and frame._previewOpen and pane.mockSpec and frame:IsShown()) then return end
+	if not (sp and sp.Wizard and sp.opt and sp.ApplyTotemBarStyleTo) then return end
+	local wiz = _G["ShamanPowerWizard"]
+	if wiz and wiz:IsShown() then return end
+	if sp.Wizard.optOverride and not frame._hoverStyle then return end
+	local o = {}
+	for k, v in pairs(sp.opt) do o[k] = v end   -- shallow copy; the mocks only read nested tables
+	if not sp:ApplyTotemBarStyleTo(o, key) then return end
+	sp.Wizard.optOverride = o
+	frame._hoverStyle = key
+	-- the mocks re-lay themselves out on their next frame; a wider style must still fit the pane
+	local fits = pane.mockFits
+	if fits then
+		local function refit() if pane.mockFits == fits then for _, f in ipairs(fits) do f() end end end
+		C_Timer.After(0, refit)
+		C_Timer.After(0.2, refit)
+	end
 end
 
 -- Show the current page's preview (or say why there is none). Re-running it
@@ -824,6 +865,7 @@ local function BuildWindow()
 	-- clip; it must not outlive the window.
 	frame:SetScript("OnHide", function()
 		Widgets:HidePopup()
+		SPConfig:HoverStyle(nil)
 		SPConfig:ReleasePreview()
 	end)
 
@@ -1330,6 +1372,12 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	end
 	frame._onChanged = onChanged
 
+	-- Options that pick a totem bar style preview it while hovered (the map is
+	-- keyed by the option table itself: AceConfig allows no extra keys).
+	local spNow = SP()
+	local hoverStyles = spNow and spNow.OptionHoverStyle or nil
+	SPConfig:HoverStyle(nil)   -- a rebuild under the mouse gets no OnLeave
+
 	for _, e in ipairs(list) do
 		if e.kind == "section" then
 			BreakRow()
@@ -1353,6 +1401,11 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.get = Tree:MakeGetter(e.node, e.chain, e.info)
 				local setter = Tree:MakeSetter(e.node, e.chain, e.info)
 				opts.set = function(v) setter(v) end
+				local hs = hoverStyles and hoverStyles[e.node]
+				if hs and hs ~= "select" then
+					opts.onEnter = function() SPConfig:HoverStyle(hs) end
+					opts.onLeave = function() SPConfig:HoverStyle(nil) end
+				end
 				f, h = Widgets:Toggle(body, opts)
 
 			elseif e.type == "range" then
@@ -1373,6 +1426,10 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.order  = Tree:MakeSorting(e.node, e.info)
 				local control = e.node.dialogControl
 				opts.keyIsLabel = type(control) == "string" and control:sub(1, 6) == "LSM30_"
+				if hoverStyles and hoverStyles[e.node] == "select" then
+					opts.onHover = function(key) SPConfig:HoverStyle(key) end
+					opts.onHoverEnd = function() SPConfig:HoverStyle(nil) end
+				end
 				f, h = Widgets:Dropdown(body, opts)
 
 			elseif e.type == "color" then

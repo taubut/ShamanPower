@@ -224,11 +224,12 @@ local STEPS = {
 	    "Blizzard's own totem bar is a style choice here, and its three totem sets stay in step with your assignments and loadouts.",
 	  } },
 	{ id = "totembar", title = "Totem Bar", roles = ALL, build = "BuildTotemBarStep",
-	  desc = "Your totem bar can show totems three ways. Click a style and watch the preview drop, run down and expire.",
+	  desc = "Your totem bar comes in several styles. Hover a card to see it in the preview; click one to make it yours and watch the preview drop, run down and expire.",
 	  bullets = {
 	    "Normal: assigned totems stay put; a different dropped totem pops up above its slot.",
 	    "TotemTimers style: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "Dynamic: the bar is simply whatever you last dropped. Great for PvP.",
+	    "Compact: no icons - each slot is a coloured line that drains with the totem and refills with each pulse.",
 	    { "Grid: every totem of every element visible in rows, together or split into one frame per element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
 	    { "Blizzard's totem bar: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots.",
@@ -662,50 +663,19 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		{ n = "Air",   r = 0.86, g = 0.88, b = 0.98, dur = 8,  gap = 2.0, off = 1.7,
 		  icon = "Interface\\Icons\\Spell_Nature_Windfury",     active = "Interface\\Icons\\Spell_Nature_InvisibilityTotem" },
 	}
-	-- Grid and Blizzard's bar are styles too; the four classic ones must switch them off.
-	local function extra() return OPT().gridStyle == true or OPT().useBlizzardTotemBar == true end
-	local function clearExtra()
-		if InCombatLockdown() then return end
-		if OPT().gridStyle and SP.SetGridStyle then SP:SetGridStyle(false) end
-		if OPT().useBlizzardTotemBar then
-			OPT().useBlizzardTotemBar = nil
-			if SP.RefreshBlizzardTotemBar then pcall(SP.RefreshBlizzardTotemBar, SP) end
+	-- The styles come from the shared list (ShamanPowerStyles.lua) and the
+	-- captions from Styles.lua, so the tour, the settings window and the
+	-- what's-new card describe each one with the same words. is() reads the
+	-- options the mock is drawn from, so a preset preview names its own style.
+	local STYLES = {}
+	if SP.TotemBarStyleList then
+		for _, st in ipairs(SP:TotemBarStyleList()) do
+			local key = st.key
+			STYLES[#STYLES + 1] = { key = key, label = st.label,
+				caption = ns.StyleCaptions and ns.StyleCaptions[key] or "",
+				is = function() return SP:GetTotemBarStyle(OPT()) == key end }
 		end
 	end
-	local STYLES = {
-		{ key = "normal", label = "Normal",
-		  set = function() clearExtra(); OPT().activeTotemAsMain = false; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
-		  is  = function() return (not OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle) and not extra() end,
-		  caption = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one greys out until it expires." },
-		{ key = "totemtimers", label = "TotemTimers Style",
-		  set = function() clearExtra(); OPT().activeTotemAsMain = true; OPT().dynamicTotemMode = false; OPT().compactStyle = false end,
-		  is  = function() return (OPT().activeTotemAsMain and not OPT().dynamicTotemMode and not OPT().compactStyle) and not extra() end,
-		  caption = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires." },
-		{ key = "dynamic", label = "Dynamic (PvP)",
-		  set = function() clearExtra(); OPT().dynamicTotemMode = true; OPT().activeTotemAsMain = false; OPT().compactStyle = false end,
-		  is  = function() return (OPT().dynamicTotemMode and not OPT().compactStyle) and not extra() end,
-		  caption = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP." },
-		{ key = "compact", label = "Compact (lines)",
-		  set = function() clearExtra(); OPT().compactStyle = true; OPT().dynamicTotemMode = false; OPT().activeTotemAsMain = false end,
-		  is  = function() return (OPT().compactStyle and true or false) and not extra() end,
-		  caption = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged." },
-		{ key = "grid", label = "Grid (every totem)",
-		  only = function() return SP.SetGridStyle ~= nil end,
-		  set = function() if SP.SetGridStyle and not InCombatLockdown() then OPT().useBlizzardTotemBar = nil; SP:SetGridStyle(true) end end,
-		  is  = function() return OPT().gridStyle == true end,
-		  caption = "Every totem of every element stays visible in rows. Click one to drop it; the assigned one is highlighted and the dropped one carries the timer. Split by Element (Mode & Twisting) gives each row its own frame." },
-		{ key = "blizzard", label = "Blizzard's totem bar",
-		  only = function() return SP.HasTotemBar and SP:HasTotemBar() and SP.RefreshBlizzardTotemBar ~= nil end,
-		  set = function()
-		  	if InCombatLockdown() then return end
-		  	if OPT().gridStyle and SP.SetGridStyle then SP:SetGridStyle(false) end
-		  	OPT().compactStyle = false; OPT().useBlizzardTotemBar = true
-		  	pcall(SP.RefreshBlizzardTotemBar, SP)
-		  end,
-		  is  = function() return OPT().useBlizzardTotemBar == true end,
-		  caption = "Hide ShamanPower's bar and use Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout." },
-	}
-	do local kept = {}; for _, st in ipairs(STYLES) do if not st.only or st.only() then kept[#kept + 1] = st end end; STYLES = kept end
 	local SIZE, GAP, STEP = 46, 12, 58
 	local bar = CreateFrame("Frame", nil, inner)
 	bar:SetSize(4 * STEP - GAP, SIZE * 2 + 30); bar:SetPoint("CENTER", inner, "CENTER", 0, 8)
@@ -741,13 +711,20 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local obg = over:CreateTexture(nil, "BACKGROUND"); obg:SetAllPoints(over); obg:SetColorTexture(0, 0, 0, 0.6)
 		local oIcon = over:CreateTexture(nil, "ARTWORK"); oIcon:SetPoint("TOPLEFT", 2, -2); oIcon:SetPoint("BOTTOMRIGHT", -2, 2); oIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); oIcon:SetTexture(e.active)
 		Core:MakeBorder(over, "border")
-		slots[i] = { e = e, main = main, mIcon = mIcon, inset = inset, insetBd = insetBd, dbg = dbg, dbar = dbar, over = over, t = e.off, lastMode = nil }
+		-- Blizzard's own button ring, shown for the Blizzard's-bar style in place of our border
+		local ring = main:CreateTexture(nil, "OVERLAY", nil, 2); ring:SetTexture("Interface\\Buttons\\UI-Quickslot2"); ring:SetPoint("CENTER", main, "CENTER", 0, 0); ring:SetSize(SIZE * 1.7, SIZE * 1.7); ring:Hide()
+		slots[i] = { e = e, main = main, mIcon = mIcon, inset = inset, insetBd = insetBd, dbg = dbg, dbar = dbar, over = over, key = key, ring = ring, t = e.off, lastMode = nil }
 	end
 	local styleCap = inner:CreateFontString(nil, "OVERLAY"); styleCap:SetFontObject(Core.fonts.rowDim)
 	styleCap:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); styleCap:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	styleCap:SetJustifyH("CENTER"); styleCap:SetWordWrap(true)
 
+	-- A style card under the mouse previews its style without changing anything.
+	local hoverKey
+	local HOVER_MODE = { normal = "normal", totemtimers = "tt", dynamic = "dynamic", compact = "compact", grid = "grid", blizzard = "blizzard" }
 	local function mode()
+		if hoverKey then return HOVER_MODE[hoverKey] or "normal" end
+		if OPT().useBlizzardTotemBar then return "blizzard" end
 		if OPT().gridStyle then return "grid" end
 		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
@@ -890,15 +867,24 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		end
 	end
 
+	-- Blizzard's-bar style: the game's button ring instead of our border and hotkey text.
+	local function skin(m)
+		local blizz = (m == "blizzard")
+		for _, s in ipairs(slots) do
+			s.ring:SetShown(blizz); s.key:SetShown(not blizz)
+			if s.main.spBorder then for _, t in pairs(s.main.spBorder) do t:SetShown(not blizz) end end
+		end
+	end
 	bar:SetScript("OnUpdate", function(_, el)
 		local m = mode()
 		local lay = OPT().layout or "Horizontal"
-		if lay ~= lastLay or m ~= lastMode then lastLay, lastMode = lay, m; relayout(lay, m) end
+		if lay ~= lastLay or m ~= lastMode then lastLay, lastMode = lay, m; relayout(lay, m); skin(m) end
 		local sc = OPT().buffscale or 1
 		if SP.Wizard.previewOnly then sc = math.min(sc, (inner:GetHeight() - 6) / math.max(1, bar:GetHeight() + 16)) end
 		bar:SetScale(sc)
 		local opacity, fullActive = OPT().totemBarOpacity or 1, OPT().totemBarFullOpacityWhenActive
-		frameBg:SetShown(not OPT().hideTotemBarFrame); frameBd:SetShown(not OPT().hideTotemBarFrame)
+		local frameOn = not OPT().hideTotemBarFrame and m ~= "blizzard"   -- Blizzard's bar has no frame of ours
+		frameBg:SetShown(frameOn); frameBd:SetShown(frameOn)
 		for _, s in ipairs(slots) do
 			local e = s.e
 			s.t = s.t + el
@@ -919,6 +905,13 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetTexture(activeNow and e.active or e.icon)
 				s.mIcon:SetDesaturated(false); s.mIcon:SetAlpha(1)
 				s.inset:SetShown(activeNow); s.insetBd:SetShown(activeNow)
+			elseif m == "blizzard" then
+				-- Blizzard's slot keeps the assigned totem's icon; ShamanPower's lifetime bar runs under it
+				s.over:Hide()
+				s.mIcon:SetTexture(e.icon)
+				s.mIcon:SetDesaturated(false); s.mIcon:SetAlpha(1)
+				s.inset:Hide(); s.insetBd:Hide()
+				s.dbg:Show(); s.dbar:SetShown(activeNow); s.dbar:SetWidth(math.max(1, SIZE * frac))
 			else -- dynamic: the slot becomes whatever was dropped, and stays that way
 				s.over:Hide()
 				s.mIcon:SetTexture(e.active)
@@ -1013,7 +1006,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	local CYCLE, ft, fi = 14.5, 0, 0
 	local demo = CreateFrame("Frame", nil, inner)
 	demo:SetScript("OnUpdate", function(_, el)
-		if mode() == "compact" then
+		local m = mode()
+		if m == "compact" or m == "grid" or m == "blizzard" then   -- no icon bar to hover
 			cur:Hide(); fly:Hide(); fire.flyOpen = nil; flyCap:SetText(""); ft, fi = 0, 0
 			return
 		end
@@ -1037,23 +1031,32 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			if on then styleCap:SetText(st.caption) end
 		end
 	end
-	for _, st in ipairs(STYLES) do
-		local btn = Core:MakeButton(card, st.label, 10, false)
-		btn:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); btn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
+	-- Style cards: a picture of each style over its name, two to a row. Hovering
+	-- a card plays that style in the preview; clicking makes it the style.
+	local CW, CH, CG = math.floor((card:GetWidth() - 36 - 8) / 2), 68, 8
+	for i, st in ipairs(STYLES) do
+		local col, rowi = (i - 1) % 2, math.floor((i - 1) / 2)
+		local btn = Core:MakeButton(card, st.label, CW, false)
+		btn:SetSize(CW, CH)
+		btn:SetPoint("TOPLEFT", card, "TOPLEFT", 18 + col * (CW + CG), -(y + rowi * (CH + CG)))
+		btn.text:ClearAllPoints(); btn.text:SetPoint("BOTTOM", btn, "BOTTOM", 0, 8)
+		if ns.DrawStyleThumb then
+			local th = ns.DrawStyleThumb(btn, st.key, CW - 24, 34)
+			th:SetPoint("TOP", btn, "TOP", 0, -7)
+		end
+		btn:HookScript("OnEnter", function() hoverKey = st.key; styleCap:SetText(st.caption) end)
+		btn:HookScript("OnLeave", function() if hoverKey == st.key then hoverKey = nil end; refresh() end)
 		btn:SetScript("OnClick", function()
 			local wasCompact = OPT().compactStyle and true or false
-			st.set()
-			if SP.ApplyCompactStyle then pcall(SP.ApplyCompactStyle, SP) end
-			if SP.UpdateLayout then pcall(SP.UpdateLayout, SP) end
-			if SP.UpdateMiniTotemBar then pcall(SP.UpdateMiniTotemBar, SP) end
-			local reg = LibStub and LibStub("AceConfigRegistry-3.0", true); if reg then reg:NotifyChange("ShamanPower") end
+			if not (SP.SetTotemBarStyle and SP:SetTotemBarStyle(st.key)) then return end   -- in combat: it says so
+			hoverKey = nil
 			refresh()
-			-- the Compact options sit under the style buttons: rebuild the step when it toggles
+			-- the Compact options sit under the style cards: rebuild the step when it toggles
 			if (OPT().compactStyle and true or false) ~= wasCompact then SP.Wizard:Go(state.step) end
 		end)
 		buttons[st.key] = btn
-		y = y + 40
 	end
+	y = y + math.ceil(#STYLES / 2) * (CH + CG) - CG + 6
 	refresh()
 
 	-- ---- appearance (from Settings > Bars) ----

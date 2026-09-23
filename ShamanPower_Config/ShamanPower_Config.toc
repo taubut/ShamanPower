@@ -21,6 +21,7 @@ RaidCD.lua
 SPRange.lua
 Share.lua
 MobList.lua
+Styles.lua
 Wizard.lua
 LoadoutPreview.lua
 GridPreview.lua
