@@ -1,5 +1,42 @@
 # ShamanPower Changelog
 
+## v2.2.0 (unreleased)
+
+### New
+- **WoW: Forever support.** ShamanPower runs on the Forever beta from the same download as Anniversary. Where the game hides combat data from addons, the game itself draws the totem timers and countdown numbers, the party buff dots, the reactive and expiring alerts and the cooldown sweeps, so they keep working in combat. Spells that do not exist on Forever (Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, the Elementals, Fire Nova Totem) are hidden everywhere: pages, previews, dropdowns, assignments, Auto-Assign. Forever characters start with the setup tour, which has a WoW: Forever step and a Totem Sets step.
+- **Blizzard's totem bar as a style** (Forever). Settings > General > Totem Bar Style, or Mode & Twisting > Use Blizzard's Totem Bar: keep the game's own bar and get ShamanPower's timers, duration bars, text, pulse bars, party dots and counters on its slots, with an optional scale override. Picking a totem on Blizzard's bar sets your assignment, and the other way round.
+- **Totem sets** (Forever). Call of the Elements always holds your assignments. Ancestors and Spirits can each take a saved loadout (Loadouts tab > Set Page); that loadout's bar button then casts the set in one press. Drop All can cast the set.
+- **Grid style** (both clients). Every totem of every element visible in rows: click to drop, the assigned one highlighted, the timer on the dropped one. "Split by Element" makes each row its own movable frame with its own direction.
+- **Totem Bar Style in one place.** Settings > General > Main has a dropdown with every style (Normal, TotemTimers, Dynamic, Compact, Grid, and Blizzard's bar on Forever). Hovering a style there, or a style toggle on Mode & Twisting, shows it in the live preview without changing anything. The setup tour shows the styles as cards with a picture each; hovering a card plays it in the preview.
+- **Totem Coverage** (Party Buff Tracker). The reverse of Totem Range: under each of your totems, the names of party members who do NOT have its buff, red or class colour. Per-totem placement and sizes; choose which totems to watch; hides itself once everyone is covered, in combat too.
+- **Minimap totem markers** (both clients, open world). A pin where each totem was dropped with a ring for its reach, turning with the minimap. Totem Range Tracker page. Off inside instances.
+- **Auto-Assign picks by who is in the group.** Stoneskin for caster-only groups, Strength of Earth with melee; Mana Spring with mana users, else Healing Stream; the Air totem by who benefits. This changes what Anniversary players get from Auto-Assign too.
+- **Live preview pane** in the settings window (arrow tab on the right): every module page shows its frames with your current settings, updating as you change them. The Loadouts page previews the bar and, on Forever, the three set pages.
+- **Every window from its page.** Totem Range picker, Totem Coverage, Raid Cooldowns assignments, the fear-caster mob list, Totem Assignments: one button on the module's page, and every option those windows hold is on the page too. Test buttons hide the settings window while they run and bring it back after.
+- **Loadouts:** the bar has a Move button (Loadouts tab) and a box in Unlock All; a loadout's chosen icon shows on its button; the icon picker is rebuilt on the settings look with a search box.
+
+### Changes
+- Ready Reminders: Show = only when ready / always / always dimmed; the sweep and countdown ignore the dim.
+- Reactive Totems: the old configuration window is gone; everything is on its settings page. Optional debuff icon.
+- Totem cooldown numbers use the game's own countdown on Forever; ShamanPower turns the game option on for you.
+- "Totemic Call" reads "Totemic Recall" where the game names it so.
+- The Earth Shield column, tracker and options do not appear on a client without Earth Shield.
+- Settings text says "ShamanPower's bar" and "Blizzard's bar" throughout.
+
+### Fixes
+- Party buff dots drawn by the game were never built on Forever; they are now.
+- The loadout bar could not be moved from the settings, and the game's layout cache kept putting it back where an old drag left it.
+- Idle CPU and garbage: the weapon-imbue button read the enchant lists five times a second, the imbue branch created two closures per tick, and the resting-imbue icon looked spells up by name every tick on Forever. All three are cached.
+- Tremor Reminder "Hide When Tremor Active" never hid in combat on Forever.
+- Expiring Alerts: totems that died in combat were announced minutes later with stale timing on Forever.
+- Wrath of Air, Totem of Wrath and Fire Nova Totem could be assigned, tracked or listed on a client that lacks them.
+- Flametongue Totem's party buff did not match on Forever (spell 8215 is "Rapid Cast" there).
+
+### Known
+- Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
+- If the game blocks addon messages in an instance fight, Raid Cooldown callers are told so instead of shown "sent".
+- Minimap totem markers depend on an API the Anniversary client may not have; if so they simply do not draw there.
+
 ## v2.1.1 (2026-09-16)
 
 ### Fixes
