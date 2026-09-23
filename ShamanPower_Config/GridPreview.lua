@@ -167,14 +167,24 @@ local function BuildGrid(inner)
 				button:SetPoint("TOPLEFT", main, "TOPLEFT", vertical and 0 or index * (SIZE + GAP),
 					vertical and -index * (SIZE + GAP) or 0)
 				if totemIndex == assigned then
-					local glow = button:CreateTexture(nil, "OVERLAY")
-					glow:SetAllPoints(button)
-					glow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-					glow:SetBlendMode("ADD")
+					-- same plain element-coloured edge as the real Grid (a fitted
+					-- UI-ActionButton-Border draws a box inside the icon)
 					local color = SP.ElementColors and SP.ElementColors[element]
 					local fallbackColor = COLORS[element]
-					glow:SetVertexColor(color and color.r or fallbackColor[1], color and color.g or fallbackColor[2],
-						color and color.b or fallbackColor[3], 1)
+					local r, g, b = color and color.r or fallbackColor[1], color and color.g or fallbackColor[2], color and color.b or fallbackColor[3]
+					for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+						local t = button:CreateTexture(nil, "OVERLAY", nil, 4)
+						if side == "TOP" or side == "BOTTOM" then
+							t:SetPoint(side .. "LEFT", button, side .. "LEFT", -1, side == "TOP" and 1 or -1)
+							t:SetPoint(side .. "RIGHT", button, side .. "RIGHT", 1, side == "TOP" and 1 or -1)
+							t:SetHeight(2)
+						else
+							t:SetPoint("TOP" .. side, button, "TOP" .. side, side == "LEFT" and -1 or 1, 1)
+							t:SetPoint("BOTTOM" .. side, button, "BOTTOM" .. side, side == "LEFT" and -1 or 1, -1)
+							t:SetWidth(2)
+						end
+						t:SetColorTexture(r, g, b, 1)
+					end
 					button.assigned = true
 				end
 				if index == activeIndex then Duration(button, element) end
