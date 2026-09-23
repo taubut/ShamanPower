@@ -568,6 +568,7 @@ function SP:HideAllReadyReminders()
 	SV().locked = true
 	for _, f in pairs(frames) do f:Hide() end
 	self:UpdateReadyReminders()
+	if self.SettingsTestDone then self:SettingsTestDone() end
 end
 
 function SP:ResetReadyReminderPositions()
@@ -702,9 +703,12 @@ local function InjectOptions()
 			onlyInCombat = { order = 2.5, type = "toggle", name = "Only In Combat", desc = "Hide every icon while you are out of combat.", width = 1.0,
 				get = function() return SV().onlyInCombat == true end, set = function(_, v) SV().onlyInCombat = v; refresh() end },
 			unlock = { order = 3, type = "toggle", name = "Unlock Positions", width = 1.0,
-				desc = "Shows every enabled icon so you can drag them where you want. Turn it off when you are done.",
+				desc = "Shows every enabled icon with settings hidden. Drag them, then press Done to return here.",
 				get = function() return SP.readyPositioning == true end,
-				set = function(_, v) if v then SP:ShowAllReadyReminders() else SP:HideAllReadyReminders() end end },
+				set = function(_, v)
+					if v then SP:RunWithSettingsHidden(nil, SP.ShowAllReadyReminders, SP.HideAllReadyReminders)
+					else SP:HideAllReadyReminders() end
+				end },
 			reset = { order = 5, type = "execute", name = "Reset Positions", desc = "Lays the icons out again in a row or column (see Layout).", width = 1.0, func = function() SP:ResetReadyReminderPositions() end },
 			layout = { order = 5.1, type = "select", name = "Reset Layout", width = 1.0,
 				values = { row = "Row", column = "Column" },

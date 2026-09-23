@@ -405,9 +405,48 @@ end
 -- preview pane's demo owns the frames. Hide the window (which releases the
 -- pane's mocks) for the length of the action and bring it back after: a timed
 -- action passes its seconds; a mode that ends through another button (Hide
--- All, Done) passes nil and that button calls SettingsTestDone.
+-- All, Done) passes nil and may supply a cleanup method as the third argument.
 -- ---------------------------------------------------------------------------
-function ShamanPower:RunWithSettingsHidden(seconds, fn)
+local settingsTestGeneration = 0
+local settingsTestCleanup, settingsTestDoneBar
+
+local function FinishSettingsTestClick()
+	SP:SettingsTestDone()
+end
+
+local function ShowSettingsTestDone()
+	if not settingsTestDoneBar then
+		local f = CreateFrame("Frame", nil, UIParent)
+		f:SetSize(380, 42)
+		f:SetPoint("TOP", UIParent, "TOP", 0, -70)
+		f:SetFrameStrata("FULLSCREEN_DIALOG")
+		f:EnableMouse(true)
+		local bg = f:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints(); bg:SetColorTexture(0.04, 0.06, 0.10, 0.94)
+		local text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		text:SetPoint("LEFT", 12, 0)
+		text:SetText("Finish previewing or positioning:")
+		local done = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+		done:SetSize(84, 24); done:SetPoint("RIGHT", -10, 0); done:SetText("Done")
+		done:SetScript("OnClick", FinishSettingsTestClick)
+		settingsTestDoneBar = f
+	end
+	settingsTestDoneBar:Show()
+end
+
+function ShamanPower:RunWithSettingsHidden(seconds, fn, cleanup)
+	-- Replacing a session must stop its sample without reopening the window.
+	-- Clear the return flag before cleanup: an existing Hide bridge may call Done.
+	local restore = self.settingsTestReturn
+	self.settingsTestReturn = nil
+	settingsTestGeneration = settingsTestGeneration + 1
+	local previous = settingsTestCleanup
+	settingsTestCleanup = nil
+	if settingsTestDoneBar then settingsTestDoneBar:Hide() end
+	if previous then pcall(previous, self) end
+	settingsTestGeneration = settingsTestGeneration + 1
+	local generation = settingsTestGeneration
+	self.settingsTestReturn = restore
 	local cfg = _G["ShamanPowerConfigUIFrame"]
 	if cfg and cfg:IsShown() then
 		local api = rawget(_G, "ShamanPowerConfig")
@@ -415,15 +454,29 @@ function ShamanPower:RunWithSettingsHidden(seconds, fn)
 		cfg:Hide()
 		self.settingsTestReturn = true
 	end
-	if fn then fn() end
+	settingsTestCleanup = cleanup
+	if fn then
+		local ok, err = pcall(fn, self)
+		if not ok then self:SettingsTestDone(); error(err, 0) end
+	end
+	if generation ~= settingsTestGeneration then return end
 	if seconds then
-		C_Timer.After(seconds, function() ShamanPower:SettingsTestDone() end)
+		C_Timer.After(seconds, function()
+			if generation == settingsTestGeneration then ShamanPower:SettingsTestDone() end
+		end)
+	else
+		ShowSettingsTestDone()
 	end
 end
 
 function ShamanPower:SettingsTestDone()
-	if not self.settingsTestReturn then return end
+	local restore, cleanup = self.settingsTestReturn, settingsTestCleanup
 	self.settingsTestReturn = nil
+	settingsTestCleanup = nil
+	settingsTestGeneration = settingsTestGeneration + 1
+	if settingsTestDoneBar then settingsTestDoneBar:Hide() end
+	if cleanup then pcall(cleanup, self) end
+	if not restore then return end
 	if InCombatLockdown() then return end   -- the window is not for combat; the user reopens it
 	local cfg = rawget(_G, "ShamanPowerConfig")
 	if cfg and cfg.Open then pcall(cfg.Open, cfg) end

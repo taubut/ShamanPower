@@ -5883,7 +5883,8 @@ ShamanPower.options = {
 								function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.locked end, "\"Lock Positions\" is on, so the frames cannot be dragged. Turn it off, then ALT+drag."),
 							func = function()
 								if ShamanPower.ShowAllReactiveFrames then
-									ShamanPower:RunWithSettingsHidden(nil, function() ShamanPower:ShowAllReactiveFrames() end)
+									ShamanPower:RunWithSettingsHidden(nil,
+										ShamanPower.ShowAllReactiveFrames, ShamanPower.HideAllReactiveFrames)
 								end
 							end
 						},
@@ -6654,7 +6655,18 @@ ShamanPower.options = {
 							desc = "Show test alerts for each type",
 							func = function()
 								if ShamanPower.ExpiringAlertsTest then
-									ShamanPower:ExpiringAlertsTest()
+									local sv = ShamanPowerExpiringAlertsDB
+									local style = sv and sv.animationStyle or "scrollUp"
+									local duration = sv and sv.duration or 2.5
+									-- Fade duration PLUS its start delay, then the final sample at 1 s.
+									local span = duration * (style == "staticFade" and 1.3 or style == "bounce" and 1.5 or 1.4)
+									-- Preview release clears demo alerts; real queued alerts finish first.
+									local backlog = 0
+									if not ShamanPower.expiringAlertsDemoActive then
+										backlog = #(ShamanPower.activeAlerts or {}) + #(ShamanPower.alertQueue or {})
+									end
+									ShamanPower:RunWithSettingsHidden(1 + span * (1 + math.ceil(backlog / 3)),
+										ShamanPower.ExpiringAlertsTest)
 								end
 							end
 						},
@@ -6665,7 +6677,8 @@ ShamanPower.options = {
 							desc = "Show the positioning frame to drag alerts to a new location",
 							func = function()
 								if ShamanPower.ExpiringAlertsShow then
-									ShamanPower:ExpiringAlertsShow()
+									ShamanPower:RunWithSettingsHidden(nil,
+										ShamanPower.ExpiringAlertsShow, ShamanPower.ExpiringAlertsHide)
 								end
 							end
 						},
@@ -6678,6 +6691,7 @@ ShamanPower.options = {
 								if ShamanPower.ExpiringAlertsHide then
 									ShamanPower:ExpiringAlertsHide()
 								end
+								ShamanPower:SettingsTestDone()
 							end
 						},
 						alerts_reset_pos = {
@@ -7069,7 +7083,8 @@ ShamanPower.options = {
 							desc = "Show a test alert",
 							func = function()
 								if ShamanPower.TremorReminderTest then
-									ShamanPower:TremorReminderTest()
+									ShamanPower:RunWithSettingsHidden(nil,
+										ShamanPower.TremorReminderTest, ShamanPower.TremorReminderHide)
 								end
 							end
 						},
@@ -7082,6 +7097,7 @@ ShamanPower.options = {
 								if ShamanPower.TremorReminderHide then
 									ShamanPower:TremorReminderHide()
 								end
+								ShamanPower:SettingsTestDone()
 							end
 						},
 						tremor_show_pos = {
@@ -7091,7 +7107,8 @@ ShamanPower.options = {
 							desc = "Show the positioning frame to drag to a new location",
 							func = function()
 								if ShamanPower.TremorReminderShow then
-									ShamanPower:TremorReminderShow()
+									ShamanPower:RunWithSettingsHidden(nil,
+										ShamanPower.TremorReminderShow, ShamanPower.TremorReminderHide)
 								end
 							end
 						},
