@@ -439,6 +439,11 @@ local function RefreshLoadoutArgs()
 		end,
 		func = function() ShamanPower:UnlockModuleFrames("loadoutbar") end,
 	}
+	loadoutArgs.move_hint = {
+		order = 1.6, type = "description", width = "full",
+		name = "The bar can also be moved by holding ALT and dragging its anchor "
+			.. "while ALT+drag is unlocked (Loadout Bar tab).",
+	}
 	loadoutArgs.new_header = {
 		order = 2,
 		type = "header",
