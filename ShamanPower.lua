@@ -14738,6 +14738,9 @@ end
 -- One record per reporter, reused: a raid's worth of reports every few seconds
 -- must not build a new table each time.
 function ShamanPower:SetWindfuryReport(sender, has)
+	-- keyed by the plain name: the dots look reporters up by UnitName (no realm),
+	-- and a report only ever comes from your own party, where names do not clash
+	sender = strsplit("-", sender)
 	local all = self.WindfuryRangeData
 	if not all then all = {}; self.WindfuryRangeData = all end
 	local rec = all[sender]
@@ -15463,8 +15466,16 @@ function ShamanPower:AddRealmName(unitID)
 	return name .. "-" .. realm
 end
 
+-- WoW: Forever has region-wide unique character names, and the realm part the
+-- game reports can differ between players on the same ruleset (seen on the beta).
+-- Keeping a "Name-Realm" there would stop it matching the plain name everything
+-- else is keyed by (assignments, Windfury reports, raid calls), so Forever always
+-- uses the name alone. Classic keeps the realm when it is not ours: two players
+-- on different realms can share a name there.
+local REGION_UNIQUE_NAMES = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 function ShamanPower:RemoveRealmName(unitID)
 	local name, realm = strsplit("%-", unitID)
+	if REGION_UNIQUE_NAMES then return name end
 	if realm and realm ~= self.realm then
 		return unitID
 	else
