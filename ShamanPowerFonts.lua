@@ -100,6 +100,7 @@ function SP:SetSPFont(fs, area, size, defaultFlags, defaultPath)
 	end
 	if not rec then rec = {}; registry[fs] = rec end
 	rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, defaultFlags, defaultPath, gen
+	rec.template, rec.fontObject = nil, nil
 	local path, flags = self:FontFor(area, size, defaultFlags, defaultPath)
 	apply(fs, path, size, flags, defaultPath, defaultFlags)   -- a missing font file falls back to the design
 end
@@ -116,13 +117,46 @@ end
 
 -- For a string whose font came from a template (NumberFont*, GameFont*): its
 -- current font becomes the designed default, then it follows the settings.
+-- While nothing is chosen for its area the template is left alone: SetFont
+-- would cut the string loose from its font object (other addons restyling
+-- Blizzard's fonts) and swap the font family, with its fallbacks for other
+-- alphabets (Cyrillic, Korean ... names), for one font file. Its font object
+-- is remembered, so it goes back onto it when the choice is cleared.
 function SP:AdoptSPFont(fs, area)
 	if not fs then return end
 	local rec = registry[fs]
-	-- already known: something reset it to its template (SetFontObject); force a re-apply
-	if rec then rec.gen = nil; self:SetSPFont(fs, area, rec.size, rec.flags, rec.path) return end
-	local path, size, flags = fs:GetFont()
-	self:SetSPFont(fs, area, size or 12, flags or "", path)
+	local object = fs:GetFontObject() or (rec and rec.fontObject)
+	local path, size, flags
+	if rec then
+		-- already known: something reset it to its template (SetFontObject)
+		path, size, flags = rec.path, rec.size, rec.flags
+	else
+		path, size, flags = fs:GetFont()
+		size, flags = size or 12, flags or ""
+	end
+	local wantPath, wantFlags = self:FontFor(area, size, flags, path)
+	if wantPath == path and wantFlags == flags then
+		if not rec then rec = {}; registry[fs] = rec end
+		rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, flags, path, gen
+		rec.template, rec.fontObject = true, object
+		return
+	end
+	if rec then rec.gen = nil end   -- force the re-apply
+	self:SetSPFont(fs, area, size, flags, path)
+	registry[fs].fontObject = object
+end
+
+-- Back onto its font object: the design again after a chosen font is cleared,
+-- or after a font hovered in the settings list. SetFontObject also resets the
+-- colour and alignment the string's own code gave it: those are kept.
+local function reattach(fs, rec)
+	local r, g, b, a = fs:GetTextColor()
+	local h, v = fs:GetJustifyH(), fs:GetJustifyV()
+	fs:SetFontObject(rec.fontObject)
+	if r then fs:SetTextColor(r, g, b, a) end
+	if h then fs:SetJustifyH(h) end
+	if v then fs:SetJustifyV(v) end
+	rec.template = true
 end
 
 -- Re-apply every remembered font string: called when a font setting changes.
@@ -145,11 +179,35 @@ function SP:RefreshFonts()
 		if live(fs) then
 		rec.gen = gen
 		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path)
-		apply(fs, path, rec.size, flags, rec.path, rec.flags)
+		if path == rec.path and flags == rec.flags and (rec.template or rec.fontObject) then
+			-- the design for a template string: its own font object, never SetFont
+			if not rec.template then reattach(fs, rec) end
+		else
+			rec.template = nil
+			apply(fs, path, rec.size, flags, rec.path, rec.flags)
+		end
 		end
 	end
 	-- game-drawn cooldown numbers copy their font from our strings when placed
 	if self.ResetEngineBarCooldowns then pcall(self.ResetEngineBarCooldowns, self) end
+end
+
+-- A saved font another addon registers only after our strings were drawn (a
+-- media pack that loads or registers late) fell back to the design: apply it
+-- the moment it arrives. One string compare per registration, nothing after.
+if LSM and LSM.RegisterCallback then
+	local function saved(o, key)
+		if o.fontName == key then return true end
+		if type(o.fontAreas) == "table" then
+			for _, a in pairs(o.fontAreas) do
+				if type(a) == "table" and a.name == key then return true end
+			end
+		end
+		return false
+	end
+	LSM.RegisterCallback(SP.FONT_AREAS, "LibSharedMedia_Registered", function(_, mediatype, key)
+		if mediatype == "font" and SP.opt and saved(SP.opt, key) then SP:RefreshFonts() end
+	end)
 end
 
 -- Font names for a picker: LibSharedMedia's list (Blizzard's four plus every

@@ -275,7 +275,10 @@ local function build()
 		end
 	end)
 	capture:SetScript("OnEvent", function(_, event)
-		if event == "PLAYER_REGEN_DISABLED" then Leave(false, "a fight started, so every key is back the way it was.") end
+		if event == "PLAYER_REGEN_DISABLED" then
+			SP.keybindReturnToConfig = nil   -- no settings window popping up as the fight starts
+			Leave(false, "a fight started, so every key is back the way it was.")
+		end
 	end)
 
 	topBar = CreateFrame("Frame", "ShamanPowerKeybindBar", UIParent, "BackdropTemplate")
@@ -302,13 +305,11 @@ local function build()
 	hoverLine:SetPoint("RIGHT", topBar, "RIGHT", -190, 0)
 	hoverLine:SetJustifyH("LEFT"); hoverLine:SetWordWrap(true)
 
-	local done = CreateFrame("Button", nil, topBar, "UIPanelButtonTemplate")
-	done:SetSize(80, 24); done:SetPoint("RIGHT", topBar, "RIGHT", -12, 0)
-	done:SetText("Done")
+	local done = SP:CreateSPButton(topBar, "Done", 80, true)
+	done:SetPoint("RIGHT", topBar, "RIGHT", -12, 0)
 	done:SetScript("OnClick", function() Leave(true) end)
-	local cancel = CreateFrame("Button", nil, topBar, "UIPanelButtonTemplate")
-	cancel:SetSize(80, 24); cancel:SetPoint("RIGHT", done, "LEFT", -8, 0)
-	cancel:SetText("Cancel")
+	local cancel = SP:CreateSPButton(topBar, "Cancel", 80, false)
+	cancel:SetPoint("RIGHT", done, "LEFT", -8, 0)
 	cancel:SetScript("OnClick", function() Leave(false) end)
 	topBar:Hide()
 end
@@ -316,6 +317,41 @@ end
 local function fitBar()
 	local h = 10 + topText:GetStringHeight() + 6 + hoverLine:GetStringHeight() + 12
 	topBar:SetHeight(math.max(56, h))
+end
+
+-- Hide Out of Combat and Hide When No Totems really hide the totem bar, and the
+-- mode is out of combat only: put back on screen what that rule hid (the same
+-- pieces it shows) for the length of the mode, and keep the rule out of it
+-- meanwhile (its 5 Hz check, a target change), or it hides the bar again
+-- within a fifth of a second. On leaving, the rule decides again from scratch.
+local barShown = false
+local updateVisibility = SP.UpdateTotemBarVisibility
+if updateVisibility then
+	function SP:UpdateTotemBarVisibility(...)
+		if ACTIVE then return end
+		return updateVisibility(self, ...)
+	end
+end
+
+local function showHiddenTotemBar()
+	if not (SP.totemBarHidden and SP.autoButton and SP.opt) then return end
+	if SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() then return end
+	if SP.TotemBarEnabled and not SP:TotemBarEnabled() then return end
+	if SP.DisableUpdateSubsystem then SP:DisableUpdateSubsystem("totemVisibility") end   -- Leave turns it back on
+	SP.totemBarHidden = false   -- what the rule says now; Grid and the Earth Shield button read it
+	SP.autoButton:Show()
+	for element = 1, 4 do
+		local btn = SP.totemButtons and SP.totemButtons[element]
+		if btn then btn:Show() end
+	end
+	local dropAll = _G["ShamanPowerAutoDropAll"]
+	if dropAll and SP.opt.showDropAllButton ~= false then dropAll:Show() end
+	local es = _G["ShamanPowerEarthShieldBtn"]
+	if es and SP.HasEarthShield and SP:HasEarthShield() then es:Show() end
+	-- Grid draws its rows, their totem choices and the split hosts from that
+	-- answer: lay them out again for a shown bar
+	if SP.GridActive and SP:GridActive() and SP.RefreshGridStyle then SP:RefreshGridStyle() end
+	barShown = true
 end
 
 function Leave(save, why)
@@ -333,14 +369,24 @@ function Leave(save, why)
 	capture:Hide()
 	topBar:Hide()
 	hideOverlays()
+	-- a fight starting lands here before the lockdown, so the bar can still hide
+	if barShown then
+		barShown = false
+		if SP.UpdateTotemBarVisibility then SP:UpdateTotemBarVisibility(true) end
+	end
 	if why then print("|cff0070ddShamanPower|r: keybind mode closed - " .. why) end
 	-- the addon's override clicks and key labels follow the new bindings
 	if SP.SetupKeybindings then SP:SetupKeybindings() end
 	if SP.QueueKeybindTextRefresh then SP:QueueKeybindTextRefresh() end
 	if SP.keybindReturnToConfig then
 		SP.keybindReturnToConfig = nil
-		local cfg = rawget(_G, "ShamanPowerConfig")
-		if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+		-- the same page, tab and scroll it was hidden on (ShamanPowerUnlock.lua)
+		if SP.ReopenSettingsWindow then
+			SP:ReopenSettingsWindow()
+		else
+			local cfg = rawget(_G, "ShamanPowerConfig")
+			if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+		end
 	end
 end
 
@@ -360,6 +406,7 @@ function SP:SetKeybindMode(on)
 	-- our own windows would sit on top of the buttons
 	local cfg = _G["ShamanPowerConfigUIFrame"]
 	if cfg and cfg:IsShown() then cfg:Hide(); SP.keybindReturnToConfig = true end
+	showHiddenTotemBar()
 	capture:RegisterEvent("PLAYER_REGEN_DISABLED")
 	capture:Show()
 	capture:EnableKeyboard(true)

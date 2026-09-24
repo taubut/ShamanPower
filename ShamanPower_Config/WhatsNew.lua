@@ -31,12 +31,14 @@ local NOTES = {
 		{ icon = "Interface\\Icons\\Spell_Nature_StoneSkinTotem", h = "Auto-Assign picks by who is in the group",
 		  b = "Stoneskin for caster-only groups and Strength of Earth with melee; Mana Spring with mana users, Healing Stream otherwise; the Air totem by who benefits. This changes what Auto-Assign picks for existing characters too." },
 		{ icon = "Interface\\Icons\\INV_Misc_Note_01", h = "Pick your own font",
-		  b = "Settings > General > Fonts: one font and outline for every number and label ShamanPower draws, or a different one for timers, shield charges, alerts or names. The list has WoW's fonts plus every font your other addons share (ElvUI, SharedMedia). Hover a font to see it before you pick it." },
+		  b = "Settings > General > Fonts & Textures: one font and outline for every number and label ShamanPower draws, or a different one for timers, shield charges, alerts or names. The list has WoW's fonts plus every font your other addons share (ElvUI, SharedMedia). Hover a font to see it before you pick it." },
 		{ icon = "Interface\\Icons\\INV_Misc_Gear_01", h = "The settings window shows what it changes",
 		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
 	footer = "Also: a Grid style that shows every totem at once (Settings > General > Totem Bar Style), a Move button and Unlock UI box for the loadout bar, an icon picker with search, and an alignment grid in Unlock UI. The full list is in the changelog.",
 }
+
+local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"
 
 local function BaseVersion(v)
 	return v and (v:gsub("%-.*$", "")) or nil
@@ -217,7 +219,15 @@ local function BuildDialog()
 		logo:SetPoint("LEFT", strip, "LEFT", 6, 0); logo:SetTexture("Interface\\AddOns\\ShamanPower\\Media\\discord")
 		local copy = Core:MakeButton(strip, "Copy Link", 100, true)
 		copy:SetPoint("RIGHT", strip, "RIGHT", -6, 0)
-		copy:SetScript("OnClick", function() if StaticPopupDialogs["SHAMANPOWER_COPY_LINK"] then StaticPopup_Show("SHAMANPOWER_COPY_LINK") end end)
+		-- WoW cannot open links or write the clipboard: ShamanPower's copy box, above this card
+		copy:SetScript("OnClick", function()
+			SP:ShowSPDialog({
+				key = "discordlink",
+				title = "ShamanPower Discord",
+				text = "The link is selected - press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
+				editText = DISCORD_INVITE,
+			})
+		end)
 		local t = strip:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
 		t:SetPoint("LEFT", logo, "RIGHT", 10, 0); t:SetPoint("RIGHT", copy, "LEFT", -10, 0); t:SetJustifyH("LEFT")
 		t:SetText("|cff8C9EFFJoin the ShamanPower Discord|r - help, bug reports and early test builds")

@@ -169,6 +169,9 @@ function SP:BuildShareCode()
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
 	local okStyle, style = pcall(function() return SP.GetTotemBarStyle and SP:GetTotemBarStyle() end)
 	local path = self.opt and self.opt.setupPath
+	-- the tour's Finish page offers the code before its Finish button records "tour"
+	local tour = rawget(_G, "ShamanPowerWizard")
+	if tour and tour:IsShown() then path = "tour" end
 	local bytes = {
 		CODE_VERSION,
 		client,
@@ -194,32 +197,22 @@ end
 
 -- ---------------------------------------------------------------------------
 -- The copy box. WoW cannot write the clipboard, so the code sits selected in a
--- box: Ctrl+C copies it. Typing in the box changes nothing.
+-- box: Ctrl+C copies it. Typing in the box changes nothing. ShamanPower's own
+-- dialog (ShamanPowerDialog.lua) opens above the setup tour, whose Finish page
+-- has the button.
 -- ---------------------------------------------------------------------------
-local shareCode = ""
-StaticPopupDialogs["SHAMANPOWER_SHARE_CODE"] = {
-	text = "|cffffd200Your ShamanPower setup code|r\n\nPress |cffffd200Ctrl+C|r, then paste it in #setup-stats on the ShamanPower Discord (discord.gg/eCtNeBqE8U). It lists which features you use - nothing personal.",
-	button1 = CLOSE or "Close",
-	hasEditBox = 1, editBoxWidth = 360,
-	timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
-	OnShow = function(self)
-		local eb = self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox())
-		if not eb then return end
-		eb:SetText(shareCode); eb:SetFocus(); eb:HighlightText()
-		eb:SetScript("OnTextChanged", function(box) if box:GetText() ~= shareCode then box:SetText(shareCode); box:HighlightText() end end)
-	end,
-	EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
-	EditBoxOnEnterPressed = function(box) box:GetParent():Hide() end,
-}
-
 function SP:ShowShareCode()
 	local ok, code = pcall(self.BuildShareCode, self)
 	if not ok then
 		print("|cff0070ddShamanPower|r: could not build the setup code (" .. tostring(code) .. ").")
 		return
 	end
-	shareCode = code
-	StaticPopup_Show("SHAMANPOWER_SHARE_CODE")
+	self:ShowSPDialog({
+		key = "sharecode",
+		title = "Your ShamanPower setup code",
+		text = "Press |cffffd200Ctrl+C|r, then paste it in #setup-stats on the ShamanPower Discord (discord.gg/eCtNeBqE8U). It lists which features you use - nothing personal.",
+		editText = code,
+	})
 end
 
 -- General > Main: the button, for every class, right after the Discord section

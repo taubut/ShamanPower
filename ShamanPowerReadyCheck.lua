@@ -42,8 +42,8 @@ local DEFAULTS = {
 	checkShield = true,
 	checkImbue = true,
 	checkTotemItems = true,
-	checkAssigned = false,
-	checkMana = false,
+	checkAssigned = false,   -- the only check off by default
+	checkMana = true,
 	manaPercent = 0.8,
 	showPanel = true,
 	showChat = true,
@@ -60,6 +60,13 @@ local function cfg()
 	if not o then return DEFAULTS end
 	local c = o.readyCheck
 	if type(c) ~= "table" then c = {}; o.readyCheck = c end
+	-- The first 3.0 test builds had the mana check off by default, and the loop
+	-- below saves every default the first time it runs: switch it on once for
+	-- those characters (no released version had it, so nobody chose "off").
+	if not c.checkManaMigrated then
+		c.checkManaMigrated = true
+		if c.checkMana == false then c.checkMana = true end
+	end
 	for k, v in pairs(DEFAULTS) do if c[k] == nil then c[k] = v end end
 	return c
 end
@@ -199,6 +206,7 @@ end
 local PANEL_W, ROW_ICON, PAD = 260, 20, 10
 local panel, rows = nil, {}
 local hideTimer
+local sweepTitle   -- the title of the real list while one is up (a sample can cover it)
 local refreshEvents = { "UNIT_AURA", "UNIT_INVENTORY_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_TOTEM_UPDATE", "UNIT_POWER_UPDATE" }
 
 local function savePos(f)
@@ -223,7 +231,9 @@ function SP:ReadyCheckFrame()
 	if panel then return panel end
 	local f = CreateFrame("Frame", "ShamanPowerReadyCheckFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
 	f:SetSize(PANEL_W, 60)
-	f:SetFrameStrata("MEDIUM")
+	-- DIALOG, like the game's own ready check: "Check Now" in the settings window
+	-- (HIGH) shows the list on top of it
+	f:SetFrameStrata("DIALOG")
 	f:SetClampedToScreen(true)
 	f:SetMovable(true)
 	f:EnableMouse(true)
@@ -241,9 +251,8 @@ function SP:ReadyCheckFrame()
 	title:SetWidth(PANEL_W - 2 * PAD - 18); title:SetJustifyH("LEFT"); title:SetWordWrap(true)
 	title:SetTextColor(1, 0.82, 0)
 	f.title = title
-	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-	close:SetSize(20, 20)
-	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 2, 2)
+	local close = SP:CreateSPCloseButton(f, 18)
+	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
 	close:SetScript("OnClick", function() SP:HideReadyCheckPanel() end)
 	f.close = close
 	f:Hide()
@@ -296,6 +305,7 @@ end
 
 function SP:HideReadyCheckPanel()
 	if hideTimer then hideTimer:Cancel(); hideTimer = nil end
+	sweepTitle = nil
 	stopWatching()
 	if panel and not SP.readyCheckDemoActive then panel:Hide() end
 end
@@ -316,9 +326,18 @@ watcher:SetScript("OnEvent", function(_, event, unit)
 	C_Timer.After(0.3, refresh)   -- coalesce bursts (a bag sort, an aura storm)
 end)
 
+-- the unit events for the player only: in a raid the others' auras, bags and
+-- mana would otherwise all reach the handler just to be dropped
+local UNIT_EVENTS = { UNIT_AURA = true, UNIT_INVENTORY_CHANGED = true, UNIT_POWER_UPDATE = true }
 local function startWatching()
 	for _, e in ipairs(refreshEvents) do
-		if e ~= "UNIT_POWER_UPDATE" or cfg().checkMana then pcall(watcher.RegisterEvent, watcher, e) end
+		if e ~= "UNIT_POWER_UPDATE" or cfg().checkMana then
+			if UNIT_EVENTS[e] and watcher.RegisterUnitEvent then
+				pcall(watcher.RegisterUnitEvent, watcher, e, "player")
+			else
+				pcall(watcher.RegisterEvent, watcher, e)
+			end
+		end
 	end
 	pcall(watcher.RegisterEvent, watcher, "WEAPON_ENCHANT_CHANGED")   -- Mainline family only
 end
@@ -347,7 +366,8 @@ function SP:RunReadyCheckSweep(reason)
 	if c.showPanel then
 		local f = SP:ReadyCheckFrame()
 		applyLook(f)
-		layout(reason == "readycheck" and "Ready check: you are missing" or "You are missing", list)
+		sweepTitle = reason == "readycheck" and "Ready check: you are missing" or "You are missing"
+		layout(sweepTitle, list)
 		f:Show()
 		startWatching()
 		if hideTimer then hideTimer:Cancel() end
@@ -371,6 +391,18 @@ function SP:ReadyCheckDemo(on)
 		f:Show()
 	else
 		self.readyCheckDemoActive = nil
+		-- a real list that was up under the sample (a ready check still running) comes back
+		if sweepTitle then
+			local list = collect()
+			if #list > 0 then
+				applyLook(f)
+				layout(sweepTitle, list)
+				f:Show()
+				startWatching()
+				return
+			end
+			self:HideReadyCheckPanel()
+		end
 		f:Hide()
 	end
 end

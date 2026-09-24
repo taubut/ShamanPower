@@ -23,6 +23,7 @@ SPCompat.lua
 ShamanPower.lua
 ShamanPowerFonts.lua
 ShamanPowerTextures.lua
+ShamanPowerDialog.lua
 ShamanPowerMedia.lua
 ShamanPowerValues.lua
 ShamanPowerOptions.lua

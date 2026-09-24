@@ -91,6 +91,15 @@ local function itemRank(i, sub)
 	return r
 end
 
+-- The spellbook can list spells not learned yet (greyed out): those are not known.
+local FUTURE = Enum and Enum.SpellBookItemType and Enum.SpellBookItemType.FutureSpell
+local GetItemType = C_SpellBook and C_SpellBook.GetSpellBookItemType
+local function notLearned(i)
+	if not (FUTURE and GetItemType) then return false end
+	local ok, itemType = pcall(GetItemType, i, bank)
+	return ok and itemType == FUTURE
+end
+
 -- name -> highest rank known (0 = known, rank not readable or no ranks), from the
 -- spellbook; sawRanks = whether this client shows ranks at all
 local function knownSpells()
@@ -99,7 +108,7 @@ local function knownSpells()
 	for i = 1, 600 do
 		local ok, name, sub = pcall(GetSpellBookItemName, i, BOOKTYPE_SPELL or "spell")
 		if not ok or not name then break end
-		if type(name) == "string" then
+		if type(name) == "string" and not notLearned(i) then
 			local rank = itemRank(i, sub)
 			if rank then sawRanks = true end
 			rank = rank or 0
