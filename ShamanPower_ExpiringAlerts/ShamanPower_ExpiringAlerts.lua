@@ -875,7 +875,6 @@ function SP:CheckWeaponEnchantState(initializing)
 	-- bar reads them every update mid-fight), so imbue alerts keep working there.
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then
-		if not mainlineWeaponChecks then return end
 		-- Settings can flip without an update callback. Keep the event-driven
 		-- baseline/deadline while disabled, but never emit an expiration alert.
 		initializing = true
@@ -899,8 +898,12 @@ function SP:CheckWeaponEnchantState(initializing)
 		hasMainHandWeapon = GetInventoryItemLink("player", 16) ~= nil
 		hasOffHandWeapon = GetInventoryItemLink("player", 17) ~= nil
 		-- Classic tuple: hasMain, mainExp, mainCharges, mainID, hasOff, offExp, offCharges, offID.
-		local main, _, _, _, off = GetWeaponEnchantInfo()
+		local main, mainExp, _, _, off, offExp = GetWeaponEnchantInfo()
 		hasMainHandEnchant, hasOffHandEnchant = main, off
+		-- milliseconds left, the same unit the Mainline list reports
+		if type(mainExp) == "number" and mainExp > 0 then mainTimeLeft = mainExp end
+		if type(offExp) == "number" and offExp > 0 then offTimeLeft = offExp end
+		CancelWeaponExpiry()
 	end
 
 	-- Convert to explicit booleans (API may return 1/nil instead of true/false)
@@ -926,13 +929,11 @@ function SP:CheckWeaponEnchantState(initializing)
 	-- Store as explicit booleans
 	previousState.weaponEnchants.mainHand = mainHandEnchanted
 	previousState.weaponEnchants.offHand = offHandEnchanted
-	if mainlineWeaponChecks then
-		local delay = mainHandEnchanted and mainTimeLeft or nil
-		if offHandEnchanted and offTimeLeft and (not delay or offTimeLeft < delay) then delay = offTimeLeft end
-		-- One cancellable deadline, no idle polling. The callback confirms actual
-		-- absence; an elapsed prediction by itself never triggers an alert.
-		if delay then weaponExpiryTimer = _G.C_Timer.NewTimer(delay / 1000, WeaponExpiryReached) end
-	end
+	local delay = mainHandEnchanted and mainTimeLeft or nil
+	if offHandEnchanted and offTimeLeft and (not delay or offTimeLeft < delay) then delay = offTimeLeft end
+	-- One cancellable deadline, no idle polling. The callback confirms actual
+	-- absence; an elapsed prediction by itself never triggers an alert.
+	if delay then weaponExpiryTimer = _G.C_Timer.NewTimer(delay / 1000, WeaponExpiryReached) end
 end
 
 function SP:CheckEarthShieldState(unit, initializing)
@@ -1019,8 +1020,9 @@ function SP:SetupExpiringAlertsEvents()
 	eventFrame:RegisterEvent("SPELLS_CHANGED")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	-- imbues applied, replaced or gone (Anniversary's own buff frame relies on it too)
+	pcall(eventFrame.RegisterEvent, eventFrame, "WEAPON_ENCHANT_CHANGED")
 	if mainlineWeaponChecks then
-		eventFrame:RegisterEvent("WEAPON_ENCHANT_CHANGED")
 		eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 	end
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1110,7 +1112,7 @@ function SP:SetupExpiringAlertsEvents()
 			if (not mainlineWeaponChecks or not isSecretValue(unit)) and unit == "player" then
 				SP:CheckWeaponEnchantState(false)
 			end
-		elseif mainlineWeaponChecks and event == "WEAPON_ENCHANT_CHANGED" then
+		elseif event == "WEAPON_ENCHANT_CHANGED" then
 			SP:CheckWeaponEnchantState(false)
 		elseif mainlineWeaponChecks and event == "UNIT_SPELLCAST_SUCCEEDED" then
 			if not isSecretValue(unit) and unit == "player" and not isSecretValue(spellID)
@@ -1138,17 +1140,15 @@ function SP:SetupExpiringAlertsEvents()
 			if shieldSoundPending then SP:UpdateShieldSounds() end
 		elseif event == "PLAYER_LOGOUT" then
 			SP:RemoveShieldSounds()
-			if mainlineWeaponChecks then CancelWeaponExpiry() weaponCheckPending = false end
+			CancelWeaponExpiry()
+			weaponCheckPending = false
 		end
 	end)
 
 	self.expiringAlertsEventFrame = eventFrame
 
-	-- Classic keeps the periodic check; Mainline uses events and one expiry timer.
-	-- (a ticker: the same twice-a-second check without a Lua call every frame)
-	if not mainlineWeaponChecks then
-		self.weaponCheckTicker = C_Timer.NewTicker(0.5, function() SP:CheckWeaponEnchantState(false) end)
-	end
+	-- Weapon imbues on every client: the events above plus one timer at the
+	-- imbue's expiry (CheckWeaponEnchantState), nothing polled while idle.
 
 	-- Combat hides aura reads, so a shield that fell off during a fight goes
 	-- unnoticed until the next buff change, which may be minutes away. Re-check
