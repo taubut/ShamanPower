@@ -227,6 +227,13 @@ function SP:InitExpiringAlerts()
 	for k, v in pairs(defaultSettings.weaponImbues) do
 		if sv.weaponImbues[k] == nil then sv.weaponImbues[k] = v end
 	end
+	-- Forever: a profile made before the totem sound defaulted on already holds the
+	-- old default (off), written above on its first load. Turn it on once; a later
+	-- choice in the settings sticks.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not sv.totems.soundDefaultForever then
+		sv.totems.sound = true
+		sv.totems.soundDefaultForever = true
+	end
 
 	-- Create the alert frame
 	self:CreateExpiringAlertsFrame()
