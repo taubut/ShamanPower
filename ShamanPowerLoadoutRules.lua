@@ -273,11 +273,11 @@ local function CheckContent()
 	if bucket ~= "none" then
 		Request(d.content[bucket], labels[bucket], stillThere)
 	else
-		-- leaving: back to the loadout you had when asked to, or when no Open
-		-- World loadout is set; otherwise the Open World one
+		-- leaving: back to the loadout you had when asked to, or when entering
+		-- switched you and no Open World loadout is set; otherwise the Open World one
 		local back, none = d.returnTo, d.content.none
 		d.returnTo = nil
-		if back and (d.restorePrevious or not IndexOfUID(none)) then
+		if back and (d.restorePrevious or (not IndexOfUID(none) and IndexOfUID(d.content[previous]))) then
 			Request(back, "left the instance", stillThere)
 		else
 			Request(none, labels.none, stillThere)
@@ -487,7 +487,7 @@ local STATIC = {
 	content_raid = ContentSelect(11, "raid", "Raid", "The loadout to switch to when you enter a raid."),
 	content_party = ContentSelect(12, "party", "Dungeon", "The loadout to switch to when you enter a dungeon."),
 	content_pvp = ContentSelect(13, "pvp", "Battleground / Arena", "The loadout to switch to when you enter a battleground or arena."),
-	content_none = ContentSelect(14, "none", "Open World", "The loadout to switch to when you leave an instance (unless the option below takes you back to the one you had). None: back to the loadout you had before you went in."),
+	content_none = ContentSelect(14, "none", "Open World", "The loadout to switch to when you leave an instance (unless the option below takes you back to the one you had). None: back to the loadout you had before, when entering switched you."),
 	restore = {
 		order = 15, type = "toggle", width = "full", name = "On Leaving an Instance, Go Back to the Loadout I Had Before",
 		desc = "Instead of the Open World choice, return to whatever loadout was active when you went in.",
