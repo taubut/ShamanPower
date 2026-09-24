@@ -945,7 +945,14 @@ ef:SetScript("OnEvent", function(_, event)
 			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
 				pcall(wake.RegisterEvent, wake, ev)
 			end
-			wake:SetScript("OnEvent", function() SP.readyWake = true end)
+			wake:SetScript("OnEvent", function(_, event)
+				SP.readyWake = true
+				-- a cooldown can change without its start time changing (reset, haste,
+				-- a secret start): fetch the duration object again on the next pass
+				if event == "SPELL_UPDATE_COOLDOWN" then
+					for _, f in pairs(frames) do f.readyDurStart = nil end
+				end
+			end)
 			if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
 		else
 			C_Timer.NewTicker(0.1, function() SP:UpdateReadyReminders() end)
