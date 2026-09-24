@@ -11047,8 +11047,12 @@ function ShamanPower:UpdateTotemBarOpacity()
 	if self.autoButton then
 		self.autoButton:SetAlpha(opacity)
 	end
+	-- Drop All sits on the bar button and takes its alpha: its own stays 1 (both set
+	-- multiply: a 25% fade showed it at 6%). Popped out, it has its own frame.
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
-	if dropAllBtn and dropAllBtn:IsShown() then dropAllBtn:SetAlpha(opacity) end
+	if dropAllBtn and dropAllBtn:IsShown() then
+		dropAllBtn:SetAlpha(dropAllBtn:GetParent() == self.autoButton and 1 or opacity)
+	end
 
 	-- Set alpha on totem buttons - full opacity if totem is placed and option enabled
 	if self.totemButtons then
@@ -12188,6 +12192,7 @@ local function fadeFrames(self)
 	local function add(f) if f then list[#list + 1] = f end end
 	add(self.autoButton); add(_G["ShamanPowerAutoDropAll"]); add(_G["ShamanPowerEarthShieldBtn"])
 	if self.totemButtons then for element = 1, 4 do add(self.totemButtons[element]) end end
+	if self.GridFadeFrames then self:GridFadeFrames(add) end   -- Grid's rows glide too
 	return list
 end
 local function stopFades(self)
@@ -12216,18 +12221,10 @@ end
 function ShamanPower:UpdateTotemBarVisibility(force)
 	if force then self.totemBarHidden, self.totemBarFaded = nil, nil end   -- a fade setting changed: re-apply
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
-		self:DisableUpdateSubsystem("totemVisibility")
 		self:HideCustomTotemBarForBlizzard()
 		return
 	end
 	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
-	-- Enable/disable totemVisibility subsystem based on whether auto-hide features are on
-	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
-		self:EnableUpdateSubsystem("totemVisibility")
-	else
-		self:DisableUpdateSubsystem("totemVisibility")
-	end
-
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -12277,6 +12274,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	-- Apply visibility (can't change in combat lockdown for secure frames)
 	if InCombatLockdown() then
 		self:UpdateTotemBarOpacity()   -- only a fade changed: alpha is allowed
+		if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
 	else
 		if shouldHide then
 			-- Hide everything
@@ -12317,7 +12315,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 			local dropAllBtn = _G["ShamanPowerAutoDropAll"]
 			if dropAllBtn and self:ShowsDropAllButton() then
 				dropAllBtn:Show()
-				dropAllBtn:SetAlpha(alpha)
+				dropAllBtn:SetAlpha(dropAllBtn:GetParent() == self.autoButton and 1 or alpha)   -- takes the bar's (UpdateTotemBarOpacity)
 			end
 
 			-- Show Earth Shield button (if it should be visible)
@@ -12326,6 +12324,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 				esBtn:Show()
 				esBtn:SetAlpha(alpha)
 			end
+			if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
 			-- per-button rules (Full Opacity When Totem Placed) on top, unless faded
 			if not fade then self:UpdateTotemBarOpacity() end
 		end
@@ -12335,37 +12334,37 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	end
 end
 
--- Fade rules react to events, not a timer: combat start (before lockdown, so a
--- hidden bar can still be shown) and target changes. Idle when the options are off.
+-- The hide and fade rules react to events, not a timer: combat start (before
+-- lockdown, so a hidden bar can still be shown), combat end, a totem going down
+-- or away, and target changes. Idle when the options are off.
 do
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("PLAYER_REGEN_DISABLED")
+	f:RegisterEvent("PLAYER_REGEN_ENABLED")
 	f:RegisterEvent("PLAYER_TARGET_CHANGED")
+	f:RegisterEvent("PLAYER_TOTEM_UPDATE")
+	local totemCheckQueued
+	local function totemCheck()
+		totemCheckQueued = nil
+		ShamanPower:UpdateTotemBarVisibility()
+	end
 	f:SetScript("OnEvent", function(_, event)
 		local o = ShamanPower.opt
 		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) then return end
 		if event == "PLAYER_TARGET_CHANGED" and not o.showWithTarget then return end
-		if event == "PLAYER_REGEN_DISABLED" and not (o.fadeInsteadOfHide or o.showWithTarget) then return end
+		if event == "PLAYER_TOTEM_UPDATE" then
+			-- read a frame later, once the shadow totem model (combat) has the change too
+			if o.hideWhenNoTotems and not totemCheckQueued then totemCheckQueued = true; C_Timer.After(0, totemCheck) end
+			return
+		end
 		if event == "PLAYER_REGEN_DISABLED" then stopFades(ShamanPower) end   -- before lockdown: full alpha now
 		ShamanPower:UpdateTotemBarVisibility()
 	end)
 end
 
--- Set up visibility update timer
+-- The first pass at login; after that the events above keep it current.
 function ShamanPower:SetupTotemBarVisibilityUpdater()
-	-- Register visibility updates with consolidated update system (5fps)
-	if not self.updateSystem.subsystems["totemVisibility"] then
-		self:RegisterUpdateSubsystem("totemVisibility", 0.2, function()
-			ShamanPower:UpdateTotemBarVisibility()
-		end)
-	end
-	-- Only enable if auto-hide features are on
-	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
-		and (self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems) then
-		self:EnableUpdateSubsystem("totemVisibility")
-	else
-		self:DisableUpdateSubsystem("totemVisibility")
-	end
+	self:UpdateTotemBarVisibility()
 end
 
 -- Update the mini totem bar icons and spells based on current assignments

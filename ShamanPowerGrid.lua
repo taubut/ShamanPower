@@ -223,7 +223,10 @@ local function returnElement(element)
 	if SP.poppedOutFrames[key] then SP:ReturnPopOutToBar(key) end
 	SP.opt.poppedOut[key] = nil
 	local button = SP.totemButtons[element]
-	if button then button:SetParent(UIParent); button:SetScale(SP.opt.buffscale or 0.9) end
+	if button then
+		button:SetParent(UIParent); button:SetScale(SP.opt.buffscale or 0.9)
+		button:SetIgnoreParentAlpha(false)   -- set while it sat on the Grid bar (rowHost)
+	end
 end
 
 local function restore()
@@ -249,6 +252,31 @@ local function restore()
 	SP:UpdateActiveTotemOverlays()
 end
 
+-- The rows are flyout buttons, which ignore the bar's alpha: the fade rules set
+-- theirs here (UpdateTotemBarVisibility), after the flyout opacity pass too.
+local function rowAlpha()
+	if SP.totemBarFaded then return SP.opt.fadeOpacity or 0.25 end
+	return SP.opt.totemFlyoutOpacity or 1
+end
+
+function SP:ApplyGridRowAlpha()
+	if not self:GridActive() then return end
+	local alpha = rowAlpha()
+	for element = 1, 4 do
+		local all = rows[element].all
+		if all then for i = 1, #all do all[i]:SetAlpha(alpha) end end
+	end
+end
+
+-- The shown row buttons, for the fade's glide (fadeFrames in ShamanPower.lua).
+function SP:GridFadeFrames(add)
+	if not self:GridActive() then return end
+	for element = 1, 4 do
+		local all = rows[element].all
+		if all then for i = 1, #all do if all[i]:IsShown() then add(all[i]) end end end
+	end
+end
+
 local function splitDragStart(frame)
 	if InCombatLockdown() or not SP:GridActive() or not SP.opt.gridSplit then return end
 	if SP.poppedOutFrames[frame.key] == frame and frame:IsMovable() and not SP:PopOutsLocked() then
@@ -268,6 +296,8 @@ end
 local function rowHost(element)
 	local key, button = keys[element], SP.totemButtons[element]
 	if SP.opt.gridSplit then
+		-- the row frame's own opacity applies to the button again (see below)
+		if button then button:SetIgnoreParentAlpha(false) end
 		if not SP.poppedOutFrames[key] then
 			SP.opt.poppedOut[key] = nil
 			SP:PopOutElementWithFlyout(element)
@@ -292,6 +322,9 @@ local function rowHost(element)
 	if SP.poppedOutFrames[key] or SP.opt.poppedOut[key] then returnElement(element) end
 	button:SetParent(SP.autoButton)
 	button:SetScale(1)
+	-- keeps its own alpha: the fade and opacity rules set each button and the bar
+	-- button alike, and a child taking both would get them multiplied (25% -> 6%)
+	button:SetIgnoreParentAlpha(true)
 	return SP.autoButton
 end
 
@@ -349,7 +382,7 @@ local function layoutRow(element, offset, visible)
 				child:SetPoint("TOPLEFT", button, "TOPLEFT", horizontal and along or 0, horizontal and 0 or -along)
 				child:SetSize(size, size)
 				if child.icon then child.icon:SetAlpha(1); child.icon:SetDesaturated(false) end
-				child:SetAlpha(SP.opt.totemFlyoutOpacity or 1)
+				child:SetAlpha(rowAlpha())
 				styleVisual(ensureVisual(child), child, element, size)
 			else hideVisual(child.spGridVisual) end
 			child:SetShown(visible and eligible or false)
@@ -436,6 +469,7 @@ function SP:RefreshGridStyle()
 				local button = self.totemButtons[element]
 				if button and not self.poppedOutFrames[keys[element]] then
 					button:SetParent(UIParent); button:SetScale(self.opt.buffscale or 0.9)
+					button:SetIgnoreParentAlpha(false)
 				end
 			end
 			self:UpdateMiniTotemBar(); self:UpdateTotemButtons()
@@ -532,9 +566,14 @@ local function afterAuxiliary()
 	end
 end
 hooksecurefunc(SP, "RepositionEarthShieldButton", afterAuxiliary)
+-- UpdateTotemFlyoutOpacity sets every flyout button, the rows included, to the
+-- flyout opacity: put a faded row back at the faded opacity.
+if SP.UpdateTotemFlyoutOpacity then
+	hooksecurefunc(SP, "UpdateTotemFlyoutOpacity", function() if SP.totemBarFaded then SP:ApplyGridRowAlpha() end end)
+end
 local function afterVisibility()
 	if not SP:GridActive() or SP._gridRefreshing or InCombatLockdown() then return end
-	-- This caller runs at 5 Hz. Rebuild only on an actual visibility transition.
+	-- Runs on every hide/fade event. Rebuild only on an actual visibility transition.
 	local shown = SP.autoButton and SP.autoButton:IsShown()
 	if visibilityHidden ~= SP.totemBarHidden or visibilityShown ~= shown then SP:RefreshGridStyle() end
 end
