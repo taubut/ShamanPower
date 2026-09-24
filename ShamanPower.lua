@@ -12350,6 +12350,15 @@ function ShamanPower:TotemBarEnabled()
 	return self.opt.enabled ~= false and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
 end
 
+-- Whether the layout puts the totem bar up at all right now: a shaman, switched
+-- on, and wanted in this kind of group (Use When Solo / Use in Party). The hide
+-- and fade rules only act on a bar this allows, so a target, a fade or a pull
+-- never brings back one the layout keeps down.
+function ShamanPower:TotemBarInUse()
+	return isShaman and self.opt.enabled and self.opt.miniBar.autobutton
+		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
+end
+
 function ShamanPower:SetTotemBarFramesShown(shown)
 	if InCombatLockdown() then self._totemBarShownPending = shown; return end
 	self._totemBarShownPending = nil
@@ -12458,6 +12467,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 		return
 	end
 	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
+	if not self:TotemBarInUse() then return end     -- the layout keeps it down (solo / party choice)
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -16379,8 +16389,7 @@ function ShamanPower:UpdateLayout()
 	-- Show mini totem bar only if:
 	-- 1. Is a shaman, addon enabled, autobutton option on
 	-- 2. In party/raid or solo (based on settings)
-	local showMiniBar = isShaman and self.opt.enabled and self.opt.miniBar.autobutton
-		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
+	local showMiniBar = self:TotemBarInUse()   -- the same test the hide and fade rules make
 	if showMiniBar then
 		self:SetTotemBarFramesShown(true)
 		-- Update the mini totem bar icons and spells
