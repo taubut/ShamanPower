@@ -1028,6 +1028,18 @@ function ShamanPower:RestoreTotemBarPosition()
 	local d = self.opt.display
 	h:SetScale(self.opt.buffscale or 0.9)   -- records are scale-free; SetPoint is not
 	self._barScaleApplied = true
+	-- Upgrading from 2.x (Anniversary): a bar never dragged sat at dead centre (its
+	-- 1x1 anchor there) and saved no spot. Save that spot once, so only new setups
+	-- get the new default. A profile used by 2.x finished or skipped its setup, or
+	-- saved a cooldown bar spot; one set up by 3.0 records how (setupPath).
+	if not d.defaultSpotChecked then
+		d.defaultSpotChecked = true
+		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
+		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not (d.position and d.position.anchor) and not legacy
+			and not self.opt.setupPath and (self.opt.setupDone or self.opt.cooldownBarPosition) then
+			d.position = { anchor = "CENTER", x = 0, y = 0 }
+		end
+	end
 	local rec = self:TotemBarRecord()
 	if rec then
 		self:ApplyPositionRecord(h, rec)
@@ -1232,6 +1244,7 @@ function ShamanPower:OnProfileChanged()
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:ApplyAllOpacity()
+	self:SetupTotemBarVisibilityUpdater()   -- the new profile's hide and fade rules, now (no poll)
 
 	-- Restore popped-out trackers from the new profile
 	C_Timer.After(0.5, function()
@@ -1287,6 +1300,8 @@ function ShamanPower:Reset()
 
 	self:ApplySkin()
 	self:UpdateLayout()
+	-- the cooldown bar's saved spot goes too: it comes back straight under the totem bar
+	self:ResetBarPositions(false)
 end
 
 -- Settings live in the optional ShamanPower_Config module.
@@ -1366,8 +1381,10 @@ function ShamanPower:RestrictCommand(args)
 	end
 	for _, r in ipairs(RESTRICT_CVARS) do
 		if r.key == key then
+			-- nil on Forever: Lua cannot read it there (the cvar may still exist), so the line to type
+			-- is printed anyway; the Classic line has no such cvars at all
 			local v = value(r.cvar)
-			if v == nil then
+			if v == nil and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
 				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
 				return
 			end
@@ -1376,7 +1393,7 @@ function ShamanPower:RestrictCommand(args)
 			elseif state == "off" or state == "0" then on = false
 			else on = v ~= "1" end
 			print(string.format("|cff0070ddShamanPower|r: %s is %s. Type this yourself:  |cffffd100/console %s %s|r",
-				r.label, v == "1" and "ON" or "off", r.cvar, on and "1" or "0"))
+				r.label, v == nil and "unknown (not readable here)" or (v == "1" and "ON" or "off"), r.cvar, on and "1" or "0"))
 			return
 		end
 	end
@@ -1393,6 +1410,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		ShamanPower:ToggleAssignmentWindow()
 	elseif msg == "setup" then
 		if ShamanPower.Wizard and ShamanPower.Wizard.Open then ShamanPower.Wizard:Open() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
+	elseif msg == "welcome" then   -- the first-login choice window on demand (to test it on a set-up character)
+		if ShamanPower.Wizard and ShamanPower.Wizard.ShowWelcomeChoice then ShamanPower.Wizard:ShowWelcomeChoice() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
 	elseif msg == "unlock" or msg == "move" then
 		if ShamanPower.ToggleMasterUnlock then ShamanPower:ToggleMasterUnlock() end
 	elseif msg == "range" then
@@ -4511,6 +4530,17 @@ end
 ShamanPower.barMovers = ShamanPower.barMovers or {}
 local MOVER_MIN_W, MOVER_MIN_H = 60, 24   -- a box is never smaller (an empty cooldown bar is 1x1)
 
+-- Every box on screen goes back over its frame a frame after a drop, once the
+-- moved frames are laid out: read in the same frame as the SetPoint, a frame
+-- can still report its old spot (and a cooldown bar on its default spot has
+-- just followed the totem bar).
+local function RefreshShownBarMovers()
+	if InCombatLockdown() then return end
+	for key, m in pairs(ShamanPower.barMovers) do
+		if m:IsShown() and m.moveFrame then ShamanPower:ShowBarMover(key, m.moveFrame, m.sizeFrame, nil, m.onMoved) end
+	end
+end
+
 function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local mover = self.barMovers[key]
 	if mover then
@@ -4577,8 +4607,8 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 				end
 			end
 			if self.onMoved then self.onMoved() end
-			-- Re-place the overlay over the bar's new spot.
-			ShamanPower:ShowBarMover(self.key, mf, sf, nil, self.onMoved)
+			-- Re-place the overlay over the bar's new spot, next frame.
+			C_Timer.After(0, RefreshShownBarMovers)
 		end
 	end)
 	mover.key = key
@@ -4614,11 +4644,27 @@ function ShamanPower:HideBarMover(key)
 end
 
 function ShamanPower:GetPositionRecord(frame)
-	local cx, cy = frame:GetCenter()
-	if not cx then return nil end
 	local fs = frame:GetScale() or 1
-	cx, cy = cx * fs, cy * fs
 	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+	local cx, cy
+	-- A UIParent child hanging off one point on UIParent (every SetPoint in here)
+	-- is worked out from that point and its size, not read back off the screen:
+	-- straight after a SetPoint the game can still report the old spot. Anything
+	-- else (a frame just dropped by StopMovingOrSizing was laid out while dragged)
+	-- has its centre read.
+	local point, rel, relPoint, x, y
+	if frame:GetNumPoints() == 1 and frame:GetParent() == UIParent then point, rel, relPoint, x, y = frame:GetPoint(1) end
+	if point and rel == UIParent then
+		local ax, ay = AnchorXY(relPoint or point, W, H)
+		local px = (strfind(point, "LEFT") and -0.5) or (strfind(point, "RIGHT") and 0.5) or 0
+		local py = (strfind(point, "TOP") and 0.5) or (strfind(point, "BOTTOM") and -0.5) or 0
+		cx = ax + ((x or 0) - px * frame:GetWidth()) * fs
+		cy = ay + ((y or 0) - py * frame:GetHeight()) * fs
+	else
+		cx, cy = frame:GetCenter()
+		if not cx then return nil end
+		cx, cy = cx * fs, cy * fs
+	end
 	local best, bestD, bx, by
 	for _, a in ipairs(ANCHOR_POINTS) do
 		local ax, ay = AnchorXY(a, W, H)
@@ -4685,10 +4731,11 @@ function ShamanPower:TotemBarGeometry()
 end
 
 -- Where the cooldown bar goes with no saved spot: straight under the totem
--- bar, its Unlock box clear of the totem bar's.
-function ShamanPower:CooldownBarDefaultRecord()
+-- bar, its Unlock box clear of the totem bar's. into: a record to fill instead
+-- of a new one (the layout passes run this often).
+function ShamanPower:CooldownBarDefaultRecord(into)
 	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
-	local dx, dy, tw, th = self:TotemBarGeometry()
+	local dx, dy, _, th = self:TotemBarGeometry()
 	local rec = self:TotemBarRecord()
 	local tx, ty
 	if rec then
@@ -4700,26 +4747,32 @@ function ShamanPower:CooldownBarDefaultRecord()
 		tx, ty = ax + def.x, ay + def.y
 	end
 	local bar = self.cooldownBar
-	local bs = bar:GetScale()
-	tw, th = math.max(tw, MOVER_MIN_W), math.max(th, MOVER_MIN_H)
-	local bw, bh = math.max(bar:GetWidth() * bs, MOVER_MIN_W), math.max(bar:GetHeight() * bs, MOVER_MIN_H)
+	th = math.max(th, MOVER_MIN_H)
+	local bh = math.max(bar:GetHeight() * bar:GetScale(), MOVER_MIN_H)
 	-- always straight under the totem bar, whatever the layout
 	local x, y = tx, ty - th / 2 - BAR_GAP - RESET_TAB_H - bh / 2
-	return { anchor = "CENTER", x = x - W / 2, y = y - H / 2 }
+	local out = into or {}
+	out.anchor, out.x, out.y = "CENTER", x - W / 2, y - H / 2
+	return out
 end
 
 -- Put each bar that has no saved spot on its default one. Out of combat only
 -- (both bars hold secure buttons), and never under a bar being dragged.
+-- Runs on every layout pass (roster changes too): the two records it applies
+-- are reused, never kept.
+local defaultTotemScratch, defaultCooldownScratch = {}, {}
 function ShamanPower:ApplyDefaultBarPositions()
 	if InCombatLockdown() or self.isDragging or not (self.opt and self.autoButton) then return end
 	if not self:TotemBarRecord() then
 		local def = self.DEFAULT_TOTEM_BAR_POSITION
 		local dx, dy = self:TotemBarGeometry()
-		self:ApplyPositionRecord(ShamanPowerFrame, { anchor = def.anchor, x = def.x - dx, y = def.y - dy })
+		local r = defaultTotemScratch
+		r.anchor, r.x, r.y = def.anchor, def.x - dx, def.y - dy
+		self:ApplyPositionRecord(ShamanPowerFrame, r)
 	end
 	local bar, rec = self.cooldownBar, self.opt.cooldownBarPosition
 	if bar and bar:GetParent() == UIParent and not self.cooldownBarDragging and not (rec and rec.anchor) then
-		self:ApplyPositionRecord(bar, self:CooldownBarDefaultRecord())
+		self:ApplyPositionRecord(bar, self:CooldownBarDefaultRecord(defaultCooldownScratch))
 	end
 end
 
@@ -4737,7 +4790,8 @@ function ShamanPower:ResetBarPositions(totemBar)
 	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
 	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
 	self:ApplyDefaultBarPositions()
-	if self.cooldownBar then self:UpdateCooldownBarPosition(true) end   -- detaches a bar still on the totem bar
+	-- detaches a bar still on the totem bar; that also shows it, so not a bar switched off
+	if self.cooldownBar and self.opt.showCooldownBar then self:UpdateCooldownBarPosition(true) end
 end
 
 -- Unlock/lock the totem bar for free dragging via a mover overlay.
@@ -4756,9 +4810,9 @@ function ShamanPower:SetTotemBarUnlocked(unlocked)
 	self:EnsureProfileTable("display")
 	self.opt.display.moverUnlocked = unlocked and true or nil
 	if unlocked then
+		-- (a cooldown bar on its default spot follows; the mover puts its box back over it a frame later)
 		self:ShowBarMover("totembar", _G["ShamanPowerFrame"], self.autoButton, "Totem Bar", function()
 			ShamanPower:SaveFramePosition(_G["ShamanPowerFrame"])
-			if ShamanPower.cdBarMoverShown then ShamanPower:SetCooldownBarUnlocked(true) end   -- a default cooldown bar followed
 		end)
 	else
 		self:HideBarMover("totembar")
@@ -4767,6 +4821,7 @@ end
 
 -- Unlock/lock the cooldown bar.
 function ShamanPower:SetCooldownBarUnlocked(unlocked)
+	if unlocked and not self.cooldownBar then unlocked = nil end   -- no bar (yet): nothing to move
 	self.cdBarMoverShown = unlocked and true or nil
 	if unlocked then
 		-- Moving only makes sense detached from the totem bar; detach (once)
@@ -5031,6 +5086,20 @@ function ShamanPower:ShowPopOutSettingsPanel(key, popOutFrame)
 	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for pop-out settings")
 end
 
+-- Where a pop-out's spot is saved. Under Grid "Split by Element" each element's
+-- pop-out frame is a Grid row with its own spot (ShamanPowerGrid.lua), so a trip
+-- through Grid never overwrites the element's regular pop-out spot.
+local GRID_ROW_KEYS = { totem_earth = true, totem_fire = true, totem_water = true, totem_air = true }
+local function PopOutPositions(key)
+	local o = ShamanPower.opt
+	if GRID_ROW_KEYS[key] and o.gridSplit and ShamanPower.GridActive and ShamanPower:GridActive() then
+		o.gridSplitPositions = o.gridSplitPositions or {}
+		return o.gridSplitPositions
+	end
+	o.poppedOutPositions = o.poppedOutPositions or {}
+	return o.poppedOutPositions
+end
+
 -- Set scale for a pop-out frame
 function ShamanPower:SetPopOutScale(key, scale)
 	local frame = self.poppedOutFrames[key]
@@ -5050,9 +5119,8 @@ function ShamanPower:SetPopOutScale(key, scale)
 			frame:ClearAllPoints()
 			frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", centerX / scale, centerY / scale)
 
-			-- Save new position
-			self.opt.poppedOutPositions = self.opt.poppedOutPositions or {}
-			self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
+			-- Save new position (a Grid split row keeps its own)
+			PopOutPositions(key)[key] = self:SavePositionRecord(frame)
 		else
 			frame:SetScale(scale)
 		end
@@ -5387,8 +5455,7 @@ function ShamanPower:PopOutElementWithFlyout(element)
 			local popped = ShamanPower.opt.poppedOut
 			if current and current.totemButton == button and popped and popped[currentKey] then
 				current:StopMovingOrSizing()
-				ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-				ShamanPower.opt.poppedOutPositions[currentKey] = ShamanPower:SavePositionRecord(current)
+				PopOutPositions(currentKey)[currentKey] = ShamanPower:SavePositionRecord(current)   -- a Grid split row keeps its own
 			end
 		end)
 	end
@@ -6026,11 +6093,41 @@ function ShamanPower:IsElementLearned(element)
 	return elementLearnedCache[element] and true or false
 end
 
+-- Drop All only once there is a totem to drop: a new shaman's bar shows no
+-- lone Drop All button (SPELLS_CHANGED re-lays the bar when the first is learned).
+function ShamanPower:ShowsDropAllButton()
+	if self.opt.showDropAllButton == false then return false end
+	for e = 1, 4 do if self:IsElementLearned(e) then return true end end
+	return false
+end
+
+-- An accepted raid resistance request holds its element (ShamanPowerResist.lua,
+-- Forever): that slot shows even before the element is learned, so the
+-- resistance totem lands on a low-level shaman's bar too.
+local function HoldsResistRequest(self, element)
+	local list, applied = self.RESIST_REQUESTS, self.opt.resistApplied
+	if not (list and applied) then return false end
+	for i = 1, #list do
+		if list[i].element == element and applied[list[i].key] ~= nil then return true end
+	end
+	return false
+end
+
 local ELEMENT_SHOW_KEY = { "totemBarShowEarth", "totemBarShowFire", "totemBarShowWater", "totemBarShowAir" }
 function ShamanPower:IsElementShown(element)
 	if self.opt[ELEMENT_SHOW_KEY[element]] == false then return false end
-	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element) then return false end
+	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element)
+		and not HoldsResistRequest(self, element) then return false end
 	return true
+end
+
+-- Dynamic Mode shows (and casts) the totem that is down instead of the assigned
+-- one. Grid can sit on top of a Dynamic setup; with its "Left-Click Also
+-- Assigns" off a drop keeps the assignment, so the row's leading button keeps
+-- showing the assigned totem too (as DropSetsAssignment does for the assignment).
+function ShamanPower:ShowsActiveTotemOnBar()
+	if not self.opt.dynamicTotemMode then return false end
+	return not (self.opt.gridStyle == true and self.GridActive and self:GridActive() and self.opt.gridDropAssigns == false)
 end
 
 function ShamanPower:PositionTotemButtons()
@@ -6118,7 +6215,7 @@ function ShamanPower:UpdateTotemButtons()
 
 			-- Get totem spell - Dynamic Mode uses active totem, Normal Mode uses assignment
 			local totemIndex
-			if self.opt.dynamicTotemMode then
+			if self:ShowsActiveTotemOnBar() then
 				local activeIndex = self:GetActiveTotemIndex(element)
 				if activeIndex then
 					totemIndex = activeIndex
@@ -10992,8 +11089,12 @@ function ShamanPower:UpdateTotemBarOpacity()
 	if self.autoButton then
 		self.autoButton:SetAlpha(opacity)
 	end
+	-- Drop All sits on the bar button and takes its alpha: its own stays 1 (both set
+	-- multiply: a 25% fade showed it at 6%). Popped out, it has its own frame.
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
-	if dropAllBtn and dropAllBtn:IsShown() then dropAllBtn:SetAlpha(opacity) end
+	if dropAllBtn and dropAllBtn:IsShown() then
+		dropAllBtn:SetAlpha(dropAllBtn:GetParent() == self.autoButton and 1 or opacity)
+	end
 
 	-- Set alpha on totem buttons - full opacity if totem is placed and option enabled
 	if self.totemButtons then
@@ -12070,6 +12171,11 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	if InCombatLockdown() then self._totemBarShownPending = shown; return end
 	self._totemBarShownPending = nil
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then shown = false end
+	-- The hide rules (UpdateTotemBarVisibility) have the last word: a layout pass
+	-- (roster after a fight, zone change, new spell) must not bring back a bar they
+	-- hide, since nothing would hide it again before their next event.
+	local o, asked = self.opt, shown
+	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems) then shown = false end
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -12078,13 +12184,16 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 		end
 	end
 	local dropAll = _G["ShamanPowerAutoDropAll"]
-	if dropAll then dropAll:SetShown(shown and self.opt.showDropAllButton ~= false) end
+	if dropAll then dropAll:SetShown(shown and self:ShowsDropAllButton()) end
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if esBtn then esBtn:SetShown(shown and self.HasEarthShield and self:HasEarthShield() or false) end
 	local tcBtn = _G["ShamanPowerTotemicCallBtn"]
 	if tcBtn and not shown then tcBtn:Hide() end
 	local shBtn = _G["ShamanPowerCompactShieldBtn"]
 	if shBtn then shBtn:SetShown(shown and self.CompactShieldLineActive and self:CompactShieldLineActive() or false) end
+	-- and their state checked again (a no-op while it still holds): it can be from
+	-- while the bar was off, or from rules switched off since
+	if asked then self:SetupTotemBarVisibilityUpdater() end
 end
 
 -- Leave hidden secure spell/keybinding targets configured. Only presentation
@@ -12133,6 +12242,7 @@ local function fadeFrames(self)
 	local function add(f) if f then list[#list + 1] = f end end
 	add(self.autoButton); add(_G["ShamanPowerAutoDropAll"]); add(_G["ShamanPowerEarthShieldBtn"])
 	if self.totemButtons then for element = 1, 4 do add(self.totemButtons[element]) end end
+	if self.GridFadeFrames then self:GridFadeFrames(add) end   -- Grid's rows glide too
 	return list
 end
 local function stopFades(self)
@@ -12161,18 +12271,10 @@ end
 function ShamanPower:UpdateTotemBarVisibility(force)
 	if force then self.totemBarHidden, self.totemBarFaded = nil, nil end   -- a fade setting changed: re-apply
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
-		self:DisableUpdateSubsystem("totemVisibility")
 		self:HideCustomTotemBarForBlizzard()
 		return
 	end
 	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
-	-- Enable/disable totemVisibility subsystem based on whether auto-hide features are on
-	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
-		self:EnableUpdateSubsystem("totemVisibility")
-	else
-		self:DisableUpdateSubsystem("totemVisibility")
-	end
-
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -12222,6 +12324,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	-- Apply visibility (can't change in combat lockdown for secure frames)
 	if InCombatLockdown() then
 		self:UpdateTotemBarOpacity()   -- only a fade changed: alpha is allowed
+		if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
 	else
 		if shouldHide then
 			-- Hide everything
@@ -12248,11 +12351,13 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 			self.autoButton:Show()
 			self.autoButton:SetAlpha(alpha)
 
+			-- only the elements the layout shows (a hidden or not yet learned one stays
+			-- hidden; a popped-out one shows in its own frame)
 			if self.totemButtons then
 				for element = 1, 4 do
 					local btn = self.totemButtons[element]
 					if btn then
-						btn:Show()
+						btn:SetShown(self:IsElementShown(element) or self:IsElementPoppedOut(element))
 						btn:SetAlpha(alpha)
 					end
 				end
@@ -12260,9 +12365,9 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 
 			-- Show Drop All button (if enabled)
 			local dropAllBtn = _G["ShamanPowerAutoDropAll"]
-			if dropAllBtn and self.opt.showDropAllButton ~= false then
+			if dropAllBtn and self:ShowsDropAllButton() then
 				dropAllBtn:Show()
-				dropAllBtn:SetAlpha(alpha)
+				dropAllBtn:SetAlpha(dropAllBtn:GetParent() == self.autoButton and 1 or alpha)   -- takes the bar's (UpdateTotemBarOpacity)
 			end
 
 			-- Show Earth Shield button (if it should be visible)
@@ -12271,6 +12376,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 				esBtn:Show()
 				esBtn:SetAlpha(alpha)
 			end
+			if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
 			-- per-button rules (Full Opacity When Totem Placed) on top, unless faded
 			if not fade then self:UpdateTotemBarOpacity() end
 		end
@@ -12280,36 +12386,45 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	end
 end
 
--- Fade rules react to events, not a timer: combat start (before lockdown, so a
--- hidden bar can still be shown) and target changes. Idle when the options are off.
+-- The hide and fade rules react to events, not a timer: combat start (before
+-- lockdown, so a hidden bar can still be shown), combat end, a totem going down
+-- or away, target changes, and the target turning attackable (or not) without a
+-- target change: an NPC turning hostile, a duel starting, a PvP flag flip (on
+-- either side, as Blizzard's target frame checks it). Idle when the options are off.
 do
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("PLAYER_REGEN_DISABLED")
+	f:RegisterEvent("PLAYER_REGEN_ENABLED")
 	f:RegisterEvent("PLAYER_TARGET_CHANGED")
-	f:SetScript("OnEvent", function(_, event)
+	f:RegisterEvent("PLAYER_TOTEM_UPDATE")
+	if f.RegisterUnitEvent then f:RegisterUnitEvent("UNIT_FACTION", "player", "target") else f:RegisterEvent("UNIT_FACTION") end
+	local totemCheckQueued
+	local function totemCheck()
+		totemCheckQueued = nil
+		ShamanPower:UpdateTotemBarVisibility()
+	end
+	f:SetScript("OnEvent", function(_, event, unit)
 		local o = ShamanPower.opt
 		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) then return end
-		if event == "PLAYER_TARGET_CHANGED" and not o.showWithTarget then return end
-		if event == "PLAYER_REGEN_DISABLED" and not (o.fadeInsteadOfHide or o.showWithTarget) then return end
+		if (event == "PLAYER_TARGET_CHANGED" or event == "UNIT_FACTION") and not o.showWithTarget then return end
+		if event == "UNIT_FACTION" and unit ~= "target" and unit ~= "player" then return end
+		if event == "PLAYER_TOTEM_UPDATE" then
+			-- read a frame later, once the shadow totem model (combat) has the change too
+			if o.hideWhenNoTotems and not totemCheckQueued then totemCheckQueued = true; C_Timer.After(0, totemCheck) end
+			return
+		end
 		if event == "PLAYER_REGEN_DISABLED" then stopFades(ShamanPower) end   -- before lockdown: full alpha now
 		ShamanPower:UpdateTotemBarVisibility()
 	end)
 end
 
--- Set up visibility update timer
+-- One pass where there is hide state to work out (login, a profile change);
+-- after that the events above keep it current. A bar with no hide option and
+-- nothing hidden is left to the layout, as the old 5 Hz pass left it.
 function ShamanPower:SetupTotemBarVisibilityUpdater()
-	-- Register visibility updates with consolidated update system (5fps)
-	if not self.updateSystem.subsystems["totemVisibility"] then
-		self:RegisterUpdateSubsystem("totemVisibility", 0.2, function()
-			ShamanPower:UpdateTotemBarVisibility()
-		end)
-	end
-	-- Only enable if auto-hide features are on
-	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
-		and (self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems) then
-		self:EnableUpdateSubsystem("totemVisibility")
-	else
-		self:DisableUpdateSubsystem("totemVisibility")
+	local o = self.opt
+	if o and (o.hideOutOfCombat or o.hideWhenNoTotems or self.totemBarHidden or self.totemBarFaded) then
+		self:UpdateTotemBarVisibility()
 	end
 end
 
@@ -12364,7 +12479,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	local spacing = self.opt.totemBarPadding or 2
 	local padding = 4
 	local separatorSize = 12  -- Extra gap for separator
-	local showDropAll = self.opt.showDropAllButton ~= false  -- Default to true if not set
+	local showDropAll = self:ShowsDropAllButton()  -- the option (on by default), once a totem is learned
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	-- Show Totemic Call on totem bar if option is enabled (spell knowledge is validated by CD bar settings)
 	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
@@ -12412,6 +12527,15 @@ function ShamanPower:UpdateMiniTotemBar()
 		end
 		self.autoButton:SetSize(math.max(slotCross, extraButtonCount > 0 and buttonSize or 0) + (padding * 2), math.max(totalHeight, buttonSize + (padding * 2)))
 	end
+	-- Nothing on the bar yet (a new shaman before the first totem: Drop All waits
+	-- for one too): no empty panel either. It comes back with the first totem.
+	local empty = visibleCount == 0 and extraButtonCount == 0 and startOff == 0
+	if empty and self.autoButton.SetBackdrop then
+		self.autoButton:SetBackdrop(nil)
+	elseif not empty and self._totemBarEmpty then
+		self:UpdateTotemBarFrame(); self:ButtonsUpdate()   -- the panel, then its status colour
+	end
+	self._totemBarEmpty = empty
 
 	-- Get the order to display totem buttons
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
@@ -12430,7 +12554,7 @@ function ShamanPower:UpdateMiniTotemBar()
 
 				-- Dynamic Mode: use currently active totem instead of assignment
 				local totemIndex
-				if self.opt.dynamicTotemMode then
+				if self:ShowsActiveTotemOnBar() then
 					-- First try to get the active totem
 					local activeIndex = self:GetActiveTotemIndex(element)
 					if activeIndex then
@@ -14043,7 +14167,7 @@ function ShamanPower:RepositionEarthShieldButton()
 	local isHorizontal = self:IsTotemBarHorizontal()
 	local buttonSize = 26
 	local spacing = self.opt.totemBarPadding or 2
-	local showDropAll = self.opt.showDropAllButton ~= false
+	local showDropAll = self:ShowsDropAllButton()
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
 
@@ -14120,7 +14244,7 @@ function ShamanPower:UpdateAutoButtonSize()
 	local _, _, sw, sh = self:GetTotemSlotDims()
 	local slotAlong = isHorizontal and sw or sh
 	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0
-	local showDropAll = self.opt.showDropAllButton ~= false and not self:IsDropAllPoppedOut()
+	local showDropAll = self:ShowsDropAllButton() and not self:IsDropAllPoppedOut()
 	local showES = self.opt.totemBarShowEarthShield ~= false and self:HasEarthShield() and not self:IsEarthShieldPoppedOut()
 
 	-- Count visible totem buttons (not hidden in options and not popped out)
@@ -17662,7 +17786,7 @@ if not ShamanPower.TremorReminderLoaded then
 end
 
 -- ============================================================================
--- SPCenter: Reset totem bar and cooldown bar to center of screen
+-- SPCenter: totem bar to the centre of the screen, cooldown bar straight under it
 -- ============================================================================
 
 SLASH_SPCENTER1 = "/spcenter"
@@ -17672,38 +17796,44 @@ SlashCmdList["SPCENTER"] = function(msg)
 		return
 	end
 
-	-- Reset main ShamanPower frame to center and save position
-	local mainFrame = _G["ShamanPowerFrame"]
-	if mainFrame then
-		mainFrame:ClearAllPoints()
-		mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-		-- Clear saved position so it stays centered after reload
-		ShamanPower:EnsureProfileTable("display")
-		ShamanPower.opt.display.offsetX = 0
-		ShamanPower.opt.display.offsetY = 0
-		print("|cff00ff00ShamanPower:|r Totem bar moved to center.")
-	end
-
-	-- Reset cooldown bar position (force reposition even if already unlocked)
-	if ShamanPower.cooldownBar then
-		ShamanPower.opt.cooldownBarPosX = 0
-		ShamanPower.opt.cooldownBarPosY = -50
-		ShamanPower.opt.cooldownBarPoint = "CENTER"
-		ShamanPower.opt.cooldownBarRelPoint = "CENTER"
-		ShamanPower:UpdateCooldownBarPosition(true)  -- true = force reposition
-		print("|cff00ff00ShamanPower:|r Cooldown bar moved to center.")
-	end
+	-- A rescue for bars lost off screen: the visible totem bar is saved dead centre
+	-- (a real saved spot, so it holds after /reload) and the cooldown bar drops its
+	-- own spot, so it sits straight under the totem bar and follows it.
+	local SP = ShamanPower
+	SP:EnsureProfileTable("display")
+	local d = SP.opt.display
+	d.offsetX, d.offsetY = nil, nil
+	SP.opt.cooldownBarPosition = nil
+	SP.opt.cooldownBarPoint, SP.opt.cooldownBarRelPoint = nil, nil
+	SP.opt.cooldownBarPosX, SP.opt.cooldownBarPosY = nil, nil
 
 	-- Make sure bars are visible
-	if ShamanPower.autoButton and ShamanPower:TotemBarEnabled() then
-		ShamanPower.autoButton:Show()
+	if SP.autoButton and SP:TotemBarEnabled() then
+		SP.autoButton:Show()
 	end
 
-	-- Force a layout update
-	ShamanPower:UpdateLayout()
-	ShamanPower:UpdateRoster()
+	-- Lay the bar out first: where its centre sits depends on its size and layout
+	SP:UpdateLayout()
+	SP:UpdateRoster()
+	local mainFrame = _G["ShamanPowerFrame"]
+	if mainFrame and SP.autoButton then
+		local dx, dy = SP:TotemBarGeometry()
+		local rec = { anchor = "CENTER", x = -dx, y = -dy }
+		if SP.CompactActive and SP:CompactActive() then d.compactPosition = rec else d.position = rec end
+		SP:ApplyPositionRecord(mainFrame, rec)
+		print("|cff00ff00ShamanPower:|r Totem bar moved to the center of the screen.")
+		-- the hide rules keep it down (SetTotemBarFramesShown): say so, or it looks lost still
+		if SP.totemBarHidden then
+			print("|cff00ff00ShamanPower:|r It is hidden right now by Hide Out of Combat / Hide When No Totems, and shows there when they allow it.")
+		end
+	end
+	if SP.cooldownBar and SP.opt.showCooldownBar then
+		SP:UpdateCooldownBarPosition(true)   -- detaches a bar still on the totem bar
+		print("|cff00ff00ShamanPower:|r Cooldown bar moved under it.")
+	end
+	SP:ApplyDefaultBarPositions()
 
-	print("|cff00ff00ShamanPower:|r Frames reset to center. Use ALT+drag to reposition.")
+	print("|cff00ff00ShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset puts them back on their default spot.")
 end
 
 -- ============================================================================

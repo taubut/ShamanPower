@@ -3368,7 +3368,7 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 		previewDlg.hdr = hdr
 		local note = body:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetWidth(370); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
 		previewDlg.note = note
-		note:SetText("Positions, colors, sounds and every other setting come along too. Your totem choices and raid assignments are not touched.")
+		note:SetText("Positions, colors, sounds and every other setting come along too, except the totem bar and cooldown bar: they start low in the middle of the screen, for you to move with |cffffffff/sp unlock|r. Your totem choices and raid assignments are not touched.")
 		-- footer
 		local apply = Core:MakeButton(previewDlg, "Apply this layout & reload", 220, true)
 		apply:SetPoint("BOTTOMRIGHT", previewDlg, "BOTTOMRIGHT", -14, 12)
@@ -3558,7 +3558,8 @@ function SP.Wizard:RenderRole()
 	local roles = FOREVER and {
 		{ key = "restoration", name = "Restoration", role = "Healer", items = {
 			{ 16190, "Mana Tide Totem" }, { 16188, "Nature's Swiftness" },
-			{ 408521, "Riptide" }, { 408510, "Water Shield" } } },
+			{ 408521, "Riptide" }, { 408510, "Water Shield" },
+			{ 8042, "Earth Shock" } } },   -- the interrupt: ApplySpecPicks turns it on for every spec
 		{ key = "enhancement", name = "Enhancement", role = "Melee", items = {
 			{ 17364, "Stormstrike" }, { 425336, "Rage of the Farseer" },
 			{ 8042, "Earth Shock" }, { 8050, "Flame Shock" }, { 8056, "Frost Shock" },
@@ -3736,7 +3737,9 @@ function SP.Wizard:RenderFinish()
 		local sbtn = Core:MakeButton(share, "Copy my setup code", 150, false)
 		sbtn:SetPoint("RIGHT", share, "RIGHT", -16, 0)
 		sbtn.text:SetTextColor(1, 0.82, 0)
-		sbtn:SetScript("OnClick", function() SP:ShowShareCode() end)
+		-- the code says how setup ended; on this page that is the tour, even before
+		-- Finish is pressed (Finish sets it too)
+		sbtn:SetScript("OnClick", function() SP.opt.setupPath = "tour"; SP:ShowShareCode() end)
 		share:SetHeight(12 + sh:GetStringHeight() + 6 + sb:GetStringHeight() + 14)
 		below = share
 	end
@@ -3831,7 +3834,7 @@ function LooksLikeExistingUser()
 	local a = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
 	if a then for e = 1, 4 do if (a[e] or 0) > 0 then return true end end end
 	if ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts > 0 then return true end
-	if SP.opt.totemBarPosition or SP.opt.cooldownBarPosition then return true end
+	if (SP.opt.display and SP.opt.display.position) or SP.opt.cooldownBarPosition then return true end
 	return false
 end
 
@@ -3901,8 +3904,12 @@ local function quickSetup(role)
 	SP.opt.setupPath = "quick"
 	welcomeDlg:Hide()
 	local name = preset and preset.name or "The quick setup"
-	print("|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
-		.. ". Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r. Share your setup with |cffffffff/sp share|r.")
+	local line = "|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
+		.. ". Your totem bar and cooldown bar start low in the middle of the screen: move them with |cffffffff/sp unlock|r."
+		.. " Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r. Share your setup with |cffffffff/sp share|r."
+	print(line)
+	-- Anniversary reloads at once and the reload clears the chat: said again after it
+	SP.opt.chatAfterReload = line
 	Core:RequestReload(name .. " is applied.")
 end
 
@@ -3911,7 +3918,7 @@ function SP.Wizard:ShowWelcomeChoice()
 	if not welcomeDlg then
 		welcomeDlg = Core:CreateDialog({
 			name = "ShamanPowerWelcomeChoice", width = 440, height = 262,
-			title = "Welcome to ShamanPower", subtitle = "first time on this character", headerHeight = 46, footer = 52,
+			title = "Welcome to ShamanPower", subtitle = "first time with ShamanPower", headerHeight = 46, footer = 52,
 		})
 		welcomeDlg:SetFrameStrata("DIALOG")
 		local body = welcomeDlg.body
@@ -3946,6 +3953,9 @@ function SP.Wizard:ShowWelcomeChoice()
 		later:SetScript("OnClick", function() welcomeDlg:Hide() end)   -- asks again next login
 	end
 	local d = welcomeDlg
+	-- once offered, this stays the window a later login shows (MaybeAutoOpen), even after
+	-- the new player has picked totems or moved a bar
+	SP.opt.welcomeOffered = true
 	local function showSpecs(on)
 		d.a:SetShown(not on); d.b:SetShown(not on)
 		for _, s in ipairs(d.specs) do s:SetShown(on) end
@@ -3960,7 +3970,8 @@ function SP.Wizard:ShowWelcomeChoice()
 		d.b:SetScript("OnClick", function()
 			local role = SP.Wizard.DetectSpec()
 			if role then quickSetup(role) return end
-			d.text:SetText("What spec are you levelling as?")
+			-- under 10 there are no talents yet; at 10+ the points could not tell (tied, or not readable)
+			d.text:SetText(((UnitLevel("player") or 0) >= 10) and "What spec do you play?" or "What spec are you levelling as?")
 			showSpecs(true)
 		end)
 	else
@@ -3984,7 +3995,7 @@ local function MaybeAutoOpen()
 	if SP.opt.setupDone then return end
 	C_Timer.After(1.5, function()
 		if SP.opt.setupDone then return end
-		if IS_SHAMAN and LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:ShowWelcomeChoice() end
+		if IS_SHAMAN and not SP.opt.welcomeOffered and LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:ShowWelcomeChoice() end
 	end)
 end
 
@@ -3997,6 +4008,12 @@ f:SetScript("OnEvent", function(self)
 	if SP.opt and SP.opt.openSettingsAfterSetup and SP.opt.setupDone then
 		SP.opt.openSettingsAfterSetup = nil
 		C_Timer.After(2, function() if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open() end end)
+	end
+	-- a chat line printed just before a reload (quickSetup), again now that it is readable
+	local line = SP.opt and SP.opt.chatAfterReload
+	if line then
+		SP.opt.chatAfterReload = nil
+		C_Timer.After(2, function() print(line) end)
 	end
 end)
 

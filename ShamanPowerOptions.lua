@@ -770,6 +770,13 @@ local PANEL_HIDDEN_NOTE = "\n\n|cffffa040The totem bar's panel is hidden right n
 local function PanelHidden()
 	return ShamanPower.opt and ShamanPower.opt.hideTotemBarFrame and true or false
 end
+-- Status Colors: the three colours tint the panel and grey out with it. Rows other
+-- files add to that section (Mana Tint, ShamanPowerManaTint.lua) colour the buttons,
+-- so the section itself is not greyed by a hidden panel (a group's disabled is
+-- inherited by every row without its own).
+local function StatusColorDisabled()
+	return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
+end
 
 local function FlyoutSizeOption(order, width, key, default, name, desc, apply, extraDisabled)
 	return {
@@ -1613,7 +1620,7 @@ ShamanPower.options = {
 						reset_center = {
 							order = 1,
 							name = "Reset Frames to Center",
-							desc = "Reset totem bar and cooldown bar positions to center of screen",
+							desc = "Put the totem bar in the middle of the screen and the cooldown bar straight under it: a rescue for bars lost off screen (same as /spcenter).",
 							type = "execute",
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false
@@ -3511,7 +3518,7 @@ ShamanPower.options = {
 					name = "Status Colors",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
+						return ShamanPower.opt.enabled == false or not isShaman
 					end,
 					args = {
 						color_desc = {
@@ -3519,13 +3526,14 @@ ShamanPower.options = {
 							type = "description",
 							name = function()
 								return "The totem bar's panel is tinted by how many of your assigned totems are down: all of them, some of them, or none."
-									.. (PanelHidden() and PANEL_HIDDEN_NOTE or "")
+									.. (PanelHidden() and "\n\n|cffffa040The totem bar's panel is hidden right now, so these three colours are not visible. Turn off \"Hide Totem Bar Frame\" (Appearance > Visibility) to see them.|r" or "")
 							end,
 						},
 						color_good = {
 							order = 1,
 							name = L["Fully Buffed"],
 							type = "color",
+							disabled = StatusColorDisabled,
 							get = function()
 								return ShamanPower.opt.cBuffGood.r, ShamanPower.opt.cBuffGood.g, ShamanPower.opt.cBuffGood.b, ShamanPower.opt.cBuffGood.t
 							end,
@@ -3542,6 +3550,7 @@ ShamanPower.options = {
 							order = 2,
 							name = L["Partially Buffed"],
 							type = "color",
+							disabled = StatusColorDisabled,
 							width = 1.1,
 							get = function()
 								return ShamanPower.opt.cBuffNeedSome.r, ShamanPower.opt.cBuffNeedSome.g, ShamanPower.opt.cBuffNeedSome.b, ShamanPower.opt.cBuffNeedSome.t
@@ -3559,6 +3568,7 @@ ShamanPower.options = {
 							order = 3,
 							name = L["None Buffed"],
 							type = "color",
+							disabled = StatusColorDisabled,
 							get = function()
 								return ShamanPower.opt.cBuffNeedAll.r, ShamanPower.opt.cBuffNeedAll.g, ShamanPower.opt.cBuffNeedAll.b, ShamanPower.opt.cBuffNeedAll.t
 							end,
@@ -9430,7 +9440,7 @@ do
 		"rightClickCastsAssigned", "rightClickDestroysTotem", "compactOptions" })
 	HideFields(root.settings.args.settings_show.args, { "showparty", "showsingle" })
 	HideFields(root.settings.args.settings_visibility.args, { "hideOutOfCombat", "hideWhenNoTotems",
-		"fadeInsteadOfHide", "fadeOpacity", "showWithTarget" })
+		"fadeInsteadOfHide", "fadeOpacity", "fadeSmooth", "showWithTarget" })
 	HideFields(pages.layout_section.args, { "layout", "totem_flyout_direction", "totem_flyout_button_size",
 		"swap_flyout_clicks", "flyout_show_empty" })
 	HideFields(pages.scale_section.args, { "buffscale" })

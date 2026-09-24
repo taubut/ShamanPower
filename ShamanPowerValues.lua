@@ -153,7 +153,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarShowAir = true,    -- Show Air totem button on mini bar
         totemBarShowEarthShield = true,  -- Show Earth Shield button on mini bar
         enableESFlyout = false,  -- Enable Earth Shield flyout menu (disabled by default for performance)
-        cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7, 8},  -- Order of cooldown bar items: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=ShamanisticRage, 7=BL/Hero, 8=Imbues
+        cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7, 8},  -- Order of cooldown bar items (ShamanPower.CooldownTypeLabels): 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=BL/Hero, 7=Imbues, 8=ShamanisticRage; 9-11 (Elemental Mastery, Rage of the Farseer, Totemic Projection) follow unless the order places them (GetCooldownBarOrder)
         -- Pop-out tracker settings
         -- Keys: "totem_earth", "totem_fire", "totem_water", "totem_air" (element with flyout)
         --       "single_1_3" (element 1, totem index 3 = Tremor Totem)
