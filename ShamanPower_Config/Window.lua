@@ -984,7 +984,9 @@ function SPConfig:RenderNav(query)
 				-- Resolve only walks the path, so a group that hides itself still
 				-- resolves. Skip those here or the sidebar keeps a row that opens
 				-- an empty page (every row on it filtered out by the same flag).
-				if n and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
+				-- Shaman-only pages (the bars and the shaman modules) are left out for
+				-- other classes: nothing on them runs there. Search is built from this list too.
+				if n and not (entry.shamanOnly and not PLAYER_IS_SHAMAN) and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
 					node, chain, firstPath = n, c, pth break
 				end
 			end
@@ -1049,7 +1051,7 @@ function SPConfig:RenderNav(query)
 				row.accent:Hide()
 				row.text:SetFontObject(Core.fonts.nav)
 				row.text:SetText(Tree:StripColor(entry.label))
-				-- Shaman-only pages stay visible but greyed for other classes.
+				-- (shaman-only pages never reach here for other classes; kept as a guard)
 				row.shamanOnly = entry.shamanOnly and select(2, UnitClass("player")) ~= "SHAMAN"
 				row.text:SetTextColor(Core:Color(row.shamanOnly and "textMute" or "text"))
 				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Shaman only - these features do not run on this class.") else Core:AttachTooltip(row, "", nil) end
