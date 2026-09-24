@@ -4956,17 +4956,25 @@ function ShamanPower:SetCooldownBarUnlocked(unlocked)
 	if unlocked and not self.cooldownBar then unlocked = nil end   -- no bar (yet): nothing to move
 	self.cdBarMoverShown = unlocked and true or nil
 	if unlocked then
+		local function onMoved()
+			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
+			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
+			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
+		end
 		-- Moving only makes sense detached from the totem bar; detach (once)
 		-- and reposition, but NEVER re-attach when the mover is turned off.
 		if self.opt.cooldownBarLocked or self.cooldownBar:GetParent() ~= UIParent then
 			self.opt.cooldownBarLocked = nil
 			self:UpdateCooldownBarPosition(true)
+			-- just placed: read now, it can still report its old spot, so its box is
+			-- measured a frame later (the box exists now, for the Unlock UI's Reset)
+			self:GetBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved)
+			C_Timer.After(0, function()
+				if self.cdBarMoverShown then self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved) end
+			end)
+			return
 		end
-		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", function()
-			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
-			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
-			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
-		end)
+		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved)
 	else
 		self:HideBarMover("cooldownbar")
 	end
