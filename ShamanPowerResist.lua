@@ -320,9 +320,11 @@ Flush = function()
 		for key in pairs(sendPass) do
 			-- only while it still answers the request we passed on: one that ended
 			-- (the same resistance asked again is a new request, which asks us
-			-- again), or requests turned back on, drops it unsent
+			-- again) drops it unsent
 			if passed[key][me] or optOutPassed[key] then
 				if SP:SendMessage("RESPASS " .. key .. " " .. me, nil, nil, true) == false then blocked = true break end
+				-- requests back on: a pass owed from while they were off is settled
+				if Enabled() then optOutPassed[key] = nil end
 			end
 			sendPass[key] = nil
 		end
@@ -808,13 +810,21 @@ function SP:HandleResistMessage(kw, msg, sender)
 		-- a real request needs a raid; practice never counts in one
 		if isPractice == IsInRaid() then return end
 		if isPractice then
+			-- the end of a practice we no longer follow (another one took over,
+			-- e.g. while the chat lock held that end) leaves the one we follow
+			if mask == "000" and practiceOwner and practiceOwner ~= sender then return end
 			if practiceOwner ~= sender then wipe(practicePick) end
 			practiceOwner = sender
 		else
 			practiceOwner = nil
 			wipe(practicePick)
 		end
-		for i, r in ipairs(RESIST) do SetNeed(r.key, strsub(mask, i, i) == "1") end
+		for i, r in ipairs(RESIST) do
+			local on = strsub(mask, i, i) == "1"
+			SetNeed(r.key, on)
+			-- that request ended: a pass owed from while requests were off answered it
+			if not on then optOutPassed[r.key] = nil end
+		end
 		lastSetter = sender
 		if not AnyNeed() then practiceOwner = nil; wipe(practicePick) end
 		Recompute()
@@ -1092,6 +1102,16 @@ end)
 -- ---------------------------------------------------------------------------
 -- Settings: Totem Bar > Raid Resistance (group buttons.resist_section)
 -- ---------------------------------------------------------------------------
+-- Turning requests on or off forgets what we passed on while they were off,
+-- except a pass the chat lock still holds: this client no longer knows that
+-- request, so that pass is the only answer the raid will get (it is dropped
+-- if the request ends first).
+local function ForgetOptOutPasses()
+	for key in pairs(optOutPassed) do
+		if not sendPass[key] then optOutPassed[key] = nil end
+	end
+end
+
 if SP.options and SP.options.args and SP.options.args.buttons and SP.options.args.buttons.args then
 	SP.options.args.buttons.args.resist_section = {
 		order = 3.72, type = "group", name = "Raid Resistance",
@@ -1110,7 +1130,7 @@ if SP.options and SP.options.args and SP.options.args.buttons and SP.options.arg
 				set = function(_, v)
 					if v then
 						SP.opt.resistRequests = nil
-						wipe(optOutPassed)
+						ForgetOptOutPasses()
 						Recompute()   -- the strip comes back with current coverage lines
 						return
 					end
@@ -1118,7 +1138,7 @@ if SP.options and SP.options.args and SP.options.args.buttons and SP.options.arg
 					-- a request we made ends for everyone; one we were asked for
 					-- passes to the next shaman at once
 					local mine = lastSetter == Player()
-					wipe(optOutPassed)
+					ForgetOptOutPasses()
 					if not mine then
 						for _, r in ipairs(RESIST) do
 							if need[r.key] then
