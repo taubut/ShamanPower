@@ -1480,6 +1480,55 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemBarVisibility()
 							end
 						},
+						-- Fade rules: soften the two hide options above (alpha only, so
+						-- nothing here is ever blocked in combat).
+						fadeInsteadOfHide = {
+							order = 3,
+							name = "Fade Instead of Hide",
+							desc = "When one of the hide options above applies, fade the totem bar to the opacity below instead of hiding it, so you can still see and click it.",
+							type = "toggle",
+							width = 1.0,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
+							end,
+							get = function(info) return ShamanPower.opt.fadeInsteadOfHide == true end,
+							set = function(info, val)
+								ShamanPower.opt.fadeInsteadOfHide = val or nil
+								ShamanPower:UpdateTotemBarVisibility(true)
+							end
+						},
+						fadeOpacity = {
+							order = 4,
+							name = "Faded Opacity",
+							desc = "How visible the totem bar stays while faded.",
+							type = "range",
+							min = 0.05, max = 0.9, step = 0.05, isPercent = true,
+							width = 1.0,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or ShamanPower.opt.fadeInsteadOfHide ~= true
+									or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
+							end,
+							get = function(info) return ShamanPower.opt.fadeOpacity or 0.25 end,
+							set = function(info, val)
+								ShamanPower.opt.fadeOpacity = val
+								ShamanPower:UpdateTotemBarVisibility(true)
+							end
+						},
+						showWithTarget = {
+							order = 5,
+							name = "Show When I Have a Target",
+							desc = "Out of combat, bring the totem bar back while you target something you can attack, even when a hide option above applies.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
+							end,
+							get = function(info) return ShamanPower.opt.showWithTarget == true end,
+							set = function(info, val)
+								ShamanPower.opt.showWithTarget = val or nil
+								ShamanPower:UpdateTotemBarVisibility(true)
+							end
+						},
 					}
 				},
 				settings_popout = {
@@ -9364,7 +9413,8 @@ do
 	HideFields(root.settings.args.settings_totemMode.args, { "dynamicMode", "dynamicModeDesc", "activeAsMainSpacer",
 		"rightClickCastsAssigned", "rightClickDestroysTotem", "compactOptions" })
 	HideFields(root.settings.args.settings_show.args, { "showparty", "showsingle" })
-	HideFields(root.settings.args.settings_visibility.args, { "hideOutOfCombat", "hideWhenNoTotems" })
+	HideFields(root.settings.args.settings_visibility.args, { "hideOutOfCombat", "hideWhenNoTotems",
+		"fadeInsteadOfHide", "fadeOpacity", "showWithTarget" })
 	HideFields(pages.layout_section.args, { "layout", "totem_flyout_direction", "totem_flyout_button_size",
 		"swap_flyout_clicks", "flyout_show_empty" })
 	HideFields(pages.scale_section.args, { "buffscale" })
