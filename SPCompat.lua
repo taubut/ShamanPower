@@ -628,9 +628,11 @@ function SPK()
 	return nil
 end
 
--- Called once the chat lockdown lifts (ADDON_RESTRICTION_STATE_CHANGED, Chat,
--- Inactive; the forced cvar too), so what was refused in it can be sent. Never
--- fires on a client without the lockdown.
+-- Called once the chat lockdown has lifted, so what was refused in it can be sent.
+-- Checked a moment after any restriction lifts (ADDON_RESTRICTION_STATE_CHANGED,
+-- Inactive; the forced cvars too) and after combat, since the lockdown may end
+-- with an encounter rather than with its own Chat restriction. Only the secrets
+-- regime checks; a callback with nothing to send does nothing.
 local chatUnlockCallbacks = {}
 function SPCompat.OnChatUnlocked(fn) chatUnlockCallbacks[#chatUnlockCallbacks + 1] = fn end
 local function chatUnlocked()
@@ -872,7 +874,6 @@ if SPCompat.secretsRegime then
 	-- the totem/cooldown/aura guards observe restrictions too: remember it
 	local origHit = hit
 	hit = function(kind) wasRestricted = true; origHit(kind) end
-	local CHAT_RESTRICTION = (Enum and Enum.AddOnRestrictionType and Enum.AddOnRestrictionType.Chat) or 5
 	local regen = CreateFrame("Frame")
 	regen:RegisterEvent("PLAYER_REGEN_ENABLED")
 	pcall(regen.RegisterEvent, regen, "ADDON_RESTRICTION_STATE_CHANGED")   -- fires for the forced-cvar rehearsal too
@@ -892,9 +893,10 @@ if SPCompat.secretsRegime then
 				wasRestricted = true
 				return
 			end
-			if rtype == CHAT_RESTRICTION then C_Timer.After(0.5, chatUnlocked) end
+			C_Timer.After(0.5, chatUnlocked)
 		else
 			clearIfUnrestricted()
+			C_Timer.After(2.5, chatUnlocked)
 		end
 		C_Timer.After(0.3, clearIfUnrestricted)
 		C_Timer.After(2.5, clearIfUnrestricted)
