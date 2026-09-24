@@ -1034,10 +1034,19 @@ function ShamanPower:RestoreTotemBarPosition()
 	-- saved a cooldown bar spot; one set up by 3.0 records how (setupPath).
 	if not d.defaultSpotChecked then
 		d.defaultSpotChecked = true
+		local o = self.opt
+		local upgrade = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
 		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
-		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not (d.position and d.position.anchor) and not legacy
-			and not self.opt.setupPath and (self.opt.setupDone or self.opt.cooldownBarPosition) then
+		if upgrade and not (d.position and d.position.anchor) and not legacy then
 			d.position = { anchor = "CENTER", x = 0, y = 0 }
+		end
+		-- Its cooldown bar likewise: with no saved spot and its old fields still at the
+		-- CENTER 0,-50 default, 2.x put it 50 of its own units below the centre, at its
+		-- own scale. (Old fields moved off that default convert where the bar is placed.)
+		if upgrade and not (o.cooldownBarPosition and o.cooldownBarPosition.anchor)
+			and (o.cooldownBarPosX or 0) == 0 and (o.cooldownBarPosY or -50) == -50
+			and (o.cooldownBarPoint or "CENTER") == "CENTER" and (o.cooldownBarRelPoint or "CENTER") == "CENTER" then
+			o.cooldownBarPosition = { anchor = "CENTER", x = 0, y = -50 * (o.cooldownBarScale or 0.9) }
 		end
 	end
 	local rec = self:TotemBarRecord()
@@ -1429,7 +1438,11 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 	elseif msg == "share" then
 		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
 	elseif msg == "check" then
-		if ShamanPower.RunReadyCheckSweep then ShamanPower:RunReadyCheckSweep("manual") end
+		if ShamanPower.RunReadyCheckSweep then
+			ShamanPower:RunReadyCheckSweep("manual")
+		elseif not isShaman then   -- the Ready Check module loads for shamans only
+			print("|cff0070ddShamanPower|r: /sp check is for shamans: it lists what a shaman is missing (shield, imbue, totem items).")
+		end
 	elseif msg == "restrict" or msg:sub(1, 9) == "restrict " then
 		ShamanPower:RestrictCommand(strtrim(msg:sub(10)))
 	else
@@ -1749,7 +1762,8 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 			pendingGone[slot] = nil
 		end
 		-- bound by the update that retired the old totem: if this totem's own update
-		-- still follows, it confirms the binding rather than retiring it
+		-- still follows, it comes with this cast (the same frame) and confirms the
+		-- binding rather than retiring it
 		if pending.element then entry.boundEarlyAt = now end
 	else
 		shadowPendingCast = { element = element, at = now }
@@ -1827,10 +1841,12 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 		shadowPendingCast = nil
 		return
 	end
-	-- a totem bound to this slot a moment ago by an update that came before its cast
-	-- (ShadowTotemCast): this is its own update arriving after all, not its end
+	-- a totem bound to this slot by an update that came before its cast (ShadowTotemCast):
+	-- its own update, arriving with that cast (the same frame, so the same GetTime()),
+	-- is not its end. Only that one: any later update, even a moment later, is the
+	-- totem going (killed as it landed) and must not be swallowed.
 	for _, entry in pairs(self.shadowTotems) do
-		if entry.slot == slot and entry.boundEarlyAt and now - entry.boundEarlyAt <= SHADOW_BIND_WINDOW then
+		if entry.slot == slot and entry.boundEarlyAt == now then
 			entry.boundEarlyAt = nil
 			return
 		end
@@ -4944,17 +4960,25 @@ function ShamanPower:SetCooldownBarUnlocked(unlocked)
 	if unlocked and not self.cooldownBar then unlocked = nil end   -- no bar (yet): nothing to move
 	self.cdBarMoverShown = unlocked and true or nil
 	if unlocked then
+		local function onMoved()
+			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
+			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
+			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
+		end
 		-- Moving only makes sense detached from the totem bar; detach (once)
 		-- and reposition, but NEVER re-attach when the mover is turned off.
 		if self.opt.cooldownBarLocked or self.cooldownBar:GetParent() ~= UIParent then
 			self.opt.cooldownBarLocked = nil
 			self:UpdateCooldownBarPosition(true)
+			-- just placed: read now, it can still report its old spot, so its box is
+			-- measured a frame later (the box exists now, for the Unlock UI's Reset)
+			self:GetBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved)
+			C_Timer.After(0, function()
+				if self.cdBarMoverShown then self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved) end
+			end)
+			return
 		end
-		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", function()
-			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
-			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
-			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
-		end)
+		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved)
 	else
 		self:HideBarMover("cooldownbar")
 	end
@@ -8390,7 +8414,14 @@ function ShamanPower:ConfirmResetSection(id)
 	self:ShowSPDialog({
 		key = "resetSection", title = "Reset settings", text = text,
 		buttons = {
-			{ text = "Reset", onClick = function() ShamanPower:ResetSection(id) end },
+			{ text = "Reset", onClick = function()
+				-- combat began while it was open: say so, and keep the question up for after the fight
+				if InCombatLockdown() then
+					print("|cff0070ddShamanPower|r: |cffe64a4asettings cannot be reset in combat - click Reset again after the fight.|r")
+					return true
+				end
+				ShamanPower:ResetSection(id)
+			end },
 			{ text = "Cancel" },
 		},
 	})
@@ -10902,7 +10933,9 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 		self.cooldownBar:EnableMouse(true)
 		self.cooldownBar:SetMovable(true)
 		self.cooldownBar:RegisterForDrag("LeftButton")
-		self.cooldownBar:Show()
+		-- shown only when UpdateCooldownBar would show it (switched on, something on
+		-- it): a Reset or a reposition never brings up an empty or disabled bar
+		if self.opt.showCooldownBar and #self.cooldownButtons > 0 then self.cooldownBar:Show() end
 	end
 
 	self:UpdateCooldownBarScale()
@@ -12328,6 +12361,15 @@ function ShamanPower:TotemBarEnabled()
 	return self.opt.enabled ~= false and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
 end
 
+-- Whether the layout puts the totem bar up at all right now: a shaman, switched
+-- on, and wanted in this kind of group (Use When Solo / Use in Party). The hide
+-- and fade rules only act on a bar this allows, so a target, a fade or a pull
+-- never brings back one the layout keeps down.
+function ShamanPower:TotemBarInUse()
+	return isShaman and self.opt.enabled and self.opt.miniBar.autobutton
+		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
+end
+
 function ShamanPower:SetTotemBarFramesShown(shown)
 	if InCombatLockdown() then self._totemBarShownPending = shown; return end
 	self._totemBarShownPending = nil
@@ -12436,6 +12478,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 		return
 	end
 	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
+	if not self:TotemBarInUse() then return end     -- the layout keeps it down (solo / party choice)
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -15129,14 +15172,112 @@ local function holdMessage(self, msg, type, target)
 	heldMessages[#heldMessages + 1] = { msg, type, target, key = key,
 		instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
 end
+-- Blizzard lets each addon prefix send about 10 messages at once and then 1 a
+-- second, and refuses the rest; ChatThrottleLib only paces by bytes. So every
+-- message SendMessage lets through leaves by one queue: up to 10 straight away,
+-- then one a second, in the order they were made. A newer message for the same
+-- thing (a held key above, or a whole-state SELF / *SYNC) replaces one still
+-- waiting. The queue belongs to the group it was made in (DropHeldMessages) and
+-- waits out a chat lockdown rather than losing what it holds (SendHeldMessages
+-- starts it again). Nothing runs while it is empty.
+local outbound = {}
+do
+	local BURST = 10                   -- at once; then one more for each second since
+	local SNAPSHOT = { SELF = true, RCSYNC = true, MTSYNC = true, DRUMSYNC = true }   -- each carries the whole state
+	local allowance, allowanceAt = BURST, 0
+	local queue, timerSet = nil, false
+
+	-- the channel is worked out as it leaves: the group may have changed while it waited
+	local function transmit(self, msg, type, target)
+		if not type then
+			if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
+				type = "INSTANCE_CHAT"
+			else
+				if IsInRaid() then
+					type = "RAID"
+				else
+					type = "PARTY"
+				end
+			end
+		end
+		if target then
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, "WHISPER", target)
+			--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: WHISPER | target name: " .. target)
+		else
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, type)
+			--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: " .. type)
+		end
+	end
+	local function regain()
+		local now = GetTime()
+		allowance = math.min(BURST, allowance + (now - allowanceAt))
+		allowanceAt = now
+	end
+	local drain
+	local function schedule()
+		if timerSet then return end
+		timerSet = true
+		C_Timer.After(1 - allowance + 0.01, drain)   -- when the next one is allowed
+	end
+	drain = function()
+		timerSet = false
+		if not queue then return end
+		if SPK and SPK() == true then return end   -- chat lockdown: SendHeldMessages starts it again
+		if GetNumGroupMembers() == 0 then queue = nil return end
+		regain()
+		local instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false
+		while queue[1] and allowance >= 1 do
+			local m = tremove(queue, 1)
+			-- made in the other kind of group: dropped, as a held one is
+			if m.instance == instance then
+				allowance = allowance - 1
+				transmit(ShamanPower, m[1], m[2], m[3])
+			end
+		end
+		if queue[1] then schedule() else queue = nil end
+	end
+
+	function outbound.send(self, msg, type, target)
+		if not queue then
+			regain()
+			if allowance >= 1 then
+				allowance = allowance - 1
+				transmit(self, msg, type, target)
+				return
+			end
+			queue = {}
+		end
+		local kind = strmatch(msg, "^(%u+)") or ""
+		local key = (HOLD_IN_LOCKDOWN[kind] and heldKey(self, msg)) or (SNAPSHOT[kind] and kind) or nil
+		if key then
+			for i = #queue, 1, -1 do
+				local m = queue[i]
+				if m.key == key and m[3] == target then tremove(queue, i) end
+			end
+		end
+		queue[#queue + 1] = { msg, type, target, key = key,
+			instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
+		schedule()
+	end
+	function outbound.resume()
+		if queue and not timerSet then drain() end
+	end
+	function outbound.drop()
+		queue = nil
+	end
+end
+
 -- A held message belongs to the group it was made in. The channel is worked out
 -- again when it is sent, so leaving that group or joining another (a battleground,
 -- a Dungeon Finder group) drops it (GROUP_LEFT / GROUP_JOINED), and one made in the
 -- other kind of group is not sent: a held CLEAR must never wipe another group's calls.
+-- The messages still waiting to leave go with it.
 function ShamanPower:DropHeldMessages()
 	heldMessages = nil
+	outbound.drop()
 end
 function ShamanPower:SendHeldMessages()
+	outbound.resume()   -- what waited through the lockdown leaves first
 	local held = heldMessages
 	heldMessages = nil
 	if held then
@@ -15168,24 +15309,7 @@ function ShamanPower:SendMessage(msg, type, target, force)
 		if force or lastMsg ~= dedupKey or (now - lastMsgTime) > DEDUP_WINDOW then
 			lastMsg = dedupKey
 			lastMsgTime = now
-			if not type then
-				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-					type = "INSTANCE_CHAT"
-				else
-					if IsInRaid() then
-						type = "RAID"
-					else
-						type = "PARTY"
-					end
-				end
-			end
-			if target then
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, "WHISPER", target)
-				--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: WHISPER | target name: " .. target)
-			else
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, type)
-				--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: " .. type)
-			end
+			outbound.send(self, msg, type, target)
 		end
 	end
 end
@@ -16276,8 +16400,7 @@ function ShamanPower:UpdateLayout()
 	-- Show mini totem bar only if:
 	-- 1. Is a shaman, addon enabled, autobutton option on
 	-- 2. In party/raid or solo (based on settings)
-	local showMiniBar = isShaman and self.opt.enabled and self.opt.miniBar.autobutton
-		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
+	local showMiniBar = self:TotemBarInUse()   -- the same test the hide and fade rules make
 	if showMiniBar then
 		self:SetTotemBarFramesShown(true)
 		-- Update the mini totem bar icons and spells
@@ -18309,7 +18432,11 @@ function ShamanPower:ConfirmDeleteLoadout(nr, name)
 		key = "deleteLoadout", title = "Delete totem set", text = "Delete totem set " .. tostring(name) .. "?",
 		buttons = {
 			{ text = "Delete", onClick = function()
-				if InCombatLockdown() then return end
+				-- combat began while it was open: say so, and keep the question up for after the fight
+				if InCombatLockdown() then
+					print("|cff0070ddShamanPower|r: |cffe64a4atotem sets cannot be deleted in combat - click Delete again after the fight.|r")
+					return true
+				end
 				ShamanPower:DeleteLoadout(nr)
 				if ShamanPower.RefreshLoadoutArgs then ShamanPower:RefreshLoadoutArgs() end
 				ShamanPower:RefreshConfig()

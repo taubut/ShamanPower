@@ -240,6 +240,7 @@ do
 		f:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 		f:RegisterEvent("PLAYER_ENTERING_WORLD")
 		f:SetScript("OnEvent", function() cache.at = -REFRESH end)   -- the next read re-reads
+		SPCompat._imbueEvents = f   -- /spperf stress measures it (registered below, with StressRegister)
 	end
 end
 
@@ -2064,6 +2065,9 @@ local stressFrames = setmetatable({}, { __mode = "k" })
 function SPCompat.StressRegister(frame, label)
 	if frame then stressFrames[frame] = label or "frame" end
 end
+-- this file's own listener, made further up before StressRegister existed (the
+-- /sptrace logger is left out on purpose: the pretend raid would fill its log)
+if SPCompat._imbueEvents then SPCompat.StressRegister(SPCompat._imbueEvents, "core (imbue cache)") end
 
 local STRESS_RATES = {        -- injected events per second
 	aura = 400,                -- UNIT_AURA over raid1-40, party1-4, player, target, nameplate1-20
@@ -2214,6 +2218,8 @@ local function StartStress()
 		print(string.format("  |cffffd200stress|r: %d events injected in %.1f s (aura %.0f/s, cast %.0f/s, comm %.0f/s [ShamanPower %d, other addons %d], roster %d, pet %d)",
 			total, window, c.aura / window, (c.castDone + c.castSent) / window, (c.commSP + c.commOther) / window, c.commSP, c.commOther, c.roster, c.pet))
 		print("  stress: measures dispatch and filtering cost; aura contents are empty solo (raid units do not exist).")
+		print("  stress does NOT cover real raid token delivery (which unit events a real raid sends, and to which listeners) or other players (their clients, what they send and when).")
+		print("  stress: listeners that did not register with it are not measured either, so this is not a 40-player sign-off.")
 		local rows = {}
 		for label, r in pairs(self.cost) do rows[#rows + 1] = { label = label, r = r } end
 		table.sort(rows, function(a, b) return a.r.ms > b.r.ms end)
