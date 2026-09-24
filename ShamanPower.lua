@@ -14959,13 +14959,16 @@ end
 function ShamanPower:SetupUnitEventFilters()
 	if unitEventFrames then return end
 	unitEventFrames = {}
+	local stress = SPCompat and SPCompat.StressRegister
 	local cast = CreateFrame("Frame")
+	if stress then stress(cast, "core (casts)") end
 	cast:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 	cast:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")   -- Earth Shield cast tracking
 	cast:SetScript("OnEvent", unitEventDispatch)
 	unitEventFrames.cast = cast
 	for _, pair in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
 		local f = CreateFrame("Frame")
+		if stress then stress(f, "core (auras)") end
 		f:RegisterUnitEvent("UNIT_AURA", pair[1], pair[2])
 		f:SetScript("OnEvent", unitEventDispatch)
 		unitEventFrames[#unitEventFrames + 1] = f
@@ -14973,6 +14976,7 @@ function ShamanPower:SetupUnitEventFilters()
 	-- the Earth Shield carrier outside your party (a raid tank): its own frame,
 	-- re-pointed whenever the carrier or the raid's order changes
 	local carrier = CreateFrame("Frame")   -- roster changes re-point it (see the auraGen block above)
+	if stress then stress(carrier, "core (Earth Shield carrier)") end
 	carrier:SetScript("OnEvent", unitEventDispatch)
 	unitEventFrames.carrier = carrier
 	self:UpdateAuraCarrierFilter()
