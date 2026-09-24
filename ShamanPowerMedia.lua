@@ -10,7 +10,9 @@ if not LSM then return end
 
 local FONTS = "Interface\\AddOns\\ShamanPower\\Media\\Fonts\\"
 local SOUNDS = "Interface\\AddOns\\ShamanPower\\Media\\Sounds\\"
--- every script LibSharedMedia knows, so the fonts are offered on any client language
+-- Western (Latin-script) client languages only: LibSharedMedia leaves a font out
+-- on koKR, ruRU, zhCN and zhTW clients unless it is flagged for them, and these
+-- fonts are not flagged, so they are not offered there
 local LATIN = LSM.LOCALE_BIT_western
 
 for name, file in pairs({
