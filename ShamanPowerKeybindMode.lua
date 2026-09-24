@@ -321,13 +321,24 @@ end
 
 -- Hide Out of Combat and Hide When No Totems really hide the totem bar, and the
 -- mode is out of combat only: put back on screen what that rule hid (the same
--- pieces it shows) for the length of the mode. On leaving, the rule decides
--- again from scratch.
+-- pieces it shows) for the length of the mode, and keep the rule out of it
+-- meanwhile (its 5 Hz check, a target change), or it hides the bar again
+-- within a fifth of a second. On leaving, the rule decides again from scratch.
 local barShown = false
+local updateVisibility = SP.UpdateTotemBarVisibility
+if updateVisibility then
+	function SP:UpdateTotemBarVisibility(...)
+		if ACTIVE then return end
+		return updateVisibility(self, ...)
+	end
+end
+
 local function showHiddenTotemBar()
 	if not (SP.totemBarHidden and SP.autoButton and SP.opt) then return end
 	if SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() then return end
 	if SP.TotemBarEnabled and not SP:TotemBarEnabled() then return end
+	if SP.DisableUpdateSubsystem then SP:DisableUpdateSubsystem("totemVisibility") end   -- Leave turns it back on
+	SP.totemBarHidden = false   -- what the rule says now; Grid and the Earth Shield button read it
 	SP.autoButton:Show()
 	for element = 1, 4 do
 		local btn = SP.totemButtons and SP.totemButtons[element]
@@ -337,6 +348,9 @@ local function showHiddenTotemBar()
 	if dropAll and SP.opt.showDropAllButton ~= false then dropAll:Show() end
 	local es = _G["ShamanPowerEarthShieldBtn"]
 	if es and SP.HasEarthShield and SP:HasEarthShield() then es:Show() end
+	-- Grid draws its rows, their totem choices and the split hosts from that
+	-- answer: lay them out again for a shown bar
+	if SP.GridActive and SP:GridActive() and SP.RefreshGridStyle then SP:RefreshGridStyle() end
 	barShown = true
 end
 
