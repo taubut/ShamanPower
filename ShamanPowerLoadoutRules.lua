@@ -14,6 +14,12 @@
 -- totem (ShamanPowerResist.lua). A zone rule's request waits for a raid to
 -- form. The request ends when the boss dies (a wipe keeps it for the next
 -- pull, also while your ghost runs back) or when you leave the zone alive.
+-- An automatic switch keeps a resistance the raid asked you for (the
+-- Resist file puts it back on top of the new loadout).
+--
+-- Nothing switches while you are dead: a ghost released outside after a wipe
+-- has not left, and one running back has not arrived. Where you are is looked
+-- at again once you are alive (PLAYER_UNGHOST / PLAYER_ALIVE).
 --
 -- Settings live in the AceDB profile (opt.loadoutRules). Rules point at a
 -- loadout by a stable id stored on the loadout itself (lo.uid), because the
@@ -213,7 +219,11 @@ end
 -- (the matching rule changes), never again while you stay: a subzone change
 -- inside the same place must not undo a target rule's switch. silent: the
 -- first check after login, a /reload or a profile change, which is not an
--- arrival: the rule is noted and your loadout stays.
+-- arrival: the rule is noted and your loadout stays. Its resistance is still
+-- requested then, on purpose: after a /reload this client no longer knows the
+-- request and nobody resends it to the one who made it, so without asking
+-- again leaving the zone could not end it. The cost: a zone resistance the
+-- raid unticked by hand comes back after the requester's /reload.
 -- Returns true when the matching rule switches loadouts (then it wins over
 -- the content type; a rule that only requests a resistance does not).
 local lastZoneRule
@@ -248,12 +258,28 @@ local function CheckEncounterZone()
 	end
 end
 
-local function CheckContent()
+-- arriving: Switch Loadouts Automatically was just turned on, which counts as
+-- arriving where you are (the zone rule, and inside an instance the content
+-- loadout, apply); a login, /reload or profile change does not.
+local arriveWhenAlive   -- turned on while dead: arrive once alive
+
+local function CheckContent(arriving)
 	local d = DB()
 	if not (d and d.enabled) then return end
 	CheckEncounterZone()
+	-- dead: lastBucket and returnTo stay as they are until you are alive again
+	if UnitIsDeadOrGhost("player") then
+		if arriving then arriveWhenAlive = true end
+		return
+	end
+	arriving = arriving or arriveWhenAlive
+	arriveWhenAlive = nil
 	local bucket = ContentBucket()
 	local previous = lastBucket
+	if previous == nil and arriving then
+		previous = "none"
+		if bucket == "none" then d.returnTo = nil end   -- nothing to go back from
+	end
 	lastBucket = bucket
 	-- a login or /reload (in or out of an instance) is not "arriving" anywhere:
 	-- keep the loadout you have
@@ -360,8 +386,8 @@ function SP:UpdateLoadoutRuleEvents()
 		pending = nil
 		ReleaseResist("zone")
 		ReleaseResist("encounter")
-		-- turning it back on later is not arriving anywhere either
-		lastBucket, lastZoneRule = nil, nil
+		-- turned back on later, it looks again from scratch (as an arrival)
+		lastBucket, lastZoneRule, arriveWhenAlive = nil, nil, nil
 		return
 	end
 	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -369,14 +395,14 @@ function SP:UpdateLoadoutRuleEvents()
 	frame:RegisterEvent("ZONE_CHANGED")
 	frame:RegisterEvent("ZONE_CHANGED_INDOORS")
 	frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	-- alive again: a ghost that ran back or took the spirit healer, or a
+	-- resurrection before releasing
+	pcall(frame.RegisterEvent, frame, "PLAYER_UNGHOST")
+	pcall(frame.RegisterEvent, frame, "PLAYER_ALIVE")
 	if HasRule("target") then frame:RegisterEvent("PLAYER_TARGET_CHANGED") end
 	if HasRule("encounter") then
 		pcall(frame.RegisterEvent, frame, "ENCOUNTER_START")
-		if FOREVER then
-			pcall(frame.RegisterEvent, frame, "ENCOUNTER_END")
-			-- a ghost that ran back (or took the spirit healer) after a wipe
-			pcall(frame.RegisterEvent, frame, "PLAYER_UNGHOST")
-		end
+		if FOREVER then pcall(frame.RegisterEvent, frame, "ENCOUNTER_END") end
 	end
 end
 
@@ -409,7 +435,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
 		CheckContent()
 	elseif event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
 		local d = DB()
-		if d and d.enabled then CheckZoneRules(lastBucket == nil) end
+		-- a ghost's run is not arriving anywhere (looked at again once alive)
+		if d and d.enabled and not UnitIsDeadOrGhost("player") then CheckZoneRules(lastBucket == nil) end
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		CheckTarget()
 	elseif event == "ENCOUNTER_START" then
@@ -419,9 +446,9 @@ frame:SetScript("OnEvent", function(_, event, ...)
 		-- a kill ends the rule's resistance request; a wipe keeps it for the next pull
 		local success = select(5, ...)
 		if not (issecretvalue and issecretvalue(success)) and success == 1 then ReleaseResist("encounter") end
-	elseif event == "PLAYER_UNGHOST" then
-		local d = DB()
-		if d and d.enabled then CheckEncounterZone() end
+	elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
+		-- PLAYER_ALIVE also fires on releasing (still a ghost): CheckContent waits
+		CheckContent()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		local p = pending
 		pending = nil
@@ -468,10 +495,10 @@ local STATIC = {
 	},
 	enabled = {
 		order = 1, type = "toggle", width = "full", name = "Switch Loadouts Automatically",
-		desc = "Turn on the content, zone, target and encounter switching below. Off by default.",
+		desc = "Turn on the content, zone, target and encounter switching below. Off by default. Turning it on inside an instance or a rule's zone switches right away. Nothing switches while you are dead.",
 		disabled = function() return SP.opt.enabled == false end,
 		get = function() local d = DB(); return d and d.enabled == true or false end,
-		set = function(_, v) local d = DB(); d.enabled = v and true or nil; SP:UpdateLoadoutRuleEvents(); if v then CheckContent() end end,
+		set = function(_, v) local d = DB(); d.enabled = v and true or nil; SP:UpdateLoadoutRuleEvents(); if v then CheckContent(true) end end,
 	},
 	announce = {
 		order = 2, type = "toggle", width = "full", name = "Say in Chat When It Switches",
@@ -584,7 +611,8 @@ RebuildRuleArgs = function()
 			order = base + 4.5, type = "select", name = "Also Request Resistance", width = 1.5,
 			desc = "Ask the raid for this resistance totem when the rule fires (zone or encounter rules; target rules do not request it)."
 				.. " An encounter rule asks with the pull, so it covers the next attempt; a zone rule has it down before the first pull."
-				.. " One shaman is picked and asked; it ends when the boss dies (a wipe keeps it) or when you leave the zone.",
+				.. " One shaman is picked and asked; it ends when the boss dies (a wipe keeps it) or when you leave the zone."
+				.. " A /reload inside a zone rule's zone asks again, even if the raid unticked it.",
 			hidden = function() return not (FOREVER and SP.RESIST_REQUESTS) end,
 			disabled = Disabled,
 			values = { none = "None", fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" },
