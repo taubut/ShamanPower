@@ -3841,13 +3841,15 @@ function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
 		ok:SetScript("OnClick", function() backupDlg:Hide() end)
 		backupDlg.close:SetScript("OnClick", function() ok:Click() end)
 		-- OK, the X and Escape all close it, and each carries the flow on (the reload
-		-- after a layout is applied): a frame later, so a window that opens is not
-		-- closed by the same Escape. A hidden parent (Alt+Z) is not a close.
+		-- after a layout is applied). A hidden parent (Alt+Z) is not a close. On
+		-- Forever the flow goes on a frame later, so the reload prompt it opens is
+		-- not closed by the same Escape; on Anniversary the reload runs at once,
+		-- inside the click or key press, as it always has.
 		backupDlg.spOnHide = function(self)
 			if self:IsShown() or not self.onOk then return end
 			local f = self.onOk
 			self.onOk = nil
-			C_Timer.After(0, f)
+			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then C_Timer.After(0, f) else f() end
 		end
 	end
 	backupDlg.onOk = onOk
