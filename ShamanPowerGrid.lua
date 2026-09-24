@@ -298,11 +298,13 @@ local function rowHost(element)
 	if SP.opt.gridSplit then
 		-- the row frame's own opacity applies to the button again (see below)
 		if button then button:SetIgnoreParentAlpha(false) end
+		local created
 		if not SP.poppedOutFrames[key] then
 			SP.opt.poppedOut[key] = nil
 			SP:PopOutElementWithFlyout(element)
 			local frame = SP.poppedOutFrames[key]
 			if frame then
+				created = true
 				local rec = SP.opt.gridSplitPositions and SP.opt.gridSplitPositions[key]
 				if not (rec and SP:ApplyPositionRecord(frame, rec)) then
 					frame:ClearAllPoints()
@@ -313,6 +315,10 @@ local function rowHost(element)
 		SP.opt.poppedOut[key] = true
 		local frame, row = SP.poppedOutFrames[key], rows[element]
 		if frame and row.dragHost ~= frame then
+			-- an element already popped out becomes its row as it is: once it has a
+			-- row spot of its own, it goes there (its pop-out spot stays saved apart)
+			local rec = not created and SP.opt.gridSplitPositions and SP.opt.gridSplitPositions[key]
+			if rec then SP:ApplyPositionRecord(frame, rec) end
 			row.dragHost, row.dragStart, row.dragStop = frame, frame:GetScript("OnDragStart"), frame:GetScript("OnDragStop")
 			frame:SetScript("OnDragStart", splitDragStart)
 			frame:SetScript("OnDragStop", splitDragStop)

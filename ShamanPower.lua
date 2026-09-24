@@ -5078,6 +5078,20 @@ function ShamanPower:ShowPopOutSettingsPanel(key, popOutFrame)
 	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for pop-out settings")
 end
 
+-- Where a pop-out's spot is saved. Under Grid "Split by Element" each element's
+-- pop-out frame is a Grid row with its own spot (ShamanPowerGrid.lua), so a trip
+-- through Grid never overwrites the element's regular pop-out spot.
+local GRID_ROW_KEYS = { totem_earth = true, totem_fire = true, totem_water = true, totem_air = true }
+local function PopOutPositions(key)
+	local o = ShamanPower.opt
+	if GRID_ROW_KEYS[key] and o.gridSplit and ShamanPower.GridActive and ShamanPower:GridActive() then
+		o.gridSplitPositions = o.gridSplitPositions or {}
+		return o.gridSplitPositions
+	end
+	o.poppedOutPositions = o.poppedOutPositions or {}
+	return o.poppedOutPositions
+end
+
 -- Set scale for a pop-out frame
 function ShamanPower:SetPopOutScale(key, scale)
 	local frame = self.poppedOutFrames[key]
@@ -5097,9 +5111,8 @@ function ShamanPower:SetPopOutScale(key, scale)
 			frame:ClearAllPoints()
 			frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", centerX / scale, centerY / scale)
 
-			-- Save new position
-			self.opt.poppedOutPositions = self.opt.poppedOutPositions or {}
-			self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
+			-- Save new position (a Grid split row keeps its own)
+			PopOutPositions(key)[key] = self:SavePositionRecord(frame)
 		else
 			frame:SetScale(scale)
 		end
@@ -5434,8 +5447,7 @@ function ShamanPower:PopOutElementWithFlyout(element)
 			local popped = ShamanPower.opt.poppedOut
 			if current and current.totemButton == button and popped and popped[currentKey] then
 				current:StopMovingOrSizing()
-				ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-				ShamanPower.opt.poppedOutPositions[currentKey] = ShamanPower:SavePositionRecord(current)
+				PopOutPositions(currentKey)[currentKey] = ShamanPower:SavePositionRecord(current)   -- a Grid split row keeps its own
 			end
 		end)
 	end
@@ -6088,6 +6100,15 @@ function ShamanPower:IsElementShown(element)
 	return true
 end
 
+-- Dynamic Mode shows (and casts) the totem that is down instead of the assigned
+-- one. Grid can sit on top of a Dynamic setup; with its "Left-Click Also
+-- Assigns" off a drop keeps the assignment, so the row's leading button keeps
+-- showing the assigned totem too (as DropSetsAssignment does for the assignment).
+function ShamanPower:ShowsActiveTotemOnBar()
+	if not self.opt.dynamicTotemMode then return false end
+	return not (self.opt.gridStyle == true and self.GridActive and self:GridActive() and self.opt.gridDropAssigns == false)
+end
+
 function ShamanPower:PositionTotemButtons()
 	if not self.autoButton then return end
 
@@ -6173,7 +6194,7 @@ function ShamanPower:UpdateTotemButtons()
 
 			-- Get totem spell - Dynamic Mode uses active totem, Normal Mode uses assignment
 			local totemIndex
-			if self.opt.dynamicTotemMode then
+			if self:ShowsActiveTotemOnBar() then
 				local activeIndex = self:GetActiveTotemIndex(element)
 				if activeIndex then
 					totemIndex = activeIndex
@@ -12493,7 +12514,7 @@ function ShamanPower:UpdateMiniTotemBar()
 
 				-- Dynamic Mode: use currently active totem instead of assignment
 				local totemIndex
-				if self.opt.dynamicTotemMode then
+				if self:ShowsActiveTotemOnBar() then
 					-- First try to get the active totem
 					local activeIndex = self:GetActiveTotemIndex(element)
 					if activeIndex then
