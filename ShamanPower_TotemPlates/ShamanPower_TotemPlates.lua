@@ -551,19 +551,22 @@ function SP:OnTotemPlateUnitAdded(unitId)
     local nameplate = C_NamePlate.GetNamePlateForUnit(unitId)
     if not nameplate then return end
 
-    -- Parse GUID to get NPC ID
+    -- Parse GUID to get NPC ID. Players' and pets' plates (most plates in PvP)
+    -- are ruled out by the prefix before any string is split.
     local guid = UnitGUID(unitId)
-    if not guid then return end
+    if not guid or (issecretvalue and issecretvalue(guid)) then return end
+    if not strfind(guid, "^Creature%-") then return end
 
-    local npcType, _, _, _, _, npcId = strsplit("-", guid)
-    if npcType ~= "Creature" then return end
-
-    npcId = tonumber(npcId)
+    local npcId = tonumber((select(6, strsplit("-", guid))))
     local totemInfo = npcIdToTotem[npcId]
     if not totemInfo then return end  -- Not a totem
 
-    -- Check if this specific totem is enabled
-    local totemKey = "totem_" .. totemInfo.name:gsub(" ", "_"):lower()
+    -- Check if this specific totem is enabled (the key is built once per totem type)
+    local totemKey = totemInfo.settingsKey
+    if not totemKey then
+        totemKey = "totem_" .. totemInfo.name:gsub(" ", "_"):lower()
+        totemInfo.settingsKey = totemKey
+    end
     if settings.perTotem and settings.perTotem[totemKey] == false then
         self:ToggleNameplateAddon(nameplate, true)
         return
