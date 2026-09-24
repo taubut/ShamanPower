@@ -3697,18 +3697,18 @@ ShamanPower.options = {
 							-- a function: the minimap file loads after this one
 							name = function() return "The optional range overlay shows non-shamans whether OTHER shamans' party buffs are in range."
 								.. " It requires ShamanPower [Totem Range]."
-								.. (not ShamanPower.MinimapTotemsAvailable and "\n" or "\n\nShamans can also show their own recorded"
+								.. ((not ShamanPower.MinimapTotemsAvailable or not isShaman) and "\n" or "\n\nShamans can also show their own recorded"
 								.. " totem drops on the minimap in the open world. Missing map calibration hides markers;"
 								.. " instances never show them.\n") end,
 						},
 						minimapTotemMarkers = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable end,
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
 							order = 0.1, type = "toggle", name = "Totem markers on the minimap", width = "full",
 							get = function() return ShamanPower.opt.minimapTotemMarkers ~= false end,
 							set = function(_, value) ShamanPower.opt.minimapTotemMarkers = value; ShamanPower:RefreshMinimapTotems() end,
 						},
 						minimapTotemRings = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable end,
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
 							order = 0.2, type = "toggle", name = "Estimated totem radius rings", width = "full",
 							desc = "Uses the addon's range model, not guaranteed exact spell or talent-modified reach."
 								.. " Unknown radii show only a pin. Relocated totems need a fresh drop.",
@@ -3716,7 +3716,7 @@ ShamanPower.options = {
 							set = function(_, value) ShamanPower.opt.minimapTotemRings = value; ShamanPower:RefreshMinimapTotems() end,
 						},
 						minimapTotemPinSize = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable end,
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
 							order = 0.3, type = "range", name = "Minimap totem pin size", min = 8, max = 28, step = 1,
 							get = function() return ShamanPower.opt.minimapTotemPinSize or 14 end,
 							set = function(_, value) ShamanPower.opt.minimapTotemPinSize = value; ShamanPower:RefreshMinimapTotems() end,
