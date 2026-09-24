@@ -4630,6 +4630,20 @@ end
 -- ---------------------------------------------------------------------------
 ShamanPower.barMovers = ShamanPower.barMovers or {}
 local MOVER_MIN_W, MOVER_MIN_H = 60, 24   -- a box is never smaller (an empty cooldown bar is 1x1)
+local MOVER_PAD = 4                       -- label inset from the box's edges
+
+-- The label wraps inside the box, never "...": remember its longest word, the
+-- narrowest the box may get without splitting one.
+local function SetBarMoverLabel(mover, label)
+	if label == mover.spLabel then return end
+	local text, wordW = mover.text, 0
+	for word in label:gmatch("%S+") do
+		text:SetText(word)
+		wordW = math.max(wordW, (text.GetUnboundedStringWidth and text:GetUnboundedStringWidth()) or text:GetStringWidth())
+	end
+	text:SetText(label)
+	mover.spLabel, mover.spWordW = label, math.ceil(wordW)
+end
 
 -- Every box on screen goes back over its frame a frame after a drop, once the
 -- moved frames are laid out: read in the same frame as the SetPoint, a frame
@@ -4646,7 +4660,7 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local mover = self.barMovers[key]
 	if mover then
 		mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
-		if label then mover.text:SetText(label) end
+		if label then SetBarMoverLabel(mover, label) end
 		return mover
 	end
 	mover = CreateFrame("Frame", "ShamanPowerMover_" .. key, UIParent)
@@ -4670,9 +4684,10 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 		end
 	end
 	local text = mover:CreateFontString(nil, "OVERLAY")
-	text:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+	text:SetFontObject("ShamanPowerDialogFontText")   -- ShamanPowerDialog.lua's row font
 	text:SetPoint("CENTER")
-	text:SetTextColor(1, 1, 1)
+	text:SetJustifyH("CENTER")
+	text:SetWordWrap(true)
 	mover.text = text
 
 	mover:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -4715,7 +4730,7 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	mover.key = key
 	self.barMovers[key] = mover
 	mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
-	mover.text:SetText(label or "Move")
+	SetBarMoverLabel(mover, label or "Move")
 	return mover
 end
 
@@ -4733,8 +4748,12 @@ function ShamanPower:ShowBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local cx = (sizeFrame:GetLeft() + sizeFrame:GetRight()) / 2 * es
 	local cy = (sizeFrame:GetTop() + sizeFrame:GetBottom()) / 2 * es
 	local mes = mover:GetEffectiveScale()
+	-- at least as wide as the label's longest word and tall enough for its lines
+	local w = math.max(W / mes, MOVER_MIN_W, mover.spWordW + 2 * MOVER_PAD)
+	mover.text:SetWidth(w - 2 * MOVER_PAD)
+	local h = math.max(H / mes, MOVER_MIN_H, math.ceil(mover.text:GetStringHeight()) + 2 * MOVER_PAD)
 	mover:ClearAllPoints()
-	mover:SetSize(math.max(W / mes, MOVER_MIN_W), math.max(H / mes, MOVER_MIN_H))
+	mover:SetSize(w, h)
 	mover:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / mes, cy / mes)
 	mover:Show()
 end
