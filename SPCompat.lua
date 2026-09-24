@@ -205,14 +205,23 @@ do
 	local function remaining(t)
 		if not t.has or not t.expiresAt then return nil end
 		local ms = t.expiresAt - GetTime() * 1000
-		if ms <= 0 then cache.at = -REFRESH return 0 end   -- ran out: re-read next time
+		if ms <= 0 then return 0 end
 		return ms
+	end
+	-- a cached enchant whose expiry has passed: gone, or renewed without an event
+	-- (a totem's enchant); only a read can tell
+	local function ranOut(t)
+		return t.has and t.expiresAt and t.expiresAt <= GetTime() * 1000
 	end
 
 	function SPCompat.GetWeaponEnchantInfo()
 		if useList then
-			if GetTime() - cache.at >= REFRESH then refresh() end
 			local m, o = cache.main, cache.off
+			local age = GetTime() - cache.at
+			-- re-read on the insurance clock, or at once (at most 4 times a second)
+			-- when a cached enchant has run out, so a finished enchant is never
+			-- reported as still there
+			if age >= REFRESH or (age >= 0.25 and (ranOut(m) or ranOut(o))) then refresh() end
 			return m.has, remaining(m), m.charges, m.id, o.has, remaining(o), o.charges, o.id
 		end
 		if _G.GetWeaponEnchantInfo then return _G.GetWeaponEnchantInfo() end
