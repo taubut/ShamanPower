@@ -1563,6 +1563,25 @@ SlashCmdList["SPDIAG"] = function(msg)
 				add("sample %s -> shaman %s target %s", q(es), q(a2), q(b2))
 			end
 		end
+		-- the keys real traffic produced: a sender whose key differs from the roster
+		-- key above is the one whose assignments and leader checks fail
+		local function keys(t)
+			local out = {}
+			if type(t) == "table" then for k in pairs(t) do out[#out + 1] = q(k) end end
+			table.sort(out)
+			return #out > 0 and table.concat(out, ", ") or "none"
+		end
+		local seen = SP and SP.seenSenderKeys
+		if seen and next(seen) then
+			for key, received in pairs(seen) do
+				add("message sender: key %s (arrived as %s)  leader %s  shaman data %s", q(key), q(received),
+					tostring(SP.CheckLeader and SP:CheckLeader(key)), tostring(SP.AllShamans and SP.AllShamans[key] ~= nil))
+			end
+		else
+			add("message senders: none seen this session")
+		end
+		add("shaman data keys (AllShamans): %s", keys(SP and SP.AllShamans))
+		add("Windfury report keys: %s", keys(SP and SP.WindfuryRangeData))
 		return ShowCopyWindow("ShamanPower names", table.concat(lines, "\n"))
 	end
 	if msg == "ready" then
@@ -2169,11 +2188,14 @@ local function StartStress()
 	function st:Stop()
 		driver:SetScript("OnUpdate", nil)
 		-- the fake senders' Windfury reports would otherwise sit there until they expire
-		if SP and type(SP.WindfuryRangeData) == "table" then
-			for name in pairs(SP.WindfuryRangeData) do
-				if type(name) == "string" and name:find("^Stressraider") then SP.WindfuryRangeData[name] = nil end
+		-- (and in the sender list /spdiag names prints)
+		local function dropFakes(t)
+			if type(t) ~= "table" then return end
+			for name in pairs(t) do
+				if type(name) == "string" and name:find("^Stressraider") then t[name] = nil end
 			end
 		end
+		if SP then dropFakes(SP.WindfuryRangeData); dropFakes(SP.seenSenderKeys) end
 	end
 
 	function st:Report(window)

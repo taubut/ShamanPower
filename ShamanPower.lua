@@ -15413,8 +15413,23 @@ function ShamanPower:QueueCommRefresh()
 	C_Timer.After(0, commRefresh)
 end
 
+-- Every sender key seen this session, and the form it arrived in, for /spdiag
+-- names: one entry per player, nothing allocated per message after the first.
+ShamanPower.seenSenderKeys = {}
+
+-- The player a message names, keyed like its sender. Anniversary keeps the realm
+-- on a player from another realm ("Name-Realm"), but that shaman's own messages
+-- name them plainly (they send UnitName("player")); a plain name equal to the
+-- sender's own is the sender. Forever keys are always plain, so nothing changes.
+local function messageName(self, name, sender)
+	if not strfind(name, "-", 1, true) and name == strsplit("-", sender) then return sender end
+	return self:RemoveRealmName(name)
+end
+
 function ShamanPower:ParseMessage(sender, msg)
+	local received = sender
 	sender = self:RemoveRealmName(sender)
+	if sender and self.seenSenderKeys[sender] == nil then self.seenSenderKeys[sender] = received end
 
 	if (sender == self.player or sender == nil) or not initialized then return end
 
@@ -15541,7 +15556,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		-- the name is everything before the two numbers, so "First Last" stays whole
 		local name, class, skill = strmatch(msg, "^ASSIGN (.+) (%d+) (%d+)$")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15559,7 +15574,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "TWIST" then
 		local name, enabled = strmatch(msg, "^TWIST (.+) ([01])$")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15587,7 +15602,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "PASSIGN" then
 		local name, assign = strmatch(msg, "^PASSIGN (.+)@([0-9n]*)")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15608,7 +15623,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "MASSIGN" then
 		local name, skill = strmatch(msg, "^MASSIGN (.+) (%d+)$")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15641,7 +15656,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "ESASSIGN" then
 		local name, target = self:DecodeESAssign(msg, sender)
 		if not name or not target then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
