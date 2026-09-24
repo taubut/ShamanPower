@@ -1545,6 +1545,11 @@ local SHADOW_DEFAULT_DURATION = 120    -- until the real duration has been obser
 local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE
 local shadowPendingCast                -- { element, at } waiting for its slot update
 local shadowPendingSlot                -- { slot, at } update that arrived before its cast event
+local lastSlotUpdateAt = {}            -- [slot] = GetTime() of the last PLAYER_TOTEM_UPDATE for it
+-- A totem retired while combat hides totem data is only announced (OnShadowTotemGone)
+-- after one bind window, so a set summon whose slot updates arrived BEFORE its cast
+-- can still claim the slot and cancel the false "destroyed". One record per slot.
+local pendingGone = {}                 -- [slot] = { element, entry, why }
 
 local function totemsSecretNow()
 	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
@@ -1656,14 +1661,27 @@ function ShamanPower:ShadowTotemSetCast(spells)
 		local id = spells[element]
 		local name, _, icon = GetSpellInfo(id or 0)
 		if id and name then
-			self.shadowTotems[element] = {
+			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
+			local entry = {
 				spellID = id, name = name, icon = icon, startTime = now,
 				duration = shadowLearnedDuration[id] or SHADOW_DEFAULT_DURATION,
 				durationKnown = shadowLearnedDuration[id] ~= nil,
-				slot = self.ElementToSlot and self.ElementToSlot[element] or element,
+				slot = slot,
 				setAt = now, setPending = true,
 				setPrev = self.shadowTotems[element],   -- put back if this one never lands
 			}
+			self.shadowTotems[element] = entry
+			-- the slot update can arrive BEFORE the cast event: if this slot just changed,
+			-- the totem has already landed; confirm it now, and take back any
+			-- "destroyed" the old totem's retirement queued a moment ago
+			local at = lastSlotUpdateAt[slot]
+			if at and now - at <= SHADOW_BIND_WINDOW then
+				entry.setPending = nil
+				entry.setPrev = nil
+				pendingGone[slot] = nil
+				if shadowPendingSlot and shadowPendingSlot.slot == slot then shadowPendingSlot = nil end
+				self:RecordTotemDrop(element)   -- placed for sure
+			end
 			placed = true
 		end
 	end
@@ -1686,6 +1704,7 @@ end
 function ShamanPower:ShadowTotemSlotUpdate(slot)
 	if type(slot) ~= "number" then return end
 	local now = GetTime()
+	lastSlotUpdateAt[slot] = now
 	-- a slot filled by a totem-set summon: confirm that entry instead of retiring it.
 	-- Only that slot is claimed; any other slot's update goes through the normal path.
 	for element, entry in pairs(self.shadowTotems) do
@@ -1716,7 +1735,15 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 				elseif not entry.durationKnown then why = "unknown"
 				elseif now >= entry.startTime + entry.duration - 1 then why = "expired"
 				else why = "destroyed" end
-				pcall(self.OnShadowTotemGone, self, element, entry, why)
+				-- announced one bind window later: a totem-set cast that arrives just after
+				-- its own slot updates claims the slot and cancels this (ShadowTotemSetCast)
+				local rec = { element = element, entry = entry, why = why }
+				pendingGone[slot] = rec
+				C_Timer.After(SHADOW_BIND_WINDOW, function()
+					if pendingGone[slot] ~= rec then return end   -- claimed by a set cast, or replaced
+					pendingGone[slot] = nil
+					pcall(self.OnShadowTotemGone, self, rec.element, rec.entry, rec.why)
+				end)
 			end
 		end
 	end
