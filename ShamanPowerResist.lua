@@ -825,3 +825,51 @@ events:SetScript("OnEvent", function(self, event)
 		Recompute()
 	end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Settings: Totem Bar > Raid Resistance (group buttons.resist_section)
+-- ---------------------------------------------------------------------------
+if SP.options and SP.options.args and SP.options.args.buttons and SP.options.args.buttons.args then
+	SP.options.args.buttons.args.resist_section = {
+		order = 3.72, type = "group", name = "Raid Resistance",
+		disabled = function() return SP.opt and SP.opt.enabled == false end,
+		args = {
+			desc = {
+				order = 0, type = "description", width = "full",
+				name = "On WoW: Forever the Fire, Frost and Nature Resistance totems reach every raid member within 30 yards, so one shaman per resistance covers the raid."
+					.. " Any shaman running ShamanPower, or the raid leader or an assistant, can ask for one with the Raid Resistance ticks in the assignments window (/sp totems)."
+					.. " ShamanPower picks the shaman whose party loses least, and only that shaman's own ShamanPower changes their totems.",
+			},
+			enabled = {
+				order = 1, type = "toggle", width = "full", name = "Raid Resistance Requests",
+				desc = "Show the Raid Resistance ticks and answer requests from the raid. Off: you neither see nor answer requests.",
+				get = function() return SP.opt.resistRequests ~= false end,
+				set = function(_, v)
+					if v then
+						SP.opt.resistRequests = nil
+						return
+					end
+					if practice then SP:SetResistPractice(false) end
+					SP:ClearResistRequests(true)   -- gives our totems back
+					SP.opt.resistRequests = false
+				end,
+			},
+			autoaccept = {
+				order = 2, type = "toggle", width = "full", name = "Auto-Accept Resistance Requests",
+				desc = "When the raid asks you for a resistance totem, switch to it without the Accept / Pass prompt. With Free Assign on you are switched without a prompt anyway."
+					.. " Your previous totem comes back when the request ends. Never in combat: a switch that comes up in a fight waits for it to end.",
+				disabled = function() return SP.opt.resistRequests == false end,
+				get = function() return SP.opt.resistAutoAccept == true end,
+				set = function(_, v) SP.opt.resistAutoAccept = v and true or nil end,
+			},
+			practice = {
+				order = 3, type = "toggle", width = "full", name = "Practice Mode (this session only)",
+				desc = "Adds two pretend shamans so you can try requests alone or in a party: one with Free Assign on (switches straight away), one with it off (you see the Accept / Pass prompt they would get)."
+					.. " Nothing about them is sent to anyone. Same as /sp resisttest. Always off after a /reload.",
+				disabled = function() return SP.opt.resistRequests == false end,
+				get = function() return practice end,
+				set = function(_, v) SP:SetResistPractice(v) end,
+			},
+		},
+	}
+end
