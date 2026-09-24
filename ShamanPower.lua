@@ -1687,15 +1687,14 @@ end
 function ShamanPower:ShadowTotemSlotUpdate(slot)
 	if type(slot) ~= "number" then return end
 	local now = GetTime()
-	-- a slot filled by a totem-set summon: confirm that entry instead of retiring it
-	local setWindowOpen = false
+	-- a slot filled by a totem-set summon: confirm that entry instead of retiring it.
+	-- Only that slot is claimed; any other slot's update goes through the normal path.
 	for _, entry in pairs(self.shadowTotems) do
-		if entry.setPending and now - entry.setAt <= SET_CONFIRM_WINDOW then
-			setWindowOpen = true
-			if entry.slot == slot then entry.setPending = nil return end
+		if entry.setPending and entry.slot == slot and now - entry.setAt <= SET_CONFIRM_WINDOW then
+			entry.setPending = nil
+			return
 		end
 	end
-	if setWindowOpen then return end   -- a set slot we could not match: never retire during the summon
 	if shadowPendingCast and now - shadowPendingCast.at <= SHADOW_BIND_WINDOW then
 		local entry = self.shadowTotems[shadowPendingCast.element]
 		if entry then entry.slot = slot end
