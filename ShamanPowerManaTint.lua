@@ -15,10 +15,18 @@ local IsSpellUsable = (C_Spell and C_Spell.IsSpellUsable) or IsUsableSpell
 
 SP.MANA_TINT_DEFAULT = { r = 0.45, g = 0.45, b = 1.0 }   -- Blizzard's "not enough mana" blue
 
--- true = can cast, false = not enough mana, nil = unknown (hidden in combat) or no spell
-local function lacksMana(spellID)
-	if not spellID or not IsSpellUsable then return nil end
-	local ok, usable, noMana = pcall(IsSpellUsable, spellID)
+-- The buttons cast by name, which is the highest rank known, while the spell
+-- IDs they carry are rank 1: ask about the name, or a button you cannot afford
+-- at your rank stays untinted while rank 1 is still affordable. (GetSpellInfo
+-- by ID is cached per ID on Forever, so this makes no garbage.)
+local function castName(spellID)
+	return spellID and GetSpellInfo(spellID) or nil
+end
+
+-- true = not enough mana, false = can cast, nil = unknown (hidden in combat) or no spell
+local function lacksMana(spell)
+	if not spell or not IsSpellUsable then return nil end
+	local ok, usable, noMana = pcall(IsSpellUsable, spell)
 	if not ok or secret(usable) or secret(noMana) then return nil end
 	return noMana and true or false
 end
@@ -26,9 +34,9 @@ end
 -- colour one icon; tinted[icon] remembers which icons we coloured, so turning
 -- the option off (or getting the mana back) restores exactly those
 local tinted = setmetatable({}, { __mode = "k" })
-local function paint(icon, spellID, on)
+local function paint(icon, spell, on)
 	if not icon then return end
-	local noMana = on and lacksMana(spellID)
+	local noMana = on and lacksMana(spell)
 	if noMana then
 		local c = SP.opt.manaTintColor or SP.MANA_TINT_DEFAULT
 		icon:SetVertexColor(c.r or 0.45, c.g or 0.45, c.b or 1)
@@ -46,21 +54,21 @@ function SP:UpdateManaTint()
 	local assign = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
 	for element = 1, 4 do
 		local idx = assign and assign[element] or 0
-		local spellID = idx and idx > 0 and self:GetTotemSpell(element, idx) or nil
+		local spell = castName(idx and idx > 0 and self:GetTotemSpell(element, idx) or nil)
 		local btn = self.totemButtons and self.totemButtons[element]
-		paint(btn and btn.icon, spellID, on)
-		paint(_G["ShamanPowerAutoTotem" .. element .. "Icon"], spellID, on)
+		paint(btn and btn.icon, spell, on)
+		paint(_G["ShamanPowerAutoTotem" .. element .. "Icon"], spell, on)
 		-- that element's flyout
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		if flyout and flyout.buttons then
-			for _, fb in ipairs(flyout.buttons) do paint(fb.icon, fb.spellID, on) end
+			for _, fb in ipairs(flyout.buttons) do paint(fb.icon, castName(fb.spellID), on) end
 		end
 	end
 	-- the cooldown bar
 	if self.cooldownButtons then
 		for i = 1, #self.cooldownButtons do
 			local b = self.cooldownButtons[i]
-			paint(b and b.icon, b and b.spellID, on)
+			paint(b and b.icon, b and castName(b.spellID), on)
 		end
 	end
 end
