@@ -15371,6 +15371,8 @@ function ShamanPower:ParseMessage(sender, msg)
 		class = class + 0
 		skill = skill + 0
 		ShamanPower_Assignments[name][class] = skill
+		-- Forever: two shamans taking the same raid resistance settle it here
+		if self.ResistClaimSeen then self:ResistClaimSeen(name, class, skill) end
 	end
 
 	-- Handle TWIST message for totem twisting assignment

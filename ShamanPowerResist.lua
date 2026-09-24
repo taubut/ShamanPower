@@ -46,6 +46,7 @@ SP.RESIST_REQUESTS = RESIST
 local ASK_TIMEOUT = 60      -- the prompt's own timeout (counts as Pass)
 local WAIT_TIMEOUT = 75     -- everyone else stops waiting on a silent shaman
 local REBROADCAST_GAP = 5   -- seconds between roster-driven resends
+local CLAIM_WINDOW = 2      -- seconds after taking a resistance in which a clash is settled
 
 local MELEE_WEIGHT = { WARRIOR = 2, ROGUE = 2, PALADIN = 1, DRUID = 1 }
 local MANA_USER = { PALADIN = true, PRIEST = true, MAGE = true, WARLOCK = true, DRUID = true, SHAMAN = true, HUNTER = true }
@@ -65,6 +66,7 @@ local practicePick = {}    -- key -> name or "" from the practice owner
 local sentPick = {}        -- key -> the pick we last sent (practice owner)
 local prompt               -- { key, name, fake } the one open prompt
 local restoreAfter = 0     -- GetTime() before which a leftover change is kept (login)
+local claimAt = {}         -- key -> GetTime() we applied or accepted it
 for _, r in ipairs(RESIST) do passed[r.key] = {} end
 
 local function Opt() return SP.opt end
@@ -310,6 +312,7 @@ local function ApplyNow(r)
 	ShamanPower_Assignments[me] = ShamanPower_Assignments[me] or {}
 	local current = ShamanPower_Assignments[me][r.element] or 0
 	if current == RESIST_INDEX then return end
+	claimAt[r.key] = GetTime()
 	Applied()[r.key] = current
 	ShamanPower_Assignments[me][r.element] = RESIST_INDEX
 	RefreshOwnAssignment(r.element)
@@ -317,7 +320,7 @@ local function ApplyNow(r)
 	Say("your " .. ELEMENT_NAMES[r.element] .. " totem is now " .. TotemName(r) .. " for the raid" .. (was and (" (was " .. was .. ")") or "") .. ".")
 end
 
-local function RestoreNow(r)
+local function RestoreNow(r, quiet)
 	local applied = Applied()
 	local prev = applied[r.key]
 	if prev == nil then return end
@@ -328,6 +331,7 @@ local function RestoreNow(r)
 	if not a or a[r.element] ~= RESIST_INDEX then return end
 	a[r.element] = prev
 	RefreshOwnAssignment(r.element)
+	if quiet then return end
 	local back = prev > 0 and SP.TotemNames[r.element][prev]
 	Say(TotemName(r) .. " is no longer requested; your " .. ELEMENT_NAMES[r.element] .. " totem is back to " .. (back or "none") .. ".")
 end
@@ -335,6 +339,7 @@ end
 local function Apply(r)
 	if InCombatLockdown() then
 		queued[r.key] = "apply"
+		claimAt[r.key] = GetTime()
 		events:RegisterEvent("PLAYER_REGEN_ENABLED")
 		Say("you will drop " .. TotemName(r) .. " when combat ends.")
 		return
@@ -370,6 +375,47 @@ local function FakeRestore(r)
 			fakePrev[f.name][r.key] = nil
 			if fakeAssign[f.name][r.element] == RESIST_INDEX then fakeAssign[f.name][r.element] = prev end
 		end
+	end
+end
+
+-- Two clients can briefly disagree on the proposal (their sync lists differ for
+-- a moment) and both take the same resistance. Settled the same way on both
+-- sides with no extra messages: when another shaman's ASSIGN or practice pick
+-- claims a resistance we took in the last CLAIM_WINDOW seconds, whichever name
+-- sorts later stands down. Standing down sends our own ASSIGN back, which the
+-- other side ignores (it sorts earlier).
+local function StandDown(r, other)
+	claimAt[r.key] = nil
+	if queued[r.key] == "apply" then
+		queued[r.key] = nil
+		Say(other .. " is already dropping " .. TotemName(r) .. " for the raid; you will not drop it after combat.")
+		return
+	end
+	local prev = Applied()[r.key]
+	if prev == nil then return end
+	local back = prev > 0 and SP.TotemNames[r.element][prev]
+	Say(other .. " also took " .. TotemName(r) .. " for the raid, so you stand down: your " .. ELEMENT_NAMES[r.element] .. " totem goes back to " .. (back or "none") .. ".")
+	if InCombatLockdown() then
+		queued[r.key] = "standdown"
+		events:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	RestoreNow(r, true)
+end
+
+local function ClaimSeen(r, name)
+	local at = claimAt[r.key]
+	if not at then return end
+	if GetTime() - at > CLAIM_WINDOW then claimAt[r.key] = nil return end
+	local me = Player()
+	if name and name ~= "" and name ~= me and me > name then StandDown(r, name) end
+end
+
+-- ShamanPower.lua's ASSIGN handler, after it stored the assignment
+function SP:ResistClaimSeen(name, element, index)
+	if index ~= RESIST_INDEX or not Enabled() then return end
+	for _, r in ipairs(RESIST) do
+		if r.element == element then ClaimSeen(r, name) return end
 	end
 end
 
@@ -670,6 +716,7 @@ function SP:HandleResistMessage(kw, msg, sender)
 		local key, name = strmatch(msg, "^RESPICK (%a+) ?(.*)$")
 		if not (key and BY_KEY[key]) then return end
 		practicePick[key] = self:RemoveRealmName(name or "") or ""
+		ClaimSeen(BY_KEY[key], practicePick[key])
 		Recompute()
 	end
 end
@@ -820,7 +867,8 @@ events:SetScript("OnEvent", function(self, event)
 			local q = queued[r.key]
 			queued[r.key] = nil
 			if q == "apply" and need[r.key] then ApplyNow(r)
-			elseif q == "restore" then RestoreNow(r) end
+			elseif q == "restore" then RestoreNow(r)
+			elseif q == "standdown" then RestoreNow(r, true) end
 		end
 		if sendMask or practice then QueueSend(false) end
 		Recompute()
