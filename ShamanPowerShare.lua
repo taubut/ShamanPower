@@ -19,6 +19,7 @@ local EXTRA_SVARS = {
 	"ShamanPower_TotemLoadouts",
 	"ShamanPower_ESTracker",
 	"ShamanPowerExpiringAlertsDB",
+	"ShamanPower_ReadyReminders",
 	"ShamanPower_RaidCooldowns",
 	"ShamanPower_Assignments",
 	"ShamanPower_EarthShieldAssignments",
@@ -36,6 +37,7 @@ local PRESET_SVARS = {
 	"ShamanPower_TotemLoadouts",      -- the user's saved loadouts
 	"ShamanPower_ESTracker",          -- ES tracker settings + position
 	"ShamanPowerExpiringAlertsDB",    -- expiring-alerts settings + position
+	"ShamanPower_ReadyReminders",     -- which reminders, look + positions
 }
 local PRESET_SVAR_STRIP = {
 	-- keep only these keys from a table (drop everything else)
@@ -197,6 +199,8 @@ function SP:ImportShare(str, mode, profileName)
 	-- Modules whose settings live in their own SavedVariables.
 	call("UpdateReactiveTotemAppearance")
 	call("UpdateTremorReminderAppearance")
+	call("UpdateAllReadyReminderAppearance")
+	call("UpdateReadyReminders")
 	call("UpdateSPRangeFrame")
 	call("UpdateSPRangeBorder")
 	call("UpdateLoadoutBar")

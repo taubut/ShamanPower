@@ -26,7 +26,9 @@ BINDING_NAME_SHAMANPOWER_CD_BLOODLUST = "Bloodlust / Heroism"
 BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 
 -- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
-BINDING_HEADER_SHAMANPOWER_FLYOUT = "ShamanPower Flyouts"
+-- The flyout keys drive the box-mode flyouts, which only WoW: Forever uses; on
+-- other clients the flyouts open on hover and these keys do nothing.
+BINDING_HEADER_SHAMANPOWER_FLYOUT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "ShamanPower Flyouts" or "ShamanPower Flyouts (WoW: Forever only)"
 BINDING_NAME_SHAMANPOWER_FLYOUT_EARTH = "Toggle Earth Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_FIRE = "Toggle Fire Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_WATER = "Toggle Water Totem Flyout"

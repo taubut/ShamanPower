@@ -259,8 +259,10 @@ end
 local function splitDragStop(frame)
 	if InCombatLockdown() or not SP:GridActive() or SP.poppedOutFrames[frame.key] ~= frame then return end
 	frame:StopMovingOrSizing()
-	SP.opt.poppedOutPositions = SP.opt.poppedOutPositions or {}
-	SP.opt.poppedOutPositions[frame.key] = SP:SavePositionRecord(frame)
+	-- Grid rows keep their own spots: the same frames are the element's regular
+	-- pop-out when Grid is off, and that position must survive a trip through Grid.
+	SP.opt.gridSplitPositions = SP.opt.gridSplitPositions or {}
+	SP.opt.gridSplitPositions[frame.key] = SP:SavePositionRecord(frame)
 end
 
 local function rowHost(element)
@@ -270,9 +272,12 @@ local function rowHost(element)
 			SP.opt.poppedOut[key] = nil
 			SP:PopOutElementWithFlyout(element)
 			local frame = SP.poppedOutFrames[key]
-			if frame and not (SP.opt.poppedOutPositions and SP.opt.poppedOutPositions[key]) then
-				frame:ClearAllPoints()
-				frame:SetPoint("CENTER", UIParent, "CENTER", 0, (2.5 - element) * 100)
+			if frame then
+				local rec = SP.opt.gridSplitPositions and SP.opt.gridSplitPositions[key]
+				if not (rec and SP:ApplyPositionRecord(frame, rec)) then
+					frame:ClearAllPoints()
+					frame:SetPoint("CENTER", UIParent, "CENTER", 0, (2.5 - element) * 100)
+				end
 			end
 		end
 		SP.opt.poppedOut[key] = true
@@ -490,7 +495,7 @@ end
 function SP:ResetGridRowPosition(element)
 	local frame = self:GetGridRowFrame(element)
 	if not frame or InCombatLockdown() then return end
-	if self.opt.poppedOutPositions then self.opt.poppedOutPositions[keys[element]] = nil end
+	if self.opt.gridSplitPositions then self.opt.gridSplitPositions[keys[element]] = nil end
 	frame:ClearAllPoints()
 	frame:SetPoint("CENTER", UIParent, "CENTER", 0, (2.5 - element) * 100)
 end

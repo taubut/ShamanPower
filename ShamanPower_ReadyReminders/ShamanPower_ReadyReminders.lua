@@ -22,7 +22,9 @@ local GetSpellTextureC = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTextur
 ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
 
 local DEFAULTS = {
-	enabled = true,
+	-- On for WoW: Forever (no WeakAuras there); opt-in on Anniversary, where most
+	-- players already cover this with WeakAuras. The setup tour and settings turn it on.
+	enabled = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
 	mode = "ready",        -- "ready": show only when ready | "always": dim + countdown on cooldown
 	onlyInCombat = false,
 	iconSize = 48,
@@ -236,6 +238,7 @@ function SP:CreateReadyReminderFrame(entry)
 	count:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size * 0.34)), "OUTLINE")
 	count:SetPoint("CENTER", f, "CENTER", 0, 0)
 	count:SetTextColor(1, 1, 1)
+	if count.SetIgnoreParentAlpha then count:SetIgnoreParentAlpha(true) end   -- the dim is for the icon, not the number
 	f.count = count
 	local glow = f:CreateTexture(nil, "OVERLAY", nil, 1)
 	glow:SetPoint("TOPLEFT", -10, 10); glow:SetPoint("BOTTOMRIGHT", 10, -10)
@@ -328,7 +331,7 @@ function SP:UpdateReadyReminderAppearance(key)
 end
 
 function SP:UpdateAllReadyReminderAppearance()
-	for key in pairs(frames) do self:UpdateReadyReminderAppearance(key) end
+	for key, f in pairs(frames) do self:UpdateReadyReminderAppearance(key); applyPos(f) end   -- positions too: an import replaces them
 end
 
 -- ---------------------------------------------------------------------------

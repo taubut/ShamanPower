@@ -1772,8 +1772,10 @@ end
 function ShamanPower:DropSetsAssignment()
 	local o = self.opt
 	if not o then return false end
-	if o.dynamicTotemMode then return true end
-	return o.gridStyle == true and o.gridDropAssigns ~= false and self.GridActive and self:GridActive() or false
+	-- Grid first: it can sit on top of a Dynamic setup (dynamicTotemMode stays set
+	-- underneath), and its own "Left-Click Also Assigns" toggle must win there.
+	if o.gridStyle == true and self.GridActive and self:GridActive() then return o.gridDropAssigns ~= false end
+	return o.dynamicTotemMode and true or false
 end
 
 -- Update totem assignments and icons for Dynamic Mode
@@ -14743,6 +14745,18 @@ end
 -- Mainline family every aura read builds a table; polling party buffs twice a
 -- second was the range pass's whole idle garbage.
 ShamanPower.auraGen = {}
+-- A roster change can put a different player in the same unit slot without an
+-- aura event on that slot: invalidate every group slot's cached answer.
+do
+	local slots = { "party1", "party2", "party3", "party4" }
+	for i = 1, 40 do slots[#slots + 1] = "raid" .. i end
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("GROUP_ROSTER_UPDATE")
+	f:SetScript("OnEvent", function()
+		local gen = ShamanPower.auraGen
+		for _, u in ipairs(slots) do gen[u] = (gen[u] or 0) + 1 end
+	end)
+end
 function ShamanPower:AuraCacheValid(unit, gen, at)
 	-- same aura generation; party slots also expire after 5 s (a slot can change
 	-- hands without an aura event). The player is always the player: no expiry.

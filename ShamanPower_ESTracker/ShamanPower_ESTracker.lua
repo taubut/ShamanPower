@@ -5,8 +5,7 @@
 
 local SP = ShamanPower
 if not SP then return end
--- Only load for Shamans (the core keeps no-op stubs for everything this module provides)
-if select(2, UnitClass("player")) ~= "SHAMAN" then return end
+-- Loads for every class: raid leaders and healers track the shamans' Earth Shields.
 
 -- Earth Shield is not an obtainable spell on the Mainline/Forever line. The
 -- spell data ships (974 and 408514 both resolve by name) but neither carries a

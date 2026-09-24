@@ -201,7 +201,7 @@ local NAV = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section"), power = false },
 		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
 		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
-		{ label = "Earth Shield Tracker", preview = "estracker", shamanOnly = true, path = P("fluffy", "estrack_section") },
+		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
 		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
 		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
@@ -503,18 +503,22 @@ function SPConfig:SetPreviewPaneOpen(on, silent)
 end
 
 -- A setting changed: module previews re-feed at once (no new frames); the
--- bar mocks are rebuilt, at most a couple of times a second while a slider
--- is being dragged.
-local remountQueued = false
+-- bar mocks are rebuilt (new frames each time, which WoW never frees), so a
+-- slider drag waits until the value settles for 0.3 s, or 1 s at most.
+local remountQueued, lastChange, firstChange = false, 0, 0
+local function remountWhenSettled()
+	local now = GetTime()
+	if now - lastChange < 0.3 and now - firstChange < 1 then C_Timer.After(0.1, remountWhenSettled) return end
+	remountQueued = false
+	SPConfig:UpdatePreviewPane(true)
+end
 function SPConfig:PreviewChanged()
 	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
 	if frame.preview.mockSpec then
+		lastChange = GetTime()
 		if remountQueued then return end
-		remountQueued = true
-		C_Timer.After(0.4, function()
-			remountQueued = false
-			SPConfig:UpdatePreviewPane(true)
-		end)
+		remountQueued, firstChange = true, lastChange
+		C_Timer.After(0.1, remountWhenSettled)
 	else
 		self:UpdatePreviewPane()
 	end
@@ -589,6 +593,14 @@ function SPConfig:UpdatePreviewPane(remount)
 	ReleaseMocks()
 	local key = spec
 	if frame._previewKey and frame._previewKey ~= key then self:ReleasePreview() end
+	-- A module preview borrows the REAL frame and runs its demo, which pauses the
+	-- frame's live updates. Never in combat: the fight needs the real numbers.
+	if key and (SPConfig._inCombat or InCombatLockdown()) then
+		if frame._previewKey then self:ReleasePreview() end
+		pane.note:Show()
+		pane.note:SetText("Preview paused during combat so the real frame keeps working. It comes back when combat ends.")
+		return
+	end
 	local def = key and sp and sp.PreviewRegistry and sp.PreviewRegistry[key]
 	if def and sp.ShowPreview then
 		local shown = sp:ShowPreview(key, pane.inner)
@@ -1604,11 +1616,15 @@ end
 local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatWatcher:SetScript("OnEvent", function()
+combatWatcher:SetScript("OnEvent", function(_, event)
+	-- InCombatLockdown() is still false while REGEN_DISABLED fires: track it from the event
+	SPConfig._inCombat = (event == "PLAYER_REGEN_DISABLED")
 	SPConfig:UpdateCombatLock()
 	if frame and frame:IsShown() and frame.body then
 		frame._lastCombat = InCombatLockdown() and true or false
 		Widgets:RefreshAll(frame.body)
+		-- pause a module preview for the fight (see UpdatePreviewPane), bring it back after
+		SPConfig:UpdatePreviewPane()
 	end
 end)
 
