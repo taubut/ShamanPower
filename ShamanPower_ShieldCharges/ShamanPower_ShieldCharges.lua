@@ -126,26 +126,15 @@ function SP:CreateShieldChargeDisplays()
 			wake:RegisterEvent("UNIT_AURA")
 		end
 		-- someone else's auras only matter while an Earth Shield is being tracked on
-		-- them, so only a shaman who knows Earth Shield listens to other units at all
-		local others = CreateFrame("Frame")
-		others:SetScript("OnEvent", function()
-			if ShamanPower.esTrackedTargetGUID then SP._shieldWake = true end
+		-- them. The core already hears exactly those units through the game's unit
+		-- filter (player, party1-4 and the Earth Shield carrier's raid token, see
+		-- SetupUnitEventFilters) and updates the charges this display reads, so the
+		-- display wakes after the core's own handler. A frame of its own here heard
+		-- every raid member and nameplate. (Counted in the core's stress rows.)
+		hooksecurefunc(ShamanPower, "UNIT_AURA", function(_, _, unit)
+			if unit ~= "player" and ShamanPower.esTrackedTargetGUID then SP._shieldWake = true end
 		end)
-		local othersOn = false
-		local function refreshOthers()
-			-- the same Earth Shield check the rest of the addon uses
-			local want = false
-			if not SP.ESTrackerUnavailable then
-				if SP.HasEarthShield then want = SP:HasEarthShield() and true or false
-				elseif IsSpellKnown then want = (IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594)) and true or false end
-			end
-			if want and not othersOn then others:RegisterEvent("UNIT_AURA")
-			elseif not want and othersOn then others:UnregisterEvent("UNIT_AURA") end
-			othersOn = want
-		end
-		refreshOthers()
 		wake:SetScript("OnEvent", function(_, ev, unit)
-			if ev == "SPELLS_CHANGED" or ev == "PLAYER_ENTERING_WORLD" then refreshOthers() end
 			if ev == "UNIT_AURA" and unit ~= "player" and not ShamanPower.esTrackedTargetGUID then return end
 			SP._shieldWake = true
 		end)
