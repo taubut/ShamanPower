@@ -10922,7 +10922,9 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 		self.cooldownBar:EnableMouse(true)
 		self.cooldownBar:SetMovable(true)
 		self.cooldownBar:RegisterForDrag("LeftButton")
-		self.cooldownBar:Show()
+		-- shown only when UpdateCooldownBar would show it (switched on, something on
+		-- it): a Reset or a reposition never brings up an empty or disabled bar
+		if self.opt.showCooldownBar and #self.cooldownButtons > 0 then self.cooldownBar:Show() end
 	end
 
 	self:UpdateCooldownBarScale()
