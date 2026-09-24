@@ -144,7 +144,10 @@ local defaultSettings = {
 		fire = true,
 		water = true,
 		air = true,
-		sound = false,
+		-- totem alert sound: on for Forever, like the chat line above (it is how you
+		-- notice a totem killed mid-fight); opt-in on Anniversary as before. "expired"
+		-- is off, so out of the box it only sounds for a destroyed totem.
+		sound = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
 		soundName = "Alarm Clock Warning 3",
 	},
 	weaponImbues = {
