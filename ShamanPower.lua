@@ -17446,8 +17446,8 @@ ShamanPower.spThanksEnabled = false
 ShamanPower.spThankedPlayers = {}  -- Track who we've already thanked this session
 
 function ShamanPower:SPThanksCheckAndWhisper(playerName)
-	-- Only works for Srumar
-	if self.player ~= "Srumar" then return end
+	-- Only works for Srumar (by first name: Forever characters can carry a last name)
+	if (strsplit(" ", self.player or "")) ~= "Srumar" then return end
 	if not self.spThanksEnabled then return end
 	if not playerName or playerName == self.player then return end
 
