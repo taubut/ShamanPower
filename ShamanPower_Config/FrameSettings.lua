@@ -44,8 +44,8 @@ local function Build()
 		title = "Frame Settings", subtitle = "",
 		headerHeight = 44, bodyTop = 8,
 		special = true,   -- Escape closes it
+		strata = "DIALOG",
 	})
-	panel:SetFrameStrata("DIALOG")
 	return panel
 end
 
