@@ -235,7 +235,7 @@ function SP:CreateReadyReminderFrame(entry)
 	local barBg = bar:CreateTexture(nil, "BACKGROUND"); barBg:SetAllPoints(bar); barBg:SetColorTexture(0, 0, 0, 0.6)
 	f.bar = bar
 	local count = f:CreateFontString(nil, "OVERLAY")
-	count:SetFont("Fonts\\FRIZQT__.TTF", math.max(10, math.floor(size * 0.34)), "OUTLINE")
+	SP:SetSPFont(count, "alerts", math.max(10, math.floor(size * 0.34)), "OUTLINE")
 	count:SetPoint("CENTER", f, "CENTER", 0, 0)
 	count:SetTextColor(1, 1, 1)
 	if count.SetIgnoreParentAlpha then count:SetIgnoreParentAlpha(true) end   -- the dim is for the icon, not the number
@@ -256,7 +256,7 @@ function SP:CreateReadyReminderFrame(entry)
 	local p2 = pg:CreateAnimation("Scale"); p2:SetScale(1 / 1.12, 1 / 1.12); p2:SetDuration(0.45); p2:SetOrder(2)
 	f.pulseAnim = pg
 	local label = f:CreateFontString(nil, "OVERLAY")
-	label:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
+	SP:SetSPFont(label, "alerts", 11, "OUTLINE")
 	label:SetPoint("TOP", f, "BOTTOM", 0, -3)
 	label:SetText(entry.name); label:SetTextColor(1, 0.82, 0)
 	label:Hide()
@@ -297,7 +297,7 @@ function SP:UpdateReadyReminderAppearance(key)
 	f:SetSize(size, size)
 	-- countdown text: size and position
 	local ts = (sv.textSize and sv.textSize > 0) and sv.textSize or math.max(10, math.floor(size * 0.34))
-	f.count:SetFont("Fonts\\FRIZQT__.TTF", ts, "OUTLINE")
+	SP:SetSPFont(f.count, "alerts", ts, "OUTLINE")
 	f.count:ClearAllPoints()
 	local tp = sv.textPosition or "center"
 	if tp == "top" then f.count:SetPoint("TOP", f, "TOP", 0, -2)
@@ -397,8 +397,8 @@ styleEngine = function(f)
 	cd:SetFrameLevel(f:GetFrameLevel() + 3)   -- above the engine sheet, so the numbers stay readable
 	local ok, fs = pcall(cd.GetCountdownFontString, cd)
 	if ok and fs then
-		local font, size, flags = f.count:GetFont()
-		if font then fs:SetFont(font, size, flags) end
+		local font, size = f.count:GetFont()
+		if font then SP:SetSPFont(fs, "alerts", size, "OUTLINE") end   -- same area as f.count, so a font change restyles both
 		local r, g, b = f.count:GetTextColor()
 		fs:SetTextColor(r or 1, g or 1, b or 1)
 		fs:ClearAllPoints()

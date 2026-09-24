@@ -204,7 +204,7 @@ local function buildESRowContainer(btn)
 				local carrier = CreateFrame("Frame", nil, button)
 				carrier:SetAllPoints(button)
 				local count = carrier:CreateFontString(nil, "OVERLAY")
-				count:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+				SP:SetSPFont(count, "labels", 12, "OUTLINE")
 				count:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
 				count:SetTextColor(0.4, 1, 0.4)
 				pcall(button.SetApplicationCount, button, count, {})
@@ -242,21 +242,21 @@ function SP:CreateESTrackerButton(parent, esData, index)
 
 	-- Target name (inside the icon area, at bottom)
 	local targetText = btn:CreateFontString(nil, "OVERLAY")
-	targetText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	SP:SetSPFont(targetText, "labels", 9, "OUTLINE")
 	targetText:SetPoint("BOTTOM", btn, "BOTTOM", 0, 5)
 	targetText:SetTextColor(1, 1, 1)
 	btn.targetText = targetText
 
 	-- Charges (top right corner)
 	local chargesText = btn:CreateFontString(nil, "OVERLAY")
-	chargesText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+	SP:SetSPFont(chargesText, "labels", 12, "OUTLINE")
 	chargesText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -2, -2)
 	chargesText:SetTextColor(0.4, 1, 0.4)
 	btn.chargesText = chargesText
 
 	-- Caster name (below the icon)
 	local casterText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	casterText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	SP:SetSPFont(casterText, "labels", 8, "OUTLINE")
 	casterText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 	btn.casterText = casterText
 

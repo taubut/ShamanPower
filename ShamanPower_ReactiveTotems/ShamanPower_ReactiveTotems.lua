@@ -257,7 +257,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 
 	-- Debuff name text
 	local debuffText = frame:CreateFontString(nil, "OVERLAY")
-	debuffText:SetFont("Fonts\\FRIZQT__.TTF", sv.fontSize or 14, sv.fontOutline and "OUTLINE" or "")
+	SP:SetSPFont(debuffText, "alerts", sv.fontSize or 14, sv.fontOutline and "OUTLINE" or "")
 	debuffText:SetPoint("TOP", frame, "BOTTOM", 0, -4)
 	debuffText:SetTextColor(c.r, c.g, c.b)
 	debuffText:SetShadowColor(0, 0, 0, 1)
@@ -266,7 +266,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 
 	-- Totem name text
 	local totemText = frame:CreateFontString(nil, "OVERLAY")
-	totemText:SetFont("Fonts\\FRIZQT__.TTF", (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or "")
+	SP:SetSPFont(totemText, "alerts", (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or "")
 	totemText:SetPoint("TOP", debuffText, "BOTTOM", 0, -2)
 	totemText:SetText(totemData.totemName)
 	totemText:SetTextColor(1, 0.82, 0)
@@ -366,8 +366,8 @@ function SP:UpdateReactiveFrameAppearance(totemId)
 		-- Font
 		local fontSize = sv.fontSize or 14
 		local outline = sv.fontOutline and "OUTLINE" or ""
-		frame.debuffText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, outline)
-		frame.totemText:SetFont("Fonts\\FRIZQT__.TTF", fontSize - 2, outline)
+		SP:SetSPFont(frame.debuffText, "alerts", fontSize, outline)
+		SP:SetSPFont(frame.totemText, "alerts", fontSize - 2, outline)
 
 		-- Text visibility
 		if sv.showDebuffName then
@@ -751,14 +751,14 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		carrier:SetAllPoints(button)
 		if sv.showDebuffName ~= false then
 			local who = carrier:CreateFontString(nil, "OVERLAY")
-			who:SetFont("Fonts\\FRIZQT__.TTF", fontSize, outline)
+			SP:SetSPFont(who, "alerts", fontSize, outline)
 			who:SetPoint("TOP", button, "BOTTOM", 0, -4 - (unitIndex - 1) * (fontSize + 2))
 			who:SetTextColor(lr, lg, lb)
 			who:SetShadowColor(0, 0, 0, 1)
 			who:SetShadowOffset(1, -1)
 			who:SetText(label)
 			local left = carrier:CreateFontString(nil, "OVERLAY")
-			left:SetFont("Fonts\\FRIZQT__.TTF", fontSize, outline)
+			SP:SetSPFont(left, "alerts", fontSize, outline)
 			left:SetPoint("LEFT", who, "RIGHT", 4, 0)
 			left:SetTextColor(1, 1, 1)
 			left:SetShadowColor(0, 0, 0, 1)
@@ -767,7 +767,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		end
 		if sv.showTotemName ~= false then
 			local totem = carrier:CreateFontString(nil, "OVERLAY")
-			totem:SetFont("Fonts\\FRIZQT__.TTF", fontSize - 2, outline)
+			SP:SetSPFont(totem, "alerts", fontSize - 2, outline)
 			totem:SetPoint("BOTTOM", button, "TOP", 0, 3)
 			totem:SetText(data.totemName)
 			totem:SetTextColor(1, 0.82, 0)

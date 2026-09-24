@@ -678,7 +678,7 @@ function SP:CreateCoverageFrame()
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	title:SetPoint("TOP", frame, "TOP", 0, -6)
 	title:SetText("Totem Coverage")
-	title:SetFont(STANDARD_TEXT_FONT, 11, "")
+	SP:SetSPFont(title, "labels", 11, "", STANDARD_TEXT_FONT)
 	title:SetShadowOffset(1, -1)
 	title:SetTextColor(0.902, 0.918, 0.941)
 	frame.title = title
@@ -740,7 +740,7 @@ function SP:CreateCoverageFrame()
 		overlay:Hide()
 		btn.rangeOverlay = overlay
 		local statusText = btn:CreateFontString(nil, "OVERLAY")
-		statusText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+		SP:SetSPFont(statusText, "labels", 7, "OUTLINE")
 		statusText:SetPoint("CENTER", icon, "CENTER", 0, 0)
 		statusText:SetTextColor(1, 0.2, 0.2)
 		statusText:SetShadowColor(0, 0, 0, 1)
@@ -753,7 +753,7 @@ function SP:CreateCoverageFrame()
 			-- strip can match to cover the red name
 			local row = CreateFrame("Frame", nil, btn)
 			local t = row:CreateFontString(nil, "OVERLAY")
-			t:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+			SP:SetSPFont(t, "labels", 9, "OUTLINE")
 			t:SetPoint("LEFT", row, "LEFT", 2, 0)
 			t:SetPoint("RIGHT", row, "RIGHT", -2, 0)
 			t:SetJustifyH("CENTER")
@@ -818,7 +818,7 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 			-- colour - identical glyphs, so the red one underneath disappears
 			-- under it. No tag, no strip: names float, frame or no frame.
 			local t = button:CreateFontString(nil, "OVERLAY")
-			t:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			SP:SetSPFont(t, "labels", fontSize, "OUTLINE")
 			t:SetPoint("LEFT", button, "LEFT", 2, 0)
 			t:SetPoint("RIGHT", button, "RIGHT", -2, 0)
 			t:SetJustifyH("CENTER")
@@ -888,7 +888,7 @@ local function BuildCellRows(self, btn, rowsKey, element)
 				pcall(slot.container.SetEnabled, slot.container, false)
 				slot.container:Hide()
 			end
-			row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			SP:SetSPFont(row.text, "labels", fontSize, "OUTLINE")
 			row.text:SetText(name)
 			-- as wide as the cell, wider for a long name (never cut): flush under the icon
 			row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
@@ -1198,7 +1198,7 @@ function SP:CoverageDemo(on)
 					local missing = 0
 					for i = 1, 4 do
 						local row = btn.rows[i]
-						row.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+						SP:SetSPFont(row.text, "labels", fontSize, "OUTLINE")
 						row.text:SetText(COVERAGE_DEMO_NAMES[i])
 						if has[i] then
 							local c = COVERAGE_DEMO_COLORS[i]
@@ -1445,7 +1445,7 @@ function SP:CreateRangeCounterText(button, element)
 
 	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
 	local text = button:CreateFontString(nil, "OVERLAY")
-	text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+	SP:SetSPFont(text, "labels", fontSize, "OUTLINE")
 	text:SetPoint("CENTER", button, "CENTER", 0, 0)
 	text:SetTextColor(1, 1, 1)
 	text:Hide()
@@ -1481,14 +1481,14 @@ function SP:CreateRangeCounterFrame(element)
 	-- Counter text
 	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
 	local text = frame:CreateFontString(nil, "OVERLAY")
-	text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+	SP:SetSPFont(text, "labels", fontSize, "OUTLINE")
 	text:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	text:SetTextColor(1, 1, 1)
 	frame.text = text
 
 	-- Element label below the number
 	local label = frame:CreateFontString(nil, "OVERLAY")
-	label:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	SP:SetSPFont(label, "labels", 9, "OUTLINE")
 	label:SetPoint("BOTTOM", frame, "BOTTOM", 0, 4)
 	label:SetText(elementNames[element])
 	local colors = self.RangeCounterColors[element]
@@ -1760,7 +1760,7 @@ function SP:UpdateRangeCounters()
 
 				-- Update font size
 				local fontSize = rcOpt.fontSize or 14
-				counterText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				SP:SetSPFont(counterText, "labels", fontSize, "OUTLINE")
 
 			elseif not useUnlocked and haveTotem and hasTrackableBuff and totalPartyMembers > 0 then
 				-- On-icon mode: only show when totem is active and has trackable buff
@@ -1776,7 +1776,7 @@ function SP:UpdateRangeCounters()
 
 				-- Update font size
 				local fontSize = rcOpt.fontSize or 14
-				counterText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				SP:SetSPFont(counterText, "labels", fontSize, "OUTLINE")
 
 				counterText:Show()
 			else
@@ -1847,7 +1847,7 @@ function SP:PartyRangeDemo(on)
 		if frame.text then
 			local colors = self.RangeCounterColors[1]
 			frame.text:SetTextColor(colors[1], colors[2], colors[3])
-			frame.text:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
+			SP:SetSPFont(frame.text, "labels", 14, "OUTLINE")
 			-- Sample: 3 of a 5-member subgroup are inside Earth totem range.
 			frame.text:SetText("3")
 			frame.text:Show()

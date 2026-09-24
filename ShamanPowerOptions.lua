@@ -9632,3 +9632,93 @@ do
 	SP.OptionFeaturedHeader = SP.OptionFeaturedHeader or {}
 	SP.OptionFeaturedHeader[main.community] = "Interface\\AddOns\\ShamanPower\\Media\\discord"   -- Discord's logo, transparent
 end
+
+-- General > Fonts: the typeface and outline of the text ShamanPower draws on
+-- screen (ShamanPowerFonts.lua). "Default" keeps each element's designed font.
+-- Hovering a font in a list shows it on the frames and in the live preview.
+do
+	local SP = ShamanPower
+	local settings = SP.options.args.settings.args
+	local function refresh() if SP.RefreshFonts then SP:RefreshFonts() end end
+	local function fontValues(inheritLabel)
+		return function()
+			local v = { __default = inheritLabel or "Default (as designed)" }
+			for _, name in ipairs(SP:FontList()) do v[name] = name end
+			return v
+		end
+	end
+	local function fontSorting(first)
+		return function()
+			local order = { first }
+			for _, name in ipairs(SP:FontList()) do order[#order + 1] = name end
+			return order
+		end
+	end
+	local function outlineValues(inheritLabel)
+		local v = { __default = inheritLabel or "Default (as designed)" }
+		for _, o in ipairs(SP.FONT_OUTLINES) do v[o.value == "" and "__none" or o.value] = o.label end
+		return v
+	end
+	local OUTLINE_ORDER = { "__default", "__none", "OUTLINE", "THICKOUTLINE" }
+	local function toOutline(v) if v == "__default" then return nil elseif v == "__none" then return "" else return v end end
+	local function fromOutline(o) if o == nil then return "__default" elseif o == "" then return "__none" else return o end end
+	local function area(key)
+		SP.opt.fontAreas = SP.opt.fontAreas or {}
+		SP.opt.fontAreas[key] = SP.opt.fontAreas[key] or {}
+		return SP.opt.fontAreas[key]
+	end
+
+	local args = {
+		fonts_desc = {
+			order = 0, type = "description", width = "full",
+			name = "The font of the numbers and text ShamanPower draws on screen: totem timers, cooldown numbers, shield charges, alerts, names and labels."
+				.. " Default keeps each one's designed font. The list holds WoW's own fonts plus every font your other addons share (ElvUI, SharedMedia and the like)."
+				.. " Hover a font to see it before you pick it.",
+		},
+		fontName = {
+			order = 1, type = "select", name = "Font", width = 1.5,
+			desc = "The font for everything ShamanPower draws on screen, unless a section below picks its own.",
+			values = fontValues(), sorting = fontSorting("__default"),
+			get = function() return SP.opt.fontName or "__default" end,
+			set = function(_, v) SP.opt.fontName = (v ~= "__default") and v or nil; refresh() end,
+		},
+		fontOutline = {
+			order = 2, type = "select", name = "Outline", width = 1,
+			desc = "The text's outline. Default keeps each element's designed outline.",
+			values = outlineValues(), sorting = OUTLINE_ORDER,
+			get = function() return fromOutline(SP.opt.fontOutline) end,
+			set = function(_, v) SP.opt.fontOutline = toOutline(v); refresh() end,
+		},
+		fonts_areas = { order = 10, type = "header", name = "Per Area" },
+		fonts_areas_desc = {
+			order = 10.1, type = "description", width = "full",
+			name = "Give one part of ShamanPower its own font or outline. \"Same as above\" follows the Font and Outline at the top.",
+		},
+		fonts_reset = {
+			order = 90, type = "execute", name = "Reset All Fonts", width = "full",
+			desc = "Back to the designed font and outline everywhere.",
+			func = function() SP.opt.fontName, SP.opt.fontOutline, SP.opt.fontAreas = nil, nil, nil; refresh() end,
+		},
+	}
+	for i, a in ipairs(SP.FONT_AREAS) do
+		local key = a.key
+		args["font_" .. key] = {
+			order = 10 + i, type = "select", name = a.label, width = 1.5,
+			desc = a.desc,
+			values = fontValues("Same as above"), sorting = fontSorting("__default"),
+			get = function() local t = SP.opt.fontAreas and SP.opt.fontAreas[key]; return (t and t.name) or "__default" end,
+			set = function(_, v) area(key).name = (v ~= "__default") and v or nil; refresh() end,
+		}
+		args["font_" .. key .. "_outline"] = {
+			order = 10 + i + 0.5, type = "select", name = "Outline", width = 1,
+			values = outlineValues("Same as above"), sorting = OUTLINE_ORDER,
+			get = function() local t = SP.opt.fontAreas and SP.opt.fontAreas[key]; return fromOutline(t and t.outline) end,
+			set = function(_, v) area(key).outline = toOutline(v); refresh() end,
+		}
+	end
+	settings.settings_fonts = { order = 1.2, type = "group", name = "Fonts", args = args }
+
+	-- the settings window previews a hovered font: option table -> area ("all" = the main font)
+	SP.OptionHoverFont = { [args.fontName] = "all" }
+	for _, a in ipairs(SP.FONT_AREAS) do SP.OptionHoverFont[args["font_" .. a.key]] = a.key end
+end

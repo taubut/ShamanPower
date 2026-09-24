@@ -93,7 +93,7 @@ local function Duration(frame, element)
 	local location = opt.durationTextLocation or "none"
 	if location ~= "none" then
 		local label = Label(frame, "45")
-		label:SetFont("Fonts\\FRIZQT__.TTF", opt.durationTextSize or 8, "OUTLINE")
+		SP:SetSPFont(label, "timers", opt.durationTextSize or 8, "OUTLINE")
 		if location == "icon" then label:SetPoint("CENTER", frame, "CENTER", 0, 0)
 		elseif location == "inside_top" then label:SetPoint("TOP", host, "TOP", 0, -1)
 		elseif location == "inside_bottom" then label:SetPoint("BOTTOM", host, "BOTTOM", 0, 1)

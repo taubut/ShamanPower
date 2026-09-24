@@ -441,7 +441,7 @@ function SP:CreateTotemPlateFrame(nameplate)
 
         -- Pulse timer text (shows countdown to next pulse)
         frame.pulseText = frame:CreateFontString(nil, "OVERLAY")
-        frame.pulseText:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
+        SP:SetSPFont(frame.pulseText, "labels", 14, "OUTLINE")
         frame.pulseText:SetPoint("CENTER", frame, "CENTER", 0, 0)
         frame.pulseText:SetTextColor(1, 1, 1, 1)
         frame.pulseText:Hide()
@@ -464,7 +464,7 @@ function SP:CreateTotemPlateFrame(nameplate)
 
         -- Optional name text
         frame.name = frame:CreateFontString(nil, "OVERLAY")
-        frame.name:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+        SP:SetSPFont(frame.name, "labels", 10, "OUTLINE")
         frame.name:SetPoint("TOP", frame, "BOTTOM", 0, -2)
 
         -- Selection highlight
@@ -686,7 +686,7 @@ function SP:StartPulseTimer(frame, pulseInterval)
     local barHeight = settings.pulseBarHeight or 4
 
     if frame.pulseText then
-        frame.pulseText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+        SP:SetSPFont(frame.pulseText, "labels", textSize, "OUTLINE")
     end
     if frame.pulseBar then
         frame.pulseBar:SetHeight(barHeight)
@@ -791,7 +791,7 @@ function SP:UpdateTotemPlatesPulseSettings()
         if frame then
             -- Update font size
             if frame.pulseText then
-                frame.pulseText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+                SP:SetSPFont(frame.pulseText, "labels", textSize, "OUTLINE")
             end
 
             -- Update bar height

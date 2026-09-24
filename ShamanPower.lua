@@ -1870,7 +1870,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text inside the bar (top)
 	local barTimeTextTop = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextTop, "timers", 9, "OUTLINE")
 	barTimeTextTop:SetPoint("TOP", wipeFrame, "TOP", 0, -1)
 	barTimeTextTop:SetTextColor(1, 1, 1)  -- White text
 	barTimeTextTop:Hide()
@@ -1878,7 +1878,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text inside the bar (bottom)
 	local barTimeTextBottom = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextBottom, "timers", 9, "OUTLINE")
 	barTimeTextBottom:SetPoint("BOTTOM", wipeFrame, "BOTTOM", 0, 1)
 	barTimeTextBottom:SetTextColor(1, 1, 1)  -- White text
 	barTimeTextBottom:Hide()
@@ -1886,7 +1886,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text above the bar
 	local aboveTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(aboveTimeText, "timers", 9, "OUTLINE")
 	aboveTimeText:SetPoint("BOTTOM", wipeFrame, "TOP", 0, 1)
 	aboveTimeText:SetTextColor(1, 1, 1)  -- White text
 	aboveTimeText:Hide()
@@ -1894,7 +1894,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text below the bar
 	local belowTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(belowTimeText, "timers", 9, "OUTLINE")
 	belowTimeText:SetPoint("TOP", wipeFrame, "BOTTOM", 0, -1)
 	belowTimeText:SetTextColor(1, 1, 1)  -- White text
 	belowTimeText:Hide()
@@ -1902,7 +1902,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text on the icon
 	local iconTimeText = button:CreateFontString(nil, "OVERLAY")
-	iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ShamanPower:SetSPFont(iconTimeText, "timers", 10, "OUTLINE")
 	iconTimeText:SetPoint("CENTER", button, "CENTER", 0, 0)
 	iconTimeText:SetTextColor(1, 1, 1)  -- White text
 	iconTimeText:Hide()
@@ -1980,31 +1980,31 @@ function ShamanPower:CreatePulseOverlay(button)
 
 		if displayOption == "inside_top" then
 			if self.barTimeTextTop then
-				self.barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.barTimeTextTop, "timers", textSize, "OUTLINE")
 				self.barTimeTextTop:SetText(timeText)
 				self.barTimeTextTop:Show()
 			end
 		elseif displayOption == "inside_bottom" then
 			if self.barTimeTextBottom then
-				self.barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.barTimeTextBottom, "timers", textSize, "OUTLINE")
 				self.barTimeTextBottom:SetText(timeText)
 				self.barTimeTextBottom:Show()
 			end
 		elseif displayOption == "above" then
 			if self.aboveTimeText then
-				self.aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.aboveTimeText, "timers", textSize, "OUTLINE")
 				self.aboveTimeText:SetText(timeText)
 				self.aboveTimeText:Show()
 			end
 		elseif displayOption == "below" then
 			if self.belowTimeText then
-				self.belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.belowTimeText, "timers", textSize, "OUTLINE")
 				self.belowTimeText:SetText(timeText)
 				self.belowTimeText:Show()
 			end
 		elseif displayOption == "on_icon" then
 			if self.iconTimeText then
-				self.iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.iconTimeText, "timers", textSize, "OUTLINE")
 				self.iconTimeText:SetText(timeText)
 				self.iconTimeText:Show()
 			end
@@ -2612,7 +2612,7 @@ function ShamanPower:SetupTwistTimer()
 		self.twistTimerFrame:SetFrameStrata("HIGH")
 
 		self.twistTimerText = self.twistTimerFrame:CreateFontString(nil, "OVERLAY")
-		self.twistTimerText:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+		ShamanPower:SetSPFont(self.twistTimerText, "timers", 16, "OUTLINE")
 		self.twistTimerText:SetPoint("CENTER", airButton, "CENTER", 0, 0)
 		self.twistTimerText:SetTextColor(1, 1, 1)
 		self.twistTimerFrame:Hide()
@@ -2773,31 +2773,31 @@ function ShamanPower:SetupTotemProgressBars()
 
 			-- Duration text INSIDE the bar (top)
 			local insideTextTop = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-			insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(insideTextTop, "timers", 8, "OUTLINE")
 			insideTextTop:SetTextColor(1, 1, 1)
 			insideTextTop:Hide()
 
 			-- Duration text INSIDE the bar (bottom)
 			local insideTextBottom = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-			insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(insideTextBottom, "timers", 8, "OUTLINE")
 			insideTextBottom:SetTextColor(1, 1, 1)
 			insideTextBottom:Hide()
 
 			-- Duration text ABOVE the bar
 			local aboveBarText = totemButton:CreateFontString(nil, "OVERLAY")
-			aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(aboveBarText, "timers", 8, "OUTLINE")
 			aboveBarText:SetTextColor(1, 1, 1)
 			aboveBarText:Hide()
 
 			-- Duration text BELOW the bar
 			local belowBarText = totemButton:CreateFontString(nil, "OVERLAY")
-			belowBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(belowBarText, "timers", 8, "OUTLINE")
 			belowBarText:SetTextColor(1, 1, 1)
 			belowBarText:Hide()
 
 			-- Duration text ON the icon
 			local iconText = totemButton:CreateFontString(nil, "OVERLAY")
-			iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
 			iconText:Hide()
@@ -2822,7 +2822,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.insideTextTop then
 				local insideTextTop = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-				insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(insideTextTop, "timers", 8, "OUTLINE")
 				insideTextTop:SetTextColor(1, 1, 1)
 				insideTextTop:Hide()
 				bars.insideTextTop = insideTextTop
@@ -2831,7 +2831,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.insideTextBottom then
 				local insideTextBottom = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-				insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(insideTextBottom, "timers", 8, "OUTLINE")
 				insideTextBottom:SetTextColor(1, 1, 1)
 				insideTextBottom:Hide()
 				bars.insideTextBottom = insideTextBottom
@@ -2839,7 +2839,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.aboveBarText then
 				local aboveBarText = totemButton:CreateFontString(nil, "OVERLAY")
-				aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(aboveBarText, "timers", 8, "OUTLINE")
 				aboveBarText:SetTextColor(1, 1, 1)
 				aboveBarText:Hide()
 				bars.aboveBarText = aboveBarText
@@ -2847,7 +2847,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.belowBarText then
 				local belowBarText = totemButton:CreateFontString(nil, "OVERLAY")
-				belowBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(belowBarText, "timers", 8, "OUTLINE")
 				belowBarText:SetTextColor(1, 1, 1)
 				belowBarText:Hide()
 				bars.belowBarText = belowBarText
@@ -2857,7 +2857,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.iconText then
 				local iconText = totemButton:CreateFontString(nil, "OVERLAY")
-				iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+				ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 				iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 				iconText:SetTextColor(1, 1, 1)
 				iconText:Hide()
@@ -3183,31 +3183,31 @@ function ShamanPower:UpdateTotemProgressBars()
 					-- Show the appropriate text element (apply text size)
 					if textLocation == "inside_top" then
 						if bars.insideTextTop then
-							bars.insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.insideTextTop, "timers", textSize, "OUTLINE")
 							bars.insideTextTop:SetText(durationStr)
 							bars.insideTextTop:Show()
 						end
 					elseif textLocation == "inside_bottom" then
 						if bars.insideTextBottom then
-							bars.insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.insideTextBottom, "timers", textSize, "OUTLINE")
 							bars.insideTextBottom:SetText(durationStr)
 							bars.insideTextBottom:Show()
 						end
 					elseif textLocation == "above" then
 						if bars.aboveBarText then
-							bars.aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.aboveBarText, "timers", textSize, "OUTLINE")
 							bars.aboveBarText:SetText(durationStr)
 							bars.aboveBarText:Show()
 						end
 					elseif textLocation == "below" then
 						if bars.belowBarText then
-							bars.belowBarText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.belowBarText, "timers", textSize, "OUTLINE")
 							bars.belowBarText:SetText(durationStr)
 							bars.belowBarText:Show()
 						end
 					elseif textLocation == "icon" then
 						if bars.iconText then
-							bars.iconText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.iconText, "timers", textSize, "OUTLINE")
 							bars.iconText:SetText(durationStr)
 							bars.iconText:Show()
 						end
@@ -3634,7 +3634,7 @@ function ShamanPower:UpdateTotemProgressBarHeight()
 			-- Update inside text font size based on bar size
 			if bars.insideText then
 				local fontSize = math.max(7, barSize - 2)
-				bars.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				ShamanPower:SetSPFont(bars.insideText, "timers", fontSize, "OUTLINE")
 			end
 		end
 	end
@@ -3826,7 +3826,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	-- Create pulse time text elements (same as main pulse overlay)
 	-- Time text inside the bar (top)
 	local barTimeTextTop = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextTop, "timers", 9, "OUTLINE")
 	barTimeTextTop:SetPoint("TOP", wipeFrame, "TOP", 0, -1)
 	barTimeTextTop:SetTextColor(1, 1, 1)
 	barTimeTextTop:Hide()
@@ -3834,7 +3834,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text inside the bar (bottom)
 	local barTimeTextBottom = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextBottom, "timers", 9, "OUTLINE")
 	barTimeTextBottom:SetPoint("BOTTOM", wipeFrame, "BOTTOM", 0, 1)
 	barTimeTextBottom:SetTextColor(1, 1, 1)
 	barTimeTextBottom:Hide()
@@ -3842,7 +3842,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text above the bar
 	local aboveTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(aboveTimeText, "timers", 9, "OUTLINE")
 	aboveTimeText:SetPoint("BOTTOM", wipeFrame, "TOP", 0, 1)
 	aboveTimeText:SetTextColor(1, 1, 1)
 	aboveTimeText:Hide()
@@ -3850,7 +3850,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text below the bar
 	local belowTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(belowTimeText, "timers", 9, "OUTLINE")
 	belowTimeText:SetPoint("TOP", wipeFrame, "BOTTOM", 0, -1)
 	belowTimeText:SetTextColor(1, 1, 1)
 	belowTimeText:Hide()
@@ -3858,7 +3858,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text on the icon
 	local iconTimeText = frame:CreateFontString(nil, "OVERLAY")
-	iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ShamanPower:SetSPFont(iconTimeText, "timers", 10, "OUTLINE")
 	iconTimeText:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	iconTimeText:SetTextColor(1, 1, 1)
 	iconTimeText:Hide()
@@ -3883,31 +3883,31 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 		if displayOption == "inside_top" then
 			if self.barTimeTextTop then
-				self.barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.barTimeTextTop, "timers", textSize, "OUTLINE")
 				self.barTimeTextTop:SetText(timeText)
 				self.barTimeTextTop:Show()
 			end
 		elseif displayOption == "inside_bottom" then
 			if self.barTimeTextBottom then
-				self.barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.barTimeTextBottom, "timers", textSize, "OUTLINE")
 				self.barTimeTextBottom:SetText(timeText)
 				self.barTimeTextBottom:Show()
 			end
 		elseif displayOption == "above" then
 			if self.aboveTimeText then
-				self.aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.aboveTimeText, "timers", textSize, "OUTLINE")
 				self.aboveTimeText:SetText(timeText)
 				self.aboveTimeText:Show()
 			end
 		elseif displayOption == "below" then
 			if self.belowTimeText then
-				self.belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.belowTimeText, "timers", textSize, "OUTLINE")
 				self.belowTimeText:SetText(timeText)
 				self.belowTimeText:Show()
 			end
 		elseif displayOption == "on_icon" then
 			if self.iconTimeText then
-				self.iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+				ShamanPower:SetSPFont(self.iconTimeText, "timers", textSize, "OUTLINE")
 				self.iconTimeText:SetText(timeText)
 				self.iconTimeText:Show()
 			end
@@ -4733,7 +4733,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	local titleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	titleText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 4)
 	titleText:SetText(title or "Pop-Out")
-	titleText:SetFont(STANDARD_TEXT_FONT, 11, "")
+	ShamanPower:SetSPFont(titleText, "labels", 11, "", STANDARD_TEXT_FONT)
 	titleText:SetShadowOffset(1, -1)
 	titleText:SetShadowColor(0, 0, 0, 0.8)
 	titleText:SetTextColor(0.902, 0.918, 0.941)
@@ -5065,7 +5065,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 
 	-- Duration text on icon
 	local durationText = iconHolder:CreateFontString(nil, "OVERLAY")
-	durationText:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
+	ShamanPower:SetSPFont(durationText, "timers", 11, "OUTLINE")
 	durationText:SetPoint("CENTER", iconHolder, "CENTER", 0, 0)
 	durationText:SetTextColor(1, 1, 1)
 	durationText:Hide()
@@ -5667,6 +5667,7 @@ function ShamanPower:CreateTotemButtons()
 		cdTextFrame:SetAllPoints(btn)
 		cdTextFrame:SetFrameLevel(cdFrame:GetFrameLevel() + 1)
 		local cdText = cdTextFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		ShamanPower:AdoptSPFont(cdText, "timers")   -- template font = the design; follows the Fonts settings
 		cdText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 		local cdColor = self.opt.totemCooldownTextColor
 		cdText:SetTextColor(cdColor and cdColor.r or 1, cdColor and cdColor.g or 1, cdColor and cdColor.b or 1)
@@ -6797,6 +6798,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			cdTextFrame:SetAllPoints(btn)
 			cdTextFrame:SetFrameLevel(cdFrame:GetFrameLevel() + 1)
 			local cdText = cdTextFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			ShamanPower:AdoptSPFont(cdText, "timers")   -- template font = the design; follows the Fonts settings
 			cdText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			local cdColor = self.opt.totemCooldownTextColor
 			cdText:SetTextColor(cdColor and cdColor.r or 1, cdColor and cdColor.g or 1, cdColor and cdColor.b or 1)
@@ -8704,20 +8706,21 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Time text for showing remaining duration (center of button - legacy)
 			local timeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+			ShamanPower:AdoptSPFont(timeText, "timers")   -- template font = the design; follows the Fonts settings
 			timeText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			timeText:SetText("")
 			btn.timeText = timeText
 
 			-- Duration text INSIDE the bar
 			local insideText = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-			insideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(insideText, "timers", 8, "OUTLINE")
 			insideText:SetTextColor(1, 1, 1)
 			insideText:Hide()
 			btn.insideText = insideText
 
 			-- Duration text OUTSIDE the bar
 			local outsideText = btn:CreateFontString(nil, "OVERLAY")
-			outsideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(outsideText, "timers", 8, "OUTLINE")
 			outsideText:SetTextColor(1, 1, 1)
 			outsideText:Hide()
 			btn.outsideText = outsideText
@@ -8725,7 +8728,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Duration text ON the icon
 			local iconText = btn:CreateFontString(nil, "OVERLAY")
-			iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
 			iconText:Hide()
@@ -8733,7 +8736,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Keybind text (top right corner, like standard action buttons)
 			local keybindText = btn:CreateFontString(nil, "OVERLAY")
-			keybindText:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(keybindText, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 			keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 			keybindText:SetTextColor(0.9, 0.9, 0.9, 1)
 			keybindText:SetText("")
@@ -8743,6 +8746,7 @@ function ShamanPower:CreateCooldownBar()
 			-- Charge count text for shield buttons (bottom right corner)
 			if spellType == "shield" then
 				local chargeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ShamanPower:AdoptSPFont(chargeText, "charges")   -- template font = the design; follows the Fonts settings
 				chargeText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 				chargeText:SetText("")
 				btn.chargeText = chargeText
@@ -8751,6 +8755,7 @@ function ShamanPower:CreateCooldownBar()
 			-- Ankh count text for Reincarnation button (bottom right corner)
 			if spellID == 20608 then
 				local ankhCountText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ShamanPower:AdoptSPFont(ankhCountText, "labels")   -- template font = the design; follows the Fonts settings
 				ankhCountText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 				ankhCountText:SetText("")
 				btn.ankhCountText = ankhCountText
@@ -9419,6 +9424,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					local carrier = CreateFrame("Frame", nil, button)
 					carrier:SetAllPoints(button)
 					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
 					count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
 					count:SetTextColor(1, 1, 1)
 					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3) }))
@@ -9577,14 +9583,14 @@ local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, 
 		insideMain:ClearAllPoints()
 		insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
 		local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-		insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+		ShamanPower:SetSPFont(insideMain, "timers", fontSize, "OUTLINE")
 	end
 	if insideOff then
 		if both then
 			insideOff:ClearAllPoints()
 			insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
 			local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-			insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			ShamanPower:SetSPFont(insideOff, "timers", fontSize, "OUTLINE")
 		else
 			insideOff:Hide()
 		end
@@ -10478,7 +10484,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				btn.insideText:ClearAllPoints()
 				btn.insideText:SetPoint("CENTER", btn.bgBar, "CENTER", 0, 0)
 				local fontSize = self.opt.cdbarDurationTextSize or 8
-				btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				ShamanPower:SetSPFont(btn.insideText, "timers", fontSize, "OUTLINE")
 			end
 
 			if btn.outsideText and btn.bgBar then
@@ -10591,13 +10597,13 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 					insideMain:ClearAllPoints()
 					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
 					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+					ShamanPower:SetSPFont(insideMain, "timers", fontSize, "OUTLINE")
 				end
 				if insideOff and hasOff and both then
 					insideOff:ClearAllPoints()
 					insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
 					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-					insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+					ShamanPower:SetSPFont(insideOff, "timers", fontSize, "OUTLINE")
 				elseif insideOff then
 					insideOff:Hide()
 				end
@@ -10964,12 +10970,12 @@ function ShamanPower:ApplyCdbarTextSize()
 	self:ResetEngineBarCooldowns()   -- the engine strings copy the font on their next placement
 	local size = self.opt.cdbarDurationTextSize or 8
 	for _, btn in ipairs(self.cooldownButtons) do
-		if btn.insideText then btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.outsideText then btn.outsideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.iconText then btn.iconText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.insideText2 then btn.insideText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.outsideText2 then btn.outsideText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.iconText2 then btn.iconText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.insideText then ShamanPower:SetSPFont(btn.insideText, "timers", size, "OUTLINE") end
+		if btn.outsideText then ShamanPower:SetSPFont(btn.outsideText, "timers", size, "OUTLINE") end
+		if btn.iconText then ShamanPower:SetSPFont(btn.iconText, "timers", size, "OUTLINE") end
+		if btn.insideText2 then ShamanPower:SetSPFont(btn.insideText2, "timers", size, "OUTLINE") end
+		if btn.outsideText2 then ShamanPower:SetSPFont(btn.outsideText2, "timers", size, "OUTLINE") end
+		if btn.iconText2 then ShamanPower:SetSPFont(btn.iconText2, "timers", size, "OUTLINE") end
 	end
 end
 
@@ -11167,20 +11173,21 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Time text for showing remaining duration (legacy)
 	local timeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	ShamanPower:AdoptSPFont(timeText, "timers")   -- template font = the design; follows the Fonts settings
 	timeText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	timeText:SetText("")
 	btn.timeText = timeText
 
 	-- Duration text INSIDE the bar
 	local insideText = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-	insideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(insideText, "timers", 8, "OUTLINE")
 	insideText:SetTextColor(1, 1, 1)
 	insideText:Hide()
 	btn.insideText = insideText
 
 	-- Duration text OUTSIDE the bar
 	local outsideText = btn:CreateFontString(nil, "OVERLAY")
-	outsideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(outsideText, "timers", 8, "OUTLINE")
 	outsideText:SetTextColor(1, 1, 1)
 	outsideText:Hide()
 	btn.outsideText = outsideText
@@ -11188,7 +11195,7 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Duration text ON the icon
 	local iconText = btn:CreateFontString(nil, "OVERLAY")
-	iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 	iconText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	iconText:SetTextColor(1, 1, 1)
 	iconText:Hide()
@@ -11196,26 +11203,26 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Off-hand duration text (mirrors main-hand options)
 	local insideText2 = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-	insideText2:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(insideText2, "timers", 8, "OUTLINE")
 	insideText2:SetTextColor(1, 1, 1)
 	insideText2:Hide()
 	btn.insideText2 = insideText2
 
 	local outsideText2 = btn:CreateFontString(nil, "OVERLAY")
-	outsideText2:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(outsideText2, "timers", 8, "OUTLINE")
 	outsideText2:SetTextColor(1, 1, 1)
 	outsideText2:Hide()
 	btn.outsideText2 = outsideText2
 
 	local iconText2 = btn:CreateFontString(nil, "OVERLAY")
-	iconText2:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(iconText2, "timers", 9, "OUTLINE")
 	iconText2:SetTextColor(1, 1, 1)
 	iconText2:Hide()
 	btn.iconText2 = iconText2
 
 	-- Keybind text (top right corner, like standard action buttons)
 	local keybindText = btn:CreateFontString(nil, "OVERLAY")
-	keybindText:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(keybindText, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 	keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 	keybindText:SetTextColor(0.9, 0.9, 0.9, 1)
 	keybindText:SetText("")
@@ -12528,6 +12535,7 @@ function ShamanPower:CreateEarthShieldButton()
 
 	-- Charge count text (bottom right corner)
 	local chargeText = esBtn:CreateFontString("ShamanPowerEarthShieldBtnCharges", "OVERLAY", "NumberFontNormal")
+	ShamanPower:AdoptSPFont(chargeText, "charges")   -- template font = the design; follows the Fonts settings
 	chargeText:SetPoint("BOTTOMRIGHT", esBtn, "BOTTOMRIGHT", -1, 1)
 	chargeText:SetJustifyH("RIGHT")
 	chargeText:SetTextColor(1, 1, 1)  -- White
@@ -12536,6 +12544,7 @@ function ShamanPower:CreateEarthShieldButton()
 
 	-- Target name text (optional, shows below button)
 	local nameText = esBtn:CreateFontString("ShamanPowerEarthShieldBtnName", "OVERLAY", "GameFontHighlightSmall")
+	ShamanPower:AdoptSPFont(nameText, "labels")   -- template font = the design; follows the Fonts settings
 	nameText:SetPoint("TOP", esBtn, "BOTTOM", 0, -1)
 	nameText:SetWidth(40)
 	nameText:SetHeight(10)
@@ -12761,14 +12770,14 @@ function ShamanPower:CreateESActiveOverlay()
 
 	-- Target name text (inside icon)
 	local nameText = frame:CreateFontString(nil, "OVERLAY")
-	nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(nameText, "labels", 8, "OUTLINE")
 	nameText:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	nameText:SetTextColor(1, 1, 1)
 	overlay.nameText = nameText
 
 	-- Charge count (top right)
 	local chargeText = frame:CreateFontString(nil, "OVERLAY")
-	chargeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ShamanPower:SetSPFont(chargeText, "charges", 10, "OUTLINE")
 	chargeText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
 	chargeText:SetTextColor(1, 1, 1)
 	overlay.chargeText = chargeText
@@ -13002,7 +13011,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 
 		-- Player name text
 		local nameText = btn:CreateFontString(nil, "OVERLAY")
-		nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+		ShamanPower:SetSPFont(nameText, "labels", 8, "OUTLINE")
 		nameText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 		nameText:SetTextColor(1, 1, 1)
 		btn.nameText = nameText
@@ -13473,6 +13482,7 @@ function ShamanPower:EnsureESButtonContainer(esBtn)
 				local carrier = CreateFrame("Frame", nil, button)
 				carrier:SetAllPoints(button)
 				local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
 				count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
 				count:SetJustifyH("RIGHT")
 				count:SetTextColor(0, 1, 0)   -- fixed green; a per-charge color would need the secret value
@@ -16460,7 +16470,7 @@ function ShamanPower:SetupTotemBarKeybindText()
 		local btn = _G[buttonName]
 		if btn and not btn.keybindText then
 			local keybindText = btn:CreateFontString(nil, "OVERLAY")
-			keybindText:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(keybindText, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 			keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 			keybindText:SetTextColor(0.9, 0.9, 0.9, 1)
 			keybindText:SetText("")
@@ -16639,7 +16649,7 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 			holder:SetAllPoints(btn)
 			holder:SetFrameLevel(btn:GetFrameLevel() + 4)
 			local fs = holder:CreateFontString(nil, "OVERLAY")
-			fs:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(fs, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 			fs:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 			fs:SetTextColor(0.9, 0.9, 0.9, 1)
 			btn.keybindText = fs
@@ -17521,6 +17531,7 @@ function ShamanPower:CreateLoadoutBar()
 
 	-- Name label to the right of anchor
 	local anchorName = anchor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+	ShamanPower:AdoptSPFont(anchorName, "labels")   -- template font = the design; follows the Fonts settings
 	anchorName:SetPoint("LEFT", anchor, "RIGHT", 4, 0)
 	anchorName:SetText("")
 	anchorName:SetJustifyH("LEFT")
@@ -17644,6 +17655,7 @@ function ShamanPower:CreateLoadoutBar()
 
 		-- Name label to the right of button
 		local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+		ShamanPower:AdoptSPFont(nameText, "labels")   -- template font = the design; follows the Fonts settings
 		nameText:SetPoint("LEFT", btn, "RIGHT", 4, 0)
 		nameText:SetText("")
 		nameText:SetJustifyH("LEFT")

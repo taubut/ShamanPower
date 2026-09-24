@@ -43,7 +43,7 @@ end
 
 -- The font path and outline flags for an area; the call site's own choice when
 -- the player has not picked anything.
-function SP:FontFor(area, size, defaultFlags, defaultPath)
+function SP:FontFor(area, _, defaultFlags, defaultPath)
 	local o = self.opt
 	local path, flags = defaultPath or SP.DEFAULT_FONT_PATH, defaultFlags or ""
 	if o then
@@ -51,13 +51,33 @@ function SP:FontFor(area, size, defaultFlags, defaultPath)
 		local name = (a and a.name) or o.fontName
 		local outline = a and a.outline
 		if outline == nil then outline = o.fontOutline end
+		-- a font being hovered in the settings list, shown without saving it
+		local pv = SP._fontPreview
+		if pv then
+			if pv.area == area then name = pv.name
+			elseif pv.area == "all" and not (a and a.name) then name = pv.name end
+		end
 		path = fontPath(name) or path
 		if outline ~= nil then flags = outline end
 	end
 	return path, flags
 end
 
+-- Settings hover: show `name` for `area` ("all" = the main font) until cleared.
+function SP:PreviewFont(area, name)
+	if area and name and name ~= "__default" and name ~= "__inherit" then
+		SP._fontPreview = { area = area, name = name }
+	else
+		SP._fontPreview = nil
+	end
+	self:RefreshFonts()
+end
+
 local registry = setmetatable({}, { __mode = "k" })
+-- Bumped whenever the answer of FontFor can change (a setting, a hover preview,
+-- a profile switch). A call with the same arguments in the same generation is a
+-- no-op, which keeps the few per-tick callers (timer text) free.
+local gen = 0
 
 -- SetFont does not report failure on every client: a path that does not load
 -- leaves the string with no font, which GetFont shows as nil.
@@ -71,18 +91,36 @@ function SP:SetSPFont(fs, area, size, defaultFlags, defaultPath)
 	if not fs then return end
 	size = size or select(2, fs:GetFont()) or 12
 	local rec = registry[fs]
+	if rec and rec.gen == gen and rec.area == area and rec.size == size and rec.flags == defaultFlags and rec.path == defaultPath then
+		return
+	end
 	if not rec then rec = {}; registry[fs] = rec end
-	rec.area, rec.size, rec.flags, rec.path = area, size, defaultFlags, defaultPath
+	rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, defaultFlags, defaultPath, gen
 	local path, flags = self:FontFor(area, size, defaultFlags, defaultPath)
 	apply(fs, path, size, flags, defaultPath, defaultFlags)   -- a missing font file falls back to the design
 end
 
+-- For a string whose font came from a template (NumberFont*, GameFont*): its
+-- current font becomes the designed default, then it follows the settings.
+function SP:AdoptSPFont(fs, area)
+	if not fs then return end
+	local rec = registry[fs]
+	-- already known: something reset it to its template (SetFontObject); force a re-apply
+	if rec then rec.gen = nil; self:SetSPFont(fs, area, rec.size, rec.flags, rec.path) return end
+	local path, size, flags = fs:GetFont()
+	self:SetSPFont(fs, area, size or 12, flags or "", path)
+end
+
 -- Re-apply every remembered font string: called when a font setting changes.
 function SP:RefreshFonts()
+	gen = gen + 1
 	for fs, rec in pairs(registry) do
+		rec.gen = gen
 		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path)
 		apply(fs, path, rec.size, flags, rec.path, rec.flags)
 	end
+	-- game-drawn cooldown numbers copy their font from our strings when placed
+	if self.ResetEngineBarCooldowns then pcall(self.ResetEngineBarCooldowns, self) end
 end
 
 -- Profile switches and imports change opt underneath the strings.

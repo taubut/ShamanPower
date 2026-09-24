@@ -155,7 +155,7 @@ local function styleHost(host, element)
 	bar:SetColorTexture(colors[1], colors[2], colors[3], 1)
 	local location = opt.durationTextLocation or "none"
 	host.textLocation = location
-	text:SetFont("Fonts\\FRIZQT__.TTF", opt.durationTextSize or 8, "OUTLINE")
+	SP:SetSPFont(text, "timers", opt.durationTextSize or 8, "OUTLINE")
 	text:SetTextColor(1, 1, 1)
 	if location == "inside_top" then text:SetPoint("TOP", bg, "TOP", 0, -1)
 	elseif location == "inside_bottom" then text:SetPoint("BOTTOM", bg, "BOTTOM", 0, 1)
@@ -184,7 +184,7 @@ local function styleHost(host, element)
 	SP:StyleEngineCooldown(host.lifetime)
 	host.lifetime:SetHideCountdownNumbers(location ~= "icon" or opt.totemCooldownText == false)
 	local ok, font = pcall(host.lifetime.GetCountdownFontString, host.lifetime)
-	if ok and font then font:SetFont("Fonts\\FRIZQT__.TTF", opt.durationTextSize or 8, "OUTLINE") end
+	if ok and font then SP:SetSPFont(font, "timers", opt.durationTextSize or 8, "OUTLINE") end
 	host.sweepStyle = opt.totemCooldownSweep or "radial"
 	host.showSweep = opt.showTotemCooldowns ~= false
 	host.lifetime:SetDrawSwipe(host.showSweep and host.sweepStyle == "radial")

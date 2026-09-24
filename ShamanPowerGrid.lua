@@ -104,7 +104,7 @@ local function styleVisual(v, button, element, size)
 	local tint = SP.ElementColors[element]
 	v.assigned:SetVertexColor(tint.r, tint.g, tint.b, 1)
 	v.location = opt.durationTextLocation or "none"
-	text:SetFont("Fonts\\FRIZQT__.TTF", opt.durationTextSize or 8, "OUTLINE")
+	SP:SetSPFont(text, "timers", opt.durationTextSize or 8, "OUTLINE")
 	if v.location == "inside_top" then text:SetPoint("TOP", bg, "TOP", 0, -1)
 	elseif v.location == "inside_bottom" then text:SetPoint("BOTTOM", bg, "BOTTOM", 0, 1)
 	elseif v.location == "above" then

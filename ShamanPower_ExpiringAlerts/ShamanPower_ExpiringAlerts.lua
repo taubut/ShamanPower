@@ -334,7 +334,7 @@ function SP:CreateAlertSubFrame()
 	-- Text (position set dynamically in ProcessAlertQueue for centering)
 	local text = frame:CreateFontString(nil, "OVERLAY")
 	local outline = sv.fontOutline and "OUTLINE" or ""
-	text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, outline)
+	SP:SetSPFont(text, "alerts", sv.textSize or 24, outline)
 	text:SetShadowColor(0, 0, 0, 1)
 	text:SetShadowOffset(2, -2)
 	frame.text = text
@@ -472,7 +472,7 @@ function SP:ProcessAlertQueue()
 		local displayText = alertData.spellName .. " FADED!"
 		frame.text:SetText(displayText)
 		local outline = sv.fontOutline and "OUTLINE" or ""
-		frame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, outline)
+		SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, outline)
 		if alertData.color then
 			frame.text:SetTextColor(alertData.color.r, alertData.color.g, alertData.color.b)
 		else
@@ -1169,7 +1169,7 @@ function SP:UpdateExpiringAlertsAppearance()
 
 	for _, frame in ipairs(self.alertPool) do
 		local outline = sv.fontOutline and "OUTLINE" or ""
-		frame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, outline)
+		SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, outline)
 		frame.icon:SetSize(sv.iconSize or 32, sv.iconSize or 32)
 	end
 end

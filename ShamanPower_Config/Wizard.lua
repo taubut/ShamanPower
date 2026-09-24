@@ -726,7 +726,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local mbg = main:CreateTexture(nil, "BACKGROUND"); mbg:SetAllPoints(main); mbg:SetColorTexture(0, 0, 0, 0.6)
 		local mIcon = main:CreateTexture(nil, "ARTWORK"); mIcon:SetPoint("TOPLEFT", 2, -2); mIcon:SetPoint("BOTTOMRIGHT", -2, 2); mIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		Core:MakeBorder(main, "border")
-		local key = main:CreateFontString(nil, "OVERLAY"); key:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE"); key:SetPoint("BOTTOMLEFT", main, "BOTTOMLEFT", 2, 2); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
+		local key = main:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("BOTTOMLEFT", main, "BOTTOMLEFT", 2, 2); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
 		-- Assigned-totem corner badge (TotemTimers style).
 		local inset = main:CreateTexture(nil, "OVERLAY"); inset:SetSize(18, 18); inset:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -2, 2); inset:SetTexCoord(0.08, 0.92, 0.08, 0.92); inset:SetTexture(e.icon)
 		local insetBd = main:CreateTexture(nil, "OVERLAY"); insetBd:SetPoint("TOPLEFT", inset, -1, 1); insetBd:SetPoint("BOTTOMRIGHT", inset, 1, -1); insetBd:SetColorTexture(0, 0, 0, 0.9); insetBd:SetDrawLayer("OVERLAY", -1)
@@ -848,7 +848,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			else f:SetPoint("TOPLEFT", cm, "TOPLEFT", ox, -(4 + first) * (sh + sp) + oy) end
 			SP:LayoutCompactVisuals(esMock.c, f, co, bw, bh); esMock.c.line:Hide()
 			SP:LayoutCompactSegments(f, esMock.c, 6)
-			esMock.name:ClearAllPoints(); esMock.name:SetFont("Fonts\\FRIZQT__.TTF", math.max(7, math.min(12, co.T - 3)), "OUTLINE")
+			esMock.name:ClearAllPoints(); SP:SetSPFont(esMock.name, "labels", math.max(7, math.min(12, co.T - 3)), "OUTLINE")
 			if co.vertical then esMock.name:SetPoint("TOP", f, "BOTTOM", 0, -2) else esMock.name:SetPoint("CENTER", f, "CENTER", 0, 0) end
 			esMock.name:SetText("")   -- the real line carries no name (too big on a compact bar); the mock matches
 		end
@@ -1252,14 +1252,14 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		-- duration bar + its five text slots (mirrors totemProgressBars)
 		s.dbg = b:CreateTexture(nil, "BACKGROUND", nil, 1); s.dbg:SetColorTexture(0, 0, 0, 0.6)
 		s.dbar = b:CreateTexture(nil, "ARTWORK", nil, 1); s.dbar:SetColorTexture(e.r, e.g, e.b, 0.95)
-		local function fs(parent) local t = parent:CreateFontString(nil, "OVERLAY", nil, 7); t:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE"); t:SetTextColor(1, 1, 1); t:Hide(); return t end
+		local function fs(parent) local t = parent:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(t, "timers", 8, "OUTLINE"); t:SetTextColor(1, 1, 1); t:Hide(); return t end
 		s.txt = { inside_top = fs(b), inside_bottom = fs(b), above = fs(b), below = fs(b), icon = fs(b) }
 		s.txt.icon:SetPoint("CENTER", b, "CENTER")
 		-- totem cooldown: radial swipe + colored remaining text (Water only)
 		if e.cd then
 			s.cdf = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate"); s.cdf:SetAllPoints(b); s.cdf:SetDrawEdge(false)
 			if s.cdf.SetHideCountdownNumbers then s.cdf:SetHideCountdownNumbers(true) end
-			s.cdt = b:CreateFontString(nil, "OVERLAY", nil, 7); s.cdt:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE"); s.cdt:SetPoint("CENTER", b, "CENTER"); s.cdt:Hide()
+			s.cdt = b:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(s.cdt, "timers", 11, "OUTLINE"); s.cdt:SetPoint("CENTER", b, "CENTER"); s.cdt:Hide()
 			-- vertical sweep alternative (grey grows down from the top, like the cooldown bar)
 			s.cdgray = b:CreateTexture(nil, "ARTWORK", nil, 1); s.cdgray:SetPoint("TOPLEFT", icon, "TOPLEFT"); s.cdgray:SetPoint("TOPRIGHT", icon, "TOPRIGHT")
 			s.cdgray:SetTexture(e.icon); s.cdgray:SetDesaturated(true); s.cdgray:SetVertexColor(0.5, 0.5, 0.5); s.cdgray:Hide()
@@ -1371,7 +1371,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			for k, t in pairs(s.txt) do
 				local on = active and tl == k and (k == "icon" or dp ~= "none")
 				t:SetShown(on)
-				if on then t:SetFont("Fonts\\FRIZQT__.TTF", ts, "OUTLINE"); t:SetText(tostring(math.ceil(remain))) end
+				if on then SP:SetSPFont(t, "timers", ts, "OUTLINE"); t:SetText(tostring(math.ceil(remain))) end
 			end
 			-- totem cooldown (starts when the totem is dropped)
 			if s.cdf then
@@ -1410,7 +1410,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 				for k, t in pairs(s.ptxt) do
 					local on = active and ptl == k and (k == "on_icon" or pp ~= "none")
 					t:SetShown(on)
-					if on then t:SetFont("Fonts\\FRIZQT__.TTF", pts, "OUTLINE"); t:SetText(string.format("%.1f", e.pulse - (s.t % e.pulse))) end
+					if on then SP:SetSPFont(t, "timers", pts, "OUTLINE"); t:SetText(string.format("%.1f", e.pulse - (s.t % e.pulse))) end
 				end
 			end
 			s.wasActive = active
@@ -1619,8 +1619,8 @@ function SP.Wizard.BuildTwistingStep(card, inner, y)
 		g:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0)
 		glows[i] = g
 	end
-	local key = btn:CreateFontString(nil, "OVERLAY"); key:SetFont("Fonts\\ARIALN.TTF", math.floor(9 * S), "OUTLINE"); key:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
-	local timer = btn:CreateFontString(nil, "OVERLAY", nil, 7); timer:SetFont("Fonts\\FRIZQT__.TTF", math.floor(16 * S), "OUTLINE"); timer:SetPoint("CENTER", btn, "CENTER", 0, 0)
+	local key = btn:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", math.floor(9 * S), "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
+	local timer = btn:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(timer, "timers", math.floor(16 * S), "OUTLINE"); timer:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	local status = inner:CreateFontString(nil, "OVERLAY"); status:SetFontObject(Core.fonts.row); status:SetPoint("TOP", btn, "BOTTOM", 0, -18 - 10 * S)
 	status:SetWidth(inner:GetWidth() - 40); status:SetJustifyH("CENTER"); status:SetWordWrap(true)
 	local sub = inner:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.rowDim); sub:SetPoint("TOP", status, "BOTTOM", 0, -6)
@@ -1742,7 +1742,7 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 		local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetPoint("TOPLEFT", 2, -2); ic:SetPoint("BOTTOMRIGHT", -2, 2)
 		ic:SetTexture("Interface\\Icons\\Spell_Nature_Windfury"); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		Core:MakeBorder(b, "border")
-		local key = b:CreateFontString(nil, "OVERLAY"); key:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
+		local key = b:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
 		local dots, rings = {}, {}
 		for d = 1, 4 do
 			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
@@ -1754,7 +1754,7 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 		local cf = CreateFrame("Frame", nil, holder); cf:SetSize(40, 40); cf:SetPoint("TOP", b, "BOTTOM", 0, -6); cf:Hide()
 		local cbg = cf:CreateTexture(nil, "BACKGROUND"); cbg:SetAllPoints(cf); cbg:SetColorTexture(0, 0, 0, 0.7); Core:MakeBorder(cf, "border")
 		local ct = cf:CreateFontString(nil, "OVERLAY"); ct:SetPoint("CENTER", cf, "CENTER", 0, 0)
-		local cl = cf:CreateFontString(nil, "OVERLAY"); cl:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE"); cl:SetPoint("BOTTOM", cf, "BOTTOM", 0, 4); cl:SetText("Air"); cl:SetTextColor(unpack(AIR))
+		local cl = cf:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(cl, "labels", 9, "OUTLINE"); cl:SetPoint("BOTTOM", cf, "BOTTOM", 0, 4); cl:SetText("Air"); cl:SetTextColor(unpack(AIR))
 		return { holder = holder, f = b, dots = dots, rings = rings, n = n, cf = cf, cbg = cbg, ct = ct, cl = cl }
 	end
 	local function placeDots(sl)
@@ -1789,7 +1789,7 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 		end
 		local count = known and 1 or 0
 		if showNum and not separate then
-			sl.n:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			SP:SetSPFont(sl.n, "labels", fontSize, "OUTLINE")
 			if useEle then sl.n:SetTextColor(unpack(AIR)) else sl.n:SetTextColor(1, 1, 1) end
 			sl.n:SetText(tostring(count)); sl.n:Show()
 		else sl.n:Hide() end
@@ -1798,7 +1798,7 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 			sl.cbg:SetShown(not rc.hideFrame); Core:SetBorderColor(sl.cf, rc.hideFrame and "windowBg" or "border")
 			sl.cl:SetShown(not rc.hideLabel)
 			if rc.hideFrame and rc.hideLabel then sl.cf:SetSize(30, 25) elseif rc.hideLabel then sl.cf:SetSize(40, 35) else sl.cf:SetSize(40, 40) end
-			sl.ct:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+			SP:SetSPFont(sl.ct, "labels", fontSize, "OUTLINE")
 			if useEle then sl.ct:SetTextColor(unpack(AIR)) else sl.ct:SetTextColor(1, 1, 1) end
 			sl.ct:SetText(tostring(count))
 		else sl.cf:Hide() end
@@ -1895,7 +1895,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(b); bg:SetColorTexture(0, 0, 0, 0.6)
 		local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetPoint("TOPLEFT", 2, -2); ic:SetPoint("BOTTOMRIGHT", -2, 2); ic:SetTexture(e.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		Core:MakeBorder(b, "border")
-		local key = b:CreateFontString(nil, "OVERLAY"); key:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
+		local key = b:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
 		local dots, rings = {}, {}
 		for d = 1, 4 do
 			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
@@ -1915,7 +1915,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		local fbg = f:CreateTexture(nil, "BACKGROUND"); fbg:SetAllPoints(f); fbg:SetColorTexture(0, 0, 0, 0.7)
 		Core:MakeBorder(f, "border")
 		local t = f:CreateFontString(nil, "OVERLAY"); t:SetPoint("CENTER", f, "CENTER", 0, 0)
-		local l = f:CreateFontString(nil, "OVERLAY"); l:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE"); l:SetPoint("BOTTOM", f, "BOTTOM", 0, 4); l:SetText(ENAMES[i])
+		local l = f:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(l, "labels", 9, "OUTLINE"); l:SetPoint("BOTTOM", f, "BOTTOM", 0, 4); l:SetText(ENAMES[i])
 		l:SetTextColor(unpack(ELE[i].col))
 		cframes[i] = { f = f, bg = fbg, t = t, l = l }
 		f:Hide()
@@ -2006,7 +2006,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 				end
 			end
 			if showNum and not separate then
-				s.n:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				SP:SetSPFont(s.n, "labels", fontSize, "OUTLINE")
 				if useEle then s.n:SetTextColor(unpack(s.e.col)) else s.n:SetTextColor(1, 1, 1) end
 				s.n:SetText(tostring(count)); s.n:Show()
 			else
@@ -2026,7 +2026,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 				for _, t in pairs(c.f.spBorder or {}) do t:SetShown(not rc.hideFrame) end   -- no frame background = no box at all
 				c.l:SetShown(not rc.hideLabel)
 				if rc.hideFrame and rc.hideLabel then c.f:SetSize(30, 25) elseif rc.hideLabel then c.f:SetSize(40, 35) else c.f:SetSize(40, 40) end
-				c.t:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				SP:SetSPFont(c.t, "labels", fontSize, "OUTLINE")
 				if useEle then c.t:SetTextColor(unpack(s.e.col)) else c.t:SetTextColor(1, 1, 1) end
 				c.t:SetText(tostring(count))
 			else
@@ -2152,7 +2152,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	-- ---- the alert the assigned player sees (drawn inside the box) ----
 	local alert = CreateFrame("Frame", nil, inner); alert:SetSize(150, 150); alert:SetPoint("CENTER", inner, "CENTER", 0, 70); alert:Hide()
 	local aIcon = alert:CreateTexture(nil, "ARTWORK"); aIcon:SetSize(96, 96); aIcon:SetPoint("CENTER", 0, 10); aIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	local aText = alert:CreateFontString(nil, "OVERLAY"); aText:SetFont("Fonts\\FRIZQT__.TTF", 22, "OUTLINE"); aText:SetPoint("TOP", aIcon, "BOTTOM", 0, -6); aText:SetTextColor(1, 0.3, 0)
+	local aText = alert:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(aText, "alerts", 22, "OUTLINE"); aText:SetPoint("TOP", aIcon, "BOTTOM", 0, -6); aText:SetTextColor(1, 0.3, 0)
 	local aWho = alert:CreateFontString(nil, "OVERLAY"); aWho:SetFontObject(Core.fonts.tiny); aWho:SetPoint("TOP", aText, "BOTTOM", 0, -4); aWho:SetTextColor(Core:Color("textDim"))
 	local hint = inner:CreateFontString(nil, "OVERLAY"); hint:SetFontObject(Core.fonts.rowDim); hint:SetPoint("CENTER", inner, "CENTER", 0, 70)
 	hint:SetText("Click a caller button below"); hint:SetWidth(inner:GetWidth() - 40); hint:SetJustifyH("CENTER"); hint:SetWordWrap(true)
@@ -2575,13 +2575,13 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 		local f = SP.expiringAlertsFrame
 		if not (f and f:GetParent() == inner) then return end
 		local ts, is, dm, ol = get("textSize", 24), get("iconSize", 32), get("displayMode", "both"), get("fontOutline", true)
-		local key = ts .. ":" .. is .. ":" .. dm .. ":" .. tostring(ol) .. ":" .. math.floor(inner:GetWidth())
+		local key = ts .. ":" .. is .. ":" .. dm .. ":" .. tostring(ol) .. ":" .. math.floor(inner:GetWidth()) .. ":" .. table.concat({ SP:FontFor("alerts", ts, ol and "OUTLINE" or "") }, ":")   -- a font change re-measures
 		if key == lastKey then return end
 		lastKey = key
 		local w = 0
 		if dm ~= "text" then w = w + is + 8 end
 		if dm ~= "icon" then
-			measure:SetFont("Fonts\\FRIZQT__.TTF", ts, ol and "OUTLINE" or ""); measure:SetText(LONGEST)
+			SP:SetSPFont(measure, "alerts", ts, ol and "OUTLINE" or ""); measure:SetText(LONGEST)
 			w = w + (measure:GetStringWidth() or 0)
 		end
 		local target = math.min(1, (inner:GetWidth() - 24) / math.max(1, w))
@@ -2830,7 +2830,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		-- Progress bar (position follows cdbarProgressPosition, laid out below).
 		local pbg = btn:CreateTexture(nil, "BACKGROUND", nil, 2); pbg:SetColorTexture(0, 0, 0, 0.6); pbg:SetSize(3, SIZE)
 		local pb = btn:CreateTexture(nil, "ARTWORK", nil, 2); pb:SetColorTexture(sp.color[1], sp.color[2], sp.color[3], 1); pb:SetSize(3, SIZE)
-		local txt = btn:CreateFontString(nil, "OVERLAY", nil, 7); txt:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE"); txt:SetPoint("CENTER"); txt:SetTextColor(1, 1, 1)
+		local txt = btn:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(txt, "timers", 10, "OUTLINE"); txt:SetPoint("CENTER"); txt:SetTextColor(1, 1, 1)
 		local corner = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal"); corner:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 		corner:SetText(sp.charges or sp.count or "")
 		local lbl = btn:CreateFontString(nil, "OVERLAY"); lbl:SetFontObject(Core.fonts.tiny); lbl:SetPoint("TOP", btn, "BOTTOM", 0, -8)
@@ -2865,17 +2865,17 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			end
 			b.textMode = tl
 			if tl == "inside" then
-				txt:SetFont("Fonts\\FRIZQT__.TTF", ts, "OUTLINE"); txt:SetPoint("CENTER", pbg, "CENTER")
+				SP:SetSPFont(txt, "timers", ts, "OUTLINE"); txt:SetPoint("CENTER", pbg, "CENTER")
 			elseif tl == "outside" then
-				txt:SetFont("Fonts\\FRIZQT__.TTF", ts, "OUTLINE")
+				SP:SetSPFont(txt, "timers", ts, "OUTLINE")
 				if pos == "bottom" or pos == "bottom_vert" then txt:SetPoint("TOP", pbg, "BOTTOM", 0, -1)
 				elseif pos == "top" or pos == "top_vert" then txt:SetPoint("BOTTOM", pbg, "TOP", 0, 1)
 				elseif pos == "right" then txt:SetPoint("LEFT", pbg, "RIGHT", 1, 0)
 				else txt:SetPoint("RIGHT", pbg, "LEFT", -1, 0) end
 			elseif tl == "icon" then
-				txt:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
+				SP:SetSPFont(txt, "timers", 9, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
 			else -- "none": legacy centre text, only if the CD Text toggle is on
-				txt:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
+				SP:SetSPFont(txt, "timers", 10, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
 			end
 		end
 	end

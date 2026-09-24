@@ -198,7 +198,7 @@ function SP:CreateCompactVisuals(frame)
 	-- outline: [1] start cap, [2] far cap, [3] and [4] the two long edges
 	c.ol    = { Tex(frame, "OVERLAY", 0), Tex(frame, "OVERLAY", 0), Tex(frame, "OVERLAY", 0), Tex(frame, "OVERLAY", 0) }
 	c.text  = frame:CreateFontString(nil, "OVERLAY", nil, 7)
-	c.text:SetFont(FONT, 10, "OUTLINE"); c.text:SetTextColor(1, 1, 1); c.text:Hide()
+	SP:SetSPFont(c.text, "timers", 10, "OUTLINE"); c.text:SetTextColor(1, 1, 1); c.text:Hide()
 	c.sqBd  = Tex(frame, "ARTWORK", 0); c.sqBd:SetColorTexture(0, 0, 0, 0.9)
 	c.sq    = Tex(frame, "ARTWORK", 1); c.sq:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	return c
@@ -271,7 +271,7 @@ function SP:LayoutCompactVisuals(c, frame, co, bw, bh)
 	-- (never give the text a fixed width: WoW would truncate "1.4" to "..." on a
 	-- narrow vertical line - let it overhang instead)
 	local fs = math.max(7, math.min(14, co.T - (co.vertical and 5 or 3)))
-	c.text:SetFont(FONT, fs, "OUTLINE")
+	SP:SetSPFont(c.text, "timers", fs, "OUTLINE")
 	c.text:SetWordWrap(false)
 	c.text:ClearAllPoints()
 	c.text:SetWidth(0)
@@ -568,7 +568,7 @@ function SP:ApplyCompactESLayout()
 			if charges then charges:Show() end
 			if name then
 				name:ClearAllPoints(); name:SetPoint("TOP", esBtn, "BOTTOM", 0, -1)
-				name:SetWidth(40); name:SetHeight(10); name:SetFontObject("GameFontHighlightSmall")
+				name:SetWidth(40); name:SetHeight(10); name:SetFontObject("GameFontHighlightSmall"); self:AdoptSPFont(name, "labels")
 				name:Show()
 			end
 			esBtn.compactLayoutOn = nil

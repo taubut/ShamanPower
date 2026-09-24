@@ -665,6 +665,14 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 		b:SetSize(width - 4, ITEM_H)
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", p.content, "TOPLEFT", 0, -y)
+		-- a font list draws each name in its own font; pooled buttons go back to the row font
+		local itemFont = popts and popts.itemFont and popts.itemFont(item.key)
+		b.text:SetFontObject(Core.fonts.row)
+		if itemFont then
+			local _, rowSize = Core.fonts.row:GetFont()
+			b.text:SetFont(itemFont, rowSize or 13, "")
+			if not b.text:GetFont() then b.text:SetFontObject(Core.fonts.row) end
+		end
 		b.text:SetText(item.text)
 		b._key = item.key
 		b._onPick = onPick
@@ -796,7 +804,7 @@ local function CreateDropdown(parent)
 			opts.set(key)
 			if row.opts == opts then DropdownPaint(row) end
 			if opts.onChanged then opts.onChanged() end
-		end, { onHover = opts.onHover, onHoverEnd = opts.onHoverEnd })
+		end, { onHover = opts.onHover, onHoverEnd = opts.onHoverEnd, itemFont = opts.itemFont })
 	end)
 
 	row.spSetControlEnabled = function(_, enabled)

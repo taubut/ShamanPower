@@ -364,7 +364,7 @@ local function CreateReminderFrame()
 
     -- Text label
     frame.text = frame:CreateFontString(nil, "OVERLAY")
-    frame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, "OUTLINE")
+    SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, "OUTLINE")
     frame.text:SetPoint("TOP", frame, "BOTTOM", 0, -5)
     frame.text:SetText("TREMOR!")
     frame.text:SetTextColor(1, 0.8, 0)
@@ -499,7 +499,7 @@ local function UpdateAppearance()
     end
 
     -- Update text size
-    reminderFrame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, "OUTLINE")
+    SP:SetSPFont(reminderFrame.text, "alerts", sv.textSize or 24, "OUTLINE")
 
     -- Glow (only show if not text-only mode)
     if sv.showGlow and mode ~= "text" then

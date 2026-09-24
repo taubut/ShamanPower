@@ -369,7 +369,7 @@ function SP:CreateSPRangeFrame()
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	title:SetPoint("TOP", frame, "TOP", 0, -6)
 	title:SetText("Totem Range")
-	title:SetFont(STANDARD_TEXT_FONT, 11, "")
+	SP:SetSPFont(title, "labels", 11, "", STANDARD_TEXT_FONT)
 	title:SetShadowOffset(1, -1)
 	title:SetTextColor(0.902, 0.918, 0.941)
 	frame.title = title
@@ -483,7 +483,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 
 	-- Status text (shows "OUT OF RANGE" or "MISSING")
 	local statusText = btn:CreateFontString(nil, "OVERLAY")
-	statusText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+	SP:SetSPFont(statusText, "labels", 7, "OUTLINE")
 	statusText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	statusText:SetTextColor(1, 0.2, 0.2)  -- Red text
 	statusText:SetShadowColor(0, 0, 0, 1)
@@ -493,7 +493,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 
 	-- Short totem name below icon
 	local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	SP:SetSPFont(nameText, "labels", 8, "OUTLINE")
 	nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 	nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:sub(1, 6))
 	nameText:SetTextColor(0.8, 0.8, 0.8)

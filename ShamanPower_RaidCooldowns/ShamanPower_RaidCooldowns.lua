@@ -472,7 +472,7 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 		frame.icon = iconTex
 
 		local alertText = frame:CreateFontString(nil, "OVERLAY")
-		alertText:SetFont("Fonts\\FRIZQT__.TTF", 24, "OUTLINE")
+		SP:SetSPFont(alertText, "alerts", 24, "OUTLINE")
 		alertText:SetPoint("TOP", frame, "BOTTOM", 0, -10)
 		alertText:SetTextColor(1, 0.3, 0)
 		frame.text = alertText
