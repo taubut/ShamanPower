@@ -509,7 +509,8 @@ local function scanUnitES(unit)
 	-- Get caster info - need to check if caster unit is valid
 	if caster and UnitExists(caster) then
 		casterName = UnitName(caster) or "Unknown"
-		_, casterClass = UnitClass(caster)
+		local _, cls = UnitClass(caster)
+		casterClass = cls
 	end
 	local targetGUID = UnitGUID(unit)
 	return {
