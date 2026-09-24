@@ -57,23 +57,34 @@ end
 -- main-prefix copy waits at NORMAL priority and can arrive any time later.
 -- Once a sender has been heard on CALL_PREFIX, its CALL_PREFIX copies are the
 -- calls and its main-prefix copies are ignored. Until then (an older version
--- without CALL_PREFIX, or the first call of the session) the main copy is acted
--- on, and the CALL_PREFIX copy of that same press, arriving moments later, is
--- dropped once.
-local CALL_PAIR_WINDOW = 5
+-- without CALL_PREFIX, or the first calls of the session) every main copy is
+-- acted on and queued, and each CALL_PREFIX copy drops one queued copy of the
+-- same message: two quick presses arriving main, main, fast, fast alert twice.
+-- ChatThrottleLib holds a throttled copy back rather than dropping it, so a twin
+-- can lag by seconds; a queued copy is forgotten only after CALL_PAIR_WINDOW
+-- (an older version never sends the CALL_PREFIX twin).
+local CALL_PAIR_WINDOW = 30
 local callPrefixSenders = {}   -- [sender] = true once a call came on CALL_PREFIX
-local unpairedCall = {}        -- [sender .. message] = when its main copy was acted on
+local unpairedCalls = {}       -- [sender .. message] = { when each unpaired main copy was acted on, oldest first }
 local function isRepeatCall(prefix, sender, message)
 	sender = sender or ""
+	if prefix ~= CALL_PREFIX and callPrefixSenders[sender] then return true end
+	local key = sender .. "\001" .. message
+	local now = GetTime()
+	local waiting = unpairedCalls[key]
+	if waiting then
+		while waiting[1] and now - waiting[1] >= CALL_PAIR_WINDOW do table.remove(waiting, 1) end
+	end
 	if prefix == CALL_PREFIX then
 		callPrefixSenders[sender] = true
-		local key = sender .. "\001" .. message
-		local at = unpairedCall[key]
-		unpairedCall[key] = nil
-		return at ~= nil and (GetTime() - at) < CALL_PAIR_WINDOW
+		if waiting and waiting[1] then
+			table.remove(waiting, 1)
+			return true
+		end
+		return false
 	end
-	if callPrefixSenders[sender] then return true end
-	unpairedCall[sender .. "\001" .. message] = GetTime()
+	if not waiting then waiting = {}; unpairedCalls[key] = waiting end
+	waiting[#waiting + 1] = now
 	return false
 end
 local callerRequestEstimates = _G.SPCompat and _G.SPCompat.secretsRegime
