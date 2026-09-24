@@ -1185,6 +1185,7 @@ function ShamanPower:OnDisable()
 end
 
 function ShamanPower:OnProfileChanged()
+	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
 	-- Clean up all popped-out frames from the old profile first
 	if self.poppedOutFrames then
 		for key, frame in pairs(self.poppedOutFrames) do
