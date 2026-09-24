@@ -351,6 +351,7 @@ function SP.RefreshMinimapTotems()
 end
 
 local events = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(events, "Minimap Totems") end
 for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
 	"MINIMAP_UPDATE_ZOOM", "CVAR_UPDATE", "PLAYER_REGEN_ENABLED", "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING",
 	"PLAYER_STARTED_TURNING", "PLAYER_STOPPED_TURNING", "PLAYER_STARTED_LOOKING", "PLAYER_STOPPED_LOOKING" }) do

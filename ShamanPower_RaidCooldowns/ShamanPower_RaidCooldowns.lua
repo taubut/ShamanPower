@@ -1056,6 +1056,7 @@ function SP:SetupCallerCooldownTracking()
 	if self.callerCooldownFrame then return end
 
 	local frame = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Raid Cooldowns (combat log)") end
 	-- Don't register event here - EnableCallerCooldownTracking will do it
 	frame:SetScript("OnEvent", function(self, event)
 		SP:OnCombatLogEvent()

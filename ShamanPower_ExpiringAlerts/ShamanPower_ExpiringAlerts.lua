@@ -970,6 +970,7 @@ function SP:SetupExpiringAlertsEvents()
 	self.expiringAlertsEventsSetup = true
 
 	local eventFrame = CreateFrame("Frame", "ShamanPowerExpiringAlertsEventFrame", UIParent)
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Expiring Alerts") end
 	eventFrame:RegisterEvent("UNIT_AURA")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")

@@ -840,6 +840,7 @@ SlashCmdList["SPREADY"] = function(msg)
 end
 
 local ef = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(ef, "Ready Reminders") end
 ef:RegisterEvent("PLAYER_LOGIN")
 ef:RegisterEvent("PLAYER_ENTERING_WORLD")
 ef:RegisterEvent("SPELLS_CHANGED")
@@ -867,6 +868,7 @@ ef:SetScript("OnEvent", function(_, event)
 				SP:UpdateReadyReminders()
 			end)
 			local wake = CreateFrame("Frame")
+			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
 			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
 				pcall(wake.RegisterEvent, wake, ev)
 			end

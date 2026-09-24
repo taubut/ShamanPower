@@ -661,6 +661,7 @@ function SP:SetupESTrackerUpdater()
 	-- Create event frame for immediate updates (no OnUpdate, just events)
 	-- Don't register UNIT_AURA here - EnableESTrackerEvents will do it
 	local eventFrame = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "ES Tracker") end
 	eventFrame:RegisterEvent("GROUP_LEFT")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 	eventFrame:SetScript("OnEvent", function(self, event, unit)

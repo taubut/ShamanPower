@@ -114,6 +114,7 @@ function SP:CreateShieldChargeDisplays()
 			SP:UpdateShieldChargeDisplays()
 		end)
 		local wake = CreateFrame("Frame")
+		if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Shield Charges") end
 		for _, ev in ipairs({ "UNIT_AURA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }) do
 			pcall(wake.RegisterEvent, wake, ev)
 		end

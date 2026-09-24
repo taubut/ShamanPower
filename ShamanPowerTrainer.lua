@@ -173,6 +173,7 @@ end
 function SP:TrainerReminderReport() report(UnitLevel("player") or 1, nil, true) end
 
 local f = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Trainer Reminder") end
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:SetScript("OnEvent", function(_, event, a1)

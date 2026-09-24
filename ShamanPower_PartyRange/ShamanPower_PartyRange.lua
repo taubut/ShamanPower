@@ -574,6 +574,7 @@ end
 
 -- Roster changes recolour (or add / drop) a slot; a fight defers it.
 local engineDotEvents = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(engineDotEvents, "Party Range") end
 engineDotEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
 engineDotEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 engineDotEvents:RegisterEvent("PLAYER_ENTERING_WORLD")

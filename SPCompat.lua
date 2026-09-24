@@ -1908,6 +1908,194 @@ SlashCmdList["SPDIAG"] = function(msg)
 end
 
 -- ---------------------------------------------------------------------------
+-- /spperf stress [seconds] - what would a 40-player raid cost ShamanPower?
+-- A solo player cannot make 40 raid members change auras, cast and send
+-- messages, so this driver injects that load, at raid-like rates, into
+-- ShamanPower's OWN event handlers only: the handlers ShamanPower registered
+-- through AceEvent (the core and its AceBucket buckets), and module event
+-- frames that registered themselves with SPCompat.StressRegister. Blizzard's
+-- frames are never called (that would taint them). Raid unit tokens do not
+-- exist solo, so aura and unit reads come back empty: this measures dispatch
+-- and filtering cost - exactly what event filtering changes - not the cost of
+-- real aura contents. Costs nothing while it is not running.
+-- ---------------------------------------------------------------------------
+local stressFrames = setmetatable({}, { __mode = "k" })
+
+-- A module calls this once for each frame that registers game events.
+function SPCompat.StressRegister(frame, label)
+	if frame then stressFrames[frame] = label or "frame" end
+end
+
+local STRESS_RATES = {        -- injected events per second
+	aura = 400,                -- UNIT_AURA over raid1-40, party1-4, player, target, nameplate1-20
+	castDone = 70,             -- UNIT_SPELLCAST_SUCCEEDED from raid members
+	castSent = 30,             -- UNIT_SPELLCAST_SENT
+	commSP = 10,               -- CHAT_MSG_ADDON "SHPWR" WFBUFF from 35 other ShamanPower users
+	commOther = 8,             -- CHAT_MSG_ADDON from other addons (boss mods and the like)
+	pet = 1,                   -- UNIT_PET
+	roster = 4,                -- GROUP_ROSTER_UPDATE, first 3 seconds only (a raid forming)
+}
+local STRESS_UNIT_EVENTS = { UNIT_AURA = true, UNIT_SPELLCAST_SUCCEEDED = true, UNIT_SPELLCAST_SENT = true, UNIT_PET = true }
+
+local function StartStress()
+	local SP = ShamanPower
+	local AceEvent = LibStub and LibStub("AceEvent-3.0", true)
+	local registry = AceEvent and AceEvent.events and AceEvent.events.events
+	local units = {}
+	for i = 1, 40 do units[#units + 1] = "raid" .. i end
+	for i = 1, 4 do units[#units + 1] = "party" .. i end
+	units[#units + 1] = "player"; units[#units + 1] = "target"
+	for i = 1, 20 do units[#units + 1] = "nameplate" .. i end
+	local raidUnits = {}
+	for i = 1, 40 do raidUnits[i] = "raid" .. i end
+	local senders = {}
+	for i = 1, 35 do senders[i] = "Stressraider" .. i .. "-Stress" end
+	local auraInfo = { isFullUpdate = true }    -- shared and never changed: no garbage per event
+	local CAST_GUID = "Cast-3-0-0-0-133-0000000000"
+
+	local st = {
+		counts = { aura = 0, castDone = 0, castSent = 0, commSP = 0, commOther = 0, pet = 0, roster = 0 },
+		acc = { aura = 0, castDone = 0, castSent = 0, commSP = 0, commOther = 0, pet = 0, roster = 0 },
+		idx = { aura = 0, cast = 0, comm = 0, pet = 0 },
+		cost = {},             -- [receiver label] = { calls, ms, kb }
+		errors = 0, firstError = nil, t = 0,
+	}
+	local targets = {}         -- reused for every event: { handler, self, label }
+	local function timed(label, fn, a, event, ...)
+		local c = st.cost[label]
+		if not c then c = { calls = 0, ms = 0, kb = 0 }; st.cost[label] = c end
+		local m0, t0 = collectgarbage("count"), debugprofilestop()
+		local ok, err
+		if a ~= nil then ok, err = pcall(fn, a, event, ...) else ok, err = pcall(fn, event, ...) end
+		local dt, dm = debugprofilestop() - t0, collectgarbage("count") - m0
+		c.calls, c.ms = c.calls + 1, c.ms + dt
+		if dm > 0 then c.kb = c.kb + dm end
+		if not ok then st.errors = st.errors + 1; st.firstError = st.firstError or (label .. ": " .. tostring(err)) end
+	end
+	local function deliver(event, unit, ...)
+		local n = 0
+		-- the core's AceEvent handlers and its AceBucket buckets (bucket.object is the addon)
+		local list = registry and rawget(registry, event)
+		if list then
+			for obj, fn in pairs(list) do
+				if obj == SP or (type(obj) == "table" and rawget(obj, "object") == SP) then
+					n = n + 1
+					local t = targets[n] or {}; targets[n] = t
+					t[1], t[2], t[3] = fn, nil, (obj == SP) and "core (AceEvent)" or "core (bucket)"
+				end
+			end
+		end
+		-- module frames that registered for stress, with the unit filter the game would apply
+		for frame, label in pairs(stressFrames) do
+			local reg, u1, u2 = frame:IsEventRegistered(event)
+			if reg and (not STRESS_UNIT_EVENTS[event] or (u1 == nil and u2 == nil) or u1 == unit or u2 == unit) then
+				local h = frame:GetScript("OnEvent")
+				if h then
+					n = n + 1
+					local t = targets[n] or {}; targets[n] = t
+					t[1], t[2], t[3] = h, frame, label
+				end
+			end
+		end
+		for i = 1, n do
+			local t = targets[i]
+			timed(t[3], t[1], t[2], event, unit, ...)
+		end
+	end
+
+	local MAX_PER_FRAME = 200
+	local function due(kind, elapsed, rate)
+		local a = st.acc[kind] + elapsed * rate
+		local k = math.floor(a)
+		if k > MAX_PER_FRAME then k = MAX_PER_FRAME end
+		st.acc[kind] = a - k
+		return k
+	end
+	local driver = CreateFrame("Frame")   -- its own frame: not one of the measured subsystems
+	driver:SetScript("OnUpdate", function(_, elapsed)
+		st.t = st.t + elapsed
+		local ix, c = st.idx, st.counts
+		for _ = 1, due("aura", elapsed, STRESS_RATES.aura) do
+			ix.aura = ix.aura % #units + 1
+			deliver("UNIT_AURA", units[ix.aura], auraInfo)
+			c.aura = c.aura + 1
+		end
+		for _ = 1, due("castDone", elapsed, STRESS_RATES.castDone) do
+			ix.cast = ix.cast % 40 + 1
+			deliver("UNIT_SPELLCAST_SUCCEEDED", raidUnits[ix.cast], CAST_GUID, 133)
+			c.castDone = c.castDone + 1
+		end
+		for _ = 1, due("castSent", elapsed, STRESS_RATES.castSent) do
+			ix.cast = ix.cast % 40 + 1
+			deliver("UNIT_SPELLCAST_SENT", raidUnits[ix.cast], "", CAST_GUID, 133)
+			c.castSent = c.castSent + 1
+		end
+		for _ = 1, due("commSP", elapsed, STRESS_RATES.commSP) do
+			ix.comm = ix.comm % 35 + 1
+			deliver("CHAT_MSG_ADDON", "SHPWR", (ix.comm % 3 == 0) and "WFBUFF 0" or "WFBUFF 1", "RAID", senders[ix.comm])
+			c.commSP = c.commSP + 1
+		end
+		for _ = 1, due("commOther", elapsed, STRESS_RATES.commOther) do
+			ix.comm = ix.comm % 35 + 1
+			deliver("CHAT_MSG_ADDON", (ix.comm % 2 == 0) and "D5" or "BigWigs", "V^12345^stress", "RAID", senders[ix.comm])
+			c.commOther = c.commOther + 1
+		end
+		for _ = 1, due("pet", elapsed, STRESS_RATES.pet) do
+			ix.pet = ix.pet % 40 + 1
+			deliver("UNIT_PET", raidUnits[ix.pet])
+			c.pet = c.pet + 1
+		end
+		if st.t <= 3 then   -- a raid forming: a short burst of roster changes
+			for _ = 1, due("roster", elapsed, STRESS_RATES.roster) do
+				deliver("GROUP_ROSTER_UPDATE")
+				c.roster = c.roster + 1
+			end
+		end
+	end)
+
+	function st:Stop()
+		driver:SetScript("OnUpdate", nil)
+		-- the fake senders' Windfury reports would otherwise sit there until they expire
+		if SP and type(SP.WindfuryRangeData) == "table" then
+			for name in pairs(SP.WindfuryRangeData) do
+				if type(name) == "string" and name:find("^Stressraider") then SP.WindfuryRangeData[name] = nil end
+			end
+		end
+	end
+
+	function st:Report(window)
+		local c = self.counts
+		local total = 0
+		for _, v in pairs(c) do total = total + v end
+		print(string.format("  |cffffd200stress|r: %d events injected in %.1f s (aura %.0f/s, cast %.0f/s, comm %.0f/s [ShamanPower %d, other addons %d], roster %d, pet %d)",
+			total, window, c.aura / window, (c.castDone + c.castSent) / window, (c.commSP + c.commOther) / window, c.commSP, c.commOther, c.roster, c.pet))
+		print("  stress: measures dispatch and filtering cost; aura contents are empty solo (raid units do not exist).")
+		local rows = {}
+		for label, r in pairs(self.cost) do rows[#rows + 1] = { label = label, r = r } end
+		table.sort(rows, function(a, b) return a.r.ms > b.r.ms end)
+		local ms, kb = 0, 0
+		print("  stress handler cost (injected events only, per receiver):")
+		for _, row in ipairs(rows) do
+			local r = row.r
+			ms, kb = ms + r.ms, kb + r.kb
+			print(string.format("    %-28s calls=%-6d %.2f ms (%.4f ms/call)  alloc %.1f KB", row.label, r.calls, r.ms, r.calls > 0 and r.ms / r.calls or 0, r.kb))
+		end
+		print(string.format("  stress total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", ms, ms / (window * 10), kb, kb / window))
+		-- the combat log is not injected (it cannot be faked safely): say who listens to it
+		local clog = 0
+		for frame in pairs(stressFrames) do if frame:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED") then clog = clog + 1 end end
+		local clist = registry and rawget(registry, "COMBAT_LOG_EVENT_UNFILTERED")
+		if clist then for obj in pairs(clist) do if obj == SP then clog = clog + 1 end end end
+		print(string.format("  stress: %d ShamanPower handler(s) listen to the combat log right now (not injected; a raid fight sends ~1500 events/s).", clog))
+		if self.errors > 0 then
+			print(string.format("  |cffff4040stress: %d handler error(s)|r - first: %s", self.errors, tostring(self.firstError)))
+		end
+	end
+
+	return st
+end
+
+-- ---------------------------------------------------------------------------
 -- /spperf [seconds]  - where does the time and the garbage go?
 -- Wraps every subsystem of the central update loop for a few seconds and reports
 -- calls, milliseconds and kilobytes allocated per subsystem, the addon's memory
@@ -1920,6 +2108,9 @@ SlashCmdList["SPPERF"] = function(msg)
 	local us = SP and SP.updateSystem
 	if not (us and us.subsystems) then print("spperf: no update system") return end
 	if SP._perfRunning then print("spperf: already running") return end
+	local stressMode = false
+	msg = strtrim(strlower(msg or ""))
+	if msg:find("^stress") then stressMode = true; msg = msg:gsub("^stress%s*", "") end
 	local secs = tonumber(msg) or 10
 	if secs < 2 then secs = 2 elseif secs > 120 then secs = 120 end
 	SP._perfRunning = true
@@ -1978,12 +2169,19 @@ SlashCmdList["SPPERF"] = function(msg)
 	for _, a in ipairs(addons) do mem0[a] = GetAddOnMemoryUsage(a) end
 	local lua0, t0 = collectgarbage("count"), GetTime()
 	print(string.format("|cff00ccffspperf|r measuring for %d s ... (combat=%s)", secs, tostring(InCombatLockdown())))
+	local stress
+	if stressMode then
+		if InCombatLockdown() then print("|cff00ccffspperf|r stress in combat: real events add to the numbers, so they will be noisier.") end
+		print("|cff00ccffspperf|r stress: pretending to be in a 40-player raid (auras, casts, addon messages, a roster change burst) ...")
+		stress = StartStress()
+	end
 
 	C_Timer.After(secs, function()
 		for name, sys in pairs(us.subsystems) do
 			if originals[name] then sys.callback = originals[name] end
 		end
 		for fname, fn in pairs(forig) do SP[fname] = fn end
+		if stress then stress:Stop() end
 		SP._perfRunning = nil
 		local window = GetTime() - t0
 		UpdateAddOnMemoryUsage()   -- before the report below builds its own strings
@@ -2027,6 +2225,7 @@ SlashCmdList["SPPERF"] = function(msg)
 				end
 			end
 		end
+		if stress then stress:Report(window) end
 		print("|cff00ccffspperf|r done. Anything NOT in the subsystem list (event handlers, module OnUpdates) shows only in the memory / client profiler lines.")
 	end)
 end

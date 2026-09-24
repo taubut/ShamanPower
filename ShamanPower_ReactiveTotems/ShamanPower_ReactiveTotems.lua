@@ -862,6 +862,7 @@ function SP:SetupReactiveTotemsEvents()
 	self.reactiveEventsSetup = true
 
 	local eventFrame = CreateFrame("Frame", "ShamanPowerReactiveEventFrame", UIParent)
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Reactive Totems") end
 	eventFrame:RegisterEvent("UNIT_AURA")
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")

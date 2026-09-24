@@ -596,6 +596,7 @@ end
 
 -- Event handler frame
 local eventFrame = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Tremor Reminder") end
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")

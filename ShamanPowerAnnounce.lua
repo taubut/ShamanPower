@@ -253,6 +253,7 @@ end
 -- Events: registered only while a feature that needs them is on
 -- ---------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(ev, "Cooldown Announce") end
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		if a1 == "player" then onCast(a3) end

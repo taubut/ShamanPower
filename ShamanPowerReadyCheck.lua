@@ -73,6 +73,7 @@ end
 local knownCache = {}
 do
 	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Ready Check (spells)") end
 	f:RegisterEvent("SPELLS_CHANGED")
 	f:SetScript("OnEvent", function() wipe(knownCache) end)
 end
@@ -285,6 +286,7 @@ local function layout(titleText, list)
 end
 
 local watcher = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(watcher, "Ready Check (list)") end
 local refreshQueued = false
 
 local function stopWatching()
@@ -418,6 +420,7 @@ local function checkItems(atLogin)
 end
 
 local ev = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(ev, "Ready Check") end
 ev:RegisterEvent("READY_CHECK")
 ev:RegisterEvent("READY_CHECK_FINISHED")
 ev:RegisterEvent("PLAYER_ENTERING_WORLD")

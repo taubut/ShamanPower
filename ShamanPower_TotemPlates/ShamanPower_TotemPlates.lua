@@ -863,6 +863,7 @@ function SP:SetupTotemPlatesEvents()
     if self.totemPlatesEventFrame then return end
 
     local frame = CreateFrame("Frame")
+    if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Totem Plates") end
     frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
     frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
     frame:RegisterEvent("PLAYER_TARGET_CHANGED")

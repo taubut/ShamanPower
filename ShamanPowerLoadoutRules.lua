@@ -235,6 +235,7 @@ end
 -- target rule exists), so a player who never turns this on pays nothing.
 -- ---------------------------------------------------------------------------
 local frame = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Loadout Auto-Switch") end
 
 local function HasRule(field)
 	local d = DB()

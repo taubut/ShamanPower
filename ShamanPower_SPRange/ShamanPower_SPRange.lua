@@ -956,6 +956,7 @@ function SP:UpdateWindfuryBroadcaster()
 end
 do
 	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Totem Range (Windfury report)") end
 	f:RegisterEvent("GROUP_ROSTER_UPDATE")
 	f:RegisterEvent("PLAYER_ENTERING_WORLD")
 	f:SetScript("OnEvent", function() SP:UpdateWindfuryBroadcaster() end)

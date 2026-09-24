@@ -66,6 +66,7 @@ function SP:UpdateManaTint()
 end
 
 local f = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Mana Tint") end
 f:RegisterEvent("SPELL_UPDATE_USABLE")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("PLAYER_TOTEM_UPDATE")
