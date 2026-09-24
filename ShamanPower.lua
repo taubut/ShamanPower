@@ -1244,6 +1244,7 @@ function ShamanPower:OnProfileChanged()
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:ApplyAllOpacity()
+	self:SetupTotemBarVisibilityUpdater()   -- the new profile's hide and fade rules, now (no poll)
 
 	-- Restore popped-out trackers from the new profile
 	C_Timer.After(0.5, function()
@@ -12337,11 +12338,13 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 			self.autoButton:Show()
 			self.autoButton:SetAlpha(alpha)
 
+			-- only the elements the layout shows (a hidden or not yet learned one stays
+			-- hidden; a popped-out one shows in its own frame)
 			if self.totemButtons then
 				for element = 1, 4 do
 					local btn = self.totemButtons[element]
 					if btn then
-						btn:Show()
+						btn:SetShown(self:IsElementShown(element) or self:IsElementPoppedOut(element))
 						btn:SetAlpha(alpha)
 					end
 				end
@@ -12398,9 +12401,14 @@ do
 	end)
 end
 
--- The first pass at login; after that the events above keep it current.
+-- One pass where there is hide state to work out (login, a profile change);
+-- after that the events above keep it current. A bar with no hide option and
+-- nothing hidden is left to the layout, as the old 5 Hz pass left it.
 function ShamanPower:SetupTotemBarVisibilityUpdater()
-	self:UpdateTotemBarVisibility()
+	local o = self.opt
+	if o and (o.hideOutOfCombat or o.hideWhenNoTotems or self.totemBarHidden or self.totemBarFaded) then
+		self:UpdateTotemBarVisibility()
+	end
 end
 
 -- Update the mini totem bar icons and spells based on current assignments
