@@ -670,6 +670,21 @@ end
 -- Pulse Timer Functions
 -- ============================================================================
 
+local PULSE_TICK = 1 / 30   -- a 4 px bar over a 2-5 s pulse looks the same at 30 updates a second
+
+local function PulseOnUpdate(self, elapsed)
+    self.pulseTick = (self.pulseTick or 0) + elapsed
+    if self.pulseTick < PULSE_TICK then return end
+    self.pulseTick = 0
+    SP:UpdatePulseTimer(self)
+end
+
+-- green -> yellow -> red by the share of the pulse left
+local function PulseBand(pct)
+    if pct > 0.5 then return 1 elseif pct > 0.25 then return 2 end
+    return 3
+end
+
 -- Start pulse timer for a totem plate frame
 function SP:StartPulseTimer(frame, pulseInterval)
     if not pulseInterval or pulseInterval <= 0 then return end
@@ -700,10 +715,13 @@ function SP:StartPulseTimer(frame, pulseInterval)
         frame.pulseBar:Show()
     end
 
-    -- Set up OnUpdate for this frame
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        SP:UpdatePulseTimer(self)
-    end)
+    -- One shared handler for every plate (no new closure per plate), throttled
+    -- to ~30 updates a second; the text and colours only change when what they
+    -- show changes (see UpdatePulseTimer).
+    frame.pulseTick = 0
+    frame.pulseShownTenth, frame.pulseTextBand, frame.pulseBarBand = nil, nil, nil
+    frame:SetScript("OnUpdate", PulseOnUpdate)
+    SP:UpdatePulseTimer(frame)
 end
 
 -- Stop pulse timer for a totem plate frame
@@ -711,6 +729,7 @@ function SP:StopPulseTimer(frame)
     frame.pulseInterval = nil
     frame.pulseStartTime = nil
     frame.lastPulseTime = nil
+    frame.pulseShownTenth, frame.pulseTextBand, frame.pulseBarBand = nil, nil, nil   -- a recycled plate starts clean
 
     if frame.pulseText then
         frame.pulseText:Hide()
@@ -740,33 +759,43 @@ function SP:UpdatePulseTimer(frame)
         remaining = frame.pulseInterval
     end
 
-    -- Update pulse text
-    if settings.showPulseText ~= false and frame.pulseText then
-        frame.pulseText:SetText(string.format("%.1f", remaining))
+    local pct = remaining / frame.pulseInterval
+    local band = PulseBand(pct)
 
-        -- Color based on urgency (green -> yellow -> red)
-        local pct = remaining / frame.pulseInterval
-        if pct > 0.5 then
-            frame.pulseText:SetTextColor(1, 1, 1, 1)  -- White
-        elseif pct > 0.25 then
-            frame.pulseText:SetTextColor(1, 1, 0, 1)  -- Yellow
-        else
-            frame.pulseText:SetTextColor(1, 0.3, 0.3, 1)  -- Red
+    -- Update pulse text: a new string only when the shown tenth changes
+    if settings.showPulseText ~= false and frame.pulseText then
+        local tenth = math.floor(remaining * 10 + 0.5)
+        if tenth ~= frame.pulseShownTenth then
+            frame.pulseShownTenth = tenth
+            frame.pulseText:SetText(string.format("%.1f", tenth / 10))
+        end
+        -- Color based on urgency (green -> yellow -> red), only when it changes
+        if band ~= frame.pulseTextBand then
+            frame.pulseTextBand = band
+            if band == 1 then
+                frame.pulseText:SetTextColor(1, 1, 1, 1)  -- White
+            elseif band == 2 then
+                frame.pulseText:SetTextColor(1, 1, 0, 1)  -- Yellow
+            else
+                frame.pulseText:SetTextColor(1, 0.3, 0.3, 1)  -- Red
+            end
         end
     end
 
     -- Update pulse bar
     if settings.showPulseBar ~= false and frame.pulseBar then
-        local pct = remaining / frame.pulseInterval
         frame.pulseBar:SetValue(pct)
 
-        -- Color the bar based on progress
-        if pct > 0.5 then
-            frame.pulseBar:SetStatusBarColor(1, 1, 1, 0.9)  -- White
-        elseif pct > 0.25 then
-            frame.pulseBar:SetStatusBarColor(1, 1, 0, 0.9)  -- Yellow
-        else
-            frame.pulseBar:SetStatusBarColor(1, 0.3, 0.3, 0.9)  -- Red
+        -- Color the bar based on progress, only when the band changes
+        if band ~= frame.pulseBarBand then
+            frame.pulseBarBand = band
+            if band == 1 then
+                frame.pulseBar:SetStatusBarColor(1, 1, 1, 0.9)  -- White
+            elseif band == 2 then
+                frame.pulseBar:SetStatusBarColor(1, 1, 0, 0.9)  -- Yellow
+            else
+                frame.pulseBar:SetStatusBarColor(1, 0.3, 0.3, 0.9)  -- Red
+            end
         end
     end
 
