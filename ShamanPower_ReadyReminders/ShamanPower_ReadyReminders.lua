@@ -339,6 +339,53 @@ end
 -- ---------------------------------------------------------------------------
 local GCD_MAX = 1.6
 
+-- ---------------------------------------------------------------------------
+-- WoW: Forever: in combat the addon cannot read a cooldown, so "is it ready"
+-- comes from our own estimate (cast time + learned length). The game can still
+-- judge the REAL cooldown for us: a curve evaluated on the spell's duration
+-- object gives an alpha (possibly a hidden value) that goes straight to
+-- SetAlpha, never compared in Lua. Used for the one thing a curve can do here:
+-- the icon's opacity at the moment the real cooldown ends. The ready sound,
+-- glow and pulse still follow the estimate (Lua has to decide those).
+-- One curve per (ready alpha, cooling alpha) pair, made once.
+-- ---------------------------------------------------------------------------
+local readyCurves = {}
+local function readyCurve(readyA, coolingA)
+	if not (C_CurveUtil and C_CurveUtil.CreateCurve) then return nil end
+	local row = readyCurves[readyA]
+	if not row then row = {}; readyCurves[readyA] = row end
+	local c = row[coolingA]
+	if c == nil then
+		local ok, made = pcall(C_CurveUtil.CreateCurve)
+		c = ok and made or false
+		if c then
+			if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then pcall(c.SetType, c, Enum.LuaCurveType.Linear) end
+			-- remaining 0 (run out, or an expired duration that lingers): ready; from 0.05 s up: cooling
+			if not (pcall(c.AddPoint, c, 0, readyA) and pcall(c.AddPoint, c, 0.05, coolingA)) then c = false end
+		end
+		row[coolingA] = c
+	end
+	return c or nil
+end
+
+-- The icon's alpha from the real cooldown; false when the game gave nothing usable.
+local function curveAlpha(f, d, readyA, coolingA)
+	local c = d and d.EvaluateRemainingDuration and readyCurve(readyA, coolingA)
+	if not c then return false end
+	local ok, a = pcall(d.EvaluateRemainingDuration, d, c)
+	if not ok then return false end
+	return pcall(f.SetAlpha, f, a)   -- a may be secret: handed over, never looked at
+end
+
+-- "Only when ready" keeps a cooling icon on screen at alpha 0 so the curve can
+-- show it the moment the real cooldown ends; it must not catch clicks then.
+local function curveMouseOff(f)
+	if not f.mouseByCurve and f:IsMouseEnabled() then f:EnableMouse(false); f.mouseByCurve = true end
+end
+local function curveMouseBack(f)
+	if f.mouseByCurve then f:EnableMouse(true); f.mouseByCurve = nil end
+end
+
 local function stopEffects(f)
 	if f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
 	if f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
@@ -349,7 +396,8 @@ local function setReady(f, ready)
 	if ready then
 		f.icon:SetDesaturated(false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
-		f.ecdOn = nil
+		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart = nil, nil, nil, nil
+		curveMouseBack(f)
 		if f.engineSheet then f.engineSheet:Hide() end
 		f:SetAlpha(sv.opacity or 1)
 		local fx = sv.readyEffect or "glow"
@@ -419,7 +467,7 @@ local function drawEngineCooldown(f, sv)
 	if not id then return end
 	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)   -- true: not the global cooldown
 	if not ok or d == nil then return end   -- tried again next pass
-	f.ecdOn, f.ecdStyle, f.ecdBar = true, style, barOn
+	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur = true, style, barOn, d
 	local cd = f.cooldown
 	if f.countShown ~= false then f.countShown = false; f.count:SetText("") end   -- the engine's string counts
 	f.overlay:Hide()
@@ -460,7 +508,12 @@ end
 local function drawCooldown(f, start, duration, remaining)
 	local sv = SV()
 	setReady(f, false)
-	if engineOn() and not SP.readyDemoActive then return drawEngineCooldown(f, sv) end
+	if engineOn() and not SP.readyDemoActive then
+		drawEngineCooldown(f, sv)
+		-- dim while the REAL cooldown runs, full the moment it ends (the estimate may lag)
+		if f.ecdDur then curveAlpha(f, f.ecdDur, sv.opacity or 1, sv.dimOpacity or 0.35) end
+		return
+	end
 	if sv.showCountdown ~= false then
 		-- the text only changes once a second (or once a minute): build the string then, not ten times a second
 		local shown = remaining >= 60 and -math.floor(remaining / 60) or math.ceil(remaining)
@@ -524,8 +577,27 @@ function SP:UpdateReadyReminders()
 				drawCooldown(f, start, duration, remaining)
 			else
 				f.wasReady = false; f.lastDuration = duration
-				if f:IsShown() then f:Hide() end
 				stopEffects(f)
+				-- Forever: stay on screen, invisible, and let the real cooldown's curve
+				-- show the icon when it ends, even if our estimate says it is still cooling
+				local curved = false
+				if engineOn() and not self.readyDemoActive and C_CurveUtil then
+					if f.readyDurStart ~= start then   -- a new cooldown: fetch its duration object once
+						f.readyDurStart = start
+						local id = clientSpellID(entry)
+						local okd, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)
+						f.readyDur = okd and d or nil
+					end
+					if f.readyDur then
+						curveMouseOff(f)
+						if not f:IsShown() then f:Show() end
+						curved = curveAlpha(f, f.readyDur, sv.opacity or 1, 0)
+					end
+				end
+				if not curved then
+					curveMouseBack(f)
+					if f:IsShown() then f:Hide() end
+				end
 			end
 		elseif f and f:IsShown() then
 			f:Hide(); f.wasReady = nil
@@ -543,6 +615,7 @@ function SP:ShowAllReadyReminders()
 	for _, entry in ipairs(self.ReadyReminderSpells) do
 		if spellOn(entry) and usable(entry) then
 			local f = self:CreateReadyReminderFrame(entry)
+			curveMouseBack(f)   -- draggable again
 			stopEffects(f)
 			f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 			f.icon:SetDesaturated(false); f:SetAlpha(SV().opacity or 1)
