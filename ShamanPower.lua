@@ -15364,23 +15364,37 @@ end
 
 local RAID_TOKENS = {}
 for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+local PARTY_TOKENS = { "party1", "party2", "party3", "party4" }
+local function unitHasGUID(unit, guid)
+	local ok, g = pcall(UnitGUID, unit)
+	return ok and g and not (issecretvalue and issecretvalue(g)) and g == guid
+end
 function ShamanPower:UpdateAuraCarrierFilter()
 	local f = unitEventFrames and unitEventFrames.carrier
 	if not f then return end
 	f:UnregisterEvent("UNIT_AURA")
 	local guid = self.esTrackedTargetGUID
-	if not guid or self.ESTrackerUnavailable or not IsInRaid() then return end   -- player/party frames cover the rest
-	local secret = issecretvalue
-	for i = 1, 40 do
-		local unit = RAID_TOKENS[i]
-		local ok, g = pcall(UnitGUID, unit)
-		if ok and g and not (secret and secret(g)) and g == guid then
-			-- (if the carrier is also in your party its aura event may arrive twice;
-			-- the Earth Shield charge update is idempotent)
-			if f.RegisterUnitEvent then f:RegisterUnitEvent("UNIT_AURA", unit) end   -- without filters the unfiltered frames already hear everyone
-			return
+	if not guid or self.ESTrackerUnavailable then return end
+	if not f.RegisterUnitEvent then return end   -- without filters the unfiltered frames already hear everyone
+	if unitHasGUID("player", guid) then return end   -- the player frame covers it
+	if IsInRaid() then
+		for i = 1, 40 do
+			local unit = RAID_TOKENS[i]
+			if unitHasGUID(unit, guid) then
+				-- (if the carrier is also in your party its aura event may arrive twice;
+				-- the Earth Shield charge update is idempotent)
+				f:RegisterUnitEvent("UNIT_AURA", unit)
+				return
+			end
+		end
+	else
+		for i = 1, 4 do
+			if unitHasGUID(PARTY_TOKENS[i], guid) then return end   -- the party frames cover it
 		end
 	end
+	-- outside your group: heard while you target or focus them, as the tracker
+	-- (FindEarthShieldTarget) finds them; other units' aura events are ignored by GUID
+	f:RegisterUnitEvent("UNIT_AURA", "target", "focus")
 end
 
 function ShamanPower:UNIT_AURA(event, unit)
