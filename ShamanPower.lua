@@ -1381,8 +1381,13 @@ function ShamanPower:RestrictCommand(args)
 	end
 	for _, r in ipairs(RESTRICT_CVARS) do
 		if r.key == key then
-			-- nil: Lua cannot read it here (the cvar may still exist); the line to type is printed anyway
+			-- nil on Forever: Lua cannot read it there (the cvar may still exist), so the line to type
+			-- is printed anyway; the Classic line has no such cvars at all
 			local v = value(r.cvar)
+			if v == nil and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
+				return
+			end
 			local on
 			if state == "on" or state == "1" then on = true
 			elseif state == "off" or state == "0" then on = false
