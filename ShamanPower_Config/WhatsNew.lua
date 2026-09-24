@@ -224,7 +224,7 @@ local function BuildDialog()
 			SP:ShowSPDialog({
 				key = "discordlink",
 				title = "ShamanPower Discord",
-				text = "The link is selected - press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
+				text = "The link is selected - press |cffFFD100Ctrl+C|r to copy it, then paste it into your browser.",
 				editText = DISCORD_INVITE,
 			})
 		end)

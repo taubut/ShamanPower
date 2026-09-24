@@ -3309,6 +3309,13 @@ local SPEC_ICON = {
 	elemental   = "Interface\\Icons\\Spell_Nature_Lightning",
 }
 
+-- The spec picked in the setup (a spec card, or the welcome's spec question),
+-- kept per character for the share code (ShamanPowerShareCode.lua), which uses
+-- it when the talents cannot tell.
+local function RememberRole(role)
+	if SPEC_ICON[role] and SP.db and SP.db.char then SP.db.char.setupRole = role end
+end
+
 -- ---------------------------------------------------------------------------
 -- Quick Setup preview: what a built-in preset looks like and what it sets,
 -- decoded from the preset string itself, before the user commits to it.
@@ -3347,8 +3354,9 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 	opts = opts or {}
 	if not previewDlg then
 		previewDlg = Core:CreateDialog({
-			name = "ShamanPowerPresetPreview", width = 940, height = 560,
-			title = preset.name, subtitle = "quick setup - preview before you apply", headerHeight = 46, footer = 52, strata = "FULLSCREEN_DIALOG",
+			name = "ShamanPowerPresetPreview", width = 940,
+			title = preset.name, subtitle = "quick setup - preview before you apply", headerHeight = 46, footer = 52,
+			special = true, strata = "FULLSCREEN_DIALOG",
 		})
 		local body = previewDlg.body
 		-- opaque: this sits over the welcome screen and must be readable
@@ -3359,7 +3367,8 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 		previewDlg.shot = shot
 		local desc = body:CreateFontString(nil, "OVERLAY"); desc:SetFontObject(Core.fonts.rowDim); desc:SetPoint("TOPLEFT", shot, "BOTTOMLEFT", 0, -8); desc:SetWidth(520); desc:SetJustifyH("LEFT"); desc:SetWordWrap(true)
 		previewDlg.desc = desc
-		previewDlg:SetScript("OnHide", function() SP.Wizard.optOverride = nil; SP.Wizard.previewOnly = nil end)
+		-- spOnHide keeps the dialog shell's own OnHide (popup cleanup) intact
+		previewDlg.spOnHide = function() SP.Wizard.optOverride = nil; SP.Wizard.previewOnly = nil end
 		-- summary
 		local hdr = body:CreateFontString(nil, "OVERLAY"); hdr:SetFontObject(Core.fonts.tiny); hdr:SetPoint("TOPLEFT", shot, "TOPRIGHT", 22, 0); hdr:SetText("WHAT IT SETS"); hdr:SetTextColor(Core:Color("textDim"))
 		previewDlg.rows = {}
@@ -3452,6 +3461,10 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 	end
 	previewDlg.note:ClearAllPoints(); previewDlg.note:SetPoint("TOPLEFT", previewDlg.hdr, "BOTTOMLEFT", 0, -(yy + 6))
 	if not decoded then previewDlg.rows[1].k:Show(); previewDlg.rows[1].k:ClearAllPoints(); previewDlg.rows[1].k:SetPoint("TOPLEFT", previewDlg.hdr, "BOTTOMLEFT", 0, -8); previewDlg.rows[1].k:SetText("Could not read this preset"); previewDlg.rows[1].v:SetText("") end
+	-- as tall as its taller column: the mocks and description, or the summary and note
+	local leftH = previewDlg.shot:GetHeight() + 8 + previewDlg.desc:GetStringHeight()
+	local rightH = previewDlg.hdr:GetStringHeight() + yy + 6 + previewDlg.note:GetStringHeight()
+	previewDlg:SetHeight(46 + 4 + 10 + math.ceil(math.max(leftH, rightH)) + previewDlg.pad + 52)
 	previewDlg:Show()
 end
 
@@ -3650,6 +3663,7 @@ function SP.Wizard:RenderRole()
 		end)
 		card:SetScript("OnClick", function()
 			state.role = r.key
+			RememberRole(r.key)
 			if state.freshInstall and not state.presetApplied then SP.Wizard.ApplyRoleDefaults(r.key) end   -- existing setups are never touched
 			state.steps = VisibleSteps()
 			RenderStep()
@@ -3814,8 +3828,9 @@ function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
 	if not backup then if onOk then onOk() end return end
 	if not backupDlg then
 		backupDlg = Core:CreateDialog({
-			name = "ShamanPowerBackupNotice", width = 520, height = 236,
-			title = "Your setup is backed up", subtitle = "nothing you had is lost", headerHeight = 46, footer = 52, strata = "FULLSCREEN_DIALOG",
+			name = "ShamanPowerBackupNotice", width = 520,
+			title = "Your setup is backed up", subtitle = "nothing you had is lost", headerHeight = 46, footer = 52,
+			special = true, strata = "FULLSCREEN_DIALOG",
 		})
 		local solid = backupDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2); solid:SetColorTexture(Core:Color("windowBg", 1))
 		local t = backupDlg.body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
@@ -3823,14 +3838,24 @@ function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
 		backupDlg.text = t
 		local ok = Core:MakeButton(backupDlg, "OK", 120, true)
 		ok:SetPoint("BOTTOMRIGHT", backupDlg, "BOTTOMRIGHT", -14, 12)
-		ok:SetScript("OnClick", function() backupDlg:Hide(); if backupDlg.onOk then local f = backupDlg.onOk; backupDlg.onOk = nil; f() end end)
+		ok:SetScript("OnClick", function() backupDlg:Hide() end)
 		backupDlg.close:SetScript("OnClick", function() ok:Click() end)
+		-- OK, the X and Escape all close it, and each carries the flow on (the reload
+		-- after a layout is applied): a frame later, so a window that opens is not
+		-- closed by the same Escape. A hidden parent (Alt+Z) is not a close.
+		backupDlg.spOnHide = function(self)
+			if self:IsShown() or not self.onOk then return end
+			local f = self.onOk
+			self.onOk = nil
+			C_Timer.After(0, f)
+		end
 	end
 	backupDlg.onOk = onOk
 	backupDlg.text:SetText(string.format(
 		"A complete snapshot of your current setup - profile |cffFFD100%s|r, every module's settings and all positions - was just saved (|cffFFD100%s|r).\n\n"
 		.. "If you ever want it back: |cff3FA9F5Settings > Profiles > Built-in Layouts > Restore My Previous Setup|r. It comes back as a new profile named |cffFFD100%s (restored ...)|r, so nothing gets overwritten.%s",
 		backup.profile or "?", backup.date or "", backup.profile or "?", extra and ("\n\n" .. extra) or ""))
+	backupDlg:SetHeight(46 + 4 + 10 + 2 + math.ceil(backupDlg.text:GetStringHeight()) + backupDlg.pad + 52)
 	backupDlg:Show()
 end
 
@@ -3851,13 +3876,14 @@ function SP.Wizard:ShowUpgradePrompt()
 	if InCombatLockdown() then C_Timer.After(5, function() SP.Wizard:ShowUpgradePrompt() end) return end
 	if not upgradeDlg then
 		upgradeDlg = Core:CreateDialog({
-			name = "ShamanPowerUpgradePrompt", width = 480, height = 250,
+			name = "ShamanPowerUpgradePrompt", width = 480,
 			title = "ShamanPower has changed", subtitle = "new settings window, new guided setup", headerHeight = 46, footer = 52,
+			special = true, strata = "DIALOG",
 		})
-		upgradeDlg:SetFrameStrata("DIALOG")
 		local t = upgradeDlg.body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
 		t:SetPoint("TOPLEFT", upgradeDlg.body, "TOPLEFT", 0, -4); t:SetWidth(440); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
 		t:SetText("This version replaces the old options screen with a new settings window, and adds a guided setup that shows every feature of the addon working live - quite a few of them are easy to miss.\n\nIf you want to see what is new, take the tour. It only takes a few minutes, nothing is changed until you choose it, and you can run it again any time with |cffffffff/spsetup|r.")
+		upgradeDlg:SetHeight(46 + 4 + 10 + 4 + math.ceil(t:GetStringHeight()) + upgradeDlg.pad + 52)
 		local go = Core:MakeButton(upgradeDlg, "Take the tour", 150, true)
 		go:SetPoint("BOTTOMRIGHT", upgradeDlg, "BOTTOMRIGHT", -14, 12)
 		go:SetScript("OnClick", function() upgradeDlg:Hide(); SP.Wizard:Open() end)
@@ -3909,6 +3935,7 @@ local function quickSetup(role)
 	if role then SP.Wizard.ApplySpecPicks(role) end
 	SP.opt.setupDone = true
 	SP.opt.setupPath = "quick"
+	RememberRole(role)
 	welcomeDlg:Hide()
 	local name = preset and preset.name or "The quick setup"
 	local line = "|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
@@ -3924,10 +3951,10 @@ function SP.Wizard:ShowWelcomeChoice()
 	if InCombatLockdown() then C_Timer.After(5, function() SP.Wizard:ShowWelcomeChoice() end) return end
 	if not welcomeDlg then
 		welcomeDlg = Core:CreateDialog({
-			name = "ShamanPowerWelcomeChoice", width = 440, height = 262,
+			name = "ShamanPowerWelcomeChoice", width = 440,
 			title = "Welcome to ShamanPower", subtitle = "first time with ShamanPower", headerHeight = 46, footer = 52,
+			special = true, strata = "DIALOG",
 		})
-		welcomeDlg:SetFrameStrata("DIALOG")
 		local body = welcomeDlg.body
 		local t = body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
 		t:SetPoint("TOP", body, "TOP", 0, -6); t:SetWidth(400); t:SetJustifyH("CENTER"); t:SetWordWrap(true)
@@ -3992,6 +4019,8 @@ function SP.Wizard:ShowWelcomeChoice()
 			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
 		end)
 	end
+	-- the text and both choices (the spec question that can replace them is shorter)
+	d:SetHeight(46 + 4 + 10 + 6 + math.ceil(d.text:GetStringHeight()) + 16 + 34 + 10 + 34 + d.pad + 52)
 	d:Show()
 end
 

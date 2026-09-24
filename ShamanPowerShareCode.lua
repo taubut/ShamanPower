@@ -142,6 +142,8 @@ local function specIndex()
 		end
 		if best and bestPts > second then role = best end
 	end
+	-- the talents cannot tell (below level 10, a tie, no readable points): the spec picked in the setup
+	if not role then role = sub(sub(SP.db, "char"), "setupRole") end
 	if role == "restoration" then return 1 elseif role == "enhancement" then return 2 elseif role == "elemental" then return 3 end
 	return 0
 end
@@ -210,7 +212,7 @@ function SP:ShowShareCode()
 	self:ShowSPDialog({
 		key = "sharecode",
 		title = "Your ShamanPower setup code",
-		text = "Press |cffffd200Ctrl+C|r, then paste it in #setup-stats on the ShamanPower Discord (discord.gg/eCtNeBqE8U). It lists which features you use - nothing personal.",
+		text = "Press |cffFFD100Ctrl+C|r, then paste it in #setup-stats on the ShamanPower Discord (discord.gg/eCtNeBqE8U). It lists which features you use - nothing personal.",
 		editText = code,
 	})
 end
