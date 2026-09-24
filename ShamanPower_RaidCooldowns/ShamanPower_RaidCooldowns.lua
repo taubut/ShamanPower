@@ -22,7 +22,7 @@ local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompa
 -- prefix, at ChatThrottleLib's ALERT priority: Blizzard throttles addon messages
 -- per prefix, so a backlog on the main one (a roster change in a big raid) can
 -- never hold a call back. The main prefix still carries them for older versions;
--- a call that arrives on both is acted on once (see seenCall).
+-- a call that arrives on both is acted on once (see isRepeatCall).
 local CALL_PREFIX = "SHPWRC"
 do
 	local register = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or _G.RegisterAddonMessagePrefix
@@ -52,17 +52,29 @@ local function sendCall(msg)
 	pcall(ChatThrottleLib.SendAddonMessage, ChatThrottleLib, "ALERT", CALL_PREFIX, msg, channel)
 end
 
--- A call that arrives on both prefixes (or twice) from the same sender is acted
--- on once. Both copies arrive within moments of each other, so only a very short
--- window is treated as a repeat: a caller pressing the same call again (the shaman
--- missed it) a few seconds later still gets through.
-local seenCall = {}
-local function isRepeatCall(sender, message)
-	local key = (sender or "") .. "\001" .. message
-	local now = GetTime()
-	local last = seenCall[key]
-	seenCall[key] = now
-	return last ~= nil and (now - last) < 3
+-- Every press goes out on both prefixes; each press alerts once, and a re-press
+-- (the shaman missed it) always gets through. No time window decides that: the
+-- main-prefix copy waits at NORMAL priority and can arrive any time later.
+-- Once a sender has been heard on CALL_PREFIX, its CALL_PREFIX copies are the
+-- calls and its main-prefix copies are ignored. Until then (an older version
+-- without CALL_PREFIX, or the first call of the session) the main copy is acted
+-- on, and the CALL_PREFIX copy of that same press, arriving moments later, is
+-- dropped once.
+local CALL_PAIR_WINDOW = 5
+local callPrefixSenders = {}   -- [sender] = true once a call came on CALL_PREFIX
+local unpairedCall = {}        -- [sender .. message] = when its main copy was acted on
+local function isRepeatCall(prefix, sender, message)
+	sender = sender or ""
+	if prefix == CALL_PREFIX then
+		callPrefixSenders[sender] = true
+		local key = sender .. "\001" .. message
+		local at = unpairedCall[key]
+		unpairedCall[key] = nil
+		return at ~= nil and (GetTime() - at) < CALL_PAIR_WINDOW
+	end
+	if callPrefixSenders[sender] then return true end
+	unpairedCall[sender .. "\001" .. message] = GetTime()
+	return false
 end
 local callerRequestEstimates = _G.SPCompat and _G.SPCompat.secretsRegime
 
@@ -602,7 +614,7 @@ end
 -- Handle incoming raid cooldown messages
 function SP:HandleRaidCooldownMessage(prefix, message, sender)
 	local cmd, rest = strsplit("|", message, 2)
-	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and isRepeatCall(sender, message) then return end
+	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and isRepeatCall(prefix, sender, message) then return end
 
 	if cmd == "RCSYNC" then
 		-- Sync from raid leader
