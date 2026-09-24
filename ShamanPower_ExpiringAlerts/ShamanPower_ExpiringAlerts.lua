@@ -731,7 +731,16 @@ function SP:TotemDestroyedAlert(totemName, elementColor)
 	end
 	if t.destroyedParty and IsInGroup() then
 		local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or "PARTY"
-		pcall(SendChatMessage, label .. " destroyed!", channel)
+		-- Forever has SendChatMessage only as C_ChatInfo.SendChatMessage, and locks
+		-- addon chat in boss fights, M+ and PvP matches: skip the send there (as
+		-- Cooldown Announce does) and tell only you that the group was not told
+		local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+		local locked = _G.SPK and _G.SPK() == true
+		local sent = not locked and send and pcall(send, label .. " destroyed!", channel)
+		if not sent and DEFAULT_CHAT_FRAME then
+			DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cff999999" .. label .. " destroyed: "
+				.. (locked and "the game locks group chat right now, your group was not told." or "the group chat message could not be sent.") .. "|r")
+		end
 	end
 end
 
