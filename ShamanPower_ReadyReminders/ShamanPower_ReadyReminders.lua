@@ -156,13 +156,38 @@ local function playerKnows(entry)
 	return known
 end
 
+local GCD_MAX = 1.6   -- a "cooldown" this short is only the global cooldown
+
 -- start, duration (plain numbers) for the highest known rank, or nil when unreadable.
-local function cooldownOf(entry)
+local function ownCooldownOf(entry)
 	local id = clientSpellID(entry)
 	if not id then return nil end
 	local name = GetSpellInfoC(id)
 	local start, duration = GetSpellCooldownC(name or id)
 	if type(start) ~= "number" or type(duration) ~= "number" then return nil end
+	return start, duration
+end
+
+-- Earth, Flame and Frost Shock share one cooldown (category 19 in the spell data).
+-- WoW: Forever in combat: the compat model knows only the shock that was cast, so
+-- the other two read ready while the shared cooldown runs. A shock with no run of
+-- its own takes the family's.
+local IS_MAINLINE = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
+local isShock = { earthshock = true, flameshock = true, frostshock = true }
+local function cooldownOf(entry)
+	local start, duration = ownCooldownOf(entry)
+	if IS_MAINLINE and isShock[entry.key] and not (duration and duration > GCD_MAX) then
+		for _, key in ipairs(SHOCK_FAMILY) do
+			local other = catalogByKey[key]
+			if other and other ~= entry then
+				local s, d = ownCooldownOf(other)
+				if s and d and d > GCD_MAX and not (duration and duration > GCD_MAX and start + duration >= s + d) then
+					start, duration = s, d
+				end
+			end
+		end
+	end
 	return start, duration
 end
 
@@ -337,7 +362,6 @@ end
 -- ---------------------------------------------------------------------------
 -- Tick
 -- ---------------------------------------------------------------------------
-local GCD_MAX = 1.6
 
 -- ---------------------------------------------------------------------------
 -- WoW: Forever: in combat the addon cannot read a cooldown, so "is it ready"
