@@ -6093,10 +6093,23 @@ function ShamanPower:ShowsDropAllButton()
 	return false
 end
 
+-- An accepted raid resistance request holds its element (ShamanPowerResist.lua,
+-- Forever): that slot shows even before the element is learned, so the
+-- resistance totem lands on a low-level shaman's bar too.
+local function HoldsResistRequest(self, element)
+	local list, applied = self.RESIST_REQUESTS, self.opt.resistApplied
+	if not (list and applied) then return false end
+	for i = 1, #list do
+		if list[i].element == element and applied[list[i].key] ~= nil then return true end
+	end
+	return false
+end
+
 local ELEMENT_SHOW_KEY = { "totemBarShowEarth", "totemBarShowFire", "totemBarShowWater", "totemBarShowAir" }
 function ShamanPower:IsElementShown(element)
 	if self.opt[ELEMENT_SHOW_KEY[element]] == false then return false end
-	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element) then return false end
+	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element)
+		and not HoldsResistRequest(self, element) then return false end
 	return true
 end
 
