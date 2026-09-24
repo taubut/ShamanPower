@@ -9019,9 +9019,12 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 		for _, ag in ipairs(btn.alertAnims) do ag:Play() end
 	end
 
-	-- Auto-clear after 10 seconds
+	-- Auto-clear after 10 seconds - only this alert: a newer call on the same
+	-- button bumps the counter, so this timer then leaves it alone
+	btn.alertSerial = (btn.alertSerial or 0) + 1
+	local serial = btn.alertSerial
 	C_Timer.After(10, function()
-		ShamanPower:RemoveCooldownButtonAlert(spellID)
+		if btn.alertSerial == serial then ShamanPower:RemoveCooldownButtonAlert(spellID) end
 	end)
 end
 
@@ -11918,8 +11921,11 @@ end
 -- bar is simply at its full alpha. opt.fadeSmooth == false turns it off.
 local FADE_TIME = 0.2
 local function fadeFrames(self)
-	local list = { self.autoButton, _G["ShamanPowerAutoDropAll"], _G["ShamanPowerEarthShieldBtn"] }
-	if self.totemButtons then for element = 1, 4 do list[#list + 1] = self.totemButtons[element] end end
+	-- built without gaps: a missing button must not cut the list short for ipairs
+	local list = {}
+	local function add(f) if f then list[#list + 1] = f end end
+	add(self.autoButton); add(_G["ShamanPowerAutoDropAll"]); add(_G["ShamanPowerEarthShieldBtn"])
+	if self.totemButtons then for element = 1, 4 do add(self.totemButtons[element]) end end
 	return list
 end
 local function stopFades(self)

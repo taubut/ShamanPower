@@ -490,10 +490,15 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 
 		local swell = iconTex:CreateAnimationGroup()
 		swell:SetLooping("REPEAT")
+		-- newer clients name these SetScaleFrom/SetScaleTo, older ones SetFromScale/SetToScale
+		local function scale(anim, from, to)
+			if anim.SetScaleFrom then anim:SetScaleFrom(from, from); anim:SetScaleTo(to, to)
+			else anim:SetFromScale(from, from); anim:SetToScale(to, to) end
+		end
 		local grow = swell:CreateAnimation("Scale")
-		grow:SetScaleFrom(0.95, 0.95); grow:SetScaleTo(1.05, 1.05); grow:SetDuration(0.628); grow:SetSmoothing("IN_OUT"); grow:SetOrder(1)
+		scale(grow, 0.95, 1.05); grow:SetDuration(0.628); grow:SetSmoothing("IN_OUT"); grow:SetOrder(1)
 		local shrink = swell:CreateAnimation("Scale")
-		shrink:SetScaleFrom(1.05, 1.05); shrink:SetScaleTo(0.95, 0.95); shrink:SetDuration(0.628); shrink:SetSmoothing("IN_OUT"); shrink:SetOrder(2)
+		scale(shrink, 1.05, 0.95); shrink:SetDuration(0.628); shrink:SetSmoothing("IN_OUT"); shrink:SetOrder(2)
 		frame.swell = swell
 
 		-- one timeline per alert: a new alert restarts it, so an older alert's
