@@ -53,14 +53,16 @@ local function sendCall(msg)
 end
 
 -- A call that arrives on both prefixes (or twice) from the same sender is acted
--- on once. Calls are minutes apart (Mana Tide 5 min, Bloodlust 10), so 20 s is safe.
+-- on once. Both copies arrive within moments of each other, so only a very short
+-- window is treated as a repeat: a caller pressing the same call again (the shaman
+-- missed it) a few seconds later still gets through.
 local seenCall = {}
 local function isRepeatCall(sender, message)
 	local key = (sender or "") .. "\001" .. message
 	local now = GetTime()
 	local last = seenCall[key]
 	seenCall[key] = now
-	return last ~= nil and (now - last) < 20
+	return last ~= nil and (now - last) < 3
 end
 local callerRequestEstimates = _G.SPCompat and _G.SPCompat.secretsRegime
 
@@ -1109,7 +1111,7 @@ end
 local castFrames = {}     -- pooled frames, one per watched shaman unit
 local rosterFrame
 
-local function watchUnit(i, unit)
+local function watchUnit(i, unit, alias)
 	local f = castFrames[i]
 	if not f then
 		f = CreateFrame("Frame")
@@ -1119,7 +1121,10 @@ local function watchUnit(i, unit)
 	end
 	f:UnregisterAllEvents()
 	if f.RegisterUnitEvent then
-		f:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", unit)
+		-- also the unit's other name: in a raid your own casts may arrive as "player"
+		-- and your subgroup's as "partyN" rather than their raid token
+		if alias then f:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", unit, alias)
+		else f:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", unit) end
 	end
 end
 
@@ -1131,10 +1136,16 @@ end
 local function rebuildWatchedShamans()
 	unwatchAll()
 	local n = 0
+	local function aliasOf(unit)
+		if not IsInRaid() then return nil end
+		if UnitIsUnit(unit, "player") then return "player" end
+		for k = 1, 4 do if UnitIsUnit(unit, "party" .. k) then return "party" .. k end end
+		return nil
+	end
 	local function consider(unit)
 		if UnitExists(unit) and select(2, UnitClass(unit)) == "SHAMAN" then
 			n = n + 1
-			watchUnit(n, unit)
+			watchUnit(n, unit, aliasOf(unit))
 		end
 	end
 	if IsInRaid() then

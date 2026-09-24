@@ -1037,8 +1037,10 @@ function SP:SetupExpiringAlertsEvents()
 		end
 	end)
 	local function knowsEarthShield()
-		if SP.ESTrackerUnavailable or not IsSpellKnown then return false end
-		return IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594) or false
+		if SP.ESTrackerUnavailable then return false end
+		-- the same check the rest of the addon uses (ES button, options)
+		if SP.HasEarthShield then return SP:HasEarthShield() and true or false end
+		return IsSpellKnown and (IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594)) or false
 	end
 	local esWatching = false
 	local function refreshESWatch()

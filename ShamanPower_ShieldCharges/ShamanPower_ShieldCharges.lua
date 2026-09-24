@@ -133,8 +133,12 @@ function SP:CreateShieldChargeDisplays()
 		end)
 		local othersOn = false
 		local function refreshOthers()
-			local want = not SP.ESTrackerUnavailable and IsSpellKnown
-				and (IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594)) or false
+			-- the same Earth Shield check the rest of the addon uses
+			local want = false
+			if not SP.ESTrackerUnavailable then
+				if SP.HasEarthShield then want = SP:HasEarthShield() and true or false
+				elseif IsSpellKnown then want = (IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594)) and true or false end
+			end
 			if want and not othersOn then others:RegisterEvent("UNIT_AURA")
 			elseif not want and othersOn then others:UnregisterEvent("UNIT_AURA") end
 			othersOn = want

@@ -2011,7 +2011,9 @@ local function StartStress()
 		st.acc[kind] = a - k
 		return k
 	end
-	local driver = CreateFrame("Frame")   -- its own frame: not one of the measured subsystems
+	-- its own frame (not one of the measured subsystems), made once and reused by every run
+	SPCompat._stressDriver = SPCompat._stressDriver or CreateFrame("Frame")
+	local driver = SPCompat._stressDriver
 	driver:SetScript("OnUpdate", function(_, elapsed)
 		st.t = st.t + elapsed
 		local ix, c = st.idx, st.counts
@@ -2170,6 +2172,12 @@ SlashCmdList["SPPERF"] = function(msg)
 	local lua0, t0 = collectgarbage("count"), GetTime()
 	print(string.format("|cff00ccffspperf|r measuring for %d s ... (combat=%s)", secs, tostring(InCombatLockdown())))
 	local stress
+	if stressMode and IsInGroup() then
+		-- the fake roster changes run the real roster code, which would send real
+		-- ShamanPower messages to your group
+		print("|cff00ccffspperf|r stress runs solo only: leave your group first (the pretend raid would send real messages to it).")
+		return
+	end
 	if stressMode then
 		if InCombatLockdown() then print("|cff00ccffspperf|r stress in combat: real events add to the numbers, so they will be noisier.") end
 		print("|cff00ccffspperf|r stress: pretending to be in a 40-player raid (auras, casts, addon messages, a roster change burst) ...")

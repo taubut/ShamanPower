@@ -13190,7 +13190,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 				if memberName then
 					ShamanPower_EarthShieldAssignments[ShamanPower.player] = memberName
 					ShamanPower:UpdateEarthShieldButton()
-					ShamanPower:SendMessage("ES_ASSIGN " .. ShamanPower.player .. " " .. memberName)
+					ShamanPower:SendMessage("ESASSIGN " .. ShamanPower.player .. " " .. memberName)   -- the keyword every client handles (was ES_ASSIGN, never received)
 				end
 			end
 			-- Close the flyout after picking someone, like the totem flyouts
@@ -14962,14 +14962,22 @@ function ShamanPower:SetupUnitEventFilters()
 	local stress = SPCompat and SPCompat.StressRegister
 	local cast = CreateFrame("Frame")
 	if stress then stress(cast, "core (casts)") end
-	cast:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
-	cast:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")   -- Earth Shield cast tracking
+	-- a client without unit filters gets the old unfiltered events (handlers check the unit)
+	local function reg(frame, event, a, b)
+		if frame.RegisterUnitEvent then
+			if b then frame:RegisterUnitEvent(event, a, b) else frame:RegisterUnitEvent(event, a) end
+		else
+			frame:RegisterEvent(event)
+		end
+	end
+	reg(cast, "UNIT_SPELLCAST_SUCCEEDED", "player")
+	reg(cast, "UNIT_SPELLCAST_SENT", "player")   -- Earth Shield cast tracking
 	cast:SetScript("OnEvent", unitEventDispatch)
 	unitEventFrames.cast = cast
 	for _, pair in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
 		local f = CreateFrame("Frame")
 		if stress then stress(f, "core (auras)") end
-		f:RegisterUnitEvent("UNIT_AURA", pair[1], pair[2])
+		reg(f, "UNIT_AURA", pair[1], pair[2])
 		f:SetScript("OnEvent", unitEventDispatch)
 		unitEventFrames[#unitEventFrames + 1] = f
 	end
@@ -14997,7 +15005,7 @@ function ShamanPower:UpdateAuraCarrierFilter()
 		if ok and g and not (secret and secret(g)) and g == guid then
 			-- (if the carrier is also in your party its aura event may arrive twice;
 			-- the Earth Shield charge update is idempotent)
-			f:RegisterUnitEvent("UNIT_AURA", unit)
+			if f.RegisterUnitEvent then f:RegisterUnitEvent("UNIT_AURA", unit) end   -- without filters the unfiltered frames already hear everyone
 			return
 		end
 	end
