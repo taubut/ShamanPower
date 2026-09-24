@@ -1185,7 +1185,6 @@ function ShamanPower:OnDisable()
 end
 
 function ShamanPower:OnProfileChanged()
-	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
 	-- Clean up all popped-out frames from the old profile first
 	if self.poppedOutFrames then
 		for key, frame in pairs(self.poppedOutFrames) do
@@ -1209,6 +1208,7 @@ function ShamanPower:OnProfileChanged()
 	end
 
 	self.opt = self.db.profile
+	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
 	MigrateMiniBarProfile(self.db, self.opt)
 	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
 	if self.ApplyElementColors then self:ApplyElementColors() end
@@ -3361,6 +3361,7 @@ function ShamanPower:StyleEngineCooldown(cd)
 	pcall(cd.SetCountdownFont, cd, "GameFontNormalSmall")
 	local ok, fs = pcall(cd.GetCountdownFontString, cd)
 	if ok and fs then
+		self:AdoptSPFont(fs, "timers")   -- the game's countdown follows the Fonts settings too
 		local c = self.opt.totemCooldownTextColor
 		fs:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
 		fs:SetShadowOffset(1, -1)
@@ -9449,8 +9450,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						or (textLocation == "icon" and btn.iconText)
 					if src then
 						local fs = carrier:CreateFontString(nil, "OVERLAY")
-						local font, size, flags = src:GetFont()
-						if font then fs:SetFont(font, size, flags) end
+						self:CopySPFont(fs, src)   -- same font as the addon's text, and follows later font changes
 						local r, g, b = src:GetTextColor()
 						fs:SetTextColor(r or 1, g or 1, b or 1)
 						local point, rel, relPoint, x, y = src:GetPoint(1)

@@ -52,10 +52,14 @@ function SP:FontFor(area, _, defaultFlags, defaultPath)
 		local outline = a and a.outline
 		if outline == nil then outline = o.fontOutline end
 		-- a font being hovered in the settings list, shown without saving it
+		-- ("__default" previews the design for the main font, the main font for an area)
 		local pv = SP._fontPreview
 		if pv then
-			if pv.area == area then name = pv.name
-			elseif pv.area == "all" and not (a and a.name) then name = pv.name end
+			if pv.area == area then
+				if pv.name == "__default" then name = o.fontName else name = pv.name end
+			elseif pv.area == "all" and not (a and a.name) then
+				if pv.name == "__default" then name = nil else name = pv.name end
+			end
 		end
 		path = fontPath(name) or path
 		if outline ~= nil then flags = outline end
@@ -65,7 +69,7 @@ end
 
 -- Settings hover: show `name` for `area` ("all" = the main font) until cleared.
 function SP:PreviewFont(area, name)
-	if area and name and name ~= "__default" and name ~= "__inherit" then
+	if area and name then
 		SP._fontPreview = { area = area, name = name }
 	else
 		SP._fontPreview = nil
@@ -100,6 +104,16 @@ function SP:SetSPFont(fs, area, size, defaultFlags, defaultPath)
 	apply(fs, path, size, flags, defaultPath, defaultFlags)   -- a missing font file falls back to the design
 end
 
+-- A string that should look like another one (a game-drawn copy of our text):
+-- the source's design and area, and it follows later font changes.
+function SP:CopySPFont(dst, src, area)
+	if not (dst and src) then return end
+	local rec = registry[src]
+	if rec then self:SetSPFont(dst, area or rec.area, rec.size, rec.flags, rec.path) return end
+	local path, size, flags = src:GetFont()
+	if path then self:SetSPFont(dst, area or "timers", size, flags or "", path) end
+end
+
 -- For a string whose font came from a template (NumberFont*, GameFont*): its
 -- current font becomes the designed default, then it follows the settings.
 function SP:AdoptSPFont(fs, area)
@@ -112,19 +126,31 @@ function SP:AdoptSPFont(fs, area)
 end
 
 -- Re-apply every remembered font string: called when a font setting changes.
+-- A string in use hangs off UIParent (or WorldFrame: nameplates). Settings previews
+-- are rebuilt and their old frames detached (WoW never frees them); a refresh skips
+-- detached strings, so a long settings session does not restyle dead copies. A
+-- skipped one re-applies the next time its own code sets it (rec.gen stays old).
+local function live(fs)
+	local p = fs:GetParent()
+	while p do
+		if p == UIParent or p == WorldFrame then return true end
+		p = p:GetParent()
+	end
+	return false
+end
+
 function SP:RefreshFonts()
 	gen = gen + 1
 	for fs, rec in pairs(registry) do
+		if live(fs) then
 		rec.gen = gen
 		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path)
 		apply(fs, path, rec.size, flags, rec.path, rec.flags)
+		end
 	end
 	-- game-drawn cooldown numbers copy their font from our strings when placed
 	if self.ResetEngineBarCooldowns then pcall(self.ResetEngineBarCooldowns, self) end
 end
-
--- Profile switches and imports change opt underneath the strings.
-function SP:FontsProfileChanged() self:RefreshFonts() end
 
 -- Font names for a picker: LibSharedMedia's list (Blizzard's four plus every
 -- font other installed addons register).
