@@ -66,6 +66,8 @@ local practicePick = {}    -- key -> name or "" from the practice owner
 local sentPick = {}        -- key -> the pick we last sent (practice owner)
 local prompt               -- { key, name, fake } the one open prompt
 local restoreAfter = 0     -- GetTime() before which a leftover change is kept (login)
+local keepOnLogin = {}     -- key -> true: changed before this login, kept while the group can confirm it
+local optOutPassed = {}    -- key -> true: passed on while our requests are turned off
 local claims = {}          -- key -> { [name] = true } shamans whose own ASSIGN says they drop it
 for _, r in ipairs(RESIST) do passed[r.key] = {}; claims[r.key] = {} end
 
@@ -619,11 +621,13 @@ local function RecomputeNow()
 	-- the group had a chance to tell us the request still stands)
 	local grace = GetTime() < restoreAfter and Active()
 	for _, r in ipairs(RESIST) do
-		if not need[r.key] then
-			if not grace then Restore(r) end
+		if need[r.key] then
+			-- confirmed by the group: from now on it ends like any other request
+			keepOnLogin[r.key] = nil
+		else
+			if not (grace and keepOnLogin[r.key]) then Restore(r) end
 			if practice then FakeRestore(r) end
 			wipe(passed[r.key])
-			sendPass[r.key] = nil
 			proposal[r.key] = nil
 			if waitTimer[r.key] then waitTimer[r.key].timer:Cancel(); waitTimer[r.key] = nil end
 		end
@@ -753,8 +757,26 @@ end
 -- ---------------------------------------------------------------------------
 -- Receiving
 -- ---------------------------------------------------------------------------
+-- Requests turned off: whatever the raid asks for is passed on at once (once per
+-- request), so nobody waits WAIT_TIMEOUT on us.
+local function PassWhileOff(msg, sender)
+	local mask, flag = strmatch(msg, "^RESREQ ([01][01][01])( ?P?)")
+	if not mask or not SenderMayRequest(sender) then return end
+	if (flag == " P") == IsInRaid() then return end
+	for i, r in ipairs(RESIST) do
+		if strsub(mask, i, i) == "1" then
+			if not optOutPassed[r.key] then optOutPassed[r.key] = true; SendPass(r.key) end
+		else
+			optOutPassed[r.key] = nil
+		end
+	end
+end
+
 function SP:HandleResistMessage(kw, msg, sender)
-	if not Enabled() then return end
+	if not Enabled() then
+		if kw == "RESREQ" then PassWhileOff(msg, sender) end
+		return
+	end
 	if kw == "RESPASS" then
 		local key, name = strmatch(msg, "^RESPASS (%a+) (.+)$")
 		if not (key and BY_KEY[key]) or self:RemoveRealmName(name) ~= sender then return end
@@ -900,12 +922,44 @@ local function Busy()
 	return practice or AnyNeed() or AnyApplied() or practiceOwner ~= nil
 end
 
+-- ...or the assignments window shows the coverage lines in a raid
+local function Watching()
+	if Busy() then return true end
+	local win = rawget(_G, "ShamanPowerAssign")
+	return Active() and win ~= nil and win:IsShown() and true or false
+end
+
 hooksecurefunc(SP, "QueueCommRefresh", function()
-	if Busy() then Recompute() end
+	if Watching() then Recompute() end
 end)
 
+-- Your own hand edit (assignments window, a flyout, Blizzard's totem bar): the
+-- coverage lines follow it (your own ASSIGN is never echoed back), and taking
+-- back the slot that holds a requested resistance is a Pass, so it is not
+-- put straight back on you.
+local function OwnEdit(name, element)
+	if not Watching() then return end
+	local me = Player()
+	if name == me then
+		for _, r in ipairs(RESIST) do
+			if r.element == element and need[r.key] and Applied()[r.key] ~= nil and queued[r.key] == nil
+				and AssignedIndex(me, element) ~= RESIST_INDEX and not passed[r.key][me] then
+				Say("you changed your " .. ELEMENT_NAMES[element] .. " totem, so " .. TotemName(r) .. " passes to the next shaman.")
+				PassOwn(r)
+			end
+		end
+	end
+	Recompute()
+end
+hooksecurefunc(SP, "PerformCycle", function(_, name, element) OwnEdit(name, element) end)
+hooksecurefunc(SP, "PerformCycleBackwards", function(_, name, element) OwnEdit(name, element) end)
+hooksecurefunc(SP, "ApplyAssignment", function(_, element) OwnEdit(Player(), element) end)
+
 hooksecurefunc(SP, "OnRosterSettled", function()
-	if not Busy() then return end
+	if not Busy() then
+		if Watching() then Recompute() end
+		return
+	end
 	-- practice never runs in a real raid: a party that becomes one ends it
 	if IsInRaid() and (practice or practiceOwner) then
 		if practice then
@@ -944,9 +998,13 @@ events:SetScript("OnEvent", function(self, event)
 	if event == "PLAYER_LOGIN" then
 		-- a /reload while dropping a resistance: keep it while the group can
 		-- still tell us the request stands, then put it back if nobody did
+		-- (only what was changed before this login: a request made and ended
+		-- since then gives the totem back at once)
 		restoreAfter = GetTime() + 20
+		for key in pairs(Applied()) do keepOnLogin[key] = true end
 		C_Timer.After(21, function()
-			if AnyApplied() and not AnyNeed() then Recompute() end
+			wipe(keepOnLogin)
+			if AnyApplied() then Recompute() end
 		end)
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
@@ -981,15 +1039,29 @@ if SP.options and SP.options.args and SP.options.args.buttons and SP.options.arg
 			},
 			enabled = {
 				order = 1, type = "toggle", width = "full", name = "Raid Resistance Requests",
-				desc = "Show the Raid Resistance ticks and answer requests from the raid. Off: you neither see nor answer requests.",
+				desc = "Show the Raid Resistance ticks and answer requests from the raid. Off: you do not see the ticks, and a request that picks you passes straight to the next shaman.",
 				get = function() return SP.opt.resistRequests ~= false end,
 				set = function(_, v)
 					if v then
 						SP.opt.resistRequests = nil
+						wipe(optOutPassed)
+						Recompute()   -- the strip comes back with current coverage lines
 						return
 					end
 					if practice then SP:SetResistPractice(false) end
-					SP:ClearResistRequests(true)   -- gives our totems back
+					-- a request we made ends for everyone; one we were asked for
+					-- passes to the next shaman at once
+					local mine = lastSetter == Player()
+					wipe(optOutPassed)
+					if not mine then
+						for _, r in ipairs(RESIST) do
+							if need[r.key] then
+								optOutPassed[r.key] = true
+								if not passed[r.key][Player()] then SendPass(r.key) end
+							end
+						end
+					end
+					SP:ClearResistRequests(not mine)   -- gives our totems back
 					SP.opt.resistRequests = false
 				end,
 			},
