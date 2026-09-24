@@ -257,7 +257,7 @@ end
 local sendQueued = false
 local sendMask = false
 local sendAssign = {}      -- element -> true: our own ASSIGN still to go out
-local sendPass = {}        -- key -> true: our RESPASS still to go out
+local sendPass = {}        -- key -> true: our RESPASS still to go out (for the request passed on)
 local events = CreateFrame("Frame")
 
 local function MaskString()
@@ -306,8 +306,14 @@ Flush = function()
 		end
 	end
 	if not blocked then
+		local me = Player()
 		for key in pairs(sendPass) do
-			if SP:SendMessage("RESPASS " .. key .. " " .. Player(), nil, nil, true) == false then blocked = true break end
+			-- only while it still answers the request we passed on: one that ended
+			-- (the same resistance asked again is a new request, which asks us
+			-- again), or requests turned back on, drops it unsent
+			if passed[key][me] or optOutPassed[key] then
+				if SP:SendMessage("RESPASS " .. key .. " " .. me, nil, nil, true) == false then blocked = true break end
+			end
 			sendPass[key] = nil
 		end
 	end
