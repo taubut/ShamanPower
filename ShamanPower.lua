@@ -1404,6 +1404,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		ShamanPower:ToggleAssignmentWindow()
 	elseif msg == "setup" then
 		if ShamanPower.Wizard and ShamanPower.Wizard.Open then ShamanPower.Wizard:Open() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
+	elseif msg == "welcome" then   -- the first-login choice window on demand (to test it on a set-up character)
+		if ShamanPower.Wizard and ShamanPower.Wizard.ShowWelcomeChoice then ShamanPower.Wizard:ShowWelcomeChoice() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
 	elseif msg == "unlock" or msg == "move" then
 		if ShamanPower.ToggleMasterUnlock then ShamanPower:ToggleMasterUnlock() end
 	elseif msg == "range" then
