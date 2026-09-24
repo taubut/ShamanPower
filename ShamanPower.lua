@@ -1611,10 +1611,12 @@ local SHADOW_REDROP_WINDOW = 0.25
 -- Blizzard's) runs DestroyTotem(slot), and the slot update that follows has no
 -- cast behind it. Without this stamp it read as "destroyed by enemies".
 -- A secure hook: it runs after the call and never taints it. Mainline family only,
--- where the shadow model is consulted.
+-- where the shadow model is consulted. The one stamp of your own dismissals:
+-- modules that need it read ShamanPower._totemDismissedAt rather than hooking again.
 ShamanPower._totemDismissedAt = {}     -- [slot] = GetTime()
 if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
 	hooksecurefunc("DestroyTotem", function(slot)
+		if issecretvalue and issecretvalue(slot) then return end
 		slot = tonumber(slot)
 		if slot then ShamanPower._totemDismissedAt[slot] = GetTime() end
 	end)
