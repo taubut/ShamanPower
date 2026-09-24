@@ -544,11 +544,11 @@ local function ShowPrompt(r, name, fake)
 		.. "Your " .. slot .. " totem" .. (was and (" (" .. was .. ")") or "") .. " becomes " .. TotemName(r) .. " Totem"
 		.. " until the request ends; then it goes back. It reaches the whole raid within 30 yards."
 	if fake then
-		body = "|cffffd200PRACTICE|r - " .. name .. " would see:\n\n" .. body
+		body = "|cffFFD100PRACTICE|r - " .. name .. " would see:\n\n" .. body
 	elseif practiceOwner then
-		body = "|cffffd200PRACTICE|r request from " .. practiceOwner .. ".\n\n" .. body
+		body = "|cffFFD100PRACTICE|r request from " .. practiceOwner .. ".\n\n" .. body
 	elseif practice then
-		body = "|cffffd200PRACTICE|r\n\n" .. body
+		body = "|cffFFD100PRACTICE|r\n\n" .. body
 	end
 	local dialog = SP:ShowSPDialog({
 		key = PROMPT_KEY,
