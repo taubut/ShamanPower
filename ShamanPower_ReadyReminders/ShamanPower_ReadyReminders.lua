@@ -156,13 +156,38 @@ local function playerKnows(entry)
 	return known
 end
 
+local GCD_MAX = 1.6   -- a "cooldown" this short is only the global cooldown
+
 -- start, duration (plain numbers) for the highest known rank, or nil when unreadable.
-local function cooldownOf(entry)
+local function ownCooldownOf(entry)
 	local id = clientSpellID(entry)
 	if not id then return nil end
 	local name = GetSpellInfoC(id)
 	local start, duration = GetSpellCooldownC(name or id)
 	if type(start) ~= "number" or type(duration) ~= "number" then return nil end
+	return start, duration
+end
+
+-- Earth, Flame and Frost Shock share one cooldown (category 19 in the spell data).
+-- WoW: Forever in combat: the compat model knows only the shock that was cast, so
+-- the other two read ready while the shared cooldown runs. A shock with no run of
+-- its own takes the family's.
+local IS_MAINLINE = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
+local isShock = { earthshock = true, flameshock = true, frostshock = true }
+local function cooldownOf(entry)
+	local start, duration = ownCooldownOf(entry)
+	if IS_MAINLINE and isShock[entry.key] and not (duration and duration > GCD_MAX) then
+		for _, key in ipairs(SHOCK_FAMILY) do
+			local other = catalogByKey[key]
+			if other and other ~= entry then
+				local s, d = ownCooldownOf(other)
+				if s and d and d > GCD_MAX and not (duration and duration > GCD_MAX and start + duration >= s + d) then
+					start, duration = s, d
+				end
+			end
+		end
+	end
 	return start, duration
 end
 
@@ -337,7 +362,6 @@ end
 -- ---------------------------------------------------------------------------
 -- Tick
 -- ---------------------------------------------------------------------------
-local GCD_MAX = 1.6
 
 -- ---------------------------------------------------------------------------
 -- WoW: Forever: in combat the addon cannot read a cooldown, so "is it ready"
@@ -386,6 +410,43 @@ local function curveMouseBack(f)
 	if f.mouseByCurve then f:EnableMouse(true); f.mouseByCurve = nil end
 end
 
+-- The curve is evaluated once per pass, so on its own the icon would light up
+-- on the next 0.2 s pass after the real cooldown ends. A Cooldown widget that
+-- draws nothing carries the same duration object; the game fires its
+-- OnCooldownDone when the real cooldown ends and a pass runs on the next frame.
+-- That signal is the game's, not a value read, so "only when ready" also gives
+-- the icon its mouse back there (f.realDone) instead of when our estimate ends.
+-- If a client never fires it for this watch, nothing breaks: the icon lights
+-- on the next pass, and the mouse comes back when our estimate ends.
+local passQueued = false
+local function passNow()
+	passQueued = false
+	SP:UpdateReadyReminders()
+end
+local function onRealCooldownDone(watch)
+	local f = watch:GetParent()
+	if f then f.realDone = true; curveMouseBack(f) end
+	if not passQueued then passQueued = true; C_Timer.After(0, passNow) end
+end
+local function watchRealEnd(f, d)
+	local w = f.endWatch
+	if w == nil then
+		local ok, made = pcall(CreateFrame, "Cooldown", nil, f)
+		w = ok and made or false
+		if w then
+			w.noCooldownCount = true   -- OmniCC and the like: not a cooldown to draw on
+			w:SetSize(1, 1); w:SetPoint("CENTER", f, "CENTER", 0, 0)
+			pcall(w.SetDrawSwipe, w, false); pcall(w.SetDrawEdge, w, false); pcall(w.SetDrawBling, w, false)
+			pcall(w.SetHideCountdownNumbers, w, true)
+			w:SetScript("OnCooldownDone", onRealCooldownDone)
+		end
+		f.endWatch = w
+	end
+	if not w then return end
+	if not w:IsShown() then w:Show() end
+	pcall(w.SetCooldownFromDurationObject, w, d, true)
+end
+
 local function stopEffects(f)
 	if f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
 	if f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
@@ -396,7 +457,7 @@ local function setReady(f, ready)
 	if ready then
 		f.icon:SetDesaturated(false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
-		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart = nil, nil, nil, nil
+		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart, f.realDone = nil, nil, nil, nil, nil
 		curveMouseBack(f)
 		if f.engineSheet then f.engineSheet:Hide() end
 		f:SetAlpha(sv.opacity or 1)
@@ -462,12 +523,13 @@ local function drawEngineCooldown(f, sv)
 	-- a sweep is the dimming: the covered part is the cooldown left, the rest
 	-- is the icon coming back in colour. Desaturating as well hides that.
 	if style ~= "none" then f.icon:SetDesaturated(false) end
-	if f.ecdOn and f.ecdStyle == style and f.ecdBar == barOn then return end
+	if f.ecdOn and not f.cdChanged and f.ecdStyle == style and f.ecdBar == barOn then return end
 	local id = clientSpellID(f.entry)
 	if not id then return end
 	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)   -- true: not the global cooldown
 	if not ok or d == nil then return end   -- tried again next pass
-	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur = true, style, barOn, d
+	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur, f.cdChanged = true, style, barOn, d, nil
+	watchRealEnd(f, d)   -- the curve's switch to full runs when the real cooldown ends
 	local cd = f.cooldown
 	if f.countShown ~= false then f.countShown = false; f.count:SetText("") end   -- the engine's string counts
 	f.overlay:Hide()
@@ -543,9 +605,30 @@ local function drawCooldown(f, start, duration, remaining)
 	elseif f.bar:IsShown() then f.bar:Hide() end
 end
 
-function SP:UpdateReadyReminders()
-	if self.readyPositioning or self.readyDemoActive then return end
+-- The 0.2 s pass and the events that wake it run only while Ready Reminders is
+-- on (off is the Anniversary default). Everything that changes the setting (the
+-- settings, /spready on|off, the setup tour, an import) calls
+-- UpdateReadyReminders, which switches them here. The pass itself never
+-- switches the ticker off: it runs inside the core's walk over the active
+-- subsystems, and taking an entry out of that list mid-walk breaks the walk.
+local wakeFrame   -- made at login with the subsystem
+local WAKE_EVENTS = { "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
+local ticking = nil
+local function setTicking(on)
+	if ticking == on or not wakeFrame then return end
+	ticking = on
+	if on then
+		if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
+		for _, ev in ipairs(WAKE_EVENTS) do pcall(wakeFrame.RegisterEvent, wakeFrame, ev) end
+	else
+		if SP.DisableUpdateSubsystem then SP:DisableUpdateSubsystem("readyReminders") end
+		wakeFrame:UnregisterAllEvents()
+	end
+end
+
+local function readyPass(self)
 	local sv = SV()
+	if self.readyPositioning or self.readyDemoActive then return end
 	local hideAll = not sv.enabled or (sv.onlyInCombat and not InCombatLockdown())
 	if hideAll then
 		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil end
@@ -582,14 +665,26 @@ function SP:UpdateReadyReminders()
 				-- show the icon when it ends, even if our estimate says it is still cooling
 				local curved = false
 				if engineOn() and not self.readyDemoActive and C_CurveUtil then
-					if f.readyDurStart ~= start then   -- a new cooldown: fetch its duration object once
-						f.readyDurStart = start
+					-- fetch the duration object once per cooldown, and again when the client
+					-- says a cooldown changed (see the wake frame)
+					if f.readyDurStart ~= start or f.cdChanged then
+						if f.readyDurStart ~= start then f.realDone = nil end   -- a new cooldown, not a refetch of this one
+						f.readyDurStart, f.cdChanged = start, nil
 						local id = clientSpellID(entry)
 						local okd, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)
 						f.readyDur = okd and d or nil
+						if f.readyDur then watchRealEnd(f, f.readyDur) end
 					end
 					if f.readyDur then
-						curveMouseOff(f)
+						-- nothing of "always" mode may stay behind: the sweep's numbers and
+						-- the bar ignore the icon's alpha (the mode can change mid-cooldown)
+						if f.cooldown:IsShown() then f.cooldown:Hide() end
+						if f.overlay:IsShown() then f.overlay:Hide() end
+						if f.bar:IsShown() then f.bar:Hide() end
+						if f.engineSheet and f.engineSheet:IsShown() then f.engineSheet:Hide() end
+						if f.countShown ~= nil then f.count:SetText(""); f.countShown = nil end
+						f.ecdOn = nil
+						if not f.realDone then curveMouseOff(f) end
 						if not f:IsShown() then f:Show() end
 						curved = curveAlpha(f, f.readyDur, sv.opacity or 1, 0)
 					end
@@ -604,6 +699,19 @@ function SP:UpdateReadyReminders()
 		end
 	end
 	self.readyCooling = cooling
+end
+
+-- fromTick: the subsystem's own pass. A setting found off there (changed
+-- without a call to this) switches the ticker off on the next frame, outside
+-- the core's walk.
+local function tickerOffIfDisabled()
+	if not SV().enabled then setTicking(false) end
+end
+function SP:UpdateReadyReminders(fromTick)
+	local on = SV().enabled and true or false
+	if on or not fromTick then setTicking(on)
+	elseif ticking then C_Timer.After(0, tickerOffIfDisabled) end
+	readyPass(self)
 end
 
 -- ---------------------------------------------------------------------------
@@ -938,22 +1046,21 @@ ef:SetScript("OnEvent", function(_, event)
 				end
 				idleTicks = 0
 				SP.readyWake = nil
-				SP:UpdateReadyReminders()
+				SP:UpdateReadyReminders(true)
 			end)
-			local wake = CreateFrame("Frame")
+			local wake = CreateFrame("Frame")   -- its events follow the setting (setTicking)
 			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
-			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
-				pcall(wake.RegisterEvent, wake, ev)
-			end
 			wake:SetScript("OnEvent", function(_, event)
 				SP.readyWake = true
 				-- a cooldown can change without its start time changing (reset, haste,
-				-- a secret start): fetch the duration object again on the next pass
+				-- a secret start): fetch the duration object again on the next pass,
+				-- in both modes
 				if event == "SPELL_UPDATE_COOLDOWN" then
-					for _, f in pairs(frames) do f.readyDurStart = nil end
+					for _, f in pairs(frames) do f.cdChanged = true end
 				end
 			end)
-			if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
+			wakeFrame = wake
+			setTicking(SV().enabled and true or false)
 		else
 			C_Timer.NewTicker(0.1, function() SP:UpdateReadyReminders() end)
 		end

@@ -870,7 +870,8 @@ function SP:SetupReactiveTotemsEvents()
 	if eventFrame.RegisterUnitEvent then
 		for _, units in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
 			local f = CreateFrame("Frame")
-			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Reactive Totems (auras)") end
+			-- same row as eventFrame: the stress baseline counted UNIT_AURA there
+			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Reactive Totems") end
 			f:RegisterUnitEvent("UNIT_AURA", units[1], units[2])
 			auraFrames[#auraFrames + 1] = f
 		end
@@ -912,6 +913,21 @@ function SP:SetupReactiveTotemsEvents()
 	-- game names them by), so they need no token check
 	for _, f in ipairs(auraFrames) do f:SetScript("OnEvent", OnPartyAura) end
 
+	-- A raid or battleground forming fires dozens of GROUP_ROSTER_UPDATEs, and
+	-- every slot that changed builds new engine displays: rebuild once, 0.3 s
+	-- after the last one. One timer at a time: when it fires with newer events
+	-- behind it, it waits again for the rest of their 0.3 s (a storm that never
+	-- pauses still rebuilds every 5 s).
+	local rebuildQueued, rebuildFirst, rebuildLast = false, 0, 0
+	local function RebuildSettled()
+		local now = GetTime()
+		local wait = rebuildLast + 0.3 - now
+		if wait > 0.01 and now - rebuildFirst < 5 then C_Timer.After(wait, RebuildSettled) return end
+		rebuildQueued = false
+		SP:RebuildReactiveEngine()
+		RequestUpdate()
+	end
+
 	local function OnReactiveEvent(self, event, unit)
 		if event == "UNIT_AURA" then
 			-- Unfiltered fallback: only player and party units (totems are party-wide only)
@@ -922,7 +938,13 @@ function SP:SetupReactiveTotemsEvents()
 			SP:ReactiveEngineRegen()
 		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
 			or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TOTEM_UPDATE" then
-			if event ~= "PLAYER_TOTEM_UPDATE" then SP:RebuildReactiveEngine() end   -- names / classes may have changed
+			if event ~= "PLAYER_TOTEM_UPDATE" and ReactiveEngineAvailable() then   -- names / classes may have changed
+				rebuildLast = GetTime()
+				if not rebuildQueued then
+					rebuildQueued, rebuildFirst = true, rebuildLast
+					C_Timer.After(0.3, RebuildSettled)
+				end
+			end
 			RequestUpdate()
 		end
 	end
