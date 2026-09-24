@@ -14687,27 +14687,30 @@ function ShamanPower:ZONE_CHANGED_NEW_AREA()
 	end
 end
 
+-- Every addon's messages arrive here (DBM, BigWigs, WeakAuras...): the prefix is
+-- checked first, so other addons' traffic costs one comparison and nothing else.
+local COMM_DISTRIBUTIONS = { PARTY = true, RAID = true, INSTANCE_CHAT = true, WHISPER = true }
 function ShamanPower:CHAT_MSG_ADDON(event, prefix, message, distribution, source)
-	local sender = Ambiguate(source, "none")
 	if prefix == self.commPrefix then
-	--self:Debug("[EVENT: CHAT_MSG_ADDON] prefix: "..prefix.." | message: "..message.." | distribution: "..distribution.." | sender: "..sender)
-	end
-	if prefix == self.commPrefix and (distribution == "PARTY" or distribution == "RAID" or distribution == "INSTANCE_CHAT" or distribution == "WHISPER") and sender then
-		self:ParseMessage(sender, message)
-	end
-	-- Listen for popular WF tracking WeakAura (prefix "WFTracker", message format "PlayerName:Status:TimeRemaining")
-	if prefix == "WFTracker" and sender then
+		if not COMM_DISTRIBUTIONS[distribution] then return end
+		local sender = Ambiguate(source, "none")
+		if sender then self:ParseMessage(sender, message) end
+	elseif prefix == "WFTracker" then
+		-- the popular Windfury WeakAura ("PlayerName:Status:TimeRemaining")
+		local sender = Ambiguate(source, "none")
 		local _, status = message:match("^([^:]+):([01]):")
-		if status then
-			if not self.WindfuryRangeData then
-				self.WindfuryRangeData = {}
-			end
-			self.WindfuryRangeData[sender] = {
-				hasWindfury = (status == "1"),
-				timestamp = GetTime()
-			}
-		end
+		if status and sender then self:SetWindfuryReport(sender, status == "1") end
 	end
+end
+
+-- One record per reporter, reused: a raid's worth of reports every few seconds
+-- must not build a new table each time.
+function ShamanPower:SetWindfuryReport(sender, has)
+	local all = self.WindfuryRangeData
+	if not all then all = {}; self.WindfuryRangeData = all end
+	local rec = all[sender]
+	if not rec then rec = {}; all[sender] = rec end
+	rec.hasWindfury, rec.timestamp = has, GetTime()
 end
 
 function ShamanPower:GROUP_JOINED(event)
@@ -17277,8 +17280,9 @@ end
 -- Hook into existing addon sync to detect users
 local originalParseMessage = ShamanPower.ParseMessage
 function ShamanPower:ParseMessage(sender, msg, ...)
-	-- Check for SPThanks before calling original (sender is first param!)
-	if sender and sender ~= self.player then
+	-- Check for SPThanks before calling original (sender is first param!); only
+	-- where it is switched on, so nobody else pays for the name split per message
+	if self.spThanksEnabled and sender and sender ~= self.player then
 		-- Strip realm name if present
 		local shortName = strsplit("-", sender)
 		self:SPThanksCheckAndWhisper(shortName)
