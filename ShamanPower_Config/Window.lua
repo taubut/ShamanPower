@@ -772,7 +772,6 @@ local function BuildWindow()
 	whatsNew:SetScript("OnEnter", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.24) end)
 	whatsNew:SetScript("OnLeave", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10) end)
 	whatsNew:SetScript("OnClick", function() local sp = SP(); if sp and sp.ShowWhatsNew then sp:ShowWhatsNew(true) end end)
-	whatsNew:SetShown(PLAYER_IS_SHAMAN)   -- its notes are all shaman features
 	frame.whatsNewBtn = whatsNew
 
 	local pagePlaceholder = pageSearch:CreateFontString(nil, "OVERLAY")
