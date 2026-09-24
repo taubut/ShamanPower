@@ -100,6 +100,7 @@ function SP:SetSPFont(fs, area, size, defaultFlags, defaultPath)
 	end
 	if not rec then rec = {}; registry[fs] = rec end
 	rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, defaultFlags, defaultPath, gen
+	rec.template = nil
 	local path, flags = self:FontFor(area, size, defaultFlags, defaultPath)
 	apply(fs, path, size, flags, defaultPath, defaultFlags)   -- a missing font file falls back to the design
 end
@@ -116,13 +117,30 @@ end
 
 -- For a string whose font came from a template (NumberFont*, GameFont*): its
 -- current font becomes the designed default, then it follows the settings.
+-- While nothing is chosen for its area the template is left alone: SetFont
+-- would cut the string loose from its font object (other addons restyling
+-- Blizzard's fonts) and swap the font family, with its fallbacks for other
+-- alphabets (Cyrillic, Korean ... names), for one font file.
 function SP:AdoptSPFont(fs, area)
 	if not fs then return end
 	local rec = registry[fs]
-	-- already known: something reset it to its template (SetFontObject); force a re-apply
-	if rec then rec.gen = nil; self:SetSPFont(fs, area, rec.size, rec.flags, rec.path) return end
-	local path, size, flags = fs:GetFont()
-	self:SetSPFont(fs, area, size or 12, flags or "", path)
+	local path, size, flags
+	if rec then
+		-- already known: something reset it to its template (SetFontObject)
+		path, size, flags = rec.path, rec.size, rec.flags
+	else
+		path, size, flags = fs:GetFont()
+		size, flags = size or 12, flags or ""
+	end
+	local wantPath, wantFlags = self:FontFor(area, size, flags, path)
+	if wantPath == path and wantFlags == flags then
+		if not rec then rec = {}; registry[fs] = rec end
+		rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, flags, path, gen
+		rec.template = true
+		return
+	end
+	if rec then rec.gen = nil end   -- force the re-apply
+	self:SetSPFont(fs, area, size, flags, path)
 end
 
 -- Re-apply every remembered font string: called when a font setting changes.
@@ -145,7 +163,11 @@ function SP:RefreshFonts()
 		if live(fs) then
 		rec.gen = gen
 		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path)
-		apply(fs, path, rec.size, flags, rec.path, rec.flags)
+		-- a template string still on its own font stays there while the design applies
+		if not (rec.template and path == rec.path and flags == rec.flags) then
+			rec.template = nil
+			apply(fs, path, rec.size, flags, rec.path, rec.flags)
+		end
 		end
 	end
 	-- game-drawn cooldown numbers copy their font from our strings when placed
