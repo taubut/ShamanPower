@@ -553,10 +553,11 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 
 		local swell = iconTex:CreateAnimationGroup()
 		swell:SetLooping("REPEAT")
-		-- newer clients name these SetScaleFrom/SetScaleTo, older ones SetFromScale/SetToScale
+		-- Forever and Anniversary both name these SetScaleFrom/SetScaleTo; clients
+		-- before them used SetFromScale/SetToScale (either missing: no swell, no error)
 		local function scale(anim, from, to)
 			if anim.SetScaleFrom then anim:SetScaleFrom(from, from); anim:SetScaleTo(to, to)
-			else anim:SetFromScale(from, from); anim:SetToScale(to, to) end
+			elseif anim.SetFromScale then anim:SetFromScale(from, from); anim:SetToScale(to, to) end
 		end
 		local grow = swell:CreateAnimation("Scale")
 		scale(grow, 0.95, 1.05); grow:SetDuration(0.628); grow:SetSmoothing("IN_OUT"); grow:SetOrder(1)
@@ -574,6 +575,9 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 
 		frame:SetScript("OnHide", function(f)
 			f.pulse:Stop(); f.swell:Stop(); f.life:Stop()
+			-- OnHide also fires when UIParent hides (Alt+Z, a cinematic) while the alert
+			-- itself stays shown: end it, or it comes back with no timeline to hide it
+			if f:IsShown() then f:Hide() end
 		end)
 
 		frame:Hide()
