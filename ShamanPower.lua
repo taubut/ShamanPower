@@ -1438,7 +1438,11 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 	elseif msg == "share" then
 		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
 	elseif msg == "check" then
-		if ShamanPower.RunReadyCheckSweep then ShamanPower:RunReadyCheckSweep("manual") end
+		if ShamanPower.RunReadyCheckSweep then
+			ShamanPower:RunReadyCheckSweep("manual")
+		elseif not isShaman then   -- the Ready Check module loads for shamans only
+			print("|cff0070ddShamanPower|r: /sp check is for shamans: it lists what a shaman is missing (shield, imbue, totem items).")
+		end
 	elseif msg == "restrict" or msg:sub(1, 9) == "restrict " then
 		ShamanPower:RestrictCommand(strtrim(msg:sub(10)))
 	else
