@@ -29,7 +29,7 @@
 - **Trainer Reminder** (Forever, Modules > Trainer Reminder). When you level up, ShamanPower lists the shaman spells and ranks now waiting at your trainer (and anything you skipped earlier), with one summary line at login. Only you see it; a big on-screen note is optional.
 - **Fade rules** for the totem bar (Appearance > Visibility, off by default). With Hide Out of Combat or Hide When No Totems on, the bar can fade to an opacity you choose instead of disappearing, and can come back while you target something attackable. Fading is only a change of opacity, so it also works in combat.
 - **Share My Setup** (General, /sp share, or the end of the setup tour): a short code listing which ShamanPower features you use - nothing personal - to paste in #setup-stats on the ShamanPower Discord, so the developer can see what people actually use. ShamanPower now also remembers how your setup ended (tour, quick setup, skipped).
-- **Unlock UI (move everything).** One button (General > Main, or `/sp unlock`) shows a labelled box on every frame ShamanPower draws; drag them, put each back with its own Reset (all but the Totem Range overlay, the Raid Cooldown callers and the Earth Shield tracker), and snap to an optional alignment grid.
+- **Unlock UI (move everything).** One button (General > Main, or `/sp unlock`) shows a labelled box on every frame ShamanPower draws; drag them, put each back with its own Reset (all but the Party Range counters, the Totem Range overlay, the Raid Cooldown callers and the Earth Shield tracker), and snap to an optional alignment grid.
 - **ShamanPower Discord** on General: help, bug reports, feature voting and early builds. Copy Link button.
 - **Loadouts:** the bar has a Move button (Loadouts tab) and a box in Unlock All; a loadout's chosen icon shows on its button; the icon picker is rebuilt on the settings look with a search box.
 
@@ -68,7 +68,7 @@
 - **Names:** on Forever players are matched by name alone (the realm part the game reports can differ between players), and two-part names ("First Last") stay whole in assignments, twisting, Earth Shield assignments, leader checks and Windfury reports. On Anniversary, Windfury reports and a shaman's own assignments from another realm (battlegrounds) now arrive. `/spdiag names` shows what the game reports and the names ShamanPower uses.
 - The cooldown bar's raid-call alert (glow and icon pulse on a Mana Tide or Bloodlust call) never showed; it does now, and a repeat call keeps it going.
 - Pulse bars stayed invisible after Pulse Bar Position had been set to None and back, until a /reload.
-- Assignments, twisting and Earth Shield targets set while the game blocks addon messages (Forever instance fights) are sent once it lifts, instead of never.
+- Assignments, twisting and Earth Shield targets set while the game blocks addon messages (Forever instance fights) are sent to that group once it lifts, instead of never; leaving the group first drops them.
 
 ### Known
 - Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
