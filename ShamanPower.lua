@@ -1380,17 +1380,14 @@ function ShamanPower:RestrictCommand(args)
 	end
 	for _, r in ipairs(RESTRICT_CVARS) do
 		if r.key == key then
+			-- nil: Lua cannot read it here (the cvar may still exist); the line to type is printed anyway
 			local v = value(r.cvar)
-			if v == nil then
-				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
-				return
-			end
 			local on
 			if state == "on" or state == "1" then on = true
 			elseif state == "off" or state == "0" then on = false
 			else on = v ~= "1" end
 			print(string.format("|cff0070ddShamanPower|r: %s is %s. Type this yourself:  |cffffd100/console %s %s|r",
-				r.label, v == "1" and "ON" or "off", r.cvar, on and "1" or "0"))
+				r.label, v == nil and "unknown (not readable here)" or (v == "1" and "ON" or "off"), r.cvar, on and "1" or "0"))
 			return
 		end
 	end
