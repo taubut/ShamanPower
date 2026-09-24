@@ -1615,6 +1615,9 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 	if unit ~= "player" or type(spellID) ~= "number" then return end
 	local element = self:TotemCastElement(spellID)
 	if not element then
+		-- Call of the Elements / Ancestors / Spirits (Forever): one cast, several totems
+		local set = self.TotemSetForSummon and self:TotemSetForSummon(spellID)
+		if set then self:ShadowTotemSetCast(set) return end
 		-- Totemic Recall / Totemic Call empties the slots on purpose: not "destroyed"
 		local name = GetSpellInfo(spellID)
 		if type(name) == "string" and name:find("^Totemic") then self._totemRecallAt = GetTime() end
@@ -1642,9 +1645,57 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 	end
 end
 
+-- A totem-set summon drops up to four totems from one cast, so there is no cast
+-- per slot to bind. Open an entry per totem the page holds, bound to that
+-- element's slot, and let the slot updates that follow confirm them. A totem the
+-- summon could not place (no mana, not known) gets no slot update and is dropped.
+local SET_CONFIRM_WINDOW = SHADOW_BIND_WINDOW + 0.3
+function ShamanPower:ShadowTotemSetCast(spells)
+	local now, placed = GetTime(), false
+	for element = 1, 4 do
+		local id = spells[element]
+		local name, _, icon = GetSpellInfo(id or 0)
+		if id and name then
+			self:RecordTotemDrop(element)
+			self.shadowTotems[element] = {
+				spellID = id, name = name, icon = icon, startTime = now,
+				duration = shadowLearnedDuration[id] or SHADOW_DEFAULT_DURATION,
+				durationKnown = shadowLearnedDuration[id] ~= nil,
+				slot = self.ElementToSlot and self.ElementToSlot[element] or element,
+				setAt = now, setPending = true,
+				setPrev = self.shadowTotems[element],   -- put back if this one never lands
+			}
+			placed = true
+		end
+	end
+	if not placed then return end
+	self:InvalidateTotemInfo()
+	C_Timer.After(SET_CONFIRM_WINDOW, function()
+		local changed = false
+		for element, entry in pairs(self.shadowTotems) do
+			if entry.setPending and entry.setAt == now then
+				self.shadowTotems[element] = entry.setPrev   -- never placed: the totem that was there stays
+				changed = true
+			elseif entry.setAt == now then
+				entry.setPrev = nil   -- confirmed: the old record is no longer needed
+			end
+		end
+		if changed then self:InvalidateTotemInfo() end
+	end)
+end
+
 function ShamanPower:ShadowTotemSlotUpdate(slot)
 	if type(slot) ~= "number" then return end
 	local now = GetTime()
+	-- a slot filled by a totem-set summon: confirm that entry instead of retiring it
+	local setWindowOpen = false
+	for _, entry in pairs(self.shadowTotems) do
+		if entry.setPending and now - entry.setAt <= SET_CONFIRM_WINDOW then
+			setWindowOpen = true
+			if entry.slot == slot then entry.setPending = nil return end
+		end
+	end
+	if setWindowOpen then return end   -- a set slot we could not match: never retire during the summon
 	if shadowPendingCast and now - shadowPendingCast.at <= SHADOW_BIND_WINDOW then
 		local entry = self.shadowTotems[shadowPendingCast.element]
 		if entry then entry.slot = slot end
@@ -1685,6 +1736,7 @@ local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, dura
 			self.shadowTotems[element] = entry
 		end
 		entry.name, entry.icon, entry.startTime, entry.duration, entry.slot = name, icon, startTime, duration, slot
+		entry.setPending = nil   -- the game itself says it is down: nothing left to confirm
 		entry.durationKnown = type(duration) == "number" and duration > 0 or nil   -- read from the game: exact
 		if type(spellID) == "number" and spellID ~= 0 then entry.spellID = spellID end
 		if entry.spellID and duration and duration > 0 then shadowLearnedDuration[entry.spellID] = duration end
