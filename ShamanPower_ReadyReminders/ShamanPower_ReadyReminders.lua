@@ -602,9 +602,29 @@ local function drawCooldown(f, start, duration, remaining)
 	elseif f.bar:IsShown() then f.bar:Hide() end
 end
 
+-- The 0.2 s pass and the events that wake it run only while Ready Reminders is
+-- on (off is the Anniversary default). Everything that changes the setting (the
+-- settings, /spready on|off, the setup tour, an import) calls
+-- UpdateReadyReminders, which switches them here.
+local wakeFrame   -- made at login with the subsystem
+local WAKE_EVENTS = { "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
+local ticking = nil
+local function setTicking(on)
+	if ticking == on or not wakeFrame then return end
+	ticking = on
+	if on then
+		if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
+		for _, ev in ipairs(WAKE_EVENTS) do pcall(wakeFrame.RegisterEvent, wakeFrame, ev) end
+	else
+		if SP.DisableUpdateSubsystem then SP:DisableUpdateSubsystem("readyReminders") end
+		wakeFrame:UnregisterAllEvents()
+	end
+end
+
 function SP:UpdateReadyReminders()
-	if self.readyPositioning or self.readyDemoActive then return end
 	local sv = SV()
+	setTicking(sv.enabled and true or false)
+	if self.readyPositioning or self.readyDemoActive then return end
 	local hideAll = not sv.enabled or (sv.onlyInCombat and not InCombatLockdown())
 	if hideAll then
 		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil end
@@ -1011,11 +1031,8 @@ ef:SetScript("OnEvent", function(_, event)
 				SP.readyWake = nil
 				SP:UpdateReadyReminders()
 			end)
-			local wake = CreateFrame("Frame")
+			local wake = CreateFrame("Frame")   -- its events follow the setting (setTicking)
 			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
-			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
-				pcall(wake.RegisterEvent, wake, ev)
-			end
 			wake:SetScript("OnEvent", function(_, event)
 				SP.readyWake = true
 				-- a cooldown can change without its start time changing (reset, haste,
@@ -1025,7 +1042,8 @@ ef:SetScript("OnEvent", function(_, event)
 					for _, f in pairs(frames) do f.cdChanged = true end
 				end
 			end)
-			if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
+			wakeFrame = wake
+			setTicking(SV().enabled and true or false)
 		else
 			C_Timer.NewTicker(0.1, function() SP:UpdateReadyReminders() end)
 		end
