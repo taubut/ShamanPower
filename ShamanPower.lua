@@ -557,6 +557,7 @@ local tremove = table.remove
 local twipe = table.wipe
 local tsort = table.sort
 local strfind = string.find
+local strmatch = string.match
 local strsub = string.sub
 local format = string.format
 
@@ -15020,6 +15021,24 @@ function ShamanPower:ScanPlayerShield()
 	}
 end
 
+-- Raid cooldown messages: "call" = a one-shot alert, "sync" = assignment state
+local RC_MESSAGES = { BLCALL = "call", MTCALL = "call", DRUMCALL = "call", RCSYNC = "sync", MTSYNC = "sync", DRUMSYNC = "sync" }
+
+-- Redraw after received messages at most once per frame. Blizzard's totem bar
+-- follows our assignments even with our own bar off, so it is synced here too
+-- (cheap and idempotent; in combat it marks itself pending until the fight ends).
+local commRefreshQueued = false
+local function commRefresh()
+	commRefreshQueued = false
+	if ShamanPower.SyncTotemSetFromAssignments then ShamanPower:SyncTotemSetFromAssignments() end
+	ShamanPower:UpdateLayout()
+end
+function ShamanPower:QueueCommRefresh()
+	if commRefreshQueued then return end
+	commRefreshQueued = true
+	C_Timer.After(0, commRefresh)
+end
+
 function ShamanPower:ParseMessage(sender, msg)
 	sender = self:RemoveRealmName(sender)
 
@@ -15028,16 +15047,34 @@ function ShamanPower:ParseMessage(sender, msg)
 	--self:Debug("[Parse Message] sender: " .. sender .. " | msg: " .. msg)
 
 	local leader = self:CheckLeader(sender)
+	-- The message type is its first word, read once: the branches below compare
+	-- it instead of pattern-matching the whole message a dozen times.
+	local kw = strmatch(msg, "^(%u+)")
 
-	if msg == "REQ" then
+	if kw == "REQ" then
 		if IsInRaid() and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
 			self:SendSelf()
 		else
 			self:SendSelf(sender)
 		end
+		return   -- nothing on our bars changed
 	end
 
-	if strfind(msg, "^SELF") then
+	-- Windfury status from other players (for SPRange): changes nothing on the bars
+	if kw == "WFBUFF" then
+		local status = strmatch(msg, "^WFBUFF ([01])")
+		if status then self:SetWindfuryReport(sender, status == "1") end
+		return
+	end
+
+	-- Raid cooldown coordination: calls are one-shot alerts (no bar change);
+	-- the SYNC messages change who is assigned, so they refresh like the rest
+	if RC_MESSAGES[kw] then
+		self:HandleRaidCooldownMessage(nil, msg, sender)
+		if RC_MESSAGES[kw] == "call" then return end
+	end
+
+	if kw == "SELF" then
 		ShamanPower_Assignments[sender] = {}
 		ShamanPower.AllShamans[sender] = {}
 		self:SyncAdd(sender)
@@ -15120,7 +15157,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "^ASSIGN") then
+	if kw == "ASSIGN" then
 		local _, _, name, class, skill = strfind(msg, "^ASSIGN (.*) (.*) (.*)")
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
@@ -15135,7 +15172,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	end
 
 	-- Handle TWIST message for totem twisting assignment
-	if strfind(msg, "^TWIST") then
+	if kw == "TWIST" then
 		local _, _, name, enabled = strfind(msg, "^TWIST (.*) (.*)")
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
@@ -15162,7 +15199,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		self:UpdateRoster()
 	end
 
-	if strfind(msg, "^PASSIGN") then
+	if kw == "PASSIGN" then
 		local _, _, name, assign = strfind(msg, "^PASSIGN (.*)@([0-9n]*)")
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
@@ -15182,7 +15219,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "^MASSIGN") then
+	if kw == "MASSIGN" then
 		local _, _, name, skill = strfind(msg, "^MASSIGN (.*) (.*)")
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
@@ -15197,7 +15234,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "^CLEAR") then
+	if kw == "CLEAR" then
 		if leader then
 			self:ClearAssignments(sender)
 		elseif self.opt.freeassign then
@@ -15205,16 +15242,16 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "FREEASSIGN YES") and ShamanPower.AllShamans[sender] then
+	if kw == "FREEASSIGN" and strfind(msg, "FREEASSIGN YES", 1, true) and ShamanPower.AllShamans[sender] then
 		ShamanPower.AllShamans[sender].freeassign = true
 	end
 
-	if strfind(msg, "FREEASSIGN NO") and ShamanPower.AllShamans[sender] then
+	if kw == "FREEASSIGN" and strfind(msg, "FREEASSIGN NO", 1, true) and ShamanPower.AllShamans[sender] then
 		ShamanPower.AllShamans[sender].freeassign = false
 	end
 
 	-- Earth Shield assignment sync
-	if strfind(msg, "^ESASSIGN") then
+	if kw == "ESASSIGN" then
 		local _, _, name, target = strfind(msg, "^ESASSIGN (.*) (.*)")
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
@@ -15233,33 +15270,15 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	-- Raid cooldown coordination messages
-	if strfind(msg, "^RCSYNC") or strfind(msg, "^BLCALL") or strfind(msg, "^MTCALL") or strfind(msg, "^MTSYNC") or strfind(msg, "^DRUMCALL") or strfind(msg, "^DRUMSYNC") then
-		self:HandleRaidCooldownMessage(nil, msg, sender)
-	end
-
-	-- Windfury buff status from other players (for SPRange)
-	if strfind(msg, "^WFBUFF") then
-		local _, _, status = strfind(msg, "^WFBUFF ([01])")
-		if status then
-			if not self.WindfuryRangeData then
-				self.WindfuryRangeData = {}
-			end
-			self.WindfuryRangeData[sender] = {
-				hasWindfury = (status == "1"),
-				timestamp = GetTime()
-			}
-		end
-	end
-
 	-- Blizzard's totem bar follows our assignments even with our own totem bar
 	-- switched off: UpdateLayout only refreshes (and syncs) while that bar is
 	-- shown, so an assignment sent by another shaman never reached Blizzard's bar
 	-- for someone running without ours. Cheap and idempotent; in combat it marks
 	-- itself pending and lands when the fight ends (only a hardware click may
 	-- write that bar mid-fight).
-	if self.SyncTotemSetFromAssignments then self:SyncTotemSetFromAssignments() end
-	self:UpdateLayout()
+	-- A burst of messages (a raid's worth of SELF replies) redraws once, on the
+	-- next frame, instead of once per message.
+	self:QueueCommRefresh()
 end
 
 function ShamanPower:CanControl(name)
