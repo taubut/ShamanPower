@@ -1125,10 +1125,10 @@ end
 -- Track the shamans' Bloodlust / Heroism / Mana Tide casts. This used to read
 -- the whole combat log (thousands of events a second in a raid) to find a few
 -- shaman casts; it now listens to UNIT_SPELLCAST_SUCCEEDED from the shamans'
--- own unit tokens only: one small frame per shaman in the group, rebuilt when
--- the roster changes, and nothing registered while the caller buttons are hidden.
+-- own unit tokens only: one small frame per shaman in the group, rebuilt once
+-- the roster settles, and nothing registered while the caller buttons are hidden.
 local castFrames = {}     -- pooled frames, one per watched shaman unit
-local rosterFrame
+local rosterHooked = false
 
 local function watchUnit(i, unit, alias)
 	local f = castFrames[i]
@@ -1176,11 +1176,13 @@ local function rebuildWatchedShamans()
 end
 
 function SP:SetupCallerCooldownTracking()
-	if rosterFrame then return end
-	rosterFrame = CreateFrame("Frame")
-	-- Don't register events here - EnableCallerCooldownTracking will do it
-	rosterFrame:SetScript("OnEvent", function() rebuildWatchedShamans() end)
-	self.callerCooldownFrame = rosterFrame
+	if rosterHooked then return end
+	rosterHooked = true
+	-- The core's one pass a second after the roster settles (a raid forming fires
+	-- dozens of GROUP_ROSTER_UPDATEs), not every raw event.
+	hooksecurefunc(self, "OnRosterSettled", function()
+		if SP.callerCooldownTrackingEnabled then rebuildWatchedShamans() end
+	end)
 end
 
 -- Enable cast tracking (called when caller buttons are shown)
@@ -1191,7 +1193,6 @@ function SP:EnableCallerCooldownTracking()
 	if SPCompat and SPCompat.secretsRegime then return end
 	self:SetupCallerCooldownTracking()
 	if not self.callerCooldownTrackingEnabled then
-		rosterFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 		rebuildWatchedShamans()
 		self.callerCooldownTrackingEnabled = true
 	end
@@ -1199,8 +1200,7 @@ end
 
 -- Disable cast tracking (called when caller buttons are hidden)
 function SP:DisableCallerCooldownTracking()
-	if rosterFrame and self.callerCooldownTrackingEnabled then
-		rosterFrame:UnregisterEvent("GROUP_ROSTER_UPDATE")
+	if self.callerCooldownTrackingEnabled then
 		unwatchAll()
 		self.callerCooldownTrackingEnabled = false
 	end
