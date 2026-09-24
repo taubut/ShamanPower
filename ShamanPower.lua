@@ -9252,6 +9252,16 @@ function ShamanPower:GetCooldownButtonBySpellID(spellID)
 	return nil
 end
 
+-- Auto-clear an alert 10 seconds after the latest call: a newer call on the same
+-- button bumps the counter, so an older timer then leaves it alone
+local function armCooldownButtonAlertClear(btn, spellID)
+	btn.alertSerial = (btn.alertSerial or 0) + 1
+	local serial = btn.alertSerial
+	C_Timer.After(10, function()
+		if btn.alertSerial == serial then ShamanPower:RemoveCooldownButtonAlert(spellID) end
+	end)
+end
+
 -- Add alert effect to a cooldown button (glow, shake, scale up)
 function ShamanPower:AddCooldownButtonAlert(spellID)
 	-- Check if button animation is enabled
@@ -9260,8 +9270,11 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 	local btn = self:GetCooldownButtonBySpellID(spellID)
 	if not btn then return end
 
-	-- Don't add duplicate alerts
-	if btn.alertActive then return end
+	-- Already pulsing: a repeat call keeps it going for another 10 seconds
+	if btn.alertActive then
+		armCooldownButtonAlertClear(btn, spellID)
+		return
+	end
 	btn.alertActive = true
 
 	-- Create glow texture if it doesn't exist
@@ -9311,13 +9324,7 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 		for _, ag in ipairs(btn.alertAnims) do ag:Play() end
 	end
 
-	-- Auto-clear after 10 seconds - only this alert: a newer call on the same
-	-- button bumps the counter, so this timer then leaves it alone
-	btn.alertSerial = (btn.alertSerial or 0) + 1
-	local serial = btn.alertSerial
-	C_Timer.After(10, function()
-		if btn.alertSerial == serial then ShamanPower:RemoveCooldownButtonAlert(spellID) end
-	end)
+	armCooldownButtonAlertClear(btn, spellID)
 end
 
 -- Remove alert effect from a cooldown button
@@ -17615,8 +17622,8 @@ if not ShamanPower.RaidCooldownsLoaded then
 	function ShamanPower:CallBloodlust() end
 	function ShamanPower:CallManaTide() end
 	function ShamanPower:RestoreCallerCooldowns() end
-	function ShamanPower:AddCooldownButtonAlert() end
-	function ShamanPower:RemoveCooldownButtonAlert() end
+	-- (AddCooldownButtonAlert / RemoveCooldownButtonAlert live in this file: this
+	-- block runs before the module can set its flag, so a stub here replaced them)
 	function ShamanPower:EnableCallerCooldownTracking() end
 	function ShamanPower:DisableCallerCooldownTracking() end
 	function ShamanPower:UpdateCallerButtonOpacity() end
