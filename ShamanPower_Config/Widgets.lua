@@ -153,6 +153,7 @@ local function CreateRow(parent)
 	label:SetFontObject(Core.fonts.row)
 	label:SetPoint("LEFT", row, "LEFT", PAD, 0)
 	label:SetJustifyH("LEFT")
+	label:SetNonSpaceWrap(true)   -- when it wraps, a long word breaks rather than cuts
 	row.label = label
 
 	-- Hook once; the fields are refreshed by ConfigureRow.
@@ -172,6 +173,7 @@ local function ConfigureRow(row, parent, opts)
 	row.label:SetTextColor(Core:Color("text"))
 	row.label.spTruncated = false
 	row._fullLabel = opts.label
+	row._controlMinH = nil
 	row._disabled = false
 	-- optional card hover hooks (style previews); pooled rows must not keep old ones
 	row.spOnEnter, row.spOnLeave = opts.onEnter, opts.onLeave
@@ -189,6 +191,8 @@ end
 local function ClampRowLabel(row, controlWidth)
 	local avail = row:GetWidth() - controlWidth - (PAD * 2) - 8
 	local label = row.label
+	-- a control taller than one line (a dropdown whose value wraps) sets the floor
+	local minH = math.max(ROW_H, row._controlMinH or 0)
 	label:SetWordWrap(false)
 	label:SetWidth(0)
 	label:SetText(row._fullLabel or "")
@@ -197,9 +201,9 @@ local function ClampRowLabel(row, controlWidth)
 	if tooLong then
 		label:SetWidth(avail)
 		label:SetWordWrap(true)
-		row:SetHeight(math.max(ROW_H, math.ceil(label:GetStringHeight()) + 14))
+		row:SetHeight(math.max(minH, math.ceil(label:GetStringHeight()) + 14))
 	else
-		row:SetHeight(ROW_H)
+		row:SetHeight(minH)
 	end
 end
 
@@ -252,6 +256,8 @@ end
 
 function Widgets:Widen(row, width)
 	row:SetWidth(width)
+	-- a dropdown fitted to its column can use the extra room before it wraps
+	if row.spRefit then row.spRefit() end
 	ClampRowLabel(row, row._controlWidth or 0)
 	return row:GetHeight() + ROW_GAP   -- the new height: one line again, or wrapped
 end
@@ -631,29 +637,29 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 
 	for _, b in ipairs(p.buttons) do b:Hide() end
 
+	-- As wide as the longest name (in its own font on a font list, which can be
+	-- wider than the row font), plus a texture list's swatch: a name never runs
+	-- under the swatch or past the edge. Every list is measured, since a
+	-- dropdown whose value wraps is narrower than its longest option.
+	if not p.measure then p.measure = p:CreateFontString(nil, "OVERLAY"); p.measure:Hide() end
+	local itemFontOf = popts and popts.itemFont
+	local _, rowSize = Core.fonts.row:GetFont()
+	local widest = 0
+	for _, item in ipairs(items) do
+		p.measure:SetFontObject(Core.fonts.row)
+		local itemFont = itemFontOf and itemFontOf(item.key)
+		if itemFont then
+			p.measure:SetFont(itemFont, rowSize or 13, "")
+			if not p.measure:GetFont() then p.measure:SetFontObject(Core.fonts.row) end
+		end
+		p.measure:SetText(item.text)
+		widest = math.max(widest, (p.measure.GetUnboundedStringWidth and p.measure:GetUnboundedStringWidth()) or p.measure:GetStringWidth())
+	end
 	local width = math.max(anchorTo:GetWidth(), (popts and popts.width) or 140)
-	if popts and (popts.itemTexture or popts.itemFont) then
-		-- as wide as the longest name (in its own font on a font list, which can be
-		-- wider than the row font), plus a texture list's swatch: a name never runs
-		-- under the swatch or past the edge
-		if not p.measure then p.measure = p:CreateFontString(nil, "OVERLAY"); p.measure:Hide() end
-		local _, rowSize = Core.fonts.row:GetFont()
-		local widest = 0
-		for _, item in ipairs(items) do
-			p.measure:SetFontObject(Core.fonts.row)
-			local itemFont = popts.itemFont and popts.itemFont(item.key)
-			if itemFont then
-				p.measure:SetFont(itemFont, rowSize or 13, "")
-				if not p.measure:GetFont() then p.measure:SetFontObject(Core.fonts.row) end
-			end
-			p.measure:SetText(item.text)
-			widest = math.max(widest, (p.measure.GetUnboundedStringWidth and p.measure:GetUnboundedStringWidth()) or p.measure:GetStringWidth())
-		end
-		if popts.itemTexture then
-			width = math.max(width, 280, 8 + widest + 12 + 70 + 8 + 4)
-		else
-			width = math.max(width, 8 + widest + 12 + 4)
-		end
+	if popts and popts.itemTexture then
+		width = math.max(width, 280, 8 + widest + 12 + 70 + 8 + 4)
+	else
+		width = math.max(width, 8 + widest + 12 + 4)
 	end
 	local y = 0
 	for i, item in ipairs(items) do
@@ -692,7 +698,6 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 		local itemFont = popts and popts.itemFont and popts.itemFont(item.key)
 		b.text:SetFontObject(Core.fonts.row)
 		if itemFont then
-			local _, rowSize = Core.fonts.row:GetFont()
 			b.text:SetFont(itemFont, rowSize or 13, "")
 			if not b.text:GetFont() then b.text:SetFontObject(Core.fonts.row) end
 		end
@@ -773,33 +778,54 @@ local function DropdownPaint(row)
 	local cur = opts.get()
 	local label = values and cur ~= nil and values[cur] ~= nil and DropdownText(opts, values, cur) or nil
 	local text = label and tostring(label) or "|cff8A94A6-|r"
-	-- Button is sized to the longest option below; this is the fallback for a
-	-- value that is still too wide (very long localized strings).
-	Core:ClampLabel(row.txt, row.btn:GetWidth() - 30, text)
+	-- The button is sized to the longest option below. A value still too wide
+	-- for it (very long localized strings) wraps; the button is already tall
+	-- enough for that.
+	row.txt:SetText(text)
 end
 
 -- Width that fits the longest option label, bounded so the row label keeps
--- at least DROPDOWN_LABEL_MIN of room.
+-- at least DROPDOWN_LABEL_MIN of room. An option wider than that wraps inside
+-- the button, so the height fits the tallest option once wrapped. Every option
+-- is measured, not just the current one: a pick only refreshes the page, it
+-- does not lay the rows out again, so the height must not depend on the value.
 local DROPDOWN_LABEL_MIN = 96
-local function DropdownFitWidth(row, opts)
+local DROPDOWN_H = 22
+local function DropdownFit(row, opts)
 	local items = DropdownItems(opts)
+	local measure = row.measure
 	local widest = 0
 	for _, item in ipairs(items) do
-		row.measure:SetText(item.text)
-		local w = row.measure:GetStringWidth()
+		measure:SetText(item.text)
+		local w = measure:GetStringWidth()
 		if w > widest then widest = w end
 	end
 	local want = math.ceil(widest) + 8 + 22 + 6      -- text pad + arrow zone + slack
 	local maxW = row:GetWidth() - (PAD * 2) - DROPDOWN_LABEL_MIN
 	if maxW < DROPDOWN_W then maxW = DROPDOWN_W end
-	return math.max(DROPDOWN_W, math.min(want, maxW))
+	local w = math.max(DROPDOWN_W, math.min(want, maxW))
+
+	local h = DROPDOWN_H
+	local textW = w - 28                             -- txt spans LEFT +8 .. RIGHT -20
+	if widest > textW then
+		measure:SetWidth(textW)
+		local tallest = 0
+		for _, item in ipairs(items) do
+			measure:SetText(item.text)
+			local sh = measure:GetStringHeight()
+			if sh > tallest then tallest = sh end
+		end
+		measure:SetWidth(0)
+		h = math.max(DROPDOWN_H, math.ceil(tallest) + 8)
+	end
+	return w, h
 end
 
 local function CreateDropdown(parent)
 	local row = CreateRow(parent)
 
 	local btn = CreateFrame("Button", nil, row)
-	btn:SetSize(DROPDOWN_W, 22)
+	btn:SetSize(DROPDOWN_W, DROPDOWN_H)
 	btn:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
 	Core:SolidTex(btn, "windowBg", "BACKGROUND")
 	Core:MakeBorder(btn, "border")
@@ -809,12 +835,14 @@ local function CreateDropdown(parent)
 	txt:SetPoint("LEFT", btn, "LEFT", 8, 0)
 	txt:SetPoint("RIGHT", btn, "RIGHT", -20, 0)
 	txt:SetJustifyH("LEFT")
-	txt:SetWordWrap(false)
+	txt:SetWordWrap(true)
+	txt:SetNonSpaceWrap(true)   -- a single long word (an LSM key) breaks, not cuts
 
 	-- Off-screen string used only to measure option labels.
 	local measure = btn:CreateFontString(nil, "OVERLAY")
 	measure:SetFontObject(Core.fonts.row)
 	measure:SetPoint("LEFT", btn, "LEFT", 0, 0)
+	measure:SetNonSpaceWrap(true)   -- wraps like txt, so the height matches
 	measure:Hide()
 	row.measure = measure
 
@@ -825,6 +853,18 @@ local function CreateDropdown(parent)
 	arrow:SetTextColor(Core:Color("textDim"))
 
 	row.btn, row.txt = btn, txt
+
+	-- Fit the button to the options and set the row's floor for a wrapped
+	-- (taller) button. Runs on every acquire, and again from Widen when the
+	-- page hands the row more room.
+	row.spRefit = function()
+		if not row.opts then return btn:GetWidth() end
+		local w, h = DropdownFit(row, row.opts)
+		btn:SetSize(w, h)
+		row._controlWidth = w
+		row._controlMinH = h + (ROW_H - DROPDOWN_H)
+		return w
+	end
 
 	btn:SetScript("OnEnter", function() Core:SetBorderColor(btn, "accent") end)
 	btn:SetScript("OnLeave", function() Core:SetBorderColor(btn, "border") end)
@@ -867,8 +907,7 @@ function Widgets:Dropdown(parent, opts)
 	local row = Acquire("dropdown", parent, CreateDropdown)
 	ConfigureRow(row, parent, opts)
 	Core:SetBorderColor(row.btn, "border")
-	local w = DropdownFitWidth(row, opts)
-	row.btn:SetWidth(w)
+	local w = row.spRefit()
 	row.txt:SetText("")
 	return FinishRow(row, parent, w)
 end

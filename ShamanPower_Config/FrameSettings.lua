@@ -43,8 +43,9 @@ local function Build()
 		width = PANEL_W, height = 200,
 		title = "Frame Settings", subtitle = "",
 		headerHeight = 44, bodyTop = 8,
+		special = true,   -- Escape closes it
+		strata = "DIALOG",
 	})
-	panel:SetFrameStrata("DIALOG")
 	return panel
 end
 
@@ -60,19 +61,21 @@ local function Populate(spec)
 		return f
 	end
 
-	if spec.scale then
+	-- Specs speak whole percents (100 = normal); the slider runs on fractions so
+	-- it reads "100%" like every other scale and opacity.
+	local function PercentRow(label, desc, s, minP, maxP)
 		Row("Slider", {
-			label = "Scale", desc = "Size of this frame, as a percentage.",
-			min = spec.scale.min or 50, max = spec.scale.max or 300, step = spec.scale.step or 5,
-			get = spec.scale.get, set = spec.scale.set,
+			label = label, desc = desc, isPercent = true,
+			min = (s.min or minP) / 100, max = (s.max or maxP) / 100, step = (s.step or 5) / 100,
+			get = function() local v = s.get(); return v and v / 100 end,
+			set = function(v) s.set(math.floor(v * 100 + 0.5)) end,
 		})
 	end
+	if spec.scale then
+		PercentRow("Scale", "Size of this frame, as a percentage.", spec.scale, 50, 300)
+	end
 	if spec.opacity then
-		Row("Slider", {
-			label = "Opacity", desc = "How solid this frame is.",
-			min = spec.opacity.min or 10, max = spec.opacity.max or 100, step = spec.opacity.step or 5,
-			get = spec.opacity.get, set = spec.opacity.set,
-		})
+		PercentRow("Opacity", "How solid this frame is.", spec.opacity, 10, 100)
 	end
 	if spec.hideFrame then
 		Row("Toggle", {

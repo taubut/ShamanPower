@@ -1748,14 +1748,15 @@ local function InjectOptions()
 				name = "Background Opacity",
 				desc = "How solid the panels of the options and assignment windows are. Text, icons and borders always stay fully visible.",
 				type = "range",
-				min = 20, max = 100, step = 5,
+				min = 0.2, max = 1, step = 0.05, isPercent = true,
 				width = "full",
 				get = function()
-					return math.floor(((ShamanPower.opt.uiOpacity or 1) * 100) + 0.5)
+					return ShamanPower.opt.uiOpacity or 1
 				end,
 				set = function(_, v)
-					ShamanPower.opt.uiOpacity = v / 100
-					Core:ApplyOpacity(v / 100)
+					v = math.floor(v * 100 + 0.5) / 100   -- store whole percents, as before
+					ShamanPower.opt.uiOpacity = v
+					Core:ApplyOpacity(v)
 				end,
 			},
 		},
