@@ -802,6 +802,7 @@ function SP:CreateCallerButtonFrame()
 
 	-- Name label under BL button (shows who will use BL)
 	local blNameLabel = blBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	SP:AdoptSPFont(blNameLabel, "labels")   -- template font = the design; follows the Fonts settings
 	blNameLabel:SetPoint("TOP", blBtn, "BOTTOM", 0, -2)
 	blNameLabel:SetText("")
 	blBtn.nameLabel = blNameLabel
@@ -842,6 +843,7 @@ function SP:CreateCallerButtonFrame()
 	end)
 	drumBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	local drumLabel = drumBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	SP:AdoptSPFont(drumLabel, "labels")
 	drumLabel:SetPoint("TOP", drumBtn, "BOTTOM", 0, -2)
 	drumLabel:SetText("")
 	drumBtn.nameLabel = drumLabel
@@ -958,6 +960,7 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 
 	-- Name label under MT button (shows shaman name)
 	local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	SP:AdoptSPFont(mtNameLabel, "labels")
 	mtNameLabel:SetPoint("TOP", mtBtn, "BOTTOM", 0, -2)
 	mtNameLabel:SetText(shamanName)
 	mtBtn.nameLabel = mtNameLabel
@@ -1384,6 +1387,10 @@ function SP:SetCallerButtonCooldown(btn, start, duration)
 		cd:SetDrawBling(false)
 		cd:SetDrawSwipe(true)
 		cd:SetSwipeColor(0, 0, 0, 0.8)
+		-- the game draws the countdown numbers (Show Numbers for Cooldowns): its own
+		-- font is the design, and they follow the Fonts settings' timer font
+		local ok, fs = pcall(cd.GetCountdownFontString, cd)
+		if ok and fs and fs:GetFont() then SP:AdoptSPFont(fs, "timers") end
 		btn.cooldownFrame = cd
 	end
 
