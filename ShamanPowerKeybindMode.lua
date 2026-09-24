@@ -415,3 +415,20 @@ do
 		}
 	end
 end
+
+-- Appearance > Visibility: the same button beside "Show Keybinds on Buttons",
+-- where players look for anything about keys
+do
+	local vis = SP.options and SP.options.args and SP.options.args.fluffy
+		and SP.options.args.fluffy.args.visibility_section
+	if vis and vis.args then
+		vis.args.keybind_mode = {
+			order = 4.1,
+			type = "execute",
+			name = "Keybind Mode (hover and press a key)",
+			desc = "Hides this window and highlights every ShamanPower button that can take a key. Hover one and press a key to bind it; Done or Cancel brings this window back. Also: /sp bind",
+			hidden = function() return not isShaman() end,
+			func = function() SP:SetKeybindMode(true) end,
+		}
+	end
+end
