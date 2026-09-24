@@ -134,7 +134,9 @@ local defaultSettings = {
 	totems = {
 		enabled = true,
 		destroyed = true,
-		destroyedChat = true,     -- a line in your own chat window (nobody else sees it)
+		-- a line in your own chat window (nobody else sees it): on for Forever, where it is how
+		-- you notice a totem killed mid-fight; opt-in on Anniversary, where the alert always worked
+		destroyedChat = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
 		destroyedCenter = false,  -- big raid-warning-style text, drawn only on your screen
 		destroyedParty = false,   -- tell the party / raid in chat (opt-in)
 		expired = false,  -- off by default (can be spammy)
