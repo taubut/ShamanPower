@@ -354,7 +354,7 @@ local function layout(f, spec)
 
 	-- the main button on the right, the others to its left
 	local prev
-	for i, b in ipairs(f.buttons) do
+	for _, b in ipairs(f.buttons) do
 		if b:IsShown() then
 			b:ClearAllPoints()
 			if prev then b:SetPoint("RIGHT", prev, "LEFT", -BTN_GAP, 0)
