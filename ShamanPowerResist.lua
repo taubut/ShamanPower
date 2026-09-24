@@ -47,7 +47,6 @@ SP.RESIST_REQUESTS = RESIST
 local ASK_TIMEOUT = 60      -- the prompt's own timeout (counts as Pass)
 local WAIT_TIMEOUT = 75     -- everyone else stops waiting on a silent shaman
 local REBROADCAST_GAP = 5   -- seconds between roster-driven resends
-local CLAIM_WINDOW = 2      -- seconds after taking a resistance in which a clash is settled
 
 local MELEE_WEIGHT = { WARRIOR = 2, ROGUE = 2, PALADIN = 1, DRUID = 1 }
 local MANA_USER = { PALADIN = true, PRIEST = true, MAGE = true, WARLOCK = true, DRUID = true, SHAMAN = true, HUNTER = true }
@@ -67,8 +66,8 @@ local practicePick = {}    -- key -> name or "" from the practice owner
 local sentPick = {}        -- key -> the pick we last sent (practice owner)
 local prompt               -- { key, name, fake } the one open prompt
 local restoreAfter = 0     -- GetTime() before which a leftover change is kept (login)
-local claimAt = {}         -- key -> GetTime() we applied or accepted it
-for _, r in ipairs(RESIST) do passed[r.key] = {} end
+local claims = {}          -- key -> { [name] = true } shamans whose own ASSIGN says they drop it
+for _, r in ipairs(RESIST) do passed[r.key] = {}; claims[r.key] = {} end
 
 local function Opt() return SP.opt end
 
@@ -255,6 +254,8 @@ end
 -- ---------------------------------------------------------------------------
 local sendQueued = false
 local sendMask = false
+local sendAssign = {}      -- element -> true: our own ASSIGN still to go out
+local sendPass = {}        -- key -> true: our RESPASS still to go out
 local events = CreateFrame("Frame")
 
 local function MaskString()
@@ -273,7 +274,7 @@ end
 
 Flush = function()
 	sendQueued = false
-	if GetNumGroupMembers() == 0 then sendMask = false; return end
+	if GetNumGroupMembers() == 0 then sendMask = false; wipe(sendAssign); wipe(sendPass); return end
 	local blocked = false
 	-- practice never reaches a real raid (a party that just became one ends it)
 	local practiceHere = practice and not IsInRaid()
@@ -294,6 +295,20 @@ Flush = function()
 			end
 		end
 	end
+	if not blocked then
+		local me = Player()
+		local a = ShamanPower_Assignments and ShamanPower_Assignments[me]
+		for element in pairs(sendAssign) do
+			if SP:SendMessage("ASSIGN " .. me .. " " .. element .. " " .. ((a and a[element]) or 0)) == false then blocked = true break end
+			sendAssign[element] = nil
+		end
+	end
+	if not blocked then
+		for key in pairs(sendPass) do
+			if SP:SendMessage("RESPASS " .. key .. " " .. Player(), nil, nil, true) == false then blocked = true break end
+			sendPass[key] = nil
+		end
+	end
 	-- the client's chat lock (boss fights on Forever): try again when it lifts
 	if blocked then
 		events:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -308,7 +323,9 @@ local function RefreshOwnAssignment(element)
 	SP:UpdateMiniTotemBar()
 	SP:UpdateDropAllButton()
 	SP:UpdateSPMacros()
-	SP:SendMessage("ASSIGN " .. Player() .. " " .. element .. " " .. ShamanPower_Assignments[Player()][element])
+	-- sent from the queue: under the chat lock it goes out once the lock lifts
+	sendAssign[element] = true
+	QueueSend(false)
 	SP:UpdateLayout()
 	if SP.SyncTotemSetFromAssignments then SP:SyncTotemSetFromAssignments() end
 end
@@ -320,7 +337,6 @@ local function ApplyNow(r)
 	ShamanPower_Assignments[me] = ShamanPower_Assignments[me] or {}
 	local current = ShamanPower_Assignments[me][r.element] or 0
 	if current == RESIST_INDEX then return end
-	claimAt[r.key] = GetTime()
 	Applied()[r.key] = current
 	ShamanPower_Assignments[me][r.element] = RESIST_INDEX
 	RefreshOwnAssignment(r.element)
@@ -347,7 +363,6 @@ end
 local function Apply(r)
 	if InCombatLockdown() then
 		queued[r.key] = "apply"
-		claimAt[r.key] = GetTime()
 		events:RegisterEvent("PLAYER_REGEN_ENABLED")
 		Say("you will drop " .. TotemName(r) .. " when combat ends.")
 		return
@@ -399,14 +414,24 @@ local function FakeRestore(r)
 	end
 end
 
--- Two clients can briefly disagree on the proposal (their sync lists differ for
--- a moment) and both take the same resistance. Settled the same way on both
--- sides with no extra messages: when another shaman's ASSIGN or practice pick
--- claims a resistance we took in the last CLAIM_WINDOW seconds, whichever name
+-- Two clients can disagree on the proposal (their sync lists differ for a
+-- moment, or an ASSIGN is held up in the chat queue or the chat lock) and both
+-- take the same resistance. Settled the same way on both sides with no extra
+-- messages, however late the other claim arrives: when another shaman's ASSIGN
+-- or practice pick claims a resistance we took for a request, whichever name
 -- sorts later stands down. Standing down sends our own ASSIGN back, which the
--- other side ignores (it sorts earlier).
+-- other side ignores (it sorts earlier), and from then on their ASSIGN counts
+-- as cover here even before they are in our sync list (claims).
+
+-- we drop this resistance for a request, or will once combat ends
+local function Holding(r)
+	if queued[r.key] == "apply" then return true end
+	if queued[r.key] == "standdown" or Applied()[r.key] == nil then return false end
+	local a = ShamanPower_Assignments[Player()]
+	return a ~= nil and a[r.element] == RESIST_INDEX
+end
+
 local function StandDown(r, other)
-	claimAt[r.key] = nil
 	if queued[r.key] == "apply" then
 		queued[r.key] = nil
 		Say(other .. " is already dropping " .. TotemName(r) .. " for the raid; you will not drop it after combat.")
@@ -425,18 +450,20 @@ local function StandDown(r, other)
 end
 
 local function ClaimSeen(r, name)
-	local at = claimAt[r.key]
-	if not at then return end
-	if GetTime() - at > CLAIM_WINDOW then claimAt[r.key] = nil return end
+	if not name or name == "" then return end
 	local me = Player()
-	if name and name ~= "" and name ~= me and me > name then StandDown(r, name) end
+	if name ~= me and me > name and Holding(r) then StandDown(r, name) end
 end
 
 -- ShamanPower.lua's ASSIGN handler, after it stored the assignment
 function SP:ResistClaimSeen(name, element, index)
 	if index ~= RESIST_INDEX or not Enabled() then return end
 	for _, r in ipairs(RESIST) do
-		if r.element == element then ClaimSeen(r, name) return end
+		if r.element == element then
+			claims[r.key][name] = true
+			ClaimSeen(r, name)
+			return
+		end
 	end
 end
 
@@ -449,9 +476,15 @@ local function MarkPassed(key, name)
 	if w and w.name == name then w.timer:Cancel(); waitTimer[key] = nil end
 end
 
+-- sent from the queue: under the chat lock it goes out once the lock lifts
+local function SendPass(key)
+	sendPass[key] = true
+	QueueSend(false)
+end
+
 local function PassOwn(r)
 	MarkPassed(r.key, Player())
-	SP:SendMessage("RESPASS " .. r.key .. " " .. Player(), nil, nil, true)
+	SendPass(r.key)
 	Recompute()
 end
 
@@ -590,6 +623,7 @@ local function RecomputeNow()
 			if not grace then Restore(r) end
 			if practice then FakeRestore(r) end
 			wipe(passed[r.key])
+			sendPass[r.key] = nil
 			proposal[r.key] = nil
 			if waitTimer[r.key] then waitTimer[r.key].timer:Cancel(); waitTimer[r.key] = nil end
 		end
@@ -598,10 +632,18 @@ local function RecomputeNow()
 	-- who drops each resistance now (after any restore above)
 	local list = Candidates()
 	for _, r in ipairs(RESIST) do
-		wipe(coverers[r.key])
+		local c = coverers[r.key]
+		wipe(c)
 		for _, name in ipairs(list) do
-			if AssignedIndex(name, r.element) == RESIST_INDEX then
-				local c = coverers[r.key]
+			if AssignedIndex(name, r.element) == RESIST_INDEX then c[#c + 1] = name end
+		end
+		-- a group member not in our sync list yet whose own ASSIGN says they drop
+		-- it (the shaman we stood down for) covers it too; a stale claim goes
+		local seen = claims[r.key]
+		for name in pairs(seen) do
+			if not roster[name] or AssignedIndex(name, r.element) ~= RESIST_INDEX then
+				seen[name] = nil
+			elseif not tContains(c, name) then
 				c[#c + 1] = name
 			end
 		end
@@ -614,7 +656,7 @@ local function RecomputeNow()
 		for _, r in ipairs(RESIST) do
 			if need[r.key] and #coverers[r.key] == 0 and not passed[r.key][me] and not KnowsResist(me, r) then
 				MarkPassed(r.key, me)
-				SP:SendMessage("RESPASS " .. r.key .. " " .. me, nil, nil, true)
+				SendPass(r.key)
 			end
 		end
 	end
@@ -918,7 +960,7 @@ events:SetScript("OnEvent", function(self, event)
 			fakeQueued[r.key] = nil
 			if fake and practice and need[r.key] and proposal[r.key] == fake then FakeApply(fake, r) end
 		end
-		if sendMask or practice then QueueSend(false) end
+		if sendMask or practice or next(sendAssign) or next(sendPass) then QueueSend(false) end
 		Recompute()
 	end
 end)
