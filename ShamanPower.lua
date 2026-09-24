@@ -2179,6 +2179,15 @@ end
 function ShamanPower:PulseVisualSync(o, start, interval, now)
 	local age = now - start
 	if age < 0 then age = 0 end
+	-- Animations do not advance on a hidden frame (Hide Out of Combat, a hidden
+	-- host): one started or left running there would resume from a stale point
+	-- when the bar shows. Leave it alone until the frame is visible; the first
+	-- pass after that starts it from the right place.
+	local host = o.button or o.frame
+	if host and not host:IsVisible() then
+		o._pState = nil
+		return age
+	end
 	local idx = math.floor(age / interval)
 	local wipe = o.wipe
 	local wipeOk = o.isDisabled or not wipe or (wipe:IsShown() and o._wipeAG ~= nil and o._wipeAG:IsPlaying())
@@ -2411,6 +2420,7 @@ function ShamanPower:PositionPulseWipe(container)
 	end
 
 	container.isDisabled = false
+	wipeFrame:Show()   -- hidden by "none"; every other position shows it again
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -2534,6 +2544,7 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	end
 
 	overlay.isDisabled = false
+	if wipeFrame then wipeFrame:Show() end   -- hidden by "none"; every other position shows it again
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
