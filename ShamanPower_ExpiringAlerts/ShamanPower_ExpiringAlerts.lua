@@ -1062,17 +1062,9 @@ function SP:SetupExpiringAlertsEvents()
 	self.expiringAlertsEventFrame = eventFrame
 
 	-- Classic keeps the periodic check; Mainline uses events and one expiry timer.
+	-- (a ticker: the same twice-a-second check without a Lua call every frame)
 	if not mainlineWeaponChecks then
-		local lastWeaponCheck = 0
-		local weaponCheckFrame = CreateFrame("Frame")
-		weaponCheckFrame:SetScript("OnUpdate", function(_, elapsed)
-			lastWeaponCheck = lastWeaponCheck + elapsed
-			if lastWeaponCheck >= 0.5 then
-				lastWeaponCheck = 0
-				SP:CheckWeaponEnchantState(false)
-			end
-		end)
-		self.weaponCheckFrame = weaponCheckFrame
+		self.weaponCheckTicker = C_Timer.NewTicker(0.5, function() SP:CheckWeaponEnchantState(false) end)
 	end
 
 	-- Combat hides aura reads, so a shield that fell off during a fight goes
