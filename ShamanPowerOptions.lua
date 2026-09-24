@@ -640,8 +640,7 @@ local function RefreshLoadoutArgs()
 				width = 0.5,
 				func = function()
 					if not ShamanPower_TotemLoadouts[idx] then return end
-					local popup = StaticPopup_Show("SHAMANPOWER_DELETESET", lname)
-					if popup then popup.data = idx end
+					ShamanPower:ConfirmDeleteLoadout(idx, lname)
 				end,
 			}
 
@@ -9700,22 +9699,8 @@ do
 	local SP = ShamanPower
 	local main = SP.options.args.settings.args.settings_show.args
 	local INVITE = "https://discord.gg/eCtNeBqE8U"
-	-- WoW gives addons no clipboard: "Copy Link" opens a small box with the link
-	-- already selected, so one Ctrl+C copies it (the usual way addons do this).
-	StaticPopupDialogs["SHAMANPOWER_COPY_LINK"] = {
-		text = "The ShamanPower Discord link is selected - press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
-		button1 = CLOSE or "Close",
-		hasEditBox = 1, editBoxWidth = 260,
-		timeout = 0, whileDead = 1, hideOnEscape = 1, preferredIndex = 3,
-		OnShow = function(self)
-			local eb = self.editBox or self.EditBox or (self.GetEditBox and self:GetEditBox())
-			if not eb then return end
-			eb:SetText(INVITE); eb:SetFocus(); eb:HighlightText()
-			eb:SetScript("OnTextChanged", function(box) if box:GetText() ~= INVITE then box:SetText(INVITE); box:HighlightText() end end)
-		end,
-		EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
-		EditBoxOnEnterPressed = function(box) box:GetParent():Hide() end,
-	}
+	-- WoW gives addons no clipboard: "Copy Link" opens ShamanPower's own box with the
+	-- link already selected, so one Ctrl+C copies it (the usual way addons do this).
 	main.community = {
 		order = 90, type = "group", inline = true, name = "ShamanPower Discord",
 		args = {
@@ -9736,7 +9721,11 @@ do
 			copy = {
 				order = 3, type = "execute", name = "Copy Link", width = "full",
 				desc = "Opens a small box with the link selected: press Ctrl+C to copy it.",
-				func = function() StaticPopup_Show("SHAMANPOWER_COPY_LINK") end,
+				func = function()
+					SP:ShowSPDialog({ key = "discordLink", title = "ShamanPower Discord",
+						text = "The link is selected: press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
+						editText = INVITE })
+				end,
 			},
 		},
 	}

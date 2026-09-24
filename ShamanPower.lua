@@ -8323,24 +8323,18 @@ function ShamanPower:ResetSection(id)
 	if ui and ui.RefreshCurrent then pcall(ui.RefreshCurrent, ui) end
 end
 
-StaticPopupDialogs["SHAMANPOWER_RESET_SECTION"] = {
-	text = "%s",
-	button1 = YES,
-	button2 = NO,
-	whileDead = 1,
-	hideOnEscape = 1,
-	timeout = 0,
-	preferredIndex = 3,
-	OnAccept = function(self, data) ShamanPower:ResetSection(data) end,
-}
-
 function ShamanPower:ConfirmResetSection(id)
 	local def = self.ResetSections[id]
 	if not def then return end
 	local text = "Reset the " .. def.label .. " settings to their defaults?"
 	if def.note then text = text .. "\n\n" .. def.note end
-	local dialog = StaticPopup_Show("SHAMANPOWER_RESET_SECTION", text)
-	if dialog then dialog.data = id end
+	self:ShowSPDialog({
+		key = "resetSection", title = "Reset settings", text = text,
+		buttons = {
+			{ text = "Reset", onClick = function() ShamanPower:ResetSection(id) end },
+			{ text = "Cancel" },
+		},
+	})
 end
 
 -- ---------------------------------------------------------------------------
@@ -18250,24 +18244,21 @@ local loadoutTooltipColors = {
 	[4] = {r = 1.0, g = 1.0, b = 1.0},  -- Air (white)
 }
 
--- Delete set confirmation popup (same as TotemTimers)
-StaticPopupDialogs["SHAMANPOWER_DELETESET"] = {
-	text = "Delete totem set %s?",
-	button1 = OKAY,
-	button2 = CANCEL,
-	whileDead = 1,
-	hideOnEscape = 1,
-	timeout = 0,
-	OnAccept = function(self, nr)
-		if not InCombatLockdown() then
-			ShamanPower:DeleteLoadout(nr)
-			if ShamanPower.RefreshLoadoutArgs then
-				ShamanPower:RefreshLoadoutArgs()
-			end
-			ShamanPower:RefreshConfig()
-		end
-	end,
-}
+-- Delete set confirmation (Settings > Loadouts > Delete)
+function ShamanPower:ConfirmDeleteLoadout(nr, name)
+	self:ShowSPDialog({
+		key = "deleteLoadout", title = "Delete totem set", text = "Delete totem set " .. tostring(name) .. "?",
+		buttons = {
+			{ text = "Delete", onClick = function()
+				if InCombatLockdown() then return end
+				ShamanPower:DeleteLoadout(nr)
+				if ShamanPower.RefreshLoadoutArgs then ShamanPower:RefreshLoadoutArgs() end
+				ShamanPower:RefreshConfig()
+			end },
+			{ text = "Cancel" },
+		},
+	})
+end
 
 function ShamanPower:CreateLoadoutBar()
 	if self.loadoutBarCreated then return end
