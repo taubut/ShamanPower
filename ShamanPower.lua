@@ -1212,6 +1212,7 @@ function ShamanPower:OnProfileChanged()
 
 	self.opt = self.db.profile
 	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
+	if self.UpdateAnnounceEvents then self:UpdateAnnounceEvents() end   -- announce settings live in the profile
 	MigrateMiniBarProfile(self.db, self.opt)
 	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
 	if self.ApplyElementColors then self:ApplyElementColors() end
