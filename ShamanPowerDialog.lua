@@ -17,7 +17,10 @@
 --                    rightmost, as in the settings window's dialogs. None given:
 --                    one Close button.
 --     spec.onEscape  runs on Escape, the close X, the timeout, and Enter or
---                    Escape in the copy box
+--                    Escape in the copy box. Out of combat Escape closes the
+--                    newest dialog only, as StaticPopup did. In combat an addon
+--                    may not hold the key, so the game closes the dialog along
+--                    with every other open window (UISpecialFrames).
 --     spec.timeout   optional seconds; spec.countdown = true shows what is left
 --     spec.strata    default FULLSCREEN_DIALOG at a high frame level: above the
 --                    setup tour and the settings window
@@ -32,7 +35,8 @@
 --   ShamanPower:CreateSPCloseButton(parent, size) -> Button (an "X")
 --
 -- Costs nothing until a dialog is shown. A timed dialog runs one timer, plus a
--- one-second ticker for its countdown, only while it is up.
+-- one-second ticker for its countdown, only while it is up; the Escape catcher
+-- listens for combat start and end only while a dialog is up.
 -- ============================================================================
 
 local SP = ShamanPower
@@ -159,6 +163,8 @@ local PAD, HEADER_MIN, BTN_H, BTN_GAP = 16, 40, 26, 8
 local MIN_W, LEVEL = 380, 200
 local dialogs = {}   -- [key] = frame, made the first time that key is shown
 local count = 0
+local open = {}      -- dialogs on screen, the newest last (Escape closes that one)
+local catcher        -- takes Escape for the dialogs out of combat, made on first use
 
 -- Errors in a caller's handler go to the error handler (BugSack and the like)
 -- without stopping the dialog from closing.
@@ -171,12 +177,68 @@ local function stopTimers(f)
 	if f.spTicker then f.spTicker:Cancel(); f.spTicker = nil end
 end
 
+local function unlist(f)
+	for i = #open, 1, -1 do
+		if open[i] == f then tremove(open, i) end
+	end
+end
+
+local finish   -- forward
+
+-- Escape reaches a keyboard frame before the game's own Escape handling
+-- (ToggleGameMenu), which would otherwise close every open window along with
+-- the dialog: the settings window, bags, the character panel. Out of combat a
+-- frame above them takes Escape for the newest dialog and lets every other
+-- key through. SetPropagateKeyboardInput may not be called in combat, so the
+-- catcher is hidden before the lockdown starts (a hidden frame gets no keys),
+-- its keyboard is switched on out of combat only, and Escape falls back to
+-- UISpecialFrames until the fight ends.
+local function catcherKey(self, key)
+	if InCombatLockdown() then return end   -- hidden by then; never here
+	if key == "ESCAPE" and open[#open] then
+		self:SetPropagateKeyboardInput(false)
+		finish(open[#open], "escape")
+	else
+		self:SetPropagateKeyboardInput(true)
+	end
+end
+
+local function updateCatcher()
+	if #open == 0 then
+		if catcher then catcher:UnregisterAllEvents(); catcher:Hide() end
+		return
+	end
+	if not catcher then
+		catcher = CreateFrame("Frame", nil, UIParent)
+		catcher:SetAllPoints(UIParent)
+		catcher:SetFrameStrata("FULLSCREEN_DIALOG")
+		catcher:SetFrameLevel(LEVEL + 50)
+		catcher:EnableMouse(false)
+		catcher:Hide()
+		catcher:SetScript("OnEvent", function(self, event)
+			if event == "PLAYER_REGEN_DISABLED" then self:Hide() else updateCatcher() end
+		end)
+	end
+	catcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+	catcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+	if catcher:IsShown() or InCombatLockdown() then return end   -- shown when the fight ends
+	if not catcher.spKeys then
+		catcher.spKeys = true
+		catcher:EnableKeyboard(true)
+		catcher:SetScript("OnKeyDown", catcherKey)
+	end
+	catcher:SetPropagateKeyboardInput(true)   -- a key held from before passes through
+	catcher:Show()
+end
+
 -- how: "escape" runs spec.onEscape; anything else closes without a callback
-local function finish(f, how)
+function finish(f, how)
 	local spec = f.spec
 	if not spec then return end
 	f.spec, f.spEditText = nil, nil
 	stopTimers(f)
+	unlist(f)
+	updateCatcher()
 	f.box:ClearFocus()
 	f:Hide()
 	if how == "escape" and spec.onEscape then call(spec.onEscape, f) end
@@ -213,7 +275,7 @@ local function build()
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:Hide()
-	tinsert(UISpecialFrames, f:GetName())   -- Escape closes it
+	tinsert(UISpecialFrames, f:GetName())   -- Escape in combat (the catcher above is hidden then)
 
 	local bg = f:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(f)
@@ -277,7 +339,7 @@ local function build()
 		f.buttons[i] = b
 	end
 
-	-- Escape (UISpecialFrames) and anything else that hides the frame itself.
+	-- Escape in combat (UISpecialFrames) and anything else that hides the frame itself.
 	-- A hidden parent (Alt+Z) also sends OnHide, but the frame stays "shown".
 	f:SetScript("OnHide", function(self)
 		if self.spec and not self:IsShown() then finish(self, "escape") end
@@ -379,6 +441,9 @@ function SP:ShowSPDialog(spec)
 
 	f:SetFrameStrata(spec.strata or "FULLSCREEN_DIALOG")
 	f:SetFrameLevel(LEVEL)
+	unlist(f)
+	open[#open + 1] = f
+	updateCatcher()
 	layout(f, spec)
 	if not wasShown then
 		f:ClearAllPoints()
