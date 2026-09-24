@@ -844,12 +844,18 @@ end
 -- Losing Windfury (walking out of the totem's range) is its weapon enchant
 -- running out. Whether or not the client fires an event for that, a one-shot
 -- timer checks the moment it should have run out. One timer at a time: while
--- the totem keeps renewing the enchant, it waits again for the new end.
-local wfExpireAt, wfExpireQueued = 0, false
+-- the totem keeps renewing the enchant, it waits again for the new end. An
+-- enchant that ends sooner than the timer's wake (a long oil replaced by the
+-- totem's short enchant) cancels it and wakes at the new end instead.
+local wfExpireAt, wfExpireTimer, wfWakeAt = 0, nil, 0
 local function wfExpireCheck()
 	local wait = wfExpireAt - GetTime()
-	if wait > 0.05 then C_Timer.After(wait, wfExpireCheck) return end
-	wfExpireQueued = false
+	if wait > 0.05 then
+		wfWakeAt = wfExpireAt
+		wfExpireTimer = C_Timer.NewTimer(wait, wfExpireCheck)
+		return
+	end
+	wfExpireTimer = nil
 	if not SP:IsUpdateSubsystemEnabled("wfBroadcast") then return end
 	SP:SPRangeHasWindfuryWeapon()   -- on Forever this first read drops SPCompat's cache of an enchant that ran out
 	SP:BroadcastWindfuryStatus()
@@ -861,9 +867,14 @@ local function wfWatchExpiry(mainExp, offExp)
 	if type(offExp) == "number" and not (issecretvalue and issecretvalue(offExp)) and offExp > ms then ms = offExp end
 	if ms <= 0 then return end
 	wfExpireAt = GetTime() + ms / 1000 + 0.2
-	if not wfExpireQueued then
-		wfExpireQueued = true
-		C_Timer.After(ms / 1000 + 0.2, wfExpireCheck)
+	-- an earlier end rearms the wake (a re-read of the same enchant can differ by a few ms)
+	if wfExpireTimer and wfExpireAt < wfWakeAt - 0.1 then
+		wfExpireTimer:Cancel()
+		wfExpireTimer = nil
+	end
+	if not wfExpireTimer then
+		wfWakeAt = wfExpireAt
+		wfExpireTimer = C_Timer.NewTimer(ms / 1000 + 0.2, wfExpireCheck)
 	end
 end
 
