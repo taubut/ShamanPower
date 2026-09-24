@@ -37,6 +37,7 @@ ShamanPowerCompact.lua
 ShamanPowerUnlock.lua
 ShamanPowerReadyCheck.lua
 ShamanPowerKeybindMode.lua
+ShamanPowerTrainer.lua
 ShamanPowerTotemSets.lua
 ShamanPowerBlizzardTotemBar.lua
 ShamanPowerMinimapTotems.lua
