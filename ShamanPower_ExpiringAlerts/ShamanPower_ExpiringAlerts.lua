@@ -759,18 +759,11 @@ end
 
 -- WoW: Forever: your own right-click destroy (ShamanPower's opt-in one on the totem
 -- bar, or Blizzard's totem frame) empties a slot on purpose, so it is not "destroyed"
--- either. A post-hook also runs when the secure action calls DestroyTotem, and taints
--- nothing; it notes which slot, and when.
-local playerDestroyAt = {}   -- [slot] = GetTime() of your own DestroyTotem(slot)
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" then
-	hooksecurefunc("DestroyTotem", function(slot)
-		if _G.issecretvalue and _G.issecretvalue(slot) then return end
-		slot = tonumber(slot)
-		if slot then playerDestroyAt[slot] = GetTime() end
-	end)
-end
+-- either. The core's DestroyTotem post-hook notes which slot, and when
+-- (ShamanPower._totemDismissedAt).
 local function DestroyedByPlayer(slot)
-	local at = slot and playerDestroyAt[slot]
+	local dismissed = ShamanPower._totemDismissedAt
+	local at = slot and dismissed and dismissed[slot]
 	return at ~= nil and GetTime() - at < 2
 end
 
