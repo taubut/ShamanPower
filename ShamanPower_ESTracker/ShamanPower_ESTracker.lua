@@ -316,6 +316,12 @@ function SP:ESTrackerSetRestricted(restricted)
 end
 
 -- Update the Earth Shield tracker display
+-- (the list and the sort are reused: a raid redraws this several times a second)
+local esList = {}
+local function byCasterName(a, b)
+	return (a.casterName or "") < (b.casterName or "")
+end
+
 function SP:UpdateESTrackerFrame()
 	local frame = self.esTrackerFrame
 	if not frame then return end
@@ -325,18 +331,16 @@ function SP:UpdateESTrackerFrame()
 	for _, btn in pairs(frame.esButtons) do
 		btn:Hide()
 	end
-	frame.esButtons = {}
+	wipe(frame.esButtons)
 
 	-- Get all tracked Earth Shields
-	local esList = {}
-	for guid, esData in pairs(self.earthShields) do
-		table.insert(esList, esData)
+	wipe(esList)
+	for _, esData in pairs(self.earthShields) do
+		esList[#esList + 1] = esData
 	end
 
 	-- Sort by caster name for consistency
-	table.sort(esList, function(a, b)
-		return (a.casterName or "") < (b.casterName or "")
-	end)
+	table.sort(esList, byCasterName)
 
 	if #esList == 0 then
 		frame:SetSize(120, 50)
@@ -489,10 +493,11 @@ function SP:ESTrackerDemo(on)
 end
 
 -- Scan for Earth Shields in the raid/party
--- Optimized: uses direct buff lookup and caches unit list
 -- One unit's Earth Shield, or nil. Classic TBC UnitBuff returns:
 -- name, icon, count, debuffType, duration, expirationTime, caster
-local function scanUnitES(unit)
+-- `entry` is an old row to refill instead of building a new table (aura events
+-- arrive many times a second in a raid).
+local function scanUnitES(unit, entry)
 	if not UnitExists(unit) then return nil end
 	local name, icon, count, expirationTime, caster
 	for i = 1, 40 do
@@ -512,17 +517,16 @@ local function scanUnitES(unit)
 		local _, cls = UnitClass(caster)
 		casterClass = cls
 	end
-	local targetGUID = UnitGUID(unit)
-	return {
-		targetGUID = targetGUID,
-		unit = unit,
-		targetName = UnitName(unit),
-		casterName = casterName,
-		casterClass = casterClass,
-		charges = count or 0,
-		expirationTime = expirationTime,
-		icon = icon
-	}
+	entry = entry or {}
+	entry.targetGUID = UnitGUID(unit)
+	entry.unit = unit
+	entry.targetName = UnitName(unit)
+	entry.casterName = casterName
+	entry.casterClass = casterClass
+	entry.charges = count or 0
+	entry.expirationTime = expirationTime
+	entry.icon = icon
+	return entry
 end
 
 -- Restricted client: aura reads return nothing while secret, which would read
@@ -537,58 +541,54 @@ local function scanBlocked(self)
 	return self.esTrackerDemoActive and true or false
 end
 
+-- Group unit tokens the tracker reads: raid1-40 in a raid, player + party1-4
+-- otherwise. Nameplates, target, focus, pets and the other mode's tokens are
+-- the same players under another name (or not group members at all).
+local RAID_TOKENS, PARTY_TOKENS, SOLO_TOKENS = {}, { "player", "party1", "party2", "party3", "party4" }, { "player" }
+for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+local RAID_UNIT, PARTY_UNIT = {}, { player = true }
+for i = 1, 40 do RAID_UNIT["raid" .. i] = true end
+for i = 1, 4 do PARTY_UNIT["party" .. i] = true end
+
+-- Rows no longer shown wait here to be refilled by the next shield found
+local spareEntries = {}
+
+-- Full scan: when the tracker opens and once a roster change settles. Between
+-- those, each member's own UNIT_AURA re-reads just that member.
 function SP:ScanEarthShields()
 	if scanBlocked(self) then return end
 
-	self.earthShields = {}
-
-	-- Build unit list (cached on group changes; the table is reused)
-	local units
-	if IsInRaid() then
-		if not self.cachedRaidUnits or (GetTime() - (self.cachedRaidUnitsTime or 0)) > 5 then
-			self.cachedRaidUnits = self.cachedRaidUnits or {}
-			wipe(self.cachedRaidUnits)
-			for i = 1, 40 do
-				if UnitExists("raid" .. i) then
-					self.cachedRaidUnits[#self.cachedRaidUnits + 1] = "raid" .. i
-				end
-			end
-			self.cachedRaidUnitsTime = GetTime()
-		end
-		units = self.cachedRaidUnits
-	elseif IsInGroup() then
-		units = {"player", "party1", "party2", "party3", "party4"}
-	else
-		units = {"player"}
+	local shields = self.earthShields
+	for guid, d in pairs(shields) do
+		spareEntries[#spareEntries + 1] = d
+		shields[guid] = nil
 	end
 
-	-- Scan each unit for Earth Shield buff
-	for _, unit in ipairs(units) do
-		local entry = scanUnitES(unit)
-		if entry then self.earthShields[entry.targetGUID] = entry end
+	local units = IsInRaid() and RAID_TOKENS or (IsInGroup() and PARTY_TOKENS or SOLO_TOKENS)
+	for i = 1, #units do
+		local spare = spareEntries[#spareEntries]
+		local entry = scanUnitES(units[i], spare)
+		if entry then
+			if entry == spare then spareEntries[#spareEntries] = nil end
+			shields[entry.targetGUID] = entry
+		end
 	end
 
 	self:UpdateESTrackerFrame()
 end
 
--- Group unit tokens the tracker reads: raid1-40 in a raid, player + party1-4
--- otherwise. Nameplates, target, focus, pets and the other mode's tokens are
--- the same players under another name (or not group members at all).
-local RAID_UNIT, PARTY_UNIT = {}, { player = true }
-for i = 1, 40 do RAID_UNIT["raid" .. i] = true end
-for i = 1, 4 do PARTY_UNIT["party" .. i] = true end
-
 -- UNIT_AURA for one group member: re-read just that unit and redraw at most
--- 4 times a second (a raid fires hundreds of aura events a second; each used
--- to rescan all 40 members). The 1 s full scan still runs as before.
+-- 4 times a second, and only when what the tracker shows changed (a raid fires
+-- hundreds of aura events a second; each used to rescan all 40 members).
 local redrawPending = false
+local function redrawNow()
+	redrawPending = false
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:UpdateESTrackerFrame() end
+end
 local function redrawSoon()
 	if redrawPending then return end
 	redrawPending = true
-	C_Timer.After(0.25, function()
-		redrawPending = false
-		if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:UpdateESTrackerFrame() end
-	end)
+	C_Timer.After(0.25, redrawNow)
 end
 
 function SP:ScanEarthShieldUnit(unit)
@@ -597,13 +597,29 @@ function SP:ScanEarthShieldUnit(unit)
 	if scanBlocked(self) then return end
 	if not self.earthShields then self:ScanEarthShields() return end
 	-- drop what this unit (or this player under its GUID) had, then re-read it
+	-- into the same row
+	local shields = self.earthShields
 	local guid = UnitGUID(unit)
-	for g, d in pairs(self.earthShields) do
-		if d.unit == unit or g == guid then self.earthShields[g] = nil end
+	local old, dropped = nil, 0
+	for g, d in pairs(shields) do
+		if d.unit == unit or g == guid then
+			shields[g] = nil
+			dropped = dropped + 1
+			old = old or d
+		end
 	end
-	local entry = scanUnitES(unit)
-	if entry then self.earthShields[entry.targetGUID] = entry end
-	redrawSoon()
+	local oldGUID, oldCharges, oldCaster, oldName
+	if old then oldGUID, oldCharges, oldCaster, oldName = old.targetGUID, old.charges, old.casterName, old.targetName end
+	local entry = scanUnitES(unit, old)
+	if entry then
+		shields[entry.targetGUID] = entry
+	elseif old then
+		spareEntries[#spareEntries + 1] = old
+	end
+	if dropped > 1 or (entry == nil) ~= (old == nil) or (entry and (entry.targetGUID ~= oldGUID
+		or entry.charges ~= oldCharges or entry.casterName ~= oldCaster or entry.targetName ~= oldName)) then
+		redrawSoon()
+	end
 end
 
 -- Update Earth Shield tracker border visibility
@@ -684,26 +700,58 @@ function SP:ToggleESTracker()
 	end
 end
 
--- Setup Earth Shield tracker update timer
+-- UNIT_AURA only for the group's own tokens (raid1-40 in a raid, player +
+-- party1-4 otherwise). Registered with RegisterEvent it arrived for every
+-- nameplate, target and pet too, just to be ignored. RegisterUnitEvent takes up
+-- to two units per frame, so the tokens are spread over small frames.
+local auraFrames = {}
+local function onGroupAura(_, _, unit)
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:ScanEarthShieldUnit(unit) end
+end
+local function setAuraFilter(on)
+	local units = on and (IsInRaid() and RAID_TOKENS or PARTY_TOKENS) or nil
+	local need = units and math.ceil(#units / 2) or 0
+	for i = 1, math.max(need, #auraFrames) do
+		local f = auraFrames[i]
+		if i <= need and not f then
+			f = CreateFrame("Frame")
+			f:SetScript("OnEvent", onGroupAura)
+			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "ES Tracker") end
+			auraFrames[i] = f
+		end
+		f:UnregisterEvent("UNIT_AURA")
+		if i <= need then
+			local a, b = units[2 * i - 1], units[2 * i]
+			if f.RegisterUnitEvent then
+				if b then f:RegisterUnitEvent("UNIT_AURA", a, b) else f:RegisterUnitEvent("UNIT_AURA", a) end
+			elseif i == 1 then
+				f:RegisterEvent("UNIT_AURA")   -- no unit filters on this client: one frame hears all (the handler checks the unit)
+			end
+		end
+	end
+end
+
+-- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: re-point the aura
+-- filter (raid indexes shift, party <-> raid) and rescan once, 0.3 s after the last
+local rosterQueued = false
+local function rosterSettled()
+	rosterQueued = false
+	if not SP.esTrackerEventsEnabled then return end
+	setAuraFilter(true)
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:ScanEarthShields() end
+end
+
+-- Setup Earth Shield tracker events (no OnUpdate or timer: roster and aura
+-- events drive every update)
 function SP:SetupESTrackerUpdater()
 	if self.esTrackerUpdateFrame then return end
 
-	-- Register ES tracker updates with consolidated update system (1fps)
-	if not self.updateSystem.subsystems["esTracker"] then
-		self:RegisterUpdateSubsystem("esTracker", 1.0, function()
-			if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then
-				SP:ScanEarthShields()
-			end
-		end)
-	end
-
-	-- Create event frame for immediate updates (no OnUpdate, just events)
 	-- Don't register UNIT_AURA here - EnableESTrackerEvents will do it
 	local eventFrame = CreateFrame("Frame")
 	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "ES Tracker") end
 	eventFrame:RegisterEvent("GROUP_LEFT")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-	eventFrame:SetScript("OnEvent", function(self, event, unit)
+	eventFrame:SetScript("OnEvent", function(self, event)
 		if event == "GROUP_LEFT" then
 			SP:ClearESTracker()
 		elseif event == "GROUP_ROSTER_UPDATE" then
@@ -711,9 +759,9 @@ function SP:SetupESTrackerUpdater()
 				SP:ClearESTracker()
 			end
 		end
-		-- UNIT_AURA: re-read only that group member (see ScanEarthShieldUnit)
-		if event == "UNIT_AURA" and SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then
-			SP:ScanEarthShieldUnit(unit)
+		if SP.esTrackerEventsEnabled and not rosterQueued then
+			rosterQueued = true
+			C_Timer.After(0.3, rosterSettled)
 		end
 	end)
 
@@ -723,19 +771,17 @@ end
 -- Enable ES tracker events (called when tracker is shown)
 function SP:EnableESTrackerEvents()
 	if self.esTrackerUpdateFrame and not self.esTrackerEventsEnabled then
-		self.esTrackerUpdateFrame:RegisterEvent("UNIT_AURA")
+		setAuraFilter(true)
 		self.esTrackerEventsEnabled = true
 	end
-	self:EnableUpdateSubsystem("esTracker")
 end
 
 -- Disable ES tracker events (called when tracker is hidden)
 function SP:DisableESTrackerEvents()
 	if self.esTrackerUpdateFrame and self.esTrackerEventsEnabled then
-		self.esTrackerUpdateFrame:UnregisterEvent("UNIT_AURA")
+		setAuraFilter(false)
 		self.esTrackerEventsEnabled = false
 	end
-	self:DisableUpdateSubsystem("esTracker")
 end
 
 function SP:ClearESTracker()
