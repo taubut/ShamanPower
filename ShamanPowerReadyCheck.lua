@@ -317,9 +317,18 @@ watcher:SetScript("OnEvent", function(_, event, unit)
 	C_Timer.After(0.3, refresh)   -- coalesce bursts (a bag sort, an aura storm)
 end)
 
+-- the unit events for the player only: in a raid the others' auras, bags and
+-- mana would otherwise all reach the handler just to be dropped
+local UNIT_EVENTS = { UNIT_AURA = true, UNIT_INVENTORY_CHANGED = true, UNIT_POWER_UPDATE = true }
 local function startWatching()
 	for _, e in ipairs(refreshEvents) do
-		if e ~= "UNIT_POWER_UPDATE" or cfg().checkMana then pcall(watcher.RegisterEvent, watcher, e) end
+		if e ~= "UNIT_POWER_UPDATE" or cfg().checkMana then
+			if UNIT_EVENTS[e] and watcher.RegisterUnitEvent then
+				pcall(watcher.RegisterUnitEvent, watcher, e, "player")
+			else
+				pcall(watcher.RegisterEvent, watcher, e)
+			end
+		end
 	end
 	pcall(watcher.RegisterEvent, watcher, "WEAPON_ENCHANT_CHANGED")   -- Mainline family only
 end
