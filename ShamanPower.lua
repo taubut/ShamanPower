@@ -1909,6 +1909,167 @@ end
 
 ShamanPower.pulseOverlays = {}
 
+-- ----------------------------------------------------------------------------
+-- Pulse visuals run by the engine. A pulse object (a CreatePulseOverlay
+-- container, a pop-out's container, or an active-totem overlay) has a wipe bar
+-- and three glow textures. Their motion over one pulse cycle is fixed by the
+-- totem's drop time and interval, so it is handed to AnimationGroups: the wipe
+-- grows with a Scale animation and the glow flash fades with Alpha animations,
+-- started once per cycle. The 20 Hz pulse pass only notices a new cycle (or a
+-- change of state) and restarts them; between those it draws nothing. The
+-- countdown text is set only when the shown tenths change, from cached strings.
+-- ----------------------------------------------------------------------------
+local PULSE_FLASH = 0.15   -- share of the cycle the glow flash lasts
+
+local function setScaleAnim(a, fx, fy, tx, ty)
+	if a.SetScaleFrom then a:SetScaleFrom(fx, fy); a:SetScaleTo(tx, ty)
+	else a:SetFromScale(fx, fy); a:SetToScale(tx, ty) end
+end
+
+-- "1.4" strings without per-frame garbage
+local pulseTenthsCache = {}
+local function PulseTenths(t)
+	local k = math.floor(t * 10 + 0.5)
+	if k < 0 then k = 0 end
+	local s = pulseTenthsCache[k]
+	if not s then s = string.format("%.1f", k / 10); pulseTenthsCache[k] = s end
+	return s
+end
+
+local PULSE_TEXT_KEYS = {
+	inside_top = "barTimeTextTop", inside_bottom = "barTimeTextBottom",
+	above = "aboveTimeText", below = "belowTimeText", on_icon = "iconTimeText",
+}
+
+function ShamanPower:PulseVisualHideText(o)
+	if not o or o._tOpt == nil then return end
+	for _, key in pairs(PULSE_TEXT_KEYS) do
+		local fs = o[key]
+		if fs then fs:Hide() end
+	end
+	o._tOpt, o._tStr, o._tSize = nil, nil, nil
+end
+
+-- Show the countdown in the option's text; only touches the string when the
+-- shown tenths change (at most ten times a second).
+function ShamanPower:PulseVisualText(o, remain, opt)
+	if not o then return end
+	if not opt or opt == "none" then self:PulseVisualHideText(o) return end
+	if o._tOpt ~= opt then
+		self:PulseVisualHideText(o)
+		o._tOpt = opt
+	end
+	local key = PULSE_TEXT_KEYS[opt]
+	local fs = key and o[key]
+	if not fs then return end
+	local size = self.opt.pulseTextSize or 8
+	if o._tSize ~= size then self:SetSPFont(fs, "timers", size, "OUTLINE"); o._tSize = size end
+	local str = PulseTenths(remain)
+	if o._tStr ~= str then fs:SetText(str); o._tStr = str end
+	if not fs:IsShown() then fs:Show() end
+end
+
+local function stopWipe(o)
+	if o._wipeAG then o._wipeAG:Stop() end
+	if o.wipe then o.wipe:Hide() end
+end
+
+local function stopGlows(o, hide)
+	local glows = o.glows
+	if not glows then return end
+	for i, g in ipairs(glows) do
+		local ag = o._glowAG and o._glowAG[i]
+		if ag then ag:Stop() end
+		g:SetAlpha(0)
+		if hide then g:Hide() end
+	end
+end
+
+-- Everything off (idempotent: a pass that finds it already off does nothing).
+function ShamanPower:PulseVisualStop(o)
+	if not o or o._pState == "off" then return end
+	o._pState, o._pIdx = "off", nil
+	stopWipe(o)
+	stopGlows(o, true)
+	self:PulseVisualHideText(o)
+end
+
+-- Keep the object's wipe and glow in step with a totem dropped at `start` that
+-- pulses every `interval` seconds. Restarts the animations on a new cycle, on
+-- a new totem, or when something else hid the wipe; otherwise returns at once.
+-- Returns the totem's age.
+function ShamanPower:PulseVisualSync(o, start, interval, now)
+	local age = now - start
+	if age < 0 then age = 0 end
+	local idx = math.floor(age / interval)
+	local wipe = o.wipe
+	local wipeOk = o.isDisabled or not wipe or (wipe:IsShown() and o._wipeAG ~= nil and o._wipeAG:IsPlaying())
+	if o._pState == "on" and o._pIdx == idx and o._pStart == start and o._pInt == interval and wipeOk then
+		return age
+	end
+	o._pState, o._pIdx, o._pStart, o._pInt = "on", idx, start, interval
+	local phase = (age - idx * interval) / interval
+
+	-- the wipe: from its size now to full over the rest of the cycle
+	if wipe then
+		if o.isDisabled then
+			stopWipe(o)
+		else
+			local ag = o._wipeAG
+			if not ag then
+				ag = wipe:CreateAnimationGroup()
+				o._wipeScale = ag:CreateAnimation("Scale")
+				ag:SetScript("OnFinished", function() wipe:Hide() end)   -- end of the cycle
+				o._wipeAG = ag
+			end
+			ag:Stop()
+			local full = math.max(1, o.maxSize or 22)
+			local cur = math.max(1, full * phase)
+			local sc = o._wipeScale
+			if o.isVertical then
+				wipe:SetHeight(cur)
+				sc:SetOrigin(o.wipeGrowsDown and "TOP" or "BOTTOM", 0, 0)
+				setScaleAnim(sc, 1, 1, 1, full / cur)
+			else
+				wipe:SetWidth(cur)
+				sc:SetOrigin("LEFT", 0, 0)
+				setScaleAnim(sc, 1, 1, full / cur, 1)
+			end
+			sc:SetDuration(math.max(0.01, (1 - phase) * interval))
+			wipe:Show()
+			ag:Play()
+		end
+	end
+
+	-- the glow flash: bright at the pulse, gone after PULSE_FLASH of the cycle
+	local glows = o.glows
+	if glows then
+		if phase < PULSE_FLASH then
+			local k = 1 - phase / PULSE_FLASH
+			local dur = math.max(0.01, (PULSE_FLASH - phase) * interval)
+			if not o._glowAG then o._glowAG = {} end
+			for i, g in ipairs(glows) do
+				local ag = o._glowAG[i]
+				if not ag then
+					ag = g:CreateAnimationGroup()
+					ag.fade = ag:CreateAnimation("Alpha")
+					if ag.SetToFinalAlpha then ag:SetToFinalAlpha(true) end
+					ag:SetScript("OnFinished", function() g:SetAlpha(0) end)
+					o._glowAG[i] = ag
+				end
+				ag:Stop()
+				local a0 = 0.9 * (1.1 - i * 0.2) * k   -- inner glows brighter, as before
+				ag.fade:SetFromAlpha(a0); ag.fade:SetToAlpha(0); ag.fade:SetDuration(dur)
+				g:SetAlpha(a0); g:Show()
+				ag:Play()
+			end
+		else
+			stopGlows(o, false)
+		end
+	end
+	return age
+end
+
 function ShamanPower:CreatePulseOverlay(button)
 	if not button then return nil end
 
@@ -1994,18 +2155,22 @@ function ShamanPower:CreatePulseOverlay(button)
 		for _, glow in ipairs(self.glows) do glow:Show() end
 	end
 
+	-- (the next pulse pass restarts the animations after any of these)
 	container.Hide = function(self)
-		for _, glow in ipairs(self.glows) do glow:Hide() end
+		stopGlows(self, true)
+		self._pState = nil
 	end
 
 	container.HideWipe = function(self)
-		if self.wipe then
-			self.wipe:Hide()
-		end
+		stopWipe(self)
+		self._pState = nil
 	end
 
-	-- Update the wipe progress (0 = just pulsed/no coverage, 1 = about to pulse/full coverage)
+	-- Draw the wipe by hand (0 = just pulsed/no coverage, 1 = about to pulse/full
+	-- coverage). The pulse pass uses PulseVisualSync; this stays for other callers.
 	container.UpdateWipe = function(self, progress)
+		if self._wipeAG then self._wipeAG:Stop() end
+		self._pState = nil
 		if self.wipe then
 			-- Don't show if pulse bar is disabled
 			if self.isDisabled then
@@ -2026,66 +2191,14 @@ function ShamanPower:CreatePulseOverlay(button)
 		end
 	end
 
-	-- Hide all time text elements
-	local function hideAllTimeTexts(self)
-		if self.barTimeTextTop then self.barTimeTextTop:Hide() end
-		if self.barTimeTextBottom then self.barTimeTextBottom:Hide() end
-		if self.aboveTimeText then self.aboveTimeText:Hide() end
-		if self.belowTimeText then self.belowTimeText:Hide() end
-		if self.iconTimeText then self.iconTimeText:Hide() end
-	end
-
-	-- Update the time display
+	-- Update the time display (only when the shown tenths change)
 	container.UpdateTime = function(self, timeRemaining, displayOption)
-		hideAllTimeTexts(self)
-
-		if not displayOption or displayOption == "none" then
-			return
-		end
-
-		local timeText = string.format("%.1f", timeRemaining)
-		local textSize = ShamanPower.opt.pulseTextSize or 8
-
-		if displayOption == "inside_top" then
-			if self.barTimeTextTop then
-				ShamanPower:SetSPFont(self.barTimeTextTop, "timers", textSize, "OUTLINE")
-				self.barTimeTextTop:SetText(timeText)
-				self.barTimeTextTop:Show()
-			end
-		elseif displayOption == "inside_bottom" then
-			if self.barTimeTextBottom then
-				ShamanPower:SetSPFont(self.barTimeTextBottom, "timers", textSize, "OUTLINE")
-				self.barTimeTextBottom:SetText(timeText)
-				self.barTimeTextBottom:Show()
-			end
-		elseif displayOption == "above" then
-			if self.aboveTimeText then
-				ShamanPower:SetSPFont(self.aboveTimeText, "timers", textSize, "OUTLINE")
-				self.aboveTimeText:SetText(timeText)
-				self.aboveTimeText:Show()
-			end
-		elseif displayOption == "below" then
-			if self.belowTimeText then
-				ShamanPower:SetSPFont(self.belowTimeText, "timers", textSize, "OUTLINE")
-				self.belowTimeText:SetText(timeText)
-				self.belowTimeText:Show()
-			end
-		elseif displayOption == "on_icon" then
-			if self.iconTimeText then
-				ShamanPower:SetSPFont(self.iconTimeText, "timers", textSize, "OUTLINE")
-				self.iconTimeText:SetText(timeText)
-				self.iconTimeText:Show()
-			end
-		end
+		ShamanPower:PulseVisualText(self, timeRemaining, displayOption)
 	end
 
 	-- Hide time displays
 	container.HideTime = function(self)
-		if self.barTimeTextTop then self.barTimeTextTop:Hide() end
-		if self.barTimeTextBottom then self.barTimeTextBottom:Hide() end
-		if self.aboveTimeText then self.aboveTimeText:Hide() end
-		if self.belowTimeText then self.belowTimeText:Hide() end
-		if self.iconTimeText then self.iconTimeText:Hide() end
+		ShamanPower:PulseVisualHideText(self)
 	end
 
 	return container
@@ -2101,6 +2214,12 @@ function ShamanPower:PositionPulseWipe(container)
 	local position = self.opt.pulseBarPosition or "on_icon"
 	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
 	local padT, padB, padL, padR = self:GetPartyDotPads()
+
+	-- a running wipe animation belongs to the old placement: stop it, and let the
+	-- next pulse pass start again from the new one
+	if container._wipeAG then container._wipeAG:Stop() end
+	container._pState = nil
+	container.wipeGrowsDown = (position == "on_icon" or position == "below_vert")   -- anchored at the top
 
 	wipe:ClearAllPoints()
 	wipeFrame:ClearAllPoints()
@@ -2220,6 +2339,10 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	local wipe = overlay.wipe
 	local position = self.opt.pulseBarPosition or "on_icon"
 	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
+
+	if overlay._wipeAG then overlay._wipeAG:Stop() end
+	overlay._pState = nil
+	overlay.wipeGrowsDown = (position == "on_icon" or position == "below_vert")   -- anchored at the top
 
 	wipe:ClearAllPoints()
 	if wipeFrame then wipeFrame:ClearAllPoints() end
@@ -2402,13 +2525,22 @@ function ShamanPower:SetupPulseOverlays()
 	end
 end
 
+-- lower-case totem names, cached (the pulse pass compares them 20 times a second)
+local pulseLower = {}
+local function lowerName(name)
+	local l = pulseLower[name]
+	if not l then l = name:lower(); pulseLower[name] = l end
+	return l
+end
+local NO_OVERLAYS = {}
+
 -- Update pulse effects on popped-out single totems
 function ShamanPower:UpdatePoppedOutPulse(element, totemData, startTime)
 	-- Get the active totem name to match against pop-outs
 	local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 
 	-- Iterate through all popped-out overlays for this element
-	for key, overlay in pairs(self.poppedOutOverlays or {}) do
+	for key, overlay in pairs(self.poppedOutOverlays or NO_OVERLAYS) do
 		if overlay.element == element then
 			local frame = self.poppedOutFrames[key]
 			local matchesTotem = false
@@ -2416,47 +2548,19 @@ function ShamanPower:UpdatePoppedOutPulse(element, totemData, startTime)
 			-- Check if this pop-out's totem matches the active totem
 			if haveTotem and activeTotemName and overlay.spellName then
 				-- Simple case-insensitive substring match
-				local activeLower = activeTotemName:lower()
-				local spellLower = overlay.spellName:lower()
+				local activeLower = lowerName(activeTotemName)
+				local spellLower = lowerName(overlay.spellName)
 				if activeLower:find(spellLower, 1, true) or spellLower:find(activeLower, 1, true) then
 					matchesTotem = true
 				end
 			end
 
 			if matchesTotem and totemData and startTime then
-				-- This pop-out matches the active pulsing totem - show pulse
-				local now = GetTime()
-				local totemAge = now - startTime
+				-- This pop-out matches the active pulsing totem: the engine animates
+				-- the wipe and the glow flash; this only restarts them each cycle
 				local pulseInterval = totemData.interval
-				local cyclePos = (totemAge % pulseInterval) / pulseInterval
-				local timeRemaining = pulseInterval * (1 - cyclePos)
-
-				-- Update wipe bar
-				if overlay.UpdateWipe then
-					overlay:UpdateWipe(cyclePos)
-				end
-
-				-- Update time display
-				local displayOption = self.opt.pulseTimeDisplay or "none"
-				if overlay.UpdateTime then
-					overlay:UpdateTime(timeRemaining, displayOption)
-				end
-
-				-- Update glow flash (pulse at start of cycle)
-				local alpha
-				if cyclePos < 0.15 then
-					alpha = 1 - (cyclePos / 0.15)
-				else
-					alpha = 0
-				end
-
-				if alpha > 0 then
-					overlay:SetAlpha(alpha * 0.9)
-					overlay:Show()
-				else
-					overlay:SetAlpha(0)
-					overlay:Hide()
-				end
+				local totemAge = self:PulseVisualSync(overlay, startTime, pulseInterval, GetTime())
+				self:PulseVisualText(overlay, pulseInterval - (totemAge % pulseInterval), self.opt.pulseTimeDisplay or "none")
 
 				-- Show active border on the frame
 				if frame and frame.activeBorder then
@@ -2464,14 +2568,7 @@ function ShamanPower:UpdatePoppedOutPulse(element, totemData, startTime)
 				end
 			else
 				-- No match or no active pulsing totem - hide pulse
-				overlay:SetAlpha(0)
-				overlay:Hide()
-				if overlay.HideWipe then
-					overlay:HideWipe()
-				end
-				if overlay.HideTime then
-					overlay:HideTime()
-				end
+				self:PulseVisualStop(overlay)
 
 				-- Check if this pop-out's totem is active (but not pulsing)
 				if matchesTotem and haveTotem then
@@ -2494,18 +2591,16 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	local glow = self.pulseOverlays[element]
 	if not glow then return end
 	local nativeBar = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
+	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
 
 	-- Compact style paints the pulse inside the line
 	if self:CompactActive() then
-		glow:SetAlpha(0); glow:Hide()
-		if glow.HideWipe then glow:HideWipe() end
-		if glow.HideTime then glow:HideTime() end
+		self:PulseVisualStop(glow)
 		return
 	end
 
 	-- Check if active overlay is showing for this element
 	-- In TotemTimers style mode (activeTotemAsMain), always use main button even when overlay is "active"
-	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
 	local useOverlay = not nativeBar and activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
 
 	-- Check if the active totem is popped out - if so, don't show pulse on main bar
@@ -2514,7 +2609,7 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 		local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 		if haveTotem and activeTotemName then
 			-- Check if any popped-out single totem matches
-			for key, overlay in pairs(self.poppedOutOverlays or {}) do
+			for key, overlay in pairs(self.poppedOutOverlays or NO_OVERLAYS) do
 				if overlay.element == element and overlay.spellName then
 					local ok1, result1 = pcall(string.find, activeTotemName, overlay.spellName, 1, true)
 					local ok2, result2 = pcall(string.find, overlay.spellName, activeTotemName, 1, true)
@@ -2529,107 +2624,23 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 
 	-- If totem is popped out, hide main bar pulse and let UpdatePoppedOutPulse handle it
 	if totemIsPoppedOut then
-		glow:SetAlpha(0)
-		glow:Hide()
-		glow:HideWipe()
-		if glow.HideTime then
-			glow:HideTime()
-		end
+		self:PulseVisualStop(glow)
 		return
 	end
 
 	if totemData and startTime then
-		local now = GetTime()
-		local totemAge = now - startTime
-		local pulseInterval = totemData.interval
-
-		-- Calculate position within current pulse cycle (0 to 1)
-		local cyclePos = (totemAge % pulseInterval) / pulseInterval
-
-		-- Calculate time remaining until next pulse
-		local timeRemaining = pulseInterval * (1 - cyclePos)
-
-		if useOverlay and activeOverlay.wipe then
-			-- Update overlay's wipe using its positioning settings
-			-- Check if pulse bar is disabled
-			if activeOverlay.isDisabled then
-				activeOverlay.wipe:Hide()
-			elseif cyclePos > 0 and cyclePos < 1 then
-				local maxSize = activeOverlay.maxSize or 22
-				local size = maxSize * cyclePos
-				if activeOverlay.isVertical then
-					activeOverlay.wipe:SetHeight(math.max(1, size))
-				else
-					activeOverlay.wipe:SetWidth(math.max(1, size))
-				end
-				activeOverlay.wipe:Show()
-			else
-				activeOverlay.wipe:Hide()
-			end
-			-- Hide main button's wipe
-			glow:UpdateWipe(-1)  -- Hide by passing invalid value
-		else
-			-- Update main button's wipe
-			glow:UpdateWipe(cyclePos)
-		end
-
-		-- Update pulse time display
-		local displayOption = self.opt.pulseTimeDisplay or "none"
-		if useOverlay and activeOverlay.UpdateTime then
-			-- Update time on active overlay
-			activeOverlay:UpdateTime(timeRemaining, displayOption)
-			-- Hide time on main overlay
-			if glow.HideTime then glow:HideTime() end
-		elseif glow.UpdateTime then
-			-- Update time on main overlay
-			glow:UpdateTime(timeRemaining, displayOption)
-		end
-
-		-- Pulse brightens at the start of each cycle (the glow flash)
-		local alpha
-		if cyclePos < 0.15 then
-			-- Quick flash at pulse point
-			alpha = 1 - (cyclePos / 0.15)
-		else
-			alpha = 0
-		end
-
-		if useOverlay and activeOverlay.glows then
-			-- Update overlay's glows
-			for i, overlayGlow in ipairs(activeOverlay.glows) do
-				overlayGlow:SetAlpha(alpha * 0.9 * (1.1 - i * 0.2))
-			end
-			-- Hide main glows
-			glow:SetAlpha(0)
-			glow:Hide()
-		else
-			-- Update main button's glows
-			if alpha > 0 then
-				glow:SetAlpha(alpha * 0.9)
-				glow:Show()
-			else
-				glow:SetAlpha(0)
-				glow:Hide()
-			end
-		end
+		-- One of the two shows the pulse (the active-totem overlay when it is up,
+		-- otherwise the button); the other is kept off. The engine animates the
+		-- wipe and the glow flash; this only restarts them on each new cycle.
+		local target = useOverlay and activeOverlay or glow
+		local other = (target == glow) and activeOverlay or glow
+		if other then self:PulseVisualStop(other) end
+		local interval = totemData.interval
+		local totemAge = self:PulseVisualSync(target, startTime, interval, GetTime())
+		self:PulseVisualText(target, interval - (totemAge % interval), self.opt.pulseTimeDisplay or "none")
 	else
-		glow:SetAlpha(0)
-		glow:Hide()
-		glow:HideWipe()
-		if glow.HideTime then
-			glow:HideTime()
-		end
-
-		-- Also hide overlay's pulse elements
-		if activeOverlay then
-			if activeOverlay.wipe then activeOverlay.wipe:Hide() end
-			if activeOverlay.glows then
-				for _, overlayGlow in ipairs(activeOverlay.glows) do
-					overlayGlow:SetAlpha(0)
-				end
-			end
-			if activeOverlay.HideTime then activeOverlay:HideTime() end
-		end
+		self:PulseVisualStop(glow)
+		if activeOverlay then self:PulseVisualStop(activeOverlay) end
 	end
 end
 
@@ -3933,59 +3944,13 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	iconTimeText:Hide()
 	overlay.iconTimeText = iconTimeText
 
-	-- Helper to hide all time texts
-	local function hideAllTimeTexts(ov)
-		if ov.barTimeTextTop then ov.barTimeTextTop:Hide() end
-		if ov.barTimeTextBottom then ov.barTimeTextBottom:Hide() end
-		if ov.aboveTimeText then ov.aboveTimeText:Hide() end
-		if ov.belowTimeText then ov.belowTimeText:Hide() end
-		if ov.iconTimeText then ov.iconTimeText:Hide() end
-	end
-
-	-- UpdateTime method for active overlay
+	-- Time text: only touched when the shown tenths change (see PulseVisualText)
 	overlay.UpdateTime = function(self, timeRemaining, displayOption)
-		hideAllTimeTexts(self)
-		if not displayOption or displayOption == "none" then return end
-
-		local timeText = string.format("%.1f", timeRemaining)
-		local textSize = ShamanPower.opt.pulseTextSize or 8
-
-		if displayOption == "inside_top" then
-			if self.barTimeTextTop then
-				ShamanPower:SetSPFont(self.barTimeTextTop, "timers", textSize, "OUTLINE")
-				self.barTimeTextTop:SetText(timeText)
-				self.barTimeTextTop:Show()
-			end
-		elseif displayOption == "inside_bottom" then
-			if self.barTimeTextBottom then
-				ShamanPower:SetSPFont(self.barTimeTextBottom, "timers", textSize, "OUTLINE")
-				self.barTimeTextBottom:SetText(timeText)
-				self.barTimeTextBottom:Show()
-			end
-		elseif displayOption == "above" then
-			if self.aboveTimeText then
-				ShamanPower:SetSPFont(self.aboveTimeText, "timers", textSize, "OUTLINE")
-				self.aboveTimeText:SetText(timeText)
-				self.aboveTimeText:Show()
-			end
-		elseif displayOption == "below" then
-			if self.belowTimeText then
-				ShamanPower:SetSPFont(self.belowTimeText, "timers", textSize, "OUTLINE")
-				self.belowTimeText:SetText(timeText)
-				self.belowTimeText:Show()
-			end
-		elseif displayOption == "on_icon" then
-			if self.iconTimeText then
-				ShamanPower:SetSPFont(self.iconTimeText, "timers", textSize, "OUTLINE")
-				self.iconTimeText:SetText(timeText)
-				self.iconTimeText:Show()
-			end
-		end
+		ShamanPower:PulseVisualText(self, timeRemaining, displayOption)
 	end
 
-	-- HideTime method for active overlay
 	overlay.HideTime = function(self)
-		hideAllTimeTexts(self)
+		ShamanPower:PulseVisualHideText(self)
 	end
 
 	overlay.frame = frame
@@ -4196,11 +4161,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 
 					-- Hide main button's pulse overlay (we'll use overlay's)
 					if self.pulseOverlays and self.pulseOverlays[element] then
-						local pulse = self.pulseOverlays[element]
-						if pulse.wipe then pulse.wipe:Hide() end
-						for _, glow in ipairs(pulse.glows or {}) do
-							glow:SetAlpha(0)
-						end
+						self:PulseVisualStop(self.pulseOverlays[element])
 					end
 				end
 
@@ -4246,12 +4207,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 						if overlay.dots[i] then overlay.dots[i]:Hide() end
 					end
 				end
-				if overlay.wipe then overlay.wipe:Hide() end
-				if overlay.glows then
-					for _, glow in ipairs(overlay.glows) do
-						glow:SetAlpha(0)
-					end
-				end
+				self:PulseVisualStop(overlay)
 
 				-- Don't reset desaturation here - let UpdatePlayerTotemRange handle it
 				-- based on whether the player is in range of the totem buff
