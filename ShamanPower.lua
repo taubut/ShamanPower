@@ -5030,7 +5030,8 @@ function ShamanPower:ApplyPanelBackdrop(frame, border)
 end
 
 -- Small settings button: dark square, 1px border, three bars. Replaces the
--- Blizzard gear texture on the pop-out frames.
+-- Blizzard gear texture on the pop-out frames. The hover paint is hooked, so
+-- callers add their tooltip with HookScript: a SetScript would wipe it.
 function ShamanPower:StyleSettingsButton(btn)
 	local bg = btn:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(btn)
@@ -5097,13 +5098,13 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	cogBtn:SetScript("OnClick", function()
 		ShamanPower:ShowPopOutSettingsPanel(key, frame)
 	end)
-	cogBtn:SetScript("OnEnter", function(self)
+	cogBtn:HookScript("OnEnter", function(self)
 		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Settings")
 		GameTooltip:Show()
 	end)
-	cogBtn:SetScript("OnLeave", function()
+	cogBtn:HookScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
 	frame.cogBtn = cogBtn
