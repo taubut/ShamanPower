@@ -13190,7 +13190,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 				if memberName then
 					ShamanPower_EarthShieldAssignments[ShamanPower.player] = memberName
 					ShamanPower:UpdateEarthShieldButton()
-					ShamanPower:SendMessage("ESASSIGN " .. ShamanPower.player .. " " .. memberName)   -- the keyword every client handles (was ES_ASSIGN, never received)
+					ShamanPower:SendMessage(ShamanPower:EncodeESAssign(ShamanPower.player, memberName))   -- the keyword every client handles (was ES_ASSIGN, never received)
 				end
 			end
 			-- Close the flyout after picking someone, like the totem flyouts
@@ -15364,7 +15364,8 @@ function ShamanPower:ParseMessage(sender, msg)
 
 	-- Earth Shield assignment sync
 	if kw == "ESASSIGN" then
-		local _, _, name, target = strfind(msg, "^ESASSIGN (.*) (.*)")
+		local name, target = self:DecodeESAssign(msg, sender)
+		if not name or not target then return end
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
@@ -15391,6 +15392,36 @@ function ShamanPower:ParseMessage(sender, msg)
 	-- A burst of messages (a raid's worth of SELF replies) redraws once, on the
 	-- next frame, instead of once per message.
 	self:QueueCommRefresh()
+end
+
+-- ESASSIGN carries two player names. The original form "ESASSIGN <shaman> <target>"
+-- is ambiguous once a name can contain a space (WoW: Forever "First Last"), so
+-- when a name has one, WoW: Forever sends "ESASSIGN|<shaman>|<target>" instead;
+-- '|' cannot occur in a name. Anniversary names never contain spaces, so its
+-- wire format is unchanged. Readers accept both forms.
+function ShamanPower:EncodeESAssign(shaman, target)
+	target = target or "NONE"
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and (strfind(shaman, " ", 1, true) or strfind(target, " ", 1, true)) then
+		return "ESASSIGN|" .. shaman .. "|" .. target
+	end
+	return "ESASSIGN " .. shaman .. " " .. target
+end
+
+function ShamanPower:DecodeESAssign(msg, sender)
+	local name, target = strmatch(msg, "^ESASSIGN|([^|]+)|(.+)$")
+	if name then return name, target end
+	local rest = strmatch(msg, "^ESASSIGN (.+)$")
+	if not rest then return nil end
+	-- Most often the shaman is the sender: everything after their name is the
+	-- target, which keeps a spaced target whole even in the old form.
+	if sender then
+		local plain = strsplit("-", sender)
+		for _, who in ipairs({ sender, plain }) do
+			if strsub(rest, 1, #who + 1) == who .. " " then return who, strsub(rest, #who + 2) end
+		end
+	end
+	-- otherwise the last word is the target (the original reading)
+	return strmatch(rest, "^(.*) (.-)$")
 end
 
 function ShamanPower:CanControl(name)

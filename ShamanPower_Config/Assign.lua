@@ -190,7 +190,7 @@ end
 local function SetEarthShieldTarget(shaman, target)
 	ShamanPower_EarthShieldAssignments = ShamanPower_EarthShieldAssignments or {}
 	ShamanPower_EarthShieldAssignments[shaman] = target
-	SP:SendMessage("ESASSIGN " .. shaman .. " " .. (target or "NONE"))
+	SP:SendMessage(SP.EncodeESAssign and SP:EncodeESAssign(shaman, target) or ("ESASSIGN " .. shaman .. " " .. (target or "NONE")))
 	SP:UpdateLayout()
 	if target then
 		SP:UpdateMiniTotemBar()
