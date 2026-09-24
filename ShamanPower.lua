@@ -11956,6 +11956,39 @@ do
 	end)
 end
 
+-- Smooth fade for the fade rules: the real alpha is still set at once (the source
+-- of truth); an engine Alpha animation then plays from the old value to it over
+-- 0.2 s. Only out of combat: combat start stops any fade before lockdown and the
+-- bar is simply at its full alpha. opt.fadeSmooth == false turns it off.
+local FADE_TIME = 0.2
+local function fadeFrames(self)
+	local list = { self.autoButton, _G["ShamanPowerAutoDropAll"], _G["ShamanPowerEarthShieldBtn"] }
+	if self.totemButtons then for element = 1, 4 do list[#list + 1] = self.totemButtons[element] end end
+	return list
+end
+local function stopFades(self)
+	for _, f in ipairs(fadeFrames(self)) do
+		if f and f.spFadeAG then f.spFadeAG:Stop() end
+	end
+end
+local function playFade(frame, fromAlpha)
+	if not (frame and fromAlpha and frame.CreateAnimationGroup and frame:IsShown()) then return end
+	local toAlpha = frame:GetAlpha()
+	if math.abs(fromAlpha - toAlpha) < 0.01 then return end
+	local ag = frame.spFadeAG
+	if not ag then
+		ag = frame:CreateAnimationGroup()
+		ag.fade = ag:CreateAnimation("Alpha")
+		ag.fade:SetDuration(FADE_TIME)
+		ag.fade:SetSmoothing("IN_OUT")
+		frame.spFadeAG = ag
+	end
+	ag:Stop()
+	ag.fade:SetFromAlpha(fromAlpha)
+	ag.fade:SetToAlpha(toAlpha)
+	ag:Play()   -- ends on the frame's own (already set) alpha
+end
+
 function ShamanPower:UpdateTotemBarVisibility(force)
 	if force then self.totemBarHidden, self.totemBarFaded = nil, nil end   -- a fade setting changed: re-apply
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
@@ -12003,6 +12036,17 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	-- Skip update if state hasn't changed (prevents blinking)
 	if self.totemBarHidden == shouldHide and (self.totemBarFaded or false) == fade then return end
 	if InCombatLockdown() and self.totemBarHidden ~= shouldHide then return end   -- Show/Hide: after combat
+	-- a fade-only change between two visible states, out of combat, may glide
+	local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
+	local glide = self.opt.fadeSmooth ~= false and not inCombat and not force
+		and self.totemBarHidden == false and not shouldHide and (self.totemBarFaded or false) ~= fade
+	local before
+	if glide then
+		before = {}
+		for _, f in ipairs(fadeFrames(self)) do if f then before[f] = f:GetAlpha() end end
+	elseif not InCombatLockdown() then
+		stopFades(self)   -- never let a fade hold the bar down (combat start stops them before lockdown)
+	end
 	self.totemBarHidden = shouldHide
 	self.totemBarFaded = fade
 
@@ -12062,6 +12106,9 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 			if not fade then self:UpdateTotemBarOpacity() end
 		end
 	end
+	if before then
+		for f, old in pairs(before) do playFade(f, old) end
+	end
 end
 
 -- Fade rules react to events, not a timer: combat start (before lockdown, so a
@@ -12075,6 +12122,7 @@ do
 		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) then return end
 		if event == "PLAYER_TARGET_CHANGED" and not o.showWithTarget then return end
 		if event == "PLAYER_REGEN_DISABLED" and not (o.fadeInsteadOfHide or o.showWithTarget) then return end
+		if event == "PLAYER_REGEN_DISABLED" then stopFades(ShamanPower) end   -- before lockdown: full alpha now
 		ShamanPower:UpdateTotemBarVisibility()
 	end)
 end
