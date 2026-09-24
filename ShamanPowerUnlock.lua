@@ -124,6 +124,8 @@ local MODULES = {
 			return SP.opt.esTracker and SP.opt.esTracker.enabled and true or false
 		end },
 }
+-- Files that load later (Ready Check) add their own entries here.
+SP.UnlockModules = MODULES
 
 -- Movers resolve existing split-row pop-outs lazily; these registrations are
 -- never borrowed into a settings preview (the rows have secure children).
