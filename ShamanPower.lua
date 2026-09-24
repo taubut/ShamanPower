@@ -14826,7 +14826,8 @@ function ShamanPower:UpdateAllShamans()
 	local found = 0
 	for _, unitid in pairs(units) do
 		if unitid and (not unitid:find("pet")) and UnitExists(unitid) then
-			if ShamanPower.AllShamans[GetUnitName(unitid, true)] then found = found + 1 end
+			local n = GetUnitName(unitid, true)
+			if n and ShamanPower.AllShamans[ShamanPower:RemoveRealmName(n)] then found = found + 1 end
 		end
 	end
 
@@ -15460,7 +15461,7 @@ function ShamanPower:FormatTime(time)
 end
 
 function ShamanPower:AddRealmName(unitID)
-	local name, realm = strsplit("%-", unitID)
+	local name, realm = strsplit("-", unitID)
 	realm = realm or self.realm
 
 	return name .. "-" .. realm
@@ -15474,7 +15475,10 @@ end
 -- on different realms can share a name there.
 local REGION_UNIQUE_NAMES = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 function ShamanPower:RemoveRealmName(unitID)
-	local name, realm = strsplit("%-", unitID)
+	if type(unitID) ~= "string" then return unitID end
+	-- only the hyphen separates the realm: a WoW: Forever name may contain a space
+	-- ("First Last") and is kept whole
+	local name, realm = strsplit("-", unitID)
 	if REGION_UNIQUE_NAMES then return name end
 	if realm and realm ~= self.realm then
 		return unitID
@@ -15492,6 +15496,9 @@ end
 -- (used by auto-assign).
 local function rosterMember(self, name, rank, subgroup, class, instanceGroup)
 	if not name then return end
+	-- the same form message senders are keyed by (RemoveRealmName), so leaders[]
+	-- and AllShamans[] line up with CheckLeader(sender) and the SELF data
+	name = self:RemoveRealmName(name)
 	if class == "SHAMAN" and ShamanPower.AllShamans[name] then
 		ShamanPower.AllShamans[name].subgroup = subgroup
 	end
