@@ -12171,6 +12171,11 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	if InCombatLockdown() then self._totemBarShownPending = shown; return end
 	self._totemBarShownPending = nil
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then shown = false end
+	-- The hide rules (UpdateTotemBarVisibility) have the last word: a layout pass
+	-- (roster after a fight, zone change, new spell) must not bring back a bar they
+	-- hide, since nothing would hide it again before their next event.
+	local o, asked = self.opt, shown
+	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems) then shown = false end
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -12186,6 +12191,9 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	if tcBtn and not shown then tcBtn:Hide() end
 	local shBtn = _G["ShamanPowerCompactShieldBtn"]
 	if shBtn then shBtn:SetShown(shown and self.CompactShieldLineActive and self:CompactShieldLineActive() or false) end
+	-- and their state checked again (a no-op while it still holds): it can be from
+	-- while the bar was off, or from rules switched off since
+	if asked then self:SetupTotemBarVisibilityUpdater() end
 end
 
 -- Leave hidden secure spell/keybinding targets configured. Only presentation
@@ -12380,22 +12388,26 @@ end
 
 -- The hide and fade rules react to events, not a timer: combat start (before
 -- lockdown, so a hidden bar can still be shown), combat end, a totem going down
--- or away, and target changes. Idle when the options are off.
+-- or away, target changes, and the target turning attackable (or not) without a
+-- target change: an NPC turning hostile, a duel starting, a PvP flag flip (on
+-- either side, as Blizzard's target frame checks it). Idle when the options are off.
 do
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("PLAYER_REGEN_DISABLED")
 	f:RegisterEvent("PLAYER_REGEN_ENABLED")
 	f:RegisterEvent("PLAYER_TARGET_CHANGED")
 	f:RegisterEvent("PLAYER_TOTEM_UPDATE")
+	if f.RegisterUnitEvent then f:RegisterUnitEvent("UNIT_FACTION", "player", "target") else f:RegisterEvent("UNIT_FACTION") end
 	local totemCheckQueued
 	local function totemCheck()
 		totemCheckQueued = nil
 		ShamanPower:UpdateTotemBarVisibility()
 	end
-	f:SetScript("OnEvent", function(_, event)
+	f:SetScript("OnEvent", function(_, event, unit)
 		local o = ShamanPower.opt
 		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) then return end
-		if event == "PLAYER_TARGET_CHANGED" and not o.showWithTarget then return end
+		if (event == "PLAYER_TARGET_CHANGED" or event == "UNIT_FACTION") and not o.showWithTarget then return end
+		if event == "UNIT_FACTION" and unit ~= "target" and unit ~= "player" then return end
 		if event == "PLAYER_TOTEM_UPDATE" then
 			-- read a frame later, once the shadow totem model (combat) has the change too
 			if o.hideWhenNoTotems and not totemCheckQueued then totemCheckQueued = true; C_Timer.After(0, totemCheck) end
@@ -17774,7 +17786,7 @@ if not ShamanPower.TremorReminderLoaded then
 end
 
 -- ============================================================================
--- SPCenter: Reset totem bar and cooldown bar to center of screen
+-- SPCenter: totem bar to the centre of the screen, cooldown bar straight under it
 -- ============================================================================
 
 SLASH_SPCENTER1 = "/spcenter"
@@ -17810,6 +17822,10 @@ SlashCmdList["SPCENTER"] = function(msg)
 		if SP.CompactActive and SP:CompactActive() then d.compactPosition = rec else d.position = rec end
 		SP:ApplyPositionRecord(mainFrame, rec)
 		print("|cff00ff00ShamanPower:|r Totem bar moved to the center of the screen.")
+		-- the hide rules keep it down (SetTotemBarFramesShown): say so, or it looks lost still
+		if SP.totemBarHidden then
+			print("|cff00ff00ShamanPower:|r It is hidden right now by Hide Out of Combat / Hide When No Totems, and shows there when they allow it.")
+		end
 	end
 	if SP.cooldownBar and SP.opt.showCooldownBar then
 		SP:UpdateCooldownBarPosition(true)   -- detaches a bar still on the totem bar
