@@ -1101,8 +1101,9 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "OnTalentsChanged")  -- Wrath dual spec switch
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET"}, 1, "UpdateRoster")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
+	-- one shared pass a second after the roster settles (a raid forming fires
+	-- dozens of GROUP_ROSTER_UPDATEs); pets never mattered to either
+	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED"}, 1, "OnRosterSettled")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
@@ -14913,14 +14914,25 @@ end
 ShamanPower.auraGen = {}
 -- A roster change can put a different player in the same unit slot without an
 -- aura event on that slot: invalidate every group slot's cached answer.
+-- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: this bookkeeping runs
+-- once, 0.3 s after the last one (the Earth Shield carrier's unit token is
+-- re-found here too, since raid indexes shift).
 do
 	local slots = { "party1", "party2", "party3", "party4" }
 	for i = 1, 40 do slots[#slots + 1] = "raid" .. i end
+	local queued = false
+	local function settle()
+		queued = false
+		local gen = ShamanPower.auraGen
+		for _, u in ipairs(slots) do gen[u] = (gen[u] or 0) + 1 end
+		if ShamanPower.UpdateAuraCarrierFilter then ShamanPower:UpdateAuraCarrierFilter() end
+	end
 	local f = CreateFrame("Frame")
 	f:RegisterEvent("GROUP_ROSTER_UPDATE")
 	f:SetScript("OnEvent", function()
-		local gen = ShamanPower.auraGen
-		for _, u in ipairs(slots) do gen[u] = (gen[u] or 0) + 1 end
+		if queued then return end
+		queued = true
+		C_Timer.After(0.3, settle)
 	end)
 end
 function ShamanPower:AuraCacheValid(unit, gen, at)
@@ -14960,12 +14972,8 @@ function ShamanPower:SetupUnitEventFilters()
 	end
 	-- the Earth Shield carrier outside your party (a raid tank): its own frame,
 	-- re-pointed whenever the carrier or the raid's order changes
-	local carrier = CreateFrame("Frame")
-	carrier:RegisterEvent("GROUP_ROSTER_UPDATE")
-	carrier:SetScript("OnEvent", function(self, event, ...)
-		if event == "GROUP_ROSTER_UPDATE" then ShamanPower:UpdateAuraCarrierFilter() return end
-		unitEventDispatch(self, event, ...)
-	end)
+	local carrier = CreateFrame("Frame")   -- roster changes re-point it (see the auraGen block above)
+	carrier:SetScript("OnEvent", unitEventDispatch)
 	unitEventFrames.carrier = carrier
 	self:UpdateAuraCarrierFilter()
 end
@@ -15452,46 +15460,47 @@ function ShamanPower:RemoveRealmName(unitID)
 	end
 end
 
+function ShamanPower:OnRosterSettled()
+	self:UpdateRoster()
+	self:UpdateAllShamans()
+end
+
+-- One roster member: who leads, and which raid subgroup each known shaman is in
+-- (used by auto-assign).
+local function rosterMember(self, name, rank, subgroup, class, instanceGroup)
+	if not name then return end
+	if class == "SHAMAN" and ShamanPower.AllShamans[name] then
+		ShamanPower.AllShamans[name].subgroup = subgroup
+	end
+	if rank and rank > 0 and not instanceGroup then
+		leaders[name] = true
+		if name == self.player and AC_Leader == false then
+			AC_Leader = true
+		end
+	end
+end
+
 function ShamanPower:UpdateRoster()
 	--self:Debug("UpdateRoster()")
 	-- Skip if not in a group (no roster to update)
-	if GetNumGroupMembers() == 0 then
+	local count = GetNumGroupMembers()
+	if count == 0 then
 		return
 	end
-	local units
-	if IsInRaid() then
-		units = raid_units
-	else
-		units = party_units
-	end
 	twipe(leaders)
-	for _, unitid in pairs(units) do
-		if unitid and UnitExists(unitid) then
-			local isPet = unitid:find("pet")
-			local name = GetUnitName(unitid, true)
-			local pclass = (UnitClassBase(unitid))
-			local rank, subgroup
-			if IsInRaid() and (not isPet) then
-				local n = select(3, unitid:find("(%d+)"))
-				name, rank, subgroup = GetRaidRosterInfo(n)
-			else
-				rank = UnitIsGroupLeader(unitid) and 2 or 0
-				subgroup = 1
-			end
-			-- Track which raid subgroup each known shaman is in (used by auto-assign)
-			if pclass == "SHAMAN" and (not isPet) then
-				if ShamanPower.AllShamans[name] then
-					ShamanPower.AllShamans[name].subgroup = subgroup
-				end
-			end
-			if name and (rank > 0) then
-				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-				else
-					leaders[name] = true
-					if name == self.player and AC_Leader == false then
-						AC_Leader = true
-					end
-				end
+	local instanceGroup = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance()
+	if IsInRaid() then
+		-- one call per member gives name, rank, subgroup and class: no unit tokens,
+		-- no string work (pets were walked too and never mattered)
+		for i = 1, count do
+			local name, rank, subgroup, _, _, class = GetRaidRosterInfo(i)
+			rosterMember(self, name, rank, subgroup, class, instanceGroup)
+		end
+	else
+		for i = 1, #party_units do
+			local unitid = party_units[i]
+			if UnitExists(unitid) and UnitIsPlayer(unitid) then
+				rosterMember(self, GetUnitName(unitid, true), UnitIsGroupLeader(unitid) and 2 or 0, 1, (UnitClassBase(unitid)), instanceGroup)
 			end
 		end
 	end
