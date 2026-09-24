@@ -883,8 +883,8 @@ function SP:UpdateCallerButtons()
 	if self.raidCDDemoActive then return end
 	self:InitRaidCooldowns()
 
-	-- Don't show caller buttons when not in a group
-	if GetNumGroupMembers() == 0 then
+	-- Don't show caller buttons when not in a group (or in Windfury-only mode)
+	if GetNumGroupMembers() == 0 or (self.WindfuryOnly and self:WindfuryOnly()) then
 		if self.callerButtonFrame then
 			self.callerButtonFrame:Hide()
 		end

@@ -887,7 +887,7 @@ end
 
 function SP:ToggleTotemPlates()
     self:EnsureProfileTable("totemPlates")
-    local enabled = self.opt.totemPlates.enabled
+    local enabled = self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly())
 
     if enabled then
         self:SetupTotemPlatesEvents()
@@ -916,7 +916,7 @@ function SP:InitializeTotemPlates()
     self:EnsureProfileTable("totemPlates")
     self:DetectNameplateAddon()
 
-    if self.opt.totemPlates.enabled then
+    if self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly()) then
         self:SetupTotemPlatesEvents()
         self:EnableTotemPlatesEvents()
     end

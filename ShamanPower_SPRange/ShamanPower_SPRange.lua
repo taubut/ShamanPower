@@ -892,13 +892,7 @@ function SP:SetupSPRangeUpdater()
 				return
 			end
 			SP:UpdateSPRangeStatus()
-
-			-- Broadcast Windfury status every 2 seconds (every 2nd update)
-			SP.spRangeBroadcastCounter = (SP.spRangeBroadcastCounter or 0) + 1
-			if SP.spRangeBroadcastCounter >= 2 then
-				SP.spRangeBroadcastCounter = 0
-				SP:BroadcastWindfuryStatus()
-			end
+			-- (the Windfury report has its own timer: UpdateWindfuryBroadcaster)
 		end)
 	end
 	-- Only enable if SPRange frame exists and is shown
@@ -936,9 +930,36 @@ function SP:SPRangeHasAnyShamanInGroup()
 	return false
 end
 
+-- The Windfury report runs on its own timer whenever a shaman is in the group,
+-- whether or not the overlay is on screen (so closing the overlay, or
+-- Windfury-only mode, never stops the shaman seeing your Windfury).
+function SP:UpdateWindfuryBroadcaster()
+	if not self.updateSystem then return end
+	if not self.updateSystem.subsystems["wfBroadcast"] then
+		self:RegisterUpdateSubsystem("wfBroadcast", 2.0, function() SP:BroadcastWindfuryStatus() end)
+	end
+	if self:SPRangeHasAnyShamanInGroup() then
+		self:EnableUpdateSubsystem("wfBroadcast")
+	else
+		self:DisableUpdateSubsystem("wfBroadcast")
+	end
+end
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("GROUP_ROSTER_UPDATE")
+	f:RegisterEvent("PLAYER_ENTERING_WORLD")
+	f:SetScript("OnEvent", function() SP:UpdateWindfuryBroadcaster() end)
+end
+
 -- Auto-show/hide SPRange based on group composition
 function SP:UpdateSPRangeVisibility()
 	if not self.spRangeFrame then return end
+
+	-- Windfury-only mode: no overlay at all (the report keeps running)
+	if self.WindfuryOnly and self:WindfuryOnly() then
+		if self.spRangeFrame:IsShown() then self.spRangeFrame:Hide() end
+		return
+	end
 
 	-- Don't auto-hide if user manually opened it (shamans may want to track their own totems)
 	if self.spRangeManuallyOpened then

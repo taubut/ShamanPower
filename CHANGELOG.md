@@ -25,6 +25,7 @@
 - Settings window: sizes and opacity show as percentages, long labels wrap instead of being cut off, inputs fit their values, and search highlights the right tab.
 - The setup tour has spec cards listing what each pick sets up, a Ready Reminders step and a Position step that moves every frame. Picking a spec only sets starting defaults on a brand-new install.
 - Non-shamans get a short tour and a settings list with only what runs for them (Totem Range, Raid Cooldowns, Totem Plates, the Earth Shield tracker, and the Windfury Companion on Anniversary). Tremor Reminder, Shield Charges, Ready Reminders, Expiring Alerts and Reactive Totems no longer load on other classes.
+- **Windfury-only mode** for non-shamans: one button on their setup screen (or General > Windfury-Only Mode) turns off every window, bar, icon and nameplate, and keeps only the report that tells the group's shamans whether their weapon has Windfury. That report now runs whenever a shaman is in the group, even with the Totem Range overlay closed.
 - What's New opens by itself once per release on a shaman; any character can open it from the settings header.
 - Reactive Totems: the old configuration window is gone; everything is on its settings page. Optional debuff icon (Forever).
 - A saved sound that no longer exists plays Raid Warning instead of nothing.

@@ -3514,6 +3514,20 @@ function SP.Wizard:RenderRole()
 				SP.Wizard:ShowBackupNotice(state.tourBackup, "You can change anything in the steps that follow without worrying about it.")
 			end
 		end)
+		-- The one-click way out for melee who only want their shaman to see their Windfury.
+		local wfOnly = track(Core:MakeButton(c, "Just here so my shaman sees my Windfury", 320, false))
+		wfOnly:SetSize(320, 30); wfOnly:SetPoint("TOP", go, "BOTTOM", 0, -16)
+		wfOnly.text:SetTextColor(1, 0.82, 0)
+		wfOnly:SetScript("OnClick", function()
+			if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
+			SP.Wizard:Close(true)
+			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
+		end)
+		local wfHint = track(c:CreateFontString(nil, "OVERLAY"))
+		wfHint:SetFontObject(Core.fonts.tiny)
+		wfHint:SetPoint("TOP", wfOnly, "BOTTOM", 0, -6); wfHint:SetWidth(460); wfHint:SetJustifyH("CENTER"); wfHint:SetWordWrap(true)
+		wfHint:SetText("Turns off every window, bar and icon ShamanPower has. It keeps quietly telling your group's shamans whether your weapon has Windfury. /sp brings everything back.")
+		wfHint:SetTextColor(Core:Color("textDim"))
 		if wiz.next then wiz.next:Hide() end   -- Start is the only way forward here
 		return
 	end

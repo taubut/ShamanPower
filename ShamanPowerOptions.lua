@@ -9722,3 +9722,17 @@ do
 	SP.OptionHoverFont = { [args.fontName] = "all" }
 	for _, a in ipairs(SP.FONT_AREAS) do SP.OptionHoverFont[args["font_" .. a.key]] = a.key end
 end
+
+-- General > Main (non-shamans): Windfury-only mode, set from the setup tour's
+-- welcome or here. Everything else ShamanPower does is switched off while it is on.
+do
+	local SP = ShamanPower
+	local main = SP.options.args.settings.args.settings_show.args
+	main.windfuryOnly = {
+		order = 0.5, type = "toggle", name = "Windfury-Only Mode", width = "full",
+		desc = "Turns off every window, bar, icon and nameplate ShamanPower has on this character. It keeps quietly telling your group's shamans whether your weapon has Windfury, so their ShamanPower can show it.",
+		hidden = function() return isShaman end,
+		get = function() return SP.opt.windfuryOnly == true end,
+		set = function(_, v) SP:SetWindfuryOnly(v) end,
+	}
+end

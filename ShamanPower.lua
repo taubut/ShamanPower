@@ -1389,8 +1389,25 @@ function ShamanPower_RefreshAssignments()
 	ShamanPower:UpdateRoster()
 end
 
+-- Windfury-only mode (non-shamans): ShamanPower runs nothing but the quiet
+-- "my weapon has Windfury" report to the group's shamans. No frames, no minimap
+-- icon, no Totem Plates, no caller buttons. /sp turns it back off.
+function ShamanPower:WindfuryOnly()
+	return self.opt and self.opt.windfuryOnly == true and select(2, UnitClass("player")) ~= "SHAMAN" or false
+end
+
+function ShamanPower:SetWindfuryOnly(on)
+	if select(2, UnitClass("player")) == "SHAMAN" then return end
+	self.opt.windfuryOnly = on and true or nil
+	ShamanPowerMinimapIcon_Toggle()
+	if self.UpdateSPRangeVisibility then self:UpdateSPRangeVisibility() end
+	if self.UpdateCallerButtons then self:UpdateCallerButtons() end
+	if self.ToggleTotemPlates then self:ToggleTotemPlates() end
+	if self.UpdateWindfuryBroadcaster then self:UpdateWindfuryBroadcaster() end
+end
+
 function ShamanPowerMinimapIcon_Toggle()
-	if (ShamanPower.opt.minimap.show == false) then
+	if (ShamanPower.opt.minimap.show == false) or ShamanPower:WindfuryOnly() then
 		ShamanPower.MinimapIcon:Hide("ShamanPower")
 	else
 		ShamanPower.MinimapIcon:Show("ShamanPower")
