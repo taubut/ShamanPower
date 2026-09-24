@@ -912,6 +912,16 @@ function SP:SetupReactiveTotemsEvents()
 	-- game names them by), so they need no token check
 	for _, f in ipairs(auraFrames) do f:SetScript("OnEvent", OnPartyAura) end
 
+	-- A raid or battleground forming fires dozens of GROUP_ROSTER_UPDATEs, and
+	-- every slot that changed builds new engine displays: rebuild once, 0.3 s
+	-- after the last one.
+	local rebuildQueued = false
+	local function RebuildSettled()
+		rebuildQueued = false
+		SP:RebuildReactiveEngine()
+		RequestUpdate()
+	end
+
 	local function OnReactiveEvent(self, event, unit)
 		if event == "UNIT_AURA" then
 			-- Unfiltered fallback: only player and party units (totems are party-wide only)
@@ -922,7 +932,10 @@ function SP:SetupReactiveTotemsEvents()
 			SP:ReactiveEngineRegen()
 		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
 			or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TOTEM_UPDATE" then
-			if event ~= "PLAYER_TOTEM_UPDATE" then SP:RebuildReactiveEngine() end   -- names / classes may have changed
+			if event ~= "PLAYER_TOTEM_UPDATE" and not rebuildQueued and ReactiveEngineAvailable() then   -- names / classes may have changed
+				rebuildQueued = true
+				C_Timer.After(0.3, RebuildSettled)
+			end
 			RequestUpdate()
 		end
 	end
