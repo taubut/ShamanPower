@@ -629,8 +629,8 @@ function SPK()
 end
 
 -- Called once the chat lockdown has lifted, so what was refused in it can be sent.
--- Checked a moment after any restriction lifts (ADDON_RESTRICTION_STATE_CHANGED,
--- Inactive; the forced cvars too) and after combat, since the lockdown may end
+-- Checked 0.5 s and 2.5 s after any restriction lifts (ADDON_RESTRICTION_STATE_CHANGED,
+-- Inactive; the forced cvars too) and 2.5 s after combat, since the lockdown may end
 -- with an encounter rather than with its own Chat restriction. Only the secrets
 -- regime checks; a callback with nothing to send does nothing.
 local chatUnlockCallbacks = {}
@@ -896,10 +896,12 @@ if SPCompat.secretsRegime then
 			C_Timer.After(0.5, chatUnlocked)
 		else
 			clearIfUnrestricted()
-			C_Timer.After(2.5, chatUnlocked)
 		end
 		C_Timer.After(0.3, clearIfUnrestricted)
 		C_Timer.After(2.5, clearIfUnrestricted)
+		-- the lockdown can still read on at 0.5 s and then end out of combat (an M+
+		-- run, a PvP match) with no event after it: look once more, as above
+		C_Timer.After(2.5, chatUnlocked)
 	end)
 end
 
