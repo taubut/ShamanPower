@@ -435,13 +435,16 @@ local function PassOwn(r)
 end
 
 -- ---------------------------------------------------------------------------
--- The prompt (one at a time; the next opens when it closes)
+-- The prompt (one at a time; the next opens when it closes). ShamanPower's own
+-- dialog (ShamanPowerDialog.lua), drawn above the settings and the setup tour.
 -- ---------------------------------------------------------------------------
+local PROMPT_KEY = "ShamanPowerResistRequest"
+
 local function ClosePrompt()
 	if not prompt then return end
 	prompt.dead = true
-	StaticPopup_Hide("SHAMANPOWER_RESIST_REQUEST", prompt)
 	prompt = nil
+	SP:HideSPDialog(PROMPT_KEY)
 end
 
 local function Resolve(data, accepted)
@@ -459,21 +462,9 @@ local function Resolve(data, accepted)
 	if accepted then Apply(r); Recompute() else PassOwn(r) end
 end
 
-StaticPopupDialogs["SHAMANPOWER_RESIST_REQUEST"] = {
-	text = "%s",
-	button1 = ACCEPT or "Accept",
-	button2 = PASS or "Pass",
-	timeout = ASK_TIMEOUT,
-	whileDead = true,
-	hideOnEscape = true,
-	preferredIndex = 3,
-	OnAccept = function(_, data) Resolve(data, true) end,
-	-- Pass, Escape and the timeout all pass it on to the next shaman
-	OnCancel = function(_, data) Resolve(data, false) end,
-}
-
 local function ShowPrompt(r, name, fake)
-	prompt = { key = r.key, name = name, fake = fake }
+	local data = { key = r.key, name = name, fake = fake }
+	prompt = data
 	local current = AssignedIndex(name, r.element)
 	local slot = ELEMENT_NAMES[r.element]
 	local was = current > 0 and SP.TotemNames[r.element][current]
@@ -487,8 +478,20 @@ local function ShowPrompt(r, name, fake)
 	elseif practice then
 		body = "|cffffd200PRACTICE|r\n\n" .. body
 	end
-	local dialog = StaticPopup_Show("SHAMANPOWER_RESIST_REQUEST", body, nil, prompt)
-	if not dialog then prompt = nil end
+	local dialog = SP:ShowSPDialog({
+		key = PROMPT_KEY,
+		title = "Raid Resistance Request",
+		text = body,
+		buttons = {
+			{ text = ACCEPT or "Accept", onClick = function() Resolve(data, true) end },
+			{ text = PASS or "Pass", onClick = function() Resolve(data, false) end },
+		},
+		-- Escape, the close button and the timeout all pass it on to the next shaman
+		onEscape = function() Resolve(data, false) end,
+		timeout = ASK_TIMEOUT,
+		countdown = true,
+	})
+	if not dialog and prompt == data then prompt = nil end
 end
 
 -- ---------------------------------------------------------------------------
