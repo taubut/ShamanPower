@@ -1656,7 +1656,6 @@ function ShamanPower:ShadowTotemSetCast(spells)
 		local id = spells[element]
 		local name, _, icon = GetSpellInfo(id or 0)
 		if id and name then
-			self:RecordTotemDrop(element)
 			self.shadowTotems[element] = {
 				spellID = id, name = name, icon = icon, startTime = now,
 				duration = shadowLearnedDuration[id] or SHADOW_DEFAULT_DURATION,
@@ -1689,9 +1688,10 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 	local now = GetTime()
 	-- a slot filled by a totem-set summon: confirm that entry instead of retiring it.
 	-- Only that slot is claimed; any other slot's update goes through the normal path.
-	for _, entry in pairs(self.shadowTotems) do
+	for element, entry in pairs(self.shadowTotems) do
 		if entry.setPending and entry.slot == slot and now - entry.setAt <= SET_CONFIRM_WINDOW then
 			entry.setPending = nil
+			self:RecordTotemDrop(element)   -- the summon really placed this one
 			return
 		end
 	end
