@@ -1082,9 +1082,17 @@ SLASH_SPRANGE1 = "/sprange"
 SlashCmdList["SPRANGE"] = function(msg)
 	msg = msg:lower():trim()
 
-	if msg == "toggle" or msg == "show" or msg == "hide" then
+	if msg == "toggle" then
 		-- Toggle the overlay visibility
 		SP:ToggleSPRange()
+	elseif msg == "show" or msg == "hide" then
+		-- only flip it when it is not already that way (show never hides, hide never shows)
+		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown() and true or false
+		if (msg == "show") ~= shown then
+			SP:ToggleSPRange()
+		else
+			SP:Print(shown and "SPRange is already shown." or "SPRange is already hidden.")
+		end
 	else
 		-- Default: show the config menu
 		SP:InitSPRange()
