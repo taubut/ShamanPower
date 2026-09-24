@@ -498,6 +498,30 @@ function SP:ShowBloodlustAlert()
 	self:AddCooldownButtonAlert(blSpellID)
 end
 
+-- WoW: Forever: your own Mana Tide ends the cooldown bar alert (else it pulses its
+-- full 10 s; the caller buttons' cast watch only runs where they show). Your own
+-- casts are never secret, and this listens only while an alert is up.
+local ownTideFrame, ownTideSerial = nil, 0
+local function WatchOwnManaTide()
+	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+	if not ownTideFrame then
+		ownTideFrame = CreateFrame("Frame")
+		ownTideFrame:SetScript("OnEvent", function(f, _, _, _, spellID)
+			if issecretvalue and issecretvalue(spellID) then return end
+			if spellID == 16190 then
+				f:UnregisterAllEvents()
+				SP:RemoveCooldownButtonAlert(16190)
+			end
+		end)
+	end
+	ownTideFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	ownTideSerial = ownTideSerial + 1
+	local serial = ownTideSerial
+	C_Timer.After(10, function()
+		if ownTideSerial == serial then ownTideFrame:UnregisterAllEvents() end
+	end)
+end
+
 -- Show alert when called for Mana Tide
 function SP:ShowManaTideAlert()
 	-- Show center screen alert
@@ -505,6 +529,7 @@ function SP:ShowManaTideAlert()
 
 	-- Also add glow/shake to cooldown bar button
 	self:AddCooldownButtonAlert(16190)  -- Mana Tide Totem spell ID
+	WatchOwnManaTide()
 end
 
 -- Show a center screen alert with icon and text
@@ -1149,6 +1174,13 @@ end
 -- every shaman in the group (the player included), by the tokens this client uses
 local function rebuildWatchedShamans()
 	unwatchAll()
+	-- WoW: Forever: other players' casts are secret whenever a restriction is on
+	-- (combat, instances, PvP matches), so only your own casts (never secret) are
+	-- watched there; the others' buttons keep the request estimates.
+	if SPCompat and SPCompat.secretsRegime then
+		if select(2, UnitClass("player")) == "SHAMAN" then watchUnit(1, "player") end
+		return
+	end
 	local n = 0
 	local function aliasOf(unit)
 		if not IsInRaid() then return nil end
@@ -1182,10 +1214,6 @@ end
 
 -- Enable cast tracking (called when caller buttons are shown)
 function SP:EnableCallerCooldownTracking()
-	-- Secret-value clients: other players' cast events carry secret arguments in
-	-- combat, and the caller tracking never worked there (it used the combat log,
-	-- which is a forbidden registration under restrictions). Skip it, as before.
-	if SPCompat and SPCompat.secretsRegime then return end
 	self:SetupCallerCooldownTracking()
 	if not self.callerCooldownTrackingEnabled then
 		rebuildWatchedShamans()
