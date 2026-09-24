@@ -870,7 +870,8 @@ function SP:SetupReactiveTotemsEvents()
 	if eventFrame.RegisterUnitEvent then
 		for _, units in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
 			local f = CreateFrame("Frame")
-			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Reactive Totems (auras)") end
+			-- same row as eventFrame: the stress baseline counted UNIT_AURA there
+			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Reactive Totems") end
 			f:RegisterUnitEvent("UNIT_AURA", units[1], units[2])
 			auraFrames[#auraFrames + 1] = f
 		end
