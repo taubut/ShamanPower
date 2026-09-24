@@ -1415,7 +1415,7 @@ function ShamanPower_RefreshAssignments()
 	ShamanPower:ScanSpells()
 	if GetNumGroupMembers() > 0 then
 		ShamanPower:SendSelf()
-		ShamanPower:SendMessage("REQ")
+		ShamanPower:RequestShamanData()
 	end
 	ShamanPower:UpdateLayout()
 	ShamanPower:UpdateRoster()
@@ -14494,7 +14494,35 @@ function ShamanPower:ScanSpells()
 	initialized = true
 end
 
-function ShamanPower:SendSelf(sender)
+-- A request for shaman data (REQ) used to be answered with a whisper to each
+-- requester. When a shaman left a raid, every client asked at once and every
+-- shaman sent ~35 whispers: over Blizzard's per-prefix limit (10 in a burst,
+-- then 1 a second), which stalled that shaman's messages - raid calls included
+-- - for half a minute. Now: ONE broadcast to the group, 0.5-2 s later (jittered
+-- so the shamans do not all answer on the same frame), however many requests
+-- arrive in between. Older clients that still whisper, or still ask, are fine:
+-- they read SELF from the group channel either way.
+local selfBroadcastQueued = false
+function ShamanPower:QueueSelfBroadcast()
+	if not isShaman or selfBroadcastQueued then return end
+	selfBroadcastQueued = true
+	C_Timer.After(0.5 + math.random() * 1.5, function()
+		selfBroadcastQueued = false
+		ShamanPower:SendSelf(nil, true)   -- force: a reply must not be swallowed as a repeat
+	end)
+end
+
+-- Ask the group's shamans for their data, at most once every 5 s: a burst of
+-- roster changes (a raid forming, someone leaving) asks once.
+local lastShamanDataRequest = -10
+function ShamanPower:RequestShamanData()
+	local now = GetTime()
+	if now - lastShamanDataRequest < 5 then return end
+	lastShamanDataRequest = now
+	self:SendMessage("REQ")
+end
+
+function ShamanPower:SendSelf(sender, force)
 	if not initialized or GetNumGroupMembers() == 0 then
 		return
 	end
@@ -14549,7 +14577,7 @@ function ShamanPower:SendSelf(sender)
 	if sender and not leader then
 		self:SendMessage("SELF " .. s, "WHISPER", sender)
 	else
-		self:SendMessage("SELF " .. s)
+		self:SendMessage("SELF " .. s, nil, nil, force)
 	end
 
 	-- Set freeassign option locally
@@ -14725,7 +14753,7 @@ function ShamanPower:GROUP_JOINED(event)
 		2.0,
 		function()
 			self:SendSelf()
-			self:SendMessage("REQ")
+			self:RequestShamanData()
 			self:UpdateLayout()
 			self:UpdateRoster()
 		end
@@ -14806,7 +14834,7 @@ function ShamanPower:UpdateAllShamans()
 				ShamanPower.SyncList = {}
 				self:ScanSpells()
 				self:SendSelf()
-				self:SendMessage("REQ")
+				self:RequestShamanData()
 				self:UpdateLayout()
 				self:UpdateRoster()
 			end
@@ -15115,11 +15143,8 @@ function ShamanPower:ParseMessage(sender, msg)
 	local kw = strmatch(msg, "^(%u+)")
 
 	if kw == "REQ" then
-		if IsInRaid() and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-			self:SendSelf()
-		else
-			self:SendSelf(sender)
-		end
+		-- one broadcast to the group shortly after, however many ask (see QueueSelfBroadcast)
+		self:QueueSelfBroadcast()
 		return   -- nothing on our bars changed
 	end
 
