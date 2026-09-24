@@ -1021,27 +1021,6 @@ end
 -- Saves absolute screen position for exact restore
 -- profile.display.position (record). Legacy profiles used absolute frame-unit
 -- offsetX/Y; those convert the first time they are restored.
--- Put the (free-floating) cooldown bar right under the totem bar's buttons, or
--- beside them for a vertical bar, and save that as its position. The default
--- spot for a new setup and for "Reset position", so the two bars start together.
-function ShamanPower:PlaceCooldownBarUnderTotemBar()
-	local bar, totems = self.cooldownBar, self.autoButton
-	if not bar or InCombatLockdown() then return false end
-	if not (totems and totems:IsShown() and totems:GetBottom()) then return false end
-	bar:ClearAllPoints()
-	if self.opt.layout == "VerticalLeft" then
-		bar:SetPoint("LEFT", totems, "RIGHT", 4, 0)
-	elseif self.opt.layout == "Vertical" then
-		bar:SetPoint("RIGHT", totems, "LEFT", -4, 0)
-	else
-		bar:SetPoint("TOP", totems, "BOTTOM", 0, -4)
-	end
-	self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
-	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
-	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
-	return self.opt.cooldownBarPosition ~= nil
-end
-
 function ShamanPower:RestoreTotemBarPosition()
 	local h = _G["ShamanPowerFrame"]
 	if not h then return end
@@ -1049,13 +1028,8 @@ function ShamanPower:RestoreTotemBarPosition()
 	local d = self.opt.display
 	h:SetScale(self.opt.buffscale or 0.9)   -- records are scale-free; SetPoint is not
 	self._barScaleApplied = true
-	-- Compact style uses its own saved spot once it has one; until then it
-	-- starts wherever the icon bar is.
-	local rec = d.position
-	if self.CompactActive and self:CompactActive() and d.compactPosition and d.compactPosition.anchor then
-		rec = d.compactPosition
-	end
-	if rec and rec.anchor then
+	local rec = self:TotemBarRecord()
+	if rec then
 		self:ApplyPositionRecord(h, rec)
 	elseif d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0 then
 		h:ClearAllPoints()
@@ -1063,8 +1037,7 @@ function ShamanPower:RestoreTotemBarPosition()
 		d.position = self:SavePositionRecord(h)
 		d.offsetX, d.offsetY = nil, nil
 	else
-		h:ClearAllPoints()
-		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		self:ApplyDefaultBarPositions()
 	end
 end
 
@@ -1075,10 +1048,11 @@ function ShamanPower:SaveFramePosition(frame)
 	-- bar home again.
 	if frame == _G["ShamanPowerFrame"] and self.CompactActive and self:CompactActive() then
 		self.db.profile.display.compactPosition = self:SavePositionRecord(frame)
-		return
+	else
+		self.db.profile.display.position = self:SavePositionRecord(frame)
+		self.db.profile.display.offsetX, self.db.profile.display.offsetY = nil, nil
 	end
-	self.db.profile.display.position = self:SavePositionRecord(frame)
-	self.db.profile.display.offsetX, self.db.profile.display.offsetY = nil, nil
+	self:ApplyDefaultBarPositions()   -- a cooldown bar on its default spot follows
 end
 
 function ShamanPower:OnEnable()
@@ -1250,10 +1224,6 @@ function ShamanPower:OnProfileChanged()
 
 		-- Apply cooldown bar position from new profile (force reposition to use profile's saved position)
 		if self.cooldownBar then
-			self.opt.cooldownBarPosX = self.opt.cooldownBarPosX or 0
-			self.opt.cooldownBarPosY = self.opt.cooldownBarPosY or -50
-			self.opt.cooldownBarPoint = self.opt.cooldownBarPoint or "CENTER"
-			self.opt.cooldownBarRelPoint = self.opt.cooldownBarRelPoint or "CENTER"
 			self:UpdateCooldownBarPosition(true)  -- true = force reposition from profile
 		end
 	end
@@ -1295,10 +1265,8 @@ end
 function ShamanPower:Reset()
 	if InCombatLockdown() then return end
 
-	-- Reset totem bar to center and clear saved position
+	-- Clear the saved spot: UpdateLayout below puts the bar on its default one
 	local h = _G["ShamanPowerFrame"]
-	h:ClearAllPoints()
-	h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	self:EnsureProfileTable("display")
 	self.opt.display.offsetX = nil
 	self.opt.display.offsetY = nil
@@ -1366,6 +1334,55 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 end
 
 -- /sp and /shamanpower
+-- /sp restrict: the client's forced-restriction cvars make it behave as if you were in a
+-- boss fight, M+, a PvP match, an instance, combat or chat lockdown, so those paths can be
+-- tested solo. They reset on login. Addon code must never SetCVar these (a tainted write
+-- taints every Blizzard frame that later reads the restriction state), so this only shows
+-- the state and prints the untainted command to type.
+local RESTRICT_CVARS = {
+	{ key = "encounter", cvar = "addonEncounterRestrictionsForced", label = "Boss encounter" },
+	{ key = "mplus", cvar = "addonChallengeModeRestrictionsForced", label = "Mythic+" },
+	{ key = "pvp", cvar = "addonPvPMatchRestrictionsForced", label = "PvP match" },
+	{ key = "map", cvar = "addonMapRestrictionsForced", label = "Instance (map)" },
+	{ key = "combat", cvar = "addonCombatRestrictionsForced", label = "Combat" },
+	{ key = "chat", cvar = "addonChatRestrictionsForced", label = "Chat lockdown" },
+}
+
+function ShamanPower:RestrictCommand(args)
+	local key, state = strsplit(" ", args or "", 2)
+	local function value(cvar)
+		local ok, v = pcall(GetCVar, cvar)
+		if ok then return v end
+	end
+	local function line(r)
+		local v = value(r.cvar)
+		local shown = v == nil and "|cff808080n/a|r" or (v == "1" and "|cff4cc776ON|r" or "|cff808080off|r")
+		print(string.format("  %s %s  |cff808080(/sp restrict %s)|r", r.label .. ":", shown, r.key))
+	end
+	if not key or key == "" then
+		print("|cff0070ddShamanPower|r forced restrictions (reset on login):")
+		for _, r in ipairs(RESTRICT_CVARS) do line(r) end
+		return
+	end
+	for _, r in ipairs(RESTRICT_CVARS) do
+		if r.key == key then
+			local v = value(r.cvar)
+			if v == nil then
+				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
+				return
+			end
+			local on
+			if state == "on" or state == "1" then on = true
+			elseif state == "off" or state == "0" then on = false
+			else on = v ~= "1" end
+			print(string.format("|cff0070ddShamanPower|r: %s is %s. Type this yourself:  |cffffd100/console %s %s|r",
+				r.label, v == "1" and "ON" or "off", r.cvar, on and "1" or "0"))
+			return
+		end
+	end
+	print("|cff0070ddShamanPower|r: /sp restrict [encounter | mplus | pvp | map | combat | chat] [on | off]")
+end
+
 SLASH_SHAMANPOWER1 = "/sp"
 SLASH_SHAMANPOWER2 = "/shamanpower"
 SlashCmdList["SHAMANPOWER"] = function(msg)
@@ -1386,6 +1403,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
 	elseif msg == "check" then
 		if ShamanPower.RunReadyCheckSweep then ShamanPower:RunReadyCheckSweep("manual") end
+	elseif msg == "restrict" or msg:sub(1, 9) == "restrict " then
+		ShamanPower:RestrictCommand(strtrim(msg:sub(10)))
 	else
 		print("|cff0070ddShamanPower|r commands:")
 		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode   |   /sp share - your setup code")
@@ -4490,6 +4509,7 @@ end
 -- children; on release it moves the real frame and saves a position record.
 -- ---------------------------------------------------------------------------
 ShamanPower.barMovers = ShamanPower.barMovers or {}
+local MOVER_MIN_W, MOVER_MIN_H = 60, 24   -- a box is never smaller (an empty cooldown bar is 1x1)
 
 function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local mover = self.barMovers[key]
@@ -4583,7 +4603,7 @@ function ShamanPower:ShowBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local cy = (sizeFrame:GetTop() + sizeFrame:GetBottom()) / 2 * es
 	local mes = mover:GetEffectiveScale()
 	mover:ClearAllPoints()
-	mover:SetSize(math.max(W / mes, 60), math.max(H / mes, 24))
+	mover:SetSize(math.max(W / mes, MOVER_MIN_W), math.max(H / mes, MOVER_MIN_H))
 	mover:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / mes, cy / mes)
 	mover:Show()
 end
@@ -4622,6 +4642,104 @@ function ShamanPower:SavePositionRecord(frame)
 	return rec
 end
 
+-- ---------------------------------------------------------------------------
+-- Default spots. A bar with no saved spot sits on its default one, worked out
+-- again whenever a size, the layout or the scale changes, until the player
+-- moves it (which saves a spot); Reset drops the saved spot. Everything is
+-- computed from the saved spots and the sizes set on the frames, never read
+-- back off the screen.
+-- ---------------------------------------------------------------------------
+-- Fresh setups start low and centred, above the action bars, so the totem bar
+-- and the cooldown bar under it aren't covered by the pop-ups and alerts that
+-- sit around the middle of the screen. Picked in game on 2026-09-24. This is
+-- where the VISIBLE bar's centre goes (ShamanPowerAuto, the box Unlock UI
+-- draws), not ShamanPowerFrame: that is a 1x1 anchor the bar hangs off.
+ShamanPower.DEFAULT_TOTEM_BAR_POSITION = { anchor = "CENTER", x = 0, y = -195 }
+-- UIParent units between the two bars' Unlock boxes; a cooldown bar under the
+-- totem bar also leaves room for its box's Reset tab (ShamanPowerUnlock AddReset).
+local BAR_GAP, RESET_TAB_H = 4, 15
+
+-- The totem bar's saved spot, or nil while it sits on its default one. Compact
+-- keeps its own spot once it has one and otherwise starts where the icon bar
+-- is; { default = true } is a Compact spot reset to the default.
+function ShamanPower:TotemBarRecord()
+	local d = self.opt and self.opt.display
+	if not d then return nil end
+	local rec = d.position
+	local c = d.compactPosition
+	if c and (c.anchor or c.default) and self.CompactActive and self:CompactActive() then rec = c end
+	return rec and rec.anchor and rec or nil
+end
+
+-- The visible bar against ShamanPowerFrame's centre, in UIParent units: centre
+-- offset (dx, dy) and size (w, h). UpdateLayout pins its TOPLEFT to the frame's
+-- CENTER at the layout offset.
+function ShamanPower:TotemBarGeometry()
+	local a = self.autoButton
+	local layout = self.Layouts[self.opt.layout] or self.Layouts["Vertical"]
+	local ox = layout.ab.x * self.opt.display.buttonWidth
+	local oy = layout.ab.y * self.opt.display.buttonHeight
+	local w, h = a:GetWidth(), a:GetHeight()
+	local k = ShamanPowerFrame:GetScale() * a:GetScale()
+	return (ox + w / 2) * k, (oy - h / 2) * k, w * k, h * k
+end
+
+-- Where the cooldown bar goes with no saved spot: straight under the totem
+-- bar, its Unlock box clear of the totem bar's.
+function ShamanPower:CooldownBarDefaultRecord()
+	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+	local dx, dy, tw, th = self:TotemBarGeometry()
+	local rec = self:TotemBarRecord()
+	local tx, ty
+	if rec then
+		local ax, ay = AnchorXY(rec.anchor, W, H)
+		tx, ty = ax + rec.x + dx, ay + rec.y + dy
+	else
+		local def = self.DEFAULT_TOTEM_BAR_POSITION
+		local ax, ay = AnchorXY(def.anchor, W, H)
+		tx, ty = ax + def.x, ay + def.y
+	end
+	local bar = self.cooldownBar
+	local bs = bar:GetScale()
+	tw, th = math.max(tw, MOVER_MIN_W), math.max(th, MOVER_MIN_H)
+	local bw, bh = math.max(bar:GetWidth() * bs, MOVER_MIN_W), math.max(bar:GetHeight() * bs, MOVER_MIN_H)
+	-- always straight under the totem bar, whatever the layout
+	local x, y = tx, ty - th / 2 - BAR_GAP - RESET_TAB_H - bh / 2
+	return { anchor = "CENTER", x = x - W / 2, y = y - H / 2 }
+end
+
+-- Put each bar that has no saved spot on its default one. Out of combat only
+-- (both bars hold secure buttons), and never under a bar being dragged.
+function ShamanPower:ApplyDefaultBarPositions()
+	if InCombatLockdown() or self.isDragging or not (self.opt and self.autoButton) then return end
+	if not self:TotemBarRecord() then
+		local def = self.DEFAULT_TOTEM_BAR_POSITION
+		local dx, dy = self:TotemBarGeometry()
+		self:ApplyPositionRecord(ShamanPowerFrame, { anchor = def.anchor, x = def.x - dx, y = def.y - dy })
+	end
+	local bar, rec = self.cooldownBar, self.opt.cooldownBarPosition
+	if bar and bar:GetParent() == UIParent and not self.cooldownBarDragging and not (rec and rec.anchor) then
+		self:ApplyPositionRecord(bar, self:CooldownBarDefaultRecord())
+	end
+end
+
+-- Unlock UI "Reset": drop the saved spot so the bar goes back on its default
+-- one. The totem bar's Reset takes the cooldown bar back under it too.
+function ShamanPower:ResetBarPositions(totemBar)
+	if InCombatLockdown() then return end
+	if totemBar then
+		self:EnsureProfileTable("display")
+		local d = self.opt.display
+		d.offsetX, d.offsetY = nil, nil
+		if self.CompactActive and self:CompactActive() then d.compactPosition = { default = true } else d.position = nil end
+	end
+	self.opt.cooldownBarPosition = nil
+	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
+	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
+	self:ApplyDefaultBarPositions()
+	if self.cooldownBar then self:UpdateCooldownBarPosition(true) end   -- detaches a bar still on the totem bar
+end
+
 -- Unlock/lock the totem bar for free dragging via a mover overlay.
 -- Unlocking is a one-session action: at login the saved flag is cleared, so a
 -- checkbox left ticked never outlives the overlay it stands for.
@@ -4640,6 +4758,7 @@ function ShamanPower:SetTotemBarUnlocked(unlocked)
 	if unlocked then
 		self:ShowBarMover("totembar", _G["ShamanPowerFrame"], self.autoButton, "Totem Bar", function()
 			ShamanPower:SaveFramePosition(_G["ShamanPowerFrame"])
+			if ShamanPower.cdBarMoverShown then ShamanPower:SetCooldownBarUnlocked(true) end   -- a default cooldown bar followed
 		end)
 	else
 		self:HideBarMover("totembar")
@@ -4652,7 +4771,7 @@ function ShamanPower:SetCooldownBarUnlocked(unlocked)
 	if unlocked then
 		-- Moving only makes sense detached from the totem bar; detach (once)
 		-- and reposition, but NEVER re-attach when the mover is turned off.
-		if self.opt.cooldownBarLocked then
+		if self.opt.cooldownBarLocked or self.cooldownBar:GetParent() ~= UIParent then
 			self.opt.cooldownBarLocked = nil
 			self:UpdateCooldownBarPosition(true)
 		end
@@ -8586,6 +8705,8 @@ function ShamanPower:CreateCooldownBar()
 
 	-- Create the cooldown bar frame
 	local bar = CreateFrame("Frame", "ShamanPowerCooldownBar", self.autoButton, "BackdropTemplate")
+	-- a bar on its default spot stays clear of the totem bar as it grows (Hook: the backdrop has its own)
+	bar:HookScript("OnSizeChanged", function() ShamanPower:ApplyDefaultBarPositions() end)
 	-- Only apply backdrop if not hidden
 	if not self.opt.hideCooldownBarFrame then
 		bar:SetBackdrop({
@@ -10502,13 +10623,14 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 			-- UpdateCooldownBarScale does not "compensate" a fresh anchor.
 			self.cooldownBar:SetScale(self.opt.cooldownBarScale or 0.9)
 			self.cooldownBar._scaleApplied = true
-			-- Use saved anchor point if available; a first placement goes right
-			-- under the totem bar (then it floats, and can be moved from there)
-			if self.opt.cooldownBarPosition and self.opt.cooldownBarPosition.anchor then
-				self:ApplyPositionRecord(self.cooldownBar, self.opt.cooldownBarPosition)
-			elseif self:PlaceCooldownBarUnderTotemBar() then
-				-- placed and saved
-			else
+			-- Use the saved spot if there is one; one saved by an old version (not
+			-- the CENTER 0,-50 default) converts once. With neither,
+			-- ApplyDefaultBarPositions below keeps it under the totem bar.
+			local o = self.opt
+			if o.cooldownBarPosition and o.cooldownBarPosition.anchor then
+				self:ApplyPositionRecord(self.cooldownBar, o.cooldownBarPosition)
+			elseif (o.cooldownBarPosX or 0) ~= 0 or (o.cooldownBarPosY or -50) ~= -50
+				or (o.cooldownBarPoint or "CENTER") ~= "CENTER" or (o.cooldownBarRelPoint or "CENTER") ~= "CENTER" then
 				local point = self.opt.cooldownBarPoint or "CENTER"
 				local relPoint = self.opt.cooldownBarRelPoint or "CENTER"
 				self.cooldownBar:SetPoint(point, UIParent, relPoint, self.opt.cooldownBarPosX or 0, self.opt.cooldownBarPosY or 0)
@@ -10516,6 +10638,7 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 				self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
 				self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
 			end
+			self:ApplyDefaultBarPositions()
 		end
 
 		self.cooldownBar:EnableMouse(true)
@@ -10544,8 +10667,13 @@ function ShamanPower:UpdateCooldownBarScale()
 			bar:SetScale(cdScale)
 			bar._scaleApplied = true
 		elseif math.abs(bar:GetScale() - cdScale) > 0.001 then
-			self:SetFrameScaleKeepCenter(bar, cdScale)
-			self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
+			if self.opt.cooldownBarPosition and self.opt.cooldownBarPosition.anchor then
+				self:SetFrameScaleKeepCenter(bar, cdScale)
+				self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
+			else
+				bar:SetScale(cdScale)   -- on its default spot: worked out again for the new size
+				self:ApplyDefaultBarPositions()
+			end
 		end
 	end
 end
@@ -15676,6 +15804,8 @@ function ShamanPower:CreateLayout()
 	self.Header = _G["ShamanPowerFrame"]
 	self.autoButton = CreateFrame("Button", "ShamanPowerAuto", self.Header, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, SecureActionButtonTemplate, ShamanPowerAutoButtonTemplate")
 	self.autoButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
+	-- the bar grows as totems are learned (and with Grid / Compact): one on its default spot re-centres
+	self.autoButton:HookScript("OnSizeChanged", function() ShamanPower:ApplyDefaultBarPositions() end)
 
 	-- ALT+drag to move the frame
 	self.autoButton:RegisterForDrag("LeftButton")
@@ -15692,9 +15822,9 @@ function ShamanPower:CreateLayout()
 		if ShamanPower.isDragging then
 			local frame = ShamanPowerFrame
 			frame:StopMovingOrSizing()
+			ShamanPower.isDragging = false
 			-- Save position to profile (ensures display table exists for proper persistence)
 			ShamanPower:SaveFramePosition(frame)
-			ShamanPower.isDragging = false
 		end
 	end)
 	self:UpdateLayout()
@@ -15716,6 +15846,8 @@ function ShamanPower:UpdateLayout()
 	if not self._barScaleApplied then
 		ShamanPowerFrame:SetScale(buffscale)
 		self._barScaleApplied = true
+	elseif math.abs(ShamanPowerFrame:GetScale() - buffscale) > 0.001 and not self:TotemBarRecord() then
+		ShamanPowerFrame:SetScale(buffscale)   -- on its default spot: put back there below
 	elseif math.abs(ShamanPowerFrame:GetScale() - buffscale) > 0.001 then
 		-- The whole bar (mini-bar frame + buttons hanging off its top-left)
 		-- scales linearly about the root frame, so the shift that keeps the
@@ -15769,6 +15901,7 @@ function ShamanPower:UpdateLayout()
 	else
 		self:SetTotemBarFramesShown(false)
 	end
+	self:ApplyDefaultBarPositions()   -- bars with no saved spot follow the new size / layout / scale
 
 	-- Apply opacity settings
 	self:ApplyAllOpacity()

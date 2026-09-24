@@ -2415,7 +2415,8 @@ ShamanPower.options = {
 								ShamanPower:UpdateRoster()
 
 								-- Restore position so autoButton stays in same screen location
-								if oldCenterX and oldCenterY and autoBtn and header then
+								-- (one with no saved spot was just put back on its default one)
+								if oldCenterX and oldCenterY and autoBtn and header and ShamanPower:TotemBarRecord() then
 									local newCenterX, newCenterY = autoBtn:GetCenter()
 									if newCenterX and newCenterY then
 										-- Calculate the offset needed

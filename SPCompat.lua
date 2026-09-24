@@ -507,6 +507,15 @@ function SPCompat.SecureSnippetsWork()
 		snippetsWork, snippetProbeErr = false, "SecureHandlerExecute missing"
 		return false
 	end
+	-- RestrictedExecution.lua compiles every snippet with the global
+	-- loadstring_untainted. When the client doesn't provide it (Forever), the
+	-- probe below can only fail, and error displays such as BugSack still
+	-- catch that failure (they keep seterrorhandler for themselves), so check
+	-- the global first and skip the probe.
+	if type(loadstring_untainted) ~= "function" then
+		snippetsWork, snippetProbeErr = false, "loadstring_untainted missing"
+		return false
+	end
 	local okF, probe = pcall(CreateFrame, "Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 	if not okF or not probe then
 		snippetsWork, snippetProbeErr = false, "could not create a probe frame"
@@ -547,7 +556,9 @@ function SPCompat.SecureSnippetsWork()
 	local okMark, marked = pcall(probe.GetAttribute, probe, "spSnippetProbe")
 	SPCompat.snippetProbeMarked = okMark and marked or nil
 
-	snippetsWork = (ok and not failed) and true or false
+	-- The marker must be set too: with an error display that keeps the error
+	-- handler for itself, a failed compile never reaches our recording handler.
+	snippetsWork = (ok and not failed and SPCompat.snippetProbeMarked) and true or false
 	snippetProbeErr = (not snippetsWork) and (firstErr or "probe call refused") or nil
 	return snippetsWork
 end

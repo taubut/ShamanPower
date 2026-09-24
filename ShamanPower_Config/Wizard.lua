@@ -142,7 +142,8 @@ local function SetTotemBarLayout(val)
 	if autoBtn and autoBtn:IsShown() then ox, oy = autoBtn:GetCenter() end
 	SP.opt.layout = val
 	safecall("UpdateLayout"); safecall("UpdateRoster")
-	if ox and oy and autoBtn and SP.Header then
+	-- (a bar with no saved spot has just been put back on its default one)
+	if ox and oy and autoBtn and SP.Header and (not SP.TotemBarRecord or SP:TotemBarRecord()) then
 		local nx, ny = autoBtn:GetCenter()
 		local frame = _G["ShamanPowerFrame"]
 		if nx and ny and frame then

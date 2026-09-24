@@ -181,6 +181,7 @@ local function AddReset(moverKey, resetFn)
 			if InCombatLockdown() or not self.resetFn then return end
 			pcall(self.resetFn)
 			SP:RefreshUnlockBoxes()
+			C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
 		end)
 		mover.spReset = b
 	end
@@ -220,24 +221,10 @@ end
 -- ---------------------------------------------------------------------------
 -- The two bars
 -- ---------------------------------------------------------------------------
-local function ResetTotemBar()
-	local h = _G["ShamanPowerFrame"]
-	if not h then return end
-	h:ClearAllPoints()
-	h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	if SP.SaveFramePosition then SP:SaveFramePosition(h) end
-end
-
-local function ResetCooldownBar()
-	local bar = SP.cooldownBar
-	if not bar then return end
-	if SP.PlaceCooldownBarUnderTotemBar and SP:PlaceCooldownBarUnderTotemBar() then return end   -- right under the totem bar
-	bar:ClearAllPoints()
-	bar:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
-	SP.opt.cooldownBarPosition = SP:SavePositionRecord(bar)
-	SP.opt.cooldownBarPoint, SP.opt.cooldownBarRelPoint = nil, nil
-	SP.opt.cooldownBarPosX, SP.opt.cooldownBarPosY = nil, nil
-end
+-- Both drop the saved spot; the bars then go on their default spots (the
+-- totem bar's Reset brings the cooldown bar back under it as well).
+local function ResetTotemBar() SP:ResetBarPositions(true) end
+local function ResetCooldownBar() SP:ResetBarPositions(false) end
 
 -- ---------------------------------------------------------------------------
 -- The bar at the top of the screen
@@ -292,7 +279,7 @@ end
 local function ApplyGrid()
 	local on = ACTIVE and SP.opt and SP.opt.unlockGrid and true or false
 	if on then EnsureGrid():Show() elseif gridFrame then gridFrame:Hide() end
-	if doneBar and doneBar.gridBtn then doneBar.gridBtn:SetText(on and "Grid: On" or "Grid: Off") end
+	if doneBar and doneBar.gridBtn then doneBar.gridBtn:SetText(on and "Hide Grid" or "Show Grid") end
 end
 
 local function EnsureDoneBar()
@@ -319,7 +306,7 @@ local function EnsureDoneBar()
 	all:SetSize(150, 24); all:SetPoint("RIGHT", done, "LEFT", -8, 0); all:SetText("Reset All Positions")
 	all:SetScript("OnClick", function() StaticPopup_Show("SHAMANPOWER_UNLOCK_RESET_ALL") end)
 	local grid = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	grid:SetSize(90, 24); grid:SetPoint("RIGHT", all, "LEFT", -8, 0); grid:SetText("Grid: Off")
+	grid:SetSize(90, 24); grid:SetPoint("RIGHT", all, "LEFT", -8, 0); grid:SetText("Show Grid")
 	grid:SetScript("OnClick", function()
 		SP.opt.unlockGrid = not SP.opt.unlockGrid or nil
 		ApplyGrid()
@@ -343,6 +330,7 @@ function SP:ResetAllUnlockPositions()
 		if e.reset then pcall(e.reset) end
 	end
 	self:RefreshUnlockBoxes()
+	C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
 	print("|cff0070ddShamanPower|r: positions reset. Elements without a Reset button stay where they are.")
 end
 
