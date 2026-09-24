@@ -971,7 +971,14 @@ function SP:SetupExpiringAlertsEvents()
 
 	local eventFrame = CreateFrame("Frame", "ShamanPowerExpiringAlertsEventFrame", UIParent)
 	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Expiring Alerts") end
-	eventFrame:RegisterEvent("UNIT_AURA")
+	-- Your own buffs only (shields): the game filters, so the other 39 raid members'
+	-- aura changes never reach this handler. Earth Shield's carrier has its own frame below.
+	if eventFrame.RegisterUnitEvent then
+		eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+	else
+		eventFrame:RegisterEvent("UNIT_AURA")
+	end
+	eventFrame:RegisterEvent("SPELLS_CHANGED")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
 	if mainlineWeaponChecks then
@@ -1002,13 +1009,45 @@ function SP:SetupExpiringAlertsEvents()
 		end
 	end
 
+	-- the carrier's name without a realm, cached until the source name changes
+	-- (this runs on group members' aura changes; no string built per call)
+	local cachedESSource, cachedESName
 	local function IsEarthShieldUnit(unit)
 		local esTarget = ShamanPower.esTrackedTarget
 			or (ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[SP.player])
 			or previousState.earthShieldTarget
 		if not esTarget or not unit or not UnitExists(unit) then return false end
-		return UnitName(unit) == (esTarget:match("^[^%-]+") or esTarget)
+		if esTarget ~= cachedESSource then
+			cachedESSource, cachedESName = esTarget, esTarget:match("^[^%-]+") or esTarget
+		end
+		return UnitName(unit) == cachedESName
 	end
+
+	-- Earth Shield's carrier is another player. Only a shaman who knows Earth Shield
+	-- listens to other units' aura changes at all, and then only for the tokens the
+	-- check below can match (group, target, focus; never nameplates or pets).
+	local ES_TOKENS = { player = true, target = true, focus = true }
+	for i = 1, 4 do ES_TOKENS["party" .. i] = true end
+	for i = 1, 40 do ES_TOKENS["raid" .. i] = true end
+	local esFrame = CreateFrame("Frame")
+	esFrame:SetScript("OnEvent", function(_, _, unit)
+		if type(unit) ~= "string" or isSecretValue(unit) or not ES_TOKENS[unit] then return end
+		if IsEarthShieldUnit(unit) then
+			SP:CheckEarthShieldState(unit, false)
+		end
+	end)
+	local function knowsEarthShield()
+		if SP.ESTrackerUnavailable or not IsSpellKnown then return false end
+		return IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594) or false
+	end
+	local esWatching = false
+	local function refreshESWatch()
+		local want = knowsEarthShield()
+		if want and not esWatching then esFrame:RegisterEvent("UNIT_AURA")
+		elseif not want and esWatching then esFrame:UnregisterEvent("UNIT_AURA") end
+		esWatching = want
+	end
+	refreshESWatch()
 
 	local weaponCheckPending = false
 	local function CheckWeaponsAfterCast()
@@ -1049,7 +1088,10 @@ function SP:SetupExpiringAlertsEvents()
 					end
 				end
 			end
+		elseif event == "SPELLS_CHANGED" then
+			refreshESWatch()
 		elseif event == "PLAYER_ENTERING_WORLD" then
+			refreshESWatch()
 			SP:UpdateExpiringAlertsState()
 			SP:UpdateShieldSounds()
 		elseif event == "PLAYER_REGEN_ENABLED" then
