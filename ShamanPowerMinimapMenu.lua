@@ -127,7 +127,11 @@ local function items()
 	add({ text = "Fonts & Textures", fn = function() SP:OpenConfigWindow({ "settings", "settings_fonts" }) end })
 	if SP.ShowWhatsNew then add({ text = "What's New", fn = function() SP:ShowWhatsNew(true) end }) end
 	add({ text = "Setup Tour", fn = function() if SP.Wizard and SP.Wizard.Open then SP.Wizard:Open() end end })
-	add({ text = "Open Settings", fn = function() SP:OpenConfigWindow() end })
+	-- OpenConfigWindow() with no page toggles: an open window would close
+	add({ text = "Open Settings", fn = function()
+		local win = _G["ShamanPowerConfigUIFrame"]
+		if win and win:IsShown() then win:Raise() else SP:OpenConfigWindow() end
+	end })
 	return list
 end
 
