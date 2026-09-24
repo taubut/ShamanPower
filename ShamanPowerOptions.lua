@@ -1514,6 +1514,21 @@ ShamanPower.options = {
 								ShamanPower:UpdateTotemBarVisibility(true)
 							end
 						},
+						fadeSmooth = {
+							order = 4.5,
+							name = "Smooth Fade",
+							desc = "Glide between faded and full over a fifth of a second instead of switching at once. Out of combat only: the bar is always at full the moment a fight starts.",
+							type = "toggle",
+							width = 1.0,
+							disabled = function(info)
+								return ShamanPower.opt.enabled == false or ShamanPower.opt.fadeInsteadOfHide ~= true
+									or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
+							end,
+							get = function(info) return ShamanPower.opt.fadeSmooth ~= false end,
+							set = function(info, val)
+								if val then ShamanPower.opt.fadeSmooth = nil else ShamanPower.opt.fadeSmooth = false end
+							end
+						},
 						showWithTarget = {
 							order = 5,
 							name = "Show When I Have a Target",
