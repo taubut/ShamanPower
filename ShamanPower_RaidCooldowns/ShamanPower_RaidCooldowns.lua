@@ -299,7 +299,7 @@ function SP:CallManaTideForShaman(shamanName)
 	end
 
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
@@ -416,7 +416,7 @@ function SP:CallDrums()
 		return
 	end
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	self:SendMessage("DRUMCALL", nil, nil, true)
@@ -445,7 +445,7 @@ function SP:CallBloodlust()
 
 	-- Send call message
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	self:SendMessage("BLCALL|" .. target, nil, nil, true)
@@ -470,7 +470,7 @@ function SP:CallManaTide()
 
 	-- Send call to all shamans with Mana Tide
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL", nil, nil, true)
