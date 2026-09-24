@@ -9724,7 +9724,7 @@ do
 				desc = "Opens a small box with the link selected: press Ctrl+C to copy it.",
 				func = function()
 					SP:ShowSPDialog({ key = "discordLink", title = "ShamanPower Discord",
-						text = "The link is selected: press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
+						text = "The link is selected: press |cffFFD100Ctrl+C|r to copy it, then paste it into your browser.",
 						editText = INVITE })
 				end,
 			},
