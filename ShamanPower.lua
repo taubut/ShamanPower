@@ -17319,7 +17319,8 @@ function ShamanPower:CreateLoadout(name, icon, totems)
 	print("|cff00ff00ShamanPower:|r Created loadout '" .. (name or ("Loadout " .. newIndex)) .. "'")
 end
 
-function ShamanPower:ApplyLoadout(index)
+-- quiet: the caller prints its own line (loadout auto-switch)
+function ShamanPower:ApplyLoadout(index, quiet)
 	if InCombatLockdown() then
 		print("|cffff0000ShamanPower:|r Cannot change loadout in combat")
 		return
@@ -17343,7 +17344,7 @@ function ShamanPower:ApplyLoadout(index)
 		self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (assignments[element] or 0))
 	end
 	local name = loadout.name or ("Loadout " .. index)
-	print("|cff00ff00ShamanPower:|r Activated '" .. name .. "'")
+	if not quiet then print("|cff00ff00ShamanPower:|r Activated '" .. name .. "'") end
 	LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
 end
 
