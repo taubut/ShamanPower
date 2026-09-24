@@ -10,6 +10,9 @@ local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo  -- gu
 local SP = ShamanPower
 if not SP then return end
 
+-- Only load for Shamans: nobody else can drop Tremor Totem
+if select(2, UnitClass("player")) ~= "SHAMAN" then return end
+
 -- Mark module as loaded
 SP.TremorReminderLoaded = true
 
