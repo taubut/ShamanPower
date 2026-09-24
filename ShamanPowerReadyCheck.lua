@@ -25,6 +25,8 @@ local GetItemInfoInstantC = (C_Item and C_Item.GetItemInfoInstant) or GetItemInf
 local GetItemIconC = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
 local GetItemNameC = (C_Item and C_Item.GetItemNameByID) or function(id) return (GetItemInfo(id)) end
 local GetSpellTextureC = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
+-- the weapon imbue rows show Windfury Weapon's icon (8232 on both clients), not the weapon
+local function ImbueIcon() return GetSpellTextureC(8232) or "Interface\\Icons\\Spell_Nature_Cyclone" end
 
 local ELEMENTS = { "Earth", "Fire", "Water", "Air" }
 local TOTEM_ITEMS = { 5175, 5176, 5177, 5178 }   -- Earth / Fire / Water / Air Totem (vanilla tools)
@@ -127,11 +129,11 @@ local function imbueMissing(out)
 	if not ok or secret(mh) or secret(oh) then return nil end
 	local any = false
 	if isWeapon(16) and not mh then
-		out[#out + 1] = { GetInventoryItemTexture("player", 16) or "Interface\\Icons\\Spell_Fire_FlameTounge", "No weapon imbue on your main hand" }
+		out[#out + 1] = { ImbueIcon(), "No weapon imbue on your main hand" }
 		any = true
 	end
 	if isWeapon(17) and not oh then
-		out[#out + 1] = { GetInventoryItemTexture("player", 17) or "Interface\\Icons\\Spell_Fire_FlameTounge", "No weapon imbue on your off hand" }
+		out[#out + 1] = { ImbueIcon(), "No weapon imbue on your off hand" }
 		any = true
 	end
 	return any
@@ -393,7 +395,7 @@ function SP:ReadyCheckDemo(on)
 		self.readyCheckDemoActive = true
 		local sample = {
 			{ GetSpellTextureC(324) or "Interface\\Icons\\Spell_Nature_LightningShield", "No Lightning or Water Shield" },
-			{ "Interface\\Icons\\Spell_Fire_FlameTounge", "No weapon imbue on your main hand" },
+			{ ImbueIcon(), "No weapon imbue on your main hand" },
 		}
 		if ITEMS_NEEDED then sample[#sample + 1] = { GetItemIconC(TOTEM_ITEMS[3]) or "Interface\\Icons\\INV_Misc_QuestionMark", "No Water Totem in your bags" } end
 		applyLook(f)
@@ -564,6 +566,9 @@ if fluffy and fluffy.args then
 			soundName = { order = 36, type = "select", name = "Sound", dialogControl = "LSM30_Sound",
 				values = AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound or {}, width = "double",
 				hidden = function() return not cfg().playSound end, disabled = off, get = get("soundName"), set = set("soundName") },
+			testSound = { order = 36.5, type = "execute", name = "Test Sound", desc = "Play the selected sound.", width = 0.7,
+				hidden = function() return not cfg().playSound end, disabled = off,
+				func = function() if SP.GetSoundFile then SP:PlaySoundWithVolume(SP:GetSoundFile(cfg().soundName), nil, true) end end },
 			resetPos = { order = 37, type = "execute", name = "Reset List Position", width = 1,
 				hidden = function() return not cfg().showPanel end,
 				func = function() cfg().pos = nil; if panel then applyPos(panel) end end },
