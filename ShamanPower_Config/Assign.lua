@@ -559,8 +559,15 @@ local function BuildResistStrip(parent)
 		col:SetScript("OnEnter", function(self) ResistTooltip(self, r) end)
 		col:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-		local check = MakeCheck(col, r.label)
+		local check = MakeCheck(col, "Need " .. r.label)
 		check:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
+		-- the label wraps inside its column instead of running into the next one
+		check.label:ClearAllPoints()
+		check.label:SetPoint("TOPLEFT", check, "TOPRIGHT", 5, 0)
+		check.label:SetWidth(colW - 19)
+		check.label:SetJustifyH("LEFT")
+		check.label:SetWordWrap(true)
+		check:SetHitRectInsets(0, -(colW - 14), 0, 0)
 		check.resist = r
 		check:SetScript("OnClick", ResistTickOnClick)
 		check:SetScript("OnEnter", function(self) ResistTooltip(self, r) end)
@@ -569,7 +576,7 @@ local function BuildResistStrip(parent)
 
 		local status = col:CreateFontString(nil, "OVERLAY")
 		status:SetFontObject(Core.fonts.tiny)
-		status:SetPoint("TOPLEFT", col, "TOPLEFT", 0, -20)
+		status:SetPoint("TOPLEFT", check.label, "BOTTOMLEFT", -19, -6)
 		status:SetWidth(colW)
 		status:SetJustifyH("LEFT")
 		status:SetWordWrap(true)
@@ -609,7 +616,7 @@ local function UpdateResistStrip()
 		local text, tone = SP:GetResistStatus(r.key)
 		col.status:SetText(text)
 		col.status:SetTextColor(Core:Color(TONE[tone] or "textMute"))
-		local h = 20 + col.status:GetStringHeight()
+		local h = math.max(14, col.check.label:GetStringHeight()) + 6 + col.status:GetStringHeight()
 		col:SetHeight(h)
 		if h > colH then colH = h end
 	end
@@ -949,6 +956,8 @@ function Assign:Show()
 	end
 	frame:Show()
 	frame:Raise()
+	-- the resistance coverage lines are only kept current while needed: fresh on open
+	if SP.RecomputeResist and ResistStripOn() then SP.RecomputeResist() end
 	self:Redraw()
 	if SOUNDKIT and SOUNDKIT.IG_SPELLBOOK_OPEN then PlaySound(SOUNDKIT.IG_SPELLBOOK_OPEN) end
 end
