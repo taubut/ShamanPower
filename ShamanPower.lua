@@ -9016,10 +9016,6 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 	if btn.alertActive then return end
 	btn.alertActive = true
 
-	-- Store original size
-	btn.originalWidth = btn:GetWidth()
-	btn.originalHeight = btn:GetHeight()
-
 	-- Create glow texture if it doesn't exist
 	if not btn.glowTexture then
 		local glow = btn:CreateTexture(nil, "OVERLAY")
@@ -9034,27 +9030,38 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 
 	btn.glowTexture:Show()
 
-	-- Start animation (throttled to ~30fps to reduce CPU usage)
-	btn.alertElapsed = 0
-	btn.alertUpdateElapsed = 0
-	btn:SetScript("OnUpdate", function(self, elapsed)
-		self.alertElapsed = (self.alertElapsed or 0) + elapsed
-		self.alertUpdateElapsed = (self.alertUpdateElapsed or 0) + elapsed
-		if self.alertUpdateElapsed < 0.033 then return end  -- ~30fps
-		self.alertUpdateElapsed = 0
-
-		-- Glow pulse
-		local glowAlpha = 0.5 + 0.5 * math.sin(self.alertElapsed * 6)
-		if self.glowTexture then
-			self.glowTexture:SetAlpha(glowAlpha)
+	-- The pulse runs in the engine (AnimationGroups): no Lua per frame. Same
+	-- shape as the old hand-driven pulse: the glow swings 0 -> 1 alpha about once
+	-- a second (sin 6t), the icon swings 85% -> 115% size about every 1.6 s (sin 4t).
+	-- The icon texture is scaled, not the button: the button is a secure frame,
+	-- and resizing it during combat (when raid calls arrive) is blocked.
+	if not btn.alertAnims and btn.glowTexture.CreateAnimationGroup then
+		local function bounce(region)
+			local ag = region:CreateAnimationGroup()
+			ag:SetLooping("BOUNCE")
+			return ag
 		end
-
-		-- Scale pulse (grow to 1.15x then back) - removed shake for performance
-		local scale = 1.0 + 0.15 * math.sin(self.alertElapsed * 4)
-		local newWidth = (self.originalWidth or 22) * scale
-		local newHeight = (self.originalHeight or 22) * scale
-		self:SetSize(newWidth, newHeight)
-	end)
+		local glowAG = bounce(btn.glowTexture)
+		local ga = glowAG:CreateAnimation("Alpha")
+		ga:SetFromAlpha(0); ga:SetToAlpha(1)
+		ga:SetDuration(math.pi / 6)            -- half of the sin(6t) period
+		ga:SetSmoothing("IN_OUT")
+		local anims = { glowAG }
+		if btn.icon and btn.icon.CreateAnimationGroup then
+			local iconAG = bounce(btn.icon)
+			local sa = iconAG:CreateAnimation("Scale")
+			if sa.SetScaleFrom then sa:SetScaleFrom(0.85, 0.85); sa:SetScaleTo(1.15, 1.15)
+			elseif sa.SetFromScale then sa:SetFromScale(0.85, 0.85); sa:SetToScale(1.15, 1.15) end
+			sa:SetOrigin("CENTER", 0, 0)
+			sa:SetDuration(math.pi / 4)        -- half of the sin(4t) period
+			sa:SetSmoothing("IN_OUT")
+			anims[#anims + 1] = iconAG
+		end
+		btn.alertAnims = anims
+	end
+	if btn.alertAnims then
+		for _, ag in ipairs(btn.alertAnims) do ag:Play() end
+	end
 
 	-- Auto-clear after 10 seconds
 	C_Timer.After(10, function()
@@ -9074,12 +9081,9 @@ function ShamanPower:RemoveCooldownButtonAlert(spellID)
 		btn.glowTexture:Hide()
 	end
 
-	-- Stop animation
-	btn:SetScript("OnUpdate", nil)
-
-	-- Restore original size
-	if btn.originalWidth and btn.originalHeight then
-		btn:SetSize(btn.originalWidth, btn.originalHeight)
+	-- Stop the pulse (the icon and glow go back to their own size and alpha)
+	if btn.alertAnims then
+		for _, ag in ipairs(btn.alertAnims) do ag:Stop() end
 	end
 end
 
