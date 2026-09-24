@@ -332,7 +332,7 @@ frame:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "ENCOUNTER_END" then
 		-- a kill ends the rule's resistance request; a wipe keeps it for the next pull
 		local success = select(5, ...)
-		if success == 1 then ReleaseResist("encounter") end
+		if not (issecretvalue and issecretvalue(success)) and success == 1 then ReleaseResist("encounter") end
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		local p = pending
 		pending = nil
