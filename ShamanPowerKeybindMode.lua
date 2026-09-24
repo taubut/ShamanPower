@@ -319,6 +319,27 @@ local function fitBar()
 	topBar:SetHeight(math.max(56, h))
 end
 
+-- Hide Out of Combat and Hide When No Totems really hide the totem bar, and the
+-- mode is out of combat only: put back on screen what that rule hid (the same
+-- pieces it shows) for the length of the mode. On leaving, the rule decides
+-- again from scratch.
+local barShown = false
+local function showHiddenTotemBar()
+	if not (SP.totemBarHidden and SP.autoButton and SP.opt) then return end
+	if SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() then return end
+	if SP.TotemBarEnabled and not SP:TotemBarEnabled() then return end
+	SP.autoButton:Show()
+	for element = 1, 4 do
+		local btn = SP.totemButtons and SP.totemButtons[element]
+		if btn then btn:Show() end
+	end
+	local dropAll = _G["ShamanPowerAutoDropAll"]
+	if dropAll and SP.opt.showDropAllButton ~= false then dropAll:Show() end
+	local es = _G["ShamanPowerEarthShieldBtn"]
+	if es and SP.HasEarthShield and SP:HasEarthShield() then es:Show() end
+	barShown = true
+end
+
 function Leave(save, why)
 	if not ACTIVE then return end
 	ACTIVE = false
@@ -334,6 +355,11 @@ function Leave(save, why)
 	capture:Hide()
 	topBar:Hide()
 	hideOverlays()
+	-- a fight starting lands here before the lockdown, so the bar can still hide
+	if barShown then
+		barShown = false
+		if SP.UpdateTotemBarVisibility then SP:UpdateTotemBarVisibility(true) end
+	end
 	if why then print("|cff0070ddShamanPower|r: keybind mode closed - " .. why) end
 	-- the addon's override clicks and key labels follow the new bindings
 	if SP.SetupKeybindings then SP:SetupKeybindings() end
@@ -366,6 +392,7 @@ function SP:SetKeybindMode(on)
 	-- our own windows would sit on top of the buttons
 	local cfg = _G["ShamanPowerConfigUIFrame"]
 	if cfg and cfg:IsShown() then cfg:Hide(); SP.keybindReturnToConfig = true end
+	showHiddenTotemBar()
 	capture:RegisterEvent("PLAYER_REGEN_DISABLED")
 	capture:Show()
 	capture:EnableKeyboard(true)
