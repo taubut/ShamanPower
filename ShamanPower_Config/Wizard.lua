@@ -3150,7 +3150,7 @@ function SP.Wizard:EnterPositioning()
 		Core:SolidTex(posBar, "windowBg", "BACKGROUND", nil, true)
 		Core:MakeBorder(posBar, "accent", 2)
 		local t = posBar:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
-		t:SetPoint("LEFT", posBar, "LEFT", 16, 0); t:SetText("Drag your bars to move them")
+		t:SetPoint("LEFT", posBar, "LEFT", 16, 0); t:SetText(IS_SHAMAN and "Drag your bars to move them" or "Drag the highlighted frames to move them")
 		local done = Core:MakeButton(posBar, "Done", 90, true)
 		done:SetPoint("RIGHT", posBar, "RIGHT", -12, 0)
 		done:SetScript("OnClick", function() SP.Wizard:ExitPositioning() end)
@@ -3667,16 +3667,20 @@ function SP.Wizard:RenderFinish()
 	Core:SolidTex(box, "accent", "BACKGROUND", 0.10); Core:MakeBorder(box, "accent")
 	local h = box:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.title)
 	h:SetPoint("TOPLEFT", box, "TOPLEFT", 20, -16); h:SetWidth(520); h:SetJustifyH("LEFT")
-	h:SetTextColor(Core:Color("accentHi")); h:SetText("There is a LOT more in Settings")
+	h:SetTextColor(Core:Color("accentHi")); h:SetText(IS_SHAMAN and "There is a LOT more in Settings" or "There is more in Settings")
 	local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
 	b:SetPoint("TOPLEFT", h, "BOTTOMLEFT", 0, -8); b:SetWidth(520); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
-	b:SetText("This walkthrough only covered the essentials. The full settings window has far more:"
+	b:SetText(IS_SHAMAN and ("This walkthrough only covered the essentials. The full settings window has far more:"
 		.. " every totem bar and cooldown bar option, flyouts, macros, loadouts and the loadout bar,"
 		.. " pop-out trackers, mini bar, assignments, colors, sounds, keybinds, profiles"
 		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. ", and more.")
+		or ("The settings window has the rest of what runs on your class: the Totem Range overlay's size,"
+		.. " opacity and layout, the Raid Cooldown caller buttons, Totem Plates"
+		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. " and profiles."))
 	local cmd = box:CreateFontString(nil, "OVERLAY"); cmd:SetFontObject(Core.fonts.row)
 	cmd:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -10); cmd:SetWidth(520); cmd:SetJustifyH("LEFT"); cmd:SetWordWrap(true)
-	cmd:SetText("Open it any time with  |cffFFFFFF/spui|r  or the settings button on your totem bar.")
+	cmd:SetText(IS_SHAMAN and "Open it any time with  |cffFFFFFF/spui|r  or the settings button on your totem bar."
+		or "Open it any time with  |cffFFFFFF/spui|r  or the minimap icon.")
 
 	-- Offer to open it straight after the reload.
 	local tr = CreateFrame("Button", nil, box); tr:SetSize(38, 18)
