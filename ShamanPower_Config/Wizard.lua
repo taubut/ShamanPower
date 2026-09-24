@@ -3199,7 +3199,7 @@ function RenderStep()
 	if roleStep then
 		SP.Wizard:RenderRole()
 		wiz.stepTitle:SetText("Welcome")
-		wiz.next:SetShown(state.role ~= nil)
+		wiz.next:SetShown(IS_SHAMAN and state.role ~= nil)   -- a non-shaman's welcome has its own Start
 		wiz.back:Hide()
 		wiz.next.text:SetText("Next")
 		return
@@ -3517,8 +3517,11 @@ function SP.Wizard:RenderRole()
 		local go = track(Core:MakeButton(c, "Start", 200, true))
 		go:SetSize(200, 34); go:SetPoint("TOP", box, "BOTTOM", 0, -22)
 		go:SetScript("OnClick", function()
+			-- Back here from a later step, Start just carries on (as Next did):
+			-- re-applying the defaults would undo what was changed since.
+			local first = state.role ~= "nonshaman"
 			state.role = "nonshaman"
-			if state.freshInstall then SP.Wizard.ApplyRoleDefaults("nonshaman") end
+			if state.freshInstall and first then SP.Wizard.ApplyRoleDefaults("nonshaman") end
 			state.steps = VisibleSteps()
 			SP.Wizard:Go(2)          -- straight into the first step
 			if not state.freshInstall and not state.tourBackup and SP.BackupCurrentSetup then
