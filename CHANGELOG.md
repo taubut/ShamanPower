@@ -68,6 +68,7 @@
 - **Names:** on Forever players are matched by name alone (the realm part the game reports can differ between players), and two-part names ("First Last") stay whole in assignments, twisting, Earth Shield assignments, leader checks and Windfury reports. On Anniversary, Windfury reports and a shaman's own assignments from another realm (battlegrounds) now arrive. `/spdiag names` shows what the game reports and the names ShamanPower uses.
 - The cooldown bar's raid-call alert (glow and icon pulse on a Mana Tide or Bloodlust call) never showed; it does now, and a repeat call keeps it going.
 - Pulse bars stayed invisible after Pulse Bar Position had been set to None and back, until a /reload.
+- Assignments, twisting and Earth Shield targets set while the game blocks addon messages (Forever instance fights) are sent once it lifts, instead of never.
 
 ### Known
 - Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
