@@ -10,7 +10,7 @@ if not L then return end
 L["SHAMANPOWER_NAME"] = "ShamanPower"
 
 -- Minimap
-L["MINIMAP_ICON_TOOLTIP"] = "|cffffffffLeft-Click|r to toggle the assignment window\n|cffffffffRight-Click|r to open options"
+L["MINIMAP_ICON_TOOLTIP"] = "|cffffffffLeft-Click|r to toggle the assignment window\n|cffffffffRight-Click|r for the quick menu\n|cffffffffShift-Right-Click|r to open settings"
 
 -- UI Elements
 L["Auto-Drop"] = "Auto-Drop"

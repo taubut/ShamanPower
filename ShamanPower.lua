@@ -939,8 +939,11 @@ function ShamanPower:OnInitialize()
 				elseif (button == "MiddleButton") then
 					-- Middle click: open /sp totems (for non-shamans, or anyone)
 					ShamanPower:ToggleAssignmentWindow()
-				else
+				elseif IsShiftKeyDown() or not ShamanPower.ShowMinimapMenu then
 					self:OpenConfigWindow()
+				else
+					-- right-click: the quick menu (shift-right-click: settings straight away)
+					ShamanPower:ShowMinimapMenu()
 				end
 			end
 		}

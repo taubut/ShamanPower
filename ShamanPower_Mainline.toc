@@ -25,6 +25,7 @@ ShamanPowerFonts.lua
 ShamanPowerValues.lua
 ShamanPowerOptions.lua
 ShamanPowerManaTint.lua
+ShamanPowerMinimapMenu.lua
 ShamanPowerShare.lua
 ShamanPowerPresets.lua
 ShamanPowerPreview.lua
