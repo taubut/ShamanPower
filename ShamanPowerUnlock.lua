@@ -466,12 +466,26 @@ end
 -- a fight ends the mode: protected frames cannot be moved, and the sample content should not sit over combat
 do
 	local f = CreateFrame("Frame")
+	local resume   -- the setup tour's "bring me back", held until the fight is over
 	f:RegisterEvent("PLAYER_REGEN_DISABLED")
-	f:SetScript("OnEvent", function()
+	f:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_ENABLED" then
+			f:UnregisterEvent("PLAYER_REGEN_ENABLED")
+			local fn = resume
+			resume = nil
+			if fn then pcall(fn) end
+			return
+		end
 		if ACTIVE then
-			SP.unlockReturnToConfig = nil   -- no settings window popping up as the fight starts
+			-- no settings window or setup tour popping up as the fight starts
+			SP.unlockReturnToConfig = nil
+			if SP.unlockOnDone then
+				resume, SP.unlockOnDone = SP.unlockOnDone, nil
+				f:RegisterEvent("PLAYER_REGEN_ENABLED")
+			end
 			SP:SetMasterUnlock(false)
-			print("|cff0070ddShamanPower|r: UI locked again (combat). Positions you had already moved are saved.")
+			print("|cff0070ddShamanPower|r: UI locked again (combat). Positions you had already moved are saved."
+				.. (resume and " The setup tour comes back when the fight ends." or ""))
 		end
 	end)
 end
