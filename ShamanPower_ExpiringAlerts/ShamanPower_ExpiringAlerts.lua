@@ -474,7 +474,9 @@ function SP:ProcessAlertQueue()
 	-- Configure text
 	local textWidth = 0
 	if showText then
-		local displayText = alertData.spellName .. " FADED!"
+		-- shields and imbues name the buff that faded; totem alerts carry their
+		-- own ending ("Destroyed!", "Expired")
+		local displayText = alertData.alertType == "totem" and alertData.spellName or (alertData.spellName .. " FADED!")
 		frame.text:SetText(displayText)
 		local outline = sv.fontOutline and "OUTLINE" or ""
 		SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, outline)
