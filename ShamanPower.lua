@@ -1034,10 +1034,19 @@ function ShamanPower:RestoreTotemBarPosition()
 	-- saved a cooldown bar spot; one set up by 3.0 records how (setupPath).
 	if not d.defaultSpotChecked then
 		d.defaultSpotChecked = true
+		local o = self.opt
+		local upgrade = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
 		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
-		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not (d.position and d.position.anchor) and not legacy
-			and not self.opt.setupPath and (self.opt.setupDone or self.opt.cooldownBarPosition) then
+		if upgrade and not (d.position and d.position.anchor) and not legacy then
 			d.position = { anchor = "CENTER", x = 0, y = 0 }
+		end
+		-- Its cooldown bar likewise: with no saved spot and its old fields still at the
+		-- CENTER 0,-50 default, 2.x put it 50 of its own units below the centre, at its
+		-- own scale. (Old fields moved off that default convert where the bar is placed.)
+		if upgrade and not (o.cooldownBarPosition and o.cooldownBarPosition.anchor)
+			and (o.cooldownBarPosX or 0) == 0 and (o.cooldownBarPosY or -50) == -50
+			and (o.cooldownBarPoint or "CENTER") == "CENTER" and (o.cooldownBarRelPoint or "CENTER") == "CENTER" then
+			o.cooldownBarPosition = { anchor = "CENTER", x = 0, y = -50 * (o.cooldownBarScale or 0.9) }
 		end
 	end
 	local rec = self:TotemBarRecord()
