@@ -486,12 +486,12 @@ local function drawEngineCooldown(f, sv)
 	-- a sweep is the dimming: the covered part is the cooldown left, the rest
 	-- is the icon coming back in colour. Desaturating as well hides that.
 	if style ~= "none" then f.icon:SetDesaturated(false) end
-	if f.ecdOn and f.ecdStyle == style and f.ecdBar == barOn then return end
+	if f.ecdOn and not f.cdChanged and f.ecdStyle == style and f.ecdBar == barOn then return end
 	local id = clientSpellID(f.entry)
 	if not id then return end
 	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)   -- true: not the global cooldown
 	if not ok or d == nil then return end   -- tried again next pass
-	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur = true, style, barOn, d
+	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur, f.cdChanged = true, style, barOn, d, nil
 	local cd = f.cooldown
 	if f.countShown ~= false then f.countShown = false; f.count:SetText("") end   -- the engine's string counts
 	f.overlay:Hide()
@@ -606,13 +606,23 @@ function SP:UpdateReadyReminders()
 				-- show the icon when it ends, even if our estimate says it is still cooling
 				local curved = false
 				if engineOn() and not self.readyDemoActive and C_CurveUtil then
-					if f.readyDurStart ~= start then   -- a new cooldown: fetch its duration object once
-						f.readyDurStart = start
+					-- fetch the duration object once per cooldown, and again when the client
+					-- says a cooldown changed (see the wake frame)
+					if f.readyDurStart ~= start or f.cdChanged then
+						f.readyDurStart, f.cdChanged = start, nil
 						local id = clientSpellID(entry)
 						local okd, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)
 						f.readyDur = okd and d or nil
 					end
 					if f.readyDur then
+						-- nothing of "always" mode may stay behind: the sweep's numbers and
+						-- the bar ignore the icon's alpha (the mode can change mid-cooldown)
+						if f.cooldown:IsShown() then f.cooldown:Hide() end
+						if f.overlay:IsShown() then f.overlay:Hide() end
+						if f.bar:IsShown() then f.bar:Hide() end
+						if f.engineSheet and f.engineSheet:IsShown() then f.engineSheet:Hide() end
+						if f.countShown ~= nil then f.count:SetText(""); f.countShown = nil end
+						f.ecdOn = nil
 						curveMouseOff(f)
 						if not f:IsShown() then f:Show() end
 						curved = curveAlpha(f, f.readyDur, sv.opacity or 1, 0)
@@ -972,9 +982,10 @@ ef:SetScript("OnEvent", function(_, event)
 			wake:SetScript("OnEvent", function(_, event)
 				SP.readyWake = true
 				-- a cooldown can change without its start time changing (reset, haste,
-				-- a secret start): fetch the duration object again on the next pass
+				-- a secret start): fetch the duration object again on the next pass,
+				-- in both modes
 				if event == "SPELL_UPDATE_COOLDOWN" then
-					for _, f in pairs(frames) do f.readyDurStart = nil end
+					for _, f in pairs(frames) do f.cdChanged = true end
 				end
 			end)
 			if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
