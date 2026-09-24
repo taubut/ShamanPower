@@ -820,7 +820,13 @@ function SP:ToggleSPRange()
 end
 
 -- The shamans in your own subgroup, by the name a whisper needs (with the realm
--- for other realms): an instance raid's report goes to them (see below).
+-- for other realms): an instance raid's report goes to them (see below). Read
+-- again at every send, so a name still "Unknown" at roster time is picked up.
+-- Anniversary only: on WoW: Forever the realm label changes and names can have
+-- two parts, so a whisper might not find its target (and the failed whisper's
+-- system message would repeat every heartbeat); there the report stays on
+-- INSTANCE_CHAT.
+local WF_WHISPER = not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 local wfWhisperTargets = {}
 local function refreshWhisperTargets()
 	wipe(wfWhisperTargets)
@@ -832,6 +838,32 @@ local function refreshWhisperTargets()
 				wfWhisperTargets[#wfWhisperTargets + 1] = name
 			end
 		end
+	end
+end
+
+-- Losing Windfury (walking out of the totem's range) is its weapon enchant
+-- running out. Whether or not the client fires an event for that, a one-shot
+-- timer checks the moment it should have run out. One timer at a time: while
+-- the totem keeps renewing the enchant, it waits again for the new end.
+local wfExpireAt, wfExpireQueued = 0, false
+local function wfExpireCheck()
+	local wait = wfExpireAt - GetTime()
+	if wait > 0.05 then C_Timer.After(wait, wfExpireCheck) return end
+	wfExpireQueued = false
+	if not SP:IsUpdateSubsystemEnabled("wfBroadcast") then return end
+	SP:SPRangeHasWindfuryWeapon()   -- on Forever this first read drops SPCompat's cache of an enchant that ran out
+	SP:BroadcastWindfuryStatus()
+end
+local function wfWatchExpiry(mainExp, offExp)
+	-- milliseconds left on each hand; the report says "0" only once both are gone
+	local ms = 0
+	if type(mainExp) == "number" and not (issecretvalue and issecretvalue(mainExp)) then ms = mainExp end
+	if type(offExp) == "number" and not (issecretvalue and issecretvalue(offExp)) and offExp > ms then ms = offExp end
+	if ms <= 0 then return end
+	wfExpireAt = GetTime() + ms / 1000 + 0.2
+	if not wfExpireQueued then
+		wfExpireQueued = true
+		C_Timer.After(ms / 1000 + 0.2, wfExpireCheck)
 	end
 end
 
@@ -849,33 +881,40 @@ function SP:BroadcastWindfuryStatus(heartbeat)
 	if SPK and SPK() == true then self.wfReportOwed = true return false end
 
 	-- Use SAME detection as SPRange - check weapon enchant from GetWeaponEnchantInfo()
-	local hasWindfury = self:SPRangeHasWindfuryWeapon()
+	local hasWindfury, mainExp, offExp = self:SPRangeHasWindfuryWeapon()
+	if hasWindfury then wfWatchExpiry(mainExp, offExp) end
 	local status = hasWindfury and "1" or "0"
 	if not heartbeat and self.lastWFStatus == status then return end
-	self.lastWFStatus = status
-	self.lastWFBroadcast = GetTime()
-	self.wfReportOwed = nil
 
 	-- Totems only reach your own party, so the report only goes there: the
 	-- PARTY channel inside a raid is your own subgroup (4 players, not 39).
 	-- An instance-only group has no home party. A 5-player one (LFG dungeon) uses
 	-- INSTANCE_CHAT, which is those 5; in an instance raid (a battleground, LFR)
-	-- INSTANCE_CHAT reaches everyone there, so the report is whispered to the
-	-- shamans in your own subgroup instead.
+	-- INSTANCE_CHAT reaches everyone there, so on Anniversary the report is
+	-- whispered to the shamans in your own subgroup instead.
 	local channel = "PARTY"
 	if not IsInGroup(LE_PARTY_CATEGORY_HOME) and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-		if IsInRaid() then
-			if #wfWhisperTargets == 0 then refreshWhisperTargets() end
-			for _, name in ipairs(wfWhisperTargets) do
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, "WHISPER", name)
-			end
-			return
-		end
 		channel = "INSTANCE_CHAT"
+		if WF_WHISPER and IsInRaid() then
+			refreshWhisperTargets()
+			-- no name known yet: nothing goes out and nothing is recorded as sent,
+			-- so the next change or heartbeat tries again
+			if #wfWhisperTargets == 0 then return end
+			channel = "WHISPER"
+		end
 	end
+	self.lastWFStatus = status
+	self.lastWFBroadcast = GetTime()
+	self.wfReportOwed = nil
 
 	-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
-	ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
+	if channel == "WHISPER" then
+		for _, name in ipairs(wfWhisperTargets) do
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, "WHISPER", name)
+		end
+	else
+		ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
+	end
 end
 
 -- Get Windfury range data for a specific player
@@ -973,6 +1012,7 @@ end
 -- Changes are sent when the weapon enchants change, not found by polling: these
 -- events are heard only while a shaman is in your party. A burst is checked once,
 -- a moment later (after SPCompat's own handler has dropped its enchant cache).
+-- The enchant running out is also caught by its own timer (wfWatchExpiry).
 local wfCheckQueued, wfCheckForce = false, false
 local function wfCheck()
 	local force = wfCheckForce
@@ -1011,7 +1051,6 @@ function SP:UpdateWindfuryBroadcaster()
 		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
 	end
 	if self:ShamanInMyParty() then
-		refreshWhisperTargets()
 		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
 			self:EnableUpdateSubsystem("wfBroadcast")
 			setWFEvents(true)
