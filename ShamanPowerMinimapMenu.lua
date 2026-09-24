@@ -124,7 +124,7 @@ local function items()
 			add({ text = "Windfury-Only Mode", checked = SP:WindfuryOnly(), fn = function() SP:SetWindfuryOnly(not SP:WindfuryOnly()) end })
 		end
 	end
-	add({ text = "Fonts", fn = function() SP:OpenConfigWindow({ "settings", "settings_fonts" }) end })
+	add({ text = "Fonts & Textures", fn = function() SP:OpenConfigWindow({ "settings", "settings_fonts" }) end })
 	if SP.ShowWhatsNew then add({ text = "What's New", fn = function() SP:ShowWhatsNew(true) end }) end
 	add({ text = "Setup Tour", fn = function() if SP.Wizard and SP.Wizard.Open then SP.Wizard:Open() end end })
 	add({ text = "Open Settings", fn = function() SP:OpenConfigWindow() end })
