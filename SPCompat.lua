@@ -1022,21 +1022,87 @@ end)
 -- Copyable output window (chat can't be copied from) - shared by /spdiag and
 -- /sperrors. ShamanPower's own look: the palette, fonts, border and close X of
 -- ShamanPowerDialog.lua, so it needs no ShamanPower_Config. That file loads
--- after this one, so they are looked up when the window is first shown. No
--- Blizzard template: the scroll bar is our own 4px track and thumb, as in the
--- settings window, and it only runs code while its thumb is being dragged.
+-- after this one, so they are looked up when the window is first shown. If it
+-- or ShamanPower.lua failed to load - the very case /sperrors is for - the
+-- window is drawn from the small copy below instead, so the stacks can still
+-- be read and copied. No Blizzard template: the scroll bar is our own 4px
+-- track and thumb, as in the settings window, and it only runs code while its
+-- thumb is being dragged.
 -- ---------------------------------------------------------------------------
 local COPY_W, COPY_H, COPY_PAD, COPY_HEADER = 680, 440, 14, 46
+-- the palette keys the window uses, the same values as ShamanPowerDialog.lua
+local COPY_COLORS = {
+	windowBg = { 0.055, 0.063, 0.078 }, sidebarBg = { 0.071, 0.082, 0.102 },
+	border   = { 0.180, 0.204, 0.243 }, accent    = { 0.000, 0.439, 0.867 },
+	accentHi = { 0.247, 0.663, 1.000 }, text      = { 0.902, 0.918, 0.941 },
+	textDim  = { 0.541, 0.580, 0.651 }, textMute  = { 0.353, 0.392, 0.455 },
+	warn     = { 0.900, 0.290, 0.290 },
+}
+-- -> color(key, alpha), makeBorder(frame, key, thickness), borderColor(frame, key),
+--    fonts, closeButton(parent): ShamanPowerDialog.lua's, or the fallback copy
+local function CopyWindowKit()
+	local SP = rawget(_G, "ShamanPower")
+	if type(SP) == "table" and SP.SPDialogFonts and SP.SPColor and SP.SPMakeBorder and SP.SPSetBorderColor and SP.CreateSPCloseButton then
+		return function(key, alpha) return SP:SPColor(key, alpha) end,
+			function(frame, key, thickness) SP:SPMakeBorder(frame, key, thickness) end,
+			function(frame, key) SP:SPSetBorderColor(frame, key) end,
+			SP.SPDialogFonts,
+			function(parent) return SP:CreateSPCloseButton(parent, 22) end
+	end
+	local function color(key, alpha)
+		local c = COPY_COLORS[key]
+		return c[1], c[2], c[3], alpha or 1
+	end
+	local function makeBorder(frame, key, thickness)
+		thickness = thickness or 1
+		local e = {}
+		for i = 1, 4 do
+			e[i] = frame:CreateTexture(nil, "BORDER")
+			e[i]:SetColorTexture(color(key))
+		end
+		e[1]:SetPoint("TOPLEFT"); e[1]:SetPoint("TOPRIGHT"); e[1]:SetHeight(thickness)
+		e[2]:SetPoint("BOTTOMLEFT"); e[2]:SetPoint("BOTTOMRIGHT"); e[2]:SetHeight(thickness)
+		e[3]:SetPoint("TOPLEFT"); e[3]:SetPoint("BOTTOMLEFT"); e[3]:SetWidth(thickness)
+		e[4]:SetPoint("TOPRIGHT"); e[4]:SetPoint("BOTTOMRIGHT"); e[4]:SetWidth(thickness)
+		frame.spEdges = e
+	end
+	local function borderColor(frame, key)
+		for _, t in ipairs(frame.spEdges) do t:SetColorTexture(color(key)) end
+	end
+	local function font(name, size, key, path)
+		local f = CreateFont(name)
+		f:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "")
+		f:SetShadowOffset(1, -1)
+		f:SetShadowColor(0, 0, 0, 0.8)
+		f:SetTextColor(color(key))
+		return f
+	end
+	local fonts = {
+		title = font("ShamanPowerCopyFontTitle", 16, "text"),
+		text  = font("ShamanPowerCopyFontText", 12, "text"),
+		dim   = font("ShamanPowerCopyFontDim", 11, "textDim"),
+		tiny  = font("ShamanPowerCopyFontTiny", 10, "textMute", "Fonts\\ARIALN.TTF"),
+	}
+	local function closeButton(parent)
+		local b = CreateFrame("Button", nil, parent)
+		b:SetSize(22, 22)
+		makeBorder(b, "border")
+		local x = b:CreateFontString(nil, "OVERLAY")
+		x:SetFontObject(fonts.text)
+		x:SetPoint("CENTER")
+		x:SetText("X")
+		x:SetTextColor(color("textDim"))
+		b:SetScript("OnEnter", function(self) borderColor(self, "warn"); x:SetTextColor(color("warn")) end)
+		b:SetScript("OnLeave", function(self) borderColor(self, "border"); x:SetTextColor(color("textDim")) end)
+		return b
+	end
+	return color, makeBorder, borderColor, fonts, closeButton
+end
+
 local copyWin
 local function ShowCopyWindow(title, text)
-	local SP = rawget(_G, "ShamanPower")
-	if not (SP and SP.SPDialogFonts and SP.CreateSPCloseButton) then
-		print("|cff3fa9f5ShamanPower|r: the copy window needs ShamanPower's own files, and they did not load (/sperrors in chat says why).")
-		return
-	end
 	if not copyWin then
-		local fonts = SP.SPDialogFonts
-		local function color(key, alpha) return SP:SPColor(key, alpha) end
+		local color, makeBorder, borderColor, fonts, closeButton = CopyWindowKit()
 		local f = CreateFrame("Frame", "ShamanPowerCopyWindow", UIParent)
 		f:SetSize(COPY_W, COPY_H)
 		f:SetPoint("CENTER")
@@ -1050,7 +1116,7 @@ local function ShowCopyWindow(title, text)
 		f:SetScript("OnDragStop", f.StopMovingOrSizing)
 		local bg = f:CreateTexture(nil, "BACKGROUND")
 		bg:SetAllPoints(); bg:SetColorTexture(color("windowBg"))
-		SP:SPMakeBorder(f, "accent", 2)
+		makeBorder(f, "accent", 2)
 		local header = f:CreateTexture(nil, "BACKGROUND", nil, 1)
 		header:SetPoint("TOPLEFT", 2, -2); header:SetPoint("TOPRIGHT", -2, -2); header:SetHeight(COPY_HEADER)
 		header:SetColorTexture(color("sidebarBg"))
@@ -1070,7 +1136,7 @@ local function ShowCopyWindow(title, text)
 		sub:SetFontObject(fonts.tiny)
 		sub:SetPoint("TOPLEFT", f.titleText, "BOTTOMLEFT", 1, -2)
 		sub:SetText(strupper("chat cannot be copied - this box can"))
-		local close = SP:CreateSPCloseButton(f, 22)
+		local close = closeButton(f)
 		close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -12)
 		close:SetScript("OnClick", function() f:Hide() end)
 		local hint = f:CreateFontString(nil, "OVERLAY")
@@ -1085,7 +1151,7 @@ local function ShowCopyWindow(title, text)
 		box:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -COPY_PAD, COPY_PAD)
 		local boxBg = box:CreateTexture(nil, "BACKGROUND")
 		boxBg:SetAllPoints(); boxBg:SetColorTexture(color("sidebarBg"))
-		SP:SPMakeBorder(box, "border")
+		makeBorder(box, "border")
 		local sf = CreateFrame("ScrollFrame", nil, box)
 		sf:SetPoint("TOPLEFT", 8, -6); sf:SetPoint("BOTTOMRIGHT", -16, 6)
 		local eb = CreateFrame("EditBox", nil, sf)
@@ -1094,8 +1160,8 @@ local function ShowCopyWindow(title, text)
 		eb:SetAutoFocus(false)
 		eb:SetWidth(COPY_W - 2 * COPY_PAD - 8 - 16)
 		eb:SetScript("OnEscapePressed", function() f:Hide() end)
-		eb:SetScript("OnEditFocusGained", function(self) SP:SPSetBorderColor(box, "accent"); self:HighlightText() end)
-		eb:SetScript("OnEditFocusLost", function() SP:SPSetBorderColor(box, "border") end)
+		eb:SetScript("OnEditFocusGained", function(self) borderColor(box, "accent"); self:HighlightText() end)
+		eb:SetScript("OnEditFocusLost", function() borderColor(box, "border") end)
 		-- read-only: any user edit restores the report and re-selects it
 		eb:SetScript("OnTextChanged", function(self, user)
 			if user then self:SetText(self.spText or ""); self:HighlightText() end
