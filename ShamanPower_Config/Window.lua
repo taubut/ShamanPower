@@ -208,6 +208,7 @@ local NAV = {
 		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
 		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
+		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
 		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
