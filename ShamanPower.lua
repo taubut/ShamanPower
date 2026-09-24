@@ -14942,15 +14942,24 @@ local function holdMessage(self, msg, type, target)
 		if m.key == key and m[3] == target then tremove(heldMessages, i) end
 	end
 	if #heldMessages >= MAX_HELD then tremove(heldMessages, 1) end
-	heldMessages[#heldMessages + 1] = { msg, type, target, key = key }
+	heldMessages[#heldMessages + 1] = { msg, type, target, key = key,
+		instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
+end
+-- A held message belongs to the group it was made in. The channel is worked out
+-- again when it is sent, so leaving that group or joining another (a battleground,
+-- a Dungeon Finder group) drops it (GROUP_LEFT / GROUP_JOINED), and one made in the
+-- other kind of group is not sent: a held CLEAR must never wipe another group's calls.
+function ShamanPower:DropHeldMessages()
+	heldMessages = nil
 end
 function ShamanPower:SendHeldMessages()
 	local held = heldMessages
 	heldMessages = nil
 	if held then
+		local instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false
 		for i = 1, #held do
 			local m = held[i]
-			self:SendMessage(m[1], m[2], m[3], true)
+			if m.instance == instance then self:SendMessage(m[1], m[2], m[3], true) end
 		end
 	end
 	if sendRefused then
@@ -15118,6 +15127,7 @@ end
 
 function ShamanPower:GROUP_JOINED(event)
 	--self:Debug("[Event] GROUP_JOINED")
+	self:DropHeldMessages()   -- held for the group we were in, not this one
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
 	self:ScanSpells()
@@ -15135,6 +15145,7 @@ end
 
 function ShamanPower:GROUP_LEFT(event)
 	--self:Debug("[Event] GROUP_LEFT")
+	self:DropHeldMessages()   -- held for the group just left
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
 	for pname in pairs(ShamanPower_Assignments) do
