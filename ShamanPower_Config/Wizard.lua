@@ -3309,6 +3309,13 @@ local SPEC_ICON = {
 	elemental   = "Interface\\Icons\\Spell_Nature_Lightning",
 }
 
+-- The spec picked in the setup (a spec card, or the welcome's spec question),
+-- kept per character for the share code (ShamanPowerShareCode.lua), which uses
+-- it when the talents cannot tell.
+local function RememberRole(role)
+	if SPEC_ICON[role] and SP.db and SP.db.char then SP.db.char.setupRole = role end
+end
+
 -- ---------------------------------------------------------------------------
 -- Quick Setup preview: what a built-in preset looks like and what it sets,
 -- decoded from the preset string itself, before the user commits to it.
@@ -3656,6 +3663,7 @@ function SP.Wizard:RenderRole()
 		end)
 		card:SetScript("OnClick", function()
 			state.role = r.key
+			RememberRole(r.key)
 			if state.freshInstall and not state.presetApplied then SP.Wizard.ApplyRoleDefaults(r.key) end   -- existing setups are never touched
 			state.steps = VisibleSteps()
 			RenderStep()
@@ -3927,6 +3935,7 @@ local function quickSetup(role)
 	if role then SP.Wizard.ApplySpecPicks(role) end
 	SP.opt.setupDone = true
 	SP.opt.setupPath = "quick"
+	RememberRole(role)
 	welcomeDlg:Hide()
 	local name = preset and preset.name or "The quick setup"
 	local line = "|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
