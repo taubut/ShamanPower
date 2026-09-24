@@ -1454,6 +1454,42 @@ SlashCmdList["SPDIAG"] = function(msg)
 			or { "totem sets module not loaded on this client (it ships in the Mainline TOC only)" }
 		return ShowCopyWindow("ShamanPower totem sets probe", table.concat(lines, "\n"))
 	end
+	if msg == "names" then
+		-- WoW: Forever names can be "First Last": what the game reports, and what
+		-- ShamanPower keys and sends for them
+		local SP = ShamanPower
+		local lines = {}
+		local function add(fmt, ...) lines[#lines + 1] = string.format(fmt, ...) end
+		local function q(v) if v == nil then return "nil" end return "'" .. tostring(v) .. "'" end
+		local n1, r1 = UnitName("player")
+		add("UnitName('player')          = %s, realm %s", q(n1), q(r1))
+		add("GetUnitName('player', true) = %s", q(GetUnitName and GetUnitName("player", true)))
+		if UnitFullName then local a, b = UnitFullName("player"); add("UnitFullName('player')      = %s, %s", q(a), q(b)) end
+		add("GetRealmName() = %s   GetNormalizedRealmName() = %s", q(GetRealmName and GetRealmName()), q(GetNormalizedRealmName and GetNormalizedRealmName()))
+		add("ShamanPower.player = %s   ShamanPower.realm = %s", q(SP and SP.player), q(SP and SP.realm))
+		local units = {}
+		if IsInRaid() then for i = 1, GetNumGroupMembers() do units[#units + 1] = "raid" .. i end
+		else for i = 1, 4 do units[#units + 1] = "party" .. i end end
+		for _, u in ipairs(units) do
+			if UnitExists(u) then
+				local n, r = UnitName(u)
+				local full = GetUnitName and GetUnitName(u, true)
+				add("%-7s UnitName %s realm %s | GetUnitName %s | key %s", u, q(n), q(r), q(full),
+					q(SP and SP.RemoveRealmName and full and SP:RemoveRealmName(full)))
+			end
+		end
+		if SP and SP.player then
+			local me = SP.player
+			local sample = "ASSIGN " .. me .. " 1 3"
+			add("sample %s -> name %s", q(sample), q(string.match(sample, "^ASSIGN (.+) (%d+) (%d+)$")))
+			if SP.EncodeESAssign then
+				local es = SP:EncodeESAssign(me, "Tank Person")
+				local a2, b2 = SP:DecodeESAssign(es, me)
+				add("sample %s -> shaman %s target %s", q(es), q(a2), q(b2))
+			end
+		end
+		return ShowCopyWindow("ShamanPower names", table.concat(lines, "\n"))
+	end
 	if msg == "ready" then
 		local lines = (ShamanPower and ShamanPower.ReadyRemindersDiag and ShamanPower:ReadyRemindersDiag())
 			or { "Ready Reminders module not loaded" }
