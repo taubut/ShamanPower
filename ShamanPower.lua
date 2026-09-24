@@ -1020,6 +1020,27 @@ end
 -- Saves absolute screen position for exact restore
 -- profile.display.position (record). Legacy profiles used absolute frame-unit
 -- offsetX/Y; those convert the first time they are restored.
+-- Put the (free-floating) cooldown bar right under the totem bar's buttons, or
+-- beside them for a vertical bar, and save that as its position. The default
+-- spot for a new setup and for "Reset position", so the two bars start together.
+function ShamanPower:PlaceCooldownBarUnderTotemBar()
+	local bar, totems = self.cooldownBar, self.autoButton
+	if not bar or InCombatLockdown() then return false end
+	if not (totems and totems:IsShown() and totems:GetBottom()) then return false end
+	bar:ClearAllPoints()
+	if self.opt.layout == "VerticalLeft" then
+		bar:SetPoint("LEFT", totems, "RIGHT", 4, 0)
+	elseif self.opt.layout == "Vertical" then
+		bar:SetPoint("RIGHT", totems, "LEFT", -4, 0)
+	else
+		bar:SetPoint("TOP", totems, "BOTTOM", 0, -4)
+	end
+	self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
+	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
+	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
+	return self.opt.cooldownBarPosition ~= nil
+end
+
 function ShamanPower:RestoreTotemBarPosition()
 	local h = _G["ShamanPowerFrame"]
 	if not h then return end
@@ -10437,9 +10458,12 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 			-- UpdateCooldownBarScale does not "compensate" a fresh anchor.
 			self.cooldownBar:SetScale(self.opt.cooldownBarScale or 0.9)
 			self.cooldownBar._scaleApplied = true
-			-- Use saved anchor point if available, otherwise default to CENTER
+			-- Use saved anchor point if available; a first placement goes right
+			-- under the totem bar (then it floats, and can be moved from there)
 			if self.opt.cooldownBarPosition and self.opt.cooldownBarPosition.anchor then
 				self:ApplyPositionRecord(self.cooldownBar, self.opt.cooldownBarPosition)
+			elseif self:PlaceCooldownBarUnderTotemBar() then
+				-- placed and saved
 			else
 				local point = self.opt.cooldownBarPoint or "CENTER"
 				local relPoint = self.opt.cooldownBarRelPoint or "CENTER"

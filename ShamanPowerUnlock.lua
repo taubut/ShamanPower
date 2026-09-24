@@ -231,6 +231,7 @@ end
 local function ResetCooldownBar()
 	local bar = SP.cooldownBar
 	if not bar then return end
+	if SP.PlaceCooldownBarUnderTotemBar and SP:PlaceCooldownBarUnderTotemBar() then return end   -- right under the totem bar
 	bar:ClearAllPoints()
 	bar:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
 	SP.opt.cooldownBarPosition = SP:SavePositionRecord(bar)

@@ -39,6 +39,7 @@
 - **Windfury-only mode** for non-shamans: one button on their setup screen (or General > Windfury-Only Mode) turns off every window, bar, icon and nameplate, and keeps only the report that tells the group's shamans whether their weapon has Windfury. That report now runs whenever a shaman is in the group, even with the Totem Range overlay closed.
 - What's New opens by itself once per release on a shaman; any character can open it from the settings header.
 - Reactive Totems: the old configuration window is gone; everything is on its settings page. Optional debuff icon (Forever).
+- A new setup starts with the totem bar in the middle of the screen and the cooldown bar right under it (beside it for a vertical bar); "Reset position" in Unlock UI puts it back there.
 - A saved sound that no longer exists plays Raid Warning instead of nothing.
 - The flyout keybindings are for Forever's click-to-open flyouts; on Anniversary they are labelled as such and do nothing.
 - Totem cooldown numbers use the game's own countdown on Forever; ShamanPower turns the game option on for you.
