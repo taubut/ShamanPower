@@ -241,6 +241,17 @@ local function EntryHasPath(entry, path)
 	return false
 end
 
+-- The tab of a composed page that draws this path (a tab's key is its label).
+local function EntryTabForPath(entry, path)
+	local want = table.concat(path, "/")
+	for _, t in ipairs(entry.tabs or {}) do
+		for _, pth in ipairs(t.paths) do
+			if table.concat(pth, "/") == want then return t.label end
+		end
+	end
+	return nil
+end
+
 -- Any top-level group the map above doesn't mention gets collected here so a
 -- newly added tab still shows up without editing NAV.
 local function AppendUnmapped(nav)
@@ -968,9 +979,10 @@ local function ResolvePower(entry)
 		enableEntry.label, enableEntry.desc
 end
 
-local function SelectEntry(entry)
+-- tab: open the page on that tab; nil opens its first
+local function SelectEntry(entry, tab)
 	frame._current = entry
-	frame._activeTab = nil
+	frame._activeTab = tab
 	frame.pageSearch:SetText("")
 	frame.pageSearch.placeholder:Show()
 	SPConfig:RenderPage(entry, nil)
@@ -1625,7 +1637,7 @@ function SPConfig:Open(path)
 	if path then
 		for _, r in ipairs(navRows) do
 			if r.entry and EntryHasPath(r.entry, path) then
-				SelectEntry(r.entry)
+				SelectEntry(r.entry, EntryTabForPath(r.entry, path))   -- e.g. General > Fonts & Textures
 				return
 			end
 		end
