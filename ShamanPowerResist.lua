@@ -915,8 +915,9 @@ if slash then
 end
 
 -- ---------------------------------------------------------------------------
--- Events: nothing runs while idle. Roster settles and comm bursts only wake
--- this up while a request, a practice or one of our changes exists.
+-- Events: nothing runs while idle. Roster settles, comm bursts and hand edits
+-- only wake this up while a request, a practice or one of our changes exists,
+-- or while the assignments window shows the coverage lines in a raid.
 -- ---------------------------------------------------------------------------
 local function Busy()
 	return practice or AnyNeed() or AnyApplied() or practiceOwner ~= nil
