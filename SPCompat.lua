@@ -731,16 +731,46 @@ if SPCompat.secretsRegime then
 		return ms / 1000
 	end
 
+	-- Earth, Flame and Frost Shock share one cooldown: casting one locks the other
+	-- two just as long, but only the one cast has an event to stamp it, so the
+	-- other two read "ready" in combat. By name, so every rank meets; the names
+	-- are resolved once, on the first cast (spell data is loaded by then).
+	local SHOCK_IDS = { 8042, 8050, 8056 }
+	local shockNames   -- nil = not resolved yet, false = this client has no shock trio
+	local function shockSiblings()
+		if shockNames == nil then
+			local set, list = {}, {}
+			for _, id in ipairs(SHOCK_IDS) do
+				local name = GetSpellInfo and GetSpellInfo(id)
+				if name then set[name] = true; list[#list + 1] = name end
+			end
+			shockNames = (#list >= 2) and { set = set, list = list } or false
+		end
+		return shockNames or nil
+	end
+
 	function SPCompat.ShadowCooldownCast(spellID)
 		local key = cdKey(spellID)
 		if not key then return end
 		local e = shadowCD[key] or {}
-		e.start, e.id = GetTime(), spellID
+		local now = GetTime()
+		e.start, e.id = now, spellID
 		if not e.duration then
 			e.duration = baseDuration(spellID)
 			e.seeded = e.duration and true or nil
 		end
 		shadowCD[key] = e
+		local shocks = e.duration and shockSiblings()
+		if shocks and shocks.set[key] then
+			for _, other in ipairs(shocks.list) do
+				if other ~= key then
+					local s = shadowCD[other] or {}
+					s.start = now
+					if not s.duration then s.duration, s.seeded = e.duration, e.seeded end
+					shadowCD[other] = s
+				end
+			end
+		end
 	end
 	if GetSpellCooldown then
 		local origGetSpellCooldown = GetSpellCooldown
