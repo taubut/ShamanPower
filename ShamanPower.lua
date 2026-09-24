@@ -1571,20 +1571,25 @@ end
 ShamanPower.shadowTotems = {}          -- [element] = { spellID, name, icon, startTime, duration, slot }
 local shadowLearnedDuration = {}       -- [spellID] = duration seen from the API
 local SHADOW_DEFAULT_DURATION = 120    -- until the real duration has been observed once
--- Learned lengths are kept account-wide (db.global.totemDurations), so after a
+-- Learned lengths are kept per character (db.char.totemDurations), so after a
 -- /reload or a new login a totem first dropped in combat still has its real length:
 -- its timer is right, and a kill mid-fight still reads as "destroyed" instead of
--- "unknown". The saved table is bound on first use (the db exists by then).
+-- "unknown". Not account-wide: another character's talents, gear or rank could make
+-- the same totem last a different time, and a length too long would turn its natural
+-- expiry into a false "destroyed". The saved table is bound on first use (the db
+-- exists by then).
 local shadowDurationsSaved = false
 local function learnedDurations()
 	if not shadowDurationsSaved then
 		-- only where the model is consulted (the secrets regime): Anniversary saves nothing new
-		local g = SPCompat and SPCompat.secretsRegime and ShamanPower.db and ShamanPower.db.global
-		if not g then return shadowLearnedDuration end
+		local db = SPCompat and SPCompat.secretsRegime and ShamanPower.db
+		local c = db and db.char
+		if not c then return shadowLearnedDuration end
 		shadowDurationsSaved = true
-		g.totemDurations = g.totemDurations or {}
-		for id, d in pairs(shadowLearnedDuration) do g.totemDurations[id] = d end
-		shadowLearnedDuration = g.totemDurations
+		if db.global then db.global.totemDurations = nil end   -- an earlier test build kept them account-wide
+		c.totemDurations = c.totemDurations or {}
+		for id, d in pairs(shadowLearnedDuration) do c.totemDurations[id] = d end
+		shadowLearnedDuration = c.totemDurations
 	end
 	return shadowLearnedDuration
 end
