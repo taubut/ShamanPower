@@ -165,6 +165,8 @@ local function CheckContent()
 	local previous = lastBucket
 	lastBucket = bucket
 	if CheckZoneRules() then return end   -- a zone rule is more specific than the content type
+	-- a login or /reload in the open world is not "arriving" anywhere: keep the loadout you had
+	if previous == nil and bucket == "none" then return end
 	if not changed then return end
 	local labels = { raid = "raid", party = "dungeon", pvp = "battleground", none = "open world" }
 	local stillThere = function() return ContentBucket() == bucket end

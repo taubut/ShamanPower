@@ -632,7 +632,16 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 	for _, b in ipairs(p.buttons) do b:Hide() end
 
 	local width = math.max(anchorTo:GetWidth(), (popts and popts.width) or 140)
-	if popts and popts.itemTexture then width = math.max(width, 280) end   -- room for the name and its swatch
+	if popts and popts.itemTexture then
+		-- as wide as the longest name plus its swatch: a name never runs under it or gets cut
+		if not p.measure then p.measure = p:CreateFontString(nil, "OVERLAY"); p.measure:SetFontObject(Core.fonts.row); p.measure:Hide() end
+		local widest = 0
+		for _, item in ipairs(items) do
+			p.measure:SetText(item.text)
+			widest = math.max(widest, (p.measure.GetUnboundedStringWidth and p.measure:GetUnboundedStringWidth()) or p.measure:GetStringWidth())
+		end
+		width = math.max(width, 280, 8 + widest + 12 + 70 + 8 + 4)
+	end
 	local y = 0
 	for i, item in ipairs(items) do
 		local b = p.buttons[i]

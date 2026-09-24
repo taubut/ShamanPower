@@ -103,7 +103,7 @@ end
 
 local function announceChannel()
 	-- the game only lets addons /say inside instances; the group is the default
-	if cfg().channel == "say" then return "SAY" end
+	if cfg().channel == "say" and IsInInstance() then return "SAY" end   -- outside, /say from an addon is blocked
 	return groupChannel()
 end
 

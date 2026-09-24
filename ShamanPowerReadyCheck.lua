@@ -35,7 +35,8 @@ local TAG = "|cff0070ddShamanPower|r: "
 local ITEMS_NEEDED = FOREVER
 
 local DEFAULTS = {
-	enabled = true,
+	-- on for WoW: Forever; opt-in on Anniversary, so an upgrade changes nothing
+	enabled = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
 	onReadyCheck = true,
 	onEnterInstance = false,
 	checkShield = true,
@@ -67,14 +68,26 @@ end
 -- Checks. Each returns a list entry { icon, text } when something is missing,
 -- false when all is well, nil when it cannot tell right now (a hidden value).
 -- ---------------------------------------------------------------------------
+-- cached until the spellbook changes: bag updates ask this often, and a name
+-- lookup builds a table per call on Forever
+local knownCache = {}
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("SPELLS_CHANGED")
+	f:SetScript("OnEvent", function() wipe(knownCache) end)
+end
 local function elementKnown(element)
+	if knownCache[element] ~= nil then return knownCache[element] end
 	local names = SP.TotemNames and SP.TotemNames[element]
-	if not names then return false end
-	for _, name in pairs(names) do
-		-- a name lookup answers only for spells in the spellbook; the table holds short names
-		if type(name) == "string" and (GetSpellInfo(name .. " Totem") or GetSpellInfo(name)) then return true end
+	local known = false
+	if names then
+		for _, name in pairs(names) do
+			-- a name lookup answers only for spells in the spellbook; the table holds short names
+			if type(name) == "string" and (GetSpellInfo(name .. " Totem") or GetSpellInfo(name)) then known = true break end
+		end
 	end
-	return false
+	knownCache[element] = known
+	return known
 end
 
 local function shieldMissing()
@@ -147,7 +160,7 @@ local function assignedMissing(out)
 		local idx = mine[element]
 		if type(idx) == "number" and idx > 0 then
 			local spellID = SP.GetTotemSpell and SP:GetTotemSpell(element, idx)
-			local name, icon
+			local name, _, icon
 			if spellID then name, _, icon = GetSpellInfo(spellID) end
 			if name then   -- a totem this character knows
 				local ok, have = pcall(SP.GetElementTotemInfo, SP, element)
