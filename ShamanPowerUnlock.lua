@@ -170,9 +170,11 @@ local function AddReset(moverKey, resetFn)
 	local mover = SP.barMovers and SP.barMovers[moverKey]
 	if not mover then return end
 	if not mover.spReset then
-		-- a secondary button, chip-sized; solid underneath, as it sits over the world
+		-- a secondary button at the compact height buttons have in header bands
+		-- (22), as wide as CreateSPButton makes it (text + 28); solid
+		-- underneath, as it sits over the world
 		local b = SP:CreateSPButton(mover, "Reset", 0, false)
-		b:SetSize(math.ceil(b.text:GetStringWidth()) + 16, 18)
+		b:SetHeight(22)
 		b:SetPoint("BOTTOMRIGHT", mover, "TOPRIGHT", 0, 1)
 		local base = b:CreateTexture(nil, "BACKGROUND", nil, -1); base:SetAllPoints(); base:SetColorTexture(SP:SPColor("windowBg", 0.95))
 		-- hooked: the button's own OnEnter/OnLeave draw its hover
@@ -537,21 +539,10 @@ end
 
 -- Escape closes the bar, which ends the session as Done does: a frame later,
 -- or the settings window Done brings back would be shut by the same Escape.
--- In a fight the frames on show may be protected, so the ending waits for the
--- fight to end, and the window stays shut, as Done in combat leaves it.
-local escapeWait
+-- In a fight too: the sample frames are plain frames, and Done already leaves
+-- the settings window shut in combat.
 local function FinishAfterEscape(generation)
 	if generation ~= settingsTestGeneration then return end   -- Done, or a new session, meanwhile
-	if InCombatLockdown() then
-		SP.settingsTestReturn = nil
-		escapeWait = escapeWait or CreateFrame("Frame")
-		escapeWait:SetScript("OnEvent", function(self)
-			self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-			FinishAfterEscape(generation)
-		end)
-		escapeWait:RegisterEvent("PLAYER_REGEN_ENABLED")
-		return
-	end
 	SP:SettingsTestDone()
 end
 
