@@ -487,6 +487,157 @@ local function ConfigureRow(row, name, index, inCombat)
 end
 
 -- ---------------------------------------------------------------------------
+-- Raid Resistance strip (WoW: Forever only; ShamanPowerResist.lua does the work)
+-- On Forever the resistance totems reach the whole raid, so one shaman per
+-- resistance is enough. A tick is a request: the chosen shaman's own client
+-- asks them (or switches straight away with Free Assign / auto-accept on).
+-- ---------------------------------------------------------------------------
+local STRIP_GAP = 12
+local SLOT_NAME = { [2] = "Fire", [3] = "Water", [4] = "Air" }
+
+local function ResistStripOn()
+	return SP.RESIST_REQUESTS ~= nil and Opt().resistRequests ~= false and Opt().enabled ~= false
+end
+
+local function ResistTickOnClick(check)
+	local r = check.resist
+	if not SP:CanRequestResist() then
+		if UIErrorsFrame then
+			local why = "Resistance requests work in a raid (try /sp resisttest to practise)"
+			if SP:ResistActive() then
+				why = "Only shamans running ShamanPower, or the raid leader or an assistant, can request resistances"
+			end
+			UIErrorsFrame:AddMessage(why, 1, 0.25, 0.25)
+		end
+		return
+	end
+	SP:SetResistNeeded(r.key, not SP:IsResistNeeded(r.key))
+	MarkDirty()
+end
+
+local function ResistTooltip(owner, r)
+	if not Tooltips() then return end
+	local totem = SP.TotemNames[r.element][6] or r.label
+	GameTooltip:SetOwner(owner, "ANCHOR_TOP")
+	GameTooltip:SetClampedToScreen(true)
+	GameTooltip:AddLine("Need " .. r.label, 1, 1, 1)
+	GameTooltip:AddLine("Asks ONE shaman to drop " .. totem .. " Totem in their " .. SLOT_NAME[r.element] .. " slot. ShamanPower picks the shaman whose party loses least; that shaman accepts or passes (with Free Assign or auto-accept on it switches straight away).", 0.8, 0.8, 0.8, true)
+	GameTooltip:AddLine(" ")
+	GameTooltip:AddLine("On WoW: Forever this totem reaches every raid member within 30 yards of it, not just the shaman's party: drop it where the raid stands.", 0.4, 0.8, 1, true)
+	GameTooltip:AddLine(" ")
+	GameTooltip:AddLine("Untick to end the request: that shaman's previous totem comes back.", 0.8, 0.8, 0.8, true)
+	GameTooltip:AddLine("Any shaman running ShamanPower, or the raid leader or an assistant, can tick this.", 0.6, 0.65, 0.72, true)
+	GameTooltip:Show()
+end
+
+local function BuildResistStrip(parent)
+	local strip = CreateFrame("Frame", nil, parent)
+	strip:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", PAD, FOOTER_H + 1)
+	strip:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -PAD, FOOTER_H + 1)
+	strip:SetHeight(1)
+
+	local rule = strip:CreateTexture(nil, "ARTWORK")
+	rule:SetHeight(1)
+	rule:SetPoint("TOPLEFT", strip, "TOPLEFT", -PAD + 1, 0)
+	rule:SetPoint("TOPRIGHT", strip, "TOPRIGHT", PAD - 1, 0)
+	rule:SetColorTexture(Core:Color("border"))
+
+	local title = strip:CreateFontString(nil, "OVERLAY")
+	title:SetFontObject(Core.fonts.section)
+	title:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -8)
+	title:SetText("RAID RESISTANCE")
+	strip.title = title
+
+	local innerW = WIN_W - PAD * 2
+	local colW = math.floor((innerW - STRIP_GAP * 2) / 3)
+	strip.cols = {}
+	for i, r in ipairs(SP.RESIST_REQUESTS) do
+		local col = CreateFrame("Frame", nil, strip)
+		col:SetWidth(colW)
+		col:SetPoint("TOPLEFT", strip, "TOPLEFT", (i - 1) * (colW + STRIP_GAP), -28)
+		col:EnableMouse(true)
+		col:SetScript("OnEnter", function(self) ResistTooltip(self, r) end)
+		col:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+		local check = MakeCheck(col, r.label)
+		check:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
+		check.resist = r
+		check:SetScript("OnClick", ResistTickOnClick)
+		check:SetScript("OnEnter", function(self) ResistTooltip(self, r) end)
+		check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		col.check = check
+
+		local status = col:CreateFontString(nil, "OVERLAY")
+		status:SetFontObject(Core.fonts.tiny)
+		status:SetPoint("TOPLEFT", col, "TOPLEFT", 0, -20)
+		status:SetWidth(colW)
+		status:SetJustifyH("LEFT")
+		status:SetWordWrap(true)
+		col.status = status
+		strip.cols[i] = col
+	end
+
+	local note = strip:CreateFontString(nil, "OVERLAY")
+	note:SetFontObject(Core.fonts.tiny)
+	note:SetWidth(innerW)
+	note:SetJustifyH("LEFT")
+	note:SetWordWrap(true)
+	strip.note = note
+	return strip
+end
+
+local TONE = { ok = "on", warn = "warn", busy = "accentHi", dim = "textMute" }
+
+-- Paints the strip and returns the height it takes (0 when hidden).
+local function UpdateResistStrip()
+	local strip = frame.resist
+	if not strip then return 0 end
+	if not ResistStripOn() then
+		strip:Hide()
+		return 0
+	end
+	strip:Show()
+	local canTick = SP:CanRequestResist()
+	local colH = 0
+	for _, col in ipairs(strip.cols) do
+		local r = col.check.resist
+		local on = SP:IsResistNeeded(r.key)
+		local labelColor = "textMute"
+		if on then labelColor = "text" elseif canTick then labelColor = "textDim" end
+		col.check:Paint(on)
+		col.check.label:SetTextColor(Core:Color(labelColor))
+		local text, tone = SP:GetResistStatus(r.key)
+		col.status:SetText(text)
+		col.status:SetTextColor(Core:Color(TONE[tone] or "textMute"))
+		local h = 20 + col.status:GetStringHeight()
+		col:SetHeight(h)
+		if h > colH then colH = h end
+	end
+	local noteText
+	local practiceLine = SP:GetResistPracticeLine()
+	if practiceLine then
+		noteText = "|cffffd200" .. practiceLine .. "|r"
+	elseif SP:ResistPracticeOwner() then
+		noteText = "|cffffd200Practice request from " .. SP:ResistPracticeOwner() .. ".|r"
+	elseif not SP:ResistActive() then
+		noteText = "Works in a raid: on WoW: Forever the resistance totems reach the whole raid. /sp resisttest to practise alone."
+	end
+	local h = 28 + colH + 8
+	if noteText then
+		strip.note:SetText(noteText)
+		strip.note:ClearAllPoints()
+		strip.note:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, -h)
+		strip.note:Show()
+		h = h + strip.note:GetStringHeight() + 8
+	else
+		strip.note:Hide()
+	end
+	h = math.ceil(h)
+	strip:SetHeight(h)
+	return h
+end
+
+-- ---------------------------------------------------------------------------
 -- Window
 -- ---------------------------------------------------------------------------
 local function SavePosition()
@@ -706,6 +857,8 @@ local function BuildFrame()
 	end)
 	Core:AttachTooltip(refresh, "Refresh", SHAMANPOWER_REFRESH_DESC)
 
+	if SP.RESIST_REQUESTS then frame.resist = BuildResistStrip(frame) end
+
 	local combat = frame:CreateFontString(nil, "OVERLAY")
 	combat:SetFontObject(Core.fonts.tiny)
 	combat:SetTextColor(Core:Color("warn"))
@@ -761,9 +914,15 @@ function Assign:Redraw()
 		rows[i].name = nil
 	end
 
+	local stripH = UpdateResistStrip()
+	if frame._stripH ~= stripH then
+		frame._stripH = stripH
+		frame.scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, FOOTER_H + stripH)
+	end
+
 	local visible = math.max(1, math.min(n, MAX_ROWS))
 	frame.body:SetHeight(math.max(n, 1) * ROW_H)
-	frame:SetHeight(HEADER_H + 4 + COLHEAD_H + 4 + visible * ROW_H + FOOTER_H + 2)
+	frame:SetHeight(HEADER_H + 4 + COLHEAD_H + 4 + visible * ROW_H + FOOTER_H + stripH + 2)
 	if n <= MAX_ROWS then frame.scroll:SetVerticalScroll(0) end
 
 	if n == 0 then
@@ -891,6 +1050,9 @@ end
 function ShamanPower_ToggleAssignments()
 	ShamanPowerAssign:Toggle()
 end
+
+-- ...and whenever a raid resistance request changes.
+if SP and SP.RESIST_REQUESTS then SP.ResistChanged = MarkDirty end
 
 -- Immediate redraw on the engine's de-facto state-changed hook.
 if SP and type(SP.UpdateLayout) == "function" then
