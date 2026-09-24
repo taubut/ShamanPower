@@ -713,10 +713,12 @@ end
 
 -- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
 -- resolver handles clients that fill slots in cast order; otherwise the fixed
--- slot map applies (WoW slot 1 is Fire, slot 2 is Earth).
+-- slot map applies (WoW slot 1 is Fire, slot 2 is Earth). Sixth value: the slot.
 local function ElementTotemInfo(element)
 	if ShamanPower.GetElementTotemInfo then return ShamanPower:GetElementTotemInfo(element) end
-	return GetTotemInfo(ShamanPower.ElementToSlot[element])
+	local slot = ShamanPower.ElementToSlot[element]
+	local haveTotem, totemName, startTime, duration, icon = GetTotemInfo(slot)
+	return haveTotem, totemName, startTime, duration, icon, slot
 end
 
 -- Every way of saying "a totem was destroyed": the alert (and its sound), a line
@@ -748,6 +750,23 @@ function SP:TotemDestroyedAlert(totemName, elementColor)
 	end
 end
 
+-- WoW: Forever: your own right-click destroy (ShamanPower's opt-in one on the totem
+-- bar, or Blizzard's totem frame) empties a slot on purpose, so it is not "destroyed"
+-- either. A post-hook also runs when the secure action calls DestroyTotem, and taints
+-- nothing; it notes which slot, and when.
+local playerDestroyAt = {}   -- [slot] = GetTime() of your own DestroyTotem(slot)
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" then
+	hooksecurefunc("DestroyTotem", function(slot)
+		if _G.issecretvalue and _G.issecretvalue(slot) then return end
+		slot = tonumber(slot)
+		if slot then playerDestroyAt[slot] = GetTime() end
+	end)
+end
+local function DestroyedByPlayer(slot)
+	local at = slot and playerDestroyAt[slot]
+	return at ~= nil and GetTime() - at < 2
+end
+
 -- While the game hides totem data (combat on WoW: Forever), CheckTotemState stands
 -- down; the core's own totem record still sees a slot empty with no cast, recall or
 -- death behind it, and says why (ShamanPower.lua ShadowTotemSlotUpdate).
@@ -759,7 +778,8 @@ function SP:OnShadowTotemGone(element, entry, why)
 	if elementKey and sv.totems[elementKey] == false then return end
 	local color = info and info.color or { r = 1, g = 1, b = 1 }
 	if why == "destroyed" then
-		self:TotemDestroyedAlert(entry.name, color)
+		-- the core cannot tell your own right-click destroy from an enemy's
+		if not DestroyedByPlayer(entry.slot) then self:TotemDestroyedAlert(entry.name, color) end
 	elseif why == "expired" and sv.totems.expired then
 		self:ShowExpiringAlert("totem", StripRank(entry.name or "Totem") .. " Expired", "Interface\\Icons\\Spell_Shaman_TotemRecall", color)
 	end
@@ -768,13 +788,15 @@ end
 
 -- WoW: Forever, out of combat: Totemic Recall empties every slot on purpose, and its
 -- cast event can land either side of the slot updates. So the verdict waits one bind
--- window (as the core's in-combat path does); a recall, your death, or a totem of that
--- element standing again by then (a totem set re-filling the slots) is not "destroyed".
+-- window (as the core's in-combat path does); a recall, your own destroy, your death,
+-- or a totem of that element standing again by then (a totem set re-filling the
+-- slots) is not "destroyed".
 local deferDestroyed = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 local DESTROYED_BIND_WINDOW = 0.5
-local function ConfirmDestroyed(element, totemName, elementColor)
+local function ConfirmDestroyed(element, slot, totemName, elementColor)
 	local recallAt = ShamanPower._totemRecallAt
 	if recallAt and GetTime() - recallAt < 2 then return end
+	if DestroyedByPlayer(slot) then return end
 	if UnitIsDeadOrGhost("player") then return end
 	if ElementTotemInfo(element) then return end
 	SP:TotemDestroyedAlert(totemName, elementColor)
@@ -792,11 +814,12 @@ function SP:CheckTotemState(initializing)
 	if not sv.enabled or not sv.totems or not sv.totems.enabled then return end
 
 	for element = 1, 4 do
-		local haveTotem, totemName, startTime, duration = ElementTotemInfo(element)
+		local haveTotem, totemName, startTime, duration, _, slot = ElementTotemInfo(element)
 
 		local prev = previousState.totems[element]
 		local wasActive = prev.active
 		local prevName = prev.name
+		local prevSlot = prev.slot
 		local prevStart = prev.startTime
 		local prevDuration = prev.duration
 
@@ -818,8 +841,8 @@ function SP:CheckTotemState(initializing)
 						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Expired", icon, elementColor)
 					end
 				elseif deferDestroyed then
-					-- Totem was destroyed, unless a recall or death says otherwise (above)
-					C_Timer.After(DESTROYED_BIND_WINDOW, function() ConfirmDestroyed(element, prevName, elementColor) end)
+					-- Totem was destroyed, unless a recall, your own destroy or death says otherwise (above)
+					C_Timer.After(DESTROYED_BIND_WINDOW, function() ConfirmDestroyed(element, prevSlot, prevName, elementColor) end)
 				else
 					-- Totem was destroyed
 					self:TotemDestroyedAlert(prevName, elementColor)
@@ -832,6 +855,7 @@ function SP:CheckTotemState(initializing)
 		prev.name = totemName
 		prev.startTime = startTime
 		prev.duration = duration
+		prev.slot = slot
 	end
 end
 
