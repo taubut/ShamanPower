@@ -28,6 +28,7 @@ do
 	local register = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or _G.RegisterAddonMessagePrefix
 	if register then pcall(register, CALL_PREFIX) end
 	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Raid Cooldowns (raid calls)") end
 	f:RegisterEvent("CHAT_MSG_ADDON")
 	f:SetScript("OnEvent", function(_, _, prefix, message, distribution, source)
 		if prefix ~= CALL_PREFIX then return end

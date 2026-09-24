@@ -1090,17 +1090,20 @@ function SP:SetupExpiringAlertsEvents()
 
 	-- Earth Shield's carrier is another player. Only a shaman who knows Earth Shield
 	-- listens to other units' aura changes at all, and then only for the tokens the
-	-- check below can match (group, target, focus; never nameplates or pets).
+	-- check below can match (group, target, focus; never nameplates or pets). The
+	-- game filters them: RegisterUnitEvent takes two units per frame, so the tokens
+	-- are spread over small frames and no other unit's aura change wakes this.
 	local ES_TOKENS = { player = true, target = true, focus = true }
-	for i = 1, 4 do ES_TOKENS["party" .. i] = true end
-	for i = 1, 40 do ES_TOKENS["raid" .. i] = true end
-	local esFrame = CreateFrame("Frame")
-	esFrame:SetScript("OnEvent", function(_, _, unit)
+	local esUnits = { "player", "target", "focus" }
+	for i = 1, 4 do ES_TOKENS["party" .. i] = true; esUnits[#esUnits + 1] = "party" .. i end
+	for i = 1, 40 do ES_TOKENS["raid" .. i] = true; esUnits[#esUnits + 1] = "raid" .. i end
+	local function onESAura(_, _, unit)
 		if type(unit) ~= "string" or isSecretValue(unit) or not ES_TOKENS[unit] then return end
 		if IsEarthShieldUnit(unit) then
 			SP:CheckEarthShieldState(unit, false)
 		end
-	end)
+	end
+	local esFrames = {}
 	local function knowsEarthShield()
 		if SP.ESTrackerUnavailable then return false end
 		-- the same check the rest of the addon uses (ES button, options)
@@ -1110,8 +1113,25 @@ function SP:SetupExpiringAlertsEvents()
 	local esWatching = false
 	local function refreshESWatch()
 		local want = knowsEarthShield()
-		if want and not esWatching then esFrame:RegisterEvent("UNIT_AURA")
-		elseif not want and esWatching then esFrame:UnregisterEvent("UNIT_AURA") end
+		if want and not esWatching then
+			for i = 1, math.ceil(#esUnits / 2) do
+				local f = esFrames[i]
+				if not f then
+					f = CreateFrame("Frame")
+					f:SetScript("OnEvent", onESAura)
+					if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Expiring Alerts (Earth Shield)") end
+					esFrames[i] = f
+				end
+				local a, b = esUnits[2 * i - 1], esUnits[2 * i]
+				if f.RegisterUnitEvent then
+					if b then f:RegisterUnitEvent("UNIT_AURA", a, b) else f:RegisterUnitEvent("UNIT_AURA", a) end
+				elseif i == 1 then
+					f:RegisterEvent("UNIT_AURA")   -- no unit filters on this client: one frame hears all (the handler checks the unit)
+				end
+			end
+		elseif not want and esWatching then
+			for i = 1, #esFrames do esFrames[i]:UnregisterEvent("UNIT_AURA") end
+		end
 		esWatching = want
 	end
 	refreshESWatch()
