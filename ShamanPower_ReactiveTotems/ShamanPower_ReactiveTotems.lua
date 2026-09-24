@@ -863,7 +863,20 @@ function SP:SetupReactiveTotemsEvents()
 
 	local eventFrame = CreateFrame("Frame", "ShamanPowerReactiveEventFrame", UIParent)
 	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Reactive Totems") end
-	eventFrame:RegisterEvent("UNIT_AURA")
+	-- UNIT_AURA for player + party1-4 only (totems are party-wide): the game filters,
+	-- so a raid's other members and nameplates never reach the handler. Two units
+	-- per frame, the count every client accepts. Old clients: all units, filtered below.
+	local auraFrames = {}
+	if eventFrame.RegisterUnitEvent then
+		for _, units in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
+			local f = CreateFrame("Frame")
+			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Reactive Totems (auras)") end
+			f:RegisterUnitEvent("UNIT_AURA", units[1], units[2])
+			auraFrames[#auraFrames + 1] = f
+		end
+	else
+		eventFrame:RegisterEvent("UNIT_AURA")
+	end
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 	eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -890,13 +903,20 @@ function SP:SetupReactiveTotemsEvents()
 		end
 	end
 
-	eventFrame:SetScript("OnEvent", function(self, event, unit)
+	local function OnPartyAura()
+		-- engine mode: aura changes are the engine's business; the scan only serves the sound
+		if SP:ReactiveEngineLive() and not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.playSound) then return end
+		RequestUpdate()
+	end
+	-- the filtered frames only ever hear player and party1-4 (whatever token the
+	-- game names them by), so they need no token check
+	for _, f in ipairs(auraFrames) do f:SetScript("OnEvent", OnPartyAura) end
+
+	local function OnReactiveEvent(self, event, unit)
 		if event == "UNIT_AURA" then
-			-- Only check player and party units (totems are party-wide only)
+			-- Unfiltered fallback: only player and party units (totems are party-wide only)
 			if unit == "player" or unit == "party1" or unit == "party2" or unit == "party3" or unit == "party4" then
-				-- engine mode: aura changes are the engine's business; the scan only serves the sound
-				if SP:ReactiveEngineLive() and not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.playSound) then return end
-				RequestUpdate()
+				OnPartyAura()
 			end
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			SP:ReactiveEngineRegen()
@@ -905,7 +925,8 @@ function SP:SetupReactiveTotemsEvents()
 			if event ~= "PLAYER_TOTEM_UPDATE" then SP:RebuildReactiveEngine() end   -- names / classes may have changed
 			RequestUpdate()
 		end
-	end)
+	end
+	eventFrame:SetScript("OnEvent", OnReactiveEvent)
 
 	self.reactiveEventFrame = eventFrame
 end

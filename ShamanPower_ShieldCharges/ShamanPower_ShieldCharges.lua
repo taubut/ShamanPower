@@ -115,11 +115,33 @@ function SP:CreateShieldChargeDisplays()
 		end)
 		local wake = CreateFrame("Frame")
 		if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Shield Charges") end
-		for _, ev in ipairs({ "UNIT_AURA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }) do
+		for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE", "SPELLS_CHANGED" }) do
 			pcall(wake.RegisterEvent, wake, ev)
 		end
+		-- your own auras through the game's unit filter: a raid's other 39 members
+		-- and every nameplate no longer reach this handler
+		if wake.RegisterUnitEvent then
+			wake:RegisterUnitEvent("UNIT_AURA", "player")
+		else
+			wake:RegisterEvent("UNIT_AURA")
+		end
+		-- someone else's auras only matter while an Earth Shield is being tracked on
+		-- them, so only a shaman who knows Earth Shield listens to other units at all
+		local others = CreateFrame("Frame")
+		others:SetScript("OnEvent", function()
+			if ShamanPower.esTrackedTargetGUID then SP._shieldWake = true end
+		end)
+		local othersOn = false
+		local function refreshOthers()
+			local want = not SP.ESTrackerUnavailable and IsSpellKnown
+				and (IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594)) or false
+			if want and not othersOn then others:RegisterEvent("UNIT_AURA")
+			elseif not want and othersOn then others:UnregisterEvent("UNIT_AURA") end
+			othersOn = want
+		end
+		refreshOthers()
 		wake:SetScript("OnEvent", function(_, ev, unit)
-			-- someone else's auras only matter while an Earth Shield is being tracked on them
+			if ev == "SPELLS_CHANGED" or ev == "PLAYER_ENTERING_WORLD" then refreshOthers() end
 			if ev == "UNIT_AURA" and unit ~= "player" and not ShamanPower.esTrackedTargetGUID then return end
 			SP._shieldWake = true
 		end)
