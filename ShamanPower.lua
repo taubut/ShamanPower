@@ -1569,6 +1569,23 @@ end
 ShamanPower.shadowTotems = {}          -- [element] = { spellID, name, icon, startTime, duration, slot }
 local shadowLearnedDuration = {}       -- [spellID] = duration seen from the API
 local SHADOW_DEFAULT_DURATION = 120    -- until the real duration has been observed once
+-- Learned lengths are kept account-wide (db.global.totemDurations), so after a
+-- /reload or a new login a totem first dropped in combat still has its real length:
+-- its timer is right, and a kill mid-fight still reads as "destroyed" instead of
+-- "unknown". The saved table is bound on first use (the db exists by then).
+local shadowDurationsSaved = false
+local function learnedDurations()
+	if not shadowDurationsSaved then
+		-- only where the model is consulted (the secrets regime): Anniversary saves nothing new
+		local g = SPCompat and SPCompat.secretsRegime and ShamanPower.db and ShamanPower.db.global
+		if not g then return shadowLearnedDuration end
+		shadowDurationsSaved = true
+		g.totemDurations = g.totemDurations or {}
+		for id, d in pairs(shadowLearnedDuration) do g.totemDurations[id] = d end
+		shadowLearnedDuration = g.totemDurations
+	end
+	return shadowLearnedDuration
+end
 local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE
 local shadowPendingCast                -- { element, at } waiting for its slot update
 local shadowPendingSlot                -- { slot, at } update that arrived before its cast event
@@ -1576,7 +1593,25 @@ local lastSlotUpdateAt = {}            -- [slot] = GetTime() of the last PLAYER_
 -- A totem retired while combat hides totem data is only announced (OnShadowTotemGone)
 -- after one bind window, so a set summon whose slot updates arrived BEFORE its cast
 -- can still claim the slot and cancel the false "destroyed". One record per slot.
-local pendingGone = {}                 -- [slot] = { element, entry, why }
+local pendingGone = {}                 -- [slot] = { element, entry, at }
+-- A single re-drop of an element whose slot update came BEFORE its cast event
+-- retires the old totem of that element; a cast of the same element this soon
+-- after is that re-drop, not a new totem after a kill (a player cannot react
+-- that fast). Kept short for that reason.
+local SHADOW_REDROP_WINDOW = 0.25
+
+-- The player's own dismissals: a right-click on a totem button (ShamanPower's or
+-- Blizzard's) runs DestroyTotem(slot), and the slot update that follows has no
+-- cast behind it. Without this stamp it read as "destroyed by enemies".
+-- A secure hook: it runs after the call and never taints it. Mainline family only,
+-- where the shadow model is consulted.
+ShamanPower._totemDismissedAt = {}     -- [slot] = GetTime()
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+	hooksecurefunc("DestroyTotem", function(slot)
+		slot = tonumber(slot)
+		if slot then ShamanPower._totemDismissedAt[slot] = GetTime() end
+	end)
+end
 
 local function totemsSecretNow()
 	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
@@ -1658,20 +1693,36 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 	self:RecordTotemDrop(element)
 	local name, _, icon = GetSpellInfo(spellID)
 	local now = GetTime()
+	local learned = learnedDurations()[spellID]
 	local entry = {
 		spellID = spellID,
 		name = name,
 		icon = icon,
 		startTime = now,
-		duration = shadowLearnedDuration[spellID] or SHADOW_DEFAULT_DURATION,
-		durationKnown = shadowLearnedDuration[spellID] ~= nil,   -- a guessed length cannot tell expired from destroyed
+		duration = learned or SHADOW_DEFAULT_DURATION,
+		durationKnown = learned ~= nil,   -- a guessed length cannot tell expired from destroyed
 		slot = nil,
 	}
 	-- the same element can only hold one totem; the old one is replaced
 	self.shadowTotems[element] = entry
-	if shadowPendingSlot and now - shadowPendingSlot.at <= SHADOW_BIND_WINDOW then
-		entry.slot = shadowPendingSlot.slot
+	-- The slot update can arrive BEFORE the cast event. Then it either filled an
+	-- empty slot (nothing retired: bind to it), or it retired this element's
+	-- previous totem a moment ago: that was this re-drop replacing it, not a kill,
+	-- so bind to that slot too and take back the old totem's "gone" notice.
+	local pending = shadowPendingSlot
+	local age = pending and (now - pending.at)
+	if pending and ((pending.element == nil and age <= SHADOW_BIND_WINDOW)
+		or (pending.element == element and age <= SHADOW_REDROP_WINDOW)) then
+		local slot = pending.slot
+		entry.slot = slot
 		shadowPendingSlot = nil
+		local gone = pendingGone[slot]
+		if gone and gone.element == element and now - gone.at <= SHADOW_REDROP_WINDOW then
+			pendingGone[slot] = nil
+		end
+		-- bound by the update that retired the old totem: if this totem's own update
+		-- still follows, it confirms the binding rather than retiring it
+		if pending.element then entry.boundEarlyAt = now end
 	else
 		shadowPendingCast = { element = element, at = now }
 	end
@@ -1689,10 +1740,11 @@ function ShamanPower:ShadowTotemSetCast(spells)
 		local name, _, icon = GetSpellInfo(id or 0)
 		if id and name then
 			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
+			local learned = learnedDurations()[id]
 			local entry = {
 				spellID = id, name = name, icon = icon, startTime = now,
-				duration = shadowLearnedDuration[id] or SHADOW_DEFAULT_DURATION,
-				durationKnown = shadowLearnedDuration[id] ~= nil,
+				duration = learned or SHADOW_DEFAULT_DURATION,
+				durationKnown = learned ~= nil,
 				slot = slot,
 				setAt = now, setPending = true,
 				setPrev = self.shadowTotems[element],   -- put back if this one never lands
@@ -1747,37 +1799,50 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 		shadowPendingCast = nil
 		return
 	end
+	-- a totem bound to this slot a moment ago by an update that came before its cast
+	-- (ShadowTotemCast): this is its own update arriving after all, not its end
+	for _, entry in pairs(self.shadowTotems) do
+		if entry.slot == slot and entry.boundEarlyAt and now - entry.boundEarlyAt <= SHADOW_BIND_WINDOW then
+			entry.boundEarlyAt = nil
+			return
+		end
+	end
 	-- no cast behind this update: the totem that lived in the slot is gone
-	local retired = false
+	local retiredElement
 	for element, entry in pairs(self.shadowTotems) do
 		if entry.slot == slot then
 			self.shadowTotems[element] = nil
-			retired = true
+			retiredElement = element
 			-- While the game hides totem data (combat on Forever) this is the only way to
 			-- know a totem went: tell whoever listens (Expiring Alerts) why, as best we can.
 			if self.OnShadowTotemGone and totemsSecretNow() then
-				local why
-				if self._totemRecallAt and now - self._totemRecallAt < 2 then why = "recalled"
-				elseif UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then why = "died"
-				elseif not entry.durationKnown then why = "unknown"
-				elseif now >= entry.startTime + entry.duration - 1 then why = "expired"
-				else why = "destroyed" end
-				-- announced one bind window later: a totem-set cast that arrives just after
-				-- its own slot updates claims the slot and cancels this (ShadowTotemSetCast)
-				local rec = { element = element, entry = entry, why = why }
+				-- announced one bind window later: a cast that arrives just after its own
+				-- slot updates (a totem set, or a re-drop of this element) claims the slot
+				-- and cancels this. The reason is worked out then too, so a Totemic Recall
+				-- or a right-click dismiss whose event trails the slot update still counts.
+				local rec = { element = element, entry = entry, at = now,
+					dead = UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") or nil }
 				pendingGone[slot] = rec
 				C_Timer.After(SHADOW_BIND_WINDOW, function()
-					if pendingGone[slot] ~= rec then return end   -- claimed by a set cast, or replaced
+					if pendingGone[slot] ~= rec then return end   -- claimed by a cast, or replaced
 					pendingGone[slot] = nil
-					pcall(self.OnShadowTotemGone, self, rec.element, rec.entry, rec.why)
+					local e, at = rec.entry, rec.at
+					local recall, dismissed = self._totemRecallAt, self._totemDismissedAt[slot]
+					local why
+					if recall and at - recall < 2 then why = "recalled"
+					elseif dismissed and at - dismissed < 2 then why = "dismissed"
+					elseif rec.dead or (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) then why = "died"
+					elseif not e.durationKnown then why = "unknown"
+					elseif at >= e.startTime + e.duration - 1 then why = "expired"
+					else why = "destroyed" end
+					pcall(self.OnShadowTotemGone, self, rec.element, e, why)
 				end)
 			end
 		end
 	end
-	if not retired then
-		-- an update we could not attribute: remember it briefly in case the cast event trails it
-		shadowPendingSlot = { slot = slot, at = now }
-	end
+	-- remember the update briefly in case the cast event trails it; if it retired a
+	-- totem, only a re-drop of that element may claim it (ShadowTotemCast)
+	shadowPendingSlot = { slot = slot, at = now, element = retiredElement }
 end
 
 -- Refresh one element's entry from readable API data (called on every readable lookup).
@@ -1792,7 +1857,7 @@ local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, dura
 		entry.setPending = nil   -- the game itself says it is down: nothing left to confirm
 		entry.durationKnown = type(duration) == "number" and duration > 0 or nil   -- read from the game: exact
 		if type(spellID) == "number" and spellID ~= 0 then entry.spellID = spellID end
-		if entry.spellID and duration and duration > 0 then shadowLearnedDuration[entry.spellID] = duration end
+		if entry.spellID and duration and duration > 0 then learnedDurations()[entry.spellID] = duration end
 	else
 		self.shadowTotems[element] = nil
 	end
@@ -1800,6 +1865,14 @@ end
 
 local function shadowLookup(self, element)
 	local entry = self.shadowTotems[element]
+	if entry and entry.setPending then
+		-- a set summon's totem its slot update has not confirmed yet: keep showing
+		-- the totem it replaces, so one the summon cannot place (no mana) never
+		-- flashes up for the confirm window. A confirmed one shows at once.
+		local prev = entry.setPrev
+		if not prev or prev.startTime + prev.duration <= GetTime() then return false, nil, nil, nil, nil, nil end
+		return true, prev.name, prev.startTime, prev.duration, prev.icon, prev.slot
+	end
 	if not entry then return false, nil, nil, nil, nil, nil end
 	if entry.startTime + entry.duration <= GetTime() then
 		self.shadowTotems[element] = nil
