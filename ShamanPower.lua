@@ -4511,6 +4511,17 @@ end
 ShamanPower.barMovers = ShamanPower.barMovers or {}
 local MOVER_MIN_W, MOVER_MIN_H = 60, 24   -- a box is never smaller (an empty cooldown bar is 1x1)
 
+-- Every box on screen goes back over its frame a frame after a drop, once the
+-- moved frames are laid out: read in the same frame as the SetPoint, a frame
+-- can still report its old spot (and a cooldown bar on its default spot has
+-- just followed the totem bar).
+local function RefreshShownBarMovers()
+	if InCombatLockdown() then return end
+	for key, m in pairs(ShamanPower.barMovers) do
+		if m:IsShown() and m.moveFrame then ShamanPower:ShowBarMover(key, m.moveFrame, m.sizeFrame, nil, m.onMoved) end
+	end
+end
+
 function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local mover = self.barMovers[key]
 	if mover then
@@ -4577,8 +4588,8 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 				end
 			end
 			if self.onMoved then self.onMoved() end
-			-- Re-place the overlay over the bar's new spot.
-			ShamanPower:ShowBarMover(self.key, mf, sf, nil, self.onMoved)
+			-- Re-place the overlay over the bar's new spot, next frame.
+			C_Timer.After(0, RefreshShownBarMovers)
 		end
 	end)
 	mover.key = key
@@ -4614,11 +4625,27 @@ function ShamanPower:HideBarMover(key)
 end
 
 function ShamanPower:GetPositionRecord(frame)
-	local cx, cy = frame:GetCenter()
-	if not cx then return nil end
 	local fs = frame:GetScale() or 1
-	cx, cy = cx * fs, cy * fs
 	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+	local cx, cy
+	-- A UIParent child hanging off one point on UIParent (every SetPoint in here)
+	-- is worked out from that point and its size, not read back off the screen:
+	-- straight after a SetPoint the game can still report the old spot. Anything
+	-- else (a frame just dropped by StopMovingOrSizing was laid out while dragged)
+	-- has its centre read.
+	local point, rel, relPoint, x, y
+	if frame:GetNumPoints() == 1 and frame:GetParent() == UIParent then point, rel, relPoint, x, y = frame:GetPoint(1) end
+	if point and rel == UIParent then
+		local ax, ay = AnchorXY(relPoint or point, W, H)
+		local px = (strfind(point, "LEFT") and -0.5) or (strfind(point, "RIGHT") and 0.5) or 0
+		local py = (strfind(point, "TOP") and 0.5) or (strfind(point, "BOTTOM") and -0.5) or 0
+		cx = ax + ((x or 0) - px * frame:GetWidth()) * fs
+		cy = ay + ((y or 0) - py * frame:GetHeight()) * fs
+	else
+		cx, cy = frame:GetCenter()
+		if not cx then return nil end
+		cx, cy = cx * fs, cy * fs
+	end
 	local best, bestD, bx, by
 	for _, a in ipairs(ANCHOR_POINTS) do
 		local ax, ay = AnchorXY(a, W, H)
@@ -4685,10 +4712,11 @@ function ShamanPower:TotemBarGeometry()
 end
 
 -- Where the cooldown bar goes with no saved spot: straight under the totem
--- bar, its Unlock box clear of the totem bar's.
-function ShamanPower:CooldownBarDefaultRecord()
+-- bar, its Unlock box clear of the totem bar's. into: a record to fill instead
+-- of a new one (the layout passes run this often).
+function ShamanPower:CooldownBarDefaultRecord(into)
 	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
-	local dx, dy, tw, th = self:TotemBarGeometry()
+	local dx, dy, _, th = self:TotemBarGeometry()
 	local rec = self:TotemBarRecord()
 	local tx, ty
 	if rec then
@@ -4700,26 +4728,32 @@ function ShamanPower:CooldownBarDefaultRecord()
 		tx, ty = ax + def.x, ay + def.y
 	end
 	local bar = self.cooldownBar
-	local bs = bar:GetScale()
-	tw, th = math.max(tw, MOVER_MIN_W), math.max(th, MOVER_MIN_H)
-	local bw, bh = math.max(bar:GetWidth() * bs, MOVER_MIN_W), math.max(bar:GetHeight() * bs, MOVER_MIN_H)
+	th = math.max(th, MOVER_MIN_H)
+	local bh = math.max(bar:GetHeight() * bar:GetScale(), MOVER_MIN_H)
 	-- always straight under the totem bar, whatever the layout
 	local x, y = tx, ty - th / 2 - BAR_GAP - RESET_TAB_H - bh / 2
-	return { anchor = "CENTER", x = x - W / 2, y = y - H / 2 }
+	local out = into or {}
+	out.anchor, out.x, out.y = "CENTER", x - W / 2, y - H / 2
+	return out
 end
 
 -- Put each bar that has no saved spot on its default one. Out of combat only
 -- (both bars hold secure buttons), and never under a bar being dragged.
+-- Runs on every layout pass (roster changes too): the two records it applies
+-- are reused, never kept.
+local defaultTotemScratch, defaultCooldownScratch = {}, {}
 function ShamanPower:ApplyDefaultBarPositions()
 	if InCombatLockdown() or self.isDragging or not (self.opt and self.autoButton) then return end
 	if not self:TotemBarRecord() then
 		local def = self.DEFAULT_TOTEM_BAR_POSITION
 		local dx, dy = self:TotemBarGeometry()
-		self:ApplyPositionRecord(ShamanPowerFrame, { anchor = def.anchor, x = def.x - dx, y = def.y - dy })
+		local r = defaultTotemScratch
+		r.anchor, r.x, r.y = def.anchor, def.x - dx, def.y - dy
+		self:ApplyPositionRecord(ShamanPowerFrame, r)
 	end
 	local bar, rec = self.cooldownBar, self.opt.cooldownBarPosition
 	if bar and bar:GetParent() == UIParent and not self.cooldownBarDragging and not (rec and rec.anchor) then
-		self:ApplyPositionRecord(bar, self:CooldownBarDefaultRecord())
+		self:ApplyPositionRecord(bar, self:CooldownBarDefaultRecord(defaultCooldownScratch))
 	end
 end
 
@@ -4737,7 +4771,8 @@ function ShamanPower:ResetBarPositions(totemBar)
 	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
 	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
 	self:ApplyDefaultBarPositions()
-	if self.cooldownBar then self:UpdateCooldownBarPosition(true) end   -- detaches a bar still on the totem bar
+	-- detaches a bar still on the totem bar; that also shows it, so not a bar switched off
+	if self.cooldownBar and self.opt.showCooldownBar then self:UpdateCooldownBarPosition(true) end
 end
 
 -- Unlock/lock the totem bar for free dragging via a mover overlay.
@@ -4756,9 +4791,9 @@ function ShamanPower:SetTotemBarUnlocked(unlocked)
 	self:EnsureProfileTable("display")
 	self.opt.display.moverUnlocked = unlocked and true or nil
 	if unlocked then
+		-- (a cooldown bar on its default spot follows; the mover puts its box back over it a frame later)
 		self:ShowBarMover("totembar", _G["ShamanPowerFrame"], self.autoButton, "Totem Bar", function()
 			ShamanPower:SaveFramePosition(_G["ShamanPowerFrame"])
-			if ShamanPower.cdBarMoverShown then ShamanPower:SetCooldownBarUnlocked(true) end   -- a default cooldown bar followed
 		end)
 	else
 		self:HideBarMover("totembar")
@@ -4767,6 +4802,7 @@ end
 
 -- Unlock/lock the cooldown bar.
 function ShamanPower:SetCooldownBarUnlocked(unlocked)
+	if unlocked and not self.cooldownBar then unlocked = nil end   -- no bar (yet): nothing to move
 	self.cdBarMoverShown = unlocked and true or nil
 	if unlocked then
 		-- Moving only makes sense detached from the totem bar; detach (once)
