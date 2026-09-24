@@ -15949,7 +15949,8 @@ do
 				loadout[4] = Pick(group, 4, air)
 			end
 		end
-		self:SendMessage("SHPWR_ASSIGNMENTSUPDATED")
+		-- (this used to send "SHPWR_ASSIGNMENTSUPDATED" to the whole group, which no
+		-- client ever handled: it was meant as a local notification)
 		self:UpdateRoster()
 		self:Print("Totems have been smart-assigned based on party composition and roles.")
 	end
