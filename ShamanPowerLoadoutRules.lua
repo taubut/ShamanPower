@@ -10,6 +10,10 @@
 -- still applies then. Event-driven only: no tickers, nothing runs while idle,
 -- and the target event is only listened to while a target rule exists.
 --
+-- WoW: Forever: a zone or encounter rule may also request a raid resistance
+-- totem (ShamanPowerResist.lua). The request ends when the boss dies (a wipe
+-- keeps it for the next pull) or when you leave the zone.
+--
 -- Settings live in the AceDB profile (opt.loadoutRules). Rules point at a
 -- loadout by a stable id stored on the loadout itself (lo.uid), because the
 -- loadout list is positional and deleting one shifts the rest.
@@ -122,6 +126,30 @@ local function Request(uid, reason, valid)
 end
 
 -- ---------------------------------------------------------------------------
+-- Raid resistance requests from rules (Forever). Only a request a rule made is
+-- ended by the rules; one the raid made by hand is left alone.
+-- ---------------------------------------------------------------------------
+local RESIST_NAMES = { fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" }
+local heldResist = {}     -- key -> "zone" | "encounter"
+local encounterZone       -- where the encounter request was made
+
+local function HoldResist(key, why)
+	if not (FOREVER and key and RESIST_NAMES[key] and SP.SetResistNeeded) then return end
+	if heldResist[key] or SP:IsResistNeeded(key) then return end
+	if SP:SetResistNeeded(key, true) then heldResist[key] = why end
+end
+
+local function ReleaseResist(why)
+	for key, w in pairs(heldResist) do
+		if w == why then
+			heldResist[key] = nil
+			if SP.IsResistNeeded and SP:IsResistNeeded(key) then SP:SetResistNeeded(key, false) end
+		end
+	end
+	if why == "encounter" then encounterZone = nil end
+end
+
+-- ---------------------------------------------------------------------------
 -- Triggers
 -- ---------------------------------------------------------------------------
 local lastBucket
@@ -141,17 +169,19 @@ local function CheckZoneRules()
 	local d = DB()
 	local match
 	for i, r in ipairs(d.rules) do
-		if Lower(r.zone) ~= "" and Lower(r.target) == "" and Lower(r.encounter) == "" and r.loadout and ZoneMatches(r.zone) then
+		if Lower(r.zone) ~= "" and Lower(r.target) == "" and Lower(r.encounter) == "" and (r.loadout or r.resist) and ZoneMatches(r.zone) then
 			match = i
 			break
 		end
 	end
 	if match ~= lastZoneRule then
 		lastZoneRule = match
+		ReleaseResist("zone")
 		if match then
 			local r = d.rules[match]
 			local zone = r.zone
-			Request(r.loadout, zone, function() return ZoneMatches(zone) end)
+			if r.loadout then Request(r.loadout, zone, function() return ZoneMatches(zone) end) end
+			HoldResist(r.resist, "zone")
 		end
 	end
 	return match ~= nil
@@ -160,6 +190,8 @@ end
 local function CheckContent()
 	local d = DB()
 	if not (d and d.enabled) then return end
+	-- an encounter's resistance request ends when you leave its zone
+	if encounterZone and GetRealZoneText() ~= encounterZone then ReleaseResist("encounter") end
 	local bucket = ContentBucket()
 	local changed = bucket ~= lastBucket
 	local previous = lastBucket
@@ -220,11 +252,15 @@ local function CheckEncounter(encounterName)
 	if type(encounterName) ~= "string" or (issecretvalue and issecretvalue(encounterName)) then return end
 	local name = Lower(encounterName)
 	for _, r in ipairs(d.rules) do
-		if Lower(r.encounter) ~= "" and Lower(r.encounter) == name and r.loadout and ZoneMatches(r.zone) then
+		if Lower(r.encounter) ~= "" and Lower(r.encounter) == name and (r.loadout or r.resist) and ZoneMatches(r.zone) then
 			-- ENCOUNTER_START comes with the pull (combat): this lands when the
 			-- fight ends, ready for the next attempt, as long as you are still there.
 			local zone = GetRealZoneText()
-			Request(r.loadout, r.encounter, function() return GetRealZoneText() == zone end)
+			if r.loadout then Request(r.loadout, r.encounter, function() return GetRealZoneText() == zone end) end
+			if r.resist then
+				HoldResist(r.resist, "encounter")
+				if heldResist[r.resist] == "encounter" then encounterZone = zone end
+			end
 			return
 		end
 	end
@@ -240,7 +276,7 @@ if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Loa
 local function HasRule(field)
 	local d = DB()
 	for _, r in ipairs(d and d.rules or {}) do
-		if Lower(r[field]) ~= "" and r.loadout then return true end
+		if Lower(r[field]) ~= "" and (r.loadout or r.resist) then return true end
 	end
 	return false
 end
@@ -249,14 +285,22 @@ function SP:UpdateLoadoutRuleEvents()
 	frame:UnregisterAllEvents()
 	frame:RegisterEvent("PLAYER_LOGIN")
 	local d = DB()
-	if not (d and d.enabled) then pending = nil return end
+	if not (d and d.enabled) then
+		pending = nil
+		ReleaseResist("zone")
+		ReleaseResist("encounter")
+		return
+	end
 	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	frame:RegisterEvent("ZONE_CHANGED")
 	frame:RegisterEvent("ZONE_CHANGED_INDOORS")
 	frame:RegisterEvent("PLAYER_REGEN_ENABLED")
 	if HasRule("target") then frame:RegisterEvent("PLAYER_TARGET_CHANGED") end
-	if HasRule("encounter") then pcall(frame.RegisterEvent, frame, "ENCOUNTER_START") end
+	if HasRule("encounter") then
+		pcall(frame.RegisterEvent, frame, "ENCOUNTER_START")
+		if FOREVER then pcall(frame.RegisterEvent, frame, "ENCOUNTER_END") end
+	end
 end
 
 frame:RegisterEvent("PLAYER_LOGIN")
@@ -285,6 +329,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "ENCOUNTER_START" then
 		local _, encounterName = ...
 		CheckEncounter(encounterName)
+	elseif event == "ENCOUNTER_END" then
+		-- a kill ends the rule's resistance request; a wipe keeps it for the next pull
+		local success = select(5, ...)
+		if success == 1 then ReleaseResist("encounter") end
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		local p = pending
 		pending = nil
@@ -366,6 +414,11 @@ local STATIC = {
 			.. " With a Boss Encounter, it fires when that encounter starts; the switch lands when the fight ends, ready for the next attempt."
 			.. " A rule with only a Zone fires when you arrive there.",
 	},
+	resist_desc = {
+		order = 21.5, type = "description", width = "full",
+		hidden = function() return not (FOREVER and SP.RESIST_REQUESTS) end,
+		name = "A zone or encounter rule can also ask the raid for a resistance totem (it needs no loadout for that). The request ends when the boss dies (a wipe keeps it for the next pull) or when you leave the zone.",
+	},
 	forever_note = {
 		order = 22, type = "description", width = "full",
 		hidden = function() return not FOREVER end,
@@ -397,7 +450,16 @@ RebuildRuleArgs = function()
 			name = function()
 				local r = rule()
 				local lo = r and IndexOfUID(r.loadout)
-				return "|cffffd200Rule " .. idx .. "|r" .. (lo and (": " .. LoadoutName(lo)) or " (no loadout picked yet)")
+				local text = "|cffffd200Rule " .. idx .. "|r"
+				if lo then
+					text = text .. ": " .. LoadoutName(lo)
+				elseif not (r and r.resist) then
+					text = text .. " (no loadout picked yet)"
+				end
+				if r and r.resist and RESIST_NAMES[r.resist] then
+					text = text .. (lo and " + " or ": ") .. "request " .. RESIST_NAMES[r.resist]
+				end
+				return text
 			end,
 		}
 		ruleArgs["rule_loadout_" .. i] = {
@@ -426,6 +488,23 @@ RebuildRuleArgs = function()
 			disabled = Disabled,
 			get = function() local r = rule(); return r and r.encounter or "" end,
 			set = function(_, v) local r = rule(); if r then r.encounter = (strtrim(v or "") ~= "") and strtrim(v) or nil end; SP:UpdateLoadoutRuleEvents() end,
+		}
+		ruleArgs["rule_resist_" .. i] = {
+			order = base + 4.5, type = "select", name = "Also Request Resistance", width = 1.5,
+			desc = "Ask the raid for this resistance totem when the rule fires (zone or encounter rules; target rules do not request it)."
+				.. " One shaman is picked and asked; it ends when the boss dies (a wipe keeps it) or when you leave the zone.",
+			hidden = function() return not (FOREVER and SP.RESIST_REQUESTS) end,
+			disabled = Disabled,
+			values = { none = "None", fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" },
+			sorting = { "none", "fire", "frost", "nature" },
+			get = function() local r = rule(); return (r and r.resist) or "none" end,
+			set = function(_, v)
+				local r = rule()
+				if r then
+					if v == "none" then r.resist = nil else r.resist = v end
+				end
+				SP:UpdateLoadoutRuleEvents()
+			end,
 		}
 		ruleArgs["rule_remove_" .. i] = {
 			order = base + 5, type = "execute", name = "Remove Rule " .. i, width = 1.5,
