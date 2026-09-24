@@ -328,6 +328,9 @@ local function EnsureDoneBar()
 	text:SetJustifyH("LEFT"); text:SetWordWrap(true)
 	text:SetText("Drag any blue box. Each has its own Reset.")
 	f:SetHeight(math.max(46, math.ceil(text:GetStringHeight()) + 20))
+	-- hidden before the OnHide below exists: this runs with the mode already
+	-- on, so that handler would end the mode the moment the bar is made
+	f:Hide()
 	-- Escape closes it and ends the mode as Done does: a frame later, or the
 	-- settings window Done brings back would be shut by the same Escape
 	tinsert(UISpecialFrames, "ShamanPowerUnlockBar")
@@ -336,7 +339,6 @@ local function EnsureDoneBar()
 			C_Timer.After(0, function() if ACTIVE then SP:SetMasterUnlock(false) end end)
 		end
 	end)
-	f:Hide()
 	doneBar = f
 	return f
 end
