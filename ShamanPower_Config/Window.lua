@@ -192,7 +192,6 @@ local NAV = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
-			{ label = "Raid Resistance", paths = { P("buttons", "resist_section") } },
 		}},
 		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
@@ -202,6 +201,7 @@ local NAV = {
 	}},
 	{ group = "Modules", power = true, entries = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section"), power = false },
+		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = false },   -- WoW: Forever only (the group exists only there)
 		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
 		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
 		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
@@ -1173,9 +1173,10 @@ local function RenderTabs(groups, activeKey, onPick)
 		frame.tabStrip:SetHeight(1)
 		return
 	end
-	frame.tabStrip:SetHeight(TABSTRIP_H)
-
-	local x = 0
+	-- the strip's width, worked out from the window's fixed layout rather than read
+	-- back: a tab that would run past it starts a new row (a long page or a big font)
+	local stripW = WIN_W - SIDEBAR_W - 1 - 2 * CONTENT_PAD - 8
+	local x, row = 0, 0
 	for i, g in ipairs(groups) do
 		local tab = tabPool[i]
 		if not tab then
@@ -1194,9 +1195,11 @@ local function RenderTabs(groups, activeKey, onPick)
 		local label = Tree:StripColor(g.name ~= "" and g.name or g.key)
 		tab.text:SetFontObject(Core.fonts.nav)
 		tab.text:SetText(label)
-		tab:SetWidth(math.max(tab.text:GetStringWidth() + 26, 60))
+		local w = math.max(tab.text:GetStringWidth() + 26, 60)
+		tab:SetWidth(w)
+		if x > 0 and x + w > stripW then x, row = 0, row + 1 end
 		tab:ClearAllPoints()
-		tab:SetPoint("BOTTOMLEFT", frame.tabStrip, "BOTTOMLEFT", x, 0)
+		tab:SetPoint("TOPLEFT", frame.tabStrip, "TOPLEFT", x, -row * TABSTRIP_H)
 
 		local isActive = (g.key == activeKey)
 		tab.text:SetFontObject(isActive and Core.fonts.navOn or Core.fonts.nav)
@@ -1211,8 +1214,9 @@ local function RenderTabs(groups, activeKey, onPick)
 		end)
 		tab:Show()
 
-		x = x + tab:GetWidth()
+		x = x + w
 	end
+	frame.tabStrip:SetHeight((row + 1) * TABSTRIP_H)
 end
 
 -- Widgets go back to their pools rather than being orphaned; pageWidgets is
@@ -1355,6 +1359,7 @@ end
 
 function SPConfig:RenderPage(entry, query, keepScroll)
 	ClearPage()
+	if frame.whatsNewBtn then frame.whatsNewBtn:Hide() end
 	if not entry then return end
 
 	local firstPath = entry._firstPath or entry.path or EntryPaths(entry)[1]
@@ -1367,6 +1372,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	frame.subtitle:SetText(Tree:StripColor(entry.desc or Tree:GetDesc(node, info) or ""))
 
 	local list, groups = ResolvePageList(entry, query, true)
+	-- What's New sits on General's Main tab only (elsewhere it covers the page description)
+	if frame.whatsNewBtn then frame.whatsNewBtn:SetShown(entry.label == "General" and frame._activeTab == "Main") end
 	if not list then return end
 	frame._query = query
 	frame._pageSig = PageSignature(list, groups)

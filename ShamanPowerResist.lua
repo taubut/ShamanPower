@@ -1100,7 +1100,7 @@ events:SetScript("OnEvent", function(self, event)
 end)
 
 -- ---------------------------------------------------------------------------
--- Settings: Totem Bar > Raid Resistance (group buttons.resist_section)
+-- Settings: Raid Resistance, its own sidebar entry (group buttons.resist_section)
 -- ---------------------------------------------------------------------------
 -- Turning requests on or off forgets what we passed on while they were off,
 -- except a pass the chat lock still holds: this client no longer knows that
