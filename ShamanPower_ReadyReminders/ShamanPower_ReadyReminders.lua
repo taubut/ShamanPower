@@ -410,6 +410,40 @@ local function curveMouseBack(f)
 	if f.mouseByCurve then f:EnableMouse(true); f.mouseByCurve = nil end
 end
 
+-- The curve is evaluated once per pass, so on its own the icon would light up
+-- on the next 0.2 s pass after the real cooldown ends. A Cooldown widget that
+-- draws nothing carries the same duration object; the game fires its
+-- OnCooldownDone when the real cooldown ends and a pass runs on the next frame.
+-- That signal is the game's, not a value read, so "only when ready" also gives
+-- the icon its mouse back there (f.realDone) instead of when our estimate ends.
+local passQueued = false
+local function passNow()
+	passQueued = false
+	SP:UpdateReadyReminders()
+end
+local function onRealCooldownDone(watch)
+	local f = watch:GetParent()
+	if f then f.realDone = true; curveMouseBack(f) end
+	if not passQueued then passQueued = true; C_Timer.After(0, passNow) end
+end
+local function watchRealEnd(f, d)
+	local w = f.endWatch
+	if w == nil then
+		local ok, made = pcall(CreateFrame, "Cooldown", nil, f)
+		w = ok and made or false
+		if w then
+			w:SetSize(1, 1); w:SetPoint("CENTER", f, "CENTER", 0, 0)
+			pcall(w.SetDrawSwipe, w, false); pcall(w.SetDrawEdge, w, false); pcall(w.SetDrawBling, w, false)
+			pcall(w.SetHideCountdownNumbers, w, true)
+			w:SetScript("OnCooldownDone", onRealCooldownDone)
+		end
+		f.endWatch = w
+	end
+	if not w then return end
+	if not w:IsShown() then w:Show() end
+	pcall(w.SetCooldownFromDurationObject, w, d, true)
+end
+
 local function stopEffects(f)
 	if f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
 	if f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
@@ -420,7 +454,7 @@ local function setReady(f, ready)
 	if ready then
 		f.icon:SetDesaturated(false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
-		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart = nil, nil, nil, nil
+		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart, f.realDone = nil, nil, nil, nil, nil
 		curveMouseBack(f)
 		if f.engineSheet then f.engineSheet:Hide() end
 		f:SetAlpha(sv.opacity or 1)
@@ -492,6 +526,7 @@ local function drawEngineCooldown(f, sv)
 	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)   -- true: not the global cooldown
 	if not ok or d == nil then return end   -- tried again next pass
 	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur, f.cdChanged = true, style, barOn, d, nil
+	watchRealEnd(f, d)   -- the curve's switch to full runs when the real cooldown ends
 	local cd = f.cooldown
 	if f.countShown ~= false then f.countShown = false; f.count:SetText("") end   -- the engine's string counts
 	f.overlay:Hide()
@@ -609,10 +644,12 @@ function SP:UpdateReadyReminders()
 					-- fetch the duration object once per cooldown, and again when the client
 					-- says a cooldown changed (see the wake frame)
 					if f.readyDurStart ~= start or f.cdChanged then
+						if f.readyDurStart ~= start then f.realDone = nil end   -- a new cooldown, not a refetch of this one
 						f.readyDurStart, f.cdChanged = start, nil
 						local id = clientSpellID(entry)
 						local okd, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)
 						f.readyDur = okd and d or nil
+						if f.readyDur then watchRealEnd(f, f.readyDur) end
 					end
 					if f.readyDur then
 						-- nothing of "always" mode may stay behind: the sweep's numbers and
@@ -623,7 +660,7 @@ function SP:UpdateReadyReminders()
 						if f.engineSheet and f.engineSheet:IsShown() then f.engineSheet:Hide() end
 						if f.countShown ~= nil then f.count:SetText(""); f.countShown = nil end
 						f.ecdOn = nil
-						curveMouseOff(f)
+						if not f.realDone then curveMouseOff(f) end
 						if not f:IsShown() then f:Show() end
 						curved = curveAlpha(f, f.readyDur, sv.opacity or 1, 0)
 					end
