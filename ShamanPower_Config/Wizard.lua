@@ -169,6 +169,23 @@ function SP.Wizard.ApplyRoleDefaults(role)
 		notify()
 		return
 	end
+	SP.Wizard.ApplySpecPicks(role)
+	-- Clean look by default: no black panel / border behind any frame. Each
+	-- step still has a "Show frame" / "Show border" toggle to bring it back.
+	SP.opt.hideTotemBarFrame = true;                 safecall("UpdateTotemBarFrame")
+	SP.opt.hideCooldownBarFrame = true;              safecall("UpdateCooldownBarFrame")
+	SP.opt.raidCDButtonHideFrame = true;             safecall("UpdateCallerButtonFrameStyle")
+	SP.opt.esTracker.hideBorder = true;              safecall("UpdateESTrackerBorder")
+	SP:EnsureProfileTable("rangeTracker");           SP.opt.rangeTracker.hideBorder = true; safecall("UpdateSPRangeBorder")
+	SP.opt.rangeCounter = SP.opt.rangeCounter or {}; SP.opt.rangeCounter.hideFrame = true; safecall("UpdateRangeCounterFrameStyle")
+	ShamanPower_ReactiveTotems = ShamanPower_ReactiveTotems or {}
+	ShamanPower_ReactiveTotems.hideBackground = true; safecall("UpdateReactiveTotemAppearance")
+	notify()
+end
+
+-- The spec-specific part only (no look changes), so it can sit on top of a preset:
+-- Earth Shield, twisting, the cooldown bar's talent spells, Ready Reminders.
+function SP.Wizard.ApplySpecPicks(role)
 	local resto, enh, ele = role == "restoration", role == "enhancement", role == "elemental"
 	-- Earth Shield is Resto-only: tracker and the Earth Shield charge number.
 	-- Where the spell has no acquisition path, leave both off for every spec.
@@ -205,16 +222,6 @@ function SP.Wizard.ApplyRoleDefaults(role)
 		rr.flameshock, rr.frostshock = not resto, not resto
 		safecall("UpdateReadyReminders")
 	end
-	-- Clean look by default: no black panel / border behind any frame. Each
-	-- step still has a "Show frame" / "Show border" toggle to bring it back.
-	SP.opt.hideTotemBarFrame = true;                 safecall("UpdateTotemBarFrame")
-	SP.opt.hideCooldownBarFrame = true;              safecall("UpdateCooldownBarFrame")
-	SP.opt.raidCDButtonHideFrame = true;             safecall("UpdateCallerButtonFrameStyle")
-	SP.opt.esTracker.hideBorder = true;              safecall("UpdateESTrackerBorder")
-	SP:EnsureProfileTable("rangeTracker");           SP.opt.rangeTracker.hideBorder = true; safecall("UpdateSPRangeBorder")
-	SP.opt.rangeCounter = SP.opt.rangeCounter or {}; SP.opt.rangeCounter.hideFrame = true; safecall("UpdateRangeCounterFrameStyle")
-	ShamanPower_ReactiveTotems = ShamanPower_ReactiveTotems or {}
-	ShamanPower_ReactiveTotems.hideBackground = true; safecall("UpdateReactiveTotemAppearance")
 	if SP.SetESTrackerEnabled and SP.opt.esTracker then pcall(SP.SetESTrackerEnabled, SP, SP.opt.esTracker.enabled) end
 	safecall("UpdateShieldChargeDisplays")
 	if not InCombatLockdown() then safecall("RecreateCooldownBar") end
@@ -3833,14 +3840,127 @@ function SP.Wizard:ShowUpgradePrompt()
 	upgradeDlg:Show()
 end
 
--- Auto-open on first login for shamans (once profile data is ready).
--- New install: straight into the setup. Upgrade: a small prompt first.
+-- ---------------------------------------------------------------------------
+-- Very first login on a character: a small choice, not the whole tour at once.
+-- Shamans: the tour, or Srumar's setup in one click (spec from the talents, or
+-- asked when there are none yet). Other classes: the quick tour or Windfury-only.
+-- ---------------------------------------------------------------------------
+local SPEC_NAME = { restoration = "Restoration", enhancement = "Enhancement", elemental = "Elemental" }
+
+-- the spec with the most talent points; nil below level 10, on a tie, or when
+-- the game gives no counts (then the player is asked)
+function SP.Wizard.DetectSpec()
+	if (UnitLevel("player") or 0) < 10 then return nil end
+	if not (GetNumTalentTabs and GetTalentTabInfo) then return nil end
+	local tabs = { "elemental", "enhancement", "restoration" }   -- the shaman talent tabs, in order
+	local best, bestPts, second = nil, 0, 0
+	for i = 1, math.min(GetNumTalentTabs() or 0, 3) do
+		local r = { pcall(GetTalentTabInfo, i) }
+		if r[1] then
+			-- older clients return name, icon, points; newer ones id, name, description, icon, points
+			local pts = (type(r[2]) == "number") and r[6] or r[4]
+			if type(pts) == "number" and not (issecretvalue and issecretvalue(pts)) then
+				if pts > bestPts then second = bestPts; best, bestPts = tabs[i], pts
+				elseif pts > second then second = pts end
+			end
+		end
+	end
+	if best and bestPts > second then return best end
+	return nil
+end
+
+local welcomeDlg
+local function quickSetup(role)
+	local preset = SP.Presets and SP.Presets[1]
+	if preset and preset.key then SP:ApplyPreset(preset.key, "overwrite") end
+	if role then SP.Wizard.ApplySpecPicks(role) end
+	SP.opt.setupDone = true
+	welcomeDlg:Hide()
+	local name = preset and preset.name or "The quick setup"
+	print("|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
+		.. ". Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r.")
+	Core:RequestReload(name .. " is applied.")
+end
+
+function SP.Wizard:ShowWelcomeChoice()
+	if InCombatLockdown() then C_Timer.After(5, function() SP.Wizard:ShowWelcomeChoice() end) return end
+	if not welcomeDlg then
+		welcomeDlg = Core:CreateDialog({
+			name = "ShamanPowerWelcomeChoice", width = 440, height = 262,
+			title = "Welcome to ShamanPower", subtitle = "first time on this character", headerHeight = 46, footer = 52,
+		})
+		welcomeDlg:SetFrameStrata("DIALOG")
+		local body = welcomeDlg.body
+		local t = body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
+		t:SetPoint("TOP", body, "TOP", 0, -6); t:SetWidth(400); t:SetJustifyH("CENTER"); t:SetWordWrap(true)
+		welcomeDlg.text = t
+		-- the two main choices
+		local a = Core:MakeButton(body, "", 360, true); a:SetSize(360, 34); a:SetPoint("TOP", t, "BOTTOM", 0, -16)
+		local b = Core:MakeButton(body, "", 360, false); b:SetSize(360, 34); b:SetPoint("TOP", a, "BOTTOM", 0, -10)
+		b.text:SetTextColor(1, 0.82, 0)
+		welcomeDlg.a, welcomeDlg.b = a, b
+		-- the spec question (only when the talents cannot tell)
+		welcomeDlg.specs = {}
+		for i, role in ipairs({ "restoration", "enhancement", "elemental" }) do
+			local s = Core:MakeButton(body, SPEC_NAME[role], 118, false); s:SetSize(118, 34)
+			s:SetPoint("TOP", t, "BOTTOM", (i - 2) * 126, -16)
+			local ic = s:CreateTexture(nil, "OVERLAY"); ic:SetSize(20, 20); ic:SetPoint("LEFT", s, "LEFT", 7, 0)
+			ic:SetTexture(SPEC_ICON[role]); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			s.text:ClearAllPoints(); s.text:SetPoint("LEFT", ic, "RIGHT", 6, 0)
+			s:SetScript("OnClick", function() quickSetup(role) end)
+			s:Hide()
+			welcomeDlg.specs[i] = s
+		end
+		local never = Core:MakeButton(welcomeDlg, "Don't ask again", 130, false)
+		never:SetPoint("BOTTOMRIGHT", welcomeDlg, "BOTTOMRIGHT", -14, 12)
+		never:SetScript("OnClick", function()
+			welcomeDlg:Hide(); SP.opt.setupDone = true
+			print("|cff0070ddShamanPower|r: run the setup any time with |cffffffff/sp setup|r.")
+		end)
+		local later = Core:MakeButton(welcomeDlg, "Not now", 100, false)
+		later:SetPoint("RIGHT", never, "LEFT", -8, 0)
+		later:SetScript("OnClick", function() welcomeDlg:Hide() end)   -- asks again next login
+	end
+	local d = welcomeDlg
+	local function showSpecs(on)
+		d.a:SetShown(not on); d.b:SetShown(not on)
+		for _, s in ipairs(d.specs) do s:SetShown(on) end
+	end
+	showSpecs(false)
+	if IS_SHAMAN then
+		local preset = SP.Presets and SP.Presets[1]
+		d.text:SetText("Set it up your way, or start playing right now.")
+		d.a.text:SetText("Take the setup tour  (a few minutes)")
+		d.a:SetScript("OnClick", function() d:Hide(); SP.Wizard:Open() end)
+		d.b.text:SetText("Use " .. (preset and preset.name or "the quick setup") .. "  (instant)")
+		d.b:SetScript("OnClick", function()
+			local role = SP.Wizard.DetectSpec()
+			if role then quickSetup(role) return end
+			d.text:SetText("What spec are you levelling as?")
+			showSpecs(true)
+		end)
+	else
+		d.text:SetText("ShamanPower helps you play alongside shamans.")
+		d.a.text:SetText("Quick tour  (a minute)")
+		d.a:SetScript("OnClick", function() d:Hide(); SP.Wizard:Open() end)
+		d.b.text:SetText("Just here so my shaman sees my Windfury")
+		d.b:SetScript("OnClick", function()
+			d:Hide(); SP.opt.setupDone = true
+			if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
+			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
+		end)
+	end
+	d:Show()
+end
+
+-- Auto-open on first login (once profile data is ready).
+-- New install: the small welcome choice. Upgrade: the upgrade prompt.
 local function MaybeAutoOpen()
 	if not SP.opt then return end
 	if SP.opt.setupDone then return end
 	C_Timer.After(1.5, function()
 		if SP.opt.setupDone then return end
-		if IS_SHAMAN and LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:Open() end
+		if IS_SHAMAN and LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:ShowWelcomeChoice() end
 	end)
 end
 

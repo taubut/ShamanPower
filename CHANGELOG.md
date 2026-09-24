@@ -33,6 +33,7 @@
 - Compact style has a new look and defaults; a Compact profile already in use keeps its old look.
 - Element colour palettes, flyout sizes separate from the bar, and a reset for each settings section.
 - Settings window: sizes and opacity show as percentages, long labels wrap instead of being cut off, inputs fit their values, and search highlights the right tab.
+- **First login is a small choice, not the whole tour:** take the setup tour, or use Srumar's setup in one click (your spec is read from your talents, or asked when you have none yet). Other classes get the quick tour or Windfury-only mode. "Not now" asks again next login; the tour is always at /sp setup.
 - The setup tour has spec cards listing what each pick sets up, a Ready Reminders step and a Position step that moves every frame. Picking a spec only sets starting defaults on a brand-new install.
 - Non-shamans get a short tour and a settings list with only what runs for them (Totem Range, Raid Cooldowns, Totem Plates, the Earth Shield tracker, and the Windfury Companion on Anniversary). Tremor Reminder, Shield Charges, Ready Reminders, Expiring Alerts and Reactive Totems no longer load on other classes.
 - **Windfury-only mode** for non-shamans: one button on their setup screen (or General > Windfury-Only Mode) turns off every window, bar, icon and nameplate, and keeps only the report that tells the group's shamans whether their weapon has Windfury. That report now runs whenever a shaman is in the group, even with the Totem Range overlay closed.
