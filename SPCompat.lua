@@ -202,11 +202,14 @@ do
 		readHand(Enum.WeaponSlot.OffHand, cache.off)
 	end
 
-	local function remaining(t)
-		if not t.has or not t.expiresAt then return nil end
+	-- One hand's answer. An enchant past its cached expiry is reported gone until a
+	-- read shows it renewed; the cache itself keeps it, so the next read still happens.
+	local function hand(t)
+		if not t.has then return false end
+		if not t.expiresAt then return true, nil, t.charges, t.id end
 		local ms = t.expiresAt - GetTime() * 1000
-		if ms <= 0 then return 0 end
-		return ms
+		if ms <= 0 then return false end
+		return true, ms, t.charges, t.id
 	end
 	-- a cached enchant whose expiry has passed: gone, or renewed without an event
 	-- (a totem's enchant); only a read can tell
@@ -219,10 +222,12 @@ do
 			local m, o = cache.main, cache.off
 			local age = GetTime() - cache.at
 			-- re-read on the insurance clock, or at once (at most 4 times a second)
-			-- when a cached enchant has run out, so a finished enchant is never
-			-- reported as still there
+			-- when a cached enchant has run out; between those reads a finished
+			-- enchant reads as gone (hand), never as still there
 			if age >= REFRESH or (age >= 0.25 and (ranOut(m) or ranOut(o))) then refresh() end
-			return m.has, remaining(m), m.charges, m.id, o.has, remaining(o), o.charges, o.id
+			local mh, mLeft, mCharges, mID = hand(m)
+			local oh, oLeft, oCharges, oID = hand(o)
+			return mh, mLeft, mCharges, mID, oh, oLeft, oCharges, oID
 		end
 		if _G.GetWeaponEnchantInfo then return _G.GetWeaponEnchantInfo() end
 		return false
