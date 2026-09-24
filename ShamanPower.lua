@@ -15270,7 +15270,9 @@ function ShamanPower:ParseMessage(sender, msg)
 	end
 
 	if kw == "ASSIGN" then
-		local _, _, name, class, skill = strfind(msg, "^ASSIGN (.*) (.*) (.*)")
+		-- the name is everything before the two numbers, so "First Last" stays whole
+		local name, class, skill = strmatch(msg, "^ASSIGN (.+) (%d+) (%d+)$")
+		if not name then return end
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
@@ -15285,7 +15287,8 @@ function ShamanPower:ParseMessage(sender, msg)
 
 	-- Handle TWIST message for totem twisting assignment
 	if kw == "TWIST" then
-		local _, _, name, enabled = strfind(msg, "^TWIST (.*) (.*)")
+		local name, enabled = strmatch(msg, "^TWIST (.+) ([01])$")
+		if not name then return end
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
@@ -15312,7 +15315,8 @@ function ShamanPower:ParseMessage(sender, msg)
 	end
 
 	if kw == "PASSIGN" then
-		local _, _, name, assign = strfind(msg, "^PASSIGN (.*)@([0-9n]*)")
+		local name, assign = strmatch(msg, "^PASSIGN (.+)@([0-9n]*)")
+		if not name then return end
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
@@ -15332,7 +15336,8 @@ function ShamanPower:ParseMessage(sender, msg)
 	end
 
 	if kw == "MASSIGN" then
-		local _, _, name, skill = strfind(msg, "^MASSIGN (.*) (.*)")
+		local name, skill = strmatch(msg, "^MASSIGN (.+) (%d+)$")
+		if not name then return end
 		name = self:RemoveRealmName(name)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
