@@ -4630,6 +4630,20 @@ end
 -- ---------------------------------------------------------------------------
 ShamanPower.barMovers = ShamanPower.barMovers or {}
 local MOVER_MIN_W, MOVER_MIN_H = 60, 24   -- a box is never smaller (an empty cooldown bar is 1x1)
+local MOVER_PAD = 4                       -- label inset from the box's edges
+
+-- The label wraps inside the box, never "...": remember its longest word, the
+-- narrowest the box may get without splitting one.
+local function SetBarMoverLabel(mover, label)
+	if label == mover.spLabel then return end
+	local text, wordW = mover.text, 0
+	for word in label:gmatch("%S+") do
+		text:SetText(word)
+		wordW = math.max(wordW, (text.GetUnboundedStringWidth and text:GetUnboundedStringWidth()) or text:GetStringWidth())
+	end
+	text:SetText(label)
+	mover.spLabel, mover.spWordW = label, math.ceil(wordW)
+end
 
 -- Every box on screen goes back over its frame a frame after a drop, once the
 -- moved frames are laid out: read in the same frame as the SetPoint, a frame
@@ -4646,7 +4660,7 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local mover = self.barMovers[key]
 	if mover then
 		mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
-		if label then mover.text:SetText(label) end
+		if label then SetBarMoverLabel(mover, label) end
 		return mover
 	end
 	mover = CreateFrame("Frame", "ShamanPowerMover_" .. key, UIParent)
@@ -4670,9 +4684,10 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 		end
 	end
 	local text = mover:CreateFontString(nil, "OVERLAY")
-	text:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+	text:SetFontObject("ShamanPowerDialogFontText")   -- ShamanPowerDialog.lua's row font
 	text:SetPoint("CENTER")
-	text:SetTextColor(1, 1, 1)
+	text:SetJustifyH("CENTER")
+	text:SetWordWrap(true)
 	mover.text = text
 
 	mover:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -4715,7 +4730,7 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	mover.key = key
 	self.barMovers[key] = mover
 	mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
-	mover.text:SetText(label or "Move")
+	SetBarMoverLabel(mover, label or "Move")
 	return mover
 end
 
@@ -4733,8 +4748,12 @@ function ShamanPower:ShowBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local cx = (sizeFrame:GetLeft() + sizeFrame:GetRight()) / 2 * es
 	local cy = (sizeFrame:GetTop() + sizeFrame:GetBottom()) / 2 * es
 	local mes = mover:GetEffectiveScale()
+	-- at least as wide as the label's longest word and tall enough for its lines
+	local w = math.max(W / mes, MOVER_MIN_W, mover.spWordW + 2 * MOVER_PAD)
+	mover.text:SetWidth(w - 2 * MOVER_PAD)
+	local h = math.max(H / mes, MOVER_MIN_H, math.ceil(mover.text:GetStringHeight()) + 2 * MOVER_PAD)
 	mover:ClearAllPoints()
-	mover:SetSize(math.max(W / mes, MOVER_MIN_W), math.max(H / mes, MOVER_MIN_H))
+	mover:SetSize(w, h)
 	mover:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / mes, cy / mes)
 	mover:Show()
 end
@@ -4994,29 +5013,68 @@ end
 
 -- Icon-only mode must not strand the user: instead of hiding the settings
 -- button outright, show it only while the mouse is over the frame.
-function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
-	if not frame or not cog then return end
-	if enabled then
-		cog:Hide()
-		if not frame.spCogWatcher then
-			frame.spCogWatcher = CreateFrame("Frame", nil, frame)
-		end
-		local w = frame.spCogWatcher
-		w.t = 0
-		w:SetScript("OnUpdate", function(self, elapsed)
-			self.t = self.t + elapsed
-			if self.t < 0.1 then return end
-			self.t = 0
-			local over = frame:IsMouseOver() or cog:IsMouseOver()
-			if over ~= self.over then
-				self.over = over
-				cog:SetShown(over)
+-- Event-driven, so nothing runs while the mouse is elsewhere. The cursor can
+-- reach or leave the frame straight off a child without the frame hearing it
+-- (an icon-only pop-out is all button), so every mouse-enabled Frame/Button
+-- inside it reports too, and each event just asks whether the cursor is over
+-- the frame. Children come and go while the frame stays up (Raid Cooldowns
+-- rebuilds its Mana Tide buttons on every sync), so every enter, leave, show
+-- and resize walks the children again: whatever the cursor crosses onto from
+-- something we hear is hooked before it can be left. A cursor that lands
+-- straight from outside on a child built since the last walk shows the button
+-- only once it moves on to the frame or another child. Engine widgets (aura
+-- containers, cooldowns) are left alone.
+do
+	local owner = setmetatable({}, { __mode = "k" })   -- hooked region -> the frame whose button it drives
+	local WALK = { Frame = true, Button = true, CheckButton = true }
+
+	local function Update(region)
+		local frame = owner[region]
+		local cog = frame and frame.spCogHoverOnly
+		if cog then cog:SetShown(frame:IsVisible() and (frame:IsMouseOver() or cog:IsMouseOver())) end
+	end
+
+	local Refresh
+	local function HookTree(frame, ...)
+		for i = 1, select("#", ...) do
+			local region = select(i, ...)
+			if WALK[region:GetObjectType()] then
+				if region:IsMouseEnabled() then
+					if not owner[region] then
+						region:HookScript("OnEnter", Refresh)
+						region:HookScript("OnLeave", Refresh)
+					end
+					owner[region] = frame
+				end
+				HookTree(frame, region:GetChildren())
 			end
-		end)
-		w:Show()
-	else
-		if frame.spCogWatcher then frame.spCogWatcher:SetScript("OnUpdate", nil) end
-		cog:Show()
+		end
+	end
+
+	Refresh = function(region)
+		local frame = owner[region]
+		if frame and frame.spCogHoverOnly then HookTree(frame, frame:GetChildren()) end
+		Update(region)
+	end
+
+	function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
+		if not frame or not cog then return end
+		if not enabled then
+			frame.spCogHoverOnly = nil
+			cog:Show()
+			return
+		end
+		frame.spCogHoverOnly = cog
+		owner[frame] = frame
+		if not frame.spCogHoverHooked then
+			frame.spCogHoverHooked = true
+			frame:HookScript("OnEnter", Refresh)
+			frame:HookScript("OnLeave", Refresh)
+			frame:HookScript("OnShow", Refresh)
+			frame:HookScript("OnSizeChanged", Refresh)
+			frame:HookScript("OnHide", Update)
+		end
+		Refresh(frame)
 	end
 end
 
@@ -5030,7 +5088,8 @@ function ShamanPower:ApplyPanelBackdrop(frame, border)
 end
 
 -- Small settings button: dark square, 1px border, three bars. Replaces the
--- Blizzard gear texture on the pop-out frames.
+-- Blizzard gear texture on the pop-out frames. The hover paint is hooked, so
+-- callers add their tooltip with HookScript: a SetScript would wipe it.
 function ShamanPower:StyleSettingsButton(btn)
 	local bg = btn:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(btn)
@@ -5097,13 +5156,13 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	cogBtn:SetScript("OnClick", function()
 		ShamanPower:ShowPopOutSettingsPanel(key, frame)
 	end)
-	cogBtn:SetScript("OnEnter", function(self)
+	cogBtn:HookScript("OnEnter", function(self)
 		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Settings")
 		GameTooltip:Show()
 	end)
-	cogBtn:SetScript("OnLeave", function()
+	cogBtn:HookScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
 	frame.cogBtn = cogBtn

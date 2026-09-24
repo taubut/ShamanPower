@@ -893,13 +893,13 @@ function SP:CreateCallerButtonFrame()
 	cog:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -3, -3)
 	SP:StyleSettingsButton(cog)
 	cog:SetScript("OnClick", function() SP:OpenFrameSettings("raidcd", frame) end)
-	cog:SetScript("OnEnter", function(self)
+	cog:HookScript("OnEnter", function(self)
 		if not SP.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Settings")
 		GameTooltip:Show()
 	end)
-	cog:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	cog:HookScript("OnLeave", function() GameTooltip:Hide() end)
 	frame.cogBtn = cog
 
 	self.callerButtonFrame = frame
