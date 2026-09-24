@@ -15132,14 +15132,112 @@ local function holdMessage(self, msg, type, target)
 	heldMessages[#heldMessages + 1] = { msg, type, target, key = key,
 		instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
 end
+-- Blizzard lets each addon prefix send about 10 messages at once and then 1 a
+-- second, and refuses the rest; ChatThrottleLib only paces by bytes. So every
+-- message SendMessage lets through leaves by one queue: up to 10 straight away,
+-- then one a second, in the order they were made. A newer message for the same
+-- thing (a held key above, or a whole-state SELF / *SYNC) replaces one still
+-- waiting. The queue belongs to the group it was made in (DropHeldMessages) and
+-- waits out a chat lockdown rather than losing what it holds (SendHeldMessages
+-- starts it again). Nothing runs while it is empty.
+local outbound = {}
+do
+	local BURST = 10                   -- at once; then one more for each second since
+	local SNAPSHOT = { SELF = true, RCSYNC = true, MTSYNC = true, DRUMSYNC = true }   -- each carries the whole state
+	local allowance, allowanceAt = BURST, 0
+	local queue, timerSet = nil, false
+
+	-- the channel is worked out as it leaves: the group may have changed while it waited
+	local function transmit(self, msg, type, target)
+		if not type then
+			if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
+				type = "INSTANCE_CHAT"
+			else
+				if IsInRaid() then
+					type = "RAID"
+				else
+					type = "PARTY"
+				end
+			end
+		end
+		if target then
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, "WHISPER", target)
+			--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: WHISPER | target name: " .. target)
+		else
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, type)
+			--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: " .. type)
+		end
+	end
+	local function regain()
+		local now = GetTime()
+		allowance = math.min(BURST, allowance + (now - allowanceAt))
+		allowanceAt = now
+	end
+	local drain
+	local function schedule()
+		if timerSet then return end
+		timerSet = true
+		C_Timer.After(1 - allowance + 0.01, drain)   -- when the next one is allowed
+	end
+	drain = function()
+		timerSet = false
+		if not queue then return end
+		if SPK and SPK() == true then return end   -- chat lockdown: SendHeldMessages starts it again
+		if GetNumGroupMembers() == 0 then queue = nil return end
+		regain()
+		local instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false
+		while queue[1] and allowance >= 1 do
+			local m = tremove(queue, 1)
+			-- made in the other kind of group: dropped, as a held one is
+			if m.instance == instance then
+				allowance = allowance - 1
+				transmit(ShamanPower, m[1], m[2], m[3])
+			end
+		end
+		if queue[1] then schedule() else queue = nil end
+	end
+
+	function outbound.send(self, msg, type, target)
+		if not queue then
+			regain()
+			if allowance >= 1 then
+				allowance = allowance - 1
+				transmit(self, msg, type, target)
+				return
+			end
+			queue = {}
+		end
+		local kind = strmatch(msg, "^(%u+)") or ""
+		local key = (HOLD_IN_LOCKDOWN[kind] and heldKey(self, msg)) or (SNAPSHOT[kind] and kind) or nil
+		if key then
+			for i = #queue, 1, -1 do
+				local m = queue[i]
+				if m.key == key and m[3] == target then tremove(queue, i) end
+			end
+		end
+		queue[#queue + 1] = { msg, type, target, key = key,
+			instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
+		schedule()
+	end
+	function outbound.resume()
+		if queue and not timerSet then drain() end
+	end
+	function outbound.drop()
+		queue = nil
+	end
+end
+
 -- A held message belongs to the group it was made in. The channel is worked out
 -- again when it is sent, so leaving that group or joining another (a battleground,
 -- a Dungeon Finder group) drops it (GROUP_LEFT / GROUP_JOINED), and one made in the
 -- other kind of group is not sent: a held CLEAR must never wipe another group's calls.
+-- The messages still waiting to leave go with it.
 function ShamanPower:DropHeldMessages()
 	heldMessages = nil
+	outbound.drop()
 end
 function ShamanPower:SendHeldMessages()
+	outbound.resume()   -- what waited through the lockdown leaves first
 	local held = heldMessages
 	heldMessages = nil
 	if held then
@@ -15171,24 +15269,7 @@ function ShamanPower:SendMessage(msg, type, target, force)
 		if force or lastMsg ~= dedupKey or (now - lastMsgTime) > DEDUP_WINDOW then
 			lastMsg = dedupKey
 			lastMsgTime = now
-			if not type then
-				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-					type = "INSTANCE_CHAT"
-				else
-					if IsInRaid() then
-						type = "RAID"
-					else
-						type = "PARTY"
-					end
-				end
-			end
-			if target then
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, "WHISPER", target)
-				--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: WHISPER | target name: " .. target)
-			else
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, type)
-				--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: " .. type)
-			end
+			outbound.send(self, msg, type, target)
 		end
 	end
 end
