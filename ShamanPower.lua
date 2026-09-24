@@ -1075,9 +1075,13 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "OnTalentsChanged")  -- Wrath dual spec switch
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
-	-- one shared pass a second after the roster settles (a raid forming fires
-	-- dozens of GROUP_ROSTER_UPDATEs); pets never mattered to either
+	-- a raid forming fires dozens of GROUP_ROSTER_UPDATEs: the roster pass runs at
+	-- most once a second (a bucket fires a second after the first event it catches,
+	-- again for any after that), and after combat. Pets never mattered to it.
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED"}, 1, "OnRosterSettled")
+	-- the shaman-count check only on real roster changes: when it finds a shaman
+	-- missing it wipes the shaman list and asks the group again
+	self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
@@ -14725,13 +14729,25 @@ function ShamanPower:QueueSelfBroadcast()
 end
 
 -- Ask the group's shamans for their data, at most once every 5 s: a burst of
--- roster changes (a raid forming, someone leaving) asks once.
-local lastShamanDataRequest = -10
+-- roster changes (a raid forming, someone leaving) asks once. An ask inside the
+-- 5 s is not dropped but sent once at the end of it: the caller may have just
+-- wiped the shaman list and needs the answers.
+local REQUEST_GAP = 5
+local lastShamanDataRequest, requestQueued = -10, false
+local function sendShamanDataRequest()
+	requestQueued = false
+	lastShamanDataRequest = GetTime()
+	ShamanPower:SendMessage("REQ")
+end
 function ShamanPower:RequestShamanData()
-	local now = GetTime()
-	if now - lastShamanDataRequest < 5 then return end
-	lastShamanDataRequest = now
-	self:SendMessage("REQ")
+	if requestQueued then return end   -- one is already on its way
+	local wait = REQUEST_GAP - (GetTime() - lastShamanDataRequest)
+	if wait <= 0 then
+		sendShamanDataRequest()
+	else
+		requestQueued = true
+		C_Timer.After(wait, sendShamanDataRequest)
+	end
 end
 
 function ShamanPower:SendSelf(sender, force)
@@ -15178,8 +15194,9 @@ ShamanPower.auraGen = {}
 -- A roster change can put a different player in the same unit slot without an
 -- aura event on that slot: invalidate every group slot's cached answer.
 -- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: this bookkeeping runs
--- once, 0.3 s after the last one (the Earth Shield carrier's unit token is
--- re-found here too, since raid indexes shift).
+-- 0.3 s after the first one, and once more 0.3 s after the first of any that
+-- arrive later, so a long burst costs one pass every 0.3 s at most (the Earth
+-- Shield carrier's unit token is re-found here too, since raid indexes shift).
 do
 	local slots = { "party1", "party2", "party3", "party4" }
 	for i = 1, 40 do slots[#slots + 1] = "raid" .. i end
@@ -15811,7 +15828,6 @@ end
 
 function ShamanPower:OnRosterSettled()
 	self:UpdateRoster()
-	self:UpdateAllShamans()
 end
 
 -- One roster member: who leads, and which raid subgroup each known shaman is in
