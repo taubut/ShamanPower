@@ -1212,6 +1212,7 @@ function ShamanPower:OnProfileChanged()
 
 	self.opt = self.db.profile
 	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
+	if self.RefreshTextures then self:RefreshTextures() end   -- and other bar textures
 	if self.UpdateAnnounceEvents then self:UpdateAnnounceEvents() end   -- announce settings live in the profile
 	MigrateMiniBarProfile(self.db, self.opt)
 	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
@@ -1909,7 +1910,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- White overlay texture
 	local wipe = wipeFrame:CreateTexture(nil, "OVERLAY")
-	wipe:SetColorTexture(1, 1, 1, 0.7)  -- White for visibility
+	ShamanPower:SetSPBarColor(wipe, "pulse", 1, 1, 1, 0.7)  -- White for visibility
 	wipe:Hide()
 
 	-- Time text inside the bar (top)
@@ -2812,7 +2813,7 @@ function ShamanPower:SetupTotemProgressBars()
 			-- Progress bar (colored)
 			local progressBar = totemButton:CreateTexture(nil, "OVERLAY", nil, 1)
 			local colors = self.DurationBarColors[element]
-			progressBar:SetColorTexture(colors[1], colors[2], colors[3], 1)
+			ShamanPower:SetSPBarColor(progressBar, "duration", colors[1], colors[2], colors[3], 1)
 			progressBar:Hide()
 
 			-- Duration text INSIDE the bar (top)
@@ -3833,7 +3834,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	overlay.wipeFrame = wipeFrame
 
 	local wipe = wipeFrame:CreateTexture(nil, "OVERLAY")
-	wipe:SetColorTexture(1, 1, 1, 0.7)  -- White for visibility
+	ShamanPower:SetSPBarColor(wipe, "pulse", 1, 1, 1, 0.7)  -- White for visibility
 	wipe:Hide()
 	overlay.wipe = wipe
 	overlay.buttonWidth = frame:GetWidth() - 4
@@ -5102,7 +5103,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 
 	-- Progress bar
 	local progressBar = iconHolder:CreateTexture(nil, "OVERLAY", nil, 1)
-	progressBar:SetColorTexture(barColors[1], barColors[2], barColors[3], 1)
+	ShamanPower:SetSPBarColor(progressBar, "duration", barColors[1], barColors[2], barColors[3], 1)
 	progressBar:SetPoint("BOTTOMLEFT", iconHolder, "BOTTOMLEFT", 0, 0)
 	progressBar:SetHeight(barSize)
 	progressBar:SetWidth(1)
@@ -8733,7 +8734,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Progress bar (colored)
 			local progressBar = btn:CreateTexture(nil, "OVERLAY", nil, 1)
-			progressBar:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+			ShamanPower:SetSPBarColor(progressBar, "cooldown", 0.2, 0.8, 0.2, 0.9)
 			progressBar:Hide()
 			btn.progressBar = progressBar
 
@@ -9101,7 +9102,7 @@ end
 local function EngineProgressBar(btn)
 	if not btn.engineBar then
 		local bar = CreateFrame("StatusBar", nil, btn)
-		bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+		ShamanPower:SetSPStatusBarTexture(bar, "cooldown", "Interface\\Buttons\\WHITE8x8")
 		bar:SetFrameLevel(btn:GetFrameLevel() + 2)
 		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end
 		btn.engineBar = bar
@@ -9481,7 +9482,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						bg:SetColorTexture(0, 0, 0, 0.7)
 						local bar = CreateFrame("StatusBar", nil, carrier)
 						bar:SetAllPoints(btn.bgBar)
-						bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+						ShamanPower:SetSPStatusBarTexture(bar, "cooldown", "Interface\\Buttons\\WHITE8x8")
 						local bt = bar:GetStatusBarTexture()
 						if bt then bt:SetVertexColor(0.2, 0.8, 0.2, 0.9) end
 						local vertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
@@ -9710,7 +9711,7 @@ local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, in
 		bar:SetPoint("LEFT", bg, "LEFT", 0, 0)
 	end
 
-	bar:SetColorTexture(r, g, b, 0.9)
+	ShamanPower:SetSPBarColor(bar, "cooldown", r, g, b, 0.9)
 	bar:Show()
 
 	if showSweep and grey then
@@ -9894,7 +9895,7 @@ function ShamanPower:UpdateCooldownButtons()
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
 						end
 					end
-					btn.progressBar:SetColorTexture(r, g, b, 0.9)
+					ShamanPower:SetSPBarColor(btn.progressBar, "cooldown", r, g, b, 0.9)
 					btn.progressBar:Show()
 				else
 					if btn.progressBar then btn.progressBar:Hide() end
@@ -10027,7 +10028,7 @@ function ShamanPower:UpdateCooldownButtons()
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
 						end
 					end
-					btn.progressBar:SetColorTexture(r, g, b, 0.9)
+					ShamanPower:SetSPBarColor(btn.progressBar, "cooldown", r, g, b, 0.9)
 					btn.progressBar:Show()
 				else
 					if btn.progressBar then btn.progressBar:Hide() end
@@ -11184,7 +11185,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	btn.bgBarMain = bgBarMain
 
 	local progressBarMain = btn:CreateTexture(nil, "OVERLAY", nil, 1)
-	progressBarMain:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+	ShamanPower:SetSPBarColor(progressBarMain, "cooldown", 0.2, 0.8, 0.2, 0.9)
 	progressBarMain:Hide()
 	btn.progressBarMain = progressBarMain
 
@@ -11194,7 +11195,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	btn.bgBarOff = bgBarOff
 
 	local progressBarOff = btn:CreateTexture(nil, "OVERLAY", nil, 1)
-	progressBarOff:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+	ShamanPower:SetSPBarColor(progressBarOff, "cooldown", 0.2, 0.8, 0.2, 0.9)
 	progressBarOff:Hide()
 	btn.progressBarOff = progressBarOff
 

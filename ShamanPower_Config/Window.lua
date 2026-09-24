@@ -166,7 +166,7 @@ local NAV = {
 		{ label = "General", lock = true, desc = "Global behaviour and interface settings.", tabs = {
 			-- the Totem Bar Style dropdown is on Main: a shaman sees the bar change as they hover its list
 			{ label = "Main",      preview = PLAYER_IS_SHAMAN and MOCK_TOTEM or nil, paths = { P("settings", "settings_show") } },
-			{ label = "Fonts",     preview = PLAYER_IS_SHAMAN and MOCK_BARS or nil, paths = { P("settings", "settings_fonts") } },
+			{ label = "Fonts & Textures", preview = PLAYER_IS_SHAMAN and MOCK_BARS or nil, paths = { P("settings", "settings_fonts") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
@@ -1477,6 +1477,14 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 					opts.itemFont = function(key) return lsm and key and key:sub(1, 2) ~= "__" and lsm:Fetch("font", key, true) or nil end
 					opts.onHover = function(key) local sp = SP(); if sp and sp.PreviewFont then sp:PreviewFont(fontArea, key) end end
 					opts.onHoverEnd = function() local sp = SP(); if sp and sp.PreviewFont then sp:PreviewFont(nil) end end
+				end
+				-- a bar texture list: a swatch per texture, and the hovered one shown on the bars
+				local texArea = spNow and spNow.OptionHoverTexture and spNow.OptionHoverTexture[e.node]
+				if texArea then
+					local lsm = LibStub and LibStub("LibSharedMedia-3.0", true)
+					opts.itemTexture = function(key) return lsm and key and key:sub(1, 2) ~= "__" and lsm:Fetch("statusbar", key, true) or nil end
+					opts.onHover = function(key) local sp = SP(); if sp and sp.PreviewTexture then sp:PreviewTexture(texArea, key) end end
+					opts.onHoverEnd = function() local sp = SP(); if sp and sp.PreviewTexture then sp:PreviewTexture(nil) end end
 				end
 				f, h = Widgets:Dropdown(body, opts)
 

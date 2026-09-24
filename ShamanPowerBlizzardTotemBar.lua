@@ -152,7 +152,7 @@ local function styleHost(host, element)
 		bar:SetPoint("TOPLEFT", bg, "TOPLEFT", 0, 0)
 	end
 	local colors = SP.DurationBarColors[element]
-	bar:SetColorTexture(colors[1], colors[2], colors[3], 1)
+	SP:SetSPBarColor(bar, "duration", colors[1], colors[2], colors[3], 1)
 	local location = opt.durationTextLocation or "none"
 	host.textLocation = location
 	SP:SetSPFont(text, "timers", opt.durationTextSize or 8, "OUTLINE")

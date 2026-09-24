@@ -22,6 +22,7 @@ locale\enUS.lua
 SPCompat.lua
 ShamanPower.lua
 ShamanPowerFonts.lua
+ShamanPowerTextures.lua
 ShamanPowerValues.lua
 ShamanPowerOptions.lua
 ShamanPowerManaTint.lua

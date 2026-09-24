@@ -732,7 +732,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local insetBd = main:CreateTexture(nil, "OVERLAY"); insetBd:SetPoint("TOPLEFT", inset, -1, 1); insetBd:SetPoint("BOTTOMRIGHT", inset, 1, -1); insetBd:SetColorTexture(0, 0, 0, 0.9); insetBd:SetDrawLayer("OVERLAY", -1)
 		-- Duration bar under the button (3px, element color), like the real bar.
 		local dbg = main:CreateTexture(nil, "BACKGROUND"); dbg:SetHeight(3); dbg:SetPoint("TOPLEFT", main, "BOTTOMLEFT", 0, -1); dbg:SetPoint("TOPRIGHT", main, "BOTTOMRIGHT", 0, -1); dbg:SetColorTexture(0, 0, 0, 0.6)
-		local dbar = main:CreateTexture(nil, "ARTWORK"); dbar:SetHeight(3); dbar:SetPoint("TOPLEFT", main, "BOTTOMLEFT", 0, -1); dbar:SetWidth(SIZE); dbar:SetColorTexture(e.r, e.g, e.b, 0.95)
+		local dbar = main:CreateTexture(nil, "ARTWORK"); dbar:SetHeight(3); dbar:SetPoint("TOPLEFT", main, "BOTTOMLEFT", 0, -1); dbar:SetWidth(SIZE); SP:SetSPBarColor(dbar, "duration", e.r, e.g, e.b, 0.95)
 		-- Active-totem overlay above the button (Normal style).
 		local over = CreateFrame("Frame", nil, slot); over:SetSize(SIZE, SIZE); over:SetPoint("BOTTOM", main, "TOP", 0, 4)
 		slot.main, slot.over = main, over
@@ -1251,7 +1251,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		local s = { e = e, f = b, icon = icon, t = e.off, wasActive = false }
 		-- duration bar + its five text slots (mirrors totemProgressBars)
 		s.dbg = b:CreateTexture(nil, "BACKGROUND", nil, 1); s.dbg:SetColorTexture(0, 0, 0, 0.6)
-		s.dbar = b:CreateTexture(nil, "ARTWORK", nil, 1); s.dbar:SetColorTexture(e.r, e.g, e.b, 0.95)
+		s.dbar = b:CreateTexture(nil, "ARTWORK", nil, 1); SP:SetSPBarColor(s.dbar, "duration", e.r, e.g, e.b, 0.95)
 		local function fs(parent) local t = parent:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(t, "timers", 8, "OUTLINE"); t:SetTextColor(1, 1, 1); t:Hide(); return t end
 		s.txt = { inside_top = fs(b), inside_bottom = fs(b), above = fs(b), below = fs(b), icon = fs(b) }
 		s.txt.icon:SetPoint("CENTER", b, "CENTER")
@@ -1267,7 +1267,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		-- pulse wipe (Earth only): white overlay, plus its text slots
 		if e.pulse then
 			s.wf = CreateFrame("Frame", nil, b); s.wf:SetFrameLevel(b:GetFrameLevel() + 2)
-			s.wipe = s.wf:CreateTexture(nil, "OVERLAY"); s.wipe:SetColorTexture(1, 1, 1, 0.7)
+			s.wipe = s.wf:CreateTexture(nil, "OVERLAY"); SP:SetSPBarColor(s.wipe, "pulse", 1, 1, 1, 0.7)
 			s.ptxt = { inside_top = fs(s.wf), inside_bottom = fs(s.wf), above = fs(s.wf), below = fs(s.wf), on_icon = fs(b) }
 			s.ptxt.inside_top:SetPoint("TOP", s.wf, "TOP", 0, -1); s.ptxt.inside_bottom:SetPoint("BOTTOM", s.wf, "BOTTOM", 0, 1)
 			s.ptxt.above:SetPoint("BOTTOM", s.wf, "TOP", 0, 1); s.ptxt.below:SetPoint("TOP", s.wf, "BOTTOM", 0, -1)
@@ -2829,7 +2829,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		if cdr.SetHideCountdownNumbers then cdr:SetHideCountdownNumbers(true) end
 		-- Progress bar (position follows cdbarProgressPosition, laid out below).
 		local pbg = btn:CreateTexture(nil, "BACKGROUND", nil, 2); pbg:SetColorTexture(0, 0, 0, 0.6); pbg:SetSize(3, SIZE)
-		local pb = btn:CreateTexture(nil, "ARTWORK", nil, 2); pb:SetColorTexture(sp.color[1], sp.color[2], sp.color[3], 1); pb:SetSize(3, SIZE)
+		local pb = btn:CreateTexture(nil, "ARTWORK", nil, 2); SP:SetSPBarColor(pb, "cooldown", sp.color[1], sp.color[2], sp.color[3], 1); pb:SetSize(3, SIZE)
 		local txt = btn:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(txt, "timers", 10, "OUTLINE"); txt:SetPoint("CENTER"); txt:SetTextColor(1, 1, 1)
 		local corner = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal"); corner:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 		corner:SetText(sp.charges or sp.count or "")

@@ -100,7 +100,7 @@ local function styleVisual(v, button, element, size)
 	bg:SetSize(v.vertical and thickness or size, v.vertical and size or thickness)
 	bar:SetPoint(v.vertical and "BOTTOMLEFT" or "TOPLEFT", bg, v.vertical and "BOTTOMLEFT" or "TOPLEFT", 0, 0)
 	local color = SP.DurationBarColors[element]
-	bar:SetColorTexture(color[1], color[2], color[3], 1)
+	SP:SetSPBarColor(bar, "duration", color[1], color[2], color[3], 1)
 	local tint = SP.ElementColors[element]
 	v.assigned:SetVertexColor(tint.r, tint.g, tint.b, 1)
 	v.location = opt.durationTextLocation or "none"

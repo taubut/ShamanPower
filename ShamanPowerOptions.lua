@@ -9731,7 +9731,7 @@ do
 			name = "Give one part of ShamanPower its own font or outline. \"Same as above\" follows the Font and Outline at the top.",
 		},
 		fonts_reset = {
-			order = 90, type = "execute", name = "Reset All Fonts", width = "full",
+			order = 19, type = "execute", name = "Reset All Fonts", width = "full",
 			desc = "Back to the designed font and outline everywhere.",
 			func = function() SP.opt.fontName, SP.opt.fontOutline, SP.opt.fontAreas = nil, nil, nil; refresh() end,
 		},
@@ -9752,11 +9752,85 @@ do
 			set = function(_, v) area(key).outline = toOutline(v); refresh() end,
 		}
 	end
-	settings.settings_fonts = { order = 1.2, type = "group", name = "Fonts", args = args }
+	settings.settings_fonts = { order = 1.2, type = "group", name = "Fonts & Textures", args = args }
 
 	-- the settings window previews a hovered font: option table -> area ("all" = the main font)
 	SP.OptionHoverFont = { [args.fontName] = "all" }
 	for _, a in ipairs(SP.FONT_AREAS) do SP.OptionHoverFont[args["font_" .. a.key]] = a.key end
+end
+
+-- General > Fonts & Textures, second half: the bar fills' texture
+-- (ShamanPowerTextures.lua), and one button to apply the chosen look everywhere.
+do
+	local SP = ShamanPower
+	local args = SP.options.args.settings.args.settings_fonts.args
+	local function refresh() if SP.RefreshTextures then SP:RefreshTextures() end end
+	local function texValues(inheritLabel)
+		return function()
+			local v = { __default = inheritLabel or "Default (as designed)" }
+			for _, name in ipairs(SP:TextureList()) do v[name] = name end
+			return v
+		end
+	end
+	local function texSorting()
+		local order = { "__default" }
+		for _, name in ipairs(SP:TextureList()) do order[#order + 1] = name end
+		return order
+	end
+	local function areas()
+		SP.opt.barTextureAreas = SP.opt.barTextureAreas or {}
+		return SP.opt.barTextureAreas
+	end
+
+	args.textures_header = { order = 40, type = "header", name = "Bar Textures" }
+	args.textures_desc = {
+		order = 40.1, type = "description", width = "full",
+		name = "The texture of the bars ShamanPower draws: totem duration bars, cooldown bar progress, pulse sweeps."
+			.. " Default keeps each bar's designed flat colour; a texture is tinted with the same colour."
+			.. " The list holds WoW's bar, ShamanPower's four and every bar texture your other addons share. Hover one to see it.",
+	}
+	args.barTexture = {
+		order = 41, type = "select", name = "Bar Texture", width = 1.5,
+		desc = "The texture for every bar, unless an area below picks its own.",
+		values = texValues(), sorting = texSorting,
+		get = function() return SP.opt.barTexture or "__default" end,
+		set = function(_, v) SP.opt.barTexture = (v ~= "__default") and v or nil; refresh() end,
+	}
+	for i, a in ipairs(SP.TEXTURE_AREAS) do
+		local key = a.key
+		args["texture_" .. key] = {
+			order = 42 + i, type = "select", name = a.label, width = 1.5,
+			desc = a.desc,
+			values = texValues("Same as above"), sorting = texSorting,
+			get = function() local t = SP.opt.barTextureAreas; return (t and t[key]) or "__default" end,
+			set = function(_, v) areas()[key] = (v ~= "__default") and v or nil; refresh() end,
+		}
+	end
+	args.textures_reset = {
+		order = 49, type = "execute", name = "Reset All Bar Textures", width = "full",
+		desc = "Back to each bar's designed flat colour.",
+		func = function() SP.opt.barTexture, SP.opt.barTextureAreas = nil, nil; refresh() end,
+	}
+
+	args.look_header = { order = 80, type = "header", name = "One Look Everywhere" }
+	args.look_desc = {
+		order = 80.1, type = "description", width = "full",
+		name = "Apply This Look Everywhere uses the Font, Outline and Bar Texture at the top of this page for every part of ShamanPower:"
+			.. " the per-area choices are cleared, and Compact's lines take the bar texture too. Reset Look goes back to the designed look.",
+	}
+	args.look_apply = {
+		order = 81, type = "execute", name = "Apply This Look Everywhere", width = 1.5,
+		func = function() SP:ApplyLookEverywhere() end,
+	}
+	args.look_reset = {
+		order = 82, type = "execute", name = "Reset Look", width = 1,
+		desc = "Fonts, outline, bar textures and Compact's line texture back to their defaults.",
+		func = function() SP:ResetLook() end,
+	}
+
+	-- the settings window previews a hovered texture: option table -> area ("all" = the main texture)
+	SP.OptionHoverTexture = { [args.barTexture] = "all" }
+	for _, a in ipairs(SP.TEXTURE_AREAS) do SP.OptionHoverTexture[args["texture_" .. a.key]] = a.key end
 end
 
 -- General > Main (non-shamans): Windfury-only mode, set from the setup tour's

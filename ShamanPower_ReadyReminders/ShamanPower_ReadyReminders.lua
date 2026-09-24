@@ -229,7 +229,7 @@ function SP:CreateReadyReminderFrame(entry)
 	f.overlay = overlay
 	-- thin bar draining with the cooldown (below or above the icon)
 	local bar = CreateFrame("StatusBar", nil, f)
-	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+	SP:SetSPStatusBarTexture(bar, "other", "Interface\\Buttons\\WHITE8X8")
 	bar:SetMinMaxValues(0, 1); bar:SetValue(1); bar:Hide()
 	if bar.SetIgnoreParentAlpha then bar:SetIgnoreParentAlpha(true) end   -- the dim is for the icon, not the bar
 	local barBg = bar:CreateTexture(nil, "BACKGROUND"); barBg:SetAllPoints(bar); barBg:SetColorTexture(0, 0, 0, 0.6)

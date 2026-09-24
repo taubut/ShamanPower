@@ -86,7 +86,7 @@ local function Duration(frame, element)
 		bg:SetColorTexture(0, 0, 0, 0.65)
 		local fill = host:CreateTexture(nil, "ARTWORK")
 		local color = SP.DurationBarColors and SP.DurationBarColors[element] or COLORS[element]
-		fill:SetColorTexture(color[1], color[2], color[3], 0.95)
+		SP:SetSPBarColor(fill, "duration", color[1], color[2], color[3], 0.95)
 		fill:SetSize(vertical and size or SIZE * 0.6, vertical and SIZE * 0.6 or size)
 		fill:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, 0)
 	end

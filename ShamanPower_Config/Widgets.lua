@@ -632,6 +632,7 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 	for _, b in ipairs(p.buttons) do b:Hide() end
 
 	local width = math.max(anchorTo:GetWidth(), (popts and popts.width) or 140)
+	if popts and popts.itemTexture then width = math.max(width, 280) end   -- room for the name and its swatch
 	local y = 0
 	for i, item in ipairs(items) do
 		local b = p.buttons[i]
@@ -672,6 +673,20 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 			local _, rowSize = Core.fonts.row:GetFont()
 			b.text:SetFont(itemFont, rowSize or 13, "")
 			if not b.text:GetFont() then b.text:SetFontObject(Core.fonts.row) end
+		end
+		-- a texture list shows a swatch of each texture at the row's right edge
+		local itemTexture = popts and popts.itemTexture and popts.itemTexture(item.key)
+		if itemTexture then
+			if not b.swatch then
+				b.swatch = b:CreateTexture(nil, "ARTWORK")
+				b.swatch:SetSize(70, 12)
+				b.swatch:SetPoint("RIGHT", b, "RIGHT", -8, 0)
+			end
+			b.swatch:SetTexture(itemTexture)
+			b.swatch:SetVertexColor(Core:Color("accentHi"))
+			b.swatch:Show()
+		elseif b.swatch then
+			b.swatch:Hide()
 		end
 		b.text:SetText(item.text)
 		b._key = item.key
@@ -804,7 +819,7 @@ local function CreateDropdown(parent)
 			opts.set(key)
 			if row.opts == opts then DropdownPaint(row) end
 			if opts.onChanged then opts.onChanged() end
-		end, { onHover = opts.onHover, onHoverEnd = opts.onHoverEnd, itemFont = opts.itemFont })
+		end, { onHover = opts.onHover, onHoverEnd = opts.onHoverEnd, itemFont = opts.itemFont, itemTexture = opts.itemTexture })
 	end)
 
 	row.spSetControlEnabled = function(_, enabled)
