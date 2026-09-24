@@ -201,8 +201,8 @@ local function triggers()
 	local raw = cfg().triggers or ""
 	if raw ~= parsedFrom then
 		parsedFrom, parsedTriggers = raw, {}
-		for word in raw:gmatch("[^,]+") do
-			word = strtrim(word):lower()
+		for part in raw:gmatch("[^,]+") do
+			local word = strtrim(part):lower()
 			if word ~= "" then
 				-- whole words only: "tide" matches "tide pls", never "tides" or "stride"
 				parsedTriggers[#parsedTriggers + 1] = "%f[%w]" .. word:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1") .. "%f[%W]"
@@ -222,14 +222,72 @@ end
 
 local lastReplyAt, lastCallAt = 0, 0
 
+-- The on-screen call needs the Raid Cooldowns module (it draws the alert).
+local function localCallOn(a)
+	return a.localCall and SP.RaidCooldownsLoaded and SP.ShowManaTideAlert ~= nil
+end
+
+-- Another ShamanPower shaman's own lines ("Mana Tide Totem used!", a ready-in
+-- reply) have "tide" in them but are not requests: answering them would call
+-- Mana Tide on your screen and trade replies in raid chat after every
+-- announce. Only a line that IS one of those messages (your wording or the
+-- default one, any spell, any seconds) is skipped, so anyone, a shaman too,
+-- can still ask.
+local TEMPLATE_KEYS = { "useText", "soonText", "replyReadyText", "replyCooldownText" }
+local builtFor, builtPatterns = {}, {}
+
+local function escapePattern(s)
+	return (s:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1"))
+end
+
+local function announcePatterns()
+	local a = cfg()
+	local stale = false
+	for i, key in ipairs(TEMPLATE_KEYS) do
+		if builtFor[i] ~= a[key] then stale = true; break end
+	end
+	if not stale then return builtPatterns end
+	for i, key in ipairs(TEMPLATE_KEYS) do builtFor[i] = a[key] end
+	builtPatterns = {}
+	local seen = {}
+	for _, source in ipairs({ a, DEFAULTS }) do
+		for _, key in ipairs(TEMPLATE_KEYS) do
+			local template = strtrim(tostring(source[key] or "")):lower()
+			if template ~= "" then
+				local escaped = escapePattern(template):gsub("{sec}", function() return "%d+" end)
+				for _, spell in ipairs(SPELLS) do
+					if spell.name then
+						local name = escapePattern(spell.name:lower())
+						local pattern = "^" .. escaped:gsub("{spell}", function() return name end) .. "$"
+						if not seen[pattern] then
+							seen[pattern] = true
+							builtPatterns[#builtPatterns + 1] = pattern
+						end
+					end
+				end
+			end
+		end
+	end
+	return builtPatterns
+end
+
+local function isAnnounceLine(text)
+	local line = strtrim(text):lower()
+	for _, pattern in ipairs(announcePatterns()) do
+		if line:find(pattern) then return true end
+	end
+	return false
+end
+
 local function onChat(event, text, sender)
 	local a = cfg()
-	if not (a.reply or a.localCall) then return end
+	if not (a.reply or localCallOn(a)) then return end
 	if chatLocked() then return end
 	if type(text) ~= "string" or type(sender) ~= "string" or secret(text) or secret(sender) then return end
 	local short = strsplit("-", sender)
 	if short == UnitName("player") then return end   -- never answer yourself
 	if not mentionsTrigger(text) then return end
+	if isAnnounceLine(text) then return end
 	if not knows(MANA_TIDE) then return end
 	local left = remainingOn(MANA_TIDE.name)
 	local now = GetTime()
@@ -243,7 +301,7 @@ local function onChat(event, text, sender)
 		if send(msg, CHAT_CHANNEL[event]) then lastReplyAt = now end
 	end
 	-- the Mana Tide call on your own screen, as if an assigned caller pressed the button
-	if a.localCall and (not left or left <= 0) and now - lastCallAt >= 5 and SP.ShowManaTideAlert then
+	if localCallOn(a) and (not left or left <= 0) and now - lastCallAt >= 5 then
 		lastCallAt = now
 		pcall(SP.ShowManaTideAlert, SP)
 	end
@@ -273,7 +331,7 @@ function SP:UpdateAnnounceEvents()
 		ev:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 	end
 	for event in pairs(CHAT_CHANNEL) do
-		if a.reply or a.localCall then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
+		if a.reply or localCallOn(a) then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
 	end
 end
 
@@ -290,7 +348,7 @@ function SP:PreviewAnnounceMessages()
 	out:AddMessage("  reply, ready: " .. fill(a.replyReadyText, mt))
 	out:AddMessage("  reply, cooling down: " .. fill(a.replyCooldownText, mt, 42))
 	local list = {}
-	for word in (a.triggers or ""):gmatch("[^,]+") do word = strtrim(word); if word ~= "" then list[#list + 1] = word end end
+	for part in (a.triggers or ""):gmatch("[^,]+") do local word = strtrim(part); if word ~= "" then list[#list + 1] = word end end
 	out:AddMessage("  answers to: " .. (#list > 0 and table.concat(list, ", ") or "(no words set)"))
 end
 
@@ -372,18 +430,23 @@ do
 				hdr_reply = { order = 2, type = "header", name = "When Someone Asks" },
 				reply = {
 					order = 2.1, type = "toggle", width = "full", name = "Reply in Chat",
-					desc = "When a group member's message has one of the words below, answer in the same chat with whether Mana Tide is ready or how long is left. At most one reply per the time set below.",
+					desc = "When a group member's message has one of the words below, answer in the same chat with whether Mana Tide is ready or how long is left. At most one reply per the time set below. A line that is one of the announce or reply messages (another ShamanPower shaman's \"Mana Tide Totem used!\") is never answered; anyone asking, a shaman too, is.",
 					get = get("reply"), set = set("reply"),
 				},
 				localCall = {
 					order = 2.2, type = "toggle", width = "full", name = "Show the Mana Tide Call on My Screen",
-					desc = "When a group member's message has one of the words below and Mana Tide is ready, show the same \"use Mana Tide\" alert a Raid Cooldowns caller's button shows, even if they are not an assigned caller. Only you see it.",
+					desc = function()
+						local text = "When a group member's message has one of the words below and Mana Tide is ready, show the same \"use Mana Tide\" alert a Raid Cooldowns caller's button shows, even if they are not an assigned caller. Only you see it. Another shaman's announce or reply line never sets it off."
+						if not SP.RaidCooldownsLoaded then text = text .. "\n\n|cffffa040Needs the ShamanPower [Raid Cooldowns] module: turn it on in your AddOns list.|r" end
+						return text
+					end,
+					disabled = function() return not SP.RaidCooldownsLoaded end,
 					get = get("localCall"), set = set("localCall"),
 				},
 				triggers = {
 					order = 2.3, type = "input", width = "full", name = "Words to Listen For",
 					desc = "Separated by commas. Whole words, any capitals: \"tide\" matches \"TIDE pls\" but not \"stride\".",
-					disabled = function() local a = cfg(); return not (a.reply or a.localCall) end,
+					disabled = function() local a = cfg(); return not (a.reply or localCallOn(a)) end,
 					get = get("triggers"), set = textSet("triggers"),
 				},
 				replyReadyText = {
