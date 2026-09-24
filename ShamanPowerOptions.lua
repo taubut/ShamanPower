@@ -6409,6 +6409,42 @@ ShamanPower.options = {
 								end
 							end
 						},
+						alerts_totems_destroyedChat = {
+							order = 22.1, type = "toggle", width = "full",
+							name = "Destroyed: Line in My Chat Window",
+							desc = "When a totem is destroyed, add a line to your own chat window. Only you see it. Works in combat on WoW: Forever too.",
+							disabled = function() local t = ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems; return not (t and t.enabled ~= false and t.destroyed ~= false) end,
+							get = function() local t = ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems; return t and t.destroyedChat ~= false end,
+							set = function(_, v)
+								if not ShamanPowerExpiringAlertsDB then return end
+								ShamanPowerExpiringAlertsDB.totems = ShamanPowerExpiringAlertsDB.totems or {}
+								ShamanPowerExpiringAlertsDB.totems.destroyedChat = v
+							end,
+						},
+						alerts_totems_destroyedCenter = {
+							order = 22.2, type = "toggle", width = "full",
+							name = "Destroyed: Big Text on My Screen",
+							desc = "When a totem is destroyed, show big raid-warning-style text at the top of your screen. Drawn only on your screen; nothing is sent.",
+							disabled = function() local t = ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems; return not (t and t.enabled ~= false and t.destroyed ~= false) end,
+							get = function() local t = ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems; return t and t.destroyedCenter == true or false end,
+							set = function(_, v)
+								if not ShamanPowerExpiringAlertsDB then return end
+								ShamanPowerExpiringAlertsDB.totems = ShamanPowerExpiringAlertsDB.totems or {}
+								ShamanPowerExpiringAlertsDB.totems.destroyedCenter = v
+							end,
+						},
+						alerts_totems_destroyedParty = {
+							order = 22.3, type = "toggle", width = "full",
+							name = "Destroyed: Tell My Group in Chat",
+							desc = "When a totem is destroyed, say so in party, raid or instance chat so everyone sees it.",
+							disabled = function() local t = ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems; return not (t and t.enabled ~= false and t.destroyed ~= false) end,
+							get = function() local t = ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems; return t and t.destroyedParty == true or false end,
+							set = function(_, v)
+								if not ShamanPowerExpiringAlertsDB then return end
+								ShamanPowerExpiringAlertsDB.totems = ShamanPowerExpiringAlertsDB.totems or {}
+								ShamanPowerExpiringAlertsDB.totems.destroyedParty = v
+							end,
+						},
 						alerts_totems_expired = {
 							disabled = function(info) return (not (ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.totems and ShamanPowerExpiringAlertsDB.totems.enabled ~= false)) and true or false end,
 							order = 23,

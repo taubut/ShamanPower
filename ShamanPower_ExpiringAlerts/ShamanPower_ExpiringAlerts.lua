@@ -134,6 +134,9 @@ local defaultSettings = {
 	totems = {
 		enabled = true,
 		destroyed = true,
+		destroyedChat = true,     -- a line in your own chat window (nobody else sees it)
+		destroyedCenter = false,  -- big raid-warning-style text, drawn only on your screen
+		destroyedParty = false,   -- tell the party / raid in chat (opt-in)
 		expired = false,  -- off by default (can be spammy)
 		earth = true,
 		fire = true,
@@ -709,6 +712,43 @@ local function ElementTotemInfo(element)
 	return GetTotemInfo(ShamanPower.ElementToSlot[element])
 end
 
+-- Every way of saying "a totem was destroyed": the alert (and its sound), a line
+-- in your own chat window, the big centre text, and (opt-in) the group chat.
+function SP:TotemDestroyedAlert(totemName, elementColor)
+	local t = ShamanPowerExpiringAlertsDB.totems
+	if not t.destroyed then return end
+	local label = StripRank(totemName or "") ~= "" and StripRank(totemName) or "Totem"
+	self:ShowExpiringAlert("totem", label .. " Destroyed!", "Interface\\Icons\\Spell_Shaman_TotemRecall", elementColor)
+	if t.destroyedChat ~= false and DEFAULT_CHAT_FRAME then
+		DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cffff5050" .. label .. " destroyed.|r")
+	end
+	if t.destroyedCenter and RaidNotice_AddMessage and RaidWarningFrame then
+		RaidNotice_AddMessage(RaidWarningFrame, label .. " destroyed!", { r = 1, g = 0.3, b = 0.3 })
+	end
+	if t.destroyedParty and IsInGroup() then
+		local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or "PARTY"
+		pcall(SendChatMessage, label .. " destroyed!", channel)
+	end
+end
+
+-- While the game hides totem data (combat on WoW: Forever), CheckTotemState stands
+-- down; the core's own totem record still sees a slot empty with no cast, recall or
+-- death behind it, and says why (ShamanPower.lua ShadowTotemSlotUpdate).
+function SP:OnShadowTotemGone(element, entry, why)
+	local sv = ShamanPowerExpiringAlertsDB
+	if not (sv and sv.enabled and sv.totems and sv.totems.enabled) then return end
+	local info = TotemElements[element]
+	local elementKey = info and info.name and info.name:lower()
+	if elementKey and sv.totems[elementKey] == false then return end
+	local color = info and info.color or { r = 1, g = 1, b = 1 }
+	if why == "destroyed" then
+		self:TotemDestroyedAlert(entry.name, color)
+	elseif why == "expired" and sv.totems.expired then
+		self:ShowExpiringAlert("totem", StripRank(entry.name or "Totem") .. " Expired", "Interface\\Icons\\Spell_Shaman_TotemRecall", color)
+	end
+	if previousState.totems[element] then previousState.totems[element].active = false end
+end
+
 function SP:CheckTotemState(initializing)
 	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
 	if SPCompat and SPCompat.combatDataSecret then return end
@@ -743,10 +783,7 @@ function SP:CheckTotemState(initializing)
 					end
 				else
 					-- Totem was destroyed
-					if sv.totems.destroyed then
-						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
-						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Destroyed!", icon, elementColor)
-					end
+					self:TotemDestroyedAlert(prevName, elementColor)
 				end
 			end
 		end

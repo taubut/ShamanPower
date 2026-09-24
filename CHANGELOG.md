@@ -40,6 +40,7 @@
 - The loadout bar could not be moved from the settings, and the game's layout cache kept putting it back where an old drag left it.
 - Idle CPU and garbage: loops now sleep until a totem, cooldown or aura actually changes, and party and shield buff checks are cached until the buffs change (both clients). On Forever the weapon-imbue and spell lookups, which build a new table per call there, are cached too.
 - Newly trained totems appear in the flyouts without a reload; the cooldown bar keeps a custom order when a spell is unavailable.
+- Expiring Alerts: "Totem Destroyed" now works in combat on Forever (from ShamanPower's own record of your totems, which the game cannot hide), and can also add a line to your own chat window (on by default, only you see it), show big text on your screen, or tell your group in chat.
 - Tremor Reminder "Hide When Tremor Active" never hid in combat on Forever.
 - Expiring Alerts: totems that died in combat were announced minutes later with stale timing on Forever.
 - Wrath of Air, Totem of Wrath and Fire Nova Totem could be assigned, tracked or listed on a client that lacks them.

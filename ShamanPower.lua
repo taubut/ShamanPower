@@ -1581,7 +1581,12 @@ end
 function ShamanPower:ShadowTotemCast(unit, spellID)
 	if unit ~= "player" or type(spellID) ~= "number" then return end
 	local element = self:TotemCastElement(spellID)
-	if not element then return end
+	if not element then
+		-- Totemic Recall / Totemic Call empties the slots on purpose: not "destroyed"
+		local name = GetSpellInfo(spellID)
+		if type(name) == "string" and name:find("^Totemic") then self._totemRecallAt = GetTime() end
+		return
+	end
 	self:RecordTotemDrop(element)
 	local name, _, icon = GetSpellInfo(spellID)
 	local now = GetTime()
@@ -1591,6 +1596,7 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 		icon = icon,
 		startTime = now,
 		duration = shadowLearnedDuration[spellID] or SHADOW_DEFAULT_DURATION,
+		durationKnown = shadowLearnedDuration[spellID] ~= nil,   -- a guessed length cannot tell expired from destroyed
 		slot = nil,
 	}
 	-- the same element can only hold one totem; the old one is replaced
@@ -1618,6 +1624,17 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 		if entry.slot == slot then
 			self.shadowTotems[element] = nil
 			retired = true
+			-- While the game hides totem data (combat on Forever) this is the only way to
+			-- know a totem went: tell whoever listens (Expiring Alerts) why, as best we can.
+			if self.OnShadowTotemGone and totemsSecretNow() then
+				local why
+				if self._totemRecallAt and now - self._totemRecallAt < 2 then why = "recalled"
+				elseif UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then why = "died"
+				elseif not entry.durationKnown then why = "unknown"
+				elseif now >= entry.startTime + entry.duration - 1 then why = "expired"
+				else why = "destroyed" end
+				pcall(self.OnShadowTotemGone, self, element, entry, why)
+			end
 		end
 	end
 	if not retired then
@@ -1635,6 +1652,7 @@ local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, dura
 			self.shadowTotems[element] = entry
 		end
 		entry.name, entry.icon, entry.startTime, entry.duration, entry.slot = name, icon, startTime, duration, slot
+		entry.durationKnown = type(duration) == "number" and duration > 0 or nil   -- read from the game: exact
 		if type(spellID) == "number" and spellID ~= 0 then entry.spellID = spellID end
 		if entry.spellID and duration and duration > 0 then shadowLearnedDuration[entry.spellID] = duration end
 	else
