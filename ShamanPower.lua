@@ -1087,9 +1087,13 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "OnTalentsChanged")  -- Wrath dual spec switch
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
-	-- one shared pass a second after the roster settles (a raid forming fires
-	-- dozens of GROUP_ROSTER_UPDATEs); pets never mattered to either
+	-- a raid forming fires dozens of GROUP_ROSTER_UPDATEs: the roster pass runs at
+	-- most once a second (a bucket fires a second after the first event it catches,
+	-- again for any after that), and after combat. Pets never mattered to it.
 	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED"}, 1, "OnRosterSettled")
+	-- the shaman-count check only on real roster changes: when it finds a shaman
+	-- missing it wipes the shaman list and asks the group again
+	self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
 	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
@@ -1099,6 +1103,10 @@ function ShamanPower:OnEnable()
 			self:RefreshEarthShieldTarget()
 			self:RefreshPlayerBuffCache()
 		end)
+	end
+	-- Forever: what the chat lockdown refused goes out once it lifts
+	if SPCompat and SPCompat.OnChatUnlocked then
+		SPCompat.OnChatUnlocked(function() self:SendHeldMessages() end)
 	end
 	if isShaman then
 		self.ButtonsUpdate(self)
@@ -1428,6 +1436,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		print("|cff0070ddShamanPower|r commands:")
 		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode   |   /sp share - your setup code")
 		if ShamanPower.RunReadyCheckSweep then print("  /sp check - what you are missing (shield, imbue, totem items...)") end
+		if ShamanPower.SetResistPractice then print("  /sp resisttest - practise raid resistance requests alone (pretend shamans, nothing sent)") end
+		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then print("  /sp restrict - test switches that make the game act as in a boss fight, M+, PvP, an instance, combat or chat lockdown") end
 	end
 end
 
@@ -1580,6 +1590,28 @@ end
 ShamanPower.shadowTotems = {}          -- [element] = { spellID, name, icon, startTime, duration, slot }
 local shadowLearnedDuration = {}       -- [spellID] = duration seen from the API
 local SHADOW_DEFAULT_DURATION = 120    -- until the real duration has been observed once
+-- Learned lengths are kept per character (db.char.totemDurations), so after a
+-- /reload or a new login a totem first dropped in combat still has its real length:
+-- its timer is right, and a kill mid-fight still reads as "destroyed" instead of
+-- "unknown". Not account-wide: another character's talents, gear or rank could make
+-- the same totem last a different time, and a length too long would turn its natural
+-- expiry into a false "destroyed". The saved table is bound on first use (the db
+-- exists by then).
+local shadowDurationsSaved = false
+local function learnedDurations()
+	if not shadowDurationsSaved then
+		-- only where the model is consulted (the secrets regime): Anniversary saves nothing new
+		local db = SPCompat and SPCompat.secretsRegime and ShamanPower.db
+		local c = db and db.char
+		if not c then return shadowLearnedDuration end
+		shadowDurationsSaved = true
+		if db.global then db.global.totemDurations = nil end   -- an earlier test build kept them account-wide
+		c.totemDurations = c.totemDurations or {}
+		for id, d in pairs(shadowLearnedDuration) do c.totemDurations[id] = d end
+		shadowLearnedDuration = c.totemDurations
+	end
+	return shadowLearnedDuration
+end
 local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE
 local shadowPendingCast                -- { element, at } waiting for its slot update
 local shadowPendingSlot                -- { slot, at } update that arrived before its cast event
@@ -1587,7 +1619,27 @@ local lastSlotUpdateAt = {}            -- [slot] = GetTime() of the last PLAYER_
 -- A totem retired while combat hides totem data is only announced (OnShadowTotemGone)
 -- after one bind window, so a set summon whose slot updates arrived BEFORE its cast
 -- can still claim the slot and cancel the false "destroyed". One record per slot.
-local pendingGone = {}                 -- [slot] = { element, entry, why }
+local pendingGone = {}                 -- [slot] = { element, entry, at }
+-- A single re-drop of an element whose slot update came BEFORE its cast event
+-- retires the old totem of that element; a cast of the same element this soon
+-- after is that re-drop, not a new totem after a kill (a player cannot react
+-- that fast). Kept short for that reason.
+local SHADOW_REDROP_WINDOW = 0.25
+
+-- The player's own dismissals: a right-click on a totem button (ShamanPower's or
+-- Blizzard's) runs DestroyTotem(slot), and the slot update that follows has no
+-- cast behind it. Without this stamp it read as "destroyed by enemies".
+-- A secure hook: it runs after the call and never taints it. Mainline family only,
+-- where the shadow model is consulted. The one stamp of your own dismissals:
+-- modules that need it read ShamanPower._totemDismissedAt rather than hooking again.
+ShamanPower._totemDismissedAt = {}     -- [slot] = GetTime()
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+	hooksecurefunc("DestroyTotem", function(slot)
+		if issecretvalue and issecretvalue(slot) then return end
+		slot = tonumber(slot)
+		if slot then ShamanPower._totemDismissedAt[slot] = GetTime() end
+	end)
+end
 
 local function totemsSecretNow()
 	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
@@ -1669,20 +1721,36 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 	self:RecordTotemDrop(element)
 	local name, _, icon = GetSpellInfo(spellID)
 	local now = GetTime()
+	local learned = learnedDurations()[spellID]
 	local entry = {
 		spellID = spellID,
 		name = name,
 		icon = icon,
 		startTime = now,
-		duration = shadowLearnedDuration[spellID] or SHADOW_DEFAULT_DURATION,
-		durationKnown = shadowLearnedDuration[spellID] ~= nil,   -- a guessed length cannot tell expired from destroyed
+		duration = learned or SHADOW_DEFAULT_DURATION,
+		durationKnown = learned ~= nil,   -- a guessed length cannot tell expired from destroyed
 		slot = nil,
 	}
 	-- the same element can only hold one totem; the old one is replaced
 	self.shadowTotems[element] = entry
-	if shadowPendingSlot and now - shadowPendingSlot.at <= SHADOW_BIND_WINDOW then
-		entry.slot = shadowPendingSlot.slot
+	-- The slot update can arrive BEFORE the cast event. Then it either filled an
+	-- empty slot (nothing retired: bind to it), or it retired this element's
+	-- previous totem a moment ago: that was this re-drop replacing it, not a kill,
+	-- so bind to that slot too and take back the old totem's "gone" notice.
+	local pending = shadowPendingSlot
+	local age = pending and (now - pending.at)
+	if pending and ((pending.element == nil and age <= SHADOW_BIND_WINDOW)
+		or (pending.element == element and age <= SHADOW_REDROP_WINDOW)) then
+		local slot = pending.slot
+		entry.slot = slot
 		shadowPendingSlot = nil
+		local gone = pendingGone[slot]
+		if gone and gone.element == element and now - gone.at <= SHADOW_REDROP_WINDOW then
+			pendingGone[slot] = nil
+		end
+		-- bound by the update that retired the old totem: if this totem's own update
+		-- still follows, it confirms the binding rather than retiring it
+		if pending.element then entry.boundEarlyAt = now end
 	else
 		shadowPendingCast = { element = element, at = now }
 	end
@@ -1700,10 +1768,11 @@ function ShamanPower:ShadowTotemSetCast(spells)
 		local name, _, icon = GetSpellInfo(id or 0)
 		if id and name then
 			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
+			local learned = learnedDurations()[id]
 			local entry = {
 				spellID = id, name = name, icon = icon, startTime = now,
-				duration = shadowLearnedDuration[id] or SHADOW_DEFAULT_DURATION,
-				durationKnown = shadowLearnedDuration[id] ~= nil,
+				duration = learned or SHADOW_DEFAULT_DURATION,
+				durationKnown = learned ~= nil,
 				slot = slot,
 				setAt = now, setPending = true,
 				setPrev = self.shadowTotems[element],   -- put back if this one never lands
@@ -1758,37 +1827,50 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 		shadowPendingCast = nil
 		return
 	end
+	-- a totem bound to this slot a moment ago by an update that came before its cast
+	-- (ShadowTotemCast): this is its own update arriving after all, not its end
+	for _, entry in pairs(self.shadowTotems) do
+		if entry.slot == slot and entry.boundEarlyAt and now - entry.boundEarlyAt <= SHADOW_BIND_WINDOW then
+			entry.boundEarlyAt = nil
+			return
+		end
+	end
 	-- no cast behind this update: the totem that lived in the slot is gone
-	local retired = false
+	local retiredElement
 	for element, entry in pairs(self.shadowTotems) do
 		if entry.slot == slot then
 			self.shadowTotems[element] = nil
-			retired = true
+			retiredElement = element
 			-- While the game hides totem data (combat on Forever) this is the only way to
 			-- know a totem went: tell whoever listens (Expiring Alerts) why, as best we can.
 			if self.OnShadowTotemGone and totemsSecretNow() then
-				local why
-				if self._totemRecallAt and now - self._totemRecallAt < 2 then why = "recalled"
-				elseif UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then why = "died"
-				elseif not entry.durationKnown then why = "unknown"
-				elseif now >= entry.startTime + entry.duration - 1 then why = "expired"
-				else why = "destroyed" end
-				-- announced one bind window later: a totem-set cast that arrives just after
-				-- its own slot updates claims the slot and cancels this (ShadowTotemSetCast)
-				local rec = { element = element, entry = entry, why = why }
+				-- announced one bind window later: a cast that arrives just after its own
+				-- slot updates (a totem set, or a re-drop of this element) claims the slot
+				-- and cancels this. The reason is worked out then too, so a Totemic Recall
+				-- or a right-click dismiss whose event trails the slot update still counts.
+				local rec = { element = element, entry = entry, at = now,
+					dead = UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") or nil }
 				pendingGone[slot] = rec
 				C_Timer.After(SHADOW_BIND_WINDOW, function()
-					if pendingGone[slot] ~= rec then return end   -- claimed by a set cast, or replaced
+					if pendingGone[slot] ~= rec then return end   -- claimed by a cast, or replaced
 					pendingGone[slot] = nil
-					pcall(self.OnShadowTotemGone, self, rec.element, rec.entry, rec.why)
+					local e, at = rec.entry, rec.at
+					local recall, dismissed = self._totemRecallAt, self._totemDismissedAt[slot]
+					local why
+					if recall and at - recall < 2 then why = "recalled"
+					elseif dismissed and at - dismissed < 2 then why = "dismissed"
+					elseif rec.dead or (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) then why = "died"
+					elseif not e.durationKnown then why = "unknown"
+					elseif at >= e.startTime + e.duration - 1 then why = "expired"
+					else why = "destroyed" end
+					pcall(self.OnShadowTotemGone, self, rec.element, e, why)
 				end)
 			end
 		end
 	end
-	if not retired then
-		-- an update we could not attribute: remember it briefly in case the cast event trails it
-		shadowPendingSlot = { slot = slot, at = now }
-	end
+	-- remember the update briefly in case the cast event trails it; if it retired a
+	-- totem, only a re-drop of that element may claim it (ShadowTotemCast)
+	shadowPendingSlot = { slot = slot, at = now, element = retiredElement }
 end
 
 -- Refresh one element's entry from readable API data (called on every readable lookup).
@@ -1803,7 +1885,7 @@ local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, dura
 		entry.setPending = nil   -- the game itself says it is down: nothing left to confirm
 		entry.durationKnown = type(duration) == "number" and duration > 0 or nil   -- read from the game: exact
 		if type(spellID) == "number" and spellID ~= 0 then entry.spellID = spellID end
-		if entry.spellID and duration and duration > 0 then shadowLearnedDuration[entry.spellID] = duration end
+		if entry.spellID and duration and duration > 0 then learnedDurations()[entry.spellID] = duration end
 	else
 		self.shadowTotems[element] = nil
 	end
@@ -1811,6 +1893,14 @@ end
 
 local function shadowLookup(self, element)
 	local entry = self.shadowTotems[element]
+	if entry and entry.setPending then
+		-- a set summon's totem its slot update has not confirmed yet: keep showing
+		-- the totem it replaces, so one the summon cannot place (no mana) never
+		-- flashes up for the confirm window. A confirmed one shows at once.
+		local prev = entry.setPrev
+		if not prev or prev.startTime + prev.duration <= GetTime() then return false, nil, nil, nil, nil, nil end
+		return true, prev.name, prev.startTime, prev.duration, prev.icon, prev.slot
+	end
 	if not entry then return false, nil, nil, nil, nil, nil end
 	if entry.startTime + entry.duration <= GetTime() then
 		self.shadowTotems[element] = nil
@@ -2117,6 +2207,15 @@ end
 function ShamanPower:PulseVisualSync(o, start, interval, now)
 	local age = now - start
 	if age < 0 then age = 0 end
+	-- Animations do not advance on a hidden frame (Hide Out of Combat, a hidden
+	-- host): one started or left running there would resume from a stale point
+	-- when the bar shows. Leave it alone until the frame is visible; the first
+	-- pass after that starts it from the right place.
+	local host = o.button or o.frame
+	if host and not host:IsVisible() then
+		o._pState = nil
+		return age
+	end
 	local idx = math.floor(age / interval)
 	local wipe = o.wipe
 	local wipeOk = o.isDisabled or not wipe or (wipe:IsShown() and o._wipeAG ~= nil and o._wipeAG:IsPlaying())
@@ -2349,6 +2448,7 @@ function ShamanPower:PositionPulseWipe(container)
 	end
 
 	container.isDisabled = false
+	wipeFrame:Show()   -- hidden by "none"; every other position shows it again
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -2472,6 +2572,7 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	end
 
 	overlay.isDisabled = false
+	if wipeFrame then wipeFrame:Show() end   -- hidden by "none"; every other position shows it again
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -9257,6 +9358,16 @@ function ShamanPower:GetCooldownButtonBySpellID(spellID)
 	return nil
 end
 
+-- Auto-clear an alert 10 seconds after the latest call: a newer call on the same
+-- button bumps the counter, so an older timer then leaves it alone
+local function armCooldownButtonAlertClear(btn, spellID)
+	btn.alertSerial = (btn.alertSerial or 0) + 1
+	local serial = btn.alertSerial
+	C_Timer.After(10, function()
+		if btn.alertSerial == serial then ShamanPower:RemoveCooldownButtonAlert(spellID) end
+	end)
+end
+
 -- Add alert effect to a cooldown button (glow, shake, scale up)
 function ShamanPower:AddCooldownButtonAlert(spellID)
 	-- Check if button animation is enabled
@@ -9265,8 +9376,11 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 	local btn = self:GetCooldownButtonBySpellID(spellID)
 	if not btn then return end
 
-	-- Don't add duplicate alerts
-	if btn.alertActive then return end
+	-- Already pulsing: a repeat call keeps it going for another 10 seconds
+	if btn.alertActive then
+		armCooldownButtonAlertClear(btn, spellID)
+		return
+	end
 	btn.alertActive = true
 
 	-- Create glow texture if it doesn't exist
@@ -9316,13 +9430,7 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 		for _, ag in ipairs(btn.alertAnims) do ag:Play() end
 	end
 
-	-- Auto-clear after 10 seconds - only this alert: a newer call on the same
-	-- button bumps the counter, so this timer then leaves it alone
-	btn.alertSerial = (btn.alertSerial or 0) + 1
-	local serial = btn.alertSerial
-	C_Timer.After(10, function()
-		if btn.alertSerial == serial then ShamanPower:RemoveCooldownButtonAlert(spellID) end
-	end)
+	armCooldownButtonAlertClear(btn, spellID)
 end
 
 -- Remove alert effect from a cooldown button
@@ -14845,13 +14953,25 @@ function ShamanPower:QueueSelfBroadcast()
 end
 
 -- Ask the group's shamans for their data, at most once every 5 s: a burst of
--- roster changes (a raid forming, someone leaving) asks once.
-local lastShamanDataRequest = -10
+-- roster changes (a raid forming, someone leaving) asks once. An ask inside the
+-- 5 s is not dropped but sent once at the end of it: the caller may have just
+-- wiped the shaman list and needs the answers.
+local REQUEST_GAP = 5
+local lastShamanDataRequest, requestQueued = -10, false
+local function sendShamanDataRequest()
+	requestQueued = false
+	lastShamanDataRequest = GetTime()
+	ShamanPower:SendMessage("REQ")
+end
 function ShamanPower:RequestShamanData()
-	local now = GetTime()
-	if now - lastShamanDataRequest < 5 then return end
-	lastShamanDataRequest = now
-	self:SendMessage("REQ")
+	if requestQueued then return end   -- one is already on its way
+	local wait = REQUEST_GAP - (GetTime() - lastShamanDataRequest)
+	if wait <= 0 then
+		sendShamanDataRequest()
+	else
+		requestQueued = true
+		C_Timer.After(wait, sendShamanDataRequest)
+	end
 end
 
 function ShamanPower:SendSelf(sender, force)
@@ -14926,9 +15046,66 @@ end
 -- are now only dropped within a short window, and one-shot commands pass
 -- `force` to bypass it entirely.
 local DEDUP_WINDOW = 2
+-- WoW: Forever's chat lockdown (instance fights) refuses every addon message. An
+-- assignment made meanwhile (a totem, twisting, an Earth Shield target, a clear)
+-- is held, in order, and sent when the lockdown lifts; so is a fresh SELF, which
+-- carries our own assignments and Earth Shield target. Status and requests are
+-- not held: they are sent again fresh anyway. Nothing is held on a client
+-- without the lockdown.
+local HOLD_IN_LOCKDOWN = { ASSIGN = true, PASSIGN = true, MASSIGN = true, TWIST = true, ESASSIGN = true, CLEAR = true, FREEASSIGN = true }
+local MAX_HELD = 20
+local heldMessages, sendRefused = nil, false
+-- What a held message sets (a player's element, twisting, Earth Shield target...):
+-- a newer message for the same thing replaces the held one, so the lockdown
+-- lifting sends each setting once, not every step taken meanwhile.
+local function heldKey(self, msg)
+	local k = strmatch(msg, "^(ASSIGN .+ %d+) %d+$") or strmatch(msg, "^(TWIST .+) [01]$")
+		or strmatch(msg, "^(PASSIGN .+)@") or strmatch(msg, "^(MASSIGN .+) %d+$")
+	if k then return k end
+	if strmatch(msg, "^ESASSIGN") then return "ESASSIGN " .. tostring((self:DecodeESAssign(msg, self.player))) end
+	return strmatch(msg, "^(%u+)")   -- CLEAR, FREEASSIGN
+end
+local function holdMessage(self, msg, type, target)
+	local key = heldKey(self, msg)
+	heldMessages = heldMessages or {}
+	for i = #heldMessages, 1, -1 do
+		local m = heldMessages[i]
+		if m.key == key and m[3] == target then tremove(heldMessages, i) end
+	end
+	if #heldMessages >= MAX_HELD then tremove(heldMessages, 1) end
+	heldMessages[#heldMessages + 1] = { msg, type, target, key = key,
+		instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
+end
+-- A held message belongs to the group it was made in. The channel is worked out
+-- again when it is sent, so leaving that group or joining another (a battleground,
+-- a Dungeon Finder group) drops it (GROUP_LEFT / GROUP_JOINED), and one made in the
+-- other kind of group is not sent: a held CLEAR must never wipe another group's calls.
+function ShamanPower:DropHeldMessages()
+	heldMessages = nil
+end
+function ShamanPower:SendHeldMessages()
+	local held = heldMessages
+	heldMessages = nil
+	if held then
+		local instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false
+		for i = 1, #held do
+			local m = held[i]
+			if m.instance == instance then self:SendMessage(m[1], m[2], m[3], true) end
+		end
+	end
+	if sendRefused then
+		sendRefused = false
+		self:QueueSelfBroadcast()
+	end
+end
+
 function ShamanPower:SendMessage(msg, type, target, force)
 	if SPK and SPK() == true then
 		-- Do not claim delivery while the client's chat messaging lock is active.
+		if GetNumGroupMembers() > 0 then
+			sendRefused = true
+			if HOLD_IN_LOCKDOWN[strmatch(msg, "^(%u+)") or ""] then holdMessage(self, msg, type, target) end
+		end
 		return false
 	end
 	if GetNumGroupMembers() > 0 then
@@ -15081,6 +15258,7 @@ end
 
 function ShamanPower:GROUP_JOINED(event)
 	--self:Debug("[Event] GROUP_JOINED")
+	self:DropHeldMessages()   -- held for the group we were in, not this one
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
 	self:ScanSpells()
@@ -15098,6 +15276,7 @@ end
 
 function ShamanPower:GROUP_LEFT(event)
 	--self:Debug("[Event] GROUP_LEFT")
+	self:DropHeldMessages()   -- held for the group just left
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
 	for pname in pairs(ShamanPower_Assignments) do
@@ -15250,8 +15429,9 @@ ShamanPower.auraGen = {}
 -- A roster change can put a different player in the same unit slot without an
 -- aura event on that slot: invalidate every group slot's cached answer.
 -- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: this bookkeeping runs
--- once, 0.3 s after the last one (the Earth Shield carrier's unit token is
--- re-found here too, since raid indexes shift).
+-- 0.3 s after the first one, and once more 0.3 s after the first of any that
+-- arrive later, so a long burst costs one pass every 0.3 s at most (the Earth
+-- Shield carrier's unit token is re-found here too, since raid indexes shift).
 do
 	local slots = { "party1", "party2", "party3", "party4" }
 	for i = 1, 40 do slots[#slots + 1] = "raid" .. i end
@@ -15263,6 +15443,7 @@ do
 		if ShamanPower.UpdateAuraCarrierFilter then ShamanPower:UpdateAuraCarrierFilter() end
 	end
 	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "core (roster settle)") end
 	f:RegisterEvent("GROUP_ROSTER_UPDATE")
 	f:SetScript("OnEvent", function()
 		if queued then return end
@@ -15327,23 +15508,37 @@ end
 
 local RAID_TOKENS = {}
 for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+local PARTY_TOKENS = { "party1", "party2", "party3", "party4" }
+local function unitHasGUID(unit, guid)
+	local ok, g = pcall(UnitGUID, unit)
+	return ok and g and not (issecretvalue and issecretvalue(g)) and g == guid
+end
 function ShamanPower:UpdateAuraCarrierFilter()
 	local f = unitEventFrames and unitEventFrames.carrier
 	if not f then return end
 	f:UnregisterEvent("UNIT_AURA")
 	local guid = self.esTrackedTargetGUID
-	if not guid or self.ESTrackerUnavailable or not IsInRaid() then return end   -- player/party frames cover the rest
-	local secret = issecretvalue
-	for i = 1, 40 do
-		local unit = RAID_TOKENS[i]
-		local ok, g = pcall(UnitGUID, unit)
-		if ok and g and not (secret and secret(g)) and g == guid then
-			-- (if the carrier is also in your party its aura event may arrive twice;
-			-- the Earth Shield charge update is idempotent)
-			if f.RegisterUnitEvent then f:RegisterUnitEvent("UNIT_AURA", unit) end   -- without filters the unfiltered frames already hear everyone
-			return
+	if not guid or self.ESTrackerUnavailable then return end
+	if not f.RegisterUnitEvent then return end   -- without filters the unfiltered frames already hear everyone
+	if unitHasGUID("player", guid) then return end   -- the player frame covers it
+	if IsInRaid() then
+		for i = 1, 40 do
+			local unit = RAID_TOKENS[i]
+			if unitHasGUID(unit, guid) then
+				-- (if the carrier is also in your party its aura event may arrive twice;
+				-- the Earth Shield charge update is idempotent)
+				f:RegisterUnitEvent("UNIT_AURA", unit)
+				return
+			end
+		end
+	else
+		for i = 1, 4 do
+			if unitHasGUID(PARTY_TOKENS[i], guid) then return end   -- the party frames cover it
 		end
 	end
+	-- outside your group: heard while you target or focus them, as the tracker
+	-- (FindEarthShieldTarget) finds them; other units' aura events are ignored by GUID
+	f:RegisterUnitEvent("UNIT_AURA", "target", "focus")
 end
 
 function ShamanPower:UNIT_AURA(event, unit)
@@ -15485,8 +15680,23 @@ function ShamanPower:QueueCommRefresh()
 	C_Timer.After(0, commRefresh)
 end
 
+-- Every sender key seen this session, and the form it arrived in, for /spdiag
+-- names: one entry per player, nothing allocated per message after the first.
+ShamanPower.seenSenderKeys = {}
+
+-- The player a message names, keyed like its sender. Anniversary keeps the realm
+-- on a player from another realm ("Name-Realm"), but that shaman's own messages
+-- name them plainly (they send UnitName("player")); a plain name equal to the
+-- sender's own is the sender. Forever keys are always plain, so nothing changes.
+local function messageName(self, name, sender)
+	if not strfind(name, "-", 1, true) and name == strsplit("-", sender) then return sender end
+	return self:RemoveRealmName(name)
+end
+
 function ShamanPower:ParseMessage(sender, msg)
+	local received = sender
 	sender = self:RemoveRealmName(sender)
+	if sender and self.seenSenderKeys[sender] == nil then self.seenSenderKeys[sender] = received end
 
 	if (sender == self.player or sender == nil) or not initialized then return end
 
@@ -15613,7 +15823,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		-- the name is everything before the two numbers, so "First Last" stays whole
 		local name, class, skill = strmatch(msg, "^ASSIGN (.+) (%d+) (%d+)$")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15631,7 +15841,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "TWIST" then
 		local name, enabled = strmatch(msg, "^TWIST (.+) ([01])$")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15659,7 +15869,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "PASSIGN" then
 		local name, assign = strmatch(msg, "^PASSIGN (.+)@([0-9n]*)")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15680,7 +15890,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "MASSIGN" then
 		local name, skill = strmatch(msg, "^MASSIGN (.+) (%d+)$")
 		if not name then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15713,7 +15923,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	if kw == "ESASSIGN" then
 		local name, target = self:DecodeESAssign(msg, sender)
 		if not name or not target then return end
-		name = self:RemoveRealmName(name)
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -15867,7 +16077,6 @@ end
 
 function ShamanPower:OnRosterSettled()
 	self:UpdateRoster()
-	self:UpdateAllShamans()
 end
 
 -- One roster member: who leads, and which raid subgroup each known shaman is in
@@ -17571,8 +17780,8 @@ if not ShamanPower.RaidCooldownsLoaded then
 	function ShamanPower:CallBloodlust() end
 	function ShamanPower:CallManaTide() end
 	function ShamanPower:RestoreCallerCooldowns() end
-	function ShamanPower:AddCooldownButtonAlert() end
-	function ShamanPower:RemoveCooldownButtonAlert() end
+	-- (AddCooldownButtonAlert / RemoveCooldownButtonAlert live in this file: this
+	-- block runs before the module can set its flag, so a stub here replaced them)
 	function ShamanPower:EnableCallerCooldownTracking() end
 	function ShamanPower:DisableCallerCooldownTracking() end
 	function ShamanPower:UpdateCallerButtonOpacity() end

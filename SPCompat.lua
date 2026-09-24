@@ -202,18 +202,32 @@ do
 		readHand(Enum.WeaponSlot.OffHand, cache.off)
 	end
 
-	local function remaining(t)
-		if not t.has or not t.expiresAt then return nil end
+	-- One hand's answer. An enchant past its cached expiry is reported gone until a
+	-- read shows it renewed; the cache itself keeps it, so the next read still happens.
+	local function hand(t)
+		if not t.has then return false end
+		if not t.expiresAt then return true, nil, t.charges, t.id end
 		local ms = t.expiresAt - GetTime() * 1000
-		if ms <= 0 then cache.at = -REFRESH return 0 end   -- ran out: re-read next time
-		return ms
+		if ms <= 0 then return false end
+		return true, ms, t.charges, t.id
+	end
+	-- a cached enchant whose expiry has passed: gone, or renewed without an event
+	-- (a totem's enchant); only a read can tell
+	local function ranOut(t)
+		return t.has and t.expiresAt and t.expiresAt <= GetTime() * 1000
 	end
 
 	function SPCompat.GetWeaponEnchantInfo()
 		if useList then
-			if GetTime() - cache.at >= REFRESH then refresh() end
 			local m, o = cache.main, cache.off
-			return m.has, remaining(m), m.charges, m.id, o.has, remaining(o), o.charges, o.id
+			local age = GetTime() - cache.at
+			-- re-read on the insurance clock, or at once (at most 4 times a second)
+			-- when a cached enchant has run out; between those reads a finished
+			-- enchant reads as gone (hand), never as still there
+			if age >= REFRESH or (age >= 0.25 and (ranOut(m) or ranOut(o))) then refresh() end
+			local mh, mLeft, mCharges, mID = hand(m)
+			local oh, oLeft, oCharges, oID = hand(o)
+			return mh, mLeft, mCharges, mID, oh, oLeft, oCharges, oID
 		end
 		if _G.GetWeaponEnchantInfo then return _G.GetWeaponEnchantInfo() end
 		return false
@@ -511,8 +525,12 @@ function SPCompat.SecureSnippetsWork()
 	-- loadstring_untainted. When the client doesn't provide it (Forever), the
 	-- probe below can only fail, and error displays such as BugSack still
 	-- catch that failure (they keep seterrorhandler for themselves), so check
-	-- the global first and skip the probe.
-	if type(loadstring_untainted) ~= "function" then
+	-- the global first and skip the probe. Mainline family only: whether addon
+	-- code can see that global on Anniversary was never measured (on retail it
+	-- reads nil even though snippets work there, see above), so Anniversary keeps
+	-- the real probe. On Forever this shortcut cannot notice a client patch that
+	-- fixes snippets; /spflyout secure re-tests then.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(loadstring_untainted) ~= "function" then
 		snippetsWork, snippetProbeErr = false, "loadstring_untainted missing"
 		return false
 	end
@@ -537,9 +555,10 @@ function SPCompat.SecureSnippetsWork()
 	-- probe answer "snippets work" every time.
 	--
 	-- Detect it the only way that actually observes the failure: install a
-	-- recording error handler for the duration of the call. The marker
-	-- attribute is corroboration, not the verdict, because a handle method
-	-- could be restricted for unrelated reasons.
+	-- recording error handler for the duration of the call. On Anniversary the
+	-- marker attribute is corroboration, not the verdict, because a handle method
+	-- could be restricted for unrelated reasons. On the Mainline family it is part
+	-- of the verdict (see below).
 	local failed, firstErr = false, nil
 	local prev = geterrorhandler and geterrorhandler()
 	if seterrorhandler then
@@ -556,9 +575,11 @@ function SPCompat.SecureSnippetsWork()
 	local okMark, marked = pcall(probe.GetAttribute, probe, "spSnippetProbe")
 	SPCompat.snippetProbeMarked = okMark and marked or nil
 
-	-- The marker must be set too: with an error display that keeps the error
-	-- handler for itself, a failed compile never reaches our recording handler.
-	snippetsWork = (ok and not failed and SPCompat.snippetProbeMarked) and true or false
+	-- Mainline family: the marker must be set too. With an error display that
+	-- keeps the error handler for itself, a failed compile never reaches our
+	-- recording handler. Anniversary keeps its old verdict, unmeasured there.
+	local markerOk = SPCompat.snippetProbeMarked or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+	snippetsWork = (ok and not failed and markerOk) and true or false
 	snippetProbeErr = (not snippetsWork) and (firstErr or "probe call refused") or nil
 	return snippetsWork
 end
@@ -610,6 +631,18 @@ function SPK()
 		return ok and v or nil
 	end
 	return nil
+end
+
+-- Called once the chat lockdown has lifted, so what was refused in it can be sent.
+-- Checked 0.5 s and 2.5 s after any restriction lifts (ADDON_RESTRICTION_STATE_CHANGED,
+-- Inactive; the forced cvars too) and 2.5 s after combat, since the lockdown may end
+-- with an encounter rather than with its own Chat restriction. Only the secrets
+-- regime checks; a callback with nothing to send does nothing.
+local chatUnlockCallbacks = {}
+function SPCompat.OnChatUnlocked(fn) chatUnlockCallbacks[#chatUnlockCallbacks + 1] = fn end
+local function chatUnlocked()
+	if SPK() == true then return end   -- locked again already
+	for _, fn in ipairs(chatUnlockCallbacks) do pcall(fn) end
 end
 
 -- Install the guards only where the secret regime is real. Every current
@@ -705,16 +738,46 @@ if SPCompat.secretsRegime then
 		return ms / 1000
 	end
 
+	-- Earth, Flame and Frost Shock share one cooldown: casting one locks the other
+	-- two just as long, but only the one cast has an event to stamp it, so the
+	-- other two read "ready" in combat. By name, so every rank meets; the names
+	-- are resolved once, on the first cast (spell data is loaded by then).
+	local SHOCK_IDS = { 8042, 8050, 8056 }
+	local shockNames   -- nil = not resolved yet, false = this client has no shock trio
+	local function shockSiblings()
+		if shockNames == nil then
+			local set, list = {}, {}
+			for _, id in ipairs(SHOCK_IDS) do
+				local name = GetSpellInfo and GetSpellInfo(id)
+				if name then set[name] = true; list[#list + 1] = name end
+			end
+			shockNames = (#list >= 2) and { set = set, list = list } or false
+		end
+		return shockNames or nil
+	end
+
 	function SPCompat.ShadowCooldownCast(spellID)
 		local key = cdKey(spellID)
 		if not key then return end
 		local e = shadowCD[key] or {}
-		e.start, e.id = GetTime(), spellID
+		local now = GetTime()
+		e.start, e.id = now, spellID
 		if not e.duration then
 			e.duration = baseDuration(spellID)
 			e.seeded = e.duration and true or nil
 		end
 		shadowCD[key] = e
+		local shocks = e.duration and shockSiblings()
+		if shocks and shocks.set[key] then
+			for _, other in ipairs(shocks.list) do
+				if other ~= key then
+					local s = shadowCD[other] or {}
+					s.start = now
+					if not s.duration then s.duration, s.seeded = e.duration, e.seeded end
+					shadowCD[other] = s
+				end
+			end
+		end
 	end
 	if GetSpellCooldown then
 		local origGetSpellCooldown = GetSpellCooldown
@@ -826,14 +889,24 @@ if SPCompat.secretsRegime then
 		-- dispatch. So the payload, not a query, decides: a restriction starting is
 		-- remembered and nothing is cleared (asking would have said "all clear" at the
 		-- very start of a fight and re-read the shadow models from an API about to go
-		-- secret). Deactivation and PLAYER_REGEN_ENABLED go on to the check below.
-		if event == "ADDON_RESTRICTION_STATE_CHANGED" and state ~= nil and state ~= 0 then
-			wasRestricted = true
-			return
+		-- secret). A deactivation is not checked during its own dispatch either: the
+		-- query would answer "none active" even with another restriction still on (a
+		-- second forced cvar, the encounter while still in combat) and clear the secret
+		-- flags too early. Only the deferred checks below can tell.
+		if event == "ADDON_RESTRICTION_STATE_CHANGED" then
+			if state ~= nil and state ~= 0 then
+				wasRestricted = true
+				return
+			end
+			C_Timer.After(0.5, chatUnlocked)
+		else
+			clearIfUnrestricted()
 		end
-		clearIfUnrestricted()
 		C_Timer.After(0.3, clearIfUnrestricted)
 		C_Timer.After(2.5, clearIfUnrestricted)
+		-- the lockdown can still read on at 0.5 s and then end out of combat (an M+
+		-- run, a PvP match) with no event after it: look once more, as above
+		C_Timer.After(2.5, chatUnlocked)
 	end)
 end
 
@@ -1499,6 +1572,25 @@ SlashCmdList["SPDIAG"] = function(msg)
 				add("sample %s -> shaman %s target %s", q(es), q(a2), q(b2))
 			end
 		end
+		-- the keys real traffic produced: a sender whose key differs from the roster
+		-- key above is the one whose assignments and leader checks fail
+		local function keys(t)
+			local out = {}
+			if type(t) == "table" then for k in pairs(t) do out[#out + 1] = q(k) end end
+			table.sort(out)
+			return #out > 0 and table.concat(out, ", ") or "none"
+		end
+		local seen = SP and SP.seenSenderKeys
+		if seen and next(seen) then
+			for key, received in pairs(seen) do
+				add("message sender: key %s (arrived as %s)  leader %s  shaman data %s", q(key), q(received),
+					tostring(SP.CheckLeader and SP:CheckLeader(key)), tostring(SP.AllShamans and SP.AllShamans[key] ~= nil))
+			end
+		else
+			add("message senders: none seen this session")
+		end
+		add("shaman data keys (AllShamans): %s", keys(SP and SP.AllShamans))
+		add("Windfury report keys: %s", keys(SP and SP.WindfuryRangeData))
 		return ShowCopyWindow("ShamanPower names", table.concat(lines, "\n"))
 	end
 	if msg == "ready" then
@@ -2105,11 +2197,14 @@ local function StartStress()
 	function st:Stop()
 		driver:SetScript("OnUpdate", nil)
 		-- the fake senders' Windfury reports would otherwise sit there until they expire
-		if SP and type(SP.WindfuryRangeData) == "table" then
-			for name in pairs(SP.WindfuryRangeData) do
-				if type(name) == "string" and name:find("^Stressraider") then SP.WindfuryRangeData[name] = nil end
+		-- (and in the sender list /spdiag names prints)
+		local function dropFakes(t)
+			if type(t) ~= "table" then return end
+			for name in pairs(t) do
+				if type(name) == "string" and name:find("^Stressraider") then t[name] = nil end
 			end
 		end
+		if SP then dropFakes(SP.WindfuryRangeData); dropFakes(SP.seenSenderKeys) end
 	end
 
 	function st:Report(window)
@@ -2130,6 +2225,21 @@ local function StartStress()
 			print(string.format("    %-28s calls=%-6d %.2f ms (%.4f ms/call)  alloc %.1f KB", row.label, r.calls, r.ms, r.calls > 0 and r.ms / r.calls or 0, r.kb))
 		end
 		print(string.format("  stress total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", ms, ms / (window * 10), kb, kb / window))
+		-- the same rows added up per module: a build that splits a module's listener
+		-- into several frames ("core (AceEvent)" -> "core (auras)", "core (casts)" ...)
+		-- moves work between rows, so compare these sums between builds, not rows
+		local byModule, modules = {}, {}
+		for _, row in ipairs(rows) do
+			local m = row.label:match("^(.-) %(") or row.label
+			local s = byModule[m]
+			if not s then s = { name = m, calls = 0, ms = 0, kb = 0 }; byModule[m] = s; modules[#modules + 1] = s end
+			s.calls, s.ms, s.kb = s.calls + row.r.calls, s.ms + row.r.ms, s.kb + row.r.kb
+		end
+		table.sort(modules, function(a, b) return a.ms > b.ms end)
+		print("  stress per module (its rows added up; compare these between builds):")
+		for _, s in ipairs(modules) do
+			print(string.format("    %-28s calls=%-6d %.2f ms  alloc %.1f KB", s.name, s.calls, s.ms, s.kb))
+		end
 		-- the combat log is not injected (it cannot be faked safely): say who listens to it
 		local clog = 0
 		for frame in pairs(stressFrames) do if frame:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED") then clog = clog + 1 end end
@@ -2160,6 +2270,12 @@ SlashCmdList["SPPERF"] = function(msg)
 	local stressMode = false
 	msg = strtrim(strlower(msg or ""))
 	if msg:find("^stress") then stressMode = true; msg = msg:gsub("^stress%s*", "") end
+	if stressMode and IsInGroup() then
+		-- refused before anything is wrapped: the fake roster changes run the real
+		-- roster code, which would send real ShamanPower messages to your group
+		print("|cff00ccffspperf|r stress runs solo only: leave your group first (the pretend raid would send real messages to it).")
+		return
+	end
 	local secs = tonumber(msg) or 10
 	if secs < 2 then secs = 2 elseif secs > 120 then secs = 120 end
 	SP._perfRunning = true
@@ -2219,12 +2335,6 @@ SlashCmdList["SPPERF"] = function(msg)
 	local lua0, t0 = collectgarbage("count"), GetTime()
 	print(string.format("|cff00ccffspperf|r measuring for %d s ... (combat=%s)", secs, tostring(InCombatLockdown())))
 	local stress
-	if stressMode and IsInGroup() then
-		-- the fake roster changes run the real roster code, which would send real
-		-- ShamanPower messages to your group
-		print("|cff00ccffspperf|r stress runs solo only: leave your group first (the pretend raid would send real messages to it).")
-		return
-	end
 	if stressMode then
 		if InCombatLockdown() then print("|cff00ccffspperf|r stress in combat: real events add to the numbers, so they will be noisier.") end
 		print("|cff00ccffspperf|r stress: pretending to be in a 40-player raid (auras, casts, addon messages, a roster change burst) ...")

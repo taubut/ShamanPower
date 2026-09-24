@@ -742,7 +742,9 @@ function SP:UpdateCompactShield()
 			btn:SetAttribute("spell1", name)
 		end
 	end
-	btn:SetAlpha(self.opt.totemBarOpacity or 1)
+	-- the rest of the bar's opacity, the fade rules' faded opacity included (this
+	-- line has its own parent, so it does not inherit it)
+	btn:SetAlpha(self.totemBarFaded and (self.opt.fadeOpacity or 0.25) or (self.opt.totemBarOpacity or 1))
 end
 
 -- Charges come from the ES button's own updater (esButton subsystem, 2 Hz),
