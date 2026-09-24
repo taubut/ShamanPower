@@ -15181,7 +15181,9 @@ end
 -- thing (a held key above, or a whole-state SELF / *SYNC) replaces one still
 -- waiting. The queue belongs to the group it was made in (DropHeldMessages) and
 -- waits out a chat lockdown rather than losing what it holds (SendHeldMessages
--- starts it again). Nothing runs while it is empty.
+-- starts it again). Nothing runs while it is empty. Anything else sent on this
+-- prefix has to come through SendMessage too, or the count here falls short of
+-- the client's.
 local outbound = {}
 do
 	local BURST = 10                   -- at once; then one more for each second since
