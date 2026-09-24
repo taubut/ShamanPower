@@ -1749,7 +1749,8 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 			pendingGone[slot] = nil
 		end
 		-- bound by the update that retired the old totem: if this totem's own update
-		-- still follows, it confirms the binding rather than retiring it
+		-- still follows, it comes with this cast (the same frame) and confirms the
+		-- binding rather than retiring it
 		if pending.element then entry.boundEarlyAt = now end
 	else
 		shadowPendingCast = { element = element, at = now }
@@ -1827,10 +1828,12 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 		shadowPendingCast = nil
 		return
 	end
-	-- a totem bound to this slot a moment ago by an update that came before its cast
-	-- (ShadowTotemCast): this is its own update arriving after all, not its end
+	-- a totem bound to this slot by an update that came before its cast (ShadowTotemCast):
+	-- its own update, arriving with that cast (the same frame, so the same GetTime()),
+	-- is not its end. Only that one: any later update, even a moment later, is the
+	-- totem going (killed as it landed) and must not be swallowed.
 	for _, entry in pairs(self.shadowTotems) do
-		if entry.slot == slot and entry.boundEarlyAt and now - entry.boundEarlyAt <= SHADOW_BIND_WINDOW then
+		if entry.slot == slot and entry.boundEarlyAt == now then
 			entry.boundEarlyAt = nil
 			return
 		end
