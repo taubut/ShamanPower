@@ -1090,10 +1090,8 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("CHAT_MSG_ADDON")
 	self:RegisterEvent("ZONE_CHANGED")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-	self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-	self:RegisterEvent("UNIT_SPELLCAST_SENT")  -- For ES cast tracking
+	self:SetupUnitEventFilters()   -- UNIT_SPELLCAST_* (player) and UNIT_AURA (player, party, ES carrier)
 	self:RegisterEvent("PLAYER_TOTEM_UPDATE")  -- shadow totem model slot binding
-	self:RegisterEvent("UNIT_AURA")  -- For ES charge updates
 	self:RegisterEvent("GROUP_JOINED")
 	self:RegisterEvent("GROUP_LEFT")
 	self:RegisterEvent("PLAYER_ROLES_ASSIGNED")
@@ -13425,6 +13423,7 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 		-- Cast succeeded! Update tracked target
 		self.esTrackedTarget = self.esLastCastTarget
 		self.esTrackedTargetGUID = self.esLastCastGUID
+		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 6  -- Full charges on fresh cast (will be updated by UNIT_AURA)
 
 		-- Clear pending
@@ -13453,6 +13452,7 @@ function ShamanPower:DiscoverEarthShieldTarget()
 				if name == esSpellName and source == "player" then
 					self.esTrackedTarget = UnitName(u)
 					self.esTrackedTargetGUID = UnitGUID(u)
+					self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 					self.esTrackedCharges = count or 0
 					self:UpdateEarthShieldButton()
 					return
@@ -13508,6 +13508,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit)
 		-- ES fell off
 		self.esTrackedTarget = nil
 		self.esTrackedTargetGUID = nil
+		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 0
 	end
 
@@ -13555,6 +13556,7 @@ function ShamanPower:FindEarthShieldTarget()
 			-- Target left group or doesn't exist
 			self.esTrackedTarget = nil
 			self.esTrackedTargetGUID = nil
+			self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 			self.esTrackedCharges = 0
 		end
 	end
@@ -14898,6 +14900,67 @@ function ShamanPower:AuraCacheValid(unit, gen, at)
 	-- hands without an aura event). The player is always the player: no expiry.
 	if gen == nil or gen ~= (self.auraGen[unit] or 0) or not at then return false end
 	return unit == "player" or (GetTime() - at) < 5
+end
+
+-- ---------------------------------------------------------------------------
+-- Unit events only for the units that matter. Registered with RegisterEvent they
+-- arrive for every unit in a 40-player raid (and every nameplate), hundreds a
+-- second, just to be ignored. Every consumer here wants the player's own casts,
+-- and auras on the player, the party (party1-4 are your subgroup inside a raid)
+-- and whoever carries your Earth Shield. RegisterUnitEvent takes up to two
+-- units per frame on every client, so the units are spread over small frames.
+-- The handlers are looked up at call time, so hooks on them keep working.
+-- ---------------------------------------------------------------------------
+local unitEventFrames
+local function unitEventDispatch(_, event, ...)
+	local fn = ShamanPower[event]
+	if fn then fn(ShamanPower, event, ...) end
+end
+function ShamanPower:SetupUnitEventFilters()
+	if unitEventFrames then return end
+	unitEventFrames = {}
+	local cast = CreateFrame("Frame")
+	cast:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	cast:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")   -- Earth Shield cast tracking
+	cast:SetScript("OnEvent", unitEventDispatch)
+	unitEventFrames.cast = cast
+	for _, pair in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
+		local f = CreateFrame("Frame")
+		f:RegisterUnitEvent("UNIT_AURA", pair[1], pair[2])
+		f:SetScript("OnEvent", unitEventDispatch)
+		unitEventFrames[#unitEventFrames + 1] = f
+	end
+	-- the Earth Shield carrier outside your party (a raid tank): its own frame,
+	-- re-pointed whenever the carrier or the raid's order changes
+	local carrier = CreateFrame("Frame")
+	carrier:RegisterEvent("GROUP_ROSTER_UPDATE")
+	carrier:SetScript("OnEvent", function(self, event, ...)
+		if event == "GROUP_ROSTER_UPDATE" then ShamanPower:UpdateAuraCarrierFilter() return end
+		unitEventDispatch(self, event, ...)
+	end)
+	unitEventFrames.carrier = carrier
+	self:UpdateAuraCarrierFilter()
+end
+
+local RAID_TOKENS = {}
+for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+function ShamanPower:UpdateAuraCarrierFilter()
+	local f = unitEventFrames and unitEventFrames.carrier
+	if not f then return end
+	f:UnregisterEvent("UNIT_AURA")
+	local guid = self.esTrackedTargetGUID
+	if not guid or self.ESTrackerUnavailable or not IsInRaid() then return end   -- player/party frames cover the rest
+	local secret = issecretvalue
+	for i = 1, 40 do
+		local unit = RAID_TOKENS[i]
+		local ok, g = pcall(UnitGUID, unit)
+		if ok and g and not (secret and secret(g)) and g == guid then
+			-- (if the carrier is also in your party its aura event may arrive twice;
+			-- the Earth Shield charge update is idempotent)
+			f:RegisterUnitEvent("UNIT_AURA", unit)
+			return
+		end
+	end
 end
 
 function ShamanPower:UNIT_AURA(event, unit)
