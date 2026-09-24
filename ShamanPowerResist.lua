@@ -810,6 +810,9 @@ function SP:HandleResistMessage(kw, msg, sender)
 		-- a real request needs a raid; practice never counts in one
 		if isPractice == IsInRaid() then return end
 		if isPractice then
+			-- the end of a practice we no longer follow (another one took over,
+			-- e.g. while the chat lock held that end) leaves the one we follow
+			if mask == "000" and practiceOwner and practiceOwner ~= sender then return end
 			if practiceOwner ~= sender then wipe(practicePick) end
 			practiceOwner = sender
 		else
