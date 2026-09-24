@@ -199,6 +199,7 @@ end
 local PANEL_W, ROW_ICON, PAD = 260, 20, 10
 local panel, rows = nil, {}
 local hideTimer
+local sweepTitle   -- the title of the real list while one is up (a sample can cover it)
 local refreshEvents = { "UNIT_AURA", "UNIT_INVENTORY_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_TOTEM_UPDATE", "UNIT_POWER_UPDATE" }
 
 local function savePos(f)
@@ -297,6 +298,7 @@ end
 
 function SP:HideReadyCheckPanel()
 	if hideTimer then hideTimer:Cancel(); hideTimer = nil end
+	sweepTitle = nil
 	stopWatching()
 	if panel and not SP.readyCheckDemoActive then panel:Hide() end
 end
@@ -357,7 +359,8 @@ function SP:RunReadyCheckSweep(reason)
 	if c.showPanel then
 		local f = SP:ReadyCheckFrame()
 		applyLook(f)
-		layout(reason == "readycheck" and "Ready check: you are missing" or "You are missing", list)
+		sweepTitle = reason == "readycheck" and "Ready check: you are missing" or "You are missing"
+		layout(sweepTitle, list)
 		f:Show()
 		startWatching()
 		if hideTimer then hideTimer:Cancel() end
@@ -381,6 +384,18 @@ function SP:ReadyCheckDemo(on)
 		f:Show()
 	else
 		self.readyCheckDemoActive = nil
+		-- a real list that was up under the sample (a ready check still running) comes back
+		if sweepTitle then
+			local list = collect()
+			if #list > 0 then
+				applyLook(f)
+				layout(sweepTitle, list)
+				f:Show()
+				startWatching()
+				return
+			end
+			self:HideReadyCheckPanel()
+		end
 		f:Hide()
 	end
 end
