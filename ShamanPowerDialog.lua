@@ -303,6 +303,10 @@ local function build()
 	f:Hide()
 	tinsert(UISpecialFrames, f:GetName())   -- Escape in combat (the catcher above is hidden then)
 
+	-- Solid at any Background Opacity, on purpose: a popup never fades (the
+	-- settings window's What's New and previews add an opaque copy for the same
+	-- reason). A drag holds while it is up; it opens centred again next time,
+	-- as the settings window's dialogs do, so no position is saved.
 	local bg = f:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(f)
 	bg:SetColorTexture(color("windowBg"))
