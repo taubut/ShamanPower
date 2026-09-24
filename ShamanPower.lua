@@ -1028,6 +1028,18 @@ function ShamanPower:RestoreTotemBarPosition()
 	local d = self.opt.display
 	h:SetScale(self.opt.buffscale or 0.9)   -- records are scale-free; SetPoint is not
 	self._barScaleApplied = true
+	-- Upgrading from 2.x (Anniversary): a bar never dragged sat at dead centre (its
+	-- 1x1 anchor there) and saved no spot. Save that spot once, so only new setups
+	-- get the new default. A profile used by 2.x finished or skipped its setup, or
+	-- saved a cooldown bar spot; one set up by 3.0 records how (setupPath).
+	if not d.defaultSpotChecked then
+		d.defaultSpotChecked = true
+		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
+		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not (d.position and d.position.anchor) and not legacy
+			and not self.opt.setupPath and (self.opt.setupDone or self.opt.cooldownBarPosition) then
+			d.position = { anchor = "CENTER", x = 0, y = 0 }
+		end
+	end
 	local rec = self:TotemBarRecord()
 	if rec then
 		self:ApplyPositionRecord(h, rec)
