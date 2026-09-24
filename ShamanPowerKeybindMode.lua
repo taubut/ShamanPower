@@ -275,7 +275,10 @@ local function build()
 		end
 	end)
 	capture:SetScript("OnEvent", function(_, event)
-		if event == "PLAYER_REGEN_DISABLED" then Leave(false, "a fight started, so every key is back the way it was.") end
+		if event == "PLAYER_REGEN_DISABLED" then
+			SP.keybindReturnToConfig = nil   -- no settings window popping up as the fight starts
+			Leave(false, "a fight started, so every key is back the way it was.")
+		end
 	end)
 
 	topBar = CreateFrame("Frame", "ShamanPowerKeybindBar", UIParent, "BackdropTemplate")
@@ -337,8 +340,13 @@ function Leave(save, why)
 	if SP.QueueKeybindTextRefresh then SP:QueueKeybindTextRefresh() end
 	if SP.keybindReturnToConfig then
 		SP.keybindReturnToConfig = nil
-		local cfg = rawget(_G, "ShamanPowerConfig")
-		if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+		-- the same page, tab and scroll it was hidden on (ShamanPowerUnlock.lua)
+		if SP.ReopenSettingsWindow then
+			SP:ReopenSettingsWindow()
+		else
+			local cfg = rawget(_G, "ShamanPowerConfig")
+			if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+		end
 	end
 end
 

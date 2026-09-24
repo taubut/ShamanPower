@@ -393,8 +393,7 @@ function SP:SetMasterUnlock(on, only)
 		end
 		if self.unlockReturnToConfig then
 			self.unlockReturnToConfig = nil
-			local cfg = rawget(_G, "ShamanPowerConfig")
-			if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+			self:ReopenSettingsWindow()
 		end
 		return
 	end
@@ -470,6 +469,7 @@ do
 	f:RegisterEvent("PLAYER_REGEN_DISABLED")
 	f:SetScript("OnEvent", function()
 		if ACTIVE then
+			SP.unlockReturnToConfig = nil   -- no settings window popping up as the fight starts
 			SP:SetMasterUnlock(false)
 			print("|cff0070ddShamanPower|r: UI locked again (combat). Positions you had already moved are saved.")
 		end
@@ -573,6 +573,25 @@ function ShamanPower:SettingsTestDone()
 	if cleanup then pcall(cleanup, self) end
 	if not restore then return end
 	if InCombatLockdown() then return end   -- the window is not for combat; the user reopens it
-	local cfg = rawget(_G, "ShamanPowerConfig")
-	if cfg and cfg.Open then pcall(cfg.Open, cfg) end
+	self:ReopenSettingsWindow()
+end
+
+-- Bring back the settings window a mode hid (Unlock UI, keybind mode, a page's
+-- test action) on the page, tab and scroll it was hidden on. Open() would pick
+-- the page afresh: its first tab, scrolled to the top. The hidden window still
+-- holds all of that, so show it and redraw its page in place (the preview pane
+-- gave its frame back when the window hid, so that is mounted again too).
+function ShamanPower:ReopenSettingsWindow()
+	local api = rawget(_G, "ShamanPowerConfig")
+	if not api then return end
+	local win = _G["ShamanPowerConfigUIFrame"]
+	if win and win:IsShown() then win:Raise() return end   -- reopened meanwhile: leave it as it is
+	if win and api.RefreshCurrent then
+		win:Show()
+		win:Raise()
+		pcall(api.RefreshCurrent, api)
+		if api.UpdatePreviewPane then pcall(api.UpdatePreviewPane, api) end
+		return
+	end
+	if api.Open then pcall(api.Open, api) end
 end
