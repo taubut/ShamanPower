@@ -171,8 +171,8 @@ end
 local function paintOverlay(e)
 	local o = overlayFor(e.frame)
 	local lit = (hovered == e)
-	o.bg:SetColorTexture(0.25, 0.55, 1, lit and 0.45 or 0.2)
-	for _, t in ipairs(o.edges) do t:SetColorTexture(lit and 1 or 0.3, lit and 0.82 or 0.65, lit and 0 or 1, 1) end
+	o.bg:SetColorTexture(SP:SPColor("accent", lit and 0.45 or 0.2))
+	for _, t in ipairs(o.edges) do t:SetColorTexture(SP:SPColor("accent", lit and 1 or 0.55)) end
 	o.key:SetText(shortKey((GetBindingKey(e.action))) or "")
 end
 
@@ -215,7 +215,7 @@ end
 local function setHoverLine()
 	if hovered then
 		local key = shortKey((GetBindingKey(hovered.action)))
-		hoverLine:SetText(hovered.label .. (key and ("  |cffffd200" .. key .. "|r") or "  |cff8a94a6(no key)|r"))
+		hoverLine:SetText(hovered.label .. (key and ("  |cffFFD100" .. key .. "|r") or "  |cff8a94a6(no key)|r"))
 	else
 		hoverLine:SetText("|cff8a94a6Hover a highlighted button|r")
 	end
@@ -281,26 +281,24 @@ local function build()
 		end
 	end)
 
-	topBar = CreateFrame("Frame", "ShamanPowerKeybindBar", UIParent, "BackdropTemplate")
+	topBar = CreateFrame("Frame", "ShamanPowerKeybindBar", UIParent)
 	topBar:SetSize(620, 74)
 	topBar:SetPoint("TOP", UIParent, "TOP", 0, -40)
 	topBar:SetFrameStrata("TOOLTIP")
 	topBar:SetFrameLevel(50)
 	topBar:EnableMouse(true)
-	if topBar.SetBackdrop then
-		topBar:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-		topBar:SetBackdropColor(0.07, 0.08, 0.1, 0.95)
-		topBar:SetBackdropBorderColor(0.2, 0.55, 1, 1)
-	end
+	local bg = topBar:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(topBar)
+	bg:SetColorTexture(SP:SPColor("windowBg", 0.95))
+	SP:SPMakeBorder(topBar, "accent", 2)
 	topText = topBar:CreateFontString(nil, "OVERLAY")
-	SP:SetSPFont(topText, "labels", 12, "")
+	topText:SetFontObject(SP.SPDialogFonts.text)
 	topText:SetPoint("TOPLEFT", topBar, "TOPLEFT", 12, -10)
 	topText:SetPoint("RIGHT", topBar, "RIGHT", -190, 0)
 	topText:SetJustifyH("LEFT"); topText:SetWordWrap(true)
-	topText:SetTextColor(0.9, 0.92, 0.95)
 	topText:SetText("|cff3fa9f5Keybind mode|r - hover a button and press a key (Shift / Ctrl / Alt work). Esc over a button clears its key; Esc elsewhere leaves and keeps your keys.")
 	hoverLine = topBar:CreateFontString(nil, "OVERLAY")
-	SP:SetSPFont(hoverLine, "labels", 12, "")
+	hoverLine:SetFontObject(SP.SPDialogFonts.text)
 	hoverLine:SetPoint("TOPLEFT", topText, "BOTTOMLEFT", 0, -6)
 	hoverLine:SetPoint("RIGHT", topBar, "RIGHT", -190, 0)
 	hoverLine:SetJustifyH("LEFT"); hoverLine:SetWordWrap(true)

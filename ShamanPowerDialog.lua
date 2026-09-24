@@ -9,6 +9,8 @@
 --   ShamanPower:ShowSPDialog(spec) -> the dialog frame
 --     spec.key       unique id; showing the same key again replaces that dialog
 --     spec.title     heading; spec.text the body (both wrap, never cut off)
+--     spec.subtitle  optional line under the heading, upper-cased, as in the
+--                    settings window's dialogs
 --     spec.editText  optional read-only box with this text, focused and fully
 --                    selected, so Ctrl+C copies it; typing in it changes nothing
 --     spec.buttons   1-3 { text = "Accept", onClick = function(dialog) end }; a
@@ -33,6 +35,9 @@
 --     (button:SetLabel(text) changes the text and refits the width;
 --      button:SetPrimary(primary) switches the look)
 --   ShamanPower:CreateSPCloseButton(parent, size) -> Button (an "X")
+--   ShamanPower:SPColor(key, alpha) -> r, g, b, a from the palette below
+--   ShamanPower:SPMakeBorder(frame, key, thickness) / SPSetBorderColor(frame, key, alpha)
+--   ShamanPower.SPDialogFonts        the font objects (title, text, dim, button, tiny, group)
 --
 -- Costs nothing until a dialog is shown. A timed dialog runs one timer, plus a
 -- one-second ticker for its countdown, only while it is up; the Escape catcher
@@ -45,24 +50,33 @@ if not SP then return end
 -- The settings window's palette (ShamanPower_Config/Core.lua), repeated here
 -- because this file must work without that module.
 local C = {
-	windowBg  = { 0.055, 0.063, 0.078 },
-	sidebarBg = { 0.071, 0.082, 0.102 },
-	border    = { 0.180, 0.204, 0.243 },
-	accent    = { 0.000, 0.439, 0.867 },
-	accentHi  = { 0.247, 0.663, 1.000 },
-	text      = { 0.902, 0.918, 0.941 },
-	textDim   = { 0.541, 0.580, 0.651 },
-	warn      = { 0.900, 0.290, 0.290 },
+	windowBg   = { 0.055, 0.063, 0.078 },
+	sidebarBg  = { 0.071, 0.082, 0.102 },
+	contentBg  = { 0.086, 0.098, 0.122 },
+	rowBg      = { 0.110, 0.125, 0.153 },
+	rowHover   = { 0.145, 0.165, 0.200 },
+	border     = { 0.180, 0.204, 0.243 },
+	borderSoft = { 0.130, 0.148, 0.180 },
+	accent     = { 0.000, 0.439, 0.867 },
+	accentHi   = { 0.247, 0.663, 1.000 },
+	text       = { 0.902, 0.918, 0.941 },
+	textDim    = { 0.541, 0.580, 0.651 },
+	textMute   = { 0.353, 0.392, 0.455 },
+	on         = { 0.180, 0.800, 0.443 },
+	off        = { 0.320, 0.350, 0.400 },
+	warn       = { 0.900, 0.290, 0.290 },
 }
 local function color(key, alpha)
 	local c = C[key]
+	if not c then return 1, 1, 1, alpha or 1 end
 	return c[1], c[2], c[3], alpha or 1
 end
 
 local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-local function makeFont(name, size, key)
+local FONT_NARROW = "Fonts\\ARIALN.TTF"
+local function makeFont(name, size, key, path)
 	local f = CreateFont(name)
-	f:SetFont(FONT, size, "")
+	f:SetFont(path or FONT, size, "")
 	f:SetShadowOffset(1, -1)
 	f:SetShadowColor(0, 0, 0, 0.8)
 	f:SetTextColor(color(key))
@@ -73,6 +87,8 @@ local FONTS = {
 	text   = makeFont("ShamanPowerDialogFontText", 12, "text"),
 	dim    = makeFont("ShamanPowerDialogFontDim", 11, "textDim"),
 	button = makeFont("ShamanPowerDialogFontButton", 12, "text"),
+	tiny   = makeFont("ShamanPowerDialogFontTiny", 10, "textMute", FONT_NARROW),   -- subtitles, captions
+	group  = makeFont("ShamanPowerDialogFontGroup", 11, "accentHi", FONT_NARROW),  -- group headers (UPPERCASE)
 }
 
 -- 1px (or thicker) border from four edge textures, like Core:MakeBorder.
@@ -90,9 +106,17 @@ local function makeBorder(frame, key, thickness)
 	edges[4]:SetPoint("TOPRIGHT"); edges[4]:SetPoint("BOTTOMRIGHT"); edges[4]:SetWidth(thickness)
 	frame.spEdges = edges
 end
-local function borderColor(frame, key)
-	for _, t in ipairs(frame.spEdges) do t:SetColorTexture(color(key)) end
+local function borderColor(frame, key, alpha)
+	for _, t in ipairs(frame.spEdges) do t:SetColorTexture(color(key, alpha)) end
 end
+
+-- The same palette, fonts and border for ShamanPower's other bars and panels
+-- (Unlock UI, keybind mode, the ready check list, the minimap menu), so none
+-- of them keeps a copy of its own.
+SP.SPDialogFonts = FONTS
+function SP:SPColor(key, alpha) return color(key, alpha) end
+function SP:SPMakeBorder(frame, key, thickness) makeBorder(frame, key, thickness) end
+function SP:SPSetBorderColor(frame, key, alpha) borderColor(frame, key, alpha) end
 
 -- The accent rule under a header: a gradient that brightens to the right.
 -- SetGradient took colour objects from 10.0 on and plain numbers before.
@@ -159,7 +183,9 @@ end
 -- ---------------------------------------------------------------------------
 -- The dialog
 -- ---------------------------------------------------------------------------
-local PAD, HEADER_MIN, BTN_H, BTN_GAP = 16, 40, 26, 8
+-- Core:CreateDialog's measures: header 46, padding 14, body 10 under the
+-- header's accent rule, a 52px footer with the buttons 12 up from the bottom
+local PAD, HEADER_H, BODY_TOP, FOOTER, BTN_H, BTN_GAP = 14, 46, 10, 52, 26, 8
 local MIN_W, LEVEL = 380, 200
 local dialogs = {}   -- [key] = frame, made the first time that key is shown
 local count = 0
@@ -277,6 +303,10 @@ local function build()
 	f:Hide()
 	tinsert(UISpecialFrames, f:GetName())   -- Escape in combat (the catcher above is hidden then)
 
+	-- Solid at any Background Opacity, on purpose: a popup never fades (the
+	-- settings window's What's New and previews add an opaque copy for the same
+	-- reason). A drag holds while it is up; it opens centred again next time,
+	-- as the settings window's dialogs do, so no position is saved.
 	local bg = f:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(f)
 	bg:SetColorTexture(color("windowBg"))
@@ -290,13 +320,23 @@ local function build()
 	f.rule:SetHeight(2)
 	accentRule(f.rule)
 
+	-- one line of title sits where CreateDialog puts it (6 above the header's
+	-- middle); a title or subtitle that wraps makes the header taller instead
 	f.title = f:CreateFontString(nil, "OVERLAY")
 	f.title:SetFontObject(FONTS.title)
-	f.title:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -12)
 	f.title:SetJustifyH("LEFT"); f.title:SetWordWrap(true)
+	f.title:SetText("X")
+	f.titleLineH = f.title:GetStringHeight()
+	f.title:SetPoint("TOPLEFT", f.headerBg, "TOPLEFT", PAD, -(HEADER_H / 2 - 6 - f.titleLineH / 2))
+	f.subtitle = f:CreateFontString(nil, "OVERLAY")
+	f.subtitle:SetFontObject(FONTS.tiny)
+	f.subtitle:SetJustifyH("LEFT"); f.subtitle:SetWordWrap(true)
+	f.subtitle:SetText("X")
+	f.subLineH = f.subtitle:GetStringHeight()
+	f.subtitle:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 1, -2)
 
 	local close = SP:CreateSPCloseButton(f, 22)
-	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -9, -9)
+	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -12)
 	close:SetScript("OnClick", function() finish(f, "escape") end)
 
 	f.text = f:CreateFontString(nil, "OVERLAY")
@@ -377,39 +417,50 @@ local function layout(f, spec)
 
 	f.title:SetWidth(inner - 30)   -- clear of the close X
 	f.title:SetText(spec.title or "")
-	local headerH = math.max(HEADER_MIN, math.ceil(f.title:GetStringHeight()) + 24)
+	local headerH = HEADER_H + math.max(0, math.ceil(f.title:GetStringHeight() - f.titleLineH))
+	if spec.subtitle and spec.subtitle ~= "" then
+		f.subtitle:SetWidth(inner - 31)
+		f.subtitle:SetText(strupper(spec.subtitle))
+		f.subtitle:Show()
+		headerH = headerH + math.max(0, math.ceil(f.subtitle:GetStringHeight() - f.subLineH))
+	else
+		f.subtitle:Hide()
+	end
 	f.headerBg:SetHeight(headerH)
 	f.rule:ClearAllPoints()
 	f.rule:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -(headerH + 2))
 	f.rule:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -(headerH + 2))
-	local y = headerH + 4 + 14
+	local y, gap = headerH + 4 + BODY_TOP, 0
 
 	if spec.text and spec.text ~= "" then
+		y = y + gap
 		f.text:SetWidth(inner)
 		f.text:SetText(spec.text)
 		f.text:ClearAllPoints()
 		f.text:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
 		f.text:Show()
-		y = y + math.ceil(f.text:GetStringHeight()) + 12
+		y, gap = y + math.ceil(f.text:GetStringHeight()), 12
 	else
 		f.text:Hide()
 	end
 	if f.spEditText then
+		y = y + gap
 		f.box:ClearAllPoints()
 		f.box:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
 		f.box:SetWidth(inner)
 		f.box:Show()
-		y = y + BTN_H + 12
+		y, gap = y + BTN_H, 12
 	else
 		f.box:Hide()
 	end
 	if spec.countdown and f.spDeadline then
+		y = y + gap
 		f.timer:SetWidth(inner)
 		countdownText(f)
 		f.timer:ClearAllPoints()
 		f.timer:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
 		f.timer:Show()
-		y = y + math.ceil(f.timer:GetStringHeight()) + 12
+		y = y + math.ceil(f.timer:GetStringHeight())
 	else
 		f.timer:Hide()
 	end
@@ -420,11 +471,11 @@ local function layout(f, spec)
 		if b:IsShown() then
 			b:ClearAllPoints()
 			if prev then b:SetPoint("RIGHT", prev, "LEFT", -BTN_GAP, 0)
-			else b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, 14) end
+			else b:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, 12) end
 			prev = b
 		end
 	end
-	f:SetHeight(y + 6 + BTN_H + 14)
+	f:SetHeight(y + PAD + FOOTER)
 end
 
 function SP:ShowSPDialog(spec)

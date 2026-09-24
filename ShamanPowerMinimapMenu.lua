@@ -8,19 +8,21 @@
 local SP = ShamanPower
 if not SP then return end
 
-local ROW_H, PAD, WIDTH = 20, 8, 220
+local ROW_H, PAD, WIDTH = 22, 8, 220
 local menu, catcher
 local rows = {}
 
 local function isShaman() return select(2, UnitClass("player")) == "SHAMAN" end
 
 local function build()
-	menu = CreateFrame("Frame", "ShamanPowerMinimapMenu", UIParent, "BackdropTemplate")
+	-- the settings window's popup list: sidebarBg, 1px accent border
+	menu = CreateFrame("Frame", "ShamanPowerMinimapMenu", UIParent)
 	menu:SetFrameStrata("DIALOG")
 	menu:SetClampedToScreen(true)
-	menu:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-	menu:SetBackdropColor(0.07, 0.08, 0.10, 0.97)
-	menu:SetBackdropBorderColor(0.0, 0.44, 0.87, 1)
+	local bg = menu:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(menu)
+	bg:SetColorTexture(SP:SPColor("sidebarBg", 0.97))
+	SP:SPMakeBorder(menu, "accent")
 	menu:Hide()
 	tinsert(UISpecialFrames, "ShamanPowerMinimapMenu")   -- Escape closes it
 	-- a click anywhere else closes it
@@ -40,10 +42,15 @@ local function row(i)
 	if r then return r end
 	r = CreateFrame("Button", nil, menu)
 	r:SetHeight(ROW_H)
-	r.bg = r:CreateTexture(nil, "BACKGROUND"); r.bg:SetAllPoints(r); r.bg:SetColorTexture(0, 0.44, 0.87, 0.35); r.bg:Hide()
-	r.check = r:CreateTexture(nil, "ARTWORK"); r.check:SetSize(14, 14); r.check:SetPoint("LEFT", r, "LEFT", 4, 0)
-	r.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-	r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	r.bg = r:CreateTexture(nil, "BACKGROUND"); r.bg:SetAllPoints(r); r.bg:SetColorTexture(SP:SPColor("rowHover")); r.bg:Hide()
+	-- the check: the settings window's checkbox when on (a box with an accentHi fill)
+	r.check = CreateFrame("Frame", nil, r); r.check:SetSize(14, 14); r.check:SetPoint("LEFT", r, "LEFT", 4, 0)
+	local box = r.check:CreateTexture(nil, "BACKGROUND"); box:SetAllPoints(r.check); box:SetColorTexture(SP:SPColor("windowBg"))
+	SP:SPMakeBorder(r.check, "accent")
+	local tick = r.check:CreateTexture(nil, "ARTWORK"); tick:SetPoint("TOPLEFT", 3, -3); tick:SetPoint("BOTTOMRIGHT", -3, 3)
+	tick:SetColorTexture(SP:SPColor("accentHi"))
+	r.text = r:CreateFontString(nil, "OVERLAY")
+	r.text:SetFontObject(SP.SPDialogFonts.text)
 	r.text:SetPoint("LEFT", r, "LEFT", 22, 0); r.text:SetPoint("RIGHT", r, "RIGHT", -6, 0)
 	r.text:SetJustifyH("LEFT")
 	r:SetScript("OnEnter", function(self) if self.fn then self.bg:Show() end end)
@@ -68,13 +75,17 @@ local function fill(items)
 		r:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -PAD, y)
 		r.fn = (not it.header and not it.disabled) and it.fn or nil
 		r.check:SetShown(it.checked and true or false)
-		r.text:SetText(it.text)
 		if it.header then
-			r.text:SetTextColor(1, 0.82, 0)
+			-- the settings sidebar's group headers
+			r.text:SetFontObject(SP.SPDialogFonts.group)
+			r.text:SetText(strupper(it.text))
+			r.text:SetTextColor(SP:SPColor("accentHi"))
 			r.text:SetPoint("LEFT", r, "LEFT", 4, 0)
 		else
+			r.text:SetFontObject(SP.SPDialogFonts.text)
+			r.text:SetText(it.text)
+			r.text:SetTextColor(SP:SPColor(it.disabled and "textMute" or "text"))
 			r.text:SetPoint("LEFT", r, "LEFT", 22, 0)
-			if it.disabled then r.text:SetTextColor(0.5, 0.5, 0.5) else r.text:SetTextColor(0.92, 0.93, 0.95) end
 		end
 		r:Show()
 		local w = (r.text.GetUnboundedStringWidth and r.text:GetUnboundedStringWidth()) or r.text:GetStringWidth()
