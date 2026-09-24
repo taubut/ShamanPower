@@ -1417,6 +1417,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		print("|cff0070ddShamanPower|r commands:")
 		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode   |   /sp share - your setup code")
 		if ShamanPower.RunReadyCheckSweep then print("  /sp check - what you are missing (shield, imbue, totem items...)") end
+		if ShamanPower.SetResistPractice then print("  /sp resisttest - practise raid resistance requests alone (pretend shamans, nothing sent)") end
+		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then print("  /sp restrict - test switches that make the game act as in a boss fight, M+, PvP, an instance, combat or chat lockdown") end
 	end
 end
 
