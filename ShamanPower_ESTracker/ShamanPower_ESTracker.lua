@@ -490,28 +490,66 @@ end
 
 -- Scan for Earth Shields in the raid/party
 -- Optimized: uses direct buff lookup and caches unit list
-function SP:ScanEarthShields()
-	-- Restricted client: aura reads return nothing while secret, which would read
-	-- as every shield having fallen off. Keep the last readable picture instead;
-	-- SPCompat re-runs the scan once restrictions clear.
+-- One unit's Earth Shield, or nil. Classic TBC UnitBuff returns:
+-- name, icon, count, debuffType, duration, expirationTime, caster
+local function scanUnitES(unit)
+	if not UnitExists(unit) then return nil end
+	local name, icon, count, expirationTime, caster
+	for i = 1, 40 do
+		local buffName, buffIcon, buffCount, _, _, buffExpiration, buffCaster = UnitBuff(unit, i)
+		if not buffName then break end
+		if buffName == "Earth Shield" then
+			name, icon, count, expirationTime, caster = buffName, buffIcon, buffCount, buffExpiration, buffCaster
+			break
+		end
+	end
+	if not name then return nil end
+	local casterName = "Unknown"
+	local casterClass = nil
+	-- Get caster info - need to check if caster unit is valid
+	if caster and UnitExists(caster) then
+		casterName = UnitName(caster) or "Unknown"
+		_, casterClass = UnitClass(caster)
+	end
+	local targetGUID = UnitGUID(unit)
+	return {
+		targetGUID = targetGUID,
+		unit = unit,
+		targetName = UnitName(unit),
+		casterName = casterName,
+		casterClass = casterClass,
+		charges = count or 0,
+		expirationTime = expirationTime,
+		icon = icon
+	}
+end
+
+-- Restricted client: aura reads return nothing while secret, which would read
+-- as every shield having fallen off. Keep the last readable picture instead;
+-- SPCompat re-runs the scan once restrictions clear.
+local function scanBlocked(self)
 	if SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then
 		self:ESTrackerSetRestricted(true)
-		return
+		return true
 	end
 	-- Setup-wizard preview owns the data while active; don't clobber it
-	if self.esTrackerDemoActive then return end
+	return self.esTrackerDemoActive and true or false
+end
+
+function SP:ScanEarthShields()
+	if scanBlocked(self) then return end
 
 	self.earthShields = {}
 
-	-- Build unit list (cached on group changes)
+	-- Build unit list (cached on group changes; the table is reused)
 	local units
 	if IsInRaid() then
-		-- Cache raid unit list - only rebuild if needed
 		if not self.cachedRaidUnits or (GetTime() - (self.cachedRaidUnitsTime or 0)) > 5 then
-			self.cachedRaidUnits = {}
+			self.cachedRaidUnits = self.cachedRaidUnits or {}
+			wipe(self.cachedRaidUnits)
 			for i = 1, 40 do
 				if UnitExists("raid" .. i) then
-					table.insert(self.cachedRaidUnits, "raid" .. i)
+					self.cachedRaidUnits[#self.cachedRaidUnits + 1] = "raid" .. i
 				end
 			end
 			self.cachedRaidUnitsTime = GetTime()
@@ -525,46 +563,46 @@ function SP:ScanEarthShields()
 
 	-- Scan each unit for Earth Shield buff
 	for _, unit in ipairs(units) do
-		if UnitExists(unit) then
-			-- Scan for Earth Shield buff
-			-- Classic TBC UnitBuff returns: name, icon, count, debuffType, duration, expirationTime, caster
-			local name, icon, count, expirationTime, caster
-			for i = 1, 40 do
-				local buffName, buffIcon, buffCount, _, buffDuration, buffExpiration, buffCaster = UnitBuff(unit, i)
-				if not buffName then break end
-				if buffName == "Earth Shield" then
-					name, icon, count, expirationTime, caster = buffName, buffIcon, buffCount, buffExpiration, buffCaster
-					break
-				end
-			end
-
-			if name then
-				local targetGUID = UnitGUID(unit)
-				local targetName = UnitName(unit)
-				local casterName = "Unknown"
-				local casterClass = nil
-
-				-- Get caster info - need to check if caster unit is valid
-				if caster and UnitExists(caster) then
-					casterName = UnitName(caster) or "Unknown"
-					_, casterClass = UnitClass(caster)
-				end
-
-				self.earthShields[targetGUID] = {
-					targetGUID = targetGUID,
-					unit = unit,
-					targetName = targetName,
-					casterName = casterName,
-					casterClass = casterClass,
-					charges = count or 0,
-					expirationTime = expirationTime,
-					icon = icon
-				}
-			end
-		end
+		local entry = scanUnitES(unit)
+		if entry then self.earthShields[entry.targetGUID] = entry end
 	end
 
 	self:UpdateESTrackerFrame()
+end
+
+-- Group unit tokens the tracker reads: raid1-40 in a raid, player + party1-4
+-- otherwise. Nameplates, target, focus, pets and the other mode's tokens are
+-- the same players under another name (or not group members at all).
+local RAID_UNIT, PARTY_UNIT = {}, { player = true }
+for i = 1, 40 do RAID_UNIT["raid" .. i] = true end
+for i = 1, 4 do PARTY_UNIT["party" .. i] = true end
+
+-- UNIT_AURA for one group member: re-read just that unit and redraw at most
+-- 4 times a second (a raid fires hundreds of aura events a second; each used
+-- to rescan all 40 members). The 1 s full scan still runs as before.
+local redrawPending = false
+local function redrawSoon()
+	if redrawPending then return end
+	redrawPending = true
+	C_Timer.After(0.25, function()
+		redrawPending = false
+		if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:UpdateESTrackerFrame() end
+	end)
+end
+
+function SP:ScanEarthShieldUnit(unit)
+	if type(unit) ~= "string" or (issecretvalue and issecretvalue(unit)) then return end
+	if not (IsInRaid() and RAID_UNIT[unit] or (not IsInRaid() and PARTY_UNIT[unit])) then return end
+	if scanBlocked(self) then return end
+	if not self.earthShields then self:ScanEarthShields() return end
+	-- drop what this unit (or this player under its GUID) had, then re-read it
+	local guid = UnitGUID(unit)
+	for g, d in pairs(self.earthShields) do
+		if d.unit == unit or g == guid then self.earthShields[g] = nil end
+	end
+	local entry = scanUnitES(unit)
+	if entry then self.earthShields[entry.targetGUID] = entry end
+	redrawSoon()
 end
 
 -- Update Earth Shield tracker border visibility
@@ -672,9 +710,9 @@ function SP:SetupESTrackerUpdater()
 				SP:ClearESTracker()
 			end
 		end
-		-- UNIT_AURA events trigger immediate scan if tracker is visible
+		-- UNIT_AURA: re-read only that group member (see ScanEarthShieldUnit)
 		if event == "UNIT_AURA" and SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then
-			SP:ScanEarthShields()
+			SP:ScanEarthShieldUnit(unit)
 		end
 	end)
 
