@@ -416,6 +416,8 @@ end
 -- OnCooldownDone when the real cooldown ends and a pass runs on the next frame.
 -- That signal is the game's, not a value read, so "only when ready" also gives
 -- the icon its mouse back there (f.realDone) instead of when our estimate ends.
+-- If a client never fires it for this watch, nothing breaks: the icon lights
+-- on the next pass, and the mouse comes back when our estimate ends.
 local passQueued = false
 local function passNow()
 	passQueued = false
@@ -432,6 +434,7 @@ local function watchRealEnd(f, d)
 		local ok, made = pcall(CreateFrame, "Cooldown", nil, f)
 		w = ok and made or false
 		if w then
+			w.noCooldownCount = true   -- OmniCC and the like: not a cooldown to draw on
 			w:SetSize(1, 1); w:SetPoint("CENTER", f, "CENTER", 0, 0)
 			pcall(w.SetDrawSwipe, w, false); pcall(w.SetDrawEdge, w, false); pcall(w.SetDrawBling, w, false)
 			pcall(w.SetHideCountdownNumbers, w, true)
@@ -605,7 +608,9 @@ end
 -- The 0.2 s pass and the events that wake it run only while Ready Reminders is
 -- on (off is the Anniversary default). Everything that changes the setting (the
 -- settings, /spready on|off, the setup tour, an import) calls
--- UpdateReadyReminders, which switches them here.
+-- UpdateReadyReminders, which switches them here. The pass itself never
+-- switches the ticker off: it runs inside the core's walk over the active
+-- subsystems, and taking an entry out of that list mid-walk breaks the walk.
 local wakeFrame   -- made at login with the subsystem
 local WAKE_EVENTS = { "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
 local ticking = nil
@@ -621,9 +626,8 @@ local function setTicking(on)
 	end
 end
 
-function SP:UpdateReadyReminders()
+local function readyPass(self)
 	local sv = SV()
-	setTicking(sv.enabled and true or false)
 	if self.readyPositioning or self.readyDemoActive then return end
 	local hideAll = not sv.enabled or (sv.onlyInCombat and not InCombatLockdown())
 	if hideAll then
@@ -695,6 +699,19 @@ function SP:UpdateReadyReminders()
 		end
 	end
 	self.readyCooling = cooling
+end
+
+-- fromTick: the subsystem's own pass. A setting found off there (changed
+-- without a call to this) switches the ticker off on the next frame, outside
+-- the core's walk.
+local function tickerOffIfDisabled()
+	if not SV().enabled then setTicking(false) end
+end
+function SP:UpdateReadyReminders(fromTick)
+	local on = SV().enabled and true or false
+	if on or not fromTick then setTicking(on)
+	elseif ticking then C_Timer.After(0, tickerOffIfDisabled) end
+	readyPass(self)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1029,7 +1046,7 @@ ef:SetScript("OnEvent", function(_, event)
 				end
 				idleTicks = 0
 				SP.readyWake = nil
-				SP:UpdateReadyReminders()
+				SP:UpdateReadyReminders(true)
 			end)
 			local wake = CreateFrame("Frame")   -- its events follow the setting (setTicking)
 			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
