@@ -2216,6 +2216,21 @@ local function StartStress()
 			print(string.format("    %-28s calls=%-6d %.2f ms (%.4f ms/call)  alloc %.1f KB", row.label, r.calls, r.ms, r.calls > 0 and r.ms / r.calls or 0, r.kb))
 		end
 		print(string.format("  stress total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", ms, ms / (window * 10), kb, kb / window))
+		-- the same rows added up per module: a build that splits a module's listener
+		-- into several frames ("core (AceEvent)" -> "core (auras)", "core (casts)" ...)
+		-- moves work between rows, so compare these sums between builds, not rows
+		local byModule, modules = {}, {}
+		for _, row in ipairs(rows) do
+			local m = row.label:match("^(.-) %(") or row.label
+			local s = byModule[m]
+			if not s then s = { name = m, calls = 0, ms = 0, kb = 0 }; byModule[m] = s; modules[#modules + 1] = s end
+			s.calls, s.ms, s.kb = s.calls + row.r.calls, s.ms + row.r.ms, s.kb + row.r.kb
+		end
+		table.sort(modules, function(a, b) return a.ms > b.ms end)
+		print("  stress per module (its rows added up; compare these between builds):")
+		for _, s in ipairs(modules) do
+			print(string.format("    %-28s calls=%-6d %.2f ms  alloc %.1f KB", s.name, s.calls, s.ms, s.kb))
+		end
 		-- the combat log is not injected (it cannot be faked safely): say who listens to it
 		local clog = 0
 		for frame in pairs(stressFrames) do if frame:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED") then clog = clog + 1 end end
@@ -2246,6 +2261,12 @@ SlashCmdList["SPPERF"] = function(msg)
 	local stressMode = false
 	msg = strtrim(strlower(msg or ""))
 	if msg:find("^stress") then stressMode = true; msg = msg:gsub("^stress%s*", "") end
+	if stressMode and IsInGroup() then
+		-- refused before anything is wrapped: the fake roster changes run the real
+		-- roster code, which would send real ShamanPower messages to your group
+		print("|cff00ccffspperf|r stress runs solo only: leave your group first (the pretend raid would send real messages to it).")
+		return
+	end
 	local secs = tonumber(msg) or 10
 	if secs < 2 then secs = 2 elseif secs > 120 then secs = 120 end
 	SP._perfRunning = true
@@ -2305,12 +2326,6 @@ SlashCmdList["SPPERF"] = function(msg)
 	local lua0, t0 = collectgarbage("count"), GetTime()
 	print(string.format("|cff00ccffspperf|r measuring for %d s ... (combat=%s)", secs, tostring(InCombatLockdown())))
 	local stress
-	if stressMode and IsInGroup() then
-		-- the fake roster changes run the real roster code, which would send real
-		-- ShamanPower messages to your group
-		print("|cff00ccffspperf|r stress runs solo only: leave your group first (the pretend raid would send real messages to it).")
-		return
-	end
 	if stressMode then
 		if InCombatLockdown() then print("|cff00ccffspperf|r stress in combat: real events add to the numbers, so they will be noisier.") end
 		print("|cff00ccffspperf|r stress: pretending to be in a 40-player raid (auras, casts, addon messages, a roster change burst) ...")

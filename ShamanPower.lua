@@ -15191,6 +15191,7 @@ do
 		if ShamanPower.UpdateAuraCarrierFilter then ShamanPower:UpdateAuraCarrierFilter() end
 	end
 	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "core (roster settle)") end
 	f:RegisterEvent("GROUP_ROSTER_UPDATE")
 	f:SetScript("OnEvent", function()
 		if queued then return end
