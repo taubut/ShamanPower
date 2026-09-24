@@ -1088,6 +1088,10 @@ function ShamanPower:OnEnable()
 			self:RefreshPlayerBuffCache()
 		end)
 	end
+	-- Forever: what the chat lockdown refused goes out once it lifts
+	if SPCompat and SPCompat.OnChatUnlocked then
+		SPCompat.OnChatUnlocked(function() self:SendHeldMessages() end)
+	end
 	if isShaman then
 		self.ButtonsUpdate(self)
 		-- Keep the binding button, but do not leave a dead macro on clients without Earth Shield.
@@ -14802,9 +14806,57 @@ end
 -- are now only dropped within a short window, and one-shot commands pass
 -- `force` to bypass it entirely.
 local DEDUP_WINDOW = 2
+-- WoW: Forever's chat lockdown (instance fights) refuses every addon message. An
+-- assignment made meanwhile (a totem, twisting, an Earth Shield target, a clear)
+-- is held, in order, and sent when the lockdown lifts; so is a fresh SELF, which
+-- carries our own assignments and Earth Shield target. Status and requests are
+-- not held: they are sent again fresh anyway. Nothing is held on a client
+-- without the lockdown.
+local HOLD_IN_LOCKDOWN = { ASSIGN = true, PASSIGN = true, MASSIGN = true, TWIST = true, ESASSIGN = true, CLEAR = true, FREEASSIGN = true }
+local MAX_HELD = 20
+local heldMessages, sendRefused = nil, false
+-- What a held message sets (a player's element, twisting, Earth Shield target...):
+-- a newer message for the same thing replaces the held one, so the lockdown
+-- lifting sends each setting once, not every step taken meanwhile.
+local function heldKey(self, msg)
+	local k = strmatch(msg, "^(ASSIGN .+ %d+) %d+$") or strmatch(msg, "^(TWIST .+) [01]$")
+		or strmatch(msg, "^(PASSIGN .+)@") or strmatch(msg, "^(MASSIGN .+) %d+$")
+	if k then return k end
+	if strmatch(msg, "^ESASSIGN") then return "ESASSIGN " .. tostring((self:DecodeESAssign(msg, self.player))) end
+	return strmatch(msg, "^(%u+)")   -- CLEAR, FREEASSIGN
+end
+local function holdMessage(self, msg, type, target)
+	local key = heldKey(self, msg)
+	heldMessages = heldMessages or {}
+	for i = #heldMessages, 1, -1 do
+		local m = heldMessages[i]
+		if m.key == key and m[3] == target then tremove(heldMessages, i) end
+	end
+	if #heldMessages >= MAX_HELD then tremove(heldMessages, 1) end
+	heldMessages[#heldMessages + 1] = { msg, type, target, key = key }
+end
+function ShamanPower:SendHeldMessages()
+	local held = heldMessages
+	heldMessages = nil
+	if held then
+		for i = 1, #held do
+			local m = held[i]
+			self:SendMessage(m[1], m[2], m[3], true)
+		end
+	end
+	if sendRefused then
+		sendRefused = false
+		self:QueueSelfBroadcast()
+	end
+end
+
 function ShamanPower:SendMessage(msg, type, target, force)
 	if SPK and SPK() == true then
 		-- Do not claim delivery while the client's chat messaging lock is active.
+		if GetNumGroupMembers() > 0 then
+			sendRefused = true
+			if HOLD_IN_LOCKDOWN[strmatch(msg, "^(%u+)") or ""] then holdMessage(self, msg, type, target) end
+		end
 		return false
 	end
 	if GetNumGroupMembers() > 0 then

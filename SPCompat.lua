@@ -628,6 +628,16 @@ function SPK()
 	return nil
 end
 
+-- Called once the chat lockdown lifts (ADDON_RESTRICTION_STATE_CHANGED, Chat,
+-- Inactive; the forced cvar too), so what was refused in it can be sent. Never
+-- fires on a client without the lockdown.
+local chatUnlockCallbacks = {}
+function SPCompat.OnChatUnlocked(fn) chatUnlockCallbacks[#chatUnlockCallbacks + 1] = fn end
+local function chatUnlocked()
+	if SPK() == true then return end   -- locked again already
+	for _, fn in ipairs(chatUnlockCallbacks) do pcall(fn) end
+end
+
 -- Install the guards only where the secret regime is real. Every current
 -- Classic client exports issecretvalue/C_Secrets too (always false there), so
 -- presence proves nothing - test BEHAVIOR: UnitHealth("player") is secret on
@@ -832,6 +842,7 @@ if SPCompat.secretsRegime then
 	-- the totem/cooldown/aura guards observe restrictions too: remember it
 	local origHit = hit
 	hit = function(kind) wasRestricted = true; origHit(kind) end
+	local CHAT_RESTRICTION = (Enum and Enum.AddOnRestrictionType and Enum.AddOnRestrictionType.Chat) or 5
 	local regen = CreateFrame("Frame")
 	regen:RegisterEvent("PLAYER_REGEN_ENABLED")
 	pcall(regen.RegisterEvent, regen, "ADDON_RESTRICTION_STATE_CHANGED")   -- fires for the forced-cvar rehearsal too
@@ -842,12 +853,19 @@ if SPCompat.secretsRegime then
 		-- dispatch. So the payload, not a query, decides: a restriction starting is
 		-- remembered and nothing is cleared (asking would have said "all clear" at the
 		-- very start of a fight and re-read the shadow models from an API about to go
-		-- secret). Deactivation and PLAYER_REGEN_ENABLED go on to the check below.
-		if event == "ADDON_RESTRICTION_STATE_CHANGED" and state ~= nil and state ~= 0 then
-			wasRestricted = true
-			return
+		-- secret). A deactivation is not checked during its own dispatch either: the
+		-- query would answer "none active" even with another restriction still on (a
+		-- second forced cvar, the encounter while still in combat) and clear the secret
+		-- flags too early. Only the deferred checks below can tell.
+		if event == "ADDON_RESTRICTION_STATE_CHANGED" then
+			if state ~= nil and state ~= 0 then
+				wasRestricted = true
+				return
+			end
+			if rtype == CHAT_RESTRICTION then C_Timer.After(0.5, chatUnlocked) end
+		else
+			clearIfUnrestricted()
 		end
-		clearIfUnrestricted()
 		C_Timer.After(0.3, clearIfUnrestricted)
 		C_Timer.After(2.5, clearIfUnrestricted)
 	end)
