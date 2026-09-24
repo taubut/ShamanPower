@@ -13,11 +13,21 @@
 - **Auto-Assign picks by who is in the group.** Stoneskin for caster-only groups, Strength of Earth with melee; Mana Spring with mana users, else Healing Stream; the Air totem by who benefits. This changes what Anniversary players get from Auto-Assign too.
 - **Live preview pane** in the settings window (arrow tab on the right): every module page shows its frames with your current settings, updating as you change them. The Loadouts page previews the bar and, on Forever, the three set pages.
 - **Every window from its page.** Totem Range picker, Totem Coverage, Raid Cooldowns assignments, the fear-caster mob list, Totem Assignments: one button on the module's page, and every option those windows hold is on the page too. Test buttons hide the settings window while they run and bring it back after.
+- **Ready Reminders** (new module). Placeable icons that light up when a spell comes off cooldown: shocks, Stormstrike, Lava Burst, Riptide, Rage of the Farseer, Nature's Swiftness, Mana Tide, Grounding, Earthbind and more. Show only when ready, always, or always dimmed with a countdown. On by default on Forever; **off by default on Anniversary** (Settings > Ready Reminders, or the setup tour, turns it on). On Forever each character keeps its own list, and the setup tour's spec pick fills it from Forever's talent tree.
+- **Unlock UI (move everything).** One button (General > Main, or `/sp unlock`) shows a labelled box on every frame ShamanPower draws; drag them, reset any one, and snap to an optional alignment grid.
+- **ShamanPower Discord** on General: help, bug reports, feature voting and early builds. Copy Link button.
 - **Loadouts:** the bar has a Move button (Loadouts tab) and a box in Unlock All; a loadout's chosen icon shows on its button; the icon picker is rebuilt on the settings look with a search box.
 
 ### Changes
-- Ready Reminders: Show = only when ready / always / always dimmed; the sweep and countdown ignore the dim.
-- Reactive Totems: the old configuration window is gone; everything is on its settings page. Optional debuff icon.
+- Compact style has a new look and defaults; a Compact profile already in use keeps its old look.
+- Element colour palettes, flyout sizes separate from the bar, and a reset for each settings section.
+- Settings window: sizes and opacity show as percentages, long labels wrap instead of being cut off, inputs fit their values, and search highlights the right tab.
+- The setup tour has spec cards listing what each pick sets up, a Ready Reminders step and a Position step that moves every frame. Picking a spec only sets starting defaults on a brand-new install.
+- Non-shamans get a short tour and a settings list with only what runs for them (Totem Range, Raid Cooldowns, Totem Plates, the Earth Shield tracker, and the Windfury Companion on Anniversary). Tremor Reminder, Shield Charges, Ready Reminders, Expiring Alerts and Reactive Totems no longer load on other classes.
+- What's New opens by itself once per release on a shaman; any character can open it from the settings header.
+- Reactive Totems: the old configuration window is gone; everything is on its settings page. Optional debuff icon (Forever).
+- A saved sound that no longer exists plays Raid Warning instead of nothing.
+- The flyout keybindings are for Forever's click-to-open flyouts; on Anniversary they are labelled as such and do nothing.
 - Totem cooldown numbers use the game's own countdown on Forever; ShamanPower turns the game option on for you.
 - "Totemic Call" reads "Totemic Recall" where the game names it so.
 - The Earth Shield column, tracker and options do not appear on a client without Earth Shield.
@@ -26,7 +36,8 @@
 ### Fixes
 - Party buff dots drawn by the game were never built on Forever; they are now.
 - The loadout bar could not be moved from the settings, and the game's layout cache kept putting it back where an old drag left it.
-- Idle CPU and garbage: the weapon-imbue button read the enchant lists five times a second, the imbue branch created two closures per tick, and the resting-imbue icon looked spells up by name every tick on Forever. All three are cached.
+- Idle CPU and garbage: loops now sleep until a totem, cooldown or aura actually changes, and party and shield buff checks are cached until the buffs change (both clients). On Forever the weapon-imbue and spell lookups, which build a new table per call there, are cached too.
+- Newly trained totems appear in the flyouts without a reload; the cooldown bar keeps a custom order when a spell is unavailable.
 - Tremor Reminder "Hide When Tremor Active" never hid in combat on Forever.
 - Expiring Alerts: totems that died in combat were announced minutes later with stale timing on Forever.
 - Wrath of Air, Totem of Wrath and Fire Nova Totem could be assigned, tracked or listed on a client that lacks them.
