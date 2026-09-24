@@ -170,13 +170,14 @@ local function AddReset(moverKey, resetFn)
 	local mover = SP.barMovers and SP.barMovers[moverKey]
 	if not mover then return end
 	if not mover.spReset then
-		local b = CreateFrame("Button", nil, mover)
-		b:SetSize(38, 14)
+		-- a secondary button, chip-sized; solid underneath, as it sits over the world
+		local b = SP:CreateSPButton(mover, "Reset", 0, false)
+		b:SetSize(math.ceil(b.text:GetStringWidth()) + 16, 18)
 		b:SetPoint("BOTTOMRIGHT", mover, "TOPRIGHT", 0, 1)
-		local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.05, 0.12, 0.22, 0.95)
-		local t = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); t:SetPoint("CENTER"); t:SetText("Reset"); t:SetTextColor(0.55, 0.8, 1)
-		b:SetScript("OnEnter", function(self) bg:SetColorTexture(0.1, 0.3, 0.55, 1); GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:SetText("Put this one back where it starts"); GameTooltip:Show() end)
-		b:SetScript("OnLeave", function() bg:SetColorTexture(0.05, 0.12, 0.22, 0.95); GameTooltip:Hide() end)
+		local base = b:CreateTexture(nil, "BACKGROUND", nil, -1); base:SetAllPoints(); base:SetColorTexture(SP:SPColor("windowBg", 0.95))
+		-- hooked: the button's own OnEnter/OnLeave draw its hover
+		b:HookScript("OnEnter", function(self) GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:SetText("Put this one back where it starts", 1, 1, 1); GameTooltip:Show() end)
+		b:HookScript("OnLeave", function() GameTooltip:Hide() end)
 		b:SetScript("OnClick", function(self)
 			if InCombatLockdown() or not self.resetFn then return end
 			pcall(self.resetFn)
@@ -296,17 +297,10 @@ local function EnsureDoneBar()
 	f:SetFrameStrata("FULLSCREEN_DIALOG")
 	f:SetFrameLevel(50)
 	f:EnableMouse(true)
-	local bg = f:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.04, 0.06, 0.10, 0.94)
-	for _, edge in ipairs({ { "TOPLEFT", "TOPRIGHT", nil, 2 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 2 }, { "TOPLEFT", "BOTTOMLEFT", 2, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 2, nil } }) do
-		local t = f:CreateTexture(nil, "BORDER"); t:SetColorTexture(0.25, 0.66, 1, 1)
-		t:SetPoint(edge[1]); t:SetPoint(edge[2])
-		if edge[3] then t:SetWidth(edge[3]) else t:SetHeight(edge[4]) end
-	end
-	local text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	text:SetPoint("LEFT", f, "LEFT", 14, 0)
-	text:SetText("Drag any blue box. Each has its own Reset.")
+	local bg = f:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(SP:SPColor("windowBg", 0.94))
+	SP:SPMakeBorder(f, "accent", 2)
 	local done = SP:CreateSPButton(f, "Done", 84, true)
-	done:SetPoint("RIGHT", f, "RIGHT", -10, 0)
+	done:SetPoint("RIGHT", f, "RIGHT", -14, 0)
 	done:SetScript("OnClick", function() SP:SetMasterUnlock(false) end)
 	local all = SP:CreateSPButton(f, "Reset All Positions", 150, false)
 	all:SetPoint("RIGHT", done, "LEFT", -8, 0)
@@ -326,6 +320,22 @@ local function EnsureDoneBar()
 	end)
 	grid:HookScript("OnLeave", function() GameTooltip:Hide() end)
 	f.gridBtn = grid
+	-- the room left of the buttons: a longer line wraps and the bar grows
+	local text = f:CreateFontString(nil, "OVERLAY")
+	text:SetFontObject(SP.SPDialogFonts.text)
+	text:SetPoint("LEFT", f, "LEFT", 14, 0)
+	text:SetWidth(f:GetWidth() - 14 - 14 - (done:GetWidth() + all:GetWidth() + grid:GetWidth() + 16) - 12)
+	text:SetJustifyH("LEFT"); text:SetWordWrap(true)
+	text:SetText("Drag any blue box. Each has its own Reset.")
+	f:SetHeight(math.max(46, math.ceil(text:GetStringHeight()) + 20))
+	-- Escape closes it and ends the mode as Done does: a frame later, or the
+	-- settings window Done brings back would be shut by the same Escape
+	tinsert(UISpecialFrames, "ShamanPowerUnlockBar")
+	f:SetScript("OnHide", function(self)
+		if ACTIVE and not self:IsShown() then   -- not a hidden UI (Alt+Z)
+			C_Timer.After(0, function() if ACTIVE then SP:SetMasterUnlock(false) end end)
+		end
+	end)
 	f:Hide()
 	doneBar = f
 	return f
@@ -353,7 +363,7 @@ function SP:SetMasterUnlock(on, only)
 	on = on and true or false
 	if on == ACTIVE then return end
 	if on and InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r the UI cannot be unlocked in combat.")
+		print("|cff0070ddShamanPower|r: |cffe64a4athe UI cannot be unlocked in combat.|r")
 		return
 	end
 
@@ -429,7 +439,7 @@ function SP:SetMasterUnlock(on, only)
 			local demo = DemoMethod(def)
 			if demo then
 				local ok, err = pcall(demo, self, true)
-				if ok then demos[m.key] = true else print("|cffff4040ShamanPower|r: could not preview " .. m.label .. ": " .. tostring(err)) end
+				if ok then demos[m.key] = true else print("|cff0070ddShamanPower|r: |cffe64a4acould not preview " .. m.label .. ": " .. tostring(err) .. "|r") end
 			end
 			local frames
 			if m.frames then
@@ -523,21 +533,53 @@ local function FinishSettingsTestClick()
 	SP:SettingsTestDone()
 end
 
+-- Escape closes the bar, which ends the session as Done does: a frame later,
+-- or the settings window Done brings back would be shut by the same Escape.
+-- In a fight the frames on show may be protected, so the ending waits for the
+-- fight to end, and the window stays shut, as Done in combat leaves it.
+local escapeWait
+local function FinishAfterEscape(generation)
+	if generation ~= settingsTestGeneration then return end   -- Done, or a new session, meanwhile
+	if InCombatLockdown() then
+		SP.settingsTestReturn = nil
+		escapeWait = escapeWait or CreateFrame("Frame")
+		escapeWait:SetScript("OnEvent", function(self)
+			self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+			FinishAfterEscape(generation)
+		end)
+		escapeWait:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	SP:SettingsTestDone()
+end
+
 local function ShowSettingsTestDone()
 	if not settingsTestDoneBar then
-		local f = CreateFrame("Frame", nil, UIParent)
+		local f = CreateFrame("Frame", "ShamanPowerSettingsTestBar", UIParent)
 		f:SetSize(380, 42)
 		f:SetPoint("TOP", UIParent, "TOP", 0, -70)
 		f:SetFrameStrata("FULLSCREEN_DIALOG")
 		f:EnableMouse(true)
 		local bg = f:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints(); bg:SetColorTexture(0.04, 0.06, 0.10, 0.94)
-		local text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-		text:SetPoint("LEFT", 12, 0)
-		text:SetText("Finish previewing or positioning:")
+		bg:SetAllPoints(); bg:SetColorTexture(SP:SPColor("windowBg", 0.94))
+		SP:SPMakeBorder(f, "accent", 2)
 		local done = SP:CreateSPButton(f, "Done", 84, true)
-		done:SetPoint("RIGHT", -10, 0)
+		done:SetPoint("RIGHT", -14, 0)
 		done:SetScript("OnClick", FinishSettingsTestClick)
+		local text = f:CreateFontString(nil, "OVERLAY")
+		text:SetFontObject(SP.SPDialogFonts.text)
+		text:SetPoint("LEFT", 14, 0)
+		text:SetWidth(f:GetWidth() - 14 - 14 - done:GetWidth() - 12)
+		text:SetJustifyH("LEFT"); text:SetWordWrap(true)
+		text:SetText("Finish previewing or positioning:")
+		f:SetHeight(math.max(42, math.ceil(text:GetStringHeight()) + 20))
+		tinsert(UISpecialFrames, "ShamanPowerSettingsTestBar")
+		f:SetScript("OnHide", function(self)
+			-- our own Hide (Done, a new session) has already ended the session
+			if self:IsShown() or not (settingsTestCleanup or SP.settingsTestReturn) then return end
+			local generation = settingsTestGeneration
+			C_Timer.After(0, function() FinishAfterEscape(generation) end)
+		end)
 		settingsTestDoneBar = f
 	end
 	settingsTestDoneBar:Show()
