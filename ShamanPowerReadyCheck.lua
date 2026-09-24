@@ -203,7 +203,8 @@ end
 -- ---------------------------------------------------------------------------
 -- The panel
 -- ---------------------------------------------------------------------------
-local PANEL_W, ROW_ICON, PAD = 260, 20, 10
+-- 280: "Ready check: you are missing" fits the title font on one line beside the X
+local PANEL_W, ROW_ICON, PAD = 280, 20, 10
 local panel, rows = nil, {}
 local hideTimer
 local sweepTitle   -- the title of the real list while one is up (a sample can cover it)
@@ -221,10 +222,12 @@ local function applyPos(f)
 	else f:SetPoint("CENTER", UIParent, "CENTER", 0, 180) end
 end
 
+-- the opacity setting fades the background only: the border, text and icons
+-- stay solid, so the list reads over the world at any setting
 local function applyLook(f)
 	local c = cfg()
 	f:SetScale(c.panelScale or 1)
-	f:SetAlpha(c.panelOpacity or 1)
+	f.bg:SetColorTexture(SP:SPColor("windowBg", 0.9 * (c.panelOpacity or 1)))
 end
 
 function SP:ReadyCheckFrame()
@@ -241,10 +244,9 @@ function SP:ReadyCheckFrame()
 	f:SetScript("OnDragStart", function(self) self:StartMoving() end)
 	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); savePos(self) end)
 	-- ShamanPower's own panel look (ShamanPowerDialog.lua): dark background,
-	-- 2px accent border, the dialog title font
-	local bg = f:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(f)
-	bg:SetColorTexture(SP:SPColor("windowBg", 0.9))
+	-- 2px accent border, the dialog fonts for the title and the rows
+	f.bg = f:CreateTexture(nil, "BACKGROUND")
+	f.bg:SetAllPoints(f)
 	SP:SPMakeBorder(f, "accent", 2)
 	local title = f:CreateFontString(nil, "OVERLAY")
 	title:SetFontObject(SP.SPDialogFonts.title)
@@ -278,10 +280,9 @@ local function row(i)
 	r.icon:SetSize(ROW_ICON, ROW_ICON)
 	r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	r.text = panel:CreateFontString(nil, "OVERLAY")
-	SP:SetSPFont(r.text, "alerts", 12, "")
+	r.text:SetFontObject(SP.SPDialogFonts.text)
 	r.text:SetJustifyH("LEFT"); r.text:SetWordWrap(true)
 	r.text:SetWidth(PANEL_W - 2 * PAD - ROW_ICON - 8)
-	r.text:SetTextColor(1, 1, 1)
 	rows[i] = r
 	return r
 end
@@ -553,7 +554,8 @@ if fluffy and fluffy.args then
 			panelScale = { order = 32, type = "range", name = "List Size", min = 0.5, max = 2, step = 0.05, isPercent = true, width = 1.5,
 				hidden = function() return not cfg().showPanel end, disabled = off, get = get("panelScale"),
 				set = set("panelScale", function() SP:UpdateReadyCheckLook() end) },
-			panelOpacity = { order = 33, type = "range", name = "List Opacity", min = 0.2, max = 1, step = 0.05, isPercent = true, width = 1.5,
+			panelOpacity = { order = 33, type = "range", name = "List Background Opacity", min = 0.2, max = 1, step = 0.05, isPercent = true, width = 1.5,
+				desc = "How see-through the list's background is. Its border, text and icons always stay solid.",
 				hidden = function() return not cfg().showPanel end, disabled = off, get = get("panelOpacity"),
 				set = set("panelOpacity", function() SP:UpdateReadyCheckLook() end) },
 			showChat = { order = 34, type = "toggle", name = "Line in My Chat Window", width = 1.5, disabled = off, get = get("showChat"), set = set("showChat"),
