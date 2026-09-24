@@ -223,7 +223,9 @@ function SP:ReadyCheckFrame()
 	if panel then return panel end
 	local f = CreateFrame("Frame", "ShamanPowerReadyCheckFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
 	f:SetSize(PANEL_W, 60)
-	f:SetFrameStrata("MEDIUM")
+	-- DIALOG, like the game's own ready check: "Check Now" in the settings window
+	-- (HIGH) shows the list on top of it
+	f:SetFrameStrata("DIALOG")
 	f:SetClampedToScreen(true)
 	f:SetMovable(true)
 	f:EnableMouse(true)
@@ -241,9 +243,8 @@ function SP:ReadyCheckFrame()
 	title:SetWidth(PANEL_W - 2 * PAD - 18); title:SetJustifyH("LEFT"); title:SetWordWrap(true)
 	title:SetTextColor(1, 0.82, 0)
 	f.title = title
-	local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-	close:SetSize(20, 20)
-	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 2, 2)
+	local close = SP:CreateSPCloseButton(f, 18)
+	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
 	close:SetScript("OnClick", function() SP:HideReadyCheckPanel() end)
 	f.close = close
 	f:Hide()
