@@ -3901,8 +3901,12 @@ local function quickSetup(role)
 	SP.opt.setupPath = "quick"
 	welcomeDlg:Hide()
 	local name = preset and preset.name or "The quick setup"
-	print("|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
-		.. ". Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r. Share your setup with |cffffffff/sp share|r.")
+	local line = "|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
+		.. ". Your totem bar and cooldown bar start low in the middle of the screen: move them with |cffffffff/sp unlock|r."
+		.. " Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r. Share your setup with |cffffffff/sp share|r."
+	print(line)
+	-- Anniversary reloads at once and the reload clears the chat: said again after it
+	SP.opt.chatAfterReload = line
 	Core:RequestReload(name .. " is applied.")
 end
 
@@ -3997,6 +4001,12 @@ f:SetScript("OnEvent", function(self)
 	if SP.opt and SP.opt.openSettingsAfterSetup and SP.opt.setupDone then
 		SP.opt.openSettingsAfterSetup = nil
 		C_Timer.After(2, function() if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open() end end)
+	end
+	-- a chat line printed just before a reload (quickSetup), again now that it is readable
+	local line = SP.opt and SP.opt.chatAfterReload
+	if line then
+		SP.opt.chatAfterReload = nil
+		C_Timer.After(2, function() print(line) end)
 	end
 end)
 

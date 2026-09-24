@@ -25,10 +25,30 @@ function SP:ApplyPreset(key, mode, profileName)
 			if self.BackupCurrentSetup and self:BackupCurrentSetup("Before " .. p.name) then
 				print("|cff0070ddShamanPower|r: your previous setup was backed up - restore it any time from Settings > Profiles > Built-in Layouts.")
 			end
-			return self:ImportShare(p.str, mode or "newProfile", profileName or p.name)
+			local ok, res = self:ImportShare(p.str, mode or "newProfile", profileName or p.name)
+			if ok then self:UseDefaultBarSpots() end
+			return ok, res
 		end
 	end
 	return nil, "unknown preset"
+end
+
+-- A preset carries its author's bar spots, which land somewhere random on
+-- anyone else's screen: the totem bar and the cooldown bar go on their default
+-- spots instead (the visible totem bar low and centred, the cooldown bar
+-- straight under it), where Unlock UI or ALT-drag moves them from. At once, so
+-- they are there before the reload that follows too.
+function SP:UseDefaultBarSpots()
+	self:EnsureProfileTable("display")
+	local d = self.opt.display
+	d.position, d.compactPosition, d.offsetX, d.offsetY = nil, nil, nil, nil
+	d.defaultSpotChecked = true   -- no spot to keep from an older version (RestoreTotemBarPosition)
+	self.opt.cooldownBarPosition = nil
+	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
+	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
+	-- the cooldown bar floats under the totem bar, never attached to it (cleared at login too)
+	self.opt.cooldownBarLocked = nil
+	if self.ResetBarPositions then self:ResetBarPositions(false) end   -- out of combat: moves them now
 end
 
 -- Companion WeakAuras that other players install so ShamanPower can see
