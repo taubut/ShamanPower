@@ -5,6 +5,8 @@
 
 local SP = ShamanPower
 if not SP then return end
+-- Only load for Shamans (the core keeps no-op stubs for everything this module provides)
+if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
 -- Mark module as loaded
 SP.ShieldChargesLoaded = true

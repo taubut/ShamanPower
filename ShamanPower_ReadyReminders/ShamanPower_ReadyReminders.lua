@@ -10,6 +10,8 @@
 
 local SP = ShamanPower
 if not SP then return end
+-- Only load for Shamans (the core keeps no-op stubs for everything this module provides)
+if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 SP.ReadyRemindersLoaded = true   -- the setup tour checks this before borrowing our frames
 
 local GetSpellCooldownC = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
