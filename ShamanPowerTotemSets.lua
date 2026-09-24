@@ -97,6 +97,41 @@ function SP:ReadTotemSet(page)
 	return t
 end
 
+-- What a summon places, for the shadow totem model: one Call of the Elements /
+-- Ancestors / Spirits cast drops several totems, and in combat the game hides
+-- which ones. The page is read live when its action slots are readable, else the
+-- copy taken the last time they were (combat start, a bar change, login).
+local setCache = {}
+local function readPageSafe(page)
+	local okSlot, first = pcall(setActionSlot, page, 1)
+	if not okSlot or not first then return nil end
+	local t = {}
+	for element = 1, 4 do
+		local ok, action = pcall(setActionSlot, page, element)
+		if ok and action then
+			local okInfo, kind, id = pcall(GetActionInfo, action)
+			if not okInfo or (issecretvalue and (issecretvalue(kind) or issecretvalue(id))) then return nil end
+			if kind == "spell" and type(id) == "number" and id > 0 then t[element] = id end
+		end
+	end
+	return t
+end
+function SP:CacheTotemSetPages()
+	if not haveAPI() then return end
+	for page = 1, #SUMMON do
+		local t = readPageSafe(page)
+		if t then setCache[page] = t end
+	end
+end
+-- { [element] = spellID } for a summon spell ID, or nil when spellID is not one.
+function SP:TotemSetForSummon(spellID)
+	if not haveAPI() or type(spellID) ~= "number" then return nil end
+	for page, id in ipairs(SUMMON) do
+		if id == spellID then return readPageSafe(page) or setCache[page] end
+	end
+	return nil
+end
+
 -- Totems the client allows in a slot, as a set of spell IDs. nil when the list
 -- is empty, which on this client means the player knows no totem for that slot
 -- yet (a level-11 shaman and Air): nothing may be written there.
@@ -550,6 +585,7 @@ local ef = CreateFrame("Frame")
 ef:RegisterEvent("PLAYER_ENTERING_WORLD")
 ef:RegisterEvent("PLAYER_REGEN_ENABLED")
 ef:RegisterEvent("SPELLS_CHANGED")
+ef:RegisterEvent("PLAYER_REGEN_DISABLED")   -- fires before lockdown: last readable look at the set pages
 pcall(ef.RegisterEvent, ef, "UPDATE_MULTI_CAST_ACTIONBAR")
 pcall(ef.RegisterEvent, ef, "ACTIONBAR_SLOT_CHANGED")   -- a pick on Blizzard's bar lands in an action slot
 
@@ -560,6 +596,7 @@ local changedPages = {}
 local function FlushBarChanges()
 	barChangeQueued = false
 	if not SP.opt or not SP:HasTotemBar() then return end
+	SP:CacheTotemSetPages()   -- the shadow model's copy of what each summon places
 	for page = 1, 3 do
 		if changedPages[page] then
 			changedPages[page] = nil
@@ -616,9 +653,11 @@ end
 
 ef:SetScript("OnEvent", function(_, event, slot)
 	if not SP:HasTotemBar() then return end
+	if event == "PLAYER_REGEN_DISABLED" then SP:CacheTotemSetPages() return end
 	if event == "PLAYER_ENTERING_WORLD" then
 		C_Timer.After(3, function()
 			if not SP.opt then return end
+			SP:CacheTotemSetPages()
 			if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
 			QueueBoundRefresh()
 		end)
