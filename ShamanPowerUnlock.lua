@@ -229,11 +229,17 @@ local function ResetCooldownBar() SP:ResetBarPositions(false) end
 -- ---------------------------------------------------------------------------
 -- The bar at the top of the screen
 -- ---------------------------------------------------------------------------
-StaticPopupDialogs["SHAMANPOWER_UNLOCK_RESET_ALL"] = {
-	text = "Put every ShamanPower element back where it starts?\n\nThis resets positions only, not settings.",
-	button1 = YES, button2 = NO, whileDead = 1, hideOnEscape = 1, timeout = 0, preferredIndex = 3,
-	OnAccept = function() SP:ResetAllUnlockPositions() end,
-}
+local function ConfirmResetAll()
+	SP:ShowSPDialog({
+		key = "unlock_reset_all",
+		title = "Reset all positions?",
+		text = "Put every ShamanPower element back where it starts?\n\nThis resets positions only, not settings.",
+		buttons = {
+			{ text = "Reset All", onClick = function() SP:ResetAllUnlockPositions() end },
+			{ text = "Cancel" },
+		},
+	})
+end
 
 -- ---------------------------------------------------------------------------
 -- Alignment grid: lines every GRID_STEP pixels from the screen centre (the two
@@ -279,7 +285,7 @@ end
 local function ApplyGrid()
 	local on = ACTIVE and SP.opt and SP.opt.unlockGrid and true or false
 	if on then EnsureGrid():Show() elseif gridFrame then gridFrame:Hide() end
-	if doneBar and doneBar.gridBtn then doneBar.gridBtn:SetText(on and "Hide Grid" or "Show Grid") end
+	if doneBar and doneBar.gridBtn then doneBar.gridBtn:SetLabel(on and "Hide Grid" or "Show Grid") end
 end
 
 local function EnsureDoneBar()
@@ -299,25 +305,26 @@ local function EnsureDoneBar()
 	local text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	text:SetPoint("LEFT", f, "LEFT", 14, 0)
 	text:SetText("Drag any blue box. Each has its own Reset.")
-	local done = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	done:SetSize(84, 24); done:SetPoint("RIGHT", f, "RIGHT", -10, 0); done:SetText("Done")
+	local done = SP:CreateSPButton(f, "Done", 84, true)
+	done:SetPoint("RIGHT", f, "RIGHT", -10, 0)
 	done:SetScript("OnClick", function() SP:SetMasterUnlock(false) end)
-	local all = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	all:SetSize(150, 24); all:SetPoint("RIGHT", done, "LEFT", -8, 0); all:SetText("Reset All Positions")
-	all:SetScript("OnClick", function() StaticPopup_Show("SHAMANPOWER_UNLOCK_RESET_ALL") end)
-	local grid = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-	grid:SetSize(90, 24); grid:SetPoint("RIGHT", all, "LEFT", -8, 0); grid:SetText("Show Grid")
+	local all = SP:CreateSPButton(f, "Reset All Positions", 150, false)
+	all:SetPoint("RIGHT", done, "LEFT", -8, 0)
+	all:SetScript("OnClick", ConfirmResetAll)
+	local grid = SP:CreateSPButton(f, "Show Grid", 90, false)
+	grid:SetPoint("RIGHT", all, "LEFT", -8, 0)
 	grid:SetScript("OnClick", function()
 		SP.opt.unlockGrid = not SP.opt.unlockGrid or nil
 		ApplyGrid()
 	end)
-	grid:SetScript("OnEnter", function(self)
+	-- hooked: the button's own OnEnter/OnLeave draw its hover
+	grid:HookScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
 		GameTooltip:SetText("Alignment grid", 1, 1, 1)
 		GameTooltip:AddLine("Shows lines across the screen and snaps each box you drop to them, so frames line up exactly. Remembered for next time.", 0.8, 0.8, 0.8, true)
 		GameTooltip:Show()
 	end)
-	grid:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	grid:HookScript("OnLeave", function() GameTooltip:Hide() end)
 	f.gridBtn = grid
 	f:Hide()
 	doneBar = f
@@ -377,6 +384,7 @@ function SP:SetMasterUnlock(on, only)
 		wipe(forced)
 		if doneBar then doneBar:Hide() end
 		if gridFrame then gridFrame:Hide() end
+		self:HideSPDialog("unlock_reset_all")   -- its question is about the boxes just put away
 		-- whoever opened the unlock (the setup tour) gets control back
 		if self.unlockOnDone then
 			local fn = self.unlockOnDone
@@ -513,8 +521,8 @@ local function ShowSettingsTestDone()
 		local text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 		text:SetPoint("LEFT", 12, 0)
 		text:SetText("Finish previewing or positioning:")
-		local done = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-		done:SetSize(84, 24); done:SetPoint("RIGHT", -10, 0); done:SetText("Done")
+		local done = SP:CreateSPButton(f, "Done", 84, true)
+		done:SetPoint("RIGHT", -10, 0)
 		done:SetScript("OnClick", FinishSettingsTestClick)
 		settingsTestDoneBar = f
 	end
