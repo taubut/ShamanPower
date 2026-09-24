@@ -732,9 +732,15 @@ local function setAuraFilter(on)
 end
 
 -- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: re-point the aura
--- filter (raid indexes shift, party <-> raid) and rescan once, 0.3 s after the last
-local rosterQueued = false
+-- filter (raid indexes shift, party <-> raid) and rescan once, 0.3 s after the
+-- last. One timer at a time: when it fires with newer events behind it, it
+-- waits again for the rest of their 0.3 s (a storm that never pauses still
+-- rescans every 5 s).
+local rosterQueued, rosterFirst, rosterLast = false, 0, 0
 local function rosterSettled()
+	local now = GetTime()
+	local wait = rosterLast + 0.3 - now
+	if wait > 0.01 and now - rosterFirst < 5 then C_Timer.After(wait, rosterSettled) return end
 	rosterQueued = false
 	if not SP.esTrackerEventsEnabled then return end
 	setAuraFilter(true)
@@ -759,9 +765,12 @@ function SP:SetupESTrackerUpdater()
 				SP:ClearESTracker()
 			end
 		end
-		if SP.esTrackerEventsEnabled and not rosterQueued then
-			rosterQueued = true
-			C_Timer.After(0.3, rosterSettled)
+		if SP.esTrackerEventsEnabled then
+			rosterLast = GetTime()
+			if not rosterQueued then
+				rosterQueued, rosterFirst = true, rosterLast
+				C_Timer.After(0.3, rosterSettled)
+			end
 		end
 	end)
 

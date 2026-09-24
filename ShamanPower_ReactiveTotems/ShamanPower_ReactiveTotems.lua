@@ -915,9 +915,14 @@ function SP:SetupReactiveTotemsEvents()
 
 	-- A raid or battleground forming fires dozens of GROUP_ROSTER_UPDATEs, and
 	-- every slot that changed builds new engine displays: rebuild once, 0.3 s
-	-- after the last one.
-	local rebuildQueued = false
+	-- after the last one. One timer at a time: when it fires with newer events
+	-- behind it, it waits again for the rest of their 0.3 s (a storm that never
+	-- pauses still rebuilds every 5 s).
+	local rebuildQueued, rebuildFirst, rebuildLast = false, 0, 0
 	local function RebuildSettled()
+		local now = GetTime()
+		local wait = rebuildLast + 0.3 - now
+		if wait > 0.01 and now - rebuildFirst < 5 then C_Timer.After(wait, RebuildSettled) return end
 		rebuildQueued = false
 		SP:RebuildReactiveEngine()
 		RequestUpdate()
@@ -933,9 +938,12 @@ function SP:SetupReactiveTotemsEvents()
 			SP:ReactiveEngineRegen()
 		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
 			or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TOTEM_UPDATE" then
-			if event ~= "PLAYER_TOTEM_UPDATE" and not rebuildQueued and ReactiveEngineAvailable() then   -- names / classes may have changed
-				rebuildQueued = true
-				C_Timer.After(0.3, RebuildSettled)
+			if event ~= "PLAYER_TOTEM_UPDATE" and ReactiveEngineAvailable() then   -- names / classes may have changed
+				rebuildLast = GetTime()
+				if not rebuildQueued then
+					rebuildQueued, rebuildFirst = true, rebuildLast
+					C_Timer.After(0.3, RebuildSettled)
+				end
 			end
 			RequestUpdate()
 		end

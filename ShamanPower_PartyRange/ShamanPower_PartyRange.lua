@@ -575,8 +575,14 @@ end
 -- Roster changes recolour (or add / drop) a slot; a fight defers it. A raid or
 -- battleground forming fires dozens of GROUP_ROSTER_UPDATEs, and every slot that
 -- changed builds new engine displays: rebuild once, 0.3 s after the last one.
-local rosterQueued = false
+-- One timer at a time: when it fires with newer events behind it, it waits
+-- again for the rest of their 0.3 s (a storm that never pauses still rebuilds
+-- every 5 s).
+local rosterQueued, rosterFirst, rosterLast = false, 0, 0
 local function rosterSettled()
+	local now = GetTime()
+	local wait = rosterLast + 0.3 - now
+	if wait > 0.01 and now - rosterFirst < 5 then C_Timer.After(wait, rosterSettled) return end
 	rosterQueued = false
 	SP:RebuildEnginePartyDots()
 	if SP.RebuildCoverage then SP:RebuildCoverage() end
@@ -590,9 +596,12 @@ engineDotEvents:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_REGEN_ENABLED" then
 		if engineDotsPending then SP:RebuildEnginePartyDots() end
 		if SP._coveragePending and SP.RebuildCoverage then SP:RebuildCoverage() end   -- was a local read before it existed
-	elseif not rosterQueued then
-		rosterQueued = true
-		C_Timer.After(0.3, rosterSettled)
+	else
+		rosterLast = GetTime()
+		if not rosterQueued then
+			rosterQueued, rosterFirst = true, rosterLast
+			C_Timer.After(0.3, rosterSettled)
+		end
 	end
 end)
 
