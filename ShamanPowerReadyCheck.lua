@@ -60,6 +60,13 @@ local function cfg()
 	if not o then return DEFAULTS end
 	local c = o.readyCheck
 	if type(c) ~= "table" then c = {}; o.readyCheck = c end
+	-- The first 3.0 test builds had the mana check off by default, and the loop
+	-- below saves every default the first time it runs: switch it on once for
+	-- those characters (no released version had it, so nobody chose "off").
+	if not c.checkManaMigrated then
+		c.checkManaMigrated = true
+		if c.checkMana == false then c.checkMana = true end
+	end
 	for k, v in pairs(DEFAULTS) do if c[k] == nil then c[k] = v end end
 	return c
 end
