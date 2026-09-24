@@ -8410,7 +8410,14 @@ function ShamanPower:ConfirmResetSection(id)
 	self:ShowSPDialog({
 		key = "resetSection", title = "Reset settings", text = text,
 		buttons = {
-			{ text = "Reset", onClick = function() ShamanPower:ResetSection(id) end },
+			{ text = "Reset", onClick = function()
+				-- combat began while it was open: say so, and keep the question up for after the fight
+				if InCombatLockdown() then
+					print("|cff0070ddShamanPower|r: |cffe64a4asettings cannot be reset in combat - click Reset again after the fight.|r")
+					return true
+				end
+				ShamanPower:ResetSection(id)
+			end },
 			{ text = "Cancel" },
 		},
 	})
@@ -18421,7 +18428,11 @@ function ShamanPower:ConfirmDeleteLoadout(nr, name)
 		key = "deleteLoadout", title = "Delete totem set", text = "Delete totem set " .. tostring(name) .. "?",
 		buttons = {
 			{ text = "Delete", onClick = function()
-				if InCombatLockdown() then return end
+				-- combat began while it was open: say so, and keep the question up for after the fight
+				if InCombatLockdown() then
+					print("|cff0070ddShamanPower|r: |cffe64a4atotem sets cannot be deleted in combat - click Delete again after the fight.|r")
+					return true
+				end
 				ShamanPower:DeleteLoadout(nr)
 				if ShamanPower.RefreshLoadoutArgs then ShamanPower:RefreshLoadoutArgs() end
 				ShamanPower:RefreshConfig()
