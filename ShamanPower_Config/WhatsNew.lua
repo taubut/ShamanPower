@@ -38,6 +38,8 @@ local NOTES = {
 	footer = "Also: a Grid style that shows every totem at once (Settings > General > Totem Bar Style), a Move button and Unlock UI box for the loadout bar, an icon picker with search, and an alignment grid in Unlock UI. The full list is in the changelog.",
 }
 
+local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"
+
 local function BaseVersion(v)
 	return v and (v:gsub("%-.*$", "")) or nil
 end
@@ -217,7 +219,15 @@ local function BuildDialog()
 		logo:SetPoint("LEFT", strip, "LEFT", 6, 0); logo:SetTexture("Interface\\AddOns\\ShamanPower\\Media\\discord")
 		local copy = Core:MakeButton(strip, "Copy Link", 100, true)
 		copy:SetPoint("RIGHT", strip, "RIGHT", -6, 0)
-		copy:SetScript("OnClick", function() if StaticPopupDialogs["SHAMANPOWER_COPY_LINK"] then StaticPopup_Show("SHAMANPOWER_COPY_LINK") end end)
+		-- WoW cannot open links or write the clipboard: ShamanPower's copy box, above this card
+		copy:SetScript("OnClick", function()
+			SP:ShowSPDialog({
+				key = "discordlink",
+				title = "ShamanPower Discord",
+				text = "The link is selected - press |cffffd200Ctrl+C|r to copy it, then paste it into your browser.",
+				editText = DISCORD_INVITE,
+			})
+		end)
 		local t = strip:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
 		t:SetPoint("LEFT", logo, "RIGHT", 10, 0); t:SetPoint("RIGHT", copy, "LEFT", -10, 0); t:SetJustifyH("LEFT")
 		t:SetText("|cff8C9EFFJoin the ShamanPower Discord|r - help, bug reports and early test builds")
