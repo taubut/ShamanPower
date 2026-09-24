@@ -1844,7 +1844,9 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 	-- a totem bound to this slot by an update that came before its cast (ShadowTotemCast):
 	-- its own update, arriving with that cast (the same frame, so the same GetTime()),
 	-- is not its end. Only that one: any later update, even a moment later, is the
-	-- totem going (killed as it landed) and must not be swallowed.
+	-- totem going (killed as it landed) and must not be swallowed. Like the cast-first
+	-- path above, this counts on one slot update per totem placed. That is unmeasured
+	-- (a /sptrace of a re-drop shows it); a client that sent two would trip both paths.
 	for _, entry in pairs(self.shadowTotems) do
 		if entry.slot == slot and entry.boundEarlyAt == now then
 			entry.boundEarlyAt = nil
