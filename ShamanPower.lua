@@ -4377,6 +4377,7 @@ local function PlayerKnowsTotem(spellID, totemName)
 
 	return false
 end
+ShamanPower.PlayerKnowsTotem = PlayerKnowsTotem
 
 -- Track if we've already hooked the totem buttons
 ShamanPower.flyoutHooksInstalled = {}
@@ -15229,6 +15230,15 @@ function ShamanPower:ParseMessage(sender, msg)
 		local status = strmatch(msg, "^WFBUFF ([01])")
 		if status then self:SetWindfuryReport(sender, status == "1") end
 		return
+	end
+
+	-- Raid resistance requests (WoW: Forever; ShamanPowerResist.lua): request
+	-- state only, nothing on the bars changes until a shaman's own client does it
+	if kw == "RESREQ" or kw == "RESPASS" or kw == "RESPICK" then
+		if self.HandleResistMessage then
+			self:HandleResistMessage(kw, msg, sender)
+			return
+		end
 	end
 
 	-- Raid cooldown coordination: calls are one-shot alerts (no bar change);
