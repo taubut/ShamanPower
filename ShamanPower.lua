@@ -1287,6 +1287,8 @@ function ShamanPower:Reset()
 
 	self:ApplySkin()
 	self:UpdateLayout()
+	-- the cooldown bar's saved spot goes too: it comes back straight under the totem bar
+	self:ResetBarPositions(false)
 end
 
 -- Settings live in the optional ShamanPower_Config module.
@@ -17708,38 +17710,40 @@ SlashCmdList["SPCENTER"] = function(msg)
 		return
 	end
 
-	-- Reset main ShamanPower frame to center and save position
-	local mainFrame = _G["ShamanPowerFrame"]
-	if mainFrame then
-		mainFrame:ClearAllPoints()
-		mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-		-- Clear saved position so it stays centered after reload
-		ShamanPower:EnsureProfileTable("display")
-		ShamanPower.opt.display.offsetX = 0
-		ShamanPower.opt.display.offsetY = 0
-		print("|cff00ff00ShamanPower:|r Totem bar moved to center.")
-	end
-
-	-- Reset cooldown bar position (force reposition even if already unlocked)
-	if ShamanPower.cooldownBar then
-		ShamanPower.opt.cooldownBarPosX = 0
-		ShamanPower.opt.cooldownBarPosY = -50
-		ShamanPower.opt.cooldownBarPoint = "CENTER"
-		ShamanPower.opt.cooldownBarRelPoint = "CENTER"
-		ShamanPower:UpdateCooldownBarPosition(true)  -- true = force reposition
-		print("|cff00ff00ShamanPower:|r Cooldown bar moved to center.")
-	end
+	-- A rescue for bars lost off screen: the visible totem bar is saved dead centre
+	-- (a real saved spot, so it holds after /reload) and the cooldown bar drops its
+	-- own spot, so it sits straight under the totem bar and follows it.
+	local SP = ShamanPower
+	SP:EnsureProfileTable("display")
+	local d = SP.opt.display
+	d.offsetX, d.offsetY = nil, nil
+	SP.opt.cooldownBarPosition = nil
+	SP.opt.cooldownBarPoint, SP.opt.cooldownBarRelPoint = nil, nil
+	SP.opt.cooldownBarPosX, SP.opt.cooldownBarPosY = nil, nil
 
 	-- Make sure bars are visible
-	if ShamanPower.autoButton and ShamanPower:TotemBarEnabled() then
-		ShamanPower.autoButton:Show()
+	if SP.autoButton and SP:TotemBarEnabled() then
+		SP.autoButton:Show()
 	end
 
-	-- Force a layout update
-	ShamanPower:UpdateLayout()
-	ShamanPower:UpdateRoster()
+	-- Lay the bar out first: where its centre sits depends on its size and layout
+	SP:UpdateLayout()
+	SP:UpdateRoster()
+	local mainFrame = _G["ShamanPowerFrame"]
+	if mainFrame and SP.autoButton then
+		local dx, dy = SP:TotemBarGeometry()
+		local rec = { anchor = "CENTER", x = -dx, y = -dy }
+		if SP.CompactActive and SP:CompactActive() then d.compactPosition = rec else d.position = rec end
+		SP:ApplyPositionRecord(mainFrame, rec)
+		print("|cff00ff00ShamanPower:|r Totem bar moved to the center of the screen.")
+	end
+	if SP.cooldownBar and SP.opt.showCooldownBar then
+		SP:UpdateCooldownBarPosition(true)   -- detaches a bar still on the totem bar
+		print("|cff00ff00ShamanPower:|r Cooldown bar moved under it.")
+	end
+	SP:ApplyDefaultBarPositions()
 
-	print("|cff00ff00ShamanPower:|r Frames reset to center. Use ALT+drag to reposition.")
+	print("|cff00ff00ShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset puts them back on their default spot.")
 end
 
 -- ============================================================================
