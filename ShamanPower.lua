@@ -5017,9 +5017,13 @@ end
 -- reach or leave the frame straight off a child without the frame hearing it
 -- (an icon-only pop-out is all button), so every mouse-enabled Frame/Button
 -- inside it reports too, and each event just asks whether the cursor is over
--- the frame. Children come and go (Raid Cooldowns builds its buttons later),
--- so the walk runs again whenever the mouse arrives or the frame is shown.
--- Engine widgets (aura containers, cooldowns) are left alone.
+-- the frame. Children come and go while the frame stays up (Raid Cooldowns
+-- rebuilds its Mana Tide buttons on every sync), so every enter, leave, show
+-- and resize walks the children again: whatever the cursor crosses onto from
+-- something we hear is hooked before it can be left. A cursor that lands
+-- straight from outside on a child built since the last walk shows the button
+-- only once it moves on to the frame or another child. Engine widgets (aura
+-- containers, cooldowns) are left alone.
 do
 	local owner = setmetatable({}, { __mode = "k" })   -- hooked region -> the frame whose button it drives
 	local WALK = { Frame = true, Button = true, CheckButton = true }
@@ -5038,7 +5042,7 @@ do
 				if region:IsMouseEnabled() then
 					if not owner[region] then
 						region:HookScript("OnEnter", Refresh)
-						region:HookScript("OnLeave", Update)
+						region:HookScript("OnLeave", Refresh)
 					end
 					owner[region] = frame
 				end
@@ -5065,8 +5069,9 @@ do
 		if not frame.spCogHoverHooked then
 			frame.spCogHoverHooked = true
 			frame:HookScript("OnEnter", Refresh)
-			frame:HookScript("OnLeave", Update)
+			frame:HookScript("OnLeave", Refresh)
 			frame:HookScript("OnShow", Refresh)
+			frame:HookScript("OnSizeChanged", Refresh)
 			frame:HookScript("OnHide", Update)
 		end
 		Refresh(frame)
