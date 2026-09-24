@@ -432,7 +432,7 @@ local function ShowPrompt(r, name, fake)
 	local slot = ELEMENT_NAMES[r.element]
 	local was = current > 0 and SP.TotemNames[r.element][current]
 	local body = "The raid needs " .. r.label .. ". Drop it for this fight?\n\n"
-		.. "Your " .. slot .. " totem" .. (was and (" (" .. was .. ")") or "") .. " becomes " .. TotemName(r)
+		.. "Your " .. slot .. " totem" .. (was and (" (" .. was .. ")") or "") .. " becomes " .. TotemName(r) .. " Totem"
 		.. " until the request ends; then it goes back. It reaches the whole raid within 30 yards."
 	if fake then
 		body = "|cffffd200PRACTICE|r - " .. name .. " would see:\n\n" .. body
@@ -510,17 +510,6 @@ local recomputeQueued = false
 local function RecomputeNow()
 	recomputeQueued = false
 	ScanRoster()
-	local list = Candidates()
-	for _, r in ipairs(RESIST) do
-		wipe(coverers[r.key])
-		for _, name in ipairs(list) do
-			if AssignedIndex(name, r.element) == RESIST_INDEX then
-				local c = coverers[r.key]
-				c[#c + 1] = name
-			end
-		end
-	end
-
 	-- requests that ended: give our totems back (after a /reload, only once
 	-- the group had a chance to tell us the request still stands)
 	local grace = GetTime() < restoreAfter and Active()
@@ -531,6 +520,18 @@ local function RecomputeNow()
 			wipe(passed[r.key])
 			proposal[r.key] = nil
 			if waitTimer[r.key] then waitTimer[r.key].timer:Cancel(); waitTimer[r.key] = nil end
+		end
+	end
+
+	-- who drops each resistance now (after any restore above)
+	local list = Candidates()
+	for _, r in ipairs(RESIST) do
+		wipe(coverers[r.key])
+		for _, name in ipairs(list) do
+			if AssignedIndex(name, r.element) == RESIST_INDEX then
+				local c = coverers[r.key]
+				c[#c + 1] = name
+			end
 		end
 	end
 
@@ -687,7 +688,7 @@ function SP:GetResistStatus(key)
 	if not r then return "", "dim" end
 	local c = coverers[key]
 	if #c > 1 then
-		return JoinNames(c) .. " all drop it: one is enough for the whole raid.", "warn"
+		return JoinNames(c) .. ((#c == 2) and " both" or " all") .. " drop it: one is enough for the whole raid.", "warn"
 	elseif #c == 1 then
 		return c[1] .. " (covers the raid)", "ok"
 	end
