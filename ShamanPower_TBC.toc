@@ -38,6 +38,7 @@ ShamanPowerUnlock.lua
 ShamanPowerReadyCheck.lua
 ShamanPowerKeybindMode.lua
 ShamanPowerTrainer.lua
+ShamanPowerShareCode.lua
 ShamanPowerMinimapTotems.lua
 ShamanPowerGrid.lua
 ShamanPowerStyles.lua
