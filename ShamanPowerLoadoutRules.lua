@@ -276,7 +276,8 @@ if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Loa
 local function HasRule(field)
 	local d = DB()
 	for _, r in ipairs(d and d.rules or {}) do
-		if Lower(r[field]) ~= "" and (r.loadout or r.resist) then return true end
+		-- target rules only switch loadouts (a resistance request needs encounter or zone)
+		if Lower(r[field]) ~= "" and (r.loadout or (r.resist and field ~= "target")) then return true end
 	end
 	return false
 end
