@@ -1114,6 +1114,9 @@ function SP:UpdateCallerButtons()
 	frame:SetSize(width, 62)  -- 40 button + 2 gap + 12 text + 8 padding
 
 	frame:Show()
+	-- Icon-only: new Mana Tide buttons at an unchanged size fire nothing the
+	-- hover-only settings button hears, so have the core hook them now.
+	if self.opt.raidCDButtonHideFrame then self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true) end
 
 	-- Apply scale and opacity settings
 	self:UpdateCallerButtonScale()
