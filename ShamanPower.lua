@@ -1382,11 +1382,13 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		if ShamanPower.ToggleSPRange then ShamanPower:ToggleSPRange() end
 	elseif msg == "bind" or msg == "keybind" or msg == "keys" then
 		if ShamanPower.ToggleKeybindMode then ShamanPower:ToggleKeybindMode() end
+	elseif msg == "share" then
+		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
 	elseif msg == "check" then
 		if ShamanPower.RunReadyCheckSweep then ShamanPower:RunReadyCheckSweep("manual") end
 	else
 		print("|cff0070ddShamanPower|r commands:")
-		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode")
+		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode   |   /sp share - your setup code")
 		if ShamanPower.RunReadyCheckSweep then print("  /sp check - what you are missing (shield, imbue, totem items...)") end
 	end
 end

@@ -3377,7 +3377,7 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 			previewDlg:Hide()
 			SP:ApplyPreset(p.key, "overwrite")
 			SP.opt.setupDone = true
-			SP.Wizard:Close(true)
+			SP.Wizard:Close(true, "quick")
 			local b = SP.db.global.setupBackups and SP.db.global.setupBackups[1]
 			SP.Wizard:ShowBackupNotice(b, p.name .. " is applied.", function() Core:RequestReload(p.name .. " is applied.") end)
 		end)
@@ -3527,7 +3527,7 @@ function SP.Wizard:RenderRole()
 		wfOnly.text:SetTextColor(1, 0.82, 0)
 		wfOnly:SetScript("OnClick", function()
 			if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
-			SP.Wizard:Close(true)
+			SP.Wizard:Close(true, "windfury")
 			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
 		end)
 		local wfHint = track(c:CreateFontString(nil, "OVERLAY"))
@@ -3721,10 +3721,29 @@ function SP.Wizard:RenderFinish()
 
 	box:SetHeight(16 + h:GetStringHeight() + 8 + b:GetStringHeight() + 10 + cmd:GetStringHeight() + 14 + 18 + 18)
 
+	-- the setup share code: an invitation, never opened by itself
+	local below = box
+	if SP.ShowShareCode then
+		local share = track(CreateFrame("Frame", nil, c))
+		share:SetSize(560, 10); share:SetPoint("TOP", box, "BOTTOM", 0, -14)
+		Core:SolidTex(share, "accent", "BACKGROUND", 0.06); Core:MakeBorder(share, "border")
+		local sh = share:CreateFontString(nil, "OVERLAY"); sh:SetFontObject(Core.fonts.brand)
+		sh:SetPoint("TOPLEFT", share, "TOPLEFT", 20, -12); sh:SetTextColor(1, 0.82, 0); sh:SetText("Proud of your setup?")
+		local sb = share:CreateFontString(nil, "OVERLAY"); sb:SetFontObject(Core.fonts.rowDim)
+		sb:SetPoint("TOPLEFT", sh, "BOTTOMLEFT", 0, -6); sb:SetWidth(360); sb:SetJustifyH("LEFT"); sb:SetWordWrap(true)
+		sb:SetText("Post your setup code in the ShamanPower Discord so the developer can see which features people use most.")
+		local sbtn = Core:MakeButton(share, "Copy my setup code", 150, false)
+		sbtn:SetPoint("RIGHT", share, "RIGHT", -16, 0)
+		sbtn.text:SetTextColor(1, 0.82, 0)
+		sbtn:SetScript("OnClick", function() SP:ShowShareCode() end)
+		share:SetHeight(12 + sh:GetStringHeight() + 6 + sb:GetStringHeight() + 14)
+		below = share
+	end
+
 	-- the release highlights, for anyone curious (never shown automatically after the tour)
 	if SP.ShowWhatsNew then
 		local wn = track(Core:MakeButton(c, "What's new in ShamanPower 3.0", 240, false))
-		wn:SetPoint("TOP", box, "BOTTOM", 0, -18)
+		wn:SetPoint("TOP", below, "BOTTOM", 0, -18)
 		wn:SetScript("OnClick", function() SP:ShowWhatsNew(true) end)
 	end
 end
@@ -3750,12 +3769,14 @@ end
 
 function SP.Wizard:Finish()
 	SP.opt.setupDone = true
+	SP.opt.setupPath = "tour"   -- how setup ended, for the share code (ShamanPowerShareCode.lua)
 	self:Close(false)
 	Core:RequestReload("Setup finished.")
 end
 
-function SP.Wizard:Close(markDone)
-	if markDone then SP.opt.setupDone = true end
+-- path: how setup ended, for the share code ("skipped" when the tour is just closed)
+function SP.Wizard:Close(markDone, path)
+	if markDone then SP.opt.setupDone = true; SP.opt.setupPath = path or "skipped" end
 	-- Give every borrowed module frame back (and stop the demos) before hiding.
 	ClearContent()
 	if posBar then posBar:Hide() end
@@ -3834,6 +3855,7 @@ function SP.Wizard:ShowUpgradePrompt()
 		later:SetScript("OnClick", function()
 			upgradeDlg:Hide()
 			SP.opt.setupDone = true      -- do not nag again; /spsetup is always there
+			SP.opt.setupPath = "declined"
 			print("|cff0070ddShamanPower|r: run the guided setup any time with /spsetup.")
 		end)
 	end
@@ -3875,10 +3897,11 @@ local function quickSetup(role)
 	if preset and preset.key then SP:ApplyPreset(preset.key, "overwrite") end
 	if role then SP.Wizard.ApplySpecPicks(role) end
 	SP.opt.setupDone = true
+	SP.opt.setupPath = "quick"
 	welcomeDlg:Hide()
 	local name = preset and preset.name or "The quick setup"
 	print("|cff0070ddShamanPower|r: " .. name .. " applied" .. (role and (" (" .. SPEC_NAME[role] .. ")") or "")
-		.. ". Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r.")
+		.. ". Change anything with |cffffffff/sp|r, or take the tour any time with |cffffffff/sp setup|r. Share your setup with |cffffffff/sp share|r.")
 	Core:RequestReload(name .. " is applied.")
 end
 
@@ -3914,7 +3937,7 @@ function SP.Wizard:ShowWelcomeChoice()
 		local never = Core:MakeButton(welcomeDlg, "Don't ask again", 130, false)
 		never:SetPoint("BOTTOMRIGHT", welcomeDlg, "BOTTOMRIGHT", -14, 12)
 		never:SetScript("OnClick", function()
-			welcomeDlg:Hide(); SP.opt.setupDone = true
+			welcomeDlg:Hide(); SP.opt.setupDone = true; SP.opt.setupPath = "declined"
 			print("|cff0070ddShamanPower|r: run the setup any time with |cffffffff/sp setup|r.")
 		end)
 		local later = Core:MakeButton(welcomeDlg, "Not now", 100, false)
@@ -3945,7 +3968,7 @@ function SP.Wizard:ShowWelcomeChoice()
 		d.a:SetScript("OnClick", function() d:Hide(); SP.Wizard:Open() end)
 		d.b.text:SetText("Just here so my shaman sees my Windfury")
 		d.b:SetScript("OnClick", function()
-			d:Hide(); SP.opt.setupDone = true
+			d:Hide(); SP.opt.setupDone = true; SP.opt.setupPath = "windfury"
 			if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
 			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
 		end)
