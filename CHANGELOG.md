@@ -56,7 +56,7 @@
 - **Smoother and cheaper animations:** totem pulse bars, the raid-call alert, the cooldown bar alert and the new fades run as game-engine animations instead of Lua every frame; Totem Plates' pulse timers and the Anniversary imbue check stop running every frame.
 - **/spperf stress** pretends to be a 40-player raid (buffs, casts, addon messages, roster changes) so the cost can be measured solo.
 - Newly trained totems appear in the flyouts without a reload; the cooldown bar keeps a custom order when a spell is unavailable.
-- Expiring Alerts: "Totem Destroyed" now works in combat on Forever (from ShamanPower's own record of your totems, which the game cannot hide), and can also add a line to your own chat window (on by default, only you see it), show big text on your screen, or tell your group in chat.
+- Expiring Alerts: "Totem Destroyed" now works in combat on Forever (from ShamanPower's own record of your totems, which the game cannot hide), and can also add a line to your own chat window (on by default on Forever, only you see it), show big text on your screen, or tell your group in chat.
 - Tremor Reminder "Hide When Tremor Active" never hid in combat on Forever.
 - Expiring Alerts: totems that died in combat were announced minutes later with stale timing on Forever.
 - Wrath of Air, Totem of Wrath and Fire Nova Totem could be assigned, tracked or listed on a client that lacks them.
