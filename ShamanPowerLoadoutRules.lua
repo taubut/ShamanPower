@@ -194,7 +194,7 @@ local function RetryZoneResist()
 	local key = zoneWant
 	if key and HoldResist(key, "zone", true) then
 		zoneWant = nil
-		if heldResist[key] == "zone" then Tell("asked the raid for " .. RESIST_NAMES[key] .. " (zone rule).") end
+		if heldResist[key] == "zone" then Tell("requested " .. RESIST_NAMES[key] .. " (zone rule).") end
 	end
 end
 
