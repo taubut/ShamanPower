@@ -7,6 +7,6 @@
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled
-## SavedVariables: ShamanPower_ReadyReminders
+## SavedVariablesPerCharacter: ShamanPower_ReadyReminders
 
 ShamanPower_ReadyReminders.lua
