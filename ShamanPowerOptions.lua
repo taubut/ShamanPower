@@ -4198,24 +4198,23 @@ ShamanPower.options = {
 							type = "range",
 							name = "Frame Opacity",
 							desc = "Opacity of the unlocked counter frames",
-							min = 10, max = 100, step = 5,
+							min = 0.1, max = 1, step = 0.05, isPercent = true,
 							width = 1.5,
 							hidden = function()
 								return not (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.enabled)
 									or (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.location ~= "unlocked")
 							end,
 							get = function(info)
-								local val = (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.opacity) or 1.0
-								return val * 100
+								return (ShamanPower.opt.rangeCounter and ShamanPower.opt.rangeCounter.opacity) or 1.0
 							end,
 							set = function(info, val)
 								if not ShamanPower.opt.rangeCounter then
 									ShamanPower.opt.rangeCounter = {}
 								end
-								ShamanPower.opt.rangeCounter.opacity = val / 100
+								ShamanPower.opt.rangeCounter.opacity = val
 								for element = 1, 4 do
 									if ShamanPower.rangeCounterFrames[element] then
-										ShamanPower.rangeCounterFrames[element]:SetAlpha(val / 100)
+										ShamanPower.rangeCounterFrames[element]:SetAlpha(val)
 									end
 								end
 							end
@@ -6209,21 +6208,22 @@ ShamanPower.options = {
 						alerts_opacity = {
 							order = 8,
 							name = "Opacity",
-							desc = "Opacity of alerts (0-100%)",
+							desc = "Opacity of alerts",
 							type = "range",
 							width = 1.5,
-							min = 50,
-							max = 100,
-							step = 5,
+							min = 0.5,
+							max = 1,
+							step = 0.05,
+							isPercent = true,   -- saved as 50-100
 							get = function(info)
 								if ShamanPowerExpiringAlertsDB then
-									return ShamanPowerExpiringAlertsDB.opacity or 100
+									return (ShamanPowerExpiringAlertsDB.opacity or 100) / 100
 								end
-								return 100
+								return 1
 							end,
 							set = function(info, val)
 								if ShamanPowerExpiringAlertsDB then
-									ShamanPowerExpiringAlertsDB.opacity = val
+									ShamanPowerExpiringAlertsDB.opacity = math.floor(val * 100 + 0.5)
 								end
 							end
 						},
@@ -7026,21 +7026,22 @@ ShamanPower.options = {
 						tremor_opacity = {
 							order = 13,
 							name = "Opacity",
-							desc = "Opacity of the reminder icon (50-100%)",
+							desc = "Opacity of the reminder icon",
 							type = "range",
-							min = 50,
-							max = 100,
-							step = 5,
+							min = 0.5,
+							max = 1,
+							step = 0.05,
+							isPercent = true,   -- saved as 50-100
 							width = 1.5,
 							get = function(info)
 								if ShamanPowerTremorReminderDB then
-									return ShamanPowerTremorReminderDB.opacity or 100
+									return (ShamanPowerTremorReminderDB.opacity or 100) / 100
 								end
-								return 100
+								return 1
 							end,
 							set = function(info, val)
 								if ShamanPowerTremorReminderDB then
-									ShamanPowerTremorReminderDB.opacity = val
+									ShamanPowerTremorReminderDB.opacity = math.floor(val * 100 + 0.5)
 									if ShamanPower.UpdateTremorReminderAppearance then
 										ShamanPower:UpdateTremorReminderAppearance()
 									end
