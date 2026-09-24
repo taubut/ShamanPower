@@ -1020,60 +1020,165 @@ end)
 
 -- ---------------------------------------------------------------------------
 -- Copyable output window (chat can't be copied from) - shared by /spdiag and
--- /sperrors. Deliberately template-light so it works on an unknown client.
+-- /sperrors. ShamanPower's own look: the palette, fonts, border and close X of
+-- ShamanPowerDialog.lua, so it needs no ShamanPower_Config. That file loads
+-- after this one, so they are looked up when the window is first shown. No
+-- Blizzard template: the scroll bar is our own 4px track and thumb, as in the
+-- settings window, and it only runs code while its thumb is being dragged.
 -- ---------------------------------------------------------------------------
+local COPY_W, COPY_H, COPY_PAD, COPY_HEADER = 680, 440, 14, 46
 local copyWin
 local function ShowCopyWindow(title, text)
+	local SP = rawget(_G, "ShamanPower")
+	if not (SP and SP.SPDialogFonts and SP.CreateSPCloseButton) then
+		print("|cff3fa9f5ShamanPower|r: the copy window needs ShamanPower's own files, and they did not load (/sperrors in chat says why).")
+		return
+	end
 	if not copyWin then
+		local fonts = SP.SPDialogFonts
+		local function color(key, alpha) return SP:SPColor(key, alpha) end
 		local f = CreateFrame("Frame", "ShamanPowerCopyWindow", UIParent)
-		f:SetSize(680, 440)
+		f:SetSize(COPY_W, COPY_H)
 		f:SetPoint("CENTER")
-		f:SetFrameStrata("DIALOG")
+		-- above the setup tour and the settings window, under ShamanPower's own dialogs (level 200)
+		f:SetFrameStrata("FULLSCREEN_DIALOG")
+		f:SetFrameLevel(100)
+		f:SetToplevel(true)
+		f:SetClampedToScreen(true)
 		f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
 		f:SetScript("OnDragStart", f.StartMoving)
 		f:SetScript("OnDragStop", f.StopMovingOrSizing)
 		local bg = f:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints(); bg:SetColorTexture(0.055, 0.07, 0.09, 0.97)
-		for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", 0, -1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", 1, 0 } }) do
-			local t = f:CreateTexture(nil, "BORDER")
-			t:SetPoint(e[1]); t:SetPoint(e[2])
-			if e[3] == 0 then t:SetHeight(1) else t:SetWidth(1) end
-			t:SetColorTexture(0.25, 0.66, 0.96, 0.9)
+		bg:SetAllPoints(); bg:SetColorTexture(color("windowBg"))
+		SP:SPMakeBorder(f, "accent", 2)
+		local header = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+		header:SetPoint("TOPLEFT", 2, -2); header:SetPoint("TOPRIGHT", -2, -2); header:SetHeight(COPY_HEADER)
+		header:SetColorTexture(color("sidebarBg"))
+		-- the accent rule under the header: brightens to the right (SetGradient took colour objects from 10.0 on)
+		local rule = f:CreateTexture(nil, "ARTWORK")
+		rule:SetHeight(2)
+		rule:SetPoint("TOPLEFT", 2, -(COPY_HEADER + 2)); rule:SetPoint("TOPRIGHT", -2, -(COPY_HEADER + 2))
+		rule:SetColorTexture(1, 1, 1, 1)
+		local ar, ag, ab = color("accentHi")
+		if not (CreateColor and pcall(rule.SetGradient, rule, "HORIZONTAL", CreateColor(ar, ag, ab, 0), CreateColor(ar, ag, ab, 0.9))) then
+			if rule.SetGradientAlpha then rule:SetGradientAlpha("HORIZONTAL", ar, ag, ab, 0, ar, ag, ab, 0.9) else rule:SetColorTexture(ar, ag, ab, 0.5) end
 		end
-		local l = f:CreateTexture(nil, "BORDER"); l:SetPoint("TOPLEFT"); l:SetPoint("BOTTOMLEFT"); l:SetWidth(1); l:SetColorTexture(0.25, 0.66, 0.96, 0.9)
-		local r = f:CreateTexture(nil, "BORDER"); r:SetPoint("TOPRIGHT"); r:SetPoint("BOTTOMRIGHT"); r:SetWidth(1); r:SetColorTexture(0.25, 0.66, 0.96, 0.9)
-		f.titleText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		f.titleText:SetPoint("TOPLEFT", 14, -12)
-		local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-		hint:SetPoint("TOPRIGHT", -14, -14)
-		hint:SetText("All text is pre-selected - Ctrl+C to copy, Esc to close")
-		local eb = CreateFrame("EditBox", nil, f)
+		f.titleText = f:CreateFontString(nil, "OVERLAY")
+		f.titleText:SetFontObject(fonts.title)
+		f.titleText:SetPoint("LEFT", header, "LEFT", COPY_PAD, 6)
+		local sub = f:CreateFontString(nil, "OVERLAY")
+		sub:SetFontObject(fonts.tiny)
+		sub:SetPoint("TOPLEFT", f.titleText, "BOTTOMLEFT", 1, -2)
+		sub:SetText(strupper("chat cannot be copied - this box can"))
+		local close = SP:CreateSPCloseButton(f, 22)
+		close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -12)
+		close:SetScript("OnClick", function() f:Hide() end)
+		local hint = f:CreateFontString(nil, "OVERLAY")
+		hint:SetFontObject(fonts.dim)
+		hint:SetPoint("TOPLEFT", f, "TOPLEFT", COPY_PAD, -(COPY_HEADER + 4 + 10))
+		hint:SetWidth(COPY_W - 2 * COPY_PAD); hint:SetJustifyH("LEFT"); hint:SetWordWrap(true)
+		hint:SetText("All of it is selected: press |cffFFD100Ctrl+C|r to copy it. |cffFFD100Esc|r closes this window.")
+
+		-- the box: the report scrolls inside it, the scroll bar sits at its right edge
+		local box = CreateFrame("Frame", nil, f)
+		box:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -8)
+		box:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -COPY_PAD, COPY_PAD)
+		local boxBg = box:CreateTexture(nil, "BACKGROUND")
+		boxBg:SetAllPoints(); boxBg:SetColorTexture(color("sidebarBg"))
+		SP:SPMakeBorder(box, "border")
+		local sf = CreateFrame("ScrollFrame", nil, box)
+		sf:SetPoint("TOPLEFT", 8, -6); sf:SetPoint("BOTTOMRIGHT", -16, 6)
+		local eb = CreateFrame("EditBox", nil, sf)
 		eb:SetMultiLine(true)
-		eb:SetFontObject(ChatFontNormal)
+		eb:SetFontObject(fonts.text)
 		eb:SetAutoFocus(false)
+		eb:SetWidth(COPY_W - 2 * COPY_PAD - 8 - 16)
 		eb:SetScript("OnEscapePressed", function() f:Hide() end)
+		eb:SetScript("OnEditFocusGained", function(self) SP:SPSetBorderColor(box, "accent"); self:HighlightText() end)
+		eb:SetScript("OnEditFocusLost", function() SP:SPSetBorderColor(box, "border") end)
 		-- read-only: any user edit restores the report and re-selects it
-		eb:SetScript("OnTextChanged", function(box, user)
-			if user then box:SetText(box.spText or ""); box:HighlightText() end
+		eb:SetScript("OnTextChanged", function(self, user)
+			if user then self:SetText(self.spText or ""); self:HighlightText() end
 		end)
-		local ok, sf = pcall(CreateFrame, "ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-		if ok and sf then
-			sf:SetPoint("TOPLEFT", 14, -36); sf:SetPoint("BOTTOMRIGHT", -34, 14)
-			sf:SetScrollChild(eb)
-			f.scroll = sf
-		else
-			eb:SetPoint("TOPLEFT", 14, -36); eb:SetPoint("BOTTOMRIGHT", -14, 14)
+		sf:SetScrollChild(eb)
+
+		local track = CreateFrame("Button", nil, box)
+		track:SetWidth(4)
+		track:SetPoint("TOPRIGHT", sf, "TOPRIGHT", 10, -2)
+		track:SetPoint("BOTTOMRIGHT", sf, "BOTTOMRIGHT", 10, 2)
+		track:SetHitRectInsets(-6, -6, 0, 0)
+		local trackBg = track:CreateTexture(nil, "BACKGROUND")
+		trackBg:SetAllPoints(); trackBg:SetColorTexture(color("border", 0.5))
+		local thumb = CreateFrame("Button", nil, track)
+		thumb:SetWidth(4)
+		thumb:SetHitRectInsets(-6, -6, 0, 0)
+		local thumbTex = thumb:CreateTexture(nil, "ARTWORK")
+		thumbTex:SetAllPoints(); thumbTex:SetColorTexture(color("textMute"))
+		track:Hide()
+		local function update()
+			local range, viewH = sf:GetVerticalScrollRange(), sf:GetHeight()
+			if range <= 1 or viewH <= 0 then track:Hide() return end
+			track:Show()
+			local trackH = track:GetHeight()
+			local thumbH = math.min(trackH, math.max(24, math.floor(trackH * viewH / (viewH + range))))
+			thumb:SetHeight(thumbH)
+			local frac = math.min(1, math.max(0, sf:GetVerticalScroll() / range))
+			thumb:ClearAllPoints()
+			thumb:SetPoint("TOP", track, "TOP", 0, -math.floor((trackH - thumbH) * frac))
 		end
-		f.eb = eb
+		local function scrollTo(v)
+			sf:SetVerticalScroll(math.min(sf:GetVerticalScrollRange(), math.max(0, v)))
+		end
+		local function wheel(_, delta) scrollTo(sf:GetVerticalScroll() - delta * 40) end
+		sf:SetScript("OnScrollRangeChanged", update)
+		sf:SetScript("OnVerticalScroll", update)
+		sf:SetScript("OnSizeChanged", update)
+		sf:EnableMouseWheel(true)
+		sf:SetScript("OnMouseWheel", wheel)
+		track:EnableMouseWheel(true)
+		track:SetScript("OnMouseWheel", wheel)
+		local function cursorY()
+			local _, y = GetCursorPosition()
+			return y / track:GetEffectiveScale()
+		end
+		-- a click on the track pages toward it
+		track:SetScript("OnClick", function()
+			local y = cursorY()
+			if y > thumb:GetTop() then scrollTo(sf:GetVerticalScroll() - sf:GetHeight())
+			elseif y < thumb:GetBottom() then scrollTo(sf:GetVerticalScroll() + sf:GetHeight()) end
+		end)
+		-- the thumb follows the cursor while held: OnUpdate exists only during the drag
+		local grab = 0
+		local function release(self)
+			self:SetScript("OnUpdate", nil)
+			thumbTex:SetColorTexture(color(self:IsMouseOver() and "accent" or "textMute"))
+		end
+		local function drag(self)
+			if not IsMouseButtonDown("LeftButton") then release(self) return end
+			local travel = track:GetHeight() - self:GetHeight()
+			if travel > 0 then scrollTo((track:GetTop() - (cursorY() + grab)) / travel * sf:GetVerticalScrollRange()) end
+		end
+		thumb:SetScript("OnMouseDown", function(self)
+			grab = self:GetTop() - cursorY()
+			thumbTex:SetColorTexture(color("accentHi"))
+			self:SetScript("OnUpdate", drag)
+		end)
+		thumb:SetScript("OnMouseUp", release)
+		thumb:SetScript("OnEnter", function(self) if not self:GetScript("OnUpdate") then thumbTex:SetColorTexture(color("accent")) end end)
+		thumb:SetScript("OnLeave", function(self) if not self:GetScript("OnUpdate") then thumbTex:SetColorTexture(color("textMute")) end end)
+
+		f.eb, f.scroll = eb, sf
 		if UISpecialFrames then tinsert(UISpecialFrames, "ShamanPowerCopyWindow") end
 		f:Hide()
 		copyWin = f
 	end
 	copyWin.titleText:SetText(title or "ShamanPower")
-	if copyWin.scroll then copyWin.eb:SetWidth(copyWin.scroll:GetWidth()) end
-	copyWin.eb.spText = text
-	copyWin.eb:SetText(text)
+	copyWin.eb.spText = text or ""
+	copyWin.eb:SetText(text or "")
+	copyWin.scroll:SetVerticalScroll(0)
 	copyWin:Show()
+	copyWin:Raise()
+	copyWin.eb:SetCursorPosition(0)
 	copyWin.eb:SetFocus()
 	copyWin.eb:HighlightText()
 end
