@@ -54,8 +54,8 @@ local function Build()
 		width = width, height = height,
 		title = "Totem Range", subtitle = "click totems to track",
 		headerHeight = HEADER_H, bodyTop = 8, footer = FOOTER_H, pad = pad,
+		special = true, strata = "DIALOG",
 	})
-	dlg:SetFrameStrata("DIALOG")
 	dlg.totemButtons = {}
 
 	for e = 1, 4 do
@@ -133,7 +133,7 @@ local function Build()
 	rule:SetColorTexture(Core:Color("border"))
 
 	local toggle = Core:MakeButton(dlg, "Show Overlay", 130, true)
-	toggle:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", pad, 11)
+	toggle:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -pad, 12)
 	local function PaintToggle()
 		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown()
 		toggle.text:SetText(shown and "Hide Overlay" or "Show Overlay")
@@ -149,7 +149,10 @@ local function Build()
 
 	local hint = dlg:CreateFontString(nil, "OVERLAY")
 	hint:SetFontObject(Core.fonts.tiny)
-	hint:SetPoint("LEFT", toggle, "RIGHT", 12, 0)
+	-- left of the button, level with its middle, wrapping in the room it leaves
+	hint:SetPoint("LEFT", dlg, "BOTTOMLEFT", pad, 12 + 13)
+	hint:SetPoint("RIGHT", toggle, "LEFT", -12, 0)
+	hint:SetJustifyH("LEFT"); hint:SetWordWrap(true)
 	hint:SetText("Greyed totems are not tracked")
 	hint:SetTextColor(Core:Color("textMute"))
 

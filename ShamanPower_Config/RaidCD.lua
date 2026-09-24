@@ -42,8 +42,8 @@ local function Build()
 		title = "Raid Cooldowns",
 		subtitle = Subtitle(),
 		headerHeight = 46, bodyTop = 6,
+		special = true, strata = "DIALOG",
 	})
-	dlg:SetFrameStrata("DIALOG")
 	-- The module refreshes "the panel" when a sync arrives; point it at ours.
 	SP.raidCooldownPanel = dlg
 	return dlg
