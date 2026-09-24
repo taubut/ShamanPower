@@ -599,7 +599,8 @@ function SPConfig:UpdatePreviewPane(remount)
 		frame._previewKey = nil
 		pane.note:Show()
 		pane.note:SetText(key and "This module is not loaded, so there is nothing to preview."
-			or "No preview for this page: its settings change the bars themselves, which stay on screen while this window is open.")
+			or (PLAYER_IS_SHAMAN and "No preview for this page: its settings change the bars themselves, which stay on screen while this window is open."
+				or "No preview for this page."))
 	end
 end
 
