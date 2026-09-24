@@ -1358,9 +1358,11 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		if ShamanPower.ToggleMasterUnlock then ShamanPower:ToggleMasterUnlock() end
 	elseif msg == "range" then
 		if ShamanPower.ToggleSPRange then ShamanPower:ToggleSPRange() end
+	elseif msg == "bind" or msg == "keybind" or msg == "keys" then
+		if ShamanPower.ToggleKeybindMode then ShamanPower:ToggleKeybindMode() end
 	else
 		print("|cff0070ddShamanPower|r commands:")
-		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay")
+		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode")
 	end
 end
 
