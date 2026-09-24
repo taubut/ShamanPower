@@ -819,36 +819,63 @@ function SP:ToggleSPRange()
 	end
 end
 
+-- The shamans in your own subgroup, by the name a whisper needs (with the realm
+-- for other realms): an instance raid's report goes to them (see below).
+local wfWhisperTargets = {}
+local function refreshWhisperTargets()
+	wipe(wfWhisperTargets)
+	for i = 1, 4 do
+		local unit = "party" .. i
+		if UnitExists(unit) and select(2, UnitClass(unit)) == "SHAMAN" then
+			local name = GetUnitName(unit, true)
+			if type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name ~= "" and name ~= UNKNOWNOBJECT then
+				wfWhisperTargets[#wfWhisperTargets + 1] = name
+			end
+		end
+	end
+end
+
 -- Broadcast Windfury Totem status to group (same detection as SPRange)
 -- NOTE: This sends directly via ChatThrottleLib to bypass the lastMsg check in SendMessage
 -- which would block repeated "WFBUFF 1" messages. We need periodic broadcasts so the shaman
 -- knows party members are still in range.
-function SP:BroadcastWindfuryStatus()
+-- Sent the moment it changes (weapon enchant events), and as a heartbeat every
+-- 6 s (receivers drop a report after 10 s): heartbeat = send even if unchanged.
+function SP:BroadcastWindfuryStatus(heartbeat)
 	if self.sprangeDemoActive then return end
 	if not IsInGroup() then return end
+	-- Chat lockdown: nothing goes out and nothing is recorded as sent; the report
+	-- is owed and goes out as soon as the lock lifts (see wfEvents below).
+	if SPK and SPK() == true then self.wfReportOwed = true return false end
 
 	-- Use SAME detection as SPRange - check weapon enchant from GetWeaponEnchantInfo()
 	local hasWindfury = self:SPRangeHasWindfuryWeapon()
 	local status = hasWindfury and "1" or "0"
+	if not heartbeat and self.lastWFStatus == status then return end
+	self.lastWFStatus = status
+	self.lastWFBroadcast = GetTime()
+	self.wfReportOwed = nil
 
-	-- Send the moment it changes, otherwise a heartbeat every 6 s (receivers
-	-- drop a report after 10 s). Checked every 2 s, sent far less often.
-	if self.lastWFStatus ~= status or not self.lastWFBroadcast or (GetTime() - self.lastWFBroadcast) > 6 then
-		self.lastWFStatus = status
-		self.lastWFBroadcast = GetTime()
-
-		-- Totems only reach your own party, so the report only goes there: the
-		-- PARTY channel inside a raid is your own subgroup (4 players, not 39).
-		-- An instance-only group (LFG) has no home party; INSTANCE_CHAT is its channel.
-		local channel = "PARTY"
-		if not IsInGroup(LE_PARTY_CATEGORY_HOME) and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
-			channel = "INSTANCE_CHAT"
+	-- Totems only reach your own party, so the report only goes there: the
+	-- PARTY channel inside a raid is your own subgroup (4 players, not 39).
+	-- An instance-only group has no home party. A 5-player one (LFG dungeon) uses
+	-- INSTANCE_CHAT, which is those 5; in an instance raid (a battleground, LFR)
+	-- INSTANCE_CHAT reaches everyone there, so the report is whispered to the
+	-- shamans in your own subgroup instead.
+	local channel = "PARTY"
+	if not IsInGroup(LE_PARTY_CATEGORY_HOME) and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+		if IsInRaid() then
+			if #wfWhisperTargets == 0 then refreshWhisperTargets() end
+			for _, name in ipairs(wfWhisperTargets) do
+				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, "WHISPER", name)
+			end
+			return
 		end
-
-		-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
-		if SPK and SPK() == true then return false end
-		ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
+		channel = "INSTANCE_CHAT"
 	end
+
+	-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
+	ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
 end
 
 -- Get Windfury range data for a specific player
@@ -943,15 +970,56 @@ function SP:ShamanInMyParty()
 	return false
 end
 
+-- Changes are sent when the weapon enchants change, not found by polling: these
+-- events are heard only while a shaman is in your party. A burst is checked once,
+-- a moment later (after SPCompat's own handler has dropped its enchant cache).
+local wfCheckQueued, wfCheckForce = false, false
+local function wfCheck()
+	local force = wfCheckForce
+	wfCheckQueued, wfCheckForce = false, false
+	SP:BroadcastWindfuryStatus(force)
+end
+local wfEvents = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wfEvents, "Totem Range (Windfury report)") end
+wfEvents:SetScript("OnEvent", function(_, event, _, state)
+	local lifted = event == "ADDON_RESTRICTION_STATE_CHANGED"
+	if lifted then
+		-- a restriction lifting (state 0; chat lockdown is one): send what the lock
+		-- held back, heartbeat included (receivers may have dropped the report)
+		if state ~= 0 or not SP.wfReportOwed then return end
+		wfCheckForce = true
+	end
+	if wfCheckQueued then return end
+	wfCheckQueued = true
+	C_Timer.After(lifted and 1 or 0.1, wfCheck)
+end)
+local function setWFEvents(on)
+	if not on then wfEvents:UnregisterAllEvents() return end
+	if wfEvents.RegisterUnitEvent then
+		wfEvents:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+	else
+		wfEvents:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	end
+	pcall(wfEvents.RegisterEvent, wfEvents, "WEAPON_ENCHANT_CHANGED")
+	pcall(wfEvents.RegisterEvent, wfEvents, "ADDON_RESTRICTION_STATE_CHANGED")
+end
+
 function SP:UpdateWindfuryBroadcaster()
 	if not self.updateSystem then return end
 	if not self.updateSystem.subsystems["wfBroadcast"] then
-		self:RegisterUpdateSubsystem("wfBroadcast", 2.0, function() SP:BroadcastWindfuryStatus() end)
+		-- the heartbeat only: changes go out from the events above
+		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
 	end
 	if self:ShamanInMyParty() then
-		self:EnableUpdateSubsystem("wfBroadcast")
+		refreshWhisperTargets()
+		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
+			self:EnableUpdateSubsystem("wfBroadcast")
+			setWFEvents(true)
+			self:BroadcastWindfuryStatus(true)   -- the shaman sees you at once, not after the first heartbeat
+		end
 	else
 		self:DisableUpdateSubsystem("wfBroadcast")
+		setWFEvents(false)
 	end
 end
 do
