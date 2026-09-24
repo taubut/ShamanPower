@@ -89,11 +89,14 @@ function SP:CreateESTrackerFrame()
 	frame:SetBackdropColor(0, 0, 0, 0.8)
 	frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
 
-	-- Title
-	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	-- Title: the other module titles' look, and it follows the Fonts settings
+	local title = frame:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(title, "labels", 11, "", STANDARD_TEXT_FONT)
+	title:SetShadowOffset(1, -1)
+	title:SetShadowColor(0, 0, 0, 0.8)
+	title:SetTextColor(SP:SPColor("text"))
 	title:SetPoint("TOP", frame, "TOP", 0, -6)
 	title:SetText("Earth Shields")
-	title:SetTextColor(0.4, 0.8, 0.4)  -- Green tint for Earth
 	frame.title = title
 
 	-- Container for ES icons
