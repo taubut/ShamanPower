@@ -100,7 +100,7 @@ function SP:SetSPFont(fs, area, size, defaultFlags, defaultPath)
 	end
 	if not rec then rec = {}; registry[fs] = rec end
 	rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, defaultFlags, defaultPath, gen
-	rec.template = nil
+	rec.template, rec.fontObject = nil, nil
 	local path, flags = self:FontFor(area, size, defaultFlags, defaultPath)
 	apply(fs, path, size, flags, defaultPath, defaultFlags)   -- a missing font file falls back to the design
 end
@@ -120,10 +120,12 @@ end
 -- While nothing is chosen for its area the template is left alone: SetFont
 -- would cut the string loose from its font object (other addons restyling
 -- Blizzard's fonts) and swap the font family, with its fallbacks for other
--- alphabets (Cyrillic, Korean ... names), for one font file.
+-- alphabets (Cyrillic, Korean ... names), for one font file. Its font object
+-- is remembered, so it goes back onto it when the choice is cleared.
 function SP:AdoptSPFont(fs, area)
 	if not fs then return end
 	local rec = registry[fs]
+	local object = fs:GetFontObject() or (rec and rec.fontObject)
 	local path, size, flags
 	if rec then
 		-- already known: something reset it to its template (SetFontObject)
@@ -136,11 +138,25 @@ function SP:AdoptSPFont(fs, area)
 	if wantPath == path and wantFlags == flags then
 		if not rec then rec = {}; registry[fs] = rec end
 		rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, flags, path, gen
-		rec.template = true
+		rec.template, rec.fontObject = true, object
 		return
 	end
 	if rec then rec.gen = nil end   -- force the re-apply
 	self:SetSPFont(fs, area, size, flags, path)
+	registry[fs].fontObject = object
+end
+
+-- Back onto its font object: the design again after a chosen font is cleared,
+-- or after a font hovered in the settings list. SetFontObject also resets the
+-- colour and alignment the string's own code gave it: those are kept.
+local function reattach(fs, rec)
+	local r, g, b, a = fs:GetTextColor()
+	local h, v = fs:GetJustifyH(), fs:GetJustifyV()
+	fs:SetFontObject(rec.fontObject)
+	if r then fs:SetTextColor(r, g, b, a) end
+	if h then fs:SetJustifyH(h) end
+	if v then fs:SetJustifyV(v) end
+	rec.template = true
 end
 
 -- Re-apply every remembered font string: called when a font setting changes.
@@ -163,8 +179,10 @@ function SP:RefreshFonts()
 		if live(fs) then
 		rec.gen = gen
 		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path)
-		-- a template string still on its own font stays there while the design applies
-		if not (rec.template and path == rec.path and flags == rec.flags) then
+		if path == rec.path and flags == rec.flags and (rec.template or rec.fontObject) then
+			-- the design for a template string: its own font object, never SetFont
+			if not rec.template then reattach(fs, rec) end
+		else
 			rec.template = nil
 			apply(fs, path, rec.size, flags, rec.path, rec.flags)
 		end
