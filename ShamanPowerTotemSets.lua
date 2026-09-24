@@ -652,16 +652,21 @@ local function OnTotemBarChanged(event, slot)
 end
 
 ef:SetScript("OnEvent", function(_, event, slot)
-	if not SP:HasTotemBar() then return end
+	-- the set cache is for the shadow totem model (Call of the Elements in combat),
+	-- which runs whether or not ShamanPower draws a totem bar: fill it first
 	if event == "PLAYER_REGEN_DISABLED" then SP:CacheTotemSetPages() return end
 	if event == "PLAYER_ENTERING_WORLD" then
 		C_Timer.After(3, function()
 			if not SP.opt then return end
 			SP:CacheTotemSetPages()
+			if not SP:HasTotemBar() then return end
 			if SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
 			QueueBoundRefresh()
 		end)
-	elseif event == "PLAYER_REGEN_ENABLED" then
+		return
+	end
+	if not SP:HasTotemBar() then return end
+	if event == "PLAYER_REGEN_ENABLED" then
 		if not SP.opt then return end
 		local boundPending = false
 		for page = 2, 3 do
