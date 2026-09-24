@@ -2101,10 +2101,11 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 			end
 			upd()
 		end })
-	row("Slider", { label = "    Frame opacity", min = 10, max = 100, step = 5, disabled = noSep, get = function() return math.floor(((SP.opt.rangeCounter and SP.opt.rangeCounter.opacity) or 1.0) * 100 + 0.5) end,
+	row("Slider", { label = "    Frame opacity", min = 0.1, max = 1.0, step = 0.05, isPercent = true, disabled = noSep, get = function() return (SP.opt.rangeCounter and SP.opt.rangeCounter.opacity) or 1.0 end,
 		set = function(v)
-			rc().opacity = v / 100
-			for el = 1, 4 do local f = SP.rangeCounterFrames and SP.rangeCounterFrames[el]; if f then f:SetAlpha(v / 100) end end
+			v = math.floor(v * 100 + 0.5) / 100   -- whole percents, as before
+			rc().opacity = v
+			for el = 1, 4 do local f = SP.rangeCounterFrames and SP.rangeCounterFrames[el]; if f then f:SetAlpha(v) end end
 			upd()
 		end })
 	return y
@@ -2523,7 +2524,8 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 		set = function(v) sv().displayMode = v; upd("UpdateTremorReminderAppearance") end,
 		values = function() return { icon = "Icon", text = "TREMOR! text", both = "Icon and text" } end, order = function() return { "icon", "text", "both" } end })
 	row("Slider", { label = "Icon size", min = 32, max = 256, step = 1, disabled = off, get = function() return get("iconSize", 64) end, set = function(v) sv().iconSize = v; upd("UpdateTremorReminderAppearance") end })
-	row("Slider", { label = "Opacity", min = 50, max = 100, step = 5, disabled = off, get = function() return get("opacity", 100) end, set = function(v) sv().opacity = v; upd("UpdateTremorReminderAppearance") end })
+	-- stored as a whole percent (50-100); the slider runs on fractions so it reads "100%"
+	row("Slider", { label = "Opacity", min = 0.5, max = 1.0, step = 0.05, isPercent = true, disabled = off, get = function() return get("opacity", 100) / 100 end, set = function(v) sv().opacity = math.floor(v * 100 + 0.5); upd("UpdateTremorReminderAppearance") end })
 	row("Slider", { label = "Text size", min = 12, max = 48, step = 1, disabled = off, get = function() return get("textSize", 24) end, set = function(v) sv().textSize = v; upd("UpdateTremorReminderAppearance") end })
 	row("Toggle", { label = "Pulsing glow", disabled = off, get = function() return get("showGlow", true) end, set = function(v) sv().showGlow = v; upd("UpdateTremorReminderAppearance") end })
 	row("Color", { label = "Glow color", disabled = function() return off() or not get("showGlow", true) end,
@@ -2617,7 +2619,8 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	row("Slider", { label = "Text size", min = 12, max = 36, step = 1, disabled = off, get = function() return get("textSize", 24) end, set = function(v) sv().textSize = v; upd("UpdateExpiringAlertsAppearance") end })
 	row("Slider", { label = "Icon size", min = 24, max = 64, step = 2, disabled = off, get = function() return get("iconSize", 32) end, set = function(v) sv().iconSize = v; upd("UpdateExpiringAlertsAppearance") end })
 	row("Slider", { label = "Duration (s)", min = 1, max = 5, step = 0.5, disabled = off, get = function() return get("duration", 2.5) end, set = function(v) sv().duration = v; upd() end })
-	row("Slider", { label = "Opacity", min = 50, max = 100, step = 5, disabled = off, get = function() return get("opacity", 100) end, set = function(v) sv().opacity = v; upd() end })
+	-- stored as a whole percent (50-100); the slider runs on fractions so it reads "100%"
+	row("Slider", { label = "Opacity", min = 0.5, max = 1.0, step = 0.05, isPercent = true, disabled = off, get = function() return get("opacity", 100) / 100 end, set = function(v) sv().opacity = math.floor(v * 100 + 0.5); upd() end })
 	row("Toggle", { label = "Outlined text", disabled = off, get = function() return get("fontOutline", true) end, set = function(v) sv().fontOutline = v; upd("UpdateExpiringAlertsAppearance") end })
 
 	header("ALERT WHEN THESE FADE")
@@ -3316,13 +3319,14 @@ local function PresetSummary(preset)
 	local p = payload and payload.profile or {}
 	local x = payload and payload.extras or {}
 	local function on(v) return v and "|cff40ff40on|r" or "|cff8090a0off|r" end
+	local function pct(v) return math.floor(v * 100 + 0.5) end   -- scale reads as a percent: 0.9 -> "90%"
 	local style = p.dynamicTotemMode and "Dynamic (PvP)" or (p.activeTotemAsMain and "TotemTimers style" or "Normal")
 	local dbp = ({ none = "none", bottom = "bottom", bottom_vert = "bottom (vertical)", top = "top", top_vert = "top (vertical)", left = "left", right = "right" })[p.durationBarPosition or "bottom"] or tostring(p.durationBarPosition)
 	local dots = (p.showPartyRangeDots and (p.rangeCounter and p.rangeCounter.enabled) and "dots + numbers") or (p.showPartyRangeDots and "dots") or ((p.rangeCounter and p.rangeCounter.enabled) and "numbers") or "off"
 	local lines = {
-		{ "Totem bar", string.format("%s, %s, size %.2f%s", p.layout or "Horizontal", style, p.buffscale or 1, p.hideTotemBarFrame and ", no frame" or "") },
+		{ "Totem bar", string.format("%s, %s, size %d%%%s", p.layout or "Horizontal", style, pct(p.buffscale or 1), p.hideTotemBarFrame and ", no frame" or "") },
 		{ "Duration bars", dbp .. ((p.durationTextLocation and p.durationTextLocation ~= "none") and (", time " .. p.durationTextLocation) or "") },
-		{ "Cooldown bar", (p.showCooldownBar == false) and "off" or string.format("%s, size %.2f%s", p.cdbarLayout or p.layout or "Horizontal", p.cooldownBarScale or 0.9, p.hideCooldownBarFrame and ", no frame" or "") },
+		{ "Cooldown bar", (p.showCooldownBar == false) and "off" or string.format("%s, size %d%%%s", p.cdbarLayout or p.layout or "Horizontal", pct(p.cooldownBarScale or 0.9), p.hideCooldownBarFrame and ", no frame" or "") },
 		{ "Totem twisting", on(p.enableTotemTwisting) },
 		{ "Shield charges", on(p.shieldChargeDisplay and p.shieldChargeDisplay.showPlayerShield ~= false) },
 		{ "Party Buff Tracker", dots .. (p.partyDotPosition and p.partyDotPosition ~= "corners" and (", dots " .. p.partyDotPosition) or "") },
