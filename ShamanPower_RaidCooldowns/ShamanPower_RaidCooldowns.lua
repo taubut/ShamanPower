@@ -855,12 +855,7 @@ function SP:CreateCallerButtonFrame()
 
 	-- Enable/disable caller button systems based on visibility
 	frame:HookScript("OnShow", function()
-		if callerRequestEstimates then
-			SP:StartCallerCooldownTracking()
-		else
-			SP:EnableCallerCooldownTracking()
-			SP:EnableUpdateSubsystem("callerButtons")
-		end
+		SP:StartCallerCooldownTracking()
 	end)
 	frame:HookScript("OnHide", function()
 		SP:DisableCallerCooldownTracking()
@@ -1239,6 +1234,8 @@ function SP:OnShamanCooldownCast(unit, spellID)
 			self:RemoveCooldownButtonAlert(16190)
 		end
 	end
+	-- a cooldown to count down: wake the caller buttons' refresh
+	self:StartCallerCooldownTracking()
 end
 
 -- Save cooldown to SavedVariables for persistence across reloads
@@ -1288,13 +1285,14 @@ function SP:RestoreCallerCooldowns()
 			end
 		end
 	end
-	if callerRequestEstimates then
-		self:UpdateCallerButtonCooldowns()
-		self:StartCallerCooldownTracking()
-	end
+	self:UpdateCallerButtonCooldowns()
+	self:StartCallerCooldownTracking()
 end
 
--- Start the cooldown tracking OnUpdate
+-- Caller buttons shown: casts are watched (events only) the whole time, and the
+-- 0.2 s refresh runs only while a button has a cooldown to count down. Whatever
+-- starts one (a cast, a request, a restore, a demo click) calls this to wake it;
+-- UpdateCallerButtonCooldowns puts it back to sleep when the last one ends.
 function SP:StartCallerCooldownTracking()
 	local frame = self.callerButtonFrame
 	if not frame then return end
@@ -1305,14 +1303,15 @@ function SP:StartCallerCooldownTracking()
 			SP:UpdateCallerButtonCooldowns()
 		end)
 	end
-	-- With no combat-log feed, an idle Forever frame has nothing to poll.
-	local run = frame:IsShown() and (not callerRequestEstimates or self.raidCDDemoActive
-		or HasLiveCallerCooldown(self, _G.GetTime()))
-	if run then
-		self:EnableCallerCooldownTracking()  -- Also registers COMBAT_LOG_EVENT_UNFILTERED
+	if not frame:IsShown() then
+		self:DisableCallerCooldownTracking()
+		self:DisableUpdateSubsystem("callerButtons")
+		return
+	end
+	self:EnableCallerCooldownTracking()
+	if self.raidCDDemoActive or HasLiveCallerCooldown(self, _G.GetTime()) then
 		self:EnableUpdateSubsystem("callerButtons")
 	else
-		self:DisableCallerCooldownTracking()
 		self:DisableUpdateSubsystem("callerButtons")
 	end
 end
@@ -1367,7 +1366,7 @@ function SP:UpdateCallerButtonCooldowns()
 			end
 		end
 	end
-	if callerRequestEstimates and not self.raidCDDemoActive and not HasLiveCallerCooldown(self, now) then
+	if not self.raidCDDemoActive and not HasLiveCallerCooldown(self, now) then
 		self:DisableUpdateSubsystem("callerButtons")
 	end
 end
@@ -1538,7 +1537,7 @@ function SP:RaidCDDemo(on)
 		frame:SetSize(width, 62)
 		frame:Show()
 		self:UpdateCallerButtonOpacity()
-		if callerRequestEstimates then self:StartCallerCooldownTracking() end
+		self:StartCallerCooldownTracking()
 	else
 		self.raidCDDemoActive = false
 		local frame = self.callerButtonFrame
