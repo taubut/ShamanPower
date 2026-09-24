@@ -29,6 +29,7 @@ ShamanPowerOptions.lua
 ShamanPowerManaTint.lua
 ShamanPowerMinimapMenu.lua
 ShamanPowerLoadoutRules.lua
+ShamanPowerResist.lua
 ShamanPowerAnnounce.lua
 ShamanPowerShare.lua
 ShamanPowerPresets.lua
