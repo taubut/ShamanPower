@@ -1337,7 +1337,8 @@ function SP:StartCallerCooldownTracking()
 		return
 	end
 	self:EnableCallerCooldownTracking()
-	if self.raidCDDemoActive or HasLiveCallerCooldown(self, _G.GetTime()) then
+	-- the settings sample's cooldowns live in callerCooldowns too, so this covers them
+	if HasLiveCallerCooldown(self, _G.GetTime()) then
 		self:EnableUpdateSubsystem("callerButtons")
 	else
 		self:DisableUpdateSubsystem("callerButtons")
@@ -1394,7 +1395,7 @@ function SP:UpdateCallerButtonCooldowns()
 			end
 		end
 	end
-	if not self.raidCDDemoActive and not HasLiveCallerCooldown(self, now) then
+	if not HasLiveCallerCooldown(self, now) then
 		self:DisableUpdateSubsystem("callerButtons")
 	end
 end
@@ -1511,6 +1512,7 @@ function SP:RaidCDDemoClick(kind, btn)
 		self:ShowDrumsAlert()
 	end
 	self:UpdateCallerButtonCooldowns()
+	self:StartCallerCooldownTracking()   -- wakes the refresh for the sample sweep
 end
 
 function SP:RaidCDDemo(on)
@@ -1565,6 +1567,9 @@ function SP:RaidCDDemo(on)
 		frame:SetSize(width, 62)
 		frame:Show()
 		self:UpdateCallerButtonOpacity()
+		-- one pass now: the refresh sleeps unless a cooldown is live, and the kept
+		-- Bloodlust button may still be dimmed from a real one that ran out while hidden
+		self:UpdateCallerButtonCooldowns()
 		self:StartCallerCooldownTracking()
 	else
 		self.raidCDDemoActive = false
