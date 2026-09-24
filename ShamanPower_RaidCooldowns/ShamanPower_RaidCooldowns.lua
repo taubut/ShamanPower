@@ -1415,14 +1415,22 @@ function SP:SetCallerButtonCooldown(btn, start, duration)
 		cd:SetDrawBling(false)
 		cd:SetDrawSwipe(true)
 		cd:SetSwipeColor(0, 0, 0, 0.8)
-		-- the game draws the countdown numbers (Show Numbers for Cooldowns): its own
-		-- font is the design, and they follow the Fonts settings' timer font
-		local ok, fs = pcall(cd.GetCountdownFontString, cd)
-		if ok and fs and fs:GetFont() then SP:AdoptSPFont(fs, "timers") end
 		btn.cooldownFrame = cd
 	end
 
-	btn.cooldownFrame:SetCooldown(start, duration)
+	local cd = btn.cooldownFrame
+	cd:SetCooldown(start, duration)
+	-- the game draws the countdown numbers (Show Numbers for Cooldowns): its own
+	-- font is the design, and they follow the Fonts settings' timer font. Taken once
+	-- the string has a font, which may be only after a countdown starts (a string
+	-- with none would get a made-up size); until then each refresh tries again.
+	if not cd.spFontAdopted then
+		local ok, fs = pcall(cd.GetCountdownFontString, cd)
+		if ok and fs and fs:GetFont() then
+			SP:AdoptSPFont(fs, "timers")
+			cd.spFontAdopted = true
+		end
+	end
 
 	-- Desaturate the icon
 	if btn.icon then
