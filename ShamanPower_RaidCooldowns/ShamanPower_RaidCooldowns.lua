@@ -53,35 +53,38 @@ local function sendCall(msg)
 	pcall(ChatThrottleLib.SendAddonMessage, ChatThrottleLib, "ALERT", CALL_PREFIX, msg, channel)
 end
 
--- Every press goes out on both prefixes; each press alerts once, and a re-press
--- (the shaman missed it) always gets through. No time window decides that: the
--- main-prefix copy waits at NORMAL priority and can arrive any time later.
--- Once a sender has been heard on CALL_PREFIX, its CALL_PREFIX copies are the
--- calls and its main-prefix copies are ignored. Until then (an older version
--- without CALL_PREFIX, or the first calls of the session) every main copy is
--- acted on and queued, and each CALL_PREFIX copy drops one queued copy of the
--- same message: two quick presses arriving main, main, fast, fast alert twice.
--- ChatThrottleLib holds a throttled copy back rather than dropping it, so a twin
--- can lag by seconds; a queued copy is forgotten only after CALL_PAIR_WINDOW
--- (an older version never sends the CALL_PREFIX twin).
-local CALL_PAIR_WINDOW = 30
-local callPrefixSenders = {}   -- [sender] = true once a call came on CALL_PREFIX
+-- Every press goes out on both prefixes and alerts once. The main-prefix copy
+-- waits at NORMAL priority and can arrive any time later, so once a CALL_PREFIX
+-- copy of a call (sender and message) has been acted on, that call's
+-- CALL_PREFIX copies alert and its main-prefix copies are ignored. Until then
+-- (an older version without CALL_PREFIX, or the first presses of a call) every
+-- main copy alerts and is queued, and each CALL_PREFIX copy drops one queued
+-- copy instead of alerting: two quick presses arriving main, main, fast, fast
+-- alert twice. ChatThrottleLib drops a send that fails for any reason but the
+-- prefix throttle, so the queued copy dropped can be one whose own twin was
+-- lost, and the CALL_PREFIX copy a re-press's: dropping one marks nothing, and
+-- that re-press's main copy still alerts when it lands. A queued copy is
+-- forgotten after CALL_PAIR_WINDOW (an older version never sends the twin; a
+-- twin later than that alerts again). Without an id per press, a lost
+-- CALL_PREFIX copy of a call already acted on is a lost alert.
+local CALL_PAIR_WINDOW = 10
+local callPrefixCalls = {}     -- [sender .. message] = true once a CALL_PREFIX copy of it was acted on
 local unpairedCalls = {}       -- [sender .. message] = { when each unpaired main copy was acted on, oldest first }
 local function isRepeatCall(prefix, sender, message)
 	sender = sender or ""
-	if prefix ~= CALL_PREFIX and callPrefixSenders[sender] then return true end
 	local key = sender .. "\001" .. message
+	if prefix ~= CALL_PREFIX and callPrefixCalls[key] then return true end
 	local now = GetTime()
 	local waiting = unpairedCalls[key]
 	if waiting then
 		while waiting[1] and now - waiting[1] >= CALL_PAIR_WINDOW do table.remove(waiting, 1) end
 	end
 	if prefix == CALL_PREFIX then
-		callPrefixSenders[sender] = true
 		if waiting and waiting[1] then
 			table.remove(waiting, 1)
 			return true
 		end
+		callPrefixCalls[key] = true
 		return false
 	end
 	if not waiting then waiting = {}; unpairedCalls[key] = waiting end
