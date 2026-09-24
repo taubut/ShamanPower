@@ -762,9 +762,28 @@ function SP:OnShadowTotemGone(element, entry, why)
 	if previousState.totems[element] then previousState.totems[element].active = false end
 end
 
+-- WoW: Forever, out of combat: Totemic Recall empties every slot on purpose, and its
+-- cast event can land either side of the slot updates. So the verdict waits one bind
+-- window (as the core's in-combat path does); a recall, your death, or a totem of that
+-- element standing again by then (a totem set re-filling the slots) is not "destroyed".
+local deferDestroyed = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local DESTROYED_BIND_WINDOW = 0.5
+local function ConfirmDestroyed(element, totemName, elementColor)
+	local recallAt = ShamanPower._totemRecallAt
+	if recallAt and GetTime() - recallAt < 2 then return end
+	if UnitIsDeadOrGhost("player") then return end
+	if ElementTotemInfo(element) then return end
+	SP:TotemDestroyedAlert(totemName, elementColor)
+end
+
 function SP:CheckTotemState(initializing)
 	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
 	if SPCompat and SPCompat.combatDataSecret then return end
+	-- The core serves totems from its shadow model whenever a restriction is on (its
+	-- totemsSecretNow), and its OnShadowTotemGone announces those; the flag above is
+	-- only raised by a secret read, which the shadow model never makes. Stand down on
+	-- the same test, or one totem gets two "destroyed" alerts.
+	if SPCompat and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return end
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.totems or not sv.totems.enabled then return end
 
@@ -794,6 +813,9 @@ function SP:CheckTotemState(initializing)
 						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
 						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Expired", icon, elementColor)
 					end
+				elseif deferDestroyed then
+					-- Totem was destroyed, unless a recall or death says otherwise (above)
+					C_Timer.After(DESTROYED_BIND_WINDOW, function() ConfirmDestroyed(element, prevName, elementColor) end)
 				else
 					-- Totem was destroyed
 					self:TotemDestroyedAlert(prevName, elementColor)
