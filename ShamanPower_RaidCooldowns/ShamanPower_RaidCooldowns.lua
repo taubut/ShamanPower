@@ -22,7 +22,7 @@ local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompa
 -- prefix, at ChatThrottleLib's ALERT priority: Blizzard throttles addon messages
 -- per prefix, so a backlog on the main one (a roster change in a big raid) can
 -- never hold a call back. The main prefix still carries them for older versions;
--- a call that arrives on both is acted on once (see seenCall).
+-- a call that arrives on both is acted on once (see isRepeatCall).
 local CALL_PREFIX = "SHPWRC"
 do
 	local register = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or _G.RegisterAddonMessagePrefix
@@ -52,17 +52,29 @@ local function sendCall(msg)
 	pcall(ChatThrottleLib.SendAddonMessage, ChatThrottleLib, "ALERT", CALL_PREFIX, msg, channel)
 end
 
--- A call that arrives on both prefixes (or twice) from the same sender is acted
--- on once. Both copies arrive within moments of each other, so only a very short
--- window is treated as a repeat: a caller pressing the same call again (the shaman
--- missed it) a few seconds later still gets through.
-local seenCall = {}
-local function isRepeatCall(sender, message)
-	local key = (sender or "") .. "\001" .. message
-	local now = GetTime()
-	local last = seenCall[key]
-	seenCall[key] = now
-	return last ~= nil and (now - last) < 3
+-- Every press goes out on both prefixes; each press alerts once, and a re-press
+-- (the shaman missed it) always gets through. No time window decides that: the
+-- main-prefix copy waits at NORMAL priority and can arrive any time later.
+-- Once a sender has been heard on CALL_PREFIX, its CALL_PREFIX copies are the
+-- calls and its main-prefix copies are ignored. Until then (an older version
+-- without CALL_PREFIX, or the first call of the session) the main copy is acted
+-- on, and the CALL_PREFIX copy of that same press, arriving moments later, is
+-- dropped once.
+local CALL_PAIR_WINDOW = 5
+local callPrefixSenders = {}   -- [sender] = true once a call came on CALL_PREFIX
+local unpairedCall = {}        -- [sender .. message] = when its main copy was acted on
+local function isRepeatCall(prefix, sender, message)
+	sender = sender or ""
+	if prefix == CALL_PREFIX then
+		callPrefixSenders[sender] = true
+		local key = sender .. "\001" .. message
+		local at = unpairedCall[key]
+		unpairedCall[key] = nil
+		return at ~= nil and (GetTime() - at) < CALL_PAIR_WINDOW
+	end
+	if callPrefixSenders[sender] then return true end
+	unpairedCall[sender .. "\001" .. message] = GetTime()
+	return false
 end
 local callerRequestEstimates = _G.SPCompat and _G.SPCompat.secretsRegime
 
@@ -287,7 +299,7 @@ function SP:CallManaTideForShaman(shamanName)
 	end
 
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
@@ -404,7 +416,7 @@ function SP:CallDrums()
 		return
 	end
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	self:SendMessage("DRUMCALL", nil, nil, true)
@@ -433,7 +445,7 @@ function SP:CallBloodlust()
 
 	-- Send call message
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	self:SendMessage("BLCALL|" .. target, nil, nil, true)
@@ -458,7 +470,7 @@ function SP:CallManaTide()
 
 	-- Send call to all shamans with Mana Tide
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked during this fight - call it by voice.")
+		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL", nil, nil, true)
@@ -486,6 +498,30 @@ function SP:ShowBloodlustAlert()
 	self:AddCooldownButtonAlert(blSpellID)
 end
 
+-- WoW: Forever: your own Mana Tide ends the cooldown bar alert (else it pulses its
+-- full 10 s; the caller buttons' cast watch only runs where they show). Your own
+-- casts are never secret, and this listens only while an alert is up.
+local ownTideFrame, ownTideSerial = nil, 0
+local function WatchOwnManaTide()
+	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+	if not ownTideFrame then
+		ownTideFrame = CreateFrame("Frame")
+		ownTideFrame:SetScript("OnEvent", function(f, _, _, _, spellID)
+			if issecretvalue and issecretvalue(spellID) then return end
+			if spellID == 16190 then
+				f:UnregisterAllEvents()
+				SP:RemoveCooldownButtonAlert(16190)
+			end
+		end)
+	end
+	ownTideFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	ownTideSerial = ownTideSerial + 1
+	local serial = ownTideSerial
+	C_Timer.After(10, function()
+		if ownTideSerial == serial then ownTideFrame:UnregisterAllEvents() end
+	end)
+end
+
 -- Show alert when called for Mana Tide
 function SP:ShowManaTideAlert()
 	-- Show center screen alert
@@ -493,6 +529,7 @@ function SP:ShowManaTideAlert()
 
 	-- Also add glow/shake to cooldown bar button
 	self:AddCooldownButtonAlert(16190)  -- Mana Tide Totem spell ID
+	WatchOwnManaTide()
 end
 
 -- Show a center screen alert with icon and text
@@ -541,10 +578,11 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 
 		local swell = iconTex:CreateAnimationGroup()
 		swell:SetLooping("REPEAT")
-		-- newer clients name these SetScaleFrom/SetScaleTo, older ones SetFromScale/SetToScale
+		-- Forever and Anniversary both name these SetScaleFrom/SetScaleTo; clients
+		-- before them used SetFromScale/SetToScale (either missing: no swell, no error)
 		local function scale(anim, from, to)
 			if anim.SetScaleFrom then anim:SetScaleFrom(from, from); anim:SetScaleTo(to, to)
-			else anim:SetFromScale(from, from); anim:SetToScale(to, to) end
+			elseif anim.SetFromScale then anim:SetFromScale(from, from); anim:SetToScale(to, to) end
 		end
 		local grow = swell:CreateAnimation("Scale")
 		scale(grow, 0.95, 1.05); grow:SetDuration(0.628); grow:SetSmoothing("IN_OUT"); grow:SetOrder(1)
@@ -562,6 +600,9 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 
 		frame:SetScript("OnHide", function(f)
 			f.pulse:Stop(); f.swell:Stop(); f.life:Stop()
+			-- OnHide also fires when UIParent hides (Alt+Z, a cinematic) while the alert
+			-- itself stays shown: end it, or it comes back with no timeline to hide it
+			if f:IsShown() then f:Hide() end
 		end)
 
 		frame:Hide()
@@ -602,7 +643,7 @@ end
 -- Handle incoming raid cooldown messages
 function SP:HandleRaidCooldownMessage(prefix, message, sender)
 	local cmd, rest = strsplit("|", message, 2)
-	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and isRepeatCall(sender, message) then return end
+	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and isRepeatCall(prefix, sender, message) then return end
 
 	if cmd == "RCSYNC" then
 		-- Sync from raid leader
@@ -786,6 +827,7 @@ function SP:CreateCallerButtonFrame()
 
 	-- Name label under BL button (shows who will use BL)
 	local blNameLabel = blBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	SP:AdoptSPFont(blNameLabel, "labels")   -- template font = the design; follows the Fonts settings
 	blNameLabel:SetPoint("TOP", blBtn, "BOTTOM", 0, -2)
 	blNameLabel:SetText("")
 	blBtn.nameLabel = blNameLabel
@@ -826,6 +868,7 @@ function SP:CreateCallerButtonFrame()
 	end)
 	drumBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	local drumLabel = drumBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	SP:AdoptSPFont(drumLabel, "labels")
 	drumLabel:SetPoint("TOP", drumBtn, "BOTTOM", 0, -2)
 	drumLabel:SetText("")
 	drumBtn.nameLabel = drumLabel
@@ -837,12 +880,7 @@ function SP:CreateCallerButtonFrame()
 
 	-- Enable/disable caller button systems based on visibility
 	frame:HookScript("OnShow", function()
-		if callerRequestEstimates then
-			SP:StartCallerCooldownTracking()
-		else
-			SP:EnableCallerCooldownTracking()
-			SP:EnableUpdateSubsystem("callerButtons")
-		end
+		SP:StartCallerCooldownTracking()
 	end)
 	frame:HookScript("OnHide", function()
 		SP:DisableCallerCooldownTracking()
@@ -942,6 +980,7 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 
 	-- Name label under MT button (shows shaman name)
 	local mtNameLabel = mtBtn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	SP:AdoptSPFont(mtNameLabel, "labels")
 	mtNameLabel:SetPoint("TOP", mtBtn, "BOTTOM", 0, -2)
 	mtNameLabel:SetText(shamanName)
 	mtBtn.nameLabel = mtNameLabel
@@ -1106,10 +1145,10 @@ end
 -- Track the shamans' Bloodlust / Heroism / Mana Tide casts. This used to read
 -- the whole combat log (thousands of events a second in a raid) to find a few
 -- shaman casts; it now listens to UNIT_SPELLCAST_SUCCEEDED from the shamans'
--- own unit tokens only: one small frame per shaman in the group, rebuilt when
--- the roster changes, and nothing registered while the caller buttons are hidden.
+-- own unit tokens only: one small frame per shaman in the group, rebuilt once
+-- the roster settles, and nothing registered while the caller buttons are hidden.
 local castFrames = {}     -- pooled frames, one per watched shaman unit
-local rosterFrame
+local rosterHooked = false
 
 local function watchUnit(i, unit, alias)
 	local f = castFrames[i]
@@ -1135,6 +1174,13 @@ end
 -- every shaman in the group (the player included), by the tokens this client uses
 local function rebuildWatchedShamans()
 	unwatchAll()
+	-- WoW: Forever: other players' casts are secret whenever a restriction is on
+	-- (combat, instances, PvP matches), so only your own casts (never secret) are
+	-- watched there; the others' buttons keep the request estimates.
+	if SPCompat and SPCompat.secretsRegime then
+		if select(2, UnitClass("player")) == "SHAMAN" then watchUnit(1, "player") end
+		return
+	end
 	local n = 0
 	local function aliasOf(unit)
 		if not IsInRaid() then return nil end
@@ -1157,22 +1203,19 @@ local function rebuildWatchedShamans()
 end
 
 function SP:SetupCallerCooldownTracking()
-	if rosterFrame then return end
-	rosterFrame = CreateFrame("Frame")
-	-- Don't register events here - EnableCallerCooldownTracking will do it
-	rosterFrame:SetScript("OnEvent", function() rebuildWatchedShamans() end)
-	self.callerCooldownFrame = rosterFrame
+	if rosterHooked then return end
+	rosterHooked = true
+	-- The core's one pass a second after the roster settles (a raid forming fires
+	-- dozens of GROUP_ROSTER_UPDATEs), not every raw event.
+	hooksecurefunc(self, "OnRosterSettled", function()
+		if SP.callerCooldownTrackingEnabled then rebuildWatchedShamans() end
+	end)
 end
 
 -- Enable cast tracking (called when caller buttons are shown)
 function SP:EnableCallerCooldownTracking()
-	-- Secret-value clients: other players' cast events carry secret arguments in
-	-- combat, and the caller tracking never worked there (it used the combat log,
-	-- which is a forbidden registration under restrictions). Skip it, as before.
-	if SPCompat and SPCompat.secretsRegime then return end
 	self:SetupCallerCooldownTracking()
 	if not self.callerCooldownTrackingEnabled then
-		rosterFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 		rebuildWatchedShamans()
 		self.callerCooldownTrackingEnabled = true
 	end
@@ -1180,8 +1223,7 @@ end
 
 -- Disable cast tracking (called when caller buttons are hidden)
 function SP:DisableCallerCooldownTracking()
-	if rosterFrame and self.callerCooldownTrackingEnabled then
-		rosterFrame:UnregisterEvent("GROUP_ROSTER_UPDATE")
+	if self.callerCooldownTrackingEnabled then
 		unwatchAll()
 		self.callerCooldownTrackingEnabled = false
 	end
@@ -1220,6 +1262,8 @@ function SP:OnShamanCooldownCast(unit, spellID)
 			self:RemoveCooldownButtonAlert(16190)
 		end
 	end
+	-- a cooldown to count down: wake the caller buttons' refresh
+	self:StartCallerCooldownTracking()
 end
 
 -- Save cooldown to SavedVariables for persistence across reloads
@@ -1269,13 +1313,14 @@ function SP:RestoreCallerCooldowns()
 			end
 		end
 	end
-	if callerRequestEstimates then
-		self:UpdateCallerButtonCooldowns()
-		self:StartCallerCooldownTracking()
-	end
+	self:UpdateCallerButtonCooldowns()
+	self:StartCallerCooldownTracking()
 end
 
--- Start the cooldown tracking OnUpdate
+-- Caller buttons shown: casts are watched (events only) the whole time, and the
+-- 0.2 s refresh runs only while a button has a cooldown to count down. Whatever
+-- starts one (a cast, a request, a restore, a demo click) calls this to wake it;
+-- UpdateCallerButtonCooldowns puts it back to sleep when the last one ends.
 function SP:StartCallerCooldownTracking()
 	local frame = self.callerButtonFrame
 	if not frame then return end
@@ -1286,14 +1331,16 @@ function SP:StartCallerCooldownTracking()
 			SP:UpdateCallerButtonCooldowns()
 		end)
 	end
-	-- With no combat-log feed, an idle Forever frame has nothing to poll.
-	local run = frame:IsShown() and (not callerRequestEstimates or self.raidCDDemoActive
-		or HasLiveCallerCooldown(self, _G.GetTime()))
-	if run then
-		self:EnableCallerCooldownTracking()  -- Also registers COMBAT_LOG_EVENT_UNFILTERED
+	if not frame:IsShown() then
+		self:DisableCallerCooldownTracking()
+		self:DisableUpdateSubsystem("callerButtons")
+		return
+	end
+	self:EnableCallerCooldownTracking()
+	-- the settings sample's cooldowns live in callerCooldowns too, so this covers them
+	if HasLiveCallerCooldown(self, _G.GetTime()) then
 		self:EnableUpdateSubsystem("callerButtons")
 	else
-		self:DisableCallerCooldownTracking()
 		self:DisableUpdateSubsystem("callerButtons")
 	end
 end
@@ -1348,7 +1395,7 @@ function SP:UpdateCallerButtonCooldowns()
 			end
 		end
 	end
-	if callerRequestEstimates and not self.raidCDDemoActive and not HasLiveCallerCooldown(self, now) then
+	if not HasLiveCallerCooldown(self, now) then
 		self:DisableUpdateSubsystem("callerButtons")
 	end
 end
@@ -1371,7 +1418,19 @@ function SP:SetCallerButtonCooldown(btn, start, duration)
 		btn.cooldownFrame = cd
 	end
 
-	btn.cooldownFrame:SetCooldown(start, duration)
+	local cd = btn.cooldownFrame
+	cd:SetCooldown(start, duration)
+	-- the game draws the countdown numbers (Show Numbers for Cooldowns): its own
+	-- font is the design, and they follow the Fonts settings' timer font. Taken once
+	-- the string has a font, which may be only after a countdown starts (a string
+	-- with none would get a made-up size); until then each refresh tries again.
+	if not cd.spFontAdopted then
+		local ok, fs = pcall(cd.GetCountdownFontString, cd)
+		if ok and fs and fs:GetFont() then
+			SP:AdoptSPFont(fs, "timers")
+			cd.spFontAdopted = true
+		end
+	end
 
 	-- Desaturate the icon
 	if btn.icon then
@@ -1461,6 +1520,7 @@ function SP:RaidCDDemoClick(kind, btn)
 		self:ShowDrumsAlert()
 	end
 	self:UpdateCallerButtonCooldowns()
+	self:StartCallerCooldownTracking()   -- wakes the refresh for the sample sweep
 end
 
 function SP:RaidCDDemo(on)
@@ -1515,7 +1575,10 @@ function SP:RaidCDDemo(on)
 		frame:SetSize(width, 62)
 		frame:Show()
 		self:UpdateCallerButtonOpacity()
-		if callerRequestEstimates then self:StartCallerCooldownTracking() end
+		-- one pass now: the refresh sleeps unless a cooldown is live, and the kept
+		-- Bloodlust button may still be dimmed from a real one that ran out while hidden
+		self:UpdateCallerButtonCooldowns()
+		self:StartCallerCooldownTracking()
 	else
 		self.raidCDDemoActive = false
 		local frame = self.callerButtonFrame

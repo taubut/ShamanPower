@@ -412,6 +412,10 @@ function SP:CreateTotemPlateFrame(nameplate)
     local frame
     if #self.totemPlateCache > 0 then
         frame = table.remove(self.totemPlateCache)
+        -- a cached frame hangs off nothing, so a font or texture change skipped it:
+        -- re-apply both (no-ops when nothing changed; pulseText's timer does its own)
+        SP:SetSPFont(frame.name, "labels", 10, "OUTLINE")
+        SP:SetSPStatusBarTexture(frame.pulseBar, "pulse", "Interface\\TargetingFrame\\UI-StatusBar")
     else
         frame = CreateFrame("Frame", nil, nil, "BackdropTemplate")
         frame:SetFrameLevel(1)

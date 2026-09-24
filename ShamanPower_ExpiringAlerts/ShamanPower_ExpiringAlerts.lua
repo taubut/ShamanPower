@@ -144,7 +144,10 @@ local defaultSettings = {
 		fire = true,
 		water = true,
 		air = true,
-		sound = false,
+		-- totem alert sound: on for Forever, like the chat line above (it is how you
+		-- notice a totem killed mid-fight); opt-in on Anniversary as before. "expired"
+		-- is off, so out of the box it only sounds for a destroyed totem.
+		sound = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
 		soundName = "Alarm Clock Warning 3",
 	},
 	weaponImbues = {
@@ -223,6 +226,13 @@ function SP:InitExpiringAlerts()
 	end
 	for k, v in pairs(defaultSettings.weaponImbues) do
 		if sv.weaponImbues[k] == nil then sv.weaponImbues[k] = v end
+	end
+	-- Forever: a profile made before the totem sound defaulted on already holds the
+	-- old default (off), written above on its first load. Turn it on once; a later
+	-- choice in the settings sticks.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not sv.totems.soundDefaultForever then
+		sv.totems.sound = true
+		sv.totems.soundDefaultForever = true
 	end
 
 	-- Create the alert frame
@@ -474,7 +484,9 @@ function SP:ProcessAlertQueue()
 	-- Configure text
 	local textWidth = 0
 	if showText then
-		local displayText = alertData.spellName .. " FADED!"
+		-- shields and imbues name the buff that faded; totem alerts carry their
+		-- own ending ("Destroyed!", "Expired")
+		local displayText = alertData.alertType == "totem" and alertData.spellName or (alertData.spellName .. " FADED!")
 		frame.text:SetText(displayText)
 		local outline = sv.fontOutline and "OUTLINE" or ""
 		SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, outline)
@@ -708,10 +720,12 @@ end
 
 -- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
 -- resolver handles clients that fill slots in cast order; otherwise the fixed
--- slot map applies (WoW slot 1 is Fire, slot 2 is Earth).
+-- slot map applies (WoW slot 1 is Fire, slot 2 is Earth). Sixth value: the slot.
 local function ElementTotemInfo(element)
 	if ShamanPower.GetElementTotemInfo then return ShamanPower:GetElementTotemInfo(element) end
-	return GetTotemInfo(ShamanPower.ElementToSlot[element])
+	local slot = ShamanPower.ElementToSlot[element]
+	local haveTotem, totemName, startTime, duration, icon = GetTotemInfo(slot)
+	return haveTotem, totemName, startTime, duration, icon, slot
 end
 
 -- Every way of saying "a totem was destroyed": the alert (and its sound), a line
@@ -729,8 +743,35 @@ function SP:TotemDestroyedAlert(totemName, elementColor)
 	end
 	if t.destroyedParty and IsInGroup() then
 		local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or "PARTY"
-		pcall(SendChatMessage, label .. " destroyed!", channel)
+		-- Forever has SendChatMessage only as C_ChatInfo.SendChatMessage, and locks
+		-- addon chat in boss fights, M+ and PvP matches: skip the send there (as
+		-- Cooldown Announce does) and tell only you that the group was not told
+		local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+		local locked = _G.SPK and _G.SPK() == true
+		local sent = not locked and send and pcall(send, label .. " destroyed!", channel)
+		if not sent and DEFAULT_CHAT_FRAME then
+			local why = locked and "the game locks group chat right now, your group was not told."
+				or "the group chat message could not be sent."
+			DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cff999999" .. label .. " destroyed: " .. why .. "|r")
+		end
 	end
+end
+
+-- WoW: Forever: your own right-click destroy (ShamanPower's opt-in one on the totem
+-- bar, or Blizzard's totem frame) empties a slot on purpose, so it is not "destroyed"
+-- either. A post-hook also runs when the secure action calls DestroyTotem, and taints
+-- nothing; it notes which slot, and when.
+local playerDestroyAt = {}   -- [slot] = GetTime() of your own DestroyTotem(slot)
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" then
+	hooksecurefunc("DestroyTotem", function(slot)
+		if _G.issecretvalue and _G.issecretvalue(slot) then return end
+		slot = tonumber(slot)
+		if slot then playerDestroyAt[slot] = GetTime() end
+	end)
+end
+local function DestroyedByPlayer(slot)
+	local at = slot and playerDestroyAt[slot]
+	return at ~= nil and GetTime() - at < 2
 end
 
 -- While the game hides totem data (combat on WoW: Forever), CheckTotemState stands
@@ -744,25 +785,48 @@ function SP:OnShadowTotemGone(element, entry, why)
 	if elementKey and sv.totems[elementKey] == false then return end
 	local color = info and info.color or { r = 1, g = 1, b = 1 }
 	if why == "destroyed" then
-		self:TotemDestroyedAlert(entry.name, color)
+		-- the core cannot tell your own right-click destroy from an enemy's
+		if not DestroyedByPlayer(entry.slot) then self:TotemDestroyedAlert(entry.name, color) end
 	elseif why == "expired" and sv.totems.expired then
 		self:ShowExpiringAlert("totem", StripRank(entry.name or "Totem") .. " Expired", "Interface\\Icons\\Spell_Shaman_TotemRecall", color)
 	end
 	if previousState.totems[element] then previousState.totems[element].active = false end
 end
 
+-- WoW: Forever, out of combat: Totemic Recall empties every slot on purpose, and its
+-- cast event can land either side of the slot updates. So the verdict waits one bind
+-- window (as the core's in-combat path does); a recall, your own destroy, your death,
+-- or a totem of that element standing again by then (a totem set re-filling the
+-- slots) is not "destroyed".
+local deferDestroyed = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local DESTROYED_BIND_WINDOW = 0.5
+local function ConfirmDestroyed(element, slot, totemName, elementColor)
+	local recallAt = ShamanPower._totemRecallAt
+	if recallAt and GetTime() - recallAt < 2 then return end
+	if DestroyedByPlayer(slot) then return end
+	if UnitIsDeadOrGhost("player") then return end
+	if ElementTotemInfo(element) then return end
+	SP:TotemDestroyedAlert(totemName, elementColor)
+end
+
 function SP:CheckTotemState(initializing)
 	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
 	if SPCompat and SPCompat.combatDataSecret then return end
+	-- The core serves totems from its shadow model whenever a restriction is on (its
+	-- totemsSecretNow), and its OnShadowTotemGone announces those; the flag above is
+	-- only raised by a secret read, which the shadow model never makes. Stand down on
+	-- the same test, or one totem gets two "destroyed" alerts.
+	if SPCompat and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return end
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.totems or not sv.totems.enabled then return end
 
 	for element = 1, 4 do
-		local haveTotem, totemName, startTime, duration = ElementTotemInfo(element)
+		local haveTotem, totemName, startTime, duration, _, slot = ElementTotemInfo(element)
 
 		local prev = previousState.totems[element]
 		local wasActive = prev.active
 		local prevName = prev.name
+		local prevSlot = prev.slot
 		local prevStart = prev.startTime
 		local prevDuration = prev.duration
 
@@ -783,6 +847,9 @@ function SP:CheckTotemState(initializing)
 						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
 						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Expired", icon, elementColor)
 					end
+				elseif deferDestroyed then
+					-- Totem was destroyed, unless a recall, your own destroy or death says otherwise (above)
+					C_Timer.After(DESTROYED_BIND_WINDOW, function() ConfirmDestroyed(element, prevSlot, prevName, elementColor) end)
 				else
 					-- Totem was destroyed
 					self:TotemDestroyedAlert(prevName, elementColor)
@@ -795,6 +862,7 @@ function SP:CheckTotemState(initializing)
 		prev.name = totemName
 		prev.startTime = startTime
 		prev.duration = duration
+		prev.slot = slot
 	end
 end
 
@@ -839,7 +907,6 @@ function SP:CheckWeaponEnchantState(initializing)
 	-- bar reads them every update mid-fight), so imbue alerts keep working there.
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then
-		if not mainlineWeaponChecks then return end
 		-- Settings can flip without an update callback. Keep the event-driven
 		-- baseline/deadline while disabled, but never emit an expiration alert.
 		initializing = true
@@ -863,8 +930,12 @@ function SP:CheckWeaponEnchantState(initializing)
 		hasMainHandWeapon = GetInventoryItemLink("player", 16) ~= nil
 		hasOffHandWeapon = GetInventoryItemLink("player", 17) ~= nil
 		-- Classic tuple: hasMain, mainExp, mainCharges, mainID, hasOff, offExp, offCharges, offID.
-		local main, _, _, _, off = GetWeaponEnchantInfo()
+		local main, mainExp, _, _, off, offExp = GetWeaponEnchantInfo()
 		hasMainHandEnchant, hasOffHandEnchant = main, off
+		-- milliseconds left, the same unit the Mainline list reports
+		if type(mainExp) == "number" and mainExp > 0 then mainTimeLeft = mainExp end
+		if type(offExp) == "number" and offExp > 0 then offTimeLeft = offExp end
+		CancelWeaponExpiry()
 	end
 
 	-- Convert to explicit booleans (API may return 1/nil instead of true/false)
@@ -890,13 +961,11 @@ function SP:CheckWeaponEnchantState(initializing)
 	-- Store as explicit booleans
 	previousState.weaponEnchants.mainHand = mainHandEnchanted
 	previousState.weaponEnchants.offHand = offHandEnchanted
-	if mainlineWeaponChecks then
-		local delay = mainHandEnchanted and mainTimeLeft or nil
-		if offHandEnchanted and offTimeLeft and (not delay or offTimeLeft < delay) then delay = offTimeLeft end
-		-- One cancellable deadline, no idle polling. The callback confirms actual
-		-- absence; an elapsed prediction by itself never triggers an alert.
-		if delay then weaponExpiryTimer = _G.C_Timer.NewTimer(delay / 1000, WeaponExpiryReached) end
-	end
+	local delay = mainHandEnchanted and mainTimeLeft or nil
+	if offHandEnchanted and offTimeLeft and (not delay or offTimeLeft < delay) then delay = offTimeLeft end
+	-- One cancellable deadline, no idle polling. The callback confirms actual
+	-- absence; an elapsed prediction by itself never triggers an alert.
+	if delay then weaponExpiryTimer = _G.C_Timer.NewTimer(delay / 1000, WeaponExpiryReached) end
 end
 
 function SP:CheckEarthShieldState(unit, initializing)
@@ -983,8 +1052,9 @@ function SP:SetupExpiringAlertsEvents()
 	eventFrame:RegisterEvent("SPELLS_CHANGED")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	-- imbues applied, replaced or gone (Anniversary's own buff frame relies on it too)
+	pcall(eventFrame.RegisterEvent, eventFrame, "WEAPON_ENCHANT_CHANGED")
 	if mainlineWeaponChecks then
-		eventFrame:RegisterEvent("WEAPON_ENCHANT_CHANGED")
 		eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 	end
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1074,7 +1144,7 @@ function SP:SetupExpiringAlertsEvents()
 			if (not mainlineWeaponChecks or not isSecretValue(unit)) and unit == "player" then
 				SP:CheckWeaponEnchantState(false)
 			end
-		elseif mainlineWeaponChecks and event == "WEAPON_ENCHANT_CHANGED" then
+		elseif event == "WEAPON_ENCHANT_CHANGED" then
 			SP:CheckWeaponEnchantState(false)
 		elseif mainlineWeaponChecks and event == "UNIT_SPELLCAST_SUCCEEDED" then
 			if not isSecretValue(unit) and unit == "player" and not isSecretValue(spellID)
@@ -1102,17 +1172,15 @@ function SP:SetupExpiringAlertsEvents()
 			if shieldSoundPending then SP:UpdateShieldSounds() end
 		elseif event == "PLAYER_LOGOUT" then
 			SP:RemoveShieldSounds()
-			if mainlineWeaponChecks then CancelWeaponExpiry() weaponCheckPending = false end
+			CancelWeaponExpiry()
+			weaponCheckPending = false
 		end
 	end)
 
 	self.expiringAlertsEventFrame = eventFrame
 
-	-- Classic keeps the periodic check; Mainline uses events and one expiry timer.
-	-- (a ticker: the same twice-a-second check without a Lua call every frame)
-	if not mainlineWeaponChecks then
-		self.weaponCheckTicker = C_Timer.NewTicker(0.5, function() SP:CheckWeaponEnchantState(false) end)
-	end
+	-- Weapon imbues on every client: the events above plus one timer at the
+	-- imbue's expiry (CheckWeaponEnchantState), nothing polled while idle.
 
 	-- Combat hides aura reads, so a shield that fell off during a fight goes
 	-- unnoticed until the next buff change, which may be minutes away. Re-check

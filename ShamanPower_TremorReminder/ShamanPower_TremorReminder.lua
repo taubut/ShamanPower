@@ -550,8 +550,13 @@ end
 
 -- Check if we should show the reminder
 local function CheckTarget()
-    if SPIdentitySecret("target") then return end   -- instanced map on a restricted client: names are secret
     if SP.TremorDemoActive then return end
+    -- instanced map on a restricted client: names are secret, so stand down, and
+    -- take down a reminder that was already up (it can no longer be checked)
+    if SPIdentitySecret("target") then
+        HideReminder()
+        return
+    end
     local sv = ShamanPowerTremorReminderDB
     if not sv or not sv.enabled then
         HideReminder()
