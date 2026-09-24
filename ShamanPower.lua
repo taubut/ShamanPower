@@ -4994,29 +4994,63 @@ end
 
 -- Icon-only mode must not strand the user: instead of hiding the settings
 -- button outright, show it only while the mouse is over the frame.
-function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
-	if not frame or not cog then return end
-	if enabled then
-		cog:Hide()
-		if not frame.spCogWatcher then
-			frame.spCogWatcher = CreateFrame("Frame", nil, frame)
-		end
-		local w = frame.spCogWatcher
-		w.t = 0
-		w:SetScript("OnUpdate", function(self, elapsed)
-			self.t = self.t + elapsed
-			if self.t < 0.1 then return end
-			self.t = 0
-			local over = frame:IsMouseOver() or cog:IsMouseOver()
-			if over ~= self.over then
-				self.over = over
-				cog:SetShown(over)
+-- Event-driven, so nothing runs while the mouse is elsewhere. The cursor can
+-- reach or leave the frame straight off a child without the frame hearing it
+-- (an icon-only pop-out is all button), so every mouse-enabled Frame/Button
+-- inside it reports too, and each event just asks whether the cursor is over
+-- the frame. Children come and go (Raid Cooldowns builds its buttons later),
+-- so the walk runs again whenever the mouse arrives or the frame is shown.
+-- Engine widgets (aura containers, cooldowns) are left alone.
+do
+	local owner = setmetatable({}, { __mode = "k" })   -- hooked region -> the frame whose button it drives
+	local WALK = { Frame = true, Button = true, CheckButton = true }
+
+	local function Update(region)
+		local frame = owner[region]
+		local cog = frame and frame.spCogHoverOnly
+		if cog then cog:SetShown(frame:IsVisible() and (frame:IsMouseOver() or cog:IsMouseOver())) end
+	end
+
+	local Refresh
+	local function HookTree(frame, ...)
+		for i = 1, select("#", ...) do
+			local region = select(i, ...)
+			if WALK[region:GetObjectType()] then
+				if region:IsMouseEnabled() then
+					if not owner[region] then
+						region:HookScript("OnEnter", Refresh)
+						region:HookScript("OnLeave", Update)
+					end
+					owner[region] = frame
+				end
+				HookTree(frame, region:GetChildren())
 			end
-		end)
-		w:Show()
-	else
-		if frame.spCogWatcher then frame.spCogWatcher:SetScript("OnUpdate", nil) end
-		cog:Show()
+		end
+	end
+
+	Refresh = function(region)
+		local frame = owner[region]
+		if frame and frame.spCogHoverOnly then HookTree(frame, frame:GetChildren()) end
+		Update(region)
+	end
+
+	function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
+		if not frame or not cog then return end
+		if not enabled then
+			frame.spCogHoverOnly = nil
+			cog:Show()
+			return
+		end
+		frame.spCogHoverOnly = cog
+		owner[frame] = frame
+		if not frame.spCogHoverHooked then
+			frame.spCogHoverHooked = true
+			frame:HookScript("OnEnter", Refresh)
+			frame:HookScript("OnLeave", Update)
+			frame:HookScript("OnShow", Refresh)
+			frame:HookScript("OnHide", Update)
+		end
+		Refresh(frame)
 	end
 end
 
