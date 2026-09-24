@@ -477,6 +477,37 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 		alertText:SetTextColor(1, 0.3, 0)
 		frame.text = alertText
 
+		-- The engine runs the animation (no per-frame Lua):
+		-- the whole alert breathes between 100% and 20% opacity, the icon swells
+		-- 5% and back, and a separate 5 s timeline hides it at the end.
+		local pulse = frame:CreateAnimationGroup()
+		pulse:SetLooping("REPEAT")
+		local fadeOut = pulse:CreateAnimation("Alpha")
+		fadeOut:SetFromAlpha(1); fadeOut:SetToAlpha(0.2); fadeOut:SetDuration(0.785); fadeOut:SetSmoothing("IN_OUT"); fadeOut:SetOrder(1)
+		local fadeIn = pulse:CreateAnimation("Alpha")
+		fadeIn:SetFromAlpha(0.2); fadeIn:SetToAlpha(1); fadeIn:SetDuration(0.785); fadeIn:SetSmoothing("IN_OUT"); fadeIn:SetOrder(2)
+		frame.pulse = pulse
+
+		local swell = iconTex:CreateAnimationGroup()
+		swell:SetLooping("REPEAT")
+		local grow = swell:CreateAnimation("Scale")
+		grow:SetScaleFrom(0.95, 0.95); grow:SetScaleTo(1.05, 1.05); grow:SetDuration(0.628); grow:SetSmoothing("IN_OUT"); grow:SetOrder(1)
+		local shrink = swell:CreateAnimation("Scale")
+		shrink:SetScaleFrom(1.05, 1.05); shrink:SetScaleTo(0.95, 0.95); shrink:SetDuration(0.628); shrink:SetSmoothing("IN_OUT"); shrink:SetOrder(2)
+		frame.swell = swell
+
+		-- one timeline per alert: a new alert restarts it, so an older alert's
+		-- end can no longer hide a newer one early
+		local life = frame:CreateAnimationGroup()
+		local span = life:CreateAnimation("Animation")
+		span:SetDuration(5)
+		life:SetScript("OnFinished", function() frame:Hide() end)
+		frame.life = life
+
+		frame:SetScript("OnHide", function(f)
+			f.pulse:Stop(); f.swell:Stop(); f.life:Stop()
+		end)
+
 		frame:Hide()
 		self.centerAlert = frame
 	end
@@ -497,32 +528,14 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 		self.centerAlert.text:Hide()
 	end
 
-	self.centerAlert:Show()
-
-	-- Pulse animation (throttled to ~30fps)
-	self.centerAlert.elapsed = 0
-	self.centerAlert.updateElapsed = 0
-	self.centerAlert:SetScript("OnUpdate", function(self, elapsed)
-		self.elapsed = self.elapsed + elapsed  -- Always accumulate for animation timing
-		self.updateElapsed = (self.updateElapsed or 0) + elapsed
-		if self.updateElapsed < 0.033 then return end  -- ~30fps visual updates
-		self.updateElapsed = 0
-
-		local alpha = 0.6 + 0.4 * math.sin(self.elapsed * 4)
-		self:SetAlpha(alpha)
-		if showIcon then
-			local scale = 1 + 0.05 * math.sin(self.elapsed * 5)
-			self.icon:SetSize(128 * scale, 128 * scale)
-		end
-	end)
-
-	-- Hide after 5 seconds
-	C_Timer.After(5, function()
-		if SP.centerAlert then
-			SP.centerAlert:Hide()
-			SP.centerAlert:SetScript("OnUpdate", nil)
-		end
-	end)
+	local alert = self.centerAlert
+	alert:SetAlpha(1)
+	alert:Show()
+	-- (re)start: pulse and swell loop until the 5 s timeline hides the alert
+	alert.pulse:Stop(); alert.pulse:Play()
+	alert.swell:Stop()
+	if showIcon then alert.swell:Play() end
+	alert.life:Stop(); alert.life:Play()
 
 	-- Play sound if enabled
 	if playSound then
