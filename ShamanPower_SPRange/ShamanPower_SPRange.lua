@@ -831,19 +831,18 @@ function SP:BroadcastWindfuryStatus()
 	local hasWindfury = self:SPRangeHasWindfuryWeapon()
 	local status = hasWindfury and "1" or "0"
 
-	-- Send every 2 seconds or when status changes
-	if self.lastWFStatus ~= status or not self.lastWFBroadcast or (GetTime() - self.lastWFBroadcast) > 2 then
+	-- Send the moment it changes, otherwise a heartbeat every 6 s (receivers
+	-- drop a report after 10 s). Checked every 2 s, sent far less often.
+	if self.lastWFStatus ~= status or not self.lastWFBroadcast or (GetTime() - self.lastWFBroadcast) > 6 then
 		self.lastWFStatus = status
 		self.lastWFBroadcast = GetTime()
 
-		-- Determine channel
-		local channel
-		if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
+		-- Totems only reach your own party, so the report only goes there: the
+		-- PARTY channel inside a raid is your own subgroup (4 players, not 39).
+		-- An instance-only group (LFG) has no home party; INSTANCE_CHAT is its channel.
+		local channel = "PARTY"
+		if not IsInGroup(LE_PARTY_CATEGORY_HOME) and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
 			channel = "INSTANCE_CHAT"
-		elseif IsInRaid() then
-			channel = "RAID"
-		else
-			channel = "PARTY"
 		end
 
 		-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
@@ -933,12 +932,23 @@ end
 -- The Windfury report runs on its own timer whenever a shaman is in the group,
 -- whether or not the overlay is on screen (so closing the overlay, or
 -- Windfury-only mode, never stops the shaman seeing your Windfury).
+-- A shaman in YOUR party (party1-4 are your own subgroup inside a raid): the only
+-- shamans whose totems can reach you, so the only ones the report is for.
+function SP:ShamanInMyParty()
+	if select(2, UnitClass("player")) == "SHAMAN" then return false end
+	for i = 1, 4 do
+		local unit = "party" .. i
+		if UnitExists(unit) and select(2, UnitClass(unit)) == "SHAMAN" then return true end
+	end
+	return false
+end
+
 function SP:UpdateWindfuryBroadcaster()
 	if not self.updateSystem then return end
 	if not self.updateSystem.subsystems["wfBroadcast"] then
 		self:RegisterUpdateSubsystem("wfBroadcast", 2.0, function() SP:BroadcastWindfuryStatus() end)
 	end
-	if self:SPRangeHasAnyShamanInGroup() then
+	if self:ShamanInMyParty() then
 		self:EnableUpdateSubsystem("wfBroadcast")
 	else
 		self:DisableUpdateSubsystem("wfBroadcast")
