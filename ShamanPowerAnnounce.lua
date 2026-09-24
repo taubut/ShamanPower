@@ -201,8 +201,8 @@ local function triggers()
 	local raw = cfg().triggers or ""
 	if raw ~= parsedFrom then
 		parsedFrom, parsedTriggers = raw, {}
-		for word in raw:gmatch("[^,]+") do
-			word = strtrim(word):lower()
+		for part in raw:gmatch("[^,]+") do
+			local word = strtrim(part):lower()
 			if word ~= "" then
 				-- whole words only: "tide" matches "tide pls", never "tides" or "stride"
 				parsedTriggers[#parsedTriggers + 1] = "%f[%w]" .. word:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1") .. "%f[%W]"
@@ -222,14 +222,40 @@ end
 
 local lastReplyAt, lastCallAt = 0, 0
 
-local function onChat(event, text, sender)
+-- The on-screen call needs the Raid Cooldowns module (it draws the alert).
+local function localCallOn(a)
+	return a.localCall and SP.RaidCooldownsLoaded and SP.ShowManaTideAlert ~= nil
+end
+
+-- Another shaman's line ("Mana Tide Totem used!", a ready-in reply) is not a
+-- request: answering it would call Mana Tide on your screen and trade replies
+-- in raid chat after every announce.
+local function fromShaman(sender, guid)
+	local class
+	if type(guid) == "string" and not secret(guid) and guid ~= "" then
+		local lookup = UnitClassFromGUID or GetPlayerInfoByGUID
+		if lookup then
+			local ok, _, c = pcall(lookup, guid)
+			if ok then class = c end
+		end
+	end
+	if class == nil then
+		local ok, _, c = pcall(UnitClass, sender)   -- group members by name
+		if ok then class = c end
+	end
+	if type(class) ~= "string" or secret(class) then return false end
+	return class == "SHAMAN"
+end
+
+local function onChat(event, text, sender, guid)
 	local a = cfg()
-	if not (a.reply or a.localCall) then return end
+	if not (a.reply or localCallOn(a)) then return end
 	if chatLocked() then return end
 	if type(text) ~= "string" or type(sender) ~= "string" or secret(text) or secret(sender) then return end
 	local short = strsplit("-", sender)
 	if short == UnitName("player") then return end   -- never answer yourself
 	if not mentionsTrigger(text) then return end
+	if fromShaman(sender, guid) then return end
 	if not knows(MANA_TIDE) then return end
 	local left = remainingOn(MANA_TIDE.name)
 	local now = GetTime()
@@ -243,7 +269,7 @@ local function onChat(event, text, sender)
 		if send(msg, CHAT_CHANNEL[event]) then lastReplyAt = now end
 	end
 	-- the Mana Tide call on your own screen, as if an assigned caller pressed the button
-	if a.localCall and (not left or left <= 0) and now - lastCallAt >= 5 and SP.ShowManaTideAlert then
+	if localCallOn(a) and (not left or left <= 0) and now - lastCallAt >= 5 then
 		lastCallAt = now
 		pcall(SP.ShowManaTideAlert, SP)
 	end
@@ -254,11 +280,11 @@ end
 -- ---------------------------------------------------------------------------
 local ev = CreateFrame("Frame")
 if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(ev, "Cooldown Announce") end
-ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
+ev:SetScript("OnEvent", function(_, event, a1, a2, a3, ...)
 	if event == "UNIT_SPELLCAST_SUCCEEDED" then
 		if a1 == "player" then onCast(a3) end
 	elseif CHAT_CHANNEL[event] then
-		onChat(event, a1, a2)
+		onChat(event, a1, a2, (select(9, ...)))   -- the 12th payload value: the sender's GUID
 	elseif event == "PLAYER_LOGIN" then
 		SP:UpdateAnnounceEvents()
 	end
@@ -273,7 +299,7 @@ function SP:UpdateAnnounceEvents()
 		ev:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 	end
 	for event in pairs(CHAT_CHANNEL) do
-		if a.reply or a.localCall then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
+		if a.reply or localCallOn(a) then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
 	end
 end
 
@@ -290,7 +316,7 @@ function SP:PreviewAnnounceMessages()
 	out:AddMessage("  reply, ready: " .. fill(a.replyReadyText, mt))
 	out:AddMessage("  reply, cooling down: " .. fill(a.replyCooldownText, mt, 42))
 	local list = {}
-	for word in (a.triggers or ""):gmatch("[^,]+") do word = strtrim(word); if word ~= "" then list[#list + 1] = word end end
+	for part in (a.triggers or ""):gmatch("[^,]+") do local word = strtrim(part); if word ~= "" then list[#list + 1] = word end end
 	out:AddMessage("  answers to: " .. (#list > 0 and table.concat(list, ", ") or "(no words set)"))
 end
 
@@ -372,18 +398,23 @@ do
 				hdr_reply = { order = 2, type = "header", name = "When Someone Asks" },
 				reply = {
 					order = 2.1, type = "toggle", width = "full", name = "Reply in Chat",
-					desc = "When a group member's message has one of the words below, answer in the same chat with whether Mana Tide is ready or how long is left. At most one reply per the time set below.",
+					desc = "When a group member's message has one of the words below, answer in the same chat with whether Mana Tide is ready or how long is left. At most one reply per the time set below. Other shamans' messages (their own announces and replies) are never answered.",
 					get = get("reply"), set = set("reply"),
 				},
 				localCall = {
 					order = 2.2, type = "toggle", width = "full", name = "Show the Mana Tide Call on My Screen",
-					desc = "When a group member's message has one of the words below and Mana Tide is ready, show the same \"use Mana Tide\" alert a Raid Cooldowns caller's button shows, even if they are not an assigned caller. Only you see it.",
+					desc = function()
+						local text = "When a group member's message has one of the words below and Mana Tide is ready, show the same \"use Mana Tide\" alert a Raid Cooldowns caller's button shows, even if they are not an assigned caller. Only you see it. Other shamans' messages never set it off."
+						if not SP.RaidCooldownsLoaded then text = text .. "\n\n|cffffa040Needs the ShamanPower [Raid Cooldowns] module: turn it on in your AddOns list.|r" end
+						return text
+					end,
+					disabled = function() return not SP.RaidCooldownsLoaded end,
 					get = get("localCall"), set = set("localCall"),
 				},
 				triggers = {
 					order = 2.3, type = "input", width = "full", name = "Words to Listen For",
 					desc = "Separated by commas. Whole words, any capitals: \"tide\" matches \"TIDE pls\" but not \"stride\".",
-					disabled = function() local a = cfg(); return not (a.reply or a.localCall) end,
+					disabled = function() local a = cfg(); return not (a.reply or localCallOn(a)) end,
 					get = get("triggers"), set = textSet("triggers"),
 				},
 				replyReadyText = {
