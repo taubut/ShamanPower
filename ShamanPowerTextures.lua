@@ -141,6 +141,23 @@ function SP:PreviewTexture(area, name)
 	self:RefreshTextures()
 end
 
+-- A saved texture another addon registers only after our bars were painted
+-- fell back to the design: apply it the moment it arrives.
+if LSM and LSM.RegisterCallback then
+	local function saved(o, key)
+		if o.barTexture == key then return true end
+		if type(o.barTextureAreas) == "table" then
+			for _, name in pairs(o.barTextureAreas) do
+				if name == key then return true end
+			end
+		end
+		return false
+	end
+	LSM.RegisterCallback(SP.TEXTURE_AREAS, "LibSharedMedia_Registered", function(_, mediatype, key)
+		if mediatype == "statusbar" and SP.opt and saved(SP.opt, key) then SP:RefreshTextures() end
+	end)
+end
+
 -- Statusbar names for a picker (LibSharedMedia's list: Blizzard's, ShamanPower's
 -- four shipped bars, and every texture other installed addons register).
 function SP:TextureList()

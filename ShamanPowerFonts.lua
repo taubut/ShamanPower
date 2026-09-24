@@ -174,6 +174,24 @@ function SP:RefreshFonts()
 	if self.ResetEngineBarCooldowns then pcall(self.ResetEngineBarCooldowns, self) end
 end
 
+-- A saved font another addon registers only after our strings were drawn (a
+-- media pack that loads or registers late) fell back to the design: apply it
+-- the moment it arrives. One string compare per registration, nothing after.
+if LSM and LSM.RegisterCallback then
+	local function saved(o, key)
+		if o.fontName == key then return true end
+		if type(o.fontAreas) == "table" then
+			for _, a in pairs(o.fontAreas) do
+				if type(a) == "table" and a.name == key then return true end
+			end
+		end
+		return false
+	end
+	LSM.RegisterCallback(SP.FONT_AREAS, "LibSharedMedia_Registered", function(_, mediatype, key)
+		if mediatype == "font" and SP.opt and saved(SP.opt, key) then SP:RefreshFonts() end
+	end)
+end
+
 -- Font names for a picker: LibSharedMedia's list (Blizzard's four plus every
 -- font other installed addons register).
 function SP:FontList()
