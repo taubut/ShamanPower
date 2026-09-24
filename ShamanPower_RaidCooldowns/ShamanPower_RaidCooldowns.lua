@@ -17,6 +17,51 @@ SP.RaidCooldownsLoaded = true
 -- answer true on every other client.
 local function HasBloodlust() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
 local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+
+-- Raid calls (Mana Tide / Bloodlust / Drums) also go out on their own addon
+-- prefix, at ChatThrottleLib's ALERT priority: Blizzard throttles addon messages
+-- per prefix, so a backlog on the main one (a roster change in a big raid) can
+-- never hold a call back. The main prefix still carries them for older versions;
+-- a call that arrives on both is acted on once (see seenCall).
+local CALL_PREFIX = "SHPWRC"
+do
+	local register = (C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix) or _G.RegisterAddonMessagePrefix
+	if register then pcall(register, CALL_PREFIX) end
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("CHAT_MSG_ADDON")
+	f:SetScript("OnEvent", function(_, _, prefix, message, distribution, source)
+		if prefix ~= CALL_PREFIX then return end
+		if not (distribution == "PARTY" or distribution == "RAID" or distribution == "INSTANCE_CHAT") then return end
+		if type(message) ~= "string" or type(source) ~= "string" then return end
+		local sender = SP:RemoveRealmName(Ambiguate(source, "none"))
+		if sender == SP.player then return end
+		SP:HandleRaidCooldownMessage(prefix, message, sender)
+	end)
+end
+
+local function sendCall(msg)
+	if not (ChatThrottleLib and IsInGroup()) then return end
+	local channel
+	if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
+		channel = "INSTANCE_CHAT"
+	elseif IsInRaid() then
+		channel = "RAID"
+	else
+		channel = "PARTY"
+	end
+	pcall(ChatThrottleLib.SendAddonMessage, ChatThrottleLib, "ALERT", CALL_PREFIX, msg, channel)
+end
+
+-- A call that arrives on both prefixes (or twice) from the same sender is acted
+-- on once. Calls are minutes apart (Mana Tide 5 min, Bloodlust 10), so 20 s is safe.
+local seenCall = {}
+local function isRepeatCall(sender, message)
+	local key = (sender or "") .. "\001" .. message
+	local now = GetTime()
+	local last = seenCall[key]
+	seenCall[key] = now
+	return last ~= nil and (now - last) < 20
+end
 local callerRequestEstimates = _G.SPCompat and _G.SPCompat.secretsRegime
 
 -- Preview (settings pane / unlock) sample data. The Bloodlust sample is keyed
@@ -244,6 +289,7 @@ function SP:CallManaTideForShaman(shamanName)
 		return
 	end
 	local sent = self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
+	sendCall("MTCALL|" .. shamanName)
 	if callerRequestEstimates and sent ~= false then
 		self:RecordManaTideRequest(shamanName)
 		self:UpdateCallerButtonCooldowns()
@@ -360,6 +406,7 @@ function SP:CallDrums()
 		return
 	end
 	self:SendMessage("DRUMCALL", nil, nil, true)
+	sendCall("DRUMCALL")
 	if self:IsDrummer(self.player) then
 		self:ShowDrumsAlert()
 	end
@@ -388,6 +435,7 @@ function SP:CallBloodlust()
 		return
 	end
 	self:SendMessage("BLCALL|" .. target, nil, nil, true)
+	sendCall("BLCALL|" .. target)
 
 	-- Show alert if we're the target
 	if target == self.player then
@@ -412,6 +460,7 @@ function SP:CallManaTide()
 		return
 	end
 	local sent = self:SendMessage("MTCALL", nil, nil, true)
+	sendCall("MTCALL")
 	if callerRequestEstimates and sent ~= false then
 		-- The broadcast has no named recipient; estimate only configured shamans.
 		for name in pairs(_G.ShamanPower_RaidCooldowns.manatide) do self:RecordManaTideRequest(name) end
@@ -551,6 +600,7 @@ end
 -- Handle incoming raid cooldown messages
 function SP:HandleRaidCooldownMessage(prefix, message, sender)
 	local cmd, rest = strsplit("|", message, 2)
+	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and isRepeatCall(sender, message) then return end
 
 	if cmd == "RCSYNC" then
 		-- Sync from raid leader
@@ -1051,84 +1101,112 @@ local function HasLiveCallerCooldown(self, now)
 	return false
 end
 
--- Track spell casts via combat log
-function SP:SetupCallerCooldownTracking()
-	if self.callerCooldownFrame then return end
+-- Track the shamans' Bloodlust / Heroism / Mana Tide casts. This used to read
+-- the whole combat log (thousands of events a second in a raid) to find a few
+-- shaman casts; it now listens to UNIT_SPELLCAST_SUCCEEDED from the shamans'
+-- own unit tokens only: one small frame per shaman in the group, rebuilt when
+-- the roster changes, and nothing registered while the caller buttons are hidden.
+local castFrames = {}     -- pooled frames, one per watched shaman unit
+local rosterFrame
 
-	local frame = CreateFrame("Frame")
-	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Raid Cooldowns (combat log)") end
-	-- Don't register event here - EnableCallerCooldownTracking will do it
-	frame:SetScript("OnEvent", function(self, event)
-		SP:OnCombatLogEvent()
-	end)
-	self.callerCooldownFrame = frame
+local function watchUnit(i, unit)
+	local f = castFrames[i]
+	if not f then
+		f = CreateFrame("Frame")
+		if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Raid Cooldowns (shaman casts)") end
+		f:SetScript("OnEvent", function(_, _, u, _, spellID) SP:OnShamanCooldownCast(u, spellID) end)
+		castFrames[i] = f
+	end
+	f:UnregisterAllEvents()
+	if f.RegisterUnitEvent then
+		f:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", unit)
+	end
 end
 
--- Enable COMBAT_LOG_EVENT_UNFILTERED tracking (called when caller buttons are shown)
+local function unwatchAll()
+	for _, f in ipairs(castFrames) do f:UnregisterAllEvents() end
+end
+
+-- every shaman in the group (the player included), by the tokens this client uses
+local function rebuildWatchedShamans()
+	unwatchAll()
+	local n = 0
+	local function consider(unit)
+		if UnitExists(unit) and select(2, UnitClass(unit)) == "SHAMAN" then
+			n = n + 1
+			watchUnit(n, unit)
+		end
+	end
+	if IsInRaid() then
+		for i = 1, 40 do consider("raid" .. i) end
+	else
+		consider("player")
+		for i = 1, 4 do consider("party" .. i) end
+	end
+end
+
+function SP:SetupCallerCooldownTracking()
+	if rosterFrame then return end
+	rosterFrame = CreateFrame("Frame")
+	-- Don't register events here - EnableCallerCooldownTracking will do it
+	rosterFrame:SetScript("OnEvent", function() rebuildWatchedShamans() end)
+	self.callerCooldownFrame = rosterFrame
+end
+
+-- Enable cast tracking (called when caller buttons are shown)
 function SP:EnableCallerCooldownTracking()
-	-- Secret-value clients: the combat log carries secret arguments in combat and
-	-- registering it while a restriction is active is a forbidden protected action
-	-- (ADDON_ACTION_FORBIDDEN popup). Caller tracking cannot work there; skip it.
+	-- Secret-value clients: other players' cast events carry secret arguments in
+	-- combat, and the caller tracking never worked there (it used the combat log,
+	-- which is a forbidden registration under restrictions). Skip it, as before.
 	if SPCompat and SPCompat.secretsRegime then return end
 	self:SetupCallerCooldownTracking()
-	if self.callerCooldownFrame and not self.callerCooldownTrackingEnabled then
-		pcall(self.callerCooldownFrame.RegisterEvent, self.callerCooldownFrame, "COMBAT_LOG_EVENT_UNFILTERED")
+	if not self.callerCooldownTrackingEnabled then
+		rosterFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+		rebuildWatchedShamans()
 		self.callerCooldownTrackingEnabled = true
 	end
 end
 
--- Disable COMBAT_LOG_EVENT_UNFILTERED tracking (called when caller buttons are hidden)
+-- Disable cast tracking (called when caller buttons are hidden)
 function SP:DisableCallerCooldownTracking()
-	if self.callerCooldownFrame and self.callerCooldownTrackingEnabled then
-		self.callerCooldownFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+	if rosterFrame and self.callerCooldownTrackingEnabled then
+		rosterFrame:UnregisterEvent("GROUP_ROSTER_UPDATE")
+		unwatchAll()
 		self.callerCooldownTrackingEnabled = false
 	end
 end
 
-function SP:OnCombatLogEvent()
-	if not CombatLogGetCurrentEventInfo then return end
-	local _, subEvent, _, sourceGUID, sourceName, _, _, _, _, _, _, spellID = CombatLogGetCurrentEventInfo()
-
-	if subEvent ~= "SPELL_CAST_SUCCESS" then return end
-
-	-- Check for Bloodlust/Heroism
+-- A watched shaman cast something: Bloodlust / Heroism or Mana Tide start that
+-- shaman's cooldown on the caller buttons.
+function SP:OnShamanCooldownCast(unit, spellID)
+	if type(spellID) ~= "number" or (issecretvalue and (issecretvalue(spellID) or issecretvalue(unit))) then return end
+	local cdType, duration
 	if spellID == 2825 or spellID == 32182 then
-		if sourceName then
-			sourceName = self:RemoveRealmName(sourceName)
-			if not self.callerCooldowns[sourceName] then
-				self.callerCooldowns[sourceName] = {}
-			end
-			self.callerCooldowns[sourceName].bl = {
-				start = GetTime(),
-				duration = BL_COOLDOWN
-			}
-			-- Save to SavedVariables (use time() for persistence across reloads)
-			self:SaveCallerCooldown(sourceName, "bl", BL_COOLDOWN)
-			-- Also clear the alert on this shaman's cooldown bar button
-			local blSpellID = (UnitFactionGroup("player") == "Alliance") and 32182 or 2825
-			if sourceName == self.player then
-				self:RemoveCooldownButtonAlert(blSpellID)
-			end
-		end
+		cdType, duration = "bl", BL_COOLDOWN
+	elseif spellID == 16190 then
+		cdType, duration = "mt", MT_COOLDOWN
+	else
+		return
 	end
-
-	-- Check for Mana Tide Totem
-	if spellID == 16190 then
-		if sourceName then
-			sourceName = self:RemoveRealmName(sourceName)
-			if not self.callerCooldowns[sourceName] then
-				self.callerCooldowns[sourceName] = {}
-			end
-			self.callerCooldowns[sourceName].mt = {
-				start = GetTime(),
-				duration = MT_COOLDOWN
-			}
-			-- Save to SavedVariables
-			self:SaveCallerCooldown(sourceName, "mt", MT_COOLDOWN)
-			-- Also clear the alert
-			if sourceName == self.player then
-				self:RemoveCooldownButtonAlert(16190)
-			end
+	local sourceName = UnitName(unit)
+	if not sourceName or (issecretvalue and issecretvalue(sourceName)) then return end
+	sourceName = self:RemoveRealmName(sourceName)
+	if not self.callerCooldowns[sourceName] then
+		self.callerCooldowns[sourceName] = {}
+	end
+	self.callerCooldowns[sourceName][cdType] = {
+		start = GetTime(),
+		duration = duration
+	}
+	-- Save to SavedVariables (use time() for persistence across reloads)
+	self:SaveCallerCooldown(sourceName, cdType, duration)
+	-- Also clear the alert on this shaman's cooldown bar button
+	if sourceName == self.player then
+		if cdType == "bl" then
+			local blSpellID = (UnitFactionGroup("player") == "Alliance") and 32182 or 2825
+			self:RemoveCooldownButtonAlert(blSpellID)
+		else
+			self:RemoveCooldownButtonAlert(16190)
 		end
 	end
 end
