@@ -6073,6 +6073,14 @@ function ShamanPower:IsElementLearned(element)
 	return elementLearnedCache[element] and true or false
 end
 
+-- Drop All only once there is a totem to drop: a new shaman's bar shows no
+-- lone Drop All button (SPELLS_CHANGED re-lays the bar when the first is learned).
+function ShamanPower:ShowsDropAllButton()
+	if self.opt.showDropAllButton == false then return false end
+	for e = 1, 4 do if self:IsElementLearned(e) then return true end end
+	return false
+end
+
 local ELEMENT_SHOW_KEY = { "totemBarShowEarth", "totemBarShowFire", "totemBarShowWater", "totemBarShowAir" }
 function ShamanPower:IsElementShown(element)
 	if self.opt[ELEMENT_SHOW_KEY[element]] == false then return false end
@@ -12125,7 +12133,7 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 		end
 	end
 	local dropAll = _G["ShamanPowerAutoDropAll"]
-	if dropAll then dropAll:SetShown(shown and self.opt.showDropAllButton ~= false) end
+	if dropAll then dropAll:SetShown(shown and self:ShowsDropAllButton()) end
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if esBtn then esBtn:SetShown(shown and self.HasEarthShield and self:HasEarthShield() or false) end
 	local tcBtn = _G["ShamanPowerTotemicCallBtn"]
@@ -12307,7 +12315,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 
 			-- Show Drop All button (if enabled)
 			local dropAllBtn = _G["ShamanPowerAutoDropAll"]
-			if dropAllBtn and self.opt.showDropAllButton ~= false then
+			if dropAllBtn and self:ShowsDropAllButton() then
 				dropAllBtn:Show()
 				dropAllBtn:SetAlpha(alpha)
 			end
@@ -12411,7 +12419,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	local spacing = self.opt.totemBarPadding or 2
 	local padding = 4
 	local separatorSize = 12  -- Extra gap for separator
-	local showDropAll = self.opt.showDropAllButton ~= false  -- Default to true if not set
+	local showDropAll = self:ShowsDropAllButton()  -- the option (on by default), once a totem is learned
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	-- Show Totemic Call on totem bar if option is enabled (spell knowledge is validated by CD bar settings)
 	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
@@ -12459,6 +12467,15 @@ function ShamanPower:UpdateMiniTotemBar()
 		end
 		self.autoButton:SetSize(math.max(slotCross, extraButtonCount > 0 and buttonSize or 0) + (padding * 2), math.max(totalHeight, buttonSize + (padding * 2)))
 	end
+	-- Nothing on the bar yet (a new shaman before the first totem: Drop All waits
+	-- for one too): no empty panel either. It comes back with the first totem.
+	local empty = visibleCount == 0 and extraButtonCount == 0 and startOff == 0
+	if empty and self.autoButton.SetBackdrop then
+		self.autoButton:SetBackdrop(nil)
+	elseif not empty and self._totemBarEmpty then
+		self:UpdateTotemBarFrame(); self:ButtonsUpdate()   -- the panel, then its status colour
+	end
+	self._totemBarEmpty = empty
 
 	-- Get the order to display totem buttons
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
@@ -14090,7 +14107,7 @@ function ShamanPower:RepositionEarthShieldButton()
 	local isHorizontal = self:IsTotemBarHorizontal()
 	local buttonSize = 26
 	local spacing = self.opt.totemBarPadding or 2
-	local showDropAll = self.opt.showDropAllButton ~= false
+	local showDropAll = self:ShowsDropAllButton()
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
 
@@ -14167,7 +14184,7 @@ function ShamanPower:UpdateAutoButtonSize()
 	local _, _, sw, sh = self:GetTotemSlotDims()
 	local slotAlong = isHorizontal and sw or sh
 	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0
-	local showDropAll = self.opt.showDropAllButton ~= false and not self:IsDropAllPoppedOut()
+	local showDropAll = self:ShowsDropAllButton() and not self:IsDropAllPoppedOut()
 	local showES = self.opt.totemBarShowEarthShield ~= false and self:HasEarthShield() and not self:IsEarthShieldPoppedOut()
 
 	-- Count visible totem buttons (not hidden in options and not popped out)
