@@ -256,6 +256,7 @@ end
 -- ---------------------------------------------------------------------------
 local sendQueued = false
 local sendMask = false
+local sendPracticeEnd = false  -- our practice ended: "RESREQ 000 P" still to go out to a partner
 local sendAssign = {}      -- element -> true: our own ASSIGN still to go out
 local sendPass = {}        -- key -> true: our RESPASS still to go out (for the request passed on)
 local events = CreateFrame("Frame")
@@ -276,11 +277,20 @@ end
 
 Flush = function()
 	sendQueued = false
-	if GetNumGroupMembers() == 0 then sendMask = false; wipe(sendAssign); wipe(sendPass); return end
+	if GetNumGroupMembers() == 0 then sendMask = false; sendPracticeEnd = false; wipe(sendAssign); wipe(sendPass); return end
 	local blocked = false
 	-- practice never reaches a real raid (a party that just became one ends it)
 	local practiceHere = practice and not IsInRaid()
 	if practice and not practiceHere then sendMask = false end
+	-- the end of our last practice: never to a raid (joining one ends the
+	-- partner's practice too); a new practice's own request says the same
+	if sendPracticeEnd and (practice or IsInRaid()) then
+		if practiceHere then sendMask = true end
+		sendPracticeEnd = false
+	end
+	if sendPracticeEnd then
+		if SP:SendMessage("RESREQ 000 P", nil, nil, true) == false then blocked = true else sendPracticeEnd = false end
+	end
 	if sendMask then
 		local msg = "RESREQ " .. MaskString()
 		if practice then msg = msg .. " P" end
@@ -892,8 +902,13 @@ function SP:SetResistPractice(on)
 		local owned = AnyNeed()
 		for _, r in ipairs(RESIST) do SetNeed(r.key, false) end
 		practice = false
-		-- tell a partner following this practice to stand down
-		if owned and GetNumGroupMembers() > 0 and not IsInRaid() then SP:SendMessage("RESREQ 000 P", nil, nil, true) end
+		-- tell a partner following this practice to stand down (also when our
+		-- last change never went out): from the queue, with the practice mark,
+		-- so the chat lock only delays it
+		if (owned or sendMask) and GetNumGroupMembers() > 0 and not IsInRaid() then
+			sendPracticeEnd = true
+			QueueSend(false)
+		end
 		sendMask = false
 		wipe(practicePick)
 		wipe(sentPick)
@@ -1069,7 +1084,7 @@ events:SetScript("OnEvent", function(self, event)
 			fakeQueued[r.key] = nil
 			if fake and practice and need[r.key] and proposal[r.key] == fake then FakeApply(fake, r) end
 		end
-		if sendMask or practice or next(sendAssign) or next(sendPass) then QueueSend(false) end
+		if sendMask or sendPracticeEnd or practice or next(sendAssign) or next(sendPass) then QueueSend(false) end
 		Recompute()
 	end
 end)
