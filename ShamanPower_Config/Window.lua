@@ -191,6 +191,7 @@ local NAV = {
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
+			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
 		}},
 		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
@@ -200,6 +201,7 @@ local NAV = {
 	}},
 	{ group = "Modules", power = true, entries = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section"), power = false },
+		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
 		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
 		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
 		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
