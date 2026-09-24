@@ -22,7 +22,8 @@
 --
 -- Practice mode (/sp resisttest) adds two pretend shamans that live only in
 -- this file (never in the roster, the sync list or any message) so the whole
--- flow can be tried alone or in a party.
+-- flow can be tried alone or in a party. Never in a raid: nothing about a
+-- practice is sent to one or accepted from one.
 --
 -- Nothing secure changes in combat: an accepted request waits for the fight
 -- to end, like loadout switches.
@@ -98,10 +99,12 @@ end
 -- ---------------------------------------------------------------------------
 local practice = false
 local FAKES = {
-	-- a caster group: Nature Resistance costs it nothing (no Windfury users)
+	-- a caster group: Frost or Nature Resistance costs it one ordinary totem;
+	-- Fire Resistance would take Mana Spring from four casters
 	{ name = "Kaldra (practice)", group = "a caster group", freeassign = true,
 		classes = { "MAGE", "MAGE", "WARLOCK", "PRIEST" }, assign = { 1, 2, 1, 3 } },
-	-- a melee group with no mana users: Fire Resistance costs it nothing
+	-- a melee group with no mana users: Fire Resistance costs it one ordinary
+	-- totem; Frost or Nature Resistance would take Flametongue or Windfury
 	{ name = "Morvak (practice)", group = "a melee group", freeassign = false,
 		classes = { "WARRIOR", "WARRIOR", "ROGUE", "ROGUE" }, assign = { 1, 5, 2, 1 } },
 }
@@ -109,6 +112,7 @@ local FAKE = {}
 for _, f in ipairs(FAKES) do FAKE[f.name] = f end
 local fakeAssign = {}      -- name -> { element -> index }
 local fakePrev = {}        -- name -> { key -> previous index }
+local fakeQueued = {}      -- key -> the pretend shaman who accepted it in combat
 
 local function ResetFakes()
 	for _, f in ipairs(FAKES) do
@@ -186,8 +190,9 @@ end
 
 local function KnowsResist(name, r)
 	if FAKE[name] then return true end
-	-- practice: the pick may land on any real shaman (an alt that has not learned it yet)
-	if practice or practiceOwner then return true end
+	-- practice: the pick may land on any other real shaman (an alt that has not
+	-- learned it yet), but on you only if you know it (it lands on your real bar)
+	if name ~= Player() and (practice or practiceOwner) then return true end
 	if name == Player() then
 		local id = SP:GetTotemSpell(r.element, RESIST_INDEX)
 		if not id then return false end
@@ -270,12 +275,15 @@ Flush = function()
 	sendQueued = false
 	if GetNumGroupMembers() == 0 then sendMask = false; return end
 	local blocked = false
+	-- practice never reaches a real raid (a party that just became one ends it)
+	local practiceHere = practice and not IsInRaid()
+	if practice and not practiceHere then sendMask = false end
 	if sendMask then
 		local msg = "RESREQ " .. MaskString()
 		if practice then msg = msg .. " P" end
 		if SP:SendMessage(msg, nil, nil, true) == false then blocked = true else sendMask = false end
 	end
-	if practice and not blocked then
+	if practiceHere and not blocked then
 		for _, r in ipairs(RESIST) do
 			local pick = practicePick[r.key] or ""
 			if need[r.key] and sentPick[r.key] ~= pick then
@@ -360,15 +368,28 @@ local function Restore(r)
 	RestoreNow(r)
 end
 
+-- Returns true when the pretend shaman switched now.
 local function FakeApply(name, r)
 	local a = fakeAssign[name]
-	if not a or a[r.element] == RESIST_INDEX then return end
+	if not a or a[r.element] == RESIST_INDEX then return false end
+	-- like a real shaman: a switch that comes up in combat waits for it to end
+	if InCombatLockdown() then
+		if fakeQueued[r.key] ~= name then
+			fakeQueued[r.key] = name
+			events:RegisterEvent("PLAYER_REGEN_ENABLED")
+			Say("practice: " .. name .. " will drop " .. TotemName(r) .. " when combat ends.")
+		end
+		return false
+	end
+	fakeQueued[r.key] = nil
 	fakePrev[name][r.key] = a[r.element]
 	a[r.element] = RESIST_INDEX
 	Say("practice: " .. name .. " drops " .. TotemName(r) .. ".")
+	return true
 end
 
 local function FakeRestore(r)
+	fakeQueued[r.key] = nil
 	for _, f in ipairs(FAKES) do
 		local prev = fakePrev[f.name] and fakePrev[f.name][r.key]
 		if prev ~= nil then
@@ -512,13 +533,15 @@ local function Choose()
 		if need[r.key] and #coverers[r.key] == 0 then
 			for _, name in ipairs(list) do
 				if not passed[r.key][name] and KnowsResist(name, r) then
-					pairsList[#pairsList + 1] = { r = r, name = name, loss = Loss(name, r) }
+					pairsList[#pairsList + 1] = { r = r, name = name, loss = Loss(name, r), fake = FAKE[name] ~= nil }
 				end
 			end
 		end
 	end
 	table.sort(pairsList, function(a, b)
 		if a.loss ~= b.loss then return a.loss < b.loss end
+		-- practice: a real shaman before a pretend one
+		if a.fake ~= b.fake then return b.fake end
 		if a.r.bit ~= b.r.bit then return a.r.bit < b.r.bit end
 		return a.name < b.name
 	end)
@@ -619,16 +642,16 @@ local function RecomputeNow()
 		end
 		if name then StartWaiting(r, name) end
 		if name == me and queued[r.key] ~= "apply" then
-			if o.freeassign or o.resistAutoAccept then
+			-- someone else's practice always asks: it never switches your totems unasked
+			if (o.freeassign or o.resistAutoAccept) and not practiceOwner then
 				Apply(r)
 				changed = true
 			elseif not prompt then
 				ShowPrompt(r, me, false)
 			end
-		elseif name and FAKE[name] then
+		elseif name and FAKE[name] and fakeQueued[r.key] ~= name then
 			if FAKE[name].freeassign then
-				FakeApply(name, r)
-				changed = true
+				if FakeApply(name, r) then changed = true end
 			elseif not prompt then
 				ShowPrompt(r, name, true)
 			end
@@ -702,7 +725,8 @@ function SP:HandleResistMessage(kw, msg, sender)
 		local mask, flag = strmatch(msg, "^RESREQ ([01][01][01])( ?P?)")
 		if not mask or not SenderMayRequest(sender) then return end
 		local isPractice = flag == " P"
-		if not isPractice and not IsInRaid() then return end
+		-- a real request needs a raid; practice never counts in one
+		if isPractice == IsInRaid() then return end
 		if isPractice then
 			if practiceOwner ~= sender then wipe(practicePick) end
 			practiceOwner = sender
@@ -740,12 +764,15 @@ function SP:GetResistStatus(key)
 	if #c > 1 then
 		return JoinNames(c) .. ((#c == 2) and " both" or " all") .. " drop it: one is enough for the whole raid.", "warn"
 	elseif #c == 1 then
+		-- a pretend shaman's name already ends in "(practice)"
+		if FAKE[c[1]] then return c[1] .. " covers the raid", "ok" end
 		return c[1] .. " (covers the raid)", "ok"
 	end
 	if not need[key] then return "not requested", "dim" end
 	local name = proposal[key]
 	if name then
 		if name == Player() and queued[key] == "apply" then return "you (switching when combat ends)", "busy" end
+		if fakeQueued[key] == name then return name .. ": switching when combat ends", "busy" end
 		return "asking " .. name .. "...", "busy"
 	end
 	if practiceOwner and practicePick[key] == "" then return "asking a practice shaman...", "busy" end
@@ -779,6 +806,10 @@ function SP:SetResistPractice(on)
 		Say("raid resistance requests are turned off in the options.")
 		return
 	end
+	if on and IsInRaid() then
+		Say("practice mode is for solo or a party. In a raid the Raid Resistance ticks make real requests.")
+		return
+	end
 	if on then
 		-- leave any real request first; practice never mixes with one
 		self:ClearResistRequests(true)
@@ -792,12 +823,13 @@ function SP:SetResistPractice(on)
 		for _, r in ipairs(RESIST) do SetNeed(r.key, false) end
 		practice = false
 		-- tell a partner following this practice to stand down
-		if owned and GetNumGroupMembers() > 0 then SP:SendMessage("RESREQ 000 P", nil, nil, true) end
+		if owned and GetNumGroupMembers() > 0 and not IsInRaid() then SP:SendMessage("RESREQ 000 P", nil, nil, true) end
 		sendMask = false
 		wipe(practicePick)
 		wipe(sentPick)
 		wipe(fakeAssign)
 		wipe(fakePrev)
+		wipe(fakeQueued)
 		Say("resistance practice mode OFF: pretend shamans removed and your totems put back.")
 	end
 	RecomputeNow()
@@ -832,6 +864,16 @@ end)
 
 hooksecurefunc(SP, "OnRosterSettled", function()
 	if not Busy() then return end
+	-- practice never runs in a real raid: a party that becomes one ends it
+	if IsInRaid() and (practice or practiceOwner) then
+		if practice then
+			Say("you are in a raid now, so resistance practice mode ends.")
+			SP:SetResistPractice(false)
+		else
+			SP:ClearResistRequests(true)
+		end
+		return
+	end
 	-- disbanded (or out of the raid): the request is over
 	if not Active() then
 		SP:ClearResistRequests(true)
@@ -872,6 +914,9 @@ events:SetScript("OnEvent", function(self, event)
 			if q == "apply" and need[r.key] then ApplyNow(r)
 			elseif q == "restore" then RestoreNow(r)
 			elseif q == "standdown" then RestoreNow(r, true) end
+			local fake = fakeQueued[r.key]
+			fakeQueued[r.key] = nil
+			if fake and practice and need[r.key] and proposal[r.key] == fake then FakeApply(fake, r) end
 		end
 		if sendMask or practice then QueueSend(false) end
 		Recompute()
@@ -917,7 +962,7 @@ if SP.options and SP.options.args and SP.options.args.buttons and SP.options.arg
 			practice = {
 				order = 3, type = "toggle", width = "full", name = "Practice Mode (this session only)",
 				desc = "Adds two pretend shamans so you can try requests alone or in a party: one with Free Assign on (switches straight away), one with it off (you see the Accept / Pass prompt they would get)."
-					.. " Nothing about them is sent to anyone. Same as /sp resisttest. Always off after a /reload.",
+					.. " Nothing about them is sent to anyone. Not in a raid: there the ticks make real requests, and joining one ends practice. Same as /sp resisttest. Always off after a /reload.",
 				disabled = function() return SP.opt.resistRequests == false end,
 				get = function() return practice end,
 				set = function(_, v) SP:SetResistPractice(v) end,
