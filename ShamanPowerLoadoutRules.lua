@@ -108,7 +108,12 @@ end
 -- ---------------------------------------------------------------------------
 -- Switching
 -- ---------------------------------------------------------------------------
-local pending   -- { uid, reason, valid = function() ... end } waiting for combat to end
+local pending   -- { uid, reason, valid = function() ... end } waiting for combat to end or for you to be alive
+
+-- Nothing switches in combat or while you are dead (Request and RunPending ask)
+local function MustWait()
+	return InCombatLockdown() or UnitIsDeadOrGhost("player")
+end
 
 local function Switch(uid, reason)
 	local index = IndexOfUID(uid)
@@ -121,15 +126,26 @@ local function Switch(uid, reason)
 	end
 end
 
--- valid: called again after combat; the switch only happens if it still returns true.
+-- valid: called again once you are out of combat and alive; the switch only
+-- happens if it still returns true then.
 local function Request(uid, reason, valid)
 	if not uid or uid == "__none" then return end
-	if InCombatLockdown() then
+	if MustWait() then
 		pending = { uid = uid, reason = reason, valid = valid }
 		return
 	end
 	pending = nil
 	Switch(uid, reason)
+end
+
+-- The waiting switch (combat ended, or you are alive again): kept while you
+-- are still dead or in combat; a ghost's whereabouts do not count against it.
+local function RunPending()
+	local p = pending
+	if not p or MustWait() then return end
+	pending = nil
+	local ok, still = pcall(p.valid)
+	if ok and still then Switch(p.uid, p.reason) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -447,15 +463,11 @@ frame:SetScript("OnEvent", function(_, event, ...)
 		local success = select(5, ...)
 		if not (issecretvalue and issecretvalue(success)) and success == 1 then ReleaseResist("encounter") end
 	elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
-		-- PLAYER_ALIVE also fires on releasing (still a ghost): CheckContent waits
+		-- PLAYER_ALIVE also fires on releasing (still a ghost): both wait
 		CheckContent()
+		RunPending()
 	elseif event == "PLAYER_REGEN_ENABLED" then
-		local p = pending
-		pending = nil
-		if p then
-			local ok, still = pcall(p.valid)
-			if ok and still then Switch(p.uid, p.reason) end
-		end
+		RunPending()
 	end
 end)
 
