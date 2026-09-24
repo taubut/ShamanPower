@@ -91,10 +91,11 @@ end
 -- Import dialog: paste box, optional profile name, Import button.
 -- ---------------------------------------------------------------------------
 local importDlg
+local IMPORT_H = 320
 function SP:ShowImportDialog()
 	if not importDlg then
 		importDlg = Core:CreateDialog({
-			name = "ShamanPowerImportDialog", width = 460, height = 320,
+			name = "ShamanPowerImportDialog", width = 460, height = IMPORT_H,
 			title = "Import", subtitle = "paste a string", headerHeight = 46, footer = 44,
 			special = true, strata = "FULLSCREEN_DIALOG",
 		})
@@ -148,27 +149,37 @@ function SP:ShowImportDialog()
 		go:SetScript("OnClick", function()
 			local ok, res = SP:ImportShare(edit:GetText(), "newProfile", nameBox:GetText())
 			if ok then
-				status:SetTextColor(Core:Color("on"))
-				status:SetText("Imported into profile: " .. res)
+				importDlg:SetStatus("Imported into profile: " .. res, "on")
 				C_Timer.After(1.2, function() importDlg:Hide() end)
 			else
-				status:SetTextColor(Core:Color("warn"))
-				status:SetText("Import failed: " .. tostring(res))
+				importDlg:SetStatus("Import failed: " .. tostring(res), "warn")
 			end
 		end)
 		local cancel = Core:MakeButton(importDlg, "Cancel", 100, false)
 		cancel:SetPoint("RIGHT", go, "LEFT", -8, 0)
 		cancel:SetScript("OnClick", function() importDlg:Hide() end)
-		-- the status line sits left of the buttons and wraps in the room they leave
+		-- the status line sits left of the buttons and wraps in the room they leave,
+		-- up to 4px under the body, where the name row starts. One too tall for that
+		-- (a long profile name) lifts the name row and the string box by the
+		-- difference, and the dialog grows by as much.
 		status:SetPoint("BOTTOMLEFT", importDlg, "BOTTOMLEFT", 14, 16)
-		status:SetPoint("BOTTOMRIGHT", cancel, "BOTTOMLEFT", -12, 4)
+		status:SetWidth(importDlg:GetWidth() - 14 - go:GetWidth() - 8 - cancel:GetWidth() - 12 - 14)
 		status:SetJustifyH("LEFT"); status:SetWordWrap(true)
+		local room = 44 + importDlg.pad - 4 - 16   -- the body's bottom (footer 44 + pad), 4px clear, above y 16
+		function importDlg:SetStatus(text, key)
+			if key then status:SetTextColor(Core:Color(key)) end
+			status:SetText(text)
+			local lift = math.max(0, math.ceil(status:GetStringHeight()) - room)
+			nameLabel:SetPoint("BOTTOMLEFT", self.body, "BOTTOMLEFT", 0, 6 + lift)
+			scroll:SetPoint("BOTTOMRIGHT", self.body, "BOTTOMRIGHT", -10, 30 + lift)
+			self:SetHeight(IMPORT_H + lift)
+		end
 	end
 
 	importDlg.edit:SetText("")
 	importDlg.scroll:SetVerticalScroll(0)
 	importDlg.nameBox:SetText("Imported")
-	importDlg.status:SetText("")
+	importDlg:SetStatus("")
 	importDlg:Show()
 	importDlg.edit:SetFocus()
 end
