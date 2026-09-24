@@ -43,6 +43,7 @@ local function Build()
 		width = PANEL_W, height = 200,
 		title = "Frame Settings", subtitle = "",
 		headerHeight = 44, bodyTop = 8,
+		special = true,   -- Escape closes it
 	})
 	panel:SetFrameStrata("DIALOG")
 	return panel
