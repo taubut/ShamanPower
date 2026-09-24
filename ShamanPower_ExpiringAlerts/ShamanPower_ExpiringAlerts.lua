@@ -741,8 +741,9 @@ function SP:TotemDestroyedAlert(totemName, elementColor)
 		local locked = _G.SPK and _G.SPK() == true
 		local sent = not locked and send and pcall(send, label .. " destroyed!", channel)
 		if not sent and DEFAULT_CHAT_FRAME then
-			DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cff999999" .. label .. " destroyed: "
-				.. (locked and "the game locks group chat right now, your group was not told." or "the group chat message could not be sent.") .. "|r")
+			local why = locked and "the game locks group chat right now, your group was not told."
+				or "the group chat message could not be sent."
+			DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cff999999" .. label .. " destroyed: " .. why .. "|r")
 		end
 	end
 end
