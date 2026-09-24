@@ -3368,7 +3368,7 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 		previewDlg.hdr = hdr
 		local note = body:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetWidth(370); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
 		previewDlg.note = note
-		note:SetText("Positions, colors, sounds and every other setting come along too. Your totem choices and raid assignments are not touched.")
+		note:SetText("Positions, colors, sounds and every other setting come along too, except the totem bar and cooldown bar: they start low in the middle of the screen, for you to move with |cffffffff/sp unlock|r. Your totem choices and raid assignments are not touched.")
 		-- footer
 		local apply = Core:MakeButton(previewDlg, "Apply this layout & reload", 220, true)
 		apply:SetPoint("BOTTOMRIGHT", previewDlg, "BOTTOMRIGHT", -14, 12)

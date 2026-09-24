@@ -1620,7 +1620,7 @@ ShamanPower.options = {
 						reset_center = {
 							order = 1,
 							name = "Reset Frames to Center",
-							desc = "Reset totem bar and cooldown bar positions to center of screen",
+							desc = "Put the totem bar in the middle of the screen and the cooldown bar straight under it: a rescue for bars lost off screen (same as /spcenter).",
 							type = "execute",
 							disabled = function(info)
 								return ShamanPower.opt.enabled == false
