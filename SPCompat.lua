@@ -520,8 +520,12 @@ function SPCompat.SecureSnippetsWork()
 	-- loadstring_untainted. When the client doesn't provide it (Forever), the
 	-- probe below can only fail, and error displays such as BugSack still
 	-- catch that failure (they keep seterrorhandler for themselves), so check
-	-- the global first and skip the probe.
-	if type(loadstring_untainted) ~= "function" then
+	-- the global first and skip the probe. Mainline family only: whether addon
+	-- code can see that global on Anniversary was never measured (on retail it
+	-- reads nil even though snippets work there, see above), so Anniversary keeps
+	-- the real probe. On Forever this shortcut cannot notice a client patch that
+	-- fixes snippets; /spflyout secure re-tests then.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(loadstring_untainted) ~= "function" then
 		snippetsWork, snippetProbeErr = false, "loadstring_untainted missing"
 		return false
 	end
@@ -546,9 +550,10 @@ function SPCompat.SecureSnippetsWork()
 	-- probe answer "snippets work" every time.
 	--
 	-- Detect it the only way that actually observes the failure: install a
-	-- recording error handler for the duration of the call. The marker
-	-- attribute is corroboration, not the verdict, because a handle method
-	-- could be restricted for unrelated reasons.
+	-- recording error handler for the duration of the call. On Anniversary the
+	-- marker attribute is corroboration, not the verdict, because a handle method
+	-- could be restricted for unrelated reasons. On the Mainline family it is part
+	-- of the verdict (see below).
 	local failed, firstErr = false, nil
 	local prev = geterrorhandler and geterrorhandler()
 	if seterrorhandler then
@@ -565,9 +570,11 @@ function SPCompat.SecureSnippetsWork()
 	local okMark, marked = pcall(probe.GetAttribute, probe, "spSnippetProbe")
 	SPCompat.snippetProbeMarked = okMark and marked or nil
 
-	-- The marker must be set too: with an error display that keeps the error
-	-- handler for itself, a failed compile never reaches our recording handler.
-	snippetsWork = (ok and not failed and SPCompat.snippetProbeMarked) and true or false
+	-- Mainline family: the marker must be set too. With an error display that
+	-- keeps the error handler for itself, a failed compile never reaches our
+	-- recording handler. Anniversary keeps its old verdict, unmeasured there.
+	local markerOk = SPCompat.snippetProbeMarked or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+	snippetsWork = (ok and not failed and markerOk) and true or false
 	snippetProbeErr = (not snippetsWork) and (firstErr or "probe call refused") or nil
 	return snippetsWork
 end
