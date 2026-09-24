@@ -28,7 +28,7 @@ local GetSpellTextureC = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTextur
 
 local ELEMENTS = { "Earth", "Fire", "Water", "Air" }
 local TOTEM_ITEMS = { 5175, 5176, 5177, 5178 }   -- Earth / Fire / Water / Air Totem (vanilla tools)
-local GOLD = "|cffffd200"
+local GOLD = "|cffFFD100"
 local TAG = "|cff0070ddShamanPower|r: "
 
 -- Totem items are needed where the client is the vanilla line (WoW: Forever).
@@ -229,7 +229,7 @@ end
 
 function SP:ReadyCheckFrame()
 	if panel then return panel end
-	local f = CreateFrame("Frame", "ShamanPowerReadyCheckFrame", UIParent, BackdropTemplateMixin and "BackdropTemplate" or nil)
+	local f = CreateFrame("Frame", "ShamanPowerReadyCheckFrame", UIParent)
 	f:SetSize(PANEL_W, 60)
 	-- DIALOG, like the game's own ready check: "Check Now" in the settings window
 	-- (HIGH) shows the list on top of it
@@ -240,22 +240,31 @@ function SP:ReadyCheckFrame()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", function(self) self:StartMoving() end)
 	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); savePos(self) end)
-	if f.SetBackdrop then
-		f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
-		f:SetBackdropColor(0.05, 0.06, 0.09, 0.9)
-		f:SetBackdropBorderColor(1, 0.82, 0, 0.8)
-	end
+	-- ShamanPower's own panel look (ShamanPowerDialog.lua): dark background,
+	-- 2px accent border, the dialog title font
+	local bg = f:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(f)
+	bg:SetColorTexture(SP:SPColor("windowBg", 0.9))
+	SP:SPMakeBorder(f, "accent", 2)
 	local title = f:CreateFontString(nil, "OVERLAY")
-	SP:SetSPFont(title, "alerts", 13, "OUTLINE")
+	title:SetFontObject(SP.SPDialogFonts.title)
 	title:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD)
 	title:SetWidth(PANEL_W - 2 * PAD - 18); title:SetJustifyH("LEFT"); title:SetWordWrap(true)
-	title:SetTextColor(1, 0.82, 0)
 	f.title = title
 	local close = SP:CreateSPCloseButton(f, 18)
 	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
 	close:SetScript("OnClick", function() SP:HideReadyCheckPanel() end)
 	f.close = close
 	f:Hide()
+	-- Escape closes it (UISpecialFrames) as the X does: the timer and the
+	-- refresh events go with it. Not while a sample fills it, and not for a
+	-- hidden UI (Alt+Z), where the frame stays "shown".
+	tinsert(UISpecialFrames, "ShamanPowerReadyCheckFrame")
+	f:SetScript("OnHide", function(self)
+		if not self:IsShown() and not SP.readyCheckDemoActive and (hideTimer or sweepTitle) then
+			SP:HideReadyCheckPanel()
+		end
+	end)
 	panel = f
 	applyPos(f); applyLook(f)
 	return f
