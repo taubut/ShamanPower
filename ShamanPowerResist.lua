@@ -956,6 +956,50 @@ hooksecurefunc(SP, "PerformCycle", function(_, name, element) OwnEdit(name, elem
 hooksecurefunc(SP, "PerformCycleBackwards", function(_, name, element) OwnEdit(name, element) end)
 hooksecurefunc(SP, "ApplyAssignment", function(_, element) OwnEdit(Player(), element) end)
 
+-- An automatic loadout switch (Loadout Auto-Switch: content, zone, target or
+-- encounter) keeps a resistance the raid asked you for: it goes back on top of
+-- the new loadout, and the loadout's own totem is the one that comes back when
+-- the request ends. A rule never fights a request (another rule's included).
+local function KeepOverLoadout()
+	if InCombatLockdown() then return end   -- ApplyLoadout changed nothing
+	local me = Player()
+	local a = ShamanPower_Assignments[me]
+	if not a then return end
+	local applied = Applied()
+	for _, r in ipairs(RESIST) do
+		local current = a[r.element] or 0
+		if need[r.key] and applied[r.key] ~= nil and queued[r.key] == nil
+			and current ~= RESIST_INDEX and not passed[r.key][me] then
+			applied[r.key] = current
+			a[r.element] = RESIST_INDEX
+			RefreshOwnAssignment(r.element)
+			local back = current > 0 and SP.TotemNames[r.element][current]
+			Say(TotemName(r) .. " stays on your " .. ELEMENT_NAMES[r.element] .. " totem for the raid; " .. (back or "the empty slot") .. " from the loadout comes back when the request ends.")
+		end
+	end
+end
+
+-- A loadout you pick (loadout bar, /spl, the minimap menu) is a hand edit of
+-- all four totems; quiet marks an automatic switch (it prints its own line).
+hooksecurefunc(SP, "ApplyLoadout", function(_, _, quiet)
+	if not Watching() then return end
+	if quiet then
+		KeepOverLoadout()
+		Recompute()
+	else
+		for element = 1, 4 do OwnEdit(Player(), element) end
+	end
+end)
+
+-- Clear and Auto-Assign rewrite everyone's totems (yours too): the coverage
+-- lines follow, and a request that lost its shaman is asked again.
+hooksecurefunc(SP, "ClearAssignments", function()
+	if Watching() then Recompute() end
+end)
+hooksecurefunc(SP, "AutoAssignTotems", function()
+	if Watching() then Recompute() end
+end)
+
 hooksecurefunc(SP, "OnRosterSettled", function()
 	if not Busy() then
 		if Watching() then Recompute() end
