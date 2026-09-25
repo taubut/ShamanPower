@@ -874,6 +874,9 @@ function ShamanPower:OnInitialize()
 
 	self.opt = self.db.profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	-- switched off at login: the central update loop stays stopped (switch-on starts it)
+	self._appliedOff = self:IsOff()   -- the state everything was last set up for
+	if self._appliedOff then self.updateSystem.frame:Hide() end
 	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
 	if self.ApplyElementColors then self:ApplyElementColors() end
 	-- The cooldown bar now always floats free of the totem bar (the old
@@ -934,7 +937,9 @@ function ShamanPower:OnInitialize()
 			["OnTooltipShow"] = function(tooltip)
 				if self.opt.ShowTooltips then
 					tooltip:SetText(SHAMANPOWER_NAME)
-					if self:WindfuryOnly() then
+					if self:IsOff() then
+						tooltip:AddLine("ShamanPower is off. Click to turn it back on.", 1, 1, 1, true)
+					elseif self:WindfuryOnly() then
 						tooltip:AddLine("Windfury-only mode. Click to turn the other features back on.", 1, 1, 1, true)
 					else
 						tooltip:AddLine(L["MINIMAP_ICON_TOOLTIP"])
@@ -944,8 +949,9 @@ function ShamanPower:OnInitialize()
 			end,
 			["OnClick"] = function(_, button)
 				local playerIsShaman = select(2, UnitClass("player")) == "SHAMAN"
-				-- Windfury-only mode: every click opens the one menu that turns the rest back on
-				if ShamanPower:WindfuryOnly() and ShamanPower.ShowMinimapMenu then
+				-- Switched off, or Windfury-only mode: every click opens the one menu
+				-- that turns the rest back on
+				if (ShamanPower:IsOff() or ShamanPower:WindfuryOnly()) and ShamanPower.ShowMinimapMenu then
 					ShamanPower:ShowMinimapMenu()
 					return
 				end
@@ -1167,6 +1173,7 @@ end
 
 -- Called when combat ends - reset Drop All castsequence
 function ShamanPower:OnCombatEnd()
+	if self._onOffPendingCombat then self:ApplyOnOff() end
 	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
 	-- Layout skipped because the addon loaded (or was reloaded) mid-combat:
 	-- run the parts of the login sequence that could not touch secure frames.
@@ -1299,10 +1306,17 @@ function ShamanPower:OnProfileChanged()
 	C_Timer.After(0.5, function()
 		self:RestorePoppedOutTrackers()
 	end)
+	-- the new profile has the other Enable ShamanPower setting: switch now (after
+	-- combat); its pop-outs come back through the restore above, not the switch
+	if (self.opt.enabled == false) ~= (self._appliedOff == true) then
+		self._popOutsSkippedByOff = nil
+		if InCombatLockdown() then self._onOffPendingCombat = true else self:ApplyOnOff() end
+	end
 	--self:Debug("Profile changed, positions restored from profile.")
 end
 
 function ShamanPower:BindKeys()
+	if self:IsOff() then return end
 	local key1 = GetBindingKey("SHAMANPOWER_AUTOKEY1")
 	local key2 = GetBindingKey("SHAMANPOWER_AUTOKEY2")
 	if key1 then
@@ -1542,6 +1556,78 @@ function ShamanPower:SetWindfuryOnly(on)
 	if self.UpdateWindfuryBroadcaster then self:UpdateWindfuryBroadcaster() end
 end
 
+-- Enable ShamanPower off: the whole addon goes quiet, the way Windfury-only mode
+-- does for non-shamans, for every class. Nothing is drawn, announced, sent or
+-- bound, Blizzard's totem bar is left alone, and every setting stays open to
+-- change. The minimap icon stays: any click on it offers the one way back
+-- (and the settings toggle does too). Each part checks IsOff() where it decides
+-- to show or run; OnOnOff() lets the module addons re-check theirs on a switch.
+-- IsOff() is the state everything is set up for: a switch made in combat
+-- takes effect for every part at once when the fight ends (the settings
+-- toggle shows the saved choice right away).
+function ShamanPower:IsOff()
+	if self._appliedOff ~= nil then return self._appliedOff end
+	return self.opt and self.opt.enabled == false or false
+end
+
+local onOffHandlers = {}
+function ShamanPower:OnOnOff(fn)
+	onOffHandlers[#onOffHandlers + 1] = fn
+end
+
+function ShamanPower:SetOff(off)
+	self.opt.enabled = not off
+	if InCombatLockdown() then   -- the bars are secure frames: switch after the fight
+		self._onOffPendingCombat = true
+		print("|cff0070ddShamanPower|r: turns " .. (off and "off" or "on") .. " when combat ends.")
+		return
+	end
+	self:ApplyOnOff()
+end
+
+function ShamanPower:ApplyOnOff()
+	self._onOffPendingCombat = nil
+	local off = self.opt.enabled == false
+	-- switched and switched back in the same fight (or a new profile with the
+	-- same choice): nothing to change, and nothing is sent or asked again
+	if off == self._appliedOff then return end
+	self._appliedOff = off
+	if off then self:UnbindKeys() else self:BindKeys() end
+	-- popped-out trackers: hide the shown ones, bring back only those (or, when
+	-- the switch was off at login, the saved ones for the first time)
+	for _, frame in pairs(self.poppedOutFrames or {}) do
+		if off and frame:IsShown() then
+			frame.spHiddenByOff = true
+			frame:Hide()
+		elseif not off and frame.spHiddenByOff then
+			frame.spHiddenByOff = nil
+			frame:Show()
+		end
+	end
+	if not off and self._popOutsSkippedByOff then
+		self._popOutsSkippedByOff = nil
+		self:RestorePoppedOutTrackers()
+	end
+	-- Blizzard's totem bar: the Blizzard style lets go of it, the hide option gives it back
+	if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end
+	self:UpdateLayout()   -- the totem bar (UpdateRoster skips solo players)
+	if not off then
+		-- the flyout click mode on the totem buttons, as at login (buttons first
+		-- built by this switch-on, when it was off at login, start on mouseover)
+		C_Timer.After(0.5, function()
+			if not InCombatLockdown() and not self:IsOff() then self:UpdateTotemFlyoutEnabled() end
+		end)
+	end
+	self:UpdateTotemBarVisibility(true)
+	if self.UpdateCooldownBar then self:UpdateCooldownBar() end
+	if self.UpdateLoadoutBar then self:UpdateLoadoutBar() end
+	if self.ApplyBlizzardTotemBarHiding then self:ApplyBlizzardTotemBarHiding() end
+	-- one part's error is reported but never stops the others from switching
+	for i = 1, #onOffHandlers do xpcall(onOffHandlers[i], geterrorhandler(), off) end
+	ShamanPowerMinimapIcon_Toggle()
+	if self.RefreshConfig then self:RefreshConfig() end   -- an open settings window shows the switch
+end
+
 function ShamanPowerMinimapIcon_Toggle()
 	if ShamanPower.opt.minimap.show == false then
 		ShamanPower.MinimapIcon:Hide("ShamanPower")
@@ -1549,6 +1635,29 @@ function ShamanPowerMinimapIcon_Toggle()
 		ShamanPower.MinimapIcon:Show("ShamanPower")
 	end
 end
+
+-- The core's own part of a switch. Off: the central update loop stops (each
+-- subsystem keeps its own on/off and ticks again on switch-on), the totem and
+-- cooldown key bindings are cleared, and messages still waiting to go out are
+-- dropped. On: bindings back, the shield / Earth Shield / buff reads that slept
+-- are taken fresh, and the group hears from us (and we ask for its data).
+ShamanPower:OnOnOff(function(off)
+	local sp = ShamanPower
+	sp._appliedOff = off
+	if sp.updateSystem.frame then sp.updateSystem.frame:SetShown(not off) end
+	sp:SetupKeybindings()
+	if off then
+		sp:DropHeldMessages()
+		return
+	end
+	sp:ScanPlayerShield()
+	sp:RefreshEarthShieldTarget()
+	sp:RefreshPlayerBuffCache()
+	if GetNumGroupMembers() > 0 then
+		sp:SendSelf(nil, true)
+		sp:RequestShamanData()
+	end
+end)
 
 -- ============================================================================
 -- Totem Status Detection
@@ -3122,9 +3231,9 @@ function ShamanPower:UpdateTwistTimer()
 			if self.twistTimerFrame and self.twistTimerText then
 				local format = self.opt.twistTimerNoDecimals and "%.0f" or "%.1f"
 				self.twistTimerText:SetText(string.format(format, remaining))
-				-- Twist beep sound
+				-- Twist beep sound (not once switched off during a fight: the bar waits for its end)
 				if self.opt.twistSoundEnabled and not self.twistSoundPlayed then
-					if remaining <= self.opt.twistSoundThreshold then
+					if remaining <= self.opt.twistSoundThreshold and not self:IsOff() then
 						self:PlaySoundWithVolume(self:GetSoundFile(self.opt.twistSoundName or "Raid Warning"), self.opt.twistSoundVolume, true)
 						self.twistSoundPlayed = true
 					end
@@ -6159,6 +6268,7 @@ end
 -- Restore all popped-out trackers on load
 function ShamanPower:RestorePoppedOutTrackers()
 	if not self.opt.poppedOut then return end
+	if self:IsOff() then self._popOutsSkippedByOff = true; return end   -- brought back on switch-on
 
 	for key, isPopped in pairs(self.opt.poppedOut) do
 		if isPopped then
@@ -6537,6 +6647,7 @@ end
 -- Update totem buttons with spell info and position (called from UpdateMiniTotemBar)
 function ShamanPower:UpdateTotemButtons()
 	if InCombatLockdown() then return end
+	if self:IsOff() then return end   -- switched off: the buttons (UIParent children) stay down
 
 	-- Make sure totem buttons exist
 	self:CreateTotemButtons()
@@ -10937,7 +11048,7 @@ function ShamanPower:UpdateCooldownBar()
 
 	if not self.cooldownBar then return end
 
-	if self.opt.showCooldownBar and #self.cooldownButtons > 0 then
+	if self.opt.showCooldownBar and not self:IsOff() and #self.cooldownButtons > 0 then
 		-- Update the button layout first
 		self:UpdateCooldownBarLayout()
 
@@ -11107,7 +11218,7 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 		self.cooldownBar:RegisterForDrag("LeftButton")
 		-- shown only when UpdateCooldownBar would show it (switched on, something on
 		-- it): a Reset or a reposition never brings up an empty or disabled bar
-		if self.opt.showCooldownBar and #self.cooldownButtons > 0 then self.cooldownBar:Show() end
+		if self.opt.showCooldownBar and not self:IsOff() and #self.cooldownButtons > 0 then self.cooldownBar:Show() end
 	end
 
 	self:UpdateCooldownBarScale()
@@ -12530,7 +12641,7 @@ end
 -- Drop All / Earth Shield / Totemic Call buttons are all UIParent children,
 -- so hiding the anchor alone never hid them.
 function ShamanPower:TotemBarEnabled()
-	return self.opt.enabled ~= false and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
+	return not self:IsOff() and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
 end
 
 -- Whether the layout puts the totem bar up at all right now: a shaman, switched
@@ -12538,7 +12649,7 @@ end
 -- and fade rules only act on a bar this allows, so a target, a fade or a pull
 -- never brings back one the layout keeps down.
 function ShamanPower:TotemBarInUse()
-	return isShaman and self.opt.enabled and self.opt.miniBar.autobutton
+	return isShaman and not self:IsOff() and self.opt.miniBar.autobutton
 		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
 end
 
@@ -12781,7 +12892,7 @@ do
 	end
 	f:SetScript("OnEvent", function(_, event, unit)
 		local o = ShamanPower.opt
-		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) then return end
+		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) or ShamanPower:IsOff() then return end   -- no rules, or switched off
 		if (event == "PLAYER_TARGET_CHANGED" or event == "UNIT_FACTION") and not o.showWithTarget then return end
 		if event == "UNIT_FACTION" and unit ~= "target" and unit ~= "player" then return end
 		if event == "PLAYER_TOTEM_UPDATE" then
@@ -12836,6 +12947,9 @@ function ShamanPower:UpdateMiniTotemBar()
 	self:AssignmentsChanged()
 	if not self.autoButton then return end
 	if InCombatLockdown() then return end
+	-- switched off: the totem, Drop All and Earth Shield buttons (UIParent children)
+	-- stay down; switch-on lays the bar out again
+	if self:IsOff() then return end
 
 	-- Don't show buttons if totem bar should be hidden
 	if self.totemBarHidden and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then return end
@@ -14388,6 +14502,12 @@ end
 function ShamanPower:UpdateEarthShieldButton()
 	if InCombatLockdown() then return end
 	if not self.autoButton then return end
+	-- switched off: a cast or an aura change must not bring the button (a UIParent child) up
+	if self:IsOff() then
+		local esBtn = _G["ShamanPowerEarthShieldBtn"]
+		if esBtn then esBtn:Hide() end
+		return
+	end
 
 	-- Create button if it doesn't exist
 	self:CreateEarthShieldButton()
@@ -15112,7 +15232,7 @@ function ShamanPower:ValidateAssignmentsForSpec()
 						local elementName = self.Elements[element] or "Unknown"
 						local oldTotemName = self.TotemNames[element] and self.TotemNames[element][totemIndex] or "Unknown"
 						local newTotemName = self.TotemNames[element] and self.TotemNames[element][defaultTotem] or "Unknown"
-						self:Print("|cffff9900Respec detected:|r " .. elementName .. " totem reset from " .. oldTotemName .. " to " .. newTotemName)
+						if not self:IsOff() then self:Print("|cffff9900Respec detected:|r " .. elementName .. " totem reset from " .. oldTotemName .. " to " .. newTotemName) end
 					end
 				end
 			end
@@ -15212,7 +15332,7 @@ end
 -- they read SELF from the group channel either way.
 local selfBroadcastQueued = false
 function ShamanPower:QueueSelfBroadcast()
-	if not isShaman or selfBroadcastQueued then return end
+	if not isShaman or selfBroadcastQueued or self:IsOff() then return end   -- switched off: no reply
 	selfBroadcastQueued = true
 	C_Timer.After(0.5 + math.random() * 1.5, function()
 		selfBroadcastQueued = false
@@ -15468,6 +15588,7 @@ function ShamanPower:SendHeldMessages()
 end
 
 function ShamanPower:SendMessage(msg, type, target, force)
+	if self:IsOff() then return false end   -- switched off: tells the group nothing
 	if SPK and SPK() == true then
 		-- Do not claim delivery while the client's chat messaging lock is active.
 		if GetNumGroupMembers() > 0 then
@@ -15733,8 +15854,8 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 	-- Track Earth Shield casts (event-based tracking, no scanning!)
 	self:OnEarthShieldCastSucceeded(unitTarget, castGUID, spellID)
 
-	-- Trigger GCD swipe when player casts a totem
-	if unitTarget == "player" then
+	-- Trigger GCD swipe when player casts a totem (switched off: the bar is down)
+	if unitTarget == "player" and not self:IsOff() then
 		local spellName = GetSpellInfo(spellID)
 		if spellName and spellName:find("Totem") then
 			self:TriggerGCDSwipe()
@@ -15899,8 +16020,9 @@ function ShamanPower:UNIT_AURA(event, unit)
 		self:OnEarthShieldAuraChange(unit)
 	end
 
-	-- Scan for shield buffs when player auras change (avoids polling)
-	if unit == "player" then
+	-- Scan for shield buffs when player auras change (avoids polling). Switched
+	-- off, nothing shows them: read again on switch-on.
+	if unit == "player" and not self:IsOff() then
 		self:ScanPlayerShield()
 		if cachePlayerBuffs then self:RefreshPlayerBuffCache() end
 	end
@@ -16026,7 +16148,7 @@ local function commRefresh()
 	ShamanPower:UpdateLayout()
 end
 function ShamanPower:QueueCommRefresh()
-	if commRefreshQueued then return end
+	if commRefreshQueued or self:IsOff() then return end   -- switched off: switch-on redraws
 	commRefreshQueued = true
 	C_Timer.After(0, commRefresh)
 end
@@ -16083,6 +16205,7 @@ function ShamanPower:ParseMessage(sender, msg)
 	-- Raid cooldown coordination: calls are one-shot alerts (no bar change);
 	-- the SYNC messages change who is assigned, so they refresh like the rest
 	if RC_MESSAGES[kw] then
+		if RC_MESSAGES[kw] == "call" and self:IsOff() then return end   -- switched off: no alert
 		self:HandleRaidCooldownMessage(nil, msg, sender)
 		if RC_MESSAGES[kw] == "call" then return end
 	end
@@ -17898,6 +18021,12 @@ function ShamanPower:SetupKeybindings()
 		self.keybindsPending = true
 		return
 	end
+	-- switched off: none of our bindings (hidden secure buttons still answer a key)
+	if self:IsOff() then
+		if self.keybindFrame then ClearOverrideBindings(self.keybindFrame) end
+		self.keybindsPending = false
+		return
+	end
 	self:ApplyClickSwap()   -- the keys below press whichever mouse button means "main action"
 
 	-- Need a frame to own the bindings
@@ -17960,7 +18089,7 @@ end
 -- the player's keys untouched. Hidden buttons answer binding presses, so this
 -- works whether or not the flyout is open.
 function ShamanPower:RouteFlyoutBarKeys()
-	if InCombatLockdown() or not self.keybindFrame then return end
+	if InCombatLockdown() or not self.keybindFrame or self:IsOff() then return end   -- switched off: the player's keys stay theirs
 	if self.opt.flyoutRouteBarKeys == false or not self.opt.showTotemFlyouts then return end
 	if self.opt.flyoutCloseOnCast == false then return end   -- nothing to gain: leave the player's keys alone
 	if not next(self.boxFlyouts or {}) then return end   -- not in box mode
@@ -18050,6 +18179,9 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 		end
 		return
 	end
+
+	-- switched off: no key text, bindings or macro migrations (switch-on sets them up)
+	if ShamanPower:IsOff() then return end
 
 	if event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" or event == "SPELLS_CHANGED" then
 		if ShamanPower.opt and ShamanPower.opt.showButtonKeybinds then
@@ -18951,7 +19083,7 @@ function ShamanPower:UpdateLoadoutBar()
 	local numLoadouts = #ShamanPower_TotemLoadouts
 
 	-- Show/hide anchor (need loadouts AND setting enabled)
-	if not self.opt.showLoadoutBar or numLoadouts == 0 then
+	if not self.opt.showLoadoutBar or numLoadouts == 0 or self:IsOff() then
 		if self.HasTotemBar and self:HasTotemBar() then
 			for _, button in ipairs(self.loadoutButtons) do
 				button:SetAttribute("type", nil)

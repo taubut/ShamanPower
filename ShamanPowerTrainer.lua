@@ -155,6 +155,7 @@ end
 
 local function report(level, newLevel, manual)
 	if not on("enabled", true) then return end
+	if SP:IsOff() and not manual then return end   -- switched off: only Check Now answers
 	local m = missing(level, newLevel)
 	if newLevel then
 		if #m.new > 0 then
@@ -186,6 +187,7 @@ if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Trainer
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:SetScript("OnEvent", function(_, event, a1)
+	if SP:IsOff() then return end
 	if event == "PLAYER_LEVEL_UP" then
 		local lvl = tonumber(a1) or UnitLevel("player")
 		-- the spellbook can lag the level-up by a moment

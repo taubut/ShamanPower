@@ -139,8 +139,8 @@ function SP:CreateShieldChargeDisplays()
 			SP._shieldWake = true
 		end)
 	end
-	-- Only enable if shield charge display is configured to show something
-	local showAny = (settings.showPlayerShield ~= false) or earthShieldWanted(settings)
+	-- Only enable if shield charge display is configured to show something (and ShamanPower is on)
+	local showAny = ((settings.showPlayerShield ~= false) or earthShieldWanted(settings)) and not self:IsOff()
 	if showAny then
 		self:EnableUpdateSubsystem("shieldCharge")
 	else
@@ -286,6 +286,14 @@ function SP:UpdateShieldChargeDisplays()
 	if self.shieldChargesDemoActive then return end
 	local settings = self.opt.shieldChargeDisplay
 	if not settings then return end
+
+	-- ShamanPower switched off: no numbers, and the update stops
+	if self:IsOff() then
+		self:DisableUpdateSubsystem("shieldCharge")
+		if self.shieldChargeFrames.player then self.shieldChargeFrames.player:Hide() end
+		if self.shieldChargeFrames.earth then self.shieldChargeFrames.earth:Hide() end
+		return
+	end
 
 	-- Enable/disable the shieldCharge subsystem based on settings
 	local showAny = (settings.showPlayerShield ~= false) or earthShieldWanted(settings)
@@ -507,3 +515,6 @@ if ShamanPower.RegisterPreview then
 		stageCastKit = 237275,   -- its cast visual, played once when the demo recasts
 	})
 end
+
+-- Enable ShamanPower switched: hide the numbers (off), or show them as the settings say (on)
+SP:OnOnOff(function() SP:UpdateShieldChargeDisplays() end)

@@ -464,7 +464,7 @@ local function RefreshLoadoutArgs()
 		name = "Move the Loadout Bar",
 		desc = "Hides this window and draws a box around the loadout bar on your screen. Drag it where you want it, then press Done to come back here.",
 		disabled = function()
-			return ShamanPower.opt.enabled == false or not ShamanPower.opt.showLoadoutBar
+			return not ShamanPower.opt.showLoadoutBar
 				or not ShamanPower.UnlockModuleFrames or InCombatLockdown()
 		end,
 		func = function() ShamanPower:UnlockModuleFrames("loadoutbar") end,
@@ -799,7 +799,7 @@ end
 -- so the section itself is not greyed by a hidden panel (a group's disabled is
 -- inherited by every row without its own).
 local function StatusColorDisabled()
-	return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
+	return not isShaman or PanelHidden()
 end
 
 local function FlyoutSizeOption(order, width, key, default, name, desc, apply, extraDisabled)
@@ -813,7 +813,7 @@ local function FlyoutSizeOption(order, width, key, default, name, desc, apply, e
 		max = 56,
 		step = 1,
 		disabled = function(info)
-			return ShamanPower.opt.enabled == false or not isShaman or (extraDisabled and extraDisabled()) or false
+			return not isShaman or (extraDisabled and extraDisabled()) or false
 		end,
 		get = function(info)
 			return ShamanPower.opt[key] or default
@@ -854,15 +854,10 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							get = function(info)
-								return ShamanPower.opt.enabled
+								return ShamanPower.opt.enabled ~= false
 							end,
 							set = function(info, val)
-								ShamanPower.opt.enabled = val
-								if ShamanPower.opt.enabled then
-									ShamanPower:OnEnable()
-								else
-									ShamanPower:OnDisable()
-								end
+								ShamanPower:SetOff(not val)
 							end
 						},
 						showparty = {
@@ -872,7 +867,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman   -- bar visibility: shaman only
+								return not isShaman   -- bar visibility: shaman only
 							end,
 							get = function(info)
 								return ShamanPower.opt.ShowInParty
@@ -904,7 +899,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman   -- bar visibility: shaman only
+								return not isShaman   -- bar visibility: shaman only
 							end,
 							get = function(info)
 								return ShamanPower.opt.ShowWhenSolo
@@ -920,9 +915,6 @@ ShamanPower.options = {
 							desc = L["[Show/Hide] The ShamanPower Tooltips"],
 							type = "toggle",
 							width = 1.0,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.ShowTooltips
 							end,
@@ -946,9 +938,6 @@ ShamanPower.options = {
 							desc = "When enabled, the totem bar automatically shows whatever totem is currently placed for each element. No need to right-click to assign totems first - just drop a totem and it becomes the active one on the bar. Great for PVP where you need quick, reactive totem management. Cannot be combined with Compact Style: turning this on turns Compact off. While Totem Twisting is on, the Air button is left alone.",
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.dynamicTotemMode
 							end,
@@ -985,9 +974,6 @@ ShamanPower.options = {
 								function() return ShamanPower.opt.dynamicTotemMode end, "Dynamic Mode is on: whatever you drop becomes the assigned totem, so the dropped and assigned totems are never different and this display never appears."),
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.activeTotemAsMain
 							end,
@@ -1017,9 +1003,6 @@ ShamanPower.options = {
 							hidden = function(info)
 								return not ShamanPower.opt.activeTotemAsMain
 							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.rightClickCastsAssigned
 							end,
@@ -1036,9 +1019,6 @@ ShamanPower.options = {
 							width = "full",
 							hidden = function(info)
 								return not (ShamanPower.TotemDestroySupported and ShamanPower:TotemDestroySupported())
-							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
 							end,
 							get = function(info)
 								return ShamanPower.opt.rightClickDestroysTotem == true
@@ -1063,9 +1043,6 @@ ShamanPower.options = {
 							desc = "Each totem slot becomes an element-colored line. The totem's duration drains as an outline around the line (or the line itself drains), the pulse countdown refills inside it, and a tiny icon square can sit above or below. Clicks, keybinds and flyouts work exactly as before. Cannot be combined with Dynamic Mode or TotemTimers Style: turning Compact on turns both of those off.",
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.compactStyle
 							end,
@@ -1294,9 +1271,6 @@ ShamanPower.options = {
 							desc = function(info) return "Enable Air totem twisting (alternates between Windfury and " .. ShamanPower:GetTwistTotemName() .. "). This is the same option as the checkbox in /sp totems." end,
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.enableTotemTwisting
 							end,
@@ -1325,9 +1299,6 @@ ShamanPower.options = {
 							width = 1.0,
 							hidden = function(info)
 								return not ShamanPower.opt.enableTotemTwisting
-							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
 							end,
 							values = function()
 								local vals = {}
@@ -1363,9 +1334,6 @@ ShamanPower.options = {
 							hidden = function(info)
 								return not ShamanPower.opt.enableTotemTwisting
 							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.twistTimerNoDecimals
 							end,
@@ -1381,9 +1349,6 @@ ShamanPower.options = {
 							width = "full",
 							hidden = function(info)
 								return not ShamanPower.opt.enableTotemTwisting
-							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
 							end,
 							get = function(info)
 								return ShamanPower.opt.twistSoundEnabled
@@ -1404,9 +1369,6 @@ ShamanPower.options = {
 							hidden = function(info)
 								return not ShamanPower.opt.enableTotemTwisting or not ShamanPower.opt.twistSoundEnabled
 							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.twistSoundThreshold or 3
 							end,
@@ -1425,9 +1387,6 @@ ShamanPower.options = {
 							hidden = function(info)
 								return not ShamanPower.opt.enableTotemTwisting or not ShamanPower.opt.twistSoundEnabled
 							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.twistSoundName or "Raid Warning"
 							end,
@@ -1444,9 +1403,6 @@ ShamanPower.options = {
 							name = "Test Sound",
 							desc = "Play the selected sound at the selected volume.",
 							width = 0.7,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							func = function()
 								ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(ShamanPower.opt.twistSoundName or "Raid Warning"), ShamanPower.opt.twistSoundVolume or 100, true)
 							end,
@@ -1461,9 +1417,6 @@ ShamanPower.options = {
 							width = "double",
 							hidden = function(info)
 								return not ShamanPower.opt.enableTotemTwisting or not ShamanPower.opt.twistSoundEnabled
-							end,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
 							end,
 							get = function(info)
 								return ShamanPower.opt.twistSoundVolume or 100
@@ -1486,9 +1439,6 @@ ShamanPower.options = {
 							desc = "Hide the totem bar when not in combat",
 							type = "toggle",
 							width = 1.0,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.hideOutOfCombat == true
 							end,
@@ -1503,9 +1453,6 @@ ShamanPower.options = {
 							desc = "Hide the totem bar when no totems are currently placed",
 							type = "toggle",
 							width = 1.0,
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.hideWhenNoTotems == true
 							end,
@@ -1523,7 +1470,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
+								return not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
 							end,
 							get = function(info) return ShamanPower.opt.fadeInsteadOfHide == true end,
 							set = function(info, val)
@@ -1539,7 +1486,7 @@ ShamanPower.options = {
 							min = 0.05, max = 0.9, step = 0.05, isPercent = true,
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or ShamanPower.opt.fadeInsteadOfHide ~= true
+								return ShamanPower.opt.fadeInsteadOfHide ~= true
 									or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
 							end,
 							get = function(info) return ShamanPower.opt.fadeOpacity or 0.25 end,
@@ -1555,7 +1502,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = 1.0,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or ShamanPower.opt.fadeInsteadOfHide ~= true
+								return ShamanPower.opt.fadeInsteadOfHide ~= true
 									or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
 							end,
 							get = function(info) return ShamanPower.opt.fadeSmooth ~= false end,
@@ -1570,7 +1517,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
+								return not (ShamanPower.opt.hideOutOfCombat or ShamanPower.opt.hideWhenNoTotems)
 							end,
 							get = function(info) return ShamanPower.opt.showWithTarget == true end,
 							set = function(info, val)
@@ -1592,9 +1539,6 @@ ShamanPower.options = {
 							desc = "Allow middle-clicking buttons to pop them out as standalone, movable trackers. Disable this if you accidentally trigger pop-outs.",
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.enableMiddleClickPopOut ~= false
 							end,
@@ -1608,9 +1552,6 @@ ShamanPower.options = {
 							desc = "Pop-out trackers can no longer be dragged, including ALT-drag on the icon. Turn this off to rearrange them.",
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.poppedOutLocked and true or false
 							end,
@@ -1649,9 +1590,6 @@ ShamanPower.options = {
 							name = "Reset Frames to Center",
 							desc = "Put the totem bar in the middle of the screen and the cooldown bar straight under it: a rescue for bars lost off screen (same as /spcenter).",
 							type = "execute",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							func = function()
 								SlashCmdList["SPCENTER"]("")
 							end
@@ -1661,9 +1599,6 @@ ShamanPower.options = {
 							name = "Reset to Defaults",
 							desc = "Reset all visual settings (scale, skin, border, layout) back to defaults",
 							type = "execute",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							func = function()
 								ShamanPower:Reset()
 								ShamanPower:UpdateRoster()
@@ -1680,16 +1615,13 @@ ShamanPower.options = {
 			type = "group",
 			childGroups = "tree",
 			cmdHidden = true,
-			disabled = function(info)
-				return ShamanPower.opt.enabled == false
-			end,
 			args = {
 				auto_button = {
 					order = 3,
 					name = "Mini Totem Bar",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
+						return not isShaman
 					end,
 					args = {
 						unlock_totem_bar = {
@@ -2260,7 +2192,7 @@ ShamanPower.options = {
 					name = "Macros",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
+						return not isShaman
 					end,
 					args = {
 						macros_desc = {
@@ -2290,7 +2222,7 @@ ShamanPower.options = {
 					name = "Totem Loadouts",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
+						return not isShaman
 					end,
 					args = loadoutArgs,
 				},
@@ -2303,9 +2235,6 @@ ShamanPower.options = {
 			type = "group",
 			childGroups = "tree",
 			cmdHidden = true,
-			disabled = function(info)
-				return ShamanPower.opt.enabled == false
-			end,
 			args = {
 				fluffy_header = {
 					order = 0,
@@ -2412,7 +2341,7 @@ ShamanPower.options = {
 							desc = WithNotes("Change the layout orientation of the totem bar",
 								CompactOn, "Compact style is on: the bar's direction comes from Compact Style > Lines, and totem flyouts open from the end of the lines. This setting is not used for that."),
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.layout
@@ -2519,7 +2448,7 @@ ShamanPower.options = {
 							values = { auto = "Auto", above = "Above", below = "Below", left = "Left", right = "Right" },
 							sorting = { "auto", "above", "below", "left", "right" },
 							disabled = function(info)
-								return (ShamanPower.opt.enabled == false) or (CompactOn())
+								return CompactOn()
 							end,
 							get = function(info)
 								return ShamanPower.opt.activeOverlayDirection or "auto"
@@ -2536,7 +2465,7 @@ ShamanPower.options = {
 							name = "Cooldown Bar Layout",
 							desc = "Change the layout orientation of the cooldown bar independently from the totem bar",
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+								return not isShaman or not ShamanPower.opt.showCooldownBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.cdbarLayout or ShamanPower.opt.layout
@@ -2562,7 +2491,7 @@ ShamanPower.options = {
 							}
 						},
 						cdbar_flyout_direction = {
-							disabled = function(info) return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar end,
+							disabled = function(info) return not isShaman or not ShamanPower.opt.showCooldownBar end,
 							order = 1.7,
 							type = "select",
 							name = "Cooldown Flyout Direction",
@@ -2602,7 +2531,7 @@ ShamanPower.options = {
 							end,
 							width = "full",
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.swapFlyoutClickButtons
@@ -2624,7 +2553,7 @@ ShamanPower.options = {
 								return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
 							end,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+								return not isShaman or not ShamanPower.opt.showTotemFlyouts
 							end,
 							get = function(info)
 								return ShamanPower.opt.flyoutRequiresClick
@@ -2659,7 +2588,7 @@ ShamanPower.options = {
 							end,
 							disabled = function(info)
 								-- also governs the shield / imbue flyouts, so it stays usable with totem flyouts off
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.flyoutStyle or "icons"
@@ -2707,7 +2636,7 @@ ShamanPower.options = {
 							end,
 							disabled = function(info)
 								-- also governs the shield / imbue flyouts, so it stays usable with totem flyouts off
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.flyoutCloseOnCast ~= false
@@ -2730,7 +2659,7 @@ ShamanPower.options = {
 								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
 							end,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+								return not isShaman or not ShamanPower.opt.showTotemFlyouts
 									or ShamanPower.opt.flyoutCloseOnCast == false
 							end,
 							get = function(info)
@@ -2754,7 +2683,7 @@ ShamanPower.options = {
 								return not (ShamanPower.ApplyClickSwap and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 							end,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.swapFlyoutClickButtons == true
@@ -2791,7 +2720,7 @@ ShamanPower.options = {
 								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
 							end,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or ShamanPower.opt.flyoutArrowOnly == true
+								return not isShaman or ShamanPower.opt.flyoutArrowOnly == true
 							end,
 							get = function(info)
 								return (ShamanPower.opt.flyoutArrowsAlways or ShamanPower.opt.flyoutArrowOnly) and true or false
@@ -2815,7 +2744,7 @@ ShamanPower.options = {
 								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
 							end,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.flyoutArrowOnly == true
@@ -2840,7 +2769,7 @@ ShamanPower.options = {
 								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
 							end,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+								return not isShaman or not ShamanPower.opt.showTotemFlyouts
 							end,
 							get = function(info)
 								return ShamanPower.opt.flyoutShowEmpty ~= false
@@ -2866,7 +2795,7 @@ ShamanPower.options = {
 							end,
 							disabled = function(info)
 								-- also governs the shield / imbue flyouts, so it stays usable with totem flyouts off
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.flyoutSingleOpen ~= false
@@ -2909,7 +2838,7 @@ ShamanPower.options = {
 							max = 3.0,
 							step = 0.05,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.buffscale
@@ -2936,7 +2865,7 @@ ShamanPower.options = {
 							max = 3.0,
 							step = 0.05,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+								return not isShaman or not ShamanPower.opt.showCooldownBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.cooldownBarScale or 0.9
@@ -2957,7 +2886,7 @@ ShamanPower.options = {
 							max = 3.0,
 							step = 0.05,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.configscale
@@ -2998,7 +2927,7 @@ ShamanPower.options = {
 							step = 0.05,
 							isPercent = true,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.totemBarOpacity or 1.0
@@ -3015,7 +2944,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.totemBarFullOpacityWhenActive
@@ -3036,7 +2965,7 @@ ShamanPower.options = {
 							step = 0.05,
 							isPercent = true,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+								return not isShaman or not ShamanPower.opt.showCooldownBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.cooldownBarOpacity or 1.0
@@ -3053,7 +2982,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+								return not isShaman or not ShamanPower.opt.showCooldownBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.cooldownBarFullOpacityWhenActive
@@ -3074,7 +3003,7 @@ ShamanPower.options = {
 							step = 0.05,
 							isPercent = true,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showTotemFlyouts
+								return not isShaman or not ShamanPower.opt.showTotemFlyouts
 							end,
 							get = function(info)
 								return ShamanPower.opt.totemFlyoutOpacity or 1.0
@@ -3095,7 +3024,7 @@ ShamanPower.options = {
 							step = 0.05,
 							isPercent = true,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+								return not isShaman or not ShamanPower.opt.showCooldownBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.cooldownFlyoutOpacity or 1.0
@@ -3134,7 +3063,7 @@ ShamanPower.options = {
 							max = 20,
 							step = 1,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman
+								return not isShaman
 							end,
 							get = function(info)
 								return ShamanPower.opt.totemBarPadding or 2
@@ -3154,7 +3083,7 @@ ShamanPower.options = {
 							max = 20,
 							step = 1,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showCooldownBar
+								return not isShaman or not ShamanPower.opt.showCooldownBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.cooldownBarPadding or 2
@@ -3264,7 +3193,7 @@ ShamanPower.options = {
 							dialogControl = "LSM30_Background",
 							values = AceGUIWidgetLSMlists.background,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
+								return not isShaman or PanelHidden()
 							end,
 							get = function(info)
 								return ShamanPower.opt.skin
@@ -3284,7 +3213,7 @@ ShamanPower.options = {
 							dialogControl = "LSM30_Border",
 							values = AceGUIWidgetLSMlists.border,
 							disabled = function(info)
-								return ShamanPower.opt.enabled == false or not isShaman or PanelHidden()
+								return not isShaman or PanelHidden()
 							end,
 							get = function(info)
 								return ShamanPower.opt.border
@@ -3537,7 +3466,7 @@ ShamanPower.options = {
 					name = "Status Colors",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
+						return not isShaman
 					end,
 					args = {
 						color_desc = {
@@ -7364,9 +7293,6 @@ ShamanPower.options = {
 							desc = "Hide an element's button until you have learned a totem for it. A new shaman starts with Earth and gains Fire, Water and Air as they level; the bar grows with them. Turn off to always show all four.",
 							type = "toggle",
 							width = "full",
-							disabled = function(info)
-								return ShamanPower.opt.enabled == false
-							end,
 							get = function(info)
 								return ShamanPower.opt.hideUnlearnedElements ~= false
 							end,
@@ -8814,7 +8740,7 @@ ShamanPower.options = {
 					name = "Loadout Bar",
 					type = "group",
 					disabled = function(info)
-						return ShamanPower.opt.enabled == false or not isShaman
+						return not isShaman
 					end,
 					args = {
 						loadoutbar_desc = {
@@ -8833,7 +8759,7 @@ ShamanPower.options = {
 							max = 2.0,
 							step = 0.05,
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarScale or 1.0
@@ -8854,7 +8780,7 @@ ShamanPower.options = {
 							step = 0.05,
 							isPercent = true,
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarOpacity or 1.0
@@ -8871,7 +8797,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarLocked
@@ -8887,7 +8813,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarHideNames
@@ -8904,7 +8830,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarShowTotems
@@ -8921,7 +8847,7 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarClickCycle == true
@@ -8939,7 +8865,7 @@ ShamanPower.options = {
 							width = "full",
 							hidden = function() return not ShamanPower.opt.loadoutBarClickCycle end,
 							disabled = function()
-								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+								return not isShaman or not ShamanPower.opt.showLoadoutBar
 							end,
 							get = function(info)
 								return ShamanPower.opt.loadoutBarNoFlyout == true
@@ -9506,7 +9432,8 @@ do
 	local compactDisabled, compactSetter = mode.compactStyle.disabled, mode.compactStyle.set
 	mode.compactStyle.disabled = function(info)
 		if NativeTotemBarSelected() then return true end
-		return compactDisabled(info)
+		if type(compactDisabled) == "function" then return compactDisabled(info) end
+		return false
 	end
 	mode.compactStyle.set = function(...)
 		if not NativeTotemBarSelected() then compactSetter(...) end
@@ -9614,7 +9541,7 @@ do
 	local SP = ShamanPower
 	local mode = SP.options.args.settings.args.settings_totemMode.args
 	local function GridLocked()
-		return SP.opt.enabled == false or InCombatLockdown() or not SP.SetGridStyle or not SP.RefreshGridStyle
+		return InCombatLockdown() or not SP.SetGridStyle or not SP.RefreshGridStyle
 	end
 	local function NotifyGrid()
 		if SP.RefreshConfig then SP:RefreshConfig() end
@@ -9715,7 +9642,7 @@ do
 			return d .. ". Hover a style in the list to see it in the live preview (the arrow tab on the right). Mode & Twisting has each style's own settings. Change out of combat."
 		end,
 		hidden = function() return not isShaman or not SP.TotemBarStyleList end,
-		disabled = function() return SP.opt.enabled == false or InCombatLockdown() end,
+		disabled = function() return InCombatLockdown() end,
 		values = function()
 			local v = {}
 			for _, st in ipairs(SP:TotemBarStyleList()) do v[st.key] = st.label end

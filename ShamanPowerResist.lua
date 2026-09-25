@@ -80,7 +80,7 @@ local function Player() return SP.player or UnitName("player") end
 
 local function Enabled()
 	local o = Opt()
-	return o ~= nil and o.enabled ~= false and o.resistRequests ~= false
+	return o ~= nil and not SP:IsOff() and o.resistRequests ~= false
 end
 
 local function Applied()
@@ -280,7 +280,9 @@ end
 
 Flush = function()
 	sendQueued = false
-	if GetNumGroupMembers() == 0 then sendMask = false; sendPracticeEnd = false; wipe(sendAssign); wipe(sendPass); return end
+	-- no group, or ShamanPower switched off (nothing is sent; switched back on,
+	-- the request goes out again and SELF carries our assignments)
+	if GetNumGroupMembers() == 0 or SP:IsOff() then sendMask = false; sendPracticeEnd = false; wipe(sendAssign); wipe(sendPass); return end
 	local blocked = false
 	-- practice never reaches a real raid (a party that just became one ends it)
 	local practiceHere = practice and not IsInRaid()
@@ -637,6 +639,7 @@ end
 local recomputeQueued = false
 local function RecomputeNow()
 	recomputeQueued = false
+	if SP:IsOff() then return end   -- switched off: no prompt, no switch (looked at again on switch-on)
 	ScanRoster()
 	-- requests that ended: give our totems back (after a /reload, only once
 	-- the group had a chance to tell us the request still stands)
@@ -794,6 +797,7 @@ local function PassWhileOff(msg, sender)
 end
 
 function SP:HandleResistMessage(kw, msg, sender)
+	if self:IsOff() then return end   -- switched off: not even a pass (nothing may be sent)
 	if not Enabled() then
 		if kw == "RESREQ" then PassWhileOff(msg, sender) end
 		return
@@ -973,7 +977,7 @@ end)
 -- back the slot that holds a requested resistance is a Pass, so it is not
 -- put straight back on you.
 local function OwnEdit(name, element)
-	if not Watching() then return end
+	if not Watching() or SP:IsOff() then return end   -- switched off: looked at again on switch-on
 	local me = Player()
 	if name == me then
 		for _, r in ipairs(RESIST) do
@@ -1035,6 +1039,7 @@ hooksecurefunc(SP, "AutoAssignTotems", function()
 end)
 
 hooksecurefunc(SP, "OnRosterSettled", function()
+	if SP:IsOff() then return end
 	if not Busy() then
 		if Watching() then Recompute() end
 		return
@@ -1087,6 +1092,8 @@ events:SetScript("OnEvent", function(self, event)
 		end)
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+		-- switched off during the fight: what waited for it is dropped
+		if SP:IsOff() then wipe(queued); wipe(fakeQueued) return end
 		for _, r in ipairs(RESIST) do
 			local q = queued[r.key]
 			queued[r.key] = nil
@@ -1100,6 +1107,26 @@ events:SetScript("OnEvent", function(self, event)
 		if sendMask or sendPracticeEnd or practice or next(sendAssign) or next(sendPass) then QueueSend(false) end
 		Recompute()
 	end
+end)
+
+-- Switched off: an open prompt goes. Switched back on: what the raid asked for
+-- meanwhile is not known here, so as at login a resistance we drop is kept
+-- while the group can confirm it (the SELF and REQ sent on switch-on bring the
+-- request again), then given back. A request we made is sent again.
+SP:OnOnOff(function(off)
+	if off then ClosePrompt() return end
+	if lastSetter == Player() and AnyNeed() then
+		QueueSend(true)
+	else
+		for _, r in ipairs(RESIST) do SetNeed(r.key, false) end
+		restoreAfter = GetTime() + 20
+		for key in pairs(Applied()) do keepOnLogin[key] = true end
+		C_Timer.After(21, function()
+			wipe(keepOnLogin)
+			if AnyApplied() then Recompute() end
+		end)
+	end
+	Recompute()
 end)
 
 -- ---------------------------------------------------------------------------
@@ -1118,7 +1145,6 @@ end
 if SP.options and SP.options.args and SP.options.args.buttons and SP.options.args.buttons.args then
 	SP.options.args.buttons.args.resist_section = {
 		order = 3.72, type = "group", name = "Raid Resistance",
-		disabled = function() return SP.opt and SP.opt.enabled == false end,
 		args = {
 			desc = {
 				order = 0, type = "description", width = "full",

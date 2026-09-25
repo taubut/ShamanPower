@@ -4031,8 +4031,9 @@ end
 local function MaybeAutoOpen()
 	if not SP.opt then return end
 	if SP.opt.setupDone then return end
+	if SP.IsOff and SP:IsOff() then return end   -- switched off: offered at a login with it on
 	C_Timer.After(1.5, function()
-		if SP.opt.setupDone then return end
+		if SP.opt.setupDone or (SP.IsOff and SP:IsOff()) then return end
 		if IS_SHAMAN and not SP.opt.welcomeOffered and LooksLikeExistingUser() then SP.Wizard:ShowUpgradePrompt() else SP.Wizard:ShowWelcomeChoice() end
 	end)
 end

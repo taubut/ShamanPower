@@ -214,7 +214,8 @@ function SP:SetupPartyRangeDots()
 	end
 	-- Always enable this subsystem - player's own range tracking should always work
 	-- The party dots are conditionally updated inside the callback
-	self:EnableUpdateSubsystem("partyRange")
+	-- (not while ShamanPower is switched off: then nothing runs)
+	if not self:IsOff() then self:EnableUpdateSubsystem("partyRange") end
 	engineDotsReady = true
 	self:RebuildEnginePartyDots()
 end
@@ -563,6 +564,7 @@ end
 -- Build only out of combat. A failed factory may be retried on the next rebuild.
 function SP:RebuildEnginePartyDots()
 	if engineDotsBuilding or not (engineDotsReady and EngineDotsAvailable()) then return end
+	if self:IsOff() then return end   -- switched off: the switch back on rebuilds
 	if InCombatLockdown() then engineDotsPending = true return end
 	engineDotsPending = false
 	engineDotsBuilding = true
@@ -595,6 +597,7 @@ engineDotEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
 engineDotEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 engineDotEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 engineDotEvents:SetScript("OnEvent", function(_, event)
+	if SP:IsOff() then return end   -- switched off: the switch back on rebuilds
 	if event == "PLAYER_REGEN_ENABLED" then
 		if engineDotsPending then SP:RebuildEnginePartyDots() end
 		if SP._coveragePending and SP.RebuildCoverage then SP:RebuildCoverage() end   -- was a local read before it existed
@@ -931,6 +934,11 @@ function SP:RebuildCoverage()
 		if self.coverageFrame then HideAllCells(self.coverageFrame) end
 		return
 	end
+	-- switched off: no rows are built (the switch back on rebuilds) and nothing shows
+	if self:IsOff() then
+		if self.coverageFrame and not self.coverageDemoActive then HideAllCells(self.coverageFrame) end
+		return
+	end
 	if InCombatLockdown() then SP._coveragePending = true return end
 	SP._coveragePending = false
 	local frame = self:CreateCoverageFrame()
@@ -1041,6 +1049,7 @@ function SP:UpdateCoverage()
 		return
 	end
 	if self.coverageDemoActive then return end
+	if self:IsOff() then HideAllCells(frame) return end   -- ShamanPower switched off
 	local partyUnits, count = self:GetCachedPartyUnits()
 	if count == 0 then HideAllCells(frame) return end
 	local shown, mask = {}, 0
@@ -1306,9 +1315,11 @@ function SP:UpdatePartyRangeDots()
 	self:UpdateRangeCounters()
 
 	-- Enable/disable partyRange subsystem based on whether any features are enabled
-	local rangeCounterEnabled = self.opt.rangeCounter and self.opt.rangeCounter.enabled
-	local dotsEnabled = self.opt.showPartyRangeDots
-	local coverageEnabled = self.opt.coverage and self.opt.coverage.enabled
+	-- (none are while ShamanPower is switched off: every dot hides and the pass stops)
+	local off = self:IsOff()
+	local rangeCounterEnabled = self.opt.rangeCounter and self.opt.rangeCounter.enabled and not off
+	local dotsEnabled = self.opt.showPartyRangeDots and not off
+	local coverageEnabled = self.opt.coverage and self.opt.coverage.enabled and not off
 	if dotsEnabled or rangeCounterEnabled or coverageEnabled then
 		self:EnableUpdateSubsystem("partyRange")
 	else
@@ -1683,8 +1694,8 @@ function SP:UpdateRangeCounters()
 	-- Setup-wizard preview: keep sample data while a demo is showing
 	if self.partyRangeDemoActive then return end
 	local rcOpt = self.opt.rangeCounter
-	if not rcOpt or not rcOpt.enabled then
-		-- Hide all counters when disabled
+	if not rcOpt or not rcOpt.enabled or self:IsOff() then
+		-- Hide all counters when disabled (or ShamanPower is switched off)
 		for element = 1, 4 do
 			if self.rangeCounterTexts[element] then
 				self.rangeCounterTexts[element]:Hide()
@@ -1895,3 +1906,20 @@ if ShamanPower.RegisterPreview then
 		pad = 24,
 	})
 end
+
+-- Enable ShamanPower switched: off hides every dot, counter and coverage cell and
+-- stops the range pass; on brings back what the settings show.
+SP:OnOnOff(function(off)
+	if off then
+		SP:UpdatePartyRangeDots()   -- dots, engine dots and counters hide; the pass stops
+		SP:UpdateCoverage()
+		return
+	end
+	-- roster changes while off were skipped: rebuild, then draw as the settings say
+	SP:RebuildCoverage()
+	if engineDotsReady then   -- the totem bar's dots exist (SetupPartyRangeDots has run)
+		SP:RebuildEnginePartyDots()
+		SP:UpdatePartyRangeDots()
+		SP:EnableUpdateSubsystem("partyRange")   -- as SetupPartyRangeDots leaves it
+	end
+end)

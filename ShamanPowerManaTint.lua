@@ -81,13 +81,14 @@ f:RegisterEvent("SPELL_UPDATE_USABLE")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("PLAYER_TOTEM_UPDATE")
 f:SetScript("OnEvent", function()
+	if SP:IsOff() then return end   -- switched off: the buttons are down (re-tinted by ButtonsUpdate on switch-on)
 	if SP.opt and (SP.opt.manaTint == true or next(tinted)) then SP:UpdateManaTint() end
 end)
 
 -- the buttons' spells change with assignments and rebuilt bars
 for _, name in ipairs({ "ButtonsUpdate", "UpdateDynamicTotemIcons", "RecreateCooldownBar" }) do
 	if type(SP[name]) == "function" then
-		hooksecurefunc(SP, name, function() if SP.opt and SP.opt.manaTint == true then SP:UpdateManaTint() end end)
+		hooksecurefunc(SP, name, function() if SP.opt and SP.opt.manaTint == true and not SP:IsOff() then SP:UpdateManaTint() end end)
 	end
 end
 

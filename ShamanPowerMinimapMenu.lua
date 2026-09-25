@@ -64,7 +64,7 @@ local function row(i)
 	return r
 end
 
--- items: { text, fn, checked, header, disabled }
+-- items: { text, fn, checked, header, disabled, gold }
 local function fill(items)
 	for _, r in ipairs(rows) do r:Hide() end
 	local y, widest = -PAD, 0
@@ -84,7 +84,11 @@ local function fill(items)
 		else
 			r.text:SetFontObject(SP.SPDialogFonts.text)
 			r.text:SetText(it.text)
-			r.text:SetTextColor(SP:SPColor(it.disabled and "textMute" or "text"))
+			if it.gold and not it.disabled then
+				r.text:SetTextColor(1, 0.82, 0)   -- the gold of /sp help's commands: easy to spot
+			else
+				r.text:SetTextColor(SP:SPColor(it.disabled and "textMute" or "text"))
+			end
 			r.text:SetPoint("LEFT", r, "LEFT", 22, 0)
 		end
 		r:Show()
@@ -100,6 +104,13 @@ local function items()
 	local list = {}
 	local function add(t) list[#list + 1] = t end
 	local combat = InCombatLockdown()
+	-- Switched off: the icon stays for this one way back
+	if SP.IsOff and SP:IsOff() then
+		add({ text = "ShamanPower", header = true })
+		add({ text = "ShamanPower is off", disabled = true })
+		add({ text = "Turn ShamanPower Back On", gold = true, fn = function() SP:SetOff(false) end })
+		return list
+	end
 	-- Windfury-only mode keeps the icon for this one way back to everything else
 	if not isShaman() and SP.WindfuryOnly and SP:WindfuryOnly() then
 		add({ text = "ShamanPower", header = true })
@@ -144,7 +155,7 @@ local function items()
 	end
 	if SP.ShowWhatsNew then add({ text = "What's New", fn = function() SP:ShowWhatsNew(true) end }) end
 	-- OpenConfigWindow() with no page toggles: an open window would close
-	add({ text = "Open Settings", fn = function()
+	add({ text = "Open Settings", gold = true, fn = function()
 		local win = _G["ShamanPowerConfigUIFrame"]
 		if win and win:IsShown() then win:Raise() else SP:OpenConfigWindow() end
 	end })

@@ -888,7 +888,7 @@ end
 -- Sent the moment it changes (weapon enchant events), and as a heartbeat every
 -- 6 s (receivers drop a report after 10 s): heartbeat = send even if unchanged.
 function SP:BroadcastWindfuryStatus(heartbeat)
-	if self.sprangeDemoActive then return end
+	if self.sprangeDemoActive or self:IsOff() then return end   -- off: a check queued before the switch sends nothing
 	if not IsInGroup() then return end
 	-- Chat lockdown: nothing goes out and nothing is recorded as sent; the report
 	-- is owed and goes out as soon as the lock lifts (see wfEvents below).
@@ -1012,6 +1012,7 @@ end
 -- The Windfury report runs on its own timer whenever a shaman is in the group,
 -- whether or not the overlay is on screen (so closing the overlay, or
 -- Windfury-only mode, never stops the shaman seeing your Windfury).
+-- Switching ShamanPower off does stop it: then nothing is sent.
 -- A shaman in YOUR party (party1-4 are your own subgroup inside a raid): the only
 -- shamans whose totems can reach you, so the only ones the report is for.
 function SP:ShamanInMyParty()
@@ -1064,7 +1065,7 @@ function SP:UpdateWindfuryBroadcaster()
 		-- the heartbeat only: changes go out from the events above
 		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
 	end
-	if self:ShamanInMyParty() then
+	if not self:IsOff() and self:ShamanInMyParty() then
 		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
 			self:EnableUpdateSubsystem("wfBroadcast")
 			setWFEvents(true)
@@ -1098,7 +1099,8 @@ function SP:UpdateSPRangeVisibility()
 		return
 	end
 
-	local shouldShow = self:SPRangeHasAnyShamanInGroup()
+	-- ShamanPower switched off: no auto-show (an overlay opened by hand is the player's call)
+	local shouldShow = not self:IsOff() and self:SPRangeHasAnyShamanInGroup()
 
 	if shouldShow then
 		if not self.spRangeFrame:IsShown() then
@@ -1274,3 +1276,18 @@ end
 if ShamanPower.RegisterPreview then
 	ShamanPower:RegisterPreview("sprange", { frame = "ShamanPowerRangeFrame", demo = "SP:SPRangeDemo", pad = 24 })
 end
+
+-- Enable ShamanPower switched: off hides the overlay (one opened by hand too) and
+-- stops the Windfury report; on brings both back as the group and settings say.
+SP:OnOnOff(function(off)
+	local frame = SP.spRangeFrame
+	if frame then
+		if off then
+			frame:Hide()
+		elseif SP.spRangeManuallyOpened then
+			frame:Show()   -- opened by hand before the switch
+		end
+		SP:UpdateSPRangeVisibility()
+	end
+	SP:UpdateWindfuryBroadcaster()
+end)

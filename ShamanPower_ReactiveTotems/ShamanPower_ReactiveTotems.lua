@@ -483,7 +483,7 @@ function SP:UpdateReactiveTotemDisplay()
 		-- and the sound is the one thing left to the scan, while it can read.
 		self:SetReactiveHostMode()
 		self:ApplyReactiveEngineVisibility()
-		if sv and sv.enabled and sv.playSound and not (SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
+		if sv and sv.enabled and sv.playSound and not self:IsOff() and not (SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
 			local found = self:ScanForReactiveDebuffs()
 			for totemId, frame in pairs(self.reactiveFrames) do
 				if found[totemId] then
@@ -498,7 +498,7 @@ function SP:UpdateReactiveTotemDisplay()
 		end
 		return
 	end
-	if not sv or not sv.enabled then
+	if not sv or not sv.enabled or self:IsOff() then
 		-- Hide all frames
 		for id, frame in pairs(self.reactiveFrames) do
 			frame:Hide()
@@ -610,7 +610,7 @@ end
 
 local function ReactiveShouldShow(totemId)
 	local sv = ShamanPower_ReactiveTotems
-	if not sv or not sv.enabled then return false end
+	if not sv or not sv.enabled or SP:IsOff() then return false end
 	if SP.reactivePositioningMode or SP.reactiveDemoActive then return false end
 	if sv[REACTIVE_TRACK[totemId]] == false then return false end
 	if sv.onlyInInstance and not IsInInstance() then return false end
@@ -820,6 +820,7 @@ end
 -- nothing changed (one key per display), so options and roster code call it freely.
 function SP:RebuildReactiveEngine()
 	if not ReactiveEngineAvailable() then return end
+	if self:IsOff() then return end   -- ShamanPower switched off: built when it comes back on
 	if InCombatLockdown() then reactivePending = true return end
 	reactivePending = false
 	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
@@ -907,6 +908,7 @@ function SP:SetupReactiveTotemsEvents()
 	end
 
 	local function OnPartyAura()
+		if SP:IsOff() then return end   -- ShamanPower switched off
 		-- engine mode: aura changes are the engine's business; the scan only serves the sound
 		if SP:ReactiveEngineLive() and not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.playSound) then return end
 		RequestUpdate()
@@ -931,6 +933,8 @@ function SP:SetupReactiveTotemsEvents()
 	end
 
 	local function OnReactiveEvent(self, event, unit)
+		-- ShamanPower switched off: nothing to scan or build (the switch-on handler catches up)
+		if SP:IsOff() then return end
 		if event == "UNIT_AURA" then
 			-- Unfiltered fallback: only player and party units (totems are party-wide only)
 			if unit == "player" or unit == "party1" or unit == "party2" or unit == "party3" or unit == "party4" then
@@ -1279,6 +1283,14 @@ initFrame:SetScript("OnEvent", function(self, event)
 			SP:InitializeReactiveTotems()
 		end)
 	end
+end)
+
+-- Enable ShamanPower switched (out of combat): off hides every alert; on builds
+-- the engine displays (the group may have changed meanwhile) and scans again.
+SP:OnOnOff(function(off)
+	if not SP.reactiveEventsSetup then return end   -- not set up yet: login does it
+	if not off then SP:RebuildReactiveEngine() end
+	SP:UpdateReactiveTotemDisplay()
 end)
 
 -- ============================================================================

@@ -560,7 +560,7 @@ local function CheckTarget()
         return
     end
     local sv = ShamanPowerTremorReminderDB
-    if not sv or not sv.enabled then
+    if not sv or not sv.enabled or SP:IsOff() then
         HideReminder()
         return
     end
@@ -645,6 +645,9 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         C_Timer.After(1, CheckTarget)
     end
 end)
+
+-- Enable ShamanPower switched: off hides the reminder, on checks the target again
+SP:OnOnOff(function() CheckTarget() end)
 
 -- Slash commands
 SLASH_SPTREMOR1 = "/sptremor"

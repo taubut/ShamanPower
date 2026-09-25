@@ -30,7 +30,7 @@ local function durationLabel(remaining)
 end
 
 local function requested()
-	return SP.opt and SP.opt.useBlizzardTotemBar and SP.opt.enabled ~= false
+	return SP.opt and SP.opt.useBlizzardTotemBar and not SP:IsOff()
 		and SP.HasTotemBar and SP:HasTotemBar()
 end
 
@@ -602,7 +602,8 @@ local nativeHideHooked, nativeHiddenByUs, nativeHideApplying, nativeHidePending
 
 local function wantNativeHidden(bar)
 	local o = SP.opt
-	return o and o.enabled ~= false and o.useBlizzardTotemBar ~= true and o.hideBlizzardTotemBar ~= false
+	-- IsOff: the applied state, so a switch made in a fight changes Blizzard's bar at its end too
+	return o and not SP:IsOff() and o.useBlizzardTotemBar ~= true and o.hideBlizzardTotemBar ~= false
 		and not bar.isInEditMode
 end
 

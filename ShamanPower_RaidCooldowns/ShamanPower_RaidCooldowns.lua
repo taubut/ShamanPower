@@ -50,6 +50,7 @@ do
 end
 
 local function sendCall(msg)
+	if SP:IsOff() then return end   -- ShamanPower switched off: tells the group nothing
 	if not (ChatThrottleLib and IsInGroup()) then return end
 	local channel
 	if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
@@ -548,6 +549,7 @@ end
 
 -- Show alert when called for Mana Tide
 function SP:ShowManaTideAlert()
+	if self:IsOff() then return end   -- ShamanPower switched off (Cooldown Announce's on-screen call comes here too)
 	-- Show center screen alert
 	self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE MANA TIDE NOW!")
 
@@ -667,7 +669,8 @@ end
 -- Handle incoming raid cooldown messages
 function SP:HandleRaidCooldownMessage(prefix, message, sender)
 	local cmd, rest = strsplit("|", message, 2)
-	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and isRepeatCall(prefix, sender, message) then return end
+	-- ShamanPower switched off: a call alerts nothing (assignment syncs still land)
+	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and (self:IsOff() or isRepeatCall(prefix, sender, message)) then return end
 
 	if cmd == "RCSYNC" then
 		-- Sync from raid leader
@@ -1016,8 +1019,9 @@ function SP:UpdateCallerButtons()
 	if self.raidCDDemoActive then return end
 	self:InitRaidCooldowns()
 
-	-- Don't show caller buttons when not in a group (or in Windfury-only mode)
-	if GetNumGroupMembers() == 0 or (self.WindfuryOnly and self:WindfuryOnly()) then
+	-- Don't show caller buttons when not in a group (or in Windfury-only mode, or
+	-- with ShamanPower switched off)
+	if GetNumGroupMembers() == 0 or (self.WindfuryOnly and self:WindfuryOnly()) or self:IsOff() then
 		if self.callerButtonFrame then
 			self.callerButtonFrame:Hide()
 		end
@@ -1632,6 +1636,14 @@ end
 if ShamanPower.RegisterPreview then
 	ShamanPower:RegisterPreview("raidcd", { frame = "ShamanPowerCallerButtons", demo = "SP:RaidCDDemo", pad = 24 })
 end
+
+-- Enable ShamanPower switched (out of combat): off hides the caller buttons (their
+-- cast watch and refresh stop with them) and a call alert still up; on brings the
+-- buttons back as the assignments say.
+SP:OnOnOff(function(off)
+	if off and SP.centerAlert then SP.centerAlert:Hide() end
+	SP:UpdateCallerButtons()
+end)
 
 -- /sp calltest [on|off]
 local slash = SlashCmdList["SHAMANPOWER"]

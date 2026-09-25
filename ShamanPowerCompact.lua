@@ -700,7 +700,8 @@ function SP:EnsureCompactShieldButton()
 end
 
 function SP:ApplyCompactShieldLayout()
-	local on = self:CompactShieldLineActive() and self.autoButton and not self.totemBarHidden
+	-- (switched off, a style change in the settings must not bring it up: a UIParent child)
+	local on = self:CompactShieldLineActive() and self.autoButton and not self.totemBarHidden and not self:IsOff()
 	local btn = _G["ShamanPowerCompactShieldBtn"]
 	if not on then
 		if btn then btn:Hide() end

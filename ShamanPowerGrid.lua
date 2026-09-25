@@ -452,7 +452,7 @@ local function apply()
 	end
 	local order = opt.totemBarOrder or orderDefault
 	local offset, width, height = 0, 0, 0
-	local barShown = opt.enabled ~= false and not SP.totemBarHidden and SP.autoButton:IsShown()
+	local barShown = not SP:IsOff() and not SP.totemBarHidden and SP.autoButton:IsShown()
 	visibilityHidden, visibilityShown = SP.totemBarHidden, SP.autoButton:IsShown()
 	for i = 1, 4 do
 		local element = order[i]
@@ -595,7 +595,7 @@ local function afterVisibility()
 end
 hooksecurefunc(SP, "UpdateTotemBarVisibility", afterVisibility)
 local function afterTotem()
-	if SP:GridActive() then SP:UpdateGridTotems() end
+	if SP:GridActive() and not SP:IsOff() then SP:UpdateGridTotems() end   -- switched off: rows are down
 end
 hooksecurefunc(SP, "PLAYER_TOTEM_UPDATE", afterTotem)
 hooksecurefunc(SP, "UNIT_SPELLCAST_SUCCEEDED", afterTotem)
