@@ -847,7 +847,8 @@ end
 -- The Textures and Status Colors sections only style the panel behind the totem
 -- buttons. With "Hide Totem Bar Frame" on there is no panel, and the settings
 -- looked broken (they did nothing, with no hint why). Say so, and grey them out.
-local PANEL_HIDDEN_NOTE = "\n\n|cffffa040The totem bar's panel is hidden right now, so nothing here is visible. Turn off \"Hide Totem Bar Frame\" (Appearance > Visibility) to see it.|r"
+local PANEL_HIDDEN_NOTE = "\n\n|cffffa040The totem bar's panel is hidden right now, so nothing here is visible."
+	.. " Turn off \"Hide Background\" (Appearance > Totem Bar) to see it.|r"
 local function PanelHidden()
 	return ShamanPower.opt and ShamanPower.opt.hideTotemBarFrame and true or false
 end
@@ -2693,7 +2694,8 @@ ShamanPower.options = {
 						},
 						totem_flyout_button_size = FlyoutSizeOption(3.4, "full", "totemFlyoutButtonSize", 28,
 							"Totem Flyout Icon Size (icon bar)",
-							"How big the icons in the totem flyouts are while the totem bar shows icons. 28 is the classic size. The Compact style has its own size, with the Compact Style settings. The totem bar's scale still applies on top.",
+							"How big the icons in the totem flyouts are while the totem bar shows icons. 28 is the classic size."
+								.. " Compact has its own slider under Appearance > Flyouts. The totem bar's scale still applies on top.",
 							"ApplyTotemFlyoutButtonSize", function() return not ShamanPower.opt.showTotemFlyouts end),
 						flyout_combat_header = {
 							order = 3.5,
@@ -3602,7 +3604,7 @@ ShamanPower.options = {
 							type = "description",
 							name = function()
 								return "The totem bar's panel is tinted by how many of your assigned totems are down: all of them, some of them, or none."
-									.. (PanelHidden() and "\n\n|cffffa040The totem bar's panel is hidden right now, so these three colours are not visible. Turn off \"Hide Totem Bar Frame\" (Appearance > Visibility) to see them.|r" or "")
+									.. (PanelHidden() and PANEL_HIDDEN_NOTE or "")
 							end,
 						},
 						color_good = {
@@ -10195,6 +10197,94 @@ do
 		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" },
 			names = { unlock_cd_bar = "Move (unlock bar)" } },
 	})
+end
+
+-- Appearance is grouped by the thing being styled, not by slider type.
+do
+	local SP = ShamanPower
+	local pages = SP.options.args.fluffy.args
+	local function group(key, name, order)
+		pages[key] = { type = "group", name = name, order = order, args = {} }
+	end
+	local function move(source, destination, keys)
+		SP.MoveSettingsOptions({ "fluffy", source }, { "fluffy", destination }, keys)
+	end
+	group("totembar_appearance", "Totem Bar", 1.1)
+	group("cooldownbar_appearance", "Cooldown Bar", 1.2)
+	group("flyout_appearance", "Flyouts", 1.3)
+	group("appearance_resets", "Shared Resets", 1.4)
+	move("layout_section", "totembar_appearance", { "layout", "activeOverlayDirection" })
+	move("scale_section", "totembar_appearance", { "buffscale" })
+	move("opacity_section", "totembar_appearance", { "totemBarOpacity", "totemBarFullOpacityWhenActive" })
+	move("padding_section", "totembar_appearance", { "totemBarPadding" })
+	move("visibility_section", "totembar_appearance", { "hide_totem_bar_frame" })
+	move("layout_section", "cooldownbar_appearance", { "cdbarLayout" })
+	move("scale_section", "cooldownbar_appearance", { "cooldownBarScale" })
+	move("opacity_section", "cooldownbar_appearance", { "cooldownBarOpacity", "cooldownBarFullOpacityWhenActive" })
+	move("padding_section", "cooldownbar_appearance", { "cooldownBarPadding" })
+	move("visibility_section", "cooldownbar_appearance", { "hide_cooldown_bar_frame" })
+	move("layout_section", "flyout_appearance", { "totem_flyout_direction", "cdbar_flyout_direction",
+		"totem_flyout_button_size", "flyout_style", "flyout_frame_opacity", "flyout_arrows_always", "flyout_reset" })
+	move("scale_section", "flyout_appearance", { "cooldownFlyoutButtonSize" })
+	move("opacity_section", "flyout_appearance", { "totemFlyoutOpacity", "cooldownFlyoutOpacity" })
+	local compact = SP.options.args.settings.args.settings_totemMode.args.compactOptions
+	pages.flyout_appearance.args.compact = {
+		type = "group", inline = true, name = "Compact Flyouts", args = {}, hidden = compact.hidden,
+	}
+	SP.MoveSettingsOptions({ "settings", "settings_totemMode", "compactOptions" },
+		{ "fluffy", "flyout_appearance", "compact" }, { "compactFlyoutSize" })
+	move("scale_section", "appearance_resets", { "scale_desc", "scale_reset" })
+	move("opacity_section", "appearance_resets", { "opacity_desc", "opacity_reset" })
+	move("padding_section", "appearance_resets", { "padding_desc", "padding_reset" })
+	SP.OrderSettingsBands(pages.totembar_appearance, {
+		{ keys = { "layout" }, names = { layout = "Layout" } },
+		{ header = "look_header", name = "Look", keys = {
+			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame",
+		}, names = { buffscale = "Scale", totemBarOpacity = "Opacity", totemBarPadding = "Button Spacing",
+			hide_totem_bar_frame = "Hide Background" } },
+		{ header = "behaviour_header", name = "Behaviour", keys = {
+			"totemBarFullOpacityWhenActive", "activeOverlayDirection",
+		} },
+	})
+	SP.OrderSettingsBands(pages.cooldownbar_appearance, {
+		{ keys = { "cdbarLayout" }, names = { cdbarLayout = "Layout" } },
+		{ header = "look_header", name = "Look", keys = {
+			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame",
+		}, names = { cooldownBarScale = "Scale", cooldownBarOpacity = "Opacity", cooldownBarPadding = "Button Spacing",
+			hide_cooldown_bar_frame = "Hide Background" } },
+		{ header = "behaviour_header", name = "Behaviour", keys = { "cooldownBarFullOpacityWhenActive" } },
+	})
+	SP.OrderSettingsBands(pages.flyout_appearance, {
+		{ header = "totem_header", name = "Totem Bar Flyouts", keys = {
+			"totem_flyout_direction", "totem_flyout_button_size", "totemFlyoutOpacity", "compact",
+		}, names = { totem_flyout_button_size = "Icon Size", totemFlyoutOpacity = "Opacity" } },
+		{ header = "cooldown_header", name = "Cooldown Bar Flyouts", keys = {
+			"cdbar_flyout_direction", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity",
+		}, names = { cooldownFlyoutButtonSize = "Icon Size", cooldownFlyoutOpacity = "Opacity" } },
+		{ header = "shared_header", name = "Shared Look", keys = {
+			"flyout_style", "flyout_frame_opacity", "flyout_arrows_always",
+		} },
+		{ header = "reset_header", name = "Reset", keys = { "flyout_reset" } },
+	})
+	local resets = pages.appearance_resets.args
+	resets.scale_desc.name = "These resets affect more than this tab. Positions are not changed."
+	resets.opacity_desc.name = "Opacity includes both bars, their flyouts and their full-opacity-when-active flags."
+	resets.padding_desc.name = "Button spacing includes both bars. Each reset asks first."
+	resets.scale_reset.name = "Reset Shared Scales"
+	resets.scale_reset.desc = "Reset totem bar scale, cooldown bar scale, assignments scale and cooldown flyout icon size."
+	resets.opacity_reset.name = "Reset Shared Opacity"
+	resets.opacity_reset.desc = resets.opacity_desc.name
+	resets.padding_reset.name = "Reset Both Bars' Spacing"
+	resets.padding_reset.desc = resets.padding_desc.name
+	SP.OrderSettingsBands(pages.appearance_resets, {
+		{ keys = { "scale_desc", "opacity_desc", "padding_desc" } },
+		{ keys = { "scale_reset", "opacity_reset", "padding_reset" } },
+	})
+	pages.flyout_appearance.args.flyout_reset.desc = "Reset the shared flyout look, arrow/open/close behavior,"
+		.. " routed keys, empty choice and totem icon size. The click-button swap and positions are not changed."
+	SP.SettingsPathAliases["fluffy/scale_section"] = { "fluffy", "totembar_appearance" }
+	SP.SettingsPathAliases["fluffy/opacity_section"] = { "fluffy", "totembar_appearance" }
+	SP.SettingsPathAliases["fluffy/padding_section"] = { "fluffy", "totembar_appearance" }
 end
 
 -- Module pages keep their controls and callbacks; only their reading order changes.

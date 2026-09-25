@@ -177,8 +177,11 @@ local NAV = {
 			{ label = "Mode & Twisting", paths = { P("settings", "settings_totemMode") } },
 		}},
 		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
-			{ label = "Layout",            paths = { P("fluffy", "layout_section") } },
-			{ label = "Scale & Opacity",   paths = { P("fluffy", "scale_section"), P("fluffy", "opacity_section"), P("fluffy", "padding_section") } },
+			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
+				P("fluffy", "totembar_appearance"), P("fluffy", "layout_section"), P("fluffy", "appearance_resets"),
+			} },
+			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
+			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },
 			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
@@ -1860,6 +1863,21 @@ local function InjectOptions()
 	}
 end
 InjectOptions()
+
+-- Interface is created by this settings UI; keep the original scale
+-- option object and its callback when moving it from the old Scale section.
+do
+	local sp = SP()
+	local settings = sp and sp.options and sp.options.args.settings
+	if settings and settings.args.settings_newui then
+		sp.MoveSettingsOptions({ "fluffy", "scale_section" }, { "settings", "settings_newui" }, { "assignmentsscale" })
+		local option = settings.args.settings_newui.args.assignmentsscale
+		if option then
+			option.order = 2
+			option.hidden = function() return not PLAYER_IS_SHAMAN end
+		end
+	end
+end
 
 SLASH_SHAMANPOWERCONFIG1 = "/spui"
 SlashCmdList["SHAMANPOWERCONFIG"] = function(msg)
