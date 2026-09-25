@@ -182,7 +182,8 @@ local NAV = {
 			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
-		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
+		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
+			desc = "The totem bar: what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
 			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
 			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
@@ -190,6 +191,9 @@ local NAV = {
 			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
 			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
+		}},
+		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true,
+			desc = "Save totem loadouts, configure their bar and choose when to switch automatically.", tabs = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },

@@ -475,6 +475,7 @@ local function LoadoutSetPageValues()
 	return values
 end
 
+local PlaceLoadoutBarOptions
 local function RefreshLoadoutArgs()
 	-- Guard: ShamanPower_TotemLoadouts may not exist yet at file load time (SavedVariable)
 	if not ShamanPower_TotemLoadouts then return end
@@ -792,6 +793,7 @@ local function RefreshLoadoutArgs()
 			}
 		end
 	end
+	if PlaceLoadoutBarOptions then PlaceLoadoutBarOptions() end
 end
 
 -- Initialize once (ShamanPower_TotemLoadouts won't exist yet at file load, so just build static part)
@@ -10144,6 +10146,36 @@ do
 		buttons.dropall_section.args["drop_order_" .. i].name = ordinal .. " in Drop All Order"
 		pages.totembar_order_section.args["totem_bar_order_" .. i].name = ordinal .. " Button"
 	end
+end
+
+-- The loadout editor rebuilds its args after every edit. Rehome these same
+-- three objects after each rebuild, not just on the first settings load.
+do
+	local SP = ShamanPower
+	local bar = SP.options.args.fluffy.args.loadoutbar_section
+	PlaceLoadoutBarOptions = function()
+		SP.MoveSettingsOptions({ "buttons", "loadouts_section" }, { "fluffy", "loadoutbar_section" }, {
+			"show_bar", "move_bar", "move_hint",
+		})
+		local args = bar.args
+		if args.show_bar then args.show_bar.order = 2001 end
+		if args.move_bar then args.move_bar.order, args.move_bar.name = 5001, "Move" end
+		if args.move_hint then
+			args.move_hint.order = 5003
+			args.move_hint.name = "ALT+drag also moves the anchor while Lock Position is off. Move works either way."
+		end
+	end
+	PlaceLoadoutBarOptions()
+	SP.OrderSettingsBands(bar, {
+		{ keys = { "loadoutbar_desc" } },
+		{ keys = { "show_bar" } },
+		{ header = "look_header", name = "Look", keys = {
+			"loadoutbar_scale", "loadoutbar_opacity", "loadoutbar_hidenames", "loadoutbar_showtotems",
+		} },
+		{ header = "behaviour_header", name = "Behaviour", keys = { "loadoutbar_clickcycle", "loadoutbar_noflyout" } },
+		{ header = "position_header", name = "Position", keys = { "move_bar", "loadoutbar_locked", "move_hint" },
+			names = { move_bar = "Move", loadoutbar_locked = "Lock Position" } },
+	})
 end
 
 -- Module pages keep their controls and callbacks; only their reading order changes.
