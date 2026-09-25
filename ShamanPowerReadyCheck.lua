@@ -592,7 +592,7 @@ if fluffy and fluffy.args then
 		{ header = "items_header", name = "Totem Items", keys = { "itemWarn", "itemWarnScreen" } },
 		{ header = "look_header", name = "Look", keys = { "panelScale", "panelOpacity" },
 			names = { panelScale = "Scale", panelOpacity = "Background Opacity" } },
-		{ header = "when_header", name = "Behaviour", keys = { "onReadyCheck", "onEnterInstance" } },
+		{ header = "when_header", name = "Behavior", keys = { "onReadyCheck", "onEnterInstance" } },
 		{ header = "sound_header", name = "Sound", keys = { "playSound", "soundName", "testSound" },
 			names = { playSound = "Play Sound" } },
 		{ header = "position_header", name = "Position", keys = { "resetPos" },

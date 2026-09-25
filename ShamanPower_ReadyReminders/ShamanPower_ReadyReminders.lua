@@ -1013,7 +1013,7 @@ local function InjectOptions()
 		{ header = "lookHeader", name = "Look", keys = {
 			"iconSize", "opacity", "textSize", "hideBackground", "borderColor", "showNames",
 		}, names = { textSize = "Text Size (0 = auto)", hideBackground = "Hide Background" } },
-		{ header = "readyHeader", name = "Behaviour", keys = { "onlyInCombat", "readyEffect", "glowColor" } },
+		{ header = "readyHeader", name = "Behavior", keys = { "onlyInCombat", "readyEffect", "glowColor" } },
 		{ header = "cdHeader", name = "While On Cooldown", keys = {
 			"cdNote", "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor",
 			"showCountdown", "textPosition",

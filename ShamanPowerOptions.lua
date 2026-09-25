@@ -10114,7 +10114,7 @@ do
 			"coverage_icon_size", "coverage_opacity", "coverage_font", "coverage_hide_border",
 		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
 		{ header = "sizes_header", name = "Per-Totem Icon Size", keys = sizes },
-		{ header = "behaviour_header", name = "Behaviour", keys = {
+		{ header = "behaviour_header", name = "Behavior", keys = {
 			"coverage_hide_covered", "coverage_free", "coverage_vertical",
 		} },
 		{ header = "position_header", name = "Position", keys = { "coverage_move" }, names = { coverage_move = "Move" } },
@@ -10196,7 +10196,7 @@ do
 		{ header = "look_header", name = "Look", keys = {
 			"loadoutbar_scale", "loadoutbar_opacity", "loadoutbar_hidenames", "loadoutbar_showtotems",
 		} },
-		{ header = "behaviour_header", name = "Behaviour", keys = { "loadoutbar_clickcycle", "loadoutbar_noflyout" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "loadoutbar_clickcycle", "loadoutbar_noflyout" } },
 		{ header = "position_header", name = "Position", keys = { "move_bar", "loadoutbar_locked", "move_hint" },
 			names = { move_bar = "Move", loadoutbar_locked = "Lock Position" } },
 	})
@@ -10264,7 +10264,7 @@ do
 			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame",
 		}, names = { buffscale = "Scale", totemBarOpacity = "Opacity", totemBarPadding = "Button Spacing",
 			hide_totem_bar_frame = "Hide Background" } },
-		{ header = "behaviour_header", name = "Behaviour", keys = {
+		{ header = "behaviour_header", name = "Behavior", keys = {
 			"totemBarFullOpacityWhenActive", "activeOverlayDirection",
 		} },
 	})
@@ -10274,7 +10274,7 @@ do
 			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame",
 		}, names = { cooldownBarScale = "Scale", cooldownBarOpacity = "Opacity", cooldownBarPadding = "Button Spacing",
 			hide_cooldown_bar_frame = "Hide Background" } },
-		{ header = "behaviour_header", name = "Behaviour", keys = { "cooldownBarFullOpacityWhenActive" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "cooldownBarFullOpacityWhenActive" } },
 	})
 	SP.OrderSettingsBands(pages.flyout_appearance, {
 		{ header = "totem_header", name = "Totem Bar Flyouts", keys = {
@@ -10459,7 +10459,7 @@ do
 		{ keys = { "shieldcharges_desc", "module_missing_note", "hide_ooc_note", "both_off_note" } },
 		{ keys = { "shieldcharges_player", "shieldcharges_earth" } },
 		{ header = "look_header", name = "Look", keys = { "shieldcharges_scale", "shieldcharges_opacity" } },
-		{ header = "behaviour_header", name = "Behaviour", keys = {
+		{ header = "behaviour_header", name = "Behavior", keys = {
 			"shieldcharges_hide_ooc", "shieldcharges_hide_none",
 		} },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked" } },
@@ -10477,7 +10477,7 @@ do
 		}, names = {
 			reactive_font_size = "Text Size", reactive_font_outline = "Outline (unless Fonts & Textures sets one)",
 		} },
-		{ header = "reactive_header_effects", name = "Behaviour", keys = {
+		{ header = "reactive_header_effects", name = "Behavior", keys = {
 			"reactive_only_instance", "reactive_hide_when_active", "click_to_cast", "reactive_glow", "reactive_glow_intensity",
 		} },
 		{ header = "sound_header", name = "Sound", keys = {
@@ -10511,7 +10511,7 @@ do
 		{ header = "alerts_header_display", name = "Look", keys = {
 			"alerts_icon_size", "alerts_opacity", "alerts_text_size", "alerts_font_outline",
 		}, names = { alerts_font_outline = "Outline (unless Fonts & Textures sets one)" } },
-		{ header = "behaviour_header", name = "Behaviour", keys = { "alerts_animation", "alerts_duration" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "alerts_animation", "alerts_duration" } },
 		{ header = "shield_sound_header", name = "Sound: Shields", keys = {
 			"alerts_shields_sound", "alerts_shields_sound_picker", "alerts_shields_sound_picker_testsound",
 		}, names = { alerts_shields_sound_picker = "Sound" } },
@@ -10539,7 +10539,7 @@ do
 		{ header = "tremor_header_appearance", name = "Look", keys = {
 			"tremor_icon_size", "tremor_opacity", "tremor_text_size", "tremor_glow_color",
 		}, names = { tremor_text_size = "Text Size" } },
-		{ header = "tremor_header_glow", name = "Behaviour", keys = {
+		{ header = "tremor_header_glow", name = "Behavior", keys = {
 			"tremor_hide_when_active", "tremor_show_glow",
 		} },
 		{ header = "tremor_header_sound", name = "Sound", keys = {
