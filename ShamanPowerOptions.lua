@@ -963,6 +963,7 @@ ShamanPower.options = {
 									ShamanPower:ApplyCompactStyle()
 								end
 								ShamanPower:UpdateMiniTotemBar()
+								ShamanPower:FollowStyleSpot()   -- each style keeps its own spot
 							end
 						},
 						dynamicModeDesc = {
@@ -1001,6 +1002,7 @@ ShamanPower.options = {
 									ShamanPower:ApplyCompactStyle()
 								end
 								ShamanPower:UpdateActiveTotemOverlays()
+								ShamanPower:FollowStyleSpot()   -- each style keeps its own spot
 							end
 						},
 						rightClickCastsAssigned = {
@@ -1075,6 +1077,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.compactStyle = val
 								ShamanPower:ApplyCompactStyle()
+								ShamanPower:FollowStyleSpot()
 							end
 						},
 						compactOptions = {
@@ -9593,6 +9596,7 @@ do
 		set = function(_, value)
 			if GridLocked() then return end
 			SP:SetGridStyle(value)
+			SP:FollowStyleSpot()   -- each style keeps its own spot
 			NotifyGrid()
 		end,
 	}

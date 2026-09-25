@@ -1064,6 +1064,7 @@ function ShamanPower:RestoreTotemBarPosition()
 			o.cooldownBarPosition = { anchor = "CENTER", x = 0, y = -50 * (o.cooldownBarScale or 0.9) }
 		end
 	end
+	self._barSpotKey = self:BarStyleSpotKey()   -- FollowStyleSpot: the spot now applied
 	local rec = self:TotemBarRecord()
 	if rec then
 		self:ApplyPositionRecord(h, rec)
@@ -1079,15 +1080,11 @@ end
 
 function ShamanPower:SaveFramePosition(frame)
 	self:EnsureProfileTable("display")
-	-- The Compact style keeps its own spot: it is small enough to tuck away
-	-- somewhere the icon bar would not fit, and switching back brings the icon
-	-- bar home again.
-	if frame == _G["ShamanPowerFrame"] and self.CompactActive and self:CompactActive() then
-		self.db.profile.display.compactPosition = self:SavePositionRecord(frame)
-	else
-		self.db.profile.display.position = self:SavePositionRecord(frame)
-		self.db.profile.display.offsetX, self.db.profile.display.offsetY = nil, nil
-	end
+	-- every style keeps its own spot (BarStyleSpotKey)
+	local d = self.db.profile.display
+	local key = frame == _G["ShamanPowerFrame"] and self:BarStyleSpotKey() or "normal"
+	self:SetStyleSpot(d, key, self:SavePositionRecord(frame))
+	if key == "normal" then d.offsetX, d.offsetY = nil, nil end
 	self:ApplyDefaultBarPositions()   -- a cooldown bar on its default spot follows
 end
 
@@ -1328,6 +1325,7 @@ function ShamanPower:Reset()
 	self.opt.display.offsetY = nil
 	self.opt.display.position = nil
 	self.opt.display.compactPosition = nil
+	self.opt.display.stylePositions = nil
 
 	-- Reset visual settings to defaults
 	self.opt.buffscale = 0.9
@@ -4950,15 +4948,62 @@ ShamanPower.DEFAULT_TOTEM_BAR_POSITION = { anchor = "CENTER", x = 0, y = -195 }
 -- totem bar also leaves room for its box's Reset tab (ShamanPowerUnlock AddReset).
 local BAR_GAP, RESET_TAB_H = 4, 15
 
--- The totem bar's saved spot, or nil while it sits on its default one. Compact
--- keeps its own spot once it has one and otherwise starts where the icon bar
--- is; { default = true } is a Compact spot reset to the default.
+-- Every style keeps its own spot, as Compact always did: Grid tucked into a
+-- corner leaves the Normal bar where it was, and switching back brings each
+-- style home. Normal (and Blizzard's bar, which hides ShamanPower's) uses
+-- display.position, Compact display.compactPosition, TotemTimers, Dynamic and
+-- Grid display.stylePositions[style]. Read from the chosen style, not from
+-- what is built yet, so a /reload in Grid lands on Grid's spot.
+function ShamanPower:BarStyleSpotKey()
+	local key = self.GetTotemBarStyle and self:GetTotemBarStyle() or "normal"
+	if key == "blizzard" then return "normal" end
+	return key
+end
+function ShamanPower:GetStyleSpot(d, key)
+	if key == "normal" then return d.position end
+	if key == "compact" then return d.compactPosition end
+	return d.stylePositions and d.stylePositions[key]
+end
+function ShamanPower:SetStyleSpot(d, key, rec)
+	if key == "normal" then d.position = rec
+	elseif key == "compact" then d.compactPosition = rec
+	else
+		d.stylePositions = d.stylePositions or {}
+		d.stylePositions[key] = rec
+	end
+end
+-- After a style change: put the bar on the new style's spot. The bar is secure, so a
+-- change made in a fight (Dynamic and TotemTimers can be) moves it when the fight ends.
+function ShamanPower:FollowStyleSpot()
+	if self:BarStyleSpotKey() == self._barSpotKey then return end
+	if InCombatLockdown() then
+		if not self._styleSpotWaiter then
+			local f = CreateFrame("Frame")
+			f:SetScript("OnEvent", function(frame)
+				frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				ShamanPower:FollowStyleSpot()
+			end)
+			self._styleSpotWaiter = f
+		end
+		self._styleSpotWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	self:RestoreTotemBarPosition()
+	self:ApplyDefaultBarPositions()   -- a cooldown bar on its default spot follows
+end
+
+-- The totem bar's saved spot, or nil while it sits on its default one. A style
+-- never moved starts where the Normal bar is; { default = true } is a style's
+-- spot reset to the default.
 function ShamanPower:TotemBarRecord()
 	local d = self.opt and self.opt.display
 	if not d then return nil end
 	local rec = d.position
-	local c = d.compactPosition
-	if c and (c.anchor or c.default) and self.CompactActive and self:CompactActive() then rec = c end
+	local key = self:BarStyleSpotKey()
+	if key ~= "normal" then
+		local c = self:GetStyleSpot(d, key)
+		if c and (c.anchor or c.default) then rec = c end
+	end
 	return rec and rec.anchor and rec or nil
 end
 
@@ -5029,7 +5074,8 @@ function ShamanPower:ResetBarPositions(totemBar)
 		self:EnsureProfileTable("display")
 		local d = self.opt.display
 		d.offsetX, d.offsetY = nil, nil
-		if self.CompactActive and self:CompactActive() then d.compactPosition = { default = true } else d.position = nil end
+		local key = self:BarStyleSpotKey()
+		if key == "normal" then d.position = nil else self:SetStyleSpot(d, key, { default = true }) end
 	end
 	self.opt.cooldownBarPosition = nil
 	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
@@ -18315,7 +18361,7 @@ SlashCmdList["SPCENTER"] = function(msg)
 	if mainFrame and SP.autoButton then
 		local dx, dy = SP:TotemBarGeometry()
 		local rec = { anchor = "CENTER", x = -dx, y = -dy }
-		if SP.CompactActive and SP:CompactActive() then d.compactPosition = rec else d.position = rec end
+		SP:SetStyleSpot(d, SP:BarStyleSpotKey(), rec)
 		SP:ApplyPositionRecord(mainFrame, rec)
 		print("|cff0070ddShamanPower:|r Totem bar moved to the center of the screen.")
 		-- the hide rules keep it down (SetTotemBarFramesShown): say so, or it looks lost still

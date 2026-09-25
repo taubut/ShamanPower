@@ -119,6 +119,7 @@ function SP:SetTotemBarStyle(key)
 		if self.UpdateMiniTotemBar then self:UpdateMiniTotemBar() end
 		if self.UpdateActiveTotemOverlays then self:UpdateActiveTotemOverlays() end
 	end
+	if self.FollowStyleSpot then self:FollowStyleSpot() end   -- each style keeps its own spot
 	if self.RefreshConfig then self:RefreshConfig() end
 	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
 	if reg then reg:NotifyChange("ShamanPower") end
