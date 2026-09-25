@@ -810,3 +810,80 @@ if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists 
         end
     end
 end
+
+-- Every totem's length in seconds, by spell ID (each rank has its own), read from
+-- WoW: Forever's own spell data (build 1.60.1.70009). Combat hides totem durations
+-- from addons there, so the shadow totem model starts from this instead of guessing:
+-- a totem killed early reads as "destroyed" even on its very first drop. A length
+-- read from the game while it is readable (db.char.totemDurations) still wins, in
+-- case a talent changes one. Classic clients never consult it.
+ShamanPower.TotemBaseDurations = {
+    [425874] = 10,          -- Decoy Totem
+    [8170] = 120,           -- Disease Cleansing Totem
+    [2484] = 45,            -- Earthbind Totem
+    [8184] = 300,           -- Fire Resistance Totem
+    [10537] = 300,          -- Fire Resistance Totem
+    [10538] = 300,          -- Fire Resistance Totem
+    [8227] = 300,           -- Flametongue Totem
+    [8249] = 300,           -- Flametongue Totem
+    [10526] = 300,          -- Flametongue Totem
+    [16387] = 300,          -- Flametongue Totem
+    [8181] = 300,           -- Frost Resistance Totem
+    [10478] = 300,          -- Frost Resistance Totem
+    [10479] = 300,          -- Frost Resistance Totem
+    [8835] = 300,           -- Grace of Air Totem
+    [10627] = 300,          -- Grace of Air Totem
+    [25359] = 300,          -- Grace of Air Totem
+    [8177] = 45,            -- Grounding Totem
+    [5394] = 300,           -- Healing Stream Totem
+    [6375] = 300,           -- Healing Stream Totem
+    [6377] = 300,           -- Healing Stream Totem
+    [10462] = 300,          -- Healing Stream Totem
+    [10463] = 300,          -- Healing Stream Totem
+    [8190] = 20,            -- Magma Totem
+    [10585] = 20,           -- Magma Totem
+    [10586] = 20,           -- Magma Totem
+    [10587] = 20,           -- Magma Totem
+    [5675] = 300,           -- Mana Spring Totem
+    [10495] = 300,          -- Mana Spring Totem
+    [10496] = 300,          -- Mana Spring Totem
+    [10497] = 300,          -- Mana Spring Totem
+    [16190] = 13,           -- Mana Tide Totem
+    [17354] = 13,           -- Mana Tide Totem
+    [17359] = 13,           -- Mana Tide Totem
+    [10595] = 300,          -- Nature Resistance Totem
+    [10600] = 300,          -- Nature Resistance Totem
+    [10601] = 300,          -- Nature Resistance Totem
+    [8166] = 300,           -- Poison Cleansing Totem
+    [3599] = 30,            -- Searing Totem
+    [6363] = 35,            -- Searing Totem
+    [6364] = 40,            -- Searing Totem
+    [6365] = 45,            -- Searing Totem
+    [10437] = 50,           -- Searing Totem
+    [10438] = 55,           -- Searing Totem
+    [6495] = 300,           -- Sentry Totem
+    [5730] = 15,            -- Stoneclaw Totem
+    [6390] = 15,            -- Stoneclaw Totem
+    [6391] = 15,            -- Stoneclaw Totem
+    [6392] = 15,            -- Stoneclaw Totem
+    [10427] = 15,           -- Stoneclaw Totem
+    [10428] = 15,           -- Stoneclaw Totem
+    [8071] = 300,           -- Stoneskin Totem
+    [8154] = 300,           -- Stoneskin Totem
+    [8155] = 300,           -- Stoneskin Totem
+    [10406] = 300,          -- Stoneskin Totem
+    [10407] = 300,          -- Stoneskin Totem
+    [10408] = 300,          -- Stoneskin Totem
+    [8075] = 300,           -- Strength of Earth Totem
+    [8160] = 300,           -- Strength of Earth Totem
+    [8161] = 300,           -- Strength of Earth Totem
+    [10442] = 300,          -- Strength of Earth Totem
+    [25361] = 300,          -- Strength of Earth Totem
+    [8143] = 300,           -- Tremor Totem
+    [8512] = 300,           -- Windfury Totem
+    [10613] = 300,          -- Windfury Totem
+    [10614] = 300,          -- Windfury Totem
+    [15107] = 300,          -- Windwall Totem
+    [15111] = 300,          -- Windwall Totem
+    [15112] = 300,          -- Windwall Totem
+}

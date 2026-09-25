@@ -1831,7 +1831,7 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 	self:RecordTotemDrop(element)
 	local name, _, icon = GetSpellInfo(spellID)
 	local now = GetTime()
-	local learned = learnedDurations()[spellID]
+	local learned = learnedDurations()[spellID] or (self.TotemBaseDurations and self.TotemBaseDurations[spellID])
 	local entry = {
 		spellID = spellID,
 		name = name,
@@ -1879,7 +1879,7 @@ function ShamanPower:ShadowTotemSetCast(spells)
 		local name, _, icon = GetSpellInfo(id or 0)
 		if id and name then
 			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
-			local learned = learnedDurations()[id]
+			local learned = learnedDurations()[id] or (self.TotemBaseDurations and self.TotemBaseDurations[id])
 			local entry = {
 				spellID = id, name = name, icon = icon, startTime = now,
 				duration = learned or SHADOW_DEFAULT_DURATION,
