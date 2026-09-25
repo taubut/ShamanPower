@@ -582,4 +582,21 @@ if fluffy and fluffy.args then
 				desc = "Raid-warning-style text, drawn only on your screen." },
 		},
 	}
+	SP.OrderSettingsBands(fluffy.args.readycheck_section, {
+		{ keys = { "desc" } },
+		{ keys = { "enabled" } },
+		{ header = "what_header", name = "What to Check", keys = {
+			"checkShield", "checkImbue", "checkTotemItems", "checkAssigned", "checkMana", "manaPercent",
+		} },
+		{ header = "how_header", name = "How to Show It", keys = { "showPanel", "showChat" } },
+		{ header = "items_header", name = "Totem Items", keys = { "itemWarn", "itemWarnScreen" } },
+		{ header = "look_header", name = "Look", keys = { "panelScale", "panelOpacity" },
+			names = { panelScale = "Scale", panelOpacity = "Background Opacity" } },
+		{ header = "when_header", name = "Behaviour", keys = { "onReadyCheck", "onEnterInstance" } },
+		{ header = "sound_header", name = "Sound", keys = { "playSound", "soundName", "testSound" },
+			names = { playSound = "Play Sound" } },
+		{ header = "position_header", name = "Position", keys = { "resetPos" },
+			names = { resetPos = "Reset Position" } },
+		{ header = "test_header", name = "Test / Reset", keys = { "checkNow" } },
+	})
 end
