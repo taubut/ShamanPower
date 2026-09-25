@@ -10178,6 +10178,25 @@ do
 	})
 end
 
+do
+	local SP = ShamanPower
+	local page = SP.options.args.fluffy.args.cdbar_items_section
+	local items = {}
+	for key in pairs(page.args) do
+		if key ~= "cdbar_items_desc" and key ~= "show_cooldown_bar" and key ~= "unlock_cd_bar" then
+			items[#items + 1] = key
+		end
+	end
+	table.sort(items, function(a, b) return page.args[a].order < page.args[b].order end)
+	SP.OrderSettingsBands(page, {
+		{ keys = { "cdbar_items_desc" } },
+		{ keys = { "show_cooldown_bar" } },
+		{ header = "items_header", name = "Buttons to Show", keys = items },
+		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" },
+			names = { unlock_cd_bar = "Move (unlock bar)" } },
+	})
+end
+
 -- Module pages keep their controls and callbacks; only their reading order changes.
 do
 	local SP = ShamanPower
