@@ -9942,12 +9942,14 @@ do
 		args["font_" .. key] = {
 			order = 10 + i, type = "select", name = a.label, width = 1.5,
 			desc = a.desc,
+			hidden = not isShaman and key ~= "labels",
 			values = fontValues("Same as above"), sorting = fontSorting("__default"),
 			get = function() local t = SP.opt.fontAreas and SP.opt.fontAreas[key]; return (t and t.name) or "__default" end,
 			set = function(_, v) area(key).name = (v ~= "__default") and v or nil; refresh() end,
 		}
 		args["font_" .. key .. "_outline"] = {
 			order = 10 + i + 0.5, type = "select", name = "Outline", width = 1,
+			hidden = not isShaman and key ~= "labels",
 			values = outlineValues("Same as above"), sorting = OUTLINE_ORDER,
 			get = function() local t = SP.opt.fontAreas and SP.opt.fontAreas[key]; return fromOutline(t and t.outline) end,
 			set = function(_, v) area(key).outline = toOutline(v); refresh() end,
@@ -10002,6 +10004,7 @@ do
 		args["texture_" .. key] = {
 			order = 42 + i, type = "select", name = a.label, width = 1.5,
 			desc = a.desc,
+			hidden = not isShaman and key ~= "other",
 			values = texValues("Same as above"), sorting = texSorting,
 			get = function() local t = SP.opt.barTextureAreas; return (t and t[key]) or "__default" end,
 			set = function(_, v) areas()[key] = (v ~= "__default") and v or nil; refresh() end,
