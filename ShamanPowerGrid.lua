@@ -440,6 +440,16 @@ local function apply()
 	opt.compactStyle, opt.activeTotemAsMain = false, false
 	if wasCompact then SP:SetupCompactStyle() end
 	SP:SetupTotemFlyouts()
+	-- Leaving Split by Element: hand every row's window back BEFORE any row is laid
+	-- out. Handing one back re-runs the ordinary bar layout (UpdateMiniTotemBar),
+	-- which put the rows already placed back on the ordinary bar's spots, stacked
+	-- on each other until the next refresh.
+	if not opt.gridSplit then
+		for element = 1, 4 do
+			local key = keys[element]
+			if SP.poppedOutFrames[key] or opt.poppedOut[key] then returnElement(element) end
+		end
+	end
 	local order = opt.totemBarOrder or orderDefault
 	local offset, width, height = 0, 0, 0
 	local barShown = opt.enabled ~= false and not SP.totemBarHidden and SP.autoButton:IsShown()
