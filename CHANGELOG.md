@@ -57,6 +57,8 @@
 - Loadout totem pickers mark totems your character has not learned yet; the Set Page picker appears once Call of the Ancestors or Call of the Spirits is known; the Blizzard sets preview lists totems in Blizzard's order (Earth, Fire, Water, Air) and shows ones left out of Drop All dimmed.
 - Every chat line ShamanPower prints starts with the same blue ShamanPower.
 - Ready Check: the weapon imbue line shows the Windfury Weapon icon; the sound has a Test Sound button.
+- Every totem bar style keeps its own spot, as Compact did: move Grid into a corner and Normal, TotemTimers and Dynamic stay where you put them. A style you have never moved starts where the Normal bar is.
+- Windfury-only mode keeps the minimap icon; its right-click menu then has one entry, Turn On Other Features.
 
 ### Fixes
 - Party buff dots drawn by the game were never built on Forever; they are now.
@@ -79,6 +81,7 @@
 - **"Unknown" on a cold login** (Forever): when the game had not given the character's name yet as addons loaded, ShamanPower and its settings filed that session under a character called "Unknown" (assignments, learned totem lengths, per-character profile). It now waits for the real name and moves anything written meanwhile.
 - "Totem Destroyed" in combat knows every totem's length from its first drop (a table read from Forever's spell data) instead of learning it out of combat first.
 - The loadout bar's pop-out never opened on Forever.
+- Grid: turning Split by Element off stacked the rows on each other until the next click.
 
 ### Known
 - Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
