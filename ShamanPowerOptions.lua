@@ -4,6 +4,61 @@ local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower")
 
 local isShaman = select(2, UnitClass("player")) == "SHAMAN"
 
+-- Presentation only: keep each option object and its callbacks while arranging
+-- a page in bands. A heading disappears when every row in its band is hidden.
+function ShamanPower.OrderSettingsBands(group, bands)
+	local args, used = group.args, {}
+	for index, band in ipairs(bands) do
+		local base, members = index * 1000, {}
+		for offset, key in ipairs(band.keys) do
+			local option = args[key]
+			if option then
+				option.order = base + offset
+				if band.names and band.names[key] then option.name = band.names[key] end
+				used[key], members[#members + 1] = true, key
+			end
+		end
+		if band.header then
+			local header = args[band.header] or { type = "header" }
+			local previous = header.hidden
+			header.name, header.order = band.name or header.name, base
+			header.hidden = function(info)
+				local hidden = previous
+				if type(hidden) == "function" then hidden = hidden(info) end
+				if hidden then return true end
+				for _, key in ipairs(members) do
+					local option = args[key]
+					if option then
+						local value = option.hidden
+						if type(value) == "function" then
+							local childInfo = {}
+							for k, v in pairs(info or {}) do childInfo[k] = v end
+							childInfo[math.max(1, #childInfo)] = key
+							childInfo.option, childInfo.type, childInfo.arg = option, option.type, option.arg
+							value = value(childInfo)
+						end
+						if not value then return false end
+					end
+				end
+				return true
+			end
+			args[band.header], used[band.header] = header, true
+		end
+	end
+	-- Replaced headings are presentation, not settings. Keep unlisted controls
+	-- at the end so a later contributor is never silently lost.
+	for key, option in pairs(args) do
+		if not used[key] then
+			if option.type == "header" then
+				args[key] = nil
+			else
+				local previous = type(option.order) == "number" and option.order or 0
+				option.order = (#bands + 1) * 1000 + previous
+			end
+		end
+	end
+end
+
 -- Shared args table for loadouts section (rebuilt in-place by RefreshLoadoutArgs)
 local loadoutArgs = {}
 
