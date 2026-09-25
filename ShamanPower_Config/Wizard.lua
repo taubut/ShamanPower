@@ -336,13 +336,13 @@ local STEPS = {
 	{ id = "raidcd", title = "Raid Cooldowns", roles = EVERYONE,
 	  descNonShaman = function() return "As raid leader or assistant you can call for your shamans' " .. RaidCDNames() .. " with one press - the shaman gets an alert they cannot miss." end,
 	  bulletsNonShaman = {
-	    "Assign which shaman does what in Settings > Raid Cooldowns.",
+	    "Assign which shaman does what in Settings > Group Tools > Raid Cooldowns.",
 	    "Your buttons appear only when you are allowed to call, or a shaman gives you control.",
 	    "Try it: press a button in the preview to see what the shaman sees.",
 	  }, module = "ShamanPower_RaidCooldowns", flag = "RaidCooldownsLoaded", build = "BuildRaidCDStep",
 	  desc = function() return "One-press callers for " .. RaidCDNames() .. " - the whole raid is told, and the assigned player gets an alert they cannot miss." end,
 	  bullets = {
-	    "Assign who does what in Settings > Raid Cooldowns (raid leader or assistant).",
+	    "Assign who does what in Settings > Group Tools > Raid Cooldowns (raid leader or assistant).",
 	    "Callers appear only for people allowed to call; you can give control to anyone.",
 	    "Try it: press a button in the preview to see what the assigned player sees.",
 	  } },
@@ -2520,7 +2520,8 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.TremorDemoActive then SP:TremorDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", true) end
 	row("Toggle", { label = "Hide while Tremor Totem is down", disabled = off, get = function() return get("hideWhenTremorActive", true) end, set = function(v) sv().hideWhenTremorActive = v; upd() end })
-	row("Toggle", { label = "Use the built-in fear-caster list", desc = "Hundreds of known fear-casting mobs from dungeons and raids. Add your own in Settings > Tremor Reminder > Manage Mob List.",
+	row("Toggle", { label = "Use the built-in fear-caster list", desc = "Known fear-casting mobs from dungeons and raids."
+		.. " Add your own in Settings > Alerts & Reminders > Tremor Reminder > Manage Mob List.",
 		disabled = off, get = function() return get("useDefaultList", true) end, set = function(v) sv().useDefaultList = v; upd() end })
 	row("Dropdown", { label = "Display", disabled = off, get = function() return get("displayMode", "icon") end,
 		set = function(v) sv().displayMode = v; upd("UpdateTremorReminderAppearance") end,
@@ -2544,7 +2545,7 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 		func = function() if SP.PlaySoundWithVolume and SP.GetSoundFile then pcall(SP.PlaySoundWithVolume, SP, SP:GetSoundFile(get("soundName", "Raid Warning")), get("soundVolume", 100), true) end end })
 	local note = card:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -(y + 6))
 	note:SetWidth(W); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
-	note:SetText("Add or remove mobs from the fear-caster list in Settings > Tremor Reminder > Manage Mob List.")
+	note:SetText("Add or remove fear-casting mobs in Settings > Alerts & Reminders > Tremor Reminder > Manage Mob List.")
 	y = y + 6 + note:GetStringHeight() + 10
 	return y
 end
@@ -2647,7 +2648,8 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	row("Slider", { label = "Sound volume", min = 0, max = 100, step = 5, disabled = off, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
 	local note = card:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -(y + 6))
 	note:SetWidth(W); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
-	note:SetText("Pick a different sound per category, and main-hand / off-hand imbues separately, in Settings > Expiring Alerts.")
+	note:SetText("Pick each category's sound and main-hand / off-hand imbues separately in"
+		.. " Settings > Alerts & Reminders > Expiring Alerts.")
 	y = y + 6 + note:GetStringHeight() + 10
 	return y
 end

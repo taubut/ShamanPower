@@ -27,7 +27,7 @@ local NOTES = {
 		    .. "\n|cff3FA9F5Settings > Group Tools > Party Buff Tracker > Coverage|r" },
 		{ icon = "Interface\\Icons\\INV_Misc_Map_01", h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
 		  b = "A pin where each totem was dropped and a ring for its reach, turning with the minimap. Open world only."
-		    .. "\n|cff3FA9F5Settings > Totem Range Tracker|r" },
+		    .. "\n|cff3FA9F5Settings > Group Tools > Totem Range Tracker|r" },
 		{ icon = "Interface\\Icons\\Spell_Nature_StoneSkinTotem", h = "Auto-Assign picks by who is in the group",
 		  b = "Stoneskin for caster-only groups and Strength of Earth with melee; Mana Spring with mana users, Healing Stream otherwise; the Air totem by who benefits. This changes what Auto-Assign picks for existing characters too." },
 		{ icon = "Interface\\Icons\\INV_Misc_Note_01", h = "Pick your own font",

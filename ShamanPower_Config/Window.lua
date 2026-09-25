@@ -213,7 +213,7 @@ local NAV = {
 			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
 		}},
 	}},
-	{ group = "Modules", power = true, entries = {
+	{ group = "Group Tools", power = true, entries = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section"), power = false },
 		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = false },   -- WoW: Forever only (the group exists only there)
 		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
@@ -223,13 +223,17 @@ local NAV = {
 			{ label = "Coverage", preview = "coverage", paths = { P("fluffy", "coverage_section") } },
 		}},
 		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
+		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
+	}},
+	{ group = "Alerts & Reminders", power = true, entries = {
 		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
 		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
-		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
-		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
 		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
+		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
+	}},
+	{ group = "Other", power = true, entries = {
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
 		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
 			{ label = "Pop-Out Trackers", paths = {

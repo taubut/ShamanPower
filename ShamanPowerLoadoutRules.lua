@@ -178,7 +178,8 @@ local function HoldResist(key, why, quiet)
 	end
 	if not quiet then
 		if SP.opt and SP.opt.resistRequests == false then
-			Tell(RESIST_NAMES[key] .. " not requested: raid resistance requests are turned off (Settings > Raid Resistance).")
+			Tell(RESIST_NAMES[key] .. " not requested: raid resistance requests are turned off"
+				.. " (Settings > Group Tools > Raid Resistance).")
 		elseif why == "zone" then
 			Tell(RESIST_NAMES[key] .. " will be requested once you are in a raid.")
 		else
