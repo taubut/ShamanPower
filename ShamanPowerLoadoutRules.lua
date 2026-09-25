@@ -608,11 +608,24 @@ RebuildRuleArgs = function()
 			set = function(_, v) local r = rule(); if r then r.zone = (strtrim(v or "") ~= "") and strtrim(v) or nil end end,
 		}
 		ruleArgs["rule_target_" .. i] = {
-			order = base + 3, type = "input", name = "Target (mob name)", width = 1.5,
-			desc = "Switch when you target a mob with exactly this name (not case sensitive).",
+			-- Forever hides a mob's name AND its GUID inside dungeons and raids (measured in
+			-- Ragefire Chasm), so a target rule can only match in the open world there
+			order = base + 3, type = "input", name = FOREVER and "Target (mob name, open world only)" or "Target (mob name)", width = 1.5,
+			desc = FOREVER and "Switch when you target a mob with exactly this name (not case sensitive). Open world only: inside dungeons and raids the game hides mob names, so use a Zone or Boss Encounter rule there."
+				or "Switch when you target a mob with exactly this name (not case sensitive).",
 			disabled = Disabled,
 			get = function() local r = rule(); return r and r.target or "" end,
 			set = function(_, v) local r = rule(); if r then r.target = (strtrim(v or "") ~= "") and strtrim(v) or nil end; SP:UpdateLoadoutRuleEvents() end,
+		}
+		ruleArgs["rule_target_note_" .. i] = {
+			order = base + 3.5, type = "description", width = "full",
+			hidden = function() return not FOREVER end,
+			name = "|cffffa040Mob names don't work inside dungeons or raids: use Zone or Boss Encounter there.|r",
+		}
+		ruleArgs["rule_target_note_" .. i] = {
+			order = base + 3.5, type = "description", width = "full",
+			hidden = function() return not FOREVER end,
+			name = "|cffffa040Mob names don't work inside dungeons or raids: use Zone or Boss Encounter there.|r",
 		}
 		ruleArgs["rule_encounter_" .. i] = {
 			order = base + 4, type = "input", name = "Boss Encounter (optional)", width = 1.5,

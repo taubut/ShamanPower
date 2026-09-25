@@ -32,7 +32,7 @@
 - **Unlock UI (move everything).** One button (General > Main, or `/sp unlock`) shows a labelled box on every frame ShamanPower draws; drag them, put each back with its own Reset (all but the Party Range counters, the Totem Range overlay, the Raid Cooldown callers and the Earth Shield tracker), and snap to an optional alignment grid.
 - **ShamanPower Discord** on General: help, bug reports, feature voting and early builds. Copy Link button.
 - **Loadouts:** the bar has a Move button (Loadouts tab) and a box in Unlock All; a loadout's chosen icon shows on its button; the icon picker is rebuilt on the settings look with a search box.
-- **Loadout bar:** hover the button for a pop-out of your other loadouts (one column, names beside each), or click the button itself to step to the next loadout (right-click: previous). Each loadout keeps its own Drop All exclusions (Exclude Earth / Fire / Water / Air on its Loadouts entry): switching swaps them in, and Call of the Elements follows on Forever.
+- **Loadout bar:** hover the button for a flyout of your other loadouts (one column, names beside each), or turn on Click the Button to Cycle Loadouts (Loadout Bar tab) to step through them by clicking (right-click: previous), with the flyout optionally off. Each loadout keeps its own Drop All exclusions (Exclude Earth / Fire / Water / Air on its Loadouts entry): switching swaps them in, and Call of the Elements follows on Forever.
 - **Raid call practice:** `/sp calltest` makes a shaman take Mana Tide calls (from a caller button or someone typing "tide") as if it knew Mana Tide, so the whole flow can be tried at any level.
 
 ### Changes
@@ -80,7 +80,7 @@
 - **Forever surnames:** the game gives a character's first name and surname separately; ShamanPower now joins them as the game's own interface does, so you no longer appear twice in the assignments window ("Srumar" and "Srumar Bagels") and raid calls addressed to you are recognised.
 - **"Unknown" on a cold login** (Forever): when the game had not given the character's name yet as addons loaded, ShamanPower and its settings filed that session under a character called "Unknown" (assignments, learned totem lengths, per-character profile). It now waits for the real name and moves anything written meanwhile.
 - "Totem Destroyed" in combat knows every totem's length from its first drop (a table read from Forever's spell data) instead of learning it out of combat first.
-- The loadout bar's pop-out never opened on Forever.
+- The loadout bar's flyout never opened on Forever.
 - Grid: turning Split by Element off stacked the rows on each other until the next click.
 
 ### Known

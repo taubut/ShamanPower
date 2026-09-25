@@ -18679,10 +18679,12 @@ function ShamanPower:CreateLoadoutBar()
 	if anchor.SetDontSavePosition then anchor:SetDontSavePosition(true) end
 	anchor:EnableMouse(true)
 	anchor:RegisterForDrag("LeftButton")
-	-- Click the button itself to step through the loadouts (left: next, right: previous);
-	-- hovering still opens the pop-out of the others. Out of combat, as ApplyLoadout is.
+	-- With "Click the Button to Cycle Loadouts" on (off by default: the flyout is
+	-- the way), clicking the button itself steps through the loadouts (left: next,
+	-- right: previous). Out of combat, as ApplyLoadout is.
 	anchor:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	anchor:SetScript("OnClick", function(_, button)
+		if not ShamanPower.opt.loadoutBarClickCycle then return end
 		if IsAltKeyDown() then return end   -- ALT is for moving it
 		local n = ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts or 0
 		if n < 2 then return end
@@ -18694,6 +18696,7 @@ function ShamanPower:CreateLoadoutBar()
 	-- SECURE HANDLER: Show flyout on hover (WORKS IN COMBAT)
 	-- Same pattern as totem button _onenter/_onleave
 	ShamanPower:SetSnippet(anchor, "_onenter", [[
+		if self:GetAttribute("spnoflyout") then return end   -- Turn Off the Flyout (plain name: snippets cannot read "_" ones)
 		self:ChildUpdate("show", true)
 	]])
 
@@ -18776,7 +18779,7 @@ function ShamanPower:CreateLoadoutBar()
 			local lo = ShamanPower_TotemLoadouts[self.opt.activeLoadout]
 			GameTooltip:AddLine("Active: " .. (lo.name or ("Set " .. self.opt.activeLoadout)), 0.3, 1.0, 0.3)
 		end
-		if #ShamanPower_TotemLoadouts > 1 then
+		if ShamanPower.opt.loadoutBarClickCycle and #ShamanPower_TotemLoadouts > 1 then
 			GameTooltip:AddLine("Left-click: next loadout. Right-click: previous.", 0.8, 0.8, 0.8)
 		end
 		if not self.opt.loadoutBarLocked then
@@ -18957,6 +18960,11 @@ function ShamanPower:UpdateLoadoutBar()
 
 	if not InCombatLockdown() then
 		self.loadoutAnchor:Show()
+		-- "Turn Off the Flyout" (only with click-to-cycle on): neither hover path opens it,
+		-- the secure snippet (spnoflyout) nor the Forever fallback (OpenMenu)
+		local noFlyout = self.opt.loadoutBarClickCycle and self.opt.loadoutBarNoFlyout
+		self.loadoutAnchor:SetAttribute("spnoflyout", noFlyout or nil)
+		self.loadoutAnchor:SetAttribute("OpenMenu", (not noFlyout) and "mouseover" or nil)
 	end
 
 	-- Apply scale and opacity

@@ -8914,6 +8914,41 @@ ShamanPower.options = {
 								ShamanPower:UpdateLoadoutBar()
 							end,
 						},
+						loadoutbar_clickcycle = {
+							order = 6,
+							name = "Click the Button to Cycle Loadouts",
+							desc = "Left-click the loadout button for your next loadout, right-click for the previous one, as well as picking from the flyout. Out of combat.",
+							type = "toggle",
+							width = "full",
+							disabled = function()
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.loadoutBarClickCycle == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.loadoutBarClickCycle = val and true or nil
+								ShamanPower:UpdateLoadoutBar()   -- the flyout comes back with cycling off
+							end,
+						},
+						loadoutbar_noflyout = {
+							order = 6.1,
+							name = "Turn Off the Flyout",
+							desc = "Hovering the loadout button no longer opens the flyout of your other loadouts: clicking is the only way to switch.",
+							type = "toggle",
+							width = "full",
+							hidden = function() return not ShamanPower.opt.loadoutBarClickCycle end,
+							disabled = function()
+								return ShamanPower.opt.enabled == false or not isShaman or not ShamanPower.opt.showLoadoutBar
+							end,
+							get = function(info)
+								return ShamanPower.opt.loadoutBarNoFlyout == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.loadoutBarNoFlyout = val and true or nil
+								ShamanPower:UpdateLoadoutBar()
+							end,
+						},
 					}
 				},
 			}
