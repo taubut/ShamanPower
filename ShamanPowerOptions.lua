@@ -10287,6 +10287,26 @@ do
 	SP.SettingsPathAliases["fluffy/padding_section"] = { "fluffy", "totembar_appearance" }
 end
 
+do
+	local SP = ShamanPower
+	local pages = SP.options.args.fluffy.args
+	pages.element_colors_section = { order = 6.1, type = "group", name = "Element Colors", args = {} }
+	SP.MoveSettingsOptions({ "fluffy", "layout_section" }, { "fluffy", "element_colors_section" }, {
+		"element_color_palette", "element_color_1", "element_color_2", "element_color_3", "element_color_4",
+		"element_color_reset",
+	})
+	pages.element_colors_section.args.element_color_palette.name = "Element Colors"
+	pages.element_colors_section.args.element_color_reset.name = "Reset Element Colors"
+	pages.button_tints_section = {
+		order = 6.2, type = "group", name = "Button Tints", args = {},
+		hidden = pages.color_section.hidden, disabled = pages.color_section.disabled,
+	}
+	-- Mana tint contributes its options after this file has loaded.
+	for _, key in ipairs({ "manaTint", "manaTintColor" }) do
+		SP.SettingsPathAliases["fluffy/color_section/" .. key] = { "fluffy", "button_tints_section", key }
+	end
+end
+
 -- Module pages keep their controls and callbacks; only their reading order changes.
 do
 	local SP = ShamanPower

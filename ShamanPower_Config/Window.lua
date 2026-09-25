@@ -182,7 +182,10 @@ local NAV = {
 			} },
 			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
 			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },
-			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
+			{ label = "Textures & Colors", paths = {
+				P("fluffy", "texture_section"), P("fluffy", "color_section"),
+				P("fluffy", "element_colors_section"), P("fluffy", "button_tints_section"),
+			} },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
 		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
@@ -1365,7 +1368,9 @@ local function ResolveComposed(entry, query, drawTabs)
 	local list = {}
 	for _, t in ipairs(searching and tabs or { active }) do
 		for _, lv in ipairs(t.live) do
-			if #t.live > 1 or (searching and #tabs > 1) then
+			-- A first band already labels these rows; do not stack an empty
+			-- same-depth group heading directly above it.
+			if (#t.live > 1 or (searching and #tabs > 1)) and lv.rows[1].kind ~= "section" then
 				local info = Tree:BuildInfo(lv.path, lv.node, lv.chain)
 				local label = lv.path.label or Tree:StripColor(Tree:GetName(lv.node, info))
 				if searching and #tabs > 1 and #t.live == 1 then label = t.name end

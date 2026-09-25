@@ -91,18 +91,19 @@ for _, name in ipairs({ "ButtonsUpdate", "UpdateDynamicTotemIcons", "RecreateCoo
 	end
 end
 
--- Settings: Appearance > Textures & Colors (Status Colors)
+-- Settings: Appearance > Textures & Colors > Button Tints
 do
-	local sec = SP.options and SP.options.args.fluffy and SP.options.args.fluffy.args.color_section
+	local sec = SP.options and SP.options.args.fluffy and SP.options.args.fluffy.args.button_tints_section
 	if sec and sec.args then
 		sec.args.manaTint = {
 			order = 50, type = "toggle", name = "Tint Totems You Cannot Afford", width = "full",
-			desc = "Colour a totem or cooldown button blue while you do not have the mana for it, like Blizzard's action bars. Changes the moment your mana crosses the cost.",
+			desc = "Color a totem or cooldown button blue while you do not have the mana for it, like Blizzard's action bars."
+				.. " Changes the moment your mana crosses the cost.",
 			get = function() return SP.opt.manaTint == true end,
 			set = function(_, v) SP.opt.manaTint = v or nil; SP:UpdateManaTint() end,
 		}
 		sec.args.manaTintColor = {
-			order = 51, type = "color", name = "Tint Colour",
+			order = 51, type = "color", name = "Tint Color",
 			disabled = function() return SP.opt.manaTint ~= true end,
 			get = function() local c = SP.opt.manaTintColor or SP.MANA_TINT_DEFAULT; return c.r, c.g, c.b end,
 			set = function(_, r, g, b) SP.opt.manaTintColor = { r = r, g = g, b = b }; SP:UpdateManaTint() end,
