@@ -10069,4 +10069,13 @@ do
 			"raidCDPlaySound", "raidCDSoundVolume_testsound", "raidCDSoundVolume", "raidCDSoundVolumeNote",
 		}, names = { raidCDSoundVolume = "Volume" } },
 	})
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.shieldcharges_section, {
+		{ keys = { "shieldcharges_desc", "module_missing_note", "hide_ooc_note", "both_off_note" } },
+		{ keys = { "shieldcharges_player", "shieldcharges_earth" } },
+		{ header = "look_header", name = "Look", keys = { "shieldcharges_scale", "shieldcharges_opacity" } },
+		{ header = "behaviour_header", name = "Behaviour", keys = {
+			"shieldcharges_hide_ooc", "shieldcharges_hide_none",
+		} },
+		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked" } },
+	})
 end
