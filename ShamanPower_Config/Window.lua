@@ -186,6 +186,7 @@ local NAV = {
 			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
 			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
+			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
 			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
 			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },

@@ -10097,6 +10097,55 @@ do
 		.. " Use Move below to drag the cells, or ALT+drag a cell. Off: one cell per element, together in a row or column."
 end
 
+-- Drop All has its own tab, separate from the order of the visible buttons.
+do
+	local SP = ShamanPower
+	local buttons, pages = SP.options.args.buttons.args, SP.options.args.fluffy.args
+	local bar = buttons.auto_button
+	local keys = { "show_dropall", "dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
+		"drop_order_header", "drop_order_1", "drop_order_2", "drop_order_3", "drop_order_4",
+		"exclude_from_drop_all_header", "exclude_earth", "exclude_fire", "exclude_water", "exclude_air" }
+	for key in pairs(bar.args) do
+		if key:match("^exclude_.*_empty_note$") then keys[#keys + 1] = key end
+	end
+	buttons.dropall_section = { order = 3.1, type = "group", name = "Drop All", args = {}, disabled = bar.disabled }
+	SP.MoveSettingsOptions({ "buttons", "auto_button" }, { "buttons", "dropall_section" }, keys)
+	bar.name = "Totem Bar"
+	bar.args.auto_desc.name = "Configure the totem bar and its flyout menus."
+	bar.args.auto_enable.name = "Enable Totem Bar"
+	bar.args.show_cooldown_bar = nil -- the identical toggle stays on Cooldown Bar > Items
+	SP.SettingsPathAliases["buttons/auto_button/show_cooldown_bar"] = {
+		"fluffy", "cdbar_items_section", "show_cooldown_bar",
+	}
+	SP.OrderSettingsBands(bar, {
+		{ keys = { "auto_desc" } },
+		{ keys = { "auto_enable" } },
+		{ header = "flyouts_header", name = "Flyouts", keys = {
+			"show_totem_flyouts", "show_es_flyout", "es_flyout_filter",
+		} },
+		{ header = "position_header", name = "Position", keys = { "unlock_totem_bar" },
+			names = { unlock_totem_bar = "Move (unlock bar)" } },
+	})
+	SP.OrderSettingsBands(buttons.dropall_section, {
+		{ keys = { "show_dropall" } },
+		{ header = "sets_header", name = "Blizzard Totem Sets", keys = {
+			"dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
+		} },
+		{ header = "drop_order_header", name = "Drop All Order", keys = {
+			"drop_order_1", "drop_order_2", "drop_order_3", "drop_order_4",
+		} },
+		{ header = "exclude_from_drop_all_header", name = "Exclude from Drop All", keys = {
+			"exclude_earth", "exclude_earth_empty_note", "exclude_fire", "exclude_fire_empty_note",
+			"exclude_water", "exclude_water_empty_note", "exclude_air", "exclude_air_empty_note",
+		} },
+	})
+	pages.totembar_order_section.name = "Button Order"
+	for i, ordinal in ipairs({ "1st", "2nd", "3rd", "4th" }) do
+		buttons.dropall_section.args["drop_order_" .. i].name = ordinal .. " in Drop All Order"
+		pages.totembar_order_section.args["totem_bar_order_" .. i].name = ordinal .. " Button"
+	end
+end
+
 -- Module pages keep their controls and callbacks; only their reading order changes.
 do
 	local SP = ShamanPower
