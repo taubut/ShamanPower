@@ -10044,4 +10044,12 @@ do
 			"minimapTotemMarkers", "minimapTotemRings", "minimapTotemPinSize",
 		} },
 	})
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.estrack_section, {
+		{ keys = { "estrack_desc", "module_missing_note" } },
+		{ keys = { "estrack_enabled", "open_window" } },
+		{ header = "estrack_options_header", name = "Look", keys = {
+			"estrack_icon_size", "estrack_opacity", "estrack_vertical", "estrack_hide_names",
+			"estrack_hide_border", "estrack_hide_charges",
+		} },
+	})
 end
