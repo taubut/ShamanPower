@@ -934,12 +934,21 @@ function ShamanPower:OnInitialize()
 			["OnTooltipShow"] = function(tooltip)
 				if self.opt.ShowTooltips then
 					tooltip:SetText(SHAMANPOWER_NAME)
-					tooltip:AddLine(L["MINIMAP_ICON_TOOLTIP"])
+					if self:WindfuryOnly() then
+						tooltip:AddLine("Windfury-only mode. Click to turn the other features back on.", 1, 1, 1, true)
+					else
+						tooltip:AddLine(L["MINIMAP_ICON_TOOLTIP"])
+					end
 					tooltip:Show()
 				end
 			end,
 			["OnClick"] = function(_, button)
 				local playerIsShaman = select(2, UnitClass("player")) == "SHAMAN"
+				-- Windfury-only mode: every click opens the one menu that turns the rest back on
+				if ShamanPower:WindfuryOnly() and ShamanPower.ShowMinimapMenu then
+					ShamanPower:ShowMinimapMenu()
+					return
+				end
 
 				if (button == "LeftButton") then
 					if playerIsShaman then
