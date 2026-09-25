@@ -173,12 +173,15 @@ local NAV = {
 		{ label = "Profiles", path = P("profiles"), lock = true },
 	}},
 	{ group = "Bars", entries = {
-		{ label = "Mode & Twisting", preview = MOCK_TOTEM, shamanOnly = true, lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
-			{ label = "Mode & Twisting", paths = { P("settings", "settings_totemMode") } },
+		{ label = "Totem Bar Style", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
+			desc = "Options for the selected style, shared clicks and totem twisting.", tabs = {
+			{ label = "Style Options", paths = { P("settings", "settings_totemMode") } },
+			{ label = "Clicks", paths = { P("settings", "settings_totemClicks") } },
+			{ label = "Twisting", paths = { P("settings", "settings_totemTwisting") } },
 		}},
 		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
-				P("fluffy", "totembar_appearance"), P("fluffy", "layout_section"), P("fluffy", "appearance_resets"),
+				P("fluffy", "totembar_appearance"), P("fluffy", "appearance_resets"),
 			} },
 			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
 			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },

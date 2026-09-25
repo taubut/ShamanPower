@@ -94,7 +94,8 @@ local function ShowStylePreview(key)
 			previewDlg:Hide()
 			local picked = SP.TotemBarStyle and SP:TotemBarStyle(k)
 			if picked and SP:SetTotemBarStyle(k) then   -- in combat it says so itself
-				print("|cff0070ddShamanPower|r: " .. picked.label .. " is on. Settings > General > Totem Bar Style switches back; Mode & Twisting has its settings.")
+				print("|cff0070ddShamanPower|r: " .. picked.label .. " is on. Settings > General > Main > Totem Bar Style"
+					.. " switches back; Bars > Totem Bar Style > Style Options has its settings.")
 				if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open({ "settings", "settings_totemMode" }) end
 			end
 		end)

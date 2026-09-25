@@ -7637,7 +7637,8 @@ ShamanPower.options = {
 						compact_override_note = {
 							order = 0.05,
 							type = "description",
-							name = "|cffffa040Compact style is on. It draws duration and pulse itself, so nothing on this page applies to the totem bar right now (only the cooldown sweep on flyout icons still does). Use the Compact Style options in Mode & Twisting instead.|r",
+							name = "|cffffa040Compact style draws its own duration and pulse. This page does not change its lines"
+								.. " (only cooldown sweeps on flyout icons). Use Totem Bar Style > Style Options instead.|r",
 							hidden = function() return not (CompactOn()) end,
 						},
 						duration_desc = {
@@ -9772,7 +9773,8 @@ do
 		desc = function()
 			local d = "Which bar you play with: one of the four looks of ShamanPower's bar, every totem laid out in a grid"
 			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then d = d .. ", or Blizzard's own totem bar with ShamanPower's timers, bars and dots on its slots" end
-			return d .. ". Hover a style in the list to see it in the live preview (the arrow tab on the right). Mode & Twisting has each style's own settings. Change out of combat."
+			return d .. ". Hover a style to see it in the live preview (the arrow tab on the right)."
+				.. " Totem Bar Style > Style Options has each style's settings. Change out of combat."
 		end,
 		hidden = function() return not isShaman or not SP.TotemBarStyleList end,
 		disabled = function() return SP.opt.enabled == false or InCombatLockdown() end,
@@ -10305,6 +10307,87 @@ do
 	for _, key in ipairs({ "manaTint", "manaTintColor" }) do
 		SP.SettingsPathAliases["fluffy/color_section/" .. key] = { "fluffy", "button_tints_section", key }
 	end
+end
+
+-- Style selection stays on General. This page shows the selected style's
+-- controls, while common click behavior and twisting get their own tabs.
+do
+	local SP = ShamanPower
+	local settings, pages = SP.options.args.settings.args, SP.options.args.fluffy.args
+	local mode = settings.settings_totemMode
+	mode.name = "Style Options"
+	settings.settings_totemClicks = {
+		order = 2.1, type = "group", name = "Clicks", args = {}, disabled = SP.options.args.fluffy.disabled,
+	}
+	settings.settings_totemTwisting = { order = 2.2, type = "group", name = "Twisting", args = {} }
+	SP.MoveSettingsOptions({ "settings", "settings_totemMode" }, { "settings", "settings_totemClicks" }, {
+		"rightClickCastsAssigned", "rightClickDestroysTotem",
+	})
+	SP.MoveSettingsOptions({ "fluffy", "layout_section" }, { "settings", "settings_totemClicks" }, {
+		"layout_desc", "swap_flyout_clicks", "flyout_requires_click", "swap_all_clicks", "flyout_close_on_cast",
+		"flyout_route_bar_keys", "flyout_arrow_only", "flyout_single_open", "flyout_combat_header",
+	})
+	SP.MoveSettingsOptions({ "fluffy", "layout_section" }, { "fluffy", "totemflyouts_section" }, { "flyout_show_empty" })
+	SP.MoveSettingsOptions({ "settings", "settings_totemMode" }, { "settings", "settings_totemTwisting" }, {
+		"enableTwisting", "twistTotemSelect", "twistTimerNoDecimals", "twistSoundEnabled", "twistSoundThreshold",
+		"twistSoundPicker", "twistSoundPicker_testsound", "twistSoundVolume",
+	})
+	settings.settings_totemClicks.args.layout_desc.name =
+		"Choose how bar buttons and flyout menus respond to clicks and keys."
+	SP.OrderSettingsBands(settings.settings_totemClicks, {
+		{ keys = { "layout_desc" } },
+		{ header = "button_header", name = "Bar Buttons", keys = {
+			"swap_all_clicks", "rightClickCastsAssigned", "rightClickDestroysTotem",
+		} },
+		{ header = "flyout_header", name = "Flyouts", keys = {
+			"swap_flyout_clicks", "flyout_requires_click", "flyout_arrow_only", "flyout_single_open",
+			"flyout_close_on_cast", "flyout_route_bar_keys",
+		} },
+	})
+	SP.OrderSettingsBands(settings.settings_totemTwisting, {
+		{ keys = { "enableTwisting", "twistTotemSelect" } },
+		{ header = "look_header", name = "Look", keys = { "twistTimerNoDecimals" } },
+		{ header = "sound_header", name = "Sound", keys = {
+			"twistSoundEnabled", "twistSoundPicker", "twistSoundPicker_testsound", "twistSoundVolume", "twistSoundThreshold",
+		}, names = { twistSoundEnabled = "Play Sound", twistSoundPicker = "Sound", twistSoundVolume = "Volume" } },
+	})
+	local function onlyStyles(key, allowed)
+		local option = mode.args[key]
+		if not option then return end
+		local previous = option.hidden
+		option.hidden = function(info)
+			if type(previous) == "function" then
+				if previous(info) then return true end
+			elseif previous then return true end
+			local style = SP.GetTotemBarStyle and SP:GetTotemBarStyle() or "normal"
+			return not allowed[style]
+		end
+	end
+	onlyStyles("dynamicMode", { dynamic = true, grid = true })
+	onlyStyles("dynamicModeDesc", { normal = true, dynamic = true, grid = true })
+	onlyStyles("activeTotemAsMain", { totemtimers = true, blizzard = true })
+	onlyStyles("compactStyle", { compact = true })
+	onlyStyles("compactOptions", { compact = true })
+	for _, key in ipairs({ "gridStyle", "gridDropAssigns", "gridSplit",
+		"gridOrientation1", "gridOrientation2", "gridOrientation3", "gridOrientation4" }) do
+		onlyStyles(key, { grid = true })
+	end
+	onlyStyles("use_blizzard_totem_bar", { blizzard = true })
+	-- The native scale controls already have their exact native-only predicate.
+	for _, key in ipairs({ "activeAsMainSpacer", "compactSpacer", "twistSpacer" }) do
+		if mode.args[key] then mode.args[key].hidden = true end
+	end
+	mode.args.style_note = {
+		order = 0, type = "description", width = "full",
+		name = function()
+			local key = SP.GetTotemBarStyle and SP:GetTotemBarStyle() or "normal"
+			local style = SP.TotemBarStyle and SP:TotemBarStyle(key)
+			return "Options for " .. (style and style.label or key)
+				.. ". Change style in General > Main > Totem Bar Style. Shared clicks and twisting have their own tabs."
+		end,
+	}
+	SP.SettingsPathAliases["fluffy/layout_section"] = { "fluffy", "totembar_appearance" }
+	pages.totemflyouts_section.args.flyout_show_empty.order = 0.2
 end
 
 -- Module pages keep their controls and callbacks; only their reading order changes.
