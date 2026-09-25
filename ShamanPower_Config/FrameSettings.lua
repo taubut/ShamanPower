@@ -79,7 +79,7 @@ local function Populate(spec)
 	end
 	if spec.hideFrame then
 		Row("Toggle", {
-			label = "Hide Frame (icon only)", desc = "Hide the panel and border; the icons stay and can still be dragged.",
+			label = "Hide Background", desc = "Hide the panel and border; the icons stay and can still be dragged.",
 			get = spec.hideFrame.get, set = spec.hideFrame.set,
 		})
 	end

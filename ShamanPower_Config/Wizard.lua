@@ -262,7 +262,7 @@ local STEPS = {
 	    "Normal: assigned totems stay put; a different dropped totem pops up above its slot.",
 	    "TotemTimers style: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "Dynamic: the bar is simply whatever you last dropped. Great for PvP.",
-	    "Compact: no icons - each slot is a coloured line that drains with the totem and refills with each pulse.",
+	    "Compact: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
 	    { "Grid: every totem of every element visible in rows, together or split into one frame per element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
 	    { "Blizzard's totem bar: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots.",
@@ -2521,7 +2521,7 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 	local function off() return not get("enabled", true) end
 	row("Toggle", { label = "Hide while Tremor Totem is down", disabled = off, get = function() return get("hideWhenTremorActive", true) end, set = function(v) sv().hideWhenTremorActive = v; upd() end })
 	row("Toggle", { label = "Use the built-in fear-caster list", desc = "Known fear-casting mobs from dungeons and raids."
-		.. " Add your own in Settings > Alerts & Reminders > Tremor Reminder > Manage Mob List.",
+		.. " Add your own in Settings > Alerts & Reminders > Tremor Reminder > Open Fear-Caster Mob List.",
 		disabled = off, get = function() return get("useDefaultList", true) end, set = function(v) sv().useDefaultList = v; upd() end })
 	row("Dropdown", { label = "Display", disabled = off, get = function() return get("displayMode", "icon") end,
 		set = function(v) sv().displayMode = v; upd("UpdateTremorReminderAppearance") end,
@@ -2545,7 +2545,8 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 		func = function() if SP.PlaySoundWithVolume and SP.GetSoundFile then pcall(SP.PlaySoundWithVolume, SP, SP:GetSoundFile(get("soundName", "Raid Warning")), get("soundVolume", 100), true) end end })
 	local note = card:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -(y + 6))
 	note:SetWidth(W); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
-	note:SetText("Add or remove fear-casting mobs in Settings > Alerts & Reminders > Tremor Reminder > Manage Mob List.")
+	note:SetText("Add or remove fear-casting mobs in Settings > Alerts & Reminders > Tremor Reminder"
+		.. " > Open Fear-Caster Mob List.")
 	y = y + 6 + note:GetStringHeight() + 10
 	return y
 end
@@ -3133,7 +3134,9 @@ function SP.Wizard.BuildPositionStep(card, inner, y)
 	local pic = inner:CreateFontString(nil, "OVERLAY")
 	pic:SetFontObject(Core.fonts.rowDim); pic:SetPoint("CENTER"); pic:SetWidth(inner:GetWidth() - 24)
 	pic:SetJustifyH("CENTER"); pic:SetWordWrap(true)
-	pic:SetText(IS_SHAMAN and "The setup screen will step aside so you can drag your totem bar, cooldown bar and every frame you turned on in this setup. A small bar appears at the top - click Done when you are finished. Settings > General > Unlock UI (move everything) does the same any time."
+	pic:SetText(IS_SHAMAN and "The setup screen will step aside so you can drag your totem bar, cooldown bar"
+		.. " and every frame you turned on in this setup. A small bar appears at the top - click Done when you are finished."
+		.. " Settings > General > Main > Unlock UI does the same any time."
 		or "The setup screen will step aside and show the Totem Range overlay so you can drag it where you want. A small bar appears at the top - click Done when you are finished.")
 end
 

@@ -335,10 +335,10 @@ function Tree:IndexPage(pageNode, pagePath, pageChain, rows)
 	local list = rows or self:BuildRenderList(pageNode, pagePath, pageChain)
 	for _, entry in ipairs(list) do
 		if entry.label and entry.label ~= "" then
-			table.insert(terms, strlower(entry.label))
+			table.insert(terms, strlower(self:StripColor(entry.label)))
 		end
 		if entry.desc and entry.desc ~= "" then
-			table.insert(terms, strlower(entry.desc))
+			table.insert(terms, strlower(self:StripColor(entry.desc)))
 		end
 	end
 	return terms

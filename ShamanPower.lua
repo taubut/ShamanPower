@@ -8526,7 +8526,7 @@ ShamanPower.ResetSections = {
 		end,
 	},
 	colors = {
-		label = "Element Colour",
+		label = "Element Color",
 		keys = { "elementColorPalette", "elementColorsCustom" },
 		apply = function(self) self:ApplyElementColors() end,
 	},

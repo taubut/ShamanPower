@@ -195,13 +195,14 @@ if FS then
 					set = function(v) CO().iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
 				})
 				Row("Slider", {
-					label = "Name Size", desc = "Size of the party names under each totem.",
+					label = "Text Size", desc = "Size of the party names under each totem.",
 					min = 7, max = 14, step = 1,
 					get = function() return CO().fontSize or 9 end,
 					set = function(v) CO().fontSize = v; SP:UpdateCoverageLayout(); Notify() end,
 				})
 				Row("Toggle", {
-					label = "Place Each Totem Freely", desc = "Each cell gets its own spot and size; ALT+drag a cell or use Move the Coverage List.",
+					label = "Place Each Totem Freely",
+					desc = "Each cell gets its own spot and size; ALT+drag a cell or use Move under Coverage > Position.",
 					get = function() return CO().freeCells and true or false end,
 					set = function(v) CO().freeCells = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
 				})
@@ -209,7 +210,7 @@ if FS then
 					for _, cell in ipairs(SP:CoverageWatchedCells()) do
 						local key = cell.cellKey
 						Row("Slider", {
-							label = cell.cellLabel .. " Size", min = 20, max = 80, step = 4,
+							label = cell.cellLabel .. " Icon Size", min = 20, max = 80, step = 4,
 							get = function() local c = CO().cells and CO().cells[key]; return (c and c.iconSize) or CO().iconSize or 36 end,
 							set = function(v) CO().cells = CO().cells or {}; CO().cells[key] = CO().cells[key] or {}; CO().cells[key].iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
 						})

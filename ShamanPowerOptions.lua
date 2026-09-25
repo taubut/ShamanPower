@@ -1178,7 +1178,9 @@ ShamanPower.options = {
 									order = 2.5,
 									type = "select",
 									name = "Line Texture",
-									desc = "The texture the lines are drawn with, tinted in each element's colour. Flat is a plain colour fill. The ShamanPower ones ship with the addon; the rest come from your other addons (anything that registers bar textures).",
+									desc = "The texture the lines are drawn with, tinted in each element's color. Flat is a plain color fill."
+										.. " The ShamanPower ones ship with the addon; the rest come from your other addons"
+										.. " (anything that registers bar textures).",
 									width = 1.2,
 									values = function() return ShamanPower:CompactLineTextureList() end,
 									get = function(info) return ShamanPower.opt.compactLineTexture or ShamanPower.CompactLookDefaults.compactLineTexture end,
@@ -1187,10 +1189,12 @@ ShamanPower.options = {
 								compactIdleColor = {
 									order = 2.6,
 									type = "select",
-									name = "Idle Line Colour",
-									desc = "The inside of a line while no totem of that element is down. Grey: the line only takes its colour when a totem is out. Element colour: the line always shows its element, dimmed, and brightens when a totem is out.",
+									name = "Idle Line Color",
+									desc = "The inside of a line while no totem of that element is down."
+										.. " Grey: the line only takes its color when a totem is out."
+										.. " Element color: the line always shows its element, dimmed, and brightens when a totem is out.",
 									width = 1.2,
-									values = { grey = "Grey", element = "Element colour (dimmed)" },
+									values = { grey = "Grey", element = "Element color (dimmed)" },
 									get = function(info) return ShamanPower.opt.compactIdleColor or "grey" end,
 									set = function(info, val) ShamanPower.opt.compactIdleColor = val; ShamanPower:ApplyCompactStyle() end,
 								},
@@ -1198,9 +1202,12 @@ ShamanPower.options = {
 									order = 2.7,
 									type = "select",
 									name = "Idle Outline",
-									desc = "The outline of a line while no totem of that element is down. None: the outline only appears with a totem out (and drains with its duration). Element colour: every line always wears an outline in its element's colour (or your custom outline colour), a little dimmer than a live totem's.",
+									desc = "The outline of a line while no totem of that element is down."
+										.. " None: the outline only appears with a totem out (and drains with its duration)."
+										.. " Element color: every line always wears an outline in its element's color"
+										.. " (or your custom outline color), a little dimmer than a live totem's.",
 									width = 1.2,
-									values = { none = "None", element = "Element colour" },
+									values = { none = "None", element = "Element color" },
 									get = function(info) return ShamanPower.opt.compactIdleOutline or ShamanPower.CompactLookDefaults.compactIdleOutline end,
 									set = function(info, val) ShamanPower.opt.compactIdleOutline = val; ShamanPower:ApplyCompactStyle() end,
 								},
@@ -1281,7 +1288,7 @@ ShamanPower.options = {
 								compactIconSize = {
 									order = 7,
 									type = "range",
-									name = "Icon Square Size",
+									name = "Icon Size",
 									min = 8, max = 24, step = 1,
 									width = 1.2,
 									hidden = function(info) return (ShamanPower.opt.compactIconSquares or ShamanPower.CompactLookDefaults.compactIconSquares) == "off" end,
@@ -1289,7 +1296,7 @@ ShamanPower.options = {
 									set = function(info, val) ShamanPower.opt.compactIconSize = val; ShamanPower:ApplyCompactStyle() end,
 								},
 								compactFlyoutSize = FlyoutSizeOption(7.5, 1.2, "compactFlyoutButtonSize", 15,
-									"Flyout Icon Size",
+									"Icon Size",
 									"How big the icons in the totem flyouts are while Compact style is on. The default is 15, the same as the icon squares, so a flyout sits neatly beside the lines instead of spilling over its neighbours (the icon bar uses 28, and keeps its own size in Appearance). The totem bar's scale still applies on top.",
 									"ApplyTotemFlyoutButtonSize", function() return not ShamanPower.opt.showTotemFlyouts end),
 								compactPulseBar = {
@@ -1433,7 +1440,7 @@ ShamanPower.options = {
 						},
 						twistSoundEnabled = {
 							order = 7.5,
-							name = "Play Twist Sound",
+							name = "Play Sound",
 							desc = "Play a sound when the twist timer reaches the threshold",
 							type = "toggle",
 							width = "full",
@@ -1474,7 +1481,7 @@ ShamanPower.options = {
 						},
 						twistSoundPicker = {
 							order = 7.7,
-							name = "Twist Sound",
+							name = "Sound",
 							desc = "Choose which sound to play",
 							type = "select",
 							dialogControl = "LSM30_Sound",
@@ -1511,7 +1518,7 @@ ShamanPower.options = {
 						},
 						twistSoundVolume = {
 							order = 7.8,
-							name = "Twist Sound Volume",
+							name = "Volume",
 							type = "range",
 							min = 0,
 							max = 100,
@@ -2384,8 +2391,11 @@ ShamanPower.options = {
 						element_color_palette = {
 							order = 0.5,
 							type = "select",
-							name = "Element Colours",
-							desc = "The colour each element is drawn in: Compact lines, alerts, party counters and anything else coloured by element. ShamanPower classic has brown Earth and pale Air. Blizzard matches the game's own totem bar (and our flyout arrows): green Earth, orange Fire, blue Water, purple Air. Custom lets you pick all four.",
+							name = "Element Colors",
+							desc = "The color each element is drawn in: Compact lines, alerts, party counters"
+								.. " and anything else colored by element."
+								.. " ShamanPower classic has brown Earth and pale Air. Blizzard matches the game's own totem bar"
+								.. " (and our flyout arrows): green Earth, orange Fire, blue Water, purple Air. Custom lets you pick all four.",
 							width = 1.4,
 							values = { classic = "ShamanPower classic (brown Earth)", blizzard = "Blizzard totem bar (green Earth)", custom = "Custom" },
 							sorting = { "classic", "blizzard", "custom" },
@@ -2456,7 +2466,7 @@ ShamanPower.options = {
 						element_color_reset = {
 							order = 0.59,
 							type = "execute",
-							name = "Reset Element Colours",
+							name = "Reset Element Colors",
 							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
 							width = 1.0,
 							hidden = function(info) return ShamanPower.opt.elementColorPalette == nil or ShamanPower.opt.elementColorPalette == ShamanPower:DefaultElementPalette() end,
@@ -2566,9 +2576,10 @@ ShamanPower.options = {
 							type = "select",
 							name = "Dropped Totem Indicator Position",
 							desc = AvailableShieldNotes(WithNotes("Where the indicator for a dropped, non-assigned totem"
-								.. " (and the Earth Shield one) pops out from its button. Auto puts it above a horizontal bar"
+								.. " (and the Earth Shield one) extends from its button. Auto puts it above a horizontal bar"
 								.. " and on the flyout side of a vertical one.",
-								CompactOn, "Compact style is on: it has no pop-out indicator (the line is whatever is down), so this does nothing right now.",
+								CompactOn, "Compact style is on: it has no separate dropped-totem indicator"
+									.. " (the line is whatever is down), so this does nothing right now.",
 								function() return not CompactOn() and ShamanPower.opt.activeTotemAsMain end, "TotemTimers Style is on: the dropped totem is shown on the button itself with the assigned one in the corner, so only the Earth Shield indicator uses this.",
 								function() return not CompactOn() and ShamanPower.opt.dynamicTotemMode end,
 								"Dynamic Mode is on: whatever you drop becomes the assigned totem,"
@@ -2735,7 +2746,7 @@ ShamanPower.options = {
 						flyout_frame_opacity = {
 							order = 6,
 							type = "range",
-							name = "Frame Opacity",
+							name = "Background Opacity",
 							desc = "How solid the Blizzard frame's border and background are. Lower is lighter and more see-through.",
 							min = 0.1, max = 1.0, step = 0.05,
 							isPercent = true,
@@ -3145,7 +3156,7 @@ ShamanPower.options = {
 						},
 						cooldownFlyoutOpacity = {
 							order = 4,
-							name = "CD Flyouts",
+							name = "Cooldown Bar Flyouts",
 							desc = "Adjust the opacity/transparency of the cooldown bar flyout menus",
 							type = "range",
 							width = 1.2,
@@ -3539,8 +3550,12 @@ ShamanPower.options = {
 							order = 8,
 							type = "toggle",
 							name = "Spell-Colored Progress Bars",
-							desc = WithNotes("Color progress bars based on the spell (e.g. Lightning Shield = blue, Reincarnation = red, Flametongue = orange). The spell colour replaces the green \"plenty of time\" colour only: with less than 10 minutes left a bar still turns yellow, then red.",
-								function() return ShamanPower.opt.cdbarShowProgressBars == false end, "\"Show Progress Bars\" is off, so there are no bars to colour."),
+							desc = WithNotes("Color progress bars based on the spell"
+								.. " (e.g. Lightning Shield = blue, Reincarnation = red, Flametongue = orange)."
+								.. " The spell color replaces the green \"plenty of time\" color only:"
+								.. " with less than 10 minutes left a bar still turns yellow, then red.",
+								function() return ShamanPower.opt.cdbarShowProgressBars == false end,
+								"\"Show Progress Bars\" is off, so there are no bars to color."),
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.cdbarSpellColors or false
@@ -3574,7 +3589,7 @@ ShamanPower.options = {
 						cdbar_duration_text_size = {
 							order = 10,
 							type = "range",
-							name = "Duration Text Size",
+							name = "Text Size",
 							desc = "Font size for duration text on the cooldown bar",
 							width = "full",
 							min = 6, max = 20, step = 1,
@@ -4395,7 +4410,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[1] and ShamanPower.TotemBuffSpellIDs[1][1]
-								return ((base and GetSpellInfo(base)) or "Strength of Earth") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Strength of Earth") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4423,7 +4438,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[1] and ShamanPower.TotemBuffSpellIDs[1][2]
-								return ((base and GetSpellInfo(base)) or "Stoneskin") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Stoneskin") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4451,7 +4466,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[2] and ShamanPower.TotemBuffSpellIDs[2][1]
-								return ((base and GetSpellInfo(base)) or "Totem of Wrath") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Totem of Wrath") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4479,7 +4494,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[2] and ShamanPower.TotemBuffSpellIDs[2][5]
-								return ((base and GetSpellInfo(base)) or "Flametongue Totem") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Flametongue Totem") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4507,7 +4522,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[2] and ShamanPower.TotemBuffSpellIDs[2][6]
-								return ((base and GetSpellInfo(base)) or "Frost Resistance") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Frost Resistance") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4535,7 +4550,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][1]
-								return ((base and GetSpellInfo(base)) or "Mana Spring") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Mana Spring") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4563,7 +4578,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][2]
-								return ((base and GetSpellInfo(base)) or "Healing Stream") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Healing Stream") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4591,7 +4606,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][3]
-								return ((base and GetSpellInfo(base)) or "Mana Tide") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Mana Tide") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4619,7 +4634,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[3] and ShamanPower.TotemBuffSpellIDs[3][6]
-								return ((base and GetSpellInfo(base)) or "Fire Resistance") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Fire Resistance") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4647,7 +4662,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][1]
-								return ((base and GetSpellInfo(base)) or "Windfury Totem") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Windfury Totem") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4675,7 +4690,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][2]
-								return ((base and GetSpellInfo(base)) or "Grace of Air") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Grace of Air") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4703,7 +4718,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][3]
-								return ((base and GetSpellInfo(base)) or "Wrath of Air") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Wrath of Air") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4731,7 +4746,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][4]
-								return ((base and GetSpellInfo(base)) or "Tranquil Air") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Tranquil Air") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4759,7 +4774,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][6]
-								return ((base and GetSpellInfo(base)) or "Nature Resistance") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Nature Resistance") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -4787,7 +4802,7 @@ ShamanPower.options = {
 							type = "range",
 							name = function()
 								local base = ShamanPower.TotemBuffSpellIDs and ShamanPower.TotemBuffSpellIDs[4] and ShamanPower.TotemBuffSpellIDs[4][7]
-								return ((base and GetSpellInfo(base)) or "Windwall") .. " Size"
+								return ((base and GetSpellInfo(base)) or "Windwall") .. " Icon Size"
 							end,
 							min = 20, max = 80, step = 4,
 							width = 1.0,
@@ -7720,7 +7735,7 @@ ShamanPower.options = {
 							disabled = function(info) return (CompactOn()) and true or false end,
 							order = 3.5,
 							type = "range",
-							name = "Duration Text Size",
+							name = "Text Size (Duration)",
 							desc = "Font size for the duration time text",
 							width = 1.0,
 							min = 6,
@@ -7941,7 +7956,7 @@ ShamanPower.options = {
 							disabled = function(info) return (((ShamanPower.opt.pulseBarPosition or "none") == "none") and true or false) or (CompactOn()) end,
 							order = 5.5,
 							type = "range",
-							name = "Pulse Text Size",
+							name = "Text Size (Pulse)",
 							desc = "Font size for the pulse time text",
 							width = 1.0,
 							min = 6,
@@ -8238,7 +8253,7 @@ ShamanPower.options = {
 						popout_hide_all_frames = {
 							order = 2,
 							type = "toggle",
-							name = "Hide All Frames",
+							name = "Hide All Backgrounds",
 							desc = WithNotes("Hide the frame/border around all popped-out trackers (show only icons). You can still use ALT+drag to move them.",
 								true, "Applies to the pop-outs that exist when you click it. Ones you pop out later keep their frame until you click this again."),
 							width = 1.2,
@@ -8269,7 +8284,8 @@ ShamanPower.options = {
 						flyouts_off_note = {
 							order = 0.05,
 							type = "description",
-							name = "|cffffa040Totem flyouts are turned off (Totem Bar > Items), so this list has no effect until you turn them on.|r",
+							name = "|cffffa040Totem flyouts are turned off (Settings > Bars > Totem Bar > Bar),"
+								.. " so this list has no effect until you turn them on.|r",
 							hidden = function() return not (not ShamanPower.opt.showTotemFlyouts) end,
 						},
 						flyouts_desc = {
@@ -9385,7 +9401,8 @@ do
 		set = function(_, value) if not PopoutLocked() then SP:SetPopOutOpacity(PopoutKey(), value) end end,
 	}
 	popout.selected_hide_frame = {
-		order = 3.3, type = "toggle", name = "Hide Selected Tracker Frame", width = "full", disabled = PopoutLocked,
+		order = 3.3, type = "toggle", name = "Hide Background", width = "full", disabled = PopoutLocked,
+		desc = "Hide the selected tracker's background and border; its icon stays visible.",
 		get = function() return PopoutSettings().hideFrame or false end,
 		set = function(_, value)
 			if not PopoutLocked() and (PopoutSettings().hideFrame or false) ~= value then SP:TogglePopOutFrame(PopoutKey()) end
@@ -9970,7 +9987,7 @@ do
 	args.textures_desc = {
 		order = 40.1, type = "description", width = "full",
 		name = "The texture of the bars ShamanPower draws: totem duration bars, cooldown bar progress, pulse sweeps."
-			.. " Default keeps each bar's designed flat colour; a texture is tinted with the same colour."
+			.. " Default keeps each bar's designed flat color; a texture is tinted with the same color."
 			.. " The list holds WoW's bar, ShamanPower's four and every bar texture your other addons share. Hover one to see it.",
 	}
 	args.barTexture = {
@@ -9992,7 +10009,7 @@ do
 	end
 	args.textures_reset = {
 		order = 49, type = "execute", name = "Reset All Bar Textures", width = "full",
-		desc = "Back to each bar's designed flat colour.",
+		desc = "Back to each bar's designed flat color.",
 		func = function() SP.opt.barTexture, SP.opt.barTextureAreas = nil, nil; refresh() end,
 	}
 

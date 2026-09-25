@@ -1016,6 +1016,13 @@ end
 -- ---------------------------------------------------------------------------
 -- Button (execute)
 -- ---------------------------------------------------------------------------
+local function FitButtonCaption(row)
+	row.txt:SetWidth(math.max(1, row:GetWidth() - PAD * 2 - 16))
+	local height = math.max(ROW_H, math.ceil(row.txt:GetStringHeight()) + 18)
+	row._controlMinH = height
+	row:SetHeight(height)
+end
+
 local function CreateButton(parent)
 	local row = CreateRow(parent)
 
@@ -1030,9 +1037,13 @@ local function CreateButton(parent)
 	local txt = btn:CreateFontString(nil, "OVERLAY")
 	txt:SetFontObject(Core.fonts.button)
 	txt:SetPoint("CENTER")
+	txt:SetJustifyH("CENTER")
+	txt:SetWordWrap(true)
+	txt:SetNonSpaceWrap(true)
 	txt:SetTextColor(Core:Color("accentHi"))
 
 	row.btn, row.btnBg, row.txt = btn, bg, txt
+	row.spRefit = function() FitButtonCaption(row) end
 
 	btn:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", 0.38)) end)
 	btn:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", 0.18)) end)
@@ -1065,6 +1076,7 @@ function Widgets:Button(parent, opts)
 	row.btnBg:SetColorTexture(Core:Color("accent", 0.18))
 	txt.spTruncated = false
 	txt:SetText(caption)
+	FitButtonCaption(row)
 
 	-- The button fills the whole row card, so it reads as a real button rather
 	-- than a small control in an empty box.
@@ -1079,7 +1091,7 @@ function Widgets:Button(parent, opts)
 	row.spOnEnter, row.spOnLeave = nil, nil   -- no card hover behind the button
 	RegisterRefresh(parent, row.refresh)
 	row.refresh()
-	return row, ROW_H + ROW_GAP
+	return row, row:GetHeight() + ROW_GAP
 end
 
 -- ---------------------------------------------------------------------------

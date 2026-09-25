@@ -21,9 +21,12 @@ local NOTES = {
 		{ h = "Blizzard's totem bar, powered by ShamanPower", try = "blizzard",
 		  when = function() return SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil end,   -- Forever only
 		  b = "Keep the game's own totem bar and get ShamanPower's countdowns, duration bars, pulse timers and party dots drawn on its buttons. Blizzard's three totem sets stay in step with your assignments and loadouts."
-		    .. "\n|cff3FA9F5Settings > General > Totem Bar Style|r  -  hover a style there to see it in the live preview" },
+		    .. "\n|cff3FA9F5Settings > General > Main > Totem Bar Style|r"
+		    .. "  -  hover a style there to see it in the live preview" },
 		{ icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02", h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
-		  b = "The reverse of Totem Range. Under each of your totems, the names of the party members who do NOT have its buff, in red or class colour. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
+		  b = "The reverse of Totem Range. Under each of your totems,"
+		    .. " the names of the party members who do NOT have its buff,"
+		    .. " in red or class color. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
 		    .. "\n|cff3FA9F5Settings > Group Tools > Party Buff Tracker > Coverage|r" },
 		{ icon = "Interface\\Icons\\INV_Misc_Map_01", h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
 		  b = "A pin where each totem was dropped and a ring for its reach, turning with the minimap. Open world only."
@@ -35,7 +38,9 @@ local NOTES = {
 		{ icon = "Interface\\Icons\\INV_Misc_Gear_01", h = "The settings window shows what it changes",
 		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
-	footer = "Also: a Grid style that shows every totem at once (Settings > General > Totem Bar Style), a Move button and Unlock UI box for the loadout bar, an icon picker with search, and an alignment grid in Unlock UI. The full list is in the changelog.",
+	footer = "Also: a Grid style that shows every totem at once (Settings > General > Main > Totem Bar Style),"
+		.. " a Move button and Unlock UI box for the loadout bar, an icon picker with search,"
+		.. " and an alignment grid in Unlock UI. The full list is in the changelog.",
 }
 
 local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"

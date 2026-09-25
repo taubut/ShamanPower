@@ -1317,7 +1317,7 @@ local function FilterList(list, query)
 		if e.kind == "section" then
 			pendingSection = e
 		else
-			local hay = strlower((e.label or "") .. " " .. (e.desc or ""))
+			local hay = strlower(Tree:StripColor(e.label) .. " " .. Tree:StripColor(e.desc))
 			if strfind(hay, query, 1, true) then
 				if pendingSection then
 					table.insert(filtered, pendingSection)
@@ -1515,10 +1515,36 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	-- keyed by the option table itself: AceConfig allows no extra keys).
 	local spNow = SP()
 	local hoverStyles = spNow and spNow.OptionHoverStyle or nil
+	local actionRows = spNow and spNow.SettingsActionRow
+	local actionThrough = 0
 	SPConfig:HoverStyle(nil)   -- a rebuild under the mouse gets no OnLeave
 
-	for _, e in ipairs(list) do
-		if e.kind == "section" then
+	for index, e in ipairs(list) do
+		-- Skip actions already drawn together on the preceding row.
+		if index > actionThrough and e.kind == "option" and e.type == "execute" and actionRows and actionRows[e.node] then
+			BreakRow()
+			local count = 1
+			while count < 3 do
+				local nextEntry = list[index + count]
+				if not nextEntry or nextEntry.kind ~= "option" or nextEntry.type ~= "execute"
+					or not actionRows[nextEntry.node] then break end
+				count = count + 1
+			end
+			local width = math.floor((fullW - COL_GAP * (count - 1)) / count)
+			local height = 0
+			for offset = 0, count - 1 do
+				local action = list[index + offset]
+				local opts = OptionOpts(action, currentSection, offset * (width + COL_GAP), rowY, width, onChanged)
+				opts.func = Tree:MakeFunc(action.node, action.chain, action.info)
+				opts.buttonText = Tree:StripColor(action.label)
+				local widget, used = Widgets:Button(body, opts)
+				pageWidgets[#pageWidgets + 1] = widget
+				height = math.max(height, used)
+			end
+			y = rowY + height
+			rowY, col, rowMaxH = y, 1, 0
+			actionThrough = index + count - 1
+		elseif index > actionThrough and e.kind == "section" then
 			BreakRow()
 			-- a featured section (SP.OptionFeaturedHeader, keyed by the option group) gets the big gold heading
 			local sp0 = SP()
@@ -1530,7 +1556,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			currentSection = f
 			y = y + h
 			rowY = y
-		else
+		elseif index > actionThrough then
 			local span = Tree:ColumnSpan(e.node, e.info)
 			local w  = (span == 2) and fullW or colW
 			if span == 2 then BreakRow() end
@@ -1888,6 +1914,32 @@ do
 			option.order = 2
 			option.hidden = function() return not PLAYER_IS_SHAMAN end
 		end
+	end
+end
+
+-- Root files have now contributed their General actions. Keep the original
+-- objects so their handlers, hover maps and featured community header survive.
+do
+	local sp = SP()
+	local root = sp and sp.options and sp.options.args
+	local main = root and root.settings.args.settings_show
+	if main then
+		sp.OrderSettingsBands(main, {
+			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar" } },
+			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
+			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
+				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
+			} },
+			{ keys = { "windfuryOnly" } },
+			{ keys = { "community", "share_setup" } },
+		})
+		sp.SettingsActionRow = {}
+		for _, key in ipairs({ "master_unlock", "keybind_mode", "open_assignments" }) do
+			local option = main.args[key]
+			if option then sp.SettingsActionRow[option] = true end
+		end
+		local keybind = root.fluffy.args.visibility_section.args.keybind_mode
+		if keybind then keybind.name = "Keybind Mode" end
 	end
 end
 
