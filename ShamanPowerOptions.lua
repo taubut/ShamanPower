@@ -10104,4 +10104,44 @@ do
 		}, names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Position" } },
 		{ header = "reactive_header_buttons", name = "Test / Reset", keys = { "reactive_test" } },
 	})
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.expiringalerts_section, {
+		{ keys = { "alerts_desc", "module_missing_note", "master_off_note" } },
+		{ keys = { "alerts_enabled", "alerts_display_mode" } },
+		{ header = "alerts_header_shields", name = "Shield Alerts", keys = {
+			"alerts_shields_enabled", "alerts_shields_lightning", "alerts_shields_water", "alerts_shields_earth",
+		} },
+		{ header = "alerts_header_totems", name = "Totem Alerts", keys = {
+			"alerts_totems_enabled", "alerts_totems_destroyed", "alerts_totems_expired",
+			"alerts_totems_earth", "alerts_totems_fire", "alerts_totems_water", "alerts_totems_air",
+		} },
+		{ header = "destroyed_header", name = "When a Totem Is Destroyed", keys = {
+			"alerts_totems_destroyedChat", "alerts_totems_destroyedCenter", "alerts_totems_destroyedParty",
+		}, names = {
+			alerts_totems_destroyedChat = "Line in My Chat Window", alerts_totems_destroyedCenter = "Big Text on My Screen",
+			alerts_totems_destroyedParty = "Tell My Group in Chat",
+		} },
+		{ header = "alerts_header_imbues", name = "Weapon Imbue Alerts", keys = {
+			"alerts_imbues_enabled", "alerts_imbues_mainhand", "alerts_imbues_offhand",
+		} },
+		{ header = "alerts_header_display", name = "Look", keys = {
+			"alerts_icon_size", "alerts_opacity", "alerts_text_size", "alerts_font_outline",
+		}, names = { alerts_font_outline = "Outline (unless Fonts & Textures sets one)" } },
+		{ header = "behaviour_header", name = "Behaviour", keys = { "alerts_animation", "alerts_duration" } },
+		{ header = "shield_sound_header", name = "Sound: Shields", keys = {
+			"alerts_shields_sound", "alerts_shields_sound_picker", "alerts_shields_sound_picker_testsound",
+		}, names = { alerts_shields_sound_picker = "Sound" } },
+		{ header = "totem_sound_header", name = "Sound: Totems", keys = {
+			"alerts_totems_sound", "alerts_totems_sound_picker", "alerts_totems_sound_picker_testsound",
+		}, names = { alerts_totems_sound_picker = "Sound" } },
+		{ header = "imbue_sound_header", name = "Sound: Weapon Imbues", keys = {
+			"alerts_imbues_sound", "alerts_imbues_sound_picker", "alerts_imbues_sound_picker_testsound",
+		}, names = { alerts_imbues_sound_picker = "Sound" } },
+		{ header = "volume_header", name = "Sound: Shared Volume", keys = {
+			"alerts_sound_volume", "alerts_sound_volume_note",
+		}, names = { alerts_sound_volume = "Volume" } },
+		{ header = "position_header", name = "Position", keys = {
+			"alerts_show_pos", "alerts_hide_pos", "alerts_reset_pos",
+		}, names = { alerts_show_pos = "Move" } },
+		{ header = "alerts_header_testing", name = "Test / Reset", keys = { "alerts_test" } },
+	})
 end
