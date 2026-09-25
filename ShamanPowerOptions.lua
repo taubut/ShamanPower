@@ -10052,4 +10052,21 @@ do
 			"estrack_hide_border", "estrack_hide_charges",
 		} },
 	})
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.raid_cd_section, {
+		{ keys = { "raid_cd_desc", "module_missing_note", "no_group_note" } },
+		{ keys = { "open_window" } },
+		{ header = "assignment_header", name = "Cooldown Assignments", keys = {
+			"bloodlust_primary", "bloodlust_backup1", "bloodlust_backup2", "bloodlust_caller",
+			"manatide_shaman", "manatide_caller", "drums_caller", "drums_group", "drums_drummer",
+		} },
+		{ header = "warnings_header", name = "Warnings", keys = {
+			"raidCDShowWarningIcon", "raidCDShowWarningText",
+		} },
+		{ header = "look_header", name = "Look", keys = {
+			"raidCDButtonScale", "raidCDButtonOpacity", "raidCDButtonShowFrame", "raidCDShowButtonAnimation",
+		}, names = { raidCDButtonScale = "Scale", raidCDButtonOpacity = "Opacity" } },
+		{ header = "sound_header", name = "Sound", keys = {
+			"raidCDPlaySound", "raidCDSoundVolume_testsound", "raidCDSoundVolume", "raidCDSoundVolumeNote",
+		}, names = { raidCDSoundVolume = "Volume" } },
+	})
 end
