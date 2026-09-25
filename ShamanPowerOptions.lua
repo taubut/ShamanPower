@@ -6084,7 +6084,8 @@ ShamanPower.options = {
 							type = "execute",
 							name = "Show All (Position)",
 							desc = WithNotes("Show all frames for positioning - click-to-cast is disabled so you can drag freely",
-								function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.locked end, "\"Lock Positions\" is on, so the frames cannot be dragged. Turn it off, then ALT+drag."),
+								function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.locked end,
+								"\"Lock Position\" is on, so the frames cannot be dragged. Turn it off, then ALT+drag."),
 							func = function()
 								if ShamanPower.ShowAllReactiveFrames then
 									ShamanPower:RunWithSettingsHidden(nil,
@@ -10077,5 +10078,30 @@ do
 			"shieldcharges_hide_ooc", "shieldcharges_hide_none",
 		} },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked" } },
+	})
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.reactivetotems_section, {
+		{ keys = { "reactive_desc", "module_missing_note", "engine_note", "instance_only_note", "master_off_note" } },
+		{ keys = { "reactive_enabled" } },
+		{ header = "reactive_header_tracking", name = "Debuff Tracking", keys = {
+			"reactive_track_fear", "reactive_track_poison", "reactive_track_disease",
+		} },
+		{ header = "reactive_header_appearance", name = "Look", keys = {
+			"reactive_icon_size", "reactive_opacity", "reactive_font_size", "reactive_font_outline",
+			"reactive_hide_border", "reactive_hide_background", "reactive_hide_debuff_text",
+			"reactive_show_debuff_icon", "reactive_hide_totem_text",
+		}, names = {
+			reactive_font_size = "Text Size", reactive_font_outline = "Outline (unless Fonts & Textures sets one)",
+		} },
+		{ header = "reactive_header_effects", name = "Behaviour", keys = {
+			"reactive_only_instance", "reactive_hide_when_active", "click_to_cast", "reactive_glow", "reactive_glow_intensity",
+		} },
+		{ header = "sound_header", name = "Sound", keys = {
+			"reactive_sound", "reactive_sound_picker", "reactive_sound_picker_testsound",
+			"reactive_sound_volume", "reactive_sound_volume_note",
+		}, names = { reactive_sound = "Play Sound", reactive_sound_picker = "Sound", reactive_sound_volume = "Volume" } },
+		{ header = "position_header", name = "Position", keys = {
+			"reactive_show", "reactive_locked", "reactive_reset", "reactive_hide",
+		}, names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Position" } },
+		{ header = "reactive_header_buttons", name = "Test / Reset", keys = { "reactive_test" } },
 	})
 end
