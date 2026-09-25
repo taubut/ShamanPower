@@ -100,6 +100,13 @@ local function items()
 	local list = {}
 	local function add(t) list[#list + 1] = t end
 	local combat = InCombatLockdown()
+	-- Windfury-only mode keeps the icon for this one way back to everything else
+	if not isShaman() and SP.WindfuryOnly and SP:WindfuryOnly() then
+		add({ text = "ShamanPower", header = true })
+		add({ text = "Windfury-only mode is on", disabled = true })
+		add({ text = "Turn On Other Features", fn = function() SP:SetWindfuryOnly(false) end })
+		return list
+	end
 	if isShaman() then
 		if SP.TotemBarStyleList and SP.GetTotemBarStyle then
 			add({ text = "Totem Bar Style", header = true })
