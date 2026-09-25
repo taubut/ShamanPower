@@ -10144,4 +10144,28 @@ do
 		}, names = { alerts_show_pos = "Move" } },
 		{ header = "alerts_header_testing", name = "Test / Reset", keys = { "alerts_test" } },
 	})
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.tremorreminder_section, {
+		{ keys = { "tremor_desc", "module_missing_note", "master_off_note" } },
+		{ keys = { "tremor_enabled", "tremor_display_mode", "tremor_manage_mobs" } },
+		{ header = "mob_list_header", name = "Mob List", keys = {
+			"tremor_use_defaults", "fear_add_name", "fear_add_target", "fear_remove_select", "fear_remove",
+			"fear_restore_defaults", "tremor_reset_moblist",
+		} },
+		{ header = "tremor_header_appearance", name = "Look", keys = {
+			"tremor_icon_size", "tremor_opacity", "tremor_text_size", "tremor_glow_color",
+		}, names = { tremor_text_size = "Text Size" } },
+		{ header = "tremor_header_glow", name = "Behaviour", keys = {
+			"tremor_hide_when_active", "tremor_show_glow",
+		} },
+		{ header = "tremor_header_sound", name = "Sound", keys = {
+			"tremor_play_sound", "tremor_sound_picker", "tremor_sound_picker_testsound",
+			"tremor_sound_volume", "tremor_sound_volume_note",
+		}, names = { tremor_sound_picker = "Sound", tremor_sound_volume = "Volume" } },
+		{ header = "position_header", name = "Position", keys = {
+			"tremor_show_pos", "tremor_lock_pos", "tremor_reset_pos",
+		}, names = { tremor_show_pos = "Move" } },
+		{ header = "tremor_header_commands", name = "Test / Reset", keys = {
+			"tremor_test", "tremor_hide_test", "tremor_commands_desc",
+		} },
+	})
 end
