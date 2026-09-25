@@ -24,7 +24,7 @@ local NOTES = {
 		    .. "\n|cff3FA9F5Settings > General > Totem Bar Style|r  -  hover a style there to see it in the live preview" },
 		{ icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02", h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
 		  b = "The reverse of Totem Range. Under each of your totems, the names of the party members who do NOT have its buff, in red or class colour. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
-		    .. "\n|cff3FA9F5Settings > Party Buff Tracker > Totem Coverage|r" },
+		    .. "\n|cff3FA9F5Settings > Group Tools > Party Buff Tracker > Coverage|r" },
 		{ icon = "Interface\\Icons\\INV_Misc_Map_01", h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
 		  b = "A pin where each totem was dropped and a ring for its reach, turning with the minimap. Open world only."
 		    .. "\n|cff3FA9F5Settings > Totem Range Tracker|r" },

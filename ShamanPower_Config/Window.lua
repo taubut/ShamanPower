@@ -54,9 +54,9 @@ local MOCK_LOADOUT  = { mocks = {
 		return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and sp and sp.HasTotemBar and sp:HasTotemBar()
 	end },
 } }
-local MOCK_PARTY    = { mocks = { { label = "Party Buff Tracker", build = "BuildPartyBuffStep", weight = 2.3, shiftY = 85 },
-                                 { label = "Totem Coverage", preview = "coverage", maxScale = 1.3, weight = 1,
-                                   when = function() local sp = SP(); return sp and sp.CoverageAvailable and sp:CoverageAvailable() or false end } } }
+local MOCK_PARTY    = { mocks = {
+	{ label = "Party Buff Tracker", build = "BuildPartyBuffStep", weight = 2.3, shiftY = 85 },
+} }
 
 -- Totem Range Tracker: the module's on/off is the overlay frame itself.
 -- ShamanPower_SPRange.lua ToggleSPRange() is the only writer of
@@ -204,7 +204,10 @@ local NAV = {
 		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = false },   -- WoW: Forever only (the group exists only there)
 		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
 		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
+		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF, tabs = {
+			{ label = "Dots & Counters", paths = { P("fluffy", "partybuff_section") } },
+			{ label = "Coverage", preview = "coverage", paths = { P("fluffy", "coverage_section") } },
+		}},
 		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
 		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
@@ -233,23 +236,74 @@ local function EntryPaths(entry)
 	return out
 end
 
-local function EntryHasPath(entry, path)
-	local want = table.concat(path, "/")
-	for _, pth in ipairs(EntryPaths(entry)) do
-		if table.concat(pth, "/") == want then return true end
+local function VisiblePath(path)
+	local node, chain = Tree:Resolve(path)
+	if not node or Tree:IsHidden(node, chain, Tree:BuildInfo(path, node, chain)) then return end
+	local rows = Tree:BuildRenderList(node, path, chain)
+	if Tree:HasContent(rows) then return node, chain, rows end
+end
+
+local function EntryHasContent(entry)
+	if not entry or (entry.shamanOnly and not PLAYER_IS_SHAMAN) then return false end
+	for _, path in ipairs(EntryPaths(entry)) do
+		if VisiblePath(path) then return true end
 	end
 	return false
 end
 
--- The tab of a composed page that draws this path (a tab's key is its label).
-local function EntryTabForPath(entry, path)
-	local want = table.concat(path, "/")
-	for _, t in ipairs(entry.tabs or {}) do
-		for _, pth in ipairs(t.paths) do
-			if table.concat(pth, "/") == want then return t.label end
+local function PathStartsWith(path, prefix)
+	if #prefix > #path then return false end
+	for i = 1, #prefix do
+		if path[i] ~= prefix[i] then return false end
+	end
+	return true
+end
+
+-- Moves record old full paths as well as old group paths. Prefer the most
+-- specific alias so a split page's individual controls still find their tab.
+local function ResolvePathAlias(path)
+	local sp = SP()
+	local aliases = sp and sp.SettingsPathAliases
+	if not aliases then return path end
+	local seen = {}
+	while not seen[table.concat(path, "/")] do
+		local key = table.concat(path, "/")
+		seen[key] = true
+		local best, target
+		for old, destination in pairs(aliases) do
+			if (key == old or key:sub(1, #old + 1) == old .. "/") and (not best or #old > #best) then
+				best, target = old, destination
+			end
+		end
+		if not best then break end
+		local resolved, count = {}, 1
+		for _ in best:gmatch("/") do count = count + 1 end
+		for _, part in ipairs(target) do resolved[#resolved + 1] = part end
+		for i = count + 1, #path do resolved[#resolved + 1] = path[i] end
+		path = resolved
+	end
+	return path
+end
+
+-- A caller may name a whole tab or an option beneath it. Prefer the longest
+-- visible prefix; a hidden tab falls back to that page's first visible tab.
+local function EntryPathMatch(entry, path)
+	local depth, tab, fallbackDepth
+	if entry.path and PathStartsWith(path, entry.path) and VisiblePath(entry.path) then
+		depth = #entry.path
+	end
+	for _, candidate in ipairs(entry.tabs or {}) do
+		for _, prefix in ipairs(candidate.paths) do
+			if PathStartsWith(path, prefix) then
+				if VisiblePath(prefix) then
+					if not depth or #prefix > depth then depth, tab = #prefix, candidate.label end
+				elseif not fallbackDepth or #prefix > fallbackDepth then
+					fallbackDepth = #prefix
+				end
+			end
 		end
 	end
-	return nil
+	return depth or fallbackDepth, tab, depth ~= nil
 end
 
 -- Any top-level group the map above doesn't mention gets collected here so a
@@ -1011,25 +1065,25 @@ function SPConfig:RenderNav(query)
 		for _, entry in ipairs(groupDef.entries) do
 			local node, chain, firstPath
 			for _, pth in ipairs(EntryPaths(entry)) do
-				local n, c = Tree:Resolve(pth)
+				local n, c = VisiblePath(pth)
 				-- Resolve only walks the path, so a group that hides itself still
 				-- resolves. Skip those here or the sidebar keeps a row that opens
 				-- an empty page (every row on it filtered out by the same flag).
 				-- Shaman-only pages (the bars and the shaman modules) are left out for
 				-- other classes: nothing on them runs there. Search is built from this list too.
-				if n and not (entry.shamanOnly and not PLAYER_IS_SHAMAN) and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
+				if n and not (entry.shamanOnly and not PLAYER_IS_SHAMAN) then
 					node, chain, firstPath = n, c, pth break
 				end
 			end
 			if node then
 				entry._node, entry._chain, entry._firstPath = node, chain, firstPath
-				if not entry._terms then
-					entry._terms = {}
-					for _, pth in ipairs(EntryPaths(entry)) do
-						local n, c = Tree:Resolve(pth)
-						if n then
-							for _, term in ipairs(Tree:IndexPage(n, pth, c)) do entry._terms[#entry._terms + 1] = term end
-						end
+				-- Style changes and newly saved loadouts reveal new labels. Rebuild
+				-- only when the sidebar draws, never on a timer or while it is shut.
+				entry._terms = {}
+				for _, pth in ipairs(EntryPaths(entry)) do
+					local n, c, rows = VisiblePath(pth)
+					if n then
+						for _, term in ipairs(Tree:IndexPage(n, pth, c, rows)) do entry._terms[#entry._terms + 1] = term end
 					end
 				end
 				local labelMatch = (not query) or query == ""
@@ -1160,7 +1214,7 @@ local TAB_MIN_GROUPS = 3
 local function ChildGroups(node, path, chain)
 	local groups = {}
 	for _, c in ipairs(Tree:SortedChildren(node, path, chain)) do
-		if c.node.type == "group" and not Tree:IsHidden(c.node, c.chain, c.info) then
+		if c.node.type == "group" and VisiblePath(c.path) then
 			table.insert(groups, c)
 		end
 	end
@@ -1288,9 +1342,9 @@ local function ResolveComposed(entry, query, drawTabs)
 	for _, t in ipairs(entry.tabs) do
 		local live = {}
 		for _, pth in ipairs(t.paths) do
-			local n, c = Tree:Resolve(pth)
-			if n and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
-				live[#live + 1] = { node = n, chain = c, path = pth }
+			local n, c, rows = VisiblePath(pth)
+			if n then
+				live[#live + 1] = { node = n, chain = c, path = pth, rows = rows }
 			end
 		end
 		if #live > 0 then tabs[#tabs + 1] = { key = t.label, name = t.label, live = live } end
@@ -1309,7 +1363,7 @@ local function ResolveComposed(entry, query, drawTabs)
 				if searching and #tabs > 1 and #t.live == 1 then label = t.name end
 				table.insert(list, { kind = "section", label = label, depth = 0 })
 			end
-			Tree:BuildRenderList(lv.node, lv.path, lv.chain, list, 0)
+			for _, row in ipairs(lv.rows) do list[#list + 1] = row end
 		end
 	end
 	return FilterList(list, query), tabs
@@ -1403,7 +1457,14 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		-- Display reveals Right-Click Drops Corner Totem). Re-resolve the page
 		-- and redraw only when the visible row set actually changed.
 		selfNotify = true
+		local navQuery = string.lower(frame.navSearch:GetText() or ""):match("^%s*(.-)%s*$")
+		local first = SPConfig:RenderNav(navQuery ~= "" and navQuery or nil)
 		local cur = frame._current
+		if not EntryHasContent(cur) then
+			SelectEntry(first)
+			selfNotify = false
+			return
+		end
 		if cur then
 			local newList, newGroups = ResolvePageList(cur, frame._query, false)
 			if newList and PageSignature(newList, newGroups) ~= frame._pageSig then
@@ -1602,8 +1663,8 @@ local function WireSearch()
 		C_Timer.After(0.2, function()
 			if navPending ~= q then return end
 			local first = SPConfig:RenderNav(q ~= "" and q or nil)
-			if q ~= "" and first and frame._current ~= first then
-				SelectEntry(first)
+			if q ~= "" and first then
+				if frame._current ~= first then SelectEntry(first) end
 				frame.pageSearch:SetText(q)
 			end
 		end)
@@ -1642,14 +1703,20 @@ function SPConfig:Open(path)
 	self:UpdateCombatLock()
 	local first = self:RenderNav(nil)
 	if path then
+		path = ResolvePathAlias(path)
+		local best, bestTab, bestDepth, bestVisible
 		for _, r in ipairs(navRows) do
-			if r.entry and EntryHasPath(r.entry, path) then
-				SelectEntry(r.entry, EntryTabForPath(r.entry, path))   -- e.g. General > Fonts & Textures
-				return
+			if r.entry then
+				local depth, tab, visible = EntryPathMatch(r.entry, path)
+				if depth and (not bestDepth or (visible and not bestVisible)
+					or (visible == bestVisible and depth > bestDepth)) then
+					best, bestTab, bestDepth, bestVisible = r.entry, tab, depth, visible
+				end
 			end
 		end
+		if best then SelectEntry(best, bestTab) return end
 	end
-	SelectEntry(frame._current or first)
+	SelectEntry(EntryHasContent(frame._current) and frame._current or first)
 end
 
 -- Lives for the session regardless of whether the window has ever been built,
@@ -1710,7 +1777,13 @@ end
 -- added or renamed). Keeps the scroll position.
 function SPConfig:RefreshCurrent()
 	if frame and frame:IsShown() and frame._current then
-		self:RenderPage(frame._current, frame._query, frame.bodyScroll:GetVerticalScroll())
+		local navQuery = string.lower(frame.navSearch:GetText() or ""):match("^%s*(.-)%s*$")
+		local first = self:RenderNav(navQuery ~= "" and navQuery or nil)
+		if EntryHasContent(frame._current) then
+			self:RenderPage(frame._current, frame._query, frame.bodyScroll:GetVerticalScroll())
+		else
+			SelectEntry(first)
+		end
 	end
 end
 

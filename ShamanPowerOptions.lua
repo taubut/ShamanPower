@@ -10025,6 +10025,78 @@ do
 	}
 end
 
+-- Move the actual option objects, keeping hover maps and callbacks intact.
+-- Old leaf paths are kept for settings links into groups split across tabs.
+function ShamanPower.MoveSettingsOptions(sourcePath, destinationPath, keys)
+	local function resolve(path)
+		local node = ShamanPower.options
+		for _, key in ipairs(path) do node = node.args[key] end
+		return node
+	end
+	local source, destination = resolve(sourcePath), resolve(destinationPath)
+	local aliases = ShamanPower.SettingsPathAliases or {}
+	ShamanPower.SettingsPathAliases = aliases
+	for _, key in ipairs(keys) do
+		if source.args[key] then
+			destination.args[key], source.args[key] = source.args[key], nil
+			local path = {}
+			for _, part in ipairs(destinationPath) do path[#path + 1] = part end
+			path[#path + 1] = key
+			aliases[table.concat(sourcePath, "/") .. "/" .. key] = path
+		end
+	end
+end
+
+-- Coverage has its own tab; dots and counters keep their existing entry path.
+do
+	local SP = ShamanPower
+	local pages = SP.options.args.fluffy.args
+	local party = pages.partybuff_section
+	local coverageKeys, watches, sizes = { "open_coverage" }, { "coverage_watch_desc" }, { "coverage_sizes_desc" }
+	for key in pairs(party.args) do
+		if key:match("^coverage_") then coverageKeys[#coverageKeys + 1] = key end
+		if key:match("^coverage_watch_%d") then watches[#watches + 1] = key end
+		if key:match("^coverage_size_%d") then sizes[#sizes + 1] = key end
+	end
+	local function byOrder(a, b) return party.args[a].order < party.args[b].order end
+	table.sort(watches, byOrder)
+	table.sort(sizes, byOrder)
+	pages.coverage_section = {
+		order = 14.1, type = "group", name = "Coverage", args = {},
+		hidden = party.args.coverage_header.hidden,
+	}
+	SP.MoveSettingsOptions({ "fluffy", "partybuff_section" }, { "fluffy", "coverage_section" }, coverageKeys)
+	SP.OrderSettingsBands(party, {
+		{ keys = { "partybuff_desc", "module_missing_note", "partybuff_engine_note" } },
+		{ keys = { "partybuff_display_mode" } },
+		{ header = "look_header", name = "Look", keys = {
+			"partybuff_scale", "partybuff_opacity", "partybuff_fontsize", "partybuff_dot_size",
+			"partybuff_dot_outline", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
+		}, names = { partybuff_scale = "Scale", partybuff_opacity = "Opacity", partybuff_fontsize = "Text Size",
+			partybuff_hide_frame = "Hide Background" } },
+		{ header = "position_header", name = "Position", keys = {
+			"partybuff_dot_position", "partybuff_location", "partybuff_move_counters_note",
+			"partybuff_move_counters", "partybuff_locked", "partybuff_reset",
+		}, names = { partybuff_move_counters = "Move", partybuff_locked = "Lock Position",
+			partybuff_reset = "Reset Position" } },
+	})
+	SP.OrderSettingsBands(pages.coverage_section, {
+		{ keys = { "coverage_desc" } },
+		{ keys = { "coverage_enabled", "open_coverage" } },
+		{ header = "coverage_watch_header", name = "Totems to Watch", keys = watches },
+		{ header = "look_header", name = "Look", keys = {
+			"coverage_icon_size", "coverage_opacity", "coverage_font", "coverage_hide_border",
+		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
+		{ header = "sizes_header", name = "Per-Totem Icon Size", keys = sizes },
+		{ header = "behaviour_header", name = "Behaviour", keys = {
+			"coverage_hide_covered", "coverage_free", "coverage_vertical",
+		} },
+		{ header = "position_header", name = "Position", keys = { "coverage_move" }, names = { coverage_move = "Move" } },
+	})
+	pages.coverage_section.args.coverage_free.desc = "Every watched totem gets its own spot and size."
+		.. " Use Move below to drag the cells, or ALT+drag a cell. Off: one cell per element, together in a row or column."
+end
+
 -- Module pages keep their controls and callbacks; only their reading order changes.
 do
 	local SP = ShamanPower

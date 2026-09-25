@@ -2457,7 +2457,8 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
 	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Name size", min = 7, max = 14, step = 1, disabled = off, get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
-	row("Toggle", { label = "Place each totem freely", desc = "Every cell gets its own spot and size (Settings > Party Buff Tracker has a size per totem).", disabled = off,
+	row("Toggle", { label = "Place each totem freely", desc = "Every cell gets its own spot and size"
+		.. " (Settings > Group Tools > Party Buff Tracker > Coverage has a size per totem).", disabled = off,
 		get = function() return get("freeCells", false) and true or false end, set = function(v) co().freeCells = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Vertical layout", disabled = function() return off() or get("freeCells", false) end,
 		get = function() return get("vertical", false) and true or false end, set = function(v) co().vertical = v; upd("UpdateCoverageLayout") end })
