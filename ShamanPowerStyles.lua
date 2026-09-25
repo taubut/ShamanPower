@@ -35,7 +35,7 @@ SP.TOTEM_BAR_STYLES = {
 	{ key = "grid", label = "Grid (every totem)", only = HasGrid,
 	  apply = function(o) o.useBlizzardTotemBar = nil; o.compactStyle = false; o.activeTotemAsMain = false; o.gridStyle = true end,
 	  is = function(o) return o.gridStyle == true end },
-	{ key = "blizzard", label = "Blizzard's totem bar", only = HasBlizzardBar,
+	{ key = "blizzard", label = "Blizzard's Totem Bar", only = HasBlizzardBar,
 	  apply = function(o) o.gridStyle = false; o.compactStyle = false; o.useBlizzardTotemBar = true end,
 	  is = function(o) return o.useBlizzardTotemBar == true end },
 }

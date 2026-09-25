@@ -366,6 +366,7 @@ local function MakeRow(parent, index)
 	row.twist:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 12, 10)
 	row.twist.row = row
 	row.twist:SetScript("OnClick", TwistOnClick)
+	if SP.NoTotemTwisting then row.twist:Hide() end   -- WoW: Forever cannot twist
 	row.twist:SetScript("OnEnter", function(self)
 		if not Tooltips() then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")

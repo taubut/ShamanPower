@@ -63,6 +63,22 @@ local MOCK_PARTY    = { mocks = {
 -- ShamanPower_RangeTracker.shown / spRangeManuallyOpened; the live truth is
 -- whether spRangeFrame is shown, which is also what the auto-show path
 -- (UpdateSPRangeVisibility) drives.
+-- Raid Resistance: its page leads with "Raid Resistance Requests", not an
+-- "Enable ..." name, so the square runs that toggle's own get/set. WoW: Forever
+-- only: without the group there is no square.
+local function ResistToggle()
+	local sp = SP()
+	local g = sp and sp.options and sp.options.args.buttons and sp.options.args.buttons.args.resist_section
+	return g and g.args and g.args.enabled
+end
+local POWER_RESIST = {
+	label  = "Raid Resistance Requests",
+	desc   = "Off: no Raid Resistance ticks, and a request that picks you passes straight to the next shaman.",
+	loaded = function() return ResistToggle() ~= nil end,
+	get    = function() local t = ResistToggle() return t and t.get() and true or false end,
+	set    = function(v) local t = ResistToggle() if t then t.set(nil, v and true or false) end end,
+}
+
 local POWER_SPRANGE = {
 	label  = "Totem Range overlay",
 	desc   = "Show or hide the totem range overlay (same as /sprange toggle).",
@@ -173,11 +189,23 @@ local NAV = {
 		{ label = "Profiles", path = P("profiles"), lock = true },
 	}},
 	{ group = "Bars", entries = {
-		{ label = "Totem Bar Style", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
-			desc = "Options for the selected style, shared clicks and totem twisting.", tabs = {
-			{ label = "Style Options", paths = { P("settings", "settings_totemMode") } },
-			{ label = "Clicks", paths = { P("settings", "settings_totemClicks") } },
-			{ label = "Twisting", paths = { P("settings", "settings_totemTwisting") } },
+		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
+			desc = "The totem bar: its style and clicks, what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
+			{ label = "Style",         paths = { P("settings", "settings_totemMode") } },
+			{ label = "Clicks",        paths = { P("settings", "settings_totemClicks") } },
+			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
+			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
+			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
+			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
+			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
+			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
+			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
+			{ label = "Twisting",      paths = { P("settings", "settings_totemTwisting") } },   -- no rows (so no tab) on WoW: Forever
+		}},
+		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
+			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
+			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
+			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
 		}},
 		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
@@ -191,31 +219,16 @@ local NAV = {
 			} },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
-		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
-			desc = "The totem bar: what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
-			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
-			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
-			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
-			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
-			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
-			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
-			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
-		}},
 		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true,
 			desc = "Save totem loadouts, configure their bar and choose when to switch automatically.", tabs = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
 		}},
-		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
-			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
-			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
-			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
-		}},
 	}},
 	{ group = "Group Tools", power = true, entries = {
-		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section"), power = false },
-		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = false },   -- WoW: Forever only (the group exists only there)
+		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section") },
+		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = POWER_RESIST },   -- WoW: Forever only (the group exists only there)
 		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
 		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
 		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF, tabs = {

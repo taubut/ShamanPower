@@ -78,8 +78,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
             offsetY = 0
         },
         enabled = true,
+        raidCDButtonHideFrame = true,   -- the caller buttons: icons only
         setupDone = false,
-        layout = "Vertical",
+        layout = "Horizontal",
         minimap = {
             ["minimapPos"] = 190,
             ["show"] = true,
@@ -92,8 +93,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
         showButtonKeybinds = false,  -- Show keybind text on buttons (top-right corner)
-        hideTotemBarFrame = false,  -- Hide the background/border around totem bar (icons only)
-        hideCooldownBarFrame = false,  -- Hide the background/border around cooldown bar (icons only)
+        hideTotemBarFrame = true,   -- Hide the background/border around totem bar (icons only)
+        hideCooldownBarFrame = true,   -- Hide the background/border around cooldown bar (icons only)
         cooldownBarLocked = false, -- CD bar floats free of the totem bar; use Unlock Bar to move it
         cooldownBarFrameLocked = false,  -- When CD bar is independent, this locks its position (red=locked, green=movable)
         cooldownBarScale = 0.90,  -- Separate scale for CD bar
@@ -242,7 +243,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
             iconSize = 40,
             vertical = false,
             hideNames = false,
-            hideBorder = false,
+            hideBorder = true,
             hideCharges = false,
             position = { point = "CENTER", x = 200, y = 0 },
         },
@@ -252,7 +253,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
             iconSize = 36,
             vertical = false,
             hideNames = false,
-            hideBorder = false,
+            hideBorder = true,
         },
         -- Totem Plates (replace totem nameplates with icons)
         totemPlates = {
@@ -296,8 +297,9 @@ SHAMANPOWER_OTHER_VALUES = {
             LockBuffBars = false,
         },
         enabled = true,
+        raidCDButtonHideFrame = true,   -- the caller buttons: icons only
         setupDone = false,
-        layout = "Vertical",
+        layout = "Horizontal",
         minimap = {
             ["minimapPos"] = 190,
             ["show"] = true,

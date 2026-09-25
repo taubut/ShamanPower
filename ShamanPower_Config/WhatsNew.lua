@@ -18,7 +18,7 @@ local NOTES = {
 	items = {
 		{ icon = "Interface\\Icons\\ClassIcon_Shaman", h = "ShamanPower now runs on WoW: Forever",
 		  b = "One download for both games. On Forever the game itself draws ShamanPower's totem timers, party dots and alerts, so they keep working in combat, and totems that game does not have are hidden everywhere. Forever characters start with the setup tour." },
-		{ h = "Blizzard's totem bar, powered by ShamanPower", try = "blizzard",
+		{ h = "Blizzard's Totem Bar, powered by ShamanPower", try = "blizzard",
 		  when = function() return SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil end,   -- Forever only
 		  b = "Keep the game's own totem bar and get ShamanPower's countdowns, duration bars, pulse timers and party dots drawn on its buttons. Blizzard's three totem sets stay in step with your assignments and loadouts."
 		    .. "\n|cff3FA9F5Settings > General > Main > Totem Bar Style|r"
@@ -100,7 +100,7 @@ local function ShowStylePreview(key)
 			local picked = SP.TotemBarStyle and SP:TotemBarStyle(k)
 			if picked and SP:SetTotemBarStyle(k) then   -- in combat it says so itself
 				print("|cff0070ddShamanPower|r: " .. picked.label .. " is on. Settings > General > Main > Totem Bar Style"
-					.. " switches back; Bars > Totem Bar Style > Style Options has its settings.")
+					.. " switches back; Bars > Totem Bar > Style has its settings.")
 				if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open({ "settings", "settings_totemMode" }) end
 			end
 		end)

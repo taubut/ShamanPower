@@ -19,7 +19,7 @@ ns.StyleCaptions = {
 	dynamic = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP.",
 	compact = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged.",
 	grid = "Every totem of every element stays visible in rows. Click one to drop it; the assigned one is highlighted"
-		.. " and the dropped one carries the timer. Split by Element (Totem Bar Style > Style Options)"
+		.. " and the dropped one carries the timer. Split by Element (Totem Bar > Style)"
 		.. " gives each row its own frame.",
 	blizzard = "ShamanPower's bar hides and you play on Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout.",
 }

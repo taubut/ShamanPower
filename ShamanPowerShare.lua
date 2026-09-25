@@ -159,6 +159,9 @@ function SP:ImportShare(str, mode, profileName)
 		for k, v in pairs(payload.profile) do self.db.profile[k] = CleanCopy(v) end
 		profileName = name
 	end
+	-- a string (or backup) made before 3.0 stored a shown caller panel as nothing;
+	-- 3.0's default is icons only, so say "shown" or it would flip after a reload
+	if payload.profile.raidCDButtonHideFrame == nil then self.db.profile.raidCDButtonHideFrame = false end
 
 	-- Loose module tables. Most replace the importer's copy (that is the point
 	-- of a shared setup); tables flagged in extraMerge only merge their keys, so
@@ -167,7 +170,11 @@ function SP:ImportShare(str, mode, profileName)
 	if payload.extras then
 		local merge = payload.extraMerge or {}
 		for name, tbl in pairs(payload.extras) do
-			if _G[name] ~= nil or name:match("^ShamanPower") then
+			-- loadouts are the importer's own: a preset (shared by someone else) never
+			-- replaces them, only a restore of your own backup does
+			if payload.preset and name == "ShamanPower_TotemLoadouts" then
+				-- skipped
+			elseif _G[name] ~= nil or name:match("^ShamanPower") then
 				if merge[name] then
 					if type(_G[name]) ~= "table" then _G[name] = {} end
 					for k, v in pairs(tbl) do _G[name][k] = CleanCopy(v) end

@@ -50,7 +50,7 @@ do
 end
 
 local function sendCall(msg)
-	if SP:IsOff() then return end   -- ShamanPower switched off: tells the group nothing
+	if SP:IsOff() or SP.opt.raidCooldownsOff then return end   -- ShamanPower or Raid Cooldowns switched off: tells the group nothing
 	if not (ChatThrottleLib and IsInGroup()) then return end
 	local channel
 	if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
@@ -670,7 +670,7 @@ end
 function SP:HandleRaidCooldownMessage(prefix, message, sender)
 	local cmd, rest = strsplit("|", message, 2)
 	-- ShamanPower switched off: a call alerts nothing (assignment syncs still land)
-	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and (self:IsOff() or isRepeatCall(prefix, sender, message)) then return end
+	if (cmd == "BLCALL" or cmd == "MTCALL" or cmd == "DRUMCALL") and (self:IsOff() or self.opt.raidCooldownsOff or isRepeatCall(prefix, sender, message)) then return end
 
 	if cmd == "RCSYNC" then
 		-- Sync from raid leader
@@ -1020,8 +1020,8 @@ function SP:UpdateCallerButtons()
 	self:InitRaidCooldowns()
 
 	-- Don't show caller buttons when not in a group (or in Windfury-only mode, or
-	-- with ShamanPower switched off)
-	if GetNumGroupMembers() == 0 or (self.WindfuryOnly and self:WindfuryOnly()) or self:IsOff() then
+	-- with ShamanPower or Raid Cooldowns switched off)
+	if GetNumGroupMembers() == 0 or (self.WindfuryOnly and self:WindfuryOnly()) or self:IsOff() or self.opt.raidCooldownsOff then
 		if self.callerButtonFrame then
 			self.callerButtonFrame:Hide()
 		end

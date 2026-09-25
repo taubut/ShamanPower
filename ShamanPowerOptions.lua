@@ -1805,7 +1805,7 @@ ShamanPower.options = {
 							order = 2.25,
 							type = "toggle",
 							name = "Show Totem Flyouts",
-							desc = "[Enable/Disable] Show flyout menus on mouseover for quick totem selection (TotemTimers style)",
+							desc = "[Enable/Disable] Show flyout menus on mouseover for quick totem selection (TotemTimers Style)",
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.showTotemFlyouts
@@ -3610,6 +3610,18 @@ ShamanPower.options = {
 					name = "|cff0070ddRaid Cooldowns|r",
 					type = "group",
 					args = {
+						raidCDEnabled = {
+							order = 0.1,
+							type = "toggle",
+							width = "full",
+							name = "Enable Raid Cooldowns",
+							desc = "Off: no caller buttons, no alert when someone calls for a cooldown, and no calls sent from you. What the raid lead assigned is kept for when you turn it back on.",
+							get = function() return not ShamanPower.opt.raidCooldownsOff end,
+							set = function(_, val)
+								ShamanPower.opt.raidCooldownsOff = (not val) or nil
+								if ShamanPower.UpdateCallerButtons then ShamanPower:UpdateCallerButtons() end
+							end,
+						},
 						no_group_note = {
 							order = 0.05,
 							type = "description",
@@ -3676,7 +3688,7 @@ ShamanPower.options = {
 								return not ShamanPower.opt.raidCDButtonHideFrame
 							end,
 							set = function(info, val)
-								ShamanPower.opt.raidCDButtonHideFrame = (not val) or nil
+								ShamanPower.opt.raidCDButtonHideFrame = not val
 								if ShamanPower.UpdateCallerButtonFrameStyle then
 									ShamanPower:UpdateCallerButtonFrameStyle()
 								end
@@ -7579,7 +7591,7 @@ ShamanPower.options = {
 							order = 0.05,
 							type = "description",
 							name = "|cffffa040Compact style draws its own duration and pulse. This page does not change its lines"
-								.. " (only cooldown sweeps on flyout icons). Use Totem Bar Style > Style Options instead.|r",
+								.. " (only cooldown sweeps on flyout icons). Use Totem Bar > Style instead.|r",
 							hidden = function() return not (CompactOn()) end,
 						},
 						duration_desc = {
@@ -9428,7 +9440,7 @@ do
 	mode.blizzard_totem_bar_note = {
 		order = 4.86, type = "description", width = "full",
 		hidden = function() return not NativeTotemBarSelected() end,
-		name = "|cffffa040Blizzard controls layout, visibility and flyouts. Icons / TotemTimers style, duration bars, text, "
+		name = "|cffffa040Blizzard controls layout, visibility and flyouts. Icons / TotemTimers Style, duration bars, text, "
 			.. "pulse, party dots and counters apply to ShamanPower's overlays. Lifetime swipes use our totem model; "
 			.. "Blizzard's spell cooldowns are unchanged. Compact style needs ShamanPower's bar.|r",
 	}
@@ -9701,6 +9713,16 @@ do
 	ClearGridBefore(mode.use_blizzard_totem_bar)
 end
 
+-- WoW: Forever cannot twist (ShamanPower.NoTotemTwisting): its twisting options
+-- are not offered at all.
+if ShamanPower.NoTotemTwisting then
+	local mode = ShamanPower.options.args.settings.args.settings_totemMode.args
+	for _, key in ipairs({ "twistSpacer", "enableTwisting", "twistTotemSelect", "twistTimerNoDecimals", "twistSoundEnabled",
+		"twistSoundThreshold", "twistSoundPicker", "twistSoundPicker_testsound", "twistSoundVolume" }) do
+		if mode[key] then mode[key].hidden = true end
+	end
+end
+
 -- General > Main: one dropdown for the totem bar's style, so the choice made in
 -- the setup tour is one click away afterwards. It reads and writes the same
 -- flags as the Mode & Twisting toggles, through ShamanPowerStyles.lua. The
@@ -9718,7 +9740,7 @@ do
 			local d = "Which bar you play with: one of the four looks of ShamanPower's bar, every totem laid out in a grid"
 			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then d = d .. ", or Blizzard's own totem bar with ShamanPower's timers, bars and dots on its slots" end
 			return d .. ". Hover a style to see it in the live preview (the arrow tab on the right)."
-				.. " Totem Bar Style > Style Options has each style's settings. Change out of combat."
+				.. " Totem Bar > Style has each style's settings. Change out of combat."
 		end,
 		hidden = function() return not isShaman or not SP.TotemBarStyleList end,
 		disabled = function() return InCombatLockdown() end,
@@ -10262,7 +10284,7 @@ do
 	local SP = ShamanPower
 	local settings, pages = SP.options.args.settings.args, SP.options.args.fluffy.args
 	local mode = settings.settings_totemMode
-	mode.name = "Style Options"
+	mode.name = "Style"
 	settings.settings_totemClicks = {
 		order = 2.1, type = "group", name = "Clicks", args = {}, disabled = SP.options.args.fluffy.disabled,
 	}
@@ -10324,13 +10346,20 @@ do
 	for _, key in ipairs({ "activeAsMainSpacer", "compactSpacer", "twistSpacer" }) do
 		if mode.args[key] then mode.args[key].hidden = true end
 	end
+	-- the style picker itself leads the page (the same setting as on General > Main)
+	local pick = {}
+	for k, v in pairs(SP.options.args.settings.args.settings_show.args.totemBarStyle) do pick[k] = v end
+	pick.order = 0.1
+	mode.args.style_pick = pick
+	if SP.OptionHoverStyle then SP.OptionHoverStyle[pick] = "select" end
 	mode.args.style_note = {
-		order = 0, type = "description", width = "full",
+		order = 0.2, type = "description", width = "full",
 		name = function()
 			local key = SP.GetTotemBarStyle and SP:GetTotemBarStyle() or "normal"
 			local style = SP.TotemBarStyle and SP:TotemBarStyle(key)
-			return "Options for " .. (style and style.label or key)
-				.. ". Change style in General > Main > Totem Bar Style. Shared clicks and twisting have their own tabs."
+			return "The options below are for " .. (style and style.label or key)
+				.. " and change with the style you pick. "
+				.. (SP.NoTotemTwisting and "Clicks has its own tab." or "Clicks and Twisting have their own tabs.")
 		end,
 	}
 	SP.SettingsPathAliases["fluffy/layout_section"] = { "fluffy", "totembar_appearance" }

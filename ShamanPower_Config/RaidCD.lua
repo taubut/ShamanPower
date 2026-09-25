@@ -228,7 +228,7 @@ if FS then
 			hideFrame = {
 				get = function() return SP.opt.raidCDButtonHideFrame and true or false end,
 				set = function(v)
-					SP.opt.raidCDButtonHideFrame = v and true or nil
+					SP.opt.raidCDButtonHideFrame = v and true or false
 					SP:UpdateCallerButtonFrameStyle(); Notify()
 				end,
 			},

@@ -171,8 +171,13 @@ function SP.Wizard.ApplyRoleDefaults(role)
 		return
 	end
 	SP.Wizard.ApplySpecPicks(role)
-	-- Clean look by default: no black panel / border behind any frame. Each
-	-- step still has a "Show frame" / "Show border" toggle to bring it back.
+	-- Clean look by default: both bars run across, and no black panel / border
+	-- behind any frame. Each step still has Layout and a "Show frame" / "Show
+	-- border" toggle to change it.
+	if not InCombatLockdown() then
+		SP.opt.layout = "Horizontal"; SP.opt.cdbarLayout = "Horizontal"
+		safecall("UpdateLayout"); safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar")
+	end
 	SP.opt.hideTotemBarFrame = true;                 safecall("UpdateTotemBarFrame")
 	SP.opt.hideCooldownBarFrame = true;              safecall("UpdateCooldownBarFrame")
 	SP.opt.raidCDButtonHideFrame = true;             safecall("UpdateCallerButtonFrameStyle")
@@ -259,13 +264,13 @@ local STEPS = {
 	{ id = "totembar", title = "Totem Bar", roles = ALL, build = "BuildTotemBarStep",
 	  desc = "Your totem bar comes in several styles. Hover a card to see it in the preview; click one to make it yours and watch the preview drop, run down and expire.",
 	  bullets = {
-	    "Normal: assigned totems stay put; a different dropped totem pops up above its slot.",
-	    "TotemTimers style: the dropped totem becomes the big icon, assigned shrinks to the corner.",
-	    "Dynamic: the bar is simply whatever you last dropped. Great for PvP.",
-	    "Compact: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
-	    { "Grid: every totem of every element visible in rows, together or split into one frame per element.",
+	    "|cffffd100Normal|r: assigned totems stay put; a different dropped totem pops up above its slot.",
+	    "|cffffd100TotemTimers Style|r: the dropped totem becomes the big icon, assigned shrinks to the corner.",
+	    "|cffffd100Dynamic|r: the bar is simply whatever you last dropped. Great for PvP.",
+	    "|cffffd100Compact|r: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
+	    { "|cffffd100Grid|r: every totem of every element visible in rows, together or split into one frame per element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
-	    { "Blizzard's totem bar: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots.",
+	    { "|cffffd100Blizzard's Totem Bar|r: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots.",
 	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
 	    "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
 	  },
@@ -326,6 +331,7 @@ local STEPS = {
 	    { label = "Earth Shield charges", bind = "earthshieldcharge", roles = { restoration = true } },
 	  } },
 	{ id = "twisting", title = "Totem Twisting", roles = ALL, build = "BuildTwistingStep",
+	  when = function() return not SP.NoTotemTwisting end,   -- WoW: Forever cannot twist
 	  desc = "Keep the Windfury buff on your melee all the time by alternating Windfury with a second air totem.",
 	  bullets = {
 	    "Drop Windfury, then your twist totem; the Air slot shows what to cast next.",
@@ -1096,6 +1102,29 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			if on then styleCap:SetText(st.caption) end
 		end
 	end
+	-- ---- appearance (from Settings > Bars) ----
+	local Widgets = ns.Widgets
+	local W = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, W
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	-- Layout and the frame lead, right under "Show the totem bar": the bullets and
+	-- the cards push everything under them out of sight, and whether the bar runs
+	-- across or down is the first thing a new player looks for
+	do
+		local style = SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT())
+		if style ~= "blizzard" and not OPT().compactStyle and not (style == "grid" and OPT().gridSplit) then
+			row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
+				set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+		end
+		if style ~= "blizzard" and style ~= "grid" then
+			row("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideTotemBarFrame end,
+				set = function(v) OPT().hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
+		end
+		y = y + 6
+	end
 	-- Style cards: a picture of each style over its name, two to a row. Hovering
 	-- a card plays that style in the preview; clicking makes it the style.
 	local CW, CH, CG = math.floor((card:GetWidth() - 36 - 8) / 2), 68, 8
@@ -1125,16 +1154,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	end
 	y = y + math.ceil(#STYLES / 2) * (CH + CG) - CG + 6
 	refresh()
-
-	-- ---- appearance (from Settings > Bars) ----
-	local Widgets = ns.Widgets
-	local W = card:GetWidth() - 36
 	y = y + 6
-	local function row(kind, opts)
-		opts.x, opts.y, opts.width = 18, y, W
-		local _, h = Widgets[kind](Widgets, card, opts)
-		y = y + h
-	end
 	-- Only the settings the chosen style actually uses. Blizzard's bar has its own
 	-- layout (Edit Mode) and ignores the bar's layout, size, opacity and frame; its
 	-- one ShamanPower setting is the scale override.
@@ -1154,10 +1174,6 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	elseif SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT()) == "grid" then
 		-- Grid: its rows are laid out by Layout (or per row when split), sized by
 		-- Size; it has no bar frame of its own and no bar opacity
-		if not OPT().gridSplit then
-			row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
-				set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
-		end
 		row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
 			set = function(v)
 				OPT().buffscale = v
@@ -1173,18 +1189,12 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		row("Toggle", { label = "Split by element (each row its own frame)", get = function() return OPT().gridSplit == true end,
 			set = function(v) OPT().gridSplit = v or nil; safecall("RefreshGridStyle"); notify(); SP.Wizard:Go(state.step) end })
 	else
-		if not OPT().compactStyle then
-			row("Dropdown", { label = "Layout", get = function() return OPT().layout or "Horizontal" end,
-				set = function(v) SetTotemBarLayout(v); notify() end, values = LAYOUT_VALUES, order = LAYOUT_ORDER })
-		end
 		row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
 			set = function(v) OPT().buffscale = v; safecall("UpdateLayout"); safecall("UpdateCooldownBarScale"); safecall("UpdateRoster"); notify() end })
 		row("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().totemBarOpacity or 1 end,
 			set = function(v) OPT().totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
 		row("Toggle", { label = "Full opacity while a totem is down", get = function() return OPT().totemBarFullOpacityWhenActive and true or false end,
 			set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
-		row("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideTotemBarFrame end,
-			set = function(v) OPT().hideTotemBarFrame = not v; safecall("UpdateTotemBarFrame"); notify() end })
 	end
 	if OPT().compactStyle then
 		-- ---- Compact style options (Settings > Totem Bar > Compact Style) ----
@@ -2231,7 +2241,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	row("Slider", { label = "Button opacity", min = 0.1, max = 1.0, step = 0.05, get = function() return O("raidCDButtonOpacity", 1.0) end,
 		set = function(v) SP.opt.raidCDButtonOpacity = v; upd("UpdateCallerButtonOpacity") end })
 	row("Toggle", { label = "Show panel behind buttons", get = function() return not O("raidCDButtonHideFrame", nil) end,
-		set = function(v) SP.opt.raidCDButtonHideFrame = (not v) or nil; upd("UpdateCallerButtonFrameStyle") end })
+		set = function(v) SP.opt.raidCDButtonHideFrame = not v; upd("UpdateCallerButtonFrameStyle") end })
 	row("Toggle", { label = "Cooldown swipe on buttons", get = function() return O("raidCDShowButtonAnimation", true) end,
 		set = function(v) SP.opt.raidCDShowButtonAnimation = v; upd() end })
 	row("Toggle", { label = "Alert: big icon", get = function() return O("raidCDShowWarningIcon", true) end,
@@ -2355,17 +2365,24 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 		return out
 	end
 	-- The harness sizes the borrowed frames as a vertical stack of EVERY usable
-	-- spell, which shrinks them; lay the enabled ones out as a life-size row
-	-- instead (scaled down only if the row would not fit).
+	-- spell, which shrinks them; lay the enabled ones out life-size instead, in a
+	-- grid, so neither the icons nor their names shrink (spell names need wider
+	-- gaps). Scaled down only if not even one fits.
 	local function fit()
 		if not (inner:IsShown() and inner:GetWidth() > 0) then return end
 		SP:ShowPreview("readyreminders", inner)
 		local entries = shownEntries()
 		local size = get("iconSize", 48)
 		local n = #entries
-		local gap = get("showNames", false) and math.max(size + 14, 104) or (size + 14)
-		local rowW = n * size + math.max(0, n - 1) * (gap - size)
-		local scale = math.min(1, (inner:GetWidth() - 40) / math.max(rowW, 1))
+		local names = get("showNames", false)
+		local gap = names and math.max(size + 14, 104) or (size + 14)
+		local avail = inner:GetWidth() - 40
+		-- a near-square grid (2x2 for four, 3 across for up to nine): the panel is
+		-- tall, and life-size icons read better than one long row
+		local perRow = math.max(1, math.min(math.floor((avail + gap - size) / gap), math.ceil(math.sqrt(n))))
+		local rows = math.ceil(n / perRow)
+		local rowH = size + (names and 26 or 14)
+		local scale = math.min(1, avail / math.max(size, 1))
 		for _, entry in ipairs(SP.ReadyReminderSpells or {}) do
 			local f = SP.readyReminderFrames and SP.readyReminderFrames[entry.key]
 			if f and f:GetParent() == inner then f:SetScale(scale) end
@@ -2373,7 +2390,11 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 		for i, entry in ipairs(entries) do
 			local f = SP.readyReminderFrames and SP.readyReminderFrames[entry.key]
 			if f and f:GetParent() == inner then
-				f:ClearAllPoints(); f:SetPoint("CENTER", inner, "CENTER", (i - (n + 1) / 2) * gap, 40 / scale)
+				local r = math.floor((i - 1) / perRow)         -- this icon's row, 0 at the top
+				local inRow = math.min(perRow, n - r * perRow)  -- icons on that row
+				local c = (i - 1) - r * perRow
+				f:ClearAllPoints()
+				f:SetPoint("CENTER", inner, "CENTER", (c - (inRow - 1) / 2) * gap, 40 / scale + ((rows - 1) / 2 - r) * rowH)
 			end
 		end
 	end
@@ -2980,6 +3001,22 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	end)
 
 	if SP.Wizard.previewOnly then layoutMock(); return y end
+	-- ---- appearance (from Settings > Bars) ----
+	local function wrow(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, card:GetWidth() - 36
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	-- Layout and the frame lead, as on the totem bar step: the first things a new
+	-- player looks for, and everything under the spell chips is out of sight
+	wrow("Dropdown", { label = "Layout", get = function() return OPT().cdbarLayout or OPT().layout or "Horizontal" end,
+		set = function(v) OPT().cdbarLayout = v; safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); safecall("LayoutShieldFlyout"); safecall("LayoutWeaponImbueFlyout"); notify(); layoutMock() end,
+		values = LAYOUT_VALUES, order = LAYOUT_ORDER })
+	wrow("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().cooldownBarScale or 0.9 end,
+		set = function(v) OPT().cooldownBarScale = v; safecall("UpdateCooldownBarScale"); notify() end })
+	wrow("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideCooldownBarFrame end,
+		set = function(v) OPT().hideCooldownBarFrame = not v; safecall("UpdateCooldownBarFrame"); notify() end })
+	y = y + 12
 	-- ---- spell chips in the card: which spells appear on the bar ----
 	local hdr = card:CreateFontString(nil, "OVERLAY"); hdr:SetFontObject(Core.fonts.tiny)
 	hdr:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); hdr:SetText("SPELLS ON THE BAR"); hdr:SetTextColor(Core:Color("textDim"))
@@ -3021,12 +3058,6 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	note:SetText("Spells you have not learned yet are hidden on the real bar automatically.")
 	y = y + (row + (col > 0 and 1 or 0)) * 32 + 6 + note:GetStringHeight() + 14
 
-	-- ---- appearance (from Settings > Bars) ----
-	local function wrow(kind, opts)
-		opts.x, opts.y, opts.width = 18, y, card:GetWidth() - 36
-		local _, h = Widgets[kind](Widgets, card, opts)
-		y = y + h
-	end
 	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
 		get = function() return OPT().cdbarSweepStyle or "greys" end,
 		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("UpdateCooldownBar"); notify() end,
@@ -3044,17 +3075,10 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		order = function() return { "none", "inside", "outside", "icon" } end })
 	wrow("Slider", { label = "Time text size", min = 6, max = 20, step = 1, get = function() return OPT().cdbarDurationTextSize or 8 end,
 		set = function(v) SP.opt.cdbarDurationTextSize = v; safecall("ApplyCdbarTextSize"); safecall("UpdateCooldownBarProgressBars"); notify(); layoutMock() end })
-	wrow("Dropdown", { label = "Layout", get = function() return OPT().cdbarLayout or OPT().layout or "Horizontal" end,
-		set = function(v) OPT().cdbarLayout = v; safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); safecall("LayoutShieldFlyout"); safecall("LayoutWeaponImbueFlyout"); notify(); layoutMock() end,
-		values = LAYOUT_VALUES, order = LAYOUT_ORDER })
-	wrow("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().cooldownBarScale or 0.9 end,
-		set = function(v) OPT().cooldownBarScale = v; safecall("UpdateCooldownBarScale"); notify() end })
 	wrow("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().cooldownBarOpacity or 1 end,
 		set = function(v) OPT().cooldownBarOpacity = v; safecall("UpdateCooldownBarOpacity"); notify() end })
 	wrow("Toggle", { label = "Full opacity while on cooldown", get = function() return OPT().cooldownBarFullOpacityWhenActive and true or false end,
 		set = function(v) OPT().cooldownBarFullOpacityWhenActive = v; safecall("UpdateCooldownBarOpacity"); notify() end })
-	wrow("Toggle", { label = "Show frame behind the bar", get = function() return not OPT().hideCooldownBarFrame end,
-		set = function(v) OPT().hideCooldownBarFrame = (not v) or nil; safecall("UpdateCooldownBarFrame"); notify() end })
 
 	layoutMock()
 	return y
@@ -3226,18 +3250,33 @@ function RenderStep()
 	local card = cardFrame.body
 	local box = track(PreviewPanel(wiz.content))
 
+	-- The step's name on a gold band, as the settings' featured headings draw it
+	-- (Widgets SectionHeader, the Discord one): gold glow, gold title, gold rule.
+	local GR, GG, GB = 1, 0.82, 0.15
+	local band = card:CreateTexture(nil, "BACKGROUND")
+	band:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -10)
+	band:SetPoint("BOTTOMRIGHT", card, "TOPRIGHT", -10, -52)
+	band:SetColorTexture(1, 1, 1, 1)
+	Core:Gradient(band, "HORIZONTAL", GR, GG, GB, 0.22, GR, GG, GB, 0)
+	local rule = card:CreateTexture(nil, "ARTWORK")
+	rule:SetHeight(2)
+	rule:SetPoint("TOPLEFT", band, "BOTTOMLEFT", 0, 0)
+	rule:SetPoint("TOPRIGHT", band, "BOTTOMRIGHT", 0, 0)
+	rule:SetColorTexture(GR, GG, GB, 0.9)
 	local title = card:CreateFontString(nil, "OVERLAY")
 	title:SetFontObject(Core.fonts.title)
-	title:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -18)
+	title:SetPoint("LEFT", band, "LEFT", 8, 1)
+	title:SetTextColor(GR, GG, GB)
+	title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
 	title:SetText(s.title)
 	local desc = card:CreateFontString(nil, "OVERLAY")
 	desc:SetFontObject(Core.fonts.rowDim)
-	desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
+	desc:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -66)
 	desc:SetWidth(card:GetWidth() - 36); desc:SetJustifyH("LEFT")
 	local d = (state.role == "nonshaman" and s.descNonShaman) or s.desc
 	desc:SetText(type(d) == "function" and d() or d)   -- a description may depend on the client
 
-	local y = 78 + math.max(desc:GetStringHeight(), 30)
+	local y = 96 + math.max(desc:GetStringHeight(), 30)
 
 	local blist = (state.role == "nonshaman" and s.bulletsNonShaman) or s.bullets
 	if blist then
@@ -3334,7 +3373,7 @@ local function PresetSummary(preset)
 	local x = payload and payload.extras or {}
 	local function on(v) return v and "|cff40ff40on|r" or "|cff8090a0off|r" end
 	local function pct(v) return math.floor(v * 100 + 0.5) end   -- scale reads as a percent: 0.9 -> "90%"
-	local style = p.dynamicTotemMode and "Dynamic (PvP)" or (p.activeTotemAsMain and "TotemTimers style" or "Normal")
+	local style = p.dynamicTotemMode and "Dynamic (PvP)" or (p.activeTotemAsMain and "TotemTimers Style" or "Normal")
 	local dbp = ({ none = "none", bottom = "bottom", bottom_vert = "bottom (vertical)", top = "top", top_vert = "top (vertical)", left = "left", right = "right" })[p.durationBarPosition or "bottom"] or tostring(p.durationBarPosition)
 	local dots = (p.showPartyRangeDots and (p.rangeCounter and p.rangeCounter.enabled) and "dots + numbers") or (p.showPartyRangeDots and "dots") or ((p.rangeCounter and p.rangeCounter.enabled) and "numbers") or "off"
 	local lines = {
@@ -3398,6 +3437,7 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 			previewDlg:Hide()
 			SP:ApplyPreset(p.key, "overwrite")
 			SP.opt.setupDone = true
+			SP.opt.movePromptAfterReload = true   -- its bars land on their default spots: offer to move them
 			SP.Wizard:Close(true, "quick")
 			local b = SP.db.global.setupBackups and SP.db.global.setupBackups[1]
 			SP.Wizard:ShowBackupNotice(b, p.name .. " is applied.", function() Core:RequestReload(p.name .. " is applied.") end)
@@ -3953,6 +3993,7 @@ local function quickSetup(role)
 	print(line)
 	-- Anniversary reloads at once and the reload clears the chat: said again after it
 	SP.opt.chatAfterReload = line
+	SP.opt.movePromptAfterReload = true   -- its bars land on their default spots: offer to move them
 	Core:RequestReload(name .. " is applied.")
 end
 
@@ -4060,6 +4101,26 @@ f:SetScript("OnEvent", function(self)
 	if line then
 		SP.opt.chatAfterReload = nil
 		C_Timer.After(2, function() print(line) end)
+	end
+	-- a preset was applied just before the reload: its bars sit on their default
+	-- spots, so ask once whether to move everything now (after a fight, if in one)
+	if SP.opt and SP.opt.movePromptAfterReload then
+		SP.opt.movePromptAfterReload = nil
+		local function ask()
+			if InCombatLockdown() then C_Timer.After(5, ask) return end
+			if not (SP.ShowSPDialog and SP.SetMasterUnlock) then return end
+			SP:ShowSPDialog({
+				key = "move_after_preset",
+				title = "Move things into place?",
+				text = "Your layout is on. The totem bar and cooldown bar start low in the middle of the screen."
+					.. " Move everything to where you want it now?\n\nYou can always do it later with |cffffd100/sp unlock|r.",
+				buttons = {
+					{ text = "Move Everything", onClick = function() if not InCombatLockdown() then SP:SetMasterUnlock(true) end end },
+					{ text = "Keep It As Is" },
+				},
+			})
+		end
+		C_Timer.After(3, ask)
 	end
 end)
 

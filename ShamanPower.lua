@@ -438,6 +438,9 @@ do
 				flyout.leadGap = ShamanPower:FlyoutLeadGap(flyout)
 				pcall(entry.relayout)   -- re-lays out, then places the arrows
 			end
+			-- what we draw outside the button follows its tab (placing the arrows does
+			-- this; here too for a relayout that stopped short, a no-op otherwise)
+			if entry.button then ShamanPower:FollowFlyoutArrows(entry.button) end
 		end
 		if ShamanPower.PositionActiveOverlays then ShamanPower:PositionActiveOverlays() end
 		if on and ShamanPower.RefreshTotemBarHelpers then ShamanPower:RefreshTotemBarHelpers() end
@@ -863,8 +866,10 @@ function ShamanPower:OnInitialize()
 
 	if select(2, UnitClass("player")) == "SHAMAN" then
 		self.db = LibStub("AceDB-3.0"):New("ShamanPowerDB", SHAMANPOWER_DEFAULT_VALUES, "Default")
+		self:KeepOldLookOnSavedProfiles()
 	else
 		self.db = LibStub("AceDB-3.0"):New("ShamanPowerDB", SHAMANPOWER_OTHER_VALUES, "Other")
+		self:KeepOldLookOnSavedProfiles()   -- before SetProfile lays the defaults into a profile
 		self.db:SetProfile("Other")
 	end
 
@@ -873,6 +878,7 @@ function ShamanPower:OnInitialize()
 	self.db.RegisterCallback(self, "OnProfileReset", "OnProfileChanged")
 
 	self.opt = self.db.profile
+	self:ClearTwistingOnForever()
 	MigrateMiniBarProfile(self.db, self.opt)
 	-- switched off at login: the central update loop stays stopped (switch-on starts it)
 	self._appliedOff = self:IsOff()   -- the state everything was last set up for
@@ -1274,6 +1280,7 @@ function ShamanPower:OnProfileChanged()
 	end
 
 	self.opt = self.db.profile
+	self:ClearTwistingOnForever()
 	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
 	if self.RefreshTextures then self:RefreshTextures() end   -- and other bar textures
 	if self.UpdateAnnounceEvents then self:UpdateAnnounceEvents() end   -- announce settings live in the profile
@@ -1353,7 +1360,7 @@ function ShamanPower:Reset()
 	-- Reset visual settings to defaults
 	self.opt.buffscale = 0.9
 	self.opt.border = "Blizzard Tooltip"
-	self.opt.layout = "Vertical"
+	self.opt.layout = "Horizontal"
 	self.opt.skin = "Smooth"
 	self.opt.configscale = 0.9
 
@@ -1680,6 +1687,55 @@ ShamanPower.ElementToSlot = {
 -- totem of another element sitting there, then resolves by totem name for the
 -- rest of the session.
 ShamanPower.dynamicTotemSlots = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+-- WoW: Forever cannot twist: its Windfury Totem is a party aura (no weapon buff
+-- that outlasts the totem), and Windfury, Grace of Air and Tranquil Air no
+-- longer stack. Twisting is not offered there and stays off, whatever a profile
+-- saved. Anniversary keeps all of it.
+ShamanPower.NoTotemTwisting = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+-- 3.0 changed defaults: both bars run across (Horizontal), and no frame or
+-- border is drawn behind the totem bar, the cooldown bar, the caller buttons,
+-- the Earth Shield tracker or the range tracker. A profile saved before keeps
+-- the look it had (it never stored those, so it would change under the player);
+-- a new profile gets the new look. Once per install, over every saved profile.
+function ShamanPower:KeepOldLookOnSavedProfiles()
+	local sv = self.db and self.db.sv
+	if not sv or (sv.global and sv.global.oldLookKept) then return end
+	-- AceDB puts empty tables into a profile it sets up: only real values count
+	local function saved(t)
+		for _, v in pairs(t) do
+			if type(v) ~= "table" or saved(v) then return true end
+		end
+		return false
+	end
+	local function keep(t, key, old)
+		if rawget(t, key) == nil then rawset(t, key, old) end
+	end
+	for _, prof in pairs(sv.profiles or {}) do
+		if type(prof) == "table" and saved(prof) then
+			keep(prof, "layout", "Vertical")
+			keep(prof, "hideTotemBarFrame", false)
+			keep(prof, "hideCooldownBarFrame", false)
+			keep(prof, "raidCDButtonHideFrame", false)
+			for _, sub in ipairs({ "esTracker", "rangeTracker" }) do
+				if type(rawget(prof, sub)) ~= "table" then
+					local d = SHAMANPOWER_DEFAULT_VALUES.profile[sub]
+					rawset(prof, sub, d and DeepCopy(d) or {})
+					rawget(prof, sub).hideBorder = false   -- (the copy carries the new default)
+				else
+					keep(rawget(prof, sub), "hideBorder", false)
+				end
+			end
+		end
+	end
+	self.db.global.oldLookKept = true
+end
+
+function ShamanPower:ClearTwistingOnForever()
+	if not self.NoTotemTwisting then return end
+	self.opt.enableTotemTwisting = nil
+	if ShamanPower_TwistAssignments then wipe(ShamanPower_TwistAssignments) end
+end
 
 local totemNameElementCache = {}
 
@@ -2673,6 +2729,9 @@ function ShamanPower:PositionPulseWipe(container)
 	local position = self.opt.pulseBarPosition or "on_icon"
 	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
 	local padT, padB, padL, padR = self:GetPartyDotPads()
+	-- and out past the flyout tab on its side while that shows (see FollowFlyoutArrows)
+	local aT, aB, aL, aR = self:FlyoutArrowPads(button)
+	padT, padB, padL, padR = padT + aT, padB + aB, padL + aL, padR + aR
 
 	-- a running wipe animation belongs to the old placement: stop it, and let the
 	-- next pulse pass start again from the new one
@@ -2789,6 +2848,9 @@ function ShamanPower:UpdatePulseBarPositions()
 			end
 		end
 	end
+	-- the overlay leaves room past a flyout tab for its own pulse bar and dots:
+	-- place it again for the new ones (Blizzard's bar has no tabs of ours)
+	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then self:PositionActiveOverlays() end
 end
 
 -- Position the pulse wipe bar for active totem overlays
@@ -3475,7 +3537,7 @@ end
 function ShamanPower:UpdateTotemProgressBarPositions()
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
-	local padT, padB, padL, padR = self:GetPartyDotPads()
+	local dotT, dotB, dotL, dotR = self:GetPartyDotPads()
 
 	-- Enable/disable progressBars subsystem based on whether any features need it
 	local barDisabled = (barPosition == "none")
@@ -3496,6 +3558,9 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 		local totemButton = self.totemButtons[element]
 		local bars = self.totemProgressBars[element]
 		if totemButton and bars then
+			-- room for the party dots, and for the flyout tab on its side while it shows
+			local aT, aB, aL, aR = self:FlyoutArrowPads(totemButton)
+			local padT, padB, padL, padR = dotT + aT, dotB + aB, dotL + aL, dotR + aR
 			bars.bg:ClearAllPoints()
 			bars.bar:ClearAllPoints()
 			if bars.insideTextTop then bars.insideTextTop:ClearAllPoints() end
@@ -4239,15 +4304,26 @@ end
 function ShamanPower:PositionActiveOverlays()
 	local p, rp, ox, oy, side = self:GetActiveOverlayAnchor()
 	-- In combat the flyout arrow sits against the totem button; an overlay on the
-	-- same side moves out past it rather than covering it.
-	local gap = self.flyoutArrowGap or 0
+	-- same side moves out past it rather than covering it. Its own pulse bar or
+	-- party dots on the side facing the button would then land on the tab, so the
+	-- overlay leaves room for those too.
+	local facing = (side == "top" and "below") or (side == "bottom" and "above") or (side == "left" and "right") or "left"
+	local pulsePos = self.opt.pulseBarPosition or "on_icon"
+	local reach = (pulsePos == facing) and (1 + (self.opt.pulseBarSize or 4)) or 0
+	local reachVert = (side == "top" and pulsePos == "below_vert") or (side == "bottom" and pulsePos == "above_vert")
+	if self.opt.showPartyRangeDots and (self.opt.partyDotPosition or "corners") == facing then
+		reach = math.max(reach, 2 + (self.opt.partyDotSize or 5))
+	end
 	for element = 1, 4 do
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
 		local btn = self.totemButtons and self.totemButtons[element]
-		if ov and ov.frame and btn then
+		-- (a plain frame; one made protected by something secure anchored to it is left alone in a fight)
+		if ov and ov.frame and btn and not (InCombatLockdown() and ov.frame:IsProtected()) then
 			local gx, gy = 0, 0
-			local flyout = self.totemFlyouts and self.totemFlyouts[element]
-			if gap > 0 and flyout and flyout.box and self:FlyoutDirection(flyout) == side then
+			local aT, aB, aL, aR = self:FlyoutArrowPads(btn)
+			local gap = (side == "top" and aT) or (side == "bottom" and aB) or (side == "left" and aL) or aR
+			if gap > 0 then
+				gap = gap + (reachVert and math.max(reach, 1 + ov.frame:GetHeight()) or reach)
 				if side == "top" then gy = gap
 				elseif side == "bottom" then gy = -gap
 				elseif side == "left" then gx = -gap
@@ -4481,8 +4557,9 @@ function ShamanPower:UpdateActiveTotemOverlays()
 		if overlay then
 			local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 
-			-- Get assigned totem info
-			local assignedIndex = assignments[element] or 0
+			-- Get assigned totem info (a right-click assign made in this fight waits in
+			-- pendingAssignments until it ends: the button already shows it, so compare with it)
+			local assignedIndex = (self.pendingAssignments and self.pendingAssignments[element]) or assignments[element] or 0
 			local assignedSpellID = nil
 			local assignedName = nil
 			if assignedIndex > 0 then
@@ -7110,9 +7187,12 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		btn.spFlyoutOpenArrow:Hide()
 		if btn.spFlyoutCloseArrow then btn.spFlyoutCloseArrow:Hide() end
 		self:DressFlyoutFrame(flyout)
+		btn.spFlyoutArrowSide = nil
+		self:FollowFlyoutArrows(btn)
 		return
 	end
 	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	btn.spFlyoutArrowSide = dir   -- where the tab is: what we draw on this side steps out past it
 	local element = flyout.artIndex or flyout.element or 5
 	local sideways = (dir == "left" or dir == "right")
 	for _, arrow in ipairs({ btn.spFlyoutOpenArrow, btn.spFlyoutCloseArrow }) do
@@ -7138,7 +7218,8 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 		arrow.tex:SetTexCoord(spArrowCoords(art, dir))
 		arrow.glow:SetSize((sideways and 11 or 20) * k, (sideways and 20 or 11) * k)
 		arrow.glow:SetTexCoord(spArrowCoords(isClose and ARROW_GLOW_CLOSE or ARROW_GLOW_OPEN, dir))
-		local enabled = flyout.isCdbarFlyout or self.opt.showTotemFlyouts
+		-- (none on the hidden custom bar while Blizzard's own totem bar is the style)
+		local enabled = flyout.isCdbarFlyout or (self.opt.showTotemFlyouts and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()))
 		local anything = false
 		for _, b in ipairs(flyout.buttons or {}) do
 			if b:IsShown() then anything = true break end
@@ -7149,6 +7230,7 @@ function ShamanPower:PlaceFlyoutArrows(flyout)
 	end
 	self:DressFlyoutFrame(flyout)
 	if self.RefreshCompactSquares then self:RefreshCompactSquares() end   -- Compact's icon square steps out past the tab
+	self:FollowFlyoutArrows(btn)   -- and so do the pulse / duration bars, dots and overlay on that side
 end
 
 -- How far a button's arrow tab sticks out on `side` ("top"/"bottom"/"left"/
@@ -7194,10 +7276,52 @@ end
 function ShamanPower:FlyoutArrowGapOn(btn, side)
 	local arrow = btn and btn.spFlyoutOpenArrow
 	if not (arrow and arrow:IsShown() and spFlyoutArrowLayout()) then return 0 end
-	local flyout = btn.element and self.totemFlyouts and self.totemFlyouts[btn.element]
-	local dir = flyout and (flyout.arrowDir or self:FlyoutDirection(flyout))
+	-- the edge PlaceFlyoutArrows put the tab on (a cooldown bar button has no element)
+	local dir = btn.spFlyoutArrowSide
+	if not dir then
+		local flyout = btn.element and self.totemFlyouts and self.totemFlyouts[btn.element]
+		dir = flyout and (flyout.arrowDir or self:FlyoutDirection(flyout))
+	end
 	if dir ~= side then return 0 end
 	return self:FlyoutArrowAcross(btn, dir)
+end
+
+-- Room the tab takes on each side of a button: top, bottom, left, right (only
+-- the tab's own side is ever above 0), as FollowFlyoutArrows last found it.
+-- Everything we draw outside a button on a side adds this to its distance from
+-- the button, so it sits out past the tab instead of behind it. Plain fields,
+-- so the per-tick cooldown bar code can read it too.
+function ShamanPower:FlyoutArrowPads(btn)
+	if not btn then return 0, 0, 0, 0 end
+	return btn.spArrowPadT or 0, btn.spArrowPadB or 0, btn.spArrowPadL or 0, btn.spArrowPadR or 0
+end
+
+-- A button's tab appeared, moved or went (PlaceFlyoutArrows, which only runs out
+-- of combat: the start and end of a fight, an arrow option, a relayout). When its
+-- room changed, place again what we draw outside that button: its pulse and
+-- duration bars with their numbers, the party dots, the dropped-totem overlay,
+-- or on the cooldown bar the shield / imbue bars and their text. Layout changes
+-- only; nothing here runs per frame. No option: it follows the tab by itself.
+function ShamanPower:FollowFlyoutArrows(btn)
+	if not btn or InCombatLockdown() then return end
+	local side = btn.spFlyoutArrowSide
+	local gap = side and self:FlyoutArrowGapOn(btn, side) or 0
+	local t, b = (side == "top") and gap or 0, (side == "bottom") and gap or 0
+	local l, r = (side == "left") and gap or 0, (side == "right") and gap or 0
+	local oT, oB, oL, oR = self:FlyoutArrowPads(btn)
+	if t == oT and b == oB and l == oL and r == oR then return end
+	btn.spArrowPadT, btn.spArrowPadB, btn.spArrowPadL, btn.spArrowPadR = t, b, l, r
+	if btn.cooldownType then
+		if self.UpdateCooldownBarProgressBars then self:UpdateCooldownBarProgressBars() end
+		return
+	end
+	local element = btn.element
+	if not (element and self.totemButtons and self.totemButtons[element] == btn) then return end
+	local pulse = self.pulseOverlays and self.pulseOverlays[element]
+	if pulse and pulse.button == btn then self:PositionPulseWipe(pulse) end
+	self:UpdateTotemProgressBarPositions()
+	self:PlacePartyDotFrame(btn)
+	self:PositionActiveOverlays()
 end
 
 -- Optional Blizzard-style frame around an open flyout (opt.flyoutStyle ==
@@ -7641,6 +7765,8 @@ function ShamanPower:CreateTotemFlyout(element)
 						end
 						ShamanPower.pendingAssignments[elem] = totemIdx
 						ShamanPower:MarkAssignedInFlyout(elem)
+						-- the dropped totem now differs from (or matches) the new one: its icon above, now
+						ShamanPower:UpdateActiveTotemOverlays()
 					else
 						-- Out of combat: do all updates immediately
 						if not ShamanPower_Assignments[ShamanPower.player] then
@@ -7773,6 +7899,7 @@ function ShamanPower:CreateTotemFlyout(element)
 				ShamanPower.pendingAssignments = ShamanPower.pendingAssignments or {}
 				ShamanPower.pendingAssignments[elem] = 0
 				ShamanPower:MarkAssignedInFlyout(elem)
+				ShamanPower:UpdateActiveTotemOverlays()   -- a totem still down is no longer the assigned one
 			else
 				ShamanPower_Assignments[ShamanPower.player] = ShamanPower_Assignments[ShamanPower.player] or {}
 				ShamanPower_Assignments[ShamanPower.player][elem] = 0
@@ -10296,6 +10423,8 @@ local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, 
 	local buttonWidth, buttonHeight, barHeight = ctx.buttonWidth, ctx.buttonHeight, ctx.barHeight
 	local barPosition, btn = ctx.barPosition, ctx.btn
 	local both = hasMain and hasOff
+	-- out past the flyout tab on its side while it shows (see FollowFlyoutArrows)
+	local aT, aB, aL, aR = ShamanPower:FlyoutArrowPads(btn)
 
 	if not hasMain and not hasOff then
 		if bgMain then bgMain:Hide() end
@@ -10306,45 +10435,45 @@ local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, 
 	if barPosition == "bottom" then
 		if both then
 			bgMain:SetSize(buttonWidth / 2, barHeight)
-			bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+			bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
 			bgOff:SetSize(buttonWidth / 2, barHeight)
-			bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -1)
+			bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -(1 + aB))
 		else
 			bgMain:SetSize(buttonWidth, barHeight)
-			bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+			bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
 			if bgOff then bgOff:Hide() end
 		end
 	elseif barPosition == "top" then
 		if both then
 			bgMain:SetSize(buttonWidth / 2, barHeight)
-			bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+			bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
 			bgOff:SetSize(buttonWidth / 2, barHeight)
-			bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1)
+			bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1 + aT)
 		else
 			bgMain:SetSize(buttonWidth, barHeight)
-			bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+			bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
 			if bgOff then bgOff:Hide() end
 		end
 	elseif barPosition == "top_vert" then
 		if both then
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1)
+			bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1 + aT)
 			bgOff:SetSize(barHeight, buttonHeight)
-			bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1)
+			bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1 + aT)
 		else
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+			bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1 + aT)
 			if bgOff then bgOff:Hide() end
 		end
 	elseif barPosition == "bottom_vert" then
 		if both then
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -1)
+			bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -(1 + aB))
 			bgOff:SetSize(barHeight, buttonHeight)
-			bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -1)
+			bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -(1 + aB))
 		else
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+			bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -(1 + aB))
 			if bgOff then bgOff:Hide() end
 		end
 	elseif barPosition == "on_icon" then
@@ -10361,23 +10490,23 @@ local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, 
 	elseif barPosition == "left" then
 		if both then
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+			bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
 			bgOff:SetSize(barHeight, buttonHeight)
-			bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+			bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 		else
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+			bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
 			if bgOff then bgOff:Hide() end
 		end
 	elseif barPosition == "right" then
 		if both then
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+			bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 			bgOff:SetSize(barHeight, buttonHeight)
 			bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
 		else
 			bgMain:SetSize(barHeight, buttonHeight)
-			bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+			bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 			if bgOff then bgOff:Hide() end
 		end
 	end
@@ -10410,7 +10539,7 @@ local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, 
 		elseif barPosition == "bottom_vert" then
 			outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
 		else
-			outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1, 0)
+			outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1 - (barPosition == "on_icon" and aL or 0), 0)
 		end
 	end
 	if outsideOff then
@@ -10425,7 +10554,7 @@ local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, 
 			elseif barPosition == "bottom_vert" then
 				outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
 			else
-				outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1, 0)
+				outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1 + (barPosition == "on_icon" and aR or 0), 0)
 			end
 		else
 			outsideOff:Hide()
@@ -10626,7 +10755,7 @@ function ShamanPower:UpdateCooldownButtons()
 					local r, g, b = GetBarColor(remaining * 1000, activeShieldID)
 
 					if btn.bgBar then btn.bgBar:Show() end
-					btn.progressBar:ClearAllPoints()
+					btn.progressBar:ClearAllPoints()   -- on its background, which steps out past a flyout tab
 
 					if isVerticalBar then
 						-- Vertical bar
@@ -10635,9 +10764,9 @@ function ShamanPower:UpdateCooldownButtons()
 						if barPosition == "on_icon" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "left" then
-							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+							btn.progressBar:SetPoint("BOTTOMRIGHT", btn.bgBar, "BOTTOMRIGHT", 0, 0)
 						elseif barPosition == "right" then
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "top_vert" then
 							btn.progressBar:SetPoint("BOTTOM", btn.bgBar, "BOTTOM", 0, 0)
 						elseif barPosition == "bottom_vert" then
@@ -10648,9 +10777,9 @@ function ShamanPower:UpdateCooldownButtons()
 						local progressWidth = math.max(buttonWidth * percent, 1)
 						btn.progressBar:SetSize(progressWidth, barHeight)
 						if barPosition == "bottom" then
-							btn.progressBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+							btn.progressBar:SetPoint("TOPLEFT", btn.bgBar, "TOPLEFT", 0, 0)
 						else
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						end
 					end
 					ShamanPower:SetSPBarColor(btn.progressBar, "cooldown", r, g, b, 0.9)
@@ -10759,7 +10888,7 @@ function ShamanPower:UpdateCooldownButtons()
 					local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
 
 					if btn.bgBar then btn.bgBar:Show() end
-					btn.progressBar:ClearAllPoints()
+					btn.progressBar:ClearAllPoints()   -- on its background, which steps out past a flyout tab
 
 					if isVerticalBar then
 						-- Vertical bar
@@ -10768,9 +10897,9 @@ function ShamanPower:UpdateCooldownButtons()
 						if barPosition == "on_icon" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "left" then
-							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+							btn.progressBar:SetPoint("BOTTOMRIGHT", btn.bgBar, "BOTTOMRIGHT", 0, 0)
 						elseif barPosition == "right" then
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "top_vert" then
 							btn.progressBar:SetPoint("BOTTOM", btn.bgBar, "BOTTOM", 0, 0)
 						elseif barPosition == "bottom_vert" then
@@ -10781,9 +10910,9 @@ function ShamanPower:UpdateCooldownButtons()
 						local progressWidth = math.max(buttonWidth * percent, 1)
 						btn.progressBar:SetSize(progressWidth, barHeight)
 						if barPosition == "bottom" then
-							btn.progressBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+							btn.progressBar:SetPoint("TOPLEFT", btn.bgBar, "TOPLEFT", 0, 0)
 						else
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						end
 					end
 					ShamanPower:SetSPBarColor(btn.progressBar, "cooldown", r, g, b, 0.9)
@@ -11261,6 +11390,8 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 	for _, btn in ipairs(self.cooldownButtons) do
 		local buttonSize = btn:GetWidth()
 		local buttonHeight = btn:GetHeight()
+		-- out past the flyout tab on its side while it shows (shield and imbue buttons)
+		local aT, aB, aL, aR = self:FlyoutArrowPads(btn)
 
 		-- Normal buttons (single bar)
 		if btn.spellType ~= "weaponImbue" then
@@ -11268,30 +11399,30 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				btn.bgBar:ClearAllPoints()
 				if barPosition == "bottom" then
 					btn.bgBar:SetSize(buttonSize, barSize)
-					btn.bgBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
-					btn.bgBar:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -1)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
+					btn.bgBar:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -(1 + aB))
 				elseif barPosition == "bottom_vert" then
 					btn.bgBar:SetSize(barSize, buttonHeight)
-					btn.bgBar:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+					btn.bgBar:SetPoint("TOP", btn, "BOTTOM", 0, -(1 + aB))
 				elseif barPosition == "top" then
 					btn.bgBar:SetSize(buttonSize, barSize)
-					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
-					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 1)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
+					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 1 + aT)
 				elseif barPosition == "top_vert" then
 					btn.bgBar:SetSize(barSize, buttonHeight)
-					btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+					btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1 + aT)
 				elseif barPosition == "on_icon" then
 					btn.bgBar:SetSize(barSize, buttonSize)
 					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
 					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
 				elseif barPosition == "left" then
 					btn.bgBar:SetSize(barSize, buttonSize)
-					btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
-					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+					btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
+					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -(1 + aL), 0)
 				elseif barPosition == "right" then
 					btn.bgBar:SetSize(barSize, buttonSize)
-					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
-					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1 + aR, 0)
 				end
 			end
 
@@ -11309,7 +11440,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				elseif barPosition == "top" or barPosition == "top_vert" then
 					btn.outsideText:SetPoint("BOTTOM", btn.bgBar, "TOP", 0, 1)
 				elseif barPosition == "on_icon" then
-					btn.outsideText:SetPoint("RIGHT", btn, "LEFT", -1, 0)
+					btn.outsideText:SetPoint("RIGHT", btn, "LEFT", -(1 + aL), 0)
 				elseif barPosition == "left" then
 					btn.outsideText:SetPoint("RIGHT", btn.bgBar, "LEFT", -1, 0)
 				elseif barPosition == "right" then
@@ -11332,45 +11463,45 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				if barPosition == "bottom" then
 					if both then
 						bgMain:SetSize(buttonSize / 2, barSize)
-						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
 						bgOff:SetSize(buttonSize / 2, barSize)
-						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -1)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -(1 + aB))
 					else
 						bgMain:SetSize(buttonSize, barSize)
-						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "top" then
 					if both then
 						bgMain:SetSize(buttonSize / 2, barSize)
-						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
 						bgOff:SetSize(buttonSize / 2, barSize)
-						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1 + aT)
 					else
 						bgMain:SetSize(buttonSize, barSize)
-						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "top_vert" then
 					if both then
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1)
+						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1 + aT)
 						bgOff:SetSize(barSize, buttonHeight)
-						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1 + aT)
 					else
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1 + aT)
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "bottom_vert" then
 					if both then
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -1)
+						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -(1 + aB))
 						bgOff:SetSize(barSize, buttonHeight)
-						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -1)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -(1 + aB))
 					else
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -(1 + aB))
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "on_icon" then
@@ -11387,23 +11518,23 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				elseif barPosition == "left" then
 					if both then
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
 						bgOff:SetSize(barSize, buttonSize)
-						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 					else
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "right" then
 					if both then
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 						bgOff:SetSize(barSize, buttonSize)
 						bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
 					else
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 						if bgOff then bgOff:Hide() end
 					end
 				end
@@ -11434,7 +11565,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 					elseif barPosition == "bottom_vert" then
 						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
 					else
-						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1, 0)
+						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1 - (barPosition == "on_icon" and aL or 0), 0)
 					end
 				end
 				if outsideOff then
@@ -11449,7 +11580,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 						elseif barPosition == "bottom_vert" then
 							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
 						else
-							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1, 0)
+							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1 + (barPosition == "on_icon" and aR or 0), 0)
 						end
 					else
 						outsideOff:Hide()
@@ -11476,6 +11607,7 @@ function ShamanPower:PositionPartyDots(dots, frame)
 	local size, gap = (self.opt and self.opt.partyDotSize) or 5, 2
 	local outline = not (self.opt and self.opt.partyDotOutline == false)
 	local span = 4 * size + 3 * gap
+	local anchor = self:PlacePartyDotFrame(frame)
 	for i = 1, 4 do
 		local dot = dots[i]
 		if dot then
@@ -11498,12 +11630,42 @@ function ShamanPower:PositionPartyDots(dots, frame)
 			dot.spOutline:SetShown(outline and dot:IsShown())
 			dot:ClearAllPoints()
 			local point, relPoint, x, y = self:PartyDotAnchor(i, frame)
-			dot:SetPoint(point, frame, relPoint, x, y)
+			dot:SetPoint(point, anchor, relPoint, x, y)
 		end
 	end
 	-- engine-drawn dots are anchored when built: re-anchoring means rebuilding
 	-- (a no-op while nothing about the placement changed)
 	if self.RebuildEnginePartyDots then self:RebuildEnginePartyDots() end
+end
+
+-- The dots hang from a stand-in for the button's rectangle rather than from the
+-- button: dots on the side where the flyout tab sits step out past it by moving
+-- this one plain frame, and the engine-drawn dots (Party Range), anchored to the
+-- same frame, go with them, so the two sets stay on top of each other without a
+-- rebuild. Corners and Compact's in-line dots never move.
+function ShamanPower:PlacePartyDotFrame(frame)
+	local x, y = 0, 0
+	if not (frame.compactLayoutOn and self:CompactActive()) then
+		local pos = (self.opt and self.opt.partyDotPosition) or "corners"
+		local t, b, l, r = self:FlyoutArrowPads(frame)
+		if pos == "above" then y = t
+		elseif pos == "below" then y = -b
+		elseif pos == "left" then x = -l
+		elseif pos == "right" then x = r end
+	end
+	local f = frame.spDotFrame
+	if f and f.spX == x and f.spY == y then return f end   -- already there
+	if not f then
+		f = CreateFrame("Frame", nil, frame)
+		frame.spDotFrame = f
+	elseif InCombatLockdown() and f:IsProtected() then
+		return f   -- an engine dot anchored to it may protect it: left for the next layout
+	end
+	f.spX, f.spY = x, y
+	f:ClearAllPoints()
+	f:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
+	f:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", x, y)
+	return f
 end
 
 -- Where party dot `i` sits on `frame` (point, relative point, x, y) under the
@@ -16313,6 +16475,7 @@ function ShamanPower:ParseMessage(sender, msg)
 
 	-- Handle TWIST message for totem twisting assignment
 	if kw == "TWIST" then
+		if self.NoTotemTwisting then return end   -- WoW: Forever cannot twist: nobody turns it on for us
 		local name, enabled = strmatch(msg, "^TWIST (.+) ([01])$")
 		if not name then return end
 		name = messageName(self, name, sender)
@@ -16686,7 +16849,7 @@ function ShamanPower:UpdateLayout()
 	local layout = self.Layouts[self.opt.layout]
 	if not layout then
 		-- Fallback to Vertical (Right) if the configured layout doesn't exist
-		self.opt.layout = "Vertical"
+		self.opt.layout = "Horizontal"
 		layout = self.Layouts["Vertical"]
 	end
 	local ox = layout.ab.x * x

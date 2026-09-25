@@ -428,6 +428,9 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 	local size = SP.opt.partyDotSize or 5
 	local outline = SP.opt.partyDotOutline ~= false
 	local point, relPoint, x, y = ShamanPower:PartyDotAnchor(partyIndex, btn)
+	-- the addon's own dots hang from the same stand-in, which steps out past a
+	-- flyout tab on the dots' side: both sets move together, no rebuild
+	local dotFrame = ShamanPower.PlacePartyDotFrame and ShamanPower:PlacePartyDotFrame(btn) or btn
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
 	if not ok or not container then
 		if SPCompat.Trace then SPCompat.Trace("DOTS container %d/%d create failed: %s", element, partyIndex, tostring(container)) end
@@ -440,7 +443,7 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 		initializeFrame = function(button)
 			button:ClearAllPoints()
 			button:SetSize(size, size)
-			button:SetPoint(point, btn, relPoint, x, y)
+			button:SetPoint(point, dotFrame, relPoint, x, y)
 			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
 			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
 			if outline then
