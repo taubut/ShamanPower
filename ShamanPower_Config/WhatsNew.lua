@@ -38,7 +38,8 @@ local NOTES = {
 		{ icon = "Interface\\Icons\\INV_Misc_Gear_01", h = "The settings window shows what it changes",
 		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
-	footer = "Also: a Grid style that shows every totem at once (Settings > General > Main > Totem Bar Style),"
+	footer = "Also: a reorganized settings window, Enable ShamanPower to turn the whole addon off,"
+		.. " a Grid style that shows every totem at once (Settings > General > Main > Totem Bar Style),"
 		.. " a Move button and Unlock UI box for the loadout bar, an icon picker with search,"
 		.. " and an alignment grid in Unlock UI. The full list is in the changelog.",
 }

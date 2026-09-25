@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Author: Srumar
 ## Title: SP Save Test - Shared range owner
-## Version: 2.1.1
+## Version: 3.0.0
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Isolated saved-variable declaration/ownership test.
 ## DefaultState: enabled

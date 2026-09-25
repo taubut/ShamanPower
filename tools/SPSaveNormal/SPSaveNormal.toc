@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Author: Srumar
 ## Title: SP Save Test - Normal
-## Version: 2.1.1
+## Version: 3.0.0
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Temporary isolated saved-variable persistence test (normal loading).
 ## DefaultState: enabled
