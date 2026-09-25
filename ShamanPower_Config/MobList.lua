@@ -1,6 +1,8 @@
 -- ShamanPower_Config / MobList.lua
 -- Tremor Reminder's fear-caster mob list, drawn with the config kit. Replaces
 -- the module's Blizzard-template window (this addon loads after the module).
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local _, ns = ...
 local Core = ns.Core
 local SP = ShamanPower

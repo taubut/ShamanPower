@@ -4,6 +4,8 @@
 -- Each totem type has its own movable frame
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 if not SP then
 	print("|cff0070ddShamanPower [Reactive Totems]:|r Core addon not found!")

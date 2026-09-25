@@ -15,6 +15,9 @@ ShamanPower.isVanilla = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_CLASSIC)
 ShamanPower.isBCC = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
 ShamanPower.isWrath = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_WRATH_CLASSIC)
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower", true)
 if not L then
 	L = setmetatable({}, {__index = function(t, k) return k end})
@@ -1090,6 +1093,14 @@ end
 
 function ShamanPower:OnEnable()
 	isShaman = select(2, UnitClass("player")) == "SHAMAN"
+	if not self:FixPlayerIdentity() then
+		local f = CreateFrame("Frame")
+		f:RegisterEvent("PLAYER_ENTERING_WORLD")
+		f:RegisterUnitEvent("UNIT_NAME_UPDATE", "player")
+		f:SetScript("OnEvent", function(frame)
+			if ShamanPower:FixPlayerIdentity() then frame:UnregisterAllEvents() end
+		end)
+	end
 
 	self.opt.enable = true
 	self:ScanTalents()
@@ -1224,6 +1235,9 @@ function ShamanPower:OnDisable()
 end
 
 function ShamanPower:OnProfileChanged()
+	local fix = self.aceCharKeyFix
+	local pk = fix and self.db and rawget(self.db, "sv") and rawget(self.db, "sv").profileKeys
+	if pk then pk[fix.real], pk[fix.bad] = self.db:GetCurrentProfile(), nil end
 	-- Clean up all popped-out frames from the old profile first
 	if self.poppedOutFrames then
 		for key, frame in pairs(self.poppedOutFrames) do
@@ -1637,6 +1651,77 @@ local function learnedDurations()
 	end
 	return shadowLearnedDuration
 end
+-- On a cold login to WoW: Forever the game can still call the player "Unknown" while
+-- addons load, so everything that takes the name then files it under a character called
+-- "Unknown": our own player name (assignments, the name sent to other shamans) and AceDB's
+-- character key (per-character data such as learned totem lengths, and which profile this
+-- character uses). Measured 2026-09-24: a whole session's assignments and totem lengths
+-- saved under "Unknown", then "not learned" after a /reload. Once the real name is
+-- readable this puts both right; false while the game still has no name.
+local function nameKnown(n)
+	return type(n) == "string" and n ~= "" and n ~= "Unknown" and n ~= UNKNOWNOBJECT
+end
+local PER_NAME_TABLES = { "ShamanPower_Assignments", "ShamanPower_TwistAssignments", "ShamanPower_EarthShieldAssignments" }
+function ShamanPower:FixPlayerIdentity()
+	local name = UnitName("player")          -- "First Surname" on Forever (SPCompat.UnitName)
+	local first = _G.UnitName("player")      -- AceDB keys on the game's first return
+	if not nameKnown(name) or not nameKnown(first) then return false end
+	local old = self.player
+	self.player = name
+	for _, global in ipairs(PER_NAME_TABLES) do
+		local t = _G[global]
+		if type(t) == "table" then
+			-- this login's own entries, written before the name was known, belong to the real name;
+			-- so do ones filed under the first name alone (builds before the surname was read)
+			for _, stale in ipairs({ old, first }) do
+				if stale and stale ~= name and t[stale] ~= nil then
+					if t[name] == nil then t[name] = t[stale] end
+					t[stale] = nil
+				end
+			end
+			-- left over from an earlier cold login: whose it was cannot be told, so it goes
+			t.Unknown = nil
+			if UNKNOWNOBJECT then t[UNKNOWNOBJECT] = nil end
+		end
+	end
+	if self.AllShamans then
+		if old and old ~= name then self.AllShamans[old] = nil end
+		if first ~= name then self.AllShamans[first] = nil end
+	end
+	-- AceDB took its character key when it loaded and never looks again
+	local db = self.db
+	local keys = db and rawget(db, "keys")
+	local sv = db and rawget(db, "sv")
+	if keys and sv and type(keys.char) == "string" then
+		local realKey = first .. " - " .. (GetRealmName() or "")
+		local badKey = keys.char
+		if badKey ~= realKey and not nameKnown((badKey:match("^(.-) %- "))) then
+			keys.char = realKey
+			rawset(db, "char", nil)   -- AceDB builds db.char from sv.char[keys.char] on its next use
+			if sv.char then sv.char[badKey] = nil end   -- mixed whichever characters logged in cold
+			shadowDurationsSaved, shadowLearnedDuration = false, {}   -- rebind learned lengths to the real character
+			self.aceCharKeyFix = { bad = badKey, real = realKey }
+			local pk = sv.profileKeys
+			if pk then
+				local current = db:GetCurrentProfile()
+				local want = pk[realKey] or current
+				pk[badKey], pk[realKey] = nil, want
+				-- this character has its own profile: switch to it once the addon is up
+				if want ~= current then C_Timer.After(0, function() self.db:SetProfile(want) end) end
+			end
+		end
+		-- "Unknown" leftovers from earlier cold logins, whoever they were: never read again
+		for _, store in ipairs({ sv.char, sv.profileKeys }) do
+			if type(store) == "table" then
+				for key in pairs(store) do
+					if key ~= keys.char and type(key) == "string" and not nameKnown((key:match("^(.-) %- "))) then store[key] = nil end
+				end
+			end
+		end
+	end
+	return true
+end
+
 local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE
 local shadowPendingCast                -- { element, at } waiting for its slot update
 local shadowPendingSlot                -- { slot, at } update that arrived before its cast event
@@ -1893,6 +1978,10 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 					elseif not e.durationKnown then why = "unknown"
 					elseif at >= e.startTime + e.duration - 1 then why = "expired"
 					else why = "destroyed" end
+					if SPCompat and SPCompat.Trace then
+						SPCompat.Trace("SHADOW gone element %d: %s (%.1f s after the drop, length %s)", rec.element, why,
+							at - e.startTime, e.durationKnown and string.format("%.0f s", e.duration) or "not learned")
+					end
 					pcall(self.OnShadowTotemGone, self, rec.element, e, why)
 				end)
 			end

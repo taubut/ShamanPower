@@ -3,11 +3,20 @@
 -- Raid Cooldown Management - BL/Heroism and Mana Tide calling
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local SP = ShamanPower
 if not SP then
 	print("|cff0070ddShamanPower [Raid Cooldowns]:|r Core addon not found!")
 	return
 end
+
+-- /sp calltest: this shaman takes Mana Tide calls as if it knew Mana Tide (a level-40
+-- Restoration talent), so the caller buttons can be tested end to end on any character.
+-- Local only: nothing that is sent changes, and a /reload ends it.
+local callPractice = false
+local function KnowsManaTide() return callPractice or IsSpellKnown(16190) end
 
 -- Mark module as loaded
 SP.RaidCooldownsLoaded = true
@@ -264,7 +273,7 @@ function SP:GetManaTideShamans()
 		local _, class = UnitClass("player")
 		if class == "SHAMAN" then
 			-- Check if we have Mana Tide (spell ID 16190)
-			if IsSpellKnown(16190) then
+			if KnowsManaTide() then
 				local name = UnitName("player")
 				table.insert(mtShamans, {name = name, group = 1})
 			end
@@ -272,7 +281,7 @@ function SP:GetManaTideShamans()
 	else
 		-- Solo
 		local _, class = UnitClass("player")
-		if class == "SHAMAN" and IsSpellKnown(16190) then
+		if class == "SHAMAN" and KnowsManaTide() then
 			local name = UnitName("player")
 			table.insert(mtShamans, {name = name, group = 1})
 		end
@@ -686,12 +695,12 @@ function SP:HandleRaidCooldownMessage(prefix, message, sender)
 		local targetShaman = rest
 		if targetShaman and targetShaman ~= "" then
 			-- Specific shaman called
-			if targetShaman == self.player and IsSpellKnown(16190) then
+			if targetShaman == self.player and KnowsManaTide() then
 				self:ShowManaTideAlert()
 			end
 		else
 			-- Broadcast to all MT shamans
-			if IsSpellKnown(16190) then
+			if KnowsManaTide() then
 				self:ShowManaTideAlert()
 			end
 		end
@@ -1622,4 +1631,24 @@ end
 
 if ShamanPower.RegisterPreview then
 	ShamanPower:RegisterPreview("raidcd", { frame = "ShamanPowerCallerButtons", demo = "SP:RaidCDDemo", pad = 24 })
+end
+
+-- /sp calltest [on|off]
+local slash = SlashCmdList["SHAMANPOWER"]
+if slash then
+	SlashCmdList["SHAMANPOWER"] = function(msg)
+		local cmd, arg = strmatch(strtrim(strlower(msg or "")), "^(%S+)%s*(%S*)$")
+		if cmd == "calltest" then
+			if arg == "on" then callPractice = true
+			elseif arg == "off" then callPractice = false
+			else callPractice = not callPractice end
+			print("|cff0070ddShamanPower|r: Mana Tide call practice " .. (callPractice
+				and "ON: this shaman takes Mana Tide calls as if it knew Mana Tide. /sp calltest off to stop."
+				or "OFF."))
+			if SP.UpdateCallerButtons then SP:UpdateCallerButtons() end
+			if SP.raidCooldownPanel and SP.raidCooldownPanel:IsShown() then SP:UpdateRaidCooldownPanel() end
+			return
+		end
+		return slash(msg)
+	end
 end

@@ -3,6 +3,8 @@
 -- Track Earth Shields cast by OTHER shamans in your raid/party
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 if not SP then return end
 -- Loads for every class: raid leaders and healers track the shamans' Earth Shields.

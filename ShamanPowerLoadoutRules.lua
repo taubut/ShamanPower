@@ -26,6 +26,8 @@
 -- loadout list is positional and deleting one shifts the rest.
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end

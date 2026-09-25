@@ -3,6 +3,8 @@
 -- Scrolling combat text style alerts for expiring shields, totems, and imbues
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 -- Forever returns a LIST of enchants per weapon; the legacy global reports only
 -- the first entry, which is empty when the imbue lands in the second.

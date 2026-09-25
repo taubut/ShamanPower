@@ -13,6 +13,8 @@
 -- and SendChatMessage is restricted then too: both are checked before use.
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end

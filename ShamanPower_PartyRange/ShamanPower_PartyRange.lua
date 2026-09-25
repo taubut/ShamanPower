@@ -3,6 +3,8 @@
 -- Shows party members in/out of totem range via dots and counters
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 if not SP then return end
 

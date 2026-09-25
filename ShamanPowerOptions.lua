@@ -1,3 +1,5 @@
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower")
 
 local isShaman = select(2, UnitClass("player")) == "SHAMAN"

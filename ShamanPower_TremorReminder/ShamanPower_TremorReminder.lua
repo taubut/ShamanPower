@@ -1,3 +1,5 @@
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo  -- guarded on restricted clients
 --[[
     ShamanPower_TremorReminder

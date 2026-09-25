@@ -595,6 +595,31 @@ SPCompat.rawGetTotemInfo = GetTotemInfo   -- unwrapped, for the in-combat probes
 -- then cannot read its own secret values (BuffFrame errors in combat).
 SPCompat.GetTotemInfo = GetTotemInfo
 SPCompat.GetSpellCooldown = GetSpellCooldown
+-- Character names. On WoW: Forever (regional unique names) a character is "First Surname",
+-- and UnitName returns the two parts separately (name, surname) where other clients return
+-- (name, realm); Blizzard's own NameUtil (Camelot) joins them with a space. Addon message
+-- senders and the roster carry the whole "First Surname", so every name ShamanPower keys on
+-- is built the same way, or the player shows up twice ("Srumar" and "Srumar Bagels") and
+-- calls meant for them are not recognised. The second return is dropped there: on Forever
+-- it is never a realm. Secret names pass through untouched. Other clients: unchanged.
+local function regionalNames() return RegionalUniqueNamesEnabled ~= nil and RegionalUniqueNamesEnabled() end
+function SPCompat.UnitName(unit)
+	local name, second = UnitName(unit)
+	if not regionalNames() then return name, second end
+	if issecretvalue and (issecretvalue(name) or issecretvalue(second)) then return name, nil end
+	if type(name) == "string" and type(second) == "string" and second ~= "" and not name:find(" ", 1, true) then
+		return name .. " " .. second, nil
+	end
+	return name, nil
+end
+-- the roster's name, built the same way from the raidN unit
+function SPCompat.GetRaidRosterInfo(index)
+	if not regionalNames() then return GetRaidRosterInfo(index) end
+	local name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML, combatRole = GetRaidRosterInfo(index)
+	local full = SPCompat.UnitName("raid" .. index)
+	if type(full) == "string" and full ~= "" and not (issecretvalue and issecretvalue(full)) then name = full end
+	return name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML, combatRole
+end
 if not issecretvalue then
 	function issecretvalue() return false end
 end

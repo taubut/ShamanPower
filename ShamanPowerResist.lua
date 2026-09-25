@@ -29,6 +29,9 @@
 -- to end, like loadout switches.
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local SP = ShamanPower
 if not SP then return end
 if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end

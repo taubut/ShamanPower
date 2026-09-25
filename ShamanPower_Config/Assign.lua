@@ -8,6 +8,9 @@
 -- ShamanPower:PerformCycle / PerformCycleBackwards; every other write mirrors
 -- the exact sequence the XML window used (spec §3.4, §3.5, §3.8).
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local ADDON, ns = ...
 local Core    = ns.Core
 local Widgets = ns.Widgets
