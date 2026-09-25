@@ -18,7 +18,7 @@
 - **Bundled fonts and sounds.** Ten fonts (Barlow Condensed, Bebas Neue, Black Ops One, Chakra Petch, Fira Sans, Oxanium, Rajdhani, Russo One, Saira Semi Condensed, Teko; SIL Open Font License) and seven ShamanPower alert sounds (Totem Chime, Shield Pop, Ready Ping, War Horn, Water Drop, Earth Thud, Thunder) in every font and sound list, also for other addons that use LibSharedMedia.
 - **Bar textures** (both clients). Settings > General > Fonts & Textures: pick the texture of every bar ShamanPower draws (totem duration bars, cooldown bar, pulse sweeps), or give each its own, from WoW's bar, ShamanPower's four and every texture other addons share. Hover to preview on your bars. **Apply This Look Everywhere** puts your chosen font, outline and texture on everything at once, Compact's lines included; **Reset Look** goes back to the designed look.
 - **Mana tint** (option, Appearance > Textures & Colors): totem, flyout and cooldown buttons turn blue while you cannot afford them, like Blizzard's action bars. Colour of your choice.
-- **Minimap quick menu:** right-click the minimap icon to switch totem bar style, apply a loadout, open assignments, Unlock UI, Keybind Mode, Fonts & Textures, What's New, the setup tour or settings. Shift-right-click opens settings straight away.
+- **Minimap quick menu:** right-click the minimap icon to switch totem bar style, apply a loadout, open assignments, Unlock UI, Keybind Mode, What's New or settings. Shift-right-click opens settings straight away.
 - **Raid resistance requests** (Forever). On Forever, Fire, Frost and Nature Resistance totems reach the whole raid. Tick Need Fire / Frost / Nature Resistance in the assignments window (any shaman, or the raid leader or an assistant) and ShamanPower asks the one shaman whose group loses least; they Accept or Pass, or it applies at once with Free Assign or auto-accept. Nobody can change another shaman's totems without that. Unticking gives their old totem back. Loadout Auto-Switch zone and boss rules can request one. `/sp resisttest` practises the whole flow alone.
 - **Call of the Elements / Ancestors / Spirits in combat** (Forever): every totem a set places now shows its icon, timer and pulse mid-fight.
 - **Ready Reminders follow the real cooldown in combat** (Forever): the icon brightens or appears exactly when the spell is ready, even when the addon's estimate lags.
@@ -32,6 +32,8 @@
 - **Unlock UI (move everything).** One button (General > Main, or `/sp unlock`) shows a labelled box on every frame ShamanPower draws; drag them, put each back with its own Reset (all but the Party Range counters, the Totem Range overlay, the Raid Cooldown callers and the Earth Shield tracker), and snap to an optional alignment grid.
 - **ShamanPower Discord** on General: help, bug reports, feature voting and early builds. Copy Link button.
 - **Loadouts:** the bar has a Move button (Loadouts tab) and a box in Unlock All; a loadout's chosen icon shows on its button; the icon picker is rebuilt on the settings look with a search box.
+- **Loadout bar:** hover the button for a pop-out of your other loadouts (one column, names beside each), or click the button itself to step to the next loadout (right-click: previous). Each loadout keeps its own Drop All exclusions (Exclude Earth / Fire / Water / Air on its Loadouts entry): switching swaps them in, and Call of the Elements follows on Forever.
+- **Raid call practice:** `/sp calltest` makes a shaman take Mana Tide calls (from a caller button or someone typing "tide") as if it knew Mana Tide, so the whole flow can be tried at any level.
 
 ### Changes
 - Compact style has a new look and defaults; a Compact profile already in use keeps its old look.
@@ -51,6 +53,10 @@
 - "Totemic Call" reads "Totemic Recall" where the game names it so.
 - The Earth Shield column, tracker and options do not appear on a client without Earth Shield.
 - Settings text says "ShamanPower's bar" and "Blizzard's bar" throughout.
+- Raid Resistance has its own entry in the settings sidebar (it was the tenth Totem Bar tab); tab rows wrap instead of running off the window; the What's New button sits on General > Main only.
+- Loadout totem pickers mark totems your character has not learned yet; the Set Page picker appears once Call of the Ancestors or Call of the Spirits is known; the Blizzard sets preview lists totems in Blizzard's order (Earth, Fire, Water, Air) and shows ones left out of Drop All dimmed.
+- Every chat line ShamanPower prints starts with the same blue ShamanPower.
+- Ready Check: the weapon imbue line shows the Windfury Weapon icon; the sound has a Test Sound button.
 
 ### Fixes
 - Party buff dots drawn by the game were never built on Forever; they are now.
@@ -69,6 +75,10 @@
 - The cooldown bar's raid-call alert (glow and icon pulse on a Mana Tide or Bloodlust call) never showed; it does now, and a repeat call keeps it going.
 - Pulse bars stayed invisible after Pulse Bar Position had been set to None and back, until a /reload.
 - Assignments, twisting and Earth Shield targets set while the game blocks addon messages (Forever instance fights) are sent to that group once it lifts, instead of never; leaving the group first drops them.
+- **Forever surnames:** the game gives a character's first name and surname separately; ShamanPower now joins them as the game's own interface does, so you no longer appear twice in the assignments window ("Srumar" and "Srumar Bagels") and raid calls addressed to you are recognised.
+- **"Unknown" on a cold login** (Forever): when the game had not given the character's name yet as addons loaded, ShamanPower and its settings filed that session under a character called "Unknown" (assignments, learned totem lengths, per-character profile). It now waits for the real name and moves anything written meanwhile.
+- "Totem Destroyed" in combat knows every totem's length from its first drop (a table read from Forever's spell data) instead of learning it out of combat first.
+- The loadout bar's pop-out never opened on Forever.
 
 ### Known
 - Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
