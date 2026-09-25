@@ -1642,6 +1642,7 @@ if slash then
 			if arg == "on" then callPractice = true
 			elseif arg == "off" then callPractice = false
 			else callPractice = not callPractice end
+			SP.manaTideCallPractice = callPractice   -- Cooldown Announce's "tide" reply and call follow it too
 			print("|cff0070ddShamanPower|r: Mana Tide call practice " .. (callPractice
 				and "ON: this shaman takes Mana Tide calls as if it knew Mana Tide. /sp calltest off to stop."
 				or "OFF."))

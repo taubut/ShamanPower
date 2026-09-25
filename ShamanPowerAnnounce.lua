@@ -126,6 +126,7 @@ end
 
 local function knows(spell)
 	if not spell or not spell.name then return false end
+	if spell == MANA_TIDE and SP.manaTideCallPractice then return true end   -- /sp calltest
 	if IsPlayerSpell and IsPlayerSpell(spell.id) then return true end
 	return GetSpellInfo(spell.name) ~= nil   -- a name lookup finds any known rank
 end
@@ -281,16 +282,24 @@ local function isAnnounceLine(text)
 	return false
 end
 
+-- /sptrace: why a group message did or did not get the tide reply / call
+local function why(fmt, ...)
+	if SPCompat and SPCompat.Trace then SPCompat.Trace("ANNOUNCE tide: " .. fmt, ...) end
+end
+
 local function onChat(event, text, sender)
 	local a = cfg()
-	if not (a.reply or localCallOn(a)) then return end
-	if chatLocked() then return end
-	if type(text) ~= "string" or type(sender) ~= "string" or secret(text) or secret(sender) then return end
+	if not (a.reply or localCallOn(a)) then return why("reply and on-screen call both off") end
+	if chatLocked() then return why("chat lockdown") end
+	if type(text) ~= "string" or type(sender) ~= "string" or secret(text) or secret(sender) then
+		return why("message or sender unreadable (secret %s/%s)", tostring(secret(text)), tostring(secret(sender)))
+	end
 	local short = strsplit("-", sender)
-	if short == UnitName("player") then return end   -- never answer yourself
-	if not mentionsTrigger(text) then return end
-	if isAnnounceLine(text) then return end
-	if not knows(MANA_TIDE) then return end
+	if short == UnitName("player") then return why("own message") end   -- never answer yourself
+	if not mentionsTrigger(text) then return why("no trigger word") end
+	if isAnnounceLine(text) then return why("another shaman's announce line") end
+	if not knows(MANA_TIDE) then return why("Mana Tide not known (/sp calltest fakes it)") end
+	why("answering %s", tostring(short))
 	local left = remainingOn(MANA_TIDE.name)
 	local now = GetTime()
 	if a.reply and now - lastReplyAt >= (tonumber(a.replyThrottle) or 10) then
