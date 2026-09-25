@@ -2383,7 +2383,8 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Each icon is running a pretend cooldown. In play they sit wherever you drag them: turn on Unlock Positions in Settings > Modules > Ready Reminders.")
+	legend:SetText("Each icon is running a pretend cooldown. In play they sit wherever you drag them:"
+		.. " turn on Unlock Position in Settings > Alerts & Reminders > Ready Reminders.")
 	inner:SetScript("OnUpdate", function() story:SetText(SP.readyDemoStatus or "") end)
 
 	local W = card:GetWidth() - 36

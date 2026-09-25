@@ -730,7 +730,8 @@ function SP:ShowAllReadyReminders()
 			f.label:SetShown(SV().showNames == true); f:Show()
 		end
 	end
-	SP:Print("Ready Reminders unlocked: drag the icons where you want them, then /spready lock (or turn off Unlock Positions in settings).")
+	SP:Print("Ready Reminders unlocked: drag the icons where you want them, then /spready lock"
+		.. " (or turn off Unlock Position in settings).")
 end
 
 function SP:HideAllReadyReminders()
@@ -867,7 +868,8 @@ local function InjectOptions()
 	local function refresh() SP:UpdateAllReadyReminderAppearance(); SP:UpdateReadyReminders() end
 	local args = {
 			desc = { order = 0, type = "description", fontSize = "medium",
-				name = "An icon per spell that appears when the spell is off cooldown. Turn on Unlock Positions to see every icon and drag it where you want, then turn it off.\n" },
+				name = "An icon per spell that appears when the spell is off cooldown. Turn on Unlock Position"
+					.. " to see every icon and drag it where you want, then turn it off.\n" },
 			enabled = { order = 1, type = "toggle", name = "Enable Ready Reminders", width = "full",
 				get = function() return SV().enabled end, set = function(_, v) SV().enabled = v; refresh() end },
 			mode = { order = 2, type = "select", name = "Show", width = 1.4,
@@ -906,7 +908,9 @@ local function InjectOptions()
 					if v then SP:RunWithSettingsHidden(nil, SP.ShowAllReadyReminders, SP.HideAllReadyReminders)
 					else SP:HideAllReadyReminders() end
 				end },
-			reset = { order = 5, type = "execute", name = "Reset Positions", desc = "Lays the icons out again in a row or column (see Layout).", width = 1.0, func = function() SP:ResetReadyReminderPositions() end },
+			reset = { order = 5, type = "execute", name = "Reset Positions",
+				desc = "Lays the icons out again in a row or column (see Arrange As).", width = 1.0,
+				func = function() SP:ResetReadyReminderPositions() end },
 			layout = { order = 5.1, type = "select", name = "Reset Layout", width = 1.0,
 				values = { row = "Row", column = "Column" },
 				get = function() return SV().layout or "row" end, set = function(_, v) SV().layout = v end },
@@ -992,7 +996,9 @@ local function InjectOptions()
 			spellsDesc = { order = 21, type = "description", name = "Only spells this client has are listed; an icon only shows once you know the spell.\n" },
 	}
 	-- the per-spell toggles sit directly in the section (an empty inline group renders as a blank band)
+	local spellKeys = { "spellsDesc" }
 	for i, entry in ipairs(SP.ReadyReminderSpells) do
+		spellKeys[#spellKeys + 1] = "spell_" .. entry.key
 		args["spell_" .. entry.key] = {
 			order = 22 + i, type = "toggle", name = entry.name, width = 1.2,
 			hidden = function() return not usable(entry) end,   -- not in this client's data, or no cooldown here
@@ -1000,6 +1006,26 @@ local function InjectOptions()
 			set = function(_, v) SV().spells[entry.key] = v; refresh() end,
 		}
 	end
+	SP.OrderSettingsBands({ args = args }, {
+		{ keys = { "desc" } },
+		{ keys = { "enabled", "mode" } },
+		{ header = "spellsHeader", name = "Spells", keys = spellKeys },
+		{ header = "lookHeader", name = "Look", keys = {
+			"iconSize", "opacity", "textSize", "hideBackground", "borderColor", "showNames",
+		}, names = { textSize = "Text Size (0 = auto)", hideBackground = "Hide Background" } },
+		{ header = "readyHeader", name = "Behaviour", keys = { "onlyInCombat", "readyEffect", "glowColor" } },
+		{ header = "cdHeader", name = "While On Cooldown", keys = {
+			"cdNote", "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor",
+			"showCountdown", "textPosition",
+		} },
+		{ header = "soundHeader", name = "Sound", keys = {
+			"soundOnReady", "soundName", "soundTest", "soundVolume", "soundMinCooldown",
+		}, names = { soundOnReady = "Play Sound", soundName = "Sound", soundVolume = "Volume" } },
+		{ header = "positionHeader", name = "Position", keys = { "move", "unlock", "layout", "spacing", "reset" },
+			names = { move = "Move", unlock = "Unlock Position", layout = "Arrange As",
+				spacing = "Spacing When Arranged", reset = "Reset Position" } },
+	})
+	args.hideBackground.desc = "Hide the background and border around each reminder icon."
 	root.args.fluffy.args.readyreminders_section = { order = 9.5, type = "group", name = "Ready Reminders", args = args }
 end
 
