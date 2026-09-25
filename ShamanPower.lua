@@ -4572,6 +4572,11 @@ local function PlayerKnowsTotem(spellID, totemName)
 
 	return false
 end
+
+-- the same check by element and totem index, for the settings (loadout pickers mark what is not learned yet)
+function ShamanPower:KnowsTotem(element, totemIndex)
+	return PlayerKnowsTotem(self:GetTotemSpell(element, totemIndex), self:GetTotemName(element, totemIndex)) and true or false
+end
 ShamanPower.PlayerKnowsTotem = PlayerKnowsTotem
 
 -- Track if we've already hooked the totem buttons

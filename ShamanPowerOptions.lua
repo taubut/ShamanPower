@@ -14,24 +14,20 @@ local loadoutElementNames = {
 }
 
 -- Build totem dropdown values for a given element
+-- Loadout totem pickers: a totem this character has not learned yet is marked, since the
+-- game will not drop it (and Blizzard's totem bar will not hold it) until it is
 local function GetTotemValues(element)
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
-		return function()
-			local values = { [0] = "None" }
-			for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
-				if ShamanPower:TotemExistsOnClient(element, idx) then values[idx] = name end
+	local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	return function()
+		local values = { [0] = "None" }
+		for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
+			if not mainline or ShamanPower:TotemExistsOnClient(element, idx) then
+				local learned = not ShamanPower.KnowsTotem or ShamanPower:KnowsTotem(element, idx)
+				values[idx] = learned and name or (name .. " |cff888888(not learned)|r")
 			end
-			return values
 		end
+		return values
 	end
-	local values = { [0] = "None" }
-	local names = ShamanPower.TotemNames[element]
-	if names then
-		for idx, name in pairs(names) do
-			values[idx] = name
-		end
-	end
-	return values
 end
 
 -- Build sorted key list for totem dropdown
