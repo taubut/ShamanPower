@@ -1479,11 +1479,19 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 	elseif msg == "restrict" or msg:sub(1, 9) == "restrict " then
 		ShamanPower:RestrictCommand(strtrim(msg:sub(10)))
 	else
+		-- one command per line, the command in the style guide's gold. /sp restrict, /sptrace
+		-- and /spperf are left out on purpose: tools for testing and bug reports.
+		local function line(cmd, what) print("  |cffffd100" .. cmd .. "|r  " .. what) end
 		print("|cff0070ddShamanPower|r commands:")
-		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay   |   /sp bind - keybind mode   |   /sp share - your setup code")
-		if ShamanPower.RunReadyCheckSweep then print("  /sp check - what you are missing (shield, imbue, totem items...)") end
-		if ShamanPower.SetResistPractice then print("  /sp resisttest - practise raid resistance requests alone (pretend shamans, nothing sent)") end
-		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then print("  /sp restrict - test switches that make the game act as in a boss fight, M+, PvP, an instance, combat or chat lockdown") end
+		line("/sp", "settings")
+		line("/sp totems", "totem assignments")
+		line("/sp setup", "the setup tour")
+		line("/sp range", "totem range overlay")
+		line("/sp bind", "keybind mode")
+		line("/sp share", "your setup code")
+		if ShamanPower.RunReadyCheckSweep then line("/sp check", "what you are missing (shield, imbue, totem items)") end
+		if ShamanPower.SetResistPractice then line("/sp resisttest", "practise raid resistance requests (pretend shamans, nothing sent)") end
+		if ShamanPower.RaidCooldownsLoaded then line("/sp calltest", "practise Mana Tide calls as if you knew Mana Tide") end
 	end
 end
 
