@@ -10023,3 +10023,25 @@ do
 		set = function(_, v) SP:SetWindfuryOnly(v) end,
 	}
 end
+
+-- Module pages keep their controls and callbacks; only their reading order changes.
+do
+	local SP = ShamanPower
+	local tracked = {
+		"tracked_soe", "tracked_stoneskin", "tracked_tow", "tracked_flametongue", "tracked_frostresist",
+		"tracked_manaspring", "tracked_healingstream", "tracked_fireresist", "tracked_manatide",
+		"tracked_windfury", "tracked_graceofair", "tracked_wrathofair", "tracked_tranquilair",
+		"tracked_natureresist", "tracked_windwall",
+	}
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.sprange_section, {
+		{ keys = { "sprange_desc", "module_missing_note", "not_shown_note" } },
+		{ keys = { "show_overlay", "open_window" } },
+		{ header = "tracked_header", name = "Totems to Track", keys = tracked },
+		{ header = "look_header", name = "Look", keys = {
+			"sprange_icon_size", "sprange_opacity", "sprange_vertical", "sprange_hide_names", "sprange_hide_border",
+		} },
+		{ header = "minimap_header", name = "Minimap Markers", keys = {
+			"minimapTotemMarkers", "minimapTotemRings", "minimapTotemPinSize",
+		} },
+	})
+end
