@@ -101,7 +101,8 @@ local function elementKnown(element)
 end
 
 local function shieldMissing()
-	if not SP.shieldCache and SP.ScanPlayerShield then SP:ScanPlayerShield() end
+	-- switched off, the shield read sleeps: /sp check reads it fresh
+	if (not SP.shieldCache or SP:IsOff()) and SP.ScanPlayerShield then SP:ScanPlayerShield() end
 	local c = SP.shieldCache
 	if not c then return nil end
 	local has
@@ -360,7 +361,7 @@ end
 -- reason: "readycheck", "instance", "manual"
 function SP:RunReadyCheckSweep(reason)
 	local c = cfg()
-	if not c.enabled and reason ~= "manual" then return end
+	if (not c.enabled or SP:IsOff()) and reason ~= "manual" then return end   -- /sp check still answers when switched off
 	local list = collect()
 	if #list == 0 then
 		if reason == "manual" then print(TAG .. "nothing missing.") end
@@ -450,7 +451,7 @@ end
 
 -- atLogin: warn about every missing one; otherwise only a change from present to missing
 local function checkItems(atLogin)
-	if not (ITEMS_NEEDED and cfg().itemWarn) then return end
+	if not (ITEMS_NEEDED and cfg().itemWarn) or SP:IsOff() then return end
 	for element = 1, 4 do
 		if elementKnown(element) then
 			local n = itemCount(TOTEM_ITEMS[element])
@@ -474,6 +475,7 @@ if ITEMS_NEEDED then
 end
 local loginDone = false
 ev:SetScript("OnEvent", function(_, event, a1, a2)
+	if SP:IsOff() then return end   -- switched off: no sweep, no item warnings
 	if event == "READY_CHECK" then
 		if cfg().onReadyCheck then SP:RunReadyCheckSweep("readycheck") end
 	elseif event == "READY_CHECK_FINISHED" then
@@ -506,6 +508,9 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 		end
 	end
 end)
+
+-- switched off: a list that is up goes away with the rest
+SP:OnOnOff(function(off) if off then SP:HideReadyCheckPanel() end end)
 
 -- ---------------------------------------------------------------------------
 -- Options: Modules > Ready Check

@@ -42,7 +42,7 @@ local function position()
 end
 
 local function allowed()
-	if not playerShaman or not SP.opt or SP.opt.enabled == false or SP.opt.minimapTotemMarkers == false then
+	if not playerShaman or not SP.opt or SP:IsOff() or SP.opt.minimapTotemMarkers == false then
 		return false
 	end
 	local ok, inside = pcall(IsInInstance)

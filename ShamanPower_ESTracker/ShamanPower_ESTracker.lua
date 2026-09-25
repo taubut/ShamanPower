@@ -663,7 +663,7 @@ function SP:SetESTrackerEnabled(on)
 	if not self.esTrackerFrame then self:CreateESTrackerFrame() end
 	SP.opt.esTracker.enabled = on and true or false
 	if self.esTrackerDemoActive then return end   -- a preview owns the frame; its restore follows the setting
-	if on then
+	if on and not self:IsOff() then   -- switched off: the setting is kept, the tracker stays hidden
 		local pos = SP.opt.esTracker.position
 		if pos then
 			self.esTrackerFrame:ClearAllPoints()
@@ -763,6 +763,7 @@ function SP:SetupESTrackerUpdater()
 	eventFrame:RegisterEvent("GROUP_LEFT")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 	eventFrame:SetScript("OnEvent", function(self, event)
+		if SP:IsOff() and not SP.esTrackerEventsEnabled then return end   -- switched off: nothing to keep up
 		if event == "GROUP_LEFT" then
 			SP:ClearESTracker()
 		elseif event == "GROUP_ROSTER_UPDATE" then
@@ -816,8 +817,8 @@ function SP:InitializeESTracker()
 	self:CreateESTrackerFrame()
 	self:SetupESTrackerUpdater()
 
-	-- Show if it was enabled
-	if SP.opt.esTracker.enabled then
+	-- Show if it was enabled (and ShamanPower is not switched off)
+	if SP.opt.esTracker.enabled and not self:IsOff() then
 		local pos = SP.opt.esTracker.position
 		if pos then
 			self.esTrackerFrame:ClearAllPoints()
@@ -876,3 +877,9 @@ end
 if SPCompat and SPCompat.OnUnrestricted then
 	SPCompat.OnUnrestricted(function() if SP.ScanEarthShields then SP:ScanEarthShields() end end)
 end
+
+-- Enable ShamanPower switched: off hides the tracker and stops its aura events;
+-- on shows it again if its own setting is on (InitializeESTracker covers login)
+SP:OnOnOff(function()
+	if SP.esTrackerFrame and SP.opt and SP.opt.esTracker then SP:SetESTrackerEnabled(SP.opt.esTracker.enabled) end
+end)

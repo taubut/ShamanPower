@@ -96,6 +96,7 @@ end
 
 local function send(msg, channel)
 	if not msg or msg == "" or not channel then return false end
+	if SP:IsOff() then return false end   -- switched off: a "ready soon" timer from before says nothing
 	if chatLocked() then return false end
 	local fn = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
 	if not fn then return false end
@@ -171,6 +172,7 @@ local function scheduleSoon(spell, castAt, spellID, gen, tries)
 end
 
 local function onCast(spellID)
+	if SP:IsOff() then return end
 	if type(spellID) ~= "number" or secret(spellID) then return end
 	local name = GetSpellInfo(spellID)
 	local spell = name and byName[name]
@@ -288,6 +290,7 @@ local function why(fmt, ...)
 end
 
 local function onChat(event, text, sender)
+	if SP:IsOff() then return why("ShamanPower is switched off") end
 	local a = cfg()
 	if not (a.reply or localCallOn(a)) then return why("reply and on-screen call both off") end
 	if chatLocked() then return why("chat lockdown") end
@@ -336,15 +339,17 @@ ev:RegisterEvent("PLAYER_LOGIN")
 
 function SP:UpdateAnnounceEvents()
 	local a = cfg()
-	if a.announceUse or a.announceSoon then
+	local on = not self:IsOff()   -- switched off: no events at all
+	if on and (a.announceUse or a.announceSoon) then
 		ev:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
 	else
 		ev:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 	end
 	for event in pairs(CHAT_CHANNEL) do
-		if a.reply or localCallOn(a) then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
+		if on and (a.reply or localCallOn(a)) then ev:RegisterEvent(event) else ev:UnregisterEvent(event) end
 	end
 end
+SP:OnOnOff(function() SP:UpdateAnnounceEvents() end)
 
 -- Shows every message with sample values in your own chat window only.
 function SP:PreviewAnnounceMessages()

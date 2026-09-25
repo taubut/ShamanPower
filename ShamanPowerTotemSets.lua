@@ -238,7 +238,8 @@ end
 -- idempotent. No UpdateDropAllButton here: this is called FROM it, and the
 -- client fires UPDATE_MULTI_CAST_ACTIONBAR after a real write anyway.
 function SP:SyncTotemSetFromAssignments()
-	if self.opt.totemSetsSyncAssignments == false then return end
+	-- switched off: Blizzard's bar is left alone (brought in step on switch-on)
+	if self.opt.totemSetsSyncAssignments == false or self:IsOff() then return end
 	if not self:HasTotemBar() or InCombatLockdown() then
 		self.totemSetsSyncPending = self:HasTotemBar() or nil
 		return
@@ -614,7 +615,7 @@ end
 -- bar picks first; only a new owner or an explicit pending edit leads the bar.
 local function RefreshBoundAfterBarChanges()
 	boundRefreshQueued = false
-	if not SP.opt or not SP:HasTotemBar() or InCombatLockdown() then return end
+	if not SP.opt or not SP:HasTotemBar() or InCombatLockdown() or SP:IsOff() then return end
 	FlushBarChanges()
 	for page = 2, 3 do
 		local state = boundPages[page]
@@ -626,7 +627,7 @@ end
 
 local function QueueBoundRefresh()
 	boundRefreshPending = true
-	if boundRefreshQueued or InCombatLockdown() then return end
+	if boundRefreshQueued or InCombatLockdown() or SP:IsOff() then return end   -- switched off: on switch-on
 	boundRefreshQueued = true
 	C_Timer.After(0, RefreshBoundAfterBarChanges)
 end
@@ -667,7 +668,7 @@ ef:SetScript("OnEvent", function(_, event, slot)
 	end
 	if not SP:HasTotemBar() then return end
 	if event == "PLAYER_REGEN_ENABLED" then
-		if not SP.opt then return end
+		if not SP.opt or SP:IsOff() then return end   -- switched off: what waits is done on switch-on
 		local boundPending = false
 		for page = 2, 3 do
 			local state = boundPages[page]
@@ -703,4 +704,13 @@ ef:SetScript("OnEvent", function(_, event, slot)
 		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
 		QueueBoundRefresh()
 	end
+end)
+
+-- Switched back on: Blizzard's bar follows the assignments again and the bound
+-- set pages get what waited meanwhile (nothing here writes it while off)
+SP:OnOnOff(function(off)
+	if off or not SP.opt or not SP:HasTotemBar() then return end
+	if SP.totemSetsAdoptPending and SP.AdoptTotemBarAssignments then SP:AdoptTotemBarAssignments() end
+	SP:SyncTotemSetFromAssignments()
+	QueueBoundRefresh()
 end)

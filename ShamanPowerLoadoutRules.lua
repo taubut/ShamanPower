@@ -118,6 +118,7 @@ local function MustWait()
 end
 
 local function Switch(uid, reason)
+	if SP:IsOff() then return end   -- switched off during the fight it waited for
 	local index = IndexOfUID(uid)
 	if not index then return end
 	if SP.opt.activeLoadout == index then return end   -- already there: say nothing
@@ -206,7 +207,7 @@ end
 -- Called on roster settles and practice switches; costs nothing without one.
 local function RetryZoneResist()
 	local d = DB()
-	if not (FOREVER and SP.ResistActive and d and d.enabled) then return end
+	if not (FOREVER and SP.ResistActive and d and d.enabled) or SP:IsOff() then return end
 	local practising = SP:ResistPracticeActive()
 	for key, w in pairs(heldResist) do
 		-- gone with the group or with practice mode (not unticked by someone in the raid)
@@ -284,7 +285,7 @@ local arriveWhenAlive   -- turned on while dead: arrive once alive
 
 local function CheckContent(arriving)
 	local d = DB()
-	if not (d and d.enabled) then return end
+	if not (d and d.enabled) or SP:IsOff() then return end
 	CheckEncounterZone()
 	-- dead: lastBucket and returnTo stay as they are until you are alive again
 	if UnitIsDeadOrGhost("player") then
@@ -345,7 +346,7 @@ end
 
 local function CheckTarget()
 	local d = DB()
-	if not (d and d.enabled) or not UnitExists("target") then return end
+	if not (d and d.enabled) or SP:IsOff() or not UnitExists("target") then return end
 	if IdentitySecret("target") then return end
 	local name = Lower(UnitName("target"))
 	if name == "" then return end
@@ -363,7 +364,7 @@ end
 
 local function CheckEncounter(encounterName)
 	local d = DB()
-	if not (d and d.enabled) then return end
+	if not (d and d.enabled) or SP:IsOff() then return end
 	if type(encounterName) ~= "string" or (issecretvalue and issecretvalue(encounterName)) then return end
 	local name = Lower(encounterName)
 	for _, r in ipairs(d.rules) do
@@ -409,6 +410,9 @@ function SP:UpdateLoadoutRuleEvents()
 		lastBucket, lastZoneRule, arriveWhenAlive = nil, nil, nil
 		return
 	end
+	-- ShamanPower switched off: nothing is listened to (the rules' resistance
+	-- requests are kept: switched back on, where you are is looked at again)
+	if SP:IsOff() then pending = nil return end
 	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 	frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	frame:RegisterEvent("ZONE_CHANGED")
@@ -474,6 +478,15 @@ frame:SetScript("OnEvent", function(_, event, ...)
 	end
 end)
 
+-- Switched back on: like a login, where you are is noted (not an arrival) and
+-- the loadout you have stays; the next zone or instance switches as usual. The
+-- zone rule seen before is kept, so a zone left meanwhile ends its request.
+SP:OnOnOff(function(off)
+	if not off then lastBucket, pending = nil, nil end
+	SP:UpdateLoadoutRuleEvents()
+	if not off then CheckContent() end
+end)
+
 -- ---------------------------------------------------------------------------
 -- Settings: Totem Bar > Auto-Switch (group buttons.loadoutrules_section)
 -- ---------------------------------------------------------------------------
@@ -486,7 +499,7 @@ end
 
 local function Disabled()
 	local d = DB()
-	return not (d and d.enabled) or SP.opt.enabled == false
+	return not (d and d.enabled)
 end
 
 local RebuildRuleArgs
@@ -511,7 +524,6 @@ local STATIC = {
 	enabled = {
 		order = 1, type = "toggle", width = "full", name = "Switch Loadouts Automatically",
 		desc = "Turn on the content, zone, target and encounter switching below. Off by default. Turning it on inside an instance or a rule's zone switches right away. Nothing switches while you are dead.",
-		disabled = function() return SP.opt.enabled == false end,
 		get = function() local d = DB(); return d and d.enabled == true or false end,
 		set = function(_, v) local d = DB(); d.enabled = v and true or nil; SP:UpdateLoadoutRuleEvents(); if v then CheckContent(true) end end,
 	},
@@ -671,7 +683,6 @@ end
 if SP.options and SP.options.args and SP.options.args.buttons and SP.options.args.buttons.args then
 	SP.options.args.buttons.args.loadoutrules_section = {
 		order = 3.71, type = "group", name = "Loadout Auto-Switch",
-		disabled = function() return SP.opt and SP.opt.enabled == false end,
 		args = ruleArgs,
 	}
 	for k, v in pairs(STATIC) do ruleArgs[k] = v end

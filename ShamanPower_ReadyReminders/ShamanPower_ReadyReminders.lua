@@ -629,7 +629,7 @@ end
 local function readyPass(self)
 	local sv = SV()
 	if self.readyPositioning or self.readyDemoActive then return end
-	local hideAll = not sv.enabled or (sv.onlyInCombat and not InCombatLockdown())
+	local hideAll = not sv.enabled or self:IsOff() or (sv.onlyInCombat and not InCombatLockdown())
 	if hideAll then
 		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil end
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
@@ -705,10 +705,10 @@ end
 -- without a call to this) switches the ticker off on the next frame, outside
 -- the core's walk.
 local function tickerOffIfDisabled()
-	if not SV().enabled then setTicking(false) end
+	if not SV().enabled or SP:IsOff() then setTicking(false) end
 end
 function SP:UpdateReadyReminders(fromTick)
-	local on = SV().enabled and true or false
+	local on = SV().enabled and not self:IsOff() and true or false   -- off as well while ShamanPower is switched off
 	if on or not fromTick then setTicking(on)
 	elseif ticking then C_Timer.After(0, tickerOffIfDisabled) end
 	readyPass(self)
@@ -1086,7 +1086,7 @@ ef:SetScript("OnEvent", function(_, event)
 				end
 			end)
 			wakeFrame = wake
-			setTicking(SV().enabled and true or false)
+			setTicking(SV().enabled and not SP:IsOff() and true or false)
 		else
 			C_Timer.NewTicker(0.1, function() SP:UpdateReadyReminders() end)
 		end
@@ -1096,3 +1096,7 @@ ef:SetScript("OnEvent", function(_, event)
 		SP:UpdateAllReadyReminderAppearance()
 	end
 end)
+
+-- Enable ShamanPower switched: the same pass a settings change runs (off hides
+-- every icon and stops the ticker; on shows what the settings say)
+SP:OnOnOff(function() SP:UpdateReadyReminders() end)

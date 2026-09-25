@@ -550,7 +550,7 @@ end
 function SP:OnTotemPlateUnitAdded(unitId)
     if SPIdentitySecret(unitId) then return end   -- instanced map on a restricted client: Blizzard's own totem plates apply
     local settings = self.opt.totemPlates
-    if not settings or not settings.enabled then return end
+    if not settings or not settings.enabled or self:IsOff() then return end
 
     local nameplate = C_NamePlate.GetNamePlateForUnit(unitId)
     if not nameplate then return end
@@ -882,7 +882,7 @@ function SP:SetupTotemPlatesEvents()
         elseif event == "NAME_PLATE_UNIT_REMOVED" then
             SP:OnTotemPlateUnitRemoved(...)
         elseif event == "PLAYER_TARGET_CHANGED" then
-            SP:UpdateTotemPlateHighlights()
+            if not SP:IsOff() then SP:UpdateTotemPlateHighlights() end   -- switched off: no plates to mark
         elseif event == "PLAYER_ENTERING_WORLD" then
             SP.activeTotemPlates = {}
         end
@@ -924,7 +924,7 @@ end
 
 function SP:ToggleTotemPlates()
     self:EnsureProfileTable("totemPlates")
-    local enabled = self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly())
+    local enabled = self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly()) and not self:IsOff()
 
     if enabled then
         self:SetupTotemPlatesEvents()
@@ -953,7 +953,7 @@ function SP:InitializeTotemPlates()
     self:EnsureProfileTable("totemPlates")
     self:DetectNameplateAddon()
 
-    if self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly()) then
+    if self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly()) and not self:IsOff() then
         self:SetupTotemPlatesEvents()
         self:EnableTotemPlatesEvents()
     end
@@ -1152,3 +1152,7 @@ end
 if ShamanPower.RegisterPreview then
     ShamanPower:RegisterPreview("totemplates", { frame = "ShamanPowerTotemPlatesDemo", demo = "SP:TotemPlatesDemo", pad = 24 , pane = { maxScale = 1.5 } })   -- pane hint: settings window only
 end
+
+-- Enable ShamanPower switched: off gives every totem its own nameplate back;
+-- on replaces them again if Totem Plates is on in the settings
+SP:OnOnOff(function() SP:ToggleTotemPlates() end)

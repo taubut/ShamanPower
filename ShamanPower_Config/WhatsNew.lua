@@ -266,6 +266,8 @@ function SP:ShowWhatsNew(force)
 	-- Automatic popup: shamans only. The "seen" stamp is account-wide, so an alt
 	-- logging in first must not use it up; non-shamans open it from the settings button.
 	if select(2, UnitClass("player")) ~= "SHAMAN" then return end
+	-- ShamanPower switched off: stays quiet and unstamped (shown at a login with it on)
+	if SP.IsOff and SP:IsOff() then return end
 	local cur = GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version")
 	local g = self.db and self.db.global
 	if not cur or not g then return end
