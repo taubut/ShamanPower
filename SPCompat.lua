@@ -1255,7 +1255,7 @@ SlashCmdList["SPERRORS"] = function(msg)
 	local store = errlog or pending
 	if msg and strtrim and strtrim(msg) == "clear" then
 		if errlog then wipe(errlog) else pending = {} end
-		print("|cff3fa9f5ShamanPower|r: error log cleared")
+		print("|cff0070ddShamanPower|r: error log cleared")
 		return
 	end
 	local n = 0
@@ -1266,9 +1266,9 @@ SlashCmdList["SPERRORS"] = function(msg)
 		end
 	end
 	if n == 0 then
-		print("|cff3fa9f5ShamanPower|r: no Lua errors recorded this session. |cff4cc776Clean.|r")
+		print("|cff0070ddShamanPower|r: no Lua errors recorded this session. |cff4cc776Clean.|r")
 	else
-		print(string.format("|cff3fa9f5ShamanPower|r: %d distinct error(s). '/sperrors clear' resets.", n))
+		print(string.format("|cff0070ddShamanPower|r: %d distinct error(s). '/sperrors clear' resets.", n))
 		local out = {}
 		local i = 0
 		for k, e in pairs(store) do
@@ -1412,27 +1412,27 @@ SlashCmdList["SPFLYOUT"] = function(msg)
 	msg = strtrim(msg or ""):lower()
 	if msg == "on" then
 		local n = installFlyoutTrace()
-		print(string.format("|cff4cc776ShamanPower:|r flyout trace hooked %d frames. Reproduce the problem, then /spflyout", n))
+		print(string.format("|cff0070ddShamanPower:|r flyout trace hooked %d frames. Reproduce the problem, then /spflyout", n))
 		return
 	elseif msg == "clear" then
 		flyoutTrace = {}
-		print("|cff4cc776ShamanPower:|r flyout trace cleared")
+		print("|cff0070ddShamanPower:|r flyout trace cleared")
 		return
 	elseif msg == "secure" or msg == "fallback" or msg == "auto" then
 		SPCompat.snippetOverride = (msg == "secure" and "on") or (msg == "fallback" and "off") or nil
 		local what = (msg == "secure" and "SECURE snippets (combat flyouts, retail path)")
 			or (msg == "fallback" and "plain-script fallback (out of combat only)")
 			or "auto (probe decides)"
-		print("|cff4cc776ShamanPower:|r flyout mode -> " .. what)
+		print("|cff0070ddShamanPower:|r flyout mode -> " .. what)
 		-- Rebuild immediately rather than asking for a reload: the override is
 		-- session-only and SavedVariables are not persisting on this build, so
 		-- a reload would throw the setting away before it could be tested.
 		if InCombatLockdown() then
-			print("|cffe5534bShamanPower:|r leave combat first, then run this again.")
+			print("|cff0070ddShamanPower:|r leave combat first, then run this again.")
 		elseif ShamanPower and ShamanPower.RecreateTotemFlyouts then
 			local ok, err = pcall(ShamanPower.RecreateTotemFlyouts, ShamanPower)
-			print(ok and "|cff4cc776ShamanPower:|r flyouts rebuilt. Pull something and test."
-				or ("|cffe5534bShamanPower:|r rebuild failed: " .. tostring(err)))
+			print(ok and "|cff0070ddShamanPower:|r flyouts rebuilt. Pull something and test."
+				or ("|cff0070ddShamanPower:|r rebuild failed: " .. tostring(err)))
 		end
 		return
 	end
@@ -1686,14 +1686,14 @@ SlashCmdList["SPTRACE"] = function(msg)
 			pcall(eventTraceFrame.RegisterEvent, eventTraceFrame, e)
 		end
 		eventTraceOn = true
-		print("|cff4cc776ShamanPower:|r event trace on (own casts, totem updates, restriction/encounter changes, SHPWR comms). /sptrace to view, /sptrace off to stop")
+		print("|cff0070ddShamanPower:|r event trace on (own casts, totem updates, restriction/encounter changes, SHPWR comms). /sptrace to view, /sptrace off to stop")
 	elseif msg == "off" then
 		if eventTraceFrame then eventTraceFrame:UnregisterAllEvents() end
 		eventTraceOn = false
-		print("|cff4cc776ShamanPower:|r event trace off")
+		print("|cff0070ddShamanPower:|r event trace off")
 	elseif msg == "clear" then
 		eventTrace = {}
-		print("|cff4cc776ShamanPower:|r event trace cleared")
+		print("|cff0070ddShamanPower:|r event trace cleared")
 	else
 		local text = #eventTrace > 0 and table.concat(eventTrace, "\n") or "(empty - /sptrace on first, then drop totems / pull a mob)"
 		ShowCopyWindow("ShamanPower event trace", "=== ShamanPower event trace (oldest first) ===\n" .. text)
@@ -1819,8 +1819,8 @@ SlashCmdList["SPDIAG"] = function(msg)
 			end
 			c:Show()
 		end
-		print("|cff4cc776ShamanPower:|r " .. table.concat(out, " | "))
-		print("|cff4cc776ShamanPower:|r four aura test squares above screen center (labels under them). /spdiag auratest off hides them.")
+		print("|cff0070ddShamanPower:|r " .. table.concat(out, " | "))
+		print("|cff0070ddShamanPower:|r four aura test squares above screen center (labels under them). /spdiag auratest off hides them.")
 		return
 	end
 	if msg == "sbtest" then
@@ -1842,7 +1842,7 @@ SlashCmdList["SPDIAG"] = function(msg)
 			bg:SetAllPoints(sb); bg:SetColorTexture(0, 0, 0, 0.6); sb.bg = bg
 			sb:Show()
 		end
-		print("|cff4cc776ShamanPower:|r two StatusBars at screen center (vertical from top, horizontal) at 50%. Screenshot them; /spdiag sbtest off hides them.")
+		print("|cff0070ddShamanPower:|r two StatusBars at screen center (vertical from top, horizontal) at 50%. Screenshot them; /spdiag sbtest off hides them.")
 		return
 	end
 	if msg == "sbtest off" then
@@ -1961,7 +1961,7 @@ SlashCmdList["SPDIAG"] = function(msg)
 		-- the session). So print the untainted command instead of calling SetCVar.
 		local on = not (msg == "force 0" or msg == "force off")
 		local okv, v = pcall(GetCVar, "addonCombatRestrictionsForced")
-		print(string.format("|cff4cc776ShamanPower:|r addonCombatRestrictionsForced is %s. Type this yourself (untainted):  |cffffd100/console addonCombatRestrictionsForced %s|r   then /spdiag combat%s",
+		print(string.format("|cff0070ddShamanPower:|r addonCombatRestrictionsForced is %s. Type this yourself (untainted):  |cffffd100/console addonCombatRestrictionsForced %s|r   then /spdiag combat%s",
 			okv and tostring(v) or "?", on and "1" or "0", on and "" or "   (a /reload afterwards clears any taint left from earlier runs)"))
 		if not on and SPCompat.ClearIfUnrestricted then C_Timer.After(0, SPCompat.ClearIfUnrestricted) end
 		return

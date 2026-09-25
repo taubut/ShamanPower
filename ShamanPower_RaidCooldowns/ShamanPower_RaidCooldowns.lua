@@ -5,7 +5,7 @@
 
 local SP = ShamanPower
 if not SP then
-	print("|cffff0000ShamanPower [Raid Cooldowns]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Raid Cooldowns]:|r Core addon not found!")
 	return
 end
 
@@ -309,12 +309,12 @@ function SP:CallManaTideForShaman(shamanName)
 	local canCall = self:CanAssignRaidCooldowns() or (mt[shamanName] and mt[shamanName].caller == self.player)
 
 	if not canCall then
-		print("|cffff0000ShamanPower:|r You don't have permission to call Mana Tide for " .. shamanName)
+		print("|cff0070ddShamanPower:|r You don't have permission to call Mana Tide for " .. shamanName)
 		return
 	end
 
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
@@ -329,7 +329,7 @@ function SP:CallManaTideForShaman(shamanName)
 		self:ShowManaTideAlert()
 	end
 
-	print("|cff00ff00ShamanPower:|r Called Mana Tide from " .. shamanName)
+	print("|cff0070ddShamanPower:|r Called Mana Tide from " .. shamanName)
 end
 
 -- Send raid cooldown sync to group
@@ -418,20 +418,20 @@ end
 
 function SP:CallDrums()
 	if not HasDrums() then
-		print("|cffff0000ShamanPower:|r Drums of Battle do not exist on this client.")
+		print("|cff0070ddShamanPower:|r Drums of Battle do not exist on this client.")
 		return
 	end
 	if not self:CanCallDrums() then
-		print("|cffff0000ShamanPower:|r You don't have permission to call for Drums.")
+		print("|cff0070ddShamanPower:|r You don't have permission to call for Drums.")
 		return
 	end
 	local drummers = self:GetDrummers()
 	if #drummers == 0 then
-		print("|cffff0000ShamanPower:|r No drummers assigned!")
+		print("|cff0070ddShamanPower:|r No drummers assigned!")
 		return
 	end
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	self:SendMessage("DRUMCALL", nil, nil, true)
@@ -439,28 +439,28 @@ function SP:CallDrums()
 	if self:IsDrummer(self.player) then
 		self:ShowDrumsAlert()
 	end
-	print("|cff00ff00ShamanPower:|r Called Drums of Battle (" .. table.concat(drummers, ", ") .. ")")
+	print("|cff0070ddShamanPower:|r Called Drums of Battle (" .. table.concat(drummers, ", ") .. ")")
 end
 
 function SP:CallBloodlust()
 	if not HasBloodlust() then
-		print("|cffff0000ShamanPower:|r Bloodlust / Heroism does not exist on this client.")
+		print("|cff0070ddShamanPower:|r Bloodlust / Heroism does not exist on this client.")
 		return
 	end
 	if not self:CanCallRaidCooldowns() then
-		print("|cffff0000ShamanPower:|r You don't have permission to call for Bloodlust.")
+		print("|cff0070ddShamanPower:|r You don't have permission to call for Bloodlust.")
 		return
 	end
 
 	local target = self:GetBloodlustTarget()
 	if not target then
-		print("|cffff0000ShamanPower:|r No shaman assigned for Bloodlust!")
+		print("|cff0070ddShamanPower:|r No shaman assigned for Bloodlust!")
 		return
 	end
 
 	-- Send call message
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	self:SendMessage("BLCALL|" .. target, nil, nil, true)
@@ -473,19 +473,19 @@ function SP:CallBloodlust()
 
 	local faction = UnitFactionGroup("player")
 	local blName = (faction == "Alliance") and "Heroism" or "Bloodlust"
-	print("|cff00ff00ShamanPower:|r Called " .. blName .. " from " .. target)
+	print("|cff0070ddShamanPower:|r Called " .. blName .. " from " .. target)
 end
 
 -- Call for Mana Tide
 function SP:CallManaTide()
 	if not self:CanCallRaidCooldowns() then
-		print("|cffff0000ShamanPower:|r You don't have permission to call for Mana Tide.")
+		print("|cff0070ddShamanPower:|r You don't have permission to call for Mana Tide.")
 		return
 	end
 
 	-- Send call to all shamans with Mana Tide
 	if _G.SPK and _G.SPK() == true then
-		print("|cffff0000ShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL", nil, nil, true)
@@ -496,7 +496,7 @@ function SP:CallManaTide()
 		self:UpdateCallerButtonCooldowns()
 		self:StartCallerCooldownTracking()
 	end
-	print("|cff00ff00ShamanPower:|r Called for Mana Tide!")
+	print("|cff0070ddShamanPower:|r Called for Mana Tide!")
 end
 
 -- Show alert when called for Bloodlust

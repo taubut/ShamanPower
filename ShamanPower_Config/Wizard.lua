@@ -3278,7 +3278,7 @@ function RenderStep()
 	elseif s.build and SP.Wizard[s.build] then
 		local ok, endY = pcall(SP.Wizard[s.build], card, box.inner, y + 4)
 		if not ok then
-			print("|cffff4040ShamanPower setup|r: step '" .. s.id .. "' failed: " .. tostring(endY))
+			print("|cff0070ddShamanPower setup|r: step '" .. s.id .. "' failed: " .. tostring(endY))
 			local err = box.inner:CreateFontString(nil, "OVERLAY"); err:SetFontObject(Core.fonts.rowDim); err:SetPoint("CENTER"); err:SetWidth(box.inner:GetWidth() - 40); err:SetJustifyH("CENTER"); err:SetWordWrap(true)
 			err:SetText("This preview hit an error - please report the message printed in chat.")
 			endY = nil

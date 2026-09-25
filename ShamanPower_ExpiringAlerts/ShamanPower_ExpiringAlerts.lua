@@ -8,7 +8,7 @@ local SP = ShamanPower
 -- the first entry, which is empty when the imbue lands in the second.
 local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 if not SP then
-	print("|cffff0000ShamanPower [Expiring Alerts]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Expiring Alerts]:|r Core addon not found!")
 	return
 end
 

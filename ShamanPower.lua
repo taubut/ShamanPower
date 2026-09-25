@@ -1,4 +1,15 @@
 ShamanPower = LibStub("AceAddon-3.0"):NewAddon("ShamanPower", "AceConsole-3.0", "AceEvent-3.0", "AceBucket-3.0", "AceTimer-3.0")
+-- Every chat line starts with the style guide's blue prefix (|cff0070ddShamanPower|r:);
+-- AceConsole's own Print would draw the name green. An optional first chat frame is kept.
+function ShamanPower:Print(...)
+	local frame = DEFAULT_CHAT_FRAME
+	local first = 1
+	local a = ...
+	if type(a) == "table" and a.AddMessage then frame, first = a, 2 end
+	local parts = {}
+	for i = first, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+	frame:AddMessage("|cff0070ddShamanPower|r: " .. table.concat(parts, " "))
+end
 
 ShamanPower.isVanilla = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_CLASSIC)
 ShamanPower.isBCC = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
@@ -395,7 +406,8 @@ function ShamanPower:FlyoutFallbackSetShown(parent, show)
 	if show and inCombat then return end
 	for _, c in ipairs(spFlyoutChildren(parent)) do
 		if show then
-			if not c:GetAttribute("isCurrentAssignment") and not c:GetAttribute("flyoutHidden") then
+			-- "inactive": a loadout flyout slot with no loadout in it
+			if not c:GetAttribute("isCurrentAssignment") and not c:GetAttribute("flyoutHidden") and not c:GetAttribute("inactive") then
 				c:Show()
 			end
 		elseif c:IsShown() then
@@ -1327,7 +1339,7 @@ function ShamanPower:OpenConfigWindow(path)
 	if ShamanPowerConfig then
 		if path then ShamanPowerConfig:Open(path) else ShamanPowerConfig:Toggle() end
 	else
-		print("|cff0070ddShamanPower|r: enable the |cff00ff00ShamanPower_Config|r module in your AddOns list to open settings.")
+		print("|cff0070ddShamanPower|r: enable the |cff0070ddShamanPower_Config|r module in your AddOns list to open settings.")
 	end
 end
 
@@ -5253,7 +5265,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	frame:SetScript("OnMouseUp", function(self, button)
 		if button == "MiddleButton" then
 			if InCombatLockdown() then
-				print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+				print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 				return
 			end
 			ShamanPower:ReturnPopOutToBar(key)
@@ -5462,7 +5474,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 			else
 				-- Plain middle-click returns to bar
 				if InCombatLockdown() then
-					print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+					print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 					return
 				end
 				ShamanPower:ReturnPopOutToBar(key)
@@ -6219,14 +6231,14 @@ function ShamanPower:CreateTotemButtons()
 						end
 					else
 						if InCombatLockdown() then
-							print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+							print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 							return
 						end
 						ShamanPower:ReturnPopOutToBar(key)
 					end
 				else
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+						print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 						return
 					end
 					ShamanPower:PopOutElementWithFlyout(elem)
@@ -7389,7 +7401,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			btn:HookScript("OnClick", function(self, button)
 				if button == "MiddleButton" then
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+						print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 						return
 					end
 					local elem = element
@@ -8007,7 +8019,7 @@ end
 -- Update click behavior on existing flyout buttons (no recreation needed)
 function ShamanPower:UpdateFlyoutClickBehavior()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
 
@@ -8100,7 +8112,7 @@ end
 
 function ShamanPower:UpdateTotemFlyoutEnabled()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
 	if self.GridActive and self:GridActive() then
@@ -8396,12 +8408,12 @@ function ShamanPower:ResetSection(id)
 	local def = self.ResetSections[id]
 	if not def then return end
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r settings cannot be reset in combat")
+		print("|cff0070ddShamanPower:|r settings cannot be reset in combat")
 		return
 	end
 	for _, key in ipairs(def.keys) do self.opt[key] = nil end
 	local ok, err = pcall(def.apply, self)
-	if not ok then print("|cffff0000ShamanPower:|r reset applied, but refreshing failed: " .. tostring(err) .. " (a /reload will finish it)") end
+	if not ok then print("|cff0070ddShamanPower:|r reset applied, but refreshing failed: " .. tostring(err) .. " (a /reload will finish it)") end
 	print("|cff0070ddShamanPower|r: " .. def.label .. " settings are back to their defaults.")
 	if self.RefreshConfig then pcall(self.RefreshConfig, self) end
 	local ui = _G.ShamanPowerConfig   -- the custom settings window re-reads the page it is showing
@@ -8573,7 +8585,7 @@ end
 
 function ShamanPower:ApplyCooldownFlyoutButtonSize()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r the flyout size cannot change in combat")
+		print("|cff0070ddShamanPower:|r the flyout size cannot change in combat")
 		return
 	end
 	local size = self:CooldownFlyoutButtonSize()
@@ -8589,7 +8601,7 @@ end
 
 function ShamanPower:ApplyTotemFlyoutButtonSize()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r the flyout size cannot change in combat")
+		print("|cff0070ddShamanPower:|r the flyout size cannot change in combat")
 		return
 	end
 	local size = self:TotemFlyoutButtonSize()
@@ -8689,7 +8701,7 @@ end
 -- Recreate all totem flyouts (used when major changes require full rebuild)
 function ShamanPower:RecreateTotemFlyouts()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
 
@@ -9380,7 +9392,7 @@ function ShamanPower:CreateCooldownBar()
 						else
 							-- Plain middle-click returns to bar
 							if InCombatLockdown() then
-								print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+								print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 								return
 							end
 							ShamanPower:ReturnPopOutToBar(key)
@@ -9388,7 +9400,7 @@ function ShamanPower:CreateCooldownBar()
 					else
 						-- Not popped out, pop it out
 						if InCombatLockdown() then
-							print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+							print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 							return
 						end
 						ShamanPower:PopOutCooldownItem(cdType)
@@ -13344,7 +13356,7 @@ function ShamanPower:CreateEarthShieldButton()
 				else
 					-- Plain middle-click returns to bar
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+						print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 						return
 					end
 					ShamanPower:ReturnPopOutToBar(key)
@@ -13352,7 +13364,7 @@ function ShamanPower:CreateEarthShieldButton()
 			else
 				-- Not popped out, so pop it out
 				if InCombatLockdown() then
-					print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+					print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 					return
 				end
 				ShamanPower:PopOutEarthShield()
@@ -13813,7 +13825,7 @@ end
 
 function ShamanPower:UpdateESFlyoutClickBehavior()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
 
@@ -14542,7 +14554,7 @@ function ShamanPower:UpdateDropAllButton()
 					else
 						-- Plain middle-click returns to bar
 						if InCombatLockdown() then
-							print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+							print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 							return
 						end
 						ShamanPower:ReturnPopOutToBar(key)
@@ -14550,7 +14562,7 @@ function ShamanPower:UpdateDropAllButton()
 				else
 					-- Not popped out, so pop it out
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+						print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 						return
 					end
 					ShamanPower:PopOutDropAll()
@@ -16972,7 +16984,7 @@ function ShamanPower:MigrateMacroIcons()
 		self.opt.macroIconMigrationV1 = true
 	end
 
-	print("|cff00ff00ShamanPower:|r Macro icons updated to use dynamic spell icons.")
+	print("|cff0070ddShamanPower:|r Macro icons updated to use dynamic spell icons.")
 end
 
 -- Migrate macro reset timers to reset=combat/15 (one-time migration for v1.5.6)
@@ -16992,7 +17004,7 @@ function ShamanPower:MigrateMacroResetTimers()
 		self.opt.macroResetMigrationV156 = true
 	end
 
-	print("|cff00ff00ShamanPower:|r Macro reset timers updated (reset=combat/15).")
+	print("|cff0070ddShamanPower:|r Macro reset timers updated (reset=combat/15).")
 end
 
 -- Create or update a WoW macro
@@ -17953,7 +17965,7 @@ if not ShamanPower.RaidCooldownsLoaded then
 	-- Provide stub functions when module not loaded
 	function ShamanPower:InitRaidCooldowns() end
 	function ShamanPower:ToggleRaidCooldownPanel()
-		print("|cffff8800ShamanPower:|r Raid Cooldowns module not loaded. Enable 'ShamanPower [Raid Cooldowns]' in your addon list.")
+		print("|cff0070ddShamanPower:|r Raid Cooldowns module not loaded. Enable 'ShamanPower [Raid Cooldowns]' in your addon list.")
 	end
 	function ShamanPower:UpdateCallerButtons() end
 	function ShamanPower:HandleRaidCooldownMessage() end
@@ -17980,10 +17992,10 @@ if not ShamanPower.SPRangeLoaded then
 	function ShamanPower:InitSPRange() end
 	function ShamanPower:CreateSPRangeFrame() end
 	function ShamanPower:ToggleSPRange()
-		print("|cffff8800ShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+		print("|cff0070ddShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
 	end
 	function ShamanPower:ShowSPRangeConfig()
-		print("|cffff8800ShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+		print("|cff0070ddShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
 	end
 	function ShamanPower:InitializeSPRange() end
 	function ShamanPower:UpdateSPRangeVisibility() end
@@ -18013,9 +18025,9 @@ if not ShamanPower.ESTrackerLoaded then
 	function ShamanPower:CreateESTrackerFrame() end
 	function ShamanPower:ToggleESTracker()
 		if ShamanPower.ESTrackerUnavailable then
-			print("|cffff8800ShamanPower:|r Earth Shield does not exist on this client, so the tracker stays off.")
+			print("|cff0070ddShamanPower:|r Earth Shield does not exist on this client, so the tracker stays off.")
 		else
-			print("|cffff8800ShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
+			print("|cff0070ddShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
 		end
 	end
 	function ShamanPower:InitializeESTracker() end
@@ -18088,7 +18100,7 @@ if not ShamanPower.TotemPlatesLoaded then
 	-- Provide stub functions when module not loaded
 	function ShamanPower:InitializeTotemPlates() end
 	function ShamanPower:ToggleTotemPlates()
-		print("|cffff8800ShamanPower:|r Totem Plates module not loaded. Enable 'ShamanPower [Totem Plates]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Totem Plates module not loaded. Enable 'ShamanPower [Totem Plates]' in your AddOns.")
 	end
 	function ShamanPower:UpdateTotemPlatesSize() end
 	function ShamanPower:UpdateTotemPlatesPulseSettings() end
@@ -18112,7 +18124,7 @@ if not ShamanPower.ReactiveTotemsLoaded then
 	function ShamanPower:ShowAllReactiveFrames() end
 	function ShamanPower:HideAllReactiveFrames() end
 	function ShamanPower:ShowReactiveTotemsConfig()
-		print("|cffff8800ShamanPower:|r Reactive Totems module not loaded. Enable 'ShamanPower [Reactive Totems]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Reactive Totems module not loaded. Enable 'ShamanPower [Reactive Totems]' in your AddOns.")
 	end
 
 	-- Register slash commands (shows module not loaded message)
@@ -18150,7 +18162,7 @@ if not ShamanPower.ExpiringAlertsLoaded then
 	SLASH_SPALERTS1 = "/spalerts"
 	SLASH_SPALERTS2 = "/expiringalerts"
 	SlashCmdList["SPALERTS"] = function(msg)
-		print("|cffff8800ShamanPower:|r Expiring Alerts module not loaded. Enable 'ShamanPower [Expiring Alerts]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Expiring Alerts module not loaded. Enable 'ShamanPower [Expiring Alerts]' in your AddOns.")
 	end
 end
 
@@ -18170,7 +18182,7 @@ if not ShamanPower.TremorReminderLoaded then
 
 	SLASH_SPTREMOR1 = "/sptremor"
 	SlashCmdList["SPTREMOR"] = function(msg)
-		print("|cffff8800ShamanPower:|r Tremor Reminder module not loaded. Enable 'ShamanPower [Tremor Reminder]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Tremor Reminder module not loaded. Enable 'ShamanPower [Tremor Reminder]' in your AddOns.")
 	end
 end
 
@@ -18181,7 +18193,7 @@ end
 SLASH_SPCENTER1 = "/spcenter"
 SlashCmdList["SPCENTER"] = function(msg)
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot reposition frames during combat.")
+		print("|cff0070ddShamanPower:|r Cannot reposition frames during combat.")
 		return
 	end
 
@@ -18210,33 +18222,70 @@ SlashCmdList["SPCENTER"] = function(msg)
 		local rec = { anchor = "CENTER", x = -dx, y = -dy }
 		if SP.CompactActive and SP:CompactActive() then d.compactPosition = rec else d.position = rec end
 		SP:ApplyPositionRecord(mainFrame, rec)
-		print("|cff00ff00ShamanPower:|r Totem bar moved to the center of the screen.")
+		print("|cff0070ddShamanPower:|r Totem bar moved to the center of the screen.")
 		-- the hide rules keep it down (SetTotemBarFramesShown): say so, or it looks lost still
 		if SP.totemBarHidden then
-			print("|cff00ff00ShamanPower:|r It is hidden right now by Hide Out of Combat / Hide When No Totems, and shows there when they allow it.")
+			print("|cff0070ddShamanPower:|r It is hidden right now by Hide Out of Combat / Hide When No Totems, and shows there when they allow it.")
 		end
 	end
 	if SP.cooldownBar and SP.opt.showCooldownBar then
 		SP:UpdateCooldownBarPosition(true)   -- detaches a bar still on the totem bar
-		print("|cff00ff00ShamanPower:|r Cooldown bar moved under it.")
+		print("|cff0070ddShamanPower:|r Cooldown bar moved under it.")
 	end
 	SP:ApplyDefaultBarPositions()
 
-	print("|cff00ff00ShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset puts them back on their default spot.")
+	print("|cff0070ddShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset puts them back on their default spot.")
 end
 
 -- ============================================================================
 -- TOTEM LOADOUTS: Save/load personal 4-element totem assignments
 -- ============================================================================
 
+-- A loadout carries its own Drop All excludes (noDropAll[element] = true: left out of Drop All
+-- and Call of the Elements). Switching to it swaps them in, and ticking an exclude while it is
+-- the active loadout saves into it. A loadout saved before this has no noDropAll: switching to
+-- it leaves the current excludes alone until one of its own is set.
+ShamanPower.DropAllExcludeKeys = { "excludeEarthFromDropAll", "excludeFireFromDropAll", "excludeWaterFromDropAll", "excludeAirFromDropAll" }
+
+function ShamanPower:CurrentDropAllExcludes()
+	local t = {}
+	for e, key in ipairs(self.DropAllExcludeKeys) do t[e] = self.opt[key] and true or false end
+	return t
+end
+
+-- whether a loadout leaves an element out (its own setting, or the current one if it has none)
+function ShamanPower:LoadoutExcluded(index, element)
+	local lo = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	if lo and lo.noDropAll then return lo.noDropAll[element] and true or false end
+	return self.opt[self.DropAllExcludeKeys[element]] and true or false
+end
+
+-- Set one element's exclude. index nil or the active loadout: the live setting changes (and the
+-- active loadout keeps it); another index: only that loadout's copy, used when it is switched to.
+function ShamanPower:SetDropAllExclude(element, val, index)
+	val = val and true or false
+	local active = self.opt.activeLoadout
+	local target = index or active
+	local lo = target and ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[target]
+	if lo then
+		lo.noDropAll = lo.noDropAll or self:CurrentDropAllExcludes()
+		lo.noDropAll[element] = val
+	end
+	if index == nil or index == active then
+		self.opt[self.DropAllExcludeKeys[element]] = val
+		self:UpdateDropAllButton()
+		self:UpdateSPMacros()
+	end
+end
+
 function ShamanPower:SaveLoadout(name)
 	if #ShamanPower_TotemLoadouts >= 8 then
-		print("|cffff0000ShamanPower:|r Maximum of 8 loadouts reached.")
+		print("|cff0070ddShamanPower:|r Maximum of 8 loadouts reached.")
 		return
 	end
 	local assignments = ShamanPower_Assignments[self.player]
 	if not assignments then return end
-	local loadout = { name = name or nil }
+	local loadout = { name = name or nil, noDropAll = self:CurrentDropAllExcludes() }
 	for element = 1, 4 do
 		loadout[element] = assignments[element] or 0
 	end
@@ -18246,15 +18295,15 @@ function ShamanPower:SaveLoadout(name)
 		self.opt.showLoadoutBar = true
 	end
 	self:UpdateLoadoutBar()
-	print("|cff00ff00ShamanPower:|r Saved loadout '" .. (name or ("Loadout " .. #ShamanPower_TotemLoadouts)) .. "'")
+	print("|cff0070ddShamanPower:|r Saved loadout '" .. (name or ("Loadout " .. #ShamanPower_TotemLoadouts)) .. "'")
 end
 
 function ShamanPower:CreateLoadout(name, icon, totems)
 	if #ShamanPower_TotemLoadouts >= 8 then
-		print("|cffff0000ShamanPower:|r Maximum of 8 loadouts reached.")
+		print("|cff0070ddShamanPower:|r Maximum of 8 loadouts reached.")
 		return
 	end
-	local loadout = { name = name or nil, icon = icon or nil }
+	local loadout = { name = name or nil, icon = icon or nil, noDropAll = self:CurrentDropAllExcludes() }
 	for element = 1, 4 do
 		loadout[element] = (totems and totems[element]) or 0
 	end
@@ -18265,13 +18314,13 @@ function ShamanPower:CreateLoadout(name, icon, totems)
 	end
 	-- Auto-activate the newly created loadout
 	self:ApplyLoadout(newIndex)
-	print("|cff00ff00ShamanPower:|r Created loadout '" .. (name or ("Loadout " .. newIndex)) .. "'")
+	print("|cff0070ddShamanPower:|r Created loadout '" .. (name or ("Loadout " .. newIndex)) .. "'")
 end
 
 -- quiet: the caller prints its own line (loadout auto-switch)
 function ShamanPower:ApplyLoadout(index, quiet)
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change loadout in combat")
+		print("|cff0070ddShamanPower:|r Cannot change loadout in combat")
 		return
 	end
 	local loadout = ShamanPower_TotemLoadouts[index]
@@ -18284,8 +18333,12 @@ function ShamanPower:ApplyLoadout(index, quiet)
 	for element = 1, 4 do
 		assignments[element] = loadout[element] or 0
 	end
+	if loadout.noDropAll then
+		for e, key in ipairs(self.DropAllExcludeKeys) do self.opt[key] = loadout.noDropAll[e] and true or false end
+	end
 	self.opt.activeLoadout = index
 	self:UpdateMiniTotemBar()
+	self:UpdateDropAllButton()   -- Drop All and Call of the Elements follow the new totems and excludes
 	self:UpdateSPMacros()
 	self:UpdateLoadoutBar()
 	-- Broadcast assignments to other ShamanPower clients
@@ -18293,7 +18346,7 @@ function ShamanPower:ApplyLoadout(index, quiet)
 		self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (assignments[element] or 0))
 	end
 	local name = loadout.name or ("Loadout " .. index)
-	if not quiet then print("|cff00ff00ShamanPower:|r Activated '" .. name .. "'") end
+	if not quiet then print("|cff0070ddShamanPower:|r Activated '" .. name .. "'") end
 	LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
 end
 
@@ -18316,6 +18369,7 @@ function ShamanPower:UpdateLoadout(index)
 	for element = 1, 4 do
 		loadout[element] = assignments[element] or 0
 	end
+	loadout.noDropAll = self:CurrentDropAllExcludes()
 	if self.HasTotemBar and self:HasTotemBar() and self.SyncBoundLoadout then self:SyncBoundLoadout(index) end
 	self:UpdateLoadoutBar()
 end
@@ -18379,7 +18433,8 @@ function ShamanPower:GetLoadoutDescription(index)
 		local color = loadoutElementColors[element]
 		if totemIdx > 0 then
 			local name = self:GetTotemName(element, totemIdx)
-			tinsert(parts, color .. name .. "|r")
+			local out = self:LoadoutExcluded(index, element) and " |cff888888(not in Drop All)|r" or ""
+			tinsert(parts, color .. name .. "|r" .. out)
 		else
 			tinsert(parts, color .. "None|r")
 		end
@@ -18410,16 +18465,17 @@ end
 -- ============================================================================
 
 -- Radial button positions around anchor (same as TotemTimers buttonlocations)
-local loadoutButtonLocations = {
-	{"BOTTOM", "TOP"},
-	{"BOTTOMLEFT", "TOPRIGHT"},
-	{"LEFT", "RIGHT"},
-	{"TOPLEFT", "BOTTOMRIGHT"},
-	{"TOP", "BOTTOM"},
-	{"TOPRIGHT", "BOTTOMLEFT"},
-	{"RIGHT", "LEFT"},
-	{"BOTTOMRIGHT", "TOPLEFT"},
-}
+-- The flyout is one column over the button (under it when the button sits in the top half of
+-- the screen), each name to its right: a ring put every name on the next button. The side is
+-- read from the saved spot, never off the frame.
+function ShamanPower:LoadoutFlyoutOpensDown()
+	local pos = self.opt.loadoutBarPosition
+	if not pos then return false end
+	local a = pos.anchor or pos.relPoint or pos.point or "CENTER"
+	if a:find("TOP") then return true end
+	if a:find("BOTTOM") then return false end
+	return (pos.y or 0) > 0
+end
 
 -- Element colors for tooltips (matches TotemTimers: Fire, Earth, Water, Air by totem slot)
 -- ShamanPower uses: 1=Earth, 2=Fire, 3=Water, 4=Air
@@ -18472,6 +18528,16 @@ function ShamanPower:CreateLoadoutBar()
 	if anchor.SetDontSavePosition then anchor:SetDontSavePosition(true) end
 	anchor:EnableMouse(true)
 	anchor:RegisterForDrag("LeftButton")
+	-- Click the button itself to step through the loadouts (left: next, right: previous);
+	-- hovering still opens the pop-out of the others. Out of combat, as ApplyLoadout is.
+	anchor:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	anchor:SetScript("OnClick", function(_, button)
+		if IsAltKeyDown() then return end   -- ALT is for moving it
+		local n = ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts or 0
+		if n < 2 then return end
+		local cur = ShamanPower.opt.activeLoadout or 0
+		ShamanPower:ApplyLoadout(button == "RightButton" and ((cur - 2) % n) + 1 or (cur % n) + 1)
+	end)
 	self.loadoutAnchor = anchor
 
 	-- SECURE HANDLER: Show flyout on hover (WORKS IN COMBAT)
@@ -18481,6 +18547,9 @@ function ShamanPower:CreateLoadoutBar()
 	]])
 
 	ShamanPower:SetSnippet(anchor, "_onleave", SP_SECURE_ONLEAVE_SELF)
+	-- the plain-script fallback (Forever, where snippets do not run) opens a flyout only
+	-- for a host marked mouseover, as the totem buttons are; without it hovering did nothing
+	anchor:SetAttribute("OpenMenu", "mouseover")
 
 	-- Anchor normal texture (standard WoW action button look)
 	local normalTex = anchor:CreateTexture(nil, "BORDER")
@@ -18530,7 +18599,7 @@ function ShamanPower:CreateLoadoutBar()
 	anchor:SetScript("OnDragStart", function(btn)
 		if self.opt.loadoutBarLocked then return end
 		if InCombatLockdown() then
-			print("|cffff0000ShamanPower:|r Cannot move loadout bar during combat")
+			print("|cff0070ddShamanPower:|r Cannot move loadout bar during combat")
 			return
 		end
 		if IsAltKeyDown() then
@@ -18555,6 +18624,9 @@ function ShamanPower:CreateLoadoutBar()
 		if self.opt.activeLoadout and ShamanPower_TotemLoadouts[self.opt.activeLoadout] then
 			local lo = ShamanPower_TotemLoadouts[self.opt.activeLoadout]
 			GameTooltip:AddLine("Active: " .. (lo.name or ("Set " .. self.opt.activeLoadout)), 0.3, 1.0, 0.3)
+		end
+		if #ShamanPower_TotemLoadouts > 1 then
+			GameTooltip:AddLine("Left-click: next loadout. Right-click: previous.", 0.8, 0.8, 0.8)
 		end
 		if not self.opt.loadoutBarLocked then
 			GameTooltip:AddLine("ALT+Drag to move", 0, 0.9, 1)
@@ -18658,7 +18730,7 @@ function ShamanPower:CreateLoadoutBar()
 			if hasTotemBar and (down or buttonFrame:GetAttribute("spBoundLoadout")) then return end
 			if button == "LeftButton" then
 				if InCombatLockdown() then
-					print("|cffff0000ShamanPower:|r Cannot change loadout during combat")
+					print("|cff0070ddShamanPower:|r Cannot change loadout during combat")
 					return
 				end
 				local index = buttonFrame:GetAttribute("loadoutIndex")
@@ -18788,6 +18860,8 @@ function ShamanPower:UpdateLoadoutBar()
 	-- Update set buttons: flyout only shows NON-ACTIVE loadouts (anchor is the active one)
 	-- The inactive attribute controls whether the secure _childupdate-toggle shows the button
 	local btnIndex = 0
+	local opensDown = self:LoadoutFlyoutOpensDown()
+	self.loadoutFlyoutDown = opensDown
 	for i = 1, numLoadouts do
 		local summon = self.BoundLoadoutSummon and self:BoundLoadoutSummon(i)
 		-- A bound active loadout still needs a cast button: the anchor is only
@@ -18799,8 +18873,10 @@ function ShamanPower:UpdateLoadoutBar()
 				local loadout = ShamanPower_TotemLoadouts[i]
 
 				-- Position radially around anchor (same as TotemTimers)
+				local prev = btnIndex == 1 and self.loadoutAnchor or self.loadoutButtons[btnIndex - 1]
 				btn:ClearAllPoints()
-				btn:SetPoint(loadoutButtonLocations[btnIndex][1], self.loadoutAnchor, loadoutButtonLocations[btnIndex][2])
+				if opensDown then btn:SetPoint("TOP", prev, "BOTTOM", 0, -2)
+				else btn:SetPoint("BOTTOM", prev, "TOP", 0, 2) end
 
 				if loadout.icon then
 					-- The player chose an icon for this loadout: show it, not the four totems
@@ -18892,6 +18968,17 @@ function ShamanPower:SaveLoadoutBarPosition()
 	local anchor = self.loadoutAnchor
 	if not anchor then return end
 	self.opt.loadoutBarPosition = self:SavePositionRecord(anchor)
+	-- moved across the middle of the screen: the flyout column now opens the other way
+	local down = self:LoadoutFlyoutOpensDown()
+	if down ~= self.loadoutFlyoutDown and self.loadoutButtons and not InCombatLockdown() then
+		self.loadoutFlyoutDown = down
+		for i, btn in ipairs(self.loadoutButtons) do
+			local prev = i == 1 and anchor or self.loadoutButtons[i - 1]
+			btn:ClearAllPoints()
+			if down then btn:SetPoint("TOP", prev, "BOTTOM", 0, -2)
+			else btn:SetPoint("BOTTOM", prev, "TOP", 0, 2) end
+		end
+	end
 end
 
 function ShamanPower:RestoreLoadoutBarPosition()
@@ -18917,7 +19004,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	msg = (msg or ""):trim()
 
 	if msg == "" then
-		print("|cff00ff00ShamanPower Loadouts:|r")
+		print("|cff0070ddShamanPower Loadouts:|r")
 		print("  /spl save <name>     - Save current totems as new loadout")
 		print("  /spl <number>        - Switch to loadout by index")
 		print("  /spl <name>          - Switch to loadout by name")
@@ -18933,7 +19020,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	local setPage, setWhich = msg:match("^[Ss][Ee][Tt]%s+([123])%s+(.+)$")
 	if setPage then
 		if not (ShamanPower.PushLoadoutToTotemSet and ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) then
-			print("|cffff0000ShamanPower:|r totem sets are not available on this client")
+			print("|cff0070ddShamanPower:|r totem sets are not available on this client")
 			return
 		end
 		local idx = tonumber(setWhich)
@@ -18942,7 +19029,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 				if l.name and l.name:lower() == setWhich:lower() then idx = i break end
 			end
 		end
-		if not idx then print("|cffff0000ShamanPower:|r no loadout '" .. setWhich .. "'") return end
+		if not idx then print("|cff0070ddShamanPower:|r no loadout '" .. setWhich .. "'") return end
 		ShamanPower:PushLoadoutToTotemSet(idx, tonumber(setPage))
 		return
 	end
@@ -18950,10 +19037,10 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	-- /spl list
 	if msg:lower() == "list" then
 		if #ShamanPower_TotemLoadouts == 0 then
-			print("|cff00ff00ShamanPower:|r No loadouts saved. Use /spl save <name> to create one.")
+			print("|cff0070ddShamanPower:|r No loadouts saved. Use /spl save <name> to create one.")
 			return
 		end
-		print("|cff00ff00ShamanPower Loadouts:|r")
+		print("|cff0070ddShamanPower Loadouts:|r")
 		for i, loadout in ipairs(ShamanPower_TotemLoadouts) do
 			local name = loadout.name or ("Loadout " .. i)
 			local active = (ShamanPower.opt.activeLoadout == i) and " |cff00ff00[Active]|r" or ""
@@ -18979,12 +19066,12 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	if msg:lower():sub(1, 7) == "delete " then
 		local idx = tonumber(msg:sub(8):trim())
 		if not idx or not ShamanPower_TotemLoadouts[idx] then
-			print("|cffff0000ShamanPower:|r Invalid loadout index.")
+			print("|cff0070ddShamanPower:|r Invalid loadout index.")
 			return
 		end
 		local name = ShamanPower_TotemLoadouts[idx].name or ("Loadout " .. idx)
 		ShamanPower:DeleteLoadout(idx)
-		print("|cff00ff00ShamanPower:|r Deleted loadout '" .. name .. "'")
+		print("|cff0070ddShamanPower:|r Deleted loadout '" .. name .. "'")
 		return
 	end
 
@@ -18994,7 +19081,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 		if ShamanPower_TotemLoadouts[idx] then
 			ShamanPower:ApplyLoadout(idx)
 		else
-			print("|cffff0000ShamanPower:|r No loadout at index " .. idx .. ". Use /spl list to see available loadouts.")
+			print("|cff0070ddShamanPower:|r No loadout at index " .. idx .. ". Use /spl list to see available loadouts.")
 		end
 		return
 	end
@@ -19007,5 +19094,5 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 			return
 		end
 	end
-	print("|cffff0000ShamanPower:|r No loadout named '" .. msg .. "'. Use /spl list to see available loadouts.")
+	print("|cff0070ddShamanPower:|r No loadout named '" .. msg .. "'. Use /spl list to see available loadouts.")
 end

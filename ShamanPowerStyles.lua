@@ -89,7 +89,7 @@ function SP:SetTotemBarStyle(key)
 	local st = self:TotemBarStyle(key)
 	if not (st and self.opt) then return false end
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change the totem bar style during combat")
+		print("|cff0070ddShamanPower:|r Cannot change the totem bar style during combat")
 		return false
 	end
 	local o = self.opt

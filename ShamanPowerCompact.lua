@@ -831,7 +831,7 @@ end
 -- Option change entry point (settings window + wizard).
 function SP:ApplyCompactStyle()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change the totem bar style during combat")
+		print("|cff0070ddShamanPower:|r Cannot change the totem bar style during combat")
 		return
 	end
 	if self.opt.compactStyle then

@@ -404,6 +404,14 @@ local function HasLoadoutSetControls()
 	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()
 end
 
+-- the Set Page picker and Send to Set Now only show once Call of the Ancestors or
+-- Call of the Spirits is known; before that the Loadouts page's note says when they come
+local function KnowsSetPage()
+	if not (HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages) then return false end
+	local known = ShamanPower:KnownTotemSetPages()
+	return (known[2] or known[3]) and true or false
+end
+
 local function LoadoutSetPageValues()
 	local values = { [0] = "None" }
 	if HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages then
@@ -435,7 +443,7 @@ local function RefreshLoadoutArgs()
 			if known[2] or known[3] then
 				return "Blizzard's totem sets: pick a loadout's |cffffd200Set Page|r below to put it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments.\n"
 			end
-			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) with its Set Page picker below. The picker offers them once your character knows them. Call of the Elements always follows your assignments.|r\n"
+			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) with a Set Page picker, which appears on each loadout below once your character knows one of them. Call of the Elements always follows your assignments.|r\n"
 		end,
 		hidden = function() return not HasLoadoutSetControls() end,
 	}
@@ -670,12 +678,31 @@ local function RefreshLoadoutArgs()
 					end,
 				}
 			end
+			loadoutArgs["lo_dropall_header_" .. idx] = {
+				order = baseOrder + 8.5,
+				type = "description",
+				name = "    |cff888888Leave out of Drop All and Call of the Elements (switches with this loadout):|r",
+			}
+			for element = 1, 4 do
+				local elem = element
+				loadoutArgs["lo_dropall_" .. idx .. "_" .. elem] = {
+					order = baseOrder + 8.5 + elem * 0.1,
+					type = "toggle",
+					name = "Exclude " .. loadoutElementNames[elem],
+					width = 0.75,
+					get = function() return ShamanPower:LoadoutExcluded(idx, elem) end,
+					set = function(_, val)
+						ShamanPower:SetDropAllExclude(elem, val, idx)
+						ShamanPower:RefreshConfig()
+					end,
+				}
+			end
 			loadoutArgs["lo_set_page_" .. idx] = {
 				order = baseOrder + 9, type = "select", name = "Set Page", width = 1.5,
 				desc = "Bind this loadout to one known Blizzard totem set. Each page holds one loadout; "
 					.. "rebinding a page unbinds its previous loadout. Call of the Elements stays with assignments. "
 					.. "None keeps normal loadout selection. Unknown saved bindings are retained until available again.",
-				hidden = function() return not HasLoadoutSetControls() end,
+				hidden = function() return not KnowsSetPage() end,
 				disabled = function() return not ShamanPower.BindLoadoutToTotemSet end,
 				values = LoadoutSetPageValues,
 				get = function()
@@ -696,7 +723,7 @@ local function RefreshLoadoutArgs()
 			loadoutArgs["lo_send_set_" .. idx] = {
 				order = baseOrder + 10, type = "execute", name = "Send to Set Now", width = 1.5,
 				desc = "Write all four saved totems to the bound set; None clears a slot. Combat changes wait until combat ends.",
-				hidden = function() return not HasLoadoutSetControls() end,
+				hidden = function() return not KnowsSetPage() end,
 				disabled = function()
 					return not (HasLoadoutSetControls() and ShamanPower.SyncBoundLoadout
 						and ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(idx))
@@ -795,7 +822,7 @@ local function FlyoutSizeOption(order, width, key, default, name, desc, apply, e
 		end,
 		set = function(info, val)
 			if InCombatLockdown() then
-				print("|cffff0000ShamanPower:|r the flyout size cannot change in combat")
+				print("|cff0070ddShamanPower:|r the flyout size cannot change in combat")
 				return
 			end
 			ShamanPower.opt[key] = val
@@ -929,7 +956,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if val and ShamanPower.opt.compactStyle and InCombatLockdown() then
-									print("|cffff0000ShamanPower:|r Cannot change the totem bar style during combat")
+									print("|cff0070ddShamanPower:|r Cannot change the totem bar style during combat")
 									return
 								end
 								ShamanPower.opt.dynamicTotemMode = val
@@ -967,7 +994,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if val and ShamanPower.opt.compactStyle and InCombatLockdown() then
-									print("|cffff0000ShamanPower:|r Cannot change the totem bar style during combat")
+									print("|cff0070ddShamanPower:|r Cannot change the totem bar style during combat")
 									return
 								end
 								ShamanPower.opt.activeTotemAsMain = val
@@ -1045,7 +1072,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								if InCombatLockdown() then
 									-- ApplyCompactStyle refuses in combat; do not leave the saved value and the bar disagreeing
-									print("|cffff0000ShamanPower:|r Cannot change the totem bar style during combat")
+									print("|cff0070ddShamanPower:|r Cannot change the totem bar style during combat")
 									return
 								end
 								ShamanPower.opt.compactStyle = val
@@ -2117,9 +2144,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.excludeEarthFromDropAll
 							end,
 							set = function(info, val)
-								ShamanPower.opt.excludeEarthFromDropAll = val
-								ShamanPower:UpdateDropAllButton()
-								ShamanPower:UpdateSPMacros()
+								ShamanPower:SetDropAllExclude(1, val)   -- the active loadout keeps it too
 							end
 						},
 						exclude_fire = {
@@ -2142,9 +2167,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.excludeFireFromDropAll
 							end,
 							set = function(info, val)
-								ShamanPower.opt.excludeFireFromDropAll = val
-								ShamanPower:UpdateDropAllButton()
-								ShamanPower:UpdateSPMacros()
+								ShamanPower:SetDropAllExclude(2, val)   -- the active loadout keeps it too
 							end
 						},
 						exclude_water = {
@@ -2167,9 +2190,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.excludeWaterFromDropAll
 							end,
 							set = function(info, val)
-								ShamanPower.opt.excludeWaterFromDropAll = val
-								ShamanPower:UpdateDropAllButton()
-								ShamanPower:UpdateSPMacros()
+								ShamanPower:SetDropAllExclude(3, val)   -- the active loadout keeps it too
 							end
 						},
 						exclude_air = {
@@ -2192,9 +2213,7 @@ ShamanPower.options = {
 								return ShamanPower.opt.excludeAirFromDropAll
 							end,
 							set = function(info, val)
-								ShamanPower.opt.excludeAirFromDropAll = val
-								ShamanPower:UpdateDropAllButton()
-								ShamanPower:UpdateSPMacros()
+								ShamanPower:SetDropAllExclude(4, val)   -- the active loadout keeps it too
 							end
 						},
 						exclude_earth_empty_note = {
@@ -2399,7 +2418,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								-- Don't change layout in combat
-								if InCombatLockdown() then print("|cffff0000ShamanPower:|r the bar layout cannot change during combat - try again after the fight."); return end
+								if InCombatLockdown() then print("|cff0070ddShamanPower:|r the bar layout cannot change during combat - try again after the fight."); return end
 
 								-- Initialize cdbarLayout if not set, so changing totem bar doesn't affect CD bar
 								if ShamanPower.opt.cdbarLayout == nil then
@@ -2523,7 +2542,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								-- Don't change layout in combat
-								if InCombatLockdown() then print("|cffff0000ShamanPower:|r the bar layout cannot change during combat - try again after the fight."); return end
+								if InCombatLockdown() then print("|cff0070ddShamanPower:|r the bar layout cannot change during combat - try again after the fight."); return end
 								ShamanPower.opt.cdbarLayout = val
 								ShamanPower:UpdateCooldownBarLayout()
 								ShamanPower:UpdateCooldownBar()
@@ -2741,7 +2760,7 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								if InCombatLockdown() then
-									print("|cffff0000ShamanPower:|r the mouse buttons cannot be swapped in combat")
+									print("|cff0070ddShamanPower:|r the mouse buttons cannot be swapped in combat")
 									return
 								end
 								ShamanPower.opt.swapFlyoutClickButtons = val
@@ -6989,7 +7008,7 @@ ShamanPower.options = {
 								if ShamanPower.ShowMobList then
 									ShamanPower:ShowMobList()
 								else
-									print("|cffff8800ShamanPower:|r Tremor Reminder module not loaded.")
+									print("|cff0070ddShamanPower:|r Tremor Reminder module not loaded.")
 								end
 							end
 						},
@@ -8148,7 +8167,7 @@ ShamanPower.options = {
 							width = 1.2,
 							func = function()
 								if InCombatLockdown() then
-									print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+									print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 									return
 								end
 								ShamanPower:ReturnAllPopOutsToBar()

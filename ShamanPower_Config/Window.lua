@@ -454,7 +454,7 @@ local function MountMocks(spec)
 			local fn = (ns.PaneBuilders and ns.PaneBuilders[m.build]) or W[m.build]
 			if fn then
 				local ok, err = pcall(fn, dummyCard, pin, 0)
-				if not ok then print("|cffff4040ShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
+				if not ok then print("|cff0070ddShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
 			end
 		end
 		-- the mocks' captions belong to the wizard's step pages

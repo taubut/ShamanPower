@@ -858,7 +858,7 @@ SlashCmdList["SPESTRACK"] = function(msg)
 		SP:DisableESTrackerEvents()  -- Stop UNIT_AURA tracking
 		SP.opt.esTracker.enabled = false
 	else
-		print("|cff00ff00ShamanPower:|r Earth Shield Tracker commands:")
+		print("|cff0070ddShamanPower:|r Earth Shield Tracker commands:")
 		print("  /spestrack - Toggle the tracker")
 		print("  /spestrack show - Show the tracker")
 		print("  /spestrack hide - Hide the tracker")

@@ -451,16 +451,16 @@ end
 -- Send a saved loadout to a set page (2 = Ancestors, 3 = Spirits, 1 = Elements).
 function SP:PushLoadoutToTotemSet(index, page)
 	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
-	if not loadout then print("|cffff0000ShamanPower:|r no loadout " .. tostring(index)) return end
+	if not loadout then print("|cff0070ddShamanPower:|r no loadout " .. tostring(index)) return end
 	local spells = {}
 	for element = 1, 4 do
 		local idx = loadout[element] or 0
 		if idx > 0 then spells[element] = self:GetTotemSpell(element, idx) end
 	end
 	local written, skipped, reason = self:WriteTotemSet(page, spells)
-	if reason then print("|cffff0000ShamanPower:|r " .. reason) return end
+	if reason then print("|cff0070ddShamanPower:|r " .. reason) return end
 	local name = loadout.name or ("Loadout " .. index)
-	print(string.format("|cff00ff00ShamanPower:|r '%s' sent to %s (%d slot%s written%s)", name, PAGE_NAMES[page] or ("page " .. page),
+	print(string.format("|cff0070ddShamanPower:|r '%s' sent to %s (%d slot%s written%s)", name, PAGE_NAMES[page] or ("page " .. page),
 		written, written == 1 and "" or "s", skipped > 0 and (", " .. skipped .. " not allowed in that slot") or ""))
 	self:UpdateDropAllButton()
 end

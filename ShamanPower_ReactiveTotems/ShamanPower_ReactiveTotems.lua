@@ -6,7 +6,7 @@
 
 local SP = ShamanPower
 if not SP then
-	print("|cffff0000ShamanPower [Reactive Totems]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Reactive Totems]:|r Core addon not found!")
 	return
 end
 

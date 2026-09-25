@@ -58,7 +58,7 @@ function SP:ShowPreview(key, container)
 			self.previewPaneActive = container.previewPane and true or nil
 			local ok, err = pcall(demoFn, self, true)
 			self.previewPaneActive = nil
-			if not ok then print("|cffff4040ShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
+			if not ok then print("|cff0070ddShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
 			frames = ResolveFrames(def)
 		end
 		if #frames == 0 then return nil end
@@ -83,7 +83,7 @@ function SP:ShowPreview(key, container)
 		self.previewPaneActive = container.previewPane and true or nil
 		local ok, err = pcall(demoFn, self, true)
 		self.previewPaneActive = nil
-		if not ok then print("|cffff4040ShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
+		if not ok then print("|cff0070ddShamanPower setup|r: preview '" .. key .. "' failed: " .. tostring(err)) end
 	end
 	local frames = ResolveFrames(def)
 	if #frames == 0 then return nil end
