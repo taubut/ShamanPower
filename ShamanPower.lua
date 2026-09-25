@@ -16328,7 +16328,8 @@ function ShamanPower:CanControl(name)
 	if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
 		return (name == self.player) or (ShamanPower.AllShamans[name] and (ShamanPower.AllShamans[name].freeassign == true))
 	else
-		if UnitIsGroupLeader(self.player) or UnitIsGroupAssistant(self.player) then
+		-- the "player" token, not our name: on Forever that is "First Surname", which the group API may not resolve
+		if UnitIsGroupLeader("player") or UnitIsGroupAssistant("player") then
 			return true
 		else
 			return (name == self.player) or (ShamanPower.AllShamans[name] and (ShamanPower.AllShamans[name].freeassign == true))
