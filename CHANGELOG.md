@@ -1,5 +1,19 @@
 # ShamanPower Changelog
 
+## v3.0.1 (2026-09-26)
+
+### New
+- **Hover flyouts on WoW: Forever.** The totem, cooldown bar and loadout flyouts open when you hover the button, in combat too, exactly like Anniversary. No arrows to click.
+- **Blizzard-Style Flyout Arrows** (Forever, off by default). Prefer the click-to-open arrows of Blizzard's totem bar? Turn this on under Settings > Bars > Appearance > Flyouts > Shared Look, then reload.
+- **Empty Totem in Flyouts** (Forever) works with the hover flyouts and now sits on Totem Bar > Style. Pick Empty, in or out of combat, to leave an element with no totem so Call of the Elements skips it; turn the toggle off to keep it out of your flyouts.
+- **Setup tour and settings preview** (Forever): the Blizzard's Totem Bar style shows Blizzard's flyout arrows, and the tour's pretend cursor plays how Blizzard's flyout opens (arrow, pick, close) next to ShamanPower's hover.
+
+### Fixes
+- **Assigning a totem from a flyout in combat now really assigns it** (both clients). The right-click changed the button's icon, but the button kept casting the old totem until the fight ended. It now casts the new one straight away, and on Forever Blizzard's totem bar follows too, so Call of the Elements drops it.
+- No more gap between the loadout flyout's buttons.
+- Importing a setup code only ever writes ShamanPower's own settings.
+- Players updating straight from 2.x now see the 3.0 What's New card; anyone who saw it at 3.0.0 is not shown it again.
+
 ## v3.0.0 (2026-09-25)
 
 ### New

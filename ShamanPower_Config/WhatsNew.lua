@@ -177,7 +177,9 @@ local function BuildDialog()
 		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
 		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
-		title:SetText("ShamanPower " .. (NOTES.version:gsub("%.0$", "")))
+		-- the installed version (3.0.1), so a patch of the series needs no edit here
+		local installed = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
+		title:SetText("ShamanPower " .. ((installed or NOTES.version):gsub("%.0$", "")))
 		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
 		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
 		sub:SetText("Now on |cff3FA9F5WoW: Forever|r and TBC Anniversary")
@@ -276,8 +278,12 @@ function SP:ShowWhatsNew(force)
 	-- Brand-new installs are in (or headed into) the guided setup - stamp and
 	-- stay quiet rather than stacking two windows.
 	if self.opt and not self.opt.setupDone then g.lastSeenVersion = cur return end
-	-- A release without notes for itself stays quiet too.
-	if BaseVersion(cur) ~= NOTES.version then g.lastSeenVersion = cur return end
+	-- A release without notes for itself stays quiet too. The notes cover their
+	-- whole x.y series, once: 3.0.0's card still shows at 3.0.1 to someone
+	-- coming from 2.x, but not again to someone who saw it at 3.0.0.
+	local function series(v) v = BaseVersion(v); return v and v:match("^(%d+%.%d+)%.") end
+	if series(cur) ~= series(NOTES.version) then g.lastSeenVersion = cur return end
+	if series(g.lastSeenVersion) == series(cur) then g.lastSeenVersion = cur return end
 	-- Never on top of the setup wizard; try again next login instead.
 	local wiz = _G["ShamanPowerWizard"]
 	if wiz and wiz:IsShown() then return end

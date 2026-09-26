@@ -28,7 +28,7 @@ BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 -- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
 -- The flyout keys drive the box-mode flyouts, which only WoW: Forever uses; on
 -- other clients the flyouts open on hover and these keys do nothing.
-BINDING_HEADER_SHAMANPOWER_FLYOUT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "ShamanPower Flyouts" or "ShamanPower Flyouts (WoW: Forever only)"
+BINDING_HEADER_SHAMANPOWER_FLYOUT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "ShamanPower Flyouts (with Blizzard-style arrows)" or "ShamanPower Flyouts (WoW: Forever only)"
 BINDING_NAME_SHAMANPOWER_FLYOUT_EARTH = "Toggle Earth Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_FIRE = "Toggle Fire Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_WATER = "Toggle Water Totem Flyout"
@@ -120,7 +120,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         flyoutRequiresClick = false,  -- Require right-click to show flyout instead of mouseover
         flyoutSingleOpen = true,      -- In-combat arrow flyouts: opening one closes the others (false = they stay open)
         flyoutCloseOnCast = true,     -- Box-mode flyouts: picking from a flyout closes it (false = it stays open)
-        flyoutShowEmpty = true,       -- Box-mode totem flyouts offer an "Empty" choice (leave the element unassigned), as on Blizzard's bar
+        flyoutShowEmpty = true,       -- WoW: Forever totem flyouts offer an "Empty" choice (leave the element unassigned), as on Blizzard's bar
         flyoutArrowsAlways = false,   -- Box-mode flyouts: keep the arrow tabs on the bar out of combat too
         flyoutArrowOnly = false,      -- Box-mode flyouts: never open on hover, only from the arrow or a key (implies the arrows stay)
         flyoutRouteBarKeys = true,    -- Box-mode flyouts: action bar keys for flyout spells press the flyout's own button, so they close it too

@@ -2619,7 +2619,7 @@ ShamanPower.options = {
 							width = "full",
 							-- retired where flyouts open from arrows ("Open Flyouts Only From the Arrow" replaces it)
 							hidden = function(info)
-								return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
+								return (ShamanPower:FlyoutBoxMode()) and true or false
 							end,
 							disabled = function(info)
 								return not isShaman or not ShamanPower.opt.showTotemFlyouts
@@ -2642,7 +2642,7 @@ ShamanPower.options = {
 							type = "header",
 							name = "Flyouts (totem bar and cooldown bar)",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 						},
 						flyout_style = {
@@ -2654,7 +2654,7 @@ ShamanPower.options = {
 							values = { icons = "Icons only", frame = "Blizzard frame" },
 							sorting = { "icons", "frame" },
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							disabled = function(info)
 								-- also governs the shield / imbue flyouts, so it stays usable with totem flyouts off
@@ -2681,7 +2681,7 @@ ShamanPower.options = {
 							isPercent = true,
 							width = "full",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 									or (ShamanPower.opt.flyoutStyle or "icons") ~= "frame"
 							end,
 							get = function(info)
@@ -2702,7 +2702,7 @@ ShamanPower.options = {
 							desc = "Clicking a totem, shield or imbue in a flyout casts it and closes the flyout in the same click. Turn it off to keep the flyout open until you close it yourself (handy for dropping several totems in a row).",
 							width = "full",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							disabled = function(info)
 								-- also governs the shield / imbue flyouts, so it stays usable with totem flyouts off
@@ -2726,7 +2726,7 @@ ShamanPower.options = {
 							desc = "If a totem, shield or imbue from a flyout is also on your action bars with a keybind, that key is sent through ShamanPower's own button: it casts the same spell and closes the flyout, even in combat.\n\nOnly for bar slots holding the plain spell, never a macro. Blizzard's action button will not show the press animation for those keys. Turn this off to leave your action bar keys completely alone.",
 							width = "full",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							disabled = function(info)
 								return not isShaman or not ShamanPower.opt.showTotemFlyouts
@@ -2776,9 +2776,40 @@ ShamanPower.options = {
 							name = "Reset Flyout Settings to Defaults",
 							desc = "Puts every setting in this section back to its default. Asks first. Positions are not changed.",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							func = function() ShamanPower:ConfirmResetSection("flyouts") end,
+						},
+						flyout_blizzard_arrows = {
+							order = 4.1,
+							type = "toggle",
+							name = "Blizzard-Style Flyout Arrows",
+							desc = "Flyouts work like Blizzard's own totem bar: a small arrow tab on each button opens its flyout, by a click or a key (the ShamanPower Flyouts key bindings). Off: flyouts open when you hover, in combat too, as on Anniversary."
+								.. "\n\n|cffffa040Flyouts are built when the game loads: a reload switches them.|r",
+							width = "full",
+							-- WoW: Forever, where secure snippets work (without them the arrows are the only way)
+							hidden = function(info)
+								return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or not (SPCompat and SPCompat.SecureSnippetsWork and SPCompat.SecureSnippetsWork())
+							end,
+							disabled = function(info)
+								return not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.flyoutBlizzardArrows and true or false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.flyoutBlizzardArrows = val or nil
+								if (val and true or false) == ShamanPower:BlizzardStyleFlyouts() then return end   -- back to what is built
+								ShamanPower:ShowSPDialog({
+									key = "flyout_style_reload",
+									title = "Reload to switch flyouts?",
+									text = "Flyouts are built when the game loads, so the new style takes effect after a reload.",
+									buttons = {
+										{ text = "Reload Now", onClick = function() ReloadUI() end },
+										{ text = "Later" },
+									},
+								})
+							end
 						},
 						flyout_arrows_always = {
 							order = 4.2,
@@ -2787,7 +2818,7 @@ ShamanPower.options = {
 							desc = "Keeps the small arrow tab on every button that has a flyout, out of combat as well. Off: the arrows only appear when a fight starts, and out of combat flyouts simply open when you hover.",
 							width = "full",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							disabled = function(info)
 								return not isShaman or ShamanPower.opt.flyoutArrowOnly == true
@@ -2811,7 +2842,7 @@ ShamanPower.options = {
 							desc = "Hovering a button never opens its flyout, in or out of combat. A flyout opens from its arrow or its toggle keybind, and stays open until you pick from it, press the arrow again, or press the key again. The arrows are always shown in this mode.",
 							width = "full",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							disabled = function(info)
 								return not isShaman
@@ -2832,11 +2863,12 @@ ShamanPower.options = {
 						flyout_show_empty = {
 							order = 4.7,
 							type = "toggle",
-							name = "Offer an \"Empty\" Choice in Totem Flyouts",
-							desc = "Adds a faded totem to each totem flyout, as on Blizzard's totem bar. Picking it leaves that element with no totem assigned, so the button casts nothing until you pick a totem again. (While Totem Twisting is on, the Air button always casts the twist sequence, whatever is assigned.)",
+							name = "Empty Totem in Flyouts",
+							desc = "Adds an Empty choice to each totem flyout, as on Blizzard's totem bar. Pick it, in or out of combat, to leave that element with no totem: Call of the Elements and Drop All skip it, and the button casts nothing until you pick a totem again.",
 							width = "full",
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								-- Call of the Elements only (WoW: Forever); Anniversary has no totem sets
+								return not isShaman or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
 							end,
 							disabled = function(info)
 								return not isShaman or not ShamanPower.opt.showTotemFlyouts
@@ -2861,7 +2893,7 @@ ShamanPower.options = {
 							width = "full",
 							-- only meaningful where the arrow flyouts exist (clients whose secure snippets are broken)
 							hidden = function(info)
-								return not (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork())
+								return not (ShamanPower:FlyoutBoxMode())
 							end,
 							disabled = function(info)
 								-- also governs the shield / imbue flyouts, so it stays usable with totem flyouts off
@@ -10195,7 +10227,7 @@ do
 	move("padding_section", "cooldownbar_appearance", { "cooldownBarPadding" })
 	move("visibility_section", "cooldownbar_appearance", { "hide_cooldown_bar_frame" })
 	move("layout_section", "flyout_appearance", { "totem_flyout_direction", "cdbar_flyout_direction",
-		"totem_flyout_button_size", "flyout_style", "flyout_frame_opacity", "flyout_arrows_always", "flyout_reset" })
+		"totem_flyout_button_size", "flyout_blizzard_arrows", "flyout_style", "flyout_frame_opacity", "flyout_arrows_always", "flyout_reset" })
 	move("scale_section", "flyout_appearance", { "cooldownFlyoutButtonSize" })
 	move("opacity_section", "flyout_appearance", { "totemFlyoutOpacity", "cooldownFlyoutOpacity" })
 	local compact = SP.options.args.settings.args.settings_totemMode.args.compactOptions
@@ -10233,7 +10265,7 @@ do
 			"cdbar_flyout_direction", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity",
 		}, names = { cooldownFlyoutButtonSize = "Icon Size", cooldownFlyoutOpacity = "Opacity" } },
 		{ header = "shared_header", name = "Shared Look", keys = {
-			"flyout_style", "flyout_frame_opacity", "flyout_arrows_always",
+			"flyout_blizzard_arrows", "flyout_style", "flyout_frame_opacity", "flyout_arrows_always",
 		} },
 		{ header = "reset_header", name = "Reset", keys = { "flyout_reset" } },
 	})
@@ -10363,7 +10395,11 @@ do
 		end,
 	}
 	SP.SettingsPathAliases["fluffy/layout_section"] = { "fluffy", "totembar_appearance" }
-	pages.totemflyouts_section.args.flyout_show_empty.order = 0.2
+	-- Empty sits on the Style page, under Hide Blizzard's Totem Bar: every style
+	-- but Blizzard's own bar (its flyouts are Blizzard's) offers it
+	mode.args.flyout_show_empty = pages.totemflyouts_section.args.flyout_show_empty
+	pages.totemflyouts_section.args.flyout_show_empty = nil
+	mode.args.flyout_show_empty.order = 4.856
 end
 
 -- Module pages keep their controls and callbacks; only their reading order changes.

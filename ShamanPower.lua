@@ -114,7 +114,7 @@ local SP_SECURE_ONLEAVE_PARENT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 -- secure path returns by itself the moment Blizzard fixes it.
 function ShamanPower:SetSnippet(frame, attr, body)
 	if not frame or not frame.SetAttribute then return false end
-	if SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork() then
+	if self:FlyoutBoxMode() then
 		frame:SetAttribute(attr, nil)
 		ShamanPower:WireFlyoutFallback(frame, attr)
 		return false
@@ -222,6 +222,11 @@ local SLOT_EMPTY = {
 	{ 66 / 128, 96 / 128,  36 / 256,  66 / 256 },   -- air
 }
 
+-- The setup tour and the settings preview draw Blizzard's tabs and flyout on
+-- their Blizzard's-bar mock, from the same art.
+ShamanPower.FlyoutArrowArt = { texture = ARROW_TEXTURE, w = ARROW_W, h = ARROW_H,
+	open = ARROW_OPEN, close = ARROW_CLOSE, cap = FRAME_CAP, band = FRAME_BAND, empty = SLOT_EMPTY }
+
 -- A totem button with nothing assigned wears the same faded totem, in its
 -- element's colour, instead of a spell icon that reads as a real totem. It is a
 -- texture laid over the icon, so it can change mid-fight. Forever only: the
@@ -271,9 +276,24 @@ local spFlyoutCombatLayout = false
 -- icons-only style needs any, and only in combat: there the close tab sits
 -- against the button while the flyout is open. In the frame style the close tab
 -- is at the far end, and the open tab is simply covered by the first icon.
-local function spFlyoutBoxMode()
-	return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
+-- WoW: Forever players can pick Blizzard's own totem bar look: flyouts that open
+-- from arrow tabs (click or key), built by the same box mode that serves a client
+-- whose secure snippets are broken. Read once, when the flyouts are built (login,
+-- /reload): switching mid-session would leave built flyouts of the other kind.
+function ShamanPower:BlizzardStyleFlyouts()
+	if self._blizzardArrows == nil then
+		if not self.opt then return false end   -- too early to know: not cached
+		self._blizzardArrows = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self.opt.flyoutBlizzardArrows == true) and true or false
+	end
+	return self._blizzardArrows
 end
+
+local function spFlyoutBoxMode()
+	if SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork() then return true end
+	return ShamanPower:BlizzardStyleFlyouts()
+end
+-- arrow ("box") flyouts: secure snippets do not work here, or the player picked them
+function ShamanPower:FlyoutBoxMode() return spFlyoutBoxMode() end
 
 -- The arrow strip is laid out during a fight, and all the time for players who
 -- asked for that: opt.flyoutArrowsAlways, or opt.flyoutArrowOnly (flyouts open
@@ -7131,7 +7151,7 @@ function ShamanPower:RefreshTotemBarHelpers()
 	if InCombatLockdown() then return end
 	for element = 1, 4 do
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
-		if flyout and flyout.box then
+		if flyout then
 			for _, btn in ipairs(flyout.allButtons or {}) do
 				local M = _G["SPFM" .. element .. "_" .. btn.totemIndex]
 				if M then
@@ -7461,6 +7481,108 @@ function ShamanPower:SyncCombatFlyoutButtons(element)
 	self:PlaceFlyoutArrows(flyout)
 end
 
+-- The totem flyout buttons' secure handlers, shared by every totem button and
+-- the "Empty" choice. The parent broadcasts them with ChildUpdate: "show" opens
+-- or closes the flyout, "assignment" tells each button whether it now holds the
+-- totem button's spell (message = the new spell, nil for Empty), and "relayout"
+-- closes the gap the assigned one leaves.
+local SP_FLYOUT_CHILD_SHOW = [[
+		if self:GetAttribute("spGridPinned") then return end
+		if message then
+			if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then
+				self:Show()
+			end
+		else
+			self:Hide()
+		end
+	]]
+local SP_FLYOUT_CHILD_ASSIGNMENT = [[
+		-- a popped-out totem is shown on its own button, never in the flyout
+		if self:GetAttribute("spPoppedOut") then
+			self:SetAttribute("isCurrentAssignment", true)
+			return
+		end
+		local newSpell = message
+		local mySpell = self:GetAttribute("mySpell")
+		if newSpell == mySpell then
+			self:SetAttribute("isCurrentAssignment", true)
+		else
+			self:SetAttribute("isCurrentAssignment", false)
+		end
+	]]
+local SP_FLYOUT_CHILD_RELAYOUT = [[
+		if self:GetAttribute("spGridPinned") then return end
+		-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
+		if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then
+			return
+		end
+
+		local parent = self:GetParent()
+		local buttonSize = parent:GetAttribute("flyoutButtonSize") or 28
+		local spacing = parent:GetAttribute("flyoutSpacing") or 0
+		local isVerticalLeft = parent:GetAttribute("isVerticalLeft")
+		local flyoutIsHorizontal = parent:GetAttribute("flyoutIsHorizontal")
+		local flyoutGoesBelow = parent:GetAttribute("flyoutGoesBelow")
+		local myIndex = self:GetAttribute("myTotemIndex") or 0
+
+		-- Count visible siblings with lower totemIndex
+		local visibleBefore = 0
+		local children = newtable(parent:GetChildren())
+		for i = 1, #children do
+			local sibling = children[i]
+			if sibling:GetAttribute("isFlyoutButton") then
+				local sibIndex = sibling:GetAttribute("myTotemIndex") or 0
+				if sibIndex < myIndex and not sibling:GetAttribute("isCurrentAssignment") and not sibling:GetAttribute("flyoutHidden") then
+					visibleBefore = visibleBefore + 1
+				end
+			end
+		end
+
+		-- Position myself based on how many visible buttons are before me
+		self:ClearAllPoints()
+		if flyoutIsHorizontal then
+			if isVerticalLeft then
+				self:SetPoint("RIGHT", parent, "LEFT", -spacing - visibleBefore * (buttonSize + spacing), 0)
+			else
+				self:SetPoint("LEFT", parent, "RIGHT", spacing + visibleBefore * (buttonSize + spacing), 0)
+			end
+		else
+			if flyoutGoesBelow then
+				self:SetPoint("TOP", parent, "BOTTOM", 0, -spacing - visibleBefore * (buttonSize + spacing))
+			else
+				self:SetPoint("BOTTOM", parent, "TOP", 0, spacing + visibleBefore * (buttonSize + spacing))
+			end
+		end
+	]]
+
+-- SPFU<element>: pressed last by a hover flyout's assign macro, after SPFS/SPFN
+-- has written the totem button's spell. It re-sorts the open flyout around the
+-- new assignment and closes it, in combat too. (The flyout buttons cannot run a
+-- click snippet of their own: their template has no mouse-up handler, so the old
+-- _onmouseup snippet on them never ran.) spSecureResort is off where the plain
+-- relayout above would misplace the buttons; then the pick only closes the
+-- flyout and the list catches up when the fight ends.
+function ShamanPower:FlyoutResortHelper(element, parent)
+	local name = "SPFU" .. element
+	local h = _G[name] or CreateFrame("Button", name, parent, "SecureHandlerClickTemplate")
+	h:SetParent(parent)
+	h:SetSize(1, 1)
+	h:ClearAllPoints()
+	h:SetPoint("CENTER", parent, "CENTER")
+	h:EnableMouse(false)
+	h:RegisterForClicks("AnyUp", "AnyDown")
+	h:SetAttribute("_onclick", [[
+		local p = self:GetParent()
+		if not p then return end
+		if p:GetAttribute("spSecureResort") then
+			p:ChildUpdate("assignment", p:GetAttribute("spell1"))
+			p:ChildUpdate("relayout", true)
+		end
+		p:ChildUpdate("show", false)
+	]])
+	return h
+end
+
 function ShamanPower:CreateTotemFlyout(element)
 	if self.totemFlyouts[element] then return self.totemFlyouts[element] end
 
@@ -7539,75 +7661,15 @@ function ShamanPower:CreateTotemFlyout(element)
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
-				if self:GetAttribute("spGridPinned") then return end
-				if message then
-					if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then
-						self:Show()
-					end
-				else
-					self:Hide()
-				end
-			]])
+			ShamanPower:SetSnippet(btn, "_childupdate-show", SP_FLYOUT_CHILD_SHOW)
 
 			-- SECURE HANDLER: Respond to assignment changes (WORKS IN COMBAT)
 			-- Updates isCurrentAssignment based on whether this button's spell matches the new assignment
-			ShamanPower:SetSnippet(btn, "_childupdate-assignment", [[
-				local newSpell = message
-				local mySpell = self:GetAttribute("mySpell")
-				if newSpell == mySpell then
-					self:SetAttribute("isCurrentAssignment", true)
-				else
-					self:SetAttribute("isCurrentAssignment", false)
-				end
-			]])
+			ShamanPower:SetSnippet(btn, "_childupdate-assignment", SP_FLYOUT_CHILD_ASSIGNMENT)
 
 			-- SECURE HANDLER: Relayout this button after assignment change (WORKS IN COMBAT)
 			-- Each button counts visible siblings before it and positions itself accordingly
-			ShamanPower:SetSnippet(btn, "_childupdate-relayout", [[
-				if self:GetAttribute("spGridPinned") then return end
-				-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
-				if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then
-					return
-				end
-
-				local parent = self:GetParent()
-				local buttonSize = parent:GetAttribute("flyoutButtonSize") or 28
-				local spacing = parent:GetAttribute("flyoutSpacing") or 0
-				local isVerticalLeft = parent:GetAttribute("isVerticalLeft")
-				local flyoutIsHorizontal = parent:GetAttribute("flyoutIsHorizontal")
-				local flyoutGoesBelow = parent:GetAttribute("flyoutGoesBelow")
-				local myIndex = self:GetAttribute("myTotemIndex") or 0
-
-				-- Count visible siblings with lower totemIndex
-				local visibleBefore = 0
-				local children = newtable(parent:GetChildren())
-				for i = 1, #children do
-					local sibling = children[i]
-					if sibling:GetAttribute("isFlyoutButton") then
-						local sibIndex = sibling:GetAttribute("myTotemIndex") or 0
-						if sibIndex < myIndex and not sibling:GetAttribute("isCurrentAssignment") and not sibling:GetAttribute("flyoutHidden") then
-							visibleBefore = visibleBefore + 1
-						end
-					end
-				end
-
-				-- Position myself based on how many visible buttons are before me
-				self:ClearAllPoints()
-				if flyoutIsHorizontal then
-					if isVerticalLeft then
-						self:SetPoint("RIGHT", parent, "LEFT", -spacing - visibleBefore * (buttonSize + spacing), 0)
-					else
-						self:SetPoint("LEFT", parent, "RIGHT", spacing + visibleBefore * (buttonSize + spacing), 0)
-					end
-				else
-					if flyoutGoesBelow then
-						self:SetPoint("TOP", parent, "BOTTOM", 0, -spacing - visibleBefore * (buttonSize + spacing))
-					else
-						self:SetPoint("BOTTOM", parent, "TOP", 0, spacing + visibleBefore * (buttonSize + spacing))
-					end
-				end
-			]])
+			ShamanPower:SetSnippet(btn, "_childupdate-relayout", SP_FLYOUT_CHILD_RELAYOUT)
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
@@ -7641,19 +7703,18 @@ function ShamanPower:CreateTotemFlyout(element)
 				btn:SetAttribute("assignButton", "RightButton")
 			end
 
+			-- The assign click presses secure helpers from a macro: SPFS writes the
+			-- totem button's spell (the "attribute" action), SPFM writes the same
+			-- totem into Blizzard's totem bar (the "multispell" action, the only way
+			-- to reach that bar mid-fight; Call of the Elements casts what the bar
+			-- holds, not what we show). All of it works in combat, and PostClick
+			-- below handles the rest.
 			-- Box mode: picking a totem casts it AND closes the flyout in the same
-			-- click, by pressing the close arrow from a macro. The assign click
-			-- writes the totem button's spell through the "attribute" action,
-			-- which is what the dead _onmouseup snippet used to do, so assigning
-			-- works in combat again (PostClick below already handles the rest).
-			if flyout.box and spellName then
+			-- click, by pressing the close arrow from a macro; the assign click ends
+			-- by closing the flyout and resetting its toggle key.
+			-- Hover mode: the assign click ends with SPFU, which re-sorts and closes.
+			if spellName then
 				local castN, assignN = swapped and "2" or "1", swapped and "1" or "2"
-				btn.spPick = { [castN] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
-				-- Assigning presses two helpers from one macro: SPFS writes the totem
-				-- button's spell, SPFM writes the same totem into Blizzard's totem bar
-				-- (the "multispell" action, the only way to reach that bar mid-fight;
-				-- Call of the Elements casts what the bar holds, not what we show).
-				-- Then the flyout closes and its toggle key resets.
 				local tag = element .. "_" .. totemIndex
 				local S = self:FlyoutAssignHelper("SPFS" .. tag, parentButton)
 				S:SetAttribute("type", "attribute")
@@ -7661,30 +7722,17 @@ function ShamanPower:CreateTotemFlyout(element)
 				S:SetAttribute("attribute-name", "spell1")
 				S:SetAttribute("attribute-value", spellName)
 				self:FlyoutAssignHelper("SPFM" .. tag, parentButton)   -- filled by RefreshTotemBarHelpers
-				btn:SetAttribute("type" .. assignN, "macro")
-				btn:SetAttribute("macrotext" .. assignN, "/click SPFS" .. tag .. "\n/click SPFM" .. tag
-					.. "\n/click SPFC" .. element .. "\n/click SPFR" .. element)
-			end
-
-			-- SECURE HANDLER: Handle assignment via right-click (WORKS IN COMBAT)
-			-- Use _onmouseup to change parent's spell and update flyout
-			-- This runs after the click action, so it won't interfere with left-click casting
-			ShamanPower:SetSnippet(btn, "_onmouseup", [[
-				local button = button
-				local assignBtn = self:GetAttribute("assignButton")
-				if button == assignBtn then
-					local mySpell = self:GetAttribute("mySpell")
-					local parent = self:GetParent()
-					-- Change parent button's spell to this totem
-					parent:SetAttribute("spell1", mySpell)
-					-- Notify all flyout buttons of the new assignment (updates isCurrentAssignment)
-					parent:ChildUpdate("assignment", mySpell)
-					-- Relayout flyout buttons to close the gap
-					parent:ChildUpdate("relayout", true)
-					-- Close the flyout
-					parent:ChildUpdate("show", false)
+				local tail
+				if flyout.box then
+					btn.spPick = { [castN] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
+					tail = "\n/click SPFC" .. element .. "\n/click SPFR" .. element
+				else
+					self:FlyoutResortHelper(element, parentButton)
+					tail = "\n/click SPFU" .. element
 				end
-			]])
+				btn:SetAttribute("type" .. assignN, "macro")
+				btn:SetAttribute("macrotext" .. assignN, "/click SPFS" .. tag .. "\n/click SPFM" .. tag .. tail)
+			end
 
 			-- Set up icon (use template's icon child or create one)
 			btn.icon = spOwnIcon(btn)
@@ -7837,18 +7885,25 @@ function ShamanPower:CreateTotemFlyout(element)
 	-- is how an element is kept out of a totem set). totemIndex 0 is the
 	-- addon's existing "nothing assigned" state, so the rest of the flyout code
 	-- treats it like any other button: it sorts first, next to the totem button,
-	-- and hides itself while nothing is assigned. Box mode only for now: it sets
-	-- the totem button's spell through a secure helper, and the snippet clients
-	-- would need their own plumbing.
-	if flyout.box and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
+	-- and hides itself while nothing is assigned (box mode keeps it, faded).
+	-- Picking it clears the totem button's spell and Blizzard's slot through the
+	-- same secure helpers as an assign click, so it works in combat. WoW: Forever
+	-- only: it exists for Call of the Elements, and Anniversary has no totem sets.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
 		local name = "ShamanPowerFlyout" .. element .. "Btn0"
 		local btn = CreateFrame("Button", name, buttonParent, "SPFlyoutButtonTemplate")
 		btn:SetParent(buttonParent)
 		btn:SetSize(flyout.buttonSize, flyout.buttonSize)
 		btn:Hide()
 		btn:SetIgnoreParentAlpha(true)
-		ShamanPower:SetSnippet(btn, "_childupdate-show", "")   -- wires the hover-leave fallback like its siblings
+		ShamanPower:SetSnippet(btn, "_childupdate-show", SP_FLYOUT_CHILD_SHOW)   -- box mode: wires the hover-leave fallback
+		if not flyout.box then
+			ShamanPower:SetSnippet(btn, "_childupdate-assignment", SP_FLYOUT_CHILD_ASSIGNMENT)
+			ShamanPower:SetSnippet(btn, "_childupdate-relayout", SP_FLYOUT_CHILD_RELAYOUT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+		end
 		btn:SetAttribute("spFlyoutProtocol", true)
+		btn:SetAttribute("mySpell", nil)   -- matches the cleared spell in the "assignment" broadcast
 		btn:SetAttribute("myElement", element)
 		btn:SetAttribute("myTotemIndex", 0)
 		btn:SetAttribute("isFlyoutButton", true)
@@ -7866,9 +7921,17 @@ function ShamanPower:CreateTotemFlyout(element)
 		clear:SetAttribute("attribute-frame", parentButton)
 		clear:SetAttribute("attribute-name", "spell1")
 		clear:SetAttribute("attribute-value", nil)
-		-- either mouse button: clear the spell, close the flyout, reset its toggle key
+		-- either mouse button: clear the spell, then close the flyout (box mode:
+		-- and reset its toggle key; hover mode: SPFU re-sorts it first)
 		self:FlyoutAssignHelper("SPFM" .. element .. "_0", parentButton)   -- empties Blizzard's slot too
-		local macro = "/click SPFN" .. element .. "\n/click SPFM" .. element .. "_0\n/click SPFC" .. element .. "\n/click SPFR" .. element
+		local tail
+		if flyout.box then
+			tail = "\n/click SPFC" .. element .. "\n/click SPFR" .. element
+		else
+			self:FlyoutResortHelper(element, parentButton)
+			tail = "\n/click SPFU" .. element
+		end
+		local macro = "/click SPFN" .. element .. "\n/click SPFM" .. element .. "_0" .. tail
 		for _, n in ipairs({ "1", "2" }) do
 			btn:SetAttribute("type" .. n, "macro")
 			btn:SetAttribute("macrotext" .. n, macro)
@@ -7908,7 +7971,12 @@ function ShamanPower:CreateTotemFlyout(element)
 				ShamanPower:UpdateSPMacros()
 				ShamanPower:SendMessage("ASSIGN " .. ShamanPower.player .. " " .. elem .. " 0")
 				ShamanPower:UpdateFlyoutVisibility(elem)
-				ShamanPower:FlyoutFallbackSetShown(ShamanPower.totemButtons[elem], false)
+				local flyoutData = ShamanPower.totemFlyouts[elem]
+				if flyoutData and flyoutData.box then
+					ShamanPower:FlyoutFallbackSetShown(flyoutData.totemButton, false)
+				elseif flyoutData and flyoutData.buttons and not parentButton.spGridPinned then
+					for _, flyoutBtn in ipairs(flyoutData.buttons) do flyoutBtn:Hide() end
+				end
 			end
 		end)
 
@@ -8253,6 +8321,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	totemButton:SetAttribute("isVerticalLeft", isVerticalLeft)
 	totemButton:SetAttribute("flyoutIsHorizontal", flyoutIsHorizontal)
 	totemButton:SetAttribute("flyoutGoesBelow", flyoutGoesBelow)
+	-- The in-combat re-sort after a pick (SPFU) redoes only the plain layouts
+	-- below: not a popped-out element's own direction, and not TotemTimers
+	-- Style, which hides the dropped totem rather than the assigned one.
+	local ownDirection = self:IsElementPoppedOut(element) and self.opt.poppedOutSettings
+		and self.opt.poppedOutSettings["totem_" .. self.Elements[element]:lower()]
+	ownDirection = ownDirection and ownDirection.flyoutDirection
+	totemButton:SetAttribute("spSecureResort", (not flyout.box and not ownDirection and not self.opt.activeTotemAsMain) or nil)
 
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
@@ -8264,6 +8339,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	for _, btn in ipairs(flyout.buttons) do
 		local totemIdx = btn.totemIndex
 		local isPoppedOut = self:IsSingleTotemPoppedOut(element, totemIdx)
+		btn:SetAttribute("spPoppedOut", isPoppedOut or nil)   -- the "assignment" broadcast keeps it out
 
 		if (totemIdx == hideIndex and not keepAll) or isPoppedOut then
 			-- Mark this button to be hidden (via attribute so secure handler knows)
@@ -19337,8 +19413,10 @@ function ShamanPower:UpdateLoadoutBar()
 				-- Position radially around anchor (same as TotemTimers)
 				local prev = btnIndex == 1 and self.loadoutAnchor or self.loadoutButtons[btnIndex - 1]
 				btn:ClearAllPoints()
-				if opensDown then btn:SetPoint("TOP", prev, "BOTTOM", 0, -2)
-				else btn:SetPoint("BOTTOM", prev, "TOP", 0, 2) end
+				-- no gap (as the totem flyouts): the cursor crossing one would leave every
+				-- button of the flyout at once, and hover flyouts close on that
+				if opensDown then btn:SetPoint("TOP", prev, "BOTTOM", 0, 0)
+				else btn:SetPoint("BOTTOM", prev, "TOP", 0, 0) end
 
 				if loadout.icon then
 					-- The player chose an icon for this loadout: show it, not the four totems
@@ -19437,8 +19515,8 @@ function ShamanPower:SaveLoadoutBarPosition()
 		for i, btn in ipairs(self.loadoutButtons) do
 			local prev = i == 1 and anchor or self.loadoutButtons[i - 1]
 			btn:ClearAllPoints()
-			if down then btn:SetPoint("TOP", prev, "BOTTOM", 0, -2)
-			else btn:SetPoint("BOTTOM", prev, "TOP", 0, 2) end
+			if down then btn:SetPoint("TOP", prev, "BOTTOM", 0, 0)   -- no gap: see UpdateLoadoutBar
+			else btn:SetPoint("BOTTOM", prev, "TOP", 0, 0) end
 		end
 	end
 end

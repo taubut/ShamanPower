@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Author: Srumar
 ## Title: SP Save Test - Early
-## Version: 3.0.0
+## Version: 3.0.1
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Temporary isolated saved-variable persistence test (early loading).
 ## DefaultState: enabled
