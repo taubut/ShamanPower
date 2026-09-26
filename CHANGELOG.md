@@ -1,5 +1,10 @@
 # ShamanPower Changelog
 
+## v3.0.2 (2026-09-26)
+
+### Fixes
+- **Cooldown bar shield key** (WoW: Forever): I'm working on reports that your action-bar key for Lightning or Water Shield stops casting. With Blizzard-Style Flyout Arrows and Swap Left and Right Click both on, ShamanPower routed that key to the wrong click of its shield flyout, so it cast nothing; it now presses the right one, and weapon imbue keys go to the main hand again. If your shield key still misbehaves, please tell me on the Discord.
+
 ## v3.0.1 (2026-09-26)
 
 ### New

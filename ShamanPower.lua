@@ -18336,8 +18336,12 @@ function ShamanPower:RouteFlyoutBarKeys()
 	local castButton = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"
 	for key, entry in pairs(self.boxFlyouts) do
 		local flyout = entry.flyout
-		local mouse = (type(key) == "number") and castButton or "LeftButton"   -- shield/imbue cast on left
 		for _, btn in ipairs(flyout.allButtons or flyout.buttons or {}) do
+			-- Shield and imbue flyouts cast on their left click, which Swap Left and
+			-- Right Click turns into a right click (spFlipClicks remaps the button):
+			-- press whichever one casts, or the key lands on "set as default" and
+			-- casts nothing (and an imbue key would hit the off hand).
+			local mouse = (type(key) == "number") and castButton or (btn.spClickFlipped and "RightButton" or "LeftButton")
 			local name = btn.spellName or btn:GetAttribute("mySpell") or (btn.spellID and GetSpellInfo(btn.spellID))
 			local bound = name and self.actionBarKeybinds and self.actionBarKeybinds[name]
 			if bound and btn:GetName() and self.barPlainSpells[name] and not self.barMacroSpells[name] then
