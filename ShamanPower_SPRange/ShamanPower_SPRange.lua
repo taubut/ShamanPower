@@ -799,26 +799,23 @@ function SP:ToggleSPRange()
 		self:CreateSPRangeFrame()
 	end
 
-	if self.spRangeFrame:IsShown() then
+	-- (open counts one waiting for a group, per Show the Overlay)
+	if self.spRangeFrame:IsShown() or self.spRangeManuallyOpened then
 		self.spRangeFrame:Hide()
 		self.spRangeManuallyOpened = false  -- User closed it manually
 		ShamanPower_RangeTracker.shown = false
 		self:Print("SPRange hidden. Use /sprange to show.")
 	else
-		-- Restore position
-		local pos = ShamanPower_RangeTracker.position
-		if pos then
-			self.spRangeFrame:ClearAllPoints()
-			self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-
-		self:UpdateSPRangeFrame()
-		self:UpdateSPRangeBorder()
-		self:UpdateSPRangeOpacity()
-		self.spRangeFrame:Show()
 		self.spRangeManuallyOpened = true  -- User opened it manually
 		ShamanPower_RangeTracker.shown = true
-		self:Print("SPRange shown. Click settings cog to configure.")
+		if self:SPRangeAllowedHere() then
+			self:ShowSPRangeOverlay()
+			self:Print("SPRange shown. Click settings cog to configure.")
+		else
+			self:Print("SPRange is on and shows once you are in a group"
+				.. ((self.opt.rangeTracker and self.opt.rangeTracker.showWhen == "group") and "" or " with a shaman")
+				.. " (Settings > Group Tools > Totem Range Tracker > Show the Overlay).")
+		end
 	end
 end
 
@@ -1081,7 +1078,34 @@ do
 	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Totem Range (Windfury report)") end
 	f:RegisterEvent("GROUP_ROSTER_UPDATE")
 	f:RegisterEvent("PLAYER_ENTERING_WORLD")
-	f:SetScript("OnEvent", function() SP:UpdateWindfuryBroadcaster() end)
+	f:SetScript("OnEvent", function()
+		SP:UpdateWindfuryBroadcaster()
+		SP:UpdateSPRangeVisibility()   -- Show the Overlay: leaving or joining a group
+	end)
+end
+
+-- Where the overlay may be up (Totem Range Tracker > Show the Overlay): "shaman"
+-- (the default) only in a group with a shaman in it, you included; "group" in
+-- any group; "always" solo too. It holds for an overlay opened by hand as well:
+-- that one steps aside when you leave the group and comes back when you join one.
+function SP:SPRangeAllowedHere()
+	local mode = self.opt and self.opt.rangeTracker and self.opt.rangeTracker.showWhen or "shaman"
+	if mode == "always" then return true end
+	if not IsInGroup() then return false end
+	if mode == "group" then return true end
+	return select(2, UnitClass("player")) == "SHAMAN" or self:SPRangeHasAnyShamanInGroup()
+end
+
+function SP:ShowSPRangeOverlay()
+	local pos = ShamanPower_RangeTracker.position
+	if pos then
+		self.spRangeFrame:ClearAllPoints()
+		self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
+	end
+	self:UpdateSPRangeFrame()
+	self:UpdateSPRangeBorder()
+	self:UpdateSPRangeOpacity()
+	self.spRangeFrame:Show()
 end
 
 -- Auto-show/hide SPRange based on group composition
@@ -1094,27 +1118,20 @@ function SP:UpdateSPRangeVisibility()
 		return
 	end
 
-	-- Don't auto-hide if user manually opened it (shamans may want to track their own totems)
+	-- Opened by hand (shamans may want to track their own totems): kept open, but
+	-- only where Show the Overlay allows it
 	if self.spRangeManuallyOpened then
+		local want = self:SPRangeAllowedHere()
+		if want and not self.spRangeFrame:IsShown() then self:ShowSPRangeOverlay()
+		elseif not want and self.spRangeFrame:IsShown() then self.spRangeFrame:Hide() end
 		return
 	end
 
 	-- ShamanPower switched off: no auto-show (an overlay opened by hand is the player's call)
-	local shouldShow = not self:IsOff() and self:SPRangeHasAnyShamanInGroup()
+	local shouldShow = not self:IsOff() and self:SPRangeHasAnyShamanInGroup() and self:SPRangeAllowedHere()
 
 	if shouldShow then
-		if not self.spRangeFrame:IsShown() then
-			-- Restore position
-			local pos = ShamanPower_RangeTracker.position
-			if pos then
-				self.spRangeFrame:ClearAllPoints()
-				self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-			end
-			self:UpdateSPRangeFrame()
-			self:UpdateSPRangeBorder()
-			self:UpdateSPRangeOpacity()
-			self.spRangeFrame:Show()
-		end
+		if not self.spRangeFrame:IsShown() then self:ShowSPRangeOverlay() end
 	else
 		if self.spRangeFrame:IsShown() then
 			self.spRangeFrame:Hide()
@@ -1142,7 +1159,7 @@ SlashCmdList["SPRANGE"] = function(msg)
 		SP:ToggleSPRange()
 	elseif msg == "show" or msg == "hide" then
 		-- only flip it when it is not already that way (show never hides, hide never shows)
-		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown() and true or false
+		local shown = SP.spRangeFrame and (SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false
 		if (msg == "show") ~= shown then
 			SP:ToggleSPRange()
 		else

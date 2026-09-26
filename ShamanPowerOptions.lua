@@ -9017,11 +9017,26 @@ do
 	range.show_overlay = {
 		order = 0.6, type = "toggle", name = "Show Overlay", width = "full",
 		disabled = function() return not SP.SPRangeLoaded end,
-		get = function() return SP.spRangeFrame and SP.spRangeFrame:IsShown() or false end,
+		-- on also while it waits for a group (Show the Overlay)
+		get = function() return (SP.spRangeFrame and SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false end,
 		set = function(_, value)
 			if not SP.SPRangeLoaded then return end
-			local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown() or false
+			local shown = (SP.spRangeFrame and SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false
 			if shown ~= value then SP:ToggleSPRange() end
+		end,
+	}
+	range.show_when = {
+		order = 0.61, type = "select", name = "Show the Overlay", width = 1.5,
+		desc = "Where the overlay may be up, whether it opened by itself or you opened it."
+			.. " Solo it stays out of the way unless you pick Always; it comes back when you join a group.",
+		disabled = function() return not SP.SPRangeLoaded end,
+		values = { shaman = "In a group with a shaman", group = "In any group", always = "Always, solo too" },
+		sorting = { "shaman", "group", "always" },
+		get = function() return (SP.opt.rangeTracker and SP.opt.rangeTracker.showWhen) or "shaman" end,
+		set = function(_, v)
+			SP:EnsureProfileTable("rangeTracker")
+			SP.opt.rangeTracker.showWhen = (v ~= "shaman") and v or nil
+			if SP.UpdateSPRangeVisibility then SP:UpdateSPRangeVisibility() end
 		end,
 	}
 	range.tracked_header = { order = 6, type = "header", name = "Totems to Track" }

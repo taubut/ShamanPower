@@ -1,5 +1,10 @@
 # ShamanPower Changelog
 
+## v3.0.1 (unreleased)
+
+### Changes
+- **Totem Range Tracker: Show the Overlay.** Pick where the overlay may be up: in a group with a shaman (the default), in any group, or always, solo too. It holds for an overlay you opened yourself as well: it steps aside when you leave the group and comes back when you join one, so it no longer sits on screen while you play solo.
+
 ## v3.0.0 (2026-09-25)
 
 ### New

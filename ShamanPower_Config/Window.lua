@@ -83,14 +83,13 @@ local POWER_SPRANGE = {
 	label  = "Totem Range overlay",
 	desc   = "Show or hide the totem range overlay (same as /sprange toggle).",
 	loaded = function() local sp = SP() return sp and sp.SPRangeLoaded and true or false end,
-	get    = function()
-		local f = SP().spRangeFrame
-		return f and f:IsShown() and true or false
+	get    = function()   -- on also while it waits for a group (Show the Overlay)
+		local sp = SP()
+		return (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
 	end,
 	set    = function(v)
 		local sp = SP()
-		local f = sp.spRangeFrame
-		local cur = f and f:IsShown() and true or false
+		local cur = (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
 		if (v and true or false) ~= cur then sp:ToggleSPRange() end
 	end,
 }
