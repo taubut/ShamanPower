@@ -1,0 +1,13 @@
+## Interface: 120100, 16001
+## Author: Srumar
+## Title: SP Save Test - Shared range owner
+## Version: 3.0.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Isolated saved-variable declaration/ownership test.
+## DefaultState: enabled
+## X-Probe-Version: 1
+## Dependencies: SPSaveShare
+## LoadOnDemand: 0
+## SavedVariables: SPSaveShare_RangeTracker
+
+Probe.lua

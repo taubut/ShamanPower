@@ -21,9 +21,107 @@ local EMPTY = { r = 0.32, g = 0.32, b = 0.32 }   -- "nothing down" line color
 local ES_MAX_CHARGES = 6
 
 -- ---------------------------------------------------------------------------
+-- Line textures
+-- ---------------------------------------------------------------------------
+-- The lines were plain colour fills. opt.compactLineTexture names a statusbar
+-- texture from LibSharedMedia instead ("Flat" = the plain fill, the default), so
+-- the list holds whatever the player's other addons registered plus the four
+-- small greyscale bars shipped in Media/. A texture is tinted with the line's
+-- colour, and turned a quarter for vertical lines so its grain runs along them.
+local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+local FLAT = "Flat"
+if LSM then
+	local dir = "Interface\\AddOns\\ShamanPower\\Media\\"
+	LSM:Register("statusbar", "ShamanPower Smooth", dir .. "bar-smooth.tga")
+	LSM:Register("statusbar", "ShamanPower Gloss",  dir .. "bar-gloss.tga")
+	LSM:Register("statusbar", "ShamanPower Round",  dir .. "bar-round.tga")
+	LSM:Register("statusbar", "ShamanPower Bevel",  dir .. "bar-bevel.tga")
+end
+
+function SP:CompactLineTextureList()
+	local t = { [FLAT] = "Minimal (flat colour)" }
+	if LSM then
+		for _, name in ipairs(LSM:List("statusbar")) do t[name] = name end
+	end
+	return t
+end
+
+local function LineTexturePath(name)
+	if not name or name == FLAT or not LSM then return nil end
+	return LSM:Fetch("statusbar", name, true)
+end
+
+-- Colour one bar piece, textured or flat. Only touches the texture when it changes.
+local function PaintBar(t, tex, vertical, r, g, b, a)
+	if tex then
+		if t.spTex ~= tex then t:SetTexture(tex); t.spTex = tex; t.spTexVert = nil end
+		if t.spTexVert ~= vertical then
+			if vertical then t:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) else t:SetTexCoord(0, 1, 0, 1) end
+			t.spTexVert = vertical
+		end
+		t:SetVertexColor(r, g, b, a)
+	else
+		if t.spTex then
+			t:SetVertexColor(1, 1, 1, 1); t:SetTexCoord(0, 1, 0, 1)
+			t.spTex, t.spTexVert = nil, nil
+		end
+		t:SetColorTexture(r, g, b, a)
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Look defaults
+-- ---------------------------------------------------------------------------
+-- What an unset look setting means. Version 2 (textured lines, element-coloured
+-- outlines at rest, icon squares on, thicker horizontal lines so the pulse
+-- countdown fits, 15 px icons). These keys deliberately have NO AceDB default:
+-- "nil in the profile" has to mean "never chosen", which is what lets
+-- PreserveCompactLook tell an existing Compact user from a new one.
+local LOOK = {
+	compactLineTexture = "ShamanPower Smooth",
+	compactIdleOutline = "element",
+	compactIconSquares = "before",
+	compactIconSize = 15,
+	compactFlyoutButtonSize = 15,
+}
+-- What the same unset settings meant up to 2.1.x.
+local LEGACY_LOOK = {
+	compactLineTexture = "Flat",
+	compactIdleOutline = "none",
+	compactIconSquares = "off",
+	compactIconSize = 12,
+	compactFlyoutButtonSize = 28,
+}
+SP.CompactLookDefaults = LOOK
+
+function SP:CompactDefaultThickness(vertical, legacy)
+	if vertical then return 16 end
+	return legacy and 10 or 14   -- 14: the pulse countdown text needs at least that to be drawn
+end
+
+-- Runs once per profile. Someone already using Compact keeps exactly what is on
+-- their screen: every look setting they never touched is written down at its OLD
+-- meaning before the new defaults take over. Everyone else (and anyone pressing
+-- "Reset Compact Style to Defaults") gets the new look.
+function SP:PreserveCompactLook()
+	local o = self.opt
+	if not o or o.compactLookVersion then return end
+	if o.compactStyle then
+		for key, value in pairs(LEGACY_LOOK) do
+			if o[key] == nil then o[key] = value end
+		end
+		if o.compactThickness == nil then
+			o.compactThickness = self:CompactDefaultThickness((o.compactOrientation or "horizontal") == "vertical", true)
+		end
+	end
+	o.compactLookVersion = 2
+end
+
+-- ---------------------------------------------------------------------------
 -- Option access
 -- ---------------------------------------------------------------------------
 function SP:CompactActive()
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then return false end
 	return self.opt and self.opt.compactStyle and true or false
 end
 
@@ -33,10 +131,10 @@ function SP:CompactOpts(o)
 	o = o or self.opt
 	local vertical = (o.compactOrientation or "horizontal") == "vertical"
 	local T = o.compactThickness
-	if T == nil then T = vertical and 16 or 10 end
+	if T == nil then T = self:CompactDefaultThickness(vertical) end
 	local mode = o.compactDurationMode
 	if mode == nil or mode == "auto" then mode = vertical and "fill" or "outline" end
-	local sq = o.compactIconSquares or "off"
+	local sq = o.compactIconSquares or LOOK.compactIconSquares
 	if sq == "above" then sq = "before" elseif sq == "below" then sq = "after" end   -- old values
 	return {
 		vertical  = vertical,
@@ -46,9 +144,10 @@ function SP:CompactOpts(o)
 		olColor   = (o.compactOutlineColorMode == "custom") and o.compactOutlineColor or nil,
 		fill      = (mode == "fill"),
 		sq        = sq,
-		iq        = o.compactIconSize or 12,
+		iq        = o.compactIconSize or LOOK.compactIconSize,
 		pulseText = o.compactPulseText ~= false,
 		pulseBar  = o.compactPulseBar ~= false,
+		tex       = LineTexturePath(o.compactLineTexture or LOOK.compactLineTexture),
 	}
 end
 
@@ -99,7 +198,7 @@ function SP:CreateCompactVisuals(frame)
 	-- outline: [1] start cap, [2] far cap, [3] and [4] the two long edges
 	c.ol    = { Tex(frame, "OVERLAY", 0), Tex(frame, "OVERLAY", 0), Tex(frame, "OVERLAY", 0), Tex(frame, "OVERLAY", 0) }
 	c.text  = frame:CreateFontString(nil, "OVERLAY", nil, 7)
-	c.text:SetFont(FONT, 10, "OUTLINE"); c.text:SetTextColor(1, 1, 1); c.text:Hide()
+	SP:SetSPFont(c.text, "timers", 10, "OUTLINE"); c.text:SetTextColor(1, 1, 1); c.text:Hide()
 	c.sqBd  = Tex(frame, "ARTWORK", 0); c.sqBd:SetColorTexture(0, 0, 0, 0.9)
 	c.sq    = Tex(frame, "ARTWORK", 1); c.sq:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	return c
@@ -119,6 +218,7 @@ function SP:LayoutCompactVisuals(c, frame, co, bw, bh)
 	c.lineLen = (co.vertical and bh or bw) - 2 * ow
 	c.pulseBar = co.pulseBar
 	c.olColor = co.olColor
+	c.tex = co.tex
 
 	-- the line: inset by the outline; in fill mode only the start edge is anchored
 	c.line:ClearAllPoints()
@@ -171,7 +271,7 @@ function SP:LayoutCompactVisuals(c, frame, co, bw, bh)
 	-- (never give the text a fixed width: WoW would truncate "1.4" to "..." on a
 	-- narrow vertical line - let it overhang instead)
 	local fs = math.max(7, math.min(14, co.T - (co.vertical and 5 or 3)))
-	c.text:SetFont(FONT, fs, "OUTLINE")
+	SP:SetSPFont(c.text, "timers", fs, "OUTLINE")
 	c.text:SetWordWrap(false)
 	c.text:ClearAllPoints()
 	c.text:SetWidth(0)
@@ -183,20 +283,50 @@ function SP:LayoutCompactVisuals(c, frame, co, bw, bh)
 	c.textOk = co.pulseText and co.T >= 14
 
 	-- icon square above / below
-	c.sq:ClearAllPoints(); c.sqBd:ClearAllPoints()
+	c.sqBd:ClearAllPoints()
 	if co.sq == "off" then
 		c.sqOn = false
+		c.sq:ClearAllPoints()
 	else
 		c.sqOn = true
 		c.sq:SetSize(co.iq, co.iq); c.sqBd:SetSize(co.iq + 2, co.iq + 2)
-		if co.vertical then
-			if co.sq == "before" then c.sq:SetPoint("BOTTOM", frame, "TOP", 0, 2) else c.sq:SetPoint("TOP", frame, "BOTTOM", 0, -2) end
-		else
-			if co.sq == "before" then c.sq:SetPoint("RIGHT", frame, "LEFT", -2, 0) else c.sq:SetPoint("LEFT", frame, "RIGHT", 2, 0) end
-		end
+		c.sqSize = co.iq
+		c.sqSide = co.vertical and (co.sq == "before" and "top" or "bottom") or (co.sq == "before" and "left" or "right")
+		SP:AnchorCompactSquare(c, frame)
 		c.sqBd:SetPoint("CENTER", c.sq, "CENTER", 0, 0)
 	end
 	c.bg:Show()
+end
+
+-- The square sits just off one end of the line. A flyout arrow tab can sit on
+-- that same end (in a fight, or always with the arrow options); then the
+-- square moves out past the tab instead of being cut off by it.
+function SP:AnchorCompactSquare(c, frame)
+	if not (c and c.sqOn and c.sqSide and frame) then return end
+	local across = (self.FlyoutArrowGapOn and self:FlyoutArrowGapOn(frame, c.sqSide)) or 0
+	local gap = self.CompactSquareOffset and self:CompactSquareOffset(across) or 2
+	c.sq:ClearAllPoints()
+	if c.sqSide == "top" then c.sq:SetPoint("BOTTOM", frame, "TOP", 0, gap)
+	elseif c.sqSide == "bottom" then c.sq:SetPoint("TOP", frame, "BOTTOM", 0, -gap)
+	elseif c.sqSide == "left" then c.sq:SetPoint("RIGHT", frame, "LEFT", -gap, 0)
+	else c.sq:SetPoint("LEFT", frame, "RIGHT", gap, 0) end
+end
+
+-- Room the icon square takes on one end of a line (0 when there is none there).
+-- The flyout on that end starts past it: the active totem stays in view under
+-- an open flyout, exactly as the totem button does on the icon bar.
+function SP:CompactSquareExtent(btn, side)
+	local c = btn and btn.compact
+	if not (c and btn.compactLayoutOn and c.sqOn and c.sqSide == side) then return 0 end
+	return (c.sqSize or 12) + 2   -- the square plus its 1 px border either side
+end
+
+function SP:RefreshCompactSquares()
+	if not (self:CompactActive() and self.totemButtons) then return end
+	for element = 1, 4 do
+		local btn = self.totemButtons[element]
+		if btn and btn.compact and btn.compactLayoutOn then self:AnchorCompactSquare(btn.compact, btn) end
+	end
 end
 
 -- Outline for the remaining fraction: the far cap goes first, then both long
@@ -231,11 +361,16 @@ end
 function SP:PaintCompactVisuals(c, col, frac, dim, pulsePos, pulseRemain, icon, iconAlpha)
 	local active = col ~= nil
 	local r, g, b, a = EMPTY.r, EMPTY.g, EMPTY.b, 0.6
+	if not active and c.idleCol then
+		-- opt.compactIdleColor = "element": an idle line keeps its element's colour,
+		-- dimmed and without an outline, so the bar reads earth/fire/water/air at rest
+		r, g, b, a = c.idleCol.r * 0.45, c.idleCol.g * 0.45, c.idleCol.b * 0.45, 0.8
+	end
 	if active then
 		local k = dim and 0.5 or 1
 		r, g, b, a = col.r * k, col.g * k, col.b * k, 0.95
 	end
-	c.line:SetColorTexture(r, g, b, a)
+	PaintBar(c.line, c.tex, c.vertical, r, g, b, a)
 	if c.fill then
 		local len = active and math.max(1, c.lineLen * frac) or c.lineLen
 		if c.vertical then c.line:SetHeight(len) else c.line:SetWidth(len) end
@@ -243,7 +378,13 @@ function SP:PaintCompactVisuals(c, col, frac, dim, pulsePos, pulseRemain, icon, 
 	c.line:Show()
 
 	local oFrac = active and (c.fill and 1 or frac) or 0
-	if c.olColor then
+	if not active and c.idleOl then
+		-- opt.compactIdleOutline = "element": an idle line keeps a full outline in its
+		-- element's colour (or the custom outline colour), dimmed so a live totem's
+		-- brighter outline still stands apart
+		local o = c.olColor or c.idleOl
+		SetOutline(c, 1, (o.r or 1) * 0.7, (o.g or 1) * 0.7, (o.b or 1) * 0.7)
+	elseif c.olColor then
 		SetOutline(c, oFrac, c.olColor.r or 1, c.olColor.g or 1, c.olColor.b or 1)
 	else
 		SetOutline(c, oFrac, r * 0.55 + 0.45, g * 0.55 + 0.45, b * 0.55 + 0.45)
@@ -297,6 +438,7 @@ function SP:LayoutCompactSegments(frame, c, n, gap)
 	end
 	for i = n + 1, #seg do seg[i]:Hide() end
 	seg.n = n
+	seg.tex, seg.vertical = c.tex, c.vertical
 	return seg
 end
 
@@ -313,9 +455,9 @@ function SP:PaintCompactSegments(seg, charges, active, useColors, base)
 	end
 	for i = 1, seg.n or #seg do
 		if active and i <= charges then
-			seg[i]:SetColorTexture(r, g, b, 0.95)
+			PaintBar(seg[i], seg.tex, seg.vertical, r, g, b, 0.95)
 		else
-			seg[i]:SetColorTexture(EMPTY.r, EMPTY.g, EMPTY.b, active and 0.45 or 0.6)
+			PaintBar(seg[i], seg.tex, seg.vertical, EMPTY.r, EMPTY.g, EMPTY.b, active and 0.45 or 0.6)
 		end
 		seg[i]:Show()
 	end
@@ -359,6 +501,11 @@ function SP:ApplyCompactButtonLayout(btn, forceOff)
 		if btn.compactLayoutOn then
 			self:HideCompactVisuals(btn.compact)
 			if btn.icon then btn.icon:Show() end
+			if self.ShowEmptySlotArt and btn.element then
+				local a = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
+				btn.compactLayoutOn = nil
+				self:ShowEmptySlotArt(btn.element, ((a and a[btn.element]) or 0) == 0)
+			end
 			if rc then rc:ClearAllPoints(); rc:SetPoint("CENTER", btn, "CENTER", 0, 0) end
 			if btn.keybindText then btn.keybindText:ClearAllPoints(); btn.keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0) end
 			if gcd then gcd:Show() end
@@ -372,6 +519,7 @@ function SP:ApplyCompactButtonLayout(btn, forceOff)
 	local c = self:EnsureCompactVisuals(btn)
 	btn.compactLayoutOn = true
 	if btn.icon then btn.icon:Hide() end
+	if btn.emptyArt then btn.emptyArt:Hide() end
 	if btn.assignedIndicator then btn.assignedIndicator:Hide() end
 	if btn.cooldownText then btn.cooldownText:Hide() end
 	if btn.cooldown then btn.cooldown:Clear() end
@@ -420,7 +568,7 @@ function SP:ApplyCompactESLayout()
 			if charges then charges:Show() end
 			if name then
 				name:ClearAllPoints(); name:SetPoint("TOP", esBtn, "BOTTOM", 0, -1)
-				name:SetWidth(40); name:SetHeight(10); name:SetFontObject("GameFontHighlightSmall")
+				name:SetWidth(40); name:SetHeight(10); name:SetFontObject("GameFontHighlightSmall"); self:AdoptSPFont(name, "labels")
 				name:Show()
 			end
 			esBtn.compactLayoutOn = nil
@@ -448,11 +596,59 @@ end
 -- bar - the Earth Shield line sits at the end. Optional (compactShieldLine).
 -- ---------------------------------------------------------------------------
 local SHIELD_MAX_CHARGES = 3
-local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 } }
+local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 },
+	[408510] = { r = 0.35, g = 0.65, b = 1.0 } }   -- Water Shield on WoW: Forever (talent, Season of Discovery spell ID)
+
+-- Mainline's GetSpellInfo polyfill allocates: validate shield names on spellbook
+-- changes, not in the 10 Hz painter. ScanPlayerShield replaces shieldCache on
+-- aura events, so keep these spellbook answers separately from its aura state.
+local compactShieldNames
+local compactShieldGeneration = 0
+if _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE then
+	compactShieldNames = {}
+	local function RefreshCompactShieldNames()
+		for id in pairs(compactShieldNames) do compactShieldNames[id] = nil end
+		for _, data in ipairs(SP.ShieldSpells) do
+			if _G.GetSpellInfo(data[2]) then compactShieldNames[data[1]] = data[2] end
+		end
+		compactShieldGeneration = compactShieldGeneration + 1
+	end
+	RefreshCompactShieldNames()
+	_G.hooksecurefunc(SP, "SPELLS_CHANGED", RefreshCompactShieldNames)
+end
 
 -- Spell name to cast: the shield that is up, else the preferred one, else any known.
 function SP:CompactKnownShield()
 	local cache = self.shieldCache
+	if compactShieldNames then
+		local shieldID = cache and cache.hasShield and cache.shieldID or nil
+		local preferred = self.opt.preferredShield or 1
+		if cache and cache.compactGeneration == compactShieldGeneration
+			and cache.compactActiveID == shieldID and cache.compactPreferred == preferred then
+			return cache.compactName, cache.compactID
+		end
+		local id = shieldID
+		local name = id and compactShieldNames[id]
+		if not name then
+			local pref = self.ShieldSpells[preferred]
+			id = pref and pref[1]
+			name = id and compactShieldNames[id]
+		end
+		if not name then
+			for _, data in ipairs(self.ShieldSpells) do
+				if compactShieldNames[data[1]] then
+					id, name = data[1], compactShieldNames[data[1]]
+					break
+				end
+			end
+		end
+		if not name then id = nil end
+		if cache then
+			cache.compactGeneration, cache.compactActiveID = compactShieldGeneration, shieldID
+			cache.compactPreferred, cache.compactName, cache.compactID = preferred, name, id
+		end
+		return name, id
+	end
 	if cache and cache.hasShield and cache.shieldID then
 		for _, d in ipairs(self.ShieldSpells or {}) do
 			if d[1] == cache.shieldID and GetSpellInfo(d[2]) then return d[2], d[1] end
@@ -504,7 +700,8 @@ function SP:EnsureCompactShieldButton()
 end
 
 function SP:ApplyCompactShieldLayout()
-	local on = self:CompactShieldLineActive() and self.autoButton and not self.totemBarHidden
+	-- (switched off, a style change in the settings must not bring it up: a UIParent child)
+	local on = self:CompactShieldLineActive() and self.autoButton and not self.totemBarHidden and not self:IsOff()
 	local btn = _G["ShamanPowerCompactShieldBtn"]
 	if not on then
 		if btn then btn:Hide() end
@@ -546,7 +743,9 @@ function SP:UpdateCompactShield()
 			btn:SetAttribute("spell1", name)
 		end
 	end
-	btn:SetAlpha(self.opt.totemBarOpacity or 1)
+	-- the rest of the bar's opacity, the fade rules' faded opacity included (this
+	-- line has its own parent, so it does not inherit it)
+	btn:SetAlpha(self.totemBarFaded and (self.opt.fadeOpacity or 0.25) or (self.opt.totemBarOpacity or 1))
 end
 
 -- Charges come from the ES button's own updater (esButton subsystem, 2 Hz),
@@ -570,13 +769,14 @@ function SP:UpdateCompactTotems()
 		local btn = self.totemButtons[element]
 		local c = btn and btn.compact
 		if c and btn.compactLayoutOn and btn:IsShown() then
-			local slot = self.ElementToSlot[element]
-			local haveTotem, _, startTime, duration, icon = GetTotemInfo(slot)
+			local haveTotem, _, startTime, duration, icon = self:GetElementTotemInfo(element)
+			c.idleCol = (self.opt.compactIdleColor == "element") and self.ElementColors[element] or nil
+			c.idleOl = ((self.opt.compactIdleOutline or LOOK.compactIdleOutline) == "element") and self.ElementColors[element] or nil
 			if haveTotem and duration and duration > 0 then
 				local frac = ((startTime + duration) - now) / duration
 				if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
 				local pulsePos, pulseRemain
-				local pdata = self:GetActivePulsingTotem(slot)
+				local pdata = self:GetActivePulsingTotem(element)
 				if pdata then
 					pulsePos = ((now - startTime) % pdata.interval) / pdata.interval
 					pulseRemain = pdata.interval * (1 - pulsePos)
@@ -632,7 +832,7 @@ end
 -- Option change entry point (settings window + wizard).
 function SP:ApplyCompactStyle()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change the totem bar style during combat")
+		print("|cff0070ddShamanPower:|r Cannot change the totem bar style during combat")
 		return
 	end
 	if self.opt.compactStyle then
@@ -648,6 +848,9 @@ function SP:ApplyCompactStyle()
 	if self.UpdateTotemProgressBarPositions then self:UpdateTotemProgressBarPositions() end
 	if self.UpdatePulseBarPositions then self:UpdatePulseBarPositions() end
 	if self.RecreateTotemFlyouts then pcall(self.RecreateTotemFlyouts, self) end
+	-- the icon bar and the Compact bar each keep their own flyout icon size
+	if self.ApplyTotemFlyoutButtonSize then self:ApplyTotemFlyoutButtonSize() end
+	if self.RefreshFlyoutLayout then self:RefreshFlyoutLayout() end   -- flyouts start past the icon square
 	if self.UpdateTotemBarOpacity then self:UpdateTotemBarOpacity() end
 	if self.UpdateCooldownBarScale then self:UpdateCooldownBarScale() end
 end

@@ -26,6 +26,16 @@ ns.FrameSettings = FS
 local PANEL_W = 316
 local panel
 
+-- Only rebuild when the set of rows changes; refreshing a slider must not
+-- release the control currently being dragged.
+local function RowShape(spec)
+	local shape = (spec.scale and "s" or "") .. (spec.opacity and "o" or "") .. (spec.hideFrame and "h" or "")
+	if spec.rows then
+		spec.rows(function(kind, opts) shape = shape .. ":" .. kind .. ":" .. (opts.label or "") end)
+	end
+	return shape
+end
+
 local function Build()
 	if panel then return panel end
 	panel = Core:CreateDialog({
@@ -33,8 +43,9 @@ local function Build()
 		width = PANEL_W, height = 200,
 		title = "Frame Settings", subtitle = "",
 		headerHeight = 44, bodyTop = 8,
+		special = true,   -- Escape closes it
+		strata = "DIALOG",
 	})
-	panel:SetFrameStrata("DIALOG")
 	return panel
 end
 
@@ -50,23 +61,25 @@ local function Populate(spec)
 		return f
 	end
 
-	if spec.scale then
+	-- Specs speak whole percents (100 = normal); the slider runs on fractions so
+	-- it reads "100%" like every other scale and opacity.
+	local function PercentRow(label, desc, s, minP, maxP)
 		Row("Slider", {
-			label = "Scale", desc = "Size of this frame, as a percentage.",
-			min = spec.scale.min or 50, max = spec.scale.max or 300, step = spec.scale.step or 5,
-			get = spec.scale.get, set = spec.scale.set,
+			label = label, desc = desc, isPercent = true,
+			min = (s.min or minP) / 100, max = (s.max or maxP) / 100, step = (s.step or 5) / 100,
+			get = function() local v = s.get(); return v and v / 100 end,
+			set = function(v) s.set(math.floor(v * 100 + 0.5)) end,
 		})
 	end
+	if spec.scale then
+		PercentRow("Scale", "Size of this frame, as a percentage.", spec.scale, 50, 300)
+	end
 	if spec.opacity then
-		Row("Slider", {
-			label = "Opacity", desc = "How solid this frame is.",
-			min = spec.opacity.min or 10, max = spec.opacity.max or 100, step = spec.opacity.step or 5,
-			get = spec.opacity.get, set = spec.opacity.set,
-		})
+		PercentRow("Opacity", "How solid this frame is.", spec.opacity, 10, 100)
 	end
 	if spec.hideFrame then
 		Row("Toggle", {
-			label = "Hide Frame (icon only)", desc = "Hide the panel and border; the icons stay and can still be dragged.",
+			label = "Hide Background", desc = "Hide the panel and border; the icons stay and can still be dragged.",
 			get = spec.hideFrame.get, set = spec.hideFrame.set,
 		})
 	end
@@ -98,6 +111,7 @@ function FS:Open(anchorFrame, spec)
 	end
 
 	panel.currentKey = spec.key
+	panel.currentSpec, panel.rowShape = spec, RowShape(spec)
 	panel:SetTitles(spec.title or "Frame Settings", spec.subtitle)
 	Populate(spec)
 
@@ -122,6 +136,26 @@ if ShamanPower then
 		local build = FS.specs[key]
 		if build then FS:Open(frame, build(frame)) end
 	end
+end
+
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+if registry and registry.RegisterCallback then
+	local queued = false
+	registry.RegisterCallback(FS, "ConfigTableChange", function(_, appName)
+		if appName ~= "ShamanPower" or queued or not (panel and panel:IsShown()) then return end
+		queued = true
+		_G.C_Timer.After(0, function()
+			queued = false
+			if not (panel and panel:IsShown() and panel.currentSpec) then return end
+			local shape = RowShape(panel.currentSpec)
+			if shape ~= panel.rowShape then
+				panel.rowShape = shape
+				Populate(panel.currentSpec)
+			else
+				Widgets:RefreshAll(panel.body)
+			end
+		end)
+	end)
 end
 
 return FS

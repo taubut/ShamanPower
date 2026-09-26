@@ -3,9 +3,15 @@
 -- Totem Range Tracker - Shows which totems are affecting you
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local SP = ShamanPower
+-- Forever returns a LIST of enchants per weapon; the legacy global reports only
+-- the first entry, which is empty when the imbue lands in the second.
+local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 if not SP then
-	print("|cffff0000ShamanPower [SPRange]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [SPRange]:|r Core addon not found!")
 	return
 end
 
@@ -139,6 +145,9 @@ SP.TrackableTotems = {
 		spellID = 25908,
 		detection = "buff",
 		buffSpellID = 25909,
+		buffSpellIDs = { 25909 },
+		-- name AND icon rows are encrypted on WoW: Forever; the client cannot draw it
+		icon = "Interface\\Icons\\Spell_Nature_Brilliance",
 	},
 	{
 		id = "natureresist",
@@ -163,8 +172,36 @@ SP.TrackableTotems = {
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 for _, totem in ipairs(SP.TrackableTotems) do
 	if totem.buffSpellID then
+		-- Forever reuses 8215 (TBC's Flametongue Totem buff) for "Rapid Cast"; the
+		-- aura party members carry there is the effect spell
+		if totem.id == "flametongue" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then totem.buffSpellID = 8230 end
 		totem.buffName = GetSpellInfo(totem.buffSpellID)
 	end
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		-- Build once, after client-specific ID overrides; nameless auras need
+		-- ID matching, while named entries retain the single native lookup.
+		totem.buffSpellIDs = totem.buffSpellIDs or { totem.buffSpellID }
+		totem.buffSpellIDSet = {}
+		for _, spellID in ipairs(totem.buffSpellIDs) do totem.buffSpellIDSet[spellID] = true end
+	end
+end
+
+-- Only totems this client has. WoW: Forever has no Totem of Wrath and no Wrath
+-- of Air; a tracked totem the client lacks would sit at MISSING forever.
+if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+	local kept = {}
+	for _, totem in ipairs(SP.TrackableTotems) do
+		if SPCompat.SpellExists(totem.spellID) then kept[#kept + 1] = totem end
+	end
+	SP.TrackableTotems = kept
+end
+
+-- Icon for a trackable totem. Tranquil Air (25908) has no readable icon row on
+-- WoW: Forever (encrypted, like its name), so an entry may carry a static one.
+function SP:TrackableTotemIcon(totem)
+	local tex = GetSpellTexture and GetSpellTexture(totem.spellID)
+	if not tex then tex = select(3, GetSpellInfo(totem.spellID)) end
+	return tex or totem.icon
 end
 
 -- Build lookup by ID
@@ -241,7 +278,32 @@ function SP:InitSPRange()
 end
 
 -- Check if player has a specific buff (same approach as TotemTimers)
-function SP:SPRangeHasBuff(buffName)
+local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
+	if issecretvalue(buffName) then return false end
+	if SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return false end
+	if buffName then
+		if not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then return false end
+		local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buffName, "HELPFUL")
+		-- The native lookup already selected the name; do not inspect secret fields.
+		return not issecretvalue(aura) and aura ~= nil
+	end
+	if not (buffSpellIDSet and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false end
+	-- Tranquil Air's name is encrypted. Only public IDs from readable auras
+	-- can match here; this does not bypass combat aura restrictions.
+	for index = 1, 40 do
+		local aura = C_UnitAuras.GetAuraDataByIndex(unit, index, "HELPFUL")
+		if issecretvalue(aura) then return false end
+		if not aura then break end
+		local spellID = aura.spellId
+		if not issecretvalue(spellID) and spellID and buffSpellIDSet[spellID] then return true end
+	end
+	return false
+end
+
+function SP:SPRangeHasBuff(buffName, buffSpellIDSet)
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		return MainlineHasNamedBuff("player", buffName, buffSpellIDSet)
+	end
 	if not buffName then return false end
 
 	for i = 1, 32 do
@@ -278,8 +340,18 @@ function SP:SPRangeCheckTotem(totemData)
 		return hasEnchant
 	else
 		-- Standard buff check
-		return self:SPRangeHasBuff(totemData.buffName)
+		return self:SPRangeHasBuff(totemData.buffName, totemData.buffSpellIDSet)
 	end
+end
+
+-- Our own totem of this kind, if it's the one down for its element: in range by
+-- distance from where we dropped it (see ShamanPower:TotemDropInRange).
+-- nil = not ours, or no position to measure from.
+function SP:SPRangeOwnTotemInRange(totemData)
+	if not self.TotemDropInRange or not self.GetElementTotemInfo then return nil end
+	local have, name = self:GetElementTotemInfo(totemData.element)
+	if not have or type(name) ~= "string" or not name:find(totemData.name, 1, true) then return nil end
+	return self:TotemDropInRange(totemData.element)
 end
 
 -- Create the SPRange frame
@@ -300,7 +372,7 @@ function SP:CreateSPRangeFrame()
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	title:SetPoint("TOP", frame, "TOP", 0, -6)
 	title:SetText("Totem Range")
-	title:SetFont(STANDARD_TEXT_FONT, 11, "")
+	SP:SetSPFont(title, "labels", 11, "", STANDARD_TEXT_FONT)
 	title:SetShadowOffset(1, -1)
 	title:SetTextColor(0.902, 0.918, 0.941)
 	frame.title = title
@@ -313,12 +385,12 @@ function SP:CreateSPRangeFrame()
 	settingsBtn:SetScript("OnClick", function()
 		SP:OpenFrameSettings("sprange", frame)
 	end)
-	settingsBtn:SetScript("OnEnter", function(self)
+	settingsBtn:HookScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:AddLine("Configure Totem Range", 1, 1, 1)
 		GameTooltip:Show()
 	end)
-	settingsBtn:SetScript("OnLeave", function()
+	settingsBtn:HookScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
 	frame.settingsBtn = settingsBtn
@@ -402,8 +474,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
 	-- Get icon from spell
-	local _, _, spellIcon = GetSpellInfo(totemData.spellID)
-	icon:SetTexture(spellIcon)
+	icon:SetTexture(self:TrackableTotemIcon(totemData))
 	btn.icon = icon
 
 	-- Range indicator overlay (red tint)
@@ -415,7 +486,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 
 	-- Status text (shows "OUT OF RANGE" or "MISSING")
 	local statusText = btn:CreateFontString(nil, "OVERLAY")
-	statusText:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+	SP:SetSPFont(statusText, "labels", 7, "OUTLINE")
 	statusText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	statusText:SetTextColor(1, 0.2, 0.2)  -- Red text
 	statusText:SetShadowColor(0, 0, 0, 1)
@@ -425,7 +496,7 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 
 	-- Short totem name below icon
 	local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	SP:SetSPFont(nameText, "labels", 8, "OUTLINE")
 	nameText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
 	nameText:SetText(self.TrackableTotemShortNames[totemData.id] or totemData.name:sub(1, 6))
 	nameText:SetTextColor(0.8, 0.8, 0.8)
@@ -537,7 +608,19 @@ end
 -- Check if ANYONE in the group has a specific buff (indicates totem is down somewhere)
 -- Optimized: party1-4 works in both party AND raid (refers to subgroup in raids)
 -- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
-function SP:SPRangeAnyoneHasBuff(buffName)
+local rangePartyUnits = { "party1", "party2", "party3", "party4" }
+function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		if MainlineHasNamedBuff("player", buffName, buffSpellIDSet) then return true end
+		if IsInGroup() then
+			for _, unit in ipairs(rangePartyUnits) do
+				local exists = UnitExists(unit)
+				if not issecretvalue(exists) and exists
+					and MainlineHasNamedBuff(unit, buffName, buffSpellIDSet) then return true end
+			end
+		end
+		return false
+	end
 	if not buffName then return false end
 
 	-- Check player first
@@ -596,7 +679,21 @@ function SP:UpdateSPRangeStatus()
 			-- Windfury special case - can only check ourselves
 			totemIsDown = playerHasBuff  -- If we have it, it's down. Otherwise unknown.
 		else
-			totemIsDown = self:SPRangeAnyoneHasBuff(totemData.buffName)
+			totemIsDown = self:SPRangeAnyoneHasBuff(totemData.buffName, totemData.buffSpellIDSet)
+		end
+
+		-- In combat on the Mainline family the buff reads above come back empty
+		-- because they're blocked, which flipped every totem to MISSING. Our own
+		-- totems are measured by distance instead; anything else keeps what this
+		-- button showed before the reads went dark.
+		if totemData.detection ~= "weapon" and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
+			local near = self:SPRangeOwnTotemInRange(totemData)
+			if near ~= nil then
+				playerHasBuff, totemIsDown = near, true
+			elseif btn.status then
+				playerHasBuff = (btn.status == "inrange")
+				totemIsDown = (btn.status ~= "missing")
+			end
 		end
 
 		btn.inRange = playerHasBuff
@@ -725,34 +822,111 @@ function SP:ToggleSPRange()
 	end
 end
 
+-- The shamans in your own subgroup, by the name a whisper needs (with the realm
+-- for other realms): an instance raid's report goes to them (see below). Read
+-- again at every send, so a name still "Unknown" at roster time is picked up.
+-- Anniversary only: on WoW: Forever the realm label changes and names can have
+-- two parts, so a whisper might not find its target (and the failed whisper's
+-- system message would repeat every heartbeat); there the report stays on
+-- INSTANCE_CHAT.
+local WF_WHISPER = not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local wfWhisperTargets = {}
+local function refreshWhisperTargets()
+	wipe(wfWhisperTargets)
+	for i = 1, 4 do
+		local unit = "party" .. i
+		if UnitExists(unit) and select(2, UnitClass(unit)) == "SHAMAN" then
+			local name = GetUnitName(unit, true)
+			if type(name) == "string" and not (issecretvalue and issecretvalue(name)) and name ~= "" and name ~= UNKNOWNOBJECT then
+				wfWhisperTargets[#wfWhisperTargets + 1] = name
+			end
+		end
+	end
+end
+
+-- Losing Windfury (walking out of the totem's range) is its weapon enchant
+-- running out. Whether or not the client fires an event for that, a one-shot
+-- timer checks the moment it should have run out. One timer at a time: while
+-- the totem keeps renewing the enchant, it waits again for the new end. An
+-- enchant that ends sooner than the timer's wake (a long oil replaced by the
+-- totem's short enchant) cancels it and wakes at the new end instead.
+local wfExpireAt, wfExpireTimer, wfWakeAt = 0, nil, 0
+local function wfExpireCheck()
+	local wait = wfExpireAt - GetTime()
+	if wait > 0.05 then
+		wfWakeAt = wfExpireAt
+		wfExpireTimer = C_Timer.NewTimer(wait, wfExpireCheck)
+		return
+	end
+	wfExpireTimer = nil
+	if not SP:IsUpdateSubsystemEnabled("wfBroadcast") then return end
+	SP:SPRangeHasWindfuryWeapon()   -- on Forever this first read drops SPCompat's cache of an enchant that ran out
+	SP:BroadcastWindfuryStatus()
+end
+local function wfWatchExpiry(mainExp, offExp)
+	-- milliseconds left on each hand; the report says "0" only once both are gone
+	local ms = 0
+	if type(mainExp) == "number" and not (issecretvalue and issecretvalue(mainExp)) then ms = mainExp end
+	if type(offExp) == "number" and not (issecretvalue and issecretvalue(offExp)) and offExp > ms then ms = offExp end
+	if ms <= 0 then return end
+	wfExpireAt = GetTime() + ms / 1000 + 0.2
+	-- an earlier end rearms the wake (a re-read of the same enchant can differ by a few ms)
+	if wfExpireTimer and wfExpireAt < wfWakeAt - 0.1 then
+		wfExpireTimer:Cancel()
+		wfExpireTimer = nil
+	end
+	if not wfExpireTimer then
+		wfWakeAt = wfExpireAt
+		wfExpireTimer = C_Timer.NewTimer(ms / 1000 + 0.2, wfExpireCheck)
+	end
+end
+
 -- Broadcast Windfury Totem status to group (same detection as SPRange)
 -- NOTE: This sends directly via ChatThrottleLib to bypass the lastMsg check in SendMessage
 -- which would block repeated "WFBUFF 1" messages. We need periodic broadcasts so the shaman
 -- knows party members are still in range.
-function SP:BroadcastWindfuryStatus()
-	if self.sprangeDemoActive then return end
+-- Sent the moment it changes (weapon enchant events), and as a heartbeat every
+-- 6 s (receivers drop a report after 10 s): heartbeat = send even if unchanged.
+function SP:BroadcastWindfuryStatus(heartbeat)
+	if self.sprangeDemoActive or self:IsOff() then return end   -- off: a check queued before the switch sends nothing
 	if not IsInGroup() then return end
+	-- Chat lockdown: nothing goes out and nothing is recorded as sent; the report
+	-- is owed and goes out as soon as the lock lifts (see wfEvents below).
+	if SPK and SPK() == true then self.wfReportOwed = true return false end
 
 	-- Use SAME detection as SPRange - check weapon enchant from GetWeaponEnchantInfo()
-	local hasWindfury = self:SPRangeHasWindfuryWeapon()
+	local hasWindfury, mainExp, offExp = self:SPRangeHasWindfuryWeapon()
+	if hasWindfury then wfWatchExpiry(mainExp, offExp) end
 	local status = hasWindfury and "1" or "0"
+	if not heartbeat and self.lastWFStatus == status then return end
 
-	-- Send every 2 seconds or when status changes
-	if self.lastWFStatus ~= status or not self.lastWFBroadcast or (GetTime() - self.lastWFBroadcast) > 2 then
-		self.lastWFStatus = status
-		self.lastWFBroadcast = GetTime()
-
-		-- Determine channel
-		local channel
-		if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-			channel = "INSTANCE_CHAT"
-		elseif IsInRaid() then
-			channel = "RAID"
-		else
-			channel = "PARTY"
+	-- Totems only reach your own party, so the report only goes there: the
+	-- PARTY channel inside a raid is your own subgroup (4 players, not 39).
+	-- An instance-only group has no home party. A 5-player one (LFG dungeon) uses
+	-- INSTANCE_CHAT, which is those 5; in an instance raid (a battleground, LFR)
+	-- INSTANCE_CHAT reaches everyone there, so on Anniversary the report is
+	-- whispered to the shamans in your own subgroup instead.
+	local channel = "PARTY"
+	if not IsInGroup(LE_PARTY_CATEGORY_HOME) and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
+		channel = "INSTANCE_CHAT"
+		if WF_WHISPER and IsInRaid() then
+			refreshWhisperTargets()
+			-- no name known yet: nothing goes out and nothing is recorded as sent,
+			-- so the next change or heartbeat tries again
+			if #wfWhisperTargets == 0 then return end
+			channel = "WHISPER"
 		end
+	end
+	self.lastWFStatus = status
+	self.lastWFBroadcast = GetTime()
+	self.wfReportOwed = nil
 
-		-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
+	-- Send directly via ChatThrottleLib (bypass lastMsg check in SendMessage)
+	if channel == "WHISPER" then
+		for _, name in ipairs(wfWhisperTargets) do
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, "WHISPER", name)
+		end
+	else
 		ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, "WFBUFF " .. status, channel)
 	end
 end
@@ -797,13 +971,7 @@ function SP:SetupSPRangeUpdater()
 				return
 			end
 			SP:UpdateSPRangeStatus()
-
-			-- Broadcast Windfury status every 2 seconds (every 2nd update)
-			SP.spRangeBroadcastCounter = (SP.spRangeBroadcastCounter or 0) + 1
-			if SP.spRangeBroadcastCounter >= 2 then
-				SP.spRangeBroadcastCounter = 0
-				SP:BroadcastWindfuryStatus()
-			end
+			-- (the Windfury report has its own timer: UpdateWindfuryBroadcaster)
 		end)
 	end
 	-- Only enable if SPRange frame exists and is shown
@@ -841,16 +1009,98 @@ function SP:SPRangeHasAnyShamanInGroup()
 	return false
 end
 
+-- The Windfury report runs on its own timer whenever a shaman is in the group,
+-- whether or not the overlay is on screen (so closing the overlay, or
+-- Windfury-only mode, never stops the shaman seeing your Windfury).
+-- Switching ShamanPower off does stop it: then nothing is sent.
+-- A shaman in YOUR party (party1-4 are your own subgroup inside a raid): the only
+-- shamans whose totems can reach you, so the only ones the report is for.
+function SP:ShamanInMyParty()
+	if select(2, UnitClass("player")) == "SHAMAN" then return false end
+	for i = 1, 4 do
+		local unit = "party" .. i
+		if UnitExists(unit) and select(2, UnitClass(unit)) == "SHAMAN" then return true end
+	end
+	return false
+end
+
+-- Changes are sent when the weapon enchants change, not found by polling: these
+-- events are heard only while a shaman is in your party. A burst is checked once,
+-- a moment later (after SPCompat's own handler has dropped its enchant cache).
+-- The enchant running out is also caught by its own timer (wfWatchExpiry).
+local wfCheckQueued, wfCheckForce = false, false
+local function wfCheck()
+	local force = wfCheckForce
+	wfCheckQueued, wfCheckForce = false, false
+	SP:BroadcastWindfuryStatus(force)
+end
+local wfEvents = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wfEvents, "Totem Range (Windfury report)") end
+wfEvents:SetScript("OnEvent", function(_, event, _, state)
+	local lifted = event == "ADDON_RESTRICTION_STATE_CHANGED"
+	if lifted then
+		-- a restriction lifting (state 0; chat lockdown is one): send what the lock
+		-- held back, heartbeat included (receivers may have dropped the report)
+		if state ~= 0 or not SP.wfReportOwed then return end
+		wfCheckForce = true
+	end
+	if wfCheckQueued then return end
+	wfCheckQueued = true
+	C_Timer.After(lifted and 1 or 0.1, wfCheck)
+end)
+local function setWFEvents(on)
+	if not on then wfEvents:UnregisterAllEvents() return end
+	if wfEvents.RegisterUnitEvent then
+		wfEvents:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+	else
+		wfEvents:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	end
+	pcall(wfEvents.RegisterEvent, wfEvents, "WEAPON_ENCHANT_CHANGED")
+	pcall(wfEvents.RegisterEvent, wfEvents, "ADDON_RESTRICTION_STATE_CHANGED")
+end
+
+function SP:UpdateWindfuryBroadcaster()
+	if not self.updateSystem then return end
+	if not self.updateSystem.subsystems["wfBroadcast"] then
+		-- the heartbeat only: changes go out from the events above
+		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
+	end
+	if not self:IsOff() and self:ShamanInMyParty() then
+		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
+			self:EnableUpdateSubsystem("wfBroadcast")
+			setWFEvents(true)
+			self:BroadcastWindfuryStatus(true)   -- the shaman sees you at once, not after the first heartbeat
+		end
+	else
+		self:DisableUpdateSubsystem("wfBroadcast")
+		setWFEvents(false)
+	end
+end
+do
+	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Totem Range (Windfury report)") end
+	f:RegisterEvent("GROUP_ROSTER_UPDATE")
+	f:RegisterEvent("PLAYER_ENTERING_WORLD")
+	f:SetScript("OnEvent", function() SP:UpdateWindfuryBroadcaster() end)
+end
+
 -- Auto-show/hide SPRange based on group composition
 function SP:UpdateSPRangeVisibility()
 	if not self.spRangeFrame then return end
+
+	-- Windfury-only mode: no overlay at all (the report keeps running)
+	if self.WindfuryOnly and self:WindfuryOnly() then
+		if self.spRangeFrame:IsShown() then self.spRangeFrame:Hide() end
+		return
+	end
 
 	-- Don't auto-hide if user manually opened it (shamans may want to track their own totems)
 	if self.spRangeManuallyOpened then
 		return
 	end
 
-	local shouldShow = self:SPRangeHasAnyShamanInGroup()
+	-- ShamanPower switched off: no auto-show (an overlay opened by hand is the player's call)
+	local shouldShow = not self:IsOff() and self:SPRangeHasAnyShamanInGroup()
 
 	if shouldShow then
 		if not self.spRangeFrame:IsShown() then
@@ -887,9 +1137,17 @@ SLASH_SPRANGE1 = "/sprange"
 SlashCmdList["SPRANGE"] = function(msg)
 	msg = msg:lower():trim()
 
-	if msg == "toggle" or msg == "show" or msg == "hide" then
+	if msg == "toggle" then
 		-- Toggle the overlay visibility
 		SP:ToggleSPRange()
+	elseif msg == "show" or msg == "hide" then
+		-- only flip it when it is not already that way (show never hides, hide never shows)
+		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown() and true or false
+		if (msg == "show") ~= shown then
+			SP:ToggleSPRange()
+		else
+			SP:Print(shown and "SPRange is already shown." or "SPRange is already hidden.")
+		end
 	else
 		-- Default: show the config menu
 		SP:InitSPRange()
@@ -1018,3 +1276,18 @@ end
 if ShamanPower.RegisterPreview then
 	ShamanPower:RegisterPreview("sprange", { frame = "ShamanPowerRangeFrame", demo = "SP:SPRangeDemo", pad = 24 })
 end
+
+-- Enable ShamanPower switched: off hides the overlay (one opened by hand too) and
+-- stops the Windfury report; on brings both back as the group and settings say.
+SP:OnOnOff(function(off)
+	local frame = SP.spRangeFrame
+	if frame then
+		if off then
+			frame:Hide()
+		elseif SP.spRangeManuallyOpened then
+			frame:Show()   -- opened by hand before the switch
+		end
+		SP:UpdateSPRangeVisibility()
+	end
+	SP:UpdateWindfuryBroadcaster()
+end)

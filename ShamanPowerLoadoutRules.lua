@@ -1,0 +1,694 @@
+-- ============================================================================
+-- Loadout auto-switch: pick a saved totem loadout by the kind of content you
+-- are in (raid, dungeon, battleground, open world), by zone, by the mob you
+-- target (BWL: target Firemaw -> the Fire Resistance loadout, like an
+-- equipment manager), or by a boss encounter starting.
+--
+-- All opt-in (master toggle off by default). A loadout rewrites assignments
+-- and secure button attributes, so nothing switches in combat: a switch that
+-- comes up in combat waits for PLAYER_REGEN_ENABLED and happens only if it
+-- still applies then. Event-driven only: no tickers, nothing runs while idle,
+-- and the target event is only listened to while a target rule exists.
+--
+-- WoW: Forever: a zone or encounter rule may also request a raid resistance
+-- totem (ShamanPowerResist.lua). A zone rule's request waits for a raid to
+-- form. The request ends when the boss dies (a wipe keeps it for the next
+-- pull, also while your ghost runs back) or when you leave the zone alive.
+-- An automatic switch keeps a resistance the raid asked you for (the
+-- Resist file puts it back on top of the new loadout).
+--
+-- Nothing switches while you are dead: a ghost released outside after a wipe
+-- has not left, and one running back has not arrived. Where you are is looked
+-- at again once you are alive (PLAYER_UNGHOST / PLAYER_ALIVE).
+--
+-- Settings live in the AceDB profile (opt.loadoutRules). Rules point at a
+-- loadout by a stable id stored on the loadout itself (lo.uid), because the
+-- loadout list is positional and deleting one shifts the rest.
+-- ============================================================================
+
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local SP = ShamanPower
+if not SP then return end
+if select(2, UnitClass("player")) ~= "SHAMAN" then return end
+
+local FOREVER = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local MAX_RULES = 20
+
+local function DB()
+	local o = SP.opt
+	if not o then return nil end
+	o.loadoutRules = o.loadoutRules or {}
+	local d = o.loadoutRules
+	d.content = d.content or {}
+	d.rules = d.rules or {}
+	return d
+end
+
+-- ---------------------------------------------------------------------------
+-- Loadout identity
+-- ---------------------------------------------------------------------------
+local function EnsureUID(lo)
+	if not lo.uid then
+		lo.uid = string.format("%x%04x", time(), math.random(0, 65535))
+	end
+	return lo.uid
+end
+
+local function IndexOfUID(uid)
+	if not uid or not ShamanPower_TotemLoadouts then return nil end
+	for i, lo in ipairs(ShamanPower_TotemLoadouts) do
+		if lo.uid == uid then return i end
+	end
+	return nil
+end
+
+local function LoadoutName(index)
+	local lo = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	return lo and (lo.name or ("Loadout " .. index)) or "?"
+end
+
+local function LoadoutValues()
+	local v = { __none = "None" }
+	for i, lo in ipairs(ShamanPower_TotemLoadouts or {}) do
+		v[EnsureUID(lo)] = lo.name or ("Loadout " .. i)
+	end
+	return v
+end
+
+local function LoadoutSorting()
+	local order = { "__none" }
+	for _, lo in ipairs(ShamanPower_TotemLoadouts or {}) do order[#order + 1] = EnsureUID(lo) end
+	return order
+end
+
+-- ---------------------------------------------------------------------------
+-- Where are we
+-- ---------------------------------------------------------------------------
+local function ContentBucket()
+	local inInstance, kind = IsInInstance()
+	if not inInstance then return "none" end
+	if kind == "raid" then return "raid" end
+	if kind == "pvp" or kind == "arena" then return "pvp" end
+	if kind == "party" or kind == "scenario" then return "party" end
+	return "none"
+end
+
+local function Lower(s)
+	if type(s) ~= "string" then return "" end
+	return strtrim(s):lower()
+end
+
+-- A rule's zone matches the real zone or the subzone (case-insensitive); an
+-- empty rule zone matches everywhere.
+local function ZoneMatches(ruleZone)
+	local want = Lower(ruleZone)
+	if want == "" then return true end
+	return Lower(GetRealZoneText()) == want or Lower(GetSubZoneText()) == want
+end
+
+-- ---------------------------------------------------------------------------
+-- Switching
+-- ---------------------------------------------------------------------------
+local pending   -- { uid, reason, valid = function() ... end } waiting for combat to end or for you to be alive
+
+-- Nothing switches in combat or while you are dead (Request and RunPending ask)
+local function MustWait()
+	return InCombatLockdown() or UnitIsDeadOrGhost("player")
+end
+
+local function Switch(uid, reason)
+	if SP:IsOff() then return end   -- switched off during the fight it waited for
+	local index = IndexOfUID(uid)
+	if not index then return end
+	if SP.opt.activeLoadout == index then return end   -- already there: say nothing
+	SP:ApplyLoadout(index, true)
+	local d = DB()
+	if d and d.announce ~= false then
+		print("|cff0070ddShamanPower|r: switched to loadout " .. LoadoutName(index) .. (reason and (" (" .. reason .. ")") or "") .. ".")
+	end
+end
+
+-- valid: called again once you are out of combat and alive; the switch only
+-- happens if it still returns true then.
+local function Request(uid, reason, valid)
+	if not uid or uid == "__none" then return end
+	if MustWait() then
+		pending = { uid = uid, reason = reason, valid = valid }
+		return
+	end
+	pending = nil
+	Switch(uid, reason)
+end
+
+-- The waiting switch (combat ended, or you are alive again): kept while you
+-- are still dead or in combat; a ghost's whereabouts do not count against it.
+local function RunPending()
+	local p = pending
+	if not p or MustWait() then return end
+	pending = nil
+	local ok, still = pcall(p.valid)
+	if ok and still then Switch(p.uid, p.reason) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Raid resistance requests from rules (Forever). Only a request a rule made is
+-- ended by the rules; one the raid made by hand is left alone.
+-- ---------------------------------------------------------------------------
+local RESIST_NAMES = { fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" }
+local heldResist = {}     -- key -> "zone" | "encounter"
+local heldInPractice = {} -- key -> true: held as a practice request (/sp resisttest)
+local encounterZone       -- where the encounter request was made
+local zoneWant            -- the zone rule's resistance, still to be asked for (no raid yet)
+
+-- A line in your own chat, unless the rule lines are turned off.
+local function Tell(text)
+	local d = DB()
+	if d and d.announce ~= false then print("|cff0070ddShamanPower|r: " .. text) end
+end
+
+-- Returns false when the request was refused (not in a raid, or requests
+-- turned off); says so unless quiet.
+local function HoldResist(key, why, quiet)
+	if not (FOREVER and key and RESIST_NAMES[key] and SP.SetResistNeeded) then return true end
+	if heldResist[key] or SP:IsResistNeeded(key) then return true end
+	if SP:SetResistNeeded(key, true) then
+		heldResist[key] = why
+		heldInPractice[key] = SP:ResistPracticeActive() or nil
+		return true
+	end
+	if not quiet then
+		if SP.opt and SP.opt.resistRequests == false then
+			Tell(RESIST_NAMES[key] .. " not requested: raid resistance requests are turned off"
+				.. " (Settings > Group Tools > Raid Resistance).")
+		elseif why == "zone" then
+			Tell(RESIST_NAMES[key] .. " will be requested once you are in a raid.")
+		else
+			Tell(RESIST_NAMES[key] .. " not requested: resistance requests work in a raid.")
+		end
+	end
+	return false
+end
+
+local function ReleaseResist(why)
+	for key, w in pairs(heldResist) do
+		if w == why then
+			heldResist[key] = nil
+			heldInPractice[key] = nil
+			if SP.IsResistNeeded and SP:IsResistNeeded(key) then SP:SetResistNeeded(key, false) end
+		end
+	end
+	if why == "encounter" then encounterZone = nil end
+	if why == "zone" then zoneWant = nil end
+end
+
+-- The zone rule's request, refused before the raid formed (or dropped when the
+-- group broke up), is made once a raid forms or practice mode starts.
+-- Called on roster settles and practice switches; costs nothing without one.
+local function RetryZoneResist()
+	local d = DB()
+	if not (FOREVER and SP.ResistActive and d and d.enabled) or SP:IsOff() then return end
+	local practising = SP:ResistPracticeActive()
+	for key, w in pairs(heldResist) do
+		-- gone with the group or with practice mode (not unticked by someone in the raid)
+		if w == "zone" and not SP:IsResistNeeded(key) and (not SP:ResistActive() or (heldInPractice[key] and not practising)) then
+			heldResist[key] = nil
+			heldInPractice[key] = nil
+			zoneWant = key
+		end
+	end
+	local key = zoneWant
+	if key and HoldResist(key, "zone", true) then
+		zoneWant = nil
+		if heldResist[key] == "zone" then Tell("requested " .. RESIST_NAMES[key] .. " (zone rule).") end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Triggers
+-- ---------------------------------------------------------------------------
+local lastBucket   -- nil until the first check after login, a /reload or a profile change
+
+local function ActiveUID()
+	local i = SP.opt and SP.opt.activeLoadout
+	local lo = i and ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[i]
+	return lo and EnsureUID(lo) or nil
+end
+
+-- Zone rules: a rule with a zone and no target or encounter applies on ARRIVAL
+-- (the matching rule changes), never again while you stay: a subzone change
+-- inside the same place must not undo a target rule's switch. silent: the
+-- first check after login, a /reload or a profile change, which is not an
+-- arrival: the rule is noted and your loadout stays. Its resistance is still
+-- requested then, on purpose: after a /reload this client no longer knows the
+-- request and nobody resends it to the one who made it, so without asking
+-- again leaving the zone could not end it. The cost: a zone resistance the
+-- raid unticked by hand comes back after the requester's /reload.
+-- Returns true when the matching rule switches loadouts (then it wins over
+-- the content type; a rule that only requests a resistance does not).
+local lastZoneRule
+local function CheckZoneRules(silent)
+	local d = DB()
+	local match
+	for i, r in ipairs(d.rules) do
+		if Lower(r.zone) ~= "" and Lower(r.target) == "" and Lower(r.encounter) == "" and (r.loadout or r.resist) and ZoneMatches(r.zone) then
+			match = i
+			break
+		end
+	end
+	if match ~= lastZoneRule then
+		lastZoneRule = match
+		ReleaseResist("zone")
+		if match then
+			local r = d.rules[match]
+			local zone = r.zone
+			if r.loadout and not silent then Request(r.loadout, zone, function() return ZoneMatches(zone) end) end
+			if r.resist and not HoldResist(r.resist, "zone") then zoneWant = r.resist end
+		end
+	end
+	local r = match and d.rules[match]
+	return r ~= nil and IndexOfUID(r.loadout) ~= nil
+end
+
+-- An encounter's resistance request ends when you leave its zone alive: a
+-- ghost released outside after a wipe keeps it for the next pull.
+local function CheckEncounterZone()
+	if encounterZone and GetRealZoneText() ~= encounterZone and not UnitIsDeadOrGhost("player") then
+		ReleaseResist("encounter")
+	end
+end
+
+-- arriving: Switch Loadouts Automatically was just turned on, which counts as
+-- arriving where you are (the zone rule, and inside an instance the content
+-- loadout, apply); a login, /reload or profile change does not.
+local arriveWhenAlive   -- turned on while dead: arrive once alive
+
+local function CheckContent(arriving)
+	local d = DB()
+	if not (d and d.enabled) or SP:IsOff() then return end
+	CheckEncounterZone()
+	-- dead: lastBucket and returnTo stay as they are until you are alive again
+	if UnitIsDeadOrGhost("player") then
+		if arriving then arriveWhenAlive = true end
+		return
+	end
+	arriving = arriving or arriveWhenAlive
+	arriveWhenAlive = nil
+	local bucket = ContentBucket()
+	local previous = lastBucket
+	if previous == nil and arriving then
+		previous = "none"
+		if bucket == "none" then d.returnTo = nil end   -- nothing to go back from
+	end
+	lastBucket = bucket
+	-- a login or /reload (in or out of an instance) is not "arriving" anywhere:
+	-- keep the loadout you have
+	if previous == nil then
+		CheckZoneRules(true)
+		if bucket == "none" then d.returnTo = nil end   -- nothing left to go back from
+		return
+	end
+	local changed = bucket ~= previous
+	-- entering an instance from the open world: remember the loadout to go back
+	-- to (saved, so a /reload or relog inside does not lose it)
+	if changed and previous == "none" then d.returnTo = ActiveUID() end
+	if CheckZoneRules() then return end   -- a zone rule's loadout is more specific than the content type
+	if not changed then return end
+	local labels = { raid = "raid", party = "dungeon", pvp = "battleground", none = "open world" }
+	local stillThere = function() return ContentBucket() == bucket end
+	if bucket ~= "none" then
+		Request(d.content[bucket], labels[bucket], stillThere)
+	else
+		-- leaving: back to the loadout you had when asked to, or when entering
+		-- switched you and no Open World loadout is set; otherwise the Open World one
+		local back, none = d.returnTo, d.content.none
+		d.returnTo = nil
+		if back and (d.restorePrevious or (not IndexOfUID(none) and IndexOfUID(d.content[previous]))) then
+			Request(back, "left the instance", stillThere)
+		else
+			Request(none, labels.none, stillThere)
+		end
+	end
+end
+
+-- Forever: NPC identity is secret on instanced maps; never read or compare it there.
+local function IdentitySecret(unit)
+	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
+		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
+		if ok and v == true then return true end
+	end
+	if issecretvalue then
+		local name = UnitName(unit)
+		if issecretvalue(name) then return true end
+	end
+	return false
+end
+
+local function CheckTarget()
+	local d = DB()
+	if not (d and d.enabled) or SP:IsOff() or not UnitExists("target") then return end
+	if IdentitySecret("target") then return end
+	local name = Lower(UnitName("target"))
+	if name == "" then return end
+	for _, r in ipairs(d.rules) do
+		local want = Lower(r.target)
+		if want ~= "" and want == name and r.loadout and ZoneMatches(r.zone) then
+			local display = r.target
+			Request(r.loadout, display, function()
+				return UnitExists("target") and not IdentitySecret("target") and Lower(UnitName("target")) == want
+			end)
+			return
+		end
+	end
+end
+
+local function CheckEncounter(encounterName)
+	local d = DB()
+	if not (d and d.enabled) or SP:IsOff() then return end
+	if type(encounterName) ~= "string" or (issecretvalue and issecretvalue(encounterName)) then return end
+	local name = Lower(encounterName)
+	for _, r in ipairs(d.rules) do
+		if Lower(r.encounter) ~= "" and Lower(r.encounter) == name and (r.loadout or r.resist) and ZoneMatches(r.zone) then
+			-- ENCOUNTER_START comes with the pull (combat): this lands when the
+			-- fight ends, ready for the next attempt, as long as you are still there.
+			local zone = GetRealZoneText()
+			if r.loadout then Request(r.loadout, r.encounter, function() return GetRealZoneText() == zone end) end
+			if r.resist then
+				HoldResist(r.resist, "encounter")
+				if heldResist[r.resist] == "encounter" then encounterZone = zone end
+			end
+			return
+		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Events: registered only while the feature is on (the target event only while a
+-- target rule exists), so a player who never turns this on pays nothing.
+-- ---------------------------------------------------------------------------
+local frame = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Loadout Auto-Switch") end
+
+local function HasRule(field)
+	local d = DB()
+	for _, r in ipairs(d and d.rules or {}) do
+		-- target rules only switch loadouts (a resistance request needs encounter or zone)
+		if Lower(r[field]) ~= "" and (r.loadout or (r.resist and field ~= "target")) then return true end
+	end
+	return false
+end
+
+function SP:UpdateLoadoutRuleEvents()
+	frame:UnregisterAllEvents()
+	frame:RegisterEvent("PLAYER_LOGIN")
+	local d = DB()
+	if not (d and d.enabled) then
+		pending = nil
+		ReleaseResist("zone")
+		ReleaseResist("encounter")
+		-- turned back on later, it looks again from scratch (as an arrival)
+		lastBucket, lastZoneRule, arriveWhenAlive = nil, nil, nil
+		return
+	end
+	-- ShamanPower switched off: nothing is listened to (the rules' resistance
+	-- requests are kept: switched back on, where you are is looked at again)
+	if SP:IsOff() then pending = nil return end
+	frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	frame:RegisterEvent("ZONE_CHANGED")
+	frame:RegisterEvent("ZONE_CHANGED_INDOORS")
+	frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+	-- alive again: a ghost that ran back or took the spirit healer, or a
+	-- resurrection before releasing
+	pcall(frame.RegisterEvent, frame, "PLAYER_UNGHOST")
+	pcall(frame.RegisterEvent, frame, "PLAYER_ALIVE")
+	if HasRule("target") then frame:RegisterEvent("PLAYER_TARGET_CHANGED") end
+	if HasRule("encounter") then
+		pcall(frame.RegisterEvent, frame, "ENCOUNTER_START")
+		if FOREVER then pcall(frame.RegisterEvent, frame, "ENCOUNTER_END") end
+	end
+end
+
+frame:RegisterEvent("PLAYER_LOGIN")
+frame:SetScript("OnEvent", function(_, event, ...)
+	if event == "PLAYER_LOGIN" then
+		if SP.db and SP.db.RegisterCallback then
+			-- own key: registering with SP itself would replace the core's OnProfileChanged
+			local key = {}
+			local function reload()
+				lastBucket, pending, lastZoneRule = nil, nil, nil
+				SP:UpdateLoadoutRuleEvents()
+				-- note where you are under the new profile (not an arrival), so the
+				-- next zone or instance you enter switches as usual
+				CheckContent()
+				if SP.RebuildLoadoutRuleArgs then SP.RebuildLoadoutRuleArgs() end
+			end
+			SP.db.RegisterCallback(key, "OnProfileChanged", reload)
+			SP.db.RegisterCallback(key, "OnProfileCopied", reload)
+			SP.db.RegisterCallback(key, "OnProfileReset", reload)
+		end
+		-- a zone rule's request refused before the raid formed goes out once it
+		-- does (or once practice mode starts): ShamanPowerResist.lua loads after this file
+		if FOREVER and SP.SetResistPractice then
+			hooksecurefunc(SP, "OnRosterSettled", RetryZoneResist)
+			hooksecurefunc(SP, "SetResistPractice", RetryZoneResist)
+		end
+		SP:UpdateLoadoutRuleEvents()
+	elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
+		CheckContent()
+	elseif event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
+		local d = DB()
+		-- a ghost's run is not arriving anywhere (looked at again once alive)
+		if d and d.enabled and not UnitIsDeadOrGhost("player") then CheckZoneRules(lastBucket == nil) end
+	elseif event == "PLAYER_TARGET_CHANGED" then
+		CheckTarget()
+	elseif event == "ENCOUNTER_START" then
+		local _, encounterName = ...
+		CheckEncounter(encounterName)
+	elseif event == "ENCOUNTER_END" then
+		-- a kill ends the rule's resistance request; a wipe keeps it for the next pull
+		local success = select(5, ...)
+		if not (issecretvalue and issecretvalue(success)) and success == 1 then ReleaseResist("encounter") end
+	elseif event == "PLAYER_UNGHOST" or event == "PLAYER_ALIVE" then
+		-- PLAYER_ALIVE also fires on releasing (still a ghost): both wait
+		CheckContent()
+		RunPending()
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		RunPending()
+	end
+end)
+
+-- Switched back on: like a login, where you are is noted (not an arrival) and
+-- the loadout you have stays; the next zone or instance switches as usual. The
+-- zone rule seen before is kept, so a zone left meanwhile ends its request.
+SP:OnOnOff(function(off)
+	if not off then lastBucket, pending = nil, nil end
+	SP:UpdateLoadoutRuleEvents()
+	if not off then CheckContent() end
+end)
+
+-- ---------------------------------------------------------------------------
+-- Settings: Totem Bar > Auto-Switch (group buttons.loadoutrules_section)
+-- ---------------------------------------------------------------------------
+local ruleArgs = {}
+
+local function Notify()
+	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if reg then reg:NotifyChange("ShamanPower") end
+end
+
+local function Disabled()
+	local d = DB()
+	return not (d and d.enabled)
+end
+
+local RebuildRuleArgs
+
+local function ContentSelect(order, key, name, desc)
+	return {
+		order = order, type = "select", name = name, desc = desc, width = 1.5,
+		disabled = Disabled,
+		values = LoadoutValues, sorting = LoadoutSorting,
+		get = function() local d = DB(); return (d and IndexOfUID(d.content[key]) and d.content[key]) or "__none" end,
+		set = function(_, v) local d = DB(); d.content[key] = (v ~= "__none") and v or nil end,
+	}
+end
+
+local STATIC = {
+	desc = {
+		order = 0, type = "description", width = "full",
+		name = "Switch totem loadouts for you: by the kind of content you are in, by zone, by the mob you target, or by a boss encounter starting."
+			.. " Nothing switches in combat; a switch that comes up in a fight happens as soon as it ends, if it still applies."
+			.. " Loadouts are made on the Loadouts tab.",
+	},
+	enabled = {
+		order = 1, type = "toggle", width = "full", name = "Switch Loadouts Automatically",
+		desc = "Turn on the content, zone, target and encounter switching below. Off by default. Turning it on inside an instance or a rule's zone switches right away. Nothing switches while you are dead.",
+		get = function() local d = DB(); return d and d.enabled == true or false end,
+		set = function(_, v) local d = DB(); d.enabled = v and true or nil; SP:UpdateLoadoutRuleEvents(); if v then CheckContent(true) end end,
+	},
+	announce = {
+		order = 2, type = "toggle", width = "full", name = "Say in Chat When It Switches",
+		desc = "A line in your own chat window, e.g. \"switched to loadout Fire Resist (Firemaw)\". Only you see it.",
+		disabled = Disabled,
+		get = function() local d = DB(); return not d or d.announce ~= false end,
+		set = function(_, v)
+			local d = DB()
+			if v then d.announce = nil else d.announce = false end
+		end,
+	},
+	content_header = { order = 10, type = "header", name = "By Content" },
+	content_raid = ContentSelect(11, "raid", "Raid", "The loadout to switch to when you enter a raid."),
+	content_party = ContentSelect(12, "party", "Dungeon", "The loadout to switch to when you enter a dungeon."),
+	content_pvp = ContentSelect(13, "pvp", "Battleground / Arena", "The loadout to switch to when you enter a battleground or arena."),
+	content_none = ContentSelect(14, "none", "Open World", "The loadout to switch to when you leave an instance (unless the option below takes you back to the one you had). None: back to the loadout you had before, when entering switched you."),
+	restore = {
+		order = 15, type = "toggle", width = "full", name = "On Leaving an Instance, Go Back to the Loadout I Had Before",
+		desc = "Instead of the Open World choice, return to whatever loadout was active when you went in.",
+		disabled = Disabled,
+		get = function() local d = DB(); return d and d.restorePrevious == true or false end,
+		set = function(_, v) local d = DB(); d.restorePrevious = v and true or nil end,
+	},
+	rules_header = { order = 20, type = "header", name = "Rules" },
+	rules_desc = {
+		order = 21, type = "description", width = "full",
+		name = "Each rule switches to its loadout when it matches. Zone matches the zone or subzone name (e.g. Blackwing Lair); leave it empty for anywhere."
+			.. " With a Target, the rule fires when you target a mob of exactly that name (e.g. Firemaw), so target the boss before the pull."
+			.. " With a Boss Encounter, it fires when that encounter starts; the switch lands when the fight ends, ready for the next attempt."
+			.. " A rule with only a Zone fires when you arrive there.",
+	},
+	resist_desc = {
+		order = 21.5, type = "description", width = "full",
+		hidden = function() return not (FOREVER and SP.RESIST_REQUESTS) end,
+		name = "A zone or encounter rule can also ask the raid for a resistance totem (it needs no loadout for that)."
+			.. " A zone rule asks on arrival (or once the raid forms), so the totem is down before the first pull. An encounter rule asks with the pull, so the totem switches when that fight ends, ready for the next attempt."
+			.. " The request ends when the boss dies (a wipe keeps it for the next pull, also while you run back) or when you leave the zone.",
+	},
+	forever_note = {
+		order = 22, type = "description", width = "full",
+		hidden = function() return not FOREVER end,
+		name = "|cffffa040Inside dungeons and raids the game hides mob names, so target rules only work in the open world there; zone and content rules still work.|r",
+	},
+	add_rule = {
+		order = 999, type = "execute", width = "full", name = "Add Rule",
+		disabled = function() local d = DB(); return Disabled() or (d and #d.rules >= MAX_RULES) end,
+		func = function()
+			local d = DB()
+			if #d.rules >= MAX_RULES then return end
+			d.rules[#d.rules + 1] = {}
+			RebuildRuleArgs()
+			Notify()
+		end,
+	},
+}
+
+RebuildRuleArgs = function()
+	wipe(ruleArgs)
+	for k, v in pairs(STATIC) do ruleArgs[k] = v end
+	local d = DB()
+	for i = 1, (d and #d.rules or 0) do
+		local idx = i
+		local base = 100 + i * 10
+		local function rule() local dd = DB(); return dd and dd.rules[idx] end
+		ruleArgs["rule_head_" .. i] = {
+			order = base, type = "description", width = "full", fontSize = "medium",
+			name = function()
+				local r = rule()
+				local lo = r and IndexOfUID(r.loadout)
+				local text = "|cffffd200Rule " .. idx .. "|r"
+				if lo then
+					text = text .. ": " .. LoadoutName(lo)
+				elseif not (r and r.resist) then
+					text = text .. " (no loadout picked yet)"
+				end
+				if r and r.resist and RESIST_NAMES[r.resist] then
+					text = text .. (lo and " + " or ": ") .. "request " .. RESIST_NAMES[r.resist]
+				end
+				return text
+			end,
+		}
+		ruleArgs["rule_loadout_" .. i] = {
+			order = base + 1, type = "select", name = "Loadout", width = 1.5,
+			disabled = Disabled, values = LoadoutValues, sorting = LoadoutSorting,
+			get = function() local r = rule(); return (r and IndexOfUID(r.loadout) and r.loadout) or "__none" end,
+			set = function(_, v) local r = rule(); if r then r.loadout = (v ~= "__none") and v or nil end; SP:UpdateLoadoutRuleEvents() end,
+		}
+		ruleArgs["rule_zone_" .. i] = {
+			order = base + 2, type = "input", name = "Zone (optional)", width = 1.5,
+			desc = "Zone or subzone name, exactly as the game shows it (not case sensitive). Empty = anywhere.",
+			disabled = Disabled,
+			get = function() local r = rule(); return r and r.zone or "" end,
+			set = function(_, v) local r = rule(); if r then r.zone = (strtrim(v or "") ~= "") and strtrim(v) or nil end end,
+		}
+		ruleArgs["rule_target_" .. i] = {
+			-- Forever hides a mob's name AND its GUID inside dungeons and raids (measured in
+			-- Ragefire Chasm), so a target rule can only match in the open world there
+			order = base + 3, type = "input", name = FOREVER and "Target (mob name, open world only)" or "Target (mob name)", width = 1.5,
+			desc = FOREVER and "Switch when you target a mob with exactly this name (not case sensitive). Open world only: inside dungeons and raids the game hides mob names, so use a Zone or Boss Encounter rule there."
+				or "Switch when you target a mob with exactly this name (not case sensitive).",
+			disabled = Disabled,
+			get = function() local r = rule(); return r and r.target or "" end,
+			set = function(_, v) local r = rule(); if r then r.target = (strtrim(v or "") ~= "") and strtrim(v) or nil end; SP:UpdateLoadoutRuleEvents() end,
+		}
+		ruleArgs["rule_target_note_" .. i] = {
+			order = base + 3.5, type = "description", width = "full",
+			hidden = function() return not FOREVER end,
+			name = "|cffffa040Mob names don't work inside dungeons or raids: use Zone or Boss Encounter there.|r",
+		}
+		ruleArgs["rule_target_note_" .. i] = {
+			order = base + 3.5, type = "description", width = "full",
+			hidden = function() return not FOREVER end,
+			name = "|cffffa040Mob names don't work inside dungeons or raids: use Zone or Boss Encounter there.|r",
+		}
+		ruleArgs["rule_encounter_" .. i] = {
+			order = base + 4, type = "input", name = "Boss Encounter (optional)", width = 1.5,
+			desc = "Switch when this boss encounter starts (the name the game uses for the fight). The switch lands when the fight ends, ready for the next pull.",
+			disabled = Disabled,
+			get = function() local r = rule(); return r and r.encounter or "" end,
+			set = function(_, v) local r = rule(); if r then r.encounter = (strtrim(v or "") ~= "") and strtrim(v) or nil end; SP:UpdateLoadoutRuleEvents() end,
+		}
+		ruleArgs["rule_resist_" .. i] = {
+			order = base + 4.5, type = "select", name = "Also Request Resistance", width = 1.5,
+			desc = "Ask the raid for this resistance totem when the rule fires (zone or encounter rules; target rules do not request it)."
+				.. " An encounter rule asks with the pull, so it covers the next attempt; a zone rule has it down before the first pull."
+				.. " One shaman is picked and asked; it ends when the boss dies (a wipe keeps it) or when you leave the zone."
+				.. " A /reload inside a zone rule's zone asks again, even if the raid unticked it.",
+			hidden = function() return not (FOREVER and SP.RESIST_REQUESTS) end,
+			disabled = Disabled,
+			values = { none = "None", fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" },
+			sorting = { "none", "fire", "frost", "nature" },
+			get = function() local r = rule(); return (r and r.resist) or "none" end,
+			set = function(_, v)
+				local r = rule()
+				if r then
+					if v == "none" then r.resist = nil else r.resist = v end
+				end
+				SP:UpdateLoadoutRuleEvents()
+			end,
+		}
+		ruleArgs["rule_remove_" .. i] = {
+			order = base + 5, type = "execute", name = "Remove Rule " .. i, width = 1.5,
+			disabled = Disabled,
+			func = function()
+				local dd = DB()
+				if dd and dd.rules[idx] then tremove(dd.rules, idx) end
+				RebuildRuleArgs()
+				SP:UpdateLoadoutRuleEvents()
+				Notify()
+			end,
+		}
+	end
+end
+
+if SP.options and SP.options.args and SP.options.args.buttons and SP.options.args.buttons.args then
+	SP.options.args.buttons.args.loadoutrules_section = {
+		order = 3.71, type = "group", name = "Loadout Auto-Switch",
+		args = ruleArgs,
+	}
+	for k, v in pairs(STATIC) do ruleArgs[k] = v end
+	-- the rule rows come from the profile, which exists after login
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_LOGIN")
+	f:SetScript("OnEvent", function() RebuildRuleArgs() end)
+	SP.RebuildLoadoutRuleArgs = function() RebuildRuleArgs(); Notify() end
+end

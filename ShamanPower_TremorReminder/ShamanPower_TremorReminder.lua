@@ -1,3 +1,6 @@
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo  -- guarded on restricted clients
 --[[
     ShamanPower_TremorReminder
     Proactive Tremor Totem reminder when targeting fear-casting mobs
@@ -8,6 +11,9 @@
 
 local SP = ShamanPower
 if not SP then return end
+
+-- Only load for Shamans: nobody else can drop Tremor Totem
+if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
 -- Mark module as loaded
 SP.TremorReminderLoaded = true
@@ -21,56 +27,6 @@ local TREMOR_TOTEM_ICON = select(3, GetSpellInfo(8143)) or 136108
 
 -- Default known fear-casting mobs (from Sweb's WeakAura + additions)
 local DEFAULT_FEAR_CASTERS = {
-    -- TBC Dungeons
-    ["Nexus Terror"] = true,
-    ["Sethekk Prophet"] = true,
-    ["Nazan"] = true,
-    ["Coilfang Ray"] = true,
-    ["Coilfang Siren"] = true,
-    ["Durnholde Warden"] = true,
-    ["Ambassador Hellmaw"] = true,
-    ["Fel Overseer"] = true,
-    ["Shadowmoon Darkcaster"] = true,
-    ["Warbringer O'mrogg"] = true,
-    ["Rift Keeper"] = true,
-    ["Mutate Fear-Shrieker"] = true,
-    ["Bloodwarder Physician"] = true,
-    ["Harbinger Skyriss"] = true,
-    ["Bleeding Hollow Scryer"] = true,
-
-    -- Karazhan
-    ["Nightbane"] = true,
-    ["The Big Bad Wolf"] = true,
-    ["Spectral Charger"] = true,
-    ["Dorothee"] = true,
-    ["Roar"] = true,
-    ["Concubine"] = true,
-
-    -- Magtheridon's Lair
-    ["Hellfire Warder"] = true,
-    ["Hellfire Channeler"] = true,
-
-    -- Serpentshrine Cavern
-    ["Coilfang Priestess"] = true,
-    ["Greyheart Tidecaller"] = true,
-
-    -- Tempest Keep
-    ["Tempest-Smith"] = true,
-    ["Astromancer"] = true,
-
-    -- Black Temple
-    ["Illidari Heartseeker"] = true,
-    ["Bonechewer Taskmaster"] = true,
-    ["Dragonmaw Wind Reaver"] = true,
-    ["Ashtongue Mystic"] = true,
-
-    -- Hyjal Summit
-    ["Banshee"] = true,
-    ["Crypt Fiend"] = true,
-
-    -- Sunwell Plateau
-    ["Sunblade Vindicator"] = true,
-
     -- Classic Dungeons
     ["Scarlet Monk"] = true,
     ["Scarlet Champion"] = true,
@@ -82,6 +38,239 @@ local DEFAULT_FEAR_CASTERS = {
     ["Magmadar"] = true,
     ["Golemagg the Incinerator"] = true,
 }
+
+if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+    local tbcFearCasters = {
+        -- TBC Dungeons
+        ["Nexus Terror"] = true,
+        ["Sethekk Prophet"] = true,
+        ["Nazan"] = true,
+        ["Coilfang Ray"] = true,
+        ["Coilfang Siren"] = true,
+        ["Durnholde Warden"] = true,
+        ["Ambassador Hellmaw"] = true,
+        ["Fel Overseer"] = true,
+        ["Shadowmoon Darkcaster"] = true,
+        ["Warbringer O'mrogg"] = true,
+        ["Rift Keeper"] = true,
+        ["Mutate Fear-Shrieker"] = true,
+        ["Bloodwarder Physician"] = true,
+        ["Harbinger Skyriss"] = true,
+        ["Bleeding Hollow Scryer"] = true,
+
+        -- Karazhan
+        ["Nightbane"] = true,
+        ["The Big Bad Wolf"] = true,
+        ["Spectral Charger"] = true,
+        ["Dorothee"] = true,
+        ["Roar"] = true,
+        ["Concubine"] = true,
+
+        -- Magtheridon's Lair
+        ["Hellfire Warder"] = true,
+        ["Hellfire Channeler"] = true,
+
+        -- Serpentshrine Cavern
+        ["Coilfang Priestess"] = true,
+        ["Greyheart Tidecaller"] = true,
+
+        -- Tempest Keep
+        ["Tempest-Smith"] = true,
+        ["Astromancer"] = true,
+
+        -- Black Temple
+        ["Illidari Heartseeker"] = true,
+        ["Bonechewer Taskmaster"] = true,
+        ["Dragonmaw Wind Reaver"] = true,
+        ["Ashtongue Mystic"] = true,
+
+        -- Hyjal Summit
+        ["Banshee"] = true,
+        ["Crypt Fiend"] = true,
+
+        -- Sunwell Plateau
+        ["Sunblade Vindicator"] = true,
+
+    }
+    for name, enabled in pairs(tbcFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
+end
+
+-- Vanilla fear/charm/sleep casters; keep these defaults off the Anniversary path.
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLINE
+    local foreverFearCasters = {
+        -- Wailing Caverns
+        ["Boahn"] = true,
+        ["Deviate Dreadfang"] = true,
+        ["Druid of the Fang"] = true,
+        ["Lady Anacondra"] = true,
+        ["Lord Cobrahn"] = true,
+        ["Lord Pythas"] = true,
+        ["Lord Serpentis"] = true,
+        ["Mutanus the Devourer"] = true,
+
+        -- The Deadmines
+        ["Marisa du'Paige"] = true,
+        ["Sneed's Shredder"] = true,
+
+        -- Shadowfang Keep
+        ["Sever"] = true,
+
+        -- Blackfathom Deeps
+        ["Twilight Lord Kelris"] = true,
+
+        -- The Stockade
+        ["Dextren Ward"] = true,
+
+        -- Scarlet Monastery - Graveyard
+        ["Scarlet Scryer"] = true,
+
+        -- Scarlet Monastery - Cathedral
+        ["High Inquisitor Fairbanks"] = true,
+
+        -- Uldaman
+        ["Jadespine Basilisk"] = true,
+
+        -- Maraudon
+        ["Princess Theradras"] = true,
+
+        -- The Temple of Atal'Hakkar
+        ["Atal'ai Deathwalker"] = true,
+        ["Nightmare Wyrmkin"] = true,
+
+        -- Blackrock Depths
+        ["High Interrogator Gerstahn"] = true,
+
+        -- Lower Blackrock Spire
+        ["Mor Grayhoof"] = true,
+        ["Urok Doomhowl"] = true,
+
+        -- Upper Blackrock Spire
+        ["The Beast"] = true,
+
+        -- Dire Maul - East
+        ["Wildspawn Felsworn"] = true,
+
+        -- Dire Maul - North
+        ["Captain Kromcrush"] = true,
+        ["Cho'Rush the Observer"] = true,
+        ["Gordok Captain"] = true,
+
+        -- Dire Maul - West
+        ["Lord Hel'nurath"] = true,
+
+        -- Stratholme
+        ["Balzaphon"] = true,
+        ["Hearthsinger Forresten"] = true,
+        ["Postmaster Malown"] = true,
+        ["Rockwing Screecher"] = true,
+        ["Sothos"] = true,
+
+        -- Scholomance
+        ["Lady Illucia Barov"] = true,
+        ["Ras Frostwhisper"] = true,
+        ["Scholomance Neophyte"] = true,
+
+        -- Zul'Gurub
+        ["Bloodlord Mandokir"] = true,
+        ["Gurubashi Berserker"] = true,
+        ["Hakkari Priest"] = true,
+        ["Hakkari Shadow Hunter"] = true,
+        ["Soulflayer"] = true,
+
+        -- Ruins of Ahn'Qiraj
+        ["Captain Qeez"] = true,
+
+        -- Blackwing Lair
+        ["Lord Victor Nefarius"] = true,
+        ["Nefarian"] = true,
+
+        -- Temple of Ahn'Qiraj
+        ["Anubisath Warder"] = true,
+        ["Princess Yauj"] = true,
+        ["Qiraji Champion"] = true,
+
+        -- Naxxramas
+        ["Death Knight"] = true,
+        ["Gluth"] = true,
+        ["Living Monstrosity"] = true,
+
+        -- World raid bosses
+        ["Taerar"] = true,
+
+        -- Open world - Alterac Mountains
+        ["Skhowl"] = true,
+
+        -- Open world - Arathi Highlands
+        ["Syndicate Conjuror"] = true,
+
+        -- Open world - Ashenvale
+        ["Diathorus the Seeker"] = true,
+        ["Dreamstalker"] = true,
+        ["Mist Howler"] = true,
+        ["Wrathtail Priestess"] = true,
+
+        -- Open world - Badlands
+        ["Shadowforge Chanter"] = true,
+
+        -- Open world - Desolace
+        ["Gritjaw Basilisk"] = true,
+        ["Hulking Gritjaw Basilisk"] = true,
+
+        -- Open world - Duskwood
+        ["Skeletal Horror"] = true,
+
+        -- Open world - Eastern Plaguelands
+        ["Blighted Horror"] = true,
+        ["Death Singer"] = true,
+        ["Plaguebat"] = true,
+        ["Scarlet Enchanter"] = true,
+
+        -- Open world - Searing Gorge
+        ["Shleipnarr"] = true,
+
+        -- Open world - Silithus
+        ["Mistress Natalia Mar'alith"] = true,
+        ["Twilight Keeper Mayna"] = true,
+        ["Twilight Prophet"] = true,
+
+        -- Open world - Stonetalon Mountains
+        ["Scorched Basilisk"] = true,
+        ["Singed Basilisk"] = true,
+        ["Taskmaster Whipfang"] = true,
+
+        -- Open world - Stranglethorn Vale
+        ["Cold Eye Basilisk"] = true,
+
+        -- Open world - Swamp of Sorrows
+        ["Dreaming Whelp"] = true,
+        ["Wyrmkin Dreamwalker"] = true,
+
+        -- Open world - The Barrens
+        ["Captain Fairmount"] = true,
+        ["Captain Shatterskull"] = true,
+
+        -- Open world - The Hinterlands
+        ["Dreamtracker"] = true,
+
+        -- Open world - Thousand Needles
+        ["Saltstone Basilisk"] = true,
+        ["Scorpid Terror"] = true,
+
+        -- Open world - Un'Goro Crater
+        ["Frenzied Pterrordax"] = true,
+        ["King Mosh"] = true,
+        ["Pterrordax"] = true,
+        ["Tyrant Devilsaur"] = true,
+
+        -- Open world - Western Plaguelands
+        ["Skeletal Terror"] = true,
+
+        -- Open world - Winterspring
+        ["Mezzir the Howler"] = true,
+        ["Rak'shiri"] = true,
+    }
+    for name, enabled in pairs(foreverFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
+end
 
 -- Default settings
 local defaults = {
@@ -109,6 +298,17 @@ local isShowing = false
 local lastTargetName = nil
 
 -- Check if a mob name is in the fear-caster list
+-- Restricted clients: unit identity (name/GUID) is secret on instanced maps.
+-- Ask the client before touching it so nothing here ever branches on a secret.
+local function SPIdentitySecret(unit)
+	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
+		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
+		if ok and v == true then return true end
+	end
+	if issecretvalue and issecretvalue((UnitGUID(unit))) then return true end
+	return false
+end
+
 local function IsFearCaster(name)
     if not name then return false end
 
@@ -130,6 +330,13 @@ end
 
 -- Check if Tremor Totem is currently active
 local function IsTremorTotemActive()
+    -- On Forever the Earth slot may be secret; the core resolver falls back
+    -- to the addon's own-cast shadow model instead of treating it as empty.
+    if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+        local haveTotem, totemName = ShamanPower:GetElementTotemInfo(1)
+        if issecretvalue(haveTotem) or issecretvalue(totemName) then return false end
+        return haveTotem and type(totemName) == "string" and totemName:find("Tremor", 1, true) ~= nil
+    end
     for slot = 1, 4 do
         local haveTotem, totemName = GetTotemInfo(slot)
         if haveTotem and totemName and totemName:find("Tremor") then
@@ -159,7 +366,7 @@ local function CreateReminderFrame()
 
     -- Text label
     frame.text = frame:CreateFontString(nil, "OVERLAY")
-    frame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, "OUTLINE")
+    SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, "OUTLINE")
     frame.text:SetPoint("TOP", frame, "BOTTOM", 0, -5)
     frame.text:SetText("TREMOR!")
     frame.text:SetTextColor(1, 0.8, 0)
@@ -294,7 +501,7 @@ local function UpdateAppearance()
     end
 
     -- Update text size
-    reminderFrame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, "OUTLINE")
+    SP:SetSPFont(reminderFrame.text, "alerts", sv.textSize or 24, "OUTLINE")
 
     -- Glow (only show if not text-only mode)
     if sv.showGlow and mode ~= "text" then
@@ -346,8 +553,14 @@ end
 -- Check if we should show the reminder
 local function CheckTarget()
     if SP.TremorDemoActive then return end
+    -- instanced map on a restricted client: names are secret, so stand down, and
+    -- take down a reminder that was already up (it can no longer be checked)
+    if SPIdentitySecret("target") then
+        HideReminder()
+        return
+    end
     local sv = ShamanPowerTremorReminderDB
-    if not sv or not sv.enabled then
+    if not sv or not sv.enabled or SP:IsOff() then
         HideReminder()
         return
     end
@@ -390,6 +603,7 @@ end
 
 -- Event handler frame
 local eventFrame = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Tremor Reminder") end
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
@@ -431,6 +645,9 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         C_Timer.After(1, CheckTarget)
     end
 end)
+
+-- Enable ShamanPower switched: off hides the reminder, on checks the target again
+SP:OnOnOff(function() CheckTarget() end)
 
 -- Slash commands
 SLASH_SPTREMOR1 = "/sptremor"
@@ -564,9 +781,13 @@ function SP:TremorDemo(on)
         -- A short targeting scene, looped. Rendered through the real
         -- appearance path so Display Mode / size / glow all show correctly.
         local SCENE = {
-            { show = true,  secs = 4.0, story = "You target |cffff8080Coilfang Siren|r - a known fear-caster. Get Tremor down." },
+            { show = true, secs = 4.0, story = "You target |cffff8080"
+                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Scarlet Monk" or "Coilfang Siren")
+                .. "|r - a known fear-caster. Get Tremor down." },
             { show = false, secs = 2.0, story = "Tremor Totem is down - reminder hidden.", tremor = true },
-            { show = true,  secs = 3.5, story = "New target: |cffff8080Sethekk Prophet|r. Tremor has expired - reminder is back." },
+            { show = true, secs = 3.5, story = "New target: |cffff8080"
+                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Thuzadin Shadowcaster" or "Sethekk Prophet")
+                .. "|r. Tremor has expired - reminder is back." },
             { show = false, secs = 2.0, story = "You target a harmless mob - nothing to remind you about." },
         }
         local beat, left = 0, 0
@@ -737,7 +958,7 @@ function SP:ShowMobList()
     targetBtn:SetPoint("TOPLEFT", addLabel, "BOTTOMLEFT", 0, -8)
     targetBtn:SetText("Add Target")
     targetBtn:SetScript("OnClick", function()
-        local name = UnitName("target")
+        local name = not SPIdentitySecret("target") and UnitName("target") or nil
         if name and UnitCanAttack("player", "target") then
             ShamanPowerTremorReminderDB.fearCasters[name] = true
             SP:RefreshMobList()

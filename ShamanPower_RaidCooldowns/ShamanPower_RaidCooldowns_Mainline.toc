@@ -1,0 +1,12 @@
+## Interface: 120100, 16001
+## Author: taubut
+## Title: |cff0070ddShamanPower|r |cffffd200[Raid Cooldowns]|r
+## Version: 3.0.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Raid Cooldown Management - Mana Tide (and Bloodlust/Heroism where the client has it)
+## Dependencies: ShamanPower
+## LoadOnDemand: 0
+## DefaultState: enabled
+## SavedVariables: ShamanPower_RaidCooldowns
+
+ShamanPower_RaidCooldowns.lua

@@ -1,0 +1,5 @@
+## Interface: 11509, 20506, 16000, 16001, 30404, 50503, 120100, 120105
+## Title: SPProbe (Camelot)
+## X-Flavor: Camelot
+## Notes: Prints which TOC flavor the client loaded (Forever game-type suffix per Meorawr; to be renamed)
+Probe.lua

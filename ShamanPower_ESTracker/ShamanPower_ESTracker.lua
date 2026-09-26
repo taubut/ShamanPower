@@ -3,8 +3,22 @@
 -- Track Earth Shields cast by OTHER shamans in your raid/party
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 if not SP then return end
+-- Loads for every class: raid leaders and healers track the shamans' Earth Shields.
+
+-- Earth Shield is not an obtainable spell on the Mainline/Forever line. The
+-- spell data ships (974 and 408514 both resolve by name) but neither carries a
+-- trainer entry or a talent node on build 1.60.1, so no shaman can learn or
+-- cast it and there is nothing here to track.
+-- Bail before creating a single frame, registering an event or touching the
+-- saved variable. The core defines no-op stubs for every ES Tracker entry
+-- point, and the setup tour hides its step while ESTrackerLoaded is unset, so
+-- nothing downstream needs to know.
+-- If Earth Shield is ever turned on, delete this block.
+if SP.ESTrackerUnavailable then return end
 
 -- Mark module as loaded
 SP.ESTrackerLoaded = true
@@ -77,11 +91,14 @@ function SP:CreateESTrackerFrame()
 	frame:SetBackdropColor(0, 0, 0, 0.8)
 	frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
 
-	-- Title
-	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	-- Title: the other module titles' look, and it follows the Fonts settings
+	local title = frame:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(title, "labels", 11, "", STANDARD_TEXT_FONT)
+	title:SetShadowOffset(1, -1)
+	title:SetShadowColor(0, 0, 0, 0.8)
+	title:SetTextColor(SP:SPColor("text"))
 	title:SetPoint("TOP", frame, "TOP", 0, -6)
 	title:SetText("Earth Shields")
-	title:SetTextColor(0.4, 0.8, 0.4)  -- Green tint for Earth
 	frame.title = title
 
 	-- Container for ES icons
@@ -165,6 +182,45 @@ function SP:GetClassColor(class)
 end
 
 -- Create an Earth Shield button for the tracker
+-- Rows are pooled (one frame per slot, reused between updates) so a row can
+-- own an engine aura container: on restricted clients the charge count is
+-- drawn by the engine from the carrier's unit while auras are secret.
+local function esTrackerAuraIDs()
+	return ShamanPower.EarthShieldAuraIDs or { 974, 32593, 32594, 383648 }
+end
+
+local function buildESRowContainer(btn)
+	if not (SPCompat and SPCompat.secretsRegime) then return nil end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
+	if not ok or not container then return nil end
+	container:SetAllPoints(btn)
+	container:SetFrameLevel(btn:GetFrameLevel() + 3)
+	local idMap = {}
+	for _, id in ipairs(esTrackerAuraIDs()) do idMap[id] = true end
+	pcall(function()
+		container:AddAuraSlot("es", "HELPFUL", {   -- any shaman's Earth Shield on this unit
+			candidateFilters = { includeSpellIDs = idMap },
+			initializeFrame = function(button)
+				button:ClearAllPoints()
+				button:SetAllPoints(btn)
+				if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+				if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+				local carrier = CreateFrame("Frame", nil, button)
+				carrier:SetAllPoints(button)
+				local count = carrier:CreateFontString(nil, "OVERLAY")
+				SP:SetSPFont(count, "labels", 12, "OUTLINE")
+				count:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
+				count:SetTextColor(0.4, 1, 0.4)
+				pcall(button.SetApplicationCount, button, count, {})
+			end,
+		})
+	end)
+	pcall(container.SetUnit, container, "none")
+	container:Hide()
+	return container
+end
+
 function SP:CreateESTrackerButton(parent, esData, index)
 	local iconSize = SP.opt.esTracker.iconSize or 40
 	local btn = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -191,76 +247,105 @@ function SP:CreateESTrackerButton(parent, esData, index)
 
 	-- Target name (inside the icon area, at bottom)
 	local targetText = btn:CreateFontString(nil, "OVERLAY")
-	targetText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	SP:SetSPFont(targetText, "labels", 9, "OUTLINE")
 	targetText:SetPoint("BOTTOM", btn, "BOTTOM", 0, 5)
-	targetText:SetText(esData.targetName or "?")
 	targetText:SetTextColor(1, 1, 1)
 	btn.targetText = targetText
 
 	-- Charges (top right corner)
 	local chargesText = btn:CreateFontString(nil, "OVERLAY")
-	chargesText:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+	SP:SetSPFont(chargesText, "labels", 12, "OUTLINE")
 	chargesText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -2, -2)
-	chargesText:SetText(esData.charges or "?")
 	chargesText:SetTextColor(0.4, 1, 0.4)
-	if SP.opt.esTracker.hideCharges then
-		chargesText:Hide()
-	end
 	btn.chargesText = chargesText
 
 	-- Caster name (below the icon)
 	local casterText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	casterText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	SP:SetSPFont(casterText, "labels", 8, "OUTLINE")
 	casterText:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-	casterText:SetText(esData.casterName or "?")
-	-- Color by caster's class
-	local r, g, b = self:GetClassColor(esData.casterClass)
-	casterText:SetTextColor(r, g, b)
-	if SP.opt.esTracker.hideNames then
-		casterText:Hide()
-	end
 	btn.casterText = casterText
 
-	-- Tooltip
+	-- Tooltip (reads the row's current data)
 	btn:EnableMouse(true)
 	btn:SetScript("OnEnter", function(self)
+		local d = self.esData or {}
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:AddLine("Earth Shield", 0.4, 0.8, 0.4)
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Target: " .. (esData.targetName or "Unknown"), 1, 1, 1)
-		GameTooltip:AddLine("Caster: " .. (esData.casterName or "Unknown"), 1, 0.82, 0)
-		GameTooltip:AddLine("Charges: " .. (esData.charges or "?"), 0.4, 1, 0.4)
+		GameTooltip:AddLine("Target: " .. (d.targetName or "Unknown"), 1, 1, 1)
+		GameTooltip:AddLine("Caster: " .. (d.casterName or "Unknown"), 1, 0.82, 0)
+		GameTooltip:AddLine("Charges: " .. (d.charges or "?"), 0.4, 1, 0.4)
 		GameTooltip:Show()
 	end)
 	btn:SetScript("OnLeave", function(self)
 		GameTooltip:Hide()
 	end)
 
-	btn.esData = esData
+	btn.engine = buildESRowContainer(btn)
+	self:FillESTrackerButton(btn, esData)
 	return btn
 end
 
+-- Put an entry's data on a (possibly reused) row
+function SP:FillESTrackerButton(btn, esData)
+	btn.esData = esData
+	btn.targetText:SetText(esData.targetName or "?")
+	btn.chargesText:SetText(esData.charges or "?")
+	if SP.opt.esTracker.hideCharges then btn.chargesText:Hide() else btn.chargesText:Show() end
+	btn.casterText:SetText(esData.casterName or "?")
+	local r, g, b = self:GetClassColor(esData.casterClass)
+	btn.casterText:SetTextColor(r, g, b)
+	if SP.opt.esTracker.hideNames then btn.casterText:Hide() else btn.casterText:Show() end
+	if btn.engine and esData.unit and btn.engineUnit ~= esData.unit then
+		btn.engineUnit = esData.unit
+		pcall(btn.engine.SetUnit, btn.engine, esData.unit)
+		pcall(btn.engine.UpdateAllAuras, btn.engine)
+	end
+end
+
+-- Restricted client: rows keep their last readable data; the engine draws the
+-- live count while secret, the addon's count while readable
+function SP:ESTrackerSetRestricted(restricted)
+	local frame = self.esTrackerFrame
+	if not frame or not frame.esButtons then return end
+	for _, btn in ipairs(frame.esButtons) do
+		if btn.engine then
+			if btn.engine:IsShown() ~= restricted then btn.engine:SetShown(restricted) end
+			if restricted then
+				btn.chargesText:SetText("")
+			elseif btn.esData and not SP.opt.esTracker.hideCharges then
+				btn.chargesText:SetText(btn.esData.charges or "?")
+			end
+		end
+	end
+end
+
 -- Update the Earth Shield tracker display
+-- (the list and the sort are reused: a raid redraws this several times a second)
+local esList = {}
+local function byCasterName(a, b)
+	return (a.casterName or "") < (b.casterName or "")
+end
+
 function SP:UpdateESTrackerFrame()
 	local frame = self.esTrackerFrame
 	if not frame then return end
 
-	-- Clear existing buttons
+	-- Hide current rows; they are reused from the pool below
+	frame.esButtonPool = frame.esButtonPool or {}
 	for _, btn in pairs(frame.esButtons) do
 		btn:Hide()
 	end
-	frame.esButtons = {}
+	wipe(frame.esButtons)
 
 	-- Get all tracked Earth Shields
-	local esList = {}
-	for guid, esData in pairs(self.earthShields) do
-		table.insert(esList, esData)
+	wipe(esList)
+	for _, esData in pairs(self.earthShields) do
+		esList[#esList + 1] = esData
 	end
 
 	-- Sort by caster name for consistency
-	table.sort(esList, function(a, b)
-		return (a.casterName or "") < (b.casterName or "")
-	end)
+	table.sort(esList, byCasterName)
 
 	if #esList == 0 then
 		frame:SetSize(120, 50)
@@ -288,9 +373,19 @@ function SP:UpdateESTrackerFrame()
 	frame:SetSize(math.max(100, width), height)
 	frame.title:SetText("Earth Shields")
 
-	-- Create buttons
+	-- Rows from the pool (created once, refilled each update)
 	for i, esData in ipairs(esList) do
-		local btn = self:CreateESTrackerButton(frame.iconContainer, esData, i)
+		local btn = frame.esButtonPool[i]
+		if btn and (btn:GetWidth() ~= buttonSize) then
+			btn:SetSize(buttonSize, buttonSize)
+		end
+		if btn then
+			self:FillESTrackerButton(btn, esData)
+		else
+			btn = self:CreateESTrackerButton(frame.iconContainer, esData, i)
+			frame.esButtonPool[i] = btn
+		end
+		btn:ClearAllPoints()
 
 		if isVertical then
 			local startY = -20
@@ -304,6 +399,7 @@ function SP:UpdateESTrackerFrame()
 		btn:Show()
 		table.insert(frame.esButtons, btn)
 	end
+	self:ESTrackerSetRestricted(false)
 
 	-- Apply opacity
 	frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
@@ -402,74 +498,133 @@ function SP:ESTrackerDemo(on)
 end
 
 -- Scan for Earth Shields in the raid/party
--- Optimized: uses direct buff lookup and caches unit list
-function SP:ScanEarthShields()
-	-- Setup-wizard preview owns the data while active; don't clobber it
-	if self.esTrackerDemoActive then return end
-
-	self.earthShields = {}
-
-	-- Build unit list (cached on group changes)
-	local units
-	if IsInRaid() then
-		-- Cache raid unit list - only rebuild if needed
-		if not self.cachedRaidUnits or (GetTime() - (self.cachedRaidUnitsTime or 0)) > 5 then
-			self.cachedRaidUnits = {}
-			for i = 1, 40 do
-				if UnitExists("raid" .. i) then
-					table.insert(self.cachedRaidUnits, "raid" .. i)
-				end
-			end
-			self.cachedRaidUnitsTime = GetTime()
+-- One unit's Earth Shield, or nil. Classic TBC UnitBuff returns:
+-- name, icon, count, debuffType, duration, expirationTime, caster
+-- `entry` is an old row to refill instead of building a new table (aura events
+-- arrive many times a second in a raid).
+local function scanUnitES(unit, entry)
+	if not UnitExists(unit) then return nil end
+	local name, icon, count, expirationTime, caster
+	for i = 1, 40 do
+		local buffName, buffIcon, buffCount, _, _, buffExpiration, buffCaster = UnitBuff(unit, i)
+		if not buffName then break end
+		if buffName == "Earth Shield" then
+			name, icon, count, expirationTime, caster = buffName, buffIcon, buffCount, buffExpiration, buffCaster
+			break
 		end
-		units = self.cachedRaidUnits
-	elseif IsInGroup() then
-		units = {"player", "party1", "party2", "party3", "party4"}
-	else
-		units = {"player"}
+	end
+	if not name then return nil end
+	local casterName = "Unknown"
+	local casterClass = nil
+	-- Get caster info - need to check if caster unit is valid
+	if caster and UnitExists(caster) then
+		casterName = UnitName(caster) or "Unknown"
+		local _, cls = UnitClass(caster)
+		casterClass = cls
+	end
+	entry = entry or {}
+	entry.targetGUID = UnitGUID(unit)
+	entry.unit = unit
+	entry.targetName = UnitName(unit)
+	entry.casterName = casterName
+	entry.casterClass = casterClass
+	entry.charges = count or 0
+	entry.expirationTime = expirationTime
+	entry.icon = icon
+	return entry
+end
+
+-- Restricted client: aura reads return nothing while secret, which would read
+-- as every shield having fallen off. Keep the last readable picture instead;
+-- SPCompat re-runs the scan once restrictions clear.
+local function scanBlocked(self)
+	if SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then
+		self:ESTrackerSetRestricted(true)
+		return true
+	end
+	-- Setup-wizard preview owns the data while active; don't clobber it
+	return self.esTrackerDemoActive and true or false
+end
+
+-- Group unit tokens the tracker reads: raid1-40 in a raid, player + party1-4
+-- otherwise. Nameplates, target, focus, pets and the other mode's tokens are
+-- the same players under another name (or not group members at all).
+local RAID_TOKENS, PARTY_TOKENS, SOLO_TOKENS = {}, { "player", "party1", "party2", "party3", "party4" }, { "player" }
+for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+local RAID_UNIT, PARTY_UNIT = {}, { player = true }
+for i = 1, 40 do RAID_UNIT["raid" .. i] = true end
+for i = 1, 4 do PARTY_UNIT["party" .. i] = true end
+
+-- Rows no longer shown wait here to be refilled by the next shield found
+local spareEntries = {}
+
+-- Full scan: when the tracker opens and once a roster change settles. Between
+-- those, each member's own UNIT_AURA re-reads just that member.
+function SP:ScanEarthShields()
+	if scanBlocked(self) then return end
+
+	local shields = self.earthShields
+	for guid, d in pairs(shields) do
+		spareEntries[#spareEntries + 1] = d
+		shields[guid] = nil
 	end
 
-	-- Scan each unit for Earth Shield buff
-	for _, unit in ipairs(units) do
-		if UnitExists(unit) then
-			-- Scan for Earth Shield buff
-			-- Classic TBC UnitBuff returns: name, icon, count, debuffType, duration, expirationTime, caster
-			local name, icon, count, expirationTime, caster
-			for i = 1, 40 do
-				local buffName, buffIcon, buffCount, _, buffDuration, buffExpiration, buffCaster = UnitBuff(unit, i)
-				if not buffName then break end
-				if buffName == "Earth Shield" then
-					name, icon, count, expirationTime, caster = buffName, buffIcon, buffCount, buffExpiration, buffCaster
-					break
-				end
-			end
-
-			if name then
-				local targetGUID = UnitGUID(unit)
-				local targetName = UnitName(unit)
-				local casterName = "Unknown"
-				local casterClass = nil
-
-				-- Get caster info - need to check if caster unit is valid
-				if caster and UnitExists(caster) then
-					casterName = UnitName(caster) or "Unknown"
-					_, casterClass = UnitClass(caster)
-				end
-
-				self.earthShields[targetGUID] = {
-					targetGUID = targetGUID,
-					targetName = targetName,
-					casterName = casterName,
-					casterClass = casterClass,
-					charges = count or 0,
-					expirationTime = expirationTime,
-					icon = icon
-				}
-			end
+	local units = IsInRaid() and RAID_TOKENS or (IsInGroup() and PARTY_TOKENS or SOLO_TOKENS)
+	for i = 1, #units do
+		local spare = spareEntries[#spareEntries]
+		local entry = scanUnitES(units[i], spare)
+		if entry then
+			if entry == spare then spareEntries[#spareEntries] = nil end
+			shields[entry.targetGUID] = entry
 		end
 	end
 
 	self:UpdateESTrackerFrame()
+end
+
+-- UNIT_AURA for one group member: re-read just that unit and redraw at most
+-- 4 times a second, and only when what the tracker shows changed (a raid fires
+-- hundreds of aura events a second; each used to rescan all 40 members).
+local redrawPending = false
+local function redrawNow()
+	redrawPending = false
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:UpdateESTrackerFrame() end
+end
+local function redrawSoon()
+	if redrawPending then return end
+	redrawPending = true
+	C_Timer.After(0.25, redrawNow)
+end
+
+function SP:ScanEarthShieldUnit(unit)
+	if type(unit) ~= "string" or (issecretvalue and issecretvalue(unit)) then return end
+	if not (IsInRaid() and RAID_UNIT[unit] or (not IsInRaid() and PARTY_UNIT[unit])) then return end
+	if scanBlocked(self) then return end
+	if not self.earthShields then self:ScanEarthShields() return end
+	-- drop what this unit (or this player under its GUID) had, then re-read it
+	-- into the same row
+	local shields = self.earthShields
+	local guid = UnitGUID(unit)
+	local old, dropped = nil, 0
+	for g, d in pairs(shields) do
+		if d.unit == unit or g == guid then
+			shields[g] = nil
+			dropped = dropped + 1
+			old = old or d
+		end
+	end
+	local oldGUID, oldCharges, oldCaster, oldName
+	if old then oldGUID, oldCharges, oldCaster, oldName = old.targetGUID, old.charges, old.casterName, old.targetName end
+	local entry = scanUnitES(unit, old)
+	if entry then
+		shields[entry.targetGUID] = entry
+	elseif old then
+		spareEntries[#spareEntries + 1] = old
+	end
+	if dropped > 1 or (entry == nil) ~= (old == nil) or (entry and (entry.targetGUID ~= oldGUID
+		or entry.charges ~= oldCharges or entry.casterName ~= oldCaster or entry.targetName ~= oldName)) then
+		redrawSoon()
+	end
 end
 
 -- Update Earth Shield tracker border visibility
@@ -501,7 +656,30 @@ function SP:UpdateESTrackerOpacity()
 	end
 end
 
--- Toggle Earth Shield tracker visibility
+-- Set the Earth Shield tracker on or off explicitly (settings and the tour use
+-- this; flipping on IsShown() went backwards while a preview had the frame shown).
+function SP:SetESTrackerEnabled(on)
+	self:InitESTracker()
+	if not self.esTrackerFrame then self:CreateESTrackerFrame() end
+	SP.opt.esTracker.enabled = on and true or false
+	if self.esTrackerDemoActive then return end   -- a preview owns the frame; its restore follows the setting
+	if on and not self:IsOff() then   -- switched off: the setting is kept, the tracker stays hidden
+		local pos = SP.opt.esTracker.position
+		if pos then
+			self.esTrackerFrame:ClearAllPoints()
+			self.esTrackerFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
+		end
+		self:UpdateESTrackerBorder()
+		self:ScanEarthShields()
+		self.esTrackerFrame:Show()
+		self:EnableESTrackerEvents()
+	else
+		self.esTrackerFrame:Hide()
+		self:DisableESTrackerEvents()
+	end
+end
+
+-- Toggle Earth Shield tracker visibility (the Open button, /sp es)
 function SP:ToggleESTracker()
 	self:InitESTracker()
 	if not self.esTrackerFrame then
@@ -527,25 +705,65 @@ function SP:ToggleESTracker()
 	end
 end
 
--- Setup Earth Shield tracker update timer
+-- UNIT_AURA only for the group's own tokens (raid1-40 in a raid, player +
+-- party1-4 otherwise). Registered with RegisterEvent it arrived for every
+-- nameplate, target and pet too, just to be ignored. RegisterUnitEvent takes up
+-- to two units per frame, so the tokens are spread over small frames.
+local auraFrames = {}
+local function onGroupAura(_, _, unit)
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:ScanEarthShieldUnit(unit) end
+end
+local function setAuraFilter(on)
+	local units = on and (IsInRaid() and RAID_TOKENS or PARTY_TOKENS) or nil
+	local need = units and math.ceil(#units / 2) or 0
+	for i = 1, math.max(need, #auraFrames) do
+		local f = auraFrames[i]
+		if i <= need and not f then
+			f = CreateFrame("Frame")
+			f:SetScript("OnEvent", onGroupAura)
+			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "ES Tracker") end
+			auraFrames[i] = f
+		end
+		f:UnregisterEvent("UNIT_AURA")
+		if i <= need then
+			local a, b = units[2 * i - 1], units[2 * i]
+			if f.RegisterUnitEvent then
+				if b then f:RegisterUnitEvent("UNIT_AURA", a, b) else f:RegisterUnitEvent("UNIT_AURA", a) end
+			elseif i == 1 then
+				f:RegisterEvent("UNIT_AURA")   -- no unit filters on this client: one frame hears all (the handler checks the unit)
+			end
+		end
+	end
+end
+
+-- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: re-point the aura
+-- filter (raid indexes shift, party <-> raid) and rescan once, 0.3 s after the
+-- last. One timer at a time: when it fires with newer events behind it, it
+-- waits again for the rest of their 0.3 s (a storm that never pauses still
+-- rescans every 5 s).
+local rosterQueued, rosterFirst, rosterLast = false, 0, 0
+local function rosterSettled()
+	local now = GetTime()
+	local wait = rosterLast + 0.3 - now
+	if wait > 0.01 and now - rosterFirst < 5 then C_Timer.After(wait, rosterSettled) return end
+	rosterQueued = false
+	if not SP.esTrackerEventsEnabled then return end
+	setAuraFilter(true)
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:ScanEarthShields() end
+end
+
+-- Setup Earth Shield tracker events (no OnUpdate or timer: roster and aura
+-- events drive every update)
 function SP:SetupESTrackerUpdater()
 	if self.esTrackerUpdateFrame then return end
 
-	-- Register ES tracker updates with consolidated update system (1fps)
-	if not self.updateSystem.subsystems["esTracker"] then
-		self:RegisterUpdateSubsystem("esTracker", 1.0, function()
-			if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then
-				SP:ScanEarthShields()
-			end
-		end)
-	end
-
-	-- Create event frame for immediate updates (no OnUpdate, just events)
 	-- Don't register UNIT_AURA here - EnableESTrackerEvents will do it
 	local eventFrame = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "ES Tracker") end
 	eventFrame:RegisterEvent("GROUP_LEFT")
 	eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
-	eventFrame:SetScript("OnEvent", function(self, event, unit)
+	eventFrame:SetScript("OnEvent", function(self, event)
+		if SP:IsOff() and not SP.esTrackerEventsEnabled then return end   -- switched off: nothing to keep up
 		if event == "GROUP_LEFT" then
 			SP:ClearESTracker()
 		elseif event == "GROUP_ROSTER_UPDATE" then
@@ -553,9 +771,12 @@ function SP:SetupESTrackerUpdater()
 				SP:ClearESTracker()
 			end
 		end
-		-- UNIT_AURA events trigger immediate scan if tracker is visible
-		if event == "UNIT_AURA" and SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then
-			SP:ScanEarthShields()
+		if SP.esTrackerEventsEnabled then
+			rosterLast = GetTime()
+			if not rosterQueued then
+				rosterQueued, rosterFirst = true, rosterLast
+				C_Timer.After(0.3, rosterSettled)
+			end
 		end
 	end)
 
@@ -565,19 +786,17 @@ end
 -- Enable ES tracker events (called when tracker is shown)
 function SP:EnableESTrackerEvents()
 	if self.esTrackerUpdateFrame and not self.esTrackerEventsEnabled then
-		self.esTrackerUpdateFrame:RegisterEvent("UNIT_AURA")
+		setAuraFilter(true)
 		self.esTrackerEventsEnabled = true
 	end
-	self:EnableUpdateSubsystem("esTracker")
 end
 
 -- Disable ES tracker events (called when tracker is hidden)
 function SP:DisableESTrackerEvents()
 	if self.esTrackerUpdateFrame and self.esTrackerEventsEnabled then
-		self.esTrackerUpdateFrame:UnregisterEvent("UNIT_AURA")
+		setAuraFilter(false)
 		self.esTrackerEventsEnabled = false
 	end
-	self:DisableUpdateSubsystem("esTracker")
 end
 
 function SP:ClearESTracker()
@@ -598,8 +817,8 @@ function SP:InitializeESTracker()
 	self:CreateESTrackerFrame()
 	self:SetupESTrackerUpdater()
 
-	-- Show if it was enabled
-	if SP.opt.esTracker.enabled then
+	-- Show if it was enabled (and ShamanPower is not switched off)
+	if SP.opt.esTracker.enabled and not self:IsOff() then
 		local pos = SP.opt.esTracker.position
 		if pos then
 			self.esTrackerFrame:ClearAllPoints()
@@ -642,7 +861,7 @@ SlashCmdList["SPESTRACK"] = function(msg)
 		SP:DisableESTrackerEvents()  -- Stop UNIT_AURA tracking
 		SP.opt.esTracker.enabled = false
 	else
-		print("|cff00ff00ShamanPower:|r Earth Shield Tracker commands:")
+		print("|cff0070ddShamanPower:|r Earth Shield Tracker commands:")
 		print("  /spestrack - Toggle the tracker")
 		print("  /spestrack show - Show the tracker")
 		print("  /spestrack hide - Hide the tracker")
@@ -653,3 +872,14 @@ end
 if SP.RegisterPreview then
 	SP:RegisterPreview("estracker", { frame = "ShamanPowerESTrackerFrame", demo = "SP:ESTrackerDemo", pad = 24 })
 end
+
+-- Refresh the tracker when a restricted client's secrets lift
+if SPCompat and SPCompat.OnUnrestricted then
+	SPCompat.OnUnrestricted(function() if SP.ScanEarthShields then SP:ScanEarthShields() end end)
+end
+
+-- Enable ShamanPower switched: off hides the tracker and stops its aura events;
+-- on shows it again if its own setting is on (InitializeESTracker covers login)
+SP:OnOnOff(function()
+	if SP.esTrackerFrame and SP.opt and SP.opt.esTracker then SP:SetESTrackerEnabled(SP.opt.esTracker.enabled) end
+end)

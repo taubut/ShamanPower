@@ -1,0 +1,11 @@
+## Interface: 120100, 16001
+## Author: Srumar
+## Title: SP Save Test - Normal
+## Version: 3.0.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Temporary isolated saved-variable persistence test (normal loading).
+## DefaultState: enabled
+## X-Probe-Version: 1
+## SavedVariables: SPSaveNormalDB
+
+Probe.lua

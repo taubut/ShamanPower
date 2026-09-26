@@ -3,9 +3,14 @@
 -- Scrolling combat text style alerts for expiring shields, totems, and imbues
 -- ============================================================================
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
+-- Forever returns a LIST of enchants per weapon; the legacy global reports only
+-- the first entry, which is empty when the imbue lands in the second.
+local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 if not SP then
-	print("|cffff0000ShamanPower [Expiring Alerts]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Expiring Alerts]:|r Core addon not found!")
 	return
 end
 
@@ -46,8 +51,9 @@ local ShieldSpells = {
 		icon = "Interface\\Icons\\Spell_Nature_LightningShield",
 	},
 	waterShield = {
-		id = 24398,
-		name = GetSpellInfo(24398) or "Water Shield",
+		-- 24398 on TBC, 408510 on WoW: Forever (Restoration talent), 52127 on retail
+		id = (GetSpellInfo(24398) and 24398) or (GetSpellInfo(408510) and 408510) or (GetSpellInfo(52127) and 52127) or 24398,
+		name = GetSpellInfo(24398) or GetSpellInfo(408510) or GetSpellInfo(52127) or "Water Shield",
 		icon = "Interface\\Icons\\Ability_Shaman_WaterShield",
 	},
 	earthShield = {
@@ -130,12 +136,20 @@ local defaultSettings = {
 	totems = {
 		enabled = true,
 		destroyed = true,
+		-- a line in your own chat window (nobody else sees it): on for Forever, where it is how
+		-- you notice a totem killed mid-fight; opt-in on Anniversary, where the alert always worked
+		destroyedChat = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
+		destroyedCenter = false,  -- big raid-warning-style text, drawn only on your screen
+		destroyedParty = false,   -- tell the party / raid in chat (opt-in)
 		expired = false,  -- off by default (can be spammy)
 		earth = true,
 		fire = true,
 		water = true,
 		air = true,
-		sound = false,
+		-- totem alert sound: on for Forever, like the chat line above (it is how you
+		-- notice a totem killed mid-fight); opt-in on Anniversary as before. "expired"
+		-- is off, so out of the box it only sounds for a destroyed totem.
+		sound = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
 		soundName = "Alarm Clock Warning 3",
 	},
 	weaponImbues = {
@@ -214,6 +228,13 @@ function SP:InitExpiringAlerts()
 	end
 	for k, v in pairs(defaultSettings.weaponImbues) do
 		if sv.weaponImbues[k] == nil then sv.weaponImbues[k] = v end
+	end
+	-- Forever: a profile made before the totem sound defaulted on already holds the
+	-- old default (off), written above on its first load. Turn it on once; a later
+	-- choice in the settings sticks.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not sv.totems.soundDefaultForever then
+		sv.totems.sound = true
+		sv.totems.soundDefaultForever = true
 	end
 
 	-- Create the alert frame
@@ -330,7 +351,7 @@ function SP:CreateAlertSubFrame()
 	-- Text (position set dynamically in ProcessAlertQueue for centering)
 	local text = frame:CreateFontString(nil, "OVERLAY")
 	local outline = sv.fontOutline and "OUTLINE" or ""
-	text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, outline)
+	SP:SetSPFont(text, "alerts", sv.textSize or 24, outline)
 	text:SetShadowColor(0, 0, 0, 1)
 	text:SetShadowOffset(2, -2)
 	frame.text = text
@@ -465,10 +486,12 @@ function SP:ProcessAlertQueue()
 	-- Configure text
 	local textWidth = 0
 	if showText then
-		local displayText = alertData.spellName .. " FADED!"
+		-- shields and imbues name the buff that faded; totem alerts carry their
+		-- own ending ("Destroyed!", "Expired")
+		local displayText = alertData.alertType == "totem" and alertData.spellName or (alertData.spellName .. " FADED!")
 		frame.text:SetText(displayText)
 		local outline = sv.fontOutline and "OUTLINE" or ""
-		frame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, outline)
+		SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, outline)
 		if alertData.color then
 			frame.text:SetTextColor(alertData.color.r, alertData.color.g, alertData.color.b)
 		else
@@ -525,6 +548,8 @@ function SP:ProcessAlertQueue()
 	self:PlayAlertSound(alertData.alertType)
 end
 
+local shieldSoundDebug = false      -- /spalerts sound turns this on for a session
+
 function SP:PlayAlertSound(alertType)
 	local sv = ShamanPowerExpiringAlertsDB
 
@@ -543,8 +568,104 @@ function SP:PlayAlertSound(alertType)
 	end
 
 	if playSound then
+		-- With the engine playing the shield sound (below), it also fires for the
+		-- out-of-combat fade this alert is announcing; one sound per drop, not two.
+		if alertType == "shield" and SP.shieldSoundEngineActive then
+			if shieldSoundDebug then SP:Print("shield alert: engine owns the sound, Lua sound skipped") end
+			return
+		end
+		if alertType == "shield" and shieldSoundDebug then SP:Print("shield alert: Lua sound played") end
 		ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(soundName), sv.soundVolume, true)
 	end
+end
+
+-- ============================================================================
+-- Shield-dropped sound in combat (Mainline family)
+-- ============================================================================
+-- In combat the addon cannot see the shield fall off (measured: aura reads
+-- return nothing, orb discharges fire no cast event), so the visual alert
+-- only fires once reads come back. C_UnitAuras.AddAuraSound hands the ENGINE
+-- a sound to play when a given aura leaves the player, and the engine does
+-- that in combat (measured 2026-09-22: registered out of combat on Lightning
+-- Shield, played the moment the last orb was consumed). Audio only: nothing
+-- is learned, and no count can be read from it.
+-- Registered out of combat only (a registration in combat inside instanced
+-- PvE is a blocked action), one per shield rank the client knows, and torn
+-- down when the option, or ShamanPower itself, goes off. Uses the player's
+-- chosen shield alert sound.
+local shieldSoundIDs = {}
+local shieldSoundKey = nil          -- what the current registrations were made with
+local shieldSoundPending = false
+local shieldSoundLog = {}          -- one entry per rank tried, read by /spalerts sound
+
+local function shieldSoundWanted()
+	local sv = ShamanPowerExpiringAlertsDB
+	if not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then return false end
+	if not (C_UnitAuras and C_UnitAuras.AddAuraSound and Enum and Enum.UnitAuraSoundTrigger) then return false end
+	if not (sv and sv.enabled ~= false and not SP:IsOff() and sv.shields and sv.shields.enabled ~= false and sv.shields.sound) then return false end
+	return true
+end
+
+function SP:RemoveShieldSounds()
+	if C_UnitAuras and C_UnitAuras.RemoveAuraSound then
+		for _, id in ipairs(shieldSoundIDs) do pcall(C_UnitAuras.RemoveAuraSound, id) end
+	end
+	wipe(shieldSoundIDs)
+	shieldSoundKey = nil
+	self.shieldSoundEngineActive = nil
+end
+
+function SP:UpdateShieldSounds()
+	if not shieldSoundWanted() then
+		if #shieldSoundIDs > 0 then self:RemoveShieldSounds() end
+		return
+	end
+	local sv = ShamanPowerExpiringAlertsDB
+	local sound = ShamanPower:GetSoundFile(sv.shields.soundName or "Raid Warning")
+	local key = tostring(sound) .. "|" .. tostring(sv.shields.lightning ~= false) .. "|" .. tostring(sv.shields.water ~= false)
+	if key == shieldSoundKey and #shieldSoundIDs > 0 then return end
+	if InCombatLockdown() then shieldSoundPending = true return end
+	shieldSoundPending = false
+	self:RemoveShieldSounds()
+	wipe(shieldSoundLog)
+	local info = { unitToken = "player", outputChannel = "Master", throttleSeconds = 1 }
+	if type(sound) == "number" then info.soundFileID = sound else info.soundFileName = sound end
+	for _, set in ipairs(ShamanPower.ShieldAuraSets or {}) do
+		local on = (set.name == "Lightning Shield" and sv.shields.lightning ~= false)
+			or (set.name == "Water Shield" and sv.shields.water ~= false)
+		if on then
+			for _, spellID in ipairs(set.ids) do
+				if self.shieldSoundSolo and spellID ~= self.shieldSoundSolo then
+					shieldSoundLog[#shieldSoundLog + 1] = spellID .. " solo-off"
+				elseif not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(spellID) then
+					info.spellID = spellID
+					local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Removed, info)
+					if ok and type(id) == "number" then
+						shieldSoundIDs[#shieldSoundIDs + 1] = id
+						shieldSoundLog[#shieldSoundLog + 1] = spellID .. "=" .. id
+					else
+						shieldSoundLog[#shieldSoundLog + 1] = spellID .. (ok and "=nil" or (":" .. tostring(id)))
+					end
+				else
+					shieldSoundLog[#shieldSoundLog + 1] = spellID .. " skipped"
+				end
+			end
+		end
+	end
+	shieldSoundKey = key
+	self.shieldSoundEngineActive = (#shieldSoundIDs > 0) or nil
+end
+
+-- /spalerts sound: what the engine registration did, for testing on the beta.
+function SP:ShieldSoundReport()
+	local sv = ShamanPowerExpiringAlertsDB
+	self:Print(("Shield sound: wanted=%s engine=%s pending=%s combat=%s"):format(
+		tostring(shieldSoundWanted()), tostring(self.shieldSoundEngineActive), tostring(shieldSoundPending),
+		tostring(InCombatLockdown())))
+	local sound = ShamanPower:GetSoundFile(sv and sv.shields and sv.shields.soundName or "Raid Warning")
+	self:Print(("  sound=%s (%s) name=%s key=%s"):format(tostring(sound), type(sound),
+		tostring(sv and sv.shields and sv.shields.soundName), tostring(shieldSoundKey):gsub("|", "/")))
+	self:Print("  registered " .. #shieldSoundIDs .. ": " .. table.concat(shieldSoundLog, ", "))
 end
 
 -- ============================================================================
@@ -563,7 +684,7 @@ function SP:CheckShieldState(initializing)
 	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
 	if SPCompat and SPCompat.combatDataSecret then return end
 	local sv = ShamanPowerExpiringAlertsDB
-	if not sv.enabled or not sv.shields or not sv.shields.enabled then return end
+	if not sv.enabled or self:IsOff() or not sv.shields or not sv.shields.enabled then return end
 
 	-- Check Lightning Shield
 	local hasLightningShield = false
@@ -581,6 +702,11 @@ function SP:CheckShieldState(initializing)
 		end
 	end
 
+	-- A blocked read in combat returns nothing, same as "no shield". The flag at
+	-- the top is only raised BY a blocked read, so the first one of a fight gets
+	-- this far: keep the old state instead of calling a shield that's still on faded.
+	if SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return end
+
 	-- Detect fade
 	if not initializing then
 		if previousState.shields.lightning and not hasLightningShield and sv.shields.lightning then
@@ -597,24 +723,106 @@ end
 
 -- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
 -- resolver handles clients that fill slots in cast order; otherwise the fixed
--- slot map applies (WoW slot 1 is Fire, slot 2 is Earth).
+-- slot map applies (WoW slot 1 is Fire, slot 2 is Earth). Sixth value: the slot.
 local function ElementTotemInfo(element)
 	if ShamanPower.GetElementTotemInfo then return ShamanPower:GetElementTotemInfo(element) end
-	return GetTotemInfo(ShamanPower.ElementToSlot[element])
+	local slot = ShamanPower.ElementToSlot[element]
+	local haveTotem, totemName, startTime, duration, icon = GetTotemInfo(slot)
+	return haveTotem, totemName, startTime, duration, icon, slot
+end
+
+-- Every way of saying "a totem was destroyed": the alert (and its sound), a line
+-- in your own chat window, the big centre text, and (opt-in) the group chat.
+function SP:TotemDestroyedAlert(totemName, elementColor)
+	local t = ShamanPowerExpiringAlertsDB.totems
+	if not t.destroyed or self:IsOff() then return end
+	local label = StripRank(totemName or "") ~= "" and StripRank(totemName) or "Totem"
+	self:ShowExpiringAlert("totem", label .. " Destroyed!", "Interface\\Icons\\Spell_Shaman_TotemRecall", elementColor)
+	if t.destroyedChat ~= false and DEFAULT_CHAT_FRAME then
+		DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cffff5050" .. label .. " destroyed.|r")
+	end
+	if t.destroyedCenter and RaidNotice_AddMessage and RaidWarningFrame then
+		RaidNotice_AddMessage(RaidWarningFrame, label .. " destroyed!", { r = 1, g = 0.3, b = 0.3 })
+	end
+	if t.destroyedParty and IsInGroup() then
+		local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or "PARTY"
+		-- Forever has SendChatMessage only as C_ChatInfo.SendChatMessage, and locks
+		-- addon chat in boss fights, M+ and PvP matches: skip the send there (as
+		-- Cooldown Announce does) and tell only you that the group was not told
+		local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+		local locked = _G.SPK and _G.SPK() == true
+		local sent = not locked and send and pcall(send, label .. " destroyed!", channel)
+		if not sent and DEFAULT_CHAT_FRAME then
+			local why = locked and "the game locks group chat right now, your group was not told."
+				or "the group chat message could not be sent."
+			DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cff999999" .. label .. " destroyed: " .. why .. "|r")
+		end
+	end
+end
+
+-- WoW: Forever: your own right-click destroy (ShamanPower's opt-in one on the totem
+-- bar, or Blizzard's totem frame) empties a slot on purpose, so it is not "destroyed"
+-- either. The core's DestroyTotem post-hook notes which slot, and when
+-- (ShamanPower._totemDismissedAt).
+local function DestroyedByPlayer(slot)
+	local dismissed = ShamanPower._totemDismissedAt
+	local at = slot and dismissed and dismissed[slot]
+	return at ~= nil and GetTime() - at < 2
+end
+
+-- While the game hides totem data (combat on WoW: Forever), CheckTotemState stands
+-- down; the core's own totem record still sees a slot empty with no cast, recall or
+-- death behind it, and says why (ShamanPower.lua ShadowTotemSlotUpdate).
+function SP:OnShadowTotemGone(element, entry, why)
+	local sv = ShamanPowerExpiringAlertsDB
+	if not (sv and sv.enabled and not self:IsOff() and sv.totems and sv.totems.enabled) then return end
+	local info = TotemElements[element]
+	local elementKey = info and info.name and info.name:lower()
+	if elementKey and sv.totems[elementKey] == false then return end
+	local color = info and info.color or { r = 1, g = 1, b = 1 }
+	if why == "destroyed" then
+		-- the core cannot tell your own right-click destroy from an enemy's
+		if not DestroyedByPlayer(entry.slot) then self:TotemDestroyedAlert(entry.name, color) end
+	elseif why == "expired" and sv.totems.expired then
+		self:ShowExpiringAlert("totem", StripRank(entry.name or "Totem") .. " Expired", "Interface\\Icons\\Spell_Shaman_TotemRecall", color)
+	end
+	if previousState.totems[element] then previousState.totems[element].active = false end
+end
+
+-- WoW: Forever, out of combat: Totemic Recall empties every slot on purpose, and its
+-- cast event can land either side of the slot updates. So the verdict waits one bind
+-- window (as the core's in-combat path does); a recall, your own destroy, your death,
+-- or a totem of that element standing again by then (a totem set re-filling the
+-- slots) is not "destroyed".
+local deferDestroyed = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local DESTROYED_BIND_WINDOW = 0.5
+local function ConfirmDestroyed(element, slot, totemName, elementColor)
+	local recallAt = ShamanPower._totemRecallAt
+	if recallAt and GetTime() - recallAt < 2 then return end
+	if DestroyedByPlayer(slot) then return end
+	if UnitIsDeadOrGhost("player") then return end
+	if ElementTotemInfo(element) then return end
+	SP:TotemDestroyedAlert(totemName, elementColor)
 end
 
 function SP:CheckTotemState(initializing)
 	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
 	if SPCompat and SPCompat.combatDataSecret then return end
+	-- The core serves totems from its shadow model whenever a restriction is on (its
+	-- totemsSecretNow), and its OnShadowTotemGone announces those; the flag above is
+	-- only raised by a secret read, which the shadow model never makes. Stand down on
+	-- the same test, or one totem gets two "destroyed" alerts.
+	if SPCompat and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return end
 	local sv = ShamanPowerExpiringAlertsDB
-	if not sv.enabled or not sv.totems or not sv.totems.enabled then return end
+	if not sv.enabled or self:IsOff() or not sv.totems or not sv.totems.enabled then return end
 
 	for element = 1, 4 do
-		local haveTotem, totemName, startTime, duration = ElementTotemInfo(element)
+		local haveTotem, totemName, startTime, duration, _, slot = ElementTotemInfo(element)
 
 		local prev = previousState.totems[element]
 		local wasActive = prev.active
 		local prevName = prev.name
+		local prevSlot = prev.slot
 		local prevStart = prev.startTime
 		local prevDuration = prev.duration
 
@@ -635,12 +843,12 @@ function SP:CheckTotemState(initializing)
 						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
 						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Expired", icon, elementColor)
 					end
+				elseif deferDestroyed then
+					-- Totem was destroyed, unless a recall, your own destroy or death says otherwise (above)
+					C_Timer.After(DESTROYED_BIND_WINDOW, function() ConfirmDestroyed(element, prevSlot, prevName, elementColor) end)
 				else
 					-- Totem was destroyed
-					if sv.totems.destroyed then
-						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
-						self:ShowExpiringAlert("totem", StripRank(prevName) .. " Destroyed!", icon, elementColor)
-					end
+					self:TotemDestroyedAlert(prevName, elementColor)
 				end
 			end
 		end
@@ -650,22 +858,83 @@ function SP:CheckTotemState(initializing)
 		prev.name = totemName
 		prev.startTime = startTime
 		prev.duration = duration
+		prev.slot = slot
 	end
 end
 
+local mainlineWeaponChecks = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local isSecretValue = _G.issecretvalue or function() return false end
+local weaponExpiryTimer
+
+local function CancelWeaponExpiry()
+	if weaponExpiryTimer then weaponExpiryTimer:Cancel() weaponExpiryTimer = nil end
+end
+
+local function WeaponExpiryReached()
+	weaponExpiryTimer = nil
+	SP:CheckWeaponEnchantState(false)
+end
+
+-- Read the native list: the compatibility tuple turns failed reads into false.
+-- Unknown/secret data must preserve the previous state, not announce a fade.
+local function ReadMainlineWeaponEnchant(inventorySlot, weaponSlot)
+	local link = _G.GetInventoryItemLink("player", inventorySlot)
+	if isSecretValue(link) then return end
+	local enchants = _G.C_Item.GetWeaponEnchantInfo(weaponSlot)
+	if isSecretValue(enchants) or type(enchants) ~= "table" then return end
+	local active, timeLeft = false, nil
+	for _, enchant in pairs(enchants) do
+		if isSecretValue(enchant) or type(enchant) ~= "table" then return end
+		local hasEnchant = enchant.hasEnchant
+		if isSecretValue(hasEnchant) or type(hasEnchant) ~= "boolean" then return end
+		if hasEnchant then
+			active = true
+			local remaining = enchant.timeLeft
+			if not isSecretValue(remaining) and type(remaining) == "number" and remaining > 0 then
+				if not timeLeft or remaining < timeLeft then timeLeft = remaining end
+			end
+		end
+	end
+	return link ~= nil, active, timeLeft
+end
+
 function SP:CheckWeaponEnchantState(initializing)
-	-- Restricted client (retail rules): state reads return nothing in combat; don't alert on that
-	if SPCompat and SPCompat.combatDataSecret then return end
+	-- Weapon enchants are not hidden in combat the way buffs are (the cooldown
+	-- bar reads them every update mid-fight), so imbue alerts keep working there.
 	local sv = ShamanPowerExpiringAlertsDB
-	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then return end
+	-- ShamanPower switched off: no alert and no expiry timer (switching on takes a fresh baseline)
+	if self:IsOff() then return end
+	if not sv.enabled or not sv.weaponImbues or not sv.weaponImbues.enabled then
+		-- Settings can flip without an update callback. Keep the event-driven
+		-- baseline/deadline while disabled, but never emit an expiration alert.
+		initializing = true
+	end
 
 	-- Check if weapons are equipped (nil if no weapon in slot)
 	-- Slot 16 = MainHandSlot, Slot 17 = SecondaryHandSlot (off-hand)
-	local hasMainHandWeapon = GetInventoryItemLink("player", 16) ~= nil
-	local hasOffHandWeapon = GetInventoryItemLink("player", 17) ~= nil
-
-	-- GetWeaponEnchantInfo returns: hasMain, mainExp, mainCharges, mainID, hasOff, offExp, offCharges, offID
-	local hasMainHandEnchant, _, _, _, hasOffHandEnchant = GetWeaponEnchantInfo()
+	local hasMainHandWeapon, hasOffHandWeapon, hasMainHandEnchant, hasOffHandEnchant
+	local mainTimeLeft, offTimeLeft
+	if mainlineWeaponChecks then
+		local slots = _G.Enum and _G.Enum.WeaponSlot
+		if not (slots and _G.C_Item and _G.C_Item.GetWeaponEnchantInfo) then return end
+		local mainOK, offOK
+		mainOK, hasMainHandWeapon, hasMainHandEnchant, mainTimeLeft =
+			pcall(ReadMainlineWeaponEnchant, 16, slots.MainHand)
+		offOK, hasOffHandWeapon, hasOffHandEnchant, offTimeLeft =
+			pcall(ReadMainlineWeaponEnchant, 17, slots.OffHand)
+		if not mainOK or not offOK or hasMainHandWeapon == nil or hasOffHandWeapon == nil then return end
+		CancelWeaponExpiry()
+	else
+		hasMainHandWeapon = GetInventoryItemLink("player", 16) ~= nil
+		hasOffHandWeapon = GetInventoryItemLink("player", 17) ~= nil
+		-- Classic tuple: hasMain, mainExp, mainCharges, mainID, hasOff, offExp, offCharges, offID.
+		local main, mainExp, _, _, off, offExp = GetWeaponEnchantInfo()
+		hasMainHandEnchant, hasOffHandEnchant = main, off
+		-- milliseconds left, the same unit the Mainline list reports
+		if type(mainExp) == "number" and mainExp > 0 then mainTimeLeft = mainExp end
+		if type(offExp) == "number" and offExp > 0 then offTimeLeft = offExp end
+		CancelWeaponExpiry()
+	end
 
 	-- Convert to explicit booleans (API may return 1/nil instead of true/false)
 	local mainHandEnchanted = hasMainHandWeapon and hasMainHandEnchant and true or false
@@ -690,12 +959,17 @@ function SP:CheckWeaponEnchantState(initializing)
 	-- Store as explicit booleans
 	previousState.weaponEnchants.mainHand = mainHandEnchanted
 	previousState.weaponEnchants.offHand = offHandEnchanted
+	local delay = mainHandEnchanted and mainTimeLeft or nil
+	if offHandEnchanted and offTimeLeft and (not delay or offTimeLeft < delay) then delay = offTimeLeft end
+	-- One cancellable deadline, no idle polling. The callback confirms actual
+	-- absence; an elapsed prediction by itself never triggers an alert.
+	if delay then weaponExpiryTimer = _G.C_Timer.NewTimer(delay / 1000, WeaponExpiryReached) end
 end
 
 function SP:CheckEarthShieldState(unit, initializing)
 	if SPCompat and SPCompat.combatDataSecret then return end
 	local sv = ShamanPowerExpiringAlertsDB
-	if not sv.enabled or not sv.shields or not sv.shields.enabled or not sv.shields.earthShield then return end
+	if not sv.enabled or self:IsOff() or not sv.shields or not sv.shields.enabled or not sv.shields.earthShield then return end
 
 	-- The player your Earth Shield is actually on (cast tracking), else the assigned
 	-- target, else the last name we saw: the core clears its tracking on the same
@@ -765,10 +1039,25 @@ function SP:SetupExpiringAlertsEvents()
 	self.expiringAlertsEventsSetup = true
 
 	local eventFrame = CreateFrame("Frame", "ShamanPowerExpiringAlertsEventFrame", UIParent)
-	eventFrame:RegisterEvent("UNIT_AURA")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(eventFrame, "Expiring Alerts") end
+	-- Your own buffs only (shields): the game filters, so the other 39 raid members'
+	-- aura changes never reach this handler. Earth Shield's carrier has its own frame below.
+	if eventFrame.RegisterUnitEvent then
+		eventFrame:RegisterUnitEvent("UNIT_AURA", "player")
+	else
+		eventFrame:RegisterEvent("UNIT_AURA")
+	end
+	eventFrame:RegisterEvent("SPELLS_CHANGED")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	-- imbues applied, replaced or gone (Anniversary's own buff frame relies on it too)
+	pcall(eventFrame.RegisterEvent, eventFrame, "WEAPON_ENCHANT_CHANGED")
+	if mainlineWeaponChecks then
+		eventFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+	end
 	eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- shield-sound registration deferred out of a fight
+	eventFrame:RegisterEvent("PLAYER_LOGOUT")          -- engine sound IDs kept counting across /reload (41.. after a reload): drop ours before the UI goes
 
 	-- Throttle updates
 	local lastAuraUpdate = 0
@@ -790,15 +1079,78 @@ function SP:SetupExpiringAlertsEvents()
 		end
 	end
 
+	-- the carrier's name without a realm, cached until the source name changes
+	-- (this runs on group members' aura changes; no string built per call)
+	local cachedESSource, cachedESName
 	local function IsEarthShieldUnit(unit)
 		local esTarget = ShamanPower.esTrackedTarget
 			or (ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[SP.player])
 			or previousState.earthShieldTarget
 		if not esTarget or not unit or not UnitExists(unit) then return false end
-		return UnitName(unit) == (esTarget:match("^[^%-]+") or esTarget)
+		if esTarget ~= cachedESSource then
+			cachedESSource, cachedESName = esTarget, esTarget:match("^[^%-]+") or esTarget
+		end
+		return UnitName(unit) == cachedESName
 	end
 
-	eventFrame:SetScript("OnEvent", function(self, event, unit)
+	-- Earth Shield's carrier is another player. Only a shaman who knows Earth Shield
+	-- listens to other units' aura changes at all, and then only for the tokens the
+	-- check below can match (group, target, focus; never nameplates or pets). The
+	-- game filters them: RegisterUnitEvent takes two units per frame, so the tokens
+	-- are spread over small frames and no other unit's aura change wakes this.
+	local ES_TOKENS = { player = true, target = true, focus = true }
+	local esUnits = { "player", "target", "focus" }
+	for i = 1, 4 do ES_TOKENS["party" .. i] = true; esUnits[#esUnits + 1] = "party" .. i end
+	for i = 1, 40 do ES_TOKENS["raid" .. i] = true; esUnits[#esUnits + 1] = "raid" .. i end
+	local function onESAura(_, _, unit)
+		if type(unit) ~= "string" or isSecretValue(unit) or not ES_TOKENS[unit] then return end
+		if IsEarthShieldUnit(unit) then
+			SP:CheckEarthShieldState(unit, false)
+		end
+	end
+	local esFrames = {}
+	local function knowsEarthShield()
+		if SP.ESTrackerUnavailable then return false end
+		-- the same check the rest of the addon uses (ES button, options)
+		if SP.HasEarthShield then return SP:HasEarthShield() and true or false end
+		return IsSpellKnown and (IsSpellKnown(974) or IsSpellKnown(32593) or IsSpellKnown(32594)) or false
+	end
+	local esWatching = false
+	local function refreshESWatch()
+		local want = not SP:IsOff() and knowsEarthShield()
+		if want and not esWatching then
+			for i = 1, math.ceil(#esUnits / 2) do
+				local f = esFrames[i]
+				if not f then
+					f = CreateFrame("Frame")
+					f:SetScript("OnEvent", onESAura)
+					if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Expiring Alerts (Earth Shield)") end
+					esFrames[i] = f
+				end
+				local a, b = esUnits[2 * i - 1], esUnits[2 * i]
+				if f.RegisterUnitEvent then
+					if b then f:RegisterUnitEvent("UNIT_AURA", a, b) else f:RegisterUnitEvent("UNIT_AURA", a) end
+				elseif i == 1 then
+					f:RegisterEvent("UNIT_AURA")   -- no unit filters on this client: one frame hears all (the handler checks the unit)
+				end
+			end
+		elseif not want and esWatching then
+			for i = 1, #esFrames do esFrames[i]:UnregisterEvent("UNIT_AURA") end
+		end
+		esWatching = want
+	end
+	refreshESWatch()
+
+	local weaponCheckPending = false
+	local function CheckWeaponsAfterCast()
+		if not weaponCheckPending then return end
+		weaponCheckPending = false
+		SP:CheckWeaponEnchantState(false)
+	end
+
+	eventFrame:SetScript("OnEvent", function(_, event, unit, _castGUID, spellID)
+		-- ShamanPower switched off: nothing to watch (logout still drops the engine sounds)
+		if event ~= "PLAYER_LOGOUT" and SP:IsOff() then return end
 		if event == "UNIT_AURA" then
 			if unit == "player" then
 				RequestAuraUpdate()
@@ -809,28 +1161,77 @@ function SP:SetupExpiringAlertsEvents()
 		elseif event == "PLAYER_TOTEM_UPDATE" then
 			SP:CheckTotemState(false)
 		elseif event == "UNIT_INVENTORY_CHANGED" then
-			if unit == "player" then
+			if (not mainlineWeaponChecks or not isSecretValue(unit)) and unit == "player" then
 				SP:CheckWeaponEnchantState(false)
 			end
+		elseif event == "WEAPON_ENCHANT_CHANGED" then
+			SP:CheckWeaponEnchantState(false)
+		elseif mainlineWeaponChecks and event == "UNIT_SPELLCAST_SUCCEEDED" then
+			if not isSecretValue(unit) and unit == "player" and not isSecretValue(spellID)
+				and type(spellID) == "number" and not weaponCheckPending
+				and _G.C_Spell and _G.C_Spell.GetSpellName then
+				local ok, name = pcall(_G.C_Spell.GetSpellName, spellID)
+				if ok and not isSecretValue(name) and type(name) == "string" then
+					for _, imbue in pairs(WeaponImbues) do
+						if name == imbue.name then
+							-- Cast success can arrive before the enchant list changes.
+							weaponCheckPending = true
+							_G.C_Timer.After(0, CheckWeaponsAfterCast)
+							break
+						end
+					end
+				end
+			end
+		elseif event == "SPELLS_CHANGED" then
+			refreshESWatch()
 		elseif event == "PLAYER_ENTERING_WORLD" then
+			refreshESWatch()
 			SP:UpdateExpiringAlertsState()
+			SP:UpdateShieldSounds()
+		elseif event == "PLAYER_REGEN_ENABLED" then
+			if shieldSoundPending then SP:UpdateShieldSounds() end
+		elseif event == "PLAYER_LOGOUT" then
+			SP:RemoveShieldSounds()
+			CancelWeaponExpiry()
+			weaponCheckPending = false
 		end
 	end)
 
 	self.expiringAlertsEventFrame = eventFrame
 
-	-- Weapon enchants don't have a reliable event when they expire
-	-- Use a periodic check (every 0.5 seconds) to detect enchant changes
-	local lastWeaponCheck = 0
-	local weaponCheckFrame = CreateFrame("Frame")
-	weaponCheckFrame:SetScript("OnUpdate", function(self, elapsed)
-		lastWeaponCheck = lastWeaponCheck + elapsed
-		if lastWeaponCheck >= 0.5 then
-			lastWeaponCheck = 0
-			SP:CheckWeaponEnchantState(false)
+	-- Enable ShamanPower switched (out of combat): off drops the Earth Shield watch,
+	-- the imbue timer, the engine shield sounds and any alert still on screen; on
+	-- takes a fresh baseline, so nothing that changed while off is announced.
+	SP:OnOnOff(function(off)
+		refreshESWatch()
+		if off then
+			CancelWeaponExpiry()
+			wipe(SP.alertQueue)
+			for i = #SP.activeAlerts, 1, -1 do
+				SP:ReleaseAlertFrame(SP.activeAlerts[i])
+				SP.activeAlerts[i] = nil
+			end
+		else
+			SP:UpdateExpiringAlertsState()
 		end
+		SP:UpdateShieldSounds()
 	end)
-	self.weaponCheckFrame = weaponCheckFrame
+
+	-- Weapon imbues on every client: the events above plus one timer at the
+	-- imbue's expiry (CheckWeaponEnchantState), nothing polled while idle.
+
+	-- Combat hides aura reads, so a shield that fell off during a fight goes
+	-- unnoticed until the next buff change, which may be minutes away. Re-check
+	-- the moment restrictions lift and report it then.
+	if SPCompat and SPCompat.OnUnrestricted then
+		SPCompat.OnUnrestricted(function()
+			SP:CheckShieldState(false)
+			-- Re-baseline silently after secret totem slots become readable, so a
+			-- later totem event cannot announce a stale in-combat expiration.
+			SP:CheckTotemState(true)
+			if mainlineWeaponChecks then SP:CheckWeaponEnchantState(false) end
+		end)
+	end
 end
 
 -- ============================================================================
@@ -880,7 +1281,7 @@ function SP:ExpiringAlertsDemo(on)
 			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.expired end,
 			  name = "Mana Spring Totem Expired", icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", color = TotemElements[3].color,
 			  story = "Your Mana Spring Totem timed out" },
-			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.earthShield end,
+			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.earthShield and not (SPCompat and SPCompat.earthShieldExists == false) end,
 			  name = "Earth Shield (Tank)", icon = ShieldSpells.earthShield.icon, color = ElementColors.earth,
 			  story = "Earth Shield dropped off your tank" },
 		}
@@ -950,7 +1351,7 @@ function SP:UpdateExpiringAlertsAppearance()
 
 	for _, frame in ipairs(self.alertPool) do
 		local outline = sv.fontOutline and "OUTLINE" or ""
-		frame.text:SetFont("Fonts\\FRIZQT__.TTF", sv.textSize or 24, outline)
+		SP:SetSPFont(frame.text, "alerts", sv.textSize or 24, outline)
 		frame.icon:SetSize(sv.iconSize or 32, sv.iconSize or 32)
 	end
 end
@@ -977,6 +1378,12 @@ SlashCmdList["SPALERTS"] = function(msg)
 	elseif msg == "toggle" then
 		ShamanPowerExpiringAlertsDB.enabled = not ShamanPowerExpiringAlertsDB.enabled
 		SP:Print("Expiring Alerts " .. (ShamanPowerExpiringAlertsDB.enabled and "enabled" or "disabled"))
+	elseif msg == "sound" or msg == "sound solo" or msg == "sound all" then
+		shieldSoundDebug = true
+		if msg == "sound solo" then SP.shieldSoundSolo = 324 elseif msg == "sound all" then SP.shieldSoundSolo = nil end
+		if msg ~= "sound" then SP:RemoveShieldSounds() end
+		SP:UpdateShieldSounds()
+		SP:ShieldSoundReport()
 	else
 		-- Open options
 		if ShamanPowerConfig then
@@ -1007,5 +1414,6 @@ end)
 -- ============================================================================
 
 if ShamanPower.RegisterPreview then
-	ShamanPower:RegisterPreview("expiring", { frame = "ShamanPowerExpiringAlertsFrame", demo = "SP:ExpiringAlertsDemo", pad = 24 })
+	ShamanPower:RegisterPreview("expiring", { frame = "ShamanPowerExpiringAlertsFrame", demo = "SP:ExpiringAlertsDemo", pad = 24,
+		pane = { maxScale = 1.0 } })   -- settings-window pane only: life-size, the text is wider than the frame
 end

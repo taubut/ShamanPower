@@ -39,11 +39,46 @@ local NAV_GROUP_H    = 24
 -- ---------------------------------------------------------------------------
 local function SP() return _G.ShamanPower end
 
+-- Live-preview specs for the bar pages: the setup wizard's own mocks of the
+-- bars, drawn from the live options (they follow style, Compact, layout and
+-- the rest as they change). A module page names its registered preview
+-- instead (a string, see ShamanPowerPreview).
+local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotemBarPane" } } }
+local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsPane" } } }
+local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
+local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
+local MOCK_LOADOUT  = { mocks = {
+	{ label = "Loadout bar", build = "BuildLoadoutBarPane" },
+	{ label = "Blizzard totem sets", build = "BuildLoadoutSetsPane", when = function()
+		local sp = SP()
+		return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and sp and sp.HasTotemBar and sp:HasTotemBar()
+	end },
+} }
+local MOCK_PARTY    = { mocks = {
+	{ label = "Party Buff Tracker", build = "BuildPartyBuffStep", weight = 2.3, shiftY = 85 },
+} }
+
 -- Totem Range Tracker: the module's on/off is the overlay frame itself.
 -- ShamanPower_SPRange.lua ToggleSPRange() is the only writer of
 -- ShamanPower_RangeTracker.shown / spRangeManuallyOpened; the live truth is
 -- whether spRangeFrame is shown, which is also what the auto-show path
 -- (UpdateSPRangeVisibility) drives.
+-- Raid Resistance: its page leads with "Raid Resistance Requests", not an
+-- "Enable ..." name, so the square runs that toggle's own get/set. WoW: Forever
+-- only: without the group there is no square.
+local function ResistToggle()
+	local sp = SP()
+	local g = sp and sp.options and sp.options.args.buttons and sp.options.args.buttons.args.resist_section
+	return g and g.args and g.args.enabled
+end
+local POWER_RESIST = {
+	label  = "Raid Resistance Requests",
+	desc   = "Off: no Raid Resistance ticks, and a request that picks you passes straight to the next shaman.",
+	loaded = function() return ResistToggle() ~= nil end,
+	get    = function() local t = ResistToggle() return t and t.get() and true or false end,
+	set    = function(v) local t = ResistToggle() if t then t.set(nil, v and true or false) end end,
+}
+
 local POWER_SPRANGE = {
 	label  = "Totem Range overlay",
 	desc   = "Show or hide the totem range overlay (same as /sprange toggle).",
@@ -141,51 +176,78 @@ local POWER_SHIELDCHARGES = {
 -- map never mentions is appended under "More" automatically.
 local function P(...) return { ... } end
 
+local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 local NAV = {
 	{ group = "General", entries = {
 		{ label = "General", lock = true, desc = "Global behaviour and interface settings.", tabs = {
-			{ label = "Main",      paths = { P("settings", "settings_show") } },
+			-- the Totem Bar Style dropdown is on Main: a shaman sees the bar change as they hover its list
+			{ label = "Main",      preview = PLAYER_IS_SHAMAN and MOCK_TOTEM or nil, paths = { P("settings", "settings_show") } },
+			{ label = "Fonts & Textures", preview = PLAYER_IS_SHAMAN and MOCK_BARS or nil, paths = { P("settings", "settings_fonts") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
 		{ label = "Profiles", path = P("profiles"), lock = true },
 	}},
 	{ group = "Bars", entries = {
-		{ label = "Mode & Twisting", shamanOnly = true, lock = true, desc = "How the totem bar behaves, and totem twisting.", tabs = {
-			{ label = "Mode & Twisting", paths = { P("settings", "settings_totemMode") } },
-		}},
-		{ label = "Appearance", shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
-			{ label = "Layout",            paths = { P("fluffy", "layout_section") } },
-			{ label = "Scale & Opacity",   paths = { P("fluffy", "scale_section"), P("fluffy", "opacity_section"), P("fluffy", "padding_section") } },
-			{ label = "Textures & Colors", paths = { P("fluffy", "texture_section"), P("fluffy", "color_section") } },
-			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
-		}},
-		{ label = "Totem Bar", shamanOnly = true, lock = true, desc = "The totem bar: what it shows, drop order, duration bars, flyouts, macros and loadouts.", tabs = {
+		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
+			desc = "The totem bar: its style and clicks, what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
+			{ label = "Style",         paths = { P("settings", "settings_totemMode") } },
+			{ label = "Clicks",        paths = { P("settings", "settings_totemClicks") } },
 			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
 			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
-			{ label = "Duration Bars", paths = { P("fluffy", "totembar_duration_section") } },
+			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
+			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
 			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
-			{ label = "Loadouts",      paths = { P("buttons", "loadouts_section") } },
-			{ label = "Loadout Bar",   paths = { P("fluffy", "loadoutbar_section") } },
+			{ label = "Twisting",      paths = { P("settings", "settings_totemTwisting") } },   -- no rows (so no tab) on WoW: Forever
 		}},
-		{ label = "Cooldown Bar", shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
+		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
 			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
 			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
 		}},
+		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
+			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
+				P("fluffy", "totembar_appearance"), P("fluffy", "appearance_resets"),
+			} },
+			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
+			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },
+			{ label = "Textures & Colors", paths = {
+				P("fluffy", "texture_section"), P("fluffy", "color_section"),
+				P("fluffy", "element_colors_section"), P("fluffy", "button_tints_section"),
+			} },
+			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
+		}},
+		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true,
+			desc = "Save totem loadouts, configure their bar and choose when to switch automatically.", tabs = {
+			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
+			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
+			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
+		}},
 	}},
-	{ group = "Modules", power = true, entries = {
-		{ label = "Raid Cooldowns",       path = P("fluffy", "raid_cd_section"), power = false },
-		{ label = "Totem Range Tracker",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker", shamanOnly = true,   path = P("fluffy", "partybuff_section"), power = POWER_PARTYBUFF },
-		{ label = "Earth Shield Tracker", shamanOnly = true, path = P("fluffy", "estrack_section") },
-		{ label = "Shield Charges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
-		{ label = "Reactive Totems", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
-		{ label = "Expiring Alerts", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
-		{ label = "Tremor Reminder", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
-		{ label = "Totem Plates",         path = P("fluffy", "totemplates_section") },
+	{ group = "Group Tools", power = true, entries = {
+		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section") },
+		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = POWER_RESIST },   -- WoW: Forever only (the group exists only there)
+		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
+		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
+		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF, tabs = {
+			{ label = "Dots & Counters", paths = { P("fluffy", "partybuff_section") } },
+			{ label = "Coverage", preview = "coverage", paths = { P("fluffy", "coverage_section") } },
+		}},
+		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
+		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
+	}},
+	{ group = "Alerts & Reminders", power = true, entries = {
+		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
+		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
+		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
+		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
+		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
+		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
+	}},
+	{ group = "Other", power = true, entries = {
+		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
 		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
 			{ label = "Pop-Out Trackers", paths = {
 				{ "settings", "settings_popout", label = "Middle-Click Pop-Out" },
@@ -205,12 +267,74 @@ local function EntryPaths(entry)
 	return out
 end
 
-local function EntryHasPath(entry, path)
-	local want = table.concat(path, "/")
-	for _, pth in ipairs(EntryPaths(entry)) do
-		if table.concat(pth, "/") == want then return true end
+local function VisiblePath(path)
+	local node, chain = Tree:Resolve(path)
+	if not node or Tree:IsHidden(node, chain, Tree:BuildInfo(path, node, chain)) then return end
+	local rows = Tree:BuildRenderList(node, path, chain)
+	if Tree:HasContent(rows) then return node, chain, rows end
+end
+
+local function EntryHasContent(entry)
+	if not entry or (entry.shamanOnly and not PLAYER_IS_SHAMAN) then return false end
+	for _, path in ipairs(EntryPaths(entry)) do
+		if VisiblePath(path) then return true end
 	end
 	return false
+end
+
+local function PathStartsWith(path, prefix)
+	if #prefix > #path then return false end
+	for i = 1, #prefix do
+		if path[i] ~= prefix[i] then return false end
+	end
+	return true
+end
+
+-- Moves record old full paths as well as old group paths. Prefer the most
+-- specific alias so a split page's individual controls still find their tab.
+local function ResolvePathAlias(path)
+	local sp = SP()
+	local aliases = sp and sp.SettingsPathAliases
+	if not aliases then return path end
+	local seen = {}
+	while not seen[table.concat(path, "/")] do
+		local key = table.concat(path, "/")
+		seen[key] = true
+		local best, target
+		for old, destination in pairs(aliases) do
+			if (key == old or key:sub(1, #old + 1) == old .. "/") and (not best or #old > #best) then
+				best, target = old, destination
+			end
+		end
+		if not best then break end
+		local resolved, count = {}, 1
+		for _ in best:gmatch("/") do count = count + 1 end
+		for _, part in ipairs(target) do resolved[#resolved + 1] = part end
+		for i = count + 1, #path do resolved[#resolved + 1] = path[i] end
+		path = resolved
+	end
+	return path
+end
+
+-- A caller may name a whole tab or an option beneath it. Prefer the longest
+-- visible prefix; a hidden tab falls back to that page's first visible tab.
+local function EntryPathMatch(entry, path)
+	local depth, tab, fallbackDepth
+	if entry.path and PathStartsWith(path, entry.path) and VisiblePath(entry.path) then
+		depth = #entry.path
+	end
+	for _, candidate in ipairs(entry.tabs or {}) do
+		for _, prefix in ipairs(candidate.paths) do
+			if PathStartsWith(path, prefix) then
+				if VisiblePath(prefix) then
+					if not depth or #prefix > depth then depth, tab = #prefix, candidate.label end
+				elseif not fallbackDepth or #prefix > fallbackDepth then
+					fallbackDepth = #prefix
+				end
+			end
+		end
+	end
+	return depth or fallbackDepth, tab, depth ~= nil
 end
 
 -- Any top-level group the map above doesn't mention gets collected here so a
@@ -254,6 +378,345 @@ end
 -- Frame construction
 -- ---------------------------------------------------------------------------
 local frame
+
+-- ---------------------------------------------------------------------------
+-- Live preview pane. The current page's module frame, borrowed through
+-- ShamanPowerPreview (the wizard's harness: real frame, sample data from the
+-- module's own Demo, restored on exit) into a panel hung off the window's
+-- right edge, re-fed after every change. A tab on the edge pops it out or
+-- tucks it away; the choice is remembered.
+-- ---------------------------------------------------------------------------
+local PREVIEW_W = 380
+
+local function PreviewStore()
+	local sp = SP()
+	if not sp then return nil end
+	if sp.db and sp.db.global then return sp.db.global end
+	return sp.opt
+end
+local function PreviewOpenWanted()
+	local st = PreviewStore()
+	if st and st.configPreviewOpen ~= nil then return st.configPreviewOpen and true or false end
+	return false   -- tucked away until asked for; the tab on the edge is the invitation
+end
+
+function SPConfig:BuildPreviewPane()
+	if frame.preview then return end
+	local pane = CreateFrame("Frame", nil, frame)
+	pane:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
+	pane:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 4, 0)
+	pane:SetWidth(PREVIEW_W)
+	Core:SolidTex(pane, "windowBg", "BACKGROUND", nil, true)
+	Core:MakeBorder(pane, "accent", 2)
+	local cap = pane:CreateFontString(nil, "OVERLAY")
+	cap:SetFontObject(Core.fonts.tiny)
+	cap:SetPoint("TOP", pane, "TOP", 0, -12)
+	cap:SetText("|cff5A6678LIVE PREVIEW|r")
+	local title = pane:CreateFontString(nil, "OVERLAY")
+	title:SetFontObject(Core.fonts.navOn)
+	title:SetPoint("TOP", cap, "BOTTOM", 0, -4)
+	pane.title = title
+	local inner = CreateFrame("Frame", nil, pane)
+	inner:SetPoint("TOPLEFT", pane, "TOPLEFT", 10, -52)
+	inner:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", -10, 10)
+	inner:SetClipsChildren(true)
+	inner.previewMaxScale = 1.6
+	inner.previewPane = true   -- ShowPreview reads the registrations' pane hints for this container only
+	pane.inner = inner
+	local note = inner:CreateFontString(nil, "OVERLAY")
+	note:SetFontObject(Core.fonts.nav)
+	note:SetPoint("CENTER", inner, "CENTER", 0, 0)
+	note:SetWidth(PREVIEW_W - 60)
+	note:SetJustifyH("CENTER")
+	note:SetTextColor(Core:Color("textDim"))
+	pane.note = note
+	pane:Hide()
+	frame.preview = pane
+
+	local tab = CreateFrame("Button", nil, frame)
+	tab:SetSize(18, 64)
+	tab:SetFrameLevel(frame:GetFrameLevel() + 30)
+	Core:SolidTex(tab, "sidebarBg", "BACKGROUND")
+	Core:MakeBorder(tab, "accent")
+	local arrow = tab:CreateFontString(nil, "OVERLAY")
+	arrow:SetFontObject(Core.fonts.navOn)
+	arrow:SetPoint("CENTER", tab, "CENTER", 0, 0)
+	tab.arrow = arrow
+	tab:SetScript("OnClick", function() SPConfig:TogglePreviewPane() end)
+	tab:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(frame._previewOpen and "Hide the live preview" or "Show the live preview", 1, 1, 1)
+		GameTooltip:AddLine("A sample of this page's module, redrawn as you change its settings.", 0.7, 0.7, 0.7, true)
+		GameTooltip:Show()
+	end)
+	tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	frame.previewTab = tab
+end
+
+-- The wizard's bar mocks, stacked in the pane. Rebuilt on page / tab
+-- changes and (throttled) after a setting changes; the previous set is
+-- discarded, as the wizard does.
+local function ReleaseMocks()
+	local pane = frame and frame.preview
+	SPConfig:HoverStyle(nil)
+	if pane and pane.mockPreviews then
+		local sp = SP()
+		for key in pairs(pane.mockPreviews) do
+			if sp and sp.RestorePreview then sp:RestorePreview(key) end
+		end
+		wipe(pane.mockPreviews)
+	end
+	if pane and pane.mockHost then
+		pane.mockHost:Hide()
+		pane.mockHost:SetParent(nil)
+		pane.mockHost = nil
+	end
+	if pane then pane.mockSpec = nil; pane.mockFits = nil end
+end
+
+local function MountMocks(spec)
+	ReleaseMocks()
+	local sp = SP()
+	local W = sp and sp.Wizard
+	local pane = frame.preview
+	if not (W and pane) then return false end
+	local inner = pane.inner
+	if inner.previewStage then inner.previewStage:Hide() end   -- a module's staged character does not belong under mocks
+	local host = CreateFrame("Frame", nil, inner)
+	host:SetAllPoints(inner)
+	pane.mockHost, pane.mockSpec = host, spec
+	pane.mockFits = {}
+	local list = {}
+	for _, m in ipairs(spec.mocks) do
+		if not m.when or m.when() then list[#list + 1] = m end
+	end
+	local n = #list
+	local gap = 6
+	local ih = inner:GetHeight()
+	if ih < 50 then ih = WIN_H - 62 end   -- anchors not resolved yet on the first draw
+	-- panels share the height by weight (a mock drawn for the wizard's tall panel needs more of it)
+	local totalW = 0
+	for _, m in ipairs(list) do totalW = totalW + (m.weight or 1) end
+	local usable = ih - gap * (n - 1)
+	pane.mockPreviews = pane.mockPreviews or {}
+	local wasPreviewOnly = W.previewOnly
+	W.previewOnly = true
+	local dummyCard = CreateFrame("Frame", nil, host)
+	dummyCard:SetSize(400, 10)
+	dummyCard:Hide()
+	local yy = 0
+	for _, m in ipairs(list) do
+		local h = math.floor(usable * (m.weight or 1) / totalW)
+		local panel = CreateFrame("Frame", nil, host)
+		panel:SetPoint("TOPLEFT", host, "TOPLEFT", 0, -yy)
+		panel:SetPoint("TOPRIGHT", host, "TOPRIGHT", 0, -yy)
+		panel:SetHeight(h)
+		Core:SolidTex(panel, "contentBg", "BACKGROUND")
+		Core:MakeBorder(panel, "border")
+		local lbl = panel:CreateFontString(nil, "OVERLAY")
+		lbl:SetFontObject(Core.fonts.tiny)
+		lbl:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -6)
+		lbl:SetText(strupper(m.label))
+		lbl:SetTextColor(Core:Color("textDim"))
+		local pin = CreateFrame("Frame", nil, panel)
+		-- shiftY: a mock laid out for the wizard's taller panel (content above
+		-- its centre) needs its centre lower here. The pin's top stays at the
+		-- panel top (it clips there); its bottom is extended by twice the shift,
+		-- which moves the centre - where the mock anchors - down by the shift.
+		local shift = m.shiftY or 0
+		pin:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -18)
+		pin:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4 - 2 * shift)
+		pin:SetClipsChildren(true)
+		if m.preview then
+			-- a module preview: the real frame with its demo, through the harness
+			pin.previewPane = true
+			pin.previewMaxScale = m.maxScale or 1.3
+			if sp.ShowPreview and sp.PreviewRegistry and sp.PreviewRegistry[m.preview] then
+				sp:ShowPreview(m.preview, pin)
+				pane.mockPreviews[m.preview] = true
+			end
+		else
+			local fn = (ns.PaneBuilders and ns.PaneBuilders[m.build]) or W[m.build]
+			if fn then
+				local ok, err = pcall(fn, dummyCard, pin, 0)
+				if not ok then print("|cff0070ddShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
+			end
+		end
+		-- the mocks' captions belong to the wizard's step pages
+		for _, r in ipairs({ pin:GetRegions() }) do
+			if r.IsObjectType and r:IsObjectType("FontString") then r:Hide() end
+		end
+		-- The mocks size themselves for the wizard's wide panel (by height
+		-- only, and from their own OnUpdate); a bar wider than this pane is
+		-- shrunk to fit, on the pane's own container so the wizard never sees
+		-- it. Measured a frame later, once the mock has applied its own scale.
+		-- Width only, on shown children: a bar wider than this pane is shrunk to
+		-- fit (the mocks size themselves by height for the wizard's panel, and
+		-- park helper frames off-screen, so height is not measured here).
+		local function fit()
+			if not pin:IsShown() then return end
+			local widest = 0
+			for _, ch in ipairs({ pin:GetChildren() }) do
+				if ch:IsShown() then
+					local w = ch:GetWidth() * ch:GetScale()
+					if w > widest then widest = w end
+				end
+			end
+			local avail = (pin:GetWidth() * pin:GetScale()) - 12
+			if avail < 40 then avail = PREVIEW_W - 40 end
+			if widest > 0 then pin:SetScale(math.min(1, avail / widest)) end
+		end
+		fit()
+		C_Timer.After(0, fit)
+		C_Timer.After(0.2, fit)
+		pane.mockFits[#pane.mockFits + 1] = fit   -- a hover preview re-fits without remounting
+		yy = yy + h + gap
+	end
+	W.previewOnly = wasPreviewOnly
+	return true
+end
+
+-- Give the borrowed frame back (window closing, page changing).
+function SPConfig:ReleasePreview()
+	local sp = SP()
+	if frame and frame._previewKey and sp and sp.RestorePreview then sp:RestorePreview(frame._previewKey) end
+	if frame then frame._previewKey = nil end
+	ReleaseMocks()
+end
+
+function SPConfig:SetPreviewPaneOpen(on, silent)
+	if not frame then return end
+	self:BuildPreviewPane()
+	on = on and true or false
+	frame._previewOpen = on
+	local pane, tab = frame.preview, frame.previewTab
+	pane:SetShown(on)
+	tab:ClearAllPoints()
+	tab:SetPoint("LEFT", on and pane or frame, "RIGHT", 0, 0)
+	tab.arrow:SetText(on and "<" or ">")
+	-- keep the whole assembly on screen when the window is dragged
+	frame:SetClampRectInsets(0, on and (PREVIEW_W + 4 + 18) or 18, 0, 0)
+	if not silent then
+		local st = PreviewStore()
+		if st then st.configPreviewOpen = on end
+	end
+	if not on then self:ReleasePreview() end
+	self:UpdatePreviewPane()
+end
+
+-- A setting changed: module previews re-feed at once (no new frames); the
+-- bar mocks are rebuilt (new frames each time, which WoW never frees), so a
+-- slider drag waits until the value settles for 0.3 s, or 1 s at most.
+local remountQueued, lastChange, firstChange = false, 0, 0
+local function remountWhenSettled()
+	local now = GetTime()
+	if now - lastChange < 0.3 and now - firstChange < 1 then C_Timer.After(0.1, remountWhenSettled) return end
+	remountQueued = false
+	SPConfig:UpdatePreviewPane(true)
+end
+function SPConfig:PreviewChanged()
+	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
+	if frame.preview.mockSpec then
+		lastChange = GetTime()
+		if remountQueued then return end
+		remountQueued, firstChange = true, lastChange
+		C_Timer.After(0.1, remountWhenSettled)
+	else
+		self:UpdatePreviewPane()
+	end
+end
+
+function SPConfig:TogglePreviewPane()
+	self:SetPreviewPaneOpen(not (frame and frame._previewOpen))
+end
+
+-- Hover preview of a totem bar style. A style toggle on Mode & Twisting, or a
+-- style in the General page's dropdown, under the mouse shows that style in
+-- the live preview without changing a setting. The wizard's mocks read
+-- SP.Wizard.optOverride every frame, so pointing it at a copy of the options
+-- with the style's flags set is the whole trick; nil puts the live options
+-- back. Only while a mock pane is up, and never over the setup tour or a
+-- preset preview, which own that override themselves.
+function SPConfig:HoverStyle(key)
+	local sp = SP()
+	local pane = frame and frame.preview
+	local function refit()
+		-- the mocks re-lay themselves out on their next frame; a wider style must still fit the pane
+		local fits = pane and pane.mockFits
+		if not fits then return end
+		local function run() if pane.mockFits == fits then for _, f in ipairs(fits) do f() end end end
+		C_Timer.After(0, run)
+		C_Timer.After(0.2, run)
+	end
+	if not key then
+		if frame and frame._hoverStyle then
+			frame._hoverStyle = nil
+			-- only the copy this window set; a style preview or the tour may own the override by now
+			if sp and sp.Wizard and sp.Wizard.optOverride == frame._hoverOverride then sp.Wizard.optOverride = nil end
+			frame._hoverOverride = nil
+			refit()
+		end
+		return
+	end
+	if not (pane and frame._previewOpen and pane.mockSpec and frame:IsShown()) then return end
+	if not (sp and sp.Wizard and sp.opt and sp.ApplyTotemBarStyleTo) then return end
+	local wiz = _G["ShamanPowerWizard"]
+	if wiz and wiz:IsShown() then return end
+	if sp.Wizard.optOverride and sp.Wizard.optOverride ~= frame._hoverOverride then return end   -- someone else's override
+	local o = {}
+	for k, v in pairs(sp.opt) do o[k] = v end   -- shallow copy; the mocks only read nested tables
+	if not sp:ApplyTotemBarStyleTo(o, key) then return end
+	sp.Wizard.optOverride = o
+	frame._hoverStyle, frame._hoverOverride = key, o
+	refit()
+end
+
+-- Show the current page's preview (or say why there is none). Re-running it
+-- for the same key re-feeds the sample data, which is how setters reach it.
+function SPConfig:UpdatePreviewPane(remount)
+	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
+	local sp = SP()
+	local entry = frame._current
+	local spec = entry and entry.preview or nil
+	if entry and entry.tabs and frame._activeTab then
+		for _, t in ipairs(entry.tabs) do
+			if t.label == frame._activeTab and t.preview then spec = t.preview break end
+		end
+	end
+	local pane = frame.preview
+	pane.title:SetText(entry and entry.label or "")
+	if type(spec) == "table" then
+		-- the wizard's bar mocks
+		if frame._previewKey then self:ReleasePreview() end
+		if pane.mockSpec ~= spec or remount then MountMocks(spec) end
+		pane.note:Hide()
+		return
+	end
+	ReleaseMocks()
+	local key = spec
+	if frame._previewKey and frame._previewKey ~= key then self:ReleasePreview() end
+	-- A module preview borrows the REAL frame and runs its demo, which pauses the
+	-- frame's live updates. Never in combat: the fight needs the real numbers.
+	if key and (SPConfig._inCombat or InCombatLockdown()) then
+		if frame._previewKey then self:ReleasePreview() end
+		pane.note:Show()
+		pane.note:SetText("Preview paused during combat so the real frame keeps working. It comes back when combat ends.")
+		return
+	end
+	local def = key and sp and sp.PreviewRegistry and sp.PreviewRegistry[key]
+	if def and sp.ShowPreview then
+		local shown = sp:ShowPreview(key, pane.inner)
+		frame._previewKey = shown and key or nil
+		pane.note:SetShown(shown == nil)
+		if shown == nil then pane.note:SetText("This module is not loaded, so there is nothing to preview.") end
+	else
+		frame._previewKey = nil
+		pane.note:Show()
+		pane.note:SetText(key and "This module is not loaded, so there is nothing to preview."
+			or (PLAYER_IS_SHAMAN and "No preview for this page: its settings change the bars themselves, which stay on screen while this window is open."
+				or "No preview for this page."))
+	end
+end
 
 local function BuildWindow()
 	if frame then return frame end
@@ -413,6 +876,19 @@ local function BuildWindow()
 	Core:MakeBorder(pageSearch, "border")
 	frame.pageSearch = pageSearch
 
+	-- What's new: always one click away, left of the page search
+	local whatsNew = Core:MakeButton(content, "What's New", 100, false)
+	whatsNew:SetPoint("RIGHT", pageSearch, "LEFT", -10, 0)
+	whatsNew:SetHeight(22)
+	-- Gold, so it stands out from the plain header buttons.
+	whatsNew.text:SetTextColor(1, 0.82, 0)
+	for _, edge in pairs(whatsNew.spBorder) do edge:SetColorTexture(1, 0.82, 0, 0.85) end
+	whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10)
+	whatsNew:SetScript("OnEnter", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.24) end)
+	whatsNew:SetScript("OnLeave", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10) end)
+	whatsNew:SetScript("OnClick", function() local sp = SP(); if sp and sp.ShowWhatsNew then sp:ShowWhatsNew(true) end end)
+	frame.whatsNewBtn = whatsNew
+
 	local pagePlaceholder = pageSearch:CreateFontString(nil, "OVERLAY")
 	pagePlaceholder:SetFontObject(Core.fonts.rowDim)
 	pagePlaceholder:SetPoint("LEFT", pageSearch, "LEFT", 8, 0)
@@ -474,7 +950,7 @@ local function BuildWindow()
 	end
 
 	local reload, reloadW = FooterButton("Reload UI", 100, "left", CONTENT_PAD, false)
-	reload:SetScript("OnClick", function() ReloadUI() end)
+	reload:SetScript("OnClick", function() Core:RequestReload() end)
 
 	local done = FooterButton("Done", 110, "right", -CONTENT_PAD, true)
 	done:SetScript("OnClick", function() frame:Hide() end)
@@ -514,10 +990,17 @@ local function BuildWindow()
 	frame.combatBlock = combatBlock
 
 	-- Catch the case where the window is opened while already in combat.
-	frame:SetScript("OnShow", function() SPConfig:UpdateCombatLock() end)
+	frame:SetScript("OnShow", function()
+		SPConfig:UpdateCombatLock()
+		SPConfig:SetPreviewPaneOpen(PreviewOpenWanted(), true)
+	end)
 	-- The dropdown popup is parented to UIParent so it can escape the scroll
 	-- clip; it must not outlive the window.
-	frame:SetScript("OnHide", function() Widgets:HidePopup() end)
+	frame:SetScript("OnHide", function()
+		Widgets:HidePopup()
+		SPConfig:HoverStyle(nil)
+		SPConfig:ReleasePreview()
+	end)
 
 	-- Safety net. The regen events below are the real mechanism; this only
 	-- covers a state change that arrives without one. Four comparisons a
@@ -542,6 +1025,7 @@ end
 -- Sidebar rendering
 -- ---------------------------------------------------------------------------
 local navRows = {}
+local selfNotify = false   -- the window's own change notifications are not news to it
 local navPool = {}
 local navPoolUsed = 0
 
@@ -580,12 +1064,14 @@ local function ResolvePower(entry)
 		enableEntry.label, enableEntry.desc
 end
 
-local function SelectEntry(entry)
+-- tab: open the page on that tab; nil opens its first
+local function SelectEntry(entry, tab)
 	frame._current = entry
-	frame._activeTab = nil
+	frame._activeTab = tab
 	frame.pageSearch:SetText("")
 	frame.pageSearch.placeholder:Show()
 	SPConfig:RenderPage(entry, nil)
+	SPConfig:UpdatePreviewPane()
 	for _, r in ipairs(navRows) do
 		local on = (r.entry == entry)
 		r.accent:SetShown(on)
@@ -610,18 +1096,25 @@ function SPConfig:RenderNav(query)
 		for _, entry in ipairs(groupDef.entries) do
 			local node, chain, firstPath
 			for _, pth in ipairs(EntryPaths(entry)) do
-				local n, c = Tree:Resolve(pth)
-				if n then node, chain, firstPath = n, c, pth break end
+				local n, c = VisiblePath(pth)
+				-- Resolve only walks the path, so a group that hides itself still
+				-- resolves. Skip those here or the sidebar keeps a row that opens
+				-- an empty page (every row on it filtered out by the same flag).
+				-- Shaman-only pages (the bars and the shaman modules) are left out for
+				-- other classes: nothing on them runs there. Search is built from this list too.
+				if n and not (entry.shamanOnly and not PLAYER_IS_SHAMAN) then
+					node, chain, firstPath = n, c, pth break
+				end
 			end
 			if node then
 				entry._node, entry._chain, entry._firstPath = node, chain, firstPath
-				if not entry._terms then
-					entry._terms = {}
-					for _, pth in ipairs(EntryPaths(entry)) do
-						local n, c = Tree:Resolve(pth)
-						if n then
-							for _, term in ipairs(Tree:IndexPage(n, pth, c)) do entry._terms[#entry._terms + 1] = term end
-						end
+				-- Style changes and newly saved loadouts reveal new labels. Rebuild
+				-- only when the sidebar draws, never on a timer or while it is shut.
+				entry._terms = {}
+				for _, pth in ipairs(EntryPaths(entry)) do
+					local n, c, rows = VisiblePath(pth)
+					if n then
+						for _, term in ipairs(Tree:IndexPage(n, pth, c, rows)) do entry._terms[#entry._terms + 1] = term end
 					end
 				end
 				local labelMatch = (not query) or query == ""
@@ -674,7 +1167,7 @@ function SPConfig:RenderNav(query)
 				row.accent:Hide()
 				row.text:SetFontObject(Core.fonts.nav)
 				row.text:SetText(Tree:StripColor(entry.label))
-				-- Shaman-only pages stay visible but greyed for other classes.
+				-- (shaman-only pages never reach here for other classes; kept as a guard)
 				row.shamanOnly = entry.shamanOnly and select(2, UnitClass("player")) ~= "SHAMAN"
 				row.text:SetTextColor(Core:Color(row.shamanOnly and "textMute" or "text"))
 				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Shaman only - these features do not run on this class.") else Core:AttachTooltip(row, "", nil) end
@@ -752,7 +1245,7 @@ local TAB_MIN_GROUPS = 3
 local function ChildGroups(node, path, chain)
 	local groups = {}
 	for _, c in ipairs(Tree:SortedChildren(node, path, chain)) do
-		if c.node.type == "group" and not Tree:IsHidden(c.node, c.chain, c.info) then
+		if c.node.type == "group" and VisiblePath(c.path) then
 			table.insert(groups, c)
 		end
 	end
@@ -765,9 +1258,10 @@ local function RenderTabs(groups, activeKey, onPick)
 		frame.tabStrip:SetHeight(1)
 		return
 	end
-	frame.tabStrip:SetHeight(TABSTRIP_H)
-
-	local x = 0
+	-- the strip's width, worked out from the window's fixed layout rather than read
+	-- back: a tab that would run past it starts a new row (a long page or a big font)
+	local stripW = WIN_W - SIDEBAR_W - 1 - 2 * CONTENT_PAD - 8
+	local x, row = 0, 0
 	for i, g in ipairs(groups) do
 		local tab = tabPool[i]
 		if not tab then
@@ -786,9 +1280,11 @@ local function RenderTabs(groups, activeKey, onPick)
 		local label = Tree:StripColor(g.name ~= "" and g.name or g.key)
 		tab.text:SetFontObject(Core.fonts.nav)
 		tab.text:SetText(label)
-		tab:SetWidth(math.max(tab.text:GetStringWidth() + 26, 60))
+		local w = math.max(tab.text:GetStringWidth() + 26, 60)
+		tab:SetWidth(w)
+		if x > 0 and x + w > stripW then x, row = 0, row + 1 end
 		tab:ClearAllPoints()
-		tab:SetPoint("BOTTOMLEFT", frame.tabStrip, "BOTTOMLEFT", x, 0)
+		tab:SetPoint("TOPLEFT", frame.tabStrip, "TOPLEFT", x, -row * TABSTRIP_H)
 
 		local isActive = (g.key == activeKey)
 		tab.text:SetFontObject(isActive and Core.fonts.navOn or Core.fonts.nav)
@@ -803,8 +1299,9 @@ local function RenderTabs(groups, activeKey, onPick)
 		end)
 		tab:Show()
 
-		x = x + tab:GetWidth()
+		x = x + w
 	end
+	frame.tabStrip:SetHeight((row + 1) * TABSTRIP_H)
 end
 
 -- Widgets go back to their pools rather than being orphaned; pageWidgets is
@@ -833,7 +1330,7 @@ local function FilterList(list, query)
 		if e.kind == "section" then
 			pendingSection = e
 		else
-			local hay = strlower((e.label or "") .. " " .. (e.desc or ""))
+			local hay = strlower(Tree:StripColor(e.label) .. " " .. Tree:StripColor(e.desc))
 			if strfind(hay, query, 1, true) then
 				if pendingSection then
 					table.insert(filtered, pendingSection)
@@ -855,7 +1352,7 @@ local function PickTab(tabs, onPick, drawTabs, searching)
 	if drawTabs then
 		frame._activeTab = active.key
 		if #tabs >= 2 then
-			RenderTabs(tabs, searching and nil or active.key, onPick)
+			RenderTabs(tabs, (not searching) and active.key or nil, onPick)   -- no tab lit while search results span them all
 		else
 			RenderTabs({}, nil, function() end)
 		end
@@ -866,6 +1363,7 @@ end
 local function OnTabPick(key)
 	frame._activeTab = key
 	SPConfig:RenderPage(frame._current, nil)
+	SPConfig:UpdatePreviewPane()
 end
 
 -- Composed page: entry.tabs -> each tab draws one or more option groups.
@@ -875,9 +1373,9 @@ local function ResolveComposed(entry, query, drawTabs)
 	for _, t in ipairs(entry.tabs) do
 		local live = {}
 		for _, pth in ipairs(t.paths) do
-			local n, c = Tree:Resolve(pth)
-			if n and not Tree:IsHidden(n, c, Tree:BuildInfo(pth, n, c)) then
-				live[#live + 1] = { node = n, chain = c, path = pth }
+			local n, c, rows = VisiblePath(pth)
+			if n then
+				live[#live + 1] = { node = n, chain = c, path = pth, rows = rows }
 			end
 		end
 		if #live > 0 then tabs[#tabs + 1] = { key = t.label, name = t.label, live = live } end
@@ -890,13 +1388,15 @@ local function ResolveComposed(entry, query, drawTabs)
 	local list = {}
 	for _, t in ipairs(searching and tabs or { active }) do
 		for _, lv in ipairs(t.live) do
-			if #t.live > 1 or (searching and #tabs > 1) then
+			-- A first band already labels these rows; do not stack an empty
+			-- same-depth group heading directly above it.
+			if (#t.live > 1 or (searching and #tabs > 1)) and lv.rows[1].kind ~= "section" then
 				local info = Tree:BuildInfo(lv.path, lv.node, lv.chain)
 				local label = lv.path.label or Tree:StripColor(Tree:GetName(lv.node, info))
 				if searching and #tabs > 1 and #t.live == 1 then label = t.name end
 				table.insert(list, { kind = "section", label = label, depth = 0 })
 			end
-			Tree:BuildRenderList(lv.node, lv.path, lv.chain, list, 0)
+			for _, row in ipairs(lv.rows) do list[#list + 1] = row end
 		end
 	end
 	return FilterList(list, query), tabs
@@ -946,6 +1446,7 @@ end
 
 function SPConfig:RenderPage(entry, query, keepScroll)
 	ClearPage()
+	if frame.whatsNewBtn then frame.whatsNewBtn:Hide() end
 	if not entry then return end
 
 	local firstPath = entry._firstPath or entry.path or EntryPaths(entry)[1]
@@ -958,6 +1459,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	frame.subtitle:SetText(Tree:StripColor(entry.desc or Tree:GetDesc(node, info) or ""))
 
 	local list, groups = ResolvePageList(entry, query, true)
+	-- What's New sits on General's Main tab only (elsewhere it covers the page description)
+	if frame.whatsNewBtn then frame.whatsNewBtn:SetShown(entry.label == "General" and frame._activeTab == "Main") end
 	if not list then return end
 	frame._query = query
 	frame._pageSig = PageSignature(list, groups)
@@ -986,7 +1489,15 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		-- A set() may flip another option's hidden= (e.g. TotemTimers Style
 		-- Display reveals Right-Click Drops Corner Totem). Re-resolve the page
 		-- and redraw only when the visible row set actually changed.
+		selfNotify = true
+		local navQuery = string.lower(frame.navSearch:GetText() or ""):match("^%s*(.-)%s*$")
+		local first = SPConfig:RenderNav(navQuery ~= "" and navQuery or nil)
 		local cur = frame._current
+		if not EntryHasContent(cur) then
+			SelectEntry(first)
+			selfNotify = false
+			return
+		end
 		if cur then
 			local newList, newGroups = ResolvePageList(cur, frame._query, false)
 			if newList and PageSignature(newList, newGroups) ~= frame._pageSig then
@@ -995,6 +1506,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 					local reg = LibStub("AceConfigRegistry-3.0", true)
 					if reg then reg:NotifyChange("ShamanPower") end
 				end
+				selfNotify = false
+				SPConfig:PreviewChanged()   -- this path returns early: the preview still needs the new settings
 				return
 			end
 		end
@@ -1006,19 +1519,57 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			local reg = LibStub("AceConfigRegistry-3.0", true)
 			if reg then reg:NotifyChange("ShamanPower") end
 		end
+		selfNotify = false
+		SPConfig:PreviewChanged()   -- the sample data is re-fed with the new settings
 	end
+	frame._onChanged = onChanged
 
-	for _, e in ipairs(list) do
-		if e.kind == "section" then
+	-- Options that pick a totem bar style preview it while hovered (the map is
+	-- keyed by the option table itself: AceConfig allows no extra keys).
+	local spNow = SP()
+	local hoverStyles = spNow and spNow.OptionHoverStyle or nil
+	local actionRows = spNow and spNow.SettingsActionRow
+	local actionThrough = 0
+	SPConfig:HoverStyle(nil)   -- a rebuild under the mouse gets no OnLeave
+
+	for index, e in ipairs(list) do
+		-- Skip actions already drawn together on the preceding row.
+		if index > actionThrough and e.kind == "option" and e.type == "execute" and actionRows and actionRows[e.node] then
 			BreakRow()
+			local count = 1
+			while count < 3 do
+				local nextEntry = list[index + count]
+				if not nextEntry or nextEntry.kind ~= "option" or nextEntry.type ~= "execute"
+					or not actionRows[nextEntry.node] then break end
+				count = count + 1
+			end
+			local width = math.floor((fullW - COL_GAP * (count - 1)) / count)
+			local height = 0
+			for offset = 0, count - 1 do
+				local action = list[index + offset]
+				local opts = OptionOpts(action, currentSection, offset * (width + COL_GAP), rowY, width, onChanged)
+				opts.func = Tree:MakeFunc(action.node, action.chain, action.info)
+				opts.buttonText = Tree:StripColor(action.label)
+				local widget, used = Widgets:Button(body, opts)
+				pageWidgets[#pageWidgets + 1] = widget
+				height = math.max(height, used)
+			end
+			y = rowY + height
+			rowY, col, rowMaxH = y, 1, 0
+			actionThrough = index + count - 1
+		elseif index > actionThrough and e.kind == "section" then
+			BreakRow()
+			-- a featured section (SP.OptionFeaturedHeader, keyed by the option group) gets the big gold heading
+			local sp0 = SP()
+			local featured = sp0 and sp0.OptionFeaturedHeader and e.node and sp0.OptionFeaturedHeader[e.node]
 			local f, h = Widgets:SectionHeader(body, {
-				label = Tree:StripColor(e.label), x = 0, y = y, width = fullW,
+				label = Tree:StripColor(e.label), x = 0, y = y, width = fullW, featured = featured,
 			})
 			table.insert(pageWidgets, f)
 			currentSection = f
 			y = y + h
 			rowY = y
-		else
+		elseif index > actionThrough then
 			local span = Tree:ColumnSpan(e.node, e.info)
 			local w  = (span == 2) and fullW or colW
 			if span == 2 then BreakRow() end
@@ -1031,6 +1582,11 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.get = Tree:MakeGetter(e.node, e.chain, e.info)
 				local setter = Tree:MakeSetter(e.node, e.chain, e.info)
 				opts.set = function(v) setter(v) end
+				local hs = hoverStyles and hoverStyles[e.node]
+				if hs and hs ~= "select" then
+					opts.onEnter = function() SPConfig:HoverStyle(hs) end
+					opts.onLeave = function() SPConfig:HoverStyle(nil) end
+				end
 				f, h = Widgets:Toggle(body, opts)
 
 			elseif e.type == "range" then
@@ -1040,6 +1596,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.min  = Tree:EvalPlain(e.node.min, e.info) or 0
 				opts.max  = Tree:EvalPlain(e.node.max, e.info) or 100
 				opts.step = Tree:EvalPlain(e.node.step, e.info) or 1
+				opts.isPercent = e.node.isPercent and true or false
 				f, h = Widgets:Slider(body, opts)
 
 			elseif e.type == "select" then
@@ -1048,6 +1605,28 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				opts.set = function(v) setter(v) end
 				opts.values = Tree:MakeValues(e.node, e.info)
 				opts.order  = Tree:MakeSorting(e.node, e.info)
+				local control = e.node.dialogControl
+				opts.keyIsLabel = type(control) == "string" and control:sub(1, 6) == "LSM30_"
+				if hoverStyles and hoverStyles[e.node] == "select" then
+					opts.onHover = function(key) SPConfig:HoverStyle(key) end
+					opts.onHoverEnd = function() SPConfig:HoverStyle(nil) end
+				end
+				-- a font list: each name in its own font, and the hovered one shown on the frames
+				local fontArea = spNow and spNow.OptionHoverFont and spNow.OptionHoverFont[e.node]
+				if fontArea then
+					local lsm = LibStub and LibStub("LibSharedMedia-3.0", true)
+					opts.itemFont = function(key) return lsm and key and key:sub(1, 2) ~= "__" and lsm:Fetch("font", key, true) or nil end
+					opts.onHover = function(key) local sp = SP(); if sp and sp.PreviewFont then sp:PreviewFont(fontArea, key) end end
+					opts.onHoverEnd = function() local sp = SP(); if sp and sp.PreviewFont then sp:PreviewFont(nil) end end
+				end
+				-- a bar texture list: a swatch per texture, and the hovered one shown on the bars
+				local texArea = spNow and spNow.OptionHoverTexture and spNow.OptionHoverTexture[e.node]
+				if texArea then
+					local lsm = LibStub and LibStub("LibSharedMedia-3.0", true)
+					opts.itemTexture = function(key) return lsm and key and key:sub(1, 2) ~= "__" and lsm:Fetch("statusbar", key, true) or nil end
+					opts.onHover = function(key) local sp = SP(); if sp and sp.PreviewTexture then sp:PreviewTexture(texArea, key) end end
+					opts.onHoverEnd = function() local sp = SP(); if sp and sp.PreviewTexture then sp:PreviewTexture(nil) end end
+				end
 				f, h = Widgets:Dropdown(body, opts)
 
 			elseif e.type == "color" then
@@ -1069,7 +1648,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				f, h = Widgets:Button(body, opts)
 
 			elseif e.type == "description" then
-				opts.text = Tree:StripColor(e.label)
+				opts.text = Tree:ThemeText(e.label)   -- plain text, with notes in the note colour
 				BreakRow()
 				opts.x, opts.y, opts.width = 0, rowY, fullW
 				f, h = Widgets:Description(body, opts)
@@ -1090,7 +1669,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 					end
 					f:ClearAllPoints()
 					f:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -rowY)
-					Widgets:Widen(f, fullW)
+					h = Widgets:Widen(f, fullW) or h
 					span = 2
 				end
 				table.insert(pageWidgets, f)
@@ -1143,8 +1722,8 @@ local function WireSearch()
 		C_Timer.After(0.2, function()
 			if navPending ~= q then return end
 			local first = SPConfig:RenderNav(q ~= "" and q or nil)
-			if q ~= "" and first and frame._current ~= first then
-				SelectEntry(first)
+			if q ~= "" and first then
+				if frame._current ~= first then SelectEntry(first) end
 				frame.pageSearch:SetText(q)
 			end
 		end)
@@ -1183,14 +1762,20 @@ function SPConfig:Open(path)
 	self:UpdateCombatLock()
 	local first = self:RenderNav(nil)
 	if path then
+		path = ResolvePathAlias(path)
+		local best, bestTab, bestDepth, bestVisible
 		for _, r in ipairs(navRows) do
-			if r.entry and EntryHasPath(r.entry, path) then
-				SelectEntry(r.entry)
-				return
+			if r.entry then
+				local depth, tab, visible = EntryPathMatch(r.entry, path)
+				if depth and (not bestDepth or (visible and not bestVisible)
+					or (visible == bestVisible and depth > bestDepth)) then
+					best, bestTab, bestDepth, bestVisible = r.entry, tab, depth, visible
+				end
 			end
 		end
+		if best then SelectEntry(best, bestTab) return end
 	end
-	SelectEntry(frame._current or first)
+	SelectEntry(EntryHasContent(frame._current) and frame._current or first)
 end
 
 -- Lives for the session regardless of whether the window has ever been built,
@@ -1198,13 +1783,41 @@ end
 local combatWatcher = CreateFrame("Frame")
 combatWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
 combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-combatWatcher:SetScript("OnEvent", function()
+combatWatcher:SetScript("OnEvent", function(_, event)
+	-- InCombatLockdown() is still false while REGEN_DISABLED fires: track it from the event
+	SPConfig._inCombat = (event == "PLAYER_REGEN_DISABLED")
 	SPConfig:UpdateCombatLock()
 	if frame and frame:IsShown() and frame.body then
 		frame._lastCombat = InCombatLockdown() and true or false
 		Widgets:RefreshAll(frame.body)
+		-- pause a module preview for the fight (see UpdatePreviewPane), bring it back after
+		SPConfig:UpdatePreviewPane()
 	end
 end)
+
+-- Something outside the window changed the addon's state while it is open
+-- (an assignment from a flyout or Blizzard's totem bar, a loadout applied):
+-- the core raises AceConfig's change notification, and the open page redraws
+-- as if one of its own rows had been set. Coalesced to one redraw per frame.
+do
+	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if reg and reg.RegisterCallback then
+		local queued = false
+		reg.RegisterCallback(SPConfig, "ConfigTableChange", function(_, appName)
+			if appName ~= "ShamanPower" or selfNotify or queued then return end
+			if not (frame and frame:IsShown() and frame._onChanged) then return end
+			queued = true
+			C_Timer.After(0, function()
+				queued = false
+				if frame and frame:IsShown() and frame._onChanged then frame._onChanged() end
+			end)
+		end)
+	end
+end
+
+function SPConfig:IsOpen()
+	return frame ~= nil and frame:IsShown() and true or false
+end
 
 function SPConfig:UpdateCombatLock()
 	if not frame or not frame.combatBlock then return end
@@ -1223,7 +1836,13 @@ end
 -- added or renamed). Keeps the scroll position.
 function SPConfig:RefreshCurrent()
 	if frame and frame:IsShown() and frame._current then
-		self:RenderPage(frame._current, frame._query, frame.bodyScroll:GetVerticalScroll())
+		local navQuery = string.lower(frame.navSearch:GetText() or ""):match("^%s*(.-)%s*$")
+		local first = self:RenderNav(navQuery ~= "" and navQuery or nil)
+		if EntryHasContent(frame._current) then
+			self:RenderPage(frame._current, frame._query, frame.bodyScroll:GetVerticalScroll())
+		else
+			SelectEntry(first)
+		end
 	end
 end
 
@@ -1280,20 +1899,62 @@ local function InjectOptions()
 				name = "Background Opacity",
 				desc = "How solid the panels of the options and assignment windows are. Text, icons and borders always stay fully visible.",
 				type = "range",
-				min = 20, max = 100, step = 5,
+				min = 0.2, max = 1, step = 0.05, isPercent = true,
 				width = "full",
 				get = function()
-					return math.floor(((ShamanPower.opt.uiOpacity or 1) * 100) + 0.5)
+					return ShamanPower.opt.uiOpacity or 1
 				end,
 				set = function(_, v)
-					ShamanPower.opt.uiOpacity = v / 100
-					Core:ApplyOpacity(v / 100)
+					v = math.floor(v * 100 + 0.5) / 100   -- store whole percents, as before
+					ShamanPower.opt.uiOpacity = v
+					Core:ApplyOpacity(v)
 				end,
 			},
 		},
 	}
 end
 InjectOptions()
+
+-- Interface is created by this settings UI; keep the original scale
+-- option object and its callback when moving it from the old Scale section.
+do
+	local sp = SP()
+	local settings = sp and sp.options and sp.options.args.settings
+	if settings and settings.args.settings_newui then
+		sp.MoveSettingsOptions({ "fluffy", "scale_section" }, { "settings", "settings_newui" }, { "assignmentsscale" })
+		local option = settings.args.settings_newui.args.assignmentsscale
+		if option then
+			option.order = 2
+			option.hidden = function() return not PLAYER_IS_SHAMAN end
+		end
+	end
+end
+
+-- Root files have now contributed their General actions. Keep the original
+-- objects so their handlers, hover maps and featured community header survive.
+do
+	local sp = SP()
+	local root = sp and sp.options and sp.options.args
+	local main = root and root.settings.args.settings_show
+	if main then
+		sp.OrderSettingsBands(main, {
+			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar" } },
+			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
+			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
+				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
+			} },
+			{ keys = { "windfuryOnly" } },
+			{ keys = { "community", "share_setup" } },
+		})
+		sp.SettingsActionRow = {}
+		for _, key in ipairs({ "master_unlock", "keybind_mode", "open_assignments" }) do
+			local option = main.args[key]
+			if option then sp.SettingsActionRow[option] = true end
+		end
+		local keybind = root.fluffy.args.visibility_section.args.keybind_mode
+		if keybind then keybind.name = "Keybind Mode" end
+	end
+end
 
 SLASH_SHAMANPOWERCONFIG1 = "/spui"
 SlashCmdList["SHAMANPOWERCONFIG"] = function(msg)

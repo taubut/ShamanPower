@@ -224,10 +224,38 @@ local RENDERABLE = {
 	multiselect = true, keybinding = true,
 }
 
+local function HasContentRow(tree, entry)
+	return entry.kind == "option" and (entry.type ~= "description" or tree:StripColor(entry.label):find("%S"))
+end
+
+function Tree:HasContent(list)
+	for _, entry in ipairs(list) do
+		if HasContentRow(self, entry) then return true end
+	end
+	return false
+end
+
+-- A hidden band must not leave its heading behind. Descendants keep their
+-- parent headings; a following sibling section starts a new band.
+local function PruneEmptySections(out, first)
+	local live, maxDepth = {}, 0
+	for i = #out, first, -1 do
+		local entry, depth = out[i], out[i].depth or 0
+		if entry.kind == "section" then
+			if not live[depth] then table.remove(out, i) end
+			for level = depth, maxDepth do live[level] = nil end
+		elseif HasContentRow(Tree, entry) then
+			for level = 0, depth do live[level] = true end
+			maxDepth = math.max(maxDepth, depth)
+		end
+	end
+end
+
 function Tree:BuildRenderList(pageNode, pagePath, pageChain, out, depth)
 	out = out or {}
 	depth = depth or 0
 	if not pageNode then return out end
+	local first = #out + 1
 
 	local children = self:SortedChildren(pageNode, pagePath, pageChain)
 	for _, c in ipairs(children) do
@@ -240,6 +268,7 @@ function Tree:BuildRenderList(pageNode, pagePath, pageChain, out, depth)
 					label = self:GetName(c.node, c.info),
 					desc  = self:GetDesc(c.node, c.info),
 					depth = depth,
+					node  = c.node,
 				})
 				self:BuildRenderList(c.node, c.path, c.chain, out, depth + 1)
 			elseif t == "header" then
@@ -263,6 +292,7 @@ function Tree:BuildRenderList(pageNode, pagePath, pageChain, out, depth)
 			end
 		end
 	end
+	PruneEmptySections(out, first)
 	return out
 end
 
@@ -300,15 +330,15 @@ end
 -- Flattens every option under a page into lowercase label/desc strings so the
 -- sidebar can answer "does this page contain a match?" without rendering it.
 -- ---------------------------------------------------------------------------
-function Tree:IndexPage(pageNode, pagePath, pageChain)
+function Tree:IndexPage(pageNode, pagePath, pageChain, rows)
 	local terms = {}
-	local list = self:BuildRenderList(pageNode, pagePath, pageChain)
+	local list = rows or self:BuildRenderList(pageNode, pagePath, pageChain)
 	for _, entry in ipairs(list) do
 		if entry.label and entry.label ~= "" then
-			table.insert(terms, strlower(entry.label))
+			table.insert(terms, strlower(self:StripColor(entry.label)))
 		end
 		if entry.desc and entry.desc ~= "" then
-			table.insert(terms, strlower(entry.desc))
+			table.insert(terms, strlower(self:StripColor(entry.desc)))
 		end
 	end
 	return terms
@@ -323,6 +353,43 @@ function Tree:TermsMatch(terms, query)
 end
 
 -- Strip WoW color escapes so search and sidebar labels read cleanly.
+-- Description text is drawn in the window's own colours, so colour codes are
+-- stripped - except NOTES, which should stand out the same way on every page:
+--   "|cffffa040 ... |r"      the "this is being overridden by X" notes
+--   "|cffff8800Note:|r ..."  the older hand-written notes (module requirements etc);
+--                            only the word was coloured, now the whole line is
+-- Both come out in one note colour; every other colour code is dropped.
+local NOTE_COLOR = "|cffffa040"
+-- A few deliberate brand colours survive too, so a page can put flair on one
+-- spot (the Discord section): Discord blurple, ShamanPower blue, WoW gold.
+local KEEP_COLORS = { ["5865f2"] = true, ["3fa9f5"] = true, ["ffd200"] = true }
+function Tree:ThemeText(s)
+	if not s then return "" end
+	local kept
+	s = gsub(s, "|c[fF][fF](%x%x%x%x%x%x)(.-)|r", function(hex, body)
+		if KEEP_COLORS[strlower(hex)] then
+			kept = kept or {}
+			kept[#kept + 1] = "|cff" .. hex .. body .. "|r"
+			return "\3" .. #kept .. "\4"
+		end
+	end)
+	s = self:ThemeTextNotes(s)
+	if kept then s = gsub(s, "\3(%d+)\4", function(i) return kept[tonumber(i)] end) end
+	return s
+end
+
+function Tree:ThemeTextNotes(s)
+	if not (s:find("|cffffa040", 1, true) or s:find("|cffff8800Note:", 1, true)) then return self:StripColor(s) end
+	s = gsub(s, "|cffffa040(.-)|r", "\1%1\2")
+	s = gsub(s, "|cffff8800Note:|r", "\1Note:")
+	s = gsub(s, "|c%x%x%x%x%x%x%x%x", "")
+	s = gsub(s, "|r", "")
+	s = gsub(s, "\1([^\n\2]*)\2?", function(body) return NOTE_COLOR .. body .. "|r" end)
+	s = gsub(s, "^%s+", "")
+	s = gsub(s, "%s+$", "")
+	return s
+end
+
 function Tree:StripColor(s)
 	if not s then return "" end
 	s = gsub(s, "|c%x%x%x%x%x%x%x%x", "")

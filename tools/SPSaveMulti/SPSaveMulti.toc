@@ -1,0 +1,11 @@
+## Interface: 120100, 16001
+## Author: Srumar
+## Title: SP Save Test - Eight unique variables
+## Version: 3.0.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Isolated saved-variable declaration/ownership test.
+## DefaultState: enabled
+## X-Probe-Version: 1
+## SavedVariables: SPSaveMultiDB, SPSaveMulti_Assignments, SPSaveMulti_EarthShieldAssignments, SPSaveMulti_TwistAssignments, SPSaveMulti_RaidCooldowns, SPSaveMulti_RangeTracker, SPSaveMulti_TotemLoadouts, SPSaveMultiErrorLog
+
+Probe.lua

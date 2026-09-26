@@ -1,5 +1,105 @@
 # ShamanPower Changelog
 
+## v3.0.0 (2026-09-25)
+
+### New
+- **WoW: Forever support.** ShamanPower runs on the Forever beta from the same download as Anniversary. Where the game hides combat data from addons, the game itself draws the totem timers and countdown numbers, the party buff dots, the reactive and expiring alerts and the cooldown sweeps, so they keep working in combat. Spells that do not exist on Forever (Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, the Elementals, Fire Nova Totem) are hidden everywhere: pages, previews, dropdowns, assignments, Auto-Assign. Forever characters start with the setup tour, which has a WoW: Forever step and a Totem Sets step.
+- **Blizzard's totem bar as a style** (Forever). Settings > General > Main > Totem Bar Style, or Totem Bar > Style: keep the game's own bar and get ShamanPower's timers, duration bars, text, pulse bars, party dots and counters on its slots, with an optional scale override. Picking a totem on Blizzard's bar sets your assignment, and the other way round.
+- **Totem sets** (Forever). Call of the Elements always holds your assignments. Ancestors and Spirits can each take a saved loadout (Loadouts > Loadouts > Set Page); that loadout's bar button then casts the set in one press. Drop All can cast the set.
+- **Grid style** (both clients). Every totem of every element visible in rows: click to drop, the assigned one highlighted, the timer on the dropped one. "Split by Element" makes each row its own movable frame with its own direction.
+- **Totem Bar Style in one place.** Settings > General > Main has a dropdown with every style (Normal, TotemTimers, Dynamic, Compact, Grid, and Blizzard's bar on Forever). Hovering a style there, or on Totem Bar > Style, shows it in the live preview without changing anything. The setup tour shows the styles as cards with a picture each; hovering a card plays it in the preview.
+- **Totem Coverage** (Party Buff Tracker, Forever). The reverse of Totem Range: under each of your totems, the names of party members who do NOT have its buff, red or class color. Per-totem placement and sizes; choose which totems to watch; hides itself once everyone is covered, in combat too.
+- **Minimap totem markers** (Forever, open world). A pin where each totem was dropped with a ring for its reach, turning with the minimap. Totem Range Tracker page. Off inside instances.
+- **Auto-Assign picks by who is in the group.** Stoneskin for caster-only groups, Strength of Earth with melee; Mana Spring with mana users, else Healing Stream; the Air totem by who benefits. This changes what Anniversary players get from Auto-Assign too.
+- **Live preview pane** in the settings window (arrow tab on the right): every module page shows its frames with your current settings, updating as you change them. The Loadouts page previews the bar and, on Forever, the three set pages.
+- **Every window from its page.** Totem Range picker, Totem Coverage, Raid Cooldowns assignments, the fear-caster mob list, Totem Assignments: one button on the module's page, and every option those windows hold is on the page too. Test buttons hide the settings window while they run and bring it back after.
+- **Ready Reminders** (new module). Placeable icons that light up when a spell comes off cooldown: shocks, Stormstrike, Lava Burst, Riptide, Rage of the Farseer, Nature's Swiftness, Mana Tide, Grounding, Earthbind and more. Show only when ready, always, or always dimmed with a countdown. On by default on Forever; **off by default on Anniversary** (Alerts & Reminders > Ready Reminders, or the setup tour, turns it on). On Forever each character keeps its own list, and the setup tour's spec pick fills it from Forever's talent tree.
+- **Fonts** (both clients). Settings > General > Fonts & Textures: pick the font and outline for every number and label ShamanPower draws on screen, or give timers, shield charges, alerts and names their own. Uses WoW's fonts plus every font other addons share through LibSharedMedia (ElvUI, SharedMedia and the like). Hover a font in the list to preview it on your frames. Default keeps the designed look.
+- **Bundled fonts and sounds.** Ten fonts (Barlow Condensed, Bebas Neue, Black Ops One, Chakra Petch, Fira Sans, Oxanium, Rajdhani, Russo One, Saira Semi Condensed, Teko; SIL Open Font License) and seven ShamanPower alert sounds (Totem Chime, Shield Pop, Ready Ping, War Horn, Water Drop, Earth Thud, Thunder) in every font and sound list, also for other addons that use LibSharedMedia.
+- **Bar textures** (both clients). Settings > General > Fonts & Textures: pick the texture of every bar ShamanPower draws (totem duration bars, cooldown bar, pulse sweeps), or give each its own, from WoW's bar, ShamanPower's four and every texture other addons share. Hover to preview on your bars. **Apply This Look Everywhere** puts your chosen font, outline and texture on everything at once, Compact's lines included; **Reset Look** goes back to the designed look.
+- **Mana tint** (option, Appearance > Textures & Colors): totem, flyout and cooldown buttons turn blue while you cannot afford them, like Blizzard's action bars. Color of your choice.
+- **Minimap quick menu:** right-click the minimap icon to switch totem bar style, apply a loadout, open assignments, Unlock UI, Keybind Mode, What's New or settings. Shift-right-click opens settings straight away.
+- **Raid resistance requests** (Forever). On Forever, Fire, Frost and Nature Resistance totems reach the whole raid. Tick Need Fire / Frost / Nature Resistance in the assignments window (any shaman, or the raid leader or an assistant) and ShamanPower asks the one shaman whose group loses least; they Accept or Pass, or it applies at once with Free Assign or auto-accept. Nobody can change another shaman's totems without that. Unticking gives their old totem back. Loadout Auto-Switch zone and boss rules can request one. `/sp resisttest` practises the whole flow alone.
+- **Call of the Elements / Ancestors / Spirits in combat** (Forever): every totem a set places now shows its icon, timer and pulse mid-fight.
+- **Ready Reminders follow the real cooldown in combat** (Forever): the icon brightens or appears exactly when the spell is ready, even when the addon's estimate lags.
+- **Loadout Auto-Switch** (Loadouts > Auto-Switch, off by default). Pick a loadout for raids, dungeons, battlegrounds and the open world (or go back to the one you had when you leave an instance), and add rules like an equipment manager: loadout + zone + the mob you target (Blackwing Lair + Firemaw -> Fire Resist) or a boss encounter. Never switches in combat; a switch that comes up in a fight happens as soon as it ends. On Forever, target rules only work in the open world (the game hides mob names in instances).
+- **Cooldown Announce** (Group Tools > Cooldown Announce, all off by default): announce Mana Tide (and Bloodlust / Heroism where they exist) when used and a set time before it is back, even in combat on Forever; answer "tide" and your own trigger words in group chat with ready / seconds left (throttled); optionally show the Mana Tide call on your own screen when a group member asks. Chat is never read or sent while the game has chat locked down.
+- **Ready Check sweep** (both clients). On a ready check (optionally on entering a dungeon or raid, or with /sp check) ShamanPower lists what you are missing: shield, weapon imbue, totem items in your bags (Forever), assigned totems not down, low mana. Pick what it checks and how it shows it: an on-screen list with icons, a line in your chat window, a sound. On Forever it also warns when one of your totem items leaves your bags.
+- **Keybind mode.** /sp bind, or Settings > General > Keybind Mode: every ShamanPower button that can take a key lights up with its current key. Hover one and press a key (Shift, Ctrl and Alt work) to bind it; Escape over a button clears its key. Done saves, Cancel puts every key back. Out of combat only.
+- **Trainer Reminder** (Forever, Alerts & Reminders > Trainer Reminder). When you level up, ShamanPower lists the shaman spells and ranks now waiting at your trainer (and anything you skipped earlier), with one summary line at login. Only you see it; a big on-screen note is optional.
+- **Fade rules** for the totem bar (Appearance > Visibility, off by default). With Hide Out of Combat or Hide When No Totems on, the bar can fade to an opacity you choose instead of disappearing, and can come back while you target something attackable. Fading is only a change of opacity, so it also works in combat.
+- **Share My Setup** (General, /sp share, or the end of the setup tour): a short code listing which ShamanPower features you use - nothing personal - to paste in #setup-stats on the ShamanPower Discord, so the developer can see what people actually use. ShamanPower now also remembers how your setup ended (tour, quick setup, skipped).
+- **Unlock UI (move everything).** One button (General > Main, or `/sp unlock`) shows a labelled box on every frame ShamanPower draws; drag them, put each back with its own Reset (all but the Party Range counters, the Totem Range overlay, the Raid Cooldown callers and the Earth Shield tracker), and snap to an optional alignment grid.
+- **ShamanPower Discord** on General: help, bug reports, feature voting and early builds. Copy Link button.
+- **Loadouts:** the bar has a Move button (Loadouts > Loadout Bar) and a box in Unlock All; a loadout's chosen icon shows on its button; the icon picker is rebuilt on the settings look with a search box.
+- **Loadout bar:** hover the button for a flyout of your other loadouts (one column, names beside each), or turn on Click the Button to Cycle Loadouts (Loadouts > Loadout Bar) to step through them by clicking (right-click: previous), with the flyout optionally off. Each loadout keeps its own Drop All exclusions (Exclude Earth / Fire / Water / Air on its Loadouts entry): switching swaps them in, and Call of the Elements follows on Forever.
+- **Raid call practice:** `/sp calltest` makes a shaman take Mana Tide calls (from a caller button or someone typing "tide") as if it knew Mana Tide, so the whole flow can be tried at any level.
+- **Settings, reorganized.** The sidebar reads General, Bars, Group Tools, Alerts & Reminders and Other. Totem Bar holds Style, Clicks, Bar, Items, Order, Drop All, Duration Bars, Flyouts and Macros (and Twisting on Anniversary); Loadouts is its own page (Loadouts, Loadout Bar, Auto-Switch); Party Buff Tracker splits into Dots & Counters and Coverage; every module page reads in one order (on/off, what it shows, look, behavior, sound, position, test and reset). Search still finds every setting, and every "open settings" link lands on its new page.
+- **Enable ShamanPower turns the whole addon off** (General > Main): no bars, alerts, sounds, chat, addon messages or key bindings, and Blizzard's own totem bar comes back, while every setting stays open to change. The minimap icon stays; any click on it offers Turn ShamanPower Back On. A switch made in combat lands when the fight ends.
+- **Srumar's Layout for WoW: Forever.** The one-click layout has its own Forever capture with Forever's options; Anniversary keeps its own. After it reloads, ShamanPower offers once to move everything into place.
+- **Enable Raid Cooldowns** (Group Tools > Raid Cooldowns), and on/off squares in the sidebar for Raid Cooldowns and Raid Resistance.
+
+### Changes
+- Compact style has a new look and defaults; a Compact profile already in use keeps its old look.
+- Element color palettes, flyout sizes separate from the bar, and a reset for each settings section.
+- Settings window: sizes and opacity show as percentages, long labels wrap instead of being cut off, inputs fit their values, and search highlights the right tab.
+- **First login is a small choice, not the whole tour:** take the setup tour, or use Srumar's setup in one click (your spec is read from your talents, or asked when you have none yet). Other classes get the quick tour or Windfury-only mode. "Not now" asks again next login; the tour is always at /sp setup.
+- The setup tour has spec cards listing what each pick sets up, a Ready Reminders step and a Position step that moves every frame. Picking a spec only sets starting defaults on a brand-new install.
+- Non-shamans get a short tour and a settings list with only what runs for them (Totem Range, Raid Cooldowns, Totem Plates, the Earth Shield tracker, and the Windfury Companion on Anniversary). Tremor Reminder, Shield Charges, Ready Reminders, Expiring Alerts and Reactive Totems no longer load on other classes.
+- **Windfury-only mode** for non-shamans: one button on their setup screen (or General > Windfury-Only Mode) turns off every window, bar, icon and nameplate, and keeps only the report that tells the group's shamans whether their weapon has Windfury. That report now runs whenever a shaman is in your party, even with the Totem Range overlay closed, and goes only to your own party (your subgroup in a raid), when it changes plus every 6 s, instead of to the whole raid every 2 s.
+- What's New opens by itself once per release on a shaman; any character can open it from the settings header.
+- The /spthanks auto-whisper is gone (it was off by default; automated whispers read as spam).
+- Reactive Totems: the old configuration window is gone; everything is on its settings page. Optional debuff icon (Forever).
+- A new setup starts with the totem bar low in the middle of the screen and the cooldown bar straight under it; the totem bar's Reset in Unlock UI puts both back there.
+- A saved sound that no longer exists plays Raid Warning instead of nothing.
+- The flyout keybindings are for Forever's click-to-open flyouts; on Anniversary they are labelled as such and do nothing.
+- Totem cooldown numbers use the game's own countdown on Forever; ShamanPower turns the game option on for you.
+- "Totemic Call" reads "Totemic Recall" where the game names it so.
+- The Earth Shield column, tracker and options do not appear on a client without Earth Shield.
+- Settings text says "ShamanPower's bar" and "Blizzard's bar" throughout.
+- Raid Resistance has its own entry in the settings sidebar (it was the tenth Totem Bar tab); tab rows wrap instead of running off the window; the What's New button sits on General > Main only.
+- Loadout totem pickers mark totems your character has not learned yet; the Set Page picker appears once Call of the Ancestors or Call of the Spirits is known; the Blizzard sets preview lists totems in Blizzard's order (Earth, Fire, Water, Air) and shows ones left out of Drop All dimmed.
+- Every chat line ShamanPower prints starts with the same blue ShamanPower.
+- Ready Check: the weapon imbue line shows the Windfury Weapon icon; the sound has a Test Sound button.
+- Every totem bar style keeps its own spot, as Compact did: move Grid into a corner and Normal, TotemTimers and Dynamic stay where you put them. A style you have never moved starts where the Normal bar is.
+- Windfury-only mode keeps the minimap icon; its right-click menu then has one entry, Turn On Other Features.
+- New installs start with both bars running across (Horizontal) and no frame or border behind the totem bar, cooldown bar, caller buttons, Earth Shield tracker or range tracker, whether you take the setup tour or skip it. Profiles you already have keep the look they had.
+- Totem twisting is not offered on WoW: Forever: its Windfury Totem is an aura there and no longer stacks with Grace of Air or Tranquil Air. Anniversary keeps twisting.
+- In a fight, pulse bars, duration bars and their numbers, party dots, the dropped-totem icon and the cooldown bar's shield and imbue bars move out past the flyout arrows instead of hiding behind them, and back when it ends.
+- Setup tour: gold step headings and style names; Layout, Size and the frame come first on the totem bar and cooldown bar steps; the Ready Reminders preview is a life-size grid.
+- Minimap menu: Open Settings (and Turn ShamanPower Back On) are gold.
+
+### Fixes
+- Party buff dots drawn by the game were never built on Forever; they are now.
+- The loadout bar could not be moved from the settings, and the game's layout cache kept putting it back where an old drag left it.
+- Idle CPU and garbage: loops now sleep until a totem, cooldown or aura actually changes, and party and shield buff checks are cached until the buffs change (both clients). On Forever the weapon-imbue and spell lookups, which build a new table per call there, are cached too.
+- **Built for 40-player raids:** ShamanPower's core now only listens to the units it uses (your casts; your and your party's buffs; your Earth Shield target) instead of every raid member and nameplate; the Earth Shield tracker re-reads only the player whose buffs changed; Raid Cooldowns watches the shamans' casts instead of the whole combat log; received messages no longer redraw the totem bar unless they change it; a shaman leaving the raid no longer sets off a flood of replies (which could hold up raid calls for half a minute); raid calls go out on their own channel at high priority; other addons' messages cost a single comparison.
+- **Smoother and cheaper animations:** totem pulse bars, the raid-call alert, the cooldown bar alert and the new fades run as game-engine animations instead of Lua every frame; Totem Plates' pulse timers and the Anniversary imbue check stop running every frame.
+- **/spperf stress** pretends to be a 40-player raid (buffs, casts, addon messages, roster changes) so the cost can be measured solo.
+- Newly trained totems appear in the flyouts without a reload; the cooldown bar keeps a custom order when a spell is unavailable.
+- Expiring Alerts: "Totem Destroyed" now works in combat on Forever (from ShamanPower's own record of your totems, which the game cannot hide), and can also add a line to your own chat window (on by default on Forever, only you see it), show big text on your screen, or tell your group in chat.
+- Tremor Reminder "Hide When Tremor Active" never hid in combat on Forever.
+- Expiring Alerts: totems that died in combat were announced minutes later with stale timing on Forever.
+- Wrath of Air, Totem of Wrath and Fire Nova Totem could be assigned, tracked or listed on a client that lacks them.
+- Flametongue Totem's party buff did not match on Forever (spell 8215 is "Rapid Cast" there).
+- **Names:** on Forever players are matched by name alone (the realm part the game reports can differ between players), and two-part names ("First Last") stay whole in assignments, twisting, Earth Shield assignments, leader checks and Windfury reports. On Anniversary, Windfury reports and a shaman's own assignments from another realm (battlegrounds) now arrive. `/spdiag names` shows what the game reports and the names ShamanPower uses.
+- The cooldown bar's raid-call alert (glow and icon pulse on a Mana Tide or Bloodlust call) never showed; it does now, and a repeat call keeps it going.
+- Pulse bars stayed invisible after Pulse Bar Position had been set to None and back, until a /reload.
+- Assignments, twisting and Earth Shield targets set while the game blocks addon messages (Forever instance fights) are sent to that group once it lifts, instead of never; leaving the group first drops them.
+- **Forever surnames:** the game gives a character's first name and surname separately; ShamanPower now joins them as the game's own interface does, so you no longer appear twice in the assignments window ("Srumar" and "Srumar Bagels") and raid calls addressed to you are recognised.
+- **"Unknown" on a cold login** (Forever): when the game had not given the character's name yet as addons loaded, ShamanPower and its settings filed that session under a character called "Unknown" (assignments, learned totem lengths, per-character profile). It now waits for the real name and moves anything written meanwhile.
+- "Totem Destroyed" in combat knows every totem's length from its first drop (a table read from Forever's spell data) instead of learning it out of combat first.
+- The loadout bar's flyout never opened on Forever.
+- Grid: turning Split by Element off stacked the rows on each other until the next click.
+- A totem assigned with right-click during a fight counts at once: the dropped-totem icon showed the same totem twice, or none, until the fight ended.
+- Applying Srumar's Layout replaced your saved loadouts with the author's; a shared layout never touches your loadouts now.
+- Changing the totem bar style could raise a Lua error from the Compact option.
+
+### Known
+- Windfury Totem and Flametongue Totem party detection on Forever is unverified above the beta level cap.
+- If the game blocks addon messages in an instance fight, Raid Cooldown callers are told so instead of shown "sent".
+- Minimap totem markers are Forever only: the Anniversary minimap has no view-radius API, so the option is hidden there.
+
 ## v2.1.1 (2026-09-16)
 
 ### Fixes

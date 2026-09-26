@@ -13,4 +13,11 @@
 	<Binding name="SHAMANPOWER_CD_MANATIDE" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_CD_BLOODLUST" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_CD_IMBUE" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_EARTH" category="SHAMANPOWER" header="SHAMANPOWER_FLYOUT">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_FIRE" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_WATER" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_AIR" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_SHIELD" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_IMBUE" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_FLYOUT_CLOSE" category="SHAMANPOWER">--[[dummy]]</Binding>
 </Bindings>

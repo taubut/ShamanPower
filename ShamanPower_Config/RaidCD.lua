@@ -1,6 +1,8 @@
 -- ShamanPower_Config :: RaidCD
 -- The Raid Cooldowns assignment panel (Bloodlust/Heroism primary + backups +
--- caller, and a Mana Tide caller per shaman), rebuilt on the dialog chrome.
+-- caller, a Mana Tide caller per shaman, and Drums), rebuilt on the dialog
+-- chrome. Sections for spells this client does not have (WoW: Forever has no
+-- Bloodlust / Heroism and no Drums of Battle) are not built at all.
 -- Data, permissions and comms stay in ShamanPower_RaidCooldowns; only the
 -- window is replaced. If that module is not loaded this file does nothing and
 -- the engine's "module not loaded" stub remains.
@@ -15,18 +17,33 @@ if not SP or not SP.GetRaidShamans or not SP.SendRaidCooldownSync then return en
 local WIDTH = 380
 local NONE  = ""
 local dlg
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+local function Notify()
+	if registry then registry:NotifyChange("ShamanPower") end
+end
+
+local function HasBL() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
+local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+
+local function Subtitle()
+	local parts = {}
+	if HasBL() then parts[#parts + 1] = (UnitFactionGroup("player") == "Alliance") and "Heroism" or "Bloodlust" end
+	parts[#parts + 1] = "Mana Tide"
+	if HasDrums() then parts[#parts + 1] = "Drums" end
+	if #parts == 1 then return parts[1] .. " calling" end
+	return table.concat(parts, ", ", 1, #parts - 1) .. " & " .. parts[#parts]
+end
 
 local function Build()
 	if dlg then return dlg end
-	local faction = UnitFactionGroup("player")
 	dlg = Core:CreateDialog({
 		name = "ShamanPowerRaidCooldownPanel",
 		width = WIDTH, height = 300,
 		title = "Raid Cooldowns",
-		subtitle = ((faction == "Alliance") and "Heroism" or "Bloodlust") .. ", Mana Tide & Drums",
+		subtitle = Subtitle(),
 		headerHeight = 46, bodyTop = 6,
+		special = true, strata = "DIALOG",
 	})
-	dlg:SetFrameStrata("DIALOG")
 	-- The module refreshes "the panel" when a sync arrives; point it at ours.
 	SP.raidCooldownPanel = dlg
 	return dlg
@@ -66,32 +83,36 @@ local function Populate()
 		return f
 	end
 
-	-- Bloodlust / Heroism ---------------------------------------------------
-	Row("SectionHeader", { label = blName .. " assignment" })
 	local shamanValues, shamanOrder = ListValues(shamans)
 	local memberValues, memberOrder = ListValues(members)
 
-	local function BlRow(label, field, desc, values, order, extra)
-		Row("Dropdown", {
-			label = label, desc = desc .. lockNote,
-			values = values, order = order,
-			get = function() return bl[field] or NONE end,
-			set = function(v)
-				bl[field] = (v ~= NONE) and v or nil
-				SP:SendRaidCooldownSync()
-				if extra then extra() end
-			end,
-			disabled = function() return not CanAssign() end,
-		})
+	-- Bloodlust / Heroism ---------------------------------------------------
+	if HasBL() then
+		Row("SectionHeader", { label = blName .. " assignment" })
+
+		local function BlRow(label, field, desc, values, order, extra)
+			Row("Dropdown", {
+				label = label, desc = desc .. lockNote,
+				values = values, order = order,
+				get = function() return bl[field] or NONE end,
+				set = function(v)
+					bl[field] = (v ~= NONE) and v or nil
+					SP:SendRaidCooldownSync()
+					if extra then extra() end
+					Notify()
+				end,
+				disabled = function() return not CanAssign() end,
+			})
+		end
+		BlRow("Primary",  "primary", "Shaman who pops " .. blName .. " when called.", shamanValues, shamanOrder)
+		BlRow("Backup 1", "backup1", "Used if the primary is dead.", shamanValues, shamanOrder)
+		BlRow("Backup 2", "backup2", "Used if the primary and first backup are dead.", shamanValues, shamanOrder)
+		BlRow("Caller",   "caller",  "Who is allowed to call " .. blName .. " (besides leader/assists).", memberValues, memberOrder,
+			function() SP:UpdateCallerButtons() end)
 	end
-	BlRow("Primary",  "primary", "Shaman who pops " .. blName .. " when called.", shamanValues, shamanOrder)
-	BlRow("Backup 1", "backup1", "Used if the primary is dead.", shamanValues, shamanOrder)
-	BlRow("Backup 2", "backup2", "Used if the primary and first backup are dead.", shamanValues, shamanOrder)
-	BlRow("Caller",   "caller",  "Who is allowed to call " .. blName .. " (besides leader/assists).", memberValues, memberOrder,
-		function() SP:UpdateCallerButtons() end)
 
 	-- Mana Tide -------------------------------------------------------------
-	y = y + 4
+	if y > 0 then y = y + 4 end
 	Row("SectionHeader", { label = "Mana Tide callers", note = "one caller per shaman" })
 	local mtShamans = SP:GetManaTideShamans()
 	if #mtShamans == 0 then
@@ -109,44 +130,49 @@ local function Populate()
 				mt[name].caller = (v ~= NONE) and v or nil
 				SP:SendRaidCooldownSync()
 				SP:UpdateCallerButtons()
+				Notify()
 			end,
 			disabled = function() return not CanAssign() end,
 		})
 	end
 
 	-- Drums of Battle --------------------------------------------------------
-	y = y + 4
-	Row("SectionHeader", { label = "Drums of Battle", note = "one drummer per group" })
-	local drums = ShamanPower_RaidCooldowns.drums
-	Row("Dropdown", {
-		label = "Caller", desc = "Who is allowed to call for Drums (besides leader/assists)." .. lockNote,
-		values = memberValues, order = memberOrder,
-		get = function() return drums.caller or NONE end,
-		set = function(v)
-			drums.caller = (v ~= NONE) and v or nil
-			SP:SendRaidCooldownSync()
-			SP:UpdateCallerButtons()
-		end,
-		disabled = function() return not CanAssign() end,
-	})
-	local groups = SP:GetGroupMembers()
-	local groupIds = {}
-	for g in pairs(groups) do table.insert(groupIds, g) end
-	table.sort(groupIds)
-	for _, g in ipairs(groupIds) do
-		local gValues, gOrder = ListValues(groups[g])
+	if HasDrums() then
+		y = y + 4
+		Row("SectionHeader", { label = "Drums of Battle", note = "one drummer per group" })
+		local drums = ShamanPower_RaidCooldowns.drums
 		Row("Dropdown", {
-			label = IsInRaid() and ("Group " .. tostring(g)) or "Party",
-			desc = "Drummer for this group. Drums only affect the drummer's own group." .. lockNote,
-			values = gValues, order = gOrder,
-			get = function() return drums.drummers[g] or NONE end,
+			label = "Caller", desc = "Who is allowed to call for Drums (besides leader/assists)." .. lockNote,
+			values = memberValues, order = memberOrder,
+			get = function() return drums.caller or NONE end,
 			set = function(v)
-				drums.drummers[g] = (v ~= NONE) and v or nil
+				drums.caller = (v ~= NONE) and v or nil
 				SP:SendRaidCooldownSync()
 				SP:UpdateCallerButtons()
+				Notify()
 			end,
 			disabled = function() return not CanAssign() end,
 		})
+		local groups = SP:GetGroupMembers()
+		local groupIds = {}
+		for g in pairs(groups) do table.insert(groupIds, g) end
+		table.sort(groupIds)
+		for _, g in ipairs(groupIds) do
+			local gValues, gOrder = ListValues(groups[g])
+			Row("Dropdown", {
+				label = IsInRaid() and ("Group " .. tostring(g)) or "Party",
+				desc = "Drummer for this group. Drums only affect the drummer's own group." .. lockNote,
+				values = gValues, order = gOrder,
+				get = function() return drums.drummers[g] or NONE end,
+				set = function(v)
+					drums.drummers[g] = (v ~= NONE) and v or nil
+					SP:SendRaidCooldownSync()
+					SP:UpdateCallerButtons()
+					Notify()
+				end,
+				disabled = function() return not CanAssign() end,
+			})
+	end
 	end
 
 	dlg:SetHeight(46 + 4 + 6 + y + dlg.pad + 2)
@@ -187,10 +213,6 @@ end)
 -- Settings panel for the floating caller buttons (the corner button).
 local FS = ns.FrameSettings
 if FS then
-	local function Notify()
-		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
-		if reg then reg:NotifyChange("ShamanPower") end
-	end
 	FS.specs.raidcd = function(frame)
 		return {
 			key = "raidcd", title = "Caller Buttons", subtitle = "Raid cooldowns",
@@ -205,10 +227,25 @@ if FS then
 			},
 			hideFrame = {
 				get = function() return SP.opt.raidCDButtonHideFrame and true or false end,
-				set = function(v) SP.opt.raidCDButtonHideFrame = v and true or nil; SP:UpdateCallerButtonFrameStyle() end,
+				set = function(v)
+					SP.opt.raidCDButtonHideFrame = v and true or false
+					SP:UpdateCallerButtonFrameStyle(); Notify()
+				end,
 			},
 		}
 	end
+end
+
+if registry and registry.RegisterCallback then
+	local queued = false
+	registry.RegisterCallback({}, "ConfigTableChange", function(_, appName)
+		if appName ~= "ShamanPower" or queued or not (dlg and dlg:IsShown()) then return end
+		queued = true
+		_G.C_Timer.After(0, function()
+			queued = false
+			if dlg and dlg:IsShown() then Populate() end
+		end)
+	end)
 end
 
 return true

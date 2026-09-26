@@ -8,6 +8,21 @@ local Core = ns.Core
 local SP = ShamanPower
 if not SP or not Core then return end
 
+-- The string box of both dialogs scrolls with the wheel and our own scroll bar.
+-- A shorter string (or deleted text) pulls the view back inside the text.
+-- Core:AttachScrollbar hooks these scripts, so it is attached after them.
+local BOX_W = 460 - 2 * 14 - 10   -- the dialog's body, less the scroll bar beside the box
+local function ScrollBox(scroll, edit)
+	scroll:EnableMouseWheel(true)
+	scroll:SetScript("OnMouseWheel", function(self, delta)
+		self:SetVerticalScroll(math.max(0, math.min(self:GetVerticalScrollRange(), self:GetVerticalScroll() - delta * 40)))
+	end)
+	scroll:SetScript("OnScrollRangeChanged", function(self)
+		if self:GetVerticalScroll() > self:GetVerticalScrollRange() then self:SetVerticalScroll(self:GetVerticalScrollRange()) end
+	end)
+	Core:AttachScrollbar(scroll, edit)
+end
+
 -- ---------------------------------------------------------------------------
 -- Export dialog: a read-only, pre-selected multiline box.
 -- ---------------------------------------------------------------------------
@@ -21,8 +36,8 @@ function SP:ShowExportDialog(str, title, heading)
 		exportDlg = Core:CreateDialog({
 			name = "ShamanPowerExportDialog", width = 460, height = 300,
 			title = "Export", subtitle = "copy this string", headerHeight = 46, footer = 44,
+			special = true, strata = "FULLSCREEN_DIALOG",
 		})
-		exportDlg:SetFrameStrata("FULLSCREEN_DIALOG")
 
 		local hint = exportDlg.body:CreateFontString(nil, "OVERLAY")
 		hint:SetFontObject(Core.fonts.rowDim)
@@ -31,15 +46,15 @@ function SP:ShowExportDialog(str, title, heading)
 		hint:SetJustifyH("LEFT")
 		hint:SetText("Press Ctrl+C to copy, then paste it wherever you like.")
 
-		local scroll = CreateFrame("ScrollFrame", "ShamanPowerExportScroll", exportDlg.body, "UIPanelScrollFrameTemplate")
+		local scroll = CreateFrame("ScrollFrame", nil, exportDlg.body)
 		scroll:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -8)
-		scroll:SetPoint("BOTTOMRIGHT", exportDlg.body, "BOTTOMRIGHT", -24, 0)
+		scroll:SetPoint("BOTTOMRIGHT", exportDlg.body, "BOTTOMRIGHT", -10, 0)
 		Core:SolidTex(scroll, "windowBg", "BACKGROUND")
 		Core:MakeBorder(scroll, "border")
 		local edit = CreateFrame("EditBox", nil, scroll)
 		edit:SetMultiLine(true)
 		edit:SetFontObject(Core.fonts.row)
-		edit:SetWidth(400)
+		edit:SetWidth(BOX_W)
 		edit:SetAutoFocus(false)
 		edit:SetTextInsets(6, 6, 6, 6)
 		edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
@@ -51,7 +66,8 @@ function SP:ShowExportDialog(str, title, heading)
 			end
 		end)
 		scroll:SetScrollChild(edit)
-		exportDlg.edit = edit
+		ScrollBox(scroll, edit)
+		exportDlg.edit, exportDlg.scroll = edit, scroll
 
 		local sel = Core:MakeButton(exportDlg, "Select All", 100, true)
 		sel:SetPoint("BOTTOMRIGHT", exportDlg, "BOTTOMRIGHT", -14, 12)
@@ -64,9 +80,8 @@ function SP:ShowExportDialog(str, title, heading)
 	-- Size the dialog to the content: a link or short string gets a one-line
 	-- box; long strings (profiles, WeakAuras) keep the big scrolling box.
 	local short = #str <= 80 and not str:find("\n")
-	exportDlg:SetHeight(short and 168 or 300)
-	local sb = _G["ShamanPowerExportScrollScrollBar"]
-	if sb then sb:SetShown(not short) end
+	exportDlg:SetHeight(short and 168 or 300)   -- the scroll bar hides itself when the string fits
+	exportDlg.scroll:SetVerticalScroll(0)
 	exportDlg:Show()
 	exportDlg.edit:SetFocus()
 	exportDlg.edit:HighlightText()
@@ -76,13 +91,14 @@ end
 -- Import dialog: paste box, optional profile name, Import button.
 -- ---------------------------------------------------------------------------
 local importDlg
+local IMPORT_H = 320
 function SP:ShowImportDialog()
 	if not importDlg then
 		importDlg = Core:CreateDialog({
-			name = "ShamanPowerImportDialog", width = 460, height = 320,
+			name = "ShamanPowerImportDialog", width = 460, height = IMPORT_H,
 			title = "Import", subtitle = "paste a string", headerHeight = 46, footer = 44,
+			special = true, strata = "FULLSCREEN_DIALOG",
 		})
-		importDlg:SetFrameStrata("FULLSCREEN_DIALOG")
 
 		local hint = importDlg.body:CreateFontString(nil, "OVERLAY")
 		hint:SetFontObject(Core.fonts.rowDim)
@@ -91,20 +107,21 @@ function SP:ShowImportDialog()
 		hint:SetJustifyH("LEFT")
 		hint:SetText("Paste a ShamanPower string, name the new profile, then Import.")
 
-		local scroll = CreateFrame("ScrollFrame", "ShamanPowerImportScroll", importDlg.body, "UIPanelScrollFrameTemplate")
+		local scroll = CreateFrame("ScrollFrame", nil, importDlg.body)
 		scroll:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -8)
-		scroll:SetPoint("BOTTOMRIGHT", importDlg.body, "BOTTOMRIGHT", -24, 30)
+		scroll:SetPoint("BOTTOMRIGHT", importDlg.body, "BOTTOMRIGHT", -10, 30)
 		Core:SolidTex(scroll, "windowBg", "BACKGROUND")
 		Core:MakeBorder(scroll, "border")
 		local edit = CreateFrame("EditBox", nil, scroll)
 		edit:SetMultiLine(true)
 		edit:SetFontObject(Core.fonts.row)
-		edit:SetWidth(400)
+		edit:SetWidth(BOX_W)
 		edit:SetAutoFocus(false)
 		edit:SetTextInsets(6, 6, 6, 6)
 		edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 		scroll:SetScrollChild(edit)
-		importDlg.edit = edit
+		ScrollBox(scroll, edit)
+		importDlg.edit, importDlg.scroll = edit, scroll
 
 		local nameLabel = importDlg.body:CreateFontString(nil, "OVERLAY")
 		nameLabel:SetFontObject(Core.fonts.rowDim)
@@ -118,12 +135,13 @@ function SP:ShowImportDialog()
 		nameBox:SetTextInsets(6, 6, 0, 0)
 		Core:SolidTex(nameBox, "windowBg", "BACKGROUND")
 		Core:MakeBorder(nameBox, "border")
+		nameBox:SetScript("OnEditFocusGained", function() Core:SetBorderColor(nameBox, "accent") end)
+		nameBox:SetScript("OnEditFocusLost", function() Core:SetBorderColor(nameBox, "border") end)
 		nameBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 		importDlg.nameBox = nameBox
 
 		local status = importDlg.body:CreateFontString(nil, "OVERLAY")
 		status:SetFontObject(Core.fonts.tiny)
-		status:SetPoint("BOTTOMLEFT", importDlg, "BOTTOMLEFT", 14, 16)
 		importDlg.status = status
 
 		local go = Core:MakeButton(importDlg, "Import", 100, true)
@@ -131,19 +149,37 @@ function SP:ShowImportDialog()
 		go:SetScript("OnClick", function()
 			local ok, res = SP:ImportShare(edit:GetText(), "newProfile", nameBox:GetText())
 			if ok then
-				status:SetTextColor(Core:Color("on"))
-				status:SetText("Imported into profile: " .. res)
+				importDlg:SetStatus("Imported into profile: " .. res, "on")
 				C_Timer.After(1.2, function() importDlg:Hide() end)
 			else
-				status:SetTextColor(Core:Color("warn"))
-				status:SetText("Import failed: " .. tostring(res))
+				importDlg:SetStatus("Import failed: " .. tostring(res), "warn")
 			end
 		end)
+		local cancel = Core:MakeButton(importDlg, "Cancel", 100, false)
+		cancel:SetPoint("RIGHT", go, "LEFT", -8, 0)
+		cancel:SetScript("OnClick", function() importDlg:Hide() end)
+		-- the status line sits left of the buttons and wraps in the room they leave,
+		-- up to 4px under the body, where the name row starts. One too tall for that
+		-- (a long profile name) lifts the name row and the string box by the
+		-- difference, and the dialog grows by as much.
+		status:SetPoint("BOTTOMLEFT", importDlg, "BOTTOMLEFT", 14, 16)
+		status:SetWidth(importDlg:GetWidth() - 14 - go:GetWidth() - 8 - cancel:GetWidth() - 12 - 14)
+		status:SetJustifyH("LEFT"); status:SetWordWrap(true)
+		local room = 44 + importDlg.pad - 4 - 16   -- the body's bottom (footer 44 + pad), 4px clear, above y 16
+		function importDlg:SetStatus(text, key)
+			if key then status:SetTextColor(Core:Color(key)) end
+			status:SetText(text)
+			local lift = math.max(0, math.ceil(status:GetStringHeight()) - room)
+			nameLabel:SetPoint("BOTTOMLEFT", self.body, "BOTTOMLEFT", 0, 6 + lift)
+			scroll:SetPoint("BOTTOMRIGHT", self.body, "BOTTOMRIGHT", -10, 30 + lift)
+			self:SetHeight(IMPORT_H + lift)
+		end
 	end
 
 	importDlg.edit:SetText("")
+	importDlg.scroll:SetVerticalScroll(0)
 	importDlg.nameBox:SetText("Imported")
-	importDlg.status:SetText("")
+	importDlg:SetStatus("")
 	importDlg:Show()
 	importDlg.edit:SetFocus()
 end
@@ -194,7 +230,7 @@ local function InjectProfileButtons()
 					if SP.Wizard and SP.Wizard.ShowPresetPreview then
 						SP.Wizard:ShowPresetPreview(preset, { fromSettings = true })
 					else
-						SP:ApplyPreset(preset.key, "overwrite"); ReloadUI()
+						SP:ApplyPreset(preset.key, "overwrite"); Core:RequestReload("Preset applied.")
 					end
 				end,
 			}
@@ -217,6 +253,8 @@ function SP:ShowWindfuryCompanion(link)
 end
 
 local function InjectCompanionPage()
+	-- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): no page there
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end
 	local root = SP.options
 	if not (root and root.args) or root.args.spWindfuryCompanion then return end
 	root.args.spWindfuryCompanion = {

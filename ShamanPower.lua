@@ -1,9 +1,23 @@
 ShamanPower = LibStub("AceAddon-3.0"):NewAddon("ShamanPower", "AceConsole-3.0", "AceEvent-3.0", "AceBucket-3.0", "AceTimer-3.0")
+-- Every chat line starts with the style guide's blue prefix (|cff0070ddShamanPower|r:);
+-- AceConsole's own Print would draw the name green. An optional first chat frame is kept.
+function ShamanPower:Print(...)
+	local frame = DEFAULT_CHAT_FRAME
+	local first = 1
+	local a = ...
+	if type(a) == "table" and a.AddMessage then frame, first = a, 2 end
+	local parts = {}
+	for i = first, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+	frame:AddMessage("|cff0070ddShamanPower|r: " .. table.concat(parts, " "))
+end
 
 ShamanPower.isVanilla = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_CLASSIC)
 ShamanPower.isBCC = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
 ShamanPower.isWrath = (_G.WOW_PROJECT_ID == _G.WOW_PROJECT_WRATH_CLASSIC)
 
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
+local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower", true)
 if not L then
 	L = setmetatable({}, {__index = function(t, k) return k end})
@@ -12,19 +26,25 @@ local LSM3 = LibStub("LibSharedMedia-3.0")
 
 -- Register WoW built-in sounds with LibSharedMedia
 -- (LSM:Register rejects "Sound\\" prefix, so insert directly into MediaTable)
+-- The Classic line plays these by path. The Mainline family (WoW: Forever)
+-- refuses a "Sound\\..." path outright - PlaySoundFile returns nothing and
+-- every alert picked from this list was silent there - and plays Blizzard's
+-- files by FileDataID only, so each entry carries both (IDs from the client's
+-- file list; 567397 = RaidWarning.ogg was measured to play on Forever).
 local SP_SOUNDS = {
-	["Raid Warning"]          = [[Sound\Interface\RaidWarning.ogg]],
-	["Alarm Clock Warning 1"] = [[Sound\Interface\AlarmClockWarning1.ogg]],
-	["Alarm Clock Warning 2"] = [[Sound\Interface\AlarmClockWarning2.ogg]],
-	["Alarm Clock Warning 3"] = [[Sound\Interface\AlarmClockWarning3.ogg]],
-	["Ready Check"]           = [[Sound\Interface\ReadyCheck.ogg]],
-	["Map Ping"]              = [[Sound\Interface\MapPing.ogg]],
-	["PVP Flag Taken"]        = [[Sound\Interface\PVPFlagTaken.ogg]],
-	["Quest Failed"]          = [[Sound\Interface\igQuestFailed.ogg]],
-	["Level Up"]              = [[Sound\Interface\LevelUp.ogg]],
+	["Raid Warning"]          = { [[Sound\Interface\RaidWarning.ogg]],          567397 },
+	["Alarm Clock Warning 1"] = { [[Sound\Interface\AlarmClockWarning1.ogg]],  567436 },
+	["Alarm Clock Warning 2"] = { [[Sound\Interface\AlarmClockWarning2.ogg]],  567399 },
+	["Alarm Clock Warning 3"] = { [[Sound\Interface\AlarmClockWarning3.ogg]],  567458 },
+	["Ready Check"]           = { [[Sound\Interface\ReadyCheck.ogg]],           567409 },
+	["Map Ping"]              = { [[Sound\Interface\MapPing.ogg]],              567416 },
+	["PVP Flag Taken"]        = { [[Sound\Interface\PVPFlagTaken.ogg]],         567466 },   -- PVPFlagTakenMono.ogg on Mainline
+	["Quest Failed"]          = { [[Sound\Interface\igQuestFailed.ogg]],        567459 },
+	["Level Up"]              = { [[Sound\Interface\LevelUp.ogg]],              567431 },
 }
-for name, path in pairs(SP_SOUNDS) do
-	LSM3.MediaTable.sound[name] = path
+local SP_SOUND_BY_ID = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+for name, entry in pairs(SP_SOUNDS) do
+	LSM3.MediaTable.sound[name] = SP_SOUND_BY_ID and entry[2] or entry[1]
 end
 local LUIDDM = LibStub("LibUIDropDownMenu-4.0")
 
@@ -43,7 +63,10 @@ local SP_SECURE_ONLEAVE_SELF = [[
 	self:ChildUpdate("show", false)
 ]]
 
-local SP_SECURE_ONLEAVE_PARENT = [[
+-- Flyout button leave, Classic clients (verified on Anniversary, issue #17):
+-- any shown sibling under the cursor keeps the flyout open, so moving between
+-- adjacent flyout buttons never closes it.
+local SP_SECURE_ONLEAVE_PARENT_CLASSIC = [[
 	local parent = self:GetParent()
 	if parent:IsUnderMouse() then return end
 	local children = newtable(parent:GetChildren())
@@ -54,14 +77,505 @@ local SP_SECURE_ONLEAVE_PARENT = [[
 	parent:ChildUpdate("show", false)
 ]]
 
+-- Mainline (retail / Forever) fires OnLeave (motion=true) the instant a secure
+-- click casts and drops mouse focus while the cursor is still over the button.
+-- At that moment the button itself and any decoration parked at the same spot
+-- (pulse frame, active overlay) are geometrically "under the mouse", so only
+-- siblings that take part in the flyout protocol may keep the flyout open.
+-- They are marked with the spFlyoutProtocol attribute: the restricted
+-- environment refuses to read any attribute whose name starts with "_", so
+-- testing for the _onleave snippet itself always came back nil.
+local SP_SECURE_ONLEAVE_PARENT_MAINLINE = [[
+	local parent = self:GetParent()
+	if parent:IsUnderMouse() then return end
+	local children = newtable(parent:GetChildren())
+	for i = 1, #children do
+		local c = children[i]
+		if c ~= self and c:GetAttribute("spFlyoutProtocol") and c:IsShown() and c:IsUnderMouse() then return end
+	end
+	parent:ChildUpdate("show", false)
+]]
+
+local SP_SECURE_ONLEAVE_PARENT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+	and SP_SECURE_ONLEAVE_PARENT_MAINLINE or SP_SECURE_ONLEAVE_PARENT_CLASSIC
+
+-- Every secure snippet write goes through here.
+--
+-- A client that cannot compile snippet bodies throws a Lua error every single
+-- time the script fires, which on an _onenter snippet means an error per
+-- mouseover. Forever beta 1.60.1.69913 is such a client: Blizzard's
+-- RestrictedExecution.lua captures `loadstring_untainted` as an upvalue, but
+-- that global only exists in the secure environment, so the upvalue is nil and
+-- compilation dies at its line 79. Writing the attribute there buys nothing
+-- (the snippet can never run) and costs an error storm, so we simply do not
+-- write it, and actively clear any stale value.
+--
+-- SPCompat.SecureSnippetsWork() probes rather than checking the client, so the
+-- secure path returns by itself the moment Blizzard fixes it.
+function ShamanPower:SetSnippet(frame, attr, body)
+	if not frame or not frame.SetAttribute then return false end
+	if SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork() then
+		frame:SetAttribute(attr, nil)
+		ShamanPower:WireFlyoutFallback(frame, attr)
+		return false
+	end
+	frame:SetAttribute(attr, body)
+	return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Plain-script flyout fallback.
+--
+-- The secure snippets ARE the flyout: the parent broadcasts ChildUpdate("show")
+-- on enter, each child decides whether to appear, and leave hides them once the
+-- cursor is off the parent and every shown child. On a client that cannot
+-- compile snippets none of that runs, so flyouts never open at all and there is
+-- no way to pick a different totem.
+--
+-- This reproduces the same protocol with ordinary scripts. It only works out of
+-- combat, because Show and Hide are protected methods on this client, and that
+-- is the honest trade: a flyout that works while you are standing still beats
+-- one that never works. In combat the buttons keep whatever the bar assigned.
+--
+-- Wired from SetSnippet so every flyout in the addon is covered by the same
+-- code, and so it disappears by itself the moment snippets start working again.
+-- ---------------------------------------------------------------------------
+local FLYOUT_LEAVE_GRACE = 0.08   -- lets the cursor cross the gap parent->child
+
+-- ---------------------------------------------------------------------------
+-- Click-to-open flyouts that work IN COMBAT without snippets ("box mode").
+--
+-- Measured on the Forever beta (2026-09-21), all three in combat:
+--   * a SecureActionButton of type "attribute" may set an attribute on a
+--     protected frame (SECURE_ACTIONS.attribute is plain Lua, no snippet);
+--   * a protected frame registered with RegisterUnitWatch is shown/hidden by
+--     Blizzard's own manager according to its "unit" attribute ("player"
+--     exists -> shown, "none" -> hidden), re-checked every 0.2 s;
+--   * a macro may press such a button with "/click Name LeftButton 1" (the
+--     bare form sends a release, which key-down casting ignores).
+-- So each element's flyout buttons live in one watched box; an arrow on the
+-- totem button opens it, a second arrow inside it closes it, and picking a
+-- totem casts and closes in the same click. Out of combat the hover behaviour
+-- is unchanged, it just drives the same box. Only used while snippets are
+-- broken, so it retires itself when Blizzard fixes them.
+-- ---------------------------------------------------------------------------
+local FLYOUT_ARROW = 16   -- room the arrow tab takes between the totem button and its flyout
+
+-- Blizzard's own totem-bar flyout tabs (Interface\\Buttons\\UI-TotemBar, 128x256):
+-- a 28x18 tab per element, one pointing away from the button (open) and one
+-- pointing back at it (close), plus a 20x11 additive glow for hover. Values
+-- are the ones in Blizzard_ActionBar/Shared/MultiCastActionBarFrame.lua.
+-- Indexed by ShamanPower element: 1 Earth, 2 Fire, 3 Water, 4 Air.
+local ARROW_TEXTURE = "Interface\\Buttons\\UI-TotemBar"
+local ARROW_W, ARROW_H = 28, 18
+local ARROW_OPEN = {
+	{ 99 / 128, 127 / 128, 160 / 256, 178 / 256 },   -- earth
+	{ 99 / 128, 127 / 128, 122 / 256, 140 / 256 },   -- fire
+	{ 99 / 128, 127 / 128, 199 / 256, 217 / 256 },   -- water
+	{ 99 / 128, 127 / 128, 237 / 256, 255 / 256 },   -- air
+	{ 99 / 128, 127 / 128,  84 / 256, 102 / 256 },   -- neutral ("summon"): cooldown bar flyouts
+}
+local ARROW_CLOSE = {
+	{ 99 / 128, 127 / 128, 141 / 256, 159 / 256 },
+	{ 99 / 128, 127 / 128, 103 / 256, 121 / 256 },
+	{ 99 / 128, 127 / 128, 180 / 256, 198 / 256 },
+	{ 99 / 128, 127 / 128, 218 / 256, 236 / 256 },
+	{ 99 / 128, 127 / 128,  65 / 256,  83 / 256 },
+}
+-- Blizzard's flyout frame (opt.flyoutStyle == "frame"): a 32x20 cap that holds
+-- the close tab, over a band that stretches behind the buttons. Same indexing
+-- as the tabs; 5 is the neutral set. From FLYOUT_TOP/MIDDLE_TCOORDS.
+local FRAME_CAP = {
+	{  0 / 128, 32 / 128, 46 / 256,  68 / 256 },   -- earth
+	{ 33 / 128, 65 / 128, 46 / 256,  68 / 256 },   -- fire
+	{  0 / 128, 32 / 128,  1 / 256,  23 / 256 },   -- water
+	{  0 / 128, 32 / 128, 91 / 256, 113 / 256 },   -- air
+	{ 33 / 128, 65 / 128,  1 / 256,  23 / 256 },   -- neutral
+}
+local FRAME_BAND = {
+	{  0 / 128, 32 / 128,  68 / 256,  88 / 256 },
+	{ 33 / 128, 65 / 128,  68 / 256,  88 / 256 },
+	{  0 / 128, 32 / 128,  23 / 256,  43 / 256 },
+	{  0 / 128, 32 / 128, 113 / 256, 133 / 256 },
+	{ 33 / 128, 65 / 128,  23 / 256,  43 / 256 },
+}
+
+-- The flyout panel art has no bottom edge: on Blizzard's bar it stands on the
+-- square border drawn round the slot button (SLOT_OVERLAY_TCOORDS, 34 px round
+-- a 30 px button). Drawn round our totem button it closes the frame off the
+-- same way. The fifth, brown square is in the texture but unused by Blizzard;
+-- it serves as the neutral one for the cooldown bar.
+local FRAME_SLOT = {
+	{  1 / 128, 35 / 128, 172 / 256, 206 / 256 },   -- earth
+	{ 36 / 128, 70 / 128, 172 / 256, 206 / 256 },   -- fire
+	{  1 / 128, 35 / 128, 207 / 256, 240 / 256 },   -- water
+	{ 36 / 128, 70 / 128, 137 / 256, 171 / 256 },   -- air
+	{  1 / 128, 35 / 128, 137 / 256, 171 / 256 },   -- neutral
+}
+
+-- The faded totem Blizzard's bar shows for "leave this slot empty"
+-- (SLOT_EMPTY_TCOORDS), per element; used for the flyout's Empty choice.
+local SLOT_EMPTY = {
+	{ 66 / 128, 96 / 128,   3 / 256,  33 / 256 },   -- earth
+	{ 67 / 128, 97 / 128, 100 / 256, 130 / 256 },   -- fire
+	{ 39 / 128, 69 / 128, 209 / 256, 239 / 256 },   -- water
+	{ 66 / 128, 96 / 128,  36 / 256,  66 / 256 },   -- air
+}
+
+-- A totem button with nothing assigned wears the same faded totem, in its
+-- element's colour, instead of a spell icon that reads as a real totem. It is a
+-- texture laid over the icon, so it can change mid-fight. Forever only: the
+-- Classic line keeps the look it shipped with.
+local EMPTY_SLOT_ART = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+function ShamanPower:ShowEmptySlotArt(element, empty)
+	if not EMPTY_SLOT_ART then return end
+	local btn = self.totemButtons and self.totemButtons[element]
+	if not (btn and btn.icon) then return end
+	if element == 4 and self.opt.enableTotemTwisting then empty = false end   -- twisting draws Air itself
+	if btn.compactLayoutOn then empty = false end   -- Compact draws a line, not an icon
+	local art = btn.emptyArt
+	if empty and not art then
+		art = btn:CreateTexture(nil, "ARTWORK", nil, 1)
+		art:SetAllPoints(btn.icon)
+		art:SetTexture(ARROW_TEXTURE)
+		local c = SLOT_EMPTY[element] or SLOT_EMPTY[1]
+		art:SetTexCoord(c[1], c[2], c[3], c[4])
+		btn.emptyArt = art
+	end
+	if art then art:SetShown(empty and true or false) end
+	if empty then btn.icon:SetTexture(nil) end   -- the art has rounded corners; nothing should peek out behind them
+end
+
+local ARROW_GLOW_OPEN  = { 0.5625, 0.71875, 0.34375, 0.3828125 }      -- up-arrow shaped
+local ARROW_GLOW_CLOSE = { 0.5625, 0.71875, 0.26953125, 0.30859375 }  -- down-arrow shaped
+
+-- The art is drawn for a flyout that opens upward. For the other three
+-- directions the texture is turned by remapping its corners (UL, LL, UR, LR),
+-- which stays inside the tab's own rectangle; SetRotation would not.
+local function spArrowCoords(c, dir)
+	local l, r, t, b = c[1], c[2], c[3], c[4]
+	if dir == "bottom" then return r, b, r, t, l, b, l, t end
+	if dir == "left" then return r, t, l, t, r, b, l, b end
+	if dir == "right" then return l, b, r, b, l, t, r, t end
+	return l, t, l, b, r, t, r, b
+end
+
+-- The arrow strip only exists during a fight. PLAYER_REGEN_DISABLED fires just
+-- BEFORE the UI locks, which is the last moment secure frames may be moved, so
+-- that is where the flyouts shift out to make room and the arrows appear; both
+-- are undone when the fight ends. Out of combat nothing is different.
+local spFlyoutCombatLayout = false
+
+-- Room kept between the totem button and its first flyout icon. Only the
+-- icons-only style needs any, and only in combat: there the close tab sits
+-- against the button while the flyout is open. In the frame style the close tab
+-- is at the far end, and the open tab is simply covered by the first icon.
+local function spFlyoutBoxMode()
+	return (SPCompat and SPCompat.SecureSnippetsWork and not SPCompat.SecureSnippetsWork()) and true or false
+end
+
+-- The arrow strip is laid out during a fight, and all the time for players who
+-- asked for that: opt.flyoutArrowsAlways, or opt.flyoutArrowOnly (flyouts open
+-- from the arrow or a key and never from hovering, which needs the arrow there).
+local function spFlyoutArrowLayout()
+	if spFlyoutCombatLayout then return true end
+	local o = ShamanPower.opt
+	return (o and (o.flyoutArrowsAlways or o.flyoutArrowOnly) and spFlyoutBoxMode()) and true or false
+end
+
+function ShamanPower:FlyoutArrowOnly()
+	return (self.opt and self.opt.flyoutArrowOnly and spFlyoutBoxMode()) and true or false
+end
+
+-- "Flyout requires right-click" is a snippet-era mode: the right-click opened the
+-- flyout through a secure handler, in combat too. Box mode has no such handler
+-- (arrows and keys open flyouts there), so the option is retired in box mode and
+-- right-click keeps its normal job.
+function ShamanPower:FlyoutOpensOnRightClick()
+	return (self.opt and self.opt.flyoutRequiresClick and not spFlyoutBoxMode()) and true or false
+end
+
+local function spFlyoutLeadGap()
+	if not spFlyoutArrowLayout() then return 0 end
+	if ShamanPower.opt and ShamanPower.opt.flyoutStyle == "frame" then return 0 end
+	return FLYOUT_ARROW
+end
+
+-- Flyout buttons hang from the box in box mode; hooks written against the
+-- totem button find it through here.
+local function spFlyoutOwner(child)
+	local p = child and child:GetParent()
+	return (p and p.spFlyoutOwner) or p
+end
+
+local function spFlyoutChildren(parent)
+	local out = {}
+	if not parent or not parent.GetChildren then return out end
+	for _, c in ipairs({ parent:GetChildren() }) do
+		if c.spFlyoutChild then out[#out + 1] = c end
+	end
+	local box = parent.spFlyoutBox
+	if box then
+		for _, c in ipairs({ box:GetChildren() }) do
+			if c.spFlyoutChild then out[#out + 1] = c end
+		end
+	end
+	return out
+end
+
+local function spFlyoutMouseIsOn(parent)
+	if not parent then return false end
+	if parent.IsMouseOver and parent:IsMouseOver() then return true end
+	-- the arrow strip sits between the totem button and its flyout
+	local open, close = parent.spFlyoutOpenArrow, parent.spFlyoutCloseArrow
+	if open and open:IsVisible() and open:IsMouseOver() then return true end
+	if close and close:IsVisible() and close:IsMouseOver() then return true end
+	-- Buttons may hang from the totem button (secure path) or from the
+	-- unprotected host (fallback path). Check both, or moving the cursor onto a
+	-- flyout button reads as "left the flyout" and closes it instantly.
+	for _, c in ipairs(spFlyoutChildren(parent)) do
+		if c:IsShown() and c.IsMouseOver and c:IsMouseOver() then return true end
+	end
+	return false
+end
+
+-- A rebuilt flyout makes new buttons under the names the old ones had. The
+-- template's icon used to be fetched through its GLOBAL name, and after a rebuild
+-- that name still led to the retired button's texture: the new buttons were laid
+-- out, clickable and labelled, with no icon on them (found by toggling the click
+-- swap, which rebuilds). Take the region from the button itself, then point the
+-- globals at the live objects so name lookups (key bindings, /click) agree.
+local function spOwnIcon(btn)
+	local name = btn:GetName()
+	local icon
+	if name then
+		for _, region in ipairs({ btn:GetRegions() }) do
+			if region.GetName and region:GetName() == name .. "Icon" then icon = region break end
+		end
+	end
+	icon = icon or btn:CreateTexture(nil, "ARTWORK")
+	if name then
+		_G[name] = btn
+		_G[name .. "Icon"] = icon
+	end
+	return icon
+end
+
+-- Parents with a flyout left open when combat started, so it can be closed the
+-- moment the fight ends rather than hanging there.
+local spFlyoutStuck = {}
+
+function ShamanPower:FlyoutFallbackSetShown(parent, show)
+	if parent and parent.spGridPinned then return end
+	local inCombat = InCombatLockdown()
+
+	-- Box mode: one watched container per flyout. Out of combat we set its unit
+	-- and show it directly (no 0.2 s wait); in combat only the arrows may touch
+	-- it, so a hover-close there is left for the sweep when the fight ends.
+	local box = parent and parent.spFlyoutBox
+	if box then
+		if inCombat then
+			if not show then spFlyoutStuck[parent] = true end
+			return
+		end
+		if show then
+			-- Which buttons belong (the assigned totem does not) is only known
+			-- to the flyout's own layout pass, and at login that has not run
+			-- yet, so the assigned totem showed up twice. Refresh on every open.
+			for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+				if entry.button == parent then pcall(entry.relayout) break end
+			end
+		end
+		box:SetAttribute("unit", show and "player" or "none")
+		box:SetShown(show and true or false)
+		ShamanPower:SyncFlyoutToggle(parent, show)
+		return
+	end
+
+	-- The buttons are children of the totem button, which is a secure action
+	-- button and therefore protected, so showing them in combat is refused.
+	-- An unprotected container was tried and removed: protection propagates
+	-- upward from the secure buttons inside it, so it changed nothing and cost
+	-- the buttons the totem button's scale. Blizzard's own MultiCastFlyoutFrame
+	-- only escapes this because its buttons assign totems rather than cast them.
+	--
+	-- Opening in combat is therefore declined, and so is closing: Hide on a
+	-- secure button is refused in combat even when it is already hidden, and
+	-- every refusal prints "Interface action failed because of an AddOn". So
+	-- only buttons that are actually open are touched, and in combat those are
+	-- left for the PLAYER_REGEN_ENABLED sweep below, which closes them the
+	-- moment the fight ends.
+	if show and inCombat then return end
+	for _, c in ipairs(spFlyoutChildren(parent)) do
+		if show then
+			-- "inactive": a loadout flyout slot with no loadout in it
+			if not c:GetAttribute("isCurrentAssignment") and not c:GetAttribute("flyoutHidden") and not c:GetAttribute("inactive") then
+				c:Show()
+			end
+		elseif c:IsShown() then
+			if inCombat or not pcall(c.Hide, c) then
+				spFlyoutStuck[parent] = true
+			end
+		end
+	end
+end
+
+-- Safety net: close anything combat refused to close, the instant it ends.
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_REGEN_ENABLED")
+	f:RegisterEvent("PLAYER_REGEN_DISABLED")
+	-- Shift every box-mode flyout to the combat layout (room for the arrows,
+	-- arrows shown) or back. Must run synchronously inside the event: on
+	-- PLAYER_REGEN_DISABLED the UI is not locked yet, a frame later it is.
+	local function setCombatLayout(on)
+		spFlyoutCombatLayout = on
+		ShamanPower.flyoutArrowGap = spFlyoutArrowLayout() and FLYOUT_ARROW or 0
+		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+			local flyout = entry.flyout
+			if flyout and flyout.box then
+				flyout.leadGap = ShamanPower:FlyoutLeadGap(flyout)
+				pcall(entry.relayout)   -- re-lays out, then places the arrows
+			end
+			-- what we draw outside the button follows its tab (placing the arrows does
+			-- this; here too for a relayout that stopped short, a no-op otherwise)
+			if entry.button then ShamanPower:FollowFlyoutArrows(entry.button) end
+		end
+		if ShamanPower.PositionActiveOverlays then ShamanPower:PositionActiveOverlays() end
+		if on and ShamanPower.RefreshTotemBarHelpers then ShamanPower:RefreshTotemBarHelpers() end
+	end
+
+	-- the arrow options changed: lay everything out again (out of combat; a change
+	-- made mid-fight is picked up by the relayout when the fight ends)
+	function ShamanPower:RefreshFlyoutLayout()
+		if InCombatLockdown() then return end
+		setCombatLayout(false)
+	end
+
+	f:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_DISABLED" then
+			setCombatLayout(true)
+			return
+		end
+		-- box mode: anything opened during the fight closes now, unless the
+		-- cursor is still on it
+		for _, entry in pairs(ShamanPower.boxFlyouts or {}) do
+			local btn = entry.button
+			local box = btn and btn.spFlyoutBox
+			if box and not btn.spGridPinned and box:IsShown()
+				and not spFlyoutMouseIsOn(btn) and not ShamanPower:FlyoutArrowOnly() then
+				box:SetAttribute("unit", "none")
+				box:Hide()
+			end
+			if box and not box:IsShown() then ShamanPower:SyncFlyoutToggle(btn, false) end
+		end
+		for parent in pairs(spFlyoutStuck) do
+			if parent and parent.GetChildren and not parent.spFlyoutBox and not parent.spGridPinned then
+				for _, c in ipairs(spFlyoutChildren(parent)) do pcall(c.Hide, c) end
+			end
+		end
+		wipe(spFlyoutStuck)
+		setCombatLayout(false)
+		if ShamanPower.flyoutArrowModePending then ShamanPower:ApplyFlyoutArrowMode() end
+		if ShamanPower.clickSwapPending then ShamanPower:ApplyClickSwap() end
+		if ShamanPower.flyoutPickPending then ShamanPower:ApplyFlyoutPickMacros() end
+	end)
+end
+
+-- True while the cursor is inside the rectangle spanning a button and its open
+-- box-mode flyout. The space between them (arrow strip, Compact's icon square)
+-- belongs to no frame, and the leave grace is far too short to cross it.
+local function spFlyoutCursorInSpan(parent)
+	local box = parent and parent.spFlyoutBox
+	if not (box and box:IsShown()) then return false end
+	local x, y = GetCursorPosition()
+	local l, r, t, b
+	local function add(f)
+		if not (f and f:IsVisible() and f:GetLeft()) then return end
+		local s = f:GetEffectiveScale()
+		local fl, fr, ft, fb = f:GetLeft() * s, f:GetRight() * s, f:GetTop() * s, f:GetBottom() * s
+		l = l and math.min(l, fl) or fl
+		r = r and math.max(r, fr) or fr
+		t = t and math.max(t, ft) or ft
+		b = b and math.min(b, fb) or fb
+	end
+	add(parent)
+	for _, c in ipairs(spFlyoutChildren(parent)) do add(c) end
+	return (l and x >= l and x <= r and y >= b and y <= t) and true or false
+end
+
+local function spFlyoutScheduleClose(parent)
+	if not parent or parent.spGridPinned then return end
+	-- opened with the arrow or a key, closed the same way (or by picking)
+	if parent.spFlyoutBox and ShamanPower:FlyoutArrowOnly() then return end
+	C_Timer.After(FLYOUT_LEAVE_GRACE, function()
+		if not parent or parent.spGridPinned or spFlyoutMouseIsOn(parent) then return end
+		if spFlyoutCursorInSpan(parent) then
+			-- between the button and its flyout: no frame there will report a leave,
+			-- so keep watching until the cursor lands on something or moves away
+			spFlyoutScheduleClose(parent)
+			return
+		end
+		ShamanPower:FlyoutFallbackSetShown(parent, false)
+	end)
+end
+
+function ShamanPower:WireFlyoutFallback(frame, attr)
+	if attr == "_onenter" then
+		if frame.spFlyoutHostWired then return end
+		frame.spFlyoutHostWired = true   -- hook-once marker, not a frame
+		frame:HookScript("OnEnter", function(self)
+			if self:GetAttribute("OpenMenu") == "mouseover" and not (self.spFlyoutBox and ShamanPower:FlyoutArrowOnly()) then
+				ShamanPower:FlyoutFallbackSetShown(self, true)
+			end
+		end)
+		frame:HookScript("OnLeave", function(self) spFlyoutScheduleClose(self) end)
+		-- click mode: the snippet path toggles on click, so mirror that
+		frame:HookScript("OnClick", function(self)
+			if self:GetAttribute("OpenMenu") == "click" then
+				local anyShown = false
+				if self.spFlyoutBox then
+					-- box mode keeps its buttons shown inside a hidden box
+					anyShown = self.spFlyoutBox:IsShown()
+				else
+					for _, c in ipairs(spFlyoutChildren(self)) do
+						if c:IsShown() then anyShown = true break end
+					end
+				end
+				ShamanPower:FlyoutFallbackSetShown(self, not anyShown)
+			end
+		end)
+
+	elseif attr == "_childupdate-show" then
+		-- mark it so the parent can find it, and close when the cursor leaves
+		frame.spFlyoutChild = true
+		if frame.spFlyoutChildWired then return end
+		frame.spFlyoutChildWired = true
+		frame:HookScript("OnLeave", function(self) spFlyoutScheduleClose(spFlyoutOwner(self)) end)
+		frame:HookScript("OnClick", function(self)
+			-- picking one closes the flyout, matching the secure behaviour
+			spFlyoutScheduleClose(spFlyoutOwner(self))
+		end)
+	end
+end
+
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
 local UnitAura = LCD and LCD.UnitAuraWrapper or UnitAura
+-- Guarded natives on restricted clients; the globals stay untouched so Blizzard
+-- code is never tainted by calling into us (see SPCompat)
+local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo
+-- Forever returns a LIST of enchants per weapon; the legacy global only ever
+-- describes the first entry, which is empty when the imbue lands in the second.
+local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
+local GetSpellCooldown = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
 
 local tinsert = table.insert
 local tremove = table.remove
 local twipe = table.wipe
 local tsort = table.sort
 local strfind = string.find
+local strmatch = string.match
 local strsub = string.sub
 local format = string.format
 
@@ -72,10 +586,15 @@ for i = 0, 20 do
 end
 
 ShamanPower.player = UnitName("player")
+-- These three are DECLARED SavedVariables. Assigning a fresh table at file
+-- scope throws away whatever was restored, so they must be `or {}`.
+-- It is harmless on a client that restores after the chunk runs and essential
+-- on one that restores before it, and nothing downstream can tell the
+-- difference. ShamanPower_Talents is not a SavedVariable, so it is fine as is.
 ShamanPower_Talents = {}
-ShamanPower_Assignments = {}
-ShamanPower_EarthShieldAssignments = {}  -- Maps shamanName -> targetName
-ShamanPower_TwistAssignments = {}  -- Maps shamanName -> true/false for totem twisting
+ShamanPower_Assignments = ShamanPower_Assignments or {}
+ShamanPower_EarthShieldAssignments = ShamanPower_EarthShieldAssignments or {}  -- Maps shamanName -> targetName
+ShamanPower_TwistAssignments = ShamanPower_TwistAssignments or {}  -- Maps shamanName -> true/false for totem twisting
 
 ShamanPower.AllShamans = {}
 ShamanPower.SyncList = {}
@@ -97,6 +616,44 @@ ShamanPower.updateSystem = {
 	subsystems = {},  -- {name = {interval=seconds, elapsed=0, callback=func, enabled=false}}
 	activeList = {},  -- Array of enabled subsystem references for fast iteration
 }
+
+-- The per-tick loops (pulse 20 Hz, progress bars 10 Hz) used to do their full work
+-- with no totem on the ground - most of what the addon cost while idle. This is
+-- the question they sleep on. The answer is kept for half a second and dropped at
+-- once on PLAYER_TOTEM_UPDATE (a totem placed, expired, destroyed or recalled), so
+-- a drop is seen on the next tick. Any doubt (an error, an unreadable value) counts
+-- as "yes": the loops then simply run as they always did.
+local function spElementHasTotem(self, element)
+	local have = self:GetElementTotemInfo(element)
+	if have then return true end
+	return false
+end
+
+function ShamanPower:AnyTotemDown()
+	local now = GetTime()
+	if self._totemDownAt and (now - self._totemDownAt) < 0.5 then return self._totemDown end
+	self._totemDownAt = now
+	local down = false
+	for element = 1, 4 do
+		local ok, res = pcall(spElementHasTotem, self, element)
+		if not ok or res then down = true break end
+	end
+	self._totemDown = down
+	return down
+end
+
+-- Runs fn while a totem is down, and twice more after the last one goes so the
+-- bars / glows it drew are cleared; then not at all until a totem is down again.
+local function spWhileTotemsDown(state, fn)
+	if ShamanPower:AnyTotemDown() then
+		state.idle = 0
+	else
+		state.idle = (state.idle or 0) + 1
+		if state.idle > 2 then return end
+	end
+	fn()
+end
+ShamanPower._whileTotemsDown = spWhileTotemsDown
 
 function ShamanPower:InitUpdateSystem()
 	if self.updateSystem.frame then return end
@@ -261,7 +818,12 @@ function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
 end
 
 function ShamanPower:GetSoundFile(soundName)
-	return LSM3:Fetch("sound", soundName) or [[Sound\Interface\RaidWarning.ogg]]
+	-- a FileDataID (number) on the Mainline family, a path elsewhere; PlaySoundFile takes either.
+	-- noDefault: an unregistered name (a stale saved value) must not fall through to
+	-- SharedMedia's default, which is the silent "None" - it gets Raid Warning instead.
+	local file = soundName and LSM3:Fetch("sound", soundName, true)
+	if file == nil or file == "" then file = LSM3:Fetch("sound", "Raid Warning", true) end
+	return file or (SP_SOUND_BY_ID and 567397 or [[Sound\Interface\RaidWarning.ogg]])
 end
 
 -------------------------------------------------------------------
@@ -304,8 +866,10 @@ function ShamanPower:OnInitialize()
 
 	if select(2, UnitClass("player")) == "SHAMAN" then
 		self.db = LibStub("AceDB-3.0"):New("ShamanPowerDB", SHAMANPOWER_DEFAULT_VALUES, "Default")
+		self:KeepOldLookOnSavedProfiles()
 	else
 		self.db = LibStub("AceDB-3.0"):New("ShamanPowerDB", SHAMANPOWER_OTHER_VALUES, "Other")
+		self:KeepOldLookOnSavedProfiles()   -- before SetProfile lays the defaults into a profile
 		self.db:SetProfile("Other")
 	end
 
@@ -314,7 +878,13 @@ function ShamanPower:OnInitialize()
 	self.db.RegisterCallback(self, "OnProfileReset", "OnProfileChanged")
 
 	self.opt = self.db.profile
+	self:ClearTwistingOnForever()
 	MigrateMiniBarProfile(self.db, self.opt)
+	-- switched off at login: the central update loop stays stopped (switch-on starts it)
+	self._appliedOff = self:IsOff()   -- the state everything was last set up for
+	if self._appliedOff then self.updateSystem.frame:Hide() end
+	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
+	if self.ApplyElementColors then self:ApplyElementColors() end
 	-- The cooldown bar now always floats free of the totem bar (the old
 	-- attach option was removed). Detach any profile still attached.
 	if self.opt.cooldownBarLocked then self.opt.cooldownBarLocked = nil end
@@ -373,12 +943,24 @@ function ShamanPower:OnInitialize()
 			["OnTooltipShow"] = function(tooltip)
 				if self.opt.ShowTooltips then
 					tooltip:SetText(SHAMANPOWER_NAME)
-					tooltip:AddLine(L["MINIMAP_ICON_TOOLTIP"])
+					if self:IsOff() then
+						tooltip:AddLine("ShamanPower is off. Click to turn it back on.", 1, 1, 1, true)
+					elseif self:WindfuryOnly() then
+						tooltip:AddLine("Windfury-only mode. Click to turn the other features back on.", 1, 1, 1, true)
+					else
+						tooltip:AddLine(L["MINIMAP_ICON_TOOLTIP"])
+					end
 					tooltip:Show()
 				end
 			end,
 			["OnClick"] = function(_, button)
 				local playerIsShaman = select(2, UnitClass("player")) == "SHAMAN"
+				-- Switched off, or Windfury-only mode: every click opens the one menu
+				-- that turns the rest back on
+				if (ShamanPower:IsOff() or ShamanPower:WindfuryOnly()) and ShamanPower.ShowMinimapMenu then
+					ShamanPower:ShowMinimapMenu()
+					return
+				end
 
 				if (button == "LeftButton") then
 					if playerIsShaman then
@@ -394,8 +976,11 @@ function ShamanPower:OnInitialize()
 				elseif (button == "MiddleButton") then
 					-- Middle click: open /sp totems (for non-shamans, or anyone)
 					ShamanPower:ToggleAssignmentWindow()
-				else
+				elseif IsShiftKeyDown() or not ShamanPower.ShowMinimapMenu then
 					self:OpenConfigWindow()
+				else
+					-- right-click: the quick menu (shift-right-click: settings straight away)
+					ShamanPower:ShowMinimapMenu()
 				end
 			end
 		}
@@ -408,8 +993,9 @@ function ShamanPower:OnInitialize()
 		end
 	)
 
-	if self.isVanilla then
-		LCD:Register("ShamanPower")
+	if self.isVanilla and LCD then
+		-- LCD registers COMBAT_LOG_EVENT_UNFILTERED; a client that forbids it must not abort OnEnable
+		pcall(LCD.Register, LCD, "ShamanPower")
 	end
 
 	-- the transition from TBC Classic to Wrath Classic has caused some errors for players with SavedVariables values intended for the 2.5.4 clients and earlier
@@ -478,13 +1064,30 @@ function ShamanPower:RestoreTotemBarPosition()
 	local d = self.opt.display
 	h:SetScale(self.opt.buffscale or 0.9)   -- records are scale-free; SetPoint is not
 	self._barScaleApplied = true
-	-- Compact style uses its own saved spot once it has one; until then it
-	-- starts wherever the icon bar is.
-	local rec = d.position
-	if self.CompactActive and self:CompactActive() and d.compactPosition and d.compactPosition.anchor then
-		rec = d.compactPosition
+	-- Upgrading from 2.x (Anniversary): a bar never dragged sat at dead centre (its
+	-- 1x1 anchor there) and saved no spot. Save that spot once, so only new setups
+	-- get the new default. A profile used by 2.x finished or skipped its setup, or
+	-- saved a cooldown bar spot; one set up by 3.0 records how (setupPath).
+	if not d.defaultSpotChecked then
+		d.defaultSpotChecked = true
+		local o = self.opt
+		local upgrade = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
+		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
+		if upgrade and not (d.position and d.position.anchor) and not legacy then
+			d.position = { anchor = "CENTER", x = 0, y = 0 }
+		end
+		-- Its cooldown bar likewise: with no saved spot and its old fields still at the
+		-- CENTER 0,-50 default, 2.x put it 50 of its own units below the centre, at its
+		-- own scale. (Old fields moved off that default convert where the bar is placed.)
+		if upgrade and not (o.cooldownBarPosition and o.cooldownBarPosition.anchor)
+			and (o.cooldownBarPosX or 0) == 0 and (o.cooldownBarPosY or -50) == -50
+			and (o.cooldownBarPoint or "CENTER") == "CENTER" and (o.cooldownBarRelPoint or "CENTER") == "CENTER" then
+			o.cooldownBarPosition = { anchor = "CENTER", x = 0, y = -50 * (o.cooldownBarScale or 0.9) }
+		end
 	end
-	if rec and rec.anchor then
+	self._barSpotKey = self:BarStyleSpotKey()   -- FollowStyleSpot: the spot now applied
+	local rec = self:TotemBarRecord()
+	if rec then
 		self:ApplyPositionRecord(h, rec)
 	elseif d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0 then
 		h:ClearAllPoints()
@@ -492,26 +1095,30 @@ function ShamanPower:RestoreTotemBarPosition()
 		d.position = self:SavePositionRecord(h)
 		d.offsetX, d.offsetY = nil, nil
 	else
-		h:ClearAllPoints()
-		h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		self:ApplyDefaultBarPositions()
 	end
 end
 
 function ShamanPower:SaveFramePosition(frame)
 	self:EnsureProfileTable("display")
-	-- The Compact style keeps its own spot: it is small enough to tuck away
-	-- somewhere the icon bar would not fit, and switching back brings the icon
-	-- bar home again.
-	if frame == _G["ShamanPowerFrame"] and self.CompactActive and self:CompactActive() then
-		self.db.profile.display.compactPosition = self:SavePositionRecord(frame)
-		return
-	end
-	self.db.profile.display.position = self:SavePositionRecord(frame)
-	self.db.profile.display.offsetX, self.db.profile.display.offsetY = nil, nil
+	-- every style keeps its own spot (BarStyleSpotKey)
+	local d = self.db.profile.display
+	local key = frame == _G["ShamanPowerFrame"] and self:BarStyleSpotKey() or "normal"
+	self:SetStyleSpot(d, key, self:SavePositionRecord(frame))
+	if key == "normal" then d.offsetX, d.offsetY = nil, nil end
+	self:ApplyDefaultBarPositions()   -- a cooldown bar on its default spot follows
 end
 
 function ShamanPower:OnEnable()
 	isShaman = select(2, UnitClass("player")) == "SHAMAN"
+	if not self:FixPlayerIdentity() then
+		local f = CreateFrame("Frame")
+		f:RegisterEvent("PLAYER_ENTERING_WORLD")
+		f:RegisterUnitEvent("UNIT_NAME_UPDATE", "player")
+		f:SetScript("OnEvent", function(frame)
+			if ShamanPower:FixPlayerIdentity() then frame:UnregisterAllEvents() end
+		end)
+	end
 
 	self.opt.enable = true
 	self:ScanTalents()
@@ -519,9 +1126,8 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("CHAT_MSG_ADDON")
 	self:RegisterEvent("ZONE_CHANGED")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-	self:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
-	self:RegisterEvent("UNIT_SPELLCAST_SENT")  -- For ES cast tracking
-	self:RegisterEvent("UNIT_AURA")  -- For ES charge updates
+	self:SetupUnitEventFilters()   -- UNIT_SPELLCAST_* (player) and UNIT_AURA (player, party, ES carrier)
+	self:RegisterEvent("PLAYER_TOTEM_UPDATE")  -- shadow totem model slot binding
 	self:RegisterEvent("GROUP_JOINED")
 	self:RegisterEvent("GROUP_LEFT")
 	self:RegisterEvent("PLAYER_ROLES_ASSIGNED")
@@ -531,15 +1137,37 @@ function ShamanPower:OnEnable()
 	self:RegisterEvent("ACTIVE_TALENT_GROUP_CHANGED", "OnTalentsChanged")  -- Wrath dual spec switch
 	self:RegisterBucketEvent("SPELLS_CHANGED", 1, "SPELLS_CHANGED")
 	self:RegisterBucketEvent("PLAYER_ENTERING_WORLD", 2, "PLAYER_ENTERING_WORLD")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED", "UNIT_PET"}, 1, "UpdateRoster")
-	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE"}, 1, "UpdateAllShamans")
+	-- a raid forming fires dozens of GROUP_ROSTER_UPDATEs: the roster pass runs at
+	-- most once a second (a bucket fires a second after the first event it catches,
+	-- again for any after that), and after combat. Pets never mattered to it.
+	self:RegisterBucketEvent({"GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED"}, 1, "OnRosterSettled")
+	-- the shaman-count check only on real roster changes: when it finds a shaman
+	-- missing it wipes the shaman list and asks the group again
+	self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
+	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
+	if SPCompat and SPCompat.OnUnrestricted then
+		SPCompat.OnUnrestricted(function()
+			self:ScanPlayerShield()
+			self:RefreshEarthShieldTarget()
+			self:RefreshPlayerBuffCache()
+		end)
+	end
+	-- Forever: what the chat lockdown refused goes out once it lifts
+	if SPCompat and SPCompat.OnChatUnlocked then
+		SPCompat.OnChatUnlocked(function() self:SendHeldMessages() end)
+	end
 	if isShaman then
 		self.ButtonsUpdate(self)
-		-- Create Earth Shield macro button and macro for keybinding
+		-- Keep the binding button, but do not leave a dead macro on clients without Earth Shield.
 		self:UpdateEarthShieldMacroButton()
-		self:CreateEarthShieldMacro()
+		if not self.ESTrackerUnavailable then
+			self:CreateEarthShieldMacro()
+		else
+			local idx = GetMacroIndexByName("AC EarthShield")
+			if idx and idx > 0 and not InCombatLockdown() then DeleteMacro(idx) end
+		end
 	end
 	self:BindKeys()
 	self:UpdateRoster()
@@ -551,6 +1179,20 @@ end
 
 -- Called when combat ends - reset Drop All castsequence
 function ShamanPower:OnCombatEnd()
+	if self._onOffPendingCombat then self:ApplyOnOff() end
+	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
+	-- Layout skipped because the addon loaded (or was reloaded) mid-combat:
+	-- run the parts of the login sequence that could not touch secure frames.
+	if self._layoutPendingCombat then
+		self._layoutPendingCombat = nil
+		self:UpdateLayout()
+		self:UpdateRoster()
+		self:BindKeys()
+		C_Timer.After(0.5, function()
+			if not InCombatLockdown() then self:UpdateTotemFlyoutEnabled() end
+		end)
+		self.cdbarVisibilityPending = true
+	end
 	-- Force rebuild of the Drop All macro to reset the castsequence
 	self.dropAllLastMacro = ""
 	self:UpdateDropAllButton()
@@ -563,6 +1205,11 @@ function ShamanPower:OnCombatEnd()
 	if self.pendingLoadoutBarUpdate then
 		self.pendingLoadoutBarUpdate = false
 		self:UpdateLoadoutBar()
+	end
+	-- A macro refresh asked for during the fight (UpdateSPMacros refuses in combat)
+	if self.macroUpdatePending then
+		self.macroUpdatePending = false
+		self:UpdateSPMacros()
 	end
 end
 
@@ -607,6 +1254,9 @@ function ShamanPower:OnDisable()
 end
 
 function ShamanPower:OnProfileChanged()
+	local fix = self.aceCharKeyFix
+	local pk = fix and self.db and rawget(self.db, "sv") and rawget(self.db, "sv").profileKeys
+	if pk then pk[fix.real], pk[fix.bad] = self.db:GetCurrentProfile(), nil end
 	-- Clean up all popped-out frames from the old profile first
 	if self.poppedOutFrames then
 		for key, frame in pairs(self.poppedOutFrames) do
@@ -630,7 +1280,13 @@ function ShamanPower:OnProfileChanged()
 	end
 
 	self.opt = self.db.profile
+	self:ClearTwistingOnForever()
+	if self.RefreshFonts then self:RefreshFonts() end   -- the new profile may pick other fonts
+	if self.RefreshTextures then self:RefreshTextures() end   -- and other bar textures
+	if self.UpdateAnnounceEvents then self:UpdateAnnounceEvents() end   -- announce settings live in the profile
 	MigrateMiniBarProfile(self.db, self.opt)
+	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
+	if self.ApplyElementColors then self:ApplyElementColors() end
 
 	-- Reset frame positions when profile changes (prevents off-screen issues)
 	if not InCombatLockdown() then
@@ -643,10 +1299,6 @@ function ShamanPower:OnProfileChanged()
 
 		-- Apply cooldown bar position from new profile (force reposition to use profile's saved position)
 		if self.cooldownBar then
-			self.opt.cooldownBarPosX = self.opt.cooldownBarPosX or 0
-			self.opt.cooldownBarPosY = self.opt.cooldownBarPosY or -50
-			self.opt.cooldownBarPoint = self.opt.cooldownBarPoint or "CENTER"
-			self.opt.cooldownBarRelPoint = self.opt.cooldownBarRelPoint or "CENTER"
 			self:UpdateCooldownBarPosition(true)  -- true = force reposition from profile
 		end
 	end
@@ -655,15 +1307,23 @@ function ShamanPower:OnProfileChanged()
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:ApplyAllOpacity()
+	self:SetupTotemBarVisibilityUpdater()   -- the new profile's hide and fade rules, now (no poll)
 
 	-- Restore popped-out trackers from the new profile
 	C_Timer.After(0.5, function()
 		self:RestorePoppedOutTrackers()
 	end)
+	-- the new profile has the other Enable ShamanPower setting: switch now (after
+	-- combat); its pop-outs come back through the restore above, not the switch
+	if (self.opt.enabled == false) ~= (self._appliedOff == true) then
+		self._popOutsSkippedByOff = nil
+		if InCombatLockdown() then self._onOffPendingCombat = true else self:ApplyOnOff() end
+	end
 	--self:Debug("Profile changed, positions restored from profile.")
 end
 
 function ShamanPower:BindKeys()
+	if self:IsOff() then return end
 	local key1 = GetBindingKey("SHAMANPOWER_AUTOKEY1")
 	local key2 = GetBindingKey("SHAMANPOWER_AUTOKEY2")
 	if key1 then
@@ -688,20 +1348,19 @@ end
 function ShamanPower:Reset()
 	if InCombatLockdown() then return end
 
-	-- Reset totem bar to center and clear saved position
+	-- Clear the saved spot: UpdateLayout below puts the bar on its default one
 	local h = _G["ShamanPowerFrame"]
-	h:ClearAllPoints()
-	h:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	self:EnsureProfileTable("display")
 	self.opt.display.offsetX = nil
 	self.opt.display.offsetY = nil
 	self.opt.display.position = nil
 	self.opt.display.compactPosition = nil
+	self.opt.display.stylePositions = nil
 
 	-- Reset visual settings to defaults
 	self.opt.buffscale = 0.9
 	self.opt.border = "Blizzard Tooltip"
-	self.opt.layout = "Vertical"
+	self.opt.layout = "Horizontal"
 	self.opt.skin = "Smooth"
 	self.opt.configscale = 0.9
 
@@ -712,6 +1371,8 @@ function ShamanPower:Reset()
 
 	self:ApplySkin()
 	self:UpdateLayout()
+	-- the cooldown bar's saved spot goes too: it comes back straight under the totem bar
+	self:ResetBarPositions(false)
 end
 
 -- Settings live in the optional ShamanPower_Config module.
@@ -720,7 +1381,7 @@ function ShamanPower:OpenConfigWindow(path)
 	if ShamanPowerConfig then
 		if path then ShamanPowerConfig:Open(path) else ShamanPowerConfig:Toggle() end
 	else
-		print("|cff0070ddShamanPower|r: enable the |cff00ff00ShamanPower_Config|r module in your AddOns list to open settings.")
+		print("|cff0070ddShamanPower|r: enable the |cff0070ddShamanPower_Config|r module in your AddOns list to open settings.")
 	end
 end
 
@@ -759,6 +1420,57 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 end
 
 -- /sp and /shamanpower
+-- /sp restrict: the client's forced-restriction cvars make it behave as if you were in a
+-- boss fight, M+, a PvP match, an instance, combat or chat lockdown, so those paths can be
+-- tested solo. They reset on login. Addon code must never SetCVar these (a tainted write
+-- taints every Blizzard frame that later reads the restriction state), so this only shows
+-- the state and prints the untainted command to type.
+local RESTRICT_CVARS = {
+	{ key = "encounter", cvar = "addonEncounterRestrictionsForced", label = "Boss encounter" },
+	{ key = "mplus", cvar = "addonChallengeModeRestrictionsForced", label = "Mythic+" },
+	{ key = "pvp", cvar = "addonPvPMatchRestrictionsForced", label = "PvP match" },
+	{ key = "map", cvar = "addonMapRestrictionsForced", label = "Instance (map)" },
+	{ key = "combat", cvar = "addonCombatRestrictionsForced", label = "Combat" },
+	{ key = "chat", cvar = "addonChatRestrictionsForced", label = "Chat lockdown" },
+}
+
+function ShamanPower:RestrictCommand(args)
+	local key, state = strsplit(" ", args or "", 2)
+	local function value(cvar)
+		local ok, v = pcall(GetCVar, cvar)
+		if ok then return v end
+	end
+	local function line(r)
+		local v = value(r.cvar)
+		local shown = v == nil and "|cff808080n/a|r" or (v == "1" and "|cff4cc776ON|r" or "|cff808080off|r")
+		print(string.format("  %s %s  |cff808080(/sp restrict %s)|r", r.label .. ":", shown, r.key))
+	end
+	if not key or key == "" then
+		print("|cff0070ddShamanPower|r forced restrictions (reset on login):")
+		for _, r in ipairs(RESTRICT_CVARS) do line(r) end
+		return
+	end
+	for _, r in ipairs(RESTRICT_CVARS) do
+		if r.key == key then
+			-- nil on Forever: Lua cannot read it there (the cvar may still exist), so the line to type
+			-- is printed anyway; the Classic line has no such cvars at all
+			local v = value(r.cvar)
+			if v == nil and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
+				return
+			end
+			local on
+			if state == "on" or state == "1" then on = true
+			elseif state == "off" or state == "0" then on = false
+			else on = v ~= "1" end
+			print(string.format("|cff0070ddShamanPower|r: %s is %s. Type this yourself:  |cffffd100/console %s %s|r",
+				r.label, v == nil and "unknown (not readable here)" or (v == "1" and "ON" or "off"), r.cvar, on and "1" or "0"))
+			return
+		end
+	end
+	print("|cff0070ddShamanPower|r: /sp restrict [encounter | mplus | pvp | map | combat | chat] [on | off]")
+end
+
 SLASH_SHAMANPOWER1 = "/sp"
 SLASH_SHAMANPOWER2 = "/shamanpower"
 SlashCmdList["SHAMANPOWER"] = function(msg)
@@ -769,11 +1481,38 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		ShamanPower:ToggleAssignmentWindow()
 	elseif msg == "setup" then
 		if ShamanPower.Wizard and ShamanPower.Wizard.Open then ShamanPower.Wizard:Open() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
+	elseif msg == "welcome" then   -- the first-login choice window on demand (to test it on a set-up character)
+		if ShamanPower.Wizard and ShamanPower.Wizard.ShowWelcomeChoice then ShamanPower.Wizard:ShowWelcomeChoice() else print("|cff0070ddShamanPower|r: setup needs the ShamanPower_Config module.") end
+	elseif msg == "unlock" or msg == "move" then
+		if ShamanPower.ToggleMasterUnlock then ShamanPower:ToggleMasterUnlock() end
 	elseif msg == "range" then
 		if ShamanPower.ToggleSPRange then ShamanPower:ToggleSPRange() end
+	elseif msg == "bind" or msg == "keybind" or msg == "keys" then
+		if ShamanPower.ToggleKeybindMode then ShamanPower:ToggleKeybindMode() end
+	elseif msg == "share" then
+		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
+	elseif msg == "check" then
+		if ShamanPower.RunReadyCheckSweep then
+			ShamanPower:RunReadyCheckSweep("manual")
+		elseif not isShaman then   -- the Ready Check module loads for shamans only
+			print("|cff0070ddShamanPower|r: /sp check is for shamans: it lists what a shaman is missing (shield, imbue, totem items).")
+		end
+	elseif msg == "restrict" or msg:sub(1, 9) == "restrict " then
+		ShamanPower:RestrictCommand(strtrim(msg:sub(10)))
 	else
+		-- one command per line, the command in the style guide's gold. /sp restrict, /sptrace
+		-- and /spperf are left out on purpose: tools for testing and bug reports.
+		local function line(cmd, what) print("  |cffffd100" .. cmd .. "|r  " .. what) end
 		print("|cff0070ddShamanPower|r commands:")
-		print("  /sp - settings   |   /sp totems - assignments   |   /sp setup - first-run setup   |   /sp range - totem range overlay")
+		line("/sp", "settings")
+		line("/sp totems", "totem assignments")
+		line("/sp setup", "the setup tour")
+		line("/sp range", "totem range overlay")
+		line("/sp bind", "keybind mode")
+		line("/sp share", "your setup code")
+		if ShamanPower.RunReadyCheckSweep then line("/sp check", "what you are missing (shield, imbue, totem items)") end
+		if ShamanPower.SetResistPractice then line("/sp resisttest", "practise raid resistance requests (pretend shamans, nothing sent)") end
+		if ShamanPower.RaidCooldownsLoaded then line("/sp calltest", "practise Mana Tide calls as if you knew Mana Tide") end
 	end
 end
 
@@ -800,19 +1539,132 @@ function ShamanPower_RefreshAssignments()
 	ShamanPower:ScanSpells()
 	if GetNumGroupMembers() > 0 then
 		ShamanPower:SendSelf()
-		ShamanPower:SendMessage("REQ")
+		ShamanPower:RequestShamanData()
 	end
 	ShamanPower:UpdateLayout()
 	ShamanPower:UpdateRoster()
 end
 
+-- Windfury-only mode (non-shamans): ShamanPower runs nothing but the quiet
+-- "my weapon has Windfury" report to the group's shamans. No frames, no Totem
+-- Plates, no caller buttons. The minimap icon stays: its right-click menu then
+-- holds one entry that turns everything back on (and /sp does too).
+function ShamanPower:WindfuryOnly()
+	return self.opt and self.opt.windfuryOnly == true and select(2, UnitClass("player")) ~= "SHAMAN" or false
+end
+
+function ShamanPower:SetWindfuryOnly(on)
+	if select(2, UnitClass("player")) == "SHAMAN" then return end
+	self.opt.windfuryOnly = on and true or nil
+	ShamanPowerMinimapIcon_Toggle()
+	if self.UpdateSPRangeVisibility then self:UpdateSPRangeVisibility() end
+	if self.UpdateCallerButtons then self:UpdateCallerButtons() end
+	if self.ToggleTotemPlates then self:ToggleTotemPlates() end
+	if self.UpdateWindfuryBroadcaster then self:UpdateWindfuryBroadcaster() end
+end
+
+-- Enable ShamanPower off: the whole addon goes quiet, the way Windfury-only mode
+-- does for non-shamans, for every class. Nothing is drawn, announced, sent or
+-- bound, Blizzard's totem bar is left alone, and every setting stays open to
+-- change. The minimap icon stays: any click on it offers the one way back
+-- (and the settings toggle does too). Each part checks IsOff() where it decides
+-- to show or run; OnOnOff() lets the module addons re-check theirs on a switch.
+-- IsOff() is the state everything is set up for: a switch made in combat
+-- takes effect for every part at once when the fight ends (the settings
+-- toggle shows the saved choice right away).
+function ShamanPower:IsOff()
+	if self._appliedOff ~= nil then return self._appliedOff end
+	return self.opt and self.opt.enabled == false or false
+end
+
+local onOffHandlers = {}
+function ShamanPower:OnOnOff(fn)
+	onOffHandlers[#onOffHandlers + 1] = fn
+end
+
+function ShamanPower:SetOff(off)
+	self.opt.enabled = not off
+	if InCombatLockdown() then   -- the bars are secure frames: switch after the fight
+		self._onOffPendingCombat = true
+		print("|cff0070ddShamanPower|r: turns " .. (off and "off" or "on") .. " when combat ends.")
+		return
+	end
+	self:ApplyOnOff()
+end
+
+function ShamanPower:ApplyOnOff()
+	self._onOffPendingCombat = nil
+	local off = self.opt.enabled == false
+	-- switched and switched back in the same fight (or a new profile with the
+	-- same choice): nothing to change, and nothing is sent or asked again
+	if off == self._appliedOff then return end
+	self._appliedOff = off
+	if off then self:UnbindKeys() else self:BindKeys() end
+	-- popped-out trackers: hide the shown ones, bring back only those (or, when
+	-- the switch was off at login, the saved ones for the first time)
+	for _, frame in pairs(self.poppedOutFrames or {}) do
+		if off and frame:IsShown() then
+			frame.spHiddenByOff = true
+			frame:Hide()
+		elseif not off and frame.spHiddenByOff then
+			frame.spHiddenByOff = nil
+			frame:Show()
+		end
+	end
+	if not off and self._popOutsSkippedByOff then
+		self._popOutsSkippedByOff = nil
+		self:RestorePoppedOutTrackers()
+	end
+	-- Blizzard's totem bar: the Blizzard style lets go of it, the hide option gives it back
+	if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end
+	self:UpdateLayout()   -- the totem bar (UpdateRoster skips solo players)
+	if not off then
+		-- the flyout click mode on the totem buttons, as at login (buttons first
+		-- built by this switch-on, when it was off at login, start on mouseover)
+		C_Timer.After(0.5, function()
+			if not InCombatLockdown() and not self:IsOff() then self:UpdateTotemFlyoutEnabled() end
+		end)
+	end
+	self:UpdateTotemBarVisibility(true)
+	if self.UpdateCooldownBar then self:UpdateCooldownBar() end
+	if self.UpdateLoadoutBar then self:UpdateLoadoutBar() end
+	if self.ApplyBlizzardTotemBarHiding then self:ApplyBlizzardTotemBarHiding() end
+	-- one part's error is reported but never stops the others from switching
+	for i = 1, #onOffHandlers do xpcall(onOffHandlers[i], geterrorhandler(), off) end
+	ShamanPowerMinimapIcon_Toggle()
+	if self.RefreshConfig then self:RefreshConfig() end   -- an open settings window shows the switch
+end
+
 function ShamanPowerMinimapIcon_Toggle()
-	if (ShamanPower.opt.minimap.show == false) then
+	if ShamanPower.opt.minimap.show == false then
 		ShamanPower.MinimapIcon:Hide("ShamanPower")
 	else
 		ShamanPower.MinimapIcon:Show("ShamanPower")
 	end
 end
+
+-- The core's own part of a switch. Off: the central update loop stops (each
+-- subsystem keeps its own on/off and ticks again on switch-on), the totem and
+-- cooldown key bindings are cleared, and messages still waiting to go out are
+-- dropped. On: bindings back, the shield / Earth Shield / buff reads that slept
+-- are taken fresh, and the group hears from us (and we ask for its data).
+ShamanPower:OnOnOff(function(off)
+	local sp = ShamanPower
+	sp._appliedOff = off
+	if sp.updateSystem.frame then sp.updateSystem.frame:SetShown(not off) end
+	sp:SetupKeybindings()
+	if off then
+		sp:DropHeldMessages()
+		return
+	end
+	sp:ScanPlayerShield()
+	sp:RefreshEarthShieldTarget()
+	sp:RefreshPlayerBuffCache()
+	if GetNumGroupMembers() > 0 then
+		sp:SendSelf(nil, true)
+		sp:RequestShamanData()
+	end
+end)
 
 -- ============================================================================
 -- Totem Status Detection
@@ -828,21 +1680,626 @@ ShamanPower.ElementToSlot = {
 	[4] = 4,  -- Air -> slot 4
 }
 
+-- Classic clients keep each element in its fixed slot above. The retail client
+-- (and possibly Forever) fills the slots in cast order instead, so a lone Earth
+-- totem lands in slot 1. Every "which totem of this element is down" lookup
+-- goes through GetElementTotemInfo: it trusts the fixed slot until it sees a
+-- totem of another element sitting there, then resolves by totem name for the
+-- rest of the session.
+ShamanPower.dynamicTotemSlots = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+-- WoW: Forever cannot twist: its Windfury Totem is a party aura (no weapon buff
+-- that outlasts the totem), and Windfury, Grace of Air and Tranquil Air no
+-- longer stack. Twisting is not offered there and stays off, whatever a profile
+-- saved. Anniversary keeps all of it.
+ShamanPower.NoTotemTwisting = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+-- 3.0 changed defaults: both bars run across (Horizontal), and no frame or
+-- border is drawn behind the totem bar, the cooldown bar, the caller buttons,
+-- the Earth Shield tracker or the range tracker. A profile saved before keeps
+-- the look it had (it never stored those, so it would change under the player);
+-- a new profile gets the new look. Once per install, over every saved profile.
+function ShamanPower:KeepOldLookOnSavedProfiles()
+	local sv = self.db and self.db.sv
+	if not sv or (sv.global and sv.global.oldLookKept) then return end
+	-- AceDB puts empty tables into a profile it sets up: only real values count
+	local function saved(t)
+		for _, v in pairs(t) do
+			if type(v) ~= "table" or saved(v) then return true end
+		end
+		return false
+	end
+	local function keep(t, key, old)
+		if rawget(t, key) == nil then rawset(t, key, old) end
+	end
+	for _, prof in pairs(sv.profiles or {}) do
+		if type(prof) == "table" and saved(prof) then
+			keep(prof, "layout", "Vertical")
+			keep(prof, "hideTotemBarFrame", false)
+			keep(prof, "hideCooldownBarFrame", false)
+			keep(prof, "raidCDButtonHideFrame", false)
+			for _, sub in ipairs({ "esTracker", "rangeTracker" }) do
+				if type(rawget(prof, sub)) ~= "table" then
+					local d = SHAMANPOWER_DEFAULT_VALUES.profile[sub]
+					rawset(prof, sub, d and DeepCopy(d) or {})
+					rawget(prof, sub).hideBorder = false   -- (the copy carries the new default)
+				else
+					keep(rawget(prof, sub), "hideBorder", false)
+				end
+			end
+		end
+	end
+	self.db.global.oldLookKept = true
+end
+
+function ShamanPower:ClearTwistingOnForever()
+	if not self.NoTotemTwisting then return end
+	self.opt.enableTotemTwisting = nil
+	if ShamanPower_TwistAssignments then wipe(ShamanPower_TwistAssignments) end
+end
+
+local totemNameElementCache = {}
+
+-- Teach the resolver a totem name (used by discovery on clients whose totem
+-- list differs from the static tables). Also clears a cached miss.
+function ShamanPower:RegisterTotemElement(totemName, element)
+	if totemName and element then
+		totemNameElementCache[totemName] = element
+	end
+end
+
+-- Element (1-4) a totem name belongs to, or nil if it matches nothing known.
+-- Longest matching table entry wins so a future "Fire" style entry cannot
+-- steal "Fire Resistance".
+function ShamanPower:TotemNameElement(totemName)
+	if not totemName or totemName == "" then return nil end
+	local cached = totemNameElementCache[totemName]
+	if cached ~= nil then return cached or nil end
+
+	local lowerName = totemName:lower()
+	local found, foundLen = nil, 0
+	for element = 1, 4 do
+		local names = self.TotemNames and self.TotemNames[element]
+		if names then
+			for _, name in pairs(names) do
+				if name and #name > foundLen and lowerName:find(name:lower(), 1, true) then
+					found, foundLen = element, #name
+				end
+			end
+		end
+	end
+	totemNameElementCache[totemName] = found or false
+	return found
+end
+
+-- Element (1-4) of a totem spell ID from the static tables, or nil.
+local totemSpellElementCache
+function ShamanPower:TotemSpellElement(spellID)
+	if type(spellID) ~= "number" or spellID == 0 then return nil end
+	if not totemSpellElementCache then
+		totemSpellElementCache = {}
+		for element = 1, 4 do
+			for _, id in pairs(self.Totems and self.Totems[element] or {}) do
+				if type(id) == "number" then totemSpellElementCache[id] = element end
+			end
+		end
+		for id, info in pairs(self.TalentTotems or {}) do
+			if type(info) == "table" and info[1] then totemSpellElementCache[id] = info[1] end
+		end
+	end
+	return totemSpellElementCache[spellID]
+end
+
+-- Element a slot's totem belongs to: the spell ID when the client reports one
+-- (retail's 7th GetTotemInfo return), else the name tables. nil = unknown.
+local function slotTotemElement(self, totemName, spellID)
+	return self:TotemSpellElement(spellID) or self:TotemNameElement(totemName)
+end
+
+-- ----------------------------------------------------------------------------
+-- Shadow totem model. On a restricted client (retail rules, Forever) the
+-- totem API returns secret values in combat, but the player's own casts never
+-- do. So we keep our own record of what we dropped: UNIT_SPELLCAST_SUCCEEDED
+-- for a totem spell opens an entry for its element (name/icon from the static
+-- spell data, duration learned from the API while it was readable), and
+-- PLAYER_TOTEM_UPDATE binds it to a slot or, arriving with no cast behind it,
+-- retires whatever sat in that slot (expired, destroyed, recalled). While the
+-- API is readable the model is simply refreshed from it, so it is exact at the
+-- moment combat starts. On classic clients the model is maintained but never
+-- consulted.
+-- ----------------------------------------------------------------------------
+ShamanPower.shadowTotems = {}          -- [element] = { spellID, name, icon, startTime, duration, slot }
+local shadowLearnedDuration = {}       -- [spellID] = duration seen from the API
+local SHADOW_DEFAULT_DURATION = 120    -- until the real duration has been observed once
+-- Learned lengths are kept per character (db.char.totemDurations), so after a
+-- /reload or a new login a totem first dropped in combat still has its real length:
+-- its timer is right, and a kill mid-fight still reads as "destroyed" instead of
+-- "unknown". Not account-wide: another character's talents, gear or rank could make
+-- the same totem last a different time, and a length too long would turn its natural
+-- expiry into a false "destroyed". The saved table is bound on first use (the db
+-- exists by then).
+local shadowDurationsSaved = false
+local function learnedDurations()
+	if not shadowDurationsSaved then
+		-- only where the model is consulted (the secrets regime): Anniversary saves nothing new
+		local db = SPCompat and SPCompat.secretsRegime and ShamanPower.db
+		local c = db and db.char
+		if not c then return shadowLearnedDuration end
+		shadowDurationsSaved = true
+		if db.global then db.global.totemDurations = nil end   -- an earlier test build kept them account-wide
+		c.totemDurations = c.totemDurations or {}
+		for id, d in pairs(shadowLearnedDuration) do c.totemDurations[id] = d end
+		shadowLearnedDuration = c.totemDurations
+	end
+	return shadowLearnedDuration
+end
+-- On a cold login to WoW: Forever the game can still call the player "Unknown" while
+-- addons load, so everything that takes the name then files it under a character called
+-- "Unknown": our own player name (assignments, the name sent to other shamans) and AceDB's
+-- character key (per-character data such as learned totem lengths, and which profile this
+-- character uses). Measured 2026-09-24: a whole session's assignments and totem lengths
+-- saved under "Unknown", then "not learned" after a /reload. Once the real name is
+-- readable this puts both right; false while the game still has no name.
+local function nameKnown(n)
+	return type(n) == "string" and n ~= "" and n ~= "Unknown" and n ~= UNKNOWNOBJECT
+end
+local PER_NAME_TABLES = { "ShamanPower_Assignments", "ShamanPower_TwistAssignments", "ShamanPower_EarthShieldAssignments" }
+function ShamanPower:FixPlayerIdentity()
+	local name = UnitName("player")          -- "First Surname" on Forever (SPCompat.UnitName)
+	local first = _G.UnitName("player")      -- AceDB keys on the game's first return
+	if not nameKnown(name) or not nameKnown(first) then return false end
+	local old = self.player
+	self.player = name
+	for _, global in ipairs(PER_NAME_TABLES) do
+		local t = _G[global]
+		if type(t) == "table" then
+			-- this login's own entries, written before the name was known, belong to the real name;
+			-- so do ones filed under the first name alone (builds before the surname was read)
+			for _, stale in ipairs({ old, first }) do
+				if stale and stale ~= name and t[stale] ~= nil then
+					if t[name] == nil then t[name] = t[stale] end
+					t[stale] = nil
+				end
+			end
+			-- left over from an earlier cold login: whose it was cannot be told, so it goes
+			t.Unknown = nil
+			if UNKNOWNOBJECT then t[UNKNOWNOBJECT] = nil end
+		end
+	end
+	if self.AllShamans then
+		if old and old ~= name then self.AllShamans[old] = nil end
+		if first ~= name then self.AllShamans[first] = nil end
+	end
+	-- AceDB took its character key when it loaded and never looks again
+	local db = self.db
+	local keys = db and rawget(db, "keys")
+	local sv = db and rawget(db, "sv")
+	if keys and sv and type(keys.char) == "string" then
+		local realKey = first .. " - " .. (GetRealmName() or "")
+		local badKey = keys.char
+		if badKey ~= realKey and not nameKnown((badKey:match("^(.-) %- "))) then
+			keys.char = realKey
+			rawset(db, "char", nil)   -- AceDB builds db.char from sv.char[keys.char] on its next use
+			if sv.char then sv.char[badKey] = nil end   -- mixed whichever characters logged in cold
+			shadowDurationsSaved, shadowLearnedDuration = false, {}   -- rebind learned lengths to the real character
+			self.aceCharKeyFix = { bad = badKey, real = realKey }
+			local pk = sv.profileKeys
+			if pk then
+				local current = db:GetCurrentProfile()
+				local want = pk[realKey] or current
+				pk[badKey], pk[realKey] = nil, want
+				-- this character has its own profile: switch to it once the addon is up
+				if want ~= current then C_Timer.After(0, function() self.db:SetProfile(want) end) end
+			end
+		end
+		-- "Unknown" leftovers from earlier cold logins, whoever they were: never read again
+		for _, store in ipairs({ sv.char, sv.profileKeys }) do
+			if type(store) == "table" then
+				for key in pairs(store) do
+					if key ~= keys.char and type(key) == "string" and not nameKnown((key:match("^(.-) %- "))) then store[key] = nil end
+				end
+			end
+		end
+	end
+	return true
+end
+
+local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE
+local shadowPendingCast                -- { element, at } waiting for its slot update
+local shadowPendingSlot                -- { slot, at } update that arrived before its cast event
+local lastSlotUpdateAt = {}            -- [slot] = GetTime() of the last PLAYER_TOTEM_UPDATE for it
+-- A totem retired while combat hides totem data is only announced (OnShadowTotemGone)
+-- after one bind window, so a set summon whose slot updates arrived BEFORE its cast
+-- can still claim the slot and cancel the false "destroyed". One record per slot.
+local pendingGone = {}                 -- [slot] = { element, entry, at }
+-- A single re-drop of an element whose slot update came BEFORE its cast event
+-- retires the old totem of that element; a cast of the same element this soon
+-- after is that re-drop, not a new totem after a kill (a player cannot react
+-- that fast). Kept short for that reason.
+local SHADOW_REDROP_WINDOW = 0.25
+
+-- The player's own dismissals: a right-click on a totem button (ShamanPower's or
+-- Blizzard's) runs DestroyTotem(slot), and the slot update that follows has no
+-- cast behind it. Without this stamp it read as "destroyed by enemies".
+-- A secure hook: it runs after the call and never taints it. Mainline family only,
+-- where the shadow model is consulted. The one stamp of your own dismissals:
+-- modules that need it read ShamanPower._totemDismissedAt rather than hooking again.
+ShamanPower._totemDismissedAt = {}     -- [slot] = GetTime()
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+	hooksecurefunc("DestroyTotem", function(slot)
+		if issecretvalue and issecretvalue(slot) then return end
+		slot = tonumber(slot)
+		if slot then ShamanPower._totemDismissedAt[slot] = GetTime() end
+	end)
+end
+
+local function totemsSecretNow()
+	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
+end
+
+-- ----------------------------------------------------------------------------
+-- Where our totems went down. Range to our own totem is read from its buff,
+-- but combat hides buffs on the Mainline family and a hidden buff reads the
+-- same as a missing one, so every totem greyed out as "out of range" the
+-- moment a fight started. A totem lands at the shaman's feet, so the player's
+-- own position at the drop is the totem's position, and distance from it is
+-- range. UnitPosition stays readable in combat in the open world; where it
+-- doesn't (instances), the range check keeps what it last knew.
+-- ----------------------------------------------------------------------------
+local TRACK_TOTEM_DROPS = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local TOTEM_AURA_RANGE = 30            -- yards: every buff totem's radius in the Forever 1.60.1 spell data
+ShamanPower.totemDropPos = {}          -- [element] = { x, y, map }
+ShamanPower.totemRangeLast = {}        -- [element] = last range answer while buffs were readable
+
+-- Shared model radius, not a promise of exact per-spell or talent-modified reach.
+function ShamanPower.GetTotemRangeModelRadius()
+	return TOTEM_AURA_RANGE
+end
+
+local function unitPosition(unit)
+	if not UnitPosition then return nil end
+	local ok, y, x, _, map = pcall(UnitPosition, unit)
+	if not ok or type(x) ~= "number" or type(y) ~= "number" then return nil end
+	if issecretvalue and (issecretvalue(x) or issecretvalue(y)) then return nil end
+	return x, y, map
+end
+
+function ShamanPower:RecordTotemDrop(element)
+	if not TRACK_TOTEM_DROPS or not element then return end
+	local x, y, map = unitPosition("player")
+	self.totemDropPos[element] = x and { x = x, y = y, map = map } or nil
+	self.totemRangeLast[element] = nil   -- a new totem: the old answer no longer applies
+end
+
+-- true/false = within/outside totem range of where this element's totem was
+-- dropped; nil = can't tell (no drop recorded, or no position right now).
+-- unit defaults to the player; party members measure the same way (UnitPosition
+-- returns plain numbers for them in combat in the open world, measured).
+function ShamanPower:TotemDropInRange(element, unit)
+	-- dev switch: behave as if inside an instance, where the client gives out no
+	-- positions, so the no-position fallbacks can be tested in the open world
+	-- (/run ShamanPower.debugNoPositions = true)
+	if self.debugNoPositions then return nil end
+	local drop = self.totemDropPos[element]
+	if not drop then return nil end
+	local x, y, map = unitPosition(unit or "player")
+	if not x or map ~= drop.map then return nil end
+	local dx, dy = x - drop.x, y - drop.y
+	return dx * dx + dy * dy <= TOTEM_AURA_RANGE * TOTEM_AURA_RANGE
+end
+
+-- Element a cast totem spell belongs to (exact rank IDs are not in the tables,
+-- so fall back to the spell name).
+function ShamanPower:TotemCastElement(spellID)
+	local element = self:TotemSpellElement(spellID)
+	if element then return element end
+	local name = GetSpellInfo(spellID)
+	if not name or (type(name) == "string" and not name:find("Totem")) then return nil end
+	return self:TotemNameElement(name)
+end
+
+function ShamanPower:ShadowTotemCast(unit, spellID)
+	if unit ~= "player" or type(spellID) ~= "number" then return end
+	local element = self:TotemCastElement(spellID)
+	if not element then
+		-- Call of the Elements / Ancestors / Spirits (Forever): one cast, several totems
+		local set = self.TotemSetForSummon and self:TotemSetForSummon(spellID)
+		if set then self:ShadowTotemSetCast(set) return end
+		-- Totemic Recall / Totemic Call empties the slots on purpose: not "destroyed"
+		local name = GetSpellInfo(spellID)
+		if type(name) == "string" and name:find("^Totemic") then self._totemRecallAt = GetTime() end
+		return
+	end
+	self:RecordTotemDrop(element)
+	local name, _, icon = GetSpellInfo(spellID)
+	local now = GetTime()
+	local learned = learnedDurations()[spellID] or (self.TotemBaseDurations and self.TotemBaseDurations[spellID])
+	local entry = {
+		spellID = spellID,
+		name = name,
+		icon = icon,
+		startTime = now,
+		duration = learned or SHADOW_DEFAULT_DURATION,
+		durationKnown = learned ~= nil,   -- a guessed length cannot tell expired from destroyed
+		slot = nil,
+	}
+	-- the same element can only hold one totem; the old one is replaced
+	self.shadowTotems[element] = entry
+	-- The slot update can arrive BEFORE the cast event. Then it either filled an
+	-- empty slot (nothing retired: bind to it), or it retired this element's
+	-- previous totem a moment ago: that was this re-drop replacing it, not a kill,
+	-- so bind to that slot too and take back the old totem's "gone" notice.
+	local pending = shadowPendingSlot
+	local age = pending and (now - pending.at)
+	if pending and ((pending.element == nil and age <= SHADOW_BIND_WINDOW)
+		or (pending.element == element and age <= SHADOW_REDROP_WINDOW)) then
+		local slot = pending.slot
+		entry.slot = slot
+		shadowPendingSlot = nil
+		local gone = pendingGone[slot]
+		if gone and gone.element == element and now - gone.at <= SHADOW_REDROP_WINDOW then
+			pendingGone[slot] = nil
+		end
+		-- bound by the update that retired the old totem: if this totem's own update
+		-- still follows, it comes with this cast (the same frame) and confirms the
+		-- binding rather than retiring it
+		if pending.element then entry.boundEarlyAt = now end
+	else
+		shadowPendingCast = { element = element, at = now }
+	end
+end
+
+-- A totem-set summon drops up to four totems from one cast, so there is no cast
+-- per slot to bind. Open an entry per totem the page holds, bound to that
+-- element's slot, and let the slot updates that follow confirm them. A totem the
+-- summon could not place (no mana, not known) gets no slot update and is dropped.
+local SET_CONFIRM_WINDOW = SHADOW_BIND_WINDOW + 0.3
+function ShamanPower:ShadowTotemSetCast(spells)
+	local now, placed = GetTime(), false
+	for element = 1, 4 do
+		local id = spells[element]
+		local name, _, icon = GetSpellInfo(id or 0)
+		if id and name then
+			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
+			local learned = learnedDurations()[id] or (self.TotemBaseDurations and self.TotemBaseDurations[id])
+			local entry = {
+				spellID = id, name = name, icon = icon, startTime = now,
+				duration = learned or SHADOW_DEFAULT_DURATION,
+				durationKnown = learned ~= nil,
+				slot = slot,
+				setAt = now, setPending = true,
+				setPrev = self.shadowTotems[element],   -- put back if this one never lands
+			}
+			self.shadowTotems[element] = entry
+			-- the slot update can arrive BEFORE the cast event: if this slot just changed,
+			-- the totem has already landed; confirm it now, and take back any
+			-- "destroyed" the old totem's retirement queued a moment ago
+			local at = lastSlotUpdateAt[slot]
+			if at and now - at <= SHADOW_BIND_WINDOW then
+				entry.setPending = nil
+				entry.setPrev = nil
+				pendingGone[slot] = nil
+				if shadowPendingSlot and shadowPendingSlot.slot == slot then shadowPendingSlot = nil end
+				self:RecordTotemDrop(element)   -- placed for sure
+			end
+			placed = true
+		end
+	end
+	if not placed then return end
+	self:InvalidateTotemInfo()
+	C_Timer.After(SET_CONFIRM_WINDOW, function()
+		local changed = false
+		for element, entry in pairs(self.shadowTotems) do
+			if entry.setPending and entry.setAt == now then
+				self.shadowTotems[element] = entry.setPrev   -- never placed: the totem that was there stays
+				changed = true
+			elseif entry.setAt == now then
+				entry.setPrev = nil   -- confirmed: the old record is no longer needed
+			end
+		end
+		if changed then self:InvalidateTotemInfo() end
+	end)
+end
+
+function ShamanPower:ShadowTotemSlotUpdate(slot)
+	if type(slot) ~= "number" then return end
+	local now = GetTime()
+	lastSlotUpdateAt[slot] = now
+	-- a slot filled by a totem-set summon: confirm that entry instead of retiring it.
+	-- Only that slot is claimed; any other slot's update goes through the normal path.
+	for element, entry in pairs(self.shadowTotems) do
+		if entry.setPending and entry.slot == slot and now - entry.setAt <= SET_CONFIRM_WINDOW then
+			entry.setPending = nil
+			self:RecordTotemDrop(element)   -- the summon really placed this one
+			return
+		end
+	end
+	if shadowPendingCast and now - shadowPendingCast.at <= SHADOW_BIND_WINDOW then
+		local entry = self.shadowTotems[shadowPendingCast.element]
+		if entry then entry.slot = slot end
+		shadowPendingCast = nil
+		return
+	end
+	-- a totem bound to this slot by an update that came before its cast (ShadowTotemCast):
+	-- its own update, arriving with that cast (the same frame, so the same GetTime()),
+	-- is not its end. Only that one: any later update, even a moment later, is the
+	-- totem going (killed as it landed) and must not be swallowed. Like the cast-first
+	-- path above, this counts on one slot update per totem placed. That is unmeasured
+	-- (a /sptrace of a re-drop shows it); a client that sent two would trip both paths.
+	for _, entry in pairs(self.shadowTotems) do
+		if entry.slot == slot and entry.boundEarlyAt == now then
+			entry.boundEarlyAt = nil
+			return
+		end
+	end
+	-- no cast behind this update: the totem that lived in the slot is gone
+	local retiredElement
+	for element, entry in pairs(self.shadowTotems) do
+		if entry.slot == slot then
+			self.shadowTotems[element] = nil
+			retiredElement = element
+			-- While the game hides totem data (combat on Forever) this is the only way to
+			-- know a totem went: tell whoever listens (Expiring Alerts) why, as best we can.
+			if self.OnShadowTotemGone and totemsSecretNow() then
+				-- announced one bind window later: a cast that arrives just after its own
+				-- slot updates (a totem set, or a re-drop of this element) claims the slot
+				-- and cancels this. The reason is worked out then too, so a Totemic Recall
+				-- or a right-click dismiss whose event trails the slot update still counts.
+				local rec = { element = element, entry = entry, at = now,
+					dead = UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") or nil }
+				pendingGone[slot] = rec
+				C_Timer.After(SHADOW_BIND_WINDOW, function()
+					if pendingGone[slot] ~= rec then return end   -- claimed by a cast, or replaced
+					pendingGone[slot] = nil
+					local e, at = rec.entry, rec.at
+					local recall, dismissed = self._totemRecallAt, self._totemDismissedAt[slot]
+					local why
+					if recall and at - recall < 2 then why = "recalled"
+					elseif dismissed and at - dismissed < 2 then why = "dismissed"
+					elseif rec.dead or (UnitIsDeadOrGhost and UnitIsDeadOrGhost("player")) then why = "died"
+					elseif not e.durationKnown then why = "unknown"
+					elseif at >= e.startTime + e.duration - 1 then why = "expired"
+					else why = "destroyed" end
+					if SPCompat and SPCompat.Trace then
+						SPCompat.Trace("SHADOW gone element %d: %s (%.1f s after the drop, length %s)", rec.element, why,
+							at - e.startTime, e.durationKnown and string.format("%.0f s", e.duration) or "not learned")
+					end
+					pcall(self.OnShadowTotemGone, self, rec.element, e, why)
+				end)
+			end
+		end
+	end
+	-- remember the update briefly in case the cast event trails it; if it retired a
+	-- totem, only a re-drop of that element may claim it (ShadowTotemCast)
+	shadowPendingSlot = { slot = slot, at = now, element = retiredElement }
+end
+
+-- Refresh one element's entry from readable API data (called on every readable lookup).
+local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, duration, icon, slot, spellID)
+	if haveTotem and name and name ~= "" then
+		local entry = self.shadowTotems[element]
+		if not entry or entry.name ~= name then
+			entry = { spellID = spellID }
+			self.shadowTotems[element] = entry
+		end
+		entry.name, entry.icon, entry.startTime, entry.duration, entry.slot = name, icon, startTime, duration, slot
+		entry.setPending = nil   -- the game itself says it is down: nothing left to confirm
+		entry.durationKnown = type(duration) == "number" and duration > 0 or nil   -- read from the game: exact
+		if type(spellID) == "number" and spellID ~= 0 then entry.spellID = spellID end
+		if entry.spellID and duration and duration > 0 then learnedDurations()[entry.spellID] = duration end
+	else
+		self.shadowTotems[element] = nil
+	end
+end
+
+local function shadowLookup(self, element)
+	local entry = self.shadowTotems[element]
+	if entry and entry.setPending then
+		-- a set summon's totem its slot update has not confirmed yet: keep showing
+		-- the totem it replaces, so one the summon cannot place (no mana) never
+		-- flashes up for the confirm window. A confirmed one shows at once.
+		local prev = entry.setPrev
+		if not prev or prev.startTime + prev.duration <= GetTime() then return false, nil, nil, nil, nil, nil end
+		return true, prev.name, prev.startTime, prev.duration, prev.icon, prev.slot
+	end
+	if not entry then return false, nil, nil, nil, nil, nil end
+	if entry.startTime + entry.duration <= GetTime() then
+		self.shadowTotems[element] = nil
+		return false, nil, nil, nil, nil, nil
+	end
+	return true, entry.name, entry.startTime, entry.duration, entry.icon, entry.slot
+end
+
+-- A totem that just appeared in a slot without a cast of its own (Call of the
+-- Elements drops several from one spell): record its drop here instead.
+function ShamanPower:RecordTotemDropFromSlot(slot)
+	if not TRACK_TOTEM_DROPS or type(slot) ~= "number" then return end
+	local have, name, startTime, _, _, _, spellID = GetTotemInfo(slot)
+	if not have or not name or name == "" or not startTime then return end
+	if GetTime() - startTime > 1.5 then return end   -- not a fresh drop
+	local element = slotTotemElement(self, name, spellID)
+	if element then self:RecordTotemDrop(element) end
+end
+
+-- GetTotemInfo for the totem of an element, wherever the client put it.
+-- Returns the GetTotemInfo tuple (haveTotem, name, startTime, duration, icon)
+-- plus the slot it was found in. Falls back to the shadow model while the
+-- API is secret.
+-- GetElementTotemInfo is asked by every loop, several times a tick (pulse x3 at
+-- 20 Hz, bars / opacity / overlays x4 at 10 Hz, range x4 ...), and on cast-order
+-- clients each ask scans all four slots and re-syncs the shadow model. What it
+-- answers only changes when a totem is placed, replaced, expires, dies or is
+-- recalled - all PLAYER_TOTEM_UPDATE - or, under the secrets regime, when the
+-- player casts. So the answer is kept per element until one of those bumps the
+-- generation (plus the combat edges, where the regime changes), with two safety
+-- nets: half a second at most, and a totem that has run out by the clock is read
+-- again at once. Measured with /spperf: ~950 calls / 15 s while idle.
+local totemInfoCache = {}
+ShamanPower._totemInfoGen = 0
+function ShamanPower:InvalidateTotemInfo()
+	self._totemInfoGen = (self._totemInfoGen or 0) + 1
+	self._totemDownAt = nil   -- AnyTotemDown asks again too
+end
+
+function ShamanPower:GetElementTotemInfo(element)
+	local c = totemInfoCache[element]
+	local now = GetTime()
+	if c and c.gen == self._totemInfoGen and (now - c.at) < 0.5 then
+		local s, d = c.s, c.d
+		if not (c.h == true and type(s) == "number" and type(d) == "number" and d > 0 and (s + d) <= now) then
+			return c.h, c.n, c.s, c.d, c.i, c.slot
+		end
+	end
+	local h, n, s, d, i, slot = self:ReadElementTotemInfo(element)
+	if not c then c = {}; totemInfoCache[element] = c end
+	c.gen, c.at, c.h, c.n, c.s, c.d, c.i, c.slot = self._totemInfoGen, now, h, n, s, d, i, slot
+	return h, n, s, d, i, slot
+end
+
+function ShamanPower:ReadElementTotemInfo(element)
+	local fixedSlot = self.ElementToSlot[element]
+	if not fixedSlot then return false end
+
+	if totemsSecretNow() then
+		return shadowLookup(self, element)
+	end
+
+	local haveTotem, totemName, startTime, duration, icon, _, spellID = GetTotemInfo(fixedSlot)
+	if haveTotem and totemName and totemName ~= "" then
+		local slotElement = slotTotemElement(self, totemName, spellID)
+		if not slotElement or slotElement == element then
+			shadowSyncFromAPI(self, element, haveTotem, totemName, startTime, duration, icon, fixedSlot, spellID)
+			return haveTotem, totemName, startTime, duration, icon, fixedSlot
+		end
+		self.dynamicTotemSlots = true
+	end
+	if not self.dynamicTotemSlots then
+		shadowSyncFromAPI(self, element, false)
+		return false, nil, nil, nil, nil, fixedSlot
+	end
+
+	for slot = 1, 4 do
+		if slot ~= fixedSlot then
+			local h, n, s, d, i, _, id = GetTotemInfo(slot)
+			if h and n and slotTotemElement(self, n, id) == element then
+				shadowSyncFromAPI(self, element, h, n, s, d, i, slot, id)
+				return h, n, s, d, i, slot
+			end
+		end
+	end
+	shadowSyncFromAPI(self, element, false)
+	return false, nil, nil, nil, nil, nil
+end
+
 -- Check if a specific totem element is currently active
 function ShamanPower:IsTotemActive(element)
-	local slot = self.ElementToSlot[element]
-	if not slot then return false end
-	local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+	local haveTotem, _, startTime, duration = self:GetElementTotemInfo(element)
 	return haveTotem and (startTime + duration > GetTime())
 end
 
 -- Find the totem index for a given element based on the active totem name
 -- Used for Dynamic Mode to determine which totem is currently placed
 function ShamanPower:GetActiveTotemIndex(element)
-	local slot = self.ElementToSlot[element]
-	if not slot then return nil end
-
-	local haveTotem, activeTotemName = GetTotemInfo(slot)
+	local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 	if not haveTotem or not activeTotemName then return nil end
 
 	-- Search through all totems for this element to find a match
@@ -884,10 +2341,22 @@ function ShamanPower:GetTotemStatus()
 	return activeCount, assignedCount
 end
 
+-- Does a dropped totem become the assignment? Dynamic mode always; Grid style
+-- too unless "Left-Click Also Assigns" is off (every totem is on screen there,
+-- so the one you click is the one you mean).
+function ShamanPower:DropSetsAssignment()
+	local o = self.opt
+	if not o then return false end
+	-- Grid first: it can sit on top of a Dynamic setup (dynamicTotemMode stays set
+	-- underneath), and its own "Left-Click Also Assigns" toggle must win there.
+	if o.gridStyle == true and self.GridActive and self:GridActive() then return o.gridDropAssigns ~= false end
+	return o.dynamicTotemMode and true or false
+end
+
 -- Update totem assignments and icons for Dynamic Mode
 -- When a totem is placed, it becomes the new assignment for that element
 function ShamanPower:UpdateDynamicTotemIcons()
-	if not self.opt.dynamicTotemMode then return end
+	if not self:DropSetsAssignment() then return end
 
 	local playerName = self.player
 	if not ShamanPower_Assignments[playerName] then
@@ -928,6 +2397,7 @@ function ShamanPower:UpdateDynamicTotemIcons()
 			if btn and btn.icon then
 				btn.icon:SetTexture(icon)
 			end
+			self:ShowEmptySlotArt(element, totemIndex == 0)
 		end
 	end
 
@@ -944,6 +2414,176 @@ end
 -- ============================================================================
 
 ShamanPower.pulseOverlays = {}
+
+-- ----------------------------------------------------------------------------
+-- Pulse visuals run by the engine. A pulse object (a CreatePulseOverlay
+-- container, a pop-out's container, or an active-totem overlay) has a wipe bar
+-- and three glow textures. Their motion over one pulse cycle is fixed by the
+-- totem's drop time and interval, so it is handed to AnimationGroups: the wipe
+-- grows with a Scale animation and the glow flash fades with Alpha animations,
+-- started once per cycle. The 20 Hz pulse pass only notices a new cycle (or a
+-- change of state) and restarts them; between those it draws nothing. The
+-- countdown text is set only when the shown tenths change, from cached strings.
+-- ----------------------------------------------------------------------------
+local PULSE_FLASH = 0.15   -- share of the cycle the glow flash lasts
+
+local function setScaleAnim(a, fx, fy, tx, ty)
+	if a.SetScaleFrom then a:SetScaleFrom(fx, fy); a:SetScaleTo(tx, ty)
+	else a:SetFromScale(fx, fy); a:SetToScale(tx, ty) end
+end
+
+-- "1.4" strings without per-frame garbage
+local pulseTenthsCache = {}
+local function PulseTenths(t)
+	local k = math.floor(t * 10 + 0.5)
+	if k < 0 then k = 0 end
+	local s = pulseTenthsCache[k]
+	if not s then s = string.format("%.1f", k / 10); pulseTenthsCache[k] = s end
+	return s
+end
+
+local PULSE_TEXT_KEYS = {
+	inside_top = "barTimeTextTop", inside_bottom = "barTimeTextBottom",
+	above = "aboveTimeText", below = "belowTimeText", on_icon = "iconTimeText",
+}
+
+function ShamanPower:PulseVisualHideText(o)
+	if not o or o._tOpt == nil then return end
+	for _, key in pairs(PULSE_TEXT_KEYS) do
+		local fs = o[key]
+		if fs then fs:Hide() end
+	end
+	o._tOpt, o._tStr, o._tSize = nil, nil, nil
+end
+
+-- Show the countdown in the option's text; only touches the string when the
+-- shown tenths change (at most ten times a second).
+function ShamanPower:PulseVisualText(o, remain, opt)
+	if not o then return end
+	if not opt or opt == "none" then self:PulseVisualHideText(o) return end
+	if o._tOpt ~= opt then
+		self:PulseVisualHideText(o)
+		o._tOpt = opt
+	end
+	local key = PULSE_TEXT_KEYS[opt]
+	local fs = key and o[key]
+	if not fs then return end
+	local size = self.opt.pulseTextSize or 8
+	if o._tSize ~= size then self:SetSPFont(fs, "timers", size, "OUTLINE"); o._tSize = size end
+	local str = PulseTenths(remain)
+	if o._tStr ~= str then fs:SetText(str); o._tStr = str end
+	if not fs:IsShown() then fs:Show() end
+end
+
+local function stopWipe(o)
+	if o._wipeAG then o._wipeAG:Stop() end
+	if o.wipe then o.wipe:Hide() end
+end
+
+local function stopGlows(o, hide)
+	local glows = o.glows
+	if not glows then return end
+	for i, g in ipairs(glows) do
+		local ag = o._glowAG and o._glowAG[i]
+		if ag then ag:Stop() end
+		g:SetAlpha(0)
+		if hide then g:Hide() end
+	end
+end
+
+-- Everything off (idempotent: a pass that finds it already off does nothing).
+function ShamanPower:PulseVisualStop(o)
+	if not o or o._pState == "off" then return end
+	o._pState, o._pIdx = "off", nil
+	stopWipe(o)
+	stopGlows(o, true)
+	self:PulseVisualHideText(o)
+end
+
+-- Keep the object's wipe and glow in step with a totem dropped at `start` that
+-- pulses every `interval` seconds. Restarts the animations on a new cycle, on
+-- a new totem, or when something else hid the wipe; otherwise returns at once.
+-- Returns the totem's age.
+function ShamanPower:PulseVisualSync(o, start, interval, now)
+	local age = now - start
+	if age < 0 then age = 0 end
+	-- Animations do not advance on a hidden frame (Hide Out of Combat, a hidden
+	-- host): one started or left running there would resume from a stale point
+	-- when the bar shows. Leave it alone until the frame is visible; the first
+	-- pass after that starts it from the right place.
+	local host = o.button or o.frame
+	if host and not host:IsVisible() then
+		o._pState = nil
+		return age
+	end
+	local idx = math.floor(age / interval)
+	local wipe = o.wipe
+	local wipeOk = o.isDisabled or not wipe or (wipe:IsShown() and o._wipeAG ~= nil and o._wipeAG:IsPlaying())
+	if o._pState == "on" and o._pIdx == idx and o._pStart == start and o._pInt == interval and wipeOk then
+		return age
+	end
+	o._pState, o._pIdx, o._pStart, o._pInt = "on", idx, start, interval
+	local phase = (age - idx * interval) / interval
+
+	-- the wipe: from its size now to full over the rest of the cycle
+	if wipe then
+		if o.isDisabled then
+			stopWipe(o)
+		else
+			local ag = o._wipeAG
+			if not ag then
+				ag = wipe:CreateAnimationGroup()
+				o._wipeScale = ag:CreateAnimation("Scale")
+				ag:SetScript("OnFinished", function() wipe:Hide() end)   -- end of the cycle
+				o._wipeAG = ag
+			end
+			ag:Stop()
+			local full = math.max(1, o.maxSize or 22)
+			local cur = math.max(1, full * phase)
+			local sc = o._wipeScale
+			if o.isVertical then
+				wipe:SetHeight(cur)
+				sc:SetOrigin(o.wipeGrowsDown and "TOP" or "BOTTOM", 0, 0)
+				setScaleAnim(sc, 1, 1, 1, full / cur)
+			else
+				wipe:SetWidth(cur)
+				sc:SetOrigin("LEFT", 0, 0)
+				setScaleAnim(sc, 1, 1, full / cur, 1)
+			end
+			sc:SetDuration(math.max(0.01, (1 - phase) * interval))
+			wipe:Show()
+			ag:Play()
+		end
+	end
+
+	-- the glow flash: bright at the pulse, gone after PULSE_FLASH of the cycle
+	local glows = o.glows
+	if glows then
+		if phase < PULSE_FLASH then
+			local k = 1 - phase / PULSE_FLASH
+			local dur = math.max(0.01, (PULSE_FLASH - phase) * interval)
+			if not o._glowAG then o._glowAG = {} end
+			for i, g in ipairs(glows) do
+				local ag = o._glowAG[i]
+				if not ag then
+					ag = g:CreateAnimationGroup()
+					ag.fade = ag:CreateAnimation("Alpha")
+					if ag.SetToFinalAlpha then ag:SetToFinalAlpha(true) end
+					ag:SetScript("OnFinished", function() g:SetAlpha(0) end)
+					o._glowAG[i] = ag
+				end
+				ag:Stop()
+				local a0 = 0.9 * (1.1 - i * 0.2) * k   -- inner glows brighter, as before
+				ag.fade:SetFromAlpha(a0); ag.fade:SetToAlpha(0); ag.fade:SetDuration(dur)
+				g:SetAlpha(a0); g:Show()
+				ag:Play()
+			end
+		else
+			stopGlows(o, false)
+		end
+	end
+	return age
+end
 
 function ShamanPower:CreatePulseOverlay(button)
 	if not button then return nil end
@@ -969,12 +2609,12 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- White overlay texture
 	local wipe = wipeFrame:CreateTexture(nil, "OVERLAY")
-	wipe:SetColorTexture(1, 1, 1, 0.7)  -- White for visibility
+	ShamanPower:SetSPBarColor(wipe, "pulse", 1, 1, 1, 0.7)  -- White for visibility
 	wipe:Hide()
 
 	-- Time text inside the bar (top)
 	local barTimeTextTop = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextTop, "timers", 9, "OUTLINE")
 	barTimeTextTop:SetPoint("TOP", wipeFrame, "TOP", 0, -1)
 	barTimeTextTop:SetTextColor(1, 1, 1)  -- White text
 	barTimeTextTop:Hide()
@@ -982,7 +2622,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text inside the bar (bottom)
 	local barTimeTextBottom = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextBottom, "timers", 9, "OUTLINE")
 	barTimeTextBottom:SetPoint("BOTTOM", wipeFrame, "BOTTOM", 0, 1)
 	barTimeTextBottom:SetTextColor(1, 1, 1)  -- White text
 	barTimeTextBottom:Hide()
@@ -990,7 +2630,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text above the bar
 	local aboveTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(aboveTimeText, "timers", 9, "OUTLINE")
 	aboveTimeText:SetPoint("BOTTOM", wipeFrame, "TOP", 0, 1)
 	aboveTimeText:SetTextColor(1, 1, 1)  -- White text
 	aboveTimeText:Hide()
@@ -998,7 +2638,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text below the bar
 	local belowTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(belowTimeText, "timers", 9, "OUTLINE")
 	belowTimeText:SetPoint("TOP", wipeFrame, "BOTTOM", 0, -1)
 	belowTimeText:SetTextColor(1, 1, 1)  -- White text
 	belowTimeText:Hide()
@@ -1006,7 +2646,7 @@ function ShamanPower:CreatePulseOverlay(button)
 
 	-- Time text on the icon
 	local iconTimeText = button:CreateFontString(nil, "OVERLAY")
-	iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ShamanPower:SetSPFont(iconTimeText, "timers", 10, "OUTLINE")
 	iconTimeText:SetPoint("CENTER", button, "CENTER", 0, 0)
 	iconTimeText:SetTextColor(1, 1, 1)  -- White text
 	iconTimeText:Hide()
@@ -1030,18 +2670,22 @@ function ShamanPower:CreatePulseOverlay(button)
 		for _, glow in ipairs(self.glows) do glow:Show() end
 	end
 
+	-- (the next pulse pass restarts the animations after any of these)
 	container.Hide = function(self)
-		for _, glow in ipairs(self.glows) do glow:Hide() end
+		stopGlows(self, true)
+		self._pState = nil
 	end
 
 	container.HideWipe = function(self)
-		if self.wipe then
-			self.wipe:Hide()
-		end
+		stopWipe(self)
+		self._pState = nil
 	end
 
-	-- Update the wipe progress (0 = just pulsed/no coverage, 1 = about to pulse/full coverage)
+	-- Draw the wipe by hand (0 = just pulsed/no coverage, 1 = about to pulse/full
+	-- coverage). The pulse pass uses PulseVisualSync; this stays for other callers.
 	container.UpdateWipe = function(self, progress)
+		if self._wipeAG then self._wipeAG:Stop() end
+		self._pState = nil
 		if self.wipe then
 			-- Don't show if pulse bar is disabled
 			if self.isDisabled then
@@ -1062,66 +2706,14 @@ function ShamanPower:CreatePulseOverlay(button)
 		end
 	end
 
-	-- Hide all time text elements
-	local function hideAllTimeTexts(self)
-		if self.barTimeTextTop then self.barTimeTextTop:Hide() end
-		if self.barTimeTextBottom then self.barTimeTextBottom:Hide() end
-		if self.aboveTimeText then self.aboveTimeText:Hide() end
-		if self.belowTimeText then self.belowTimeText:Hide() end
-		if self.iconTimeText then self.iconTimeText:Hide() end
-	end
-
-	-- Update the time display
+	-- Update the time display (only when the shown tenths change)
 	container.UpdateTime = function(self, timeRemaining, displayOption)
-		hideAllTimeTexts(self)
-
-		if not displayOption or displayOption == "none" then
-			return
-		end
-
-		local timeText = string.format("%.1f", timeRemaining)
-		local textSize = ShamanPower.opt.pulseTextSize or 8
-
-		if displayOption == "inside_top" then
-			if self.barTimeTextTop then
-				self.barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.barTimeTextTop:SetText(timeText)
-				self.barTimeTextTop:Show()
-			end
-		elseif displayOption == "inside_bottom" then
-			if self.barTimeTextBottom then
-				self.barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.barTimeTextBottom:SetText(timeText)
-				self.barTimeTextBottom:Show()
-			end
-		elseif displayOption == "above" then
-			if self.aboveTimeText then
-				self.aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.aboveTimeText:SetText(timeText)
-				self.aboveTimeText:Show()
-			end
-		elseif displayOption == "below" then
-			if self.belowTimeText then
-				self.belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.belowTimeText:SetText(timeText)
-				self.belowTimeText:Show()
-			end
-		elseif displayOption == "on_icon" then
-			if self.iconTimeText then
-				self.iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.iconTimeText:SetText(timeText)
-				self.iconTimeText:Show()
-			end
-		end
+		ShamanPower:PulseVisualText(self, timeRemaining, displayOption)
 	end
 
 	-- Hide time displays
 	container.HideTime = function(self)
-		if self.barTimeTextTop then self.barTimeTextTop:Hide() end
-		if self.barTimeTextBottom then self.barTimeTextBottom:Hide() end
-		if self.aboveTimeText then self.aboveTimeText:Hide() end
-		if self.belowTimeText then self.belowTimeText:Hide() end
-		if self.iconTimeText then self.iconTimeText:Hide() end
+		ShamanPower:PulseVisualHideText(self)
 	end
 
 	return container
@@ -1137,6 +2729,15 @@ function ShamanPower:PositionPulseWipe(container)
 	local position = self.opt.pulseBarPosition or "on_icon"
 	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
 	local padT, padB, padL, padR = self:GetPartyDotPads()
+	-- and out past the flyout tab on its side while that shows (see FollowFlyoutArrows)
+	local aT, aB, aL, aR = self:FlyoutArrowPads(button)
+	padT, padB, padL, padR = padT + aT, padB + aB, padL + aL, padR + aR
+
+	-- a running wipe animation belongs to the old placement: stop it, and let the
+	-- next pulse pass start again from the new one
+	if container._wipeAG then container._wipeAG:Stop() end
+	container._pState = nil
+	container.wipeGrowsDown = (position == "on_icon" or position == "below_vert")   -- anchored at the top
 
 	wipe:ClearAllPoints()
 	wipeFrame:ClearAllPoints()
@@ -1150,6 +2751,7 @@ function ShamanPower:PositionPulseWipe(container)
 	end
 
 	container.isDisabled = false
+	wipeFrame:Show()   -- hidden by "none"; every other position shows it again
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -1246,6 +2848,9 @@ function ShamanPower:UpdatePulseBarPositions()
 			end
 		end
 	end
+	-- the overlay leaves room past a flyout tab for its own pulse bar and dots:
+	-- place it again for the new ones (Blizzard's bar has no tabs of ours)
+	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then self:PositionActiveOverlays() end
 end
 
 -- Position the pulse wipe bar for active totem overlays
@@ -1256,6 +2861,10 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	local wipe = overlay.wipe
 	local position = self.opt.pulseBarPosition or "on_icon"
 	local barSize = self.opt.pulseBarSize or 4  -- Size of the external bar
+
+	if overlay._wipeAG then overlay._wipeAG:Stop() end
+	overlay._pState = nil
+	overlay.wipeGrowsDown = (position == "on_icon" or position == "below_vert")   -- anchored at the top
 
 	wipe:ClearAllPoints()
 	if wipeFrame then wipeFrame:ClearAllPoints() end
@@ -1269,6 +2878,7 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	end
 
 	overlay.isDisabled = false
+	if wipeFrame then wipeFrame:Show() end   -- hidden by "none"; every other position shows it again
 
 	if position == "on_icon" then
 		-- Original behavior: wipe slides down inside the icon
@@ -1356,27 +2966,33 @@ end
 
 -- Pulsing totem data: totemName pattern -> { element, interval }
 ShamanPower.PulsingTotems = {
-	-- Earth totems (element 1, slot 2)
-	["Tremor"] = { element = 1, slot = 2, interval = 3 },
-	["Earthbind"] = { element = 1, slot = 2, interval = 3 },
-	-- Fire totems (element 2, slot 1)
-	["Magma"] = { element = 2, slot = 1, interval = 2 },
-	-- Water totems (element 3, slot 3)
-	["Mana Tide"] = { element = 3, slot = 3, interval = 3 },
-	["Mana Spring"] = { element = 3, slot = 3, interval = 2 },
-	["Healing Stream"] = { element = 3, slot = 3, interval = 2 },
-	["Poison Cleansing"] = { element = 3, slot = 3, interval = 5 },
-	["Disease Cleansing"] = { element = 3, slot = 3, interval = 5 },
+	-- Earth totems
+	["Tremor"] = { element = 1, interval = 3 },
+	["Earthbind"] = { element = 1, interval = 3 },
+	-- Fire totems
+	["Magma"] = { element = 2, interval = 2 },
+	-- Water totems
+	["Mana Tide"] = { element = 3, interval = 3 },
+	["Mana Spring"] = { element = 3, interval = 2 },
+	["Healing Stream"] = { element = 3, interval = 2 },
+	["Poison Cleansing"] = { element = 3, interval = 5 },
+	["Disease Cleansing"] = { element = 3, interval = 5 },
 }
 
-function ShamanPower:GetActivePulsingTotem(slot)
-	local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+local pulsingByName = {}   -- [element .. name] = PulsingTotems entry, or false
+function ShamanPower:GetActivePulsingTotem(element)
+	local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 	if haveTotem and totemName then
-		for pattern, data in pairs(self.PulsingTotems) do
-			if data.slot == slot and totemName:find(pattern) then
-				return data, startTime, duration
+		local key = element .. totemName
+		local data = pulsingByName[key]
+		if data == nil then
+			data = false
+			for pattern, entry in pairs(self.PulsingTotems) do
+				if entry.element == element and totemName:find(pattern) then data = entry break end
 			end
+			pulsingByName[key] = data
 		end
+		if data then return data, startTime, duration end
 	end
 	return nil, nil, nil
 end
@@ -1394,21 +3010,33 @@ function ShamanPower:SetupPulseOverlays()
 	-- Register pulse tracking with consolidated update system (20fps)
 	-- Only register once, but only enable if feature is on
 	if not self.updateSystem.subsystems["pulse"] then
+		local pulseState = {}
+		local function pulsePass()
+			-- Earth, Fire, Water (elements 1-3) can have pulsing totems
+			-- which totem pulses (and since when) only changes with the totems: look it up
+			-- when they change or twice a second, not twenty times a second
+			local gen, now = ShamanPower._totemInfoGen, GetTime()
+			if pulseState.gen ~= gen or (now - (pulseState.at or 0)) > 0.5 then
+				pulseState.gen, pulseState.at = gen, now
+				pulseState.data, pulseState.start = pulseState.data or {}, pulseState.start or {}
+				for element = 1, 3 do
+					pulseState.data[element], pulseState.start[element] = ShamanPower:GetActivePulsingTotem(element)
+				end
+			end
+			for element = 1, 3 do
+				local data, start = pulseState.data[element], pulseState.start[element]
+				-- Only an element whose totem pulses needs 20 passes a second; one that
+				-- just stopped gets a single pass to clear its glow. (With Stoneskin and
+				-- Searing down, nothing pulses and this loop now does no drawing at all.)
+				if data or pulseState[element] then
+					ShamanPower:UpdatePulseGlow(element, data, start)
+					ShamanPower:UpdatePoppedOutPulse(element, data, start)
+				end
+				pulseState[element] = data and true or nil
+			end
+		end
 		self:RegisterUpdateSubsystem("pulse", 0.05, function()
-			-- Check Earth totem (slot 2)
-			local earthData, earthStart = ShamanPower:GetActivePulsingTotem(2)
-			ShamanPower:UpdatePulseGlow(1, earthData, earthStart)
-			ShamanPower:UpdatePoppedOutPulse(1, 2, earthData, earthStart)
-
-			-- Check Fire totem (slot 1)
-			local fireData, fireStart = ShamanPower:GetActivePulsingTotem(1)
-			ShamanPower:UpdatePulseGlow(2, fireData, fireStart)
-			ShamanPower:UpdatePoppedOutPulse(2, 1, fireData, fireStart)
-
-			-- Check Water totem (slot 3)
-			local waterData, waterStart = ShamanPower:GetActivePulsingTotem(3)
-			ShamanPower:UpdatePulseGlow(3, waterData, waterStart)
-			ShamanPower:UpdatePoppedOutPulse(3, 3, waterData, waterStart)
+			spWhileTotemsDown(pulseState, pulsePass)   -- nothing pulses with no totem down
 		end)
 	end
 	-- Only enable if pulse bar is not disabled (pulseBarPosition != "none")
@@ -1420,13 +3048,22 @@ function ShamanPower:SetupPulseOverlays()
 	end
 end
 
+-- lower-case totem names, cached (the pulse pass compares them 20 times a second)
+local pulseLower = {}
+local function lowerName(name)
+	local l = pulseLower[name]
+	if not l then l = name:lower(); pulseLower[name] = l end
+	return l
+end
+local NO_OVERLAYS = {}
+
 -- Update pulse effects on popped-out single totems
-function ShamanPower:UpdatePoppedOutPulse(element, slot, totemData, startTime)
+function ShamanPower:UpdatePoppedOutPulse(element, totemData, startTime)
 	-- Get the active totem name to match against pop-outs
-	local haveTotem, activeTotemName = GetTotemInfo(slot)
+	local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 
 	-- Iterate through all popped-out overlays for this element
-	for key, overlay in pairs(self.poppedOutOverlays or {}) do
+	for key, overlay in pairs(self.poppedOutOverlays or NO_OVERLAYS) do
 		if overlay.element == element then
 			local frame = self.poppedOutFrames[key]
 			local matchesTotem = false
@@ -1434,47 +3071,19 @@ function ShamanPower:UpdatePoppedOutPulse(element, slot, totemData, startTime)
 			-- Check if this pop-out's totem matches the active totem
 			if haveTotem and activeTotemName and overlay.spellName then
 				-- Simple case-insensitive substring match
-				local activeLower = activeTotemName:lower()
-				local spellLower = overlay.spellName:lower()
+				local activeLower = lowerName(activeTotemName)
+				local spellLower = lowerName(overlay.spellName)
 				if activeLower:find(spellLower, 1, true) or spellLower:find(activeLower, 1, true) then
 					matchesTotem = true
 				end
 			end
 
 			if matchesTotem and totemData and startTime then
-				-- This pop-out matches the active pulsing totem - show pulse
-				local now = GetTime()
-				local totemAge = now - startTime
+				-- This pop-out matches the active pulsing totem: the engine animates
+				-- the wipe and the glow flash; this only restarts them each cycle
 				local pulseInterval = totemData.interval
-				local cyclePos = (totemAge % pulseInterval) / pulseInterval
-				local timeRemaining = pulseInterval * (1 - cyclePos)
-
-				-- Update wipe bar
-				if overlay.UpdateWipe then
-					overlay:UpdateWipe(cyclePos)
-				end
-
-				-- Update time display
-				local displayOption = self.opt.pulseTimeDisplay or "none"
-				if overlay.UpdateTime then
-					overlay:UpdateTime(timeRemaining, displayOption)
-				end
-
-				-- Update glow flash (pulse at start of cycle)
-				local alpha
-				if cyclePos < 0.15 then
-					alpha = 1 - (cyclePos / 0.15)
-				else
-					alpha = 0
-				end
-
-				if alpha > 0 then
-					overlay:SetAlpha(alpha * 0.9)
-					overlay:Show()
-				else
-					overlay:SetAlpha(0)
-					overlay:Hide()
-				end
+				local totemAge = self:PulseVisualSync(overlay, startTime, pulseInterval, GetTime())
+				self:PulseVisualText(overlay, pulseInterval - (totemAge % pulseInterval), self.opt.pulseTimeDisplay or "none")
 
 				-- Show active border on the frame
 				if frame and frame.activeBorder then
@@ -1482,14 +3091,7 @@ function ShamanPower:UpdatePoppedOutPulse(element, slot, totemData, startTime)
 				end
 			else
 				-- No match or no active pulsing totem - hide pulse
-				overlay:SetAlpha(0)
-				overlay:Hide()
-				if overlay.HideWipe then
-					overlay:HideWipe()
-				end
-				if overlay.HideTime then
-					overlay:HideTime()
-				end
+				self:PulseVisualStop(overlay)
 
 				-- Check if this pop-out's totem is active (but not pulsing)
 				if matchesTotem and haveTotem then
@@ -1511,28 +3113,26 @@ end
 function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	local glow = self.pulseOverlays[element]
 	if not glow then return end
+	local nativeBar = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
+	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
 
 	-- Compact style paints the pulse inside the line
 	if self:CompactActive() then
-		glow:SetAlpha(0); glow:Hide()
-		if glow.HideWipe then glow:HideWipe() end
-		if glow.HideTime then glow:HideTime() end
+		self:PulseVisualStop(glow)
 		return
 	end
 
 	-- Check if active overlay is showing for this element
 	-- In TotemTimers style mode (activeTotemAsMain), always use main button even when overlay is "active"
-	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
-	local useOverlay = activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
+	local useOverlay = not nativeBar and activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
 
 	-- Check if the active totem is popped out - if so, don't show pulse on main bar
 	local totemIsPoppedOut = false
-	if totemData then
-		local slot = self.ElementToSlot and self.ElementToSlot[element] or element
-		local haveTotem, activeTotemName = GetTotemInfo(slot)
+	if totemData and not nativeBar then
+		local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 		if haveTotem and activeTotemName then
 			-- Check if any popped-out single totem matches
-			for key, overlay in pairs(self.poppedOutOverlays or {}) do
+			for key, overlay in pairs(self.poppedOutOverlays or NO_OVERLAYS) do
 				if overlay.element == element and overlay.spellName then
 					local ok1, result1 = pcall(string.find, activeTotemName, overlay.spellName, 1, true)
 					local ok2, result2 = pcall(string.find, overlay.spellName, activeTotemName, 1, true)
@@ -1547,107 +3147,23 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 
 	-- If totem is popped out, hide main bar pulse and let UpdatePoppedOutPulse handle it
 	if totemIsPoppedOut then
-		glow:SetAlpha(0)
-		glow:Hide()
-		glow:HideWipe()
-		if glow.HideTime then
-			glow:HideTime()
-		end
+		self:PulseVisualStop(glow)
 		return
 	end
 
 	if totemData and startTime then
-		local now = GetTime()
-		local totemAge = now - startTime
-		local pulseInterval = totemData.interval
-
-		-- Calculate position within current pulse cycle (0 to 1)
-		local cyclePos = (totemAge % pulseInterval) / pulseInterval
-
-		-- Calculate time remaining until next pulse
-		local timeRemaining = pulseInterval * (1 - cyclePos)
-
-		if useOverlay and activeOverlay.wipe then
-			-- Update overlay's wipe using its positioning settings
-			-- Check if pulse bar is disabled
-			if activeOverlay.isDisabled then
-				activeOverlay.wipe:Hide()
-			elseif cyclePos > 0 and cyclePos < 1 then
-				local maxSize = activeOverlay.maxSize or 22
-				local size = maxSize * cyclePos
-				if activeOverlay.isVertical then
-					activeOverlay.wipe:SetHeight(math.max(1, size))
-				else
-					activeOverlay.wipe:SetWidth(math.max(1, size))
-				end
-				activeOverlay.wipe:Show()
-			else
-				activeOverlay.wipe:Hide()
-			end
-			-- Hide main button's wipe
-			glow:UpdateWipe(-1)  -- Hide by passing invalid value
-		else
-			-- Update main button's wipe
-			glow:UpdateWipe(cyclePos)
-		end
-
-		-- Update pulse time display
-		local displayOption = self.opt.pulseTimeDisplay or "none"
-		if useOverlay and activeOverlay.UpdateTime then
-			-- Update time on active overlay
-			activeOverlay:UpdateTime(timeRemaining, displayOption)
-			-- Hide time on main overlay
-			if glow.HideTime then glow:HideTime() end
-		elseif glow.UpdateTime then
-			-- Update time on main overlay
-			glow:UpdateTime(timeRemaining, displayOption)
-		end
-
-		-- Pulse brightens at the start of each cycle (the glow flash)
-		local alpha
-		if cyclePos < 0.15 then
-			-- Quick flash at pulse point
-			alpha = 1 - (cyclePos / 0.15)
-		else
-			alpha = 0
-		end
-
-		if useOverlay and activeOverlay.glows then
-			-- Update overlay's glows
-			for i, overlayGlow in ipairs(activeOverlay.glows) do
-				overlayGlow:SetAlpha(alpha * 0.9 * (1.1 - i * 0.2))
-			end
-			-- Hide main glows
-			glow:SetAlpha(0)
-			glow:Hide()
-		else
-			-- Update main button's glows
-			if alpha > 0 then
-				glow:SetAlpha(alpha * 0.9)
-				glow:Show()
-			else
-				glow:SetAlpha(0)
-				glow:Hide()
-			end
-		end
+		-- One of the two shows the pulse (the active-totem overlay when it is up,
+		-- otherwise the button); the other is kept off. The engine animates the
+		-- wipe and the glow flash; this only restarts them on each new cycle.
+		local target = useOverlay and activeOverlay or glow
+		local other = (target == glow) and activeOverlay or glow
+		if other then self:PulseVisualStop(other) end
+		local interval = totemData.interval
+		local totemAge = self:PulseVisualSync(target, startTime, interval, GetTime())
+		self:PulseVisualText(target, interval - (totemAge % interval), self.opt.pulseTimeDisplay or "none")
 	else
-		glow:SetAlpha(0)
-		glow:Hide()
-		glow:HideWipe()
-		if glow.HideTime then
-			glow:HideTime()
-		end
-
-		-- Also hide overlay's pulse elements
-		if activeOverlay then
-			if activeOverlay.wipe then activeOverlay.wipe:Hide() end
-			if activeOverlay.glows then
-				for _, overlayGlow in ipairs(activeOverlay.glows) do
-					overlayGlow:SetAlpha(0)
-				end
-			end
-			if activeOverlay.HideTime then activeOverlay:HideTime() end
-		end
+		self:PulseVisualStop(glow)
+		if activeOverlay then self:PulseVisualStop(activeOverlay) end
 	end
 end
 
@@ -1698,7 +3214,7 @@ function ShamanPower:SetupTwistTimer()
 		self.twistTimerFrame:SetFrameStrata("HIGH")
 
 		self.twistTimerText = self.twistTimerFrame:CreateFontString(nil, "OVERLAY")
-		self.twistTimerText:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+		ShamanPower:SetSPFont(self.twistTimerText, "timers", 16, "OUTLINE")
 		self.twistTimerText:SetPoint("CENTER", airButton, "CENTER", 0, 0)
 		self.twistTimerText:SetTextColor(1, 1, 1)
 		self.twistTimerFrame:Hide()
@@ -1727,8 +3243,8 @@ function ShamanPower:UpdateTwistTimer()
 		return
 	end
 
-	-- Check if Air totem is active (slot 4)
-	local haveTotem, name, startTime, duration = GetTotemInfo(4)
+	-- Check if Air totem is active
+	local haveTotem, name, startTime, duration = self:GetElementTotemInfo(4)
 
 	-- Only update icon in classic mode (not TotemTimers mode)
 	-- In TotemTimers mode, UpdateActiveTotemOverlays handles the icon
@@ -1777,9 +3293,9 @@ function ShamanPower:UpdateTwistTimer()
 			if self.twistTimerFrame and self.twistTimerText then
 				local format = self.opt.twistTimerNoDecimals and "%.0f" or "%.1f"
 				self.twistTimerText:SetText(string.format(format, remaining))
-				-- Twist beep sound
+				-- Twist beep sound (not once switched off during a fight: the bar waits for its end)
 				if self.opt.twistSoundEnabled and not self.twistSoundPlayed then
-					if remaining <= self.opt.twistSoundThreshold then
+					if remaining <= self.opt.twistSoundThreshold and not self:IsOff() then
 						self:PlaySoundWithVolume(self:GetSoundFile(self.opt.twistSoundName or "Raid Warning"), self.opt.twistSoundVolume, true)
 						self.twistSoundPlayed = true
 					end
@@ -1854,36 +3370,36 @@ function ShamanPower:SetupTotemProgressBars()
 			-- Progress bar (colored)
 			local progressBar = totemButton:CreateTexture(nil, "OVERLAY", nil, 1)
 			local colors = self.DurationBarColors[element]
-			progressBar:SetColorTexture(colors[1], colors[2], colors[3], 1)
+			ShamanPower:SetSPBarColor(progressBar, "duration", colors[1], colors[2], colors[3], 1)
 			progressBar:Hide()
 
 			-- Duration text INSIDE the bar (top)
 			local insideTextTop = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-			insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(insideTextTop, "timers", 8, "OUTLINE")
 			insideTextTop:SetTextColor(1, 1, 1)
 			insideTextTop:Hide()
 
 			-- Duration text INSIDE the bar (bottom)
 			local insideTextBottom = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-			insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(insideTextBottom, "timers", 8, "OUTLINE")
 			insideTextBottom:SetTextColor(1, 1, 1)
 			insideTextBottom:Hide()
 
 			-- Duration text ABOVE the bar
 			local aboveBarText = totemButton:CreateFontString(nil, "OVERLAY")
-			aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(aboveBarText, "timers", 8, "OUTLINE")
 			aboveBarText:SetTextColor(1, 1, 1)
 			aboveBarText:Hide()
 
 			-- Duration text BELOW the bar
 			local belowBarText = totemButton:CreateFontString(nil, "OVERLAY")
-			belowBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(belowBarText, "timers", 8, "OUTLINE")
 			belowBarText:SetTextColor(1, 1, 1)
 			belowBarText:Hide()
 
 			-- Duration text ON the icon
 			local iconText = totemButton:CreateFontString(nil, "OVERLAY")
-			iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
 			iconText:Hide()
@@ -1908,7 +3424,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.insideTextTop then
 				local insideTextTop = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-				insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(insideTextTop, "timers", 8, "OUTLINE")
 				insideTextTop:SetTextColor(1, 1, 1)
 				insideTextTop:Hide()
 				bars.insideTextTop = insideTextTop
@@ -1917,7 +3433,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.insideTextBottom then
 				local insideTextBottom = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
-				insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(insideTextBottom, "timers", 8, "OUTLINE")
 				insideTextBottom:SetTextColor(1, 1, 1)
 				insideTextBottom:Hide()
 				bars.insideTextBottom = insideTextBottom
@@ -1925,7 +3441,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.aboveBarText then
 				local aboveBarText = totemButton:CreateFontString(nil, "OVERLAY")
-				aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(aboveBarText, "timers", 8, "OUTLINE")
 				aboveBarText:SetTextColor(1, 1, 1)
 				aboveBarText:Hide()
 				bars.aboveBarText = aboveBarText
@@ -1933,7 +3449,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.belowBarText then
 				local belowBarText = totemButton:CreateFontString(nil, "OVERLAY")
-				belowBarText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+				ShamanPower:SetSPFont(belowBarText, "timers", 8, "OUTLINE")
 				belowBarText:SetTextColor(1, 1, 1)
 				belowBarText:Hide()
 				bars.belowBarText = belowBarText
@@ -1943,7 +3459,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 			if not bars.iconText then
 				local iconText = totemButton:CreateFontString(nil, "OVERLAY")
-				iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+				ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 				iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 				iconText:SetTextColor(1, 1, 1)
 				iconText:Hide()
@@ -1961,30 +3477,55 @@ function ShamanPower:SetupTotemProgressBars()
 
 	-- Register progress bar updates with consolidated update system (10fps)
 	if not self.updateSystem.subsystems["progressBars"] then
+		local barState = {}
+		local function barPass() ShamanPower:UpdateTotemProgressBars() end
 		self:RegisterUpdateSubsystem("progressBars", 0.1, function()
-			ShamanPower:UpdateTotemProgressBars()
+			spWhileTotemsDown(barState, barPass)   -- duration bars / texts / dropped-totem overlays need a totem down
 
-			-- Dynamic Mode: update totem icons to reflect currently placed totems
-			if ShamanPower.opt.dynamicTotemMode then
+			-- Dynamic Mode (and Grid): update totem icons to reflect currently placed totems
+			if ShamanPower:DropSetsAssignment() then
 				ShamanPower:UpdateDynamicTotemIcons()
 			end
 
-			-- Update totem bar opacity (for "full opacity when active" option)
-			if ShamanPower.opt.totemBarFullOpacityWhenActive then
+			-- Update totem bar opacity (for "full opacity when active" option). It only
+			-- changes when a totem does, and PLAYER_TOTEM_UPDATE asks for a pass through
+			-- _barWake; the once-a-second pass is a safety net.
+			barState.n = (barState.n or 0) + 1
+			local slowPass = barState.n >= 10
+			if slowPass then barState.n = 0 end
+			local woke = ShamanPower._barWake
+			ShamanPower._barWake = nil
+			if ShamanPower.opt.totemBarFullOpacityWhenActive and (woke or slowPass) then
 				ShamanPower:UpdateTotemBarOpacity()
 			end
 
-			-- Update totem cooldowns on main buttons and flyout buttons
-			if ShamanPower.opt.showTotemCooldowns ~= false then
+			-- Update totem cooldowns on main buttons and flyout buttons: every tick while a
+			-- cooldown is being drawn (its text counts down), otherwise only when the client
+			-- says a cooldown changed, a flyout opened, or once a second.
+			if ShamanPower.opt.showTotemCooldowns ~= false and (ShamanPower._totemCdShown or woke or slowPass) then
 				ShamanPower:UpdateTotemCooldowns()
 			end
 		end)
+		if not self._barWakeFrame then
+			local f = CreateFrame("Frame")
+			for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "PLAYER_TOTEM_UPDATE", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED" }) do
+				pcall(f.RegisterEvent, f, ev)
+			end
+			f:SetScript("OnEvent", function(_, ev)
+				ShamanPower._barWake = true
+				ShamanPower._ovWake = true
+				if ev == "PLAYER_REGEN_DISABLED" or ev == "PLAYER_REGEN_ENABLED" then ShamanPower:InvalidateTotemInfo() end
+			end)
+			self._barWakeFrame = f
+		end
 	end
 	-- Only enable if any of these features are on
 	local needsProgressBars = self.opt.showDurationBars ~= false
 		or self.opt.dynamicTotemMode
 		or self.opt.totemBarFullOpacityWhenActive
 		or self.opt.showTotemCooldowns ~= false
+		or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+		or (self.GridActive and self:GridActive())
 	if needsProgressBars then
 		self:EnableUpdateSubsystem("progressBars")
 	else
@@ -1996,7 +3537,7 @@ end
 function ShamanPower:UpdateTotemProgressBarPositions()
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
-	local padT, padB, padL, padR = self:GetPartyDotPads()
+	local dotT, dotB, dotL, dotR = self:GetPartyDotPads()
 
 	-- Enable/disable progressBars subsystem based on whether any features need it
 	local barDisabled = (barPosition == "none")
@@ -2005,6 +3546,8 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 		or self.opt.dynamicTotemMode
 		or self.opt.totemBarFullOpacityWhenActive
 		or self.opt.showTotemCooldowns ~= false
+		or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+		or (self.GridActive and self:GridActive())
 	if needsProgressBars then
 		self:EnableUpdateSubsystem("progressBars")
 	else
@@ -2015,6 +3558,9 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 		local totemButton = self.totemButtons[element]
 		local bars = self.totemProgressBars[element]
 		if totemButton and bars then
+			-- room for the party dots, and for the flyout tab on its side while it shows
+			local aT, aB, aL, aR = self:FlyoutArrowPads(totemButton)
+			local padT, padB, padL, padR = dotT + aT, dotB + aB, dotL + aL, dotR + aR
 			bars.bg:ClearAllPoints()
 			bars.bar:ClearAllPoints()
 			if bars.insideTextTop then bars.insideTextTop:ClearAllPoints() end
@@ -2137,6 +3683,20 @@ end
 
 -- Update progress bars based on totem duration
 function ShamanPower:UpdateTotemProgressBars()
+	if self.GridActive and self:GridActive() then
+		self:UpdateGridTotems()
+		self:UpdatePoppedOutProgressBars()
+		self:UpdateActiveTotemOverlaysIfDue()
+		return
+	end
+	-- Native hosts use this existing driver; the engine animates their lifetime
+	-- widgets between model changes. Do not draw hidden custom duration bars.
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:UpdateBlizzardTotemOverlays()
+		self:UpdatePoppedOutProgressBars()
+		self:UpdateActiveTotemOverlaysIfDue()
+		return
+	end
 	local textLocation = self.opt.durationTextLocation or "none"
 	local barPosition = self.opt.durationBarPosition or "bottom"
 	local barSize = self.opt.durationBarHeight or 3
@@ -2158,15 +3718,14 @@ function ShamanPower:UpdateTotemProgressBars()
 			end
 		end
 		self:UpdatePoppedOutProgressBars()
-		self:UpdateActiveTotemOverlays()
+		self:UpdateActiveTotemOverlaysIfDue()
 		return
 	end
 
 	for element = 1, 4 do
 		local bars = self.totemProgressBars[element]
 		if bars then
-			local slot = self.ElementToSlot[element]
-			local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+			local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 
 			-- Check if the active totem is popped out as a single totem
 			local totemIsPoppedOut = false
@@ -2229,31 +3788,31 @@ function ShamanPower:UpdateTotemProgressBars()
 					-- Show the appropriate text element (apply text size)
 					if textLocation == "inside_top" then
 						if bars.insideTextTop then
-							bars.insideTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.insideTextTop, "timers", textSize, "OUTLINE")
 							bars.insideTextTop:SetText(durationStr)
 							bars.insideTextTop:Show()
 						end
 					elseif textLocation == "inside_bottom" then
 						if bars.insideTextBottom then
-							bars.insideTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.insideTextBottom, "timers", textSize, "OUTLINE")
 							bars.insideTextBottom:SetText(durationStr)
 							bars.insideTextBottom:Show()
 						end
 					elseif textLocation == "above" then
 						if bars.aboveBarText then
-							bars.aboveBarText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.aboveBarText, "timers", textSize, "OUTLINE")
 							bars.aboveBarText:SetText(durationStr)
 							bars.aboveBarText:Show()
 						end
 					elseif textLocation == "below" then
 						if bars.belowBarText then
-							bars.belowBarText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.belowBarText, "timers", textSize, "OUTLINE")
 							bars.belowBarText:SetText(durationStr)
 							bars.belowBarText:Show()
 						end
 					elseif textLocation == "icon" then
 						if bars.iconText then
-							bars.iconText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+							ShamanPower:SetSPFont(bars.iconText, "timers", textSize, "OUTLINE")
 							bars.iconText:SetText(durationStr)
 							bars.iconText:Show()
 						end
@@ -2283,7 +3842,7 @@ function ShamanPower:UpdateTotemProgressBars()
 	self:UpdatePoppedOutProgressBars()
 
 	-- Update active totem overlays
-	self:UpdateActiveTotemOverlays()
+	self:UpdateActiveTotemOverlaysIfDue()
 end
 
 -- Format cooldown time for display
@@ -2330,6 +3889,7 @@ function ShamanPower:ApplyTotemCooldownVisual(btn, start, duration)
 		end
 	else
 		if btn.cdSweep then btn.cdSweep:Hide() end
+		btn.cooldown:SetDrawEdge(self.opt.totemCooldownEdge ~= false)
 		btn.cooldown:SetCooldown(start, duration)
 	end
 end
@@ -2337,10 +3897,189 @@ end
 function ShamanPower:ClearTotemCooldownVisual(btn)
 	btn.cooldown:Clear()
 	if btn.cdSweep then btn.cdSweep:Hide() end
+	if btn.cdBar then btn.cdBar:Hide() end
+	btn._engineCDKey = nil   -- the next pass hands the engine whatever is running
+end
+
+-- ============================================================================
+-- Engine-drawn totem cooldowns (Mainline family)
+-- ============================================================================
+-- Cooldown numbers are secret in combat, so the addon's own text counted down
+-- a shadow model there (own cast time plus a learned or base length). The
+-- client's Cooldown widget draws its own countdown from a duration object,
+-- which C_Spell.GetSpellCooldownDuration hands out secret-safe, in combat
+-- (measured, /spdiag engine timer pipeline). So on this family the engine is
+-- handed a cooldown once when it starts or ends (SPELL_UPDATE_COOLDOWN wakes
+-- the pass; the shadow model only says whether one is running) and draws the
+-- sweep and the numbers itself from then on: nothing per tick, the real
+-- talent-adjusted length, and the same numbers as the action bars. The
+-- numbers obey the client's "Show Numbers for Cooldowns" setting; turning the
+-- addon's text option on turns that on too, turning it off leaves it alone.
+local COUNTDOWN_CVAR = "countdownForCooldowns"
+
+function ShamanPower:EngineCooldownsOn()
+	if self._engineCD == nil then
+		local on = false
+		if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and C_Spell and C_Spell.GetSpellCooldownDuration then
+			local ok, probe = pcall(CreateFrame, "Cooldown", nil, UIParent, "CooldownFrameTemplate")
+			if ok and probe then
+				on = probe.SetCooldownFromDurationObject ~= nil and probe.GetCountdownFontString ~= nil
+					and probe.SetMinimumCountdownDuration ~= nil
+				probe:Hide()
+			end
+		end
+		self._engineCD = on
+	end
+	return self._engineCD
+end
+
+function ShamanPower:CountdownNumbersEnabled()
+	return GetCVarBool ~= nil and GetCVarBool(COUNTDOWN_CVAR) or false
+end
+
+-- The addon's cooldown text wants the client's numbers: turn them on, once,
+-- and say so (they show on the action bars too). Never turned off from here.
+function ShamanPower:EnableCountdownNumbers()
+	if not self:EngineCooldownsOn() or self:CountdownNumbersEnabled() then return end
+	SetCVar(COUNTDOWN_CVAR, "1")
+	self:Print("Turned on WoW's |cffffd100Show Numbers for Cooldowns|r so cooldown time can show on the totems (this also shows numbers on your action bars).")
+end
+
+-- The text settings the engine strings were last styled with (plain fields:
+-- this is compared on every cooldown pass and must not build strings).
+local function EngineTextChanged(self)
+	local c = self.opt.totemCooldownTextColor
+	local hide = self.opt.totemCooldownText == false
+	local r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
+	local t = self._engineText
+	if t and t.hide == hide and t.r == r and t.g == g and t.b == b then return false end
+	self._engineText = { hide = hide, r = r, g = g, b = b }
+	return true
+end
+
+-- One Cooldown widget styled like the addon's own text.
+function ShamanPower:StyleEngineCooldown(cd)
+	if not (cd and self:EngineCooldownsOn()) then return end
+	cd:SetHideCountdownNumbers(self.opt.totemCooldownText == false)
+	pcall(cd.SetMinimumCountdownDuration, cd, 2000)        -- the global cooldown stays numberless
+	pcall(cd.SetCountdownMillisecondsThreshold, cd, 10)    -- tenths under 10 s, like the addon's text
+	pcall(cd.SetCountdownFont, cd, "GameFontNormalSmall")
+	local ok, fs = pcall(cd.GetCountdownFontString, cd)
+	if ok and fs then
+		self:AdoptSPFont(fs, "timers")   -- the game's countdown follows the Fonts settings too
+		local c = self.opt.totemCooldownTextColor
+		fs:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
+		fs:SetShadowOffset(1, -1)
+	end
+end
+
+function ShamanPower:RestyleEngineCooldowns()
+	if not self:EngineCooldownsOn() then return end
+	EngineTextChanged(self)   -- remember what is being applied
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn and btn.cooldown then self:StyleEngineCooldown(btn.cooldown) end
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.buttons then
+			for _, b in ipairs(flyout.buttons) do if b.cooldown then self:StyleEngineCooldown(b.cooldown) end end
+		end
+	end
+end
+
+-- "Show Totem Cooldowns" off: whatever the engine was drawing goes too.
+function ShamanPower:ClearEngineCooldowns()
+	if not self:EngineCooldownsOn() then return end
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn and btn.cooldown then self:ClearTotemCooldownVisual(btn) end
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.buttons then
+			for _, b in ipairs(flyout.buttons) do if b.cooldown then self:ClearTotemCooldownVisual(b) end end
+		end
+	end
+end
+
+-- The vertical sweep as a StatusBar the engine fills from the duration
+-- object: the greyed icon on a bar filled from the top, oversized inside a
+-- clip by the icon's own trim so the untrimmed bar texture lines up.
+local function EngineSweepBar(btn)
+	local icon = btn.icon
+	if not icon then return nil end
+	if not btn.cdBar then
+		local clip = CreateFrame("Frame", nil, btn)
+		clip:SetAllPoints(icon)
+		clip:SetClipsChildren(true)
+		clip:SetFrameLevel(btn:GetFrameLevel() + 1)
+		local bar = CreateFrame("StatusBar", nil, clip)
+		bar:SetOrientation("VERTICAL")
+		bar:SetReverseFill(true)
+		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end   -- texture cropped to the fill, never stretched into it
+		btn.cdBar, btn.cdBarClip = bar, clip
+	end
+	local bar = btn.cdBar
+	local left, _, _, _, right = icon:GetTexCoord()
+	local trim = (left and right and right > left) and (left / (right - left)) or 0
+	local margin = trim * icon:GetWidth()
+	bar:ClearAllPoints()
+	bar:SetPoint("TOPLEFT", btn.cdBarClip, "TOPLEFT", -margin, margin)
+	bar:SetPoint("BOTTOMRIGHT", btn.cdBarClip, "BOTTOMRIGHT", margin, -margin)
+	bar:SetStatusBarTexture(icon:GetTexture())
+	-- grey at the bar level: the engine's fill re-applies the bar colour each
+	-- frame, so a vertex colour set on the texture alone does not stick
+	if bar.SetStatusBarDesaturated then bar:SetStatusBarDesaturated(true) end
+	bar:SetStatusBarColor(0.5, 0.5, 0.5, 1)
+	local t = bar:GetStatusBarTexture()
+	if t then t:SetDesaturated(true); t:SetVertexColor(0.5, 0.5, 0.5) end
+	return bar
+end
+
+-- Hand the engine a button's cooldown. Called from the cooldown pass with
+-- the shadow model's answer to "is one running"; only does anything when
+-- that, the spell or the style changed since the last call.
+function ShamanPower:FeedEngineCooldown(btn, spellID, running)
+	local cd = btn.cooldown
+	if not cd then return end
+	if EngineTextChanged(self) then self:RestyleEngineCooldowns() end
+	local style = self.opt.totemCooldownSweep or "radial"
+	running = running and true or false
+	if btn._engineCDKey and btn._ecdSpell == spellID and btn._ecdRunning == running and btn._ecdStyle == style then return end
+	btn._engineCDKey, btn._ecdSpell, btn._ecdRunning, btn._ecdStyle = true, spellID, running, style
+	if btn.cdSweep then btn.cdSweep:Hide() end   -- the addon's own vertical sweep: never on this path
+	if not (spellID and running) then
+		cd:Clear()
+		if btn.cdBar then btn.cdBar:Hide() end
+		return
+	end
+	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)   -- true: the global cooldown is not one
+	if not ok or d == nil then
+		cd:Clear()
+		if btn.cdBar then btn.cdBar:Hide() end
+		btn._engineCDKey = nil   -- ask again next pass
+		return
+	end
+	if style == "radial" then
+		cd:SetDrawSwipe(true)
+		cd:SetDrawEdge(self.opt.totemCooldownEdge ~= false)
+		if btn.cdBar then btn.cdBar:Hide() end
+	else
+		cd:SetDrawSwipe(false)   -- the numbers stay; the sweep is the bar
+		cd:SetDrawEdge(false)    -- and the radial swipe's travelling edge goes with it
+		local bar = EngineSweepBar(btn)
+		if bar then
+			local Dir = Enum and Enum.StatusBarTimerDirection or {}
+			local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+			local direction = (style == "reverse") and Dir.RemainingTime or Dir.ElapsedTime
+			local okb = pcall(bar.SetTimerDuration, bar, d, Interp, direction)
+			bar:SetShown(okb and true or false)
+		end
+	end
+	pcall(cd.SetCooldownFromDurationObject, cd, d, true)   -- clearIfZero
 end
 
 -- Update cooldown displays on totem buttons and flyout buttons
 function ShamanPower:UpdateTotemCooldowns()
+	local drawing = false   -- any cooldown on screen? decides whether the loop keeps ticking this
+	local engine = self:EngineCooldownsOn()   -- the engine draws and counts; this pass only hands it changes
 	-- Update main totem buttons
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
@@ -2361,8 +4100,10 @@ function ShamanPower:UpdateTotemCooldowns()
 			if spellID then
 				local start, duration, enabled = GetSpellCooldown(spellID)
 				-- Only show cooldown if it's longer than GCD (1.5 sec)
-				if start and duration and duration > 1.5 and enabled == 1 then
-					self:ApplyTotemCooldownVisual(btn, start, duration)
+				if engine then
+					self:FeedEngineCooldown(btn, spellID, start and duration and duration > 1.5 and enabled == 1)
+				elseif start and duration and duration > 1.5 and enabled == 1 then
+					self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 					-- Calculate remaining time for text
 					local remaining = (start + duration) - GetTime()
 					if remaining > 0 and btn.cooldownText and self.opt.totemCooldownText ~= false then
@@ -2391,11 +4132,17 @@ function ShamanPower:UpdateTotemCooldowns()
 		local flyout = self.totemFlyouts[element]
 		if flyout and flyout.buttons then
 			for _, btn in ipairs(flyout.buttons) do
-				if btn.cooldown and btn.spellID then
+				-- Only a flyout that is actually on screen: every cooldown read on a
+				-- Mainline client builds a table (C_Spell.GetSpellCooldown), and this ran
+				-- for every flyout button ten times a second whether or not any flyout
+				-- was open. An opening flyout is caught up within one tick.
+				if btn.cooldown and btn.spellID and btn:IsVisible() then
 					local start, duration, enabled = GetSpellCooldown(btn.spellID)
 					-- Only show cooldown if it's longer than GCD (1.5 sec)
-					if start and duration and duration > 1.5 and enabled == 1 then
-						self:ApplyTotemCooldownVisual(btn, start, duration)
+					if engine then
+						self:FeedEngineCooldown(btn, btn.spellID, start and duration and duration > 1.5 and enabled == 1)
+					elseif start and duration and duration > 1.5 and enabled == 1 then
+						self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 						-- Calculate remaining time for text
 						local remaining = (start + duration) - GetTime()
 						if remaining > 0 and btn.cooldownText and self.opt.totemCooldownText ~= false then
@@ -2413,7 +4160,7 @@ function ShamanPower:UpdateTotemCooldowns()
 				end
 			end
 		end
-	end
+	end	self._totemCdShown = drawing
 end
 
 -- Update progress bars on popped-out single totems
@@ -2426,8 +4173,7 @@ function ShamanPower:UpdatePoppedOutProgressBars()
 	for key, bars in pairs(self.poppedOutProgressBars) do
 		local frame = self.poppedOutFrames[key]
 		if frame and bars.element and bars.spellName then
-			local slot = self.ElementToSlot[bars.element]
-			local haveTotem, activeTotemName, startTime, duration = GetTotemInfo(slot)
+			local haveTotem, activeTotemName, startTime, duration = self:GetElementTotemInfo(bars.element)
 
 			-- Check if this pop-out's totem is the active one
 			local isActive = false
@@ -2494,7 +4240,7 @@ function ShamanPower:UpdateTotemProgressBarHeight()
 			-- Update inside text font size based on bar size
 			if bars.insideText then
 				local fontSize = math.max(7, barSize - 2)
-				bars.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				ShamanPower:SetSPFont(bars.insideText, "timers", fontSize, "OUTLINE")
 			end
 		end
 	end
@@ -2547,21 +4293,44 @@ function ShamanPower:GetActiveOverlayAnchor()
 		elseif self.opt.layout == "Vertical" then dir = "right"
 		else dir = self:FlyoutGoesBelow() and "below" or "above" end
 	end
-	if dir == "below" then return "TOP", "BOTTOM", 0, -2
-	elseif dir == "left" then return "RIGHT", "LEFT", -2, 0
-	elseif dir == "right" then return "LEFT", "RIGHT", 2, 0
+	-- fifth return: the side of the button it sits on, in FlyoutDirection's terms
+	if dir == "below" then return "TOP", "BOTTOM", 0, -2, "bottom"
+	elseif dir == "left" then return "RIGHT", "LEFT", -2, 0, "left"
+	elseif dir == "right" then return "LEFT", "RIGHT", 2, 0, "right"
 	end
-	return "BOTTOM", "TOP", 0, 2
+	return "BOTTOM", "TOP", 0, 2, "top"
 end
 
 function ShamanPower:PositionActiveOverlays()
-	local p, rp, ox, oy = self:GetActiveOverlayAnchor()
+	local p, rp, ox, oy, side = self:GetActiveOverlayAnchor()
+	-- In combat the flyout arrow sits against the totem button; an overlay on the
+	-- same side moves out past it rather than covering it. Its own pulse bar or
+	-- party dots on the side facing the button would then land on the tab, so the
+	-- overlay leaves room for those too.
+	local facing = (side == "top" and "below") or (side == "bottom" and "above") or (side == "left" and "right") or "left"
+	local pulsePos = self.opt.pulseBarPosition or "on_icon"
+	local reach = (pulsePos == facing) and (1 + (self.opt.pulseBarSize or 4)) or 0
+	local reachVert = (side == "top" and pulsePos == "below_vert") or (side == "bottom" and pulsePos == "above_vert")
+	if self.opt.showPartyRangeDots and (self.opt.partyDotPosition or "corners") == facing then
+		reach = math.max(reach, 2 + (self.opt.partyDotSize or 5))
+	end
 	for element = 1, 4 do
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
 		local btn = self.totemButtons and self.totemButtons[element]
-		if ov and ov.frame and btn then
+		-- (a plain frame; one made protected by something secure anchored to it is left alone in a fight)
+		if ov and ov.frame and btn and not (InCombatLockdown() and ov.frame:IsProtected()) then
+			local gx, gy = 0, 0
+			local aT, aB, aL, aR = self:FlyoutArrowPads(btn)
+			local gap = (side == "top" and aT) or (side == "bottom" and aB) or (side == "left" and aL) or aR
+			if gap > 0 then
+				gap = gap + (reachVert and math.max(reach, 1 + ov.frame:GetHeight()) or reach)
+				if side == "top" then gy = gap
+				elseif side == "bottom" then gy = -gap
+				elseif side == "left" then gx = -gap
+				else gx = gap end
+			end
 			ov.frame:ClearAllPoints()
-			ov.frame:SetPoint(p, btn, rp, ox, oy)
+			ov.frame:SetPoint(p, btn, rp, ox + gx, oy + gy)
 		end
 	end
 	local esOv = self.esActiveOverlay
@@ -2636,7 +4405,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	overlay.wipeFrame = wipeFrame
 
 	local wipe = wipeFrame:CreateTexture(nil, "OVERLAY")
-	wipe:SetColorTexture(1, 1, 1, 0.7)  -- White for visibility
+	ShamanPower:SetSPBarColor(wipe, "pulse", 1, 1, 1, 0.7)  -- White for visibility
 	wipe:Hide()
 	overlay.wipe = wipe
 	overlay.buttonWidth = frame:GetWidth() - 4
@@ -2674,7 +4443,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	-- Create pulse time text elements (same as main pulse overlay)
 	-- Time text inside the bar (top)
 	local barTimeTextTop = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextTop, "timers", 9, "OUTLINE")
 	barTimeTextTop:SetPoint("TOP", wipeFrame, "TOP", 0, -1)
 	barTimeTextTop:SetTextColor(1, 1, 1)
 	barTimeTextTop:Hide()
@@ -2682,7 +4451,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text inside the bar (bottom)
 	local barTimeTextBottom = wipeFrame:CreateFontString(nil, "OVERLAY")
-	barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(barTimeTextBottom, "timers", 9, "OUTLINE")
 	barTimeTextBottom:SetPoint("BOTTOM", wipeFrame, "BOTTOM", 0, 1)
 	barTimeTextBottom:SetTextColor(1, 1, 1)
 	barTimeTextBottom:Hide()
@@ -2690,7 +4459,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text above the bar
 	local aboveTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(aboveTimeText, "timers", 9, "OUTLINE")
 	aboveTimeText:SetPoint("BOTTOM", wipeFrame, "TOP", 0, 1)
 	aboveTimeText:SetTextColor(1, 1, 1)
 	aboveTimeText:Hide()
@@ -2698,7 +4467,7 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text below the bar
 	local belowTimeText = wipeFrame:CreateFontString(nil, "OVERLAY")
-	belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(belowTimeText, "timers", 9, "OUTLINE")
 	belowTimeText:SetPoint("TOP", wipeFrame, "BOTTOM", 0, -1)
 	belowTimeText:SetTextColor(1, 1, 1)
 	belowTimeText:Hide()
@@ -2706,65 +4475,19 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 
 	-- Time text on the icon
 	local iconTimeText = frame:CreateFontString(nil, "OVERLAY")
-	iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ShamanPower:SetSPFont(iconTimeText, "timers", 10, "OUTLINE")
 	iconTimeText:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	iconTimeText:SetTextColor(1, 1, 1)
 	iconTimeText:Hide()
 	overlay.iconTimeText = iconTimeText
 
-	-- Helper to hide all time texts
-	local function hideAllTimeTexts(ov)
-		if ov.barTimeTextTop then ov.barTimeTextTop:Hide() end
-		if ov.barTimeTextBottom then ov.barTimeTextBottom:Hide() end
-		if ov.aboveTimeText then ov.aboveTimeText:Hide() end
-		if ov.belowTimeText then ov.belowTimeText:Hide() end
-		if ov.iconTimeText then ov.iconTimeText:Hide() end
-	end
-
-	-- UpdateTime method for active overlay
+	-- Time text: only touched when the shown tenths change (see PulseVisualText)
 	overlay.UpdateTime = function(self, timeRemaining, displayOption)
-		hideAllTimeTexts(self)
-		if not displayOption or displayOption == "none" then return end
-
-		local timeText = string.format("%.1f", timeRemaining)
-		local textSize = ShamanPower.opt.pulseTextSize or 8
-
-		if displayOption == "inside_top" then
-			if self.barTimeTextTop then
-				self.barTimeTextTop:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.barTimeTextTop:SetText(timeText)
-				self.barTimeTextTop:Show()
-			end
-		elseif displayOption == "inside_bottom" then
-			if self.barTimeTextBottom then
-				self.barTimeTextBottom:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.barTimeTextBottom:SetText(timeText)
-				self.barTimeTextBottom:Show()
-			end
-		elseif displayOption == "above" then
-			if self.aboveTimeText then
-				self.aboveTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.aboveTimeText:SetText(timeText)
-				self.aboveTimeText:Show()
-			end
-		elseif displayOption == "below" then
-			if self.belowTimeText then
-				self.belowTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.belowTimeText:SetText(timeText)
-				self.belowTimeText:Show()
-			end
-		elseif displayOption == "on_icon" then
-			if self.iconTimeText then
-				self.iconTimeText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
-				self.iconTimeText:SetText(timeText)
-				self.iconTimeText:Show()
-			end
-		end
+		ShamanPower:PulseVisualText(self, timeRemaining, displayOption)
 	end
 
-	-- HideTime method for active overlay
 	overlay.HideTime = function(self)
-		hideAllTimeTexts(self)
+		ShamanPower:PulseVisualHideText(self)
 	end
 
 	overlay.frame = frame
@@ -2772,7 +4495,36 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	return overlay
 end
 
+-- UpdateActiveTotemOverlays only applies state (which overlay is up, which icon, what
+-- is greyed): nothing in it moves with time, yet the 10 Hz bar loop ran it on every
+-- tick (measured with /spperf: over half of that loop's cost in combat). From the
+-- loop it now runs when a totem or an assignment changed, when something asked
+-- (_ovWake), and once a second as a safety net. Direct callers are unaffected.
+function ShamanPower:UpdateActiveTotemOverlaysIfDue()
+	local now = GetTime()
+	local a = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
+	local a1, a2, a3, a4 = a and a[1], a and a[2], a and a[3], a and a[4]
+	if not self._ovWake and self._ovGen == self._totemInfoGen and (now - (self._ovAt or 0)) < 1
+		and self._ovA1 == a1 and self._ovA2 == a2 and self._ovA3 == a3 and self._ovA4 == a4 then
+		return
+	end
+	self._ovWake, self._ovGen, self._ovAt = nil, self._totemInfoGen, now
+	self._ovA1, self._ovA2, self._ovA3, self._ovA4 = a1, a2, a3, a4
+	self:UpdateActiveTotemOverlays()
+end
+
 function ShamanPower:UpdateActiveTotemOverlays()
+	if self.GridActive and self:GridActive() then
+		self:UpdateGridTotems()
+		self:UpdatePoppedOutActiveBorders()
+		return
+	end
+	-- A native/loadout cast need not have a custom-bar assignment.
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:UpdateBlizzardTotemOverlays()
+		self:UpdatePoppedOutActiveBorders()
+		return
+	end
 	-- Safety checks for early calls before addon is fully initialized
 	if not self.player then return end
 	if not self.ElementToSlot then return end
@@ -2793,17 +4545,21 @@ function ShamanPower:UpdateActiveTotemOverlays()
 		-- Create overlay if needed
 		if not self.activeTotemOverlays[element] then
 			self.activeTotemOverlays[element] = self:CreateActiveTotemOverlay(element)
+			-- A new overlay is anchored flat against its button. When the flyout arrow
+			-- tabs are showing it has to sit out past them, and nothing re-ran that
+			-- placement for overlays created late (first seen coming back from Compact
+			-- with the arrows always on: the tab was drawn over the overlay).
+			self:PositionActiveOverlays()
 		end
 
 		local overlay = self.activeTotemOverlays[element]
-		local slot = self.ElementToSlot[element]
 
-		-- Only process if we have both overlay and slot
-		if overlay and slot then
-			local haveTotem, totemName, startTime, duration = GetTotemInfo(slot)
+		if overlay then
+			local haveTotem, totemName, startTime, duration = self:GetElementTotemInfo(element)
 
-			-- Get assigned totem info
-			local assignedIndex = assignments[element] or 0
+			-- Get assigned totem info (a right-click assign made in this fight waits in
+			-- pendingAssignments until it ends: the button already shows it, so compare with it)
+			local assignedIndex = (self.pendingAssignments and self.pendingAssignments[element]) or assignments[element] or 0
 			local assignedSpellID = nil
 			local assignedName = nil
 			if assignedIndex > 0 then
@@ -2821,7 +4577,18 @@ function ShamanPower:UpdateActiveTotemOverlays()
 			local showOverlay = false
 			local activeIcon = nil
 
-			if haveTotem and totemName and totemName ~= "" then
+			-- Working out whether the dropped totem differs from the assigned one, and which
+			-- icon it gets, walks the element's totems with name lookups and string finds.
+			-- That answer only changes with the totem or the assignment, so it is kept on the
+			-- overlay and redone when either changes; the ten-a-second part is the timer
+			-- drawing further down. (Not kept for Air while twisting: that rule has more inputs.)
+			local twistingAir = (element == 4 and self.opt and self.opt.enableTotemTwisting) and true or false
+			local nowName, nowHave = totemName or false, haveTotem and true or false
+			local kept = (not twistingAir) and overlay.cName == nowName and overlay.cHave == nowHave and overlay.cAssigned == assignedIndex
+
+			if kept then
+				showOverlay, activeIcon = overlay.cShow, overlay.cIcon
+			elseif haveTotem and totemName and totemName ~= "" then
 				-- Check if active totem matches assigned
 				local matches = false
 
@@ -2873,6 +4640,10 @@ function ShamanPower:UpdateActiveTotemOverlays()
 						activeIcon = icon
 					end
 				end
+			end
+
+			if not kept and not twistingAir then
+				overlay.cName, overlay.cHave, overlay.cAssigned, overlay.cShow, overlay.cIcon = nowName, nowHave, assignedIndex, showOverlay, activeIcon
 			end
 
 			local totemButton = self.totemButtons[element]
@@ -2928,11 +4699,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 
 					-- Hide main button's pulse overlay (we'll use overlay's)
 					if self.pulseOverlays and self.pulseOverlays[element] then
-						local pulse = self.pulseOverlays[element]
-						if pulse.wipe then pulse.wipe:Hide() end
-						for _, glow in ipairs(pulse.glows or {}) do
-							glow:SetAlpha(0)
-						end
+						self:PulseVisualStop(self.pulseOverlays[element])
 					end
 				end
 
@@ -2978,12 +4745,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 						if overlay.dots[i] then overlay.dots[i]:Hide() end
 					end
 				end
-				if overlay.wipe then overlay.wipe:Hide() end
-				if overlay.glows then
-					for _, glow in ipairs(overlay.glows) do
-						glow:SetAlpha(0)
-					end
-				end
+				self:PulseVisualStop(overlay)
 
 				-- Don't reset desaturation here - let UpdatePlayerTotemRange handle it
 				-- based on whether the player is in range of the totem buff
@@ -3005,8 +4767,7 @@ function ShamanPower:UpdatePoppedOutActiveBorders()
 	for key, frame in pairs(self.poppedOutFrames) do
 		if key:match("^single_") and frame.element and frame.spellName then
 			local element = frame.element
-			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
-			local haveTotem, activeTotemName = GetTotemInfo(slot)
+			local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
 
 			local isActive = false
 			if haveTotem and activeTotemName and frame.spellName then
@@ -3056,6 +4817,12 @@ local function PlayerKnowsTotem(spellID, totemName)
 
 	-- First try GetSpellInfo - if it returns nil, the spell doesn't exist
 	local spellName = GetSpellInfo(spellID)
+	-- An absent totem must not match an unrelated trainer spell by short name.
+	-- Only encrypted, allow-listed names may still use the spellbook fallback.
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not spellName
+		and not (SPCompat and SPCompat.spellAllowList and SPCompat.spellAllowList[spellID]) then
+		return false
+	end
 
 	-- Build a list of names to search for
 	local searchNames = {}
@@ -3096,6 +4863,12 @@ local function PlayerKnowsTotem(spellID, totemName)
 
 	return false
 end
+
+-- the same check by element and totem index, for the settings (loadout pickers mark what is not learned yet)
+function ShamanPower:KnowsTotem(element, totemIndex)
+	return PlayerKnowsTotem(self:GetTotemSpell(element, totemIndex), self:GetTotemName(element, totemIndex)) and true or false
+end
+ShamanPower.PlayerKnowsTotem = PlayerKnowsTotem
 
 -- Track if we've already hooked the totem buttons
 ShamanPower.flyoutHooksInstalled = {}
@@ -3182,12 +4955,38 @@ end
 -- children; on release it moves the real frame and saves a position record.
 -- ---------------------------------------------------------------------------
 ShamanPower.barMovers = ShamanPower.barMovers or {}
+local MOVER_MIN_W, MOVER_MIN_H = 60, 24   -- a box is never smaller (an empty cooldown bar is 1x1)
+local MOVER_PAD = 4                       -- label inset from the box's edges
+
+-- The label wraps inside the box, never "...": remember its longest word, the
+-- narrowest the box may get without splitting one.
+local function SetBarMoverLabel(mover, label)
+	if label == mover.spLabel then return end
+	local text, wordW = mover.text, 0
+	for word in label:gmatch("%S+") do
+		text:SetText(word)
+		wordW = math.max(wordW, (text.GetUnboundedStringWidth and text:GetUnboundedStringWidth()) or text:GetStringWidth())
+	end
+	text:SetText(label)
+	mover.spLabel, mover.spWordW = label, math.ceil(wordW)
+end
+
+-- Every box on screen goes back over its frame a frame after a drop, once the
+-- moved frames are laid out: read in the same frame as the SetPoint, a frame
+-- can still report its old spot (and a cooldown bar on its default spot has
+-- just followed the totem bar).
+local function RefreshShownBarMovers()
+	if InCombatLockdown() then return end
+	for key, m in pairs(ShamanPower.barMovers) do
+		if m:IsShown() and m.moveFrame then ShamanPower:ShowBarMover(key, m.moveFrame, m.sizeFrame, nil, m.onMoved) end
+	end
+end
 
 function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local mover = self.barMovers[key]
 	if mover then
 		mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
-		if label then mover.text:SetText(label) end
+		if label then SetBarMoverLabel(mover, label) end
 		return mover
 	end
 	mover = CreateFrame("Frame", "ShamanPowerMover_" .. key, UIParent)
@@ -3211,9 +5010,10 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 		end
 	end
 	local text = mover:CreateFontString(nil, "OVERLAY")
-	text:SetFont(STANDARD_TEXT_FONT, 12, "OUTLINE")
+	text:SetFontObject("ShamanPowerDialogFontText")   -- ShamanPowerDialog.lua's row font
 	text:SetPoint("CENTER")
-	text:SetTextColor(1, 1, 1)
+	text:SetJustifyH("CENTER")
+	text:SetWordWrap(true)
 	mover.text = text
 
 	mover:SetScript("OnDragStart", function(self) self:StartMoving() end)
@@ -3225,6 +5025,18 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 			-- in physical px. Works even when the moved frame is a 1x1 anchor.
 			local mcx, mcy = self:GetCenter()
 			local scx, scy = sf:GetCenter()
+			-- Unlock UI's alignment grid: snap the box's top-left corner to the
+			-- nearest grid lines (lines run from the screen centre, in UIParent pixels)
+			local step = ShamanPower.UnlockGridStep and ShamanPower:UnlockGridStep()
+			if step and mcx and self:GetLeft() then
+				local mes, uis = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
+				local l, t = self:GetLeft() * mes / uis, self:GetTop() * mes / uis
+				local cx, cy = UIParent:GetWidth() / 2, UIParent:GetHeight() / 2
+				local sl = cx + math.floor((l - cx) / step + 0.5) * step
+				local st = cy + math.floor((t - cy) / step + 0.5) * step
+				mcx = mcx + (sl - l) * uis / mes
+				mcy = mcy + (st - t) * uis / mes
+			end
 			if mcx and scx then
 				local mes, ses = self:GetEffectiveScale(), sf:GetEffectiveScale()
 				local dx = mcx * mes - scx * ses
@@ -3237,14 +5049,14 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 				end
 			end
 			if self.onMoved then self.onMoved() end
-			-- Re-place the overlay over the bar's new spot.
-			ShamanPower:ShowBarMover(self.key, mf, sf, nil, self.onMoved)
+			-- Re-place the overlay over the bar's new spot, next frame.
+			C_Timer.After(0, RefreshShownBarMovers)
 		end
 	end)
 	mover.key = key
 	self.barMovers[key] = mover
 	mover.moveFrame, mover.sizeFrame, mover.onMoved = moveFrame, sizeFrame or moveFrame, onMoved
-	mover.text:SetText(label or "Move")
+	SetBarMoverLabel(mover, label or "Move")
 	return mover
 end
 
@@ -3262,8 +5074,12 @@ function ShamanPower:ShowBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	local cx = (sizeFrame:GetLeft() + sizeFrame:GetRight()) / 2 * es
 	local cy = (sizeFrame:GetTop() + sizeFrame:GetBottom()) / 2 * es
 	local mes = mover:GetEffectiveScale()
+	-- at least as wide as the label's longest word and tall enough for its lines
+	local w = math.max(W / mes, MOVER_MIN_W, mover.spWordW + 2 * MOVER_PAD)
+	mover.text:SetWidth(w - 2 * MOVER_PAD)
+	local h = math.max(H / mes, MOVER_MIN_H, math.ceil(mover.text:GetStringHeight()) + 2 * MOVER_PAD)
 	mover:ClearAllPoints()
-	mover:SetSize(math.max(W / mes, 60), math.max(H / mes, 24))
+	mover:SetSize(w, h)
 	mover:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / mes, cy / mes)
 	mover:Show()
 end
@@ -3274,11 +5090,27 @@ function ShamanPower:HideBarMover(key)
 end
 
 function ShamanPower:GetPositionRecord(frame)
-	local cx, cy = frame:GetCenter()
-	if not cx then return nil end
 	local fs = frame:GetScale() or 1
-	cx, cy = cx * fs, cy * fs
 	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+	local cx, cy
+	-- A UIParent child hanging off one point on UIParent (every SetPoint in here)
+	-- is worked out from that point and its size, not read back off the screen:
+	-- straight after a SetPoint the game can still report the old spot. Anything
+	-- else (a frame just dropped by StopMovingOrSizing was laid out while dragged)
+	-- has its centre read.
+	local point, rel, relPoint, x, y
+	if frame:GetNumPoints() == 1 and frame:GetParent() == UIParent then point, rel, relPoint, x, y = frame:GetPoint(1) end
+	if point and rel == UIParent then
+		local ax, ay = AnchorXY(relPoint or point, W, H)
+		local px = (strfind(point, "LEFT") and -0.5) or (strfind(point, "RIGHT") and 0.5) or 0
+		local py = (strfind(point, "TOP") and 0.5) or (strfind(point, "BOTTOM") and -0.5) or 0
+		cx = ax + ((x or 0) - px * frame:GetWidth()) * fs
+		cy = ay + ((y or 0) - py * frame:GetHeight()) * fs
+	else
+		cx, cy = frame:GetCenter()
+		if not cx then return nil end
+		cx, cy = cx * fs, cy * fs
+	end
 	local best, bestD, bx, by
 	for _, a in ipairs(ANCHOR_POINTS) do
 		local ax, ay = AnchorXY(a, W, H)
@@ -3302,11 +5134,177 @@ function ShamanPower:SavePositionRecord(frame)
 	return rec
 end
 
+-- ---------------------------------------------------------------------------
+-- Default spots. A bar with no saved spot sits on its default one, worked out
+-- again whenever a size, the layout or the scale changes, until the player
+-- moves it (which saves a spot); Reset drops the saved spot. Everything is
+-- computed from the saved spots and the sizes set on the frames, never read
+-- back off the screen.
+-- ---------------------------------------------------------------------------
+-- Fresh setups start low and centred, above the action bars, so the totem bar
+-- and the cooldown bar under it aren't covered by the pop-ups and alerts that
+-- sit around the middle of the screen. Picked in game on 2026-09-24. This is
+-- where the VISIBLE bar's centre goes (ShamanPowerAuto, the box Unlock UI
+-- draws), not ShamanPowerFrame: that is a 1x1 anchor the bar hangs off.
+ShamanPower.DEFAULT_TOTEM_BAR_POSITION = { anchor = "CENTER", x = 0, y = -195 }
+-- UIParent units between the two bars' Unlock boxes; a cooldown bar under the
+-- totem bar also leaves room for its box's Reset tab (ShamanPowerUnlock AddReset).
+local BAR_GAP, RESET_TAB_H = 4, 15
+
+-- Every style keeps its own spot, as Compact always did: Grid tucked into a
+-- corner leaves the Normal bar where it was, and switching back brings each
+-- style home. Normal (and Blizzard's bar, which hides ShamanPower's) uses
+-- display.position, Compact display.compactPosition, TotemTimers, Dynamic and
+-- Grid display.stylePositions[style]. Read from the chosen style, not from
+-- what is built yet, so a /reload in Grid lands on Grid's spot.
+function ShamanPower:BarStyleSpotKey()
+	local key = self.GetTotemBarStyle and self:GetTotemBarStyle() or "normal"
+	if key == "blizzard" then return "normal" end
+	return key
+end
+function ShamanPower:GetStyleSpot(d, key)
+	if key == "normal" then return d.position end
+	if key == "compact" then return d.compactPosition end
+	return d.stylePositions and d.stylePositions[key]
+end
+function ShamanPower:SetStyleSpot(d, key, rec)
+	if key == "normal" then d.position = rec
+	elseif key == "compact" then d.compactPosition = rec
+	else
+		d.stylePositions = d.stylePositions or {}
+		d.stylePositions[key] = rec
+	end
+end
+-- After a style change: put the bar on the new style's spot. The bar is secure, so a
+-- change made in a fight (Dynamic and TotemTimers can be) moves it when the fight ends.
+function ShamanPower:FollowStyleSpot()
+	if self:BarStyleSpotKey() == self._barSpotKey then return end
+	if InCombatLockdown() then
+		if not self._styleSpotWaiter then
+			local f = CreateFrame("Frame")
+			f:SetScript("OnEvent", function(frame)
+				frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				ShamanPower:FollowStyleSpot()
+			end)
+			self._styleSpotWaiter = f
+		end
+		self._styleSpotWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	self:RestoreTotemBarPosition()
+	self:ApplyDefaultBarPositions()   -- a cooldown bar on its default spot follows
+end
+
+-- The totem bar's saved spot, or nil while it sits on its default one. A style
+-- never moved starts where the Normal bar is; { default = true } is a style's
+-- spot reset to the default.
+function ShamanPower:TotemBarRecord()
+	local d = self.opt and self.opt.display
+	if not d then return nil end
+	local rec = d.position
+	local key = self:BarStyleSpotKey()
+	if key ~= "normal" then
+		local c = self:GetStyleSpot(d, key)
+		if c and (c.anchor or c.default) then rec = c end
+	end
+	return rec and rec.anchor and rec or nil
+end
+
+-- The visible bar against ShamanPowerFrame's centre, in UIParent units: centre
+-- offset (dx, dy) and size (w, h). UpdateLayout pins its TOPLEFT to the frame's
+-- CENTER at the layout offset.
+function ShamanPower:TotemBarGeometry()
+	local a = self.autoButton
+	local layout = self.Layouts[self.opt.layout] or self.Layouts["Vertical"]
+	local ox = layout.ab.x * self.opt.display.buttonWidth
+	local oy = layout.ab.y * self.opt.display.buttonHeight
+	local w, h = a:GetWidth(), a:GetHeight()
+	local k = ShamanPowerFrame:GetScale() * a:GetScale()
+	return (ox + w / 2) * k, (oy - h / 2) * k, w * k, h * k
+end
+
+-- Where the cooldown bar goes with no saved spot: straight under the totem
+-- bar, its Unlock box clear of the totem bar's. into: a record to fill instead
+-- of a new one (the layout passes run this often).
+function ShamanPower:CooldownBarDefaultRecord(into)
+	local W, H = UIParent:GetWidth(), UIParent:GetHeight()
+	local dx, dy, _, th = self:TotemBarGeometry()
+	local rec = self:TotemBarRecord()
+	local tx, ty
+	if rec then
+		local ax, ay = AnchorXY(rec.anchor, W, H)
+		tx, ty = ax + rec.x + dx, ay + rec.y + dy
+	else
+		local def = self.DEFAULT_TOTEM_BAR_POSITION
+		local ax, ay = AnchorXY(def.anchor, W, H)
+		tx, ty = ax + def.x, ay + def.y
+	end
+	local bar = self.cooldownBar
+	th = math.max(th, MOVER_MIN_H)
+	local bh = math.max(bar:GetHeight() * bar:GetScale(), MOVER_MIN_H)
+	-- always straight under the totem bar, whatever the layout
+	local x, y = tx, ty - th / 2 - BAR_GAP - RESET_TAB_H - bh / 2
+	local out = into or {}
+	out.anchor, out.x, out.y = "CENTER", x - W / 2, y - H / 2
+	return out
+end
+
+-- Put each bar that has no saved spot on its default one. Out of combat only
+-- (both bars hold secure buttons), and never under a bar being dragged.
+-- Runs on every layout pass (roster changes too): the two records it applies
+-- are reused, never kept.
+local defaultTotemScratch, defaultCooldownScratch = {}, {}
+function ShamanPower:ApplyDefaultBarPositions()
+	if InCombatLockdown() or self.isDragging or not (self.opt and self.autoButton) then return end
+	if not self:TotemBarRecord() then
+		local def = self.DEFAULT_TOTEM_BAR_POSITION
+		local dx, dy = self:TotemBarGeometry()
+		local r = defaultTotemScratch
+		r.anchor, r.x, r.y = def.anchor, def.x - dx, def.y - dy
+		self:ApplyPositionRecord(ShamanPowerFrame, r)
+	end
+	local bar, rec = self.cooldownBar, self.opt.cooldownBarPosition
+	if bar and bar:GetParent() == UIParent and not self.cooldownBarDragging and not (rec and rec.anchor) then
+		self:ApplyPositionRecord(bar, self:CooldownBarDefaultRecord(defaultCooldownScratch))
+	end
+end
+
+-- Unlock UI "Reset": drop the saved spot so the bar goes back on its default
+-- one. The totem bar's Reset takes the cooldown bar back under it too.
+function ShamanPower:ResetBarPositions(totemBar)
+	if InCombatLockdown() then return end
+	if totemBar then
+		self:EnsureProfileTable("display")
+		local d = self.opt.display
+		d.offsetX, d.offsetY = nil, nil
+		local key = self:BarStyleSpotKey()
+		if key == "normal" then d.position = nil else self:SetStyleSpot(d, key, { default = true }) end
+	end
+	self.opt.cooldownBarPosition = nil
+	self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
+	self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
+	self:ApplyDefaultBarPositions()
+	-- detaches a bar still on the totem bar; that also shows it, so not a bar switched off
+	if self.cooldownBar and self.opt.showCooldownBar then self:UpdateCooldownBarPosition(true) end
+end
+
 -- Unlock/lock the totem bar for free dragging via a mover overlay.
+-- Unlocking is a one-session action: at login the saved flag is cleared, so a
+-- checkbox left ticked never outlives the overlay it stands for.
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_LOGIN")
+	f:SetScript("OnEvent", function()
+		local d = ShamanPower.opt and ShamanPower.opt.display
+		if d then d.moverUnlocked = nil end
+	end)
+end
+
 function ShamanPower:SetTotemBarUnlocked(unlocked)
 	self:EnsureProfileTable("display")
 	self.opt.display.moverUnlocked = unlocked and true or nil
 	if unlocked then
+		-- (a cooldown bar on its default spot follows; the mover puts its box back over it a frame later)
 		self:ShowBarMover("totembar", _G["ShamanPowerFrame"], self.autoButton, "Totem Bar", function()
 			ShamanPower:SaveFramePosition(_G["ShamanPowerFrame"])
 		end)
@@ -3317,19 +5315,28 @@ end
 
 -- Unlock/lock the cooldown bar.
 function ShamanPower:SetCooldownBarUnlocked(unlocked)
+	if unlocked and not self.cooldownBar then unlocked = nil end   -- no bar (yet): nothing to move
 	self.cdBarMoverShown = unlocked and true or nil
 	if unlocked then
-		-- Moving only makes sense detached from the totem bar; detach (once)
-		-- and reposition, but NEVER re-attach when the mover is turned off.
-		if self.opt.cooldownBarLocked then
-			self.opt.cooldownBarLocked = nil
-			self:UpdateCooldownBarPosition(true)
-		end
-		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", function()
+		local function onMoved()
 			ShamanPower.opt.cooldownBarPosition = ShamanPower:SavePositionRecord(ShamanPower.cooldownBar)
 			ShamanPower.opt.cooldownBarPoint, ShamanPower.opt.cooldownBarRelPoint = nil, nil
 			ShamanPower.opt.cooldownBarPosX, ShamanPower.opt.cooldownBarPosY = nil, nil
-		end)
+		end
+		-- Moving only makes sense detached from the totem bar; detach (once)
+		-- and reposition, but NEVER re-attach when the mover is turned off.
+		if self.opt.cooldownBarLocked or self.cooldownBar:GetParent() ~= UIParent then
+			self.opt.cooldownBarLocked = nil
+			self:UpdateCooldownBarPosition(true)
+			-- just placed: read now, it can still report its old spot, so its box is
+			-- measured a frame later (the box exists now, for the Unlock UI's Reset)
+			self:GetBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved)
+			C_Timer.After(0, function()
+				if self.cdBarMoverShown then self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved) end
+			end)
+			return
+		end
+		self:ShowBarMover("cooldownbar", self.cooldownBar, self.cooldownBar, "Cooldown Bar", onMoved)
 	else
 		self:HideBarMover("cooldownbar")
 	end
@@ -3388,29 +5395,68 @@ end
 
 -- Icon-only mode must not strand the user: instead of hiding the settings
 -- button outright, show it only while the mouse is over the frame.
-function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
-	if not frame or not cog then return end
-	if enabled then
-		cog:Hide()
-		if not frame.spCogWatcher then
-			frame.spCogWatcher = CreateFrame("Frame", nil, frame)
-		end
-		local w = frame.spCogWatcher
-		w.t = 0
-		w:SetScript("OnUpdate", function(self, elapsed)
-			self.t = self.t + elapsed
-			if self.t < 0.1 then return end
-			self.t = 0
-			local over = frame:IsMouseOver() or cog:IsMouseOver()
-			if over ~= self.over then
-				self.over = over
-				cog:SetShown(over)
+-- Event-driven, so nothing runs while the mouse is elsewhere. The cursor can
+-- reach or leave the frame straight off a child without the frame hearing it
+-- (an icon-only pop-out is all button), so every mouse-enabled Frame/Button
+-- inside it reports too, and each event just asks whether the cursor is over
+-- the frame. Children come and go while the frame stays up (Raid Cooldowns
+-- rebuilds its Mana Tide buttons on every sync), so every enter, leave, show
+-- and resize walks the children again: whatever the cursor crosses onto from
+-- something we hear is hooked before it can be left. A cursor that lands
+-- straight from outside on a child built since the last walk shows the button
+-- only once it moves on to the frame or another child. Engine widgets (aura
+-- containers, cooldowns) are left alone.
+do
+	local owner = setmetatable({}, { __mode = "k" })   -- hooked region -> the frame whose button it drives
+	local WALK = { Frame = true, Button = true, CheckButton = true }
+
+	local function Update(region)
+		local frame = owner[region]
+		local cog = frame and frame.spCogHoverOnly
+		if cog then cog:SetShown(frame:IsVisible() and (frame:IsMouseOver() or cog:IsMouseOver())) end
+	end
+
+	local Refresh
+	local function HookTree(frame, ...)
+		for i = 1, select("#", ...) do
+			local region = select(i, ...)
+			if WALK[region:GetObjectType()] then
+				if region:IsMouseEnabled() then
+					if not owner[region] then
+						region:HookScript("OnEnter", Refresh)
+						region:HookScript("OnLeave", Refresh)
+					end
+					owner[region] = frame
+				end
+				HookTree(frame, region:GetChildren())
 			end
-		end)
-		w:Show()
-	else
-		if frame.spCogWatcher then frame.spCogWatcher:SetScript("OnUpdate", nil) end
-		cog:Show()
+		end
+	end
+
+	Refresh = function(region)
+		local frame = owner[region]
+		if frame and frame.spCogHoverOnly then HookTree(frame, frame:GetChildren()) end
+		Update(region)
+	end
+
+	function ShamanPower:SetSettingsButtonHoverOnly(frame, cog, enabled)
+		if not frame or not cog then return end
+		if not enabled then
+			frame.spCogHoverOnly = nil
+			cog:Show()
+			return
+		end
+		frame.spCogHoverOnly = cog
+		owner[frame] = frame
+		if not frame.spCogHoverHooked then
+			frame.spCogHoverHooked = true
+			frame:HookScript("OnEnter", Refresh)
+			frame:HookScript("OnLeave", Refresh)
+			frame:HookScript("OnShow", Refresh)
+			frame:HookScript("OnSizeChanged", Refresh)
+			frame:HookScript("OnHide", Update)
+		end
+		Refresh(frame)
 	end
 end
 
@@ -3424,7 +5470,8 @@ function ShamanPower:ApplyPanelBackdrop(frame, border)
 end
 
 -- Small settings button: dark square, 1px border, three bars. Replaces the
--- Blizzard gear texture on the pop-out frames.
+-- Blizzard gear texture on the pop-out frames. The hover paint is hooked, so
+-- callers add their tooltip with HookScript: a SetScript would wipe it.
 function ShamanPower:StyleSettingsButton(btn)
 	local bg = btn:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(btn)
@@ -3491,13 +5538,13 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	cogBtn:SetScript("OnClick", function()
 		ShamanPower:ShowPopOutSettingsPanel(key, frame)
 	end)
-	cogBtn:SetScript("OnEnter", function(self)
+	cogBtn:HookScript("OnEnter", function(self)
 		if not ShamanPower.opt.ShowTooltips then return end
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:SetText("Settings")
 		GameTooltip:Show()
 	end)
-	cogBtn:SetScript("OnLeave", function()
+	cogBtn:HookScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
 	frame.cogBtn = cogBtn
@@ -3506,7 +5553,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	local titleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	titleText:SetPoint("BOTTOM", frame, "BOTTOM", 0, 4)
 	titleText:SetText(title or "Pop-Out")
-	titleText:SetFont(STANDARD_TEXT_FONT, 11, "")
+	ShamanPower:SetSPFont(titleText, "labels", 11, "", STANDARD_TEXT_FONT)
 	titleText:SetShadowOffset(1, -1)
 	titleText:SetShadowColor(0, 0, 0, 0.8)
 	titleText:SetTextColor(0.902, 0.918, 0.941)
@@ -3562,7 +5609,7 @@ function ShamanPower:CreatePopOutFrame(key, buttonSize, title)
 	frame:SetScript("OnMouseUp", function(self, button)
 		if button == "MiddleButton" then
 			if InCombatLockdown() then
-				print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+				print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 				return
 			end
 			ShamanPower:ReturnPopOutToBar(key)
@@ -3579,6 +5626,20 @@ end
 -- this stub only reports when that module is missing.
 function ShamanPower:ShowPopOutSettingsPanel(key, popOutFrame)
 	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for pop-out settings")
+end
+
+-- Where a pop-out's spot is saved. Under Grid "Split by Element" each element's
+-- pop-out frame is a Grid row with its own spot (ShamanPowerGrid.lua), so a trip
+-- through Grid never overwrites the element's regular pop-out spot.
+local GRID_ROW_KEYS = { totem_earth = true, totem_fire = true, totem_water = true, totem_air = true }
+local function PopOutPositions(key)
+	local o = ShamanPower.opt
+	if GRID_ROW_KEYS[key] and o.gridSplit and ShamanPower.GridActive and ShamanPower:GridActive() then
+		o.gridSplitPositions = o.gridSplitPositions or {}
+		return o.gridSplitPositions
+	end
+	o.poppedOutPositions = o.poppedOutPositions or {}
+	return o.poppedOutPositions
 end
 
 -- Set scale for a pop-out frame
@@ -3600,9 +5661,8 @@ function ShamanPower:SetPopOutScale(key, scale)
 			frame:ClearAllPoints()
 			frame:SetPoint("CENTER", UIParent, "BOTTOMLEFT", centerX / scale, centerY / scale)
 
-			-- Save new position
-			self.opt.poppedOutPositions = self.opt.poppedOutPositions or {}
-			self.opt.poppedOutPositions[key] = self:SavePositionRecord(frame)
+			-- Save new position (a Grid split row keeps its own)
+			PopOutPositions(key)[key] = self:SavePositionRecord(frame)
 		else
 			frame:SetScale(scale)
 		end
@@ -3758,7 +5818,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 			else
 				-- Plain middle-click returns to bar
 				if InCombatLockdown() then
-					print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+					print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 					return
 				end
 				ShamanPower:ReturnPopOutToBar(key)
@@ -3830,7 +5890,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 
 	-- Progress bar
 	local progressBar = iconHolder:CreateTexture(nil, "OVERLAY", nil, 1)
-	progressBar:SetColorTexture(barColors[1], barColors[2], barColors[3], 1)
+	ShamanPower:SetSPBarColor(progressBar, "duration", barColors[1], barColors[2], barColors[3], 1)
 	progressBar:SetPoint("BOTTOMLEFT", iconHolder, "BOTTOMLEFT", 0, 0)
 	progressBar:SetHeight(barSize)
 	progressBar:SetWidth(1)
@@ -3838,7 +5898,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 
 	-- Duration text on icon
 	local durationText = iconHolder:CreateFontString(nil, "OVERLAY")
-	durationText:SetFont("Fonts\\FRIZQT__.TTF", 11, "OUTLINE")
+	ShamanPower:SetSPFont(durationText, "timers", 11, "OUTLINE")
 	durationText:SetPoint("CENTER", iconHolder, "CENTER", 0, 0)
 	durationText:SetTextColor(1, 1, 1)
 	durationText:Hide()
@@ -3876,6 +5936,7 @@ end
 
 -- Pop out an entire element with its flyout
 function ShamanPower:PopOutElementWithFlyout(element)
+	if not self._gridRefreshing and self.GridPopOutElement and self:GridPopOutElement(element) then return end
 	local elementName = self.Elements[element]:lower()  -- "earth", "fire", "water", "air"
 	local key = "totem_" .. elementName
 	if self.opt.poppedOut and self.opt.poppedOut[key] then return end
@@ -3913,18 +5974,33 @@ function ShamanPower:PopOutElementWithFlyout(element)
 	frame.button = totemBtn  -- For TogglePopOutFrame compatibility
 	frame.element = element
 
-	-- ALT+drag on totem button to move frame (works when frame is hidden)
-	totemBtn:RegisterForDrag("LeftButton")
-	totemBtn:HookScript("OnDragStart", function(self)
-		if IsAltKeyDown() and not ShamanPower:PopOutsLocked() then
-			frame:StartMoving()
-		end
-	end)
-	totemBtn:HookScript("OnDragStop", function(self)
-		frame:StopMovingOrSizing()
-		ShamanPower.opt.poppedOutPositions = ShamanPower.opt.poppedOutPositions or {}
-		ShamanPower.opt.poppedOutPositions[key] = ShamanPower:SavePositionRecord(frame)
-	end)
+	-- The same button can return and split again. Hook once and resolve the live
+	-- frame, rather than retaining every retired pop-out in another drag closure.
+	totemBtn.spElementPopOutKey = key
+	if not totemBtn.spElementPopOutDragHooked then
+		totemBtn.spElementPopOutDragHooked = true
+		totemBtn:RegisterForDrag("LeftButton")
+		totemBtn:HookScript("OnDragStart", function(button)
+			if InCombatLockdown() then return end
+			local currentKey = button.spElementPopOutKey
+			local current = ShamanPower.poppedOutFrames[currentKey]
+			local popped = ShamanPower.opt.poppedOut
+			if current and current.totemButton == button and popped and popped[currentKey]
+				and IsAltKeyDown() and not ShamanPower:PopOutsLocked() then
+				current:StartMoving()
+			end
+		end)
+		totemBtn:HookScript("OnDragStop", function(button)
+			if InCombatLockdown() then return end
+			local currentKey = button.spElementPopOutKey
+			local current = ShamanPower.poppedOutFrames[currentKey]
+			local popped = ShamanPower.opt.poppedOut
+			if current and current.totemButton == button and popped and popped[currentKey] then
+				current:StopMovingOrSizing()
+				PopOutPositions(currentKey)[currentKey] = ShamanPower:SavePositionRecord(current)   -- a Grid split row keeps its own
+			end
+		end)
+	end
 
 	-- Note: SHIFT+Middle-click for settings is handled by the main totem button OnClick handler
 
@@ -3955,6 +6031,10 @@ local CooldownTypeNames = {
 	[5] = "Mana Tide",
 	[6] = "Bloodlust",
 	[7] = "Imbue",
+	[8] = "Shamanistic Rage",
+	[9] = "Elemental Mastery",
+	[10] = "Rage of the Farseer",
+	[11] = "Totemic Projection",
 }
 
 -- Pop out a cooldown bar item
@@ -4191,6 +6271,7 @@ end
 
 -- Return a popped-out item to its original bar
 function ShamanPower:ReturnPopOutToBar(key)
+	if not self._gridRefreshing and self.GridReturnPopOut and self:GridReturnPopOut(key) then return end
 	if not self.opt.poppedOut then return end
 	self.opt.poppedOut[key] = nil
 
@@ -4264,6 +6345,7 @@ end
 -- Restore all popped-out trackers on load
 function ShamanPower:RestorePoppedOutTrackers()
 	if not self.opt.poppedOut then return end
+	if self:IsOff() then self._popOutsSkippedByOff = true; return end   -- brought back on switch-on
 
 	for key, isPopped in pairs(self.opt.poppedOut) do
 		if isPopped then
@@ -4271,9 +6353,12 @@ function ShamanPower:RestorePoppedOutTrackers()
 				local elementName = key:match("^totem_(.+)$")
 				if elementName then
 					local element = self.ElementToID[elementName:upper()]
-					if element then
+					if element and not (self.GridOwnsElementPopouts and self:GridOwnsElementPopouts()) then
+						local profile, popouts, requested = self.opt, self.opt.poppedOut, isPopped
 						-- Delay slightly to ensure buttons exist
 						C_Timer.After(0.1, function()
+							if self.opt ~= profile or profile.poppedOut ~= popouts or popouts[key] ~= requested then return end
+							if self.GridOwnsElementPopouts and self:GridOwnsElementPopouts() then return end
 							self.opt.poppedOut[key] = nil  -- Clear so PopOutElementWithFlyout can proceed
 							self:PopOutElementWithFlyout(element)
 						end)
@@ -4407,6 +6492,7 @@ function ShamanPower:CreateTotemButtons()
 		cdFrame:SetDrawEdge(true)
 		cdFrame:SetSwipeColor(0, 0, 0, 0.8)
 		cdFrame:SetHideCountdownNumbers(true)  -- We'll show our own text
+		self:StyleEngineCooldown(cdFrame)       -- ...except where the engine draws the numbers
 		btn.cooldown = cdFrame
 
 		-- Create cooldown text overlay for main totem button (above the cooldown swipe)
@@ -4414,6 +6500,7 @@ function ShamanPower:CreateTotemButtons()
 		cdTextFrame:SetAllPoints(btn)
 		cdTextFrame:SetFrameLevel(cdFrame:GetFrameLevel() + 1)
 		local cdText = cdTextFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		ShamanPower:AdoptSPFont(cdText, "timers")   -- template font = the design; follows the Fonts settings
 		cdText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 		local cdColor = self.opt.totemCooldownTextColor
 		cdText:SetTextColor(cdColor and cdColor.r or 1, cdColor and cdColor.g or 1, cdColor and cdColor.b or 1)
@@ -4423,17 +6510,17 @@ function ShamanPower:CreateTotemButtons()
 
 		-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 		btn:SetAttribute("OpenMenu", "mouseover")
-		btn:SetAttribute("_onenter", [[
+		ShamanPower:SetSnippet(btn, "_onenter", [[
 			if self:GetAttribute("OpenMenu") == "mouseover" then
 				self:ChildUpdate("show", true)
 			end
 		]])
 
 		-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
-		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 		-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
-		btn:SetAttribute("_onmouseup", [[
+		ShamanPower:SetSnippet(btn, "_onmouseup", [[
 			local button = button
 			if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
 				self:ChildUpdate("show", true)
@@ -4441,7 +6528,7 @@ function ShamanPower:CreateTotemButtons()
 		]])
 
 		-- Store layout info as attributes for secure relayout
-		btn:SetAttribute("flyoutButtonSize", 28)
+		btn:SetAttribute("flyoutButtonSize", ShamanPower:TotemFlyoutButtonSize())
 		btn:SetAttribute("flyoutSpacing", 0)
 
 		-- Spell casting (type1 = left click)
@@ -4489,14 +6576,14 @@ function ShamanPower:CreateTotemButtons()
 						end
 					else
 						if InCombatLockdown() then
-							print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+							print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 							return
 						end
 						ShamanPower:ReturnPopOutToBar(key)
 					end
 				else
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+						print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 						return
 					end
 					ShamanPower:PopOutElementWithFlyout(elem)
@@ -4549,11 +6636,41 @@ function ShamanPower:IsElementLearned(element)
 	return elementLearnedCache[element] and true or false
 end
 
+-- Drop All only once there is a totem to drop: a new shaman's bar shows no
+-- lone Drop All button (SPELLS_CHANGED re-lays the bar when the first is learned).
+function ShamanPower:ShowsDropAllButton()
+	if self.opt.showDropAllButton == false then return false end
+	for e = 1, 4 do if self:IsElementLearned(e) then return true end end
+	return false
+end
+
+-- An accepted raid resistance request holds its element (ShamanPowerResist.lua,
+-- Forever): that slot shows even before the element is learned, so the
+-- resistance totem lands on a low-level shaman's bar too.
+local function HoldsResistRequest(self, element)
+	local list, applied = self.RESIST_REQUESTS, self.opt.resistApplied
+	if not (list and applied) then return false end
+	for i = 1, #list do
+		if list[i].element == element and applied[list[i].key] ~= nil then return true end
+	end
+	return false
+end
+
 local ELEMENT_SHOW_KEY = { "totemBarShowEarth", "totemBarShowFire", "totemBarShowWater", "totemBarShowAir" }
 function ShamanPower:IsElementShown(element)
 	if self.opt[ELEMENT_SHOW_KEY[element]] == false then return false end
-	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element) then return false end
+	if self.opt.hideUnlearnedElements ~= false and not self:IsElementLearned(element)
+		and not HoldsResistRequest(self, element) then return false end
 	return true
+end
+
+-- Dynamic Mode shows (and casts) the totem that is down instead of the assigned
+-- one. Grid can sit on top of a Dynamic setup; with its "Left-Click Also
+-- Assigns" off a drop keeps the assignment, so the row's leading button keeps
+-- showing the assigned totem too (as DropSetsAssignment does for the assignment).
+function ShamanPower:ShowsActiveTotemOnBar()
+	if not self.opt.dynamicTotemMode then return false end
+	return not (self.opt.gridStyle == true and self.GridActive and self:GridActive() and self.opt.gridDropAssigns == false)
 end
 
 function ShamanPower:PositionTotemButtons()
@@ -4607,6 +6724,7 @@ end
 -- Update totem buttons with spell info and position (called from UpdateMiniTotemBar)
 function ShamanPower:UpdateTotemButtons()
 	if InCombatLockdown() then return end
+	if self:IsOff() then return end   -- switched off: the buttons (UIParent children) stay down
 
 	-- Make sure totem buttons exist
 	self:CreateTotemButtons()
@@ -4641,7 +6759,7 @@ function ShamanPower:UpdateTotemButtons()
 
 			-- Get totem spell - Dynamic Mode uses active totem, Normal Mode uses assignment
 			local totemIndex
-			if self.opt.dynamicTotemMode then
+			if self:ShowsActiveTotemOnBar() then
 				local activeIndex = self:GetActiveTotemIndex(element)
 				if activeIndex then
 					totemIndex = activeIndex
@@ -4669,6 +6787,7 @@ function ShamanPower:UpdateTotemButtons()
 			if btn.icon and not (element == 4 and self.opt.enableTotemTwisting) then
 				btn.icon:SetTexture(icon)
 			end
+			self:ShowEmptySlotArt(element, (totemIndex or 0) == 0)
 
 			-- Always update spell attributes (even for popped out elements)
 			-- Clear old attributes
@@ -4680,7 +6799,7 @@ function ShamanPower:UpdateTotemButtons()
 
 			-- Set up spell casting (same logic as XML buttons)
 			if element == 4 and self.opt.enableTotemTwisting then
-				local wfName = GetSpellInfo(25587) or "Windfury Totem"
+				local wfName = GetSpellInfo(8512) or "Windfury Totem"
 				local twistName = self:GetTwistTotemName()
 				btn:SetAttribute("type1", "macro")
 				btn:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. twistName)
@@ -4691,13 +6810,21 @@ function ShamanPower:UpdateTotemButtons()
 			elseif spellName then
 				btn:SetAttribute("type1", "spell")
 				btn:SetAttribute("spell1", spellName)
+			elseif EMPTY_SLOT_ART then
+				-- Empty: keep the cast type, so a totem assigned from the flyout mid-fight
+				-- (which can only write spell1) still casts. A spell action with no spell does nothing.
+				btn:SetAttribute("type1", "spell")
 			end
 
 			-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
-			if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+			btn:SetAttribute("shift-type2", nil)
+			btn:SetAttribute("shift-spell2", nil)
+			if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
 				-- Right-click shows flyout instead of Totemic Call
 				btn:SetAttribute("type2", nil)
 				btn:SetAttribute("spell2", nil)
+			elseif self:RightClickDestroysTotems() then
+				self:ApplyTotemDestroyAttributes(btn, element)
 			elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 				-- TotemTimers mode: right-click casts the assigned totem (shown in corner)
 				local assignedIndex = assignments[element] or 0
@@ -4755,6 +6882,585 @@ function ShamanPower:UpdateTotemButtons()
 end
 
 -- Create flyout menu for an element
+-- Which way this element's flyout opens: "top", "bottom", "left" or "right".
+function ShamanPower:FlyoutDirection(flyout)
+	local element = flyout and flyout.element
+	if element and self:IsElementPoppedOut(element) then
+		local key = "totem_" .. self.Elements[element]:lower()
+		local settings = self.opt.poppedOutSettings and self.opt.poppedOutSettings[key]
+		if settings and settings.flyoutDirection then return settings.flyoutDirection end
+	end
+	if not self:IsTotemBarHorizontal() then
+		local isVerticalLeft = (self.opt.layout == "VerticalLeft") and not self:CompactActive()
+		return isVerticalLeft and "left" or "right"
+	end
+	return self:FlyoutGoesBelow(flyout.totemButton) and "bottom" or "top"
+end
+
+-- Arrows exist while the arrow layout is on (see spFlyoutArrowLayout). Texture
+-- alpha is used for the hover highlight because regions are never protected.
+local function spFlyoutArrowAlpha(arrow, hovered)
+	if not arrow then return end
+	local a = 0
+	if spFlyoutArrowLayout() then a = hovered and 1 or 0.85 end
+	-- The close tab sits on top of the open tab while the flyout is up, and its
+	-- art has transparent parts, so the open tab's art goes away for that time.
+	-- (The frame cannot be hidden in combat; its textures can.)
+	if arrow.spHideWhileShown and arrow.spHideWhileShown:IsShown() then a, hovered = 0, false end
+	arrow.tex:SetAlpha(a)
+	arrow.glow:SetAlpha((spFlyoutArrowLayout() and hovered) and 1 or 0)
+end
+
+local function spFlyoutMakeArrow(name, parent, box, unitValue)
+	local b = _G[name] or CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
+	b:SetParent(parent)
+	b:RegisterForClicks("AnyUp", "AnyDown")
+	b:SetAttribute("type", "attribute")
+	b:SetAttribute("attribute-frame", box)
+	b:SetAttribute("attribute-name", "unit")
+	b:SetAttribute("attribute-value", unitValue)
+	if not b.tex then
+		b.tex = b:CreateTexture(nil, "ARTWORK")
+		b.tex:SetAllPoints()
+		b.tex:SetTexture(ARROW_TEXTURE)
+		b.glow = b:CreateTexture(nil, "OVERLAY")
+		b.glow:SetPoint("CENTER")
+		b.glow:SetTexture(ARROW_TEXTURE)
+		b.glow:SetBlendMode("ADD")
+		b.glow:SetAlpha(0)
+		b:HookScript("OnEnter", function(self) spFlyoutArrowAlpha(self, true) end)
+		b:HookScript("OnLeave", function(self)
+			spFlyoutArrowAlpha(self, false)
+			if self.spOwner then spFlyoutScheduleClose(self.spOwner) end
+		end)
+	end
+	return b
+end
+
+-- Every flyout running in box mode, by key: 1-4 for the totem elements, "S" for
+-- the shield flyout and "I" for the weapon imbue flyout on the cooldown bar.
+-- { flyout =, button =, relayout = function } - relayout re-runs that flyout's
+-- own layout, which is how the combat layout (arrow gap) is applied and undone.
+ShamanPower.boxFlyouts = {}
+
+-- Create (once per button) the watched box and its two arrows for a flyout.
+function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
+	if InCombatLockdown() then return totemButton.spFlyoutBox end
+	self.boxFlyouts[element] = { flyout = flyout, button = totemButton, relayout = relayout or function() end }
+	local box = totemButton.spFlyoutBox
+	if not box then
+		box = _G["ShamanPowerFlyoutBox" .. element]
+			or CreateFrame("Frame", "ShamanPowerFlyoutBox" .. element, totemButton, "SecureFrameTemplate")
+		box:SetParent(totemButton)
+		box:SetFrameLevel(totemButton:GetFrameLevel() + 8)   -- above the active-totem overlay (+5)
+		box:SetAllPoints(totemButton)
+		box:SetAttribute("unit", "none")
+		box:Hide()
+		RegisterUnitWatch(box)
+		box.spFlyoutOwner = totemButton
+		totemButton.spFlyoutBox = box
+
+		local open = spFlyoutMakeArrow("ShamanPowerFlyoutOpen" .. element, totemButton, box, "player")
+		local close = spFlyoutMakeArrow("ShamanPowerFlyoutClose" .. element, box, box, "none")
+		open.spOwner, close.spOwner = totemButton, totemButton
+		-- Invisible press targets for macros (short names keep every macro far
+		-- below the length limit). Per flyout key K:
+		--   SPFO<K> / SPFC<K>  attribute: open / close the box
+		--   SPFT<K>            macro: the TOGGLE the keybind presses
+		--   SPFA<K> / SPFR<K>  attribute: rewrite SPFT's macrotext to its "close"
+		--                      / "open" form (arm / reset)
+		-- A key cannot ask whether the flyout is open (hidden buttons still
+		-- answer /click, measured), so the toggle carries its own state: each
+		-- press rewrites what the next press will do, and every other way a
+		-- flyout closes presses SPFC + SPFR so the toggle never falls out of step.
+		-- The macro texts themselves are filled in by ApplyFlyoutArrowMode.
+		--
+		-- Two rules learned the hard way (both measured in game):
+		--   * a macro may press attribute buttons, but a macro-type button
+		--     pressed from inside a macro does not run, so every macro here is
+		--     flat: it presses SPFO/SPFC/SPFA/SPFR directly, never another macro;
+		--   * the attribute helpers set useOnKeyDown = false, so they act on a
+		--     click RELEASE whatever the player's key-down setting is, and a bare
+		--     "/click NAME" (which sends a release) is all a macro needs. That
+		--     keeps the longest macro (close five others, open mine) near 150
+		--     characters, well inside the macro length limit.
+		local function helper(prefix)
+			local h = _G[prefix .. element] or CreateFrame("Button", prefix .. element, totemButton, "SecureActionButtonTemplate")
+			h:SetParent(totemButton)   -- a rebuilt cooldown bar hands us a new button
+			h:SetSize(1, 1)
+			h:SetPoint("CENTER", totemButton, "CENTER")
+			h:EnableMouse(false)
+			h:RegisterForClicks("AnyUp", "AnyDown")
+			return h
+		end
+		for _, def in ipairs({ { "SPFO", "player" }, { "SPFC", "none" } }) do
+			local h = helper(def[1])
+			h:SetAttribute("useOnKeyDown", false)
+			h:SetAttribute("type", "attribute")
+			h:SetAttribute("attribute-frame", box)
+			h:SetAttribute("attribute-name", "unit")
+			h:SetAttribute("attribute-value", def[2])
+		end
+		local toggle = helper("SPFT")   -- pressed by a real key: follows the player's key-down setting
+		toggle:SetAttribute("type", "macro")
+		for _, prefix in ipairs({ "SPFA", "SPFR" }) do
+			local h = helper(prefix)
+			h:SetAttribute("useOnKeyDown", false)
+			h:SetAttribute("type", "attribute")
+			h:SetAttribute("attribute-frame", toggle)
+			h:SetAttribute("attribute-name", "macrotext")
+		end
+		open.spHideWhileShown = box
+		if not box.spArrowHooked then
+			box.spArrowHooked = true
+			box:HookScript("OnShow", function(self)
+				spFlyoutArrowAlpha(self.spOpenArrow, false)
+				ShamanPower._barWake = true   -- its buttons' cooldowns are only read while it is on screen
+				-- opened by its arrow or key out of combat: same refresh a hover-open gets
+				local entry = ShamanPower.boxFlyouts[element]
+				if entry and not InCombatLockdown() and not self.spRelayouting then
+					self.spRelayouting = true
+					pcall(entry.relayout)
+					self.spRelayouting = nil
+				end
+			end)
+			box:HookScript("OnHide", function(self) spFlyoutArrowAlpha(self.spOpenArrow, false) end)
+		end
+		box.spOpenArrow = open
+		open:SetFrameLevel(totemButton:GetFrameLevel() + 7)
+		close:SetFrameLevel(totemButton:GetFrameLevel() + 12)   -- covers the open arrow while the box is up
+		totemButton.spFlyoutOpenArrow, totemButton.spFlyoutCloseArrow = open, close
+		if not totemButton.spFlyoutArrowHooked then
+			totemButton.spFlyoutArrowHooked = true
+			totemButton:HookScript("OnEnter", function(self) spFlyoutArrowAlpha(self.spFlyoutOpenArrow, true) end)
+			totemButton:HookScript("OnLeave", function(self) spFlyoutArrowAlpha(self.spFlyoutOpenArrow, false) end)
+		end
+	end
+	flyout.box = box
+	flyout.leadGap = self:FlyoutLeadGap(flyout)
+	self.flyoutArrowGap = spFlyoutArrowLayout() and FLYOUT_ARROW or 0
+	self:ApplyFlyoutArrowMode()
+	return box
+end
+
+-- opt.flyoutSingleOpen (default on): an arrow closes every other flyout before
+-- opening its own, so only one is ever open. Off: the arrow just opens its own
+-- and the rest stay until picked from or closed. A macro cannot set attributes,
+-- so the "on" form presses the SPFC/SPFO helper buttons instead.
+function ShamanPower:ApplyFlyoutArrowMode()
+	if InCombatLockdown() then
+		self.flyoutArrowModePending = true
+		return
+	end
+	self.flyoutArrowModePending = nil
+	local single = self.opt.flyoutSingleOpen ~= false
+
+	for key, entry in pairs(self.boxFlyouts) do
+		-- close: shut the box, reset the toggle
+		local mClose = "/click SPFC" .. key .. "\n/click SPFR" .. key
+		-- open: (single-open) close and reset every other flyout, open mine, arm the toggle
+		local lines = {}
+		if single then
+			for other in pairs(self.boxFlyouts) do
+				if other ~= key then
+					lines[#lines + 1] = "/click SPFC" .. other
+					lines[#lines + 1] = "/click SPFR" .. other
+				end
+			end
+		end
+		lines[#lines + 1] = "/click SPFO" .. key
+		lines[#lines + 1] = "/click SPFA" .. key
+		local mOpen = table.concat(lines, "\n")
+		entry.mOpen, entry.mClose = mOpen, mClose
+
+		local A, R, T = _G["SPFA" .. key], _G["SPFR" .. key], _G["SPFT" .. key]
+		if A and R and T then
+			A:SetAttribute("attribute-value", mClose)   -- armed: next press closes
+			R:SetAttribute("attribute-value", mOpen)    -- reset: next press opens
+			local box = entry.button and entry.button.spFlyoutBox
+			T:SetAttribute("macrotext", (box and box:IsShown()) and mClose or mOpen)
+		end
+		-- the visible tabs do exactly what the toggle does
+		local btn = entry.button
+		if btn and btn.spFlyoutOpenArrow then
+			btn.spFlyoutOpenArrow:SetAttribute("type", "macro")
+			btn.spFlyoutOpenArrow:SetAttribute("macrotext", mOpen)
+		end
+		if btn and btn.spFlyoutCloseArrow then
+			btn.spFlyoutCloseArrow:SetAttribute("type", "macro")
+			btn.spFlyoutCloseArrow:SetAttribute("macrotext", mClose)
+		end
+	end
+
+	-- SPFCALL: one invisible button that closes every flyout (keybind target)
+	local all = _G.SPFCALL or CreateFrame("Button", "SPFCALL", UIParent, "SecureActionButtonTemplate")
+	all:SetSize(1, 1)
+	all:EnableMouse(false)
+	all:RegisterForClicks("AnyUp", "AnyDown")
+	local lines = {}
+	for key in pairs(self.boxFlyouts) do
+		lines[#lines + 1] = "/click SPFC" .. key
+		lines[#lines + 1] = "/click SPFR" .. key
+	end
+	all:SetAttribute("type", "macro")
+	all:SetAttribute("macrotext", table.concat(lines, "\n"))
+end
+
+-- What clicking an icon inside a box-mode flyout does. Each button carries its
+-- plain cast text per mouse button in btn.spPick (set where the button is
+-- built); opt.flyoutCloseOnCast (default on) appends the two presses that close
+-- the flyout and put its toggle key back to "open".
+-- A hidden secure button a flyout macro presses with a bare /click: it acts on
+-- release whatever ActionButtonUseKeyDown says, and needs no size or mouse.
+function ShamanPower:FlyoutAssignHelper(name, parent)
+	local h = _G[name] or CreateFrame("Button", name, parent, "SecureActionButtonTemplate")
+	h:SetParent(parent)
+	h:SetSize(1, 1)
+	h:ClearAllPoints()
+	h:SetPoint("CENTER", parent, "CENTER")
+	h:EnableMouse(false)
+	h:RegisterForClicks("AnyUp", "AnyDown")
+	h:SetAttribute("useOnKeyDown", false)
+	return h
+end
+
+-- Point every SPFM helper at the right slot and spell of Blizzard's totem bar
+-- (ranks, the sync option and the Drop All excludes all change the answer).
+-- Out of combat only; the start of a fight is the last call.
+function ShamanPower:RefreshTotemBarHelpers()
+	if InCombatLockdown() then return end
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout and flyout.box then
+			for _, btn in ipairs(flyout.allButtons or {}) do
+				local M = _G["SPFM" .. element .. "_" .. btn.totemIndex]
+				if M then
+					local action, spell
+					if self.TotemBarSlotSpell then action, spell = self:TotemBarSlotSpell(element, btn.totemIndex) end
+					M:SetAttribute("type", action and "multispell" or nil)
+					M:SetAttribute("action", action)
+					M:SetAttribute("spell", spell)
+				end
+			end
+		end
+	end
+end
+
+function ShamanPower:ApplyFlyoutPickMacros()
+	if InCombatLockdown() then
+		self.flyoutPickPending = true
+		return
+	end
+	self.flyoutPickPending = nil
+	local closeOnCast = self.opt.flyoutCloseOnCast ~= false
+	for key, entry in pairs(self.boxFlyouts) do
+		local flyout = entry.flyout
+		local tail = closeOnCast and ("\n/click SPFC" .. key .. "\n/click SPFR" .. key) or ""
+		for _, btn in ipairs(flyout.allButtons or flyout.buttons or {}) do
+			for n, base in pairs(btn.spPick or {}) do
+				btn:SetAttribute("type" .. n, "macro")
+				btn:SetAttribute("macrotext" .. n, base .. tail)
+			end
+		end
+	end
+end
+
+-- Out of combat the box is opened and closed directly (hover, assignment, the
+-- end-of-fight sweep), so the toggle is put in step directly too.
+function ShamanPower:SyncFlyoutToggle(button, shown)
+	for key, entry in pairs(self.boxFlyouts) do
+		if entry.button == button then
+			local T = _G["SPFT" .. key]
+			if T and entry.mOpen and not InCombatLockdown() then
+				T:SetAttribute("macrotext", shown and entry.mClose or entry.mOpen)
+			end
+			return
+		end
+	end
+end
+
+-- Put both arrows on the edge the flyout opens from, pointing the right way.
+function ShamanPower:PlaceFlyoutArrows(flyout)
+	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
+	if not btn or not btn.spFlyoutOpenArrow or InCombatLockdown() then return end
+	if btn.spGridPinned then
+		btn.spFlyoutOpenArrow:Hide()
+		if btn.spFlyoutCloseArrow then btn.spFlyoutCloseArrow:Hide() end
+		self:DressFlyoutFrame(flyout)
+		btn.spFlyoutArrowSide = nil
+		self:FollowFlyoutArrows(btn)
+		return
+	end
+	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	btn.spFlyoutArrowSide = dir   -- where the tab is: what we draw on this side steps out past it
+	local element = flyout.artIndex or flyout.element or 5
+	local sideways = (dir == "left" or dir == "right")
+	for _, arrow in ipairs({ btn.spFlyoutOpenArrow, btn.spFlyoutCloseArrow }) do
+		-- the tab sits centred on the edge the flyout opens from, tucked 2 px in
+		arrow:ClearAllPoints()
+		-- never longer than the edge it sits on (cooldown bar buttons are 22 px; a
+		-- Compact row is a thin bar, and a sideways tab runs along its HEIGHT)
+		local edge = sideways and btn:GetHeight() or btn:GetWidth()
+		local k = math.min(1, ((edge and edge > 0) and edge or ARROW_W) / ARROW_W)
+		local tw, th = ARROW_W * k, ARROW_H * k
+		arrow:SetSize(sideways and th or tw, sideways and tw or th)
+		if dir == "bottom" then
+			arrow:SetPoint("TOP", btn, "BOTTOM", 0, 2)
+		elseif dir == "left" then
+			arrow:SetPoint("RIGHT", btn, "LEFT", 2, 0)
+		elseif dir == "right" then
+			arrow:SetPoint("LEFT", btn, "RIGHT", -2, 0)
+		else
+			arrow:SetPoint("BOTTOM", btn, "TOP", 0, -2)
+		end
+		local isClose = (arrow == btn.spFlyoutCloseArrow)
+		local art = (isClose and ARROW_CLOSE or ARROW_OPEN)[element] or ARROW_OPEN[1]
+		arrow.tex:SetTexCoord(spArrowCoords(art, dir))
+		arrow.glow:SetSize((sideways and 11 or 20) * k, (sideways and 20 or 11) * k)
+		arrow.glow:SetTexCoord(spArrowCoords(isClose and ARROW_GLOW_CLOSE or ARROW_GLOW_OPEN, dir))
+		-- (none on the hidden custom bar while Blizzard's own totem bar is the style)
+		local enabled = flyout.isCdbarFlyout or (self.opt.showTotemFlyouts and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()))
+		local anything = false
+		for _, b in ipairs(flyout.buttons or {}) do
+			if b:IsShown() then anything = true break end
+		end
+		-- in the arrow layout only, only with flyouts on, and never for a flyout with nothing in it
+		arrow:SetShown((enabled and anything and spFlyoutArrowLayout()) and true or false)
+		spFlyoutArrowAlpha(arrow, false)
+	end
+	self:DressFlyoutFrame(flyout)
+	if self.RefreshCompactSquares then self:RefreshCompactSquares() end   -- Compact's icon square steps out past the tab
+	self:FollowFlyoutArrows(btn)   -- and so do the pulse / duration bars, dots and overlay on that side
+end
+
+-- How far a button's arrow tab sticks out on `side` ("top"/"bottom"/"left"/
+-- "right"); 0 when there is no tab there right now.
+-- How far an arrow tab WILL stick out of a button on `dir` while the arrow layout
+-- is on. From the button's size, not the tab frame: the flyout is laid out
+-- before the tabs are placed.
+function ShamanPower:FlyoutArrowAcross(btn, dir)
+	if not (btn and spFlyoutArrowLayout()) then return 0 end
+	local sideways = (dir == "left" or dir == "right")
+	local edge = sideways and btn:GetHeight() or btn:GetWidth()
+	local k = math.min(1, ((edge and edge > 0) and edge or ARROW_W) / ARROW_W)
+	return math.max(0, math.floor(ARROW_H * k - 2 + 0.5))   -- the tab is tucked 2 px into the button
+end
+
+-- Room between a button and the first icon of its flyout, measured so the pieces
+-- butt up against each other with no gap and no overlap:
+--   button | arrow tab | (Compact: the icon square, when it is on this end) | flyout
+-- The tab is scaled to the edge it sits on (a thin Compact line or a 22 px
+-- cooldown button gets a smaller tab than a 28 px totem button), so the room is
+-- the tab's real size, not a constant. The icons-only style keeps the tab clear;
+-- in the frame style the first icon covers the open tab, so only the square counts.
+function ShamanPower:FlyoutLeadGap(flyout)
+	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
+	if not btn then return spFlyoutLeadGap() end
+	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	local across = self:FlyoutArrowAcross(btn, dir)
+	local lead = (spFlyoutLeadGap() > 0) and across or 0
+	if flyout.element and self.CompactSquareExtent then
+		local sq = self:CompactSquareExtent(btn, dir)        -- square plus its border, 0 if none on this end
+		if sq > 0 then lead = math.max(lead, self:CompactSquareOffset(across) - 1 + sq) end
+	end
+	return lead
+end
+
+-- Where Compact's icon square starts, measured from the end of the line: hard
+-- against the arrow tab when there is one (1 px is the square's own border),
+-- otherwise the usual 2 px off the line.
+function ShamanPower:CompactSquareOffset(across)
+	return (across and across > 0) and (across + 1) or 2
+end
+
+function ShamanPower:FlyoutArrowGapOn(btn, side)
+	local arrow = btn and btn.spFlyoutOpenArrow
+	if not (arrow and arrow:IsShown() and spFlyoutArrowLayout()) then return 0 end
+	-- the edge PlaceFlyoutArrows put the tab on (a cooldown bar button has no element)
+	local dir = btn.spFlyoutArrowSide
+	if not dir then
+		local flyout = btn.element and self.totemFlyouts and self.totemFlyouts[btn.element]
+		dir = flyout and (flyout.arrowDir or self:FlyoutDirection(flyout))
+	end
+	if dir ~= side then return 0 end
+	return self:FlyoutArrowAcross(btn, dir)
+end
+
+-- Room the tab takes on each side of a button: top, bottom, left, right (only
+-- the tab's own side is ever above 0), as FollowFlyoutArrows last found it.
+-- Everything we draw outside a button on a side adds this to its distance from
+-- the button, so it sits out past the tab instead of behind it. Plain fields,
+-- so the per-tick cooldown bar code can read it too.
+function ShamanPower:FlyoutArrowPads(btn)
+	if not btn then return 0, 0, 0, 0 end
+	return btn.spArrowPadT or 0, btn.spArrowPadB or 0, btn.spArrowPadL or 0, btn.spArrowPadR or 0
+end
+
+-- A button's tab appeared, moved or went (PlaceFlyoutArrows, which only runs out
+-- of combat: the start and end of a fight, an arrow option, a relayout). When its
+-- room changed, place again what we draw outside that button: its pulse and
+-- duration bars with their numbers, the party dots, the dropped-totem overlay,
+-- or on the cooldown bar the shield / imbue bars and their text. Layout changes
+-- only; nothing here runs per frame. No option: it follows the tab by itself.
+function ShamanPower:FollowFlyoutArrows(btn)
+	if not btn or InCombatLockdown() then return end
+	local side = btn.spFlyoutArrowSide
+	local gap = side and self:FlyoutArrowGapOn(btn, side) or 0
+	local t, b = (side == "top") and gap or 0, (side == "bottom") and gap or 0
+	local l, r = (side == "left") and gap or 0, (side == "right") and gap or 0
+	local oT, oB, oL, oR = self:FlyoutArrowPads(btn)
+	if t == oT and b == oB and l == oL and r == oR then return end
+	btn.spArrowPadT, btn.spArrowPadB, btn.spArrowPadL, btn.spArrowPadR = t, b, l, r
+	if btn.cooldownType then
+		if self.UpdateCooldownBarProgressBars then self:UpdateCooldownBarProgressBars() end
+		return
+	end
+	local element = btn.element
+	if not (element and self.totemButtons and self.totemButtons[element] == btn) then return end
+	local pulse = self.pulseOverlays and self.pulseOverlays[element]
+	if pulse and pulse.button == btn then self:PositionPulseWipe(pulse) end
+	self:UpdateTotemProgressBarPositions()
+	self:PlacePartyDotFrame(btn)
+	self:PositionActiveOverlays()
+end
+
+-- Optional Blizzard-style frame around an open flyout (opt.flyoutStyle ==
+-- "frame"). Pure artwork: textures on the box, so they appear and vanish with
+-- the flyout by themselves, in and out of combat. Blizzard's proportions are
+-- for 24 px buttons in a 32 px frame, scaled here to our button size. As on
+-- Blizzard's bar the close tab moves to the far end, into the cap's notch; a
+-- copy of the tab art is drawn there as decoration so the cap never looks
+-- empty out of combat, where the real tab is hidden.
+function ShamanPower:DressFlyoutFrame(flyout)
+	local btn = flyout and (flyout.anchorButton or flyout.totemButton)
+	local box = flyout and flyout.box
+	if not btn or not box then return end
+	if btn.spGridPinned then
+		if box.frameFill then box.frameFill:Hide() end
+		if box.frameBand then box.frameBand:Hide() end
+		if box.frameCap then box.frameCap:Hide() end
+		if box.frameFoot then box.frameFoot:Hide() end
+		if box.frameTab then box.frameTab:Hide() end
+		if box.frameSlot then box.frameSlot:Hide() end
+		return false
+	end
+	if not box.frameArt then
+		-- The panel wraps the totem button too, so it is drawn on a plain frame
+		-- one level BELOW the button (the box itself sits above it): the button's
+		-- icon stays on top of the panel's fill. It is the box's child, so it
+		-- still comes and goes with the flyout.
+		local art = CreateFrame("Frame", nil, box)
+		art:SetAllPoints(btn)
+		box.frameArt = art
+		-- Blizzard's panel art is translucent, so the world shows through it. A
+		-- dark backing inside the border gives it a solid body; it follows the
+		-- Frame Opacity slider with the rest of the panel.
+		box.frameFill = art:CreateTexture(nil, "BACKGROUND", nil, -3)
+		box.frameFill:SetColorTexture(0, 0, 0, 1)
+		box.frameBand = art:CreateTexture(nil, "BACKGROUND", nil, -2)
+		box.frameCap = art:CreateTexture(nil, "BACKGROUND", nil, -1)
+		box.frameFoot = art:CreateTexture(nil, "BACKGROUND", nil, -1)
+		box.frameTab = box:CreateTexture(nil, "BORDER")   -- the tab stays above everything
+		for _, t in ipairs({ box.frameBand, box.frameCap, box.frameFoot, box.frameTab }) do t:SetTexture(ARROW_TEXTURE) end
+	end
+	box.frameArt:SetFrameLevel(math.max(0, btn:GetFrameLevel() - 1))
+	local band, cap, foot, tab = box.frameBand, box.frameCap, box.frameFoot, box.frameTab
+	if box.frameSlot then box.frameSlot:Hide() end
+
+	local count = 0
+	for _, b in ipairs(flyout.buttons or {}) do
+		if b:IsShown() then count = count + 1 end
+	end
+	local fill = box.frameFill
+	if self.opt.flyoutStyle ~= "frame" or count == 0 then
+		band:Hide(); cap:Hide(); foot:Hide(); tab:Hide(); fill:Hide()
+		return false
+	end
+
+	local dir = flyout.arrowDir or self:FlyoutDirection(flyout)
+	local opposite = ({ top = "bottom", bottom = "top", left = "right", right = "left" })[dir] or "bottom"
+	local sideways = (dir == "left" or dir == "right")
+	local art = flyout.artIndex or flyout.element or 5
+	local size = flyout.buttonSize or 28
+	local f = size / 24                                  -- Blizzard's art is for 24 px icons
+	local lead = flyout.leadGap or 0
+	local bw, bh = btn:GetWidth() or 30, btn:GetHeight() or 30
+	local bAlong, bAcross = sideways and bw or bh, sideways and bh or bw
+	-- One even border all the way round: Blizzard shows 4 px of panel beside a
+	-- 24 px icon, so the same margin (scaled) is kept beside the totem button,
+	-- which is the widest thing inside the frame, and below it.
+	local margin = 4 * f
+	local pad = margin                                   -- how far the frame reaches past the totem button
+	local capLen, tabW, tabH = 20 * f, ARROW_W * f, ARROW_H * f
+	local wide = math.max(32 * f, bAcross + 2 * margin)
+	-- Distances are measured along the flyout's direction from the button edge
+	-- it opens from: positive is out into the flyout, negative is back across
+	-- the totem button.
+	local length = lead + count * (size + (flyout.spacing or 0)) + 20 * f   -- 2 px pad + the 18 px tab
+	local farCapStart = length - 30 * f                                      -- the far cap starts 10 px in from the end
+	local footStart = -bAlong - pad
+
+	local function place(region, start, len, across)
+		region:ClearAllPoints()
+		if dir == "bottom" then
+			region:SetPoint("TOP", btn, "BOTTOM", 0, -start);  region:SetSize(across, len)
+		elseif dir == "left" then
+			region:SetPoint("RIGHT", btn, "LEFT", -start, 0);  region:SetSize(len, across)
+		elseif dir == "right" then
+			region:SetPoint("LEFT", btn, "RIGHT", start, 0);   region:SetSize(len, across)
+		else
+			region:SetPoint("BOTTOM", btn, "TOP", 0, start);   region:SetSize(across, len)
+		end
+	end
+
+	-- backing: inside the border, from the foot to the far cap's outer edge
+	local inset = 2 * f
+	local fillStart, fillEnd = footStart + inset, (length - 10 * f) - inset
+	place(fill, fillStart, fillEnd - fillStart, wide - 2 * inset)
+	place(foot, footStart, capLen, wide)                                   -- closes the frame under the button
+	place(band, footStart + capLen, farCapStart - (footStart + capLen), wide)
+	place(cap, farCapStart, capLen, wide)
+	place(tab, length - tabH, tabH, tabW)
+	-- the foot is the cap turned to face the other way
+	foot:SetTexCoord(spArrowCoords(FRAME_CAP[art] or FRAME_CAP[5], opposite))
+	band:SetTexCoord(spArrowCoords(FRAME_BAND[art] or FRAME_BAND[5], dir))
+	cap:SetTexCoord(spArrowCoords(FRAME_CAP[art] or FRAME_CAP[5], dir))
+	tab:SetTexCoord(spArrowCoords(ARROW_CLOSE[art] or ARROW_CLOSE[5], dir))
+
+	-- The panel (border and fill) has its own opacity on top of the flyout's; the
+	-- tab keeps the flyout's, so it never fades out of reach.
+	-- a shield / imbue flyout follows the CD Flyouts opacity, not the totem one
+	local alpha = (flyout.isCdbarFlyout and self.opt.cooldownFlyoutOpacity or self.opt.totemFlyoutOpacity) or 1.0
+	local panelAlpha = alpha * (self.opt.flyoutFrameOpacity or 1.0)
+	for _, t in ipairs({ band, cap, foot }) do t:SetAlpha(panelAlpha); t:Show() end
+	fill:SetAlpha(panelAlpha * 0.85); fill:Show()
+	tab:SetAlpha(alpha); tab:Show()
+
+	-- The real close tab sits exactly on the decorative one. It is anchored to the
+	-- totem button with the same numbers rather than to the texture: a protected
+	-- frame may not be anchored to a region.
+	local close = btn.spFlyoutCloseArrow
+	if close and not InCombatLockdown() then
+		place(close, length - tabH, tabH, tabW)
+	end
+	return true
+end
+
+-- Box mode keeps every eligible button SHOWN inside the (hidden) box, because
+-- nothing can show them individually once a fight starts. Out of combat only.
+function ShamanPower:SyncCombatFlyoutButtons(element)
+	local flyout = self.totemFlyouts[element]
+	if not flyout or not flyout.box or InCombatLockdown() then return end
+	if self.GridLayoutElement and self:GridLayoutElement(element) then return end
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		local show = not btn.isDisabledInFlyout
+			and not btn:GetAttribute("isCurrentAssignment")
+			and not btn:GetAttribute("flyoutHidden")
+		btn:SetShown(show and true or false)
+	end
+	self:PlaceFlyoutArrows(flyout)
+end
+
 function ShamanPower:CreateTotemFlyout(element)
 	if self.totemFlyouts[element] then return self.totemFlyouts[element] end
 
@@ -4774,12 +7480,22 @@ function ShamanPower:CreateTotemFlyout(element)
 	local flyout = {
 		buttons = {},      -- Active/enabled buttons only
 		allButtons = {},   -- All known totem buttons (for rebuilding when settings change)
-		buttonSize = 28,
+		buttonSize = self:TotemFlyoutButtonSize(),
 		padding = 4,
 		spacing = 0,  -- No gap between buttons to prevent menu closing when moving mouse
 		element = element,
 		totemButton = parentButton
 	}
+
+
+	-- Box mode (snippets broken): the buttons hang from a watched box so a click
+	-- can open them in combat. Anchors still point at the totem button, and the
+	-- box is its child, so position and scale are unchanged.
+	local buttonParent = parentButton
+	if spFlyoutBoxMode() and not InCombatLockdown() then
+		buttonParent = self:EnsureFlyoutBox(element, parentButton, flyout,
+			function() ShamanPower:UpdateFlyoutVisibility(element) end) or parentButton
+	end
 
 	-- Element names for flyout settings lookup
 	local elementKeys = { [1] = "earth", [2] = "fire", [3] = "water", [4] = "air" }
@@ -4792,30 +7508,39 @@ function ShamanPower:CreateTotemFlyout(element)
 		local isKnown = PlayerKnowsTotem(spellID, totemName)
 		-- Talent-gated totems (Totem of Wrath, Mana Tide) always get a button, so
 		-- a respec can show/hide them through the normal flyout filter with no
-		-- /reload - exactly like the settings toggles do
-		local isTalentTotem = self.TalentTotems and self.TalentTotems[spellID] ~= nil
+		-- /reload - exactly like the settings toggles do.
+		-- spellName must resolve: a talent totem the client has no spell data for
+		-- (Totem of Wrath on the Mainline line) would otherwise force a nameless,
+		-- iconless, uncastable button into the flyout.
+		local isTalentTotem = self.TalentTotems and self.TalentTotems[spellID] ~= nil and spellName ~= nil
 
 		-- Check if totem is enabled in flyout settings (default to true if not set)
 		local flyoutKey = elementKey .. "_" .. totemIndex
 		local isEnabledInFlyout = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
 
-		if isKnown or isTalentTotem then
+		if (isKnown and (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or spellName)) or isTalentTotem then
 			-- Create button as CHILD of totem button using SPFlyoutButtonTemplate
 			-- Parent is totemButton (parented to UIParent) for combat flyout support
+			-- Parent is the totem button: ChildUpdate needs it on the secure
+			-- path, and the buttons inherit its scale, which a separate host
+			-- frame does not. An unprotected host was tried and removed - it
+			-- cannot be shown in combat anyway, because protection propagates
+			-- up from the secure buttons inside it.
 			local btn = CreateFrame("Button",
 				"ShamanPowerFlyout" .. element .. "Btn" .. totemIndex,
-				parentButton,  -- CRITICAL: Parent is the totem button!
+				buttonParent,
 				"SPFlyoutButtonTemplate")
 
 			-- IMPORTANT: CreateFrame returns existing frame if name exists, but doesn't re-parent it
 			-- Must explicitly set parent when reusing frames after RecreateTotemFlyouts()
-			btn:SetParent(parentButton)
+			btn:SetParent(buttonParent)
 			btn:SetSize(flyout.buttonSize, flyout.buttonSize)
 			btn:Hide()  -- Start hidden (template handles this too)
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			btn:SetAttribute("_childupdate-show", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
+				if self:GetAttribute("spGridPinned") then return end
 				if message then
 					if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then
 						self:Show()
@@ -4827,7 +7552,7 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Respond to assignment changes (WORKS IN COMBAT)
 			-- Updates isCurrentAssignment based on whether this button's spell matches the new assignment
-			btn:SetAttribute("_childupdate-assignment", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-assignment", [[
 				local newSpell = message
 				local mySpell = self:GetAttribute("mySpell")
 				if newSpell == mySpell then
@@ -4839,7 +7564,8 @@ function ShamanPower:CreateTotemFlyout(element)
 
 			-- SECURE HANDLER: Relayout this button after assignment change (WORKS IN COMBAT)
 			-- Each button counts visible siblings before it and positions itself accordingly
-			btn:SetAttribute("_childupdate-relayout", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-relayout", [[
+				if self:GetAttribute("spGridPinned") then return end
 				-- If I'm the current assignment, I don't need to position myself (I'll be hidden)
 				if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then
 					return
@@ -4884,7 +7610,8 @@ function ShamanPower:CreateTotemFlyout(element)
 			]])
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
-			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Store spell info as attributes for secure snippets
 			btn:SetAttribute("mySpell", spellName)
@@ -4914,10 +7641,35 @@ function ShamanPower:CreateTotemFlyout(element)
 				btn:SetAttribute("assignButton", "RightButton")
 			end
 
+			-- Box mode: picking a totem casts it AND closes the flyout in the same
+			-- click, by pressing the close arrow from a macro. The assign click
+			-- writes the totem button's spell through the "attribute" action,
+			-- which is what the dead _onmouseup snippet used to do, so assigning
+			-- works in combat again (PostClick below already handles the rest).
+			if flyout.box and spellName then
+				local castN, assignN = swapped and "2" or "1", swapped and "1" or "2"
+				btn.spPick = { [castN] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
+				-- Assigning presses two helpers from one macro: SPFS writes the totem
+				-- button's spell, SPFM writes the same totem into Blizzard's totem bar
+				-- (the "multispell" action, the only way to reach that bar mid-fight;
+				-- Call of the Elements casts what the bar holds, not what we show).
+				-- Then the flyout closes and its toggle key resets.
+				local tag = element .. "_" .. totemIndex
+				local S = self:FlyoutAssignHelper("SPFS" .. tag, parentButton)
+				S:SetAttribute("type", "attribute")
+				S:SetAttribute("attribute-frame", parentButton)
+				S:SetAttribute("attribute-name", "spell1")
+				S:SetAttribute("attribute-value", spellName)
+				self:FlyoutAssignHelper("SPFM" .. tag, parentButton)   -- filled by RefreshTotemBarHelpers
+				btn:SetAttribute("type" .. assignN, "macro")
+				btn:SetAttribute("macrotext" .. assignN, "/click SPFS" .. tag .. "\n/click SPFM" .. tag
+					.. "\n/click SPFC" .. element .. "\n/click SPFR" .. element)
+			end
+
 			-- SECURE HANDLER: Handle assignment via right-click (WORKS IN COMBAT)
 			-- Use _onmouseup to change parent's spell and update flyout
 			-- This runs after the click action, so it won't interfere with left-click casting
-			btn:SetAttribute("_onmouseup", [[
+			ShamanPower:SetSnippet(btn, "_onmouseup", [[
 				local button = button
 				local assignBtn = self:GetAttribute("assignButton")
 				if button == assignBtn then
@@ -4935,10 +7687,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			]])
 
 			-- Set up icon (use template's icon child or create one)
-			btn.icon = _G[btn:GetName() .. "Icon"]
-			if not btn.icon then
-				btn.icon = btn:CreateTexture(nil, "ARTWORK")
-			end
+			btn.icon = spOwnIcon(btn)
 			-- Always reset icon state (button may be reused after SetParent(nil))
 			btn.icon:ClearAllPoints()
 			btn.icon:SetAllPoints()
@@ -4952,6 +7701,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			cdFrame:SetDrawEdge(true)
 			cdFrame:SetSwipeColor(0, 0, 0, 0.8)
 			cdFrame:SetHideCountdownNumbers(true)  -- We'll show our own text
+			self:StyleEngineCooldown(cdFrame)       -- ...except where the engine draws the numbers
 			btn.cooldown = cdFrame
 
 			-- Create cooldown text overlay (above the cooldown swipe)
@@ -4959,6 +7709,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			cdTextFrame:SetAllPoints(btn)
 			cdTextFrame:SetFrameLevel(cdFrame:GetFrameLevel() + 1)
 			local cdText = cdTextFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			ShamanPower:AdoptSPFont(cdText, "timers")   -- template font = the design; follows the Fonts settings
 			cdText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			local cdColor = self.opt.totemCooldownTextColor
 			cdText:SetTextColor(cdColor and cdColor.r or 1, cdColor and cdColor.g or 1, cdColor and cdColor.b or 1)
@@ -5005,6 +7756,7 @@ function ShamanPower:CreateTotemFlyout(element)
 							local icons = ShamanPower.TotemIcons[elem]
 							if icons and icons[totemIdx] then
 								totemBtn.icon:SetTexture(icons[totemIdx])
+								ShamanPower:ShowEmptySlotArt(elem, false)
 							end
 						end
 						-- Queue the Lua-side updates for when combat ends (silently, like TotemTimers)
@@ -5012,6 +7764,9 @@ function ShamanPower:CreateTotemFlyout(element)
 							ShamanPower.pendingAssignments = {}
 						end
 						ShamanPower.pendingAssignments[elem] = totemIdx
+						ShamanPower:MarkAssignedInFlyout(elem)
+						-- the dropped totem now differs from (or matches) the new one: its icon above, now
+						ShamanPower:UpdateActiveTotemOverlays()
 					else
 						-- Out of combat: do all updates immediately
 						if not ShamanPower_Assignments[ShamanPower.player] then
@@ -5026,7 +7781,9 @@ function ShamanPower:CreateTotemFlyout(element)
 						ShamanPower:UpdateFlyoutVisibility(elem)
 						-- Hide flyout buttons
 						local flyoutData = ShamanPower.totemFlyouts[elem]
-						if flyoutData and flyoutData.buttons then
+						if flyoutData and flyoutData.box then
+							ShamanPower:FlyoutFallbackSetShown(flyoutData.totemButton, false)
+						elseif flyoutData and flyoutData.buttons and not parentButton.spGridPinned then
 							for _, flyoutBtn in ipairs(flyoutData.buttons) do
 								flyoutBtn:Hide()
 							end
@@ -5039,7 +7796,7 @@ function ShamanPower:CreateTotemFlyout(element)
 			btn:HookScript("OnClick", function(self, button)
 				if button == "MiddleButton" then
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+						print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 						return
 					end
 					local elem = element
@@ -5076,14 +7833,104 @@ function ShamanPower:CreateTotemFlyout(element)
 		end
 	end
 
+	-- "Empty": leave this element unassigned, as on Blizzard's totem bar (there it
+	-- is how an element is kept out of a totem set). totemIndex 0 is the
+	-- addon's existing "nothing assigned" state, so the rest of the flyout code
+	-- treats it like any other button: it sorts first, next to the totem button,
+	-- and hides itself while nothing is assigned. Box mode only for now: it sets
+	-- the totem button's spell through a secure helper, and the snippet clients
+	-- would need their own plumbing.
+	if flyout.box and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
+		local name = "ShamanPowerFlyout" .. element .. "Btn0"
+		local btn = CreateFrame("Button", name, buttonParent, "SPFlyoutButtonTemplate")
+		btn:SetParent(buttonParent)
+		btn:SetSize(flyout.buttonSize, flyout.buttonSize)
+		btn:Hide()
+		btn:SetIgnoreParentAlpha(true)
+		ShamanPower:SetSnippet(btn, "_childupdate-show", "")   -- wires the hover-leave fallback like its siblings
+		btn:SetAttribute("spFlyoutProtocol", true)
+		btn:SetAttribute("myElement", element)
+		btn:SetAttribute("myTotemIndex", 0)
+		btn:SetAttribute("isFlyoutButton", true)
+		btn:SetAttribute("flyoutHidden", false)
+
+		-- SPFN<element>: clears the totem button's spell (works in combat)
+		local clear = _G["SPFN" .. element] or CreateFrame("Button", "SPFN" .. element, parentButton, "SecureActionButtonTemplate")
+		clear:SetParent(parentButton)
+		clear:SetSize(1, 1)
+		clear:SetPoint("CENTER", parentButton, "CENTER")
+		clear:EnableMouse(false)
+		clear:RegisterForClicks("AnyUp", "AnyDown")
+		clear:SetAttribute("useOnKeyDown", false)
+		clear:SetAttribute("type", "attribute")
+		clear:SetAttribute("attribute-frame", parentButton)
+		clear:SetAttribute("attribute-name", "spell1")
+		clear:SetAttribute("attribute-value", nil)
+		-- either mouse button: clear the spell, close the flyout, reset its toggle key
+		self:FlyoutAssignHelper("SPFM" .. element .. "_0", parentButton)   -- empties Blizzard's slot too
+		local macro = "/click SPFN" .. element .. "\n/click SPFM" .. element .. "_0\n/click SPFC" .. element .. "\n/click SPFR" .. element
+		for _, n in ipairs({ "1", "2" }) do
+			btn:SetAttribute("type" .. n, "macro")
+			btn:SetAttribute("macrotext" .. n, macro)
+		end
+
+		btn.icon = spOwnIcon(btn)
+		btn.icon:ClearAllPoints()
+		btn.icon:SetAllPoints()
+		btn.icon:SetTexture(ARROW_TEXTURE)
+		local c = SLOT_EMPTY[element] or SLOT_EMPTY[1]
+		btn.icon:SetTexCoord(c[1], c[2], c[3], c[4])
+		btn.icon:Show()
+
+		btn:HookScript("OnEnter", function(self)
+			if not ShamanPower.opt.ShowTooltips then return end
+			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+			GameTooltip:SetText("Empty")
+			GameTooltip:AddLine("Leave this element with no totem assigned.", 1, 1, 1, true)
+			GameTooltip:Show()
+		end)
+		btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
+		btn:SetScript("PostClick", function(self)
+			local elem = element
+			if InCombatLockdown() then
+				-- the secure helper already cleared the spell; show it now, save it after the fight
+				ShamanPower:ShowEmptySlotArt(elem, true)
+				ShamanPower.pendingAssignments = ShamanPower.pendingAssignments or {}
+				ShamanPower.pendingAssignments[elem] = 0
+				ShamanPower:MarkAssignedInFlyout(elem)
+				ShamanPower:UpdateActiveTotemOverlays()   -- a totem still down is no longer the assigned one
+			else
+				ShamanPower_Assignments[ShamanPower.player] = ShamanPower_Assignments[ShamanPower.player] or {}
+				ShamanPower_Assignments[ShamanPower.player][elem] = 0
+				ShamanPower:UpdateMiniTotemBar()
+				ShamanPower:UpdateDropAllButton()
+				ShamanPower:UpdateSPMacros()
+				ShamanPower:SendMessage("ASSIGN " .. ShamanPower.player .. " " .. elem .. " 0")
+				ShamanPower:UpdateFlyoutVisibility(elem)
+				ShamanPower:FlyoutFallbackSetShown(ShamanPower.totemButtons[elem], false)
+			end
+		end)
+
+		btn.totemIndex = 0
+		btn.isDisabledInFlyout = false
+		table.insert(flyout.allButtons, btn)
+		table.insert(flyout.buttons, btn)
+	end
+
 	-- Sort buttons by totemIndex for consistent ordering
 	table.sort(flyout.allButtons, function(a, b) return a.totemIndex < b.totemIndex end)
 	table.sort(flyout.buttons, function(a, b) return a.totemIndex < b.totemIndex end)
+	self:RefreshTotemBarHelpers()
 
 	-- Initial layout
 	self:LayoutFlyoutButtons(flyout)
 
 	self.totemFlyouts[element] = flyout
+	if flyout.box then
+		self:ApplyFlyoutPickMacros()
+		self:UpdateFlyoutVisibility(element)   -- decides which buttons belong, then syncs
+	end
 
 	return flyout
 end
@@ -5093,6 +7940,12 @@ end
 -- For vertical bar: flyout is HORIZONTAL (buttons in a row)
 function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 	if not flyout or not flyout.buttons then return end
+	if flyout.totemButton and flyout.totemButton.spGridPinned and InCombatLockdown() then return end
+	-- Creation lays out its local table before publishing it. Refreshing Grid
+	-- there would ask SetupTotemFlyouts to build that same missing element again.
+	if flyout.element and self.totemFlyouts[flyout.element] == flyout
+		and self.GridLayoutElement and self:GridLayoutElement(flyout.element) then return end
+	self:PlaceFlyoutArrows(flyout)
 
 	local totemButton = flyout.totemButton
 	if not totemButton then return end
@@ -5101,6 +7954,7 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 	local numButtons = #buttons
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow strip
 
 	-- Check if this element is popped out and has a custom flyout direction
 	local element = flyout.element or (totemButton and totemButton.element)
@@ -5126,22 +7980,22 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 		if poppedOutDirection == "top" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "bottom" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "left" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		elseif poppedOutDirection == "right" then
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 		return
@@ -5176,13 +8030,13 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 			-- VerticalLeft: horizontal flyout extends to the LEFT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Vertical (Right): horizontal flyout extends to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -5191,13 +8045,13 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward (default/auto)
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
@@ -5287,6 +8141,66 @@ end
 -- Update flyout to hide currently assigned totem and reposition
 -- For horizontal bar: flyout is VERTICAL (buttons stacked top to bottom)
 -- For vertical bar: flyout is HORIZONTAL (buttons in a row left to right)
+-- The flyout list in the options can hide every totem an element has. With an
+-- Empty choice on the bar that would strand the element: once it is emptied
+-- (possibly mid-fight, when nothing can be shown any more) there would be no
+-- way to pick a totem again. So a list that leaves an element with nothing is
+-- ignored for that element, and applies again once it lists something known.
+-- Box mode only: the Classic line has no Empty choice and keeps its behaviour.
+function ShamanPower:RescueFilteredFlyout(flyout)
+	if not flyout.box then return end
+	local listed = 0
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		if btn.totemIndex > 0 and not btn.isDisabledInFlyout and not btn.spRescued then listed = listed + 1 end
+	end
+	local want = listed == 0
+	local changed = false
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		if btn.totemIndex > 0 then
+			if want and btn.isDisabledInFlyout and (not btn.talentSpellID or IsSpellKnown(btn.talentSpellID)) then
+				btn.spRescued, btn.isDisabledInFlyout = true, false
+				btn:SetAttribute("flyoutHidden", false)
+				changed = true
+			elseif not want and btn.spRescued then
+				btn.spRescued, btn.isDisabledInFlyout = nil, true
+				btn:Hide()
+				btn:SetAttribute("isCurrentAssignment", true)
+				btn:SetAttribute("flyoutHidden", true)
+				changed = true
+			end
+		end
+	end
+	if changed then
+		flyout.buttons = {}
+		for _, btn in ipairs(flyout.allButtons) do
+			if not btn.isDisabledInFlyout then table.insert(flyout.buttons, btn) end
+		end
+		table.sort(flyout.buttons, function(a, b) return a.totemIndex < b.totemIndex end)
+	end
+end
+
+-- Box-mode flyouts keep the assigned totem in the list (see
+-- UpdateFlyoutVisibility). It cannot be hidden mid-fight, but its icon is only a
+-- texture, so the choice that is on the totem button right now is drawn faded
+-- and follows every swap, in a fight or out of one.
+function ShamanPower:MarkAssignedInFlyout(element)
+	if self.GridActive and self:GridActive() then self:UpdateGridTotems(); return end
+	local flyout = self.totemFlyouts and self.totemFlyouts[element]
+	if not (flyout and flyout.box) then return end
+	local cur = self.pendingAssignments and self.pendingAssignments[element]
+	if cur == nil then
+		local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player]
+		cur = a and a[element] or 0
+	end
+	for _, btn in ipairs(flyout.allButtons or {}) do
+		if btn.icon then
+			local on = btn.totemIndex == cur
+			btn.icon:SetAlpha(on and 0.3 or 1)
+			btn.icon:SetDesaturated(on and true or false)
+		end
+	end
+end
+
 function ShamanPower:UpdateFlyoutVisibility(element)
 	local flyout = self.totemFlyouts[element]
 	if not flyout or not flyout.buttons then return end
@@ -5295,6 +8209,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	if InCombatLockdown() then
 		return
 	end
+	if self.GridLayoutElement and self:GridLayoutElement(element) then return end
 
 	local totemButton = flyout.totemButton
 	if not totemButton then return end
@@ -5302,6 +8217,17 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	-- Get current assignment
 	local assignments = ShamanPower_Assignments[self.player]
 	local currentTotemIndex = assignments and assignments[element] or 0
+
+	self:RescueFilteredFlyout(flyout)
+	if flyout.box then flyout.leadGap = self:FlyoutLeadGap(flyout) end   -- Compact's icon square may have moved or resized
+
+	-- Box mode: nothing in the flyout can be shown or hidden during a fight, while
+	-- the assignment can change (another totem, or Empty). So the flyout holds
+	-- every choice, the assigned totem and Empty included, as Blizzard's own
+	-- flyout does - and it holds them out of combat too, so the flyout is the
+	-- same list in the same order whenever it is opened. The choice that is on
+	-- the button is drawn faded (MarkAssignedInFlyout).
+	local keepAll = flyout.box and true or false
 
 	-- In TotemTimers style mode (activeTotemAsMain), the main button ICON shows the active totem.
 	-- So we should hide the ACTIVE totem from the flyout, not the assigned one.
@@ -5330,6 +8256,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow strip
 	local visibleIndex = 0
 	local visibleButtons = {}
 
@@ -5338,7 +8265,7 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 		local totemIdx = btn.totemIndex
 		local isPoppedOut = self:IsSingleTotemPoppedOut(element, totemIdx)
 
-		if totemIdx == hideIndex or isPoppedOut then
+		if (totemIdx == hideIndex and not keepAll) or isPoppedOut then
 			-- Mark this button to be hidden (via attribute so secure handler knows)
 			btn:SetAttribute("isCurrentAssignment", true)
 			if isPoppedOut then
@@ -5351,8 +8278,11 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 		end
 	end
 
+	self:MarkAssignedInFlyout(element)
+
 	-- No visible buttons, nothing to layout
 	if visibleIndex == 0 then
+		self:SyncCombatFlyoutButtons(element)
 		return
 	end
 
@@ -5373,22 +8303,22 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 		if poppedOutDirection == "top" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "bottom" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		elseif poppedOutDirection == "left" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		elseif poppedOutDirection == "right" then
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	elseif flyoutIsHorizontal then
@@ -5396,13 +8326,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 			-- VerticalLeft: horizontal flyout extends to the LEFT
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", totemButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", totemButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Vertical (Right): horizontal flyout extends to the RIGHT
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", totemButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", totemButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -5411,13 +8341,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 			-- Extend downward
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", totemButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward (default/auto)
 			for i, btn in ipairs(visibleButtons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", totemButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
@@ -5427,11 +8357,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	for _, btn in ipairs(flyout.buttons) do
 		btn:SetAlpha(opacity)
 	end
+
+	self:SyncCombatFlyoutButtons(element)
 end
 
 -- Setup all flyout menus
 function ShamanPower:SetupTotemFlyouts()
-	if not self.opt.showTotemFlyouts then return end
+	if not self.opt.showTotemFlyouts and not self.opt.gridStyle then return end
 
 	-- Ensure totem buttons exist and are positioned
 	self:CreateTotemButtons()
@@ -5483,7 +8415,7 @@ end
 -- Update click behavior on existing flyout buttons (no recreation needed)
 function ShamanPower:UpdateFlyoutClickBehavior()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
 
@@ -5491,7 +8423,12 @@ function ShamanPower:UpdateFlyoutClickBehavior()
 
 	for element = 1, 4 do
 		local flyout = self.totemFlyouts[element]
-		if flyout and flyout.buttons then
+		if flyout and flyout.box then
+			-- Box mode buttons cast and assign through macros, not plain spell
+			-- attributes; rewriting those here left them half configured (cast
+			-- worked, assign only out of combat) until a reload. Rebuild instead.
+			self:RebuildTotemFlyout(element)
+		elseif flyout and flyout.buttons then
 			for _, btn in ipairs(flyout.buttons) do
 				local spellName = btn:GetAttribute("mySpell")
 
@@ -5520,14 +8457,75 @@ function ShamanPower:UpdateFlyoutClickBehavior()
 end
 
 -- Toggle totem flyouts on/off based on showTotemFlyouts option
+-- Right-click pulls back that one totem: the secure "destroytotem" action with
+-- a "totem-slot" attribute.
+-- Fixed-slot clients get a constant slot per element, so nothing has to change
+-- in combat; on cast-order clients the resolver's current slot is used and
+-- refreshed on PLAYER_TOTEM_UPDATE out of combat.
+-- Mainline family only: Classic clients block DestroyTotem for addons even
+-- though the secure action is declared there, so the project id is the only
+-- usable discriminator.
+-- Do NOT test SECURE_ACTIONS here: it is a file-local table inside Blizzard's
+-- secure templates, never published as a global, so any check against it is
+-- always false and silently disables the whole feature.
+function ShamanPower:TotemDestroySupported()
+	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function"
+end
+
+function ShamanPower:RightClickDestroysTotems()
+	return self.opt.rightClickDestroysTotem == true and self:TotemDestroySupported()
+end
+
+function ShamanPower:TotemDestroySlot(element)
+	local slot = self.ElementToSlot[element]
+	if self.dynamicTotemSlots then
+		local haveTotem, _, _, _, _, resolved = self:GetElementTotemInfo(element)
+		if haveTotem and type(resolved) == "number" then slot = resolved end
+	end
+	return slot
+end
+
+function ShamanPower:ApplyTotemDestroyAttributes(btn, element)
+	btn:SetAttribute("type2", "destroytotem")
+	btn:SetAttribute("spell2", nil)
+	btn:SetAttribute("totem-slot2", self:TotemDestroySlot(element))
+	-- Shift+right-click keeps Totemic Call / Totemic Recall
+	btn:SetAttribute("shift-type2", "spell")
+	btn:SetAttribute("shift-spell2", GetSpellInfo(36936))
+end
+
+-- Cast-order clients only: keep the slot attribute current between fights.
+function ShamanPower:RefreshTotemDestroySlots()
+	if not (self.dynamicTotemSlots and self:RightClickDestroysTotems()) then return end
+	if InCombatLockdown() or not self.totemButtons then return end
+	for element = 1, 4 do
+		local btn = self.totemButtons[element]
+		if btn and btn:GetAttribute("type2") == "destroytotem" then
+			btn:SetAttribute("totem-slot2", self:TotemDestroySlot(element))
+		end
+	end
+end
+
 function ShamanPower:UpdateTotemFlyoutEnabled()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
+	end
+	if self.GridActive and self:GridActive() then
+		for element = 1, 4 do self:GridLayoutElement(element) end
+		self:UpdateCooldownBarFlyoutEnabled()
+		self:ApplyClickSwap()
+		return
+	end
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts[element]
+		if flyout and flyout.box then self:PlaceFlyoutArrows(flyout) end
 	end
 
 	local enabled = self.opt.showTotemFlyouts
-	local requiresClick = self.opt.flyoutRequiresClick
+		and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+	local requiresClick = self:FlyoutOpensOnRightClick()
+	local hoverMode = self:FlyoutArrowOnly() and "arrow" or "mouseover"   -- "arrow": nothing opens it but its arrow or key
 	local totemicCallName = GetSpellInfo(36936)  -- Totemic Call
 	local useRightClickAssigned = self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned
 	local playerName = self.player
@@ -5540,7 +8538,11 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				-- Flyouts disabled
 				btn:SetAttribute("OpenMenu", nil)
 				-- Check if right-click should cast assigned totem
-				if useRightClickAssigned then
+				btn:SetAttribute("shift-type2", nil)
+				btn:SetAttribute("shift-spell2", nil)
+				if self:RightClickDestroysTotems() then
+					self:ApplyTotemDestroyAttributes(btn, element)
+				elseif useRightClickAssigned then
 					local assignedIndex = assignments[element] or 0
 					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
@@ -5557,7 +8559,9 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				end
 				-- Hide any visible flyout buttons directly
 				local flyout = self.totemFlyouts[element]
-				if flyout and flyout.buttons then
+				if flyout and flyout.box then
+					self:FlyoutFallbackSetShown(btn, false)
+				elseif flyout and flyout.buttons then
 					for _, flyoutBtn in ipairs(flyout.buttons) do
 						flyoutBtn:Hide()
 					end
@@ -5569,9 +8573,13 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 				btn:SetAttribute("spell2", nil)
 			else
 				-- Flyouts enabled, mouseover to show (default)
-				btn:SetAttribute("OpenMenu", "mouseover")
+				btn:SetAttribute("OpenMenu", hoverMode)
 				-- Check if right-click should cast assigned totem
-				if useRightClickAssigned then
+				btn:SetAttribute("shift-type2", nil)
+				btn:SetAttribute("shift-spell2", nil)
+				if self:RightClickDestroysTotems() then
+					self:ApplyTotemDestroyAttributes(btn, element)
+				elseif useRightClickAssigned then
 					local assignedIndex = assignments[element] or 0
 					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
@@ -5592,20 +8600,22 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 
 	-- Also update cooldown bar flyouts (shield and weapon imbue buttons)
 	self:UpdateCooldownBarFlyoutEnabled()
+	self:ApplyClickSwap()
 end
 
 -- Toggle cooldown bar flyouts (shield/imbue) based on flyoutRequiresClick option
 function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 	if InCombatLockdown() then return end
 
-	local requiresClick = self.opt.flyoutRequiresClick
+	local requiresClick = self:FlyoutOpensOnRightClick()
+	local hoverMode = self:FlyoutArrowOnly() and "arrow" or "mouseover"   -- "arrow": nothing opens it but its arrow or key
 
 	-- Shield button
 	if self.shieldButton then
 		if requiresClick then
 			self.shieldButton:SetAttribute("OpenMenu", "click")
 		else
-			self.shieldButton:SetAttribute("OpenMenu", "mouseover")
+			self.shieldButton:SetAttribute("OpenMenu", hoverMode)
 		end
 	end
 
@@ -5617,7 +8627,7 @@ function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 			self.weaponImbueButton:SetAttribute("type2", nil)
 			self.weaponImbueButton:SetAttribute("macrotext2", nil)
 		else
-			self.weaponImbueButton:SetAttribute("OpenMenu", "mouseover")
+			self.weaponImbueButton:SetAttribute("OpenMenu", hoverMode)
 			-- Restore off-hand cast on right-click
 			local currentImbue = self.weaponImbueButton.currentImbueName
 			if currentImbue then
@@ -5629,12 +8639,470 @@ function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 	end
 end
 
+-- A flyout only has buttons for the totems that were known when it was built,
+-- and re-filtering cannot show a button that does not exist: a totem learned
+-- mid-session never appeared until a /reload (found with a first fire totem:
+-- allButtons was 0 after training Searing). Rebuild any element whose known
+-- totems are not all represented. Out of combat only.
+-- ---------------------------------------------------------------------------
+-- Swap left and right click (opt.swapFlyoutClickButtons, Mainline clients)
+-- ---------------------------------------------------------------------------
+-- The option used to flip the totem flyout buttons only, which left the totem
+-- button itself the other way round: right-click dropped a totem in the flyout
+-- and pulled it back on the bar. Now it flips the mouse on everything with two
+-- click meanings: totem buttons, Drop All, the imbue button and the shield and
+-- imbue flyouts. (Totem flyout buttons keep their own attribute swap.)
+--
+-- It is done with the secure templates' own button remap rather than by
+-- mirroring attributes: a button with a "unit" it can assist looks up
+-- "helpbutton<N>" and treats the click as that button instead. With unit =
+-- player and the two buttons pointed at each other, every writer of type1 /
+-- spell1 / type2 / shift-type2 (assign helpers, destroy, twisting, imbue macros)
+-- stays exactly as it is - only the mouse is flipped. The "*" form covers every
+-- modifier. None of the flipped actions takes a target, so unit = player is inert.
+--
+-- Cooldown buttons with a single action are not flipped (some may be targeted
+-- spells, and unit = player would force a self-cast): they get the same action
+-- on the other click instead, so neither click is ever dead.
+-- The Classic line keeps the flyout-only behaviour it shipped with.
+local CLICK_SWAP_SUPPORTED = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+
+function ShamanPower:ClicksSwapped()
+	return (CLICK_SWAP_SUPPORTED and self.opt and self.opt.swapFlyoutClickButtons) and true or false
+end
+
+local function spSetAttr(frame, key, value)
+	if frame:GetAttribute(key) ~= value then frame:SetAttribute(key, value) end
+end
+
+local function spFlipClicks(frame, on)
+	if not frame then return end
+	on = on and true or false
+	spSetAttr(frame, "unit", on and "player" or nil)
+	spSetAttr(frame, "*helpbutton1", on and "RightButton" or nil)
+	spSetAttr(frame, "*helpbutton2", on and "LeftButton" or nil)
+	frame.spClickFlipped = on or nil
+end
+
+local FILL_KEYS = { "type", "spell", "macrotext" }
+local function spFillOtherClick(frame, on)
+	if not frame then return end
+	if on and (frame.spClickFilled or frame:GetAttribute("type2") == nil) then
+		for _, k in ipairs(FILL_KEYS) do spSetAttr(frame, k .. "2", frame:GetAttribute(k .. "1")) end
+		frame.spClickFilled = true
+	elseif not on and frame.spClickFilled then
+		for _, k in ipairs(FILL_KEYS) do frame:SetAttribute(k .. "2", nil) end
+		frame.spClickFilled = nil
+	end
+end
+
+function ShamanPower:ApplyClickSwap()
+	if not CLICK_SWAP_SUPPORTED then return end
+	if InCombatLockdown() then self.clickSwapPending = true return end
+	self.clickSwapPending = nil
+	local on = self:ClicksSwapped()
+	for element = 1, 4 do spFlipClicks(self.totemButtons and self.totemButtons[element], on) end
+	spFlipClicks(_G["ShamanPowerAutoDropAll"], on)
+	local fill = on and not self:FlyoutOpensOnRightClick()
+	for _, btn in ipairs(self.cooldownButtons or {}) do
+		if btn == self.weaponImbueButton then spFlipClicks(btn, on) else spFillOtherClick(btn, fill) end
+	end
+	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+		for _, btn in ipairs(flyout and (flyout.allButtons or flyout.buttons) or {}) do spFlipClicks(btn, on) end
+	end
+end
+
+-- The mouse button a handler should reason about: what the click MEANT.
+function ShamanPower:LogicalButton(frame, button)
+	if frame and frame.spClickFlipped then
+		if button == "LeftButton" then return "RightButton" end
+		if button == "RightButton" then return "LeftButton" end
+	end
+	return button
+end
+
+-- The mouse button a KEY has to press to get a button's main action.
+function ShamanPower:KeyMouseButton(buttonName)
+	if not self:ClicksSwapped() or not buttonName then return "LeftButton" end
+	if buttonName:match("^ShamanPowerTotemBtn%d$") or buttonName == "ShamanPowerAutoDropAll" then return "RightButton" end
+	local f = _G[buttonName]
+	if f and f == self.weaponImbueButton then return "RightButton" end
+	return "LeftButton"
+end
+
+-- Tooltip labels that follow the swap: main = the cast click, other = the second one.
+function ShamanPower:ClickLabel(main, shift)
+	local right = (main and self:ClicksSwapped()) or (not main and not self:ClicksSwapped())
+	local text = right and "Right-click" or "Left-click"
+	if shift then text = "Shift+" .. text:lower() end
+	return (main and "|cff00ff00" or "|cffffcc00") .. text .. ":|r"
+end
+
+-- ---------------------------------------------------------------------------
+-- "Reset to defaults" per settings section
+-- ---------------------------------------------------------------------------
+-- A cleared profile value falls back to its default, so a section reset is a
+-- list of setting names to clear plus that section's normal refresh. Positions
+-- are not part of this (they belong to the unlock mode). Out of combat only:
+-- most of these touch secure frames.
+ShamanPower.ResetSections = {
+	compact = {
+		label = "Compact Style",
+		note = "Compact stays on; only its look goes back to default.",
+		keys = { "compactOrientation", "compactDurationMode", "compactLineTexture", "compactIdleColor", "compactIdleOutline",
+			"compactLength", "compactThickness", "compactOutlineWidth", "compactOutlineColorMode", "compactOutlineColor",
+			"compactIconSquares", "compactIconSize", "compactFlyoutButtonSize", "compactPulseBar", "compactPulseText",
+			"compactShieldLine", "compactESLine" },
+		apply = function(self) self:ApplyCompactStyle() end,
+	},
+	flyouts = {
+		label = "Flyout",
+		note = "Your left/right click swap is not touched.",
+		keys = { "flyoutStyle", "flyoutFrameOpacity", "flyoutCloseOnCast", "flyoutRouteBarKeys", "flyoutArrowsAlways",
+			"flyoutArrowOnly", "flyoutShowEmpty", "flyoutSingleOpen", "totemFlyoutButtonSize" },
+		apply = function(self)
+			for element = 1, 4 do self:RebuildTotemFlyout(element) end
+			self:ApplyFlyoutArrowMode()
+			self:ApplyFlyoutPickMacros()
+			self:UpdateTotemFlyoutEnabled()
+			self:RefreshFlyoutLayout()
+			self:ApplyTotemFlyoutButtonSize()
+			if self.RouteFlyoutBarKeys then self:RouteFlyoutBarKeys() end
+			for _, entry in pairs(self.boxFlyouts or {}) do pcall(entry.relayout) end
+		end,
+	},
+	colors = {
+		label = "Element Color",
+		keys = { "elementColorPalette", "elementColorsCustom" },
+		apply = function(self) self:ApplyElementColors() end,
+	},
+	scale = {
+		label = "Scale",
+		keys = { "buffscale", "cooldownBarScale", "configscale", "cooldownFlyoutButtonSize" },
+		apply = function(self)
+			self:UpdateLayout(); self:UpdateCooldownBarScale(); self:UpdateRoster()
+			self:ApplyCooldownFlyoutButtonSize()
+		end,
+	},
+	opacity = {
+		label = "Opacity",
+		keys = { "totemBarOpacity", "totemBarFullOpacityWhenActive", "cooldownBarOpacity", "cooldownBarFullOpacityWhenActive",
+			"totemFlyoutOpacity", "cooldownFlyoutOpacity" },
+		apply = function(self)
+			self:UpdateTotemBarOpacity(); self:UpdateCooldownBarOpacity()
+			self:UpdateTotemFlyoutOpacity(); self:UpdateCooldownFlyoutOpacity()
+		end,
+	},
+	padding = {
+		label = "Button Padding",
+		keys = { "totemBarPadding", "cooldownBarPadding" },
+		apply = function(self) self:UpdateRoster(); self:UpdateCooldownBar() end,
+	},
+}
+
+function ShamanPower:ResetSection(id)
+	local def = self.ResetSections[id]
+	if not def then return end
+	if InCombatLockdown() then
+		print("|cff0070ddShamanPower:|r settings cannot be reset in combat")
+		return
+	end
+	for _, key in ipairs(def.keys) do self.opt[key] = nil end
+	local ok, err = pcall(def.apply, self)
+	if not ok then print("|cff0070ddShamanPower:|r reset applied, but refreshing failed: " .. tostring(err) .. " (a /reload will finish it)") end
+	print("|cff0070ddShamanPower|r: " .. def.label .. " settings are back to their defaults.")
+	if self.RefreshConfig then pcall(self.RefreshConfig, self) end
+	local ui = _G.ShamanPowerConfig   -- the custom settings window re-reads the page it is showing
+	if ui and ui.RefreshCurrent then pcall(ui.RefreshCurrent, ui) end
+end
+
+function ShamanPower:ConfirmResetSection(id)
+	local def = self.ResetSections[id]
+	if not def then return end
+	local text = "Reset the " .. def.label .. " settings to their defaults?"
+	if def.note then text = text .. "\n\n" .. def.note end
+	self:ShowSPDialog({
+		key = "resetSection", title = "Reset settings", text = text,
+		buttons = {
+			{ text = "Reset", onClick = function()
+				-- combat began while it was open: say so, and keep the question up for after the fight
+				if InCombatLockdown() then
+					print("|cff0070ddShamanPower|r: |cffe64a4asettings cannot be reset in combat - click Reset again after the fight.|r")
+					return true
+				end
+				ShamanPower:ResetSection(id)
+			end },
+			{ text = "Cancel" },
+		},
+	})
+end
+
+-- ---------------------------------------------------------------------------
+-- What exists on this client
+-- ---------------------------------------------------------------------------
+-- One code base serves clients with different spell lists (no Bloodlust,
+-- Shamanistic Rage, Earth/Fire Elemental, Totem of Wrath or Wrath of Air on WoW:
+-- Forever; no Rage of the Farseer or Totemic Projection anywhere else). The
+-- client is asked (SPCompat.SpellExists: a readable spell name, minus the
+-- known name-only leftovers), nothing is assumed per game version.
+local function spSpellExists(id)
+	if not id then return false end
+	if SPCompat and SPCompat.SpellExists then return SPCompat.SpellExists(id) end
+	return GetSpellInfo(id) ~= nil
+end
+
+function ShamanPower:TotemExistsOnClient(element, totemIndex)
+	if not totemIndex or totemIndex == 0 then return true end
+	local id = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
+	if not id then return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end
+	return spSpellExists(id)
+end
+
+-- Cooldown bar button types (the 5th field of TrackedCooldowns; 7 = weapon imbue).
+ShamanPower.CooldownTypeLabels = {
+	[1] = "Shield", [2] = GetSpellInfo(36936) or "Totemic Call", [3] = "Reincarnation",
+	[4] = "Nature's Swiftness", [5] = "Mana Tide Totem",
+	[6] = "Bloodlust/Heroism", [7] = "Weapon Imbue", [8] = "Shamanistic Rage", [9] = "Elemental Mastery",
+	[10] = "Rage of the Farseer", [11] = "Totemic Projection",
+}
+ShamanPower.COOLDOWN_TYPE_COUNT = 11
+
+function ShamanPower:CooldownTypeExists(cooldownType)
+	if cooldownType == 1 or cooldownType == 7 then return true end   -- a shield and an imbue exist everywhere
+	for _, entry in ipairs(self.TrackedCooldowns or {}) do
+		if entry[5] == cooldownType and spSpellExists(entry[1]) then return true end
+	end
+	return false
+end
+
+-- The order the bar is sorted by: the saved order, limited to what this client
+-- has, with anything it has that the saved order never mentioned added at the end
+-- (the saved list was 8 long; Elemental Mastery, Rage of the Farseer and Totemic
+-- Projection could not be placed at all).
+function ShamanPower:GetCooldownBarOrder()
+	local out, seen = {}, {}
+	for _, t in ipairs(self.opt.cooldownBarOrder or {}) do
+		if not seen[t] and self:CooldownTypeExists(t) then out[#out + 1] = t; seen[t] = true end
+	end
+	for t = 1, self.COOLDOWN_TYPE_COUNT do
+		if not seen[t] and self:CooldownTypeExists(t) then out[#out + 1] = t; seen[t] = true end
+	end
+	return out
+end
+
+function ShamanPower:CooldownBarOrderChoices()
+	local t = {}
+	for _, cooldownType in ipairs(self:GetCooldownBarOrder()) do
+		local label = self.CooldownTypeLabels[cooldownType] or ("Button " .. cooldownType)
+		if cooldownType == 2 then label = GetSpellInfo(36936) or label end   -- "Totemic Recall" on some clients
+		t[cooldownType] = label
+	end
+	return t
+end
+
+function ShamanPower:SetCooldownBarOrderSlot(position, cooldownType)
+	local order = self:GetCooldownBarOrder()
+	if not order[position] then return end
+	for j, t in ipairs(order) do
+		if t == cooldownType then order[j] = order[position] break end
+	end
+	order[position] = cooldownType
+	-- types this client does not have stay in the saved list (after the rest), so a
+	-- profile used on another client keeps where they were
+	local seen = {}
+	for _, t in ipairs(order) do seen[t] = true end
+	for _, t in ipairs(self.opt.cooldownBarOrder or {}) do
+		if not seen[t] then order[#order + 1] = t; seen[t] = true end
+	end
+	self.opt.cooldownBarOrder = order
+	self:RecreateCooldownBar()   -- waits for the end of combat by itself
+end
+
+-- Element colours. ShamanPower has always used its own set (earth brown, air
+-- pale blue); Blizzard's totem bar art uses green / orange / blue / purple, and
+-- the flyout arrow tabs and the empty-slot art are that art, so the two sets
+-- sat side by side. opt.elementColorPalette picks one, or "custom" with a colour
+-- per element. The shared ElementColors tables are changed in place, so every
+-- reader (Compact lines, alerts, party counters, the wizard) follows.
+local ELEMENT_PALETTES = {
+	classic  = { { 0.60, 0.40, 0.20 }, { 1.00, 0.40, 0.10 }, { 0.20, 0.60, 1.00 }, { 0.80, 0.80, 1.00 } },
+	-- sampled from Interface\\Buttons\\UI-TotemBar (slot borders), lifted a little so they read on a thin line
+	blizzard = { { 0.36, 0.72, 0.21 }, { 0.92, 0.37, 0.17 }, { 0.28, 0.70, 0.88 }, { 0.60, 0.32, 1.00 } },
+}
+
+-- On WoW: Forever Blizzard's totem bar art is on screen next to ours (arrow tabs,
+-- empty-slot totems), so its colours are the default there. Elsewhere the look
+-- ShamanPower always had.
+function ShamanPower:DefaultElementPalette()
+	return (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "blizzard" or "classic"
+end
+
+function ShamanPower:ElementPaletteColor(element)
+	local mode = self.opt and self.opt.elementColorPalette or self:DefaultElementPalette()
+	if mode == "custom" then
+		local c = self.opt.elementColorsCustom and self.opt.elementColorsCustom[element]
+		if c then return c.r or 1, c.g or 1, c.b or 1 end
+		mode = "classic"
+	end
+	local p = (ELEMENT_PALETTES[mode] or ELEMENT_PALETTES.classic)[element]
+	return p[1], p[2], p[3]
+end
+
+function ShamanPower:ApplyElementColors()
+	for element = 1, 4 do
+		local c = self.ElementColors and self.ElementColors[element]
+		if c then c.r, c.g, c.b = self:ElementPaletteColor(element) end
+	end
+	if self.UpdateCompactTotems then pcall(self.UpdateCompactTotems, self) end
+end
+
+-- Flyout icon sizes. The totem flyout icons were a fixed 28 (which towers over a
+-- thin Compact line) and the cooldown bar's a fixed 22. Each style keeps its own
+-- size, because what suits an icon bar does not suit a line:
+--   opt.totemFlyoutButtonSize     totem flyouts on the icon bar   (28)
+--   opt.compactFlyoutButtonSize   totem flyouts on the Compact bar (15, matching its icon squares)
+--   opt.cooldownFlyoutButtonSize  shield / imbue flyouts           (22)
+local function spClampSize(v, default)
+	v = tonumber(v) or default
+	if v < 12 then v = 12 elseif v > 56 then v = 56 end
+	return v
+end
+
+function ShamanPower:TotemFlyoutButtonSize()
+	if self.CompactActive and self:CompactActive() then
+		return spClampSize(self.opt and self.opt.compactFlyoutButtonSize, 15)
+	end
+	return spClampSize(self.opt and self.opt.totemFlyoutButtonSize, 28)
+end
+
+function ShamanPower:CooldownFlyoutButtonSize()
+	return spClampSize(self.opt and self.opt.cooldownFlyoutButtonSize, 22)
+end
+
+function ShamanPower:ApplyCooldownFlyoutButtonSize()
+	if InCombatLockdown() then
+		print("|cff0070ddShamanPower:|r the flyout size cannot change in combat")
+		return
+	end
+	local size = self:CooldownFlyoutButtonSize()
+	for _, def in ipairs({ { self.shieldFlyout, "LayoutShieldFlyout" }, { self.weaponImbueFlyout, "LayoutWeaponImbueFlyout" } }) do
+		local flyout = def[1]
+		if flyout then
+			flyout.buttonSize = size
+			for _, b in ipairs(flyout.allButtons or flyout.buttons or {}) do b:SetSize(size, size) end
+			if self[def[2]] then self[def[2]](self) end
+		end
+	end
+end
+
+function ShamanPower:ApplyTotemFlyoutButtonSize()
+	if InCombatLockdown() then
+		print("|cff0070ddShamanPower:|r the flyout size cannot change in combat")
+		return
+	end
+	local size = self:TotemFlyoutButtonSize()
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn then btn:SetAttribute("flyoutButtonSize", size) end   -- read by the secure relayout
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		if flyout then
+			flyout.buttonSize = size
+			for _, b in ipairs(flyout.allButtons or {}) do b:SetSize(size, size) end
+			self:LayoutFlyoutButtons(flyout)
+			self:UpdateFlyoutVisibility(element)
+		end
+	end
+end
+
+-- Throw an element's flyout away and build it again. The old buttons are
+-- retired first: the rebuild makes new frames under the same names.
+function ShamanPower:RebuildTotemFlyout(element)
+	if InCombatLockdown() then return end
+	local flyout = self.totemFlyouts[element]
+	if flyout then
+		for _, btn in ipairs(flyout.allButtons or {}) do
+			btn:Hide()
+			btn.spFlyoutChild = nil
+			btn:SetParent(nil)
+		end
+	end
+	self.totemFlyouts[element] = nil
+	self:CreateTotemFlyout(element)
+end
+
+function ShamanPower:AddMissingFlyoutButtons()
+	if InCombatLockdown() then return end
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts[element]
+		local totems = self.Totems[element]
+		if flyout and totems then
+			local have = {}
+			for _, btn in ipairs(flyout.allButtons or {}) do have[btn.totemIndex] = true end
+			local missing = false
+			for totemIndex, spellID in pairs(totems) do
+				if not have[totemIndex] then
+					local totemName = self.TotemNames[element] and self.TotemNames[element][totemIndex]
+					if PlayerKnowsTotem(spellID, totemName) then missing = true break end
+				end
+			end
+			if missing then self:RebuildTotemFlyout(element) end
+		end
+	end
+end
+
+-- An element that has never had a totem assigned gets one as soon as the player
+-- knows any: the usual default if known, else the first known one, the way
+-- Blizzard's own totem bar fills a slot the moment its first totem is trained.
+-- Only a never-set (nil) assignment is touched; an explicit "none" (0) is the
+-- player's choice and stays.
+function ShamanPower:EnsureElementAssignments()
+	if InCombatLockdown() or not self.player then return end
+	ShamanPower_Assignments[self.player] = ShamanPower_Assignments[self.player] or {}
+	local assignments = ShamanPower_Assignments[self.player]
+	local changed = false
+	for element = 1, 4 do
+		local totems = self.Totems[element]
+		if assignments[element] == nil and totems then
+			local function known(idx)
+				local spellID = idx and totems[idx]
+				local name = self.TotemNames[element] and self.TotemNames[element][idx]
+				return spellID and PlayerKnowsTotem(spellID, name)
+			end
+			local pick = self.DefaultTotems and self.DefaultTotems[element]
+			if not known(pick) then
+				pick = nil
+				local indices = {}
+				for idx in pairs(totems) do indices[#indices + 1] = idx end
+				table.sort(indices)
+				for _, idx in ipairs(indices) do
+					if known(idx) then pick = idx break end
+				end
+			end
+			if pick then
+				assignments[element] = pick
+				changed = true
+				self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. pick)
+			end
+		end
+	end
+	if changed then
+		self:UpdateMiniTotemBar()
+		self:UpdateDropAllButton()
+		self:UpdateSPMacros()
+		for element = 1, 4 do self:UpdateFlyoutVisibility(element) end
+	end
+	return changed
+end
+
 -- Recreate all totem flyouts (used when major changes require full rebuild)
 function ShamanPower:RecreateTotemFlyouts()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
+
+	-- a totem learned since the flyouts were built needs a button first
+	self:AddMissingFlyoutButtons()
 
 	-- Instead of destroying and recreating buttons (which breaks secure handlers),
 	-- just update which buttons are enabled/disabled and rebuild the buttons table
@@ -5651,6 +9119,7 @@ function ShamanPower:RecreateTotemFlyouts()
 				local totemIdx = btn.totemIndex
 				local flyoutKey = elementKey .. "_" .. totemIdx
 				local isEnabled = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
+				btn.spRescued = nil
 				-- Talent-gated totems only show while the talent is actually known
 				if btn.talentSpellID and not IsSpellKnown(btn.talentSpellID) then
 					isEnabled = false
@@ -5696,13 +9165,14 @@ function ShamanPower:UpdatePlayerTotemRange()
 	self.buffNameLowerCache = buffLowerCache
 
 	-- Track weapon enchant totems (need special weapon enchant check instead of buff check)
-	local isWeaponEnchantTotem = {false, false, false, false}  -- [element] = true if weapon enchant totem
+	local isWeaponEnchantTotem = self._rangeEnchantScratch   -- [element] = true if weapon enchant totem (reused: this runs twice a second)
+	if not isWeaponEnchantTotem then isWeaponEnchantTotem = {}; self._rangeEnchantScratch = isWeaponEnchantTotem end
+	isWeaponEnchantTotem[1], isWeaponEnchantTotem[2], isWeaponEnchantTotem[3], isWeaponEnchantTotem[4] = false, false, false, false
 
 	-- Reset results and collect buff names
 	for element = 1, 4 do
 		results[element] = false
-		local slot = self.ElementToSlot[element]
-		local haveTotem, totemName = GetTotemInfo(slot)
+		local haveTotem, totemName = self:GetElementTotemInfo(element)
 		if haveTotem and totemName then
 			-- Check if this is a weapon enchant totem (Windfury or Flametongue)
 			if element == 4 and totemName:find("Windfury") then
@@ -5726,7 +9196,23 @@ function ShamanPower:UpdatePlayerTotemRange()
 	local scannedCache = self.scannedBuffLowerCache or {}
 	self.scannedBuffLowerCache = scannedCache
 
-	for i = 1, 20 do
+	-- When buffs cannot be read (combat on the Mainline family) the answer comes from the
+	-- drop-distance model further down, so there is nothing to scan for - and each aura
+	-- read on that client builds a table.
+	local blindNow = TRACK_TOTEM_DROPS and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
+	-- The buff list only changes on an aura event: reuse the last scan until then.
+	local scan = self._rangeScan
+	if not scan then scan = { hits = {}, names = {} }; self._rangeScan = scan end
+	local reuse = not blindNow and self:AuraCacheValid("player", scan.gen, scan.at)
+	if reuse then
+		for element = 1, 4 do
+			if scan.names[element] ~= buffNames[element] then reuse = false break end
+		end
+	end
+	if reuse then
+		for element = 1, 4 do results[element] = scan.hits[element] end
+	end
+	for i = 1, ((blindNow or reuse) and 0 or 20) do
 		local name = UnitBuff("player", i)
 		if not name then break end
 
@@ -5751,6 +9237,11 @@ function ShamanPower:UpdatePlayerTotemRange()
 		end
 	end
 
+	if not blindNow and not reuse then
+		scan.gen, scan.at = self.auraGen["player"] or 0, GetTime()
+		for element = 1, 4 do scan.hits[element], scan.names[element] = results[element], buffNames[element] end
+	end
+
 	-- Check weapon enchant totems via GetWeaponEnchantInfo()
 	local hasWeaponEnchant = nil  -- Lazy load only if needed
 	for element = 1, 4 do
@@ -5762,13 +9253,33 @@ function ShamanPower:UpdatePlayerTotemRange()
 		end
 	end
 
+	-- Combat hides buffs from addons on the Mainline family, and an empty read
+	-- there means "not allowed to look", not "no buff". Measure distance from
+	-- where each totem was dropped instead; with no position, keep the last
+	-- answer from while buffs were readable, and never grey out on a guess.
+	if TRACK_TOTEM_DROPS then
+		local blind = SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
+		local lastRange = self.totemRangeLast
+		for element = 1, 4 do
+			if buffNames[element] then
+				if blind then
+					local near = self:TotemDropInRange(element)
+					if near == nil then near = lastRange[element] end
+					if near == nil then near = true end
+					results[element] = near
+				else
+					lastRange[element] = results[element]
+				end
+			end
+		end
+	end
+
 	-- Check if using Dynamic/TotemTimers mode (active totem shows on main icon)
 	local useActiveAsMain = self.opt.activeTotemAsMain
 
 	-- Now apply the results to icons
 	for element = 1, 4 do
-		local slot = self.ElementToSlot[element]
-		local haveTotem = slot and GetTotemInfo(slot)
+		local haveTotem = self:GetElementTotemInfo(element)
 		local hasBuff = results[element]
 
 		-- Determine if this element has trackable range
@@ -5826,16 +9337,20 @@ ShamanPower.cooldownButtons = {}
 
 -- Spells to track on the cooldown bar
 -- Format: {spellID, name, type} where type is "buff", "cooldown", or "shield"
+-- 5th field = cooldownType (pop-out key, order list, keybinds); 7 is the imbue button.
 ShamanPower.TrackedCooldowns = {
-	{324, "Lightning Shield", "shield", "cdbarShowShields"},   -- Lightning/Water Shield (combined)
-	{36936, "Totemic Call", "cooldown", "cdbarShowRecall"},  -- Totemic Call (recall totems)
-	{20608, "Reincarnation", "cooldown", "cdbarShowReincarnation"},  -- Ankh cooldown
-	{16188, "Nature's Swiftness", "cooldown", "cdbarShowNS"},  -- NS cooldown (Resto talent)
-	{16190, "Mana Tide Totem", "cooldown", "cdbarShowManaTide"},  -- Mana Tide cooldown (Resto talent)
-	{30823, "Shamanistic Rage", "cooldown", "cdbarShowShamanisticRage"},  -- Shamanistic Rage cooldown (Enhancement talent)
-	{2825, "Bloodlust", "cooldown", "cdbarShowBloodlust"},  -- Bloodlust (Horde)
-	{32182, "Heroism", "cooldown", "cdbarShowBloodlust"},  -- Heroism (Alliance)
-	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery"},  -- Elemental Mastery (Elemental talent)
+	{324, "Lightning Shield", "shield", "cdbarShowShields", 1},   -- Lightning/Water Shield (combined)
+	{36936, "Totemic Call", "cooldown", "cdbarShowRecall", 2},  -- Totemic Call (recall totems)
+	{20608, "Reincarnation", "cooldown", "cdbarShowReincarnation", 3},  -- Ankh cooldown
+	{16188, "Nature's Swiftness", "cooldown", "cdbarShowNS", 4},  -- NS cooldown (Resto talent)
+	{16190, "Mana Tide Totem", "cooldown", "cdbarShowManaTide", 5},  -- Mana Tide cooldown (Resto talent)
+	{30823, "Shamanistic Rage", "cooldown", "cdbarShowShamanisticRage", 8},  -- Shamanistic Rage cooldown (Enhancement talent)
+	{2825, "Bloodlust", "cooldown", "cdbarShowBloodlust", 6},  -- Bloodlust (Horde)
+	{32182, "Heroism", "cooldown", "cdbarShowBloodlust", 6},  -- Heroism (Alliance)
+	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery", 9},  -- Elemental Mastery (Elemental talent)
+	-- WoW: Forever only (the spells do not exist on other clients, so the buttons never appear there)
+	{425336, "Rage of the Farseer", "cooldown", "cdbarShowRageOfTheFarseer", 10},  -- Enhancement capstone, 3 min
+	{437009, "Totemic Projection", "cooldown", "cdbarShowTotemicProjection", 11},  -- level 22, 1 min
 }
 
 -- Spell colors for progress bars (used when cdbarSpellColors is enabled)
@@ -5843,6 +9358,7 @@ ShamanPower.SpellBarColors = {
 	-- Cooldown bar spells (by spellID)
 	[324]   = {0.4, 0.6, 1.0},   -- Lightning Shield - blue
 	[24398] = {0.2, 0.7, 1.0},   -- Water Shield - light blue
+	[408510] = {0.2, 0.7, 1.0},  -- Water Shield on WoW: Forever (talent, Season of Discovery spell ID)
 	[36936] = {0.6, 0.4, 0.2},   -- Totemic Call - earthy brown
 	[20608] = {0.8, 0.2, 0.2},   -- Reincarnation - red
 	[16188] = {0.2, 0.8, 0.3},   -- Nature's Swiftness - green
@@ -5851,6 +9367,8 @@ ShamanPower.SpellBarColors = {
 	[2825]  = {0.8, 0.1, 0.1},   -- Bloodlust - red
 	[32182] = {0.8, 0.1, 0.1},   -- Heroism - red
 	[16166] = {0.9, 0.6, 0.1},   -- Elemental Mastery - golden
+	[425336] = {0.8, 0.1, 0.1},  -- Rage of the Farseer (Forever) - red, the Bloodlust slot
+	[437009] = {0.6, 0.4, 0.2},  -- Totemic Projection (Forever) - earthy brown
 }
 
 -- Weapon imbue colors (by imbue type index)
@@ -5861,10 +9379,16 @@ ShamanPower.ImbueBarColors = {
 	[4] = {0.6, 0.4, 0.2},   -- Rockbiter - brown
 }
 
--- Shield spell IDs for the combined shield button
+-- Shield spell IDs for the combined shield button. Water Shield's ID differs per
+-- client: 24398 on TBC, 408510 on WoW: Forever (Restoration talent, Season of
+-- Discovery spell ID), 52127 on retail. Take the first one the client knows.
+local WATER_SHIELD_ID = 24398
+for _, id in ipairs({ 24398, 408510, 52127 }) do
+	if SPCompat and SPCompat.SpellExists and SPCompat.SpellExists(id) then WATER_SHIELD_ID = id break end
+end
 ShamanPower.ShieldSpells = {
-	{324, "Lightning Shield"},   -- Lightning Shield
-	{24398, "Water Shield"},     -- Water Shield (TBC)
+	{324, "Lightning Shield"},          -- Lightning Shield
+	{WATER_SHIELD_ID, "Water Shield"},  -- Water Shield
 }
 
 function ShamanPower:CreateCooldownBar()
@@ -5873,6 +9397,8 @@ function ShamanPower:CreateCooldownBar()
 
 	-- Create the cooldown bar frame
 	local bar = CreateFrame("Frame", "ShamanPowerCooldownBar", self.autoButton, "BackdropTemplate")
+	-- a bar on its default spot stays clear of the totem bar as it grows (Hook: the backdrop has its own)
+	bar:HookScript("OnSizeChanged", function() ShamanPower:ApplyDefaultBarPositions() end)
 	-- Only apply backdrop if not hidden
 	if not self.opt.hideCooldownBarFrame then
 		bar:SetBackdrop({
@@ -6016,13 +9542,25 @@ function ShamanPower:CreateCooldownBar()
 				end
 			end
 		else
-			-- Try IsSpellKnown first, fall back to name check for Classic compatibility
-			knowsSpell = name and (IsSpellKnown(spellID) or PlayerKnowsSpellByName(spellName))
+			-- IsSpellKnown answers by ID and needs no string at all, which is the
+			-- point: a client can ship a live spell with its name encrypted
+			-- (Elemental Mastery 16166 on the Forever line), and requiring a
+			-- readable name here dropped the button for a talent the player
+			-- actually had. The name check stays as the Classic fallback.
+			knowsSpell = IsSpellKnown(spellID) or PlayerKnowsSpellByName(spellName)
 		end
 
 		-- Only create button if player knows this spell and it's enabled
 		if knowsSpell and isEnabled then
 			numButtons = numButtons + 1
+
+			-- An encrypted name means GetSpellInfo gave us no icon either, so
+			-- fall back rather than drawing a blank button.
+			if not icon then
+				icon = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(spellID))
+					or (GetSpellTexture and GetSpellTexture(spellID))
+					or "Interface\\Icons\\INV_Misc_QuestionMark"
+			end
 
 			-- Use different templates for shield (needs combat flyout) vs other buttons
 			local templateString
@@ -6067,7 +9605,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Progress bar (colored)
 			local progressBar = btn:CreateTexture(nil, "OVERLAY", nil, 1)
-			progressBar:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+			ShamanPower:SetSPBarColor(progressBar, "cooldown", 0.2, 0.8, 0.2, 0.9)
 			progressBar:Hide()
 			btn.progressBar = progressBar
 
@@ -6085,20 +9623,21 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Time text for showing remaining duration (center of button - legacy)
 			local timeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+			ShamanPower:AdoptSPFont(timeText, "timers")   -- template font = the design; follows the Fonts settings
 			timeText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			timeText:SetText("")
 			btn.timeText = timeText
 
 			-- Duration text INSIDE the bar
 			local insideText = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-			insideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(insideText, "timers", 8, "OUTLINE")
 			insideText:SetTextColor(1, 1, 1)
 			insideText:Hide()
 			btn.insideText = insideText
 
 			-- Duration text OUTSIDE the bar
 			local outsideText = btn:CreateFontString(nil, "OVERLAY")
-			outsideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+			ShamanPower:SetSPFont(outsideText, "timers", 8, "OUTLINE")
 			outsideText:SetTextColor(1, 1, 1)
 			outsideText:Hide()
 			btn.outsideText = outsideText
@@ -6106,7 +9645,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Duration text ON the icon
 			local iconText = btn:CreateFontString(nil, "OVERLAY")
-			iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
 			iconText:Hide()
@@ -6114,7 +9653,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Keybind text (top right corner, like standard action buttons)
 			local keybindText = btn:CreateFontString(nil, "OVERLAY")
-			keybindText:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(keybindText, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 			keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 			keybindText:SetTextColor(0.9, 0.9, 0.9, 1)
 			keybindText:SetText("")
@@ -6124,6 +9663,7 @@ function ShamanPower:CreateCooldownBar()
 			-- Charge count text for shield buttons (bottom right corner)
 			if spellType == "shield" then
 				local chargeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ShamanPower:AdoptSPFont(chargeText, "charges")   -- template font = the design; follows the Fonts settings
 				chargeText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 				chargeText:SetText("")
 				btn.chargeText = chargeText
@@ -6132,6 +9672,7 @@ function ShamanPower:CreateCooldownBar()
 			-- Ankh count text for Reincarnation button (bottom right corner)
 			if spellID == 20608 then
 				local ankhCountText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ShamanPower:AdoptSPFont(ankhCountText, "labels")   -- template font = the design; follows the Fonts settings
 				ankhCountText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 				ankhCountText:SetText("")
 				btn.ankhCountText = ankhCountText
@@ -6143,18 +9684,15 @@ function ShamanPower:CreateCooldownBar()
 			btn.spellType = spellType
 			btn.defaultShieldSpell = defaultShieldSpell
 
-			-- Assign cooldownType for ordering (1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL/Hero, 7=Imbue)
-			-- TrackedCooldowns indices: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL, 7=Hero
-			-- BL and Heroism both map to type 6
-			if i <= 5 then
-				btn.cooldownType = i
-			else
-				btn.cooldownType = 6  -- Both BL (index 6) and Heroism (index 7) are type 6
-			end
+			-- cooldownType keys the pop-out record, the order list and the keybinds
+			-- (1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL/Hero, 7=Imbue, 8+ see TrackedCooldowns).
+			-- Every entry carries its own type as the 5th field so two buttons never share a key.
+			btn.cooldownType = spellData[5] or (i <= 5 and i or 6)
 
 			-- Store reference to shield button for flyout
 			if spellType == "shield" then
 				self.shieldButton = btn
+				self:EnsureShieldChargeContainer(btn)
 			end
 
 			-- Set up click action
@@ -6168,17 +9706,17 @@ function ShamanPower:CreateCooldownBar()
 
 				-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 				btn:SetAttribute("OpenMenu", "mouseover")
-				btn:SetAttribute("_onenter", [[
+				ShamanPower:SetSnippet(btn, "_onenter", [[
 					if self:GetAttribute("OpenMenu") == "mouseover" then
 						self:ChildUpdate("show", true)
 					end
 				]])
 
 				-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
-				btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+				ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 				-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
-				btn:SetAttribute("_onmouseup", [[
+				ShamanPower:SetSnippet(btn, "_onmouseup", [[
 					local button = button
 					if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
 						self:ChildUpdate("show", true)
@@ -6250,7 +9788,7 @@ function ShamanPower:CreateCooldownBar()
 						else
 							-- Plain middle-click returns to bar
 							if InCombatLockdown() then
-								print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+								print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 								return
 							end
 							ShamanPower:ReturnPopOutToBar(key)
@@ -6258,7 +9796,7 @@ function ShamanPower:CreateCooldownBar()
 					else
 						-- Not popped out, pop it out
 						if InCombatLockdown() then
-							print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+							print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 							return
 						end
 						ShamanPower:PopOutCooldownItem(cdType)
@@ -6301,6 +9839,7 @@ function ShamanPower:CreateCooldownBar()
 		end)
 	end
 	-- Note: Enabled/disabled in UpdateCooldownBarVisibility
+	self:ApplyClickSwap()
 end
 
 -- Find a cooldown button by spell ID
@@ -6313,6 +9852,16 @@ function ShamanPower:GetCooldownButtonBySpellID(spellID)
 	return nil
 end
 
+-- Auto-clear an alert 10 seconds after the latest call: a newer call on the same
+-- button bumps the counter, so an older timer then leaves it alone
+local function armCooldownButtonAlertClear(btn, spellID)
+	btn.alertSerial = (btn.alertSerial or 0) + 1
+	local serial = btn.alertSerial
+	C_Timer.After(10, function()
+		if btn.alertSerial == serial then ShamanPower:RemoveCooldownButtonAlert(spellID) end
+	end)
+end
+
 -- Add alert effect to a cooldown button (glow, shake, scale up)
 function ShamanPower:AddCooldownButtonAlert(spellID)
 	-- Check if button animation is enabled
@@ -6321,13 +9870,12 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 	local btn = self:GetCooldownButtonBySpellID(spellID)
 	if not btn then return end
 
-	-- Don't add duplicate alerts
-	if btn.alertActive then return end
+	-- Already pulsing: a repeat call keeps it going for another 10 seconds
+	if btn.alertActive then
+		armCooldownButtonAlertClear(btn, spellID)
+		return
+	end
 	btn.alertActive = true
-
-	-- Store original size
-	btn.originalWidth = btn:GetWidth()
-	btn.originalHeight = btn:GetHeight()
 
 	-- Create glow texture if it doesn't exist
 	if not btn.glowTexture then
@@ -6343,32 +9891,40 @@ function ShamanPower:AddCooldownButtonAlert(spellID)
 
 	btn.glowTexture:Show()
 
-	-- Start animation (throttled to ~30fps to reduce CPU usage)
-	btn.alertElapsed = 0
-	btn.alertUpdateElapsed = 0
-	btn:SetScript("OnUpdate", function(self, elapsed)
-		self.alertElapsed = (self.alertElapsed or 0) + elapsed
-		self.alertUpdateElapsed = (self.alertUpdateElapsed or 0) + elapsed
-		if self.alertUpdateElapsed < 0.033 then return end  -- ~30fps
-		self.alertUpdateElapsed = 0
-
-		-- Glow pulse
-		local glowAlpha = 0.5 + 0.5 * math.sin(self.alertElapsed * 6)
-		if self.glowTexture then
-			self.glowTexture:SetAlpha(glowAlpha)
+	-- The pulse runs in the engine (AnimationGroups): no Lua per frame. Same
+	-- shape as the old hand-driven pulse: the glow swings 0 -> 1 alpha about once
+	-- a second (sin 6t), the icon swings 85% -> 115% size about every 1.6 s (sin 4t).
+	-- The icon texture is scaled, not the button: the button is a secure frame,
+	-- and resizing it during combat (when raid calls arrive) is blocked.
+	if not btn.alertAnims and btn.glowTexture.CreateAnimationGroup then
+		local function bounce(region)
+			local ag = region:CreateAnimationGroup()
+			ag:SetLooping("BOUNCE")
+			return ag
 		end
+		local glowAG = bounce(btn.glowTexture)
+		local ga = glowAG:CreateAnimation("Alpha")
+		ga:SetFromAlpha(0); ga:SetToAlpha(1)
+		ga:SetDuration(math.pi / 6)            -- half of the sin(6t) period
+		ga:SetSmoothing("IN_OUT")
+		local anims = { glowAG }
+		if btn.icon and btn.icon.CreateAnimationGroup then
+			local iconAG = bounce(btn.icon)
+			local sa = iconAG:CreateAnimation("Scale")
+			if sa.SetScaleFrom then sa:SetScaleFrom(0.85, 0.85); sa:SetScaleTo(1.15, 1.15)
+			elseif sa.SetFromScale then sa:SetFromScale(0.85, 0.85); sa:SetToScale(1.15, 1.15) end
+			sa:SetOrigin("CENTER", 0, 0)
+			sa:SetDuration(math.pi / 4)        -- half of the sin(4t) period
+			sa:SetSmoothing("IN_OUT")
+			anims[#anims + 1] = iconAG
+		end
+		btn.alertAnims = anims
+	end
+	if btn.alertAnims then
+		for _, ag in ipairs(btn.alertAnims) do ag:Play() end
+	end
 
-		-- Scale pulse (grow to 1.15x then back) - removed shake for performance
-		local scale = 1.0 + 0.15 * math.sin(self.alertElapsed * 4)
-		local newWidth = (self.originalWidth or 22) * scale
-		local newHeight = (self.originalHeight or 22) * scale
-		self:SetSize(newWidth, newHeight)
-	end)
-
-	-- Auto-clear after 10 seconds
-	C_Timer.After(10, function()
-		ShamanPower:RemoveCooldownButtonAlert(spellID)
-	end)
+	armCooldownButtonAlertClear(btn, spellID)
 end
 
 -- Remove alert effect from a cooldown button
@@ -6383,12 +9939,9 @@ function ShamanPower:RemoveCooldownButtonAlert(spellID)
 		btn.glowTexture:Hide()
 	end
 
-	-- Stop animation
-	btn:SetScript("OnUpdate", nil)
-
-	-- Restore original size
-	if btn.originalWidth and btn.originalHeight then
-		btn:SetSize(btn.originalWidth, btn.originalHeight)
+	-- Stop the pulse (the icon and glow go back to their own size and alpha)
+	if btn.alertAnims then
+		for _, ag in ipairs(btn.alertAnims) do ag:Stop() end
 	end
 end
 
@@ -6424,6 +9977,124 @@ local function GetImbueBarColor(expiration, imbueType)
 	return GetTimerBarColor(expiration)
 end
 
+-- ----------------------------------------------------------------------------
+-- Cooldown bar buttons of type "cooldown" on the Mainline family: the same
+-- hand-off as the totem buttons. The engine draws the radial swipe or the
+-- greyed-icon sweep, fills the progress bar and counts the time where the
+-- addon's own text sits; the addon keeps the ready / dark state (from the
+-- never-secret "is it running") and the bar's colour rule, from the shadow
+-- remaining once a pass - a colour, never a number.
+local function EngineProgressBar(btn)
+	if not btn.engineBar then
+		local bar = CreateFrame("StatusBar", nil, btn)
+		ShamanPower:SetSPStatusBarTexture(bar, "cooldown", "Interface\\Buttons\\WHITE8x8")
+		bar:SetFrameLevel(btn:GetFrameLevel() + 2)
+		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end
+		btn.engineBar = bar
+	end
+	return btn.engineBar
+end
+
+-- The engine's countdown string takes the place, font and colour of the
+-- addon's text for the chosen location; none chosen, no numbers.
+local function PlaceEngineBarText(self, btn, textLocation, showText)
+	local cd = btn.cooldown
+	local ok, fs = pcall(cd.GetCountdownFontString, cd)
+	if not ok or not fs then return end
+	local src
+	if textLocation == "inside" then src = btn.insideText
+	elseif textLocation == "outside" then src = btn.outsideText
+	elseif textLocation == "icon" then src = btn.iconText
+	elseif showText then src = btn.timeText end
+	cd:SetHideCountdownNumbers(src == nil)
+	if not src then return end
+	local font, size, flags = src:GetFont()
+	if font then fs:SetFont(font, size, flags) end
+	local r, g, b = src:GetTextColor()
+	fs:SetTextColor(r or 1, g or 1, b or 1)
+	fs:ClearAllPoints()
+	local point, rel, relPoint, x, y = src:GetPoint(1)
+	if point then fs:SetPoint(point, rel or btn, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", btn, "CENTER", 0, 0) end
+	pcall(cd.SetMinimumCountdownDuration, cd, 2000)
+	pcall(cd.SetCountdownMillisecondsThreshold, cd, 10)
+end
+
+function ShamanPower:ClearEngineBarCooldown(btn)
+	btn._ebSpell = nil
+	if btn.cooldown then btn.cooldown:Clear() end
+	if btn.cdBar then btn.cdBar:Hide() end
+	if btn.engineBar then btn.engineBar:Hide() end
+end
+
+-- Layout changed (bar side, sizes, text location): the next pass re-places
+-- every engine display.
+function ShamanPower:ResetEngineBarCooldowns()
+	if not (self.cooldownButtons and self:EngineCooldownsOn()) then return end
+	for i = 1, #self.cooldownButtons do self.cooldownButtons[i]._ebText = nil end
+end
+
+function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
+	btn.darkOverlay:Hide()
+	btn.icon:SetDesaturated(false)
+	if btn.ankhCountText then btn.ankhCountText:Hide() end
+	local sweepStyle = showSweep and (self.opt.cdbarSweepStyle or "greys") or "none"
+	local textKey = showText and (textLocation .. "+") or textLocation
+	if btn._ebSpell ~= btn.spellID or btn._ebSweep ~= sweepStyle or btn._ebBars ~= showBars
+		or btn._ebText ~= textKey or btn._ebPos ~= barPosition then
+		local ok, d = pcall(C_Spell.GetSpellCooldownDuration, btn.spellID, true)   -- true: not the global cooldown
+		if not ok or d == nil then self:ClearEngineBarCooldown(btn) return end
+		btn._ebSpell, btn._ebSweep, btn._ebBars, btn._ebText, btn._ebPos = btn.spellID, sweepStyle, showBars, textKey, barPosition
+		local cd = btn.cooldown
+		local Dir = Enum and Enum.StatusBarTimerDirection or {}
+		local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+		-- the addon's own drawings of the same things
+		if btn.greyOverlay then btn.greyOverlay:Hide() end
+		if btn.progressBar then btn.progressBar:Hide() end
+		if btn.timeText then btn.timeText:SetText("") end
+		if btn.insideText then btn.insideText:Hide() end
+		if btn.outsideText then btn.outsideText:Hide() end
+		if btn.iconText then btn.iconText:Hide() end
+		-- radial swipe, or the greyed icon on an engine-filled bar
+		cd:SetDrawSwipe(sweepStyle == "radial")
+		if sweepStyle == "greys" or sweepStyle == "fills" then
+			local bar = EngineSweepBar(btn)
+			if bar then
+				local okb = pcall(bar.SetTimerDuration, bar, d, Interp, (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime)
+				bar:SetShown(okb and true or false)
+			end
+		elseif btn.cdBar then
+			btn.cdBar:Hide()
+		end
+		-- progress bar: remaining time, filled from the bottom / left like the addon's
+		if showBars and btn.bgBar then
+			local bar = EngineProgressBar(btn)
+			bar:ClearAllPoints()
+			bar:SetAllPoints(btn.bgBar)
+			local vertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
+			bar:SetOrientation(vertical and "VERTICAL" or "HORIZONTAL")
+			bar:SetReverseFill(false)
+			local okb = pcall(bar.SetTimerDuration, bar, d, Interp, Dir.RemainingTime)
+			bar:SetShown(okb and true or false)
+			btn.bgBar:Show()
+			btn._ebColorR = nil
+		else
+			if btn.engineBar then btn.engineBar:Hide() end
+			if btn.bgBar then btn.bgBar:Hide() end
+		end
+		PlaceEngineBarText(self, btn, textLocation, showText)
+		pcall(cd.SetCooldownFromDurationObject, cd, d, true)
+	end
+	-- the bar's colour rule, from the shadow remaining
+	if showBars and btn.engineBar and btn.engineBar:IsShown() then
+		local remaining = (start + duration) - GetTime()
+		local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
+		if r ~= btn._ebColorR or g ~= btn._ebColorG or b ~= btn._ebColorB then
+			btn._ebColorR, btn._ebColorG, btn._ebColorB = r, g, b
+			btn.engineBar:SetStatusBarColor(r, g, b, 0.9)
+		end
+	end
+end
+
 -- Update cooldown bar layout (horizontal or vertical)
 function ShamanPower:UpdateCooldownBarLayout()
 	if not self.cooldownBar then return end
@@ -6431,7 +10102,7 @@ function ShamanPower:UpdateCooldownBarLayout()
 	if InCombatLockdown() then return end
 
 	-- Sort cooldownButtons by cooldownBarOrder
-	local cooldownBarOrder = self.opt.cooldownBarOrder or {1, 2, 3, 4, 5, 6, 7}
+	local cooldownBarOrder = self:GetCooldownBarOrder()
 
 	-- Create a lookup table for order position (cooldownType -> position)
 	local orderLookup = {}
@@ -6547,6 +10218,462 @@ function ShamanPower:UpdateCooldownBarLayout()
 	self:UpdateCooldownBarProgressBars()
 end
 
+function ShamanPower:EngineCooldownStop(btn)
+	if SPCompat and SPCompat.Trace then SPCompat.Trace("ENGINE CD stop %s", tostring(btn.spellID)) end
+	btn._engineCDSpell = nil
+	if btn.cooldown then
+		pcall(btn.cooldown.SetCooldownFromDurationObject, btn.cooldown, nil)
+		pcall(btn.cooldown.SetCooldown, btn.cooldown, 0, 0)
+		btn.cooldown:Clear()
+	end
+	if btn._engineSweep then btn._engineSweep:Hide() end
+	if btn._engineBar then btn._engineBar:Hide() end
+end
+
+-- Engine-drawn shield button for restricted clients. A shield can end early
+-- (charges used up, cancelled, purged) with no event the addon can see in
+-- combat, so while auras are secret an AuraContainer bound to the player
+-- draws the whole shield state - icon, charge count, sweep, bar, text - as
+-- regions of its own aura button, which the engine hides the instant the aura
+-- is gone. Regions are created in the initializeFrame window (the only moment
+-- the button subtree may be written) and styled to match the addon's own
+-- rendering; out of combat the container stays hidden and the addon draws.
+-- Spell IDs per shield, all ranks (Forever/TBC) plus the retail test-bed IDs.
+ShamanPower.ShieldAuraSets = {
+	{ name = "Lightning Shield", ids = { 324, 325, 905, 945, 8134, 10431, 10432, 25469, 25472, 192106 } },
+	{ name = "Water Shield",     ids = { 24398, 33736, 52127, 408510, 408511, 409941 } },
+}
+
+-- The colour the cooldown bar's shield count is drawn in for `charges` (the
+-- addon's own text out of combat, the engine formatter in combat).
+function ShamanPower:ShieldCountColor(charges)
+	if not self.opt.shieldChargeColors then return 1, 1, 1 end
+	if charges >= 3 then return 0, 1, 0 elseif charges == 2 then return 1, 1, 0 else return 1, 0, 0 end
+end
+
+function ShamanPower:ShieldCountFormatter(maxCharges)
+	if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return nil end
+	local ok, fmt = pcall(C_StringUtil.CreateNumericRuleFormatter)
+	if not ok or not fmt or not fmt.AddBreakpoint then return nil end
+	for n = 0, maxCharges do
+		local r, g, b = self:ShieldCountColor(n)
+		pcall(fmt.AddBreakpoint, fmt, {
+			threshold = n,
+			format = ("|cff%02x%02x%02x%%d|r"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)),
+		})
+	end
+	return fmt
+end
+
+function ShamanPower:EnsureShieldChargeContainer(btn)
+	if not (SPCompat and SPCompat.secretsRegime) then return end
+	if btn.chargeContainer then return end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
+	if not ok or not container then
+		if SPCompat.Trace then SPCompat.Trace("SHIELD container create failed: %s", tostring(container)) end
+		return
+	end
+	container:SetAllPoints(btn)
+	container:SetFrameLevel(btn:GetFrameLevel() + 6)
+
+	local opt = self.opt
+	local showSweep = opt.cdbarShowColorSweep ~= false
+	local sweepStyle = opt.cdbarSweepStyle
+	local showBars = opt.cdbarShowProgressBars ~= false
+	local barPosition = opt.cdbarProgressPosition or "left"
+	local textLocation = opt.cdbarDurationTextLocation or "none"
+	local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
+	local Dir = Enum and Enum.StatusBarTimerDirection or {}
+
+	-- One slot per shield: the engine matches by spell ID (a MAP of id -> true;
+	-- a list matches nothing) and each slot carries that shield's own icon file,
+	-- so the icon and the greyed sweep copy never depend on the engine painting.
+	local function buildSlot(set)
+		local idMap = {}
+		for _, id in ipairs(set.ids) do idMap[id] = true end
+		local iconFile
+		for _, id in ipairs(set.ids) do
+			iconFile = (GetSpellTexture and GetSpellTexture(id)) or select(3, GetSpellInfo(id))
+			if iconFile then break end
+		end
+		local slotKey = "shield_" .. set.name:gsub("%s", "")
+		return pcall(function()
+			container:AddAuraSlot(slotKey, "HELPFUL|PLAYER", {
+				candidateFilters = { includeSpellIDs = idMap },
+				initializeFrame = function(button)
+					local T = SPCompat and SPCompat.Trace or function() end
+					local function reg(label, ok, err) T("SHIELD init %s %s: %s%s", set.name, label, tostring(ok), ok and "" or (" " .. tostring(err))) end
+					button:ClearAllPoints()
+					button:SetAllPoints(btn)
+					if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+					if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+
+					-- icon: this shield's own file (SetIcon registered too, in case the engine paints)
+					local icon = button:CreateTexture(nil, "ARTWORK")
+					icon:SetAllPoints(button)
+					icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+					if iconFile then icon:SetTexture(iconFile) end
+					reg("SetIcon", pcall(button.SetIcon, button, icon))
+
+					-- duration source: the cooldown widget (swipe drawn only for the radial style)
+					local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+					cd:SetAllPoints(button)
+					cd:SetDrawEdge(false)
+					cd:SetDrawBling(false)
+					cd:SetHideCountdownNumbers(true)
+					cd:SetDrawSwipe(showSweep and sweepStyle == "radial")
+					reg("SetDurationCooldown", pcall(button.SetDurationCooldown, button, cd))
+
+					-- vertical sweep: greyed copy of this shield's icon on a StatusBar the
+					-- engine fills from the top; oversized in a clip so the untrimmed
+					-- texture lines up with the trimmed icon
+					if showSweep and sweepStyle ~= "radial" and iconFile and (Dir.ElapsedTime or Dir.RemainingTime) then
+						local clip = CreateFrame("Frame", nil, button)
+						clip:SetAllPoints(button)
+						clip:SetClipsChildren(true)
+						local sb = CreateFrame("StatusBar", nil, clip)
+						local margin = (0.08 / 0.84) * btn:GetWidth()
+						sb:SetPoint("TOPLEFT", clip, "TOPLEFT", -margin, margin)
+						sb:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", margin, -margin)
+						sb:SetStatusBarTexture(iconFile)
+						local sbt = sb:GetStatusBarTexture()
+						if sbt then sbt:SetDesaturated(true); sbt:SetVertexColor(0.5, 0.5, 0.5) end
+						sb:SetOrientation("VERTICAL")
+						sb:SetReverseFill(true)
+						local direction = (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime
+						reg("SetDurationBar(sweep)", pcall(button.SetDurationBar, button, sb, { interpolation = Interp, direction = direction }))
+					end
+
+					-- charge count: same font and corner as the addon's own text. The engine
+					-- draws the secret count and applies a NumericRuleFormatter we hand it:
+					-- one breakpoint per count, coloured by the same rule as the addon's own
+					-- text (green / yellow / red with "Color Shield Charges by Count", white
+					-- without). That is also what draws a count of 1, which the client hides
+					-- by default. (The Shield Charges module got this first; this button had
+					-- kept a fixed blue and an empty options table.)
+					local carrier = CreateFrame("Frame", nil, button)
+					carrier:SetAllPoints(button)
+					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
+					count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+					count:SetTextColor(1, 1, 1)
+					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3) }))
+
+					-- progress bar in the addon's bar slot: black background + engine-filled bar
+					if showBars and btn.bgBar and Dir.RemainingTime then
+						local bg = carrier:CreateTexture(nil, "BACKGROUND")
+						bg:SetAllPoints(btn.bgBar)
+						bg:SetColorTexture(0, 0, 0, 0.7)
+						local bar = CreateFrame("StatusBar", nil, carrier)
+						bar:SetAllPoints(btn.bgBar)
+						ShamanPower:SetSPStatusBarTexture(bar, "cooldown", "Interface\\Buttons\\WHITE8x8")
+						local bt = bar:GetStatusBarTexture()
+						if bt then bt:SetVertexColor(0.2, 0.8, 0.2, 0.9) end
+						local vertical = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
+						bar:SetOrientation(vertical and "VERTICAL" or "HORIZONTAL")
+						reg("SetDurationBar(bar)", pcall(button.SetDurationBar, button, bar, { interpolation = Interp, direction = Dir.RemainingTime }))
+					end
+
+					-- duration text where the addon puts it
+					local src = (textLocation == "inside" and btn.insideText) or (textLocation == "outside" and btn.outsideText)
+						or (textLocation == "icon" and btn.iconText)
+					if src then
+						local fs = carrier:CreateFontString(nil, "OVERLAY")
+						self:CopySPFont(fs, src)   -- same font as the addon's text, and follows later font changes
+						local r, g, b = src:GetTextColor()
+						fs:SetTextColor(r or 1, g or 1, b or 1)
+						local point, rel, relPoint, x, y = src:GetPoint(1)
+						if point then fs:SetPoint(point, rel or btn, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", button, "CENTER", 0, 0) end
+						reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
+					end
+					T("SHIELD init end %s", set.name)
+				end,
+			})
+		end)
+	end
+	for _, set in ipairs(self.ShieldAuraSets) do
+		local okAdd, err = buildSlot(set)
+		if not okAdd and SPCompat.Trace then SPCompat.Trace("SHIELD AddAuraSlot %s failed: %s", set.name, tostring(err)) end
+	end
+	pcall(container.SetUnit, container, "player")
+	pcall(container.UpdateAllAuras, container)
+	container:Hide()   -- shown only while auras are secret
+	btn.chargeContainer = container
+	if SPCompat.Trace then SPCompat.Trace("SHIELD container ready on %s (sweep=%s bars=%s text=%s)", tostring(btn:GetName()), tostring(sweepStyle), tostring(showBars), tostring(textLocation)) end
+end
+
+-- Preferred shield or display options changed: the greyed copy and layout were
+-- baked in at creation, so build a fresh container (out of combat only).
+function ShamanPower:RebuildShieldChargeContainer()
+	local btn = self.shieldButton
+	if not btn or InCombatLockdown() then return end
+	if btn.chargeContainer then
+		btn.chargeContainer:Hide()
+		btn.chargeContainer = nil
+	end
+	self:EnsureShieldChargeContainer(btn)
+end
+
+local imbueCtx = {}
+
+-- Shared helpers keep the imbue update free of per-tick closures.
+local function PositionDualImbueBars(ctx, bgMain, bgOff, insideMain, insideOff, outsideMain, outsideOff)
+	local hasMain, hasOff = ctx.hasMain, ctx.hasOff
+	local buttonWidth, buttonHeight, barHeight = ctx.buttonWidth, ctx.buttonHeight, ctx.barHeight
+	local barPosition, btn = ctx.barPosition, ctx.btn
+	local both = hasMain and hasOff
+	-- out past the flyout tab on its side while it shows (see FollowFlyoutArrows)
+	local aT, aB, aL, aR = ShamanPower:FlyoutArrowPads(btn)
+
+	if not hasMain and not hasOff then
+		if bgMain then bgMain:Hide() end
+		if bgOff then bgOff:Hide() end
+		return
+	end
+
+	if barPosition == "bottom" then
+		if both then
+			bgMain:SetSize(buttonWidth / 2, barHeight)
+			bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
+			bgOff:SetSize(buttonWidth / 2, barHeight)
+			bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -(1 + aB))
+		else
+			bgMain:SetSize(buttonWidth, barHeight)
+			bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
+			if bgOff then bgOff:Hide() end
+		end
+	elseif barPosition == "top" then
+		if both then
+			bgMain:SetSize(buttonWidth / 2, barHeight)
+			bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
+			bgOff:SetSize(buttonWidth / 2, barHeight)
+			bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1 + aT)
+		else
+			bgMain:SetSize(buttonWidth, barHeight)
+			bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
+			if bgOff then bgOff:Hide() end
+		end
+	elseif barPosition == "top_vert" then
+		if both then
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1 + aT)
+			bgOff:SetSize(barHeight, buttonHeight)
+			bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1 + aT)
+		else
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1 + aT)
+			if bgOff then bgOff:Hide() end
+		end
+	elseif barPosition == "bottom_vert" then
+		if both then
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -(1 + aB))
+			bgOff:SetSize(barHeight, buttonHeight)
+			bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -(1 + aB))
+		else
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -(1 + aB))
+			if bgOff then bgOff:Hide() end
+		end
+	elseif barPosition == "on_icon" then
+		if both then
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+			bgOff:SetSize(barHeight, buttonHeight)
+			bgOff:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+		else
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+			if bgOff then bgOff:Hide() end
+		end
+	elseif barPosition == "left" then
+		if both then
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
+			bgOff:SetSize(barHeight, buttonHeight)
+			bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
+		else
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
+			if bgOff then bgOff:Hide() end
+		end
+	elseif barPosition == "right" then
+		if both then
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
+			bgOff:SetSize(barHeight, buttonHeight)
+			bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
+		else
+			bgMain:SetSize(barHeight, buttonHeight)
+			bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
+			if bgOff then bgOff:Hide() end
+		end
+	end
+
+	if insideMain then
+		insideMain:ClearAllPoints()
+		insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
+		local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
+		ShamanPower:SetSPFont(insideMain, "timers", fontSize, "OUTLINE")
+	end
+	if insideOff then
+		if both then
+			insideOff:ClearAllPoints()
+			insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
+			local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
+			ShamanPower:SetSPFont(insideOff, "timers", fontSize, "OUTLINE")
+		else
+			insideOff:Hide()
+		end
+	end
+
+	if outsideMain then
+		outsideMain:ClearAllPoints()
+		if barPosition == "bottom" then
+			outsideMain:SetPoint("TOP", bgMain, "BOTTOM", both and -2 or 0, -1)
+		elseif barPosition == "top" then
+			outsideMain:SetPoint("BOTTOM", bgMain, "TOP", both and -2 or 0, 1)
+		elseif barPosition == "top_vert" then
+			outsideMain:SetPoint("BOTTOM", bgMain, "TOP", 0, 1)
+		elseif barPosition == "bottom_vert" then
+			outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
+		else
+			outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1 - (barPosition == "on_icon" and aL or 0), 0)
+		end
+	end
+	if outsideOff then
+		if both then
+			outsideOff:ClearAllPoints()
+			if barPosition == "bottom" then
+				outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 2, -1)
+			elseif barPosition == "top" then
+				outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 2, 1)
+			elseif barPosition == "top_vert" then
+				outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 0, 1)
+			elseif barPosition == "bottom_vert" then
+				outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
+			else
+				outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1 + (barPosition == "on_icon" and aR or 0), 0)
+			end
+		else
+			outsideOff:Hide()
+		end
+	end
+end
+
+local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, inside, outside,
+	iconTextField, alignLeft)
+	local maxDuration, buttonWidth, buttonHeight = ctx.maxDuration, ctx.buttonWidth, ctx.buttonHeight
+	local barHeight, isVerticalBar, showSweep = ctx.barHeight, ctx.isVerticalBar, ctx.showSweep
+	local self, btn = ctx.self, ctx.btn
+	local textLocation, showText = ctx.textLocation, ctx.showText
+	if not (hasHand and bar and bg) then
+		if bar then bar:Hide() end
+		if bg then bg:Hide() end
+		if grey then grey:Hide() end
+		if inside then inside:Hide() end
+		if outside then outside:Hide() end
+		if iconTextField then iconTextField:Hide() end
+		return
+	end
+
+	local percent = math.min(expMS / maxDuration, 1)
+	local r, g, b = GetImbueBarColor(expMS, imbueType)
+
+	bg:Show()
+	bar:ClearAllPoints()
+
+	if isVerticalBar then
+		local progressHeight = math.max(buttonHeight * percent, 1)
+		bar:SetSize(barHeight, progressHeight)
+		if alignLeft then
+			bar:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
+		else
+			bar:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
+		end
+	else
+		local progressWidth = math.max((buttonWidth / 2) * percent, 1)
+		bar:SetSize(progressWidth, barHeight)
+		bar:SetPoint("LEFT", bg, "LEFT", 0, 0)
+	end
+
+	ShamanPower:SetSPBarColor(bar, "cooldown", r, g, b, 0.9)
+	bar:Show()
+
+	if showSweep and grey then
+		-- "fills": grey recedes instead of growing.
+		local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)
+		local greyHeight = buttonHeight * depletedPercent
+		if greyHeight > 1 then
+			grey:ClearAllPoints()
+			-- Sweep on the icon itself (like other CD bar buttons)
+			if alignLeft and btn.icon2:IsShown() then
+				-- Split icon: left half (main hand)
+				grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+				grey:SetWidth(buttonWidth / 2)
+				grey:SetHeight(greyHeight)
+				grey:SetTexCoord(0.08, 0.50, 0.08, 0.08 + (depletedPercent * 0.84))
+			elseif not alignLeft and btn.icon2:IsShown() then
+				-- Split icon: right half (off hand)
+				grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+				grey:SetWidth(buttonWidth / 2)
+				grey:SetHeight(greyHeight)
+				grey:SetTexCoord(0.50, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
+			else
+				-- Full icon (single imbue or same on both)
+				grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
+				grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+				grey:SetHeight(greyHeight)
+				grey:SetTexCoord(0.08, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
+			end
+			grey:Show()
+		else
+			grey:Hide()
+		end
+	elseif grey then
+		grey:Hide()
+	end
+
+	local durationStr = FormatDuration(expMS / 1000)
+	if inside then
+		inside:SetText(durationStr)
+	end
+	if outside then
+		outside:SetText(durationStr)
+	end
+	if iconTextField then
+		iconTextField:SetText(durationStr)
+	end
+
+	if textLocation == "inside" then
+		if inside then inside:Show() end
+		if outside then outside:Hide() end
+		if iconTextField then iconTextField:Hide() end
+		if btn.timeText then btn.timeText:SetText("") end
+	elseif textLocation == "outside" then
+		if outside then outside:Show() end
+		if inside then inside:Hide() end
+		if iconTextField then iconTextField:Hide() end
+		if btn.timeText then btn.timeText:SetText("") end
+	elseif textLocation == "icon" then
+		if iconTextField then iconTextField:Show() end
+		if inside then inside:Hide() end
+		if outside then outside:Hide() end
+		if btn.timeText then btn.timeText:SetText("") end
+	elseif textLocation == "none" and showText then
+		if btn.timeText then btn.timeText:SetText(durationStr) end
+		if inside then inside:Hide() end
+		if outside then outside:Hide() end
+		if iconTextField then iconTextField:Hide() end
+	else
+		if btn.timeText then btn.timeText:SetText("") end
+		if inside then inside:Hide() end
+		if outside then outside:Hide() end
+		if iconTextField then iconTextField:Hide() end
+	end
+end
+
 function ShamanPower:UpdateCooldownButtons()
 	-- Get display options
 	local showBars = self.opt.cdbarShowProgressBars ~= false
@@ -6556,6 +10683,7 @@ function ShamanPower:UpdateCooldownButtons()
 	local barHeight = self.opt.cdbarProgressBarHeight or 3
 	local textLocation = self.opt.cdbarDurationTextLocation or "none"
 	local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
+	local engine = self:EngineCooldownsOn()   -- the engine draws and counts the cooldown buttons; this pass hands it changes
 
 	-- Use numeric for loop instead of ipairs to avoid iterator garbage
 	for i = 1, #self.cooldownButtons do
@@ -6566,6 +10694,10 @@ function ShamanPower:UpdateCooldownButtons()
 		if btn.spellType == "shield" then
 			-- Use cached shield state from UNIT_AURA event (no UnitBuff calls here!)
 			local cache = self.shieldCache
+			if btn.chargeContainer then
+				local restricted = totemsSecretNow()
+				if restricted ~= btn.chargeContainer:IsShown() then btn.chargeContainer:SetShown(restricted) end
+			end
 			local hasShield = false
 			local activeShieldID = nil
 			local activeShieldIcon = nil
@@ -6609,19 +10741,8 @@ function ShamanPower:UpdateCooldownButtons()
 				-- Show charge count with optional coloring
 				if btn.chargeText then
 					if shieldCharges > 0 then
-						btn.chargeText:SetText(NumberStrings[shieldCharges] or tostring(shieldCharges))
-						-- Color based on charges if enabled
-						if self.opt.shieldChargeColors then
-							if shieldCharges >= 3 then
-								btn.chargeText:SetTextColor(0, 1, 0)  -- Green (full/high)
-							elseif shieldCharges == 2 then
-								btn.chargeText:SetTextColor(1, 1, 0)  -- Yellow (half)
-							else
-								btn.chargeText:SetTextColor(1, 0, 0)  -- Red (low - 1 charge)
-							end
-						else
-							btn.chargeText:SetTextColor(1, 1, 1)  -- White (default)
-						end
+						btn.chargeText:SetText((cache and cache.engineCount) and "" or (NumberStrings[shieldCharges] or tostring(shieldCharges)))
+						btn.chargeText:SetTextColor(self:ShieldCountColor(shieldCharges))   -- same rule the engine formatter uses in combat
 					else
 						btn.chargeText:SetText("")
 					end
@@ -6634,7 +10755,7 @@ function ShamanPower:UpdateCooldownButtons()
 					local r, g, b = GetBarColor(remaining * 1000, activeShieldID)
 
 					if btn.bgBar then btn.bgBar:Show() end
-					btn.progressBar:ClearAllPoints()
+					btn.progressBar:ClearAllPoints()   -- on its background, which steps out past a flyout tab
 
 					if isVerticalBar then
 						-- Vertical bar
@@ -6643,9 +10764,9 @@ function ShamanPower:UpdateCooldownButtons()
 						if barPosition == "on_icon" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "left" then
-							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+							btn.progressBar:SetPoint("BOTTOMRIGHT", btn.bgBar, "BOTTOMRIGHT", 0, 0)
 						elseif barPosition == "right" then
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "top_vert" then
 							btn.progressBar:SetPoint("BOTTOM", btn.bgBar, "BOTTOM", 0, 0)
 						elseif barPosition == "bottom_vert" then
@@ -6656,12 +10777,12 @@ function ShamanPower:UpdateCooldownButtons()
 						local progressWidth = math.max(buttonWidth * percent, 1)
 						btn.progressBar:SetSize(progressWidth, barHeight)
 						if barPosition == "bottom" then
-							btn.progressBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+							btn.progressBar:SetPoint("TOPLEFT", btn.bgBar, "TOPLEFT", 0, 0)
 						else
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						end
 					end
-					btn.progressBar:SetColorTexture(r, g, b, 0.9)
+					ShamanPower:SetSPBarColor(btn.progressBar, "cooldown", r, g, b, 0.9)
 					btn.progressBar:Show()
 				else
 					if btn.progressBar then btn.progressBar:Hide() end
@@ -6743,7 +10864,9 @@ function ShamanPower:UpdateCooldownButtons()
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
-			if start and start > 0 and duration > 1.5 then
+			if engine and start and start > 0 and duration > 1.5 then
+				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
+			elseif start and start > 0 and duration > 1.5 then
 				-- Radial swipe only when chosen; otherwise the vertical grey sweep below
 				if showSweep and self.opt.cdbarSweepStyle == "radial" then
 					btn.cooldown:SetCooldown(start, duration)
@@ -6765,7 +10888,7 @@ function ShamanPower:UpdateCooldownButtons()
 					local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
 
 					if btn.bgBar then btn.bgBar:Show() end
-					btn.progressBar:ClearAllPoints()
+					btn.progressBar:ClearAllPoints()   -- on its background, which steps out past a flyout tab
 
 					if isVerticalBar then
 						-- Vertical bar
@@ -6774,9 +10897,9 @@ function ShamanPower:UpdateCooldownButtons()
 						if barPosition == "on_icon" then
 							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "left" then
-							btn.progressBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+							btn.progressBar:SetPoint("BOTTOMRIGHT", btn.bgBar, "BOTTOMRIGHT", 0, 0)
 						elseif barPosition == "right" then
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						elseif barPosition == "top_vert" then
 							btn.progressBar:SetPoint("BOTTOM", btn.bgBar, "BOTTOM", 0, 0)
 						elseif barPosition == "bottom_vert" then
@@ -6787,12 +10910,12 @@ function ShamanPower:UpdateCooldownButtons()
 						local progressWidth = math.max(buttonWidth * percent, 1)
 						btn.progressBar:SetSize(progressWidth, barHeight)
 						if barPosition == "bottom" then
-							btn.progressBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+							btn.progressBar:SetPoint("TOPLEFT", btn.bgBar, "TOPLEFT", 0, 0)
 						else
-							btn.progressBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+							btn.progressBar:SetPoint("BOTTOMLEFT", btn.bgBar, "BOTTOMLEFT", 0, 0)
 						end
 					end
-					btn.progressBar:SetColorTexture(r, g, b, 0.9)
+					ShamanPower:SetSPBarColor(btn.progressBar, "cooldown", r, g, b, 0.9)
 					btn.progressBar:Show()
 				else
 					if btn.progressBar then btn.progressBar:Hide() end
@@ -6851,6 +10974,7 @@ function ShamanPower:UpdateCooldownButtons()
 					end
 				end
 			else
+				if engine and btn._ebSpell then self:ClearEngineBarCooldown(btn) end
 				btn.cooldown:Clear()
 				btn.darkOverlay:Hide()
 				if btn.progressBar then btn.progressBar:Hide() end
@@ -6887,7 +11011,7 @@ function ShamanPower:UpdateCooldownButtons()
 				elseif btn.spellID == 36936 then
 					local anyTotem = false
 					for slot = 1, 4 do
-						local haveTotem = GetTotemInfo(slot)
+						local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 						if haveTotem then
 							anyTotem = true
 							break
@@ -6902,146 +11026,13 @@ function ShamanPower:UpdateCooldownButtons()
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 			local buttonHeight = btn:GetHeight()
 			local buttonWidth = btn:GetWidth()
-			local maxDuration = 1800000 -- 30 minutes (ms)
-			-- Local layout helper (duplicate of UpdateCooldownBarProgressBars logic, scoped here)
-			local function positionDual(bgMain, bgOff, insideMain, insideOff, outsideMain, outsideOff)
-				local both = hasMain and hasOff
-
-				if not hasMain and not hasOff then
-					if bgMain then bgMain:Hide() end
-					if bgOff then bgOff:Hide() end
-					return
-				end
-
-				if barPosition == "bottom" then
-					if both then
-						bgMain:SetSize(buttonWidth / 2, barHeight)
-						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
-						bgOff:SetSize(buttonWidth / 2, barHeight)
-						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -1)
-					else
-						bgMain:SetSize(buttonWidth, barHeight)
-						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
-						if bgOff then bgOff:Hide() end
-					end
-				elseif barPosition == "top" then
-					if both then
-						bgMain:SetSize(buttonWidth / 2, barHeight)
-						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
-						bgOff:SetSize(buttonWidth / 2, barHeight)
-						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1)
-					else
-						bgMain:SetSize(buttonWidth, barHeight)
-						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
-						if bgOff then bgOff:Hide() end
-					end
-				elseif barPosition == "top_vert" then
-					if both then
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1)
-						bgOff:SetSize(barHeight, buttonHeight)
-						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1)
-					else
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1)
-						if bgOff then bgOff:Hide() end
-					end
-				elseif barPosition == "bottom_vert" then
-					if both then
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -1)
-						bgOff:SetSize(barHeight, buttonHeight)
-						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -1)
-					else
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
-						if bgOff then bgOff:Hide() end
-					end
-				elseif barPosition == "on_icon" then
-					if both then
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-						bgOff:SetSize(barHeight, buttonHeight)
-						bgOff:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-					else
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-						if bgOff then bgOff:Hide() end
-					end
-				elseif barPosition == "left" then
-					if both then
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
-						bgOff:SetSize(barHeight, buttonHeight)
-						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
-					else
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
-						if bgOff then bgOff:Hide() end
-					end
-				elseif barPosition == "right" then
-					if both then
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
-						bgOff:SetSize(barHeight, buttonHeight)
-						bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
-					else
-						bgMain:SetSize(barHeight, buttonHeight)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
-						if bgOff then bgOff:Hide() end
-					end
-				end
-
-				if insideMain then
-					insideMain:ClearAllPoints()
-					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
-					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-				end
-				if insideOff then
-					if both then
-						insideOff:ClearAllPoints()
-						insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
-						local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-						insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
-					else
-						insideOff:Hide()
-					end
-				end
-
-				if outsideMain then
-					outsideMain:ClearAllPoints()
-					if barPosition == "bottom" then
-						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", both and -2 or 0, -1)
-					elseif barPosition == "top" then
-						outsideMain:SetPoint("BOTTOM", bgMain, "TOP", both and -2 or 0, 1)
-					elseif barPosition == "top_vert" then
-						outsideMain:SetPoint("BOTTOM", bgMain, "TOP", 0, 1)
-					elseif barPosition == "bottom_vert" then
-						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
-					else
-						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1, 0)
-					end
-				end
-				if outsideOff then
-					if both then
-						outsideOff:ClearAllPoints()
-						if barPosition == "bottom" then
-							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 2, -1)
-						elseif barPosition == "top" then
-							outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 2, 1)
-						elseif barPosition == "top_vert" then
-							outsideOff:SetPoint("BOTTOM", bgOff, "TOP", 0, 1)
-						elseif barPosition == "bottom_vert" then
-							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
-						else
-							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1, 0)
-						end
-					else
-						outsideOff:Hide()
-					end
-				end
-			end
+			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
+			imbueCtx.buttonWidth, imbueCtx.buttonHeight = buttonWidth, buttonHeight
+			imbueCtx.barHeight, imbueCtx.barPosition = barHeight, barPosition
+			imbueCtx.isVerticalBar, imbueCtx.showSweep = isVerticalBar, showSweep
+			imbueCtx.maxDuration, imbueCtx.hasMain, imbueCtx.hasOff = maxDuration, hasMain, hasOff
+			imbueCtx.btn, imbueCtx.self = btn, self
+			imbueCtx.textLocation, imbueCtx.showText = textLocation, showText
 
 			if hasMain or hasOff then
 				-- Track each hand separately
@@ -7083,121 +11074,39 @@ function ShamanPower:UpdateCooldownButtons()
 				end
 				btn.darkOverlay:Hide()
 
-				local function updateHand(hasHand, expMS, imbueType, bg, bar, grey, inside, outside, iconTextField, alignLeft)
-					if not (hasHand and bar and bg) then
-						if bar then bar:Hide() end
-						if bg then bg:Hide() end
-						if grey then grey:Hide() end
-						if inside then inside:Hide() end
-						if outside then outside:Hide() end
-						if iconTextField then iconTextField:Hide() end
-						return
-					end
-
-					local percent = math.min(expMS / maxDuration, 1)
-					local r, g, b = GetImbueBarColor(expMS, imbueType)
-
-					bg:Show()
-					bar:ClearAllPoints()
-
-					if isVerticalBar then
-						local progressHeight = math.max(buttonHeight * percent, 1)
-						bar:SetSize(barHeight, progressHeight)
-						if alignLeft then
-							bar:SetPoint("BOTTOMRIGHT", bg, "BOTTOMRIGHT", 0, 0)
-						else
-							bar:SetPoint("BOTTOMLEFT", bg, "BOTTOMLEFT", 0, 0)
-						end
-					else
-						local progressWidth = math.max((buttonWidth / 2) * percent, 1)
-						bar:SetSize(progressWidth, barHeight)
-						bar:SetPoint("LEFT", bg, "LEFT", 0, 0)
-					end
-
-					bar:SetColorTexture(r, g, b, 0.9)
-					bar:Show()
-
-					if showSweep and grey then
-						local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
-						local greyHeight = buttonHeight * depletedPercent
-						if greyHeight > 1 then
-							grey:ClearAllPoints()
-							-- Sweep on the icon itself (like other CD bar buttons)
-							if alignLeft and btn.icon2:IsShown() then
-								-- Split icon: left half (main hand)
-								grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-								grey:SetWidth(buttonWidth / 2)
-								grey:SetHeight(greyHeight)
-								grey:SetTexCoord(0.08, 0.50, 0.08, 0.08 + (depletedPercent * 0.84))
-							elseif not alignLeft and btn.icon2:IsShown() then
-								-- Split icon: right half (off hand)
-								grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-								grey:SetWidth(buttonWidth / 2)
-								grey:SetHeight(greyHeight)
-								grey:SetTexCoord(0.50, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
-							else
-								-- Full icon (single imbue or same on both)
-								grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-								grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-								grey:SetHeight(greyHeight)
-								grey:SetTexCoord(0.08, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
-							end
-							grey:Show()
-						else
-							grey:Hide()
-						end
-					elseif grey then
-						grey:Hide()
-					end
-
-					local durationStr = FormatDuration(expMS / 1000)
-					if inside then
-						inside:SetText(durationStr)
-					end
-					if outside then
-						outside:SetText(durationStr)
-					end
-					if iconTextField then
-						iconTextField:SetText(durationStr)
-					end
-
-					if textLocation == "inside" then
-						if inside then inside:Show() end
-						if outside then outside:Hide() end
-						if iconTextField then iconTextField:Hide() end
-						if btn.timeText then btn.timeText:SetText("") end
-					elseif textLocation == "outside" then
-						if outside then outside:Show() end
-						if inside then inside:Hide() end
-						if iconTextField then iconTextField:Hide() end
-						if btn.timeText then btn.timeText:SetText("") end
-					elseif textLocation == "icon" then
-						if iconTextField then iconTextField:Show() end
-						if inside then inside:Hide() end
-						if outside then outside:Hide() end
-						if btn.timeText then btn.timeText:SetText("") end
-					elseif textLocation == "none" and showText then
-						if btn.timeText then btn.timeText:SetText(durationStr) end
-						if inside then inside:Hide() end
-						if outside then outside:Hide() end
-						if iconTextField then iconTextField:Hide() end
-					else
-						if btn.timeText then btn.timeText:SetText("") end
-						if inside then inside:Hide() end
-						if outside then outside:Hide() end
-						if iconTextField then iconTextField:Hide() end
-					end
-				end
-
 				-- Layout backgrounds first (uses hasMainActive/hasOffActive)
 				if btn.bgBarMain and btn.bgBarOff then
-					positionDual(btn.bgBarMain, btn.bgBarOff, btn.insideText, btn.insideText2, btn.outsideText, btn.outsideText2)
+					PositionDualImbueBars(imbueCtx, btn.bgBarMain, btn.bgBarOff,
+						btn.insideText, btn.insideText2, btn.outsideText, btn.outsideText2)
 				end
 
-				updateHand(hasMain, mainExp, mainType, btn.bgBarMain, btn.progressBarMain, btn.greyOverlayMain, btn.insideText, btn.outsideText, btn.iconText, true)
-				updateHand(hasOff, offExp, offType, btn.bgBarOff, btn.progressBarOff, btn.greyOverlayOff, btn.insideText2, btn.outsideText2, btn.iconText2, false)
+				UpdateImbueHand(imbueCtx, hasMain, mainExp, mainType, btn.bgBarMain, btn.progressBarMain,
+					btn.greyOverlayMain, btn.insideText, btn.outsideText, btn.iconText, true)
+				UpdateImbueHand(imbueCtx, hasOff, offExp, offType, btn.bgBarOff, btn.progressBarOff,
+					btn.greyOverlayOff, btn.insideText2, btn.outsideText2, btn.iconText2, false)
 			else
-				-- No imbue active - restore full icon
+				-- No imbue active - restore full icon.
+				-- Show the imbue this button would actually cast. Without this
+				-- the texture keeps whatever was set at creation, so a shaman
+				-- who has only Rockbiter sees a greyed Windfury icon.
+				local restIdx
+				if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+					-- Name-based spellbook checks allocate modern API result tables.
+					-- Keep the resting choice (including nil) until spells or preference change.
+					local generation = self._imbueSpellGeneration or 0
+					if not btn._restImbueReady or btn._restImbueGeneration ~= generation
+						or btn._restImbuePreference ~= self.opt.preferredImbue then
+						btn._restImbueIndex = self:DefaultImbueIndex()
+						btn._restImbueGeneration, btn._restImbuePreference = generation, self.opt.preferredImbue
+						btn._restImbueReady = true
+					end
+					restIdx = btn._restImbueIndex or self.lastMainHandImbue
+				else
+					restIdx = self:DefaultImbueIndex() or self.lastMainHandImbue
+				end
+				if restIdx and self.WeaponIcons[restIdx] then
+					btn.icon:SetTexture(self.WeaponIcons[restIdx])
+				end
 				btn.icon:ClearAllPoints()
 				btn.icon:SetAllPoints()
 				btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -7268,7 +11177,7 @@ function ShamanPower:UpdateCooldownBar()
 
 	if not self.cooldownBar then return end
 
-	if self.opt.showCooldownBar and #self.cooldownButtons > 0 then
+	if self.opt.showCooldownBar and not self:IsOff() and #self.cooldownButtons > 0 then
 		-- Update the button layout first
 		self:UpdateCooldownBarLayout()
 
@@ -7320,7 +11229,9 @@ function ShamanPower:UpdateCooldownBar()
 end
 
 function ShamanPower:RecreateCooldownBar()
-	if InCombatLockdown() then return end
+	-- a change made in combat (an item ticked off, the order) is applied when combat ends
+	if InCombatLockdown() then self._cdBarRebuildPending = true; return end
+	self._cdBarRebuildPending = nil
 
 	-- Destroy existing cooldown bar and drag handle
 	if self.cooldownBarDragHandle then
@@ -7413,10 +11324,14 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 			-- UpdateCooldownBarScale does not "compensate" a fresh anchor.
 			self.cooldownBar:SetScale(self.opt.cooldownBarScale or 0.9)
 			self.cooldownBar._scaleApplied = true
-			-- Use saved anchor point if available, otherwise default to CENTER
-			if self.opt.cooldownBarPosition and self.opt.cooldownBarPosition.anchor then
-				self:ApplyPositionRecord(self.cooldownBar, self.opt.cooldownBarPosition)
-			else
+			-- Use the saved spot if there is one; one saved by an old version (not
+			-- the CENTER 0,-50 default) converts once. With neither,
+			-- ApplyDefaultBarPositions below keeps it under the totem bar.
+			local o = self.opt
+			if o.cooldownBarPosition and o.cooldownBarPosition.anchor then
+				self:ApplyPositionRecord(self.cooldownBar, o.cooldownBarPosition)
+			elseif (o.cooldownBarPosX or 0) ~= 0 or (o.cooldownBarPosY or -50) ~= -50
+				or (o.cooldownBarPoint or "CENTER") ~= "CENTER" or (o.cooldownBarRelPoint or "CENTER") ~= "CENTER" then
 				local point = self.opt.cooldownBarPoint or "CENTER"
 				local relPoint = self.opt.cooldownBarRelPoint or "CENTER"
 				self.cooldownBar:SetPoint(point, UIParent, relPoint, self.opt.cooldownBarPosX or 0, self.opt.cooldownBarPosY or 0)
@@ -7424,12 +11339,15 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 				self.opt.cooldownBarPoint, self.opt.cooldownBarRelPoint = nil, nil
 				self.opt.cooldownBarPosX, self.opt.cooldownBarPosY = nil, nil
 			end
+			self:ApplyDefaultBarPositions()
 		end
 
 		self.cooldownBar:EnableMouse(true)
 		self.cooldownBar:SetMovable(true)
 		self.cooldownBar:RegisterForDrag("LeftButton")
-		self.cooldownBar:Show()
+		-- shown only when UpdateCooldownBar would show it (switched on, something on
+		-- it): a Reset or a reposition never brings up an empty or disabled bar
+		if self.opt.showCooldownBar and not self:IsOff() and #self.cooldownButtons > 0 then self.cooldownBar:Show() end
 	end
 
 	self:UpdateCooldownBarScale()
@@ -7452,8 +11370,13 @@ function ShamanPower:UpdateCooldownBarScale()
 			bar:SetScale(cdScale)
 			bar._scaleApplied = true
 		elseif math.abs(bar:GetScale() - cdScale) > 0.001 then
-			self:SetFrameScaleKeepCenter(bar, cdScale)
-			self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
+			if self.opt.cooldownBarPosition and self.opt.cooldownBarPosition.anchor then
+				self:SetFrameScaleKeepCenter(bar, cdScale)
+				self.opt.cooldownBarPosition = self:SavePositionRecord(bar)
+			else
+				bar:SetScale(cdScale)   -- on its default spot: worked out again for the new size
+				self:ApplyDefaultBarPositions()
+			end
 		end
 	end
 end
@@ -7462,10 +11385,13 @@ end
 function ShamanPower:UpdateCooldownBarProgressBars()
 	local barPosition = self.opt.cdbarProgressPosition or "left"
 	local barSize = self.opt.cdbarProgressBarHeight or 3
+	self:ResetEngineBarCooldowns()   -- engine strings and bars follow the new anchors on the next pass
 
 	for _, btn in ipairs(self.cooldownButtons) do
 		local buttonSize = btn:GetWidth()
 		local buttonHeight = btn:GetHeight()
+		-- out past the flyout tab on its side while it shows (shield and imbue buttons)
+		local aT, aB, aL, aR = self:FlyoutArrowPads(btn)
 
 		-- Normal buttons (single bar)
 		if btn.spellType ~= "weaponImbue" then
@@ -7473,30 +11399,30 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				btn.bgBar:ClearAllPoints()
 				if barPosition == "bottom" then
 					btn.bgBar:SetSize(buttonSize, barSize)
-					btn.bgBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
-					btn.bgBar:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -1)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
+					btn.bgBar:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -(1 + aB))
 				elseif barPosition == "bottom_vert" then
 					btn.bgBar:SetSize(barSize, buttonHeight)
-					btn.bgBar:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+					btn.bgBar:SetPoint("TOP", btn, "BOTTOM", 0, -(1 + aB))
 				elseif barPosition == "top" then
 					btn.bgBar:SetSize(buttonSize, barSize)
-					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
-					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 1)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
+					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 1 + aT)
 				elseif barPosition == "top_vert" then
 					btn.bgBar:SetSize(barSize, buttonHeight)
-					btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+					btn.bgBar:SetPoint("BOTTOM", btn, "TOP", 0, 1 + aT)
 				elseif barPosition == "on_icon" then
 					btn.bgBar:SetSize(barSize, buttonSize)
 					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
 					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
 				elseif barPosition == "left" then
 					btn.bgBar:SetSize(barSize, buttonSize)
-					btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
-					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -1, 0)
+					btn.bgBar:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
+					btn.bgBar:SetPoint("BOTTOMRIGHT", btn, "BOTTOMLEFT", -(1 + aL), 0)
 				elseif barPosition == "right" then
 					btn.bgBar:SetSize(barSize, buttonSize)
-					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
-					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1, 0)
+					btn.bgBar:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
+					btn.bgBar:SetPoint("BOTTOMLEFT", btn, "BOTTOMRIGHT", 1 + aR, 0)
 				end
 			end
 
@@ -7504,7 +11430,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				btn.insideText:ClearAllPoints()
 				btn.insideText:SetPoint("CENTER", btn.bgBar, "CENTER", 0, 0)
 				local fontSize = self.opt.cdbarDurationTextSize or 8
-				btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+				ShamanPower:SetSPFont(btn.insideText, "timers", fontSize, "OUTLINE")
 			end
 
 			if btn.outsideText and btn.bgBar then
@@ -7514,7 +11440,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				elseif barPosition == "top" or barPosition == "top_vert" then
 					btn.outsideText:SetPoint("BOTTOM", btn.bgBar, "TOP", 0, 1)
 				elseif barPosition == "on_icon" then
-					btn.outsideText:SetPoint("RIGHT", btn, "LEFT", -1, 0)
+					btn.outsideText:SetPoint("RIGHT", btn, "LEFT", -(1 + aL), 0)
 				elseif barPosition == "left" then
 					btn.outsideText:SetPoint("RIGHT", btn.bgBar, "LEFT", -1, 0)
 				elseif barPosition == "right" then
@@ -7537,45 +11463,45 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				if barPosition == "bottom" then
 					if both then
 						bgMain:SetSize(buttonSize / 2, barSize)
-						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
 						bgOff:SetSize(buttonSize / 2, barSize)
-						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -1)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 0, -(1 + aB))
 					else
 						bgMain:SetSize(buttonSize, barSize)
-						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -1)
+						bgMain:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -(1 + aB))
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "top" then
 					if both then
 						bgMain:SetSize(buttonSize / 2, barSize)
-						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
 						bgOff:SetSize(buttonSize / 2, barSize)
-						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 0, 1 + aT)
 					else
 						bgMain:SetSize(buttonSize, barSize)
-						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1)
+						bgMain:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 1 + aT)
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "top_vert" then
 					if both then
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1)
+						bgMain:SetPoint("BOTTOMRIGHT", btn, "TOP", -1, 1 + aT)
 						bgOff:SetSize(barSize, buttonHeight)
-						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1)
+						bgOff:SetPoint("BOTTOMLEFT", btn, "TOP", 1, 1 + aT)
 					else
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1)
+						bgMain:SetPoint("BOTTOM", btn, "TOP", 0, 1 + aT)
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "bottom_vert" then
 					if both then
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -1)
+						bgMain:SetPoint("TOPRIGHT", btn, "BOTTOM", -1, -(1 + aB))
 						bgOff:SetSize(barSize, buttonHeight)
-						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -1)
+						bgOff:SetPoint("TOPLEFT", btn, "BOTTOM", 1, -(1 + aB))
 					else
 						bgMain:SetSize(barSize, buttonHeight)
-						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -1)
+						bgMain:SetPoint("TOP", btn, "BOTTOM", 0, -(1 + aB))
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "on_icon" then
@@ -7592,23 +11518,23 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 				elseif barPosition == "left" then
 					if both then
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
 						bgOff:SetSize(barSize, buttonSize)
-						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgOff:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 					else
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -1, 0)
+						bgMain:SetPoint("TOPRIGHT", btn, "TOPLEFT", -(1 + aL), 0)
 						if bgOff then bgOff:Hide() end
 					end
 				elseif barPosition == "right" then
 					if both then
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 						bgOff:SetSize(barSize, buttonSize)
 						bgOff:SetPoint("TOPLEFT", bgMain, "TOPRIGHT", 1, 0)
 					else
 						bgMain:SetSize(barSize, buttonSize)
-						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1, 0)
+						bgMain:SetPoint("TOPLEFT", btn, "TOPRIGHT", 1 + aR, 0)
 						if bgOff then bgOff:Hide() end
 					end
 				end
@@ -7617,13 +11543,13 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 					insideMain:ClearAllPoints()
 					insideMain:SetPoint("CENTER", bgMain, "CENTER", 0, 0)
 					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-					insideMain:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+					ShamanPower:SetSPFont(insideMain, "timers", fontSize, "OUTLINE")
 				end
 				if insideOff and hasOff and both then
 					insideOff:ClearAllPoints()
 					insideOff:SetPoint("CENTER", bgOff, "CENTER", 0, 0)
 					local fontSize = ShamanPower.opt.cdbarDurationTextSize or 8
-					insideOff:SetFont("Fonts\\FRIZQT__.TTF", fontSize, "OUTLINE")
+					ShamanPower:SetSPFont(insideOff, "timers", fontSize, "OUTLINE")
 				elseif insideOff then
 					insideOff:Hide()
 				end
@@ -7639,7 +11565,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 					elseif barPosition == "bottom_vert" then
 						outsideMain:SetPoint("TOP", bgMain, "BOTTOM", 0, -1)
 					else
-						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1, 0)
+						outsideMain:SetPoint("RIGHT", bgMain, "LEFT", -1 - (barPosition == "on_icon" and aL or 0), 0)
 					end
 				end
 				if outsideOff then
@@ -7654,7 +11580,7 @@ function ShamanPower:UpdateCooldownBarProgressBars()
 						elseif barPosition == "bottom_vert" then
 							outsideOff:SetPoint("TOP", bgOff, "BOTTOM", 0, -1)
 						else
-							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1, 0)
+							outsideOff:SetPoint("LEFT", bgOff, "RIGHT", 1 + (barPosition == "on_icon" and aR or 0), 0)
 						end
 					else
 						outsideOff:Hide()
@@ -7681,6 +11607,7 @@ function ShamanPower:PositionPartyDots(dots, frame)
 	local size, gap = (self.opt and self.opt.partyDotSize) or 5, 2
 	local outline = not (self.opt and self.opt.partyDotOutline == false)
 	local span = 4 * size + 3 * gap
+	local anchor = self:PlacePartyDotFrame(frame)
 	for i = 1, 4 do
 		local dot = dots[i]
 		if dot then
@@ -7702,36 +11629,69 @@ function ShamanPower:PositionPartyDots(dots, frame)
 			dot.spOutline:SetSize(size + 2, size + 2)
 			dot.spOutline:SetShown(outline and dot:IsShown())
 			dot:ClearAllPoints()
-			local along = (i - 1) * (size + gap)
-			if frame.compactLayoutOn and self:CompactActive() then
-				-- Compact style: dots sit at the far end of the line (after the
-				-- range-counter number when that is on too)
-				local co = self:CompactOpts()
-				local shift = self:CompactCounterShift(frame)
-				if co.vertical then
-					dot:SetPoint("BOTTOM", frame, "BOTTOM", 0, co.ow + 2 + shift + along)
-				else
-					dot:SetPoint("RIGHT", frame, "RIGHT", -(co.ow + 3 + shift + along), 0)
-				end
-			elseif pos == "above" then
-				dot:SetPoint("BOTTOMLEFT", frame, "TOP", along - span / 2, 2)
-			elseif pos == "below" then
-				dot:SetPoint("TOPLEFT", frame, "BOTTOM", along - span / 2, -2)
-			elseif pos == "left" then
-				dot:SetPoint("TOPRIGHT", frame, "LEFT", -2, span / 2 - along)
-			elseif pos == "right" then
-				dot:SetPoint("TOPLEFT", frame, "RIGHT", 2, span / 2 - along)
-			elseif i == 1 then
-				dot:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
-			elseif i == 2 then
-				dot:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
-			elseif i == 3 then
-				dot:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
-			else
-				dot:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
-			end
+			local point, relPoint, x, y = self:PartyDotAnchor(i, frame)
+			dot:SetPoint(point, anchor, relPoint, x, y)
 		end
 	end
+	-- engine-drawn dots are anchored when built: re-anchoring means rebuilding
+	-- (a no-op while nothing about the placement changed)
+	if self.RebuildEnginePartyDots then self:RebuildEnginePartyDots() end
+end
+
+-- The dots hang from a stand-in for the button's rectangle rather than from the
+-- button: dots on the side where the flyout tab sits step out past it by moving
+-- this one plain frame, and the engine-drawn dots (Party Range), anchored to the
+-- same frame, go with them, so the two sets stay on top of each other without a
+-- rebuild. Corners and Compact's in-line dots never move.
+function ShamanPower:PlacePartyDotFrame(frame)
+	local x, y = 0, 0
+	if not (frame.compactLayoutOn and self:CompactActive()) then
+		local pos = (self.opt and self.opt.partyDotPosition) or "corners"
+		local t, b, l, r = self:FlyoutArrowPads(frame)
+		if pos == "above" then y = t
+		elseif pos == "below" then y = -b
+		elseif pos == "left" then x = -l
+		elseif pos == "right" then x = r end
+	end
+	local f = frame.spDotFrame
+	if f and f.spX == x and f.spY == y then return f end   -- already there
+	if not f then
+		f = CreateFrame("Frame", nil, frame)
+		frame.spDotFrame = f
+	elseif InCombatLockdown() and f:IsProtected() then
+		return f   -- an engine dot anchored to it may protect it: left for the next layout
+	end
+	f.spX, f.spY = x, y
+	f:ClearAllPoints()
+	f:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
+	f:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", x, y)
+	return f
+end
+
+-- Where party dot `i` sits on `frame` (point, relative point, x, y) under the
+-- position option. Shared by the addon's own dots and the engine-drawn ones
+-- (Party Range module), which cover each other and so must anchor identically.
+function ShamanPower:PartyDotAnchor(i, frame)
+	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
+	local size, gap = (self.opt and self.opt.partyDotSize) or 5, 2
+	local span = 4 * size + 3 * gap
+	local along = (i - 1) * (size + gap)
+	if frame.compactLayoutOn and self:CompactActive() then
+		-- Compact style: dots sit at the far end of the line (after the
+		-- range-counter number when that is on too)
+		local co = self:CompactOpts()
+		local shift = self:CompactCounterShift(frame)
+		if co.vertical then return "BOTTOM", "BOTTOM", 0, co.ow + 2 + shift + along end
+		return "RIGHT", "RIGHT", -(co.ow + 3 + shift + along), 0
+	elseif pos == "above" then return "BOTTOMLEFT", "TOP", along - span / 2, 2
+	elseif pos == "below" then return "TOPLEFT", "BOTTOM", along - span / 2, -2
+	elseif pos == "left" then return "TOPRIGHT", "LEFT", -2, span / 2 - along
+	elseif pos == "right" then return "TOPLEFT", "RIGHT", 2, span / 2 - along
+	elseif i == 1 then return "TOPLEFT", "TOPLEFT", 1, -1
+	elseif i == 2 then return "TOPRIGHT", "TOPRIGHT", -1, -1
+	elseif i == 3 then return "BOTTOMLEFT", "BOTTOMLEFT", 1, 1
+	end
+	return "BOTTOMRIGHT", "BOTTOMRIGHT", -1, 1
 end
 
 -- Extra distance (px) a bar on a given side must keep from the button so it
@@ -7748,7 +11708,8 @@ end
 -- position option changes, and move the duration / pulse bars out of their way.
 function ShamanPower:UpdatePartyDotPositions()
 	for element = 1, 4 do
-		local btn = self.totemButtons and self.totemButtons[element]
+		local btn = self.GetTotemOverlayHost and self:GetTotemOverlayHost(element)
+			or (self.totemButtons and self.totemButtons[element])
 		local dots = self.partyRangeDots and self.partyRangeDots[element]
 		if btn and dots then self:PositionPartyDots(dots, btn) end
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
@@ -7761,9 +11722,17 @@ end
 function ShamanPower:UpdateTotemBarOpacity()
 	local opacity = self.opt.totemBarOpacity or 1.0
 	local fullWhenActive = self.opt.totemBarFullOpacityWhenActive
+	-- a fade rule is on (UpdateTotemBarVisibility): the whole bar at the faded opacity
+	if self.totemBarFaded then opacity, fullWhenActive = self.opt.fadeOpacity or 0.25, false end
 
 	if self.autoButton then
 		self.autoButton:SetAlpha(opacity)
+	end
+	-- Drop All sits on the bar button and takes its alpha: its own stays 1 (both set
+	-- multiply: a 25% fade showed it at 6%). Popped out, it has its own frame.
+	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
+	if dropAllBtn and dropAllBtn:IsShown() then
+		dropAllBtn:SetAlpha(dropAllBtn:GetParent() == self.autoButton and 1 or opacity)
 	end
 
 	-- Set alpha on totem buttons - full opacity if totem is placed and option enabled
@@ -7772,8 +11741,7 @@ function ShamanPower:UpdateTotemBarOpacity()
 			local btn = self.totemButtons[element]
 			if btn then
 				if fullWhenActive then
-					local slot = self.ElementToSlot and self.ElementToSlot[element]
-					local haveTotem = slot and GetTotemInfo(slot)
+					local haveTotem = self:GetElementTotemInfo(element)
 					btn:SetAlpha(haveTotem and 1.0 or opacity)
 				else
 					btn:SetAlpha(opacity)
@@ -7797,16 +11765,100 @@ end
 
 -- AuraUtil.FindAuraByName is broken on the 2.5.x client (its data provider
 -- lacks GetAuraDataBySpellName and throws). Scan the player's buffs directly.
+-- Shadow buff model for the player's own short buffs (Bloodlust, Nature's
+-- Swiftness, Shamanistic Rage ...): aura reads go secret in combat, own casts
+-- never do. A cast stamps the start; the length is learned while readable.
+ShamanPower.shadowBuffs = {}   -- [spellName] = { start, duration }
+local cachePlayerBuffs = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local buffIsSecret = _G.issecretvalue or function() return false end
+
+-- Opacity watches share the shadow entries, but only public aura observations
+-- populate this cache. Unknown reads are retried on aura/restriction events.
+local function RefreshPlayerBuffEntry(spellName, entry)
+	entry.opacityKnown = nil
+	if totemsSecretNow() or (_G.SPCompat and _G.SPCompat.AurasUnreadable and _G.SPCompat.AurasUnreadable()) then
+		return
+	end
+	local api = _G.C_UnitAuras
+	if not (api and api.GetAuraDataBySpellName) then return end
+	-- RequiresNonSecretAura may hide a particular spell even outside combat.
+	local policy = _G.C_Secrets and _G.C_Secrets.ShouldSpellAuraBeSecret
+	if not policy then return end
+	local policyOK, secret = pcall(policy, spellName)
+	if not policyOK or buffIsSecret(secret) or secret ~= false then return end
+	local ok, aura = pcall(api.GetAuraDataBySpellName, "player", spellName, "HELPFUL")
+	if not ok or buffIsSecret(aura) then return end
+	if aura == nil then
+		entry.opacityKnown, entry.opacityPresent, entry.opacityExpiration = true, false, nil
+		entry.start = nil
+		return
+	end
+	if type(aura) ~= "table" then return end
+	local name, duration, expiration = aura.name, aura.duration, aura.expirationTime
+	if buffIsSecret(name) or buffIsSecret(duration) or buffIsSecret(expiration) then return end
+	if type(name) ~= "string" or name ~= spellName then return end
+	if type(duration) ~= "number" or type(expiration) ~= "number" then return end
+	entry.opacityKnown, entry.opacityPresent, entry.opacityExpiration = true, true, expiration
+	if duration > 0 then
+		entry.duration = duration
+		if expiration > 0 then entry.start = expiration - duration end
+	end
+end
+
+function _G.ShamanPower:RefreshPlayerBuffCache()
+	if not cachePlayerBuffs then return end
+	for name, entry in pairs(self.shadowBuffs) do
+		if entry.opacityWatched then RefreshPlayerBuffEntry(name, entry) end
+	end
+end
+
+function ShamanPower:ShadowBuffCast(spellID)
+	local name = GetSpellInfo(spellID)
+	if cachePlayerBuffs and buffIsSecret(name) then return end
+	if not name then return end
+	local e = self.shadowBuffs[name] or {}
+	e.start = GetTime()
+	self.shadowBuffs[name] = e
+end
+
 local function PlayerHasBuff(spellName)
+	if totemsSecretNow() then
+		local e = ShamanPower.shadowBuffs[spellName]
+		if not (e and e.start) then return false end
+		local duration = e.duration or 30   -- unknown length (Nature's Swiftness has none): assume a short window
+		return e.start + duration > GetTime()
+	end
+	if cachePlayerBuffs then
+		local e = _G.ShamanPower.shadowBuffs[spellName]
+		if not e then
+			e = {}
+			_G.ShamanPower.shadowBuffs[spellName] = e
+		end
+		if not e.opacityWatched then
+			e.opacityWatched = true
+			RefreshPlayerBuffEntry(spellName, e)
+		end
+		if not e.opacityKnown then return false end
+		return e.opacityPresent and (e.opacityExpiration == 0 or e.opacityExpiration > _G.GetTime())
+	end
+	local found, duration, expiration
 	if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
-		return C_UnitAuras.GetAuraDataBySpellName("player", spellName, "HELPFUL") ~= nil
+		local a = C_UnitAuras.GetAuraDataBySpellName("player", spellName, "HELPFUL")
+		if a then found, duration, expiration = true, a.duration, a.expirationTime end
+	else
+		for i = 1, 40 do
+			local name, _, _, _, dur, exp = UnitAura("player", i, "HELPFUL")
+			if not name then break end
+			if name == spellName then found, duration, expiration = true, dur, exp break end
+		end
 	end
-	for i = 1, 40 do
-		local name = UnitAura("player", i, "HELPFUL")
-		if not name then break end
-		if name == spellName then return true end
+	if found and duration and duration > 0 then
+		local e = ShamanPower.shadowBuffs[spellName] or {}
+		e.duration = duration
+		if expiration and expiration > 0 then e.start = expiration - duration end
+		ShamanPower.shadowBuffs[spellName] = e
 	end
-	return false
+	return found and true or false
 end
 
 function ShamanPower:UpdateCooldownBarOpacity()
@@ -7844,15 +11896,15 @@ function ShamanPower:UpdateCooldownBarOpacity()
 						local hasHero = PlayerHasBuff("Heroism")
 						isActive = hasBL or hasHero
 					elseif spellID == 16190 then
-						-- Mana Tide Totem - check if MTT is active (water totem slot 3)
-						local haveTotem, totemName = GetTotemInfo(3)
+						-- Mana Tide Totem - check if MTT is active (water totem)
+						local haveTotem, totemName = self:GetElementTotemInfo(3)
 						if haveTotem and totemName and totemName:find("Mana Tide") then
 							isActive = true
 						end
 					elseif spellID == 36936 then
 						-- Totemic Call - active if any totems are placed
 						for slot = 1, 4 do
-							local haveTotem = GetTotemInfo(slot)
+							local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 							if haveTotem then
 								isActive = true
 								break
@@ -7900,14 +11952,15 @@ end
 
 -- Apply duration text size to all cooldown bar text elements
 function ShamanPower:ApplyCdbarTextSize()
+	self:ResetEngineBarCooldowns()   -- the engine strings copy the font on their next placement
 	local size = self.opt.cdbarDurationTextSize or 8
 	for _, btn in ipairs(self.cooldownButtons) do
-		if btn.insideText then btn.insideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.outsideText then btn.outsideText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.iconText then btn.iconText:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.insideText2 then btn.insideText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.outsideText2 then btn.outsideText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
-		if btn.iconText2 then btn.iconText2:SetFont("Fonts\\FRIZQT__.TTF", size, "OUTLINE") end
+		if btn.insideText then ShamanPower:SetSPFont(btn.insideText, "timers", size, "OUTLINE") end
+		if btn.outsideText then ShamanPower:SetSPFont(btn.outsideText, "timers", size, "OUTLINE") end
+		if btn.iconText then ShamanPower:SetSPFont(btn.iconText, "timers", size, "OUTLINE") end
+		if btn.insideText2 then ShamanPower:SetSPFont(btn.insideText2, "timers", size, "OUTLINE") end
+		if btn.outsideText2 then ShamanPower:SetSPFont(btn.outsideText2, "timers", size, "OUTLINE") end
+		if btn.iconText2 then ShamanPower:SetSPFont(btn.iconText2, "timers", size, "OUTLINE") end
 	end
 end
 
@@ -7931,6 +11984,7 @@ end
 function ShamanPower:ApplyTotemCooldownTextColor()
 	local c = self.opt.totemCooldownTextColor
 	local r, g, b = c and c.r or 1, c and c.g or 1, c and c.b or 1
+	self:RestyleEngineCooldowns()
 	-- Main totem buttons
 	for element = 1, 4 do
 		local btn = self.totemButtons and self.totemButtons[element]
@@ -7982,6 +12036,18 @@ function ShamanPower:CanDualWield()
 	return false
 end
 
+-- Which imbue the button would cast right now: the preferred one when it is
+-- actually known, otherwise the first one that is. Used for the resting icon
+-- so an unenchanted weapon shows the imbue you have rather than a fixed guess.
+function ShamanPower:DefaultImbueIndex()
+	local pref = self.opt and self.opt.preferredImbue
+	if pref and self:GetHighestRankImbue(pref) then return pref end
+	for i = 1, 4 do
+		if self:GetHighestRankImbue(i) then return i end
+	end
+	return nil
+end
+
 -- Get the highest rank of a weapon imbue spell that the player knows
 function ShamanPower:GetHighestRankImbue(imbueIndex)
 	local baseSpellID = self.WeaponImbueSpells[imbueIndex]
@@ -8030,7 +12096,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	-- Icon texture (will be updated based on current enchants)
 	local iconTex = btn:CreateTexture(nil, "ARTWORK")
 	iconTex:SetAllPoints()
-	iconTex:SetTexture(self.WeaponIcons[1])  -- Default to Windfury icon
+	iconTex:SetTexture(self.WeaponIcons[self:DefaultImbueIndex() or 1])  -- the imbue this button would cast, not a fixed Windfury
 	iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 	btn.icon = iconTex
 
@@ -8059,7 +12125,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	btn.bgBarMain = bgBarMain
 
 	local progressBarMain = btn:CreateTexture(nil, "OVERLAY", nil, 1)
-	progressBarMain:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+	ShamanPower:SetSPBarColor(progressBarMain, "cooldown", 0.2, 0.8, 0.2, 0.9)
 	progressBarMain:Hide()
 	btn.progressBarMain = progressBarMain
 
@@ -8069,7 +12135,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	btn.bgBarOff = bgBarOff
 
 	local progressBarOff = btn:CreateTexture(nil, "OVERLAY", nil, 1)
-	progressBarOff:SetColorTexture(0.2, 0.8, 0.2, 0.9)
+	ShamanPower:SetSPBarColor(progressBarOff, "cooldown", 0.2, 0.8, 0.2, 0.9)
 	progressBarOff:Hide()
 	btn.progressBarOff = progressBarOff
 
@@ -8092,20 +12158,21 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Time text for showing remaining duration (legacy)
 	local timeText = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	ShamanPower:AdoptSPFont(timeText, "timers")   -- template font = the design; follows the Fonts settings
 	timeText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	timeText:SetText("")
 	btn.timeText = timeText
 
 	-- Duration text INSIDE the bar
 	local insideText = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-	insideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(insideText, "timers", 8, "OUTLINE")
 	insideText:SetTextColor(1, 1, 1)
 	insideText:Hide()
 	btn.insideText = insideText
 
 	-- Duration text OUTSIDE the bar
 	local outsideText = btn:CreateFontString(nil, "OVERLAY")
-	outsideText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(outsideText, "timers", 8, "OUTLINE")
 	outsideText:SetTextColor(1, 1, 1)
 	outsideText:Hide()
 	btn.outsideText = outsideText
@@ -8113,7 +12180,7 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Duration text ON the icon
 	local iconText = btn:CreateFontString(nil, "OVERLAY")
-	iconText:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 	iconText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 	iconText:SetTextColor(1, 1, 1)
 	iconText:Hide()
@@ -8121,26 +12188,26 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- Off-hand duration text (mirrors main-hand options)
 	local insideText2 = btn:CreateFontString(nil, "OVERLAY", nil, 7)
-	insideText2:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(insideText2, "timers", 8, "OUTLINE")
 	insideText2:SetTextColor(1, 1, 1)
 	insideText2:Hide()
 	btn.insideText2 = insideText2
 
 	local outsideText2 = btn:CreateFontString(nil, "OVERLAY")
-	outsideText2:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(outsideText2, "timers", 8, "OUTLINE")
 	outsideText2:SetTextColor(1, 1, 1)
 	outsideText2:Hide()
 	btn.outsideText2 = outsideText2
 
 	local iconText2 = btn:CreateFontString(nil, "OVERLAY")
-	iconText2:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(iconText2, "timers", 9, "OUTLINE")
 	iconText2:SetTextColor(1, 1, 1)
 	iconText2:Hide()
 	btn.iconText2 = iconText2
 
 	-- Keybind text (top right corner, like standard action buttons)
 	local keybindText = btn:CreateFontString(nil, "OVERLAY")
-	keybindText:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+	ShamanPower:SetSPFont(keybindText, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 	keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 	keybindText:SetTextColor(0.9, 0.9, 0.9, 1)
 	keybindText:SetText("")
@@ -8150,17 +12217,17 @@ function ShamanPower:CreateWeaponImbueButton()
 
 	-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 	btn:SetAttribute("OpenMenu", "mouseover")
-	btn:SetAttribute("_onenter", [[
+	ShamanPower:SetSnippet(btn, "_onenter", [[
 		if self:GetAttribute("OpenMenu") == "mouseover" then
 			self:ChildUpdate("show", true)
 		end
 	]])
 
 	-- SECURE HANDLER: Hide flyout on leave (WORKS IN COMBAT)
-	btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+	ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 	-- SECURE HANDLER: Show flyout on right-click when in click mode (WORKS IN COMBAT)
-	btn:SetAttribute("_onmouseup", [[
+	ShamanPower:SetSnippet(btn, "_onmouseup", [[
 		local button = button
 		if button == "RightButton" and self:GetAttribute("OpenMenu") == "click" then
 			self:ChildUpdate("show", true)
@@ -8194,9 +12261,9 @@ function ShamanPower:CreateWeaponImbueButton()
 		end
 
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand", 1, 1, 1)
+		GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Apply to Main Hand", 1, 1, 1)
 		if ShamanPower:CanDualWield() then
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+			GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Apply to Off Hand", 1, 1, 1)
 		end
 		GameTooltip:Show()
 	end)
@@ -8237,13 +12304,21 @@ end
 
 -- Create the flyout menu for shields (combat-functional architecture)
 -- Flyout buttons are parented directly to shieldButton for ChildUpdate to work
+-- Box mode for the cooldown bar flyouts: every button stays shown inside the
+-- (hidden) box, since nothing can show them one by one during a fight.
+function ShamanPower:SyncCdbarFlyout(flyout)
+	if not flyout or not flyout.box or InCombatLockdown() then return end
+	for _, btn in ipairs(flyout.buttons or {}) do btn:Show() end
+	self:PlaceFlyoutArrows(flyout)
+end
+
 function ShamanPower:CreateShieldFlyout()
 	if self.shieldFlyout then return end
 	if InCombatLockdown() then return end
 	if not self.shieldButton then return end
 
 	local parentButton = self.shieldButton
-	local buttonSize = 22
+	local buttonSize = self:CooldownFlyoutButtonSize()
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
 	local flyout = {
@@ -8252,6 +12327,14 @@ function ShamanPower:CreateShieldFlyout()
 		spacing = spacing,
 		shieldButton = parentButton
 	}
+
+	-- Box mode: same click-to-open arrows as the totem flyouts
+	local buttonParent = parentButton
+	if spFlyoutBoxMode() then
+		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex = true, parentButton, 5
+		buttonParent = self:EnsureFlyoutBox("S", parentButton, flyout,
+			function() ShamanPower:LayoutShieldFlyout() end) or parentButton
+	end
 
 	-- Create buttons for each known shield as children of the shield button
 	for i, shieldData in ipairs(self.ShieldSpells) do
@@ -8262,11 +12345,16 @@ function ShamanPower:CreateShieldFlyout()
 			local name, _, icon = GetSpellInfo(spellName)
 
 			-- Create as CHILD of shield button for ChildUpdate to work
-			local btn = CreateFrame("Button", "ShamanPowerShieldFlyout" .. i, parentButton,
+			local btn = CreateFrame("Button", "ShamanPowerShieldFlyout" .. i, buttonParent,
 				"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate")
+			btn:SetParent(buttonParent)
 			btn:SetSize(buttonSize, buttonSize)
 			btn:SetFrameStrata("DIALOG")
-			btn:RegisterForClicks("AnyUp")
+			-- Both edges: secure clicks are gated on the ActionButtonUseKeyDown
+			-- CVar, so a button registered for only one edge silently never
+			-- fires for anyone whose setting points the other way. Every other
+			-- flyout button here already registers both.
+			btn:RegisterForClicks("AnyUp", "AnyDown")
 			btn:Hide()
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
@@ -8282,7 +12370,7 @@ function ShamanPower:CreateShieldFlyout()
 			highlight:SetColorTexture(1, 1, 1, 0.3)
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			btn:SetAttribute("_childupdate-show", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 				if message then
 					self:Show()
 				else
@@ -8291,18 +12379,25 @@ function ShamanPower:CreateShieldFlyout()
 			]])
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
-			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Left-click casts shield; right-click has no type2 so no cast happens
 			btn:SetAttribute("type1", "spell")
 			btn:SetAttribute("spell", spellName)
+			if flyout.box then
+				-- box mode: cast and close the flyout in the same click
+				btn.spPick = { ["1"] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
+			end
 
 			-- PostClick: both clicks assign default; left-click also casts (via type1 above)
 			btn:HookScript("PostClick", function(self, button)
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
 					local flyoutData = ShamanPower.shieldFlyout
-					if flyoutData and flyoutData.buttons then
+					if flyoutData and flyoutData.box then
+						ShamanPower:FlyoutFallbackSetShown(flyoutData.shieldButton, false)
+					elseif flyoutData and flyoutData.buttons then
 						for _, flyoutBtn in ipairs(flyoutData.buttons) do
 							flyoutBtn:Hide()
 						end
@@ -8312,6 +12407,7 @@ function ShamanPower:CreateShieldFlyout()
 					local shieldBtn = ShamanPower.shieldButton
 					if shieldBtn then
 						shieldBtn:SetAttribute("spell1", spellName)
+						if shieldBtn.spClickFilled then shieldBtn:SetAttribute("spell2", spellName) end
 						shieldBtn.defaultShieldSpell = spellName
 						-- Update the icon
 						local _, _, newIcon = GetSpellInfo(spellName)
@@ -8327,6 +12423,7 @@ function ShamanPower:CreateShieldFlyout()
 							break
 						end
 					end
+					ShamanPower:RebuildShieldChargeContainer()
 				end
 				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
 			end)
@@ -8337,8 +12434,8 @@ function ShamanPower:CreateShieldFlyout()
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(spellID)
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast and set as default", 1, 1, 1)
-				GameTooltip:AddLine("|cffffcc00Right-click:|r Set as default (no cast)", 1, 1, 1)
+				GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Cast and set as default", 1, 1, 1)
+				GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Set as default (no cast)", 1, 1, 1)
 				GameTooltip:Show()
 			end)
 			btn:HookScript("OnLeave", function()
@@ -8352,6 +12449,8 @@ function ShamanPower:CreateShieldFlyout()
 	end
 
 	self.shieldFlyout = flyout
+	if flyout.box then self:ApplyFlyoutPickMacros() end
+	self:ApplyClickSwap()
 
 	-- Layout the flyout buttons
 	self:LayoutShieldFlyout()
@@ -8371,6 +12470,7 @@ function ShamanPower:LayoutShieldFlyout()
 
 	local buttonSize = flyout.buttonSize
 	local spacing = flyout.spacing
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow tab in combat
 
 	-- Determine flyout direction based on CD bar layout
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
@@ -8394,17 +12494,18 @@ function ShamanPower:LayoutShieldFlyout()
 			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
 		end
 
+		flyout.arrowDir = goRight and "right" or "left"
 		if goRight then
 			-- Extend to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", shieldButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", shieldButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Extend to the LEFT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", shieldButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", shieldButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -8415,20 +12516,23 @@ function ShamanPower:LayoutShieldFlyout()
 		-- When "auto" and unlocked, go above
 		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
 
+		flyout.arrowDir = goBelow and "bottom" or "top"
 		if goBelow then
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
+
+	self:SyncCdbarFlyout(flyout)
 end
 
 -- Show shield flyout (for backward compatibility, mostly handled by secure handlers now)
@@ -8448,7 +12552,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	if not self.weaponImbueButton then return end
 
 	local parentButton = self.weaponImbueButton
-	local buttonSize = 22
+	local buttonSize = self:CooldownFlyoutButtonSize()
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
 	local flyout = {
@@ -8458,13 +12562,22 @@ function ShamanPower:CreateWeaponImbueFlyout()
 		imbueButton = parentButton
 	}
 
+	-- Box mode: same click-to-open arrows as the totem flyouts
+	local buttonParent = parentButton
+	if spFlyoutBoxMode() then
+		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex = true, parentButton, 5
+		buttonParent = self:EnsureFlyoutBox("I", parentButton, flyout,
+			function() ShamanPower:LayoutWeaponImbueFlyout() end) or parentButton
+	end
+
 	-- Create buttons for each known imbue as children of the imbue button
 	for imbueIndex = 1, 4 do
 		local spellName = self:GetHighestRankImbue(imbueIndex)
 		if spellName then
 			-- Create as CHILD of imbue button for ChildUpdate to work
-			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, parentButton,
+			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, buttonParent,
 				"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerShowHideTemplate")
+			btn:SetParent(buttonParent)
 			btn:SetSize(buttonSize, buttonSize)
 			btn:SetFrameStrata("DIALOG")
 			btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp", "RightButtonDown")
@@ -8472,7 +12585,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			btn:SetIgnoreParentAlpha(true)  -- Independent opacity from parent button
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			btn:SetAttribute("_childupdate-show", [[
+			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 				if message then
 					self:Show()
 				else
@@ -8481,11 +12594,15 @@ function ShamanPower:CreateWeaponImbueFlyout()
 			]])
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
-			btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 			-- Click to cast imbue spell (left=main hand, right=off hand)
 			local mainHandMacro = "/cast [@none] " .. spellName .. "\n/use 16\n/click StaticPopup1Button1"
 			local offHandMacro = "/cast [@none] " .. spellName .. "\n/use 17\n/click StaticPopup1Button1"
+			if flyout.box then
+				btn.spPick = { ["1"] = mainHandMacro, ["2"] = offHandMacro }   -- finished by ApplyFlyoutPickMacros
+			end
 			btn:SetAttribute("type1", "macro")
 			btn:SetAttribute("macrotext1", mainHandMacro)
 			btn:SetAttribute("type2", "macro")
@@ -8508,7 +12625,9 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
 					local flyoutData = ShamanPower.weaponImbueFlyout
-					if flyoutData and flyoutData.buttons then
+					if flyoutData and flyoutData.box then
+						ShamanPower:FlyoutFallbackSetShown(flyoutData.imbueButton, false)
+					elseif flyoutData and flyoutData.buttons then
 						for _, flyoutBtn in ipairs(flyoutData.buttons) do
 							flyoutBtn:Hide()
 						end
@@ -8517,7 +12636,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
 
 				-- Remember last used imbue
-				if button == "LeftButton" then
+				if ShamanPower:LogicalButton(self, button) == "LeftButton" then
 					ShamanPower.lastMainHandImbue = imbueIndex
 					ShamanPower.opt.preferredImbue = imbueIndex
 					-- Update main imbue button's macros to match new default
@@ -8545,9 +12664,9 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(ShamanPower.WeaponImbueSpells[imbueIndex])
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Apply to Main Hand (sets default)", 1, 1, 1)
+				GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Apply to Main Hand (sets default)", 1, 1, 1)
 				if ShamanPower:CanDualWield() then
-					GameTooltip:AddLine("|cffffcc00Right-click:|r Apply to Off Hand", 1, 1, 1)
+					GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Apply to Off Hand", 1, 1, 1)
 				end
 				GameTooltip:Show()
 			end)
@@ -8562,6 +12681,8 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	end
 
 	self.weaponImbueFlyout = flyout
+	if flyout.box then self:ApplyFlyoutPickMacros() end
+	self:ApplyClickSwap()
 
 	-- Layout the flyout buttons
 	self:LayoutWeaponImbueFlyout()
@@ -8581,6 +12702,7 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 
 	local buttonSize = flyout.buttonSize
 	local spacing = flyout.spacing
+	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow tab in combat
 
 	-- Determine flyout direction based on CD bar layout
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
@@ -8604,17 +12726,18 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
 		end
 
+		flyout.arrowDir = goRight and "right" or "left"
 		if goRight then
 			-- Extend to the RIGHT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", imbueButton, "RIGHT", spacing + (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("LEFT", imbueButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
 			end
 		else
 			-- Extend to the LEFT
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", imbueButton, "LEFT", -spacing - (i - 1) * (buttonSize + spacing), 0)
+				btn:SetPoint("RIGHT", imbueButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
 			end
 		end
 	else
@@ -8625,20 +12748,23 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 		-- When "auto" and unlocked, go above
 		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
 
+		flyout.arrowDir = goBelow and "bottom" or "top"
 		if goBelow then
 			-- Extend downward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("TOP", imbueButton, "BOTTOM", 0, -spacing - (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("TOP", imbueButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
 			end
 		else
 			-- Extend upward
 			for i, btn in ipairs(buttons) do
 				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", imbueButton, "TOP", 0, spacing + (i - 1) * (buttonSize + spacing))
+				btn:SetPoint("BOTTOM", imbueButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
 			end
 		end
 	end
+
+	self:SyncCdbarFlyout(flyout)
 end
 
 -- Show weapon imbue flyout (for backward compatibility, mostly handled by secure handlers now)
@@ -8662,13 +12788,10 @@ end
 
 -- Check if any totems are currently placed
 function ShamanPower:HasAnyTotemsPlaced()
-	for element = 1, 4 do
-		local slot = self.ElementToSlot[element]
-		if slot then
-			local haveTotem = GetTotemInfo(slot)
-			if haveTotem then
-				return true
-			end
+	for slot = 1, 4 do
+		local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
+		if haveTotem then
+			return true
 		end
 	end
 	return false
@@ -8680,12 +12803,27 @@ end
 -- Drop All / Earth Shield / Totemic Call buttons are all UIParent children,
 -- so hiding the anchor alone never hid them.
 function ShamanPower:TotemBarEnabled()
-	return self.opt.enabled ~= false and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
+	return not self:IsOff() and self.opt.miniBar and self.opt.miniBar.autobutton and true or false
+end
+
+-- Whether the layout puts the totem bar up at all right now: a shaman, switched
+-- on, and wanted in this kind of group (Use When Solo / Use in Party). The hide
+-- and fade rules only act on a bar this allows, so a target, a fade or a pull
+-- never brings back one the layout keeps down.
+function ShamanPower:TotemBarInUse()
+	return isShaman and not self:IsOff() and self.opt.miniBar.autobutton
+		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
 end
 
 function ShamanPower:SetTotemBarFramesShown(shown)
 	if InCombatLockdown() then self._totemBarShownPending = shown; return end
 	self._totemBarShownPending = nil
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then shown = false end
+	-- The hide rules (UpdateTotemBarVisibility) have the last word: a layout pass
+	-- (roster after a fight, zone change, new spell) must not bring back a bar they
+	-- hide, since nothing would hide it again before their next event.
+	local o, asked = self.opt, shown
+	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems) then shown = false end
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -8694,13 +12832,41 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 		end
 	end
 	local dropAll = _G["ShamanPowerAutoDropAll"]
-	if dropAll then dropAll:SetShown(shown and self.opt.showDropAllButton ~= false) end
+	if dropAll then dropAll:SetShown(shown and self:ShowsDropAllButton()) end
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if esBtn then esBtn:SetShown(shown and self.HasEarthShield and self:HasEarthShield() or false) end
 	local tcBtn = _G["ShamanPowerTotemicCallBtn"]
 	if tcBtn and not shown then tcBtn:Hide() end
 	local shBtn = _G["ShamanPowerCompactShieldBtn"]
 	if shBtn then shBtn:SetShown(shown and self.CompactShieldLineActive and self:CompactShieldLineActive() or false) end
+	-- and their state checked again (a no-op while it still holds): it can be from
+	-- while the bar was off, or from rules switched off since
+	if asked then self:SetupTotemBarVisibilityUpdater() end
+end
+
+-- Leave hidden secure spell/keybinding targets configured. Only presentation
+-- is suppressed, out of combat, after the normal assignment/layout paths run.
+function ShamanPower:HideCustomTotemBarForBlizzard()
+	if not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then return end
+	if InCombatLockdown() then return end
+	self:SetTotemBarFramesShown(false)
+	self:HideActiveTotemOverlaysForCompact()
+	local recall = _G.ShamanPowerAutoTotemicCall
+	if recall then recall:Hide() end
+	for element = 1, 4 do
+		local legacyButton = _G["ShamanPowerAutoTotem" .. element]
+		if legacyButton then legacyButton:Hide() end
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn then
+			btn:SetAttribute("OpenMenu", nil)
+			local flyout = self.totemFlyouts and self.totemFlyouts[element]
+			if flyout and flyout.box then
+				self:FlyoutFallbackSetShown(btn, false)
+			elseif flyout and flyout.buttons then
+				for _, child in ipairs(flyout.buttons) do child:Hide() end
+			end
+		end
+	end
 end
 do
 	local f = CreateFrame("Frame")
@@ -8713,15 +12879,51 @@ do
 	end)
 end
 
-function ShamanPower:UpdateTotemBarVisibility()
-	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
-	-- Enable/disable totemVisibility subsystem based on whether auto-hide features are on
-	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
-		self:EnableUpdateSubsystem("totemVisibility")
-	else
-		self:DisableUpdateSubsystem("totemVisibility")
+-- Smooth fade for the fade rules: the real alpha is still set at once (the source
+-- of truth); an engine Alpha animation then plays from the old value to it over
+-- 0.2 s. Only out of combat: combat start stops any fade before lockdown and the
+-- bar is simply at its full alpha. opt.fadeSmooth == false turns it off.
+local FADE_TIME = 0.2
+local function fadeFrames(self)
+	-- built without gaps: a missing button must not cut the list short for ipairs
+	local list = {}
+	local function add(f) if f then list[#list + 1] = f end end
+	add(self.autoButton); add(_G["ShamanPowerAutoDropAll"]); add(_G["ShamanPowerEarthShieldBtn"])
+	if self.totemButtons then for element = 1, 4 do add(self.totemButtons[element]) end end
+	if self.GridFadeFrames then self:GridFadeFrames(add) end   -- Grid's rows glide too
+	return list
+end
+local function stopFades(self)
+	for _, f in ipairs(fadeFrames(self)) do
+		if f and f.spFadeAG then f.spFadeAG:Stop() end
 	end
+end
+local function playFade(frame, fromAlpha)
+	if not (frame and fromAlpha and frame.CreateAnimationGroup and frame:IsShown()) then return end
+	local toAlpha = frame:GetAlpha()
+	if math.abs(fromAlpha - toAlpha) < 0.01 then return end
+	local ag = frame.spFadeAG
+	if not ag then
+		ag = frame:CreateAnimationGroup()
+		ag.fade = ag:CreateAnimation("Alpha")
+		ag.fade:SetDuration(FADE_TIME)
+		ag.fade:SetSmoothing("IN_OUT")
+		frame.spFadeAG = ag
+	end
+	ag:Stop()
+	ag.fade:SetFromAlpha(fromAlpha)
+	ag.fade:SetToAlpha(toAlpha)
+	ag:Play()   -- ends on the frame's own (already set) alpha
+end
 
+function ShamanPower:UpdateTotemBarVisibility(force)
+	if force then self.totemBarHidden, self.totemBarFaded = nil, nil end   -- a fade setting changed: re-apply
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:HideCustomTotemBarForBlizzard()
+		return
+	end
+	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
+	if not self:TotemBarInUse() then return end     -- the layout keeps it down (solo / party choice)
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -8741,12 +12943,38 @@ function ShamanPower:UpdateTotemBarVisibility()
 		end
 	end
 
+	-- Fade rules (opt-in). "Show When I Have a Target" lifts either hide reason
+	-- while an attackable target is selected; "Fade Instead of Hide" turns a hide
+	-- into a low alpha. Alpha is never protected, so a faded bar can be brought
+	-- back in combat too; only real Hide/Show waits for lockdown to end.
+	if shouldHide and self.opt.showWithTarget and UnitExists("target") and UnitCanAttack("player", "target") then
+		shouldHide = false
+	end
+	local fade = shouldHide and self.opt.fadeInsteadOfHide == true
+	if fade then shouldHide = false end
+
 	-- Skip update if state hasn't changed (prevents blinking)
-	if self.totemBarHidden == shouldHide then return end
+	if self.totemBarHidden == shouldHide and (self.totemBarFaded or false) == fade then return end
+	if InCombatLockdown() and self.totemBarHidden ~= shouldHide then return end   -- Show/Hide: after combat
+	-- a fade-only change between two visible states, out of combat, may glide
+	local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
+	local glide = self.opt.fadeSmooth ~= false and not inCombat and not force
+		and self.totemBarHidden == false and not shouldHide and (self.totemBarFaded or false) ~= fade
+	local before
+	if glide then
+		before = {}
+		for _, f in ipairs(fadeFrames(self)) do if f then before[f] = f:GetAlpha() end end
+	elseif not InCombatLockdown() then
+		stopFades(self)   -- never let a fade hold the bar down (combat start stops them before lockdown)
+	end
 	self.totemBarHidden = shouldHide
+	self.totemBarFaded = fade
 
 	-- Apply visibility (can't change in combat lockdown for secure frames)
-	if not InCombatLockdown() then
+	if InCombatLockdown() then
+		self:UpdateTotemBarOpacity()   -- only a fade changed: alpha is allowed
+		if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
+	else
 		if shouldHide then
 			-- Hide everything
 			self.autoButton:Hide()
@@ -8766,17 +12994,19 @@ function ShamanPower:UpdateTotemBarVisibility()
 			local esBtn = _G["ShamanPowerEarthShieldBtn"]
 			if esBtn then esBtn:Hide() end
 		else
-			-- Show everything with proper opacity
-			local alpha = self.opt.totemBarOpacity or 1.0
+			-- Show everything with proper opacity (the faded opacity while a fade rule applies)
+			local alpha = fade and (self.opt.fadeOpacity or 0.25) or (self.opt.totemBarOpacity or 1.0)
 
 			self.autoButton:Show()
 			self.autoButton:SetAlpha(alpha)
 
+			-- only the elements the layout shows (a hidden or not yet learned one stays
+			-- hidden; a popped-out one shows in its own frame)
 			if self.totemButtons then
 				for element = 1, 4 do
 					local btn = self.totemButtons[element]
 					if btn then
-						btn:Show()
+						btn:SetShown(self:IsElementShown(element) or self:IsElementPoppedOut(element))
 						btn:SetAlpha(alpha)
 					end
 				end
@@ -8784,9 +13014,9 @@ function ShamanPower:UpdateTotemBarVisibility()
 
 			-- Show Drop All button (if enabled)
 			local dropAllBtn = _G["ShamanPowerAutoDropAll"]
-			if dropAllBtn and self.opt.showDropAllButton ~= false then
+			if dropAllBtn and self:ShowsDropAllButton() then
 				dropAllBtn:Show()
-				dropAllBtn:SetAlpha(alpha)
+				dropAllBtn:SetAlpha(dropAllBtn:GetParent() == self.autoButton and 1 or alpha)   -- takes the bar's (UpdateTotemBarOpacity)
 			end
 
 			-- Show Earth Shield button (if it should be visible)
@@ -8795,33 +13025,96 @@ function ShamanPower:UpdateTotemBarVisibility()
 				esBtn:Show()
 				esBtn:SetAlpha(alpha)
 			end
+			if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
+			-- per-button rules (Full Opacity When Totem Placed) on top, unless faded
+			if not fade then self:UpdateTotemBarOpacity() end
 		end
+	end
+	if before then
+		for f, old in pairs(before) do playFade(f, old) end
 	end
 end
 
--- Set up visibility update timer
-function ShamanPower:SetupTotemBarVisibilityUpdater()
-	-- Register visibility updates with consolidated update system (5fps)
-	if not self.updateSystem.subsystems["totemVisibility"] then
-		self:RegisterUpdateSubsystem("totemVisibility", 0.2, function()
-			ShamanPower:UpdateTotemBarVisibility()
-		end)
+-- The hide and fade rules react to events, not a timer: combat start (before
+-- lockdown, so a hidden bar can still be shown), combat end, a totem going down
+-- or away, target changes, and the target turning attackable (or not) without a
+-- target change: an NPC turning hostile, a duel starting, a PvP flag flip (on
+-- either side, as Blizzard's target frame checks it). Idle when the options are off.
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("PLAYER_REGEN_DISABLED")
+	f:RegisterEvent("PLAYER_REGEN_ENABLED")
+	f:RegisterEvent("PLAYER_TARGET_CHANGED")
+	f:RegisterEvent("PLAYER_TOTEM_UPDATE")
+	if f.RegisterUnitEvent then f:RegisterUnitEvent("UNIT_FACTION", "player", "target") else f:RegisterEvent("UNIT_FACTION") end
+	local totemCheckQueued
+	local function totemCheck()
+		totemCheckQueued = nil
+		ShamanPower:UpdateTotemBarVisibility()
 	end
-	-- Only enable if auto-hide features are on
-	if self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems then
-		self:EnableUpdateSubsystem("totemVisibility")
-	else
-		self:DisableUpdateSubsystem("totemVisibility")
+	f:SetScript("OnEvent", function(_, event, unit)
+		local o = ShamanPower.opt
+		if not (o and (o.hideOutOfCombat or o.hideWhenNoTotems)) or ShamanPower:IsOff() then return end   -- no rules, or switched off
+		if (event == "PLAYER_TARGET_CHANGED" or event == "UNIT_FACTION") and not o.showWithTarget then return end
+		if event == "UNIT_FACTION" and unit ~= "target" and unit ~= "player" then return end
+		if event == "PLAYER_TOTEM_UPDATE" then
+			-- read a frame later, once the shadow totem model (combat) has the change too
+			if o.hideWhenNoTotems and not totemCheckQueued then totemCheckQueued = true; C_Timer.After(0, totemCheck) end
+			return
+		end
+		if event == "PLAYER_REGEN_DISABLED" then stopFades(ShamanPower) end   -- before lockdown: full alpha now
+		ShamanPower:UpdateTotemBarVisibility()
+	end)
+end
+
+-- One pass where there is hide state to work out (login, a profile change);
+-- after that the events above keep it current. A bar with no hide option and
+-- nothing hidden is left to the layout, as the old 5 Hz pass left it.
+function ShamanPower:SetupTotemBarVisibilityUpdater()
+	local o = self.opt
+	if o and (o.hideOutOfCombat or o.hideWhenNoTotems or self.totemBarHidden or self.totemBarFaded) then
+		self:UpdateTotemBarVisibility()
 	end
 end
 
 -- Update the mini totem bar icons and spells based on current assignments
+-- Out of combat: set one element's assignment and do everything a flyout pick
+-- does (bar icon, Drop All / Blizzard's bar, macros, party message, flyout
+-- marks). In combat nothing is written: callers queue for the regen pass.
+function ShamanPower:ApplyAssignment(element, totemIndex)
+	if InCombatLockdown() then return false end
+	ShamanPower_Assignments[self.player] = ShamanPower_Assignments[self.player] or {}
+	ShamanPower_Assignments[self.player][element] = totemIndex or 0
+	self:UpdateMiniTotemBar()
+	self:UpdateDropAllButton()
+	self:UpdateSPMacros()
+	self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (totemIndex or 0))
+	self:UpdateFlyoutVisibility(element)
+	if self.ShowEmptySlotArt then self:ShowEmptySlotArt(element, (totemIndex or 0) == 0) end
+	return true
+end
+
+-- The settings window shows assignment-dependent notes; let it redraw when
+-- one changes while it is open (AceConfig's change notification, which the
+-- window listens to). Nothing happens while it is closed.
+function ShamanPower:AssignmentsChanged()
+	local cfg = rawget(_G, "ShamanPowerConfig")
+	if not (cfg and cfg.IsOpen and cfg:IsOpen()) then return end
+	local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if reg then reg:NotifyChange("ShamanPower") end
+end
+
 function ShamanPower:UpdateMiniTotemBar()
+	self._ovWake = true   -- this repaints the totem icons: the dropped-totem overlay state is re-applied on the next bar tick
+	self:AssignmentsChanged()
 	if not self.autoButton then return end
 	if InCombatLockdown() then return end
+	-- switched off: the totem, Drop All and Earth Shield buttons (UIParent children)
+	-- stay down; switch-on lays the bar out again
+	if self:IsOff() then return end
 
 	-- Don't show buttons if totem bar should be hidden
-	if self.totemBarHidden then return end
+	if self.totemBarHidden and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then return end
 
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
@@ -8838,7 +13131,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	local spacing = self.opt.totemBarPadding or 2
 	local padding = 4
 	local separatorSize = 12  -- Extra gap for separator
-	local showDropAll = self.opt.showDropAllButton ~= false  -- Default to true if not set
+	local showDropAll = self:ShowsDropAllButton()  -- the option (on by default), once a totem is learned
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	-- Show Totemic Call on totem bar if option is enabled (spell knowledge is validated by CD bar settings)
 	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
@@ -8886,6 +13179,15 @@ function ShamanPower:UpdateMiniTotemBar()
 		end
 		self.autoButton:SetSize(math.max(slotCross, extraButtonCount > 0 and buttonSize or 0) + (padding * 2), math.max(totalHeight, buttonSize + (padding * 2)))
 	end
+	-- Nothing on the bar yet (a new shaman before the first totem: Drop All waits
+	-- for one too): no empty panel either. It comes back with the first totem.
+	local empty = visibleCount == 0 and extraButtonCount == 0 and startOff == 0
+	if empty and self.autoButton.SetBackdrop then
+		self.autoButton:SetBackdrop(nil)
+	elseif not empty and self._totemBarEmpty then
+		self:UpdateTotemBarFrame(); self:ButtonsUpdate()   -- the panel, then its status colour
+	end
+	self._totemBarEmpty = empty
 
 	-- Get the order to display totem buttons
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
@@ -8904,7 +13206,7 @@ function ShamanPower:UpdateMiniTotemBar()
 
 				-- Dynamic Mode: use currently active totem instead of assignment
 				local totemIndex
-				if self.opt.dynamicTotemMode then
+				if self:ShowsActiveTotemOnBar() then
 					-- First try to get the active totem
 					local activeIndex = self:GetActiveTotemIndex(element)
 					if activeIndex then
@@ -8960,7 +13262,7 @@ function ShamanPower:UpdateMiniTotemBar()
 				-- Left-click: cast totem (or castsequence for Air totem twisting)
 				if element == 4 and self.opt.enableTotemTwisting then
 					-- Air totem with twisting: use castsequence macro
-					local wfName = GetSpellInfo(25587) or "Windfury Totem"
+					local wfName = GetSpellInfo(8512) or "Windfury Totem"
 					local twistName = self:GetTwistTotemName()
 					totemButton:SetAttribute("type1", "macro")
 					totemButton:SetAttribute("macrotext1", "/castsequence reset=combat/15 " .. wfName .. ", " .. twistName)
@@ -8975,10 +13277,14 @@ function ShamanPower:UpdateMiniTotemBar()
 				end
 
 				-- Right-click behavior: Totemic Call by default, assigned totem if option enabled, or flyout trigger
-				if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+				totemButton:SetAttribute("shift-type2", nil)
+				totemButton:SetAttribute("shift-spell2", nil)
+				if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
 					-- Right-click shows flyout instead of Totemic Call
 					totemButton:SetAttribute("type2", nil)
 					totemButton:SetAttribute("spell2", nil)
+				elseif self:RightClickDestroysTotems() then
+					self:ApplyTotemDestroyAttributes(totemButton, element)
 				elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
 					-- TotemTimers mode: right-click casts the assigned totem (shown in corner)
 					-- Get the assigned totem spell (not the active one)
@@ -9239,14 +13545,17 @@ function ShamanPower:TotemBarTooltip(button, element)
 	GameTooltip:AddLine(elementName .. " Totem", 1, 1, 1)
 	if spellID then
 		GameTooltip:AddLine(totemName, 0, 1, 0)
-		GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 0.7, 0.7, 0.7)
-		-- Right-click behavior depends on options
-		if self.opt.showTotemFlyouts and self.opt.flyoutRequiresClick then
+		GameTooltip:AddLine(self:ClickLabel(true) .. " Cast totem", 0.7, 0.7, 0.7)
+		-- The other click depends on options
+		if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
 			GameTooltip:AddLine("|cffffcc00Right-click:|r Show flyout", 0.7, 0.7, 0.7)
+		elseif self:RightClickDestroysTotems() then
+			GameTooltip:AddLine(self:ClickLabel(false) .. " Pull this totem back", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false, true) .. " " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
 		elseif self.opt.activeTotemAsMain and self.opt.rightClickCastsAssigned then
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false) .. " Drop corner totem (" .. totemName .. ")", 0.7, 0.7, 0.7)
 		else
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Totemic Call", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine(self:ClickLabel(false) .. " " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
 		end
 	else
 		GameTooltip:AddLine("No totem assigned", 1, 0, 0)
@@ -9315,12 +13624,12 @@ function ShamanPower:CreateEarthShieldButton()
 
 	-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
 	esBtn:SetAttribute("OpenMenu", "mouseover")
-	esBtn:SetAttribute("_onenter", [[
+	ShamanPower:SetSnippet(esBtn, "_onenter", [[
 		if self:GetAttribute("OpenMenu") == "mouseover" then
 			self:ChildUpdate("show", true)
 		end
 	]])
-	esBtn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+	ShamanPower:SetSnippet(esBtn, "_onleave", SP_SECURE_ONLEAVE_SELF)
 
 	-- Icon (use the template's icon - $parentIcon becomes ShamanPowerEarthShieldBtnIcon)
 	local icon = _G[esBtn:GetName() .. "Icon"]
@@ -9330,13 +13639,16 @@ function ShamanPower:CreateEarthShieldButton()
 
 	-- Charge count text (bottom right corner)
 	local chargeText = esBtn:CreateFontString("ShamanPowerEarthShieldBtnCharges", "OVERLAY", "NumberFontNormal")
+	ShamanPower:AdoptSPFont(chargeText, "charges")   -- template font = the design; follows the Fonts settings
 	chargeText:SetPoint("BOTTOMRIGHT", esBtn, "BOTTOMRIGHT", -1, 1)
 	chargeText:SetJustifyH("RIGHT")
 	chargeText:SetTextColor(1, 1, 1)  -- White
 	chargeText:SetText("")
+	self:EnsureESButtonContainer(esBtn)
 
 	-- Target name text (optional, shows below button)
 	local nameText = esBtn:CreateFontString("ShamanPowerEarthShieldBtnName", "OVERLAY", "GameFontHighlightSmall")
+	ShamanPower:AdoptSPFont(nameText, "labels")   -- template font = the design; follows the Fonts settings
 	nameText:SetPoint("TOP", esBtn, "BOTTOM", 0, -1)
 	nameText:SetWidth(40)
 	nameText:SetHeight(10)
@@ -9478,7 +13790,7 @@ function ShamanPower:CreateEarthShieldButton()
 				else
 					-- Plain middle-click returns to bar
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+						print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 						return
 					end
 					ShamanPower:ReturnPopOutToBar(key)
@@ -9486,7 +13798,7 @@ function ShamanPower:CreateEarthShieldButton()
 			else
 				-- Not popped out, so pop it out
 				if InCombatLockdown() then
-					print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+					print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 					return
 				end
 				ShamanPower:PopOutEarthShield()
@@ -9562,14 +13874,14 @@ function ShamanPower:CreateESActiveOverlay()
 
 	-- Target name text (inside icon)
 	local nameText = frame:CreateFontString(nil, "OVERLAY")
-	nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+	ShamanPower:SetSPFont(nameText, "labels", 8, "OUTLINE")
 	nameText:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	nameText:SetTextColor(1, 1, 1)
 	overlay.nameText = nameText
 
 	-- Charge count (top right)
 	local chargeText = frame:CreateFontString(nil, "OVERLAY")
-	chargeText:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+	ShamanPower:SetSPFont(chargeText, "charges", 10, "OUTLINE")
 	chargeText:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
 	chargeText:SetTextColor(1, 1, 1)
 	overlay.chargeText = chargeText
@@ -9803,7 +14115,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 
 		-- Player name text
 		local nameText = btn:CreateFontString(nil, "OVERLAY")
-		nameText:SetFont("Fonts\\FRIZQT__.TTF", 8, "OUTLINE")
+		ShamanPower:SetSPFont(nameText, "labels", 8, "OUTLINE")
 		nameText:SetPoint("CENTER", btn, "CENTER", 0, 0)
 		nameText:SetTextColor(1, 1, 1)
 		btn.nameText = nameText
@@ -9814,7 +14126,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		highlight:SetColorTexture(1, 1, 1, 0.3)
 
 		-- SECURE HANDLER: Respond to parent's ChildUpdate
-		btn:SetAttribute("_childupdate-show", [[
+		ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 			if message then
 				if not self:GetAttribute("esInactive") then
 					self:Show()
@@ -9825,7 +14137,8 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 		]])
 
 		-- SECURE HANDLER: Check parent on leave
-		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 		btn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -9860,7 +14173,7 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 				if memberName then
 					ShamanPower_EarthShieldAssignments[ShamanPower.player] = memberName
 					ShamanPower:UpdateEarthShieldButton()
-					ShamanPower:SendMessage("ES_ASSIGN " .. ShamanPower.player .. " " .. memberName)
+					ShamanPower:SendMessage(ShamanPower:EncodeESAssign(ShamanPower.player, memberName))   -- the keyword every client handles (was ES_ASSIGN, never received)
 				end
 			end
 			-- Close the flyout after picking someone, like the totem flyouts
@@ -9946,7 +14259,7 @@ end
 
 function ShamanPower:UpdateESFlyoutClickBehavior()
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change flyout settings in combat")
+		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
 		return
 	end
 
@@ -10063,7 +14376,8 @@ function ShamanPower:OnEarthShieldCastSent(target, castGUID, spellID)
 		self.esLastCastTarget = target
 		self.esLastCastGUID = UnitGUID(target)
 		-- The SENT target is a name; resolve it through the tokens that can carry
-		-- your shield: yourself, target, focus, party, raid.
+		-- your shield: yourself, target, focus, party, raid (group identity stays
+		-- readable in combat on restricted clients).
 		if not self.esLastCastGUID and target then
 			local bare = target:match("^[^%-]+") or target
 			local tokens = { "player", "target", "focus" }
@@ -10093,6 +14407,7 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 		-- Cast succeeded! Update tracked target
 		self.esTrackedTarget = self.esLastCastTarget
 		self.esTrackedTargetGUID = self.esLastCastGUID
+		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 6  -- Full charges on fresh cast (will be updated by UNIT_AURA)
 
 		-- Clear pending
@@ -10104,10 +14419,10 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 	end
 end
 
--- Find who carries your Earth Shield when nothing is tracked (login, /reload):
--- scan yourself, party and raid for the aura you cast.
+-- Find who carries your Earth Shield when nothing is tracked (login, /reload,
+-- restrictions clearing): scan yourself, party and raid for the aura you cast.
 function ShamanPower:DiscoverEarthShieldTarget()
-	if self.esTrackedTargetGUID then return end
+	if self.esTrackedTargetGUID or totemsSecretNow() then return end
 	local esSpellName = self:GetESSpellName()
 	if not esSpellName then return end
 	local tokens = { "player" }
@@ -10121,6 +14436,7 @@ function ShamanPower:DiscoverEarthShieldTarget()
 				if name == esSpellName and source == "player" then
 					self.esTrackedTarget = UnitName(u)
 					self.esTrackedTargetGUID = UnitGUID(u)
+					self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 					self.esTrackedCharges = count or 0
 					self:UpdateEarthShieldButton()
 					return
@@ -10130,9 +14446,29 @@ function ShamanPower:DiscoverEarthShieldTarget()
 	end
 end
 
+-- Re-read the tracked Earth Shield target's aura once it is readable again
+function ShamanPower:RefreshEarthShieldTarget()
+	if not self.esTrackedTargetGUID then
+		self:DiscoverEarthShieldTarget()
+		return
+	end
+	local tokens = { "player", "target", "focus" }
+	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+	for _, u in ipairs(tokens) do
+		if UnitExists(u) and UnitGUID(u) == self.esTrackedTargetGUID then
+			self:OnEarthShieldAuraChange(u)
+			return
+		end
+	end
+end
+
 -- Handle aura changes on tracked target
 function ShamanPower:OnEarthShieldAuraChange(unit)
 	if not self.esTrackedTargetGUID then return end
+	-- Charges on another player cannot be read while auras are secret; keep the
+	-- last known state rather than treating "nothing readable" as "fell off".
+	if totemsSecretNow() then return end
 
 	-- Only process if this is our ES target
 	if UnitGUID(unit) ~= self.esTrackedTargetGUID then return end
@@ -10156,6 +14492,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit)
 		-- ES fell off
 		self.esTrackedTarget = nil
 		self.esTrackedTargetGUID = nil
+		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 0
 	end
 
@@ -10203,6 +14540,7 @@ function ShamanPower:FindEarthShieldTarget()
 			-- Target left group or doesn't exist
 			self.esTrackedTarget = nil
 			self.esTrackedTargetGUID = nil
+			self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 			self.esTrackedCharges = 0
 		end
 	end
@@ -10211,9 +14549,84 @@ function ShamanPower:FindEarthShieldTarget()
 end
 
 -- Update the charge display on the button
+-- Earth Shield aura IDs: TBC ranks plus retail's aura (383648; the cast is 974)
+ShamanPower.EarthShieldAuraIDs = { 974, 32593, 32594, 383648 }
+
+-- Group token of the player carrying your Earth Shield (nil if not in view)
+function ShamanPower:EarthShieldUnitToken()
+	local guid = self.esTrackedTargetGUID
+	if not guid then return nil end
+	local tokens = { "player" }
+	for i = 1, 4 do tokens[#tokens + 1] = "party" .. i end
+	if IsInRaid() then for i = 1, 40 do tokens[#tokens + 1] = "raid" .. i end end
+	for _, u in ipairs(tokens) do
+		if UnitExists(u) and UnitGUID(u) == guid then return u end
+	end
+	return nil
+end
+
+-- Engine-drawn Earth Shield charge count on the totem bar button for restricted
+-- clients: while auras are secret an AuraContainer pointed at the carrier's
+-- group token draws the real count in the button's corner (fixed green); the
+-- addon's own count shows out of combat.
+function ShamanPower:EnsureESButtonContainer(esBtn)
+	if not (SPCompat and SPCompat.secretsRegime) then return end
+	if esBtn.chargeContainer then return end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, esBtn, "CustomAuraContainerTemplate")
+	if not ok or not container then return end
+	container:SetAllPoints(esBtn)
+	container:SetFrameLevel(esBtn:GetFrameLevel() + 6)
+	local idMap = {}
+	for _, id in ipairs(self.EarthShieldAuraIDs) do idMap[id] = true end
+	pcall(function()
+		container:AddAuraSlot("es", "HELPFUL|PLAYER", {
+			candidateFilters = { includeSpellIDs = idMap },
+			initializeFrame = function(button)
+				button:ClearAllPoints()
+				button:SetAllPoints(esBtn)
+				if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+				if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+				local carrier = CreateFrame("Frame", nil, button)
+				carrier:SetAllPoints(button)
+				local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+				ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
+				count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+				count:SetJustifyH("RIGHT")
+				count:SetTextColor(0, 1, 0)   -- fixed green; a per-charge color would need the secret value
+				pcall(button.SetApplicationCount, button, count, {})
+			end,
+		})
+	end)
+	pcall(container.SetUnit, container, "none")
+	container:Hide()
+	esBtn.chargeContainer = container
+end
+
 function ShamanPower:UpdateEarthShieldCharges()
 	local chargeText = _G["ShamanPowerEarthShieldBtnCharges"]
 	if not chargeText then return end
+
+	-- Restricted client: the engine draws the count on the carrier's unit
+	local esBtn = _G["ShamanPowerEarthShieldBtn"]
+	local container = esBtn and esBtn.chargeContainer
+	if container then
+		local restricted = totemsSecretNow()
+		if restricted then
+			local unit = self:EarthShieldUnitToken() or "none"
+			if container.engineUnit ~= unit then
+				container.engineUnit = unit
+				pcall(container.SetUnit, container, unit)
+				pcall(container.UpdateAllAuras, container)
+			end
+		end
+		if container:IsShown() ~= restricted then container:SetShown(restricted) end
+		if restricted then
+			chargeText:SetText("")
+			self.currentEarthShieldTarget = self.esTrackedTarget
+			return
+		end
+	end
 
 	-- Find who currently has our Earth Shield
 	local currentTarget, charges = self:FindEarthShieldTarget()
@@ -10251,6 +14664,12 @@ end
 function ShamanPower:UpdateEarthShieldButton()
 	if InCombatLockdown() then return end
 	if not self.autoButton then return end
+	-- switched off: a cast or an aura change must not bring the button (a UIParent child) up
+	if self:IsOff() then
+		local esBtn = _G["ShamanPowerEarthShieldBtn"]
+		if esBtn then esBtn:Hide() end
+		return
+	end
 
 	-- Create button if it doesn't exist
 	self:CreateEarthShieldButton()
@@ -10406,7 +14825,7 @@ function ShamanPower:RepositionEarthShieldButton()
 	local isHorizontal = self:IsTotemBarHorizontal()
 	local buttonSize = 26
 	local spacing = self.opt.totemBarPadding or 2
-	local showDropAll = self.opt.showDropAllButton ~= false
+	local showDropAll = self:ShowsDropAllButton()
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
 
@@ -10483,7 +14902,7 @@ function ShamanPower:UpdateAutoButtonSize()
 	local _, _, sw, sh = self:GetTotemSlotDims()
 	local slotAlong = isHorizontal and sw or sh
 	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0
-	local showDropAll = self.opt.showDropAllButton ~= false and not self:IsDropAllPoppedOut()
+	local showDropAll = self:ShowsDropAllButton() and not self:IsDropAllPoppedOut()
 	local showES = self.opt.totemBarShowEarthShield ~= false and self:HasEarthShield() and not self:IsEarthShieldPoppedOut()
 
 	-- Count visible totem buttons (not hidden in options and not popped out)
@@ -10575,7 +14994,7 @@ function ShamanPower:UpdateDropAllButton()
 					else
 						-- Plain middle-click returns to bar
 						if InCombatLockdown() then
-							print("|cffff0000ShamanPower:|r Cannot modify pop-outs during combat")
+							print("|cff0070ddShamanPower:|r Cannot modify pop-outs during combat")
 							return
 						end
 						ShamanPower:ReturnPopOutToBar(key)
@@ -10583,7 +15002,7 @@ function ShamanPower:UpdateDropAllButton()
 				else
 					-- Not popped out, so pop it out
 					if InCombatLockdown() then
-						print("|cffff0000ShamanPower:|r Cannot pop out during combat")
+						print("|cff0070ddShamanPower:|r Cannot pop out during combat")
 						return
 					end
 					ShamanPower:PopOutDropAll()
@@ -10591,6 +15010,9 @@ function ShamanPower:UpdateDropAllButton()
 			end
 		end)
 	end
+
+	-- Clients with totem sets (WoW: Forever): the button casts the sets instead
+	if self.UpdateDropAllButtonForTotemSets and self:UpdateDropAllButtonForTotemSets(dropAllBtn) then return end
 
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
@@ -10675,6 +15097,7 @@ end
 
 -- Update just the icon (can be called in combat)
 function ShamanPower:UpdateDropAllIcon()
+	if self.dropAllTotemSetsActive then return end   -- totem sets own the icon
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
 	if not dropAllBtn then return end
 
@@ -10713,6 +15136,7 @@ end
 -- Tooltip for drop all button
 function ShamanPower:DropAllTooltip(button)
 	if not self.opt.ShowTooltips then return end
+	if self.dropAllTotemSetsActive and self.DropAllTotemSetsTooltip then return self:DropAllTotemSetsTooltip(button) end
 
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	GameTooltip:AddLine("Drop All Totems", 1, 0.8, 0)
@@ -10791,7 +15215,7 @@ function ShamanPower:UpdateTotemicCallOpacity()
 		-- Check if any totems are placed
 		local hasTotem = false
 		for slot = 1, 4 do
-			local haveTotem = GetTotemInfo(slot)
+			local haveTotem = ShamanPower:GetElementTotemInfo(slot)  -- element loop; shadow model in combat
 			if haveTotem then
 				hasTotem = true
 				break
@@ -10823,17 +15247,23 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 	end
 	ShamanPower_Assignments[name][class] = 0
 	-- Get the max number of totems for this element
-	local maxTotems = self.TotemNames[class] and #self.TotemNames[class] or 8
-	-- Advance to the next totem; wrap-around is handled below
-	cur = cur + 1
-	if cur > maxTotems then
-		-- Wrap around to 0 (no totem) or 1 (first totem)
-		if skipzero then
-			cur = 1
-		else
-			cur = 0
+	local maxTotems = self:GetTotemIndexLimit(class)
+	-- Advance to the next totem; wrap-around is handled below. Totems this client
+	-- does not have (Totem of Wrath, the Elementals, Wrath of Air on WoW: Forever)
+	-- are stepped over, so the cycle never lands on something nobody can cast.
+	for _ = 1, maxTotems + 1 do
+		cur = cur + 1
+		if cur > maxTotems then
+			-- Wrap around to 0 (no totem) or 1 (first totem)
+			if skipzero then
+				cur = 1
+			else
+				cur = 0
+			end
 		end
+		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
 	end
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and maxTotems == 0 then cur = 0 end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
 		-- Also update the mini totem bar
@@ -10860,8 +15290,14 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 		ShamanPower_Assignments[name] = {}
 	end
 	-- Get max totems for this element
-	local maxTotems = self.TotemNames[class] and #self.TotemNames[class] or 8
-	if not ShamanPower_Assignments[name][class] then
+	local maxTotems = self:GetTotemIndexLimit(class)
+	local sparse = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and class >= 1 and class <= 4
+	if sparse then
+		cur = ShamanPower_Assignments[name][class] or 0
+		-- The loop decrements first; begin above the last valid index when
+		-- wrapping, including a saved index pruned from the end of the table.
+		if cur <= 0 or cur > maxTotems then cur = maxTotems + 1 end
+	elseif not ShamanPower_Assignments[name][class] then
 		cur = maxTotems
 	else
 		cur = ShamanPower_Assignments[name][class]
@@ -10871,16 +15307,22 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 		end
 	end
 	ShamanPower_Assignments[name][class] = 0
-	-- Simple backwards cycle - go to previous totem
-	cur = cur - 1
-	if cur < 0 then
-		-- Wrap around to max totem or 0
-		if skipzero then
-			cur = maxTotems
-		else
-			cur = maxTotems
+	-- Simple backwards cycle - go to previous totem (stepping over totems this
+	-- client does not have, as the forward cycle does)
+	for _ = 1, maxTotems + 1 do
+		cur = cur - 1
+		if cur < 0 then
+			-- Wrap around to max totem or 0
+			if skipzero then
+				cur = maxTotems
+			else
+				cur = maxTotems
+			end
 		end
+		if not (sparse and skipzero and cur == 0)
+			and (class < 1 or class > 4 or self:TotemExistsOnClient(class, cur)) then break end
 	end
+	if sparse and maxTotems == 0 then cur = 0 end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
 		-- Also update the mini totem bar
@@ -10902,6 +15344,8 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 end
 
 function ShamanPower:ScanTalents()
+	-- classic talent API only; modern clients use trait trees (no equivalent yet)
+	if not GetNumTalentTabs or not GetNumTalents or not GetTalentInfo then return end
 	local numTabs = GetNumTalentTabs()
 	for t = 1, numTabs do
 		for i = 1, GetNumTalents(t) do
@@ -10950,7 +15394,7 @@ function ShamanPower:ValidateAssignmentsForSpec()
 						local elementName = self.Elements[element] or "Unknown"
 						local oldTotemName = self.TotemNames[element] and self.TotemNames[element][totemIndex] or "Unknown"
 						local newTotemName = self.TotemNames[element] and self.TotemNames[element][defaultTotem] or "Unknown"
-						self:Print("|cffff9900Respec detected:|r " .. elementName .. " totem reset from " .. oldTotemName .. " to " .. newTotemName)
+						if not self:IsOff() then self:Print("|cffff9900Respec detected:|r " .. elementName .. " totem reset from " .. oldTotemName .. " to " .. newTotemName) end
 					end
 				end
 			end
@@ -10996,6 +15440,9 @@ end
 
 function ShamanPower:ScanSpells()
 	--self:Debug("[ScanSpells]")
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		self._imbueSpellGeneration = (self._imbueSpellGeneration or 0) + 1
+	end
 	self:InvalidateElementLearned()
 	if isShaman then
 		self:SyncAdd(self.player)
@@ -11037,7 +15484,47 @@ function ShamanPower:ScanSpells()
 	initialized = true
 end
 
-function ShamanPower:SendSelf(sender)
+-- A request for shaman data (REQ) used to be answered with a whisper to each
+-- requester. When a shaman left a raid, every client asked at once and every
+-- shaman sent ~35 whispers: over Blizzard's per-prefix limit (10 in a burst,
+-- then 1 a second), which stalled that shaman's messages - raid calls included
+-- - for half a minute. Now: ONE broadcast to the group, 0.5-2 s later (jittered
+-- so the shamans do not all answer on the same frame), however many requests
+-- arrive in between. Older clients that still whisper, or still ask, are fine:
+-- they read SELF from the group channel either way.
+local selfBroadcastQueued = false
+function ShamanPower:QueueSelfBroadcast()
+	if not isShaman or selfBroadcastQueued or self:IsOff() then return end   -- switched off: no reply
+	selfBroadcastQueued = true
+	C_Timer.After(0.5 + math.random() * 1.5, function()
+		selfBroadcastQueued = false
+		ShamanPower:SendSelf(nil, true)   -- force: a reply must not be swallowed as a repeat
+	end)
+end
+
+-- Ask the group's shamans for their data, at most once every 5 s: a burst of
+-- roster changes (a raid forming, someone leaving) asks once. An ask inside the
+-- 5 s is not dropped but sent once at the end of it: the caller may have just
+-- wiped the shaman list and needs the answers.
+local REQUEST_GAP = 5
+local lastShamanDataRequest, requestQueued = -10, false
+local function sendShamanDataRequest()
+	requestQueued = false
+	lastShamanDataRequest = GetTime()
+	ShamanPower:SendMessage("REQ")
+end
+function ShamanPower:RequestShamanData()
+	if requestQueued then return end   -- one is already on its way
+	local wait = REQUEST_GAP - (GetTime() - lastShamanDataRequest)
+	if wait <= 0 then
+		sendShamanDataRequest()
+	else
+		requestQueued = true
+		C_Timer.After(wait, sendShamanDataRequest)
+	end
+end
+
+function ShamanPower:SendSelf(sender, force)
 	if not initialized or GetNumGroupMembers() == 0 then
 		return
 	end
@@ -11092,7 +15579,7 @@ function ShamanPower:SendSelf(sender)
 	if sender and not leader then
 		self:SendMessage("SELF " .. s, "WHISPER", sender)
 	else
-		self:SendMessage("SELF " .. s)
+		self:SendMessage("SELF " .. s, nil, nil, force)
 	end
 
 	-- Set freeassign option locally
@@ -11109,7 +15596,169 @@ end
 -- are now only dropped within a short window, and one-shot commands pass
 -- `force` to bypass it entirely.
 local DEDUP_WINDOW = 2
+-- WoW: Forever's chat lockdown (instance fights) refuses every addon message. An
+-- assignment made meanwhile (a totem, twisting, an Earth Shield target, a clear)
+-- is held, in order, and sent when the lockdown lifts; so is a fresh SELF, which
+-- carries our own assignments and Earth Shield target. Status and requests are
+-- not held: they are sent again fresh anyway. Nothing is held on a client
+-- without the lockdown.
+local HOLD_IN_LOCKDOWN = { ASSIGN = true, PASSIGN = true, MASSIGN = true, TWIST = true, ESASSIGN = true, CLEAR = true, FREEASSIGN = true }
+local MAX_HELD = 20
+local heldMessages, sendRefused = nil, false
+-- What a held message sets (a player's element, twisting, Earth Shield target...):
+-- a newer message for the same thing replaces the held one, so the lockdown
+-- lifting sends each setting once, not every step taken meanwhile.
+local function heldKey(self, msg)
+	local k = strmatch(msg, "^(ASSIGN .+ %d+) %d+$") or strmatch(msg, "^(TWIST .+) [01]$")
+		or strmatch(msg, "^(PASSIGN .+)@") or strmatch(msg, "^(MASSIGN .+) %d+$")
+	if k then return k end
+	if strmatch(msg, "^ESASSIGN") then return "ESASSIGN " .. tostring((self:DecodeESAssign(msg, self.player))) end
+	return strmatch(msg, "^(%u+)")   -- CLEAR, FREEASSIGN
+end
+local function holdMessage(self, msg, type, target)
+	local key = heldKey(self, msg)
+	heldMessages = heldMessages or {}
+	for i = #heldMessages, 1, -1 do
+		local m = heldMessages[i]
+		if m.key == key and m[3] == target then tremove(heldMessages, i) end
+	end
+	if #heldMessages >= MAX_HELD then tremove(heldMessages, 1) end
+	heldMessages[#heldMessages + 1] = { msg, type, target, key = key,
+		instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
+end
+-- Blizzard lets each addon prefix send about 10 messages at once and then 1 a
+-- second, and refuses the rest; ChatThrottleLib only paces by bytes. So every
+-- message SendMessage lets through leaves by one queue: up to 10 straight away,
+-- then one a second, in the order they were made. A newer message for the same
+-- thing (a held key above, or a whole-state SELF / *SYNC) replaces one still
+-- waiting. The queue belongs to the group it was made in (DropHeldMessages) and
+-- waits out a chat lockdown rather than losing what it holds (SendHeldMessages
+-- starts it again). Nothing runs while it is empty. Anything else sent on this
+-- prefix has to come through SendMessage too, or the count here falls short of
+-- the client's.
+local outbound = {}
+do
+	local BURST = 10                   -- at once; then one more for each second since
+	local SNAPSHOT = { SELF = true, RCSYNC = true, MTSYNC = true, DRUMSYNC = true }   -- each carries the whole state
+	local allowance, allowanceAt = BURST, 0
+	local queue, timerSet = nil, false
+
+	-- the channel is worked out as it leaves: the group may have changed while it waited
+	local function transmit(self, msg, type, target)
+		if not type then
+			if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
+				type = "INSTANCE_CHAT"
+			else
+				if IsInRaid() then
+					type = "RAID"
+				else
+					type = "PARTY"
+				end
+			end
+		end
+		if target then
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, "WHISPER", target)
+			--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: WHISPER | target name: " .. target)
+		else
+			ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, type)
+			--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: " .. type)
+		end
+	end
+	local function regain()
+		local now = GetTime()
+		allowance = math.min(BURST, allowance + (now - allowanceAt))
+		allowanceAt = now
+	end
+	local drain
+	local function schedule()
+		if timerSet then return end
+		timerSet = true
+		C_Timer.After(1 - allowance + 0.01, drain)   -- when the next one is allowed
+	end
+	drain = function()
+		timerSet = false
+		if not queue then return end
+		if SPK and SPK() == true then return end   -- chat lockdown: SendHeldMessages starts it again
+		if GetNumGroupMembers() == 0 then queue = nil return end
+		regain()
+		local instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false
+		while queue[1] and allowance >= 1 do
+			local m = tremove(queue, 1)
+			-- made in the other kind of group: dropped, as a held one is
+			if m.instance == instance then
+				allowance = allowance - 1
+				transmit(ShamanPower, m[1], m[2], m[3])
+			end
+		end
+		if queue[1] then schedule() else queue = nil end
+	end
+
+	function outbound.send(self, msg, type, target)
+		if not queue then
+			regain()
+			if allowance >= 1 then
+				allowance = allowance - 1
+				transmit(self, msg, type, target)
+				return
+			end
+			queue = {}
+		end
+		local kind = strmatch(msg, "^(%u+)") or ""
+		local key = (HOLD_IN_LOCKDOWN[kind] and heldKey(self, msg)) or (SNAPSHOT[kind] and kind) or nil
+		if key then
+			for i = #queue, 1, -1 do
+				local m = queue[i]
+				if m.key == key and m[3] == target then tremove(queue, i) end
+			end
+		end
+		queue[#queue + 1] = { msg, type, target, key = key,
+			instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false }
+		schedule()
+	end
+	function outbound.resume()
+		if queue and not timerSet then drain() end
+	end
+	function outbound.drop()
+		queue = nil
+	end
+end
+
+-- A held message belongs to the group it was made in. The channel is worked out
+-- again when it is sent, so leaving that group or joining another (a battleground,
+-- a Dungeon Finder group) drops it (GROUP_LEFT / GROUP_JOINED), and one made in the
+-- other kind of group is not sent: a held CLEAR must never wipe another group's calls.
+-- The messages still waiting to leave go with it.
+function ShamanPower:DropHeldMessages()
+	heldMessages = nil
+	outbound.drop()
+end
+function ShamanPower:SendHeldMessages()
+	outbound.resume()   -- what waited through the lockdown leaves first
+	local held = heldMessages
+	heldMessages = nil
+	if held then
+		local instance = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and true or false
+		for i = 1, #held do
+			local m = held[i]
+			if m.instance == instance then self:SendMessage(m[1], m[2], m[3], true) end
+		end
+	end
+	if sendRefused then
+		sendRefused = false
+		self:QueueSelfBroadcast()
+	end
+end
+
 function ShamanPower:SendMessage(msg, type, target, force)
+	if self:IsOff() then return false end   -- switched off: tells the group nothing
+	if SPK and SPK() == true then
+		-- Do not claim delivery while the client's chat messaging lock is active.
+		if GetNumGroupMembers() > 0 then
+			sendRefused = true
+			if HOLD_IN_LOCKDOWN[strmatch(msg, "^(%u+)") or ""] then holdMessage(self, msg, type, target) end
+		end
+		return false
+	end
 	if GetNumGroupMembers() > 0 then
 		-- Dedup key includes target so broadcast vs whisper of the same msg are distinct
 		local dedupKey = target and (msg .. "\001" .. target) or msg
@@ -11117,24 +15766,7 @@ function ShamanPower:SendMessage(msg, type, target, force)
 		if force or lastMsg ~= dedupKey or (now - lastMsgTime) > DEDUP_WINDOW then
 			lastMsg = dedupKey
 			lastMsgTime = now
-			if not type then
-				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-					type = "INSTANCE_CHAT"
-				else
-					if IsInRaid() then
-						type = "RAID"
-					else
-						type = "PARTY"
-					end
-				end
-			end
-			if target then
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, "WHISPER", target)
-				--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: WHISPER | target name: " .. target)
-			else
-				ChatThrottleLib:SendAddonMessage("NORMAL", self.commPrefix, msg, type)
-				--self:Debug("[Sent Message] prefix: " .. self.commPrefix .. " | msg: " .. msg .. " | type: " .. type)
-			end
+			outbound.send(self, msg, type, target)
 		end
 	end
 end
@@ -11149,6 +15781,7 @@ function ShamanPower:SPELLS_CHANGED()
 	ShamanPower:SendSelf()
 	if not InCombatLockdown() then
 		ShamanPower:RecreateTotemFlyouts()
+		ShamanPower:EnsureElementAssignments()   -- an element's first totem gets assigned by itself
 	end
 	ShamanPower:UpdateLayout()
 end
@@ -11228,31 +15861,38 @@ function ShamanPower:ZONE_CHANGED_NEW_AREA()
 	end
 end
 
+-- Every addon's messages arrive here (DBM, BigWigs, WeakAuras...): the prefix is
+-- checked first, so other addons' traffic costs one comparison and nothing else.
+local COMM_DISTRIBUTIONS = { PARTY = true, RAID = true, INSTANCE_CHAT = true, WHISPER = true }
 function ShamanPower:CHAT_MSG_ADDON(event, prefix, message, distribution, source)
-	local sender = Ambiguate(source, "none")
 	if prefix == self.commPrefix then
-	--self:Debug("[EVENT: CHAT_MSG_ADDON] prefix: "..prefix.." | message: "..message.." | distribution: "..distribution.." | sender: "..sender)
-	end
-	if prefix == self.commPrefix and (distribution == "PARTY" or distribution == "RAID" or distribution == "INSTANCE_CHAT" or distribution == "WHISPER") and sender then
-		self:ParseMessage(sender, message)
-	end
-	-- Listen for popular WF tracking WeakAura (prefix "WFTracker", message format "PlayerName:Status:TimeRemaining")
-	if prefix == "WFTracker" and sender then
+		if not COMM_DISTRIBUTIONS[distribution] then return end
+		local sender = Ambiguate(source, "none")
+		if sender then self:ParseMessage(sender, message) end
+	elseif prefix == "WFTracker" then
+		-- the popular Windfury WeakAura ("PlayerName:Status:TimeRemaining")
+		local sender = Ambiguate(source, "none")
 		local _, status = message:match("^([^:]+):([01]):")
-		if status then
-			if not self.WindfuryRangeData then
-				self.WindfuryRangeData = {}
-			end
-			self.WindfuryRangeData[sender] = {
-				hasWindfury = (status == "1"),
-				timestamp = GetTime()
-			}
-		end
+		if status and sender then self:SetWindfuryReport(sender, status == "1") end
 	end
+end
+
+-- One record per reporter, reused: a raid's worth of reports every few seconds
+-- must not build a new table each time.
+function ShamanPower:SetWindfuryReport(sender, has)
+	-- keyed by the plain name: the dots look reporters up by UnitName (no realm),
+	-- and a report only ever comes from your own party, where names do not clash
+	sender = strsplit("-", sender)
+	local all = self.WindfuryRangeData
+	if not all then all = {}; self.WindfuryRangeData = all end
+	local rec = all[sender]
+	if not rec then rec = {}; all[sender] = rec end
+	rec.hasWindfury, rec.timestamp = has, GetTime()
 end
 
 function ShamanPower:GROUP_JOINED(event)
 	--self:Debug("[Event] GROUP_JOINED")
+	self:DropHeldMessages()   -- held for the group we were in, not this one
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
 	self:ScanSpells()
@@ -11260,7 +15900,7 @@ function ShamanPower:GROUP_JOINED(event)
 		2.0,
 		function()
 			self:SendSelf()
-			self:SendMessage("REQ")
+			self:RequestShamanData()
 			self:UpdateLayout()
 			self:UpdateRoster()
 		end
@@ -11270,6 +15910,7 @@ end
 
 function ShamanPower:GROUP_LEFT(event)
 	--self:Debug("[Event] GROUP_LEFT")
+	self:DropHeldMessages()   -- held for the group just left
 	ShamanPower.AllShamans = {}
 	ShamanPower.SyncList = {}
 	for pname in pairs(ShamanPower_Assignments) do
@@ -11329,7 +15970,8 @@ function ShamanPower:UpdateAllShamans()
 	local found = 0
 	for _, unitid in pairs(units) do
 		if unitid and (not unitid:find("pet")) and UnitExists(unitid) then
-			if ShamanPower.AllShamans[GetUnitName(unitid, true)] then found = found + 1 end
+			local n = GetUnitName(unitid, true)
+			if n and ShamanPower.AllShamans[ShamanPower:RemoveRealmName(n)] then found = found + 1 end
 		end
 	end
 
@@ -11341,7 +15983,7 @@ function ShamanPower:UpdateAllShamans()
 				ShamanPower.SyncList = {}
 				self:ScanSpells()
 				self:SendSelf()
-				self:SendMessage("REQ")
+				self:RequestShamanData()
 				self:UpdateLayout()
 				self:UpdateRoster()
 			end
@@ -11349,17 +15991,38 @@ function ShamanPower:UpdateAllShamans()
 	end
 end
 
+function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
+	self:InvalidateTotemInfo()   -- the loops read the new state on their next tick
+	self:ShadowTotemSlotUpdate(slot)
+	self:RecordTotemDropFromSlot(slot)
+	self:RefreshTotemDestroySlots()   -- cast-order clients: keep right-click destroy on the right slot
+end
+
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
+	-- Under the secrets regime the totem model is fed by the player's own casts, not
+	-- by the API, so a cast is a "totems may have changed" moment too.
+	if unitTarget == "player" then self:InvalidateTotemInfo() end
+	-- Own totem casts feed the shadow totem model (never secret, even in combat)
+	self:ShadowTotemCast(unitTarget, spellID)
+	-- Own casts also stamp the shadow cooldown model (see SPCompat.GetSpellCooldown)
+	if unitTarget == "player" and SPCompat and SPCompat.ShadowCooldownCast then
+		SPCompat.ShadowCooldownCast(spellID)
+	end
+	if unitTarget == "player" then
+		self:ShadowBuffCast(spellID)
+		self:ShadowShieldCast(unitTarget, spellID)
+	end
+
 	-- Track Earth Shield casts (event-based tracking, no scanning!)
 	self:OnEarthShieldCastSucceeded(unitTarget, castGUID, spellID)
 
-	-- Trigger GCD swipe when player casts a totem
-	if unitTarget == "player" then
+	-- Trigger GCD swipe when player casts a totem (switched off: the bar is down)
+	if unitTarget == "player" and not self:IsOff() then
 		local spellName = GetSpellInfo(spellID)
 		if spellName and spellName:find("Totem") then
 			self:TriggerGCDSwipe()
-			-- Dynamic Mode: immediately update assignment when totem is cast
-			if self.opt.dynamicTotemMode then
+			-- Dynamic Mode (and Grid): immediately update assignment when totem is cast
+			if self:DropSetsAssignment() then
 				-- Small delay to let GetTotemInfo update
 				C_Timer.After(0.01, function()
 					self:UpdateDynamicTotemIcons()
@@ -11392,19 +16055,181 @@ function ShamanPower:UNIT_SPELLCAST_SENT(event, unit, target, castGUID, spellID)
 end
 
 -- Earth Shield aura tracking (updates charges when aura changes on tracked target)
+-- Aura generation per unit: bumped on every UNIT_AURA, so a caller can keep an
+-- answer about a unit's buffs until that unit's auras actually change. On the
+-- Mainline family every aura read builds a table; polling party buffs twice a
+-- second was the range pass's whole idle garbage.
+ShamanPower.auraGen = {}
+-- A roster change can put a different player in the same unit slot without an
+-- aura event on that slot: invalidate every group slot's cached answer.
+-- A raid forming fires dozens of GROUP_ROSTER_UPDATEs: this bookkeeping runs
+-- 0.3 s after the first one, and once more 0.3 s after the first of any that
+-- arrive later, so a long burst costs one pass every 0.3 s at most (the Earth
+-- Shield carrier's unit token is re-found here too, since raid indexes shift).
+do
+	local slots = { "party1", "party2", "party3", "party4" }
+	for i = 1, 40 do slots[#slots + 1] = "raid" .. i end
+	local queued = false
+	local function settle()
+		queued = false
+		local gen = ShamanPower.auraGen
+		for _, u in ipairs(slots) do gen[u] = (gen[u] or 0) + 1 end
+		if ShamanPower.UpdateAuraCarrierFilter then ShamanPower:UpdateAuraCarrierFilter() end
+	end
+	local f = CreateFrame("Frame")
+	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "core (roster settle)") end
+	f:RegisterEvent("GROUP_ROSTER_UPDATE")
+	f:SetScript("OnEvent", function()
+		if queued then return end
+		queued = true
+		C_Timer.After(0.3, settle)
+	end)
+end
+function ShamanPower:AuraCacheValid(unit, gen, at)
+	-- same aura generation; party slots also expire after 5 s (a slot can change
+	-- hands without an aura event). The player is always the player: no expiry.
+	if gen == nil or gen ~= (self.auraGen[unit] or 0) or not at then return false end
+	return unit == "player" or (GetTime() - at) < 5
+end
+
+-- ---------------------------------------------------------------------------
+-- Unit events only for the units that matter. Registered with RegisterEvent they
+-- arrive for every unit in a 40-player raid (and every nameplate), hundreds a
+-- second, just to be ignored. Every consumer here wants the player's own casts,
+-- and auras on the player, the party (party1-4 are your subgroup inside a raid)
+-- and whoever carries your Earth Shield. RegisterUnitEvent takes up to two
+-- units per frame on every client, so the units are spread over small frames.
+-- The handlers are looked up at call time, so hooks on them keep working.
+-- ---------------------------------------------------------------------------
+local unitEventFrames
+local function unitEventDispatch(_, event, ...)
+	local fn = ShamanPower[event]
+	if fn then fn(ShamanPower, event, ...) end
+end
+function ShamanPower:SetupUnitEventFilters()
+	if unitEventFrames then return end
+	unitEventFrames = {}
+	local stress = SPCompat and SPCompat.StressRegister
+	local cast = CreateFrame("Frame")
+	if stress then stress(cast, "core (casts)") end
+	-- a client without unit filters gets the old unfiltered events (handlers check the unit)
+	local function reg(frame, event, a, b)
+		if frame.RegisterUnitEvent then
+			if b then frame:RegisterUnitEvent(event, a, b) else frame:RegisterUnitEvent(event, a) end
+		else
+			frame:RegisterEvent(event)
+		end
+	end
+	reg(cast, "UNIT_SPELLCAST_SUCCEEDED", "player")
+	reg(cast, "UNIT_SPELLCAST_SENT", "player")   -- Earth Shield cast tracking
+	cast:SetScript("OnEvent", unitEventDispatch)
+	unitEventFrames.cast = cast
+	for _, pair in ipairs({ { "player", "party1" }, { "party2", "party3" }, { "party4" } }) do
+		local f = CreateFrame("Frame")
+		if stress then stress(f, "core (auras)") end
+		reg(f, "UNIT_AURA", pair[1], pair[2])
+		f:SetScript("OnEvent", unitEventDispatch)
+		unitEventFrames[#unitEventFrames + 1] = f
+	end
+	-- the Earth Shield carrier outside your party (a raid tank): its own frame,
+	-- re-pointed whenever the carrier or the raid's order changes
+	local carrier = CreateFrame("Frame")   -- roster changes re-point it (see the auraGen block above)
+	if stress then stress(carrier, "core (Earth Shield carrier)") end
+	carrier:SetScript("OnEvent", unitEventDispatch)
+	unitEventFrames.carrier = carrier
+	self:UpdateAuraCarrierFilter()
+end
+
+local RAID_TOKENS = {}
+for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+local PARTY_TOKENS = { "party1", "party2", "party3", "party4" }
+local function unitHasGUID(unit, guid)
+	local ok, g = pcall(UnitGUID, unit)
+	return ok and g and not (issecretvalue and issecretvalue(g)) and g == guid
+end
+function ShamanPower:UpdateAuraCarrierFilter()
+	local f = unitEventFrames and unitEventFrames.carrier
+	if not f then return end
+	f:UnregisterEvent("UNIT_AURA")
+	local guid = self.esTrackedTargetGUID
+	if not guid or self.ESTrackerUnavailable then return end
+	if not f.RegisterUnitEvent then return end   -- without filters the unfiltered frames already hear everyone
+	if unitHasGUID("player", guid) then return end   -- the player frame covers it
+	if IsInRaid() then
+		for i = 1, 40 do
+			local unit = RAID_TOKENS[i]
+			if unitHasGUID(unit, guid) then
+				-- (if the carrier is also in your party its aura event may arrive twice;
+				-- the Earth Shield charge update is idempotent)
+				f:RegisterUnitEvent("UNIT_AURA", unit)
+				return
+			end
+		end
+	else
+		for i = 1, 4 do
+			if unitHasGUID(PARTY_TOKENS[i], guid) then return end   -- the party frames cover it
+		end
+	end
+	-- outside your group: heard while you target or focus them, as the tracker
+	-- (FindEarthShieldTarget) finds them; other units' aura events are ignored by GUID
+	f:RegisterUnitEvent("UNIT_AURA", "target", "focus")
+end
+
 function ShamanPower:UNIT_AURA(event, unit)
+	if unit then self.auraGen[unit] = (self.auraGen[unit] or 0) + 1 end
 	-- Only process if we have a tracked ES target
 	if self.esTrackedTargetGUID then
 		self:OnEarthShieldAuraChange(unit)
 	end
 
-	-- Scan for shield buffs when player auras change (avoids polling)
-	if unit == "player" then
+	-- Scan for shield buffs when player auras change (avoids polling). Switched
+	-- off, nothing shows them: read again on switch-on.
+	if unit == "player" and not self:IsOff() then
 		self:ScanPlayerShield()
+		if cachePlayerBuffs then self:RefreshPlayerBuffCache() end
 	end
 end
 
 -- Scan player buffs for shield (called on UNIT_AURA, not every update tick)
+-- Shadow shield model: your Lightning / Water Shield from your own casts.
+-- A cast opens the record (icon from spell data, length and charge maximum
+-- learned from the real aura while readable); a proc of the same shield name
+-- under a different spell ID takes a charge off; the real scan re-syncs the
+-- record whenever auras are readable, so it is exact when combat starts.
+ShamanPower.shadowShield = nil          -- { name, spellID, icon, start, duration, charges }
+local shieldLearned = {}                -- [name] = { duration, maxCharges }
+
+local function shieldNameFor(spellID)
+	local name = GetSpellInfo(spellID)
+	if not name then return nil end
+	for _, data in ipairs(ShamanPower.ShieldSpells) do
+		if data[2] == name then return name, data[1] end
+	end
+	return nil
+end
+
+function ShamanPower:ShadowShieldCast(unit, spellID)
+	if unit ~= "player" then return end
+	local name, tableID = shieldNameFor(spellID)
+	if not name then return end
+	local cur = self.shadowShield
+	local isRecast = (spellID == tableID) or IsPlayerSpell and IsPlayerSpell(spellID)
+	if cur and cur.name == name and not isRecast then
+		-- same name, not the castable spell: a proc consumed a charge
+		cur.charges = math.max(0, (cur.charges or 0) - 1)
+		if SPCompat and SPCompat.Trace then SPCompat.Trace("SHIELD proc %s (%d) charges=%d", name, spellID, cur.charges) end
+		if cur.charges == 0 then self.shadowShield = nil end
+		return
+	end
+	local learned = shieldLearned[name] or {}
+	local _, _, icon = GetSpellInfo(spellID)
+	self.shadowShield = {
+		name = name, spellID = tableID, icon = icon,
+		start = GetTime(), duration = learned.duration or 600, charges = learned.maxCharges or 3,
+	}
+	if SPCompat and SPCompat.Trace then SPCompat.Trace("SHIELD cast %s (%d) dur=%s charges=%d", name, spellID, tostring(self.shadowShield.duration), self.shadowShield.charges) end
+end
+
 function ShamanPower:ScanPlayerShield()
 	local hasShield = false
 	local shieldID = nil
@@ -11413,6 +16238,14 @@ function ShamanPower:ScanPlayerShield()
 	local shieldDuration = 0
 	local shieldExpiration = 0
 	local shieldBuffIndex = nil
+
+	if totemsSecretNow() then
+		-- auras are secret: serve the shadow record (plain numbers, same display code)
+		-- the AuraContainer on the shield button draws the shield while auras are
+		-- secret; the addon's own rendering shows the empty base underneath
+		self.shieldCache = { hasShield = false, shieldCharges = 0, shieldDuration = 0, shieldExpiration = 0, engineCount = true }
+		return
+	end
 
 	for i = 1, 40 do
 		local name, icon, count, _, duration, expirationTime = UnitBuff("player", i)
@@ -11433,6 +16266,25 @@ function ShamanPower:ScanPlayerShield()
 		if hasShield then break end
 	end
 
+	-- Readable: re-sync the shadow record from the truth and learn the shield's numbers
+	if hasShield then
+		local name = nil
+		for _, data in ipairs(self.ShieldSpells) do if data[1] == shieldID then name = data[2] end end
+		if name then
+			local learned = shieldLearned[name] or {}
+			if shieldDuration > 0 then learned.duration = shieldDuration end
+			if shieldCharges > (learned.maxCharges or 0) then learned.maxCharges = shieldCharges end
+			shieldLearned[name] = learned
+			self.shadowShield = {
+				name = name, spellID = shieldID, icon = shieldIcon, charges = shieldCharges,
+				duration = shieldDuration > 0 and shieldDuration or (learned.duration or 600),
+				start = (shieldExpiration > 0 and shieldDuration > 0) and (shieldExpiration - shieldDuration) or GetTime(),
+			}
+		end
+	else
+		self.shadowShield = nil
+	end
+
 	-- Cache the result
 	self.shieldCache = {
 		hasShield = hasShield,
@@ -11445,24 +16297,82 @@ function ShamanPower:ScanPlayerShield()
 	}
 end
 
+-- Raid cooldown messages: "call" = a one-shot alert, "sync" = assignment state
+local RC_MESSAGES = { BLCALL = "call", MTCALL = "call", DRUMCALL = "call", RCSYNC = "sync", MTSYNC = "sync", DRUMSYNC = "sync" }
+
+-- Redraw after received messages at most once per frame. Blizzard's totem bar
+-- follows our assignments even with our own bar off, so it is synced here too
+-- (cheap and idempotent; in combat it marks itself pending until the fight ends).
+local commRefreshQueued = false
+local function commRefresh()
+	commRefreshQueued = false
+	if ShamanPower.SyncTotemSetFromAssignments then ShamanPower:SyncTotemSetFromAssignments() end
+	ShamanPower:UpdateLayout()
+end
+function ShamanPower:QueueCommRefresh()
+	if commRefreshQueued or self:IsOff() then return end   -- switched off: switch-on redraws
+	commRefreshQueued = true
+	C_Timer.After(0, commRefresh)
+end
+
+-- Every sender key seen this session, and the form it arrived in, for /spdiag
+-- names: one entry per player, nothing allocated per message after the first.
+ShamanPower.seenSenderKeys = {}
+
+-- The player a message names, keyed like its sender. Anniversary keeps the realm
+-- on a player from another realm ("Name-Realm"), but that shaman's own messages
+-- name them plainly (they send UnitName("player")); a plain name equal to the
+-- sender's own is the sender. Forever keys are always plain, so nothing changes.
+local function messageName(self, name, sender)
+	if not strfind(name, "-", 1, true) and name == strsplit("-", sender) then return sender end
+	return self:RemoveRealmName(name)
+end
+
 function ShamanPower:ParseMessage(sender, msg)
+	local received = sender
 	sender = self:RemoveRealmName(sender)
+	if sender and self.seenSenderKeys[sender] == nil then self.seenSenderKeys[sender] = received end
 
 	if (sender == self.player or sender == nil) or not initialized then return end
 
 	--self:Debug("[Parse Message] sender: " .. sender .. " | msg: " .. msg)
 
 	local leader = self:CheckLeader(sender)
+	-- The message type is its first word, read once: the branches below compare
+	-- it instead of pattern-matching the whole message a dozen times.
+	local kw = strmatch(msg, "^(%u+)")
 
-	if msg == "REQ" then
-		if IsInRaid() and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-			self:SendSelf()
-		else
-			self:SendSelf(sender)
+	if kw == "REQ" then
+		-- one broadcast to the group shortly after, however many ask (see QueueSelfBroadcast)
+		self:QueueSelfBroadcast()
+		return   -- nothing on our bars changed
+	end
+
+	-- Windfury status from other players (for SPRange): changes nothing on the bars
+	if kw == "WFBUFF" then
+		local status = strmatch(msg, "^WFBUFF ([01])")
+		if status then self:SetWindfuryReport(sender, status == "1") end
+		return
+	end
+
+	-- Raid resistance requests (WoW: Forever; ShamanPowerResist.lua): request
+	-- state only, nothing on the bars changes until a shaman's own client does it
+	if kw == "RESREQ" or kw == "RESPASS" or kw == "RESPICK" then
+		if self.HandleResistMessage then
+			self:HandleResistMessage(kw, msg, sender)
+			return
 		end
 	end
 
-	if strfind(msg, "^SELF") then
+	-- Raid cooldown coordination: calls are one-shot alerts (no bar change);
+	-- the SYNC messages change who is assigned, so they refresh like the rest
+	if RC_MESSAGES[kw] then
+		if RC_MESSAGES[kw] == "call" and self:IsOff() then return end   -- switched off: no alert
+		self:HandleRaidCooldownMessage(nil, msg, sender)
+		if RC_MESSAGES[kw] == "call" then return end
+	end
+
+	if kw == "SELF" then
 		ShamanPower_Assignments[sender] = {}
 		ShamanPower.AllShamans[sender] = {}
 		self:SyncAdd(sender)
@@ -11545,9 +16455,11 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "^ASSIGN") then
-		local _, _, name, class, skill = strfind(msg, "^ASSIGN (.*) (.*) (.*)")
-		name = self:RemoveRealmName(name)
+	if kw == "ASSIGN" then
+		-- the name is everything before the two numbers, so "First Last" stays whole
+		local name, class, skill = strmatch(msg, "^ASSIGN (.+) (%d+) (%d+)$")
+		if not name then return end
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -11557,12 +16469,16 @@ function ShamanPower:ParseMessage(sender, msg)
 		class = class + 0
 		skill = skill + 0
 		ShamanPower_Assignments[name][class] = skill
+		-- Forever: two shamans taking the same raid resistance settle it here
+		if self.ResistClaimSeen then self:ResistClaimSeen(name, class, skill) end
 	end
 
 	-- Handle TWIST message for totem twisting assignment
-	if strfind(msg, "^TWIST") then
-		local _, _, name, enabled = strfind(msg, "^TWIST (.*) (.*)")
-		name = self:RemoveRealmName(name)
+	if kw == "TWIST" then
+		if self.NoTotemTwisting then return end   -- WoW: Forever cannot twist: nobody turns it on for us
+		local name, enabled = strmatch(msg, "^TWIST (.+) ([01])$")
+		if not name then return end
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -11587,9 +16503,10 @@ function ShamanPower:ParseMessage(sender, msg)
 		self:UpdateRoster()
 	end
 
-	if strfind(msg, "^PASSIGN") then
-		local _, _, name, assign = strfind(msg, "^PASSIGN (.*)@([0-9n]*)")
-		name = self:RemoveRealmName(name)
+	if kw == "PASSIGN" then
+		local name, assign = strmatch(msg, "^PASSIGN (.+)@([0-9n]*)")
+		if not name then return end
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -11607,9 +16524,10 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "^MASSIGN") then
-		local _, _, name, skill = strfind(msg, "^MASSIGN (.*) (.*)")
-		name = self:RemoveRealmName(name)
+	if kw == "MASSIGN" then
+		local name, skill = strmatch(msg, "^MASSIGN (.+) (%d+)$")
+		if not name then return end
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -11622,7 +16540,7 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "^CLEAR") then
+	if kw == "CLEAR" then
 		if leader then
 			self:ClearAssignments(sender)
 		elseif self.opt.freeassign then
@@ -11630,18 +16548,19 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	if strfind(msg, "FREEASSIGN YES") and ShamanPower.AllShamans[sender] then
+	if kw == "FREEASSIGN" and strfind(msg, "FREEASSIGN YES", 1, true) and ShamanPower.AllShamans[sender] then
 		ShamanPower.AllShamans[sender].freeassign = true
 	end
 
-	if strfind(msg, "FREEASSIGN NO") and ShamanPower.AllShamans[sender] then
+	if kw == "FREEASSIGN" and strfind(msg, "FREEASSIGN NO", 1, true) and ShamanPower.AllShamans[sender] then
 		ShamanPower.AllShamans[sender].freeassign = false
 	end
 
 	-- Earth Shield assignment sync
-	if strfind(msg, "^ESASSIGN") then
-		local _, _, name, target = strfind(msg, "^ESASSIGN (.*) (.*)")
-		name = self:RemoveRealmName(name)
+	if kw == "ESASSIGN" then
+		local name, target = self:DecodeESAssign(msg, sender)
+		if not name or not target then return end
+		name = messageName(self, name, sender)
 		if name ~= sender and not (leader or self.opt.freeassign) then
 			return false
 		end
@@ -11658,33 +16577,53 @@ function ShamanPower:ParseMessage(sender, msg)
 		end
 	end
 
-	-- Raid cooldown coordination messages
-	if strfind(msg, "^RCSYNC") or strfind(msg, "^BLCALL") or strfind(msg, "^MTCALL") or strfind(msg, "^MTSYNC") or strfind(msg, "^DRUMCALL") or strfind(msg, "^DRUMSYNC") then
-		self:HandleRaidCooldownMessage(nil, msg, sender)
-	end
+	-- Blizzard's totem bar follows our assignments even with our own totem bar
+	-- switched off: UpdateLayout only refreshes (and syncs) while that bar is
+	-- shown, so an assignment sent by another shaman never reached Blizzard's bar
+	-- for someone running without ours. Cheap and idempotent; in combat it marks
+	-- itself pending and lands when the fight ends (only a hardware click may
+	-- write that bar mid-fight).
+	-- A burst of messages (a raid's worth of SELF replies) redraws once, on the
+	-- next frame, instead of once per message.
+	self:QueueCommRefresh()
+end
 
-	-- Windfury buff status from other players (for SPRange)
-	if strfind(msg, "^WFBUFF") then
-		local _, _, status = strfind(msg, "^WFBUFF ([01])")
-		if status then
-			if not self.WindfuryRangeData then
-				self.WindfuryRangeData = {}
-			end
-			self.WindfuryRangeData[sender] = {
-				hasWindfury = (status == "1"),
-				timestamp = GetTime()
-			}
+-- ESASSIGN carries two player names. The original form "ESASSIGN <shaman> <target>"
+-- is ambiguous once a name can contain a space (WoW: Forever "First Last"), so
+-- when a name has one, WoW: Forever sends "ESASSIGN|<shaman>|<target>" instead;
+-- '|' cannot occur in a name. Anniversary names never contain spaces, so its
+-- wire format is unchanged. Readers accept both forms.
+function ShamanPower:EncodeESAssign(shaman, target)
+	target = target or "NONE"
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and (strfind(shaman, " ", 1, true) or strfind(target, " ", 1, true)) then
+		return "ESASSIGN|" .. shaman .. "|" .. target
+	end
+	return "ESASSIGN " .. shaman .. " " .. target
+end
+
+function ShamanPower:DecodeESAssign(msg, sender)
+	local name, target = strmatch(msg, "^ESASSIGN|([^|]+)|(.+)$")
+	if name then return name, target end
+	local rest = strmatch(msg, "^ESASSIGN (.+)$")
+	if not rest then return nil end
+	-- Most often the shaman is the sender: everything after their name is the
+	-- target, which keeps a spaced target whole even in the old form.
+	if sender then
+		local plain = strsplit("-", sender)
+		for _, who in ipairs({ sender, plain }) do
+			if strsub(rest, 1, #who + 1) == who .. " " then return who, strsub(rest, #who + 2) end
 		end
 	end
-
-	self:UpdateLayout()
+	-- otherwise the last word is the target (the original reading)
+	return strmatch(rest, "^(.*) (.-)$")
 end
 
 function ShamanPower:CanControl(name)
 	if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
 		return (name == self.player) or (ShamanPower.AllShamans[name] and (ShamanPower.AllShamans[name].freeassign == true))
 	else
-		if UnitIsGroupLeader(self.player) or UnitIsGroupAssistant(self.player) then
+		-- the "player" token, not our name: on Forever that is "First Surname", which the group API may not resolve
+		if UnitIsGroupLeader("player") or UnitIsGroupAssistant("player") then
 			return true
 		else
 			return (name == self.player) or (ShamanPower.AllShamans[name] and (ShamanPower.AllShamans[name].freeassign == true))
@@ -11748,14 +16687,25 @@ function ShamanPower:FormatTime(time)
 end
 
 function ShamanPower:AddRealmName(unitID)
-	local name, realm = strsplit("%-", unitID)
+	local name, realm = strsplit("-", unitID)
 	realm = realm or self.realm
 
 	return name .. "-" .. realm
 end
 
+-- WoW: Forever has region-wide unique character names, and the realm part the
+-- game reports can differ between players on the same ruleset (seen on the beta).
+-- Keeping a "Name-Realm" there would stop it matching the plain name everything
+-- else is keyed by (assignments, Windfury reports, raid calls), so Forever always
+-- uses the name alone. Classic keeps the realm when it is not ours: two players
+-- on different realms can share a name there.
+local REGION_UNIQUE_NAMES = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 function ShamanPower:RemoveRealmName(unitID)
-	local name, realm = strsplit("%-", unitID)
+	if type(unitID) ~= "string" then return unitID end
+	-- only the hyphen separates the realm: a WoW: Forever name may contain a space
+	-- ("First Last") and is kept whole
+	local name, realm = strsplit("-", unitID)
+	if REGION_UNIQUE_NAMES then return name end
 	if realm and realm ~= self.realm then
 		return unitID
 	else
@@ -11763,46 +16713,49 @@ function ShamanPower:RemoveRealmName(unitID)
 	end
 end
 
+function ShamanPower:OnRosterSettled()
+	self:UpdateRoster()
+end
+
+-- One roster member: who leads, and which raid subgroup each known shaman is in
+-- (used by auto-assign).
+local function rosterMember(self, name, rank, subgroup, class, instanceGroup)
+	if not name then return end
+	-- the same form message senders are keyed by (RemoveRealmName), so leaders[]
+	-- and AllShamans[] line up with CheckLeader(sender) and the SELF data
+	name = self:RemoveRealmName(name)
+	if class == "SHAMAN" and ShamanPower.AllShamans[name] then
+		ShamanPower.AllShamans[name].subgroup = subgroup
+	end
+	if rank and rank > 0 and not instanceGroup then
+		leaders[name] = true
+		if name == self.player and AC_Leader == false then
+			AC_Leader = true
+		end
+	end
+end
+
 function ShamanPower:UpdateRoster()
 	--self:Debug("UpdateRoster()")
 	-- Skip if not in a group (no roster to update)
-	if GetNumGroupMembers() == 0 then
+	local count = GetNumGroupMembers()
+	if count == 0 then
 		return
 	end
-	local units
-	if IsInRaid() then
-		units = raid_units
-	else
-		units = party_units
-	end
 	twipe(leaders)
-	for _, unitid in pairs(units) do
-		if unitid and UnitExists(unitid) then
-			local isPet = unitid:find("pet")
-			local name = GetUnitName(unitid, true)
-			local pclass = (UnitClassBase(unitid))
-			local rank, subgroup
-			if IsInRaid() and (not isPet) then
-				local n = select(3, unitid:find("(%d+)"))
-				name, rank, subgroup = GetRaidRosterInfo(n)
-			else
-				rank = UnitIsGroupLeader(unitid) and 2 or 0
-				subgroup = 1
-			end
-			-- Track which raid subgroup each known shaman is in (used by auto-assign)
-			if pclass == "SHAMAN" and (not isPet) then
-				if ShamanPower.AllShamans[name] then
-					ShamanPower.AllShamans[name].subgroup = subgroup
-				end
-			end
-			if name and (rank > 0) then
-				if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance() then
-				else
-					leaders[name] = true
-					if name == self.player and AC_Leader == false then
-						AC_Leader = true
-					end
-				end
+	local instanceGroup = IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and IsInInstance()
+	if IsInRaid() then
+		-- one call per member gives name, rank, subgroup and class: no unit tokens,
+		-- no string work (pets were walked too and never mattered)
+		for i = 1, count do
+			local name, rank, subgroup, _, _, class = GetRaidRosterInfo(i)
+			rosterMember(self, name, rank, subgroup, class, instanceGroup)
+		end
+	else
+		for i = 1, #party_units do
+			local unitid = party_units[i]
+			if UnitExists(unitid) and UnitIsPlayer(unitid) then
+				rosterMember(self, GetUnitName(unitid, true), UnitIsGroupLeader(unitid) and 2 or 0, 1, (UnitClassBase(unitid)), instanceGroup)
 			end
 		end
 	end
@@ -11822,6 +16775,8 @@ function ShamanPower:CreateLayout()
 	self.Header = _G["ShamanPowerFrame"]
 	self.autoButton = CreateFrame("Button", "ShamanPowerAuto", self.Header, "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerStateTemplate, SecureActionButtonTemplate, ShamanPowerAutoButtonTemplate")
 	self.autoButton:RegisterForClicks("LeftButtonDown", "RightButtonDown")
+	-- the bar grows as totems are learned (and with Grid / Compact): one on its default spot re-centres
+	self.autoButton:HookScript("OnSizeChanged", function() ShamanPower:ApplyDefaultBarPositions() end)
 
 	-- ALT+drag to move the frame
 	self.autoButton:RegisterForDrag("LeftButton")
@@ -11838,9 +16793,9 @@ function ShamanPower:CreateLayout()
 		if ShamanPower.isDragging then
 			local frame = ShamanPowerFrame
 			frame:StopMovingOrSizing()
+			ShamanPower.isDragging = false
 			-- Save position to profile (ensures display table exists for proper persistence)
 			ShamanPower:SaveFramePosition(frame)
-			ShamanPower.isDragging = false
 		end
 	end)
 	self:UpdateLayout()
@@ -11848,7 +16803,12 @@ end
 
 function ShamanPower:UpdateLayout()
 	--self:Debug("UpdateLayout()")
-	if InCombatLockdown() then return end
+	if InCombatLockdown() then
+		-- A /reload during a fight lands here from PLAYER_ENTERING_WORLD with
+		-- nothing built yet; OnCombatEnd finishes the login sequence.
+		self._layoutPendingCombat = true
+		return
+	end
 
 	-- Scale around the on-screen centre so the bar does not slide as it grows.
 	-- The first application at login is a plain SetScale: the saved position
@@ -11857,6 +16817,8 @@ function ShamanPower:UpdateLayout()
 	if not self._barScaleApplied then
 		ShamanPowerFrame:SetScale(buffscale)
 		self._barScaleApplied = true
+	elseif math.abs(ShamanPowerFrame:GetScale() - buffscale) > 0.001 and not self:TotemBarRecord() then
+		ShamanPowerFrame:SetScale(buffscale)   -- on its default spot: put back there below
 	elseif math.abs(ShamanPowerFrame:GetScale() - buffscale) > 0.001 then
 		-- The whole bar (mini-bar frame + buttons hanging off its top-left)
 		-- scales linearly about the root frame, so the shift that keeps the
@@ -11887,7 +16849,7 @@ function ShamanPower:UpdateLayout()
 	local layout = self.Layouts[self.opt.layout]
 	if not layout then
 		-- Fallback to Vertical (Right) if the configured layout doesn't exist
-		self.opt.layout = "Vertical"
+		self.opt.layout = "Horizontal"
 		layout = self.Layouts["Vertical"]
 	end
 	local ox = layout.ab.x * x
@@ -11899,8 +16861,7 @@ function ShamanPower:UpdateLayout()
 	-- Show mini totem bar only if:
 	-- 1. Is a shaman, addon enabled, autobutton option on
 	-- 2. In party/raid or solo (based on settings)
-	local showMiniBar = isShaman and self.opt.enabled and self.opt.miniBar.autobutton
-		and ((GetNumGroupMembers() == 0 and self.opt.ShowWhenSolo) or (GetNumGroupMembers() > 0 and self.opt.ShowInParty))
+	local showMiniBar = self:TotemBarInUse()   -- the same test the hide and fade rules make
 	if showMiniBar then
 		self:SetTotemBarFramesShown(true)
 		-- Update the mini totem bar icons and spells
@@ -11910,6 +16871,7 @@ function ShamanPower:UpdateLayout()
 	else
 		self:SetTotemBarFramesShown(false)
 	end
+	self:ApplyDefaultBarPositions()   -- bars with no saved spot follow the new size / layout / scale
 
 	-- Apply opacity settings
 	self:ApplyAllOpacity()
@@ -12009,7 +16971,10 @@ function ShamanPower:ApplySkin()
 		Mixin(ShamanPowerAuto, BackdropTemplateMixin)
 	end
 	-- Only apply backdrop to totem bar if not hidden
-	if self.opt.hideTotemBarFrame then
+	-- Grid lays the totems out in its own rows and Blizzard's bar replaces ours:
+	-- the old bar's frame would be an empty box on screen
+	local noBarFrame = (self.GridActive and self:GridActive()) or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+	if self.opt.hideTotemBarFrame or noBarFrame then
 		ShamanPowerAuto:SetBackdrop(nil)
 	else
 		ShamanPowerAuto:SetBackdrop(tmp)
@@ -12028,8 +16993,9 @@ function ShamanPower:UpdateTotemBarFrame()
 	-- Show or hide the totem bar frame (background/border)
 	if not ShamanPowerAuto then return end
 
-	if self.opt.hideTotemBarFrame then
-		-- Hide the frame - set backdrop to nil
+	local noBarFrame = (self.GridActive and self:GridActive()) or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
+	if self.opt.hideTotemBarFrame or noBarFrame then
+		-- Hide the frame - set backdrop to nil (Grid / Blizzard's bar: there is no bar of ours to frame)
 		ShamanPowerAuto:SetBackdrop(nil)
 	else
 		-- Show the frame - reapply skin
@@ -12092,188 +17058,186 @@ function ShamanPower:AutoAssign()
 	end
 end
 
-function ShamanPower:AutoAssignTotems()
-	-- Smart Shaman Auto-Assign: Assign totems based on party composition and shaman spec
-	-- Totem indices:
-	-- Earth: 1=Strength of Earth, 2=Stoneskin
-	-- Fire: 1=Totem of Wrath, 2=Searing, 5=Flametongue
-	-- Water: 1=Mana Spring, 2=Healing Stream, 3=Mana Tide
-	-- Air: 1=Windfury, 2=Grace of Air, 3=Wrath of Air
-
-	-- First, analyze party composition for each group
-	local groupComposition = self:AnalyzeGroupComposition()
-
-	-- Get shamans organized by their party group
-	local shamansByGroup = {}
-	for name in pairs(ShamanPower.AllShamans) do
-		local subgroup = ShamanPower.AllShamans[name].subgroup or 1
-		if not shamansByGroup[subgroup] then
-			shamansByGroup[subgroup] = {}
+-- Composition-driven priorities (first existing, unused choice; repeat first
+-- after the useful choices are exhausted). No Tremor or Mana Tide auto-picks.
+--             Physical DPS / tank             Caster-only
+-- Earth       Strength, Stoneskin               Stoneskin, Strength
+-- Fire        ToW if Elemental (Classic only); Flametongue if casters > melee,
+--             otherwise Searing; the other usable Fire choices follow.
+-- Water       Mana Spring with any mana user, otherwise Healing Stream; swap
+--             to the other choice for another shaman in the same subgroup.
+-- Air         Windfury; Grace if AGI > WF users Classic: Wrath, Windfury, Grace
+--                                               Forever: Tranquil, Windfury, Grace
+-- Forever tankless physical groups keep their physical first choice (including
+-- shaman + warrior => Windfury); Tranquil is next for a second shaman.
+do
+	local priorities = {
+		earthPhysical = { 1, 2 }, earthCaster = { 2, 1 },
+		fireCaster = { 5, 2 }, firePhysical = { 2, 5 },
+		fireElementalCaster = { 1, 5, 2 }, fireElementalPhysical = { 1, 2, 5 },
+		waterMana = { 1, 2 }, waterHealth = { 2, 1 },
+		airMelee = { 1, 2 }, airAgility = { 2, 1 },
+		airMeleeThreat = { 1, 4, 2 }, airAgilityThreat = { 2, 4, 1 },
+		airCasterClassic = { 3, 1, 2 }, airCasterForever = { 4, 1, 2 },
+	}
+	local manaClasses = { PALADIN = true, HUNTER = true, PRIEST = true, SHAMAN = true,
+		MAGE = true, WARLOCK = true, DRUID = true }
+	local function Public(value)
+		if issecretvalue and issecretvalue(value) then return nil end
+		return value
+	end
+	local function Subgroup(value, fallback)
+		if issecretvalue and issecretvalue(value) then return nil end
+		if value == nil then return fallback end
+		if type(value) == "number" and value >= 1 and value <= 8 and value % 1 == 0 then return value end
+	end
+	local function Composition()
+		-- meleeDPS includes rogues/cats; agilityDPS overlaps those and hunters.
+		-- Historical aliases preserve the preference comparison: melee means
+		-- Windfury-favoured units (including physical tanks), caster includes
+		-- healers, agiUsers includes feral tanks as well as agility DPS.
+		return { tank = 0, healer = 0, meleeDPS = 0, rangedCaster = 0,
+			agilityDPS = 0, manaUsers = 0, melee = 0, caster = 0, agiUsers = 0, total = 0 }
+	end
+	local function CountUnit(self, comp, unit, raidRole, forever, playerEnhancement)
+		if Public(UnitExists(unit)) ~= true then return end
+		comp.total = comp.total + 1
+		local _, class = UnitClass(unit)
+		class = Public(class)
+		local role = UnitGroupRolesAssigned and Public(UnitGroupRolesAssigned(unit))
+		if role ~= "TANK" and role ~= "HEALER" and role ~= "DAMAGER" then role = nil end
+		local power
+		if class == "DRUID" and UnitPowerType then power = Public(UnitPowerType(unit)) end
+		if not role then
+			if Public(raidRole) == "MAINTANK" then role = "TANK"
+			elseif class == "DRUID" and power == 1 then role = "TANK"
+			else role = "DAMAGER" end
 		end
-		table.insert(shamansByGroup[subgroup], name)
-	end
+		if role == "TANK" then comp.tank = comp.tank + 1 end
+		if role == "HEALER" then comp.healer = comp.healer + 1; comp.caster = comp.caster + 1 end
+		-- An unreadable class never becomes a guessed DPS or mana user.
+		if not class then return end
+		if manaClasses[class] then comp.manaUsers = comp.manaUsers + 1 end
+		if role == "HEALER" then return end
 
-	-- Track which totems are already assigned in each group (to avoid duplicates)
-	local assignedInGroup = {}
-	for i = 1, 8 do
-		assignedInGroup[i] = {
-			[1] = {},  -- Earth totems assigned
-			[2] = {},  -- Fire totems assigned
-			[3] = {},  -- Water totems assigned
-			[4] = {},  -- Air totems assigned
-		}
-	end
-
-	-- Assign totems to each shaman
-	for name in pairs(ShamanPower.AllShamans) do
-		local canAssign = (name == self.player) or self:CanControl(name)
-		if canAssign then
-			local subgroup = ShamanPower.AllShamans[name].subgroup or 1
-			local comp = groupComposition[subgroup] or {melee = 0, caster = 0, agiUsers = 0, total = 0}
-
-			if not ShamanPower_Assignments[name] then
-				ShamanPower_Assignments[name] = {}
-			end
-
-			-- Determine shaman spec
-			local isElemental = self:ShamanHasTotemOfWrath(name)
-
-			-- === EARTH TOTEM ===
-			local earthTotem = 1  -- Default: Strength of Earth
-			if not assignedInGroup[subgroup][1][1] then
-				earthTotem = 1  -- Strength of Earth
-				assignedInGroup[subgroup][1][1] = true
-			elseif not assignedInGroup[subgroup][1][2] then
-				earthTotem = 2  -- Stoneskin (if SoE already assigned)
-				assignedInGroup[subgroup][1][2] = true
-			end
-			ShamanPower_Assignments[name][1] = earthTotem
-
-			-- === FIRE TOTEM ===
-			local fireTotem = 2  -- Default: Searing
-			if isElemental and not assignedInGroup[subgroup][2][1] then
-				fireTotem = 1  -- Totem of Wrath for Elemental shamans
-				assignedInGroup[subgroup][2][1] = true
-			elseif comp.caster > comp.melee and not assignedInGroup[subgroup][2][5] then
-				fireTotem = 5  -- Flametongue for caster groups
-				assignedInGroup[subgroup][2][5] = true
-			else
-				if not assignedInGroup[subgroup][2][2] then
-					fireTotem = 2  -- Searing
-					assignedInGroup[subgroup][2][2] = true
-				end
-			end
-			ShamanPower_Assignments[name][2] = fireTotem
-
-			-- === WATER TOTEM ===
-			-- Mana Spring preferred, Healing Stream as fallback (Mana Tide is a cooldown, not auto-assigned)
-			local waterTotem = 1  -- Default: Mana Spring
-			if not assignedInGroup[subgroup][3][1] then
-				waterTotem = 1  -- Mana Spring
-				assignedInGroup[subgroup][3][1] = true
-			elseif not assignedInGroup[subgroup][3][2] then
-				waterTotem = 2  -- Healing Stream (if Mana Spring already assigned)
-				assignedInGroup[subgroup][3][2] = true
-			end
-			ShamanPower_Assignments[name][3] = waterTotem
-
-			-- === AIR TOTEM ===
-			-- Windfury for warriors/enh shamans, Grace of Air for hunters/rogues/ferals, Wrath of Air for casters
-			local airTotem = 1  -- Default: Windfury
-			if comp.caster > comp.melee and comp.caster > comp.agiUsers then
-				-- Caster-heavy group
-				if not assignedInGroup[subgroup][4][3] then
-					airTotem = 3  -- Wrath of Air
-					assignedInGroup[subgroup][4][3] = true
-				end
-			elseif comp.agiUsers > 0 and comp.agiUsers >= comp.melee then
-				-- AGI users (hunters, rogues, feral druids) prefer Grace of Air
-				if not assignedInGroup[subgroup][4][2] then
-					airTotem = 2  -- Grace of Air
-					assignedInGroup[subgroup][4][2] = true
-				elseif not assignedInGroup[subgroup][4][1] then
-					airTotem = 1  -- Windfury as backup
-					assignedInGroup[subgroup][4][1] = true
-				end
-			else
-				-- Melee group (warriors, paladins, etc.) want Windfury
-				if not assignedInGroup[subgroup][4][1] then
-					airTotem = 1  -- Windfury
-					assignedInGroup[subgroup][4][1] = true
-				elseif not assignedInGroup[subgroup][4][2] then
-					airTotem = 2  -- Grace of Air as backup
-					assignedInGroup[subgroup][4][2] = true
-				end
-			end
-			ShamanPower_Assignments[name][4] = airTotem
+		local feral = class == "DRUID" and (power == 1 or power == 3 or role == "TANK")
+		if class == "DRUID" and not feral and not forever then feral = self:IsDruidFeral(unit) end
+		local enhancement = false
+		if class == "SHAMAN" then
+			local isPlayer = unit == "player" or (UnitIsUnit and Public(UnitIsUnit(unit, "player")) == true)
+			enhancement = isPlayer and playerEnhancement or false
+			if not enhancement and not forever then enhancement = self:IsShamanEnhancement(unit) end
+		end
+		local windfury = class == "WARRIOR" or class == "PALADIN" or enhancement
+		local agility = class == "ROGUE" or class == "HUNTER" or feral
+		if windfury then comp.melee = comp.melee + 1 end
+		if agility then comp.agiUsers = comp.agiUsers + 1 end
+		if role == "TANK" then return end
+		if agility then comp.agilityDPS = comp.agilityDPS + 1 end
+		if windfury or class == "ROGUE" or feral then
+			comp.meleeDPS = comp.meleeDPS + 1
+		elseif class ~= "HUNTER" and manaClasses[class] then
+			comp.rangedCaster = comp.rangedCaster + 1
+			comp.caster = comp.caster + 1
 		end
 	end
 
-	self:SendMessage("SHPWR_ASSIGNMENTSUPDATED")
-	self:UpdateRoster()
-	self:Print("Totems have been smart-assigned based on party composition.")
-end
-
--- Analyze the composition of each party group
-function ShamanPower:AnalyzeGroupComposition()
-	local composition = {}
-	for i = 1, 8 do
-		composition[i] = {melee = 0, caster = 0, agiUsers = 0, total = 0}
+	function ShamanPower:AutoAssignTotems()
+		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local composition = self:AnalyzeGroupComposition()
+		local names, groups, controllable, assigned = {}, {}, {}, {}
+		local fallbackGroup
+		if not IsInRaid() then fallbackGroup = 1 end
+		for group = 1, 8 do assigned[group] = { {}, {}, {}, {} } end
+		for name, info in pairs(self.AllShamans) do
+			local group = Subgroup(info.subgroup, fallbackGroup)
+			if group then
+				names[#names + 1] = name
+				groups[name] = group
+				controllable[name] = name == self.player or Public(self:CanControl(name)) == true
+			end
+		end
+		table.sort(names)
+		-- Preserve others' assignments and count them before picking our slots.
+		for _, name in ipairs(names) do
+			if not controllable[name] then
+				local existing = ShamanPower_Assignments[name]
+				for element = 1, 4 do
+					local index = existing and Public(existing[element])
+					if type(index) == "number" and index > 0 and self:TotemExistsOnClient(element, index) then
+						assigned[groups[name]][element][index] = true
+					end
+				end
+			end
+		end
+		local function Pick(group, element, choices)
+			local first
+			for _, index in ipairs(choices) do
+				if self:TotemExistsOnClient(element, index) then
+					first = first or index
+					if not assigned[group][element][index] then
+						assigned[group][element][index] = true
+						return index
+					end
+				end
+			end
+			return first or 0 -- Nothing eligible: leave that element unassigned.
+		end
+		for _, name in ipairs(names) do
+			if controllable[name] then
+				local group = groups[name]
+				local comp = composition[group]
+				local physical = comp.tank > 0 or comp.meleeDPS > 0
+				local casterHeavy = comp.caster > comp.meleeDPS + comp.tank
+				local elemental = not forever and self:TotemExistsOnClient(2, 1) and self:ShamanHasTotemOfWrath(name)
+				local fire = casterHeavy and priorities.fireCaster or priorities.firePhysical
+				if elemental then fire = casterHeavy and priorities.fireElementalCaster or priorities.fireElementalPhysical end
+				local air
+				if not physical and comp.agiUsers == 0 then
+					air = forever and priorities.airCasterForever or priorities.airCasterClassic
+				elseif comp.agiUsers > comp.melee then
+					air = forever and comp.tank == 0 and priorities.airAgilityThreat or priorities.airAgility
+				else
+					air = forever and comp.tank == 0 and priorities.airMeleeThreat or priorities.airMelee
+				end
+				local loadout = ShamanPower_Assignments[name] or {}
+				ShamanPower_Assignments[name] = loadout
+				loadout[1] = Pick(group, 1, physical and priorities.earthPhysical or priorities.earthCaster)
+				loadout[2] = Pick(group, 2, fire)
+				loadout[3] = Pick(group, 3, comp.manaUsers > 0 and priorities.waterMana or priorities.waterHealth)
+				loadout[4] = Pick(group, 4, air)
+			end
+		end
+		-- (this used to send "SHPWR_ASSIGNMENTSUPDATED" to the whole group, which no
+		-- client ever handled: it was meant as a local notification)
+		self:UpdateRoster()
+		self:Print("Totems have been smart-assigned based on party composition and roles.")
 	end
 
-	local numMembers = GetNumGroupMembers()
-	local isRaid = IsInRaid()
-
-	if numMembers == 0 then
-		-- Solo
-		composition[1].total = 1
+	function ShamanPower:AnalyzeGroupComposition()
+		local composition = {}
+		for group = 1, 8 do composition[group] = Composition() end
+		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local knows = IsPlayerSpell or IsSpellKnown
+		-- Stormstrike is already catalogued in Ready Reminders (17364). This is
+		-- local spellbook knowledge, never an aura/spec read from another shaman.
+		local playerEnhancement = knows and Public(knows(17364)) == true
+		local members, raid = GetNumGroupMembers(), IsInRaid()
+		if members == 0 then
+			CountUnit(self, composition[1], "player", nil, forever, playerEnhancement)
+			return composition
+		end
+		for index = 1, members do
+			local unit = raid and ("raid" .. index) or (index == members and "player" or ("party" .. index))
+			local group, raidRole = 1, nil
+			if raid then
+				local _, _, subgroup, _, _, _, _, _, _, role = GetRaidRosterInfo(index)
+				group, raidRole = Subgroup(subgroup), role
+			end
+			if group then CountUnit(self, composition[group], unit, raidRole, forever, playerEnhancement) end
+		end
 		return composition
 	end
-
-	for i = 1, numMembers do
-		local unit = isRaid and ("raid" .. i) or (i == numMembers and "player" or ("party" .. i))
-		if UnitExists(unit) then
-			local _, class = UnitClass(unit)
-			local subgroup = 1
-			if isRaid then
-				local name, _, sg = GetRaidRosterInfo(i)
-				subgroup = sg or 1
-			end
-
-			composition[subgroup].total = composition[subgroup].total + 1
-
-			-- Classify by class
-			if class == "WARRIOR" or class == "PALADIN" then
-				-- Warriors and Paladins benefit from Windfury
-				composition[subgroup].melee = composition[subgroup].melee + 1
-			elseif class == "ROGUE" then
-				-- Rogues want Grace of Air (AGI)
-				composition[subgroup].agiUsers = composition[subgroup].agiUsers + 1
-			elseif class == "HUNTER" then
-				-- Hunters want Grace of Air (AGI)
-				composition[subgroup].agiUsers = composition[subgroup].agiUsers + 1
-			elseif class == "DRUID" then
-				-- Druids: check if they're feral (melee/AGI) or caster
-				if self:IsDruidFeral(unit) then
-					composition[subgroup].agiUsers = composition[subgroup].agiUsers + 1
-				else
-					composition[subgroup].caster = composition[subgroup].caster + 1
-				end
-			elseif class == "SHAMAN" then
-				-- Shamans: Enhancement = melee, Elemental/Resto = caster
-				if self:IsShamanEnhancement(unit) then
-					composition[subgroup].melee = composition[subgroup].melee + 1
-				else
-					composition[subgroup].caster = composition[subgroup].caster + 1
-				end
-			elseif class == "MAGE" or class == "WARLOCK" or class == "PRIEST" then
-				-- Pure casters
-				composition[subgroup].caster = composition[subgroup].caster + 1
-			end
-		end
-	end
-
-	return composition
 end
 
 -- Check if a druid is feral (cat/bear) vs caster (balance/resto)
@@ -12366,6 +17330,17 @@ ShamanPower.KeybindButtons = {
 	["SHAMANPOWER_AIR_TOTEM"] = "ShamanPowerTotemBtn4",
 	["SHAMANPOWER_EARTH_SHIELD"] = "ShamanPowerEarthShieldBtn",
 	["SHAMANPOWER_TOTEMIC_CALL"] = "ShamanPowerTotemicCallBtn",
+	-- Flyouts (box mode): each key presses that flyout's TOGGLE helper (SPFT<K>,
+	-- see EnsureFlyoutBox), so one key opens and closes, in or out of combat,
+	-- and obeys the single-open setting. On clients without box mode these
+	-- buttons do not exist and the bindings are inert.
+	["SHAMANPOWER_FLYOUT_EARTH"] = "SPFT1",
+	["SHAMANPOWER_FLYOUT_FIRE"] = "SPFT2",
+	["SHAMANPOWER_FLYOUT_WATER"] = "SPFT3",
+	["SHAMANPOWER_FLYOUT_AIR"] = "SPFT4",
+	["SHAMANPOWER_FLYOUT_SHIELD"] = "SPFTS",
+	["SHAMANPOWER_FLYOUT_IMBUE"] = "SPFTI",
+	["SHAMANPOWER_FLYOUT_CLOSE"] = "SPFCALL",
 }
 
 -- Map cooldown bar binding names to cooldownType values
@@ -12454,7 +17429,7 @@ function ShamanPower:MigrateMacroIcons()
 		self.opt.macroIconMigrationV1 = true
 	end
 
-	print("|cff00ff00ShamanPower:|r Macro icons updated to use dynamic spell icons.")
+	print("|cff0070ddShamanPower:|r Macro icons updated to use dynamic spell icons.")
 end
 
 -- Migrate macro reset timers to reset=combat/15 (one-time migration for v1.5.6)
@@ -12474,7 +17449,7 @@ function ShamanPower:MigrateMacroResetTimers()
 		self.opt.macroResetMigrationV156 = true
 	end
 
-	print("|cff00ff00ShamanPower:|r Macro reset timers updated (reset=combat/15).")
+	print("|cff0070ddShamanPower:|r Macro reset timers updated (reset=combat/15).")
 end
 
 -- Create or update a WoW macro
@@ -12523,7 +17498,7 @@ function ShamanPower:UpdateSPMacros()
 
 		-- Special handling for Air totem when twisting is enabled
 		if element == 4 and self.opt.enableTotemTwisting then
-			local wfName = GetSpellInfo(25587) or "Windfury Totem"  -- Windfury Totem
+			local wfName = GetSpellInfo(8512) or "Windfury Totem"  -- Windfury Totem
 			local twistName = self:GetTwistTotemName()
 			body = "#showtooltip\n/castsequence reset=combat/15 " .. wfName .. ", " .. twistName
 		elseif totemIndex > 0 then
@@ -12600,7 +17575,7 @@ SlashCmdList["SPMACROS"] = function()
 	print("ShamanPower: Macros updated! Look for these in your macro list:")
 	print("  SP_Earth, SP_Fire, SP_Water, SP_Air - Cast assigned totem")
 	print("  SP_DropAll - Cast all totems in sequence")
-	print("  SP_Recall - Totemic Call")
+	print("  SP_Recall - " .. (GetSpellInfo(36936) or "Totemic Call"))
 	print("Drag them to your action bar - they auto-update when you change assignments!")
 end
 
@@ -12627,16 +17602,24 @@ function ShamanPower:GetActiveActionBarAddon()
 end
 
 -- Get spell name from an action slot
+-- Filled by every scan: spells that sit on the bars as the plain spell, and
+-- spells that are only reached through a macro. Key routing (RouteFlyoutBarKeys)
+-- takes over a key only for the first kind; a macro may do something smarter
+-- than a plain cast and is left alone.
+ShamanPower.barPlainSpells, ShamanPower.barMacroSpells = {}, {}
+
 local function GetSpellNameFromActionSlot(slot)
 	local actionType, id, subType = GetActionInfo(slot)
 	if actionType == "spell" and id then
 		local spellName = GetSpellInfo(id)
+		if spellName then ShamanPower.barPlainSpells[spellName] = true end
 		return spellName, id
 	elseif actionType == "macro" then
 		-- Check if macro casts a spell we care about
 		local macroSpell = GetMacroSpell(id)
 		if macroSpell then
 			local spellName = GetSpellInfo(macroSpell)
+			if spellName then ShamanPower.barMacroSpells[spellName] = true end
 			return spellName, macroSpell
 		end
 	end
@@ -12859,6 +17842,8 @@ end
 function ShamanPower:ScanActionBarKeybinds()
 	local addon = self:GetActiveActionBarAddon()
 	local keybinds = {}
+	wipe(self.barPlainSpells)
+	wipe(self.barMacroSpells)
 
 	-- Always scan default bars first (provides fallback)
 	local defaultKeybinds = self:ScanDefaultActionBarKeybinds()
@@ -12985,7 +17970,7 @@ function ShamanPower:SetupTotemBarKeybindText()
 		local btn = _G[buttonName]
 		if btn and not btn.keybindText then
 			local keybindText = btn:CreateFontString(nil, "OVERLAY")
-			keybindText:SetFont("Fonts\\ARIALN.TTF", 9, "OUTLINE")
+			ShamanPower:SetSPFont(keybindText, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
 			keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
 			keybindText:SetTextColor(0.9, 0.9, 0.9, 1)
 			keybindText:SetText("")
@@ -13044,6 +18029,7 @@ function ShamanPower:UpdateButtonKeybindText()
 		if self.weaponImbueButton and self.weaponImbueButton.keybindText then
 			self.weaponImbueButton.keybindText:Hide()
 		end
+		self:UpdateFlyoutKeybindText(false)
 		return
 	end
 
@@ -13145,6 +18131,51 @@ function ShamanPower:UpdateButtonKeybindText()
 			self.weaponImbueButton.keybindText:Hide()
 		end
 	end
+
+	self:UpdateFlyoutKeybindText(true)
+end
+
+-- Keybind text on the flyout icons too: each one is a specific spell, so the key
+-- it is bound to on the action bars is looked up the same way as for the main
+-- buttons. (There is no ShamanPower binding per flyout totem, so a spell that
+-- is not on a bound bar slot simply shows nothing.)
+function ShamanPower:UpdateFlyoutKeybindText(enabled)
+	local function apply(btn, spellName)
+		if not btn then return end
+		if not btn.keybindText then
+			if InCombatLockdown() then return end   -- make it after the fight; text alone is fine in combat
+			-- its own frame, above the cooldown swipe (a child frame of the button)
+			local holder = CreateFrame("Frame", nil, btn)
+			holder:SetAllPoints(btn)
+			holder:SetFrameLevel(btn:GetFrameLevel() + 4)
+			local fs = holder:CreateFontString(nil, "OVERLAY")
+			ShamanPower:SetSPFont(fs, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
+			fs:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0)
+			fs:SetTextColor(0.9, 0.9, 0.9, 1)
+			btn.keybindText = fs
+		end
+		local key = enabled and spellName and self:GetKeybindForSpell(spellName)
+		local text = key and GetShortKeybindText(key)
+		if text then
+			btn.keybindText:SetText(text)
+			btn.keybindText:Show()
+		else
+			btn.keybindText:SetText("")
+			btn.keybindText:Hide()
+		end
+	end
+
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
+			apply(btn, btn.spellID and GetSpellInfo(btn.spellID))
+		end
+	end
+	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+		for _, btn in ipairs(flyout and flyout.buttons or {}) do
+			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)))
+		end
+	end
 end
 
 function ShamanPower:SetupKeybindings()
@@ -13153,6 +18184,13 @@ function ShamanPower:SetupKeybindings()
 		self.keybindsPending = true
 		return
 	end
+	-- switched off: none of our bindings (hidden secure buttons still answer a key)
+	if self:IsOff() then
+		if self.keybindFrame then ClearOverrideBindings(self.keybindFrame) end
+		self.keybindsPending = false
+		return
+	end
+	self:ApplyClickSwap()   -- the keys below press whichever mouse button means "main action"
 
 	-- Need a frame to own the bindings
 	if not self.keybindFrame then
@@ -13168,11 +18206,12 @@ function ShamanPower:SetupKeybindings()
 	-- Set up override bindings for totem bar buttons (static button names)
 	for bindingName, buttonName in pairs(self.KeybindButtons) do
 		local key1, key2 = GetBindingKey(bindingName)
+		local mouse = self:KeyMouseButton(buttonName)
 		if key1 then
-			SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, "LeftButton")
+			SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, mouse)
 		end
 		if key2 then
-			SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, "LeftButton")
+			SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, mouse)
 		end
 	end
 
@@ -13183,11 +18222,12 @@ function ShamanPower:SetupKeybindings()
 			local buttonName = btn:GetName()
 			if buttonName then
 				local key1, key2 = GetBindingKey(bindingName)
+				local mouse = self:KeyMouseButton(buttonName)
 				if key1 then
-					SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, "LeftButton")
+					SetOverrideBindingClick(self.keybindFrame, false, key1, buttonName, mouse)
 				end
 				if key2 then
-					SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, "LeftButton")
+					SetOverrideBindingClick(self.keybindFrame, false, key2, buttonName, mouse)
 				end
 			end
 		end
@@ -13197,6 +18237,38 @@ function ShamanPower:SetupKeybindings()
 
 	-- Update keybind text on buttons if enabled
 	self:UpdateButtonKeybindText()
+
+	-- (after the scan above) action bar keys for flyout spells go through the flyout
+	self:RouteFlyoutBarKeys()
+end
+
+-- In combat a flyout can only be closed by a press on one of OUR secure buttons,
+-- so a totem cast from the player's own action bar key left the flyout standing
+-- open. With opt.flyoutRouteBarKeys (default on) the key a flyout spell has on
+-- the action bars is pointed at that spell's flyout button instead: the same
+-- spell is cast, and the button's macro closes the flyout as it does for a
+-- click. Only for plain-spell slots (never a macro), only in box mode, and only
+-- as override bindings owned by our keybind frame, so clearing them restores
+-- the player's keys untouched. Hidden buttons answer binding presses, so this
+-- works whether or not the flyout is open.
+function ShamanPower:RouteFlyoutBarKeys()
+	if InCombatLockdown() or not self.keybindFrame or self:IsOff() then return end   -- switched off: the player's keys stay theirs
+	if self.opt.flyoutRouteBarKeys == false or not self.opt.showTotemFlyouts then return end
+	if self.opt.flyoutCloseOnCast == false then return end   -- nothing to gain: leave the player's keys alone
+	if not next(self.boxFlyouts or {}) then return end   -- not in box mode
+
+	local castButton = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"
+	for key, entry in pairs(self.boxFlyouts) do
+		local flyout = entry.flyout
+		local mouse = (type(key) == "number") and castButton or "LeftButton"   -- shield/imbue cast on left
+		for _, btn in ipairs(flyout.allButtons or flyout.buttons or {}) do
+			local name = btn.spellName or btn:GetAttribute("mySpell") or (btn.spellID and GetSpellInfo(btn.spellID))
+			local bound = name and self.actionBarKeybinds and self.actionBarKeybinds[name]
+			if bound and btn:GetName() and self.barPlainSpells[name] and not self.barMacroSpells[name] then
+				SetOverrideBindingClick(self.keybindFrame, false, bound, btn:GetName(), mouse)
+			end
+		end
+	end
 end
 
 -- Register for binding updates
@@ -13206,6 +18278,28 @@ keybindEventFrame:RegisterEvent("PLAYER_LOGIN")
 keybindEventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
 keybindEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 keybindEventFrame:RegisterEvent("ADDON_LOADED")
+-- The key shown on a button is looked up from the action bars first, so it has
+-- to follow the bars as well as the bindings: putting a spell on a bound slot,
+-- taking it off, or paging the bar all change what should be shown.
+keybindEventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+keybindEventFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
+keybindEventFrame:RegisterEvent("SPELLS_CHANGED")
+
+-- Coalesced refresh of the keybind text. Action bar events arrive in bursts
+-- (dozens at login), and a spell's name can come back empty the first time it
+-- is asked for, so one quick pass is followed by a second a moment later.
+-- Text only, so it is safe in combat.
+function ShamanPower:QueueKeybindTextRefresh()
+	if self.keybindTextRefreshQueued then return end
+	self.keybindTextRefreshQueued = true
+	C_Timer.After(0.2, function()
+		ShamanPower.keybindTextRefreshQueued = nil
+		if ShamanPower.UpdateButtonKeybindText then ShamanPower:UpdateButtonKeybindText() end
+	end)
+	C_Timer.After(1.0, function()
+		if ShamanPower.UpdateButtonKeybindText then ShamanPower:UpdateButtonKeybindText() end
+	end)
+end
 
 -- Action bar addons that we want to detect for keybind scanning
 local actionBarAddons = {
@@ -13241,10 +18335,32 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 			ShamanPower.pendingAssignments = nil
 			-- Silent save, like TotemTimers
 		end
-		-- Dynamic Mode: update button attributes now that we're out of combat
-		if ShamanPower.opt.dynamicTotemMode then
+		-- Dynamic Mode (and Grid): update button attributes now that we're out of combat
+		if ShamanPower:DropSetsAssignment() then
 			ShamanPower:UpdateMiniTotemBar()
 			ShamanPower:UpdateTotemButtons()
+		end
+		return
+	end
+
+	-- switched off: no key text, bindings or macro migrations (switch-on sets them up)
+	if ShamanPower:IsOff() then return end
+
+	if event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_PAGE_CHANGED" or event == "SPELLS_CHANGED" then
+		if ShamanPower.opt and ShamanPower.opt.showButtonKeybinds then
+			ShamanPower:QueueKeybindTextRefresh()
+		end
+		-- routed keys follow the bars too; bindings are secure, so defer in combat
+		if ShamanPower.opt and ShamanPower.opt.flyoutRouteBarKeys ~= false and next(ShamanPower.boxFlyouts or {}) then
+			if InCombatLockdown() then
+				ShamanPower.keybindsPending = true
+			elseif not ShamanPower.flyoutRouteQueued then
+				ShamanPower.flyoutRouteQueued = true
+				C_Timer.After(0.5, function()
+					ShamanPower.flyoutRouteQueued = nil
+					ShamanPower:SetupKeybindings()
+				end)
+			end
 		end
 		return
 	end
@@ -13303,15 +18419,15 @@ if not ShamanPower.RaidCooldownsLoaded then
 	-- Provide stub functions when module not loaded
 	function ShamanPower:InitRaidCooldowns() end
 	function ShamanPower:ToggleRaidCooldownPanel()
-		print("|cffff8800ShamanPower:|r Raid Cooldowns module not loaded. Enable 'ShamanPower [Raid Cooldowns]' in your addon list.")
+		print("|cff0070ddShamanPower:|r Raid Cooldowns module not loaded. Enable 'ShamanPower [Raid Cooldowns]' in your addon list.")
 	end
 	function ShamanPower:UpdateCallerButtons() end
 	function ShamanPower:HandleRaidCooldownMessage() end
 	function ShamanPower:CallBloodlust() end
 	function ShamanPower:CallManaTide() end
 	function ShamanPower:RestoreCallerCooldowns() end
-	function ShamanPower:AddCooldownButtonAlert() end
-	function ShamanPower:RemoveCooldownButtonAlert() end
+	-- (AddCooldownButtonAlert / RemoveCooldownButtonAlert live in this file: this
+	-- block runs before the module can set its flag, so a stub here replaced them)
 	function ShamanPower:EnableCallerCooldownTracking() end
 	function ShamanPower:DisableCallerCooldownTracking() end
 	function ShamanPower:UpdateCallerButtonOpacity() end
@@ -13330,10 +18446,10 @@ if not ShamanPower.SPRangeLoaded then
 	function ShamanPower:InitSPRange() end
 	function ShamanPower:CreateSPRangeFrame() end
 	function ShamanPower:ToggleSPRange()
-		print("|cffff8800ShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+		print("|cff0070ddShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
 	end
 	function ShamanPower:ShowSPRangeConfig()
-		print("|cffff8800ShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+		print("|cff0070ddShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
 	end
 	function ShamanPower:InitializeSPRange() end
 	function ShamanPower:UpdateSPRangeVisibility() end
@@ -13350,6 +18466,11 @@ if not ShamanPower.SPRangeLoaded then
 	end
 end
 
+-- Set from the compat layer rather than by the tracker module, so the settings
+-- page, the setup tour and the role defaults all agree even when the tracker
+-- addon is switched off in the AddOns list.
+ShamanPower.ESTrackerUnavailable = (SPCompat and SPCompat.earthShieldExists == false) or nil
+
 -- ES Tracker module stubs (loaded by ShamanPower_ESTracker addon)
 -- This module tracks Earth Shields cast by OTHER shamans in your raid/party
 if not ShamanPower.ESTrackerLoaded then
@@ -13357,7 +18478,11 @@ if not ShamanPower.ESTrackerLoaded then
 	function ShamanPower:InitESTracker() end
 	function ShamanPower:CreateESTrackerFrame() end
 	function ShamanPower:ToggleESTracker()
-		print("|cffff8800ShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
+		if ShamanPower.ESTrackerUnavailable then
+			print("|cff0070ddShamanPower:|r Earth Shield does not exist on this client, so the tracker stays off.")
+		else
+			print("|cff0070ddShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
+		end
 	end
 	function ShamanPower:InitializeESTracker() end
 	function ShamanPower:UpdateESTrackerFrame() end
@@ -13429,7 +18554,7 @@ if not ShamanPower.TotemPlatesLoaded then
 	-- Provide stub functions when module not loaded
 	function ShamanPower:InitializeTotemPlates() end
 	function ShamanPower:ToggleTotemPlates()
-		print("|cffff8800ShamanPower:|r Totem Plates module not loaded. Enable 'ShamanPower [Totem Plates]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Totem Plates module not loaded. Enable 'ShamanPower [Totem Plates]' in your AddOns.")
 	end
 	function ShamanPower:UpdateTotemPlatesSize() end
 	function ShamanPower:UpdateTotemPlatesPulseSettings() end
@@ -13453,7 +18578,7 @@ if not ShamanPower.ReactiveTotemsLoaded then
 	function ShamanPower:ShowAllReactiveFrames() end
 	function ShamanPower:HideAllReactiveFrames() end
 	function ShamanPower:ShowReactiveTotemsConfig()
-		print("|cffff8800ShamanPower:|r Reactive Totems module not loaded. Enable 'ShamanPower [Reactive Totems]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Reactive Totems module not loaded. Enable 'ShamanPower [Reactive Totems]' in your AddOns.")
 	end
 
 	-- Register slash commands (shows module not loaded message)
@@ -13491,7 +18616,7 @@ if not ShamanPower.ExpiringAlertsLoaded then
 	SLASH_SPALERTS1 = "/spalerts"
 	SLASH_SPALERTS2 = "/expiringalerts"
 	SlashCmdList["SPALERTS"] = function(msg)
-		print("|cffff8800ShamanPower:|r Expiring Alerts module not loaded. Enable 'ShamanPower [Expiring Alerts]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Expiring Alerts module not loaded. Enable 'ShamanPower [Expiring Alerts]' in your AddOns.")
 	end
 end
 
@@ -13511,129 +18636,110 @@ if not ShamanPower.TremorReminderLoaded then
 
 	SLASH_SPTREMOR1 = "/sptremor"
 	SlashCmdList["SPTREMOR"] = function(msg)
-		print("|cffff8800ShamanPower:|r Tremor Reminder module not loaded. Enable 'ShamanPower [Tremor Reminder]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Tremor Reminder module not loaded. Enable 'ShamanPower [Tremor Reminder]' in your AddOns.")
 	end
 end
 
 -- ============================================================================
--- SPThanks: Special feature for Srumar to thank ShamanPower users
--- ============================================================================
-
-ShamanPower.spThanksEnabled = false
-ShamanPower.spThankedPlayers = {}  -- Track who we've already thanked this session
-
-function ShamanPower:SPThanksCheckAndWhisper(playerName)
-	-- Only works for Srumar
-	if self.player ~= "Srumar" then return end
-	if not self.spThanksEnabled then return end
-	if not playerName or playerName == self.player then return end
-
-	-- Don't thank the same person twice in a session
-	if self.spThankedPlayers[playerName] then return end
-
-	-- Mark as thanked and send whisper
-	self.spThankedPlayers[playerName] = true
-	SendChatMessage("Thanks for installing ShamanPower!", "WHISPER", nil, playerName)
-	self:Print("Thanked " .. playerName .. " for using ShamanPower!")
-end
-
--- Hook into existing addon sync to detect users
-local originalParseMessage = ShamanPower.ParseMessage
-function ShamanPower:ParseMessage(sender, msg, ...)
-	-- Check for SPThanks before calling original (sender is first param!)
-	if sender and sender ~= self.player then
-		-- Strip realm name if present
-		local shortName = strsplit("-", sender)
-		self:SPThanksCheckAndWhisper(shortName)
-	end
-
-	-- Call original function
-	if originalParseMessage then
-		return originalParseMessage(self, sender, msg, ...)
-	end
-end
-
-SLASH_SPTHANKS1 = "/spthanks"
-SlashCmdList["SPTHANKS"] = function(msg)
-	-- Only Srumar can use this
-	if ShamanPower.player ~= "Srumar" then
-		print("|cffff0000ShamanPower:|r This feature is only available for Srumar.")
-		return
-	end
-
-	msg = msg:lower():trim()
-
-	if msg == "on" then
-		ShamanPower.spThanksEnabled = true
-		ShamanPower.spThankedPlayers = {}  -- Reset thanked list
-		print("|cff00ff00ShamanPower:|r SPThanks enabled! Will whisper thanks to ShamanPower users.")
-	elseif msg == "off" then
-		ShamanPower.spThanksEnabled = false
-		print("|cff00ff00ShamanPower:|r SPThanks disabled.")
-	else
-		local status = ShamanPower.spThanksEnabled and "|cff00ff00ON|r" or "|cffff0000OFF|r"
-		print("|cff00ff00ShamanPower:|r SPThanks is currently " .. status)
-		print("Usage: /spthanks on | /spthanks off")
-	end
-end
-
--- ============================================================================
--- SPCenter: Reset totem bar and cooldown bar to center of screen
+-- SPCenter: totem bar to the centre of the screen, cooldown bar straight under it
 -- ============================================================================
 
 SLASH_SPCENTER1 = "/spcenter"
 SlashCmdList["SPCENTER"] = function(msg)
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot reposition frames during combat.")
+		print("|cff0070ddShamanPower:|r Cannot reposition frames during combat.")
 		return
 	end
 
-	-- Reset main ShamanPower frame to center and save position
-	local mainFrame = _G["ShamanPowerFrame"]
-	if mainFrame then
-		mainFrame:ClearAllPoints()
-		mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-		-- Clear saved position so it stays centered after reload
-		ShamanPower:EnsureProfileTable("display")
-		ShamanPower.opt.display.offsetX = 0
-		ShamanPower.opt.display.offsetY = 0
-		print("|cff00ff00ShamanPower:|r Totem bar moved to center.")
-	end
-
-	-- Reset cooldown bar position (force reposition even if already unlocked)
-	if ShamanPower.cooldownBar then
-		ShamanPower.opt.cooldownBarPosX = 0
-		ShamanPower.opt.cooldownBarPosY = -50
-		ShamanPower.opt.cooldownBarPoint = "CENTER"
-		ShamanPower.opt.cooldownBarRelPoint = "CENTER"
-		ShamanPower:UpdateCooldownBarPosition(true)  -- true = force reposition
-		print("|cff00ff00ShamanPower:|r Cooldown bar moved to center.")
-	end
+	-- A rescue for bars lost off screen: the visible totem bar is saved dead centre
+	-- (a real saved spot, so it holds after /reload) and the cooldown bar drops its
+	-- own spot, so it sits straight under the totem bar and follows it.
+	local SP = ShamanPower
+	SP:EnsureProfileTable("display")
+	local d = SP.opt.display
+	d.offsetX, d.offsetY = nil, nil
+	SP.opt.cooldownBarPosition = nil
+	SP.opt.cooldownBarPoint, SP.opt.cooldownBarRelPoint = nil, nil
+	SP.opt.cooldownBarPosX, SP.opt.cooldownBarPosY = nil, nil
 
 	-- Make sure bars are visible
-	if ShamanPower.autoButton and ShamanPower:TotemBarEnabled() then
-		ShamanPower.autoButton:Show()
+	if SP.autoButton and SP:TotemBarEnabled() then
+		SP.autoButton:Show()
 	end
 
-	-- Force a layout update
-	ShamanPower:UpdateLayout()
-	ShamanPower:UpdateRoster()
+	-- Lay the bar out first: where its centre sits depends on its size and layout
+	SP:UpdateLayout()
+	SP:UpdateRoster()
+	local mainFrame = _G["ShamanPowerFrame"]
+	if mainFrame and SP.autoButton then
+		local dx, dy = SP:TotemBarGeometry()
+		local rec = { anchor = "CENTER", x = -dx, y = -dy }
+		SP:SetStyleSpot(d, SP:BarStyleSpotKey(), rec)
+		SP:ApplyPositionRecord(mainFrame, rec)
+		print("|cff0070ddShamanPower:|r Totem bar moved to the center of the screen.")
+		-- the hide rules keep it down (SetTotemBarFramesShown): say so, or it looks lost still
+		if SP.totemBarHidden then
+			print("|cff0070ddShamanPower:|r It is hidden right now by Hide Out of Combat / Hide When No Totems, and shows there when they allow it.")
+		end
+	end
+	if SP.cooldownBar and SP.opt.showCooldownBar then
+		SP:UpdateCooldownBarPosition(true)   -- detaches a bar still on the totem bar
+		print("|cff0070ddShamanPower:|r Cooldown bar moved under it.")
+	end
+	SP:ApplyDefaultBarPositions()
 
-	print("|cff00ff00ShamanPower:|r Frames reset to center. Use ALT+drag to reposition.")
+	print("|cff0070ddShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset puts them back on their default spot.")
 end
 
 -- ============================================================================
 -- TOTEM LOADOUTS: Save/load personal 4-element totem assignments
 -- ============================================================================
 
+-- A loadout carries its own Drop All excludes (noDropAll[element] = true: left out of Drop All
+-- and Call of the Elements). Switching to it swaps them in, and ticking an exclude while it is
+-- the active loadout saves into it. A loadout saved before this has no noDropAll: switching to
+-- it leaves the current excludes alone until one of its own is set.
+ShamanPower.DropAllExcludeKeys = { "excludeEarthFromDropAll", "excludeFireFromDropAll", "excludeWaterFromDropAll", "excludeAirFromDropAll" }
+
+function ShamanPower:CurrentDropAllExcludes()
+	local t = {}
+	for e, key in ipairs(self.DropAllExcludeKeys) do t[e] = self.opt[key] and true or false end
+	return t
+end
+
+-- whether a loadout leaves an element out (its own setting, or the current one if it has none)
+function ShamanPower:LoadoutExcluded(index, element)
+	local lo = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	if lo and lo.noDropAll then return lo.noDropAll[element] and true or false end
+	return self.opt[self.DropAllExcludeKeys[element]] and true or false
+end
+
+-- Set one element's exclude. index nil or the active loadout: the live setting changes (and the
+-- active loadout keeps it); another index: only that loadout's copy, used when it is switched to.
+function ShamanPower:SetDropAllExclude(element, val, index)
+	val = val and true or false
+	local active = self.opt.activeLoadout
+	local target = index or active
+	local lo = target and ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[target]
+	if lo then
+		lo.noDropAll = lo.noDropAll or self:CurrentDropAllExcludes()
+		lo.noDropAll[element] = val
+	end
+	if index == nil or index == active then
+		self.opt[self.DropAllExcludeKeys[element]] = val
+		self:UpdateDropAllButton()
+		self:UpdateSPMacros()
+	end
+end
+
 function ShamanPower:SaveLoadout(name)
 	if #ShamanPower_TotemLoadouts >= 8 then
-		print("|cffff0000ShamanPower:|r Maximum of 8 loadouts reached.")
+		print("|cff0070ddShamanPower:|r Maximum of 8 loadouts reached.")
 		return
 	end
 	local assignments = ShamanPower_Assignments[self.player]
 	if not assignments then return end
-	local loadout = { name = name or nil }
+	local loadout = { name = name or nil, noDropAll = self:CurrentDropAllExcludes() }
 	for element = 1, 4 do
 		loadout[element] = assignments[element] or 0
 	end
@@ -13643,15 +18749,15 @@ function ShamanPower:SaveLoadout(name)
 		self.opt.showLoadoutBar = true
 	end
 	self:UpdateLoadoutBar()
-	print("|cff00ff00ShamanPower:|r Saved loadout '" .. (name or ("Loadout " .. #ShamanPower_TotemLoadouts)) .. "'")
+	print("|cff0070ddShamanPower:|r Saved loadout '" .. (name or ("Loadout " .. #ShamanPower_TotemLoadouts)) .. "'")
 end
 
 function ShamanPower:CreateLoadout(name, icon, totems)
 	if #ShamanPower_TotemLoadouts >= 8 then
-		print("|cffff0000ShamanPower:|r Maximum of 8 loadouts reached.")
+		print("|cff0070ddShamanPower:|r Maximum of 8 loadouts reached.")
 		return
 	end
-	local loadout = { name = name or nil, icon = icon or nil }
+	local loadout = { name = name or nil, icon = icon or nil, noDropAll = self:CurrentDropAllExcludes() }
 	for element = 1, 4 do
 		loadout[element] = (totems and totems[element]) or 0
 	end
@@ -13662,12 +18768,13 @@ function ShamanPower:CreateLoadout(name, icon, totems)
 	end
 	-- Auto-activate the newly created loadout
 	self:ApplyLoadout(newIndex)
-	print("|cff00ff00ShamanPower:|r Created loadout '" .. (name or ("Loadout " .. newIndex)) .. "'")
+	print("|cff0070ddShamanPower:|r Created loadout '" .. (name or ("Loadout " .. newIndex)) .. "'")
 end
 
-function ShamanPower:ApplyLoadout(index)
+-- quiet: the caller prints its own line (loadout auto-switch)
+function ShamanPower:ApplyLoadout(index, quiet)
 	if InCombatLockdown() then
-		print("|cffff0000ShamanPower:|r Cannot change loadout in combat")
+		print("|cff0070ddShamanPower:|r Cannot change loadout in combat")
 		return
 	end
 	local loadout = ShamanPower_TotemLoadouts[index]
@@ -13680,8 +18787,12 @@ function ShamanPower:ApplyLoadout(index)
 	for element = 1, 4 do
 		assignments[element] = loadout[element] or 0
 	end
+	if loadout.noDropAll then
+		for e, key in ipairs(self.DropAllExcludeKeys) do self.opt[key] = loadout.noDropAll[e] and true or false end
+	end
 	self.opt.activeLoadout = index
 	self:UpdateMiniTotemBar()
+	self:UpdateDropAllButton()   -- Drop All and Call of the Elements follow the new totems and excludes
 	self:UpdateSPMacros()
 	self:UpdateLoadoutBar()
 	-- Broadcast assignments to other ShamanPower clients
@@ -13689,7 +18800,7 @@ function ShamanPower:ApplyLoadout(index)
 		self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (assignments[element] or 0))
 	end
 	local name = loadout.name or ("Loadout " .. index)
-	print("|cff00ff00ShamanPower:|r Activated '" .. name .. "'")
+	if not quiet then print("|cff0070ddShamanPower:|r Activated '" .. name .. "'") end
 	LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
 end
 
@@ -13712,6 +18823,8 @@ function ShamanPower:UpdateLoadout(index)
 	for element = 1, 4 do
 		loadout[element] = assignments[element] or 0
 	end
+	loadout.noDropAll = self:CurrentDropAllExcludes()
+	if self.HasTotemBar and self:HasTotemBar() and self.SyncBoundLoadout then self:SyncBoundLoadout(index) end
 	self:UpdateLoadoutBar()
 end
 
@@ -13727,6 +18840,7 @@ function ShamanPower:SetLoadoutTotem(index, element, totemIdx)
 	local loadout = ShamanPower_TotemLoadouts[index]
 	if not loadout then return end
 	loadout[element] = totemIdx
+	if self.HasTotemBar and self:HasTotemBar() and self.SyncBoundLoadout then self:SyncBoundLoadout(index) end
 	self:UpdateLoadoutBar()
 end
 
@@ -13773,7 +18887,8 @@ function ShamanPower:GetLoadoutDescription(index)
 		local color = loadoutElementColors[element]
 		if totemIdx > 0 then
 			local name = self:GetTotemName(element, totemIdx)
-			tinsert(parts, color .. name .. "|r")
+			local out = self:LoadoutExcluded(index, element) and " |cff888888(not in Drop All)|r" or ""
+			tinsert(parts, color .. name .. "|r" .. out)
 		else
 			tinsert(parts, color .. "None|r")
 		end
@@ -13804,16 +18919,17 @@ end
 -- ============================================================================
 
 -- Radial button positions around anchor (same as TotemTimers buttonlocations)
-local loadoutButtonLocations = {
-	{"BOTTOM", "TOP"},
-	{"BOTTOMLEFT", "TOPRIGHT"},
-	{"LEFT", "RIGHT"},
-	{"TOPLEFT", "BOTTOMRIGHT"},
-	{"TOP", "BOTTOM"},
-	{"TOPRIGHT", "BOTTOMLEFT"},
-	{"RIGHT", "LEFT"},
-	{"BOTTOMRIGHT", "TOPLEFT"},
-}
+-- The flyout is one column over the button (under it when the button sits in the top half of
+-- the screen), each name to its right: a ring put every name on the next button. The side is
+-- read from the saved spot, never off the frame.
+function ShamanPower:LoadoutFlyoutOpensDown()
+	local pos = self.opt.loadoutBarPosition
+	if not pos then return false end
+	local a = pos.anchor or pos.relPoint or pos.point or "CENTER"
+	if a:find("TOP") then return true end
+	if a:find("BOTTOM") then return false end
+	return (pos.y or 0) > 0
+end
 
 -- Element colors for tooltips (matches TotemTimers: Fire, Earth, Water, Air by totem slot)
 -- ShamanPower uses: 1=Earth, 2=Fire, 3=Water, 4=Air
@@ -13824,24 +18940,25 @@ local loadoutTooltipColors = {
 	[4] = {r = 1.0, g = 1.0, b = 1.0},  -- Air (white)
 }
 
--- Delete set confirmation popup (same as TotemTimers)
-StaticPopupDialogs["SHAMANPOWER_DELETESET"] = {
-	text = "Delete totem set %s?",
-	button1 = OKAY,
-	button2 = CANCEL,
-	whileDead = 1,
-	hideOnEscape = 1,
-	timeout = 0,
-	OnAccept = function(self, nr)
-		if not InCombatLockdown() then
-			ShamanPower:DeleteLoadout(nr)
-			if ShamanPower.RefreshLoadoutArgs then
-				ShamanPower:RefreshLoadoutArgs()
-			end
-			ShamanPower:RefreshConfig()
-		end
-	end,
-}
+-- Delete set confirmation (Settings > Loadouts > Delete)
+function ShamanPower:ConfirmDeleteLoadout(nr, name)
+	self:ShowSPDialog({
+		key = "deleteLoadout", title = "Delete totem set", text = "Delete totem set " .. tostring(name) .. "?",
+		buttons = {
+			{ text = "Delete", onClick = function()
+				-- combat began while it was open: say so, and keep the question up for after the fight
+				if InCombatLockdown() then
+					print("|cff0070ddShamanPower|r: |cffe64a4atotem sets cannot be deleted in combat - click Delete again after the fight.|r")
+					return true
+				end
+				ShamanPower:DeleteLoadout(nr)
+				if ShamanPower.RefreshLoadoutArgs then ShamanPower:RefreshLoadoutArgs() end
+				ShamanPower:RefreshConfig()
+			end },
+			{ text = "Cancel" },
+		},
+	})
+end
 
 function ShamanPower:CreateLoadoutBar()
 	if self.loadoutBarCreated then return end
@@ -13856,17 +18973,40 @@ function ShamanPower:CreateLoadoutBar()
 	anchor:SetFrameStrata("MEDIUM")
 	anchor:SetClampedToScreen(true)
 	anchor:SetMovable(true)
+	-- The client's layout cache remembered where an ALT-drag once left this
+	-- named frame and put it back there after every reload, on top of the
+	-- position the addon saved: the bar sat behind action bars whatever was
+	-- saved, and the move box appeared at the saved spot instead. Never let the
+	-- client place it.
+	anchor:SetUserPlaced(false)
+	if anchor.SetDontSavePosition then anchor:SetDontSavePosition(true) end
 	anchor:EnableMouse(true)
 	anchor:RegisterForDrag("LeftButton")
+	-- With "Click the Button to Cycle Loadouts" on (off by default: the flyout is
+	-- the way), clicking the button itself steps through the loadouts (left: next,
+	-- right: previous). Out of combat, as ApplyLoadout is.
+	anchor:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	anchor:SetScript("OnClick", function(_, button)
+		if not ShamanPower.opt.loadoutBarClickCycle then return end
+		if IsAltKeyDown() then return end   -- ALT is for moving it
+		local n = ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts or 0
+		if n < 2 then return end
+		local cur = ShamanPower.opt.activeLoadout or 0
+		ShamanPower:ApplyLoadout(button == "RightButton" and ((cur - 2) % n) + 1 or (cur % n) + 1)
+	end)
 	self.loadoutAnchor = anchor
 
 	-- SECURE HANDLER: Show flyout on hover (WORKS IN COMBAT)
 	-- Same pattern as totem button _onenter/_onleave
-	anchor:SetAttribute("_onenter", [[
+	ShamanPower:SetSnippet(anchor, "_onenter", [[
+		if self:GetAttribute("spnoflyout") then return end   -- Turn Off the Flyout (plain name: snippets cannot read "_" ones)
 		self:ChildUpdate("show", true)
 	]])
 
-	anchor:SetAttribute("_onleave", SP_SECURE_ONLEAVE_SELF)
+	ShamanPower:SetSnippet(anchor, "_onleave", SP_SECURE_ONLEAVE_SELF)
+	-- the plain-script fallback (Forever, where snippets do not run) opens a flyout only
+	-- for a host marked mouseover, as the totem buttons are; without it hovering did nothing
+	anchor:SetAttribute("OpenMenu", "mouseover")
 
 	-- Anchor normal texture (standard WoW action button look)
 	local normalTex = anchor:CreateTexture(nil, "BORDER")
@@ -13906,6 +19046,7 @@ function ShamanPower:CreateLoadoutBar()
 
 	-- Name label to the right of anchor
 	local anchorName = anchor:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+	ShamanPower:AdoptSPFont(anchorName, "labels")   -- template font = the design; follows the Fonts settings
 	anchorName:SetPoint("LEFT", anchor, "RIGHT", 4, 0)
 	anchorName:SetText("")
 	anchorName:SetJustifyH("LEFT")
@@ -13915,7 +19056,7 @@ function ShamanPower:CreateLoadoutBar()
 	anchor:SetScript("OnDragStart", function(btn)
 		if self.opt.loadoutBarLocked then return end
 		if InCombatLockdown() then
-			print("|cffff0000ShamanPower:|r Cannot move loadout bar during combat")
+			print("|cff0070ddShamanPower:|r Cannot move loadout bar during combat")
 			return
 		end
 		if IsAltKeyDown() then
@@ -13926,6 +19067,7 @@ function ShamanPower:CreateLoadoutBar()
 	anchor:SetScript("OnDragStop", function(btn)
 		if anchor.isMoving then
 			anchor:StopMovingOrSizing()
+			anchor:SetUserPlaced(false)
 			anchor.isMoving = false
 			self:SaveLoadoutBarPosition()
 		end
@@ -13940,6 +19082,9 @@ function ShamanPower:CreateLoadoutBar()
 			local lo = ShamanPower_TotemLoadouts[self.opt.activeLoadout]
 			GameTooltip:AddLine("Active: " .. (lo.name or ("Set " .. self.opt.activeLoadout)), 0.3, 1.0, 0.3)
 		end
+		if ShamanPower.opt.loadoutBarClickCycle and #ShamanPower_TotemLoadouts > 1 then
+			GameTooltip:AddLine("Left-click: next loadout. Right-click: previous.", 0.8, 0.8, 0.8)
+		end
 		if not self.opt.loadoutBarLocked then
 			GameTooltip:AddLine("ALT+Drag to move", 0, 0.9, 1)
 		end
@@ -13951,22 +19096,27 @@ function ShamanPower:CreateLoadoutBar()
 
 	-- Pre-create 8 set buttons as CHILDREN of anchor (required for ChildUpdate to work)
 	self.loadoutButtons = {}
+	local hasTotemBar = self.HasTotemBar and self:HasTotemBar()
+	local buttonTemplates = "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate"
+	if hasTotemBar then buttonTemplates = "SecureActionButtonTemplate, " .. buttonTemplates end
 	for i = 1, 8 do
 		local btn = CreateFrame("Button", "ShamanPowerSetButton" .. i, anchor,
-			"SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate")
+			buttonTemplates)
 		btn:SetSize(32, 32)
 		btn:SetClampedToScreen(true)
 		btn:EnableMouse(true)
-		btn:RegisterForClicks("LeftButtonUp")
+		if hasTotemBar then btn:RegisterForClicks("AnyUp", "AnyDown")
+		else btn:RegisterForClicks("LeftButtonUp") end
 		btn:SetFrameStrata("HIGH")
 
 		-- SECURE HANDLER: Hide flyout when mouse leaves set button (if not over parent anchor)
 		-- Same pattern as totem flyout _onleave
-		btn:SetAttribute("_onleave", SP_SECURE_ONLEAVE_PARENT)
+		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
 
 		-- SECURE HANDLER: Toggle visibility on parent ChildUpdate("toggle")
 		-- Same as TotemTimers: _childupdate-toggle
-		btn:SetAttribute("_childupdate-toggle", [[
+		ShamanPower:SetSnippet(btn, "_childupdate-toggle", [[
 			if not self:GetAttribute("inactive") then
 				if self:IsVisible() then
 					self:Hide()
@@ -13978,7 +19128,7 @@ function ShamanPower:CreateLoadoutBar()
 
 		-- SECURE HANDLER: Show/hide on parent ChildUpdate("show", bool)
 		-- Same as TotemTimers: _childupdate-show
-		btn:SetAttribute("_childupdate-show", [[
+		ShamanPower:SetSnippet(btn, "_childupdate-show", [[
 			if message and not self:GetAttribute("inactive") then
 				self:Show()
 			else
@@ -14023,6 +19173,7 @@ function ShamanPower:CreateLoadoutBar()
 
 		-- Name label to the right of button
 		local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+		ShamanPower:AdoptSPFont(nameText, "labels")   -- template font = the design; follows the Fonts settings
 		nameText:SetPoint("LEFT", btn, "RIGHT", 4, 0)
 		nameText:SetText("")
 		nameText:SetJustifyH("LEFT")
@@ -14030,14 +19181,16 @@ function ShamanPower:CreateLoadoutBar()
 
 		btn.nr = i
 
-		-- Plain Lua OnClick: apply loadout (blocked in combat)
-		btn:SetScript("OnClick", function(self, button)
+		-- Keep the secure template's OnClick for bound summons. Unbound buttons
+		-- still select assignments on release; Classic retains its old OnClick.
+		btn:SetScript(hasTotemBar and "PostClick" or "OnClick", function(buttonFrame, button, down)
+			if hasTotemBar and (down or buttonFrame:GetAttribute("spBoundLoadout")) then return end
 			if button == "LeftButton" then
 				if InCombatLockdown() then
-					print("|cffff0000ShamanPower:|r Cannot change loadout during combat")
+					print("|cff0070ddShamanPower:|r Cannot change loadout during combat")
 					return
 				end
-				local index = self:GetAttribute("loadoutIndex")
+				local index = buttonFrame:GetAttribute("loadoutIndex")
 				ShamanPower:ApplyLoadout(index)
 				-- Close flyout (ApplyLoadout calls UpdateLoadoutBar which reconfigures buttons,
 				-- but doesn't hide the open flyout — do it explicitly)
@@ -14063,7 +19216,9 @@ function ShamanPower:CreateLoadoutBar()
 				end
 				GameTooltip:AddLine(" ")
 			end
-			GameTooltip:AddLine("Left-click to load totem set", 0, 0.9, 1)
+			local summon = ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(self.nr)
+			if summon then GameTooltip:AddLine("Click to cast this Blizzard totem set", 0, 0.9, 1)
+			else GameTooltip:AddLine("Left-click to load totem set", 0, 0.9, 1) end
 			GameTooltip:Show()
 		end)
 		btn:HookScript("OnLeave", function(self)
@@ -14091,7 +19246,15 @@ function ShamanPower:UpdateLoadoutBar()
 	local numLoadouts = #ShamanPower_TotemLoadouts
 
 	-- Show/hide anchor (need loadouts AND setting enabled)
-	if not self.opt.showLoadoutBar or numLoadouts == 0 then
+	if not self.opt.showLoadoutBar or numLoadouts == 0 or self:IsOff() then
+		if self.HasTotemBar and self:HasTotemBar() then
+			for _, button in ipairs(self.loadoutButtons) do
+				button:SetAttribute("type", nil)
+				button:SetAttribute("spell", nil)
+				button:SetAttribute("spBoundLoadout", nil)
+				button:SetAttribute("inactive", true)
+			end
+		end
 		if not InCombatLockdown() then
 			self.loadoutAnchor:Hide()
 		end
@@ -14100,6 +19263,11 @@ function ShamanPower:UpdateLoadoutBar()
 
 	if not InCombatLockdown() then
 		self.loadoutAnchor:Show()
+		-- "Turn Off the Flyout" (only with click-to-cycle on): neither hover path opens it,
+		-- the secure snippet (spnoflyout) nor the Forever fallback (OpenMenu)
+		local noFlyout = self.opt.loadoutBarClickCycle and self.opt.loadoutBarNoFlyout
+		self.loadoutAnchor:SetAttribute("spnoflyout", noFlyout or nil)
+		self.loadoutAnchor:SetAttribute("OpenMenu", (not noFlyout) and "mouseover" or nil)
 	end
 
 	-- Apply scale and opacity
@@ -14154,33 +19322,52 @@ function ShamanPower:UpdateLoadoutBar()
 	-- Update set buttons: flyout only shows NON-ACTIVE loadouts (anchor is the active one)
 	-- The inactive attribute controls whether the secure _childupdate-toggle shows the button
 	local btnIndex = 0
+	local opensDown = self:LoadoutFlyoutOpensDown()
+	self.loadoutFlyoutDown = opensDown
 	for i = 1, numLoadouts do
-		-- Skip the active loadout (it's shown as the anchor icon)
-		if i ~= self.opt.activeLoadout then
+		local summon = self.BoundLoadoutSummon and self:BoundLoadoutSummon(i)
+		-- A bound active loadout still needs a cast button: the anchor is only
+		-- a hover handle, not a secure action button.
+		if i ~= self.opt.activeLoadout or summon then
 			btnIndex = btnIndex + 1
 			if btnIndex <= 8 then
 				local btn = self.loadoutButtons[btnIndex]
 				local loadout = ShamanPower_TotemLoadouts[i]
 
 				-- Position radially around anchor (same as TotemTimers)
+				local prev = btnIndex == 1 and self.loadoutAnchor or self.loadoutButtons[btnIndex - 1]
 				btn:ClearAllPoints()
-				btn:SetPoint(loadoutButtonLocations[btnIndex][1], self.loadoutAnchor, loadoutButtonLocations[btnIndex][2])
+				if opensDown then btn:SetPoint("TOP", prev, "BOTTOM", 0, -2)
+				else btn:SetPoint("BOTTOM", prev, "TOP", 0, 2) end
 
-				-- Update 4 corner icons with totem textures
-				for element = 1, 4 do
-					local totemIdx = loadout[element] or 0
-					if totemIdx > 0 then
-						btn.miniIcons[element]:SetTexture(self:GetTotemIcon(element, totemIdx))
-					else
-						btn.miniIcons[element]:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+				if loadout.icon then
+					-- The player chose an icon for this loadout: show it, not the four totems
+					for element = 1, 4 do btn.miniIcons[element]:Hide() end
+					btn.icon:SetTexture(loadout.icon)
+					btn.icon:SetAlpha(1.0)
+				else
+					-- Update 4 corner icons with totem textures
+					for element = 1, 4 do
+						local totemIdx = loadout[element] or 0
+						if totemIdx > 0 then
+							btn.miniIcons[element]:SetTexture(self:GetTotemIcon(element, totemIdx))
+						else
+							btn.miniIcons[element]:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+						end
+						btn.miniIcons[element]:Show()
 					end
-				end
 
-				-- Show loadout icon as dimmed background (same as TotemTimers: 0.3 alpha)
-				btn.icon:SetTexture(self:GetLoadoutIcon(i))
-				btn.icon:SetAlpha(0.3)
+					-- Show loadout icon as dimmed background (same as TotemTimers: 0.3 alpha)
+					btn.icon:SetTexture(self:GetLoadoutIcon(i))
+					btn.icon:SetAlpha(0.3)
+				end
 				btn.nr = i
 				btn:SetAttribute("loadoutIndex", i)
+				if self.HasTotemBar and self:HasTotemBar() then
+					btn:SetAttribute("type", summon and "spell" or nil)
+					btn:SetAttribute("spell", summon)
+					btn:SetAttribute("spBoundLoadout", summon ~= nil)
+				end
 				btn.nameText:SetText(hideNames and "" or (ShamanPower_TotemLoadouts[i].name or ("Set " .. i)))
 
 				-- Mark as visible in flyout
@@ -14193,6 +19380,11 @@ function ShamanPower:UpdateLoadoutBar()
 	for j = btnIndex + 1, 8 do
 		local btn = self.loadoutButtons[j]
 		btn:SetAttribute("inactive", true)
+		if self.HasTotemBar and self:HasTotemBar() then
+			btn:SetAttribute("type", nil)
+			btn:SetAttribute("spell", nil)
+			btn:SetAttribute("spBoundLoadout", nil)
+		end
 		btn.nameText:SetText("")
 		if not InCombatLockdown() then
 			btn:Hide()
@@ -14238,6 +19430,17 @@ function ShamanPower:SaveLoadoutBarPosition()
 	local anchor = self.loadoutAnchor
 	if not anchor then return end
 	self.opt.loadoutBarPosition = self:SavePositionRecord(anchor)
+	-- moved across the middle of the screen: the flyout column now opens the other way
+	local down = self:LoadoutFlyoutOpensDown()
+	if down ~= self.loadoutFlyoutDown and self.loadoutButtons and not InCombatLockdown() then
+		self.loadoutFlyoutDown = down
+		for i, btn in ipairs(self.loadoutButtons) do
+			local prev = i == 1 and anchor or self.loadoutButtons[i - 1]
+			btn:ClearAllPoints()
+			if down then btn:SetPoint("TOP", prev, "BOTTOM", 0, -2)
+			else btn:SetPoint("BOTTOM", prev, "TOP", 0, 2) end
+		end
+	end
 end
 
 function ShamanPower:RestoreLoadoutBarPosition()
@@ -14263,22 +19466,43 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	msg = (msg or ""):trim()
 
 	if msg == "" then
-		print("|cff00ff00ShamanPower Loadouts:|r")
+		print("|cff0070ddShamanPower Loadouts:|r")
 		print("  /spl save <name>     - Save current totems as new loadout")
 		print("  /spl <number>        - Switch to loadout by index")
 		print("  /spl <name>          - Switch to loadout by name")
 		print("  /spl list            - List all saved loadouts")
 		print("  /spl delete <number> - Delete a loadout by index")
+		if ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() then
+			print("  /spl set <1-3> <loadout> - Send a loadout to Call of the Elements / Ancestors / Spirits")
+		end
+		return
+	end
+
+	-- /spl set <1|2|3> <number|name>  (clients with totem sets)
+	local setPage, setWhich = msg:match("^[Ss][Ee][Tt]%s+([123])%s+(.+)$")
+	if setPage then
+		if not (ShamanPower.PushLoadoutToTotemSet and ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) then
+			print("|cff0070ddShamanPower:|r totem sets are not available on this client")
+			return
+		end
+		local idx = tonumber(setWhich)
+		if not idx then
+			for i, l in ipairs(ShamanPower_TotemLoadouts) do
+				if l.name and l.name:lower() == setWhich:lower() then idx = i break end
+			end
+		end
+		if not idx then print("|cff0070ddShamanPower:|r no loadout '" .. setWhich .. "'") return end
+		ShamanPower:PushLoadoutToTotemSet(idx, tonumber(setPage))
 		return
 	end
 
 	-- /spl list
 	if msg:lower() == "list" then
 		if #ShamanPower_TotemLoadouts == 0 then
-			print("|cff00ff00ShamanPower:|r No loadouts saved. Use /spl save <name> to create one.")
+			print("|cff0070ddShamanPower:|r No loadouts saved. Use /spl save <name> to create one.")
 			return
 		end
-		print("|cff00ff00ShamanPower Loadouts:|r")
+		print("|cff0070ddShamanPower Loadouts:|r")
 		for i, loadout in ipairs(ShamanPower_TotemLoadouts) do
 			local name = loadout.name or ("Loadout " .. i)
 			local active = (ShamanPower.opt.activeLoadout == i) and " |cff00ff00[Active]|r" or ""
@@ -14304,12 +19528,12 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	if msg:lower():sub(1, 7) == "delete " then
 		local idx = tonumber(msg:sub(8):trim())
 		if not idx or not ShamanPower_TotemLoadouts[idx] then
-			print("|cffff0000ShamanPower:|r Invalid loadout index.")
+			print("|cff0070ddShamanPower:|r Invalid loadout index.")
 			return
 		end
 		local name = ShamanPower_TotemLoadouts[idx].name or ("Loadout " .. idx)
 		ShamanPower:DeleteLoadout(idx)
-		print("|cff00ff00ShamanPower:|r Deleted loadout '" .. name .. "'")
+		print("|cff0070ddShamanPower:|r Deleted loadout '" .. name .. "'")
 		return
 	end
 
@@ -14319,7 +19543,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 		if ShamanPower_TotemLoadouts[idx] then
 			ShamanPower:ApplyLoadout(idx)
 		else
-			print("|cffff0000ShamanPower:|r No loadout at index " .. idx .. ". Use /spl list to see available loadouts.")
+			print("|cff0070ddShamanPower:|r No loadout at index " .. idx .. ". Use /spl list to see available loadouts.")
 		end
 		return
 	end
@@ -14332,5 +19556,5 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 			return
 		end
 	end
-	print("|cffff0000ShamanPower:|r No loadout named '" .. msg .. "'. Use /spl list to see available loadouts.")
+	print("|cff0070ddShamanPower:|r No loadout named '" .. msg .. "'. Use /spl list to see available loadouts.")
 end

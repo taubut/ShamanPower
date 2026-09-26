@@ -1,6 +1,8 @@
 -- ShamanPower_Config / MobList.lua
 -- Tremor Reminder's fear-caster mob list, drawn with the config kit. Replaces
 -- the module's Blizzard-template window (this addon loads after the module).
+-- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
+local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local _, ns = ...
 local Core = ns.Core
 local SP = ShamanPower
@@ -9,6 +11,10 @@ if not SP then return end
 local frame
 local rows = {}
 local ROW_H = 24
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+local function Notify()
+	if registry then registry:NotifyChange("ShamanPower") end
+end
 
 local function DB()
 	ShamanPowerTremorReminderDB = ShamanPowerTremorReminderDB or {}
@@ -39,6 +45,7 @@ local function AddName(name)
 	if name == "" then return end
 	DB().fearCasters[name] = true
 	SP:RefreshMobList()
+	Notify()
 end
 
 local function Build()
@@ -96,6 +103,7 @@ local function Build()
 		local sv, defaults = DB(), SP:GetDefaultFearCasters()
 		for name, v in pairs(sv.fearCasters) do if v == false and defaults[name] then sv.fearCasters[name] = nil end end
 		SP:RefreshMobList()
+		Notify()
 	end)
 	frame.restore = restore
 	return frame
@@ -117,6 +125,7 @@ local function Row(i)
 		local mob = r.mob; if not mob then return end
 		if mob.custom then DB().fearCasters[mob.name] = nil else DB().fearCasters[mob.name] = false end   -- defaults are hidden, not deleted
 		SP:RefreshMobList()
+		Notify()
 	end)
 	r:SetScript("OnEnter", function(self) self.bg:SetColorTexture(Core:Color("rowHover")) end)
 	r:SetScript("OnLeave", function(self) self.bg:SetColorTexture(Core:Color("rowBg", (self.idx % 2 == 0) and 0.5 or 0.25)) end)
@@ -148,3 +157,9 @@ end
 function SP:ShowMobList() Build(); frame:Show(); self:RefreshMobList() end
 function SP:HideMobList() if frame then frame:Hide() end end
 function SP:ToggleMobList() if frame and frame:IsShown() then self:HideMobList() else self:ShowMobList() end end
+
+if registry and registry.RegisterCallback then
+	registry.RegisterCallback({}, "ConfigTableChange", function(_, appName)
+		if appName == "ShamanPower" and frame and frame:IsShown() then SP:RefreshMobList() end
+	end)
+end

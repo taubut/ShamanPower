@@ -26,6 +26,10 @@ local HEADER_H = 46
 local FOOTER_H = 48
 
 local dlg
+local registry = _G.LibStub("AceConfigRegistry-3.0", true)
+local function Notify()
+	if registry then registry:NotifyChange("ShamanPower") end
+end
 
 local function ShortName(t)
 	return SP.TrackableTotemShortNames[t.id] or (t.name and t.name:gsub(" Totem", "")) or ""
@@ -50,8 +54,8 @@ local function Build()
 		width = width, height = height,
 		title = "Totem Range", subtitle = "click totems to track",
 		headerHeight = HEADER_H, bodyTop = 8, footer = FOOTER_H, pad = pad,
+		special = true, strata = "DIALOG",
 	})
-	dlg:SetFrameStrata("DIALOG")
 	dlg.totemButtons = {}
 
 	for e = 1, 4 do
@@ -78,8 +82,7 @@ local function Build()
 			local icon = btn:CreateTexture(nil, "ARTWORK")
 			icon:SetAllPoints(btn)
 			icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-			local _, _, spellIcon = GetSpellInfo(t.spellID)
-			icon:SetTexture(spellIcon)
+			icon:SetTexture(SP.TrackableTotemIcon and SP:TrackableTotemIcon(t) or GetSpellTexture(t.spellID))
 			Core:MakeBorder(btn, "borderSoft")
 
 			local name = btn:CreateFontString(nil, "OVERLAY")
@@ -98,6 +101,7 @@ local function Build()
 				ShamanPower_RangeTracker.tracked[id] = not ShamanPower_RangeTracker.tracked[id]
 				SP:UpdateSPRangeConfigButtons()
 				SP:UpdateSPRangeFrame()
+				Notify()
 			end)
 			btn:SetScript("OnEnter", function(self)
 				for _, tex in pairs(self.spBorder) do tex:SetColorTexture(el.r, el.g, el.b, 0.9) end
@@ -129,7 +133,7 @@ local function Build()
 	rule:SetColorTexture(Core:Color("border"))
 
 	local toggle = Core:MakeButton(dlg, "Show Overlay", 130, true)
-	toggle:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", pad, 11)
+	toggle:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -pad, 12)
 	local function PaintToggle()
 		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown()
 		toggle.text:SetText(shown and "Hide Overlay" or "Show Overlay")
@@ -137,6 +141,7 @@ local function Build()
 	toggle:SetScript("OnClick", function()
 		SP:ToggleSPRange()
 		PaintToggle()
+		Notify()
 	end)
 	Core:AttachTooltip(toggle, "Overlay", "Show or hide the on-screen range overlay for the tracked totems.")
 	dlg.updateToggleBtnText = PaintToggle
@@ -144,7 +149,10 @@ local function Build()
 
 	local hint = dlg:CreateFontString(nil, "OVERLAY")
 	hint:SetFontObject(Core.fonts.tiny)
-	hint:SetPoint("LEFT", toggle, "RIGHT", 12, 0)
+	-- left of the button, level with its middle, wrapping in the room it leaves
+	hint:SetPoint("LEFT", dlg, "BOTTOMLEFT", pad, 12 + 13)
+	hint:SetPoint("RIGHT", toggle, "LEFT", -12, 0)
+	hint:SetJustifyH("LEFT"); hint:SetWordWrap(true)
 	hint:SetText("Greyed totems are not tracked")
 	hint:SetTextColor(Core:Color("textMute"))
 
@@ -165,10 +173,67 @@ if FS then
 		SP.opt.rangeTracker = SP.opt.rangeTracker or {}
 		return SP.opt.rangeTracker
 	end
-	local function Notify()
-		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
-		if reg then reg:NotifyChange("ShamanPower") end
+	-- Totem Coverage: the shaman's own overlay (Party Range module), same chrome
+	local function CO() SP.opt.coverage = SP.opt.coverage or {}; return SP.opt.coverage end
+	FS.specs.coverage = function(frame)
+		return {
+			key = "coverage", title = "Totem Coverage", subtitle = "who is out of range",
+			opacity = {
+				min = 20, max = 100,
+				get = function() return math.floor((CO().opacity or 1) * 100 + 0.5) end,
+				set = function(v) CO().opacity = v / 100; SP:UpdateCoverageOpacity(); Notify() end,
+			},
+			hideFrame = {
+				get = function() return CO().hideBorder and true or false end,
+				set = function(v) CO().hideBorder = v and true or false; SP:UpdateCoverageBorder(); Notify() end,
+			},
+			rows = function(Row)
+				Row("Slider", {
+					label = "Icon Size", desc = "Size of the totem cells.",
+					min = 20, max = 60, step = 4,
+					get = function() return CO().iconSize or 36 end,
+					set = function(v) CO().iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Slider", {
+					label = "Text Size", desc = "Size of the party names under each totem.",
+					min = 7, max = 14, step = 1,
+					get = function() return CO().fontSize or 9 end,
+					set = function(v) CO().fontSize = v; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Place Each Totem Freely",
+					desc = "Each cell gets its own spot and size; ALT+drag a cell or use Move under Coverage > Position.",
+					get = function() return CO().freeCells and true or false end,
+					set = function(v) CO().freeCells = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				if CO().freeCells and SP.CoverageWatchedCells then
+					for _, cell in ipairs(SP:CoverageWatchedCells()) do
+						local key = cell.cellKey
+						Row("Slider", {
+							label = cell.cellLabel .. " Icon Size", min = 20, max = 80, step = 4,
+							get = function() local c = CO().cells and CO().cells[key]; return (c and c.iconSize) or CO().iconSize or 36 end,
+							set = function(v) CO().cells = CO().cells or {}; CO().cells[key] = CO().cells[key] or {}; CO().cells[key].iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
+						})
+					end
+				end
+				Row("Toggle", {
+					label = "Vertical Layout", desc = "Stack the cells instead of a row (when not placed freely).",
+					get = function() return CO().vertical and true or false end,
+					set = function(v) CO().vertical = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
+				})
+				Row("Toggle", {
+					label = "Hide a Totem Once Everyone Is in Range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.",
+					get = function() return CO().hideWhenCovered ~= false end,
+					set = function(v) CO().hideWhenCovered = v and true or false; SP:UpdateCoverage(); Notify() end,
+				})
+			end,
+			actions = {
+				{ text = "Choose Totems", desc = "Pick which totems the overlay watches.",
+				  func = function() FS:Hide(); if ShamanPowerConfig then ShamanPowerConfig:Open({ "fluffy", "partybuff_section" }) end end },
+			},
+		}
 	end
+
 	FS.specs.sprange = function(frame)
 		return {
 			key = "sprange", title = "Totem Range", subtitle = "overlay",
@@ -205,6 +270,14 @@ if FS then
 			},
 		}
 	end
+end
+
+if registry and registry.RegisterCallback then
+	registry.RegisterCallback({}, "ConfigTableChange", function(_, appName)
+		if appName ~= "ShamanPower" or not (dlg and dlg:IsShown()) then return end
+		SP:UpdateSPRangeConfigButtons()
+		dlg.updateToggleBtnText()
+	end)
 end
 
 return true

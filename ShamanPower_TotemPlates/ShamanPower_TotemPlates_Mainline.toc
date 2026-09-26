@@ -1,0 +1,11 @@
+## Interface: 120100, 16001
+## Author: taubut
+## Title: |cff0070ddShamanPower|r |cffffd200[Totem Plates]|r
+## Version: 3.0.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Replaces totem nameplates with icons for easy identification
+## Dependencies: ShamanPower
+## LoadOnDemand: 0
+## DefaultState: enabled
+
+ShamanPower_TotemPlates.lua

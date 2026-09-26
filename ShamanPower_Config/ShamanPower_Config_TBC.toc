@@ -1,7 +1,7 @@
 ## Interface: 20506
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Config UI]|r
-## Version: 2.1.1
+## Version: 3.0.0
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: New options UI and totem assignment window for ShamanPower.
 ## Dependencies: ShamanPower
@@ -11,6 +11,7 @@
 
 Core.lua
 Widgets.lua
+IconPicker.lua
 Tree.lua
 Window.lua
 Assign.lua
@@ -20,5 +21,8 @@ RaidCD.lua
 SPRange.lua
 Share.lua
 MobList.lua
+Styles.lua
 Wizard.lua
+LoadoutPreview.lua
+GridPreview.lua
 WhatsNew.lua

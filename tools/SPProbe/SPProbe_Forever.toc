@@ -1,0 +1,5 @@
+## Interface: 11509, 20506, 16000, 16001, 30404, 50503, 120000
+## Title: SPProbe (Forever)
+## X-Flavor: Forever
+## Notes: Prints which TOC flavor the client loaded
+Probe.lua

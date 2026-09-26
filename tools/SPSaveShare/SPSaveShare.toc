@@ -1,0 +1,11 @@
+## Interface: 120100, 16001
+## Author: Srumar
+## Title: SP Save Test - Eight variables, shared owners
+## Version: 3.0.0
+## IconTexture: Interface\Icons\ClassIcon_Shaman
+## Notes: Isolated saved-variable declaration/ownership test.
+## DefaultState: enabled
+## X-Probe-Version: 1
+## SavedVariables: SPSaveShareDB, SPSaveShare_Assignments, SPSaveShare_EarthShieldAssignments, SPSaveShare_TwistAssignments, SPSaveShare_RaidCooldowns, SPSaveShare_RangeTracker, SPSaveShare_TotemLoadouts, SPSaveShareErrorLog
+
+Probe.lua

@@ -12,38 +12,60 @@ if not SP then return end
 -- items for the running version out entirely and the popup stays quiet.
 -- Test builds ("2.1.0-alpha2") match on the part before the dash.
 local NOTES = {
-	version = "2.1.0",
+	-- PLACEHOLDER until the release is versioned: must equal the TOC version
+	-- of the release that ships these notes, or the card stays quiet.
+	version = "3.0.0",
 	items = {
-		{ h = "Compact style: your totem bar as lines",
-		  b = "A fourth look for the totem bar. No icons: each element is a colored line that drains as the totem runs down and refills with every pulse. Tiny icon squares are optional, clicks and flyouts work exactly as before, and your Lightning / Water Shield and Earth Shield can sit at either end of the bar as charge lines. Stacked or side by side, any length and thickness."
-		    .. "\n|cff3FA9F5Settings > Mode & Twisting > Compact Style|r  -  or press |cffFFD100Preview the Compact style|r below" },
-		{ h = "Only the elements you have learned",
-		  b = "A new shaman's bar now grows with them: nothing before the Earth quest, then Fire, Water and Air appear as each totem is learned, and the bar stays centered on screen while it grows. On by default; existing characters with all four totems see no change."
-		    .. "\n|cff3FA9F5Settings > Totem Bar > Items > Only Show Learned Elements|r" },
+		{ icon = "Interface\\Icons\\ClassIcon_Shaman", h = "ShamanPower now runs on WoW: Forever",
+		  b = "One download for both games. On Forever the game itself draws ShamanPower's totem timers, party dots and alerts, so they keep working in combat, and totems that game does not have are hidden everywhere. Forever characters start with the setup tour." },
+		{ h = "Blizzard's Totem Bar, powered by ShamanPower", try = "blizzard",
+		  when = function() return SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil end,   -- Forever only
+		  b = "Keep the game's own totem bar and get ShamanPower's countdowns, duration bars, pulse timers and party dots drawn on its buttons. Blizzard's three totem sets stay in step with your assignments and loadouts."
+		    .. "\n|cff3FA9F5Settings > General > Main > Totem Bar Style|r"
+		    .. "  -  hover a style there to see it in the live preview" },
+		{ icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02", h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
+		  b = "The reverse of Totem Range. Under each of your totems,"
+		    .. " the names of the party members who do NOT have its buff,"
+		    .. " in red or class color. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
+		    .. "\n|cff3FA9F5Settings > Group Tools > Party Buff Tracker > Coverage|r" },
+		{ icon = "Interface\\Icons\\INV_Misc_Map_01", h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
+		  b = "A pin where each totem was dropped and a ring for its reach, turning with the minimap. Open world only."
+		    .. "\n|cff3FA9F5Settings > Group Tools > Totem Range Tracker|r" },
+		{ icon = "Interface\\Icons\\Spell_Nature_StoneSkinTotem", h = "Auto-Assign picks by who is in the group",
+		  b = "Stoneskin for caster-only groups and Strength of Earth with melee; Mana Spring with mana users, Healing Stream otherwise; the Air totem by who benefits. This changes what Auto-Assign picks for existing characters too." },
+		{ icon = "Interface\\Icons\\INV_Misc_Note_01", h = "Pick your own font",
+		  b = "Settings > General > Fonts & Textures: one font and outline for every number and label ShamanPower draws, or a different one for timers, shield charges, alerts or names. The list has WoW's fonts plus every font your other addons share (ElvUI, SharedMedia). Hover a font to see it before you pick it." },
+		{ icon = "Interface\\Icons\\INV_Misc_Gear_01", h = "The settings window shows what it changes",
+		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
 	},
-	footer = "Plus the 2.0.5 - 2.0.7 fixes: pop-out trackers stay where you put them and can be locked together, Earth Shield tracking survives a /reload, and Earth Shield fade alerts fire again. The full list is in the changelog.",
-	preview = true,   -- show the Compact preview button
+	footer = "Also: a reorganized settings window, Enable ShamanPower to turn the whole addon off,"
+		.. " a Grid style that shows every totem at once (Settings > General > Main > Totem Bar Style),"
+		.. " a Move button and Unlock UI box for the loadout bar, an icon picker with search,"
+		.. " and an alignment grid in Unlock UI. The full list is in the changelog.",
 }
+
+local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"
 
 local function BaseVersion(v)
 	return v and (v:gsub("%-.*$", "")) or nil
 end
 
 -- ---------------------------------------------------------------------------
--- Compact preview: the setup tour's own Totem Bar mock, drawn with the
--- player's current bar settings plus compactStyle = true, in read-only
--- preview mode. Nothing changes unless "Turn it on" is pressed.
+-- Style preview: the setup tour's own Totem Bar mock, drawn with the player's
+-- current bar settings plus one style's flags (ShamanPowerStyles.lua), in
+-- read-only preview mode. Nothing changes unless "Turn it on" is pressed.
 -- ---------------------------------------------------------------------------
 local previewDlg
-local function ShowCompactPreview()
-	if not (SP.Wizard and SP.Wizard.BuildTotemBarStep and SP.CreateCompactVisuals) then
-		print("|cff0070ddShamanPower|r: the Compact preview needs the setup tour module, which is not loaded.")
+local function ShowStylePreview(key)
+	local st = SP.TotemBarStyle and SP:TotemBarStyle(key)
+	if not (st and SP.Wizard and SP.Wizard.BuildTotemBarStep and SP.ApplyTotemBarStyleTo) then
+		print("|cff0070ddShamanPower|r: that totem bar style is not available on this client.")
 		return
 	end
 	if not previewDlg then
 		previewDlg = Core:CreateDialog({
-			name = "ShamanPowerCompactPreview", width = 560, height = 372,
-			title = "Compact style", subtitle = "a preview with your current bar settings - nothing changes until you turn it on",
+			name = "ShamanPowerStylePreview", width = 560, height = 372,
+			title = st.label, subtitle = "a preview with your current bar settings - nothing changes until you turn it on",
 			headerHeight = 46, footer = 52, special = true, strata = "FULLSCREEN_DIALOG",
 		})
 		local solid = previewDlg:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -62,7 +84,7 @@ local function ShowCompactPreview()
 		local cap = previewDlg.body:CreateFontString(nil, "OVERLAY"); cap:SetFontObject(Core.fonts.rowDim)
 		cap:SetPoint("TOPLEFT", shot, "BOTTOMLEFT", 0, -8); cap:SetPoint("TOPRIGHT", shot, "BOTTOMRIGHT", 0, -8)
 		cap:SetJustifyH("LEFT"); cap:SetWordWrap(true)
-		cap:SetText("Each line is one element. The outline drains as the totem runs down; the pulse refills inside the line; a grey line is an empty slot with its assigned totem ghosted in the square. Line length, thickness, orientation, outline and the shield lines are all yours to tune once it is on.")
+		previewDlg.cap = cap
 
 		-- spOnHide keeps the dialog shell's own OnHide (popup cleanup) intact
 		previewDlg.spOnHide = function(self)
@@ -74,22 +96,22 @@ local function ShowCompactPreview()
 		local on = Core:MakeButton(previewDlg, "Turn it on", 150, true)
 		on:SetPoint("BOTTOMRIGHT", previewDlg, "BOTTOMRIGHT", -14, 12)
 		on:SetScript("OnClick", function()
+			local k = previewDlg.styleKey
 			previewDlg:Hide()
-			if InCombatLockdown() then
-				print("|cff0070ddShamanPower|r: the totem bar style cannot change during combat - try again after the fight.")
-				return
+			local picked = SP.TotemBarStyle and SP:TotemBarStyle(k)
+			if picked and SP:SetTotemBarStyle(k) then   -- in combat it says so itself
+				print("|cff0070ddShamanPower|r: " .. picked.label .. " is on. Settings > General > Main > Totem Bar Style"
+					.. " switches back; Bars > Totem Bar > Style has its settings.")
+				if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open({ "settings", "settings_totemMode" }) end
 			end
-			SP.opt.compactStyle = true
-			SP.opt.dynamicTotemMode = false
-			SP.opt.activeTotemAsMain = false
-			if SP.ApplyCompactStyle then SP:ApplyCompactStyle() end
-			print("|cff0070ddShamanPower|r: Compact style is on. Settings > Mode & Twisting > Compact Style tunes it or switches back.")
-			if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open({ "settings", "settings_totemMode" }) end
 		end)
 		local notNow = Core:MakeButton(previewDlg, "Not now", 100, false)
 		notNow:SetPoint("RIGHT", on, "LEFT", -8, 0)
 		notNow:SetScript("OnClick", function() previewDlg:Hide() end)
 	end
+	previewDlg.styleKey = key
+	previewDlg:SetTitles(st.label, "a preview with your current bar settings - nothing changes until you turn it on")
+	previewDlg.cap:SetText(ns.StyleCaptions and ns.StyleCaptions[key] or "")
 
 	-- Rebuild the mock on every open so it reflects the current settings.
 	if previewDlg.host then previewDlg.host:Hide(); previewDlg.host:SetParent(nil) end
@@ -101,7 +123,7 @@ local function ShowCompactPreview()
 
 	local o = {}
 	for k, v in pairs(SP.opt) do o[k] = v end   -- shallow copy; nested tables are only read
-	o.compactStyle, o.dynamicTotemMode, o.activeTotemAsMain = true, false, false
+	SP:ApplyTotemBarStyleTo(o, key)
 	SP.Wizard.optOverride = o
 	SP.Wizard.previewOnly = true
 	local dummyCard = CreateFrame("Frame", nil, host); dummyCard:SetSize(400, 10); dummyCard:Hide()
@@ -116,6 +138,7 @@ local function ShowCompactPreview()
 		t:SetPoint("CENTER"); t:SetText("Could not build the preview.")
 	end
 	previewDlg:Show()
+	previewDlg:Raise()   -- above the what's-new card it was opened from
 end
 
 -- ---------------------------------------------------------------------------
@@ -126,7 +149,7 @@ local function BuildDialog()
 	if dlg then return dlg end
 	dlg = Core:CreateDialog({
 		name = "ShamanPowerWhatsNew", width = 560, height = 200,
-		title = "What's new in ShamanPower " .. NOTES.version,
+		title = "What's new",
 		subtitle = "shown once per update", headerHeight = 46, footer = 52, special = true,
 	})
 	dlg:SetFrameStrata("DIALOG")
@@ -135,15 +158,87 @@ local function BuildDialog()
 	solid:SetColorTexture(Core:Color("windowBg", 1))
 
 	local W, y = 526, 2
+	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
+	local GOLD = { 1, 0.82, 0.15 }
+
+	-- the banner: big gold version title over a gold glow, like the Discord heading
+	do
+		local band = CreateFrame("Frame", nil, dlg.body)
+		band:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, 0); band:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, 0)
+		band:SetHeight(62)
+		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band); glow:SetColorTexture(1, 1, 1, 1)
+		Core:Gradient(glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.26, GOLD[1], GOLD[2], GOLD[3], 0)
+		local rule = band:CreateTexture(nil, "ARTWORK"); rule:SetHeight(2)
+		rule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); rule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
+		rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
+		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
+		local title = band:CreateFontString(nil, "OVERLAY")
+		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
+		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
+		title:SetText("ShamanPower " .. (NOTES.version:gsub("%.0$", "")))
+		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
+		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
+		sub:SetText("Now on |cff3FA9F5WoW: Forever|r and TBC Anniversary")
+		y = y + 62 + 14
+	end
 	for _, it in ipairs(NOTES.items) do
+	  if not it.when or it.when() then   -- an item for a feature this client lacks stays out
+		-- a totem bar style gets its picture on the left and a Try it button on the right
+		local tryIt = it.try and isShaman and SP.TotemBarStyle and SP:TotemBarStyle(it.try) ~= nil
+		local x, w = 0, W
+		if not tryIt and it.icon then
+			local ic = dlg.body:CreateTexture(nil, "ARTWORK"); ic:SetSize(30, 30)
+			ic:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 4, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			x, w = 44, W - 44
+		end
+		if tryIt then
+			if ns.DrawStyleThumb then
+				local th = ns.DrawStyleThumb(dlg.body, it.try, 72, 34)
+				th:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y)
+				x = 84
+			end
+			local tb = Core:MakeButton(dlg.body, "Try it", 80, false)
+			tb:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -(y + 2))
+			local key = it.try
+			tb:SetScript("OnClick", function() ShowStylePreview(key) end)
+			w = W - x - 92
+		end
 		local h = dlg.body:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
-		h:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); h:SetWidth(W); h:SetJustifyH("LEFT")
-		h:SetText(it.h); h:SetTextColor(Core:Color("accentHi"))
+		h:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); h:SetWidth(w); h:SetJustifyH("LEFT")
+		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		y = y + h:GetStringHeight() + 4
 		local b = dlg.body:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
-		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); b:SetWidth(W); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
+		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
 		b:SetText(it.b)
 		y = y + b:GetStringHeight() + 14
+	  end
+	end
+	-- Discord strip: logo, invite line, Copy Link
+	do
+		local strip = CreateFrame("Frame", nil, dlg.body)
+		strip:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); strip:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -y)
+		strip:SetHeight(40)
+		local bg = strip:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(strip); bg:SetColorTexture(1, 1, 1, 1)
+		Core:Gradient(bg, "HORIZONTAL", 0.345, 0.396, 0.949, 0.22, 0.345, 0.396, 0.949, 0.04)
+		local logo = strip:CreateTexture(nil, "ARTWORK"); logo:SetSize(30, 30)
+		logo:SetPoint("LEFT", strip, "LEFT", 6, 0); logo:SetTexture("Interface\\AddOns\\ShamanPower\\Media\\discord")
+		local copy = Core:MakeButton(strip, "Copy Link", 100, true)
+		copy:SetPoint("RIGHT", strip, "RIGHT", -6, 0)
+		-- WoW cannot open links or write the clipboard: ShamanPower's copy box, above this card
+		copy:SetScript("OnClick", function()
+			SP:ShowSPDialog({
+				key = "discordlink",
+				title = "ShamanPower Discord",
+				text = "The link is selected - press |cffFFD100Ctrl+C|r to copy it, then paste it into your browser.",
+				editText = DISCORD_INVITE,
+			})
+		end)
+		local t = strip:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
+		t:SetPoint("LEFT", logo, "RIGHT", 10, 0); t:SetPoint("RIGHT", copy, "LEFT", -10, 0); t:SetJustifyH("LEFT")
+		t:SetText("|cff8C9EFFJoin the ShamanPower Discord|r - help, bug reports and early test builds")
+		y = y + 40 + 12
 	end
 	if NOTES.footer then
 		local f = dlg.body:CreateFontString(nil, "OVERLAY"); f:SetFontObject(Core.fonts.tiny)
@@ -157,23 +252,23 @@ local function BuildDialog()
 	ok:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -14, 12)
 	ok:SetScript("OnClick", function() dlg:Hide() end)
 	if dlg.close then dlg.close:SetScript("OnClick", function() ok:Click() end) end
-	if NOTES.preview then
-		local pv = Core:MakeButton(dlg, "Preview the Compact style", 200, false)
-		pv:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", 14, 12)
-		pv:SetScript("OnClick", function() ShowCompactPreview() end)
-		-- shamans only, and not when Compact is already what they are looking at
-		dlg:HookScript("OnShow", function()
-			local isShaman = select(2, UnitClass("player")) == "SHAMAN"
-			pv:SetShown(isShaman and not (SP.opt and SP.opt.compactStyle))
-		end)
-	end
 	return dlg
 end
 
 -- force = true (the /spwhatsnew test command) bypasses the version gate and
--- never stamps anything.
+-- never stamps anything. "/spwhatsnew preview <style>" opens a style preview.
 function SP:ShowWhatsNew(force)
-	if force then BuildDialog():Show() return end
+	if force then
+		-- opened on request (tour, settings button, /spwhatsnew): on top of the tour's layer
+		local d = BuildDialog()
+		d:SetFrameStrata("FULLSCREEN_DIALOG"); d:Show(); d:Raise()
+		return
+	end
+	-- Automatic popup: shamans only. The "seen" stamp is account-wide, so an alt
+	-- logging in first must not use it up; non-shamans open it from the settings button.
+	if select(2, UnitClass("player")) ~= "SHAMAN" then return end
+	-- ShamanPower switched off: stays quiet and unstamped (shown at a login with it on)
+	if SP.IsOff and SP:IsOff() then return end
 	local cur = GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version")
 	local g = self.db and self.db.global
 	if not cur or not g then return end
@@ -193,7 +288,10 @@ end
 
 SLASH_SPWHATSNEW1 = "/spwhatsnew"
 SlashCmdList["SPWHATSNEW"] = function(msg)
-	if strtrim(msg or ""):lower() == "preview" then ShowCompactPreview() return end
+	local m = strtrim(msg or ""):lower()
+	if m == "preview" then ShowStylePreview(SP.TotemBarStyle and SP:TotemBarStyle("blizzard") and "blizzard" or "compact") return end
+	local key = m:match("^preview%s+(%S+)$")
+	if key then ShowStylePreview(key) return end
 	SP:ShowWhatsNew(true)
 end
 

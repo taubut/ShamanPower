@@ -412,6 +412,10 @@ function SP:CreateTotemPlateFrame(nameplate)
     local frame
     if #self.totemPlateCache > 0 then
         frame = table.remove(self.totemPlateCache)
+        -- a cached frame hangs off nothing, so a font or texture change skipped it:
+        -- re-apply both (no-ops when nothing changed; pulseText's timer does its own)
+        SP:SetSPFont(frame.name, "labels", 10, "OUTLINE")
+        SP:SetSPStatusBarTexture(frame.pulseBar, "pulse", "Interface\\TargetingFrame\\UI-StatusBar")
     else
         frame = CreateFrame("Frame", nil, nil, "BackdropTemplate")
         frame:SetFrameLevel(1)
@@ -441,7 +445,7 @@ function SP:CreateTotemPlateFrame(nameplate)
 
         -- Pulse timer text (shows countdown to next pulse)
         frame.pulseText = frame:CreateFontString(nil, "OVERLAY")
-        frame.pulseText:SetFont("Fonts\\FRIZQT__.TTF", 14, "OUTLINE")
+        SP:SetSPFont(frame.pulseText, "labels", 14, "OUTLINE")
         frame.pulseText:SetPoint("CENTER", frame, "CENTER", 0, 0)
         frame.pulseText:SetTextColor(1, 1, 1, 1)
         frame.pulseText:Hide()
@@ -451,7 +455,7 @@ function SP:CreateTotemPlateFrame(nameplate)
         frame.pulseBar:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2)
         frame.pulseBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
         frame.pulseBar:SetHeight(4)
-        frame.pulseBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+        SP:SetSPStatusBarTexture(frame.pulseBar, "pulse", "Interface\\TargetingFrame\\UI-StatusBar")
         frame.pulseBar:SetStatusBarColor(1, 1, 1, 0.9)
         frame.pulseBar:SetMinMaxValues(0, 1)
         frame.pulseBar:SetValue(1)
@@ -464,7 +468,7 @@ function SP:CreateTotemPlateFrame(nameplate)
 
         -- Optional name text
         frame.name = frame:CreateFontString(nil, "OVERLAY")
-        frame.name:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+        SP:SetSPFont(frame.name, "labels", 10, "OUTLINE")
         frame.name:SetPoint("TOP", frame, "BOTTOM", 0, -2)
 
         -- Selection highlight
@@ -511,7 +515,19 @@ end
 -- Update Totem Plate Highlights (for target selection)
 -- ============================================================================
 
+-- Restricted clients: unit identity (name/GUID) is secret on instanced maps.
+-- Ask the client before touching it so nothing here ever branches on a secret.
+local function SPIdentitySecret(unit)
+	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
+		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
+		if ok and v == true then return true end
+	end
+	if issecretvalue and issecretvalue((UnitGUID(unit))) then return true end
+	return false
+end
+
 function SP:UpdateTotemPlateHighlights()
+    if SPIdentitySecret("target") then return end
     local targetGUID = UnitGUID("target")
 
     for unitId, nameplate in pairs(self.activeTotemPlates) do
@@ -532,25 +548,29 @@ end
 -- ============================================================================
 
 function SP:OnTotemPlateUnitAdded(unitId)
+    if SPIdentitySecret(unitId) then return end   -- instanced map on a restricted client: Blizzard's own totem plates apply
     local settings = self.opt.totemPlates
-    if not settings or not settings.enabled then return end
+    if not settings or not settings.enabled or self:IsOff() then return end
 
     local nameplate = C_NamePlate.GetNamePlateForUnit(unitId)
     if not nameplate then return end
 
-    -- Parse GUID to get NPC ID
+    -- Parse GUID to get NPC ID. Players' and pets' plates (most plates in PvP)
+    -- are ruled out by the prefix before any string is split.
     local guid = UnitGUID(unitId)
-    if not guid then return end
+    if not guid or (issecretvalue and issecretvalue(guid)) then return end
+    if not strfind(guid, "^Creature%-") then return end
 
-    local npcType, _, _, _, _, npcId = strsplit("-", guid)
-    if npcType ~= "Creature" then return end
-
-    npcId = tonumber(npcId)
+    local npcId = tonumber((select(6, strsplit("-", guid))))
     local totemInfo = npcIdToTotem[npcId]
     if not totemInfo then return end  -- Not a totem
 
-    -- Check if this specific totem is enabled
-    local totemKey = "totem_" .. totemInfo.name:gsub(" ", "_"):lower()
+    -- Check if this specific totem is enabled (the key is built once per totem type)
+    local totemKey = totemInfo.settingsKey
+    if not totemKey then
+        totemKey = "totem_" .. totemInfo.name:gsub(" ", "_"):lower()
+        totemInfo.settingsKey = totemKey
+    end
     if settings.perTotem and settings.perTotem[totemKey] == false then
         self:ToggleNameplateAddon(nameplate, true)
         return
@@ -657,6 +677,21 @@ end
 -- Pulse Timer Functions
 -- ============================================================================
 
+local PULSE_TICK = 1 / 30   -- a 4 px bar over a 2-5 s pulse looks the same at 30 updates a second
+
+local function PulseOnUpdate(self, elapsed)
+    self.pulseTick = (self.pulseTick or 0) + elapsed
+    if self.pulseTick < PULSE_TICK then return end
+    self.pulseTick = 0
+    SP:UpdatePulseTimer(self)
+end
+
+-- green -> yellow -> red by the share of the pulse left
+local function PulseBand(pct)
+    if pct > 0.5 then return 1 elseif pct > 0.25 then return 2 end
+    return 3
+end
+
 -- Start pulse timer for a totem plate frame
 function SP:StartPulseTimer(frame, pulseInterval)
     if not pulseInterval or pulseInterval <= 0 then return end
@@ -673,7 +708,7 @@ function SP:StartPulseTimer(frame, pulseInterval)
     local barHeight = settings.pulseBarHeight or 4
 
     if frame.pulseText then
-        frame.pulseText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+        SP:SetSPFont(frame.pulseText, "labels", textSize, "OUTLINE")
     end
     if frame.pulseBar then
         frame.pulseBar:SetHeight(barHeight)
@@ -687,10 +722,13 @@ function SP:StartPulseTimer(frame, pulseInterval)
         frame.pulseBar:Show()
     end
 
-    -- Set up OnUpdate for this frame
-    frame:SetScript("OnUpdate", function(self, elapsed)
-        SP:UpdatePulseTimer(self)
-    end)
+    -- One shared handler for every plate (no new closure per plate), throttled
+    -- to ~30 updates a second; the text and colours only change when what they
+    -- show changes (see UpdatePulseTimer).
+    frame.pulseTick = 0
+    frame.pulseShownTenth, frame.pulseTextBand, frame.pulseBarBand = nil, nil, nil
+    frame:SetScript("OnUpdate", PulseOnUpdate)
+    SP:UpdatePulseTimer(frame)
 end
 
 -- Stop pulse timer for a totem plate frame
@@ -698,6 +736,7 @@ function SP:StopPulseTimer(frame)
     frame.pulseInterval = nil
     frame.pulseStartTime = nil
     frame.lastPulseTime = nil
+    frame.pulseShownTenth, frame.pulseTextBand, frame.pulseBarBand = nil, nil, nil   -- a recycled plate starts clean
 
     if frame.pulseText then
         frame.pulseText:Hide()
@@ -727,33 +766,43 @@ function SP:UpdatePulseTimer(frame)
         remaining = frame.pulseInterval
     end
 
-    -- Update pulse text
-    if settings.showPulseText ~= false and frame.pulseText then
-        frame.pulseText:SetText(string.format("%.1f", remaining))
+    local pct = remaining / frame.pulseInterval
+    local band = PulseBand(pct)
 
-        -- Color based on urgency (green -> yellow -> red)
-        local pct = remaining / frame.pulseInterval
-        if pct > 0.5 then
-            frame.pulseText:SetTextColor(1, 1, 1, 1)  -- White
-        elseif pct > 0.25 then
-            frame.pulseText:SetTextColor(1, 1, 0, 1)  -- Yellow
-        else
-            frame.pulseText:SetTextColor(1, 0.3, 0.3, 1)  -- Red
+    -- Update pulse text: a new string only when the shown tenth changes
+    if settings.showPulseText ~= false and frame.pulseText then
+        local tenth = math.floor(remaining * 10 + 0.5)
+        if tenth ~= frame.pulseShownTenth then
+            frame.pulseShownTenth = tenth
+            frame.pulseText:SetText(string.format("%.1f", tenth / 10))
+        end
+        -- Color based on urgency (green -> yellow -> red), only when it changes
+        if band ~= frame.pulseTextBand then
+            frame.pulseTextBand = band
+            if band == 1 then
+                frame.pulseText:SetTextColor(1, 1, 1, 1)  -- White
+            elseif band == 2 then
+                frame.pulseText:SetTextColor(1, 1, 0, 1)  -- Yellow
+            else
+                frame.pulseText:SetTextColor(1, 0.3, 0.3, 1)  -- Red
+            end
         end
     end
 
     -- Update pulse bar
     if settings.showPulseBar ~= false and frame.pulseBar then
-        local pct = remaining / frame.pulseInterval
         frame.pulseBar:SetValue(pct)
 
-        -- Color the bar based on progress
-        if pct > 0.5 then
-            frame.pulseBar:SetStatusBarColor(1, 1, 1, 0.9)  -- White
-        elseif pct > 0.25 then
-            frame.pulseBar:SetStatusBarColor(1, 1, 0, 0.9)  -- Yellow
-        else
-            frame.pulseBar:SetStatusBarColor(1, 0.3, 0.3, 0.9)  -- Red
+        -- Color the bar based on progress, only when the band changes
+        if band ~= frame.pulseBarBand then
+            frame.pulseBarBand = band
+            if band == 1 then
+                frame.pulseBar:SetStatusBarColor(1, 1, 1, 0.9)  -- White
+            elseif band == 2 then
+                frame.pulseBar:SetStatusBarColor(1, 1, 0, 0.9)  -- Yellow
+            else
+                frame.pulseBar:SetStatusBarColor(1, 0.3, 0.3, 0.9)  -- Red
+            end
         end
     end
 
@@ -778,7 +827,7 @@ function SP:UpdateTotemPlatesPulseSettings()
         if frame then
             -- Update font size
             if frame.pulseText then
-                frame.pulseText:SetFont("Fonts\\FRIZQT__.TTF", textSize, "OUTLINE")
+                SP:SetSPFont(frame.pulseText, "labels", textSize, "OUTLINE")
             end
 
             -- Update bar height
@@ -821,6 +870,7 @@ function SP:SetupTotemPlatesEvents()
     if self.totemPlatesEventFrame then return end
 
     local frame = CreateFrame("Frame")
+    if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(frame, "Totem Plates") end
     frame:RegisterEvent("NAME_PLATE_UNIT_ADDED")
     frame:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
     frame:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -832,7 +882,7 @@ function SP:SetupTotemPlatesEvents()
         elseif event == "NAME_PLATE_UNIT_REMOVED" then
             SP:OnTotemPlateUnitRemoved(...)
         elseif event == "PLAYER_TARGET_CHANGED" then
-            SP:UpdateTotemPlateHighlights()
+            if not SP:IsOff() then SP:UpdateTotemPlateHighlights() end   -- switched off: no plates to mark
         elseif event == "PLAYER_ENTERING_WORLD" then
             SP.activeTotemPlates = {}
         end
@@ -874,7 +924,7 @@ end
 
 function SP:ToggleTotemPlates()
     self:EnsureProfileTable("totemPlates")
-    local enabled = self.opt.totemPlates.enabled
+    local enabled = self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly()) and not self:IsOff()
 
     if enabled then
         self:SetupTotemPlatesEvents()
@@ -903,7 +953,7 @@ function SP:InitializeTotemPlates()
     self:EnsureProfileTable("totemPlates")
     self:DetectNameplateAddon()
 
-    if self.opt.totemPlates.enabled then
+    if self.opt.totemPlates.enabled and not (self.WindfuryOnly and self:WindfuryOnly()) and not self:IsOff() then
         self:SetupTotemPlatesEvents()
         self:EnableTotemPlatesEvents()
     end
@@ -929,9 +979,51 @@ local DEMO_MODELS = {
     draenei = { earth = 19073, fire = 19074, water = 19075, air = 19071 },
     horde   = { earth = 4588,  fire = 4589,  water = 4587,  air = 4590 },
 }
+-- A client without the Draenei race (WoW: Forever) has no Draenei totem
+-- models either: those display IDs load as nothing, so every totem gets the
+-- classic model there.
+local function HasDraeneiModels()
+    if C_CreatureInfo and C_CreatureInfo.GetRaceInfo then
+        local ok, info = pcall(C_CreatureInfo.GetRaceInfo, 11)   -- 11 = Draenei
+        return ok and info ~= nil
+    end
+    return true
+end
+
+-- WoW: Forever (Mainline family) gives each shaman race its own totem models.
+-- The preview follows: the player's race for their totem, a rival's for the
+-- enemy ones, by model file (SetModel with the FileDataID; these all exist in
+-- that client's data). Races without a set of their own (Tauren) fall back to
+-- the classic totem display below. Anniversary keeps its faction split.
+local RACE_TOTEM_MODELS = {
+    Orc      = { air = 329291, earth = 329292, fire = 329293, water = 329294 },
+    Troll    = { air = 328323, earth = 328324, fire = 328325, water = 328326 },
+    Dwarf    = { air = 328197, earth = 328198, fire = 328199, water = 328200 },
+    Goblin   = { air = 365458, earth = 365271, fire = 364737, water = 365615 },
+    Draenei  = { air = 126004, earth = 126005, fire = 126006, water = 126007 },
+    Pandaren = { air = 608631, earth = 608634, fire = 608637, water = 608640 },
+}
+local function ApplyRaceModel(m, d)
+    if not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then return false end
+    local _, race = UnitRace("player")
+    local alliance = UnitFactionGroup("player") == "Alliance"
+    local set = d.enemy and RACE_TOTEM_MODELS[alliance and "Orc" or "Dwarf"] or RACE_TOTEM_MODELS[race or ""]
+    local fdid = set and set[d.element]
+    if not fdid then return false end
+    local ok = pcall(m.SetModel, m, fdid)
+    if not ok then return false end
+    pcall(m.SetCamDistanceScale, m, 1.8)
+    pcall(m.SetPosition, m, 0, 0, 0)
+    pcall(m.SetFacing, m, 0.35)
+    m.bodyTop = 70
+    return true
+end
+
 local function ApplyDemoModel(m, d)
+    if ApplyRaceModel(m, d) then return end
     local alliance = UnitFactionGroup("player") == "Alliance"
     local set = (d.enemy ~= alliance) and "draenei" or "horde"   -- enemy of Alliance = Horde look, etc.
+    if set == "draenei" and not HasDraeneiModels() then set = "horde" end
     local id = DEMO_MODELS[set][d.element]
     if id then m:SetDisplayInfo(id) else m:SetCreature(d.npc) end
     -- the classic totem's beam makes it much taller than the Draenei crystal:
@@ -971,6 +1063,23 @@ function SP:TotemPlatesDemo(on)
         self.totemPlatesDemoFrame = c
     end
     local c = self.totemPlatesDemoFrame
+
+    -- The settings window's preview pane is tall and narrow: there the four
+    -- plates sit two by two on a narrower frame (so the pane can draw them
+    -- larger). The wizard's row layout is left exactly as it is.
+    local paneLayout = self.previewPaneActive and true or false
+    if on and c.paneLayout ~= paneLayout then
+        c.paneLayout = paneLayout
+        local PANE_POS = { { -70, 210 }, { 70, 210 }, { -70, -10 }, { 70, -10 } }
+        c:SetSize(paneLayout and 290 or 400, 470)
+        for i, np in ipairs(c.plates) do
+            local d = np.demo
+            local x, y = d.x, d.y
+            if paneLayout and PANE_POS[i] then x, y = PANE_POS[i][1], PANE_POS[i][2] end
+            np.model:ClearAllPoints()
+            np.model:SetPoint("TOP", c, "CENTER", x, y)
+        end
+    end
 
     local function fill(np)
         local d = np.demo
@@ -1015,6 +1124,9 @@ function SP:TotemPlatesDemo(on)
     if on then
         self.totemPlatesDemoActive = true
         for i, np in ipairs(c.plates) do
+            -- a PlayerModel forgets its model once hidden or re-parented (the
+            -- preview harness does both when it hands the frame back): set it again
+            if np.model then ApplyDemoModel(np.model, np.demo) end
             fill(np)
             self.activeTotemPlates["demo" .. i] = np
         end
@@ -1038,5 +1150,9 @@ function SP:TotemPlatesDemo(on)
 end
 
 if ShamanPower.RegisterPreview then
-    ShamanPower:RegisterPreview("totemplates", { frame = "ShamanPowerTotemPlatesDemo", demo = "SP:TotemPlatesDemo", pad = 24 })
+    ShamanPower:RegisterPreview("totemplates", { frame = "ShamanPowerTotemPlatesDemo", demo = "SP:TotemPlatesDemo", pad = 24 , pane = { maxScale = 1.5 } })   -- pane hint: settings window only
 end
+
+-- Enable ShamanPower switched: off gives every totem its own nameplate back;
+-- on replaces them again if Totem Plates is on in the settings
+SP:OnOnOff(function() SP:ToggleTotemPlates() end)

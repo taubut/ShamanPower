@@ -12,17 +12,30 @@ BINDING_NAME_SHAMANPOWER_FIRE_TOTEM = "Cast Assigned Fire Totem"
 BINDING_NAME_SHAMANPOWER_WATER_TOTEM = "Cast Assigned Water Totem"
 BINDING_NAME_SHAMANPOWER_AIR_TOTEM = "Cast Assigned Air Totem"
 BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast Earth Shield on Assigned Target"
-BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = "Totemic Call (Recall Totems)"
+    .. (ShamanPower.ESTrackerUnavailable and " (not on this client)" or "")
+BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall Totems)"
 
 -- Cooldown Bar keybindings
 BINDING_HEADER_SHAMANPOWER_CD = "ShamanPower Cooldown Bar"
 BINDING_NAME_SHAMANPOWER_CD_SHIELD = "Cast Shield (Lightning/Water)"
-BINDING_NAME_SHAMANPOWER_CD_RECALL = "Totemic Call (Recall)"
+BINDING_NAME_SHAMANPOWER_CD_RECALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall)"
 BINDING_NAME_SHAMANPOWER_CD_ANKH = "Reincarnation (Ankh)"
 BINDING_NAME_SHAMANPOWER_CD_NS = "Nature's Swiftness"
 BINDING_NAME_SHAMANPOWER_CD_MANATIDE = "Mana Tide Totem"
 BINDING_NAME_SHAMANPOWER_CD_BLOODLUST = "Bloodlust / Heroism"
 BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
+
+-- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
+-- The flyout keys drive the box-mode flyouts, which only WoW: Forever uses; on
+-- other clients the flyouts open on hover and these keys do nothing.
+BINDING_HEADER_SHAMANPOWER_FLYOUT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "ShamanPower Flyouts" or "ShamanPower Flyouts (WoW: Forever only)"
+BINDING_NAME_SHAMANPOWER_FLYOUT_EARTH = "Toggle Earth Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_FIRE = "Toggle Fire Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_WATER = "Toggle Water Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_AIR = "Toggle Air Totem Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_SHIELD = "Toggle Shield Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_IMBUE = "Toggle Weapon Imbue Flyout"
+BINDING_NAME_SHAMANPOWER_FLYOUT_CLOSE = "Close All Flyouts"
 
 -- Tooltip descriptions
 SHAMANPOWER_REFRESH_DESC = "Refresh the shaman list"
@@ -65,8 +78,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
             offsetY = 0
         },
         enabled = true,
+        raidCDButtonHideFrame = true,   -- the caller buttons: icons only
         setupDone = false,
-        layout = "Vertical",
+        layout = "Horizontal",
         minimap = {
             ["minimapPos"] = 190,
             ["show"] = true,
@@ -79,8 +93,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
         showButtonKeybinds = false,  -- Show keybind text on buttons (top-right corner)
-        hideTotemBarFrame = false,  -- Hide the background/border around totem bar (icons only)
-        hideCooldownBarFrame = false,  -- Hide the background/border around cooldown bar (icons only)
+        hideTotemBarFrame = true,   -- Hide the background/border around totem bar (icons only)
+        hideCooldownBarFrame = true,   -- Hide the background/border around cooldown bar (icons only)
         cooldownBarLocked = false, -- CD bar floats free of the totem bar; use Unlock Bar to move it
         cooldownBarFrameLocked = false,  -- When CD bar is independent, this locks its position (red=locked, green=movable)
         cooldownBarScale = 0.90,  -- Separate scale for CD bar
@@ -94,11 +108,24 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarFullOpacityWhenActive = false,  -- Show totem at full opacity when placed
         cooldownBarOpacity = 1.0,  -- Opacity of cooldown bar (0.1 to 1.0)
         cooldownBarFullOpacityWhenActive = false,  -- Show CD button at full opacity when buff active or on cooldown
+        -- elementColorPalette: no default here; nil = ShamanPower:DefaultElementPalette() (Blizzard's colours on WoW: Forever, classic elsewhere)
+        totemFlyoutButtonSize = 28,     -- Totem flyout icon size on the icon bar
+        -- compactFlyoutButtonSize / compactIconSize / compactIconSquares / compactLineTexture / compactIdleOutline:
+        -- no defaults here on purpose, see the look defaults in ShamanPowerCompact.lua
+        cooldownFlyoutButtonSize = 22,  -- Shield / imbue flyout icon size on the cooldown bar
         totemFlyoutOpacity = 1.0,  -- Opacity of totem bar flyout menus (0.1 to 1.0)
         cooldownFlyoutOpacity = 1.0,  -- Opacity of cooldown bar flyout menus (0.1 to 1.0)
         showTotemFlyouts = true,  -- Show flyout menus on mouseover for quick totem selection
         swapFlyoutClickButtons = false,  -- Swap flyout mouse buttons (left=assign, right=cast instead of default)
         flyoutRequiresClick = false,  -- Require right-click to show flyout instead of mouseover
+        flyoutSingleOpen = true,      -- In-combat arrow flyouts: opening one closes the others (false = they stay open)
+        flyoutCloseOnCast = true,     -- Box-mode flyouts: picking from a flyout closes it (false = it stays open)
+        flyoutShowEmpty = true,       -- Box-mode totem flyouts offer an "Empty" choice (leave the element unassigned), as on Blizzard's bar
+        flyoutArrowsAlways = false,   -- Box-mode flyouts: keep the arrow tabs on the bar out of combat too
+        flyoutArrowOnly = false,      -- Box-mode flyouts: never open on hover, only from the arrow or a key (implies the arrows stay)
+        flyoutRouteBarKeys = true,    -- Box-mode flyouts: action bar keys for flyout spells press the flyout's own button, so they close it too
+        flyoutStyle = "icons",        -- "icons" (bare icons) or "frame" (Blizzard's totem bar flyout frame)
+        flyoutFrameOpacity = 1.0,     -- Opacity of the frame's border and fill in the "frame" style
         hideEarthShieldText = false,  -- Hide the Earth Shield target name text on totem bar
         -- Raid Cooldown caller button options
         raidCDButtonOpacity = 1.0,  -- Opacity of raid cooldown caller buttons (0.1 to 1.0)
@@ -127,7 +154,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemBarShowAir = true,    -- Show Air totem button on mini bar
         totemBarShowEarthShield = true,  -- Show Earth Shield button on mini bar
         enableESFlyout = false,  -- Enable Earth Shield flyout menu (disabled by default for performance)
-        cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7, 8},  -- Order of cooldown bar items: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=ShamanisticRage, 7=BL/Hero, 8=Imbues
+        cooldownBarOrder = {1, 2, 3, 4, 5, 6, 7, 8},  -- Order of cooldown bar items (ShamanPower.CooldownTypeLabels): 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=ManaTide, 6=BL/Hero, 7=Imbues, 8=ShamanisticRage; 9-11 (Elemental Mastery, Rage of the Farseer, Totemic Projection) follow unless the order places them (GetCooldownBarOrder)
         -- Pop-out tracker settings
         -- Keys: "totem_earth", "totem_fire", "totem_water", "totem_air" (element with flyout)
         --       "single_1_3" (element 1, totem index 3 = Tremor Totem)
@@ -149,13 +176,11 @@ SHAMANPOWER_DEFAULT_VALUES = {
         compactStyle = false,
         compactOrientation = "horizontal",  -- "horizontal" (lines stacked) / "vertical" (lines side by side)
         compactLength = 120,                -- line length px
-        compactThickness = nil,             -- line thickness px (nil = 10 horizontal / 16 vertical)
+        compactThickness = nil,             -- line thickness px (nil = 14 horizontal / 16 vertical)
         compactOutlineWidth = 2,            -- duration outline px
         compactOutlineColorMode = "element", -- "element" (lightened element color) / "custom"
         compactOutlineColor = { r = 1, g = 1, b = 1 },
         compactDurationMode = "auto",       -- "auto" (outline horizontal / fill vertical), "outline", "fill"
-        compactIconSquares = "off",         -- "off", "before", "after" (left/right of a horizontal line, above/below a vertical one)
-        compactIconSize = 12,               -- icon square px
         compactPulseText = true,            -- pulse countdown text inside the line
         compactPulseBar = true,             -- pulse refill inside the line
         compactShieldLine = false,          -- your Lightning / Water Shield as a 3-segment line at the start of the bar
@@ -218,7 +243,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
             iconSize = 40,
             vertical = false,
             hideNames = false,
-            hideBorder = false,
+            hideBorder = true,
             hideCharges = false,
             position = { point = "CENTER", x = 200, y = 0 },
         },
@@ -228,7 +253,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
             iconSize = 36,
             vertical = false,
             hideNames = false,
-            hideBorder = false,
+            hideBorder = true,
         },
         -- Totem Plates (replace totem nameplates with icons)
         totemPlates = {
@@ -272,8 +297,9 @@ SHAMANPOWER_OTHER_VALUES = {
             LockBuffBars = false,
         },
         enabled = true,
+        raidCDButtonHideFrame = true,   -- the caller buttons: icons only
         setupDone = false,
-        layout = "Vertical",
+        layout = "Horizontal",
         minimap = {
             ["minimapPos"] = 190,
             ["show"] = true,
@@ -755,3 +781,111 @@ function ShamanPower:GetTotemTalentRequirement(spellID)
     return self.TalentTotems[spellID]
 end
 
+-- Mainline source tables are sparse: #list can stop before later valid slots.
+-- Keep the legacy bound on Classic, including the non-element fallback.
+function ShamanPower:GetTotemIndexLimit(element)
+    local names = self.TotemNames and self.TotemNames[element]
+    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or not names then
+        return names and #names or 8
+    end
+    local highest = 0
+    for index in pairs(names) do
+        if type(index) == "number" and index > highest then highest = index end
+    end
+    return highest
+end
+
+-- Totems holds the same Earth/Fire/Water/Air tables, so these removals also
+-- update every per-element alias. SpellExists retains allow-listed spells
+-- such as name-encrypted Tranquil Air. Saved assignment indexes stay intact.
+if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+    for element, list in pairs(ShamanPower.Totems) do
+        for index, spellID in pairs(list) do
+            if not SPCompat.SpellExists(spellID) then
+                list[index] = nil
+                local names = ShamanPower.TotemNames[element]
+                if names then names[index] = nil end
+                -- A stale saved loadout must not draw the removed spell's icon.
+                local icons = ShamanPower.TotemIcons[element]
+                if icons then icons[index] = nil end
+            end
+        end
+    end
+end
+
+-- Every totem's length in seconds, by spell ID (each rank has its own), read from
+-- WoW: Forever's own spell data (build 1.60.1.70009). Combat hides totem durations
+-- from addons there, so the shadow totem model starts from this instead of guessing:
+-- a totem killed early reads as "destroyed" even on its very first drop. A length
+-- read from the game while it is readable (db.char.totemDurations) still wins, in
+-- case a talent changes one. Classic clients never consult it.
+ShamanPower.TotemBaseDurations = {
+    [425874] = 10,          -- Decoy Totem
+    [8170] = 120,           -- Disease Cleansing Totem
+    [2484] = 45,            -- Earthbind Totem
+    [8184] = 300,           -- Fire Resistance Totem
+    [10537] = 300,          -- Fire Resistance Totem
+    [10538] = 300,          -- Fire Resistance Totem
+    [8227] = 300,           -- Flametongue Totem
+    [8249] = 300,           -- Flametongue Totem
+    [10526] = 300,          -- Flametongue Totem
+    [16387] = 300,          -- Flametongue Totem
+    [8181] = 300,           -- Frost Resistance Totem
+    [10478] = 300,          -- Frost Resistance Totem
+    [10479] = 300,          -- Frost Resistance Totem
+    [8835] = 300,           -- Grace of Air Totem
+    [10627] = 300,          -- Grace of Air Totem
+    [25359] = 300,          -- Grace of Air Totem
+    [8177] = 45,            -- Grounding Totem
+    [5394] = 300,           -- Healing Stream Totem
+    [6375] = 300,           -- Healing Stream Totem
+    [6377] = 300,           -- Healing Stream Totem
+    [10462] = 300,          -- Healing Stream Totem
+    [10463] = 300,          -- Healing Stream Totem
+    [8190] = 20,            -- Magma Totem
+    [10585] = 20,           -- Magma Totem
+    [10586] = 20,           -- Magma Totem
+    [10587] = 20,           -- Magma Totem
+    [5675] = 300,           -- Mana Spring Totem
+    [10495] = 300,          -- Mana Spring Totem
+    [10496] = 300,          -- Mana Spring Totem
+    [10497] = 300,          -- Mana Spring Totem
+    [16190] = 13,           -- Mana Tide Totem
+    [17354] = 13,           -- Mana Tide Totem
+    [17359] = 13,           -- Mana Tide Totem
+    [10595] = 300,          -- Nature Resistance Totem
+    [10600] = 300,          -- Nature Resistance Totem
+    [10601] = 300,          -- Nature Resistance Totem
+    [8166] = 300,           -- Poison Cleansing Totem
+    [3599] = 30,            -- Searing Totem
+    [6363] = 35,            -- Searing Totem
+    [6364] = 40,            -- Searing Totem
+    [6365] = 45,            -- Searing Totem
+    [10437] = 50,           -- Searing Totem
+    [10438] = 55,           -- Searing Totem
+    [6495] = 300,           -- Sentry Totem
+    [5730] = 15,            -- Stoneclaw Totem
+    [6390] = 15,            -- Stoneclaw Totem
+    [6391] = 15,            -- Stoneclaw Totem
+    [6392] = 15,            -- Stoneclaw Totem
+    [10427] = 15,           -- Stoneclaw Totem
+    [10428] = 15,           -- Stoneclaw Totem
+    [8071] = 300,           -- Stoneskin Totem
+    [8154] = 300,           -- Stoneskin Totem
+    [8155] = 300,           -- Stoneskin Totem
+    [10406] = 300,          -- Stoneskin Totem
+    [10407] = 300,          -- Stoneskin Totem
+    [10408] = 300,          -- Stoneskin Totem
+    [8075] = 300,           -- Strength of Earth Totem
+    [8160] = 300,           -- Strength of Earth Totem
+    [8161] = 300,           -- Strength of Earth Totem
+    [10442] = 300,          -- Strength of Earth Totem
+    [25361] = 300,          -- Strength of Earth Totem
+    [8143] = 300,           -- Tremor Totem
+    [8512] = 300,           -- Windfury Totem
+    [10613] = 300,          -- Windfury Totem
+    [10614] = 300,          -- Windfury Totem
+    [15107] = 300,          -- Windwall Totem
+    [15111] = 300,          -- Windwall Totem
+    [15112] = 300,          -- Windwall Totem
+}
