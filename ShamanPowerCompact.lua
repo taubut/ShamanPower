@@ -502,9 +502,8 @@ function SP:ApplyCompactButtonLayout(btn, forceOff)
 			self:HideCompactVisuals(btn.compact)
 			if btn.icon then btn.icon:Show() end
 			if self.ShowEmptySlotArt and btn.element then
-				local a = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
 				btn.compactLayoutOn = nil
-				self:ShowEmptySlotArt(btn.element, ((a and a[btn.element]) or 0) == 0)
+				self:ShowEmptySlotArt(btn.element, self:AssignedIndex(btn.element) == 0)
 			end
 			if rc then rc:ClearAllPoints(); rc:SetPoint("CENTER", btn, "CENTER", 0, 0) end
 			if btn.keybindText then btn.keybindText:ClearAllPoints(); btn.keybindText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0) end
@@ -764,7 +763,6 @@ end
 function SP:UpdateCompactTotems()
 	if not self:CompactActive() or not self.totemButtons then return end
 	local now = GetTime()
-	local assignments = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
 		local c = btn and btn.compact
@@ -785,7 +783,8 @@ function SP:UpdateCompactTotems()
 				self:PaintCompactVisuals(c, self.ElementColors[element], frac, dim, pulsePos, pulseRemain, icon, 1)
 			else
 				-- empty slot: gray line, the assigned totem ghosted in the square
-				local idx = assignments and assignments[element] or 0
+				-- (a flyout pick made in this fight: the one the button casts)
+				local idx = self:AssignedIndex(element)
 				local aicon = (idx and idx > 0) and self:GetTotemIcon(element, idx) or nil
 				self:PaintCompactVisuals(c, nil, 0, false, nil, nil, aicon, 0.35)
 			end

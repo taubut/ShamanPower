@@ -122,7 +122,6 @@ end
 function SP:UpdateGridTotems()
 	if not self:GridActive() then return end
 	local now = GetTime()
-	local assignments = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
 	for element = 1, 4 do
 		local row = rows[element]
 		local have, name, start, duration = self:GetElementTotemInfo(element)
@@ -148,8 +147,7 @@ function SP:UpdateGridTotems()
 			end
 			active = row.active
 		end
-		local assigned = self.pendingAssignments and self.pendingAssignments[element]
-		if assigned == nil then assigned = assignments and assignments[element] or 0 end
+		local assigned = self:AssignedIndex(element)   -- a flyout pick made in this fight first
 		if row.all then
 			for i = 1, #row.all do
 				local button = row.all[i]

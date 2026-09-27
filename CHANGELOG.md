@@ -5,6 +5,16 @@
 ### Changes
 - **Totem Range Tracker: Show the Overlay.** Pick where the overlay may be up: in a group with a shaman (the default), in any group, or always, solo too. It holds for an overlay you opened yourself as well: it steps aside when you leave the group and comes back when you join one, so it no longer sits on screen while you play solo.
 
+### Fixes
+- **Totem "Expired" alerts now show in combat on WoW: Forever.** A totem that simply ran out mid-fight never announced itself, because ShamanPower dropped it a moment before the game reported it gone. Destroyed alerts were not affected.
+- **Expiring Alerts in raids:** far less work on every buff change. It used to read all of your buffs (and your Earth Shield target's) on each aura event; now it only reads when the change could involve a shield.
+- **Earth Shield fade alerts** no longer go missing when the raid moves your Earth Shield target to another slot, or after switching ShamanPower off and back on.
+- **No false "Lightning Shield FADED!" at the start of a fight** on Forever.
+- **A totem picked from a flyout mid-fight** now shows everywhere on the bar right away (icon, tooltip, cooldown, Compact and Grid marks, keybind text, mana tint), stops flickering back to the old one, and is saved even if something goes wrong as the fight ends.
+- **Anniversary:** a totem picked mid-fight for an element with nothing assigned now casts from its button.
+- **TotemTimers Style with Empty assigned:** a running totem shows as the big icon instead of being covered by the empty-slot art.
+- **Bar frames** grow to wrap the flyout arrows in combat, so nothing sticks out past the frame.
+
 ## v3.0.2 (2026-09-26)
 
 ### Fixes

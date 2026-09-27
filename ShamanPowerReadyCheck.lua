@@ -165,10 +165,10 @@ end
 
 local function assignedMissing(out)
 	local mine = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
-	if not mine then return false end
+	if not mine and not SP.pendingAssignments then return false end
 	local any = false
 	for element = 1, 4 do
-		local idx = mine[element]
+		local idx = SP:AssignedIndex(element)   -- a flyout pick made in this fight first
 		if type(idx) == "number" and idx > 0 then
 			local spellID = SP.GetTotemSpell and SP:GetTotemSpell(element, idx)
 			local name, _, icon

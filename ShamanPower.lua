@@ -2211,6 +2211,12 @@ local function shadowSyncFromAPI(self, element, haveTotem, name, startTime, dura
 	end
 end
 
+-- How long a totem's record outlives its time: the game's own "slot emptied" update
+-- comes a moment after the timer runs out (measured 0.3 s, Stoneclaw, 2026-09-27), and
+-- that update is what retires the record and tells Expiring Alerts "expired". Dropping
+-- the record at the timer instead left the update nothing to retire: no alert.
+local SHADOW_EXPIRY_LINGER = 3
+
 local function shadowLookup(self, element)
 	local entry = self.shadowTotems[element]
 	if entry and entry.setPending then
@@ -2223,7 +2229,9 @@ local function shadowLookup(self, element)
 	end
 	if not entry then return false, nil, nil, nil, nil, nil end
 	if entry.startTime + entry.duration <= GetTime() then
-		self.shadowTotems[element] = nil
+		-- time's up: shown as gone at once, but the record waits for the slot update
+		-- (see SHADOW_EXPIRY_LINGER), and goes on its own if that never comes
+		if entry.startTime + entry.duration + SHADOW_EXPIRY_LINGER <= GetTime() then self.shadowTotems[element] = nil end
 		return false, nil, nil, nil, nil, nil
 	end
 	return true, entry.name, entry.startTime, entry.duration, entry.icon, entry.slot
@@ -2339,17 +2347,27 @@ function ShamanPower:GetActiveTotemIndex(element)
 	return nil
 end
 
+-- The player's assignment for an element as the bar draws it (0 = none). A
+-- flyout pick made during a fight waits in pendingAssignments until the fight
+-- ends while the button already casts it, so it comes first. Drawing only:
+-- secure attributes are set out of combat, from the saved table.
+function ShamanPower:AssignedIndex(element)
+	local p = self.pendingAssignments
+	local v = p and p[element]
+	if v then return v end
+	local a = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
+	return (a and a[element]) or 0
+end
+
 -- Get status of all assigned totems: returns active count, total assigned
 function ShamanPower:GetTotemStatus()
-	local playerName = self.player
-	local assignments = ShamanPower_Assignments[playerName]
-	if not assignments then return 0, 0 end
+	if not ShamanPower_Assignments[self.player] and not self.pendingAssignments then return 0, 0 end
 
 	local activeCount = 0
 	local assignedCount = 0
 
 	for element = 1, 4 do
-		local totemIndex = assignments[element] or 0
+		local totemIndex = self:AssignedIndex(element)   -- a pick made in this fight counts already
 		if totemIndex and totemIndex > 0 then
 			assignedCount = assignedCount + 1
 			if self:IsTotemActive(element) then
@@ -2399,8 +2417,9 @@ function ShamanPower:UpdateDynamicTotemIcons()
 				needsFullUpdate = true
 			end
 
-			-- Update the icon regardless
-			local totemIndex = assignments[element] or 0
+			-- Update the icon regardless (a flyout pick made in this fight wins: the
+			-- button casts it and it is saved when the fight ends)
+			local totemIndex = self:AssignedIndex(element)
 			local icon = self.ElementIcons[element]  -- Default
 			if totemIndex and totemIndex > 0 then
 				icon = self:GetTotemIcon(element, totemIndex)
@@ -4108,9 +4127,8 @@ function ShamanPower:UpdateTotemCooldowns()
 			self:ClearTotemCooldownVisual(btn)
 			if btn.cooldownText then btn.cooldownText:Hide() end
 		elseif btn and btn.cooldown then
-			-- Get the assigned totem's spell ID
-			local assignments = ShamanPower_Assignments[self.player]
-			local totemIndex = assignments and assignments[element] or 0
+			-- Get the assigned totem's spell ID (a flyout pick made in this fight: the one the button casts)
+			local totemIndex = self:AssignedIndex(element)
 			local spellID = nil
 
 			if totemIndex and totemIndex > 0 then
@@ -4551,9 +4569,9 @@ function ShamanPower:UpdateActiveTotemOverlays()
 	if not self.Totems then return end
 	if not ShamanPower_Assignments then return end
 
-	local playerName = self.player
-	local assignments = ShamanPower_Assignments[playerName]
-	if not assignments then return end
+	-- No saved assignments yet: nothing to compare with, unless the first one was
+	-- picked in this fight (it waits in pendingAssignments until the fight ends)
+	if not ShamanPower_Assignments[self.player] and not self.pendingAssignments then return end
 
 	-- Compact style: the line is whatever is down, no pop-above overlay
 	if self:CompactActive() then
@@ -4579,7 +4597,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 
 			-- Get assigned totem info (a right-click assign made in this fight waits in
 			-- pendingAssignments until it ends: the button already shows it, so compare with it)
-			local assignedIndex = (self.pendingAssignments and self.pendingAssignments[element]) or assignments[element] or 0
+			local assignedIndex = self:AssignedIndex(element)
 			local assignedSpellID = nil
 			local assignedName = nil
 			if assignedIndex > 0 then
@@ -4687,13 +4705,17 @@ function ShamanPower:UpdateActiveTotemOverlays()
 						-- Don't call SetDesaturated - UpdatePlayerTotemRange handles range display
 						iconTexture:SetAlpha(1)
 					end
+					-- Empty: the faded slot art would cover the totem that is down
+					if assignedIndex == 0 and totemButton.emptyArt then totemButton.emptyArt:Hide() end
 
-					-- Show assigned indicator in corner
+					-- Show assigned indicator in corner (none when nothing is assigned:
+					-- index 0 has no icon, GetTotemIcon would give the question mark)
 					if totemButton.assignedIndicator and totemButton.assignedIndicatorIcon then
-						local assignedIcon = self:GetTotemIcon(element, assignedIndex)
-						if assignedIcon then
-							totemButton.assignedIndicatorIcon:SetTexture(assignedIcon)
+						if assignedIndex > 0 then
+							totemButton.assignedIndicatorIcon:SetTexture(self:GetTotemIcon(element, assignedIndex))
 							totemButton.assignedIndicator:Show()
+						else
+							totemButton.assignedIndicator:Hide()
 						end
 					end
 
@@ -4750,12 +4772,13 @@ function ShamanPower:UpdateActiveTotemOverlays()
 								iconTexture:SetTexture(self:GetTwistTotemIcon())
 							end
 						end
-					else
+					elseif assignedIndex > 0 then
 						-- Normal case: show assigned totem icon
-						local assignedIcon = self:GetTotemIcon(element, assignedIndex)
-						if assignedIcon then
-							iconTexture:SetTexture(assignedIcon)
-						end
+						iconTexture:SetTexture(self:GetTotemIcon(element, assignedIndex))
+					else
+						-- Nothing assigned: as the bar draws it (the element icon; Forever: the empty slot art)
+						iconTexture:SetTexture(self.ElementIcons[element])
+						self:ShowEmptySlotArt(element, true)
 					end
 				end
 
@@ -6777,17 +6800,15 @@ function ShamanPower:UpdateTotemButtons()
 		if btn then
 			local isPoppedOut = self:IsElementPoppedOut(element)
 
-			-- Get totem spell - Dynamic Mode uses active totem, Normal Mode uses assignment
-			local totemIndex
-			if self:ShowsActiveTotemOnBar() then
-				local activeIndex = self:GetActiveTotemIndex(element)
-				if activeIndex then
-					totemIndex = activeIndex
-				else
-					totemIndex = assignments[element] or 0
-				end
+			-- Get totem spell - Dynamic Mode uses active totem, Normal Mode uses assignment.
+			-- The icon also shows a flyout pick from a fight that is just ending (saved a
+			-- moment later, in the regen pass); the spell attributes stay on the saved table.
+			local totemIndex, shownIndex
+			local activeIndex = self:ShowsActiveTotemOnBar() and self:GetActiveTotemIndex(element)
+			if activeIndex then
+				totemIndex, shownIndex = activeIndex, activeIndex
 			else
-				totemIndex = assignments[element] or 0
+				totemIndex, shownIndex = assignments[element] or 0, self:AssignedIndex(element)
 			end
 
 			local spellID = nil
@@ -6801,13 +6822,16 @@ function ShamanPower:UpdateTotemButtons()
 					spellName = GetSpellInfo(spellID)
 				end
 			end
+			if shownIndex ~= totemIndex then
+				icon = shownIndex > 0 and self:GetTotemIcon(element, shownIndex) or self.ElementIcons[element]
+			end
 
 			-- Always update icon (even for popped out elements)
 			-- Skip Air icon when twisting - the twist timer manages it to avoid flicker
 			if btn.icon and not (element == 4 and self.opt.enableTotemTwisting) then
 				btn.icon:SetTexture(icon)
 			end
-			self:ShowEmptySlotArt(element, (totemIndex or 0) == 0)
+			self:ShowEmptySlotArt(element, shownIndex == 0)
 
 			-- Always update spell attributes (even for popped out elements)
 			-- Clear old attributes
@@ -6830,9 +6854,10 @@ function ShamanPower:UpdateTotemButtons()
 			elseif spellName then
 				btn:SetAttribute("type1", "spell")
 				btn:SetAttribute("spell1", spellName)
-			elseif EMPTY_SLOT_ART then
-				-- Empty: keep the cast type, so a totem assigned from the flyout mid-fight
-				-- (which can only write spell1) still casts. A spell action with no spell does nothing.
+			else
+				-- Nothing assigned: keep the cast type, so a totem assigned from the flyout
+				-- mid-fight (which can only write spell1) still casts, on both clients. A
+				-- spell action with no spell does nothing.
 				btn:SetAttribute("type1", "spell")
 			end
 
@@ -7333,8 +7358,10 @@ function ShamanPower:FollowFlyoutArrows(btn)
 	btn.spArrowPadT, btn.spArrowPadB, btn.spArrowPadL, btn.spArrowPadR = t, b, l, r
 	if btn.cooldownType then
 		if self.UpdateCooldownBarProgressBars then self:UpdateCooldownBarProgressBars() end
+		self:FitBarBackdrop(self.cooldownBar)
 		return
 	end
+	self:FitBarBackdrop(self.autoButton)
 	local element = btn.element
 	if not (element and self.totemButtons and self.totemButtons[element] == btn) then return end
 	local pulse = self.pulseOverlays and self.pulseOverlays[element]
@@ -7342,6 +7369,42 @@ function ShamanPower:FollowFlyoutArrows(btn)
 	self:UpdateTotemProgressBarPositions()
 	self:PlacePartyDotFrame(btn)
 	self:PositionActiveOverlays()
+end
+
+-- "Show frame behind the bar": what a bar draws past a flyout tab (pulse and
+-- duration bars, their numbers, the dots) sits outside the bar, so the frame
+-- reaches out by the same room on the tab's side while the tab shows, and comes
+-- back with it. The bar itself is not resized (everything on it is laid out
+-- from its corner, and the totem bar is a secure frame): the backdrop's four
+-- corner textures are anchored out instead, and its edges and fill hang off
+-- them. Layout time only, never in lockdown: FollowFlyoutArrows (the start and
+-- end of a fight, a relayout) and wherever the backdrop is set again.
+function ShamanPower:FitBarBackdrop(bar)
+	if not (bar and bar.backdropInfo and bar.TopLeftCorner and bar.TopRightCorner
+		and bar.BottomLeftCorner and bar.BottomRightCorner) or InCombatLockdown() then return end
+	local t, b, l, r = 0, 0, 0, 0
+	if bar == self.autoButton then
+		-- the totem buttons on the bar (popped-out ones have their own frame)
+		for element = 1, 4 do
+			local btn = self.totemButtons and self.totemButtons[element]
+			if btn and self:IsElementShown(element) and not self:IsElementPoppedOut(element) then
+				local bt, bb, bl, br = self:FlyoutArrowPads(btn)
+				t, b, l, r = math.max(t, bt), math.max(b, bb), math.max(l, bl), math.max(r, br)
+			end
+		end
+	elseif bar == self.cooldownBar then
+		for _, btn in ipairs(self.cooldownButtons or {}) do
+			if btn:GetParent() == bar and btn:IsShown() then
+				local bt, bb, bl, br = self:FlyoutArrowPads(btn)
+				t, b, l, r = math.max(t, bt), math.max(b, bb), math.max(l, bl), math.max(r, br)
+			end
+		end
+	end
+	-- all 0: the anchors the backdrop gives them itself
+	bar.TopLeftCorner:SetPoint("TOPLEFT", bar, "TOPLEFT", -l, t)
+	bar.TopRightCorner:SetPoint("TOPRIGHT", bar, "TOPRIGHT", r, t)
+	bar.BottomLeftCorner:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", -l, -b)
+	bar.BottomRightCorner:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", r, -b)
 end
 
 -- Optional Blizzard-style frame around an open flyout (opt.flyoutStyle ==
@@ -8255,11 +8318,7 @@ function ShamanPower:MarkAssignedInFlyout(element)
 	if self.GridActive and self:GridActive() then self:UpdateGridTotems(); return end
 	local flyout = self.totemFlyouts and self.totemFlyouts[element]
 	if not (flyout and flyout.box) then return end
-	local cur = self.pendingAssignments and self.pendingAssignments[element]
-	if cur == nil then
-		local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player]
-		cur = a and a[element] or 0
-	end
+	local cur = self:AssignedIndex(element)
 	for _, btn in ipairs(flyout.allButtons or {}) do
 		if btn.icon then
 			local on = btn.totemIndex == cur
@@ -10459,8 +10518,11 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						self:CopySPFont(fs, src)   -- same font as the addon's text, and follows later font changes
 						local r, g, b = src:GetTextColor()
 						fs:SetTextColor(r or 1, g or 1, b or 1)
-						local point, rel, relPoint, x, y = src:GetPoint(1)
-						if point then fs:SetPoint(point, rel or btn, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", button, "CENTER", 0, 0) end
+						-- hung on the addon's text by the same point, not a copy of its anchor:
+						-- when that text steps out past the flyout tab (FollowFlyoutArrows, at
+						-- the start and end of a fight) this one goes with it, no rebuild
+						local point = src:GetPoint(1)
+						if point then fs:SetPoint(point, src, point, 0, 0) else fs:SetPoint("CENTER", button, "CENTER", 0, 0) end
 						reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
 					end
 					T("SHIELD init end %s", set.name)
@@ -13281,19 +13343,14 @@ function ShamanPower:UpdateMiniTotemBar()
 				totemButton:Show()
 
 				-- Dynamic Mode: use currently active totem instead of assignment
-				local totemIndex
-				if self:ShowsActiveTotemOnBar() then
-					-- First try to get the active totem
-					local activeIndex = self:GetActiveTotemIndex(element)
-					if activeIndex then
-						totemIndex = activeIndex
-					else
-						-- No active totem - fall back to assignment
-						totemIndex = assignments[element] or 0
-					end
+				-- (no active totem, or Normal mode: the assignment). The icon also shows
+				-- a flyout pick from a fight that is just ending; the spells stay on the table.
+				local totemIndex, shownIndex
+				local activeIndex = self:ShowsActiveTotemOnBar() and self:GetActiveTotemIndex(element)
+				if activeIndex then
+					totemIndex, shownIndex = activeIndex, activeIndex
 				else
-					-- Normal mode: use assignment
-					totemIndex = assignments[element] or 0
+					totemIndex, shownIndex = assignments[element] or 0, self:AssignedIndex(element)
 				end
 
 				local spellID = nil
@@ -13307,6 +13364,9 @@ function ShamanPower:UpdateMiniTotemBar()
 					if spellID then
 						spellName = GetSpellInfo(spellID)
 					end
+				end
+				if shownIndex ~= totemIndex then
+					icon = shownIndex > 0 and self:GetTotemIcon(element, shownIndex) or self.ElementIcons[element]
 				end
 
 				-- Update the icon
@@ -13604,9 +13664,7 @@ end
 function ShamanPower:TotemBarTooltip(button, element)
 	if not self.opt.ShowTooltips then return end
 
-	local playerName = self.player
-	local assignments = ShamanPower_Assignments[playerName]
-	local totemIndex = assignments and assignments[element] or 0
+	local totemIndex = self:AssignedIndex(element)   -- a flyout pick made in this fight: the totem the button casts
 
 	local elementName = self.Elements[element] or "Unknown"
 	local totemName = "None"
@@ -17054,6 +17112,7 @@ function ShamanPower:ApplySkin()
 		ShamanPowerAuto:SetBackdrop(nil)
 	else
 		ShamanPowerAuto:SetBackdrop(tmp)
+		self:FitBarBackdrop(ShamanPowerAuto)   -- out past the flyout tabs again, if they show
 	end
 end
 
@@ -17096,6 +17155,7 @@ function ShamanPower:UpdateCooldownBarFrame()
 		})
 		self.cooldownBar:SetBackdropColor(0, 0, 0, 0.7)
 		self.cooldownBar:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+		self:FitBarBackdrop(self.cooldownBar)   -- out past the flyout tabs again, if they show
 	end
 end
 
@@ -17997,15 +18057,12 @@ function ShamanPower:GetSpellNameForButton(buttonType, element)
 		end
 		return GetSpellInfo(8232)  -- Windfury Weapon default
 	elseif buttonType == "totem" and element then
-		-- Get assigned totem spell for this element
-		local assignments = ShamanPower_Assignments[self.player]
-		if assignments then
-			local totemIndex = assignments[element] or 0
-			if totemIndex > 0 then
-				local spellID = self:GetTotemSpell(element, totemIndex)
-				if spellID then
-					return GetSpellInfo(spellID)
-				end
+		-- Get assigned totem spell for this element (a flyout pick made in this fight included)
+		local totemIndex = self:AssignedIndex(element)
+		if totemIndex > 0 then
+			local spellID = self:GetTotemSpell(element, totemIndex)
+			if spellID then
+				return GetSpellInfo(spellID)
 			end
 		end
 	elseif buttonType == "dropall" then
@@ -18391,6 +18448,25 @@ local actionBarAddons = {
 keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 	-- If leaving combat, check if we have pending keybind or macro setup
 	if event == "PLAYER_REGEN_ENABLED" then
+		-- Mid-fight totem picks are saved first, before anything else here can error:
+		-- an unsaved pick leaves the bar showing it while the button goes back to the
+		-- old totem. The picks are stored before any of the refreshes run.
+		local pending = ShamanPower.pendingAssignments
+		if pending then
+			ShamanPower.pendingAssignments = nil
+			ShamanPower_Assignments[ShamanPower.player] = ShamanPower_Assignments[ShamanPower.player] or {}
+			for elem, totemIdx in pairs(pending) do
+				ShamanPower_Assignments[ShamanPower.player][elem] = totemIdx
+			end
+			-- Silent save, like TotemTimers
+			for elem, totemIdx in pairs(pending) do
+				ShamanPower:UpdateMiniTotemBar()
+				ShamanPower:UpdateDropAllButton()
+				ShamanPower:UpdateSPMacros()
+				ShamanPower:SendMessage("ASSIGN " .. ShamanPower.player .. " " .. elem .. " " .. totemIdx)
+				ShamanPower:UpdateFlyoutVisibility(elem)
+			end
+		end
 		if ShamanPower.keybindsPending then
 			ShamanPower:SetupKeybindings()
 		end
@@ -18398,22 +18474,6 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 		if ShamanPower.talentChangePending then
 			ShamanPower.talentChangePending = false
 			ShamanPower:OnTalentsChanged()
-		end
-		-- Handle pending totem assignment changes from combat
-		if ShamanPower.pendingAssignments then
-			for elem, totemIdx in pairs(ShamanPower.pendingAssignments) do
-				if not ShamanPower_Assignments[ShamanPower.player] then
-					ShamanPower_Assignments[ShamanPower.player] = {}
-				end
-				ShamanPower_Assignments[ShamanPower.player][elem] = totemIdx
-				ShamanPower:UpdateMiniTotemBar()
-				ShamanPower:UpdateDropAllButton()
-				ShamanPower:UpdateSPMacros()
-				ShamanPower:SendMessage("ASSIGN " .. ShamanPower.player .. " " .. elem .. " " .. totemIdx)
-				ShamanPower:UpdateFlyoutVisibility(elem)
-			end
-			ShamanPower.pendingAssignments = nil
-			-- Silent save, like TotemTimers
 		end
 		-- Dynamic Mode (and Grid): update button attributes now that we're out of combat
 		if ShamanPower:DropSetsAssignment() then

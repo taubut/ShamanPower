@@ -194,8 +194,7 @@ local function styleHost(host, element)
 end
 
 local function updateDisplay(host, element, active, name, icon, remaining, duration)
-	local assignments = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
-	local assigned = assignments and assignments[element] or 0
+	local assigned = SP:AssignedIndex(element)   -- a flyout pick made in this fight first
 	local names = SP.TotemNames and SP.TotemNames[element]
 	local assignedName = names and names[assigned]
 	-- Blizzard's bar works like our Dynamic mode: whatever sits in the slot is
