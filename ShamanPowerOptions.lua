@@ -3428,8 +3428,24 @@ ShamanPower.options = {
 							end,
 							func = function() ShamanPower:EnableCountdownNumbers() end,
 						},
-						shield_charge_colors = {
+						shield_charge_count = {
 							disabled = function(info) return (ShamanPower.opt.cdbarShowShields == false) and true or false end,
+							order = 3.9,
+							type = "toggle",
+							name = "Show Shield Charge Count",
+							desc = "Show the number of charges left in the corner of the shield button. Turn it off to show only the Shield Charge Bar.",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.cdbarShowShieldCount ~= false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShowShieldCount = val
+								if ShamanPower.RebuildShieldChargeContainer then ShamanPower:RebuildShieldChargeContainer() end   -- the engine-drawn shield display reads these once, when built
+								if ShamanPower.UpdateCooldownBar then ShamanPower:UpdateCooldownBar() end
+							end
+						},
+						shield_charge_colors = {
+							disabled = function(info) return (ShamanPower.opt.cdbarShowShields == false or ShamanPower.opt.cdbarShowShieldCount == false) and true or false end,
 							order = 4,
 							type = "toggle",
 							name = "Color Shield Charges by Count",
@@ -3441,6 +3457,22 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.shieldChargeColors = val
 								if ShamanPower.RebuildShieldChargeContainer then ShamanPower:RebuildShieldChargeContainer() end   -- the engine-drawn shield display reads these once, when built
+							end
+						},
+						shield_charge_bar = {
+							disabled = function(info) return (ShamanPower.opt.cdbarShowShields == false) and true or false end,
+							order = 4.1,
+							type = "toggle",
+							name = "Show Shield Charge Bar",
+							desc = "Show a bar along the bottom of the shield button with one segment per charge, filled to the charges left: the same look as the charge bar on the Shield Charges display. It stays blue at every count, in and out of combat.",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.cdbarShieldChargeBar and true or false
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarShieldChargeBar = val
+								if ShamanPower.RebuildShieldChargeContainer then ShamanPower:RebuildShieldChargeContainer() end   -- the engine-drawn shield display reads these once, when built
+								if ShamanPower.UpdateCooldownBar then ShamanPower:UpdateCooldownBar() end
 							end
 						},
 						show_ankh_count = {
@@ -5437,7 +5469,7 @@ ShamanPower.options = {
 						shieldcharges_scale = {
 							order = 3,
 							name = "Scale",
-							desc = "Adjust the size of the shield charge numbers",
+							desc = "Adjust the size of the shield charge display (number, icon and charge bar)",
 							type = "range",
 							isPercent = true,
 							width = "full",
@@ -5470,6 +5502,101 @@ ShamanPower.options = {
 							set = function(info, val)
 								if ShamanPower.opt.shieldChargeDisplay then
 									ShamanPower.opt.shieldChargeDisplay.opacity = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_show_icon = {
+							order = 4.1,
+							name = "Show Shield Icon",
+							desc = function()
+								local what = ShamanPower.ESTrackerUnavailable and "Lightning Shield or Water Shield"
+									or "Lightning Shield or Water Shield for your own shield, Earth Shield for the one on your target"
+								return "Show the shield's icon (" .. what .. ") with the charge count on it. With no shield up, and Hide When No Shields off, the icon is grayed out."
+							end,
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.showIcon
+							end,
+							set = function(info, val)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								if s then
+									s.showIcon = val
+									-- the number comes back when nothing else would be left on the display
+									if not val and not s.showChargeBar then s.showNumber = true end
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_show_number = {
+							order = 4.2,
+							name = "Show Number",
+							desc = "Show the charge count as a number. It can only be turned off while the shield icon or the charge bar is shown, so the display never goes blank.",
+							type = "toggle",
+							width = "full",
+							disabled = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								return (not (s and (s.showIcon or s.showChargeBar))) and true or false
+							end,
+							get = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								if not s then return true end
+								return (s.showNumber ~= false) or not (s.showIcon or s.showChargeBar)
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.showNumber = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_number_position = {
+							-- only with the icon: without it the number is the whole display, in the center
+							hidden = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								return (not (s and s.showIcon and s.showNumber ~= false)) and true or false
+							end,
+							order = 4.3,
+							name = "Number Position",
+							desc = "Where the number sits on the icon: large in the center, or smaller in the bottom-right corner.",
+							type = "select",
+							width = "full",
+							values = {
+								["center"] = "Center",
+								["corner"] = "Bottom-Right Corner",
+							},
+							sorting = { "center", "corner" },
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.numberPosition or "center"
+							end,
+							set = function(info, val)
+								if ShamanPower.opt.shieldChargeDisplay then
+									ShamanPower.opt.shieldChargeDisplay.numberPosition = val
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_show_bar = {
+							order = 4.4,
+							name = "Show Charge Bar",
+							desc = function()
+								if ShamanPower.ESTrackerUnavailable then
+									return "Show a bar under the display with one segment per charge (3 for Lightning Shield or Water Shield), filled to the charges left. The bar stays blue at every count."
+								end
+								return "Show a bar under the display with one segment per charge (3 for Lightning Shield or Water Shield, 6 for Earth Shield), filled to the charges left. The bar keeps the shield's color at every count: blue for your own shield, green for Earth Shield."
+							end,
+							type = "toggle",
+							width = "full",
+							get = function(info)
+								return ShamanPower.opt.shieldChargeDisplay and ShamanPower.opt.shieldChargeDisplay.showChargeBar
+							end,
+							set = function(info, val)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								if s then
+									s.showChargeBar = val
+									-- the number comes back when nothing else would be left on the display
+									if not val and not s.showIcon then s.showNumber = true end
 									ShamanPower:UpdateShieldChargeDisplays()
 								end
 							end
@@ -10465,7 +10592,10 @@ do
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.shieldcharges_section, {
 		{ keys = { "shieldcharges_desc", "module_missing_note", "hide_ooc_note", "both_off_note" } },
 		{ keys = { "shieldcharges_player", "shieldcharges_earth" } },
-		{ header = "look_header", name = "Look", keys = { "shieldcharges_scale", "shieldcharges_opacity" } },
+		{ header = "look_header", name = "Look", keys = {
+			"shieldcharges_show_icon", "shieldcharges_show_number", "shieldcharges_number_position", "shieldcharges_show_bar",
+			"shieldcharges_scale", "shieldcharges_opacity",
+		} },
 		{ header = "behaviour_header", name = "Behavior", keys = {
 			"shieldcharges_hide_ooc", "shieldcharges_hide_none",
 		} },

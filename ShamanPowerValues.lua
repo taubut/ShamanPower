@@ -142,6 +142,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         twistSoundVolume = 100,
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
+        cdbarShowShieldCount = true,  -- Charge count on the cooldown bar's shield button
+        cdbarShieldChargeBar = false,  -- Charge bar (one segment per charge) along the bottom of the cooldown bar's shield button
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button
@@ -231,6 +233,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
             locked = false,           -- Click-through when locked
             hideOutOfCombat = false,  -- Hide when not in combat
             hideNoShields = true,     -- Hide when no shields are active
+            showIcon = false,         -- Draw the shield's icon (the number sits on it)
+            showNumber = true,        -- The charge number (off only while the icon or bar is on)
+            numberPosition = "center", -- "center" or "corner" (bottom-right, smaller); with the icon on
+            showChargeBar = false,    -- Segmented charge bar under the icon / number
             playerShieldX = -50,      -- Position offset from center
             playerShieldY = -100,
             earthShieldX = 50,

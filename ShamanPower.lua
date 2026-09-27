@@ -10400,9 +10400,95 @@ function ShamanPower:ShieldCountFormatter(maxCharges)
 	return fmt
 end
 
+-- "Show Shield Charge Bar": a strip along the bottom of the shield button's
+-- icon, one segment per charge, in the Shield Charges display's blue (it keeps
+-- that color at every count: in combat the game fills it and cannot recolor
+-- it). Three layers line up on it: the addon's strip (backing and fill, under
+-- the engine's aura button), the engine's copy while auras are secret (hung on
+-- the addon's strip, see EnsureShieldChargeContainer) and the dividers above
+-- both, so the segments sit in the same place in and out of combat and follow
+-- the button's size.
+local SHIELD_STRIP_SEGMENTS = 3
+local SHIELD_STRIP_COLOR = { 0.2, 0.6, 1.0 }
+
+local function StyleShieldStrip(bar)
+	local back = bar:CreateTexture(nil, "BACKGROUND")
+	back:SetPoint("TOPLEFT", bar, "TOPLEFT", -1, 1)
+	back:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1)
+	back:SetColorTexture(0, 0, 0, 0.6)
+	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+	bar:SetStatusBarColor(SHIELD_STRIP_COLOR[1], SHIELD_STRIP_COLOR[2], SHIELD_STRIP_COLOR[3])
+	bar:SetMinMaxValues(0, SHIELD_STRIP_SEGMENTS)
+	bar:SetValue(0)
+end
+
+function ShamanPower:PaintShieldChargeStrip(btn, charges)
+	local strip = btn.chargeStrip
+	if not self.opt.cdbarShieldChargeBar then
+		if strip and strip:IsShown() then
+			strip:Hide(); strip.lines:Hide()
+			strip.lw = nil   -- laid out again (and the count raised again) when it comes back
+			if btn.chargeText then
+				btn.chargeText:ClearAllPoints()
+				btn.chargeText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
+			end
+		end
+		return
+	end
+	if not strip then
+		strip = CreateFrame("StatusBar", nil, btn)
+		strip:SetFrameLevel(btn:GetFrameLevel() + 2)
+		StyleShieldStrip(strip)
+		local lines = CreateFrame("Frame", nil, btn)
+		lines:SetFrameLevel(btn:GetFrameLevel() + 12)   -- above the engine's aura button (container at +6)
+		lines:SetAllPoints(strip)
+		lines.d = {}
+		for i = 1, SHIELD_STRIP_SEGMENTS - 1 do
+			local d = lines:CreateTexture(nil, "OVERLAY")
+			d:SetColorTexture(0, 0, 0, 0.9)
+			lines.d[i] = d
+		end
+		strip.lines = lines
+		btn.chargeStrip = strip
+	end
+	-- geometry: the button's size, inside the on-icon duration bars
+	local opt = self.opt
+	local w, h = btn:GetWidth(), btn:GetHeight()
+	local inset = 2
+	if opt.cdbarShowProgressBars ~= false and opt.cdbarProgressPosition == "on_icon" then
+		inset = inset + (opt.cdbarProgressBarHeight or 3)
+	end
+	if strip.lw ~= w or strip.lh ~= h or strip.li ~= inset then
+		strip.lw, strip.lh, strip.li = w, h, inset
+		local sh = math.max(3, math.floor(h * 0.14 + 0.5))
+		strip:ClearAllPoints()
+		strip:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", inset, 2)
+		strip:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -inset, 2)
+		strip:SetHeight(sh)
+		local sw = w - 2 * inset
+		for i, d in ipairs(strip.lines.d) do
+			d:ClearAllPoints()
+			d:SetWidth(1)
+			d:SetPoint("TOP", strip, "TOPLEFT", sw * i / SHIELD_STRIP_SEGMENTS, 0)
+			d:SetPoint("BOTTOM", strip, "BOTTOMLEFT", sw * i / SHIELD_STRIP_SEGMENTS, 0)
+		end
+		-- the count sits just above the strip (the engine's count hangs on this one)
+		if btn.chargeText then
+			btn.chargeText:ClearAllPoints()
+			btn.chargeText:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, sh + 3)
+		end
+	end
+	local v = math.min(charges or 0, SHIELD_STRIP_SEGMENTS)
+	if strip.lv ~= v then strip.lv = v; strip:SetValue(v) end
+	if not strip:IsShown() then strip:Show() end
+	if not strip.lines:IsShown() then strip.lines:Show() end
+end
+
 function ShamanPower:EnsureShieldChargeContainer(btn)
 	if not (SPCompat and SPCompat.secretsRegime) then return end
 	if btn.chargeContainer then return end
+	-- the engine's charge bar is hung on the addon's strip, so that exists first
+	if self.opt.cdbarShieldChargeBar and btn.chargeText then self:PaintShieldChargeStrip(btn, 0) end
 	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
 	if not ok or not container then
@@ -10491,9 +10577,28 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					carrier:SetAllPoints(button)
 					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
-					count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+					local strip = opt.cdbarShieldChargeBar and btn.chargeStrip
+					if strip and btn.chargeText then
+						-- hung on the addon's count, which sits above the strip
+						count:SetPoint("BOTTOMRIGHT", btn.chargeText, "BOTTOMRIGHT", 0, 0)
+					else
+						count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+					end
 					count:SetTextColor(1, 1, 1)
-					reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3) }))
+
+					-- charge bar: the engine fills a copy laid over the addon's strip (the
+					-- dividers ride above both, see PaintShieldChargeStrip)
+					if strip then
+						local cb = CreateFrame("StatusBar", nil, carrier)
+						cb:SetAllPoints(strip)
+						StyleShieldStrip(cb)
+						reg("SetApplicationBar", pcall(button.SetApplicationBar, button, cb,
+							{ maxApplications = SHIELD_STRIP_SEGMENTS, minApplications = 0, interpolation = Interp }))
+					end
+					-- "Show Shield Charge Count" off: the engine is never handed the count
+					if opt.cdbarShowShieldCount ~= false then
+						reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3) }))
+					end
 
 					-- progress bar in the addon's bar slot: black background + engine-filled bar
 					if showBars and btn.bgBar and Dir.RemainingTime then
@@ -10878,13 +10983,14 @@ function ShamanPower:UpdateCooldownButtons()
 
 				-- Show charge count with optional coloring
 				if btn.chargeText then
-					if shieldCharges > 0 then
+					if shieldCharges > 0 and self.opt.cdbarShowShieldCount ~= false then
 						btn.chargeText:SetText((cache and cache.engineCount) and "" or (NumberStrings[shieldCharges] or tostring(shieldCharges)))
 						btn.chargeText:SetTextColor(self:ShieldCountColor(shieldCharges))   -- same rule the engine formatter uses in combat
 					else
 						btn.chargeText:SetText("")
 					end
 				end
+				self:PaintShieldChargeStrip(btn, (cache and cache.engineCount) and 0 or shieldCharges)
 
 				-- Progress bar (for shields, show based on time remaining)
 				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
@@ -10988,6 +11094,7 @@ function ShamanPower:UpdateCooldownButtons()
 				btn.activeShieldID = nil
 				btn.cooldown:Clear()
 				if btn.chargeText then btn.chargeText:SetText("") end
+				self:PaintShieldChargeStrip(btn, 0)   -- empty strip: no shield (in combat, under the engine's)
 				if btn.progressBar then btn.progressBar:Hide() end
 				if btn.bgBar then btn.bgBar:Hide() end
 				if btn.greyOverlay then btn.greyOverlay:Hide() end

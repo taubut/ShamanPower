@@ -2,6 +2,10 @@
 
 ## v3.0.3 (unreleased)
 
+### New
+- **Shield Charges: new looks** (all off by default, the plain number stays as it is). Show the shield's icon with the count on it, in the center or small in the bottom-right corner, and/or a charge bar under it with one segment per charge. With no shield up the icon is grayed out with a red 0, in combat too; on WoW: Forever the red 0 is left out in combat below 100% opacity, so it never shows through the live count. The setup tour's Shield Charges step has the new options.
+- **Cooldown bar: Show Shield Charge Bar** (off by default). The same charge bar along the bottom of the shield button, in and out of combat. **Show Shield Charge Count** (on by default) turns the corner number off, to show just the bar. Both are on the Display tab and in the setup tour's Cooldown Bar step.
+
 ### Changes
 - **Totem Range Tracker: Show the Overlay.** Pick where the overlay may be up: in a group with a shaman (the default), in any group, or always, solo too. It holds for an overlay you opened yourself as well: it steps aside when you leave the group and comes back when you join one, so it no longer sits on screen while you play solo.
 

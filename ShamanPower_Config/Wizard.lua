@@ -1659,21 +1659,26 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 		if not (inner:IsShown() and inner:GetWidth() > 0) then return end
 		SP:ShowPreview("shieldcharges", inner)
 		local p, e = SP.shieldChargeFrames and SP.shieldChargeFrames.player, SP.shieldChargeFrames and SP.shieldChargeFrames.earth
-		-- Measure the rendered digits so the two numbers always sit inside the
-		-- box at their true size; only the spacing between them adapts.
-		local tw, th = 30, 48
-		if p and p.text then tw = math.max(tw, p.text:GetStringWidth() or 0); th = math.max(th, p.text:GetStringHeight() or 0) end
-		if e and e.text then tw = math.max(tw, e.text:GetStringWidth() or 0); th = math.max(th, e.text:GetStringHeight() or 0) end
-		local halfW = tw / 2 + 12
+		-- Measure the rendered parts (number, icon, charge bar) so both displays
+		-- always sit inside the box at their true size; only the spacing between
+		-- them adapts.
+		local hw, above, below = 15, 24, 24
+		for _, f in ipairs({ p, e }) do
+			if f and SP.ShieldChargeDisplayExtent then
+				local w, a, b = SP:ShieldChargeDisplayExtent(f)
+				hw, above, below = math.max(hw, w), math.max(above, a), math.max(below, b)
+			end
+		end
+		local halfW = hw + 12
 		local dx = math.max(70, halfW + 16)
 		dx = math.max(halfW, math.min(dx, inner:GetWidth() / 2 - halfW - 10))
 		local showE = resto and get("showEarthShield", true) ~= false
 		if e then e:SetShown(showE) end
 		if not showE then dx = 0 end        -- one number: center it
-		local cy = math.min(140, inner:GetHeight() / 2 - th / 2 - 16)   -- well above the staged character's head
+		local cy = math.min(140, inner:GetHeight() / 2 - above - 16)   -- well above the staged character's head
 		if p then p:ClearAllPoints(); p:SetPoint("CENTER", inner, "CENTER", -dx, cy) end
 		if e then e:ClearAllPoints(); e:SetPoint("CENTER", inner, "CENTER", dx, cy) end
-		local ly = cy - th / 2 - 8
+		local ly = cy - below - 8
 		lblL:ClearAllPoints(); lblL:SetPoint("TOP", inner, "CENTER", -dx, ly)
 		lblR:ClearAllPoints(); lblR:SetPoint("TOP", inner, "CENTER", dx, ly)
 		lblL:SetShown(get("showPlayerShield", true) ~= false); lblR:SetShown(showE)
@@ -1693,6 +1698,24 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 		y = y + h
 	end
 	local function upd() notify(); if SP.ShieldChargesDemo then SP:ShieldChargesDemo(true) end; fit() end
+	-- the look: same options and rules as Settings > Shield Charges (the number
+	-- can only be off while the icon or the charge bar is on)
+	local function other(k) return get(k, false) and true or false end
+	row("Toggle", { label = "Show shield icon", desc = "The shield's icon with the charge count on it. Grayed out while no shield is up.",
+		get = function() return other("showIcon") end,
+		set = function(v) local t = sc(); t.showIcon = v; if not v and not t.showChargeBar then t.showNumber = true end; upd(); Widgets:RefreshAll(card) end })
+	row("Toggle", { label = "Show number", desc = "The charge count as a number. It can only be off while the icon or the charge bar is on.",
+		disabled = function() return not (other("showIcon") or other("showChargeBar")) end,
+		get = function() return get("showNumber", true) ~= false or not (other("showIcon") or other("showChargeBar")) end,
+		set = function(v) sc().showNumber = v; upd(); Widgets:RefreshAll(card) end })
+	row("Dropdown", { label = "Number position", desc = "Where the number sits on the icon.",
+		disabled = function() return not (other("showIcon") and get("showNumber", true) ~= false) end,
+		get = function() return get("numberPosition", "center") end,
+		set = function(v) sc().numberPosition = v; upd() end,
+		values = function() return { center = "Center", corner = "Bottom-right corner" } end, order = function() return { "center", "corner" } end })
+	row("Toggle", { label = "Show charge bar", desc = "A bar under the display with one segment per charge, filled to the charges left.",
+		get = function() return other("showChargeBar") end,
+		set = function(v) local t = sc(); t.showChargeBar = v; if not v and not t.showIcon then t.showNumber = true end; upd(); Widgets:RefreshAll(card) end })
 	row("Slider", { label = "Size", min = 0.5, max = 3.0, step = 0.1, get = function() return get("scale", 1.0) end,
 		set = function(v) sc().scale = v; upd() end })
 	row("Slider", { label = "Opacity", min = 0.1, max = 1.0, step = 0.1, get = function() return get("opacity", 1.0) end,
@@ -2962,8 +2985,21 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		corner:SetText(sp.charges or sp.count or "")
 		local lbl = btn:CreateFontString(nil, "OVERLAY"); lbl:SetFontObject(Core.fonts.tiny); lbl:SetPoint("TOP", btn, "BOTTOM", 0, -8)
 		lbl:SetText(sp.name); lbl:SetWidth(SIZE + GAP + 14); lbl:SetJustifyH("CENTER"); lbl:SetWordWrap(false)
+		-- Shield charge bar (Show Shield Charge Bar): full, like the "3" on the chip
+		local strip
+		if sp.charges then
+			strip = CreateFrame("StatusBar", nil, btn)
+			local back = strip:CreateTexture(nil, "BACKGROUND")
+			back:SetPoint("TOPLEFT", strip, "TOPLEFT", -1, 1); back:SetPoint("BOTTOMRIGHT", strip, "BOTTOMRIGHT", 1, -1)
+			back:SetColorTexture(0, 0, 0, 0.6)
+			strip:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8"); strip:SetStatusBarColor(0.2, 0.6, 1.0)
+			strip:SetMinMaxValues(0, 3); strip:SetValue(tonumber(sp.charges) or 3)
+			strip.d = {}
+			for k = 1, 2 do local d = strip:CreateTexture(nil, "OVERLAY"); d:SetColorTexture(0, 0, 0, 0.9); strip.d[k] = d end
+			strip:Hide()
+		end
 		-- Staggered sim clock so the bar is not in lockstep.
-		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
+		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, strip = strip, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
 	end
 
 	-- Progress bar + duration text geometry, same anchors as
@@ -3004,6 +3040,25 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			else -- "none": legacy centre text, only if the CD Text toggle is on
 				SP:SetSPFont(txt, "timers", 10, "OUTLINE"); txt:SetPoint("CENTER", f, "CENTER")
 			end
+			-- shield charge bar: same geometry as PaintShieldChargeStrip, count lifted above it
+			if b.strip then
+				local on = OPT().cdbarShieldChargeBar and true or false
+				local sh = math.max(3, math.floor(SIZE * 0.14 + 0.5))
+				if on then
+					local inset = 2 + ((pos == "on_icon" and OPT().cdbarShowProgressBars ~= false) and size or 0)
+					local st = b.strip
+					st:ClearAllPoints()
+					st:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", inset, 2); st:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -inset, 2); st:SetHeight(sh)
+					local sw = SIZE - 2 * inset
+					for k, d in ipairs(st.d) do
+						d:ClearAllPoints(); d:SetWidth(1)
+						d:SetPoint("TOP", st, "TOPLEFT", sw * k / 3, 0); d:SetPoint("BOTTOM", st, "BOTTOMLEFT", sw * k / 3, 0)
+					end
+				end
+				b.strip:SetShown(on)
+				b.corner:ClearAllPoints(); b.corner:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, on and (sh + 3) or 1)
+				b.corner:SetShown(OPT().cdbarShowShieldCount ~= false)
+			end
 		end
 	end
 	local lastGeom
@@ -3035,7 +3090,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		local showBars  = OPT().cdbarShowProgressBars ~= false
 		local showSweep = OPT().cdbarShowColorSweep ~= false
 		local showText  = OPT().cdbarShowCDText ~= false
-		local geom = tostring(OPT().cdbarProgressPosition) .. tostring(OPT().cdbarProgressBarHeight) .. tostring(OPT().cdbarDurationTextLocation) .. tostring(OPT().cdbarDurationTextSize)
+		local geom = tostring(OPT().cdbarProgressPosition) .. tostring(OPT().cdbarProgressBarHeight) .. tostring(OPT().cdbarDurationTextLocation) .. tostring(OPT().cdbarDurationTextSize) .. tostring(OPT().cdbarShieldChargeBar) .. tostring(OPT().cdbarShowShieldCount)
 		if geom ~= lastGeom then lastGeom = geom; layoutBars() end
 		local opacity, fullActive = OPT().cooldownBarOpacity or 1, OPT().cooldownBarFullOpacityWhenActive
 		local sc = OPT().cooldownBarScale or 0.9
@@ -3165,6 +3220,14 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		order = function() return { "none", "inside", "outside", "icon" } end })
 	wrow("Slider", { label = "Time text size", min = 6, max = 20, step = 1, get = function() return OPT().cdbarDurationTextSize or 8 end,
 		set = function(v) SP.opt.cdbarDurationTextSize = v; safecall("ApplyCdbarTextSize"); safecall("UpdateCooldownBarProgressBars"); notify(); layoutMock() end })
+	wrow("Toggle", { label = "Show shield charge count", desc = "The number of charges left in the corner of the shield button. Turn it off to show only the charge bar.",
+		disabled = function() return OPT().cdbarShowShields == false end,
+		get = function() return OPT().cdbarShowShieldCount ~= false end,
+		set = function(v) SP.opt.cdbarShowShieldCount = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify(); layoutMock() end })
+	wrow("Toggle", { label = "Show shield charge bar", desc = "A bar along the bottom of the shield button with one segment per charge, filled to the charges left: the same look as the Shield Charges display's charge bar.",
+		disabled = function() return OPT().cdbarShowShields == false end,
+		get = function() return OPT().cdbarShieldChargeBar and true or false end,
+		set = function(v) SP.opt.cdbarShieldChargeBar = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify(); layoutMock() end })
 	wrow("Slider", { label = "Opacity", min = 0, max = 1, step = 0.05, get = function() return OPT().cooldownBarOpacity or 1 end,
 		set = function(v) OPT().cooldownBarOpacity = v; safecall("UpdateCooldownBarOpacity"); notify() end })
 	wrow("Toggle", { label = "Full opacity while on cooldown", get = function() return OPT().cooldownBarFullOpacityWhenActive and true or false end,

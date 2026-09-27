@@ -188,6 +188,224 @@ end
 
 local ES_SPELL_IDS = { 974, 32593, 32594, 383648 }   -- Earth Shield ranks; retail's AURA is 383648 (cast 974)
 
+-- ============================================================================
+-- Optional looks, all off by default (the plain number): the shield's icon
+-- with the number on it (in the center, or smaller in the bottom-right corner)
+-- and a segmented charge bar under it. The same parts are built twice - on the
+-- display frame, drawn by the addon (out of combat, and always on clients
+-- without secret auras), and on the engine's aura button, drawn by the game
+-- while auras are secret - and placed by one function relative to a box that
+-- covers the display frame exactly, so both pictures line up.
+-- ============================================================================
+local ICON_SIZE      = 48   -- the shield icon (square)
+local NUMBER_SIZE    = 48   -- the plain number (the default look)
+local NUMBER_ON_ICON = 34   -- the number centerd on the icon
+local NUMBER_CORNER  = 20   -- the number in the icon's bottom-right corner
+local NUMBER_BOTTOM  = 17   -- how far the plain number's digits reach below its center
+local BAR_WIDTH, BAR_HEIGHT, BAR_GAP = 48, 7, 3
+local MAX_CHARGES = { player = 3, earth = 6 }
+local NO_SETTINGS = {}
+-- The bar keeps the display's own color at every count: in combat the game
+-- fills it and cannot recolor it by count, so out of combat does the same.
+local SHIELD_COLOR = { player = { 0.2, 0.6, 1.0 }, earth = { 0.2, 0.8, 0.2 } }
+
+-- Which parts a display shows. The number can only be off while the icon or
+-- the bar is on, so a display is never drawn with nothing in it.
+local function displayParts(settings)
+	local icon = settings.showIcon and true or false
+	local bar = settings.showChargeBar and true or false
+	local number = (settings.showNumber ~= false) or not (icon or bar)
+	local corner = (icon and number and settings.numberPosition == "corner") and true or false
+	return icon, number, corner, bar
+end
+
+-- How far a display's parts reach from its center, in the frame's own units:
+-- half its width, above, below. The setup tour lays the preview out by it.
+function SP:ShieldChargeDisplayExtent(frame)
+	local settings = self.opt.shieldChargeDisplay or NO_SETTINGS
+	local s = settings.scale or 1
+	local icon, number, _, bar = displayParts(settings)
+	local halfW, above, below = 0, 0, 0
+	if number and frame and frame.text then
+		halfW = (frame.text:GetStringWidth() or 0) / 2
+		above = (frame.text:GetStringHeight() or 0) / 2
+		below = above
+	end
+	if icon then
+		local h = ICON_SIZE / 2 * s
+		halfW, above, below = math.max(halfW, h), math.max(above, h), math.max(below, h)
+	end
+	if bar then
+		halfW = math.max(halfW, BAR_WIDTH / 2 * s)
+		below = math.max(below, ((icon and ICON_SIZE / 2) or (number and NUMBER_BOTTOM) or 0) * s + (BAR_GAP + BAR_HEIGHT) * s)
+	end
+	return halfW, above, below
+end
+
+local function numberSize(icon, corner)
+	if corner then return NUMBER_CORNER end
+	if icon then return NUMBER_ON_ICON end
+	return NUMBER_SIZE
+end
+
+-- Icon files, [1] Lightning Shield, [2] Water Shield, [3] Earth Shield: looked
+-- up once, the first time an icon is drawn. The fallbacks ship with every client.
+local ICON_FALLBACK = {
+	"Interface\\Icons\\Spell_Nature_LightningShield",
+	"Interface\\Icons\\Ability_Shaman_WaterShield",
+	"Interface\\Icons\\Spell_Nature_SkinofEarth",
+}
+local shieldIcons
+local function firstSpellIcon(ids)
+	for _, id in ipairs(ids or {}) do
+		local ok, tex = pcall(GetSpellTexture, id)
+		if ok and tex then return tex end
+		if GetSpellInfo then
+			local ok2, _, _, tex2 = pcall(GetSpellInfo, id)
+			if ok2 and tex2 then return tex2 end
+		end
+	end
+end
+local function shieldIcon(which)
+	if not shieldIcons then
+		shieldIcons = {}
+		for _, set in ipairs(ShamanPower.ShieldAuraSets or {}) do
+			if set.name == "Lightning Shield" then shieldIcons[1] = firstSpellIcon(set.ids)
+			elseif set.name == "Water Shield" then shieldIcons[2] = firstSpellIcon(set.ids) end
+		end
+		shieldIcons[3] = firstSpellIcon(ES_SPELL_IDS)
+		for i = 1, 3 do shieldIcons[i] = shieldIcons[i] or ICON_FALLBACK[i] end
+	end
+	return shieldIcons[which] or ICON_FALLBACK[1]
+end
+
+-- A segmented charge bar: one StatusBar filled to the count over a dark
+-- backing, with thin dark dividers between the segments drawn over the fill.
+local function createChargeBar(parent, kind)
+	local n, c = MAX_CHARGES[kind], SHIELD_COLOR[kind]
+	local bar = CreateFrame("StatusBar", nil, parent)
+	local back = bar:CreateTexture(nil, "BACKGROUND")
+	back:SetPoint("TOPLEFT", bar, "TOPLEFT", -1, 1)
+	back:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1)
+	back:SetColorTexture(0, 0, 0, 0.6)
+	bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+	bar:SetStatusBarColor(c[1], c[2], c[3])
+	bar:SetMinMaxValues(0, n)
+	bar:SetValue(0)
+	bar.dividers = {}
+	for i = 1, n - 1 do
+		local d = bar:CreateTexture(nil, "OVERLAY")
+		d:SetColorTexture(0, 0, 0, 0.9)
+		bar.dividers[i] = d
+	end
+	return bar
+end
+
+-- Place a display's parts on `box` (the display frame, or the engine's aura
+-- button, which covers it exactly). Every part hangs off the box's center, and
+-- the icon (or the plain number) stays where it is when the bar is added.
+local function placeParts(box, s, icon, number, corner, iconTex, text, chargeBar)
+	if iconTex then
+		iconTex:ClearAllPoints()
+		iconTex:SetSize(ICON_SIZE * s, ICON_SIZE * s)
+		iconTex:SetPoint("CENTER", box, "CENTER", 0, 0)
+	end
+	if text then
+		text:ClearAllPoints()
+		if corner then
+			text:SetPoint("BOTTOMRIGHT", box, "CENTER", (ICON_SIZE / 2 - 1) * s, -(ICON_SIZE / 2 - 1) * s)
+		else
+			text:SetPoint("CENTER", box, "CENTER", 0, 0)
+		end
+	end
+	if chargeBar then
+		local w = BAR_WIDTH * s
+		chargeBar:ClearAllPoints()
+		chargeBar:SetSize(w, BAR_HEIGHT * s)
+		local below = (icon and ICON_SIZE / 2) or (number and NUMBER_BOTTOM) or nil
+		if below then
+			chargeBar:SetPoint("TOP", box, "CENTER", 0, -(below + BAR_GAP) * s)
+		else
+			chargeBar:SetPoint("CENTER", box, "CENTER", 0, 0)
+		end
+		local dividers = chargeBar.dividers
+		local n = #dividers + 1
+		local dw = math.max(1, math.floor(s + 0.5))
+		for i = 1, #dividers do
+			local d = dividers[i]
+			d:ClearAllPoints()
+			d:SetWidth(dw)
+			d:SetPoint("TOP", chargeBar, "TOPLEFT", w * i / n, 0)
+			d:SetPoint("BOTTOM", chargeBar, "BOTTOMLEFT", w * i / n, 0)
+		end
+	end
+end
+
+-- Draw one display with the addon's own parts. Restricted: the engine draws
+-- the live state on top, so the addon's parts show only the empty state
+-- (grayed icon, empty bar, and a red 0 when the icon is there to hide it), and
+-- only while "Hide When No Shields" is off: the engine's icon covers them
+-- while the shield is up. Below 100% opacity the red 0 would show through the
+-- engine's live count, so in combat it is only drawn at full opacity (the
+-- grayed icon and empty bar stay at any opacity).
+-- iconWhich: 1 Lightning Shield, 2 Water Shield, 3 Earth Shield.
+local function paintDisplay(frame, kind, settings, s, charges, present, restricted, iconWhich)
+	local icon, number, corner, bar = displayParts(settings)
+	if frame.layScale ~= s or frame.layIcon ~= icon or frame.layNumber ~= number
+		or frame.layCorner ~= corner or frame.layBar ~= bar then
+		frame.layScale, frame.layIcon, frame.layNumber, frame.layCorner, frame.layBar = s, icon, number, corner, bar
+		if icon and not frame.icon then
+			local t = frame:CreateTexture(nil, "ARTWORK")
+			t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			t:Hide()
+			frame.icon = t
+		end
+		if bar and not frame.chargeBar then
+			frame.chargeBar = createChargeBar(frame, kind)
+			frame.chargeBar:Hide()
+		end
+		placeParts(frame, s, icon, number, corner, icon and frame.icon, frame.text, bar and frame.chargeBar)
+	end
+
+	local own = not restricted or not settings.hideNoShields
+	local text = frame.text
+	local r, g, b = SP:GetShieldChargeColor(charges, MAX_CHARGES[kind], kind == "earth")
+	-- restricted: our 0 sits under the engine's icon, which hides it while the
+	-- shield is up at full opacity; without an icon nothing would hide it, and
+	-- below 100% it would show through, so no 0 there
+	local solid = (settings.opacity or 1) >= 1
+	local shown = not number and "" or (not restricted and charges) or ((own and icon and solid) and "0" or "")
+	text:SetText(shown)
+	text:SetTextColor(r, g, b)
+	SP:SetSPFont(text, "charges", numberSize(icon, corner) * s, "OUTLINE")
+
+	local lit = present and not restricted
+	local tex = frame.icon
+	if tex then
+		if icon and own then
+			local file = shieldIcon(iconWhich)
+			if frame.iconFile ~= file then
+				tex:SetTexture(file)
+				frame.iconFile = file
+			end
+			tex:SetDesaturated(not lit)
+			tex:SetAlpha(lit and 1 or 0.45)
+			tex:Show()
+		else
+			tex:Hide()
+		end
+	end
+	local cb = frame.chargeBar
+	if cb then
+		if bar and own then
+			cb:SetValue(lit and charges or 0)
+			cb:Show()
+		else
+			cb:Hide()
+		end
+	end
+end
+
 -- The engine draws the count and never shows us the number, but it applies a
 -- NumericRuleFormatter we hand it first (CustomAuraButtonApplicationCountOptions
 -- .formatter, per the client's own API docs). One breakpoint per count decides
@@ -208,15 +426,22 @@ local function chargeFormatter(maxCharges, isES)
 	return fmt
 end
 
-local function buildChargeContainer(frame, scale, sets, r, g, b)
+-- The engine's button gets the same parts as the display frame (icon, number,
+-- bar), laid out by the same placeParts, all before any of them is handed to
+-- the game: the game fills in the icon, the count and the bar's value itself.
+local function buildChargeContainer(frame, kind, scale, sets, icon, number, corner, bar)
 	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, frame, "CustomAuraContainerTemplate")
 	if not ok or not container then return nil end
 	container:SetAllPoints(frame)
 	container:SetFrameLevel(frame:GetFrameLevel() + 2)
+	local isES = (kind == "earth")
+	local maxCharges, c = MAX_CHARGES[kind], SHIELD_COLOR[kind]
+	local interpolation = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
 	for _, set in ipairs(sets) do
 		local idMap = {}
 		for _, id in ipairs(set.ids) do idMap[id] = true end
+		local which = isES and 3 or (set.name == "Water Shield" and 2 or 1)
 		pcall(function()
 			container:AddAuraSlot("charges_" .. set.name:gsub("%s", ""), "HELPFUL|PLAYER", {
 				candidateFilters = { includeSpellIDs = idMap },
@@ -225,15 +450,31 @@ local function buildChargeContainer(frame, scale, sets, r, g, b)
 					button:SetAllPoints(frame)
 					if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
 					if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-					local carrier = CreateFrame("Frame", nil, button)
-					carrier:SetAllPoints(button)
-					local count = carrier:CreateFontString(nil, "OVERLAY")
-					SP:SetSPFont(count, "charges", 48 * scale, "OUTLINE")
-					count:SetPoint("CENTER", button, "CENTER", 0, 0)
-					count:SetTextColor(r or 1, g or 1, b or 1)   -- fallback if the formatter is unavailable
-					local isES = (set.name == "Earth Shield")
-					pcall(button.SetApplicationCount, button, count,
-						{ formatter = chargeFormatter(isES and 6 or 3, isES) })
+					local iconTex, count, chargeBar
+					if icon then
+						-- this shield's own file, so the icon never depends on the game painting it
+						iconTex = button:CreateTexture(nil, "ARTWORK")
+						iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+						iconTex:SetTexture(shieldIcon(which))
+					end
+					if bar then chargeBar = createChargeBar(button, kind) end
+					if number then
+						local carrier = CreateFrame("Frame", nil, button)
+						carrier:SetAllPoints(button)
+						count = carrier:CreateFontString(nil, "OVERLAY")
+						SP:SetSPFont(count, "charges", numberSize(icon, corner) * scale, "OUTLINE")
+						count:SetTextColor(c[1], c[2], c[3])   -- fallback if the formatter is unavailable
+					end
+					placeParts(button, scale, icon, number, corner, iconTex, count, chargeBar)
+					if iconTex then pcall(button.SetIcon, button, iconTex) end
+					if chargeBar then
+						pcall(button.SetApplicationBar, button, chargeBar,
+							{ maxApplications = maxCharges, minApplications = 0, interpolation = interpolation })
+					end
+					if count then
+						pcall(button.SetApplicationCount, button, count,
+							{ formatter = chargeFormatter(maxCharges, isES) })
+					end
 				end,
 			})
 		end)
@@ -255,21 +496,24 @@ function SP:EarthShieldTargetToken()
 	return nil
 end
 
--- Make sure each frame has an engine container for the current scale and unit
+-- Make sure each frame has an engine container for the current look and unit.
+-- The engine button's parts are laid out once, when the game builds it: a new
+-- scale or a different set of parts (icon, number, corner, bar) needs a new one.
 function SP:EnsureShieldChargeEngine(frame, kind, scale)
 	if not (SPCompat and SPCompat.secretsRegime) then return end
-	if frame.engine and frame.engineScale ~= scale then
+	local icon, number, corner, bar = displayParts(self.opt.shieldChargeDisplay or NO_SETTINGS)
+	if frame.engine and (frame.engineScale ~= scale or frame.engineIcon ~= icon or frame.engineNumber ~= number
+		or frame.engineCorner ~= corner or frame.engineBar ~= bar) then
 		frame.engine:Hide()
+		pcall(frame.engine.SetUnit, frame.engine, "none")   -- the old one stops following auras
 		frame.engine = nil
 	end
 	if not frame.engine then
+		-- player: blue, like the module at full charges; Earth Shield: green
 		local sets = (kind == "player") and (ShamanPower.ShieldAuraSets or {}) or { { name = "Earth Shield", ids = ES_SPELL_IDS } }
-		if kind == "player" then
-			frame.engine = buildChargeContainer(frame, scale, sets, 0.2, 0.6, 1.0)   -- blue, like the module at full charges
-		else
-			frame.engine = buildChargeContainer(frame, scale, sets, 0.2, 0.8, 0.2)   -- green
-		end
+		frame.engine = buildChargeContainer(frame, kind, scale, sets, icon, number, corner, bar)
 		frame.engineScale = scale
+		frame.engineIcon, frame.engineNumber, frame.engineCorner, frame.engineBar = icon, number, corner, bar
 		frame.engineUnit = nil
 	end
 	local c = frame.engine
@@ -319,8 +563,8 @@ function SP:UpdateShieldChargeDisplays()
 	-- Update player shield (Lightning/Water Shield)
 	if settings.showPlayerShield ~= false then
 		local charges = 0
-		local maxCharges = 3  -- Default for Lightning/Water Shield
 		local hasShield = false
+		local water = false   -- Water Shield (not Lightning Shield): which icon to draw
 
 		local restricted = self:ShieldChargesRestricted()
 		if restricted then
@@ -332,7 +576,7 @@ function SP:UpdateShieldChargeDisplays()
 			local sc = self._shieldChargeScan
 			if not sc then sc = {}; self._shieldChargeScan = sc end
 			if self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
-				charges, hasShield = sc.charges, sc.hasShield
+				charges, hasShield, water = sc.charges, sc.hasShield, sc.water
 			else
 			for i = 1, 40 do
 				local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
@@ -346,11 +590,15 @@ function SP:UpdateShieldChargeDisplays()
 						charges = c or 3  -- Default to 3 if we can't get count
 					end
 					hasShield = true
+					water = name:find("Water Shield") and true or false
 					break
 				end
 			end
 			sc.gen, sc.at, sc.charges, sc.hasShield = ShamanPower.auraGen and ShamanPower.auraGen["player"] or 0, GetTime(), charges, hasShield
+			sc.water = water
 			end
+			-- the icon shown with no shield up (and under the engine's in combat) is the last one seen
+			if hasShield then self._shieldLastWater = water end
 		end
 		if playerFrame.engine then playerFrame.engine:SetShown(restricted) end
 
@@ -361,10 +609,12 @@ function SP:UpdateShieldChargeDisplays()
 		end
 
 		if shouldShow then
-			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, false)
-			playerFrame.text:SetText(restricted and "" or charges)
-			playerFrame.text:SetTextColor(r, g, b)
-			SP:SetSPFont(playerFrame.text, "charges", 48 * scale, "OUTLINE")
+			if not (hasShield and not restricted) then
+				-- no shield to read: the last one seen, else the preferred shield
+				water = self._shieldLastWater
+				if water == nil then water = (self.opt.preferredShield == 2) end
+			end
+			paintDisplay(playerFrame, "player", settings, scale, charges, hasShield, restricted, water and 2 or 1)
 			playerFrame:SetAlpha(opacity)
 			playerFrame:EnableMouse(not locked)
 			playerFrame:Show()
@@ -378,7 +628,6 @@ function SP:UpdateShieldChargeDisplays()
 	-- Update Earth Shield
 	if earthShieldWanted(settings) then
 		local charges = 0
-		local maxCharges = 6  -- Earth Shield has 6 charges
 		local hasShield = false
 
 		local restricted = self:ShieldChargesRestricted()
@@ -403,10 +652,7 @@ function SP:UpdateShieldChargeDisplays()
 		end
 
 		if shouldShow then
-			local r, g, b = self:GetShieldChargeColor(charges, maxCharges, true)
-			earthFrame.text:SetText(restricted and "" or charges)
-			earthFrame.text:SetTextColor(r, g, b)
-			SP:SetSPFont(earthFrame.text, "charges", 48 * scale, "OUTLINE")
+			paintDisplay(earthFrame, "earth", settings, scale, charges, hasShield, restricted, 3)
 			earthFrame:SetAlpha(opacity)
 			earthFrame:EnableMouse(not locked)
 			earthFrame:Show()
@@ -423,7 +669,7 @@ end
 -- ============================================================================
 -- Setup-wizard preview: show BOTH numbers with simulated charges being used
 -- up (blue/green -> yellow -> red) and the shields re-applied, rendered with
--- the same font/scale/opacity rules as the live display.
+-- the same font/scale/opacity rules and parts (icon, bar) as the live display.
 function SP:ShieldChargesDemoRefresh()
 	local playerFrame = self.shieldChargeFrames.player
 	local earthFrame = self.shieldChargeFrames.earth
@@ -433,10 +679,8 @@ function SP:ShieldChargesDemoRefresh()
 	local d = self.shieldChargesDemoState or { player = 3, earth = 6 }
 
 	if settings.showPlayerShield ~= false then
-		local r, g, b = self:GetShieldChargeColor(d.player, 3, false)
-		playerFrame.text:SetText(d.player)
-		playerFrame.text:SetTextColor(r, g, b)
-		SP:SetSPFont(playerFrame.text, "charges", 48 * scale, "OUTLINE")
+		-- Lightning Shield, like the character on stage; at 0 it shows the no-shield look
+		paintDisplay(playerFrame, "player", settings, scale, d.player, d.player > 0, false, 1)
 		playerFrame:SetAlpha(opacity)
 		playerFrame:EnableMouse(false)
 		playerFrame:Show()
@@ -444,10 +688,7 @@ function SP:ShieldChargesDemoRefresh()
 		playerFrame:Hide()
 	end
 	if earthShieldWanted(settings) then
-		local r, g, b = self:GetShieldChargeColor(d.earth, 6, true)
-		earthFrame.text:SetText(d.earth)
-		earthFrame.text:SetTextColor(r, g, b)
-		SP:SetSPFont(earthFrame.text, "charges", 48 * scale, "OUTLINE")
+		paintDisplay(earthFrame, "earth", settings, scale, d.earth, d.earth > 0, false, 3)
 		earthFrame:SetAlpha(opacity)
 		earthFrame:EnableMouse(false)
 		earthFrame:Show()
