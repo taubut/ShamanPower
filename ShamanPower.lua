@@ -9526,8 +9526,20 @@ ShamanPower.ShieldSpells = {
 	{WATER_SHIELD_ID, "Water Shield"},  -- Water Shield
 }
 
+-- What the cooldown bar's flyouts are built from: the highest rank of each weapon
+-- imbue and which shields are known. Learning one later (Flametongue Weapon at
+-- 10, Water Shield) changes it, and SPELLS_CHANGED rebuilds the bar so the flyout
+-- offers it straight away instead of after a /reload.
+function ShamanPower:CooldownBarSpellKey()
+	local parts = {}
+	for i = 1, 4 do parts[#parts + 1] = self:GetHighestRankImbue(i) or "-" end
+	for _, s in ipairs(self.ShieldSpells or {}) do parts[#parts + 1] = PlayerKnowsSpellByName(s[2]) and "1" or "0" end
+	return table.concat(parts, "|")
+end
+
 function ShamanPower:CreateCooldownBar()
 	if self.cooldownBar then return end
+	self._cdBarSpellKey = self:CooldownBarSpellKey()
 	if not self.autoButton then return end
 
 	-- Create the cooldown bar frame
@@ -16023,6 +16035,12 @@ function ShamanPower:SPELLS_CHANGED()
 	if not InCombatLockdown() then
 		ShamanPower:RecreateTotemFlyouts()
 		ShamanPower:EnsureElementAssignments()   -- an element's first totem gets assigned by itself
+	end
+	-- a newly learned imbue or shield: rebuild the cooldown bar so its flyouts offer it
+	-- (RecreateCooldownBar waits for the end of a fight by itself)
+	if ShamanPower.cooldownBar and ShamanPower._cdBarSpellKey
+		and ShamanPower:CooldownBarSpellKey() ~= ShamanPower._cdBarSpellKey then
+		ShamanPower:RecreateCooldownBar()
 	end
 	ShamanPower:UpdateLayout()
 end

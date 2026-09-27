@@ -18,6 +18,7 @@
 - **Anniversary:** a totem picked mid-fight for an element with nothing assigned now casts from its button.
 - **TotemTimers Style with Empty assigned:** a running totem shows as the big icon instead of being covered by the empty-slot art.
 - **Bar frames** grow to wrap the flyout arrows in combat, so nothing sticks out past the frame.
+- **Cooldown bar flyouts** offer a weapon imbue or shield as soon as you learn it at the trainer, instead of after a /reload (the bar rebuilds itself, after the fight if you are in one).
 
 ## v3.0.2 (2026-09-26)
 
