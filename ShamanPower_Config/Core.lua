@@ -22,6 +22,7 @@ local C = {
 	rowHover   = { 0.145, 0.165, 0.200 },
 	border     = { 0.180, 0.204, 0.243 },
 	borderSoft = { 0.130, 0.148, 0.180 },
+	white       = { 1, 1, 1 },   -- button captions, the close X on hover
 
 	accent     = { 0.000, 0.439, 0.867 },
 	accentHi   = { 0.247, 0.663, 1.000 },
@@ -417,22 +418,109 @@ end
 -- Buttons and dialog chrome
 -- Shared by every window in the module so they all look like one product.
 -- ---------------------------------------------------------------------------
+-- The button look (every button in the settings, the tour and the dialogs):
+-- a flat blue base (b.bg - stronger for the primary / main action; callers
+-- may recolour it) with depth drawn over it: a soft vertical shade, a lit top
+-- edge and a shadowed bottom edge. The border lights up on hover and a press
+-- pushes it in (the top edge goes dark and the caption drops a pixel). Hover
+-- and leave are SetScript, so a caller's own OnEnter/OnLeave replaces them;
+-- the press uses OnMouseDown/Up and is kept. caption: the button's text, if
+-- any (it takes the text colour for the style).
+function Core:BevelButton(b, primary, caption)
+	local bg = b.bg or b:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(b)
+	local shade = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+	shade:SetAllPoints(b)
+	shade:SetColorTexture(1, 1, 1, 1)
+	self:Gradient(shade, "VERTICAL", 0, 0, 0, 0.24, 1, 1, 1, 0.06)   -- bottom darker, top lighter
+	local hi = b:CreateTexture(nil, "ARTWORK")
+	hi:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+	hi:SetPoint("TOPRIGHT", b, "TOPRIGHT", -1, -1)
+	hi:SetHeight(1)
+	hi:SetColorTexture(Core:Color("accentHi", primary and 0.45 or 0.35))
+	local lo = b:CreateTexture(nil, "ARTWORK")
+	lo:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 1, 1)
+	lo:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+	lo:SetHeight(1)
+	lo:SetColorTexture(0, 0, 0, 0.35)
+	local down = b:CreateTexture(nil, "ARTWORK", nil, 1)
+	down:SetAllPoints(b)
+	down:SetColorTexture(0, 0, 0, 0.22)
+	down:Hide()
+	if not b.spBorder then self:MakeBorder(b, "accent") end
+	if caption then caption:SetTextColor(self:Color("white")) end
+	-- blue for every button; the primary (main action) a stronger blue
+	local function paint(hover)
+		if primary then
+			bg:SetColorTexture(Core:Color("accent", hover and 0.62 or 0.46))
+		else
+			bg:SetColorTexture(Core:Color("accent", hover and 0.46 or 0.28))
+		end
+		Core:SetBorderColor(b, hover and "accentHi" or "accent")
+	end
+	paint(false)
+	local function release()
+		down:Hide(); hi:Show()
+		if caption then caption:SetPoint("CENTER", 0, 0) end
+	end
+	b:SetScript("OnEnter", function() paint(true) end)
+	b:SetScript("OnLeave", function() paint(false) end)
+	b:SetScript("OnMouseDown", function(self)
+		if self.IsEnabled and not self:IsEnabled() then return end
+		down:Show(); hi:Hide()
+		if caption then caption:SetPoint("CENTER", 0, -1) end
+	end)
+	b:SetScript("OnMouseUp", release)
+	b:HookScript("OnHide", release)
+	b.bg, b.spPaint = bg, paint
+	return b
+end
+
 function Core:MakeButton(parent, text, width, primary)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetHeight(26)
-	local bg = b:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(b)
-	bg:SetColorTexture(self:Color("accent", primary and 0.30 or 0.12))
-	self:MakeBorder(b, primary and "accent" or "border")
 	local t = b:CreateFontString(nil, "OVERLAY")
 	t:SetFontObject(self.fonts.button)
 	t:SetPoint("CENTER")
 	t:SetText(text)
-	t:SetTextColor(self:Color(primary and "accentHi" or "text"))
 	b:SetWidth(math.max(width or 0, t:GetStringWidth() + 28))
-	b:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", primary and 0.48 or 0.26)) end)
-	b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
-	b.text, b.bg = t, bg
+	self:BevelButton(b, primary, t)
+	b.text = t
+	return b
+end
+
+-- The close X of every window: a drawn X (two 2px lines, text colour), no box; on hover it
+-- becomes a solid red square with a white X, darker while pressed.
+function Core:CloseButton(parent, size)
+	size = size or 22
+	local b = CreateFrame("Button", nil, parent)
+	b:SetSize(size, size)
+	local bg = b:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(b)
+	bg:SetColorTexture(self:Color("warn"))
+	bg:SetAlpha(0)
+	local r = math.floor(size * 0.24 + 0.5)
+	local lines = {}
+	for i, sign in ipairs({ 1, -1 }) do
+		local l = b:CreateLine(nil, "OVERLAY")
+		l:SetThickness(2)
+		l:SetColorTexture(1, 1, 1, 1)
+		l:SetStartPoint("CENTER", b, -r, sign * r)
+		l:SetEndPoint("CENTER", b, r, -sign * r)
+		lines[i] = l
+	end
+	local function paint(state)
+		bg:SetAlpha(state == "down" and 1 or (state == "hover" and 0.92 or 0))
+		if state == "down" then bg:SetColorTexture(0.62, 0.18, 0.18) else bg:SetColorTexture(Core:Color("warn")) end
+		local cr, cg, cb = Core:Color(state == "normal" and "text" or "white")
+		for _, l in ipairs(lines) do l:SetVertexColor(cr, cg, cb) end
+	end
+	paint("normal")
+	b:SetScript("OnEnter", function() paint("hover") end)
+	b:SetScript("OnLeave", function() paint("normal") end)
+	b:SetScript("OnMouseDown", function() paint("down") end)
+	b:SetScript("OnMouseUp", function(self) paint(self:IsMouseOver() and "hover" or "normal") end)
+	b:HookScript("OnHide", function() paint("normal") end)
 	return b
 end
 
@@ -481,17 +569,11 @@ function Core:RequestReload(reason)
 			s:RegisterForClicks("AnyUp", "AnyDown")   -- ActionButtonUseKeyDown gates one edge
 			s:SetAttribute("type", "macro")
 			s:SetAttribute("macrotext", "/reload")
-			local bg = s:CreateTexture(nil, "BACKGROUND")
-			bg:SetAllPoints(s)
-			bg:SetColorTexture(self:Color("accent", 0.30))
-			self:MakeBorder(s, "accent")
 			local st = s:CreateFontString(nil, "OVERLAY")
 			st:SetFontObject(self.fonts.button)
 			st:SetPoint("CENTER")
 			st:SetText("Reload now")
-			st:SetTextColor(self:Color("accentHi"))
-			s:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", 0.48)) end)
-			s:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", 0.30)) end)
+			self:BevelButton(s, true, st)
 			f.secureBtn = s
 		end
 
@@ -555,17 +637,8 @@ function Core:CreateDialog(opts)
 	glow:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -(HEADER_H + 2))
 	glow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -(HEADER_H + 2))
 
-	local close = CreateFrame("Button", nil, f)
-	close:SetSize(22, 22)
+	local close = self:CloseButton(f, 22)
 	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -12)
-	self:MakeBorder(close, "border")
-	local x = close:CreateFontString(nil, "OVERLAY")
-	x:SetFontObject(self.fonts.row)
-	x:SetPoint("CENTER")
-	x:SetText("X")
-	x:SetTextColor(self:Color("textDim"))
-	close:SetScript("OnEnter", function() Core:SetBorderColor(close, "warn"); x:SetTextColor(Core:Color("warn")) end)
-	close:SetScript("OnLeave", function() Core:SetBorderColor(close, "border"); x:SetTextColor(Core:Color("textDim")) end)
 	close:SetScript("OnClick", function() f:Hide() end)
 	f.close = close
 

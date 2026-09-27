@@ -139,22 +139,7 @@ local function MakeCheck(parent, labelText)
 end
 
 local function FooterButton(parent, text, width, primary)
-	local b = CreateFrame("Button", nil, parent)
-	b:SetHeight(26)
-	local bg = b:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(b)
-	bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12))
-	Core:MakeBorder(b, primary and "accent" or "border")
-	local t = b:CreateFontString(nil, "OVERLAY")
-	t:SetFontObject(Core.fonts.button)
-	t:SetPoint("CENTER")
-	t:SetText(text)
-	t:SetTextColor(Core:Color(primary and "accentHi" or "text"))
-	b:SetWidth(math.max(width, t:GetStringWidth() + 28))
-	b:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", primary and 0.48 or 0.26)) end)
-	b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
-	b.text = t
-	return b
+	return Core:MakeButton(parent, text, width, primary)   -- the shared button look
 end
 
 -- ---------------------------------------------------------------------------
@@ -715,21 +700,8 @@ local function BuildFrame()
 	glow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -(HEADER_H + 1))
 
 	-- Close
-	local close = CreateFrame("Button", nil, frame)
-	close:SetSize(22, 22)
+	local close = Core:CloseButton(frame, 22)
 	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
-	Core:MakeBorder(close, "border")
-	local closeTxt = close:CreateFontString(nil, "OVERLAY")
-	closeTxt:SetFontObject(Core.fonts.row)
-	closeTxt:SetPoint("CENTER")
-	closeTxt:SetText("X")
-	closeTxt:SetTextColor(Core:Color("textDim"))
-	close:SetScript("OnEnter", function()
-		Core:SetBorderColor(close, "warn"); closeTxt:SetTextColor(Core:Color("warn"))
-	end)
-	close:SetScript("OnLeave", function()
-		Core:SetBorderColor(close, "border"); closeTxt:SetTextColor(Core:Color("textDim"))
-	end)
 	close:SetScript("OnClick", function() Assign:Hide() end)
 
 	-- Free Assignment

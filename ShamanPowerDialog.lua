@@ -57,6 +57,7 @@ local C = {
 	rowHover   = { 0.145, 0.165, 0.200 },
 	border     = { 0.180, 0.204, 0.243 },
 	borderSoft = { 0.130, 0.148, 0.180 },
+	white       = { 1, 1, 1 },
 	accent     = { 0.000, 0.439, 0.867 },
 	accentHi   = { 0.247, 0.663, 1.000 },
 	text       = { 0.902, 0.918, 0.941 },
@@ -129,17 +130,30 @@ local function accentRule(tex)
 end
 
 -- ---------------------------------------------------------------------------
--- Buttons (Core:MakeButton's look)
+-- Buttons (Core:BevelButton's look: a flat blue base - stronger for the
+-- primary - with a soft vertical shade, a lit top edge and a shadowed bottom
+-- edge over it; the border lights up on hover and a press pushes it in)
 -- ---------------------------------------------------------------------------
+local function shadeV(tex)   -- bottom darker, top lighter
+	tex:SetColorTexture(1, 1, 1, 1)
+	if CreateColor and pcall(tex.SetGradient, tex, "VERTICAL", CreateColor(0, 0, 0, 0.24), CreateColor(1, 1, 1, 0.06)) then return end
+	if tex.SetGradientAlpha then tex:SetGradientAlpha("VERTICAL", 0, 0, 0, 0.24, 1, 1, 1, 0.06) return end
+	tex:SetColorTexture(0, 0, 0, 0.1)
+end
+
 local function paintButton(b, hover)
-	local p = b.spPrimary
-	b.bg:SetColorTexture(color("accent", hover and (p and 0.48 or 0.26) or (p and 0.30 or 0.12)))
+	if b.spPrimary then
+		b.bg:SetColorTexture(color("accent", hover and 0.62 or 0.46))
+	else
+		b.bg:SetColorTexture(color("accent", hover and 0.46 or 0.28))
+	end
+	borderColor(b, hover and "accentHi" or "accent")
 end
 
 local function buttonSetPrimary(b, primary)
 	b.spPrimary = primary and true or false
-	borderColor(b, primary and "accent" or "border")
-	b.text:SetTextColor(color(primary and "accentHi" or "text"))
+	b.hi:SetColorTexture(color("accentHi", primary and 0.45 or 0.35))
+	b.text:SetTextColor(color("white"))
 	paintButton(b, false)
 end
 
@@ -148,12 +162,33 @@ local function buttonSetLabel(b, text)
 	b:SetWidth(math.max(b.spMinWidth, math.ceil(b.text:GetStringWidth()) + 28))
 end
 
+local function buttonRelease(b)
+	b.down:Hide(); b.hi:Show()
+	b.text:SetPoint("CENTER", 0, 0)
+end
+
 function SP:CreateSPButton(parent, text, minWidth, primary)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetHeight(26)
 	b.bg = b:CreateTexture(nil, "BACKGROUND")
 	b.bg:SetAllPoints(b)
-	makeBorder(b, "border")
+	local shade = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+	shade:SetAllPoints(b)
+	shadeV(shade)
+	b.hi = b:CreateTexture(nil, "ARTWORK")
+	b.hi:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+	b.hi:SetPoint("TOPRIGHT", b, "TOPRIGHT", -1, -1)
+	b.hi:SetHeight(1)
+	local lo = b:CreateTexture(nil, "ARTWORK")
+	lo:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 1, 1)
+	lo:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+	lo:SetHeight(1)
+	lo:SetColorTexture(0, 0, 0, 0.35)
+	b.down = b:CreateTexture(nil, "ARTWORK", nil, 1)
+	b.down:SetAllPoints(b)
+	b.down:SetColorTexture(0, 0, 0, 0.22)
+	b.down:Hide()
+	makeBorder(b, "accent")
 	b.text = b:CreateFontString(nil, "OVERLAY")
 	b.text:SetFontObject(FONTS.button)
 	b.text:SetPoint("CENTER")
@@ -161,22 +196,49 @@ function SP:CreateSPButton(parent, text, minWidth, primary)
 	b.SetPrimary, b.SetLabel = buttonSetPrimary, buttonSetLabel
 	b:SetScript("OnEnter", function(self) paintButton(self, true) end)
 	b:SetScript("OnLeave", function(self) paintButton(self, false) end)
+	b:SetScript("OnMouseDown", function(self)
+		if not self:IsEnabled() then return end
+		self.down:Show(); self.hi:Hide()
+		self.text:SetPoint("CENTER", 0, -1)
+	end)
+	b:SetScript("OnMouseUp", buttonRelease)
+	b:HookScript("OnHide", buttonRelease)
 	b:SetPrimary(primary)
 	b:SetLabel(text)
 	return b
 end
 
+-- The close X: a drawn X, no box; on hover a solid red square with a white X.
 function SP:CreateSPCloseButton(parent, size)
+	size = size or 22
 	local b = CreateFrame("Button", nil, parent)
-	b:SetSize(size or 22, size or 22)
-	makeBorder(b, "border")
-	local x = b:CreateFontString(nil, "OVERLAY")
-	x:SetFontObject(FONTS.text)
-	x:SetPoint("CENTER")
-	x:SetText("X")
-	x:SetTextColor(color("textDim"))
-	b:SetScript("OnEnter", function(self) borderColor(self, "warn"); x:SetTextColor(color("warn")) end)
-	b:SetScript("OnLeave", function(self) borderColor(self, "border"); x:SetTextColor(color("textDim")) end)
+	b:SetSize(size, size)
+	local bg = b:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(b)
+	bg:SetColorTexture(color("warn"))
+	bg:SetAlpha(0)
+	local r = math.floor(size * 0.24 + 0.5)
+	local lines = {}
+	for i, sign in ipairs({ 1, -1 }) do
+		local l = b:CreateLine(nil, "OVERLAY")
+		l:SetThickness(2)
+		l:SetColorTexture(1, 1, 1, 1)
+		l:SetStartPoint("CENTER", b, -r, sign * r)
+		l:SetEndPoint("CENTER", b, r, -sign * r)
+		lines[i] = l
+	end
+	local function paint(state)
+		bg:SetAlpha(state == "down" and 1 or (state == "hover" and 0.92 or 0))
+		if state == "down" then bg:SetColorTexture(0.62, 0.18, 0.18) else bg:SetColorTexture(color("warn")) end
+		local cr, cg, cb = color(state == "normal" and "text" or "white")
+		for _, l in ipairs(lines) do l:SetVertexColor(cr, cg, cb) end
+	end
+	paint("normal")
+	b:SetScript("OnEnter", function() paint("hover") end)
+	b:SetScript("OnLeave", function() paint("normal") end)
+	b:SetScript("OnMouseDown", function() paint("down") end)
+	b:SetScript("OnMouseUp", function(self) paint(self:IsMouseOver() and "hover" or "normal") end)
+	b:HookScript("OnHide", function() paint("normal") end)
 	return b
 end
 

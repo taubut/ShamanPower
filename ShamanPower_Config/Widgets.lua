@@ -1029,10 +1029,6 @@ local function CreateButton(parent)
 	local btn = CreateFrame("Button", nil, row)
 	btn:SetPoint("TOPLEFT", row, "TOPLEFT", PAD, -3)
 	btn:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -PAD, 3)
-	local bg = btn:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(btn)
-	bg:SetColorTexture(Core:Color("accent", 0.18))
-	Core:MakeBorder(btn, "accent")
 
 	local txt = btn:CreateFontString(nil, "OVERLAY")
 	txt:SetFontObject(Core.fonts.button)
@@ -1040,13 +1036,11 @@ local function CreateButton(parent)
 	txt:SetJustifyH("CENTER")
 	txt:SetWordWrap(true)
 	txt:SetNonSpaceWrap(true)
-	txt:SetTextColor(Core:Color("accentHi"))
+	Core:BevelButton(btn, false, txt)   -- the shared button look: blue bevel
 
-	row.btn, row.btnBg, row.txt = btn, bg, txt
+	row.btn, row.btnBg, row.txt = btn, btn.bg, txt
 	row.spRefit = function() FitButtonCaption(row) end
 
-	btn:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", 0.38)) end)
-	btn:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", 0.18)) end)
 	btn:SetScript("OnClick", function()
 		local opts = row.opts
 		if not opts or row._disabled then return end
@@ -1056,7 +1050,7 @@ local function CreateButton(parent)
 
 	row.spSetControlEnabled = function(_, enabled)
 		if enabled then btn:Enable() else btn:Disable() end
-		txt:SetTextColor(Core:ColorIf(enabled, "accentHi", "textMute"))
+		txt:SetTextColor(Core:ColorIf(enabled, "white", "textMute"))
 	end
 
 	row.refresh = function()
@@ -1073,7 +1067,7 @@ function Widgets:Button(parent, opts)
 
 	local txt = row.txt
 	local caption = opts.buttonText or opts.label or ""
-	row.btnBg:SetColorTexture(Core:Color("accent", 0.18))
+	row.btn.spPaint(false)   -- a pooled row may come back from another page mid-hover
 	txt.spTruncated = false
 	txt:SetText(caption)
 	FitButtonCaption(row)

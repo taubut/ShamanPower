@@ -838,23 +838,8 @@ local function BuildWindow()
 	glow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(HEADER_H - 12))
 
 	-- Close
-	local close = CreateFrame("Button", nil, frame)
-	close:SetSize(26, 26)
+	local close = Core:CloseButton(frame, 26)
 	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
-	Core:MakeBorder(close, "border")
-	local closeTxt = close:CreateFontString(nil, "OVERLAY")
-	closeTxt:SetFontObject(Core.fonts.row)
-	closeTxt:SetPoint("CENTER")
-	closeTxt:SetText("X")
-	closeTxt:SetTextColor(Core:Color("textDim"))
-	close:SetScript("OnEnter", function()
-		Core:SetBorderColor(close, "warn")
-		closeTxt:SetTextColor(Core:Color("warn"))
-	end)
-	close:SetScript("OnLeave", function()
-		Core:SetBorderColor(close, "border")
-		closeTxt:SetTextColor(Core:Color("textDim"))
-	end)
 	close:SetScript("OnClick", function() frame:Hide() end)
 
 	-- Tab strip
@@ -932,22 +917,9 @@ local function BuildWindow()
 	-- Chaining one button off another's corner made it inherit the y offset
 	-- twice and sit high.
 	local function FooterButton(text, width, side, xOff, primary)
-		local b = CreateFrame("Button", nil, content)
-		b:SetSize(width, 26)
+		local b = Core:MakeButton(content, text, width, primary)
 		local point = (side == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
 		b:SetPoint(point, content, point, xOff, 14)
-		local bg = b:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints(b)
-		bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12))
-		Core:MakeBorder(b, primary and "accent" or "border")
-		local t = b:CreateFontString(nil, "OVERLAY")
-		t:SetFontObject(Core.fonts.button)
-		t:SetPoint("CENTER")
-		t:SetText(text)
-		t:SetTextColor(Core:Color(primary and "accentHi" or "text"))
-		b:SetWidth(math.max(width, t:GetStringWidth() + 28))
-		b:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", primary and 0.48 or 0.26)) end)
-		b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
 		return b, b:GetWidth()
 	end
 
