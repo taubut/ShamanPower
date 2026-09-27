@@ -39,6 +39,11 @@ local PRESET_SVARS = {
 	"ShamanPowerExpiringAlertsDB",    -- expiring-alerts settings + position
 	"ShamanPower_ReadyReminders",     -- which reminders, look + positions
 }
+-- The tables an import may write (a string names them itself, so it is checked
+-- against this list: a tampered string must not replace any other global).
+local IMPORTABLE = {}
+for _, name in ipairs(EXTRA_SVARS) do IMPORTABLE[name] = true end
+
 local PRESET_SVAR_STRIP = {
 	-- keep only these keys from a table (drop everything else)
 	ShamanPower_RaidCooldowns = { callerButtonPos = true },
@@ -174,7 +179,7 @@ function SP:ImportShare(str, mode, profileName)
 			-- replaces them, only a restore of your own backup does
 			if payload.preset and name == "ShamanPower_TotemLoadouts" then
 				-- skipped
-			elseif _G[name] ~= nil or name:match("^ShamanPower") then
+			elseif IMPORTABLE[name] then   -- only ShamanPower's own tables: never any other global
 				if merge[name] then
 					if type(_G[name]) ~= "table" then _G[name] = {} end
 					for k, v in pairs(tbl) do _G[name][k] = CleanCopy(v) end

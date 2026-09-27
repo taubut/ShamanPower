@@ -21,7 +21,7 @@ ns.StyleCaptions = {
 	grid = "Every totem of every element stays visible in rows. Click one to drop it; the assigned one is highlighted"
 		.. " and the dropped one carries the timer. Split by Element (Totem Bar > Style)"
 		.. " gives each row its own frame.",
-	blizzard = "ShamanPower's bar hides and you play on Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout.",
+	blizzard = "ShamanPower's bar hides and you play on Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout, which opens only from the arrow above each slot. Every other style opens its flyouts when you hover the totem.",
 }
 
 local function Box(parent, x, y, w, h, r, g, b, a, layer, sub)

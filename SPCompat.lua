@@ -507,7 +507,11 @@ local snippetsWork, snippetProbeErr
 -- So the Lua is the same and the engine is not providing that function to this
 -- client. An addon cannot repair an upvalue captured inside Blizzard's chunk,
 -- which is why the fallback exists at all.
--- /spflyout secure forces it back on for re-testing after a client patch.
+-- 2026-09-26, build 1.60.1.70009: fixed on Forever. A snippet compiles and runs
+-- (SecureHandlerExecute sets its marker attribute) although loadstring_untainted
+-- still reads nil, so Blizzard no longer needs that global; the probe now decides.
+-- /spflyout secure forces the secure path for the flyouts built after it (a
+-- /reload builds them from the probe again).
 SPCompat.snippetOverride = nil   -- probe decides; "on"/"off" via /spflyout
 
 function SPCompat.SecureSnippetsWork()
@@ -522,19 +526,12 @@ function SPCompat.SecureSnippetsWork()
 		snippetsWork, snippetProbeErr = false, "SecureHandlerExecute missing"
 		return false
 	end
-	-- RestrictedExecution.lua compiles every snippet with the global
-	-- loadstring_untainted. When the client doesn't provide it (Forever), the
-	-- probe below can only fail, and error displays such as BugSack still
-	-- catch that failure (they keep seterrorhandler for themselves), so check
-	-- the global first and skip the probe. Mainline family only: whether addon
-	-- code can see that global on Anniversary was never measured (on retail it
-	-- reads nil even though snippets work there, see above), so Anniversary keeps
-	-- the real probe. On Forever this shortcut cannot notice a client patch that
-	-- fixes snippets; /spflyout secure re-tests then.
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(loadstring_untainted) ~= "function" then
-		snippetsWork, snippetProbeErr = false, "loadstring_untainted missing"
-		return false
-	end
+	-- Build 1.60.1.70009 (measured 2026-09-26): snippets run on Forever again
+	-- while `loadstring_untainted` still reads nil there, so that global is no
+	-- signal on any client (it reads nil on retail too, see above). The probe
+	-- below decides everywhere. On a client where snippets are broken it fails
+	-- once at load, and an error display that keeps the error handler for itself
+	-- (BugSack) may show that one error; the marker check still gives the verdict.
 	local okF, probe = pcall(CreateFrame, "Frame", nil, UIParent, "SecureHandlerBaseTemplate")
 	if not okF or not probe then
 		snippetsWork, snippetProbeErr = false, "could not create a probe frame"

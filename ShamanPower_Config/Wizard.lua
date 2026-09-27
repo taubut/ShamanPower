@@ -270,9 +270,12 @@ local STEPS = {
 	    "|cffffd100Compact|r: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
 	    { "|cffffd100Grid|r: every totem of every element visible in rows, together or split into one frame per element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
-	    { "|cffffd100Blizzard's Totem Bar|r: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots.",
+	    { "|cffffd100Blizzard's Totem Bar|r: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots. Its flyouts open only from the little arrow above each slot, one click before you can pick a totem.",
 	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
-	    "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
+	    { "|cff3FA9F5ShamanPower's own bar: just hover.|r Hover any totem and its flyout opens, in combat too, with no arrow to click. Left-click drops that totem, right-click makes it the assigned one.",
+	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
+	    { "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
+	      when = function() return not (SP.HasTotemBar and SP:HasTotemBar()) end },
 	  },
 	  toggles = { { label = "Show the totem bar", bind = "totembar" } } },
 	{ id = "assign", title = "Assignments", roles = ALL, build = "BuildAssignStep",
@@ -755,7 +758,17 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		Core:MakeBorder(over, "border")
 		-- Blizzard's own button ring, shown for the Blizzard's-bar style in place of our border
 		local ring = main:CreateTexture(nil, "OVERLAY", nil, 2); ring:SetTexture("Interface\\Buttons\\UI-Quickslot2"); ring:SetPoint("CENTER", main, "CENTER", 0, 0); ring:SetSize(SIZE * 1.7, SIZE * 1.7); ring:Hide()
-		slots[i] = { e = e, main = main, mIcon = mIcon, inset = inset, insetBd = insetBd, dbg = dbg, dbar = dbar, over = over, key = key, ring = ring, t = e.off, lastMode = nil }
+		-- ...and the arrow tab above it: on Blizzard's bar a slot's flyout opens only
+		-- from this arrow, clicked first. ShamanPower's own bar opens on hover.
+		local arrow = main:CreateTexture(nil, "OVERLAY", nil, 3); arrow:Hide()
+		local art = SP.FlyoutArrowArt
+		if art and art.open[i] then
+			local c = art.open[i]
+			arrow:SetTexture(art.texture); arrow:SetTexCoord(c[1], c[2], c[3], c[4])
+			arrow:SetSize(SIZE * art.w / 30, SIZE * art.h / 30)   -- Blizzard's tab is 28x18 on a 30px slot
+			arrow:SetPoint("BOTTOM", main, "TOP", 0, 0)
+		end
+		slots[i] = { e = e, main = main, mIcon = mIcon, inset = inset, insetBd = insetBd, dbg = dbg, dbar = dbar, over = over, key = key, ring = ring, arrow = arrow, t = e.off, lastMode = nil }
 	end
 	local styleCap = inner:CreateFontString(nil, "OVERLAY"); styleCap:SetFontObject(Core.fonts.rowDim)
 	styleCap:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); styleCap:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
@@ -781,6 +794,9 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	-- Re-orient the mock for the chosen layout. Horizontal: overlay above the
 	-- button. Vertical: overlay pops out on the flyout side.
 	local lastLay, lastMode
+	-- the tour plays Blizzard's flyout demo, which is taller than ours: that
+	-- style's bar sits lower there so the flyout's top is not cut off
+	local blizzDrop = SP.Wizard.previewOnly and 0 or 40
 	local function relayout(lay, m)
 		local vertical = (lay ~= "Horizontal")
 		local side = (lay == "VerticalLeft") and -1 or 1
@@ -802,7 +818,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		end
 		if vertical then bar:SetSize(SIZE + (normal and (SIZE + 4) or 0), 4 * (SIZE + 14 + 8) - 8)
 		else bar:SetSize(4 * STEP - GAP, normal and (SIZE * 2 + 30) or (SIZE + 14)) end
-		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", (vertical and normal) and (-side * (SIZE + 4) / 2) or 0, vertical and 10 or (normal and 8 or -14))
+		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", (vertical and normal) and (-side * (SIZE + 4) / 2) or 0, vertical and 10 or (normal and 8 or (m == "blizzard" and -14 - blizzDrop or -14)))
 	end
 
 	-- ---- Compact style mock: painted by the SAME code as the real bar ----
@@ -915,7 +931,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	local function skin(m)
 		local blizz = (m == "blizzard")
 		for _, s in ipairs(slots) do
-			s.ring:SetShown(blizz); s.key:SetShown(not blizz)
+			s.ring:SetShown(blizz); s.arrow:SetShown(blizz and s.arrow:GetTexture() ~= nil); s.key:SetShown(not blizz)
 			if s.main.spBorder then for _, t in pairs(s.main.spBorder) do t:SetShown(not blizz) end end
 		end
 	end
@@ -1048,6 +1064,72 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	local function parkOffscreen() tx, ty = inner:GetWidth() - 30, 60 end
 	parkOffscreen(); cx, cy = tx, ty
 
+	-- Blizzard's own flyout on the Fire slot, for the Blizzard's-bar style: opened
+	-- from the arrow tab, an Empty choice first, then the totems on a band, and a
+	-- close tab on top. Blizzard's sizes (MultiCastActionBarFrame): 24px buttons on
+	-- a 32px band over a 30px slot, 4px up from the slot then 2px apart.
+	local ART = SP.FlyoutArrowArt
+	local K = SIZE / 30
+	local bfly = CreateFrame("Frame", nil, bar); bfly:SetFrameLevel(bar:GetFrameLevel() + 12); bfly:Hide()
+	local bBtns, bClose, arrowPin = {}, nil, nil
+	if ART then
+		local BB = math.floor(24 * K)
+		local n = 1 + #flyIdx
+		bfly:SetSize(32 * K, (4 + 24 * n + 2 * (n - 1) + 2 + 18) * K)
+		bfly:SetPoint("BOTTOM", fire.main, "TOP", 0, 0)
+		local cap = bfly:CreateTexture(nil, "BACKGROUND"); cap:SetTexture(ART.texture); cap:SetTexCoord(unpack(ART.cap[2]))
+		cap:SetSize(32 * K, 20 * K); cap:SetPoint("TOP", bfly, "TOP", 0, -10 * K)
+		local band = bfly:CreateTexture(nil, "BACKGROUND"); band:SetTexture(ART.texture); band:SetTexCoord(unpack(ART.band[2]))
+		band:SetPoint("TOPLEFT", cap, "BOTTOMLEFT"); band:SetPoint("BOTTOMRIGHT", bfly, "BOTTOMRIGHT")
+		bClose = CreateFrame("Frame", nil, bfly); bClose:SetSize(28 * K, 18 * K); bClose:SetPoint("TOP", bfly, "TOP", 0, 0)
+		local ct = bClose:CreateTexture(nil, "ARTWORK"); ct:SetAllPoints(bClose); ct:SetTexture(ART.texture); ct:SetTexCoord(unpack(ART.close[2]))
+		for i = 1, n do
+			local b = CreateFrame("Frame", nil, bfly); b:SetSize(BB, BB)
+			b:SetPoint("BOTTOM", bfly, "BOTTOM", 0, (4 + (i - 1) * 26) * K)
+			local ic = b:CreateTexture(nil, "ARTWORK"); ic:SetAllPoints(b)
+			local hl = b:CreateTexture(nil, "OVERLAY"); hl:SetAllPoints(b); hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square"); hl:SetBlendMode("ADD"); hl:Hide()
+			bBtns[i] = { f = b, ic = ic, hl = hl }
+		end
+		arrowPin = CreateFrame("Frame", nil, fire.main); arrowPin:SetSize(1, 1); arrowPin:SetPoint("CENTER", fire.arrow, "CENTER")
+	end
+	local function paintB()
+		if not bBtns[1] then return end
+		bBtns[1].ic:SetTexture(ART.texture); bBtns[1].ic:SetTexCoord(unpack(ART.empty[2])); bBtns[1].hl:Hide()   -- Blizzard's "Empty"
+		for i = 2, #bBtns do
+			bBtns[i].ic:SetTexture(FIRE_ICONS[flyIdx[i - 1]] or fire.e.active); bBtns[i].ic:SetTexCoord(0, 1, 0, 1); bBtns[i].hl:Hide()
+		end
+	end
+	-- opening hides the tab it came from, as on Blizzard's bar
+	local function openB() paintB(); bfly:Show(); fire.arrow:Hide() end
+	local function closeB() bfly:Hide(); fire.arrow:SetShown(fire.arrow:GetTexture() ~= nil) end
+	local function clickFlash() flash:SetVertexColor(1, 1, 1); flash:SetAlpha(1) end
+	local BLIZZ_SCRIPT = {
+		{ at = 0.0,  go = function() cur:Show(); parkOffscreen(); flyCap:SetText("") end },
+		{ at = 0.8,  go = function() targetOf(fire.main); flyCap:SetText("On Blizzard's bar, hovering a totem opens nothing...") end },
+		{ at = 2.2,  go = function() if arrowPin then targetOf(arrowPin) end; flyCap:SetText("...you aim for the little arrow above it...") end },
+		{ at = 3.2,  go = function() clickFlash(); openB(); flyCap:SetText("...click it, and the flyout opens.") end },
+		{ at = 4.3,  go = function() local b = bBtns[3] or bBtns[#bBtns]; if b then targetOf(b.f); b.hl:Show() end end },
+		{ at = 5.3,  go = function()
+			clickFlash()
+			local k = bBtns[3] and 2 or 1                                     -- the totem under the cursor
+			local newAssigned, old = flyIdx[k], fire.assignedIdx or 1
+			fire.e.icon = FIRE_ICONS[newAssigned] or fire.e.icon; fire.assignedIdx = newAssigned
+			flyIdx[k] = old                                                     -- the old one is back in the list
+			closeB()
+			flyCap:SetText("Click a totem and it goes into the slot; the flyout closes.")
+		end },
+		{ at = 6.8,  go = function() parkOffscreen() end },
+		{ at = 7.4,  go = function() if arrowPin then targetOf(arrowPin) end; flyCap:SetText("Only looking? The arrow again...") end },
+		{ at = 8.4,  go = function() clickFlash(); openB() end },
+		{ at = 9.4,  go = function() if bClose then targetOf(bClose) end; flyCap:SetText("...and the arrow on top to close it.") end },
+		{ at = 10.4, go = function()
+			clickFlash(); closeB()
+			flyCap:SetText("Two clicks for every pick there. |cff3FA9F5ShamanPower's own bar opens its flyouts on hover, in combat too.|r")
+		end },
+		{ at = 12.0, go = function() parkOffscreen() end },
+		{ at = 14.5, go = function() cur:Hide(); flyCap:SetText("") end },
+	}
+
 	-- choreography: { at = seconds, do = function }
 	local SCRIPT = {
 		{ at = 0.0,  go = function() cur:Show(); parkOffscreen(); flyCap:SetText("") end },
@@ -1075,16 +1157,24 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		{ at = 13.5, go = function() cur:Hide(); flyCap:SetText("") end },
 	}
 	local CYCLE, ft, fi = 14.5, 0, 0
+	local demoMode
 	local demo = CreateFrame("Frame", nil, inner)
 	demo:SetScript("OnUpdate", function(_, el)
 		local m = mode()
-		if m == "compact" or m == "grid" or m == "blizzard" then   -- no icon bar to hover
-			cur:Hide(); fly:Hide(); fire.flyOpen = nil; flyCap:SetText(""); ft, fi = 0, 0
+		if m ~= demoMode then   -- a different style: start its demo from the top
+			demoMode = m; ft, fi = 0, 0
+			fly:Hide(); fire.flyOpen = nil; bfly:Hide(); flyCap:SetText("")
+			if m == "blizzard" then closeB() end
+		end
+		if m == "compact" or m == "grid" or (m == "blizzard" and not bBtns[1]) then   -- no icon bar to hover
+			cur:Hide(); flyCap:SetText("")
 			return
 		end
+		local script = (m == "blizzard") and BLIZZ_SCRIPT or SCRIPT
+		local cycle = (m == "blizzard") and 15.5 or CYCLE
 		ft = ft + el
-		if ft >= CYCLE then ft = 0; fi = 0 end
-		while SCRIPT[fi + 1] and SCRIPT[fi + 1].at <= ft do fi = fi + 1; SCRIPT[fi].go() end
+		if ft >= cycle then ft = 0; fi = 0 end
+		while script[fi + 1] and script[fi + 1].at <= ft do fi = fi + 1; script[fi].go() end
 		-- glide the cursor, fade the flash
 		cx = cx + (tx - cx) * math.min(1, el * 6); cy = cy + (ty - cy) * math.min(1, el * 6)
 		cur:ClearAllPoints(); cur:SetPoint("TOPLEFT", inner, "BOTTOMLEFT", cx, cy)
