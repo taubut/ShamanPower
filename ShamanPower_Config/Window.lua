@@ -47,6 +47,7 @@ local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotem
 local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsPane" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
+local MOCK_EFFECTS  = { mocks = MOCK_BARS.mocks, effects = true }   -- the split bar preview, with the Effects playing on it
 local MOCK_LOADOUT  = { mocks = {
 	{ label = "Loadout bar", build = "BuildLoadoutBarPane" },
 	{ label = "Blizzard totem sets", build = "BuildLoadoutSetsPane", when = function()
@@ -212,6 +213,7 @@ local NAV = {
 			} },
 			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
 			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },
+			{ label = "Effects", preview = MOCK_EFFECTS, paths = { P("fluffy", "effects_appearance") } },
 			{ label = "Textures & Colors", paths = {
 				P("fluffy", "texture_section"), P("fluffy", "color_section"),
 				P("fluffy", "element_colors_section"), P("fluffy", "button_tints_section"),
@@ -498,8 +500,9 @@ local function MountMocks(spec)
 	for _, m in ipairs(list) do totalW = totalW + (m.weight or 1) end
 	local usable = ih - gap * (n - 1)
 	pane.mockPreviews = pane.mockPreviews or {}
-	local wasPreviewOnly = W.previewOnly
+	local wasPreviewOnly, wasEffects = W.previewOnly, W.effectsDemo
 	W.previewOnly = true
+	W.effectsDemo = spec.effects   -- the Effects tab: the mocks run the chosen effects (RunEffectsDemo)
 	local dummyCard = CreateFrame("Frame", nil, host)
 	dummyCard:SetSize(400, 10)
 	dummyCard:Hide()
@@ -571,7 +574,7 @@ local function MountMocks(spec)
 		pane.mockFits[#pane.mockFits + 1] = fit   -- a hover preview re-fits without remounting
 		yy = yy + h + gap
 	end
-	W.previewOnly = wasPreviewOnly
+	W.previewOnly, W.effectsDemo = wasPreviewOnly, wasEffects
 	return true
 end
 

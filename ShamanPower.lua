@@ -2158,8 +2158,9 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 			self.shadowTotems[element] = nil
 			retiredElement = element
 			-- While the game hides totem data (combat on Forever) this is the only way to
-			-- know a totem went: tell whoever listens (Expiring Alerts) why, as best we can.
-			if self.OnShadowTotemGone and totemsSecretNow() then
+			-- know a totem went: tell whoever listens (Expiring Alerts, the bar's
+			-- Effects) why, as best we can.
+			if (self.OnShadowTotemGone or (self.TotemCuesWanted and self:TotemCuesWanted())) and totemsSecretNow() then
 				-- announced one bind window later: a cast that arrives just after its own
 				-- slot updates (a totem set, or a re-drop of this element) claims the slot
 				-- and cancels this. The reason is worked out then too, so a Totemic Recall
@@ -2183,7 +2184,8 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 						SPCompat.Trace("SHADOW gone element %d: %s (%.1f s after the drop, length %s)", rec.element, why,
 							at - e.startTime, e.durationKnown and string.format("%.0f s", e.duration) or "not learned")
 					end
-					pcall(self.OnShadowTotemGone, self, rec.element, e, why)
+					if self.OnShadowTotemGone then pcall(self.OnShadowTotemGone, self, rec.element, e, why) end
+					if self.TotemEndCue then pcall(self.TotemEndCue, self, rec.element, why) end
 				end)
 			end
 		end
@@ -3003,11 +3005,13 @@ function ShamanPower:PositionOverlayPulseWipe(overlay, frame)
 	end
 end
 
--- Pulsing totem data: totemName pattern -> { element, interval }
+-- Pulsing totem data: totemName pattern -> { element, interval }. Intervals are the
+-- totem passive's period in the client's spell data (SpellEffect, periodic trigger).
 ShamanPower.PulsingTotems = {
 	-- Earth totems
-	["Tremor"] = { element = 1, interval = 3 },
+	["Tremor"] = { element = 1, interval = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
 	["Earthbind"] = { element = 1, interval = 3 },
+	["Stoneclaw"] = { element = 1, interval = 2 },   -- its taunt (Stoneclaw Totem Passive, every 2 s on both clients)
 	-- Fire totems
 	["Magma"] = { element = 2, interval = 2 },
 	-- Water totems
@@ -11003,6 +11007,7 @@ function ShamanPower:UpdateCooldownButtons()
 					end
 				end
 				self:PaintShieldChargeStrip(btn, (cache and cache.engineCount) and 0 or shieldCharges)
+				if self.CueShieldState then self:CueShieldState(btn, true, false) end   -- "Shield Gone" effect
 
 				-- Progress bar (for shields, show based on time remaining)
 				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
@@ -11107,6 +11112,7 @@ function ShamanPower:UpdateCooldownButtons()
 				btn.cooldown:Clear()
 				if btn.chargeText then btn.chargeText:SetText("") end
 				self:PaintShieldChargeStrip(btn, 0)   -- empty strip: no shield (in combat, under the engine's)
+				if self.CueShieldState then self:CueShieldState(btn, false, cache and cache.engineCount) end   -- "Shield Gone" effect
 				if btn.progressBar then btn.progressBar:Hide() end
 				if btn.bgBar then btn.bgBar:Hide() end
 				if btn.greyOverlay then btn.greyOverlay:Hide() end
@@ -11121,6 +11127,7 @@ function ShamanPower:UpdateCooldownButtons()
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
+			if self.CueCooldownCheck then self:CueCooldownCheck(btn, start, duration) end   -- "Cooldown Ready" effect
 			if engine and start and start > 0 and duration > 1.5 then
 				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
 			elseif start and start > 0 and duration > 1.5 then
@@ -11281,6 +11288,7 @@ function ShamanPower:UpdateCooldownButtons()
 			end
 		elseif btn.spellType == "weaponImbue" then
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
+			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff) end   -- "Weapon Imbue Gone" effect
 			local buttonHeight = btn:GetHeight()
 			local buttonWidth = btn:GetWidth()
 			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
@@ -16255,6 +16263,7 @@ function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
 	self:ShadowTotemSlotUpdate(slot)
 	self:RecordTotemDropFromSlot(slot)
 	self:RefreshTotemDestroySlots()   -- cast-order clients: keep right-click destroy on the right slot
+	if self.CueTotemUpdate then self:CueTotemUpdate() end   -- the bar's Effects (ShamanPowerCues.lua)
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
@@ -19060,6 +19069,13 @@ function ShamanPower:ApplyLoadout(index, quiet)
 	self:UpdateDropAllButton()   -- Drop All and Call of the Elements follow the new totems and excludes
 	self:UpdateSPMacros()
 	self:UpdateLoadoutBar()
+	-- the flyouts re-sorted around the new totems, as a single flyout pick does
+	-- (ApplyAssignment); without it the first hover after a switch showed the old
+	-- layout, with gaps where the previous totems had been left out
+	for element = 1, 4 do
+		self:UpdateFlyoutVisibility(element)
+		if self.ShowEmptySlotArt then self:ShowEmptySlotArt(element, (assignments[element] or 0) == 0) end
+	end
 	-- Broadcast assignments to other ShamanPower clients
 	for element = 1, 4 do
 		self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (assignments[element] or 0))

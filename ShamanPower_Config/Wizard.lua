@@ -310,6 +310,13 @@ local STEPS = {
 	    { label = "Cooldown sweep",     bind = "cdsweep" },
 	    { label = "Time remaining text", bind = "cdtext" },
 	  } },
+	{ id = "effects", title = "Effects", roles = ALL, build = "BuildEffectsStep",
+	  desc = "Short animations on your bars when something happens, so you notice it mid-fight. Every one is off until you turn it on.",
+	  bullets = {
+	    "Totem bar: a totem destroyed, a totem that ran out, and a totem about to run out.",
+	    "Cooldown bar: a cooldown ready again, a weapon imbue gone, your shield gone.",
+	    "Pick a style for each - shake, pop, flash or glow. The preview plays the ones you turn on.",
+	  } },
 	{ id = "estracker", title = "Earth Shield Tracker", roles = { restoration = true }, module = "ShamanPower_ESTracker", flag = "ESTrackerLoaded", build = "BuildESTrackerStep",
 	  -- Skipped outright where Earth Shield has no acquisition path, rather than
 	  -- shown with the generic "module did not start" note, which would be wrong.
@@ -769,6 +776,15 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			arrow:SetPoint("BOTTOM", main, "TOP", 0, 0)
 		end
 		slots[i] = { e = e, main = main, mIcon = mIcon, inset = inset, insetBd = insetBd, dbg = dbg, dbar = dbar, over = over, key = key, ring = ring, arrow = arrow, t = e.off, lastMode = nil }
+	end
+	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
+	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
+		for i = 1, 3 do slots[i].main.icon = slots[i].mIcon end
+		SP.Wizard.RunEffectsDemo(bar, {
+			{ btn = slots[1].main, cap = "Destroyed", on = "totemCueDestroyed", style = "totemCueDestroyedStyle", def = "shake", kind = "destroyed", at = 0.3 },
+			{ btn = slots[2].main, cap = "Expired", on = "totemCueExpired", style = "totemCueExpiredStyle", def = "pop", kind = "expired", at = 1.0 },
+			{ btn = slots[3].main, cap = "Expiring", on = "totemCueExpiring", style = "totemCueExpiringStyle", def = "pulse", kind = "expiring", loop = true },
+		})
 	end
 	local styleCap = inner:CreateFontString(nil, "OVERLAY"); styleCap:SetFontObject(Core.fonts.rowDim)
 	styleCap:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); styleCap:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
@@ -2929,6 +2945,184 @@ function SP.Wizard.BuildAssignStep(card, inner, y)
 	return y
 end
 
+-- The Effects tab's preview is the split bar preview (MOCK_BARS) with the
+-- effects running on it: MountMocks raises SP.Wizard.effectsDemo while it
+-- builds that tab's mocks, and each mock hands its buttons here. Every effect
+-- that is on plays on its button in the chosen style (the real effect code,
+-- ShamanPowerCues.lua); the one-shots take turns in a 3.6 s cycle and the
+-- expiring loop runs while it is on; a caption under each button says what it
+-- shows. items: { btn (a frame with .icon) or pick (several: the first one
+-- shown), cap, on, style, def, kind, at (one-shot: its point in the cycle) or
+-- loop = true }.
+function SP.Wizard.RunEffectsDemo(parent, items)
+	local fx = SP.CueFx
+	if not fx then return end
+	local function O() return SP.Wizard.optOverride or SP.opt end
+	local driver = CreateFrame("Frame", nil, parent)
+	driver:SetAllPoints(parent)
+	driver:SetFrameLevel(parent:GetFrameLevel() + 20)
+	-- what each spot shows, under its button; "off" (dimmed) while that effect is off
+	local function shownBtn(it)
+		if not it.pick then return it.btn end
+		for _, b in ipairs(it.pick) do if b:IsVisible() then return b end end
+	end
+	for _, it in ipairs(items) do
+		if it.cap then
+			local fs = driver:CreateFontString(nil, "OVERLAY")
+			fs:SetFontObject(Core.fonts.tiny)
+			fs:SetJustifyH("CENTER")
+			fs:SetWordWrap(true)
+			it.fs, it.offText = fs, it.cap .. "\n|cff808080off|r"
+		end
+	end
+	local function captions(o)
+		for _, it in ipairs(items) do
+			local fs = it.fs
+			if fs then
+				local btn = shownBtn(it)
+				if btn ~= it.capAt then
+					it.capAt = btn
+					fs:ClearAllPoints()
+					if btn then
+						fs:SetPoint("TOP", btn, "BOTTOM", 0, -6)
+						fs:SetWidth(math.max(40, btn:GetWidth() + 8))
+					end
+				end
+				fs:SetShown(btn ~= nil and btn:IsVisible())
+				local on = o[it.on] and true or false
+				if it.capOn ~= on then
+					it.capOn = on
+					fs:SetText(on and it.cap or it.offText)
+					if on then fs:SetTextColor(Core:Color("text")) else fs:SetTextColor(Core:Color("textDim")) end
+				end
+			end
+		end
+	end
+	local CYCLE, t, last, tick = 3.6, 0, 0, 1
+	driver:SetScript("OnUpdate", function(_, e)
+		local o = O()
+		tick = tick + e
+		if tick >= 0.25 then
+			tick = 0
+			captions(o)
+			for _, it in ipairs(items) do
+				if it.loop and it.btn then
+					if o[it.on] and it.btn:IsVisible() then fx.loop(it.btn, o[it.style] or it.def, it.kind) else fx.stop(it.btn) end
+				end
+			end
+		end
+		t = (t + e) % CYCLE
+		for _, it in ipairs(items) do
+			if it.at and o[it.on] and ((last < it.at and t >= it.at) or (t < last and (it.at > last or it.at <= t))) then
+				local btn = it.btn
+				if it.pick then
+					btn = nil
+					for _, b in ipairs(it.pick) do if b:IsVisible() then btn = b break end end
+				end
+				if btn and btn:IsVisible() then
+					fx.play(btn, o[it.style] or it.def, it.kind)
+					if it.kind == "destroyed" and o.totemCueDestroyedMark ~= false then fx.mark(btn) end
+				end
+			end
+		end
+		last = t
+	end)
+end
+
+-- Effects: the totem bar and cooldown bar mocks stacked, with every effect
+-- that is on playing on them (RunEffectsDemo), and the Effects settings in the
+-- card: the same options as Settings > Bars > Appearance > Effects.
+function SP.Wizard.BuildEffectsStep(card, inner, y)
+	local Widgets = ns.Widgets
+	local W = SP.Wizard
+	local top = CreateFrame("Frame", nil, inner)
+	top:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
+	top:SetPoint("BOTTOMRIGHT", inner, "RIGHT", 0, -20)
+	local bottom = CreateFrame("Frame", nil, inner)
+	bottom:SetPoint("TOPLEFT", inner, "LEFT", 0, -20)
+	bottom:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", 0, 0)
+	local dummy = CreateFrame("Frame", nil, inner)
+	dummy:SetSize(400, 10)
+	dummy:Hide()
+	local wasPreviewOnly, wasEffects = W.previewOnly, W.effectsDemo
+	W.previewOnly, W.effectsDemo = true, true
+	local totemMock = (ns.PaneBuilders and ns.PaneBuilders.BuildTotemBarPane) or W.BuildTotemBarStep
+	local ok, err = pcall(totemMock, dummy, top, 0)
+	if not ok then print("|cff0070ddShamanPower|r: effects preview (totem bar) failed: " .. tostring(err)) end
+	ok, err = pcall(W.BuildCooldownBarStep, dummy, bottom, 0)
+	if not ok then print("|cff0070ddShamanPower|r: effects preview (cooldown bar) failed: " .. tostring(err)) end
+	W.previewOnly, W.effectsDemo = wasPreviewOnly, wasEffects
+	-- the mocks' own captions describe their own steps
+	for _, pin in ipairs({ top, bottom }) do
+		pin:SetClipsChildren(true)
+		for _, r in ipairs({ pin:GetRegions() }) do
+			if r.IsObjectType and r:IsObjectType("FontString") then r:Hide() end
+		end
+	end
+	-- The mocks size themselves by height (and from their own OnUpdate); a bar
+	-- wider than the panel is shrunk to fit, as the settings pane does (MountMocks),
+	-- with room for the captions under its end buttons.
+	local function fit()
+		for _, pin in ipairs({ top, bottom }) do
+			if pin:IsShown() then
+				local widest = 0
+				for _, ch in ipairs({ pin:GetChildren() }) do
+					if ch:IsShown() then
+						local w = ch:GetWidth() * ch:GetScale()
+						if w > widest then widest = w end
+					end
+				end
+				local avail = pin:GetWidth() * pin:GetScale() - 60   -- the panel's own width, whatever scale the pin has now
+				if widest > 0 and avail > 40 then pin:SetScale(math.min(1, avail / widest)) end
+			end
+		end
+	end
+	fit()
+	C_Timer.After(0, fit)
+	C_Timer.After(0.2, fit)
+
+	local width = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, width
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	local function O() return SP.opt end
+	local function set(key)
+		return function(v) SP.opt[key] = v; if SP.ApplyCueSettings then SP:ApplyCueSettings() end; notify(); Widgets:RefreshAll(card) end
+	end
+	local STYLES = function() return { shake = "Shake", pop = "Pop", flash = "Flash", glow = "Glow" } end
+	local STYLE_ORDER = function() return { "shake", "pop", "flash", "glow" } end
+	local function cue(label, desc, onKey, styleKey, def, values, order)
+		row("Toggle", { label = label, desc = desc, get = function() return O()[onKey] and true or false end, set = set(onKey) })
+		row("Dropdown", { label = "Style", disabled = function() return not O()[onKey] end,
+			get = function() return O()[styleKey] or def end, set = set(styleKey),
+			values = values or STYLES, order = order or STYLE_ORDER })
+	end
+	row("SectionHeader", { label = "Totem bar" })
+	cue("Totem destroyed", "A totem killed before its time plays this, in red. Your own dismiss, Totemic Call and dying do not count.",
+		"totemCueDestroyed", "totemCueDestroyedStyle", "shake")
+	row("Toggle", { label = "Red X until recast", desc = "Also a red X on the button until you drop that element again (5 seconds at most).",
+		disabled = function() return not O().totemCueDestroyed end,
+		get = function() return O().totemCueDestroyedMark ~= false end, set = set("totemCueDestroyedMark") })
+	cue("Totem expired", "A totem that runs out plays this, in white.", "totemCueExpired", "totemCueExpiredStyle", "pop")
+	cue("Totem expiring soon", "Over a totem's last seconds its button pulses darker, or its edges glow orange.",
+		"totemCueExpiring", "totemCueExpiringStyle", "pulse",
+		function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end)
+	row("Slider", { label = "Seconds before it ends", min = 3, max = 15, step = 1,
+		disabled = function() return not O().totemCueExpiring end,
+		get = function() return O().totemCueExpiringSecs or 5 end, set = set("totemCueExpiringSecs") })
+	row("SectionHeader", { label = "Cooldown bar" })
+	cue("Cooldown ready", "A cooldown on the bar that is ready again plays this, in gold.", "cdbarCueReady", "cdbarCueReadyStyle", "pop")
+	cue("Weapon imbue gone", "A weapon imbue that drops off (it ran out, or the weapon was swapped) plays this on the imbue button, in blue.",
+		"cdbarCueImbue", "cdbarCueImbueStyle", "shake")
+	cue("Shield gone", WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+			and "Your shield going plays this on the shield button, in blue. In combat the game hides that moment, so there the button pulses red while no shield is up (at 100% cooldown bar opacity)."
+			or "Your shield going plays this on the shield button, in blue.",
+		"cdbarCueShield", "cdbarCueShieldStyle", "shake")
+	return y
+end
+
 function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	if not SP.Wizard.previewOnly then SP.Wizard._cdbarCard = card end   -- its switch redraws the step's rows
 	local Widgets = ns.Widgets
@@ -2999,7 +3193,23 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			strip:Hide()
 		end
 		-- Staggered sim clock so the bar is not in lockstep.
+		btn.icon = icon   -- for the Effects tab's demo (RunEffectsDemo)
 		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, strip = strip, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
+	end
+	-- Effects tab: the first cooldown shown plays Cooldown Ready, the imbue chip
+	-- Weapon Imbue Gone and the shield chip Shield Gone
+	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
+		local cds, imbue, shield = {}, nil, nil
+		for _, b in ipairs(buttons) do
+			if b.sp.charges then shield = b.f
+			elseif b.sp.imbue then imbue = b.f
+			elseif (b.sp.cd or 0) > 0 then cds[#cds + 1] = b.f end
+		end
+		SP.Wizard.RunEffectsDemo(bar, {
+			{ pick = cds, cap = "Ready", on = "cdbarCueReady", style = "cdbarCueReadyStyle", def = "pop", kind = "ready", at = 1.7 },
+			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4 },
+			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1 },
+		})
 	end
 
 	-- Progress bar + duration text geometry, same anchors as

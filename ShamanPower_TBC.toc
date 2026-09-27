@@ -44,4 +44,5 @@ ShamanPowerShareCode.lua
 ShamanPowerMinimapTotems.lua
 ShamanPowerGrid.lua
 ShamanPowerStyles.lua
+ShamanPowerCues.lua
 ShamanPower_TBC.xml

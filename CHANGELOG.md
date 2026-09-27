@@ -5,6 +5,8 @@
 ### New
 - **Shield Charges: new looks** (all off by default, the plain number stays as it is). Show the shield's icon with the count on it, in the center or small in the bottom-right corner, and/or a charge bar under it with one segment per charge. With no shield up the icon is grayed out with a red 0, in combat too; on WoW: Forever the red 0 is left out in combat below 100% opacity, so it never shows through the live count. The setup tour's Shield Charges step has the new options.
 - **Cooldown bar: Show Shield Charge Bar** (off by default). The same charge bar along the bottom of the shield button, in and out of combat. **Show Shield Charge Count** (on by default) turns the corner number off, to show just the bar. Both are on the Display tab and in the setup tour's Cooldown Bar step.
+- **Effects** (Settings > Bars > Appearance > Effects, and a new step in the setup tour; all off until you turn them on). A short animation on a button when something happens to it, so you notice it mid-fight: on the totem bar a totem destroyed (with an optional red X until you drop it again), a totem that ran out, and a pulse or glow over a totem's last seconds; on the cooldown bar a cooldown ready again, a weapon imbue gone, and your shield gone. Pick shake, pop, flash or glow for each; the preview plays the ones you turn on, and Test buttons play them on your bars. They work in combat; on WoW: Forever, where the game hides the moment a shield goes, the shield button pulses red while no shield is up instead (at 100% cooldown bar opacity).
+- **Stoneclaw Totem** gets the pulse bar and glow, timed to its taunt every 2 seconds.
 
 ### Changes
 - **Totem Range Tracker: Show the Overlay.** Pick where the overlay may be up: in a group with a shaman (the default), in any group, or always, solo too. It holds for an overlay you opened yourself as well: it steps aside when you leave the group and comes back when you join one, so it no longer sits on screen while you play solo.
@@ -18,6 +20,8 @@
 - **Anniversary:** a totem picked mid-fight for an element with nothing assigned now casts from its button.
 - **TotemTimers Style with Empty assigned:** a running totem shows as the big icon instead of being covered by the empty-slot art.
 - **Bar frames** grow to wrap the flyout arrows in combat, so nothing sticks out past the frame.
+- **Totem flyouts after switching loadouts** are sorted around the new totems straight away; the first hover used to show the old layout, with gaps.
+- **Tremor Totem's pulse timer on WoW: Forever** follows its real 4-second pulse (it was timed at 3, as on Anniversary).
 - **Cooldown bar flyouts** offer a weapon imbue or shield as soon as you learn it at the trainer, instead of after a /reload (the bar rebuilds itself, after the fight if you are in one).
 
 ## v3.0.2 (2026-09-26)

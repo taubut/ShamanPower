@@ -10432,6 +10432,75 @@ do
 	SP.SettingsPathAliases["fluffy/padding_section"] = { "fluffy", "totembar_appearance" }
 end
 
+-- Effects (ShamanPowerCues.lua): a short animation on a button when something
+-- happens to it. Every one is off until turned on here.
+do
+	local SP = ShamanPower
+	local STYLES = { shake = "Shake", pop = "Pop", flash = "Flash", glow = "Glow" }
+	local STYLE_ORDER = { "shake", "pop", "flash", "glow" }
+	local function apply() if SP.ApplyCueSettings then SP:ApplyCueSettings() end end
+	local function toggle(order, key, name, desc)
+		return { order = order, type = "toggle", width = "full", name = name, desc = desc,
+			get = function() return SP.opt[key] and true or false end,
+			set = function(_, v) SP.opt[key] = v; apply() end }
+	end
+	local function style(order, key, onKey, fallback, name, values, sorting)
+		return { order = order, type = "select", width = "full", name = name,
+			values = values or STYLES, sorting = sorting or STYLE_ORDER,
+			disabled = function() return not SP.opt[onKey] end,
+			get = function() return SP.opt[key] or fallback end,
+			set = function(_, v) SP.opt[key] = v; apply() end }
+	end
+	local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	SP.options.args.fluffy.args.effects_appearance = { type = "group", name = "Effects", order = 1.35, args = {
+		effects_desc = { order = 0, type = "description", name = "A short animation on a button when something happens to it, so you notice it mid-fight."
+			.. " Every effect is off until you turn it on. The Test buttons play the chosen styles on your bars." },
+
+		totem_header = { order = 1, type = "header", name = "Totem Bar" },
+		totem_note = { order = 1.05, type = "description", name = "|cffa0a0a0Played on ShamanPower's own totem buttons: not with the Compact, Grid or Blizzard's Totem Bar styles.|r" },
+		totemCueDestroyed = toggle(1.1, "totemCueDestroyed", "Totem Destroyed",
+			"When a totem is killed before its time, its button plays the style below in red. Your own right-click dismiss, Totemic Call and dying do not count."),
+		totemCueDestroyedStyle = style(1.2, "totemCueDestroyedStyle", "totemCueDestroyed", "shake", "Destroyed Style"),
+		totemCueDestroyedMark = { order = 1.3, type = "toggle", width = "full", name = "Red X Until Recast",
+			desc = "Also put a red X on the button until you drop that element again (5 seconds at most).",
+			disabled = function() return not SP.opt.totemCueDestroyed end,
+			get = function() return SP.opt.totemCueDestroyedMark ~= false end,
+			set = function(_, v) SP.opt.totemCueDestroyedMark = v end },
+		totemCueExpired = toggle(1.4, "totemCueExpired", "Totem Expired",
+			"When a totem runs out, its button plays the style below in white."),
+		totemCueExpiredStyle = style(1.5, "totemCueExpiredStyle", "totemCueExpired", "pop", "Expired Style"),
+		totemCueExpiring = toggle(1.6, "totemCueExpiring", "Totem Expiring Soon",
+			"Over a totem's last seconds its button pulses darker, or its edges glow orange, until it runs out or you drop it again."),
+		totemCueExpiringStyle = style(1.7, "totemCueExpiringStyle", "totemCueExpiring", "pulse", "Expiring Style",
+			{ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }),
+		totemCueExpiringSecs = { order = 1.8, type = "range", width = "full", name = "Seconds Before It Ends",
+			min = 3, max = 15, step = 1,
+			disabled = function() return not SP.opt.totemCueExpiring end,
+			get = function() return SP.opt.totemCueExpiringSecs or 5 end,
+			set = function(_, v) SP.opt.totemCueExpiringSecs = v end },
+		totem_test = { order = 1.9, type = "execute", name = "Test Totem Bar Effects",
+			desc = "Earth plays Totem Destroyed, Fire Totem Expired and Water Totem Expiring Soon, in the styles chosen above.",
+			func = function() if SP.TestTotemCues then SP:TestTotemCues() end end },
+
+		cdbar_header = { order = 2, type = "header", name = "Cooldown Bar" },
+		cdbarCueReady = toggle(2.1, "cdbarCueReady", "Cooldown Ready",
+			"When a cooldown on the bar is ready again, its button plays the style below in gold."),
+		cdbarCueReadyStyle = style(2.2, "cdbarCueReadyStyle", "cdbarCueReady", "pop", "Ready Style"),
+		cdbarCueImbue = toggle(2.3, "cdbarCueImbue", "Weapon Imbue Gone",
+			"When a weapon imbue drops off (it ran out, or the weapon was swapped), the imbue button plays the style below in blue."),
+		cdbarCueImbueStyle = style(2.4, "cdbarCueImbueStyle", "cdbarCueImbue", "shake", "Imbue Style"),
+		cdbarCueShield = toggle(2.5, "cdbarCueShield", "Shield Gone",
+			mainline and ("When your Lightning or Water Shield is gone, the shield button plays the style below in blue."
+				.. " In combat the game hides the moment a shield goes, so there the button pulses red while no shield is up instead;"
+				.. " only at 100% cooldown bar opacity, as below that the red would show through the shield icon.")
+			or "When your Lightning or Water Shield is gone, the shield button plays the style below in blue."),
+		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style"),
+		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
+			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button Shield Gone, in the styles chosen above.",
+			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
+	} }
+end
+
 do
 	local SP = ShamanPower
 	local pages = SP.options.args.fluffy.args

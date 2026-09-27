@@ -144,6 +144,21 @@ SHAMANPOWER_DEFAULT_VALUES = {
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         cdbarShowShieldCount = true,  -- Charge count on the cooldown bar's shield button
         cdbarShieldChargeBar = false,  -- Charge bar (one segment per charge) along the bottom of the cooldown bar's shield button
+        -- Effects (Settings > Bars > Appearance > Effects, ShamanPowerCues.lua): all off
+        totemCueDestroyed = false,          -- a totem killed before its time
+        totemCueDestroyedStyle = "shake",   -- shake / pop / flash / glow
+        totemCueDestroyedMark = true,       -- plus a red X until that element is dropped again (5 s at most)
+        totemCueExpired = false,            -- a totem that ran out
+        totemCueExpiredStyle = "pop",
+        totemCueExpiring = false,           -- a loop over a totem's last seconds
+        totemCueExpiringStyle = "pulse",    -- pulse / glow
+        totemCueExpiringSecs = 5,
+        cdbarCueReady = false,              -- a cooldown on the cooldown bar ready again
+        cdbarCueReadyStyle = "pop",
+        cdbarCueImbue = false,              -- a weapon imbue gone
+        cdbarCueImbueStyle = "shake",
+        cdbarCueShield = false,             -- the shield gone (in combat on Forever: a red loop while missing)
+        cdbarCueShieldStyle = "shake",
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button
