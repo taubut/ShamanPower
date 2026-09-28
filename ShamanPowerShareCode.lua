@@ -29,7 +29,7 @@ local CODE_VERSION = 1
 SP.SHARE_CLIENTS = { "WoW: Forever", "TBC Anniversary" }                               -- 1, 2
 SP.SHARE_SPECS = { "Restoration", "Enhancement", "Elemental" }                          -- 1..3
 SP.SHARE_SETUP_PATHS = { "tour", "quick", "skipped", "declined", "windfury" }           -- 1..5
-SP.SHARE_STYLES = { "normal", "totemtimers", "dynamic", "compact", "grid", "blizzard" }  -- 1..6
+SP.SHARE_STYLES = { "normal", "totemtimers", "dynamic", "compact", "grid", "blizzard", "single" }  -- 1..7 (append only)
 
 -- ---------------------------------------------------------------------------
 -- Safe readers: a missing table or module is simply "off".

@@ -21,27 +21,34 @@ end
 -- is     reads the flags back; evaluated in the order of PRECEDENCE below
 SP.TOTEM_BAR_STYLES = {
 	{ key = "normal", label = "Normal",
-	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = false; o.activeTotemAsMain = false end,
+	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = false; o.activeTotemAsMain = false; o.activeAssignedCorner = nil end,
 	  is = function(o) return true end },
 	{ key = "totemtimers", label = "TotemTimers Style",
-	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = false; o.activeTotemAsMain = true end,
+	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = false; o.activeTotemAsMain = true; o.activeAssignedCorner = nil end,
 	  is = function(o) return o.activeTotemAsMain == true end },
 	{ key = "dynamic", label = "Dynamic (PvP)",
-	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = true; o.activeTotemAsMain = false end,
+	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = true; o.activeTotemAsMain = false; o.activeAssignedCorner = nil end,
 	  is = function(o) return o.dynamicTotemMode == true end },
+	-- Single Totem: TotemTimers Style without the assigned totem in the corner. The
+	-- button shows the totem that is down, a click always drops the assigned one,
+	-- and it goes back to the assigned one the moment the dropped totem is gone.
+	{ key = "single", label = "Single Totem",
+	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = false; o.activeTotemAsMain = true; o.activeAssignedCorner = false end,
+	  is = function(o) return o.activeTotemAsMain == true and o.activeAssignedCorner == false end },
 	{ key = "compact", label = "Compact (lines)",
-	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = true; o.dynamicTotemMode = false; o.activeTotemAsMain = false end,
+	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = true; o.dynamicTotemMode = false; o.activeTotemAsMain = false; o.activeAssignedCorner = nil end,
 	  is = function(o) return o.compactStyle == true end },
 	{ key = "grid", label = "Grid (every totem)", only = HasGrid,
-	  apply = function(o) o.useBlizzardTotemBar = nil; o.compactStyle = false; o.activeTotemAsMain = false; o.gridStyle = true end,
+	  apply = function(o) o.useBlizzardTotemBar = nil; o.compactStyle = false; o.activeTotemAsMain = false; o.activeAssignedCorner = nil; o.gridStyle = true end,
 	  is = function(o) return o.gridStyle == true end },
 	{ key = "blizzard", label = "Blizzard's Totem Bar", only = HasBlizzardBar,
-	  apply = function(o) o.gridStyle = false; o.compactStyle = false; o.useBlizzardTotemBar = true end,
+	  apply = function(o) o.gridStyle = false; o.compactStyle = false; o.useBlizzardTotemBar = true; o.activeAssignedCorner = nil end,
 	  is = function(o) return o.useBlizzardTotemBar == true end },
 }
 -- Blizzard's bar wins over Grid, Grid over the four looks of ShamanPower's bar,
--- Compact over Dynamic over TotemTimers; Normal is what is left.
-local PRECEDENCE = { "blizzard", "grid", "compact", "dynamic", "totemtimers", "normal" }
+-- Compact over Dynamic over Single Totem over TotemTimers (Single Totem is
+-- TotemTimers with the corner off); Normal is what is left.
+local PRECEDENCE = { "blizzard", "grid", "compact", "dynamic", "single", "totemtimers", "normal" }
 
 local byKey = {}
 for _, st in ipairs(SP.TOTEM_BAR_STYLES) do byKey[st.key] = st end

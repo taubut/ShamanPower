@@ -124,9 +124,27 @@ end
 
 -- Structural work is out of combat, matching the custom bar's anchors. Dots
 -- and pulse retain the slot host even when the active icon pops out beside it.
+-- Pulse Bar Color changed: the hosts' pulse bars, and the bar's own ones kept aside
+function SP:RepaintBlizzardBarPulses()
+	for element, host in pairs(elementHosts) do
+		if host.pulse then SP:ThemePaintPulse(host.pulse, element) end
+	end
+	for element, pulse in pairs(originalPulses) do SP:ThemePaintPulse(pulse, element) end
+end
+
+-- Duration Bar Opacity changed: the hosts' bars follow at once (styleHost sets it too)
+function SP:ApplyBlizzardBarDurationOpacity()
+	local a = SP.opt.durationBarOpacity or 1
+	for _, host in pairs(hosts) do
+		if host.durationBackground then host.durationBackground:SetAlpha(a) end
+		if host.durationBar then host.durationBar:SetAlpha(a) end
+	end
+end
+
 local function styleHost(host, element)
 	local opt, bg, bar, text = SP.opt, host.durationBackground, host.durationBar, host.durationText
 	local position, size = opt.durationBarPosition or "bottom", opt.durationBarHeight or 3
+	bg:SetAlpha(opt.durationBarOpacity or 1); bar:SetAlpha(opt.durationBarOpacity or 1)   -- Duration Bar Opacity
 	local top, bottom, left, right = SP:GetPartyDotPads()
 	host.barPosition, host.barSize = position, size
 	host.barVertical = position == "left" or position == "right" or position == "top_vert" or position == "bottom_vert"
@@ -227,7 +245,8 @@ local function updateDisplay(host, element, active, name, icon, remaining, durat
 		end
 		host.dimmedAssigned:Show()
 	else host.dimmedAssigned:Hide() end
-	if showIcon and host.activeAsMain and not matches and assigned > 0 then
+	-- the assigned totem in the corner (Show Assigned Totem in Corner can turn it off)
+	if showIcon and host.activeAsMain and not matches and assigned > 0 and SP.opt.activeAssignedCorner ~= false then
 		if host.assignedTexture ~= assignedIcon then
 			host.assignedIcon:SetTexture(assignedIcon); host.assignedTexture = assignedIcon
 		end

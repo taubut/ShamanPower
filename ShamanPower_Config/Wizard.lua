@@ -823,7 +823,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 
 	-- A style card under the mouse previews its style without changing anything.
 	local hoverKey
-	local HOVER_MODE = { normal = "normal", totemtimers = "tt", dynamic = "dynamic", compact = "compact", grid = "grid", blizzard = "blizzard" }
+	local HOVER_MODE = { normal = "normal", totemtimers = "tt", single = "single", dynamic = "dynamic", compact = "compact", grid = "grid", blizzard = "blizzard" }
 	-- a profile written on Forever can carry the Blizzard-bar flag onto a client without that bar
 	local blizzardStyle = SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil
 	local function mode()
@@ -832,7 +832,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if OPT().gridStyle then return "grid" end
 		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
-		if OPT().activeTotemAsMain then return "tt" end
+		-- Single Totem = TotemTimers with the corner totem off
+		if OPT().activeTotemAsMain then return (OPT().activeAssignedCorner == false) and "single" or "tt" end
 		return "normal"
 	end
 
@@ -1007,11 +1008,14 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetTexture(e.icon)
 				s.mIcon:SetDesaturated(activeNow); s.mIcon:SetAlpha(activeNow and 0.5 or 1)
 				s.inset:Hide(); s.insetBd:Hide()
-			elseif m == "tt" then
+			elseif m == "tt" or m == "single" then
+				-- the dropped totem takes the button; TotemTimers keeps the assigned one
+				-- in the corner, Single Totem shows nothing else and goes back to it after
 				s.over:Hide()
 				s.mIcon:SetTexture(activeNow and e.active or e.icon)
 				s.mIcon:SetDesaturated(false); s.mIcon:SetAlpha(1)
-				s.inset:SetShown(activeNow); s.insetBd:SetShown(activeNow)
+				local corner = activeNow and m == "tt"
+				s.inset:SetShown(corner); s.insetBd:SetShown(corner)
 			elseif m == "blizzard" then
 				-- Blizzard's slot keeps the assigned totem's icon; ShamanPower's lifetime bar runs under it
 				s.over:Hide()
@@ -1423,6 +1427,10 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		if e.pulse then
 			s.wf = CreateFrame("Frame", nil, b); s.wf:SetFrameLevel(b:GetFrameLevel() + 2)
 			s.wipe = s.wf:CreateTexture(nil, "OVERLAY"); SP:SetSPBarColor(s.wipe, "pulse", 1, 1, 1, 0.7)
+			-- the flash at each pulse, as the bar draws it (green glow around the button, sized outward)
+			s.flash = b:CreateTexture(nil, "OVERLAY", nil, 7); s.flash:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+			s.flash:SetBlendMode("ADD"); s.flash:SetVertexColor(0.4, 1, 0.4); s.flash:SetPoint("CENTER", b, "CENTER", 0, 0)
+			s.flash:SetSize(SIZE * 1.8, SIZE * 1.8); s.flash:SetAlpha(0)
 			s.ptxt = { inside_top = fs(s.wf), inside_bottom = fs(s.wf), above = fs(s.wf), below = fs(s.wf), on_icon = fs(b) }
 			s.ptxt.inside_top:SetPoint("TOP", s.wf, "TOP", 0, -1); s.ptxt.inside_bottom:SetPoint("BOTTOM", s.wf, "BOTTOM", 0, 1)
 			s.ptxt.above:SetPoint("BOTTOM", s.wf, "TOP", 0, 1); s.ptxt.below:SetPoint("TOP", s.wf, "BOTTOM", 0, -1)
@@ -1509,7 +1517,11 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		local dp, tl, ts = O("durationBarPosition", "bottom"), O("durationTextLocation", "none"), px(O("durationTextSize", 8))
 		local showCd, cdc = O("showTotemCooldowns", true), OPT().totemCooldownTextColor
 		local pp, ptl, pts = O("pulseBarPosition", "on_icon"), O("pulseTimeDisplay", "none"), px(O("pulseTextSize", 8))
+		-- Duration Bar / Pulse Bar / Pulse Flash Opacity, as on the real bar
+		local dOp, pOp, fOp = O("durationBarOpacity", 1), O("pulseBarOpacity", 1), O("pulseFlashOpacity", 1)
+		local fc = OPT().pulseFlashColor   -- Pulse Flash Color (green by default)
 		for _, s in ipairs(slots) do
+			s.dbg:SetAlpha(dOp); s.dbar:SetAlpha(dOp)
 			local e = s.e
 			s.t = s.t + el
 			local cycle = e.dur + e.gap
@@ -1560,7 +1572,14 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 					local prog = (s.t % e.pulse) / e.pulse
 					local size = math.max(1, s.pmax * prog)
 					if s.pvert then s.wipe:SetHeight(size) else s.wipe:SetWidth(size) end
-					s.wipe:SetShown(prog > 0.02)
+					s.wipe:SetShown(prog > 0.02); s.wipe:SetAlpha(pOp)
+				end
+				-- the flash: bright at the pulse, gone after 15% of the cycle (0% = off)
+				if s.flash then
+					local prog = (s.t % e.pulse) / e.pulse
+					local k = (vis and fOp > 0 and prog < 0.15) and (1 - prog / 0.15) or 0
+					if fc then s.flash:SetVertexColor(fc.r or 0.4, fc.g or 1, fc.b or 0.4) else s.flash:SetVertexColor(0.4, 1, 0.4) end
+					s.flash:SetAlpha(0.9 * k * fOp)
 				end
 				for k, t in pairs(s.ptxt) do
 					local on = active and ptl == k and (k == "on_icon" or pp ~= "none")
@@ -3810,7 +3829,7 @@ local function PresetSummary(preset)
 	local x = payload and payload.extras or {}
 	local function on(v) return v and "|cff40ff40on|r" or "|cff8090a0off|r" end
 	local function pct(v) return math.floor(v * 100 + 0.5) end   -- scale reads as a percent: 0.9 -> "90%"
-	local style = p.dynamicTotemMode and "Dynamic (PvP)" or (p.activeTotemAsMain and "TotemTimers Style" or "Normal")
+	local style = p.dynamicTotemMode and "Dynamic (PvP)" or (p.activeTotemAsMain and (p.activeAssignedCorner == false and "Single Totem" or "TotemTimers Style") or "Normal")
 	local dbp = ({ none = "none", bottom = "bottom", bottom_vert = "bottom (vertical)", top = "top", top_vert = "top (vertical)", left = "left", right = "right" })[p.durationBarPosition or "bottom"] or tostring(p.durationBarPosition)
 	local dots = (p.showPartyRangeDots and (p.rangeCounter and p.rangeCounter.enabled) and "dots + numbers") or (p.showPartyRangeDots and "dots") or ((p.rangeCounter and p.rangeCounter.enabled) and "numbers") or "off"
 	local lines = {

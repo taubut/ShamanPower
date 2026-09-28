@@ -1049,6 +1049,12 @@ ShamanPower.options = {
 								ShamanPower:FollowStyleSpot()   -- each style keeps its own spot
 							end
 						},
+						singleTotemDesc = {
+							order = 4.2,
+							name = "|cff888888Single Totem: the button shows whatever totem is down, one per slot, but your assignments never change. A click always drops your assigned totem, and the button goes back to it the moment the dropped totem is gone. Right-click a totem in the flyout to change the assignment.|r",
+							type = "description",
+							width = "full",
+						},
 						rightClickCastsAssigned = {
 							order = 4.5,
 							name = "Right-Click Drops Corner Totem",
@@ -1059,7 +1065,8 @@ ShamanPower.options = {
 							type = "toggle",
 							width = "full",
 							hidden = function(info)
-								return not ShamanPower.opt.activeTotemAsMain
+								-- Single Totem has no corner totem (and a click already drops the assigned one)
+								return not ShamanPower.opt.activeTotemAsMain or ShamanPower.opt.activeAssignedCorner == false
 							end,
 							get = function(info)
 								return ShamanPower.opt.rightClickCastsAssigned
@@ -2510,7 +2517,7 @@ ShamanPower.options = {
 								.. " and on the flyout side of a vertical one.",
 								CompactOn, "Compact style is on: it has no separate dropped-totem indicator"
 									.. " (the line is whatever is down), so this does nothing right now.",
-								function() return not CompactOn() and ShamanPower.opt.activeTotemAsMain end, "TotemTimers Style is on: the dropped totem is shown on the button itself with the assigned one in the corner, so only the Earth Shield indicator uses this.",
+								function() return not CompactOn() and ShamanPower.opt.activeTotemAsMain end, "TotemTimers Style or Single Totem is on: the dropped totem is shown on the button itself, so only the Earth Shield indicator uses this.",
 								function() return not CompactOn() and ShamanPower.opt.dynamicTotemMode end,
 								"Dynamic Mode is on: whatever you drop becomes the assigned totem,"
 									.. " so there is never a separate dropped-totem indicator to place.")),
@@ -7919,7 +7926,7 @@ ShamanPower.options = {
 							disabled = function(info) return (CompactOn()) and true or false end,
 							order = 1,
 							type = "select",
-							name = "Bar Position",
+							name = "Duration Bar Position",
 							desc = "Position of the duration bar relative to totem icons (or None to disable)",
 							width = 1.1,
 							values = {
@@ -7944,7 +7951,7 @@ ShamanPower.options = {
 							disabled = function(info) return (CompactOn()) and true or false end,
 							order = 2,
 							type = "range",
-							name = "Bar Size",
+							name = "Duration Bar Size",
 							desc = "Size of the duration bar (height for horizontal bars, width for vertical bars)",
 							width = 0.8,
 							min = 2,
@@ -7959,6 +7966,25 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.durationBarHeight = val
 								ShamanPower:UpdateTotemProgressBarHeight()
+							end
+						},
+						duration_bar_opacity = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 2.05,
+							type = "range",
+							name = "Duration Bar Opacity",
+							desc = "How visible the duration bars and their dark track are.",
+							width = 0.8,
+							min = 0.1, max = 1, step = 0.05, isPercent = true,
+							hidden = function()
+								return ShamanPower.opt.durationBarPosition == "none"
+							end,
+							get = function(info)
+								return ShamanPower.opt.durationBarOpacity or 1
+							end,
+							set = function(info, val)
+								if val >= 1 then ShamanPower.opt.durationBarOpacity = nil else ShamanPower.opt.durationBarOpacity = val end
+								ShamanPower:ApplyDurationBarOpacity()
 							end
 						},
 						show_duration_text = {
@@ -8180,6 +8206,89 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.pulseBarSize = val
 								ShamanPower:UpdatePulseBarPositions()
+							end
+						},
+						pulse_bar_opacity = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 4.51,
+							type = "range",
+							name = "Pulse Bar Opacity",
+							desc = "How visible the pulse bar is (the bar that fills up to each pulse of a totem like Healing Stream or Tremor). The countdown text stays fully visible.",
+							width = 0.8,
+							min = 0.1, max = 1, step = 0.05, isPercent = true,
+							hidden = function()
+								return ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseBarPosition == "on_icon"
+							end,
+							get = function(info)
+								return ShamanPower.opt.pulseBarOpacity or 1
+							end,
+							set = function(info, val)
+								if val >= 1 then ShamanPower.opt.pulseBarOpacity = nil else ShamanPower.opt.pulseBarOpacity = val end
+								-- the next pulse pass restarts the bars with it
+								for _, c in pairs(ShamanPower.pulseOverlays or {}) do if c then c._pState = nil end end
+							end
+						},
+						pulse_bar_color = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 4.515,
+							type = "color",
+							name = "Pulse Bar Color",
+							desc = "Color of the pulse bar and the pulse wipe on the icon. White by default. A theme on General > Themes can color it too; a color picked here shows over the theme (the Themes tab then says Custom), and Standard puts back the color you had before the theme.",
+							width = 1.0,
+							hidden = function()
+								return ShamanPower.opt.pulseBarPosition == "none"
+							end,
+							get = function(info)
+								local c = ShamanPower.opt.pulseBarColor
+								if c then return c.r or 1, c.g or 1, c.b or 1 end
+								local r, g, b = ShamanPower:ThemeColor("tb.pulse", 1)
+								if r then return r, g, b end   -- what the theme shows now
+								return 1, 1, 1
+							end,
+							set = function(info, r, g, b)
+								-- a setting like Cooldown Text Color: over a theme it shows and makes
+								-- the Themes tab say Custom; Standard puts back the pre-theme colour
+								ShamanPower.opt.pulseBarColor = { r = r, g = g, b = b }
+								ShamanPower:RepaintPulseBarColors()
+							end
+						},
+						pulse_flash_opacity = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 4.52,
+							type = "range",
+							name = "Pulse Flash Opacity",
+							desc = "How bright the flash around the button is each time a totem like Healing Stream or Tremor pulses. 0% turns the flash off.",
+							width = 0.8,
+							min = 0, max = 1, step = 0.05, isPercent = true,
+							hidden = function()
+								return ShamanPower.opt.pulseBarPosition == "none"
+							end,
+							get = function(info)
+								return ShamanPower.opt.pulseFlashOpacity or 1
+							end,
+							set = function(info, val)
+								if val >= 1 then ShamanPower.opt.pulseFlashOpacity = nil else ShamanPower.opt.pulseFlashOpacity = val end
+							end
+						},
+						pulse_flash_color = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 4.53,
+							type = "color",
+							name = "Pulse Flash Color",
+							desc = "Color of the flash around the button each time a totem like Healing Stream or Tremor pulses. Green by default.",
+							width = 1.0,
+							hidden = function()
+								return ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseFlashOpacity == 0
+							end,
+							get = function(info)
+								local c = ShamanPower.opt.pulseFlashColor
+								if c then return c.r or 0.4, c.g or 1, c.b or 0.4 end
+								return 0.4, 1, 0.4
+							end,
+							set = function(info, r, g, b)
+								ShamanPower.opt.pulseFlashColor = { r = r, g = g, b = b }
+								-- the next pulse pass restarts the flashes with it
+								for _, c in pairs(ShamanPower.pulseOverlays or {}) do if c then c._pState = nil end end
 							end
 						},
 						pulse_time_display = {
@@ -10099,6 +10208,17 @@ do
 			if SP.ApplyBlizzardTotemBarHiding then SP:ApplyBlizzardTotemBarHiding() end
 		end,
 	}
+	-- and under it, the totem timers WoW draws under the player frame (both clients)
+	main.hide_player_totems = {
+		order = 1.56, type = "toggle", name = "Hide Blizzard's Totem Timers", width = "full",
+		desc = "Hide the small totem icons and timers WoW shows under your player frame. Your totems stay on ShamanPower's bar. They come back when you turn this off, or when ShamanPower is switched off.",
+		hidden = function() return not isShaman end,
+		get = function() return SP.opt.hidePlayerTotems and true or false end,
+		set = function(_, value)
+			if value then SP.opt.hidePlayerTotems = true else SP.opt.hidePlayerTotems = nil end
+			SP:ApplyPlayerTotemFrame()
+		end,
+	}
 	SP.OptionHoverStyle = {
 		[main.totemBarStyle] = "select",
 		[mode.dynamicMode] = "dynamic",
@@ -10786,6 +10906,7 @@ do
 	onlyStyles("dynamicMode", { dynamic = true, grid = true })
 	onlyStyles("dynamicModeDesc", { normal = true, dynamic = true, grid = true })
 	onlyStyles("activeTotemAsMain", { totemtimers = true, blizzard = true })
+	onlyStyles("singleTotemDesc", { single = true })
 	onlyStyles("compactStyle", { compact = true })
 	onlyStyles("compactOptions", { compact = true })
 	for _, key in ipairs({ "gridStyle", "gridDropAssigns", "gridSplit",
@@ -10967,4 +11088,60 @@ do
 			"tremor_test", "tremor_hide_test", "tremor_commands_desc",
 		} },
 	})
+end
+
+-- Totem Bar > Duration Bars: "Only Show Pulse Bars for Specific Totems", then one
+-- switch per totem that pulses (ShamanPower.PulsingTotems), on unless turned off.
+do
+	local SP = ShamanPower
+	local sec = SP.options.args.fluffy.args.totembar_duration_section
+	local args = sec and sec.args
+	if args then
+		-- key in ShamanPower.PulsingTotems, a spell for the name and the client check
+		local PULSING = {
+			{ "Tremor", 8143 }, { "Earthbind", 2484 }, { "Stoneclaw", 5730 }, { "Magma", 8190 },
+			{ "Healing Stream", 5394 }, { "Mana Spring", 5675 }, { "Mana Tide", 16190 },
+			{ "Poison Cleansing", 8166 }, { "Disease Cleansing", 8170 },
+		}
+		local function pulseOff() return (SP.opt.pulseBarPosition or "none") == "none" end
+		args.pulse_only_some = {
+			order = 9, type = "toggle", width = "full",
+			name = "Only Show Pulse Bars for Specific Totems",
+			desc = "Turn this on to pick which totems get a pulse bar. Every totem that pulses is listed below; turn off the ones you don't want. A totem turned off also gets no pulse flash or pulse time.",
+			disabled = function() return CompactOn() end,
+			hidden = pulseOff,
+			get = function() return SP.opt.pulseOnlySome and true or false end,
+			set = function(_, val)
+				if val then SP.opt.pulseOnlySome = true else SP.opt.pulseOnlySome = nil end
+			end,
+		}
+		for i, t in ipairs(PULSING) do
+			local key, spell = t[1], t[2]
+			args["pulse_totem_" .. key:gsub("%s", ""):lower()] = {
+				order = 9 + i / 100, type = "toggle", width = 1.4,
+				name = function()
+					local n = GetSpellInfo and GetSpellInfo(spell)
+					if type(n) == "string" and n ~= "" then return n end
+					return key .. " Totem"
+				end,
+				desc = "Show the pulse bar for this totem.",
+				disabled = function() return CompactOn() end,
+				hidden = function()
+					if pulseOff() or not SP.opt.pulseOnlySome then return true end
+					-- totems this client does not have are left out
+					if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(spell) then return true end
+					return false
+				end,
+				get = function() return not (SP.opt.pulseTotemsOff and SP.opt.pulseTotemsOff[key]) end,
+				set = function(_, val)
+					if val then
+						if SP.opt.pulseTotemsOff then SP.opt.pulseTotemsOff[key] = nil end
+					else
+						SP.opt.pulseTotemsOff = SP.opt.pulseTotemsOff or {}
+						SP.opt.pulseTotemsOff[key] = true
+					end
+				end,
+			}
+		end
+	end
 end

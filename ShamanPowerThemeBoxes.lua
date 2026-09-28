@@ -548,7 +548,7 @@ local function BoxOn(s, spot)
 	if s.mockBar then
 		local W = SP.Wizard
 		local st = SP.GetTotemBarStyle and SP:GetTotemBarStyle(W and W.optOverride or nil) or "normal"
-		if st ~= "normal" and st ~= "totemtimers" and st ~= "dynamic" then return false end
+		if st ~= "normal" and st ~= "totemtimers" and st ~= "single" and st ~= "dynamic" then return false end
 	end
 	return Boxed(spot)
 end

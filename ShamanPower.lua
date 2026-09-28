@@ -1195,6 +1195,7 @@ function ShamanPower:OnEnable()
 		self:CreateLoadoutBar()
 		self:UpdateLoadoutBar()
 	end
+	self:ApplyPlayerTotemFrame()
 end
 
 -- Called when combat ends - reset Drop All castsequence
@@ -1673,9 +1674,32 @@ end
 -- cooldown key bindings are cleared, and messages still waiting to go out are
 -- dropped. On: bindings back, the shield / Earth Shield / buff reads that slept
 -- are taken fresh, and the group hears from us (and we ask for its data).
+-- Hide Blizzard's Totem Timers (Totem Bar > Bar): the small totem icons and
+-- timers the game draws under the player frame (TotemFrame). Faded out and
+-- made click-through, never hidden: the game shows it again on every totem
+-- change, and hiding it would run Blizzard's player-frame layout from addon
+-- code (taint). The hook is only put on once the option is used.
+function ShamanPower:ApplyPlayerTotemFrame()
+	local f = _G.TotemFrame
+	if not (f and f.totemPool) then return end
+	local hide = (self.opt and self.opt.hidePlayerTotems and not self:IsOff()) and true or false
+	if hide and not self._playerTotemHooked and type(f.Update) == "function" then
+		self._playerTotemHooked = true
+		-- the pool hands out buttons again on every totem change: keep them click-through
+		hooksecurefunc(f, "Update", function(frame)
+			local on = not ShamanPower._playerTotemHidden
+			for b in frame.totemPool:EnumerateActive() do b:EnableMouse(on) end
+		end)
+	end
+	self._playerTotemHidden = hide
+	f:SetAlpha(hide and 0 or 1)
+	for b in f.totemPool:EnumerateActive() do b:EnableMouse(not hide) end
+end
+
 ShamanPower:OnOnOff(function(off)
 	local sp = ShamanPower
 	sp._appliedOff = off
+	sp:ApplyPlayerTotemFrame()   -- switched off: Blizzard's totem timers come back
 	if sp.updateSystem.frame then sp.updateSystem.frame:SetShown(not off) end
 	sp:SetupKeybindings()
 	if off then
@@ -2597,17 +2621,24 @@ function ShamanPower:PulseVisualSync(o, start, interval, now)
 				setScaleAnim(sc, 1, 1, full / cur, 1)
 			end
 			sc:SetDuration(math.max(0.01, (1 - phase) * interval))
+			wipe:SetAlpha(self.opt.pulseBarOpacity or 1)   -- Pulse Bar Opacity (Duration Bars)
 			wipe:Show()
 			ag:Play()
 		end
 	end
 
-	-- the glow flash: bright at the pulse, gone after PULSE_FLASH of the cycle
+	-- the glow flash: bright at the pulse, gone after PULSE_FLASH of the cycle;
+	-- Pulse Flash Opacity (Duration Bars) scales it, and 0% leaves it out
 	local glows = o.glows
+	local flash = self.opt.pulseFlashOpacity or 1
 	if glows then
-		if phase < PULSE_FLASH then
+		if phase < PULSE_FLASH and flash > 0 then
 			local k = 1 - phase / PULSE_FLASH
 			local dur = math.max(0.01, (PULSE_FLASH - phase) * interval)
+			-- Pulse Flash Color (Duration Bars); the green it always had by default
+			local fc = self.opt.pulseFlashColor
+			local fr, fg, fb = 0.4, 1, 0.4
+			if fc then fr, fg, fb = fc.r or 0.4, fc.g or 1, fc.b or 0.4 end
 			if not o._glowAG then o._glowAG = {} end
 			for i, g in ipairs(glows) do
 				local ag = o._glowAG[i]
@@ -2619,7 +2650,8 @@ function ShamanPower:PulseVisualSync(o, start, interval, now)
 					o._glowAG[i] = ag
 				end
 				ag:Stop()
-				local a0 = 0.9 * (1.1 - i * 0.2) * k   -- inner glows brighter, as before
+				local a0 = 0.9 * (1.1 - i * 0.2) * k * flash   -- inner glows brighter, as before
+				g:SetVertexColor(fr, fg, fb)
 				ag.fade:SetFromAlpha(a0); ag.fade:SetToAlpha(0); ag.fade:SetDuration(dur)
 				g:SetAlpha(a0); g:Show()
 				ag:Play()
@@ -3036,11 +3068,17 @@ function ShamanPower:GetActivePulsingTotem(element)
 		if data == nil then
 			data = false
 			for pattern, entry in pairs(self.PulsingTotems) do
-				if entry.element == element and totemName:find(pattern) then data = entry break end
+				if entry.element == element and totemName:find(pattern) then data = entry; entry.key = pattern break end
 			end
 			pulsingByName[key] = data
 		end
-		if data then return data, startTime, duration end
+		-- Only Show Pulse Bars for Specific Totems (Duration Bars): a totem turned
+		-- off there does not pulse on the bar (no pulse bar, flash or pulse time)
+		if data then
+			local o = self.opt
+			if o.pulseOnlySome and o.pulseTotemsOff and o.pulseTotemsOff[data.key] then return nil, nil, nil end
+			return data, startTime, duration
+		end
 	end
 	return nil, nil, nil
 end
@@ -3404,6 +3442,18 @@ ShamanPower.DurationBarColors = {
 	[4] = {0.8, 0.8, 0.8},  -- Air - white/gray
 }
 
+-- Duration Bar Opacity (Totem Bar > Duration Bars): the colored bar and its
+-- dark track, on ShamanPower's bar and on Blizzard's (WoW: Forever). Set once
+-- per change, nothing per frame.
+function ShamanPower:ApplyDurationBarOpacity()
+	local a = self.opt and self.opt.durationBarOpacity or 1
+	for _, b in pairs(self.totemProgressBars or {}) do
+		if b.bg then b.bg:SetAlpha(a) end
+		if b.bar then b.bar:SetAlpha(a) end
+	end
+	if self.ApplyBlizzardBarDurationOpacity then self:ApplyBlizzardBarDurationOpacity() end
+end
+
 -- Create progress bars for totem buttons
 function ShamanPower:SetupTotemProgressBars()
 	local barSize = self.opt.durationBarHeight or 3
@@ -3689,6 +3739,7 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 			end
 		end
 	end
+	self:ApplyDurationBarOpacity()   -- new bars, or a settings change
 end
 
 -- Format duration time as M:SS or just seconds (with caching to avoid string garbage)
@@ -4705,6 +4756,16 @@ function ShamanPower:UpdateActiveTotemOverlays()
 			local totemButton = self.totemButtons[element]
 			local useActiveAsMain = self.opt.activeTotemAsMain
 
+			-- TotemTimers Style hides the totem that is DOWN from the flyout (the others
+			-- hide the assigned one), so a drop changes the hidden choice. Only a hover
+			-- redrew it: a flyout left open after a pick kept a gap and a stale button.
+			-- Redrawn here when the totem changes (out of combat; the flyout's buttons
+			-- are secure, and a fight's change is picked up once it ends).
+			if useActiveAsMain and not twistingAir and not InCombatLockdown() and overlay.cFlyName ~= nowName then
+				overlay.cFlyName = nowName
+				self:UpdateFlyoutVisibility(element)
+			end
+
 			if showOverlay and activeIcon then
 				overlay.isActive = true
 
@@ -4727,9 +4788,10 @@ function ShamanPower:UpdateActiveTotemOverlays()
 					if assignedIndex == 0 and totemButton.emptyArt then totemButton.emptyArt:Hide() end
 
 					-- Show assigned indicator in corner (none when nothing is assigned:
-					-- index 0 has no icon, GetTotemIcon would give the question mark)
+					-- index 0 has no icon, GetTotemIcon would give the question mark;
+					-- none either with Show Assigned Totem in Corner off)
 					if totemButton.assignedIndicator and totemButton.assignedIndicatorIcon then
-						if assignedIndex > 0 then
+						if assignedIndex > 0 and self.opt.activeAssignedCorner ~= false then
 							totemButton.assignedIndicatorIcon:SetTexture(self:GetTotemIcon(element, assignedIndex))
 							totemButton.assignedIndicator:Show()
 						else
@@ -20003,10 +20065,16 @@ function ShamanPower:ThemeActive() return false end
 function ShamanPower:ThemeAlpha() return nil end
 
 -- tb.pulse: the pulse wipe / pulse bar of one pulse visual (white today, 70%).
+-- Pulse Bar Color (Totem Bar > Duration Bars) first: a theme clears it while it
+-- is picked (the engine keeps the player's colour for Standard), so a colour
+-- there means the player picked it; then the theme's colour; then white.
 function ShamanPower:ThemePaintPulse(o, element)
 	local wipe = o and o.wipe
 	if not (wipe and element) then return end
-	local r, g, b = self:ThemeColor("tb.pulse", element)
+	local r, g, b
+	local own = self.opt and self.opt.pulseBarColor
+	if own then r, g, b = own.r or 1, own.g or 1, own.b or 1
+	else r, g, b = self:ThemeColor("tb.pulse", element) end
 	if r then
 		self:SetSPBarColor(wipe, "pulse", r, g, b, 0.7)
 		o.spThemePulse = true
@@ -20014,6 +20082,19 @@ function ShamanPower:ThemePaintPulse(o, element)
 		o.spThemePulse = nil
 		self:SetSPBarColor(wipe, "pulse", 1, 1, 1, 0.7)
 	end
+end
+
+-- Pulse Bar Color changed: every pulse bar and wipe takes it now
+function ShamanPower:RepaintPulseBarColors()
+	for element = 1, 4 do
+		self:ThemePaintPulse(self.pulseOverlays and self.pulseOverlays[element], element)
+		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
+		if ov then self:ThemePaintPulse(ov, element) end
+	end
+	if self.poppedOutOverlays then
+		for _, o in pairs(self.poppedOutOverlays) do self:ThemePaintPulse(o, o.element) end
+	end
+	if self.RepaintBlizzardBarPulses then self:RepaintBlizzardBarPulses() end
 end
 
 -- tb.duration-text: one duration time text (white today).
@@ -20333,6 +20414,29 @@ function ShamanPower:ThemeRegisterCore()
 			SP:ApplyElementColors()
 		  end,
 		  shamanpower = function() return SP:ThemeSpotPalette("pal.element") or "shamanpower" end,
+		},
+	})
+
+	-- tb.pulse: Totem Bar > Duration Bars > Pulse Bar Color. A theme that colours
+	-- the pulse clears it while it is picked (its own colours show; the player's
+	-- is kept and Standard puts it back). A colour picked on Duration Bars in the
+	-- meantime shows over the theme, and the Themes tab says Custom.
+	SP:ThemeSpotSettings("tb.pulse", {
+		{ key = "pulseBarColor", follows = "choice",
+		  get = function()
+			local c = SP.opt and SP.opt.pulseBarColor
+			if type(c) == "table" then return { r = c.r or 1, g = c.g or 1, b = c.b or 1 } end
+			return false
+		  end,
+		  set = function(v)
+			if type(v) == "table" then
+				SP.opt.pulseBarColor = { r = v.r or v[1] or 1, g = v.g or v[2] or 1, b = v.b or v[3] or 1 }
+			else
+				SP.opt.pulseBarColor = nil
+			end
+			SP:RepaintPulseBarColors()
+		  end,
+		  shamanpower = false,
 		},
 	})
 

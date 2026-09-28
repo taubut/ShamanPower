@@ -2132,7 +2132,7 @@ do
 	local main = root and root.settings.args.settings_show
 	if main then
 		sp.OrderSettingsBands(main, {
-			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar" } },
+			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar", "hide_player_totems" } },
 			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
 			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
