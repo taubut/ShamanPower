@@ -2153,6 +2153,30 @@ function Page:Render(body, W, onChanged)
 		onChanged = PageChanged,
 	})
 	y = y + 4 + bh
+	-- the emergency button: every color in ShamanPower back to how it came
+	local _, rh = Widgets:Button(body, {
+		label = "Reset All Colors to Default", buttonText = "Reset All Colors", x = 0, y = y + 4, width = W,
+		desc = "Mixed things up and want a clean start? This puts every color in ShamanPower back to how it came: the Standard theme with nothing changed, and every color option on every page. It asks first, then reloads your interface.",
+		func = function()
+			SP:ShowSPDialog({
+				key = "resetallcolors",
+				title = "Reset All Colors?",
+				text = "Every color in ShamanPower goes back to how it came:\n\n"
+					.. "- the Standard theme, with no per-part choices, color edits or element-colored borders\n"
+					.. "- the default Element Colors and Status Colors\n"
+					.. "- every color option on every page: Cooldown Text, Pulse Bar and Pulse Flash, Compact outline, Mana Tint, Ready Reminders and Tremor Reminder\n\n"
+					.. "Nothing else changes. If you were using a Custom look, it stays on the Custom card. Your interface reloads to finish.",
+				buttons = {
+					{ text = "Reset and Reload", onClick = function()
+						SP:ResetAllColorsToDefault()
+						ReloadUI()
+					end },
+					{ text = "Cancel" },
+				},
+			})
+		end,
+	})
+	y = y + 4 + rh
 	for _, mod in ipairs(SP.THEME_MODULES) do
 		if ModuleShown(mod) then y = RenderModule(mod, y, W) end
 	end

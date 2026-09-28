@@ -17,6 +17,7 @@ ns.StyleCaptions = {
 	normal = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one grays out until it expires.",
 	totemtimers = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires.",
 	dynamic = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP.",
+	single = "Like Dynamic, the button shows whatever totem is down, one per slot, but your assigned totems never change: a click always drops your assigned totem, and the slot goes back to it the moment the dropped totem is gone. Great for PvP.",
 	compact = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged.",
 	grid = "Every totem of every element stays visible in rows. Click one to drop it; the assigned one is highlighted"
 		.. " and the dropped one carries the timer. Split by Element (Totem Bar > Style)"

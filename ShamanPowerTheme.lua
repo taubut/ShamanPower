@@ -252,7 +252,7 @@ SP.THEME_MODULES = {
 		  note = "The Cooldown Text Color setting on Totem Bar > Duration Bars. The ShamanPower themes set it to white; you can still change it there." },
 		{ id = "tb.pulse", label = "Pulse Wipe and Pulse Bar", choices = CHOICES_PULSE, choiceDefault = CHOICE_DEFAULT,
 		  roles = E4({ "FFFFFF", "FFFFFF", "FFFFFF", "FFFFFF" }, "choice"),
-		  note = "The pulse wipe on the icons and the pulse bar: white, the element color or logo blue." },
+		  note = "The pulse wipe on the icons and the pulse bar: white, the element color or logo blue. Pulse Bar Color on Totem Bar > Duration Bars can still change it." },
 		{ id = "tb.dots-missing", label = "Party Dots: Missing Buff", roles = { Role("missing", "Missing Buff", "wow", "RED_FONT_COLOR", "FF0000") },
 		  note = "The dot for a party member without your totem's buff." },
 		{ id = "tb.dots-class", label = "Party Dots: Class Colors", roles = {},
@@ -1451,6 +1451,42 @@ function SP:ResetThemeColors()
 		end
 	end
 	Changed("colors")
+end
+
+-- Reset All Colors (General > Themes, the emergency button): the Themes tab back
+-- to Standard with nothing overridden (a Custom look is kept on the Custom card
+-- first, as a theme card does), then every colour setting in ShamanPower back to
+-- how it comes, the modules' own included. The caller reloads the interface.
+local RESET_COLOR_KEYS = { "elementColorPalette", "elementColorsCustom", "cBuffGood", "cBuffNeedSome",
+	"cBuffNeedAll", "compactOutlineColorMode", "compactOutlineColor", "compactIdleColor",
+	"totemCooldownTextColor", "pulseBarColor", "pulseFlashColor", "manaTintColor",
+	"shieldChargeColors", "cdbarSpellColors" }
+function SP:ResetAllColorsToDefault()
+	local t = T()
+	if t then
+		if SP:ThemeIsCustom() then CaptureCustom(t) end
+		t.global, t.spots, t.palette, t.shield = nil, nil, nil, nil
+		t.borders, t.bordersFlyouts, t.bordersCooldown, t.showAs = nil, nil, nil, nil
+		Changed(true)   -- the pre-theme settings come back first; the defaults go over them
+	end
+	local o = SP.opt
+	if type(o) ~= "table" then return end
+	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
+	for _, k in ipairs(RESET_COLOR_KEYS) do o[k] = Copy(defaults[k]) end
+	if type(o.rangeCounter) == "table" then
+		local d, v = defaults.rangeCounter, nil
+		if type(d) == "table" then v = d.useElementColors end
+		o.rangeCounter.useElementColors = v
+	end
+	-- the modules keep theirs in their own saved tables (nil = their default)
+	if type(ShamanPower_ReadyReminders) == "table" then
+		ShamanPower_ReadyReminders.borderColor = nil
+		ShamanPower_ReadyReminders.glowColor = nil
+		ShamanPower_ReadyReminders.barColor = nil
+	end
+	if type(ShamanPowerTremorReminderDB) == "table" then
+		ShamanPowerTremorReminderDB.glowColor = { r = 1, g = 0.8, b = 0 }
+	end
 end
 
 -- profile change (and anyone who needs a full re-resolve): reconcile every

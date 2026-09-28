@@ -4,7 +4,7 @@
   "clientEnum": ["other", "WoW: Forever", "TBC Anniversary"],
   "specEnum": ["unknown", "Restoration", "Enhancement", "Elemental"],
   "setupPathEnum": ["unknown", "tour", "quick", "skipped", "declined", "windfury"],
-  "styleEnum": ["unknown", "normal", "totemtimers", "dynamic", "compact", "grid", "blizzard"],
+  "styleEnum": ["unknown", "normal", "totemtimers", "dynamic", "compact", "grid", "blizzard", "single"],
   "layout": "bytes: version, client, isShaman, spec, levelBucket(level/10), setupPath, style, featureCount N, then ceil(N/8) bytes of feature bits (feature i = bit (i-1)%8 of byte 9+floor((i-1)/8), least significant first); base64url A-Z a-z 0-9 - _, no padding",
   "features": [
     {"key": "cooldownBar", "label": "Cooldown bar shown"},

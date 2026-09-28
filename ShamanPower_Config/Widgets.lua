@@ -481,6 +481,18 @@ local function CreateSlider(parent)
 
 	row.box, row.slider, row.fill = box, slider, fill
 	row._applying = false
+	-- Widgets.sliderDragging: a slider thumb is held down. The live preview waits for the
+	-- release before rebuilding (Window.lua PreviewChanged), so a drag stays smooth.
+	slider:HookScript("OnMouseDown", function() Widgets.sliderDragging = true end)
+	slider:HookScript("OnMouseUp", function()
+		Widgets.sliderDragging = false
+		local opts = row.opts
+		if not opts or row._disabled then return end
+		local pv = row._pendingV   -- the last value of the drag, not yet set
+		if pv ~= nil then row._pendingV = nil; opts.set(pv) end
+		if opts.onChanged then opts.onChanged() end   -- the page and preview, once, with the final value
+	end)
+	slider:HookScript("OnHide", function() Widgets.sliderDragging = false end)
 
 	slider:SetScript("OnValueChanged", function(self, v)
 		if row._applying then return end
@@ -489,6 +501,29 @@ local function CreateSlider(parent)
 		box:SetText(SliderFormat(row, v))
 		SliderPaintFill(row, v)
 		if row._disabled then return end
+		if Widgets.sliderDragging then
+			-- Held down: running the setting and the whole page (every row, the sidebar,
+			-- the live preview) on every frame of a drag dropped the game to a crawl. The
+			-- value goes to the setting twenty times a second, the page and preview follow
+			-- ten times a second, and the release applies the last value at once.
+			row._pendingV = v
+			if not row._setQueued then
+				row._setQueued = true
+				C_Timer.After(0.05, function()
+					row._setQueued = false
+					local pv = row._pendingV
+					if row.opts == opts and pv ~= nil then row._pendingV = nil; opts.set(pv) end
+				end)
+			end
+			if opts.onChanged and not row._changeQueued then
+				row._changeQueued = true
+				C_Timer.After(0.1, function()
+					row._changeQueued = false
+					if row.opts == opts and opts.onChanged then opts.onChanged() end
+				end)
+			end
+			return
+		end
 		opts.set(v)
 		if opts.onChanged then opts.onChanged() end
 	end)
@@ -553,7 +588,9 @@ function Widgets:Slider(parent, opts)
 	-- that must never reach the new opts.set.
 	row._applying = true
 	row.slider:SetMinMaxValues(row.min, row.max)
-	row.slider:SetValueStep(row.step)
+	-- a percentage drags in 1% steps whatever its option's step (5% was too coarse);
+	-- the box beside it still takes any typed value
+	row.slider:SetValueStep(row.isPercent and math.min(row.step, 0.01) or row.step)
 	row._applying = false
 
 	return FinishRow(row, parent, SLIDER_W + NUMBOX_W + 8)

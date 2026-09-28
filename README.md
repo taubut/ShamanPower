@@ -6,7 +6,7 @@ All-in-one totem management, cooldown tracking and raid coordination for Shamans
 
 ![ShamanPower totem bar and cooldown bar](screenshots/01-overview-totem-bar-and-cooldown-bar.png)
 
-- **Totem bar** — drop, assign and twist totems from one bar with flyouts, duration bars, pulse timers and cooldown swipes. Three display styles: Normal, TotemTimers-style and Dynamic (PvP)
+- **Totem bar** — drop, assign and twist totems from one bar with flyouts, duration bars, pulse timers and cooldown swipes. Seven display styles: Normal, TotemTimers Style, Dynamic (PvP), Single Totem, Compact (lines), Grid (every totem) and, on WoW: Forever, Blizzard's own totem bar
 - **Cooldown bar** — shield charges and flyout, weapon imbues, Ankh, Nature's Swiftness, Mana Tide, Shamanistic Rage, Bloodlust/Heroism, Elemental Mastery, Totemic Call
 - **Party Buff Tracker** — a dot per party member on each totem (class colour in range, red out of range) or a count, or both
 - **Raid Cooldowns** — assign and call Bloodlust/Heroism, Mana Tide and Drums of Battle; the assigned player gets a big "USE … NOW" alert. Callers can be any class

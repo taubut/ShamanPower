@@ -635,9 +635,17 @@ end
 -- bar mocks are rebuilt (new frames each time, which WoW never frees), so a
 -- slider drag waits until the value settles for 0.3 s, or 1 s at most.
 local remountQueued, lastChange, firstChange = false, 0, 0
+local feedQueued = false
+-- a slider thumb held down right now (the button still down: a release off the slider counts)
+local function SliderHeld()
+	if not Widgets.sliderDragging then return false end
+	if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then Widgets.sliderDragging = false; return false end
+	return true
+end
 local function remountWhenSettled()
 	local now = GetTime()
-	if now - lastChange < 0.3 and now - firstChange < 1 then C_Timer.After(0.1, remountWhenSettled) return end
+	-- a slider still held down: wait for the release (a rebuild mid-drag made it stutter)
+	if SliderHeld() or (now - lastChange < 0.3 and now - firstChange < 1) then C_Timer.After(0.1, remountWhenSettled) return end
 	remountQueued = false
 	SPConfig:UpdatePreviewPane(true)
 end
@@ -651,6 +659,11 @@ function SPConfig:PreviewChanged(themeChanged)
 		if remountQueued then return end
 		remountQueued, firstChange = true, lastChange
 		C_Timer.After(0.1, remountWhenSettled)
+	elseif SliderHeld() then
+		-- module previews re-run their demo: at most ten times a second while dragging
+		if feedQueued then return end
+		feedQueued = true
+		C_Timer.After(0.1, function() feedQueued = false; SPConfig:UpdatePreviewPane() end)
 	else
 		self:UpdatePreviewPane()
 	end
@@ -2132,7 +2145,7 @@ do
 	local main = root and root.settings.args.settings_show
 	if main then
 		sp.OrderSettingsBands(main, {
-			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar" } },
+			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar", "hide_player_totems" } },
 			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
 			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
