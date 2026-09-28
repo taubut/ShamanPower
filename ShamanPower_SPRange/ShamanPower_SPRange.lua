@@ -354,6 +354,24 @@ function SP:SPRangeOwnTotemInRange(totemData)
 	return self:TotemDropInRange(totemData.element)
 end
 
+-- Theme looks (General > Themes, ShamanPowerTheme.lua), spot mod.range-colors:
+-- the overlay panel's background and border. On Standard every read is nil and
+-- SP:ApplyPanelBackdrop's colours stay; `restore` puts them back (the Themes
+-- tab went back to Standard).
+local THEME_SPOT = "mod.range-colors"
+local function ThemeRGB(role)
+	if SP.ThemeColor then return SP:ThemeColor(THEME_SPOT, role) end
+end
+local function ThemePanel(frame, restore)
+	local bg, edge = SP.PANEL_BG, SP.PANEL_BORDER
+	local r, g, b = ThemeRGB("bg")
+	if r then frame:SetBackdropColor(r, g, b, (SP.ThemeAlpha and SP:ThemeAlpha(THEME_SPOT, "bg")) or bg[4])
+	elseif restore then frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4]) end
+	r, g, b = ThemeRGB("border")
+	if r then frame:SetBackdropBorderColor(r, g, b, edge[4])
+	elseif restore then frame:SetBackdropBorderColor(edge[1], edge[2], edge[3], edge[4]) end
+end
+
 -- Create the SPRange frame
 function SP:CreateSPRangeFrame()
 	if self.spRangeFrame then return self.spRangeFrame end
@@ -367,6 +385,7 @@ function SP:CreateSPRangeFrame()
 
 	-- Backdrop
 	SP:ApplyPanelBackdrop(frame)
+	ThemePanel(frame)
 
 	-- Title
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -755,6 +774,7 @@ function SP:UpdateSPRangeBorder()
 	else
 		-- Show border and background
 		SP:ApplyPanelBackdrop(self.spRangeFrame)
+		ThemePanel(self.spRangeFrame)
 		if self.spRangeFrame.title then
 			self.spRangeFrame.title:Show()
 		end
@@ -1287,6 +1307,15 @@ function SP:SPRangeDemo(on)
 		self:UpdateSPRangeStatus()
 		self:UpdateSPRangeVisibility()
 	end
+end
+
+-- A theme change (General > Themes): the overlay panel takes the new colours
+-- now (nothing here is protected, so combat does not matter)
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		local frame = SP.spRangeFrame
+		if frame and not (SP.opt and SP.opt.rangeTracker and SP.opt.rangeTracker.hideBorder) then ThemePanel(frame, true) end
+	end)
 end
 
 -- Register the range overlay with the setup wizard preview harness

@@ -558,6 +558,42 @@ function SP:ShowManaTideAlert()
 	WatchOwnManaTide()
 end
 
+-- ============================================================================
+-- THEME (General > Themes, spot mod.raidcd-colors): the caller buttons' panel
+-- and the center alert's text. Looks only. On Standard every read is nil and
+-- the colours set below stay exactly as they are; a theme change repaints
+-- (restore = true puts today's colours back).
+-- ============================================================================
+local THEME_SPOT = "mod.raidcd-colors"
+
+local function ThemePaintPanel(frame, restore)
+	if not SP.ThemeColor then return end
+	local r, g, b = SP:ThemeColor(THEME_SPOT, "bg")
+	if r then
+		frame:SetBackdropColor(r, g, b, SP:ThemeAlpha(THEME_SPOT, "bg") or SP.PANEL_BG[4])
+	elseif restore then
+		local c = SP.PANEL_BG
+		frame:SetBackdropColor(c[1], c[2], c[3], c[4])
+	end
+	r, g, b = SP:ThemeColor(THEME_SPOT, "border")
+	if r then
+		frame:SetBackdropBorderColor(r, g, b, SP.PANEL_BORDER[4])
+	elseif restore then
+		local c = SP.PANEL_BORDER
+		frame:SetBackdropBorderColor(c[1], c[2], c[3], c[4])
+	end
+end
+
+local function ThemePaintAlert(text, restore)
+	if not SP.ThemeColor then return end
+	local r, g, b = SP:ThemeColor(THEME_SPOT, "alert")
+	if r then
+		text:SetTextColor(r, g, b)
+	elseif restore then
+		text:SetTextColor(1, 0.3, 0)
+	end
+end
+
 -- Show a center screen alert with icon and text
 function SP:ShowCenterScreenAlert(iconPath, text)
 	-- Check if any alerts are enabled
@@ -589,6 +625,7 @@ function SP:ShowCenterScreenAlert(iconPath, text)
 		SP:SetSPFont(alertText, "alerts", 24, "OUTLINE")
 		alertText:SetPoint("TOP", frame, "BOTTOM", 0, -10)
 		alertText:SetTextColor(1, 0.3, 0)
+		ThemePaintAlert(alertText)   -- the theme's colour (nothing on Standard)
 		frame.text = alertText
 
 		-- The engine runs the animation (no per-frame Lua):
@@ -1491,6 +1528,7 @@ function SP:UpdateCallerButtonFrameStyle()
 		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, true)
 	else
 		self:ApplyPanelBackdrop(frame)
+		ThemePaintPanel(frame)   -- the theme's colours (nothing on Standard)
 		self:SetSettingsButtonHoverOnly(frame, frame.cogBtn, false)
 	end
 end
@@ -1644,6 +1682,16 @@ SP:OnOnOff(function(off)
 	if off and SP.centerAlert then SP.centerAlert:Hide() end
 	SP:UpdateCallerButtons()
 end)
+
+-- Theme changed (General > Themes): repaint the panel and the alert if they
+-- exist. Plain frames, so this is safe in combat; nothing runs otherwise.
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		local frame = SP.callerButtonFrame
+		if frame and SP.opt and not SP.opt.raidCDButtonHideFrame then ThemePaintPanel(frame, true) end
+		if SP.centerAlert then ThemePaintAlert(SP.centerAlert.text, true) end
+	end)
+end
 
 -- /sp calltest [on|off]
 local slash = SlashCmdList["SHAMANPOWER"]

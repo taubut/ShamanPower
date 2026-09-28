@@ -50,13 +50,13 @@ if not SP then return end
 -- The settings window's palette (ShamanPower_Config/Core.lua), repeated here
 -- because this file must work without that module.
 local C = {
-	windowBg   = { 0.055, 0.063, 0.078 },
-	sidebarBg  = { 0.071, 0.082, 0.102 },
-	contentBg  = { 0.086, 0.098, 0.122 },
-	rowBg      = { 0.110, 0.125, 0.153 },
-	rowHover   = { 0.145, 0.165, 0.200 },
-	border     = { 0.180, 0.204, 0.243 },
-	borderSoft = { 0.130, 0.148, 0.180 },
+	windowBg   = { 0.055, 0.078, 0.118 },
+	sidebarBg  = { 0.067, 0.094, 0.137 },
+	contentBg  = { 0.078, 0.106, 0.149 },
+	rowBg      = { 0.102, 0.133, 0.188 },
+	rowHover   = { 0.137, 0.176, 0.239 },
+	border     = { 0.169, 0.216, 0.290 },
+	borderSoft = { 0.122, 0.157, 0.212 },
 	white       = { 1, 1, 1 },
 	accent     = { 0.000, 0.439, 0.867 },
 	accentHi   = { 0.247, 0.663, 1.000 },
@@ -162,9 +162,14 @@ local function buttonSetLabel(b, text)
 	b:SetWidth(math.max(b.spMinWidth, math.ceil(b.text:GetStringWidth()) + 28))
 end
 
+-- the press drops the caption a pixel from its own anchor and puts it back on release
 local function buttonRelease(b)
 	b.down:Hide(); b.hi:Show()
-	b.text:SetPoint("CENTER", 0, 0)
+	local h = b.spHeld
+	if h then
+		b.text:SetPoint(h[1], h[2], h[3], h[4], h[5])
+		b.spHeld = nil
+	end
 end
 
 function SP:CreateSPButton(parent, text, minWidth, primary)
@@ -199,7 +204,13 @@ function SP:CreateSPButton(parent, text, minWidth, primary)
 	b:SetScript("OnMouseDown", function(self)
 		if not self:IsEnabled() then return end
 		self.down:Show(); self.hi:Hide()
-		self.text:SetPoint("CENTER", 0, -1)
+		if not self.spHeld then
+			local p, rel, rp, x, y = self.text:GetPoint(1)
+			if p then
+				self.spHeld = { p, rel, rp, x or 0, y or 0 }
+				self.text:SetPoint(p, rel, rp, x or 0, (y or 0) - 1)
+			end
+		end
 	end)
 	b:SetScript("OnMouseUp", buttonRelease)
 	b:HookScript("OnHide", buttonRelease)

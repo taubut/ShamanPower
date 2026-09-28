@@ -21,6 +21,9 @@ locale\enUS.lua
 
 SPCompat.lua
 ShamanPower.lua
+ShamanPowerTheme.lua
+ShamanPowerThemeBoxes.lua
+ShamanPowerThemeEffects.lua
 ShamanPowerFonts.lua
 ShamanPowerTextures.lua
 ShamanPowerDialog.lua

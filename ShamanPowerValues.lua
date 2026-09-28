@@ -144,7 +144,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         cdbarShowShieldCount = true,  -- Charge count on the cooldown bar's shield button
         cdbarShieldChargeBar = false,  -- Charge bar (one segment per charge) along the bottom of the cooldown bar's shield button
-        -- Effects (Settings > Bars > Appearance > Effects, ShamanPowerCues.lua): all off
+        -- Effects (Settings > Bars > Totem Bar / Cooldown Bar > Effects, ShamanPowerCues.lua): all off
         totemCueDestroyed = false,          -- a totem killed before its time
         totemCueDestroyedStyle = "shake",   -- shake / pop / flash / glow
         totemCueDestroyedMark = true,       -- plus a red X until that element is dropped again (5 s at most)

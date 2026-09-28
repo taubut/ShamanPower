@@ -15,13 +15,13 @@ ns.Core = Core
 -- throughout the existing option text.
 -- ---------------------------------------------------------------------------
 local C = {
-	windowBg   = { 0.055, 0.063, 0.078 },
-	sidebarBg  = { 0.071, 0.082, 0.102 },
-	contentBg  = { 0.086, 0.098, 0.122 },
-	rowBg      = { 0.110, 0.125, 0.153 },
-	rowHover   = { 0.145, 0.165, 0.200 },
-	border     = { 0.180, 0.204, 0.243 },
-	borderSoft = { 0.130, 0.148, 0.180 },
+	windowBg   = { 0.055, 0.078, 0.118 },
+	sidebarBg  = { 0.067, 0.094, 0.137 },
+	contentBg  = { 0.078, 0.106, 0.149 },
+	rowBg      = { 0.102, 0.133, 0.188 },
+	rowHover   = { 0.137, 0.176, 0.239 },
+	border     = { 0.169, 0.216, 0.290 },
+	borderSoft = { 0.122, 0.157, 0.212 },
 	white       = { 1, 1, 1 },   -- button captions, the close X on hover
 
 	accent     = { 0.000, 0.439, 0.867 },
@@ -459,16 +459,28 @@ function Core:BevelButton(b, primary, caption)
 		Core:SetBorderColor(b, hover and "accentHi" or "accent")
 	end
 	paint(false)
+	-- the press drops the caption a pixel from wherever its caller anchored it (its
+	-- first point, read at the press), and puts it back exactly on release
+	local held
 	local function release()
 		down:Hide(); hi:Show()
-		if caption then caption:SetPoint("CENTER", 0, 0) end
+		if held then
+			caption:SetPoint(held[1], held[2], held[3], held[4], held[5])
+			held = nil
+		end
 	end
 	b:SetScript("OnEnter", function() paint(true) end)
 	b:SetScript("OnLeave", function() paint(false) end)
 	b:SetScript("OnMouseDown", function(self)
 		if self.IsEnabled and not self:IsEnabled() then return end
 		down:Show(); hi:Hide()
-		if caption then caption:SetPoint("CENTER", 0, -1) end
+		if caption and not held then
+			local p, rel, rp, x, y = caption:GetPoint(1)
+			if p then
+				held = { p, rel, rp, x or 0, y or 0 }
+				caption:SetPoint(p, rel, rp, x or 0, (y or 0) - 1)
+			end
+		end
 	end)
 	b:SetScript("OnMouseUp", release)
 	b:HookScript("OnHide", release)

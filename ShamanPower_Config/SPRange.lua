@@ -17,6 +17,12 @@ local ELEMENTS = {
 	{ label = "Water", r = 0.42, g = 0.58, b = 1.00 },
 	{ label = "Air",   r = 0.86, g = 0.88, b = 0.98 },
 }
+-- Theme looks (General > Themes, ShamanPowerTheme.lua), spot win.rangecfg: a
+-- theme recolours these in place and puts today's numbers back on Standard;
+-- an open window repaints below (ShowSPRangeConfig).
+if SP.ThemeBind then
+	for e = 1, 4 do SP:ThemeBind(ELEMENTS[e], "win.rangecfg", e) end
+end
 
 local COL_W, COL_GAP = 78, 8
 local ICON     = 40
@@ -57,6 +63,7 @@ local function Build()
 		special = true, strata = "DIALOG",
 	})
 	dlg.totemButtons = {}
+	dlg.elementCols = {}   -- each column's tint and heading, for a theme repaint
 
 	for e = 1, 4 do
 		local el = ELEMENTS[e]
@@ -73,6 +80,7 @@ local function Build()
 		head:SetPoint("TOP", col, "TOP", 0, -7)
 		head:SetText(strupper(el.label))
 		head:SetTextColor(el.r, el.g, el.b)
+		dlg.elementCols[e] = { bg = bg, head = head }
 
 		for i, t in ipairs(byElement[e]) do
 			local btn = CreateFrame("Button", nil, col)
@@ -153,7 +161,7 @@ local function Build()
 	hint:SetPoint("LEFT", dlg, "BOTTOMLEFT", pad, 12 + 13)
 	hint:SetPoint("RIGHT", toggle, "LEFT", -12, 0)
 	hint:SetJustifyH("LEFT"); hint:SetWordWrap(true)
-	hint:SetText("Greyed totems are not tracked")
+	hint:SetText("Grayed totems are not tracked")
 	hint:SetTextColor(Core:Color("textMute"))
 
 	SP.spRangeConfigFrame = dlg
@@ -164,6 +172,23 @@ function SP:ShowSPRangeConfig()
 	Build()
 	self:UpdateSPRangeConfigButtons()
 	dlg:Show()
+end
+
+-- A theme change (General > Themes): the columns take the new element tints
+-- (the hover border reads ELEMENTS live)
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		if not (dlg and dlg.elementCols) then return end
+		for e = 1, 4 do
+			local el, c = ELEMENTS[e], dlg.elementCols[e]
+			c.bg:SetColorTexture(el.r, el.g, el.b, 0.10)
+			c.head:SetTextColor(el.r, el.g, el.b)
+		end
+		for _, btn in pairs(dlg.totemButtons) do
+			local el, ec = ELEMENTS[btn.totemData.element], btn.elementColors
+			if el and ec then ec.r, ec.g, ec.b = el.r, el.g, el.b end
+		end
+	end)
 end
 
 -- Settings panel for the on-screen overlay (its corner button).

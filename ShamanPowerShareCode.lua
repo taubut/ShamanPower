@@ -120,6 +120,26 @@ SP.SHARE_FEATURES = {
 		local m = sub(G("ShamanPower_ReadyReminders"), "mode"); return m ~= nil and m ~= "ready"
 	end },
 	{ key = "coverageFreeCells",  label = "Coverage: one box per totem",        get = function() return on(sub(O().coverage, "freeCells")) end },
+	-- 3.0.3: Shield Charges looks, the cooldown bar's shield charge bar, the bar Effects
+	{ key = "shieldChargesIcon",  label = "Shield charges: shield icon",        get = function() return on(sub(O().shieldChargeDisplay, "showIcon")) end },
+	{ key = "shieldChargesBar",   label = "Shield charges: charge bar",         get = function() return on(sub(O().shieldChargeDisplay, "showChargeBar")) end },
+	{ key = "shieldChargesCorner", label = "Shield charges: number in the corner", get = function()
+		local s = O().shieldChargeDisplay
+		return on(sub(s, "showIcon")) and sub(s, "numberPosition") == "corner" and sub(s, "showNumber") ~= false
+	end },
+	{ key = "cdbarShieldBar",     label = "Cooldown bar: shield charge bar",    get = function() return on(O().cdbarShieldChargeBar) end },
+	{ key = "cdbarShieldNoCount", label = "Cooldown bar: shield count hidden",  get = function() return O().cdbarShowShieldCount == false end },
+	{ key = "cueTotemDestroyed",  label = "Effect: totem destroyed",            get = function() return on(O().totemCueDestroyed) end },
+	{ key = "cueTotemExpired",    label = "Effect: totem expired",              get = function() return on(O().totemCueExpired) end },
+	{ key = "cueTotemExpiring",   label = "Effect: totem expiring soon",        get = function() return on(O().totemCueExpiring) end },
+	{ key = "cueCooldownReady",   label = "Effect: cooldown ready",             get = function() return on(O().cdbarCueReady) end },
+	{ key = "cueImbueGone",       label = "Effect: weapon imbue gone",          get = function() return on(O().cdbarCueImbue) end },
+	{ key = "cueShieldGone",      label = "Effect: shield gone",                get = function() return on(O().cdbarCueShield) end },
+	{ key = "coverageDots",       label = "Coverage: dots instead of names",    get = function() return on(sub(O().coverage, "dots")) end },
+	{ key = "partyDotsMissing",   label = "Party dots: only who's missing",     get = function() return on(O().partyDotsMissingOnly) end },
+	{ key = "coverageDotsMissing", label = "Coverage dots: only who's missing", get = function() return on(sub(O().coverage, "dotsMissingOnly")) end },
+	{ key = "coverageTimer",      label = "Coverage: totem time left",          get = function() return on(sub(O().coverage, "showTimer")) end },
+	{ key = "coveragePlainIcon",  label = "Coverage: plain totem icon",         get = function() return on(sub(O().coverage, "plainIcon")) end },
 }
 
 -- ---------------------------------------------------------------------------

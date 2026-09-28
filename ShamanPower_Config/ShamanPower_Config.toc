@@ -11,8 +11,10 @@
 
 Core.lua
 Widgets.lua
+ColorPicker.lua
 IconPicker.lua
 Tree.lua
+Themes.lua
 Window.lua
 Assign.lua
 FrameSettings.lua

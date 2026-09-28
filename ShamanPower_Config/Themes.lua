@@ -1,0 +1,2206 @@
+-- ShamanPower_Config :: Themes
+-- General > Themes: every theme setting of ShamanPower on one page, and nowhere
+-- else. Top to bottom:
+--   1. one intro line
+--   2. the theme picker: three cards, each with a live mini totem bar, then the
+--      Custom line
+--   3. Show Icons As (a picture per choice), only while ShamanPower Minimal is
+--      picked. No effects here: themes are not effects (the bars' Effects tabs)
+--   4. Element Colors: four palette cards (they ARE the Appearance palette
+--      setting, spot pal.element); a Custom swatch opens our colour picker
+--   5. Shield Colors: three cards
+--   6. WoW's own colours
+--   7. Reset Colors to the Theme
+--   8. one section per module (SP.THEME_MODULES order): a live mini drawing of
+--      the module in its current look, then a row per themable spot: its Theme
+--      dropdown, Colors / Shield Colors / Show Icons As / its choice / its switch
+--      where it has them, and a swatch per colour.
+--
+-- Reads and writes only through the theme engine (ShamanPowerTheme.lua). Drawn
+-- only with the Core / Widgets primitives and the ui-style-guide tokens. The
+-- page's own frames are made once and reused on every render (Widgets rows come
+-- from their pools), so opening the tab again creates nothing new. Nothing here
+-- runs while the tab is not on screen; opening it writes nothing.
+local _, ns = ...
+local Core, Widgets = ns.Core, ns.Widgets
+local SP = ShamanPower
+if not (SP and Core and Widgets and SP.THEME_MODULES and SP.ThemeDisplayColor) then return end
+
+local Page = {}
+ns.ThemesPage = Page
+
+local floor, ceil, max, min = math.floor, math.ceil, math.max, math.min
+local pairs, ipairs, pcall, tostring = pairs, ipairs, pcall, tostring
+
+local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
+local BEBAS = "Interface\\AddOns\\ShamanPower\\Media\\Fonts\\BebasNeue-Regular.ttf"
+local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
+local CLASS_SHEET = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
+local DEFAULT = "__default"   -- the dropdowns' "Use General Theme" / "Use Theme's" (nil in the engine)
+
+local INTRO = "Themes change how ShamanPower looks and nothing else. Pick one, then change any part below."
+local EL = { "Earth", "Fire", "Water", "Air" }
+local CODES = { "SE", "SR", "MS", "WF" }
+local FILL = { 0.72, 0.45, 0.8, 0.25 }                 -- sample time left per element
+local CORNERS = { "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }
+local CLASS_SAMPLE = { "WARRIOR", "PRIEST", "MAGE" }   -- party members with the buff
+local CREAM = { 0.957, 0.937, 0.902 }                  -- letters on a dark box
+local INK = { 0.102, 0.133, 0.188 }                    -- letters on a light box
+local GOLD_TEXT = "|cffFFD100"
+
+-- ---------------------------------------------------------------------------
+-- The tab itself: an option group under General (like Interface), so the tab
+-- strip, the sidebar search and SPConfig:Open({ "settings", "settings_themes" })
+-- all find it. Window.lua draws this page in place of the group's rows.
+-- ---------------------------------------------------------------------------
+do
+	local settings = SP.options and SP.options.args and SP.options.args.settings
+	if settings and settings.args and not settings.args.settings_themes then
+		local show = settings.args.settings_show
+		local base = (show and type(show.order) == "number") and show.order or 1
+		settings.args.settings_themes = {
+			order = base + 0.25, type = "group", inline = true, name = "Themes",
+			args = {
+				intro = { order = 1, type = "description", name = INTRO,
+					desc = "theme themes look colors palette element shield minimal flat boxes letters icons" },
+			},
+		}
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Small helpers
+-- ---------------------------------------------------------------------------
+local function Hex(r, g, b)
+	return string.format("#%02X%02X%02X", floor((r or 0) * 255 + 0.5), floor((g or 0) * 255 + 0.5), floor((b or 0) * 255 + 0.5))
+end
+
+-- letters in ink or cream, whichever reads better on the box (the same rule as
+-- the real boxes, ShamanPowerThemeBoxes.lua)
+local function lin(v) if v <= 0.03928 then return v / 12.92 end return ((v + 0.055) / 1.055) ^ 2.4 end
+local function Lum(r, g, b) return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b) end
+local L_INK, L_CREAM
+local function InkOn(r, g, b)
+	if not L_INK then L_INK, L_CREAM = Lum(INK[1], INK[2], INK[3]), Lum(CREAM[1], CREAM[2], CREAM[3]) end
+	local L = Lum(r, g, b)
+	return (L + 0.05) / (L_INK + 0.05) >= (L_CREAM + 0.05) / (L + 0.05)
+end
+local MIN_FONT = 6   -- letters smaller than this would not read: the one-colour icon says it
+
+local function ClassRGB(class)
+	local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+	if c then return c.r, c.g, c.b end
+	return 1, 1, 1
+end
+
+local function HasEarthShield()
+	return not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(974) and true or false
+end
+
+local function SpellIcon(id, fallback)
+	local f
+	if C_Spell and C_Spell.GetSpellTexture then f = C_Spell.GetSpellTexture(id) end
+	if not f and GetSpellTexture then f = GetSpellTexture(id) end
+	return f or fallback or QUESTION
+end
+
+-- the sample icons, looked up once (the first time the tab is drawn)
+local ICON
+local function Icons()
+	if ICON then return ICON end
+	local alliance = UnitFactionGroup and UnitFactionGroup("player") == "Alliance"
+	local fire = SP.Wizard and SP.Wizard.FireMockIcon and SP.Wizard.FireMockIcon()
+	ICON = {
+		soe = SpellIcon(8075, "Interface\\Icons\\Spell_Nature_EarthBindTotem"),
+		searing = fire or SpellIcon(3599, "Interface\\Icons\\Spell_Fire_SearingTotem"),
+		manaSpring = SpellIcon(5675, "Interface\\Icons\\Spell_Nature_ManaRegenTotem"),
+		windfury = SpellIcon(8512, "Interface\\Icons\\Spell_Nature_Windfury"),
+		tremor = SpellIcon(8143, "Interface\\Icons\\Spell_Nature_TremorTotem"),
+		healing = SpellIcon(5394, "Interface\\Icons\\INV_Spear_04"),
+		grace = SpellIcon(8835, "Interface\\Icons\\Spell_Nature_InvisibilityTotem"),
+		earthbind = SpellIcon(2484, "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02"),
+		poison = SpellIcon(8166, "Interface\\Icons\\Spell_Nature_PoisonCleansingTotem"),
+		fireRes = SpellIcon(8184, "Interface\\Icons\\Spell_FireResistanceTotem_01"),
+		manaTide = SpellIcon(16190, "Interface\\Icons\\Spell_Frost_SummonWaterElemental"),
+		recall = SpellIcon(36936, QUESTION),
+		lightning = SpellIcon(324, "Interface\\Icons\\Spell_Nature_LightningShield"),
+		water = SpellIcon(24398, "Interface\\Icons\\Ability_Shaman_WaterShield"),
+		earthShield = SpellIcon(974, "Interface\\Icons\\Spell_Nature_SkinofEarth"),
+		wfWeapon = SpellIcon(8232, "Interface\\Icons\\Spell_Nature_Cyclone"),
+		ftWeapon = SpellIcon(8024, "Interface\\Icons\\Spell_Fire_FlameTounge"),
+		fbWeapon = SpellIcon(8033, "Interface\\Icons\\Spell_Frost_FrostBrand"),
+		rbWeapon = SpellIcon(8017, "Interface\\Icons\\Spell_Nature_RockBiter"),
+		ns = SpellIcon(16188, "Interface\\Icons\\Spell_Nature_RavenForm"),
+		ankh = SpellIcon(20608, "Interface\\Icons\\Spell_Nature_Reincarnation"),
+		lust = alliance and SpellIcon(32182, "Interface\\Icons\\Ability_Shaman_Heroism") or SpellIcon(2825, "Interface\\Icons\\Spell_Nature_BloodLust"),
+		lustCode = alliance and "HE" or "BL",
+	}
+	ICON.totems = { ICON.soe, ICON.searing, ICON.manaSpring, ICON.windfury }
+	return ICON
+end
+
+-- the engine's colour for a swatch / a part: r, g, b (exactly three values)
+local function RGB(spot, role)
+	local r, g, b = SP:ThemeDisplayColor(spot, role)
+	return r, g, b
+end
+
+-- ---------------------------------------------------------------------------
+-- Drawing primitives (the page's cards, and the mocks inside them)
+-- ---------------------------------------------------------------------------
+local function Text(parent, font, layer)
+	local fs = parent:CreateFontString(nil, layer or "OVERLAY")
+	fs:SetFontObject(Core.fonts[font or "row"])
+	fs:SetJustifyH("LEFT")
+	fs:SetWordWrap(true)
+	return fs
+end
+
+-- wrap a string to a width and return its height (the container grows)
+local function Fit(fs, w, s)
+	fs:SetWidth(w)
+	fs:SetText(s or "")
+	return ceil(fs:GetStringHeight())
+end
+
+-- small-caps tag ("IN USE", "WOW", "CUSTOM"): the section-label treatment, no box
+local function Tag(parent)
+	local fs = parent:CreateFontString(nil, "OVERLAY")
+	fs:SetFontObject(Core.fonts.section)
+	fs:SetJustifyH("LEFT")
+	fs:Hide()
+	return fs
+end
+local function SetTag(fs, text, colorKey)
+	if not text then fs:Hide() return end
+	fs:SetText(text)
+	fs:SetTextColor(Core:Color(colorKey or "textDim"))
+	fs:Show()
+end
+
+-- HUD text inside a mock: the player's font choice, like the real frame
+local function HudText(parent, area, size, flags)
+	local fs = parent:CreateFontString(nil, "OVERLAY")
+	if SP.SetSPFont then
+		SP:SetSPFont(fs, area, size, flags or "OUTLINE")
+	else
+		fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, flags or "OUTLINE")
+	end
+	if not fs:GetFont() then fs:SetFont("Fonts\\FRIZQT__.TTF", size, flags or "OUTLINE") end
+	return fs
+end
+
+-- A selectable card (the tour's spec-card look): rest rowBg + 1px border,
+-- hover rowHover + accent border, selected accent @.20 fill, accent border,
+-- a 2px accent top bar and the title in accentHi.
+local function PaintCard(c)
+	local o = Core.opacity or 1
+	if c.selected then
+		c.bg:SetColorTexture(Core:Color("accent", 0.20))
+		Core:SetBorderColor(c, "accent")
+		c.topBar:Show()
+		if c.title then c.title:SetTextColor(Core:Color("accentHi")) end
+	else
+		c.bg:SetColorTexture(Core:Color(c.hover and "rowHover" or "rowBg", o))
+		Core:SetBorderColor(c, c.hover and "accent" or "border")
+		c.topBar:Hide()
+		if c.title then c.title:SetTextColor(Core:Color("text")) end
+	end
+end
+local function NewCard(parent)
+	local c = CreateFrame("Button", nil, parent)
+	c.bg = c:CreateTexture(nil, "BACKGROUND")
+	c.bg:SetAllPoints(c)
+	Core:MakeBorder(c, "border")
+	c.topBar = c:CreateTexture(nil, "ARTWORK", nil, 7)
+	c.topBar:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+	c.topBar:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
+	c.topBar:SetHeight(2)
+	c.topBar:SetColorTexture(Core:Color("accent"))
+	c.topBar:Hide()
+	c.spThemes = true
+	c:SetScript("OnEnter", function(self) self.hover = true; PaintCard(self) end)
+	c:SetScript("OnLeave", function(self) self.hover = false; PaintCard(self) end)
+	return c
+end
+
+-- a colour swatch in the Widgets look: 1px border over the grey checker
+local function NewSwatch(parent, w, h)
+	local b = CreateFrame("Button", nil, parent)
+	b:SetSize(w, h)
+	local checker = b:CreateTexture(nil, "BACKGROUND")
+	checker:SetAllPoints(b)
+	checker:SetColorTexture(0.25, 0.25, 0.25, 1)
+	b.fill = b:CreateTexture(nil, "ARTWORK")
+	b.fill:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+	b.fill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+	Core:MakeBorder(b, "border")
+	b.spThemes = true
+	return b
+end
+
+-- four edges, t px thick, starting out px outside the frame
+local function NewEdges(f, t, out)
+	local e = {}
+	for i = 1, 4 do e[i] = f:CreateTexture(nil, "OVERLAY", nil, 5) end
+	e[1]:SetPoint("TOPLEFT", f, "TOPLEFT", -out, out); e[1]:SetPoint("TOPRIGHT", f, "TOPRIGHT", out, out); e[1]:SetHeight(t)
+	e[2]:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -out, -out); e[2]:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", out, -out); e[2]:SetHeight(t)
+	e[3]:SetPoint("TOPLEFT", f, "TOPLEFT", -out, out); e[3]:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", -out, -out); e[3]:SetWidth(t)
+	e[4]:SetPoint("TOPRIGHT", f, "TOPRIGHT", out, out); e[4]:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", out, -out); e[4]:SetWidth(t)
+	return e
+end
+local function PaintEdges(e, r, g, b, a)
+	for i = 1, 4 do e[i]:SetColorTexture(r, g, b, a or 1) end
+end
+
+-- a horizontal bar: dark track, coloured fill
+local function NewBar(parent, w, h)
+	local bar = { w = w }
+	bar.track = parent:CreateTexture(nil, "ARTWORK", nil, 0)
+	bar.track:SetSize(w, h)
+	bar.track:SetColorTexture(0, 0, 0, 0.65)
+	bar.fill = parent:CreateTexture(nil, "ARTWORK", nil, 1)
+	bar.fill:SetHeight(h)
+	bar.fill:SetPoint("TOPLEFT", bar.track, "TOPLEFT", 0, 0)
+	return bar
+end
+local function SetBar(bar, frac, r, g, b)
+	bar.fill:SetWidth(max(1, bar.w * frac))
+	if SP.SetSPBarColor then SP:SetSPBarColor(bar.fill, "duration", r, g, b, 1) else bar.fill:SetColorTexture(r, g, b, 1) end
+end
+
+-- n segments in a row (a charge strip)
+local function NewSegments(parent, n, w, h, gap)
+	local segs = { n = n }
+	local sw = (w - gap * (n - 1)) / n
+	for i = 1, n do
+		local s = parent:CreateTexture(nil, "ARTWORK", nil, 2)
+		s:SetSize(sw, h)
+		segs[i] = s
+	end
+	segs.sw, segs.gap = sw, gap
+	return segs
+end
+local function PlaceSegments(segs, anchor, point, x, y)
+	for i = 1, segs.n do segs[i]:SetPoint("TOPLEFT", anchor, point, x + (i - 1) * (segs.sw + segs.gap), y) end
+end
+local function PaintSegments(segs, lit, r, g, b)
+	for i = 1, segs.n do
+		if i <= lit then segs[i]:SetColorTexture(r, g, b, 1) else segs[i]:SetColorTexture(0, 0, 0, 0.75) end
+	end
+end
+
+-- a HUD panel mock (bg + 1px edges), painted from a spot's bg / border roles
+local function NewPanel(parent)
+	local p = CreateFrame("Frame", nil, parent)
+	p.bg = p:CreateTexture(nil, "BACKGROUND")
+	p.bg:SetAllPoints(p)
+	Core:MakeBorder(p, "border")
+	return p
+end
+local function PaintPanel(p, spot, stdAlpha)
+	local r, g, b, src = SP:ThemeDisplayColor(spot, "bg")
+	local a = stdAlpha or 0.92
+	if src ~= "standard" then a = SP:ThemeAlpha(spot, "bg") or a end
+	p.bg:SetColorTexture(r, g, b, a)
+	local er, eg, eb = SP:ThemeDisplayColor(spot, "border")
+	for _, t in pairs(p.spBorder) do t:SetColorTexture(er, eg, eb, 1) end
+end
+
+-- A button mock: the icon, or (a flat-box spot on ShamanPower Minimal) the box
+-- drawn the way the real skin draws it: the colour, the one-colour icon, a small
+-- icon or a faint icon with the letters. Letters in Bebas Neue at under half the
+-- box height. Text drawn ON the button (counts, timers) goes on s.over.
+local function NewSlot(parent, size)
+	local s = CreateFrame("Frame", nil, parent)
+	s:SetSize(size, size)
+	s.size = size
+	local edge = s:CreateTexture(nil, "BACKGROUND")
+	edge:SetPoint("TOPLEFT", s, "TOPLEFT", -1, 1)
+	edge:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", 1, -1)
+	edge:SetColorTexture(0, 0, 0, 1)
+	s.icon = s:CreateTexture(nil, "ARTWORK", nil, 0)
+	s.icon:SetAllPoints(s)
+	s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	s.box = s:CreateTexture(nil, "ARTWORK", nil, 1)
+	s.box:SetAllPoints(s)
+	s.tint = s:CreateTexture(nil, "ARTWORK", nil, 2)
+	s.tint:SetAllPoints(s)
+	s.tint:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	s.miniBd = s:CreateTexture(nil, "ARTWORK", nil, 2)
+	s.miniBd:SetPoint("CENTER", s, "CENTER", 0, 0)
+	s.miniBd:SetColorTexture(0, 0, 0, 1)
+	s.mini = s:CreateTexture(nil, "ARTWORK", nil, 3)
+	s.mini:SetPoint("CENTER", s, "CENTER", 0, 0)
+	s.mini:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	s.shade = s:CreateTexture(nil, "ARTWORK", nil, 4)
+	s.shade:SetAllPoints(s)
+	s.shade:SetColorTexture(0, 0, 0, 1)
+	s.letters = s:CreateFontString(nil, "OVERLAY")
+	-- two letters: at most half the box height, and they fit across it (as the real boxes)
+	local fsz = min(floor((size - 2) * 0.5), floor((size - 4) / 1.1))
+	s.fontSize = fsz
+	if fsz >= MIN_FONT then
+		s.letters:SetFont(BEBAS, fsz, "")
+		if not s.letters:GetFont() then s.letters:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fsz, "") end
+	end
+	s.letters:SetPoint("CENTER", s, "CENTER", 0, 1)
+	s.over = CreateFrame("Frame", nil, s)
+	s.over:SetAllPoints(s)
+	s.over:SetFrameLevel(s:GetFrameLevel() + 2)
+	for _, t in ipairs({ s.box, s.tint, s.miniBd, s.mini, s.shade }) do t:Hide() end
+	s.letters:Hide()
+	return s
+end
+
+-- a button with a number in its middle (a count, a timer): as on the real
+-- boxes, its letters move to the top and get smaller
+local function SlotTopLetters(s)
+	local fsz = min(floor((s.size - 2) * 0.36), floor((s.size - 4) / 1.1))
+	s.fontSize = fsz
+	if fsz >= MIN_FONT then
+		s.letters:SetFont(BEBAS, fsz, "")
+		if not s.letters:GetFont() then s.letters:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", fsz, "") end
+	end
+	s.letters:ClearAllPoints()
+	s.letters:SetPoint("TOP", s, "TOP", 0, -2)
+end
+
+-- class-sheet icons keep their own coordinates
+local function SetCoords(t, c)
+	if c then t:SetTexCoord(c[1], c[2], c[3], c[4]) else t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+end
+
+local function PaintSlot(s, boxed, mode, file, code, r, g, b, empty)
+	if not boxed then
+		s.box:Hide(); s.tint:Hide(); s.mini:Hide(); s.miniBd:Hide(); s.shade:Hide(); s.letters:Hide()
+		s.icon:SetTexture(file)
+		SetCoords(s.icon, s.coords)
+		s.icon:SetDesaturated(empty and true or false)
+		s.icon:SetAlpha(empty and 0.35 or 1)
+		s.icon:Show()
+		return
+	end
+	s.icon:Hide()
+	local k = empty and 0.35 or 1
+	local br, bg, bb = r * k, g * k, b * k
+	s.box:SetColorTexture(br, bg, bb, 1)
+	s.box:Show()
+	local full = file ~= nil and not empty
+	local canRead = s.fontSize >= MIN_FONT
+	local lettersOn = empty and canRead or (canRead and code ~= nil and (mode == "letters" or mode == "both"))
+	-- letters too small to read: the one-colour icon says it
+	local fallbackTint = full and not lettersOn and (mode == "letters" or mode == "both")
+	local tintOn = full and (mode == "tint" or mode == "both" or fallbackTint)
+	if tintOn then
+		s.tint:SetTexture(file)
+		SetCoords(s.tint, s.coords)
+		s.tint:SetDesaturated(true)
+		s.tint:SetVertexColor(br, bg, bb)
+		s.tint:SetAlpha((mode == "both" and lettersOn) and 0.65 or 0.75)
+	end
+	s.tint:SetShown(tintOn)
+	local miniOn = full and mode == "mini"
+	if miniOn then
+		local m = floor(s.size * 0.56 + 0.5)
+		s.mini:SetSize(m, m)
+		s.miniBd:SetSize(m + 2, m + 2)
+		s.mini:SetTexture(file)
+		SetCoords(s.mini, s.coords)
+	end
+	s.mini:SetShown(miniOn)
+	s.miniBd:SetShown(miniOn)
+	s.shade:SetAlpha(0.27)
+	s.shade:SetShown(tintOn and mode == "both" and lettersOn)
+	local t = s.letters
+	if not lettersOn then
+		t:Hide()
+	elseif empty then
+		t:SetText("-")
+		t:SetTextColor(r * 0.67, g * 0.67, b * 0.67)
+		t:SetShadowOffset(0, 0)
+		t:Show()
+	elseif code then
+		if InkOn(br, bg, bb) then
+			t:SetTextColor(INK[1], INK[2], INK[3])
+			t:SetShadowOffset(0, 0)
+		else
+			t:SetTextColor(CREAM[1], CREAM[2], CREAM[3])
+			t:SetShadowColor(0, 0, 0, 0.6)
+			t:SetShadowOffset(1, -1)
+		end
+		t:SetText(code)
+		t:Show()
+	else
+		t:Hide()
+	end
+end
+
+-- a button mock of a flat-box spot, coloured by one of its roles
+local function BoxSlot(s, spot, role, file, code)
+	local r, g, b = SP:ThemeDisplayColor(spot, role)
+	PaintSlot(s, SP:ThemeBoxed(spot), SP:ThemeShowAs(spot), file, code, r, g, b, false)
+end
+
+-- Element-Colored Borders, Also on the Cooldown Bar: the drawing's buttons get the
+-- same colours as the real bar's (ShamanPower:ThemeBorderEdges, via the flat boxes'
+-- rules): an element in its colour, a shield in the Shield Colors, others logo blue
+local function CdBorder(s, spot, role)
+	local on = SP:ThemeField("borders") == true and SP:ThemeField("bordersCooldown") == true
+	if on and not s.cdEdges then s.cdEdges = NewEdges(s, 2, 0) end
+	local e = s.cdEdges
+	if not e then return end
+	if on then
+		local r, g, b
+		if type(role) == "number" then
+			r, g, b = SP:ThemeElement(spot, role)
+		elseif role == "lightning" or role == "water" or role == "earth" then
+			r, g, b = SP:ThemeColor(spot, role)
+			if not r then r, g, b = SP:ThemeColor("cd.shield-box", role) end
+			if not r then r, g, b = 0.2, 0.6, 1.0 end   -- today's shield blue
+		else
+			r, g, b = SP:ThemeColor(spot, role)
+			if not r then r, g, b = 0.247, 0.663, 0.961 end   -- the logo blue
+		end
+		PaintEdges(e, r, g, b)
+	end
+	for i = 1, 4 do e[i]:SetShown(on) end
+end
+
+-- an empty choice / unassigned slot: faded totem art, or (ShamanPower Minimal)
+-- the dark box with a dash
+local function EmptySlot(s, spot, colorSpot, e, file)
+	local r, g, b = SP:ThemeDisplayColor(colorSpot, e)
+	if SP:ThemeSpotTheme(spot) == "minimal" then
+		PaintSlot(s, true, "letters", nil, nil, r, g, b, true)
+	else
+		PaintSlot(s, false, nil, file, nil, r, g, b, true)
+	end
+end
+
+-- a cooldown sweep: the grey sweep from the top, or (ShamanPower Minimal) a
+-- dark band on the box
+local function PaintSweep(t, s, spot)
+	t:ClearAllPoints()
+	if SP:ThemeSpotTheme(spot) == "minimal" then
+		t:SetPoint("BOTTOMLEFT", s, "BOTTOMLEFT", 0, 0)
+		t:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", 0, 0)
+		t:SetHeight(floor(s.size * 0.4))
+		t:SetColorTexture(0, 0, 0, 0.5)
+	else
+		t:SetPoint("TOPLEFT", s, "TOPLEFT", 0, 0)
+		t:SetPoint("TOPRIGHT", s, "TOPRIGHT", 0, 0)
+		t:SetHeight(floor(s.size * 0.45))
+		t:SetColorTexture(0, 0, 0, 0.6)
+	end
+end
+
+local function Caption(parent)
+	local fs = parent:CreateFontString(nil, "OVERLAY")
+	fs:SetFontObject(Core.fonts.tiny)
+	fs:SetTextColor(Core:Color("textDim"))
+	fs:SetJustifyH("LEFT")
+	return fs
+end
+
+-- ---------------------------------------------------------------------------
+-- The live mini drawing of each module. build(stage) makes the frames once and
+-- returns width, height and the paint that recolours them from the engine.
+-- ---------------------------------------------------------------------------
+local DRAW = {}
+
+DRAW.totembar = function(st)
+	local I = Icons()
+	local S, G = 28, 4
+	local bar = NewPanel(st)
+	bar:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local slots, bars, x = {}, {}, 8
+	for e = 1, 4 do
+		local s = NewSlot(bar, S)
+		s:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -8)
+		slots[e] = s
+		local b = NewBar(bar, S, 3)
+		b.track:SetPoint("TOPLEFT", s, "BOTTOMLEFT", 0, -2)
+		bars[e] = b
+		x = x + S + G
+	end
+	-- Earth is down (overlay, its border, party dots), Fire shows the range
+	-- count, Water its time left and pulse, Air a cooldown
+	local ring = NewEdges(slots[1], 2, 1)
+	local borders = {}
+	for e = 1, 4 do borders[e] = NewEdges(slots[e], 2, 0) end   -- Element-Colored Borders
+	local dots = {}
+	for i = 1, 4 do
+		local d = slots[1].over:CreateTexture(nil, "OVERLAY", nil, 6)
+		d:SetSize(5, 5)
+		d:SetPoint(CORNERS[i], slots[1], CORNERS[i], 0, 0)
+		dots[i] = d
+	end
+	for e = 2, 4 do SlotTopLetters(slots[e]) end   -- each has a number in its middle
+	local range = HudText(slots[2].over, "labels", 13, "OUTLINE")
+	range:SetPoint("CENTER", slots[2], "CENTER", 0, 0)
+	range:SetText("3")
+	local dtext = HudText(slots[3].over, "timers", 10, "OUTLINE")
+	dtext:SetPoint("CENTER", slots[3], "CENTER", 0, 0)
+	dtext:SetText("1:45")
+	local pulse = slots[3].over:CreateTexture(nil, "OVERLAY", nil, 6)
+	pulse:SetHeight(2)
+	pulse:SetWidth(floor(S * 0.6))
+	pulse:SetPoint("TOPLEFT", slots[3], "TOPLEFT", 0, 0)
+	local sweep = slots[4].over:CreateTexture(nil, "ARTWORK")
+	local cdText = HudText(slots[4].over, "timers", 10, "OUTLINE")
+	cdText:SetPoint("CENTER", slots[4], "CENTER", 0, 0)
+	cdText:SetText("12")
+	x = x + 4
+	local dropAll = NewSlot(bar, S)
+	dropAll:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -8)
+	x = x + S + G
+	local recall = NewSlot(bar, S)
+	recall:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -8)
+	x = x + S + G
+	local empty
+	if IS_MAINLINE then
+		empty = NewSlot(bar, S)
+		empty:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -8)
+		x = x + S + G
+	end
+	local fw, fh = x + 4, 8 + S + 2 + 3 + 8
+	bar:SetSize(fw, fh)
+	-- a Water flyout: its arrow tab, two totems and the Empty choice
+	local tab = st:CreateTexture(nil, "ARTWORK")
+	tab:SetSize(8, 26)
+	tab:SetPoint("TOPLEFT", st, "TOPLEFT", fw + 12, -floor((fh - 26) / 2))
+	local fly = NewPanel(st)
+	local flyN = IS_MAINLINE and 3 or 2   -- the Empty choice exists on WoW: Forever only
+	fly:SetSize(flyN * 25 + 5, 30)
+	fly:SetPoint("LEFT", tab, "RIGHT", 1, 0)
+	local flySlots = {}
+	for i = 1, flyN do
+		local s = NewSlot(fly, 22)
+		s:SetPoint("LEFT", fly, "LEFT", 4 + (i - 1) * 25, 0)
+		flySlots[i] = s
+	end
+	local flyBorders = { NewEdges(flySlots[1], 2, 0), NewEdges(flySlots[2], 2, 0) }   -- Also on the Flyouts
+	return fw + 12 + 8 + 1 + 3 * 25 + 5, fh + 4, function()
+		PaintPanel(bar, "tb.frame", 0.7)
+		for e = 1, 4 do
+			local spot = (e == 1) and "tb.overlay-boxes" or "tb.boxes"
+			BoxSlot(slots[e], spot, e, I.totems[e], CODES[e])
+			local on = SP:ThemeField("borders") == true
+			if on then PaintEdges(borders[e], SP:ThemeElement("tb.boxes", e)) end
+			for i = 1, 4 do borders[e][i]:SetShown(on) end
+			SetBar(bars[e], FILL[e], RGB("tb.duration", e))
+		end
+		PaintEdges(ring, RGB("tb.overlay-border", 1))
+		for i = 1, 3 do dots[i]:SetColorTexture(ClassRGB(CLASS_SAMPLE[i])) end
+		dots[4]:SetColorTexture(RGB("tb.dots-missing", "missing"))
+		range:SetTextColor(RGB("tb.range", 2))
+		dtext:SetTextColor(RGB("tb.duration-text", 3))
+		pulse:SetColorTexture(RGB("tb.pulse", 3))
+		PaintSweep(sweep, slots[4], "tb.sweep")
+		cdText:SetTextColor(RGB("tb.cooldown-text", "text"))
+		BoxSlot(dropAll, "tb.dropall", 1, I.soe, "SE")
+		BoxSlot(recall, "tb.recall", "box", I.recall, "TC")
+		if empty then EmptySlot(empty, "tb.empty-slot", "tb.boxes", 3, I.manaSpring) end
+		-- the flyout art: Blizzard's grey tab today, a flat element tab when themed
+		local r, g, b = SP:ThemeDisplayColor("tb.flyout-art", 3)
+		if SP:ThemeActive("tb.flyout-art") then
+			tab:SetColorTexture(r, g, b, 1)
+			fly.bg:SetColorTexture(r, g, b, 0.15)
+			for _, t in pairs(fly.spBorder) do t:SetColorTexture(r, g, b, 0.9) end
+		else
+			tab:SetColorTexture(0.42, 0.42, 0.46, 1)
+			fly.bg:SetColorTexture(0, 0, 0, 0.55)
+			for _, t in pairs(fly.spBorder) do t:SetColorTexture(0.3, 0.3, 0.34, 1) end
+		end
+		BoxSlot(flySlots[1], "tb.flyout-boxes", 3, I.healing, "HS")
+		BoxSlot(flySlots[2], "tb.flyout-boxes", 3, I.manaSpring, "MS")
+		if flySlots[3] then EmptySlot(flySlots[3], "tb.flyout-empty", "tb.flyout-boxes", 3, I.manaSpring) end
+		local flyOn = SP:ThemeField("borders") == true and SP:ThemeField("bordersFlyouts") == true
+		for k = 1, 2 do   -- (not the Empty choice)
+			if flyOn then PaintEdges(flyBorders[k], SP:ThemeElement("tb.flyout-boxes", 3)) end
+			for i = 1, 4 do flyBorders[k][i]:SetShown(flyOn) end
+		end
+	end
+end
+
+DRAW.styles = function(st)
+	local I = Icons()
+	-- Compact: an element line each, then the shield line full and on its last charge
+	local capC = Caption(st); capC:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0); capC:SetText("COMPACT")
+	local cBoxes, cLines = {}, {}
+	for e = 1, 4 do
+		local y = -14 - (e - 1) * 13
+		local s = NewSlot(st, 11)
+		s:SetPoint("TOPLEFT", st, "TOPLEFT", 1, y)
+		cBoxes[e] = s
+		local line = NewBar(st, 120, 7)
+		line.track:SetPoint("TOPLEFT", st, "TOPLEFT", 16, y - 2)
+		cLines[e] = line
+	end
+	local shieldFull = NewSegments(st, 3, 120, 7, 3)
+	PlaceSegments(shieldFull, st, "TOPLEFT", 16, -14 - 4 * 13 - 2)
+	local shieldLast = NewSegments(st, 3, 120, 7, 3)
+	PlaceSegments(shieldLast, st, "TOPLEFT", 16, -14 - 5 * 13 - 2)
+	-- Grid: element rings and split borders
+	local gx = 170
+	local capG = Caption(st); capG:SetPoint("TOPLEFT", st, "TOPLEFT", gx, 0); capG:SetText("GRID")
+	local gSlots, gRings = {}, {}
+	for e = 1, 4 do
+		local s = NewSlot(st, 24)
+		s:SetPoint("TOPLEFT", st, "TOPLEFT", gx + 2 + ((e - 1) % 2) * 32, -16 - floor((e - 1) / 2) * 32)
+		gSlots[e] = s
+		gRings[e] = NewEdges(s, 2, 2)
+	end
+	-- Blizzard's Totem Bar: the element squares ShamanPower draws on it
+	local bx = 260
+	local capB = Caption(st); capB:SetPoint("TOPLEFT", st, "TOPLEFT", bx, 0); capB:SetText("BLIZZARD'S TOTEM BAR")
+	local bSquares = {}
+	for e = 1, 4 do
+		local q = st:CreateTexture(nil, "ARTWORK")
+		q:SetSize(18, 18)
+		q:SetPoint("TOPLEFT", st, "TOPLEFT", bx + (e - 1) * 24, -18)
+		bSquares[e] = q
+		local edge = NewEdges(st, 1, 0)
+		for i = 1, 4 do edge[i]:ClearAllPoints() end
+		edge[1]:SetPoint("TOPLEFT", q, "TOPLEFT", -1, 1); edge[1]:SetPoint("TOPRIGHT", q, "TOPRIGHT", 1, 1); edge[1]:SetHeight(1)
+		edge[2]:SetPoint("BOTTOMLEFT", q, "BOTTOMLEFT", -1, -1); edge[2]:SetPoint("BOTTOMRIGHT", q, "BOTTOMRIGHT", 1, -1); edge[2]:SetHeight(1)
+		edge[3]:SetPoint("TOPLEFT", q, "TOPLEFT", -1, 1); edge[3]:SetPoint("BOTTOMLEFT", q, "BOTTOMLEFT", -1, -1); edge[3]:SetWidth(1)
+		edge[4]:SetPoint("TOPRIGHT", q, "TOPRIGHT", 1, 1); edge[4]:SetPoint("BOTTOMRIGHT", q, "BOTTOMRIGHT", 1, -1); edge[4]:SetWidth(1)
+		PaintEdges(edge, 0, 0, 0, 1)
+	end
+	return bx + 4 * 24, 14 + 6 * 13 + 4, function()
+		local cBoxed, cMode = SP:ThemeBoxed("st.boxes-compact"), SP:ThemeShowAs("st.boxes-compact")
+		for e = 1, 4 do
+			local r, g, b = SP:ThemeDisplayColor("st.boxes-compact", e)
+			if cBoxed then
+				PaintSlot(cBoxes[e], true, cMode, I.totems[e], CODES[e], r, g, b, false)
+				cBoxes[e]:Show()
+			else
+				cBoxes[e]:Hide()   -- today: no icon at the start of a Compact line
+			end
+			SetBar(cLines[e], FILL[e], RGB("st.compact", e))
+			BoxSlot(gSlots[e], "st.boxes-grid", e, I.totems[e], CODES[e])
+			PaintEdges(gRings[e], RGB("st.grid", e))
+			bSquares[e]:SetColorTexture(RGB("st.blizzard", e))
+		end
+		PaintSegments(shieldFull, 3, RGB("st.compact-shield", "full"))
+		PaintSegments(shieldLast, 1, RGB("st.compact-shield", "last"))
+	end
+end
+
+DRAW.cooldownbar = function(st)
+	local I = Icons()
+	local S, G = 30, 6
+	local bar = NewPanel(st)
+	bar:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local x = 8
+	local function Btn()
+		local s = NewSlot(bar, S)
+		s:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -8)
+		x = x + S + G
+		return s
+	end
+	local shield = Btn()
+	SlotTopLetters(shield)   -- its charge count sits on it
+	-- the charge strip inside the bottom of the button, the count lifted above it
+	local strip = NewSegments(shield.over, 3, S - 4, 4, 1)
+	PlaceSegments(strip, shield, "BOTTOMLEFT", 2, 6)
+	local count = HudText(shield.over, "timers", 12, "OUTLINE")
+	count:SetPoint("BOTTOMRIGHT", shield, "BOTTOMRIGHT", -1, 7)
+	count:SetText("3")
+	local shieldBar = NewBar(bar, S, 3)
+	shieldBar.track:SetPoint("TOPLEFT", shield, "BOTTOMLEFT", 0, -2)
+	local recall = Btn()
+	local cds, timers = {}, {}
+	for i = 1, 3 do
+		cds[i] = Btn()
+		timers[i] = NewBar(bar, S, 3)
+		timers[i].track:SetPoint("TOPLEFT", cds[i], "BOTTOMLEFT", 0, -2)
+	end
+	local sweep = cds[1].over:CreateTexture(nil, "ARTWORK")
+	local mh, oh = Btn(), Btn()
+	local mhBar, ohBar = NewBar(bar, S, 3), NewBar(bar, S, 3)
+	mhBar.track:SetPoint("TOPLEFT", mh, "BOTTOMLEFT", 0, -2)
+	ohBar.track:SetPoint("TOPLEFT", oh, "BOTTOMLEFT", 0, -2)
+	local fw, fh = x + 2, 8 + S + 2 + 3 + 8
+	bar:SetSize(fw, fh)
+	-- the shield and imbue flyouts, and the Earth Shield flyout's class icons
+	local es = HasEarthShield()
+	local fly = NewPanel(st)
+	local fx = fw + 12
+	local flySlots, n = {}, es and 5 or 4
+	for i = 1, n do
+		local s = NewSlot(fly, 20)
+		s:SetPoint("TOPLEFT", fly, "TOPLEFT", 4 + (i - 1) * 23, -4)
+		flySlots[i] = s
+	end
+	fly:SetSize(4 + n * 23 + 1, 28)
+	fly:SetPoint("TOPLEFT", st, "TOPLEFT", fx, 0)
+	local classSlots = {}
+	if es then
+		local coordsOf = CLASS_ICON_TCOORDS or {}
+		local classes = { "SHAMAN", "PALADIN", "WARRIOR" }
+		for i = 1, 3 do
+			local s = NewSlot(st, 20)
+			s:SetPoint("TOPLEFT", fly, "BOTTOMLEFT", 4 + (i - 1) * 23, -6)
+			s.coords = coordsOf[classes[i]]
+			s.class = classes[i]
+			classSlots[i] = s
+		end
+	end
+	local engine, engineCap
+	if IS_MAINLINE then
+		engineCap = Caption(st)
+		engineCap:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -6)
+		engineCap:SetText("GAME-DRAWN IN COMBAT")
+		engine = NewBar(st, 60, 4)
+		engine.track:SetPoint("LEFT", engineCap, "RIGHT", 8, 0)
+	end
+	local flyW = fx + 4 + n * 23 + 1
+	return flyW, fh + (IS_MAINLINE and 22 or 4), function()
+		PaintPanel(bar, "cd.frame", 0.7)
+		BoxSlot(shield, "cd.shield-box", "lightning", I.lightning, "LS")
+		CdBorder(shield, "cd.shield-box", "lightning")
+		PaintSegments(strip, 3, RGB("cd.strip", "strip"))
+		count:SetTextColor(RGB("cd.count", "high"))
+		SetBar(shieldBar, 0.8, RGB("cd.shieldbar", "lightning"))
+		BoxSlot(recall, "cd.recall", "box", I.recall, "TC")
+		CdBorder(recall, "cd.recall", "box")
+		BoxSlot(cds[1], "cd.boxes", 3, I.manaTide, "MT")
+		CdBorder(cds[1], "cd.boxes", 3)
+		BoxSlot(cds[2], "cd.boxes", "spell", I.ns, "NS")
+		CdBorder(cds[2], "cd.boxes", "spell")
+		BoxSlot(cds[3], "cd.boxes", "spell", I.ankh, "RE")
+		CdBorder(cds[3], "cd.boxes", "spell")
+		PaintSweep(sweep, cds[1], "cd.sweep")
+		SetBar(timers[1], 0.8, RGB("cd.timers", "good"))
+		SetBar(timers[2], 0.35, RGB("cd.timers", "low"))
+		SetBar(timers[3], 0.12, RGB("cd.timers", "bad"))
+		BoxSlot(mh, "cd.imbue-boxes", 4, I.wfWeapon, "WF")
+		CdBorder(mh, "cd.imbue-boxes", 4)
+		BoxSlot(oh, "cd.imbue-boxes", 2, I.ftWeapon, "FT")
+		CdBorder(oh, "cd.imbue-boxes", 2)
+		SetBar(mhBar, 0.7, RGB("cd.imbuebar", 4))
+		SetBar(ohBar, 0.4, RGB("cd.imbuebar", 2))
+		PaintPanel(fly, "cd.frame", 0.7)
+		BoxSlot(flySlots[1], "cd.flyout-boxes", "lightning", I.lightning, "LS")
+		BoxSlot(flySlots[2], "cd.flyout-boxes", "water", I.water, "WS")
+		local k = 3
+		if es then BoxSlot(flySlots[3], "cd.flyout-boxes", "earth", I.earthShield, "ES"); k = 4 end
+		BoxSlot(flySlots[k], "cd.flyout-boxes", 1, I.rbWeapon, "RB")
+		BoxSlot(flySlots[k + 1], "cd.flyout-boxes", 3, I.fbWeapon, "FB")
+		local boxed, mode = SP:ThemeBoxed("cd.class-icons"), SP:ThemeShowAs("cd.class-icons")
+		for i = 1, #classSlots do
+			local s = classSlots[i]
+			local r, g, b = ClassRGB(s.class)
+			PaintSlot(s, boxed, mode, CLASS_SHEET, strsub(s.class, 1, 2), r, g, b, false)
+		end
+		if engine then SetBar(engine, 1, RGB("cd.engine", "bar")) end
+	end
+end
+
+DRAW.loadouts = function(st)
+	local I = Icons()
+	local SETS = {
+		{ name = "Raid", code = "RA", file = I.windfury, e = 4 },
+		{ name = "Heal", code = "HE", file = I.healing, e = 3 },
+		{ name = "Solo", code = "SO", file = I.searing, e = 2 },
+	}
+	local slots, names = {}, {}
+	for i = 1, 3 do
+		local s = NewSlot(st, 28)
+		s:SetPoint("TOPLEFT", st, "TOPLEFT", 1 + (i - 1) * 44, -1)
+		slots[i] = s
+		local nm = HudText(st, "labels", 9, "OUTLINE")
+		nm:SetPoint("TOP", s, "BOTTOM", 0, -3)
+		nm:SetText(SETS[i].name)
+		names[i] = nm
+	end
+	-- a loadout's tooltip: its totems named in their element's colour
+	local tip = CreateFrame("Frame", nil, st)
+	tip:SetSize(190, 78)
+	tip:SetPoint("TOPLEFT", st, "TOPLEFT", 150, 0)
+	local tbg = tip:CreateTexture(nil, "BACKGROUND")
+	tbg:SetAllPoints(tip)
+	tbg:SetColorTexture(0.03, 0.03, 0.05, 0.92)
+	PaintEdges(NewEdges(tip, 1, 0), 0.45, 0.45, 0.5, 1)
+	local head = HudText(tip, "labels", 12, "")
+	head:SetPoint("TOPLEFT", tip, "TOPLEFT", 8, -7)
+	head:SetText("Raid")
+	local NAMES = { "Strength of Earth Totem", "Searing Totem", "Mana Spring Totem", "Windfury Totem" }
+	local lines = {}
+	for e = 1, 4 do
+		local t = HudText(tip, "labels", 11, "")
+		t:SetPoint("TOPLEFT", tip, "TOPLEFT", 8, -24 - (e - 1) * 13)
+		t:SetText(NAMES[e])
+		lines[e] = t
+	end
+	return 340, 80, function()
+		for i = 1, 3 do BoxSlot(slots[i], "lo.bar", "box", SETS[i].file, tostring(i)) end
+		for e = 1, 4 do lines[e]:SetTextColor(RGB("lo.tooltip", e)) end
+	end
+end
+
+DRAW.shieldcharges = function(st)
+	local I = Icons()
+	local GROUPS = {
+		{ role = "full", n = 3, lit = 3, which = "lightning", file = I.lightning, code = "LS" },
+		{ role = "low", n = 3, lit = 2, which = "lightning", file = I.lightning, code = "LS" },
+		{ role = "last", n = 3, lit = 1, which = "lightning", file = I.lightning, code = "LS" },
+	}
+	if HasEarthShield() then GROUPS[4] = { role = "esfull", n = 6, lit = 6, which = "earth", file = I.earthShield, code = "ES" } end
+	local parts = {}
+	for i, gdef in ipairs(GROUPS) do
+		local x = (i - 1) * 96
+		local s = NewSlot(st, 26)
+		s:SetPoint("TOPLEFT", st, "TOPLEFT", x + 1, -1)
+		local num = HudText(st, "charges", 24, "OUTLINE")
+		num:SetPoint("LEFT", s, "RIGHT", 8, 0)
+		num:SetText(tostring(gdef.lit))
+		local segs = NewSegments(st, gdef.n, 80, 5, 2)
+		PlaceSegments(segs, st, "TOPLEFT", x, -34)
+		parts[i] = { s = s, num = num, segs = segs, def = gdef }
+	end
+	return #GROUPS * 96 - 16, 40, function()
+		for i = 1, #parts do
+			local p = parts[i]
+			BoxSlot(p.s, "mod.shieldcharges-icon", p.def.which, p.def.file, p.def.code)
+			local r, g, b = SP:ThemeDisplayColor("mod.shieldcharges-colors", p.def.role)
+			p.num:SetTextColor(r, g, b)
+			PaintSegments(p.segs, p.def.lit, r, g, b)
+		end
+	end
+end
+
+DRAW.alerts = function(st)
+	local LINES = {
+		{ 2, "Searing Totem expires in 5" },
+		{ 1, "Strength of Earth Totem expired" },
+		{ 3, "Mana Spring Totem expired" },
+		{ 4, "Windfury Totem expired" },
+		{ "shield", "Lightning Shield faded" },
+		{ "imbue", "Weapon imbue faded" },
+		{ "destroyed", "Searing Totem destroyed" },
+	}
+	local fs = {}
+	for i, l in ipairs(LINES) do
+		local t = HudText(st, "alerts", 12, "OUTLINE")
+		t:SetPoint("TOPLEFT", st, "TOPLEFT", (i > 4) and 260 or 0, -((i - 1) % 4) * 17)
+		t:SetText(l[2])
+		fs[i] = t
+	end
+	return 470, 4 * 17, function()
+		for i, l in ipairs(LINES) do fs[i]:SetTextColor(RGB("mod.alerts", l[1])) end
+	end
+end
+
+DRAW.partybuff = function(st)
+	local I = Icons()
+	-- the counter frames
+	local counters, ctext = {}, {}
+	local COUNTS = { "3/4", "4/4", "2/4", "4/4" }
+	for e = 1, 4 do
+		local p = NewPanel(st)
+		p:SetSize(40, 22)
+		p:SetPoint("TOPLEFT", st, "TOPLEFT", (e - 1) * 46, -10)
+		counters[e] = p
+		local t = HudText(p, "labels", 11, "OUTLINE")
+		t:SetPoint("CENTER", p, "CENTER", 0, 0)
+		t:SetText(COUNTS[e])
+		ctext[e] = t
+	end
+	-- the coverage panel: two cells, each with its party dots
+	local cov = NewPanel(st)
+	cov:SetSize(150, 66)
+	cov:SetPoint("TOPLEFT", st, "TOPLEFT", 200, 0)
+	local title = HudText(cov, "labels", 9, "")
+	title:SetPoint("TOP", cov, "TOP", 0, -5)
+	title:SetText("Totem Coverage")
+	local cells, dots = {}, {}
+	local CELL = { { e = 1, file = I.soe, code = "SE" }, { e = 4, file = I.windfury, code = "WF" } }
+	for i = 1, 2 do
+		local s = NewSlot(cov, 26)
+		s:SetPoint("TOPLEFT", cov, "TOPLEFT", 26 + (i - 1) * 60, -18)
+		cells[i] = s
+		dots[i] = {}
+		for d = 1, 4 do
+			local dot = cov:CreateTexture(nil, "OVERLAY")
+			dot:SetSize(5, 5)
+			dot:SetPoint("TOPLEFT", s, "BOTTOMLEFT", (d - 1) * 7, -4)
+			dots[i][d] = dot
+		end
+	end
+	return 350, 66, function()
+		for e = 1, 4 do PaintPanel(counters[e], "mod.partybuff-frame", 0.92) end
+		PaintPanel(cov, "mod.coverage-colors", 0.92)
+		for i = 1, 2 do
+			BoxSlot(cells[i], "mod.coverage-boxes", CELL[i].e, CELL[i].file, CELL[i].code)
+			for d = 1, 3 do dots[i][d]:SetColorTexture(ClassRGB(CLASS_SAMPLE[d])) end
+			dots[i][4]:SetColorTexture(RGB("mod.coverage-dots-missing", "missing"))
+		end
+	end
+end
+
+DRAW.range = function(st)
+	local I = Icons()
+	local panel = NewPanel(st)
+	panel:SetSize(150, 60)
+	panel:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local T = { { e = 1, file = I.tremor, code = "TR", name = "Tremor" }, { e = 3, file = I.healing, code = "HS", name = "Healing" },
+		{ e = 4, file = I.grace, code = "GA", name = "Grace" } }
+	local slots = {}
+	for i = 1, 3 do
+		local s = NewSlot(panel, 26)
+		s:SetPoint("TOPLEFT", panel, "TOPLEFT", 14 + (i - 1) * 46, -8)
+		slots[i] = s
+		local nm = HudText(panel, "labels", 9, "OUTLINE")
+		nm:SetPoint("TOP", s, "BOTTOM", 0, -3)
+		nm:SetText(T[i].name)
+	end
+	-- the totem picker window's element tints
+	local heads = {}
+	for e = 1, 4 do
+		local h = CreateFrame("Frame", nil, st)
+		h:SetSize(58, 22)
+		h:SetPoint("TOPLEFT", st, "TOPLEFT", 170 + (e - 1) * 64, -18)
+		h.bg = h:CreateTexture(nil, "BACKGROUND")
+		h.bg:SetAllPoints(h)
+		h.edges = NewEdges(h, 1, 0)
+		h.t = h:CreateFontString(nil, "OVERLAY")
+		h.t:SetFontObject(Core.fonts.row)
+		h.t:SetPoint("CENTER", h, "CENTER", 0, 0)
+		h.t:SetText(EL[e])
+		heads[e] = h
+	end
+	local capW = Caption(st)
+	capW:SetPoint("TOPLEFT", st, "TOPLEFT", 170, 0)
+	capW:SetText("TOTEM PICKER WINDOW")
+	return 170 + 4 * 64, 60, function()
+		PaintPanel(panel, "mod.range-colors", 0.92)
+		for i = 1, 3 do BoxSlot(slots[i], "mod.range-boxes", T[i].e, T[i].file, T[i].code) end
+		for e = 1, 4 do
+			local h = heads[e]
+			local r, g, b = SP:ThemeDisplayColor("win.rangecfg", e)
+			h.bg:SetColorTexture(r, g, b, 0.10)
+			PaintEdges(h.edges, r, g, b, 0.9)
+			h.t:SetTextColor(r, g, b)
+		end
+	end
+end
+
+DRAW.raidcd = function(st)
+	local I = Icons()
+	local panel = NewPanel(st)
+	panel:SetSize(110, 58)
+	panel:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local title = HudText(panel, "labels", 9, "")
+	title:SetPoint("TOP", panel, "TOP", 0, -5)
+	title:SetText("Raid Cooldowns")
+	local tide = NewSlot(panel, 26)
+	tide:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -20)
+	local lust = NewSlot(panel, 26)
+	lust:SetPoint("TOPLEFT", panel, "TOPLEFT", 64, -20)
+	local alert = HudText(st, "alerts", 16, "OUTLINE")
+	alert:SetPoint("LEFT", panel, "RIGHT", 24, 0)
+	alert:SetText((I.lustCode == "HE" and "Heroism" or "Bloodlust") .. " in 3")
+	return 330, 58, function()
+		PaintPanel(panel, "mod.raidcd-colors", 0.92)
+		BoxSlot(tide, "mod.raidcd-boxes", 3, I.manaTide, "MT")
+		BoxSlot(lust, "mod.raidcd-boxes", "spell", I.lust, I.lustCode)
+		alert:SetTextColor(RGB("mod.raidcd-colors", "alert"))
+	end
+end
+
+DRAW.popouts = function(st)
+	local I = Icons()
+	local panel = NewPanel(st)
+	panel:SetSize(96, 52)
+	panel:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local P = { { e = 4, file = I.windfury, code = "WF", t = "1:12" }, { e = 3, file = I.manaSpring, code = "MS", t = "0:48" } }
+	local slots = {}
+	for i = 1, 2 do
+		local s = NewSlot(panel, 28)
+		s:SetPoint("TOPLEFT", panel, "TOPLEFT", 12 + (i - 1) * 42, -6)
+		slots[i] = s
+		local t = HudText(panel, "timers", 9, "OUTLINE")
+		t:SetPoint("TOP", s, "BOTTOM", 0, -2)
+		t:SetText(P[i].t)
+	end
+	return 96, 52, function()
+		PaintPanel(panel, "mod.popouts-colors", 0.92)
+		for i = 1, 2 do BoxSlot(slots[i], "mod.popouts-boxes", P[i].e, P[i].file, P[i].code) end
+	end
+end
+
+DRAW.estracker = function(st)
+	local I = Icons()
+	local panel = NewPanel(st)
+	panel:SetSize(140, 42)
+	panel:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local icon = NewSlot(panel, 28)
+	icon:SetPoint("LEFT", panel, "LEFT", 7, 0)
+	local count = HudText(panel, "charges", 18, "OUTLINE")
+	count:SetPoint("LEFT", icon, "RIGHT", 8, 0)
+	count:SetText("6")
+	local name = HudText(panel, "labels", 11, "OUTLINE")
+	name:SetPoint("LEFT", count, "RIGHT", 10, 0)
+	name:SetText("Tank")
+	return 140, 42, function()
+		PaintPanel(panel, "mod.estracker-colors", 0.7)
+		BoxSlot(icon, "mod.estracker-box", "earth", I.earthShield, "ES")
+		count:SetTextColor(RGB("mod.estracker-colors", "count"))
+	end
+end
+
+DRAW.reactive = function(st)
+	local a = HudText(st, "alerts", 14, "OUTLINE")
+	a:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	a:SetText("Fear! Tremor Totem")
+	local b = HudText(st, "alerts", 14, "OUTLINE")
+	b:SetPoint("TOPLEFT", st, "TOPLEFT", 0, -20)
+	b:SetText("Poison! Poison Cleansing Totem")
+	return 300, 36, function()
+		a:SetTextColor(RGB("mod.reactive", 1))
+		b:SetTextColor(RGB("mod.reactive", 3))
+	end
+end
+
+DRAW.readyreminders = function(st)
+	local box = CreateFrame("Frame", nil, st)
+	box:SetSize(210, 30)
+	box:SetPoint("TOPLEFT", st, "TOPLEFT", 2, -2)
+	local bg = box:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(box)
+	bg:SetColorTexture(0, 0, 0, 0.6)
+	local edges = NewEdges(box, 2, 0)
+	local t = HudText(box, "alerts", 12, "OUTLINE")
+	t:SetPoint("CENTER", box, "CENTER", 0, 0)
+	t:SetText("Windfury Totem is ready")
+	return 214, 34, function()
+		PaintEdges(edges, RGB("mod.readyreminders", "border"))
+		t:SetTextColor(1, 0.82, 0)   -- the reminder names its totem in gold
+	end
+end
+
+DRAW.tremor = function(st)
+	local I = Icons()
+	local icon = NewSlot(st, 32)
+	icon:SetPoint("TOPLEFT", st, "TOPLEFT", 4, -4)
+	local glow = NewEdges(icon, 3, 3)
+	local t = HudText(st, "alerts", 14, "OUTLINE")
+	t:SetPoint("LEFT", icon, "RIGHT", 14, 0)
+	t:SetText("Tremor Totem")
+	return 200, 40, function()
+		BoxSlot(icon, "mod.tremor-box", 1, I.tremor, "TR")
+		local r, g, b = SP:ThemeDisplayColor("mod.tremor", "glow")
+		PaintEdges(glow, r, g, b, 0.9)
+	end
+end
+
+DRAW.readycheck = function(st)
+	local panel = NewPanel(st)
+	panel:SetSize(180, 52)
+	panel:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local title = HudText(panel, "labels", 10, "")
+	title:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -6)
+	title:SetText("Ready Check")
+	local l1 = HudText(panel, "labels", 10, "")
+	l1:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -5)
+	l1:SetText("Totems: 4 of 4")
+	local l2 = HudText(panel, "labels", 10, "")
+	l2:SetPoint("TOPLEFT", l1, "BOTTOMLEFT", 0, -3)
+	l2:SetText("Shield and weapon imbues: on")
+	return 180, 52, function()
+		PaintPanel(panel, "mod.readycheck", 0.92)
+	end
+end
+
+DRAW.plates = function(st)
+	local I = Icons()
+	local P = { { e = 1, file = I.earthbind, code = "EB", role = "enemy", name = "Enemy" },
+		{ e = 3, file = I.manaSpring, code = "MS", role = "friendly", name = "Friendly" } }
+	local parts = {}
+	for i = 1, 2 do
+		local s = NewSlot(st, 26)
+		s:SetPoint("TOPLEFT", st, "TOPLEFT", 4 + (i - 1) * 70, -4)
+		local edges = NewEdges(s, 2, 2)
+		local nm = HudText(st, "labels", 9, "OUTLINE")
+		nm:SetPoint("TOP", s, "BOTTOM", 0, -5)
+		nm:SetText(P[i].name)
+		parts[i] = { s = s, edges = edges }
+	end
+	return 140, 48, function()
+		for i = 1, 2 do
+			BoxSlot(parts[i].s, "mod.plates-boxes", P[i].e, P[i].file, P[i].code)
+			PaintEdges(parts[i].edges, RGB("mod.plates-colors", P[i].role))
+		end
+	end
+end
+
+DRAW.minimap = function(st)
+	local map = CreateFrame("Frame", nil, st)
+	map:SetSize(120, 60)
+	map:SetPoint("TOPLEFT", st, "TOPLEFT", 0, 0)
+	local bg = map:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(map)
+	bg:SetColorTexture(0, 0, 0, 0.55)
+	PaintEdges(NewEdges(map, 1, 0), 0.3, 0.3, 0.34, 1)
+	local POS = { { 22, -14 }, { 50, -30 }, { 78, -12 }, { 96, -34 } }
+	local pins, rings = {}, {}
+	for e = 1, 4 do
+		local ring = CreateFrame("Frame", nil, map)
+		ring:SetSize(18, 18)
+		ring:SetPoint("CENTER", map, "TOPLEFT", POS[e][1], POS[e][2])
+		rings[e] = NewEdges(ring, 1, 0)
+		local pin = map:CreateTexture(nil, "OVERLAY")
+		pin:SetSize(6, 6)
+		pin:SetPoint("CENTER", ring, "CENTER", 0, 0)
+		pins[e] = pin
+	end
+	return 120, 60, function()
+		for e = 1, 4 do
+			local r, g, b = SP:ThemeDisplayColor("mod.minimap", e)
+			pins[e]:SetColorTexture(r, g, b, 1)
+			PaintEdges(rings[e], r, g, b, 0.7)
+		end
+	end
+end
+
+DRAW.assign = function(st)
+	local heads = {}
+	for e = 1, 4 do
+		local h = CreateFrame("Frame", nil, st)
+		h:SetSize(76, 24)
+		h:SetPoint("TOPLEFT", st, "TOPLEFT", (e - 1) * 82, 0)
+		h.bg = h:CreateTexture(nil, "BACKGROUND")
+		h.bg:SetAllPoints(h)
+		h.edges = NewEdges(h, 1, 0)
+		h.t = h:CreateFontString(nil, "OVERLAY")
+		h.t:SetFontObject(Core.fonts.row)
+		h.t:SetPoint("CENTER", h, "CENTER", 0, 0)
+		h.t:SetText(EL[e])
+		heads[e] = h
+	end
+	return 4 * 82 - 6, 24, function()
+		for e = 1, 4 do
+			local h = heads[e]
+			local r, g, b = SP:ThemeDisplayColor("win.assign", e)
+			h.bg:SetColorTexture(r, g, b, 0.10)
+			PaintEdges(h.edges, r, g, b, 0.9)
+			h.t:SetTextColor(r, g, b)
+		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Page state. Frames are kept by key and reused; `shown` is this render's list
+-- (hidden on Release), `live` the ones repainted on every theme change.
+-- ---------------------------------------------------------------------------
+local page = { body = nil, onChanged = nil, visible = false }
+local store, shown, live = {}, {}, {}
+local pickCards, showCards, palCards, shieldCards, wowRows = {}, {}, {}, {}, {}
+local customLine
+local RepaintAll, LayoutSig
+
+local function Keep(key, make)
+	local f = store[key]
+	if not f then
+		f = make()
+		store[key] = f
+	end
+	f:SetParent(page.body)
+	f:ClearAllPoints()
+	f:Show()
+	shown[#shown + 1] = f
+	return f
+end
+
+local function PageChanged()
+	if page.onChanged then page.onChanged() end
+end
+
+local function Header(label, y, W, note)
+	local _, h = Widgets:SectionHeader(page.body, { label = label, x = 0, y = y, width = W, note = note })
+	return h
+end
+
+-- ---------------------------------------------------------------------------
+-- The engine, as the top of the page shows it
+-- ---------------------------------------------------------------------------
+-- the Appearance palette as it is set right now (Standard shows it untouched)
+local function AppearancePalette()
+	local o = SP.opt
+	return (o and o.elementColorPalette) or (SP.DefaultElementPalette and SP:DefaultElementPalette()) or "classic"
+end
+-- the Element Colors card in use: the Themes tab's pick, the theme's own, or
+-- (Standard) the Appearance palette
+local function InUsePalette()
+	local p = SP:ThemeField("palette")
+	if p then return p end
+	if SP:ThemeGlobal() ~= "standard" then return "shamanpower" end
+	return AppearancePalette()
+end
+-- the palette the ShamanPower / Minimal cards and the shield cards show
+local function CustomRGB(e)
+	-- Standard with the Appearance page's own Custom palette: show those colours
+	if SP:ThemeField("palette") == nil and SP:ThemeGlobal() == "standard" and AppearancePalette() == "custom" then
+		local c = SP.ElementColors and SP.ElementColors[e]
+		if c then return c.r, c.g, c.b end
+	end
+	return SP:ThemePaletteRGB("custom", e)
+end
+local function PaletteCardRGB(key, e)
+	if key == "custom" then return CustomRGB(e) end
+	return SP:ThemePaletteRGB(key, e)
+end
+local function ShieldDefault()
+	return SP:ThemeGlobal() == "standard" and "today" or "palette"
+end
+local function ShieldCardRGB(mode, which)
+	if mode == "today" then return 0.2, 0.6, 1.0 end   -- #3399FF
+	if mode == "magic" then return SP:WoWColor("DEBUFF_TYPE_MAGIC_COLOR") end
+	local pal = SP:ThemeField("palette") or (SP:ThemeGlobal() ~= "standard" and "shamanpower") or nil
+	if which == "water" then return SP:ThemePaletteRGB(pal, 3) end
+	if which == "earth" then return SP:ThemePaletteRGB(pal, 1) end
+	local lb = SP.THEME_BRAND and SP.THEME_BRAND.logoBlue
+	if lb then return lb[1], lb[2], lb[3] end
+	return 0.247, 0.663, 0.961
+end
+-- the duration bars as Standard draws them today
+local function StdDuration(e)
+	local def = SP:ThemeSpot("tb.duration")
+	local role = def and def.roleByKey and def.roleByKey[tostring(e)]
+	local c = role and role.stdRGB
+	if c then return c[1], c[2], c[3] end
+	local d = SP.DurationBarColors and SP.DurationBarColors[e]
+	if d then return d[1], d[2], d[3] end
+	return 1, 1, 1
+end
+
+-- ---------------------------------------------------------------------------
+-- Colour picking (OUR picker only, never Blizzard's)
+-- ---------------------------------------------------------------------------
+local function PickSwatch(spot, role, title)
+	if not SP.OpenColorPicker then return end
+	local r, g, b, src = SP:ThemeDisplayColor(spot, role)
+	local keep = (src == "custom") or SP:ThemeRoleIsSetting(spot, role)
+	SP:OpenColorPicker({
+		r = r, g = g, b = b, title = title,
+		onChange = function(nr, ng, nb) SP:SetSpotColor(spot, role, nr, ng, nb) end,
+		onCancel = function()
+			-- put back exactly what was there: the setting / the edit, or no edit at all
+			if keep then SP:SetSpotColor(spot, role, r, g, b) else SP:SetSpotColor(spot, role, nil) end
+		end,
+	})
+end
+
+-- a Custom palette swatch: edits the Themes tab's Custom palette and makes it
+-- the Element Colors in use
+local function PickCustom(e)
+	if not SP.OpenColorPicker then return end
+	local r, g, b = CustomRGB(e)
+	local prevPalette, prevCustom = SP:ThemeField("palette"), SP:ThemeField("custom")
+	local started = false
+	SP:OpenColorPicker({
+		r = r, g = g, b = b, title = EL[e] .. " (Custom element colors)",
+		onChange = function(nr, ng, nb)
+			if not started then
+				started = true
+				-- start from the four colours the card shows
+				if SP:ThemeField("custom") == nil then
+					local c = {}
+					for i = 1, 4 do
+						local cr, cg, cb = CustomRGB(i)
+						c[i] = { r = cr, g = cg, b = cb }
+					end
+					SP:SetThemeField("custom", c)
+				end
+				if SP:ThemeField("palette") ~= "custom" then SP:SetThemeField("palette", "custom") end
+			end
+			SP:SetThemeCustomColor(e, nr, ng, nb)
+		end,
+		onCancel = function()
+			if not started then return end
+			SP:SetThemeField("custom", prevCustom)
+			if SP:ThemeField("palette") ~= prevPalette then SP:SetThemeField("palette", prevPalette) end
+		end,
+	})
+end
+
+-- ---------------------------------------------------------------------------
+-- 2. The theme picker
+-- ---------------------------------------------------------------------------
+local PICKS = {
+	{ key = "standard", label = "Standard",
+	  desc = "Your own look, exactly as you set it up: nothing is recolored. If a theme changed any of your settings, picking Standard puts them all back." },
+	{ key = "shamanpower", label = "ShamanPower",
+	  desc = "Your icons stay the same; what's around them is recolored. Duration bars, borders and flyout tabs take the logo's colors, charges and timers WoW's own green, yellow and red, and panels turn navy." },
+	{ key = "minimal", label = "ShamanPower Minimal",
+	  desc = "Everything in ShamanPower, and the icons themselves become flat element boxes showing the totem's letters." },
+	-- shown once the player has a Custom look (in use now, or kept from before)
+	{ key = "custom", label = "Custom",
+	  desc = "Your own mix: a theme plus every change you made below. Picking another theme keeps it here, and clicking Custom brings all of it back." },
+}
+local function CustomCardShown() return SP:ThemeIsCustom() or SP:ThemeHasSavedCustom() end
+
+local function NewPickCard(p)
+	local c = NewCard(page.body)
+	c.slots, c.bars = {}, {}
+	local I = Icons()
+	for e = 1, 4 do
+		local s = NewSlot(c, 26)
+		s:SetPoint("TOPLEFT", c, "TOPLEFT", 12 + (e - 1) * 30, -12)
+		c.slots[e] = s
+		local b = NewBar(c, 26, 3)
+		b.track:SetPoint("TOPLEFT", s, "BOTTOMLEFT", 0, -3)
+		c.bars[e] = b
+	end
+	c.files = I.totems
+	c.title = Text(c, "brand")
+	c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 148, -12)
+	c.title:SetText(p.label)
+	c.desc = Text(c, "rowDim")
+	c.desc:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
+	c.tag = Tag(c)
+	c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, -14)
+	c.key = p.key
+	c:SetScript("OnClick", function()
+		if InCombatLockdown() then return end
+		if p.key == "custom" then SP:ThemeLoadCustom() else SP:SetThemeGlobal(p.key) end
+		PageChanged()
+	end)
+	if p.key == "custom" then
+		Core:AttachTooltip(c, p.label, "Brings back your Custom look: the theme it started from and every change you made below and on the settings pages.")
+	else
+		Core:AttachTooltip(c, p.label, "Applies this theme to every part below. Every part's own choice goes back to Use General Theme. A Custom look is kept on the Custom card.")
+	end
+	return c
+end
+
+local function RenderPicker(y, W)
+	for i = #pickCards, 1, -1 do pickCards[i] = nil end
+	for _, p in ipairs(PICKS) do
+		if p.key ~= "custom" or CustomCardShown() then
+			local c = Keep("pick:" .. p.key, function() return NewPickCard(p) end)
+			pickCards[#pickCards + 1] = c
+			local dh = Fit(c.desc, W - 148 - 12 - 90, p.desc)
+			local h = max(60, 12 + ceil(c.title:GetStringHeight()) + 4 + dh + 12)
+			c:SetSize(W, h)
+			c:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+			y = y + h + 6
+		end
+	end
+	-- the Custom line
+	customLine = Keep("customline", function()
+		local f = CreateFrame("Frame", nil, page.body)
+		f.text = Text(f, "rowDim")
+		f.text:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -4)
+		return f
+	end)
+	local CUSTOM_ON = GOLD_TEXT .. "Custom|r is in use: your changes below. Pick another theme any time: your Custom stays on its card. Standard always brings back your own look."
+	local CUSTOM_OFF = "Change any part below and it becomes your " .. GOLD_TEXT .. "Custom|r look, kept on its own card. Standard always brings back your own look."
+	local h1 = Fit(customLine.text, W - 24, CUSTOM_ON)
+	local h2 = Fit(customLine.text, W - 24, CUSTOM_OFF)
+	customLine.on, customLine.off = CUSTOM_ON, CUSTOM_OFF
+	customLine:SetSize(W, max(h1, h2) + 8)
+	customLine:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+	return y + max(h1, h2) + 8
+end
+
+local function PaintPicker()
+	local cur = SP:ThemeGlobal()
+	local custom = SP:ThemeIsCustom()
+	local pal = SP:ThemeField("palette")
+	local mode = SP:ThemeField("showAs") or "both"
+	for i = 1, #pickCards do
+		local c = pickCards[i]
+		-- a Custom look in use: the Custom card is the one in use, not the theme it started from
+		if custom then c.selected = (c.key == "custom") else c.selected = (c.key == cur) end
+		PaintCard(c)
+		if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+		-- the Custom card draws the Custom look: the live one, or the kept one
+		local base, cpal = c.key, pal
+		if c.key == "custom" then
+			if custom then base = cur else base, cpal = SP:ThemeSavedCustomBase(), SP:ThemeSavedCustomPalette() end
+		elseif c.key ~= cur or custom then
+			cpal = nil   -- another theme's card: that theme's own colors
+		end
+		local minimal = (base == "minimal")
+		for e = 1, 4 do
+			local r, g, b
+			if base == "standard" then
+				if cpal then r, g, b = SP:ThemePaletteRGB(cpal, e) else r, g, b = StdDuration(e) end
+			else
+				r, g, b = SP:ThemePaletteRGB(cpal or "shamanpower", e)
+			end
+			PaintSlot(c.slots[e], minimal, mode, c.files[e], CODES[e], r, g, b, false)
+			SetBar(c.bars[e], FILL[e], r, g, b)
+		end
+	end
+	if customLine then customLine.text:SetText(custom and customLine.on or customLine.off) end
+end
+
+-- ---------------------------------------------------------------------------
+-- 3. The picked theme's own options
+-- ---------------------------------------------------------------------------
+local SHOW_AS = {
+	{ key = "both", label = "Letters + faint icon" },
+	{ key = "letters", label = "Letters" },
+	{ key = "tint", label = "One-color icon" },
+	{ key = "mini", label = "Small icon" },
+}
+
+local function NewShowCard(sa)
+	local c = NewCard(page.body)
+	local I = Icons()
+	c.slots = { NewSlot(c, 30), NewSlot(c, 30) }
+	c.slots[1]:SetPoint("TOPRIGHT", c, "TOP", -4, -12)
+	c.slots[2]:SetPoint("TOPLEFT", c, "TOP", 4, -12)
+	c.files = { I.totems[1], I.totems[2] }
+	c.title = Text(c, "row")
+	c.title:SetJustifyH("CENTER")
+	c.title:SetPoint("TOP", c, "TOP", 0, -52)
+	c.key = sa.key
+	c:SetScript("OnClick", function()
+		if InCombatLockdown() then return end
+		local v = (sa.key ~= "both") and sa.key or nil
+		if SP:ThemeField("showAs") ~= v then SP:SetThemeField("showAs", v) end
+		PageChanged()
+	end)
+	Core:AttachTooltip(c, "Show Icons As: " .. sa.label, "How each flat box shows which totem it is. The full name is always in the tooltip.")
+	return c
+end
+
+local function RenderThemeOptions(y, W)
+	local cap = Keep("showas:caption", function()
+		local f = CreateFrame("Frame", nil, page.body)
+		f.label = Text(f, "row")
+		f.label:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -2)
+		f.label:SetText("Show Icons As")
+		f.desc = Text(f, "rowDim")
+		f.desc:SetPoint("TOPLEFT", f.label, "BOTTOMLEFT", 0, -4)
+		return f
+	end)
+	local dh = Fit(cap.desc, W - 24, "How each flat box shows which totem it is. Each part below can pick its own.")
+	local ch = 2 + ceil(cap.label:GetStringHeight()) + 4 + dh + 8
+	cap:SetSize(W, ch)
+	cap:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+	y = y + ch
+	local gap = 8
+	local cw = floor((W - 3 * gap) / 4)
+	local tallest = 0
+	for i, sa in ipairs(SHOW_AS) do
+		local c = Keep("showas:" .. sa.key, function() return NewShowCard(sa) end)
+		showCards[i] = c
+		local th = Fit(c.title, cw - 16, sa.label)
+		tallest = max(tallest, th)
+		c:SetPoint("TOPLEFT", page.body, "TOPLEFT", (i - 1) * (cw + gap), -y)
+		c.tw = cw
+	end
+	local h = 52 + tallest + 12
+	for i = 1, #SHOW_AS do showCards[i]:SetSize(showCards[i].tw, h) end
+	y = y + h + 10
+	return y
+end
+
+local function PaintThemeOptions()
+	local sel = SP:ThemeField("showAs") or "both"
+	for i = 1, #showCards do
+		local c = showCards[i]
+		c.selected = (c.key == sel)
+		PaintCard(c)
+		for k = 1, 2 do
+			-- the element colors the bars use right now, whatever theme or palette is in use
+			local r, g, b = SP:ThemeElement("tb.boxes", k)
+			PaintSlot(c.slots[k], true, c.key, c.files[k], CODES[k], r, g, b, false)
+		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- 4. Element Colors
+-- ---------------------------------------------------------------------------
+local PALETTE_CARDS = {
+	{ key = "classic", label = "Classic", sub = "Brown Earth: the colors ShamanPower always had. The default on Anniversary." },
+	{ key = "blizzard", label = "Blizzard", sub = "Green Earth and purple Air, from Blizzard's totem bar. The default on WoW: Forever." },
+	{ key = "shamanpower", label = "ShamanPower", sub = "The colors of the ShamanPower logo." },
+	{ key = "custom", label = "Custom", sub = "Your own four colors: click a color to change it." },
+}
+
+local function PickPalette(key)
+	if InCombatLockdown() then return end
+	local field = SP:ThemeField("palette")
+	if SP:ThemeGlobal() ~= "standard" then
+		-- the theme's own palette is no change
+		local v = (key ~= "shamanpower") and key or nil
+		if field ~= v then SP:SetThemeField("palette", v) end
+	elseif not (field == nil and key == AppearancePalette()) then
+		if field ~= key then SP:SetThemeField("palette", key) end
+	end
+	PageChanged()
+end
+
+local function NewPaletteCard(p)
+	local c = NewCard(page.body)
+	local I = Icons()
+	c.title = Text(c, "brand")
+	c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 12, -10)
+	c.title:SetText(p.label)
+	c.tag = Tag(c)
+	c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, -12)
+	c.sub = Text(c, "rowDim")
+	c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
+	c.slots, c.rings, c.bars, c.sw = {}, {}, {}, {}
+	for e = 1, 4 do
+		local s = NewSlot(c, 24)
+		PaintSlot(s, false, nil, I.totems[e], nil, 1, 1, 1, false)
+		c.slots[e] = s
+		c.rings[e] = NewEdges(s, 2, 1)
+		c.bars[e] = NewBar(c, 24, 3)
+		c.bars[e].track:SetPoint("TOPLEFT", s, "BOTTOMLEFT", 0, -3)
+		local sw = NewSwatch(c, 16, 14)
+		sw.name = Text(c, "tiny")
+		sw.name:SetText(EL[e])
+		sw.name:SetTextColor(Core:Color("textDim"))
+		sw.name:SetPoint("TOPLEFT", sw, "TOPRIGHT", 6, 1)
+		sw.hex = Text(c, "tiny")
+		sw.hex:SetTextColor(Core:Color("textDim"))
+		sw.hex:SetPoint("TOPLEFT", sw.name, "BOTTOMLEFT", 0, -1)
+		if p.key == "custom" then
+			sw:SetScript("OnEnter", function(self) Core:SetBorderColor(self, "accent") end)
+			sw:SetScript("OnLeave", function(self) Core:SetBorderColor(self, "border") end)
+			sw:SetScript("OnClick", function() if not InCombatLockdown() then PickCustom(e) end end)
+			Core:AttachTooltip(sw, EL[e], "Click to pick this element's Custom color.")
+		else
+			sw:EnableMouse(false)
+		end
+		c.sw[e] = sw
+	end
+	c.key = p.key
+	c:SetScript("OnClick", function() PickPalette(p.key) end)
+	Core:AttachTooltip(c, p.label, "Use these element colors everywhere a part follows the element colors. It is the Element Colors setting on Appearance.")
+	return c
+end
+
+local function RenderPalettes(y, W)
+	local gap = 10
+	local cw = floor((W - gap) / 2)
+	local rowH = 0
+	for i, p in ipairs(PALETTE_CARDS) do
+		local c = Keep("pal:" .. p.key, function() return NewPaletteCard(p) end)
+		palCards[i] = c
+		local th = ceil(c.title:GetStringHeight())
+		local sh = Fit(c.sub, cw - 24, p.sub)
+		local yI = 10 + th + 4 + sh + 12
+		local x0 = floor((cw - (4 * 24 + 3 * 10)) / 2)
+		local colW = floor((cw - 24) / 4)
+		for e = 1, 4 do
+			local s = c.slots[e]
+			s:ClearAllPoints()
+			s:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + (e - 1) * 34, -yI)
+			local sw = c.sw[e]
+			sw:ClearAllPoints()
+			sw:SetPoint("TOPLEFT", c, "TOPLEFT", 12 + (e - 1) * colW, -(yI + 24 + 3 + 3 + 14))
+		end
+		local h = yI + 24 + 6 + 14 + 32 + 8
+		c:SetSize(cw, h)
+		local col, row = (i - 1) % 2, floor((i - 1) / 2)
+		if col == 0 and row > 0 then y = y + rowH + gap; rowH = 0 end
+		c:SetPoint("TOPLEFT", page.body, "TOPLEFT", col * (cw + gap), -y)
+		rowH = max(rowH, h)
+	end
+	-- both cards of a row the height of the taller one
+	for r = 0, 1 do
+		local a, b = palCards[r * 2 + 1], palCards[r * 2 + 2]
+		if a and b then
+			local h = max(a:GetHeight(), b:GetHeight())
+			a:SetHeight(h); b:SetHeight(h)
+		end
+	end
+	return y + rowH + 6
+end
+
+local function PaintPalettes()
+	local inUse = InUsePalette()
+	for i = 1, #palCards do
+		local c = palCards[i]
+		c.selected = (c.key == inUse)
+		PaintCard(c)
+		if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+		for e = 1, 4 do
+			local r, g, b = PaletteCardRGB(c.key, e)
+			PaintEdges(c.rings[e], r, g, b, 1)
+			SetBar(c.bars[e], FILL[e], r, g, b)
+			c.sw[e].fill:SetColorTexture(r, g, b, 1)
+			c.sw[e].hex:SetText(Hex(r, g, b))
+		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- 5. Shield Colors
+-- ---------------------------------------------------------------------------
+local SHIELD_CARDS = {
+	-- (each sub is read when the page is drawn: WoW: Forever has no Earth Shield)
+	{ key = "today", label = "Today", sub = function() return HasEarthShield() and "The blue ShamanPower has always used, on all three shields."
+		or "The blue ShamanPower has always used, on both shields." end },
+	{ key = "palette", label = "Follow Palette", sub = function() return HasEarthShield() and "Lightning Shield in the logo blue, Water Shield and Earth Shield in the element colors' Water and Earth."
+		or "Lightning Shield in the logo blue, Water Shield in the element colors' Water." end },
+	{ key = "magic", label = "WoW Magic Blue", sub = function() return HasEarthShield() and "All three in the blue WoW puts on magic auras."
+		or "Both in the blue WoW puts on magic auras." end, wow = true },
+}
+
+local function PickShield(key)
+	if InCombatLockdown() then return end
+	local v = (key ~= ShieldDefault()) and key or nil
+	if SP:ThemeField("shield") ~= v then SP:SetThemeField("shield", v) end
+	PageChanged()
+end
+
+local function NewShieldCard(sc)
+	local c = NewCard(page.body)
+	local I = Icons()
+	c.title = Text(c, "brand")
+	c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 12, -10)
+	c.title:SetText(sc.label)
+	c.wow = Tag(c)
+	c.wow:SetPoint("LEFT", c.title, "RIGHT", 8, 0)
+	if sc.wow then SetTag(c.wow, "WOW", "accentHi") end
+	c.tag = Tag(c)
+	c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, -12)
+	c.sub = Text(c, "rowDim")
+	c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
+	local list = { { "lightning", I.lightning, 3 }, { "water", I.water, 3 } }
+	if HasEarthShield() then list[3] = { "earth", I.earthShield, 6 } end
+	c.parts = {}
+	for j, sdef in ipairs(list) do
+		local s = NewSlot(c, 26)
+		PaintSlot(s, false, nil, sdef[2], nil, 1, 1, 1, false)
+		local num = HudText(s.over, "timers", 12, "OUTLINE")
+		num:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", -1, 2)
+		num:SetText(tostring(sdef[3]))
+		local segs = NewSegments(c, 3, 26, 4, 2)
+		c.parts[j] = { which = sdef[1], s = s, num = num, segs = segs }
+	end
+	c.key = sc.key
+	c:SetScript("OnClick", function() PickShield(sc.key) end)
+	Core:AttachTooltip(c, sc.label, "The shield colors everywhere a part has Shield Colors (Use Theme's).")
+	return c
+end
+
+local function RenderShields(y, W)
+	local gap = 10
+	local cw = floor((W - 2 * gap) / 3)
+	local tallest = 0
+	for i, sc in ipairs(SHIELD_CARDS) do
+		local c = Keep("shield:" .. sc.key, function() return NewShieldCard(sc) end)
+		shieldCards[i] = c
+		local th = ceil(c.title:GetStringHeight())
+		local sh = Fit(c.sub, cw - 24, type(sc.sub) == "function" and sc.sub() or sc.sub)
+		local yI = 10 + th + 4 + sh + 12
+		local n = #c.parts
+		local colW = floor((cw - 24) / n)
+		for j, p in ipairs(c.parts) do
+			local x = 12 + (j - 1) * colW + floor((colW - 26) / 2)
+			p.s:ClearAllPoints()
+			p.s:SetPoint("TOPLEFT", c, "TOPLEFT", x, -yI)
+			for k = 1, p.segs.n do p.segs[k]:ClearAllPoints() end
+			PlaceSegments(p.segs, c, "TOPLEFT", x, -(yI + 26 + 4))
+		end
+		c.h = yI + 26 + 4 + 4 + 12
+		tallest = max(tallest, c.h)
+		c:SetPoint("TOPLEFT", page.body, "TOPLEFT", (i - 1) * (cw + gap), -y)
+		c.cw = cw
+	end
+	for i = 1, #SHIELD_CARDS do shieldCards[i]:SetSize(shieldCards[i].cw, tallest) end
+	return y + tallest + 6
+end
+
+local function PaintShields()
+	local inUse = SP:ThemeField("shield") or ShieldDefault()
+	for i = 1, #shieldCards do
+		local c = shieldCards[i]
+		c.selected = (c.key == inUse)
+		PaintCard(c)
+		if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+		for _, p in ipairs(c.parts) do
+			local r, g, b = ShieldCardRGB(c.key, p.which)
+			p.num:SetTextColor(r, g, b)
+			PaintSegments(p.segs, 3, r, g, b)
+		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- 6. WoW's own colours
+-- ---------------------------------------------------------------------------
+local WOW_ROWS = {
+	{ "GREEN_FONT_COLOR", "Green", "Full charges and plenty of time left. Friendly totems on nameplates." },
+	{ "YELLOW_FONT_COLOR", "Yellow", "Charges or time running low." },
+	{ "RED_FONT_COLOR", "Red", "The last charge or almost out, a missing buff, a destroyed totem. Enemy totems on nameplates." },
+	{ "NORMAL_FONT_COLOR", "Gold", "The Tremor Totem glow and the Raid Cooldowns alert." },
+	{ "ORANGE_FONT_COLOR", "Orange", "A weapon imbue running out." },
+	{ "DEBUFF_TYPE_MAGIC_COLOR", "Magic blue", "The blue WoW gives magic buffs. Your shields use it when you pick WoW Magic Blue above." },
+}
+
+local function NewWoWRow(def)
+	local f = CreateFrame("Frame", nil, page.body)
+	Core:RowBg(f)
+	f.sw = NewSwatch(f, 20, 20)
+	f.sw:EnableMouse(false)
+	f.sw:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
+	f.name = Text(f, "row")
+	f.name:SetPoint("TOPLEFT", f, "TOPLEFT", 44, -8)
+	f.name:SetText(def[2])
+	f.use = Text(f, "rowDim")
+	f.use:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -3)
+	f.key = def[1]
+	return f
+end
+
+local function RenderWoW(y, W)
+	local _, dh = Widgets:Description(page.body, { x = 0, y = y, width = W,
+		text = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game. A swatch below tagged WOW is one of these; click it to pick your own color for that part instead." })
+	y = y + dh
+	local gap = 12
+	local colW = floor((W - gap) / 2)
+	local rowH = 0
+	for i, def in ipairs(WOW_ROWS) do
+		local f = Keep("wow:" .. def[1], function() return NewWoWRow(def) end)
+		wowRows[i] = f
+		local uh = Fit(f.use, colW - 56, def[3])
+		local h = max(40, 8 + ceil(f.name:GetStringHeight()) + 3 + uh + 8)
+		f:SetSize(colW, h)
+		local col = (i - 1) % 2
+		if col == 0 and i > 1 then y = y + rowH + 6; rowH = 0 end
+		f:SetPoint("TOPLEFT", page.body, "TOPLEFT", col * (colW + gap), -y)
+		rowH = max(rowH, h)
+	end
+	return y + rowH + 6
+end
+
+local function PaintWoW()
+	for i = 1, #wowRows do
+		local f = wowRows[i]
+		local r, g, b = SP:WoWColor(f.key)
+		f.sw.fill:SetColorTexture(r, g, b, 1)
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- 8. The module sections: a row per spot
+-- ---------------------------------------------------------------------------
+local function ListFns(list)
+	local values, order = {}, {}
+	for _, it in ipairs(list) do
+		local k = it.key == nil and DEFAULT or it.key
+		values[k] = it.label
+		order[#order + 1] = k
+	end
+	return function() return values end, function() return order end
+end
+local L = SP.THEME_LISTS
+local THEME_V, THEME_O = ListFns(L.theme)
+local PAL_V, PAL_O = ListFns(L.palette)
+local SHIELD_V, SHIELD_O = ListFns(L.shield)
+local SHOWAS_V, SHOWAS_O = ListFns(L.showAs)
+local choiceFns = {}
+local function ChoiceFns(spot)
+	local c = choiceFns[spot.id]
+	if not c then
+		local list = { { key = nil, label = "Use Theme's" } }
+		for _, ch in ipairs(spot.choices) do list[#list + 1] = { key = ch.key, label = ch.label } end
+		local v, o = ListFns(list)
+		c = { v, o }
+		choiceFns[spot.id] = c
+	end
+	return c[1], c[2]
+end
+local CHOICE_LABEL = { ["tb.duration-text"] = "Text Color", ["tb.pulse"] = "Pulse Color" }
+
+-- spots that do nothing on this client or class
+local FOREVER_ONLY = { ["tb.empty-slot"] = true, ["tb.flyout-empty"] = true, ["cd.engine"] = true }
+local function SpotShown(spot)
+	if spot.hidden then return false end   -- (the effects spots: the bars' Effects tabs)
+	if FOREVER_ONLY[spot.id] and not IS_MAINLINE then return false end
+	if spot.id == "cd.class-icons" and not HasEarthShield() then return false end
+	return true
+end
+local SHAMAN_MODULES = { totembar = true, styles = true, cooldownbar = true, loadouts = true, shieldcharges = true, alerts = true,
+	partybuff = true, popouts = true, reactive = true, readyreminders = true, tremor = true, readycheck = true,
+	minimap = true, assign = true }
+local function ModuleShown(mod)
+	if mod.themeLevel then return false end   -- drawn by the cards at the top
+	if SHAMAN_MODULES[mod.key] and not PLAYER_IS_SHAMAN then return false end
+	if mod.key == "estracker" and not HasEarthShield() then return false end   -- no Earth Shield in this client (WoW: Forever)
+	return true
+end
+
+local function SpotDropdown(spot, field, label, desc, valuesFn, orderFn, x, y, w)
+	local id = spot.id
+	local _, h = Widgets:Dropdown(page.body, {
+		label = label, desc = desc, x = x, y = y, width = w,
+		values = valuesFn, order = orderFn,
+		get = function()
+			local v = SP:ThemeSpotField(id, field)
+			if v == nil then return DEFAULT end
+			return v
+		end,
+		set = function(v)
+			if v == DEFAULT then v = nil end
+			if SP:ThemeSpotField(id, field) ~= v then SP:SetSpotField(id, field, v) end
+		end,
+		onChanged = PageChanged,
+	})
+	return h
+end
+
+-- the swatch strip: a swatch per colour role, flowing across a row card
+local SOURCE_TEXT = {
+	setting = "Your own setting: its own settings page changes it too.",
+	custom = "Your color for this part.",
+	wow = "WoW's own color.",
+	theme = "The theme's color.",
+	standard = "Today's color.",
+}
+local tagW = 0
+
+local function RoleShown(role)
+	if role.placeholder and not role.setting then return false end   -- a setting not registered (its module is off)
+	if role.kind == "shield" and role.which == "earth" and not HasEarthShield() then return false end   -- no Earth Shield here (WoW: Forever)
+	return true
+end
+
+local function StripTip(self)
+	local r, g, b, src = SP:ThemeDisplayColor(self.spot, self.role)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:SetClampedToScreen(true)
+	GameTooltip:AddLine(self.title, 1, 1, 1)
+	GameTooltip:AddLine(Hex(r, g, b) .. "   " .. (SOURCE_TEXT[src] or ""), 0.8, 0.8, 0.8, true)
+	GameTooltip:AddLine("Click to pick a color. Right-click: back to the theme's color.", 0.8, 0.8, 0.8, true)
+	GameTooltip:Show()
+end
+
+local function NewStripItem(parent)
+	local it = CreateFrame("Button", nil, parent)
+	it:SetHeight(18)
+	it:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	it.sw = NewSwatch(it, 26, 18)
+	it.sw:EnableMouse(false)
+	it.sw:SetPoint("LEFT", it, "LEFT", 0, 0)
+	it.label = Text(it, "row")
+	it.label:SetPoint("LEFT", it.sw, "RIGHT", 6, 0)
+	it.tag = Tag(it)
+	it.tag:SetPoint("LEFT", it.label, "RIGHT", 6, 0)
+	it.spThemes = true
+	it:SetScript("OnEnter", function(self) Core:SetBorderColor(self.sw, "accent"); StripTip(self) end)
+	it:SetScript("OnLeave", function(self)
+		Core:SetBorderColor(self.sw, "border")
+		if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+	end)
+	it:SetScript("OnClick", function(self, button)
+		if InCombatLockdown() then return end
+		if button == "RightButton" then
+			SP:SetSpotColor(self.spot, self.role, nil)
+			PageChanged()
+			return
+		end
+		PickSwatch(self.spot, self.role, self.title)
+	end)
+	return it
+end
+
+local function PaintStrip(f)
+	for i = 1, f.n or 0 do
+		local it = f.items[i]
+		local r, g, b, src = SP:ThemeDisplayColor(it.spot, it.role)
+		it.sw.fill:SetColorTexture(r, g, b, 1)
+		if src == "wow" then SetTag(it.tag, "WOW", "accentHi")
+		elseif src == "custom" then SetTag(it.tag, "CUSTOM", "textDim")
+		else SetTag(it.tag, nil) end
+	end
+end
+
+local function NewStrip()
+	local f = CreateFrame("Frame", nil, page.body)
+	Core:RowBg(f)
+	f.items = {}
+	f.Paint = PaintStrip
+	return f
+end
+
+local function LayoutStrip(f, spot, w)
+	f:SetWidth(w)
+	local x, lineY, n = 12, 8, 0
+	for _, role in ipairs(spot.roles) do
+		if RoleShown(role) then
+			n = n + 1
+			local it = f.items[n]
+			if not it then it = NewStripItem(f); f.items[n] = it end
+			it.spot, it.role = spot.id, role.key
+			it.title = spot.label .. ": " .. (role.label or role.key)
+			it.label:SetText(role.label or role.key)
+			local iw = 26 + 6 + ceil(it.label:GetStringWidth())
+			if not role.setting then iw = iw + 6 + tagW end   -- room for WOW / CUSTOM
+			if x > 12 and x + iw > w - 12 then x, lineY = 12, lineY + 24 end
+			it:SetWidth(iw)
+			it:ClearAllPoints()
+			it:SetPoint("TOPLEFT", f, "TOPLEFT", x, -lineY)
+			it:Show()
+			x = x + iw + 16
+		end
+	end
+	for i = n + 1, #f.items do f.items[i]:Hide() end
+	f.n = n
+	local h = lineY + 18 + 8
+	f:SetHeight(h)
+	return h
+end
+
+local function HasRoles(spot)
+	for _, role in ipairs(spot.roles) do
+		if RoleShown(role) then return true end
+	end
+	return false
+end
+
+local function NewSpotText()
+	local f = CreateFrame("Frame", nil, page.body)
+	f.label = Text(f, "row")
+	f.label:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -10)
+	f.note = Text(f, "rowDim")
+	f.note:SetPoint("TOPLEFT", f.label, "BOTTOMLEFT", 0, -4)
+	return f
+end
+
+local function RenderSpot(spot, y, W)
+	local leftW = floor(W * 0.38)
+	local rx, rw = leftW + 12, W - leftW - 12
+	local t = Keep("spot:" .. spot.id, NewSpotText)
+	t:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+	local lh = Fit(t.label, leftW - 24, spot.label)
+	local nh = spot.note and Fit(t.note, leftW - 24, spot.note) or 0
+	if not spot.note then t.note:SetText("") end
+	local th = 10 + lh + (nh > 0 and (4 + nh) or 0) + 10
+	t:SetSize(leftW, th)
+	local name = spot.label
+	local ry = y
+	ry = ry + SpotDropdown(spot, "theme", "Theme",
+		name .. ": the theme this part uses. Use General Theme follows the theme picked at the top of this page.",
+		THEME_V, THEME_O, rx, ry, rw)
+	if spot.palette then
+		ry = ry + SpotDropdown(spot, "palette", "Colors",
+			name .. ": the element colors this part uses. Use Theme's follows Element Colors at the top (Standard: your Appearance colors).",
+			PAL_V, PAL_O, rx, ry, rw)
+	end
+	if spot.shield then
+		ry = ry + SpotDropdown(spot, "shield", "Shield Colors",
+			name .. ": the shield colors this part uses. Use Theme's follows Shield Colors at the top.",
+			SHIELD_V, SHIELD_O, rx, ry, rw)
+	end
+	if spot.box and SP:ThemeBoxed(spot.id) then
+		ry = ry + SpotDropdown(spot, "showAs", "Show Icons As",
+			name .. ": how its flat boxes show which totem it is. Use Theme's follows Show Icons As at the top.",
+			SHOWAS_V, SHOWAS_O, rx, ry, rw)
+	end
+	if spot.choices then
+		local v, o = ChoiceFns(spot)
+		ry = ry + SpotDropdown(spot, "choice", CHOICE_LABEL[spot.id] or "Color",
+			name .. ": the color this part uses. Use Theme's: the theme's own.", v, o, rx, ry, rw)
+	end
+	if HasRoles(spot) then
+		local s = Keep("strip:" .. spot.id, NewStrip)
+		s:SetPoint("TOPLEFT", page.body, "TOPLEFT", rx, -ry)
+		ry = ry + LayoutStrip(s, spot, rw) + 6
+		live[#live + 1] = s
+	end
+	return max(y + th, ry) + 8
+end
+
+local function RenderModule(mod, y, W)
+	-- where the section starts, for the settings window's live preview (Page:SectionAt)
+	local secs = page.sections
+	secs[#secs + 1] = { key = mod.key, label = mod.label, y = y }
+	y = y + Header(mod.label, y, W)
+	local draw = DRAW[mod.key]
+	if draw then
+		local p = Keep("draw:" .. mod.key, function()
+			local f = CreateFrame("Frame", nil, page.body)
+			Core:SolidTex(f, "contentBg", "BACKGROUND")
+			Core:MakeBorder(f, "border")
+			local cap = Caption(f)
+			cap:SetPoint("TOPLEFT", f, "TOPLEFT", 8, -6)
+			cap:SetText("HOW IT LOOKS NOW")
+			local stage = CreateFrame("Frame", nil, f)
+			local w, h, paint = draw(stage)
+			stage:SetSize(w, h)
+			stage:SetPoint("TOP", f, "TOP", 0, -22)
+			f.stageH, f.Paint = h, paint
+			return f
+		end)
+		p:SetSize(W, p.stageH + 32)
+		p:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+		live[#live + 1] = p
+		y = y + p.stageH + 32 + 10
+	end
+	for _, spot in ipairs(mod.spots) do
+		if SpotShown(spot) then
+			-- Totem Bar Styles: the preview shows the style of the rows in view
+			if mod.key == "styles" then secs[#secs + 1] = { key = mod.key, label = mod.label, y = y, spot = spot.id } end
+			y = RenderSpot(spot, y, W)
+		end
+	end
+	return y
+end
+
+-- ---------------------------------------------------------------------------
+-- Paint and the page's life
+-- ---------------------------------------------------------------------------
+local function Safe(fn, ...)
+	local ok, err = pcall(fn, ...)
+	if not ok then geterrorhandler()(err) end
+end
+
+-- what decides which rows the page has: the picked theme (Theme Options) and
+-- which parts are flat boxes (their Show Icons As). Built only on a change.
+LayoutSig = function()
+	local parts = { SP:ThemeGlobal() == "minimal" and "m" or "-", SP:ThemeField("borders") == true and "b" or "-",
+		CustomCardShown() and "c" or "-" }
+	for _, mod in ipairs(SP.THEME_MODULES) do
+		for _, spot in ipairs(mod.spots) do
+			if spot.box then parts[#parts + 1] = SP:ThemeBoxed(spot.id) and "1" or "0" end
+		end
+	end
+	return table.concat(parts)
+end
+
+RepaintAll = function()
+	if not page.visible then return end
+	Safe(PaintPicker)
+	if page.showOptions then Safe(PaintThemeOptions) end
+	Safe(PaintPalettes)
+	Safe(PaintShields)
+	Safe(PaintWoW)
+	for i = 1, #live do
+		local f = live[i]
+		if f.Paint then Safe(f.Paint, f) end
+	end
+end
+
+-- Draw the page into the settings window's body at width W; returns its height.
+function Page:Render(body, W, onChanged)
+	page.sections = {}
+	page.body, page.onChanged = body, onChanged
+	for i = #shown, 1, -1 do shown[i] = nil end
+	for i = #live, 1, -1 do live[i] = nil end
+	if tagW == 0 then
+		local m = body:CreateFontString(nil, "OVERLAY")
+		m:SetFontObject(Core.fonts.section)
+		m:SetText("CUSTOM")
+		tagW = max(30, ceil(m:GetStringWidth()))
+		m:Hide()
+	end
+	local y = 0
+	local _, h = Widgets:Description(body, { text = INTRO, x = 0, y = y, width = W })
+	y = y + h
+	y = y + Header("Theme", y, W)
+	y = RenderPicker(y, W)
+	-- Show Icons As only means something for flat boxes: shown with ShamanPower Minimal only
+	page.layoutSig = LayoutSig()
+	page.showOptions = SP:ThemeGlobal() == "minimal"
+	if page.showOptions then
+		y = y + Header("Theme Options", y, W)
+		y = RenderThemeOptions(y, W)
+	end
+	y = y + Header("Element Colors", y, W)
+	y = RenderPalettes(y, W)
+	local _, bh1 = Widgets:Toggle(body, {
+		label = "Element-Colored Borders", x = 0, y = y, width = W,
+		desc = "Outlines each totem on the totem bar in its element color from the colors above, like the icons on these cards. Not shown with the Compact, Grid or Blizzard's Totem Bar styles.",
+		get = function() return SP:ThemeField("borders") == true end,
+		set = function(v) SP:SetThemeField("borders", v and true or nil) end,
+		onChanged = PageChanged,
+	})
+	y = y + bh1 + 6
+	if SP:ThemeField("borders") == true then   -- only while the borders are on
+		local _, bh2 = Widgets:Toggle(body, {
+			label = "Also on the Flyouts", x = 0, y = y, width = W,
+			desc = "Gives every totem in the totem bar's flyouts the same element-colored border.",
+			get = function() return SP:ThemeField("bordersFlyouts") == true end,
+			set = function(v) SP:SetThemeField("bordersFlyouts", v and true or nil) end,
+			onChanged = PageChanged,
+		})
+		y = y + bh2 + 6
+		local _, bh3 = Widgets:Toggle(body, {
+			label = "Also on the Cooldown Bar", x = 0, y = y, width = W,
+			desc = "Gives every button on the cooldown bar a border in the color of what it shows: shields in your Shield Colors, weapon imbues and element spells in their element color, other spells in the logo blue.",
+			get = function() return SP:ThemeField("bordersCooldown") == true end,
+			set = function(v) SP:SetThemeField("bordersCooldown", v and true or nil) end,
+			onChanged = PageChanged,
+		})
+		y = y + bh3 + 6
+	end
+	y = y + Header("Shield Colors", y, W)
+	y = RenderShields(y, W)
+	y = y + Header("WoW's Own Colors", y, W)
+	y = RenderWoW(y, W)
+	local _, bh = Widgets:Button(body, {
+		label = "Reset Colors to the Theme", buttonText = "Reset Colors to the Theme", x = 0, y = y + 4, width = W,
+		desc = "Clears every color you changed on this page, and the Element Colors and Shield Colors picks, so each part shows its theme's colors again.",
+		func = function() SP:ResetThemeColors() end,
+		onChanged = PageChanged,
+	})
+	y = y + 4 + bh
+	for _, mod in ipairs(SP.THEME_MODULES) do
+		if ModuleShown(mod) then y = RenderModule(mod, y, W) end
+	end
+	-- the page repaints with the window's own refresh (a change on any row)
+	body._spRefreshers = body._spRefreshers or {}
+	table.insert(body._spRefreshers, RepaintAll)
+	page.visible = true
+	RepaintAll()
+	return y
+end
+
+-- The page is leaving the window (another page, another tab, a search).
+function Page:Release()
+	local owner = GameTooltip:IsShown() and GameTooltip:GetOwner()
+	if owner and owner.spThemes then GameTooltip:Hide() end
+	for i = #shown, 1, -1 do
+		shown[i]:Hide()
+		shown[i] = nil
+	end
+	for i = #live, 1, -1 do live[i] = nil end
+	page.visible = false
+end
+
+-- the module section at page height y (the last one starting at or above it):
+-- key, label and (Totem Bar Styles) the spot; nil above the first section
+function Page:SectionAt(y)
+	local secs = page.sections
+	local hit
+	if secs then
+		for i = 1, #secs do
+			if secs[i].y <= y then hit = secs[i] else break end
+		end
+	end
+	if hit then return hit.key, hit.label, hit.spot end
+	return nil
+end
+
+function Page:IsShown()
+	return page.visible and page.body ~= nil and page.body:IsVisible() and true or false
+end
+
+-- A theme changed while the page is up (a colour picker drag, a profile switch).
+function Page:Repaint()
+	if not self:IsShown() then return end
+	-- a different set of rows (Theme Options, a part's Show Icons As): lay the page out again
+	if LayoutSig() ~= page.layoutSig and ns.SPConfig and ns.SPConfig.RefreshCurrent then
+		ns.SPConfig:RefreshCurrent()
+		return
+	end
+	RepaintAll()
+end

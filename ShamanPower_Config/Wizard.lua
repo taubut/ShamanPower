@@ -33,6 +33,12 @@ local function notify()
 end
 local function safecall(fn) if SP[fn] then pcall(SP[fn], SP) end end
 
+-- Tremor's pulse for the mocks: the real bar's own table (3 s, 4 on WoW: Forever).
+function SP.Wizard.TremorPulse()
+	local t = SP.PulsingTotems and SP.PulsingTotems.Tremor
+	return t and t.interval or 3
+end
+
 -- The mocks' Fire totem: Totem of Wrath where the client has it (TBC), else
 -- Searing Totem (WoW: Forever has no Totem of Wrath).
 function SP.Wizard.FireMockIcon()
@@ -253,6 +259,16 @@ local function RaidCDNames(blName, conj)
 end
 
 local STEPS = {
+	-- the look (General > Themes): new installs only; anyone else keeps the look
+	-- they have and is shown the themes once in the What's New card instead
+	{ id = "look", title = "Pick your look", roles = ALL, build = "BuildLookStep",
+	  -- new installs; "/sp setup look" shows it on any setup (to try it: nothing is reset)
+	  when = function() return (state.freshInstall or SP.Wizard.showLookStep) and SP.SetThemeGlobal ~= nil and SP.ThemeGlobal ~= nil end,
+	  desc = "How ShamanPower looks: the colors of its bars, panels and effects. Only the look changes - everything ShamanPower does stays the same.",
+	  bullets = {
+	    "Hover a look to see it in the preview; click one to use it. Standard is how ShamanPower has always looked.",
+	    "Change it any time, or change any single part of it, in |cff3FA9F5Settings > General > Themes|r.",
+	  } },
 	{ id = "forever", title = "WoW: Forever", roles = ALL, build = "BuildForeverStep",   -- shaman-only content; the Raid Cooldowns step covers what a non-shaman needs
 	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
 	  desc = "Welcome to WoW: Forever. A few things ShamanPower does on other versions of the game do not exist here, and a few work differently because the game hides combat data from addons.",
@@ -776,6 +792,21 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			arrow:SetPoint("BOTTOM", main, "TOP", 0, 0)
 		end
 		slots[i] = { e = e, main = main, mIcon = mIcon, inset = inset, insetBd = insetBd, dbg = dbg, dbar = dbar, over = over, key = key, ring = ring, arrow = arrow, t = e.off, lastMode = nil }
+		-- General > Themes > Element-Colored Borders, as on the real bar (the preview is rebuilt on a theme change)
+		local th = SP.opt and SP.opt.theme
+		if type(th) == "table" and th.borders == true and SP.ThemeElement then
+			local br, bgc, bb = SP:ThemeElement("tb.boxes", i)
+			local function edge(p1, p2, x1, y1, x2, y2, w, h)
+				local t = main:CreateTexture(nil, "OVERLAY", nil, -1)
+				t:SetPoint(p1, mIcon, p1, x1, y1); t:SetPoint(p2, mIcon, p2, x2, y2)
+				if w then t:SetWidth(w) else t:SetHeight(h) end
+				t:SetColorTexture(br, bgc, bb, 1)
+			end
+			edge("TOPLEFT", "TOPRIGHT", 0, 0, 0, 0, nil, 2)
+			edge("BOTTOMLEFT", "BOTTOMRIGHT", 0, 0, 0, 0, nil, 2)
+			edge("TOPLEFT", "BOTTOMLEFT", 0, -2, 0, 2, 2, nil)
+			edge("TOPRIGHT", "BOTTOMRIGHT", 0, -2, 0, 2, 2, nil)
+		end
 	end
 	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
 	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
@@ -901,7 +932,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if co.vertical then cm:SetSize(n * sw + (n - 1) * sp, sh) else cm:SetSize(sw, n * sh + (n - 1) * sp) end
 		cm:ClearAllPoints(); cm:SetPoint("CENTER", inner, "CENTER", 0, 10)
 	end
-	local PULSE = { 3, nil, 2, nil }        -- Tremor pulses every 3s, Mana Spring every 2s
+	local PULSE = { SP.Wizard.TremorPulse(), nil, 2, nil }   -- Tremor (3 s, 4 on WoW: Forever), Mana Spring every 2 s
 	local function paintCompact(el)
 		if not SP.PaintCompactVisuals then return end
 		layoutCompact()
@@ -1356,7 +1387,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	local K = SIZE / 26          -- real totem buttons are 26px; bar/text sizes scale with the icon
 	local function px(v) return math.max(1, math.floor(v * K + 0.5)) end
 	local ELE = {
-		{ r = 0.72, g = 0.52, b = 0.32, dur = 9,  gap = 2.5, off = 0.0, pulse = 3,
+		{ r = 0.72, g = 0.52, b = 0.32, dur = 9,  gap = 2.5, off = 0.0, pulse = SP.Wizard.TremorPulse(),
 		  icon = "Interface\\Icons\\Spell_Nature_TremorTotem" },                -- Earth: pulsing (Tremor)
 		{ r = 1.00, g = 0.36, b = 0.22, dur = 7,  gap = 2.0, off = 3.1,
 		  icon = "Interface\\Icons\\Spell_Fire_SealOfFire" },                   -- Fire
@@ -1578,7 +1609,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	row("Dropdown", { label = "Cooldown style", disabled = function() return O("showTotemCooldowns", true) == false end,
 		get = function() return O("totemCooldownSweep", "radial") end,
 		set = function(v) OPT().totemCooldownSweep = v; upd("UpdateTotemCooldowns") end,
-		values = function() return { radial = "Radial swipe", vertical = "Vertical sweep (greys out)", reverse = "Vertical sweep (fills back in)" } end, order = function() return { "radial", "vertical", "reverse" } end })
+		values = function() return { radial = "Radial swipe", vertical = "Vertical sweep (grays out)", reverse = "Vertical sweep (fills back in)" } end, order = function() return { "radial", "vertical", "reverse" } end })
 	row("Toggle", { label = "Show cooldown time", desc = "The remaining seconds on the totem. Off = just the swipe.",
 		disabled = function() return O("showTotemCooldowns", true) == false end,
 		get = function() return O("totemCooldownText", true) ~= false end,
@@ -2135,6 +2166,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		local fontSize = rc.fontSize or 14
 		local useEle = rc.useElementColors ~= false
 		local separate = showNum and (rc.location == "unlocked")
+		local missingOnly = SP.opt.partyDotsMissingOnly
 		local cScale, cAlpha = rc.scale or 1.0, rc.opacity or 1.0
 		for i, s in ipairs(slots) do
 			local count = 0
@@ -2147,8 +2179,11 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 					cell:SetText("|cff607080?|r")
 				else
 					local ok = inRange(m, i, t)
-					if ok then count = count + 1; dot:SetVertexColor(m.r, m.g, m.b) else dot:SetVertexColor(1, 0, 0) end
-					dot:SetShown(showDots); s.rings[d]:SetShown(showDots and outline)
+					if ok then count = count + 1 end
+					-- "only who's missing": class colour for the ones out, nothing for the rest
+					if ok or missingOnly then dot:SetVertexColor(m.r, m.g, m.b) else dot:SetVertexColor(1, 0, 0) end
+					local vis = showDots and not (missingOnly and ok)
+					dot:SetShown(vis); s.rings[d]:SetShown(vis and outline)
 					cell:SetText(ok and "|cff40ff40in|r" or "|cffff5050out|r")
 				end
 			end
@@ -2213,6 +2248,8 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		order = function() return { "corners", "above", "below", "left", "right" } end })
 	row("Toggle", { label = "Outline the dots", desc = "A thin dark ring under each dot so it shows on bright icons like Windfury.", disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotOutline ~= false end, set = function(v) SP.opt.partyDotOutline = v; safecall("UpdatePartyDotPositions"); upd() end })
+	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot.", disabled = function() return not SP.opt.showPartyRangeDots end,
+		get = function() return SP.opt.partyDotsMissingOnly and true or false end, set = function(v) SP.opt.partyDotsMissingOnly = v or nil; upd() end })
 	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotSize or 5 end, set = function(v) SP.opt.partyDotSize = v; safecall("UpdatePartyDotPositions"); upd() end })
 	local function noNum() return not (SP.opt.rangeCounter and SP.opt.rangeCounter.enabled) end
@@ -2606,7 +2643,29 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 	row("Toggle", { label = "Hide a totem once everyone is in range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.", disabled = off,
 		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
 	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
-	row("Slider", { label = "Name size", min = 7, max = 14, step = 1, disabled = off, get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Show totem time left instead of number of players out of range", desc = "The totem's time left on its icon, in place of how many are out of range (\"1 OUT\").", disabled = off,
+		get = function() return get("showTimer", false) and true or false end, set = function(v) co().showTimer = v or nil; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Plain totem icon (no dim or colored outline)", desc = "No dim red tint and no red or green outline: just the totem icon as normal. Dots and the time left still show when they are on.", disabled = off,
+		get = function() return get("plainIcon", false) and true or false end, set = function(v) co().plainIcon = v or nil; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Show dots instead of names", desc = "A dot per party member instead of the names, like the totem bar's dots: class color with the buff, red without.",
+		disabled = off, get = function() return get("dots", false) and true or false end,
+		set = function(v) co().dots = v; upd("UpdateCoverageLayout"); Widgets:RefreshAll(card) end })
+	-- the totem bar's dot options, same labels and choices
+	local function noDots() return off() or not get("dots", false) end
+	row("Dropdown", { label = "Dot position", disabled = noDots,
+		get = function() return get("dotPosition", "corners") end,
+		set = function(v) co().dotPosition = v; upd("UpdateCoverageLayout") end,
+		values = function() return { corners = "Icon corners", above = "Row above the icon", below = "Row below the icon", left = "Column left of the icon", right = "Column right of the icon" } end,
+		order = function() return { "corners", "above", "below", "left", "right" } end })
+	row("Toggle", { label = "Outline the dots", desc = "A thin dark ring under each dot so it shows on bright icons like Windfury.", disabled = noDots,
+		get = function() return get("dotOutline", true) ~= false end, set = function(v) co().dotOutline = v; upd("UpdateCoverageLayout") end })
+	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = noDots,
+		get = function() return get("dotSize", 5) end, set = function(v) co().dotSize = v; upd("UpdateCoverageLayout") end })
+	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot.", disabled = noDots,
+		get = function() return get("dotsMissingOnly", false) and true or false end, set = function(v) co().dotsMissingOnly = v or nil; upd("UpdateCoverageLayout") end })
+	row("Slider", { label = "Name size", min = 7, max = 14, step = 1,
+		disabled = function() return (type(off) == "function" and off()) or get("dots", false) end,
+		get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Place each totem freely", desc = "Every cell gets its own spot and size"
 		.. " (Settings > Group Tools > Party Buff Tracker > Coverage has a size per totem).", disabled = off,
 		get = function() return get("freeCells", false) and true or false end, set = function(v) co().freeCells = v; upd("UpdateCoverageLayout") end })
@@ -3031,7 +3090,7 @@ end
 
 -- Effects: the totem bar and cooldown bar mocks stacked, with every effect
 -- that is on playing on them (RunEffectsDemo), and the Effects settings in the
--- card: the same options as Settings > Bars > Appearance > Effects.
+-- card: the same options as Settings > Bars > Totem Bar / Cooldown Bar > Effects.
 function SP.Wizard.BuildEffectsStep(card, inner, y)
 	local Widgets = ns.Widgets
 	local W = SP.Wizard
@@ -3093,6 +3152,11 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 	end
 	local STYLES = function() return { shake = "Shake", pop = "Pop", flash = "Flash", glow = "Glow" } end
 	local STYLE_ORDER = function() return { "shake", "pop", "flash", "glow" } end
+	-- each effect's own two added styles (the same lists as the Effects page)
+	local function plus(base, baseOrder, k1, n1, k2, n2)
+		return function() local v = base(); v[k1], v[k2] = n1, n2; return v end,
+			function() local o = baseOrder(); o[#o + 1] = k1; o[#o + 1] = k2; return o end
+	end
 	local function cue(label, desc, onKey, styleKey, def, values, order)
 		row("Toggle", { label = label, desc = desc, get = function() return O()[onKey] and true or false end, set = set(onKey) })
 		row("Dropdown", { label = "Style", disabled = function() return not O()[onKey] end,
@@ -3101,25 +3165,28 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 	end
 	row("SectionHeader", { label = "Totem bar" })
 	cue("Totem destroyed", "A totem killed before its time plays this, in red. Your own dismiss, Totemic Call and dying do not count.",
-		"totemCueDestroyed", "totemCueDestroyedStyle", "shake")
+		"totemCueDestroyed", "totemCueDestroyedStyle", "shake", plus(STYLES, STYLE_ORDER, "crumble", "Crumble", "frameblink", "Frame blink"))
 	row("Toggle", { label = "Red X until recast", desc = "Also a red X on the button until you drop that element again (5 seconds at most).",
 		disabled = function() return not O().totemCueDestroyed end,
 		get = function() return O().totemCueDestroyedMark ~= false end, set = set("totemCueDestroyedMark") })
-	cue("Totem expired", "A totem that runs out plays this, in white.", "totemCueExpired", "totemCueExpiredStyle", "pop")
+	cue("Totem expired", "A totem that runs out plays this, in white.", "totemCueExpired", "totemCueExpiredStyle", "pop",
+		plus(STYLES, STYLE_ORDER, "ringin", "Ring draws in", "underline", "Underline runs out"))
 	cue("Totem expiring soon", "Over a totem's last seconds its button pulses darker, or its edges glow orange.",
 		"totemCueExpiring", "totemCueExpiringStyle", "pulse",
-		function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end)
+		plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
+			"drain", "Frame drains", "underbar", "Bar under it"))
 	row("Slider", { label = "Seconds before it ends", min = 3, max = 15, step = 1,
 		disabled = function() return not O().totemCueExpiring end,
 		get = function() return O().totemCueExpiringSecs or 5 end, set = set("totemCueExpiringSecs") })
 	row("SectionHeader", { label = "Cooldown bar" })
-	cue("Cooldown ready", "A cooldown on the bar that is ready again plays this, in gold.", "cdbarCueReady", "cdbarCueReadyStyle", "pop")
+	cue("Cooldown ready", "A cooldown on the bar that is ready again plays this, in gold.", "cdbarCueReady", "cdbarCueReadyStyle", "pop",
+		plus(STYLES, STYLE_ORDER, "shine", "Shine", "dot", "Dot"))
 	cue("Weapon imbue gone", "A weapon imbue that drops off (it ran out, or the weapon was swapped) plays this on the imbue button, in blue.",
-		"cdbarCueImbue", "cdbarCueImbueStyle", "shake")
+		"cdbarCueImbue", "cdbarCueImbueStyle", "shake", plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag"))
 	cue("Shield gone", WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 			and "Your shield going plays this on the shield button, in blue. In combat the game hides that moment, so there the button pulses red while no shield is up (at 100% cooldown bar opacity)."
 			or "Your shield going plays this on the shield button, in blue.",
-		"cdbarCueShield", "cdbarCueShieldStyle", "shake")
+		"cdbarCueShield", "cdbarCueShieldStyle", "shake", plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag"))
 	return y
 end
 
@@ -3271,7 +3338,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			end
 		end
 	end
-	local lastGeom
+	local lastGeom = { false }   -- never equal to a real value: the first frame lays out
 	local function layoutMock()
 		local lay = OPT().cdbarLayout or OPT().layout or "Horizontal"
 		local vertical = (lay ~= "Horizontal")
@@ -3300,8 +3367,15 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		local showBars  = OPT().cdbarShowProgressBars ~= false
 		local showSweep = OPT().cdbarShowColorSweep ~= false
 		local showText  = OPT().cdbarShowCDText ~= false
-		local geom = tostring(OPT().cdbarProgressPosition) .. tostring(OPT().cdbarProgressBarHeight) .. tostring(OPT().cdbarDurationTextLocation) .. tostring(OPT().cdbarDurationTextSize) .. tostring(OPT().cdbarShieldChargeBar) .. tostring(OPT().cdbarShowShieldCount)
-		if geom ~= lastGeom then lastGeom = geom; layoutBars() end
+		-- the bars' geometry settings, compared one by one (no string built per frame)
+		local o = OPT()
+		local g = lastGeom
+		if o.cdbarProgressPosition ~= g[1] or o.cdbarProgressBarHeight ~= g[2] or o.cdbarDurationTextLocation ~= g[3]
+			or o.cdbarDurationTextSize ~= g[4] or o.cdbarShieldChargeBar ~= g[5] or o.cdbarShowShieldCount ~= g[6] then
+			g[1], g[2], g[3] = o.cdbarProgressPosition, o.cdbarProgressBarHeight, o.cdbarDurationTextLocation
+			g[4], g[5], g[6] = o.cdbarDurationTextSize, o.cdbarShieldChargeBar, o.cdbarShowShieldCount
+			layoutBars()
+		end
 		local opacity, fullActive = OPT().cooldownBarOpacity or 1, OPT().cooldownBarFullOpacityWhenActive
 		local sc = OPT().cooldownBarScale or 0.9
 		if SP.Wizard.previewOnly then sc = math.min(sc, (inner:GetHeight() - 6) / math.max(1, bar:GetHeight())) end
@@ -3416,7 +3490,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
 		get = function() return OPT().cdbarSweepStyle or "greys" end,
 		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("UpdateCooldownBar"); notify() end,
-		values = function() return { greys = "Vertical - greys out", fills = "Vertical - fills back in", radial = "Radial swipe" } end,
+		values = function() return { greys = "Vertical - grays out", fills = "Vertical - fills back in", radial = "Radial swipe" } end,
 		order = function() return { "greys", "fills", "radial" } end })
 	wrow("Dropdown", { label = "Progress bar position", get = function() return OPT().cdbarProgressPosition or "left" end,
 		set = function(v) SP.opt.cdbarProgressPosition = v; if not InCombatLockdown() then safecall("RecreateCooldownBar") end; notify(); layoutMock() end,
@@ -3426,7 +3500,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		set = function(v) SP.opt.cdbarProgressBarHeight = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBar"); notify(); layoutMock() end })
 	wrow("Dropdown", { label = "Time text", get = function() return OPT().cdbarDurationTextLocation or "none" end,
 		set = function(v) SP.opt.cdbarDurationTextLocation = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); notify(); layoutMock() end,
-		values = function() return { none = "None (centre number if Time text is on)", inside = "Inside the bar", outside = "Beside the bar", icon = "On the icon" } end,
+		values = function() return { none = "None (center number if Time text is on)", inside = "Inside the bar", outside = "Beside the bar", icon = "On the icon" } end,
 		order = function() return { "none", "inside", "outside", "icon" } end })
 	wrow("Slider", { label = "Time text size", min = 6, max = 20, step = 1, get = function() return OPT().cdbarDurationTextSize or 8 end,
 		set = function(v) SP.opt.cdbarDurationTextSize = v; safecall("ApplyCdbarTextSize"); safecall("UpdateCooldownBarProgressBars"); notify(); layoutMock() end })
@@ -4531,6 +4605,346 @@ function SP.Wizard.BuildTotemSetsStep(card, inner, y)
 	row("Toggle", { label = "Drop All casts the set (one press for all four totems)",
 		get = function() return OPT().dropAllUsesTotemSets ~= false end,
 		set = function(v) OPT().dropAllUsesTotemSets = v; after() end })
+	return y
+end
+
+-- ===========================================================================
+-- Pick your look (the themes of General > Themes), for new installs only.
+-- Three cards, each with a mini totem bar drawn in that look; the look under
+-- the mouse, or the one picked, runs large in the preview. A card calls
+-- SP:SetThemeGlobal, exactly like the theme cards on General > Themes, and
+-- nothing else. The mini bar is also the What's New card's (WhatsNew.lua).
+-- ===========================================================================
+local LOOK = {
+	BEBAS = "Interface\\AddOns\\ShamanPower\\Media\\Fonts\\BebasNeue-Regular.ttf",
+	CREAM = { 0.957, 0.937, 0.902 },   -- letters on a dark box
+	INK   = { 0.102, 0.133, 0.188 },   -- letters on a light box
+	ICON  = { "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02", false,
+	          "Interface\\Icons\\Spell_Nature_ManaRegenTotem", "Interface\\Icons\\Spell_Nature_Windfury" },
+	CODE  = { "SE", false, "MS", "WF" },
+	FILL  = { 0.72, 0.45, 0.8, 0.25 },   -- sample time left per totem
+	TIME  = { 12, 9, 15, 7 },            -- the preview's sample durations (s)
+	STD_DURATION = { "33CC33", "E64D1A", "3380E6", "CCCCCC" },   -- today's duration bars
+	STD_COUNT    = { "00FF00", "FFFF00", "FF0000" },             -- today's shield charge count
+	WOW_COUNT    = { { "GREEN_FONT_COLOR", "19FF19" }, { "YELLOW_FONT_COLOR", "FFFF00" }, { "RED_FONT_COLOR", "FF1919" } },
+	COUNT_ROLE   = { "high", "mid", "low" },
+	KEYS  = { "standard", "shamanpower", "minimal" },
+	NAME  = { standard = "Standard", shamanpower = "ShamanPower", minimal = "ShamanPower Minimal", now = "Now" },
+	DESC  = {
+		standard    = "Every feature in its own colors, as ShamanPower has always looked.",
+		shamanpower = "The logo's element colors everywhere, WoW's own green, yellow and red for charges and timers, navy panels.",
+		minimal     = "The ShamanPower colors, with flat element boxes and each totem's letters in place of the icons.",
+	},
+	LEGEND = {
+		standard    = "Standard: every feature in its own colors, as ShamanPower has always looked.",
+		shamanpower = "ShamanPower: the logo's element colors, WoW's own green, yellow and red for charges and timers, and navy panels.",
+		minimal     = "ShamanPower Minimal: the ShamanPower colors, flat element boxes with each totem's letters over a faint icon.",
+	},
+}
+
+function LOOK.Hex(h)
+	return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255
+end
+-- the Fire totem the tour's mocks use (Totem of Wrath, or Searing where there is none)
+function LOOK.Icon(e)
+	if e == 2 then return SP.Wizard.FireMockIcon() end
+	return LOOK.ICON[e]
+end
+function LOOK.Code(e)
+	if e == 2 then return SP.Wizard.FireMockIcon():find("TotemOfWrath", 1, true) and "TW" or "SR" end
+	return LOOK.CODE[e]
+end
+-- a WoW color, from the game's global (the hex only when the global is missing)
+function LOOK.WoW(name, hex)
+	if SP.WoWColor then return SP:WoWColor(name) end
+	local c = _G[name]
+	if type(c) == "table" and type(c.r) == "number" then return c.r, c.g, c.b end
+	return LOOK.Hex(hex)
+end
+
+-- The colors of a look. key: "standard" / "shamanpower" / "minimal", or
+-- "now" = what the player has on screen right now.
+function LOOK.Element(key, e, spot)
+	if key == "now" then
+		if SP.ThemeElement then return SP:ThemeElement(spot or "tb.overlay-border", e) end
+	elseif key ~= "standard" then
+		if SP.ThemePaletteRGB then return SP:ThemePaletteRGB("shamanpower", e) end
+	elseif SP.ThemeGlobal and SP:ThemeGlobal() ~= "standard" and SP.ThemePaletteRGB and SP.DefaultElementPalette then
+		-- a theme holds the Element Colors setting until Standard puts the player's
+		-- own back; a new install's own is the game's default one
+		return SP:ThemePaletteRGB(SP:DefaultElementPalette(), e)
+	end
+	local c = SP.ElementColors and SP.ElementColors[e]
+	if c then return c.r, c.g, c.b end
+	return 1, 1, 1
+end
+function LOOK.Duration(key, e)
+	if key == "now" and SP.ThemeDisplayColor then
+		local r, g, b = SP:ThemeDisplayColor("tb.duration", e)
+		return r, g, b
+	end
+	if key == "standard" or key == "now" then return LOOK.Hex(LOOK.STD_DURATION[e]) end
+	return LOOK.Element(key, e)
+end
+function LOOK.Count(key, i)
+	if key == "now" and SP.ThemeDisplayColor then
+		local r, g, b = SP:ThemeDisplayColor("cd.count", LOOK.COUNT_ROLE[i])
+		return r, g, b
+	end
+	if key == "standard" or key == "now" then return LOOK.Hex(LOOK.STD_COUNT[i]) end
+	return LOOK.WoW(LOOK.WOW_COUNT[i][1], LOOK.WOW_COUNT[i][2])
+end
+-- the bar's panel: bg r, g, b, a, then the border's r, g, b
+function LOOK.Panel(key)
+	if key == "now" and SP.ThemeDisplayColor then
+		local r, g, b = SP:ThemeDisplayColor("tb.frame", "bg")
+		local er, eg, eb = SP:ThemeDisplayColor("tb.frame", "border")
+		return r, g, b, (SP.ThemeAlpha and SP:ThemeAlpha("tb.frame", "bg")) or 0.7, er, eg, eb
+	end
+	if key == "standard" or key == "now" then return 0, 0, 0, 0.7, LOOK.Hex("4D4D4D") end
+	local nb = SP.THEME_BRAND
+	if nb and nb.navyBg and nb.navyEdge then
+		return nb.navyBg[1], nb.navyBg[2], nb.navyBg[3], nb.navyBgAlpha or 0.92, nb.navyEdge[1], nb.navyEdge[2], nb.navyEdge[3]
+	end
+	local r, g, b = LOOK.Hex("141B26")
+	local er, eg, eb = LOOK.Hex("2B374A")
+	return r, g, b, 0.92, er, eg, eb
+end
+
+-- Recolour a mini bar in place for a look (nothing is created here).
+function LOOK.PaintBar(m, key)
+	local boxed, showAs = (key == "minimal"), "both"
+	if key == "now" then
+		boxed = SP.ThemeBoxed and SP:ThemeBoxed("tb.boxes") or false
+		showAs = SP.ThemeShowAs and SP:ThemeShowAs("tb.boxes") or "both"
+	elseif boxed and SP.ThemeField then
+		showAs = SP:ThemeField("showAs") or "both"
+	end
+	local br, bg, bb, ba, er, eg, eb = LOOK.Panel(key)
+	m.bg:SetColorTexture(br, bg, bb, ba)
+	for _, t in pairs(m.spBorder) do t:SetColorTexture(er, eg, eb, 1) end
+	for e = 1, 4 do
+		local s = m.slots[e]
+		local r, g, b = LOOK.Element(key, e)
+		s.edge:SetColorTexture(r, g, b, 1)
+		if boxed then
+			-- the flat box in the element color, as the real bar draws it
+			local xr, xg, xb = r, g, b
+			if key == "now" then xr, xg, xb = LOOK.Element("now", e, "tb.boxes") end
+			if showAs == "tint" then
+				s.box:SetColorTexture(xr * 0.35, xg * 0.35, xb * 0.35, 1)   -- the icon in one color on a dark box
+			else
+				s.box:SetColorTexture(xr, xg, xb, 1)
+			end
+			s.box:Show()
+			s.faint:SetVertexColor(xr, xg, xb)
+			s.faint:SetAlpha(showAs == "tint" and 1 or 0.35)
+			s.faint:SetShown(showAs == "both" or showAs == "tint")
+			s.mini:SetShown(showAs == "mini")
+			local ink = (0.299 * xr + 0.587 * xg + 0.114 * xb) > 0.45
+			local c = ink and LOOK.INK or LOOK.CREAM
+			s.letters:SetTextColor(c[1], c[2], c[3])
+			s.letters:SetShown(showAs == "both" or showAs == "letters")
+		else
+			s.box:Hide(); s.faint:Hide(); s.mini:Hide(); s.letters:Hide()
+		end
+		s.fill:SetColorTexture(LOOK.Duration(key, e))
+	end
+	if m.counts then
+		for i = 1, 3 do m.counts[i]:SetTextColor(LOOK.Count(key, i)) end
+	end
+end
+
+-- A mini totem bar in one look: the four totems (flat boxes under ShamanPower
+-- Minimal), their duration bars and, with counts, a shield charge count as it
+-- runs down, on the look's own panel. S = the icon size. m:Paint(key) recolours
+-- it; m:SetFill(e, frac) moves one duration bar.
+local function MiniBarSetFill(m, e, frac)
+	m.slots[e].fill:SetWidth(math.max(0.01, m.S * frac))
+end
+function SP.Wizard.ThemeMiniBar(parent, S, withCounts)
+	S = S or 26
+	local GAP   = math.max(3, math.floor(S * 0.15 + 0.5))
+	local PAD   = math.max(6, math.floor(S * 0.3 + 0.5))
+	local BAR_H = math.max(3, math.floor(S * 0.14 + 0.5))
+	local FONT  = math.max(10, math.floor(S * 0.5 + 0.5))
+	local m = CreateFrame("Frame", nil, parent)
+	local w = PAD * 2 + 4 * S + 3 * GAP
+	local h = PAD + S + 3 + BAR_H + PAD
+	if withCounts then h = h + 4 + FONT + 2 end
+	m:SetSize(w, h)
+	m.S = S
+	m.bg = m:CreateTexture(nil, "BACKGROUND")
+	m.bg:SetAllPoints(m)
+	Core:MakeBorder(m, "border")
+	m.slots = {}
+	for e = 1, 4 do
+		local x = PAD + (e - 1) * (S + GAP)
+		local s = {}
+		s.edge = m:CreateTexture(nil, "ARTWORK", nil, 0)
+		s.edge:SetSize(S + 2, S + 2)
+		s.edge:SetPoint("TOPLEFT", m, "TOPLEFT", x - 1, -(PAD - 1))
+		s.icon = m:CreateTexture(nil, "ARTWORK", nil, 1)
+		s.icon:SetSize(S, S)
+		s.icon:SetPoint("TOPLEFT", m, "TOPLEFT", x, -PAD)
+		s.icon:SetTexture(LOOK.Icon(e)); s.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		s.box = m:CreateTexture(nil, "ARTWORK", nil, 2)
+		s.box:SetAllPoints(s.icon)
+		s.faint = m:CreateTexture(nil, "ARTWORK", nil, 3)
+		s.faint:SetAllPoints(s.icon)
+		s.faint:SetTexture(LOOK.Icon(e)); s.faint:SetTexCoord(0.08, 0.92, 0.08, 0.92); s.faint:SetDesaturated(true)
+		s.mini = m:CreateTexture(nil, "ARTWORK", nil, 4)   -- "Small icon"
+		s.mini:SetSize(math.floor(S * 0.6 + 0.5), math.floor(S * 0.6 + 0.5))
+		s.mini:SetPoint("CENTER", s.icon, "CENTER", 0, 0)
+		s.mini:SetTexture(LOOK.Icon(e)); s.mini:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		-- the letters: Bebas Neue at half the box, inside it
+		s.letters = m:CreateFontString(nil, "OVERLAY")
+		s.letters:SetFont(LOOK.BEBAS, math.floor(S * 0.5), "")
+		if not s.letters:GetFont() then s.letters:SetFontObject(Core.fonts.row) end
+		s.letters:SetShadowOffset(0, 0)
+		s.letters:SetPoint("CENTER", s.icon, "CENTER", 0, 0)
+		s.letters:SetText(LOOK.Code(e))
+		s.track = m:CreateTexture(nil, "ARTWORK", nil, 0)
+		s.track:SetSize(S, BAR_H)
+		s.track:SetPoint("TOPLEFT", s.icon, "BOTTOMLEFT", 0, -3)
+		s.track:SetColorTexture(0, 0, 0, 0.8)
+		s.fill = m:CreateTexture(nil, "ARTWORK", nil, 1)
+		s.fill:SetHeight(BAR_H)
+		s.fill:SetPoint("TOPLEFT", s.track, "TOPLEFT", 0, 0)
+		s.fill:SetWidth(S * LOOK.FILL[e])
+		s.box:Hide(); s.faint:Hide(); s.mini:Hide(); s.letters:Hide()
+		m.slots[e] = s
+	end
+	if withCounts then
+		m.counts = {}
+		for i = 1, 3 do
+			local c = m:CreateFontString(nil, "OVERLAY")
+			if SP.SetSPFont then SP:SetSPFont(c, "charges", FONT, "OUTLINE") else c:SetFont(STANDARD_TEXT_FONT, FONT, "OUTLINE") end
+			c:SetPoint("TOP", m, "TOPLEFT", w / 2 + (i - 2) * math.floor(FONT * 1.6), -(PAD + S + 3 + BAR_H + 4))
+			c:SetText(tostring(4 - i))
+			m.counts[i] = c
+		end
+	end
+	m.Paint, m.SetFill = LOOK.PaintBar, MiniBarSetFill
+	return m
+end
+
+function SP.Wizard.BuildLookStep(card, inner, y)
+	-- this new install has been offered the looks: the What's New card never
+	-- offers them again on this account
+	if SP.db and SP.db.global then SP.db.global.themesCardSeen = true end
+	local W = card:GetWidth() - 36
+	local cards = {}
+	local stage, preview, name, legend
+
+	local function show(key)
+		preview:Paint(key)
+		name:SetText(LOOK.NAME[key])
+		legend:SetText(LOOK.LEGEND[key])
+	end
+	-- selectable card (ui-style-guide 7.1): rest rowBg + border, hover rowHover
+	-- + accent border, picked accent fill + accent border + top bar, name in accentHi
+	local function paint(c)
+		local on = (c.key == SP:ThemeGlobal())
+		if on then
+			c.bg:SetColorTexture(Core:Color("accent", 0.20))
+		elseif c.hover then
+			c.bg:SetColorTexture(Core:Color("rowHover"))
+		else
+			c.bg:SetColorTexture(Core:Color("rowBg"))
+		end
+		Core:SetBorderColor(c, (on or c.hover) and "accent" or "border")
+		c.top:SetShown(on)
+		c.name:SetTextColor(Core:ColorIf(on, "accentHi", "text"))
+	end
+	local function paintAll() for _, c in ipairs(cards) do paint(c) end end
+
+	for _, key in ipairs(LOOK.KEYS) do
+		local c = CreateFrame("Button", nil, card)
+		c.key = key
+		c:SetWidth(W)
+		c:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y)
+		c.bg = c:CreateTexture(nil, "BACKGROUND")
+		c.bg:SetAllPoints(c)
+		Core:MakeBorder(c, "border")
+		c.top = c:CreateTexture(nil, "ARTWORK")
+		c.top:SetHeight(2)
+		c.top:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0); c.top:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
+		c.top:SetColorTexture(Core:Color("accent"))
+		local bar = SP.Wizard.ThemeMiniBar(c, 24, true)
+		bar:SetPoint("TOPLEFT", c, "TOPLEFT", 12, -12)
+		bar:Paint(key)
+		c.name = c:CreateFontString(nil, "OVERLAY")
+		c.name:SetFontObject(Core.fonts.brand)
+		c.name:SetJustifyH("LEFT"); c.name:SetWordWrap(true)
+		local desc = c:CreateFontString(nil, "OVERLAY")
+		desc:SetFontObject(Core.fonts.rowDim)
+		desc:SetJustifyH("LEFT"); desc:SetWordWrap(true)
+		-- the text beside the bar when the card has the room, under it when not
+		local textW = W - bar:GetWidth() - 38
+		local stacked = textW < 150
+		if stacked then
+			textW = W - 24
+			c.name:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -10)
+		else
+			c.name:SetPoint("TOPLEFT", bar, "TOPRIGHT", 14, -2)
+		end
+		c.name:SetWidth(textW); c.name:SetText(LOOK.NAME[key])
+		desc:SetPoint("TOPLEFT", c.name, "BOTTOMLEFT", 0, -4)
+		desc:SetWidth(textW); desc:SetText(LOOK.DESC[key])
+		local textH = math.ceil(c.name:GetStringHeight()) + 4 + math.ceil(desc:GetStringHeight())
+		local h
+		if stacked then
+			h = 12 + bar:GetHeight() + 10 + textH + 12
+		else
+			h = math.max(12 + bar:GetHeight() + 12, 14 + textH + 12)
+		end
+		c:SetHeight(h)
+		c.bar = bar
+		c:SetScript("OnEnter", function(self) self.hover = true; paint(self); show(self.key) end)
+		c:SetScript("OnLeave", function(self) self.hover = false; paint(self); show(SP:ThemeGlobal()) end)
+		c:SetScript("OnClick", function(self)
+			-- the same lock as the settings' General page: never in combat, and it says so
+			if InCombatLockdown() then
+				local r, g, b = Core:Color("warn")
+				if UIErrorsFrame then UIErrorsFrame:AddMessage("Can't change the look in combat", r, g, b) end
+				return
+			end
+			SP:SetThemeGlobal(self.key)
+			for _, other in ipairs(cards) do other.bar:Paint(other.key) end   -- live: drawn from the colors now in place
+			paintAll()
+			show(self.key)
+		end)
+		cards[#cards + 1] = c
+		y = y + h + 8
+	end
+
+	-- the preview: the look under the mouse (or the one picked) at a larger size,
+	-- its duration bars running down
+	stage = CreateFrame("Frame", nil, inner)
+	stage:SetAllPoints(inner)
+	name = stage:CreateFontString(nil, "OVERLAY")
+	name:SetFontObject(Core.fonts.brand)
+	name:SetPoint("TOP", stage, "TOP", 0, -24)
+	preview = SP.Wizard.ThemeMiniBar(stage, 44, true)
+	preview:SetPoint("CENTER", stage, "CENTER", 0, 24)
+	legend = stage:CreateFontString(nil, "OVERLAY")
+	legend:SetFontObject(Core.fonts.rowDim)
+	legend:SetPoint("BOTTOMLEFT", stage, "BOTTOMLEFT", 14, 14)
+	legend:SetPoint("BOTTOMRIGHT", stage, "BOTTOMRIGHT", -14, 14)
+	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
+	local t, acc = 0, 0
+	stage:SetScript("OnUpdate", function(_, elapsed)   -- only while this step is on screen
+		acc = acc + elapsed
+		if acc < 0.05 then return end
+		t = t + acc; acc = 0
+		for e = 1, 4 do
+			local d = LOOK.TIME[e]
+			preview:SetFill(e, 1 - ((t + d * (1 - LOOK.FILL[e])) % d) / d)
+		end
+	end)
+	paintAll()
+	show(SP:ThemeGlobal())
 	return y
 end
 

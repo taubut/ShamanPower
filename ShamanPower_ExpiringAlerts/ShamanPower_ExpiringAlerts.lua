@@ -112,6 +112,29 @@ local ElementColors = {
 	air = { r = 0.6, g = 0.8, b = 1.0 },
 }
 
+-- Theme looks (General > Themes, ShamanPowerTheme.lua), spot mod.alerts. A
+-- theme recolours these tables in place and puts today's numbers back on
+-- Standard: totem lines by element; Lightning Shield by the shield colour,
+-- Water and Earth Shield by their element; the centre "destroyed!" warning.
+-- A faded imbue's colour is read when its alert is made (ImbueAlertColor).
+local THEME_SPOT = "mod.alerts"
+if SP.ThemeBind then
+	for e = 1, 4 do SP:ThemeBind(TotemElements[e].color, THEME_SPOT, e) end
+	SP:ThemeBind(ElementColors.lightning, THEME_SPOT, "shield")
+	SP:ThemeBind(ElementColors.water, THEME_SPOT, 3)
+	SP:ThemeBind(ElementColors.earth, THEME_SPOT, 1)
+	SP:ThemeBind(ElementColors.air, THEME_SPOT, 4)
+	SP:ThemeBind(DESTROYED_CENTER_COLOR, THEME_SPOT, "destroyed")
+end
+local THEME_IMBUE = { r = 1.0, g = 0.5, b = 0.0 }   -- refilled with the theme's colour
+local function ImbueAlertColor(sv)
+	local r, g, b
+	if SP.ThemeColor then r, g, b = SP:ThemeColor(THEME_SPOT, "imbue") end
+	if not r then return sv.weaponImbues.color end   -- Standard: today's colour
+	THEME_IMBUE.r, THEME_IMBUE.g, THEME_IMBUE.b = r, g, b
+	return THEME_IMBUE
+end
+
 -- ============================================================================
 -- Default Settings
 -- ============================================================================
@@ -1171,12 +1194,12 @@ function SP:CheckWeaponEnchantState(initializing)
 	if not initializing then
 		-- Main hand: was enchanted, now not enchanted, and still has weapon
 		if prevMainHand and not mainHandEnchanted and hasMainHandWeapon and sv.weaponImbues.mainHand then
-			self:ShowExpiringAlert("imbue", "Weapon Imbue (MH)", WeaponImbues.windfury.icon, sv.weaponImbues.color)
+			self:ShowExpiringAlert("imbue", "Weapon Imbue (MH)", WeaponImbues.windfury.icon, ImbueAlertColor(sv))
 		end
 
 		-- Off hand: was enchanted, now not enchanted, and still has weapon
 		if prevOffHand and not offHandEnchanted and hasOffHandWeapon and sv.weaponImbues.offHand then
-			self:ShowExpiringAlert("imbue", "Weapon Imbue (OH)", WeaponImbues.flametongue.icon, sv.weaponImbues.color)
+			self:ShowExpiringAlert("imbue", "Weapon Imbue (OH)", WeaponImbues.flametongue.icon, ImbueAlertColor(sv))
 		end
 	end
 
@@ -1679,7 +1702,7 @@ function SP:ExpiringAlertsDemo(on)
 			  name = "Tremor Totem Destroyed!", icon = "Interface\\Icons\\Spell_Nature_TremorTotem", color = TotemElements[1].color,
 			  story = "A mob killed your Tremor Totem" },
 			{ type = "imbue", cond = function() return sv.weaponImbues.enabled and sv.weaponImbues.mainHand end,
-			  name = "Weapon Imbue (MH)", icon = WeaponImbues.windfury.icon, color = sv.weaponImbues.color,
+			  name = "Weapon Imbue (MH)", icon = WeaponImbues.windfury.icon, color = ImbueAlertColor(sv),
 			  story = "Windfury Weapon faded from your main hand" },
 			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.water end,
 			  name = "Water Shield", icon = ShieldSpells.waterShield.icon, color = ElementColors.water,

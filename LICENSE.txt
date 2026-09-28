@@ -1,19 +1,11 @@
-Copyright (c) 2025-2026 Srumar
+ShamanPower License
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
+Copyright (c) 2025-2026 Srumar. All Rights Reserved.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
+Please ask me before modifying the code for your own use.
 
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA
-02110-1301, USA.
+You can reach me (Srumar) on GitHub (https://github.com/taubut/ShamanPower/issues)
+or in the ShamanPower Discord (https://discord.gg/eCtNeBqE8U).
 
-The libraries bundled with this addon follow their own respective
-licenses.
+The libraries and fonts bundled with ShamanPower (the Libs and
+Media/Fonts folders) follow their own licenses.

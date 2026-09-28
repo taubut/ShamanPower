@@ -1168,10 +1168,10 @@ ShamanPower.options = {
 									type = "select",
 									name = "Idle Line Color",
 									desc = "The inside of a line while no totem of that element is down."
-										.. " Grey: the line only takes its color when a totem is out."
+										.. " Gray: the line only takes its color when a totem is out."
 										.. " Element color: the line always shows its element, dimmed, and brightens when a totem is out.",
 									width = 1.2,
-									values = { grey = "Grey", element = "Element color (dimmed)" },
+									values = { grey = "Gray", element = "Element color (dimmed)" },
 									get = function(info) return ShamanPower.opt.compactIdleColor or "grey" end,
 									set = function(info, val) ShamanPower.opt.compactIdleColor = val; ShamanPower:ApplyCompactStyle() end,
 								},
@@ -1274,7 +1274,7 @@ ShamanPower.options = {
 								},
 								compactFlyoutSize = FlyoutSizeOption(7.5, 1.2, "compactFlyoutButtonSize", 15,
 									"Icon Size",
-									"How big the icons in the totem flyouts are while Compact style is on. The default is 15, the same as the icon squares, so a flyout sits neatly beside the lines instead of spilling over its neighbours (the icon bar uses 28, and keeps its own size in Appearance). The totem bar's scale still applies on top.",
+									"How big the icons in the totem flyouts are while Compact style is on. The default is 15, the same as the icon squares, so a flyout sits neatly beside the lines instead of spilling over its neighbors (the icon bar uses 28, and keeps its own size in Appearance). The totem bar's scale still applies on top.",
 									"ApplyTotemFlyoutButtonSize", function() return not ShamanPower.opt.showTotemFlyouts end),
 								compactPulseBar = {
 									order = 8,
@@ -2326,8 +2326,9 @@ ShamanPower.options = {
 								.. " ShamanPower classic has brown Earth and pale Air. Blizzard matches the game's own totem bar"
 								.. " (and our flyout arrows): green Earth, orange Fire, blue Water, purple Air. Custom lets you pick all four.",
 							width = 1.4,
-							values = { classic = "ShamanPower classic (brown Earth)", blizzard = "Blizzard totem bar (green Earth)", custom = "Custom" },
-							sorting = { "classic", "blizzard", "custom" },
+							values = { classic = "ShamanPower classic (brown Earth)", blizzard = "Blizzard totem bar (green Earth)", custom = "Custom",
+								shamanpower = "ShamanPower (the logo's colors)" },
+							sorting = { "classic", "blizzard", "custom", "shamanpower" },
 							get = function(info) return ShamanPower.opt.elementColorPalette or ShamanPower:DefaultElementPalette() end,
 							set = function(info, val)
 								if val == "custom" and not ShamanPower.opt.elementColorsCustom then
@@ -3359,7 +3360,7 @@ ShamanPower.options = {
 							order = 2,
 							type = "toggle",
 							name = "Show Color Sweep Overlay",
-							desc = "Show greyed-out sweep overlay as time depletes",
+							desc = "Show grayed-out sweep overlay as time depletes",
 							width = "full",
 							get = function(info)
 								return ShamanPower.opt.cdbarShowColorSweep ~= false
@@ -3373,10 +3374,10 @@ ShamanPower.options = {
 							order = 2.5,
 							type = "select",
 							name = "Sweep Style",
-							desc = "Greys out: the grey grows down from the top as time runs out. Fills back in: the icon starts grey and the color returns as time runs down. Radial: the classic clock swipe (shields and cooldowns; weapon imbues keep the vertical sweep).",
+							desc = "Grays out: the gray grows down from the top as time runs out. Fills back in: the icon starts gray and the color returns as time runs down. Radial: the classic clock swipe (shields and cooldowns; weapon imbues keep the vertical sweep).",
 							width = 1.2,
 							values = {
-								["greys"] = "Vertical - greys out",
+								["greys"] = "Vertical - grays out",
 								["fills"] = "Vertical - fills back in",
 								["radial"] = "Radial swipe",
 							},
@@ -4082,6 +4083,19 @@ ShamanPower.options = {
 								ShamanPower:UpdatePartyDotPositions()
 							end
 						},
+						partybuff_dots_missing_only = {
+							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
+							order = 1.65,
+							type = "toggle",
+							name = "Only Show Who's Missing",
+							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							width = "full",
+							get = function(info) return ShamanPower.opt.partyDotsMissingOnly and true or false end,
+							set = function(info, val)
+								ShamanPower.opt.partyDotsMissingOnly = val or nil
+								ShamanPower:UpdatePartyRangeDots()
+							end
+						},
 						partybuff_dot_size = {
 							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
 							order = 1.7,
@@ -4380,12 +4394,130 @@ ShamanPower.options = {
 							name = "Name Size",
 							min = 7, max = 14, step = 1,
 							width = 1.0,
-							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable())
+								or (ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,   -- no names while the dots show
 							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
 							get = function() return (ShamanPower.opt.coverage and ShamanPower.opt.coverage.fontSize) or 9 end,
 							set = function(_, val)
 								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
 								ShamanPower.opt.coverage.fontSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_dots = {
+							order = 11.5402,
+							type = "toggle",
+							name = "Show Dots Instead of Names",
+							desc = "Under each totem, a dot per party member instead of the list of names, like the totem bar's dots: class color with the buff, red without.",
+							width = "full",
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots or false end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.dots = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_dot_size = {
+							order = 11.5403,
+							type = "range",
+							name = "Dot Size",
+							min = 4, max = 10, step = 1,
+							width = 0.9,
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
+								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return (ShamanPower.opt.coverage and ShamanPower.opt.coverage.dotSize) or 5 end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.dotSize = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						-- the totem bar's dot options, same names and choices
+						coverage_dot_outline = {
+							order = 11.5404,
+							type = "toggle",
+							name = "Dot Outline",
+							desc = "Draw a thin dark ring under each dot so it stays visible on bright totem icons.",
+							width = 0.9,
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
+								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.dotOutline == false) end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.dotOutline = val
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_show_timer = {
+							order = 11.5408,
+							type = "toggle",
+							name = "Show Totem Time Left Instead of Number of Players Out of Range",
+							desc = "The totem's time left on its icon, in place of how many are out of range (\"1 OUT\").",
+							width = "full",
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return ShamanPower.opt.coverage and ShamanPower.opt.coverage.showTimer and true or false end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.showTimer = val or nil
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_plain_icon = {
+							order = 11.5409,
+							type = "toggle",
+							name = "Plain Totem Icon (No Dim or Colored Outline)",
+							desc = "No dim red tint and no red or green outline: just the totem icon as normal. Dots and the time left still show when they are on.",
+							width = "full",
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return ShamanPower.opt.coverage and ShamanPower.opt.coverage.plainIcon and true or false end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.plainIcon = val or nil
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_dots_missing_only = {
+							order = 11.5406,
+							type = "toggle",
+							name = "Only Show Who's Missing",
+							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							width = "full",
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
+								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return ShamanPower.opt.coverage and ShamanPower.opt.coverage.dotsMissingOnly and true or false end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.dotsMissingOnly = val or nil
+								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						coverage_dot_position = {
+							order = 11.5405,
+							type = "select",
+							name = "Dot Position",
+							desc = "Where the dots sit on each totem icon. Rows suit a horizontal layout; columns suit a vertical one.",
+							width = 1.2,
+							values = {
+								["corners"] = "Icon Corners",
+								["above"] = "Above Icon (row)",
+								["below"] = "Below Icon (row)",
+								["left"] = "Left of Icon (column)",
+								["right"] = "Right of Icon (column)",
+							},
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
+								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return (ShamanPower.opt.coverage and ShamanPower.opt.coverage.dotPosition) or "corners" end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.dotPosition = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
 						},
@@ -5582,9 +5714,9 @@ ShamanPower.options = {
 							name = "Show Charge Bar",
 							desc = function()
 								if ShamanPower.ESTrackerUnavailable then
-									return "Show a bar under the display with one segment per charge (3 for Lightning Shield or Water Shield), filled to the charges left. The bar stays blue at every count."
+									return "Show a bar with one segment per charge (3 for Lightning Shield or Water Shield), filled to the charges left: under, over or beside the display (Charge Bar Direction). The bar stays blue at every count."
 								end
-								return "Show a bar under the display with one segment per charge (3 for Lightning Shield or Water Shield, 6 for Earth Shield), filled to the charges left. The bar keeps the shield's color at every count: blue for your own shield, green for Earth Shield."
+								return "Show a bar with one segment per charge (3 for Lightning Shield or Water Shield, 6 for Earth Shield), filled to the charges left: under, over or beside the display (Charge Bar Direction). The bar keeps the shield's color at every count: blue for your own shield, green for Earth Shield."
 							end,
 							type = "toggle",
 							width = "full",
@@ -5597,6 +5729,31 @@ ShamanPower.options = {
 									s.showChargeBar = val
 									-- the number comes back when nothing else would be left on the display
 									if not val and not s.showIcon then s.showNumber = true end
+									ShamanPower:UpdateShieldChargeDisplays()
+								end
+							end
+						},
+						shieldcharges_bar_direction = {
+							-- only with the bar on
+							hidden = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								return not (s and s.showChargeBar) and true or false
+							end,
+							order = 4.45,
+							name = "Charge Bar Direction",
+							desc = "Below or Above: a flat bar under or over the display. Vertical: the bar stands beside the icon or number (right or left), filling from the bottom up. With the icon and number off, a vertical bar is a slim upright bar you can place anywhere, like next to your character.",
+							type = "select",
+							width = "full",
+							values = { below = "Below", above = "Above", right = "Vertical, Right", left = "Vertical, Left" },
+							sorting = { "below", "above", "right", "left" },
+							get = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								return s and s.chargeBarDirection or "below"
+							end,
+							set = function(info, val)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								if s then
+									s.chargeBarDirection = (val ~= "below") and val or nil
 									ShamanPower:UpdateShieldChargeDisplays()
 								end
 							end
@@ -7878,11 +8035,11 @@ ShamanPower.options = {
 							order = 3.75,
 							type = "select",
 							name = "Cooldown Style",
-							desc = "How a totem's spell cooldown is drawn on its button: the classic radial swipe, or the vertical grey sweep the cooldown bar uses.",
+							desc = "How a totem's spell cooldown is drawn on its button: the classic radial swipe, or the vertical gray sweep the cooldown bar uses.",
 							width = 1.0,
 							values = {
 								["radial"] = "Radial Swipe",
-								["vertical"] = "Vertical Sweep (greys out)",
+								["vertical"] = "Vertical Sweep (grays out)",
 								["reverse"] = "Vertical Sweep (fills back in)",
 							},
 							disabled = function()
@@ -9751,7 +9908,7 @@ do
 		"Show ShamanPower's active-totem lifetime swipe. Duration bars and positioned text are independent; "
 			.. "Blizzard's spell cooldowns are untouched.")
 	LifetimeOption(duration.totem_cooldown_sweep, "Lifetime Swipe Style",
-		"Draw the totem lifetime as a radial swipe, a vertical grey sweep, or a reverse vertical sweep.",
+		"Draw the totem lifetime as a radial swipe, a vertical gray sweep, or a reverse vertical sweep.",
 		function() return SP.opt.showTotemCooldowns == false end)
 	LifetimeOption(duration.totem_cooldown_edge, "Radial Edge Line",
 		"Draw the bright edge on ShamanPower's radial lifetime swipe.",
@@ -10220,11 +10377,11 @@ do
 		{ keys = { "partybuff_display_mode" } },
 		{ header = "look_header", name = "Look", keys = {
 			"partybuff_scale", "partybuff_opacity", "partybuff_fontsize", "partybuff_dot_size",
-			"partybuff_dot_outline", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
+			"partybuff_dot_outline", "partybuff_dot_position", "partybuff_dots_missing_only", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
 		}, names = { partybuff_scale = "Scale", partybuff_opacity = "Opacity", partybuff_fontsize = "Text Size",
 			partybuff_hide_frame = "Hide Background" } },
 		{ header = "position_header", name = "Position", keys = {
-			"partybuff_dot_position", "partybuff_location", "partybuff_move_counters_note",
+			"partybuff_location", "partybuff_move_counters_note",
 			"partybuff_move_counters", "partybuff_locked", "partybuff_reset",
 		}, names = { partybuff_move_counters = "Move", partybuff_locked = "Lock Position",
 			partybuff_reset = "Reset Position" } },
@@ -10234,7 +10391,7 @@ do
 		{ keys = { "coverage_enabled", "open_coverage" } },
 		{ header = "coverage_watch_header", name = "Totems to Watch", keys = watches },
 		{ header = "look_header", name = "Look", keys = {
-			"coverage_icon_size", "coverage_opacity", "coverage_font", "coverage_hide_border",
+			"coverage_icon_size", "coverage_opacity", "coverage_show_timer", "coverage_plain_icon", "coverage_dots", "coverage_dot_size", "coverage_dot_outline", "coverage_dot_position", "coverage_dots_missing_only", "coverage_font", "coverage_hide_border",
 		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
 		{ header = "sizes_header", name = "Per-Totem Icon Size", keys = sizes },
 		{ header = "behaviour_header", name = "Behavior", keys = {
@@ -10438,6 +10595,17 @@ do
 	local SP = ShamanPower
 	local STYLES = { shake = "Shake", pop = "Pop", flash = "Flash", glow = "Glow" }
 	local STYLE_ORDER = { "shake", "pop", "flash", "glow" }
+	-- each effect's list: today's styles, then the two new ones it adds
+	-- (ShamanPowerThemeEffects.lua). Values, sorting.
+	local function plus(values, order, k1, n1, k2, n2)
+		local v, o = {}, {}
+		for k, n in pairs(values) do v[k] = n end
+		for i, k in ipairs(order) do o[i] = k end
+		v[k1], v[k2] = n1, n2
+		o[#o + 1] = k1
+		o[#o + 1] = k2
+		return v, o
+	end
 	local function apply() if SP.ApplyCueSettings then SP:ApplyCueSettings() end end
 	local function toggle(order, key, name, desc)
 		return { order = order, type = "toggle", width = "full", name = name, desc = desc,
@@ -10451,16 +10619,39 @@ do
 			get = function() return SP.opt[key] or fallback end,
 			set = function(_, v) SP.opt[key] = v; apply() end }
 	end
+	-- each bar's Effects Look and Signature Moves (ShamanPowerThemeEffects.lua).
+	-- The player's own settings: a theme never changes them.
+	local LOOKS = { standard = "Standard", elemental = "Elemental", signal = "Signal" }
+	local LOOK_ORDER = { "standard", "elemental", "signal" }
+	local function lookChanged() if SP.ApplyTheme then SP:ApplyTheme() end; apply() end
+	local function look(order, key, desc)
+		return { order = order, type = "select", width = "full", name = "Effects Look", desc = desc,
+			values = LOOKS, sorting = LOOK_ORDER,
+			get = function() return SP.opt[key] or "standard" end,
+			set = function(_, v) SP.opt[key] = (v ~= "standard") and v or nil; lookChanged() end }
+	end
+	local function signature(order, key, lookKey, elemental, signal)
+		return { order = order, type = "toggle", width = "full", name = "Signature Moves",
+			desc = "Sets each effect's style below to the look's own move (Elemental: " .. elemental .. ". Signal: " .. signal
+				.. "). Turning it off puts your own styles back. Needs an Effects Look other than Standard.",
+			disabled = function() return (SP.opt[lookKey] or "standard") == "standard" end,
+			get = function() return SP.opt[key] == true end,
+			set = function(_, v) SP.opt[key] = v and true or nil; lookChanged() end }
+	end
 	local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-	SP.options.args.fluffy.args.effects_appearance = { type = "group", name = "Effects", order = 1.35, args = {
-		effects_desc = { order = 0, type = "description", name = "A short animation on a button when something happens to it, so you notice it mid-fight."
-			.. " Every effect is off until you turn it on. The Test buttons play the chosen styles on your bars." },
-
-		totem_header = { order = 1, type = "header", name = "Totem Bar" },
+	-- Each bar's effects sit with the bar they animate (Totem Bar > Effects,
+	-- Cooldown Bar > Effects): a player who sees a button shake looks there.
+	SP.options.args.fluffy.args.totembar_effects_section = { type = "group", name = "Effects", order = 1.35, args = {
+		effects_desc = { order = 0, type = "description", name = "A short animation on a totem button when something happens to its totem, so you notice it mid-fight."
+			.. " Every effect is off until you turn it on, and the look starts as Standard. The Test button plays the chosen styles on your bar." },
 		totem_note = { order = 1.05, type = "description", name = "|cffa0a0a0Played on ShamanPower's own totem buttons: not with the Compact, Grid or Blizzard's Totem Bar styles.|r" },
+		totemCueLook = look(1.06, "totemCueLook", "How the totem bar effects are drawn. Standard: as they always were. Elemental: an element-colored ring and glow, and a destroyed totem cracks to stone instead of the red X. Signal: a thin frame on the button's edge and a bar along its bottom, and a red slash with a corner flag instead of the red X."),
+		totemCueSignature = signature(1.07, "totemCueSignature", "totemCueLook",
+			"Crumble, Ring draws in, Frame drains", "Frame blink, Underline runs out, Bar under it"),
 		totemCueDestroyed = toggle(1.1, "totemCueDestroyed", "Totem Destroyed",
 			"When a totem is killed before its time, its button plays the style below in red. Your own right-click dismiss, Totemic Call and dying do not count."),
-		totemCueDestroyedStyle = style(1.2, "totemCueDestroyedStyle", "totemCueDestroyed", "shake", "Destroyed Style"),
+		totemCueDestroyedStyle = style(1.2, "totemCueDestroyedStyle", "totemCueDestroyed", "shake", "Destroyed Style",
+			plus(STYLES, STYLE_ORDER, "crumble", "Crumble", "frameblink", "Frame blink")),
 		totemCueDestroyedMark = { order = 1.3, type = "toggle", width = "full", name = "Red X Until Recast",
 			desc = "Also put a red X on the button until you drop that element again (5 seconds at most).",
 			disabled = function() return not SP.opt.totemCueDestroyed end,
@@ -10468,11 +10659,12 @@ do
 			set = function(_, v) SP.opt.totemCueDestroyedMark = v end },
 		totemCueExpired = toggle(1.4, "totemCueExpired", "Totem Expired",
 			"When a totem runs out, its button plays the style below in white."),
-		totemCueExpiredStyle = style(1.5, "totemCueExpiredStyle", "totemCueExpired", "pop", "Expired Style"),
+		totemCueExpiredStyle = style(1.5, "totemCueExpiredStyle", "totemCueExpired", "pop", "Expired Style",
+			plus(STYLES, STYLE_ORDER, "ringin", "Ring draws in", "underline", "Underline runs out")),
 		totemCueExpiring = toggle(1.6, "totemCueExpiring", "Totem Expiring Soon",
 			"Over a totem's last seconds its button pulses darker, or its edges glow orange, until it runs out or you drop it again."),
 		totemCueExpiringStyle = style(1.7, "totemCueExpiringStyle", "totemCueExpiring", "pulse", "Expiring Style",
-			{ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }),
+			plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")),
 		totemCueExpiringSecs = { order = 1.8, type = "range", width = "full", name = "Seconds Before It Ends",
 			min = 3, max = 15, step = 1,
 			disabled = function() return not SP.opt.totemCueExpiring end,
@@ -10482,23 +10674,39 @@ do
 			desc = "Earth plays Totem Destroyed, Fire Totem Expired and Water Totem Expiring Soon, in the styles chosen above.",
 			func = function() if SP.TestTotemCues then SP:TestTotemCues() end end },
 
-		cdbar_header = { order = 2, type = "header", name = "Cooldown Bar" },
+	} }
+	SP.options.args.fluffy.args.cdbar_effects_section = { type = "group", name = "Effects", order = 1.36, args = {
+		effects_desc = { order = 0, type = "description", name = "A short animation on a cooldown bar button when something happens to it, so you notice it mid-fight."
+			.. " Every effect is off until you turn it on, and the look starts as Standard. The Test button plays the chosen styles on your bar." },
+		cdbarCueLook = look(2.02, "cdbarCueLook", "How the cooldown bar effects are drawn. Standard: as they always were. Elemental: an element-colored ring and glow. Signal: a thin frame on the button's edge and a bar along its bottom."),
+		cdbarCueSignature = signature(2.03, "cdbarCueSignature", "cdbarCueLook",
+			"Shine, Element flare, Shield burst", "Dot, Corner flag, Frame blink + flag"),
 		cdbarCueReady = toggle(2.1, "cdbarCueReady", "Cooldown Ready",
 			"When a cooldown on the bar is ready again, its button plays the style below in gold."),
-		cdbarCueReadyStyle = style(2.2, "cdbarCueReadyStyle", "cdbarCueReady", "pop", "Ready Style"),
+		cdbarCueReadyStyle = style(2.2, "cdbarCueReadyStyle", "cdbarCueReady", "pop", "Ready Style",
+			plus(STYLES, STYLE_ORDER, "shine", "Shine", "dot", "Dot")),
 		cdbarCueImbue = toggle(2.3, "cdbarCueImbue", "Weapon Imbue Gone",
 			"When a weapon imbue drops off (it ran out, or the weapon was swapped), the imbue button plays the style below in blue."),
-		cdbarCueImbueStyle = style(2.4, "cdbarCueImbueStyle", "cdbarCueImbue", "shake", "Imbue Style"),
+		cdbarCueImbueStyle = style(2.4, "cdbarCueImbueStyle", "cdbarCueImbue", "shake", "Imbue Style",
+			plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag")),
 		cdbarCueShield = toggle(2.5, "cdbarCueShield", "Shield Gone",
 			mainline and ("When your Lightning or Water Shield is gone, the shield button plays the style below in blue."
 				.. " In combat the game hides the moment a shield goes, so there the button pulses red while no shield is up instead;"
 				.. " only at 100% cooldown bar opacity, as below that the red would show through the shield icon.")
 			or "When your Lightning or Water Shield is gone, the shield button plays the style below in blue."),
-		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style"),
+		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style",
+			plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag")),
 		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
 			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button Shield Gone, in the styles chosen above.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
+	-- the Effects page used to be Appearance > Effects: its old address lands here
+	SP.SettingsPathAliases["fluffy/effects_appearance"] = { "fluffy", "totembar_effects_section" }
+	for _, group in ipairs({ "totembar_effects_section", "cdbar_effects_section" }) do
+		for key in pairs(SP.options.args.fluffy.args[group].args) do
+			if key ~= "effects_desc" then SP.SettingsPathAliases["fluffy/effects_appearance/" .. key] = { "fluffy", group, key } end
+		end
+	end
 end
 
 do
@@ -10663,7 +10871,7 @@ do
 		{ keys = { "shieldcharges_player", "shieldcharges_earth" } },
 		{ header = "look_header", name = "Look", keys = {
 			"shieldcharges_show_icon", "shieldcharges_show_number", "shieldcharges_number_position", "shieldcharges_show_bar",
-			"shieldcharges_scale", "shieldcharges_opacity",
+			"shieldcharges_bar_direction", "shieldcharges_scale", "shieldcharges_opacity",
 		} },
 		{ header = "behaviour_header", name = "Behavior", keys = {
 			"shieldcharges_hide_ooc", "shieldcharges_hide_none",

@@ -13,6 +13,7 @@ SP.MinimapTotemsAvailable = true
 local secret = issecretvalue or function() return false end
 local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local pins, classicDrops, blockedDrops, blocked = {}, {}, {}, {}
+SP.minimapTotemPins = pins   -- read by the ShamanPower Minimal flat boxes (ShamanPowerThemeBoxes.lua)
 for element = 1, 4 do classicDrops[element] = {} end
 local circleX, circleY = {}, {}
 local SEGMENTS = 32
@@ -227,6 +228,16 @@ local function expire()
 	refreshModels()
 end
 
+-- Theme (General > Themes, spot mod.minimap): a ring in the spot's palette.
+-- today = true (a theme change) paints the Appearance colour on Standard;
+-- otherwise Standard leaves the colour set by refreshModels exactly as it is.
+local function themeRing(pin, element, today)
+	if not SP.ThemeActive then return end
+	if not today and not SP:ThemeActive("mod.minimap") then return end
+	local r, g, b = SP:ThemeElement("mod.minimap", element)
+	for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(r, g, b, 0.65) end
+end
+
 local function radiusFor(element, index)
 	if element == 2 and index == 2 then return searingRange end
 	if element == 2 and index == 3 then return 8 end -- Magma effect 8187, SpellRadius 14 in supplied DB2.
@@ -272,6 +283,7 @@ refreshModels = function()
 			if indexOK and number(index) and SP.opt.minimapTotemRings ~= false then pin.radius = radiusFor(element, index) end
 			local color = SP.ElementColors[element]
 			for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(color.r, color.g, color.b, 0.65) end
+			themeRing(pin, element)   -- the theme's colour (nothing on Standard)
 			active = true
 			if not earliest or pin.expires < earliest then earliest = pin.expires end
 		else pin:Hide() end
@@ -376,3 +388,13 @@ end)
 hooksecurefunc(SP, "PLAYER_TOTEM_UPDATE", afterTotem)
 hooksecurefunc(SP, "UNIT_SPELLCAST_SUCCEEDED", afterCast)
 hooksecurefunc(SP, "UpdateLayout", SP.RefreshMinimapTotems)
+
+-- Theme changed (General > Themes): recolour the rings on the minimap now.
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		for element = 1, 4 do
+			local pin = pins[element]
+			if pin and pin.active and pin.lines then themeRing(pin, element, true) end
+		end
+	end)
+end

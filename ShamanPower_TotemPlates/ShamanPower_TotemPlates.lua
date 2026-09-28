@@ -17,6 +17,14 @@ SP.activeTotemPlates = {}      -- unitId -> nameplate
 SP.totemPlateCache = {}        -- Recycled frames
 SP.detectedNameplateAddon = "Blizzard"
 
+-- Theme (General > Themes, spot mod.plates-colors): the enemy / friendly border.
+-- nil on Standard: the colours set where a plate is filled stay exactly as they are.
+local function ThemePlateBorder(frame)
+    if not SP.ThemeColor then return end
+    local r, g, b = SP:ThemeColor("mod.plates-colors", frame.isEnemy and "enemy" or "friendly")
+    if r then frame:SetBackdropBorderColor(r, g, b, 1) end
+end
+
 -- ============================================================================
 -- Totem Data: NPC IDs to Totem Info Mapping
 -- Based on TotemPlates Constants_shared.lua
@@ -74,8 +82,9 @@ end
 -- Only totems that pulse have entries here
 local TOTEM_PULSE_INTERVALS = {
     -- Earth Totems
-    ["Tremor Totem"] = 3,           -- Pulses every 3 sec to remove fear/charm/sleep
+    ["Tremor Totem"] = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 4 or 3,   -- removes fear/charm/sleep: every 3 sec, 4 on WoW: Forever (Spell data)
     ["Earthbind Totem"] = 3,        -- Pulses every 3 sec to apply slow
+    ["Stoneclaw Totem"] = 2,        -- Taunts every 2 sec
 
     -- Water Totems
     ["Healing Stream Totem"] = 2,   -- Heals every 2 sec
@@ -602,6 +611,7 @@ function SP:OnTotemPlateUnitAdded(unitId)
     else
         frame:SetBackdropBorderColor(0.08, 0.82, 0.09, 1)
     end
+    ThemePlateBorder(frame)   -- the theme's colours (nothing on Standard)
 
     -- Set alpha
     frame:SetAlpha(settings.alpha or 0.9)
@@ -760,10 +770,11 @@ function SP:UpdatePulseTimer(frame)
     local elapsed = now - frame.lastPulseTime
     local remaining = frame.pulseInterval - elapsed
 
-    -- Handle pulse cycle reset
+    -- A new cycle: step on by whole intervals from the last pulse (starting over
+    -- at "now" lost a frame's worth every cycle and drifted off the real pulses)
     if remaining <= 0 then
-        frame.lastPulseTime = now
-        remaining = frame.pulseInterval
+        frame.lastPulseTime = frame.lastPulseTime + math.floor(elapsed / frame.pulseInterval) * frame.pulseInterval
+        remaining = frame.pulseInterval - (now - frame.lastPulseTime)
     end
 
     local pct = remaining / frame.pulseInterval
@@ -1098,6 +1109,7 @@ function SP:TotemPlatesDemo(on)
         else
             frame:SetBackdropBorderColor(0.08, 0.82, 0.09, 1)
         end
+        ThemePlateBorder(frame)
         frame:SetSize(settings.iconSize or 40, settings.iconSize or 40)
         frame:SetAlpha(settings.alpha or 0.9)
         -- plate sits just above the totem body whatever the icon size
@@ -1156,3 +1168,21 @@ end
 -- Enable ShamanPower switched: off gives every totem its own nameplate back;
 -- on replaces them again if Totem Plates is on in the settings
 SP:OnOnOff(function() SP:ToggleTotemPlates() end)
+
+-- Theme changed (General > Themes): repaint the plates on screen (today's
+-- colours on Standard). Nothing runs otherwise.
+if SP.OnThemeChanged then
+    SP:OnThemeChanged(function()
+        for _, nameplate in pairs(SP.activeTotemPlates) do
+            local frame = nameplate.totemPlateFrame
+            if frame then
+                if frame.isEnemy then
+                    frame:SetBackdropBorderColor(0.82, 0.15, 0.08, 1)
+                else
+                    frame:SetBackdropBorderColor(0.08, 0.82, 0.09, 1)
+                end
+                ThemePlateBorder(frame)
+            end
+        end
+    end)
+end

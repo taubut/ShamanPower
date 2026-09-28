@@ -22,6 +22,83 @@ SP.partyRangeDots = {}  -- [element][partyIndex] = dot texture
 -- the engine dots had never been built.
 local engineDotsReady = false -- SetupPartyRangeDots has run (buttons exist)
 
+-- ============================================================================
+-- Theme looks (General > Themes, ShamanPowerTheme.lua). Looks only: on Standard
+-- every read below is nil and each paint site runs today's code as it was.
+-- tb.dots-missing / mod.coverage-dots-missing: the red "no buff" dot.
+-- tb.dots-class / mod.coverage-dots-class: the engine is asked, and every theme
+-- keeps WoW's class colours for now (brand-guidelines 8.1), so nothing changes.
+-- mod.partybuff-frame: the unlocked counter frames. mod.coverage-colors: the
+-- Coverage panel. Colours are resolved on a theme change, never while painting.
+-- ============================================================================
+local themeMissDot, themeMissCov = nil, nil   -- nil: today's red (1, 0, 0)
+local THEME_MISS_DOT, THEME_MISS_COV = { 1, 0, 0 }, { 1, 0, 0 }
+local function ThemeRGB(spot, role)
+	if SP.ThemeColor then return SP:ThemeColor(spot, role) end
+end
+local function ThemeAlphaOf(spot, role, default)
+	return (SP.ThemeAlpha and SP:ThemeAlpha(spot, role)) or default
+end
+local function ThemeMissing(spot, t)
+	local r, g, b = ThemeRGB(spot, "missing")
+	if not r then return nil end
+	t[1], t[2], t[3] = r, g, b
+	return t
+end
+local function ResolveThemeLooks()
+	themeMissDot = ThemeMissing("tb.dots-missing", THEME_MISS_DOT)
+	themeMissCov = ThemeMissing("mod.coverage-dots-missing", THEME_MISS_COV)
+end
+ResolveThemeLooks()
+-- the totem bar's red dot, and the Coverage panel's
+local function PaintMissingDot(dot)
+	local c = themeMissDot
+	if c then dot:SetVertexColor(c[1], c[2], c[3]) else dot:SetVertexColor(1, 0, 0) end
+end
+local function PaintMissingCov(dot)
+	local c = themeMissCov
+	if c then dot:SetVertexColor(c[1], c[2], c[3]) else dot:SetVertexColor(1, 0, 0) end
+end
+-- a class-coloured dot: the theme's colour for that class if it has one, else
+-- `color` (RAID_CLASS_COLORS) exactly as today. One table per class, made once.
+local themeClassColors = {}
+local function ThemeClassColor(spot, class, color)
+	if not (color and class and SP.ThemeColor) then return color end
+	local r, g, b = SP:ThemeColor(spot, class)
+	if not r then return color end
+	local bySpot = themeClassColors[spot]
+	if not bySpot then bySpot = {}; themeClassColors[spot] = bySpot end
+	local t = bySpot[class]
+	if not t then t = {}; bySpot[class] = t end
+	t.r, t.g, t.b = r, g, b
+	return t
+end
+-- the unlocked counter frames (today black 70%, border grey 80%); `restore`
+-- puts today's back (the Themes tab went back to Standard)
+local function ThemeCounterFrame(frame, restore)
+	local r, g, b = ThemeRGB("mod.partybuff-frame", "bg")
+	if r then frame:SetBackdropColor(r, g, b, ThemeAlphaOf("mod.partybuff-frame", "bg", 0.7))
+	elseif restore then frame:SetBackdropColor(0, 0, 0, 0.7) end
+	r, g, b = ThemeRGB("mod.partybuff-frame", "border")
+	if r then frame:SetBackdropBorderColor(r, g, b, 0.8)
+	elseif restore then frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8) end
+end
+-- the Coverage panel (today SP:ApplyPanelBackdrop's colours)
+local function ThemeCoveragePanel(frame, restore)
+	local bg, edge = SP.PANEL_BG, SP.PANEL_BORDER
+	local r, g, b = ThemeRGB("mod.coverage-colors", "bg")
+	if r then frame:SetBackdropColor(r, g, b, ThemeAlphaOf("mod.coverage-colors", "bg", bg[4]))
+	elseif restore then frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4]) end
+	r, g, b = ThemeRGB("mod.coverage-colors", "border")
+	if r then frame:SetBackdropBorderColor(r, g, b, edge[4])
+	elseif restore then frame:SetBackdropBorderColor(edge[1], edge[2], edge[3], edge[4]) end
+end
+-- the Themes tab's swatches show the counter frames' own colours as today's
+if SP.ThemeSetRoleStd then
+	SP:ThemeSetRoleStd("mod.partybuff-frame", "bg", "000000")
+	SP:ThemeSetRoleStd("mod.partybuff-frame", "border", "4D4D4D")
+end
+
 -- Buff spell IDs for totem buffs (same approach as TotemTimers)
 -- These are the BUFF spell IDs (auras on party members), NOT the cast spell IDs
 SP.TotemBuffSpellIDs = {
@@ -409,7 +486,7 @@ end
 
 -- true while the engine is drawing the coloured dots (so the addon draws only the red ones)
 function SP:EngineDotsOn()
-	return self.engineDotsBuilt == true and self.opt.showPartyRangeDots and true or false
+	return self.engineDotsBuilt == true and self.opt.showPartyRangeDots and not self.opt.partyDotsMissingOnly and true or false
 end
 
 local function ElementBuffMap(element)
@@ -506,7 +583,7 @@ local function RebuildEngineRecord(record, element, i, host, exists, class, r, g
 end
 
 function SP:SetEnginePartyDotsShown(on)
-	on = on and true or false
+	on = on and not self.opt.partyDotsMissingOnly and true or false   -- "only missing" draws its own dots
 	self.engineDotsShown = on
 	for element = 1, 4 do
 		local slots = self.engineDots[element]
@@ -550,6 +627,7 @@ local function RebuildEngineDots(self)
 			local _, class = UnitClass(unit)
 			if issecretvalue(class) then class = nil end
 			local color = class and RAID_CLASS_COLORS[class]
+			if color then color = ThemeClassColor("tb.dots-class", class, color) end
 			local r, g, b = 0, 1, 0
 			if color then r, g, b = color.r, color.g, color.b end
 			local slot = SP.engineDots[element][i] or {}
@@ -638,6 +716,37 @@ local function CoverageOpts()
 	return SP.opt.coverage
 end
 local function CoverageFont() return (CoverageOpts().fontSize or 9) end
+-- "Show Dots Instead of Names": a dot per party member, like the totem bar's:
+-- class colour with the buff, red without, or ("Only Show Who's Missing") only
+-- the ones without it. The range pass colours / shows each from UnitHasBuff.
+-- The same options as the totem bar's dots: position, outline, size, placed by
+-- the totem bar's own PartyDotAnchor around the cell's icon.
+local function CoverageDots() return CoverageOpts().dots and true or false end
+local function CoverageDotSize() return CoverageOpts().dotSize or 5 end
+local function CoverageDotPos() return CoverageOpts().dotPosition or "corners" end
+-- room the panel keeps for dots outside the cell: top, bottom, left, right
+-- (they hang outside it, like the names, so the cell stays just the icon)
+local function DotPads()
+	if not CoverageDots() then return 0, 0, 0, 0 end
+	local pos, pad = CoverageDotPos(), CoverageDotSize() + 3
+	return (pos == "above") and pad or 0, (pos == "below") and pad or 0,
+		(pos == "left") and pad or 0, (pos == "right") and pad or 0
+end
+local function PlaceDot(btn, row, i)
+	local size, pos = CoverageDotSize(), CoverageDotPos()
+	-- corners sit on the icon; rows / columns outside the cell's edge
+	local host = (pos == "corners") and btn.icon or btn
+	local point, relPoint, x, y = SP:PartyDotAnchor(i, host, pos, size)
+	row:SetSize(size, size)
+	row:ClearAllPoints()
+	row:SetPoint(point, host, relPoint, x, y)
+	row.dotOutline:SetSize(size + 2, size + 2)
+end
+local function RowMode(row, dots)
+	row.text:SetShown(not dots)
+	row.dot:SetShown(dots)
+	row.dotOutline:SetShown(dots and CoverageOpts().dotOutline ~= false)
+end
 local function CoverageRowH() return CoverageFont() + 3 end
 local function CoverageIconSize() return CoverageOpts().iconSize or 36 end
 -- "Place each totem freely": every watched TOTEM gets a cell of its own
@@ -773,11 +882,19 @@ function SP:CreateCoverageFrame()
 		statusText:SetShadowOffset(1, -1)
 		statusText:Hide()
 		btn.statusText = statusText
+		-- "Show Totem Time Left": the totem's time left in place of "N OUT"
+		local timerText = btn:CreateFontString(nil, "OVERLAY")
+		SP:SetSPFont(timerText, "timers", 12, "OUTLINE")
+		timerText:SetPoint("CENTER", icon, "CENTER", 0, 0)
+		timerText:SetTextColor(1, 1, 1)
+		timerText:Hide()
+		btn.timerText = timerText
 		btn.rows = {}
 		for i = 1, 4 do
 			-- a name-tag pill under the icon: the dark tag is what the engine's
 			-- strip can match to cover the red name
 			local row = CreateFrame("Frame", nil, btn)
+			row.spNoHoverWalk = true   -- holds the engine's name display: the settings-cog hover walk stays out
 			local t = row:CreateFontString(nil, "OVERLAY")
 			SP:SetSPFont(t, "labels", 9, "OUTLINE")
 			t:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -786,6 +903,19 @@ function SP:CreateCoverageFrame()
 			t:SetWordWrap(false)
 			t:SetTextColor(1, 0.25, 0.25)
 			row.text = t
+			-- the dot form of the same row (Show Dots Instead of Names)
+			local o = row:CreateTexture(nil, "ARTWORK", nil, -1)
+			o:SetTexture(DOT_TEXTURE)
+			o:SetVertexColor(0, 0, 0, 0.9)
+			o:SetPoint("CENTER", row, "CENTER", 0, 0)   -- a ring 1px past the dot, like the totem bar's
+			o:SetSize(7, 7)
+			o:Hide()
+			local d = row:CreateTexture(nil, "ARTWORK")
+			d:SetTexture(DOT_TEXTURE)
+			d:SetVertexColor(1, 0.25, 0.25)
+			d:SetAllPoints(row)
+			d:Hide()
+			row.dot, row.dotOutline = d, o
 			row:Hide()
 			btn.rows[i] = row
 		end
@@ -831,7 +961,6 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 	if not ok or not container then return nil end
 	container:SetAllPoints(row)
 	container:SetFrameLevel(row:GetFrameLevel() + 5)
-	local sr, sg, sb = btn:GetBackdropColor()
 	local fontSize = CoverageFont()
 	local okAdd = pcall(container.AddAuraSlot, container, "cover", "HELPFUL", {
 		candidateFilters = { includeSpellIDs = CoverageBuffMap(element) },
@@ -906,7 +1035,9 @@ local function BuildCellRows(self, btn, rowsKey, element)
 		local exists = UnitExists(unit)
 		local name = exists and (UnitName(unit) or "?") or "-"
 		local _, class = UnitClass(unit)
+		local dots, dotSize = CoverageDots(), CoverageDotSize()
 		local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(btn.cellKey) .. "|" .. CoverageWatchSig(element)
+			.. "|" .. (dots and ("d" .. dotSize .. CoverageDotPos() .. tostring(CoverageOpts().dotOutline ~= false)) or "n")
 		local slot = self.coverageRows[rowsKey][i]
 		local row = btn.rows[i]
 		if not slot or slot.key ~= key then
@@ -916,14 +1047,26 @@ local function BuildCellRows(self, btn, rowsKey, element)
 			end
 			SP:SetSPFont(row.text, "labels", fontSize, "OUTLINE")
 			row.text:SetText(name)
-			-- as wide as the cell, wider for a long name (never cut): flush under the icon
-			row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
-			row:ClearAllPoints()
-			row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
+			RowMode(row, dots)
+			if dots then
+				PlaceDot(btn, row, i)
+				local dc = class and RAID_CLASS_COLORS[class]
+				if dc then dc = ThemeClassColor("mod.coverage-dots-class", class, dc) end
+				row.cr, row.cg, row.cb = 0, 1, 0   -- no class known: green, as on the totem bar
+				if dc then row.cr, row.cg, row.cb = dc.r, dc.g, dc.b end
+				row.dot:SetVertexColor(row.cr, row.cg, row.cb)
+				row.dotRed = false
+			else
+				-- as wide as the cell, wider for a long name (never cut): flush under the icon
+				row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
+				row:ClearAllPoints()
+				row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
+			end
 			local cr, cg, cb = 0.4, 1, 0.4
 			local color = class and RAID_CLASS_COLORS[class]
 			if color then cr, cg, cb = color.r, color.g, color.b end
-			local container = exists and BuildCoverageRow(element, i, btn, row, name, cr, cg, cb) or nil
+			-- dots need no engine display: the range pass shows each from UnitHasBuff
+			local container = exists and not dots and BuildCoverageRow(element, i, btn, row, name, cr, cg, cb) or nil
 			self.coverageRows[rowsKey][i] = { container = container, key = key }
 		end
 		row:SetShown(exists)
@@ -958,6 +1101,16 @@ end
 SizeCell = function(btn, iconSize)
 	btn:SetSize(iconSize + 6, iconSize + 6)
 	btn.icon:SetSize(iconSize, iconSize)
+	SP:SetSPFont(btn.timerText, "timers", math.max(9, math.floor(iconSize / 3)), "OUTLINE")
+end
+
+-- the time left on a cell's icon (nil: none); text only when the second changes
+local function SetCellTimer(btn, left)
+	local str = left and SP.FormatDuration and SP.FormatDuration(left) or nil
+	if btn.timerStr == str then return end
+	btn.timerStr = str
+	if str then btn.timerText:SetText(str) end
+	btn.timerText:SetShown(str ~= nil)
 end
 
 -- Free placement: each cell lives on its own, parented to the screen, at its
@@ -992,34 +1145,40 @@ end
 local function LayoutCoverage(frame, shown, count)
 	local co = CoverageOpts()
 	local iconSize, rowH = CoverageIconSize(), CoverageRowH()
+	local t, b, l, r = DotPads()   -- dots outside the cell hang past it, like the names
 	local cellW = iconSize + 6
 	local cellH = iconSize + 6
-	local nameSpace = (count > 0) and (count * rowH + 2) or 0   -- the name tags stack flush under each cell
+	local nameSpace = 0   -- the name tags stack flush under each cell
+	if count > 0 and not CoverageDots() then nameSpace = count * rowH + 2 end
 	local padding, n = 6, #shown
+	local slotW, slotH = cellW + l + r, cellH + t + b + nameSpace
 	local width, height
 	if co.vertical then
-		width = cellW + 24
-		height = ((cellH + nameSpace) * n) + (padding * (n - 1)) + 28
+		width = slotW + 24
+		height = (slotH * n) + (padding * (n - 1)) + 28
 	else
-		width = (cellW * n) + (padding * (n - 1)) + 24
-		height = cellH + nameSpace + 26
+		width = (slotW * n) + (padding * (n - 1)) + 24
+		height = slotH + 26
 	end
 	frame:SetSize(math.max(80, width), height)
 	for idx, btn in ipairs(shown) do
 		SizeCell(btn, iconSize)
 		btn:ClearAllPoints()
 		if co.vertical then
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -20 - (idx - 1) * (cellH + nameSpace + padding))
+			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12 + l, -20 - t - (idx - 1) * (slotH + padding))
 		else
-			local cellsW = (cellW * n) + (padding * (n - 1))
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", (frame:GetWidth() - cellsW) / 2 + (idx - 1) * (cellW + padding), -20)
+			local cellsW = (slotW * n) + (padding * (n - 1))
+			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", (frame:GetWidth() - cellsW) / 2 + l + (idx - 1) * (slotW + padding), -20 - t)
 		end
 	end
 end
 
 local function PaintCoverageCell(btn, state, missing)
-	if btn.state == state and btn.missing == missing then return end
-	btn.state, btn.missing = state, missing
+	local co = CoverageOpts()
+	local timer = co.showTimer and true or false   -- the time left takes the "N OUT" spot
+	local plain = co.plainIcon and true or false   -- no tint, no coloured outline: the icon as it is
+	if btn.state == state and btn.missing == missing and btn.timerMode == timer and btn.plainMode == plain then return end
+	btn.state, btn.missing, btn.timerMode, btn.plainMode = state, missing, timer, plain
 	if state == "covered" then
 		btn:SetBackdropBorderColor(0, 1, 0, 1)
 		btn.rangeOverlay:Hide()
@@ -1028,11 +1187,16 @@ local function PaintCoverageCell(btn, state, missing)
 		btn:SetBackdropBorderColor(0.8, 0, 0, 1)
 		btn.rangeOverlay:Show()
 		btn.statusText:SetText(missing == 1 and "1 OUT" or (missing .. " OUT"))
-		btn.statusText:Show()
+		btn.statusText:SetShown(not timer)
 	else   -- "combat": the names carry the answer
 		btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 		btn.rangeOverlay:Hide()
 		btn.statusText:Hide()
+	end
+	if plain then
+		local b = SP.PANEL_BORDER
+		btn:SetBackdropBorderColor(b[1], b[2], b[3], b[4])
+		btn.rangeOverlay:Hide()
 	end
 end
 
@@ -1057,7 +1221,7 @@ function SP:UpdateCoverage()
 	if count == 0 then HideAllCells(frame) return end
 	local shown, mask = {}, 0
 	for element = 1, 4 do
-		local haveTotem, _, _, _, icon = self:GetElementTotemInfo(element)
+		local haveTotem, _, tStart, tDur, icon = self:GetElementTotemInfo(element)
 		local buffName, totemIndex
 		if haveTotem then buffName, totemIndex = self:GetActiveTotemBuffName(element) end
 		local show = (haveTotem and buffName and totemIndex and self:CoverageWatches(element, totemIndex)) and true or false
@@ -1087,6 +1251,24 @@ function SP:UpdateCoverage()
 			local btn = co.freeCells and self:CoverageTotemCell(element, totemIndex) or frame.buttons[element]
 			if icon ~= nil and not issecretvalue(icon) and btn.iconTex ~= icon then btn.iconTex = icon; btn.icon:SetTexture(icon) end
 			PaintCoverageCell(btn, state, missing)
+			-- the totem bar's own time left (GetElementTotemInfo, readable in combat too)
+			SetCellTimer(btn, co.showTimer and tDur and tDur > 0 and (tStart + tDur - GetTime()) or nil)
+			if CoverageDots() then
+				-- the totem bar dots' answer (UnitHasBuff; in combat, the distance model):
+				-- class colour with the buff, red without, or only the ones without it
+				local missingOnly = CoverageOpts().dotsMissingOnly
+				for i = 1, 4 do
+					local unit, row = self.partyUnitStrings[i], btn.rows[i]
+					local exists = UnitExists(unit)
+					local has = exists and self:UnitHasBuff(unit, buffName, element)
+					local red = not has and not missingOnly
+					if row.dotRed ~= red then
+						row.dotRed = red
+						if red then PaintMissingCov(row.dot) else row.dot:SetVertexColor(row.cr or 0, row.cg or 1, row.cb or 0) end
+					end
+					row:SetShown(exists and not (missingOnly and has))
+				end
+			end
 			shown[#shown + 1] = btn
 			mask = mask + 2 ^ element
 		end
@@ -1146,6 +1328,7 @@ function SP:UpdateCoverageBorder()
 		self:SetSettingsButtonHoverOnly(frame, frame.settingsBtn, true)
 	else
 		SP:ApplyPanelBackdrop(frame)
+		ThemeCoveragePanel(frame)
 		frame.title:Show()
 		self:SetSettingsButtonHoverOnly(frame, frame.settingsBtn, false)
 	end
@@ -1228,23 +1411,36 @@ function SP:CoverageDemo(on)
 					end
 					SizeCell(btn, freeDemo and CellIconSize(btn.cellKey) or CoverageIconSize())
 					local missing = 0
+					local dots = CoverageDots()
 					for i = 1, 4 do
 						local row = btn.rows[i]
 						SP:SetSPFont(row.text, "labels", fontSize, "OUTLINE")
 						row.text:SetText(COVERAGE_DEMO_NAMES[i])
+						local c = COVERAGE_DEMO_COLORS[i]
 						if has[i] then
-							local c = COVERAGE_DEMO_COLORS[i]
 							row.text:SetTextColor(c[1], c[2], c[3])
 						else
-							row.text:SetTextColor(1, 0.25, 0.25); missing = missing + 1
+							row.text:SetTextColor(1, 0.25, 0.25)
+							missing = missing + 1
 						end
-						row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
-						row:ClearAllPoints()
-						row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
-						row:Show()
+						-- dots: class colour with the buff, red without, or only the ones without it
+						local missingOnly = co.dotsMissingOnly
+						if has[i] or missingOnly then row.dot:SetVertexColor(c[1], c[2], c[3]) else PaintMissingCov(row.dot) end
+						row.dotRed = nil   -- the live pass paints its own afterwards
+						RowMode(row, dots)
+						if dots then
+							PlaceDot(btn, row, i)
+							row:SetShown(not (missingOnly and has[i]))
+						else
+							row:SetSize(math.max(btn:GetWidth(), math.ceil(row.text:GetStringWidth()) + 10), rowH)
+							row:ClearAllPoints()
+							row:SetPoint("TOP", btn, "BOTTOM", 0, -(i - 1) * rowH)
+							row:Show()
+						end
 					end
 					btn.state = nil
 					PaintCoverageCell(btn, missing == 0 and "covered" or "missing", missing)
+					SetCellTimer(btn, co.showTimer and (40 + btn.element * 17) or nil)   -- a sample time left
 					-- a fully covered cell drops out, as it does for real (movers keep every cell)
 					if missing > 0 or co.hideWhenCovered == false or freeDemo then shown[#shown + 1] = btn end
 				end
@@ -1288,7 +1484,7 @@ function SP:CoverageDemo(on)
 			btn.iconTex, btn.state = nil, nil
 			for i = 1, 4 do
 				local row = btn.rows and btn.rows[i]
-				if row then row.text:SetText(""); row.text:SetTextColor(1, 0.25, 0.25) end
+				if row then row.text:SetText(""); row.text:SetTextColor(1, 0.25, 0.25); row.dot:SetVertexColor(1, 0.25, 0.25) end
 			end
 		end
 		HideAllCells(frame)
@@ -1355,6 +1551,8 @@ function SP:UpdatePartyRangeDots()
 
 	-- Get cached party/subgroup units (avoids looping 40 members every update)
 	local partyUnits, partyCount = self:GetCachedPartyUnits()
+	-- "Only missing": a class-coloured dot for each member WITHOUT the buff, none for the rest
+	local missingOnly = self.opt.partyDotsMissingOnly
 
 	-- Update dots for each party member
 	for partyIndex = 1, 4 do
@@ -1369,6 +1567,7 @@ function SP:UpdatePartyRangeDots()
 			if class and RAID_CLASS_COLORS[class] then
 				classColor = RAID_CLASS_COLORS[class]
 			end
+			classColor = ThemeClassColor("tb.dots-class", class, classColor)
 		end
 
 		-- Check each element
@@ -1400,7 +1599,7 @@ function SP:UpdatePartyRangeDots()
 						-- the red "no buff" underneath, shown for any totem that gives a
 						-- buff at all and covered as soon as the unit carries it.
 						if self:GetActiveTotemBuffName(element) then
-							dot:SetVertexColor(1, 0, 0)
+							PaintMissingDot(dot)
 							dot:Show()
 						else
 							dot:Hide()
@@ -1415,7 +1614,10 @@ function SP:UpdatePartyRangeDots()
 						if isWindfury then
 							local playerName = UnitName(unit)
 							local wfStatus = self:IsPlayerInWindfuryRange(playerName)
-							if wfStatus == true then
+							if wfStatus == true and missingOnly then
+								dot:Hide()
+								if useOverlay and mainDot then mainDot:Hide() end
+							elseif wfStatus == true then
 								if classColor then
 									dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
 								else
@@ -1424,13 +1626,20 @@ function SP:UpdatePartyRangeDots()
 								dot:Show()
 								if useOverlay and mainDot then mainDot:Hide() end
 							elseif wfStatus == false then
-								dot:SetVertexColor(1, 0, 0)
+								if missingOnly and classColor then
+									dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
+								else
+									PaintMissingDot(dot)
+								end
 								dot:Show()
 								if useOverlay and mainDot then mainDot:Hide() end
 							else
 								dot:Hide()
 								if useOverlay and mainDot then mainDot:Hide() end
 							end
+						elseif hasBuff and missingOnly then
+							dot:Hide()
+							if useOverlay and mainDot then mainDot:Hide() end
 						elseif hasBuff then
 							if classColor then
 								dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
@@ -1440,7 +1649,11 @@ function SP:UpdatePartyRangeDots()
 							dot:Show()
 							if useOverlay and mainDot then mainDot:Hide() end
 						elseif buffName then
-							dot:SetVertexColor(1, 0, 0)
+							if missingOnly and classColor then
+								dot:SetVertexColor(classColor.r, classColor.g, classColor.b)
+							else
+								PaintMissingDot(dot)
+							end
 							dot:Show()
 							if useOverlay and mainDot then mainDot:Hide() end
 						else
@@ -1511,6 +1724,7 @@ function SP:CreateRangeCounterFrame(element)
 	})
 	frame:SetBackdropColor(0, 0, 0, 0.7)
 	frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+	ThemeCounterFrame(frame)
 
 	-- Counter text
 	local fontSize = (self.opt.rangeCounter and self.opt.rangeCounter.fontSize) or 14
@@ -1666,6 +1880,7 @@ function SP:UpdateRangeCounterFrameStyle()
 				})
 				frame:SetBackdropColor(0, 0, 0, 0.7)
 				frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+				ThemeCounterFrame(frame)
 			end
 
 			-- Hide/show element label
@@ -1875,6 +2090,7 @@ function SP:PartyRangeDemo(on)
 			})
 			frame:SetBackdropColor(0, 0, 0, 0.7)
 			frame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+			ThemeCounterFrame(frame)
 		end
 		frame:SetSize(40, 40)
 		if frame.label then frame.label:Show() end
@@ -1908,6 +2124,33 @@ if ShamanPower.RegisterPreview then
 		demo = "SP:PartyRangeDemo",
 		pad = 24,
 	})
+end
+
+-- A theme change (General > Themes): the red dots, the Coverage panel and the
+-- counter frames take the new look now (nothing here is protected, so combat
+-- does not matter); the totem bar's dots repaint on their next range pass.
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		ResolveThemeLooks()
+		local frame = SP.coverageFrame
+		if frame then
+			local co = SP.opt and SP.opt.coverage
+			if not (co and co.hideBorder) then ThemeCoveragePanel(frame, true) end
+			-- a Coverage dot paints only when its state flips: forget the state, so the next pass repaints
+			for element = 1, 4 do
+				for _, row in ipairs(frame.buttons[element].rows) do row.dotRed = nil end
+			end
+			for _, btn in pairs(frame.totemCells) do
+				for _, row in ipairs(btn.rows) do row.dotRed = nil end
+			end
+			if SP.coverageDemoActive and SP.coverageDemo and SP.coverageDemo.paint then SP.coverageDemo.paint() end
+		end
+		local rc = SP.opt and SP.opt.rangeCounter
+		for element = 1, 4 do
+			local f = SP.rangeCounterFrames[element]
+			if f and (SP.partyRangeDemoActive or not (rc and rc.hideFrame)) then ThemeCounterFrame(f, true) end
+		end
+	end)
 end
 
 -- Enable ShamanPower switched: off hides every dot, counter and coverage cell and

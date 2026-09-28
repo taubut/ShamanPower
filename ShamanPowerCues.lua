@@ -1,5 +1,5 @@
 -- ShamanPowerCues
--- Visual cues on the bars (Settings > Bars > Appearance > Effects), every one
+-- Visual cues on the bars (Settings > Bars > Totem Bar / Cooldown Bar > Effects), every one
 -- off by default:
 --   totem bar     a totem destroyed (killed before its time), a totem that ran
 --                 out, and a loop over a totem's last seconds
@@ -40,6 +40,10 @@ local TINT = {
 	shield    = { 0.35, 0.65, 1 },
 }
 local VERDICT_WINDOW = 0.5   -- the core's bind window: a recall / dismiss / re-drop can trail the slot update
+-- the theme looks and the new styles (ShamanPowerThemeEffects.lua, loaded
+-- before this file): each painter below asks it first; on the Standard look
+-- with today's styles it answers false and today's drawing runs unchanged
+local ThemeCue = SP.ThemeCue
 
 local function secretNow()
 	return SPCompat and SPCompat.secretsRegime and SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() or false
@@ -146,6 +150,7 @@ end
 -- Shake and pop move the icon texture itself (its own groups, next to the
 -- raid-call pop the core plays on the same texture).
 local function iconMotion(icon, style, h)
+	if SP.ThemeIconMotion then SP:ThemeIconMotion(icon, style, h) end   -- a theme's flat-box skin over the icon moves with it
 	if style == "shake" then
 		local g = icon.spCueShake
 		if not g then
@@ -177,9 +182,13 @@ local function iconMotion(icon, style, h)
 	end
 end
 
+if ThemeCue then ThemeCue.init(cueFrame, TINT, iconMotion, alphaAnim) end
+
 -- One cue: kind picks the color (TINT), style what it does.
-local function playCue(host, style, kind, icon)
+-- look: a look to play in (a preview), nil = the effect's own
+local function playCue(host, style, kind, icon, look)
 	if not host then return end
+	if ThemeCue and ThemeCue.play(host, style, kind, icon, look) then return end
 	local c = cueFrame(host)
 	local t = TINT[kind] or TINT.expired
 	local h = host:GetHeight()
@@ -197,7 +206,8 @@ local function playCue(host, style, kind, icon)
 	end
 end
 
-local function showMark(host)
+local function showMark(host, look)
+	if ThemeCue and ThemeCue.mark(host, look) then return end
 	local c = cueFrame(host)
 	local s = host:GetHeight() * 0.75
 	c.mark:SetSize(s, s)
@@ -206,7 +216,8 @@ end
 
 -- A loop (pulse: the icon darkening and back; glow: the edges breathing) that
 -- runs until loopOff. Calling it again while it runs changes nothing.
-local function loopOn(host, style, t)
+local function loopOn(host, style, t, look)
+	if ThemeCue and ThemeCue.loop(host, style, t, look) then return end
 	local c = cueFrame(host)
 	if style == "glow" then
 		if not c.glowLoop:IsPlaying() then
@@ -222,14 +233,16 @@ end
 local function loopOff(host)
 	local c = host.spCue
 	if c then c.dimLoop:Stop(); c.glowLoop:Stop() end
+	if c and c.spTheme and ThemeCue then ThemeCue.stop(c) end   -- a theme's loop
 end
 
 -- The settings preview (Effects tab) plays the same effects on its own mock
--- buttons (any frame with an .icon texture).
+-- buttons (any frame with an .icon texture). look (optional): "standard" /
+-- "elemental" / "signal" to show that look whatever the Themes tab has.
 SP.CueFx = {
-	play = function(host, style, kind) playCue(host, style, kind, host.icon) end,
+	play = function(host, style, kind, look) playCue(host, style, kind, host.icon, look) end,
 	mark = showMark,
-	loop = function(host, style, kind) loopOn(host, style, TINT[kind] or TINT.expiring) end,
+	loop = function(host, style, kind, look) loopOn(host, style, TINT[kind] or TINT.expiring, look) end,
 	stop = loopOff,
 }
 
@@ -268,6 +281,7 @@ local function clearMark(element)
 	local btn = SP.totemButtons and SP.totemButtons[element]
 	local c = btn and btn.spCue
 	if c and c.markHold:IsPlaying() then c.markHold:Stop() end
+	if c and c.spTheme and ThemeCue then ThemeCue.clear(c) end   -- a theme's mark or flag
 end
 
 function SP:TotemCuesWanted()
@@ -307,6 +321,9 @@ for element = 1, 4 do
 		local dismissed = slot and SP._totemDismissedAt and SP._totemDismissedAt[slot]
 		if dismissed and at - dismissed < 2 then return end
 		if UnitIsDeadOrGhost("player") then return end
+		-- a loading screen (hearth, portal, instance) or a flight path takes totems too
+		if SP._cueWorldAt and at - SP._cueWorldAt < 3 then return end
+		if UnitOnTaxi and UnitOnTaxi("player") then return end
 		if SP:GetElementTotemInfo(element) then return end   -- that element is down again
 		SP:TotemEndCue(element, "destroyed")
 	end
@@ -315,14 +332,16 @@ end
 -- PLAYER_TOTEM_UPDATE (after the core has taken it in)
 function SP:CueTotemUpdate()
 	local wanted = self:TotemCuesWanted() and not self:IsOff()
-	local secret = secretNow()
+	local secret = wanted and secretNow()   -- the check costs a few protected calls: only when it matters
 	local now = GetTime()
 	for element = 1, 4 do
-		local have, _, start, duration, _, slot = self:GetElementTotemInfo(element)
+		local have, name, start, duration, _, slot = self:GetElementTotemInfo(element)
 		local p = prevTotem[element]
 		if have then clearMark(element) end
 		if wanted and not secret and p.active and not have then
-			if type(p.duration) == "number" and p.duration > 0 and now - p.start >= p.duration - 0.5 then
+			-- Fire Nova Totem (Anniversary) removes itself when it goes off, ahead of its time
+			local selfEnding = type(p.name) == "string" and p.name:find("Fire Nova", 1, true)
+			if selfEnding or (type(p.duration) == "number" and p.duration > 0 and now - p.start >= p.duration - 0.5) then
 				self:TotemEndCue(element, "expired")
 			else
 				pendingAt[element], pendingSlot[element] = now, p.slot
@@ -330,7 +349,8 @@ function SP:CueTotemUpdate()
 			end
 		end
 		if isSecret(start) or isSecret(duration) then start, duration = nil, nil end
-		p.active, p.start, p.duration, p.slot = have and true or false, start, duration, slot
+		if isSecret(name) then name = nil end
+		p.active, p.name, p.start, p.duration, p.slot = have and true or false, name, start, duration, slot
 	end
 end
 
@@ -338,6 +358,10 @@ end
 local expiringState = {}
 local function expiringPass()
 	local o = SP.opt
+	if not o.totemCueExpiring then
+		for element = 1, 4 do stopExpiring(element) end
+		return
+	end
 	local secs = o.totemCueExpiringSecs or 5
 	local style = o.totemCueExpiringStyle or "pulse"
 	local now = GetTime()
@@ -362,17 +386,30 @@ function SP:CueCooldownCheck(btn, start, duration)
 		btn._cueCdEnd = start + duration
 	elseif btn._cueCdEnd then
 		local late = GetTime() - btn._cueCdEnd
+		-- still due later: the global cooldown is showing over the spell's last moment
+		if late < -0.1 then return end
 		btn._cueCdEnd = nil
 		if late < 3 then playCue(btn, self.opt.cdbarCueReadyStyle or "pop", "ready") end
 	end
 end
 
--- The weapon imbue button: either hand's imbue gone (ran out, or the weapon swapped).
-function SP:CueImbueCheck(btn, hasMain, hasOff)
+-- The weapon imbue button: either hand's own imbue gone (ran out, or the weapon
+-- swapped). A totem's weapon enchant (Windfury Totem on Anniversary) is not the
+-- shaman's imbue: it is not in EnchantIDToImbue and never has more than ~10 s
+-- left, so an enchant counts as the shaman's when it is known or has longer.
+local function ownImbue(has, id, left)
+	if not has then return false end
+	if isSecret(id) or isSecret(left) then return true end
+	if id and SP.EnchantIDToImbue and SP.EnchantIDToImbue[id] then return true end
+	return type(left) == "number" and left > 15000
+end
+function SP:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
 	if not self.opt.cdbarCueImbue then btn._cueMain, btn._cueOff = nil, nil return end
 	if isSecret(hasMain) or isSecret(hasOff) then return end
-	hasMain, hasOff = hasMain and true or false, hasOff and true or false
+	hasMain, hasOff = ownImbue(hasMain, mainID, mainLeft), ownImbue(hasOff, offID, offLeft)
 	local gone = (btn._cueMain and not hasMain) or (btn._cueOff and not hasOff)
+	-- imbued again: a theme's corner flag goes (until recast, like the red X)
+	if ThemeCue and ((hasMain and btn._cueMain == false) or (hasOff and btn._cueOff == false)) then ThemeCue.clear(btn.spCue) end
 	btn._cueMain, btn._cueOff = hasMain, hasOff
 	if gone then playCue(btn, self.opt.cdbarCueImbueStyle or "shake", "imbue") end
 end
@@ -386,6 +423,7 @@ local function confirmShield()
 	local btn = pendingShieldBtn
 	pendingShieldBtn = nil
 	if not btn or btn._cueShield or not SP.opt.cdbarCueShield then return end
+	if UnitIsDeadOrGhost("player") then return end   -- dying strips the shield: not "gone"
 	playCue(btn, SP.opt.cdbarCueShieldStyle or "shake", "shield")
 end
 
@@ -431,6 +469,7 @@ function SP:CueShieldState(btn, hasShield, engine)
 	stopMissing(btn)
 	local had = btn._cueShield
 	btn._cueShield = hasShield and true or false
+	if hasShield and had == false and ThemeCue then ThemeCue.clear(btn.spCue) end   -- recast: a theme's flag goes
 	if had and not hasShield then
 		pendingShieldBtn = btn
 		C_Timer.After(0.4, confirmShield)
@@ -491,5 +530,9 @@ end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
-loader:SetScript("OnEvent", function() SP:ApplyCueSettings() end)
+loader:RegisterEvent("PLAYER_ENTERING_WORLD")   -- a loading screen: totems it removes are not "destroyed"
+loader:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_ENTERING_WORLD" then SP._cueWorldAt = GetTime() return end
+	SP:ApplyCueSettings()
+end)
 if SP.OnOnOff then SP:OnOnOff(function() SP:ApplyCueSettings() end) end

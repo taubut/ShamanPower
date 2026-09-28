@@ -19,6 +19,10 @@ local SP = ShamanPower
 local FONT  = "Fonts\\FRIZQT__.TTF"
 local EMPTY = { r = 0.32, g = 0.32, b = 0.32 }   -- "nothing down" line color
 local ES_MAX_CHARGES = 6
+-- General > Themes (st.compact): a themed line colour per element, filled in place
+-- when a theme is in play (nothing is allocated while painting)
+local THEMED_LINE = { { r = 1, g = 1, b = 1 }, { r = 1, g = 1, b = 1 },
+	{ r = 1, g = 1, b = 1 }, { r = 1, g = 1, b = 1 } }
 
 -- ---------------------------------------------------------------------------
 -- Line textures
@@ -39,7 +43,7 @@ if LSM then
 end
 
 function SP:CompactLineTextureList()
-	local t = { [FLAT] = "Minimal (flat colour)" }
+	local t = { [FLAT] = "Minimal (flat color)" }
 	if LSM then
 		for _, name in ipairs(LSM:List("statusbar")) do t[name] = name end
 	end
@@ -449,9 +453,20 @@ function SP:PaintCompactSegments(seg, charges, active, useColors, base)
 	if not seg then return end
 	local r, g, b = 0.25, 0.85, 0.3
 	if base then r, g, b = base.r, base.g, base.b end
+	-- General > Themes (st.compact-shield): the full colour (Earth Shield line: "es",
+	-- your shield: its SHIELD_COLORS role) and low / last; nil = the colours here
+	local themed = self:ThemeActive("st.compact-shield")
+	if themed then
+		local tr, tg, tb = self:ThemeColor("st.compact-shield", base and (base.spRole or "full") or "es")
+		if tr then r, g, b = tr, tg, tb end
+	end
 	if useColors then
 		local n = seg.n or #seg
 		if charges <= n / 3 then r, g, b = 1, 0.25, 0.25 elseif charges <= 2 * n / 3 then r, g, b = 1, 0.85, 0.2 end
+		if themed and charges <= 2 * n / 3 then
+			local tr, tg, tb = self:ThemeColor("st.compact-shield", (charges <= n / 3) and "last" or "low")
+			if tr then r, g, b = tr, tg, tb end
+		end
 	end
 	for i = 1, seg.n or #seg do
 		if active and i <= charges then
@@ -597,6 +612,8 @@ end
 local SHIELD_MAX_CHARGES = 3
 local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r = 0.35, g = 0.65, b = 1.0 },
 	[408510] = { r = 0.35, g = 0.65, b = 1.0 } }   -- Water Shield on WoW: Forever (talent, Season of Discovery spell ID)
+-- which st.compact-shield role (General > Themes) each one's full colour is
+SHIELD_COLORS[324].spRole, SHIELD_COLORS[24398].spRole, SHIELD_COLORS[408510].spRole = "full", "water", "water"
 
 -- Mainline's GetSpellInfo polyfill allocates: validate shield names on spellbook
 -- changes, not in the 10 Hz painter. ScanPlayerShield replaces shieldCache on
@@ -770,6 +787,15 @@ function SP:UpdateCompactTotems()
 			local haveTotem, _, startTime, duration, icon = self:GetElementTotemInfo(element)
 			c.idleCol = (self.opt.compactIdleColor == "element") and self.ElementColors[element] or nil
 			c.idleOl = ((self.opt.compactIdleOutline or LOOK.compactIdleOutline) == "element") and self.ElementColors[element] or nil
+			-- General > Themes (st.compact): the theme's line colour; nil = the Appearance palette above
+			local col = self.ElementColors[element]
+			local tr, tg, tb = self:ThemeColor("st.compact", element)
+			if tr then
+				col = THEMED_LINE[element]
+				col.r, col.g, col.b = tr, tg, tb
+				if c.idleCol then c.idleCol = col end
+				if c.idleOl then c.idleOl = col end
+			end
 			if haveTotem and duration and duration > 0 then
 				local frac = ((startTime + duration) - now) / duration
 				if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
@@ -780,7 +806,7 @@ function SP:UpdateCompactTotems()
 					pulseRemain = pdata.interval * (1 - pulsePos)
 				end
 				local dim = btn.icon and btn.icon:IsDesaturated()
-				self:PaintCompactVisuals(c, self.ElementColors[element], frac, dim, pulsePos, pulseRemain, icon, 1)
+				self:PaintCompactVisuals(c, col, frac, dim, pulsePos, pulseRemain, icon, 1)
 			else
 				-- empty slot: gray line, the assigned totem ghosted in the square
 				-- (a flyout pick made in this fight: the one the button casts)
@@ -852,4 +878,22 @@ function SP:ApplyCompactStyle()
 	if self.RefreshFlyoutLayout then self:RefreshFlyoutLayout() end   -- flyouts start past the icon square
 	if self.UpdateTotemBarOpacity then self:UpdateTotemBarOpacity() end
 	if self.UpdateCooldownBarScale then self:UpdateCooldownBarScale() end
+end
+
+-- General > Themes (st.compact): Compact Style > Outline Color is this spot's
+-- setting. The ShamanPower themes set it to Element color, so the outline follows
+-- the theme's line colours (a custom outline colour would hide them); Standard
+-- puts the player's choice back, and the Compact Style page still changes it.
+if SP.ThemeSpotSettings then
+	SP:ThemeSpotSettings("st.compact", {
+		{ key = "compactOutlineColorMode", label = "Outline Color",
+		  get = function() return SP.opt and SP.opt.compactOutlineColorMode or "element" end,
+		  set = function(v)
+			SP.opt.compactOutlineColorMode = v
+			-- (another style picks it up when Compact comes on)
+			if SP.opt.compactStyle then SP:ApplyCompactStyle() end
+		  end,
+		  shamanpower = "element",
+		},
+	})
 end

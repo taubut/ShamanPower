@@ -39,8 +39,6 @@ Widgets.ROW_H   = ROW_H
 Widgets.ROW_GAP = ROW_GAP
 Widgets.PAD     = PAD
 
-local INVERTED_ALPHA = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
-
 -- ---------------------------------------------------------------------------
 -- Pools
 -- One pool per widget type. `free` is a stack of released frames; `created`
@@ -948,47 +946,25 @@ local function CreateColor(parent)
 		local r, g, b, a = opts.get()
 		r, g, b, a = r or 1, g or 1, b or 1, a or 1
 
-		-- ColorPickerFrame calls back later; bind to the opts that opened it so
+		-- The picker calls back later; bind to the opts that opened it so
 		-- a page re-render in between cannot redirect the commit.
 		local function Commit(nr, ng, nb, na)
-			if INVERTED_ALPHA and na then na = 1 - na end
 			if not opts.hasAlpha then na = 1 end
 			opts.set(nr, ng, nb, na)
 			if row.opts == opts then ColorPaint(row) end
 			if opts.onChanged then opts.onChanged() end
 		end
 
-		ColorPickerFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-		ColorPickerFrame:SetClampedToScreen(true)
-
-		local storedAlpha = INVERTED_ALPHA and (1 - a) or a
-
-		if ColorPickerFrame.SetupColorPickerAndShow then
-			ColorPickerFrame:SetupColorPickerAndShow({
-				r = r, g = g, b = b,
-				hasOpacity = opts.hasAlpha,
-				opacity = storedAlpha,
-				swatchFunc = function()
-					local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-					Commit(nr, ng, nb, ColorPickerFrame:GetColorAlpha())
-				end,
-				opacityFunc = function()
-					local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-					Commit(nr, ng, nb, ColorPickerFrame:GetColorAlpha())
-				end,
-				cancelFunc = function() Commit(r, g, b, storedAlpha) end,
+		-- ShamanPower's own color picker (ColorPicker.lua): live while picking;
+		-- Cancel, the X and Escape commit the color it opened with, as before.
+		-- Its alpha is the opacity itself (1 = solid) on every client.
+		if ShamanPower and ShamanPower.OpenColorPicker then
+			ShamanPower:OpenColorPicker({
+				r = r, g = g, b = b, a = a,
+				hasAlpha = opts.hasAlpha,
+				title = opts.label,
+				onChange = Commit,
 			})
-		else
-			ColorPickerFrame.func = function()
-				local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-				Commit(nr, ng, nb, OpacitySliderFrame and OpacitySliderFrame:GetValue() or 0)
-			end
-			ColorPickerFrame.opacityFunc = ColorPickerFrame.func
-			ColorPickerFrame.hasOpacity = opts.hasAlpha
-			if opts.hasAlpha then ColorPickerFrame.opacity = storedAlpha end
-			ColorPickerFrame.cancelFunc = function() Commit(r, g, b, storedAlpha) end
-			ColorPickerFrame:SetColorRGB(r, g, b)
-			ColorPickerFrame:Show()
 		end
 	end)
 
