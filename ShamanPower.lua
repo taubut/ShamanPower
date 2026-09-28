@@ -4764,6 +4764,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 			if useActiveAsMain and not twistingAir and not InCombatLockdown() and overlay.cFlyName ~= nowName then
 				overlay.cFlyName = nowName
 				self:UpdateFlyoutVisibility(element)
+				self:SyncOpenFlyoutButtons(element)   -- an open flyout: its buttons too
 			end
 
 			if showOverlay and activeIcon then
@@ -7679,6 +7680,30 @@ function ShamanPower:SyncCombatFlyoutButtons(element)
 		btn:SetShown(show and true or false)
 	end
 	self:PlaceFlyoutArrows(flyout)
+end
+
+-- A flyout left OPEN while its choices change (TotemTimers Style / Single Totem:
+-- a drop changes which totem the flyout leaves out): show and hide its buttons
+-- as opening it does, so the re-laid list has no gap and no button left under
+-- another. Out of combat, not for the box (SyncCombatFlyoutButtons does that),
+-- and a closed flyout is left alone (opening it does this).
+function ShamanPower:SyncOpenFlyoutButtons(element)
+	local flyout = self.totemFlyouts and self.totemFlyouts[element]
+	if not flyout or flyout.box or InCombatLockdown() then return end
+	if self.GridLayoutElement and self:GridLayoutElement(element) then return end
+	local buttons = flyout.allButtons or flyout.buttons
+	if not buttons then return end
+	local open = false
+	for _, btn in ipairs(buttons) do
+		if btn:IsShown() then open = true break end
+	end
+	if not open then return end
+	for _, btn in ipairs(buttons) do
+		local show = not btn.isDisabledInFlyout
+			and not btn:GetAttribute("isCurrentAssignment")
+			and not btn:GetAttribute("flyoutHidden")
+		btn:SetShown(show and true or false)
+	end
 end
 
 -- The totem flyout buttons' secure handlers, shared by every totem button and

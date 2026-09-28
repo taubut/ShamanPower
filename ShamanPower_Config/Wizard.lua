@@ -283,6 +283,7 @@ local STEPS = {
 	    "|cffffd100Normal|r: assigned totems stay put; a different dropped totem pops up above its slot.",
 	    "|cffffd100TotemTimers Style|r: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "|cffffd100Dynamic|r: the bar is simply whatever you last dropped. Great for PvP.",
+	    "|cffffd100Single Totem|r: the button shows the totem you dropped, but a click always drops your assigned one, and it goes back to it the moment the dropped totem is gone. Also great for PvP.",
 	    "|cffffd100Compact|r: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
 	    { "|cffffd100Grid|r: every totem of every element visible in rows, together or split into one frame per element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
@@ -1598,7 +1599,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		local callout = CreateFrame("Frame", nil, card); callout:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); callout:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
 		Core:SolidTex(callout, "warn", "BACKGROUND", 0.10); Core:MakeBorder(callout, "warn")
 		local body = callout:CreateFontString(nil, "OVERLAY"); body:SetFontObject(Core.fonts.row); body:SetPoint("TOPLEFT", callout, "TOPLEFT", 12, -10); body:SetWidth(calW); body:SetJustifyH("LEFT"); body:SetWordWrap(true)
-		body:SetText("You picked the Compact style, which draws duration and pulse inside its lines. The options below only apply to the icon styles (Normal, TotemTimers, Dynamic).")
+		body:SetText("You picked the Compact style, which draws duration and pulse inside its lines. The options below only apply to the icon styles (Normal, TotemTimers, Dynamic, Single Totem).")
 		callout:SetHeight(20 + body:GetStringHeight())
 		y = y + callout:GetHeight() + 14
 	end
