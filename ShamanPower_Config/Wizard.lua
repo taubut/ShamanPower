@@ -1539,7 +1539,10 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			for k, t in pairs(s.txt) do
 				local on = active and tl == k and (k == "icon" or dp ~= "none")
 				t:SetShown(on)
-				if on then SP:SetSPFont(t, "timers", ts, "OUTLINE"); t:SetText(tostring(math.ceil(remain))) end
+				if on then
+					if t._spSize ~= ts then SP:SetSPFont(t, "timers", ts, "OUTLINE"); t._spSize = ts end   -- not every frame
+					t:SetText(tostring(math.ceil(remain)))
+				end
 			end
 			-- totem cooldown (starts when the totem is dropped)
 			if s.cdf then
@@ -1585,7 +1588,10 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 				for k, t in pairs(s.ptxt) do
 					local on = active and ptl == k and (k == "on_icon" or pp ~= "none")
 					t:SetShown(on)
-					if on then SP:SetSPFont(t, "timers", pts, "OUTLINE"); t:SetText(string.format("%.1f", e.pulse - (s.t % e.pulse))) end
+					if on then
+						if t._spSize ~= pts then SP:SetSPFont(t, "timers", pts, "OUTLINE"); t._spSize = pts end   -- not every frame
+						t:SetText(string.format("%.1f", e.pulse - (s.t % e.pulse)))
+					end
 				end
 			end
 			s.wasActive = active

@@ -37,6 +37,8 @@
 - **Tremor Totem's pulse timer on WoW: Forever** follows its real 4-second pulse (it was timed at 3, as on Anniversary).
 - **Ready Check** (WoW: Forever): casting Fire Nova with no Fire totem down no longer warns that your Fire Totem is missing from your bags.
 - **No more BugSack errors** from hovering the bars and party frames in combat on WoW: Forever.
+- **Dragging a slider in the settings no longer slows the whole game.** Every step of a drag used to redraw the entire settings page and its preview; now the setting follows the drag smoothly and the page catches up when you let go. Percentage sliders also move in 1% steps instead of 5%.
+- **Settings > Totem Bar > Style:** the old on/off switches for each style (Compact Style, Dynamic Mode, Grid Style, Use Blizzard's Totem Bar, TotemTimers Style Display) are gone; the Totem Bar Style dropdown does it. Blizzard's Totem Bar keeps TotemTimers Style Display, where it is still its own option.
 - **TotemTimers Style flyouts** no longer show a gap or a button sitting under another after you drop a totem with the flyout still open; they redraw straight away.
 - **Cooldown bar flyouts** offer a weapon imbue or shield as soon as you learn it at the trainer, instead of after a /reload (the bar rebuilds itself, after the fight if you are in one).
 

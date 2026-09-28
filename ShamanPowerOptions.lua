@@ -10903,17 +10903,23 @@ do
 			return not allowed[style]
 		end
 	end
-	onlyStyles("dynamicMode", { dynamic = true, grid = true })
+	-- A style's own on/off switch is the style picker above: Dynamic, Compact, Grid and
+	-- Blizzard's Totem Bar keep theirs hidden. (Under Grid, Dynamic Mode changed nothing on
+	-- the totems either: Grid's Left-Click Also Assigns decides what a drop does.)
+	onlyStyles("dynamicMode", {})
 	onlyStyles("dynamicModeDesc", { normal = true, dynamic = true, grid = true })
-	onlyStyles("activeTotemAsMain", { totemtimers = true, blizzard = true })
+	-- TotemTimers Style / Single Totem ARE this switch (turning it off = Normal, in the
+	-- style picker above); only Blizzard's Totem Bar still needs it for this look
+	onlyStyles("activeTotemAsMain", { blizzard = true })
 	onlyStyles("singleTotemDesc", { single = true })
-	onlyStyles("compactStyle", { compact = true })
+	onlyStyles("compactStyle", {})
 	onlyStyles("compactOptions", { compact = true })
-	for _, key in ipairs({ "gridStyle", "gridDropAssigns", "gridSplit",
+	onlyStyles("gridStyle", {})
+	for _, key in ipairs({ "gridDropAssigns", "gridSplit",
 		"gridOrientation1", "gridOrientation2", "gridOrientation3", "gridOrientation4" }) do
 		onlyStyles(key, { grid = true })
 	end
-	onlyStyles("use_blizzard_totem_bar", { blizzard = true })
+	onlyStyles("use_blizzard_totem_bar", {})
 	-- The native scale controls already have their exact native-only predicate.
 	for _, key in ipairs({ "activeAsMainSpacer", "compactSpacer", "twistSpacer" }) do
 		if mode.args[key] then mode.args[key].hidden = true end
