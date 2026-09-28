@@ -1089,3 +1089,36 @@ end
 if ShamanPower.RegisterPreview then
     ShamanPower:RegisterPreview("tremor", { frame = "ShamanPowerTremorReminderFrame", demo = "SP:TremorDemo", pad = 24 })
 end
+
+-- Theme (General > Themes, spot mod.tremor): the existing Glow Color setting is
+-- the theme's Glow swatch. A theme writes it exactly as the Glow Color option
+-- does (the Tremor Reminder page still shows and changes it); Standard puts the
+-- player's own colour back.
+if SP.ThemeSpotSettings then
+    SP:ThemeSpotSettings("mod.tremor", {
+        { role = "glow", label = "Glow",
+          get = function()
+              local c = ShamanPowerTremorReminderDB and ShamanPowerTremorReminderDB.glowColor
+              if c then return { r = c.r or 1, g = c.g or 0.8, b = c.b or 0 } end
+              return { r = 1, g = 0.8, b = 0 }
+          end,
+          set = function(v)
+              if type(v) ~= "table" or not ShamanPowerTremorReminderDB then return end
+              if not ShamanPowerTremorReminderDB.glowColor then
+                  ShamanPowerTremorReminderDB.glowColor = {}
+              end
+              ShamanPowerTremorReminderDB.glowColor.r = v.r or v[1]
+              ShamanPowerTremorReminderDB.glowColor.g = v.g or v[2]
+              ShamanPowerTremorReminderDB.glowColor.b = v.b or v[3]
+              if ShamanPower.UpdateTremorReminderAppearance then
+                  ShamanPower:UpdateTremorReminderAppearance()
+              end
+          end,
+          -- ShamanPower and ShamanPower Minimal: WoW gold (NORMAL_FONT_COLOR)
+          shamanpower = function()
+              local r, g, b = SP:WoWColor("NORMAL_FONT_COLOR")
+              return { r = r, g = g, b = b }
+          end,
+        },
+    })
+end

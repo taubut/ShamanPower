@@ -67,6 +67,22 @@
     {"key": "minimapIcon", "label": "Minimap icon shown"},
     {"key": "readyCheckList", "label": "Ready check: on-screen list"},
     {"key": "readyRemindersAlways", "label": "Ready reminders: always shown (dim on cooldown)"},
-    {"key": "coverageFreeCells", "label": "Coverage: one box per totem"}
+    {"key": "coverageFreeCells", "label": "Coverage: one box per totem"},
+    {"key": "shieldChargesIcon", "label": "Shield charges: shield icon"},
+    {"key": "shieldChargesBar", "label": "Shield charges: charge bar"},
+    {"key": "shieldChargesCorner", "label": "Shield charges: number in the corner"},
+    {"key": "cdbarShieldBar", "label": "Cooldown bar: shield charge bar"},
+    {"key": "cdbarShieldNoCount", "label": "Cooldown bar: shield count hidden"},
+    {"key": "cueTotemDestroyed", "label": "Effect: totem destroyed"},
+    {"key": "cueTotemExpired", "label": "Effect: totem expired"},
+    {"key": "cueTotemExpiring", "label": "Effect: totem expiring soon"},
+    {"key": "cueCooldownReady", "label": "Effect: cooldown ready"},
+    {"key": "cueImbueGone", "label": "Effect: weapon imbue gone"},
+    {"key": "cueShieldGone", "label": "Effect: shield gone"},
+    {"key": "coverageDots", "label": "Coverage: dots instead of names"},
+    {"key": "partyDotsMissing", "label": "Party dots: only who's missing"},
+    {"key": "coverageDotsMissing", "label": "Coverage dots: only who's missing"},
+    {"key": "coverageTimer", "label": "Coverage: totem time left"},
+    {"key": "coveragePlainIcon", "label": "Coverage: plain totem icon"}
   ]
 }

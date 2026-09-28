@@ -77,6 +77,7 @@ SP.ReadyReminderSpells = {
 	{ key = "shamrage",     name = "Shamanistic Rage",    ids = { 30823 },                def = false },
 	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false },
 	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false },
+	{ key = "chainlightning", name = "Chain Lightning",   ids = { 421 },                  def = false },   -- 6 s cooldown on both clients
 }
 
 local frames = {}
@@ -873,7 +874,7 @@ local function InjectOptions()
 			enabled = { order = 1, type = "toggle", name = "Enable Ready Reminders", width = "full",
 				get = function() return SV().enabled end, set = function(_, v) SV().enabled = v; refresh() end },
 			mode = { order = 2, type = "select", name = "Show", width = 1.4,
-				desc = "Only when ready: the icon appears when the spell is off cooldown. Always: the icon stays on screen with the sweep and countdown while on cooldown. Always, dimmed: the same, but greyed and faded until it is ready.",
+				desc = "Only when ready: the icon appears when the spell is off cooldown. Always: the icon stays on screen with the sweep and countdown while on cooldown. Always, dimmed: the same, but grayed and faded until it is ready.",
 				values = { ready = "Only when ready", always_bright = "Always (sweep + countdown)", always = "Always, dimmed while on cooldown" },
 				sorting = { "ready", "always_bright", "always" },
 				get = function()
@@ -962,7 +963,7 @@ local function InjectOptions()
 			dimOpacity = { order = 8.1, type = "range", name = "Opacity While On Cooldown", min = 0.1, max = 1, step = 0.05, width = 1.2, isPercent = true,
 				hidden = function() return (SV().mode or "ready") ~= "always" end,
 				get = function() return SV().dimOpacity or 0.35 end, set = function(_, v) SV().dimOpacity = v; refresh() end },
-			desaturate = { order = 8.2, type = "toggle", name = "Grey Out The Icon", width = 1.0,
+			desaturate = { order = 8.2, type = "toggle", name = "Gray Out The Icon", width = 1.0,
 				hidden = function() return (SV().mode or "ready") ~= "always" end,
 				get = function() return SV().desaturate ~= false end, set = function(_, v) SV().desaturate = v; refresh() end },
 			sweepStyle = { order = 8.3, type = "select", name = "Sweep", width = 1.0,
@@ -1008,12 +1009,12 @@ local function InjectOptions()
 	end
 	SP.OrderSettingsBands({ args = args }, {
 		{ keys = { "desc" } },
-		{ keys = { "enabled", "mode" } },
+		{ keys = { "enabled", "mode", "onlyInCombat" } },
 		{ header = "spellsHeader", name = "Spells", keys = spellKeys },
 		{ header = "lookHeader", name = "Look", keys = {
 			"iconSize", "opacity", "textSize", "hideBackground", "borderColor", "showNames",
 		}, names = { textSize = "Text Size (0 = auto)", hideBackground = "Hide Background" } },
-		{ header = "readyHeader", name = "Behavior", keys = { "onlyInCombat", "readyEffect", "glowColor" } },
+		{ header = "readyHeader", name = "Behavior", keys = { "readyEffect", "glowColor" } },
 		{ header = "cdHeader", name = "While On Cooldown", keys = {
 			"cdNote", "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor",
 			"showCountdown", "textPosition",
@@ -1100,3 +1101,25 @@ end)
 -- Enable ShamanPower switched: the same pass a settings change runs (off hides
 -- every icon and stops the ticker; on shows what the settings say)
 SP:OnOnOff(function() SP:UpdateReadyReminders() end)
+
+-- Theme (General > Themes, spot mod.readyreminders): the existing Border Color
+-- setting is the theme's Border swatch. A theme writes it exactly as the Border
+-- Color option does (this module's page still shows and changes it); Standard
+-- puts the player's own colour back.
+if SP.ThemeSpotSettings then
+	SP:ThemeSpotSettings("mod.readyreminders", {
+		{ role = "border", label = "Border",
+		  get = function()
+			local r, g, b = color(SV().borderColor, 0.2, 0.7, 1.0)
+			return { r = r, g = g, b = b }
+		  end,
+		  set = function(v)
+			if type(v) ~= "table" then return end
+			SV().borderColor = { r = v.r or v[1], g = v.g or v[2], b = v.b or v[3] }
+			SP:UpdateAllReadyReminderAppearance(); SP:UpdateReadyReminders()
+		  end,
+		  -- ShamanPower and ShamanPower Minimal: logo blue #3FA9F5
+		  shamanpower = { r = 63 / 255, g = 169 / 255, b = 245 / 255 },
+		},
+	})
+end

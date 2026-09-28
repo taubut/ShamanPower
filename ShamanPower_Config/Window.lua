@@ -47,6 +47,15 @@ local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotem
 local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsPane" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
+-- each bar's Effects tab: that bar's preview with its effects playing on it
+local MOCK_TOTEM_EFFECTS = { mocks = MOCK_TOTEM.mocks, effects = true }
+local MOCK_CDBAR_EFFECTS = { mocks = MOCK_CDBAR.mocks, effects = true }
+local MOCK_THEMES   = { mocks = MOCK_BARS.mocks }   -- General > Themes: the split bar preview, rebuilt on every theme change (no Effects: themes are not effects)
+-- which bar a mock is, for a theme's flat boxes on it (SP:ThemeSkinPreview)
+local MOCK_SKIN_FAMILY = {
+	BuildTotemBarPane = "totembar", BuildDurationBarsPane = "totembar", BuildPartyBuffStep = "totembar",
+	BuildCooldownBarStep = "cooldownbar", BuildLoadoutBarPane = "loadout", BuildLoadoutSetsPane = "loadout",
+}
 local MOCK_LOADOUT  = { mocks = {
 	{ label = "Loadout bar", build = "BuildLoadoutBarPane" },
 	{ label = "Blizzard totem sets", build = "BuildLoadoutSetsPane", when = function()
@@ -57,6 +66,15 @@ local MOCK_LOADOUT  = { mocks = {
 local MOCK_PARTY    = { mocks = {
 	{ label = "Party Buff Tracker", build = "BuildPartyBuffStep", weight = 2.3, shiftY = 85 },
 } }
+-- General > Themes: the preview each module section shows while it is in view
+-- (the same one as that module's own settings page). Sections not listed, and the
+-- top of the tab, show MOCK_THEMES: both bars.
+local THEMES_SECTION_PREVIEW = {
+	totembar = MOCK_TOTEM, cooldownbar = MOCK_CDBAR, loadouts = MOCK_LOADOUT, partybuff = MOCK_PARTY,
+	shieldcharges = "shieldcharges", alerts = "expiring", range = "sprange", raidcd = "raidcd",
+	estracker = "estracker", reactive = "reactive", readyreminders = "readyreminders", tremor = "tremor",
+	readycheck = "readycheck", plates = "totemplates",
+}
 
 -- Totem Range Tracker: the module's on/off is the overlay frame itself.
 -- ShamanPower_SPRange.lua ToggleSPRange() is the only writer of
@@ -83,14 +101,13 @@ local POWER_SPRANGE = {
 	label  = "Totem Range overlay",
 	desc   = "Show or hide the totem range overlay (same as /sprange toggle).",
 	loaded = function() local sp = SP() return sp and sp.SPRangeLoaded and true or false end,
-	get    = function()
-		local f = SP().spRangeFrame
-		return f and f:IsShown() and true or false
+	get    = function()   -- on also while it waits for a group (Show the Overlay)
+		local sp = SP()
+		return (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
 	end,
 	set    = function(v)
 		local sp = SP()
-		local f = sp.spRangeFrame
-		local cur = f and f:IsShown() and true or false
+		local cur = (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
 		if (v and true or false) ~= cur then sp:ToggleSPRange() end
 	end,
 }
@@ -179,9 +196,11 @@ local function P(...) return { ... } end
 local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 local NAV = {
 	{ group = "General", entries = {
-		{ label = "General", lock = true, desc = "Global behaviour and interface settings.", tabs = {
+		{ label = "General", lock = true, desc = "Global behavior and interface settings.", tabs = {
 			-- the Totem Bar Style dropdown is on Main: a shaman sees the bar change as they hover its list
 			{ label = "Main",      preview = PLAYER_IS_SHAMAN and MOCK_TOTEM or nil, paths = { P("settings", "settings_show") } },
+			-- every theme setting, and nothing else (drawn by Themes.lua)
+			{ label = "Themes",    preview = PLAYER_IS_SHAMAN and MOCK_THEMES or nil, custom = "themes", paths = { P("settings", "settings_themes") } },
 			{ label = "Fonts & Textures", preview = PLAYER_IS_SHAMAN and MOCK_BARS or nil, paths = { P("settings", "settings_fonts") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
@@ -199,6 +218,7 @@ local NAV = {
 			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
 			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
 			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
+			{ label = "Effects",       preview = MOCK_TOTEM_EFFECTS, paths = { P("fluffy", "totembar_effects_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
 			{ label = "Twisting",      paths = { P("settings", "settings_totemTwisting") } },   -- no rows (so no tab) on WoW: Forever
 		}},
@@ -206,6 +226,7 @@ local NAV = {
 			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
 			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
 			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
+			{ label = "Effects", preview = MOCK_CDBAR_EFFECTS, paths = { P("fluffy", "cdbar_effects_section") } },
 		}},
 		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
@@ -499,8 +520,9 @@ local function MountMocks(spec)
 	for _, m in ipairs(list) do totalW = totalW + (m.weight or 1) end
 	local usable = ih - gap * (n - 1)
 	pane.mockPreviews = pane.mockPreviews or {}
-	local wasPreviewOnly = W.previewOnly
+	local wasPreviewOnly, wasEffects = W.previewOnly, W.effectsDemo
 	W.previewOnly = true
+	W.effectsDemo = spec.effects   -- the Effects tab: the mocks run the chosen effects (RunEffectsDemo)
 	local dummyCard = CreateFrame("Frame", nil, host)
 	dummyCard:SetSize(400, 10)
 	dummyCard:Hide()
@@ -542,6 +564,11 @@ local function MountMocks(spec)
 				if not ok then print("|cff0070ddShamanPower|r: preview of " .. m.label .. " failed: " .. tostring(err)) end
 			end
 		end
+		-- a theme's flat boxes on the mock (only when a theme is set: Standard draws today's mock untouched)
+		if not m.preview and sp.ThemeSkinPreview and sp.opt and type(sp.opt.theme) == "table" then
+			local ok, err = pcall(sp.ThemeSkinPreview, sp, pin, MOCK_SKIN_FAMILY[m.build] or "totembar")
+			if not ok then geterrorhandler()(err) end
+		end
 		-- the mocks' captions belong to the wizard's step pages
 		for _, r in ipairs({ pin:GetRegions() }) do
 			if r.IsObjectType and r:IsObjectType("FontString") then r:Hide() end
@@ -572,7 +599,7 @@ local function MountMocks(spec)
 		pane.mockFits[#pane.mockFits + 1] = fit   -- a hover preview re-fits without remounting
 		yy = yy + h + gap
 	end
-	W.previewOnly = wasPreviewOnly
+	W.previewOnly, W.effectsDemo = wasPreviewOnly, wasEffects
 	return true
 end
 
@@ -614,8 +641,11 @@ local function remountWhenSettled()
 	remountQueued = false
 	SPConfig:UpdatePreviewPane(true)
 end
-function SPConfig:PreviewChanged()
+function SPConfig:PreviewChanged(themeChanged)
 	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
+	-- the Effects tab's mocks play the options live (RunEffectsDemo): nothing to rebuild
+	-- (a theme change repaints the bars themselves, so it rebuilds them anyway)
+	if not themeChanged and frame.preview.mockSpec and frame.preview.mockSpec.effects then return end
 	if frame.preview.mockSpec then
 		lastChange = GetTime()
 		if remountQueued then return end
@@ -649,6 +679,7 @@ function SPConfig:HoverStyle(key)
 		C_Timer.After(0.2, run)
 	end
 	if not key then
+		if frame then frame._themesStyle = nil end   -- (the Themes tab puts its own back on its next preview update)
 		if frame and frame._hoverStyle then
 			frame._hoverStyle = nil
 			-- only the copy this window set; a style preview or the tour may own the override by now
@@ -673,6 +704,25 @@ end
 
 -- Show the current page's preview (or say why there is none). Re-running it
 -- for the same key re-feeds the sample data, which is how setters reach it.
+-- General > Themes: the module section in the top third of the page right now
+-- (key, label), or nil at the top of the tab / on any other page
+-- (key, label, style: the totem bar style of the Totem Bar Styles rows in view)
+local STYLE_OF_SPOT = {
+	["st.compact"] = "compact", ["st.compact-shield"] = "compact", ["st.boxes-compact"] = "compact",
+	["st.grid"] = "grid", ["st.boxes-grid"] = "grid", ["st.blizzard"] = "blizzard",
+}
+local function ThemesSectionNow()
+	local tp = ns.ThemesPage
+	local sc = frame and frame.bodyScroll
+	if not (sc and tp and tp.SectionAt and tp:IsShown()) then return nil end
+	local key, label, spot = tp:SectionAt(sc:GetVerticalScroll() + sc:GetHeight() * 0.3)
+	return key, label, key == "styles" and (STYLE_OF_SPOT[spot] or "compact") or nil
+end
+local function ThemesShownKey()
+	local key, _, style = ThemesSectionNow()
+	return (key or "") .. "/" .. (style or "")
+end
+
 function SPConfig:UpdatePreviewPane(remount)
 	if not (frame and frame.preview and frame._previewOpen and frame:IsShown()) then return end
 	local sp = SP()
@@ -683,12 +733,34 @@ function SPConfig:UpdatePreviewPane(remount)
 			if t.label == frame._activeTab and t.preview then spec = t.preview break end
 		end
 	end
+	local title = entry and entry.label or ""
+	local styleKey
+	if spec == MOCK_THEMES then
+		-- the Themes tab: the preview of the module section scrolled into view
+		local key, label, style = ThemesSectionNow()
+		frame._themesShown = (key or "") .. "/" .. (style or "")
+		if style then
+			spec, title, styleKey = MOCK_TOTEM, label, style   -- that style on the totem bar mock
+		else
+			local s = key and THEMES_SECTION_PREVIEW[key]
+			if s then spec, title = s, label end
+		end
+	end
+	-- the Totem Bar Styles override ends as soon as the preview shows anything else
+	if frame._themesStyle and frame._themesStyle ~= styleKey then
+		frame._themesStyle = nil
+		self:HoverStyle(nil)
+	end
 	local pane = frame.preview
-	pane.title:SetText(entry and entry.label or "")
+	pane.title:SetText(title)
 	if type(spec) == "table" then
 		-- the wizard's bar mocks
 		if frame._previewKey then self:ReleasePreview() end
 		if pane.mockSpec ~= spec or remount then MountMocks(spec) end
+		if styleKey and (frame._themesStyle ~= styleKey or remount) then   -- (a theme change: a fresh copy of the settings)
+			frame._themesStyle = styleKey
+			self:HoverStyle(styleKey)   -- the style is only shown, never set
+		end
 		pane.note:Hide()
 		return
 	end
@@ -836,24 +908,9 @@ local function BuildWindow()
 	glow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(HEADER_H - 12))
 
 	-- Close
-	local close = CreateFrame("Button", nil, frame)
-	close:SetSize(26, 26)
+	local close = Core:CloseButton(frame, 26)
 	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
-	Core:MakeBorder(close, "border")
-	local closeTxt = close:CreateFontString(nil, "OVERLAY")
-	closeTxt:SetFontObject(Core.fonts.row)
-	closeTxt:SetPoint("CENTER")
-	closeTxt:SetText("X")
-	closeTxt:SetTextColor(Core:Color("textDim"))
-	close:SetScript("OnEnter", function()
-		Core:SetBorderColor(close, "warn")
-		closeTxt:SetTextColor(Core:Color("warn"))
-	end)
-	close:SetScript("OnLeave", function()
-		Core:SetBorderColor(close, "border")
-		closeTxt:SetTextColor(Core:Color("textDim"))
-	end)
-	close:SetScript("OnClick", function() frame:Hide() end)
+	close:SetScript("OnClick", function() frame._closedByPlayer = true; frame:Hide() end)
 
 	-- Tab strip
 	local tabStrip = CreateFrame("Frame", nil, content)
@@ -907,6 +964,25 @@ local function BuildWindow()
 		local maxS = math.max(0, body:GetHeight() - self:GetHeight())
 		self:SetVerticalScroll(math.max(0, math.min(maxS, self:GetVerticalScroll() - delta * 40)))
 	end)
+	-- General > Themes: once the scrolling settles, the preview switches to the
+	-- module section now in view (only when that section changed). Nothing runs
+	-- on any other page or while the page sits still.
+	do
+		local lastScroll, settleQueued = 0, false
+		local function Settle()
+			if GetTime() - lastScroll < 0.2 then C_Timer.After(0.1, Settle) return end
+			settleQueued = false
+			if frame and frame._previewOpen and ThemesShownKey() ~= frame._themesShown then SPConfig:UpdatePreviewPane() end
+		end
+		bodyScroll:HookScript("OnVerticalScroll", function()
+			if not (ns.ThemesPage and ns.ThemesPage:IsShown()) then return end
+			lastScroll = GetTime()
+			if not settleQueued then
+				settleQueued = true
+				C_Timer.After(0.1, Settle)
+			end
+		end)
+	end
 	-- Created once and toggled. Previously this was built inside RenderPage and
 	-- never tracked in pageWidgets, so it survived ClearPage and then sat
 	-- underneath the rows of every page rendered afterwards.
@@ -930,22 +1006,9 @@ local function BuildWindow()
 	-- Chaining one button off another's corner made it inherit the y offset
 	-- twice and sit high.
 	local function FooterButton(text, width, side, xOff, primary)
-		local b = CreateFrame("Button", nil, content)
-		b:SetSize(width, 26)
+		local b = Core:MakeButton(content, text, width, primary)
 		local point = (side == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
 		b:SetPoint(point, content, point, xOff, 14)
-		local bg = b:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints(b)
-		bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12))
-		Core:MakeBorder(b, primary and "accent" or "border")
-		local t = b:CreateFontString(nil, "OVERLAY")
-		t:SetFontObject(Core.fonts.button)
-		t:SetPoint("CENTER")
-		t:SetText(text)
-		t:SetTextColor(Core:Color(primary and "accentHi" or "text"))
-		b:SetWidth(math.max(width, t:GetStringWidth() + 28))
-		b:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", primary and 0.48 or 0.26)) end)
-		b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
 		return b, b:GetWidth()
 	end
 
@@ -953,7 +1016,7 @@ local function BuildWindow()
 	reload:SetScript("OnClick", function() Core:RequestReload() end)
 
 	local done = FooterButton("Done", 110, "right", -CONTENT_PAD, true)
-	done:SetScript("OnClick", function() frame:Hide() end)
+	done:SetScript("OnClick", function() frame._closedByPlayer = true; frame:Hide() end)
 
 	-- Combat lock. Only pages whose setters actually reach a combat-guarded
 	-- function get this; a page of colours and sliders stays fully usable.
@@ -996,10 +1059,11 @@ local function BuildWindow()
 	end)
 	-- The dropdown popup is parented to UIParent so it can escape the scroll
 	-- clip; it must not outlive the window.
-	frame:SetScript("OnHide", function()
+	frame:SetScript("OnHide", function(self)
 		Widgets:HidePopup()
 		SPConfig:HoverStyle(nil)
 		SPConfig:ReleasePreview()
+		SPConfig:ThemeWindowHidden(self)
 	end)
 
 	-- Safety net. The regen events below are the real mechanism; this only
@@ -1309,6 +1373,17 @@ end
 local function ClearPage()
 	Widgets:ReleaseAll(frame.body)
 	wipe(pageWidgets)
+	if ns.ThemesPage then ns.ThemesPage:Release() end
+end
+
+-- General > Themes draws its own page (Themes.lua) in place of its group's
+-- rows; a search across the tabs shows the group's rows as usual.
+local function CustomTabActive(entry, query)
+	if (query and query ~= "") or not (entry and entry.tabs) then return nil end
+	for _, t in ipairs(entry.tabs) do
+		if t.custom and t.label == frame._activeTab then return t.custom end
+	end
+	return nil
 end
 
 local function OptionOpts(entry, sectionRef, x, y, width, onChanged)
@@ -1464,6 +1539,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	if not list then return end
 	frame._query = query
 	frame._pageSig = PageSignature(list, groups)
+	local customTab = CustomTabActive(entry, query) == "themes" and ns.ThemesPage or nil
+	if customTab then list = {} end   -- drawn below by the page itself
 
 	local body = frame.body
 	local fullW = frame.bodyScroll:GetWidth() - 8
@@ -1691,6 +1768,16 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		end
 	end
 
+	if customTab then
+		local ok, h = pcall(customTab.Render, customTab, body, fullW, onChanged)
+		if ok then
+			y = h or 0
+			pageWidgets[#pageWidgets + 1] = body
+		else
+			geterrorhandler()(h)
+		end
+	end
+
 	self:UpdateCombatLock()
 
 	BreakRow()
@@ -1813,6 +1900,113 @@ do
 			end)
 		end)
 	end
+end
+
+-- A theme changed (General > Themes, a colour picker drag, a profile switch)
+-- while the window is open: the Themes page repaints on the next frame, the
+-- live preview is rebuilt, and the page's rows re-read their values once the
+-- changes settle. Nothing runs while the window is shut.
+local themeChangedWhileOpen = false
+do
+	local sp = SP()
+	if sp and sp.OnThemeChanged then
+		local paintQueued, settleQueued, lastTheme = false, false, 0
+		local function Paint()
+			paintQueued = false
+			if not (frame and frame:IsShown()) then return end
+			if ns.ThemesPage then ns.ThemesPage:Repaint() end
+			SPConfig:PreviewChanged(true)
+		end
+		local function Settle()
+			if GetTime() - lastTheme < 0.25 then C_Timer.After(0.1, Settle) return end
+			settleQueued = false
+			if frame and frame:IsShown() and frame.body then Widgets:RefreshAll(frame.body) end
+		end
+		sp:OnThemeChanged(function()
+			if not (frame and frame:IsShown()) then return end
+			themeChangedWhileOpen = true
+			lastTheme = GetTime()
+			if not paintQueued then paintQueued = true; C_Timer.After(0, Paint) end
+			if not settleQueued then settleQueued = true; C_Timer.After(0.1, Settle) end
+		end)
+	end
+end
+
+-- Reload prompt on close: a theme changed while the window was open, and the
+-- player closed it (Done, the X or Escape): ask for a reload once, so every
+-- part picks the new look up. Mainline: the existing reload prompt (a secure
+-- button, Core:RequestReload). Classic reloads straight away from that call,
+-- so it gets the same prompt drawn here, with the plain call on its button.
+-- Windows that tuck the settings away for a moment (Unlock, Keybind Mode, the
+-- tour) never prompt.
+local themeReloadDlg
+local THEME_RELOAD_REASON = "You changed your ShamanPower theme. Reload the UI so every part picks up the new look."
+local function ShowThemeReloadPrompt()
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		Core:RequestReload(THEME_RELOAD_REASON)
+		return
+	end
+	if not themeReloadDlg then
+		local f = Core:CreateDialog({
+			name = "ShamanPowerThemeReloadPrompt", width = 430, height = 168,
+			title = "Reload for your new look", footer = 46, special = true, strata = "FULLSCREEN_DIALOG",
+		})
+		local t = f.body:CreateFontString(nil, "OVERLAY")
+		t:SetFontObject(Core.fonts.row)
+		t:SetPoint("TOPLEFT", f.body, "TOPLEFT", 0, -2)
+		t:SetWidth(390); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
+		t:SetText(THEME_RELOAD_REASON .. " |cff808080Typing |cffFFD100/reload|r|cff808080 yourself works just as well.|r")
+		f:SetHeight(math.max(168, 46 + 4 + 10 + math.ceil(t:GetStringHeight()) + 2 + 14 + 46))
+		local ok = Core:MakeButton(f, "Reload now", 150, true)
+		ok:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -14, 12)
+		ok:SetScript("OnClick", function() Core:RequestReload() end)
+		local later = Core:MakeButton(f, "Later", 100, false)
+		later:SetPoint("RIGHT", ok, "LEFT", -8, 0)
+		later:SetScript("OnClick", function() f:Hide() end)
+		themeReloadDlg = f
+	end
+	themeReloadDlg:Show()
+end
+
+local reloadWaiter = CreateFrame("Frame")
+local function ThemeReloadOnClose()
+	local sp = SP()
+	if not (themeChangedWhileOpen and sp and sp.ThemeChangedThisSession) then return end
+	if frame and frame:IsShown() then return end   -- opened again meanwhile: the next close asks
+	if InCombatLockdown() then
+		-- nothing pops up in a fight: ask once it ends
+		reloadWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	themeChangedWhileOpen = false
+	sp.ThemeChangedThisSession = false   -- once: a later close asks again only after another change
+	ShowThemeReloadPrompt()
+end
+reloadWaiter:SetScript("OnEvent", function(self)
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	ThemeReloadOnClose()
+end)
+
+function SPConfig:ThemeWindowHidden(win)
+	if win:IsShown() then return end   -- the whole UI was hidden (Alt+Z), not this window
+	if win._closedByPlayer then
+		win._closedByPlayer = nil
+		C_Timer.After(0, ThemeReloadOnClose)
+	else
+		-- Escape closes it through CloseSpecialWindows (hooked below); any other
+		-- hide in this frame is some window tucking the settings away
+		win._maybeEscape = true
+		C_Timer.After(0, function() win._maybeEscape = nil end)
+	end
+end
+
+if type(CloseSpecialWindows) == "function" then
+	hooksecurefunc("CloseSpecialWindows", function()
+		if frame and frame._maybeEscape then
+			frame._maybeEscape = nil
+			C_Timer.After(0, ThemeReloadOnClose)
+		end
+	end)
 end
 
 function SPConfig:IsOpen()

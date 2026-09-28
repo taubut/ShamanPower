@@ -44,6 +44,12 @@ local ELEMENTS = {
 	{ label = "Water", r = 0.42, g = 0.58, b = 1.00 },
 	{ label = "Air",   r = 0.86, g = 0.88, b = 0.98 },
 }
+-- Theme looks (General > Themes, ShamanPowerTheme.lua), spot win.assign: a
+-- theme recolours these in place and puts today's numbers back on Standard;
+-- an open window repaints at the end of this file.
+if SP and SP.ThemeBind then
+	for e = 1, 4 do SP:ThemeBind(ELEMENTS[e], "win.assign", e) end
+end
 
 local function CellX(e)
 	return NAME_W + ES_W + (e - 1) * (CELL_W + CELL_GAP)
@@ -139,22 +145,7 @@ local function MakeCheck(parent, labelText)
 end
 
 local function FooterButton(parent, text, width, primary)
-	local b = CreateFrame("Button", nil, parent)
-	b:SetHeight(26)
-	local bg = b:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(b)
-	bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12))
-	Core:MakeBorder(b, primary and "accent" or "border")
-	local t = b:CreateFontString(nil, "OVERLAY")
-	t:SetFontObject(Core.fonts.button)
-	t:SetPoint("CENTER")
-	t:SetText(text)
-	t:SetTextColor(Core:Color(primary and "accentHi" or "text"))
-	b:SetWidth(math.max(width, t:GetStringWidth() + 28))
-	b:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("accent", primary and 0.48 or 0.26)) end)
-	b:SetScript("OnLeave", function() bg:SetColorTexture(Core:Color("accent", primary and 0.30 or 0.12)) end)
-	b.text = t
-	return b
+	return Core:MakeButton(parent, text, width, primary)   -- the shared button look
 end
 
 -- ---------------------------------------------------------------------------
@@ -507,7 +498,7 @@ local function ResistTickOnClick(check)
 	local r = check.resist
 	if not SP:CanRequestResist() then
 		if UIErrorsFrame then
-			local why = "Resistance requests work in a raid (try /sp resisttest to practise)"
+			local why = "Resistance requests work in a raid (try /sp resisttest to practice)"
 			if SP:ResistActive() then
 				why = "Only shamans running ShamanPower, or the raid leader or an assistant, can request resistances"
 			end
@@ -631,7 +622,7 @@ local function UpdateResistStrip()
 	elseif SP:ResistPracticeOwner() then
 		noteText = "|cffffd200Practice request from " .. SP:ResistPracticeOwner() .. ".|r"
 	elseif not SP:ResistActive() then
-		noteText = "Works in a raid: on WoW: Forever the resistance totems reach the whole raid. /sp resisttest to practise alone."
+		noteText = "Works in a raid: on WoW: Forever the resistance totems reach the whole raid. /sp resisttest to practice alone."
 	end
 	local h = 28 + colH + 8
 	if noteText then
@@ -715,21 +706,8 @@ local function BuildFrame()
 	glow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -(HEADER_H + 1))
 
 	-- Close
-	local close = CreateFrame("Button", nil, frame)
-	close:SetSize(22, 22)
+	local close = Core:CloseButton(frame, 22)
 	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
-	Core:MakeBorder(close, "border")
-	local closeTxt = close:CreateFontString(nil, "OVERLAY")
-	closeTxt:SetFontObject(Core.fonts.row)
-	closeTxt:SetPoint("CENTER")
-	closeTxt:SetText("X")
-	closeTxt:SetTextColor(Core:Color("textDim"))
-	close:SetScript("OnEnter", function()
-		Core:SetBorderColor(close, "warn"); closeTxt:SetTextColor(Core:Color("warn"))
-	end)
-	close:SetScript("OnLeave", function()
-		Core:SetBorderColor(close, "border"); closeTxt:SetTextColor(Core:Color("textDim"))
-	end)
 	close:SetScript("OnClick", function() Assign:Hide() end)
 
 	-- Free Assignment
@@ -774,6 +752,7 @@ local function BuildFrame()
 		esLbl:SetText("ES")
 	end
 
+	frame.elementHeads = {}   -- for a theme repaint
 	for e = 1, 4 do
 		local el = ELEMENTS[e]
 		local l = colhead:CreateFontString(nil, "OVERLAY")
@@ -781,6 +760,7 @@ local function BuildFrame()
 		l:SetPoint("BOTTOM", colhead, "BOTTOMLEFT", CellX(e) + CELL_W / 2, 6)
 		l:SetText(strupper(el.label))
 		l:SetTextColor(el.r, el.g, el.b)
+		frame.elementHeads[e] = l
 	end
 
 	local rule = colhead:CreateTexture(nil, "ARTWORK")
@@ -1070,6 +1050,29 @@ if SP and SP.RESIST_REQUESTS then SP.ResistChanged = MarkDirty end
 -- Immediate redraw on the engine's de-facto state-changed hook.
 if SP and type(SP.UpdateLayout) == "function" then
 	hooksecurefunc(SP, "UpdateLayout", function() MarkDirty() end)
+end
+
+-- A theme change (General > Themes): the column headings and the cells take
+-- the new element tints (a hovered cell's hover reads ELEMENTS live)
+if SP and SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		if not frame then return end
+		if frame.elementHeads then
+			for e = 1, 4 do
+				local el = ELEMENTS[e]
+				frame.elementHeads[e]:SetTextColor(el.r, el.g, el.b)
+			end
+		end
+		for i = 1, #rows do
+			local cells = rows[i].cells
+			if cells then
+				for e = 1, 4 do
+					local el = ELEMENTS[e]
+					cells[e].bg:SetColorTexture(el.r, el.g, el.b, 0.10)
+				end
+			end
+		end
+	end)
 end
 
 local watcher = CreateFrame("Frame")

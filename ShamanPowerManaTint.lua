@@ -52,10 +52,9 @@ end
 function SP:UpdateManaTint()
 	if not self.opt then return end
 	local on = self.opt.manaTint == true
-	-- the totem bar: each element's assigned totem
-	local assign = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
+	-- the totem bar: each element's assigned totem (a flyout pick made in this fight first)
 	for element = 1, 4 do
-		local idx = assign and assign[element] or 0
+		local idx = self:AssignedIndex(element)
 		local spell = castName(idx and idx > 0 and self:GetTotemSpell(element, idx) or nil)
 		local btn = self.totemButtons and self.totemButtons[element]
 		paint(btn and btn.icon, spell, on)

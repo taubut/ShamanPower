@@ -64,6 +64,18 @@ SP.ReactiveTotems = {
 	},
 }
 
+-- Theme (General > Themes, spot mod.reactive): each alert's colour table above
+-- is bound to the element of the totem that answers it (Tremor = Earth, the
+-- cleansing totems = Water). The engine rewrites these tables in place and
+-- puts today's colours back on Standard, so every paint site below reads them
+-- as it always has. Looks only; nothing is written until a theme is picked.
+if SP.ThemeBind then
+	for _, id in ipairs({ "fear", "poison", "disease" }) do
+		local data = SP.ReactiveTotems[id]
+		SP:ThemeBind(data.color, "mod.reactive", tostring(data.totemElement))
+	end
+end
+
 -- Known fear/charm spell names
 SP.FearSpellNames = {
 	["Fear"] = true,
@@ -405,25 +417,32 @@ function SP:IsKnownFearDebuff(debuffName)
 	return self.FearSpellNames[debuffName] or false
 end
 
+-- The scan's answer lives in tables made once and refilled (a scan used to make
+-- two to five new tables). Callers read it straight away and keep only strings.
+local SCAN_UNITS = { "player", "party1", "party2", "party3", "party4" }
+local SCAN_NONE = {}   -- (read-only)
+local scanFound = {}
+local scanHit = { fear = {}, poison = {}, disease = {} }
+local function Hit(kind, name, icon, unit)
+	local h = scanHit[kind]
+	h.debuffName, h.debuffIcon, h.unit = name, icon, unit
+	return h
+end
+
 function SP:ScanForReactiveDebuffs()
 	local sv = ShamanPower_ReactiveTotems
-	if not sv or not sv.enabled then return {} end
+	if not sv or not sv.enabled then SP.reactiveAnyFound = false return SCAN_NONE end
 
 	if sv.onlyInInstance then
 		local inInstance, instanceType = IsInInstance()
-		if not inInstance then return {} end
+		if not inInstance then SP.reactiveAnyFound = false return SCAN_NONE end
 	end
 
-	local found = {
-		fear = nil,
-		poison = nil,
-		disease = nil,
-	}
+	local found = scanFound
+	found.fear, found.poison, found.disease = nil, nil, nil
 
 	-- Scan player and party members only (totems are party-wide, not raid-wide)
-	local units = {"player", "party1", "party2", "party3", "party4"}
-
-	for _, unit in ipairs(units) do
+	for _, unit in ipairs(SCAN_UNITS) do
 		if UnitExists(unit) and not UnitIsDeadOrGhost(unit) then
 			for i = 1, 40 do
 				local name, icon, count, debuffType = UnitDebuff(unit, i)
@@ -433,28 +452,30 @@ function SP:ScanForReactiveDebuffs()
 				if sv.trackFear and not found.fear then
 					if debuffType == "Fear" or debuffType == "Charm" or debuffType == "Horrify"
 						or self:IsKnownFearDebuff(name) then
-						found.fear = { debuffName = name, debuffIcon = icon, unit = unit }
+						found.fear = Hit("fear", name, icon, unit)
 					end
 				end
 
 				-- Poison
 				if sv.trackPoison and not found.poison and debuffType == "Poison" then
-					found.poison = { debuffName = name, debuffIcon = icon, unit = unit }
+					found.poison = Hit("poison", name, icon, unit)
 				end
 
 				-- Disease
 				if sv.trackDisease and not found.disease and debuffType == "Disease" then
-					found.disease = { debuffName = name, debuffIcon = icon, unit = unit }
+					found.disease = Hit("disease", name, icon, unit)
 				end
 
 				-- Early exit if we found all types
 				if found.fear and found.poison and found.disease then
+					SP.reactiveAnyFound = true
 					return found
 				end
 			end
 		end
 	end
 
+	SP.reactiveAnyFound = (found.fear or found.poison or found.disease) and true or false
 	return found
 end
 
@@ -529,17 +550,19 @@ function SP:UpdateReactiveTotemDisplay()
 		end
 
 		if debuffData then
-			-- Show this totem's frame
+			-- Show unit name and debuff name (the text only rewritten when it changes)
+			local unitName = UnitName(debuffData.unit) or debuffData.unit
+			if frame.currentDebuffName ~= debuffData.debuffName or frame.currentUnit ~= debuffData.unit
+				or frame.currentUnitName ~= unitName then
+				if debuffData.unit == "player" then
+					frame.debuffText:SetText(debuffData.debuffName)
+				else
+					frame.debuffText:SetText(unitName .. ": " .. debuffData.debuffName)
+				end
+			end
 			frame.currentDebuffName = debuffData.debuffName
 			frame.currentUnit = debuffData.unit
-
-			-- Show unit name and debuff name
-			local unitName = UnitName(debuffData.unit) or debuffData.unit
-			if debuffData.unit == "player" then
-				frame.debuffText:SetText(debuffData.debuffName)
-			else
-				frame.debuffText:SetText(unitName .. ": " .. debuffData.debuffName)
-			end
+			frame.currentUnitName = unitName
 
 			-- Glow
 			if sv.showGlow then
@@ -907,10 +930,39 @@ function SP:SetupReactiveTotemsEvents()
 		end
 	end
 
-	local function OnPartyAura()
+	-- An aura change can change an answer only if it ADDS a harmful aura (a new
+	-- fear, poison or disease), or REMOVES something while an alert is up (maybe
+	-- that debuff ending). Buffs coming, going and refreshing - most of a party's
+	-- aura traffic - and any aura's time or stacks changing skip the scan. A full
+	-- update, a client with no update info, or contents the game hides: scan as
+	-- always. Nothing hidden is ever tested.
+	local secret = issecretvalue or function() return false end
+	local function AuraChangeMatters(info)
+		if not info or secret(info) or secret(info.isFullUpdate) or info.isFullUpdate then return true end
+		local added = info.addedAuras
+		if added then
+			if secret(added) then return true end
+			for i = 1, #added do
+				local a = added[i]
+				if secret(a) then return true end
+				local harmful = a.isHarmful
+				if secret(harmful) or harmful ~= false then return true end   -- (unknown counts as harmful)
+			end
+		end
+		local removed = info.removedAuraInstanceIDs
+		if removed and SP.reactiveAnyFound ~= false then
+			if secret(removed) or #removed > 0 then return true end
+		end
+		return false
+	end
+
+	local function OnPartyAura(_, _, _, info)
 		if SP:IsOff() then return end   -- ShamanPower switched off
+		local sv = ShamanPower_ReactiveTotems
+		if not sv or not sv.enabled then return end   -- switching it on updates at once
 		-- engine mode: aura changes are the engine's business; the scan only serves the sound
-		if SP:ReactiveEngineLive() and not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.playSound) then return end
+		if SP:ReactiveEngineLive() and not sv.playSound then return end
+		if not AuraChangeMatters(info) then return end
 		RequestUpdate()
 	end
 	-- the filtered frames only ever hear player and party1-4 (whatever token the
@@ -1292,6 +1344,52 @@ SP:OnOnOff(function(off)
 	if not off then SP:RebuildReactiveEngine() end
 	SP:UpdateReactiveTotemDisplay()
 end)
+
+-- ============================================================================
+-- Theme changed (General > Themes): the colour tables are already rewritten;
+-- repaint what was drawn with the old colours. Nothing runs unless an alert
+-- colour actually moved.
+-- ============================================================================
+
+if SP.OnThemeChanged then
+	local seen = {}   -- totemId -> the colour last painted
+	for id, data in pairs(SP.ReactiveTotems) do
+		local c = data.color
+		seen[id] = { c.r, c.g, c.b }
+	end
+	-- WoW: Forever: the game-drawn alerts took their colours when they were
+	-- built; rebuild them (RebuildReactiveEngine waits for the end of combat)
+	local function rebuildEngine()
+		local engine = SP.reactiveEngine
+		if not (SP.reactiveEngineBuilt and engine) then return end
+		for _, list in pairs(engine) do
+			for _, slot in pairs(list) do slot.key = nil end
+		end
+		SP:RebuildReactiveEngine()
+	end
+	SP:OnThemeChanged(function()
+		local moved = false
+		for id, data in pairs(SP.ReactiveTotems) do
+			local c, s = data.color, seen[id]
+			if s and (s[1] ~= c.r or s[2] ~= c.g or s[3] ~= c.b) then
+				s[1], s[2], s[3] = c.r, c.g, c.b
+				moved = true
+			end
+		end
+		if not moved then return end
+		for _, frame in pairs(SP.reactiveFrames) do
+			local c = frame.totemData and frame.totemData.color
+			if c then
+				frame.borderFrame:SetBackdropBorderColor(c.r, c.g, c.b, 1)
+				frame.glow:SetVertexColor(c.r, c.g, c.b)
+				frame.debuffText:SetTextColor(c.r, c.g, c.b)
+			end
+		end
+		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.reactiveEngineBuilt and SP.ThemeRepaintSoon then
+			SP:ThemeRepaintSoon("reactiveEngine", rebuildEngine)
+		end
+	end)
+end
 
 -- ============================================================================
 -- Setup Wizard Preview Registration

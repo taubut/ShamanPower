@@ -142,6 +142,141 @@ local function ShowStylePreview(key)
 end
 
 -- ---------------------------------------------------------------------------
+-- The ShamanPower look (General > Themes). Offered once per account, to
+-- existing users only: a new install picks its look in the setup tour. It
+-- only ever shows and opens: nothing changes unless the player changes it on
+-- the Themes tab, and "Keep my look" / "Got it" / the X change nothing.
+-- ---------------------------------------------------------------------------
+local function ThemesAvailable()
+	return SP.SetThemeGlobal ~= nil and SP.ThemeGlobal ~= nil and SP.Wizard ~= nil and SP.Wizard.ThemeMiniBar ~= nil
+end
+
+local function OpenThemes()
+	if SP.OpenThemesTab then SP:OpenThemesTab() return end   -- the Themes page's own opener, when it has one
+	if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open({ "settings", "settings_themes" }) end
+end
+
+local LOOK_TEXT = "One look for every color in ShamanPower: the logo's element colors, WoW's own green, yellow"
+	.. " and red for charges and timers, and navy panels. ShamanPower Minimal adds flat element boxes."
+	.. " Your look stays exactly as it is unless you pick a theme, and Standard always puts it back."
+	.. "\n|cff3FA9F5Settings > General > Themes|r"
+
+-- The item: an info box (accent fill and border) with the NEW tag, the heading,
+-- the text and the player's bar now next to it in the ShamanPower look.
+-- onTry: a "Try it" button in the box (secondary, as the card's other Try it
+-- buttons). Returns the box and its height.
+local function LookBox(parent, y, W, onTry)
+	local GOLD = { 1, 0.82, 0.15 }
+	local box = CreateFrame("Frame", nil, parent)
+	box:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+	box:SetWidth(W)
+	Core:SolidTex(box, "accent", "BACKGROUND", 0.10)
+	Core:MakeBorder(box, "accent")
+	local tag = box:CreateFontString(nil, "OVERLAY")
+	tag:SetFontObject(Core.fonts.section)
+	tag:SetTextColor(1, 0.82, 0)   -- gold: "new"
+	tag:SetText("NEW")
+	local head = box:CreateFontString(nil, "OVERLAY")
+	head:SetFontObject(Core.fonts.row)
+	head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	head:SetJustifyH("LEFT"); head:SetWordWrap(true)
+	head:SetText("The ShamanPower look")
+	tag:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -12)
+	local tagW = math.ceil(tag:GetStringWidth())
+	head:SetPoint("TOPLEFT", box, "TOPLEFT", 12 + tagW + 8, -11)
+	head:SetWidth(W - 24 - tagW - 8)
+	local h = 11 + math.max(14, math.ceil(head:GetStringHeight())) + 6
+	local body = box:CreateFontString(nil, "OVERLAY")
+	body:SetFontObject(Core.fonts.rowDim)
+	body:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -h)
+	body:SetWidth(W - 24); body:SetJustifyH("LEFT"); body:SetWordWrap(true)
+	body:SetText(LOOK_TEXT)
+	h = h + math.ceil(body:GetStringHeight()) + 12
+
+	-- your bar now, and in the ShamanPower look
+	local x = 12
+	local barH = 0
+	for _, key in ipairs({ "now", "shamanpower" }) do
+		local cap = box:CreateFontString(nil, "OVERLAY")
+		cap:SetFontObject(Core.fonts.section)
+		cap:SetPoint("TOPLEFT", box, "TOPLEFT", x, -h)
+		cap:SetText(strupper(key == "now" and "Your bar now" or "ShamanPower"))
+		local bar = SP.Wizard.ThemeMiniBar(box, 24, false)
+		bar:SetPoint("TOPLEFT", box, "TOPLEFT", x, -(h + 18))
+		bar:Paint(key)
+		barH = bar:GetHeight()
+		x = x + math.max(bar:GetWidth(), math.ceil(cap:GetStringWidth())) + 28
+	end
+	h = h + 18 + barH + 12
+	if onTry then
+		local try = Core:MakeButton(box, "Try it", 80, false)
+		try:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -12, 12)
+		try:SetScript("OnClick", onTry)
+		Core:AttachTooltip(try, "Try it", "Opens Settings > General > Themes. Nothing changes until you pick a theme there.")
+	end
+	box:SetHeight(h)
+	return box, h
+end
+
+-- the look card on its own, for existing users who already saw this release's card
+local lookDlg
+local function BuildLookDialog()
+	if lookDlg then return lookDlg end
+	lookDlg = Core:CreateDialog({
+		name = "ShamanPowerWhatsNewLook", width = 560, height = 200,
+		title = "What's new", subtitle = "shown once",
+		headerHeight = 46, footer = 52, special = true, strata = "DIALOG",
+	})
+	local solid = lookDlg:CreateTexture(nil, "BACKGROUND", nil, 1)
+	solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2)
+	solid:SetColorTexture(Core:Color("windowBg", 1))
+	local solidH = lookDlg.header:CreateTexture(nil, "BACKGROUND", nil, 1)
+	solidH:SetAllPoints(lookDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
+
+	local W, y = 526, 2
+	local GOLD = { 1, 0.82, 0.15 }
+	-- the gold banner (ui-style-guide 2.3 A), as the release card draws it
+	do
+		local band = CreateFrame("Frame", nil, lookDlg.body)
+		band:SetPoint("TOPLEFT", lookDlg.body, "TOPLEFT", 0, 0); band:SetPoint("TOPRIGHT", lookDlg.body, "TOPRIGHT", 0, 0)
+		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band); glow:SetColorTexture(1, 1, 1, 1)
+		Core:Gradient(glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.26, GOLD[1], GOLD[2], GOLD[3], 0)
+		local rule = band:CreateTexture(nil, "ARTWORK"); rule:SetHeight(2)
+		rule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); rule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
+		rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
+		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
+		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)
+		local title = band:CreateFontString(nil, "OVERLAY")
+		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
+		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
+		local installed = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
+		title:SetText("ShamanPower " .. ((installed or NOTES.version):gsub("%.0$", "")))
+		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
+		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
+		sub:SetWidth(W - 64 - 12); sub:SetJustifyH("LEFT"); sub:SetWordWrap(true)
+		sub:SetText("A new look, if you want one")
+		local bandH = math.max(62, 9 + math.ceil(title:GetStringHeight()) + 3 + math.ceil(sub:GetStringHeight()) + 12)
+		band:SetHeight(bandH)
+		y = y + bandH + 14
+	end
+	local _, h = LookBox(lookDlg.body, y, W, nil)
+	y = y + h
+	lookDlg:SetHeight(46 + 4 + 10 + y + lookDlg.pad + 52)   -- header, rule, body top, content, pad, footer
+
+	-- Try it (primary, rightmost) opens the Themes tab; Keep my look, the X and
+	-- Escape just close it
+	local try = Core:MakeButton(lookDlg, "Try it", 110, true)
+	try:SetPoint("BOTTOMRIGHT", lookDlg, "BOTTOMRIGHT", -14, 12)
+	try:SetScript("OnClick", function() lookDlg:Hide(); OpenThemes() end)
+	local keep = Core:MakeButton(lookDlg, "Keep my look", 110, false)
+	keep:SetPoint("RIGHT", try, "LEFT", -8, 0)
+	keep:SetScript("OnClick", function() lookDlg:Hide() end)
+	lookDlg.close:SetScript("OnClick", function() keep:Click() end)
+	return lookDlg
+end
+
+-- ---------------------------------------------------------------------------
 -- The card
 -- ---------------------------------------------------------------------------
 local dlg
@@ -217,6 +352,11 @@ local function BuildDialog()
 		y = y + b:GetStringHeight() + 14
 	  end
 	end
+	-- the themes (General > Themes): Try it closes the card and opens the tab
+	if ThemesAvailable() then
+		local _, lh = LookBox(dlg.body, y, W, function() dlg:Hide(); OpenThemes() end)
+		y = y + lh + 14
+	end
 	-- Discord strip: logo, invite line, Copy Link
 	do
 		local strip = CreateFrame("Frame", nil, dlg.body)
@@ -257,8 +397,27 @@ local function BuildDialog()
 	return dlg
 end
 
+-- The look card, automatically: once per account (db.global.themesCardSeen),
+-- to an existing user (setup done) who has never used a theme on this
+-- profile. Never over the tour, and it waits out combat like the release card.
+local function LookCardDue(g)
+	if not ThemesAvailable() or g.themesCardSeen then return false end
+	if not (SP.opt and SP.opt.setupDone) then return false end   -- a new install: the tour offers the looks
+	if SP.opt.theme ~= nil then g.themesCardSeen = true return false end   -- already on the Themes tab
+	return true
+end
+local function ShowLookCard(g)
+	if not LookCardDue(g) then return end
+	local wiz = _G["ShamanPowerWizard"]
+	if wiz and wiz:IsShown() then return end
+	if InCombatLockdown() then C_Timer.After(15, function() SP:ShowWhatsNew() end) return end
+	g.themesCardSeen = true
+	BuildLookDialog():Show()
+end
+
 -- force = true (the /spwhatsnew test command) bypasses the version gate and
--- never stamps anything. "/spwhatsnew preview <style>" opens a style preview.
+-- never stamps anything. "/spwhatsnew preview <style>" opens a style preview,
+-- "/spwhatsnew look" the look card.
 function SP:ShowWhatsNew(force)
 	if force then
 		-- opened on request (tour, settings button, /spwhatsnew): on top of the tour's layer
@@ -274,7 +433,8 @@ function SP:ShowWhatsNew(force)
 	local cur = GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version")
 	local g = self.db and self.db.global
 	if not cur or not g then return end
-	if g.lastSeenVersion == cur then return end
+	-- (no release card due: the look card, once, if it is due)
+	if g.lastSeenVersion == cur then return ShowLookCard(g) end
 	-- Brand-new installs are in (or headed into) the guided setup - stamp and
 	-- stay quiet rather than stacking two windows.
 	if self.opt and not self.opt.setupDone then g.lastSeenVersion = cur return end
@@ -282,19 +442,27 @@ function SP:ShowWhatsNew(force)
 	-- whole x.y series, once: 3.0.0's card still shows at 3.0.1 to someone
 	-- coming from 2.x, but not again to someone who saw it at 3.0.0.
 	local function series(v) v = BaseVersion(v); return v and v:match("^(%d+%.%d+)%.") end
-	if series(cur) ~= series(NOTES.version) then g.lastSeenVersion = cur return end
-	if series(g.lastSeenVersion) == series(cur) then g.lastSeenVersion = cur return end
+	if series(cur) ~= series(NOTES.version) then g.lastSeenVersion = cur return ShowLookCard(g) end
+	if series(g.lastSeenVersion) == series(cur) then g.lastSeenVersion = cur return ShowLookCard(g) end
 	-- Never on top of the setup wizard; try again next login instead.
 	local wiz = _G["ShamanPowerWizard"]
 	if wiz and wiz:IsShown() then return end
 	if InCombatLockdown() then C_Timer.After(15, function() SP:ShowWhatsNew() end) return end
 	g.lastSeenVersion = cur
+	-- the release card carries the look item: that is the look offered
+	if LookCardDue(g) then g.themesCardSeen = true end
 	BuildDialog():Show()
 end
 
 SLASH_SPWHATSNEW1 = "/spwhatsnew"
 SlashCmdList["SPWHATSNEW"] = function(msg)
 	local m = strtrim(msg or ""):lower()
+	if m == "look" then
+		if not ThemesAvailable() then print("|cff0070ddShamanPower|r: themes are not available in this build.") return end
+		local d = BuildLookDialog()
+		d:SetFrameStrata("FULLSCREEN_DIALOG"); d:Show(); d:Raise()   -- on request: never stamped
+		return
+	end
 	if m == "preview" then ShowStylePreview(SP.TotemBarStyle and SP:TotemBarStyle("blizzard") and "blizzard" or "compact") return end
 	local key = m:match("^preview%s+(%S+)$")
 	if key then ShowStylePreview(key) return end

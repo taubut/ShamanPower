@@ -103,6 +103,11 @@ local function styleVisual(v, button, element, size)
 	SP:SetSPBarColor(bar, "duration", color[1], color[2], color[3], 1)
 	local tint = SP.ElementColors[element]
 	v.assigned:SetVertexColor(tint.r, tint.g, tint.b, 1)
+	-- General > Themes: the ring's colour (st.grid) and the time text's (tb.duration-text,
+	-- white above); nil = as above
+	local tr, tg, tb = SP:ThemeColor("st.grid", element)
+	if tr then v.assigned:SetVertexColor(tr, tg, tb, 1) end
+	SP:ThemePaintDurationText(text, element)
 	v.location = opt.durationTextLocation or "none"
 	SP:SetSPFont(text, "timers", opt.durationTextSize or 8, "OUTLINE")
 	if v.location == "inside_top" then text:SetPoint("TOP", bg, "TOP", 0, -1)
@@ -122,7 +127,6 @@ end
 function SP:UpdateGridTotems()
 	if not self:GridActive() then return end
 	local now = GetTime()
-	local assignments = ShamanPower_Assignments and self.player and ShamanPower_Assignments[self.player]
 	for element = 1, 4 do
 		local row = rows[element]
 		local have, name, start, duration = self:GetElementTotemInfo(element)
@@ -148,8 +152,7 @@ function SP:UpdateGridTotems()
 			end
 			active = row.active
 		end
-		local assigned = self.pendingAssignments and self.pendingAssignments[element]
-		if assigned == nil then assigned = assignments and assignments[element] or 0 end
+		local assigned = self:AssignedIndex(element)   -- a flyout pick made in this fight first
 		if row.all then
 			for i = 1, #row.all do
 				local button = row.all[i]
@@ -406,6 +409,9 @@ local function layoutRow(element, offset, visible)
 		host:SetBackdrop(SP.PANEL_BACKDROP)
 		host:SetBackdropColor(0.086, 0.098, 0.122, 0.92)
 		host:SetBackdropBorderColor(color.r, color.g, color.b, 1)
+		-- General > Themes (st.grid): the split border's colour; nil = as above
+		local tr, tg, tb = SP:ThemeColor("st.grid", element)
+		if tr then host:SetBackdropBorderColor(tr, tg, tb, 1) end
 		host:SetShown(visible)
 	end
 	return width, height
@@ -606,3 +612,27 @@ events:RegisterEvent("SPELLS_CHANGED")
 events:SetScript("OnEvent", function()
 	if pending or SP:GridOwnsElementPopouts() then queueRefresh() end
 end)
+
+-- General > Themes (st.grid, tb.duration, tb.duration-text): the rings, split
+-- borders, bars and time texts take their colours in the layout pass, so a theme
+-- change runs it once more, out of combat (ThemeRepaintSoon waits for a fight's end).
+-- Only when those colours really moved (a colour drag changes others many times a second).
+if SP.OnThemeChanged then
+	local themeSig
+	local function themeRefresh() if SP:GridActive() then SP:RefreshGridStyle() end end
+	SP:OnThemeChanged(function()
+		local s = 0
+		for e = 1, 4 do
+			local r, g, b = SP:ThemeColor("st.grid", e)
+			if r then s = s + e * (r * 3 + g * 5 + b * 7) end
+			r, g, b = SP:ThemeColor("tb.duration-text", e)
+			if r then s = s + e * (r * 11 + g * 13 + b * 17) end
+			local c = SP.DurationBarColors[e]
+			if c then s = s + e * (c[1] * 19 + c[2] * 23 + c[3] * 29) end
+		end
+		if s ~= themeSig then
+			themeSig = s
+			if SP:GridActive() then SP:ThemeRepaintSoon("grid", themeRefresh) end
+		end
+	end)
+end

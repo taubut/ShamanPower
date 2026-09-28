@@ -354,6 +354,24 @@ function SP:SPRangeOwnTotemInRange(totemData)
 	return self:TotemDropInRange(totemData.element)
 end
 
+-- Theme looks (General > Themes, ShamanPowerTheme.lua), spot mod.range-colors:
+-- the overlay panel's background and border. On Standard every read is nil and
+-- SP:ApplyPanelBackdrop's colours stay; `restore` puts them back (the Themes
+-- tab went back to Standard).
+local THEME_SPOT = "mod.range-colors"
+local function ThemeRGB(role)
+	if SP.ThemeColor then return SP:ThemeColor(THEME_SPOT, role) end
+end
+local function ThemePanel(frame, restore)
+	local bg, edge = SP.PANEL_BG, SP.PANEL_BORDER
+	local r, g, b = ThemeRGB("bg")
+	if r then frame:SetBackdropColor(r, g, b, (SP.ThemeAlpha and SP:ThemeAlpha(THEME_SPOT, "bg")) or bg[4])
+	elseif restore then frame:SetBackdropColor(bg[1], bg[2], bg[3], bg[4]) end
+	r, g, b = ThemeRGB("border")
+	if r then frame:SetBackdropBorderColor(r, g, b, edge[4])
+	elseif restore then frame:SetBackdropBorderColor(edge[1], edge[2], edge[3], edge[4]) end
+end
+
 -- Create the SPRange frame
 function SP:CreateSPRangeFrame()
 	if self.spRangeFrame then return self.spRangeFrame end
@@ -367,6 +385,7 @@ function SP:CreateSPRangeFrame()
 
 	-- Backdrop
 	SP:ApplyPanelBackdrop(frame)
+	ThemePanel(frame)
 
 	-- Title
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -755,6 +774,7 @@ function SP:UpdateSPRangeBorder()
 	else
 		-- Show border and background
 		SP:ApplyPanelBackdrop(self.spRangeFrame)
+		ThemePanel(self.spRangeFrame)
 		if self.spRangeFrame.title then
 			self.spRangeFrame.title:Show()
 		end
@@ -799,26 +819,23 @@ function SP:ToggleSPRange()
 		self:CreateSPRangeFrame()
 	end
 
-	if self.spRangeFrame:IsShown() then
+	-- (open counts one waiting for a group, per Show the Overlay)
+	if self.spRangeFrame:IsShown() or self.spRangeManuallyOpened then
 		self.spRangeFrame:Hide()
 		self.spRangeManuallyOpened = false  -- User closed it manually
 		ShamanPower_RangeTracker.shown = false
 		self:Print("SPRange hidden. Use /sprange to show.")
 	else
-		-- Restore position
-		local pos = ShamanPower_RangeTracker.position
-		if pos then
-			self.spRangeFrame:ClearAllPoints()
-			self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-		end
-
-		self:UpdateSPRangeFrame()
-		self:UpdateSPRangeBorder()
-		self:UpdateSPRangeOpacity()
-		self.spRangeFrame:Show()
 		self.spRangeManuallyOpened = true  -- User opened it manually
 		ShamanPower_RangeTracker.shown = true
-		self:Print("SPRange shown. Click settings cog to configure.")
+		if self:SPRangeAllowedHere() then
+			self:ShowSPRangeOverlay()
+			self:Print("SPRange shown. Click settings cog to configure.")
+		else
+			self:Print("SPRange is on and shows once you are in a group"
+				.. ((self.opt.rangeTracker and self.opt.rangeTracker.showWhen == "group") and "" or " with a shaman")
+				.. " (Settings > Group Tools > Totem Range Tracker > Show the Overlay).")
+		end
 	end
 end
 
@@ -1081,7 +1098,34 @@ do
 	if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Totem Range (Windfury report)") end
 	f:RegisterEvent("GROUP_ROSTER_UPDATE")
 	f:RegisterEvent("PLAYER_ENTERING_WORLD")
-	f:SetScript("OnEvent", function() SP:UpdateWindfuryBroadcaster() end)
+	f:SetScript("OnEvent", function()
+		SP:UpdateWindfuryBroadcaster()
+		SP:UpdateSPRangeVisibility()   -- Show the Overlay: leaving or joining a group
+	end)
+end
+
+-- Where the overlay may be up (Totem Range Tracker > Show the Overlay): "shaman"
+-- (the default) only in a group with a shaman in it, you included; "group" in
+-- any group; "always" solo too. It holds for an overlay opened by hand as well:
+-- that one steps aside when you leave the group and comes back when you join one.
+function SP:SPRangeAllowedHere()
+	local mode = self.opt and self.opt.rangeTracker and self.opt.rangeTracker.showWhen or "shaman"
+	if mode == "always" then return true end
+	if not IsInGroup() then return false end
+	if mode == "group" then return true end
+	return select(2, UnitClass("player")) == "SHAMAN" or self:SPRangeHasAnyShamanInGroup()
+end
+
+function SP:ShowSPRangeOverlay()
+	local pos = ShamanPower_RangeTracker.position
+	if pos then
+		self.spRangeFrame:ClearAllPoints()
+		self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
+	end
+	self:UpdateSPRangeFrame()
+	self:UpdateSPRangeBorder()
+	self:UpdateSPRangeOpacity()
+	self.spRangeFrame:Show()
 end
 
 -- Auto-show/hide SPRange based on group composition
@@ -1094,27 +1138,20 @@ function SP:UpdateSPRangeVisibility()
 		return
 	end
 
-	-- Don't auto-hide if user manually opened it (shamans may want to track their own totems)
+	-- Opened by hand (shamans may want to track their own totems): kept open, but
+	-- only where Show the Overlay allows it
 	if self.spRangeManuallyOpened then
+		local want = self:SPRangeAllowedHere()
+		if want and not self.spRangeFrame:IsShown() then self:ShowSPRangeOverlay()
+		elseif not want and self.spRangeFrame:IsShown() then self.spRangeFrame:Hide() end
 		return
 	end
 
 	-- ShamanPower switched off: no auto-show (an overlay opened by hand is the player's call)
-	local shouldShow = not self:IsOff() and self:SPRangeHasAnyShamanInGroup()
+	local shouldShow = not self:IsOff() and self:SPRangeHasAnyShamanInGroup() and self:SPRangeAllowedHere()
 
 	if shouldShow then
-		if not self.spRangeFrame:IsShown() then
-			-- Restore position
-			local pos = ShamanPower_RangeTracker.position
-			if pos then
-				self.spRangeFrame:ClearAllPoints()
-				self.spRangeFrame:SetPoint(pos.point, UIParent, pos.point, pos.x, pos.y)
-			end
-			self:UpdateSPRangeFrame()
-			self:UpdateSPRangeBorder()
-			self:UpdateSPRangeOpacity()
-			self.spRangeFrame:Show()
-		end
+		if not self.spRangeFrame:IsShown() then self:ShowSPRangeOverlay() end
 	else
 		if self.spRangeFrame:IsShown() then
 			self.spRangeFrame:Hide()
@@ -1142,7 +1179,7 @@ SlashCmdList["SPRANGE"] = function(msg)
 		SP:ToggleSPRange()
 	elseif msg == "show" or msg == "hide" then
 		-- only flip it when it is not already that way (show never hides, hide never shows)
-		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown() and true or false
+		local shown = SP.spRangeFrame and (SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false
 		if (msg == "show") ~= shown then
 			SP:ToggleSPRange()
 		else
@@ -1270,6 +1307,15 @@ function SP:SPRangeDemo(on)
 		self:UpdateSPRangeStatus()
 		self:UpdateSPRangeVisibility()
 	end
+end
+
+-- A theme change (General > Themes): the overlay panel takes the new colours
+-- now (nothing here is protected, so combat does not matter)
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		local frame = SP.spRangeFrame
+		if frame and not (SP.opt and SP.opt.rangeTracker and SP.opt.rangeTracker.hideBorder) then ThemePanel(frame, true) end
+	end)
 end
 
 -- Register the range overlay with the setup wizard preview harness

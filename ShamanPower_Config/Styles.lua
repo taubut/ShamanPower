@@ -14,7 +14,7 @@ local ELE = { { 0.72, 0.52, 0.32 }, { 1.00, 0.36, 0.22 }, { 0.42, 0.58, 1.00 }, 
 local QUICKSLOT = "Interface\\Buttons\\UI-Quickslot2"   -- the game's own action button ring
 
 ns.StyleCaptions = {
-	normal = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one greys out until it expires.",
+	normal = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one grays out until it expires.",
 	totemtimers = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires.",
 	dynamic = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP.",
 	compact = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged.",

@@ -32,6 +32,28 @@ SP.earthShields = {}  -- { [targetGUID] = { target, caster, charges, expiration 
 -- Earth Shield spell ID (for icon)
 SP.EarthShieldSpellID = 32594  -- Rank 1, we just need the icon
 
+-- Theme looks (General > Themes, ShamanPowerTheme.lua), spot
+-- mod.estracker-colors: the panel's background and border, the charge count.
+-- On Standard every read is nil and today's colours stay; `restore` puts
+-- today's back (the Themes tab went back to Standard).
+local THEME_SPOT = "mod.estracker-colors"
+local function ThemeRGB(role)
+	if SP.ThemeColor then return SP:ThemeColor(THEME_SPOT, role) end
+end
+local function ThemePanel(frame, restore)
+	local r, g, b = ThemeRGB("bg")
+	if r then frame:SetBackdropColor(r, g, b, (SP.ThemeAlpha and SP:ThemeAlpha(THEME_SPOT, "bg")) or 0.8)
+	elseif restore then frame:SetBackdropColor(0, 0, 0, 0.8) end
+	r, g, b = ThemeRGB("border")
+	if r then frame:SetBackdropBorderColor(r, g, b, 1)
+	elseif restore then frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1) end
+end
+local function ThemeCount(fs, restore)
+	local r, g, b = ThemeRGB("count")
+	if r then fs:SetTextColor(r, g, b)
+	elseif restore then fs:SetTextColor(0.4, 1, 0.4) end
+end
+
 -- Initialize Earth Shield tracker settings
 function SP:InitESTracker()
 	-- Ensure profile table exists
@@ -90,6 +112,7 @@ function SP:CreateESTrackerFrame()
 	})
 	frame:SetBackdropColor(0, 0, 0, 0.8)
 	frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+	ThemePanel(frame)
 
 	-- Title: the other module titles' look, and it follows the Fonts settings
 	local title = frame:CreateFontString(nil, "OVERLAY")
@@ -212,6 +235,7 @@ local function buildESRowContainer(btn)
 				SP:SetSPFont(count, "labels", 12, "OUTLINE")
 				count:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
 				count:SetTextColor(0.4, 1, 0.4)
+				ThemeCount(count)   -- the game-drawn count takes the theme's colour when built
 				pcall(button.SetApplicationCount, button, count, {})
 			end,
 		})
@@ -257,6 +281,7 @@ function SP:CreateESTrackerButton(parent, esData, index)
 	SP:SetSPFont(chargesText, "labels", 12, "OUTLINE")
 	chargesText:SetPoint("TOPRIGHT", btn, "TOPRIGHT", -2, -2)
 	chargesText:SetTextColor(0.4, 1, 0.4)
+	ThemeCount(chargesText)
 	btn.chargesText = chargesText
 
 	-- Caster name (below the icon)
@@ -644,6 +669,7 @@ function SP:UpdateESTrackerBorder()
 		})
 		frame:SetBackdropColor(0, 0, 0, 0.8)
 		frame:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+		ThemePanel(frame)
 		if frame.title then frame.title:Show() end
 	end
 end
@@ -866,6 +892,19 @@ SlashCmdList["SPESTRACK"] = function(msg)
 		print("  /spestrack show - Show the tracker")
 		print("  /spestrack hide - Hide the tracker")
 	end
+end
+
+-- A theme change (General > Themes): the panel and the counts take the new
+-- colours now (nothing here is protected, so combat does not matter)
+if SP.OnThemeChanged then
+	SP:OnThemeChanged(function()
+		local frame = SP.esTrackerFrame
+		if not frame then return end
+		if not (SP.opt and SP.opt.esTracker and SP.opt.esTracker.hideBorder) then ThemePanel(frame, true) end
+		if frame.esButtonPool then
+			for _, btn in pairs(frame.esButtonPool) do ThemeCount(btn.chargesText, true) end
+		end
+	end)
 end
 
 -- Register the tracker frame with the setup-wizard preview harness (safe if absent)

@@ -122,7 +122,14 @@ local function PartyDots(frame)
 		elseif position == "left" then dot:SetPoint("TOPRIGHT", frame, "LEFT", -2, span / 2 - along)
 		elseif position == "right" then dot:SetPoint("TOPLEFT", frame, "RIGHT", 2, span / 2 - along)
 		else dot:SetPoint(corner, frame, corner, 0, 0) end
-		dot:SetColorTexture(index == 4 and 1 or 0.2, index == 4 and 0.2 or 1, 0.2, 1)
+		-- a theme's "missing buff" red (General > Themes); nil = today's
+		local mr, mg, mb
+		if index == 4 and SP.ThemeColor then mr, mg, mb = SP:ThemeColor("tb.dots-missing", "missing") end
+		if mr then
+			dot:SetColorTexture(mr, mg, mb, 1)
+		else
+			dot:SetColorTexture(index == 4 and 1 or 0.2, index == 4 and 0.2 or 1, 0.2, 1)
+		end
 	end
 end
 
@@ -144,12 +151,19 @@ local function BuildGrid(inner)
 			row.element, row.vertical, row.choices = element, vertical, choices
 			row:SetSize(vertical and SIZE + 16 or (SIZE + GAP) * (#choices + 1) + 8,
 				vertical and (SIZE + GAP) * (#choices + 1) + 26 or SIZE + 34)
+			-- a theme's Grid ring colour (General > Themes); nil = today's
+			local gr, gg, gb
+			if SP.ThemeColor then gr, gg, gb = SP:ThemeColor("st.grid", element) end
 			if split then
 				local color = SP.ElementColors and SP.ElementColors[element]
 				local fallbackColor = COLORS[element]
 				for _, edge in pairs(Core:MakeBorder(row, "border")) do
-					edge:SetColorTexture(color and color.r or fallbackColor[1], color and color.g or fallbackColor[2],
-						color and color.b or fallbackColor[3], 0.9)
+					if gr then
+						edge:SetColorTexture(gr, gg, gb, 0.9)
+					else
+						edge:SetColorTexture(color and color.r or fallbackColor[1], color and color.g or fallbackColor[2],
+							color and color.b or fallbackColor[3], 0.9)
+					end
 				end
 			end
 			Label(row, NAMES[element]):SetPoint("TOPLEFT", row, "TOPLEFT", 6, -4)
@@ -172,6 +186,7 @@ local function BuildGrid(inner)
 					local color = SP.ElementColors and SP.ElementColors[element]
 					local fallbackColor = COLORS[element]
 					local r, g, b = color and color.r or fallbackColor[1], color and color.g or fallbackColor[2], color and color.b or fallbackColor[3]
+					if gr then r, g, b = gr, gg, gb end
 					for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
 						local t = button:CreateTexture(nil, "OVERLAY", nil, 4)
 						if side == "TOP" or side == "BOTTOM" then

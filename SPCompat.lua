@@ -1683,6 +1683,7 @@ local function traceEvent(fmt, ...)
 	if #eventTrace > 500 then table.remove(eventTrace, 1) end
 end
 SPCompat.Trace = traceEvent   -- other files log into /sptrace through this
+function SPCompat.TraceOn() return eventTraceOn end   -- lets a caller skip building costly arguments
 SLASH_SPTRACE1 = "/sptrace"
 SlashCmdList["SPTRACE"] = function(msg)
 	msg = strtrim(msg or ""):lower()

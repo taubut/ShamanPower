@@ -119,4 +119,6 @@ Chat, help and testing: [ShamanPower Discord](https://discord.gg/eCtNeBqE8U). Bu
 
 ## License
 
-GNU General Public License v2 or later — see [LICENSE.txt](LICENSE.txt). Bundled libraries follow their own licenses.
+All Rights Reserved — see [LICENSE.txt](LICENSE.txt).
+
+Please ask me before modifying the code for your own use. You can reach me on [GitHub](https://github.com/taubut/ShamanPower/issues) or in the [ShamanPower Discord](https://discord.gg/eCtNeBqE8U). Bundled libraries and fonts follow their own licenses.

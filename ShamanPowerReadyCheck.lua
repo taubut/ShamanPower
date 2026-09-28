@@ -165,10 +165,10 @@ end
 
 local function assignedMissing(out)
 	local mine = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
-	if not mine then return false end
+	if not mine and not SP.pendingAssignments then return false end
 	local any = false
 	for element = 1, 4 do
-		local idx = mine[element]
+		local idx = SP:AssignedIndex(element)   -- a flyout pick made in this fight first
 		if type(idx) == "number" and idx > 0 then
 			local spellID = SP.GetTotemSpell and SP:GetTotemSpell(element, idx)
 			local name, _, icon
@@ -225,12 +225,33 @@ local function applyPos(f)
 	else f:SetPoint("CENTER", UIParent, "CENTER", 0, 180) end
 end
 
+-- Theme (General > Themes, spot mod.readycheck): the panel's background and
+-- border. nil on Standard: today's look stays exactly as it is. The background
+-- still follows the opacity setting. restore (a theme change) puts today's
+-- colours back.
+local function themeLook(f, restore)
+	if not SP.ThemeColor then return end
+	local r, g, b = SP:ThemeColor("mod.readycheck", "bg")
+	if r then
+		f.bg:SetColorTexture(r, g, b, (SP:ThemeAlpha("mod.readycheck", "bg") or 0.9) * (cfg().panelOpacity or 1))
+	elseif restore then
+		f.bg:SetColorTexture(SP:SPColor("windowBg", 0.9 * (cfg().panelOpacity or 1)))
+	end
+	r, g, b = SP:ThemeColor("mod.readycheck", "border")
+	if r then
+		for _, t in ipairs(f.spEdges) do t:SetColorTexture(r, g, b, 1) end
+	elseif restore then
+		SP:SPSetBorderColor(f, "accent")
+	end
+end
+
 -- the opacity setting fades the background only: the border, text and icons
 -- stay solid, so the list reads over the world at any setting
 local function applyLook(f)
 	local c = cfg()
 	f:SetScale(c.panelScale or 1)
 	f.bg:SetColorTexture(SP:SPColor("windowBg", 0.9 * (c.panelOpacity or 1)))
+	themeLook(f)   -- the theme's colours (nothing on Standard)
 end
 
 function SP:ReadyCheckFrame()
@@ -425,6 +446,16 @@ function SP:UpdateReadyCheckLook()
 	if panel then applyLook(panel) end
 end
 
+-- Theme changed (General > Themes): repaint the panel if it was built.
+if SP.OnThemeChanged then
+	-- today's colours, for the Themes tab's swatches (the dialog palette)
+	if SP.ThemeSetRoleStd then
+		SP:ThemeSetRoleStd("mod.readycheck", "bg", "0E141E")
+		SP:ThemeSetRoleStd("mod.readycheck", "border", "0070DD")
+	end
+	SP:OnThemeChanged(function() if panel then themeLook(panel, true) end end)
+end
+
 if SP.RegisterPreview then
 	SP:RegisterPreview("readycheck", { frame = function() return SP:ReadyCheckFrame() end, demo = "SP:ReadyCheckDemo" })
 end
@@ -498,6 +529,9 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 		for element = 1, 4 do
 			local name = GetItemNameC(TOTEM_ITEMS[element])
 			if type(name) == "string" and name ~= "" and msg:find(name, 1, true) then
+				-- the item is in the bags: the error is about something else that
+				-- names it (Fire Nova with no Fire totem down), not a missing item
+				if (itemCount(TOTEM_ITEMS[element]) or 0) > 0 then return end
 				local now = GetTime()
 				if not errorWarnedAt[element] or now - errorWarnedAt[element] > 10 then
 					errorWarnedAt[element] = now
