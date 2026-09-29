@@ -1852,9 +1852,8 @@ function ShamanPower:TotemSpellElement(spellID)
 				if type(id) == "number" then totemSpellElementCache[id] = element end
 			end
 		end
-		for id, info in pairs(self.TalentTotems or {}) do
-			if type(info) == "table" and info[1] then totemSpellElementCache[id] = info[1] end
-		end
+		-- (TalentTotems' first field is the talent TREE, not the element: the talent
+		-- totems are already in the element tables above, so they are not read again)
 	end
 	return totemSpellElementCache[spellID]
 end
