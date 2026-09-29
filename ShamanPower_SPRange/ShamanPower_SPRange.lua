@@ -171,6 +171,13 @@ SP.TrackableTotems = {
 
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 for _, totem in ipairs(SP.TrackableTotems) do
+	-- WoW: Forever made Windfury Totem a party buff (8515 / 10609 / 10612), not
+	-- TBC's weapon enchant: read it like any other totem buff there
+	if totem.id == "windfury" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		totem.detection = "buff"
+		totem.buffSpellID = 8515
+		totem.buffSpellIDs = { 8515, 10609, 10612 }
+	end
 	if totem.buffSpellID then
 		-- Forever reuses 8215 (TBC's Flametongue Totem buff) for "Rapid Cast"; the
 		-- aura party members carry there is the effect spell
@@ -316,6 +323,13 @@ end
 
 -- Check if player has Windfury weapon enchant
 function SP:SPRangeHasWindfuryWeapon()
+	-- WoW: Forever: Windfury Totem is the party buff there, and any other
+	-- temporary enchant (your own imbue, a rogue's poison) is not Windfury
+	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		local wf = SP.TrackableTotemsByID and SP.TrackableTotemsByID.windfury
+		if wf and MainlineHasNamedBuff("player", wf.buffName, wf.buffSpellIDSet) then return true, nil, nil end
+		return false, nil, nil
+	end
 	local hasMainHandEnchant, mainHandExpiration, mainHandCharges, mainHandEnchantID,
 	      hasOffHandEnchant, offHandExpiration, offHandCharges, offHandEnchantID = GetWeaponEnchantInfo()
 
@@ -811,6 +825,16 @@ function SP:UpdateSPRangeConfigButtons()
 	end
 end
 
+-- Is the overlay on (open counts one waiting for a group, per Show the Overlay)?
+-- The settings preview shows this same frame, so while it runs the answer is
+-- whether the overlay was up before the preview (and any toggle since): the
+-- preview's frame being shown said "on" and the toggle could never switch off.
+function SP:SPRangeOverlayOn()
+	if self.spRangeManuallyOpened then return true end
+	if self.sprangeDemoActive then return self.sprangeRealShown == true end
+	return self.spRangeFrame ~= nil and self.spRangeFrame:IsShown() == true
+end
+
 -- Toggle SPRange visibility
 function SP:ToggleSPRange()
 	self:InitSPRange()
@@ -819,9 +843,11 @@ function SP:ToggleSPRange()
 		self:CreateSPRangeFrame()
 	end
 
-	-- (open counts one waiting for a group, per Show the Overlay)
-	if self.spRangeFrame:IsShown() or self.spRangeManuallyOpened then
-		self.spRangeFrame:Hide()
+	-- While the settings preview runs it owns the frame: the choice is kept, and
+	-- UpdateSPRangeVisibility applies it when the preview ends.
+	if self:SPRangeOverlayOn() then
+		if not self.sprangeDemoActive then self.spRangeFrame:Hide() end
+		self.sprangeRealShown = false
 		self.spRangeManuallyOpened = false  -- User closed it manually
 		ShamanPower_RangeTracker.shown = false
 		self:Print("SPRange hidden. Use /sprange to show.")
@@ -829,7 +855,7 @@ function SP:ToggleSPRange()
 		self.spRangeManuallyOpened = true  -- User opened it manually
 		ShamanPower_RangeTracker.shown = true
 		if self:SPRangeAllowedHere() then
-			self:ShowSPRangeOverlay()
+			if not self.sprangeDemoActive then self:ShowSPRangeOverlay() end
 			self:Print("SPRange shown. Click settings cog to configure.")
 		else
 			self:Print("SPRange is on and shows once you are in a group"
@@ -1082,7 +1108,8 @@ function SP:UpdateWindfuryBroadcaster()
 		-- the heartbeat only: changes go out from the events above
 		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
 	end
-	if not self:IsOff() and self:ShamanInMyParty() then
+	-- WoW: Forever: the shaman reads Windfury as a party buff, nothing to report
+	if not self:IsOff() and self:ShamanInMyParty() and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
 		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
 			self:EnableUpdateSubsystem("wfBroadcast")
 			setWFEvents(true)
@@ -1179,7 +1206,7 @@ SlashCmdList["SPRANGE"] = function(msg)
 		SP:ToggleSPRange()
 	elseif msg == "show" or msg == "hide" then
 		-- only flip it when it is not already that way (show never hides, hide never shows)
-		local shown = SP.spRangeFrame and (SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false
+		local shown = SP:SPRangeOverlayOn()
 		if (msg == "show") ~= shown then
 			SP:ToggleSPRange()
 		else
@@ -1204,6 +1231,8 @@ function SP:SPRangeDemo(on)
 		if not frame then return end
 		if not self.opt or not self.opt.rangeTracker then return end
 		if frame.settingsBtn then frame.settingsBtn:Hide() end
+		-- the overlay's own state before the preview takes the frame (SPRangeOverlayOn)
+		if not self.sprangeDemoActive then self.sprangeRealShown = frame:IsShown() == true end
 		self:InitSPRange()
 
 		-- Style one button from a fake status (same visuals as UpdateSPRangeStatus).

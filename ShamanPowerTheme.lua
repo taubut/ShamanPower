@@ -88,7 +88,41 @@ SP.THEME_LISTS = {
 	            { key = "tint", label = "One-color icon" }, { key = "mini", label = "Small icon" } },
 	effects = { { key = nil, label = "Use Theme's" }, { key = "standard", label = "Standard" },
 	            { key = "elemental", label = "Elemental" }, { key = "signal", label = "Signal" } },
+	classColors = { { key = nil, label = "Use Theme's" }, { key = "wow", label = "WoW's" }, { key = "subtle", label = "Subtle" },
+	            { key = "stronger", label = "Stronger" }, { key = "vibrant", label = "Vibrant" }, { key = "muted", label = "Muted" } },
 }
+
+-- Class Colors (General > Themes, the cards under Element Colors; a part's own
+-- dropdown on Party Dots / Coverage Dots: Class Colors). The same hue for every
+-- class in every set; WoW's = RAID_CLASS_COLORS exactly (what Standard shows).
+-- The ShamanPower themes pick Subtle.
+SP.CLASS_COLOR_SETS = {
+	{ key = "wow", label = "WoW's", sub = "The game's own class colors, exactly. What Standard always shows." },
+	{ key = "subtle", label = "Subtle", sub = "The same hues, brightness evened out a little for ShamanPower's navy panels.", colors = {
+		WARRIOR = "D2A878", PALADIN = "F28EC0", HUNTER = "A6CF6E", ROGUE = "F2E45F", PRIEST = "E6EAF0",
+		SHAMAN = "2F8CF0", MAGE = "6AC6EE", WARLOCK = "A897DD", DRUID = "FF8A26" } },
+	{ key = "stronger", label = "Stronger", sub = "The same hues, evened out more: priest white and rogue yellow calmer, shaman and warlock brighter.", colors = {
+		WARRIOR = "DBB384", PALADIN = "EE95C6", HUNTER = "9EC66A", ROGUE = "E4D35A", PRIEST = "D3D9E4",
+		SHAMAN = "4A9FF6", MAGE = "6CBDE8", WARLOCK = "B7A8E9", DRUID = "FF9640" } },
+	{ key = "vibrant", label = "Vibrant", sub = "Richer and punchier: more saturation, every class still its own color.", colors = {
+		WARRIOR = "D59958", PALADIN = "FF5FA5", HUNTER = "A7E356", ROGUE = "FFF34F", PRIEST = "FFFFFF",
+		SHAMAN = "007BF4", MAGE = "45CDFF", WARLOCK = "8469D2", DRUID = "FF8111" } },
+	{ key = "muted", label = "Muted", sub = "Softer and dustier, easy on the eyes on a busy screen.", colors = {
+		WARRIOR = "B8A18A", PALADIN = "D894B1", HUNTER = "AAC08C", ROGUE = "DBD583", PRIEST = "C8CDD6",
+		SHAMAN = "4889CA", MAGE = "85BCD1", WARLOCK = "9D94BA", DRUID = "CF915A" } },
+}
+local CLASS_SET_KEY, CLASS_SET_RGB = {}, {}
+for _, set in ipairs(SP.CLASS_COLOR_SETS) do
+	CLASS_SET_KEY[set.key] = true
+	if set.colors then
+		local t = {}
+		for class, hex in pairs(set.colors) do
+			t[class] = { tonumber(hex:sub(1, 2), 16) / 255, tonumber(hex:sub(3, 4), 16) / 255, tonumber(hex:sub(5, 6), 16) / 255 }
+		end
+		CLASS_SET_RGB[set.key] = t
+	end
+end
+SP.CLASS_SET_KEY = CLASS_SET_KEY
 
 -- ---------------------------------------------------------------------------
 -- Small helpers
@@ -255,8 +289,8 @@ SP.THEME_MODULES = {
 		  note = "The pulse wipe on the icons and the pulse bar: white, the element color or logo blue. Pulse Bar Color on Totem Bar > Duration Bars can still change it." },
 		{ id = "tb.dots-missing", label = "Party Dots: Missing Buff", roles = { Role("missing", "Missing Buff", "wow", "RED_FONT_COLOR", "FF0000") },
 		  note = "The dot for a party member without your totem's buff." },
-		{ id = "tb.dots-class", label = "Party Dots: Class Colors", roles = {},
-		  note = "The party dots in class colors. Every theme keeps WoW's class colors for now." },
+		{ id = "tb.dots-class", label = "Party Dots: Class Colors", roles = {}, classColors = true,
+		  note = "The party dots in class colors. Class Colors picks the set: Use Theme's follows the Class Colors cards at the top." },
 		{ id = "tb.range", label = "Range Counter Numbers", palette = true, roles = E4({ "33E633", "E63333", "3399FF", "FFFFFF" }),
 		  note = "The numbers that count who is in range of each totem." },
 		{ id = "tb.frame", label = "Frame Background and Border", roles = Panel("000000", "4D4D4D"),
@@ -362,8 +396,8 @@ SP.THEME_MODULES = {
 		  note = "The icons in the coverage cells. ShamanPower Minimal draws them as flat boxes." },
 		{ id = "mod.coverage-dots-missing", label = "Coverage Dots: Missing Buff", roles = { Role("missing", "Missing Buff", "wow", "RED_FONT_COLOR", "FF0000") },
 		  note = "The dot for a party member without the buff." },
-		{ id = "mod.coverage-dots-class", label = "Coverage Dots: Class Colors", roles = {},
-		  note = "The coverage dots in class colors. Every theme keeps WoW's class colors for now." },
+		{ id = "mod.coverage-dots-class", label = "Coverage Dots: Class Colors", roles = {}, classColors = true,
+		  note = "The coverage dots in class colors. Class Colors picks the set: Use Theme's follows the Class Colors cards at the top." },
 	} },
 	{ key = "range", label = "Totem Range Tracker", spots = {
 		{ id = "mod.range-colors", label = "Panel", roles = Panel(PANEL_STD_BG, PANEL_STD_EDGE),
@@ -1121,6 +1155,33 @@ function SP:ThemeSpotPalette(spot)   -- "classic" / "blizzard" / "shamanpower" /
 	if p == "own" then return nil end
 	return p
 end
+-- Class Colors: the set a part's class-colored dots use. Its own dropdown, else
+-- the cards at the top, else the theme's: Standard = WoW's, the ShamanPower themes = Subtle.
+function SP:ThemeClassColorSetGlobal()
+	local t = T()
+	if t and CLASS_SET_KEY[t.classColors] then return t.classColors end
+	return (SP:ThemeGlobal() == "standard") and "wow" or "subtle"
+end
+function SP:ThemeClassColorSetDefault()   -- the picked theme's own set (the cards store nil for it)
+	return (SP:ThemeGlobal() == "standard") and "wow" or "subtle"
+end
+function SP:ThemeClassColorSet(spot)
+	local t = T()
+	local o = spot and SpotOverride(t, spot)
+	if o and CLASS_SET_KEY[o.classColors] then return o.classColors end
+	if t and CLASS_SET_KEY[t.classColors] then return t.classColors end
+	return (ResolveSpotTheme(t, spot) == "standard") and "wow" or "subtle"
+end
+-- a class's r, g, b in a set (nil: WoW's own, RAID_CLASS_COLORS)
+function SP:ClassSetRGB(set, class)
+	local t = CLASS_SET_RGB[set]
+	local c = t and class and t[class]
+	if c then return c[1], c[2], c[3] end
+	return nil
+end
+function SP:ThemeClassSetRGB(spot, class)
+	return self:ClassSetRGB(self:ThemeClassColorSet(spot), class)
+end
 function SP:ThemeShieldMode(spot)    -- "today" / "palette" / "magic"
 	local s = st[spot]
 	return s and s.shield or "today"
@@ -1252,8 +1313,39 @@ SP.ThemeChangedThisSession = false
 -- cards, and each setting the player changed on its own settings page.
 -- One per profile; a newer Custom replaces it.
 -- ---------------------------------------------------------------------------
+-- The whole look beyond the theme's colors, kept on the Custom card with them: the
+-- Themes tab's own fields (borders, Border Size, Class Colors, Show Icons As) and
+-- every look (bar textures, shapes, gradients, Gem Dot Finish, Duration Bar
+-- Background, each shield's charge look and color). A reset button also keeps
+-- the colors every page has (LOOK.CaptureColors, after RESET_COLOR_KEYS).
+local LOOK = {
+	theme = { "borders", "bordersFlyouts", "bordersCooldown", "bordersCooldownFlyouts", "borderSize", "borderSizeFlyouts",
+		"borderSizeCooldown", "borderSizeCooldownFlyouts", "classColors", "showAs" },
+	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge", "iconShape", "iconShapeCooldown",
+		"iconShapeReady", "iconShapeSplit", "iconBordersSquare", "durationBarBackground",
+		"barGradientDirection", "barGradientDirections" },
+	shield = { "lookLS", "lookWS", "lookES", "barLook", "orbLook", "chargeColorLS", "chargeColorWS", "chargeColorES" },
+}
+for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
+	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do LOOK.opt[#LOOK.opt + 1] = field .. part end
+end
+function LOOK.Capture(t)
+	local o = SP.opt
+	local look = { theme = {}, opt = {}, shield = {} }
+	for _, k in ipairs(LOOK.theme) do look.theme[k] = t and t[k] end
+	if type(o) ~= "table" then return look end
+	for _, k in ipairs(LOOK.opt) do look.opt[k] = Copy(o[k]) end
+	local areas = o.barTextureAreas
+	look.shieldTexture = type(areas) == "table" and areas.shieldcharges or nil
+	local sc = o.shieldChargeDisplay
+	if type(sc) == "table" then
+		for _, k in ipairs(LOOK.shield) do look.shield[k] = Copy(sc[k]) end
+	end
+	return look
+end
+
 local function CaptureCustom(t)
-	local saved = { base = t.global, spots = Copy(t.spots), palette = t.palette, shield = t.shield }
+	local saved = { base = t.global, spots = Copy(t.spots), palette = t.palette, shield = t.shield, look = LOOK.Capture(t) }
 	for id, reg in pairs(settingSpots) do
 		local spot, s = SPOTS[id], st[id]
 		if spot and s and s.theme ~= "standard" and not spot.signature then
@@ -1296,6 +1388,14 @@ function SP:ThemeLoadCustom()
 	local sv = t and t.saved
 	if type(sv) ~= "table" then return end
 	if self:ThemeIsCustom() then return end   -- a Custom look is already in use
+	if type(sv.colors) == "table" then
+		-- a reset kept the colors every page has: they go back under Standard first,
+		-- so the theme below keeps them as the player's own (the caller reloads)
+		t.global, t.spots, t.palette, t.shield = nil, nil, nil, nil
+		Changed(true)
+		LOOK.RestoreColors(sv.colors)
+	end
+	if type(sv.look) == "table" then LOOK.Restore(t, sv.look) end   -- (a Custom kept before 3.0.4 has none)
 	t.global = (THEMES[sv.base] and sv.base ~= "standard") and sv.base or nil
 	t.spots = Copy(sv.spots)
 	t.palette = PALETTE_KEY[sv.palette] and sv.palette or nil
@@ -1314,6 +1414,13 @@ function SP:ThemeLoadCustom()
 		end
 	end
 	if wrote then Notify() end
+	if type(sv.look) == "table" then LOOK.Repaint() end
+end
+-- the Custom card holds colors a reset put back to default: loading it reloads
+function SP:ThemeCustomNeedsReload()
+	local t = T()
+	local sv = t and t.saved
+	return type(sv) == "table" and type(sv.colors) == "table" and not self:ThemeIsCustom() and LOOK.ColorsDiffer(sv.colors)
 end
 
 function SP:SetThemeGlobal(key)
@@ -1332,8 +1439,12 @@ end
 -- (no effects fields: effects are not part of the themes, see ResolveLook)
 -- borders / bordersFlyouts: General > Themes, Element-Colored Borders on the totem bar
 -- and its flyouts (ShamanPower.lua ThemePaintTotemBorders)
-local THEME_FIELDS = { palette = PALETTE_KEY, shield = SHIELD_KEY, showAs = SHOWAS_KEY,
-	borders = { [true] = true }, bordersFlyouts = { [true] = true }, bordersCooldown = { [true] = true } }
+-- Border Size (px) under each of the three toggles; 2 = nil (the default)
+local BORDER_SIZE = { [1] = true, [3] = true, [4] = true, [5] = true, [6] = true }
+local THEME_FIELDS = { palette = PALETTE_KEY, shield = SHIELD_KEY, showAs = SHOWAS_KEY, classColors = CLASS_SET_KEY,
+	borders = { [true] = true }, bordersFlyouts = { [true] = true }, bordersCooldown = { [true] = true },
+	borderSize = BORDER_SIZE, borderSizeFlyouts = BORDER_SIZE, borderSizeCooldown = BORDER_SIZE,
+	bordersCooldownFlyouts = { [true] = true }, borderSizeCooldownFlyouts = BORDER_SIZE }
 
 local function CleanCustom(v)
 	if type(v) ~= "table" then return nil end
@@ -1439,21 +1550,35 @@ function SP:SetSpotColor(spot, role, r, g, b)
 	Changed(nil)
 end
 
--- "Reset Colors to the Theme": colour edits, Colors and Shield Colors choices go
+-- the colors picked on the Themes tab outside the theme engine: each shield's
+-- Charge Color and the gradients' Two-Tone colors (nil = their default)
+local GRADIENT_COLOR_KEYS = { "barGradientColor1", "barGradientColor2", "outlineGradientColor1",
+	"outlineGradientColor2", "chargeGradientColor1", "chargeGradientColor2" }
+local function ClearPickedColors(o)
+	if type(o) ~= "table" then return end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do o[k] = nil end
+	local s = o.shieldChargeDisplay
+	if type(s) == "table" then s.chargeColorLS, s.chargeColorWS, s.chargeColorES = nil, nil, nil end
+end
+
+-- "Reset Colors for Current Theme": colour edits, Colors and Shield Colors choices go,
+-- and the Charge Colors and Two-Tone colors picked on the same page
 function SP:ResetThemeColors()
 	local t = T()
 	if t then
-		t.palette, t.shield = nil, nil
+		t.palette, t.shield, t.classColors = nil, nil, nil
 		if type(t.spots) == "table" then
 			for _, o in pairs(t.spots) do
-				if type(o) == "table" then o.colors, o.palette, o.shield = nil, nil, nil end
+				if type(o) == "table" then o.colors, o.palette, o.shield, o.classColors = nil, nil, nil, nil end
 			end
 		end
 	end
+	ClearPickedColors(SP.opt)
 	Changed("colors")
+	if SP.RefreshGradients then SP:RefreshGradients() end   -- the bars, outlines and charges repaint
 end
 
--- Reset All Colors (General > Themes, the emergency button): the Themes tab back
+-- Reset All Colors and Theme (General > Themes, the emergency button): the Themes tab back
 -- to Standard with nothing overridden (a Custom look is kept on the Custom card
 -- first, as a theme card does), then every colour setting in ShamanPower back to
 -- how it comes, the modules' own included. The caller reloads the interface.
@@ -1461,18 +1586,119 @@ local RESET_COLOR_KEYS = { "elementColorPalette", "elementColorsCustom", "cBuffG
 	"cBuffNeedAll", "compactOutlineColorMode", "compactOutlineColor", "compactIdleColor",
 	"totemCooldownTextColor", "pulseBarColor", "pulseFlashColor", "manaTintColor",
 	"shieldChargeColors", "cdbarSpellColors" }
-function SP:ResetAllColorsToDefault()
-	local t = T()
-	if t then
-		if SP:ThemeIsCustom() then CaptureCustom(t) end
-		t.global, t.spots, t.palette, t.shield = nil, nil, nil, nil
-		t.borders, t.bordersFlyouts, t.bordersCooldown, t.showAs = nil, nil, nil, nil
-		Changed(true)   -- the pre-theme settings come back first; the defaults go over them
+-- the colors every page has, kept by a reset (read after the theme has put the
+-- player's own back) and put back by the Custom card
+function LOOK.CaptureColors(o)
+	local c = { opt = {} }
+	for _, k in ipairs(RESET_COLOR_KEYS) do c.opt[k] = Copy(o[k]) end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do c.opt[k] = Copy(o[k]) end
+	if type(o.rangeCounter) == "table" then c.rangeElem = o.rangeCounter.useElementColors end
+	local rr = ShamanPower_ReadyReminders
+	if type(rr) == "table" then c.rr = { borderColor = Copy(rr.borderColor), glowColor = Copy(rr.glowColor), barColor = Copy(rr.barColor) } end
+	local tr = ShamanPowerTremorReminderDB
+	if type(tr) == "table" then c.tremor = Copy(tr.glowColor) end
+	return c
+end
+function LOOK.RestoreColors(c)
+	local o = SP.opt
+	if type(o) ~= "table" then return end
+	for k, v in pairs(type(c.opt) == "table" and c.opt or {}) do o[k] = Copy(v) end
+	if type(o.rangeCounter) == "table" then o.rangeCounter.useElementColors = c.rangeElem end
+	local rr = ShamanPower_ReadyReminders
+	if type(rr) == "table" and type(c.rr) == "table" then
+		rr.borderColor, rr.glowColor, rr.barColor = Copy(c.rr.borderColor), Copy(c.rr.glowColor), Copy(c.rr.barColor)
+	end
+	local tr = ShamanPowerTremorReminderDB
+	if type(tr) == "table" and c.tremor ~= nil then tr.glowColor = Copy(c.tremor) end
+end
+function LOOK.ColorsDiffer(c)
+	local o = SP.opt
+	if type(o) ~= "table" then return false end
+	for k, v in pairs(type(c.opt) == "table" and c.opt or {}) do
+		if not Near(o[k], v) then return true end
+	end
+	if type(o.rangeCounter) == "table" and o.rangeCounter.useElementColors ~= c.rangeElem then return true end
+	local rr = ShamanPower_ReadyReminders
+	if type(rr) == "table" and type(c.rr) == "table" then
+		for _, k in ipairs({ "borderColor", "glowColor", "barColor" }) do
+			if not Near(rr[k], c.rr[k]) then return true end
+		end
+	end
+	local tr = ShamanPowerTremorReminderDB
+	if type(tr) == "table" and c.tremor ~= nil and not Near(tr.glowColor, c.tremor) then return true end
+	return false
+end
+-- the look back, as kept (the theme's own fields only where they are still valid)
+function LOOK.Restore(t, look)
+	local lt = type(look.theme) == "table" and look.theme or {}
+	for _, k in ipairs(LOOK.theme) do
+		local v = lt[k]
+		if v ~= nil and not (THEME_FIELDS[k] and THEME_FIELDS[k][v]) then v = nil end
+		t[k] = v
 	end
 	local o = SP.opt
 	if type(o) ~= "table" then return end
+	local lo = type(look.opt) == "table" and look.opt or {}   -- (a value can be false: Duration Bar Background off)
+	for _, k in ipairs(LOOK.opt) do o[k] = Copy(lo[k]) end
+	if look.shieldTexture ~= nil or type(o.barTextureAreas) == "table" then
+		o.barTextureAreas = o.barTextureAreas or {}
+		o.barTextureAreas.shieldcharges = look.shieldTexture
+	end
+	o.shieldChargeDisplay = o.shieldChargeDisplay or {}
+	local sc = o.shieldChargeDisplay
+	local ls = type(look.shield) == "table" and look.shield or {}
+	for _, k in ipairs(LOOK.shield) do sc[k] = Copy(ls[k]) end
+end
+-- every part that draws a look, drawn again
+function LOOK.Repaint()
+	if SP.RefreshTextures then SP:RefreshTextures() end   -- the textures, Glow Shape, Frame Edge, Icon Shape
+	if SP.RefreshIconShapes then SP:RefreshIconShapes() end
+	if SP.RefreshGradients then SP:RefreshGradients() end
+	if SP.UpdatePartyDotPositions then SP:UpdatePartyDotPositions() end   -- Dot Shape, Gem Dot Finish
+	if SP.UpdateCoverageLayout then SP:UpdateCoverageLayout() end
+	if SP.ApplyDurationBarOpacity then SP:ApplyDurationBarOpacity() end   -- Duration Bar Background
+	if SP.ShieldLookChanged then SP:ShieldLookChanged() end
+	if SP.ShieldChargeStyleChanged then SP:ShieldChargeStyleChanged() end
+end
+-- anything a reset clears that is worth keeping on the Custom card: a theme,
+-- the Themes tab's fields, any color, and (Reset Everything) any look
+function LOOK.Worth(t, look, everything, defaults)
+	if t and THEMES[t.global] and t.global ~= "standard" then return true end
+	for _, k in ipairs(LOOK.theme) do if look.theme[k] ~= nil then return true end end
+	local o = SP.opt
+	for _, k in ipairs(RESET_COLOR_KEYS) do if not Near(o[k], defaults[k]) then return true end end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do if o[k] ~= nil then return true end end
+	local rr = ShamanPower_ReadyReminders
+	if type(rr) == "table" and (rr.borderColor or rr.glowColor or rr.barColor) then return true end
+	if not everything then return false end
+	for _, k in ipairs(LOOK.opt) do if not Near(look.opt[k], defaults[k]) then return true end end
+	if look.shieldTexture ~= nil then return true end
+	local ds = type(defaults.shieldChargeDisplay) == "table" and defaults.shieldChargeDisplay or {}
+	for _, k in ipairs(LOOK.shield) do if not Near(look.shield[k], ds[k]) then return true end end
+	return false
+end
+
+function SP:ResetAllColorsToDefault(everything)
+	local o = SP.opt
+	if type(o) ~= "table" then return end
 	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
+	-- what this clears goes onto the Custom card first, so the Custom card brings it all back
+	local t = T()
+	local keep = SP:ThemeIsCustom() or LOOK.Worth(t, LOOK.Capture(t), everything, defaults)
+	if keep then
+		t = TW()
+		CaptureCustom(t)
+	end
+	if t then
+		t.global, t.spots, t.palette, t.shield, t.classColors = nil, nil, nil, nil, nil
+		t.borders, t.bordersFlyouts, t.bordersCooldown, t.showAs = nil, nil, nil, nil
+		t.borderSize, t.borderSizeFlyouts, t.borderSizeCooldown = nil, nil, nil
+		t.bordersCooldownFlyouts, t.borderSizeCooldownFlyouts = nil, nil
+		Changed(true)   -- the pre-theme settings come back first; the defaults go over them
+		if keep and type(t.saved) == "table" then t.saved.colors = LOOK.CaptureColors(o) end
+	end
 	for _, k in ipairs(RESET_COLOR_KEYS) do o[k] = Copy(defaults[k]) end
+	ClearPickedColors(o)   -- each shield's Charge Color, the gradients' Two-Tone colors
 	if type(o.rangeCounter) == "table" then
 		local d, v = defaults.rangeCounter, nil
 		if type(d) == "table" then v = d.useElementColors end
@@ -1486,6 +1712,32 @@ function SP:ResetAllColorsToDefault()
 	end
 	if type(ShamanPowerTremorReminderDB) == "table" then
 		ShamanPowerTremorReminderDB.glowColor = { r = 1, g = 0.8, b = 0 }
+	end
+end
+
+-- Reset Everything (General > Themes): every setting on the Themes tab back to how
+-- it comes. All of Reset All Colors and Theme (a Custom look stays on the Custom
+-- card), then every look: the bar textures, shapes, gradients, Duration Bar
+-- Background, Gem Dot Finish and each shield's charge look. The caller reloads.
+function SP:ResetEverythingToDefault()
+	self:ResetAllColorsToDefault(true)
+	local o = SP.opt
+	if type(o) ~= "table" then return end
+	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
+	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge",
+		"iconShape", "iconShapeCooldown", "iconShapeReady", "iconShapeSplit", "iconBordersSquare",
+		"durationBarBackground", "barGradientDirections" }) do
+		o[k] = Copy(defaults[k])
+	end
+	for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
+		for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do
+			o[field .. part] = Copy(defaults[field .. part])
+		end
+	end
+	if type(o.barTextureAreas) == "table" then o.barTextureAreas.shieldcharges = nil end
+	local sc = o.shieldChargeDisplay
+	if type(sc) == "table" then
+		sc.lookLS, sc.lookWS, sc.lookES, sc.barLook, sc.orbLook = nil, nil, nil, nil, nil
 	end
 end
 

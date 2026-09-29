@@ -801,6 +801,7 @@ function SP:UpdateCompactTotems()
 				if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
 				local pulsePos, pulseRemain
 				local pdata = self:GetActivePulsingTotem(element)
+				if pdata and self:PulsePartsOff(pdata) then pdata = nil end   -- the refill is the line's pulse bar: its list only
 				if pdata then
 					pulsePos = ((now - startTime) % pdata.interval) / pdata.interval
 					pulseRemain = pdata.interval * (1 - pulsePos)

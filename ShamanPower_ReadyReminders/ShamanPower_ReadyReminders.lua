@@ -48,6 +48,9 @@ local DEFAULTS = {
 	soundVolume = 100,
 	soundMinCooldown = 20, -- seconds; shorter cooldowns never make a sound
 	layout = "row",        -- row | column: arrangement used by Reset Positions
+	shockIcon = "cycle",   -- the Shocks entry's icon: cycle | split | one ("earth" = the old Earth Shock only: one, Earth)
+	shockPick = "earthshock",   -- One Shock: the shock shown (earthshock | flameshock | frostshock)
+	shockKeepLast = false,      -- Keep Showing the Last Shock (Cycle, One Shock)
 	spacing = 8,
 	locked = true,
 	spells = {},           -- [key] = true/false (nil = catalog default)
@@ -78,6 +81,9 @@ SP.ReadyReminderSpells = {
 	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false },
 	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false },
 	{ key = "chainlightning", name = "Chain Lightning",   ids = { 421 },                  def = false },   -- 6 s cooldown on both clients
+	-- Earth, Flame and Frost Shock in one icon (they share one cooldown). Earth Shock's
+	-- ID stands for the cooldown: the game puts all three on it whichever is cast.
+	{ key = "shocks", name = "Combined Shocks", optName = "Combined Shocks (Earth, Flame and Frost Shock)", ids = { 8042 }, def = false, combo = true },
 }
 
 local frames = {}
@@ -177,6 +183,18 @@ local IS_MAINLINE = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
 local isShock = { earthshock = true, flameshock = true, frostshock = true }
 local function cooldownOf(entry)
+	if entry.combo then
+		-- Shocks: the family's cooldown (the latest end among the shocks known)
+		local bs, bd
+		for _, key in ipairs(SHOCK_FAMILY) do
+			local e = catalogByKey[key]
+			if e then
+				local s, d = ownCooldownOf(e)
+				if s and d and d > GCD_MAX and (not bd or s + d > bs + bd) then bs, bd = s, d end
+			end
+		end
+		return bs, bd
+	end
 	local start, duration = ownCooldownOf(entry)
 	if IS_MAINLINE and isShock[entry.key] and not (duration and duration > GCD_MAX) then
 		for _, key in ipairs(SHOCK_FAMILY) do
@@ -195,10 +213,28 @@ end
 -- ---------------------------------------------------------------------------
 -- Frames
 -- ---------------------------------------------------------------------------
+-- the row / column Reset Positions lays out: the single spells only (Shocks
+-- is placed from Earth Shock, below), so adding it moved nobody's icons
+local baseCount = 0
+for _, e in ipairs(SP.ReadyReminderSpells) do if not e.combo then baseCount = baseCount + 1 end end
+
 local function defaultPos(entry)
 	local sv = SV()
 	local size, gap = sv.iconSize or 48, sv.spacing or 8
-	local n = #SP.ReadyReminderSpells
+	if entry.combo then
+		-- Earth Shock's spot when its own reminder is off (the three singles hidden),
+		-- else one step before it
+		local es = catalogByKey.earthshock
+		local p = sv.positions.earthshock or defaultPos(es)
+		local x, y = p.x or 0, p.y or 0
+		local v = sv.spells.earthshock
+		if v == nil then v = es.def end
+		if v then
+			if sv.layout == "column" then y = y + size + gap else x = x - size - gap end
+		end
+		return { point = p.point or "CENTER", x = x, y = y }
+	end
+	local n = baseCount
 	local off = (entry.order - (n + 1) / 2) * (size + gap)
 	if sv.layout == "column" then return { point = "CENTER", x = 260, y = -off } end
 	return { point = "CENTER", x = off, y = -140 }
@@ -270,6 +306,7 @@ function SP:CreateReadyReminderFrame(entry)
 	glow:SetPoint("TOPLEFT", -10, 10); glow:SetPoint("BOTTOMRIGHT", 10, -10)
 	glow:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
 	glow:SetTexCoord(0.00781250, 0.50781250, 0.27734375, 0.52734375)
+	if SP.ShapeGlow then SP:ShapeGlow(glow, "alert") end   -- Glow Shape
 	glow:SetBlendMode("ADD"); glow:SetVertexColor(0.3, 0.8, 1.0); glow:SetAlpha(0)
 	f.glow = glow
 	local ag = glow:CreateAnimationGroup(); ag:SetLooping("REPEAT")
@@ -281,6 +318,13 @@ function SP:CreateReadyReminderFrame(entry)
 	local p1 = pg:CreateAnimation("Scale"); p1:SetScale(1.12, 1.12); p1:SetDuration(0.45); p1:SetOrder(1)
 	local p2 = pg:CreateAnimation("Scale"); p2:SetScale(1 / 1.12, 1 / 1.12); p2:SetDuration(0.45); p2:SetOrder(2)
 	f.pulseAnim = pg
+	-- Icon Shape (Ready Reminders): the icon, the sweep over it, its backing and the swipe
+	if SP.ShapeIconTexture then
+		SP:ShapeIconTexture(icon, icon, "ready")
+		SP:ShapeIconTexture(overlay, icon, "ready")
+		SP:ShapeIconTexture(bg, f, "ready")
+		SP:ShapeCooldown(cd, "ready")
+	end
 	local label = f:CreateFontString(nil, "OVERLAY")
 	SP:SetSPFont(label, "alerts", 11, "OUTLINE")
 	label:SetPoint("TOP", f, "BOTTOM", 0, -3)
@@ -316,6 +360,190 @@ end
 
 local styleEngine   -- defined with the engine helpers below; used by the appearance update
 
+-- ---------------------------------------------------------------------------
+-- Shocks (the combined entry). Shock Icon picks the look:
+--   cycle: Earth, Flame, Frost in turn, each held SHOCK_HOLD then crossfaded
+--          into the next (a game-drawn Alpha animation on a second texture;
+--          Lua runs once per shock, to swap the textures). Only while ready:
+--          on cooldown it stops on the shock just cast, and the cycle starts
+--          again from that one.
+--   split: Earth's icon with the matching thirds of Flame and Frost laid over
+--          its middle and right (halves at two shocks), like the cooldown
+--          bar's split imbue icon. A theme's flat box still covers it whole.
+--   one:   one shock, picked in Shock (Earth by default; "earth" is the old
+--          "Earth Shock only", read as one + Earth).
+-- Keep Showing the Last Shock (Cycle, One Shock): once a shock is cast, the icon
+-- stays on the shock cast last, ready or not, until another is cast. It starts
+-- over (cycling, or the picked shock) after a reload.
+-- Only the shocks the character knows (the setup tour's demo shows them all).
+-- ---------------------------------------------------------------------------
+local SHOCK_HOLD, SHOCK_FADE = 1.2, 0.3
+local lastShockKey   -- the shock cast last (UNIT_SPELLCAST_SUCCEEDED, see the wake frame)
+
+-- Own casts' spell IDs stay readable in combat. Any rank, matched by name once per ID.
+local shockKeyOf = {}   -- [spellID] = "earthshock" | "flameshock" | "frostshock" | false
+local function noteShockCast(spellID)
+	if spellID == nil or (issecretvalue and issecretvalue(spellID)) then return end
+	local key = shockKeyOf[spellID]
+	if key == nil then
+		key = false
+		local name = GetSpellInfoC(spellID)
+		if name and not (issecretvalue and issecretvalue(name)) then
+			for _, k in ipairs(SHOCK_FAMILY) do
+				local e = catalogByKey[k]
+				local id = e and clientSpellID(e)
+				if id and GetSpellInfoC(id) == name then key = k break end
+			end
+		end
+		shockKeyOf[spellID] = key
+	end
+	if key then
+		lastShockKey = key
+		SP.readyWake = true   -- the icon shows it on the next pass
+	end
+end
+
+local function setIconTex(f, tex)
+	if f.shownTex ~= tex then f.shownTex = tex; f.icon:SetTexture(tex) end
+end
+
+-- the icon and every texture drawn with it (a crossfade, split slices)
+local function setDesat(f, on)
+	f.icon:SetDesaturated(on)
+	if f.icon2 then f.icon2:SetDesaturated(on) end
+	if f.slices then
+		for i = 2, 3 do if f.slices[i] then f.slices[i]:SetDesaturated(on) end end
+	end
+end
+
+local function stopCycle(f)
+	if not f.cycling then return end
+	f.cycling = nil
+	f.cycAG:Stop()
+	f.icon2:SetAlpha(0); f.icon2:Hide()
+end
+
+local function cycleNext(f)
+	local n = f.cycN or 0
+	if not f.cycling or n < 2 then return end
+	f.cycIdx = (f.cycIdx or 1) % n + 1
+	setIconTex(f, f.cycTex[f.cycIdx])
+	f.icon2:SetTexture(f.cycTex[f.cycIdx % n + 1])
+	f.cycAG:Play()
+end
+
+local function shockStyle(sv)
+	local st = sv.shockIcon or "cycle"
+	if st == "earth" then return "one" end
+	return st
+end
+
+-- the shock the icon stays on (an index into f.cycKeys), or nil to cycle
+local function staticShock(f, sv, style)
+	local want
+	if sv.shockKeepLast and lastShockKey then
+		want = lastShockKey
+	elseif style == "one" then
+		want = (sv.shockIcon == "earth") and "earthshock" or (sv.shockPick or "earthshock")
+	end
+	if not want then return nil end
+	for i = 1, f.cycN or 0 do
+		if f.cycKeys[i] == want then return i end
+	end
+	return (style == "one") and 1 or nil   -- a picked shock not known yet: the first one known
+end
+
+local function startCycle(f)
+	if f.cycling or shockStyle(SV()) ~= "cycle" or (f.cycN or 0) < 2 then return end
+	if not f.icon2 then
+		local t = f:CreateTexture(nil, "ARTWORK", nil, 1)
+		t:SetAllPoints(f.icon)
+		t:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		t:SetAlpha(0)
+		local ag = t:CreateAnimationGroup()
+		local a = ag:CreateAnimation("Alpha")
+		a:SetFromAlpha(0); a:SetToAlpha(1); a:SetStartDelay(SHOCK_HOLD); a:SetDuration(SHOCK_FADE)
+		-- the next shock is now fully up: it becomes the icon, and the next fade starts
+		ag:SetScript("OnFinished", function() cycleNext(f) end)
+		f.icon2, f.cycAG = t, ag
+		if SP.ShapeIconTexture then SP:ShapeIconTexture(t, f.icon, "ready") end   -- Icon Shape
+	end
+	f.icon2:SetDesaturated(f.icon:IsDesaturated() and true or false)
+	f.icon2:SetTexture(f.cycTex[(f.cycIdx or 1) % f.cycN + 1])
+	f.icon2:SetAlpha(0); f.icon2:Show()
+	f.cycling = true
+	f.cycAG:Play()
+end
+
+-- The icon for the state: ready (Cycle cycles unless a shock is kept) or on
+-- cooldown (Cycle stops on the shock just cast and picks up from it later).
+local function shockIcon(f, ready)
+	if not f.cycKeys then return end
+	local sv = SV()
+	local style = shockStyle(sv)
+	if style == "split" then stopCycle(f) return end
+	local idx = staticShock(f, sv, style)
+	if not idx and style == "cycle" then
+		if ready then startCycle(f) return end
+		stopCycle(f)
+		if lastShockKey then
+			for i = 1, f.cycN or 0 do
+				if f.cycKeys[i] == lastShockKey then f.cycIdx = i break end
+			end
+		end
+		setIconTex(f, f.cycTex[f.cycIdx or 1])
+		return
+	end
+	stopCycle(f)
+	idx = idx or 1
+	f.cycIdx = idx
+	setIconTex(f, f.cycTex[idx])
+end
+local function showCastShock(f) shockIcon(f, false) end
+
+local function applyShockLook(f)
+	local sv = SV()
+	local style = shockStyle(sv)
+	f.cycTex, f.cycKeys = f.cycTex or {}, f.cycKeys or {}
+	local n = 0
+	for _, key in ipairs(SHOCK_FAMILY) do
+		local e = catalogByKey[key]
+		if e and usable(e) and (SP.readyDemoActive or playerKnows(e)) then
+			n = n + 1
+			f.cycTex[n] = GetSpellTextureC(clientSpellID(e)) or 136024
+			f.cycKeys[n] = key
+		end
+	end
+	for i = n + 1, 3 do f.cycTex[i], f.cycKeys[i] = nil, nil end
+	if n == 0 then n = 1; f.cycTex[1] = GetSpellTextureC(8042) or 136024; f.cycKeys[1] = "earthshock" end
+	f.cycN = n
+	if not f.cycIdx or f.cycIdx > n then f.cycIdx = 1 end
+	stopCycle(f)   -- the next ready pass starts it again with this look
+	-- split: slices 2 and 3 over Earth's icon, each the matching part of its own icon
+	local iw = (sv.iconSize or 48) - 4   -- the icon sits 2 px inside the frame
+	f.slices = f.slices or {}
+	for i = 2, 3 do
+		local sl = f.slices[i]
+		if style == "split" and i <= n then
+			if not sl then
+				sl = f:CreateTexture(nil, "ARTWORK", nil, 1); f.slices[i] = sl
+				if SP.ShapeIconTexture then SP:ShapeIconTexture(sl, f.icon, "ready") end   -- Icon Shape: the whole icon's shape
+			end
+			sl:ClearAllPoints()
+			sl:SetPoint("TOPLEFT", f.icon, "TOPLEFT", iw * (i - 1) / n, 0)
+			sl:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMLEFT", iw * (i - 1) / n, 0)
+			sl:SetWidth(iw / n)
+			sl:SetTexture(f.cycTex[i])
+			sl:SetTexCoord(0.08 + 0.84 * (i - 1) / n, 0.08 + 0.84 * i / n, 0.08, 0.92)
+			sl:SetDesaturated(f.icon:IsDesaturated() and true or false)
+			sl:Show()
+		elseif sl then
+			sl:Hide()
+		end
+	end
+	if style == "split" then setIconTex(f, f.cycTex[1]) else shockIcon(f, false) end   -- the ready pass starts a cycle
+end
+
 function SP:UpdateReadyReminderAppearance(key)
 	local f = frames[key]; if not f then return end
 	local sv = SV()
@@ -334,8 +562,23 @@ function SP:UpdateReadyReminderAppearance(key)
 	-- name goes under the text when the text is below the icon
 	f.label:ClearAllPoints()
 	if tp == "below" then f.label:SetPoint("TOP", f.count, "BOTTOM", 0, -1) else f.label:SetPoint("TOP", f, "BOTTOM", 0, -3) end
-	f.bg:SetShown(not sv.hideBackground); f.border:SetShown(not sv.hideBackground)
+	-- the border (Hide Border: just the border); round a Rounded / Circle icon it
+	-- follows the shape as a ring, unless Keep Borders Square
+	local borderOn = not sv.hideBackground and not sv.hideBorder
+	local ringFile = SP.BorderRingFile and SP:BorderRingFile("ready")
+	f.bg:SetShown(not sv.hideBackground); f.border:SetShown(borderOn and not ringFile)
 	f.border:SetBackdropBorderColor(color(sv.borderColor, 0.2, 0.7, 1.0))
+	if ringFile then
+		if not f.ring then
+			f.ring = f:CreateTexture(nil, "OVERLAY")
+			f.ring:SetAllPoints(f.border)
+		end
+		if f.ring.spFile ~= ringFile then f.ring:SetTexture(ringFile); f.ring.spFile = ringFile end
+		f.ring:SetVertexColor(color(sv.borderColor, 0.2, 0.7, 1.0))
+		f.ring:SetShown(borderOn)
+	elseif f.ring then
+		f.ring:Hide()
+	end
 	f.glow:SetVertexColor(color(sv.glowColor, 0.3, 0.8, 1.0))
 	f.label:SetShown(sv.showNames == true)
 	-- bar placement
@@ -348,9 +591,13 @@ function SP:UpdateReadyReminderAppearance(key)
 	end
 	f.bar:SetStatusBarColor(color(sv.barColor, 0.3, 0.8, 1.0))
 	if sv.barStyle == "above" and sv.showNames then f.label:ClearAllPoints(); f.label:SetPoint("TOP", f, "BOTTOM", 0, -3) end
-	local id = clientSpellID(f.entry)
-	local tex = id and GetSpellTextureC(id)
-	f.icon:SetTexture(tex or 136024)
+	if f.entry.combo then
+		applyShockLook(f)
+	else
+		local id = clientSpellID(f.entry)
+		local tex = id and GetSpellTextureC(id)
+		f.icon:SetTexture(tex or 136024)
+	end
 	f:SetAlpha(sv.opacity or 1)
 	applyPos(f)
 	styleEngine(f)
@@ -451,12 +698,13 @@ end
 local function stopEffects(f)
 	if f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
 	if f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+	if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
 end
 
 local function setReady(f, ready)
 	local sv = SV()
 	if ready then
-		f.icon:SetDesaturated(false)
+		setDesat(f, false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart, f.realDone = nil, nil, nil, nil, nil
 		curveMouseBack(f)
@@ -469,8 +717,9 @@ local function setReady(f, ready)
 		if (fx == "pulse" or fx == "both") then
 			if not f.pulsing then f.pulseAnim:Play(); f.pulsing = true end
 		elseif f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+		if f.entry.combo then shockIcon(f, true) end
 	else
-		f.icon:SetDesaturated(sv.desaturate ~= false)
+		setDesat(f, sv.desaturate ~= false)
 		f:SetAlpha(sv.dimOpacity or 0.35)
 		stopEffects(f)
 	end
@@ -523,7 +772,7 @@ local function drawEngineCooldown(f, sv)
 	local barOn = (sv.barStyle or "none") ~= "none"
 	-- a sweep is the dimming: the covered part is the cooldown left, the rest
 	-- is the icon coming back in colour. Desaturating as well hides that.
-	if style ~= "none" then f.icon:SetDesaturated(false) end
+	if style ~= "none" then setDesat(f, false) end
 	if f.ecdOn and not f.cdChanged and f.ecdStyle == style and f.ecdBar == barOn then return end
 	local id = clientSpellID(f.entry)
 	if not id then return end
@@ -553,6 +802,7 @@ local function drawEngineCooldown(f, sv)
 			if sheet.SetFillStyle then sheet:SetFillStyle("STANDARD") end
 			sheet:SetFrameLevel(f:GetFrameLevel() + 1)
 			f.engineSheet = sheet
+			if SP.ShapeIconTexture then SP:ShapeIconTexture(sheet:GetStatusBarTexture(), f.icon, "ready") end   -- Icon Shape
 		end
 		local okb = pcall(sheet.SetTimerDuration, sheet, d, Interp, Dir.RemainingTime)
 		sheet:SetShown(okb and true or false)
@@ -621,6 +871,7 @@ local function setTicking(on)
 	if on then
 		if SP.EnableUpdateSubsystem then SP:EnableUpdateSubsystem("readyReminders") end
 		for _, ev in ipairs(WAKE_EVENTS) do pcall(wakeFrame.RegisterEvent, wakeFrame, ev) end
+		pcall(wakeFrame.RegisterUnitEvent, wakeFrame, "UNIT_SPELLCAST_SUCCEEDED", "player")   -- Shocks: which shock was cast
 	else
 		if SP.DisableUpdateSubsystem then SP:DisableUpdateSubsystem("readyReminders") end
 		wakeFrame:UnregisterAllEvents()
@@ -727,7 +978,7 @@ function SP:ShowAllReadyReminders()
 			curveMouseBack(f)   -- draggable again
 			stopEffects(f)
 			f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
-			f.icon:SetDesaturated(false); f:SetAlpha(SV().opacity or 1)
+			setDesat(f, false); f:SetAlpha(SV().opacity or 1)
 			f.label:SetShown(SV().showNames == true); f:Show()
 		end
 	end
@@ -809,6 +1060,7 @@ function SP:ReadyRemindersDemo(on)
 		if self.readyDemoTicker then self.readyDemoTicker:Cancel(); self.readyDemoTicker = nil end
 		self.readyDemoStatus = nil
 		for _, f in pairs(frames) do stopEffects(f); f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil; f.spDemoHidden = nil; f:Hide() end
+		if frames.shocks then applyShockLook(frames.shocks) end   -- the demo showed every shock: back to the known ones
 		self:UpdateReadyReminders()
 	end
 end
@@ -862,6 +1114,34 @@ end
 -- ---------------------------------------------------------------------------
 -- Options (injected into the core options table under fluffy)
 -- ---------------------------------------------------------------------------
+-- Shocks switched on while a single shock reminder is still on: offer to hide
+-- the three, so there are not four icons for one cooldown
+local function shocksTurnedOn()
+	local sv = SV()
+	local any = false
+	for _, key in ipairs(SHOCK_FAMILY) do
+		local e = catalogByKey[key]
+		if e and usable(e) and spellOn(e) then any = true end
+	end
+	if not any or not SP.ShowSPDialog then return end
+	SP:ShowSPDialog({
+		key = "ready_shocks_singles",
+		title = "Hide the single shock reminders?",
+		text = "Combined Shocks now stands for Earth, Flame and Frost Shock. Hide their own three reminders so you do not see four icons for one cooldown? You can turn them back on in the list any time.",
+		buttons = {
+			{ text = "Hide Them", onClick = function()
+				for _, key in ipairs(SHOCK_FAMILY) do sv.spells[key] = false end
+				SP:UpdateAllReadyReminderAppearance(); SP:UpdateReadyReminders()
+				local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+				if reg then reg:NotifyChange("ShamanPower") end   -- the open settings show the three switched off
+			end },
+			{ text = "Keep Them" },
+		},
+	})
+end
+
+SP.ReadyShocksTurnedOn = shocksTurnedOn   -- the setup tour's spell list offers the same
+
 local function InjectOptions()
 	local root = SP.options
 	if not (root and root.args and root.args.fluffy and root.args.fluffy.args) then return end
@@ -925,8 +1205,26 @@ local function InjectOptions()
 				get = function() return SV().opacity or 1 end, set = function(_, v) SV().opacity = v; refresh() end },
 			hideBackground = { order = 6.3, type = "toggle", name = "Hide Background & Border", width = 1.0,
 				get = function() return SV().hideBackground end, set = function(_, v) SV().hideBackground = v; refresh() end },
-			borderColor = { order = 6.4, type = "color", name = "Border Color", width = 1.0,
+			iconShape = { order = 6.33, type = "select", name = "Icon Shape", width = 1.0,
+				desc = "The shape of the reminder icons: Square (as today), Flat, Rounded or Circle. The glow keeps its own Glow Shape. The same setting as Ready Reminders Icon Shape on General > Themes.",
+				values = function() return (SP:IconShapeValues()) end,
+				sorting = function() return select(2, SP:IconShapeValues()) end,
+				get = function() return SP.IconShapeOf and SP:IconShapeOf("ready") or "default" end,
+				set = function(_, v) if SP.SetIconShape then SP:SetIconShape(v, "ready") end end },
+			iconBordersSquare = { order = 6.34, type = "toggle", name = "Keep Borders Square", width = 1.0,
+				desc = "With Rounded or Circle icons the border follows the shape. Turn this on to keep it square. One setting for every bar (and on General > Themes).",
+				hidden = function()
+					local k = SP.IconShapeOf and SP:IconShapeOf("ready")
+					return (k ~= "rounded" and k ~= "circle") or SV().hideBackground or SV().hideBorder
+				end,
+				get = function() return SP.opt and SP.opt.iconBordersSquare == true end,
+				set = function(_, v) if SP.SetIconBordersSquare then SP:SetIconBordersSquare(v) end end },
+			hideBorder = { order = 6.35, type = "toggle", name = "Hide Border", width = 1.0,
+				desc = "Hide just the border round each reminder icon and keep the background. (Hide Background hides both.)",
 				hidden = function() return SV().hideBackground end,
+				get = function() return SV().hideBorder == true end, set = function(_, v) SV().hideBorder = v or nil; refresh() end },
+			borderColor = { order = 6.4, type = "color", name = "Border Color", width = 1.0,
+				hidden = function() return SV().hideBackground or SV().hideBorder end,
 				get = function() return color(SV().borderColor, 0.2, 0.7, 1.0) end,
 				set = function(_, r, g, b) SV().borderColor = { r = r, g = g, b = b }; refresh() end },
 			showNames = { order = 6.5, type = "toggle", name = "Show Spell Names", desc = "The spell's name under each icon.", width = 1.0,
@@ -936,6 +1234,13 @@ local function InjectOptions()
 			readyEffect = { order = 7.1, type = "select", name = "Ready Effect", width = 1.0,
 				values = { glow = "Glow", pulse = "Pulse", both = "Glow + pulse", none = "None" },
 				get = function() return SV().readyEffect or "glow" end, set = function(_, v) SV().readyEffect = v; refresh() end },
+			glowShape = { order = 7.25, type = "select", name = "Glow Shape", width = 1.0,
+				desc = "The shape of the glow. The same setting as Glow Shape on General > Themes and Totem Bar > Duration Bars (it also shapes the pulse flash and the other alert glows).",
+				hidden = function() local fx = SV().readyEffect or "glow"; return fx ~= "glow" and fx ~= "both" end,
+				values = function() return (SP:GlowShapeValues()) end,
+				sorting = function() return select(2, SP:GlowShapeValues()) end,
+				get = function() return SP.opt and SP.opt.glowShape or "default" end,
+				set = function(_, v) SP:SetGlowShape(v) end },
 			glowColor = { order = 7.2, type = "color", name = "Glow Color", width = 1.0,
 				hidden = function() local fx = SV().readyEffect or "glow"; return fx ~= "glow" and fx ~= "both" end,
 				get = function() return color(SV().glowColor, 0.3, 0.8, 1.0) end,
@@ -947,7 +1252,7 @@ local function InjectOptions()
 				values = function() local t = {} for name in pairs((AceGUIWidgetLSMlists and AceGUIWidgetLSMlists.sound) or {}) do t[name] = name end return t end,
 				disabled = function() return not SV().soundOnReady end,
 				get = function() return SV().soundName or "Raid Warning" end, set = function(_, v) SV().soundName = v end },
-			soundVolume = { order = 7.5, type = "range", name = "Sound Volume", min = 0, max = 100, step = 5, width = 1.0,
+			soundVolume = { order = 7.5, type = "range", name = "Sound Volume", min = 0, max = 100, step = 1, width = 1.0,
 				disabled = function() return not SV().soundOnReady end,
 				get = function() return SV().soundVolume or 100 end, set = function(_, v) SV().soundVolume = v end },
 			soundMinCooldown = { order = 7.6, type = "range", name = "Sound Only For Cooldowns Over (sec)", min = 0, max = 300, step = 5, width = 1.4,
@@ -981,6 +1286,13 @@ local function InjectOptions()
 				hidden = function() return (SV().mode or "ready") ~= "always" or (SV().barStyle or "none") == "none" end,
 				get = function() return color(SV().barColor, 0.3, 0.8, 1.0) end,
 				set = function(_, r, g, b) SV().barColor = { r = r, g = g, b = b }; refresh() end },
+			barGradientDirection = { order = 8.65, type = "select", name = "Bar Gradient Direction", width = 1.0,
+				desc = "Where the gradient starts on this bar. Along the Bar follows the bar. Shown when Bar Gradient (Totem Bar > Duration Bars or General > Themes) is not Flat.",
+				hidden = function() return (SV().mode or "ready") ~= "always" or (SV().barStyle or "none") == "none" or not (SP.opt and SP.opt.barGradient) end,
+				values = function() return (SP:GradientDirectionValues("barGradient")) end,
+				sorting = function() return select(2, SP:GradientDirectionValues("barGradient")) end,
+				get = function() return SP:BarGradientDirection("other") end,
+				set = function(_, v) SP:SetBarGradientDirection("other", v) end },
 			showCountdown = { order = 8.7, type = "toggle", name = "Countdown Text", width = 1.0,
 				hidden = function() return (SV().mode or "ready") ~= "always" end,
 				get = function() return SV().showCountdown ~= false end,
@@ -1001,22 +1313,69 @@ local function InjectOptions()
 	for i, entry in ipairs(SP.ReadyReminderSpells) do
 		spellKeys[#spellKeys + 1] = "spell_" .. entry.key
 		args["spell_" .. entry.key] = {
-			order = 22 + i, type = "toggle", name = entry.name, width = 1.2,
+			order = 22 + i, type = "toggle", name = entry.optName or entry.name, width = entry.combo and "full" or 1.2,
 			hidden = function() return not usable(entry) end,   -- not in this client's data, or no cooldown here
 			get = function() return spellOn(entry) end,
-			set = function(_, v) SV().spells[entry.key] = v; refresh() end,
+			set = function(_, v)
+				SV().spells[entry.key] = v; refresh()
+				if v and entry.combo then shocksTurnedOn() end
+			end,
 		}
+		if entry.combo then
+			spellKeys[#spellKeys + 1] = "shockIcon"
+			args.shockIcon = {
+				order = 22 + i + 0.5, type = "select", name = "Shock Icon", width = 1.4,
+				desc = "Cycle: Earth, Flame and Frost Shock take turns, fading from one to the next while the reminder is ready. Split: one icon cut into three slices. One Shock: the shock you pick below.",
+				hidden = function() return not (usable(entry) and spellOn(entry)) end,
+				values = { cycle = "Cycle", split = "Split", one = "One Shock" },
+				sorting = { "cycle", "split", "one" },
+				get = function() return shockStyle(SV()) end,
+				set = function(_, v)
+					local sv = SV()
+					if sv.shockIcon == "earth" then sv.shockPick = "earthshock" end   -- the old choice kept its shock
+					sv.shockIcon = v
+					refresh()
+				end,
+			}
+			spellKeys[#spellKeys + 1] = "shockPick"
+			args.shockPick = {
+				order = 22 + i + 0.6, type = "select", name = "Shock", width = 1.4,
+				desc = "The shock One Shock shows.",
+				hidden = function() return not (usable(entry) and spellOn(entry) and shockStyle(SV()) == "one") end,
+				values = { earthshock = "Earth Shock", flameshock = "Flame Shock", frostshock = "Frost Shock" },
+				sorting = { "earthshock", "flameshock", "frostshock" },
+				get = function()
+					local sv = SV()
+					if sv.shockIcon == "earth" then return "earthshock" end
+					return sv.shockPick or "earthshock"
+				end,
+				set = function(_, v)
+					local sv = SV()
+					if sv.shockIcon == "earth" then sv.shockIcon = "one" end
+					sv.shockPick = v
+					refresh()
+				end,
+			}
+			spellKeys[#spellKeys + 1] = "shockKeepLast"
+			args.shockKeepLast = {
+				order = 22 + i + 0.7, type = "toggle", name = "Keep Showing the Last Shock", width = "full",
+				desc = "Once you cast a shock, the icon stays on the shock you cast last, ready or not, until you cast a different one. With Cycle it cycles only until your first shock; with One Shock it shows your picked shock until then. It starts over after a reload.",
+				hidden = function() return not (usable(entry) and spellOn(entry) and shockStyle(SV()) ~= "split") end,
+				get = function() return SV().shockKeepLast == true end,
+				set = function(_, v) SV().shockKeepLast = v and true or false; refresh() end,
+			}
+		end
 	end
 	SP.OrderSettingsBands({ args = args }, {
 		{ keys = { "desc" } },
 		{ keys = { "enabled", "mode", "onlyInCombat" } },
 		{ header = "spellsHeader", name = "Spells", keys = spellKeys },
 		{ header = "lookHeader", name = "Look", keys = {
-			"iconSize", "opacity", "textSize", "hideBackground", "borderColor", "showNames",
+			"iconSize", "opacity", "textSize", "iconShape", "hideBackground", "hideBorder", "iconBordersSquare", "borderColor", "showNames",
 		}, names = { textSize = "Text Size (0 = auto)", hideBackground = "Hide Background" } },
-		{ header = "readyHeader", name = "Behavior", keys = { "readyEffect", "glowColor" } },
+		{ header = "readyHeader", name = "Behavior", keys = { "readyEffect", "glowColor", "glowShape" } },
 		{ header = "cdHeader", name = "While On Cooldown", keys = {
-			"cdNote", "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor",
+			"cdNote", "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor", "barGradientDirection",
 			"showCountdown", "textPosition",
 		} },
 		{ header = "soundHeader", name = "Sound", keys = {
@@ -1077,7 +1436,8 @@ ef:SetScript("OnEvent", function(_, event)
 			end)
 			local wake = CreateFrame("Frame")   -- its events follow the setting (setTicking)
 			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
-			wake:SetScript("OnEvent", function(_, event)
+			wake:SetScript("OnEvent", function(_, event, _, _, spellID)
+				if event == "UNIT_SPELLCAST_SUCCEEDED" then noteShockCast(spellID) return end
 				SP.readyWake = true
 				-- a cooldown can change without its start time changing (reset, haste,
 				-- a secret start): fetch the duration object again on the next pass,

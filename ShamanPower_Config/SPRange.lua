@@ -143,7 +143,7 @@ local function Build()
 	local toggle = Core:MakeButton(dlg, "Show Overlay", 130, true)
 	toggle:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -pad, 12)
 	local function PaintToggle()
-		local shown = SP.spRangeFrame and SP.spRangeFrame:IsShown()
+		local shown = SP.SPRangeOverlayOn and SP:SPRangeOverlayOn()
 		toggle.text:SetText(shown and "Hide Overlay" or "Show Overlay")
 	end
 	toggle:SetScript("OnClick", function()

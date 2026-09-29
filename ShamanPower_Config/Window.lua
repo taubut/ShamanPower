@@ -103,12 +103,11 @@ local POWER_SPRANGE = {
 	loaded = function() local sp = SP() return sp and sp.SPRangeLoaded and true or false end,
 	get    = function()   -- on also while it waits for a group (Show the Overlay)
 		local sp = SP()
-		return (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
+		return sp.SPRangeOverlayOn ~= nil and sp:SPRangeOverlayOn()
 	end,
 	set    = function(v)
 		local sp = SP()
-		local cur = (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
-		if (v and true or false) ~= cur then sp:ToggleSPRange() end
+		if (v and true or false) ~= sp:SPRangeOverlayOn() then sp:ToggleSPRange() end
 	end,
 }
 
@@ -206,6 +205,10 @@ local NAV = {
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
 		{ label = "Profiles", path = P("profiles"), lock = true },
+		-- every version's notes (PatchNotesPage.lua draws the page); NEW until opened
+		{ label = "Patch Notes", custom = "patchnotes", path = P("settings", "settings_patchnotes"),
+			desc = "What changed in each version, newest first. Click a version to open or close it.",
+			newTag = function() local sp = ShamanPower; return sp and sp.PatchNotesUnseen and sp:PatchNotesUnseen() end },
 	}},
 	{ group = "Bars", entries = {
 		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
@@ -746,6 +749,9 @@ function SPConfig:UpdatePreviewPane(remount)
 			if t.label == frame._activeTab and t.preview then spec = t.preview break end
 		end
 	end
+	if frame._themesSearch and PLAYER_IS_SHAMAN and ns.ThemesPage and ns.ThemesPage:IsShown() then
+		spec = MOCK_THEMES   -- search results have the same section-driven preview as the Themes tab
+	end
 	local title = entry and entry.label or ""
 	local styleKey
 	if spec == MOCK_THEMES then
@@ -1248,6 +1254,19 @@ function SPConfig:RenderNav(query)
 				row.shamanOnly = entry.shamanOnly and select(2, UnitClass("player")) ~= "SHAMAN"
 				row.text:SetTextColor(Core:Color(row.shamanOnly and "textMute" or "text"))
 				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Shaman only - these features do not run on this class.") else Core:AttachTooltip(row, "", nil) end
+				-- a NEW tag (Patch Notes, until its page is opened): gold small caps, as on the What's New card
+				local tagOn = entry.newTag and entry.newTag() or false
+				if tagOn and not row.newTag then
+					row.newTag = row:CreateFontString(nil, "OVERLAY")
+					row.newTag:SetFontObject(Core.fonts.section)
+					row.newTag:SetTextColor(1, 0.82, 0)
+					row.newTag:SetText("NEW")
+				end
+				if row.newTag then
+					row.newTag:ClearAllPoints()
+					row.newTag:SetPoint("LEFT", row.text, "RIGHT", 8, 0)
+					row.newTag:SetShown(tagOn)
+				end
 
 				-- Power dot: an explicit binding on the entry wins, otherwise an
 				-- "Enable ..." toggle found in the page is promoted.
@@ -1387,10 +1406,11 @@ local function ClearPage()
 	Widgets:ReleaseAll(frame.body)
 	wipe(pageWidgets)
 	if ns.ThemesPage then ns.ThemesPage:Release() end
+	if ns.PatchNotesPage then ns.PatchNotesPage:Release() end
 end
 
 -- General > Themes draws its own page (Themes.lua) in place of its group's
--- rows; a search across the tabs shows the group's rows as usual.
+-- rows; a search appends its matching blocks after the ordinary settings rows.
 local function CustomTabActive(entry, query)
 	if (query and query ~= "") or not (entry and entry.tabs) then return nil end
 	for _, t in ipairs(entry.tabs) do
@@ -1466,7 +1486,7 @@ local function ResolveComposed(entry, query, drawTabs)
 				live[#live + 1] = { node = n, chain = c, path = pth, rows = rows }
 			end
 		end
-		if #live > 0 then tabs[#tabs + 1] = { key = t.label, name = t.label, live = live } end
+		if #live > 0 then tabs[#tabs + 1] = { key = t.label, name = t.label, live = live, custom = t.custom } end
 	end
 	if #tabs == 0 then
 		if drawTabs then RenderTabs({}, nil, function() end) end
@@ -1475,7 +1495,8 @@ local function ResolveComposed(entry, query, drawTabs)
 	local active = PickTab(tabs, OnTabPick, drawTabs, searching)
 	local list = {}
 	for _, t in ipairs(searching and tabs or { active }) do
-		for _, lv in ipairs(t.live) do
+		-- The custom renderer searches its real blocks, not the Ace placeholder.
+		for _, lv in ipairs((searching and t.custom == "themes") and {} or t.live) do
 			-- A first band already labels these rows; do not stack an empty
 			-- same-depth group heading directly above it.
 			if (#t.live > 1 or (searching and #tabs > 1)) and lv.rows[1].kind ~= "section" then
@@ -1533,6 +1554,8 @@ local function PageSignature(list, groups)
 end
 
 function SPConfig:RenderPage(entry, query, keepScroll)
+	local wasThemesSearch = frame._themesSearch
+	frame._themesSearch = nil
 	ClearPage()
 	if frame.whatsNewBtn then frame.whatsNewBtn:Hide() end
 	if not entry then return end
@@ -1546,14 +1569,23 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	frame.title:SetText(Tree:StripColor(entry.label))
 	frame.subtitle:SetText(Tree:StripColor(entry.desc or Tree:GetDesc(node, info) or ""))
 
-	local list, groups = ResolvePageList(entry, query, true)
+	local patchNotes = entry.custom == "patchnotes" and ns.PatchNotesPage or nil
+	local list, groups = ResolvePageList(entry, (not patchNotes) and query or nil, true)
 	-- What's New sits on General's Main tab only (elsewhere it covers the page description)
 	if frame.whatsNewBtn then frame.whatsNewBtn:SetShown(entry.label == "General" and frame._activeTab == "Main") end
 	if not list then return end
 	frame._query = query
 	frame._pageSig = PageSignature(list, groups)
 	local customTab = CustomTabActive(entry, query) == "themes" and ns.ThemesPage or nil
-	if customTab then list = {} end   -- drawn below by the page itself
+	if customTab or patchNotes then list = {} end   -- drawn below by the page itself
+	local searchThemes, themeSelection
+	if query and query ~= "" and ns.ThemesPage then
+		for _, tab in ipairs(groups or {}) do
+			if tab.custom == "themes" then searchThemes = true break end
+		end
+		if searchThemes then themeSelection = ns.ThemesPage:Search(query) end
+	end
+	frame._themesSearch = searchThemes
 
 	local body = frame.body
 	local fullW = frame.bodyScroll:GetWidth() - 8
@@ -1590,7 +1622,9 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		end
 		if cur then
 			local newList, newGroups = ResolvePageList(cur, frame._query, false)
-			if newList and PageSignature(newList, newGroups) ~= frame._pageSig then
+			-- A theme choice can change both its search text and conditional rows,
+			-- including a search that previously had no Themes matches.
+			if newList and (searchThemes or PageSignature(newList, newGroups) ~= frame._pageSig) then
 				SPConfig:RenderPage(cur, frame._query, frame.bodyScroll:GetVerticalScroll())
 				if LibStub then
 					local reg = LibStub("AceConfigRegistry-3.0", true)
@@ -1789,6 +1823,26 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		else
 			geterrorhandler()(h)
 		end
+	elseif patchNotes then
+		-- Settings > Patch Notes: the page search narrows the notes themselves
+		local ok, h = pcall(patchNotes.Render, patchNotes, body, fullW, onChanged, query)
+		if ok then
+			y = h or 0
+			pageWidgets[#pageWidgets + 1] = body
+		else
+			geterrorhandler()(h)
+		end
+	elseif themeSelection then
+		BreakRow()
+		local header, height = Widgets:SectionHeader(body, { label = "Themes", x = 0, y = y, width = fullW })
+		pageWidgets[#pageWidgets + 1] = header
+		y = y + height
+		local ok, heightUsed = pcall(ns.ThemesPage.Render, ns.ThemesPage, body, fullW, onChanged, themeSelection, y)
+		if ok then
+			y = heightUsed or y
+		else
+			geterrorhandler()(heightUsed)
+		end
 	end
 
 	self:UpdateCombatLock()
@@ -1807,6 +1861,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	else
 		frame.emptyText:Hide()
 	end
+	if searchThemes or wasThemesSearch then self:UpdatePreviewPane() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1927,7 +1982,12 @@ do
 		local function Paint()
 			paintQueued = false
 			if not (frame and frame:IsShown()) then return end
-			if ns.ThemesPage then ns.ThemesPage:Repaint() end
+			if frame._themesSearch then
+				-- A theme change can create matches even when none were drawn before.
+				SPConfig:RefreshCurrent()
+			elseif ns.ThemesPage then
+				ns.ThemesPage:Repaint()
+			end
 			SPConfig:PreviewChanged(true)
 		end
 		local function Settle()

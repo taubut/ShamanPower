@@ -30,6 +30,20 @@ for name, file in pairs({
 	LSM:Register("font", name, FONTS .. file, LATIN)
 end
 
+-- Bar textures from WeakAuras (Media/Textures). The first four carry the names
+-- WeakAuras registers them under, so a player running both sees each once.
+local TEXTURES = "Interface\\AddOns\\ShamanPower\\Media\\Textures\\"
+for name, file in pairs({
+	["Clean"]          = "Statusbar_Clean",
+	["Stripes"]        = "Statusbar_Stripes",
+	["Thick Stripes"]  = "Statusbar_Stripes_Thick",
+	["Thin Stripes"]   = "Statusbar_Stripes_Thin",
+	["Diagonal Stripes"] = "stripe-bar",
+	["Striped"]        = "StripedTexture",
+}) do
+	LSM:Register("statusbar", name, TEXTURES .. file)
+end
+
 for name, file in pairs({
 	["ShamanPower: Totem Chime"] = "ShamanPower-Totem-Chime.ogg",
 	["ShamanPower: Shield Pop"]  = "ShamanPower-Shield-Pop.ogg",
