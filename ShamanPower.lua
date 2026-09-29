@@ -4666,7 +4666,7 @@ function ShamanPower:PositionActiveOverlays()
 	local pulsePos = self.opt.pulseBarPosition or "on_icon"
 	local reach = (pulsePos == facing) and (1 + (self.opt.pulseBarSize or 4)) or 0
 	local reachVert = (side == "top" and pulsePos == "below_vert") or (side == "bottom" and pulsePos == "above_vert")
-	if self.opt.showPartyRangeDots and (self.opt.partyDotPosition or "corners") == facing then
+	if self.opt.showPartyRangeDots and IsInGroup() and (self.opt.partyDotPosition or "corners") == facing then
 		reach = math.max(reach, 2 + (self.opt.partyDotSize or 5))
 	end
 	for element = 1, 4 do
@@ -12480,6 +12480,9 @@ end
 function ShamanPower:GetPartyDotPads()
 	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
 	if not (self.opt and self.opt.showPartyRangeDots) then return 0, 0, 0, 0 end
+	-- solo there are no dots: the bars sit where they always do (the room comes back
+	-- in a group; OnRosterSettled lays the bar out again when that changes)
+	if not IsInGroup() then return 0, 0, 0, 0 end
 	local pad = (self.opt.partyDotSize or 5) + 3   -- the dot + 2px gap + 1px breathing room
 	return (pos == "above") and pad or 0, (pos == "below") and pad or 0,
 	       (pos == "left") and pad or 0, (pos == "right") and pad or 0
@@ -17532,6 +17535,19 @@ end
 
 function ShamanPower:OnRosterSettled()
 	self:UpdateRoster()
+	-- the party dots' room is kept only in a group: joining or leaving one lays the
+	-- bars out again (the button spacing waits for the end of a fight, then comes here)
+	local grouped = IsInGroup() and true or false
+	if self._dotRoomGrouped ~= grouped
+		or (self._dotBarSpacing and self._dotBarSpacing ~= self:TotemBarSpacing()) then
+		self._dotRoomGrouped = grouped
+		if self.UpdatePartyDotPositions then self:UpdatePartyDotPositions() end
+		self:PositionActiveOverlays()   -- the dropped-totem icons step past the dots too
+		-- Blizzard's Totem Bar styles its own bars (after the fight when in one)
+		if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() and self.QueueBlizzardTotemBarRefresh then
+			self.QueueBlizzardTotemBarRefresh()
+		end
+	end
 end
 
 -- One roster member: who leads, and which raid subgroup each known shaman is in
