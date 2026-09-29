@@ -215,6 +215,30 @@ function SP:PaintOutlineEdges(top, bottom, left, right, r, g, b, a, kindOverride
 	if right and right.SetGradient then right:SetGradient("VERTICAL", A, B); right.spGrad = true end
 	return true
 end
+-- a ring outline (a border that follows a Rounded / Circle icon): the Outline
+-- Gradient over the whole ring, the same colors and direction as the edges
+function SP:PaintOutlineRing(t, r, g, b, a)
+	a = a or 1
+	local way, r1, g1, b1, a1, r2, g2, b2, a2 = gradientEnds(self.opt and self.opt.outlineGradient, "outlineGradient", r, g, b, a)
+	local A, B = gradColors()
+	if not way or not (A and t.SetGradient) then
+		t:SetVertexColor(r, g, b, a)
+		t.spGrad = nil
+		return false
+	end
+	if way == "across" then r1, g1, b1, r2, g2, b2 = r2, g2, b2, r1, g1, b1 end   -- glass: its shine first
+	local dir = self.opt.outlineGradientDirection
+	if dir == "btt" or dir == "rtl" then r1, g1, b1, a1, r2, g2, b2, a2 = r2, g2, b2, a2, r1, g1, b1, a1 end
+	if dir == "ltr" or dir == "rtl" then
+		A:SetRGBA(r1, g1, b1, a1); B:SetRGBA(r2, g2, b2, a2)   -- the start on the left
+		t:SetGradient("HORIZONTAL", A, B)
+	else
+		A:SetRGBA(r2, g2, b2, a2); B:SetRGBA(r1, g1, b1, a1)   -- the start at the top (VERTICAL: min = bottom)
+		t:SetGradient("VERTICAL", A, B)
+	end
+	t.spGrad = true
+	return true
+end
 function SP:GradientValues()
 	local v, order = {}, {}
 	for _, s in ipairs(SP.GRADIENTS) do v[s.key] = s.label; order[#order + 1] = s.key end
@@ -569,25 +593,75 @@ function SP:SetFrameEdge(key)
 	self:RepaintFrameEdges()
 end
 
--- Icon Shape (General > Themes, Appearance > Totem Bar / Cooldown Bar; one
--- setting): the icons on the totem bar, its flyouts, the dropped-totem
--- overlays, pop-outs, Drop All and the cooldown bar. opt.iconShape nil = the
--- square icons. A shape is a mask over the icon and the things drawn on it
--- (highlight, sweeps, dark layer, the split imbue half), and the cooldown swipe
--- takes the same shape. With Square nothing is ever masked (today's code path).
+-- Icon Shape (General > Themes, and each bar's own page): one shape per bar.
+--   opt.iconShape          the totem bar: its buttons, flyouts, the dropped-totem
+--                          overlays, pop-outs and Drop All
+--   opt.iconShapeCooldown  the cooldown bar: its buttons and the shield and imbue flyouts
+--   opt.iconShapeReady     Ready Reminders
+-- nil = Square (today: nothing is ever masked or trimmed). Flat trims the icon
+-- picture's own frame where a bar shows the whole picture (the totem bar does);
+-- Rounded and Circle trim it too, and a mask cuts the icon and the things drawn
+-- on it (highlight, sweeps, dark layer, the split imbue half) to the shape; the
+-- cooldown swipe takes the shape. ShamanPower Minimal's boxes follow their bar
+-- (ShamanPowerThemeBoxes.lua); a border follows the shape as a ring unless
+-- opt.iconBordersSquare (Keep Borders Square).
 SP.ICON_SHAPES = {
 	{ key = "default", label = "Square (default)" },
+	{ key = "flat",    label = "Flat" },
 	{ key = "rounded", label = "Rounded", file = SHAPES .. "Mask_Rounded" },
 	{ key = "circle",  label = "Circle",  file = SHAPES .. "Mask_Circle" },
 }
 local MASK_FILE = { rounded = SHAPES .. "Mask_Rounded", circle = SHAPES .. "Mask_Circle" }
-local shapedTex = setmetatable({}, { __mode = "k" })   -- [texture] = the icon whose rectangle the shape covers
-local shapedCd = setmetatable({}, { __mode = "k" })
+local RING_FILE = { rounded = SHAPES .. "Ring_Rounded", circle = SHAPES .. "Ring_Circle" }
+local SHAPE_KEY = { totem = "iconShape", cooldown = "iconShapeCooldown", ready = "iconShapeReady" }
+SP.ICON_SHAPE_KEYS = SHAPE_KEY
+function SP:IconShapeOf(kind)
+	local o = self.opt
+	if not o then return nil end
+	if not o.iconShapeSplit then
+		-- one shape used to cover the cooldown bar too: it keeps the shape it had
+		o.iconShapeSplit = true
+		if o.iconShape and o.iconShapeCooldown == nil then o.iconShapeCooldown = o.iconShape end
+	end
+	return o[SHAPE_KEY[kind] or "iconShape"]
+end
+function SP:IconShapeMaskFile(shape) return MASK_FILE[shape] end
+-- the ring a border draws round a shaped icon; nil = the square border
+function SP:BorderRingFile(kind)
+	if self.opt and self.opt.iconBordersSquare then return nil end
+	return RING_FILE[self:IconShapeOf(kind)]
+end
+local TRIM = 0.08
+local isSecret = issecretvalue or function() return false end
+local shapedTex = setmetatable({}, { __mode = "k" })   -- [texture] = the region whose rectangle the shape covers
+local texKind = setmetatable({}, { __mode = "k" })     -- [texture] = "totem" | "cooldown" | "ready"
+local iconKind = setmetatable({}, { __mode = "k" })    -- [icon] = its bar: textures drawn on it follow
+local shapedCd = setmetatable({}, { __mode = "k" })    -- [cooldown] = its bar
+-- the icon picture itself: Flat / Rounded / Circle trim its frame where it shows
+-- the whole picture; back on Square the trim comes off again
+local function trimArt(t, on)
+	local ulx, uly, _, _, _, _, lrx, lry = t:GetTexCoord()
+	if isSecret(ulx) or type(ulx) ~= "number" then return end
+	if on then
+		if ulx == 0 and uly == 0 and lrx == 1 and lry == 1 then
+			t:SetTexCoord(TRIM, 1 - TRIM, TRIM, 1 - TRIM)
+			t.spTrimmed = true
+		end
+	elseif t.spTrimmed then
+		t.spTrimmed = nil
+		if math.abs(ulx - TRIM) < 0.001 and math.abs(uly - TRIM) < 0.001
+			and math.abs(lrx - (1 - TRIM)) < 0.001 and math.abs(lry - (1 - TRIM)) < 0.001 then
+			t:SetTexCoord(0, 1, 0, 1)
+		end
+	end
+end
 local function shapeTexture(t, icon)
-	local file = MASK_FILE[SP.opt and SP.opt.iconShape]
+	local shape = SP:IconShapeOf(texKind[t] or "totem")
+	if t == icon then trimArt(t, shape ~= nil) end
+	local file = MASK_FILE[shape]
 	if t.spShapeMask then t:RemoveMaskTexture(t.spShapeMask); t.spShapeMask = nil end
 	if not file then return end
-	-- one mask per (frame, icon): a mask masks textures of its own frame
+	-- one mask per (frame, region): a mask masks textures of its own frame
 	local host = t:GetParent()
 	host.spShapeMasks = host.spShapeMasks or {}
 	local m = host.spShapeMasks[icon]
@@ -601,7 +675,7 @@ local function shapeTexture(t, icon)
 	t.spShapeMask = m
 end
 local function shapeCooldown(cd)
-	local k = SP.opt and SP.opt.iconShape
+	local k = SP:IconShapeOf(shapedCd[cd] or "totem")
 	if k and MASK_FILE[k] then
 		cd:SetSwipeTexture(MASK_FILE[k])
 		if cd.SetUseCircularEdge then cd:SetUseCircularEdge(k == "circle") end
@@ -612,52 +686,61 @@ local function shapeCooldown(cd)
 		cd.spShaped = nil
 	end
 end
--- a texture drawn on an icon joins the setting (icon: the icon it sits on)
-function SP:ShapeIconTexture(t, icon)
+-- a texture drawn on an icon joins its bar's setting (icon: the region it sits
+-- on; kind: the bar, else the icon's own bar, else the totem bar)
+function SP:ShapeIconTexture(t, icon, kind)
 	if not (t and t.AddMaskTexture and icon) then return end
-	if shapedTex[t] == nil and not (SP.opt and SP.opt.iconShape) then shapedTex[t] = icon return end   -- Square: nothing to do
+	kind = kind or iconKind[icon] or texKind[t] or "totem"
+	texKind[t] = kind
+	if t == icon then iconKind[icon] = kind end
+	if shapedTex[t] == nil and not SP:IconShapeOf(kind) then shapedTex[t] = icon return end   -- Square: nothing to do
 	shapedTex[t] = icon
 	shapeTexture(t, icon)
 end
-function SP:ShapeCooldown(cd)
+function SP:ShapeCooldown(cd, kind)
 	if not (cd and cd.SetSwipeTexture) then return end
-	shapedCd[cd] = true
+	shapedCd[cd] = kind or shapedCd[cd] or "totem"
 	shapeCooldown(cd)
 end
 local ICON_PARTS = { "icon2", "darkOverlay", "greyOverlay", "cdSweep", "bg" }
-local function shapeButton(btn)
+local function shapeButton(btn, kind)
 	if type(btn) ~= "table" then return end
 	local icon = rawget(btn, "icon")
 	if not (icon and icon.AddMaskTexture) then return end
-	SP:ShapeIconTexture(icon, icon)
+	SP:ShapeIconTexture(icon, icon, kind)
 	local hl = btn.GetHighlightTexture and btn:GetHighlightTexture()
-	if hl then SP:ShapeIconTexture(hl, icon) end
+	if hl then SP:ShapeIconTexture(hl, icon, kind) end
 	for _, k in ipairs(ICON_PARTS) do
 		local t = rawget(btn, k)
-		if type(t) == "table" and t.AddMaskTexture then SP:ShapeIconTexture(t, icon) end
+		if type(t) == "table" and t.AddMaskTexture then SP:ShapeIconTexture(t, icon, kind) end
 	end
 	local bar = rawget(btn, "cdBar")
 	local fill = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()
-	if fill then SP:ShapeIconTexture(fill, icon) end
+	if fill then SP:ShapeIconTexture(fill, icon, kind) end
 	local cd = rawget(btn, "cooldown")
-	if type(cd) == "table" then SP:ShapeCooldown(cd) end
+	if type(cd) == "table" then SP:ShapeCooldown(cd, kind) end
 end
 -- every button ShamanPower has made so far (built again after a bar or flyout is rebuilt)
 function SP:ApplyIconShapes()
-	if not (self.opt and (self.opt.iconShape or self._iconShaped)) then return end   -- never shaped: today's code path
+	local o = self.opt
+	if not (o and (o.iconShape or o.iconShapeCooldown or o.iconShapeReady or self._iconShaped)) then return end   -- never shaped: today's code path
 	self._iconShaped = true
 	for e = 1, 4 do
-		shapeButton(self.totemButtons and self.totemButtons[e])
+		shapeButton(self.totemButtons and self.totemButtons[e], "totem")
 		local fl = self.totemFlyouts and self.totemFlyouts[e]
-		for _, b in ipairs(fl and (fl.allButtons or fl.buttons) or {}) do shapeButton(b) end
-		shapeButton(self.activeTotemOverlays and self.activeTotemOverlays[e])
+		for _, b in ipairs(fl and (fl.allButtons or fl.buttons) or {}) do shapeButton(b, "totem") end
+		shapeButton(self.activeTotemOverlays and self.activeTotemOverlays[e], "totem")
 		local gcd = _G["ShamanPowerGCD" .. e]
-		if gcd then SP:ShapeCooldown(gcd) end
+		if gcd then SP:ShapeCooldown(gcd, "totem") end
 	end
-	for _, b in ipairs(self.cooldownButtons or {}) do shapeButton(b) end
-	for _, f in pairs(self.poppedOutFrames or {}) do shapeButton(type(f) == "table" and rawget(f, "button")) end
-	shapeButton(_G.ShamanPowerAutoDropAll)
-	if _G.ShamanPowerGCD5 then SP:ShapeCooldown(_G.ShamanPowerGCD5) end
+	for _, b in ipairs(self.cooldownButtons or {}) do shapeButton(b, "cooldown") end
+	for _, fl in ipairs({ self.shieldFlyout or false, self.weaponImbueFlyout or false }) do
+		if fl then for _, b in ipairs(fl.allButtons or fl.buttons or {}) do shapeButton(b, "cooldown") end end
+	end
+	shapeButton(_G.ShamanPowerEarthShieldBtn, "cooldown")
+	for _, f in pairs(self.poppedOutFrames or {}) do shapeButton(type(f) == "table" and rawget(f, "button"), "totem") end
+	shapeButton(_G.ShamanPowerAutoDropAll, "totem")
+	if _G.ShamanPowerGCD5 then SP:ShapeCooldown(_G.ShamanPowerGCD5, "totem") end
 	for t, icon in pairs(shapedTex) do shapeTexture(t, icon) end
 	for cd in pairs(shapedCd) do shapeCooldown(cd) end
 end
@@ -666,11 +749,25 @@ function SP:IconShapeValues()
 	for _, s in ipairs(SP.ICON_SHAPES) do v[s.key] = s.label; order[#order + 1] = s.key end
 	return v, order
 end
-function SP:SetIconShape(key)
+-- kind: "totem" (default), "cooldown" or "ready"
+function SP:SetIconShape(key, kind)
 	if not self.opt then return end
 	if key == "default" then key = nil end
-	self.opt.iconShape = key
+	self:IconShapeOf(kind)   -- (a first split copies the old shape before this one changes)
+	self.opt[SHAPE_KEY[kind] or "iconShape"] = key
+	self:RefreshIconShapes()
+end
+-- a shape or Keep Borders Square changed: icons, borders, Minimal boxes, Ready Reminders
+function SP:RefreshIconShapes()
 	self:ApplyIconShapes()
+	if self.ThemePaintTotemBorders then self:ThemePaintTotemBorders() end
+	if self.ThemeBoxesRefresh then self:ThemeBoxesRefresh() end
+	if self.UpdateAllReadyReminderAppearance then self:UpdateAllReadyReminderAppearance() end
+end
+function SP:SetIconBordersSquare(on)
+	if not self.opt then return end
+	if on then self.opt.iconBordersSquare = true else self.opt.iconBordersSquare = nil end
+	self:RefreshIconShapes()
 end
 -- a rebuilt bar or flyout gets the shape again
 for _, name in ipairs({ "CreateTotemButtons", "CreateTotemFlyout", "CreateCooldownBar", "CreateWeaponImbueButton",

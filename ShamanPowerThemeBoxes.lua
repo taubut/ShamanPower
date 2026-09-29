@@ -440,6 +440,7 @@ local function Sweeps(s)
 			local band = host:CreateTexture(nil, s.layer, nil, s.bandSub)
 			band:SetAllPoints(src)
 			band:Hide()
+			if s.masked then band:AddMaskTexture(s.maskIn) end   -- Icon Shape
 			local i = #s.sweeps + 1
 			s.sweeps[i], s.sweepSrc[i] = band, src
 			local function sync() SyncSweep(s, i) end
@@ -487,6 +488,59 @@ local function EngineSweep(s, fresh)
 	elseif not want and bar.spThemeBand then
 		RestoreEngineBar(bar, s.icon)
 	end
+end
+
+-- ---- Icon Shape --------------------------------------------------------------
+-- A box takes its bar's Icon Shape (General > Themes): the totem bar's, the
+-- cooldown bar's or Ready Reminders'; other spots stay square. Flat: no black
+-- edge, the colour runs to the icon's edge. Rounded / Circle: the edge, the box
+-- and what is drawn on it are cut to the shape (the icon under it too).
+local KIND_CACHE = {}
+local function ShapeKindOf(spot)
+	if not spot then return nil end
+	local k = KIND_CACHE[spot]
+	if k == nil then
+		if spot == "mod.readyreminders-boxes" then
+			k = "ready"
+		elseif spot == "mod.popouts-boxes" then
+			k = "totem"
+		else
+			local p = spot:sub(1, 3)
+			if p == "tb." or p == "st." then k = "totem" elseif p == "cd." then k = "cooldown" else k = false end
+		end
+		KIND_CACHE[spot] = k
+	end
+	return k or nil
+end
+local SHAPE_INNER = { "box", "tint", "shade" }
+local function ShapeSkin(s, shape)
+	if s.shapeOn == shape then return end
+	s.shapeOn = shape
+	local d = (shape == "flat") and 0 or 1
+	Inset(s.box, s.icon, d); Inset(s.tint, s.icon, d); Inset(s.shade, s.icon, d)
+	if s.masked then
+		s.base:RemoveMaskTexture(s.maskOut)
+		for i = 1, #SHAPE_INNER do s[SHAPE_INNER[i]]:RemoveMaskTexture(s.maskIn) end
+		for i = 1, #s.sweeps do s.sweeps[i]:RemoveMaskTexture(s.maskIn) end
+		if s.iconMasked then s.icon:RemoveMaskTexture(s.maskOut); s.iconMasked = nil end
+		s.masked = nil
+	end
+	local file = SP.IconShapeMaskFile and SP:IconShapeMaskFile(shape)
+	if not file then return end
+	if not s.maskOut then
+		s.maskOut = s.host:CreateMaskTexture()
+		s.maskOut:SetAllPoints(s.icon)
+		s.maskIn = s.host:CreateMaskTexture()
+		Inset(s.maskIn, s.icon, 1)
+	end
+	s.maskOut:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	s.maskIn:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	s.base:AddMaskTexture(s.maskOut)
+	for i = 1, #SHAPE_INNER do s[SHAPE_INNER[i]]:AddMaskTexture(s.maskIn) end
+	for i = 1, #s.sweeps do s.sweeps[i]:AddMaskTexture(s.maskIn) end
+	s.icon:AddMaskTexture(s.maskOut)   -- no square corner of the icon round the box
+	s.iconMasked = true
+	s.masked = true
 end
 
 -- ---- make / hide -----------------------------------------------------------
@@ -538,6 +592,8 @@ local function HideSkin(s)
 	s.visible = false
 	for i = 1, #s.sweeps do s.sweeps[i]:Hide() end
 	EngineSweep(s, false)
+	if s.iconMasked then s.icon:RemoveMaskTexture(s.maskOut); s.iconMasked = nil end
+	s.shapeOn = false   -- the next paint puts the shape back
 	s.kFile = false   -- the next paint starts over
 end
 
@@ -674,8 +730,10 @@ Paint = function(s)
 	local yield = Busy(s.yields)
 	local sweepDark = (not s.noSweeps) and MinimalOn(s, sweepSpot) or false
 	local ulx, uly, _, _, _, _, lrx, lry = icon:GetTexCoord()
+	local shapeKind = ShapeKindOf(isEmpty and EMPTY_SET[emptySpot] and emptySpot or spot)
+	local shape = shapeKind and SP.IconShapeOf and SP:IconShapeOf(shapeKind) or nil
 
-	if s.visible and s.kFile == file and s.kCode == code and s.kMode == mode and s.kR == r and s.kG == g and s.kB == b
+	if s.visible and s.kShape == shape and s.kFile == file and s.kCode == code and s.kMode == mode and s.kR == r and s.kG == g and s.kB == b
 		and s.kA == da and s.kH == h and s.kW == w and s.kTop == top and s.kYield == yield and s.kEmpty == isEmpty
 		and s.kDark == sweepDark and s.tcUlx == ulx and s.tcUly == uly and s.tcLrx == lrx and s.tcLry == lry then
 		if not s.noSweeps then Sweeps(s) end   -- a sweep the button made since
@@ -685,6 +743,7 @@ Paint = function(s)
 		true, file, code, mode, r, g, b, da, h, w, top, yield, isEmpty, sweepDark
 	s.tcUlx, s.tcUly, s.tcLrx, s.tcLry = ulx, uly, lrx, lry
 	s.sweepDark = sweepDark
+	s.kShape = shape
 
 	-- letters (the dash on an empty box): at most half the box, always inside it
 	local text = isEmpty and "-" or code
@@ -701,7 +760,8 @@ Paint = function(s)
 	local fallbackTint = not isEmpty and not lettersOn and (mode == "letters" or mode == "both")
 	local trim = (ulx == 0 and uly == 0 and lrx == 1 and lry == 1)
 
-	s.base:Show()
+	ShapeSkin(s, shape)
+	s.base:SetShown(shape ~= "flat")   -- Flat: no black edge
 	s.box:SetVertexColor(r, g, b)
 	s.box:SetAlpha(da)
 	s.box:Show()

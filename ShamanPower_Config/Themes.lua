@@ -499,7 +499,7 @@ end
 local function Caption(parent)
 	local fs = parent:CreateFontString(nil, "OVERLAY")
 	fs:SetFontObject(Core.fonts.tiny)
-	fs:SetTextColor(Core:Color("textDim"))
+	fs:SetTextColor(Core:Color("accentHi"))   -- all-caps captions (HOW IT LOOKS NOW ...): the page's heading blue
 	fs:SetJustifyH("LEFT")
 	return fs
 end
@@ -1222,7 +1222,8 @@ local function PageChanged()
 end
 
 local function Header(label, y, W, note)
-	local _, h = Widgets:SectionHeader(page.body, { label = label, x = 0, y = y, width = W, note = note })
+	-- accentHi, as the sidebar's group headers: every all-caps title on this page stands out
+	local _, h = Widgets:SectionHeader(page.body, { label = label, x = 0, y = y, width = W, note = note, color = "accentHi" })
 	return h
 end
 
@@ -1739,6 +1740,14 @@ end
 -- each row is today's look.
 -- ---------------------------------------------------------------------------
 local shapeCards = {}   -- [row key] = { card, card, ... }
+-- any bar on Rounded or Circle (Keep Borders Square shows then)
+local function IconShapedAny()
+	for _, kind in ipairs({ "totem", "cooldown", "ready" }) do
+		local k = SP.IconShapeOf and SP:IconShapeOf(kind)
+		if k == "rounded" or k == "circle" then return true end
+	end
+	return false
+end
 local SHAPE_ROWS = {
 	{ key = "dot", label = "Dot Shape", list = function() return SP.DOT_SHAPES end,
 	  note = "The party dots and Totem Coverage's dots. Also on Party Buff Tracker.",
@@ -1749,9 +1758,28 @@ local SHAPE_ROWS = {
 	{ key = "edge", label = "Frame Edge", list = function() return SP.FRAME_EDGES end,
 	  note = "The totem bar, the cooldown bar and ShamanPower's panels. Also on Appearance > Totem Bar and Cooldown Bar.",
 	  get = function() return SP.opt.frameEdge or "default" end, set = function(k) SP:SetFrameEdge(k) end },
-	{ key = "icon", label = "Icon Shape", list = function() return SP.ICON_SHAPES end,
-	  note = "The totem bar, its flyouts, pop-outs and the cooldown bar. Also on Appearance > Totem Bar and Cooldown Bar.",
-	  get = function() return SP.opt.iconShape or "default" end, set = function(k) SP:SetIconShape(k) end },
+	-- Icon Shape: one per bar (the same settings as on each bar's own page)
+	{ key = "icon", iconKind = "totem", label = "Totem Bar Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  note = "The totem bar's buttons, its flyouts, pop-outs and Drop All (ShamanPower Minimal's boxes too). Also on Appearance > Totem Bar.",
+	  get = function() return SP:IconShapeOf("totem") or "default" end, set = function(k) SP:SetIconShape(k, "totem") end },
+	{ key = "iconcd", iconKind = "cooldown", label = "Cooldown Bar Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on Appearance > Cooldown Bar.",
+	  get = function() return SP:IconShapeOf("cooldown") or "default" end, set = function(k) SP:SetIconShape(k, "cooldown") end },
+	{ key = "iconrr", iconKind = "ready", label = "Ready Reminders Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  note = "Ready Reminders' icons (ShamanPower Minimal's boxes too); the glow keeps Glow Shape. Also on Ready Reminders.",
+	  get = function() return SP:IconShapeOf("ready") or "default" end, set = function(k) SP:SetIconShape(k, "ready") end,
+	  extra = function(y, W)
+		-- borders round a Rounded / Circle icon follow its shape, unless this is on
+		if not IconShapedAny() then return y end
+		local _, h = Widgets:Toggle(page.body, {
+			label = "Keep Borders Square", x = 0, y = y, width = W,
+			desc = "With Rounded or Circle icons, borders (Element-Colored Borders, Ready Reminders' border) follow the shape as a ring. Turn this on to keep them square. One setting for every bar (also on Appearance > Totem Bar, Cooldown Bar and Ready Reminders).",
+			get = function() return SP.opt.iconBordersSquare == true end,
+			set = function(v) SP:SetIconBordersSquare(v) end,
+			onChanged = PageChanged,
+		})
+		return y + h + 10
+	  end },
 }
 -- Gradients (Miska's request): the bars' fill and the outlines, shaded. The same
 -- settings as Bar Gradient on Totem Bar > Duration Bars and Outline Gradient on
@@ -2073,10 +2101,14 @@ local function BuildShapePreview(c, row, s)
 		end
 		if SP.PaintFrameEdgePreview then SP:PaintFrameEdgePreview(f, s.key) end
 	else
+		-- Icon Shape: the totem bar's Square shows the whole icon picture (as the bar
+		-- does today); Flat, and every shape elsewhere, the trimmed picture
+		local whole = row.iconKind == "totem" and s.key == "default"
 		for i = 1, 4 do
 			local ic = p:CreateTexture(nil, "ARTWORK")
 			ic:SetSize(24, 24); ic:SetPoint("LEFT", p, "CENTER", -52 + (i - 1) * 27, 0)
-			ic:SetTexture(I.totems[i]); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			ic:SetTexture(I.totems[i])
+			if whole then ic:SetTexCoord(0, 1, 0, 1) else ic:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
 			if s.file then
 				local m = p:CreateMaskTexture()
 				m:SetAllPoints(ic)
@@ -2151,7 +2183,8 @@ local function RenderShapes(y, W)
 				f.name = Text(f, "section")
 				f.name:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
 				f.name:SetText(strupper(row.label))
-				f.name:SetTextColor(Core:Color("textDim"))
+				-- accentHi, as the sidebar's group headers: each row's title stands out from its note
+				f.name:SetTextColor(Core:Color("accentHi"))
 				f.note = Text(f, "rowDim")
 				f.note:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -3)
 				return f
@@ -2562,7 +2595,7 @@ LayoutSig = function()
 		CustomCardShown() and "c" or "-",
 		-- the rows under the gradient cards come and go with the style picked
 		o.barGradient or "-", o.barGradientColor1 and "1" or "0", o.outlineGradient or "-", o.outlineGradientColor1 and "1" or "0",
-		o.chargeGradient or "-", o.chargeGradientColor1 and "1" or "0" }
+		o.chargeGradient or "-", o.chargeGradientColor1 and "1" or "0", IconShapedAny() and "r" or "-" }
 	for _, row in ipairs(SHAPE_ROWS) do
 		if row.shown then parts[#parts + 1] = row.shown() and "s" or "h" end
 	end

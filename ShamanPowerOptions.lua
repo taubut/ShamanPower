@@ -10904,19 +10904,32 @@ do
 	end
 	pages.totembar_appearance.args.frame_edge = frameEdgeRow("hideTotemBarFrame")
 	pages.cooldownbar_appearance.args.frame_edge = frameEdgeRow("hideCooldownBarFrame")
-	-- Icon Shape: one setting for every button (and General > Themes)
-	local function iconShapeRow()
+	-- Icon Shape: one per bar (and on General > Themes)
+	local function iconShapeRow(kind, what)
 		return {
 			type = "select", name = "Icon Shape", width = 1.0,
-			desc = "The shape of the icons: square, rounded or round. One setting for the totem bar, its flyouts, pop-outs and the cooldown bar (and Icon Shape on General > Themes). The cooldown sweep takes the same shape.",
+			desc = "The shape of " .. what .. ": Square (as today), Flat (the icon picture's own frame trimmed off), Rounded or Circle."
+				.. " ShamanPower Minimal's boxes and the cooldown sweep take the same shape. The same setting as on General > Themes.",
 			values = function() return (ShamanPower:IconShapeValues()) end,
 			sorting = function() return select(2, ShamanPower:IconShapeValues()) end,
-			get = function() return ShamanPower.opt.iconShape or "default" end,
-			set = function(_, v) ShamanPower:SetIconShape(v) end,
+			get = function() return ShamanPower:IconShapeOf(kind) or "default" end,
+			set = function(_, v) ShamanPower:SetIconShape(v, kind) end,
 		}
 	end
-	pages.totembar_appearance.args.icon_shape = iconShapeRow()
-	pages.cooldownbar_appearance.args.icon_shape = iconShapeRow()
+	pages.totembar_appearance.args.icon_shape = iconShapeRow("totem", "the totem bar's icons, its flyouts, pop-outs and Drop All")
+	pages.cooldownbar_appearance.args.icon_shape = iconShapeRow("cooldown", "the cooldown bar's icons and its shield and imbue flyouts")
+	-- Keep Borders Square: with a shaped icon, borders follow the shape as a ring unless this is on
+	local function bordersSquareRow(kind)
+		return {
+			type = "toggle", name = "Keep Borders Square", width = 1.0,
+			desc = "With Rounded or Circle icons, borders (Element-Colored Borders, Ready Reminders' border) follow the shape. Turn this on to keep them square. One setting for every bar (and on General > Themes).",
+			hidden = function() local k = ShamanPower:IconShapeOf(kind); return k ~= "rounded" and k ~= "circle" end,
+			get = function() return ShamanPower.opt.iconBordersSquare == true end,
+			set = function(_, v) ShamanPower:SetIconBordersSquare(v) end,
+		}
+	end
+	pages.totembar_appearance.args.icon_borders_square = bordersSquareRow("totem")
+	pages.cooldownbar_appearance.args.icon_borders_square = bordersSquareRow("cooldown")
 	-- Gradients: Bar Gradient (Totem Bar > Duration Bars) and Outline Gradient
 	-- (here), one setting each with General > Themes. Two-Tone adds its colors,
 	-- Fade Out how much color is left at the faded end.
@@ -11019,7 +11032,7 @@ do
 	SP.OrderSettingsBands(pages.totembar_appearance, {
 		{ keys = { "layout" }, names = { layout = "Layout" } },
 		{ header = "look_header", name = "Look", keys = {
-			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame", "frame_edge", "icon_shape",
+			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame", "frame_edge", "icon_shape", "icon_borders_square",
 			"outlineGradient", "outlineGradient_direction", "outlineGradient_own", "outlineGradient_color1", "outlineGradient_color2", "outlineGradient_fade",
 		}, names = { buffscale = "Scale", totemBarOpacity = "Opacity", totemBarPadding = "Button Spacing",
 			hide_totem_bar_frame = "Hide Background" } },
@@ -11030,7 +11043,7 @@ do
 	SP.OrderSettingsBands(pages.cooldownbar_appearance, {
 		{ keys = { "cdbarLayout" }, names = { cdbarLayout = "Layout" } },
 		{ header = "look_header", name = "Look", keys = {
-			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame", "frame_edge", "icon_shape",
+			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame", "frame_edge", "icon_shape", "icon_borders_square",
 		}, names = { cooldownBarScale = "Scale", cooldownBarOpacity = "Opacity", cooldownBarPadding = "Button Spacing",
 			hide_cooldown_bar_frame = "Hide Background" } },
 		{ header = "behaviour_header", name = "Behavior", keys = { "cooldownBarFullOpacityWhenActive" } },

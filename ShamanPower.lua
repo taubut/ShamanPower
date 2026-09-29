@@ -10876,6 +10876,8 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 					if iconFile then icon:SetTexture(iconFile) end
 					reg("SetIcon", pcall(button.SetIcon, button, icon))
+					-- Cooldown Bar Icon Shape: this game-drawn button sits over the addon's own
+					if ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(icon, icon, "cooldown") end
 
 					-- duration source: the cooldown widget (swipe drawn only for the radial style)
 					local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
@@ -10884,6 +10886,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					cd:SetDrawBling(false)
 					cd:SetHideCountdownNumbers(true)
 					cd:SetDrawSwipe(showSweep and sweepStyle == "radial")
+					if ShamanPower.ShapeCooldown then ShamanPower:ShapeCooldown(cd, "cooldown") end   -- Icon Shape: the swipe too
 					reg("SetDurationCooldown", pcall(button.SetDurationCooldown, button, cd))
 
 					-- vertical sweep: greyed copy of this shield's icon on a StatusBar the
@@ -10900,6 +10903,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						sb:SetStatusBarTexture(iconFile)
 						local sbt = sb:GetStatusBarTexture()
 						if sbt then sbt:SetDesaturated(true); sbt:SetVertexColor(0.5, 0.5, 0.5) end
+						if sbt and ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(sbt, icon, "cooldown") end   -- Icon Shape
 						sb:SetOrientation("VERTICAL")
 						sb:SetReverseFill(true)
 						local direction = (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime
@@ -20425,6 +20429,14 @@ function ShamanPower:ThemeBorderEdges(btn, on, spot, element)
 			btn.spThemeBorder = edges
 			self._themeBordersMade = true
 		end
+		-- a Rounded / Circle icon: the border follows it as a ring (Keep Borders Square: the edges)
+		local ringFile = self.BorderRingFile and self:BorderRingFile(spot == "cd.boxes" and "cooldown" or "totem")
+		if ringFile and not edges.ring then
+			edges.ring = btn:CreateTexture(nil, "OVERLAY", nil, -1)
+			edges.ring:SetAllPoints(icon)
+		end
+		if ringFile and edges.ring.spFile ~= ringFile then edges.ring:SetTexture(ringFile); edges.ring.spFile = ringFile end
+		edges.ringOn = ringFile and true or false
 		local r, g, b
 		if element then
 			r, g, b = self:ThemeElement(spot, element)
@@ -20435,7 +20447,7 @@ function ShamanPower:ThemeBorderEdges(btn, on, spot, element)
 				btn.spThemeBorderHooked = true
 				hooksecurefunc(icon, "SetTexture", function(tex)
 					local e = btn.spThemeBorder
-					if e and e[1]:IsShown() then
+					if e and (e[1]:IsShown() or (e.ring and e.ring:IsShown())) then
 						local nr, ng, nb = ShamanPower:ThemeIconRGB(tex, spot)
 						if nr then ShamanPower:PaintBorderEdges(e, nr, ng, nb) end
 					end
@@ -20443,15 +20455,21 @@ function ShamanPower:ThemeBorderEdges(btn, on, spot, element)
 			end
 		end
 		if r then self:PaintBorderEdges(edges, r, g, b) end   -- (nil: unreadable right now, keep the last colour)
-		for i = 1, 4 do edges[i]:Show() end
+		for i = 1, 4 do edges[i]:SetShown(not edges.ringOn) end
+		if edges.ring then edges.ring:SetShown(edges.ringOn) end
 	elseif edges then
 		for i = 1, 4 do edges[i]:Hide() end
+		if edges.ring then edges.ring:Hide() end
 	end
 end
 
 -- the four edges (top, bottom, left, right) in one colour, or shaded by the
 -- Outline Gradient (General > Themes > Shapes & Textures)
 function ShamanPower:PaintBorderEdges(e, r, g, b)
+	-- the ring a Rounded / Circle icon's border becomes (ThemeBorderEdges)
+	if e.ring then
+		if self.PaintOutlineRing then self:PaintOutlineRing(e.ring, r, g, b, 1) else e.ring:SetVertexColor(r, g, b, 1) end
+	end
 	if self.opt and self.opt.outlineGradient and self.PaintOutlineEdges then
 		for k = 1, 4 do e[k]:SetColorTexture(1, 1, 1, 1) end
 		self:PaintOutlineEdges(e[1], e[2], e[3], e[4], r, g, b, 1)

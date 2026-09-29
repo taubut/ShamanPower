@@ -318,6 +318,13 @@ function SP:CreateReadyReminderFrame(entry)
 	local p1 = pg:CreateAnimation("Scale"); p1:SetScale(1.12, 1.12); p1:SetDuration(0.45); p1:SetOrder(1)
 	local p2 = pg:CreateAnimation("Scale"); p2:SetScale(1 / 1.12, 1 / 1.12); p2:SetDuration(0.45); p2:SetOrder(2)
 	f.pulseAnim = pg
+	-- Icon Shape (Ready Reminders): the icon, the sweep over it, its backing and the swipe
+	if SP.ShapeIconTexture then
+		SP:ShapeIconTexture(icon, icon, "ready")
+		SP:ShapeIconTexture(overlay, icon, "ready")
+		SP:ShapeIconTexture(bg, f, "ready")
+		SP:ShapeCooldown(cd, "ready")
+	end
 	local label = f:CreateFontString(nil, "OVERLAY")
 	SP:SetSPFont(label, "alerts", 11, "OUTLINE")
 	label:SetPoint("TOP", f, "BOTTOM", 0, -3)
@@ -459,6 +466,7 @@ local function startCycle(f)
 		-- the next shock is now fully up: it becomes the icon, and the next fade starts
 		ag:SetScript("OnFinished", function() cycleNext(f) end)
 		f.icon2, f.cycAG = t, ag
+		if SP.ShapeIconTexture then SP:ShapeIconTexture(t, f.icon, "ready") end   -- Icon Shape
 	end
 	f.icon2:SetDesaturated(f.icon:IsDesaturated() and true or false)
 	f.icon2:SetTexture(f.cycTex[(f.cycIdx or 1) % f.cycN + 1])
@@ -517,7 +525,10 @@ local function applyShockLook(f)
 	for i = 2, 3 do
 		local sl = f.slices[i]
 		if style == "split" and i <= n then
-			if not sl then sl = f:CreateTexture(nil, "ARTWORK", nil, 1); f.slices[i] = sl end
+			if not sl then
+				sl = f:CreateTexture(nil, "ARTWORK", nil, 1); f.slices[i] = sl
+				if SP.ShapeIconTexture then SP:ShapeIconTexture(sl, f.icon, "ready") end   -- Icon Shape: the whole icon's shape
+			end
 			sl:ClearAllPoints()
 			sl:SetPoint("TOPLEFT", f.icon, "TOPLEFT", iw * (i - 1) / n, 0)
 			sl:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMLEFT", iw * (i - 1) / n, 0)
@@ -551,8 +562,23 @@ function SP:UpdateReadyReminderAppearance(key)
 	-- name goes under the text when the text is below the icon
 	f.label:ClearAllPoints()
 	if tp == "below" then f.label:SetPoint("TOP", f.count, "BOTTOM", 0, -1) else f.label:SetPoint("TOP", f, "BOTTOM", 0, -3) end
-	f.bg:SetShown(not sv.hideBackground); f.border:SetShown(not sv.hideBackground)
+	-- the border (Hide Border: just the border); round a Rounded / Circle icon it
+	-- follows the shape as a ring, unless Keep Borders Square
+	local borderOn = not sv.hideBackground and not sv.hideBorder
+	local ringFile = SP.BorderRingFile and SP:BorderRingFile("ready")
+	f.bg:SetShown(not sv.hideBackground); f.border:SetShown(borderOn and not ringFile)
 	f.border:SetBackdropBorderColor(color(sv.borderColor, 0.2, 0.7, 1.0))
+	if ringFile then
+		if not f.ring then
+			f.ring = f:CreateTexture(nil, "OVERLAY")
+			f.ring:SetAllPoints(f.border)
+		end
+		if f.ring.spFile ~= ringFile then f.ring:SetTexture(ringFile); f.ring.spFile = ringFile end
+		f.ring:SetVertexColor(color(sv.borderColor, 0.2, 0.7, 1.0))
+		f.ring:SetShown(borderOn)
+	elseif f.ring then
+		f.ring:Hide()
+	end
 	f.glow:SetVertexColor(color(sv.glowColor, 0.3, 0.8, 1.0))
 	f.label:SetShown(sv.showNames == true)
 	-- bar placement
@@ -776,6 +802,7 @@ local function drawEngineCooldown(f, sv)
 			if sheet.SetFillStyle then sheet:SetFillStyle("STANDARD") end
 			sheet:SetFrameLevel(f:GetFrameLevel() + 1)
 			f.engineSheet = sheet
+			if SP.ShapeIconTexture then SP:ShapeIconTexture(sheet:GetStatusBarTexture(), f.icon, "ready") end   -- Icon Shape
 		end
 		local okb = pcall(sheet.SetTimerDuration, sheet, d, Interp, Dir.RemainingTime)
 		sheet:SetShown(okb and true or false)
@@ -1178,8 +1205,26 @@ local function InjectOptions()
 				get = function() return SV().opacity or 1 end, set = function(_, v) SV().opacity = v; refresh() end },
 			hideBackground = { order = 6.3, type = "toggle", name = "Hide Background & Border", width = 1.0,
 				get = function() return SV().hideBackground end, set = function(_, v) SV().hideBackground = v; refresh() end },
-			borderColor = { order = 6.4, type = "color", name = "Border Color", width = 1.0,
+			iconShape = { order = 6.33, type = "select", name = "Icon Shape", width = 1.0,
+				desc = "The shape of the reminder icons: Square (as today), Flat, Rounded or Circle. The glow keeps its own Glow Shape. The same setting as Ready Reminders Icon Shape on General > Themes.",
+				values = function() return (SP:IconShapeValues()) end,
+				sorting = function() return select(2, SP:IconShapeValues()) end,
+				get = function() return SP.IconShapeOf and SP:IconShapeOf("ready") or "default" end,
+				set = function(_, v) if SP.SetIconShape then SP:SetIconShape(v, "ready") end end },
+			iconBordersSquare = { order = 6.34, type = "toggle", name = "Keep Borders Square", width = 1.0,
+				desc = "With Rounded or Circle icons the border follows the shape. Turn this on to keep it square. One setting for every bar (and on General > Themes).",
+				hidden = function()
+					local k = SP.IconShapeOf and SP:IconShapeOf("ready")
+					return (k ~= "rounded" and k ~= "circle") or SV().hideBackground or SV().hideBorder
+				end,
+				get = function() return SP.opt and SP.opt.iconBordersSquare == true end,
+				set = function(_, v) if SP.SetIconBordersSquare then SP:SetIconBordersSquare(v) end end },
+			hideBorder = { order = 6.35, type = "toggle", name = "Hide Border", width = 1.0,
+				desc = "Hide just the border round each reminder icon and keep the background. (Hide Background hides both.)",
 				hidden = function() return SV().hideBackground end,
+				get = function() return SV().hideBorder == true end, set = function(_, v) SV().hideBorder = v or nil; refresh() end },
+			borderColor = { order = 6.4, type = "color", name = "Border Color", width = 1.0,
+				hidden = function() return SV().hideBackground or SV().hideBorder end,
 				get = function() return color(SV().borderColor, 0.2, 0.7, 1.0) end,
 				set = function(_, r, g, b) SV().borderColor = { r = r, g = g, b = b }; refresh() end },
 			showNames = { order = 6.5, type = "toggle", name = "Show Spell Names", desc = "The spell's name under each icon.", width = 1.0,
@@ -1326,7 +1371,7 @@ local function InjectOptions()
 		{ keys = { "enabled", "mode", "onlyInCombat" } },
 		{ header = "spellsHeader", name = "Spells", keys = spellKeys },
 		{ header = "lookHeader", name = "Look", keys = {
-			"iconSize", "opacity", "textSize", "hideBackground", "borderColor", "showNames",
+			"iconSize", "opacity", "textSize", "iconShape", "hideBackground", "hideBorder", "iconBordersSquare", "borderColor", "showNames",
 		}, names = { textSize = "Text Size (0 = auto)", hideBackground = "Hide Background" } },
 		{ header = "readyHeader", name = "Behavior", keys = { "readyEffect", "glowColor", "glowShape" } },
 		{ header = "cdHeader", name = "While On Cooldown", keys = {

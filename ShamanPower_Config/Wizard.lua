@@ -766,6 +766,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local main = CreateFrame("Frame", nil, slot); main:SetSize(SIZE, SIZE); main:SetPoint("BOTTOM", slot, "BOTTOM", 0, 14)
 		local mbg = main:CreateTexture(nil, "BACKGROUND"); mbg:SetAllPoints(main); mbg:SetColorTexture(0, 0, 0, 0.6)
 		local mIcon = main:CreateTexture(nil, "ARTWORK"); mIcon:SetPoint("TOPLEFT", 2, -2); mIcon:SetPoint("BOTTOMRIGHT", -2, 2); mIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		if SP.ShapeIconTexture then SP:ShapeIconTexture(mIcon, mIcon, "totem"); SP:ShapeIconTexture(mbg, main, "totem") end   -- Totem Bar Icon Shape
 		Core:MakeBorder(main, "border")
 		local key = main:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("BOTTOMLEFT", main, "BOTTOMLEFT", 2, 2); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
 		-- Assigned-totem corner badge (TotemTimers style).
@@ -779,6 +780,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		slot.main, slot.over = main, over
 		local obg = over:CreateTexture(nil, "BACKGROUND"); obg:SetAllPoints(over); obg:SetColorTexture(0, 0, 0, 0.6)
 		local oIcon = over:CreateTexture(nil, "ARTWORK"); oIcon:SetPoint("TOPLEFT", 2, -2); oIcon:SetPoint("BOTTOMRIGHT", -2, 2); oIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92); oIcon:SetTexture(e.active)
+		if SP.ShapeIconTexture then SP:ShapeIconTexture(oIcon, oIcon, "totem"); SP:ShapeIconTexture(obg, over, "totem") end   -- Totem Bar Icon Shape
 		Core:MakeBorder(over, "border")
 		-- Blizzard's own button ring, shown for the Blizzard's-bar style in place of our border
 		local ring = main:CreateTexture(nil, "OVERLAY", nil, 2); ring:SetTexture("Interface\\Buttons\\UI-Quickslot2"); ring:SetPoint("CENTER", main, "CENTER", 0, 0); ring:SetSize(SIZE * 1.7, SIZE * 1.7); ring:Hide()
@@ -1407,6 +1409,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		local b = CreateFrame("Frame", nil, bar); b:SetSize(SIZE, SIZE)
 		local bg = b:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(b); bg:SetColorTexture(0, 0, 0, 0.6)
 		local icon = b:CreateTexture(nil, "ARTWORK"); icon:SetPoint("TOPLEFT", 2, -2); icon:SetPoint("BOTTOMRIGHT", -2, 2); icon:SetTexture(e.icon); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		if SP.ShapeIconTexture then SP:ShapeIconTexture(icon, icon, "totem"); SP:ShapeIconTexture(bg, b, "totem") end   -- Totem Bar Icon Shape
 		Core:MakeBorder(b, "border")
 		local s = { e = e, f = b, icon = icon, t = e.off, wasActive = false }
 		-- duration bar + its five text slots (mirrors totemProgressBars)
@@ -1423,6 +1426,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			-- vertical sweep alternative (grey grows down from the top, like the cooldown bar)
 			s.cdgray = b:CreateTexture(nil, "ARTWORK", nil, 1); s.cdgray:SetPoint("TOPLEFT", icon, "TOPLEFT"); s.cdgray:SetPoint("TOPRIGHT", icon, "TOPRIGHT")
 			s.cdgray:SetTexture(e.icon); s.cdgray:SetDesaturated(true); s.cdgray:SetVertexColor(0.5, 0.5, 0.5); s.cdgray:Hide()
+			if SP.ShapeIconTexture then SP:ShapeIconTexture(s.cdgray, icon, "totem"); SP:ShapeCooldown(s.cdf, "totem") end   -- Icon Shape
 		end
 		-- pulse wipe (Earth only): white overlay, plus its text slots
 		if e.pulse then
@@ -3272,6 +3276,9 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		gray:SetTexture(GetSpellTexture(sp.id)); gray:SetDesaturated(true); gray:SetVertexColor(0.5, 0.5, 0.5); gray:Hide()
 		-- radial swipe (only used when Sweep style is "Radial swipe")
 		local cdr = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate"); cdr:SetAllPoints(icon); cdr:SetDrawEdge(false); cdr:SetSwipeColor(0, 0, 0, 0.8)
+		if SP.ShapeIconTexture then   -- Cooldown Bar Icon Shape
+			SP:ShapeIconTexture(icon, icon, "cooldown"); SP:ShapeIconTexture(gray, icon, "cooldown"); SP:ShapeCooldown(cdr, "cooldown")
+		end
 		if cdr.SetHideCountdownNumbers then cdr:SetHideCountdownNumbers(true) end
 		-- Progress bar (position follows cdbarProgressPosition, laid out below).
 		local pbg = btn:CreateTexture(nil, "BACKGROUND", nil, 2); pbg:SetColorTexture(0, 0, 0, 0.6); pbg:SetSize(3, SIZE)
