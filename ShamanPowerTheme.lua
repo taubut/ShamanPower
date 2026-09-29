@@ -1439,7 +1439,19 @@ function SP:SetSpotColor(spot, role, r, g, b)
 	Changed(nil)
 end
 
--- "Reset Colors to the Theme": colour edits, Colors and Shield Colors choices go
+-- the colors picked on the Themes tab outside the theme engine: each shield's
+-- Charge Color and the gradients' Two-Tone colors (nil = their default)
+local GRADIENT_COLOR_KEYS = { "barGradientColor1", "barGradientColor2", "outlineGradientColor1",
+	"outlineGradientColor2", "chargeGradientColor1", "chargeGradientColor2" }
+local function ClearPickedColors(o)
+	if type(o) ~= "table" then return end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do o[k] = nil end
+	local s = o.shieldChargeDisplay
+	if type(s) == "table" then s.chargeColorLS, s.chargeColorWS, s.chargeColorES = nil, nil, nil end
+end
+
+-- "Reset Colors for Current Theme": colour edits, Colors and Shield Colors choices go,
+-- and the Charge Colors and Two-Tone colors picked on the same page
 function SP:ResetThemeColors()
 	local t = T()
 	if t then
@@ -1450,10 +1462,12 @@ function SP:ResetThemeColors()
 			end
 		end
 	end
+	ClearPickedColors(SP.opt)
 	Changed("colors")
+	if SP.RefreshGradients then SP:RefreshGradients() end   -- the bars, outlines and charges repaint
 end
 
--- Reset All Colors (General > Themes, the emergency button): the Themes tab back
+-- Reset All Colors and Theme (General > Themes, the emergency button): the Themes tab back
 -- to Standard with nothing overridden (a Custom look is kept on the Custom card
 -- first, as a theme card does), then every colour setting in ShamanPower back to
 -- how it comes, the modules' own included. The caller reloads the interface.
@@ -1473,6 +1487,7 @@ function SP:ResetAllColorsToDefault()
 	if type(o) ~= "table" then return end
 	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
 	for _, k in ipairs(RESET_COLOR_KEYS) do o[k] = Copy(defaults[k]) end
+	ClearPickedColors(o)   -- each shield's Charge Color, the gradients' Two-Tone colors
 	if type(o.rangeCounter) == "table" then
 		local d, v = defaults.rangeCounter, nil
 		if type(d) == "table" then v = d.useElementColors end

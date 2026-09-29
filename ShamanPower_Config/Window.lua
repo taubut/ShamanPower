@@ -103,12 +103,11 @@ local POWER_SPRANGE = {
 	loaded = function() local sp = SP() return sp and sp.SPRangeLoaded and true or false end,
 	get    = function()   -- on also while it waits for a group (Show the Overlay)
 		local sp = SP()
-		return (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
+		return sp.SPRangeOverlayOn ~= nil and sp:SPRangeOverlayOn()
 	end,
 	set    = function(v)
 		local sp = SP()
-		local cur = (sp.spRangeFrame and sp.spRangeFrame:IsShown() or sp.spRangeManuallyOpened) and true or false
-		if (v and true or false) ~= cur then sp:ToggleSPRange() end
+		if (v and true or false) ~= sp:SPRangeOverlayOn() then sp:ToggleSPRange() end
 	end,
 }
 

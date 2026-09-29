@@ -379,6 +379,7 @@ local function CreateToggle(parent)
 	local row = CreateRow(parent)
 
 	local track = CreateFrame("Button", nil, row)
+	Core:ForwardTooltip(track, row)   -- the row's tooltip over the control too
 	track:SetSize(TOGGLE_W, TOGGLE_H)
 	track:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
 	local trackTex = track:CreateTexture(nil, "BACKGROUND")
@@ -446,6 +447,7 @@ local function CreateSlider(parent)
 	row.min, row.max, row.step = 0, 100, 1
 
 	local box = CreateFrame("EditBox", nil, row)
+	Core:ForwardTooltip(box, row)   -- the row's tooltip over the control too
 	box:SetSize(NUMBOX_W, 20)
 	box:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
 	box:SetAutoFocus(false)
@@ -456,6 +458,7 @@ local function CreateSlider(parent)
 	Core:MakeBorder(box, "border")
 
 	local slider = CreateFrame("Slider", nil, row)
+	Core:ForwardTooltip(slider, row)   -- the row's tooltip over the control too
 	slider:SetSize(SLIDER_W, 14)
 	slider:SetPoint("RIGHT", box, "LEFT", -8, 0)
 	slider:SetOrientation("HORIZONTAL")
@@ -930,6 +933,9 @@ local function CreateDropdown(parent)
 		DropdownPaint(row)
 		if opts.disabled then ApplyDisabled(row, opts.disabled()) end
 	end
+	-- the row's tooltip over the control too: hooked after the control's own
+	-- OnEnter/OnLeave are set (SetScript would drop an earlier hook)
+	Core:ForwardTooltip(btn, row)
 	return row
 end
 
@@ -1016,6 +1022,9 @@ local function CreateColor(parent)
 		ColorPaint(row)
 		if opts.disabled then ApplyDisabled(row, opts.disabled()) end
 	end
+	-- the row's tooltip over the control too: hooked after the control's own
+	-- OnEnter/OnLeave are set (SetScript would drop an earlier hook)
+	Core:ForwardTooltip(btn, row)
 	return row
 end
 
@@ -1071,6 +1080,9 @@ local function CreateButton(parent)
 		if not opts then return end
 		if opts.disabled then ApplyDisabled(row, opts.disabled()) end
 	end
+	-- the row's tooltip over the control too: hooked after the control's own
+	-- OnEnter/OnLeave are set (SetScript would drop an earlier hook)
+	Core:ForwardTooltip(btn, row)
 	return row
 end
 
@@ -1108,6 +1120,7 @@ local function CreateInput(parent)
 	local row = CreateRow(parent)
 
 	local box = CreateFrame("EditBox", nil, row)
+	Core:ForwardTooltip(box, row)   -- the row's tooltip over the control too
 	box:SetSize(DROPDOWN_W, 22)
 	box:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
 	box:SetAutoFocus(false)

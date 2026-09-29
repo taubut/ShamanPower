@@ -10,7 +10,7 @@
 --      setting, spot pal.element); a Custom swatch opens our colour picker
 --   5. Shield Colors: three cards
 --   6. WoW's own colours
---   7. Reset Colors to the Theme
+--   7. Reset Colors for Current Theme
 --   8. one section per module (SP.THEME_MODULES order): a live mini drawing of
 --      the module in its current look, then a row per themable spot: its Theme
 --      dropdown, Colors / Shield Colors / Show Icons As / its choice / its switch
@@ -1734,6 +1734,497 @@ local function PaintShields()
 end
 
 -- ---------------------------------------------------------------------------
+-- 5b. Shapes & Textures: the same settings as on each part's own page (named
+-- in each row's line). A theme card never changes them; the first card of
+-- each row is today's look.
+-- ---------------------------------------------------------------------------
+local shapeCards = {}   -- [row key] = { card, card, ... }
+local SHAPE_ROWS = {
+	{ key = "dot", label = "Dot Shape", list = function() return SP.DOT_SHAPES end,
+	  note = "The party dots and Totem Coverage's dots. Also on Party Buff Tracker.",
+	  get = function() return SP.opt.dotShape or "default" end, set = function(k) SP:SetDotShape(k) end },
+	{ key = "glow", label = "Glow Shape", list = function() return SP.GLOW_SHAPES end,
+	  note = "The pulse flash and the ready and alert glows. Also on Totem Bar > Duration Bars and Ready Reminders.",
+	  get = function() return SP.opt.glowShape or "default" end, set = function(k) SP:SetGlowShape(k) end },
+	{ key = "edge", label = "Frame Edge", list = function() return SP.FRAME_EDGES end,
+	  note = "The totem bar, the cooldown bar and ShamanPower's panels. Also on Appearance > Totem Bar and Cooldown Bar.",
+	  get = function() return SP.opt.frameEdge or "default" end, set = function(k) SP:SetFrameEdge(k) end },
+	{ key = "icon", label = "Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  note = "The totem bar, its flyouts, pop-outs and the cooldown bar. Also on Appearance > Totem Bar and Cooldown Bar.",
+	  get = function() return SP.opt.iconShape or "default" end, set = function(k) SP:SetIconShape(k) end },
+}
+-- Gradients (Miska's request): the bars' fill and the outlines, shaded. The same
+-- settings as Bar Gradient on Totem Bar > Duration Bars and Outline Gradient on
+-- Appearance > Totem Bar. Two-Tone and Fade Out get their own rows under the cards.
+local GRAD_COLORS = { { 0.2, 0.8, 0.2 }, { 0.9, 0.3, 0.1 }, { 0.2, 0.5, 0.9 }, { 0.8, 0.8, 0.8 } }   -- today's duration bar colors
+-- Bar Gradient's directions, one per kind of bar: area, label, what it shades
+local BAR_DIRECTIONS = {
+	{ "duration", "Duration Bars Direction", "the totem duration bars" },
+	{ "pulse", "Pulse Bars Direction", "the pulse bars" },
+	{ "cooldown", "Cooldown Bar Direction", "the cooldown bar's progress bars" },
+	{ "other", "Ready Reminders Bar Direction", "Ready Reminders' bar" },
+}
+local function GradientExtra(field, part)
+	return function(y, W)
+		local o = SP.opt
+		local kind = o[field]
+		local function changed() SP:RefreshGradients() end
+		if kind and field == "barGradient" then
+			-- each kind of bar has its own direction
+			for _, d in ipairs(BAR_DIRECTIONS) do
+				local area = d[1]
+				local _, hd = Widgets:Dropdown(page.body, {
+					label = d[2], x = 0, y = y, width = W,
+					desc = "Where the gradient starts on " .. d[3] .. ". Along the Bar follows each bar: left to right, or bottom to top on a vertical bar.",
+					values = function() return (SP:GradientDirectionValues(field)) end,
+					order = function() return select(2, SP:GradientDirectionValues(field)) end,
+					get = function() return SP:BarGradientDirection(area) end,
+					set = function(v) SP:SetBarGradientDirection(area, v) end,
+					onChanged = PageChanged,
+				})
+				y = y + hd + 6
+			end
+		elseif kind then
+			local _, hd = Widgets:Dropdown(page.body, {
+				label = part .. " Gradient Direction", x = 0, y = y, width = W,
+				desc = (field == "outlineGradient")
+					and "Where the gradient starts: from the top edge down by default, or from the bottom, the left or the right."
+					or "Where the gradient starts. Along the Bar follows each bar: left to right, or bottom to top on a vertical bar. The others are the same on every bar.",
+				values = function() return (SP:GradientDirectionValues(field)) end,
+				order = function() return select(2, SP:GradientDirectionValues(field)) end,
+				get = function() return o[field .. "Direction"] or "default" end,
+				set = function(v) SP:SetGradientField(field .. "Direction", v) end,
+				onChanged = PageChanged,
+			})
+			y = y + hd + 6
+		end
+		if kind == "two" then
+			local _, h1 = Widgets:Toggle(page.body, {
+				label = "Start From Each " .. part .. "'s Own Color", x = 0, y = y, width = W,
+				desc = "On: each " .. strlower(part) .. " starts in its own color (Earth green, Fire red...) and shades into the second color. Off: every one starts in the first color below.",
+				get = function() return o[field .. "Color1"] == nil end,
+				set = function(v) if v then o[field .. "Color1"] = nil else o[field .. "Color1"] = { r = 0.25, g = 0.66, b = 0.96 } end; changed() end,
+				onChanged = PageChanged,
+			})
+			y = y + h1 + 6
+			if o[field .. "Color1"] then
+				local _, h2 = Widgets:Color(page.body, {
+					label = part .. " First Color", x = 0, y = y, width = W,
+					get = function() local c = o[field .. "Color1"] or {}; return c.r or 1, c.g or 1, c.b or 1, 1 end,
+					set = function(r, g, b) o[field .. "Color1"] = { r = r, g = g, b = b }; changed() end,
+					onChanged = PageChanged,
+				})
+				y = y + h2 + 6
+			end
+			local _, h3 = Widgets:Color(page.body, {
+				label = part .. " Second Color", x = 0, y = y, width = W,
+				desc = "The color the gradient shades into. WoW gold by default.",
+				get = function() local c = o[field .. "Color2"] or {}; return c.r or 1, c.g or 0.82, c.b or 0, 1 end,
+				set = function(r, g, b) o[field .. "Color2"] = { r = r, g = g, b = b }; changed() end,
+				onChanged = PageChanged,
+			})
+			y = y + h3 + 10
+		elseif kind == "fade" then
+			local _, h = Widgets:Slider(page.body, {
+				label = part .. " Fade To", x = 0, y = y, width = W, min = 0, max = 1, step = 0.01, isPercent = true,
+				desc = "How much of the color is left at the faded end: 0% fades right into the game world.",
+				get = function() local f = o[field .. "Fade"]; if f == nil then return 0.15 end return f end,
+				set = function(v) o[field .. "Fade"] = v; changed() end,
+				onChanged = PageChanged,
+			})
+			y = y + h + 10
+		end
+		return y
+	end
+end
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "bargrad", label = "Bar Gradient", list = function() return SP.GRADIENTS end,
+	note = "Duration and pulse bars, the cooldown bar's progress bars and Ready Reminders' bar (never Shield Charges). Also on Totem Bar > Duration Bars.",
+	get = function() return SP.opt.barGradient or "default" end, set = function(k) SP:SetGradientField("barGradient", k) end,
+	extra = function(y, W)
+		y = GradientExtra("barGradient", "Bar")(y, W)
+		-- the duration bars' dark track: the same setting as on Totem Bar > Duration Bars
+		local _, h = Widgets:Toggle(page.body, {
+			label = "Duration Bar Background", x = 0, y = y, width = W,
+			desc = "The dark track behind the duration bars. Turn it off to show only the colored bar, like the pulse bars. The same setting as on Totem Bar > Duration Bars.",
+			get = function() return SP.opt.durationBarBackground ~= false end,
+			set = function(v) SP:SetDurationBarBackground(v) end,
+			onChanged = PageChanged,
+		})
+		return y + h + 10
+	end }
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "outgrad", label = "Outline Gradient", list = function() return SP.GRADIENTS end,
+	note = "The element-colored borders round each totem, and the totem bar, cooldown bar and panel borders. Also on Appearance > Totem Bar.",
+	get = function() return SP.opt.outlineGradient or "default" end, set = function(k) SP:SetGradientField("outlineGradient", k) end,
+	extra = GradientExtra("outlineGradient", "Outline") }
+
+-- Shield Charges: each shield's look, today's bar or one orb per charge (the same
+-- setting as Lightning / Water / Earth Shield Look on Shield Charges). Earth Shield
+-- is Anniversary only.
+local ORB_TEX = "Interface\\AddOns\\ShamanPower\\Media\\Textures\\"
+local ORB_ICON_FILE = { "Orbs_Icon_Lightning_3", "Orbs_Icon_Water_3", "Orbs_Icon_Earth_6" }
+local ORB_STORM_FILE = { "Orbs_Storm_LS_3", "Orbs_Storm_WS_3", "Orbs_Storm_ES_6" }
+local ORB_EXTRA = {
+	[2] = { { "tide", "Tide Orbs", "Orbs_Tide_WS_3" }, { "bubble", "Bubble Orbs", "Orbs_Bubble_WS_3" }, { "foam", "Foam Orbs", "Orbs_Foam_WS_3" } },
+	[3] = { { "stone", "Stone Ring Orbs", "Orbs_Stone_ES_6" }, { "leaf", "Leaf Wreath Orbs", "Orbs_Leaf_ES_6" }, { "spike", "Spiked Stone Orbs", "Orbs_Spike_ES_6" } },
+}
+local orbCardCache = {}
+local function OrbCards(which)
+	local cards = orbCardCache[which]
+	if cards then return cards end
+	local n = (which == 3) and 6 or 3
+	cards = {
+		{ key = "bar",   label = "Bar (default)", count = n },
+		{ key = "glow",  label = "Glowing Orbs", count = n, file = ORB_TEX .. "Orbs_Glow_" .. n },
+		{ key = "icon",  label = "Shield Icon Orbs", count = n, file = ORB_TEX .. ORB_ICON_FILE[which], white = true },
+		{ key = "flat",  label = "Flat Orbs", count = n, file = ORB_TEX .. "Orbs_Flat_" .. n },
+		-- Miska's Water Shield orb is a plain picture; every other Storm look glows additively
+		{ key = "storm", label = "Storm Orbs", count = n, file = ORB_TEX .. ORB_STORM_FILE[which], white = true, add = which ~= 2, storm = true },
+	}
+	for _, e in ipairs(ORB_EXTRA[which] or {}) do
+		cards[#cards + 1] = { key = e[1], label = e[2], count = n, file = ORB_TEX .. e[3], white = true, add = true, storm = true }
+	end
+	orbCardCache[which] = cards
+	return cards
+end
+local function ShieldBarShown()
+	local s = SP.opt and SP.opt.shieldChargeDisplay
+	return SP.ShieldChargesLoaded and s and s.showChargeBar and true or false
+end
+local ORB_ROW = {
+	{ label = "Lightning Shield Charges", note = "Lightning Shield's charges: the bar, or one orb per charge. Also on Shield Charges (Lightning Shield Look)." },
+	{ label = "Water Shield Charges", note = "Water Shield's charges: the bar, or one orb per charge. Also on Shield Charges (Water Shield Look)." },
+	{ label = "Earth Shield Charges", note = "Earth Shield's charges (on your Earth Shield target): the bar, or one orb per charge. Also on Shield Charges (Earth Shield Look)." },
+}
+for which = 1, 3 do
+	SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "orbs" .. which, orbs = which, label = ORB_ROW[which].label, note = ORB_ROW[which].note,
+		list = function() return OrbCards(which) end,
+		-- Earth Shield: Anniversary only (WoW: Forever has none)
+		shown = function() return ShieldBarShown() and (which < 3 or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) end,
+		get = function() return SP.GetShieldLook and SP:GetShieldLook(which) or "bar" end,
+		set = function(k) if SP.SetShieldLook then SP:SetShieldLook(which, k) end end }
+end
+-- Shield Charges' own gradient and colors (never Bar Gradient's): the same
+-- settings as Colors & Gradient on Shield Charges
+local CHARGE_NAMES = { "Lightning Shield Charge Color", "Water Shield Charge Color", "Earth Shield Charge Color" }
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient", list = function() return SP.GRADIENTS end,
+	note = "Shield Charges' own: the charge bar, the Glowing and Flat orbs and the cooldown bar's Shield Charge Bar. Bar Gradient never touches them. Also on Shield Charges.",
+	shown = function() return ShieldBarShown() end,
+	get = function() return SP.opt.chargeGradient or "default" end, set = function(k) SP:SetGradientField("chargeGradient", k) end,
+	extra = function(y, W)
+		y = GradientExtra("chargeGradient", "Charge Bar")(y, W)
+		-- each shield's own charge color (purple Water Shield? sure)
+		for w = 1, (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 2 or 3 do
+			local _, h = Widgets:Color(page.body, {
+				label = CHARGE_NAMES[w], x = 0, y = y, width = W,
+				desc = "The color of this shield's charge bar and orbs (Shield Icon Orbs keep their icons). The same setting as on Shield Charges.",
+				get = function() if SP.ShieldChargeColorOf then local r, g, b = SP:ShieldChargeColorOf(w); return r, g, b, 1 end return 0.2, 0.6, 1, 1 end,
+				set = function(r, g, b) if SP.SetShieldChargeColor then SP:SetShieldChargeColor(w, r, g, b) end end,
+				onChanged = PageChanged,
+			})
+			y = y + h + 6
+		end
+		local _, bh = Widgets:Button(page.body, {
+			label = "Default Charge Colors", buttonText = "Default Charge Colors", x = 0, y = y, width = W,
+			desc = "Each shield's charges back to their usual color.",
+			func = function() if SP.SetShieldChargeColor then for w = 1, 3 do SP:SetShieldChargeColor(w, nil) end end end,
+			onChanged = PageChanged,
+		})
+		return y + bh + 10
+	end }
+local PREVIEW_H = 44
+local DOT_CLASSES = { "ROGUE", "WARRIOR", "PRIEST", "HUNTER" }
+
+-- the picture on a card: the shape on real icons, as the part draws it
+local function BuildShapePreview(c, row, s)
+	local I = Icons()
+	local p = CreateFrame("Frame", nil, c)
+	p:SetSize(120, PREVIEW_H)
+	c.preview = p
+	if row.key == "dot" then
+		local ic = p:CreateTexture(nil, "ARTWORK")
+		ic:SetSize(30, 30); ic:SetPoint("CENTER", p, "CENTER", 0, 0)
+		ic:SetTexture(I.soe); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		local spots = { { "TOPLEFT", -2, 2 }, { "TOPRIGHT", 2, 2 }, { "BOTTOMLEFT", -2, -2 }, { "BOTTOMRIGHT", 2, -2 } }
+		for i = 1, 4 do
+			local o = p:CreateTexture(nil, "OVERLAY", nil, 1)
+			o:SetTexture(s.file); o:SetVertexColor(0, 0, 0, 0.9); o:SetSize(9, 9)
+			o:SetPoint("CENTER", ic, spots[i][1], spots[i][2], spots[i][3])
+			local d = p:CreateTexture(nil, "OVERLAY", nil, 2)
+			d:SetTexture(s.file); d:SetSize(7, 7); d:SetPoint("CENTER", o, "CENTER", 0, 0)
+			if i == 4 then d:SetVertexColor(1, 0.1, 0.1) else d:SetVertexColor(ClassRGB(DOT_CLASSES[i])) end
+		end
+	elseif row.key == "glow" then
+		local ic = p:CreateTexture(nil, "ARTWORK")
+		ic:SetSize(26, 26); ic:SetPoint("CENTER", p, "CENTER", 0, 0)
+		ic:SetTexture(I.tremor); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		local g = p:CreateTexture(nil, "OVERLAY")
+		g:SetPoint("TOPLEFT", ic, "TOPLEFT", -10, 10); g:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 10, -10)
+		g:SetTexture(s.file); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0.9)
+	elseif row.orbs then
+		local n = s.count or 3
+		local bar = CreateFrame("StatusBar", nil, p)
+		bar:SetMinMaxValues(0, n); bar:SetValue(n - 1)
+		if s.file then
+			-- the strips' own proportions: Storm 2:1 (3 orbs) / 4:1 (6), the others 4:1 / 8:1
+			local w = (n == 6) and 108 or 64
+			local h = s.storm and ((n == 6) and 27 or 32) or ((n == 6) and 14 or 16)
+			bar:SetSize(w, h); bar:SetPoint("CENTER", p, "CENTER", 0, 0)
+			bar:SetStatusBarTexture(s.file)
+			if s.add then bar:GetStatusBarTexture():SetBlendMode("ADD") end
+			if s.white then bar:SetStatusBarColor(1, 1, 1) else bar:SetStatusBarColor(0.2, 0.6, 1.0) end
+			local back = bar:CreateTexture(nil, "BACKGROUND"); back:SetAllPoints(bar)
+			back:SetTexture(ORB_TEX .. (s.storm and "Orbs_StormEmpty_" or "Orbs_Empty_") .. n)
+			if s.white then back:SetVertexColor(0.55, 0.6, 0.7, 0.9) else back:SetVertexColor(0.11, 0.33, 0.55, 0.9) end
+		else
+			local w = (n == 6) and 90 or 60
+			bar:SetSize(w, 7); bar:SetPoint("CENTER", p, "CENTER", 0, 0)
+			bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8"); bar:SetStatusBarColor(0.2, 0.6, 1.0)
+			local back = bar:CreateTexture(nil, "BACKGROUND")
+			back:SetPoint("TOPLEFT", bar, "TOPLEFT", -1, 1); back:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 1, -1)
+			back:SetColorTexture(0, 0, 0, 0.6)
+			for i = 1, n - 1 do
+				local d = bar:CreateTexture(nil, "OVERLAY"); d:SetColorTexture(0, 0, 0, 0.9); d:SetWidth(1)
+				d:SetPoint("TOP", bar, "TOPLEFT", w * i / n, 0); d:SetPoint("BOTTOM", bar, "BOTTOMLEFT", w * i / n, 0)
+			end
+		end
+	elseif row.key == "bargrad" then
+		-- four duration bars; repainted with the page, so Two-Tone's colors and
+		-- Fade Out's opacity show on the cards as they change
+		local bars = {}
+		for k = 1, 4 do
+			local t = p:CreateTexture(nil, "ARTWORK")
+			t:SetSize(96, 6); t:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -3 - (k - 1) * 11)
+			local back = p:CreateTexture(nil, "BACKGROUND")
+			back:SetPoint("TOPLEFT", t, "TOPLEFT", -1, 1); back:SetPoint("BOTTOMRIGHT", t, "BOTTOMRIGHT", 1, -1)
+			back:SetColorTexture(0, 0, 0, 0.7)
+			bars[k] = t
+		end
+		c.repaint = function()
+			for k, t in ipairs(bars) do
+				local col = GRAD_COLORS[k]
+				if s.key ~= "default" then
+					-- the real painter, so the card follows Gradient Direction too
+					t:SetColorTexture(1, 1, 1, 1)
+					SP:PaintBarGradient(t, col[1], col[2], col[3], 1, false, s.key, "duration")
+				else
+					t:SetColorTexture(col[1], col[2], col[3], 1)
+				end
+			end
+		end
+		c.repaint()
+	elseif row.key == "chargegrad" then
+		local t = p:CreateTexture(nil, "ARTWORK")
+		t:SetSize(96, 12); t:SetPoint("CENTER", p, "CENTER", 0, 0)
+		local back = p:CreateTexture(nil, "BACKGROUND")
+		back:SetPoint("TOPLEFT", t, "TOPLEFT", -1, 1); back:SetPoint("BOTTOMRIGHT", t, "BOTTOMRIGHT", 1, -1)
+		back:SetColorTexture(0, 0, 0, 0.6)
+		for i = 1, 2 do
+			local d = p:CreateTexture(nil, "OVERLAY")
+			d:SetColorTexture(0, 0, 0, 0.9); d:SetSize(1, 12)
+			d:SetPoint("LEFT", t, "LEFT", 32 * i, 0)
+		end
+		c.repaint = function()
+			local r, g, b = 0.2, 0.6, 1
+			if SP.ShieldChargeColorOf then r, g, b = SP:ShieldChargeColorOf(1) end
+			if s.key ~= "default" then
+				t:SetColorTexture(1, 1, 1, 1)
+				SP:PaintBarGradient(t, r, g, b, 1, false, s.key, "shieldcharges")
+			else
+				t:SetColorTexture(r, g, b, 1)
+			end
+		end
+		c.repaint()
+	elseif row.key == "outgrad" then
+		-- four totem icons in their element-colored outlines
+		local sets = {}
+		for k = 1, 4 do
+			local ic = p:CreateTexture(nil, "ARTWORK")
+			ic:SetSize(22, 22); ic:SetPoint("LEFT", p, "CENTER", -50 + (k - 1) * 25, 0)
+			ic:SetTexture(I.totems[k]); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			local e = {}
+			for i = 1, 4 do e[i] = p:CreateTexture(nil, "OVERLAY") end
+			e[1]:SetPoint("TOPLEFT", ic, "TOPLEFT"); e[1]:SetPoint("TOPRIGHT", ic, "TOPRIGHT"); e[1]:SetHeight(2)
+			e[2]:SetPoint("BOTTOMLEFT", ic, "BOTTOMLEFT"); e[2]:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT"); e[2]:SetHeight(2)
+			e[3]:SetPoint("TOPLEFT", ic, "TOPLEFT", 0, -2); e[3]:SetPoint("BOTTOMLEFT", ic, "BOTTOMLEFT", 0, 2); e[3]:SetWidth(2)
+			e[4]:SetPoint("TOPRIGHT", ic, "TOPRIGHT", 0, -2); e[4]:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 0, 2); e[4]:SetWidth(2)
+			sets[k] = e
+		end
+		c.repaint = function()
+			for k, e in ipairs(sets) do
+				local col = GRAD_COLORS[k]
+				for i = 1, 4 do e[i]:SetColorTexture(1, 1, 1, 1) end
+				if s.key ~= "default" then
+					SP:PaintOutlineEdges(e[1], e[2], e[3], e[4], col[1], col[2], col[3], 1, s.key)
+				else
+					for i = 1, 4 do e[i]:SetVertexColor(col[1], col[2], col[3], 1) end
+				end
+			end
+		end
+		c.repaint()
+	elseif row.key == "edge" then
+		local f = CreateFrame("Frame", nil, p, "BackdropTemplate")
+		f:SetSize(4 * 22 + 5 * 3, 28); f:SetPoint("CENTER", p, "CENTER", 0, 0)
+		f:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+		f:SetBackdropColor(0, 0, 0, 0.7); f:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+		for i = 1, 4 do
+			local ic = f:CreateTexture(nil, "ARTWORK")
+			ic:SetSize(22, 22); ic:SetPoint("LEFT", f, "LEFT", 3 + (i - 1) * 25, 0)
+			ic:SetTexture(I.totems[i]); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		end
+		if SP.PaintFrameEdgePreview then SP:PaintFrameEdgePreview(f, s.key) end
+	else
+		for i = 1, 4 do
+			local ic = p:CreateTexture(nil, "ARTWORK")
+			ic:SetSize(24, 24); ic:SetPoint("LEFT", p, "CENTER", -52 + (i - 1) * 27, 0)
+			ic:SetTexture(I.totems[i]); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			if s.file then
+				local m = p:CreateMaskTexture()
+				m:SetAllPoints(ic)
+				m:SetTexture(s.file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+				ic:AddMaskTexture(m)
+			end
+		end
+	end
+end
+
+local function NewShapeCard(row, s)
+	local c = NewCard(page.body)
+	c.title = Text(c, "brand")
+	c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -8)
+	c.title:SetText((s.label:gsub(" %(default%)", "")))
+	c.tag = Tag(c)
+	c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -10, -10)
+	BuildShapePreview(c, row, s)
+	c.key, c.row = s.key, row
+	c:SetScript("OnClick", function()
+		if row.get() ~= s.key then row.set(s.key) end
+		PageChanged()
+	end)
+	Core:AttachTooltip(c, row.label .. ": " .. s.label, row.note)
+	return c
+end
+
+local function RenderShapes(y, W)
+	-- the two bar texture choices: the same settings as General > Fonts & Textures
+	local function texValues(def)
+		return function()
+			local v = { [DEFAULT] = def }
+			for _, name in ipairs(SP.TextureList and SP:TextureList() or {}) do v[name] = name end
+			return v
+		end
+	end
+	local function texOrder()
+		local o = { DEFAULT }
+		for _, name in ipairs(SP.TextureList and SP:TextureList() or {}) do o[#o + 1] = name end
+		return o
+	end
+	local function refresh() if SP.RefreshTextures then SP:RefreshTextures() end end
+	local _, h1 = Widgets:Dropdown(page.body, {
+		label = "Bar Texture", x = 0, y = y, width = W,
+		desc = "The texture of every bar ShamanPower draws, unless a part picks its own. The same setting as Bar Texture on General > Fonts & Textures.",
+		values = texValues("Default (as designed)"), order = texOrder,
+		get = function() return SP.opt.barTexture or DEFAULT end,
+		set = function(v) if v == DEFAULT then v = nil end; SP.opt.barTexture = v; refresh() end,
+		onChanged = PageChanged,
+	})
+	y = y + h1 + 6
+	local _, h2 = Widgets:Dropdown(page.body, {
+		label = "Shield Charge Bars", x = 0, y = y, width = W,
+		desc = "Shield Charges' charge bar and the cooldown bar's Shield Charge Bar: their own texture, they never follow Bar Texture. The same setting as on General > Fonts & Textures and Shield Charges.",
+		values = texValues("Default (as designed)"), order = texOrder,
+		get = function() local t = SP.opt.barTextureAreas; return (t and t.shieldcharges) or DEFAULT end,
+		set = function(v)
+			if v == DEFAULT then v = nil end
+			SP.opt.barTextureAreas = SP.opt.barTextureAreas or {}
+			SP.opt.barTextureAreas.shieldcharges = v
+			refresh()
+		end,
+		onChanged = PageChanged,
+	})
+	y = y + h2 + 10
+	local gap = 10
+	for _, row in ipairs(SHAPE_ROWS) do
+		if not row.shown or row.shown() then
+			local list = row.list() or {}
+			local lab = Keep("shapelabel:" .. row.key, function()
+				local f = CreateFrame("Frame", nil, page.body)
+				f.name = Text(f, "section")
+				f.name:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+				f.name:SetText(strupper(row.label))
+				f.name:SetTextColor(Core:Color("textDim"))
+				f.note = Text(f, "rowDim")
+				f.note:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -3)
+				return f
+			end)
+			local nh = Fit(lab.note, W, row.note)
+			local lh = ceil(lab.name:GetStringHeight()) + 3 + nh
+			lab:SetSize(W, lh)
+			lab:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+			y = y + lh + 6
+			local n = #list
+			-- more than five cards wrap onto two lines, so none gets too narrow
+			local perLine = (n > 5) and ceil(n / 2) or n
+			local lines = ceil(n / max(perLine, 1))
+			local cw = floor((W - (perLine - 1) * gap) / max(perLine, 1))
+			local cards = {}
+			for i, s in ipairs(list) do
+				local c = Keep("shape:" .. row.key .. ":" .. s.key, function() return NewShapeCard(row, s) end)
+				if not c.tagW then c.tag:SetText("IN USE"); c.tagW = ceil(c.tag:GetStringWidth()) end
+				-- the title wraps inside the card, clear of the IN USE tag; a word too long
+				-- to sit beside the tag (Diamond) takes the card's width, the tag under it
+				local full, beside = max(20, cw - 20), max(20, cw - 20 - c.tagW - 6)
+				local text, longest = c.title:GetText() or "", 0
+				for word in text:gmatch("%S+") do
+					c.title:SetText(word)
+					longest = max(longest, c.title.GetUnboundedStringWidth and c.title:GetUnboundedStringWidth() or c.title:GetStringWidth())
+				end
+				c.title:SetText(text)
+				c.tag:ClearAllPoints()
+				if longest > beside then
+					c.title:SetWidth(full)
+					c.tag:SetPoint("TOPRIGHT", c.title, "BOTTOMRIGHT", 0, -2)
+					c.th = ceil(c.title:GetStringHeight()) + 2 + ceil(c.tag:GetStringHeight())
+				else
+					c.title:SetWidth(beside)
+					c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -10, -10)
+					c.th = ceil(c.title:GetStringHeight())
+				end
+				cards[i] = c
+			end
+			-- one height for the row: the tallest title
+			local tallest = 0
+			for _, c in ipairs(cards) do tallest = max(tallest, c.th) end
+			local ch = 8 + tallest + 4 + PREVIEW_H + 8
+			for i, c in ipairs(cards) do
+				local col, line = (i - 1) % perLine, floor((i - 1) / perLine)
+				c:SetSize(cw, ch)
+				c:SetPoint("TOPLEFT", page.body, "TOPLEFT", col * (cw + gap), -(y + line * (ch + gap)))
+				c.preview:ClearAllPoints()
+				c.preview:SetPoint("TOP", c, "TOP", 0, -(8 + tallest + 4))
+			end
+			shapeCards[row.key] = cards
+			y = y + lines * ch + (lines - 1) * gap + 12
+			if row.extra then y = row.extra(y, W) end   -- Two-Tone colors / Fade Out opacity
+		else
+			shapeCards[row.key] = nil
+		end
+	end
+	return y
+end
+
+local function PaintShapes()
+	for _, row in ipairs(SHAPE_ROWS) do
+		local inUse = row.get()
+		for _, c in ipairs(shapeCards[row.key] or {}) do
+			c.selected = (c.key == inUse)
+			PaintCard(c)
+			if c.repaint then c.repaint() end   -- the gradient cards follow their colors
+			if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
 -- 6. WoW's own colours
 -- ---------------------------------------------------------------------------
 local WOW_ROWS = {
@@ -2066,8 +2557,15 @@ end
 -- what decides which rows the page has: the picked theme (Theme Options) and
 -- which parts are flat boxes (their Show Icons As). Built only on a change.
 LayoutSig = function()
+	local o = SP.opt or {}
 	local parts = { SP:ThemeGlobal() == "minimal" and "m" or "-", SP:ThemeField("borders") == true and "b" or "-",
-		CustomCardShown() and "c" or "-" }
+		CustomCardShown() and "c" or "-",
+		-- the rows under the gradient cards come and go with the style picked
+		o.barGradient or "-", o.barGradientColor1 and "1" or "0", o.outlineGradient or "-", o.outlineGradientColor1 and "1" or "0",
+		o.chargeGradient or "-", o.chargeGradientColor1 and "1" or "0" }
+	for _, row in ipairs(SHAPE_ROWS) do
+		if row.shown then parts[#parts + 1] = row.shown() and "s" or "h" end
+	end
 	for _, mod in ipairs(SP.THEME_MODULES) do
 		for _, spot in ipairs(mod.spots) do
 			if spot.box then parts[#parts + 1] = SP:ThemeBoxed(spot.id) and "1" or "0" end
@@ -2082,6 +2580,7 @@ RepaintAll = function()
 	if page.showOptions then Safe(PaintThemeOptions) end
 	Safe(PaintPalettes)
 	Safe(PaintShields)
+	Safe(PaintShapes)
 	Safe(PaintWoW)
 	for i = 1, #live do
 		local f = live[i]
@@ -2105,6 +2604,38 @@ function Page:Render(body, W, onChanged)
 	local y = 0
 	local _, h = Widgets:Description(body, { text = INTRO, x = 0, y = y, width = W })
 	y = y + h
+	-- the two reset buttons first, above the Theme picker, so they are easy to find
+	local _, bh = Widgets:Button(body, {
+		label = "Reset Colors for Current Theme", buttonText = "Reset Colors for Current Theme", x = 0, y = y + 4, width = W,
+		desc = "Keeps your theme. Clears every color you changed on this page (the Element Colors and Shield Colors picks, each shield's Charge Color, the gradients' Two-Tone colors), so each part shows the theme's colors again.",
+		func = function() SP:ResetThemeColors() end,
+		onChanged = PageChanged,
+	})
+	y = y + 4 + bh
+	-- the emergency button: every color in ShamanPower back to how it came
+	local _, rh = Widgets:Button(body, {
+		label = "Reset All Colors and Theme", buttonText = "Reset All Colors and Theme", x = 0, y = y + 4, width = W,
+		desc = "Mixed things up and want a clean start? This puts every color in ShamanPower back to how it came: the Standard theme with nothing changed, and every color option on every page, Shield Charges included. It asks first, then reloads your interface.",
+		func = function()
+			SP:ShowSPDialog({
+				key = "resetallcolors",
+				title = "Reset All Colors and Theme?",
+				text = "Every color in ShamanPower goes back to how it came:\n\n"
+					.. "- the Standard theme, with no per-part choices, color edits or element-colored borders\n"
+					.. "- the default Element Colors and Status Colors\n"
+					.. "- every color option on every page: Cooldown Text, Pulse Bar and Pulse Flash, Compact outline, Mana Tint, each shield's Charge Color, the gradients' Two-Tone colors, Ready Reminders and Tremor Reminder\n\n"
+					.. "Nothing else changes. If you were using a Custom look, it stays on the Custom card. Your interface reloads to finish.",
+				buttons = {
+					{ text = "Reset and Reload", onClick = function()
+						SP:ResetAllColorsToDefault()
+						ReloadUI()
+					end },
+					{ text = "Cancel" },
+				},
+			})
+		end,
+	})
+	y = y + 4 + rh
 	y = y + Header("Theme", y, W)
 	y = RenderPicker(y, W)
 	-- Show Icons As only means something for flat boxes: shown with ShamanPower Minimal only
@@ -2144,39 +2675,10 @@ function Page:Render(body, W, onChanged)
 	end
 	y = y + Header("Shield Colors", y, W)
 	y = RenderShields(y, W)
+	y = y + Header("Shapes & Textures", y, W)
+	y = RenderShapes(y, W)
 	y = y + Header("WoW's Own Colors", y, W)
 	y = RenderWoW(y, W)
-	local _, bh = Widgets:Button(body, {
-		label = "Reset Colors to the Theme", buttonText = "Reset Colors to the Theme", x = 0, y = y + 4, width = W,
-		desc = "Clears every color you changed on this page, and the Element Colors and Shield Colors picks, so each part shows its theme's colors again.",
-		func = function() SP:ResetThemeColors() end,
-		onChanged = PageChanged,
-	})
-	y = y + 4 + bh
-	-- the emergency button: every color in ShamanPower back to how it came
-	local _, rh = Widgets:Button(body, {
-		label = "Reset All Colors to Default", buttonText = "Reset All Colors", x = 0, y = y + 4, width = W,
-		desc = "Mixed things up and want a clean start? This puts every color in ShamanPower back to how it came: the Standard theme with nothing changed, and every color option on every page. It asks first, then reloads your interface.",
-		func = function()
-			SP:ShowSPDialog({
-				key = "resetallcolors",
-				title = "Reset All Colors?",
-				text = "Every color in ShamanPower goes back to how it came:\n\n"
-					.. "- the Standard theme, with no per-part choices, color edits or element-colored borders\n"
-					.. "- the default Element Colors and Status Colors\n"
-					.. "- every color option on every page: Cooldown Text, Pulse Bar and Pulse Flash, Compact outline, Mana Tint, Ready Reminders and Tremor Reminder\n\n"
-					.. "Nothing else changes. If you were using a Custom look, it stays on the Custom card. Your interface reloads to finish.",
-				buttons = {
-					{ text = "Reset and Reload", onClick = function()
-						SP:ResetAllColorsToDefault()
-						ReloadUI()
-					end },
-					{ text = "Cancel" },
-				},
-			})
-		end,
-	})
-	y = y + 4 + rh
 	for _, mod in ipairs(SP.THEME_MODULES) do
 		if ModuleShown(mod) then y = RenderModule(mod, y, W) end
 	end

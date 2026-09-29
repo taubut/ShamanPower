@@ -1023,7 +1023,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetTexture(e.icon)
 				s.mIcon:SetDesaturated(false); s.mIcon:SetAlpha(1)
 				s.inset:Hide(); s.insetBd:Hide()
-				s.dbg:Show(); s.dbar:SetShown(activeNow); s.dbar:SetWidth(math.max(1, SIZE * frac))
+				s.dbg:SetAlpha(SP:DurationTrackAlpha(1)); s.dbg:Show(); s.dbar:SetShown(activeNow); s.dbar:SetWidth(math.max(1, SIZE * frac))
 			else -- dynamic: the slot becomes whatever was dropped, and stays that way
 				s.over:Hide()
 				s.mIcon:SetTexture(e.active)
@@ -1429,7 +1429,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			s.wf = CreateFrame("Frame", nil, b); s.wf:SetFrameLevel(b:GetFrameLevel() + 2)
 			s.wipe = s.wf:CreateTexture(nil, "OVERLAY"); SP:SetSPBarColor(s.wipe, "pulse", 1, 1, 1, 0.7)
 			-- the flash at each pulse, as the bar draws it (green glow around the button, sized outward)
-			s.flash = b:CreateTexture(nil, "OVERLAY", nil, 7); s.flash:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+			s.flash = b:CreateTexture(nil, "OVERLAY", nil, 7); s.flash:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); SP:ShapeGlow(s.flash, "border")
 			s.flash:SetBlendMode("ADD"); s.flash:SetVertexColor(0.4, 1, 0.4); s.flash:SetPoint("CENTER", b, "CENTER", 0, 0)
 			s.flash:SetSize(SIZE * 1.8, SIZE * 1.8); s.flash:SetAlpha(0)
 			s.ptxt = { inside_top = fs(s.wf), inside_bottom = fs(s.wf), above = fs(s.wf), below = fs(s.wf), on_icon = fs(b) }
@@ -1521,8 +1521,12 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		-- Duration Bar / Pulse Bar / Pulse Flash Opacity, as on the real bar
 		local dOp, pOp, fOp = O("durationBarOpacity", 1), O("pulseBarOpacity", 1), O("pulseFlashOpacity", 1)
 		local fc = OPT().pulseFlashColor   -- Pulse Flash Color (green by default)
+		-- Only Show Pulse Bars / Pulse Flash for Specific Totems: the sample pulsing totem is Tremor
+		local po = OPT()
+		local barOn = not (po.pulseOnlySome and po.pulseTotemsOff and po.pulseTotemsOff.Tremor)
+		local flashOn = not (po.pulseFlashOnlySome and po.pulseFlashTotemsOff and po.pulseFlashTotemsOff.Tremor)
 		for _, s in ipairs(slots) do
-			s.dbg:SetAlpha(dOp); s.dbar:SetAlpha(dOp)
+			s.dbg:SetAlpha(SP:DurationTrackAlpha(dOp)); s.dbar:SetAlpha(dOp)   -- Duration Bar Background: no track
 			local e = s.e
 			s.t = s.t + el
 			local cycle = e.dur + e.gap
@@ -1571,8 +1575,8 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			-- pulse wipe: fills up to the next pulse, then resets
 			if s.wf then
 				local vis = active and pp ~= "none"
-				s.wf:SetShown(vis)
-				if vis then
+				s.wf:SetShown(vis and barOn)
+				if vis and barOn then
 					local prog = (s.t % e.pulse) / e.pulse
 					local size = math.max(1, s.pmax * prog)
 					if s.pvert then s.wipe:SetHeight(size) else s.wipe:SetWidth(size) end
@@ -1581,12 +1585,12 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 				-- the flash: bright at the pulse, gone after 15% of the cycle (0% = off)
 				if s.flash then
 					local prog = (s.t % e.pulse) / e.pulse
-					local k = (vis and fOp > 0 and prog < 0.15) and (1 - prog / 0.15) or 0
+					local k = (vis and flashOn and fOp > 0 and prog < 0.15) and (1 - prog / 0.15) or 0
 					if fc then s.flash:SetVertexColor(fc.r or 0.4, fc.g or 1, fc.b or 0.4) else s.flash:SetVertexColor(0.4, 1, 0.4) end
 					s.flash:SetAlpha(0.9 * k * fOp)
 				end
 				for k, t in pairs(s.ptxt) do
-					local on = active and ptl == k and (k == "on_icon" or pp ~= "none")
+					local on = active and barOn and ptl == k and (k == "on_icon" or pp ~= "none")
 					t:SetShown(on)
 					if on then
 						if t._spSize ~= pts then SP:SetSPFont(t, "timers", pts, "OUTLINE"); t._spSize = pts end   -- not every frame
@@ -1820,7 +1824,7 @@ function SP.Wizard.BuildTwistingStep(card, inner, y)
 	for i = 1, 3 do
 		local g = btn:CreateTexture(nil, "OVERLAY", nil, 7); local o = (6 + i * 4) * S
 		g:SetPoint("TOPLEFT", btn, "TOPLEFT", -o, o); g:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", o, -o)
-		g:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0)
+		g:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); SP:ShapeGlow(g, "border"); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0)
 		glows[i] = g
 	end
 	local key = btn:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", math.floor(9 * S), "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
@@ -1949,8 +1953,8 @@ function SP.Wizard.BuildWFCompanionStep(card, inner, y)
 		local key = b:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-4"); key:SetTextColor(0.9, 0.9, 0.9)
 		local dots, rings = {}, {}
 		for d = 1, 4 do
-			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
-			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); dot:SetSize(6, 6); dot:Hide()
+			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture(SP:DotTexture()); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
+			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture(SP:DotTexture()); dot:SetSize(6, 6); dot:Hide()
 			ring:SetPoint("CENTER", dot, "CENTER"); dots[d] = dot; rings[d] = ring
 		end
 		local n = b:CreateFontString(nil, "OVERLAY", nil, 7); n:SetPoint("CENTER", b, "CENTER", 0, 0); n:Hide()
@@ -2102,8 +2106,8 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		local key = b:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("TOPRIGHT", b, "TOPRIGHT", 1, 0); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
 		local dots, rings = {}, {}
 		for d = 1, 4 do
-			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
-			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot"); dot:SetSize(6, 6)
+			local ring = b:CreateTexture(nil, "OVERLAY", nil, 6); ring:SetTexture(SP:DotTexture()); ring:SetVertexColor(0, 0, 0, 0.9); ring:Hide()
+			local dot = b:CreateTexture(nil, "OVERLAY", nil, 7); dot:SetTexture(SP:DotTexture()); dot:SetSize(6, 6)
 			ring:SetPoint("CENTER", dot, "CENTER")
 			dots[d] = dot; rings[d] = ring
 		end
@@ -2132,7 +2136,8 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Every totem has its own bubble, so someone can be inside Strength of Earth's range and outside Windfury's at the same time. A dot per member: class color = getting that totem, red = out of its range. The number = how many it reaches. Windfury (Air) only knows about melee running the companion aura - next step.")
+	legend:SetText("Every totem has its own bubble, so someone can be inside Strength of Earth's range and outside Windfury's at the same time. A dot per member: class color = getting that totem, red = out of its range. The number = how many it reaches."
+		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and " Windfury (Air) only knows about melee running the companion aura - next step." or ""))
 	-- who is inside which totem's bubble right now (each totem has its own range)
 	local ENAME = { "Earth", "Fire", "Water", "Air" }
 	-- a small grid: member down the side, element across the top, in / out in the cells
@@ -2163,7 +2168,8 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	local function placeDots()
 		local pos = SP.opt.partyDotPosition or "corners"
 		local size, gap = math.floor((SP.opt.partyDotSize or 5) * 1.2 + 0.5), 2   -- mock icon is bigger than the real 26px button
-		for _, s in ipairs(slots) do for d = 1, 4 do s.dots[d]:SetSize(size, size); s.rings[d]:SetSize(size + 2, size + 2) end end
+		local tex = SP:DotTexture()   -- Dot Shape
+		for _, s in ipairs(slots) do for d = 1, 4 do s.dots[d]:SetSize(size, size); s.rings[d]:SetSize(size + 2, size + 2); s.dots[d]:SetTexture(tex); s.rings[d]:SetTexture(tex) end end
 		local span = 4 * size + 3 * gap
 		for _, s in ipairs(slots) do
 			for d = 1, 4 do
@@ -2183,7 +2189,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	local t = 0
 	bar:SetScript("OnUpdate", function(_, el)
 		t = t + el
-		local dotKey = (SP.opt.partyDotPosition or "corners") .. (SP.opt.partyDotSize or 5)
+		local dotKey = (SP.opt.partyDotPosition or "corners") .. (SP.opt.partyDotSize or 5) .. tostring(SP.opt.dotShape)
 		if dotKey ~= lastDotPos then placeDots(); lastDotPos = dotKey end
 		local outline = SP.opt.partyDotOutline ~= false
 		local showDots = SP.opt.showPartyRangeDots and true or false
@@ -2198,7 +2204,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 			local count = 0
 			for d, m in ipairs(PARTY) do
 				local dot = s.dots[d]
-				local known = (i ~= 4) or m.wf          -- Windfury: only companion users are visible
+				local known = (i ~= 4) or m.wf or WOW_PROJECT_ID == WOW_PROJECT_MAINLINE   -- Windfury: only companion users are visible (Forever: everyone, it is a party buff there)
 				local cell = lines[d][i]
 				if not known then
 					dot:Hide(); s.rings[d]:Hide()
@@ -2442,7 +2448,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 		set = function(v) SP.opt.raidCDShowWarningText = v; upd() end })
 	row("Toggle", { label = "Alert: sound", get = function() return O("raidCDPlaySound", true) end,
 		set = function(v) SP.opt.raidCDPlaySound = v; upd(); Widgets:RefreshAll(card) end })
-	row("Slider", { label = "Sound volume", min = 0, max = 100, step = 5, disabled = function() return not O("raidCDPlaySound", true) end,
+	row("Slider", { label = "Sound volume", min = 0, max = 100, step = 1, disabled = function() return not O("raidCDPlaySound", true) end,
 		get = function() return O("raidCDSoundVolume", 100) end, set = function(v) SP.opt.raidCDSoundVolume = v; upd() end })
 	return y
 end
@@ -2533,7 +2539,7 @@ function SP.Wizard.BuildReactiveStep(card, inner, y)
 	local function noSound() return off() or not get("playSound", false) end
 	row("Toggle", { label = "Alert sound", disabled = off, get = function() return get("playSound", false) end, set = function(v) sv().playSound = v; upd() end })
 	row("Dropdown", { label = "Sound", disabled = noSound, get = function() return get("soundName", "Raid Warning") end, set = function(v) sv().soundName = v; upd() end, values = soundValues, order = soundList })
-	row("Slider", { label = "Volume", min = 0, max = 100, step = 5, disabled = noSound, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
+	row("Slider", { label = "Volume", min = 0, max = 100, step = 1, disabled = noSound, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
 	row("Button", { label = "Hear it", buttonText = "Test sound", disabled = noSound,
 		func = function() if SP.PlaySoundWithVolume and SP.GetSoundFile then pcall(SP.PlaySoundWithVolume, SP, SP:GetSoundFile(get("soundName", "Raid Warning")), get("soundVolume", 100), true) end end })
 	return y
@@ -2625,9 +2631,12 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 	for _, entry in ipairs(SP.ReadyReminderSpells or {}) do
 		if SP.ReadyReminderUsable and SP.ReadyReminderUsable(entry) then
 			any = true
-			row("Toggle", { label = entry.name, disabled = off,
+			row("Toggle", { label = entry.optName or entry.name, disabled = off,
 				get = function() return SP.ReadyReminderOn(entry) end,
-				set = function(v) sv().spells = sv().spells or {}; sv().spells[entry.key] = v; upd("UpdateReadyReminders") end })
+				set = function(v)
+					sv().spells = sv().spells or {}; sv().spells[entry.key] = v; upd("UpdateReadyReminders")
+					if v and entry.combo and SP.ReadyShocksTurnedOn then SP.ReadyShocksTurnedOn() end   -- Shocks: hide the three singles?
+				end })
 		end
 	end
 	if not any then
@@ -2775,7 +2784,7 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 	local function noSound() return off() or not get("playSound", false) end
 	row("Toggle", { label = "Alert sound", disabled = off, get = function() return get("playSound", false) end, set = function(v) sv().playSound = v; upd() end })
 	row("Dropdown", { label = "Sound", disabled = noSound, get = function() return get("soundName", "Raid Warning") end, set = function(v) sv().soundName = v; upd() end, values = soundValues, order = soundList })
-	row("Slider", { label = "Volume", min = 0, max = 100, step = 5, disabled = noSound, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
+	row("Slider", { label = "Volume", min = 0, max = 100, step = 1, disabled = noSound, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
 	row("Button", { label = "Hear it", buttonText = "Test sound", disabled = noSound,
 		func = function() if SP.PlaySoundWithVolume and SP.GetSoundFile then pcall(SP.PlaySoundWithVolume, SP, SP:GetSoundFile(get("soundName", "Raid Warning")), get("soundVolume", 100), true) end end })
 	local note = card:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -(y + 6))
@@ -2881,7 +2890,7 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	local function imOff() return off() or not sget("weaponImbues", "enabled", true) end
 	row("Toggle", { label = "Weapon imbues", disabled = off, get = function() return sget("weaponImbues", "enabled", true) end, set = function(v) sub("weaponImbues").enabled = v; upd() end })
 	row("Toggle", { label = "    Sound", disabled = imOff, get = function() return sget("weaponImbues", "sound", false) end, set = function(v) sub("weaponImbues").sound = v; upd() end })
-	row("Slider", { label = "Sound volume", min = 0, max = 100, step = 5, disabled = off, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
+	row("Slider", { label = "Sound volume", min = 0, max = 100, step = 1, disabled = off, get = function() return get("soundVolume", 100) end, set = function(v) sv().soundVolume = v; upd() end })
 	local note = card:CreateFontString(nil, "OVERLAY"); note:SetFontObject(Core.fonts.tiny); note:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -(y + 6))
 	note:SetWidth(W); note:SetJustifyH("LEFT"); note:SetWordWrap(true); note:SetTextColor(Core:Color("textDim"))
 	note:SetText("Pick each category's sound and main-hand / off-hand imbues separately in"
@@ -4053,19 +4062,22 @@ function SP.Wizard:RenderRole()
 			end
 		end)
 		-- The one-click way out for melee who only want their shaman to see their Windfury.
-		local wfOnly = track(Core:MakeButton(c, "Just here so my shaman sees my Windfury", 320, false))
-		wfOnly:SetSize(320, 30); wfOnly:SetPoint("TOP", go, "BOTTOM", 0, -16)
-		wfOnly.text:SetTextColor(1, 0.82, 0)
-		wfOnly:SetScript("OnClick", function()
-			if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
-			SP.Wizard:Close(true, "windfury")
-			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
-		end)
-		local wfHint = track(c:CreateFontString(nil, "OVERLAY"))
-		wfHint:SetFontObject(Core.fonts.tiny)
-		wfHint:SetPoint("TOP", wfOnly, "BOTTOM", 0, -6); wfHint:SetWidth(460); wfHint:SetJustifyH("CENTER"); wfHint:SetWordWrap(true)
-		wfHint:SetText("Turns off every window, bar and icon ShamanPower has. It keeps quietly telling your group's shamans whether your weapon has Windfury. /sp brings everything back.")
-		wfHint:SetTextColor(Core:Color("textDim"))
+		-- (Not on WoW: Forever: Windfury is a party buff there, their shaman sees it anyway.)
+		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+			local wfOnly = track(Core:MakeButton(c, "Just here so my shaman sees my Windfury", 320, false))
+			wfOnly:SetSize(320, 30); wfOnly:SetPoint("TOP", go, "BOTTOM", 0, -16)
+			wfOnly.text:SetTextColor(1, 0.82, 0)
+			wfOnly:SetScript("OnClick", function()
+				if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
+				SP.Wizard:Close(true, "windfury")
+				print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
+			end)
+			local wfHint = track(c:CreateFontString(nil, "OVERLAY"))
+			wfHint:SetFontObject(Core.fonts.tiny)
+			wfHint:SetPoint("TOP", wfOnly, "BOTTOM", 0, -6); wfHint:SetWidth(460); wfHint:SetJustifyH("CENTER"); wfHint:SetWordWrap(true)
+			wfHint:SetText("Turns off every window, bar and icon ShamanPower has. It keeps quietly telling your group's shamans whether your weapon has Windfury. /sp brings everything back.")
+			wfHint:SetTextColor(Core:Color("textDim"))
+		end
 		if wiz.next then wiz.next:Hide() end   -- Start is the only way forward here
 		return
 	end
@@ -4525,15 +4537,20 @@ function SP.Wizard:ShowWelcomeChoice()
 		d.text:SetText("ShamanPower helps you play alongside shamans.")
 		d.a.text:SetText("Quick tour  (a minute)")
 		d.a:SetScript("OnClick", function() d:Hide(); SP.Wizard:Open() end)
-		d.b.text:SetText("Just here so my shaman sees my Windfury")
-		d.b:SetScript("OnClick", function()
-			d:Hide(); SP.opt.setupDone = true; SP.opt.setupPath = "windfury"
-			if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
-			print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
-		end)
+		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+			-- WoW: Forever: Windfury is a party buff there, no Windfury-only mode to offer
+			d.b:Hide()
+		else
+			d.b.text:SetText("Just here so my shaman sees my Windfury")
+			d.b:SetScript("OnClick", function()
+				d:Hide(); SP.opt.setupDone = true; SP.opt.setupPath = "windfury"
+				if SP.SetWindfuryOnly then SP:SetWindfuryOnly(true) end
+				print("|cff0070ddShamanPower|r: Windfury-only mode. Your shamans see your Windfury; nothing else runs or shows. Type |cffffffff/sp|r to change it.")
+			end)
+		end
 	end
 	-- the text and both choices (the spec question that can replace them is shorter)
-	d:SetHeight(46 + 4 + 10 + 6 + math.ceil(d.text:GetStringHeight()) + 16 + 34 + 10 + 34 + d.pad + 52)
+	d:SetHeight(46 + 4 + 10 + 6 + math.ceil(d.text:GetStringHeight()) + 16 + 34 + (d.b:IsShown() and (10 + 34) or 0) + d.pad + 52)
 	d:Show()
 end
 

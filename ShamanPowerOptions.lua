@@ -887,6 +887,83 @@ local function FlyoutSizeOption(order, width, key, default, name, desc, apply, e
 	}
 end
 
+-- Shield Charges: one look per shield (Lightning / Water / Earth Shield), shared
+-- with General > Themes. The module (ShamanPower_ShieldCharges) owns the logic.
+local SC_LOOKS = {
+	{ "bar", "Bar" }, { "glow", "Glowing Orbs" }, { "icon", "Shield Icon Orbs" }, { "flat", "Flat Orbs" }, { "storm", "Storm Orbs" },
+}
+local SC_EXTRA = {
+	[2] = { { "tide", "Tide Orbs" }, { "bubble", "Bubble Orbs" }, { "foam", "Foam Orbs" } },
+	[3] = { { "stone", "Stone Ring Orbs" }, { "leaf", "Leaf Wreath Orbs" }, { "spike", "Spiked Stone Orbs" } },
+}
+local SC_NAMES = { "Lightning Shield Look", "Water Shield Look", "Earth Shield Look" }
+local function SCLook(which)
+	return ShamanPower.GetShieldLook and ShamanPower:GetShieldLook(which) or "bar"
+end
+local function SCBarOn()
+	local s = ShamanPower.opt.shieldChargeDisplay
+	return s and s.showChargeBar and true or false
+end
+-- Earth Shield exists on Anniversary only (never on WoW: Forever)
+local function SCShields() return (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 2 or 3 end
+local function SCAnyLook(look)
+	if not SCBarOn() then return false end
+	for w = 1, SCShields() do if SCLook(w) == look then return true end end
+	return false
+end
+local SC_STORM = { storm = true, tide = true, bubble = true, foam = true, stone = true, leaf = true, spike = true }
+local function SCAnyOrbs()
+	if not SCBarOn() then return false end
+	for w = 1, SCShields() do if SCLook(w) ~= "bar" then return true end end
+	return false
+end
+local function SCLookRow(which, order)
+	return {
+		hidden = function(info) return not SCBarOn() or which > SCShields() end,
+		order = order,
+		name = SC_NAMES[which],
+		desc = "How this shield's charges look: the bar, or one orb per charge (Glowing, Shield Icon, Flat or one of the Storm looks). Works in combat. The same setting as on General > Themes.",
+		type = "select",
+		width = 1.4,
+		values = function()
+			local v = {}
+			for _, l in ipairs(SC_LOOKS) do v[l[1]] = l[2] end
+			for _, l in ipairs(SC_EXTRA[which] or {}) do v[l[1]] = l[2] end
+			return v
+		end,
+		sorting = function()
+			local o = {}
+			for _, l in ipairs(SC_LOOKS) do o[#o + 1] = l[1] end
+			for _, l in ipairs(SC_EXTRA[which] or {}) do o[#o + 1] = l[1] end
+			return o
+		end,
+		get = function(info) return SCLook(which) end,
+		set = function(info, val) if ShamanPower.SetShieldLook then ShamanPower:SetShieldLook(which, val) end end,
+	}
+end
+local SC_ANIM_KEY = { "orbAnim", "orbAnimWS", "orbAnimES" }
+local function SCAnimRow(which, order, name, what)
+	return {
+		hidden = function(info) return not (SCBarOn() and which <= SCShields() and SC_STORM[SCLook(which)]) end,
+		order = order,
+		name = name,
+		desc = what .. " Off by default: the effect is a 3D model that animates all the time, so it costs a little more than the orbs themselves.",
+		type = "toggle",
+		width = 1.0,
+		get = function(info)
+			local s = ShamanPower.opt.shieldChargeDisplay
+			return s and s[SC_ANIM_KEY[which]] == true or false
+		end,
+		set = function(info, val)
+			local s = ShamanPower.opt.shieldChargeDisplay
+			if s then
+				if val then s[SC_ANIM_KEY[which]] = true else s[SC_ANIM_KEY[which]] = nil end
+				ShamanPower:ShieldLookChanged()
+			end
+		end,
+	}
+end
+
 ShamanPower.options = {
 	name = "  " .. L["ShamanPower Classic"],
 	type = "group",
@@ -1085,11 +1162,18 @@ ShamanPower.options = {
 							hidden = function(info)
 								return not (ShamanPower.TotemDestroySupported and ShamanPower:TotemDestroySupported())
 							end,
+							-- one or the other: Flyout Requires Right-Click also wants the right-click
+							-- (shift+right-click pulls the totem back there, the toggle under it)
 							get = function(info)
+								-- a profile saved with both on: the flyout already had the right-click, so this was off in practice
+								if ShamanPower.opt.rightClickDestroysTotem and ShamanPower:FlyoutOpensOnRightClick() then
+									ShamanPower.opt.rightClickDestroysTotem = nil
+								end
 								return ShamanPower.opt.rightClickDestroysTotem == true
 							end,
 							set = function(info, val)
 								ShamanPower.opt.rightClickDestroysTotem = val
+								if val and ShamanPower:FlyoutOpensOnRightClick() then ShamanPower.opt.flyoutRequiresClick = false end
 								if not InCombatLockdown() then
 									ShamanPower:UpdateMiniTotemBar()
 									ShamanPower:UpdateTotemFlyoutEnabled()
@@ -2619,6 +2703,31 @@ ShamanPower.options = {
 								ShamanPower:UpdateFlyoutClickBehavior()
 							end
 						},
+						shift_right_click_pulls_totem = {
+							-- Totem Bar > Clicks, under Flyout Requires Right-Click (WoW: Forever)
+							order = 3.05,
+							type = "toggle",
+							name = "Shift+Right-Click Pulls That Totem Back",
+							desc = "While Flyout Requires Right-Click is on: right-click opens the flyout and shift+right-click pulls just that totem back. With Swap Left and Right Click on, it is left-click and shift+left-click.",
+							width = "full",
+							hidden = function(info)
+								return not (ShamanPower.opt.flyoutRequiresClick and ShamanPower.TotemDestroySupported and ShamanPower:TotemDestroySupported())
+									or ShamanPower:FlyoutBoxMode()
+							end,
+							disabled = function(info)
+								return not isShaman or not ShamanPower.opt.showTotemFlyouts
+							end,
+							get = function(info)
+								return ShamanPower.opt.shiftRightClickPullsTotem == true
+							end,
+							set = function(info, val)
+								ShamanPower.opt.shiftRightClickPullsTotem = val or nil
+								if not InCombatLockdown() then
+									ShamanPower:UpdateMiniTotemBar()
+									ShamanPower:UpdateTotemFlyoutEnabled()
+								end
+							end
+						},
 						flyout_requires_click = {
 							order = 3,
 							type = "toggle",
@@ -2637,6 +2746,9 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.flyoutRequiresClick = val
+								-- one or the other: the right-click opens the flyout now, so it no longer pulls the totem back
+								if val then ShamanPower.opt.rightClickDestroysTotem = nil end
+								if not InCombatLockdown() then ShamanPower:UpdateMiniTotemBar() end
 								ShamanPower:UpdateTotemFlyoutEnabled()
 							end
 						},
@@ -3546,6 +3658,16 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBarLayout()
 							end
 						},
+						cdbar_gradient_direction = {
+							-- Bar Gradient's direction for these bars (one per kind of bar; also on General > Themes)
+							order = 7.5, type = "select", name = "Progress Bar Gradient Direction", width = "full",
+							desc = "Where the gradient starts on the cooldown bar's progress bars. Along the Bar follows each bar. Shown when Bar Gradient (Totem Bar > Duration Bars or General > Themes) is not Flat.",
+							hidden = function() return ShamanPower.opt.barGradient == nil or ShamanPower.opt.cdbarShowProgressBars == false end,
+							values = function() return (ShamanPower:GradientDirectionValues("barGradient")) end,
+							sorting = function() return select(2, ShamanPower:GradientDirectionValues("barGradient")) end,
+							get = function() return ShamanPower:BarGradientDirection("cooldown") end,
+							set = function(_, v) ShamanPower:SetBarGradientDirection("cooldown", v) end,
+						},
 						cdbar_spell_colors = {
 							disabled = function(info) return (ShamanPower.opt.cdbarShowProgressBars == false) and true or false end,
 							order = 8,
@@ -3812,7 +3934,7 @@ ShamanPower.options = {
 							type = "range",
 							min = 0,
 							max = 100,
-							step = 5,
+							step = 1,
 							width = "full",
 							disabled = function() return not ShamanPower.opt.raidCDPlaySound end,
 							get = function(info)
@@ -4089,6 +4211,19 @@ ShamanPower.options = {
 								ShamanPower.opt.partyDotOutline = val
 								ShamanPower:UpdatePartyDotPositions()
 							end
+						},
+						partybuff_dot_shape = {
+							-- one setting with Coverage's Dot Shape and General > Themes
+							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
+							order = 1.61,
+							type = "select",
+							name = "Dot Shape",
+							desc = "The shape of the dots. The same setting as Dot Shape on the Coverage tab and on General > Themes.",
+							width = 0.9,
+							values = function() return (ShamanPower:DotShapeValues()) end,
+							sorting = function() return select(2, ShamanPower:DotShapeValues()) end,
+							get = function(info) return ShamanPower.opt.dotShape or "default" end,
+							set = function(info, val) ShamanPower:SetDotShape(val) end,
 						},
 						partybuff_dots_missing_only = {
 							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
@@ -4458,6 +4593,20 @@ ShamanPower.options = {
 								ShamanPower.opt.coverage.dotOutline = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
 							end,
+						},
+						coverage_dot_shape = {
+							order = 11.5405,
+							type = "select",
+							name = "Dot Shape",
+							desc = "The shape of the dots. The same setting as Dot Shape on the Dots & Counters tab and on General > Themes.",
+							width = 0.9,
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
+								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							values = function() return (ShamanPower:DotShapeValues()) end,
+							sorting = function() return select(2, ShamanPower:DotShapeValues()) end,
+							get = function() return ShamanPower.opt.dotShape or "default" end,
+							set = function(_, val) ShamanPower:SetDotShape(val) end,
 						},
 						coverage_show_timer = {
 							order = 11.5408,
@@ -5740,6 +5889,56 @@ ShamanPower.options = {
 								end
 							end
 						},
+						-- Shield Orbs: each shield has its own look (the same setting as on General > Themes)
+						shieldcharges_look_ls = SCLookRow(1, 4.441),
+						shieldcharges_look_ws = SCLookRow(2, 4.4412),
+						shieldcharges_look_es = SCLookRow(3, 4.4414),
+						shieldcharges_orb_color = {
+							hidden = function(info) return not (SCAnyLook("glow") or SCAnyLook("flat")) end,
+							order = 4.443,
+							name = "Orb Color",
+							desc = "For Glowing and Flat Orbs. Charge Bar Color: the color the charge bar has (and a theme's Shield Colors). By Shield: Lightning, Water and Earth Shield each in their own color.",
+							type = "select",
+							width = 1.0,
+							values = { bar = "Charge Bar Color", shield = "By Shield" },
+							sorting = { "bar", "shield" },
+							get = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								return s and s.orbColor or "bar"
+							end,
+							set = function(info, val)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								if s then
+									s.orbColor = (val ~= "bar") and val or nil
+									ShamanPower:ShieldLookChanged()
+								end
+							end
+						},
+						shieldcharges_orb_empty = {
+							hidden = function(info) return not SCAnyOrbs() end,
+							order = 4.444,
+							name = "Show Empty Orbs",
+							desc = "A faint ring where a used charge was, so you always see how many the shield had.",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								return not (s and s.orbEmpty == false)
+							end,
+							set = function(info, val)
+								local s = ShamanPower.opt.shieldChargeDisplay
+								if s then
+									if val then s.orbEmpty = nil else s.orbEmpty = false end
+									ShamanPower:ShieldLookChanged()
+								end
+							end
+						},
+						shieldcharges_orb_anim = SCAnimRow(1, 4.4445, "Animated Lightning",
+							"Blizzard's lightning spell effect crackling over each Lightning Shield orb, as in Miska's aura."),
+						shieldcharges_orb_anim_ws = SCAnimRow(2, 4.4446, "Animated Water",
+							"The game's own Water Shield effect, its water orbs, over each Water Shield orb."),
+						shieldcharges_orb_anim_es = SCAnimRow(3, 4.4447, "Animated Earth",
+							"The game's own Earth Shield effect, its earth, over each Earth Shield orb."),
 						shieldcharges_bar_direction = {
 							-- only with the bar on
 							hidden = function(info)
@@ -6299,7 +6498,7 @@ ShamanPower.options = {
 							type = "range",
 							min = 0,
 							max = 100,
-							step = 5,
+							step = 1,
 							width = "full",
 							disabled = function()
 								if ShamanPower_ReactiveTotems then
@@ -6769,7 +6968,7 @@ ShamanPower.options = {
 							type = "range",
 							min = 0,
 							max = 100,
-							step = 5,
+							step = 1,
 							width = 1.5,
 							disabled = function()
 								if ShamanPowerExpiringAlertsDB then
@@ -7560,7 +7759,7 @@ ShamanPower.options = {
 							type = "range",
 							min = 0,
 							max = 100,
-							step = 5,
+							step = 1,
 							width = "full",
 							disabled = function()
 								if ShamanPowerTremorReminderDB then
@@ -8290,6 +8489,22 @@ ShamanPower.options = {
 								-- the next pulse pass restarts the flashes with it
 								for _, c in pairs(ShamanPower.pulseOverlays or {}) do if c then c._pState = nil end end
 							end
+						},
+						pulse_flash_shape = {
+							-- Glow Shape: one setting with General > Themes and Ready Reminders
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 4.535,
+							type = "select",
+							name = "Pulse Flash Shape",
+							desc = "The shape of the flash around the button at each pulse. The same setting as Glow Shape on General > Themes and Ready Reminders (it also shapes the other alert glows).",
+							width = 1.0,
+							hidden = function()
+								return ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseFlashOpacity == 0
+							end,
+							values = function() return (ShamanPower:GlowShapeValues()) end,
+							sorting = function() return select(2, ShamanPower:GlowShapeValues()) end,
+							get = function() return ShamanPower.opt.glowShape or "default" end,
+							set = function(_, v) ShamanPower:SetGlowShape(v) end,
 						},
 						pulse_time_display = {
 							disabled = function(info) return (((ShamanPower.opt.pulseBarPosition or "none") == "none") and true or false) or (CompactOn()) end,
@@ -9443,11 +9658,10 @@ do
 		order = 0.6, type = "toggle", name = "Show Overlay", width = "full",
 		disabled = function() return not SP.SPRangeLoaded end,
 		-- on also while it waits for a group (Show the Overlay)
-		get = function() return (SP.spRangeFrame and SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false end,
+		get = function() return SP.SPRangeOverlayOn ~= nil and SP:SPRangeOverlayOn() end,
 		set = function(_, value)
 			if not SP.SPRangeLoaded then return end
-			local shown = (SP.spRangeFrame and SP.spRangeFrame:IsShown() or SP.spRangeManuallyOpened) and true or false
-			if shown ~= value then SP:ToggleSPRange() end
+			if SP:SPRangeOverlayOn() ~= (value == true) then SP:ToggleSPRange() end
 		end,
 	}
 	range.show_when = {
@@ -10390,7 +10604,7 @@ do
 		order = 40.1, type = "description", width = "full",
 		name = "The texture of the bars ShamanPower draws: totem duration bars, cooldown bar progress, pulse sweeps."
 			.. " Default keeps each bar's designed flat color; a texture is tinted with the same color."
-			.. " The list holds WoW's bar, ShamanPower's four and every bar texture your other addons share. Hover one to see it.",
+			.. " The list holds WoW's bar, ShamanPower's own (with WeakAuras' Clean and Stripes) and every bar texture your other addons share. Hover one to see it.",
 	}
 	args.barTexture = {
 		order = 41, type = "select", name = "Bar Texture", width = 1.5,
@@ -10405,7 +10619,7 @@ do
 			order = 42 + i, type = "select", name = a.label, width = 1.5,
 			desc = a.desc,
 			hidden = not isShaman and key ~= "other",
-			values = texValues("Same as above"), sorting = texSorting,
+			values = texValues((key == "shieldcharges") and "Default (as designed)" or "Same as above"), sorting = texSorting,
 			get = function() local t = SP.opt.barTextureAreas; return (t and t[key]) or "__default" end,
 			set = function(_, v) areas()[key] = (v ~= "__default") and v or nil; refresh() end,
 		}
@@ -10435,6 +10649,23 @@ do
 	-- the settings window previews a hovered texture: option table -> area ("all" = the main texture)
 	SP.OptionHoverTexture = { [args.barTexture] = "all" }
 	for _, a in ipairs(SP.TEXTURE_AREAS) do SP.OptionHoverTexture[args["texture_" .. a.key]] = a.key end
+
+	-- Shield Charge Bars, also on the Shield Charges page: one setting, two places
+	local sc = SP.options.args.fluffy.args.shieldcharges_section
+	local area = args.texture_shieldcharges
+	if sc and sc.args and area then
+		sc.args.shieldcharges_bar_texture = {
+			order = 4.46, type = "select", name = "Charge Bar Texture", width = "full",
+			desc = "The texture of the charge bar and of the cooldown bar's Shield Charge Bar: its own, it never follows Bar Texture. The same setting as Shield Charge Bars on General > Fonts & Textures.",
+			hidden = function()
+				local s = SP.opt.shieldChargeDisplay
+				return not (s and s.showChargeBar and SCAnyLook("bar")) and true or false   -- orbs draw their own
+			end,
+			values = texValues("Default (as designed)"), sorting = texSorting,
+			get = area.get, set = area.set,
+		}
+		SP.OptionHoverTexture[sc.args.shieldcharges_bar_texture] = "shieldcharges"
+	end
 end
 
 -- General > Main (non-shamans): Windfury-only mode, set from the setup tour's
@@ -10445,7 +10676,8 @@ do
 	main.windfuryOnly = {
 		order = 0.5, type = "toggle", name = "Windfury-Only Mode", width = "full",
 		desc = "Turns off every window, bar, icon and nameplate ShamanPower has on this character. It keeps quietly telling your group's shamans whether your weapon has Windfury, so their ShamanPower can show it.",
-		hidden = function() return isShaman end,
+		-- WoW: Forever: Windfury is a party buff there, so the report is gone
+		hidden = function() return isShaman or WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
 		get = function() return SP.opt.windfuryOnly == true end,
 		set = function(_, v) SP:SetWindfuryOnly(v) end,
 	}
@@ -10497,7 +10729,7 @@ do
 		{ keys = { "partybuff_display_mode" } },
 		{ header = "look_header", name = "Look", keys = {
 			"partybuff_scale", "partybuff_opacity", "partybuff_fontsize", "partybuff_dot_size",
-			"partybuff_dot_outline", "partybuff_dot_position", "partybuff_dots_missing_only", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
+			"partybuff_dot_outline", "partybuff_dot_shape", "partybuff_dot_position", "partybuff_dots_missing_only", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
 		}, names = { partybuff_scale = "Scale", partybuff_opacity = "Opacity", partybuff_fontsize = "Text Size",
 			partybuff_hide_frame = "Hide Background" } },
 		{ header = "position_header", name = "Position", keys = {
@@ -10511,7 +10743,7 @@ do
 		{ keys = { "coverage_enabled", "open_coverage" } },
 		{ header = "coverage_watch_header", name = "Totems to Watch", keys = watches },
 		{ header = "look_header", name = "Look", keys = {
-			"coverage_icon_size", "coverage_opacity", "coverage_show_timer", "coverage_plain_icon", "coverage_dots", "coverage_dot_size", "coverage_dot_outline", "coverage_dot_position", "coverage_dots_missing_only", "coverage_font", "coverage_hide_border",
+			"coverage_icon_size", "coverage_opacity", "coverage_show_timer", "coverage_plain_icon", "coverage_dots", "coverage_dot_size", "coverage_dot_outline", "coverage_dot_shape", "coverage_dot_position", "coverage_dots_missing_only", "coverage_font", "coverage_hide_border",
 		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
 		{ header = "sizes_header", name = "Per-Totem Icon Size", keys = sizes },
 		{ header = "behaviour_header", name = "Behavior", keys = {
@@ -10658,10 +10890,137 @@ do
 	move("scale_section", "appearance_resets", { "scale_desc", "scale_reset" })
 	move("opacity_section", "appearance_resets", { "opacity_desc", "opacity_reset" })
 	move("padding_section", "appearance_resets", { "padding_desc", "padding_reset" })
+	-- Frame Edges: one setting for both bars (and General > Themes)
+	local function frameEdgeRow(hiddenKey)
+		return {
+			type = "select", name = "Frame Edge", width = 1.0,
+			desc = "An edge drawn round the frame: a drop shadow, a bevel or a thick border. The same setting for the totem bar, the cooldown bar and ShamanPower's panels (and Frame Edges on General > Themes).",
+			hidden = function() return ShamanPower.opt[hiddenKey] and true or false end,
+			values = function() return (ShamanPower:FrameEdgeValues()) end,
+			sorting = function() return select(2, ShamanPower:FrameEdgeValues()) end,
+			get = function() return ShamanPower.opt.frameEdge or "default" end,
+			set = function(_, v) ShamanPower:SetFrameEdge(v) end,
+		}
+	end
+	pages.totembar_appearance.args.frame_edge = frameEdgeRow("hideTotemBarFrame")
+	pages.cooldownbar_appearance.args.frame_edge = frameEdgeRow("hideCooldownBarFrame")
+	-- Icon Shape: one setting for every button (and General > Themes)
+	local function iconShapeRow()
+		return {
+			type = "select", name = "Icon Shape", width = 1.0,
+			desc = "The shape of the icons: square, rounded or round. One setting for the totem bar, its flyouts, pop-outs and the cooldown bar (and Icon Shape on General > Themes). The cooldown sweep takes the same shape.",
+			values = function() return (ShamanPower:IconShapeValues()) end,
+			sorting = function() return select(2, ShamanPower:IconShapeValues()) end,
+			get = function() return ShamanPower.opt.iconShape or "default" end,
+			set = function(_, v) ShamanPower:SetIconShape(v) end,
+		}
+	end
+	pages.totembar_appearance.args.icon_shape = iconShapeRow()
+	pages.cooldownbar_appearance.args.icon_shape = iconShapeRow()
+	-- Gradients: Bar Gradient (Totem Bar > Duration Bars) and Outline Gradient
+	-- (here), one setting each with General > Themes. Two-Tone adds its colors,
+	-- Fade Out how much color is left at the faded end.
+	local function gradientRows(args, field, name, part, desc, order, hiddenAll)
+		local opt = function() return ShamanPower.opt end
+		local function notKind(k) return function() return opt()[field] ~= k end end
+		args[field] = {
+			order = order, type = "select", name = name, desc = desc, width = 1.0,
+			values = function() return (ShamanPower:GradientValues()) end,
+			sorting = function() return select(2, ShamanPower:GradientValues()) end,
+			get = function() return opt()[field] or "default" end,
+			set = function(_, v) ShamanPower:SetGradientField(field, v) end,
+		}
+		if field ~= "barGradient" then args[field .. "_direction"] = {
+			order = order + 0.0005, type = "select", name = part .. " Gradient Direction", width = 1.0,
+			desc = (field == "outlineGradient")
+				and "Where the gradient starts: from the top edge down by default, or from the bottom, the left or the right. The same setting as on General > Themes."
+				or "Where the gradient starts. Along the Bar follows each bar: left to right, or bottom to top on a vertical bar. The others are the same on every bar. The same setting as on General > Themes.",
+			hidden = function() return opt()[field] == nil end,
+			values = function() return (ShamanPower:GradientDirectionValues(field)) end,
+			sorting = function() return select(2, ShamanPower:GradientDirectionValues(field)) end,
+			get = function() return opt()[field .. "Direction"] or "default" end,
+			set = function(_, v) ShamanPower:SetGradientField(field .. "Direction", v) end,
+		} end
+		args[field .. "_own"] = {
+			order = order + 0.001, type = "toggle", width = "full",
+			name = "Start From Each " .. part .. "'s Own Color",
+			desc = "On: each " .. strlower(part) .. " starts in its own color (Earth green, Fire red...) and shades into the second color. Off: every one starts in the first color.",
+			hidden = notKind("two"),
+			get = function() return opt()[field .. "Color1"] == nil end,
+			set = function(_, v)
+				if v then opt()[field .. "Color1"] = nil else opt()[field .. "Color1"] = { r = 0.25, g = 0.66, b = 0.96 } end
+				ShamanPower:RefreshGradients()
+			end,
+		}
+		args[field .. "_color1"] = {
+			order = order + 0.002, type = "color", name = part .. " First Color", width = 1.0,
+			hidden = function() return opt()[field] ~= "two" or opt()[field .. "Color1"] == nil end,
+			get = function() local c = opt()[field .. "Color1"] or {}; return c.r or 1, c.g or 1, c.b or 1 end,
+			set = function(_, r, g, b) opt()[field .. "Color1"] = { r = r, g = g, b = b }; ShamanPower:RefreshGradients() end,
+		}
+		args[field .. "_color2"] = {
+			order = order + 0.003, type = "color", name = part .. " Second Color", width = 1.0,
+			desc = "The color the gradient shades into. WoW gold by default.",
+			hidden = notKind("two"),
+			get = function() local c = opt()[field .. "Color2"] or {}; return c.r or 1, c.g or 0.82, c.b or 0 end,
+			set = function(_, r, g, b) opt()[field .. "Color2"] = { r = r, g = g, b = b }; ShamanPower:RefreshGradients() end,
+		}
+		args[field .. "_fade"] = {
+			order = order + 0.004, type = "range", name = part .. " Fade To", width = 1.0,
+			desc = "How much of the color is left at the faded end: 0% fades right into the game world.",
+			min = 0, max = 1, step = 0.01, isPercent = true,
+			hidden = notKind("fade"),
+			get = function() local f = opt()[field .. "Fade"]; if f == nil then return 0.15 end return f end,
+			set = function(_, v) opt()[field .. "Fade"] = v; ShamanPower:RefreshGradients() end,
+		}
+		if hiddenAll then
+			for _, k in ipairs({ "", "_direction", "_own", "_color1", "_color2", "_fade" }) do
+				local row = args[field .. k]
+				if row then
+					local h = row.hidden
+					row.hidden = function(...)
+						if hiddenAll() then return true end
+						if type(h) == "function" then return h(...) end
+						return h
+					end
+				end
+			end
+		end
+	end
+	SP.GradientRows = gradientRows   -- Shield Charges' own Charge Bar Gradient (below)
+	gradientRows(pages.totembar_appearance.args, "outlineGradient", "Outline Gradient", "Outline",
+		"Shades the element-colored borders round each totem, and the totem bar, cooldown bar and panel borders. The same setting as Outline Gradient on General > Themes.", 50)
+	gradientRows(pages.totembar_duration_section.args, "barGradient", "Bar Gradient", "Bar",
+		"Shades ShamanPower's bars: duration and pulse bars, the cooldown bar's progress bars and Ready Reminders' bar (never Shield Charges). The same setting as Bar Gradient on General > Themes.", 2.07)
+	-- Bar Gradient's direction, one per kind of bar (and on General > Themes)
+	local function barDirectionRow(area, name, what, order, hiddenExtra)
+		return {
+			order = order, type = "select", name = name, width = 1.0,
+			desc = "Where the gradient starts on " .. what .. ". Along the Bar follows each bar: left to right, or bottom to top on a vertical bar. Shown when Bar Gradient (Totem Bar > Duration Bars or General > Themes) is not Flat.",
+			hidden = function() return ShamanPower.opt.barGradient == nil or (hiddenExtra and hiddenExtra()) or false end,
+			values = function() return (ShamanPower:GradientDirectionValues("barGradient")) end,
+			sorting = function() return select(2, ShamanPower:GradientDirectionValues("barGradient")) end,
+			get = function() return ShamanPower:BarGradientDirection(area) end,
+			set = function(_, v) ShamanPower:SetBarGradientDirection(area, v) end,
+		}
+	end
+	SP.BarDirectionRow = barDirectionRow   -- Ready Reminders adds its own
+	local dargs = pages.totembar_duration_section.args
+	dargs.barGradient_dir_duration = barDirectionRow("duration", "Duration Bars Direction", "the totem duration bars", 2.0705)
+	dargs.barGradient_dir_pulse = barDirectionRow("pulse", "Pulse Bars Direction", "the pulse bars", 2.0706)
+	pages.totembar_duration_section.args.duration_bar_background = {
+		order = 2.06, type = "toggle", name = "Duration Bar Background", width = 1.2,
+		desc = "The dark track behind the duration bar. Turn it off to show only the colored bar, like the pulse bars. Also on the pop-out trackers' bars.",
+		disabled = function() return (CompactOn()) and true or false end,
+		hidden = function() return ShamanPower.opt.durationBarPosition == "none" end,
+		get = function() return ShamanPower.opt.durationBarBackground ~= false end,
+		set = function(_, v) ShamanPower:SetDurationBarBackground(v) end,
+	}
 	SP.OrderSettingsBands(pages.totembar_appearance, {
 		{ keys = { "layout" }, names = { layout = "Layout" } },
 		{ header = "look_header", name = "Look", keys = {
-			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame",
+			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame", "frame_edge", "icon_shape",
+			"outlineGradient", "outlineGradient_direction", "outlineGradient_own", "outlineGradient_color1", "outlineGradient_color2", "outlineGradient_fade",
 		}, names = { buffscale = "Scale", totemBarOpacity = "Opacity", totemBarPadding = "Button Spacing",
 			hide_totem_bar_frame = "Hide Background" } },
 		{ header = "behaviour_header", name = "Behavior", keys = {
@@ -10671,7 +11030,7 @@ do
 	SP.OrderSettingsBands(pages.cooldownbar_appearance, {
 		{ keys = { "cdbarLayout" }, names = { cdbarLayout = "Layout" } },
 		{ header = "look_header", name = "Look", keys = {
-			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame",
+			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame", "frame_edge", "icon_shape",
 		}, names = { cooldownBarScale = "Scale", cooldownBarOpacity = "Opacity", cooldownBarPadding = "Button Spacing",
 			hide_cooldown_bar_frame = "Hide Background" } },
 		{ header = "behaviour_header", name = "Behavior", keys = { "cooldownBarFullOpacityWhenActive" } },
@@ -10864,7 +11223,7 @@ do
 		"rightClickCastsAssigned", "rightClickDestroysTotem",
 	})
 	SP.MoveSettingsOptions({ "fluffy", "layout_section" }, { "settings", "settings_totemClicks" }, {
-		"layout_desc", "swap_flyout_clicks", "flyout_requires_click", "swap_all_clicks", "flyout_close_on_cast",
+		"layout_desc", "swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "swap_all_clicks", "flyout_close_on_cast",
 		"flyout_route_bar_keys", "flyout_arrow_only", "flyout_single_open", "flyout_combat_header",
 	})
 	SP.MoveSettingsOptions({ "fluffy", "layout_section" }, { "fluffy", "totemflyouts_section" }, { "flyout_show_empty" })
@@ -10880,7 +11239,7 @@ do
 			"swap_all_clicks", "rightClickCastsAssigned", "rightClickDestroysTotem",
 		} },
 		{ header = "flyout_header", name = "Flyouts", keys = {
-			"swap_flyout_clicks", "flyout_requires_click", "flyout_arrow_only", "flyout_single_open",
+			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "flyout_arrow_only", "flyout_single_open",
 			"flyout_close_on_cast", "flyout_route_bar_keys",
 		} },
 	})
@@ -10993,12 +11352,44 @@ do
 			"raidCDPlaySound", "raidCDSoundVolume_testsound", "raidCDSoundVolume", "raidCDSoundVolumeNote",
 		}, names = { raidCDSoundVolume = "Volume" } },
 	})
+	-- Shield Charges' own colors and gradient: nothing from Bar Texture or Bar Gradient
+	do
+		local scArgs = SP.options.args.fluffy.args.shieldcharges_section.args
+		local NAMES = { "Lightning Shield Charge Color", "Water Shield Charge Color", "Earth Shield Charge Color" }
+		local function noBar() return not SCBarOn() end
+		for w = 1, 3 do
+			scArgs["shieldcharges_color_" .. w] = {
+				order = 20 + w, type = "color", name = NAMES[w], width = 1.0,
+				desc = "The color of this shield's charge bar and orbs (Shield Icon Orbs keep their icons). Any color you like. Also on General > Themes.",
+				hidden = function() return noBar() or w > SCShields() end,
+				get = function() if SP.ShieldChargeColorOf then return SP:ShieldChargeColorOf(w) end return 0.2, 0.6, 1 end,
+				set = function(_, r, g, b) if SP.SetShieldChargeColor then SP:SetShieldChargeColor(w, r, g, b) end end,
+			}
+		end
+		scArgs.shieldcharges_color_default = {
+			order = 24, type = "execute", name = "Default Charge Colors", width = 1.0,
+			desc = "Each shield's charges back to their usual color.",
+			hidden = noBar,
+			func = function() if SP.SetShieldChargeColor then for w = 1, 3 do SP:SetShieldChargeColor(w, nil) end end end,
+		}
+		if SP.GradientRows then
+			SP.GradientRows(scArgs, "chargeGradient", "Charge Bar Gradient", "Charge Bar",
+				"Shades the charge bar (and the Glowing and Flat orbs): Shield Charges' own gradient, never Bar Gradient's. Also the cooldown bar's Shield Charge Bar, and on General > Themes.", 25,
+				function() return noBar() or not (SCAnyLook("bar") or SCAnyLook("glow") or SCAnyLook("flat")) end)
+		end
+	end
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.shieldcharges_section, {
 		{ keys = { "shieldcharges_desc", "module_missing_note", "hide_ooc_note", "both_off_note" } },
 		{ keys = { "shieldcharges_player", "shieldcharges_earth" } },
 		{ header = "look_header", name = "Look", keys = {
 			"shieldcharges_show_icon", "shieldcharges_show_number", "shieldcharges_number_position", "shieldcharges_show_bar",
-			"shieldcharges_bar_direction", "shieldcharges_scale", "shieldcharges_opacity",
+			"shieldcharges_look_ls", "shieldcharges_look_ws", "shieldcharges_look_es", "shieldcharges_orb_color", "shieldcharges_orb_empty",
+			"shieldcharges_orb_anim", "shieldcharges_orb_anim_ws", "shieldcharges_orb_anim_es",
+			"shieldcharges_bar_direction", "shieldcharges_bar_texture", "shieldcharges_scale", "shieldcharges_opacity",
+		} },
+		{ header = "charge_colors_header", name = "Colors & Gradient", keys = {
+			"shieldcharges_color_1", "shieldcharges_color_2", "shieldcharges_color_3", "shieldcharges_color_default",
+			"chargeGradient", "chargeGradient_direction", "chargeGradient_own", "chargeGradient_color1", "chargeGradient_color2", "chargeGradient_fade",
 		} },
 		{ header = "behaviour_header", name = "Behavior", keys = {
 			"shieldcharges_hide_ooc", "shieldcharges_hide_none",
@@ -11113,7 +11504,7 @@ do
 		args.pulse_only_some = {
 			order = 9, type = "toggle", width = "full",
 			name = "Only Show Pulse Bars for Specific Totems",
-			desc = "Turn this on to pick which totems get a pulse bar. Every totem that pulses is listed below; turn off the ones you don't want. A totem turned off also gets no pulse flash or pulse time.",
+			desc = "Turn this on to pick which totems get a pulse bar. Every totem that pulses is listed below; turn off the ones you don't want. A totem turned off also gets no pulse time. The pulse flash has its own list.",
 			disabled = function() return CompactOn() end,
 			hidden = pulseOff,
 			get = function() return SP.opt.pulseOnlySome and true or false end,
@@ -11145,6 +11536,47 @@ do
 					else
 						SP.opt.pulseTotemsOff = SP.opt.pulseTotemsOff or {}
 						SP.opt.pulseTotemsOff[key] = true
+					end
+				end,
+			}
+		end
+		-- the same for the pulse flash, its own list (a totem can keep its bar and lose the flash, or the other way round)
+		local function flashOff() return pulseOff() or SP.opt.pulseFlashOpacity == 0 end
+		args.pulse_flash_only_some = {
+			order = 9.5, type = "toggle", width = "full",
+			name = "Only Show Pulse Flash for Specific Totems",
+			desc = "Turn this on to pick which totems get the pulse flash. Every totem that pulses is listed below; turn off the ones you don't want. This list is separate from the pulse bar list above.",
+			disabled = function() return CompactOn() end,
+			hidden = flashOff,
+			get = function() return SP.opt.pulseFlashOnlySome and true or false end,
+			set = function(_, val)
+				if val then SP.opt.pulseFlashOnlySome = true else SP.opt.pulseFlashOnlySome = nil end
+			end,
+		}
+		for i, t in ipairs(PULSING) do
+			local key, spell = t[1], t[2]
+			args["pulse_flash_totem_" .. key:gsub("%s", ""):lower()] = {
+				order = 9.5 + i / 100, type = "toggle", width = 1.4,
+				name = function()
+					local n = GetSpellInfo and GetSpellInfo(spell)
+					if type(n) == "string" and n ~= "" then return n end
+					return key .. " Totem"
+				end,
+				desc = "Show the pulse flash for this totem.",
+				disabled = function() return CompactOn() end,
+				hidden = function()
+					if flashOff() or not SP.opt.pulseFlashOnlySome then return true end
+					-- totems this client does not have are left out
+					if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(spell) then return true end
+					return false
+				end,
+				get = function() return not (SP.opt.pulseFlashTotemsOff and SP.opt.pulseFlashTotemsOff[key]) end,
+				set = function(_, val)
+					if val then
+						if SP.opt.pulseFlashTotemsOff then SP.opt.pulseFlashTotemsOff[key] = nil end
+					else
+						SP.opt.pulseFlashTotemsOff = SP.opt.pulseFlashTotemsOff or {}
+						SP.opt.pulseFlashTotemsOff[key] = true
 					end
 				end,
 			}

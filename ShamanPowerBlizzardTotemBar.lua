@@ -136,7 +136,7 @@ end
 function SP:ApplyBlizzardBarDurationOpacity()
 	local a = SP.opt.durationBarOpacity or 1
 	for _, host in pairs(hosts) do
-		if host.durationBackground then host.durationBackground:SetAlpha(a) end
+		if host.durationBackground then host.durationBackground:SetAlpha(SP:DurationTrackAlpha(a)) end
 		if host.durationBar then host.durationBar:SetAlpha(a) end
 	end
 end
@@ -144,7 +144,7 @@ end
 local function styleHost(host, element)
 	local opt, bg, bar, text = SP.opt, host.durationBackground, host.durationBar, host.durationText
 	local position, size = opt.durationBarPosition or "bottom", opt.durationBarHeight or 3
-	bg:SetAlpha(opt.durationBarOpacity or 1); bar:SetAlpha(opt.durationBarOpacity or 1)   -- Duration Bar Opacity
+	bg:SetAlpha(SP:DurationTrackAlpha(opt.durationBarOpacity)); bar:SetAlpha(opt.durationBarOpacity or 1)   -- Duration Bar Opacity / Background
 	local top, bottom, left, right = SP:GetPartyDotPads()
 	host.barPosition, host.barSize = position, size
 	host.barVertical = position == "left" or position == "right" or position == "top_vert" or position == "bottom_vert"

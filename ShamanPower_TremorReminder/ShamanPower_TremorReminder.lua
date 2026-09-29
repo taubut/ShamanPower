@@ -378,6 +378,7 @@ local function CreateReminderFrame()
     frame.glow:SetPoint("BOTTOMRIGHT", 12, -12)
     frame.glow:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
     frame.glow:SetTexCoord(0.00781250, 0.50781250, 0.27734375, 0.52734375)
+    if SP.ShapeGlow then SP:ShapeGlow(frame.glow, "alert") end   -- Glow Shape
     frame.glow:SetVertexColor(sv.glowColor.r or 1, sv.glowColor.g or 0.8, sv.glowColor.b or 0)
 
     -- Glow animation - pulsing alpha and scale

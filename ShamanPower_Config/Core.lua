@@ -265,6 +265,16 @@ function Core:AttachTooltip(frame, titleText, bodyText)
 	frame:HookScript("OnLeave", TipOnLeave)
 end
 
+-- A control inside a row (a button, switch, slider, swatch or text box) takes
+-- the mouse from the row, so the row's tooltip showed only on the row's edges.
+-- Hooked once when the pooled control is made; the row's text is read on hover.
+function Core:ForwardTooltip(child, row)
+	if child.spTipForwarded then return end
+	child.spTipForwarded = true
+	child:HookScript("OnEnter", function() TipOnEnter(row) end)
+	child:HookScript("OnLeave", function() TipOnLeave(row) end)
+end
+
 -- Drop the tooltip if it is currently showing for this frame (a hovered row
 -- that gets released back to its pool never receives OnLeave).
 function Core:HideTooltipFor(frame)

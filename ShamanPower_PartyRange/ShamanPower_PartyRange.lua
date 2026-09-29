@@ -125,13 +125,12 @@ SP.TotemBuffSpellIDs = {
 		[7] = 15108,  -- Windwall
 	},
 }
--- Windfury Totem on WoW: Forever: SpellEffect.db2 1.60.1 shows vanilla's layout
--- (8515 passive party-area dummy aura, 8516/10608/10610 the on-hit proc), i.e.
--- a weapon enchant, not a readable party buff. UNVERIFIED in game (the beta's
--- level cap is below Windfury Totem). So the TBC path (weapon enchant + WFBUFF
--- comms) stays, and the aura IDs are only added to the engine-drawn dots as
--- extras: a dot lights if the client ever reports them, nothing is lost if not.
 if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	-- WoW: Forever (1.60.1.70009) made Windfury Totem a party buff: 8515 / 10609 /
+	-- 10612 "Windfury Totem" is an aura on every party member in range (it procs
+	-- the extra attack itself), shown like Strength of Earth. TBC's weapon enchant
+	-- is gone there, and so are the WFBUFF comms and the companion aura it needed.
+	SP.TotemBuffSpellIDs[4][1] = 8515
 	-- Forever reuses 8215 (TBC's Flametongue Totem buff) for a spell called
 	-- "Rapid Cast", which broke the name match. There the entry is the totem
 	-- spell itself (its name matches) and its buffs are the effect auras.
@@ -156,15 +155,12 @@ SP.TotemBuffRanks = {
 	[25909] = { 25909 },                                    -- Tranquil Air
 	[10596] = { 10596, 10598, 10599 },                      -- Nature Resistance
 	[15108] = { 15108, 15109, 15110 },                      -- Windwall
-	[8516]  = { 8516, 10608, 10610 },                       -- Windfury Totem (Forever)
+	[8515]  = { 8515, 10609, 10612 },                       -- Windfury Totem (Forever: a party buff)
 	[8227]  = { 8230, 8250, 10521, 15036 },                 -- Flametongue Totem on Forever: the effect auras party members carry
 }
 
--- Extra aura IDs for the engine-drawn dots only (see the Windfury note above).
+-- Extra aura IDs for the engine-drawn dots only ([element] = { spell IDs }).
 SP.ExtraEngineAuraIDs = {}
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
-	SP.ExtraEngineAuraIDs[4] = { 8515, 10609, 10612, 8516, 10608, 10610 } -- Windfury Totem passive + proc
-end
 
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 -- This guarantees exact name matching with UnitBuff results
@@ -523,15 +519,16 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 			button:SetPoint(point, dotFrame, relPoint, x, y)
 			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
 			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+			local tex = SP:DotTexture()   -- Dot Shape
 			if outline then
 				local o = button:CreateTexture(nil, "OVERLAY", nil, -1)
-				o:SetTexture(DOT_TEXTURE)
+				o:SetTexture(tex)
 				o:SetVertexColor(0, 0, 0, 0.9)
 				o:SetPoint("CENTER", button, "CENTER", 0, 0)
 				o:SetSize(size + 2, size + 2)
 			end
 			local dot = button:CreateTexture(nil, "OVERLAY")
-			dot:SetTexture(DOT_TEXTURE)
+			dot:SetTexture(tex)
 			dot:SetVertexColor(r, g, b)
 			dot:SetAllPoints(button)
 		end,
@@ -574,7 +571,7 @@ local function RebuildEngineRecord(record, element, i, host, exists, class, r, g
 	if not host then RetireEngineRecord(record); return nil end
 	local point, relPoint, x, y = SP:PartyDotAnchor(i, host)
 	local key = (exists and (class or "?") or "-") .. "|" .. tostring(SP.opt.partyDotSize or 5) .. "|"
-		.. tostring(SP.opt.partyDotOutline ~= false) .. "|" .. point .. relPoint .. x .. "," .. y
+		.. tostring(SP.opt.partyDotOutline ~= false) .. "|" .. tostring(SP.opt.dotShape) .. "|" .. point .. relPoint .. x .. "," .. y
 	if record and record.key == key and record.host == host and (record.container or not exists) then return record end
 	RetireEngineRecord(record)
 	local container = exists and BuildEngineDot(element, i, host, r, g, b) or nil
@@ -741,6 +738,8 @@ local function PlaceDot(btn, row, i)
 	row:ClearAllPoints()
 	row:SetPoint(point, host, relPoint, x, y)
 	row.dotOutline:SetSize(size + 2, size + 2)
+	local tex = SP:DotTexture()   -- Dot Shape
+	if row.dot.spDotTex ~= tex then row.dot:SetTexture(tex); row.dotOutline:SetTexture(tex); row.dot.spDotTex = tex end
 end
 local function RowMode(row, dots)
 	row.text:SetShown(not dots)
@@ -1037,7 +1036,7 @@ local function BuildCellRows(self, btn, rowsKey, element)
 		local _, class = UnitClass(unit)
 		local dots, dotSize = CoverageDots(), CoverageDotSize()
 		local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(btn.cellKey) .. "|" .. CoverageWatchSig(element)
-			.. "|" .. (dots and ("d" .. dotSize .. CoverageDotPos() .. tostring(CoverageOpts().dotOutline ~= false)) or "n")
+			.. "|" .. (dots and ("d" .. dotSize .. CoverageDotPos() .. tostring(CoverageOpts().dotOutline ~= false) .. tostring(self.opt.dotShape)) or "n")
 		local slot = self.coverageRows[rowsKey][i]
 		local row = btn.rows[i]
 		if not slot or slot.key ~= key then
@@ -1610,7 +1609,7 @@ function SP:UpdatePartyRangeDots()
 						local hasBuff = buffName and self:UnitHasBuff(unit, buffName, element)
 
 						-- Special case: Air element (4) with no buffName = Windfury Totem
-						local isWindfury = (element == 4 and not buffName)
+						local isWindfury = (element == 4 and not buffName and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
 						if isWindfury then
 							local playerName = UnitName(unit)
 							local wfStatus = self:IsPlayerInWindfuryRange(playerName)
@@ -1940,7 +1939,7 @@ function SP:UpdateRangeCounters()
 			for _, unit in ipairs(partyUnits) do
 				if UnitExists(unit) then
 					-- Special case: Air element with Windfury
-					local isWindfury = (element == 4 and not buffName)
+					local isWindfury = (element == 4 and not buffName and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
 					if isWindfury then
 						hasTrackableBuff = true  -- Windfury is trackable via broadcast
 						local playerName = UnitName(unit)
