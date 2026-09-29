@@ -15,6 +15,8 @@ ColorPicker.lua
 IconPicker.lua
 Tree.lua
 Themes.lua
+PatchNotes.lua
+PatchNotesPage.lua
 Window.lua
 Assign.lua
 FrameSettings.lua

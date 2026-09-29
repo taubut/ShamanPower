@@ -205,6 +205,10 @@ local NAV = {
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
 		{ label = "Profiles", path = P("profiles"), lock = true },
+		-- every version's notes (PatchNotesPage.lua draws the page); NEW until opened
+		{ label = "Patch Notes", custom = "patchnotes", path = P("settings", "settings_patchnotes"),
+			desc = "What changed in each version, newest first. Click a version to open or close it.",
+			newTag = function() local sp = ShamanPower; return sp and sp.PatchNotesUnseen and sp:PatchNotesUnseen() end },
 	}},
 	{ group = "Bars", entries = {
 		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
@@ -1250,6 +1254,19 @@ function SPConfig:RenderNav(query)
 				row.shamanOnly = entry.shamanOnly and select(2, UnitClass("player")) ~= "SHAMAN"
 				row.text:SetTextColor(Core:Color(row.shamanOnly and "textMute" or "text"))
 				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Shaman only - these features do not run on this class.") else Core:AttachTooltip(row, "", nil) end
+				-- a NEW tag (Patch Notes, until its page is opened): gold small caps, as on the What's New card
+				local tagOn = entry.newTag and entry.newTag() or false
+				if tagOn and not row.newTag then
+					row.newTag = row:CreateFontString(nil, "OVERLAY")
+					row.newTag:SetFontObject(Core.fonts.section)
+					row.newTag:SetTextColor(1, 0.82, 0)
+					row.newTag:SetText("NEW")
+				end
+				if row.newTag then
+					row.newTag:ClearAllPoints()
+					row.newTag:SetPoint("LEFT", row.text, "RIGHT", 8, 0)
+					row.newTag:SetShown(tagOn)
+				end
 
 				-- Power dot: an explicit binding on the entry wins, otherwise an
 				-- "Enable ..." toggle found in the page is promoted.
@@ -1389,6 +1406,7 @@ local function ClearPage()
 	Widgets:ReleaseAll(frame.body)
 	wipe(pageWidgets)
 	if ns.ThemesPage then ns.ThemesPage:Release() end
+	if ns.PatchNotesPage then ns.PatchNotesPage:Release() end
 end
 
 -- General > Themes draws its own page (Themes.lua) in place of its group's
@@ -1551,14 +1569,15 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	frame.title:SetText(Tree:StripColor(entry.label))
 	frame.subtitle:SetText(Tree:StripColor(entry.desc or Tree:GetDesc(node, info) or ""))
 
-	local list, groups = ResolvePageList(entry, query, true)
+	local patchNotes = entry.custom == "patchnotes" and ns.PatchNotesPage or nil
+	local list, groups = ResolvePageList(entry, (not patchNotes) and query or nil, true)
 	-- What's New sits on General's Main tab only (elsewhere it covers the page description)
 	if frame.whatsNewBtn then frame.whatsNewBtn:SetShown(entry.label == "General" and frame._activeTab == "Main") end
 	if not list then return end
 	frame._query = query
 	frame._pageSig = PageSignature(list, groups)
 	local customTab = CustomTabActive(entry, query) == "themes" and ns.ThemesPage or nil
-	if customTab then list = {} end   -- drawn below by the page itself
+	if customTab or patchNotes then list = {} end   -- drawn below by the page itself
 	local searchThemes, themeSelection
 	if query and query ~= "" and ns.ThemesPage then
 		for _, tab in ipairs(groups or {}) do
@@ -1798,6 +1817,15 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 
 	if customTab then
 		local ok, h = pcall(customTab.Render, customTab, body, fullW, onChanged)
+		if ok then
+			y = h or 0
+			pageWidgets[#pageWidgets + 1] = body
+		else
+			geterrorhandler()(h)
+		end
+	elseif patchNotes then
+		-- Settings > Patch Notes: the page search narrows the notes themselves
+		local ok, h = pcall(patchNotes.Render, patchNotes, body, fullW, onChanged, query)
 		if ok then
 			y = h or 0
 			pageWidgets[#pageWidgets + 1] = body

@@ -8,46 +8,47 @@ local Core = ns.Core
 local SP = ShamanPower
 if not SP then return end
 
--- Notes for the release this file ships with. Update per big release; leave
--- items for the running version out entirely and the popup stays quiet.
--- Test builds ("2.1.0-alpha2") match on the part before the dash.
-local NOTES = {
-	-- PLACEHOLDER until the release is versioned: must equal the TOC version
-	-- of the release that ships these notes, or the card stays quiet.
-	version = "3.0.0",
-	items = {
-		{ icon = "Interface\\Icons\\ClassIcon_Shaman", h = "ShamanPower now runs on WoW: Forever",
-		  b = "One download for both games. On Forever the game itself draws ShamanPower's totem timers, party dots and alerts, so they keep working in combat, and totems that game does not have are hidden everywhere. Forever characters start with the setup tour." },
-		{ h = "Blizzard's Totem Bar, powered by ShamanPower", try = "blizzard",
-		  when = function() return SP.TotemBarStyle and SP:TotemBarStyle("blizzard") ~= nil end,   -- Forever only
-		  b = "Keep the game's own totem bar and get ShamanPower's countdowns, duration bars, pulse timers and party dots drawn on its buttons. Blizzard's three totem sets stay in step with your assignments and loadouts."
-		    .. "\n|cff3FA9F5Settings > General > Main > Totem Bar Style|r"
-		    .. "  -  hover a style there to see it in the live preview" },
-		{ icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02", h = "Totem Coverage: who is missing your buff", when = function() return SP.CoverageAvailable and SP:CoverageAvailable() end,
-		  b = "The reverse of Totem Range. Under each of your totems,"
-		    .. " the names of the party members who do NOT have its buff,"
-		    .. " in red or class color. Pick which totems to watch; it hides itself once everyone is covered, in combat too."
-		    .. "\n|cff3FA9F5Settings > Group Tools > Party Buff Tracker > Coverage|r" },
-		{ icon = "Interface\\Icons\\INV_Misc_Map_01", h = "Totem markers on the minimap", when = function() return SP.MinimapTotemsAvailable end,
-		  b = "A pin where each totem was dropped and a ring for its reach, turning with the minimap. Open world only."
-		    .. "\n|cff3FA9F5Settings > Group Tools > Totem Range Tracker|r" },
-		{ icon = "Interface\\Icons\\Spell_Nature_StoneSkinTotem", h = "Auto-Assign picks by who is in the group",
-		  b = "Stoneskin for caster-only groups and Strength of Earth with melee; Mana Spring with mana users, Healing Stream otherwise; the Air totem by who benefits. This changes what Auto-Assign picks for existing characters too." },
-		{ icon = "Interface\\Icons\\INV_Misc_Note_01", h = "Pick your own font",
-		  b = "Settings > General > Fonts & Textures: one font and outline for every number and label ShamanPower draws, or a different one for timers, shield charges, alerts or names. The list has WoW's fonts plus every font your other addons share (ElvUI, SharedMedia). Hover a font to see it before you pick it." },
-		{ icon = "Interface\\Icons\\INV_Misc_Gear_01", h = "The settings window shows what it changes",
-		  b = "The arrow tab on the right opens a live preview of the page's module, redrawn as you change its settings. Every window a module has (Totem Range picker, Raid Cooldowns, the fear-caster list, Totem Assignments) opens from a button on its page, and every option those windows hold is on the page too. Test buttons hide the window while they run." },
-	},
-	footer = "Also: a reorganized settings window, Enable ShamanPower to turn the whole addon off,"
-		.. " a Grid style that shows every totem at once (Settings > General > Main > Totem Bar Style),"
-		.. " a Move button and Unlock UI box for the loadout bar, an icon picker with search,"
-		.. " and an alignment grid in Unlock UI. The full list is in the changelog.",
-}
+-- The card reads the patch notes (PatchNotes.lua, also Settings > Patch Notes):
+-- the items marked card = true in every version newer than the one this account
+-- last saw. The newest version's items are full rows (its look item is the NEW
+-- box); older versions' items are one-line rows under "Also new in". A release
+-- with no card items for this account shows nothing at all.
+local NOTES = { version = (ns.PATCH_NOTES and ns.PATCH_NOTES[1] and ns.PATCH_NOTES[1].v) or "3.0.0" }
 
 local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"
 
 local function BaseVersion(v)
 	return v and (v:gsub("%-.*$", "")) or nil
+end
+
+-- "3.0.4" -> 3000004 (test builds by the part before the dash); nil if unreadable
+local function VerNum(v)
+	v = BaseVersion(v)
+	if not v then return nil end
+	local a, b, c = v:match("^(%d+)%.(%d+)%.?(%d*)")   -- (never "v and v:match": "and" keeps only the first capture)
+	if not a then return nil end
+	return tonumber(a) * 1000000 + tonumber(b) * 1000 + (tonumber(c) or 0)
+end
+-- the card's versions: newer than `since` and not newer than the running one
+-- (since = nil: all of them), each with its card items for this game; newest first
+local function CardSets(since, preview)
+	local s = VerNum(since)
+	local cur = VerNum(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
+	local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local out = {}
+	for _, ver in ipairs(ns.PATCH_NOTES or {}) do
+		local n = VerNum(ver.v)
+		-- (on request, since = nil, or a preview: every version's items, even a test build's newest)
+		if n and (not s or n > s) and (not s or preview or not cur or n <= cur) then
+			local items = {}
+			for _, it in ipairs(ver.new or {}) do
+				local gameOK = it.client == nil or ((it.client == "forever") == forever)
+				if it.card and gameOK and (not it.when or it.when()) then items[#items + 1] = it end
+			end
+			if #items > 0 then out[#out + 1] = { ver = ver, items = items } end
+		end
+	end
+	return out
 end
 
 -- ---------------------------------------------------------------------------
@@ -279,14 +280,95 @@ end
 -- ---------------------------------------------------------------------------
 -- The card
 -- ---------------------------------------------------------------------------
-local dlg
-local function BuildDialog()
-	if dlg then return dlg end
-	dlg = Core:CreateDialog({
-		name = "ShamanPowerWhatsNew", width = 560, height = 200,
+-- 3.0.4's NEW box: the release's look story (the notes' look item), the bar now
+-- and in the new shapes, Try it opens the Themes tab. Returns the box and its height.
+local function NewLookBox(parent, y, W, it, onTry)
+	local GOLD = { 1, 0.82, 0.15 }
+	local box = CreateFrame("Frame", nil, parent)
+	box:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+	box:SetWidth(W)
+	Core:SolidTex(box, "accent", "BACKGROUND", 0.10)
+	Core:MakeBorder(box, "accent")
+	local tag = box:CreateFontString(nil, "OVERLAY")
+	tag:SetFontObject(Core.fonts.section)
+	tag:SetTextColor(1, 0.82, 0)
+	tag:SetText("NEW")
+	tag:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -12)
+	local tagW = math.ceil(tag:GetStringWidth())
+	local head = box:CreateFontString(nil, "OVERLAY")
+	head:SetFontObject(Core.fonts.row)
+	head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	head:SetJustifyH("LEFT"); head:SetWordWrap(true)
+	head:SetPoint("TOPLEFT", box, "TOPLEFT", 12 + tagW + 8, -11)
+	head:SetWidth(W - 24 - tagW - 8)
+	head:SetText(it.h)
+	local h = 11 + math.max(14, math.ceil(head:GetStringHeight())) + 6
+	local body = box:CreateFontString(nil, "OVERLAY")
+	body:SetFontObject(Core.fonts.rowDim)
+	body:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -h)
+	body:SetWidth(W - 24); body:SetJustifyH("LEFT"); body:SetWordWrap(true)
+	body:SetText(it.b .. (it.path and ("\n|cff3FA9F5" .. it.path .. "|r") or ""))
+	h = h + math.ceil(body:GetStringHeight()) + 10
+	-- your bar now, and in Circle icons with two-tone bars
+	local x, barH = 12, 0
+	local cap = box:CreateFontString(nil, "OVERLAY")
+	cap:SetFontObject(Core.fonts.section)
+	cap:SetPoint("TOPLEFT", box, "TOPLEFT", x, -h)
+	cap:SetText("YOUR BAR NOW")
+	local bar = SP.Wizard.ThemeMiniBar(box, 24, false)
+	bar:SetPoint("TOPLEFT", box, "TOPLEFT", x, -(h + 18))
+	bar:Paint("now")
+	barH = bar:GetHeight()
+	x = x + math.max(bar:GetWidth(), math.ceil(cap:GetStringWidth())) + 28
+	if ns.BuildLookArt then
+		local cap2 = box:CreateFontString(nil, "OVERLAY")
+		cap2:SetFontObject(Core.fonts.section)
+		cap2:SetPoint("TOPLEFT", box, "TOPLEFT", x, -h)
+		cap2:SetText("CIRCLE, TWO-TONE BARS")
+		local art = ns.BuildLookArt(box)
+		if art.cap then art.cap:Hide() end
+		art:SetPoint("TOPLEFT", box, "TOPLEFT", x, -(h + 18))
+		barH = math.max(barH, 48)
+	end
+	h = h + 18 + barH + 12
+	local try = Core:MakeButton(box, "Try it", 80, false)
+	try:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -12, 12)
+	try:SetScript("OnClick", onTry)
+	Core:AttachTooltip(try, "Try it", "Opens Settings > General > Themes. Nothing changes until you pick something there.")
+	box:SetHeight(h)
+	return box, h
+end
+
+-- a small-caps section line ("NEW IN 3.0.4", "ALSO NEW IN 3.0") with a rule after it
+local function CardSection(parent, y, W, text)
+	local fs = parent:CreateFontString(nil, "OVERLAY")
+	fs:SetFontObject(Core.fonts.section)
+	fs:SetTextColor(Core:Color("accentHi"))
+	fs:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
+	fs:SetText(text)
+	local rule = parent:CreateTexture(nil, "ARTWORK")
+	rule:SetHeight(1)
+	rule:SetColorTexture(Core:Color("border"))
+	rule:SetPoint("LEFT", fs, "RIGHT", 8, 0)
+	rule:SetPoint("RIGHT", parent, "TOPLEFT", W, -(y + 7))
+	return 20
+end
+
+local function OpenPatchNotes()
+	if ns.SPConfig and ns.SPConfig.Open then ns.SPConfig:Open({ "settings", "settings_patchnotes" }) end
+end
+
+-- the card for everything newer than `since` (nil: every version's card items)
+local cards = {}
+local function BuildDialog(since, preview)
+	local key = since or "all"
+	if cards[key] then return cards[key] end
+	local dlg = Core:CreateDialog({
+		name = "ShamanPowerWhatsNew" .. ((key == "all") and "" or key:gsub("%.", "_")), width = 560, height = 200,
 		title = "What's new",
 		subtitle = "shown once per update", headerHeight = 46, footer = 52, special = true,
 	})
+	cards[key] = dlg
 	dlg:SetFrameStrata("DIALOG")
 	local solid = dlg:CreateTexture(nil, "BACKGROUND", nil, 1)
 	solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -314,15 +396,17 @@ local function BuildDialog()
 		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
 		-- the installed version (3.0.1), so a patch of the series needs no edit here
 		local installed = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
-		title:SetText("ShamanPower " .. ((installed or NOTES.version):gsub("%.0$", "")))
+		local about = CardSets(since, preview)[1]   -- the version this card is about (a test build may still carry the older number)
+		title:SetText("ShamanPower " .. (((about and about.ver.v) or installed or NOTES.version):gsub("%.0$", "")))
 		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
 		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
 		sub:SetText("Now on |cff3FA9F5WoW: Forever|r and TBC Anniversary")
 		y = y + 62 + 14
 	end
-	for _, it in ipairs(NOTES.items) do
-	  if not it.when or it.when() then   -- an item for a feature this client lacks stays out
-		-- a totem bar style gets its picture on the left and a Try it button on the right
+
+	-- one full item: icon, gold title, a few words and the settings path; a totem
+	-- bar style gets its picture on the left and a Try it button on the right
+	local function FullRow(it)
 		local tryIt = it.try and isShaman and SP.TotemBarStyle and SP:TotemBarStyle(it.try) ~= nil
 		local x, w = 0, W
 		if not tryIt and it.icon then
@@ -338,8 +422,8 @@ local function BuildDialog()
 			end
 			local tb = Core:MakeButton(dlg.body, "Try it", 80, false)
 			tb:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -(y + 2))
-			local key = it.try
-			tb:SetScript("OnClick", function() ShowStylePreview(key) end)
+			local style = it.try
+			tb:SetScript("OnClick", function() ShowStylePreview(style) end)
 			w = W - x - 92
 		end
 		local h = dlg.body:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
@@ -348,15 +432,51 @@ local function BuildDialog()
 		y = y + h:GetStringHeight() + 4
 		local b = dlg.body:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
 		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
-		b:SetText(it.b)
+		b:SetText(it.b .. (it.path and ("\n|cff3FA9F5" .. it.path .. "|r") or ""))
 		y = y + b:GetStringHeight() + 14
-	  end
 	end
-	-- the themes (General > Themes): Try it closes the card and opens the tab
-	if ThemesAvailable() then
-		local _, lh = LookBox(dlg.body, y, W, function() dlg:Hide(); OpenThemes() end)
-		y = y + lh + 14
+	-- one short row (an older version's highlight): a small icon, the title, one line
+	local function ShortRow(it)
+		if it.icon then
+			local ic = dlg.body:CreateTexture(nil, "ARTWORK"); ic:SetSize(22, 22)
+			ic:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 6, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		end
+		local h = dlg.body:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
+		h:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 38, -y); h:SetWidth(W - 38); h:SetJustifyH("LEFT")
+		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		y = y + h:GetStringHeight() + 3
+		local b = dlg.body:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
+		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 38, -y); b:SetWidth(W - 38); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
+		b:SetText(it.s or it.b)
+		y = y + b:GetStringHeight() + 10
 	end
+
+	local sets = CardSets(since, preview)
+	local latest = sets[1]
+	-- older versions' highlights, oldest first
+	local older = {}
+	for i = #sets, 2, -1 do older[#older + 1] = sets[i] end
+	if latest then
+		if #older > 0 then y = y + CardSection(dlg.body, y, W, "NEW IN " .. latest.ver.v) end
+		for _, it in ipairs(latest.items) do
+			if it.look and ThemesAvailable() then
+				local _, lh = NewLookBox(dlg.body, y, W, it, function() dlg:Hide(); OpenThemes() end)
+				y = y + lh + 14
+			end
+		end
+		for _, it in ipairs(latest.items) do
+			if not (it.look and ThemesAvailable()) then FullRow(it) end
+		end
+	end
+	if #older > 0 then
+		local series = older[#older].ver.v:match("^(%d+%.%d+)") or older[#older].ver.v
+		y = y + 2 + CardSection(dlg.body, y + 2, W, "ALSO NEW IN " .. series)
+		for _, set in ipairs(older) do
+			for _, it in ipairs(set.items) do ShortRow(it) end
+		end
+		y = y + 4
+	end
+
 	-- Discord strip: logo, invite line, Copy Link
 	do
 		local strip = CreateFrame("Frame", nil, dlg.body)
@@ -382,10 +502,17 @@ local function BuildDialog()
 		t:SetText("|cff8C9EFFJoin the ShamanPower Discord|r - help, bug reports and early test builds")
 		y = y + 40 + 12
 	end
-	if NOTES.footer then
+	-- the Also line: each version's smaller things, newest first
+	local also = {}
+	for _, set in ipairs(sets) do
+		if set.ver.also then also[#also + 1] = set.ver.also end
+	end
+	do
 		local f = dlg.body:CreateFontString(nil, "OVERLAY"); f:SetFontObject(Core.fonts.tiny)
 		f:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); f:SetWidth(W); f:SetJustifyH("LEFT"); f:SetWordWrap(true)
-		f:SetText(NOTES.footer)
+		local text = "Every change is in Settings > Patch Notes."
+		if #also > 0 then text = "Also: " .. table.concat(also, "; ") .. ". " .. text end
+		f:SetText(text)
 		y = y + f:GetStringHeight()
 	end
 	dlg:SetHeight(46 + 16 + y + 52)
@@ -394,6 +521,10 @@ local function BuildDialog()
 	ok:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -14, 12)
 	ok:SetScript("OnClick", function() dlg:Hide() end)
 	if dlg.close then dlg.close:SetScript("OnClick", function() ok:Click() end) end
+	-- every version's notes, in the settings
+	local all = Core:MakeButton(dlg, "See All Patch Notes", 170, false)
+	all:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", 14, 12)
+	all:SetScript("OnClick", function() dlg:Hide(); OpenPatchNotes() end)
 	return dlg
 end
 
@@ -438,12 +569,10 @@ function SP:ShowWhatsNew(force)
 	-- Brand-new installs are in (or headed into) the guided setup - stamp and
 	-- stay quiet rather than stacking two windows.
 	if self.opt and not self.opt.setupDone then g.lastSeenVersion = cur return end
-	-- A release without notes for itself stays quiet too. The notes cover their
-	-- whole x.y series, once: 3.0.0's card still shows at 3.0.1 to someone
-	-- coming from 2.x, but not again to someone who saw it at 3.0.0.
-	local function series(v) v = BaseVersion(v); return v and v:match("^(%d+%.%d+)%.") end
-	if series(cur) ~= series(NOTES.version) then g.lastSeenVersion = cur return ShowLookCard(g) end
-	if series(g.lastSeenVersion) == series(cur) then g.lastSeenVersion = cur return ShowLookCard(g) end
+	-- Only what is new since the version this account last saw: a release with no
+	-- card items past it (for this game) stays quiet.
+	local since = g.lastSeenVersion
+	if #CardSets(since) == 0 then g.lastSeenVersion = cur return ShowLookCard(g) end
 	-- Never on top of the setup wizard; try again next login instead.
 	local wiz = _G["ShamanPowerWizard"]
 	if wiz and wiz:IsShown() then return end
@@ -451,7 +580,7 @@ function SP:ShowWhatsNew(force)
 	g.lastSeenVersion = cur
 	-- the release card carries the look item: that is the look offered
 	if LookCardDue(g) then g.themesCardSeen = true end
-	BuildDialog():Show()
+	BuildDialog(since):Show()
 end
 
 SLASH_SPWHATSNEW1 = "/spwhatsnew"
@@ -466,6 +595,14 @@ SlashCmdList["SPWHATSNEW"] = function(msg)
 	if m == "preview" then ShowStylePreview(SP.TotemBarStyle and SP:TotemBarStyle("blizzard") and "blizzard" or "compact") return end
 	local key = m:match("^preview%s+(%S+)$")
 	if key then ShowStylePreview(key) return end
+	-- "/spwhatsnew 3.0.3": the card a player updating from 3.0.3 gets (never stamped)
+	local from = m:match("^(%d+%.%d+[%.%d]*)$")
+	if from then
+		if #CardSets(from, true) == 0 then print("|cff0070ddShamanPower|r: nothing new on the card since " .. from .. ".") return end
+		local d = BuildDialog(from, true)
+		d:SetFrameStrata("FULLSCREEN_DIALOG"); d:Show(); d:Raise()
+		return
+	end
 	SP:ShowWhatsNew(true)
 end
 
