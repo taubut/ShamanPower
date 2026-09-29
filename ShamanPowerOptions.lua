@@ -5971,9 +5971,9 @@ ShamanPower.options = {
 						shieldcharges_orb_anim = SCAnimRow(1, 4.4445, "Animated Lightning",
 							"Blizzard's lightning spell effect crackling over each Lightning Shield orb, as in Miska's aura."),
 						shieldcharges_orb_anim_ws = SCAnimRow(2, 4.4446, "Animated Water",
-							"The game's own Water Shield effect, its water orbs, over each Water Shield orb."),
+							"Blizzard's icy blue spell effect glowing over each Water Shield orb."),
 						shieldcharges_orb_anim_es = SCAnimRow(3, 4.4447, "Animated Earth",
-							"The game's own Earth Shield effect, its earth, over each Earth Shield orb."),
+							"Blizzard's green nature spell effect glowing over each Earth Shield orb."),
 						shieldcharges_bar_direction = {
 							-- only with the bar on
 							hidden = function(info)

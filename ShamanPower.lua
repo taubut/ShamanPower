@@ -14670,6 +14670,9 @@ function ShamanPower:CreateESActiveOverlay()
 	borderRight:SetPoint("BOTTOMRIGHT", 0, 0)
 	borderRight:SetWidth(borderSize)
 	borderRight:SetColorTexture(r, g, b, 1)
+	-- a ring round a Rounded / Circle totem bar icon (ShapeOverlayEdge)
+	overlay.spEdges = { borderTop, borderBottom, borderLeft, borderRight }
+	self:ShapeOverlayEdge(overlay, r, g, b)
 
 	-- Target name text (inside icon)
 	local nameText = frame:CreateFontString(nil, "OVERLAY")
@@ -20469,12 +20472,12 @@ function ShamanPower:ThemePaintDurationBars(element, withBar)
 	self:ThemePaintDurationText(bars.iconText, element)
 end
 
--- tb.overlay-border: the element-coloured edge round a dropped-totem overlay.
-function ShamanPower:ThemePaintOverlayBorder(overlay, element)
+-- the edge round a dropped-totem or Earth Shield overlay (both sit on the totem
+-- bar): a ring round a Rounded / Circle icon in r, g, b; Square or Keep Borders
+-- Square: the four edges, as always
+function ShamanPower:ShapeOverlayEdge(overlay, r, g, b)
 	local edges = overlay and overlay.spEdges
 	if not edges then return end
-	local r, g, b = self:ThemeColor("tb.overlay-border", element)
-	-- a Rounded / Circle totem bar: the edge follows the icon as a ring (Keep Borders Square: the edges)
 	local frame = edges[1]:GetParent()
 	local ringFile = self.BorderRingSizedFile and self:BorderRingSizedFile("totem", 2, frame:GetWidth())
 	local ring = overlay.spRing
@@ -20483,15 +20486,22 @@ function ShamanPower:ThemePaintOverlayBorder(overlay, element)
 		ring:SetAllPoints(frame)
 		overlay.spRing = ring
 	end
-	if ring then
-		if ringFile then
-			if ring.spFile ~= ringFile then ring:SetTexture(ringFile); ring.spFile = ringFile end
-			local c = self.ElementColors[element]
-			if r then ring:SetVertexColor(r, g, b, 1) else ring:SetVertexColor(c.r, c.g, c.b, 1) end
-		end
-		ring:SetShown(ringFile ~= nil)
-		for i = 1, #edges do edges[i]:SetShown(ringFile == nil) end
+	if not ring then return end
+	if ringFile then
+		if ring.spFile ~= ringFile then ring:SetTexture(ringFile); ring.spFile = ringFile end
+		ring:SetVertexColor(r, g, b, 1)
 	end
+	ring:SetShown(ringFile ~= nil)
+	for i = 1, #edges do edges[i]:SetShown(ringFile == nil) end
+end
+
+-- tb.overlay-border: the element-coloured edge round a dropped-totem overlay.
+function ShamanPower:ThemePaintOverlayBorder(overlay, element)
+	local edges = overlay and overlay.spEdges
+	if not edges then return end
+	local r, g, b = self:ThemeColor("tb.overlay-border", element)
+	local c = self.ElementColors[element]
+	if r then self:ShapeOverlayEdge(overlay, r, g, b) else self:ShapeOverlayEdge(overlay, c.r, c.g, c.b) end
 	if r then
 		overlay.spThemeEdge = true
 	elseif overlay.spThemeEdge then

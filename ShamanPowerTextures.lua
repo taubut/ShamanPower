@@ -794,7 +794,13 @@ function SP:ApplyIconShapes()
 	for _, fl in ipairs({ self.shieldFlyout or false, self.weaponImbueFlyout or false }) do
 		if fl then for _, b in ipairs(fl.allButtons or fl.buttons or {}) do shapeButton(b, "cooldown") end end
 	end
-	shapeButton(_G.ShamanPowerEarthShieldBtn, "cooldown")
+	-- the Earth Shield button sits on the totem bar; its template icon has no .icon key
+	local esIcon = _G.ShamanPowerEarthShieldBtnIcon
+	if esIcon then
+		SP:ShapeIconTexture(esIcon, esIcon, "totem")
+		if _G.ShamanPowerEarthShieldBtnHighlight then SP:ShapeIconTexture(_G.ShamanPowerEarthShieldBtnHighlight, esIcon, "totem") end
+	end
+	shapeButton(self.esActiveOverlay, "totem")
 	for _, f in pairs(self.poppedOutFrames or {}) do shapeButton(type(f) == "table" and rawget(f, "button"), "totem") end
 	shapeButton(_G.ShamanPowerAutoDropAll, "totem")
 	if _G.ShamanPowerGCD5 then SP:ShapeCooldown(_G.ShamanPowerGCD5, "totem") end
@@ -822,6 +828,7 @@ function SP:RefreshIconShapes()
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[e]
 		if ov and self.ThemePaintOverlayBorder then self:ThemePaintOverlayBorder(ov, e) end
 	end
+	if self.esActiveOverlay and self.ShapeOverlayEdge then self:ShapeOverlayEdge(self.esActiveOverlay, 0.2, 0.8, 0.2) end   -- (its green)
 	if self.ThemeBoxesRefresh then self:ThemeBoxesRefresh() end
 	if self.UpdateAllReadyReminderAppearance then self:UpdateAllReadyReminderAppearance() end
 end
@@ -832,7 +839,7 @@ function SP:SetIconBordersSquare(on)
 end
 -- a rebuilt bar or flyout gets the shape again
 for _, name in ipairs({ "CreateTotemButtons", "CreateTotemFlyout", "CreateCooldownBar", "CreateWeaponImbueButton",
-	"CreateActiveTotemOverlay", "SetupGCDSwipes", "UpdateCooldownBar" }) do
+	"CreateActiveTotemOverlay", "SetupGCDSwipes", "UpdateCooldownBar", "CreateEarthShieldButton", "CreateESActiveOverlay" }) do
 	if type(SP[name]) == "function" then hooksecurefunc(SP, name, function() SP:ApplyIconShapes() end) end
 end
 

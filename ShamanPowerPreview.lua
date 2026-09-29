@@ -218,8 +218,38 @@ function SP:ShowPreview(key, container)
 		-- into the character. Offsets are in the frame's own scaled units.
 		-- The upper half is all there is: shrink to fit it.
 		local half = (container:GetHeight() / 2) - 140
-		if totalH > 0 and half > 0 then scale = math.min(scale, half / totalH) end
 		local up = 128   -- the label hangs below the number's frame: clear the character's head with it
+		-- def.row(): the displays stand side by side (Shield Charges with vertical
+		-- bars), spaced by how far each really reaches (def.extent: half width,
+		-- above and below its center, in its own units), their bottoms in line
+		if def.row and def.extent and def.row() then
+			local shown, ext, rowW, rowH = {}, {}, 0, 0
+			for _, frame in ipairs(frames) do
+				if frame:IsShown() and not frame.spDemoHidden then   -- (the ones the demo is showing)
+					local hw, a, b = def.extent(frame)
+					shown[#shown + 1] = frame
+					ext[#shown] = { hw, a, b }
+					rowW = rowW + 2 * hw + (#shown > 1 and 24 or 0)
+					rowH = math.max(rowH, a + b)
+				end
+			end
+			if rowW > 0 and cw > 0 then scale = math.min(scale, cw / rowW) end
+			if rowH > 0 and half > 0 then scale = math.min(scale, half / rowH) end
+			local x = -rowW / 2
+			for i, frame in ipairs(shown) do
+				local hw, _, b = ext[i][1], ext[i][2], ext[i][3]
+				frame:SetParent(container)
+				frame:SetFrameStrata(container:GetFrameStrata())
+				frame:SetFrameLevel(container:GetFrameLevel() + 5)
+				frame:SetScale(scale)
+				frame:ClearAllPoints()
+				frame:SetPoint("CENTER", container, "CENTER", x + hw, up / scale + b)
+				showFrame(frame)
+				x = x + 2 * hw + 24
+			end
+			return frames[1]
+		end
+		if totalH > 0 and half > 0 then scale = math.min(scale, half / totalH) end
 		for i = #frames, 1, -1 do
 			local frame = frames[i]
 			frame:SetParent(container)

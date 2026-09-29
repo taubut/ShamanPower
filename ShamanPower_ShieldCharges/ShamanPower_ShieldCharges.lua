@@ -25,6 +25,28 @@ local function earthShieldWanted(settings)
 	return settings.showEarthShield ~= false
 end
 
+-- The settings preview's Water Shield: a display only the live preview shows, so
+-- Lightning and Water Shield are both there (the player's display shows whichever
+-- shield is up). Never in the setup tour, never on screen outside the preview.
+function SP:ShieldChargeWaterPreviewFrame()
+	local f = self.shieldChargeWaterPreview
+	if f then return f end
+	f = CreateFrame("Frame", "ShamanPowerWaterShieldChargePreview", UIParent)
+	f:SetSize(60, 60)
+	f:SetPoint("CENTER", UIParent, "CENTER", 0, -100)
+	f:SetFrameStrata("MEDIUM")
+	local text = f:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(text, "charges", 48, "OUTLINE")
+	text:SetPoint("CENTER", f, "CENTER", 0, 0)
+	text:SetTextColor(0.2, 0.6, 1.0)
+	f.text = text
+	f:EnableMouse(false)
+	f.spDemoHidden = true   -- (the preview shows it only while the demo paints it)
+	f:Hide()
+	self.shieldChargeWaterPreview = f
+	return f
+end
+
 function SP:CreateShieldChargeDisplays()
 	local settings = self.opt.shieldChargeDisplay
 	if not settings then
@@ -268,11 +290,14 @@ local STORM_LOOK = {
 }
 local STORM_H, STORM_CELL = 45, 30
 local function isStorm(look) return look ~= nil and STORM_LOOK[look] ~= nil end
+-- the strip's size: the Storm family's big cells, but Bubble Orbs draw at the
+-- Glowing Orbs' size, small and close together (the look the user picked)
+local function stormSized(look) return isStorm(look) and look ~= "bubble" end
 local function orbLength(kind, look)
-	if isStorm(look) then return STORM_CELL * MAX_CHARGES[kind] end
+	if stormSized(look) then return STORM_CELL * MAX_CHARGES[kind] end
 	return ORB_H * ((MAX_CHARGES[kind] == 6) and 8 or 4)
 end
-local function orbThickness(look) return isStorm(look) and STORM_H or ORB_H end
+local function orbThickness(look) return stormSized(look) and STORM_H or ORB_H end
 -- The look of one shield's bar: an orb look, or nil for today's bar. The first
 -- build had one look for all shields (barLook / orbLook): read until a shield is set.
 local function orbLookOf(settings, which)
@@ -451,7 +476,9 @@ styleChargeBar = function(bar, which)
 		else file = ORB_DIR .. "Orbs_" .. ((look == "flat") and "Flat" or "Glow") .. "_" .. n end
 		bar.spOwnTexture = true
 		if bar.spOrbFile ~= file then bar:SetStatusBarTexture(file); bar.spOrbFile = file; bar.spBarTex = nil end
-		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end   -- the strip is cropped to the fill: whole orbs
+		-- the strip is cropped to the fill: whole orbs (Anniversary takes only the enum, not the string)
+		local fillStyle = Enum and Enum.StatusBarFillStyle and Enum.StatusBarFillStyle.Standard
+		if bar.SetFillStyle then bar:SetFillStyle(fillStyle or "STANDARD") end
 		-- Storm Orbs glow additively (Water Shield's are a plain picture)
 		local fill = bar:GetStatusBarTexture()
 		-- (Miska's Water Shield orb is a plain picture)
@@ -539,12 +566,14 @@ local function orbPop(bar, index)
 	p.ag:Stop(); p.ag:Play()
 end
 
--- Animated Lightning / Water / Earth (a Storm-family look; off by default): the
--- game's own shield effect over each lit orb, as Miska's aura does with the
--- lightning. Models animate every frame, so they are only there while this is on
--- and an orb is lit. [which] = the model: Lightning Shield's crackle (Miska's),
--- the water orbs of the game's Water Shield, the earth of its Earth Shield.
-local MODEL_ID = { 166492, 167184, 165986 }
+-- Animated Lightning / Water / Earth (a Storm-family look; off by default): a
+-- spell effect over each lit orb, as Miska's aura does with the lightning. Models
+-- animate every frame, so they are only there while this is on and an orb is lit.
+-- [which] = the model: one family of hand glows, each the same size and centered
+-- on its own middle so it sits in an orb: Lightning's crackle (Miska's), the ice
+-- glow, the green nature glow (the Water / Earth Shield effects themselves circle
+-- the whole character, so an orb only ever showed a slice of them).
+local MODEL_ID = { 166492, 166381, 166605 }
 local MODEL_UNITS = 77           -- the aura's model size, in this display's units
 -- the center of orb i on a strip (the arc: the middle orb sits a little lower)
 local function orbCenter(bar, i)
@@ -614,10 +643,11 @@ local function shieldIDs(which)
 end
 -- Orb n's center on the display frame for a Storm-family strip, from the settings
 -- (the same sums placeParts does): the live bar may show the other shield's look.
-local function stormOrbOnFrame(settings, kind, s, n)
+local function stormOrbOnFrame(settings, kind, s, n, which)
 	local icon, number, _, _, barSide = displayParts(settings)
 	local count = MAX_CHARGES[kind]
-	local blen, bthk = orbLength(kind, "storm") * s, STORM_H * s
+	local look = orbLookOf(settings, which) or "storm"   -- (that shield's strip size: Bubble's is small)
+	local blen, bthk = orbLength(kind, look) * s, orbThickness(look) * s
 	local arc = ((count == 3 and n == 2) and -0.039 or 0.039) * bthk
 	if barSide == "right" or barSide == "left" then
 		local side = (icon and ICON_SIZE / 2) or (number and NUMBER_SIDE) or nil
@@ -655,7 +685,7 @@ local function buildGates(frame, settings, s, which)
 		if not okc or not c then break end
 		c:SetAllPoints(frame)
 		c:SetFrameLevel(frame:GetFrameLevel() + 8)
-		local x, y = stormOrbOnFrame(settings, "player", s, n)
+		local x, y = stormOrbOnFrame(settings, "player", s, n, which)
 		local size = math.max(2, math.floor(MODEL_UNITS * s + 0.5))
 		pcall(c.AddAuraSlot, c, "stormorb" .. which .. "_" .. n, "HELPFUL|PLAYER", {
 			candidateFilters = { includeSpellIDs = ids },
@@ -732,6 +762,9 @@ local function placeParts(box, s, icon, number, corner, iconTex, text, chargeBar
 		local h = blen * s
 		chargeBar:SetOrientation("VERTICAL")
 		if chargeBar.SetRotatesTexture then chargeBar:SetRotatesTexture(true) end   -- a patterned bar texture stands up with it
+		-- the orbs' empty track stands up with them (turned like the fill: its left end
+		-- at the bottom), or its row of rings is squeezed into a thin scribble
+		if chargeBar.back then chargeBar.back:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) end
 		chargeBar:ClearAllPoints()
 		chargeBar:SetSize(bthk * s, h)
 		local side = (icon and ICON_SIZE / 2) or (number and NUMBER_SIDE) or nil
@@ -756,6 +789,7 @@ local function placeParts(box, s, icon, number, corner, iconTex, text, chargeBar
 		local w = blen * s
 		chargeBar:SetOrientation("HORIZONTAL")
 		if chargeBar.SetRotatesTexture then chargeBar:SetRotatesTexture(false) end
+		if chargeBar.back then chargeBar.back:SetTexCoord(0, 1, 0, 1) end   -- the empty track lying flat again
 		chargeBar:ClearAllPoints()
 		chargeBar:SetSize(w, bthk * s)
 		-- Charge Bar Direction: Below (today's) or Above, clear of the icon / number
@@ -802,13 +836,20 @@ local function paintDisplay(frame, kind, settings, s, charges, present, restrict
 			t:Hide()
 			frame.icon = t
 		end
-		if bar and not frame.chargeBar then
-			frame.chargeBar = createChargeBar(frame, kind, iconWhich)
-			frame.chargeBar:Hide()
-		elseif frame.chargeBar then
-			styleChargeBar(frame.chargeBar, iconWhich)   -- today's bar or the orbs, as set now
+		-- one charge bar per shield (Lightning and Water on this display, Earth on its
+		-- own): each is built, styled, sized and animated for its own shield only and
+		-- never restyled as another; the one for the shield up is shown (below)
+		frame.chargeBars = frame.chargeBars or {}
+		if bar and iconWhich and not frame.chargeBars[iconWhich] then
+			local nb = createChargeBar(frame, kind, iconWhich)
+			nb:Hide()
+			frame.chargeBars[iconWhich] = nb
 		end
-		placeParts(frame, s, icon, number, corner, icon and frame.icon, frame.text, bar and frame.chargeBar, barSide)
+		placeParts(frame, s, icon, number, corner, icon and frame.icon, frame.text, nil, barSide)
+		for w, b in pairs(frame.chargeBars) do
+			styleChargeBar(b, w)   -- today's bar or its shield's orbs, as set now
+			if bar then placeParts(frame, s, icon, number, corner, nil, nil, b, barSide) end
+		end
 	end
 
 	local own = not restricted or not settings.hideNoShields
@@ -839,24 +880,33 @@ local function paintDisplay(frame, kind, settings, s, charges, present, restrict
 			tex:Hide()
 		end
 	end
-	local cb = frame.chargeBar
-	if cb then
-		if bar and own then
-			local v = lit and charges or 0
-			-- Lightning <-> Water Shield: the icon orbs, By Shield and Charge Colors follow
-			if iconWhich and cb.spWhich ~= iconWhich then styleChargeBar(cb, iconWhich) end
-			if cb.spOrbs then
-				if cb.spLast and v < cb.spLast and not restricted and cb:IsVisible() then orbPop(cb, v + 1) end
-			end
-			cb.spLast = v
-			cb:SetValue(v)
-			cb:Show()
-			local anim = cb.spOrbs and animOn(settings, cb.spWhich or 1)
-				and (SP.shieldChargesDemoActive or not (SPCompat and SPCompat.secretsRegime))   -- Forever: the gates draw them
-			stormModels(cb, anim and v or 0, s)
-		else
-			cb:Hide()
+	local bars = frame.chargeBars
+	if bars and bar and own and iconWhich and not bars[iconWhich] then
+		-- the first time this shield is up: its own bar, laid out like the others
+		local nb = createChargeBar(frame, kind, iconWhich)
+		nb:Hide()
+		bars[iconWhich] = nb
+		placeParts(frame, s, icon, number, corner, nil, nil, nb, barSide)
+	end
+	local cb = bars and bars[iconWhich]
+	frame.chargeBar = cb   -- the one shown (the display's extent reads it)
+	if bars then
+		for _, b in pairs(bars) do
+			if (b ~= cb or not (bar and own)) and b:IsShown() then b:Hide() end   -- (its models go with it)
 		end
+	end
+	if cb and bar and own then
+		local v = lit and charges or 0
+		if not cb:IsShown() then cb.spLast = nil end   -- just switched to this shield: no pop
+		if cb.spOrbs then
+			if cb.spLast and v < cb.spLast and not restricted and cb:IsVisible() then orbPop(cb, v + 1) end
+		end
+		cb.spLast = v
+		cb:SetValue(v)
+		cb:Show()
+		local anim = cb.spOrbs and animOn(settings, cb.spWhich or 1)
+			and (SP.shieldChargesDemoActive or not (SPCompat and SPCompat.secretsRegime))   -- Forever: the gates draw them
+		stormModels(cb, anim and v or 0, s)
 	end
 end
 
@@ -1234,6 +1284,19 @@ function SP:ShieldChargesDemoRefresh()
 	else
 		playerFrame:Hide()
 	end
+	-- the settings preview also shows Water Shield, its own display and bar
+	local waterFrame = self.shieldChargeWaterPreview
+	if waterFrame then
+		if self.shieldChargesDemoPane and settings.showPlayerShield ~= false then
+			waterFrame.spDemoHidden = nil
+			paintDisplay(waterFrame, "player", settings, scale, d.player, d.player > 0, false, 2)
+			waterFrame:SetAlpha(opacity)
+			waterFrame:Show()
+		else
+			waterFrame.spDemoHidden = true
+			waterFrame:Hide()
+		end
+	end
 	if earthShieldWanted(settings) then
 		paintDisplay(earthFrame, "earth", settings, scale, d.earth, d.earth > 0, false, 3)
 		earthFrame:SetAlpha(opacity)
@@ -1246,6 +1309,7 @@ end
 
 function SP:ShieldChargesDemo(on)
 	if on then
+		self.shieldChargesDemoPane = self.previewPaneActive and true or nil   -- the settings pane (Water Shield shown too)
 		self:CreateShieldChargeDisplays()
 		if not (self.shieldChargeFrames.player and self.shieldChargeFrames.earth) then return end
 		if self.shieldChargesDemoActive then
@@ -1277,6 +1341,11 @@ function SP:ShieldChargesDemo(on)
 		self:ShieldChargesDemoRefresh()
 	else
 		self.shieldChargesDemoActive = nil
+		self.shieldChargesDemoPane = nil
+		if self.shieldChargeWaterPreview then
+			self.shieldChargeWaterPreview.spDemoHidden = true
+			self.shieldChargeWaterPreview:Hide()
+		end
 		if self.shieldChargesDemoTicker then self.shieldChargesDemoTicker:Cancel(); self.shieldChargesDemoTicker = nil end
 		self.shieldChargesDemoState = nil
 		local settings = self.opt.shieldChargeDisplay
@@ -1294,10 +1363,17 @@ if ShamanPower.RegisterPreview then
 				if not SP.shieldChargeFrames.player then SP:CreateShieldChargeDisplays() end
 				return SP.shieldChargeFrames.player
 			end,
+			function() return SP:ShieldChargeWaterPreviewFrame() end,   -- Water Shield (the settings preview only)
 			function() if ShamanPower.ESTrackerUnavailable then return nil end; return SP.shieldChargeFrames.earth end,
 		},
 		demo = "SP:ShieldChargesDemo",
 		pad = 24,
+		-- vertical bars: Lightning, Water and Earth side by side, spaced by their real reach
+		row = function()
+			local st = SP.opt and SP.opt.shieldChargeDisplay
+			return st and st.showChargeBar and (st.chargeBarDirection == "right" or st.chargeBarDirection == "left") or false
+		end,
+		extent = function(frame) return SP:ShieldChargeDisplayExtent(frame) end,
 		stage = "player",   -- the player's own character behind the number: it floats near them on screen
 		stageKit = 292,     -- Lightning Shield's aura visual (SpellVisualEvent kit for spell visual 37, Forever 1.60.1 data)
 		stageCastKit = 237275,   -- its cast visual, played once when the demo recasts
@@ -1335,8 +1411,7 @@ if SP.OnThemeChanged then
 	SP:OnThemeChanged(function()
 		if not ThemeColorsMoved() then return end
 		for kind, f in pairs(SP.shieldChargeFrames) do
-			local cb = f.chargeBar
-			if cb then styleChargeBar(cb, cb.spWhich) end
+			for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end   -- each shield's own bar
 		end
 		SP._shieldWake = true
 		if SP.shieldChargesDemoActive then SP:ShieldChargesDemoRefresh() end
@@ -1351,8 +1426,7 @@ end
 function SP:ShieldChargeStyleChanged()
 	SP.chargeStyleGen = (SP.chargeStyleGen or 0) + 1
 	for _, f in pairs(SP.shieldChargeFrames) do
-		local cb = f.chargeBar
-		if cb then styleChargeBar(cb, cb.spWhich) end
+		for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end   -- each shield's own bar
 	end
 	SP._shieldWake = true
 	if SP.shieldChargesDemoActive and SP.ShieldChargesDemoRefresh then SP:ShieldChargesDemoRefresh() end
