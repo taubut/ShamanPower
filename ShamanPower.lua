@@ -5598,8 +5598,10 @@ end
 function ShamanPower:TotemBarGeometry()
 	local a = self.autoButton
 	local layout = self.Layouts[self.opt.layout] or self.Layouts["Vertical"]
-	local ox = layout.ab.x * self.opt.display.buttonWidth
-	local oy = layout.ab.y * self.opt.display.buttonHeight
+	-- (the defaults if a setup import left them out: never a Lua error here)
+	local d = self.opt.display
+	local ox = layout.ab.x * (d.buttonWidth or 100)
+	local oy = layout.ab.y * (d.buttonHeight or 34)
 	local w, h = a:GetWidth(), a:GetHeight()
 	local k = ShamanPowerFrame:GetScale() * a:GetScale()
 	return (ox + w / 2) * k, (oy - h / 2) * k, w * k, h * k
@@ -17660,8 +17662,8 @@ function ShamanPower:UpdateLayout()
 	end
 	-- Update cooldown bar scale to compensate for parent scale change
 	self:UpdateCooldownBarScale()
-	local x = self.opt.display.buttonWidth
-	local y = self.opt.display.buttonHeight
+	local x = self.opt.display.buttonWidth or 100
+	local y = self.opt.display.buttonHeight or 34
 	local point = "TOPLEFT"
 	local layout = self.Layouts[self.opt.layout]
 	if not layout then

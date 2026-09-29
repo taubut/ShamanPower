@@ -50,6 +50,22 @@ local PRESET_SVAR_STRIP = {
 }
 
 -- Deep copy that skips functions and metatables (safe to serialize).
+-- every default the profile is missing, as the database lays them in at load
+-- (wildcard defaults are the database's own, left to it)
+local function FillDefaults(dest, src)
+	if type(src) ~= "table" then return end
+	for k, v in pairs(src) do
+		if k ~= "*" and k ~= "**" then
+			if type(v) == "table" then
+				if rawget(dest, k) == nil then rawset(dest, k, {}) end
+				if type(dest[k]) == "table" then FillDefaults(dest[k], v) end
+			elseif rawget(dest, k) == nil then
+				rawset(dest, k, v)
+			end
+		end
+	end
+end
+
 local function CleanCopy(v, seen)
 	if type(v) ~= "table" then
 		if type(v) == "function" then return nil end
@@ -164,6 +180,9 @@ function SP:ImportShare(str, mode, profileName)
 		for k, v in pairs(payload.profile) do self.db.profile[k] = CleanCopy(v) end
 		profileName = name
 	end
+	-- the profile was wiped for the import: any default the string leaves out goes
+	-- back in now (the database only fills them at load, and code reads them at once)
+	FillDefaults(self.db.profile, self.db.defaults and self.db.defaults.profile)
 	-- a string (or backup) made before 3.0 stored a shown caller panel as nothing;
 	-- 3.0's default is icons only, so say "shown" or it would flip after a reload
 	if payload.profile.raidCDButtonHideFrame == nil then self.db.profile.raidCDButtonHideFrame = false end

@@ -1,5 +1,11 @@
 # ShamanPower Changelog
 
+## v3.0.4.1 (2026-09-29)
+
+### Fixes
+- **No more Lua error** in TotemBarGeometry when ShamanPower put the totem bar or the cooldown bar on its default spot, if the totem bar's button size was missing from your settings.
+- **Importing a setup** (a shared code, a backup or Srumar's Layout) fills in any setting the code leaves out straight away, instead of only after the next reload.
+
 ## v3.0.4 (2026-09-29)
 
 ### New
