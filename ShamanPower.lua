@@ -20422,15 +20422,24 @@ function ShamanPower:ThemeBorderEdges(btn, on, spot, element)
 		if not edges then
 			edges = {}
 			for i = 1, 4 do edges[i] = btn:CreateTexture(nil, "OVERLAY", nil, -1) end
-			edges[1]:SetPoint("TOPLEFT", icon, "TOPLEFT"); edges[1]:SetPoint("TOPRIGHT", icon, "TOPRIGHT"); edges[1]:SetHeight(2)
-			edges[2]:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT"); edges[2]:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT"); edges[2]:SetHeight(2)
-			edges[3]:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, -2); edges[3]:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT", 0, 2); edges[3]:SetWidth(2)
-			edges[4]:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, -2); edges[4]:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 2); edges[4]:SetWidth(2)
 			btn.spThemeBorder = edges
 			self._themeBordersMade = true
 		end
+		-- Border Size (General > Themes, one slider under each toggle): 2 px by default
+		local field = (spot == "cd.boxes") and "borderSizeCooldown" or ((spot == "tb.flyout-boxes") and "borderSizeFlyouts" or "borderSize")
+		local px = (self.ThemeField and self:ThemeField(field)) or 2
+		if edges.px ~= px then
+			edges.px = px
+			for i = 1, 4 do edges[i]:ClearAllPoints() end
+			edges[1]:SetPoint("TOPLEFT", icon, "TOPLEFT"); edges[1]:SetPoint("TOPRIGHT", icon, "TOPRIGHT"); edges[1]:SetHeight(px)
+			edges[2]:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT"); edges[2]:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT"); edges[2]:SetHeight(px)
+			edges[3]:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, -px); edges[3]:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT", 0, px); edges[3]:SetWidth(px)
+			edges[4]:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, -px); edges[4]:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, px); edges[4]:SetWidth(px)
+		end
 		-- a Rounded / Circle icon: the border follows it as a ring (Keep Borders Square: the edges)
-		local ringFile = self.BorderRingFile and self:BorderRingFile(spot == "cd.boxes" and "cooldown" or "totem")
+		local iw = icon:GetWidth()
+		if not iw or iw < 4 then iw = btn:GetWidth() or 32 end
+		local ringFile = self.BorderRingSizedFile and self:BorderRingSizedFile(spot == "cd.boxes" and "cooldown" or "totem", px, iw)
 		if ringFile and not edges.ring then
 			edges.ring = btn:CreateTexture(nil, "OVERLAY", nil, -1)
 			edges.ring:SetAllPoints(icon)

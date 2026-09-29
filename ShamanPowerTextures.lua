@@ -631,6 +631,17 @@ function SP:BorderRingFile(kind)
 	if self.opt and self.opt.iconBordersSquare then return nil end
 	return RING_FILE[self:IconShapeOf(kind)]
 end
+-- the ring an Element-Colored Border becomes round a Rounded / Circle icon, px
+-- thick on an icon size wide: Ring_<Shape>_1..12 are 1..12 px of 64
+local RING_STEP = { rounded = SHAPES .. "Ring_Rounded_", circle = SHAPES .. "Ring_Circle_" }
+function SP:BorderRingSizedFile(kind, px, size)
+	if self.opt and self.opt.iconBordersSquare then return nil end
+	local base = RING_STEP[self:IconShapeOf(kind)]
+	if not base then return nil end
+	local k = math.floor(64 * (px or 2) / math.max(size or 32, 8) + 0.5)
+	if k < 1 then k = 1 elseif k > 12 then k = 12 end
+	return base .. k
+end
 local TRIM = 0.08
 local isSecret = issecretvalue or function() return false end
 local shapedTex = setmetatable({}, { __mode = "k" })   -- [texture] = the region whose rectangle the shape covers

@@ -1332,8 +1332,11 @@ end
 -- (no effects fields: effects are not part of the themes, see ResolveLook)
 -- borders / bordersFlyouts: General > Themes, Element-Colored Borders on the totem bar
 -- and its flyouts (ShamanPower.lua ThemePaintTotemBorders)
+-- Border Size (px) under each of the three toggles; 2 = nil (the default)
+local BORDER_SIZE = { [1] = true, [3] = true, [4] = true, [5] = true, [6] = true }
 local THEME_FIELDS = { palette = PALETTE_KEY, shield = SHIELD_KEY, showAs = SHOWAS_KEY,
-	borders = { [true] = true }, bordersFlyouts = { [true] = true }, bordersCooldown = { [true] = true } }
+	borders = { [true] = true }, bordersFlyouts = { [true] = true }, bordersCooldown = { [true] = true },
+	borderSize = BORDER_SIZE, borderSizeFlyouts = BORDER_SIZE, borderSizeCooldown = BORDER_SIZE }
 
 local function CleanCustom(v)
 	if type(v) ~= "table" then return nil end
@@ -1481,6 +1484,7 @@ function SP:ResetAllColorsToDefault()
 		if SP:ThemeIsCustom() then CaptureCustom(t) end
 		t.global, t.spots, t.palette, t.shield = nil, nil, nil, nil
 		t.borders, t.bordersFlyouts, t.bordersCooldown, t.showAs = nil, nil, nil, nil
+		t.borderSize, t.borderSizeFlyouts, t.borderSizeCooldown = nil, nil, nil
 		Changed(true)   -- the pre-theme settings come back first; the defaults go over them
 	end
 	local o = SP.opt

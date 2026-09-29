@@ -2592,6 +2592,7 @@ end
 LayoutSig = function()
 	local o = SP.opt or {}
 	local parts = { SP:ThemeGlobal() == "minimal" and "m" or "-", SP:ThemeField("borders") == true and "b" or "-",
+		SP:ThemeField("bordersFlyouts") == true and "f" or "-", SP:ThemeField("bordersCooldown") == true and "c" or "-",
 		CustomCardShown() and "c" or "-",
 		-- the rows under the gradient cards come and go with the style picked
 		o.barGradient or "-", o.barGradientColor1 and "1" or "0", o.outlineGradient or "-", o.outlineGradientColor1 and "1" or "0",
@@ -2688,6 +2689,22 @@ function Page:Render(body, W, onChanged)
 		onChanged = PageChanged,
 	})
 	y = y + bh1 + 6
+	-- Border Size: one slider under each turned-on toggle (the square edge and the ring)
+	local function BorderSize(field, label, what)
+		local _, h = Widgets:Slider(body, {
+			label = label, x = 0, y = y, width = W, min = 1, max = 6, step = 1,
+			desc = "How thick the element-colored border is on " .. what .. ", in pixels: the square edge, or the ring round Rounded and Circle icons. 2 by default.",
+			get = function() return SP:ThemeField(field) or 2 end,
+			set = function(v)
+				v = math.floor((tonumber(v) or 2) + 0.5)
+				if v == 2 then v = nil end
+				SP:SetThemeField(field, v)
+			end,
+			onChanged = PageChanged,
+		})
+		y = y + h + 6
+	end
+	if SP:ThemeField("borders") == true then BorderSize("borderSize", "Border Size", "the totem bar") end
 	if SP:ThemeField("borders") == true then   -- only while the borders are on
 		local _, bh2 = Widgets:Toggle(body, {
 			label = "Also on the Flyouts", x = 0, y = y, width = W,
@@ -2697,6 +2714,7 @@ function Page:Render(body, W, onChanged)
 			onChanged = PageChanged,
 		})
 		y = y + bh2 + 6
+		if SP:ThemeField("bordersFlyouts") == true then BorderSize("borderSizeFlyouts", "Flyout Border Size", "the flyouts") end
 		local _, bh3 = Widgets:Toggle(body, {
 			label = "Also on the Cooldown Bar", x = 0, y = y, width = W,
 			desc = "Gives every button on the cooldown bar a border in the color of what it shows: shields in your Shield Colors, weapon imbues and element spells in their element color, other spells in the logo blue.",
@@ -2705,6 +2723,7 @@ function Page:Render(body, W, onChanged)
 			onChanged = PageChanged,
 		})
 		y = y + bh3 + 6
+		if SP:ThemeField("bordersCooldown") == true then BorderSize("borderSizeCooldown", "Cooldown Bar Border Size", "the cooldown bar") end
 	end
 	y = y + Header("Shield Colors", y, W)
 	y = RenderShields(y, W)
