@@ -1219,6 +1219,12 @@ end
 
 local function PageChanged()
 	if page.onChanged then page.onChanged() end
+	-- a change that brings rows in or out on this page (Custom Outline Color, a
+	-- gradient's colors ...): lay it out again, as a theme change does
+	if page.visible and LayoutSig and page.layoutSig and LayoutSig() ~= page.layoutSig
+		and ns.SPConfig and ns.SPConfig.RefreshCurrent then
+		ns.SPConfig:RefreshCurrent()
+	end
 end
 
 local function Header(label, y, W, note)
@@ -2284,6 +2290,103 @@ local function NewWoWRow(def)
 	return f
 end
 
+-- ---------------------------------------------------------------------------
+-- 6b. Colors from each part's own page, drawn in that part's section: the
+-- option's own get / set, so one setting changed in either place (nothing
+-- moves off its page). A row its page hides is left out; one it greys out is
+-- greyed out here too. path.label names a row where the option's own name
+-- would be unclear in the section.
+-- ---------------------------------------------------------------------------
+local SPOT_EXTRAS = {
+	["tb.pulse"] = {
+		{ "fluffy", "totembar_duration_section", "pulse_bar_color" },
+		{ "fluffy", "totembar_duration_section", "pulse_flash_color" } },
+	["tb.frame"] = {
+		{ "fluffy", "color_section", "color_partial", label = "Background (Partially Buffed)" },
+		{ "fluffy", "color_section", "color_missing", label = "Background (None Buffed)" } },
+	["st.compact"] = {
+		{ "settings", "settings_totemMode", "compactOptions", "compactOutlineColorMode" },
+		{ "settings", "settings_totemMode", "compactOptions", "compactOutlineColor" } },
+	["mod.readyreminders"] = {
+		{ "fluffy", "readyreminders_section", "glowColor" },
+		{ "fluffy", "readyreminders_section", "barColor" } },
+}
+-- a section's own extra row, labelled like a part: Mana Tint at the end of Totem Bar
+local MODULE_EXTRAS = {
+	totembar = { { key = "extra.manatint", label = "Mana Tint",
+		note = "Totem and cooldown buttons you do not have the mana for. Also on Appearance > Textures & Colors (turn Mana Tint on there).",
+		paths = { { "fluffy", "button_tints_section", "manaTintColor" } } } },
+}
+local function OptionAt(path)
+	local node = SP.options
+	for i = 1, #path do node = node and node.args and node.args[path[i]] end
+	return node
+end
+local function OptionInfo(path, option)   -- what AceConfig hands an option's own functions
+	local info = { option = option, type = option.type, options = SP.options }
+	for i = 1, #path do info[i] = path[i] end
+	return info
+end
+local function OptionValue(v, info)       -- a field that may be a function
+	if type(v) == "function" then
+		local ok, r = pcall(v, info)
+		if ok then return r end
+		return nil
+	end
+	return v
+end
+local function ColorRowShown(path)
+	local o = OptionAt(path)
+	if not (o and o.get and o.set) then return false end
+	return not OptionValue(o.hidden, OptionInfo(path, o))
+end
+-- which rows show, for the page's layout signature
+local function ColorRowsSig()
+	local s = ""
+	for _, paths in pairs(SPOT_EXTRAS) do
+		for _, path in ipairs(paths) do s = s .. (ColorRowShown(path) and "1" or "0") end
+	end
+	for _, list in pairs(MODULE_EXTRAS) do
+		for _, ex in ipairs(list) do
+			for _, path in ipairs(ex.paths) do s = s .. (ColorRowShown(path) and "1" or "0") end
+		end
+	end
+	return s
+end
+-- the rows of a list of options at x, from y down, w wide; returns the new y
+local function RenderOptionRows(paths, y, x, w)
+	for _, path in ipairs(paths) do
+		if ColorRowShown(path) then
+			local o = OptionAt(path)
+			local info = OptionInfo(path, o)
+			local label, desc = path.label or OptionValue(o.name, info) or "", OptionValue(o.desc, info)
+			local off = o.disabled and function() return OptionValue(o.disabled, info) and true or false end or nil
+			local h
+			if o.type == "color" then
+				_, h = Widgets:Color(page.body, {
+					label = label, desc = desc, x = x, y = y, width = w, hasAlpha = o.hasAlpha and true or false,
+					disabled = off,
+					get = function() return o.get(info) end,
+					set = function(r, g, b, a) o.set(info, r, g, b, a) end,
+					onChanged = PageChanged,
+				})
+			elseif o.type == "select" then
+				_, h = Widgets:Dropdown(page.body, {
+					label = label, desc = desc, x = x, y = y, width = w,
+					disabled = off,
+					values = function() return OptionValue(o.values, info) or {} end,
+					order = o.sorting and function() return OptionValue(o.sorting, info) end or nil,
+					get = function() return o.get(info) end,
+					set = function(v) o.set(info, v) end,
+					onChanged = PageChanged,
+				})
+			end
+			if h then y = y + h + 6 end
+		end
+	end
+	return y
+end
+
 local function RenderWoW(y, W)
 	local _, dh = Widgets:Description(page.body, { x = 0, y = y, width = W,
 		text = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game. A swatch below tagged WOW is one of these; click it to pick your own color for that part instead." })
@@ -2540,6 +2643,26 @@ local function RenderSpot(spot, y, W)
 		ry = ry + LayoutStrip(s, spot, rw) + 6
 		live[#live + 1] = s
 	end
+	-- the part's color options from its own page (Pulse Bar Color ...)
+	if SPOT_EXTRAS[spot.id] then ry = RenderOptionRows(SPOT_EXTRAS[spot.id], ry, rx, rw) end
+	return max(y + th, ry) + 8
+end
+
+-- a section's own extra row, laid out like a part: its label and note on the
+-- left, its options on the right
+local function RenderExtraSpot(ex, y, W)
+	local any = false
+	for _, path in ipairs(ex.paths) do if ColorRowShown(path) then any = true break end end
+	if not any then return y end
+	local leftW = floor(W * 0.38)
+	local rx, rw = leftW + 12, W - leftW - 12
+	local t = Keep("spot:" .. ex.key, NewSpotText)
+	t:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+	local lh = Fit(t.label, leftW - 24, ex.label)
+	local nh = ex.note and Fit(t.note, leftW - 24, ex.note) or 0
+	local th = 10 + lh + (nh > 0 and (4 + nh) or 0) + 10
+	t:SetSize(leftW, th)
+	local ry = RenderOptionRows(ex.paths, y, rx, rw)
 	return max(y + th, ry) + 8
 end
 
@@ -2576,6 +2699,7 @@ local function RenderModule(mod, y, W)
 			y = RenderSpot(spot, y, W)
 		end
 	end
+	for _, ex in ipairs(MODULE_EXTRAS[mod.key] or {}) do y = RenderExtraSpot(ex, y, W) end
 	return y
 end
 
@@ -2596,7 +2720,7 @@ LayoutSig = function()
 		CustomCardShown() and "c" or "-",
 		-- the rows under the gradient cards come and go with the style picked
 		o.barGradient or "-", o.barGradientColor1 and "1" or "0", o.outlineGradient or "-", o.outlineGradientColor1 and "1" or "0",
-		o.chargeGradient or "-", o.chargeGradientColor1 and "1" or "0", IconShapedAny() and "r" or "-" }
+		o.chargeGradient or "-", o.chargeGradientColor1 and "1" or "0", IconShapedAny() and "r" or "-", ColorRowsSig() }
 	for _, row in ipairs(SHAPE_ROWS) do
 		if row.shown then parts[#parts + 1] = row.shown() and "s" or "h" end
 	end
