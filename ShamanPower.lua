@@ -1409,28 +1409,196 @@ function ShamanPower:OpenConfigWindow(path)
 	end
 end
 
--- Interface > AddOns entry: a single button into the settings window (the
--- AceConfig-rendered panel is retired).
+-- Interface > AddOns entry (Esc > Options > AddOns > ShamanPower): ShamanPower's
+-- own page (D21b): the logo's totem boxes, the wordmark, "Totems, Done Right",
+-- one big button into the settings window, the tour / What's New / Discord, and
+-- the ways in. Drawn from plain textures and WoW's font in the brand colours, so
+-- it needs neither image files nor the settings module (its buttons use it when
+-- it is there). Everything lives in this method: no main-chunk locals.
 function ShamanPower:CreateInterfaceOptionsPanel()
 	if self.optionsFrame then return end
 	-- 2.5.6 removed InterfaceOptions_AddCategory; the modern Settings API is
 	-- the live path now, the legacy call kept as a fallback for older clients
 	local canModern = Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory
 	if not canModern and not InterfaceOptions_AddCategory then return end
+	local SP = self
+	local FONT = "Fonts\\FRIZQT__.TTF"
+	local BLUE, WHITE, TEXT = { 0.247, 0.663, 0.961 }, { 1, 1, 1 }, { 0.902, 0.918, 0.941 }
+	local DIM, MUTE = { 0.541, 0.580, 0.651 }, { 0.353, 0.392, 0.455 }
 	local panel = CreateFrame("Frame", "ShamanPowerInterfacePanel", UIParent)
 	panel.name = "ShamanPower"
-	local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	title:SetPoint("TOPLEFT", 16, -16); title:SetText("ShamanPower")
-	local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-	desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8); desc:SetWidth(560); desc:SetJustifyH("LEFT")
-	desc:SetText("All ShamanPower settings live in their own window. Type /sp, right-click the minimap icon, or press the button below.")
-	local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-	btn:SetSize(200, 26); btn:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -16); btn:SetText("Open ShamanPower Settings")
-	btn:SetScript("OnClick", function()
-		if InterfaceOptionsFrame then InterfaceOptionsFrame:Hide() end
-		if GameMenuFrame then GameMenuFrame:Hide() end
-		ShamanPower:OpenConfigWindow()
+	panel:Hide()
+
+	-- the navy card the page sits on
+	local card = CreateFrame("Frame", nil, panel)
+	card:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
+	card:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4)
+	local bg = card:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(); bg:SetColorTexture(0.078, 0.106, 0.149, 1)
+	local function Edge(p1, p2, horizontal)
+		local t = card:CreateTexture(nil, "BORDER")
+		t:SetColorTexture(0.169, 0.216, 0.290, 1)
+		t:SetPoint(p1); t:SetPoint(p2)
+		if horizontal then t:SetHeight(1) else t:SetWidth(1) end
+	end
+	Edge("TOPLEFT", "TOPRIGHT", true); Edge("BOTTOMLEFT", "BOTTOMRIGHT", true)
+	Edge("TOPLEFT", "BOTTOMLEFT"); Edge("TOPRIGHT", "BOTTOMRIGHT")
+
+	local function Text(size, color, text)
+		local fs = card:CreateFontString(nil, "ARTWORK")
+		fs:SetFont(FONT, size, "")
+		fs:SetTextColor(color[1], color[2], color[3])
+		fs:SetText(text or "")
+		return fs
+	end
+
+	-- the logo's totem boxes (no letters, no SP): the fire column, the raised
+	-- earth box, the four elements and their bars, in the logo's own units
+	local logo = CreateFrame("Frame", nil, card)
+	local k = 0.25                                    -- 800 logo units -> 200 px
+	logo:SetSize(653 * k, 690 * k)                    -- the boxes span 74..727 x 58..748
+	logo:SetPoint("TOP", card, "TOP", 0, -28)
+	local function Rect(ux, uy, uw, uh, r, g, b)
+		local t = logo:CreateTexture(nil, "ARTWORK")
+		t:SetColorTexture(r, g, b, 1)
+		t:SetPoint("TOPLEFT", logo, "TOPLEFT", (ux - 74) * k, -(uy - 58) * k)
+		t:SetSize(uw * k, uh * k)
+		return t
+	end
+	local function Hex(h) return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255 end
+	local function Box(ux, uy, fill, edge)
+		Rect(ux - 4, uy - 4, 156, 156, Hex("05070A"))
+		if edge then
+			Rect(ux, uy, 148, 148, Hex(edge))
+			Rect(ux + 5, uy + 5, 138, 138, Hex(fill))
+		else
+			Rect(ux, uy, 148, 148, Hex(fill))
+		end
+	end
+	Box(243, 62, "9E3923"); Box(243, 228, "BD442A"); Box(243, 394, "DB4F30")
+	Box(78, 394, "A57749", "CE955B")
+	Box(78, 560, "493521"); Box(243, 560, "D94E30"); Box(409, 560, "5B7ED9"); Box(575, 560, "BABFD4")
+	local BARS = { { "AE7E4E", 0.62 }, { "F25735", 0.55 }, { "668DF2", 0.80 }, { "D0D5ED", 0.86 } }
+	for i, bar in ipairs(BARS) do
+		local bx = 76 + (i - 1) * 166
+		Rect(bx, 722, 152, 18, Hex("05070A"))
+		Rect(bx + 4, 726, 144 * bar[2], 10, Hex(bar[1]))
+	end
+
+	-- the wordmark ("Shaman" in logo blue, "Power" in white), centred as one
+	local word = CreateFrame("Frame", nil, card)
+	word:SetPoint("TOP", logo, "BOTTOM", 0, -26)
+	local shaman, power = Text(32, BLUE, "Shaman"), Text(32, WHITE, "Power")
+	shaman:SetParent(word); power:SetParent(word)
+	shaman:SetPoint("LEFT", word, "LEFT", 0, 0)
+	power:SetPoint("LEFT", shaman, "RIGHT", 0, 0)
+	word:SetSize(1, 36)
+	word:SetScript("OnShow", function(f) f:SetWidth(shaman:GetStringWidth() + power:GetStringWidth()) end)
+
+	local tagline = Text(16, TEXT, "Totems, Done Right")
+	tagline:SetPoint("TOP", word, "BOTTOM", 0, -8)
+	local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+	local version = getMeta and getMeta("ShamanPower", "Version")
+	local ver = Text(11, MUTE, version and ("Version " .. version) or "")
+	ver:SetPoint("TOP", tagline, "BOTTOM", 0, -6)
+
+	-- Options closes before one of ShamanPower's own windows opens
+	local function CloseOptions()
+		if SettingsPanel and SettingsPanel:IsShown() then
+			if not pcall(HideUIPanel, SettingsPanel) then SettingsPanel:Hide() end
+		end
+		if InterfaceOptionsFrame and InterfaceOptionsFrame:IsShown() then InterfaceOptionsFrame:Hide() end
+		if GameMenuFrame and GameMenuFrame:IsShown() then GameMenuFrame:Hide() end
+	end
+	-- the blue bevel button of ShamanPower's settings (ui-style-guide): primary stronger
+	local function Button(w, h, label, size, primary, onClick)
+		local b = CreateFrame("Button", nil, card)
+		b:SetSize(w, h)
+		local fill = b:CreateTexture(nil, "BACKGROUND")
+		fill:SetAllPoints()
+		local shade = b:CreateTexture(nil, "BORDER")
+		shade:SetAllPoints(); shade:SetColorTexture(1, 1, 1, 1)
+		if CreateColor and shade.SetGradient then
+			shade:SetGradient("VERTICAL", CreateColor(0, 0, 0, 0.24), CreateColor(1, 1, 1, 0.06))
+		else
+			shade:SetColorTexture(0, 0, 0, 0.1)
+		end
+		local lit = b:CreateTexture(nil, "ARTWORK")
+		lit:SetPoint("TOPLEFT", 1, -1); lit:SetPoint("TOPRIGHT", -1, -1); lit:SetHeight(1)
+		lit:SetColorTexture(0.247, 0.663, 1, primary and 0.45 or 0.35)
+		local edges = {}
+		for i = 1, 4 do edges[i] = b:CreateTexture(nil, "OVERLAY") end
+		edges[1]:SetPoint("TOPLEFT"); edges[1]:SetPoint("TOPRIGHT"); edges[1]:SetHeight(1)
+		edges[2]:SetPoint("BOTTOMLEFT"); edges[2]:SetPoint("BOTTOMRIGHT"); edges[2]:SetHeight(1)
+		edges[3]:SetPoint("TOPLEFT"); edges[3]:SetPoint("BOTTOMLEFT"); edges[3]:SetWidth(1)
+		edges[4]:SetPoint("TOPRIGHT"); edges[4]:SetPoint("BOTTOMRIGHT"); edges[4]:SetWidth(1)
+		local caption = b:CreateFontString(nil, "OVERLAY")
+		caption:SetFont(FONT, size, ""); caption:SetTextColor(1, 1, 1); caption:SetText(label)
+		caption:SetPoint("CENTER", 0, 0)
+		local function Paint(hover)
+			local a = primary and (hover and 0.62 or 0.46) or (hover and 0.46 or 0.28)
+			fill:SetColorTexture(0, 0.439, 0.867, a)
+			for i = 1, 4 do
+				if hover then edges[i]:SetColorTexture(0.247, 0.663, 1, 1) else edges[i]:SetColorTexture(0, 0.439, 0.867, 1) end
+			end
+		end
+		Paint(false)
+		b:SetScript("OnEnter", function() Paint(true) end)
+		b:SetScript("OnLeave", function() Paint(false) end)
+		b:SetScript("OnMouseDown", function() caption:SetPoint("CENTER", 0, -1) end)
+		b:SetScript("OnMouseUp", function() caption:SetPoint("CENTER", 0, 0) end)
+		b:SetScript("OnClick", onClick)
+		return b
+	end
+	local NEEDS_CONFIG = "|cff0070ddShamanPower|r: this needs the |cff0070ddShamanPower_Config|r module (enable it in your AddOns list)."
+	local open = Button(340, 48, "Open ShamanPower Settings", 16, true, function()
+		CloseOptions()
+		if ShamanPowerConfig and ShamanPowerConfig.Open then ShamanPowerConfig:Open() else SP:OpenConfigWindow() end
 	end)
+	open:SetPoint("TOP", ver, "BOTTOM", 0, -22)
+	local tour = Button(160, 32, "Setup Tour", 12, false, function()
+		CloseOptions()
+		if SP.Wizard and SP.Wizard.Open then SP.Wizard:Open() else print(NEEDS_CONFIG) end
+	end)
+	local news = Button(160, 32, "What's New", 12, false, function()
+		CloseOptions()
+		if SP.ShowWhatsNew then SP:ShowWhatsNew(true) else print(NEEDS_CONFIG) end
+	end)
+	local discord = Button(160, 32, "Discord", 12, false, function()
+		-- WoW cannot open links: the invite in a box, selected, ready for Ctrl+C
+		if SP.ShowSPDialog then
+			SP:ShowSPDialog({ key = "discordLink", title = "ShamanPower Discord",
+				text = "The link is selected: press |cffFFD100Ctrl+C|r to copy it, then paste it into your browser.",
+				editText = "https://discord.gg/eCtNeBqE8U" })
+		else
+			print("|cff0070ddShamanPower|r: Discord: https://discord.gg/eCtNeBqE8U")
+		end
+	end)
+	news:SetPoint("TOP", open, "BOTTOM", 0, -14)
+	tour:SetPoint("RIGHT", news, "LEFT", -10, 0)
+	discord:SetPoint("LEFT", news, "RIGHT", 10, 0)
+
+	-- the ways in
+	local rule = card:CreateTexture(nil, "BORDER")
+	rule:SetColorTexture(0.169, 0.216, 0.290, 1); rule:SetHeight(1)
+	rule:SetPoint("TOP", news, "BOTTOM", 0, -24)
+	rule:SetPoint("LEFT", card, "LEFT", 40, 0); rule:SetPoint("RIGHT", card, "RIGHT", -40, 0)
+	local TIPS = {
+		{ "/sp", "opens the settings from chat" },
+		{ "Minimap icon", "right-click it for the settings" },
+		{ "Key bindings", "Options > Key Bindings > ShamanPower" },
+	}
+	local prev
+	for _, tip in ipairs(TIPS) do
+		local key = Text(12, BLUE, tip[1])
+		local what = Text(12, DIM, tip[2])
+		if prev then key:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 0, -10) else key:SetPoint("TOPLEFT", rule, "BOTTOM", -200, -16) end
+		what:SetPoint("LEFT", key, "LEFT", 150, 0)
+		prev = key
+	end
+	local foot = Text(10, MUTE, "Made for TBC Anniversary and WoW: Forever")
+	foot:SetPoint("BOTTOM", card, "BOTTOM", 0, 14)
+
 	if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
 		local category = Settings.RegisterCanvasLayoutCategory(panel, "ShamanPower")
 		if category then
@@ -12238,6 +12406,7 @@ function ShamanPower:PositionPartyDots(dots, frame)
 			dot.spOutline:SetShown(outline and dot:IsShown())
 			local tex = self.DotTexture and self:DotTexture()   -- Dot Shape
 			if tex and dot.spDotTex ~= tex then dot:SetTexture(tex); dot.spOutline:SetTexture(tex); dot.spDotTex = tex end
+			if self.DotGem then self:DotGem(dot) end   -- Gem Dot Finish
 			dot:ClearAllPoints()
 			local point, relPoint, x, y = self:PartyDotAnchor(i, frame)
 			dot:SetPoint(point, anchor, relPoint, x, y)
@@ -20305,6 +20474,24 @@ function ShamanPower:ThemePaintOverlayBorder(overlay, element)
 	local edges = overlay and overlay.spEdges
 	if not edges then return end
 	local r, g, b = self:ThemeColor("tb.overlay-border", element)
+	-- a Rounded / Circle totem bar: the edge follows the icon as a ring (Keep Borders Square: the edges)
+	local frame = edges[1]:GetParent()
+	local ringFile = self.BorderRingSizedFile and self:BorderRingSizedFile("totem", 2, frame:GetWidth())
+	local ring = overlay.spRing
+	if ringFile and not ring then
+		ring = frame:CreateTexture(nil, "BORDER")
+		ring:SetAllPoints(frame)
+		overlay.spRing = ring
+	end
+	if ring then
+		if ringFile then
+			if ring.spFile ~= ringFile then ring:SetTexture(ringFile); ring.spFile = ringFile end
+			local c = self.ElementColors[element]
+			if r then ring:SetVertexColor(r, g, b, 1) else ring:SetVertexColor(c.r, c.g, c.b, 1) end
+		end
+		ring:SetShown(ringFile ~= nil)
+		for i = 1, #edges do edges[i]:SetShown(ringFile == nil) end
+	end
 	if r then
 		overlay.spThemeEdge = true
 	elseif overlay.spThemeEdge then
@@ -20411,6 +20598,17 @@ function ShamanPower:ThemePaintTotemBorders()
 	end
 	local es = _G.ShamanPowerEarthShieldBtn
 	if es and es.icon then self:ThemeBorderEdges(es, cd, "cd.boxes", nil) end
+	-- Also on the Cooldown Bar Flyouts: every shield and imbue in their flyouts,
+	-- each in the colour of what it shows (as the cooldown bar's own buttons)
+	local cdFly = cd and t.bordersCooldownFlyouts == true
+	local shieldFly = self.shieldFlyout
+	if shieldFly then
+		for _, fb in ipairs(shieldFly.allButtons or shieldFly.buttons or {}) do self:ThemeBorderEdges(fb, cdFly, "cd.flyout-boxes", nil) end
+	end
+	local imbueFly = self.weaponImbueFlyout
+	if imbueFly then
+		for _, fb in ipairs(imbueFly.allButtons or imbueFly.buttons or {}) do self:ThemeBorderEdges(fb, cdFly, "cd.flyout-boxes", nil) end
+	end
 end
 
 -- one button's border: made the first time it is wanted, then shown / hidden
@@ -20425,7 +20623,8 @@ function ShamanPower:ThemeBorderEdges(btn, on, spot, element)
 			self._themeBordersMade = true
 		end
 		-- Border Size (General > Themes, one slider under each toggle): 2 px by default
-		local field = (spot == "cd.boxes") and "borderSizeCooldown" or ((spot == "tb.flyout-boxes") and "borderSizeFlyouts" or "borderSize")
+		local field = (spot == "cd.boxes") and "borderSizeCooldown" or ((spot == "cd.flyout-boxes") and "borderSizeCooldownFlyouts")
+			or ((spot == "tb.flyout-boxes") and "borderSizeFlyouts" or "borderSize")
 		local px = (self.ThemeField and self:ThemeField(field)) or 2
 		if edges.px ~= px then
 			edges.px = px
@@ -20438,7 +20637,8 @@ function ShamanPower:ThemeBorderEdges(btn, on, spot, element)
 		-- a Rounded / Circle icon: the border follows it as a ring (Keep Borders Square: the edges)
 		local iw = icon:GetWidth()
 		if not iw or iw < 4 then iw = btn:GetWidth() or 32 end
-		local ringFile = self.BorderRingSizedFile and self:BorderRingSizedFile(spot == "cd.boxes" and "cooldown" or "totem", px, iw)
+		local cdSpot = (spot == "cd.boxes" or spot == "cd.flyout-boxes")
+		local ringFile = self.BorderRingSizedFile and self:BorderRingSizedFile(cdSpot and "cooldown" or "totem", px, iw)
 		if ringFile and not edges.ring then
 			edges.ring = btn:CreateTexture(nil, "OVERLAY", nil, -1)
 			edges.ring:SetAllPoints(icon)
@@ -20779,4 +20979,6 @@ function ShamanPower:ThemeRegisterCore()
 	hooksecurefunc(SP, "CreateTotemFlyout", function() SP:ThemePaintTotemBorders() end)   -- a flyout built later
 	hooksecurefunc(SP, "CreateCooldownBar", function() SP:ThemePaintTotemBorders() end)   -- a new or rebuilt cooldown bar
 	hooksecurefunc(SP, "CreateWeaponImbueButton", function() SP:ThemePaintTotemBorders() end)
+	hooksecurefunc(SP, "CreateShieldFlyout", function() SP:ThemePaintTotemBorders() end)        -- the cooldown bar's flyouts, built later
+	hooksecurefunc(SP, "CreateWeaponImbueFlyout", function() SP:ThemePaintTotemBorders() end)
 end

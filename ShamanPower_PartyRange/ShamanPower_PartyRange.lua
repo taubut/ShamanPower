@@ -59,12 +59,15 @@ local function PaintMissingCov(dot)
 	local c = themeMissCov
 	if c then dot:SetVertexColor(c[1], c[2], c[3]) else dot:SetVertexColor(1, 0, 0) end
 end
+local classSetsSeen = {}   -- the Class Colors set each dot kind was last built with
 -- a class-coloured dot: the theme's colour for that class if it has one, else
--- `color` (RAID_CLASS_COLORS) exactly as today. One table per class, made once.
+-- the Class Colors set it uses (General > Themes; WoW's = `color`, RAID_CLASS_COLORS
+-- exactly as today). One table per class, made once.
 local themeClassColors = {}
 local function ThemeClassColor(spot, class, color)
 	if not (color and class and SP.ThemeColor) then return color end
 	local r, g, b = SP:ThemeColor(spot, class)
+	if not r and SP.ThemeClassSetRGB then r, g, b = SP:ThemeClassSetRGB(spot, class) end
 	if not r then return color end
 	local bySpot = themeClassColors[spot]
 	if not bySpot then bySpot = {}; themeClassColors[spot] = bySpot end
@@ -531,6 +534,7 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 			dot:SetTexture(tex)
 			dot:SetVertexColor(r, g, b)
 			dot:SetAllPoints(button)
+			if SP.DotGem then SP:DotGem(dot) end   -- Gem Dot Finish
 		end,
 	})
 	if not okAdd then
@@ -572,6 +576,7 @@ local function RebuildEngineRecord(record, element, i, host, exists, class, r, g
 	local point, relPoint, x, y = SP:PartyDotAnchor(i, host)
 	local key = (exists and (class or "?") or "-") .. "|" .. tostring(SP.opt.partyDotSize or 5) .. "|"
 		.. tostring(SP.opt.partyDotOutline ~= false) .. "|" .. tostring(SP.opt.dotShape) .. "|" .. point .. relPoint .. x .. "," .. y
+		.. "|" .. tostring(SP.ThemeClassColorSet and SP:ThemeClassColorSet("tb.dots-class")) .. tostring(SP.opt.dotGem)   -- Class Colors / Gem Dot Finish
 	if record and record.key == key and record.host == host and (record.container or not exists) then return record end
 	RetireEngineRecord(record)
 	local container = exists and BuildEngineDot(element, i, host, r, g, b) or nil
@@ -740,6 +745,7 @@ local function PlaceDot(btn, row, i)
 	row.dotOutline:SetSize(size + 2, size + 2)
 	local tex = SP:DotTexture()   -- Dot Shape
 	if row.dot.spDotTex ~= tex then row.dot:SetTexture(tex); row.dotOutline:SetTexture(tex); row.dot.spDotTex = tex end
+	if SP.DotGem then SP:DotGem(row.dot) end   -- Gem Dot Finish
 end
 local function RowMode(row, dots)
 	row.text:SetShown(not dots)
@@ -1036,7 +1042,8 @@ local function BuildCellRows(self, btn, rowsKey, element)
 		local _, class = UnitClass(unit)
 		local dots, dotSize = CoverageDots(), CoverageDotSize()
 		local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(btn.cellKey) .. "|" .. CoverageWatchSig(element)
-			.. "|" .. (dots and ("d" .. dotSize .. CoverageDotPos() .. tostring(CoverageOpts().dotOutline ~= false) .. tostring(self.opt.dotShape)) or "n")
+			.. "|" .. (dots and ("d" .. dotSize .. CoverageDotPos() .. tostring(CoverageOpts().dotOutline ~= false) .. tostring(self.opt.dotShape)
+				.. tostring(self.ThemeClassColorSet and self:ThemeClassColorSet("mod.coverage-dots-class")) .. tostring(self.opt.dotGem)) or "n")
 		local slot = self.coverageRows[rowsKey][i]
 		local row = btn.rows[i]
 		if not slot or slot.key ~= key then
@@ -2148,6 +2155,20 @@ if SP.OnThemeChanged then
 		for element = 1, 4 do
 			local f = SP.rangeCounterFrames[element]
 			if f and (SP.partyRangeDemoActive or not (rc and rc.hideFrame)) then ThemeCounterFrame(f, true) end
+		end
+		-- Class Colors: a dot set changed. The game-drawn dots and the Coverage rows
+		-- take their colours when built, so they are built again (only then: a
+		-- colour-picker drag also comes through here)
+		if SP.ThemeClassColorSet then
+			local party, cov = SP:ThemeClassColorSet("tb.dots-class"), SP:ThemeClassColorSet("mod.coverage-dots-class")
+			if party ~= classSetsSeen.party then
+				classSetsSeen.party = party
+				if SP.RebuildEnginePartyDots then SP:RebuildEnginePartyDots() end
+			end
+			if cov ~= classSetsSeen.coverage then
+				classSetsSeen.coverage = cov
+				if SP.UpdateCoverageLayout and not InCombatLockdown() then SP:UpdateCoverageLayout() end
+			end
 		end
 	end)
 end

@@ -4225,6 +4225,41 @@ ShamanPower.options = {
 							get = function(info) return ShamanPower.opt.dotShape or "default" end,
 							set = function(info, val) ShamanPower:SetDotShape(val) end,
 						},
+						partybuff_class_colors = {
+							-- one setting with the Class Colors cards on General > Themes
+							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
+							order = 1.62,
+							type = "select",
+							name = "Class Colors",
+							desc = "The class colors of the party dots and the Totem Coverage dots: WoW's own, or ShamanPower's Subtle, Stronger, Vibrant or Muted (the same hue for every class). The same setting as the Class Colors cards on General > Themes.",
+							width = 0.9,
+							values = function()
+								local v = {}
+								for _, set in ipairs(ShamanPower.CLASS_COLOR_SETS or {}) do v[set.key] = set.label end
+								return v
+							end,
+							sorting = function()
+								local o = {}
+								for _, set in ipairs(ShamanPower.CLASS_COLOR_SETS or {}) do o[#o + 1] = set.key end
+								return o
+							end,
+							get = function(info) return ShamanPower.ThemeClassColorSetGlobal and ShamanPower:ThemeClassColorSetGlobal() or "wow" end,
+							set = function(info, val)
+								-- the theme's own set is stored as nil, as the cards do
+								if val == ShamanPower:ThemeClassColorSetDefault() then val = nil end
+								ShamanPower:SetThemeField("classColors", val)
+							end,
+						},
+						partybuff_dot_gem = {
+							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
+							order = 1.63,
+							type = "toggle",
+							name = "Gem Dot Finish",
+							desc = "A darker rim and a soft highlight on every party dot and Totem Coverage dot, cut to the Dot Shape (Ring has none). The same setting as on General > Themes.",
+							width = 0.9,
+							get = function(info) return ShamanPower.opt.dotGem == true end,
+							set = function(info, val) ShamanPower:SetDotGem(val) end,
+						},
 						partybuff_dots_missing_only = {
 							hidden = function(info) return (not ShamanPower.opt.showPartyRangeDots) and true or false end,
 							order = 1.65,
@@ -10729,7 +10764,7 @@ do
 		{ keys = { "partybuff_display_mode" } },
 		{ header = "look_header", name = "Look", keys = {
 			"partybuff_scale", "partybuff_opacity", "partybuff_fontsize", "partybuff_dot_size",
-			"partybuff_dot_outline", "partybuff_dot_shape", "partybuff_dot_position", "partybuff_dots_missing_only", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
+			"partybuff_dot_outline", "partybuff_dot_shape", "partybuff_class_colors", "partybuff_dot_gem", "partybuff_dot_position", "partybuff_dots_missing_only", "partybuff_hide_frame", "partybuff_hide_label", "partybuff_colors",
 		}, names = { partybuff_scale = "Scale", partybuff_opacity = "Opacity", partybuff_fontsize = "Text Size",
 			partybuff_hide_frame = "Hide Background" } },
 		{ header = "position_header", name = "Position", keys = {

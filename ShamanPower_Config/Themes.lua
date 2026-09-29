@@ -1204,6 +1204,53 @@ local pickCards, showCards, palCards, shieldCards, wowRows = {}, {}, {}, {}, {}
 local customLine
 local RepaintAll, LayoutSig
 
+-- Shared by the drawings and their search index. Card/spot text stays in its
+-- catalogue; new blocks supply their own title, description and choices here.
+local BLOCKS = {
+	intro = { label = INTRO },
+	picker = { label = "Theme" },
+	options = { label = "Theme Options", desc = "Show Icons As",
+		note = "How each flat box shows which totem it is. Each part below can pick its own." },
+	palettes = { label = "Element Colors" },
+	borders = { label = "Element-Colored Borders", search = "Border Size",
+		desc = "Outlines each totem on the totem bar in its element color from the colors above,"
+			.. " like the icons on these cards."
+			.. " Not shown with the Compact, Grid or Blizzard's Totem Bar styles." },
+	flyoutBorders = { label = "Also on the Flyouts", search = "Flyout Border Size",
+		desc = "Gives every totem in the totem bar's flyouts the same element-colored border." },
+	cooldownFlyoutBorders = { label = "Also on the Cooldown Bar Flyouts", search = "Cooldown Bar Flyout Border Size",
+		desc = "Gives every shield and weapon imbue in the cooldown bar's flyouts a border in the color of what it shows,"
+			.. " like the cooldown bar's own buttons." },
+	cooldownBorders = { label = "Also on the Cooldown Bar", search = "Cooldown Bar Border Size",
+		desc = "Gives every button on the cooldown bar a border in the color of what it shows: shields in your Shield Colors,"
+			.. " weapon imbues and element spells in their element color, other spells in the logo blue." },
+	classColors = { label = "Class Colors", search = "Gem Dot Finish party dots coverage dots class",
+		desc = "The class colors of the party dots and the Totem Coverage dots." },
+	shields = { label = "Shield Colors" },
+	shapes = { label = "Shapes & Textures" },
+	barTexture = { label = "Bar Texture",
+		desc = "The texture of every bar ShamanPower draws, unless a part picks its own."
+			.. " The same setting as Bar Texture on General > Fonts & Textures." },
+	shieldTexture = { label = "Shield Charge Bars",
+		desc = "Shield Charges' charge bar and the cooldown bar's Shield Charge Bar: their own texture, they never follow Bar Texture."
+			.. " The same setting as on General > Fonts & Textures and Shield Charges." },
+	wow = { label = "WoW's Own Colors",
+		desc = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game."
+			.. " A swatch below tagged WOW is one of these; click it to pick your own color for that part instead." },
+	reset = { label = "Reset Colors for Current Theme",
+		desc = "Keeps your theme. Clears every color you changed on this page (the Element Colors and Shield Colors picks,"
+			.. " each shield's Charge Color, the gradients' Two-Tone colors), so each part shows the theme's colors again." },
+	resetAll = { label = "Reset All Colors and Theme", caption = "Reset All Colors and Theme",
+		desc = "Mixed things up and want a clean start? This puts every color in ShamanPower back to how it came:"
+			.. " the Standard theme with nothing changed, and every color option on every page, Shield Charges included."
+			.. " It asks first, then reloads your interface." },
+	resetEverything = { label = "Reset Everything", caption = "Reset Everything",
+		desc = "Every setting on this page back to how it came: everything Reset All Colors and Theme does, and every look too:"
+			.. " Bar Texture and Shield Charge Bars, Dot Shape, Gem Dot Finish, Glow Shape, Frame Edge, each bar's Icon Shape,"
+			.. " Keep Borders Square, all three gradients, Duration Bar Background and each shield's charge look."
+			.. " It asks first, then reloads your interface." },
+}
+
 local function Keep(key, make)
 	local f = store[key]
 	if not f then
@@ -1351,6 +1398,10 @@ local PICKS = {
 	  desc = "Your own mix: a theme plus every change you made below. Picking another theme keeps it here, and clicking Custom brings all of it back." },
 }
 local function CustomCardShown() return SP:ThemeIsCustom() or SP:ThemeHasSavedCustom() end
+local CUSTOM_ON = GOLD_TEXT .. "Custom|r is in use: your changes below. Pick another theme any time:"
+	.. " your Custom stays on its card. Standard always brings back your own look."
+local CUSTOM_OFF = "Change any part below and it becomes your " .. GOLD_TEXT
+	.. "Custom|r look, kept on its own card. Standard always brings back your own look."
 
 local function NewPickCard(p)
 	local c = NewCard(page.body)
@@ -1375,11 +1426,28 @@ local function NewPickCard(p)
 	c.key = p.key
 	c:SetScript("OnClick", function()
 		if InCombatLockdown() then return end
+		if p.key == "custom" and SP.ThemeCustomNeedsReload and SP:ThemeCustomNeedsReload() then
+			-- a reset kept this look's colors: they come back with a reload, as the reset went
+			SP:ShowSPDialog({
+				key = "loadcustomlook",
+				title = "Bring Back Your Custom Look?",
+				text = "Your whole Custom look comes back: its theme, every color and every look (shapes, gradients, borders and the rest)."
+					.. " Your interface reloads to finish.",
+				buttons = {
+					{ text = "Load and Reload", onClick = function()
+						SP:ThemeLoadCustom()
+						ReloadUI()
+					end },
+					{ text = "Cancel" },
+				},
+			})
+			return
+		end
 		if p.key == "custom" then SP:ThemeLoadCustom() else SP:SetThemeGlobal(p.key) end
 		PageChanged()
 	end)
 	if p.key == "custom" then
-		Core:AttachTooltip(c, p.label, "Brings back your Custom look: the theme it started from and every change you made below and on the settings pages.")
+		Core:AttachTooltip(c, p.label, "Brings back your whole Custom look: the theme it started from, every change you made below and on the settings pages, and every look (shapes, gradients, borders and the rest).")
 	else
 		Core:AttachTooltip(c, p.label, "Applies this theme to every part below. Every part's own choice goes back to Use General Theme. A Custom look is kept on the Custom card.")
 	end
@@ -1406,8 +1474,6 @@ local function RenderPicker(y, W)
 		f.text:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -4)
 		return f
 	end)
-	local CUSTOM_ON = GOLD_TEXT .. "Custom|r is in use: your changes below. Pick another theme any time: your Custom stays on its card. Standard always brings back your own look."
-	local CUSTOM_OFF = "Change any part below and it becomes your " .. GOLD_TEXT .. "Custom|r look, kept on its own card. Standard always brings back your own look."
 	local h1 = Fit(customLine.text, W - 24, CUSTOM_ON)
 	local h2 = Fit(customLine.text, W - 24, CUSTOM_OFF)
 	customLine.on, customLine.off = CUSTOM_ON, CUSTOM_OFF
@@ -1485,12 +1551,12 @@ local function RenderThemeOptions(y, W)
 		local f = CreateFrame("Frame", nil, page.body)
 		f.label = Text(f, "row")
 		f.label:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -2)
-		f.label:SetText("Show Icons As")
+		f.label:SetText(BLOCKS.options.desc)
 		f.desc = Text(f, "rowDim")
 		f.desc:SetPoint("TOPLEFT", f.label, "BOTTOMLEFT", 0, -4)
 		return f
 	end)
-	local dh = Fit(cap.desc, W - 24, "How each flat box shows which totem it is. Each part below can pick its own.")
+	local dh = Fit(cap.desc, W - 24, BLOCKS.options.note)
 	local ch = 2 + ceil(cap.label:GetStringHeight()) + 4 + dh + 8
 	cap:SetSize(W, ch)
 	cap:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
@@ -1572,9 +1638,7 @@ local function NewPaletteCard(p)
 		sw.name:SetText(EL[e])
 		sw.name:SetTextColor(Core:Color("textDim"))
 		sw.name:SetPoint("TOPLEFT", sw, "TOPRIGHT", 6, 1)
-		sw.hex = Text(c, "tiny")
-		sw.hex:SetTextColor(Core:Color("textDim"))
-		sw.hex:SetPoint("TOPLEFT", sw.name, "BOTTOMLEFT", 0, -1)
+		-- (no hex code under the name: dropped 2026-09-29)
 		if p.key == "custom" then
 			sw:SetScript("OnEnter", function(self) Core:SetBorderColor(self, "accent") end)
 			sw:SetScript("OnLeave", function(self) Core:SetBorderColor(self, "border") end)
@@ -1611,7 +1675,7 @@ local function RenderPalettes(y, W)
 			sw:ClearAllPoints()
 			sw:SetPoint("TOPLEFT", c, "TOPLEFT", 12 + (e - 1) * colW, -(yI + 24 + 3 + 3 + 14))
 		end
-		local h = yI + 24 + 6 + 14 + 32 + 8
+		local h = yI + 24 + 6 + 14 + 22 + 8
 		c:SetSize(cw, h)
 		local col, row = (i - 1) % 2, floor((i - 1) / 2)
 		if col == 0 and row > 0 then y = y + rowH + gap; rowH = 0 end
@@ -1641,8 +1705,153 @@ local function PaintPalettes()
 			PaintEdges(c.rings[e], r, g, b, 1)
 			SetBar(c.bars[e], FILL[e], r, g, b)
 			c.sw[e].fill:SetColorTexture(r, g, b, 1)
-			c.sw[e].hex:SetText(Hex(r, g, b))
 		end
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- 4b. Class Colors: the set the party dots and Totem Coverage dots use, as cards
+-- like Element Colors (a totem-bar preview with that set's party dots, the nine
+-- classes), and Gem Dot Finish under them. The cards set the theme's default;
+-- Party Dots / Coverage Dots: Class Colors (Totem Bar, Totem Coverage sections)
+-- can each pick their own.
+-- ---------------------------------------------------------------------------
+local CC = { cards = {} }   -- the section's pieces, in one table: this file is at Lua's 200-local limit
+CC.ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
+CC.NAME = { WARRIOR = "Warrior", PALADIN = "Paladin", HUNTER = "Hunter", ROGUE = "Rogue", PRIEST = "Priest",
+	SHAMAN = "Shaman", MAGE = "Mage", WARLOCK = "Warlock", DRUID = "Druid" }
+CC.PARTY = { "ROGUE", "PRIEST", "SHAMAN", "WARLOCK" }   -- the preview party, one per corner
+CC.CORNER = { { "TOPLEFT", 3, -3 }, { "TOPRIGHT", -3, -3 }, { "BOTTOMLEFT", 3, 3 }, { "BOTTOMRIGHT", -3, 3 } }
+
+function CC.RGB(set, class)
+	local r, g, b = SP:ClassSetRGB(set, class)
+	if r then return r, g, b end
+	local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+	if c then return c.r, c.g, c.b end
+	return 1, 1, 1
+end
+
+function CC.Pick(key)
+	if InCombatLockdown() then return end
+	-- the theme's own set is no change
+	local v = (key ~= SP:ThemeClassColorSetDefault()) and key or nil
+	if SP:ThemeField("classColors") ~= v then SP:SetThemeField("classColors", v) end
+	PageChanged()
+end
+
+-- one dot: the Dot Shape texture, its dark ring and the gem over it
+function CC.NewDot(c, size, layer, class)
+	local o = c:CreateTexture(nil, layer, nil, 1)
+	local d = c:CreateTexture(nil, layer, nil, 2)
+	local g = c:CreateTexture(nil, layer, nil, 3)
+	d:SetSize(size, size)
+	o:SetSize(size + 2, size + 2); o:SetPoint("CENTER", d, "CENTER", 0, 0)
+	g:SetAllPoints(d); g:Hide()
+	return { d = d, o = o, g = g, class = class }
+end
+function CC.PaintDot(p, set, tex, gem)
+	local r, g, b = CC.RGB(set, p.class)
+	if p.tex ~= tex then p.d:SetTexture(tex); p.o:SetTexture(tex); p.tex = tex end
+	p.d:SetVertexColor(r, g, b)
+	p.o:SetVertexColor(0, 0, 0, 0.9)
+	if gem then p.g:SetTexture(gem); p.g:Show() else p.g:Hide() end
+end
+
+function CC.NewCard(set)
+	local c = NewCard(page.body)
+	local I = Icons()
+	c.title = Text(c, "brand")
+	c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 12, -10)
+	c.title:SetText(set.label)
+	c.tag = Tag(c)
+	c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, -12)
+	c.sub = Text(c, "rowDim")
+	c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
+	c.slots, c.dots, c.sw = {}, {}, {}
+	for e = 1, 4 do
+		local s = NewSlot(c, 24)
+		PaintSlot(s, false, nil, I.totems[e], nil, 1, 1, 1, false)
+		c.slots[e] = s
+		for k = 1, 4 do
+			local p = CC.NewDot(c, 5, "OVERLAY", CC.PARTY[k])
+			local at = CC.CORNER[k]
+			p.d:SetPoint("CENTER", s, at[1], at[2], at[3])
+			c.dots[#c.dots + 1] = p
+		end
+	end
+	for i, class in ipairs(CC.ORDER) do
+		local p = CC.NewDot(c, 10, "ARTWORK", class)
+		p.name = Text(c, "tiny")
+		p.name:SetText(CC.NAME[class])
+		p.name:SetTextColor(Core:Color("textDim"))
+		p.name:SetPoint("LEFT", p.d, "RIGHT", 5, 0)
+		c.sw[i] = p
+	end
+	c.key = set.key
+	c:SetScript("OnClick", function() CC.Pick(set.key) end)
+	Core:AttachTooltip(c, set.label, "Use these class colors for the party dots and the Totem Coverage dots. Each can still pick its own in its section below (Class Colors).")
+	return c
+end
+
+function CC.Render(y, W)
+	local gap = 10
+	local cw = floor((W - gap) / 2)
+	local rowH = 0
+	for i, set in ipairs(SP.CLASS_COLOR_SETS) do
+		local c = Keep("cls:" .. set.key, function() return CC.NewCard(set) end)
+		CC.cards[i] = c
+		local th = ceil(c.title:GetStringHeight())
+		local sh = Fit(c.sub, cw - 24, set.sub)
+		local yI = 10 + th + 4 + sh + 12
+		local x0 = floor((cw - (4 * 24 + 3 * 10)) / 2)
+		for e = 1, 4 do
+			local s = c.slots[e]
+			s:ClearAllPoints()
+			s:SetPoint("TOPLEFT", c, "TOPLEFT", x0 + (e - 1) * 34, -yI)
+		end
+		-- the nine classes in two rows (five, then four)
+		local colW = floor((cw - 24) / 5)
+		local ys = yI + 24 + 16
+		for j, p in ipairs(c.sw) do
+			local col, row = (j - 1) % 5, floor((j - 1) / 5)
+			p.d:ClearAllPoints()
+			p.d:SetPoint("TOPLEFT", c, "TOPLEFT", 12 + col * colW, -(ys + row * 18))
+		end
+		local h = ys + 2 * 18 + 8
+		c:SetSize(cw, h)
+		local col, row = (i - 1) % 2, floor((i - 1) / 2)
+		if col == 0 and row > 0 then y = y + rowH + gap; rowH = 0 end
+		c:SetPoint("TOPLEFT", page.body, "TOPLEFT", col * (cw + gap), -y)
+		rowH = max(rowH, h)
+	end
+	for r = 0, 2 do
+		local a, b = CC.cards[r * 2 + 1], CC.cards[r * 2 + 2]
+		if a and b then
+			local h = max(a:GetHeight(), b:GetHeight())
+			a:SetHeight(h); b:SetHeight(h)
+		end
+	end
+	y = y + rowH + 8
+	local _, gh = Widgets:Toggle(page.body, {
+		label = "Gem Dot Finish", x = 0, y = y, width = W,
+		desc = "A darker rim and a soft highlight on every party dot and Totem Coverage dot, cut to the Dot Shape (Ring has none). The same setting as on Party Buff Tracker.",
+		get = function() return SP.opt.dotGem == true end,
+		set = function(v) SP:SetDotGem(v) end,
+		onChanged = PageChanged,
+	})
+	return y + gh + 6
+end
+
+function CC.Paint()
+	local inUse = SP:ThemeClassColorSetGlobal()
+	local tex, gem = SP:DotTexture(), SP:DotGemTexture()
+	for i = 1, #CC.cards do
+		local c = CC.cards[i]
+		c.selected = (c.key == inUse)
+		PaintCard(c)
+		if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+		for _, p in ipairs(c.dots) do CC.PaintDot(p, c.key, tex, gem) end
+		for _, p in ipairs(c.sw) do CC.PaintDot(p, c.key, tex, gem) end
 	end
 end
 
@@ -1772,6 +1981,7 @@ local SHAPE_ROWS = {
 	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on Appearance > Cooldown Bar.",
 	  get = function() return SP:IconShapeOf("cooldown") or "default" end, set = function(k) SP:SetIconShape(k, "cooldown") end },
 	{ key = "iconrr", iconKind = "ready", label = "Ready Reminders Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  search = "Keep Borders Square",
 	  note = "Ready Reminders' icons (ShamanPower Minimal's boxes too); the glow keeps Glow Shape. Also on Ready Reminders.",
 	  get = function() return SP:IconShapeOf("ready") or "default" end, set = function(k) SP:SetIconShape(k, "ready") end,
 	  extra = function(y, W)
@@ -1872,6 +2082,8 @@ local function GradientExtra(field, part)
 	end
 end
 SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "bargrad", label = "Bar Gradient", list = function() return SP.GRADIENTS end,
+	search = "Gradient Direction Duration Bars Direction Pulse Bars Direction Cooldown Bar Direction Ready Reminders Bar Direction"
+		.. " Two-Tone First Color Second Color Fade To Duration Bar Background",
 	note = "Duration and pulse bars, the cooldown bar's progress bars and Ready Reminders' bar (never Shield Charges). Also on Totem Bar > Duration Bars.",
 	get = function() return SP.opt.barGradient or "default" end, set = function(k) SP:SetGradientField("barGradient", k) end,
 	extra = function(y, W)
@@ -1887,6 +2099,7 @@ SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "bargrad", label = "Bar Gradient", list = 
 		return y + h + 10
 	end }
 SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "outgrad", label = "Outline Gradient", list = function() return SP.GRADIENTS end,
+	search = "Outline Gradient Direction Two-Tone First Color Second Color Fade To",
 	note = "The element-colored borders round each totem, and the totem bar, cooldown bar and panel borders. Also on Appearance > Totem Bar.",
 	get = function() return SP.opt.outlineGradient or "default" end, set = function(k) SP:SetGradientField("outlineGradient", k) end,
 	extra = GradientExtra("outlineGradient", "Outline") }
@@ -1941,6 +2154,7 @@ end
 -- settings as Colors & Gradient on Shield Charges
 local CHARGE_NAMES = { "Lightning Shield Charge Color", "Water Shield Charge Color", "Earth Shield Charge Color" }
 SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient", list = function() return SP.GRADIENTS end,
+	search = "Charge Bar Gradient Direction Lightning Shield Charge Color Water Shield Charge Color Earth Shield Charge Color Default Charge Colors",
 	note = "Shield Charges' own: the charge bar, the Glowing and Flat orbs and the cooldown bar's Shield Charge Bar. Bar Gradient never touches them. Also on Shield Charges.",
 	shown = function() return ShieldBarShown() end,
 	get = function() return SP.opt.chargeGradient or "default" end, set = function(k) SP:SetGradientField("chargeGradient", k) end,
@@ -2142,7 +2356,7 @@ local function NewShapeCard(row, s)
 	return c
 end
 
-local function RenderShapes(y, W)
+local function RenderShapes(y, W, selection)
 	-- the two bar texture choices: the same settings as General > Fonts & Textures
 	local function texValues(def)
 		return function()
@@ -2157,32 +2371,36 @@ local function RenderShapes(y, W)
 		return o
 	end
 	local function refresh() if SP.RefreshTextures then SP:RefreshTextures() end end
-	local _, h1 = Widgets:Dropdown(page.body, {
-		label = "Bar Texture", x = 0, y = y, width = W,
-		desc = "The texture of every bar ShamanPower draws, unless a part picks its own. The same setting as Bar Texture on General > Fonts & Textures.",
-		values = texValues("Default (as designed)"), order = texOrder,
-		get = function() return SP.opt.barTexture or DEFAULT end,
-		set = function(v) if v == DEFAULT then v = nil end; SP.opt.barTexture = v; refresh() end,
-		onChanged = PageChanged,
-	})
-	y = y + h1 + 6
-	local _, h2 = Widgets:Dropdown(page.body, {
-		label = "Shield Charge Bars", x = 0, y = y, width = W,
-		desc = "Shield Charges' charge bar and the cooldown bar's Shield Charge Bar: their own texture, they never follow Bar Texture. The same setting as on General > Fonts & Textures and Shield Charges.",
-		values = texValues("Default (as designed)"), order = texOrder,
-		get = function() local t = SP.opt.barTextureAreas; return (t and t.shieldcharges) or DEFAULT end,
-		set = function(v)
-			if v == DEFAULT then v = nil end
-			SP.opt.barTextureAreas = SP.opt.barTextureAreas or {}
-			SP.opt.barTextureAreas.shieldcharges = v
-			refresh()
-		end,
-		onChanged = PageChanged,
-	})
-	y = y + h2 + 10
+	if not selection or selection.barTexture then
+		local _, h1 = Widgets:Dropdown(page.body, {
+			label = BLOCKS.barTexture.label, x = 0, y = y, width = W,
+			desc = BLOCKS.barTexture.desc,
+			values = texValues("Default (as designed)"), order = texOrder,
+			get = function() return SP.opt.barTexture or DEFAULT end,
+			set = function(v) if v == DEFAULT then v = nil end; SP.opt.barTexture = v; refresh() end,
+			onChanged = PageChanged,
+		})
+		y = y + h1 + 6
+	end
+	if not selection or selection.shieldTexture then
+		local _, h2 = Widgets:Dropdown(page.body, {
+			label = BLOCKS.shieldTexture.label, x = 0, y = y, width = W,
+			desc = BLOCKS.shieldTexture.desc,
+			values = texValues("Default (as designed)"), order = texOrder,
+			get = function() local t = SP.opt.barTextureAreas; return (t and t.shieldcharges) or DEFAULT end,
+			set = function(v)
+				if v == DEFAULT then v = nil end
+				SP.opt.barTextureAreas = SP.opt.barTextureAreas or {}
+				SP.opt.barTextureAreas.shieldcharges = v
+				refresh()
+			end,
+			onChanged = PageChanged,
+		})
+		y = y + h2 + 10
+	end
 	local gap = 10
 	for _, row in ipairs(SHAPE_ROWS) do
-		if not row.shown or row.shown() then
+		if (not selection or selection.rows[row.key]) and (not row.shown or row.shown()) then
 			local list = row.list() or {}
 			local lab = Keep("shapelabel:" .. row.key, function()
 				local f = CreateFrame("Frame", nil, page.body)
@@ -2253,12 +2471,14 @@ end
 
 local function PaintShapes()
 	for _, row in ipairs(SHAPE_ROWS) do
-		local inUse = row.get()
-		for _, c in ipairs(shapeCards[row.key] or {}) do
-			c.selected = (c.key == inUse)
-			PaintCard(c)
-			if c.repaint then c.repaint() end   -- the gradient cards follow their colors
-			if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+		if shapeCards[row.key] then
+			local inUse = row.get()
+			for _, c in ipairs(shapeCards[row.key]) do
+				c.selected = (c.key == inUse)
+				PaintCard(c)
+				if c.repaint then c.repaint() end   -- the gradient cards follow their colors
+				if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
+			end
 		end
 	end
 end
@@ -2389,7 +2609,7 @@ end
 
 local function RenderWoW(y, W)
 	local _, dh = Widgets:Description(page.body, { x = 0, y = y, width = W,
-		text = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game. A swatch below tagged WOW is one of these; click it to pick your own color for that part instead." })
+		text = BLOCKS.wow.desc })
 	y = y + dh
 	local gap = 12
 	local colW = floor((W - gap) / 2)
@@ -2433,6 +2653,7 @@ local THEME_V, THEME_O = ListFns(L.theme)
 local PAL_V, PAL_O = ListFns(L.palette)
 local SHIELD_V, SHIELD_O = ListFns(L.shield)
 local SHOWAS_V, SHOWAS_O = ListFns(L.showAs)
+CC.V, CC.O = ListFns(L.classColors)
 local choiceFns = {}
 local function ChoiceFns(spot)
 	local c = choiceFns[spot.id]
@@ -2446,6 +2667,20 @@ local function ChoiceFns(spot)
 	return c[1], c[2]
 end
 local CHOICE_LABEL = { ["tb.duration-text"] = "Text Color", ["tb.pulse"] = "Pulse Color" }
+local SPOT_FIELDS = {
+	theme = { label = "Theme", list = L.theme,
+		desc = ": the theme this part uses. Use General Theme follows the theme picked at the top of this page." },
+	palette = { label = "Colors", list = L.palette,
+		desc = ": the element colors this part uses. Use Theme's follows Element Colors at the top"
+			.. " (Standard: your Appearance colors)." },
+	shield = { label = "Shield Colors", list = L.shield,
+		desc = ": the shield colors this part uses. Use Theme's follows Shield Colors at the top." },
+	showAs = { label = "Show Icons As", list = L.showAs,
+		desc = ": how its flat boxes show which totem it is. Use Theme's follows Show Icons As at the top." },
+	choice = { label = "Color", desc = ": the color this part uses. Use Theme's: the theme's own." },
+	classColors = { label = "Class Colors", list = L.classColors,
+		desc = ": the class colors its dots use. Use Theme's follows Class Colors at the top." },
+}
 
 -- spots that do nothing on this client or class
 local FOREVER_ONLY = { ["tb.empty-slot"] = true, ["tb.flyout-empty"] = true, ["cd.engine"] = true }
@@ -2614,28 +2849,33 @@ local function RenderSpot(spot, y, W)
 	t:SetSize(leftW, th)
 	local name = spot.label
 	local ry = y
-	ry = ry + SpotDropdown(spot, "theme", "Theme",
-		name .. ": the theme this part uses. Use General Theme follows the theme picked at the top of this page.",
+	ry = ry + SpotDropdown(spot, "theme", SPOT_FIELDS.theme.label,
+		name .. SPOT_FIELDS.theme.desc,
 		THEME_V, THEME_O, rx, ry, rw)
 	if spot.palette then
-		ry = ry + SpotDropdown(spot, "palette", "Colors",
-			name .. ": the element colors this part uses. Use Theme's follows Element Colors at the top (Standard: your Appearance colors).",
+		ry = ry + SpotDropdown(spot, "palette", SPOT_FIELDS.palette.label,
+			name .. SPOT_FIELDS.palette.desc,
 			PAL_V, PAL_O, rx, ry, rw)
 	end
 	if spot.shield then
-		ry = ry + SpotDropdown(spot, "shield", "Shield Colors",
-			name .. ": the shield colors this part uses. Use Theme's follows Shield Colors at the top.",
+		ry = ry + SpotDropdown(spot, "shield", SPOT_FIELDS.shield.label,
+			name .. SPOT_FIELDS.shield.desc,
 			SHIELD_V, SHIELD_O, rx, ry, rw)
 	end
+	if spot.classColors then
+		ry = ry + SpotDropdown(spot, "classColors", SPOT_FIELDS.classColors.label,
+			name .. SPOT_FIELDS.classColors.desc,
+			CC.V, CC.O, rx, ry, rw)
+	end
 	if spot.box and SP:ThemeBoxed(spot.id) then
-		ry = ry + SpotDropdown(spot, "showAs", "Show Icons As",
-			name .. ": how its flat boxes show which totem it is. Use Theme's follows Show Icons As at the top.",
+		ry = ry + SpotDropdown(spot, "showAs", SPOT_FIELDS.showAs.label,
+			name .. SPOT_FIELDS.showAs.desc,
 			SHOWAS_V, SHOWAS_O, rx, ry, rw)
 	end
 	if spot.choices then
 		local v, o = ChoiceFns(spot)
-		ry = ry + SpotDropdown(spot, "choice", CHOICE_LABEL[spot.id] or "Color",
-			name .. ": the color this part uses. Use Theme's: the theme's own.", v, o, rx, ry, rw)
+		ry = ry + SpotDropdown(spot, "choice", CHOICE_LABEL[spot.id] or SPOT_FIELDS.choice.label,
+			name .. SPOT_FIELDS.choice.desc, v, o, rx, ry, rw)
 	end
 	if HasRoles(spot) then
 		local s = Keep("strip:" .. spot.id, NewStrip)
@@ -2666,7 +2906,7 @@ local function RenderExtraSpot(ex, y, W)
 	return max(y + th, ry) + 8
 end
 
-local function RenderModule(mod, y, W)
+local function RenderModule(mod, y, W, selection)
 	-- where the section starts, for the settings window's live preview (Page:SectionAt)
 	local secs = page.sections
 	secs[#secs + 1] = { key = mod.key, label = mod.label, y = y }
@@ -2693,19 +2933,196 @@ local function RenderModule(mod, y, W)
 		y = y + p.stageH + 32 + 10
 	end
 	for _, spot in ipairs(mod.spots) do
-		if SpotShown(spot) then
+		if SpotShown(spot) and (not selection or selection[spot.id]) then
 			-- Totem Bar Styles: the preview shows the style of the rows in view
 			if mod.key == "styles" then secs[#secs + 1] = { key = mod.key, label = mod.label, y = y, spot = spot.id } end
 			y = RenderSpot(spot, y, W)
 		end
 	end
-	for _, ex in ipairs(MODULE_EXTRAS[mod.key] or {}) do y = RenderExtraSpot(ex, y, W) end
+	for _, ex in ipairs(MODULE_EXTRAS[mod.key] or {}) do
+		if not selection or selection[ex.key] then y = RenderExtraSpot(ex, y, W) end
+	end
 	return y
 end
 
 -- ---------------------------------------------------------------------------
 -- Paint and the page's life
 -- ---------------------------------------------------------------------------
+local function AddSearchText(parts, text)
+	if type(text) == "function" then text = text() end
+	if text then parts[#parts + 1] = string.lower(ns.Tree:StripColor(text)) end
+end
+
+local function AddSearchChoices(parts, choices)
+	for _, choice in ipairs(choices or {}) do
+		AddSearchText(parts, choice.label)
+		AddSearchText(parts, choice.desc)
+		AddSearchText(parts, choice.sub)
+	end
+end
+
+local function SearchParts(def)
+	local parts = {}
+	AddSearchText(parts, def.label)
+	AddSearchText(parts, def.desc)
+	AddSearchText(parts, def.note)
+	AddSearchText(parts, def.caption)
+	AddSearchText(parts, def.search)   -- the block's own controls (sliders, toggles, colors under it)
+	return parts
+end
+
+local function SearchMatch(parts, query)
+	return string.find(table.concat(parts, " "), query, 1, true) ~= nil
+end
+
+local function SpotSearchParts(spot)
+	local parts = SearchParts(spot)
+	for _, field in ipairs({ "theme", "palette", "shield", "showAs", "choice", "classColors" }) do
+		if field == "theme" or (field == "showAs" and spot.box and SP:ThemeBoxed(spot.id))
+			or (field == "choice" and spot.choices) or (field ~= "showAs" and spot[field]) then
+			local def = SPOT_FIELDS[field]
+			AddSearchText(parts, field == "choice" and CHOICE_LABEL[spot.id] or def.label)
+			AddSearchText(parts, spot.label .. def.desc)
+			AddSearchChoices(parts, def.list or spot.choices)
+			if field == "choice" then AddSearchText(parts, "Use Theme's") end
+		end
+	end
+	for _, role in ipairs(spot.roles) do
+		if RoleShown(role) then AddSearchText(parts, role.label or role.key) end
+	end
+	-- its color options from its own page (Pulse Bar Color ...), as drawn beside it
+	for _, path in ipairs(SPOT_EXTRAS[spot.id] or {}) do
+		if ColorRowShown(path) then
+			local o = OptionAt(path)
+			AddSearchText(parts, path.label or OptionValue(o.name, OptionInfo(path, o)))
+		end
+	end
+	return parts
+end
+
+-- This bar shares its shield colors with the charge strip. Keep related names
+-- as catalogue references, not query-specific synonyms or a second visible label.
+local SEARCH_RELATED = { ["cd.shieldbar"] = { "cd.strip" } }
+
+-- One index per render, never per frame. Only text from currently available
+-- blocks/choices/roles participates; the drawing keeps using the original controls.
+function Page.Search(_, query)
+	query = query and string.lower(query):match("^%s*(.-)%s*$")
+	if not query or query == "" then return nil end
+	local result = { blocks = {}, shapes = { rows = {} }, modules = {} }
+	local any = false
+	local function Include(key, parts)
+		local hit = SearchMatch(parts or SearchParts(BLOCKS[key]), query)
+		result.blocks[key] = hit
+		if hit then any = true end
+		return hit
+	end
+	Include("intro")
+	local picker = SearchParts(BLOCKS.picker)
+	for _, pick in ipairs(PICKS) do
+		if pick.key ~= "custom" or CustomCardShown() then
+			AddSearchText(picker, pick.label)
+			AddSearchText(picker, pick.desc)
+		end
+	end
+	AddSearchText(picker, SP:ThemeIsCustom() and CUSTOM_ON or CUSTOM_OFF)
+	Include("picker", picker)
+	if SP:ThemeGlobal() == "minimal" then
+		local parts = SearchParts(BLOCKS.options)
+		AddSearchChoices(parts, SHOW_AS)
+		Include("options", parts)
+	end
+	local palettes = SearchParts(BLOCKS.palettes)
+	AddSearchChoices(palettes, PALETTE_CARDS)
+	for _, name in ipairs(EL) do AddSearchText(palettes, name) end
+	Include("palettes", palettes)
+	Include("borders")
+	local classParts = SearchParts(BLOCKS.classColors)
+	AddSearchChoices(classParts, SP.CLASS_COLOR_SETS)
+	for _, class in ipairs(CC.ORDER) do AddSearchText(classParts, CC.NAME[class]) end
+	Include("classColors", classParts)
+	if SP:ThemeField("borders") == true then Include("flyoutBorders"); Include("cooldownBorders") end
+	if SP:ThemeField("borders") == true and SP:ThemeField("bordersCooldown") == true then Include("cooldownFlyoutBorders") end
+
+	local spots, shieldUses = {}, {}
+	for _, mod in ipairs(SP.THEME_MODULES) do
+		if ModuleShown(mod) then
+			for _, spot in ipairs(mod.spots) do
+				if SpotShown(spot) then
+					spots[spot.id] = SpotSearchParts(spot)
+					-- Shield Colors is the shared control for these consumers. Their
+					-- visible names make its scope searchable without changing its cards.
+					if spot.shield then
+						AddSearchText(shieldUses, spot.label)
+						AddSearchText(shieldUses, spot.note)
+						for _, role in ipairs(spot.roles) do
+							if RoleShown(role) then AddSearchText(shieldUses, role.label or role.key) end
+						end
+					end
+				end
+			end
+		end
+	end
+	local shields = SearchParts(BLOCKS.shields)
+	AddSearchChoices(shields, SHIELD_CARDS)
+	shields[#shields + 1] = table.concat(shieldUses, " ")
+	Include("shields", shields)
+	local shapeTitle = SearchParts(BLOCKS.shapes)
+	local allShapes = SearchMatch(shapeTitle, query)
+	local textures = SP.TextureList and SP:TextureList() or {}
+	for _, key in ipairs({ "barTexture", "shieldTexture" }) do
+		local parts = SearchParts(BLOCKS[key])
+		AddSearchText(parts, "Default (as designed)")
+		for _, name in ipairs(textures) do AddSearchText(parts, name) end
+		result.shapes[key] = allShapes or SearchMatch(parts, query)
+		if result.shapes[key] then result.blocks.shapes, any = true, true end
+	end
+	for _, row in ipairs(SHAPE_ROWS) do
+		if not row.shown or row.shown() then
+			local parts = SearchParts(row)
+			AddSearchChoices(parts, row.list())
+			result.shapes.rows[row.key] = allShapes or SearchMatch(parts, query)
+			if result.shapes.rows[row.key] then result.blocks.shapes, any = true, true end
+		end
+	end
+	local wow = SearchParts(BLOCKS.wow)
+	for _, row in ipairs(WOW_ROWS) do AddSearchText(wow, row[2]); AddSearchText(wow, row[3]) end
+	Include("wow", wow)
+	Include("reset")
+	Include("resetAll")
+	Include("resetEverything")
+	for _, mod in ipairs(SP.THEME_MODULES) do
+		if ModuleShown(mod) then
+			local whole = SearchMatch(SearchParts(mod), query)
+			local matching = {}
+			for _, spot in ipairs(mod.spots) do
+				local parts = spots[spot.id]
+				if parts then
+					for _, id in ipairs(SEARCH_RELATED[spot.id] or {}) do
+						if spots[id] then parts[#parts + 1] = table.concat(spots[id], " ") end
+					end
+					if whole or SearchMatch(parts, query) then matching[spot.id], any = true, true end
+				end
+			end
+			-- the section's own extra rows (Mana Tint at the end of Totem Bar)
+			for _, ex in ipairs(MODULE_EXTRAS[mod.key] or {}) do
+				local parts = {}
+				AddSearchText(parts, ex.label)
+				AddSearchText(parts, ex.note)
+				for _, path in ipairs(ex.paths) do
+					if ColorRowShown(path) then
+						local o = OptionAt(path)
+						AddSearchText(parts, path.label or OptionValue(o.name, OptionInfo(path, o)))
+					end
+				end
+				if whole or SearchMatch(parts, query) then matching[ex.key], any = true, true end
+			end
+			if whole or next(matching) then result.modules[mod.key], any = whole or matching, true end
+		end
+	end
+	return any and result or nil
+end
+
 local function Safe(fn, ...)
 	local ok, err = pcall(fn, ...)
 	if not ok then geterrorhandler()(err) end
@@ -2717,6 +3134,7 @@ LayoutSig = function()
 	local o = SP.opt or {}
 	local parts = { SP:ThemeGlobal() == "minimal" and "m" or "-", SP:ThemeField("borders") == true and "b" or "-",
 		SP:ThemeField("bordersFlyouts") == true and "f" or "-", SP:ThemeField("bordersCooldown") == true and "c" or "-",
+		SP:ThemeField("bordersCooldownFlyouts") == true and "g" or "-",
 		CustomCardShown() and "c" or "-",
 		-- the rows under the gradient cards come and go with the style picked
 		o.barGradient or "-", o.barGradientColor1 and "1" or "0", o.outlineGradient or "-", o.outlineGradientColor1 and "1" or "0",
@@ -2734,21 +3152,25 @@ end
 
 RepaintAll = function()
 	if not page.visible then return end
-	Safe(PaintPicker)
+	local blocks = page.selection and page.selection.blocks
+	if not blocks or blocks.picker then Safe(PaintPicker) end
 	if page.showOptions then Safe(PaintThemeOptions) end
-	Safe(PaintPalettes)
-	Safe(PaintShields)
-	Safe(PaintShapes)
-	Safe(PaintWoW)
+	if not blocks or blocks.palettes then Safe(PaintPalettes) end
+	if not blocks or blocks.classColors then Safe(CC.Paint) end
+	if not blocks or blocks.shields then Safe(PaintShields) end
+	if not blocks or blocks.shapes then Safe(PaintShapes) end
+	if not blocks or blocks.wow then Safe(PaintWoW) end
 	for i = 1, #live do
 		local f = live[i]
 		if f.Paint then Safe(f.Paint, f) end
 	end
 end
 
--- Draw the page into the settings window's body at width W; returns its height.
-function Page:Render(body, W, onChanged)
+-- Draw all blocks, or a search selection, starting at startY; return the ending y.
+function Page.Render(_, body, W, onChanged, selection, startY)
 	page.sections = {}
+	page.selection = selection
+	local function Includes(key) return not selection or selection.blocks[key] end
 	page.body, page.onChanged = body, onChanged
 	for i = #shown, 1, -1 do shown[i] = nil end
 	for i = #live, 1, -1 do live[i] = nil end
@@ -2759,60 +3181,96 @@ function Page:Render(body, W, onChanged)
 		tagW = max(30, ceil(m:GetStringWidth()))
 		m:Hide()
 	end
-	local y = 0
-	local _, h = Widgets:Description(body, { text = INTRO, x = 0, y = y, width = W })
-	y = y + h
+	local y = startY or 0
+	if Includes("intro") then
+		local _, h = Widgets:Description(body, { text = INTRO, x = 0, y = y, width = W })
+		y = y + h
+	end
 	-- the two reset buttons first, above the Theme picker, so they are easy to find
-	local _, bh = Widgets:Button(body, {
-		label = "Reset Colors for Current Theme", buttonText = "Reset Colors for Current Theme", x = 0, y = y + 4, width = W,
-		desc = "Keeps your theme. Clears every color you changed on this page (the Element Colors and Shield Colors picks, each shield's Charge Color, the gradients' Two-Tone colors), so each part shows the theme's colors again.",
-		func = function() SP:ResetThemeColors() end,
-		onChanged = PageChanged,
-	})
-	y = y + 4 + bh
+	if Includes("reset") then
+		local _, bh = Widgets:Button(body, {
+			label = BLOCKS.reset.label, buttonText = BLOCKS.reset.label, x = 0, y = y + 4, width = W,
+			desc = BLOCKS.reset.desc,
+			func = function() SP:ResetThemeColors() end,
+			onChanged = PageChanged,
+		})
+		y = y + 4 + bh
+	end
 	-- the emergency button: every color in ShamanPower back to how it came
-	local _, rh = Widgets:Button(body, {
-		label = "Reset All Colors and Theme", buttonText = "Reset All Colors and Theme", x = 0, y = y + 4, width = W,
-		desc = "Mixed things up and want a clean start? This puts every color in ShamanPower back to how it came: the Standard theme with nothing changed, and every color option on every page, Shield Charges included. It asks first, then reloads your interface.",
-		func = function()
-			SP:ShowSPDialog({
-				key = "resetallcolors",
-				title = "Reset All Colors and Theme?",
-				text = "Every color in ShamanPower goes back to how it came:\n\n"
-					.. "- the Standard theme, with no per-part choices, color edits or element-colored borders\n"
-					.. "- the default Element Colors and Status Colors\n"
-					.. "- every color option on every page: Cooldown Text, Pulse Bar and Pulse Flash, Compact outline, Mana Tint, each shield's Charge Color, the gradients' Two-Tone colors, Ready Reminders and Tremor Reminder\n\n"
-					.. "Nothing else changes. If you were using a Custom look, it stays on the Custom card. Your interface reloads to finish.",
-				buttons = {
-					{ text = "Reset and Reload", onClick = function()
-						SP:ResetAllColorsToDefault()
-						ReloadUI()
-					end },
-					{ text = "Cancel" },
-				},
-			})
-		end,
-	})
-	y = y + 4 + rh
-	y = y + Header("Theme", y, W)
-	y = RenderPicker(y, W)
+	if Includes("resetAll") then
+		local _, rh = Widgets:Button(body, {
+			label = BLOCKS.resetAll.label, buttonText = BLOCKS.resetAll.caption, x = 0, y = y + 4, width = W,
+			desc = BLOCKS.resetAll.desc,
+			func = function()
+				SP:ShowSPDialog({
+					key = "resetallcolors",
+					title = "Reset All Colors and Theme?",
+					text = "Every color in ShamanPower goes back to how it came:\n\n"
+						.. "- the Standard theme, with no per-part choices, color edits or element-colored borders\n"
+						.. "- the default Element Colors and Status Colors\n"
+						.. "- every color option on every page: Cooldown Text, Pulse Bar and Pulse Flash, Compact outline, Mana Tint,"
+						.. " each shield's Charge Color, the gradients' Two-Tone colors, Ready Reminders and Tremor Reminder\n\n"
+						.. "Nothing else changes. Everything it clears is kept on the Custom card: click it to bring it all back."
+						.. " Your interface reloads to finish.",
+					buttons = {
+						{ text = "Reset and Reload", onClick = function()
+							SP:ResetAllColorsToDefault()
+							ReloadUI()
+						end },
+						{ text = "Cancel" },
+					},
+				})
+			end,
+		})
+		y = y + 4 + rh
+	end
+	-- every setting on this page, the looks too, back to how it came
+	if Includes("resetEverything") then
+		local _, eh = Widgets:Button(body, {
+			label = BLOCKS.resetEverything.label, buttonText = BLOCKS.resetEverything.caption, x = 0, y = y + 4, width = W,
+			desc = BLOCKS.resetEverything.desc,
+			func = function()
+				SP:ShowSPDialog({
+					key = "reseteverything",
+					title = "Reset Everything?",
+					text = "Every setting on the Themes tab goes back to how it came:\n\n"
+						.. "- everything Reset All Colors and Theme does: the Standard theme with nothing changed, and every color option on every page\n"
+						.. "- Bar Texture and Shield Charge Bars: Default\n"
+						.. "- Dot Shape: Round, Gem Dot Finish off\n"
+						.. "- Glow Shape: Square\n"
+						.. "- Frame Edge: Plain\n"
+						.. "- Icon Shape on the totem bar, cooldown bar and Ready Reminders: Square, Keep Borders Square off\n"
+						.. "- Bar Gradient, Outline Gradient and Charge Bar Gradient: Flat, with their directions and colors\n"
+						.. "- Duration Bar Background on\n"
+						.. "- each shield's charges: the Bar\n\n"
+						.. "Everything you had is kept on the Custom card: click it to bring your whole look back. Your interface reloads to finish.",
+					buttons = {
+						{ text = "Reset and Reload", onClick = function()
+							SP:ResetEverythingToDefault()
+							ReloadUI()
+						end },
+						{ text = "Cancel" },
+					},
+				})
+			end,
+		})
+		y = y + 4 + eh
+	end
+	if Includes("picker") then
+		y = y + Header(BLOCKS.picker.label, y, W)
+		y = RenderPicker(y, W)
+	end
 	-- Show Icons As only means something for flat boxes: shown with ShamanPower Minimal only
 	page.layoutSig = LayoutSig()
-	page.showOptions = SP:ThemeGlobal() == "minimal"
+	page.showOptions = SP:ThemeGlobal() == "minimal" and Includes("options")
 	if page.showOptions then
-		y = y + Header("Theme Options", y, W)
+		y = y + Header(BLOCKS.options.label, y, W)
 		y = RenderThemeOptions(y, W)
 	end
-	y = y + Header("Element Colors", y, W)
-	y = RenderPalettes(y, W)
-	local _, bh1 = Widgets:Toggle(body, {
-		label = "Element-Colored Borders", x = 0, y = y, width = W,
-		desc = "Outlines each totem on the totem bar in its element color from the colors above, like the icons on these cards. Not shown with the Compact, Grid or Blizzard's Totem Bar styles.",
-		get = function() return SP:ThemeField("borders") == true end,
-		set = function(v) SP:SetThemeField("borders", v and true or nil) end,
-		onChanged = PageChanged,
-	})
-	y = y + bh1 + 6
+	if Includes("palettes") then
+		y = y + Header(BLOCKS.palettes.label, y, W)
+		y = RenderPalettes(y, W)
+	end
 	-- Border Size: one slider under each turned-on toggle (the square edge and the ring)
 	local function BorderSize(field, label, what)
 		local _, h = Widgets:Slider(body, {
@@ -2828,35 +3286,76 @@ function Page:Render(body, W, onChanged)
 		})
 		y = y + h + 6
 	end
-	if SP:ThemeField("borders") == true then BorderSize("borderSize", "Border Size", "the totem bar") end
-	if SP:ThemeField("borders") == true then   -- only while the borders are on
-		local _, bh2 = Widgets:Toggle(body, {
-			label = "Also on the Flyouts", x = 0, y = y, width = W,
-			desc = "Gives every totem in the totem bar's flyouts the same element-colored border.",
-			get = function() return SP:ThemeField("bordersFlyouts") == true end,
-			set = function(v) SP:SetThemeField("bordersFlyouts", v and true or nil) end,
+	if Includes("borders") then
+		local _, bh1 = Widgets:Toggle(body, {
+			label = BLOCKS.borders.label, x = 0, y = y, width = W,
+			desc = BLOCKS.borders.desc,
+			get = function() return SP:ThemeField("borders") == true end,
+			set = function(v) SP:SetThemeField("borders", v and true or nil) end,
 			onChanged = PageChanged,
 		})
-		y = y + bh2 + 6
-		if SP:ThemeField("bordersFlyouts") == true then BorderSize("borderSizeFlyouts", "Flyout Border Size", "the flyouts") end
-		local _, bh3 = Widgets:Toggle(body, {
-			label = "Also on the Cooldown Bar", x = 0, y = y, width = W,
-			desc = "Gives every button on the cooldown bar a border in the color of what it shows: shields in your Shield Colors, weapon imbues and element spells in their element color, other spells in the logo blue.",
-			get = function() return SP:ThemeField("bordersCooldown") == true end,
-			set = function(v) SP:SetThemeField("bordersCooldown", v and true or nil) end,
-			onChanged = PageChanged,
-		})
-		y = y + bh3 + 6
-		if SP:ThemeField("bordersCooldown") == true then BorderSize("borderSizeCooldown", "Cooldown Bar Border Size", "the cooldown bar") end
+		y = y + bh1 + 6
+		if SP:ThemeField("borders") == true then BorderSize("borderSize", "Border Size", "the totem bar") end
 	end
-	y = y + Header("Shield Colors", y, W)
-	y = RenderShields(y, W)
-	y = y + Header("Shapes & Textures", y, W)
-	y = RenderShapes(y, W)
-	y = y + Header("WoW's Own Colors", y, W)
-	y = RenderWoW(y, W)
+	if SP:ThemeField("borders") == true then   -- only while the borders are on
+		if Includes("flyoutBorders") then
+			local _, bh2 = Widgets:Toggle(body, {
+				label = BLOCKS.flyoutBorders.label, x = 0, y = y, width = W,
+				desc = BLOCKS.flyoutBorders.desc,
+				get = function() return SP:ThemeField("bordersFlyouts") == true end,
+				set = function(v) SP:SetThemeField("bordersFlyouts", v and true or nil) end,
+				onChanged = PageChanged,
+			})
+			y = y + bh2 + 6
+			if SP:ThemeField("bordersFlyouts") == true then BorderSize("borderSizeFlyouts", "Flyout Border Size", "the flyouts") end
+		end
+		if Includes("cooldownBorders") then
+			local _, bh3 = Widgets:Toggle(body, {
+				label = BLOCKS.cooldownBorders.label, x = 0, y = y, width = W,
+				desc = BLOCKS.cooldownBorders.desc,
+				get = function() return SP:ThemeField("bordersCooldown") == true end,
+				set = function(v) SP:SetThemeField("bordersCooldown", v and true or nil) end,
+				onChanged = PageChanged,
+			})
+			y = y + bh3 + 6
+			if SP:ThemeField("bordersCooldown") == true then BorderSize("borderSizeCooldown", "Cooldown Bar Border Size", "the cooldown bar") end
+		end
+		-- the cooldown bar's shield and imbue flyouts, while its own borders are on
+		if SP:ThemeField("bordersCooldown") == true and Includes("cooldownFlyoutBorders") then
+			local _, bh4 = Widgets:Toggle(body, {
+				label = BLOCKS.cooldownFlyoutBorders.label, x = 0, y = y, width = W,
+				desc = BLOCKS.cooldownFlyoutBorders.desc,
+				get = function() return SP:ThemeField("bordersCooldownFlyouts") == true end,
+				set = function(v) SP:SetThemeField("bordersCooldownFlyouts", v and true or nil) end,
+				onChanged = PageChanged,
+			})
+			y = y + bh4 + 6
+			if SP:ThemeField("bordersCooldownFlyouts") == true then
+				BorderSize("borderSizeCooldownFlyouts", "Cooldown Bar Flyout Border Size", "the cooldown bar's flyouts")
+			end
+		end
+	end
+	if Includes("classColors") then
+		y = y + Header(BLOCKS.classColors.label, y, W)
+		y = CC.Render(y, W)
+	end
+	if Includes("shields") then
+		y = y + Header(BLOCKS.shields.label, y, W)
+		y = RenderShields(y, W)
+	end
+	if Includes("shapes") then
+		y = y + Header(BLOCKS.shapes.label, y, W)
+		y = RenderShapes(y, W, selection and selection.shapes)
+	end
+	if Includes("wow") then
+		y = y + Header(BLOCKS.wow.label, y, W)
+		y = RenderWoW(y, W)
+	end
 	for _, mod in ipairs(SP.THEME_MODULES) do
-		if ModuleShown(mod) then y = RenderModule(mod, y, W) end
+		local matches = selection and selection.modules[mod.key]
+		if ModuleShown(mod) and (not selection or matches) then
+			y = RenderModule(mod, y, W, type(matches) == "table" and matches or nil)
+		end
 	end
 	-- the page repaints with the window's own refresh (a change on any row)
 	body._spRefreshers = body._spRefreshers or {}
@@ -2866,7 +3365,7 @@ function Page:Render(body, W, onChanged)
 	return y
 end
 
--- The page is leaving the window (another page, another tab, a search).
+-- Release the drawn blocks before changing the page, tab, or search selection.
 function Page:Release()
 	local owner = GameTooltip:IsShown() and GameTooltip:GetOwner()
 	if owner and owner.spThemes then GameTooltip:Hide() end
@@ -2875,6 +3374,15 @@ function Page:Release()
 		shown[i] = nil
 	end
 	for i = #live, 1, -1 do live[i] = nil end
+	-- Cached frames stay in store, but only the next render's controls may repaint.
+	wipe(pickCards)
+	wipe(showCards)
+	wipe(palCards)
+	wipe(shieldCards)
+	wipe(wowRows)
+	wipe(shapeCards)
+	customLine = nil
+	page.sections, page.selection = nil, nil
 	page.visible = false
 end
 
@@ -2899,8 +3407,9 @@ end
 -- A theme changed while the page is up (a colour picker drag, a profile switch).
 function Page:Repaint()
 	if not self:IsShown() then return end
-	-- a different set of rows (Theme Options, a part's Show Icons As): lay the page out again
-	if LayoutSig() ~= page.layoutSig and ns.SPConfig and ns.SPConfig.RefreshCurrent then
+	-- Search text and visibility can change together; refresh through the window
+	-- so it retains the query and scroll position instead of drawing the full page.
+	if (page.selection or LayoutSig() ~= page.layoutSig) and ns.SPConfig and ns.SPConfig.RefreshCurrent then
 		ns.SPConfig:RefreshCurrent()
 		return
 	end

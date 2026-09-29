@@ -414,6 +414,48 @@ function SP:DotTexture()
 	local k = self.opt and self.opt.dotShape
 	return (k and dotFile[k]) or dotFile.default
 end
+-- Gem Dot Finish (General > Themes under Class Colors, and Party Buff Tracker;
+-- opt.dotGem): a darker rim and a soft highlight laid over every party and
+-- coverage dot, cut to its Dot Shape (Ring has nothing inside to light: none).
+local GEM_FILE = { default = SHAPES .. "Gem_Round", orb = SHAPES .. "Gem_Round",
+	square = SHAPES .. "Gem_Square", diamond = SHAPES .. "Gem_Diamond" }
+function SP:DotGemTexture()
+	if not (self.opt and self.opt.dotGem) then return nil end
+	return GEM_FILE[self.opt.dotShape or "default"]
+end
+-- a dot texture's gem: made the first time it is wanted, then it follows the
+-- dot's own Show / Hide / SetShown
+local function gemFollow(d)
+	local g = d.spGem
+	if g then g:SetShown(g.spOn and d:IsShown() or false) end
+end
+function SP:DotGem(dot)
+	if not dot then return end
+	local file = self:DotGemTexture()
+	local g = dot.spGem
+	if not file then
+		if g then g.spOn = nil; g:Hide() end
+		return
+	end
+	if not g then
+		local layer, sub = dot:GetDrawLayer()
+		g = dot:GetParent():CreateTexture(nil, layer or "OVERLAY", nil, math.min(7, (tonumber(sub) or 0) + 1))
+		g:SetAllPoints(dot)
+		dot.spGem = g
+		hooksecurefunc(dot, "Show", gemFollow)
+		hooksecurefunc(dot, "Hide", gemFollow)
+		hooksecurefunc(dot, "SetShown", gemFollow)
+	end
+	if g.spFile ~= file then g:SetTexture(file); g.spFile = file end
+	g.spOn = true
+	gemFollow(dot)
+end
+function SP:SetDotGem(on)
+	if not self.opt then return end
+	if on then self.opt.dotGem = true else self.opt.dotGem = nil end
+	if self.UpdatePartyDotPositions then self:UpdatePartyDotPositions() end
+	if self.UpdateCoverageLayout then self:UpdateCoverageLayout() end
+end
 function SP:DotShapeValues()
 	local v, order = {}, {}
 	for _, s in ipairs(SP.DOT_SHAPES) do v[s.key] = s.label; order[#order + 1] = s.key end
@@ -615,15 +657,19 @@ local MASK_FILE = { rounded = SHAPES .. "Mask_Rounded", circle = SHAPES .. "Mask
 local RING_FILE = { rounded = SHAPES .. "Ring_Rounded", circle = SHAPES .. "Ring_Circle" }
 local SHAPE_KEY = { totem = "iconShape", cooldown = "iconShapeCooldown", ready = "iconShapeReady" }
 SP.ICON_SHAPE_KEYS = SHAPE_KEY
+-- (reading never writes: until a shape is picked, the cooldown bar keeps the
+-- totem bar's shape, as when one shape covered both)
 function SP:IconShapeOf(kind)
 	local o = self.opt
 	if not o then return nil end
-	if not o.iconShapeSplit then
-		-- one shape used to cover the cooldown bar too: it keeps the shape it had
-		o.iconShapeSplit = true
-		if o.iconShape and o.iconShapeCooldown == nil then o.iconShapeCooldown = o.iconShape end
-	end
+	if kind == "cooldown" and not o.iconShapeSplit then return o.iconShapeCooldown or o.iconShape end
 	return o[SHAPE_KEY[kind] or "iconShape"]
+end
+-- the first shape picked splits them: the cooldown bar keeps the shape it had
+local function splitIconShapes(o)
+	if o.iconShapeSplit then return end
+	o.iconShapeSplit = true
+	if o.iconShape and o.iconShapeCooldown == nil then o.iconShapeCooldown = o.iconShape end
 end
 function SP:IconShapeMaskFile(shape) return MASK_FILE[shape] end
 -- the ring a border draws round a shaped icon; nil = the square border
@@ -764,7 +810,7 @@ end
 function SP:SetIconShape(key, kind)
 	if not self.opt then return end
 	if key == "default" then key = nil end
-	self:IconShapeOf(kind)   -- (a first split copies the old shape before this one changes)
+	splitIconShapes(self.opt)   -- (a first split copies the old shape before this one changes)
 	self.opt[SHAPE_KEY[kind] or "iconShape"] = key
 	self:RefreshIconShapes()
 end
@@ -772,6 +818,10 @@ end
 function SP:RefreshIconShapes()
 	self:ApplyIconShapes()
 	if self.ThemePaintTotemBorders then self:ThemePaintTotemBorders() end
+	for e = 1, 4 do   -- the dropped-totem overlays' edges (a ring on Rounded / Circle)
+		local ov = self.activeTotemOverlays and self.activeTotemOverlays[e]
+		if ov and self.ThemePaintOverlayBorder then self:ThemePaintOverlayBorder(ov, e) end
+	end
 	if self.ThemeBoxesRefresh then self:ThemeBoxesRefresh() end
 	if self.UpdateAllReadyReminderAppearance then self:UpdateAllReadyReminderAppearance() end
 end
