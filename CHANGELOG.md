@@ -1,5 +1,40 @@
 # ShamanPower Changelog
 
+## v3.0.4 (2026-09-29)
+
+### New
+- **Shapes & Textures** (Settings > General > Themes, and each bar's own page; everything stays at today's look until you pick something):
+  - **Icon Shape** for the totem bar, the cooldown bar and Ready Reminders: Square (today's), Flat, Rounded or Circle. Borders follow the shape as a ring, including the dropped-totem and Earth Shield overlays; **Keep Borders Square** keeps them square.
+  - **Bar Gradient** and **Outline Gradient**: Flat, Shade, Glass, Two-Tone or Fade Out, with a direction for each kind of bar (duration, pulse, cooldown bar, Ready Reminders).
+  - **Glow Shape** (Square or Round), **Dot Shape** (Round, Diamond, Square, Soft Orb or Ring) and **Frame Edge** (Plain, Bevel, Drop Shadow or Thick).
+- **Class Colors** for the party dots and Totem Coverage's dots: WoW's, Subtle, Stronger, Vibrant or Muted, as cards on the Themes tab and a choice per part. The ShamanPower themes use Subtle; Standard always shows WoW's. **Gem Dot Finish** gives every dot a darker rim and a soft highlight.
+- **Shield Charges: orbs.** Show each shield's charges as orbs instead of the bar: Glowing, Flat, the shield's icon, Storm, and Water and Earth Shield looks of their own (Tide, Bubble, Foam, Stone Ring, Leaf Wreath, Spiked Stone). Each shield has its own look, Charge Color, Charge Bar Gradient and texture, an optional animation, and the orbs can stand up beside you (Charge Bar Direction Right or Left).
+- **Combined Shocks** (Ready Reminders, off by default): one reminder for Earth, Flame and Frost Shock. **Shock Icon** cycles through the three or shows them split in thirds. Turning it on offers to hide the three single shock reminders.
+- **Flyout Requires Right-Click** and **Shift+Right-Click Pulls That Totem Back** (Totem Bar > Clicks): open a totem's flyout with a right-click, and pull just that totem back with Shift+Right-Click. Swap Left and Right Click turns it around.
+- **Patch Notes** (Settings > Patch Notes): every version's notes since 2.0.0, newest first. Open or close each version, show only what applies to one game, search, and click a setting's path to go straight to it.
+- **What's New** now shows only what is new since the version you last saw, with a See All Patch Notes button.
+- **ShamanPower's page in WoW's Options window** (Esc > Options > AddOns > ShamanPower): open the settings, the setup tour, What's New or the Discord link from there.
+- **Windfury on WoW: Forever:** Windfury Totem is a party buff there now, so the party dots, Totem Coverage and the Totem Range Tracker follow it like Strength of Earth.
+
+### Changes
+- **Reset Everything** (top of the Themes tab) puts every setting on the tab back to default. **Reset All Colors and Theme** and **Reset Colors for Current Theme** sit next to it. Both reset buttons keep everything they clear on the Custom card, which now holds your whole look: colors, shapes, gradients, borders and class colors.
+- The colors from the other settings pages (pulse bar and flash, Compact outline, background colors, Mana Tint, Ready Reminders) also sit in their section on the Themes tab, and the Themes tab is in the settings search.
+- **Border Size** for the Element-Colored Borders, and borders on the cooldown bar's shield and imbue flyouts.
+- **Duration Bar Background** (Totem Bar > Duration Bars): turn off the dark track behind the duration bars.
+- Shield Charges have their own bar texture, gradient and colors: Bar Texture and Bar Gradient never change them.
+- Ready Reminders: Icon Shape and Hide Border.
+- **Only Show Pulse Flash for Specific Totems:** the pulse flash gets its own totem list.
+- WoW: Forever: the Windfury-only mode is gone, since Windfury Totem is a party buff there.
+- The Element Colors cards no longer show hex codes, and the section titles in the settings are easier to spot.
+
+### Fixes
+- **Anniversary: Totem of Wrath** is a Fire totem again: its timer, duration bar and cooldown show, and dropping it no longer counts as an Earth totem.
+- WoW: Forever: a cooldown shortened or reset mid-fight counts down its real time on the bars.
+- Totem Range Tracker: Show Overlay switches off even while the settings preview is open.
+- Hovering any part of a settings button shows its tooltip, not only its border.
+- Volume sliders move in 1% steps.
+- The Duration Bars preview follows Only Show Pulse Bars for Specific Totems.
+
 ## v3.0.3 (2026-09-28)
 
 ### New

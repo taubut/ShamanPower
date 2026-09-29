@@ -8,7 +8,7 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.4",
-		date = nil,
+		date = "2026-09-29",
 		headline = "Shapes, gradients and class colors",
 		new = {
 			{ h = "Shapes, gradients and class colors", icon = "Interface\\Icons\\Spell_Nature_StrengthOfEarthTotem02",
