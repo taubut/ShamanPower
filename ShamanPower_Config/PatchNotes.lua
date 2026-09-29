@@ -7,6 +7,17 @@ local _, ns = ...
 -- back); look = true is the card's NEW box; also = the card's Also line.
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.4.1",
+		date = "2026-09-29",
+		headline = "A fix for a Lua error about the totem bar's size",
+		new = {},
+		changes = {},
+		fixes = {
+			"No more Lua error when ShamanPower puts the totem bar or the cooldown bar on its default spot and the totem bar's button size is missing from your settings.",
+			"Importing a setup (a shared code, a backup or Srumar's Layout) fills in any setting the code leaves out straight away.",
+		},
+	},
+	{
 		v = "3.0.4",
 		date = "2026-09-29",
 		headline = "Shapes, gradients and class colors",
