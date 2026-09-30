@@ -404,49 +404,60 @@ local function BuildDialog(since, preview)
 		y = y + 62 + 14
 	end
 
+	-- Everything under the banner scrolls when the card would not fit on the screen
+	-- (the full list, or an update from far back); the banner and the buttons stay put.
+	local top = y
+	local scroll = CreateFrame("ScrollFrame", nil, dlg.body)
+	scroll:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -top)
+	scroll:SetPoint("BOTTOMRIGHT", dlg.body, "BOTTOMRIGHT", 0, 0)
+	local content = CreateFrame("Frame", nil, scroll)
+	content:SetSize(W, 10)
+	scroll:SetScrollChild(content)
+	y = 0
+
 	-- one full item: icon, gold title, a few words and the settings path; a totem
 	-- bar style gets its picture on the left and a Try it button on the right
 	local function FullRow(it)
 		local tryIt = it.try and isShaman and SP.TotemBarStyle and SP:TotemBarStyle(it.try) ~= nil
 		local x, w = 0, W
 		if not tryIt and it.icon then
-			local ic = dlg.body:CreateTexture(nil, "ARTWORK"); ic:SetSize(30, 30)
-			ic:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 4, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			local ic = content:CreateTexture(nil, "ARTWORK"); ic:SetSize(30, 30)
+			ic:SetPoint("TOPLEFT", content, "TOPLEFT", 4, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 			x, w = 44, W - 44
 		end
 		if tryIt then
 			if ns.DrawStyleThumb then
-				local th = ns.DrawStyleThumb(dlg.body, it.try, 72, 34)
-				th:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y)
+				local th = ns.DrawStyleThumb(content, it.try, 72, 34)
+				th:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
 				x = 84
 			end
-			local tb = Core:MakeButton(dlg.body, "Try it", 80, false)
-			tb:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -(y + 2))
+			local tb = Core:MakeButton(content, "Try it", 80, false)
+			tb:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(y + 2))
 			local style = it.try
 			tb:SetScript("OnClick", function() ShowStylePreview(style) end)
 			w = W - x - 92
 		end
-		local h = dlg.body:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
-		h:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); h:SetWidth(w); h:SetJustifyH("LEFT")
+		local h = content:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
+		h:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y); h:SetWidth(w); h:SetJustifyH("LEFT")
 		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		y = y + h:GetStringHeight() + 4
-		local b = dlg.body:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
-		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
+		local b = content:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
+		b:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
 		b:SetText(it.b .. (it.path and ("\n|cff3FA9F5" .. it.path .. "|r") or ""))
 		y = y + b:GetStringHeight() + 14
 	end
 	-- one short row (an older version's highlight): a small icon, the title, one line
 	local function ShortRow(it)
 		if it.icon then
-			local ic = dlg.body:CreateTexture(nil, "ARTWORK"); ic:SetSize(22, 22)
-			ic:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 6, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+			local ic = content:CreateTexture(nil, "ARTWORK"); ic:SetSize(22, 22)
+			ic:SetPoint("TOPLEFT", content, "TOPLEFT", 6, -(y + 1)); ic:SetTexture(it.icon); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		end
-		local h = dlg.body:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
-		h:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 38, -y); h:SetWidth(W - 38); h:SetJustifyH("LEFT")
+		local h = content:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
+		h:SetPoint("TOPLEFT", content, "TOPLEFT", 38, -y); h:SetWidth(W - 38); h:SetJustifyH("LEFT")
 		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		y = y + h:GetStringHeight() + 3
-		local b = dlg.body:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
-		b:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 38, -y); b:SetWidth(W - 38); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
+		local b = content:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
+		b:SetPoint("TOPLEFT", content, "TOPLEFT", 38, -y); b:SetWidth(W - 38); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
 		b:SetText(it.s or it.b)
 		y = y + b:GetStringHeight() + 10
 	end
@@ -457,10 +468,10 @@ local function BuildDialog(since, preview)
 	local older = {}
 	for i = #sets, 2, -1 do older[#older + 1] = sets[i] end
 	if latest then
-		if #older > 0 then y = y + CardSection(dlg.body, y, W, "NEW IN " .. latest.ver.v) end
+		if #older > 0 then y = y + CardSection(content, y, W, "NEW IN " .. latest.ver.v) end
 		for _, it in ipairs(latest.items) do
 			if it.look and ThemesAvailable() then
-				local _, lh = NewLookBox(dlg.body, y, W, it, function() dlg:Hide(); OpenThemes() end)
+				local _, lh = NewLookBox(content, y, W, it, function() dlg:Hide(); OpenThemes() end)
 				y = y + lh + 14
 			end
 		end
@@ -470,7 +481,7 @@ local function BuildDialog(since, preview)
 	end
 	if #older > 0 then
 		local series = older[#older].ver.v:match("^(%d+%.%d+)") or older[#older].ver.v
-		y = y + 2 + CardSection(dlg.body, y + 2, W, "ALSO NEW IN " .. series)
+		y = y + 2 + CardSection(content, y + 2, W, "ALSO NEW IN " .. series)
 		for _, set in ipairs(older) do
 			for _, it in ipairs(set.items) do ShortRow(it) end
 		end
@@ -479,8 +490,8 @@ local function BuildDialog(since, preview)
 
 	-- Discord strip: logo, invite line, Copy Link
 	do
-		local strip = CreateFrame("Frame", nil, dlg.body)
-		strip:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); strip:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -y)
+		local strip = CreateFrame("Frame", nil, content)
+		strip:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y); strip:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
 		strip:SetHeight(40)
 		local bg = strip:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(strip); bg:SetColorTexture(1, 1, 1, 1)
 		Core:Gradient(bg, "HORIZONTAL", 0.345, 0.396, 0.949, 0.22, 0.345, 0.396, 0.949, 0.04)
@@ -508,14 +519,23 @@ local function BuildDialog(since, preview)
 		if set.ver.also then also[#also + 1] = set.ver.also end
 	end
 	do
-		local f = dlg.body:CreateFontString(nil, "OVERLAY"); f:SetFontObject(Core.fonts.tiny)
-		f:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, -y); f:SetWidth(W); f:SetJustifyH("LEFT"); f:SetWordWrap(true)
+		local f = content:CreateFontString(nil, "OVERLAY"); f:SetFontObject(Core.fonts.tiny)
+		f:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y); f:SetWidth(W); f:SetJustifyH("LEFT"); f:SetWordWrap(true)
 		local text = "Every change is in Settings > Patch Notes."
 		if #also > 0 then text = "Also: " .. table.concat(also, "; ") .. ". " .. text end
 		f:SetText(text)
 		y = y + f:GetStringHeight()
 	end
-	dlg:SetHeight(46 + 16 + y + 52)
+	content:SetHeight(y)
+	-- at most most of the screen's height; the rest scrolls (wheel or the thin bar)
+	local maxH = math.floor(UIParent:GetHeight() * UIParent:GetEffectiveScale() / dlg:GetEffectiveScale() * 0.88)
+	dlg:SetHeight(math.min(46 + 16 + top + y + 52, maxH))
+	scroll:EnableMouseWheel(true)
+	scroll:SetScript("OnMouseWheel", function(self, delta)
+		local maxS = math.max(0, content:GetHeight() - self:GetHeight())
+		self:SetVerticalScroll(math.max(0, math.min(maxS, self:GetVerticalScroll() - delta * 60)))
+	end)
+	Core:AttachScrollbar(scroll, content, { offset = 4 })   -- hides itself when everything fits
 
 	local ok = Core:MakeButton(dlg, "Got it", 120, true)
 	ok:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -14, 12)
