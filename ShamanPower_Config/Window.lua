@@ -795,6 +795,14 @@ function SPConfig:UpdatePreviewPane(remount)
 		pane.note:SetText("Preview paused during combat so the real frame keeps working. It comes back when combat ends.")
 		return
 	end
+	-- Unlock UI has the real frames up under its boxes (a right-click on a box opens
+	-- this page): borrowing one would pull it out from under its box
+	if key and sp and sp.IsMasterUnlocked and sp:IsMasterUnlocked() then
+		if frame._previewKey then self:ReleasePreview() end
+		pane.note:Show()
+		pane.note:SetText("Preview paused while Unlock UI is on: the real frames are on screen under their boxes. It comes back when you press Done.")
+		return
+	end
 	local def = key and sp and sp.PreviewRegistry and sp.PreviewRegistry[key]
 	if def and sp.ShowPreview then
 		local shown = sp:ShowPreview(key, pane.inner)

@@ -5450,9 +5450,22 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	text:SetJustifyH("CENTER")
 	text:SetWordWrap(true)
 	mover.text = text
+	mover.spEdges = edge   -- Unlock UI paints the picked box's edges gold
 
-	mover:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	-- In Unlock UI the box is dragged by hand so it can snap as it moves, and it
+	-- takes the mouse wheel, clicks and the arrow keys (ShamanPowerUnlock.lua)
+	mover:SetScript("OnDragStart", function(self)
+		if ShamanPower.UnlockDragStart and ShamanPower:UnlockDragStart(self) then return end
+		self:StartMoving()
+	end)
+	mover:SetScript("OnMouseUp", function(self, button)
+		if ShamanPower.UnlockBoxClick then ShamanPower:UnlockBoxClick(self, button) end
+	end)
+	mover:SetScript("OnMouseWheel", function(self, delta)
+		if ShamanPower.UnlockBoxWheel then ShamanPower:UnlockBoxWheel(self, delta) end
+	end)
 	mover:SetScript("OnDragStop", function(self)
+		local snapped = ShamanPower.UnlockDragStop and ShamanPower:UnlockDragStop(self)
 		self:StopMovingOrSizing()
 		local mf, sf = self.moveFrame, self.sizeFrame
 		if mf and sf then
@@ -5461,8 +5474,9 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 			local mcx, mcy = self:GetCenter()
 			local scx, scy = sf:GetCenter()
 			-- Unlock UI's alignment grid: snap the box's top-left corner to the
-			-- nearest grid lines (lines run from the screen centre, in UIParent pixels)
-			local step = ShamanPower.UnlockGridStep and ShamanPower:UnlockGridStep()
+			-- nearest grid lines (lines run from the screen centre, in UIParent pixels).
+			-- A box dragged by Unlock UI has already snapped as it moved.
+			local step = not snapped and ShamanPower.UnlockGridStep and ShamanPower:UnlockGridStep()
 			if step and mcx and self:GetLeft() then
 				local mes, uis = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
 				local l, t = self:GetLeft() * mes / uis, self:GetTop() * mes / uis
@@ -5522,6 +5536,20 @@ end
 function ShamanPower:HideBarMover(key)
 	local mover = self.barMovers[key]
 	if mover then mover:Hide() end
+end
+
+-- Unlock UI's arrow keys: move the frame a box stands for by dx, dy (UIParent
+-- pixels), save it as a drop does, and put the boxes back over it next frame.
+function ShamanPower:NudgeBarMover(mover, dx, dy)
+	local mf = mover and mover.moveFrame
+	if not mf or InCombatLockdown() then return end
+	local point, rel, relPoint, x, y = mf:GetPoint()
+	if not point then return end
+	local k = UIParent:GetEffectiveScale() / mf:GetEffectiveScale()
+	mf:ClearAllPoints()
+	mf:SetPoint(point, rel, relPoint, x + dx * k, y + dy * k)
+	if mover.onMoved then mover.onMoved() end
+	C_Timer.After(0, RefreshShownBarMovers)
 end
 
 function ShamanPower:GetPositionRecord(frame)
