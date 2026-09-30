@@ -1265,6 +1265,7 @@ local function Keep(key, make)
 end
 
 local function PageChanged()
+	if SP.ThemeCheckChange then SP:ThemeCheckChange() end   -- /sp themecheck: a change a theme would not capture
 	if page.onChanged then page.onChanged() end
 	-- a change that brings rows in or out on this page (Custom Outline Color, a
 	-- gradient's colors ...): lay it out again, as a theme change does
@@ -1388,20 +1389,117 @@ end
 -- ---------------------------------------------------------------------------
 local PICKS = {
 	{ key = "standard", label = "Standard",
-	  desc = "Your own look, exactly as you set it up: nothing is recolored. If a theme changed any of your settings, picking Standard puts them all back." },
+	  desc = "ShamanPower as it comes: the default look of every part. A preset: picking it always gives exactly this." },
 	{ key = "shamanpower", label = "ShamanPower",
-	  desc = "Your icons stay the same; what's around them is recolored. Duration bars, borders and flyout tabs take the logo's colors, charges and timers WoW's own green, yellow and red, and panels turn navy." },
+	  desc = "Your icons stay the same; what's around them is recolored. Duration bars, borders and flyout tabs take the logo's colors, charges and timers WoW's own green, yellow and red, and panels turn navy. A preset: it never changes." },
 	{ key = "minimal", label = "ShamanPower Minimal",
-	  desc = "Everything in ShamanPower, and the icons themselves become flat element boxes showing the totem's letters." },
-	-- shown once the player has a Custom look (in use now, or kept from before)
-	{ key = "custom", label = "Custom",
-	  desc = "Your own mix: a theme plus every change you made below. Picking another theme keeps it here, and clicking Custom brings all of it back." },
+	  desc = "Everything in ShamanPower, and the icons themselves become flat element boxes showing the totem's letters. A preset: it never changes." },
 }
+local TC = {}   -- the theme cards' helpers (one local: this file is near Lua's 200-local limit)
+TC.PRESET_LABEL = { standard = "Standard", shamanpower = "ShamanPower", minimal = "ShamanPower Minimal" }
 local function CustomCardShown() return SP:ThemeIsCustom() or SP:ThemeHasSavedCustom() end
-local CUSTOM_ON = GOLD_TEXT .. "Custom|r is in use: your changes below. Pick another theme any time:"
-	.. " your Custom stays on its card. Standard always brings back your own look."
-local CUSTOM_OFF = "Change any part below and it becomes your " .. GOLD_TEXT
-	.. "Custom|r look, kept on its own card. Standard always brings back your own look."
+local CUSTOM_ON = GOLD_TEXT .. "Custom|r is in use: your changes. Save it as a theme to keep it,"
+	.. " or pick any card: your changes wait on the Custom card."
+local CUSTOM_OFF = "Change anything below and it becomes your " .. GOLD_TEXT
+	.. "Custom|r look. Save it to keep it as your own theme."
+TC.MINE_DESC = "Your theme. Picking it gives exactly this look, every time."
+
+-- ---- the dialogs of the theme cards (ShamanPower's own dialog) ----------------
+function TC.Rerender()
+	if ns.SPConfig and ns.SPConfig.RefreshCurrent then ns.SPConfig:RefreshCurrent() else PageChanged() end
+end
+function TC.Say(msg) print("|cff0070ddShamanPower|r: " .. msg) end
+function TC.SaveAsDialog(suggest)
+	SP:ShowSPDialog({
+		key = "themesaveas", title = "Save as Theme", subtitle = "Your Themes", width = 420,
+		text = "Saves your whole look from the Themes tab under this name. Pick it any time to get exactly this look back, on any of your characters.",
+		input = { text = suggest or "", maxLetters = 32 },
+		buttons = {
+			{ text = "Save", onClick = function(d)
+				local name = strtrim(d:GetInput())
+				if name == "" then return true end
+				local mine = SP:ThemeMine()
+				for _, th in ipairs(mine) do
+					if strlower(th.name) == strlower(name) then
+						SP:ShowSPDialog({
+							key = "themereplace", title = "Replace " .. th.name .. "?",
+							text = "You already have a theme called " .. th.name .. ". Saving replaces it with this look.",
+							buttons = {
+								{ text = "Replace", onClick = function() SP:ThemeSaveAs(name); TC.Rerender() end },
+								{ text = "Cancel" },
+							},
+						})
+						return
+					end
+				end
+				SP:ThemeSaveAs(name)
+				TC.Rerender()
+			end },
+			{ text = "Cancel" },
+		},
+	})
+end
+function TC.RenameDialog(th)
+	SP:ShowSPDialog({
+		key = "themerename", title = "Rename " .. th.name, subtitle = "Your Themes", width = 400,
+		text = "The new name, on every character.",
+		input = { text = th.name, maxLetters = 32 },
+		buttons = {
+			{ text = "Rename", onClick = function(d)
+				local name = strtrim(d:GetInput())
+				if name == "" then return true end
+				if not SP:ThemeRename(th.id, name) then TC.Say("you already have a theme called " .. name .. ".") return true end
+				TC.Rerender()
+			end },
+			{ text = "Cancel" },
+		},
+	})
+end
+function TC.DeleteDialog(th)
+	SP:ShowSPDialog({
+		key = "themedelete", title = "Delete " .. th.name .. "?",
+		text = "It goes from Your Themes on every character. If it is in use, your look stays as it is, as an unsaved Custom look.",
+		buttons = {
+			{ text = "Delete", onClick = function() SP:ThemeDelete(th.id); TC.Rerender() end },
+			{ text = "Cancel" },
+		},
+	})
+end
+function TC.ShareDialog(th)
+	local code = SP:ThemeShareCode(th.id)
+	if not code then TC.Say("could not make a code for that theme.") return end
+	SP:ShowSPDialog({
+		key = "themeshare", title = "Share " .. th.name, subtitle = "Theme code", width = 460, editScroll = true,
+		text = "Press |cffFFD100Ctrl+C|r to copy it. Anyone with ShamanPower can paste it into Import Theme on General > Themes"
+			.. " to add this theme to theirs, or share it in #ui-showcase on the ShamanPower Discord.",
+		editText = code,
+	})
+end
+function TC.ImportDialog()
+	SP:ShowSPDialog({
+		key = "themeimport", title = "Import Theme", subtitle = "Your Themes", width = 460,
+		text = "Paste a theme code (it starts with SPT1:). The theme is added to Your Themes; click it to use it.",
+		input = { text = "", maxLetters = 0 },
+		buttons = {
+			{ text = "Import", onClick = function(d)
+				local th, err = SP:ThemeImport(d:GetInput())
+				if not th then TC.Say("could not import that theme: " .. tostring(err) .. ".") return true end
+				TC.Say("added " .. th.name .. " to Your Themes.")
+				TC.Rerender()
+			end },
+			{ text = "Cancel" },
+		},
+	})
+end
+
+-- ---- the cards ---------------------------------------------------------------
+function TC.PresetOf(card)
+	if type(card) == "string" and card:sub(1, 5) == "mine:" then
+		local th = SP:ThemeMineById(tonumber(card:sub(6)))
+		return th and th.name or "Standard"
+	end
+	return TC.PRESET_LABEL[card] or "Standard"
+end
 
 local function NewPickCard(p)
 	local c = NewCard(page.body)
@@ -1418,55 +1516,187 @@ local function NewPickCard(p)
 	c.files = I.totems
 	c.title = Text(c, "brand")
 	c.title:SetPoint("TOPLEFT", c, "TOPLEFT", 148, -12)
-	c.title:SetText(p.label)
+	c.title:SetText(p.label or "")
+	c.kindTag = Tag(c)
+	c.kindTag:SetPoint("LEFT", c.title, "RIGHT", 10, 0)
+	c.sub = Text(c, "rowDim")
+	c.sub:SetFontObject(Core.fonts.section)
+	c.sub:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -3)
+	c.sub:Hide()
 	c.desc = Text(c, "rowDim")
-	c.desc:SetPoint("TOPLEFT", c.title, "BOTTOMLEFT", 0, -4)
 	c.tag = Tag(c)
 	c.tag:SetPoint("TOPRIGHT", c, "TOPRIGHT", -12, -14)
+	c.btns = {}
 	c.key = p.key
-	c:SetScript("OnClick", function()
+	c:SetScript("OnClick", function(self)
 		if InCombatLockdown() then return end
-		if p.key == "custom" and SP.ThemeCustomNeedsReload and SP:ThemeCustomNeedsReload() then
-			-- a reset kept this look's colors: they come back with a reload, as the reset went
-			SP:ShowSPDialog({
-				key = "loadcustomlook",
-				title = "Bring Back Your Custom Look?",
-				text = "Your whole Custom look comes back: its theme, every color and every look (shapes, gradients, borders and the rest)."
-					.. " Your interface reloads to finish.",
-				buttons = {
-					{ text = "Load and Reload", onClick = function()
-						SP:ThemeLoadCustom()
-						ReloadUI()
-					end },
-					{ text = "Cancel" },
-				},
-			})
-			return
+		if self.kind == "custom" then
+			if SP.ThemeCustomNeedsReload and SP:ThemeCustomNeedsReload() then
+				-- a Custom look kept by 3.0.4's reset: its colors come back with a reload
+				SP:ShowSPDialog({
+					key = "loadcustomlook", title = "Bring Back Your Custom Look?",
+					text = "Your whole Custom look comes back: its theme, every color and every look (shapes, gradients, borders and the rest)."
+						.. " Your interface reloads to finish.",
+					buttons = {
+						{ text = "Load and Reload", onClick = function() SP:ThemeLoadCustom(); ReloadUI() end },
+						{ text = "Cancel" },
+					},
+				})
+				return
+			end
+			SP:ThemeLoadCustom()
+		elseif self.kind == "mine" then
+			SP:ThemePickMine(self.mineId)
+		else
+			SP:SetThemeGlobal(self.key)
 		end
-		if p.key == "custom" then SP:ThemeLoadCustom() else SP:SetThemeGlobal(p.key) end
-		PageChanged()
+		TC.Rerender()
 	end)
 	if p.key == "custom" then
-		Core:AttachTooltip(c, p.label, "Brings back your whole Custom look: the theme it started from, every change you made below and on the settings pages, and every look (shapes, gradients, borders and the rest).")
+		Core:AttachTooltip(c, "Custom", "Your unsaved changes. Click to bring them back when another card is in use; save them as a theme to keep them.")
+	elseif p.mine then
+		Core:AttachTooltip(c, p.label, "One of Your Themes: gives exactly this look, on any of your characters.")
 	else
-		Core:AttachTooltip(c, p.label, "Applies this theme to every part below. Every part's own choice goes back to Use General Theme. A Custom look is kept on the Custom card.")
+		Core:AttachTooltip(c, p.label, "A preset: applies exactly this look to everything on this tab. Your unsaved changes wait on the Custom card.")
 	end
 	return c
 end
 
+-- buttons along the bottom right of a card: { label, onClick, gold }
+function TC.CardButtons(c, defs)
+	for i = 1, #c.btns do c.btns[i]:Hide() end
+	local x = -12
+	for i = #defs, 1, -1 do
+		local d = defs[i]
+		local b = c.btns[i]
+		if not b then
+			b = Core:MakeButton(c, d[1], 60, false, nil)
+			c.btns[i] = b
+		end
+		b.text:SetText(d[1])
+		b:SetWidth(max(60, b.text:GetStringWidth() + 26))
+		b:SetHeight(22)
+		b.spTone = d[3] and "help" or nil
+		b.spPaint(false)
+		b:SetScript("OnClick", function() if not InCombatLockdown() then d[2]() end end)
+		b:ClearAllPoints()
+		b:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", x, 10)
+		b:Show()
+		x = x - b:GetWidth() - 8
+	end
+	return #defs > 0
+end
+
+-- one card laid out: title, the small line under it, the text, the buttons
+function TC.LayCard(c, W, y, title, sub, desc, buttons)
+	c.title:SetText(title)
+	if sub then c.sub:SetText(sub); c.sub:Show() else c.sub:Hide() end
+	c.desc:ClearAllPoints()
+	c.desc:SetPoint("TOPLEFT", sub and c.sub or c.title, "BOTTOMLEFT", 0, sub and -3 or -4)
+	local dh = Fit(c.desc, W - 148 - 12 - 90, desc)
+	local has = TC.CardButtons(c, buttons or {})
+	local h = 12 + ceil(c.title:GetStringHeight()) + (sub and (3 + ceil(c.sub:GetStringHeight())) or 0) + 4 + dh + 12
+	if has then h = h + 30 end
+	h = max(60, h)
+	c:SetSize(W, h)
+	c:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+	pickCards[#pickCards + 1] = c
+	return y + h + 6
+end
+
+function TC.SubLabel(key, y, W, label, note)
+	local f = Keep(key, function()
+		local x = CreateFrame("Frame", nil, page.body)
+		x.label = Tag(x)
+		x.label:SetPoint("TOPLEFT", x, "TOPLEFT", 2, -2)
+		x.note = Text(x, "rowDim")
+		x.note:SetPoint("TOPLEFT", x.label, "BOTTOMLEFT", 0, -3)
+		return x
+	end)
+	SetTag(f.label, label, "accentHi")
+	local nh = Fit(f.note, W - 4, note)
+	local h = 2 + ceil(f.label:GetStringHeight()) + 3 + nh + 8
+	f:SetSize(W, h)
+	f:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
+	return y + h
+end
+
+function TC.ChangesText(base)
+	local list = SP:ThemeChanges()
+	if #list == 0 then
+		return "Your changes on top of " .. base .. ". Pick another card and they wait here until you save or discard them."
+	end
+	local shown = {}
+	for i = 1, min(3, #list) do shown[i] = list[i] end
+	local s = #list .. (#list == 1 and " change" or " changes") .. " on top of " .. base .. ": " .. table.concat(shown, ", ")
+	if #list > 3 then s = s .. " and " .. (#list - 3) .. " more" end
+	return s .. "."
+end
+
 local function RenderPicker(y, W)
 	for i = #pickCards, 1, -1 do pickCards[i] = nil end
+	y = TC.SubLabel("pick:presetslabel", y, W, "PRESETS", "Fixed looks: picking one always gives exactly this. They never change.")
 	for _, p in ipairs(PICKS) do
-		if p.key ~= "custom" or CustomCardShown() then
-			local c = Keep("pick:" .. p.key, function() return NewPickCard(p) end)
-			pickCards[#pickCards + 1] = c
-			local dh = Fit(c.desc, W - 148 - 12 - 90, p.desc)
-			local h = max(60, 12 + ceil(c.title:GetStringHeight()) + 4 + dh + 12)
-			c:SetSize(W, h)
-			c:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
-			y = y + h + 6
+		local c = Keep("pick:" .. p.key, function() return NewPickCard(p) end)
+		c.kind, c.mineId = "preset", nil
+		SetTag(c.kindTag, "PRESET", "accent")
+		y = TC.LayCard(c, W, y, p.label, nil, p.desc, nil)
+	end
+	y = y + 6
+	y = TC.SubLabel("pick:minelabel", y, W, "YOUR THEMES", "Change anything below and it becomes your Custom look. Save it to keep it as your own theme, on every character.")
+	-- the Custom card: unsaved changes (in use, or waiting)
+	if CustomCardShown() then
+		local c = Keep("pick:custom", function() return NewPickCard({ key = "custom", label = "Custom" }) end)
+		c.kind, c.mineId = "custom", nil
+		local th = SP:ThemeCustomOf()
+		local _, card = SP:ThemeChanges()
+		local inUse = SP:ThemeIsCustom()
+		if th then
+			SetTag(c.kindTag, "CHANGED", "help")
+			y = TC.LayCard(c, W, y, th.name, nil, TC.ChangesText(th.name), {
+				{ inUse and "Undo Changes" or "Discard", function() SP:ThemeDiscard(); TC.Rerender() end },
+				{ "Save as New...", function() TC.SaveAsDialog(th.name .. " 2") end },
+				{ "Update " .. th.name, function() SP:ThemeUpdate(); TC.Rerender() end, true },
+			})
+		else
+			SetTag(c.kindTag, "NOT SAVED", "help")
+			y = TC.LayCard(c, W, y, "Custom", nil, TC.ChangesText(TC.PresetOf(card)), {
+				{ "Discard", function() SP:ThemeDiscard(); TC.Rerender() end },
+				{ "Save as Theme...", function() TC.SaveAsDialog("") end, true },
+			})
 		end
 	end
+	for _, th in ipairs(SP:ThemeMine()) do
+		local id = th.id
+		local c = Keep("pick:mine:" .. id, function() return NewPickCard({ key = "mine:" .. id, label = th.name, mine = true }) end)
+		c.kind, c.mineId, c.key = "mine", id, "mine:" .. id
+		SetTag(c.kindTag, nil)
+		local sub = "BASED ON " .. strupper(TC.PRESET_LABEL[th.base] or "Standard")
+			.. (th.updated and ("  ·  SAVED " .. strupper(date("%b %d", th.updated))) or "")
+		y = TC.LayCard(c, W, y, th.name, sub, TC.MINE_DESC, {
+			{ "Share", function() TC.ShareDialog(th) end },
+			{ "Rename", function() TC.RenameDialog(th) end },
+			{ "Delete", function() TC.DeleteDialog(th) end },
+		})
+	end
+	-- Save current look / Import
+	local row = Keep("pick:minebuttons", function()
+		local f = CreateFrame("Frame", nil, page.body)
+		f.save = Core:MakeButton(f, "+  Save Current Look as a Theme", 240, false, "help")
+		f.save:SetHeight(26)
+		f.save:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+		f.import = Core:MakeButton(f, "Import Theme...", 140, false)
+		f.import:SetHeight(26)
+		f.import:SetPoint("LEFT", f.save, "RIGHT", 8, 0)
+		f.save:SetScript("OnClick", function() if not InCombatLockdown() then TC.SaveAsDialog("") end end)
+		f.import:SetScript("OnClick", function() if not InCombatLockdown() then TC.ImportDialog() end end)
+		Core:AttachTooltip(f.save, "Save Current Look as a Theme", "Your whole look from this tab, under a name: pick it any time, on any of your characters.")
+		Core:AttachTooltip(f.import, "Import Theme", "Add a theme someone shared with you (a code that starts with SPT1:).")
+		return f
+	end)
+	row:SetSize(W, 30)
+	row:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -(y + 2))
+	y = y + 34
 	-- the Custom line
 	customLine = Keep("customline", function()
 		local f = CreateFrame("Frame", nil, page.body)
@@ -1483,23 +1713,27 @@ local function RenderPicker(y, W)
 end
 
 local function PaintPicker()
-	local cur = SP:ThemeGlobal()
+	local card = SP:ThemeCard()
 	local custom = SP:ThemeIsCustom()
-	local pal = SP:ThemeField("palette")
 	local mode = SP:ThemeField("showAs") or "both"
 	for i = 1, #pickCards do
 		local c = pickCards[i]
-		-- a Custom look in use: the Custom card is the one in use, not the theme it started from
-		if custom then c.selected = (c.key == "custom") else c.selected = (c.key == cur) end
+		local base, cpal
+		if c.kind == "custom" then
+			c.selected = custom
+			base, cpal = SP:ThemeCustomLook()
+		elseif c.kind == "mine" then
+			c.selected = (not custom) and card == c.key
+			local th = SP:ThemeMineById(c.mineId)
+			local f = th and th.flat or {}
+			base = f["t.global"] or "standard"
+			cpal = f["t.palette"]
+		else
+			c.selected = (not custom) and card == c.key
+			base, cpal = c.key, nil
+		end
 		PaintCard(c)
 		if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
-		-- the Custom card draws the Custom look: the live one, or the kept one
-		local base, cpal = c.key, pal
-		if c.key == "custom" then
-			if custom then base = cur else base, cpal = SP:ThemeSavedCustomBase(), SP:ThemeSavedCustomPalette() end
-		elseif c.key ~= cur or custom then
-			cpal = nil   -- another theme's card: that theme's own colors
-		end
 		local minimal = (base == "minimal")
 		for e = 1, 4 do
 			local r, g, b
@@ -3020,11 +3254,11 @@ function Page.Search(_, query)
 	Include("intro")
 	local picker = SearchParts(BLOCKS.picker)
 	for _, pick in ipairs(PICKS) do
-		if pick.key ~= "custom" or CustomCardShown() then
-			AddSearchText(picker, pick.label)
-			AddSearchText(picker, pick.desc)
-		end
+		AddSearchText(picker, pick.label)
+		AddSearchText(picker, pick.desc)
 	end
+	AddSearchText(picker, "Presets Your Themes Custom Save as Theme Save Current Look Import Theme Share Rename Delete Update Discard")
+	for _, th in ipairs(SP:ThemeMine()) do AddSearchText(picker, th.name) end
 	AddSearchText(picker, SP:ThemeIsCustom() and CUSTOM_ON or CUSTOM_OFF)
 	Include("picker", picker)
 	if SP:ThemeGlobal() == "minimal" then
@@ -3130,12 +3364,18 @@ end
 
 -- what decides which rows the page has: the picked theme (Theme Options) and
 -- which parts are flat boxes (their Show Icons As). Built only on a change.
+-- the theme cards: which are shown, their names, and how many changes the Custom card lists
+function TC.CardsSig()
+	local parts = { SP:ThemeCustomOf() and "o" or "-", tostring(#(SP:ThemeChanges())) }
+	for _, th in ipairs(SP:ThemeMine()) do parts[#parts + 1] = th.id .. th.name end
+	return table.concat(parts, ",")
+end
 LayoutSig = function()
 	local o = SP.opt or {}
 	local parts = { SP:ThemeGlobal() == "minimal" and "m" or "-", SP:ThemeField("borders") == true and "b" or "-",
 		SP:ThemeField("bordersFlyouts") == true and "f" or "-", SP:ThemeField("bordersCooldown") == true and "c" or "-",
 		SP:ThemeField("bordersCooldownFlyouts") == true and "g" or "-",
-		CustomCardShown() and "c" or "-",
+		CustomCardShown() and "c" or "-", TC.CardsSig(),
 		-- the rows under the gradient cards come and go with the style picked
 		o.barGradient or "-", o.barGradientColor1 and "1" or "0", o.outlineGradient or "-", o.outlineGradientColor1 and "1" or "0",
 		o.chargeGradient or "-", o.chargeGradientColor1 and "1" or "0", IconShapedAny() and "r" or "-", ColorRowsSig() }
@@ -3172,6 +3412,7 @@ function Page.Render(_, body, W, onChanged, selection, startY)
 	page.selection = selection
 	local function Includes(key) return not selection or selection.blocks[key] end
 	page.body, page.onChanged = body, onChanged
+	if SP.ThemeCheckSnapshot then SP:ThemeCheckSnapshot() end   -- /sp themecheck: the look as the page opened
 	for i = #shown, 1, -1 do shown[i] = nil end
 	for i = #live, 1, -1 do live[i] = nil end
 	if tagW == 0 then

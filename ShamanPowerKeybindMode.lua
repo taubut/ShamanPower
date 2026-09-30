@@ -417,30 +417,8 @@ end
 
 function SP:ToggleKeybindMode() self:SetKeybindMode(not ACTIVE) end
 
--- ---------------------------------------------------------------------------
--- Flyout totems bound here have CLICK bindings, which the core's flyout label
--- pass (action bar keys only) does not know about: show those keys too.
--- ---------------------------------------------------------------------------
-hooksecurefunc(SP, "UpdateFlyoutKeybindText", function(self, enabled)
-	if not enabled then return end
-	local cast = flyoutCastButton()
-	local function label(btn, mouse)
-		if not (btn and btn.keybindText) or (btn.keybindText:IsShown() and btn.keybindText:GetText() ~= "") then return end
-		local name = btn:GetName()
-		local key = name and GetBindingKey("CLICK " .. name .. ":" .. mouse)
-		if key then
-			btn.keybindText:SetText(shortKey(key))
-			btn.keybindText:Show()
-		end
-	end
-	for element = 1, 4 do
-		local flyout = self.totemFlyouts and self.totemFlyouts[element]
-		for _, btn in ipairs(flyout and flyout.allButtons or {}) do label(btn, cast) end
-	end
-	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
-		for _, btn in ipairs(flyout and flyout.buttons or {}) do label(btn, "LeftButton") end
-	end
-end)
+-- Flyout totems bound here have CLICK bindings: the core's key text shows them
+-- (ButtonKeybindText, UpdateFlyoutKeybindText), in the order Keybind Shown picks.
 
 SLASH_SPBIND1 = "/spbind"
 SlashCmdList["SPBIND"] = function() SP:ToggleKeybindMode() end
@@ -461,14 +439,14 @@ do
 	end
 end
 
--- Appearance > Visibility: the same button beside "Show Keybinds on Buttons",
+-- General > Keybinds: the same button first, above "Show Keybinds on Buttons",
 -- where players look for anything about keys
 do
-	local vis = SP.options and SP.options.args and SP.options.args.fluffy
-		and SP.options.args.fluffy.args.visibility_section
+	local vis = SP.options and SP.options.args and SP.options.args.settings
+		and SP.options.args.settings.args.settings_keybinds
 	if vis and vis.args then
 		vis.args.keybind_mode = {
-			order = 4.1,
+			order = 0.5,
 			type = "execute",
 			name = "Keybind Mode (hover and press a key)",
 			desc = "Hides this window and highlights every ShamanPower button that can take a key. Hover one and press a key to bind it; Done or Cancel brings this window back. Also: /sp bind",

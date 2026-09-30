@@ -4,8 +4,63 @@ local _, ns = ...
 -- words, the settings page it lives on), changes / fixes = one line each.
 -- client = "forever" / "anniversary" marks what only one game has; card = true puts an
 -- item on the What's New card (s = its one-line short row for players updating from far
--- back); look = true is the card's NEW box; also = the card's Also line.
+-- back); look = true is the card's NEW box; also = the card's Also line; thanks = a
+-- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
+	{
+		v = "3.0.5",
+		date = "2026-09-30",
+		headline = "Your own themes, a support code and a better Unlock UI",
+		new = {
+			{ h = "Your Themes", icon = "Interface\\Icons\\INV_Misc_Gem_Variety_01",
+			  b = "Save your look under a name, pick it on any character, and share it with a code. Standard, ShamanPower and ShamanPower Minimal are now fixed presets: anything you change becomes your Custom look until you save it or discard it. Your look from 3.0.4 is kept as a theme called \"My Look\".",
+			  path = "Settings > General > Themes", open = { "settings", "settings_themes" },
+			  card = true, look = true,
+			  s = "Save your look as a theme, use it on any character, share it with a code." },
+			{ h = "Get Help: Copy Support Code", icon = "Interface\\Icons\\INV_Letter_15",
+			  b = "Something not working? Copy your Support Code and paste it in #help on the ShamanPower Discord, and I can see what's going on without asking you to run commands. Nothing personal goes in it. Also: /sp support.",
+			  path = "Settings > General > Main", open = { "settings", "settings_show" },
+			  card = true,
+			  s = "One code to paste in #help on the Discord when something's wrong." },
+			{ h = "Unlock UI: snap, nudge and resize", icon = "Interface\\Icons\\INV_Misc_Wrench_01",
+			  b = "Boxes snap to each other and to the screen center as you drag them, with gold lines showing what they lined up with. Click one and nudge it with the arrow keys, change its size with the mouse wheel and its opacity with Ctrl + wheel, or right-click it for its settings page.",
+			  path = "Settings > General > Main > Unlock UI", open = { "settings", "settings_show" },
+			  card = true,
+			  s = "Snapping, arrow-key nudging, and the mouse wheel for size and opacity." },
+			{ h = "Ready Reminders: Only While on Cooldown, and Grid", icon = "Interface\\Icons\\Spell_Nature_EarthShock",
+			  b = "Show an icon only while its spell recharges, and put the reminders in one Grid block you move as a whole: it fills in the order they appear, with no gaps.",
+			  path = "Settings > Alerts & Reminders > Ready Reminders", open = { "fluffy", "readyreminders_section" },
+			  card = true,
+			  s = "Icons only while on cooldown, and a Grid placement with no gaps." },
+			{ h = "Keybinds tab", icon = "Interface\\Icons\\INV_Misc_Key_03",
+			  b = "Keybind Mode, Show Keybinds on Buttons and the new Keybind Shown in one place: show your action bar key first (as before), ShamanPower's own key first, or ShamanPower's key only. Keys you set in Keybind Mode now show on the buttons.",
+			  path = "Settings > General > Keybinds", open = { "settings", "settings_keybinds" },
+			  card = true,
+			  s = "Choose which key the buttons show; Keybind Mode keys now show on them." },
+		},
+		changes = {
+			"ShamanPower uses about half the CPU it did out of combat, and less in fights.",
+			{ t = "Buff changes that can't affect your shield or Earth Shield no longer make ShamanPower read your buffs again, which matters most in raids.", client = "anniversary" },
+			"Cooldown Bar > Display: Duration Text Location and Size sit next to Show Cooldown Text.",
+			{ t = "Ready Reminders' Gray Out The Icon also grays the icon under a sweep.", client = "forever" },
+			"The settings' live preview pauses while Unlock UI is on.",
+		},
+		fixes = {
+			{ t = "With Questie installed, the cooldown bar's shield never lit up: Questie brings its own version of a game function ShamanPower used. ShamanPower now uses its own.", client = "forever" },
+			"Unlock UI's grid centers boxes properly.",
+			"The cooldown bar's Radial sweep no longer shows the game's own countdown when Show Cooldown Text is off.",
+			{ t = "The cooldown bar's shield shows right after a reload in combat.", client = "forever" },
+			{ t = "Mana Tide's level 48 and 58 ranks end the cooldown bar alert.", client = "forever" },
+			"Reset All Colors keeps every color it clears on the Custom card.",
+			"Party dots no longer leave a gap outside a group with Dot Position Below, Above, Left or Right.",
+			{ t = "Flametongue Totem is no longer tracked (its dots were always red).", client = "anniversary" },
+			"Ready Reminders' Reset Position resets only the placement you're using.",
+			"Unlock UI: Shield Charges gets one box per real frame, with the right names.",
+			"Raid Cooldowns: the Mana Tide call buttons no longer pile up in memory as the group syncs.",
+		},
+		also = "about half the CPU out of combat, and on WoW: Forever the cooldown bar's shield now works with Questie installed",
+		thanks = "Thanks to Miska for the new Ready Reminders modes, and to ShamanForever's author for the ideas behind Unlock UI's snapping and nudging.",
+	},
 	{
 		v = "3.0.4.1",
 		date = "2026-09-29",

@@ -17,6 +17,9 @@ end
 -- Local only: nothing that is sent changes, and a /reload ends it.
 local callPractice = false
 local function KnowsManaTide() return callPractice or IsSpellKnown(16190) end
+-- Every Mana Tide cast: 16190 (the talent), and on WoW: Forever the trainer ranks at
+-- level 48 and 58 (17354, 17359). A cast of a higher rank reports its own ID.
+local MANA_TIDE_CASTS = { [16190] = true, [17354] = true, [17359] = true }
 
 -- Mark module as loaded
 SP.RaidCooldownsLoaded = true
@@ -533,7 +536,7 @@ local function WatchOwnManaTide()
 		ownTideFrame = CreateFrame("Frame")
 		ownTideFrame:SetScript("OnEvent", function(f, _, _, _, spellID)
 			if issecretvalue and issecretvalue(spellID) then return end
-			if spellID == 16190 then
+			if MANA_TIDE_CASTS[spellID] then
 				f:UnregisterAllEvents()
 				SP:RemoveCooldownButtonAlert(16190)
 			end
@@ -1052,6 +1055,28 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 	return mtBtn
 end
 
+-- The Mana Tide buttons are kept and reused by position (frame.mtPool): a refresh
+-- (a roster change, every assignment sync) only relabels and places them. Building
+-- new ones each time left the old frames behind for the rest of the session.
+function SP:CallerMTButton(frame, i, shamanName, xOffset)
+	frame.mtPool = frame.mtPool or {}
+	local btn = frame.mtPool[i]
+	if not btn then
+		btn = self:BuildCallerMTButton(frame, i, shamanName, xOffset)
+		frame.mtPool[i] = btn
+		return btn
+	end
+	if btn.shamanName ~= shamanName then
+		self:ClearCallerButtonCooldown(btn)   -- another shaman's button now: not the last one's cooldown
+		btn.shamanName = shamanName
+		btn.nameLabel:SetText(shamanName)
+	end
+	btn:ClearAllPoints()
+	btn:SetPoint("TOPLEFT", xOffset, -8)
+	btn:Show()
+	return btn
+end
+
 function SP:UpdateCallerButtons()
 	if self.raidCDDemoActive then return end
 	self:InitRaidCooldowns()
@@ -1127,16 +1152,16 @@ function SP:UpdateCallerButtons()
 		frame.blBtn:Hide()
 	end
 
-	-- Clear old MT buttons
+	-- Hide the MT buttons; the ones still wanted are shown again just below
 	for _, btn in ipairs(frame.mtButtons) do
 		btn:Hide()
 	end
-	frame.mtButtons = {}
+	wipe(frame.mtButtons)
 
-	-- Create MT buttons
+	-- MT buttons, reused (CallerMTButton)
 	local xOffset = isBLCaller and (bl.primary or bl.backup1 or bl.backup2) and 52 or 8
 	for i, shamanName in ipairs(mtCallsFor) do
-		local mtBtn = self:BuildCallerMTButton(frame, i, shamanName, xOffset)
+		local mtBtn = self:CallerMTButton(frame, i, shamanName, xOffset)
 		table.insert(frame.mtButtons, mtBtn)
 		xOffset = xOffset + 44
 	end
@@ -1304,7 +1329,7 @@ function SP:OnShamanCooldownCast(unit, spellID)
 	local cdType, duration
 	if spellID == 2825 or spellID == 32182 then
 		cdType, duration = "bl", BL_COOLDOWN
-	elseif spellID == 16190 then
+	elseif MANA_TIDE_CASTS[spellID] then
 		cdType, duration = "mt", MT_COOLDOWN
 	else
 		return
@@ -1613,14 +1638,14 @@ function SP:RaidCDDemo(on)
 			end
 		end
 
-		-- Clear any existing MT buttons, then build sample ones
+		-- Hide the MT buttons, then show sample ones (reused, see CallerMTButton)
 		for _, btn in ipairs(frame.mtButtons) do btn:Hide() end
-		frame.mtButtons = {}
+		wipe(frame.mtButtons)
 
 		local sampleMT = { "Group 1", "Group 3" }
 		for i, name in ipairs(sampleMT) do
 			-- Clickable: a press shows the sample alert (see RaidCDDemoClick)
-			local mtBtn = self:BuildCallerMTButton(frame, i, name, xOffset)
+			local mtBtn = self:CallerMTButton(frame, i, name, xOffset)
 			table.insert(frame.mtButtons, mtBtn)
 			xOffset = xOffset + 44
 			numButtons = numButtons + 1
@@ -1658,7 +1683,7 @@ function SP:RaidCDDemo(on)
 				if btn.shamanName then self.callerCooldowns[btn.shamanName] = nil end
 				self:ClearCallerButtonCooldown(btn)
 			end
-			frame.mtButtons = {}
+			wipe(frame.mtButtons)
 			if frame.blBtn then
 				if frame.blBtn.nameLabel then frame.blBtn.nameLabel:SetText("") end
 				self:ClearCallerButtonCooldown(frame.blBtn)

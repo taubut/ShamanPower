@@ -56,6 +56,9 @@ local DEFAULTS = {
 	itemWarn = true,
 	itemWarnScreen = false,
 }
+-- the support code (/sp support) reports only what differs from these
+SP.SUPPORT_PROFILE_DEFAULTS = SP.SUPPORT_PROFILE_DEFAULTS or {}
+SP.SUPPORT_PROFILE_DEFAULTS.readyCheck = DEFAULTS
 
 local function cfg()
 	local o = SP.opt

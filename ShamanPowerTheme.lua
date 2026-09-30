@@ -1275,7 +1275,12 @@ function SP:ThemeDisplayColor(spot, role)
 	return r, g, b, "standard"
 end
 
-function SP:ThemeIsCustom()
+-- Theme cards (presets, Your Themes, sharing): the section at the end of this file.
+local Cards = {}
+
+-- 3.0.4's Custom test: a theme-level change, or a setting a theme wrote changed on its
+-- own page. Now only the way in for a player who has no card yet (Cards.Migrate).
+function Cards.OldIsCustom()
 	local t = T()
 	if not t then return false end
 	if PALETTE_KEY[t.palette] or SHIELD_KEY[t.shield] then return true end
@@ -1367,27 +1372,12 @@ local function CaptureCustom(t)
 	t.saved = saved
 end
 
-function SP:ThemeHasSavedCustom()
-	local t = T()
-	return t ~= nil and type(t.saved) == "table"
-end
-function SP:ThemeSavedCustomBase()   -- the theme the saved Custom started from
-	local t = T()
-	local sv = t and t.saved
-	return type(sv) == "table" and THEMES[sv.base] and sv.base or "standard"
-end
-function SP:ThemeSavedCustomPalette()   -- its Colors card, or nil (the theme's own)
-	local t = T()
-	local sv = t and t.saved
-	return type(sv) == "table" and PALETTE_KEY[sv.palette] and sv.palette or nil
-end
-
--- the Custom card: the saved Custom back, exactly
-function SP:ThemeLoadCustom()
+-- a Custom look kept by 3.0.4 (t.saved), before the theme cards: the Custom card
+-- brings it back once, then it is an unsaved Custom look like any other
+function Cards.LegacyLoad()
 	local t = T()
 	local sv = t and t.saved
 	if type(sv) ~= "table" then return end
-	if self:ThemeIsCustom() then return end   -- a Custom look is already in use
 	if type(sv.colors) == "table" then
 		-- a reset kept the colors every page has: they go back under Standard first,
 		-- so the theme below keeps them as the player's own (the caller reloads)
@@ -1415,6 +1405,7 @@ function SP:ThemeLoadCustom()
 	end
 	if wrote then Notify() end
 	if type(sv.look) == "table" then LOOK.Repaint() end
+	t.saved = nil
 end
 -- the Custom card holds colors a reset put back to default: loading it reloads
 function SP:ThemeCustomNeedsReload()
@@ -1423,18 +1414,6 @@ function SP:ThemeCustomNeedsReload()
 	return type(sv) == "table" and type(sv.colors) == "table" and not self:ThemeIsCustom() and LOOK.ColorsDiffer(sv.colors)
 end
 
-function SP:SetThemeGlobal(key)
-	if not THEMES[key] then return end
-	-- the card already picked, with nothing changed since: nothing to do (and no reload prompt)
-	local cur = T()
-	if ((cur and THEMES[cur.global] and cur.global) or "standard") == key and not SP:ThemeIsCustom() then return end
-	local t = TW()
-	if not t then return end
-	if SP:ThemeIsCustom() then CaptureCustom(t) end   -- the Custom look is kept for the Custom card
-	t.global = (key ~= "standard") and key or nil
-	t.spots, t.palette, t.shield, t.effects, t.signature = nil, nil, nil, nil, nil
-	Changed(true)
-end
 
 -- (no effects fields: effects are not part of the themes, see ResolveLook)
 -- borders / bordersFlyouts: General > Themes, Element-Colored Borders on the totem bar
@@ -1668,8 +1647,24 @@ function LOOK.Worth(t, look, everything, defaults)
 	local o = SP.opt
 	for _, k in ipairs(RESET_COLOR_KEYS) do if not Near(o[k], defaults[k]) then return true end end
 	for _, k in ipairs(GRADIENT_COLOR_KEYS) do if o[k] ~= nil then return true end end
-	local rr = ShamanPower_ReadyReminders
-	if type(rr) == "table" and (rr.borderColor or rr.glowColor or rr.barColor) then return true end
+	-- each shield's Charge Color (cleared by ClearPickedColors, kept in the look)
+	local sc = o.shieldChargeDisplay
+	if type(sc) == "table" and (sc.chargeColorLS or sc.chargeColorWS or sc.chargeColorES) then return true end
+	local rc, drc = o.rangeCounter, defaults.rangeCounter
+	if type(rc) == "table" and rc.useElementColors ~= (type(drc) == "table" and drc.useElementColors or nil) then return true end
+	-- the modules' colors: against their own defaults (Ready Reminders saves its
+	-- defaults, so "is there a color" was always yes and every reset overwrote the
+	-- saved Custom look); the defaults tables are the ones the support code reads
+	local md = SP.SUPPORT_MODULE_DEFAULTS or {}
+	local rr, rrd = ShamanPower_ReadyReminders, md.ShamanPower_ReadyReminders
+	if type(rr) == "table" then
+		for _, k in ipairs({ "borderColor", "glowColor", "barColor" }) do
+			if rr[k] ~= nil and not Near(rr[k], type(rrd) == "table" and rrd[k] or nil) then return true end
+		end
+	end
+	local tr, trd = ShamanPowerTremorReminderDB, md.ShamanPowerTremorReminderDB
+	local trGlow = type(trd) == "table" and trd.glowColor or { r = 1, g = 0.8, b = 0 }
+	if type(tr) == "table" and tr.glowColor ~= nil and not Near(tr.glowColor, trGlow) then return true end
 	if not everything then return false end
 	for _, k in ipairs(LOOK.opt) do if not Near(look.opt[k], defaults[k]) then return true end end
 	if look.shieldTexture ~= nil then return true end
@@ -1687,15 +1682,23 @@ function SP:ResetAllColorsToDefault(everything)
 	local keep = SP:ThemeIsCustom() or LOOK.Worth(t, LOOK.Capture(t), everything, defaults)
 	if keep then
 		t = TW()
-		CaptureCustom(t)
+		Cards.Keep()   -- the look before the reset waits on the Custom card
 	end
 	if t then
 		t.global, t.spots, t.palette, t.shield, t.classColors = nil, nil, nil, nil, nil
 		t.borders, t.bordersFlyouts, t.bordersCooldown, t.showAs = nil, nil, nil, nil
 		t.borderSize, t.borderSizeFlyouts, t.borderSizeCooldown = nil, nil, nil
 		t.bordersCooldownFlyouts, t.borderSizeCooldownFlyouts = nil, nil
-		Changed(true)   -- the pre-theme settings come back first; the defaults go over them
-		if keep and type(t.saved) == "table" then t.saved.colors = LOOK.CaptureColors(o) end
+		t.custom, t.snapshot, t.written, t.applied = nil, nil, nil, nil
+		-- Standard is every default: so are the settings a theme writes (the texture ...)
+		Cards.Entries(function(_, e)
+			local v = Cards.DefaultOf(e)
+			if v ~= nil and not Near(SafeGet(e), v) then SafeSet(e, v) end
+		end)
+		Changed(true)
+		-- the card is Standard; what Standard looks like is worked out after the reload,
+		-- once every module has registered (anything the reset left is then Custom)
+		t.card, t.baseline, t.forceCustom, t.needBaseline = "standard", nil, nil, true
 	end
 	for _, k in ipairs(RESET_COLOR_KEYS) do o[k] = Copy(defaults[k]) end
 	ClearPickedColors(o)   -- each shield's Charge Color, the gradients' Two-Tone colors
@@ -1741,13 +1744,657 @@ function SP:ResetEverythingToDefault()
 	end
 end
 
+
+-- ===========================================================================
+-- Theme cards (user, 2026-09-30). Standard, ShamanPower and ShamanPower Minimal are
+-- fixed PRESETS: picking one sets everything the Themes tab holds to that preset,
+-- every time (Standard = every default). Any change, on the tab or on a page that
+-- edits the same setting, makes the look Custom. A Custom look can be saved under a
+-- name (Your Themes, account-wide: every character can pick it) and shared as a
+-- code (SPT1:). Unsaved changes wait on the Custom card until saved or discarded.
+--
+-- One form for all of it, a "flat" map path -> value of everything a theme holds:
+--   t.<field>   theme fields (global, spots, palette, shield, custom, borders ...)
+--   o.<key>     the looks and colors in the profile (LOOK.opt, RESET/GRADIENT colors)
+--   sc.<key>    each shield's look and Charge Color;  o.shieldTexture, o.rangeElementColors
+--   rr.<key>, tr.glowColor   the Ready Reminders / Tremor Reminder colors
+--   e.<spot>.<entry>         the settings a theme writes (ThemeSpotSettings)
+-- It is what Your Themes store, the Custom card holds (t.pending), a share code
+-- carries, and t.baseline is: the card as applied. The look is Custom whenever it no
+-- longer matches its baseline, whatever changed it. t.card = "standard" /
+-- "shamanpower" / "minimal" / "mine:<id>". Effects are not part of a theme.
+-- Only on clicks: nothing here runs while playing.
+-- ===========================================================================
+Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
+Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB" }
+Cards.RR = { "borderColor", "glowColor", "barColor" }
+Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
+Cards.PREFIX = "SPT1:"
+
+function Cards.Defaults()
+	return SP.db and SP.db.defaults and SP.db.defaults.profile or {}
+end
+function Cards.ModuleDefault(name)
+	local md = SP.SUPPORT_MODULE_DEFAULTS
+	return type(md) == "table" and type(md[name]) == "table" and md[name] or {}
+end
+
+-- every setting a theme writes (not the effects' signature spots)
+function Cards.Entries(fn)
+	for id, reg in pairs(settingSpots) do
+		local spot = SPOTS[id]
+		if spot and not spot.signature then
+			for i = 1, #reg.entries do fn(id, reg.entries[i]) end
+		end
+	end
+end
+
+-- what an entry reads with every setting at its default: its getter run against a
+-- copy of the defaults (and empty module tables, which read as their defaults)
+function Cards.DefaultOf(entry)
+	if not Cards.view then Cards.view = Copy(Cards.Defaults()) end
+	local real, keep = SP.opt, {}
+	for i, name in ipairs(Cards.MODULES) do keep[i] = rawget(_G, name); _G[name] = {} end
+	SP.opt = Cards.view
+	local ok, v = pcall(entry.get)
+	SP.opt = real
+	for i, name in ipairs(Cards.MODULES) do _G[name] = keep[i] end
+	if not ok then Report(v) return nil end
+	return Copy(v)
+end
+
+-- a profile value, as the database hands it back after a reload (nil = its default)
+function Cards.Opt(o, d, k)
+	local v = o[k]
+	if v == nil then v = d[k] end
+	return Copy(v)
+end
+
+function Cards.Flat()
+	local o, t, d = SP.opt, T() or {}, Cards.Defaults()
+	local f = {}
+	if type(o) ~= "table" then return f end
+	f["t.global"] = (THEMES[t.global] and t.global ~= "standard") and t.global or nil
+	if type(t.spots) == "table" and next(t.spots) then f["t.spots"] = Copy(t.spots) end
+	for _, k in ipairs(Cards.THEME_KEYS) do f["t." .. k] = Copy(t[k]) end
+	for _, k in ipairs(LOOK.theme) do f["t." .. k] = t[k] end
+	for _, k in ipairs(LOOK.opt) do f["o." .. k] = Cards.Opt(o, d, k) end
+	for _, k in ipairs(RESET_COLOR_KEYS) do f["o." .. k] = Cards.Opt(o, d, k) end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do f["o." .. k] = Cards.Opt(o, d, k) end
+	local areas = o.barTextureAreas
+	f["o.shieldTexture"] = type(areas) == "table" and areas.shieldcharges or nil
+	local sc = type(o.shieldChargeDisplay) == "table" and o.shieldChargeDisplay or {}
+	local dsc = type(d.shieldChargeDisplay) == "table" and d.shieldChargeDisplay or {}
+	for _, k in ipairs(LOOK.shield) do f["sc." .. k] = Cards.Opt(sc, dsc, k) end
+	local rc, drc = o.rangeCounter, d.rangeCounter
+	local re = type(rc) == "table" and rc.useElementColors
+	if re == nil and type(drc) == "table" then re = drc.useElementColors end
+	f["o.rangeElementColors"] = re
+	local rr = rawget(_G, "ShamanPower_ReadyReminders")
+	if type(rr) == "table" then
+		local rd = Cards.ModuleDefault("ShamanPower_ReadyReminders")
+		for _, k in ipairs(Cards.RR) do f["rr." .. k] = Cards.Opt(rr, rd, k) end
+	end
+	local tr = rawget(_G, "ShamanPowerTremorReminderDB")
+	if type(tr) == "table" then f["tr.glowColor"] = Copy(tr.glowColor or Cards.ModuleDefault("ShamanPowerTremorReminderDB").glowColor or Cards.TREMOR_GLOW) end
+	Cards.Entries(function(id, e) f["e." .. id .. "." .. e._id] = Copy(SafeGet(e)) end)
+	return f
+end
+
+-- Standard, worked out: every value at its default
+function Cards.StandardFlat()
+	local d = Cards.Defaults()
+	local f = {}
+	for _, k in ipairs(LOOK.opt) do f["o." .. k] = Copy(d[k]) end
+	for _, k in ipairs(RESET_COLOR_KEYS) do f["o." .. k] = Copy(d[k]) end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do f["o." .. k] = Copy(d[k]) end
+	local dsc = type(d.shieldChargeDisplay) == "table" and d.shieldChargeDisplay or {}
+	for _, k in ipairs(LOOK.shield) do f["sc." .. k] = Copy(dsc[k]) end
+	if type(d.rangeCounter) == "table" then f["o.rangeElementColors"] = d.rangeCounter.useElementColors end
+	if type(rawget(_G, "ShamanPower_ReadyReminders")) == "table" then
+		local rd = Cards.ModuleDefault("ShamanPower_ReadyReminders")
+		for _, k in ipairs(Cards.RR) do f["rr." .. k] = Copy(rd[k]) end
+	end
+	if type(rawget(_G, "ShamanPowerTremorReminderDB")) == "table" then
+		f["tr.glowColor"] = Copy(Cards.ModuleDefault("ShamanPowerTremorReminderDB").glowColor or Cards.TREMOR_GLOW)
+	end
+	Cards.Entries(function(id, e) f["e." .. id .. "." .. e._id] = Cards.DefaultOf(e) end)
+	return f
+end
+
+function Cards.Diff(a, b)
+	local out = {}
+	for k, v in pairs(a) do if not Near(v, b[k]) then out[#out + 1] = k end end
+	for k, v in pairs(b) do if a[k] == nil and v ~= nil then out[#out + 1] = k end end
+	return out
+end
+function Cards.Same(a, b)
+	for k, v in pairs(a) do if not Near(v, b[k]) then return false end end
+	for k, v in pairs(b) do if a[k] == nil and v ~= nil then return false end end
+	return true
+end
+
+-- a flat map onto the profile, whole. pre: the settings to put in BEFORE the theme is
+-- resolved (a preset's defaults, which ShamanPower / Minimal then write over)
+function Cards.Apply(f, card, baseline, pre)
+	local t, o = TW(), SP.opt
+	if not (t and type(o) == "table") then return end
+	local d = Cards.Defaults()
+	local g = f["t.global"]
+	t.global = (THEMES[g] and g ~= "standard") and g or nil
+	t.spots = type(f["t.spots"]) == "table" and Copy(f["t.spots"]) or nil
+	t.palette = PALETTE_KEY[f["t.palette"]] and f["t.palette"] or nil
+	t.shield = SHIELD_KEY[f["t.shield"]] and f["t.shield"] or nil
+	t.custom = type(f["t.custom"]) == "table" and CleanCustom(f["t.custom"]) or nil
+	for _, k in ipairs(LOOK.theme) do
+		local v = f["t." .. k]
+		if v ~= nil and not (THEME_FIELDS[k] and THEME_FIELDS[k][v]) then v = nil end
+		t[k] = v
+	end
+	t.snapshot, t.written, t.applied, t.saved = nil, nil, nil, nil
+	local function put(k)
+		local v = f["o." .. k]
+		if v == nil then v = d[k] end
+		o[k] = Copy(v)
+	end
+	for _, k in ipairs(LOOK.opt) do put(k) end
+	for _, k in ipairs(RESET_COLOR_KEYS) do put(k) end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do put(k) end
+	local tex = f["o.shieldTexture"]
+	if tex ~= nil or type(o.barTextureAreas) == "table" then
+		o.barTextureAreas = o.barTextureAreas or {}
+		o.barTextureAreas.shieldcharges = type(tex) == "string" and tex or nil
+	end
+	o.shieldChargeDisplay = o.shieldChargeDisplay or {}
+	local sc, dsc = o.shieldChargeDisplay, type(d.shieldChargeDisplay) == "table" and d.shieldChargeDisplay or {}
+	for _, k in ipairs(LOOK.shield) do
+		local v = f["sc." .. k]
+		if v == nil then v = dsc[k] end
+		sc[k] = Copy(v)
+	end
+	o.rangeCounter = o.rangeCounter or {}
+	local re = f["o.rangeElementColors"]
+	if re == nil and type(d.rangeCounter) == "table" then re = d.rangeCounter.useElementColors end
+	o.rangeCounter.useElementColors = re
+	local rr = rawget(_G, "ShamanPower_ReadyReminders")
+	if type(rr) == "table" then for _, k in ipairs(Cards.RR) do rr[k] = Copy(f["rr." .. k]) end end
+	local tr = rawget(_G, "ShamanPowerTremorReminderDB")
+	if type(tr) == "table" then tr.glowColor = Copy(f["tr.glowColor"] or Cards.ModuleDefault("ShamanPowerTremorReminderDB").glowColor or Cards.TREMOR_GLOW) end
+	local function setAll(src)
+		Cards.Entries(function(id, e)
+			local v = src["e." .. id .. "." .. e._id]
+			if v ~= nil and not Near(SafeGet(e), v) then SafeSet(e, Copy(v)) end
+		end)
+	end
+	if pre then setAll(pre) end
+	Changed(true)   -- the theme fields resolved; ShamanPower / Minimal write their values
+	setAll(f)       -- then the look's own values of the settings a theme writes
+	-- everything that reads these colors and looks, drawn again (the rest on the reload
+	-- the settings window offers when it closes)
+	for _, fn in ipairs({ "ApplyElementColors", "ApplyTotemCooldownTextColor", "RepaintPulseBarColors",
+		"UpdateRangeCounters", "RebuildShieldChargeContainer", "UpdateAllReadyReminderAppearance" }) do
+		if SP[fn] then
+			local ok, err = pcall(SP[fn], SP)
+			if not ok then Report(err) end
+		end
+	end
+	LOOK.Repaint()
+	Notify()
+	t.card, t.forceCustom, t.needBaseline = card, nil, nil
+	t.baseline = baseline or Cards.Flat()
+end
+
+function Cards.ApplyPreset(key)
+	local f = Cards.StandardFlat()
+	f["t.global"] = (key ~= "standard") and key or nil
+	if key == "standard" then
+		Cards.Apply(f, "standard")
+		return
+	end
+	-- ShamanPower / Minimal: every setting from its default, then the theme's values
+	local pre = {}
+	for k, v in pairs(f) do
+		if k:sub(1, 2) == "e." then pre[k] = v; f[k] = nil end
+	end
+	Cards.Apply(f, key, nil, pre)
+end
+
+-- unsaved changes wait on the Custom card
+function Cards.Keep()
+	local t = TW()
+	if not t then return end
+	t.pending = { flat = Cards.Flat(), card = t.card, baseline = Copy(t.baseline), at = time() }
+	t.saved = nil
+end
+
+-- ---- Your Themes (account-wide) ---------------------------------------------------
+function Cards.List()
+	local g = SP.db and SP.db.global
+	if type(g) ~= "table" then return {} end
+	if type(g.themes) ~= "table" then g.themes = {} end
+	return g.themes
+end
+function Cards.Find(id)
+	for i, th in ipairs(Cards.List()) do
+		if th.id == id then return th, i end
+	end
+end
+function Cards.ByName(name)
+	local low = strlower(name or "")
+	for _, th in ipairs(Cards.List()) do
+		if strlower(th.name or "") == low then return th end
+	end
+end
+function Cards.Unique(name)
+	if not Cards.ByName(name) then return name end
+	for n = 2, 999 do
+		local try = name .. " " .. n
+		if not Cards.ByName(try) then return try end
+	end
+	return name
+end
+function Cards.CleanName(name)
+	name = strtrim(tostring(name or "")):gsub("[%c|]", "")
+	if #name > 32 then name = name:sub(1, 32) end
+	return name
+end
+-- the preset a look started from
+function Cards.BaseOf(card)
+	if type(card) == "string" and card:sub(1, 5) == "mine:" then
+		local th = Cards.Find(tonumber(card:sub(6)))
+		return th and th.base or "standard"
+	end
+	return THEMES[card] and card or "standard"
+end
+function Cards.Add(name, base, flat)
+	local list = Cards.List()
+	local id = 0
+	for _, th in ipairs(list) do if (tonumber(th.id) or 0) > id then id = th.id end end
+	id = id + 1
+	list[#list + 1] = { id = id, name = name, base = THEMES[base] and base or "standard", flat = Copy(flat),
+		created = time(), updated = time() }
+	return id
+end
+
+-- ---- migration: a player's first load with theme cards ------------------------------
+-- A player whose look differs from their theme keeps it: it becomes a theme called
+-- "My Look", in use. Nobody's screen changes. After a reset: Standard, worked out.
+function Cards.LooksChanged()
+	local o, t, d = SP.opt or {}, T() or {}, Cards.Defaults()
+	for _, k in ipairs(LOOK.theme) do if t[k] ~= nil then return true end end
+	if type(t.custom) == "table" then return true end
+	for _, k in ipairs(LOOK.opt) do if not Near(Cards.Opt(o, d, k), d[k]) then return true end end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do if not Near(Cards.Opt(o, d, k), d[k]) then return true end end
+	local areas = o.barTextureAreas
+	if type(areas) == "table" and areas.shieldcharges ~= nil then return true end
+	local sc, dsc = type(o.shieldChargeDisplay) == "table" and o.shieldChargeDisplay or {}, type(d.shieldChargeDisplay) == "table" and d.shieldChargeDisplay or {}
+	for _, k in ipairs(LOOK.shield) do if not Near(Cards.Opt(sc, dsc, k), dsc[k]) then return true end end
+	-- the colors no theme writes
+	for _, k in ipairs({ "cBuffNeedSome", "cBuffNeedAll", "compactOutlineColor", "compactIdleColor", "pulseFlashColor", "manaTintColor" }) do
+		if not Near(Cards.Opt(o, d, k), d[k]) then return true end
+	end
+	return false
+end
+function Cards.Migrate()
+	if not ready then return end
+	local t = TW()
+	if not t then return end
+	if t.needBaseline then
+		t.card, t.baseline, t.needBaseline = "standard", Cards.StandardFlat(), nil
+		return
+	end
+	if t.card and type(t.baseline) == "table" then return end
+	local key = (THEMES[t.global] and t.global) or "standard"
+	local f = Cards.Flat()
+	local changed
+	if key == "standard" then
+		changed = not Cards.Same(f, Cards.StandardFlat())
+	else
+		changed = Cards.OldIsCustom() or Cards.LooksChanged()
+	end
+	if changed then
+		local id
+		for _, th in ipairs(Cards.List()) do
+			if type(th.flat) == "table" and Cards.Same(th.flat, f) then id = th.id break end
+		end
+		id = id or Cards.Add(Cards.Unique("My Look"), key, f)
+		t.card = "mine:" .. id
+	else
+		t.card = key
+	end
+	t.baseline = f
+end
+
+-- ---- sharing -----------------------------------------------------------------------
+-- only what a theme holds, as plain values: a code from someone else never writes
+-- anything else
+function Cards.Plain(v, depth)
+	local tv = type(v)
+	if tv == "number" or tv == "boolean" then return v end
+	if tv == "string" then return #v <= 64 and v or nil end
+	if tv ~= "table" or depth > 4 then return nil end
+	local out, n = {}, 0
+	for k, x in pairs(v) do
+		n = n + 1
+		if n > 200 then break end
+		if type(k) == "string" or type(k) == "number" then
+			local c = Cards.Plain(x, depth + 1)
+			if c ~= nil then out[k] = c end
+		end
+	end
+	return out
+end
+function Cards.Allowed()
+	local a = { ["t.global"] = true, ["t.spots"] = true, ["o.shieldTexture"] = true, ["o.rangeElementColors"] = true,
+		["tr.glowColor"] = true }
+	for _, k in ipairs(Cards.THEME_KEYS) do a["t." .. k] = true end
+	for _, k in ipairs(LOOK.theme) do a["t." .. k] = true end
+	for _, k in ipairs(LOOK.opt) do a["o." .. k] = true end
+	for _, k in ipairs(RESET_COLOR_KEYS) do a["o." .. k] = true end
+	for _, k in ipairs(GRADIENT_COLOR_KEYS) do a["o." .. k] = true end
+	for _, k in ipairs(LOOK.shield) do a["sc." .. k] = true end
+	for _, k in ipairs(Cards.RR) do a["rr." .. k] = true end
+	Cards.Entries(function(id, e) a["e." .. id .. "." .. e._id] = true end)
+	return a
+end
+function Cards.Clean(f)
+	local a, out = Cards.Allowed(), {}
+	for k, v in pairs(type(f) == "table" and f or {}) do
+		if a[k] then
+			local c = Cards.Plain(v, 1)
+			if c ~= nil then out[k] = c end
+		end
+	end
+	if type(out["t.spots"]) == "table" then
+		for id in pairs(out["t.spots"]) do
+			if not SPOTS[id] then out["t.spots"][id] = nil end
+		end
+	end
+	return out
+end
+function Cards.Encode(th)
+	local LS = LibStub and LibStub("LibSerialize", true)
+	local LD = LibStub and LibStub("LibDeflate", true)
+	if not (LS and LD) then return nil end
+	local ok, ser = pcall(LS.Serialize, LS, { v = 1, name = th.name, base = th.base, flat = th.flat })
+	if not ok or not ser then return nil end
+	local z = LD:CompressDeflate(ser, { level = 9 })
+	return z and (Cards.PREFIX .. LD:EncodeForPrint(z)) or nil
+end
+function Cards.Decode(text)
+	local LS = LibStub and LibStub("LibSerialize", true)
+	local LD = LibStub and LibStub("LibDeflate", true)
+	if not (LS and LD) then return nil, "the serialization libraries are missing" end
+	text = strtrim(tostring(text or ""))
+	local at = text:find(Cards.PREFIX, 1, true)
+	if not at then return nil, "that is not a ShamanPower theme code (it starts with SPT1:)" end
+	local body = text:sub(at + #Cards.PREFIX):match("^[%w%(%)]+")
+	local raw = body and LD:DecodeForPrint(body)
+	local ser = raw and LD:DecompressDeflate(raw)
+	if not ser then return nil, "the code is damaged or cut off" end
+	local ok, p = LS:Deserialize(ser)
+	if not ok or type(p) ~= "table" or p.v ~= 1 or type(p.flat) ~= "table" then return nil, "the code is damaged or from a newer ShamanPower" end
+	return p
+end
+
+-- ---- the public side (General > Themes) --------------------------------------------
+function SP:ThemeIsCustom()
+	local t = T()
+	if not t then return false end
+	if t.forceCustom then return true end
+	if type(t.baseline) == "table" then return not Cards.Same(Cards.Flat(), t.baseline) end
+	return Cards.OldIsCustom()
+end
+-- the card picked (nil before the cards exist for this profile)
+function SP:ThemeCard()
+	local t = T()
+	local c = t and t.card
+	if c == nil then return (t and THEMES[t.global] and t.global) or "standard" end
+	return c
+end
+function SP:ThemeCardBase(card) return Cards.BaseOf(card or SP:ThemeCard()) end
+function SP:ThemeMine() return Cards.List() end
+function SP:ThemeMineById(id) return (Cards.Find(id)) end
+function SP:ThemeHasSavedCustom()
+	local t = T()
+	return t ~= nil and (type(t.pending) == "table" or type(t.saved) == "table")
+end
+-- what the Custom card draws: the live look when it is in use, else the one waiting
+function SP:ThemeCustomLook()
+	local t = T()
+	if SP:ThemeIsCustom() or not t then return SP:ThemeGlobal(), t and PALETTE_KEY[t.palette] and t.palette or nil end
+	local p = t.pending
+	if type(p) == "table" and type(p.flat) == "table" then
+		local g = p.flat["t.global"]
+		return (THEMES[g] and g) or "standard", PALETTE_KEY[p.flat["t.palette"]] and p.flat["t.palette"] or nil
+	end
+	local sv = t.saved
+	if type(sv) == "table" then
+		return (THEMES[sv.base] and sv.base) or "standard", PALETTE_KEY[sv.palette] and sv.palette or nil
+	end
+	return SP:ThemeGlobal(), nil
+end
+-- the card the Custom look started from, and the list of what changed (labels, first few)
+Cards.LABEL = {
+	["t.global"] = "Theme", ["t.spots"] = "Part Colors", ["t.palette"] = "Element Colors", ["t.shield"] = "Shield Colors",
+	["t.custom"] = "Custom Element Colors", ["t.classColors"] = "Class Colors", ["t.showAs"] = "Show Icons As",
+	["t.borders"] = "Element-Colored Borders", ["t.bordersFlyouts"] = "Element-Colored Borders",
+	["t.bordersCooldown"] = "Element-Colored Borders", ["t.bordersCooldownFlyouts"] = "Element-Colored Borders",
+	["t.borderSize"] = "Border Size", ["t.borderSizeFlyouts"] = "Border Size", ["t.borderSizeCooldown"] = "Border Size",
+	["t.borderSizeCooldownFlyouts"] = "Border Size",
+	["o.barTexture"] = "Bar Texture", ["o.dotShape"] = "Dot Shape", ["o.dotGem"] = "Gem Dot Finish", ["o.glowShape"] = "Glow Shape",
+	["o.frameEdge"] = "Frame Edge", ["o.iconShape"] = "Icon Shape", ["o.iconShapeCooldown"] = "Icon Shape (Cooldown Bar)",
+	["o.iconShapeReady"] = "Icon Shape (Ready Reminders)", ["o.iconBordersSquare"] = "Keep Borders Square",
+	["o.durationBarBackground"] = "Duration Bar Background", ["o.shieldTexture"] = "Shield Charges Texture",
+	["o.rangeElementColors"] = "Range Counter Colors", ["o.elementColorPalette"] = "Element Colors",
+	["o.elementColorsCustom"] = "Custom Element Colors", ["o.cBuffGood"] = "Status Colors", ["o.cBuffNeedSome"] = "Status Colors",
+	["o.cBuffNeedAll"] = "Status Colors", ["o.totemCooldownTextColor"] = "Cooldown Text Color", ["o.pulseBarColor"] = "Pulse Bar Color",
+	["o.pulseFlashColor"] = "Pulse Flash Color", ["o.manaTintColor"] = "Mana Tint Color", ["o.shieldChargeColors"] = "Color Shield Charges by Count",
+	["o.cdbarSpellColors"] = "Spell-Colored Progress Bars", ["sc.lookLS"] = "Lightning Shield Look", ["sc.lookWS"] = "Water Shield Look",
+	["sc.lookES"] = "Earth Shield Look", ["sc.barLook"] = "Shield Charges Look", ["sc.orbLook"] = "Shield Charges Look",
+	["sc.chargeColorLS"] = "Lightning Shield Charge Color", ["sc.chargeColorWS"] = "Water Shield Charge Color",
+	["sc.chargeColorES"] = "Earth Shield Charge Color", ["tr.glowColor"] = "Tremor Reminder Glow",
+}
+function Cards.Label(k)
+	if Cards.LABEL[k] then return Cards.LABEL[k] end
+	local p = k:match("^o%.(%a+)Gradient") or k:match("^o%.(%a+)Gradient.+")
+	if p == "bar" then return "Bar Gradient" elseif p == "outline" then return "Outline Gradient" elseif p == "charge" then return "Charge Bar Gradient" end
+	if k:match("^o%.compact") then return "Compact Colors" end
+	if k:match("^rr%.") then return "Ready Reminders Colors" end
+	local id, eid = k:match("^e%.([^.]+%.?[^.]*)%.(.+)$")
+	local reg = id and settingSpots[id]
+	if reg then
+		for _, e in ipairs(reg.entries) do if e._id == eid and e.label then return e.label end end
+	end
+	return nil
+end
+function SP:ThemeChanges()
+	local t = T()
+	if not t then return {}, "standard" end
+	local a, b, card
+	if SP:ThemeIsCustom() and type(t.baseline) == "table" then
+		a, b, card = Cards.Flat(), t.baseline, t.card
+	elseif type(t.pending) == "table" and type(t.pending.flat) == "table" and type(t.pending.baseline) == "table" then
+		a, b, card = t.pending.flat, t.pending.baseline, t.pending.card
+	else
+		return {}, SP:ThemeCard()
+	end
+	local seen, out = {}, {}
+	for _, k in ipairs(Cards.Diff(a, b)) do
+		local l = Cards.Label(k)
+		if l and not seen[l] then seen[l] = true; out[#out + 1] = l end
+	end
+	table.sort(out)
+	return out, card
+end
+-- the Custom card belongs to one of Your Themes: that theme, changed
+function SP:ThemeCustomOf()
+	local t = T()
+	if not t then return nil end
+	local card = (SP:ThemeIsCustom() and t.card) or (type(t.pending) == "table" and t.pending.card) or nil
+	if type(card) == "string" and card:sub(1, 5) == "mine:" then return Cards.Find(tonumber(card:sub(6))) end
+	return nil
+end
+
+-- /sp themecheck (the developer's tripwire, account-wide switch): every change on
+-- General > Themes must change what a theme holds; one that does not is a look not
+-- hooked into Cards.Flat (presets, Your Themes and share codes would miss it)
+function SP:ThemeCheckOn()
+	local g = SP.db and SP.db.global
+	return type(g) == "table" and g.themeCheck == true
+end
+function SP:ThemeCheckSnapshot()
+	if SP:ThemeCheckOn() then Cards.lastFlat = Cards.Flat() end
+end
+function SP:ThemeCheckChange()
+	if not SP:ThemeCheckOn() then return end
+	local f = Cards.Flat()
+	if Cards.lastFlat and Cards.Same(f, Cards.lastFlat) then
+		print("|cffff8040ShamanPower theme check|r: that change on General > Themes is NOT part of a theme:"
+			.. " presets, Your Themes and share codes would not carry it. Hook it into Cards.Flat"
+			.. " (LOOK / RESET_COLOR_KEYS lists or ThemeSpotSettings).")
+	end
+	Cards.lastFlat = f
+end
+
+-- a preset card
+function SP:SetThemeGlobal(key)
+	if not THEMES[key] or not ready then return end
+	local t = TW()
+	if not t then return end
+	local custom = SP:ThemeIsCustom()
+	if not custom and SP:ThemeCard() == key then return end   -- in use already: nothing to do (and no reload prompt)
+	if custom then Cards.Keep() end
+	Cards.ApplyPreset(key)
+end
+-- one of Your Themes
+function SP:ThemePickMine(id)
+	local th = Cards.Find(id)
+	if not (th and ready) then return end
+	local custom = SP:ThemeIsCustom()
+	if not custom and SP:ThemeCard() == "mine:" .. id then return end
+	if custom then Cards.Keep() end
+	Cards.Apply(Cards.Clean(th.flat), "mine:" .. id)
+end
+-- the Custom card: the look waiting on it comes back (a 3.0.4 Custom look too)
+function SP:ThemeLoadCustom()
+	local t = T()
+	if not (t and ready) or SP:ThemeIsCustom() then return end
+	local p = t.pending
+	if type(p) == "table" and type(p.flat) == "table" then
+		t.pending = nil
+		Cards.Apply(p.flat, p.card or "standard", type(p.baseline) == "table" and p.baseline or nil)
+		if type(p.baseline) ~= "table" then t.forceCustom = true end
+		return
+	end
+	if type(t.saved) == "table" then
+		Cards.LegacyLoad()
+		t.forceCustom = true   -- compared with its card, it is Custom until saved or discarded
+	end
+end
+-- Discard: in use, the card goes back to how it was saved (Undo); waiting on the
+-- Custom card, the changes go
+function SP:ThemeDiscard()
+	local t = T()
+	if not t then return end
+	if SP:ThemeIsCustom() then
+		SP:ThemeUndo()
+		return
+	end
+	t.pending, t.saved = nil, nil
+end
+-- Undo Changes: the card in use, exactly as it is saved
+function SP:ThemeUndo()
+	local t = T()
+	if not (t and ready) then return end
+	local card = SP:ThemeCard()
+	if type(card) == "string" and card:sub(1, 5) == "mine:" then
+		local th = Cards.Find(tonumber(card:sub(6)))
+		if th then Cards.Apply(Cards.Clean(th.flat), card) return end
+		card = "standard"
+	end
+	Cards.ApplyPreset(THEMES[card] and card or "standard")
+end
+-- Save as Theme / Save as New: the Custom look (in use, else the one waiting) under a
+-- name. A name already used is replaced (the page asked first). Returns the id.
+function SP:ThemeSaveAs(name)
+	local t = TW()
+	name = Cards.CleanName(name)
+	if not t or name == "" then return nil end
+	local inUse = SP:ThemeIsCustom() or not (type(t.pending) == "table")
+	local flat, card
+	if inUse then flat, card = Cards.Flat(), t.card
+	else flat, card = Copy(t.pending.flat), t.pending.card end
+	local base = Cards.BaseOf(card)
+	local old = Cards.ByName(name)
+	local id
+	if old then
+		old.flat, old.base, old.updated = Copy(flat), base, time()
+		id = old.id
+	else
+		id = Cards.Add(name, base, flat)
+	end
+	if inUse then
+		t.card, t.baseline, t.forceCustom = "mine:" .. id, Cards.Flat(), nil
+	else
+		t.pending = nil
+	end
+	return id
+end
+-- Update <theme>: the theme the Custom look belongs to takes the changes
+function SP:ThemeUpdate()
+	local t = T()
+	local th = SP:ThemeCustomOf()
+	if not (t and th) then return end
+	local inUse = SP:ThemeIsCustom()
+	th.flat = inUse and Cards.Flat() or Copy(t.pending.flat)
+	th.updated = time()
+	if inUse then t.baseline, t.forceCustom = Cards.Flat(), nil else t.pending = nil end
+end
+function SP:ThemeRename(id, name)
+	local th = Cards.Find(id)
+	name = Cards.CleanName(name)
+	if not th or name == "" then return false end
+	local other = Cards.ByName(name)
+	if other and other ~= th then return false end
+	th.name = name
+	return true
+end
+function SP:ThemeDelete(id)
+	local th, i = Cards.Find(id)
+	if not th then return end
+	table.remove(Cards.List(), i)
+	local t = T()
+	if not t then return end
+	local key = "mine:" .. id
+	-- the look in use stays on screen, now as an unsaved Custom look on its preset
+	if t.card == key then t.card, t.forceCustom = th.base or "standard", true end
+	if type(t.pending) == "table" and t.pending.card == key then t.pending.card = th.base or "standard" end
+end
+function SP:ThemeShareCode(id)
+	local th = Cards.Find(id)
+	return th and Cards.Encode(th) or nil
+end
+-- a code from Share: added to Your Themes (not picked). Returns the theme, or nil and why.
+function SP:ThemeImport(text)
+	local p, err = Cards.Decode(text)
+	if not p then return nil, err end
+	local flat = Cards.Clean(p.flat)
+	if not next(flat) then return nil, "there is nothing in that code this ShamanPower can use" end
+	local name = Cards.CleanName(p.name)
+	if name == "" then name = "Shared Theme" end
+	local id = Cards.Add(Cards.Unique(name), p.base, flat)
+	return Cards.Find(id)
+end
+
 -- profile change (and anyone who needs a full re-resolve): reconcile every
--- registered spot with the profile's theme, repaint
+-- registered spot with the profile's theme, repaint; a profile without a card gets one
 function SP:ApplyTheme()
 	if not ready then return end
 	local was = anyActive
 	local wrote = ApplyAll(false)
 	if wrote or was or anyActive then Notify() end
+	if loggedIn then Cards.Migrate() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1768,7 +2415,8 @@ local function OnLogin()
 	if not ready then return end
 	local wrote, changed = ReconcilePending()   -- the modules' settings (their saved variables are in)
 	-- anything drawn before the colours were resolved repaints once (never on Standard)
-	if wrote or changed or anyActive then Notify() end
+	if wrote or changed or anyActive then Notify() end	-- the theme cards: every module has registered its settings by now
+	if C_Timer and C_Timer.After then C_Timer.After(0, Cards.Migrate) else Cards.Migrate() end
 end
 
 watcher:SetScript("OnEvent", function(self, event)

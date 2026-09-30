@@ -7,6 +7,7 @@
 -- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
 local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
+local UnitDebuff = SPCompat and SPCompat.UnitDebuff or UnitDebuff   -- ShamanPower's own reader on Forever, never another addon's global
 if not SP then
 	print("|cff0070ddShamanPower [Reactive Totems]:|r Core addon not found!")
 	return
@@ -139,6 +140,8 @@ local defaultSettings = {
 		disease = { point = "CENTER", x = 80, y = 150 },
 	},
 }
+-- the support code (/sp support) reports only what differs from these
+if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPower_ReactiveTotems = defaultSettings end
 
 -- ============================================================================
 -- Initialization

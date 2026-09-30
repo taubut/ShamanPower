@@ -291,6 +291,8 @@ local defaults = {
     fearCasters = {},  -- User additions/removals
     useDefaultList = true,
 }
+-- the support code (/sp support) reports only what differs from these
+if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPowerTremorReminderDB = defaults end
 
 -- Local state
 local reminderFrame = nil

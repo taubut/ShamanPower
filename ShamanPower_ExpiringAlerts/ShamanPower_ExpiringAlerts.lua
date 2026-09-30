@@ -6,6 +6,7 @@
 -- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
 local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
+local UnitBuff = SPCompat and SPCompat.UnitBuff or UnitBuff   -- ShamanPower's own reader on Forever, never another addon's global
 -- Forever returns a LIST of enchants per weapon; the legacy global reports only
 -- the first entry, which is empty when the imbue lands in the second.
 local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
@@ -189,6 +190,8 @@ local defaultSettings = {
 		color = { r = 1.0, g = 0.5, b = 0.0 },
 	},
 }
+-- the support code (/sp support) reports only what differs from these
+if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPowerExpiringAlertsDB = defaultSettings end
 
 -- ============================================================================
 -- State Tracking

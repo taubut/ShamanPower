@@ -7,6 +7,7 @@
 local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local SP = ShamanPower
+local UnitBuff = SPCompat and SPCompat.UnitBuff or UnitBuff   -- ShamanPower's own reader on Forever, never another addon's global
 -- Forever returns a LIST of enchants per weapon; the legacy global reports only
 -- the first entry, which is empty when the imbue lands in the second.
 local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
@@ -168,6 +169,15 @@ SP.TrackableTotems = {
 		buffSpellID = 15108,
 	},
 }
+
+-- TBC Anniversary: Flametongue Totem enchants weapons and puts no buff on anyone
+-- (8215 is "Rapid Cast" there), so it sat at MISSING: not tracked on that client.
+-- Windfury, the same kind of totem, keeps its weapon-enchant check.
+if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+	for i = #SP.TrackableTotems, 1, -1 do
+		if SP.TrackableTotems[i].id == "flametongue" then table.remove(SP.TrackableTotems, i) end
+	end
+end
 
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 for _, totem in ipairs(SP.TrackableTotems) do

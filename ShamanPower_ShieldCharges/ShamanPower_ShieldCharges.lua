@@ -4,6 +4,7 @@
 -- ============================================================================
 
 local SP = ShamanPower
+local UnitBuff = SPCompat and SPCompat.UnitBuff or UnitBuff   -- ShamanPower's own reader on Forever, never another addon's global
 if not SP then return end
 -- Only load for Shamans (the core keeps no-op stubs for everything this module provides)
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
@@ -664,7 +665,8 @@ local function stormOrbOnFrame(settings, kind, s, n, which)
 	return -blen / 2 + (n - 0.5) / count * blen, cy + arc
 end
 local function dropGates(frame)
-	for _, set in pairs(frame.stormGates or {}) do
+	if not frame.stormGates then return end
+	for _, set in pairs(frame.stormGates) do
 		for _, g in ipairs(set) do
 			g:Hide()
 			pcall(g.SetUnit, g, "none")
@@ -720,9 +722,13 @@ local function ensureGates(frame, kind, settings, s)
 	local sig = (wantLS or wantWS) and (tostring(wantLS) .. tostring(wantWS) .. "|" .. tostring(s) .. "|" .. tostring(settings.chargeBarDirection)
 		.. "|" .. tostring(settings.showIcon) .. "|" .. tostring(settings.showNumber) .. "|" .. tostring(settings.numberPosition)) or false
 	if frame.stormGateSig == sig then
-		-- the same gates: shown again after the settings preview hid them
-		for _, set in pairs(frame.stormGates or {}) do
-			for _, g in ipairs(set) do if not g:IsShown() then g:Show() end end
+		-- the same gates: shown again after the settings preview hid them (none built:
+		-- nothing to do, and no empty table made on every update)
+		local sets = frame.stormGates
+		if sets then
+			for _, set in pairs(sets) do
+				for _, g in ipairs(set) do if not g:IsShown() then g:Show() end end
+			end
 		end
 		return
 	end
@@ -1163,7 +1169,18 @@ function SP:UpdateShieldChargeDisplays()
 			else
 			local sc = self._shieldChargeScan
 			if not sc then sc = {}; self._shieldChargeScan = sc end
-			if self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
+			local core = ShamanPower.shieldCache
+			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and core and not core.engineCount and ShamanPower._shieldCheckedGen ~= nil
+				and ShamanPower._shieldCheckedGen == (ShamanPower.auraGen and ShamanPower.auraGen["player"] or 0) then
+				-- TBC Anniversary: the core's shield check is current (it read the shield, or the
+				-- game said nothing about it changed): its answer, not a second read of every
+				-- buff (each read builds a ~1.9 KB record there). Same rules as the loop below.
+				if core.hasShield then
+					local n = core.rawCount
+					if n == nil then n = 3 end
+					charges, hasShield, water = n, true, core.shieldName == "Water Shield"
+				end
+			elseif self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
 				charges, hasShield, water = sc.charges, sc.hasShield, sc.water
 			else
 			for i = 1, 40 do
@@ -1188,6 +1205,13 @@ function SP:UpdateShieldChargeDisplays()
 			end
 			-- the icon shown with no shield up (and under the engine's in combat) is the last one seen
 			if hasShield then self._shieldLastWater = water end
+			-- WoW: Forever: the game's layer is built out of combat, before the first fight,
+			-- instead of in it (and again here if a build ever came back empty). Only while
+			-- there is none: a built one is kept up to date by the settings (see below)
+			if SPCompat and SPCompat.secretsRegime and not playerFrame.engine and not InCombatLockdown()
+				and not self.shieldChargesDemoActive then
+				self:EnsureShieldChargeEngine(playerFrame, "player", scale)
+			end
 		end
 		if playerFrame.engine then playerFrame.engine:SetShown(restricted) end
 
@@ -1230,6 +1254,11 @@ function SP:UpdateShieldChargeDisplays()
 			if esTarget and esCharges and esCharges > 0 then
 				charges = esCharges
 				hasShield = true
+			end
+			-- the game's layer, built before the first fight (see Lightning / Water above)
+			if SPCompat and SPCompat.secretsRegime and not earthFrame.engine and not InCombatLockdown()
+				and not self.shieldChargesDemoActive then
+				self:EnsureShieldChargeEngine(earthFrame, "earth", scale)
 			end
 		end
 		if earthFrame.engine then earthFrame.engine:SetShown(restricted) end

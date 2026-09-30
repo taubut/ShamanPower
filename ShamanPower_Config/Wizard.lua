@@ -391,6 +391,7 @@ local STEPS = {
 	  desc = "An icon per spell that appears the moment the spell comes off cooldown - Earth Shock, Stormstrike, Lava Burst, Riptide - placed anywhere you like.",
 	  bullets = {
 	    "Only when ready: the icon shows up when you can press the spell and vanishes while it recharges.",
+	    "Only while on cooldown: the icon shows with a countdown while the spell recharges and vanishes when ready.",
 	    "Always: the icon stays put, dimmed with a countdown, and lights up when ready.",
 	    "Pick the spells below; icons only appear for spells you know.",
 	  },
@@ -2618,11 +2619,17 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 	end
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.readyDemoActive then SP:ReadyRemindersDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", true) end
-	row("Dropdown", { label = "Show", disabled = off, get = function() return get("mode", "ready") end, set = function(v) sv().mode = v; upd("UpdateAllReadyReminderAppearance") end,
-		values = function() return { ready = "Only when ready", always = "Always (dim + countdown)" } end, order = function() return { "ready", "always" } end })
+	row("Dropdown", { label = "Show", disabled = off, get = function() return get("mode", "ready") end,
+		set = function(v)
+			-- only while on cooldown starts in full colour, as it does in Settings
+			if v == "cooldown" and sv().mode ~= "cooldown" then sv().desaturate = false; sv().dimOpacity = 1 end
+			if v == "always" and (sv().dimOpacity or 0.35) >= 1 then sv().desaturate = true; sv().dimOpacity = 0.35 end   -- "dim + countdown"
+			sv().mode = v; upd("UpdateAllReadyReminderAppearance")
+		end,
+		values = function() return { ready = "Only when ready", cooldown = "Only while on cooldown", always = "Always (dim + countdown)" } end, order = function() return { "ready", "cooldown", "always" } end })
 	row("Dropdown", { label = "Ready effect", disabled = off, get = function() return get("readyEffect", "glow") end, set = function(v) sv().readyEffect = v; upd("UpdateAllReadyReminderAppearance") end,
 		values = function() return { glow = "Glow", pulse = "Pulse", both = "Glow + pulse", none = "None" } end, order = function() return { "glow", "pulse", "both", "none" } end })
-	row("Dropdown", { label = "Sweep while on cooldown", disabled = function() return off() or get("mode", "ready") ~= "always" end,
+	row("Dropdown", { label = "Sweep while on cooldown", disabled = function() return off() or get("mode", "ready") == "ready" end,
 		get = function() return get("sweepStyle", "radial") end, set = function(v) sv().sweepStyle = v; upd("UpdateAllReadyReminderAppearance") end,
 		values = function() return { radial = "Radial (clock)", vertical = "Vertical (fills up)", none = "None" } end, order = function() return { "radial", "vertical", "none" } end })
 	row("Slider", { label = "Icon size", min = 24, max = 96, step = 2, disabled = off, get = function() return get("iconSize", 48) end, set = function(v) sv().iconSize = v; upd("UpdateAllReadyReminderAppearance") end })
@@ -3531,7 +3538,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 
 	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
 		get = function() return OPT().cdbarSweepStyle or "greys" end,
-		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("UpdateCooldownBar"); notify() end,
+		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify() end,
 		values = function() return { greys = "Vertical - grays out", fills = "Vertical - fills back in", radial = "Radial swipe" } end,
 		order = function() return { "greys", "fills", "radial" } end })
 	wrow("Dropdown", { label = "Progress bar position", get = function() return OPT().cdbarProgressPosition or "left" end,
@@ -3541,7 +3548,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	wrow("Slider", { label = "Progress bar size", min = 3, max = 16, step = 1, get = function() return OPT().cdbarProgressBarHeight or 3 end,
 		set = function(v) SP.opt.cdbarProgressBarHeight = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBar"); notify(); layoutMock() end })
 	wrow("Dropdown", { label = "Time text", get = function() return OPT().cdbarDurationTextLocation or "none" end,
-		set = function(v) SP.opt.cdbarDurationTextLocation = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); notify(); layoutMock() end,
+		set = function(v) SP.opt.cdbarDurationTextLocation = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBarLayout"); safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify(); layoutMock() end,
 		values = function() return { none = "None (center number if Time text is on)", inside = "Inside the bar", outside = "Beside the bar", icon = "On the icon" } end,
 		order = function() return { "none", "inside", "outside", "icon" } end })
 	wrow("Slider", { label = "Time text size", min = 6, max = 20, step = 1, get = function() return OPT().cdbarDurationTextSize or 8 end,

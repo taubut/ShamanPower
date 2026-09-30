@@ -202,6 +202,7 @@ local NAV = {
 			{ label = "Themes",    preview = PLAYER_IS_SHAMAN and MOCK_THEMES or nil, custom = "themes", paths = { P("settings", "settings_themes") } },
 			{ label = "Fonts & Textures", preview = PLAYER_IS_SHAMAN and MOCK_BARS or nil, paths = { P("settings", "settings_fonts") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
+			{ label = "Keybinds",  paths = { P("settings", "settings_keybinds") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
 		{ label = "Profiles", path = P("profiles"), lock = true },
@@ -792,6 +793,14 @@ function SPConfig:UpdatePreviewPane(remount)
 		if frame._previewKey then self:ReleasePreview() end
 		pane.note:Show()
 		pane.note:SetText("Preview paused during combat so the real frame keeps working. It comes back when combat ends.")
+		return
+	end
+	-- Unlock UI has the real frames up under its boxes (a right-click on a box opens
+	-- this page): borrowing one would pull it out from under its box
+	if key and sp and sp.IsMasterUnlocked and sp:IsMasterUnlocked() then
+		if frame._previewKey then self:ReleasePreview() end
+		pane.note:Show()
+		pane.note:SetText("Preview paused while Unlock UI is on: the real frames are on screen under their boxes. It comes back when you press Done.")
 		return
 	end
 	local def = key and sp and sp.PreviewRegistry and sp.PreviewRegistry[key]
@@ -1547,7 +1556,9 @@ local function PageSignature(list, groups)
 		if e.kind == "section" then
 			parts[#parts + 1] = "S:" .. tostring(e.label)
 		else
-			parts[#parts + 1] = table.concat(e.path, "/")
+			-- the label too: a name that follows another setting (Ready Effect /
+			-- Effect While Shown) is redrawn when only it changed
+			parts[#parts + 1] = table.concat(e.path, "/") .. "=" .. tostring(e.label)
 		end
 	end
 	return table.concat(parts, "|")
@@ -1653,6 +1664,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	local spNow = SP()
 	local hoverStyles = spNow and spNow.OptionHoverStyle or nil
 	local actionRows = spNow and spNow.SettingsActionRow
+	local buttonTones = spNow and spNow.OptionButtonTone   -- [option] = "help": a gold button
 	local actionThrough = 0
 	SPConfig:HoverStyle(nil)   -- a rebuild under the mouse gets no OnLeave
 
@@ -1674,6 +1686,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				local opts = OptionOpts(action, currentSection, offset * (width + COL_GAP), rowY, width, onChanged)
 				opts.func = Tree:MakeFunc(action.node, action.chain, action.info)
 				opts.buttonText = Tree:StripColor(action.label)
+				opts.tone = buttonTones and buttonTones[action.node]
 				local widget, used = Widgets:Button(body, opts)
 				pageWidgets[#pageWidgets + 1] = widget
 				height = math.max(height, used)
@@ -1769,6 +1782,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			elseif e.type == "execute" then
 				opts.func = Tree:MakeFunc(e.node, e.chain, e.info)
 				opts.buttonText = Tree:StripColor(e.label)
+				opts.tone = buttonTones and buttonTones[e.node]
 				f, h = Widgets:Button(body, opts)
 
 			elseif e.type == "description" then
@@ -2211,14 +2225,14 @@ do
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
 			} },
 			{ keys = { "windfuryOnly" } },
-			{ keys = { "community", "share_setup" } },
+			{ keys = { "community", "share_setup", "support_code" } },
 		})
 		sp.SettingsActionRow = {}
 		for _, key in ipairs({ "master_unlock", "keybind_mode", "open_assignments" }) do
 			local option = main.args[key]
 			if option then sp.SettingsActionRow[option] = true end
 		end
-		local keybind = root.fluffy.args.visibility_section.args.keybind_mode
+		local keybind = root.settings.args.settings_keybinds and root.settings.args.settings_keybinds.args.keybind_mode
 		if keybind then keybind.name = "Keybind Mode" end
 	end
 end

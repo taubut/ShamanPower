@@ -581,7 +581,7 @@ function ShamanPower:WireFlyoutFallback(frame, attr)
 end
 
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
-local UnitAura = LCD and LCD.UnitAuraWrapper or UnitAura
+local UnitAura = LCD and LCD.UnitAuraWrapper or SPCompat.UnitAura or UnitAura   -- SPCompat: its own reader on Forever (see SPCompat.UnitBuff)
 -- Guarded natives on restricted clients; the globals stay untouched so Blizzard
 -- code is never tainted by calling into us (see SPCompat)
 local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo
@@ -1203,6 +1203,23 @@ end
 function ShamanPower:OnCombatEnd()
 	if self._onOffPendingCombat then self:ApplyOnOff() end
 	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
+	-- WoW: Forever: the game-drawn shield layers on the cooldown bar's shield button and
+	-- the Earth Shield button. A rebuild asked for during the fight runs now; one that
+	-- is missing (the addon loaded mid-fight) or came back incomplete is built again,
+	-- a few times at most, so a failed build never lasts until the next /reload.
+	if SPCompat and SPCompat.secretsRegime then
+		local btn = self.shieldButton
+		if btn and (self._shieldContainerRebuildPending or not btn.chargeContainer or btn.chargeContainerFailed) then
+			local tries = (btn.chargeContainerTries or 0) + 1
+			if self._shieldContainerRebuildPending or tries <= 3 then
+				btn.chargeContainerTries = tries
+				self:RebuildShieldChargeContainer()
+				if btn.chargeContainer and not btn.chargeContainerFailed then btn.chargeContainerTries = nil end
+			end
+		end
+		local esBtn = _G["ShamanPowerEarthShieldBtn"]
+		if esBtn and not esBtn.chargeContainer and self.EnsureESButtonContainer then self:EnsureESButtonContainer(esBtn) end
+	end
 	-- Layout skipped because the addon loaded (or was reloaded) mid-combat:
 	-- run the parts of the login sequence that could not touch secure frames.
 	if self._layoutPendingCombat then
@@ -1343,6 +1360,9 @@ function ShamanPower:OnProfileChanged()
 		if InCombatLockdown() then self._onOffPendingCombat = true else self:ApplyOnOff() end
 	end
 	if self.ApplyCueSettings then self:ApplyCueSettings() end   -- the new profile's Effects
+	-- the game-drawn shield layer keeps the settings it was built with: the new profile's
+	-- sweep, count, bar and text (after the fight if this runs in one)
+	if self.RebuildShieldChargeContainer then self:RebuildShieldChargeContainer() end
 	--self:Debug("Profile changed, positions restored from profile.")
 end
 
@@ -1458,8 +1478,11 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	local k = 0.25                                    -- 800 logo units -> 200 px
 	logo:SetSize(653 * k, 690 * k)                    -- the boxes span 74..727 x 58..748
 	logo:SetPoint("TOP", card, "TOP", 0, -28)
-	local function Rect(ux, uy, uw, uh, r, g, b)
-		local t = logo:CreateTexture(nil, "ARTWORK")
+	-- sub: the draw order inside the layer (0 the black backing, 1 an edge, 2 the color).
+	-- Two textures on the same layer and sublevel draw in no fixed order, so without it
+	-- a backing can land on top of its color (the boxes went black once the page changed).
+	local function Rect(ux, uy, uw, uh, r, g, b, sub)
+		local t = logo:CreateTexture(nil, "ARTWORK", nil, sub or 2)
 		t:SetColorTexture(r, g, b, 1)
 		t:SetPoint("TOPLEFT", logo, "TOPLEFT", (ux - 74) * k, -(uy - 58) * k)
 		t:SetSize(uw * k, uh * k)
@@ -1467,12 +1490,16 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	end
 	local function Hex(h) return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255 end
 	local function Box(ux, uy, fill, edge)
-		Rect(ux - 4, uy - 4, 156, 156, Hex("05070A"))
+		local r, g, b = Hex("05070A")
+		Rect(ux - 4, uy - 4, 156, 156, r, g, b, 0)
 		if edge then
-			Rect(ux, uy, 148, 148, Hex(edge))
-			Rect(ux + 5, uy + 5, 138, 138, Hex(fill))
+			r, g, b = Hex(edge)
+			Rect(ux, uy, 148, 148, r, g, b, 1)
+			r, g, b = Hex(fill)
+			Rect(ux + 5, uy + 5, 138, 138, r, g, b, 2)
 		else
-			Rect(ux, uy, 148, 148, Hex(fill))
+			r, g, b = Hex(fill)
+			Rect(ux, uy, 148, 148, r, g, b, 2)
 		end
 	end
 	Box(243, 62, "9E3923"); Box(243, 228, "BD442A"); Box(243, 394, "DB4F30")
@@ -1481,8 +1508,10 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	local BARS = { { "AE7E4E", 0.62 }, { "F25735", 0.55 }, { "668DF2", 0.80 }, { "D0D5ED", 0.86 } }
 	for i, bar in ipairs(BARS) do
 		local bx = 76 + (i - 1) * 166
-		Rect(bx, 722, 152, 18, Hex("05070A"))
-		Rect(bx + 4, 726, 144 * bar[2], 10, Hex(bar[1]))
+		local r, g, b = Hex("05070A")
+		Rect(bx, 722, 152, 18, r, g, b, 0)
+		r, g, b = Hex(bar[1])
+		Rect(bx + 4, 726, 144 * bar[2], 10, r, g, b, 2)
 	end
 
 	-- the wordmark ("Shaman" in logo blue, "Power" in white), centred as one
@@ -1510,8 +1539,9 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		if InterfaceOptionsFrame and InterfaceOptionsFrame:IsShown() then InterfaceOptionsFrame:Hide() end
 		if GameMenuFrame and GameMenuFrame:IsShown() then GameMenuFrame:Hide() end
 	end
-	-- the blue bevel button of ShamanPower's settings (ui-style-guide): primary stronger
-	local function Button(w, h, label, size, primary, onClick)
+	-- the blue bevel button of ShamanPower's settings (ui-style-guide): primary stronger;
+	-- help = the same button in gold (Support Code)
+	local function Button(w, h, label, size, primary, onClick, help)
 		local b = CreateFrame("Button", nil, card)
 		b:SetSize(w, h)
 		local fill = b:CreateTexture(nil, "BACKGROUND")
@@ -1525,7 +1555,7 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		end
 		local lit = b:CreateTexture(nil, "ARTWORK")
 		lit:SetPoint("TOPLEFT", 1, -1); lit:SetPoint("TOPRIGHT", -1, -1); lit:SetHeight(1)
-		lit:SetColorTexture(0.247, 0.663, 1, primary and 0.45 or 0.35)
+		if help then lit:SetColorTexture(1, 0.851, 0.4, 0.45) else lit:SetColorTexture(0.247, 0.663, 1, primary and 0.45 or 0.35) end
 		local edges = {}
 		for i = 1, 4 do edges[i] = b:CreateTexture(nil, "OVERLAY") end
 		edges[1]:SetPoint("TOPLEFT"); edges[1]:SetPoint("TOPRIGHT"); edges[1]:SetHeight(1)
@@ -1536,6 +1566,13 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		caption:SetFont(FONT, size, ""); caption:SetTextColor(1, 1, 1); caption:SetText(label)
 		caption:SetPoint("CENTER", 0, 0)
 		local function Paint(hover)
+			if help then
+				fill:SetColorTexture(1, 0.722, 0.110, hover and 0.56 or 0.40)
+				for i = 1, 4 do
+					if hover then edges[i]:SetColorTexture(1, 0.851, 0.4, 1) else edges[i]:SetColorTexture(1, 0.722, 0.110, 1) end
+				end
+				return
+			end
 			local a = primary and (hover and 0.62 or 0.46) or (hover and 0.46 or 0.28)
 			fill:SetColorTexture(0, 0.439, 0.867, a)
 			for i = 1, 4 do
@@ -1596,6 +1633,12 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		what:SetPoint("LEFT", key, "LEFT", 150, 0)
 		prev = key
 	end
+	-- under the ways in, apart from the everyday buttons: the code for #help, in gold like
+	-- the settings' Support Code button (centered: the tips start 200 left of center)
+	local support = Button(160, 28, "Support Code", 12, false, function()
+		if SP.ShowSupportCode then SP:ShowSupportCode() end
+	end, true)
+	support:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 200 - 80, -18)
 	local foot = Text(10, MUTE, "Made for TBC Anniversary and WoW: Forever")
 	foot:SetPoint("BOTTOM", card, "BOTTOM", 0, 14)
 
@@ -1687,6 +1730,15 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		if ShamanPower.ToggleKeybindMode then ShamanPower:ToggleKeybindMode() end
 	elseif msg == "share" then
 		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
+	elseif msg == "support" then
+		if ShamanPower.ShowSupportCode then ShamanPower:ShowSupportCode() end
+	elseif msg == "themecheck" then
+		-- the developer's tripwire (not in the help): Themes-tab changes a theme would not capture
+		local g = ShamanPower.db and ShamanPower.db.global
+		if g then
+			g.themeCheck = not g.themeCheck or nil
+			print("|cff0070ddShamanPower|r: theme check " .. (g.themeCheck and "|cff4cc776ON|r: a Themes-tab change a theme would not capture prints a warning." or "off."))
+		end
 	elseif msg == "check" then
 		if ShamanPower.RunReadyCheckSweep then
 			ShamanPower:RunReadyCheckSweep("manual")
@@ -1706,6 +1758,7 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		line("/sp range", "totem range overlay")
 		line("/sp bind", "keybind mode")
 		line("/sp share", "your setup code")
+		line("/sp support", "a support code to paste in #help")
 		if ShamanPower.RunReadyCheckSweep then line("/sp check", "what you are missing (shield, imbue, totem items)") end
 		if ShamanPower.SetResistPractice then line("/sp resisttest", "practice raid resistance requests (pretend shamans, nothing sent)") end
 		if ShamanPower.RaidCooldownsLoaded then line("/sp calltest", "practice Mana Tide calls as if you knew Mana Tide") end
@@ -4666,7 +4719,7 @@ function ShamanPower:PositionActiveOverlays()
 	local pulsePos = self.opt.pulseBarPosition or "on_icon"
 	local reach = (pulsePos == facing) and (1 + (self.opt.pulseBarSize or 4)) or 0
 	local reachVert = (side == "top" and pulsePos == "below_vert") or (side == "bottom" and pulsePos == "above_vert")
-	if self.opt.showPartyRangeDots and (self.opt.partyDotPosition or "corners") == facing then
+	if self.opt.showPartyRangeDots and IsInGroup() and (self.opt.partyDotPosition or "corners") == facing then
 		reach = math.max(reach, 2 + (self.opt.partyDotSize or 5))
 	end
 	for element = 1, 4 do
@@ -5397,9 +5450,22 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 	text:SetJustifyH("CENTER")
 	text:SetWordWrap(true)
 	mover.text = text
+	mover.spEdges = edge   -- Unlock UI paints the picked box's edges gold
 
-	mover:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	-- In Unlock UI the box is dragged by hand so it can snap as it moves, and it
+	-- takes the mouse wheel, clicks and the arrow keys (ShamanPowerUnlock.lua)
+	mover:SetScript("OnDragStart", function(self)
+		if ShamanPower.UnlockDragStart and ShamanPower:UnlockDragStart(self) then return end
+		self:StartMoving()
+	end)
+	mover:SetScript("OnMouseUp", function(self, button)
+		if ShamanPower.UnlockBoxClick then ShamanPower:UnlockBoxClick(self, button) end
+	end)
+	mover:SetScript("OnMouseWheel", function(self, delta)
+		if ShamanPower.UnlockBoxWheel then ShamanPower:UnlockBoxWheel(self, delta) end
+	end)
 	mover:SetScript("OnDragStop", function(self)
+		local snapped = ShamanPower.UnlockDragStop and ShamanPower:UnlockDragStop(self)
 		self:StopMovingOrSizing()
 		local mf, sf = self.moveFrame, self.sizeFrame
 		if mf and sf then
@@ -5408,8 +5474,9 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 			local mcx, mcy = self:GetCenter()
 			local scx, scy = sf:GetCenter()
 			-- Unlock UI's alignment grid: snap the box's top-left corner to the
-			-- nearest grid lines (lines run from the screen centre, in UIParent pixels)
-			local step = ShamanPower.UnlockGridStep and ShamanPower:UnlockGridStep()
+			-- nearest grid lines (lines run from the screen centre, in UIParent pixels).
+			-- A box dragged by Unlock UI has already snapped as it moved.
+			local step = not snapped and ShamanPower.UnlockGridStep and ShamanPower:UnlockGridStep()
 			if step and mcx and self:GetLeft() then
 				local mes, uis = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
 				local l, t = self:GetLeft() * mes / uis, self:GetTop() * mes / uis
@@ -5469,6 +5536,20 @@ end
 function ShamanPower:HideBarMover(key)
 	local mover = self.barMovers[key]
 	if mover then mover:Hide() end
+end
+
+-- Unlock UI's arrow keys: move the frame a box stands for by dx, dy (UIParent
+-- pixels), save it as a drop does, and put the boxes back over it next frame.
+function ShamanPower:NudgeBarMover(mover, dx, dy)
+	local mf = mover and mover.moveFrame
+	if not mf or InCombatLockdown() then return end
+	local point, rel, relPoint, x, y = mf:GetPoint()
+	if not point then return end
+	local k = UIParent:GetEffectiveScale() / mf:GetEffectiveScale()
+	mf:ClearAllPoints()
+	mf:SetPoint(point, rel, relPoint, x + dx * k, y + dy * k)
+	if mover.onMoved then mover.onMoved() end
+	C_Timer.After(0, RefreshShownBarMovers)
 end
 
 function ShamanPower:GetPositionRecord(frame)
@@ -9814,7 +9895,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 		for element = 1, 4 do results[element] = scan.hits[element] end
 	end
 	for i = 1, ((blindNow or reuse) and 0 or 20) do
-		local name = UnitBuff("player", i)
+		local name = SPCompat.UnitBuff("player", i)
 		if not name then break end
 
 		local nameLower = scannedCache[name]
@@ -10206,6 +10287,11 @@ function ShamanPower:CreateCooldownBar()
 			cd:SetAllPoints()
 			cd:SetDrawEdge(false)
 			cd:SetDrawBling(false)
+			-- no game countdown numbers: the addon draws the time (Show Cooldown Text,
+			-- Duration Text). Without this the radial swipe printed its own "10m" on
+			-- the shield whatever the settings said. The engine path (PlaceEngineBarText)
+			-- turns them on where they stand in for the addon's text.
+			cd:SetHideCountdownNumbers(true)
 			btn.cooldown = cd
 
 			-- Dark overlay for when buff is missing
@@ -10457,10 +10543,36 @@ function ShamanPower:CreateCooldownBar()
 			if ShamanPower.opt.totemicCallOnTotemBar then
 				ShamanPower:UpdateTotemicCallOpacity()
 			end
+			-- Nothing counting down in seconds (all ready, or only long timers shown in
+			-- minutes): once a second draws the bar the same. Anything that can change
+			-- it (the events below, a setting) brings back 5 a second for a second.
+			local sys = ShamanPower.updateSystem.subsystems.cooldownBar
+			sys.interval = (ShamanPower._cdbarBusy or GetTime() < (ShamanPower._cdbarWakeUntil or 0)) and 0.2 or 1
 		end)
+	end
+	if not self._cdbarWakeFrame then
+		local f = CreateFrame("Frame")
+		for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "PLAYER_TOTEM_UPDATE", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "BAG_UPDATE_DELAYED", "SPELLS_CHANGED" }) do
+			pcall(f.RegisterEvent, f, ev)
+		end
+		pcall(f.RegisterUnitEvent, f, "UNIT_AURA", "player")               -- the shield
+		pcall(f.RegisterUnitEvent, f, "UNIT_INVENTORY_CHANGED", "player")  -- imbues, a weapon swap
+		f:SetScript("OnEvent", function() ShamanPower:WakeCooldownBar() end)
+		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+		if reg then reg.RegisterCallback(f, "ConfigTableChange", function() ShamanPower:WakeCooldownBar() end) end
+		self._cdbarWakeFrame = f
 	end
 	-- Note: Enabled/disabled in UpdateCooldownBarVisibility
 	self:ApplyClickSwap()
+end
+
+-- Something the cooldown bar shows may have changed: 5 passes a second again for
+-- the next second (the change itself can land a moment after its event). Never
+-- more than 5 a second, however many events arrive.
+function ShamanPower:WakeCooldownBar()
+	self._cdbarWakeUntil = GetTime() + 1
+	local sys = self.updateSystem.subsystems.cooldownBar
+	if sys then sys.interval = 0.2 end
 end
 
 -- Find a cooldown button by spell ID
@@ -10648,7 +10760,7 @@ end
 
 function ShamanPower:ClearEngineBarCooldown(btn)
 	btn._ebSpell = nil
-	if btn.cooldown then btn.cooldown:Clear() end
+	if btn.cooldown then btn.cooldown:Clear(); btn.cooldown:SetHideCountdownNumbers(true) end   -- back to none (see the button's creation)
 	if btn.cdBar then btn.cdBar:Hide() end
 	if btn.engineBar then btn.engineBar:Hide() end
 end
@@ -11163,14 +11275,21 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 			})
 		end)
 	end
+	local failed = false
 	for _, set in ipairs(self.ShieldAuraSets) do
 		local okAdd, err = buildSlot(set)
-		if not okAdd and SPCompat.Trace then SPCompat.Trace("SHIELD AddAuraSlot %s failed: %s", set.name, tostring(err)) end
+		if not okAdd then
+			failed = true
+			if SPCompat.Trace then SPCompat.Trace("SHIELD AddAuraSlot %s failed: %s", set.name, tostring(err)) end
+		end
 	end
-	pcall(container.SetUnit, container, "player")
+	if not pcall(container.SetUnit, container, "player") then failed = true end
 	pcall(container.UpdateAllAuras, container)
 	container:Hide()   -- shown only while auras are secret
 	btn.chargeContainer = container
+	-- a shield slot that did not register: kept (it draws what it can), built again
+	-- after the next fight (OnCombatEnd), a few times at most
+	btn.chargeContainerFailed = failed or nil
 	if SPCompat.Trace then SPCompat.Trace("SHIELD container ready on %s (sweep=%s bars=%s text=%s)", tostring(btn:GetName()), tostring(sweepStyle), tostring(showBars), tostring(textLocation)) end
 end
 
@@ -11178,7 +11297,10 @@ end
 -- baked in at creation, so build a fresh container (out of combat only).
 function ShamanPower:RebuildShieldChargeContainer()
 	local btn = self.shieldButton
-	if not btn or InCombatLockdown() then return end
+	if not btn then return end
+	-- asked for in a fight (a setting, the preferred shield, a profile): after it (OnCombatEnd)
+	if InCombatLockdown() then self._shieldContainerRebuildPending = true return end
+	self._shieldContainerRebuildPending = nil
 	if btn.chargeContainer then
 		btn.chargeContainer:Hide()
 		pcall(btn.chargeContainer.SetUnit, btn.chargeContainer, "none")   -- the old one stops following auras
@@ -11456,6 +11578,10 @@ function ShamanPower:UpdateCooldownButtons()
 	local textLocation = self.opt.cdbarDurationTextLocation or "none"
 	local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 	local engine = self:EngineCooldownsOn()   -- the engine draws and counts the cooldown buttons; this pass hands it changes
+	-- busy: something here counts down in seconds, or a cue is due soon. Otherwise
+	-- (all ready, or only long timers shown in minutes) the next pass can wait a
+	-- second: see the cooldownBar subsystem and WakeCooldownBar.
+	local busy = false
 
 	-- Use numeric for loop instead of ipairs to avoid iterator garbage
 	for i = 1, #self.cooldownButtons do
@@ -11509,6 +11635,8 @@ function ShamanPower:UpdateCooldownButtons()
 				-- Calculate remaining time
 				local remaining = shieldExpiration - GetTime()
 				local maxDuration = shieldDuration > 0 and shieldDuration or 600  -- Default 10 min
+				-- its time left in text, in seconds (under 10 minutes it reads 9:59)
+				if shieldDuration > 0 and remaining < 601 and (textLocation == "inside" or textLocation == "outside" or textLocation == "icon") then busy = true end
 
 				-- Show charge count with optional coloring
 				if btn.chargeText then
@@ -11641,6 +11769,14 @@ function ShamanPower:UpdateCooldownButtons()
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
 			if self.CueCooldownCheck then self:CueCooldownCheck(btn, start, duration) end   -- "Cooldown Ready" effect
+			-- a cooldown in its last 10 minutes (seconds in its text, its end to catch for
+			-- the Ready cue), any cooldown the engine is drawing, or a Ready cue waiting
+			-- out the global cooldown
+			if start and start > 0 and duration > 1.5 then
+				if engine or (start + duration) - GetTime() < 601 then busy = true end
+			elseif btn._cueCdEnd then
+				busy = true
+			end
 			if engine and start and start > 0 and duration > 1.5 then
 				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
 			elseif start and start > 0 and duration > 1.5 then
@@ -11813,6 +11949,13 @@ function ShamanPower:UpdateCooldownButtons()
 			imbueCtx.textLocation, imbueCtx.showText = textLocation, showText
 
 			if hasMain or hasOff then
+				-- a hand in its last minute (the Imbue Gone cue), or in its last 10 minutes
+				-- with its time in text (seconds): keep the pace
+				local textShown = textLocation == "inside" or textLocation == "outside" or textLocation == "icon" or (textLocation == "none" and showText)
+				if (hasMain and type(mainExp) == "number" and (mainExp < 60000 or (textShown and mainExp < 601000)))
+					or (hasOff and type(offExp) == "number" and (offExp < 60000 or (textShown and offExp < 601000))) then
+					busy = true
+				end
 				-- Track each hand separately
 				local mainType = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or 1
 				local offType = hasOff and (self.EnchantIDToImbue[offID] or self.lastOffHandImbue or 2) or mainType
@@ -11926,6 +12069,7 @@ function ShamanPower:UpdateCooldownButtons()
 			self:UpdateCooldownBarLayout()
 		end
 	end
+	self._cdbarBusy = busy
 end
 
 function ShamanPower:UpdateCooldownBar()
@@ -11993,6 +12137,7 @@ function ShamanPower:UpdateCooldownBar()
 		end
 		self.cooldownBar:Show()
 		self:EnableUpdateSubsystem("cooldownBar")
+		self:WakeCooldownBar()
 
 		-- Apply scale
 		self:UpdateCooldownBarScale()
@@ -12482,6 +12627,9 @@ end
 function ShamanPower:GetPartyDotPads()
 	local pos = (self.opt and self.opt.partyDotPosition) or "corners"
 	if not (self.opt and self.opt.showPartyRangeDots) then return 0, 0, 0, 0 end
+	-- solo there are no dots: the bars sit where they always do (the room comes back
+	-- in a group; OnRosterSettled lays the bar out again when that changes)
+	if not IsInGroup() then return 0, 0, 0, 0 end
 	local pad = (self.opt.partyDotSize or 5) + 3   -- the dot + 2px gap + 1px breathing room
 	return (pos == "above") and pad or 0, (pos == "below") and pad or 0,
 	       (pos == "left") and pad or 0, (pos == "right") and pad or 0
@@ -15137,7 +15285,7 @@ function ShamanPower:GetEarthShieldCharges(targetName)
 
 	-- Search for Earth Shield buff
 	for i = 1, 40 do
-		local name, icon, count, debuffType, duration, expirationTime, source = UnitBuff(unit, i)
+		local name, icon, count, debuffType, duration, expirationTime, source = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		-- Check if it's Earth Shield (by localized name)
 		if esSpellName and name == esSpellName then
@@ -15235,7 +15383,7 @@ function ShamanPower:DiscoverEarthShieldTarget()
 	for _, u in ipairs(tokens) do
 		if UnitExists(u) then
 			for i = 1, 40 do
-				local name, _, count, _, _, _, source = UnitBuff(u, i)
+				local name, _, count, _, _, _, source = SPCompat.UnitBuff(u, i)
 				if not name then break end
 				if name == esSpellName and source == "player" then
 					self.esTrackedTarget = UnitName(u)
@@ -15268,7 +15416,31 @@ function ShamanPower:RefreshEarthShieldTarget()
 end
 
 -- Handle aura changes on tracked target
-function ShamanPower:OnEarthShieldAuraChange(unit)
+-- TBC Anniversary: the carrier (a tank, in a raid) has aura changes all the time,
+-- and each read of its buffs builds a ~1.9 KB record per buff. The game says what
+-- changed: only an Earth Shield added, or a change to the one known (its charges,
+-- its removal), is read. Anything unclear reads, as before (see
+-- PlayerShieldMayHaveChanged). Not on WoW: Forever.
+function ShamanPower:TrackedEarthShieldMayHaveChanged(info, esSpellName)
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
+	if type(info) ~= "table" or info.isFullUpdate then return true end
+	local added = info.addedAuras
+	if added then
+		for i = 1, #added do
+			local a = added[i]
+			if a and a.name == esSpellName then return true end
+		end
+	end
+	local id = self.esTrackedAuraGUID == self.esTrackedTargetGUID and self.esTrackedAuraInstanceID or nil
+	if not id then return true end
+	local upd = info.updatedAuraInstanceIDs
+	if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+	local rem = info.removedAuraInstanceIDs
+	if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	return false
+end
+
+function ShamanPower:OnEarthShieldAuraChange(unit, info)
 	if not self.esTrackedTargetGUID then return end
 	-- Charges on another player cannot be read while auras are secret; keep the
 	-- last known state rather than treating "nothing readable" as "fell off".
@@ -15279,15 +15451,24 @@ function ShamanPower:OnEarthShieldAuraChange(unit)
 
 	local esSpellName = self:GetESSpellName()
 	if not esSpellName then return end
+	if not self:TrackedEarthShieldMayHaveChanged(info, esSpellName) then return end
 
 	-- Check this ONE unit for ES buff
 	local found = false
 	for i = 1, 40 do
-		local name, _, count, _, _, _, source = UnitBuff(unit, i)
+		local name, _, count, _, _, _, source = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == esSpellName and source == "player" then
 			self.esTrackedCharges = count or 0
 			found = true
+			-- TBC Anniversary: its instance, for TrackedEarthShieldMayHaveChanged
+			self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = nil, nil
+			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+				local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
+				if ok and type(a) == "table" and a.name == name then
+					self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = a.auraInstanceID, self.esTrackedTargetGUID
+				end
+			end
 			break
 		end
 	end
@@ -16987,17 +17168,53 @@ function ShamanPower:UpdateAuraCarrierFilter()
 	f:RegisterUnitEvent("UNIT_AURA", "target", "focus")
 end
 
-function ShamanPower:UNIT_AURA(event, unit)
+-- TBC Anniversary: every buff read builds a ~1.9 KB record (measured 2026-09-30:
+-- 189 KB per 100 UnitBuff calls), and the shield check read the buffs one by one
+-- on every change to them. The game says what changed: a change that cannot be
+-- the shield (a proc, a HoT, someone else's buff) keeps what is known. Anything
+-- unclear (a full update, no list, a shield whose instance is not known) reads
+-- again, as before. Not on WoW: Forever, which keeps its own path.
+function ShamanPower:PlayerShieldMayHaveChanged(info)
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
+	local c = self.shieldCache
+	if not c or type(info) ~= "table" or info.isFullUpdate then return true end
+	local added = info.addedAuras
+	if added then
+		for i = 1, #added do
+			local a = added[i]
+			local name = a and a.name
+			for j = 1, #self.ShieldSpells do
+				if name == self.ShieldSpells[j][2] then return true end
+			end
+		end
+	end
+	local id = c.auraInstanceID
+	if id then
+		local upd = info.updatedAuraInstanceIDs
+		if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+		local rem = info.removedAuraInstanceIDs
+		if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	elseif c.hasShield then
+		return true
+	end
+	return false
+end
+
+function ShamanPower:UNIT_AURA(event, unit, info)
 	if unit then self.auraGen[unit] = (self.auraGen[unit] or 0) + 1 end
 	-- Only process if we have a tracked ES target
 	if self.esTrackedTargetGUID then
-		self:OnEarthShieldAuraChange(unit)
+		self:OnEarthShieldAuraChange(unit, info)
 	end
 
 	-- Scan for shield buffs when player auras change (avoids polling). Switched
 	-- off, nothing shows them: read again on switch-on.
 	if unit == "player" and not self:IsOff() then
-		self:ScanPlayerShield()
+		if self:PlayerShieldMayHaveChanged(info) then
+			self:ScanPlayerShield()
+		else
+			self._shieldCheckedGen = self.auraGen.player   -- nothing about the shield changed: what is known holds
+		end
 		if cachePlayerBuffs then self:RefreshPlayerBuffCache() end
 	end
 end
@@ -17050,6 +17267,7 @@ function ShamanPower:ScanPlayerShield()
 	local shieldDuration = 0
 	local shieldExpiration = 0
 	local shieldBuffIndex = nil
+	local shieldName, shieldRawCount = nil, nil
 
 	if totemsSecretNow() then
 		-- auras are secret: serve the shadow record (plain numbers, same display code)
@@ -17067,13 +17285,14 @@ function ShamanPower:ScanPlayerShield()
 	end
 
 	for i = 1, 40 do
-		local name, icon, count, _, duration, expirationTime = UnitBuff("player", i)
+		local name, icon, count, _, duration, expirationTime = SPCompat.UnitBuff("player", i)
 		if not name then break end
 		for j = 1, #self.ShieldSpells do
 			local shieldData = self.ShieldSpells[j]
 			if name == shieldData[2] then
 				hasShield = true
 				shieldID = shieldData[1]
+				shieldName, shieldRawCount = name, count
 				shieldIcon = icon
 				shieldCharges = count or 0
 				shieldDuration = duration or 0
@@ -17104,6 +17323,14 @@ function ShamanPower:ScanPlayerShield()
 		self.shadowShield = nil
 	end
 
+	-- TBC Anniversary: the shield's instance, so a later change can be told apart
+	-- (PlayerShieldMayHaveChanged). One more read, only when a shield was found.
+	local instanceID
+	if hasShield and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, "player", shieldBuffIndex)
+		if ok and type(a) == "table" and a.name == shieldName then instanceID = a.auraInstanceID end
+	end
+
 	-- Cache the result
 	self.shieldCache = {
 		hasShield = hasShield,
@@ -17113,7 +17340,11 @@ function ShamanPower:ScanPlayerShield()
 		shieldDuration = shieldDuration,
 		shieldExpiration = shieldExpiration,
 		buffIndex = shieldBuffIndex,
+		shieldName = shieldName,          -- Shield Charges reads these on TBC Anniversary instead of its own scan
+		rawCount = shieldRawCount,
+		auraInstanceID = instanceID,
 	}
+	self._shieldCheckedGen = self.auraGen and self.auraGen.player or 0   -- current as of this aura change
 end
 
 -- Raid cooldown messages: "call" = a one-shot alert, "sync" = assignment state
@@ -17534,6 +17765,19 @@ end
 
 function ShamanPower:OnRosterSettled()
 	self:UpdateRoster()
+	-- the party dots' room is kept only in a group: joining or leaving one lays the
+	-- bars out again (the button spacing waits for the end of a fight, then comes here)
+	local grouped = IsInGroup() and true or false
+	if self._dotRoomGrouped ~= grouped
+		or (self._dotBarSpacing and self._dotBarSpacing ~= self:TotemBarSpacing()) then
+		self._dotRoomGrouped = grouped
+		if self.UpdatePartyDotPositions then self:UpdatePartyDotPositions() end
+		self:PositionActiveOverlays()   -- the dropped-totem icons step past the dots too
+		-- Blizzard's Totem Bar styles its own bars (after the fight when in one)
+		if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() and self.QueueBlizzardTotemBarRefresh then
+			self.QueueBlizzardTotemBarRefresh()
+		end
+	end
 end
 
 -- One roster member: who leads, and which raid subgroup each known shaman is in
@@ -18078,7 +18322,7 @@ function ShamanPower:IsDruidFeral(unit)
 	-- Check if they have Mangle or other feral abilities (by checking buffs/debuffs)
 	-- Ferals often have Leader of the Pack buff
 	for i = 1, 40 do
-		local name = UnitBuff(unit, i)
+		local name = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == "Leader of the Pack" then
 			return true
@@ -18096,7 +18340,7 @@ function ShamanPower:IsShamanEnhancement(unit)
 	-- Enhancement shamans dual wield or use 2H with Stormstrike
 	-- Check if they have Stormstrike buff/ability
 	for i = 1, 40 do
-		local name = UnitBuff(unit, i)
+		local name = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == "Unleashed Rage" or name == "Shamanistic Rage" then
 			return true
@@ -18824,6 +19068,57 @@ ShamanPower.CooldownTypeToButtonType = {
 
 -- Update keybind text on all buttons (totem bar + cooldown bar)
 -- Priority: 1) Action bar addon keybind, 2) Default WoW action bar keybind, 3) ShamanPower binding
+-- Which key a button shows (Keybind Shown, opt.keybindSource; a Discord request
+-- 2026-09-29): the key from the action bars first, else ShamanPower's own binding
+-- ("actionbar", the default and how it always was); ShamanPower's binding first,
+-- else the action bar key ("sp"); or ShamanPower's binding only ("sponly").
+-- spellName nil: the button has no spell of its own (Drop All), only its binding.
+function ShamanPower:ButtonKeybindText(spellName, bindingName, element)
+	local mode = self.opt.keybindSource
+	local barKey, spKey
+	if spellName and mode ~= "sponly" then
+		local k = self:GetKeybindForSpell(spellName)
+		if k then barKey = GetShortKeybindText(k) end
+	end
+	-- ShamanPower's key: the button's own, else the key Keybind Mode gave the flyout
+	-- button that casts the same spell (the Earth button showing Earthbind shows the
+	-- key set on Earthbind in the Earth flyout)
+	local own = bindingName and GetBindingKey(bindingName)
+	spKey = GetShortKeybindText(own or self:FlyoutSpellClickKey(spellName, element))
+	if mode == "sp" or mode == "sponly" then return spKey or barKey end
+	return barKey or spKey
+end
+
+-- The key Keybind Mode set on a flyout button (a CLICK binding on its cast click).
+function ShamanPower:FlyoutClickKey(btn, mouse)
+	local name = btn and btn:GetName()
+	return name and GetBindingKey("CLICK " .. name .. ":" .. mouse) or nil
+end
+
+-- That key for the flyout button casting spellName: the element's totem flyout,
+-- or (element nil) the shield and imbue flyouts.
+function ShamanPower:FlyoutSpellClickKey(spellName, element)
+	if not spellName then return nil end
+	if element then
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		local cast = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"
+		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
+			if btn.totemIndex and btn.totemIndex > 0 and btn.spellID and GetSpellInfo(btn.spellID) == spellName then
+				return self:FlyoutClickKey(btn, cast)
+			end
+		end
+		return nil
+	end
+	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+		for _, btn in ipairs(flyout and flyout.buttons or {}) do
+			if (btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID))) == spellName then
+				return self:FlyoutClickKey(btn, "LeftButton")
+			end
+		end
+	end
+	return nil
+end
+
 function ShamanPower:UpdateButtonKeybindText()
 	-- Set up totem bar keybind text if not already done
 	self:SetupTotemBarKeybindText()
@@ -18859,28 +19154,12 @@ function ShamanPower:UpdateButtonKeybindText()
 	for bindingName, buttonName in pairs(self.TotemBarKeybinds) do
 		local btn = _G[buttonName]
 		if btn and btn.keybindText then
-			local keyText = nil
-
-			-- First, try to get keybind from action bar addon
+			-- the element's spell on the action bars and/or ShamanPower's own binding
+			-- (ButtonKeybindText). Drop All has no spell of its own: its binding only
+			-- (bound via a macro, the user would need the SP_DropAll macro on a bar).
 			local element = self.TotemBarElementMap[bindingName]
-			if element then
-				local spellName = self:GetSpellNameForButton("totem", element)
-				if spellName then
-					local actionBarKey = self:GetKeybindForSpell(spellName)
-					if actionBarKey then
-						keyText = GetShortKeybindText(actionBarKey)
-					end
-				end
-			elseif bindingName == "SHAMANPOWER_DROPALL" then
-				-- Drop All could be bound via macro - skip action bar lookup
-				-- (user would need to bind the SP_DropAll macro on their bar)
-			end
-
-			-- Fallback to ShamanPower-specific binding
-			if not keyText then
-				local key1, key2 = GetBindingKey(bindingName)
-				keyText = GetShortKeybindText(key1)
-			end
+			local spellName = element and self:GetSpellNameForButton("totem", element) or nil
+			local keyText = self:ButtonKeybindText(spellName, bindingName, element)
 
 			if keyText then
 				btn.keybindText:SetText(keyText)
@@ -18896,25 +19175,9 @@ function ShamanPower:UpdateButtonKeybindText()
 	for bindingName, cooldownType in pairs(self.CooldownBarKeybinds) do
 		local btn = self:GetCooldownButtonByCooldownType(cooldownType)
 		if btn and btn.keybindText then
-			local keyText = nil
-
-			-- First, try to get keybind from action bar addon
 			local buttonType = self.CooldownTypeToButtonType[cooldownType]
-			if buttonType then
-				local spellName = self:GetSpellNameForButton(buttonType)
-				if spellName then
-					local actionBarKey = self:GetKeybindForSpell(spellName)
-					if actionBarKey then
-						keyText = GetShortKeybindText(actionBarKey)
-					end
-				end
-			end
-
-			-- Fallback to ShamanPower-specific binding
-			if not keyText then
-				local key1, key2 = GetBindingKey(bindingName)
-				keyText = GetShortKeybindText(key1)
-			end
+			local spellName = buttonType and self:GetSpellNameForButton(buttonType) or nil
+			local keyText = self:ButtonKeybindText(spellName, bindingName)
 
 			if keyText then
 				btn.keybindText:SetText(keyText)
@@ -18928,22 +19191,7 @@ function ShamanPower:UpdateButtonKeybindText()
 
 	-- Update keybind text for weapon imbue button
 	if self.weaponImbueButton and self.weaponImbueButton.keybindText then
-		local keyText = nil
-
-		-- Try to get keybind from action bar addon for current imbue spell
-		local spellName = self:GetSpellNameForButton("imbue")
-		if spellName then
-			local actionBarKey = self:GetKeybindForSpell(spellName)
-			if actionBarKey then
-				keyText = GetShortKeybindText(actionBarKey)
-			end
-		end
-
-		-- Fallback to ShamanPower-specific binding
-		if not keyText then
-			local key1, key2 = GetBindingKey("SHAMANPOWER_CD_IMBUE")
-			keyText = GetShortKeybindText(key1)
-		end
+		local keyText = self:ButtonKeybindText(self:GetSpellNameForButton("imbue"), "SHAMANPOWER_CD_IMBUE")
 
 		if keyText then
 			self.weaponImbueButton.keybindText:SetText(keyText)
@@ -18962,7 +19210,7 @@ end
 -- buttons. (There is no ShamanPower binding per flyout totem, so a spell that
 -- is not on a bound bar slot simply shows nothing.)
 function ShamanPower:UpdateFlyoutKeybindText(enabled)
-	local function apply(btn, spellName)
+	local function apply(btn, spellName, mouse)
 		if not btn then return end
 		if not btn.keybindText then
 			if InCombatLockdown() then return end   -- make it after the fight; text alone is fine in combat
@@ -18976,8 +19224,16 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 			fs:SetTextColor(0.9, 0.9, 0.9, 1)
 			btn.keybindText = fs
 		end
-		local key = enabled and spellName and self:GetKeybindForSpell(spellName)
-		local text = key and GetShortKeybindText(key)
+		-- the same choice as the bar buttons (Keybind Shown): the action bar key, or the
+		-- key Keybind Mode set on this flyout button (a CLICK binding on its cast click)
+		local text
+		if enabled then
+			local mode = self.opt.keybindSource
+			local barKey = spellName and mode ~= "sponly" and self:GetKeybindForSpell(spellName)
+			barKey = barKey and GetShortKeybindText(barKey)
+			local spKey = GetShortKeybindText(self:FlyoutClickKey(btn, mouse))
+			if mode == "sp" or mode == "sponly" then text = spKey or barKey else text = barKey or spKey end
+		end
 		if text then
 			btn.keybindText:SetText(text)
 			btn.keybindText:Show()
@@ -18987,15 +19243,16 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 		end
 	end
 
+	local cast = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"   -- a totem flyout button's cast click
 	for element = 1, 4 do
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
-			apply(btn, btn.spellID and GetSpellInfo(btn.spellID))
+			apply(btn, btn.spellID and GetSpellInfo(btn.spellID), cast)
 		end
 	end
 	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
 		for _, btn in ipairs(flyout and flyout.buttons or {}) do
-			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)))
+			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)), "LeftButton")
 		end
 	end
 end

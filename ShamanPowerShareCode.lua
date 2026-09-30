@@ -39,6 +39,7 @@ local function sub(t, k) return type(t) == "table" and t[k] or nil end
 local function G(name) return rawget(_G, name) end
 local function on(v) return v == true end
 local function notOff(v) return v ~= nil and v ~= false end   -- "on unless switched off", set tables only
+local function changed(v) return v ~= nil and v ~= "default" end   -- a look picked away from its default
 local function anyTrue(t)
 	if type(t) ~= "table" then return false end
 	for _, v in pairs(t) do if v then return true end end
@@ -117,7 +118,7 @@ SP.SHARE_FEATURES = {
 	{ key = "minimapIcon",        label = "Minimap icon shown",                 get = function() return sub(O().minimap, "show") ~= false end },
 	{ key = "readyCheckList",     label = "Ready check: on-screen list",        get = function() return sub(O().readyCheck, "showPanel") ~= false end },
 	{ key = "readyRemindersAlways", label = "Ready reminders: always shown (dim on cooldown)", get = function()
-		local m = sub(G("ShamanPower_ReadyReminders"), "mode"); return m ~= nil and m ~= "ready"
+		return sub(G("ShamanPower_ReadyReminders"), "mode") == "always"   -- "cooldown" has its own entry (readyRemindersCooldownOnly)
 	end },
 	{ key = "coverageFreeCells",  label = "Coverage: one box per totem",        get = function() return on(sub(O().coverage, "freeCells")) end },
 	-- 3.0.3: Shield Charges looks, the cooldown bar's shield charge bar, the bar Effects
@@ -140,6 +141,49 @@ SP.SHARE_FEATURES = {
 	{ key = "coverageDotsMissing", label = "Coverage dots: only who's missing", get = function() return on(sub(O().coverage, "dotsMissingOnly")) end },
 	{ key = "coverageTimer",      label = "Coverage: totem time left",          get = function() return on(sub(O().coverage, "showTimer")) end },
 	{ key = "coveragePlainIcon",  label = "Coverage: plain totem icon",         get = function() return on(sub(O().coverage, "plainIcon")) end },
+	-- 3.0.5: the 3.0.4 looks (Themes, Shapes & Textures, Class Colors, Shield Charge orbs) and options
+	{ key = "themeShamanPower",   label = "Theme: ShamanPower",                 get = function() return SP.ThemeGlobal and SP:ThemeGlobal() == "shamanpower" end },
+	{ key = "themeMinimal",       label = "Theme: ShamanPower Minimal",         get = function() return SP.ThemeGlobal and SP:ThemeGlobal() == "minimal" end },
+	{ key = "themeCustom",        label = "Theme: Custom look",                 get = function() return SP.ThemeIsCustom and SP:ThemeIsCustom() end },
+	{ key = "elementBorders",     label = "Element-colored borders",            get = function()
+		local t = O().theme
+		return on(sub(t, "borders")) or on(sub(t, "bordersFlyouts")) or on(sub(t, "bordersCooldown")) or on(sub(t, "bordersCooldownFlyouts"))
+	end },
+	{ key = "shapeTotemBar",      label = "Totem bar icon shape changed",       get = function() return changed(O().iconShape) end },
+	{ key = "shapeCircle",        label = "Circle icons on any bar",            get = function()
+		local o = O()
+		return o.iconShape == "circle" or o.iconShapeCooldown == "circle" or o.iconShapeReady == "circle"
+	end },
+	{ key = "shapeCooldownBar",   label = "Cooldown bar icon shape changed",    get = function() return changed(SP.IconShapeOf and SP:IconShapeOf("cooldown")) end },
+	{ key = "shapeReady",         label = "Ready Reminders icon shape changed", get = function() return changed(O().iconShapeReady) end },
+	{ key = "barGradient",        label = "Bar gradient on",                    get = function() return changed(O().barGradient) end },
+	{ key = "outlineGradient",    label = "Outline gradient on",                get = function() return changed(O().outlineGradient) end },
+	{ key = "roundGlows",         label = "Round glows",                        get = function() return O().glowShape == "round" end },
+	{ key = "dotShape",           label = "Party dot shape changed",            get = function() return changed(O().dotShape) end },
+	{ key = "frameEdge",          label = "Frame edge changed",                 get = function() return changed(O().frameEdge) end },
+	{ key = "classColorSet",      label = "Class colors set picked",            get = function() return sub(O().theme, "classColors") ~= nil end },
+	{ key = "gemDots",            label = "Gem dot finish",                     get = function() return on(O().dotGem) end },
+	{ key = "noDurationBarBg",    label = "Duration bar background off",        get = function() return O().durationBarBackground == false end },
+	{ key = "shieldOrbs",         label = "Shield charges: orbs on any shield", get = function()
+		if not SP.GetShieldLook then return false end
+		for which = 1, 3 do if SP:GetShieldLook(which) ~= "bar" then return true end end
+		return false
+	end },
+	{ key = "shieldOrbsAnimated", label = "Shield charges: animated orbs",      get = function()
+		local s = O().shieldChargeDisplay
+		return on(sub(s, "orbAnim")) or on(sub(s, "orbAnimWS")) or on(sub(s, "orbAnimES"))
+	end },
+	{ key = "shieldChargeColors", label = "Shield charges: own charge colors",  get = function()
+		local s = O().shieldChargeDisplay
+		return sub(s, "chargeColorLS") ~= nil or sub(s, "chargeColorWS") ~= nil or sub(s, "chargeColorES") ~= nil
+	end },
+	{ key = "combinedShocks",     label = "Ready reminders: Combined Shocks",   get = function() return on(sub(sub(G("ShamanPower_ReadyReminders"), "spells"), "shocks")) end },
+	{ key = "flyoutRightClick",   label = "Flyout requires right-click",        get = function() return SP.FlyoutOpensOnRightClick and SP:FlyoutOpensOnRightClick() end },
+	{ key = "shiftPullsTotem",    label = "Shift+right-click pulls the totem back", get = function() return on(O().shiftRightClickPullsTotem) end },
+	{ key = "hidePlayerTotems",   label = "Hide Blizzard's totem timers",       get = function() return on(O().hidePlayerTotems) end },
+	-- 3.0.5: Ready Reminders "only while on cooldown" and Grid placement
+	{ key = "readyRemindersCooldownOnly", label = "Ready reminders: only while on cooldown", get = function() return sub(G("ShamanPower_ReadyReminders"), "mode") == "cooldown" end },
+	{ key = "readyRemindersGrid", label = "Ready reminders: grid placement",    get = function() return sub(G("ShamanPower_ReadyReminders"), "arrange") == "grid" end },
 }
 
 -- ---------------------------------------------------------------------------
@@ -167,6 +211,7 @@ local function specIndex()
 	if role == "restoration" then return 1 elseif role == "enhancement" then return 2 elseif role == "elemental" then return 3 end
 	return 0
 end
+SP.ShareSpecIndex = specIndex   -- the support code reports the same spec
 
 local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 local function base64url(bytes)
