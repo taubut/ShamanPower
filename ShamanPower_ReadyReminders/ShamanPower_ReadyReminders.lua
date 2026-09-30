@@ -56,6 +56,8 @@ local DEFAULTS = {
 	spells = {},           -- [key] = true/false (nil = catalog default)
 	positions = {},        -- [key] = { point, x, y }
 }
+-- the support code (/sp support) reports only what differs from these
+if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPower_ReadyReminders = DEFAULTS end
 
 -- Catalog. ids: every spell ID the spell has had across clients; the first one
 -- the client knows is used. No cooldown lengths here: on a secret-value client

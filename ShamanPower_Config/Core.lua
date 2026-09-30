@@ -27,6 +27,9 @@ local C = {
 	accent     = { 0.000, 0.439, 0.867 },
 	accentHi   = { 0.247, 0.663, 1.000 },
 	accentDim  = { 0.000, 0.439, 0.867, 0.25 },
+	-- the help tone (Support Code buttons): WoW's "look here" gold, never an error
+	help       = { 1.000, 0.722, 0.110 },
+	helpHi     = { 1.000, 0.851, 0.400 },
 
 	text       = { 0.902, 0.918, 0.941 },
 	textDim    = { 0.541, 0.580, 0.651 },
@@ -435,8 +438,10 @@ end
 -- pushes it in (the top edge goes dark and the caption drops a pixel). Hover
 -- and leave are SetScript, so a caller's own OnEnter/OnLeave replaces them;
 -- the press uses OnMouseDown/Up and is kept. caption: the button's text, if
--- any (it takes the text colour for the style).
-function Core:BevelButton(b, primary, caption)
+-- any (it takes the text color for the style). tone "help": the same button
+-- in gold (the Support Code buttons); b.spTone can change it later (pooled rows
+-- set it, then call b.spPaint).
+function Core:BevelButton(b, primary, caption, tone)
 	local bg = b.bg or b:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(b)
 	local shade = b:CreateTexture(nil, "BACKGROUND", nil, 1)
@@ -447,7 +452,6 @@ function Core:BevelButton(b, primary, caption)
 	hi:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
 	hi:SetPoint("TOPRIGHT", b, "TOPRIGHT", -1, -1)
 	hi:SetHeight(1)
-	hi:SetColorTexture(Core:Color("accentHi", primary and 0.45 or 0.35))
 	local lo = b:CreateTexture(nil, "ARTWORK")
 	lo:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 1, 1)
 	lo:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
@@ -459,13 +463,21 @@ function Core:BevelButton(b, primary, caption)
 	down:Hide()
 	if not b.spBorder then self:MakeBorder(b, "accent") end
 	if caption then caption:SetTextColor(self:Color("white")) end
-	-- blue for every button; the primary (main action) a stronger blue
+	-- blue for every button; the primary (main action) a stronger blue; the help tone gold
+	b.spTone = tone
 	local function paint(hover)
+		if b.spTone == "help" then
+			bg:SetColorTexture(Core:Color("help", hover and 0.56 or 0.40))
+			hi:SetColorTexture(Core:Color("helpHi", 0.45))
+			Core:SetBorderColor(b, hover and "helpHi" or "help")
+			return
+		end
 		if primary then
 			bg:SetColorTexture(Core:Color("accent", hover and 0.62 or 0.46))
 		else
 			bg:SetColorTexture(Core:Color("accent", hover and 0.46 or 0.28))
 		end
+		hi:SetColorTexture(Core:Color("accentHi", primary and 0.45 or 0.35))
 		Core:SetBorderColor(b, hover and "accentHi" or "accent")
 	end
 	paint(false)
@@ -498,7 +510,7 @@ function Core:BevelButton(b, primary, caption)
 	return b
 end
 
-function Core:MakeButton(parent, text, width, primary)
+function Core:MakeButton(parent, text, width, primary, tone)
 	local b = CreateFrame("Button", nil, parent)
 	b:SetHeight(26)
 	local t = b:CreateFontString(nil, "OVERLAY")
@@ -506,7 +518,7 @@ function Core:MakeButton(parent, text, width, primary)
 	t:SetPoint("CENTER")
 	t:SetText(text)
 	b:SetWidth(math.max(width or 0, t:GetStringWidth() + 28))
-	self:BevelButton(b, primary, t)
+	self:BevelButton(b, primary, t, tone)
 	b.text = t
 	return b
 end

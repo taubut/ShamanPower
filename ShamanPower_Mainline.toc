@@ -44,6 +44,7 @@ ShamanPowerReadyCheck.lua
 ShamanPowerKeybindMode.lua
 ShamanPowerTrainer.lua
 ShamanPowerShareCode.lua
+ShamanPowerSupportCode.lua
 ShamanPowerTotemSets.lua
 ShamanPowerBlizzardTotemBar.lua
 ShamanPowerMinimapTotems.lua

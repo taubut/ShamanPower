@@ -13,6 +13,8 @@
 --                    settings window's dialogs
 --     spec.editText  optional read-only box with this text, focused and fully
 --                    selected, so Ctrl+C copies it; typing in it changes nothing
+--     spec.editScroll  the box keeps the dialog's width and its text scrolls
+--                    (a long code), instead of the dialog widening to fit it
 --     spec.buttons   1-3 { text = "Accept", onClick = function(dialog) end }; a
 --                    click runs onClick, then closes the dialog unless onClick
 --                    returns true. The first is the main one: highlighted and
@@ -422,6 +424,8 @@ local function build()
 	box:SetAutoFocus(false)
 	box:SetFontObject(FONTS.text)
 	box:SetTextInsets(8, 8, 0, 0)
+	box:SetMaxLetters(0)   -- no cap: a cut-off copy would fight the read-only guard below
+	if box.SetMaxBytes then box:SetMaxBytes(0) end
 	local boxBg = box:CreateTexture(nil, "BACKGROUND")
 	boxBg:SetAllPoints(box)
 	boxBg:SetColorTexture(color("sidebarBg"))
@@ -479,7 +483,7 @@ local function layout(f, spec)
 		end
 	end
 	w = math.max(w, rowW + 2 * PAD)
-	if f.spEditText then
+	if f.spEditText and not spec.editScroll then
 		f.measure:SetText(f.spEditText)
 		w = math.max(w, math.ceil(f.measure:GetStringWidth()) + 24 + 2 * PAD)
 	end

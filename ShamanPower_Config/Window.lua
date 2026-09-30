@@ -1653,6 +1653,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	local spNow = SP()
 	local hoverStyles = spNow and spNow.OptionHoverStyle or nil
 	local actionRows = spNow and spNow.SettingsActionRow
+	local buttonTones = spNow and spNow.OptionButtonTone   -- [option] = "help": a gold button
 	local actionThrough = 0
 	SPConfig:HoverStyle(nil)   -- a rebuild under the mouse gets no OnLeave
 
@@ -1674,6 +1675,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				local opts = OptionOpts(action, currentSection, offset * (width + COL_GAP), rowY, width, onChanged)
 				opts.func = Tree:MakeFunc(action.node, action.chain, action.info)
 				opts.buttonText = Tree:StripColor(action.label)
+				opts.tone = buttonTones and buttonTones[action.node]
 				local widget, used = Widgets:Button(body, opts)
 				pageWidgets[#pageWidgets + 1] = widget
 				height = math.max(height, used)
@@ -1769,6 +1771,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			elseif e.type == "execute" then
 				opts.func = Tree:MakeFunc(e.node, e.chain, e.info)
 				opts.buttonText = Tree:StripColor(e.label)
+				opts.tone = buttonTones and buttonTones[e.node]
 				f, h = Widgets:Button(body, opts)
 
 			elseif e.type == "description" then
@@ -2211,7 +2214,7 @@ do
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
 			} },
 			{ keys = { "windfuryOnly" } },
-			{ keys = { "community", "share_setup" } },
+			{ keys = { "community", "share_setup", "support_code" } },
 		})
 		sp.SettingsActionRow = {}
 		for _, key in ipairs({ "master_unlock", "keybind_mode", "open_assignments" }) do

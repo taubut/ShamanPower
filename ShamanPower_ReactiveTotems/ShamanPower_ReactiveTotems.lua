@@ -139,6 +139,8 @@ local defaultSettings = {
 		disease = { point = "CENTER", x = 80, y = 150 },
 	},
 }
+-- the support code (/sp support) reports only what differs from these
+if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPower_ReactiveTotems = defaultSettings end
 
 -- ============================================================================
 -- Initialization

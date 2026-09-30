@@ -1458,8 +1458,11 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	local k = 0.25                                    -- 800 logo units -> 200 px
 	logo:SetSize(653 * k, 690 * k)                    -- the boxes span 74..727 x 58..748
 	logo:SetPoint("TOP", card, "TOP", 0, -28)
-	local function Rect(ux, uy, uw, uh, r, g, b)
-		local t = logo:CreateTexture(nil, "ARTWORK")
+	-- sub: the draw order inside the layer (0 the black backing, 1 an edge, 2 the color).
+	-- Two textures on the same layer and sublevel draw in no fixed order, so without it
+	-- a backing can land on top of its color (the boxes went black once the page changed).
+	local function Rect(ux, uy, uw, uh, r, g, b, sub)
+		local t = logo:CreateTexture(nil, "ARTWORK", nil, sub or 2)
 		t:SetColorTexture(r, g, b, 1)
 		t:SetPoint("TOPLEFT", logo, "TOPLEFT", (ux - 74) * k, -(uy - 58) * k)
 		t:SetSize(uw * k, uh * k)
@@ -1467,12 +1470,16 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	end
 	local function Hex(h) return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255 end
 	local function Box(ux, uy, fill, edge)
-		Rect(ux - 4, uy - 4, 156, 156, Hex("05070A"))
+		local r, g, b = Hex("05070A")
+		Rect(ux - 4, uy - 4, 156, 156, r, g, b, 0)
 		if edge then
-			Rect(ux, uy, 148, 148, Hex(edge))
-			Rect(ux + 5, uy + 5, 138, 138, Hex(fill))
+			r, g, b = Hex(edge)
+			Rect(ux, uy, 148, 148, r, g, b, 1)
+			r, g, b = Hex(fill)
+			Rect(ux + 5, uy + 5, 138, 138, r, g, b, 2)
 		else
-			Rect(ux, uy, 148, 148, Hex(fill))
+			r, g, b = Hex(fill)
+			Rect(ux, uy, 148, 148, r, g, b, 2)
 		end
 	end
 	Box(243, 62, "9E3923"); Box(243, 228, "BD442A"); Box(243, 394, "DB4F30")
@@ -1481,8 +1488,10 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	local BARS = { { "AE7E4E", 0.62 }, { "F25735", 0.55 }, { "668DF2", 0.80 }, { "D0D5ED", 0.86 } }
 	for i, bar in ipairs(BARS) do
 		local bx = 76 + (i - 1) * 166
-		Rect(bx, 722, 152, 18, Hex("05070A"))
-		Rect(bx + 4, 726, 144 * bar[2], 10, Hex(bar[1]))
+		local r, g, b = Hex("05070A")
+		Rect(bx, 722, 152, 18, r, g, b, 0)
+		r, g, b = Hex(bar[1])
+		Rect(bx + 4, 726, 144 * bar[2], 10, r, g, b, 2)
 	end
 
 	-- the wordmark ("Shaman" in logo blue, "Power" in white), centred as one
@@ -1510,8 +1519,9 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		if InterfaceOptionsFrame and InterfaceOptionsFrame:IsShown() then InterfaceOptionsFrame:Hide() end
 		if GameMenuFrame and GameMenuFrame:IsShown() then GameMenuFrame:Hide() end
 	end
-	-- the blue bevel button of ShamanPower's settings (ui-style-guide): primary stronger
-	local function Button(w, h, label, size, primary, onClick)
+	-- the blue bevel button of ShamanPower's settings (ui-style-guide): primary stronger;
+	-- help = the same button in gold (Support Code)
+	local function Button(w, h, label, size, primary, onClick, help)
 		local b = CreateFrame("Button", nil, card)
 		b:SetSize(w, h)
 		local fill = b:CreateTexture(nil, "BACKGROUND")
@@ -1525,7 +1535,7 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		end
 		local lit = b:CreateTexture(nil, "ARTWORK")
 		lit:SetPoint("TOPLEFT", 1, -1); lit:SetPoint("TOPRIGHT", -1, -1); lit:SetHeight(1)
-		lit:SetColorTexture(0.247, 0.663, 1, primary and 0.45 or 0.35)
+		if help then lit:SetColorTexture(1, 0.851, 0.4, 0.45) else lit:SetColorTexture(0.247, 0.663, 1, primary and 0.45 or 0.35) end
 		local edges = {}
 		for i = 1, 4 do edges[i] = b:CreateTexture(nil, "OVERLAY") end
 		edges[1]:SetPoint("TOPLEFT"); edges[1]:SetPoint("TOPRIGHT"); edges[1]:SetHeight(1)
@@ -1536,6 +1546,13 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		caption:SetFont(FONT, size, ""); caption:SetTextColor(1, 1, 1); caption:SetText(label)
 		caption:SetPoint("CENTER", 0, 0)
 		local function Paint(hover)
+			if help then
+				fill:SetColorTexture(1, 0.722, 0.110, hover and 0.56 or 0.40)
+				for i = 1, 4 do
+					if hover then edges[i]:SetColorTexture(1, 0.851, 0.4, 1) else edges[i]:SetColorTexture(1, 0.722, 0.110, 1) end
+				end
+				return
+			end
 			local a = primary and (hover and 0.62 or 0.46) or (hover and 0.46 or 0.28)
 			fill:SetColorTexture(0, 0.439, 0.867, a)
 			for i = 1, 4 do
@@ -1596,6 +1613,12 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 		what:SetPoint("LEFT", key, "LEFT", 150, 0)
 		prev = key
 	end
+	-- under the ways in, apart from the everyday buttons: the code for #help, in gold like
+	-- the settings' Support Code button (centered: the tips start 200 left of center)
+	local support = Button(160, 28, "Support Code", 12, false, function()
+		if SP.ShowSupportCode then SP:ShowSupportCode() end
+	end, true)
+	support:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", 200 - 80, -18)
 	local foot = Text(10, MUTE, "Made for TBC Anniversary and WoW: Forever")
 	foot:SetPoint("BOTTOM", card, "BOTTOM", 0, 14)
 
@@ -1687,6 +1710,8 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		if ShamanPower.ToggleKeybindMode then ShamanPower:ToggleKeybindMode() end
 	elseif msg == "share" then
 		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
+	elseif msg == "support" then
+		if ShamanPower.ShowSupportCode then ShamanPower:ShowSupportCode() end
 	elseif msg == "check" then
 		if ShamanPower.RunReadyCheckSweep then
 			ShamanPower:RunReadyCheckSweep("manual")
@@ -1706,6 +1731,7 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		line("/sp range", "totem range overlay")
 		line("/sp bind", "keybind mode")
 		line("/sp share", "your setup code")
+		line("/sp support", "a support code to paste in #help")
 		if ShamanPower.RunReadyCheckSweep then line("/sp check", "what you are missing (shield, imbue, totem items)") end
 		if ShamanPower.SetResistPractice then line("/sp resisttest", "practice raid resistance requests (pretend shamans, nothing sent)") end
 		if ShamanPower.RaidCooldownsLoaded then line("/sp calltest", "practice Mana Tide calls as if you knew Mana Tide") end

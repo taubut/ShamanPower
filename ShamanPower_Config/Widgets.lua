@@ -1092,6 +1092,7 @@ function Widgets:Button(parent, opts)
 
 	local txt = row.txt
 	local caption = opts.buttonText or opts.label or ""
+	row.btn.spTone = opts.tone   -- "help": the gold Support Code button (a pooled row resets it)
 	row.btn.spPaint(false)   -- a pooled row may come back from another page mid-hover
 	txt.spTruncated = false
 	txt:SetText(caption)
