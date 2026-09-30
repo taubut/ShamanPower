@@ -3325,7 +3325,7 @@ ShamanPower.options = {
 						visibility_desc = {
 							order = 0,
 							type = "description",
-							name = "Show or hide various UI elements like frames, text, keybinds, and drag handles.",
+							name = "Show or hide various UI elements like frames, text and drag handles.",
 						},
 						hide_totem_bar_frame = {
 							order = 1,
@@ -3389,6 +3389,21 @@ ShamanPower.options = {
 								-- and again shortly after, in case the first pass ran before the
 								-- spell names were available
 								if val and ShamanPower.QueueKeybindTextRefresh then ShamanPower:QueueKeybindTextRefresh() end
+							end
+						},
+						keybind_source = {
+							order = 4.1,
+							type = "select",
+							name = "Keybind Shown",
+							desc = "Which key the buttons show when a spell is bound in two places. Action Bar Key First: the key from your action bars, else ShamanPower's own. ShamanPower Key First: ShamanPower's own binding, else the action bar key. ShamanPower Key Only: only ShamanPower's own bindings (the flyout icons, which have none, then show no key).",
+							width = 1.5,
+							values = { actionbar = "Action Bar Key First", sp = "ShamanPower Key First", sponly = "ShamanPower Key Only" },
+							sorting = { "actionbar", "sp", "sponly" },
+							hidden = function() return not ShamanPower.opt.showButtonKeybinds end,
+							get = function() return ShamanPower.opt.keybindSource or "actionbar" end,
+							set = function(info, val)
+								ShamanPower.opt.keybindSource = val
+								ShamanPower:UpdateButtonKeybindText()
 							end
 						},
 					}
@@ -10886,6 +10901,20 @@ do
 		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" },
 			names = { unlock_cd_bar = "Move (unlock bar)" } },
 	})
+end
+
+-- General > Keybinds: everything about keys in one place (Look & Feel > Visibility
+-- held these before). The Keybind Mode button is added by ShamanPowerKeybindMode.lua.
+do
+	local SP = ShamanPower
+	local settings = SP.options.args.settings.args
+	settings.settings_keybinds = { type = "group", name = "Keybinds", order = 2.9, args = {
+		keybinds_desc = { order = 0, type = "description", name = "Bind keys to ShamanPower's buttons and choose which key the buttons show." },
+	} }
+	SP.MoveSettingsOptions({ "fluffy", "visibility_section" }, { "settings", "settings_keybinds" }, { "show_button_keybinds", "keybind_source" })
+	local args = settings.settings_keybinds.args
+	if args.show_button_keybinds then args.show_button_keybinds.order = 1 end
+	if args.keybind_source then args.keybind_source.order = 2 end
 end
 
 -- Appearance is grouped by the thing being styled, not by slider type.

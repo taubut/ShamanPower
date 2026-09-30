@@ -202,6 +202,7 @@ local NAV = {
 			{ label = "Themes",    preview = PLAYER_IS_SHAMAN and MOCK_THEMES or nil, custom = "themes", paths = { P("settings", "settings_themes") } },
 			{ label = "Fonts & Textures", preview = PLAYER_IS_SHAMAN and MOCK_BARS or nil, paths = { P("settings", "settings_fonts") } },
 			{ label = "Interface", paths = { P("settings", "settings_newui") } },
+			{ label = "Keybinds",  paths = { P("settings", "settings_keybinds") } },
 			{ label = "Reset",     paths = { P("settings", "settings_frames") } },
 		}},
 		{ label = "Profiles", path = P("profiles"), lock = true },
@@ -2221,7 +2222,7 @@ do
 			local option = main.args[key]
 			if option then sp.SettingsActionRow[option] = true end
 		end
-		local keybind = root.fluffy.args.visibility_section.args.keybind_mode
+		local keybind = root.settings.args.settings_keybinds and root.settings.args.settings_keybinds.args.keybind_mode
 		if keybind then keybind.name = "Keybind Mode" end
 	end
 end

@@ -93,6 +93,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
         showButtonKeybinds = false,  -- Show keybind text on buttons (top-right corner)
+        keybindSource = "actionbar",  -- which key the buttons show: actionbar (first) | sp (ShamanPower's own first) | sponly
         hideTotemBarFrame = true,   -- Hide the background/border around totem bar (icons only)
         hideCooldownBarFrame = true,   -- Hide the background/border around cooldown bar (icons only)
         cooldownBarLocked = false, -- CD bar floats free of the totem bar; use Unlock Bar to move it

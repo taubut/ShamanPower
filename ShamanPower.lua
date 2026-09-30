@@ -19040,6 +19040,57 @@ ShamanPower.CooldownTypeToButtonType = {
 
 -- Update keybind text on all buttons (totem bar + cooldown bar)
 -- Priority: 1) Action bar addon keybind, 2) Default WoW action bar keybind, 3) ShamanPower binding
+-- Which key a button shows (Keybind Shown, opt.keybindSource; a Discord request
+-- 2026-09-29): the key from the action bars first, else ShamanPower's own binding
+-- ("actionbar", the default and how it always was); ShamanPower's binding first,
+-- else the action bar key ("sp"); or ShamanPower's binding only ("sponly").
+-- spellName nil: the button has no spell of its own (Drop All), only its binding.
+function ShamanPower:ButtonKeybindText(spellName, bindingName, element)
+	local mode = self.opt.keybindSource
+	local barKey, spKey
+	if spellName and mode ~= "sponly" then
+		local k = self:GetKeybindForSpell(spellName)
+		if k then barKey = GetShortKeybindText(k) end
+	end
+	-- ShamanPower's key: the button's own, else the key Keybind Mode gave the flyout
+	-- button that casts the same spell (the Earth button showing Earthbind shows the
+	-- key set on Earthbind in the Earth flyout)
+	local own = bindingName and GetBindingKey(bindingName)
+	spKey = GetShortKeybindText(own or self:FlyoutSpellClickKey(spellName, element))
+	if mode == "sp" or mode == "sponly" then return spKey or barKey end
+	return barKey or spKey
+end
+
+-- The key Keybind Mode set on a flyout button (a CLICK binding on its cast click).
+function ShamanPower:FlyoutClickKey(btn, mouse)
+	local name = btn and btn:GetName()
+	return name and GetBindingKey("CLICK " .. name .. ":" .. mouse) or nil
+end
+
+-- That key for the flyout button casting spellName: the element's totem flyout,
+-- or (element nil) the shield and imbue flyouts.
+function ShamanPower:FlyoutSpellClickKey(spellName, element)
+	if not spellName then return nil end
+	if element then
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		local cast = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"
+		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
+			if btn.totemIndex and btn.totemIndex > 0 and btn.spellID and GetSpellInfo(btn.spellID) == spellName then
+				return self:FlyoutClickKey(btn, cast)
+			end
+		end
+		return nil
+	end
+	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+		for _, btn in ipairs(flyout and flyout.buttons or {}) do
+			if (btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID))) == spellName then
+				return self:FlyoutClickKey(btn, "LeftButton")
+			end
+		end
+	end
+	return nil
+end
+
 function ShamanPower:UpdateButtonKeybindText()
 	-- Set up totem bar keybind text if not already done
 	self:SetupTotemBarKeybindText()
@@ -19075,28 +19126,12 @@ function ShamanPower:UpdateButtonKeybindText()
 	for bindingName, buttonName in pairs(self.TotemBarKeybinds) do
 		local btn = _G[buttonName]
 		if btn and btn.keybindText then
-			local keyText = nil
-
-			-- First, try to get keybind from action bar addon
+			-- the element's spell on the action bars and/or ShamanPower's own binding
+			-- (ButtonKeybindText). Drop All has no spell of its own: its binding only
+			-- (bound via a macro, the user would need the SP_DropAll macro on a bar).
 			local element = self.TotemBarElementMap[bindingName]
-			if element then
-				local spellName = self:GetSpellNameForButton("totem", element)
-				if spellName then
-					local actionBarKey = self:GetKeybindForSpell(spellName)
-					if actionBarKey then
-						keyText = GetShortKeybindText(actionBarKey)
-					end
-				end
-			elseif bindingName == "SHAMANPOWER_DROPALL" then
-				-- Drop All could be bound via macro - skip action bar lookup
-				-- (user would need to bind the SP_DropAll macro on their bar)
-			end
-
-			-- Fallback to ShamanPower-specific binding
-			if not keyText then
-				local key1, key2 = GetBindingKey(bindingName)
-				keyText = GetShortKeybindText(key1)
-			end
+			local spellName = element and self:GetSpellNameForButton("totem", element) or nil
+			local keyText = self:ButtonKeybindText(spellName, bindingName, element)
 
 			if keyText then
 				btn.keybindText:SetText(keyText)
@@ -19112,25 +19147,9 @@ function ShamanPower:UpdateButtonKeybindText()
 	for bindingName, cooldownType in pairs(self.CooldownBarKeybinds) do
 		local btn = self:GetCooldownButtonByCooldownType(cooldownType)
 		if btn and btn.keybindText then
-			local keyText = nil
-
-			-- First, try to get keybind from action bar addon
 			local buttonType = self.CooldownTypeToButtonType[cooldownType]
-			if buttonType then
-				local spellName = self:GetSpellNameForButton(buttonType)
-				if spellName then
-					local actionBarKey = self:GetKeybindForSpell(spellName)
-					if actionBarKey then
-						keyText = GetShortKeybindText(actionBarKey)
-					end
-				end
-			end
-
-			-- Fallback to ShamanPower-specific binding
-			if not keyText then
-				local key1, key2 = GetBindingKey(bindingName)
-				keyText = GetShortKeybindText(key1)
-			end
+			local spellName = buttonType and self:GetSpellNameForButton(buttonType) or nil
+			local keyText = self:ButtonKeybindText(spellName, bindingName)
 
 			if keyText then
 				btn.keybindText:SetText(keyText)
@@ -19144,22 +19163,7 @@ function ShamanPower:UpdateButtonKeybindText()
 
 	-- Update keybind text for weapon imbue button
 	if self.weaponImbueButton and self.weaponImbueButton.keybindText then
-		local keyText = nil
-
-		-- Try to get keybind from action bar addon for current imbue spell
-		local spellName = self:GetSpellNameForButton("imbue")
-		if spellName then
-			local actionBarKey = self:GetKeybindForSpell(spellName)
-			if actionBarKey then
-				keyText = GetShortKeybindText(actionBarKey)
-			end
-		end
-
-		-- Fallback to ShamanPower-specific binding
-		if not keyText then
-			local key1, key2 = GetBindingKey("SHAMANPOWER_CD_IMBUE")
-			keyText = GetShortKeybindText(key1)
-		end
+		local keyText = self:ButtonKeybindText(self:GetSpellNameForButton("imbue"), "SHAMANPOWER_CD_IMBUE")
 
 		if keyText then
 			self.weaponImbueButton.keybindText:SetText(keyText)
@@ -19178,7 +19182,7 @@ end
 -- buttons. (There is no ShamanPower binding per flyout totem, so a spell that
 -- is not on a bound bar slot simply shows nothing.)
 function ShamanPower:UpdateFlyoutKeybindText(enabled)
-	local function apply(btn, spellName)
+	local function apply(btn, spellName, mouse)
 		if not btn then return end
 		if not btn.keybindText then
 			if InCombatLockdown() then return end   -- make it after the fight; text alone is fine in combat
@@ -19192,8 +19196,16 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 			fs:SetTextColor(0.9, 0.9, 0.9, 1)
 			btn.keybindText = fs
 		end
-		local key = enabled and spellName and self:GetKeybindForSpell(spellName)
-		local text = key and GetShortKeybindText(key)
+		-- the same choice as the bar buttons (Keybind Shown): the action bar key, or the
+		-- key Keybind Mode set on this flyout button (a CLICK binding on its cast click)
+		local text
+		if enabled then
+			local mode = self.opt.keybindSource
+			local barKey = spellName and mode ~= "sponly" and self:GetKeybindForSpell(spellName)
+			barKey = barKey and GetShortKeybindText(barKey)
+			local spKey = GetShortKeybindText(self:FlyoutClickKey(btn, mouse))
+			if mode == "sp" or mode == "sponly" then text = spKey or barKey else text = barKey or spKey end
+		end
 		if text then
 			btn.keybindText:SetText(text)
 			btn.keybindText:Show()
@@ -19203,15 +19215,16 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 		end
 	end
 
+	local cast = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"   -- a totem flyout button's cast click
 	for element = 1, 4 do
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
-			apply(btn, btn.spellID and GetSpellInfo(btn.spellID))
+			apply(btn, btn.spellID and GetSpellInfo(btn.spellID), cast)
 		end
 	end
 	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
 		for _, btn in ipairs(flyout and flyout.buttons or {}) do
-			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)))
+			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)), "LeftButton")
 		end
 	end
 end
