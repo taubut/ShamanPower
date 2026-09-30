@@ -581,7 +581,7 @@ function ShamanPower:WireFlyoutFallback(frame, attr)
 end
 
 local LCD = (ShamanPower.isVanilla) and LibStub("LibClassicDurations", true)
-local UnitAura = LCD and LCD.UnitAuraWrapper or UnitAura
+local UnitAura = LCD and LCD.UnitAuraWrapper or SPCompat.UnitAura or UnitAura   -- SPCompat: its own reader on Forever (see SPCompat.UnitBuff)
 -- Guarded natives on restricted clients; the globals stay untouched so Blizzard
 -- code is never tainted by calling into us (see SPCompat)
 local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo
@@ -9867,7 +9867,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 		for element = 1, 4 do results[element] = scan.hits[element] end
 	end
 	for i = 1, ((blindNow or reuse) and 0 or 20) do
-		local name = UnitBuff("player", i)
+		local name = SPCompat.UnitBuff("player", i)
 		if not name then break end
 
 		local nameLower = scannedCache[name]
@@ -10259,6 +10259,11 @@ function ShamanPower:CreateCooldownBar()
 			cd:SetAllPoints()
 			cd:SetDrawEdge(false)
 			cd:SetDrawBling(false)
+			-- no game countdown numbers: the addon draws the time (Show Cooldown Text,
+			-- Duration Text). Without this the radial swipe printed its own "10m" on
+			-- the shield whatever the settings said. The engine path (PlaceEngineBarText)
+			-- turns them on where they stand in for the addon's text.
+			cd:SetHideCountdownNumbers(true)
 			btn.cooldown = cd
 
 			-- Dark overlay for when buff is missing
@@ -10510,10 +10515,36 @@ function ShamanPower:CreateCooldownBar()
 			if ShamanPower.opt.totemicCallOnTotemBar then
 				ShamanPower:UpdateTotemicCallOpacity()
 			end
+			-- Nothing counting down in seconds (all ready, or only long timers shown in
+			-- minutes): once a second draws the bar the same. Anything that can change
+			-- it (the events below, a setting) brings back 5 a second for a second.
+			local sys = ShamanPower.updateSystem.subsystems.cooldownBar
+			sys.interval = (ShamanPower._cdbarBusy or GetTime() < (ShamanPower._cdbarWakeUntil or 0)) and 0.2 or 1
 		end)
+	end
+	if not self._cdbarWakeFrame then
+		local f = CreateFrame("Frame")
+		for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "PLAYER_TOTEM_UPDATE", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "BAG_UPDATE_DELAYED", "SPELLS_CHANGED" }) do
+			pcall(f.RegisterEvent, f, ev)
+		end
+		pcall(f.RegisterUnitEvent, f, "UNIT_AURA", "player")               -- the shield
+		pcall(f.RegisterUnitEvent, f, "UNIT_INVENTORY_CHANGED", "player")  -- imbues, a weapon swap
+		f:SetScript("OnEvent", function() ShamanPower:WakeCooldownBar() end)
+		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+		if reg then reg.RegisterCallback(f, "ConfigTableChange", function() ShamanPower:WakeCooldownBar() end) end
+		self._cdbarWakeFrame = f
 	end
 	-- Note: Enabled/disabled in UpdateCooldownBarVisibility
 	self:ApplyClickSwap()
+end
+
+-- Something the cooldown bar shows may have changed: 5 passes a second again for
+-- the next second (the change itself can land a moment after its event). Never
+-- more than 5 a second, however many events arrive.
+function ShamanPower:WakeCooldownBar()
+	self._cdbarWakeUntil = GetTime() + 1
+	local sys = self.updateSystem.subsystems.cooldownBar
+	if sys then sys.interval = 0.2 end
 end
 
 -- Find a cooldown button by spell ID
@@ -10701,7 +10732,7 @@ end
 
 function ShamanPower:ClearEngineBarCooldown(btn)
 	btn._ebSpell = nil
-	if btn.cooldown then btn.cooldown:Clear() end
+	if btn.cooldown then btn.cooldown:Clear(); btn.cooldown:SetHideCountdownNumbers(true) end   -- back to none (see the button's creation)
 	if btn.cdBar then btn.cdBar:Hide() end
 	if btn.engineBar then btn.engineBar:Hide() end
 end
@@ -11519,6 +11550,10 @@ function ShamanPower:UpdateCooldownButtons()
 	local textLocation = self.opt.cdbarDurationTextLocation or "none"
 	local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 	local engine = self:EngineCooldownsOn()   -- the engine draws and counts the cooldown buttons; this pass hands it changes
+	-- busy: something here counts down in seconds, or a cue is due soon. Otherwise
+	-- (all ready, or only long timers shown in minutes) the next pass can wait a
+	-- second: see the cooldownBar subsystem and WakeCooldownBar.
+	local busy = false
 
 	-- Use numeric for loop instead of ipairs to avoid iterator garbage
 	for i = 1, #self.cooldownButtons do
@@ -11572,6 +11607,8 @@ function ShamanPower:UpdateCooldownButtons()
 				-- Calculate remaining time
 				local remaining = shieldExpiration - GetTime()
 				local maxDuration = shieldDuration > 0 and shieldDuration or 600  -- Default 10 min
+				-- its time left in text, in seconds (under 10 minutes it reads 9:59)
+				if shieldDuration > 0 and remaining < 601 and (textLocation == "inside" or textLocation == "outside" or textLocation == "icon") then busy = true end
 
 				-- Show charge count with optional coloring
 				if btn.chargeText then
@@ -11704,6 +11741,14 @@ function ShamanPower:UpdateCooldownButtons()
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
 			if self.CueCooldownCheck then self:CueCooldownCheck(btn, start, duration) end   -- "Cooldown Ready" effect
+			-- a cooldown in its last 10 minutes (seconds in its text, its end to catch for
+			-- the Ready cue), any cooldown the engine is drawing, or a Ready cue waiting
+			-- out the global cooldown
+			if start and start > 0 and duration > 1.5 then
+				if engine or (start + duration) - GetTime() < 601 then busy = true end
+			elseif btn._cueCdEnd then
+				busy = true
+			end
 			if engine and start and start > 0 and duration > 1.5 then
 				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
 			elseif start and start > 0 and duration > 1.5 then
@@ -11876,6 +11921,13 @@ function ShamanPower:UpdateCooldownButtons()
 			imbueCtx.textLocation, imbueCtx.showText = textLocation, showText
 
 			if hasMain or hasOff then
+				-- a hand in its last minute (the Imbue Gone cue), or in its last 10 minutes
+				-- with its time in text (seconds): keep the pace
+				local textShown = textLocation == "inside" or textLocation == "outside" or textLocation == "icon" or (textLocation == "none" and showText)
+				if (hasMain and type(mainExp) == "number" and (mainExp < 60000 or (textShown and mainExp < 601000)))
+					or (hasOff and type(offExp) == "number" and (offExp < 60000 or (textShown and offExp < 601000))) then
+					busy = true
+				end
 				-- Track each hand separately
 				local mainType = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or 1
 				local offType = hasOff and (self.EnchantIDToImbue[offID] or self.lastOffHandImbue or 2) or mainType
@@ -11989,6 +12041,7 @@ function ShamanPower:UpdateCooldownButtons()
 			self:UpdateCooldownBarLayout()
 		end
 	end
+	self._cdbarBusy = busy
 end
 
 function ShamanPower:UpdateCooldownBar()
@@ -12056,6 +12109,7 @@ function ShamanPower:UpdateCooldownBar()
 		end
 		self.cooldownBar:Show()
 		self:EnableUpdateSubsystem("cooldownBar")
+		self:WakeCooldownBar()
 
 		-- Apply scale
 		self:UpdateCooldownBarScale()
@@ -15203,7 +15257,7 @@ function ShamanPower:GetEarthShieldCharges(targetName)
 
 	-- Search for Earth Shield buff
 	for i = 1, 40 do
-		local name, icon, count, debuffType, duration, expirationTime, source = UnitBuff(unit, i)
+		local name, icon, count, debuffType, duration, expirationTime, source = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		-- Check if it's Earth Shield (by localized name)
 		if esSpellName and name == esSpellName then
@@ -15301,7 +15355,7 @@ function ShamanPower:DiscoverEarthShieldTarget()
 	for _, u in ipairs(tokens) do
 		if UnitExists(u) then
 			for i = 1, 40 do
-				local name, _, count, _, _, _, source = UnitBuff(u, i)
+				local name, _, count, _, _, _, source = SPCompat.UnitBuff(u, i)
 				if not name then break end
 				if name == esSpellName and source == "player" then
 					self.esTrackedTarget = UnitName(u)
@@ -15349,7 +15403,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit)
 	-- Check this ONE unit for ES buff
 	local found = false
 	for i = 1, 40 do
-		local name, _, count, _, _, _, source = UnitBuff(unit, i)
+		local name, _, count, _, _, _, source = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == esSpellName and source == "player" then
 			self.esTrackedCharges = count or 0
@@ -17133,7 +17187,7 @@ function ShamanPower:ScanPlayerShield()
 	end
 
 	for i = 1, 40 do
-		local name, icon, count, _, duration, expirationTime = UnitBuff("player", i)
+		local name, icon, count, _, duration, expirationTime = SPCompat.UnitBuff("player", i)
 		if not name then break end
 		for j = 1, #self.ShieldSpells do
 			local shieldData = self.ShieldSpells[j]
@@ -18157,7 +18211,7 @@ function ShamanPower:IsDruidFeral(unit)
 	-- Check if they have Mangle or other feral abilities (by checking buffs/debuffs)
 	-- Ferals often have Leader of the Pack buff
 	for i = 1, 40 do
-		local name = UnitBuff(unit, i)
+		local name = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == "Leader of the Pack" then
 			return true
@@ -18175,7 +18229,7 @@ function ShamanPower:IsShamanEnhancement(unit)
 	-- Enhancement shamans dual wield or use 2H with Stormstrike
 	-- Check if they have Stormstrike buff/ability
 	for i = 1, 40 do
-		local name = UnitBuff(unit, i)
+		local name = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == "Unleashed Rage" or name == "Shamanistic Rage" then
 			return true

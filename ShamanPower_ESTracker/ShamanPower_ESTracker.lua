@@ -6,6 +6,7 @@
 -- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
 local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
+local UnitBuff = SPCompat and SPCompat.UnitBuff or UnitBuff   -- ShamanPower's own reader on Forever, never another addon's global
 if not SP then return end
 -- Loads for every class: raid leaders and healers track the shamans' Earth Shields.
 

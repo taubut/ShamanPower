@@ -93,8 +93,19 @@ SP.readyReminderFrames = frames   -- read by the setup tour's preview
 local catalogByKey = {}
 for i, e in ipairs(SP.ReadyReminderSpells) do e.order = i; catalogByKey[e.key] = e end
 
+-- Filling in the defaults walks every one of them, and SV() is called about 20
+-- times per update pass. So the walk runs only when the saved table is a new one
+-- (it loaded, an import replaced it), when a theme reset cleared one of the
+-- colors, and once a second besides (a setting cleared some other way); every
+-- other call hands the table straight back.
+local filledFor, filledAt = nil, 0
 local function SV()
 	local sv = ShamanPower_ReadyReminders
+	local now = GetTime()
+	if sv == filledFor and now - filledAt < 1 and sv.borderColor ~= nil and sv.glowColor ~= nil and sv.barColor ~= nil then
+		return sv
+	end
+	filledFor, filledAt = sv, now
 	for k, v in pairs(DEFAULTS) do
 		if sv[k] == nil then
 			if type(v) == "table" then

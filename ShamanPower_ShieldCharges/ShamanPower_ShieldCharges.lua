@@ -4,6 +4,7 @@
 -- ============================================================================
 
 local SP = ShamanPower
+local UnitBuff = SPCompat and SPCompat.UnitBuff or UnitBuff   -- ShamanPower's own reader on Forever, never another addon's global
 if not SP then return end
 -- Only load for Shamans (the core keeps no-op stubs for everything this module provides)
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
@@ -664,7 +665,8 @@ local function stormOrbOnFrame(settings, kind, s, n, which)
 	return -blen / 2 + (n - 0.5) / count * blen, cy + arc
 end
 local function dropGates(frame)
-	for _, set in pairs(frame.stormGates or {}) do
+	if not frame.stormGates then return end
+	for _, set in pairs(frame.stormGates) do
 		for _, g in ipairs(set) do
 			g:Hide()
 			pcall(g.SetUnit, g, "none")
@@ -720,9 +722,13 @@ local function ensureGates(frame, kind, settings, s)
 	local sig = (wantLS or wantWS) and (tostring(wantLS) .. tostring(wantWS) .. "|" .. tostring(s) .. "|" .. tostring(settings.chargeBarDirection)
 		.. "|" .. tostring(settings.showIcon) .. "|" .. tostring(settings.showNumber) .. "|" .. tostring(settings.numberPosition)) or false
 	if frame.stormGateSig == sig then
-		-- the same gates: shown again after the settings preview hid them
-		for _, set in pairs(frame.stormGates or {}) do
-			for _, g in ipairs(set) do if not g:IsShown() then g:Show() end end
+		-- the same gates: shown again after the settings preview hid them (none built:
+		-- nothing to do, and no empty table made on every update)
+		local sets = frame.stormGates
+		if sets then
+			for _, set in pairs(sets) do
+				for _, g in ipairs(set) do if not g:IsShown() then g:Show() end end
+			end
 		end
 		return
 	end

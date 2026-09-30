@@ -137,6 +137,21 @@ do
 			return auraToClassic(C_UnitAuras.GetAuraDataByIndex(unit, index, filter))
 		end
 	end
+
+	-- ShamanPower's own buff reads. On Forever the game has no UnitBuff: the global
+	-- name belongs to whichever addon defines it (the ones above only when nobody
+	-- had), and another addon's may work differently. 2026-09-30 a player's
+	-- readable Lightning Shield came back nil through the global, so the cooldown
+	-- bar never saw the shield. ShamanPower's code reads through these instead; on
+	-- Anniversary they are the game's own functions, exactly as before.
+	local A = C_UnitAuras
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and A and A.GetBuffDataByIndex and A.GetDebuffDataByIndex and A.GetAuraDataByIndex then
+		SPCompat.UnitBuff = function(unit, index, filter) return auraToClassic(A.GetBuffDataByIndex(unit, index, filter)) end
+		SPCompat.UnitDebuff = function(unit, index, filter) return auraToClassic(A.GetDebuffDataByIndex(unit, index, filter)) end
+		SPCompat.UnitAura = function(unit, index, filter) return auraToClassic(A.GetAuraDataByIndex(unit, index, filter)) end
+	else
+		SPCompat.UnitBuff, SPCompat.UnitDebuff, SPCompat.UnitAura = UnitBuff, UnitDebuff, UnitAura
+	end
 end
 
 -- ---------------------------------------------------------------------------
@@ -846,10 +861,8 @@ if SPCompat.secretsRegime then
 	-- in a combat marks auras blocked; further reads short-circuit until the
 	-- player leaves combat, so the 40-slot scan loops stay cheap.
 	local auraBlocked = false
-	local function guardAura(name)
-		local orig = _G[name]
-		if not orig then return end
-		_G[name] = function(unit, index, filter)
+	local function guarded(orig)
+		return function(unit, index, filter)
 			if aurasSecretNow() or (auraBlocked and anyRestrictionActive()) then
 				if not auraBlocked then hit("aura") end
 				auraBlocked = true
@@ -867,6 +880,11 @@ if SPCompat.secretsRegime then
 			end
 			return a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12
 		end
+	end
+	local function guardAura(name)
+		if _G[name] then _G[name] = guarded(_G[name]) end
+		-- ShamanPower's own reader (see the aura reads near the top): the same guard
+		if SPCompat[name] then SPCompat[name] = guarded(SPCompat[name]) end
 	end
 	guardAura("UnitBuff")
 	guardAura("UnitDebuff")
@@ -1518,7 +1536,7 @@ local function SPDiagCombat()
 		end
 	end
 	do
-		local ok, name = pcall(UnitBuff, "player", 1)
+		local ok, name = pcall(SPCompat.UnitBuff, "player", 1)
 		say("UnitBuff(player,1) via the compat layer: ok=%s name=%s", tostring(ok), SPV(name))
 	end
 
@@ -2548,6 +2566,13 @@ SlashCmdList["SPPERF"] = function(msg)
 		for fname, fn in pairs(forig) do SP[fname] = fn end
 		if stress then stress:Stop() end
 		SP._perfRunning = nil
+		-- every line goes to chat and to the saved report list (ShamanPowerDB.global.perfLog,
+		-- the last 20 runs), so a run can be read back from the saved variables after a reload
+		local lines = {}
+		local function say(text)
+			print(text)
+			lines[#lines + 1] = (text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+		end
 		local window = GetTime() - t0
 		UpdateAddOnMemoryUsage()   -- before the report below builds its own strings
 		local memNow, luaNow = {}, collectgarbage("count")
@@ -2555,30 +2580,30 @@ SlashCmdList["SPPERF"] = function(msg)
 		local rows = {}
 		for name, st in pairs(stats) do rows[#rows + 1] = { name = name, st = st } end
 		table.sort(rows, function(a, b) return a.st.ms > b.st.ms end)
-		print(string.format("|cff00ccffspperf|r %.1f s window. Subsystems (central update loop):", window))
+		say(string.format("|cff00ccffspperf|r %.1f s window. Subsystems (central update loop):", window))
 		local totalMs, totalKb = 0, 0
 		for _, r in ipairs(rows) do
 			local st = r.st
 			totalMs, totalKb = totalMs + st.ms, totalKb + st.kb
-			print(string.format("  %-16s %s every %.2fs  calls=%d  %.2f ms total (%.3f ms/call)  alloc %.1f KB (%.2f KB/s)",
+			say(string.format("  %-16s %s every %.2fs  calls=%d  %.2f ms total (%.3f ms/call)  alloc %.1f KB (%.2f KB/s)",
 				r.name, st.enabled and "ON " or "off", st.interval or 0, st.calls, st.ms, st.calls > 0 and st.ms / st.calls or 0, st.kb, st.kb / window))
 		end
-		print(string.format("  subsystems total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", totalMs, totalMs / (window * 10), totalKb, totalKb / window))
+		say(string.format("  subsystems total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", totalMs, totalMs / (window * 10), totalKb, totalKb / window))
 		local frows = {}
 		for fname, st in pairs(fstats) do if st.calls > 0 then frows[#frows + 1] = { name = fname, st = st } end end
 		table.sort(frows, function(a, b) return a.st.ms > b.st.ms end)
-		print("  Methods (time includes whatever they call):")
+		say("  Methods (time includes whatever they call):")
 		for _, r in ipairs(frows) do
-			print(string.format("    %-28s calls=%-5d %.2f ms (%.4f ms/call)  alloc %.1f KB", r.name, r.st.calls, r.st.ms, r.st.ms / r.st.calls, r.st.kb))
+			say(string.format("    %-28s calls=%-5d %.2f ms (%.4f ms/call)  alloc %.1f KB", r.name, r.st.calls, r.st.ms, r.st.ms / r.st.calls, r.st.kb))
 		end
 		for _, a in ipairs(addons) do
 			local now = memNow[a]
 			local grew = now - (mem0[a] or now)
 			if math.abs(grew) > 0.5 or a == "ShamanPower" then
-				print(string.format("  memory %-32s %.0f KB  (%+.1f KB over the window, %+.2f KB/s)", a, now, grew, grew / window))
+				say(string.format("  memory %-32s %.0f KB  (%+.1f KB over the window, %+.2f KB/s)", a, now, grew, grew / window))
 			end
 		end
-		print(string.format("  whole Lua heap: %+.1f KB over the window", luaNow - lua0))
+		say(string.format("  whole Lua heap: %+.1f KB over the window", luaNow - lua0))
 		if C_AddOnProfiler and C_AddOnProfiler.GetAddOnMetric and Enum and Enum.AddOnProfilerMetric then
 			local M = Enum.AddOnProfilerMetric
 			for _, a in ipairs(addons) do
@@ -2586,11 +2611,19 @@ SlashCmdList["SPPERF"] = function(msg)
 				local ok2, peak = pcall(C_AddOnProfiler.GetAddOnMetric, a, M.PeakTime)
 				local ok3, session = pcall(C_AddOnProfiler.GetAddOnMetric, a, M.SessionAverageTime)
 				if ok and type(recent) == "number" and (recent > 0.005 or a == "ShamanPower") then
-					print(string.format("  client profiler %-28s recent %.3f ms/frame  session %.3f  peak %.2f", a, recent, ok3 and session or 0, ok2 and peak or 0))
+					say(string.format("  client profiler %-28s recent %.3f ms/frame  session %.3f  peak %.2f", a, recent, ok3 and session or 0, ok2 and peak or 0))
 				end
 			end
 		end
 		if stress then stress:Report(window) end
-		print("|cff00ccffspperf|r done. Anything NOT in the subsystem list (event handlers, module OnUpdates) shows only in the memory / client profiler lines.")
+		say("|cff00ccffspperf|r done. Anything NOT in the subsystem list (event handlers, module OnUpdates) shows only in the memory / client profiler lines.")
+		local g = SP.db and SP.db.global
+		if type(g) == "table" then
+			g.perfLog = type(g.perfLog) == "table" and g.perfLog or {}
+			table.insert(g.perfLog, { at = date and date("%Y-%m-%d %H:%M:%S") or "", secs = secs, stress = stress and true or nil,
+				combat = InCombatLockdown() and true or nil, group = (IsInRaid() and "raid") or (IsInGroup() and "party") or "solo",
+				project = WOW_PROJECT_ID, lines = lines })
+			while #g.perfLog > 20 do table.remove(g.perfLog, 1) end
+		end
 	end)
 end

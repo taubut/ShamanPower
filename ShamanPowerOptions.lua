@@ -3516,7 +3516,7 @@ ShamanPower.options = {
 							order = 3,
 							type = "toggle",
 							name = "Show Cooldown Text",
-							desc = WithNotes("Show cooldown time remaining as text. Only used while Duration Text Location is set to None; any other location always shows the time.",
+							desc = WithNotes("Show the time left as text on spell cooldowns and weapon imbues. Only used while Duration Text Location is set to None; any other location always shows the time. The shield's time shows only when Duration Text Location is set.",
 								function() return (ShamanPower.opt.cdbarDurationTextLocation or "none") ~= "none" end, "Duration Text Location is not None right now, so the time is always shown and this toggle does nothing."),
 							width = "full",
 							get = function(info)
@@ -3689,7 +3689,7 @@ ShamanPower.options = {
 							end
 						},
 						cdbar_duration_text = {
-							order = 9,
+							order = 3.01,   -- with Show Cooldown Text: the two decide where the time shows
 							type = "select",
 							name = "Duration Text Location",
 							desc = "Where to show the remaining duration time",
@@ -3710,7 +3710,7 @@ ShamanPower.options = {
 							end
 						},
 						cdbar_duration_text_size = {
-							order = 10,
+							order = 3.02,
 							type = "range",
 							name = "Text Size",
 							desc = "Font size for duration text on the cooldown bar",
