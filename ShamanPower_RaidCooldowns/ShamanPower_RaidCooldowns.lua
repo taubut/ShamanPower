@@ -1201,7 +1201,10 @@ function SP:UpdateCallerButtons()
 	self:UpdateCallerButtonScale()
 	self:UpdateCallerButtonOpacity()
 
-	-- Start cooldown tracking update
+	-- Start cooldown tracking update. One pass first: a reused button may still wear a
+	-- cooldown that ran out while the frame was hidden, and the tracker stays off
+	-- when nothing is live (the demo does the same)
+	self:UpdateCallerButtonCooldowns()
 	self:StartCallerCooldownTracking()
 end
 

@@ -1482,9 +1482,14 @@ function TC.ImportDialog()
 		input = { text = "", maxLetters = 0 },
 		buttons = {
 			{ text = "Import", onClick = function(d)
-				local th, err = SP:ThemeImport(d:GetInput())
+				local th, err, skipped = SP:ThemeImport(d:GetInput())
 				if not th then TC.Say("could not import that theme: " .. tostring(err) .. ".") return true end
-				TC.Say("added " .. th.name .. " to Your Themes.")
+				if skipped and skipped > 0 then
+					TC.Say("added " .. th.name .. " to Your Themes. " .. skipped .. (skipped == 1 and " setting" or " settings")
+						.. " in that code could not be used and " .. (skipped == 1 and "was" or "were") .. " left out.")
+				else
+					TC.Say("added " .. th.name .. " to Your Themes.")
+				end
 				TC.Rerender()
 			end },
 			{ text = "Cancel" },

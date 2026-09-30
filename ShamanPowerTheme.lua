@@ -2006,11 +2006,32 @@ function Cards.BaseOf(card)
 	end
 	return THEMES[card] and card or "standard"
 end
+-- The highest theme number any profile still points at (its card or its unsaved
+-- look's): a deleted theme's number may live on in another profile.
+function Cards.HighestRef()
+	local top = 0
+	local profiles = SP.db and SP.db.sv and SP.db.sv.profiles
+	if type(profiles) ~= "table" then return top end
+	for _, prof in pairs(profiles) do
+		local th = type(prof) == "table" and prof.theme
+		if type(th) == "table" then
+			local pend = type(th.pending) == "table" and th.pending.card
+			for _, c in ipairs({ th.card or false, pend or false }) do
+				local n = type(c) == "string" and tonumber(c:match("^mine:(%d+)$"))
+				if n and n > top then top = n end
+			end
+		end
+	end
+	return top
+end
+-- Theme numbers only go up, never reused: a profile still pointing at a deleted
+-- theme (mine:<id>) must not get the next new one in its place.
 function Cards.Add(name, base, flat)
 	local list = Cards.List()
-	local id = 0
-	for _, th in ipairs(list) do if (tonumber(th.id) or 0) > id then id = th.id end end
-	id = id + 1
+	local g = SP.db.global
+	local id = math.max(tonumber(g.themeNextId) or 1, Cards.HighestRef() + 1)
+	for _, th in ipairs(list) do if (tonumber(th.id) or 0) >= id then id = th.id + 1 end end
+	g.themeNextId = id + 1
 	list[#list + 1] = { id = id, name = name, base = THEMES[base] and base or "standard", flat = Copy(flat),
 		created = time(), updated = time() }
 	return id
@@ -2039,6 +2060,21 @@ function Cards.Migrate()
 	if not ready then return end
 	local t = TW()
 	if not t then return end
+	-- a theme deleted while another profile was loaded: this profile keeps its look, as
+	-- an unsaved Custom look on the preset that theme started from (as a delete does
+	-- for the profile it happens on)
+	local gone = SP.db and SP.db.global and SP.db.global.themesGone
+	local function lost(card)
+		local n = type(card) == "string" and tonumber(card:match("^mine:(%d+)$"))
+		if not n or Cards.Find(n) then return nil end
+		return (type(gone) == "table" and THEMES[gone[n]] and gone[n]) or "standard"
+	end
+	local base = lost(t.card)
+	if base then t.card, t.forceCustom = base, true end
+	if type(t.pending) == "table" then
+		base = lost(t.pending.card)
+		if base then t.pending.card = base end
+	end
 	if t.needBaseline then
 		t.card, t.baseline, t.needBaseline = "standard", Cards.StandardFlat(), nil
 		return
@@ -2097,20 +2133,169 @@ function Cards.Allowed()
 	Cards.Entries(function(id, e) a["e." .. id .. "." .. e._id] = true end)
 	return a
 end
+-- each field's shape, checked before a theme is saved or used: a damaged or
+-- hand-made code never puts a value in a setting that the setting cannot read.
+-- "s" text, "b" on/off, "f" a 0-1 number, "c" a color, "cs" four element colors,
+-- "d" a direction per bar; [2] = the choices a text field may hold
+function Cards.GoodNumber(v, lo, hi)
+	return type(v) == "number" and v == v and v >= (lo or -1e6) and v <= (hi or 1e6)
+end
+function Cards.GoodColor(v)
+	if not IsColor(v) then return false end
+	for _, k in ipairs({ "r", "g", "b", "a", "t", 1, 2, 3, 4 }) do
+		if v[k] ~= nil and not Cards.GoodNumber(v[k], -0.01, 1.01) then return false end
+	end
+	if v.r ~= nil then return Cards.GoodNumber(v.g) and Cards.GoodNumber(v.b) end
+	return Cards.GoodNumber(v[2])
+end
+function Cards.GoodColors(v)
+	if type(v) ~= "table" then return false end
+	for _, x in pairs(v) do if not Cards.GoodColor(x) then return false end end
+	return true
+end
+function Cards.KeysOf(list)
+	local s = {}
+	for _, x in ipairs(list or {}) do s[x.key] = true end
+	return s
+end
+function Cards.Kinds()
+	if Cards.kinds then return Cards.kinds end
+	local K = {}
+	local s = function(set) return { "s", set } end
+	for _, k in ipairs({ "barTexture", "shieldTexture", "elementColorPalette" }) do K["o." .. k] = s() end
+	K["o.dotShape"], K["o.glowShape"], K["o.frameEdge"] = s(Cards.KeysOf(SP.DOT_SHAPES)), s(Cards.KeysOf(SP.GLOW_SHAPES)), s(Cards.KeysOf(SP.FRAME_EDGES))
+	for _, k in ipairs({ "iconShape", "iconShapeCooldown", "iconShapeReady" }) do K["o." .. k] = s(Cards.KeysOf(SP.ICON_SHAPES)) end
+	K["o.compactIdleColor"] = s({ grey = true, element = true })
+	K["o.compactOutlineColorMode"] = s({ element = true, custom = true })
+	for _, k in ipairs({ "dotGem", "iconShapeSplit", "iconBordersSquare", "durationBarBackground", "shieldChargeColors",
+		"cdbarSpellColors", "rangeElementColors" }) do K["o." .. k] = { "b" } end
+	for _, k in ipairs({ "cBuffGood", "cBuffNeedSome", "cBuffNeedAll", "compactOutlineColor", "totemCooldownTextColor",
+		"pulseBarColor", "pulseFlashColor", "manaTintColor" }) do K["o." .. k] = { "c" } end
+	K["o.elementColorsCustom"], K["t.custom"] = { "cs" }, { "cs" }
+	for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
+		local dirs = SP.GradientDirectionValues and (SP:GradientDirectionValues(field)) or nil
+		K["o." .. field], K["o." .. field .. "Direction"] = s(Cards.KeysOf(SP.GRADIENTS)), s(dirs)
+		K["o." .. field .. "Color1"], K["o." .. field .. "Color2"], K["o." .. field .. "Fade"] = { "c" }, { "c" }, { "f" }
+		if field == "barGradient" then K["o.barGradientDirections"] = { "d", dirs } end
+	end
+	for _, k in ipairs({ "lookLS", "lookWS", "lookES", "barLook", "orbLook" }) do K["sc." .. k] = s() end
+	for _, k in ipairs({ "chargeColorLS", "chargeColorWS", "chargeColorES" }) do K["sc." .. k] = { "c" } end
+	for _, k in ipairs(Cards.RR) do K["rr." .. k] = { "c" } end
+	K["tr.glowColor"] = { "c" }
+	K["t.global"], K["t.palette"], K["t.shield"] = s(THEMES), s(PALETTE_KEY), s(SHIELD_KEY)
+	Cards.kinds = K
+	return K
+end
+function Cards.FitsKind(v, kind)
+	local want, set = kind[1], kind[2]
+	if want == "s" then return type(v) == "string" and (set == nil or set[v] == true) end
+	if want == "b" then return type(v) == "boolean" end
+	if want == "f" then return Cards.GoodNumber(v, 0, 1) end
+	if want == "c" then return Cards.GoodColor(v) end
+	if want == "cs" then return Cards.GoodColors(v) end
+	if want == "d" then
+		if type(v) ~= "table" then return false end
+		for area, x in pairs(v) do
+			if type(area) ~= "string" or type(x) ~= "string" or (set and not set[x]) then return false end
+		end
+		return true
+	end
+	return false
+end
+-- a value's shape as a theme setting's own value is compared: its Lua type,
+-- "color", or "colors" (a table of colors)
+function Cards.Shape(v)
+	if v == nil or v == false then return "boolean" end
+	if IsColor(v) then return "color" end
+	if type(v) ~= "table" then return type(v) end
+	return Cards.GoodColors(v) and "colors" or "table"
+end
+-- a setting a module registered (e.<spot>.<id>): the value must have a shape the
+-- setting itself has had (its default, each theme's value, what it is now)
+function Cards.FitsEntry(v, id, e)
+	local shape = Cards.Shape(v)
+	if shape == "table" then return false end
+	if shape == "color" and not Cards.GoodColor(v) then return false end
+	if shape == "number" and not Cards.GoodNumber(v) then return false end
+	local refs = { Cards.DefaultOf(e), SafeGet(e) }
+	for i, key in ipairs({ "standard", "shamanpower", "minimal" }) do
+		local x = e[key]
+		if type(x) == "function" then
+			local ok, res = pcall(x, id, key)
+			if ok then x = res else x = nil end
+		end
+		refs[2 + i] = x
+	end
+	local any = false
+	for i = 1, 5 do
+		local x = refs[i]
+		if x ~= nil then
+			any = true
+			-- "off, or a color" (Pulse Bar Color): off reads as false
+			if Cards.Shape(x) == shape or (x == false and shape == "color") then return true end
+		end
+	end
+	return not any   -- nothing to compare with: any plain value or color
+end
+-- a per-spot override: the fields a spot can hold, each a value it accepts
+function Cards.CleanSpot(id, x)
+	local spot = SPOTS[id]
+	if not spot then return nil, 0 end   -- a part of a module this player has off: left out, as its settings are
+	if type(x) ~= "table" then return nil, 1 end
+	local out, bad = {}, 0
+	for field, v in pairs(x) do
+		local ok
+		if field == "theme" then ok = THEMES[v] == true
+		elseif field == "choice" then ok = spot.choiceByKey ~= nil and spot.choiceByKey[v] ~= nil
+		elseif field == "colors" and type(v) == "table" then
+			local colors = {}
+			for rk, c in pairs(v) do
+				if type(rk) == "string" and Cards.GoodColor(c) then colors[rk] = c else bad = bad + 1 end
+			end
+			v = colors
+			if next(colors) then ok = true else ok = "none" end   -- (each bad color already counted)
+		elseif THEME_FIELDS[field] then ok = THEME_FIELDS[field][v] == true
+		end
+		if ok == true then out[field] = v elseif not ok then bad = bad + 1 end
+	end
+	return next(out) and out or nil, bad
+end
+-- a theme's fields, kept only where each holds a value its setting can read.
+-- Returns the clean fields and how many were left out.
 function Cards.Clean(f)
-	local a, out = Cards.Allowed(), {}
+	local a, K, out, bad = Cards.Allowed(), Cards.Kinds(), {}, 0
+	local entries = {}
+	Cards.Entries(function(id, e) entries["e." .. id .. "." .. e._id] = { id, e } end)
 	for k, v in pairs(type(f) == "table" and f or {}) do
 		if a[k] then
 			local c = Cards.Plain(v, 1)
-			if c ~= nil then out[k] = c end
+			local ok = c ~= nil
+			if ok then
+				local field = type(k) == "string" and k:sub(3)
+				if k == "t.spots" then
+					ok = type(c) == "table"
+					if ok then
+						local spots = {}
+						for id, x in pairs(c) do
+							local s, n = Cards.CleanSpot(id, x)
+							spots[id], bad = s, bad + n
+						end
+						c = next(spots) and spots or nil
+						ok = c ~= nil
+					end
+				elseif K[k] then ok = Cards.FitsKind(c, K[k])
+				elseif k:sub(1, 2) == "t." and THEME_FIELDS[field] then ok = THEME_FIELDS[field][c] == true
+				elseif entries[k] then ok = Cards.FitsEntry(c, entries[k][1], entries[k][2])
+				else ok = type(c) ~= "table"
+				end
+				if not ok and k ~= "t.spots" then bad = bad + 1 end
+			else
+				bad = bad + 1
+			end
+			if ok then out[k] = c end
 		end
 	end
-	if type(out["t.spots"]) == "table" then
-		for id in pairs(out["t.spots"]) do
-			if not SPOTS[id] then out["t.spots"][id] = nil end
-		end
-	end
-	return out
+	return out, bad
 end
 function Cards.Encode(th)
 	local LS = LibStub and LibStub("LibSerialize", true)
@@ -2364,6 +2549,12 @@ function SP:ThemeDelete(id)
 	local th, i = Cards.Find(id)
 	if not th then return end
 	table.remove(Cards.List(), i)
+	-- its preset, for the profiles still pointing at it (Cards.Migrate)
+	local g = SP.db and SP.db.global
+	if g then
+		if type(g.themesGone) ~= "table" then g.themesGone = {} end
+		g.themesGone[id] = th.base or "standard"
+	end
 	local t = T()
 	if not t then return end
 	local key = "mine:" .. id
@@ -2379,12 +2570,12 @@ end
 function SP:ThemeImport(text)
 	local p, err = Cards.Decode(text)
 	if not p then return nil, err end
-	local flat = Cards.Clean(p.flat)
+	local flat, skipped = Cards.Clean(p.flat)
 	if not next(flat) then return nil, "there is nothing in that code this ShamanPower can use" end
 	local name = Cards.CleanName(p.name)
 	if name == "" then name = "Shared Theme" end
 	local id = Cards.Add(Cards.Unique(name), p.base, flat)
-	return Cards.Find(id)
+	return Cards.Find(id), nil, skipped
 end
 
 -- profile change (and anyone who needs a full re-resolve): reconcile every

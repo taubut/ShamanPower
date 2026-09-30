@@ -94,7 +94,7 @@ local function collect()
 			end
 		end
 	end
-	for _, flyout in ipairs({ SP.shieldFlyout, SP.weaponImbueFlyout }) do
+	for k = 1, 2 do local flyout = SP[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)
 		for _, btn in ipairs(flyout and flyout.buttons or {}) do
 			local name = btn:GetName()
 			if name then

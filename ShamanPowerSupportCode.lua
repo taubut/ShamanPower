@@ -67,6 +67,15 @@ local function skipKey(k, parent)
 	return k == "saved" and parent == "theme"
 end
 
+-- Settings the player types text into (a character or guild name can be in them):
+-- the code only says they were changed, never what they say. The promise is
+-- "nothing personal", and these are the free-text boxes that can break it.
+local FREE_TEXT = {
+	useText = true, soonText = true, triggers = true, replyReadyText = true, replyCooldownText = true,   -- Cooldown Announce
+	target = true,   -- a loadout rule's Target (a mob, but anything can be typed)
+}
+local CUSTOM_TEXT = "(custom text)"
+
 -- a value as it goes in: decimals cut to 4 digits (a saved 1.3999999761581 is 1.4)
 local function plain(v)
 	if type(v) == "number" and v ~= math.floor(v) then return tonumber(string.format("%.4g", v)) end
@@ -79,7 +88,8 @@ local function copyPlain(v, name)
 	local out = {}
 	for k, x in pairs(v) do
 		if not skipKey(k, name) then
-			local c = copyPlain(x, k)
+			local c
+			if FREE_TEXT[k] and type(x) == "string" then c = CUSTOM_TEXT else c = copyPlain(x, k) end
 			if c ~= nil then out[k] = c end
 		end
 	end
@@ -101,7 +111,7 @@ local function diff(cur, def, name, depth)
 			if type(v) == "table" then
 				if type(d) == "table" then x = diff(v, d, k, depth + 1) else x = copyPlain(v, k) end
 			elseif v ~= d then
-				x = plain(v)
+				if FREE_TEXT[k] and type(v) == "string" then x = CUSTOM_TEXT else x = plain(v) end
 			end
 			if x ~= nil then
 				out = out or {}
@@ -131,6 +141,12 @@ end
 local KEY_SPELLS = { 324, 24398, 974, 36936, 20608, 16188, 16190, 30823, 16166, 17364 }
 local CVARS = { "countdownForCooldowns", "ActionButtonUseKeyDown", "useUiScale", "uiScale", "nameplateShowEnemyTotems",
 	"nameplateShowFriendlyTotems", "addonProfilerEnabled" }
+-- game functions ShamanPower calls by their old names: on Forever the game has none of
+-- these and ShamanPower adds its own only when no other addon has (Questie's UnitBuff
+-- once hid a shield); on Anniversary they are the game's unless an addon replaced one
+local SHARED_GLOBALS = { "GetSpellInfo", "GetSpellTexture", "GetSpellCooldown", "GetSpellBookItemName", "IsPlayerSpell",
+	"IsSpellKnown", "FindSpellBookSlotBySpellID", "GetAddOnMetadata", "IsAddOnLoaded", "GetItemInfo", "GetItemCount",
+	"GetUnitName" }
 
 local function known(id)
 	if IsPlayerSpell and safe(IsPlayerSpell, id) then return true end
@@ -147,11 +163,21 @@ local function recentErrors()
 	local log = rawget(_G, "ShamanPowerErrorLog")
 	local errors = type(log) == "table" and log.errors
 	if type(errors) ~= "table" then return nil end
-	local name = plainString(safe(UnitName, "player"))
+	-- the name every way it can appear: WoW: Forever's whole "First Surname" (SPCompat's
+	-- name rule) and each half of it, the classic name, and the realm
+	local ok, name, second = pcall(UnitName, "player")   -- both returns (safe() keeps only the first)
+	if not ok then name, second = nil, nil end
+	name, second = plainString(name), plainString(second)
+	local full = SPCompat and SPCompat.UnitName and plainString(safe(SPCompat.UnitName, "player"))
 	local realm = plainString(safe(GetRealmName))
+	local parts = {}
+	for _, p in ipairs({ full or false, name or false, second or false }) do
+		if p and #p > 2 then parts[#parts + 1] = p end
+	end
+	table.sort(parts, function(a, b) return #a > #b end)   -- the whole name before its halves
 	local function scrub(text)
 		text = tostring(text or "")
-		if name and #name > 2 then text = text:gsub(name:gsub("%W", "%%%0"), "<you>") end
+		for _, p in ipairs(parts) do text = text:gsub(p:gsub("%W", "%%%0"), "<you>") end
 		if realm and #realm > 2 then text = text:gsub(realm:gsub("%W", "%%%0"), "<realm>") end
 		return text
 	end
@@ -229,6 +255,19 @@ local function extras()
 		end
 	end
 	x.er = recentErrors()
+	-- which addon defined any of those (the game's own and ShamanPower's own are left out)
+	local secure = rawget(_G, "issecurevariable")
+	if secure then
+		local gw = {}
+		for _, name in ipairs(SHARED_GLOBALS) do
+			if rawget(_G, name) ~= nil then
+				local ok, isSecure, by = pcall(secure, name)
+				by = ok and plainString(by) or nil
+				if ok and not isSecure and not (by and by:find("^ShamanPower")) then gw[name] = by or "?" end
+			end
+		end
+		if next(gw) then x.gw = gw end
+	end
 	-- addons: every loaded one by name (not ShamanPower's own), for clashes
 	local num = (C_AddOns and C_AddOns.GetNumAddOns) or GetNumAddOns
 	local info = (C_AddOns and C_AddOns.GetAddOnInfo) or GetAddOnInfo

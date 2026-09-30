@@ -18,6 +18,7 @@ local SP = ShamanPower
 if not SP then return end
 
 local ACTIVE = false
+local onlyKey           -- the one module unlocked by itself (a "move these" button), else nil
 local shown = {}        -- mover keys that are up
 local demos = {}        -- registry keys whose Demo(true) was called
 local forced = {}       -- frames that were hidden before we showed them
@@ -492,6 +493,8 @@ local function SyncNudger()
 				Nudge(key)
 				self.held, self.wait = key, 0.4
 				self:SetScript("OnUpdate", HeldUpdate)
+			else
+				self:SetPropagateKeyboardInput(true)   -- any other key goes on to the game
 			end
 		end)
 		nudger:SetScript("OnKeyUp", function(self, key)
@@ -501,9 +504,11 @@ local function SyncNudger()
 	end
 	if on and not nudger.keys then
 		nudger:EnableKeyboard(true)   -- out of combat only (restricted in combat)
-		nudger:SetPropagateKeyboardInput(true)
 		nudger.keys = true
 	end
+	-- passing every other key through, each time it is shown: a fight can start between
+	-- an arrow press and the next frame's restore, which then must not carry over
+	if on then nudger:SetPropagateKeyboardInput(true) end
 	if nudger then nudger:SetShown(on) end
 end
 
@@ -542,7 +547,7 @@ local FX = {
 for _, name in ipairs({ "earth", "fire", "water", "air" }) do
 	local pop = "totem_" .. name
 	local function saved() return SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[pop] end
-	FX["grid_" .. name] = { page = { "fluffy", "popout_section" },
+	FX["grid_" .. name] = { page = { "fluffy", "popout_section" }, pick = { node = "selected_tracker", value = pop },
 		size = { pct = true, min = 0.5, max = 3, step = 0.05,
 			get = function() local s = saved(); return s and s.scale or SP.opt.poppedOutDefaultScale or 1 end,
 			set = function(v) SP:SetPopOutScale(pop, v) end },
@@ -557,15 +562,17 @@ local function ModuleKeyOf(mover)
 	return key and (key:match("^unlock_(.+)_%d+$") or key) or nil
 end
 
--- The first range option named `key` in the settings table (under the group `under`).
-local function FindOption(key, under)
+-- The first option named `key` in the settings table (under the group `under`),
+-- of the type `kind` ("range" when not given).
+local function FindOption(key, under, kind)
+	kind = kind or "range"
 	local function walk(node, inside)
 		local args = node.args
 		if type(args) ~= "table" then return nil end
 		for k, child in pairs(args) do
 			if type(child) == "table" then
 				local here = inside or k == under
-				if here and k == key and child.type == "range" then return child end
+				if here and k == key and child.type == kind then return child end
 				local found = walk(child, here)
 				if found then return found end
 			end
@@ -632,7 +639,11 @@ function SP:UnlockBoxWheel(mover, delta)
 	if not ACTIVE or InCombatLockdown() then return end
 	local fx = FX[ModuleKeyOf(mover)]
 	if not fx then return end
-	local get, set, lo, hi, step, pct = Access(IsControlKeyDown() and fx.opacity or fx.size)
+	-- Ctrl + wheel is its opacity or nothing: an element without one (Expiring Alerts,
+	-- Ready Check) must not fall back to its size ("ctrl and opacity or size" did)
+	local spec
+	if IsControlKeyDown() then spec = fx.opacity else spec = fx.size end
+	local get, set, lo, hi, step, pct = Access(spec)
 	if get then
 		local v = get()
 		if v then
@@ -654,14 +665,21 @@ function SP:UnlockBoxWheel(mover, delta)
 	C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the resized frames are laid out
 end
 
--- Click a box: pick it (the arrow keys move it). Right-click: its settings page,
--- with the boxes staying up (the page's preview waits until Done).
+-- Click a box: pick it (the arrow keys move it). Right-click: its settings page
+-- (SP:UnlockSettingsPage: the boxes step aside until the window closes).
 function SP:UnlockBoxClick(mover, button)
 	if not ACTIVE or InCombatLockdown() then return end
 	Select(mover)
 	if button ~= "RightButton" then return end
 	local fx = FX[ModuleKeyOf(mover)]
-	if fx and fx.page then self:OpenConfigWindow(fx.page) end
+	if fx and fx.page then
+		-- a page that shows one of several (Pop-Out Trackers): this box's one first
+		local pick = fx.pick
+		local node = pick and FindOption(pick.node, nil, "select")
+		if node and type(node.set) == "function" then pcall(node.set, { pick.node, option = node }, pick.value) end
+		self:UnlockSettingsPage(fx.page)
+		return
+	end
 	if doneBar and doneBar.Refresh then doneBar:Refresh() end
 end
 
@@ -699,6 +717,20 @@ local KEYS = {
 
 local function SettingsWindow() return _G["ShamanPowerConfigUIFrame"] end
 
+-- A right-click's settings page: the boxes would sit over the window, so the mode
+-- turns off while it is open and comes back as it was when the window closes.
+-- What waits for the real Done (the setup tour, reopening the settings) waits on.
+local backAfterSettings   -- { only, onDone, toConfig } while that window is open
+local function SettingsClosed()
+	local back, w = backAfterSettings, SettingsWindow()
+	if not back or (w and w:IsShown()) then return end   -- (Alt+Z hides it with the rest of the UI: not a close)
+	backAfterSettings = nil
+	if SP.unlockOnDone == nil then SP.unlockOnDone = back.onDone end
+	if ACTIVE or InCombatLockdown() then return end   -- unlocked again from the window / a fight ends the mode
+	SP:SetMasterUnlock(true, back.only)
+	if ACTIVE and back.toConfig then SP.unlockReturnToConfig = true end
+end
+
 local winHooked
 local function HookSettingsWindow()
 	local w = SettingsWindow()
@@ -706,7 +738,15 @@ local function HookSettingsWindow()
 	winHooked = true
 	local function refresh() if doneBar and doneBar:IsShown() and doneBar.Refresh then doneBar:Refresh() end end
 	w:HookScript("OnShow", refresh)
-	w:HookScript("OnHide", refresh)
+	w:HookScript("OnHide", function() refresh(); SettingsClosed() end)
+end
+
+function SP:UnlockSettingsPage(page)
+	backAfterSettings = { only = onlyKey, onDone = self.unlockOnDone, toConfig = self.unlockReturnToConfig }
+	self.unlockOnDone, self.unlockReturnToConfig = nil, nil
+	self:SetMasterUnlock(false)
+	self:OpenConfigWindow(page)
+	HookSettingsWindow()
 end
 
 local function ToggleSettings()
@@ -949,6 +989,7 @@ function SP:SetMasterUnlock(on, only)
 	end
 
 	ACTIVE = true
+	onlyKey = only
 	self.unlockDemoAll = true   -- demos fill every frame they own, not just the one the wizard borrows
 	-- our own windows would sit on top of what is being moved
 	local cfg = _G["ShamanPowerConfigUIFrame"]

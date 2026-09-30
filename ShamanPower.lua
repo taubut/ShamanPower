@@ -5443,6 +5443,7 @@ function ShamanPower:GetBarMover(key, moveFrame, sizeFrame, label, onMoved)
 		else
 			t:SetWidth(2); t:SetPoint("TOP" .. side); t:SetPoint("BOTTOM" .. side)
 		end
+		edge[#edge + 1] = t   -- Unlock UI paints these gold on the picked box
 	end
 	local text = mover:CreateFontString(nil, "OVERLAY")
 	text:SetFontObject("ShamanPowerDialogFontText")   -- ShamanPowerDialog.lua's row font
@@ -9385,7 +9386,7 @@ function ShamanPower:ApplyClickSwap()
 	for _, btn in ipairs(self.cooldownButtons or {}) do
 		if btn == self.weaponImbueButton then spFlipClicks(btn, on) else spFillOtherClick(btn, fill) end
 	end
-	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+	for k = 1, 2 do local flyout = self[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)
 		for _, btn in ipairs(flyout and (flyout.allButtons or flyout.buttons) or {}) do spFlipClicks(btn, on) end
 	end
 end
@@ -19109,7 +19110,7 @@ function ShamanPower:FlyoutSpellClickKey(spellName, element)
 		end
 		return nil
 	end
-	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+	for k = 1, 2 do local flyout = self[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)
 		for _, btn in ipairs(flyout and flyout.buttons or {}) do
 			if (btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID))) == spellName then
 				return self:FlyoutClickKey(btn, "LeftButton")
@@ -19250,7 +19251,7 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 			apply(btn, btn.spellID and GetSpellInfo(btn.spellID), cast)
 		end
 	end
-	for _, flyout in ipairs({ self.shieldFlyout, self.weaponImbueFlyout }) do
+	for k = 1, 2 do local flyout = self[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)
 		for _, btn in ipairs(flyout and flyout.buttons or {}) do
 			apply(btn, btn.spellName or (btn.spellID and GetSpellInfo(btn.spellID)), "LeftButton")
 		end
