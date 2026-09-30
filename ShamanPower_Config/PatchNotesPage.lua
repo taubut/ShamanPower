@@ -358,8 +358,9 @@ local function Bullet(key, y, x, W, line)
 	return h + 5
 end
 
--- one version's notes under its bar: New, then Changes, then Fixes
-local function Notes(key, y, W, new, changes, fixes)
+-- one version's notes under its bar: New, then Changes, then Fixes, then (after a
+-- space) its thanks line, if it has one
+local function Notes(key, y, W, new, changes, fixes, thanks)
 	local x, w = 18, W - 36
 	if #new > 0 then
 		y = y + Label(key .. ":new", y, x, "NEW")
@@ -374,6 +375,20 @@ local function Notes(key, y, W, new, changes, fixes)
 		y = y + 2 + Label(key .. ":fixes", y + 2, x, "FIXES")
 		for i, l in ipairs(fixes) do y = y + Bullet(key .. ":f" .. i, y, x, w, l) end
 		y = y + 6
+	end
+	if thanks and thanks ~= "" then
+		y = y + 10
+		local t = Keep("thanks:" .. key, function()
+			local fr = CreateFrame("Frame", nil, page.body)
+			fr.text = Text(fr, "rowDim"); fr.text:SetPoint("TOPLEFT", fr, "TOPLEFT", 0, 0)
+			return fr
+		end)
+		t:SetPoint("TOPLEFT", page.body, "TOPLEFT", x, -y)
+		t.text:SetWidth(w)
+		t.text:SetText(thanks)
+		local h = math.ceil(t.text:GetStringHeight())
+		t:SetSize(w, h)
+		y = y + h + 6
 	end
 	return y
 end
@@ -454,7 +469,7 @@ function Page.Render(_, body, W, onChanged, query)
 				local key = ver.v
 				y = y + Header(key, y, W, true, ver.v, ver.date and NiceDate(ver.date) or "", ver.headline,
 					CountsOf(new, changes, fixes), isOpen, i == 1, function() state.open[key] = not state.open[key] or nil; Refresh() end)
-				if isOpen then y = Notes(key, y + 14, W, new, changes, fixes) + 6 end
+				if isOpen then y = Notes(key, y + 14, W, new, changes, fixes, ver.thanks) + 6 end
 				y = y + 8
 				drew = true
 			end
@@ -481,7 +496,7 @@ function Page.Render(_, body, W, onChanged, query)
 			y = y + 14
 			for _, e in ipairs(era) do
 				y = y + Label("era:" .. e.ver.v, y, 18, e.ver.v .. (e.ver.date and ("   " .. NiceDate(e.ver.date)) or ""), nil, true) + 4
-				y = Notes(e.ver.v, y, W, e.new, e.changes, e.fixes) + 8
+				y = Notes(e.ver.v, y, W, e.new, e.changes, e.fixes, e.ver.thanks) + 8
 			end
 		end
 		y = y + 8

@@ -1,5 +1,35 @@
 # ShamanPower Changelog
 
+## v3.0.5 (2026-09-30)
+
+### New
+- **Your Themes** (Settings > General > Themes): save your look under a name, pick it on any character, and share it with a code (**Share** / **Import Theme**).
+- **Get Help: Copy Support Code** (the Discord section of General > Main, ShamanPower's page in Esc > Options, or `/sp support`): paste it in #help on the ShamanPower Discord and I can see what's going on without asking you to run commands. Nothing personal goes in it.
+- **Unlock UI, upgraded:** boxes snap to each other and to the screen center as you drag them, with gold lines showing what they lined up with. Click a box and nudge it with the arrow keys (Shift for 10 px). The mouse wheel changes its size and Ctrl + wheel its opacity, and right-click opens its settings page. **Snapping**, **Show Grid** and **Grid Size** are on the bar.
+- **Ready Reminders:** **Show: Only while on cooldown** (the icon counts down while the spell recharges and goes away when it's ready), and **Placement: Grid** (one block you move as a whole, filled in the order the icons appear, with no gaps: Icons Per Row, New Rows Go, Align Rows).
+- **Keybinds tab** (General > Keybinds): Keybind Mode, Show Keybinds on Buttons, and the new **Keybind Shown**: your action bar key first (as before), ShamanPower's own key first, or ShamanPower's key only. Keys you set in Keybind Mode now show on the buttons.
+
+### Changes
+- **Themes:** Standard, ShamanPower and ShamanPower Minimal are now fixed presets that always give exactly that look. Anything you change becomes your **Custom** look, which waits until you save it or discard it. Your look from 3.0.4 is kept as a theme called **My Look**.
+- **Performance:** about half the CPU out of combat, and less in fights. On TBC Anniversary, buff changes that can't affect your shield or Earth Shield no longer make ShamanPower read your buffs again, which matters most in raids.
+- Cooldown Bar > Display: **Duration Text Location** and **Duration Text Size** moved up next to **Show Cooldown Text**.
+- WoW: Forever: Ready Reminders' **Gray Out The Icon** now also grays the icon under a sweep.
+- The settings' live preview pauses while Unlock UI is on.
+
+### Fixes
+- **WoW: Forever with Questie:** the cooldown bar's shield never lit up, and other buff checks could be wrong, because Questie brings its own version of a game function ShamanPower used. ShamanPower now uses its own.
+- Unlock UI's grid centers boxes properly.
+- The cooldown bar's **Radial** sweep no longer shows the game's own countdown ("10m") when Show Cooldown Text is off.
+- WoW: Forever: the cooldown bar's shield shows right after a reload in combat, and Mana Tide's level 48 and 58 ranks end the cooldown bar alert.
+- **Reset All Colors** keeps every color it clears on the Custom card.
+- Party dots no longer leave a gap outside a group with Dot Position Below, Above, Left or Right.
+- TBC Anniversary: Flametongue Totem is no longer tracked (its dots were always red).
+- Ready Reminders' **Reset Position** resets only the placement you're using.
+- Unlock UI: Shield Charges gets one box per real frame, with the right names.
+- Raid Cooldowns: the Mana Tide call buttons no longer pile up in memory every time the group syncs.
+
+Thanks to Miska for the new Ready Reminders modes, and to ShamanForever's author for the ideas behind Unlock UI's snapping and nudging.
+
 ## v3.0.4.1 (2026-09-29)
 
 ### Fixes
