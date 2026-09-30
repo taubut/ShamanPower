@@ -65,8 +65,8 @@ local MODULES = {
 			return not s or s.showPlayerShield ~= false or s.showEarthShield == true
 		end },
 	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions",
-		-- only the reminders that are switched on get a box
-		frames = function() return SP.ReadyReminderEnabledFrames and SP:ReadyReminderEnabledFrames() or {} end,
+		-- only the reminders that are switched on get a box (Grid placement: one box for the block)
+		frames = function() return SP.ReadyReminderMoverFrames and SP:ReadyReminderMoverFrames() or {} end,
 		enabled = function() local d = DB("ShamanPower_ReadyReminders"); return not d or d.enabled ~= false end },
 	{ key = "expiring", label = "Expiring Alerts", reset = "ExpiringAlertsReset",
 		enabled = function() local d = DB("ShamanPowerExpiringAlertsDB"); return not d or d.enabled ~= false end,

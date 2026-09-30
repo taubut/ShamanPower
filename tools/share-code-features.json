@@ -106,6 +106,8 @@
     {"key": "combinedShocks", "label": "Ready reminders: Combined Shocks"},
     {"key": "flyoutRightClick", "label": "Flyout requires right-click"},
     {"key": "shiftPullsTotem", "label": "Shift+right-click pulls the totem back"},
-    {"key": "hidePlayerTotems", "label": "Hide Blizzard's totem timers"}
+    {"key": "hidePlayerTotems", "label": "Hide Blizzard's totem timers"},
+    {"key": "readyRemindersCooldownOnly", "label": "Ready reminders: only while on cooldown"},
+    {"key": "readyRemindersGrid", "label": "Ready reminders: grid placement"}
   ]
 }
