@@ -47,6 +47,7 @@ local DEFAULTS = {
 	announceSoon = false,
 	soonSeconds = 30,
 	soonText = "{spell} ready in {sec} s.",
+	withName = false,
 	channel = "group",
 	manaTide = true,
 	bloodlust = true,
@@ -77,6 +78,14 @@ local function fill(text, spell, sec)
 	text = text:gsub("{spell}", spell or "")
 	text = text:gsub("{sec}", sec and tostring(sec) or "")
 	return text
+end
+
+-- Include My Character's Name: the group announcements start with it ("Srumar: ...")
+local function withName(text)
+	if not cfg().withName then return text end
+	local me = UnitName("player")
+	if type(me) ~= "string" or secret(me) or me == "" then return text end
+	return me .. ": " .. text
 end
 
 -- ---------------------------------------------------------------------------
@@ -170,7 +179,7 @@ local function scheduleSoon(spell, castAt, spellID, gen, tries)
 			return
 		end
 		local sec = math.floor((now or lead) + 0.5)
-		send(fill(c.soonText, spell.name, sec), announceChannel())
+		send(withName(fill(c.soonText, spell.name, sec)), announceChannel())
 	end)
 end
 
@@ -183,7 +192,7 @@ local function onCast(spellID)
 	if spell.lust and not hasLust() then return end
 	local a = cfg()
 	if not a[spell.opt] then return end
-	if a.announceUse then send(fill(a.useText, spell.name), announceChannel()) end
+	if a.announceUse then send(withName(fill(a.useText, spell.name)), announceChannel()) end
 	if a.announceSoon then
 		local castAt = GetTime()
 		soonGen[spell.key] = (soonGen[spell.key] or 0) + 1
@@ -281,8 +290,9 @@ end
 
 local function isAnnounceLine(text)
 	local line = strtrim(text):lower()
+	local named = line:match("^[^:]+:%s*(.+)$")   -- the same line with a name in front (Include My Character's Name)
 	for _, pattern in ipairs(announcePatterns()) do
-		if line:find(pattern) then return true end
+		if line:find(pattern) or (named and named:find(pattern)) then return true end
 	end
 	return false
 end
@@ -362,8 +372,8 @@ function SP:PreviewAnnounceMessages()
 	local out = DEFAULT_CHAT_FRAME
 	if not out then return end
 	out:AddMessage("|cff0070ddShamanPower|r announce preview (only you see this):")
-	out:AddMessage("  used: " .. fill(a.useText, mt))
-	out:AddMessage("  ready soon: " .. fill(a.soonText, mt, lead))
+	out:AddMessage("  used: " .. withName(fill(a.useText, mt)))
+	out:AddMessage("  ready soon: " .. withName(fill(a.soonText, mt, lead)))
 	out:AddMessage("  reply, ready: " .. fill(a.replyReadyText, mt))
 	out:AddMessage("  reply, cooling down: " .. fill(a.replyCooldownText, mt, 42))
 	local list = {}
@@ -426,6 +436,16 @@ do
 					desc = "{spell} becomes the spell's name, {sec} the seconds left.",
 					disabled = function() return not cfg().announceSoon end,
 					get = get("soonText"), set = textSet("soonText"),
+				},
+				withName = {
+					order = 1.55, type = "toggle", width = "full", name = "Include My Character's Name",
+					desc = function()
+						local me = UnitName("player")
+						if type(me) ~= "string" or secret(me) then me = "Thrall" end
+						return "Puts your name in front of both announcements, like \"" .. me .. ": Mana Tide Totem used!\"."
+					end,
+					disabled = function() local c = cfg() return not (c.announceUse or c.announceSoon) end,
+					get = get("withName"), set = set("withName"),
 				},
 				channel = {
 					order = 1.6, type = "select", name = "Where", width = 1.5,
