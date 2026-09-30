@@ -1169,7 +1169,18 @@ function SP:UpdateShieldChargeDisplays()
 			else
 			local sc = self._shieldChargeScan
 			if not sc then sc = {}; self._shieldChargeScan = sc end
-			if self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
+			local core = ShamanPower.shieldCache
+			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and core and not core.engineCount and ShamanPower._shieldCheckedGen ~= nil
+				and ShamanPower._shieldCheckedGen == (ShamanPower.auraGen and ShamanPower.auraGen["player"] or 0) then
+				-- TBC Anniversary: the core's shield check is current (it read the shield, or the
+				-- game said nothing about it changed): its answer, not a second read of every
+				-- buff (each read builds a ~1.9 KB record there). Same rules as the loop below.
+				if core.hasShield then
+					local n = core.rawCount
+					if n == nil then n = 3 end
+					charges, hasShield, water = n, true, core.shieldName == "Water Shield"
+				end
+			elseif self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
 				charges, hasShield, water = sc.charges, sc.hasShield, sc.water
 			else
 			for i = 1, 40 do

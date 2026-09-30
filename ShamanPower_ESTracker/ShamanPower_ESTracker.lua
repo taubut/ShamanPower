@@ -530,12 +530,12 @@ end
 -- arrive many times a second in a raid).
 local function scanUnitES(unit, entry)
 	if not UnitExists(unit) then return nil end
-	local name, icon, count, expirationTime, caster
+	local name, icon, count, expirationTime, caster, index
 	for i = 1, 40 do
 		local buffName, buffIcon, buffCount, _, _, buffExpiration, buffCaster = UnitBuff(unit, i)
 		if not buffName then break end
 		if buffName == "Earth Shield" then
-			name, icon, count, expirationTime, caster = buffName, buffIcon, buffCount, buffExpiration, buffCaster
+			name, icon, count, expirationTime, caster, index = buffName, buffIcon, buffCount, buffExpiration, buffCaster, i
 			break
 		end
 	end
@@ -557,6 +557,13 @@ local function scanUnitES(unit, entry)
 	entry.charges = count or 0
 	entry.expirationTime = expirationTime
 	entry.icon = icon
+	-- the aura's instance, so a later aura event can tell whether it was this
+	-- Earth Shield that changed (esMayHaveChanged). One more read, only when found.
+	entry.auraInstanceID = nil
+	if index and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, index)
+		if ok and type(a) == "table" and a.name == name then entry.auraInstanceID = a.auraInstanceID end
+	end
 	return entry
 end
 
@@ -737,8 +744,40 @@ end
 -- nameplate, target and pet too, just to be ignored. RegisterUnitEvent takes up
 -- to two units per frame, so the tokens are spread over small frames.
 local auraFrames = {}
-local function onGroupAura(_, _, unit)
-	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() then SP:ScanEarthShieldUnit(unit) end
+-- Every buff read builds a ~1.9 KB record on TBC Anniversary (measured 2026-09-30),
+-- and a unit with no Earth Shield was read to the end of its buffs on every change
+-- to them: in a raid, 40 people's procs, HoTs and buffs. The game says what
+-- changed: only a new Earth Shield, or a change to the one known on that unit,
+-- is read. Anything unclear (a full update, no list, a row without its instance,
+-- a token that changed hands) reads, as before.
+local function esMayHaveChanged(unit, info)
+	if type(info) ~= "table" or info.isFullUpdate then return true end
+	local added = info.addedAuras
+	if added then
+		for i = 1, #added do
+			local a = added[i]
+			if a and a.name == "Earth Shield" then return true end
+		end
+	end
+	local shields = SP.earthShields
+	if not shields then return true end
+	local d = shields[UnitGUID(unit)]
+	if not d then
+		-- none known on this player: only a new one matters, unless a row still sits
+		-- on this token under someone else (the token changed hands)
+		for _, e in pairs(shields) do if e.unit == unit then return true end end
+		return false
+	end
+	local id = d.auraInstanceID
+	if not id then return true end
+	local upd = info.updatedAuraInstanceIDs
+	if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+	local rem = info.removedAuraInstanceIDs
+	if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	return false
+end
+local function onGroupAura(_, _, unit, info)
+	if SP.esTrackerFrame and SP.esTrackerFrame:IsShown() and esMayHaveChanged(unit, info) then SP:ScanEarthShieldUnit(unit) end
 end
 local function setAuraFilter(on)
 	local units = on and (IsInRaid() and RAID_TOKENS or PARTY_TOKENS) or nil

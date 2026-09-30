@@ -15388,7 +15388,31 @@ function ShamanPower:RefreshEarthShieldTarget()
 end
 
 -- Handle aura changes on tracked target
-function ShamanPower:OnEarthShieldAuraChange(unit)
+-- TBC Anniversary: the carrier (a tank, in a raid) has aura changes all the time,
+-- and each read of its buffs builds a ~1.9 KB record per buff. The game says what
+-- changed: only an Earth Shield added, or a change to the one known (its charges,
+-- its removal), is read. Anything unclear reads, as before (see
+-- PlayerShieldMayHaveChanged). Not on WoW: Forever.
+function ShamanPower:TrackedEarthShieldMayHaveChanged(info, esSpellName)
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
+	if type(info) ~= "table" or info.isFullUpdate then return true end
+	local added = info.addedAuras
+	if added then
+		for i = 1, #added do
+			local a = added[i]
+			if a and a.name == esSpellName then return true end
+		end
+	end
+	local id = self.esTrackedAuraGUID == self.esTrackedTargetGUID and self.esTrackedAuraInstanceID or nil
+	if not id then return true end
+	local upd = info.updatedAuraInstanceIDs
+	if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+	local rem = info.removedAuraInstanceIDs
+	if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	return false
+end
+
+function ShamanPower:OnEarthShieldAuraChange(unit, info)
 	if not self.esTrackedTargetGUID then return end
 	-- Charges on another player cannot be read while auras are secret; keep the
 	-- last known state rather than treating "nothing readable" as "fell off".
@@ -15399,6 +15423,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit)
 
 	local esSpellName = self:GetESSpellName()
 	if not esSpellName then return end
+	if not self:TrackedEarthShieldMayHaveChanged(info, esSpellName) then return end
 
 	-- Check this ONE unit for ES buff
 	local found = false
@@ -15408,6 +15433,14 @@ function ShamanPower:OnEarthShieldAuraChange(unit)
 		if name == esSpellName and source == "player" then
 			self.esTrackedCharges = count or 0
 			found = true
+			-- TBC Anniversary: its instance, for TrackedEarthShieldMayHaveChanged
+			self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = nil, nil
+			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+				local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
+				if ok and type(a) == "table" and a.name == name then
+					self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = a.auraInstanceID, self.esTrackedTargetGUID
+				end
+			end
 			break
 		end
 	end
@@ -17107,17 +17140,53 @@ function ShamanPower:UpdateAuraCarrierFilter()
 	f:RegisterUnitEvent("UNIT_AURA", "target", "focus")
 end
 
-function ShamanPower:UNIT_AURA(event, unit)
+-- TBC Anniversary: every buff read builds a ~1.9 KB record (measured 2026-09-30:
+-- 189 KB per 100 UnitBuff calls), and the shield check read the buffs one by one
+-- on every change to them. The game says what changed: a change that cannot be
+-- the shield (a proc, a HoT, someone else's buff) keeps what is known. Anything
+-- unclear (a full update, no list, a shield whose instance is not known) reads
+-- again, as before. Not on WoW: Forever, which keeps its own path.
+function ShamanPower:PlayerShieldMayHaveChanged(info)
+	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
+	local c = self.shieldCache
+	if not c or type(info) ~= "table" or info.isFullUpdate then return true end
+	local added = info.addedAuras
+	if added then
+		for i = 1, #added do
+			local a = added[i]
+			local name = a and a.name
+			for j = 1, #self.ShieldSpells do
+				if name == self.ShieldSpells[j][2] then return true end
+			end
+		end
+	end
+	local id = c.auraInstanceID
+	if id then
+		local upd = info.updatedAuraInstanceIDs
+		if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+		local rem = info.removedAuraInstanceIDs
+		if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	elseif c.hasShield then
+		return true
+	end
+	return false
+end
+
+function ShamanPower:UNIT_AURA(event, unit, info)
 	if unit then self.auraGen[unit] = (self.auraGen[unit] or 0) + 1 end
 	-- Only process if we have a tracked ES target
 	if self.esTrackedTargetGUID then
-		self:OnEarthShieldAuraChange(unit)
+		self:OnEarthShieldAuraChange(unit, info)
 	end
 
 	-- Scan for shield buffs when player auras change (avoids polling). Switched
 	-- off, nothing shows them: read again on switch-on.
 	if unit == "player" and not self:IsOff() then
-		self:ScanPlayerShield()
+		if self:PlayerShieldMayHaveChanged(info) then
+			self:ScanPlayerShield()
+		else
+			self._shieldCheckedGen = self.auraGen.player   -- nothing about the shield changed: what is known holds
+		end
 		if cachePlayerBuffs then self:RefreshPlayerBuffCache() end
 	end
 end
@@ -17170,6 +17239,7 @@ function ShamanPower:ScanPlayerShield()
 	local shieldDuration = 0
 	local shieldExpiration = 0
 	local shieldBuffIndex = nil
+	local shieldName, shieldRawCount = nil, nil
 
 	if totemsSecretNow() then
 		-- auras are secret: serve the shadow record (plain numbers, same display code)
@@ -17194,6 +17264,7 @@ function ShamanPower:ScanPlayerShield()
 			if name == shieldData[2] then
 				hasShield = true
 				shieldID = shieldData[1]
+				shieldName, shieldRawCount = name, count
 				shieldIcon = icon
 				shieldCharges = count or 0
 				shieldDuration = duration or 0
@@ -17224,6 +17295,14 @@ function ShamanPower:ScanPlayerShield()
 		self.shadowShield = nil
 	end
 
+	-- TBC Anniversary: the shield's instance, so a later change can be told apart
+	-- (PlayerShieldMayHaveChanged). One more read, only when a shield was found.
+	local instanceID
+	if hasShield and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, "player", shieldBuffIndex)
+		if ok and type(a) == "table" and a.name == shieldName then instanceID = a.auraInstanceID end
+	end
+
 	-- Cache the result
 	self.shieldCache = {
 		hasShield = hasShield,
@@ -17233,7 +17312,11 @@ function ShamanPower:ScanPlayerShield()
 		shieldDuration = shieldDuration,
 		shieldExpiration = shieldExpiration,
 		buffIndex = shieldBuffIndex,
+		shieldName = shieldName,          -- Shield Charges reads these on TBC Anniversary instead of its own scan
+		rawCount = shieldRawCount,
+		auraInstanceID = instanceID,
 	}
+	self._shieldCheckedGen = self.auraGen and self.auraGen.player or 0   -- current as of this aura change
 end
 
 -- Raid cooldown messages: "call" = a one-shot alert, "sync" = assignment state
