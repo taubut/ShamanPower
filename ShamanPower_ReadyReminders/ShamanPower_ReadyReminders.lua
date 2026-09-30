@@ -25,7 +25,7 @@ local DEFAULTS = {
 	-- On for WoW: Forever (no WeakAuras there); opt-in on Anniversary, where most
 	-- players already cover this with WeakAuras. The setup tour and settings turn it on.
 	enabled = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
-	mode = "ready",        -- "ready": show only when ready | "always": dim + countdown on cooldown
+	mode = "ready",        -- "ready": show only when ready | "cooldown": show only while on cooldown | "always": dim + countdown on cooldown
 	onlyInCombat = false,
 	iconSize = 48,
 	opacity = 1.0,
@@ -48,6 +48,11 @@ local DEFAULTS = {
 	soundVolume = 100,
 	soundMinCooldown = 20, -- seconds; shorter cooldowns never make a sound
 	layout = "row",        -- row | column: arrangement used by Reset Positions
+	arrange = "free",      -- free: a spot per icon | grid: one block, filled in the order the icons appear
+	gridColumns = 6,       -- grid: icons per row
+	gridGrow = "down",     -- grid: new rows go down | up
+	gridAlign = "center",  -- grid: a row that is not full sits left | center | right
+	-- gridPos = { point, x, y }: the grid's spot (nil = default)
 	shockIcon = "cycle",   -- the Shocks entry's icon: cycle | split | one ("earth" = the old Earth Shock only: one, Earth)
 	shockPick = "earthshock",   -- One Shock: the shock shown (earthshock | flameshock | frostshock)
 	shockKeepLast = false,      -- Keep Showing the Last Shock (Cycle, One Shock)
@@ -245,7 +250,163 @@ local function savePos(frame)
 	SV().positions[frame.entry.key] = { point = point, x = x, y = y }
 end
 
+-- ---------------------------------------------------------------------------
+-- Grid placement: the icons sit in one block that moves as a whole, and the
+-- ones on screen fill its slots in the order they appeared, so no hole is left
+-- where a hidden spell would be. Free placement (the default) keeps a spot per
+-- icon. The icons stay parented to UIParent (only anchored to the block), so
+-- the settings preview can still borrow them one by one.
+-- ---------------------------------------------------------------------------
+local gridAnchor
+local gridSeq = 0      -- counts appearances: a lower number came on screen first
+local gridList = {}    -- reused each pass
+local gridByCatalog = false
+-- Most passes nobody appears or leaves: the layout then only notices that and
+-- stops. gridDirty (a setting changed, an icon was re-anchored) or a change in
+-- who is on screen or in the grid's settings (gridKey) sorts and places again.
+local gridDirty = true
+local gridKey = {}
+
+local function gridOn() return SV().arrange == "grid" end
+
+-- the corner (or edge middle) the grid grows from: it stays put when the grid grows or shrinks
+local function gridOrigin(sv)
+	local v = (sv.gridGrow == "up") and "BOTTOM" or "TOP"
+	local h = sv.gridAlign == "left" and "LEFT" or sv.gridAlign == "right" and "RIGHT" or ""
+	return v .. h
+end
+
+local function saveGridPos()
+	local a, sv = gridAnchor, SV()
+	if not a then return end
+	local point = gridOrigin(sv)
+	-- still hanging off its origin on UIParent (Unlock UI's box shifts it that way):
+	-- read the offsets, as the screen spot can lag straight after a SetPoint
+	if a:GetNumPoints() == 1 then
+		local p, rel, relP, x, y = a:GetPoint(1)
+		if p == point and relP == point and rel == UIParent then sv.gridPos = { point = point, x = x, y = y }; return end
+	end
+	if not a:GetLeft() then return end
+	local pw, ph = UIParent:GetWidth(), UIParent:GetHeight()
+	local x, y
+	if point:find("LEFT") then x = a:GetLeft()
+	elseif point:find("RIGHT") then x = a:GetRight() - pw
+	else x = (a:GetLeft() + a:GetRight()) / 2 - pw / 2 end
+	if point:find("TOP") then y = a:GetTop() - ph else y = a:GetBottom() end
+	sv.gridPos = { point = point, x = x, y = y }
+end
+
+local function applyGridPos()
+	local sv = SV()
+	-- by default the first row sits where the default row of icons does
+	local p = sv.gridPos or { point = "TOP", x = 0, y = -140 + (sv.iconSize or 48) / 2 }
+	gridAnchor:ClearAllPoints()
+	gridAnchor:SetPoint(p.point or "TOP", UIParent, p.point or "TOP", p.x or 0, p.y or 0)
+end
+
+local function ensureGridAnchor()
+	if gridAnchor then return gridAnchor end
+	local a = CreateFrame("Frame", "ShamanPowerReadyGrid", UIParent)
+	a:SetSize(48, 48); a:SetMovable(true); a:SetClampedToScreen(true)
+	a.spMoverLabel = "Ready Reminders"   -- Unlock UI's box
+	-- Unlock UI's box and a dragged icon both end here: record where the block is now
+	a:SetScript("OnMouseUp", function(self)
+		if self.isMoving then self:StopMovingOrSizing(); self.isMoving = false; saveGridPos(); applyGridPos() end
+	end)
+	gridAnchor = a
+	applyGridPos()
+	return a
+end
+
+-- the icons still on screen but invisible (a cooldown curve holds them at
+-- alpha 0) go after the visible ones, so they never leave a hole
+local function gridBefore(p, q)
+	if p.gridVis ~= q.gridVis then return p.gridVis end
+	if gridByCatalog or not p.gridVis or p.gridSeq == q.gridSeq then return p.entry.order < q.entry.order end
+	return p.gridSeq < q.gridSeq
+end
+
+-- byCatalog: every icon at once, in the list's order (Unlock Positions)
+local function layoutGrid(byCatalog)
+	local sv = SV()   -- once: SV() walks the defaults on every call, and this runs every pass
+	if sv.arrange ~= "grid" then return end
+	local a = ensureGridAnchor()
+	local mode = sv.mode or "ready"
+	local spells = sv.spells
+	byCatalog = byCatalog and true or false
+	local changed = gridDirty or byCatalog ~= gridByCatalog
+	wipe(gridList)
+	local enabled, nVis = 0, 0
+	for _, entry in ipairs(SP.ReadyReminderSpells) do
+		local on = spells[entry.key]   -- spellOn(), without its SV() call
+		if on == nil then on = entry.def end
+		if on and usable(entry) then enabled = enabled + 1 end
+		local f = frames[entry.key]
+		if f then
+			local inList = f:IsShown() and f:GetParent() == UIParent   -- not while the settings preview has it
+			local vis = false
+			if inList then
+				if byCatalog or mode == "always" then vis = true
+				elseif mode == "ready" then vis = (f.gridReady or f.realDone == true) and true or false   -- realDone: the curve has lit it
+				else vis = not f.gridReady and not f.realDone end                                         -- "cooldown": the curve has hidden it
+				if vis and not f.gridVis then gridSeq = gridSeq + 1; f.gridSeq = gridSeq end
+				if vis then nVis = nVis + 1 end
+				gridList[#gridList + 1] = f
+			end
+			if vis ~= (f.gridVis or false) or inList ~= (f.gridIn or false) then changed = true end
+			f.gridVis, f.gridIn = vis, inList
+		end
+	end
+
+	local size, gap, perRow = sv.iconSize or 48, sv.spacing or 8, sv.gridColumns or 6
+	local grow, align = sv.gridGrow or "down", sv.gridAlign or "center"
+	local k = gridKey
+	if k.enabled ~= enabled or k.size ~= size or k.gap ~= gap or k.perRow ~= perRow or k.grow ~= grow or k.align ~= align then
+		changed = true
+		k.enabled, k.size, k.gap, k.perRow, k.grow, k.align = enabled, size, gap, perRow, grow, align
+	end
+	if not changed then return end   -- the usual pass: nothing to move
+	gridDirty = false
+	gridByCatalog = byCatalog
+	table.sort(gridList, gridBefore)
+
+	-- the block is sized for every enabled icon, so its box in Unlock UI holds them all
+	local cell = size + gap
+	local n = math.max(enabled, 1)
+	local cols = math.max(1, math.min(perRow, n))
+	local rows = math.ceil(n / cols)
+	local W, H = cols * cell - gap, rows * cell - gap
+	-- Grow or Align changed: keep the block where it is, measured from its new origin
+	if (sv.gridPos and sv.gridPos.point or "TOP") ~= gridOrigin(sv) then saveGridPos(); applyGridPos() end
+	if a.gridW ~= W or a.gridH ~= H then a:SetSize(W, H); a.gridW, a.gridH = W, H end
+
+	local up = grow == "up"
+	for i, f in ipairs(gridList) do
+		local r, c = math.floor((i - 1) / cols), (i - 1) % cols
+		local inRow = math.min(cols, nVis - r * cols)   -- visible icons in this row (the rest trail after them)
+		if inRow <= 0 then inRow = cols end
+		local rowW = inRow * cell - gap
+		local x = (align == "left" and 0 or align == "right" and (W - rowW) or (W - rowW) / 2) + c * cell
+		local y = up and -(H - size - r * cell) or -r * cell
+		if f.gridX ~= x or f.gridY ~= y or f.gridAnchored ~= a then
+			f:ClearAllPoints(); f:SetPoint("TOPLEFT", a, "TOPLEFT", x, y)
+			f.gridX, f.gridY, f.gridAnchored = x, y, a
+		end
+	end
+end
+
 local function applyPos(frame)
+	if gridOn() then
+		-- the grid places it (layoutGrid); until then it waits on the first slot
+		local a = ensureGridAnchor()
+		if frame.gridAnchored ~= a then
+			frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
+			frame.gridX, frame.gridY, frame.gridAnchored = 0, 0, a
+			gridDirty = true   -- off its slot: the next layout puts it back
+		end
+		return
+	end
+	frame.gridAnchored = nil
 	local pos = SV().positions[frame.entry.key] or defaultPos(frame.entry)
 	frame:ClearAllPoints()
 	frame:SetPoint(pos.point or "CENTER", UIParent, pos.point or "CENTER", pos.x or 0, pos.y or 0)
@@ -335,11 +496,20 @@ function SP:CreateReadyReminderFrame(entry)
 	f:SetScript("OnMouseDown", function(self, button)
 		-- icons move only while positions are unlocked
 		if button == "LeftButton" and SP.readyPositioning then
-			self:StartMoving(); self.isMoving = true
+			if gridOn() then   -- one block: any icon drags the whole grid
+				local a = ensureGridAnchor()
+				a:StartMoving(); a.isMoving = true; self.movesGrid = true
+			else
+				self:StartMoving(); self.isMoving = true
+			end
 		end
 	end)
 	f:SetScript("OnMouseUp", function(self)
-		if self.isMoving then self:StopMovingOrSizing(); self.isMoving = false; savePos(self) end
+		if self.movesGrid then
+			self.movesGrid = nil
+			local a = gridAnchor
+			if a and a.isMoving then a:StopMovingOrSizing(); a.isMoving = false; saveGridPos(); applyGridPos() end
+		elseif self.isMoving then self:StopMovingOrSizing(); self.isMoving = false; savePos(self) end
 	end)
 	f:SetScript("OnClick", function(self, button)
 		if button == "RightButton" and ShamanPowerConfig then ShamanPowerConfig:Open({ "fluffy", "readyreminders_section" }) end
@@ -605,6 +775,9 @@ end
 
 function SP:UpdateAllReadyReminderAppearance()
 	for key, f in pairs(frames) do self:UpdateReadyReminderAppearance(key); applyPos(f) end   -- positions too: an import replaces them
+	if gridAnchor then applyGridPos() end   -- an import replaces the grid's spot as well
+	gridDirty = true   -- any setting may have changed
+	layoutGrid(self.readyPositioning)
 end
 
 -- ---------------------------------------------------------------------------
@@ -701,6 +874,18 @@ local function stopEffects(f)
 	if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
 end
 
+-- The Ready Effect (glow / pulse): on a ready icon, or in "only while on
+-- cooldown" (where a ready icon is never shown) on the icon while it counts down.
+local function playEffects(f, sv)
+	local fx = sv.readyEffect or "glow"
+	if (fx == "glow" or fx == "both") then
+		if not f.glowShown then f.glow:Show(); f.glowAnim:Play(); f.glowShown = true end
+	elseif f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
+	if (fx == "pulse" or fx == "both") then
+		if not f.pulsing then f.pulseAnim:Play(); f.pulsing = true end
+	elseif f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+end
+
 local function setReady(f, ready)
 	local sv = SV()
 	if ready then
@@ -710,18 +895,17 @@ local function setReady(f, ready)
 		curveMouseBack(f)
 		if f.engineSheet then f.engineSheet:Hide() end
 		f:SetAlpha(sv.opacity or 1)
-		local fx = sv.readyEffect or "glow"
-		if (fx == "glow" or fx == "both") then
-			if not f.glowShown then f.glow:Show(); f.glowAnim:Play(); f.glowShown = true end
-		elseif f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
-		if (fx == "pulse" or fx == "both") then
-			if not f.pulsing then f.pulseAnim:Play(); f.pulsing = true end
-		elseif f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+		playEffects(f, sv)
 		if f.entry.combo then shockIcon(f, true) end
 	else
 		setDesat(f, sv.desaturate ~= false)
 		f:SetAlpha(sv.dimOpacity or 0.35)
-		stopEffects(f)
+		if sv.mode == "cooldown" then
+			playEffects(f, sv)   -- runs on untouched each pass: only a change starts or stops it
+			if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
+		else
+			stopEffects(f)
+		end
 	end
 end
 
@@ -770,9 +954,6 @@ end
 local function drawEngineCooldown(f, sv)
 	local style = sv.sweepStyle or "radial"
 	local barOn = (sv.barStyle or "none") ~= "none"
-	-- a sweep is the dimming: the covered part is the cooldown left, the rest
-	-- is the icon coming back in colour. Desaturating as well hides that.
-	if style ~= "none" then setDesat(f, false) end
 	if f.ecdOn and not f.cdChanged and f.ecdStyle == style and f.ecdBar == barOn then return end
 	local id = clientSpellID(f.entry)
 	if not id then return end
@@ -817,14 +998,21 @@ local function drawEngineCooldown(f, sv)
 	end
 end
 
--- "Always" mode, on cooldown: dim, countdown, sweep, bar.
+-- "Always" and "only while on cooldown" modes, on cooldown: dim, countdown, sweep, bar.
 local function drawCooldown(f, start, duration, remaining)
 	local sv = SV()
 	setReady(f, false)
 	if engineOn() and not SP.readyDemoActive then
+		if f.ecdStartSeen ~= start then f.ecdStartSeen = start; f.realDone = nil end   -- a new cooldown
 		drawEngineCooldown(f, sv)
-		-- dim while the REAL cooldown runs, full the moment it ends (the estimate may lag)
-		if f.ecdDur then curveAlpha(f, f.ecdDur, sv.opacity or 1, sv.dimOpacity or 0.35) end
+		-- Gray Out holds while the REAL cooldown runs: the game's end signal (realDone)
+		-- brings the colour back even if our estimate still says cooling
+		if f.realDone then setDesat(f, false) end
+		-- dim while the REAL cooldown runs, full the moment it ends (the estimate may lag);
+		-- "only while on cooldown" goes invisible (and stops catching clicks) then instead
+		local onlyCooling = sv.mode == "cooldown"
+		if f.ecdDur then curveAlpha(f, f.ecdDur, onlyCooling and 0 or (sv.opacity or 1), sv.dimOpacity or 0.35) end
+		if onlyCooling and f.realDone then curveMouseOff(f) end
 		return
 	end
 	if sv.showCountdown ~= false then
@@ -883,7 +1071,7 @@ local function readyPass(self)
 	if self.readyPositioning or self.readyDemoActive then return end
 	local hideAll = not sv.enabled or self:IsOff() or (sv.onlyInCombat and not InCombatLockdown())
 	if hideAll then
-		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil end
+		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil end   -- gridVis: they appear anew
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
 		return
 	end
@@ -901,12 +1089,18 @@ local function readyPass(self)
 				ready = remaining <= 0
 			end
 			if not ready then cooling = true end
+			f.gridReady = ready
 			if ready then
 				if f.wasReady == false then readySound(entry, f.lastDuration) end
 				f.wasReady = true
-				if not f:IsShown() then f:Show() end
-				setReady(f, true)
-			elseif sv.mode == "always" then
+				if sv.mode == "cooldown" then
+					-- "only while on cooldown": a ready spell has nothing to show
+					if f:IsShown() then setReady(f, true); stopEffects(f); f:Hide() end
+				else
+					if not f:IsShown() then f:Show() end
+					setReady(f, true)
+				end
+			elseif sv.mode == "always" or sv.mode == "cooldown" then
 				f.wasReady = false; f.lastDuration = duration
 				if not f:IsShown() then f:Show() end
 				drawCooldown(f, start, duration, remaining)
@@ -950,6 +1144,7 @@ local function readyPass(self)
 			f:Hide(); f.wasReady = nil
 		end
 	end
+	layoutGrid(false)
 	self.readyCooling = cooling
 end
 
@@ -982,6 +1177,7 @@ function SP:ShowAllReadyReminders()
 			f.label:SetShown(SV().showNames == true); f:Show()
 		end
 	end
+	layoutGrid(true)
 	SP:Print("Ready Reminders unlocked: drag the icons where you want them, then /spready lock"
 		.. " (or turn off Unlock Position in settings).")
 end
@@ -996,7 +1192,11 @@ end
 
 function SP:ResetReadyReminderPositions()
 	SV().positions = {}
+	SV().gridPos = nil
+	if gridAnchor then applyGridPos() end
 	for _, f in pairs(frames) do applyPos(f) end
+	gridDirty = true
+	layoutGrid(self.readyPositioning)
 	SP:Print("Ready Reminders: positions reset.")
 end
 
@@ -1032,20 +1232,26 @@ function SP:ReadyRemindersDemo(on)
 					idx = idx + 1; total = total + 1
 					local cycle = DEMO_CD + DEMO_READY
 					local t = (now - t0 + idx * 1.7) % cycle
+					f.gridReady = t >= DEMO_CD
 					if t < DEMO_CD then
-						if sv.mode == "always" then
+						if sv.mode == "always" or sv.mode == "cooldown" then
 							if not f:IsShown() then f:Show() end
 							drawCooldown(f, now - t, DEMO_CD, DEMO_CD - t)
 						elseif f:IsShown() then f:Hide(); stopEffects(f) end
 					else
 						readyCount = readyCount + 1
-						if not f:IsShown() then f:Show() end
-						setReady(f, true)
+						if sv.mode == "cooldown" then
+							if f:IsShown() then setReady(f, true); stopEffects(f); f:Hide() end
+						else
+							if not f:IsShown() then f:Show() end
+							setReady(f, true)
+						end
 					end
 				elseif f and f:IsShown() then
 					f:Hide()
 				end
 			end
+			layoutGrid(false)   -- the grid fills and empties as it would in play
 			-- tell the preview which icons this demo is keeping hidden (see ShamanPowerPreview showFrame)
 			for _, fr in pairs(frames) do fr.spDemoHidden = not fr:IsShown() end
 			self.readyDemoStatus = total == 0 and "No spells enabled - tick some below."
@@ -1061,7 +1267,12 @@ function SP:ReadyRemindersDemo(on)
 		self.readyDemoStatus = nil
 		for _, f in pairs(frames) do stopEffects(f); f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil; f.spDemoHidden = nil; f:Hide() end
 		if frames.shocks then applyShockLook(frames.shocks) end   -- the demo showed every shock: back to the known ones
+		-- the settings preview hands its frames back on the points they had when it
+		-- borrowed them (this runs after that): Placement, Reset or a drag made meanwhile
+		-- would be undone, so every icon goes back on the spot the settings say now
+		for _, f in pairs(frames) do f.gridAnchored = nil; applyPos(f) end
 		self:UpdateReadyReminders()
+		layoutGrid(self.readyPositioning)   -- the pass skips the layout while positioning
 	end
 end
 
@@ -1075,6 +1286,16 @@ function SP:ReadyReminderEnabledFrames()
 		end
 	end
 	return out
+end
+
+-- What Unlock UI boxes: the icons one by one, or in Grid placement the one block
+-- (sized for every enabled icon; the demo fills and empties it meanwhile).
+function SP:ReadyReminderMoverFrames()
+	if not gridOn() then return self:ReadyReminderEnabledFrames() end
+	self:ReadyReminderEnabledFrames()   -- makes the frames the block lays out
+	local a = ensureGridAnchor()
+	layoutGrid(self.readyPositioning)
+	return { a }
 end
 
 if SP.RegisterPreview then
@@ -1142,6 +1363,12 @@ end
 
 SP.ReadyShocksTurnedOn = shocksTurnedOn   -- the setup tour's spell list offers the same
 
+-- the modes that draw the icon while on cooldown (the While On Cooldown settings apply)
+local function coolingShown()
+	local m = SV().mode or "ready"
+	return m == "always" or m == "cooldown"
+end
+
 local function InjectOptions()
 	local root = SP.options
 	if not (root and root.args and root.args.fluffy and root.args.fluffy.args) then return end
@@ -1154,11 +1381,12 @@ local function InjectOptions()
 			enabled = { order = 1, type = "toggle", name = "Enable Ready Reminders", width = "full",
 				get = function() return SV().enabled end, set = function(_, v) SV().enabled = v; refresh() end },
 			mode = { order = 2, type = "select", name = "Show", width = 1.4,
-				desc = "Only when ready: the icon appears when the spell is off cooldown. Always: the icon stays on screen with the sweep and countdown while on cooldown. Always, dimmed: the same, but grayed and faded until it is ready.",
-				values = { ready = "Only when ready", always_bright = "Always (sweep + countdown)", always = "Always, dimmed while on cooldown" },
-				sorting = { "ready", "always_bright", "always" },
+				desc = "Only when ready: the icon appears when the spell is off cooldown. Only while on cooldown: the icon appears with the sweep and countdown while the spell recharges, and goes away when it is ready. Always: the icon stays on screen with the sweep and countdown while on cooldown. Always, dimmed: the same, but grayed and faded until it is ready.",
+				values = { ready = "Only when ready", cooldown = "Only while on cooldown", always_bright = "Always (sweep + countdown)", always = "Always, dimmed while on cooldown" },
+				sorting = { "ready", "cooldown", "always_bright", "always" },
 				get = function()
 					local sv = SV()
+					if sv.mode == "cooldown" then return "cooldown" end
 					if (sv.mode or "ready") ~= "always" then return "ready" end
 					-- "always" split by how the icon looks on cooldown: full colour, or dimmed
 					if sv.desaturate == false and (sv.dimOpacity or 0.35) >= 1 then return "always_bright" end
@@ -1168,6 +1396,10 @@ local function InjectOptions()
 					local sv = SV()
 					if v == "ready" then
 						sv.mode = "ready"
+					elseif v == "cooldown" then
+						-- starts in full colour (it is the only look it has); Gray Out / Opacity below still apply
+						if sv.mode ~= "cooldown" then sv.desaturate = false; sv.dimOpacity = 1 end
+						sv.mode = "cooldown"
 					elseif v == "always_bright" then
 						sv.mode = "always"; sv.desaturate = false; sv.dimOpacity = 1
 					else
@@ -1190,13 +1422,38 @@ local function InjectOptions()
 					else SP:HideAllReadyReminders() end
 				end },
 			reset = { order = 5, type = "execute", name = "Reset Positions",
-				desc = "Lays the icons out again in a row or column (see Arrange As).", width = 1.0,
+				desc = function()
+					if gridOn() then return "Puts the grid back on its default spot." end
+					return "Lays the icons out again in a row or column (see Arrange As)."
+				end, width = 1.0,
 				func = function() SP:ResetReadyReminderPositions() end },
+			arrange = { order = 4.9, type = "select", name = "Placement", width = 1.4,
+				desc = "Free: each icon has its own spot, and a hidden icon leaves a gap. Grid: the icons form one block you move as a whole; the icons on screen fill it in the order they appeared, so there are never gaps.",
+				values = { free = "Free (each icon its own spot)", grid = "Grid (fills in the order they appear)" },
+				sorting = { "free", "grid" },
+				get = function() return SV().arrange or "free" end,
+				set = function(_, v) SV().arrange = v; refresh() end },
+			gridColumns = { order = 4.91, type = "range", name = "Icons Per Row", min = 1, max = 12, step = 1, width = 1.0,
+				desc = "How many icons fit in a row before the next row starts. 1 makes a column.",
+				hidden = function() return not gridOn() end,
+				get = function() return SV().gridColumns or 6 end, set = function(_, v) SV().gridColumns = v; refresh() end },
+			gridGrow = { order = 4.92, type = "select", name = "New Rows Go", width = 1.0,
+				hidden = function() return not gridOn() end,
+				values = { down = "Down", up = "Up" }, sorting = { "down", "up" },
+				get = function() return SV().gridGrow or "down" end, set = function(_, v) SV().gridGrow = v; refresh() end },
+			gridAlign = { order = 4.93, type = "select", name = "Align Rows", width = 1.0,
+				desc = "Where a row that is not full sits: packed to the left, centred, or packed to the right. Left keeps every icon still as new ones join; Center and Right shift the row to make room.",
+				hidden = function() return not gridOn() end,
+				values = { left = "Left", center = "Center", right = "Right" }, sorting = { "left", "center", "right" },
+				get = function() return SV().gridAlign or "center" end, set = function(_, v) SV().gridAlign = v; refresh() end },
 			layout = { order = 5.1, type = "select", name = "Reset Layout", width = 1.0,
+				hidden = function() return gridOn() end,
 				values = { row = "Row", column = "Column" },
 				get = function() return SV().layout or "row" end, set = function(_, v) SV().layout = v end },
 			spacing = { order = 5.2, type = "range", name = "Reset Spacing", min = 0, max = 40, step = 1, width = 1.0,
-				get = function() return SV().spacing or 8 end, set = function(_, v) SV().spacing = v end },
+				desc = "The gap between icons: in the grid, and when Reset Position lays them out in Free placement.",
+				get = function() return SV().spacing or 8 end,
+				set = function(_, v) SV().spacing = v; if gridOn() then refresh() end end },
 
 			lookHeader = { order = 6, type = "header", name = "Look" },
 			iconSize = { order = 6.1, type = "range", name = "Icon Size", min = 24, max = 96, step = 2, width = 1.2,
@@ -1231,7 +1488,13 @@ local function InjectOptions()
 				get = function() return SV().showNames == true end, set = function(_, v) SV().showNames = v; refresh() end },
 
 			readyHeader = { order = 7, type = "header", name = "When Ready" },
-			readyEffect = { order = 7.1, type = "select", name = "Ready Effect", width = 1.0,
+			readyEffect = { order = 7.1, type = "select", width = 1.0,
+				-- "only while on cooldown" never shows a ready icon: the effect plays while it counts down
+				name = function() return SV().mode == "cooldown" and "Effect While Shown" or "Ready Effect" end,
+				desc = function()
+					if SV().mode == "cooldown" then return "Plays on the icon while it is on screen, counting down the cooldown." end
+					return "Plays on the icon when the spell is ready."
+				end,
 				values = { glow = "Glow", pulse = "Pulse", both = "Glow + pulse", none = "None" },
 				get = function() return SV().readyEffect or "glow" end, set = function(_, v) SV().readyEffect = v; refresh() end },
 			glowShape = { order = 7.25, type = "select", name = "Glow Shape", width = 1.0,
@@ -1262,47 +1525,47 @@ local function InjectOptions()
 				disabled = function() return not SV().soundOnReady end,
 				func = function() if SP.PlaySoundWithVolume then SP:PlaySoundWithVolume(SP:GetSoundFile(SV().soundName or "Raid Warning"), SV().soundVolume or 100, true) end end },
 
-			cdHeader = { order = 8, type = "header", name = "While On Cooldown (Always mode)" },
-			cdNote = { order = 8.05, type = "description", name = "These apply when Show is set to Always; in Only-when-ready mode the icon is simply hidden.\n",
-				hidden = function() return (SV().mode or "ready") == "always" end },
+			cdHeader = { order = 8, type = "header", name = "While On Cooldown" },
+			cdNote = { order = 8.05, type = "description", name = "These apply when Show is set to Always or Only while on cooldown; in Only-when-ready mode the icon is simply hidden.\n",
+				hidden = function() return coolingShown() end },
 			dimOpacity = { order = 8.1, type = "range", name = "Opacity While On Cooldown", min = 0.1, max = 1, step = 0.05, width = 1.2, isPercent = true,
-				hidden = function() return (SV().mode or "ready") ~= "always" end,
+				hidden = function() return not coolingShown() end,
 				get = function() return SV().dimOpacity or 0.35 end, set = function(_, v) SV().dimOpacity = v; refresh() end },
 			desaturate = { order = 8.2, type = "toggle", name = "Gray Out The Icon", width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" end,
+				hidden = function() return not coolingShown() end,
 				get = function() return SV().desaturate ~= false end, set = function(_, v) SV().desaturate = v; refresh() end },
 			sweepStyle = { order = 8.3, type = "select", name = "Sweep", width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" end,
+				hidden = function() return not coolingShown() end,
 				values = { radial = "Radial (clock)", vertical = "Vertical (fills up)", none = "None" },
 				get = function() return SV().sweepStyle or "radial" end, set = function(_, v) SV().sweepStyle = v; refresh() end },
 			barStyle = { order = 8.4, type = "select", name = "Progress Bar", width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" end,
+				hidden = function() return not coolingShown() end,
 				values = { none = "None", below = "Below the icon", above = "Above the icon" },
 				get = function() return SV().barStyle or "none" end, set = function(_, v) SV().barStyle = v; refresh() end },
 			barHeight = { order = 8.5, type = "range", name = "Bar Height", min = 2, max = 12, step = 1, width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" or (SV().barStyle or "none") == "none" end,
+				hidden = function() return not coolingShown() or (SV().barStyle or "none") == "none" end,
 				get = function() return SV().barHeight or 4 end, set = function(_, v) SV().barHeight = v; refresh() end },
 			barColor = { order = 8.6, type = "color", name = "Bar Color", width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" or (SV().barStyle or "none") == "none" end,
+				hidden = function() return not coolingShown() or (SV().barStyle or "none") == "none" end,
 				get = function() return color(SV().barColor, 0.3, 0.8, 1.0) end,
 				set = function(_, r, g, b) SV().barColor = { r = r, g = g, b = b }; refresh() end },
 			barGradientDirection = { order = 8.65, type = "select", name = "Bar Gradient Direction", width = 1.0,
 				desc = "Where the gradient starts on this bar. Along the Bar follows the bar. Shown when Bar Gradient (Totem Bar > Duration Bars or General > Themes) is not Flat.",
-				hidden = function() return (SV().mode or "ready") ~= "always" or (SV().barStyle or "none") == "none" or not (SP.opt and SP.opt.barGradient) end,
+				hidden = function() return not coolingShown() or (SV().barStyle or "none") == "none" or not (SP.opt and SP.opt.barGradient) end,
 				values = function() return (SP:GradientDirectionValues("barGradient")) end,
 				sorting = function() return select(2, SP:GradientDirectionValues("barGradient")) end,
 				get = function() return SP:BarGradientDirection("other") end,
 				set = function(_, v) SP:SetBarGradientDirection("other", v) end },
 			showCountdown = { order = 8.7, type = "toggle", name = "Countdown Text", width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" end,
+				hidden = function() return not coolingShown() end,
 				get = function() return SV().showCountdown ~= false end,
 				set = function(_, v) SV().showCountdown = v; if v and SP.EnableCountdownNumbers then SP:EnableCountdownNumbers() end; refresh() end },
 			textPosition = { order = 8.8, type = "select", name = "Countdown Position", width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" or SV().showCountdown == false end,
+				hidden = function() return not coolingShown() or SV().showCountdown == false end,
 				values = { center = "Center", top = "Top", bottom = "Bottom", below = "Below the icon", above = "Above the icon" },
 				get = function() return SV().textPosition or "center" end, set = function(_, v) SV().textPosition = v; refresh() end },
 			textSize = { order = 8.9, type = "range", name = "Countdown Size (0 = auto)", min = 0, max = 40, step = 1, width = 1.0,
-				hidden = function() return (SV().mode or "ready") ~= "always" or SV().showCountdown == false end,
+				hidden = function() return not coolingShown() or SV().showCountdown == false end,
 				get = function() return SV().textSize or 0 end, set = function(_, v) SV().textSize = v; refresh() end },
 
 			spellsHeader = { order = 20, type = "header", name = "Spells" },
@@ -1381,9 +1644,9 @@ local function InjectOptions()
 		{ header = "soundHeader", name = "Sound", keys = {
 			"soundOnReady", "soundName", "soundTest", "soundVolume", "soundMinCooldown",
 		}, names = { soundOnReady = "Play Sound", soundName = "Sound", soundVolume = "Volume" } },
-		{ header = "positionHeader", name = "Position", keys = { "move", "unlock", "layout", "spacing", "reset" },
+		{ header = "positionHeader", name = "Position", keys = { "arrange", "gridColumns", "gridGrow", "gridAlign", "move", "unlock", "layout", "spacing", "reset" },
 			names = { move = "Move", unlock = "Unlock Position", layout = "Arrange As",
-				spacing = "Spacing When Arranged", reset = "Reset Position" } },
+				spacing = "Spacing", reset = "Reset Position" } },
 	})
 	args.hideBackground.desc = "Hide the background and border around each reminder icon."
 	root.args.fluffy.args.readyreminders_section = { order = 9.5, type = "group", name = "Ready Reminders", args = args }

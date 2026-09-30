@@ -83,6 +83,8 @@
     {"key": "partyDotsMissing", "label": "Party dots: only who's missing"},
     {"key": "coverageDotsMissing", "label": "Coverage dots: only who's missing"},
     {"key": "coverageTimer", "label": "Coverage: totem time left"},
-    {"key": "coveragePlainIcon", "label": "Coverage: plain totem icon"}
+    {"key": "coveragePlainIcon", "label": "Coverage: plain totem icon"},
+    {"key": "readyRemindersCooldownOnly", "label": "Ready reminders: only while on cooldown"},
+    {"key": "readyRemindersGrid", "label": "Ready reminders: grid placement"}
   ]
 }

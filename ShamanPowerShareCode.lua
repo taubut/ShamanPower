@@ -117,7 +117,7 @@ SP.SHARE_FEATURES = {
 	{ key = "minimapIcon",        label = "Minimap icon shown",                 get = function() return sub(O().minimap, "show") ~= false end },
 	{ key = "readyCheckList",     label = "Ready check: on-screen list",        get = function() return sub(O().readyCheck, "showPanel") ~= false end },
 	{ key = "readyRemindersAlways", label = "Ready reminders: always shown (dim on cooldown)", get = function()
-		local m = sub(G("ShamanPower_ReadyReminders"), "mode"); return m ~= nil and m ~= "ready"
+		return sub(G("ShamanPower_ReadyReminders"), "mode") == "always"   -- "cooldown" has its own entry (readyRemindersCooldownOnly)
 	end },
 	{ key = "coverageFreeCells",  label = "Coverage: one box per totem",        get = function() return on(sub(O().coverage, "freeCells")) end },
 	-- 3.0.3: Shield Charges looks, the cooldown bar's shield charge bar, the bar Effects
@@ -140,6 +140,9 @@ SP.SHARE_FEATURES = {
 	{ key = "coverageDotsMissing", label = "Coverage dots: only who's missing", get = function() return on(sub(O().coverage, "dotsMissingOnly")) end },
 	{ key = "coverageTimer",      label = "Coverage: totem time left",          get = function() return on(sub(O().coverage, "showTimer")) end },
 	{ key = "coveragePlainIcon",  label = "Coverage: plain totem icon",         get = function() return on(sub(O().coverage, "plainIcon")) end },
+	-- 3.0.5: Ready Reminders "only while on cooldown" and Grid placement
+	{ key = "readyRemindersCooldownOnly", label = "Ready reminders: only while on cooldown", get = function() return sub(G("ShamanPower_ReadyReminders"), "mode") == "cooldown" end },
+	{ key = "readyRemindersGrid", label = "Ready reminders: grid placement",    get = function() return sub(G("ShamanPower_ReadyReminders"), "arrange") == "grid" end },
 }
 
 -- ---------------------------------------------------------------------------
