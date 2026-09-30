@@ -1548,7 +1548,9 @@ local function PageSignature(list, groups)
 		if e.kind == "section" then
 			parts[#parts + 1] = "S:" .. tostring(e.label)
 		else
-			parts[#parts + 1] = table.concat(e.path, "/")
+			-- the label too: a name that follows another setting (Ready Effect /
+			-- Effect While Shown) is redrawn when only it changed
+			parts[#parts + 1] = table.concat(e.path, "/") .. "=" .. tostring(e.label)
 		end
 	end
 	return table.concat(parts, "|")

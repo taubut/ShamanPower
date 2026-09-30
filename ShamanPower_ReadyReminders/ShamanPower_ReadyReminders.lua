@@ -1204,13 +1204,19 @@ function SP:HideAllReadyReminders()
 end
 
 function SP:ResetReadyReminderPositions()
-	SV().positions = {}
-	SV().gridPos = nil
-	if gridAnchor then applyGridPos() end
+	-- only the placement in use: Grid puts the block back on its default spot and
+	-- keeps the Free spots, Free lays the icons out again and keeps the grid's spot
+	local grid = gridOn()
+	if grid then
+		SV().gridPos = nil
+		if gridAnchor then applyGridPos() end
+	else
+		SV().positions = {}
+	end
 	for _, f in pairs(frames) do applyPos(f) end
 	gridDirty = true
 	layoutGrid(self.readyPositioning)
-	SP:Print("Ready Reminders: positions reset.")
+	SP:Print(grid and "Ready Reminders: grid position reset." or "Ready Reminders: positions reset.")
 end
 
 -- Setup tour demo: every enabled icon runs a pretend cooldown, staggered, so
@@ -1455,7 +1461,7 @@ local function InjectOptions()
 				values = { down = "Down", up = "Up" }, sorting = { "down", "up" },
 				get = function() return SV().gridGrow or "down" end, set = function(_, v) SV().gridGrow = v; refresh() end },
 			gridAlign = { order = 4.93, type = "select", name = "Align Rows", width = 1.0,
-				desc = "Where a row that is not full sits: packed to the left, centred, or packed to the right. Left keeps every icon still as new ones join; Center and Right shift the row to make room.",
+				desc = "Where a row that is not full sits: packed to the left, centered, or packed to the right. Left keeps every icon still as new ones join; Center and Right shift the row to make room.",
 				hidden = function() return not gridOn() end,
 				values = { left = "Left", center = "Center", right = "Right" }, sorting = { "left", "center", "right" },
 				get = function() return SV().gridAlign or "center" end, set = function(_, v) SV().gridAlign = v; refresh() end },
