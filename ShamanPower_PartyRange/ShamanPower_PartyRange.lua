@@ -138,6 +138,11 @@ if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
 	-- "Rapid Cast", which broke the name match. There the entry is the totem
 	-- spell itself (its name matches) and its buffs are the effect auras.
 	SP.TotemBuffSpellIDs[2][5] = 8227
+else
+	-- TBC Anniversary: Flametongue Totem enchants weapons (like Windfury Totem)
+	-- and puts no buff on anyone, and no addon can see another player's weapon:
+	-- not tracked (8215 is "Rapid Cast" there, so the dots were always red)
+	SP.TotemBuffSpellIDs[2][5] = nil
 end
 
 -- Every rank of each buff above (Forever 1.60.1 Spell.db2; the TBC IDs are the

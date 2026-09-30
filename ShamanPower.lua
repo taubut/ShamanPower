@@ -1203,6 +1203,23 @@ end
 function ShamanPower:OnCombatEnd()
 	if self._onOffPendingCombat then self:ApplyOnOff() end
 	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
+	-- WoW: Forever: the game-drawn shield layers on the cooldown bar's shield button and
+	-- the Earth Shield button. A rebuild asked for during the fight runs now; one that
+	-- is missing (the addon loaded mid-fight) or came back incomplete is built again,
+	-- a few times at most, so a failed build never lasts until the next /reload.
+	if SPCompat and SPCompat.secretsRegime then
+		local btn = self.shieldButton
+		if btn and (self._shieldContainerRebuildPending or not btn.chargeContainer or btn.chargeContainerFailed) then
+			local tries = (btn.chargeContainerTries or 0) + 1
+			if self._shieldContainerRebuildPending or tries <= 3 then
+				btn.chargeContainerTries = tries
+				self:RebuildShieldChargeContainer()
+				if btn.chargeContainer and not btn.chargeContainerFailed then btn.chargeContainerTries = nil end
+			end
+		end
+		local esBtn = _G["ShamanPowerEarthShieldBtn"]
+		if esBtn and not esBtn.chargeContainer and self.EnsureESButtonContainer then self:EnsureESButtonContainer(esBtn) end
+	end
 	-- Layout skipped because the addon loaded (or was reloaded) mid-combat:
 	-- run the parts of the login sequence that could not touch secure frames.
 	if self._layoutPendingCombat then
@@ -1343,6 +1360,9 @@ function ShamanPower:OnProfileChanged()
 		if InCombatLockdown() then self._onOffPendingCombat = true else self:ApplyOnOff() end
 	end
 	if self.ApplyCueSettings then self:ApplyCueSettings() end   -- the new profile's Effects
+	-- the game-drawn shield layer keeps the settings it was built with: the new profile's
+	-- sweep, count, bar and text (after the fight if this runs in one)
+	if self.RebuildShieldChargeContainer then self:RebuildShieldChargeContainer() end
 	--self:Debug("Profile changed, positions restored from profile.")
 end
 
@@ -1712,6 +1732,13 @@ SlashCmdList["SHAMANPOWER"] = function(msg)
 		if ShamanPower.ShowShareCode then ShamanPower:ShowShareCode() end
 	elseif msg == "support" then
 		if ShamanPower.ShowSupportCode then ShamanPower:ShowSupportCode() end
+	elseif msg == "themecheck" then
+		-- the developer's tripwire (not in the help): Themes-tab changes a theme would not capture
+		local g = ShamanPower.db and ShamanPower.db.global
+		if g then
+			g.themeCheck = not g.themeCheck or nil
+			print("|cff0070ddShamanPower|r: theme check " .. (g.themeCheck and "|cff4cc776ON|r: a Themes-tab change a theme would not capture prints a warning." or "off."))
+		end
 	elseif msg == "check" then
 		if ShamanPower.RunReadyCheckSweep then
 			ShamanPower:RunReadyCheckSweep("manual")
@@ -11189,14 +11216,21 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 			})
 		end)
 	end
+	local failed = false
 	for _, set in ipairs(self.ShieldAuraSets) do
 		local okAdd, err = buildSlot(set)
-		if not okAdd and SPCompat.Trace then SPCompat.Trace("SHIELD AddAuraSlot %s failed: %s", set.name, tostring(err)) end
+		if not okAdd then
+			failed = true
+			if SPCompat.Trace then SPCompat.Trace("SHIELD AddAuraSlot %s failed: %s", set.name, tostring(err)) end
+		end
 	end
-	pcall(container.SetUnit, container, "player")
+	if not pcall(container.SetUnit, container, "player") then failed = true end
 	pcall(container.UpdateAllAuras, container)
 	container:Hide()   -- shown only while auras are secret
 	btn.chargeContainer = container
+	-- a shield slot that did not register: kept (it draws what it can), built again
+	-- after the next fight (OnCombatEnd), a few times at most
+	btn.chargeContainerFailed = failed or nil
 	if SPCompat.Trace then SPCompat.Trace("SHIELD container ready on %s (sweep=%s bars=%s text=%s)", tostring(btn:GetName()), tostring(sweepStyle), tostring(showBars), tostring(textLocation)) end
 end
 
@@ -11204,7 +11238,10 @@ end
 -- baked in at creation, so build a fresh container (out of combat only).
 function ShamanPower:RebuildShieldChargeContainer()
 	local btn = self.shieldButton
-	if not btn or InCombatLockdown() then return end
+	if not btn then return end
+	-- asked for in a fight (a setting, the preferred shield, a profile): after it (OnCombatEnd)
+	if InCombatLockdown() then self._shieldContainerRebuildPending = true return end
+	self._shieldContainerRebuildPending = nil
 	if btn.chargeContainer then
 		btn.chargeContainer:Hide()
 		pcall(btn.chargeContainer.SetUnit, btn.chargeContainer, "none")   -- the old one stops following auras

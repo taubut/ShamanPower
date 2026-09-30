@@ -17,6 +17,9 @@ end
 -- Local only: nothing that is sent changes, and a /reload ends it.
 local callPractice = false
 local function KnowsManaTide() return callPractice or IsSpellKnown(16190) end
+-- Every Mana Tide cast: 16190 (the talent), and on WoW: Forever the trainer ranks at
+-- level 48 and 58 (17354, 17359). A cast of a higher rank reports its own ID.
+local MANA_TIDE_CASTS = { [16190] = true, [17354] = true, [17359] = true }
 
 -- Mark module as loaded
 SP.RaidCooldownsLoaded = true
@@ -533,7 +536,7 @@ local function WatchOwnManaTide()
 		ownTideFrame = CreateFrame("Frame")
 		ownTideFrame:SetScript("OnEvent", function(f, _, _, _, spellID)
 			if issecretvalue and issecretvalue(spellID) then return end
-			if spellID == 16190 then
+			if MANA_TIDE_CASTS[spellID] then
 				f:UnregisterAllEvents()
 				SP:RemoveCooldownButtonAlert(16190)
 			end
@@ -1304,7 +1307,7 @@ function SP:OnShamanCooldownCast(unit, spellID)
 	local cdType, duration
 	if spellID == 2825 or spellID == 32182 then
 		cdType, duration = "bl", BL_COOLDOWN
-	elseif spellID == 16190 then
+	elseif MANA_TIDE_CASTS[spellID] then
 		cdType, duration = "mt", MT_COOLDOWN
 	else
 		return

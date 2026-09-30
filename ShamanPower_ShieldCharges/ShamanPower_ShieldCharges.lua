@@ -1188,6 +1188,13 @@ function SP:UpdateShieldChargeDisplays()
 			end
 			-- the icon shown with no shield up (and under the engine's in combat) is the last one seen
 			if hasShield then self._shieldLastWater = water end
+			-- WoW: Forever: the game's layer is built out of combat, before the first fight,
+			-- instead of in it (and again here if a build ever came back empty). Only while
+			-- there is none: a built one is kept up to date by the settings (see below)
+			if SPCompat and SPCompat.secretsRegime and not playerFrame.engine and not InCombatLockdown()
+				and not self.shieldChargesDemoActive then
+				self:EnsureShieldChargeEngine(playerFrame, "player", scale)
+			end
 		end
 		if playerFrame.engine then playerFrame.engine:SetShown(restricted) end
 
@@ -1230,6 +1237,11 @@ function SP:UpdateShieldChargeDisplays()
 			if esTarget and esCharges and esCharges > 0 then
 				charges = esCharges
 				hasShield = true
+			end
+			-- the game's layer, built before the first fight (see Lightning / Water above)
+			if SPCompat and SPCompat.secretsRegime and not earthFrame.engine and not InCombatLockdown()
+				and not self.shieldChargesDemoActive then
+				self:EnsureShieldChargeEngine(earthFrame, "earth", scale)
 			end
 		end
 		if earthFrame.engine then earthFrame.engine:SetShown(restricted) end

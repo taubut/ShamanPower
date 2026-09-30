@@ -15,6 +15,10 @@
 --                    selected, so Ctrl+C copies it; typing in it changes nothing
 --     spec.editScroll  the box keeps the dialog's width and its text scrolls
 --                    (a long code), instead of the dialog widening to fit it
+--     spec.input     optional box the player TYPES in (a name, a pasted code):
+--                    { text = "starting text", maxLetters = n }. A button's
+--                    onClick(dialog) reads it with dialog:GetInput(); Enter
+--                    clicks the first button. (editText is the read-only copy box.)
 --     spec.buttons   1-3 { text = "Accept", onClick = function(dialog) end }; a
 --                    click runs onClick, then closes the dialog unless onClick
 --                    returns true. The first is the main one: highlighted and
@@ -336,7 +340,7 @@ end
 function finish(f, how)
 	local spec = f.spec
 	if not spec then return end
-	f.spec, f.spEditText = nil, nil
+	f.spec, f.spEditText, f.spInput = nil, nil, nil
 	stopTimers(f)
 	unlist(f)
 	updateCatcher()
@@ -438,7 +442,13 @@ local function build()
 		if want and self:GetText() ~= want then self:SetText(want); self:HighlightText() end
 	end)
 	box:SetScript("OnEscapePressed", function() finish(f, "escape") end)
-	box:SetScript("OnEnterPressed", function() finish(f, "escape") end)
+	box:SetScript("OnEnterPressed", function()
+		-- a box to type in: Enter is the main button; the copy box: Enter closes
+		local b = f.spInput and f.spec and f.spec.buttons and f.spec.buttons[1]
+		if b and f.buttons and f.buttons[1] and f.buttons[1]:IsShown() then f.buttons[1]:Click() return end
+		finish(f, "escape")
+	end)
+	function f:GetInput() return self.box:GetText() or "" end
 	f.box = box
 	f.measure = f:CreateFontString(nil, "OVERLAY")
 	f.measure:SetFontObject(FONTS.text)
@@ -483,7 +493,7 @@ local function layout(f, spec)
 		end
 	end
 	w = math.max(w, rowW + 2 * PAD)
-	if f.spEditText and not spec.editScroll then
+	if f.spEditText and not spec.editScroll and not f.spInput then
 		f.measure:SetText(f.spEditText)
 		w = math.max(w, math.ceil(f.measure:GetStringWidth()) + 24 + 2 * PAD)
 	end
@@ -520,7 +530,7 @@ local function layout(f, spec)
 	else
 		f.text:Hide()
 	end
-	if f.spEditText then
+	if f.spEditText or f.spInput then
 		y = y + gap
 		f.box:ClearAllPoints()
 		f.box:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
@@ -563,7 +573,8 @@ function SP:ShowSPDialog(spec)
 	local wasShown = f:IsShown() and f.spec ~= nil
 	stopTimers(f)
 	f.spec = spec
-	f.spEditText = spec.editText ~= nil and tostring(spec.editText) or nil
+	f.spInput = type(spec.input) == "table" and spec.input or nil
+	f.spEditText = (not f.spInput and spec.editText ~= nil) and tostring(spec.editText) or nil
 	local timeout = tonumber(spec.timeout)
 	f.spDeadline = (timeout and timeout > 0) and (GetTime() + timeout) or nil
 
@@ -580,7 +591,13 @@ function SP:ShowSPDialog(spec)
 	f:Show()
 	f:Raise()
 
-	if f.spEditText then
+	if f.spInput then
+		f.box:SetMaxLetters(tonumber(f.spInput.maxLetters) or 0)
+		f.box:SetText(tostring(f.spInput.text or ""))
+		f.box:SetFocus()
+		f.box:HighlightText()
+	elseif f.spEditText then
+		f.box:SetMaxLetters(0)
 		f.box:SetText(f.spEditText)
 		f.box:SetCursorPosition(0)
 		f.box:SetFocus()

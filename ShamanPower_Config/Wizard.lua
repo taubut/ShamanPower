@@ -3531,7 +3531,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 
 	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
 		get = function() return OPT().cdbarSweepStyle or "greys" end,
-		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("UpdateCooldownBar"); notify() end,
+		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify() end,
 		values = function() return { greys = "Vertical - grays out", fills = "Vertical - fills back in", radial = "Radial swipe" } end,
 		order = function() return { "greys", "fills", "radial" } end })
 	wrow("Dropdown", { label = "Progress bar position", get = function() return OPT().cdbarProgressPosition or "left" end,
@@ -3541,7 +3541,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	wrow("Slider", { label = "Progress bar size", min = 3, max = 16, step = 1, get = function() return OPT().cdbarProgressBarHeight or 3 end,
 		set = function(v) SP.opt.cdbarProgressBarHeight = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBar"); notify(); layoutMock() end })
 	wrow("Dropdown", { label = "Time text", get = function() return OPT().cdbarDurationTextLocation or "none" end,
-		set = function(v) SP.opt.cdbarDurationTextLocation = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBarLayout"); safecall("UpdateCooldownBar"); notify(); layoutMock() end,
+		set = function(v) SP.opt.cdbarDurationTextLocation = v; safecall("UpdateCooldownBarProgressBars"); safecall("UpdateCooldownBarLayout"); safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify(); layoutMock() end,
 		values = function() return { none = "None (center number if Time text is on)", inside = "Inside the bar", outside = "Beside the bar", icon = "On the icon" } end,
 		order = function() return { "none", "inside", "outside", "icon" } end })
 	wrow("Slider", { label = "Time text size", min = 6, max = 20, step = 1, get = function() return OPT().cdbarDurationTextSize or 8 end,
