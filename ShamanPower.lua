@@ -1473,10 +1473,12 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	end
 
 	-- the logo's totem boxes (no letters, no SP): the fire column, the raised
-	-- earth box, the four elements and their bars, in the logo's own units
+	-- earth box, the four elements and their bars, in the logo's own units. The
+	-- numbers are the brand kit's (~/Storage/ShamanPower/brand, sp_logo.py STATIC_*),
+	-- measured from the logo itself: keep them identical to it.
 	local logo = CreateFrame("Frame", nil, card)
 	local k = 0.25                                    -- 800 logo units -> 200 px
-	logo:SetSize(653 * k, 690 * k)                    -- the boxes span 74..727 x 58..748
+	logo:SetSize(650 * k, 682 * k)                    -- the boxes span 75..725 x 59..741
 	logo:SetPoint("TOP", card, "TOP", 0, -28)
 	-- sub: the draw order inside the layer (0 the black backing, 1 an edge, 2 the color).
 	-- Two textures on the same layer and sublevel draw in no fixed order, so without it
@@ -1484,34 +1486,33 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	local function Rect(ux, uy, uw, uh, r, g, b, sub)
 		local t = logo:CreateTexture(nil, "ARTWORK", nil, sub or 2)
 		t:SetColorTexture(r, g, b, 1)
-		t:SetPoint("TOPLEFT", logo, "TOPLEFT", (ux - 74) * k, -(uy - 58) * k)
+		t:SetPoint("TOPLEFT", logo, "TOPLEFT", (ux - 75) * k, -(uy - 59) * k)
 		t:SetSize(uw * k, uh * k)
 		return t
 	end
 	local function Hex(h) return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255 end
+	-- a box: a 152 black plate, the 140 face inset 6 (the raised Earth: a 148 rim inset 2 under it)
 	local function Box(ux, uy, fill, edge)
 		local r, g, b = Hex("05070A")
-		Rect(ux - 4, uy - 4, 156, 156, r, g, b, 0)
+		Rect(ux, uy, 152, 152, r, g, b, 0)
 		if edge then
 			r, g, b = Hex(edge)
-			Rect(ux, uy, 148, 148, r, g, b, 1)
-			r, g, b = Hex(fill)
-			Rect(ux + 5, uy + 5, 138, 138, r, g, b, 2)
-		else
-			r, g, b = Hex(fill)
-			Rect(ux, uy, 148, 148, r, g, b, 2)
+			Rect(ux + 2, uy + 2, 148, 148, r, g, b, 1)
 		end
+		r, g, b = Hex(fill)
+		Rect(ux + 6, uy + 6, 140, 140, r, g, b, 2)
 	end
-	Box(243, 62, "9E3923"); Box(243, 228, "BD442A"); Box(243, 394, "DB4F30")
-	Box(78, 394, "A57749", "CE955B")
-	Box(78, 560, "493521"); Box(243, 560, "D94E30"); Box(409, 560, "5B7ED9"); Box(575, 560, "BABFD4")
+	Box(241, 59, "9E3923"); Box(241, 225, "BD442A"); Box(241, 391, "DB4F30")
+	Box(75, 391, "A57749", "CE955B")
+	Box(75, 557, "493521"); Box(241, 557, "D94E30"); Box(407, 557, "5B7ED9"); Box(573, 557, "BABFD4")
+	-- bars: a 152 x 18 plate, the fill inset 4 (144 x 10 at full, to the whole unit as the logo has it)
 	local BARS = { { "AE7E4E", 0.62 }, { "F25735", 0.55 }, { "668DF2", 0.80 }, { "D0D5ED", 0.86 } }
 	for i, bar in ipairs(BARS) do
-		local bx = 76 + (i - 1) * 166
+		local bx = 75 + (i - 1) * 166
 		local r, g, b = Hex("05070A")
-		Rect(bx, 722, 152, 18, r, g, b, 0)
+		Rect(bx, 723, 152, 18, r, g, b, 0)
 		r, g, b = Hex(bar[1])
-		Rect(bx + 4, 726, 144 * bar[2], 10, r, g, b, 2)
+		Rect(bx + 4, 727, math.floor(144 * bar[2]) + 1, 10, r, g, b, 2)
 	end
 
 	-- the wordmark ("Shaman" in logo blue, "Power" in white), centred as one
