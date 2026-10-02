@@ -129,7 +129,7 @@ SP.TotemBuffSpellIDs = {
 		[7] = 15108,  -- Windwall
 	},
 }
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	-- WoW: Forever (1.60.1.70009) made Windfury Totem a party buff: 8515 / 10609 /
 	-- 10612 "Windfury Totem" is an aura on every party member in range (it procs
 	-- the extra attack itself), shown like Strength of Earth. TBC's weapon enchant
@@ -187,7 +187,7 @@ end
 -- On Forever a totem's name may differ from its effect aura's name. Cache all
 -- rank/effect IDs once; leave Anniversary's existing name-only scan unchanged.
 SP.TotemBuffIDSets = {}
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	for _, list in pairs(SP.TotemBuffSpellIDs) do
 		for _, base in pairs(list) do
 			local name = GetSpellInfo(base)
@@ -378,7 +378,7 @@ function SP:UnitNearShaman(unit)
 end
 
 function SP:UnitHasBuff(unit, buffName, element)
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and issecretvalue(buffName) then return false end
+	if SPCompat.FOREVER and issecretvalue(buffName) then return false end
 	if not buffName then return false end
 
 	if element and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
@@ -401,7 +401,7 @@ function SP:UnitHasBuff(unit, buffName, element)
 	end
 
 	local has = false
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		local ids = SP.TotemBuffIDSets[buffName]
 		if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 			for i = 1, 40 do
@@ -836,7 +836,7 @@ function SP:CreateCoverageFrame()
 	settingsBtn:SetScript("OnClick", function() SP:OpenFrameSettings("coverage", frame) end)
 	settingsBtn:HookScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Configure Totem Coverage", 1, 1, 1)
+		GameTooltip:AddLine("Totem Coverage settings", 1, 1, 1)
 		GameTooltip:Show()
 	end)
 	settingsBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
@@ -862,7 +862,7 @@ function SP:CreateCoverageFrame()
 		GameTooltip:AddLine(" ")
 		if CoverageOpts().hideBorder then
 			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
-			GameTooltip:AddLine("Right-click to configure", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("Right-click for settings", 0.7, 0.7, 0.7)
 		else
 			GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
 		end
@@ -1366,10 +1366,11 @@ local COVERAGE_SCENE = {
 	{ story = "Now the Priest and Hunter are outside Mana Spring too.",
 	  cells = { [1] = { true, false, true, true }, [3] = { true, true, false, false } } },
 	{ story = "The Warrior is back in range: Earth's cell has nothing to say and drops out.",
+	  storyKept = "The Warrior is back in range: everyone has Earth's buff now.",
 	  cells = { [1] = { true, true, true, true }, [3] = { true, true, false, false } } },
-	{ story = "Hunter back too - only the Priest is still missing Mana Spring.",
+	{ story = "The Priest is back too - only the Hunter is still missing Mana Spring.",
 	  cells = { [1] = { true, true, true, true }, [3] = { true, true, true, false } } },
-	{ story = "Everyone covered: nothing to show.",
+	{ story = "Everyone covered: nothing to show.", storyKept = "Everyone is covered.",
 	  cells = { [1] = { true, true, true, true }, [3] = { true, true, true, true } } },
 }
 local COVERAGE_DEMO_ICONS = { [1] = "Interface\\Icons\\Spell_Nature_EarthBindTotem", [2] = "Interface\\Icons\\Spell_Fire_SearingTotem",
@@ -1398,7 +1399,8 @@ function SP:CoverageDemo(on)
 			local co = CoverageOpts()
 			local fontSize, rowH = CoverageFont(), CoverageRowH()
 			local beat = COVERAGE_SCENE[d.beat]
-			self.coverageDemoStatus = beat.story
+			-- "Hide a Totem Once Everyone Is in Range" off: covered cells stay, so the line says so
+			self.coverageDemoStatus = (co.hideWhenCovered == false and beat.storyKept) or beat.story
 			for element = 1, 4 do frame.buttons[element]:Hide() end
 			for _, btn in pairs(frame.totemCells) do btn:Hide() end
 			local shown = {}
@@ -1622,7 +1624,7 @@ function SP:UpdatePartyRangeDots()
 						local hasBuff = buffName and self:UnitHasBuff(unit, buffName, element)
 
 						-- Special case: Air element (4) with no buffName = Windfury Totem
-						local isWindfury = (element == 4 and not buffName and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
+						local isWindfury = (element == 4 and not buffName and not SPCompat.FOREVER)
 						if isWindfury then
 							local playerName = UnitName(unit)
 							local wfStatus = self:IsPlayerInWindfuryRange(playerName)
@@ -1952,7 +1954,7 @@ function SP:UpdateRangeCounters()
 			for _, unit in ipairs(partyUnits) do
 				if UnitExists(unit) then
 					-- Special case: Air element with Windfury
-					local isWindfury = (element == 4 and not buffName and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
+					local isWindfury = (element == 4 and not buffName and not SPCompat.FOREVER)
 					if isWindfury then
 						hasTrackableBuff = true  -- Windfury is trackable via broadcast
 						local playerName = UnitName(unit)

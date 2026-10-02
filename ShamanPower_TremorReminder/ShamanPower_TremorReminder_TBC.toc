@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Tremor Reminder]|r
 ## Version: 3.0.5
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Proactive Tremor Totem reminder when targeting fear-casting mobs
+## Notes: Reminds you to drop Tremor Totem when you target a mob that casts fear.
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

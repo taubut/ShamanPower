@@ -19,6 +19,19 @@
 -- where the rest of its fields are set; that second line is a harmless no-op.
 SPCompat = SPCompat or {}
 
+-- Which client: WoW: Forever, or the classic family (TBC Anniversary). Forever said
+-- WOW_PROJECT_MAINLINE (1) until its 2026-10-01 patch (build 70170) gave it an ID of
+-- its own (WOW_PROJECT_CAMELOT, 18), which sent every "on Forever" test down the
+-- Anniversary path (Forever defines only MAINLINE, CLASSIC and CAMELOT). Decided
+-- once, here, as "not a classic client", so a new number cannot do that again: every
+-- file tests SPCompat.FOREVER, never WOW_PROJECT_ID.
+do
+	local id = WOW_PROJECT_ID
+	SPCompat.FOREVER = id ~= nil and id ~= (WOW_PROJECT_CLASSIC or 2) and id ~= (WOW_PROJECT_BURNING_CRUSADE_CLASSIC or 5)
+		and id ~= (WOW_PROJECT_WRATH_CLASSIC or 11) and id ~= (WOW_PROJECT_CATACLYSM_CLASSIC or 14)
+		and id ~= (WOW_PROJECT_MISTS_CLASSIC or 19)
+end
+
 -- Last-resort stub. If anything below this line throws, the rest of the file
 -- never runs, and every caller that does SPCompat.SpellExists(id) would error
 -- on a hot path. Defining it up front means a broken compat layer degrades to
@@ -73,6 +86,12 @@ if not GetSpellCooldown and C_Spell and C_Spell.GetSpellCooldown then
 	-- two safety nets: nothing is kept longer than five seconds, and a run that has
 	-- ended by the clock is read again at once. Measured with /spperf: the two
 	-- 10 Hz loops were at 1 KB per call from this alone.
+	-- An answer with nothing in it that can run out is kept until that notice, past
+	-- the five seconds: not on cooldown (start 0, duration 0), or on hold (isEnabled
+	-- false: Nature's Swiftness until its buff is used reads start = now, duration
+	-- 0). Either changes only with a SPELL_UPDATE_COOLDOWN, which empties the cache,
+	-- so an idle spell is read once, not again every five seconds (it was the whole
+	-- of Ready Reminders' idle garbage).
 	-- In combat the numbers are secret values: they are kept and handed on like
 	-- any other value, never compared or added here.
 	local cdCache, cdStamp = {}, {}
@@ -81,6 +100,11 @@ if not GetSpellCooldown and C_Spell and C_Spell.GetSpellCooldown then
 		if spell == nil then return nil end
 		local now = GetTime()
 		local c = cdCache[spell]
+		if c then
+			local st, du, enabled = c.startTime, c.duration, c.isEnabled
+			local plain = not (issecretvalue and (issecretvalue(st) or issecretvalue(du) or issecretvalue(enabled)))
+			if plain and ((st == 0 and du == 0) or enabled == false) then return c end
+		end
 		if c ~= nil and (now - cdStamp[spell]) < CD_TTL then
 			if c == false then return nil end
 			local st, du = c.startTime, c.duration
@@ -96,12 +120,103 @@ if not GetSpellCooldown and C_Spell and C_Spell.GetSpellCooldown then
 	end
 	SPCompat = SPCompat or {}
 	SPCompat.CooldownTable = cooldownTable
+	-- A read made now, kept for the readers after it. Ready Reminders reads the
+	-- never-secret flags while it handles SPELL_UPDATE_COOLDOWN (where isOnGCD can be
+	-- trusted); its next pass then finds this table instead of reading again.
+	function SPCompat.CooldownTableNow(spell)
+		if spell == nil then return nil end
+		local c = C_Spell.GetSpellCooldown(spell)
+		cdCache[spell], cdStamp[spell] = c or false, GetTime()
+		return c
+	end
+	-- The game's own answer to "is this spell on a real cooldown" (longer than the
+	-- global one), for the cooldown displays. isActive and isEnabled are never
+	-- secret. isOnGCD is only right in a read made while SPELL_UPDATE_COOLDOWN is
+	-- handled, so it is kept per spell from such a read (how = "event") until the
+	-- next event read of that spell. A spell's own cooldown starts only with an event
+	-- for it (its ID, or none = all), and the displays read each of their spells at
+	-- those; what turns a spell active between them is the global cooldown. Seen
+	-- inactive, a spell keeps "the global cooldown" for anything that starts without
+	-- its own event. Readable numbers (out of combat) answer by themselves.
+	-- Returns true (cooling), false (ready or on hold) or false, "gcd" (active, but
+	-- only the global cooldown), or nil (unknown: the caller decides). how: nil = the
+	-- kept table, "now" = a fresh read, "event" = a fresh read while the event is
+	-- handled (one per spell per event). Fresh reads go into the cache, so the passes
+	-- after them read nothing new.
+	local gcdLatch, readSerial, cdSerial = {}, {}, 0
+	local cdEventHooks = {}
+	local function plainBool(v)
+		if issecretvalue and issecretvalue(v) then return false end
+		return type(v) == "boolean"
+	end
+	function SPCompat.CooldownRunning(spell, how)
+		if spell == nil then return nil end
+		local c, atEvent
+		if how == "event" and readSerial[spell] ~= cdSerial then
+			c = C_Spell.GetSpellCooldown(spell)
+			cdCache[spell], cdStamp[spell] = c or false, GetTime()
+			readSerial[spell], atEvent = cdSerial, true
+		elseif how == "now" then
+			c = SPCompat.CooldownTableNow(spell)
+		else
+			c = cooldownTable(spell)   -- (or read at this event already, for another button)
+		end
+		if type(c) ~= "table" then return nil end
+		local active, enabled = c.isActive, c.isEnabled
+		if not (plainBool(active) and plainBool(enabled)) then return nil end
+		if not (active and enabled) then
+			gcdLatch[spell] = true   -- nothing of its own runs
+			return false
+		end
+		if atEvent then
+			local g = c.isOnGCD
+			if plainBool(g) then gcdLatch[spell] = g else gcdLatch[spell] = nil end
+		end
+		local st, du = c.startTime, c.duration
+		if not (issecretvalue and (issecretvalue(st) or issecretvalue(du))) and type(du) == "number" then
+			-- readable: the numbers say it, as they always did
+			local cooling = du > 1.5
+			gcdLatch[spell] = not cooling
+			if cooling then return true end
+			return false, "gcd"
+		end
+		local g = gcdLatch[spell]
+		if g == nil then return nil end
+		if g then return false, "gcd" end
+		return true
+	end
+	-- The spell the SPELL_UPDATE_COOLDOWN being handled names (nil = all cooldowns),
+	-- and its base spell; for the hooks below.
+	function SPCompat.CooldownEventSpell() return SPCompat._cdEventID, SPCompat._cdEventBase end
+	-- Run on SPELL_UPDATE_COOLDOWN right after the cache is emptied, so their reads
+	-- are the ones the passes after them find.
+	function SPCompat.OnCooldownEvent(fn) cdEventHooks[#cdEventHooks + 1] = fn end
 	do
 		local f = CreateFrame("Frame")
 		for _, ev in ipairs({ "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }) do
 			pcall(f.RegisterEvent, f, ev)
 		end
-		f:SetScript("OnEvent", function() wipe(cdCache) end)
+		local function plainID(v)
+			if issecretvalue and issecretvalue(v) then return nil end
+			if type(v) == "number" then return v end
+			return nil
+		end
+		f:SetScript("OnEvent", function(_, event, spellID, baseSpellID)
+			wipe(cdCache)
+			if event == "SPELL_UPDATE_COOLDOWN" then
+				cdSerial = cdSerial + 1
+				-- a hidden or missing spell ID: all cooldowns
+				local id = plainID(spellID)
+				SPCompat._cdEventID, SPCompat._cdEventBase = id, id and plainID(baseSpellID)
+				local report = geterrorhandler and geterrorhandler()   -- an error is reported, the others still run
+				for i = 1, #cdEventHooks do
+					if report then xpcall(cdEventHooks[i], report) else pcall(cdEventHooks[i]) end
+				end
+				SPCompat._cdEventID, SPCompat._cdEventBase = nil, nil
+			elseif event == "PLAYER_ENTERING_WORLD" then
+				wipe(gcdLatch); wipe(readSerial)   -- after a loading screen: nothing known
+			end
+		end)
 	end
 
 	function GetSpellCooldown(spell)
@@ -145,7 +260,7 @@ do
 	-- bar never saw the shield. ShamanPower's code reads through these instead; on
 	-- Anniversary they are the game's own functions, exactly as before.
 	local A = C_UnitAuras
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and A and A.GetBuffDataByIndex and A.GetDebuffDataByIndex and A.GetAuraDataByIndex then
+	if SPCompat.FOREVER and A and A.GetBuffDataByIndex and A.GetDebuffDataByIndex and A.GetAuraDataByIndex then
 		SPCompat.UnitBuff = function(unit, index, filter) return auraToClassic(A.GetBuffDataByIndex(unit, index, filter)) end
 		SPCompat.UnitDebuff = function(unit, index, filter) return auraToClassic(A.GetDebuffDataByIndex(unit, index, filter)) end
 		SPCompat.UnitAura = function(unit, index, filter) return auraToClassic(A.GetAuraDataByIndex(unit, index, filter)) end
@@ -182,7 +297,7 @@ end
 -- earlier today, and there is no reason to repeat it.
 -- ---------------------------------------------------------------------------
 do
-	local useList = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+	local useList = (SPCompat.FOREVER)
 		and C_Item and C_Item.GetWeaponEnchantInfo and Enum and Enum.WeaponSlot
 
 	-- The list read builds fresh tables for both hands on every call. The cooldown
@@ -386,7 +501,7 @@ SPCompat.BUILD = "2026-09-19a"   -- bump when the diag tooling changes so a past
 local UNOBTAINABLE = {}   -- has a name, but nothing can learn it
 local REAL_UNNAMED = {}   -- no readable name, but genuinely castable
 
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	-- Earth Shield: 974 has no SkillLineAbility row at all; 408514 has one but
 	-- AcquireMethod 3 with no TraitDefinition and no Talent row, i.e. granted by
 	-- nothing. (Water Shield 408510 is also AcquireMethod 3 but DOES have a
@@ -591,7 +706,7 @@ function SPCompat.SecureSnippetsWork()
 	-- Mainline family: the marker must be set too. With an error display that
 	-- keeps the error handler for itself, a failed compile never reaches our
 	-- recording handler. Anniversary keeps its old verdict, unmeasured there.
-	local markerOk = SPCompat.snippetProbeMarked or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+	local markerOk = SPCompat.snippetProbeMarked or not SPCompat.FOREVER
 	snippetsWork = (ok and not failed and markerOk) and true or false
 	snippetProbeErr = (not snippetsWork) and (firstErr or "probe call refused") or nil
 	return snippetsWork
@@ -634,6 +749,16 @@ function SPCompat.GetRaidRosterInfo(index)
 end
 if not issecretvalue then
 	function issecretvalue() return false end
+end
+
+-- Can this UNIT_AURA payload be read? Since WoW: Forever build 70170 (2026-10-01) its
+-- fields can be secret in combat (isFullUpdate a secret boolean, the instance lists
+-- secret tables), and testing one is a Lua error. false = treat it as a full update
+-- (read the auras again), as a missing payload always was.
+function SPCompat.AuraInfoReadable(info)
+	if type(info) ~= "table" or issecretvalue(info) then return false end
+	return not (issecretvalue(info.isFullUpdate) or issecretvalue(info.addedAuras)
+		or issecretvalue(info.updatedAuraInstanceIDs) or issecretvalue(info.removedAuraInstanceIDs))
 end
 
 -- Probe helpers as globals so they survive /reload (the beta checklist and
@@ -2170,7 +2295,7 @@ SlashCmdList["SPDIAG"] = function(msg)
 			cvar("addonCombatRestrictionsForced"), cvar("addonEncounterRestrictionsForced"), cvar("addonChatRestrictionsForced"))
 	end
 	if C_Secrets and C_Secrets.GetSpellAuraSecrecy then
-		local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local mainline = SPCompat.FOREVER
 		local ids = { 324, mainline and 408510 or 24398, mainline and 408514 or 974,
 			8512, 8143, 3599, 2484, 5675, 8075, 20608, 2825, 16190 }
 		local parts = {}
@@ -2501,7 +2626,7 @@ SlashCmdList["SPPERF"] = function(msg)
 	local stats, originals = {}, {}
 	for name, sys in pairs(us.subsystems) do
 		local cb = sys.callback
-		local st = { calls = 0, ms = 0, kb = 0, enabled = sys.enabled, interval = sys.interval }
+		local st = { calls = 0, ms = 0, kb = 0, enabled = sys.enabled, asleep = sys.asleep, interval = sys.interval }
 		stats[name], originals[name] = st, cb
 		sys.callback = function()
 			local m0, t0 = collectgarbage("count"), debugprofilestop()
@@ -2551,6 +2676,7 @@ SlashCmdList["SPPERF"] = function(msg)
 	local mem0 = {}
 	for _, a in ipairs(addons) do mem0[a] = GetAddOnMemoryUsage(a) end
 	local lua0, t0 = collectgarbage("count"), GetTime()
+	local pass0 = us.pass or 0
 	print(string.format("|cff00ccffspperf|r measuring for %d s ... (combat=%s)", secs, tostring(InCombatLockdown())))
 	local stress
 	if stressMode then
@@ -2580,15 +2706,20 @@ SlashCmdList["SPPERF"] = function(msg)
 		local rows = {}
 		for name, st in pairs(stats) do rows[#rows + 1] = { name = name, st = st } end
 		table.sort(rows, function(a, b) return a.st.ms > b.st.ms end)
-		say(string.format("|cff00ccffspperf|r %.1f s window. Subsystems (central update loop):", window))
+		say(string.format("|cff00ccffspperf|r %.1f s window. Subsystems (central update loop;"
+			.. " zz = on, asleep until its events wake it):", window))
 		local totalMs, totalKb = 0, 0
 		for _, r in ipairs(rows) do
 			local st = r.st
 			totalMs, totalKb = totalMs + st.ms, totalKb + st.kb
 			say(string.format("  %-16s %s every %.2fs  calls=%d  %.2f ms total (%.3f ms/call)  alloc %.1f KB (%.2f KB/s)",
-				r.name, st.enabled and "ON " or "off", st.interval or 0, st.calls, st.ms, st.calls > 0 and st.ms / st.calls or 0, st.kb, st.kb / window))
+				r.name, st.enabled and (st.asleep and "zz " or "ON ") or "off", st.interval or 0, st.calls, st.ms,
+				st.calls > 0 and st.ms / st.calls or 0, st.kb, st.kb / window))
 		end
 		say(string.format("  subsystems total: %.2f ms = %.3f%% of the window, alloc %.1f KB (%.2f KB/s)", totalMs, totalMs / (window * 10), totalKb, totalKb / window))
+		-- the loop's frame stops (no OnUpdate at all) while every subsystem is off or asleep
+		say(string.format("  update loop ran on %d frames (%.1f a second; the game drew %.0f a second)",
+			(us.pass or 0) - pass0, ((us.pass or 0) - pass0) / window, GetFramerate and GetFramerate() or 0))
 		local frows = {}
 		for fname, st in pairs(fstats) do if st.calls > 0 then frows[#frows + 1] = { name = fname, st = st } end end
 		table.sort(frows, function(a, b) return a.st.ms > b.st.ms end)

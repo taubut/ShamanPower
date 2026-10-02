@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Totem Range]|r |cffff4444(Non-Shamans Enable This!)|r
 ## Version: 3.0.5
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: For non-shamans - Shows when you're in/out of range of party totem buffs
+## Notes: For non-shamans: shows when you're in or out of range of party totem buffs.
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

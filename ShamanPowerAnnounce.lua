@@ -19,7 +19,7 @@ local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
-local FOREVER = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local FOREVER = (SPCompat.FOREVER)
 local GetCD = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
 local secret = issecretvalue or function() return false end
 
@@ -402,7 +402,7 @@ do
 			args = {
 				forever_note = {
 					order = 0.01, type = "description", width = "full",
-					name = "|cffffa040In dungeons and raids the game may hide chat from addons; replies then only work in the open world. Announces are not sent while the game has chat locked down.|r",
+					name = "|cffffa040Automatic replies may not work in dungeons and raids. Announcements stop while the game blocks chat.|r",
 					hidden = function() return not FOREVER end,
 				},
 				desc = {
@@ -423,7 +423,7 @@ do
 				},
 				announceSoon = {
 					order = 1.3, type = "toggle", width = "full", name = "Announce Before It Is Ready",
-					desc = "A set time before the cooldown is back, tell the group. Works in combat: the time comes from your own cast, not from anything the game hides.",
+					desc = "Tell your group a set number of seconds (Seconds Before) before the cooldown is ready. Works in combat when chat is available.",
 					get = get("announceSoon"), set = set("announceSoon"),
 				},
 				soonSeconds = {
@@ -469,14 +469,14 @@ do
 				hdr_reply = { order = 2, type = "header", name = "When Someone Asks" },
 				reply = {
 					order = 2.1, type = "toggle", width = "full", name = "Reply in Chat",
-					desc = "When a group member's message has one of the words below, answer in the same chat with whether Mana Tide is ready or how long is left. At most one reply per the time set below. A line that is one of the announce or reply messages (another ShamanPower shaman's \"Mana Tide Totem used!\") is never answered; anyone asking, a shaman too, is.",
+					desc = "Reply in the same chat when someone in your group uses a word below. Say whether Mana Tide is ready or how long is left. Wait between replies as set below. Ignore ShamanPower announcements and replies, but answer players asking for Mana Tide, including other shamans.",
 					get = get("reply"), set = set("reply"),
 				},
 				localCall = {
 					order = 2.2, type = "toggle", width = "full", name = "Show the Mana Tide Call on My Screen",
 					desc = function()
-						local text = "When a group member's message has one of the words below and Mana Tide is ready, show the same \"use Mana Tide\" alert a Raid Cooldowns caller's button shows, even if they are not an assigned caller. Only you see it. Another shaman's announce or reply line never sets it off."
-						if not SP.RaidCooldownsLoaded then text = text .. "\n\n|cffffa040Needs the ShamanPower [Raid Cooldowns] module: turn it on in your AddOns list.|r" end
+						local text = "Show the Raid Cooldowns alert when anyone in your group asks for Mana Tide using a word below and it is ready. They do not need to be an assigned caller. Only you see the alert. Ignore ShamanPower announcements and replies."
+						if not SP.RaidCooldownsLoaded then text = text .. "\n\n|cffffa040Turn on ShamanPower [Raid Cooldowns] in your AddOns list.|r" end
 						return text
 					end,
 					disabled = function() return not SP.RaidCooldownsLoaded end,
@@ -507,7 +507,7 @@ do
 				},
 				preview = {
 					order = 3, type = "execute", width = "full", name = "Preview My Messages",
-					desc = "Prints every message with sample values in your own chat window. Nothing is sent.",
+					desc = "Show example messages in your chat window. Nothing is sent to other players.",
 					func = function() SP:PreviewAnnounceMessages() end,
 				},
 			},

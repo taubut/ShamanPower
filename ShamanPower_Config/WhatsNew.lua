@@ -17,6 +17,17 @@ local NOTES = { version = (ns.PATCH_NOTES and ns.PATCH_NOTES[1] and ns.PATCH_NOT
 
 local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"
 
+-- The gold banner's title (ui-style-guide 2.3 A) in Fira Sans SemiBold, the
+-- wordmark's weight, gold with its outline as before. The game's font where Fira
+-- is missing (a new file loads only after a full restart) or on Chinese and
+-- Korean clients (SP:BrandFontPath gives the game's font there).
+local function BannerFont(fs)
+	local path = SP.BrandFontPath and SP:BrandFontPath("semibold")
+	local ok, set = false, false
+	if path then ok, set = pcall(fs.SetFont, fs, path, 26, "OUTLINE") end
+	if not (ok and set) then fs:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE") end
+end
+
 local function BaseVersion(v)
 	return v and (v:gsub("%-.*$", "")) or nil
 end
@@ -34,7 +45,7 @@ end
 local function CardSets(since, preview)
 	local s = VerNum(since)
 	local cur = VerNum(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
-	local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local forever = SPCompat.FOREVER
 	local out = {}
 	for _, ver in ipairs(ns.PATCH_NOTES or {}) do
 		local n = VerNum(ver.v)
@@ -60,7 +71,7 @@ local previewDlg
 local function ShowStylePreview(key)
 	local st = SP.TotemBarStyle and SP:TotemBarStyle(key)
 	if not (st and SP.Wizard and SP.Wizard.BuildTotemBarStep and SP.ApplyTotemBarStyleTo) then
-		print("|cff0070ddShamanPower|r: that totem bar style is not available on this client.")
+		print("|cff0070ddShamanPower|r: that Totem Bar style is not available in this version of the game.")
 		return
 	end
 	if not previewDlg then
@@ -70,7 +81,7 @@ local function ShowStylePreview(key)
 			headerHeight = 46, footer = 52, special = true, strata = "FULLSCREEN_DIALOG",
 		})
 		local solid = previewDlg:CreateTexture(nil, "BACKGROUND", nil, 1)
-		solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2)
+		solid:SetAllPoints(previewDlg)   -- (out to the edge, which draws over it)
 		solid:SetColorTexture(Core:Color("windowBg", 1))
 		local solidH = previewDlg.header:CreateTexture(nil, "BACKGROUND", nil, 1)
 		solidH:SetAllPoints(previewDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
@@ -229,7 +240,7 @@ local function BuildLookDialog()
 		headerHeight = 46, footer = 52, special = true, strata = "DIALOG",
 	})
 	local solid = lookDlg:CreateTexture(nil, "BACKGROUND", nil, 1)
-	solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2)
+	solid:SetAllPoints(lookDlg)   -- (out to the edge, which draws over it)
 	solid:SetColorTexture(Core:Color("windowBg", 1))
 	local solidH = lookDlg.header:CreateTexture(nil, "BACKGROUND", nil, 1)
 	solidH:SetAllPoints(lookDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
@@ -248,7 +259,7 @@ local function BuildLookDialog()
 		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
 		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)
 		local title = band:CreateFontString(nil, "OVERLAY")
-		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		BannerFont(title); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
 		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
 		local installed = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
@@ -371,7 +382,7 @@ local function BuildDialog(since, preview)
 	cards[key] = dlg
 	dlg:SetFrameStrata("DIALOG")
 	local solid = dlg:CreateTexture(nil, "BACKGROUND", nil, 1)
-	solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2)
+	solid:SetAllPoints(dlg)   -- (out to the edge, which draws over it)
 	solid:SetColorTexture(Core:Color("windowBg", 1))
 
 	local W, y = 526, 2
@@ -391,7 +402,7 @@ local function BuildDialog(since, preview)
 		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
 		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
 		local title = band:CreateFontString(nil, "OVERLAY")
-		title:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		BannerFont(title); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
 		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
 		-- the installed version (3.0.1), so a patch of the series needs no edit here

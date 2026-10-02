@@ -8,6 +8,20 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.5.1",
+		date = "2026-10-02",
+		headline = "Fixes for the October 1 WoW: Forever patch",
+		new = {},
+		changes = {
+			"Get Help: Copy Support Code also says whether ShamanPower and each of its modules loaded (and why not), when your settings were last saved, BugSack's ShamanPower errors and anything the game blocked, so #help can answer without asking you to type commands.",
+		},
+		fixes = {
+			"WoW: Forever: after the October 1 patch, ShamanPower thought it was running on TBC Anniversary. Forever's own options (Right-Click to Destroy Totems, Raid Resistance and more) went missing, Totem Twisting options showed up, and settings could look reset. Everything is back.",
+			"WoW: Forever: no more Lua errors in combat from the shield check and the Earth Shield Tracker.",
+			"WoW: Forever: Reactive Totems' Tremor Totem alert shows only while you're feared, charmed or asleep, not for roots, Frost Nova or stuns. It's for you only now: the game doesn't tell addons what kind of crowd control is on someone else.",
+		},
+	},
+	{
 		v = "3.0.5",
 		date = "2026-09-30",
 		headline = "Your own themes, a support code and a better Unlock UI",

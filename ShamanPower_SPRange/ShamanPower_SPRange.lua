@@ -12,7 +12,7 @@ local UnitBuff = SPCompat and SPCompat.UnitBuff or UnitBuff   -- ShamanPower's o
 -- the first entry, which is empty when the imbue lands in the second.
 local GetWeaponEnchantInfo = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 if not SP then
-	print("|cff0070ddShamanPower [SPRange]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Totem Range Tracker]:|r ShamanPower is not loaded.")
 	return
 end
 
@@ -20,6 +20,16 @@ end
 SP.SPRangeLoaded = true
 
 ShamanPower_RangeTracker = ShamanPower_RangeTracker or {}
+
+-- the defaults InitSPRange fills in, registered like the other modules' (the support
+-- code and Settings > Reset This Page read them)
+if SP.SUPPORT_MODULE_DEFAULTS then
+	SP.SUPPORT_MODULE_DEFAULTS.ShamanPower_RangeTracker = {
+		tracked = { windfury = true, graceofair = true },
+		position = { point = "CENTER", x = 0, y = 0 },
+		shown = false,
+	}
+end
 
 -- Trackable totems with their detection methods
 -- detection: "buff" = check for buff, "weapon" = check weapon enchant
@@ -173,7 +183,7 @@ SP.TrackableTotems = {
 -- TBC Anniversary: Flametongue Totem enchants weapons and puts no buff on anyone
 -- (8215 is "Rapid Cast" there), so it sat at MISSING: not tracked on that client.
 -- Windfury, the same kind of totem, keeps its weapon-enchant check.
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+if not SPCompat.FOREVER then
 	for i = #SP.TrackableTotems, 1, -1 do
 		if SP.TrackableTotems[i].id == "flametongue" then table.remove(SP.TrackableTotems, i) end
 	end
@@ -183,7 +193,7 @@ end
 for _, totem in ipairs(SP.TrackableTotems) do
 	-- WoW: Forever made Windfury Totem a party buff (8515 / 10609 / 10612), not
 	-- TBC's weapon enchant: read it like any other totem buff there
-	if totem.id == "windfury" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if totem.id == "windfury" and SPCompat.FOREVER then
 		totem.detection = "buff"
 		totem.buffSpellID = 8515
 		totem.buffSpellIDs = { 8515, 10609, 10612 }
@@ -191,10 +201,10 @@ for _, totem in ipairs(SP.TrackableTotems) do
 	if totem.buffSpellID then
 		-- Forever reuses 8215 (TBC's Flametongue Totem buff) for "Rapid Cast"; the
 		-- aura party members carry there is the effect spell
-		if totem.id == "flametongue" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then totem.buffSpellID = 8230 end
+		if totem.id == "flametongue" and SPCompat.FOREVER then totem.buffSpellID = 8230 end
 		totem.buffName = GetSpellInfo(totem.buffSpellID)
 	end
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		-- Build once, after client-specific ID overrides; nameless auras need
 		-- ID matching, while named entries retain the single native lookup.
 		totem.buffSpellIDs = totem.buffSpellIDs or { totem.buffSpellID }
@@ -205,7 +215,7 @@ end
 
 -- Only totems this client has. WoW: Forever has no Totem of Wrath and no Wrath
 -- of Air; a tracked totem the client lacks would sit at MISSING forever.
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+if SPCompat.FOREVER and SPCompat and SPCompat.SpellExists then
 	local kept = {}
 	for _, totem in ipairs(SP.TrackableTotems) do
 		if SPCompat.SpellExists(totem.spellID) then kept[#kept + 1] = totem end
@@ -318,7 +328,7 @@ local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
 end
 
 function SP:SPRangeHasBuff(buffName, buffSpellIDSet)
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		return MainlineHasNamedBuff("player", buffName, buffSpellIDSet)
 	end
 	if not buffName then return false end
@@ -335,7 +345,7 @@ end
 function SP:SPRangeHasWindfuryWeapon()
 	-- WoW: Forever: Windfury Totem is the party buff there, and any other
 	-- temporary enchant (your own imbue, a rogue's poison) is not Windfury
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		local wf = SP.TrackableTotemsByID and SP.TrackableTotemsByID.windfury
 		if wf and MainlineHasNamedBuff("player", wf.buffName, wf.buffSpellIDSet) then return true, nil, nil end
 		return false, nil, nil
@@ -430,7 +440,7 @@ function SP:CreateSPRangeFrame()
 	end)
 	settingsBtn:HookScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Configure Totem Range", 1, 1, 1)
+		GameTooltip:AddLine("Totem Range Tracker settings", 1, 1, 1)
 		GameTooltip:Show()
 	end)
 	settingsBtn:HookScript("OnLeave", function()
@@ -475,7 +485,7 @@ function SP:CreateSPRangeFrame()
 		GameTooltip:AddLine(" ")
 		if SP.opt.rangeTracker.hideBorder then
 			GameTooltip:AddLine("ALT+drag to move", 0.7, 0.7, 0.7)
-			GameTooltip:AddLine("Right-click to configure", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("Right-click for settings", 0.7, 0.7, 0.7)
 		else
 			GameTooltip:AddLine("Drag to move", 0.7, 0.7, 0.7)
 		end
@@ -558,14 +568,14 @@ function SP:CreateSPRangeTotemButton(parent, totemData, index)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		GameTooltip:AddLine(totemData.name, 1, 1, 1)
 		if totemData.detection == "weapon" then
-			GameTooltip:AddLine("Detected via: Weapon Enchant", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("Weapon buff", 0.7, 0.7, 0.7)
 		else
-			GameTooltip:AddLine("Detected via: Buff", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("Totem buff", 0.7, 0.7, 0.7)
 		end
 		if self.status == "inrange" then
 			GameTooltip:AddLine("Status: IN RANGE", 0, 1, 0)
 		elseif self.status == "missing" then
-			GameTooltip:AddLine("Status: MISSING (no shaman in group)", 0.7, 0.7, 0.7)
+			GameTooltip:AddLine("Status: MISSING (you don't have this buff)", 0.7, 0.7, 0.7)
 		else
 			GameTooltip:AddLine("Status: OUT OF RANGE", 1, 0, 0)
 		end
@@ -653,7 +663,7 @@ end
 -- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
 local rangePartyUnits = { "party1", "party2", "party3", "party4" }
 function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		if MainlineHasNamedBuff("player", buffName, buffSpellIDSet) then return true end
 		if IsInGroup() then
 			for _, unit in ipairs(rangePartyUnits) do
@@ -779,7 +789,7 @@ end
 -- Show SPRange configuration
 -- The window lives in ShamanPower_Config (SPRange.lua), which replaces this.
 function SP:ShowSPRangeConfig()
-	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for the Totem Range window")
+	print("|cff0070ddShamanPower|r: The Totem Range Tracker settings need ShamanPower_Config.")
 end
 
 -- Update SPRange frame border visibility
@@ -860,15 +870,15 @@ function SP:ToggleSPRange()
 		self.sprangeRealShown = false
 		self.spRangeManuallyOpened = false  -- User closed it manually
 		ShamanPower_RangeTracker.shown = false
-		self:Print("SPRange hidden. Use /sprange to show.")
+		self:Print("Totem Range Tracker hidden. Type /sprange show to bring it back.")
 	else
 		self.spRangeManuallyOpened = true  -- User opened it manually
 		ShamanPower_RangeTracker.shown = true
 		if self:SPRangeAllowedHere() then
 			if not self.sprangeDemoActive then self:ShowSPRangeOverlay() end
-			self:Print("SPRange shown. Click settings cog to configure.")
+			self:Print("Totem Range Tracker shown. Click the gear for settings.")
 		else
-			self:Print("SPRange is on and shows once you are in a group"
+			self:Print("Totem Range Tracker is on. It appears when you are in a group"
 				.. ((self.opt.rangeTracker and self.opt.rangeTracker.showWhen == "group") and "" or " with a shaman")
 				.. " (Settings > Group Tools > Totem Range Tracker > Show the Overlay).")
 		end
@@ -882,7 +892,7 @@ end
 -- two parts, so a whisper might not find its target (and the failed whisper's
 -- system message would repeat every heartbeat); there the report stays on
 -- INSTANCE_CHAT.
-local WF_WHISPER = not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local WF_WHISPER = not (SPCompat.FOREVER)
 local wfWhisperTargets = {}
 local function refreshWhisperTargets()
 	wipe(wfWhisperTargets)
@@ -1119,7 +1129,7 @@ function SP:UpdateWindfuryBroadcaster()
 		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
 	end
 	-- WoW: Forever: the shaman reads Windfury as a party buff, nothing to report
-	if not self:IsOff() and self:ShamanInMyParty() and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+	if not self:IsOff() and self:ShamanInMyParty() and not SPCompat.FOREVER then
 		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
 			self:EnableUpdateSubsystem("wfBroadcast")
 			setWFEvents(true)
@@ -1220,7 +1230,7 @@ SlashCmdList["SPRANGE"] = function(msg)
 		if (msg == "show") ~= shown then
 			SP:ToggleSPRange()
 		else
-			SP:Print(shown and "SPRange is already shown." or "SPRange is already hidden.")
+			SP:Print(shown and "Totem Range Tracker is already shown." or "Totem Range Tracker is already hidden.")
 		end
 	else
 		-- Default: show the config menu

@@ -131,7 +131,7 @@ local function CreatePicker()
 		strata = "FULLSCREEN_DIALOG", special = true })
 	local body = dialog.body
 	dialog.search = Widgets:Input(body, { label = "Search Icons", width = 428, get = GetQuery, set = SetQuery,
-		desc = "Filter by icon filename or file ID. Selection is applied only when you press Okay." })
+		desc = "Search by icon name or number. Click Okay to use the selected icon." })
 	dialog.search.box:SetWidth(260)
 	dialog.search.box:SetScript("OnTextChanged", SearchChanged)
 	dialog.search.box:SetScript("OnEscapePressed", CancelSelection)

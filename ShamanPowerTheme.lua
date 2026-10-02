@@ -28,7 +28,7 @@ local abs = math.abs
 -- ---------------------------------------------------------------------------
 -- Constants
 -- ---------------------------------------------------------------------------
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 
 local THEMES      = { standard = true, shamanpower = true, minimal = true }
 local PALETTE_KEY = { classic = true, blizzard = true, shamanpower = true, custom = true }
@@ -355,8 +355,8 @@ SP.THEME_MODULES = {
 		  note = "The cooldown bar's background and border. The ShamanPower themes use navy." },
 		{ id = "cd.sweep", label = "Cooldown Sweep", roles = {},
 		  note = "The cooldown sweep and gray overlay. ShamanPower Minimal draws a dark band on the box." },
-		{ id = "cd.engine", label = "Game-Drawn Shield Display", roles = { Role("bar", "Bar", "wow", "GREEN_FONT_COLOR", "33CC33") },
-		  note = "The shield count and bar the game draws in combat (WoW: Forever). The color is set when it is built." },
+		{ id = "cd.engine", label = "Shield Display in Combat", roles = { Role("bar", "Bar", "wow", "GREEN_FONT_COLOR", "33CC33") },
+		  note = "The shield count and bar in combat (WoW: Forever)." },
 		{ id = "cd.effects", label = "Effects Look", effects = true, hidden = true, lookOpt = "cdbarCueLook", signatureSpot = "cd.signature", roles = {},
 		  note = "How Cooldown Ready, Weapon Imbue Gone and Shield Gone look: Standard, Elemental or Signal." },
 		{ id = "cd.signature", label = "Signature Moves", signature = true, hidden = true, sigOpt = "cdbarCueSignature", effectsSpot = "cd.effects", settingBacked = true, roles = {},
@@ -1658,7 +1658,7 @@ function LOOK.Worth(t, look, everything, defaults)
 	local md = SP.SUPPORT_MODULE_DEFAULTS or {}
 	local rr, rrd = ShamanPower_ReadyReminders, md.ShamanPower_ReadyReminders
 	if type(rr) == "table" then
-		for _, k in ipairs({ "borderColor", "glowColor", "barColor" }) do
+		for _, k in ipairs(Cards.RR) do
 			if rr[k] ~= nil and not Near(rr[k], type(rrd) == "table" and rrd[k] or nil) then return true end
 		end
 	end
@@ -1767,7 +1767,11 @@ end
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
 Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB" }
-Cards.RR = { "borderColor", "glowColor", "barColor" }
+Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor" }
+-- flat keys an update added, with their defaults (see Cards.Migrate)
+Cards.ADDED = {
+	["rr.rangeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").rangeColor end,
+}
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"
 
@@ -2079,6 +2083,23 @@ function Cards.Migrate()
 		t.card, t.baseline, t.needBaseline = "standard", Cards.StandardFlat(), nil
 		return
 	end
+	-- a look saved before an update knows nothing of a color the update hooked in
+	-- (Cards.ADDED): it had that color's default then, so it takes the default now.
+	-- Without this every look reads as Custom right after the update. Only those
+	-- keys: any other key a baseline lacks is part of the look (t.spots ...).
+	if type(t.baseline) == "table" then
+		local now = Cards.Flat()
+		local p = t.pending
+		if not (type(p) == "table" and type(p.flat) == "table" and type(p.baseline) == "table") then p = nil end
+		for k, default in pairs(Cards.ADDED) do
+			if now[k] ~= nil then
+				local v = default()
+				if v == nil then v = now[k] end
+				if t.baseline[k] == nil then t.baseline[k] = Copy(v) end
+				if p and p.flat[k] == nil and p.baseline[k] == nil then p.flat[k], p.baseline[k] = Copy(v), Copy(v) end
+			end
+		end
+	end
 	if t.card and type(t.baseline) == "table" then return end
 	local key = (THEMES[t.global] and t.global) or "standard"
 	local f = Cards.Flat()
@@ -2309,7 +2330,7 @@ end
 function Cards.Decode(text)
 	local LS = LibStub and LibStub("LibSerialize", true)
 	local LD = LibStub and LibStub("LibDeflate", true)
-	if not (LS and LD) then return nil, "the serialization libraries are missing" end
+	if not (LS and LD) then return nil, "files needed to share themes are missing" end
 	text = strtrim(tostring(text or ""))
 	local at = text:find(Cards.PREFIX, 1, true)
 	if not at then return nil, "that is not a ShamanPower theme code (it starts with SPT1:)" end
@@ -2379,6 +2400,7 @@ Cards.LABEL = {
 	["sc.lookES"] = "Earth Shield Look", ["sc.barLook"] = "Shield Charges Look", ["sc.orbLook"] = "Shield Charges Look",
 	["sc.chargeColorLS"] = "Lightning Shield Charge Color", ["sc.chargeColorWS"] = "Water Shield Charge Color",
 	["sc.chargeColorES"] = "Earth Shield Charge Color", ["tr.glowColor"] = "Tremor Reminder Glow",
+	["rr.rangeColor"] = "Ready Reminders Out of Range Color",
 }
 function Cards.Label(k)
 	if Cards.LABEL[k] then return Cards.LABEL[k] end
@@ -2657,4 +2679,14 @@ end
 if type(SP.ThemeRegisterCore) == "function" then
 	local ok, err = pcall(SP.ThemeRegisterCore, SP)
 	if not ok then Report(err) end
+end
+
+-- Settings > Reset This Page (ShamanPower_Config/Window.lua): everything a theme
+-- holds, as one flat map, to tell whether resetting one setting touched the theme
+-- (then that setting is put back: a page reset never changes the theme)
+function SP:ThemeFlatSnapshot()
+	return Cards.Flat()
+end
+function SP:ThemeFlatSame(a, b)
+	return Cards.Same(a, b)
 end

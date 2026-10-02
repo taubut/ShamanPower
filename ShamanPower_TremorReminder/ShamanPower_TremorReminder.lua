@@ -39,7 +39,7 @@ local DEFAULT_FEAR_CASTERS = {
     ["Golemagg the Incinerator"] = true,
 }
 
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+if not SPCompat.FOREVER then
     local tbcFearCasters = {
         -- TBC Dungeons
         ["Nexus Terror"] = true,
@@ -96,178 +96,320 @@ if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
 end
 
 -- Vanilla fear/charm/sleep casters; keep these defaults off the Anniversary path.
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLINE
+if SPCompat.FOREVER then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLINE
     local foreverFearCasters = {
+        -- 185 fear / charm / sleep casters (what Tremor breaks), researched 2026-10-02 from the Forever client's
+        -- own spell data, vmangos, cmangos and Wowhead Forever (each name checked against them).
+        -- Horror (Death Coil) is left out: Tremor does not break it.
+        -- In dungeons and raids the game hides mob names (measured), so those entries wait until names are readable.
         -- Wailing Caverns
-        ["Boahn"] = true,
-        ["Deviate Dreadfang"] = true,
-        ["Druid of the Fang"] = true,
-        ["Lady Anacondra"] = true,
-        ["Lord Cobrahn"] = true,
-        ["Lord Pythas"] = true,
-        ["Lord Serpentis"] = true,
-        ["Mutanus the Devourer"] = true,
+        ["Deviate Dreadfang"] = true, -- Terrify (fear)
+        ["Druid of the Fang"] = true, -- Druid's Slumber (sleep)
+        ["Lady Anacondra"] = true, -- Sleep (sleep)
+        ["Lord Cobrahn"] = true, -- Druid's Slumber (sleep)
+        ["Lord Pythas"] = true, -- Sleep (sleep)
+        ["Lord Serpentis"] = true, -- Sleep (sleep)
+        ["Mutanus the Devourer"] = true, -- Terrify (fear); Naralex's Nightmare (sleep)
+
+        -- Wailing Caverns (outer cave, outside the instance portal)
+        ["Boahn"] = true, -- Druid's Slumber (sleep)
 
         -- The Deadmines
-        ["Marisa du'Paige"] = true,
-        ["Sneed's Shredder"] = true,
+        ["Sneed's Shredder"] = true, -- Terrify (fear)
 
         -- Shadowfang Keep
-        ["Sever"] = true,
+        ["Sever"] = true, -- Intimidating Roar (fear)
 
         -- Blackfathom Deeps
-        ["Twilight Lord Kelris"] = true,
+        ["Blindlight Oracle"] = true, -- Fear (fear)
+        ["Twilight Lord Kelris"] = true, -- Sleep (sleep)
+        ["Twilight Shadowmage"] = true, -- Dominate Mind (charm)
 
         -- The Stockade
-        ["Dextren Ward"] = true,
+        ["Dextren Ward"] = true, -- Intimidating Shout (fear)
+
+        -- Razorfen Kraul
+        ["Death Speaker Jargba"] = true, -- Dominate Mind (charm)
 
         -- Scarlet Monastery - Graveyard
-        ["Scarlet Scryer"] = true,
+        ["Azshir the Sleepless"] = true, -- Terrify (fear)
+        ["Scarlet Scryer"] = true, -- Sleep (sleep)
 
         -- Scarlet Monastery - Cathedral
-        ["High Inquisitor Fairbanks"] = true,
+        ["High Inquisitor Fairbanks"] = true, -- Sleep (sleep); Fear (fear)
+        ["High Inquisitor Whitemane"] = true, -- Dominate Mind (charm)
+
+        -- Razorfen Downs
+        ["Lady Falther'ess"] = true, -- Dominate Mind (charm)
+        ["Ragglesnout"] = true, -- Dominate Mind (charm)
 
         -- Uldaman
-        ["Jadespine Basilisk"] = true,
+        ["Jadespine Basilisk"] = true, -- Crystalline Slumber (sleep)
+
+        -- Zul'Farrak
+        ["Shadowpriest Sezz'ziz"] = true, -- Psychic Scream (fear)
 
         -- Maraudon
-        ["Princess Theradras"] = true,
+        ["Princess Theradras"] = true, -- Repulsive Gaze (fear)
 
         -- The Temple of Atal'Hakkar
-        ["Atal'ai Deathwalker"] = true,
-        ["Nightmare Wyrmkin"] = true,
+        ["Atal'ai Deathwalker"] = true, -- Fear (fear)
+        ["Hukku's Succubus"] = true, -- Seduction (charm)
+        ["Nightmare Wyrmkin"] = true, -- Sleep (sleep)
 
         -- Blackrock Depths
-        ["High Interrogator Gerstahn"] = true,
+        ["High Interrogator Gerstahn"] = true, -- Psychic Scream (fear)
+        ["Theldren"] = true, -- Intimidating Shout (fear)
+        ["Va'jashni"] = true, -- Psychic Scream (fear)
 
         -- Lower Blackrock Spire
-        ["Mor Grayhoof"] = true,
-        ["Urok Doomhowl"] = true,
+        ["Urok Doomhowl"] = true, -- Intimidating Roar (fear)
 
         -- Upper Blackrock Spire
-        ["The Beast"] = true,
+        ["Mor Grayhoof"] = true, -- Sleep (sleep)
+        ["The Beast"] = true, -- Terrifying Roar (fear)
 
         -- Dire Maul - East
-        ["Wildspawn Felsworn"] = true,
+        ["Wildspawn Felsworn"] = true, -- Fear (fear)
 
         -- Dire Maul - North
-        ["Captain Kromcrush"] = true,
-        ["Cho'Rush the Observer"] = true,
-        ["Gordok Captain"] = true,
+        ["Captain Kromcrush"] = true, -- Intimidating Shout (fear)
+        ["Cho'Rush the Observer"] = true, -- Psychic Scream (fear)
+        ["Gordok Captain"] = true, -- Fear (fear)
 
         -- Dire Maul - West
-        ["Lord Hel'nurath"] = true,
+        ["Lord Hel'nurath"] = true, -- Sleep (sleep)
+        ["Magister Kalendris"] = true, -- Dominate Mind (charm)
 
         -- Stratholme
-        ["Balzaphon"] = true,
-        ["Hearthsinger Forresten"] = true,
-        ["Postmaster Malown"] = true,
-        ["Rockwing Screecher"] = true,
-        ["Sothos"] = true,
+        ["Balnazzar"] = true, -- Sleep (sleep); Psychic Scream (fear); Domination (charm)
+        ["Balzaphon"] = true, -- Fear (fear)
+        ["Grand Crusader Dathrohan"] = true, -- Sleep (sleep); Psychic Scream (fear); Domination (charm)
+        ["Hearthsinger Forresten"] = true, -- Enchanting Lullaby (sleep)
+        ["Postmaster Malown"] = true, -- Fear (fear)
+        ["Rockwing Screecher"] = true, -- Terrifying Howl (fear)
+        ["Sothos"] = true, -- Fear (fear)
 
         -- Scholomance
-        ["Lady Illucia Barov"] = true,
-        ["Ras Frostwhisper"] = true,
-        ["Scholomance Neophyte"] = true,
+        ["Death Knight Darkreaver"] = true, -- Dominate Mind (charm)
+        ["Kirtonos the Herald"] = true, -- Dominate Mind (charm)
+        ["Lady Illucia Barov"] = true, -- Fear (fear); Dominate Mind (charm)
+        ["Ras Frostwhisper"] = true, -- Fear (fear)
+        ["Scholomance Neophyte"] = true, -- Fear (fear)
+
+        -- The Hall of Thanes (Forever-new dungeon)
+        ["Durgen Dirgehammer"] = true, -- Intimidating Shout (fear)
+
+        -- Molten Core
+        ["Flamewaker Protector"] = true, -- Dominate Mind (charm)
+        ["Lucifron"] = true, -- Dominate Mind (charm)
+        ["Magmadar"] = true, -- Panic (fear)
+
+        -- Onyxia's Lair
+        ["Onyxia"] = true, -- Bellowing Roar (fear)
 
         -- Zul'Gurub
-        ["Bloodlord Mandokir"] = true,
-        ["Gurubashi Berserker"] = true,
-        ["Hakkari Priest"] = true,
-        ["Hakkari Shadow Hunter"] = true,
-        ["Soulflayer"] = true,
-
-        -- Ruins of Ahn'Qiraj
-        ["Captain Qeez"] = true,
+        ["Bloodlord Mandokir"] = true, -- Intimidating Shout (fear)
+        ["Gurubashi Berserker"] = true, -- Intimidating Roar (fear)
+        ["Hakkar"] = true, -- Cause Insanity (charm)
+        ["Hakkari Priest"] = true, -- Psychic Scream (fear)
+        ["Hakkari Shadow Hunter"] = true, -- Wyvern Sting (sleep)
+        ["Hazza'rah"] = true, -- Sleep (sleep)
+        ["High Priestess Jeklik"] = true, -- Terrifying Screech (fear); Psychic Scream (fear)
+        ["Soulflayer"] = true, -- Fear (fear)
 
         -- Blackwing Lair
-        ["Lord Victor Nefarius"] = true,
-        ["Nefarian"] = true,
+        ["Grethok the Controller"] = true, -- Dominate Mind (charm)
+        ["Lord Victor Nefarius"] = true, -- Fear (fear)
+        ["Nefarian"] = true, -- Bellowing Roar (fear)
+
+        -- Ruins of Ahn'Qiraj
+        ["Captain Qeez"] = true, -- Intimidating Shout (fear)
 
         -- Temple of Ahn'Qiraj
-        ["Anubisath Warder"] = true,
-        ["Princess Yauj"] = true,
-        ["Qiraji Champion"] = true,
+        ["Anubisath Warder"] = true, -- Fear (fear)
+        ["Princess Huhuran"] = true, -- Wyvern Sting (sleep)
+        ["Princess Yauj"] = true, -- Panic (fear); Fear (fear)
+        ["Qiraji Brainwasher"] = true, -- Mind Flay (fear)
+        ["Qiraji Champion"] = true, -- Intimidating Shout (fear)
+        ["Qiraji Mindslayer"] = true, -- Mind Flay (fear)
 
         -- Naxxramas
-        ["Death Knight"] = true,
-        ["Gluth"] = true,
-        ["Living Monstrosity"] = true,
+        ["Deathknight"] = true, -- Intimidating Shout (fear)
+        ["Gluth"] = true, -- Terrifying Roar (fear)
+        ["Living Monstrosity"] = true, -- Fear (fear)
 
         -- World raid bosses
-        ["Taerar"] = true,
+        ["Taerar"] = true, -- Bellowing Roar (fear)
+
+        -- World event - Scourge Invasion
+        ["Lumbering Horror"] = true, -- Aura of Fear (fear)
+        ["Pallid Horror"] = true, -- Aura of Fear (fear)
+        ["Patchwork Terror"] = true, -- Aura of Fear (fear)
+        ["Shadow of Doom"] = true, -- Fear (fear)
+        ["Spirit of the Damned"] = true, -- Psychic Scream (fear)
 
         -- Open world - Alterac Mountains
-        ["Skhowl"] = true,
+        ["Crushridge Enforcer"] = true, -- Intimidation (fear)
+        ["Lord Aliden Perenolde"] = true, -- Sleep (sleep)
+        ["Skhowl"] = true, -- Intimidating Roar (fear)
 
         -- Open world - Arathi Highlands
-        ["Syndicate Conjuror"] = true,
+        ["Singer"] = true, -- Dominate Mind (charm)
+        ["Sleeby"] = true, -- Sleep (sleep)
+        ["Stromgarde Troll Hunter"] = true, -- Sleep (sleep)
+        ["Syndicate Conjuror"] = true, -- Sleep (sleep)
 
         -- Open world - Ashenvale
-        ["Diathorus the Seeker"] = true,
-        ["Dreamstalker"] = true,
-        ["Mist Howler"] = true,
-        ["Wrathtail Priestess"] = true,
+        ["Diathorus the Seeker"] = true, -- Fear (fear)
+        ["Dreamstalker"] = true, -- Sleep (sleep)
+        ["Emeraldon Oracle"] = true, -- Sleep (sleep)
+        ["Mist Howler"] = true, -- Terrifying Howl (fear)
+        ["Severed Sleeper"] = true, -- Sleep (sleep)
+        ["Wrathtail Priestess"] = true, -- Sleep (sleep)
+
+        -- Open world - Azshara
+        ["Highborne Apparition"] = true, -- Fear (fear)
 
         -- Open world - Badlands
-        ["Shadowforge Chanter"] = true,
+        ["Shadowforge Chanter"] = true, -- Sleep (sleep)
+
+        -- Open world - Blasted Lands
+        ["Dreadlord"] = true, -- Sleep (sleep); Psychic Scream (fear)
 
         -- Open world - Desolace
-        ["Gritjaw Basilisk"] = true,
-        ["Hulking Gritjaw Basilisk"] = true,
+        ["Gritjaw Basilisk"] = true, -- Crystalline Slumber (sleep)
+        ["Hulking Gritjaw Basilisk"] = true, -- Crystalline Slumber (sleep)
 
         -- Open world - Duskwood
-        ["Skeletal Horror"] = true,
+        ["Morbent Fel"] = true, -- Presence of Death (fear)
+        ["Nefaru"] = true, -- Terrifying Howl (fear)
+        ["Skeletal Horror"] = true, -- Terrify (fear)
+
+        -- Open world - Dustwallow Marsh
+        ["Strashaz Siren"] = true, -- Dominate Mind (charm)
 
         -- Open world - Eastern Plaguelands
-        ["Blighted Horror"] = true,
-        ["Death Singer"] = true,
-        ["Plaguebat"] = true,
-        ["Scarlet Enchanter"] = true,
+        ["Blighted Horror"] = true, -- Fear (fear)
+        ["Death Singer"] = true, -- Terrifying Screech (fear)
+        ["Demetria"] = true, -- Psychic Scream (fear); Dominate Mind (charm)
+        ["Dread Weaver"] = true, -- Fear (fear)
+        ["Nathanos Blightcaller"] = true, -- Psychic Scream (fear)
+        ["Plaguebat"] = true, -- Terrifying Screech (fear)
+        ["Redpath the Corrupted"] = true, -- Fear (fear)
+        ["Scarlet Enchanter"] = true, -- Sleep (sleep)
+
+        -- Open world - Felwood
+        ["Overlord Ror"] = true, -- Terrifying Roar (fear)
+
+        -- Open world - Feralas
+        ["Hatecrest Siren"] = true, -- Dominate Mind (charm)
+        ["Jademir Oracle"] = true, -- Sleep (sleep)
+
+        -- Open world - Hillsbrad Foothills
+        ["High Executor Darthalia"] = true, -- Intimidating Shout (fear)
+
+        -- Open world - Moonglade
+        ["Nightmare Phantasm"] = true, -- Aura of Fear (fear)
 
         -- Open world - Searing Gorge
-        ["Shleipnarr"] = true,
+        ["Shleipnarr"] = true, -- Terrify (fear)
 
         -- Open world - Silithus
-        ["Mistress Natalia Mar'alith"] = true,
-        ["Twilight Keeper Mayna"] = true,
-        ["Twilight Prophet"] = true,
+        ["Greater Silithid Flayer"] = true, -- Terrifying Screech (fear)
+        ["Hive'Regal Hunter-Killer"] = true, -- Frightening Shriek (fear)
+        ["Hive'Regal Slavemaker"] = true, -- Poison Mind (charm)
+        ["Hive'Zora Abomination"] = true, -- Wings of Despair (fear)
+        ["Imperial Qiraji Destroyer"] = true, -- Panic (fear)
+        ["Mistress Natalia Mar'alith"] = true, -- Psychic Scream (fear); Domination (charm); Dominate Mind (charm)
+        ["Nelson the Nice"] = true, -- Dreadful Fright (fear)
+        ["Solenor the Slayer"] = true, -- Dreadful Fright (fear)
+        ["Supreme Silithid Flayer"] = true, -- Terrifying Screech (fear)
+        ["Twilight Keeper Mayna"] = true, -- Psychic Scream (fear)
+        ["Twilight Prophet"] = true, -- Psychic Scream (fear)
+
+        -- Open world - Silverpine Forest
+        ["Ravenclaw Regent"] = true, -- Dominate Mind (charm)
 
         -- Open world - Stonetalon Mountains
-        ["Scorched Basilisk"] = true,
-        ["Singed Basilisk"] = true,
-        ["Taskmaster Whipfang"] = true,
+        ["Blackened Basilisk"] = true, -- Crystalline Slumber (sleep)
+        ["Scorched Basilisk"] = true, -- Crystalline Slumber (sleep)
+        ["Singed Basilisk"] = true, -- Crystalline Slumber (sleep)
+        ["Taskmaster Whipfang"] = true, -- Intimidating Roar (fear)
 
         -- Open world - Stranglethorn Vale
-        ["Cold Eye Basilisk"] = true,
+        ["Cold Eye Basilisk"] = true, -- Crystalline Slumber (sleep)
+        ["Commander Aggro'gosh"] = true, -- Intimidating Shout (fear)
+        ["King Mukla"] = true, -- Intimidation (fear)
+        ["Lieutenant Doren"] = true, -- Intimidating Shout (fear)
+        ["Mosh'Ogg Lord"] = true, -- Intimidation (fear)
 
         -- Open world - Swamp of Sorrows
-        ["Dreaming Whelp"] = true,
-        ["Wyrmkin Dreamwalker"] = true,
+        ["Dreaming Whelp"] = true, -- Sleep (sleep)
+        ["Kazkaz the Unholy"] = true, -- Dominate Mind (charm)
+        ["Somnus"] = true, -- Sleep (sleep)
+        ["Wyrmkin Dreamwalker"] = true, -- Sleep (sleep)
 
         -- Open world - The Barrens
-        ["Captain Fairmount"] = true,
-        ["Captain Shatterskull"] = true,
+        ["Captain Fairmount"] = true, -- Intimidating Shout (fear)
+        ["Captain Shatterskull"] = true, -- Intimidating Shout (fear)
+        ["Faltering Silithid Flayer"] = true, -- Terrifying Screech (fear)
+        ["Lok Orcbane"] = true, -- Intimidating Shout (fear)
+        ["Minor Silithid Flayer"] = true, -- Terrifying Screech (fear)
+        ["Sergra Darkthorn"] = true, -- Intimidating Shout (fear)
+        ["Swinegart Spearhide"] = true, -- Intimidating Shout (fear)
 
         -- Open world - The Hinterlands
-        ["Dreamtracker"] = true,
+        ["Dreamtracker"] = true, -- Terrifying Screech (fear)
+        ["Verdantine Oracle"] = true, -- Sleep (sleep)
 
         -- Open world - Thousand Needles
-        ["Saltstone Basilisk"] = true,
-        ["Scorpid Terror"] = true,
+        ["Lesser Silithid Flayer"] = true, -- Terrifying Screech (fear)
+        ["Saltstone Basilisk"] = true, -- Crystalline Slumber (sleep)
+        ["Scorpid Terror"] = true, -- Terrify (fear)
+        ["Silithid Flayer"] = true, -- Terrifying Screech (fear)
 
         -- Open world - Un'Goro Crater
-        ["Frenzied Pterrordax"] = true,
-        ["King Mosh"] = true,
-        ["Pterrordax"] = true,
-        ["Tyrant Devilsaur"] = true,
+        ["Frenzied Pterrordax"] = true, -- Terrify (fear)
+        ["King Mosh"] = true, -- Terrifying Roar (fear)
+        ["Pterrordax"] = true, -- Terrifying Screech (fear)
+        ["Tyrant Devilsaur"] = true, -- Terrifying Roar (fear)
 
         -- Open world - Western Plaguelands
-        ["Skeletal Terror"] = true,
+        ["Grand Inquisitor Isillien"] = true, -- Dominate Mind (charm)
+        ["Skeletal Terror"] = true, -- Fear (fear)
+
+        -- Open world - Westfall (Moonbrook, outside the Deadmines instance)
+        ["Marisa du'Paige"] = true, -- Sleep (sleep)
 
         -- Open world - Winterspring
-        ["Mezzir the Howler"] = true,
-        ["Rak'shiri"] = true,
+        ["Hederine Initiate"] = true, -- Dominate Mind (charm)
+        ["Lady Hederine"] = true, -- Dominate Mind (charm); Fear (fear)
+        ["Mezzir the Howler"] = true, -- Terrifying Roar (fear)
+        ["Rak'shiri"] = true, -- Terrify (fear)
+        ["Shy-Rotam"] = true, -- Terrifying Roar (fear)
+        ["Sian-Rotam"] = true, -- Terrifying Roar (fear)
+
+        -- Alterac Valley (battleground)
+        ["Captain Galvangar"] = true, -- Intimidating Shout (fear)
+
+        -- Capital cities - battlemasters and faction leaders (attackable by the opposite faction only)
+        ["Brakgul Deathbringer"] = true, -- Intimidating Shout (fear)
+        ["Deze Snowbane"] = true, -- Intimidating Shout (fear)
+        ["Elfarran"] = true, -- Intimidating Shout (fear)
+        ["Grizzle Halfmane"] = true, -- Intimidating Shout (fear)
+        ["High Overlord Saurfang"] = true, -- Terrifying Roar (fear); Intimidating Roar (fear)
+        ["Kartra Bloodsnarl"] = true, -- Intimidating Shout (fear)
+        ["Kurden Bloodclaw"] = true, -- Intimidating Shout (fear)
+        ["Lady Hoteshem"] = true, -- Intimidating Shout (fear)
+        ["Overlord Runthak"] = true, -- Intimidating Roar (fear)
+        ["Sir Malory Wheeler"] = true, -- Intimidating Shout (fear)
+        ["Thelman Slatefist"] = true, -- Intimidating Shout (fear)
+        ["Varimathras"] = true, -- Sleep (sleep); Dominate Mind (charm)
+
+        -- Warlock demons (NPC succubi/incubi, e.g. warlock class-quest summons)
+        ["Incubus"] = true, -- Seduction (charm)
+        ["Succubus"] = true, -- Seduction (charm)
     }
     for name, enabled in pairs(foreverFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
 end
@@ -334,7 +476,7 @@ end
 local function IsTremorTotemActive()
     -- On Forever the Earth slot may be secret; the core resolver falls back
     -- to the addon's own-cast shadow model instead of treating it as empty.
-    if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+    if SPCompat.FOREVER then
         local haveTotem, totemName = ShamanPower:GetElementTotemInfo(1)
         if issecretvalue(haveTotem) or issecretvalue(totemName) then return false end
         return haveTotem and type(totemName) == "string" and totemName:find("Tremor", 1, true) ~= nil
@@ -662,7 +804,7 @@ SlashCmdList["SPTREMOR"] = function(msg)
         if not reminderFrame then CreateReminderFrame() end
         reminderFrame:Show()
         reminderFrame.icon:SetDesaturated(true)
-        print("|cff0070ddShamanPower|r [Tremor Reminder]: Frame shown. ALT+drag to position.")
+        print("|cff0070ddShamanPower|r [Tremor Reminder]: Reminder shown. ALT+drag to move.")
 
     elseif msg == "hide" then
         if reminderFrame then
@@ -670,7 +812,7 @@ SlashCmdList["SPTREMOR"] = function(msg)
             reminderFrame.icon:SetDesaturated(false)
         end
         isShowing = false
-        print("|cff0070ddShamanPower|r [Tremor Reminder]: Frame hidden.")
+        print("|cff0070ddShamanPower|r [Tremor Reminder]: Reminder hidden.")
 
     elseif msg == "test" then
         -- Force show for testing
@@ -689,11 +831,11 @@ SlashCmdList["SPTREMOR"] = function(msg)
             reminderFrame:ClearAllPoints()
             reminderFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
         end
-        print("|cff0070ddShamanPower|r [Tremor Reminder]: Position reset to center.")
+        print("|cff0070ddShamanPower|r [Tremor Reminder]: Position reset to just above the middle of your screen.")
 
     elseif msg == "toggle" then
         ShamanPowerTremorReminderDB.enabled = not ShamanPowerTremorReminderDB.enabled
-        local status = ShamanPowerTremorReminderDB.enabled and "enabled" or "disabled"
+        local status = ShamanPowerTremorReminderDB.enabled and "on" or "off"
         print("|cff0070ddShamanPower|r [Tremor Reminder]: " .. status)
         if not ShamanPowerTremorReminderDB.enabled then
             HideReminder()
@@ -735,11 +877,11 @@ SlashCmdList["SPTREMOR"] = function(msg)
     else
         -- Open options or show help
         print("|cff0070ddShamanPower|r [Tremor Reminder] Commands:")
-        print("  /sptremor show - Show frame for positioning")
-        print("  /sptremor hide - Hide positioning frame")
+        print("  /sptremor show - Show the reminder so you can move it")
+        print("  /sptremor hide - Hide the reminder")
         print("  /sptremor test - Show test alert")
-        print("  /sptremor reset - Reset position to center")
-        print("  /sptremor toggle - Enable/disable module")
+        print("  /sptremor reset - Put it back just above the middle of your screen")
+        print("  /sptremor toggle - Turn Tremor Reminder on or off")
         print("  /sptremor add <mob name> - Add mob to fear-caster list")
         print("  /sptremor remove <mob name> - Remove mob from list")
         print("  /sptremor list - Show all known fear-casters")
@@ -785,11 +927,11 @@ function SP:TremorDemo(on)
         -- appearance path so Display Mode / size / glow all show correctly.
         local SCENE = {
             { show = true, secs = 4.0, story = "You target |cffff8080"
-                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Scarlet Monk" or "Coilfang Siren")
+                .. (SPCompat.FOREVER and "Scarlet Monk" or "Coilfang Siren")
                 .. "|r - a known fear-caster. Get Tremor down." },
             { show = false, secs = 2.0, story = "Tremor Totem is down - reminder hidden.", tremor = true },
             { show = true, secs = 3.5, story = "New target: |cffff8080"
-                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Thuzadin Shadowcaster" or "Sethekk Prophet")
+                .. (SPCompat.FOREVER and "Thuzadin Shadowcaster" or "Sethekk Prophet")
                 .. "|r. Tremor has expired - reminder is back." },
             { show = false, secs = 2.0, story = "You target a harmless mob - nothing to remind you about." },
         }

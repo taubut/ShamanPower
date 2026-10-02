@@ -48,7 +48,7 @@ end
 
 -- The client API the sets need. All three are Wrath-era globals.
 local function haveAPI()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	return SPCompat.FOREVER
 		and type(SetMultiCastSpell) == "function" and type(GetMultiCastTotemSpells) == "function"
 		and C_ActionBar and type(C_ActionBar.GetMultiCastBarIndex) == "function"
 end
@@ -171,7 +171,7 @@ end
 -- false clears it, nil leaves it alone. Out of combat only.
 -- Returns written, skipped, reason.
 function SP:WriteTotemSet(page, spells)
-	if not self:HasTotemBar() then return 0, 0, "no totem sets on this client" end
+	if not self:HasTotemBar() then return 0, 0, "totem sets are not available in this version of the game" end
 	-- page 1 is the bar itself; pages 2 and 3 only exist once their spell is known
 	if page ~= 1 and not self:KnownTotemSetPages()[page] then return 0, 0, (PAGE_NAMES[page] or "that set") .. " is not known yet" end
 	if InCombatLockdown() then return 0, 0, "in combat" end
@@ -306,11 +306,11 @@ end
 -- Returns success, reason, written, skipped. Combat queues record identity,
 -- never an array index: deleting an earlier loadout cannot redirect the write.
 function SP:SyncBoundLoadout(index)
-	if not self.opt or not self:HasTotemBar() then return false, "no totem bar on this client" end
+	if not self.opt or not self:HasTotemBar() then return false, "the game's totem bar is not available" end
 	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
 	local page = loadout and loadout.setPage
-	if page ~= 2 and page ~= 3 then return false, "loadout is not bound to a set page" end
-	if boundLoadout(page) ~= loadout then return false, "another loadout owns that set page" end
+	if page ~= 2 and page ~= 3 then return false, "this loadout is not linked to a Call spell" end
+	if boundLoadout(page) ~= loadout then return false, "another loadout is linked to that Call spell" end
 	local state = stateFor(page, loadout)
 	state.pendingWrite = true
 	if InCombatLockdown() then return false, "queued until combat ends" end
@@ -325,6 +325,25 @@ function SP:SyncBoundLoadout(index)
 	return true, nil, written, skipped
 end
 
+-- One hidden button per Call (Elements / Ancestors / Spirits), so each has its
+-- own key (SHAMANPOWER_CALL_* in Key Bindings, see SP.KeybindButtons).
+-- Made from SetupKeybindings, which only runs out of combat.
+local CALL_BUTTONS = { "ShamanPowerCallElementsBtn", "ShamanPowerCallAncestorsBtn", "ShamanPowerCallSpiritsBtn" }
+function SP:CreateTotemSetButtons()
+	if not haveAPI() or InCombatLockdown() then return end
+	for page, name in ipairs(CALL_BUTTONS) do
+		if not _G[name] then
+			local btn = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
+			btn:SetSize(1, 1)
+			btn:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+			btn:Hide()   -- only pressed by its key
+			btn:RegisterForClicks("AnyUp", "AnyDown")
+			btn:SetAttribute("type", "spell")
+			btn:SetAttribute("spell", SUMMON[page])
+		end
+	end
+end
+
 function SP:BoundLoadoutSummon(index)
 	if not self:HasTotemBar() then return nil end
 	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
@@ -333,12 +352,12 @@ function SP:BoundLoadoutSummon(index)
 end
 
 function SP:BindLoadoutToTotemSet(index, page)
-	if not self.opt or not self:HasTotemBar() then return false, "no totem bar on this client" end
+	if not self.opt or not self:HasTotemBar() then return false, "the game's totem bar is not available" end
 	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
 	if not loadout then return false, "loadout does not exist" end
 	if page == 0 then page = nil end
-	if page ~= nil and page ~= 2 and page ~= 3 then return false, "only Ancestors or Spirits can be bound" end
-	if page and not known(SUMMON[page]) then return false, "that set page is not known yet" end
+	if page ~= nil and page ~= 2 and page ~= 3 then return false, "only Call of the Ancestors or Call of the Spirits can be linked" end
+	if page and not known(SUMMON[page]) then return false, "you have not learned that Call spell yet" end
 	local oldPage = loadout.setPage
 	if oldPage then boundPages[oldPage] = nil end
 	if page then
@@ -461,7 +480,7 @@ function SP:PushLoadoutToTotemSet(index, page)
 	local written, skipped, reason = self:WriteTotemSet(page, spells)
 	if reason then print("|cff0070ddShamanPower:|r " .. reason) return end
 	local name = loadout.name or ("Loadout " .. index)
-	print(string.format("|cff0070ddShamanPower:|r '%s' sent to %s (%d slot%s written%s)", name, PAGE_NAMES[page] or ("page " .. page),
+	print(string.format("|cff0070ddShamanPower:|r '%s' sent to %s (%d slot%s updated%s)", name, PAGE_NAMES[page] or ("page " .. page),
 		written, written == 1 and "" or "s", skipped > 0 and (", " .. skipped .. " not allowed in that slot") or ""))
 	self:UpdateDropAllButton()
 end

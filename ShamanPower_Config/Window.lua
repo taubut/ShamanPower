@@ -11,16 +11,21 @@ local SPConfig = {}
 ns.SPConfig = SPConfig
 _G.ShamanPowerConfig = SPConfig
 
--- Geometry -------------------------------------------------------------------
+-- Geometry (the D32b "lit" mockup: settings_glowup_b_mock.py window(style="lit")) ----
 local WIN_W, WIN_H   = 1000, 640
 local SIDEBAR_W      = 244
-local HEADER_H       = 92
-local FOOTER_H       = 52
+local CONTENT_W      = WIN_W - SIDEBAR_W
+local HEADER_H       = 96      -- the header band
+local FOOTER_H       = 54
 local TABSTRIP_H     = 34
 local CONTENT_PAD    = 16
 local COL_GAP        = 12
-local NAV_ROW_H      = 26
+local NAV_ROW_H      = 24
 local NAV_GROUP_H    = 24
+local NAV_GROUP_GAP  = 6       -- under each group's last row
+local ACTION_ROW_H   = 26      -- Unlock UI / Keybind Mode at the top of the sidebar (D30b A1)
+local CARD_TOP       = 6       -- the first section card under the tabs
+local CARD_GAP       = 12      -- between section cards
 
 -- ---------------------------------------------------------------------------
 -- Sidebar information architecture
@@ -60,7 +65,7 @@ local MOCK_LOADOUT  = { mocks = {
 	{ label = "Loadout bar", build = "BuildLoadoutBarPane" },
 	{ label = "Blizzard totem sets", build = "BuildLoadoutSetsPane", when = function()
 		local sp = SP()
-		return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and sp and sp.HasTotemBar and sp:HasTotemBar()
+		return SPCompat.FOREVER and sp and sp.HasTotemBar and sp:HasTotemBar()
 	end },
 } }
 local MOCK_PARTY    = { mocks = {
@@ -99,7 +104,7 @@ local POWER_RESIST = {
 
 local POWER_SPRANGE = {
 	label  = "Totem Range overlay",
-	desc   = "Show or hide the totem range overlay (same as /sprange toggle).",
+	desc   = "Show or hide Totem Range Tracker. You can also use /sprange toggle.",
 	loaded = function() local sp = SP() return sp and sp.SPRangeLoaded and true or false end,
 	get    = function()   -- on also while it waits for a group (Show the Overlay)
 		local sp = SP()
@@ -153,6 +158,15 @@ local POWER_PARTYBUFF = {
 -- showPlayerShield ~= false or showEarthShield ~= false). Off clears both;
 -- on restores whichever were on before, defaulting to both.
 local shieldLastPlayer, shieldLastEarth
+-- Ready Reminders' on / off (D40: its page has no Enable row any more)
+local POWER_READYREMINDERS = {
+	label  = "Ready Reminders",
+	desc   = "Turn Ready Reminders on or off.",
+	loaded = function() local sp = SP() return sp and sp.ReadyRemindersLoaded and sp.ReadyRemindersEnabled and true or false end,
+	get    = function() return SP().ReadyRemindersEnabled() end,
+	set    = function(v) SP():SetReadyRemindersEnabled(v) end,
+}
+
 local POWER_SHIELDCHARGES = {
 	label  = "Shield Charge Display",
 	desc   = "Turn the on-screen shield charge numbers on or off.",
@@ -195,7 +209,7 @@ local function P(...) return { ... } end
 local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 local NAV = {
 	{ group = "General", entries = {
-		{ label = "General", lock = true, desc = "Global behavior and interface settings.", tabs = {
+		{ label = "General", lock = true, desc = "Choose how ShamanPower looks and works.", tabs = {
 			-- the Totem Bar Style dropdown is on Main: a shaman sees the bar change as they hover its list
 			{ label = "Main",      preview = PLAYER_IS_SHAMAN and MOCK_TOTEM or nil, paths = { P("settings", "settings_show") } },
 			-- every theme setting, and nothing else (drawn by Themes.lua)
@@ -245,7 +259,7 @@ local NAV = {
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
 		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true,
-			desc = "Save totem loadouts, configure their bar and choose when to switch automatically.", tabs = {
+			desc = "Save totem loadouts, set up their bar and choose when to switch automatically.", tabs = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
@@ -266,7 +280,7 @@ local NAV = {
 	{ group = "Alerts & Reminders", power = true, entries = {
 		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
-		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section") },
+		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section"), power = POWER_READYREMINDERS },
 		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
@@ -281,6 +295,23 @@ local NAV = {
 		}},
 	}},
 }
+
+-- The four elements are the window's identity (D32): every NAV group is one
+-- (SP.Brand.groupElement: General = Air, Bars = Earth, Group Tools = Water,
+-- Alerts & Reminders = Fire, Other = logo blue) and a page wears its group's.
+for _, g in ipairs(NAV) do
+	for _, e in ipairs(g.entries) do e._group = g.group end
+end
+local function GroupElement(group)
+	local sp = SP()
+	local map = sp and sp.Brand and sp.Brand.groupElement
+	return map and map[group] or "spirit"
+end
+-- {r, g, b} 0-1 (SP.Brand's own table: read it, never write into it)
+local function ElementColor(key)
+	local els = SP().Brand.elements
+	return els[key] or els.spirit
+end
 
 -- Every option-group path an entry draws from.
 local function EntryPaths(entry)
@@ -408,8 +439,9 @@ local frame
 -- Live preview pane. The current page's module frame, borrowed through
 -- ShamanPowerPreview (the wizard's harness: real frame, sample data from the
 -- module's own Demo, restored on exit) into a panel hung off the window's
--- right edge, re-fed after every change. A tab on the edge pops it out or
--- tucks it away; the choice is remembered.
+-- right edge, re-fed after every change. The header's Preview button opens
+-- and closes it (lit while it is open), its own X closes it; the choice is
+-- remembered.
 -- ---------------------------------------------------------------------------
 local PREVIEW_W = 380
 
@@ -427,12 +459,20 @@ end
 
 function SPConfig:BuildPreviewPane()
 	if frame.preview then return end
-	local pane = CreateFrame("Frame", nil, frame)
-	pane:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
-	pane:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 4, 0)
+	-- the pane sits in a clip on the window's right edge, so it can slide out of the edge
+	-- and back in (SlidePane, below) without crossing the window
+	local clip = CreateFrame("Frame", nil, frame)
+	clip:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
+	clip:SetPoint("BOTTOMLEFT", frame, "BOTTOMRIGHT", 4, 0)
+	clip:SetWidth(PREVIEW_W)
+	clip:SetClipsChildren(true)
+	frame.previewClip = clip
+	local pane = CreateFrame("Frame", nil, clip)
+	pane:SetPoint("TOPLEFT", clip, "TOPLEFT", 0, 0)
+	pane:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", 0, 0)
 	pane:SetWidth(PREVIEW_W)
 	Core:SolidTex(pane, "windowBg", "BACKGROUND", nil, true)
-	Core:MakeBorder(pane, "accent", 2)
+	Core:MakeBorder(pane, "border", 1.5)   -- the window's own soft edge (D32b)
 	local cap = pane:CreateFontString(nil, "OVERLAY")
 	cap:SetFontObject(Core.fonts.tiny)
 	cap:SetPoint("TOP", pane, "TOP", 0, -12)
@@ -458,24 +498,11 @@ function SPConfig:BuildPreviewPane()
 	pane:Hide()
 	frame.preview = pane
 
-	local tab = CreateFrame("Button", nil, frame)
-	tab:SetSize(18, 64)
-	tab:SetFrameLevel(frame:GetFrameLevel() + 30)
-	Core:SolidTex(tab, "sidebarBg", "BACKGROUND")
-	Core:MakeBorder(tab, "accent")
-	local arrow = tab:CreateFontString(nil, "OVERLAY")
-	arrow:SetFontObject(Core.fonts.navOn)
-	arrow:SetPoint("CENTER", tab, "CENTER", 0, 0)
-	tab.arrow = arrow
-	tab:SetScript("OnClick", function() SPConfig:TogglePreviewPane() end)
-	tab:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText(frame._previewOpen and "Hide the live preview" or "Show the live preview", 1, 1, 1)
-		GameTooltip:AddLine("A sample of this page's module, redrawn as you change its settings.", 0.7, 0.7, 0.7, true)
-		GameTooltip:Show()
-	end)
-	tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	frame.previewTab = tab
+	-- its own close X in the corner (D35 B, owner 2026-10-02: a player asked how to close it)
+	local close = Core:CloseButton(pane, 20)
+	close:SetPoint("TOPRIGHT", pane, "TOPRIGHT", -6, -6)
+	close:SetScript("OnClick", function() SPConfig:SetPreviewPaneOpen(false) end)
+	pane.close = close
 end
 
 -- The wizard's bar mocks, stacked in the pane. Rebuilt on page / tab
@@ -615,23 +642,71 @@ function SPConfig:ReleasePreview()
 	ReleaseMocks()
 end
 
+-- The pane slides out of the window's edge and back in (owner 2026-10-02, with UI
+-- Animations on); off, or restoring a remembered open pane, it is there or gone at once.
+local SLIDE_T = 0.26
+local slide = { x = 0 }
+local slider = CreateFrame("Frame")
+slider:Hide()
+local function PlacePane(x)
+	local pane, clip = frame.preview, frame.previewClip
+	pane:ClearAllPoints()
+	pane:SetPoint("TOPLEFT", clip, "TOPLEFT", x, 0)
+	pane:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", x, 0)
+	pane:SetAlpha(1 - 0.6 * math.min(1, -x / PREVIEW_W))   -- a little fade toward the hidden end
+	slide.x = x
+end
+slider:SetScript("OnUpdate", function(self)
+	local p = math.min(1, (GetTime() - slide.t0) / SLIDE_T)
+	local sp = SP()
+	local e = (sp and sp.BrandEaseOut) and sp.BrandEaseOut(p) or p
+	PlacePane(slide.from + (slide.to - slide.from) * e)
+	if p < 1 then return end
+	self:Hide()
+	local done = slide.done
+	slide.done = nil
+	if done then done() end
+end)
+local function SlidePane(to, done)
+	slide.from, slide.to, slide.t0, slide.done = slide.x, to, GetTime(), done
+	slider:Show()
+end
+local function PaneAnimated()
+	local sp = SP()
+	if not frame:IsShown() then return false end
+	return not (sp and sp.UIAnimationsOn) or sp:UIAnimationsOn() ~= false
+end
+
 function SPConfig:SetPreviewPaneOpen(on, silent)
 	if not frame then return end
 	self:BuildPreviewPane()
 	on = on and true or false
 	frame._previewOpen = on
-	local pane, tab = frame.preview, frame.previewTab
-	pane:SetShown(on)
-	tab:ClearAllPoints()
-	tab:SetPoint("LEFT", on and pane or frame, "RIGHT", 0, 0)
-	tab.arrow:SetText(on and "<" or ">")
-	-- keep the whole assembly on screen when the window is dragged
-	frame:SetClampRectInsets(0, on and (PREVIEW_W + 4 + 18) or 18, 0, 0)
+	local pane = frame.preview
+	if frame.previewBtn then frame.previewBtn:SetLit(on) end
 	if not silent then
 		local st = PreviewStore()
 		if st then st.configPreviewOpen = on end
 	end
-	if not on then self:ReleasePreview() end
+	-- keep the whole assembly on screen when the window is dragged (wide while it slides)
+	if on then frame:SetClampRectInsets(0, PREVIEW_W + 4, 0, 0) end
+	local function closed()
+		pane:Hide()
+		frame:SetClampRectInsets(0, 0, 0, 0)
+		SPConfig:ReleasePreview()
+	end
+	if silent or not PaneAnimated() then
+		slider:Hide()
+		slide.done = nil
+		PlacePane(on and 0 or -PREVIEW_W)
+		if on then pane:Show() else closed() end
+	elseif on then
+		if not pane:IsShown() then PlacePane(-PREVIEW_W) end
+		pane:Show()
+		SlidePane(0, nil)
+	else
+		SlidePane(-PREVIEW_W, closed)
+	end
 	self:UpdatePreviewPane()
 end
 
@@ -792,7 +867,7 @@ function SPConfig:UpdatePreviewPane(remount)
 	if key and (SPConfig._inCombat or InCombatLockdown()) then
 		if frame._previewKey then self:ReleasePreview() end
 		pane.note:Show()
-		pane.note:SetText("Preview paused during combat so the real frame keeps working. It comes back when combat ends.")
+		pane.note:SetText("The preview is paused during combat so the real display keeps working. It returns when combat ends.")
 		return
 	end
 	-- Unlock UI has the real frames up under its boxes (a right-click on a box opens
@@ -800,7 +875,7 @@ function SPConfig:UpdatePreviewPane(remount)
 	if key and sp and sp.IsMasterUnlocked and sp:IsMasterUnlocked() then
 		if frame._previewKey then self:ReleasePreview() end
 		pane.note:Show()
-		pane.note:SetText("Preview paused while Unlock UI is on: the real frames are on screen under their boxes. It comes back when you press Done.")
+		pane.note:SetText("The preview is paused while you move things with Unlock UI. Click Done to show it again.")
 		return
 	end
 	local def = key and sp and sp.PreviewRegistry and sp.PreviewRegistry[key]
@@ -808,13 +883,172 @@ function SPConfig:UpdatePreviewPane(remount)
 		local shown = sp:ShowPreview(key, pane.inner)
 		frame._previewKey = shown and key or nil
 		pane.note:SetShown(shown == nil)
-		if shown == nil then pane.note:SetText("This module is not loaded, so there is nothing to preview.") end
+		if shown == nil then pane.note:SetText("This feature is unavailable, so there is no preview.") end
 	else
 		frame._previewKey = nil
 		pane.note:Show()
-		pane.note:SetText(key and "This module is not loaded, so there is nothing to preview."
+		pane.note:SetText(key and "This feature is unavailable, so there is no preview."
 			or (PLAYER_IS_SHAMAN and "No preview for this page: its settings change the bars themselves, which stay on screen while this window is open."
 				or "No preview for this page."))
+	end
+end
+
+-- defined further down with their features (in do-blocks: this chunk's locals are counted)
+local CpuStart, CpuStop, ConfirmResetPage, MotionWindowBuilt, MotionWindowHidden, MotionOpenedAgain
+local SidebarActions, LinkButtons
+
+do
+	local MEDIA = "Interface\\AddOns\\ShamanPower\\Media\\Textures\\"
+
+	-- ---------------------------------------------------------------------------
+	-- Unlock UI and Keybind Mode at the top of the sidebar (D30 3, D30b A1): two
+	-- rows with a small glyph each (accentHi), running exactly what General >
+	-- Main's two buttons run: those options' own functions (the buttons stay). A
+	-- row whose option is hidden (Keybind Mode for other classes) is left out.
+	-- ---------------------------------------------------------------------------
+	local SIDEBAR_ACTIONS = {
+		{ key = "master_unlock", label = "Unlock UI", glyph = "move" },
+		{ key = "keybind_mode", label = "Keybind Mode", glyph = "keys" },
+	}
+
+	local function MainOption(key)
+		local path = { "settings", "settings_show", key }
+		local node, chain = Tree:Resolve(path)
+		if not node then return nil end
+		local info = Tree:BuildInfo(path, node, chain)
+		if Tree:IsHidden(node, chain, info) then return nil end
+		return node, chain, info
+	end
+
+	-- the D30b mock's glyphs, 20 x 20 around their center: a four-way cross with a
+	-- dot (moving things), and a small keyboard (three keys and a space bar)
+	local function MoveGlyph(g, r, gr, b)
+		for _, d in ipairs({ { 0, 1 }, { 0, -1 }, { -1, 0 }, { 1, 0 } }) do
+			local l = g:CreateLine(nil, "ARTWORK")
+			l:SetThickness(1.4)
+			l:SetColorTexture(r, gr, b, 1)
+			l:SetStartPoint("CENTER", g, 0, 0)
+			l:SetEndPoint("CENTER", g, d[1] * 7, d[2] * 7)
+		end
+		local dot = g:CreateTexture(nil, "OVERLAY")
+		dot:SetSize(4, 4)
+		dot:SetPoint("CENTER", g, "CENTER", 0, 0)
+		dot:SetTexture(MEDIA .. "Mask_Circle")
+		dot:SetVertexColor(r, gr, b, 1)
+	end
+
+	local function KeysGlyph(g, r, gr, b)
+		local box = CreateFrame("Frame", nil, g)
+		box:SetSize(16, 10)
+		box:SetPoint("CENTER", g, "CENTER", 0, 0)
+		Core:MakeBorder(box, "accentHi", 1.2)
+		for k = 0, 2 do
+			local key = g:CreateTexture(nil, "ARTWORK")
+			key:SetSize(2, 2)
+			key:SetPoint("TOPLEFT", g, "CENTER", -5 + k * 4, 2)
+			key:SetColorTexture(r, gr, b, 1)
+		end
+		local space = g:CreateTexture(nil, "ARTWORK")
+		space:SetSize(8, 1.4)
+		space:SetPoint("TOPLEFT", g, "CENTER", -4, -1.5)
+		space:SetColorTexture(r, gr, b, 1)
+	end
+
+	-- the rows from sidebar y `top` down; returns the y under them (where the nav list starts)
+	SidebarActions = function(side, top)
+		local y = top
+		for _, a in ipairs(SIDEBAR_ACTIONS) do
+			local node, _, info = MainOption(a.key)
+			if node then
+				local row = CreateFrame("Button", nil, side)
+				row:SetSize(SIDEBAR_W - 1, ACTION_ROW_H)
+				row:SetPoint("TOPLEFT", side, "TOPLEFT", 0, -y)
+				local bg = row:CreateTexture(nil, "BACKGROUND")
+				bg:SetAllPoints(row)
+				bg:SetColorTexture(0, 0, 0, 0)
+				local g = CreateFrame("Frame", nil, row)
+				g:SetSize(20, 20)
+				g:SetPoint("CENTER", row, "LEFT", 28, 0)
+				local r, gr, b = Core:Color("accentHi")
+				if a.glyph == "move" then MoveGlyph(g, r, gr, b) else KeysGlyph(g, r, gr, b) end
+				local text = row:CreateFontString(nil, "OVERLAY")
+				text:SetFontObject(Core.fonts.nav)
+				text:SetTextColor(Core:Color("text"))
+				text:SetPoint("LEFT", row, "LEFT", 46, 0)
+				text:SetText(a.label)
+				local key = a.key
+				row:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("rowHover", 0.5)) end)
+				row:SetScript("OnLeave", function() bg:SetColorTexture(0, 0, 0, 0) end)
+				row:SetScript("OnClick", function()
+					local n, c, i = MainOption(key)   -- (read now: always what that button runs)
+					if not n then return end
+					Tree:MakeFunc(n, c, i)()
+					-- as the page's button does: the open page re-reads its settings after it
+					if frame:IsShown() and frame._onChanged then frame._onChanged() end
+				end)
+				Core:AttachTooltip(row, a.label, Tree:GetDesc(node, info))   -- (after SetScript, which would drop its hook)
+				y = y + ACTION_ROW_H
+			end
+		end
+		return y + 6
+	end
+
+	-- ---------------------------------------------------------------------------
+	-- The named link buttons in the footer (D30 2, D30b C2): each link's mark and
+	-- its name beside Reload UI. WoW cannot open a browser, so a click opens
+	-- ShamanPower's copy box with the link selected. The mark is gray at rest and
+	-- takes its brand's color on hover.
+	-- ---------------------------------------------------------------------------
+	local LINKS = {
+		{ name = "Discord", key = "discordLink", mark = "SP_Link_Discord", title = "ShamanPower Discord",
+			url = "https://discord.gg/eCtNeBqE8U", color = { 0x58 / 255, 0x65 / 255, 0xF2 / 255 } },
+		{ name = "CurseForge", key = "curseforgeLink", mark = "SP_Link_CurseForge", title = "ShamanPower on CurseForge",
+			url = "https://www.curseforge.com/wow/addons/shamanpower", color = { 0xF1 / 255, 0x64 / 255, 0x36 / 255 } },
+		{ name = "GitHub", key = "githubLink", mark = "SP_Link_GitHub", title = "ShamanPower on GitHub",
+			url = "https://github.com/taubut/ShamanPower", color = { 1, 1, 1 } },
+	}
+
+	local function LinkButton(parent, link)
+		local b = CreateFrame("Button", nil, parent)
+		b:SetHeight(26)
+		local bg = b:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints(b)
+		bg:SetColorTexture(Core:Color("windowBg"))
+		Core:MakeBorder(b, "border")
+		local mark = b:CreateTexture(nil, "ARTWORK")
+		mark:SetSize(16, 16)
+		mark:SetPoint("LEFT", b, "LEFT", 7, 0)
+		mark:SetTexture(MEDIA .. link.mark)
+		mark:SetVertexColor(Core:Color("textDim"))
+		local label = b:CreateFontString(nil, "OVERLAY")
+		label:SetFontObject(Core.fonts.link)
+		label:SetPoint("LEFT", b, "LEFT", 28, 0)
+		label:SetText(link.name)
+		b:SetWidth(math.ceil(30 + label:GetStringWidth() + 10))
+		b:SetScript("OnEnter", function()
+			mark:SetVertexColor(link.color[1], link.color[2], link.color[3])
+			Core:SetBorderColor(b, "accent")
+		end)
+		b:SetScript("OnLeave", function()
+			mark:SetVertexColor(Core:Color("textDim"))
+			Core:SetBorderColor(b, "border")
+		end)
+		b:SetScript("OnClick", function()
+			SP():ShowSPDialog({ key = link.key, title = link.title, editText = link.url,
+				text = "Press |cffFFD100Ctrl+C|r to copy it, then paste it into your browser." })
+		end)
+		Core:AttachTooltip(b, link.title, link.url, "Click to copy")
+		b.spElement = "spirit"   -- its tooltip in logo blue: the window's, not the page's
+		return b
+	end
+
+	-- the three in a row on the footer, from x (its left edge), 14 up
+	LinkButtons = function(footer, x)
+		for _, link in ipairs(LINKS) do
+			local b = LinkButton(footer, link)
+			b:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", x, 14)
+			x = x + b:GetWidth() + 8
+		end
 	end
 end
 
@@ -836,17 +1070,20 @@ local function BuildWindow()
 	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
 	frame:Hide()
 	tinsert(UISpecialFrames, "ShamanPowerConfigUIFrame")
+	local sp = SP()
+	local level = frame:GetFrameLevel()
 
 	Core:SolidTex(frame, "windowBg", "BACKGROUND", nil, true)
-	-- 2px accent frame so the two windows read as separate panels when overlapped.
-	Core:MakeBorder(frame, "accent", 2)
 
 	-- Sidebar ---------------------------------------------------------------
 	local side = CreateFrame("Frame", nil, frame)
-	side:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
-	side:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 1, 1)
+	side:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+	side:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
 	side:SetWidth(SIDEBAR_W)
 	Core:SolidTex(side, "sidebarBg", "BACKGROUND", nil, true)
+	-- a soft light at its top, behind the logo: the mock's #171C24 over its top 45%
+	local sideLight = Core:Light(side, SIDEBAR_W, WIN_H * 0.45, 0.3, 0, 1)
+	Core:RegisterFadeLight(sideLight, Core:Color("sidebarLight"))
 	frame.side = side
 
 	local sideEdge = side:CreateTexture(nil, "BORDER")
@@ -855,35 +1092,45 @@ local function BuildWindow()
 	sideEdge:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", 0, 0)
 	sideEdge:SetColorTexture(Core:Color("border"))
 
-	-- Brand
-	local brand = side:CreateFontString(nil, "OVERLAY")
-	brand:SetFontObject(Core.fonts.brand)
-	brand:SetPoint("TOPLEFT", side, "TOPLEFT", 18, -22)
-	brand:SetText("|cff0070ddShaman|r|cffE6EAF0Power|r")
+	-- The logo (D30 1, D32 1): the brand kit's totem graphic, 46 wide, beside the
+	-- wordmark ("Shaman" in logo blue, "Power" in white) and "Totems, Done Right"
+	local logo = sp:CreateTotemGraphic(side)
+	logo:SetGraphicHeight(46 * 682 / 650)
+	logo:SetPoint("TOPLEFT", side, "TOPLEFT", 16, -16)
 
-	local brandRule = side:CreateTexture(nil, "ARTWORK")
-	brandRule:SetHeight(1)
-	brandRule:SetPoint("TOPLEFT", brand, "BOTTOMLEFT", 0, -10)
-	-- Underline exactly the word "Shaman": measure it in the brand font rather
-	-- than guessing a pixel width.
-	local measure = side:CreateFontString(nil, "OVERLAY")
-	measure:SetFontObject(Core.fonts.brand)
-	measure:SetText("Shaman")
-	brandRule:SetWidth(math.ceil(measure:GetStringWidth()))
-	measure:Hide()
-	brandRule:SetColorTexture(Core:Color("accent"))
+	local brand = side:CreateFontString(nil, "OVERLAY")
+	brand:SetFontObject(Core.fonts.wordmark)
+	brand:SetPoint("LEFT", side, "TOPLEFT", 70, -30)
+	brand:SetText("|cff3FA9F5Shaman|r|cffFFFFFFPower|r")
+
+	local tagline = side:CreateFontString(nil, "OVERLAY")
+	tagline:SetFontObject(Core.fonts.tagline)
+	tagline:SetPoint("LEFT", side, "TOPLEFT", 71, -52)
+	tagline:SetText("TOTEMS, DONE RIGHT")
 
 	local ver = side:CreateFontString(nil, "OVERLAY")
 	ver:SetFontObject(Core.fonts.tiny)
-	ver:SetPoint("BOTTOMLEFT", side, "BOTTOMLEFT", 18, 14)
+	ver:SetPoint("LEFT", side, "BOTTOMLEFT", 18, 16)
 	local v = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("ShamanPower", "Version")
 		or (GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
 	ver:SetText("v" .. (v or "?"))
 
+	-- ShamanPower's CPU beside it (D30 7, as in the D30 mock), filled while the window is open
+	local cpuLabel = side:CreateFontString(nil, "OVERLAY")
+	cpuLabel:SetFontObject(Core.fonts.tiny)
+	cpuLabel:SetPoint("RIGHT", side, "BOTTOMRIGHT", -16, 30)
+	cpuLabel:SetText("SHAMANPOWER CPU")
+	cpuLabel:Hide()
+	local cpuValue = side:CreateFontString(nil, "OVERLAY")
+	cpuValue:SetFontObject(Core.fonts.small)
+	cpuValue:SetPoint("RIGHT", side, "BOTTOMRIGHT", -16, 16)
+	cpuValue:Hide()
+	frame.cpuLabel, frame.cpuValue = cpuLabel, cpuValue
+
 	-- Sidebar search
 	local navSearch = CreateFrame("EditBox", nil, side)
-	navSearch:SetSize(SIDEBAR_W - 36, 24)
-	navSearch:SetPoint("TOPLEFT", brandRule, "BOTTOMLEFT", 0, -16)
+	navSearch:SetSize(SIDEBAR_W - 32, 24)
+	navSearch:SetPoint("TOPLEFT", side, "TOPLEFT", 16, -78)
 	navSearch:SetAutoFocus(false)
 	navSearch:SetFontObject(Core.fonts.row)
 	navSearch:SetTextInsets(8, 8, 0, 0)
@@ -893,16 +1140,21 @@ local function BuildWindow()
 
 	local navPlaceholder = navSearch:CreateFontString(nil, "OVERLAY")
 	navPlaceholder:SetFontObject(Core.fonts.rowDim)
+	navPlaceholder:SetTextColor(Core:Color("textMute"))
 	navPlaceholder:SetPoint("LEFT", navSearch, "LEFT", 8, 0)
 	navPlaceholder:SetText("Search all settings...")
 	navSearch.placeholder = navPlaceholder
 
-	-- Sidebar scroll
+	-- Unlock UI and Keybind Mode, then the page list
+	local navTop = SidebarActions(side, 112)
+
+	-- Sidebar scroll: the whole width, so the open page's row runs edge to edge
+	-- (its scrollbar sits inside, clear of the switches)
 	local navScroll = CreateFrame("ScrollFrame", nil, side)
-	navScroll:SetPoint("TOPLEFT", navSearch, "BOTTOMLEFT", 0, -12)
-	navScroll:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", -10, 34)
+	navScroll:SetPoint("TOPLEFT", side, "TOPLEFT", 0, -navTop)
+	navScroll:SetPoint("BOTTOMRIGHT", side, "BOTTOMRIGHT", -1, 58)
 	local navList = CreateFrame("Frame", nil, navScroll)
-	navList:SetSize(SIDEBAR_W - 36, 10)
+	navList:SetSize(SIDEBAR_W - 1, 10)
 	navScroll:SetScrollChild(navList)
 	navScroll:EnableMouseWheel(true)
 	navScroll:SetScript("OnMouseWheel", function(self, delta)
@@ -910,34 +1162,67 @@ local function BuildWindow()
 		self:SetVerticalScroll(math.max(0, math.min(maxS, self:GetVerticalScroll() - delta * 30)))
 	end)
 	frame.navScroll, frame.navList = navScroll, navList
-	Core:AttachScrollbar(navScroll, navList, { offset = 3 })
+	Core:AttachScrollbar(navScroll, navList, { offset = -4 })   -- flush with the sidebar's edge (no lit row peeking past it)
 
 	-- Content ---------------------------------------------------------------
 	local content = CreateFrame("Frame", nil, frame)
 	content:SetPoint("TOPLEFT", side, "TOPRIGHT", 0, 0)
-	content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -1, 1)
+	content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
 	Core:SolidTex(content, "contentBg", "BACKGROUND", nil, true)
-	frame.content = content
+	-- the page's element lights the whole page, faintly, from its top left (painted per page)
+	local contentLight = Core:Light(content, CONTENT_W, WIN_H, 0.05, 0, 1)
+	Core:RegisterFadeLight(contentLight, Core:Color("contentBg"))
+	frame.content, frame.contentLight = content, contentLight
 
-	local title = content:CreateFontString(nil, "OVERLAY")
-	title:SetFontObject(Core.fonts.title)
-	title:SetPoint("TOPLEFT", content, "TOPLEFT", CONTENT_PAD + 8, -24)
+	-- The header band (D30 5, D32 2 and 4): the intro's navy light warmed by the
+	-- page's element, the huge barely-there totem graphic cut off by its edges,
+	-- the page title with a short underline in the element's color.
+	local band = CreateFrame("Frame", nil, content)
+	band:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+	band:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
+	band:SetHeight(HEADER_H)
+	band:SetClipsChildren(true)
+	band:SetFrameLevel(level + 2)
+	Core:SolidTex(band, "bandBg", "BACKGROUND", nil, true)
+	local bandLight = Core:Light(band, CONTENT_W, HEADER_H, 0.12, 0, 1.2)
+	Core:RegisterFadeLight(bandLight, Core:Color("bandLight"))
+	local big = sp:CreateTotemGraphic(band, { noOverlap = true })
+	big:SetGraphicHeight(150)
+	big:SetPoint("TOPRIGHT", band, "TOPRIGHT", -26, 6)
+	Core:RegisterFadeAlpha(big, 0.12)
+	frame.bandLight = bandLight
+
+	-- the band's words and lines, over the graphic
+	local head = CreateFrame("Frame", nil, content)
+	head:SetAllPoints(band)
+	head:SetFrameLevel(level + 5)
+	local bandEdge = head:CreateTexture(nil, "BORDER")
+	bandEdge:SetHeight(1)
+	bandEdge:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 0, 0)
+	bandEdge:SetPoint("BOTTOMRIGHT", head, "BOTTOMRIGHT", 0, 0)
+	bandEdge:SetColorTexture(Core:Color("border"))
+
+	local title = head:CreateFontString(nil, "OVERLAY")
+	title:SetFontObject(Core.fonts.pageTitle)
+	title:SetPoint("LEFT", head, "TOPLEFT", 26, -38)
 	frame.title = title
 
-	local subtitle = content:CreateFontString(nil, "OVERLAY")
+	local subtitle = head:CreateFontString(nil, "OVERLAY")
 	subtitle:SetFontObject(Core.fonts.subtitle)
-	subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -6)
-	subtitle:SetPoint("RIGHT", content, "RIGHT", -240, 0)
+	subtitle:SetPoint("TOPLEFT", head, "TOPLEFT", 27, -61)
+	subtitle:SetPoint("RIGHT", head, "RIGHT", -245, 0)   -- room for Preview and Reset This Page beside it (D37)
 	subtitle:SetJustifyH("LEFT")
 	frame.subtitle = subtitle
 
-	local glow = Core:AccentGlow(content, 2)
-	glow:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(HEADER_H - 12))
-	glow:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(HEADER_H - 12))
+	local underline = head:CreateTexture(nil, "ARTWORK")
+	underline:SetSize(44, 3)
+	underline:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 26, 0)
+	frame.underline = underline
 
-	-- Close
+	-- Close (on the header's top line, the page search beside it)
 	local close = Core:CloseButton(frame, 26)
-	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -10)
+	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -10, -14)
+	close:SetFrameLevel(level + 8)
 	close:SetScript("OnClick", function() frame._closedByPlayer = true; frame:Hide() end)
 
 	-- Tab strip
@@ -948,12 +1233,11 @@ local function BuildWindow()
 	frame.tabStrip = tabStrip
 	frame.tabs = {}
 
-	-- Scoped search
+	-- Scoped search: at the top right of the header band (the mock), left of the X
 	local pageSearch = CreateFrame("EditBox", nil, content)
 	pageSearch:SetSize(200, 22)
-	-- Sits in the header band, above the accent rule: below the close button
-	-- and clear of the tab strip underneath.
-	pageSearch:SetPoint("TOPRIGHT", content, "TOPRIGHT", -CONTENT_PAD, -42)
+	pageSearch:SetPoint("RIGHT", close, "LEFT", -8, 0)
+	pageSearch:SetFrameLevel(level + 6)
 	pageSearch:SetAutoFocus(false)
 	pageSearch:SetFontObject(Core.fonts.row)
 	pageSearch:SetTextInsets(8, 8, 0, 0)
@@ -965,17 +1249,95 @@ local function BuildWindow()
 	local whatsNew = Core:MakeButton(content, "What's New", 100, false)
 	whatsNew:SetPoint("RIGHT", pageSearch, "LEFT", -10, 0)
 	whatsNew:SetHeight(22)
+	whatsNew:SetFrameLevel(level + 6)
 	-- Gold, so it stands out from the plain header buttons.
 	whatsNew.text:SetTextColor(1, 0.82, 0)
 	for _, edge in pairs(whatsNew.spBorder) do edge:SetColorTexture(1, 0.82, 0, 0.85) end
 	whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10)
 	whatsNew:SetScript("OnEnter", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.24) end)
 	whatsNew:SetScript("OnLeave", function() whatsNew.bg:SetColorTexture(1, 0.82, 0, 0.10) end)
-	whatsNew:SetScript("OnClick", function() local sp = SP(); if sp and sp.ShowWhatsNew then sp:ShowWhatsNew(true) end end)
+	whatsNew:SetScript("OnClick", function() local s = SP(); if s and s.ShowWhatsNew then s:ShowWhatsNew(true) end end)
 	frame.whatsNewBtn = whatsNew
+
+	-- Preview (D35 B): opens and closes the live preview pane, lit blue while it is
+	-- open; a small window-and-panel icon before the word (the panel filled while open)
+	local preview = Core:MakeButton(content, "Preview", 0, false)
+	preview:SetHeight(22)
+	preview:SetFrameLevel(level + 6)
+	preview.text:ClearAllPoints()
+	preview.text:SetPoint("LEFT", preview, "LEFT", 30, 0)
+	preview:SetWidth(30 + math.ceil(preview.text:GetStringWidth()) + 12)
+	local lit = preview:CreateTexture(nil, "BACKGROUND", nil, 2)
+	lit:SetAllPoints(preview)
+	lit:SetColorTexture(Core:Color("accent", 0.34))   -- over the button's own blue: the primary buttons' brighter one
+	Core:MonoNote(lit, Core:Color("accent", 0.34))
+	lit:Hide()
+	local icon = CreateFrame("Frame", nil, preview)
+	icon:SetSize(14, 11)
+	icon:SetPoint("LEFT", preview, "LEFT", 10, 0)
+	local function edge(p1, p2, w, h)
+		local t = icon:CreateTexture(nil, "OVERLAY")
+		t:SetColorTexture(Core:Color("white"))
+		t:SetPoint(p1, icon, p1, 0, 0)
+		if w then t:SetWidth(w) end
+		if h then t:SetHeight(h) end
+		t:SetPoint(p2, icon, p2, 0, 0)
+		return t
+	end
+	edge("TOPLEFT", "TOPRIGHT", nil, 1.5); edge("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1.5)
+	edge("TOPLEFT", "BOTTOMLEFT", 1.5, nil); edge("TOPRIGHT", "BOTTOMRIGHT", 1.5, nil)
+	local panel = icon:CreateTexture(nil, "OVERLAY")
+	panel:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
+	panel:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
+	panel:SetWidth(5)
+	panel:SetColorTexture(Core:Color("white"))
+	local divider = icon:CreateTexture(nil, "OVERLAY")
+	divider:SetPoint("TOPRIGHT", icon, "TOPRIGHT", -5, 0)
+	divider:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -5, 0)
+	divider:SetWidth(1.5)
+	divider:SetColorTexture(Core:Color("white"))
+	function preview:SetLit(on)
+		lit:SetShown(on)
+		panel:SetShown(on)
+	end
+	preview:SetLit(false)
+	local hoverIn = preview:GetScript("OnEnter")
+	local hoverOut = preview:GetScript("OnLeave")
+	preview:SetScript("OnEnter", function(self)
+		if hoverIn then hoverIn(self) end
+		local tip = Core:Tooltip()
+		tip:SetOwner(self, "ANCHOR_CURSOR")
+		tip:SetText(frame._previewOpen and "Hide the live preview" or "Show the live preview")
+		tip:AddLine("See a preview beside the window. It updates as you change the settings.")
+		tip:Show()
+	end)
+	preview:SetScript("OnLeave", function(self)
+		if hoverOut then hoverOut(self) end
+		Core:Tooltip():Hide()
+	end)
+	preview:SetScript("OnClick", function() SPConfig:TogglePreviewPane() end)
+	frame.previewBtn = preview
+
+	-- Reset This Page (D30 Q11): a small secondary button beside the page search
+	local reset = Core:MakeButton(content, "Reset This Page", 0, false)
+	reset:SetHeight(22)
+	reset:SetFrameLevel(level + 6)
+	reset:SetScript("OnClick", function() ConfirmResetPage() end)
+	reset:Hide()
+	frame.resetBtn = reset
+
+	-- Turn On (D42): on the page of a module that is off, beside Preview / Reset This
+	-- Page; the one thing on that page that keeps its color (its click: RenderPage)
+	local turnOn = Core:MakeButton(content, "Turn On", 0, true)
+	turnOn:SetHeight(22)
+	turnOn:SetFrameLevel(level + 6)
+	turnOn:Hide()
+	Core.monoSkip[turnOn] = true
+	frame.turnOnBtn = turnOn
 
 	local pagePlaceholder = pageSearch:CreateFontString(nil, "OVERLAY")
 	pagePlaceholder:SetFontObject(Core.fonts.rowDim)
+	pagePlaceholder:SetTextColor(Core:Color("textMute"))
 	pagePlaceholder:SetPoint("LEFT", pageSearch, "LEFT", 8, 0)
 	pagePlaceholder:SetText("Search this page...")
 	pageSearch.placeholder = pagePlaceholder
@@ -1023,28 +1385,48 @@ local function BuildWindow()
 	frame.bodyScroll, frame.body = bodyScroll, body
 	Core:AttachScrollbar(bodyScroll, body, { offset = 6 })
 
-	-- Footer
-	local footRule = content:CreateTexture(nil, "ARTWORK")
+	-- Footer: its own band (the mock's sidebar navy) under a rule
+	local footer = CreateFrame("Frame", nil, content)
+	footer:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, 0)
+	footer:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, 0)
+	footer:SetHeight(FOOTER_H)
+	Core:SolidTex(footer, "sidebarBg", "BACKGROUND", nil, true)
+	Core.monoSkip[footer] = true   -- (D42) a page in gray keeps its footer in color
+	local footRule = footer:CreateTexture(nil, "ARTWORK")
 	footRule:SetHeight(1)
-	footRule:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 0, FOOTER_H)
-	footRule:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", 0, FOOTER_H)
+	footRule:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
+	footRule:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
 	footRule:SetColorTexture(Core:Color("border"))
 
-	-- Every footer button anchors to a content edge with an explicit x offset.
+	-- Every footer button anchors to a footer edge with an explicit x offset.
 	-- Chaining one button off another's corner made it inherit the y offset
 	-- twice and sit high.
-	local function FooterButton(text, width, side, xOff, primary)
-		local b = Core:MakeButton(content, text, width, primary)
-		local point = (side == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
-		b:SetPoint(point, content, point, xOff, 14)
+	local function FooterButton(text, width, at, xOff, primary)
+		local b = Core:MakeButton(footer, text, width, primary)
+		local point = (at == "left") and "BOTTOMLEFT" or "BOTTOMRIGHT"
+		b:SetPoint(point, footer, point, xOff, 14)
 		return b, b:GetWidth()
 	end
 
 	local reload, reloadW = FooterButton("Reload UI", 100, "left", CONTENT_PAD, false)
 	reload:SetScript("OnClick", function() Core:RequestReload() end)
 
+	-- Discord, CurseForge and GitHub beside Reload UI
+	LinkButtons(footer, CONTENT_PAD + reloadW + 14)
+
 	local done = FooterButton("Done", 110, "right", -CONTENT_PAD, true)
 	done:SetScript("OnClick", function() frame._closedByPlayer = true; frame:Hide() end)
+
+	-- The window's edge (the mock's soft 1.5 px #2B374A) and the four elements
+	-- along its top (D32 7), over everything
+	local edge = CreateFrame("Frame", nil, frame)
+	edge:SetAllPoints(frame)
+	edge:SetFrameLevel(level + 14)
+	Core:MakeBorder(edge, "border", 1.5)
+	local stripe = sp:CreateElementStripe(frame)
+	stripe:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+	stripe:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+	stripe:SetFrameLevel(level + 15)
 
 	-- Combat lock. Only pages whose setters actually reach a combat-guarded
 	-- function get this; a page of colours and sliders stays fully usable.
@@ -1084,13 +1466,17 @@ local function BuildWindow()
 	frame:SetScript("OnShow", function()
 		SPConfig:UpdateCombatLock()
 		SPConfig:SetPreviewPaneOpen(PreviewOpenWanted(), true)
+		CpuStart()
 	end)
 	-- The dropdown popup is parented to UIParent so it can escape the scroll
 	-- clip; it must not outlive the window.
 	frame:SetScript("OnHide", function(self)
+		Core:MonoClear()   -- (D42) a gray page's regions are pooled: their colors back
 		Widgets:HidePopup()
 		SPConfig:HoverStyle(nil)
 		SPConfig:ReleasePreview()
+		CpuStop()
+		MotionWindowHidden()
 		SPConfig:ThemeWindowHidden(self)
 	end)
 
@@ -1110,6 +1496,7 @@ local function BuildWindow()
 		end
 	end)
 
+	MotionWindowBuilt()
 	return frame
 end
 
@@ -1120,6 +1507,23 @@ local navRows = {}
 local selfNotify = false   -- the window's own change notifications are not news to it
 local navPool = {}
 local navPoolUsed = 0
+local SelectEntry   -- (below: the rows' clicks call it)
+
+-- A page's row: at rest its name in textDim (textMute for another class's
+-- shaman-only page); the open page's row LIT (D32b): its group's element at 28%
+-- over rowHover fading out to the right, a 3px element bar at its left edge.
+local function PaintNavRow(row, on)
+	row.lit:SetShown(on)
+	row.bar:SetShown(on)
+	row.bg:SetColorTexture(0, 0, 0, 0)
+	if on then
+		row.text:SetFontObject(Core.fonts.navOn)
+		row.text:SetTextColor(Core:Color("text"))
+	else
+		row.text:SetFontObject(Core.fonts.nav)
+		row.text:SetTextColor(Core:ColorIf(row.shamanOnly, "textMute", "textDim"))
+	end
+end
 
 -- Sidebar rows are recycled. Search re-renders the nav on every change, so
 -- allocating fresh frames here would leak steadily while the user types.
@@ -1131,11 +1535,32 @@ local function AcquireNavRow(list)
 		row:Show()
 		if row.power then row.power:Hide() end
 		row.paintPower = nil
-		return row, false
+		return row
 	end
 	row = CreateFrame("Button", nil, list)
 	navPool[navPoolUsed] = row
-	return row, true
+	row.bg = row:CreateTexture(nil, "BACKGROUND")
+	row.bg:SetAllPoints(row)
+	row.lit = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+	row.lit:SetAllPoints(row)
+	row.lit:SetColorTexture(1, 1, 1, 1)
+	row.bar = row:CreateTexture(nil, "ARTWORK")
+	row.bar:SetWidth(3)
+	row.bar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+	row.bar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+	row.text = row:CreateFontString(nil, "OVERLAY")
+	row.text:SetFontObject(Core.fonts.nav)
+	row.text:SetPoint("LEFT", row, "LEFT", 30, 0)
+	row.text:SetJustifyH("LEFT")
+	-- set once (a later SetScript would drop the tooltip's hooks); they read the row's entry
+	row:SetScript("OnEnter", function(self)
+		if frame._current ~= self.entry then self.bg:SetColorTexture(Core:Color("rowHover", 0.5)) end
+	end)
+	row:SetScript("OnLeave", function(self)
+		if frame._current ~= self.entry then self.bg:SetColorTexture(0, 0, 0, 0) end
+	end)
+	row:SetScript("OnClick", function(self) if not self.shamanOnly then SelectEntry(self.entry) end end)
+	return row
 end
 
 -- Returns getter, setter, tooltip title, tooltip body -- or nil for no dot.
@@ -1157,19 +1582,14 @@ local function ResolvePower(entry)
 end
 
 -- tab: open the page on that tab; nil opens its first
-local function SelectEntry(entry, tab)
+SelectEntry = function(entry, tab)
 	frame._current = entry
 	frame._activeTab = tab
 	frame.pageSearch:SetText("")
 	frame.pageSearch.placeholder:Show()
 	SPConfig:RenderPage(entry, nil)
 	SPConfig:UpdatePreviewPane()
-	for _, r in ipairs(navRows) do
-		local on = (r.entry == entry)
-		r.accent:SetShown(on)
-		r.text:SetFontObject(on and Core.fonts.navOn or Core.fonts.nav)
-		r.bg:SetColorTexture(Core:Color(on and "rowHover" or "sidebarBg", on and 1 or 0))
-	end
+	for _, r in ipairs(navRows) do PaintNavRow(r, r.entry == entry) end
 end
 
 function SPConfig:RenderNav(query)
@@ -1203,6 +1623,7 @@ function SPConfig:RenderNav(query)
 				-- Style changes and newly saved loadouts reveal new labels. Rebuild
 				-- only when the sidebar draws, never on a timer or while it is shut.
 				entry._terms = {}
+				entry._resettable = nil   -- (Reset This Page asks again)
 				for _, pth in ipairs(EntryPaths(entry)) do
 					local n, c, rows = VisiblePath(pth)
 					if n then
@@ -1218,51 +1639,52 @@ function SPConfig:RenderNav(query)
 		end
 
 		if #visibleEntries > 0 then
-			local gh = list.groupHeaders and list.groupHeaders[groupDef.group]
+			-- the group's header: its element's tiny totem box and its name in small
+			-- caps, tinted toward the element (80%)
+			local el = GroupElement(groupDef.group)
+			local ec = ElementColor(el)
+			list.groupHeaders = list.groupHeaders or {}
+			local gh = list.groupHeaders[groupDef.group]
 			if not gh then
-				gh = list:CreateFontString(nil, "OVERLAY")
-				gh:SetFontObject(Core.fonts.group)
-				list.groupHeaders = list.groupHeaders or {}
+				gh = { box = SP():CreateElementBox(list, 10, el), fs = list:CreateFontString(nil, "OVERLAY") }
+				gh.fs:SetFontObject(Core.fonts.group)
+				gh.fs:SetText(strupper(groupDef.group))
+				gh.fs:SetTextColor(Core:Mix(ec, "text", 0.8))
 				list.groupHeaders[groupDef.group] = gh
 			end
-			gh:ClearAllPoints()
-			gh:SetPoint("TOPLEFT", list, "TOPLEFT", 8, -(y + 8))
-			gh:SetText(strupper(groupDef.group))
-			gh:Show()
-			y = y + NAV_GROUP_H + 4
+			gh.box:ClearAllPoints()
+			gh.box:SetPoint("TOPLEFT", list, "TOPLEFT", 18, -(y + 6))
+			gh.box:Show()
+			gh.fs:ClearAllPoints()
+			gh.fs:SetPoint("LEFT", list, "TOPLEFT", 34, -(y + 11))
+			gh.fs:Show()
+			y = y + NAV_GROUP_H
 
 			for _, entry in ipairs(visibleEntries) do
 				idx = idx + 1
 				firstVisible = firstVisible or entry
+				entry._group = groupDef.group
 
-				local row, isNew = AcquireNavRow(list)
+				local row = AcquireNavRow(list)
 				row:SetSize(list:GetWidth(), NAV_ROW_H)
 				row:ClearAllPoints()
 				row:SetPoint("TOPLEFT", list, "TOPLEFT", 0, -y)
-
-				if isNew then
-					row.bg = row:CreateTexture(nil, "BACKGROUND")
-					row.bg:SetAllPoints(row)
-
-					row.accent = row:CreateTexture(nil, "ARTWORK")
-					row.accent:SetWidth(2)
-					row.accent:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
-					row.accent:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
-					row.accent:SetColorTexture(Core:Color("accent"))
-
-					row.text = row:CreateFontString(nil, "OVERLAY")
-					row.text:SetPoint("LEFT", row, "LEFT", 16, 0)
-					row.text:SetJustifyH("LEFT")
+				-- the open page's light: 28% of the element over rowHover, fading to the right
+				-- (painted when the pooled row's element changes, not on every redraw)
+				if row.spElement ~= el then
+					row.spElement = el
+					row.bar:SetColorTexture(ec[1], ec[2], ec[3])
+					local litR, litG, litB = Core:Mix(ec, "rowHover", 0.28)
+					local hovR, hovG, hovB = Core:Color("rowHover")
+					Core:Gradient(row.lit, "HORIZONTAL", litR, litG, litB, 1, hovR, hovG, hovB, 1)
 				end
 
-				row.bg:SetColorTexture(0, 0, 0, 0)
-				row.accent:Hide()
-				row.text:SetFontObject(Core.fonts.nav)
 				row.text:SetText(Tree:StripColor(entry.label))
 				-- (shaman-only pages never reach here for other classes; kept as a guard)
 				row.shamanOnly = entry.shamanOnly and select(2, UnitClass("player")) ~= "SHAMAN"
-				row.text:SetTextColor(Core:Color(row.shamanOnly and "textMute" or "text"))
-				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Shaman only - these features do not run on this class.") else Core:AttachTooltip(row, "", nil) end
+				row.entry = entry
+				PaintNavRow(row, frame._current == entry)
+				if row.shamanOnly then Core:AttachTooltip(row, entry.label, "Only available to shamans.") else Core:AttachTooltip(row, "", nil) end
 				-- a NEW tag (Patch Notes, until its page is opened): gold small caps, as on the What's New card
 				local tagOn = entry.newTag and entry.newTag() or false
 				if tagOn and not row.newTag then
@@ -1277,58 +1699,44 @@ function SPConfig:RenderNav(query)
 					row.newTag:SetShown(tagOn)
 				end
 
-				-- Power dot: an explicit binding on the entry wins, otherwise an
-				-- "Enable ..." toggle found in the page is promoted.
+				-- The module's on / off (D32 C2): the tiny totem switch in the group's
+				-- element (0.62 of the settings rows' switch). An explicit binding on the
+				-- entry wins, otherwise an "Enable ..." toggle found in the page is promoted.
 				if row.power then row.power:Hide() end
+				entry._powerGet, entry._powerSet = nil, nil   -- (D42) the page reads its module's on / off here
 				if groupDef.power and not row.shamanOnly then
 					local getter, setter, tipTitle, tipBody = ResolvePower(entry)
 					if getter then
+						entry._powerGet, entry._powerSet = getter, setter
 						local pw = row.power
 						if not pw then
-							pw = CreateFrame("Button", nil, row)
-							pw:SetSize(14, 14)
-							pw:SetPoint("RIGHT", row, "RIGHT", -10, 0)
-							pw.dot = pw:CreateTexture(nil, "ARTWORK")
-							pw.dot:SetAllPoints(pw)
+							pw = SP():CreateTotemSwitch(row, { scale = 0.62 })
+							pw:SetPoint("RIGHT", row, "RIGHT", -16, 0)
 							row.power = pw
 						end
+						if pw.spElement ~= el then pw.spElement = el; pw:SetElement(el) end
 						pw:Show()
-						local dot = pw.dot
-						local function PaintDot()
-							dot:SetColorTexture(Core:ColorIf(getter(), "on", "off"))
+						local function PaintSwitch()
+							pw:SetChecked(getter())
 						end
 						pw:SetScript("OnClick", function()
 							setter(not getter())
-							PaintDot()
+							PaintSwitch()
 							if frame._current == entry then SPConfig:RenderPage(entry, nil) end
 						end)
-						Core:AttachTooltip(pw, tipTitle, tipBody)
-						PaintDot()
-						row.power = pw
-						row.paintPower = PaintDot
+						Core:AttachTooltip(pw, tipTitle, tipBody, "Click to turn it on or off")
+						PaintSwitch()
+						row.paintPower = PaintSwitch
 					end
 				end
-
-				row.entry = entry
-				row:SetScript("OnEnter", function(self)
-					if frame._current ~= self.entry then
-						self.bg:SetColorTexture(Core:Color("rowHover", 0.5))
-					end
-				end)
-				row:SetScript("OnLeave", function(self)
-					if frame._current ~= self.entry then
-						self.bg:SetColorTexture(0, 0, 0, 0)
-					end
-				end)
-				row:SetScript("OnClick", function(self) if not self.shamanOnly then SelectEntry(self.entry) end end)
 
 				table.insert(navRows, row)
 				y = y + NAV_ROW_H
 			end
-			y = y + 8
+			y = y + NAV_GROUP_GAP
 		else
 			local gh = list.groupHeaders and list.groupHeaders[groupDef.group]
-			if gh then gh:Hide() end
+			if gh then gh.box:Hide(); gh.fs:Hide() end
 		end
 	end
 
@@ -1365,7 +1773,9 @@ local function RenderTabs(groups, activeKey, onPick)
 	end
 	-- the strip's width, worked out from the window's fixed layout rather than read
 	-- back: a tab that would run past it starts a new row (a long page or a big font)
-	local stripW = WIN_W - SIDEBAR_W - 1 - 2 * CONTENT_PAD - 8
+	local stripW = CONTENT_W - 2 * CONTENT_PAD - 8
+	-- the open tab's underline in the page's element
+	local ec = ElementColor(frame._element or "spirit")
 	local x, row = 0, 0
 	for i, g in ipairs(groups) do
 		local tab = tabPool[i]
@@ -1393,6 +1803,7 @@ local function RenderTabs(groups, activeKey, onPick)
 
 		local isActive = (g.key == activeKey)
 		tab.text:SetFontObject(isActive and Core.fonts.navOn or Core.fonts.nav)
+		tab.underline:SetColorTexture(ec[1], ec[2], ec[3])
 		tab.underline:SetShown(isActive)
 		tab._key = g.key
 		tab:SetScript("OnClick", function(self) onPick(self._key) end)
@@ -1416,6 +1827,9 @@ local function ClearPage()
 	wipe(pageWidgets)
 	if ns.ThemesPage then ns.ThemesPage:Release() end
 	if ns.PatchNotesPage then ns.PatchNotesPage:Release() end
+	for _, row in pairs(ns.CustomRows) do
+		if row.Release then row:Release() end
+	end
 end
 
 -- General > Themes draws its own page (Themes.lua) in place of its group's
@@ -1428,8 +1842,11 @@ local function CustomTabActive(entry, query)
 	return nil
 end
 
+-- a row's tag after its label: SP.OptionRowTag[option] = "TEXT" or function(option) -> text or nil
 local function OptionOpts(entry, sectionRef, x, y, width, onChanged)
 	local node, chain, info = entry.node, entry.chain, entry.info
+	local sp = SP()
+	local tag = sp and sp.OptionRowTag and node and sp.OptionRowTag[node]
 	return {
 		label    = Tree:StripColor(entry.label),
 		desc     = entry.desc and Tree:StripColor(entry.desc) or nil,
@@ -1437,6 +1854,7 @@ local function OptionOpts(entry, sectionRef, x, y, width, onChanged)
 		section  = sectionRef,
 		disabled = function() return Tree:IsDisabled(node, chain, info) end,
 		onChanged = onChanged,
+		tag = tag, tagNode = node,
 	}
 end
 
@@ -1514,7 +1932,11 @@ local function ResolveComposed(entry, query, drawTabs)
 				if searching and #tabs > 1 and #t.live == 1 then label = t.name end
 				table.insert(list, { kind = "section", label = label, depth = 0 })
 			end
-			for _, row in ipairs(lv.rows) do list[#list + 1] = row end
+			for _, row in ipairs(lv.rows) do
+				-- (a search result's tooltip names its tab; the rows are built fresh per call)
+				if searching and #tabs > 1 then row._spTab = t.name end
+				list[#list + 1] = row
+			end
 		end
 	end
 	return FilterList(list, query), tabs
@@ -1545,6 +1967,19 @@ local function ResolvePageList(entry, query, drawTabs)
 	end
 
 	local list = Tree:BuildRenderList(renderNode, renderPath, renderChain)
+	-- a search spans the page's tabs: each row remembers its tab for its tooltip's path
+	if useTabs and searching and #groups >= 2 then
+		for _, e in ipairs(list) do
+			if e.kind == "option" and e.path then
+				for _, g in ipairs(groups) do
+					if PathStartsWith(e.path, g.path) then
+						e._spTab = Tree:StripColor(g.name ~= "" and g.name or g.key)
+						break
+					end
+				end
+			end
+		end
+	end
 	return FilterList(list, query), groups
 end
 
@@ -1564,17 +1999,53 @@ local function PageSignature(list, groups)
 	return table.concat(parts, "|")
 end
 
-function SPConfig:RenderPage(entry, query, keepScroll)
+-- The page wears its NAV group's element (D32 4, D32b): the header band's
+-- light (26% over the intro's navy), the page's own faint light (11% over the
+-- content), the title's underline; the tabs, cards and switches read it too.
+local function PaintPageElement(key)
+	local ec = ElementColor(key)
+	Core:SetFadeColor(frame.contentLight, Core:Mix(ec, "contentBg", 0.11))
+	Core:SetFadeColor(frame.bandLight, Core:Mix(ec, "bandLight", 0.26))
+	frame.underline:SetColorTexture(ec[1], ec[2], ec[3])
+	frame._element = key
+end
+
+-- The header's buttons (D37 option 2, owner 2026-10-02): the title's row keeps What's New
+-- (General > Main), the page search and the X; Reset This Page and Preview sit on the
+-- description's row, right-aligned with the X, so no page title can run into them.
+local function PlaceHeaderButtons()
+	local reset, preview = frame.resetBtn, frame.previewBtn
+	if not reset then return end
+	local head = frame.title:GetParent()
+	reset:ClearAllPoints()
+	reset:SetPoint("RIGHT", head, "TOPRIGHT", -10, -67)
+	if preview then
+		preview:ClearAllPoints()
+		if reset:IsShown() then
+			preview:SetPoint("RIGHT", reset, "LEFT", -8, 0)
+		else
+			preview:SetPoint("RIGHT", head, "TOPRIGHT", -10, -67)
+		end
+	end
+end
+
+local ResetShown   -- (with Reset This Page, below)
+
+local function RenderPageInner(self, entry, query, keepScroll)
 	local wasThemesSearch = frame._themesSearch
 	frame._themesSearch = nil
 	ClearPage()
 	if frame.whatsNewBtn then frame.whatsNewBtn:Hide() end
+	if frame.resetBtn then frame.resetBtn:Hide() end
 	if not entry then return end
 
 	local firstPath = entry._firstPath or entry.path or EntryPaths(entry)[1]
 	local node, chain
 	if firstPath then node, chain = Tree:Resolve(firstPath) end
 	if not node then return end
+
+	local element = GroupElement(entry._group)
+	if frame._element ~= element then PaintPageElement(element) end
 
 	local info = Tree:BuildInfo(firstPath, node, chain)
 	frame.title:SetText(Tree:StripColor(entry.label))
@@ -1584,6 +2055,8 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	local list, groups = ResolvePageList(entry, (not patchNotes) and query or nil, true)
 	-- What's New sits on General's Main tab only (elsewhere it covers the page description)
 	if frame.whatsNewBtn then frame.whatsNewBtn:SetShown(entry.label == "General" and frame._activeTab == "Main") end
+	if frame.resetBtn then frame.resetBtn:SetShown(ResetShown(entry)) end
+	PlaceHeaderButtons()
 	if not list then return end
 	frame._query = query
 	frame._pageSig = PageSignature(list, groups)
@@ -1602,20 +2075,105 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	local fullW = frame.bodyScroll:GetWidth() - 8
 	if fullW <= 1 then
 		-- Anchors have not resolved yet on the first draw; fall back to geometry.
-		fullW = WIN_W - SIDEBAR_W - (CONTENT_PAD * 2) - 8
+		fullW = CONTENT_W - (CONTENT_PAD * 2) - 8
 	end
 	body:SetWidth(fullW)
-	local colW = math.floor((fullW - COL_GAP) / 2)
 
-	local y, col, rowY, rowMaxH = 0, 1, 0, 0
+	-- One card per section (D30 6, D32b): a section's rows sit in one card headed
+	-- by a strip with the element's box and the section's name, thin lines between
+	-- the rows and a divider between the two columns. Everything else of the
+	-- packer is as before: the order, the two columns, spans, widening, action
+	-- rows, descriptions, featured headers, custom rows. (Not for a page that
+	-- draws itself.)
+	Widgets:SetElement(element)
+	local INSET, cellW = Widgets.CARD_INSET, math.floor(fullW / 2)
+	local tags = SP() and SP().OptionHeaderTag
+
+	local y = 0
+	if #list > 0 then y = CARD_TOP end
+	local col, rowY, rowMaxH = 1, y, 0
 	local currentSection
+	local card, cardTop, cardEnd, cardLines, runTop, runEnd, gapUnder
+	local pending = {}   -- headings waiting for their first row (the last one heads that row's card)
+
+	-- A row reached through search says where it lives (D34, its tooltip's last line):
+	-- Settings > the sidebar's page > its tab (a page with tabs) > its card's name.
+	-- Only while searching: the normal page draws its rows without it.
+	local pathBase = (query and query ~= "") and ("Settings > " .. Tree:StripColor(entry.label)) or nil
+	local pathSection
+	local function SearchPath(e)
+		if not pathBase then return nil end
+		local tab = e._spTab
+		local path = pathBase
+		if tab and tab ~= "" then path = path .. " > " .. tab end
+		if pathSection and pathSection ~= tab then path = path .. " > " .. pathSection end
+		return path
+	end
+
+	-- a finished line of rows in the open card: a thin line above it (not the first
+	-- line) and the column divider through a run of two-column lines
+	local function FlushRun()
+		if runTop then
+			Widgets:CardLine(card, cellW, runTop + 6 - cardTop, 1, runEnd - runTop - 12, "border")
+			runTop = nil
+		end
+	end
+	local function EndLine(top, height, twoCol)
+		if not card then return end
+		if cardLines > 0 then Widgets:CardLine(card, 12, top - cardTop, fullW - 24, 1, "borderSoft") end
+		cardLines = cardLines + 1
+		if twoCol then
+			runTop = runTop or top
+			runEnd = top + height
+		else
+			FlushRun()
+		end
+		cardEnd = top + height
+	end
 
 	local function BreakRow()
 		if col == 2 then
+			EndLine(rowY, rowMaxH, true)   -- a left column on its own
 			y = rowY + rowMaxH
 			col, rowMaxH = 1, 0
 			rowY = y
 		end
+	end
+
+	local function CloseCard()
+		BreakRow()
+		if not card then return end
+		FlushRun()
+		Widgets:CardFinish(card, cardEnd - cardTop)
+		y = cardEnd + CARD_GAP
+		rowY, col, rowMaxH = y, 1, 0
+		card, gapUnder = nil, true
+	end
+
+	-- a heading with no rows of its own (a group holding only groups): today's plain heading
+	local function PlainHeading(e)
+		local f, h = Widgets:SectionHeader(body, { label = Tree:StripColor(e.label), x = 0, y = y, width = fullW })
+		table.insert(pageWidgets, f)
+		currentSection = f
+		y = y + h
+		rowY, gapUnder = y, false
+	end
+
+	local function OpenCard()
+		if card then return end
+		for i = 1, #pending - 1 do PlainHeading(pending[i]) end
+		local sec = pending[#pending]
+		for i = #pending, 1, -1 do pending[i] = nil end
+		local label, tag = sec and Tree:StripColor(sec.label) or nil, nil
+		if label == "" then label = nil end
+		if label and tags and sec.node then tag = tags[sec.node] end
+		if sec then pathSection = label end
+		card = Widgets:Card(body, { x = 0, y = y, width = fullW, label = label, element = element, tag = tag })
+		currentSection = card
+		cardTop, cardLines = y, 0
+		if label then y = y + Widgets.STRIP_H end
+		cardEnd = y
+		rowY, col, rowMaxH = y, 1, 0
 	end
 
 	local onChanged = function()
@@ -1671,6 +2229,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 	for index, e in ipairs(list) do
 		-- Skip actions already drawn together on the preceding row.
 		if index > actionThrough and e.kind == "option" and e.type == "execute" and actionRows and actionRows[e.node] then
+			OpenCard()
 			BreakRow()
 			local count = 1
 			while count < 3 do
@@ -1679,11 +2238,13 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 					or not actionRows[nextEntry.node] then break end
 				count = count + 1
 			end
-			local width = math.floor((fullW - COL_GAP * (count - 1)) / count)
+			local width = math.floor((fullW - 2 * INSET - COL_GAP * (count - 1)) / count)
 			local height = 0
 			for offset = 0, count - 1 do
 				local action = list[index + offset]
-				local opts = OptionOpts(action, currentSection, offset * (width + COL_GAP), rowY, width, onChanged)
+				local opts = OptionOpts(action, currentSection, INSET + offset * (width + COL_GAP), rowY, width, onChanged)
+				opts.inCard = true
+				opts.searchPath = SearchPath(action)
 				opts.func = Tree:MakeFunc(action.node, action.chain, action.info)
 				opts.buttonText = Tree:StripColor(action.label)
 				opts.tone = buttonTones and buttonTones[action.node]
@@ -1691,28 +2252,48 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				pageWidgets[#pageWidgets + 1] = widget
 				height = math.max(height, used)
 			end
+			EndLine(rowY, height, false)
 			y = rowY + height
 			rowY, col, rowMaxH = y, 1, 0
 			actionThrough = index + count - 1
 		elseif index > actionThrough and e.kind == "section" then
-			BreakRow()
 			-- a featured section (SP.OptionFeaturedHeader, keyed by the option group) gets the big gold heading
 			local sp0 = SP()
 			local featured = sp0 and sp0.OptionFeaturedHeader and e.node and sp0.OptionFeaturedHeader[e.node]
-			local f, h = Widgets:SectionHeader(body, {
-				label = Tree:StripColor(e.label), x = 0, y = y, width = fullW, featured = featured,
-			})
-			table.insert(pageWidgets, f)
-			currentSection = f
-			y = y + h
-			rowY = y
+			CloseCard()
+			if not featured then
+				pending[#pending + 1] = e   -- its card opens with its first row
+			else
+				-- the gold heading as before, its rows in a card under it
+				for i = 1, #pending do PlainHeading(pending[i]) end
+				for i = #pending, 1, -1 do pending[i] = nil end
+				pathSection = Tree:StripColor(e.label)
+				local f, h = Widgets:SectionHeader(body, {
+					label = pathSection, x = 0, y = y, width = fullW, featured = featured,
+				})
+				table.insert(pageWidgets, f)
+				currentSection = f
+				y = y + h
+				rowY, gapUnder = y, false
+			end
 		elseif index > actionThrough then
+			OpenCard()
 			local span = Tree:ColumnSpan(e.node, e.info)
-			local w  = (span == 2) and fullW or colW
 			if span == 2 then BreakRow() end
-			local x  = (span == 2 or col == 1) and 0 or (colW + COL_GAP)
+			-- two columns of half the card each (the divider between them), inset so a
+			-- row's label sits 14 in from its cell
+			local x, w
+			if span == 2 then
+				x, w = INSET, fullW - 2 * INSET
+			elseif col == 1 then
+				x, w = INSET, cellW - 2 * INSET
+			else
+				x, w = cellW + INSET, fullW - cellW - 2 * INSET
+			end
 
 			local opts = OptionOpts(e, currentSection, x, rowY, w, onChanged)
+			opts.inCard = true
+			opts.searchPath = SearchPath(e)
 			local f, h
 
 			if e.type == "toggle" then
@@ -1786,13 +2367,32 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				f, h = Widgets:Button(body, opts)
 
 			elseif e.type == "description" then
-				opts.text = Tree:ThemeText(e.label)   -- plain text, with notes in the note colour
+				-- a row drawn by its own code: SP.OptionCustomRow[node] = key names a
+				-- renderer in ns.CustomRows (:Render(body, x, y, width, onChanged) ->
+				-- frame, height; :Release() on every redraw): the full width of its
+				-- card (it draws no background of its own)
+				local customKey = spNow and spNow.OptionCustomRow and spNow.OptionCustomRow[e.node]
+				local customRow = customKey and ns.CustomRows[customKey]
 				BreakRow()
-				opts.x, opts.y, opts.width = 0, rowY, fullW
-				f, h = Widgets:Description(body, opts)
-				table.insert(pageWidgets, f)
-				y = rowY + h
-				rowY = y
+				if customRow then
+					local ok, cf, ch = pcall(customRow.Render, customRow, body, 0, rowY, fullW, onChanged)
+					if ok and cf then
+						table.insert(pageWidgets, cf)
+						EndLine(rowY, ch or 0, false)
+						y = rowY + (ch or 0)
+						rowY = y
+					elseif not ok then
+						geterrorhandler()(cf)
+					end
+				else
+					opts.text = Tree:ThemeText(e.label)   -- plain text, with notes in the note color
+					opts.x, opts.y, opts.width = INSET, rowY, fullW - 2 * INSET
+					f, h = Widgets:Description(body, opts)
+					table.insert(pageWidgets, f)
+					EndLine(rowY, h, false)
+					y = rowY + h
+					rowY = y
+				end
 				h = nil
 			end
 
@@ -1801,23 +2401,26 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 				-- hold the label hands the row the full width.
 				if span == 1 and Widgets:LabelTruncated(f) then
 					if col == 2 then
+						EndLine(rowY, rowMaxH, true)
 						y = rowY + rowMaxH
 						rowY = y
 						col, rowMaxH = 1, 0
 					end
 					f:ClearAllPoints()
-					f:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -rowY)
-					h = Widgets:Widen(f, fullW) or h
+					f:SetPoint("TOPLEFT", body, "TOPLEFT", INSET, -rowY)
+					h = Widgets:Widen(f, fullW - 2 * INSET) or h
 					span = 2
 				end
 				table.insert(pageWidgets, f)
 				if span == 2 then
+					EndLine(rowY, h, false)
 					y = rowY + h
 					rowY = y
 					col, rowMaxH = 1, 0
 				else
 					rowMaxH = math.max(rowMaxH, h)
 					if col == 2 then
+						EndLine(rowY, rowMaxH, true)
 						y = rowY + rowMaxH
 						rowY = y
 						col, rowMaxH = 1, 0
@@ -1828,6 +2431,11 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			end
 		end
 	end
+
+	CloseCard()
+	for i = 1, #pending do PlainHeading(pending[i]) end   -- (a heading left with no rows)
+	if gapUnder then y = y - CARD_GAP end   -- no gap under the last card
+	rowY = y
 
 	if customTab then
 		local ok, h = pcall(customTab.Render, customTab, body, fullW, onChanged)
@@ -1858,6 +2466,7 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 			geterrorhandler()(heightUsed)
 		end
 	end
+	Widgets:SetElement(nil)
 
 	self:UpdateCombatLock()
 
@@ -1876,6 +2485,431 @@ function SPConfig:RenderPage(entry, query, keepScroll)
 		frame.emptyText:Hide()
 	end
 	if searchThemes or wasThemesSearch then self:UpdatePreviewPane() end
+end
+
+-- A module that is off (D42): its page has no color. It is drawn once, every region
+-- of it then remembers the colors it is painted with (Core:MonoWatch), it is drawn
+-- again so every paint is known, and then it all turns gray (Core:MonoSet): the
+-- footer and Turn On keep their colors. A note under the title says it is off; every
+-- setting still works. Turning the module on (Turn On or the sidebar switch) draws
+-- the page again in color. Nothing of this runs on a page whose module is on.
+function SPConfig:RenderPage(entry, query, keepScroll)
+	Core:MonoClear()
+	local turnOn = frame.turnOnBtn
+	local head = frame.title:GetParent()
+	if turnOn then turnOn:Hide() end
+	frame.subtitle:SetPoint("RIGHT", head, "RIGHT", -245, 0)   -- room for Preview and Reset This Page beside it (D37)
+	local off = false
+	local get = entry and entry._powerGet
+	if get then
+		local ok, on = pcall(get)
+		off = ok and not on
+	end
+	if not off then return RenderPageInner(self, entry, query, keepScroll) end
+
+	RenderPageInner(self, entry, query, keepScroll)
+	local content = frame.content
+	Core:MonoWatch(content)
+	frame._element = nil                 -- the element's lights and underline paint again, now remembered
+	Core:ApplyOpacity(Core.opacity)      -- every faded background too
+	for _, b in ipairs({ frame.previewBtn, frame.resetBtn }) do
+		if b and b.spPaint then b.spPaint(false) end
+	end
+	RenderPageInner(self, entry, query, frame.bodyScroll:GetVerticalScroll())
+
+	frame.subtitle:SetText("|cffE6EAF0" .. Tree:StripColor(entry.label) .. " is turned off.|r You can still change its settings.")
+	if turnOn then
+		turnOn:ClearAllPoints()
+		local preview, reset = frame.previewBtn, frame.resetBtn
+		local left = (preview and preview:IsShown() and preview) or (reset and reset:IsShown() and reset) or nil
+		if left then turnOn:SetPoint("RIGHT", left, "LEFT", -8, 0) else turnOn:SetPoint("RIGHT", head, "TOPRIGHT", -10, -67) end
+		turnOn:SetScript("OnClick", function()
+			local set = entry._powerSet
+			if not set then return end
+			set(true)
+			for _, r in ipairs(navRows) do
+				if r.entry == entry and r.paintPower then r.paintPower() end
+			end
+			SPConfig:RenderPage(entry, frame._query, frame.bodyScroll:GetVerticalScroll())
+		end)
+		turnOn:Show()
+		frame.subtitle:SetPoint("RIGHT", turnOn, "LEFT", -12, 0)
+	end
+	Core:MonoSet(content)
+	-- anything the page draws a moment later (a row laid out on the next frame) goes gray too
+	C_Timer.After(0, function()
+		if frame:IsShown() and frame._current == entry and Core:MonoActive() then Core:MonoSet(frame.content) end
+	end)
+end
+
+do
+	-- ---------------------------------------------------------------------------
+	-- ShamanPower's CPU (D30 7; G's profiler spec): the recent average time per frame
+	-- of every loaded ShamanPower addon folder (ShamanPower and each ShamanPower_*,
+	-- each counted once), from the game's own addon profiler, beside the version. A
+	-- one-second ticker while the window is shown, cancelled when it hides; hidden
+	-- where the profiler is missing or off. Nothing is allocated per tick.
+	-- ---------------------------------------------------------------------------
+	local cpuRoster, cpuTicker = {}, nil
+
+	local function CpuAvailable()
+		local profiler = rawget(_G, "C_AddOnProfiler")
+		local metrics = Enum and Enum.AddOnProfilerMetric
+		if not (profiler and profiler.GetAddOnMetric and profiler.IsEnabled and metrics and metrics.RecentAverageTime) then
+			return false
+		end
+		local ok, on = pcall(profiler.IsEnabled)
+		return ok and on == true
+	end
+
+	local function CpuSample()
+		if not (frame and frame:IsShown()) then return end
+		if not CpuAvailable() then CpuStop() return end
+		local getMetric, metric = C_AddOnProfiler.GetAddOnMetric, Enum.AddOnProfilerMetric.RecentAverageTime
+		local ms = 0
+		for i = 1, #cpuRoster do
+			local ok, v = pcall(getMetric, cpuRoster[i], metric)
+			if ok and type(v) == "number" and not (issecretvalue and issecretvalue(v)) then ms = ms + v end
+		end
+		-- the share of a frame at the current frame rate: ms / (1000 / fps) * 100
+		local fps = GetFramerate() or 0
+		local pct = 0
+		if fps > 0 then pct = ms / (1000 / fps) * 100 end
+		frame.cpuValue:SetFormattedText("%.2f%%  (%.2f ms per frame)", pct, ms)
+	end
+
+	CpuStart = function()
+		if cpuTicker then cpuTicker:Cancel(); cpuTicker = nil end
+		if not CpuAvailable() then
+			frame.cpuLabel:Hide(); frame.cpuValue:Hide()
+			return
+		end
+		-- the loaded ShamanPower folders, read on each opening (a module can load later)
+		wipe(cpuRoster)
+		local num = C_AddOns and C_AddOns.GetNumAddOns or GetNumAddOns
+		local nameOf = C_AddOns and C_AddOns.GetAddOnInfo or GetAddOnInfo
+		local loaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
+		for i = 1, num() do
+			local name = nameOf(i)
+			if type(name) == "string" and (name == "ShamanPower" or name:find("^ShamanPower_")) and loaded(name) then
+				cpuRoster[#cpuRoster + 1] = name
+			end
+		end
+		frame.cpuLabel:Show(); frame.cpuValue:Show()
+		CpuSample()
+		cpuTicker = C_Timer.NewTicker(1, CpuSample)
+	end
+
+	CpuStop = function()
+		if cpuTicker then cpuTicker:Cancel(); cpuTicker = nil end
+		if frame then frame.cpuLabel:Hide(); frame.cpuValue:Hide() end
+	end
+
+	-- ===========================================================================
+	-- The window's own motion (D31: Unlock UI's round trips). Every open falls in
+	-- (SPConfig:Open calls MotionIn when the window was not already up); closing
+	-- stays instant unless SetMotionClose is on:
+	--   SPConfig:MotionIn()
+	--       Right after the window is shown: it falls in from above the top of the
+	--       screen to its place in 0.3 s with the logo's back-ease (s = 1.6, so it
+	--       overshoots a hair and settles), then the landing hit exactly as in the
+	--       approved clip (settings-polish/landing_hit_clip.py): a jolt of logo blue
+	--       through its border (outlines 0 / 2 / 4 px out, alphas 1 / 0.45 / 0.2,
+	--       fading as (1 - p)^1.5 over 0.15 s) and a soft white sheen crossing it
+	--       diagonally (0.2 s, ease-in-out, clipped to the window), both from the
+	--       moment it lands (0.62 of the fall).
+	--   SPConfig:MotionOut(onDone)
+	--       It shoots up off the top (0.15 s, ease-in), hides, then calls
+	--       onDone(window, skipped): skipped is true when a click, Escape or combat
+	--       finished it early (or it could not play: in combat, already hidden), false
+	--       when it ran to the end. Show(), Raise() or Open() while it rises keep the
+	--       window where it is (no hide, no onDone).
+	--   SPConfig:SetMotionClose(on)
+	--       Every way of closing the window (the X, Done, Escape through
+	--       UISpecialFrames, a slash command, Keybind Mode: anything that calls its
+	--       Hide) plays MotionOut first; OnHide runs when it has gone. Always on (the
+	--       owner: closing ALWAYS flies up); kept for Unlock UI's calls, `false` is ignored.
+	--   SPConfig:IsLeaving()
+	--       True while a MotionOut plays.
+	-- A click anywhere, Escape or combat starting finishes a motion at once. Only
+	-- the window's anchor offset moves and it is put back exactly, so where the
+	-- window sits never changes. One OnUpdate while a motion plays, none otherwise;
+	-- nothing is allocated per frame. No sound.
+	-- ===========================================================================
+	local FALL, HIT, SHEEN, RISE = 0.30, 0.15, 0.20, 0.15
+	local LAND = FALL * 0.62                 -- the clip's landing moment
+	local RING_ALPHA = { 1, 0.45, 0.2 }      -- the jolt's outlines at 0 / 2 / 4 px out
+	local CLIP_K = WIN_W / 700               -- the clip drew the window 700 wide
+	local EaseBack = SP().BrandEaseBack
+	local motion = { t = 0, dist = 0, x = 0, y = 0 }
+	local motionClose = true   -- every close flies up (see SetMotionClose)
+	local motionDriver = CreateFrame("Frame")
+	local motionHit, motionSheenClip, motionSheen, motionKeys, RealHide, RealShow, RealRaise
+	local KeepOnShow, KeepOnRaise   -- (while a MotionOut plays: Show / Raise keep the window)
+
+	-- onDone(window, skipped), its errors to the error handler (Lua 5.1's xpcall passes no arguments)
+	local function CallDone(fn, skipped)
+		xpcall(function() fn(frame, skipped) end, geterrorhandler())
+	end
+
+	local function EaseInOut(x)
+		if x < 0.5 then return 4 * x * x * x end
+		local u = 2 - 2 * x
+		return 1 - u * u * u / 2
+	end
+
+	local function MotionOffset(dy)
+		frame:SetPoint(motion.point, motion.rel, motion.relPoint, motion.x, motion.y + dy)
+	end
+
+	-- the jolt (three rings of four edges, logo blue) and the sheen (the clip's 31 thin
+	-- diagonal lines, scaled to the window, in a holder moved across a clipping frame)
+	local function BuildLandingHit()
+		local blue = SP().Brand.logoBlue
+		local level = frame:GetFrameLevel()
+		motionHit = CreateFrame("Frame", nil, frame)
+		motionHit:SetAllPoints(frame)
+		motionHit:SetFrameLevel(level + 60)
+		motionHit.rings = {}
+		for k = 1, 3 do
+			local o = (k - 1) * 2
+			local ring = {}
+			local function Edge(p1, x1, y1, p2, x2, y2, w, h)
+				local t = motionHit:CreateTexture(nil, "OVERLAY")
+				t:SetColorTexture(blue[1], blue[2], blue[3], 1)
+				t:SetPoint(p1, frame, p1, x1, y1)
+				t:SetPoint(p2, frame, p2, x2, y2)
+				if w then t:SetWidth(w) else t:SetHeight(h) end
+				ring[#ring + 1] = t
+			end
+			Edge("TOPLEFT", -o, o, "TOPRIGHT", o, o, nil, 2)
+			Edge("BOTTOMLEFT", -o, -o, "BOTTOMRIGHT", o, -o, nil, 2)
+			Edge("TOPLEFT", -o, o - 2, "BOTTOMLEFT", -o, 2 - o, 2, nil)
+			Edge("TOPRIGHT", o, o - 2, "BOTTOMRIGHT", o, 2 - o, 2, nil)
+			motionHit.rings[k] = ring
+		end
+		motionHit:Hide()
+
+		motionSheenClip = CreateFrame("Frame", nil, frame)
+		motionSheenClip:SetAllPoints(frame)
+		motionSheenClip:SetFrameLevel(level + 59)
+		motionSheenClip:SetClipsChildren(true)
+		motionSheen = CreateFrame("Frame", nil, motionSheenClip)
+		motionSheen:SetSize(1, WIN_H)
+		for i = 0, 30 do
+			local off = -60 + i * 4
+			local l = motionSheen:CreateLine(nil, "OVERLAY")
+			l:SetThickness(4 * CLIP_K)
+			l:SetColorTexture(1, 1, 1, math.floor(30 * (1 - math.abs(off) / 60)) / 255)
+			l:SetStartPoint("TOPLEFT", motionSheen, off * CLIP_K, 0)
+			l:SetEndPoint("BOTTOMLEFT", motionSheen, (off - 120) * CLIP_K, 0)
+		end
+		motionSheenClip:Hide()
+	end
+
+	-- how: "end" = it ran to the end; "keep" = a MotionOut stopped because the window is
+	-- wanted again (it stays, its onDone is dropped); nil = finished early (a click,
+	-- Escape, combat, a hide): the end state at once, onDone told it was skipped
+	local function FinishMotion(how)
+		local kind = motion.kind
+		if not kind then return end
+		motion.kind = nil
+		motionDriver:SetScript("OnUpdate", nil)
+		motionDriver:UnregisterAllEvents()
+		if motionKeys then motionKeys:Hide() end
+		if motionHit then motionHit:Hide(); motionSheenClip:Hide() end
+		if rawget(frame, "Show") == KeepOnShow then frame.Show = nil end
+		if rawget(frame, "Raise") == KeepOnRaise then frame.Raise = nil end
+		local done = motion.onDone
+		motion.onDone = nil
+		local leaves = kind == "out" and how ~= "keep"
+		if leaves then RealHide(frame) end
+		MotionOffset(0)
+		frame:SetClampedToScreen(true)
+		if leaves and done then CallDone(done, how ~= "end") end
+	end
+
+	local function MotionStep(_, elapsed)
+		local m = motion
+		m.t = m.t + elapsed
+		local t = m.t
+		if m.kind == "out" then
+			local p = t / RISE
+			if p >= 1 then FinishMotion("end") return end
+			MotionOffset(m.dist * p * p * p)   -- ease-in: slow, then fast
+			return
+		end
+		local p = t / FALL
+		if p > 1 then p = 1 end
+		MotionOffset((1 - EaseBack(p, 1.6)) * m.dist)
+		-- the landing hit
+		local hp = (t - LAND) / HIT
+		if hp >= 0 and hp <= 1 then
+			if not motionHit:IsShown() then motionHit:Show() end
+			local a = (1 - hp) ^ 1.5
+			for k = 1, 3 do
+				local ring, ra = motionHit.rings[k], RING_ALPHA[k] * a
+				for i = 1, 4 do ring[i]:SetAlpha(ra) end
+			end
+		elseif hp > 1 and motionHit:IsShown() then
+			motionHit:Hide()
+		end
+		local sp = (t - LAND) / SHEEN
+		if sp > 1 then FinishMotion("end") return end
+		if sp >= 0 then
+			if not motionSheenClip:IsShown() then motionSheenClip:Show() end
+			motionSheen:SetPoint("TOPLEFT", motionSheenClip, "TOPLEFT", (-160 + 1020 * EaseInOut(sp)) * CLIP_K, 0)
+		end
+	end
+
+	motionDriver:SetScript("OnEvent", function(_, event)
+		-- (the click that opened the window, in the same frame, does not count)
+		if event == "GLOBAL_MOUSE_DOWN" and GetTime() == motion.started then return end
+		FinishMotion()
+	end)
+
+	-- Escape during a motion finishes it (out of combat an addon may hold the key for a
+	-- moment, as ShamanPower's dialogs do; every other key passes through)
+	local function MotionKey(self, key)
+		if InCombatLockdown() then return end   -- (hidden by then)
+		if key == "ESCAPE" then
+			self:SetPropagateKeyboardInput(false)
+			FinishMotion()
+		else
+			self:SetPropagateKeyboardInput(true)
+		end
+	end
+
+	local function StartMotion(kind)
+		motion.kind, motion.t, motion.started = kind, 0, GetTime()
+		frame:SetClampedToScreen(false)
+		if kind == "out" then
+			frame.Show, frame.Raise = KeepOnShow, KeepOnRaise
+			local tip = SP() and SP().Tooltip   -- a row's tooltip must not ride along as it flies away
+			if tip and tip.Hide then tip:Hide() end
+		end
+		motionDriver:SetScript("OnUpdate", MotionStep)
+		pcall(motionDriver.RegisterEvent, motionDriver, "GLOBAL_MOUSE_DOWN")
+		motionDriver:RegisterEvent("PLAYER_REGEN_DISABLED")
+		if not motionKeys then
+			motionKeys = CreateFrame("Frame", nil, UIParent)
+			motionKeys:SetAllPoints(UIParent)
+			motionKeys:SetFrameStrata("FULLSCREEN_DIALOG")
+			motionKeys:SetFrameLevel(240)
+			motionKeys:EnableMouse(false)
+			motionKeys:EnableKeyboard(true)
+			motionKeys:SetScript("OnKeyDown", MotionKey)
+		end
+		motionKeys:SetPropagateKeyboardInput(true)   -- a key held from before passes through
+		motionKeys:Show()
+	end
+
+	-- where it sits now, and how far up takes it wholly off the top of the screen (the
+	-- clip: its top's distance from the screen's top, its height, 20 more)
+	local function MotionMeasure()
+		frame:StopMovingOrSizing()   -- (a drag in progress: its anchor first settles)
+		if frame:GetNumPoints() ~= 1 then
+			-- anchored by more than one point (the client's own placement after a drag):
+			-- pin it where it is by its top-left, so the offset can carry the motion
+			local left, top = frame:GetLeft(), frame:GetTop()
+			if not (left and top) then return false end
+			frame:ClearAllPoints()
+			frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+		end
+		local point, rel, relPoint, x, y = frame:GetPoint(1)
+		local top, screenTop = frame:GetTop(), UIParent:GetTop()
+		if not (point and top and screenTop) then return false end
+		motion.point, motion.rel, motion.relPoint, motion.x, motion.y = point, rel, relPoint, x or 0, y or 0
+		motion.dist = (screenTop - top) + frame:GetHeight() + 20
+		return true
+	end
+
+	-- General > Main > UI Animations off: no motion, the window just shows and hides
+	local function AnimationsOn()
+		local sp = SP()
+		return not (sp and sp.UIAnimationsOn) or sp:UIAnimationsOn()
+	end
+
+	function SPConfig:MotionIn()
+		if not (frame and frame:IsShown()) then return end
+		if motion.kind == "in" then return end   -- already falling in: it carries on
+		if not AnimationsOn() then return end
+		if motion.kind then FinishMotion("keep") end   -- (one leaving stays: it comes back in)
+		if InCombatLockdown() or not MotionMeasure() then return end   -- in a fight it simply stays
+		if not motionHit then BuildLandingHit() end
+		StartMotion("in")
+		MotionOffset(motion.dist)   -- starts wholly above the screen
+	end
+
+	function SPConfig:MotionOut(onDone)
+		if not (frame and frame:IsShown()) then
+			if onDone then CallDone(onDone, true) end
+			return
+		end
+		if motion.kind == "out" then
+			-- already leaving: this onDone runs after the first one
+			if onDone then
+				local first = motion.onDone
+				motion.onDone = function(w, skipped) if first then first(w, skipped) end onDone(w, skipped) end
+			end
+			return
+		end
+		if motion.kind then FinishMotion() end
+		if InCombatLockdown() or not AnimationsOn() or not MotionMeasure() then
+			RealHide(frame)
+			if onDone then CallDone(onDone, true) end
+			return
+		end
+		motion.onDone = onDone
+		StartMotion("out")
+	end
+
+	function SPConfig:IsLeaving()
+		return motion.kind == "out"
+	end
+
+	-- while motion-close is on, Hide() plays MotionOut first
+	local function MotionHide(self)
+		if motion.kind == "out" then return end   -- already on its way up
+		self._motionHideAt = GetTime()            -- (the Escape hook below reads it)
+		SPConfig:MotionOut(nil)
+	end
+
+	function SPConfig:SetMotionClose(_on)
+		-- (always on: a caller turning it off after a round trip changes nothing)
+		if not frame then return end   -- applied when the window is built
+		if motionClose then frame.Hide = MotionHide end
+	end
+
+	MotionWindowBuilt = function()
+		-- the frame's own methods (before any override)
+		RealHide, RealShow, RealRaise = frame.Hide, frame.Show, frame.Raise
+		if motionClose then frame.Hide = MotionHide end
+	end
+
+	-- the window hid for real in the middle of a motion (not by the motion itself):
+	-- the motion ends there (a MotionOut's onDone still runs)
+	MotionWindowHidden = function()
+		if motion.kind and not frame:IsShown() then FinishMotion() end
+	end
+
+	-- the window is opened again while it is leaving: it stays (and no close happened,
+	-- so no player's close waits for its hide)
+	MotionOpenedAgain = function()
+		if motion.kind == "out" then
+			frame._closedByPlayer = nil
+			FinishMotion("keep")
+		end
+	end
+	-- Show() or Raise() while it leaves (Unlock UI's ReopenSettingsWindow raises it): it stays
+	KeepOnShow = function(self)
+		MotionOpenedAgain()
+		return RealShow(self)
+	end
+	KeepOnRaise = function(self)
+		MotionOpenedAgain()
+		return RealRaise(self)
+	end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1919,20 +2953,38 @@ local function WireSearch()
 	end)
 end
 
+-- An update adds files (ShamanPowerBrand.lua, the Fira fonts) that WoW only sees after
+-- a full restart: until then the window cannot be drawn, so it does not open (said once).
+local restartSaid = false
+local function NeedsRestart()
+	local sp = SP()
+	if sp and sp.Brand then return false end
+	if not restartSaid then
+		restartSaid = true
+		print("|cff0070ddShamanPower|r: I was updated while WoW was running. Please exit WoW completely"
+			.. " and start it again to finish the update (a /reload is not enough).")
+	end
+	return true
+end
+
 function SPConfig:Open(path)
+	if NeedsRestart() then return end
+	local wasShown = frame and frame:IsShown()
 	BuildWindow()
 	if not frame._wired then
 		WireSearch()
 		frame._wired = true
 	end
+	MotionOpenedAgain()
 	frame:Show()
 	frame:Raise()
 	Core:SyncOpacity()
 	self:UpdateCombatLock()
 	local first = self:RenderNav(nil)
+	local best, bestTab
 	if path then
 		path = ResolvePathAlias(path)
-		local best, bestTab, bestDepth, bestVisible
+		local bestDepth, bestVisible
 		for _, r in ipairs(navRows) do
 			if r.entry then
 				local depth, tab, visible = EntryPathMatch(r.entry, path)
@@ -1942,9 +2994,12 @@ function SPConfig:Open(path)
 				end
 			end
 		end
-		if best then SelectEntry(best, bestTab) return end
+		if best then SelectEntry(best, bestTab) end
 	end
-	SelectEntry(EntryHasContent(frame._current) and frame._current or first)
+	if not best then SelectEntry(EntryHasContent(frame._current) and frame._current or first) end
+	-- every way in (the minimap button, /sp, Esc > Options, What's New ...) drops it in
+	-- from the top with the landing hit; a window that is still here just stays
+	if not wasShown then self:MotionIn() end
 end
 
 -- Lives for the session regardless of whether the window has ever been built,
@@ -2029,7 +3084,7 @@ end
 local themeReloadDlg
 local THEME_RELOAD_REASON = "You changed your ShamanPower theme. Reload the UI so every part picks up the new look."
 local function ShowThemeReloadPrompt()
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		Core:RequestReload(THEME_RELOAD_REASON)
 		return
 	end
@@ -2093,7 +3148,246 @@ if type(CloseSpecialWindows) == "function" then
 			frame._maybeEscape = nil
 			C_Timer.After(0, ThemeReloadOnClose)
 		end
+		-- Escape while motion-close is on: the window is still leaving (MotionOut) and
+		-- hides a moment later, as a close by the player
+		if frame and frame._motionHideAt == GetTime() then frame._closedByPlayer = true end
 	end)
+end
+
+do
+	-- ---------------------------------------------------------------------------
+	-- Reset This Page (D30 Q11): every setting on the open page, all its tabs, back
+	-- to how it came, after a confirm that names the page. Left alone: buttons,
+	-- descriptions and custom rows; anything named like a position (where things
+	-- sit on screen is Unlock UI's); anything a theme holds (a reset that changes the
+	-- theme's look is put back at once); the lists the player made (saved loadouts,
+	-- Auto-Switch rules, the new-loadout form); and everything in combat. A default
+	-- is what the setting's own getter reads with every setting at its default: the
+	-- profile's defaults in place of the profile, and each module's saved table
+	-- empty (they read their defaults then), as the theme cards work them out.
+	-- ---------------------------------------------------------------------------
+	local RESET_TYPES = { toggle = true, range = true, select = true, color = true, input = true }
+	-- the modules' own saved tables (ShamanPowerSupportCode.lua MODULE_SVARS)
+	local RESET_MODULE_SVARS = { "ShamanPowerExpiringAlertsDB", "ShamanPower_ReadyReminders", "ShamanPower_ReactiveTotems",
+		"ShamanPowerTremorReminderDB", "ShamanPower_RangeTracker" }
+	-- where things sit and how they are laid out on screen: never reset (a key or a
+	-- name with one of these words, and every row under a heading with LAYOUT_WORDS)
+	local RESET_POSITION_WORDS = { "position", "anchor", "offset", "point", "placement", "arrange", "grow", "align" }
+	local RESET_LAYOUT_WORDS = { "position", "placement", "layout" }
+
+	local function PositionLike(key, name)
+		local k, n = strlower(key), strlower(name or "")
+		for _, w in ipairs(RESET_POSITION_WORDS) do
+			if k:find(w, 1, true) or n:find(w, 1, true) then return true end
+		end
+		-- "pos", x and y as a part of the key (posX, barPos, offsetY, x) or a word of the name
+		if k:find("^pos") or key:find("Pos") or k:find("_pos") then return true end
+		if k == "x" or k == "y" or key:find("[a-z][XY]$") or k:find("_[xy]$") or k:find("^[xy]_") then return true end
+		local words = " " .. n:gsub("[^%w]", " ") .. " "
+		return words:find(" pos ", 1, true) or words:find(" x ", 1, true) or words:find(" y ", 1, true) or false
+	end
+
+	local function Resettable(e, sp)
+		if not RESET_TYPES[e.type] or e.spLayout then return false end
+		if sp.OptionCustomRow and sp.OptionCustomRow[e.node] then return false end
+		local key = e.path and e.path[#e.path]
+		if type(key) ~= "string" then return false end
+		-- lists the player made: Auto-Switch rules, saved loadouts, the new-loadout form
+		if key:find("^rule_") or key:find("^lo_") or key:find("^new_") then return false end
+		return not PositionLike(key, e.label)
+	end
+
+	local function LayoutHeading(label)
+		local l = strlower(Tree:StripColor(label or ""))
+		for _, w in ipairs(RESET_LAYOUT_WORDS) do
+			if l:find(w, 1, true) then return true end
+		end
+		return false
+	end
+
+	-- every option row on the page, on all its tabs (not a tab the page draws itself),
+	-- that is not in `seen` yet; each goes into `seen`. A row under a Position /
+	-- Placement / Layout heading is marked e.spLayout: under any heading still open
+	-- above it (a heading closes at the next heading as high up or higher), or in a
+	-- composed page's group of that name
+	local function PageOptionRows(entry, seen)
+		local out, paths = {}, {}
+		if entry.tabs then
+			for _, t in ipairs(entry.tabs) do
+				if not t.custom then
+					for _, p in ipairs(t.paths) do paths[#paths + 1] = p end
+				end
+			end
+		elseif entry.path then
+			paths[1] = entry.path
+		end
+		for _, pth in ipairs(paths) do
+			local n, c, rows = VisiblePath(pth)
+			if n then
+				local groupLayout = false
+				if pth.label then
+					groupLayout = LayoutHeading(pth.label)
+				elseif entry.tabs then
+					groupLayout = LayoutHeading(Tree:GetName(n, Tree:BuildInfo(pth, n, c)))
+				end
+				local open, deepest = {}, -1   -- [depth] = true: the heading open there is a layout heading
+				for _, e in ipairs(rows) do
+					local depth = e.depth or 0
+					if e.kind == "section" then
+						for d = depth + 1, deepest do open[d] = nil end
+						open[depth] = LayoutHeading(e.label)
+						deepest = depth
+					elseif e.kind == "option" and not seen[e.node] then
+						seen[e.node] = true
+						local layout = groupLayout
+						for d = 0, deepest do
+							if open[d] then layout = true end
+						end
+						e.spLayout = layout
+						out[#out + 1] = e
+					end
+				end
+			end
+		end
+		return out
+	end
+
+	local function Copy(v)
+		if type(v) ~= "table" then return v end
+		local t = {}
+		for k, x in pairs(v) do t[k] = Copy(x) end
+		return t
+	end
+
+	-- the defaults view: a copy of the profile's defaults (plus the profile tables whose
+	-- defaults live in their own file, as the support code reads them)
+	local function DefaultsView(sp)
+		local view = Copy(sp.db and sp.db.defaults and sp.db.defaults.profile or {})
+		local extra = sp.SUPPORT_PROFILE_DEFAULTS
+		if type(extra) == "table" then
+			for k, v in pairs(extra) do
+				if view[k] == nil then view[k] = Copy(v) end
+			end
+		end
+		return view
+	end
+
+	-- what a getter reads with every setting at its default: ok, then its values. A
+	-- module's saved table is stood in for by a fresh copy of the defaults the module
+	-- registered (SP.SUPPORT_MODULE_DEFAULTS: its own, for this client); a module that
+	-- registered none is left as it is, so its rows read their current values (no change)
+	local function ReadDefault(get, view, sp)
+		local real, keep, swapped = sp.opt, {}, {}
+		local md = type(sp.SUPPORT_MODULE_DEFAULTS) == "table" and sp.SUPPORT_MODULE_DEFAULTS or {}
+		for i, name in ipairs(RESET_MODULE_SVARS) do
+			if type(md[name]) == "table" then
+				keep[i], swapped[i] = rawget(_G, name), true
+				_G[name] = Copy(md[name])
+			end
+		end
+		sp.opt = view
+		local ok, a, b, c, d = pcall(get)
+		sp.opt = real
+		for i, name in ipairs(RESET_MODULE_SVARS) do
+			if swapped[i] then _G[name] = keep[i] end
+		end
+		return ok, a, b, c, d
+	end
+
+	local function Near(a, b)
+		if type(a) == "number" and type(b) == "number" then return math.abs(a - b) < 0.0001 end
+		return a == b
+	end
+
+	-- one setting to its default; put back when the reset moved what a theme holds
+	local function ResetOption(e, view, sp)
+		local get = Tree:MakeGetter(e.node, e.chain, e.info)
+		local set = Tree:MakeSetter(e.node, e.chain, e.info)
+		local okNow, n1, n2, n3, n4 = pcall(get)
+		local okDef, d1, d2, d3, d4 = ReadDefault(get, view, sp)
+		if not (okNow and okDef) then return end
+		if e.type == "toggle" then
+			-- nil and false are both off (the default goes back as it is: nil stays nil)
+			if (n1 and true or false) == (d1 and true or false) then return end
+		elseif e.type == "color" then
+			if d1 == nil or (Near(n1, d1) and Near(n2, d2) and Near(n3, d3) and Near(n4 or 1, d4 or 1)) then return end
+		elseif d1 == nil or Near(n1, d1) then
+			return   -- (no default to go back to, or already there)
+		end
+		local before = sp.ThemeFlatSnapshot and sp:ThemeFlatSnapshot()
+		if not pcall(set, d1, d2, d3, d4) then return end
+		if before and not sp:ThemeFlatSame(before, sp:ThemeFlatSnapshot()) then
+			pcall(set, n1, n2, n3, n4)   -- a theme's setting: it stays as it was
+		end
+	end
+
+	function SPConfig:ResetPage(entry)
+		local sp = SP()
+		if not (sp and entry) or InCombatLockdown() then return end
+		local view = DefaultsView(sp)
+		local wasChanged, wasSession = themeChangedWhileOpen, sp.ThemeChangedThisSession
+		local startFlat = sp.ThemeFlatSnapshot and sp:ThemeFlatSnapshot()
+		-- a reset can show rows that were hidden (an "Enable" switch back on): they are
+		-- reset too, in another pass
+		local seen = {}
+		for _ = 1, 3 do
+			local rows = PageOptionRows(entry, seen)
+			if #rows == 0 then break end
+			for _, e in ipairs(rows) do
+				if Resettable(e, sp) then ResetOption(e, view, sp) end
+			end
+		end
+		-- the theme came out as it went in: no reload prompt for it on closing
+		if startFlat and sp:ThemeFlatSame(startFlat, sp:ThemeFlatSnapshot()) then
+			themeChangedWhileOpen, sp.ThemeChangedThisSession = wasChanged, wasSession
+		end
+		if LibStub then
+			local reg = LibStub("AceConfigRegistry-3.0", true)
+			if reg then reg:NotifyChange("ShamanPower") end
+		end
+		-- the page and the live preview show the defaults
+		self:RefreshCurrent()
+		self:PreviewChanged(true)
+	end
+
+	local RESET_COMBAT = "|cff0070ddShamanPower|r: |cffe64a4aSettings cannot be reset in combat"
+		.. " - click Reset again after the fight.|r"
+
+	ConfirmResetPage = function()
+		local entry = frame and frame._current
+		local sp = SP()
+		if not (entry and sp and sp.ShowSPDialog) then return end
+		if InCombatLockdown() then print(RESET_COMBAT) return end
+		sp:ShowSPDialog({
+			key = "resetPage", title = "Reset This Page",
+			text = "Reset every " .. Tree:StripColor(entry.label) .. " setting to how it came?"
+				.. " Where things sit on screen and your theme stay.",
+			buttons = {
+				{ text = "Reset", onClick = function()
+					-- combat began while it was open: say so, and keep the question up for after the fight
+					if InCombatLockdown() then print(RESET_COMBAT) return true end
+					if frame._current == entry then SPConfig:ResetPage(entry) end
+				end },
+				{ text = "Cancel" },
+			},
+		})
+	end
+
+	-- the button shows where there is something to reset: not on the Themes tab or
+	-- Patch Notes, not on Profiles (it switches profiles), not on a page of buttons
+	ResetShown = function(entry)
+		if entry.custom == "patchnotes" or (entry.path and entry.path[1] == "profiles") then return false end
+		if CustomTabActive(entry, nil) then return false end
+		local sp = SP()
+		if not sp then return false end
+		if entry._resettable == nil then
+			entry._resettable = false
+			for _, e in ipairs(PageOptionRows(entry, {})) do
+				if Resettable(e, sp) then entry._resettable = true break end
+			end
+		end
+		return entry._resettable
+	end
 end
 
 function SPConfig:IsOpen()
@@ -2110,6 +3404,10 @@ function SPConfig:UpdateCombatLock()
 		-- Raise above the scroll child's regions, which can otherwise draw over
 		-- a plain sibling frame.
 		block:SetFrameLevel(frame.body:GetFrameLevel() + 25)
+	end
+	-- Reset This Page is off in combat: its caption goes quiet (a click says why)
+	if frame.resetBtn then
+		frame.resetBtn.text:SetTextColor(Core:ColorIf(InCombatLockdown() or SPConfig._inCombat, "textMute", "white"))
 	end
 end
 
@@ -2128,6 +3426,7 @@ function SPConfig:RefreshCurrent()
 end
 
 function SPConfig:Toggle()
+	if NeedsRestart() then return end
 	if frame and frame:IsShown() then
 		frame:Hide()
 	else
@@ -2220,7 +3519,7 @@ do
 	if main then
 		sp.OrderSettingsBands(main, {
 			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar", "hide_player_totems" } },
-			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
+			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips", "uiAnimations" } },
 			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
 			} },

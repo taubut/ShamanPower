@@ -26,7 +26,9 @@ ShamanPowerThemeBoxes.lua
 ShamanPowerThemeEffects.lua
 ShamanPowerFonts.lua
 ShamanPowerTextures.lua
+ShamanPowerBrand.lua
 ShamanPowerDialog.lua
+ShamanPowerTooltip.lua
 ShamanPowerMedia.lua
 ShamanPowerValues.lua
 ShamanPowerOptions.lua
@@ -49,4 +51,5 @@ ShamanPowerMinimapTotems.lua
 ShamanPowerGrid.lua
 ShamanPowerStyles.lua
 ShamanPowerCues.lua
+ShamanPowerShieldSound.lua
 ShamanPower_TBC.xml

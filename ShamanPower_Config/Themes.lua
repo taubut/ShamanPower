@@ -32,7 +32,7 @@ ns.ThemesPage = Page
 local floor, ceil, max, min = math.floor, math.ceil, math.max, math.min
 local pairs, ipairs, pcall, tostring = pairs, ipairs, pcall, tostring
 
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 local BEBAS = "Interface\\AddOns\\ShamanPower\\Media\\Fonts\\BebasNeue-Regular.ttf"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -754,7 +754,7 @@ DRAW.cooldownbar = function(st)
 	if IS_MAINLINE then
 		engineCap = Caption(st)
 		engineCap:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -6)
-		engineCap:SetText("GAME-DRAWN IN COMBAT")
+		engineCap:SetText("SHIELD BAR IN COMBAT")
 		engine = NewBar(st, 60, 4)
 		engine.track:SetPoint("LEFT", engineCap, "RIGHT", 8, 0)
 	end
@@ -1232,7 +1232,7 @@ local BLOCKS = {
 		desc = "The texture of every bar ShamanPower draws, unless a part picks its own."
 			.. " The same setting as Bar Texture on General > Fonts & Textures." },
 	shieldTexture = { label = "Shield Charge Bars",
-		desc = "Shield Charges' charge bar and the cooldown bar's Shield Charge Bar: their own texture, they never follow Bar Texture."
+		desc = "The texture for Shield Charges' bars and the Cooldown Bar's Shield Charge Bar. Set separately from Bar Texture."
 			.. " The same setting as on General > Fonts & Textures and Shield Charges." },
 	wow = { label = "WoW's Own Colors",
 		desc = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game."
@@ -1241,11 +1241,11 @@ local BLOCKS = {
 		desc = "Keeps your theme. Clears every color you changed on this page (the Element Colors and Shield Colors picks,"
 			.. " each shield's Charge Color, the gradients' Two-Tone colors), so each part shows the theme's colors again." },
 	resetAll = { label = "Reset All Colors and Theme", caption = "Reset All Colors and Theme",
-		desc = "Mixed things up and want a clean start? This puts every color in ShamanPower back to how it came:"
+		desc = "Reset every color in ShamanPower to its default:"
 			.. " the Standard theme with nothing changed, and every color option on every page, Shield Charges included."
 			.. " It asks first, then reloads your interface." },
 	resetEverything = { label = "Reset Everything", caption = "Reset Everything",
-		desc = "Every setting on this page back to how it came: everything Reset All Colors and Theme does, and every look too:"
+		desc = "Reset every setting on this page to its default. Includes Reset All Colors and Theme, plus:"
 			.. " Bar Texture and Shield Charge Bars, Dot Shape, Gem Dot Finish, Glow Shape, Frame Edge, each bar's Icon Shape,"
 			.. " Keep Borders Square, all three gradients, Duration Bar Background and each shield's charge look."
 			.. " It asks first, then reloads your interface." },
@@ -1389,11 +1389,11 @@ end
 -- ---------------------------------------------------------------------------
 local PICKS = {
 	{ key = "standard", label = "Standard",
-	  desc = "ShamanPower as it comes: the default look of every part. A preset: picking it always gives exactly this." },
+	  desc = "ShamanPower's default look. Choosing this preset restores that look every time." },
 	{ key = "shamanpower", label = "ShamanPower",
-	  desc = "Your icons stay the same; what's around them is recolored. Duration bars, borders and flyout tabs take the logo's colors, charges and timers WoW's own green, yellow and red, and panels turn navy. A preset: it never changes." },
+	  desc = "The logo's colors on duration bars, borders and flyout tabs. Green, yellow and red charges and timers. Navy panels. Your icons stay the same. This preset never changes." },
 	{ key = "minimal", label = "ShamanPower Minimal",
-	  desc = "Everything in ShamanPower, and the icons themselves become flat element boxes showing the totem's letters. A preset: it never changes." },
+	  desc = "The ShamanPower theme with icons replaced by flat, colored boxes and letters. This preset never changes." },
 }
 local TC = {}   -- the theme cards' helpers (one local: this file is near Lua's 200-local limit)
 TC.PRESET_LABEL = { standard = "Standard", shamanpower = "ShamanPower", minimal = "ShamanPower Minimal" }
@@ -2073,7 +2073,7 @@ function CC.Render(y, W)
 	y = y + rowH + 8
 	local _, gh = Widgets:Toggle(page.body, {
 		label = "Gem Dot Finish", x = 0, y = y, width = W,
-		desc = "A darker rim and a soft highlight on every party dot and Totem Coverage dot, cut to the Dot Shape (Ring has none). The same setting as on Party Buff Tracker.",
+		desc = "Add a dark rim and soft highlight to party dots and Totem Coverage dots. Follows Dot Shape. Does not apply to Ring. Also on Party Buff Tracker.",
 		get = function() return SP.opt.dotGem == true end,
 		set = function(v) SP:SetDotGem(v) end,
 		onChanged = PageChanged,
@@ -2228,7 +2228,7 @@ local SHAPE_ROWS = {
 		if not IconShapedAny() then return y end
 		local _, h = Widgets:Toggle(page.body, {
 			label = "Keep Borders Square", x = 0, y = y, width = W,
-			desc = "With Rounded or Circle icons, borders (Element-Colored Borders, Ready Reminders' border) follow the shape as a ring. Turn this on to keep them square. One setting for every bar (also on Appearance > Totem Bar, Cooldown Bar and Ready Reminders).",
+			desc = "Keep borders square around Rounded or Circle icons. Applies to all bars and Ready Reminders. Also on Appearance > Totem Bar, Cooldown Bar and Ready Reminders.",
 			get = function() return SP.opt.iconBordersSquare == true end,
 			set = function(v) SP:SetIconBordersSquare(v) end,
 			onChanged = PageChanged,
@@ -2385,7 +2385,7 @@ for which = 1, 3 do
 	SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "orbs" .. which, orbs = which, label = ORB_ROW[which].label, note = ORB_ROW[which].note,
 		list = function() return OrbCards(which) end,
 		-- Earth Shield: Anniversary only (WoW: Forever has none)
-		shown = function() return ShieldBarShown() and (which < 3 or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) end,
+		shown = function() return ShieldBarShown() and (which < 3 or not SPCompat.FOREVER) end,
 		get = function() return SP.GetShieldLook and SP:GetShieldLook(which) or "bar" end,
 		set = function(k) if SP.SetShieldLook then SP:SetShieldLook(which, k) end end }
 end
@@ -2400,7 +2400,7 @@ SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient
 	extra = function(y, W)
 		y = GradientExtra("chargeGradient", "Charge Bar")(y, W)
 		-- each shield's own charge color (purple Water Shield? sure)
-		for w = 1, (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 2 or 3 do
+		for w = 1, (SPCompat.FOREVER) and 2 or 3 do
 			local _, h = Widgets:Color(page.body, {
 				label = CHARGE_NAMES[w], x = 0, y = y, width = W,
 				desc = "The color of this shield's charge bar and orbs (Shield Icon Orbs keep their icons). The same setting as on Shield Charges.",
@@ -2768,7 +2768,8 @@ local SPOT_EXTRAS = {
 		{ "settings", "settings_totemMode", "compactOptions", "compactOutlineColor" } },
 	["mod.readyreminders"] = {
 		{ "fluffy", "readyreminders_section", "glowColor" },
-		{ "fluffy", "readyreminders_section", "barColor" } },
+		{ "fluffy", "readyreminders_section", "barColor" },
+		{ "fluffy", "readyreminders_section", "rangeColor" } },
 }
 -- a section's own extra row, labelled like a part: Mana Tint at the end of Totem Bar
 local MODULE_EXTRAS = {
@@ -2976,12 +2977,13 @@ end
 
 local function StripTip(self)
 	local r, g, b, src = SP:ThemeDisplayColor(self.spot, self.role)
-	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-	GameTooltip:SetClampedToScreen(true)
-	GameTooltip:AddLine(self.title, 1, 1, 1)
-	GameTooltip:AddLine(Hex(r, g, b) .. "   " .. (SOURCE_TEXT[src] or ""), 0.8, 0.8, 0.8, true)
-	GameTooltip:AddLine("Click to pick a color. Right-click: back to the theme's color.", 0.8, 0.8, 0.8, true)
-	GameTooltip:Show()
+	local tip = Core:Tooltip()
+	tip:SetOwner(self, "ANCHOR_CURSOR")
+	tip:AddLine(self.title)
+	tip:AddLine(Hex(r, g, b) .. "   " .. (SOURCE_TEXT[src] or ""))
+	tip:AddHint("Click to pick a color")
+	tip:AddHint("Right-click: back to the theme's color")
+	tip:Show()
 end
 
 local function NewStripItem(parent)
@@ -2999,7 +3001,7 @@ local function NewStripItem(parent)
 	it:SetScript("OnEnter", function(self) Core:SetBorderColor(self.sw, "accent"); StripTip(self) end)
 	it:SetScript("OnLeave", function(self)
 		Core:SetBorderColor(self.sw, "border")
-		if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+		Core:HideTooltipFor(self)
 	end)
 	it:SetScript("OnClick", function(self, button)
 		if InCombatLockdown() then return end
@@ -3451,8 +3453,8 @@ function Page.Render(_, body, W, onChanged, selection, startY)
 				SP:ShowSPDialog({
 					key = "resetallcolors",
 					title = "Reset All Colors and Theme?",
-					text = "Every color in ShamanPower goes back to how it came:\n\n"
-						.. "- the Standard theme, with no per-part choices, color edits or element-colored borders\n"
+					text = "Reset every color in ShamanPower to its default:\n\n"
+						.. "- the Standard theme, with no separate choices for individual features, color edits or element-colored borders\n"
 						.. "- the default Element Colors and Status Colors\n"
 						.. "- every color option on every page: Cooldown Text, Pulse Bar and Pulse Flash, Compact outline, Mana Tint,"
 						.. " each shield's Charge Color, the gradients' Two-Tone colors, Ready Reminders and Tremor Reminder\n\n"
@@ -3479,7 +3481,7 @@ function Page.Render(_, body, W, onChanged, selection, startY)
 				SP:ShowSPDialog({
 					key = "reseteverything",
 					title = "Reset Everything?",
-					text = "Every setting on the Themes tab goes back to how it came:\n\n"
+					text = "Reset every setting on the Themes tab to its default:\n\n"
 						.. "- everything Reset All Colors and Theme does: the Standard theme with nothing changed, and every color option on every page\n"
 						.. "- Bar Texture and Shield Charge Bars: Default\n"
 						.. "- Dot Shape: Round, Gem Dot Finish off\n"
@@ -3613,8 +3615,9 @@ end
 
 -- Release the drawn blocks before changing the page, tab, or search selection.
 function Page:Release()
-	local owner = GameTooltip:IsShown() and GameTooltip:GetOwner()
-	if owner and owner.spThemes then GameTooltip:Hide() end
+	local tip = Core:Tooltip()
+	local owner = tip:IsShown() and tip:GetOwner()
+	if owner and owner.spThemes then tip:Hide() end
 	for i = #shown, 1, -1 do
 		shown[i]:Hide()
 		shown[i] = nil

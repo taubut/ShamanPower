@@ -8,7 +8,7 @@ local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local SP = ShamanPower
 if not SP then
-	print("|cff0070ddShamanPower [Raid Cooldowns]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Raid Cooldowns]:|r ShamanPower is not loaded.")
 	return
 end
 
@@ -181,7 +181,7 @@ end
 -- The panel lives in ShamanPower_Config (RaidCD.lua), which replaces these
 -- two functions; without that module there is no window.
 function SP:ToggleRaidCooldownPanel()
-	print("|cff0070ddShamanPower|r: the ShamanPower_Config module is required for the Raid Cooldowns window")
+	print("|cff0070ddShamanPower|r: The Raid Cooldowns settings need ShamanPower_Config.")
 end
 
 -- Create the raid cooldown panel UI
@@ -327,7 +327,7 @@ function SP:CallManaTideForShaman(shamanName)
 	end
 
 	if _G.SPK and _G.SPK() == true then
-		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Can't send this call right now. Call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL|" .. shamanName, nil, nil, true)
@@ -431,7 +431,7 @@ end
 
 function SP:CallDrums()
 	if not HasDrums() then
-		print("|cff0070ddShamanPower:|r Drums of Battle do not exist on this client.")
+		print("|cff0070ddShamanPower:|r Drums of Battle are not available in this version of the game.")
 		return
 	end
 	if not self:CanCallDrums() then
@@ -444,7 +444,7 @@ function SP:CallDrums()
 		return
 	end
 	if _G.SPK and _G.SPK() == true then
-		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Can't send this call right now. Call it by voice.")
 		return
 	end
 	self:SendMessage("DRUMCALL", nil, nil, true)
@@ -457,7 +457,7 @@ end
 
 function SP:CallBloodlust()
 	if not HasBloodlust() then
-		print("|cff0070ddShamanPower:|r Bloodlust / Heroism does not exist on this client.")
+		print("|cff0070ddShamanPower:|r Bloodlust / Heroism is not available in this version of the game.")
 		return
 	end
 	if not self:CanCallRaidCooldowns() then
@@ -473,7 +473,7 @@ function SP:CallBloodlust()
 
 	-- Send call message
 	if _G.SPK and _G.SPK() == true then
-		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Can't send this call right now. Call it by voice.")
 		return
 	end
 	self:SendMessage("BLCALL|" .. target, nil, nil, true)
@@ -498,7 +498,7 @@ function SP:CallManaTide()
 
 	-- Send call to all shamans with Mana Tide
 	if _G.SPK and _G.SPK() == true then
-		print("|cff0070ddShamanPower:|r Addon messages are locked right now - call it by voice.")
+		print("|cff0070ddShamanPower:|r Can't send this call right now. Call it by voice.")
 		return
 	end
 	local sent = self:SendMessage("MTCALL", nil, nil, true)
@@ -531,7 +531,7 @@ end
 -- casts are never secret, and this listens only while an alert is up.
 local ownTideFrame, ownTideSerial = nil, 0
 local function WatchOwnManaTide()
-	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+	if not SPCompat.FOREVER then return end
 	if not ownTideFrame then
 		ownTideFrame = CreateFrame("Frame")
 		ownTideFrame:SetScript("OnEvent", function(f, _, _, _, spellID)
@@ -1039,7 +1039,7 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 		GameTooltip:SetText("Call Mana Tide")
 		GameTooltip:AddLine("From: " .. self.shamanName, 0, 0.7, 1)
 		if callerRequestEstimates then
-			_G.GameTooltip:AddLine("Request-based cooldowns are estimates; casts are not confirmed.", 1, 0.8, 0.2, true)
+			_G.GameTooltip:AddLine("These cooldowns are estimated from the call, not from a confirmed cast.", 1, 0.8, 0.2, true)
 		end
 		GameTooltip:Show()
 	end)
@@ -1732,7 +1732,7 @@ if slash then
 			else callPractice = not callPractice end
 			SP.manaTideCallPractice = callPractice   -- Cooldown Announce's "tide" reply and call follow it too
 			print("|cff0070ddShamanPower|r: Mana Tide call practice " .. (callPractice
-				and "ON: this shaman takes Mana Tide calls as if it knew Mana Tide. /sp calltest off to stop."
+				and "ON: you can receive Mana Tide calls even if you haven't learned it. Type /sp calltest off to stop."
 				or "OFF."))
 			if SP.UpdateCallerButtons then SP:UpdateCallerButtons() end
 			if SP.raidCooldownPanel and SP.raidCooldownPanel:IsShown() then SP:UpdateRaidCooldownPanel() end

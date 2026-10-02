@@ -1,5 +1,8 @@
 <Bindings>
 	<Binding name="SHAMANPOWER_DROPALL" category="SHAMANPOWER" header="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CALL_ELEMENTS" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CALL_ANCESTORS" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CALL_SPIRITS" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_EARTH_TOTEM" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_FIRE_TOTEM" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_WATER_TOTEM" category="SHAMANPOWER">--[[dummy]]</Binding>

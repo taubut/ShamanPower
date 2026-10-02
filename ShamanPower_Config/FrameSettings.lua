@@ -6,6 +6,9 @@
 --   spec = {
 --     key      = "popout:totem_earth",          -- identity, for toggle/debounce
 --     title    = "Pop-Out Settings", subtitle = "Earth totem",
+--     element  = "water",                       -- the frame's settings group's brand element
+--                                               -- (its band light, underline, switches and
+--                                               -- slider fills); nil = "spirit", logo blue
 --     scale    = { get = fn -> percent, set = fn(percent), min = 50, max = 300 },
 --     opacity  = { get = fn -> percent, set = fn(percent) },
 --     hideFrame= { get = fn -> bool,    set = fn(bool) },
@@ -54,6 +57,8 @@ local function Populate(spec)
 	Widgets:ReleaseAll(body)
 	local width = PANEL_W - panel.pad * 2
 	local y = 0
+	-- the rows' switches and slider fills in the panel's element (none outside it)
+	Widgets:SetElement(panel.spElement)
 	local function Row(kind, opts)
 		opts.x, opts.y, opts.width = 0, y, width
 		local f, h = Widgets[kind](Widgets, body, opts)
@@ -72,10 +77,10 @@ local function Populate(spec)
 		})
 	end
 	if spec.scale then
-		PercentRow("Scale", "Size of this frame, as a percentage.", spec.scale, 50, 300)
+		PercentRow("Scale", "Size as a percentage of normal.", spec.scale, 50, 300)
 	end
 	if spec.opacity then
-		PercentRow("Opacity", "How solid this frame is.", spec.opacity, 10, 100)
+		PercentRow("Opacity", "How solid or see-through it looks.", spec.opacity, 10, 100)
 	end
 	if spec.hideFrame then
 		Row("Toggle", {
@@ -90,6 +95,7 @@ local function Populate(spec)
 			Row("Button", { label = a.text, buttonText = a.text, desc = a.desc, func = a.func })
 		end
 	end
+	Widgets:SetElement(nil)
 
 	panel:SetHeight(44 + 4 + 8 + y + panel.pad + 2)
 end
@@ -113,6 +119,7 @@ function FS:Open(anchorFrame, spec)
 	panel.currentKey = spec.key
 	panel.currentSpec, panel.rowShape = spec, RowShape(spec)
 	panel:SetTitles(spec.title or "Frame Settings", spec.subtitle)
+	panel:SetElement(spec.element)
 	Populate(spec)
 
 	-- Anchor to the SCREEN at the frame's top-right, not to the frame: scale

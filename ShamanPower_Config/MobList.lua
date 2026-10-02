@@ -54,6 +54,7 @@ local function Build()
 		name = "ShamanPowerMobListFrame", width = 400, height = 520,
 		title = "Fear-Caster Mobs", subtitle = "tremor reminder watches these", headerHeight = 46, footer = 44,
 		special = true, strata = "DIALOG",
+		element = "fire",   -- Tremor Reminder's list: Alerts & Reminders
 	})
 	local body = frame.body
 

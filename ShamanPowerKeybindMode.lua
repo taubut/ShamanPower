@@ -246,16 +246,18 @@ end
 -- ---------------------------------------------------------------------------
 -- The mode
 -- ---------------------------------------------------------------------------
+-- Built whole, then published: if any part fails, nothing is left half made (the
+-- next /sp bind starts over), so the key catcher never shows without its bar.
 local function build()
 	if capture then return end
-	capture = CreateFrame("Frame", "ShamanPowerKeybindCapture", UIParent)
-	capture:SetAllPoints(UIParent)
-	capture:SetFrameStrata("TOOLTIP")
-	capture:EnableMouse(false)
-	capture:Hide()
-	capture:SetScript("OnKeyDown", onKey)
+	local cap = CreateFrame("Frame", "ShamanPowerKeybindCapture", UIParent)
+	cap:SetAllPoints(UIParent)
+	cap:SetFrameStrata("TOOLTIP")
+	cap:EnableMouse(false)
+	cap:Hide()
+	cap:SetScript("OnKeyDown", onKey)
 	local acc = 0
-	capture:SetScript("OnUpdate", function(_, elapsed)
+	cap:SetScript("OnUpdate", function(_, elapsed)
 		acc = acc + elapsed
 		if acc < 0.05 then return end
 		acc = 0
@@ -274,42 +276,70 @@ local function build()
 			if o and o:IsShown() ~= vis then refreshOverlays() break end
 		end
 	end)
-	capture:SetScript("OnEvent", function(_, event)
+	cap:SetScript("OnEvent", function(_, event)
 		if event == "PLAYER_REGEN_DISABLED" then
 			SP.keybindReturnToConfig = nil   -- no settings window popping up as the fight starts
 			Leave(false, "a fight started, so every key is back the way it was.")
 		end
 	end)
 
-	topBar = CreateFrame("Frame", "ShamanPowerKeybindBar", UIParent)
-	topBar:SetSize(620, 74)
-	topBar:SetPoint("TOP", UIParent, "TOP", 0, -40)
-	topBar:SetFrameStrata("TOOLTIP")
-	topBar:SetFrameLevel(50)
-	topBar:EnableMouse(true)
-	local bg = topBar:CreateTexture(nil, "BACKGROUND")
-	bg:SetAllPoints(topBar)
+	-- The bar: Unlock UI's bar's sibling (ShamanPowerUnlock.lua): the settings window's
+	-- soft edge, the four elements along its top, Fira Sans, and at its left the logo
+	-- (static: no motion) beside the title; the words after them, Cancel and Done on
+	-- the right as before. Without the brand file (an update the game has not loaded
+	-- yet) there is no stripe and no logo.
+	local bar = CreateFrame("Frame", "ShamanPowerKeybindBar", UIParent)
+	bar:SetSize(620, 74)
+	bar:SetPoint("TOP", UIParent, "TOP", 0, -40)
+	bar:SetFrameStrata("TOOLTIP")
+	bar:SetFrameLevel(50)
+	bar:EnableMouse(true)
+	bar:Hide()
+	local bg = bar:CreateTexture(nil, "BACKGROUND")
+	bg:SetAllPoints(bar)
 	bg:SetColorTexture(SP:SPColor("windowBg", 0.95))
-	SP:SPMakeBorder(topBar, "accent", 2)
-	topText = topBar:CreateFontString(nil, "OVERLAY")
-	topText:SetFontObject(SP.SPDialogFonts.text)
-	topText:SetPoint("TOPLEFT", topBar, "TOPLEFT", 12, -10)
-	topText:SetPoint("RIGHT", topBar, "RIGHT", -190, 0)
-	topText:SetJustifyH("LEFT"); topText:SetWordWrap(true)
-	topText:SetText("|cff3fa9f5Keybind mode|r - hover a button and press a key (Shift / Ctrl / Alt work). Esc over a button clears its key; Esc elsewhere leaves and keeps your keys.")
-	hoverLine = topBar:CreateFontString(nil, "OVERLAY")
-	hoverLine:SetFontObject(SP.SPDialogFonts.text)
-	hoverLine:SetPoint("TOPLEFT", topText, "BOTTOMLEFT", 0, -6)
-	hoverLine:SetPoint("RIGHT", topBar, "RIGHT", -190, 0)
-	hoverLine:SetJustifyH("LEFT"); hoverLine:SetWordWrap(true)
+	SP:SPMakeBorder(bar, "border", 1.5)
+	if SP.CreateElementStripe then
+		local stripe = SP:CreateElementStripe(bar)
+		stripe:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0)
+	end
+	local x = 12
+	if SP.CreateTotemGraphic then
+		local logo = SP:CreateTotemGraphic(bar)
+		logo:SetGraphicHeight(24)   -- Unlock UI's docked logo
+		logo:SetPoint("LEFT", bar, "LEFT", x, 0)
+		x = x + logo:GetWidth() + 8
+	end
+	local title = bar:CreateFontString(nil, "OVERLAY")
+	title:SetFontObject(SP.SPDialogFonts.title)
+	title:SetPoint("LEFT", bar, "LEFT", x, 0)
+	title:SetText("Keybind Mode")
+	x = x + math.ceil(title:GetStringWidth()) + 14
+	-- the words: three lines of them, like before (the bar keeps its old size,
+	-- never narrower than its old 620, so nothing new is covered at the top)
+	local text = bar:CreateFontString(nil, "OVERLAY")
+	text:SetFontObject(SP.SPDialogFonts.text)
+	text:SetJustifyH("LEFT"); text:SetWordWrap(true)
+	text:SetText("Hover a button and press a key. You can include Shift, Ctrl or Alt. Esc over a button clears its key."
+		.. " Esc elsewhere saves your keys and closes Keybind Mode.")
+	local textW = (text.GetUnboundedStringWidth and text:GetUnboundedStringWidth()) or text:GetStringWidth()
+	bar:SetWidth(math.max(620, math.ceil(x + textW / 3 + 30 + 190)))
+	text:SetPoint("TOPLEFT", bar, "TOPLEFT", x, -10)
+	text:SetPoint("RIGHT", bar, "RIGHT", -190, 0)
+	local hover = bar:CreateFontString(nil, "OVERLAY")
+	hover:SetFontObject(SP.SPDialogFonts.text)
+	hover:SetPoint("TOPLEFT", text, "BOTTOMLEFT", 0, -6)
+	hover:SetPoint("RIGHT", bar, "RIGHT", -190, 0)
+	hover:SetJustifyH("LEFT"); hover:SetWordWrap(true)
 
-	local done = SP:CreateSPButton(topBar, "Done", 80, true)
-	done:SetPoint("RIGHT", topBar, "RIGHT", -12, 0)
+	local done = SP:CreateSPButton(bar, "Done", 80, true)
+	done:SetPoint("RIGHT", bar, "RIGHT", -12, 0)
 	done:SetScript("OnClick", function() Leave(true) end)
-	local cancel = SP:CreateSPButton(topBar, "Cancel", 80, false)
+	local cancel = SP:CreateSPButton(bar, "Cancel", 80, false)
 	cancel:SetPoint("RIGHT", done, "LEFT", -8, 0)
 	cancel:SetScript("OnClick", function() Leave(false) end)
-	topBar:Hide()
+	capture, topBar, topText, hoverLine = cap, bar, text, hover
 end
 
 local function fitBar()
@@ -372,7 +402,7 @@ function Leave(save, why)
 		barShown = false
 		if SP.UpdateTotemBarVisibility then SP:UpdateTotemBarVisibility(true) end
 	end
-	if why then print("|cff0070ddShamanPower|r: keybind mode closed - " .. why) end
+	if why then print("|cff0070ddShamanPower|r: Keybind Mode closed - " .. why) end
 	-- the addon's override clicks and key labels follow the new bindings
 	if SP.SetupKeybindings then SP:SetupKeybindings() end
 	if SP.QueueKeybindTextRefresh then SP:QueueKeybindTextRefresh() end
@@ -393,11 +423,11 @@ function SP:KeybindModeActive() return ACTIVE end
 function SP:SetKeybindMode(on)
 	if not on then Leave(true) return end
 	if ACTIVE then return end
-	if not isShaman() then print("|cff0070ddShamanPower|r: keybind mode is for shamans (their totem and cooldown buttons).") return end
-	if InCombatLockdown() then print("|cff0070ddShamanPower|r: keybind mode opens out of combat.") return end
+	if not isShaman() then print("|cff0070ddShamanPower|r: Keybind Mode is for shamans' totem and cooldown buttons.") return end
+	if InCombatLockdown() then print("|cff0070ddShamanPower|r: Leave combat before opening Keybind Mode.") return end
 	build()
 	collect()
-	if #entries == 0 then print("|cff0070ddShamanPower|r: no ShamanPower buttons to bind right now (is the totem bar shown?).") return end
+	if #entries == 0 then print("|cff0070ddShamanPower|r: No ShamanPower buttons are available for keybinds. Is the Totem Bar shown?") return end
 	ACTIVE = true
 	wipe(changed)
 	hovered = nil
@@ -432,7 +462,7 @@ do
 			order = 0.25,
 			type = "execute",
 			name = "Keybind Mode (hover and press a key)",
-			desc = "Highlights every ShamanPower button that can take a key: the totem bar, Drop All, the cooldown bar and the flyout totems. Hover one and press a key (Shift, Ctrl and Alt work) to bind it; Escape over a button clears its key. Done saves, Cancel puts every key back. Out of combat only. Also: /sp bind",
+			desc = "Set keys for the Totem Bar, Drop All, Cooldown Bar and flyout totems. Hover a highlighted button and press a key, with Shift, Ctrl or Alt if wanted. Escape over a button clears its key. Done saves; Cancel restores your previous keys. Out of combat only. Also: /sp bind",
 			hidden = function() return not isShaman() end,
 			func = function() SP:SetKeybindMode(true) end,
 		}
@@ -449,7 +479,7 @@ do
 			order = 0.5,
 			type = "execute",
 			name = "Keybind Mode (hover and press a key)",
-			desc = "Hides this window and highlights every ShamanPower button that can take a key. Hover one and press a key to bind it; Done or Cancel brings this window back. Also: /sp bind",
+			desc = "Hide settings so you can set your keybinds. Hover a highlighted button and press a key. Done saves; Cancel restores your previous keys. Both return to settings. Also: /sp bind",
 			hidden = function() return not isShaman() end,
 			func = function() SP:SetKeybindMode(true) end,
 		}

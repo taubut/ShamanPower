@@ -51,6 +51,16 @@ if SP and SP.ThemeBind then
 	for e = 1, 4 do SP:ThemeBind(ELEMENTS[e], "win.assign", e) end
 end
 
+-- The window's own element (D32: a Group Tools window, so Water): the header band's
+-- light, the title's underline, the switches and the content's light. The cells'
+-- tints above follow the player's palette and stay as they are.
+local ELEMENT = "water"
+local CHECK_SCALE = 0.62   -- Twist and the Raid Resistance ticks: the settings sidebar's small switch
+local function ElementRGB()
+	if SP and SP.BrandElementRGB then return SP:BrandElementRGB(ELEMENT) end
+	return 0.400, 0.553, 0.949   -- #668DF2 without the brand kit
+end
+
 local function CellX(e)
 	return NAME_W + ES_W + (e - 1) * (CELL_W + CELL_GAP)
 end
@@ -97,8 +107,16 @@ local function NotifyOptions()
 	if reg then reg:NotifyChange("ShamanPower") end
 end
 
--- Pill switch matching the config UI toggle.
+-- The Free Assignment switch (D32 C2, the settings' switch): the brand kit's tiny
+-- totem box on its duration bar, in the window's element, 38 x 18 like the pill it
+-- replaces. :Paint(on) shows the state. Without the brand kit (a new file loads only
+-- after a full restart) today's pill.
 local function MakePill(parent)
+	if SP.CreateTotemSwitch then
+		local sw = SP:CreateTotemSwitch(parent, { element = ELEMENT })
+		sw.Paint = sw.SetChecked
+		return sw
+	end
 	local track = CreateFrame("Button", nil, parent)
 	track:SetSize(38, 18)
 	track.tex = track:CreateTexture(nil, "BACKGROUND")
@@ -120,26 +138,34 @@ local function MakePill(parent)
 	return track
 end
 
--- Small square checkbox.
+-- Twist and the Raid Resistance ticks: the same switch, small (the settings
+-- sidebar's), its label beside it. Without the brand kit today's square checkbox.
 local function MakeCheck(parent, labelText)
-	local b = CreateFrame("Button", nil, parent)
-	b:SetSize(14, 14)
-	Core:SolidTex(b, "windowBg", "BACKGROUND")
-	Core:MakeBorder(b, "border")
-	b.fill = b:CreateTexture(nil, "ARTWORK")
-	b.fill:SetPoint("TOPLEFT", b, "TOPLEFT", 3, -3)
-	b.fill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, 3)
-	b.fill:SetColorTexture(Core:Color("accentHi"))
+	local b
+	if SP.CreateTotemSwitch then
+		b = SP:CreateTotemSwitch(parent, { scale = CHECK_SCALE, element = ELEMENT })
+		b.Paint = b.SetChecked
+	else
+		b = CreateFrame("Button", nil, parent)
+		b:SetSize(14, 14)
+		Core:SolidTex(b, "windowBg", "BACKGROUND")
+		Core:MakeBorder(b, "border")
+		b.fill = b:CreateTexture(nil, "ARTWORK")
+		b.fill:SetPoint("TOPLEFT", b, "TOPLEFT", 3, -3)
+		b.fill:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, 3)
+		b.fill:SetColorTexture(Core:Color("accentHi"))
+		function b:Paint(on)
+			self.fill:SetShown(on and true or false)
+			Core:SetBorderColor(self, on and "accent" or "border")
+		end
+	end
 	b.label = b:CreateFontString(nil, "OVERLAY")
 	b.label:SetFontObject(Core.fonts.rowDim)
 	b.label:SetPoint("LEFT", b, "RIGHT", 5, 0)
 	b.label:SetText(labelText)
-	-- Let the label be part of the hit area.
-	b:SetHitRectInsets(0, -(b.label:GetStringWidth() + 8), 0, 0)
-	function b:Paint(on)
-		self.fill:SetShown(on and true or false)
-		Core:SetBorderColor(self, on and "accent" or "border")
-	end
+	-- Let the label be part of the hit area (as tall as the checkbox was, at least).
+	b.spHitPad = math.max(0, (14 - b:GetHeight()) / 2)
+	b:SetHitRectInsets(0, -(b.label:GetStringWidth() + 8), -b.spHitPad, -b.spHitPad)
 	b:Paint(false)
 	return b
 end
@@ -242,19 +268,18 @@ local function CellTooltip(cell)
 	local idx = a and a[cell.element] or 0
 	local names = SP.TotemNames and SP.TotemNames[cell.element]
 	local title = (idx and idx > 0 and names and names[idx]) or "Unassigned"
-	GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
-	GameTooltip:SetClampedToScreen(true)
-	GameTooltip:AddLine(title, 1, 1, 1)
-	GameTooltip:AddLine(ELEMENTS[cell.element].label .. " totem for " .. row.name, 0.6, 0.65, 0.72)
+	local tip = Core:Tooltip()
+	tip:SetOwner(cell, "ANCHOR_CURSOR")
+	tip:AddLine(title)
+	tip:AddLine(ELEMENTS[cell.element].label .. " totem for " .. row.name, Core:Color("textDim"))
 	if SP:CanControl(row.name) then
-		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Left-click / wheel down: next totem", 0.8, 0.8, 0.8)
-		GameTooltip:AddLine("Right-click / wheel up: previous totem", 0.8, 0.8, 0.8)
+		tip:AddHint("Left-click / wheel down: next totem")
+		tip:AddHint("Right-click / wheel up: previous totem")
 	else
-		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Leader or assist only", 1, 0.3, 0.3)
+		tip:AddLine(" ")
+		tip:AddLine("Group leader or assistant only", Core:Color("warn"))
 	end
-	GameTooltip:Show()
+	tip:Show()
 end
 
 local function MakeCell(row, e)
@@ -295,7 +320,7 @@ local function MakeCell(row, e)
 	cell:SetScript("OnLeave", function(self)
 		Core:SetBorderColor(self, "borderSoft")
 		self.bg:SetColorTexture(el.r, el.g, el.b, 0.10)
-		GameTooltip:Hide()
+		Core:Tooltip():Hide()
 	end)
 	return cell
 end
@@ -354,19 +379,21 @@ local function MakeRow(parent, index)
 	row.nameFS:SetJustifyH("LEFT")
 
 	row.twist = MakeCheck(row, "Twist")
-	row.twist:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 12, 10)
+	-- (its middle, and so its label's, where the checkbox's was)
+	row.twist:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 12, 10 + (14 - row.twist:GetHeight()) / 2)
 	row.twist.row = row
 	row.twist:SetScript("OnClick", TwistOnClick)
 	if SP.NoTotemTwisting then row.twist:Hide() end   -- WoW: Forever cannot twist
 	row.twist:SetScript("OnEnter", function(self)
 		if not Tooltips() then return end
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Totem Twisting", 1, 1, 1)
+		local tip = Core:Tooltip()
+		tip:SetOwner(self, "ANCHOR_CURSOR")
+		tip:AddLine("Totem Twisting")
 		local partner = SP.GetTwistTotemName and SP:GetTwistTotemName() or "Grace of Air"
-		GameTooltip:AddLine("Enable Air totem twisting (Windfury + " .. partner .. ")", 0.8, 0.8, 0.8, true)
-		GameTooltip:Show()
+		tip:AddLine("Enable Air totem twisting (Windfury + " .. partner .. ")")
+		tip:Show()
 	end)
-	row.twist:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	row.twist:SetScript("OnLeave", function() Core:Tooltip():Hide() end)
 
 	-- Earth Shield target
 	local es = CreateFrame("Button", nil, row)
@@ -393,19 +420,19 @@ local function MakeRow(parent, index)
 		if self._control then Core:SetBorderColor(self, "on") end
 		if not Tooltips() then return end
 		local target = ShamanPower_EarthShieldAssignments and ShamanPower_EarthShieldAssignments[self.row.name]
-		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Earth Shield", 1, 1, 1)
-		GameTooltip:AddLine(target and ("Target: " .. target) or "No target assigned", 0.6, 0.65, 0.72)
+		local tip = Core:Tooltip()
+		tip:SetOwner(self, "ANCHOR_CURSOR")
+		tip:AddLine("Earth Shield")
+		tip:AddLine(target and ("Target: " .. target) or "No target assigned", Core:Color("textDim"))
 		if self._control then
-			GameTooltip:AddLine(" ")
-			GameTooltip:AddLine("Left-click: choose target", 0.8, 0.8, 0.8)
-			GameTooltip:AddLine("Right-click: clear", 0.8, 0.8, 0.8)
+			tip:AddHint("Left-click: choose target")
+			tip:AddHint("Right-click: clear")
 		end
-		GameTooltip:Show()
+		tip:Show()
 	end)
 	es:SetScript("OnLeave", function(self)
 		Core:SetBorderColor(self, "borderSoft")
-		GameTooltip:Hide()
+		Core:Tooltip():Hide()
 	end)
 	row.es = es
 
@@ -513,16 +540,20 @@ end
 local function ResistTooltip(owner, r)
 	if not Tooltips() then return end
 	local totem = SP.TotemNames[r.element][6] or r.label
-	GameTooltip:SetOwner(owner, "ANCHOR_TOP")
-	GameTooltip:SetClampedToScreen(true)
-	GameTooltip:AddLine("Need " .. r.label, 1, 1, 1)
-	GameTooltip:AddLine("Asks ONE shaman to drop " .. totem .. " Totem in their " .. SLOT_NAME[r.element] .. " slot. ShamanPower picks the shaman whose party loses least; that shaman accepts or passes (with Free Assign or auto-accept on it switches straight away).", 0.8, 0.8, 0.8, true)
-	GameTooltip:AddLine(" ")
-	GameTooltip:AddLine("On WoW: Forever this totem reaches every raid member within 30 yards of it, not just the shaman's party: drop it where the raid stands.", 0.4, 0.8, 1, true)
-	GameTooltip:AddLine(" ")
-	GameTooltip:AddLine("Untick to end the request: that shaman's previous totem comes back.", 0.8, 0.8, 0.8, true)
-	GameTooltip:AddLine("Any shaman running ShamanPower, or the raid leader or an assistant, can tick this.", 0.6, 0.65, 0.72, true)
-	GameTooltip:Show()
+	local tip = Core:Tooltip()
+	tip:SetOwner(owner, "ANCHOR_CURSOR")
+	tip:AddLine("Need " .. r.label)
+	tip:AddLine("Ask one shaman to drop " .. totem .. " Totem in their " .. SLOT_NAME[r.element] .. " slot. ShamanPower"
+		.. " picks the shaman whose party loses the least from the change. They can accept or pass. With Free Assign or auto-accept"
+		.. " on, the assignment changes right away.")
+	tip:AddLine(" ")
+	tip:AddLine("On WoW: Forever this totem reaches every raid member within 30 yards of it, not just the shaman's"
+		.. " party: drop it where the raid stands.", 0.4, 0.8, 1)
+	tip:AddLine(" ")
+	tip:AddLine("Uncheck to end the request and restore that shaman's previous assignment.")
+	tip:AddLine("Any shaman running ShamanPower, or the raid leader or an assistant, can tick this.",
+		Core:Color("textDim"))
+	tip:Show()
 end
 
 local function BuildResistStrip(parent)
@@ -552,26 +583,27 @@ local function BuildResistStrip(parent)
 		col:SetPoint("TOPLEFT", strip, "TOPLEFT", (i - 1) * (colW + STRIP_GAP), -28)
 		col:EnableMouse(true)
 		col:SetScript("OnEnter", function(self) ResistTooltip(self, r) end)
-		col:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		col:SetScript("OnLeave", function() Core:Tooltip():Hide() end)
 
 		local check = MakeCheck(col, "Need " .. r.label)
 		check:SetPoint("TOPLEFT", col, "TOPLEFT", 0, 0)
 		-- the label wraps inside its column instead of running into the next one
+		local cw = check:GetWidth()
 		check.label:ClearAllPoints()
 		check.label:SetPoint("TOPLEFT", check, "TOPRIGHT", 5, 0)
-		check.label:SetWidth(colW - 19)
+		check.label:SetWidth(colW - cw - 5)
 		check.label:SetJustifyH("LEFT")
 		check.label:SetWordWrap(true)
-		check:SetHitRectInsets(0, -(colW - 14), 0, 0)
+		check:SetHitRectInsets(0, -(colW - cw), -check.spHitPad, -check.spHitPad)
 		check.resist = r
 		check:SetScript("OnClick", ResistTickOnClick)
 		check:SetScript("OnEnter", function(self) ResistTooltip(self, r) end)
-		check:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		check:SetScript("OnLeave", function() Core:Tooltip():Hide() end)
 		col.check = check
 
 		local status = col:CreateFontString(nil, "OVERLAY")
 		status:SetFontObject(Core.fonts.tiny)
-		status:SetPoint("TOPLEFT", check.label, "BOTTOMLEFT", -19, -6)
+		status:SetPoint("TOPLEFT", check.label, "BOTTOMLEFT", -(cw + 5), -6)
 		status:SetWidth(colW)
 		status:SetJustifyH("LEFT")
 		status:SetWordWrap(true)
@@ -663,6 +695,7 @@ local function BuildFrame()
 	if frame then return frame end
 
 	frame = CreateFrame("Frame", "ShamanPowerAssignFrame", UIParent)
+	frame.spElement = ELEMENT   -- its menus (the Earth Shield list, Tools) are lit in Water (Widgets:MenuElement)
 	frame:SetSize(WIN_W, HEADER_H + COLHEAD_H + ROW_H + FOOTER_H)
 	-- Saved position is in frame units: apply the saved scale before it.
 	frame:SetScale(Opt().configscale or 0.9)
@@ -679,31 +712,65 @@ local function BuildFrame()
 	end)
 	frame:Hide()
 	tinsert(UISpecialFrames, "ShamanPowerAssignFrame")
+	local level = frame:GetFrameLevel()
+	local er, eg, eb = ElementRGB()
 
 	Core:SolidTex(frame, "windowBg", "BACKGROUND", nil, true)
-	-- 2px accent frame so the two windows read as separate panels when overlapped.
-	Core:MakeBorder(frame, "accent", 2)
+	-- The content lit by the window's element, faintly, from its top left (the settings
+	-- content's light, D32b: 11% of the element over the window's navy); placed again
+	-- when the window grows or shrinks with the roster
+	local wr, wg, wb = Core:Color("windowBg")
+	local lit = Core:Light(frame, WIN_W, frame:GetHeight(), 0.05, 0, 1)
+	Core:RegisterFadeLight(lit, er * 0.11 + wr * 0.89, eg * 0.11 + wg * 0.89, eb * 0.11 + wb * 0.89)
+	frame:HookScript("OnSizeChanged", function(self, w, h)
+		if w and h and w > 0 and h > 0 then Core:PlaceLight(lit, self, w, h, 0.05, 0, 1) end
+	end)
 
-	-- Header band -----------------------------------------------------------
+	-- Header band (the settings window's, D32b): from the top edge to the old header's
+	-- bottom (it sat 1 in), sidebarBg lit from its top left by the element (26% over
+	-- its navy), a 1px line along its bottom in place of the accent glow under it
+	local BAND_H = HEADER_H + 1
 	local header = CreateFrame("Frame", nil, frame)
-	header:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
-	header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
-	header:SetHeight(HEADER_H)
+	header:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+	header:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+	header:SetHeight(BAND_H)
 	Core:SolidTex(header, "sidebarBg", "BACKGROUND", nil, true)
+	local lr, lg, lb = Core:Color("bandLight")
+	local bandLight = Core:Light(header, WIN_W, BAND_H, 0.12, 0, 1.2, 2)
+	Core:RegisterFadeLight(bandLight, er * 0.26 + lr * 0.74, eg * 0.26 + lg * 0.74, eb * 0.26 + lb * 0.74)
+	local bandEdge = header:CreateTexture(nil, "BORDER")
+	bandEdge:SetHeight(1)
+	bandEdge:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+	bandEdge:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+	bandEdge:SetColorTexture(Core:Color("border"))
 
+	-- The wordmark lockup (D32): the totem graphic beside "ShamanPower", as in the
+	-- settings sidebar, scaled to the name (Core:Lockup). The name's middle stays
+	-- where it was: 6 above the old header's middle.
+	local mid = 1 + HEADER_H / 2 - 6
+	local _, brandSize = Core.fonts.brand:GetFont()
+	brandSize = brandSize or 16
+	local logo, logoW, logoGap, name = Core:Lockup(header, brandSize, "ShamanPower")
+	local brandX = PAD + 1
+	if logo then
+		logo:SetPoint("TOPLEFT", header, "TOPLEFT", brandX, -(mid - 14 * brandSize / 19))
+		brandX = brandX + logoW + logoGap
+	end
 	local brand = header:CreateFontString(nil, "OVERLAY")
 	brand:SetFontObject(Core.fonts.brand)
-	brand:SetPoint("LEFT", header, "LEFT", PAD, 6)
-	brand:SetText("|cff0070ddShaman|r|cffE6EAF0Power|r")
+	brand:SetPoint("LEFT", header, "TOPLEFT", brandX, -mid)
+	brand:SetText(name)
 
 	local sub = header:CreateFontString(nil, "OVERLAY")
 	sub:SetFontObject(Core.fonts.tiny)
 	sub:SetPoint("TOPLEFT", brand, "BOTTOMLEFT", 1, -2)
 	sub:SetText("TOTEM ASSIGNMENTS")
 
-	local glow = Core:AccentGlow(frame, 2)
-	glow:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -(HEADER_H + 1))
-	glow:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -(HEADER_H + 1))
+	-- the element's underline under the name, on the band's line
+	local underline = header:CreateTexture(nil, "ARTWORK")
+	underline:SetSize(44, 3)
+	underline:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", brandX, 0)
+	underline:SetColorTexture(er, eg, eb, 1)
 
 	-- Close
 	local close = Core:CloseButton(frame, 22)
@@ -732,7 +799,7 @@ local function BuildFrame()
 		MarkDirty()
 	end)
 	Core:AttachTooltip(pill, SHAMANPOWER_FREEASSIGN or "Free Assignment",
-		SHAMANPOWER_FREEASSIGN_DESC or "Allow others to change your assignments without leader/assist")
+		SHAMANPOWER_FREEASSIGN_DESC or "Let anyone in the group change your assignments.")
 	frame.pill = pill
 
 	-- Column headers --------------------------------------------------------
@@ -829,7 +896,7 @@ local function BuildFrame()
 		SP:AutoAssign()
 		MarkDirty()
 	end)
-	Core:AttachTooltip(auto, "Auto-Assign", (SHAMANPOWER_AUTOASSIGN_DESC or "") .. "\nLeader or assist only when grouped.")
+	Core:AttachTooltip(auto, "Auto-Assign", (SHAMANPOWER_AUTOASSIGN_DESC or "") .. "\nGroup leader or assistant only when grouped.")
 
 	local clear = FooterButton(frame, "Clear", 70, false)
 	clear:SetPoint("RIGHT", auto, "LEFT", -8, 0)
@@ -857,6 +924,19 @@ local function BuildFrame()
 	combat:SetText("Locked in combat")
 	combat:Hide()
 	frame.combat = combat
+
+	-- The settings window's edge (a soft 1.5px `border` line, in place of the 2px
+	-- accent frame) and the four elements along the top, over everything
+	local edge = CreateFrame("Frame", nil, frame)
+	edge:SetAllPoints(frame)
+	edge:SetFrameLevel(level + 10)
+	Core:MakeBorder(edge, "border", 1.5)
+	if SP.CreateElementStripe then
+		local stripe = SP:CreateElementStripe(frame)
+		stripe:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+		stripe:SetFrameLevel(level + 11)
+	end
 
 	-- Refresh: one throttled poll while shown, plus immediate redraw whenever
 	-- the engine's "state changed" hook fires. The poll is what catches the
@@ -998,7 +1078,7 @@ function Assign:Demo(on)
 			tick = tick + 1
 			local a = ShamanPower_Assignments["Nazgrel"]
 			local n = SP.TotemNames and SP.TotemNames[2] and #SP.TotemNames[2] or 6
-			if a and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE then
+			if a and SPCompat.FOREVER then
 				n = SP:GetTotemIndexLimit(2)
 				if n == 0 then
 					a[2] = 0

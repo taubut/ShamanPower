@@ -187,27 +187,60 @@ function SP:ShowPreview(key, container)
 		end
 		return frames[1]
 	end
-	-- pane hint grid: icons in a centred grid, enlarged to fill the pane
+	-- pane hint grid: icons in a centred grid, enlarged to fill the pane. Only
+	-- the frames the demo is using get a cell (frame.spDemoOff: a spell ticked
+	-- off), and the scale is fitted to the usual icon size, so one icon made
+	-- bigger grows in its own row and column while the rest keep their size.
+	-- Only a grid that no longer fits the pane shrinks, just enough to fit.
 	if hints and hints.grid and #frames > 1 then
-		local n = #frames
-		local cols = math.min(hints.columns or math.ceil(math.sqrt(n)), n)
-		local rows = math.ceil(n / cols)
-		local maxH = 0
-		for _, frame in ipairs(frames) do maxH = math.max(maxH, frame:GetHeight()) end
-		local cellW, cellH = maxW + 12, maxH + 12
-		scale = 1
-		if maxW > 0 and maxH > 0 and cw > 0 and ch > 0 then
-			scale = math.max(math.min(cw / (cols * cellW), ch / (rows * cellH), maxScale), 0.4)
-		end
-		for i, frame in ipairs(frames) do
-			local r, c = math.floor((i - 1) / cols), (i - 1) % cols
+		local cells = {}
+		for _, frame in ipairs(frames) do
 			frame:SetParent(container)
 			frame:SetFrameStrata(container:GetFrameStrata())
 			frame:SetFrameLevel(container:GetFrameLevel() + 5)
+			if not frame.spDemoOff then cells[#cells + 1] = frame end
+		end
+		if #cells == 0 then cells = frames end
+		local n = #cells
+		local cols = math.min(hints.columns or math.ceil(math.sqrt(n)), n)
+		local rows = math.ceil(n / cols)
+		-- the usual size: the middle one of the icons' sizes
+		local ws, hs = {}, {}
+		for i, frame in ipairs(cells) do ws[i], hs[i] = frame:GetWidth(), frame:GetHeight() end
+		table.sort(ws); table.sort(hs)
+		local mid = math.floor((n + 1) / 2)
+		local refW, refH = ws[mid] + 12, hs[mid] + 12
+		-- each column as wide as its widest icon, each row as tall as its tallest
+		local colW, rowH, totalW, totalH2 = {}, {}, 0, 0
+		for i, frame in ipairs(cells) do
+			local r, c = math.floor((i - 1) / cols) + 1, (i - 1) % cols + 1
+			colW[c] = math.max(colW[c] or 0, frame:GetWidth() + 12)
+			rowH[r] = math.max(rowH[r] or 0, frame:GetHeight() + 12)
+		end
+		for c = 1, cols do totalW = totalW + colW[c] end
+		for r = 1, rows do totalH2 = totalH2 + rowH[r] end
+		scale = 1
+		if refW > 12 and refH > 12 and cw > 0 and ch > 0 then
+			scale = math.min(cw / (cols * refW), ch / (rows * refH), maxScale)
+			scale = math.max(math.min(scale, cw / totalW, ch / totalH2), 0.4)
+		end
+		local colX, rowY = {}, {}
+		local x, y = -totalW / 2, totalH2 / 2
+		for c = 1, cols do colX[c] = x + colW[c] / 2; x = x + colW[c] end
+		for r = 1, rows do rowY[r] = y - rowH[r] / 2; y = y - rowH[r] end
+		local slot = {}
+		for i, frame in ipairs(cells) do slot[frame] = i end
+		for _, frame in ipairs(frames) do
 			frame:SetScale(scale)
 			frame:ClearAllPoints()
-			-- cell geometry is in frame units already; the pixel extras are divided by the scale
-			frame:SetPoint("CENTER", container, "CENTER", (c - (cols - 1) / 2) * cellW, ((rows - 1) / 2 - r) * cellH + (reserve / 2 + lift) / scale)
+			local i = slot[frame]
+			if i then
+				local r, c = math.floor((i - 1) / cols) + 1, (i - 1) % cols + 1
+				-- cell geometry is in frame units already; the pixel extras are divided by the scale
+				frame:SetPoint("CENTER", container, "CENTER", colX[c], rowY[r] + (reserve / 2 + lift) / scale)
+			else
+				frame:SetPoint("CENTER", container, "CENTER", 0, 0)
+			end
 			showFrame(frame)
 		end
 		return frames[1]

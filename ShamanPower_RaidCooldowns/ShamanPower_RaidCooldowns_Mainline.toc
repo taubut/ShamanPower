@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Raid Cooldowns]|r
 ## Version: 3.0.5
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Raid Cooldown Management - Mana Tide (and Bloodlust/Heroism where the client has it)
+## Notes: Call for Mana Tide, plus Bloodlust or Heroism where available.
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

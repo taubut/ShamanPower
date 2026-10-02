@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Party Totem Range]|r
 ## Version: 3.0.5
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Shows party members in/out of totem range via dots and counters
+## Notes: Shows which party members are in totem range with dots and counters.
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

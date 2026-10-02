@@ -82,7 +82,7 @@ end
 -- Only totems that pulse have entries here
 local TOTEM_PULSE_INTERVALS = {
     -- Earth Totems
-    ["Tremor Totem"] = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 4 or 3,   -- removes fear/charm/sleep: every 3 sec, 4 on WoW: Forever (Spell data)
+    ["Tremor Totem"] = (SPCompat.FOREVER) and 4 or 3,   -- removes fear/charm/sleep: every 3 sec, 4 on WoW: Forever (Spell data)
     ["Earthbind Totem"] = 3,        -- Pulses every 3 sec to apply slow
     ["Stoneclaw Totem"] = 2,        -- Taunts every 2 sec
 
@@ -1015,7 +1015,7 @@ local RACE_TOTEM_MODELS = {
     Pandaren = { air = 608631, earth = 608634, fire = 608637, water = 608640 },
 }
 local function ApplyRaceModel(m, d)
-    if not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then return false end
+    if not (SPCompat.FOREVER) then return false end
     local _, race = UnitRace("player")
     local alliance = UnitFactionGroup("player") == "Alliance"
     local set = d.enemy and RACE_TOTEM_MODELS[alliance and "Orc" or "Dwarf"] or RACE_TOTEM_MODELS[race or ""]

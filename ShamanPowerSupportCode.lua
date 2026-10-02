@@ -36,7 +36,25 @@
 --        realm taken out), ad { loaded addon names } (not ShamanPower's), sc
 --        { w, h physical screen, u UI scale, ui uiScale cvar on }, bars { [name]
 --        = { v shown, o on screen } }, kb { [binding] = key }, cv { [cvar] =
---        value }, mem ShamanPower KB, cpu { avg, recent, peak ms, all addons recent ms }
+--        value }, mem ShamanPower KB, cpu { avg, recent, peak ms, all addons recent ms },
+--        fps frame rate, lat { home, world } latency ms, up seconds since login,
+--        bars[name] also a (alpha), s (scale)
+--   h    load and save health (a "my settings reset" or "it vanished" answer
+--        without a /run): i the client's interface number, fv / sr ShamanPower
+--        thinks it is on WoW: Forever / in the secrets regime, cb SPCompat.BUILD,
+--        vc the game's version check is on ("Load out of date AddOns" unticked),
+--        m { [folder] = { l loaded, ok loadable, r the game's reason it is not,
+--        e enabled for this character (0 none, 1 some, 2 all), v its Version, i its
+--        TOC's interface, er it failed while loading, x false when not installed } }
+--        for ShamanPower and every module, sv { g / c seconds since the account /
+--        this character last saved ShamanPower cleanly (nil: none on record), n
+--        clean saves on record, pk profile kind ("default" / "character" /
+--        "other", never its name), np profiles, em { SavedVariables that were empty
+--        when their module loaded }, big { addons the game would not save: too
+--        large } }, bl { { f function, k "blocked" / "forbidden", c count } }
+--        actions the game stopped ShamanPower doing, bg { BugSack's ShamanPower
+--        errors, as er }, ui { u Unlock UI, k Keybind Mode, w settings window open },
+--        rr the six addon restriction states (SPR())
 -- ============================================================================
 
 local SP = ShamanPower
@@ -46,8 +64,8 @@ local PREFIX = "SPH1:"
 local CODE_VERSION = 1
 
 -- Each settings module adds [its SavedVariable] = its defaults table here, so
--- only what the player changed goes in (ShamanPower_RangeTracker has no
--- defaults table: its few settings go in whole).
+-- only what the player changed goes in (a module without one goes in whole).
+-- Settings > Reset This Page reads these defaults too.
 SP.SUPPORT_MODULE_DEFAULTS = SP.SUPPORT_MODULE_DEFAULTS or {}
 -- Profile tables whose defaults live in their own file, not the database's
 -- (announce, readyCheck): those files add [profile key] = their defaults here.
@@ -57,6 +75,59 @@ local MODULE_SVARS = { "ShamanPowerExpiringAlertsDB", "ShamanPower_ReadyReminder
 local MODULES = { "ShamanPower_Config", "ShamanPower_ESTracker", "ShamanPower_ExpiringAlerts", "ShamanPower_PartyRange",
 	"ShamanPower_RaidCooldowns", "ShamanPower_ReactiveTotems", "ShamanPower_ReadyReminders", "ShamanPower_ShieldCharges",
 	"ShamanPower_SPRange", "ShamanPower_TotemPlates", "ShamanPower_TremorReminder" }
+-- each module's own SavedVariables (the core's are checked by its save stamp instead)
+-- (not the Earth Shield Tracker's: it moved into the profile and clears its old one)
+local MODULE_SV_OF = {
+	ShamanPower_ExpiringAlerts = { "ShamanPowerExpiringAlertsDB" },
+	ShamanPower_RaidCooldowns = { "ShamanPower_RaidCooldowns" }, ShamanPower_ReactiveTotems = { "ShamanPower_ReactiveTotems" },
+	ShamanPower_ReadyReminders = { "ShamanPower_ReadyReminders" }, ShamanPower_SPRange = { "ShamanPower_RangeTracker" },
+	ShamanPower_TremorReminder = { "ShamanPowerTremorReminderDB" },
+}
+
+-- ---------------------------------------------------------------------------
+-- Watched all session (cheap: these events are rare), for the h part of the code:
+-- which SavedVariables were empty as their module loaded, addons the game would
+-- not save, actions the game blocked, and a clean-save stamp written at logout or
+-- /reload (WoW saves only then, so a crash loses what changed since the last one).
+local health = { empty = {}, big = {}, blocked = {}, loginAt = nil }
+do
+	local f = CreateFrame("Frame")
+	f:RegisterEvent("ADDON_LOADED")
+	f:RegisterEvent("PLAYER_LOGIN")
+	f:RegisterEvent("PLAYER_LOGOUT")
+	pcall(f.RegisterEvent, f, "SAVED_VARIABLES_TOO_LARGE")
+	pcall(f.RegisterEvent, f, "ADDON_ACTION_BLOCKED")
+	pcall(f.RegisterEvent, f, "ADDON_ACTION_FORBIDDEN")
+	f:SetScript("OnEvent", function(_, event, a, b)
+		if event == "ADDON_LOADED" then
+			-- this frame is older than the modules' own, so it hears their ADDON_LOADED
+			-- first: a SavedVariable still empty here is one the game did not restore
+			for _, sv in ipairs(MODULE_SV_OF[a] or {}) do
+				if rawget(_G, sv) == nil then health.empty[#health.empty + 1] = sv end
+			end
+		elseif event == "PLAYER_LOGIN" then
+			health.loginAt = GetTime()
+		elseif event == "PLAYER_LOGOUT" then
+			local db = SP.db
+			if db and db.global and db.char then
+				local now = time()
+				db.global.supportSaved = now
+				db.global.supportSaves = (tonumber(db.global.supportSaves) or 0) + 1
+				db.char.supportSaved = now
+			end
+		elseif event == "SAVED_VARIABLES_TOO_LARGE" then
+			if type(a) == "string" then health.big[#health.big + 1] = a end
+		elseif type(a) == "string" and a:find("^ShamanPower") then   -- ADDON_ACTION_BLOCKED / _FORBIDDEN
+			local key = tostring(b) .. "|" .. event
+			local e = health.blocked[key]
+			if not e then
+				e = { f = tostring(b):sub(1, 80), k = event == "ADDON_ACTION_FORBIDDEN" and "forbidden" or "blocked", c = 0 }
+				health.blocked[key] = e
+			end
+			e.c = e.c + 1
+		end
+	end)
+end
 
 -- Left out of the settings: saved positions (screen spots, not behavior), the
 -- sound file paths (their names are kept) and the Custom card's saved copy of a look.
@@ -158,13 +229,10 @@ local function plainString(v)
 	return type(v) == "string" and not (issecretvalue and issecretvalue(v)) and v or nil
 end
 
--- the newest ShamanPower errors from the error log (/sperrors), the player's name and realm taken out
-local function recentErrors()
-	local log = rawget(_G, "ShamanPowerErrorLog")
-	local errors = type(log) == "table" and log.errors
-	if type(errors) ~= "table" then return nil end
-	-- the name every way it can appear: WoW: Forever's whole "First Surname" (SPCompat's
-	-- name rule) and each half of it, the classic name, and the realm
+-- text with the player's name and realm taken out: the name every way it can appear
+-- (WoW: Forever's whole "First Surname" by SPCompat's name rule, each half of it, the
+-- classic name) and the realm
+local function scrubber()
 	local ok, name, second = pcall(UnitName, "player")   -- both returns (safe() keeps only the first)
 	if not ok then name, second = nil, nil end
 	name, second = plainString(name), plainString(second)
@@ -175,26 +243,60 @@ local function recentErrors()
 		if p and #p > 2 then parts[#parts + 1] = p end
 	end
 	table.sort(parts, function(a, b) return #a > #b end)   -- the whole name before its halves
-	local function scrub(text)
+	return function(text)
 		text = tostring(text or "")
 		for _, p in ipairs(parts) do text = text:gsub(p:gsub("%W", "%%%0"), "<you>") end
 		if realm and #realm > 2 then text = text:gsub(realm:gsub("%W", "%%%0"), "<realm>") end
 		return text
 	end
+end
+
+-- a stack's ShamanPower lines (the collector in SPCompat.lua, in every stack, left out)
+local function stackLines(stack, scrub)
+	local lines, mine = {}, false
+	for line in tostring(stack or ""):gmatch("[^\n]+") do
+		if line:find("AddOns/ShamanPower", 1, true) and not line:find("SPCompat.lua", 1, true) then
+			mine = true
+			if #lines < 4 then lines[#lines + 1] = scrub(line:gsub("Interface/AddOns/", ""):sub(1, 140)) end
+		end
+	end
+	return lines, mine
+end
+
+-- BugSack's ShamanPower errors (BugGrabber holds the error handler when it is
+-- installed, so these may never reach ShamanPower's own log)
+local function bugSackErrors(scrub)
+	local bg = rawget(_G, "BugGrabber")
+	if type(bg) ~= "table" or type(bg.GetDB) ~= "function" then return nil end
+	local ok, db = pcall(bg.GetDB, bg)
+	if not ok or type(db) ~= "table" then return nil end
+	local list = {}
+	for i = #db, 1, -1 do
+		local e = db[i]
+		if type(e) == "table" then
+			local msg = tostring(e.message or "")
+			local lines, mine = stackLines(e.stack, scrub)
+			if mine or msg:find("ShamanPower", 1, true) then
+				list[#list + 1] = { m = scrub(msg:sub(1, 240)), c = e.counter, f = e.time, s = lines }
+				if #list >= 5 then break end
+			end
+		end
+	end
+	return list[1] and list or nil
+end
+
+-- the newest ShamanPower errors from the error log (/sperrors), the player's name and realm taken out
+local function recentErrors()
+	local log = rawget(_G, "ShamanPowerErrorLog")
+	local errors = type(log) == "table" and log.errors
+	if type(errors) ~= "table" then return nil end
+	local scrub = scrubber()
 	local list = {}
 	for msg, e in pairs(errors) do
 		if type(e) == "table" then
-			local stack = tostring(e.stack or "")
-			local mine = tostring(msg):find("ShamanPower", 1, true)
-			local lines = {}
-			for line in stack:gmatch("[^\n]+") do
-				-- the collector (SPCompat.lua) is in every stack: only ShamanPower's other lines count
-				-- (an error inside SPCompat.lua itself names the file in its message)
-				if line:find("AddOns/ShamanPower", 1, true) and not line:find("SPCompat.lua", 1, true) then
-					mine = true
-					if #lines < 4 then lines[#lines + 1] = scrub(line:gsub("Interface/AddOns/", ""):sub(1, 140)) end
-				end
-			end
+			-- (an error inside SPCompat.lua itself names the file in its message)
+			local lines, mine = stackLines(e.stack, scrub)
+			mine = mine or tostring(msg):find("ShamanPower", 1, true)
 			if mine then
 				list[#list + 1] = { m = scrub(tostring(msg):sub(1, 240)), c = e.count, f = e.first, l = e.last, s = lines }
 			end
@@ -288,9 +390,20 @@ local function extras()
 	local bars = {}
 	for key, f in pairs({ totem = SP.autoButton, cooldown = SP.cooldownBar, loadout = SP.loadoutAnchor,
 		esTracker = rawget(_G, "ShamanPowerESTrackerFrame") }) do
-		if f and f.IsVisible then bars[key] = { v = f:IsVisible() and true or false, o = onScreen(f) } end
+		if f and f.IsVisible then
+			bars[key] = { v = f:IsVisible() and true or false, o = onScreen(f),
+				a = f.GetEffectiveAlpha and tonumber(string.format("%.2g", f:GetEffectiveAlpha() or 1)) or nil,
+				s = f.GetScale and tonumber(string.format("%.3g", f:GetScale() or 1)) or nil }
+		end
 	end
 	x.bars = bars
+	-- frame rate, latency and how long this session has run
+	if GetFramerate then x.fps = math.floor((safe(GetFramerate) or 0) + 0.5) end
+	if GetNetStats then
+		local ok, _, _, home, world = pcall(GetNetStats)
+		if ok then x.lat = { home = home, world = world } end
+	end
+	if health.loginAt then x.up = math.floor(GetTime() - health.loginAt) end
 	-- ShamanPower's key bindings
 	if GetNumBindings and GetBinding then
 		local kb = {}
@@ -325,6 +438,68 @@ local function extras()
 			all = P.GetOverallMetric and tonumber(string.format("%.4g", safe(P.GetOverallMetric, M.RecentAverageTime) or 0)) or nil }
 	end
 	return x
+end
+
+-- Load and save health: why a module is not running, and whether the settings the
+-- player sees came from a save (see the header's h)
+local function loadHealth()
+	local A = C_AddOns or {}
+	local h = {}
+	h.i = select(4, GetBuildInfo())
+	local compat = rawget(_G, "SPCompat")
+	if compat then h.fv, h.sr, h.cb = compat.FOREVER, compat.secretsRegime, compat.BUILD end
+	if A.IsAddonVersionCheckEnabled then h.vc = safe(A.IsAddonVersionCheckEnabled) end
+	local me = plainString(safe(UnitName, "player"))
+	local getInfo = A.GetAddOnInfo or GetAddOnInfo
+	local getMeta = A.GetAddOnMetadata or GetAddOnMetadata
+	local m = {}
+	for _, name in ipairs({ "ShamanPower", unpack(MODULES) }) do
+		local e = {}
+		if A.DoesAddOnExist and safe(A.DoesAddOnExist, name) == false then
+			e.x = false
+		else
+			if A.IsAddOnLoaded then e.l = safe(A.IsAddOnLoaded, name) and true or false end
+			if getInfo then
+				local ok, _, _, _, loadable, reason = pcall(getInfo, name)
+				if ok then e.ok = loadable and true or false; e.r = plainString(reason) end
+			end
+			if A.GetAddOnEnableState and me then e.e = safe(A.GetAddOnEnableState, name, me) end
+			if getMeta then e.v = plainString(safe(getMeta, name, "Version")) end
+			if A.GetAddOnInterfaceVersion then e.i = safe(A.GetAddOnInterfaceVersion, name) end
+			if A.DoesAddOnHaveLoadError and safe(A.DoesAddOnHaveLoadError, name) then e.er = true end
+		end
+		m[name] = e
+	end
+	h.m = m
+	-- saves: the stamps written at the last clean logout / reload, and the profile in use
+	local sv = {}
+	local db, now = SP.db, time()
+	if db then
+		local g, c = db.global and db.global.supportSaved, db.char and db.char.supportSaved
+		if type(g) == "number" then sv.g = now - g end
+		if type(c) == "number" then sv.c = now - c end
+		sv.n = db.global and tonumber(db.global.supportSaves) or nil
+		local cur = db.GetCurrentProfile and safe(db.GetCurrentProfile, db)
+		local charKey = db.keys and db.keys.char
+		sv.pk = (cur == "Default" and "default") or (cur ~= nil and cur == charKey and "character") or (cur and "other") or nil
+		if db.GetProfiles then
+			local ok, list = pcall(db.GetProfiles, db)
+			if ok and type(list) == "table" then sv.np = #list end
+		end
+	end
+	if health.empty[1] then sv.em = health.empty end
+	if health.big[1] then sv.big = health.big end
+	h.sv = sv
+	local bl = {}
+	for _, e in pairs(health.blocked) do bl[#bl + 1] = e end
+	if bl[1] then h.bl = bl end
+	h.bg = bugSackErrors(scrubber())
+	h.ui = { u = SP.IsMasterUnlocked and safe(SP.IsMasterUnlocked, SP) and true or false,
+		k = SP.KeybindModeActive and safe(SP.KeybindModeActive, SP) and true or false }
+	local win = rawget(_G, "ShamanPowerConfigUIFrame")
+	if win and win.IsShown then h.ui.w = win:IsShown() and true or false end
+	if rawget(_G, "SPR") then h.rr = plainString(safe(SPR)) end
+	return h
 end
 
 local function snapshot()
@@ -363,7 +538,7 @@ end
 function SP:BuildSupportCode()
 	local LS = LibStub and LibStub("LibSerialize", true)
 	local LD = LibStub and LibStub("LibDeflate", true)
-	if not (LS and LD) then return nil, "the serialization libraries are missing" end
+	if not (LS and LD) then return nil, "files needed to create a Support Code are missing" end
 	local o = self.opt or {}
 	local version, build = GetBuildInfo()
 	local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
@@ -421,11 +596,13 @@ function SP:BuildSupportCode()
 	payload.lo = type(loadouts) == "table" and #loadouts or 0
 	local okX, x = pcall(extras)
 	payload.x = okX and x or { fail = tostring(x) }
+	local okH, h = pcall(loadHealth)
+	payload.h = okH and h or { fail = tostring(h) }
 
 	local ok, serialized = pcall(LS.Serialize, LS, payload)
-	if not ok or not serialized then return nil, "could not serialize" end
+	if not ok or not serialized then return nil, "could not prepare the Support Code" end
 	local compressed = LD:CompressDeflate(serialized, { level = 9 })
-	if not compressed then return nil, "could not compress" end
+	if not compressed then return nil, "could not create the Support Code" end
 	return PREFIX .. LD:EncodeForPrint(compressed)
 end
 
@@ -444,13 +621,14 @@ function SP:ShowSupportCode()
 		width = 460,
 		editScroll = true,
 		text = "Paste this in #help on the ShamanPower Discord (discord.gg/eCtNeBqE8U) with a few words about the problem. "
-			.. "Best copied while the problem is on screen: it includes what ShamanPower sees right now.\n\n"
+			.. "Copy it while the problem is on screen so it includes what is happening now.\n\n"
 			.. "Press |cffFFD100Ctrl+C|r to copy it.\n\n"
 			.. "|cff3FA9F5WHAT'S IN IT|r\n"
 			.. "- Your game, language, ShamanPower version, class, spec and level range\n"
-			.. "- The settings you changed from the default (not the ones you left alone)\n"
-			.. "- Right now: in combat or not, and what ShamanPower can see and draw\n"
-			.. "- Your recent ShamanPower errors, the spells you know, your addon list, screen size and key bindings\n"
+			.. "- The settings you changed from the default\n"
+			.. "- Whether you are in combat and what ShamanPower can show right now\n"
+			.. "- Your recent ShamanPower errors (BugSack's too), the spells you know, your addon list, screen size and key bindings\n"
+			.. "- Which ShamanPower features loaded, any problems loading them, and when your settings were last saved\n"
 			.. "- Never: your name, realm, guild, who you group with, or chat",
 		editText = code,
 	})
@@ -463,7 +641,7 @@ do
 	if main then
 		main.support_code = {
 			order = 92, type = "execute", name = "Get Help: Copy Support Code", width = "full",
-			desc = "Makes a code with your game, ShamanPower version, what ShamanPower sees right now and the settings you changed (nothing personal: no name, realm or guild). Paste it in #help on the ShamanPower Discord when something looks wrong. Also: /sp support",
+			desc = "Copy details about your game, your ShamanPower version, what ShamanPower shows right now and the settings you changed. No name, realm or guild is included. Paste the code in #help on the ShamanPower Discord when something looks wrong. Also: /sp support",
 			func = function() SP:ShowSupportCode() end,
 		}
 		SP.OptionButtonTone = SP.OptionButtonTone or {}

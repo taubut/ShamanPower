@@ -2,9 +2,10 @@
 -- ShamanPower's own dialog: the one small window every question, notice and
 -- copy box in the addon uses (the setup code, the Discord link, Reset All
 -- Positions, the raid-resistance prompt ...). It has the settings window's look
--- (ShamanPower_Config/Core.lua) and is drawn only from textures, font strings
--- and plain Buttons: no Blizzard dialog or template, so it looks the same on
--- every client and works without ShamanPower_Config.
+-- (ShamanPower_Config: the soft edge, the four elements along the top, the lit
+-- header band, Fira Sans) and is drawn only from textures, font strings and
+-- plain Buttons: no Blizzard dialog or template, so it looks the same on every
+-- client and works without ShamanPower_Config.
 --
 --   ShamanPower:ShowSPDialog(spec) -> the dialog frame
 --     spec.key       unique id; showing the same key again replaces that dialog
@@ -72,6 +73,7 @@ local C = {
 	on         = { 0.180, 0.800, 0.443 },
 	off        = { 0.320, 0.350, 0.400 },
 	warn       = { 0.900, 0.290, 0.290 },
+	bandLight  = { 27 / 255, 36 / 255, 51 / 255 },   -- the header band's light (#1B2433), before its element
 }
 local function color(key, alpha)
 	local c = C[key]
@@ -79,23 +81,28 @@ local function color(key, alpha)
 	return c[1], c[2], c[3], alpha or 1
 end
 
-local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-local FONT_NARROW = "Fonts\\ARIALN.TTF"
-local function makeFont(name, size, key, path)
+-- Fira Sans from the brand kit (ShamanPowerBrand.lua, loaded before this file),
+-- with the settings window's weights and sizes (Core.fonts): SemiBold for titles,
+-- Medium for the small-caps labels, Regular for every other word. SP:BrandFontPath
+-- gives the game's own font on Chinese and Korean clients; a font that fails to
+-- load falls back to it too.
+local GAME_FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+local function makeFont(name, size, key, weight)
 	local f = CreateFont(name)
-	f:SetFont(path or FONT, size, "")
+	local path = SP.BrandFontPath and SP:BrandFontPath(weight) or GAME_FONT
+	if not (pcall(f.SetFont, f, path, size, "") and f:GetFont()) then f:SetFont(GAME_FONT, size, "") end
 	f:SetShadowOffset(1, -1)
 	f:SetShadowColor(0, 0, 0, 0.8)
 	f:SetTextColor(color(key))
 	return f
 end
 local FONTS = {
-	title  = makeFont("ShamanPowerDialogFontTitle", 16, "text"),
+	title  = makeFont("ShamanPowerDialogFontTitle", 16, "text", "semibold"),
 	text   = makeFont("ShamanPowerDialogFontText", 12, "text"),
 	dim    = makeFont("ShamanPowerDialogFontDim", 11, "textDim"),
 	button = makeFont("ShamanPowerDialogFontButton", 12, "text"),
-	tiny   = makeFont("ShamanPowerDialogFontTiny", 10, "textMute", FONT_NARROW),   -- subtitles, captions
-	group  = makeFont("ShamanPowerDialogFontGroup", 11, "accentHi", FONT_NARROW),  -- group headers (UPPERCASE)
+	tiny   = makeFont("ShamanPowerDialogFontTiny", 10, "textMute", "medium"),   -- subtitles, captions
+	group  = makeFont("ShamanPowerDialogFontGroup", 10, "accentHi", "medium"),  -- group headers (UPPERCASE)
 }
 
 -- 1px (or thicker) border from four edge textures, like Core:MakeBorder.
@@ -124,16 +131,6 @@ SP.SPDialogFonts = FONTS
 function SP:SPColor(key, alpha) return color(key, alpha) end
 function SP:SPMakeBorder(frame, key, thickness) makeBorder(frame, key, thickness) end
 function SP:SPSetBorderColor(frame, key, alpha) borderColor(frame, key, alpha) end
-
--- The accent rule under a header: a gradient that brightens to the right.
--- SetGradient took colour objects from 10.0 on and plain numbers before.
-local function accentRule(tex)
-	local r, g, b = color("accentHi")
-	tex:SetColorTexture(1, 1, 1, 1)
-	if CreateColor and pcall(tex.SetGradient, tex, "HORIZONTAL", CreateColor(r, g, b, 0), CreateColor(r, g, b, 0.9)) then return end
-	if tex.SetGradientAlpha then tex:SetGradientAlpha("HORIZONTAL", r, g, b, 0, r, g, b, 0.9) return end
-	tex:SetColorTexture(r, g, b, 0.5)
-end
 
 -- ---------------------------------------------------------------------------
 -- Buttons (Core:BevelButton's look: a flat blue base - stronger for the
@@ -262,10 +259,31 @@ end
 -- ---------------------------------------------------------------------------
 -- The dialog
 -- ---------------------------------------------------------------------------
--- Core:CreateDialog's measures: header 46, padding 14, body 10 under the
--- header's accent rule, a 52px footer with the buttons 12 up from the bottom
+-- Core:CreateDialog's measures: header 46, padding 14, a 52px footer with the
+-- buttons 12 up from the bottom. The header band runs from the top edge to 2 + 46
+-- (the header sat inside a 2px border); the body starts 12 under it, where it was
+-- when a 2px accent rule sat there.
 local PAD, HEADER_H, BODY_TOP, FOOTER, BTN_H, BTN_GAP = 14, 46, 10, 52, 26, 8
 local MIN_W, LEVEL = 380, 200
+
+-- The band's light, with the settings window's band numbers (Core:Light: the kit's
+-- radial light centered 12% across the band's top, reach 1.2, drawn 1.16 times
+-- larger and cut to the band by its texture coordinates), tinted 26% of the
+-- element over bandLight. An SP dialog is a question, notice or copy box: its
+-- element is spirit (logo blue).
+local ELEMENT = "spirit"
+local LIGHT_REACH, LIGHT_CX, LIGHT_CY, LIGHT_SIZE, LIGHT_MIX = 1.16, 0.12, 0, 1.2, 0.26
+local function placeLight(tex, host, w, h)
+	local hx, hy = (LIGHT_SIZE / 1.6) * w * LIGHT_REACH, LIGHT_SIZE * h * LIGHT_REACH
+	local px, py = LIGHT_CX * w, LIGHT_CY * h
+	local x0, x1 = math.max(0, px - hx), math.min(w, px + hx)
+	local y0, y1 = math.max(0, py - hy), math.min(h, py + hy)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", host, "TOPLEFT", x0, -y0)
+	tex:SetSize(x1 - x0, y1 - y0)
+	local left, top = px - hx, py - hy
+	tex:SetTexCoord((x0 - left) / (2 * hx), (x1 - left) / (2 * hx), (y0 - top) / (2 * hy), (y1 - top) / (2 * hy))
+end
 local dialogs = {}   -- [key] = frame, made the first time that key is shown
 local count = 0
 local open = {}      -- dialogs on screen, the newest last (Escape closes that one)
@@ -380,7 +398,6 @@ local function build()
 	f:SetScript("OnDragStart", f.StartMoving)
 	f:SetScript("OnDragStop", f.StopMovingOrSizing)
 	f:Hide()
-	tinsert(UISpecialFrames, f:GetName())   -- Escape in combat (the catcher above is hidden then)
 
 	-- Solid at any Background Opacity, on purpose: a popup never fades (the
 	-- settings window's What's New and previews add an opaque copy for the same
@@ -389,24 +406,55 @@ local function build()
 	local bg = f:CreateTexture(nil, "BACKGROUND")
 	bg:SetAllPoints(f)
 	bg:SetColorTexture(color("windowBg"))
-	makeBorder(f, "accent", 2)
+	-- the settings window's edge: a soft 1.5px line in `border`, over the band
+	makeBorder(f, "border", 1.5)
 
+	-- The header band (the settings window's, D32b "lit by the element"): sidebarBg
+	-- lit from its top left by the element, a 1px `border` line along its bottom,
+	-- and the element's 44 x 3 underline on that line under the title (its height:
+	-- layout). Without the brand file (an update the game has not loaded yet: new
+	-- files need a restart) it falls back as Core:CreateDialog does: logo blue, no
+	-- light, no stripe.
 	f.headerBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-	f.headerBg:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
-	f.headerBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
+	f.headerBg:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+	f.headerBg:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
 	f.headerBg:SetColorTexture(color("sidebarBg"))
-	f.rule = f:CreateTexture(nil, "ARTWORK")
-	f.rule:SetHeight(2)
-	accentRule(f.rule)
+	local er, eg, eb = 0.247, 0.663, 0.961   -- logo blue (#3FA9F5) without the brand kit
+	if SP.BrandElementRGB then er, eg, eb = SP:BrandElementRGB(ELEMENT) end
+	if SP.BrandRadialLight then
+		local lr, lg, lb = color("bandLight")
+		f.bandLight = SP:BrandRadialLight(f, "BACKGROUND", 2)
+		f.bandLight:SetVertexColor(er * LIGHT_MIX + lr * (1 - LIGHT_MIX), eg * LIGHT_MIX + lg * (1 - LIGHT_MIX),
+			eb * LIGHT_MIX + lb * (1 - LIGHT_MIX), 1)
+	else
+		f.bandLight = f:CreateTexture(nil, "BACKGROUND", nil, 2)
+		f.bandLight:SetColorTexture(0, 0, 0, 0)   -- no light: the plain band stays
+	end
+	local bandEdge = f:CreateTexture(nil, "BORDER")
+	bandEdge:SetHeight(1)
+	bandEdge:SetPoint("BOTTOMLEFT", f.headerBg, "BOTTOMLEFT", 0, 0)
+	bandEdge:SetPoint("BOTTOMRIGHT", f.headerBg, "BOTTOMRIGHT", 0, 0)
+	bandEdge:SetColorTexture(color("border"))
+	local underline = f:CreateTexture(nil, "ARTWORK")
+	underline:SetSize(44, 3)
+	underline:SetPoint("BOTTOMLEFT", f.headerBg, "BOTTOMLEFT", 2 + PAD, 0)
+	underline:SetColorTexture(er, eg, eb, 1)
+	-- the four elements along the top edge
+	if SP.CreateElementStripe then
+		local stripe = SP:CreateElementStripe(f)
+		stripe:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+	end
 
-	-- one line of title sits where CreateDialog puts it (6 above the header's
-	-- middle); a title or subtitle that wraps makes the header taller instead
+	-- one line of title sits where CreateDialog puts it (6 above the middle of the
+	-- header, 2 in from the edge); a title or subtitle that wraps makes the header
+	-- taller instead
 	f.title = f:CreateFontString(nil, "OVERLAY")
 	f.title:SetFontObject(FONTS.title)
 	f.title:SetJustifyH("LEFT"); f.title:SetWordWrap(true)
 	f.title:SetText("X")
 	f.titleLineH = f.title:GetStringHeight()
-	f.title:SetPoint("TOPLEFT", f.headerBg, "TOPLEFT", PAD, -(HEADER_H / 2 - 6 - f.titleLineH / 2))
+	f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 2 + PAD, -(2 + HEADER_H / 2 - 6 - f.titleLineH / 2))
 	f.subtitle = f:CreateFontString(nil, "OVERLAY")
 	f.subtitle:SetFontObject(FONTS.tiny)
 	f.subtitle:SetJustifyH("LEFT"); f.subtitle:SetWordWrap(true)
@@ -471,6 +519,9 @@ local function build()
 	f:SetScript("OnHide", function(self)
 		if self.spec and not self:IsShown() then finish(self, "escape") end
 	end)
+	-- listed for Escape in combat (the catcher above is hidden then) only once it is
+	-- whole: a build that failed leaves nothing in the list
+	tinsert(UISpecialFrames, f:GetName())
 	return f
 end
 
@@ -513,10 +564,8 @@ local function layout(f, spec)
 	else
 		f.subtitle:Hide()
 	end
-	f.headerBg:SetHeight(headerH)
-	f.rule:ClearAllPoints()
-	f.rule:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -(headerH + 2))
-	f.rule:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -(headerH + 2))
+	f.headerBg:SetHeight(headerH + 2)
+	placeLight(f.bandLight, f.headerBg, w, headerH + 2)
 	local y, gap = headerH + 4 + BODY_TOP, 0
 
 	if spec.text and spec.text ~= "" then

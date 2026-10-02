@@ -9,7 +9,7 @@ local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local SP = ShamanPower
 local UnitDebuff = SPCompat and SPCompat.UnitDebuff or UnitDebuff   -- ShamanPower's own reader on Forever, never another addon's global
 if not SP then
-	print("|cff0070ddShamanPower [Reactive Totems]:|r Core addon not found!")
+	print("|cff0070ddShamanPower [Reactive Totems]:|r ShamanPower is not loaded.")
 	return
 end
 
@@ -320,7 +320,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 			end
 			if not ShamanPower_ReactiveTotems.locked then
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine("Drag to move | Right-click for options", 0.5, 0.5, 0.5)
+				GameTooltip:AddLine("ALT+drag to move | Right-click for options", 0.5, 0.5, 0.5)
 			end
 			GameTooltip:Show()
 		end
@@ -511,7 +511,9 @@ function SP:UpdateReactiveTotemDisplay()
 		if sv and sv.enabled and sv.playSound and not self:IsOff() and not (SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
 			local found = self:ScanForReactiveDebuffs()
 			for totemId, frame in pairs(self.reactiveFrames) do
-				if found[totemId] then
+				local hit = found[totemId]
+				if hit and totemId == "fear" and hit.unit ~= "player" then hit = nil end   -- Tremor: you only, as drawn
+				if hit then
 					if not frame.soundPlayed then
 						ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
 						frame.soundPlayed = true
@@ -605,8 +607,9 @@ end
 -- combat, with no reads: poison and disease by dispel type (a filter the
 -- client does not tie to spell identity), fear by the client's CROWD_CONTROL
 -- class. That class covers every crowd-control effect and the client offers
--- no fear-only filter, so on this family the Tremor alert means "crowd
--- controlled". The debuff's own icon and time left are painted by the engine;
+-- no fear-only filter, so the Tremor alert is built for you only and shown only
+-- while your loss-of-control list says fear, charm or sleep (another player's is
+-- secret, so their roots and stuns would read as fears). The debuff's own icon and time left are painted by the engine;
 -- the unit's name is static text set when the display is built (party names
 -- are public out of combat). The sound cannot come from the engine (a sound
 -- registration is per spell ID), so it plays only while the scan can read.
@@ -651,13 +654,37 @@ local function ReactiveShouldShow(totemId)
 	return true
 end
 
+-- Your Tremor alert: CROWD_CONTROL also covers roots, stuns and more, but for you the
+-- game says what kind of control it is, in combat too (the player's loss-of-control
+-- list is secret only for other units). It shows for fear, charm or sleep (and
+-- horror, as the scan counts it); anything unreadable shows it, as before.
+local TREMOR_LOC_TYPES = { FEAR = true, FEAR_MECHANIC = true, CHARM = true, POSSESS = true }
+local function PlayerTremorBreakable()
+	local L = C_LossOfControl
+	if not (L and L.GetActiveLossOfControlDataCount and L.GetActiveLossOfControlData) then return true end
+	local n = L.GetActiveLossOfControlDataCount()
+	if issecretvalue(n) or type(n) ~= "number" then return true end
+	local sleep, horror = _G.LOSS_OF_CONTROL_DISPLAY_SLEEP, _G.LOSS_OF_CONTROL_DISPLAY_HORROR
+	for i = 1, n do
+		local d = L.GetActiveLossOfControlData(i)
+		if d then
+			local t, text = d.locType, d.displayText
+			if issecretvalue(t) or issecretvalue(text) then return true end
+			if TREMOR_LOC_TYPES[t] or (text ~= nil and (text == sleep or text == horror)) then return true end
+		end
+	end
+	return false
+end
+
 function SP:ApplyReactiveEngineVisibility()
 	if not self.reactiveEngineBuilt then return end
 	for totemId, list in pairs(self.reactiveEngine) do
 		local show = ReactiveShouldShow(totemId)
-		for _, slot in pairs(list) do
+		for i, slot in pairs(list) do
 			local c = slot.container
-			if c and c:IsShown() ~= show then c:SetShown(show) end
+			local on = show
+			if on and i == 1 and totemId == "fear" then on = PlayerTremorBreakable() end   -- slot 1 is you
+			if c and c:IsShown() ~= on then c:SetShown(on) end
 		end
 	end
 end
@@ -869,7 +896,8 @@ function SP:RebuildReactiveEngine()
 						pcall(slot.container.SetEnabled, slot.container, false)
 						slot.container:Hide()
 					end
-					list[i] = { container = exists and BuildReactiveContainer(totemId, i, host) or nil, key = key }
+					local wanted = totemId ~= "fear" or i == 1   -- Tremor: you only (see above)
+					list[i] = { container = exists and wanted and BuildReactiveContainer(totemId, i, host) or nil, key = key }
 				end
 				if list[i].container then built = true end
 			end
@@ -914,6 +942,14 @@ function SP:SetupReactiveTotemsEvents()
 	eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- engine displays rebuilt after a fight if asked for in one
+	-- your Tremor alert follows your loss-of-control list (PlayerTremorBreakable)
+	if SPCompat and SPCompat.secretsRegime and C_LossOfControl and eventFrame.RegisterUnitEvent then
+		local loc = CreateFrame("Frame")
+		loc:RegisterUnitEvent("LOSS_OF_CONTROL_ADDED", "player")
+		loc:RegisterUnitEvent("LOSS_OF_CONTROL_UPDATE", "player")
+		loc:RegisterEvent("PLAYER_CONTROL_GAINED")
+		loc:SetScript("OnEvent", function() if SP.reactiveEngineBuilt then SP:ApplyReactiveEngineVisibility() end end)
+	end
 
 	-- Throttle updates to max 20 per second (0.05s between updates)
 	local lastUpdate = 0
@@ -945,8 +981,8 @@ function SP:SetupReactiveTotemsEvents()
 	local function AuraChangeMatters(info)
 		if not info or secret(info) or secret(info.isFullUpdate) or info.isFullUpdate then return true end
 		local added = info.addedAuras
+		if secret(added) then return true end
 		if added then
-			if secret(added) then return true end
 			for i = 1, #added do
 				local a = added[i]
 				if secret(a) then return true end
@@ -955,8 +991,9 @@ function SP:SetupReactiveTotemsEvents()
 			end
 		end
 		local removed = info.removedAuraInstanceIDs
+		if secret(removed) then return true end
 		if removed and SP.reactiveAnyFound ~= false then
-			if secret(removed) or #removed > 0 then return true end
+			if #removed > 0 then return true end
 		end
 		return false
 	end
@@ -1091,7 +1128,7 @@ function SP:ShowAllReactiveFrames()
 		frame:Show()
 	end
 
-	SP:Print("Positioning mode: drag the frames, then press Hide All on the Reactive Totems settings page (or /spreactive hide).")
+	SP:Print("Positioning mode: ALT+drag the alerts, then press Hide All on the Reactive Totems settings page (or /spreactive hide).")
 end
 
 -- Hide all frames and restore click-to-cast
@@ -1112,7 +1149,7 @@ function SP:HideAllReactiveFrames()
 
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
-	SP:Print("Positioning mode ended.")
+	SP:Print("Finished moving Reactive Totems.")
 end
 
 -- Reset positions
@@ -1134,7 +1171,7 @@ function SP:ResetReactivePositions()
 		end
 	end
 
-	SP:Print("Reactive totem positions reset to defaults")
+	SP:Print("Reactive Totems positions reset to defaults")
 end
 
 -- ============================================================================
@@ -1149,7 +1186,7 @@ SlashCmdList["SPREACTIVE"] = function(msg)
 	if msg == "toggle" then
 		ShamanPower_ReactiveTotems.enabled = not ShamanPower_ReactiveTotems.enabled
 		SP:UpdateReactiveTotemDisplay()
-		SP:Print("Reactive Totems " .. (ShamanPower_ReactiveTotems.enabled and "enabled" or "disabled"))
+		SP:Print("Reactive Totems " .. (ShamanPower_ReactiveTotems.enabled and "on" or "off"))
 	elseif msg == "test" then
 		SP:TestReactiveAlerts()
 	elseif msg == "reset" then
@@ -1274,7 +1311,9 @@ function SP:ReactiveDemo(on)
 
 		-- A short raid scene, looped: each beat is { totem, "who: debuff", seconds }.
 		local SCENE = {
-			{ "fear",    "Tank: Intimidating Shout", 4.0, story = "The tank got feared - drop Tremor Totem" },
+			SPCompat and SPCompat.FOREVER   -- on WoW: Forever the Fear alert is yours only
+				and { "fear", "You: Intimidating Shout", 4.0, story = "You got feared - drop Tremor Totem" }
+				or { "fear", "Tank: Intimidating Shout", 4.0, story = "The tank got feared - drop Tremor Totem" },
 			{ nil,       nil,                        1.5, story = "Tremor is down, fear broken" },
 			{ "poison",  "Rogue: Deadly Poison",     4.0, story = "Rogue is poisoned - drop Poison Cleansing Totem" },
 			{ nil,       nil,                        1.5, story = "Cleansed" },
@@ -1390,7 +1429,7 @@ if SP.OnThemeChanged then
 				frame.debuffText:SetTextColor(c.r, c.g, c.b)
 			end
 		end
-		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.reactiveEngineBuilt and SP.ThemeRepaintSoon then
+		if SPCompat.FOREVER and SP.reactiveEngineBuilt and SP.ThemeRepaintSoon then
 			SP:ThemeRepaintSoon("reactiveEngine", rebuildEngine)
 		end
 	end)

@@ -7,12 +7,19 @@ SHAMANPOWER_FREEASSIGN = "Free Assignment"
 -- Keybinding names (displayed in WoW's keybinding menu)
 BINDING_HEADER_SHAMANPOWER = "ShamanPower"
 BINDING_NAME_SHAMANPOWER_DROPALL = "Drop All Totems"
+-- the totem sets (Wrath-era Calls) exist on WoW: Forever only
+do
+	local off = not (SPCompat and SPCompat.FOREVER) and " (not in this game)" or ""
+	BINDING_NAME_SHAMANPOWER_CALL_ELEMENTS = "Call of the Elements" .. off
+	BINDING_NAME_SHAMANPOWER_CALL_ANCESTORS = "Call of the Ancestors" .. off
+	BINDING_NAME_SHAMANPOWER_CALL_SPIRITS = "Call of the Spirits" .. off
+end
 BINDING_NAME_SHAMANPOWER_EARTH_TOTEM = "Cast Assigned Earth Totem"
 BINDING_NAME_SHAMANPOWER_FIRE_TOTEM = "Cast Assigned Fire Totem"
 BINDING_NAME_SHAMANPOWER_WATER_TOTEM = "Cast Assigned Water Totem"
 BINDING_NAME_SHAMANPOWER_AIR_TOTEM = "Cast Assigned Air Totem"
 BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast Earth Shield on Assigned Target"
-    .. (ShamanPower.ESTrackerUnavailable and " (not on this client)" or "")
+    .. (ShamanPower.ESTrackerUnavailable and " (not in this game)" or "")
 BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall Totems)"
 
 -- Cooldown Bar keybindings
@@ -28,7 +35,7 @@ BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 -- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
 -- The flyout keys drive the box-mode flyouts, which only WoW: Forever uses; on
 -- other clients the flyouts open on hover and these keys do nothing.
-BINDING_HEADER_SHAMANPOWER_FLYOUT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "ShamanPower Flyouts (with Blizzard-style arrows)" or "ShamanPower Flyouts (WoW: Forever only)"
+BINDING_HEADER_SHAMANPOWER_FLYOUT = (SPCompat.FOREVER) and "ShamanPower Flyouts (with Blizzard-style arrows)" or "ShamanPower Flyouts (WoW: Forever only)"
 BINDING_NAME_SHAMANPOWER_FLYOUT_EARTH = "Toggle Earth Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_FIRE = "Toggle Fire Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_WATER = "Toggle Water Totem Flyout"
@@ -41,7 +48,7 @@ BINDING_NAME_SHAMANPOWER_FLYOUT_CLOSE = "Close All Flyouts"
 SHAMANPOWER_REFRESH_DESC = "Refresh the shaman list"
 SHAMANPOWER_CLEAR_DESC = "Clear all totem assignments"
 SHAMANPOWER_AUTOASSIGN_DESC = "Auto-assign totems based on available shamans"
-SHAMANPOWER_FREEASSIGN_DESC = "Allow others to change your assignments without leader/assist"
+SHAMANPOWER_FREEASSIGN_DESC = "Allow players who are not the group leader or a raid assistant to change your assignments"
 
 -- Tooltip strings for UI elements
 ShamanPower.CONFIG_DRAGHANDLE = L["DRAGHANDLE_TOOLTIP"] or "|cffffffffLeft-Click|r Lock/Unlock ShamanPower\n|cffffffffLeft-Click-Hold|r Move ShamanPower\n|cffffffffRight-Click|r Open Totem Assignments\n|cffffffffShift-Right-Click|r Open Options"
@@ -145,6 +152,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         cdbarShowShieldCount = true,  -- Charge count on the cooldown bar's shield button
         cdbarShieldChargeBar = false,  -- Charge bar (one segment per charge) along the bottom of the cooldown bar's shield button
+        -- Sound When Your Shield Drops (Shield Charges, Expiring Alerts > Sound: Shields; ShamanPowerShieldSound.lua)
+        shieldDropSound = false,
+        shieldDropSoundName = "Raid Warning",
         -- Effects (Settings > Bars > Totem Bar / Cooldown Bar > Effects, ShamanPowerCues.lua): all off
         totemCueDestroyed = false,          -- a totem killed before its time
         totemCueDestroyedStyle = "shake",   -- shake / pop / flash / glow
@@ -807,7 +817,7 @@ end
 -- Keep the legacy bound on Classic, including the non-element fallback.
 function ShamanPower:GetTotemIndexLimit(element)
     local names = self.TotemNames and self.TotemNames[element]
-    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or not names then
+    if not SPCompat.FOREVER or not names then
         return names and #names or 8
     end
     local highest = 0
@@ -820,7 +830,7 @@ end
 -- Totems holds the same Earth/Fire/Water/Air tables, so these removals also
 -- update every per-element alias. SpellExists retains allow-listed spells
 -- such as name-encrypted Tranquil Air. Saved assignment indexes stay intact.
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+if SPCompat.FOREVER and SPCompat and SPCompat.SpellExists then
     for element, list in pairs(ShamanPower.Totems) do
         for index, spellID in pairs(list) do
             if not SPCompat.SpellExists(spellID) then

@@ -24,6 +24,12 @@ if SP.ThemeBind then
 	for e = 1, 4 do SP:ThemeBind(ELEMENTS[e], "win.rangecfg", e) end
 end
 
+-- The window's own element (D32: Totem Range is a Group Tools window, so Water): the
+-- header band's light, the title's underline and the content's light, and the
+-- overlay panels' switches and sliders. The columns' tints above follow the
+-- player's palette and stay as they are.
+local ELEMENT = "water"
+
 local COL_W, COL_GAP = 78, 8
 local ICON     = 40
 local ROW_H    = ICON + 18
@@ -61,7 +67,15 @@ local function Build()
 		title = "Totem Range", subtitle = "click totems to track",
 		headerHeight = HEADER_H, bodyTop = 8, footer = FOOTER_H, pad = pad,
 		special = true, strata = "DIALOG",
+		element = ELEMENT,
 	})
+	-- The content lit by the window's element, faintly, from its top left (the settings
+	-- content's light, D32b: 11% of the element over the window's navy), under the columns
+	local er, eg, eb = 0.400, 0.553, 0.949   -- #668DF2 without the brand kit
+	if SP.BrandElementRGB then er, eg, eb = SP:BrandElementRGB(ELEMENT) end
+	local wr, wg, wb = Core:Color("windowBg")
+	local lit = Core:Light(dlg, width, height, 0.05, 0, 1)
+	Core:RegisterFadeLight(lit, er * 0.11 + wr * 0.89, eg * 0.11 + wg * 0.89, eb * 0.11 + wb * 0.89)
 	dlg.totemButtons = {}
 	dlg.elementCols = {}   -- each column's tint and heading, for a theme repaint
 
@@ -113,31 +127,32 @@ local function Build()
 			end)
 			btn:SetScript("OnEnter", function(self)
 				for _, tex in pairs(self.spBorder) do tex:SetColorTexture(el.r, el.g, el.b, 0.9) end
-				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-				GameTooltip:AddLine(self.totemData.name, 1, 1, 1)
+				local tip = Core:Tooltip()
+				tip:SetOwner(self, "ANCHOR_CURSOR")
+				tip:AddLine(self.totemData.name)
 				if ShamanPower_RangeTracker.tracked[self.totemData.id] then
-					GameTooltip:AddLine("Currently tracking", 0.18, 0.8, 0.44)
-					GameTooltip:AddLine("Click to stop tracking", 0.7, 0.7, 0.7)
+					tip:AddLine("Currently tracking", Core:Color("on"))
+					tip:AddHint("Click to stop tracking")
 				else
-					GameTooltip:AddLine("Not tracking", 0.5, 0.5, 0.5)
-					GameTooltip:AddLine("Click to track", 0.7, 0.7, 0.7)
+					tip:AddLine("Not tracking", Core:Color("textDim"))
+					tip:AddHint("Click to track")
 				end
-				GameTooltip:Show()
+				tip:Show()
 			end)
 			btn:SetScript("OnLeave", function(self)
 				Core:SetBorderColor(self, "borderSoft")
-				GameTooltip:Hide()
+				Core:Tooltip():Hide()
 			end)
 
 			dlg.totemButtons[t.id] = btn
 		end
 	end
 
-	-- Footer: overlay toggle
+	-- Footer: overlay toggle (its rule runs under the window's edge)
 	local rule = dlg:CreateTexture(nil, "ARTWORK")
 	rule:SetHeight(1)
-	rule:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", 2, FOOTER_H)
-	rule:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", -2, FOOTER_H)
+	rule:SetPoint("BOTTOMLEFT", dlg, "BOTTOMLEFT", 0, FOOTER_H)
+	rule:SetPoint("BOTTOMRIGHT", dlg, "BOTTOMRIGHT", 0, FOOTER_H)
 	rule:SetColorTexture(Core:Color("border"))
 
 	local toggle = Core:MakeButton(dlg, "Show Overlay", 130, true)
@@ -151,7 +166,7 @@ local function Build()
 		PaintToggle()
 		Notify()
 	end)
-	Core:AttachTooltip(toggle, "Overlay", "Show or hide the on-screen range overlay for the tracked totems.")
+	Core:AttachTooltip(toggle, "Totem Range Tracker", "Show or hide the range tracker for your chosen totems.")
 	dlg.updateToggleBtnText = PaintToggle
 	dlg.spOnShow = PaintToggle
 
@@ -203,6 +218,7 @@ if FS then
 	FS.specs.coverage = function(frame)
 		return {
 			key = "coverage", title = "Totem Coverage", subtitle = "who is out of range",
+			element = ELEMENT,   -- Party Buff Tracker: Group Tools
 			opacity = {
 				min = 20, max = 100,
 				get = function() return math.floor((CO().opacity or 1) * 100 + 0.5) end,
@@ -214,7 +230,7 @@ if FS then
 			},
 			rows = function(Row)
 				Row("Slider", {
-					label = "Icon Size", desc = "Size of the totem cells.",
+					label = "Icon Size", desc = "Size of the totem icons.",
 					min = 20, max = 60, step = 4,
 					get = function() return CO().iconSize or 36 end,
 					set = function(v) CO().iconSize = v; SP:UpdateCoverageLayout(); Notify() end,
@@ -227,7 +243,7 @@ if FS then
 				})
 				Row("Toggle", {
 					label = "Place Each Totem Freely",
-					desc = "Each cell gets its own spot and size; ALT+drag a cell or use Move under Coverage > Position.",
+					desc = "Move and resize each totem separately. Alt-drag it or use Move under Coverage > Position.",
 					get = function() return CO().freeCells and true or false end,
 					set = function(v) CO().freeCells = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
 				})
@@ -242,12 +258,12 @@ if FS then
 					end
 				end
 				Row("Toggle", {
-					label = "Vertical Layout", desc = "Stack the cells instead of a row (when not placed freely).",
+					label = "Vertical Layout", desc = "Stack the totems in a column. Only applies when they are not placed freely.",
 					get = function() return CO().vertical and true or false end,
 					set = function(v) CO().vertical = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
 				})
 				Row("Toggle", {
-					label = "Hide a Totem Once Everyone Is in Range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.",
+					label = "Hide a Totem Once Everyone Is in Range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range. During fights in dungeons every totem stays listed and the names show who is missing its buff.",
 					get = function() return CO().hideWhenCovered ~= false end,
 					set = function(v) CO().hideWhenCovered = v and true or false; SP:UpdateCoverage(); Notify() end,
 				})
@@ -262,6 +278,7 @@ if FS then
 	FS.specs.sprange = function(frame)
 		return {
 			key = "sprange", title = "Totem Range", subtitle = "overlay",
+			element = ELEMENT,
 			opacity = {
 				min = 20, max = 100,
 				get = function() return math.floor((RT().opacity or 1) * 100 + 0.5) end,

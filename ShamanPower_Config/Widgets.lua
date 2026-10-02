@@ -32,12 +32,30 @@ local SLIDER_W    = 118
 local NUMBOX_W    = 44
 local SWATCH_W    = 26
 local TOGGLE_W    = 38
-local TOGGLE_H    = 18
 local BUTTON_W    = 110
 
 Widgets.ROW_H   = ROW_H
 Widgets.ROW_GAP = ROW_GAP
 Widgets.PAD     = PAD
+
+-- The settings page's element (Window.lua sets it while it draws a page): the
+-- switches and the slider fills take its color. nil (any other window): the
+-- switches in logo blue, the slider fills in accent as before.
+local curElement
+function Widgets:SetElement(key) curElement = key end
+
+-- A row inside a section card (Window.lua's page packer, D30 "one card per
+-- section": opts.inCard) draws no card of its own and stacks with no gap; the
+-- card draws the thin lines between the rows.
+Widgets.CARD_INSET = 2         -- a row in a card: its label 14 in from the card's edge (PAD + 2)
+local CARD_TEXT_PAD = 9        -- a description in a card: above and below its text
+
+-- (the brand file is missing when the addon was updated while the game ran: accent)
+local function ElementRGB(key)
+	local sp = ShamanPower
+	if sp and sp.BrandElementRGB then return sp:BrandElementRGB(key) end
+	return Core:Color("accent")
+end
 
 -- ---------------------------------------------------------------------------
 -- Pools
@@ -45,7 +63,7 @@ Widgets.PAD     = PAD
 -- only ever grows when a pool is empty at acquire time.
 -- ---------------------------------------------------------------------------
 local POOL_TYPES = {
-	"section", "toggle", "slider", "dropdown", "color", "button", "input", "description",
+	"section", "toggle", "slider", "dropdown", "color", "button", "input", "description", "card",
 }
 
 local pools = {}
@@ -140,6 +158,25 @@ end
 -- CreateRow runs once per pooled frame; ConfigureRow runs on every acquire and
 -- resets everything the previous occupant could have changed.
 -- ---------------------------------------------------------------------------
+-- opts.tag: a string, or function(opts.tagNode) -> string or nil (no tag)
+local function PaintRowTag(row)
+	local src, text = row._tagSrc, nil
+	if type(src) == "function" then
+		local ok, t = pcall(src, row._tagNode)
+		if ok and type(t) == "string" and t ~= "" then text = t end
+	elseif type(src) == "string" and src ~= "" then
+		text = src
+	end
+	if text then
+		row.tag:SetText(strupper(text))
+		row.tag:SetTextColor(Core:Color("accentHi"))
+		row.tag:Show()
+	else
+		row.tag:SetText("")
+		row.tag:Hide()
+	end
+end
+
 local function CreateRow(parent)
 	local row = CreateFrame("Frame", nil, parent)
 	row:SetSize(300, ROW_H)
@@ -154,6 +191,15 @@ local function CreateRow(parent)
 	label:SetNonSpaceWrap(true)   -- when it wraps, a long word breaks rather than cuts
 	row.label = label
 
+	-- a tag right after the label (opts.tag): small caps in accentHi, like the Themes
+	-- page's "WOW"; a function tag is asked again on every refresh of the row
+	local tag = row:CreateFontString(nil, "OVERLAY")
+	tag:SetFontObject(Core.fonts.strip)
+	tag:SetPoint("LEFT", label, "RIGHT", 8, 0)
+	tag:Hide()
+	row.tag = tag
+	row.spPaintTag = function() PaintRowTag(row) end
+
 	-- Hook once; the fields are refreshed by ConfigureRow.
 	Core:AttachTooltip(row, "", nil)
 	return row
@@ -164,19 +210,30 @@ local function ConfigureRow(row, parent, opts)
 	row:SetSize(opts.width or 300, ROW_H)
 	row:SetPoint("TOPLEFT", parent, "TOPLEFT", opts.x or 0, -(opts.y or 0))
 
-	-- Visual state a released row may have been left in.
-	if row.spBg then row.spBg:SetColorTexture(Core:Color("rowBg", Core.opacity)) end
-	Core:SetBorderColor(row, "borderSoft")
+	-- Visual state a released row may have been left in. Inside a section card
+	-- the row's own card is see-through and edgeless (its hover still shows).
+	row._inCard = opts.inCard and true or false
+	row._element = curElement
+	if row._inCard then
+		Core:SetFadeAlpha(row.spBg, 0)
+		Core:SetBorderColor(row, "borderSoft", 0)
+	else
+		Core:SetFadeAlpha(row.spBg, 1)
+		Core:SetBorderColor(row, "borderSoft")
+	end
 	row.label:SetText("")
 	row.label:SetTextColor(Core:Color("text"))
 	row.label.spTruncated = false
 	row._fullLabel = opts.label
 	row._controlMinH = nil
 	row._disabled = false
+	row._tagSrc, row._tagNode = opts.tag, opts.tagNode
+	PaintRowTag(row)
 	-- optional card hover hooks (style previews); pooled rows must not keep old ones
 	row.spOnEnter, row.spOnLeave = opts.onEnter, opts.onLeave
 
-	Core:AttachTooltip(row, opts.label, opts.desc)
+	-- (opts.searchPath: the row was reached through search, its tooltip says where it lives)
+	Core:AttachTooltip(row, opts.label, opts.desc, nil, opts.searchPath)
 	Widgets:TagRow(row, opts.label, opts.desc, opts.section)
 end
 
@@ -187,7 +244,9 @@ end
 -- settings page renderer "this needed more room", so it can hand the row the
 -- whole width first; only a label too long even then ends up wrapped.
 local function ClampRowLabel(row, controlWidth)
-	local avail = row:GetWidth() - controlWidth - (PAD * 2) - 8
+	local tagW = 0
+	if row.tag:IsShown() then tagW = row.tag:GetStringWidth() + 8 end
+	local avail = row:GetWidth() - controlWidth - (PAD * 2) - 8 - tagW
 	local label = row.label
 	-- a control taller than one line (a dropdown whose value wraps) sets the floor
 	local minH = math.max(ROW_H, row._controlMinH or 0)
@@ -233,6 +292,12 @@ function Widgets:RefreshAll(parent)
 	end
 end
 
+-- the gap under a row: none inside a section card (a line separates the rows)
+local function RowGap(row)
+	if row._inCard then return 0 end
+	return ROW_GAP
+end
+
 -- Common tail for every control row: enabled state is reset explicitly (a
 -- row with no `disabled` in its opts would otherwise inherit the previous
 -- occupant's muted label), then the widget's own refresh syncs the value.
@@ -241,8 +306,9 @@ local function FinishRow(row, parent, controlWidth)
 	row._controlWidth = controlWidth
 	ClampRowLabel(row, controlWidth)
 	RegisterRefresh(parent, row.refresh)
+	if type(row._tagSrc) == "function" then RegisterRefresh(parent, row.spPaintTag) end
 	row.refresh()
-	return row, row:GetHeight() + ROW_GAP   -- taller when the label wrapped
+	return row, row:GetHeight() + RowGap(row)   -- taller when the label wrapped
 end
 
 -- The page renderer asks this after placing a row in a column: a label that
@@ -257,7 +323,7 @@ function Widgets:Widen(row, width)
 	-- a dropdown fitted to its column can use the extra room before it wraps
 	if row.spRefit then row.spRefit() end
 	ClampRowLabel(row, row._controlWidth or 0)
-	return row:GetHeight() + ROW_GAP   -- the new height: one line again, or wrapped
+	return row:GetHeight() + RowGap(row)   -- the new height: one line again, or wrapped
 end
 
 -- ---------------------------------------------------------------------------
@@ -356,42 +422,61 @@ function Widgets:SectionHeader(parent, opts)
 end
 
 -- ---------------------------------------------------------------------------
--- Toggle (pill switch)
+-- Toggle: THE on / off switch (D32 design C2, ShamanPowerBrand's
+-- SP:CreateTotemSwitch): a tiny totem box sliding on its own duration bar, in
+-- the page's element. 38 x 18 like the pill it replaces; disabled = the knob
+-- and fill at half brightness (the switch repaints itself on Enable / Disable).
 -- ---------------------------------------------------------------------------
 local function TogglePaint(row, state)
-	if state then
-		row.trackTex:SetColorTexture(Core:Color("accent"))
-		row.knob:ClearAllPoints()
-		row.knob:SetPoint("RIGHT", row.track, "RIGHT", -3, 0)
-	else
-		row.trackTex:SetColorTexture(Core:Color("off"))
-		row.knob:ClearAllPoints()
-		row.knob:SetPoint("LEFT", row.track, "LEFT", 3, 0)
-	end
-	if row._disabled then
-		row.knob:SetVertexColor(0.5, 0.5, 0.5, 1)
-	else
-		row.knob:SetVertexColor(1, 1, 1, 1)
-	end
+	row.track:SetChecked(state)
+end
+
+-- Without the brand file (an update the game has not seen yet: it needs a full
+-- restart) the switch is the pre-3.0.6 pill, with the same methods.
+local function PillPaint(b)
+	b.spTex:SetColorTexture(Core:ColorIf(b.spChecked, "accent", "off"))
+	b.spKnob:ClearAllPoints()
+	if b.spChecked then b.spKnob:SetPoint("RIGHT", b, "RIGHT", -3, 0) else b.spKnob:SetPoint("LEFT", b, "LEFT", 3, 0) end
+	local k = 1
+	if not b.spEnabled then k = 0.5 end
+	b.spKnob:SetVertexColor(k, k, k, 1)
+end
+local function PillSetChecked(b, on)
+	if on then b.spChecked = true else b.spChecked = false end
+	PillPaint(b)
+end
+local function PillGetChecked(b) return b.spChecked end
+local function PillSetElement() end
+local function PillOnEnable(b) b.spEnabled = true; PillPaint(b) end
+local function PillOnDisable(b) b.spEnabled = false; PillPaint(b) end
+
+local function NewSwitch(parent)
+	local sp = ShamanPower
+	if sp and sp.CreateTotemSwitch then return sp:CreateTotemSwitch(parent, { scale = 1 }) end
+	local b = CreateFrame("Button", nil, parent)
+	b:SetSize(TOGGLE_W, 18)
+	b.spTex = b:CreateTexture(nil, "BACKGROUND")
+	b.spTex:SetAllPoints(b)
+	Core:MakeBorder(b, "border")
+	b.spKnob = b:CreateTexture(nil, "OVERLAY")
+	b.spKnob:SetSize(12, 12)
+	b.spKnob:SetColorTexture(0.95, 0.96, 0.98, 1)
+	b.spChecked, b.spEnabled = false, true
+	b.SetChecked, b.GetChecked, b.SetElement = PillSetChecked, PillGetChecked, PillSetElement
+	b:HookScript("OnEnable", PillOnEnable)
+	b:HookScript("OnDisable", PillOnDisable)
+	PillPaint(b)
+	return b
 end
 
 local function CreateToggle(parent)
 	local row = CreateRow(parent)
 
-	local track = CreateFrame("Button", nil, row)
+	local track = NewSwitch(row)
 	Core:ForwardTooltip(track, row)   -- the row's tooltip over the control too
-	track:SetSize(TOGGLE_W, TOGGLE_H)
 	track:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
-	local trackTex = track:CreateTexture(nil, "BACKGROUND")
-	trackTex:SetAllPoints(track)
-	trackTex:SetColorTexture(Core:Color("off"))
-	Core:MakeBorder(track, "border")
 
-	local knob = track:CreateTexture(nil, "OVERLAY")
-	knob:SetSize(TOGGLE_H - 6, TOGGLE_H - 6)
-	knob:SetColorTexture(0.95, 0.96, 0.98, 1)
-
-	row.track, row.trackTex, row.knob = track, trackTex, knob
+	row.track = track
 	-- The switch is a mouse-enabled child: sliding onto it fires the row's
 	-- OnLeave. Keep the row's hover hooks (a style preview) alive across it.
 	track:HookScript("OnEnter", function() if row.spOnEnter then row:spOnEnter() end end)
@@ -423,6 +508,7 @@ end
 function Widgets:Toggle(parent, opts)
 	local row = Acquire("toggle", parent, CreateToggle)
 	ConfigureRow(row, parent, opts)
+	row.track:SetElement(row._element or "spirit")
 	return FinishRow(row, parent, TOGGLE_W)
 end
 
@@ -550,7 +636,14 @@ local function CreateSlider(parent)
 		slider:EnableMouse(enabled)
 		box:EnableMouse(enabled)
 		box:SetTextColor(Core:ColorIf(enabled, "text", "textMute"))
-		fill:SetColorTexture(Core:ColorIf(enabled, "accent", "off"))
+		-- the fill in the page's element (accent outside the settings pages)
+		if not enabled then
+			fill:SetColorTexture(Core:Color("off"))
+		elseif row._element then
+			fill:SetColorTexture(ElementRGB(row._element))
+		else
+			fill:SetColorTexture(Core:Color("accent"))
+		end
 	end
 
 	row.refresh = function()
@@ -602,10 +695,36 @@ end
 -- ---------------------------------------------------------------------------
 -- Dropdown
 -- One shared popup is reused by every dropdown on screen.
+-- The look (D33 "Lit menu", menus_glowup_mock.py list_menu_A): the settings
+-- window's soft 1.5 px edge with a thin stripe of the four elements on top, 22 px
+-- rows with the text 28 in, hover the plain row hover, the current choice lit
+-- like the settings sidebar's open page (its element's light fading right, a 3 px
+-- element bar, the tiny totem box). The element is the one of the page or window
+-- it opens from (Widgets:MenuElement); logo blue outside any.
 -- ---------------------------------------------------------------------------
+local POPUP_EDGE, POPUP_STRIPE = 1.5, 2
+local POPUP_TOP, POPUP_BOTTOM = 4, 2          -- the stripe + 2 above the first row, 2 under the last
+local POPUP_BOX, POPUP_BOX_X, POPUP_TEXT_X = 10, 11, 28
+
 local popup
 function Widgets:HidePopup()
 	if popup then popup:Hide() end
+end
+
+-- The element of the page or window a menu opens from: the first of the anchor
+-- and its parents that names one (a settings row's _element, the settings
+-- window's or the setup tour's _element, a Core:CreateDialog window's
+-- spElement); nil when none does (the menu is then logo blue).
+function Widgets:MenuElement(anchor)
+	local f, depth = anchor, 0
+	while f and depth < 24 do
+		local el = f._element or f.spElement
+		if type(el) == "string" then return el end
+		if not f.GetParent then return nil end
+		f = f:GetParent()
+		depth = depth + 1
+	end
+	return nil
 end
 
 local function GetPopup()
@@ -631,11 +750,23 @@ local function GetPopup()
 	catcher:Hide()
 	popup.catcher = catcher
 	Core:SolidTex(popup, "sidebarBg", "BACKGROUND")
-	Core:MakeBorder(popup, "accent")
+	-- the soft edge and the four elements along the top, over the rows
+	local edge = CreateFrame("Frame", nil, popup)
+	edge:SetAllPoints(popup)
+	edge:SetFrameLevel(popup:GetFrameLevel() + 8)
+	Core:MakeBorder(edge, "border", POPUP_EDGE)
+	local sp = ShamanPower
+	if sp and sp.CreateElementStripe then   -- (no brand file before a full restart: no stripe)
+		local stripe = sp:CreateElementStripe(popup)
+		stripe:SetStripeHeight(POPUP_STRIPE)
+		stripe:SetPoint("TOPLEFT", popup, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", popup, "TOPRIGHT", 0, 0)
+		stripe:SetFrameLevel(popup:GetFrameLevel() + 9)
+	end
 
 	popup.scroll = CreateFrame("ScrollFrame", nil, popup)
-	popup.scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", 2, -2)
-	popup.scroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -2, 2)
+	popup.scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_EDGE, -POPUP_TOP)
+	popup.scroll:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -POPUP_EDGE, POPUP_BOTTOM)
 	popup.content = CreateFrame("Frame", nil, popup.scroll)
 	popup.content:SetSize(10, 10)
 	popup.scroll:SetScrollChild(popup.content)
@@ -667,11 +798,26 @@ end
 local ITEM_H = 22
 local MAX_POPUP_H = 260
 
+-- the current choice's light: 28% of the element over rowHover, fading out to the
+-- right (the settings sidebar's open page), its 3 px bar and its tiny totem box;
+-- painted only when the pooled row's element changes
+local function PaintPopupLit(b, key)
+	if b._litKey == key then return end
+	b._litKey = key
+	local er, eg, eb = ElementRGB(key)
+	local hr, hg, hb = Core:Color("rowHover")
+	local lr, lg, lb = er * 0.28 + hr * 0.72, eg * 0.28 + hg * 0.72, eb * 0.28 + hb * 0.72
+	Core:Gradient(b.lit, "HORIZONTAL", lr, lg, lb, 1, hr, hg, hb, 1)
+	b.bar:SetColorTexture(er, eg, eb, 1)
+	if b.box then b.box:SetElement(key) end
+end
+
 local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 	local p = GetPopup()
 	p.owner = anchorTo
 	-- per-show hover callbacks (a style list previews the hovered style)
 	p.onHover, p.onHoverEnd = popts and popts.onHover or nil, popts and popts.onHoverEnd or nil
+	local element = (popts and popts.element) or Widgets:MenuElement(anchorTo) or "spirit"
 
 	for _, b in ipairs(p.buttons) do b:Hide() end
 
@@ -695,10 +841,11 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 	end
 	local width = math.max(anchorTo:GetWidth(), (popts and popts.width) or 140)
 	if popts and popts.itemTexture then
-		width = math.max(width, 280, 8 + widest + 12 + 70 + 8 + 4)
+		width = math.max(width, 280, POPUP_TEXT_X + widest + 12 + 70 + 8 + POPUP_EDGE)
 	else
-		width = math.max(width, 8 + widest + 12 + 4)
+		width = math.max(width, POPUP_TEXT_X + widest + 8)   -- the dropdown button's own fit (+36): the list lines up with it
 	end
+	local rowW = width - 2 * POPUP_EDGE
 	local y = 0
 	for i, item in ipairs(items) do
 		local b = p.buttons[i]
@@ -706,20 +853,29 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 			b = CreateFrame("Button", nil, p.content)
 			b.bg = b:CreateTexture(nil, "BACKGROUND")
 			b.bg:SetAllPoints(b)
+			b.lit = b:CreateTexture(nil, "BACKGROUND", nil, 1)
+			b.lit:SetAllPoints(b)
+			b.lit:SetColorTexture(1, 1, 1, 1)
+			b.bar = b:CreateTexture(nil, "ARTWORK")
+			b.bar:SetWidth(3)
+			b.bar:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+			b.bar:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0)
+			local sp = ShamanPower
+			if sp and sp.CreateElementBox then   -- (no brand file before a full restart: no box)
+				b.box = sp:CreateElementBox(b, POPUP_BOX)
+				b.box:SetPoint("LEFT", b, "LEFT", POPUP_BOX_X - POPUP_EDGE, 0)
+			end
 			b.text = b:CreateFontString(nil, "OVERLAY")
 			b.text:SetFontObject(Core.fonts.row)
-			b.text:SetPoint("LEFT", b, "LEFT", 8, 0)
+			b.text:SetPoint("LEFT", b, "LEFT", POPUP_TEXT_X - POPUP_EDGE, 0)
 			b.text:SetJustifyH("LEFT")
+			-- hover: the plain row hover; the lit current choice stays as it is
 			b:SetScript("OnEnter", function(self)
-				self.bg:SetColorTexture(Core:Color("accent", 0.35))
+				if not self._selected then self.bg:SetColorTexture(Core:Color("rowHover")) end
 				if p.onHover then p.onHover(self._key) end
 			end)
 			b:SetScript("OnLeave", function(self)
-				if self._selected then
-					self.bg:SetColorTexture(Core:Color("accent", 0.22))
-				else
-					self.bg:SetColorTexture(0, 0, 0, 0)
-				end
+				self.bg:SetColorTexture(0, 0, 0, 0)
 				if p.onHoverEnd then p.onHoverEnd() end
 			end)
 			-- Installed once; per-show data lives on the button.
@@ -729,7 +885,7 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 			end)
 			p.buttons[i] = b
 		end
-		b:SetSize(width - 4, ITEM_H)
+		b:SetSize(rowW, ITEM_H)
 		b:ClearAllPoints()
 		b:SetPoint("TOPLEFT", p.content, "TOPLEFT", 0, -y)
 		-- a font list draws each name in its own font; pooled buttons go back to the row font
@@ -754,22 +910,21 @@ local function ShowPopup(anchorTo, items, currentValue, onPick, popts)
 			b.swatch:Hide()
 		end
 		b.text:SetText(item.text)
+		b.text:SetTextColor(Core:Color("text"))
 		b._key = item.key
 		b._onPick = onPick
 		b._selected = (item.key == currentValue)
-		if b._selected then
-			b.bg:SetColorTexture(Core:Color("accent", 0.22))
-			b.text:SetTextColor(Core:Color("accentHi"))
-		else
-			b.bg:SetColorTexture(0, 0, 0, 0)
-			b.text:SetTextColor(Core:Color("text"))
-		end
+		b.bg:SetColorTexture(0, 0, 0, 0)
+		if b._selected then PaintPopupLit(b, element) end
+		b.lit:SetShown(b._selected)
+		b.bar:SetShown(b._selected)
+		if b.box then b.box:SetShown(b._selected) end
 		b:Show()
 		y = y + ITEM_H
 	end
 
-	p.content:SetSize(width - 4, math.max(y, 1))
-	local h = math.min(y + 4, MAX_POPUP_H)
+	p.content:SetSize(rowW, math.max(y, 1))
+	local h = math.min(POPUP_TOP + y + POPUP_BOTTOM, MAX_POPUP_H)
 	p:SetSize(width, h)
 	p:ClearAllPoints()
 	if popts and popts.above then
@@ -1106,12 +1261,15 @@ function Widgets:Button(parent, opts)
 	row._fullLabel = ""
 	ApplyDisabled(row, false)
 	row.label:SetText("")
-	if row.spBg then row.spBg:SetColorTexture(0, 0, 0, 0) end
-	if row.spBorder then for _, t in pairs(row.spBorder) do t:SetColorTexture(0, 0, 0, 0) end end
+	row._tagSrc = nil   -- (a button carries its caption: no label, so no tag)
+	PaintRowTag(row)
+	-- (through the fade list, so a Background Opacity change cannot paint it back)
+	Core:SetFadeAlpha(row.spBg, 0)
+	Core:SetBorderColor(row, "borderSoft", 0)
 	row.spOnEnter, row.spOnLeave = nil, nil   -- no card hover behind the button
 	RegisterRefresh(parent, row.refresh)
 	row.refresh()
-	return row, row:GetHeight() + ROW_GAP
+	return row, row:GetHeight() + RowGap(row)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1213,7 +1371,13 @@ function Widgets:Description(parent, opts)
 	local width = opts.width or 300
 	f:SetPoint("TOPLEFT", parent, "TOPLEFT", opts.x or 0, -(opts.y or 0))
 
+	-- in a section card the text gets room above and below, like a row's line
+	local inCard = opts.inCard
+	local top = 0
+	if inCard then top = CARD_TEXT_PAD end
 	local fs = f.text
+	fs:ClearAllPoints()
+	fs:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -top)
 	fs:SetWidth(width - PAD * 2)
 	fs:SetText(opts.text or "")
 
@@ -1222,10 +1386,103 @@ function Widgets:Description(parent, opts)
 	-- then let the fontstring drive the final height.
 	f:SetSize(width, 18)
 	local h = math.max(fs:GetStringHeight() + 10, 18)
+	if inCard then h = math.max(fs:GetStringHeight() + top * 2, 18) end
 	f:SetSize(width, h)
 
 	self:TagRow(f, opts.text, nil, opts.section)
+	if inCard then return f, h end
 	return f, h + ROW_GAP
+end
+
+-- ---------------------------------------------------------------------------
+-- Section card (D30 "one card per section", D32b "lit by the element"): one
+-- card holds a section's rows (rowBg, a 1px borderSoft edge, both fading with
+-- Background Opacity), headed by a 26px strip tinted toward the page's element
+-- (mix(element, stripBg, 0.16)) with the element's tiny totem box and the
+-- section's name in small caps (tinted 55% toward the element), and an optional
+-- tag after the name. Window.lua's page packer puts the rows over it and asks
+-- for the thin lines between them (Widgets:CardLine), then its height.
+-- ---------------------------------------------------------------------------
+local STRIP_H = 26
+Widgets.STRIP_H = STRIP_H
+
+local function CreateCard(parent)
+	local c = CreateFrame("Frame", nil, parent)
+	c.bg = c:CreateTexture(nil, "BACKGROUND")
+	c.bg:SetAllPoints(c)
+	Core:RegisterFade(c.bg, "rowBg", 1)
+	Core:MakeBorder(c, "borderSoft")
+	-- the strip is drawn over the card's edge along it, as in the mock
+	c.strip = c:CreateTexture(nil, "ARTWORK", nil, -1)
+	c.strip:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+	c.strip:SetPoint("TOPRIGHT", c, "TOPRIGHT", 0, 0)
+	c.strip:SetHeight(STRIP_H)
+	Core:RegisterFadeRGB(c.strip, Core:Color("stripBg"))
+	if ShamanPower.CreateElementBox then
+		c.box = ShamanPower:CreateElementBox(c, 10)
+	else   -- updated without a restart: no brand file, so no element box
+		c.box = CreateFrame("Frame", nil, c)
+		c.box:SetSize(10, 10)
+		c.box.SetElement = function() end
+	end
+	c.box:SetPoint("TOPLEFT", c, "TOPLEFT", 10, -8)
+	c.label = c:CreateFontString(nil, "OVERLAY")
+	c.label:SetFontObject(Core.fonts.strip)
+	c.label:SetPoint("LEFT", c, "TOPLEFT", 26, -13)
+	-- a tag after the name ("NEW"): gold small caps, as the sidebar's NEW tag
+	c.tag = c:CreateFontString(nil, "OVERLAY")
+	c.tag:SetFontObject(Core.fonts.strip)
+	c.tag:SetTextColor(1, 0.82, 0)
+	c.tag:SetPoint("LEFT", c.label, "RIGHT", 8, 0)
+	c.lines = {}
+	c.lineUsed = 0
+	return c
+end
+
+-- opts = { x, y, width, label (nil: no strip), element (a SP.Brand element key), tag }
+function Widgets:Card(parent, opts)
+	local c = Acquire("card", parent, CreateCard)
+	c.opts = opts
+	c:SetFrameLevel(parent:GetFrameLevel())   -- under the rows placed over it
+	c:SetPoint("TOPLEFT", parent, "TOPLEFT", opts.x or 0, -(opts.y or 0))
+	c:SetSize(opts.width or 300, STRIP_H)
+	c.lineUsed = 0
+	local strip = opts.label ~= nil
+	c.strip:SetShown(strip)
+	c.box:SetShown(strip)
+	c.label:SetShown(strip)
+	c.tag:SetShown(strip and opts.tag ~= nil)
+	if strip then
+		local brand = ShamanPower.Brand
+		local el = brand and (brand.elements[opts.element or "spirit"] or brand.elements.spirit) or { Core:Color("accentHi") }
+		Core:SetFadeColor(c.strip, Core:Mix(el, "stripBg", 0.16))
+		c.box:SetElement(opts.element or "spirit")
+		c.label:SetText(strupper(opts.label))
+		c.label:SetTextColor(Core:Mix(el, "text", 0.55))
+		c.tag:SetText(opts.tag and strupper(opts.tag) or "")
+	end
+	return c
+end
+
+-- a thin line in the card (x, y from its top-left): the rows' separators
+-- (borderSoft) and the column divider (border); pooled per card
+function Widgets:CardLine(c, x, y, w, h, colorKey)
+	c.lineUsed = c.lineUsed + 1
+	local t = c.lines[c.lineUsed]
+	if not t then
+		t = c:CreateTexture(nil, "ARTWORK")
+		c.lines[c.lineUsed] = t
+	end
+	t:ClearAllPoints()
+	t:SetPoint("TOPLEFT", c, "TOPLEFT", x, -y)
+	t:SetSize(w, h)
+	t:SetColorTexture(Core:Color(colorKey))
+	t:Show()
+end
+
+function Widgets:CardFinish(c, height)
+	c:SetHeight(height)
+	for i = c.lineUsed + 1, #c.lines do c.lines[i]:Hide() end
 end
 
 return Widgets

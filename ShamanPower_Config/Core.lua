@@ -8,6 +8,8 @@ local ADDON, ns = ...
 
 local Core = {}
 ns.Core = Core
+-- rows a page draws with its own code (Window.lua's page packer): [key] = { Render, Release }
+ns.CustomRows = ns.CustomRows or {}
 
 -- ---------------------------------------------------------------------------
 -- Palette
@@ -38,8 +40,24 @@ local C = {
 	on         = { 0.180, 0.800, 0.443 },
 	off        = { 0.320, 0.350, 0.400 },
 	warn       = { 0.900, 0.290, 0.290 },
+
+	-- the settings window's navy lights (D32b "Lit by the element"): the header
+	-- band (#10141B, lit from #1B2433), the sidebar's light (#171C24) and the
+	-- base of a section card's strip (#20252E), each tinted by the page's element
+	bandBg       = { 16 / 255, 20 / 255, 27 / 255 },
+	bandLight    = { 27 / 255, 36 / 255, 51 / 255 },
+	sidebarLight = { 23 / 255, 28 / 255, 36 / 255 },
+	stripBg      = { 32 / 255, 37 / 255, 46 / 255 },
 }
 Core.colors = C
+
+-- t of color a over (1 - t) of color b, as the mockups mix them (a, b: palette
+-- keys or {r, g, b}); returns r, g, b
+function Core:Mix(a, b, t)
+	if type(a) == "string" then a = C[a] end
+	if type(b) == "string" then b = C[b] end
+	return a[1] * t + b[1] * (1 - t), a[2] * t + b[2] * (1 - t), a[3] * t + b[3] * (1 - t)
+end
 
 -- Conditional colour. Core:Color returns four values, and Lua truncates a
 -- multi-return call to one value when it sits inside an and/or chain -- so
@@ -86,13 +104,23 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Fonts
+-- Fira Sans from the brand kit (ShamanPowerBrand.lua): SemiBold for the wordmark
+-- and titles, Medium for the small-caps labels, Regular for every other word.
+-- SP:BrandFontPath gives the game's own font on Chinese and Korean clients
+-- (Fira has no letters for them); a font that fails to load falls back to it too.
 -- ---------------------------------------------------------------------------
-local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
-local FONT_NARROW = "Fonts\\ARIALN.TTF"
+local GAME_FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+local function FontPath(weight)
+	local sp = ShamanPower
+	if sp and sp.BrandFontPath then return sp:BrandFontPath(weight) end
+	return GAME_FONT
+end
+local REGULAR, MEDIUM, SEMIBOLD = FontPath("regular"), FontPath("medium"), FontPath("semibold")
 
 local function MakeFont(suffix, path, size, flags, colorKey)
 	local f = CreateFont("ShamanPowerConfigFont" .. suffix)
 	f:SetFont(path, size, flags)
+	if not f:GetFont() then f:SetFont(GAME_FONT, size, flags) end
 	f:SetShadowOffset(1, -1)
 	f:SetShadowColor(0, 0, 0, 0.8)
 	if colorKey then
@@ -102,17 +130,23 @@ local function MakeFont(suffix, path, size, flags, colorKey)
 end
 
 Core.fonts = {
-	title    = MakeFont("Title",   FONT,        22, "",       "text"),
-	subtitle = MakeFont("Sub",     FONT,        11, "",       "textDim"),
-	brand    = MakeFont("Brand",   FONT,        16, "",       "text"),
-	row      = MakeFont("Row",     FONT,        12, "",       "text"),
-	rowDim   = MakeFont("RowDim",  FONT,        12, "",       "textDim"),
-	section  = MakeFont("Section", FONT_NARROW, 12, "",       "textDim"),
-	nav      = MakeFont("Nav",     FONT,        12, "",       "textDim"),
-	navOn    = MakeFont("NavOn",   FONT,        12, "",       "text"),
-	group    = MakeFont("Group",   FONT_NARROW, 11, "",       "accentHi"),
-	tiny     = MakeFont("Tiny",    FONT_NARROW, 10, "",       "textMute"),
-	button   = MakeFont("Button",  FONT,        12, "",       "text"),
+	title     = MakeFont("Title",     SEMIBOLD, 22, "", "text"),
+	pageTitle = MakeFont("PageTitle", SEMIBOLD, 27, "", "text"),       -- the settings page title in its header band
+	wordmark  = MakeFont("Wordmark",  SEMIBOLD, 19, "", "text"),       -- "ShamanPower" beside the sidebar's logo
+	tagline   = MakeFont("Tagline",   MEDIUM,    8, "", "textMute"),   -- "TOTEMS, DONE RIGHT" under it
+	subtitle  = MakeFont("Sub",       REGULAR,  11, "", "textDim"),
+	brand     = MakeFont("Brand",     SEMIBOLD, 16, "", "text"),
+	row       = MakeFont("Row",       REGULAR,  12, "", "text"),
+	rowDim    = MakeFont("RowDim",    REGULAR,  12, "", "textDim"),
+	section   = MakeFont("Section",   MEDIUM,   12, "", "textDim"),
+	strip     = MakeFont("Strip",     MEDIUM,   10, "", "textDim"),    -- a section card's name (and its tag)
+	nav       = MakeFont("Nav",       REGULAR,  12, "", "textDim"),
+	navOn     = MakeFont("NavOn",     REGULAR,  12, "", "text"),
+	group     = MakeFont("Group",     MEDIUM,   10, "", "accentHi"),
+	tiny      = MakeFont("Tiny",      MEDIUM,   10, "", "textMute"),
+	small     = MakeFont("Small",     REGULAR,  10, "", "textDim"),    -- small readouts (the CPU line)
+	link      = MakeFont("Link",      REGULAR,  11, "", "text"),       -- the footer's link buttons
+	button    = MakeFont("Button",    REGULAR,  12, "", "text"),
 }
 
 -- ---------------------------------------------------------------------------
@@ -128,10 +162,73 @@ Core.fonts = {
 Core.opacity = 1
 local fadeRegistry = setmetatable({}, { __mode = "k" })
 
+-- One registered background at the current opacity. An entry is a palette key
+-- (info.key), a color of its own (info.r/g/b: an element's tint), a light (a
+-- texture file tinted by vertex color, info.light) or a whole region's alpha
+-- (info.whole: the faint totem graphic).
+local function PaintFade(tex, info, o)
+	if info.whole then
+		tex:SetAlpha(info.alpha * o)
+		return
+	end
+	local r, g, b
+	if info.key then r, g, b = Core:Color(info.key) else r, g, b = info.r, info.g, info.b end
+	if info.light then
+		tex:SetVertexColor(r, g, b, info.alpha * o)
+	else
+		tex:SetColorTexture(r, g, b, info.alpha * o)
+	end
+end
+
 function Core:RegisterFade(tex, colorKey, baseAlpha)
-	fadeRegistry[tex] = { key = colorKey, alpha = baseAlpha or 1 }
-	local r, g, b = self:Color(colorKey)
-	tex:SetColorTexture(r, g, b, (baseAlpha or 1) * self.opacity)
+	local info = { key = colorKey, alpha = baseAlpha or 1 }
+	fadeRegistry[tex] = info
+	PaintFade(tex, info, self.opacity)
+end
+
+-- a background in a color of its own (r, g, b 0-1); Core:SetFadeColor repaints it
+function Core:RegisterFadeRGB(tex, r, g, b, baseAlpha)
+	local info = { r = r, g = g, b = b, alpha = baseAlpha or 1 }
+	fadeRegistry[tex] = info
+	PaintFade(tex, info, self.opacity)
+end
+
+-- a light (a texture file such as the radial light): its vertex color and alpha fade
+function Core:RegisterFadeLight(tex, r, g, b, baseAlpha)
+	local info = { r = r, g = g, b = b, alpha = baseAlpha or 1, light = true }
+	fadeRegistry[tex] = info
+	PaintFade(tex, info, self.opacity)
+end
+
+-- a whole region or frame (SetAlpha), e.g. a faint picture behind a header
+function Core:RegisterFadeAlpha(region, baseAlpha)
+	local info = { alpha = baseAlpha or 1, whole = true }
+	fadeRegistry[region] = info
+	PaintFade(region, info, self.opacity)
+end
+
+-- Change a registered background: a new color (r, g, b) and/or base alpha.
+function Core:SetFadeColor(tex, r, g, b, baseAlpha)
+	local info = fadeRegistry[tex]
+	if not info then return end
+	if r then info.key, info.r, info.g, info.b = nil, r, g, b end
+	if baseAlpha then info.alpha = baseAlpha end
+	PaintFade(tex, info, self.opacity)
+end
+
+-- Only the base alpha (0 hides a row card inside a section card).
+function Core:SetFadeAlpha(tex, baseAlpha)
+	local info = fadeRegistry[tex]
+	if not info then return end
+	info.alpha = baseAlpha
+	PaintFade(tex, info, self.opacity)
+end
+
+-- Repaint one registered background as registered (a row's hover ending).
+function Core:RepaintFade(tex)
+	local info = fadeRegistry[tex]
+	if info then PaintFade(tex, info, self.opacity) return true end
+	return false
 end
 
 function Core:ApplyOpacity(o)
@@ -139,8 +236,7 @@ function Core:ApplyOpacity(o)
 	if o < 0.1 then o = 0.1 elseif o > 1 then o = 1 end
 	self.opacity = o
 	for tex, info in pairs(fadeRegistry) do
-		local r, g, b = self:Color(info.key)
-		tex:SetColorTexture(r, g, b, info.alpha * o)
+		PaintFade(tex, info, o)
 	end
 end
 
@@ -153,6 +249,233 @@ function Core:SyncOpacity()
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- No color (D42): a module that is off shows its settings page in plain grays.
+-- Core:MonoWatch(root) makes every region under root remember the colors it is
+-- painted with: its paint calls (SetColorTexture, SetVertexColor, the gradients,
+-- SetDesaturated, SetTexture, SetTextColor, SetFontObject, SetText) go through
+-- a small wrapper set once per region. Core:MonoSet(root) repaints them all in a
+-- gray of the same lightness, and every later paint (a hover, a refresh) stays
+-- gray; Core:MonoClear() gives every region its own colors back. Pictures
+-- (texture files) are desaturated; color codes in text turn gray too. A frame in
+-- Core.monoSkip keeps its colors (the footer, Turn On). Nothing runs unless a
+-- page is drawn while its module is off.
+-- ---------------------------------------------------------------------------
+local monoOn = setmetatable({}, { __mode = "k" })     -- [region] = true while it is gray
+Core.monoSkip = setmetatable({}, { __mode = "k" })    -- [frame] = true: never grayed
+local monoOrig = {}                                   -- [object type] = { method = the game's own }
+local MONO_TEX = { "SetColorTexture", "SetTexture", "SetVertexColor", "SetDesaturated", "SetGradient", "SetGradientAlpha" }
+local MONO_FS = { "SetTextColor", "SetFontObject", "SetText" }
+
+local function Lum(r, g, b) return (r or 0) * 0.299 + (g or 0) * 0.587 + (b or 0) * 0.114 end
+local function O(self, name) return monoOrig[self.spMonoType][name] end
+
+-- a color code |cAARRGGBB in the same lightness of gray
+local function GrayCode(a, r, g, b)
+	local l = math.floor(Lum(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)) + 0.5)
+	return string.format("|c%s%02x%02x%02x", a, l, l, l)
+end
+local function GrayText(s)
+	if type(s) ~= "string" or not s:find("|c", 1, true) then return s end
+	return (s:gsub("|c(%x%x)(%x%x)(%x%x)(%x%x)", GrayCode))
+end
+
+local function GrayGradient(self, method, orient, ...)
+	local n = select("#", ...)
+	if method == "SetGradient" and type((...)) == "table" then   -- (orientation, color, color)
+		local c1, c2 = ...
+		local r1, g1, b1, a1 = c1:GetRGBA()
+		local r2, g2, b2, a2 = c2:GetRGBA()
+		local l1, l2 = Lum(r1, g1, b1), Lum(r2, g2, b2)
+		return O(self, method)(self, orient, CreateColor(l1, l1, l1, a1), CreateColor(l2, l2, l2, a2))
+	end
+	if method == "SetGradientAlpha" or n == 8 then   -- (orientation, r, g, b, a, r, g, b, a)
+		local r1, g1, b1, a1, r2, g2, b2, a2 = ...
+		local l1, l2 = Lum(r1, g1, b1), Lum(r2, g2, b2)
+		return O(self, method)(self, orient, l1, l1, l1, a1, l2, l2, l2, a2)
+	end
+	local r1, g1, b1, r2, g2, b2 = ...   -- (orientation, r, g, b, r, g, b)
+	local l1, l2 = Lum(r1, g1, b1), Lum(r2, g2, b2)
+	return O(self, method)(self, orient, l1, l1, l1, l2, l2, l2)
+end
+
+local W = {}
+function W.SetColorTexture(self, r, g, b, a)
+	local q = self.spMonoQ
+	q.kind, q.r, q.g, q.b, q.a = "color", r, g, b, a
+	if monoOn[self] then local l = Lum(r, g, b) return O(self, "SetColorTexture")(self, l, l, l, a) end
+	return O(self, "SetColorTexture")(self, r, g, b, a)
+end
+function W.SetTexture(self, ...)
+	self.spMonoQ.kind = "file"
+	local res = O(self, "SetTexture")(self, ...)
+	if monoOn[self] then O(self, "SetDesaturated")(self, true) end
+	return res
+end
+function W.SetVertexColor(self, r, g, b, a)
+	local q = self.spMonoQ
+	q.vr, q.vg, q.vb, q.va, q.grad = r, g, b, a, nil   -- (a tint replaces a gradient)
+	if monoOn[self] then
+		q.vtouched = true
+		local l = Lum(r, g, b)
+		return O(self, "SetVertexColor")(self, l, l, l, a)
+	end
+	return O(self, "SetVertexColor")(self, r, g, b, a)
+end
+function W.SetDesaturated(self, on)
+	self.spMonoQ.desat = on and true or false
+	if monoOn[self] then on = true end
+	return O(self, "SetDesaturated")(self, on)
+end
+function W.SetGradient(self, orient, ...)
+	local q = self.spMonoQ
+	q.grad, q.vr, q.vtouched = { "SetGradient", orient, ... }, nil, nil   -- (a gradient replaces a tint)
+	if monoOn[self] then return GrayGradient(self, "SetGradient", orient, ...) end
+	return O(self, "SetGradient")(self, orient, ...)
+end
+function W.SetGradientAlpha(self, orient, ...)
+	local q = self.spMonoQ
+	q.grad, q.vr, q.vtouched = { "SetGradientAlpha", orient, ... }, nil, nil
+	if monoOn[self] then return GrayGradient(self, "SetGradientAlpha", orient, ...) end
+	return O(self, "SetGradientAlpha")(self, orient, ...)
+end
+function W.SetTextColor(self, r, g, b, a)
+	local q = self.spMonoQ
+	q.tr, q.tg, q.tb, q.ta, q.tset = r, g, b, a, true
+	if monoOn[self] then local l = Lum(r, g, b) return O(self, "SetTextColor")(self, l, l, l, a) end
+	return O(self, "SetTextColor")(self, r, g, b, a)
+end
+function W.SetFontObject(self, font)
+	local res = O(self, "SetFontObject")(self, font)
+	self.spMonoQ.tset = nil   -- the font's own color now
+	if monoOn[self] then
+		local r, g, b, a = self:GetTextColor()
+		local l = Lum(r, g, b)
+		O(self, "SetTextColor")(self, l, l, l, a)
+	end
+	return res
+end
+function W.SetText(self, text)
+	self.spMonoQ.str = text
+	if monoOn[self] then return O(self, "SetText")(self, GrayText(text)) end
+	return O(self, "SetText")(self, text)
+end
+
+-- the first paint, made before the wrapper (Core's own drawing notes it)
+local function Note(tex, r, g, b, a)
+	local q = tex.spMonoQ
+	if q then q.kind, q.r, q.g, q.b, q.a = "color", r, g, b, a else tex.spMonoNote = { r, g, b, a } end
+end
+Core.MonoNote = function(_, tex, r, g, b, a) Note(tex, r, g, b, a) end
+
+local function Watch(region)
+	if region.spMonoQ then return end
+	local ot = region.GetObjectType and region:GetObjectType()
+	local names = (ot == "Texture" or ot == "Line") and MONO_TEX or (ot == "FontString" and MONO_FS) or nil
+	if not names then return end
+	local orig = monoOrig[ot]
+	if not orig then
+		orig = {}
+		for _, name in ipairs(names) do orig[name] = region[name] end   -- the game's own, before any wrapper
+		monoOrig[ot] = orig
+	end
+	region.spMonoType = ot
+	local q = {}
+	local note = region.spMonoNote
+	if note then q.kind, q.r, q.g, q.b, q.a = "color", note[1], note[2], note[3], note[4]; region.spMonoNote = nil end
+	region.spMonoQ = q
+	for _, name in ipairs(names) do
+		if orig[name] then region[name] = W[name] end
+	end
+end
+
+-- Every region under root (frames in Core.monoSkip and theirs left out).
+local function Walk(frame, fn)
+	if Core.monoSkip[frame] then return end
+	local regions = { frame:GetRegions() }
+	for i = 1, #regions do fn(regions[i]) end
+	local children = { frame:GetChildren() }
+	for i = 1, #children do Walk(children[i], fn) end
+end
+
+function Core:MonoWatch(root)
+	if root then Walk(root, Watch) end
+end
+
+-- one region in gray (on) or its own colors again
+local function Call(region, name, ...)
+	local f = O(region, name)
+	if f then return f(region, ...) end
+end
+local function MonoPaint(region, on)
+	local q = region.spMonoQ
+	if not q then return end
+	if region.spMonoType == "FontString" then
+		if not q.tset and on then q.tr, q.tg, q.tb, q.ta = region:GetTextColor(); q.tset = true end
+		if q.str == nil then q.str = region:GetText() end
+		local coded = type(q.str) == "string" and q.str:find("|c", 1, true)
+		if on then
+			local l = Lum(q.tr, q.tg, q.tb)
+			Call(region, "SetTextColor", l, l, l, q.ta)
+			if coded then Call(region, "SetText", GrayText(q.str)) end
+		else
+			if q.tset then Call(region, "SetTextColor", q.tr, q.tg, q.tb, q.ta) end
+			if coded then Call(region, "SetText", q.str) end
+		end
+		return
+	end
+	-- a texture or a line
+	if q.kind == nil then q.kind = (region.GetTexture and region:GetTexture() ~= nil) and "file" or "unknown" end
+	if q.desat == nil then q.desat = (region.IsDesaturated and region:IsDesaturated()) and true or false end
+	-- (only a tint painted through the wrapper is known: one read back off a gradient
+	-- would flatten the gradient when it is put back)
+	if on then
+		if q.kind == "color" then
+			local l = Lum(q.r, q.g, q.b)
+			Call(region, "SetColorTexture", l, l, l, q.a)
+		else
+			Call(region, "SetDesaturated", true)   -- a picture (or a color painted before the wrapper)
+		end
+		if q.vr and not (q.vr == q.vg and q.vg == q.vb) and not q.grad then
+			local l = Lum(q.vr, q.vg, q.vb)
+			Call(region, "SetVertexColor", l, l, l, q.va)
+			q.vtouched = true
+		end
+		if q.grad and O(region, q.grad[1]) then GrayGradient(region, q.grad[1], unpack(q.grad, 2)) end
+	else
+		if q.kind == "color" then Call(region, "SetColorTexture", q.r, q.g, q.b, q.a) end
+		Call(region, "SetDesaturated", q.desat)
+		if q.vtouched and q.vr then Call(region, "SetVertexColor", q.vr, q.vg, q.vb, q.va) end
+		q.vtouched = nil
+		if q.grad then Call(region, q.grad[1], unpack(q.grad, 2)) end
+	end
+end
+
+-- every watched region under root in gray (it stays gray until Core:MonoClear)
+function Core:MonoSet(root)
+	if not root then return end
+	Walk(root, function(region)
+		Watch(region)
+		if region.spMonoQ and not monoOn[region] then
+			monoOn[region] = true
+			MonoPaint(region, true)
+		end
+	end)
+end
+
+-- every gray region gets its own colors back
+function Core:MonoClear()
+	if next(monoOn) == nil then return end
+	local list = {}
+	for region in pairs(monoOn) do list[#list + 1] = region end
+	for i = 1, #list do
+		monoOn[list[i]] = nil
+		MonoPaint(list[i], false)
+	end
+end
+
+function Core:MonoActive() return next(monoOn) ~= nil end
+
 -- Flat filled texture pinned to a region. Pass fade=true for panel
 -- backgrounds that should follow the opacity setting.
 function Core:SolidTex(parent, colorKey, layer, alpha, fade)
@@ -162,6 +485,7 @@ function Core:SolidTex(parent, colorKey, layer, alpha, fade)
 		self:RegisterFade(t, colorKey, alpha or 1)
 	else
 		t:SetColorTexture(self:Color(colorKey, alpha))
+		Note(t, self:Color(colorKey, alpha))
 	end
 	return t
 end
@@ -182,6 +506,7 @@ function Core:MakeBorder(frame, colorKey, thickness, inset)
 	for name, s in pairs(sides) do
 		local t = frame:CreateTexture(nil, "BORDER")
 		t:SetColorTexture(r, g, b, a)
+		Note(t, r, g, b, a)
 		t:SetPoint(s[1], frame, s[1], s[2], s[3])
 		t:SetPoint(s[4], frame, s[4], s[5], s[6])
 		if s[7] then t:SetWidth(s[7]) end
@@ -197,6 +522,7 @@ function Core:SetBorderColor(frame, colorKey, alpha)
 	local r, g, b, a = self:Color(colorKey, alpha)
 	for _, t in pairs(frame.spBorder) do
 		t:SetColorTexture(r, g, b, a)
+		if not t.spMonoQ then Note(t, r, g, b, a) end
 	end
 end
 
@@ -216,7 +542,8 @@ function Core:HoverHighlight(frame)
 		if self.spOnEnter then self:spOnEnter() end
 	end)
 	frame:SetScript("OnLeave", function(self)
-		if self.spBg then self.spBg:SetColorTexture(Core:Color("rowBg", Core.opacity)) end
+		-- back to the card as registered (see-through inside a section card)
+		if self.spBg and not Core:RepaintFade(self.spBg) then self.spBg:SetColorTexture(Core:Color("rowBg", Core.opacity)) end
 		if self.spOnLeave then self:spOnLeave() end
 	end)
 end
@@ -232,35 +559,101 @@ function Core:AccentGlow(parent, height)
 end
 
 -- ---------------------------------------------------------------------------
--- Tooltip helper
+-- The "lit" look's soft lights (D32b): the brand kit's white radial light
+-- (SP:BrandRadialLight), placed like the mockups' radial(): over a host area
+-- w x h it is centered at (cx * w, cy * h) from the host's top-left and has faded
+-- out r / 1.6 of the width across and r of the height down. The texture falls
+-- off a little faster than the mock's curve, so it is drawn LIGHT_REACH times
+-- larger (fitted to the mock's 1 - d^1.3). Only the part inside the host is
+-- drawn (its texture coordinates are cut to it), so nothing spills past the
+-- host. Tint it with Core:RegisterFadeLight (the color at its center).
 -- ---------------------------------------------------------------------------
+local LIGHT_REACH = 1.16
+function Core:PlaceLight(tex, host, w, h, cx, cy, r)
+	local hx, hy = (r / 1.6) * w * LIGHT_REACH, r * h * LIGHT_REACH
+	local px, py = cx * w, cy * h
+	local x0, x1 = math.max(0, px - hx), math.min(w, px + hx)
+	local y0, y1 = math.max(0, py - hy), math.min(h, py + hy)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", host, "TOPLEFT", x0, -y0)
+	tex:SetSize(x1 - x0, y1 - y0)
+	local left, top = px - hx, py - hy
+	tex:SetTexCoord((x0 - left) / (2 * hx), (x1 - left) / (2 * hx), (y0 - top) / (2 * hy), (y1 - top) / (2 * hy))
+end
+
+function Core:Light(host, w, h, cx, cy, r, sublevel)
+	local sp = ShamanPower
+	local tex
+	if sp and sp.BrandRadialLight then
+		tex = sp:BrandRadialLight(host, "BACKGROUND", sublevel or 1)
+	else
+		tex = host:CreateTexture(nil, "BACKGROUND", nil, sublevel or 1)
+		tex:SetColorTexture(0, 0, 0, 0)   -- no brand file: no light, the plain background stays
+	end
+	self:PlaceLight(tex, host, w, h, cx, cy, r)
+	return tex
+end
+
+-- ---------------------------------------------------------------------------
+-- Tooltips (D34): ShamanPower's own tooltip (SP.Tooltip, ShamanPowerTooltip.lua)
+-- in every window of ours, lit by the page's or window's element.
+-- ---------------------------------------------------------------------------
+-- WoW's own box when the core's tooltip is missing (a new file: an update before
+-- a full restart): the same calls, the click and path lines as plain lines
+local plainTip = {}
+for _, method in ipairs({ "SetOwner", "SetText", "AddLine", "AddDoubleLine", "ClearLines", "Show", "Hide",
+	"IsShown", "IsOwned", "GetOwner", "NumLines" }) do
+	plainTip[method] = function(_, ...) return GameTooltip[method](GameTooltip, ...) end
+end
+-- as these windows always drew it: a white title, wrapped light gray lines
+function plainTip.SetText(_, t, r, g, b) GameTooltip:SetText(t, r or 1, g or 1, b or 1, 1, true) end
+function plainTip.AddLine(_, t, r, g, b)
+	if GameTooltip:NumLines() == 0 then GameTooltip:AddLine(t, r or 1, g or 1, b or 1, true)
+	else GameTooltip:AddLine(t, r or 0.8, g or 0.8, b or 0.8, true) end
+end
+function plainTip.AddHint(_, text) GameTooltip:AddLine(text, 0.7, 0.7, 0.7, true) end
+function plainTip.AddPath(_, text) GameTooltip:AddLine(text, 0.247, 0.663, 0.961, true) end
+function plainTip.SetElement() end
+
+function Core:Tooltip()
+	local sp = ShamanPower
+	return (sp and sp.Tooltip) or plainTip
+end
+
 -- Safe to call repeatedly on the same frame: the hooks are installed exactly
 -- once and read spTipTitle/spTipBody at hover time, so a pooled frame that is
 -- reconfigured for a different option just gets its fields overwritten.
 -- (HookScript accumulates handlers, so hooking on every call would stack one
 -- tooltip per reuse.) Passing nil for both clears the tooltip.
+-- spTipHint: what a click does (small gray caps; "\n" between lines);
+-- spTipPath: where the setting lives, only on a row reached through search.
 local function TipOnEnter(self)
 	local title = self.spTipTitle
 	local body  = self.spTipBody
 	if title == "" then title = nil end
 	if body == "" then body = nil end
 	if not title and not body then return end
-	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-	-- Rows run the full width of the page, so an ANCHOR_RIGHT tooltip on one
-	-- would otherwise open past the screen edge and get clipped.
-	GameTooltip:SetClampedToScreen(true)
-	if title then GameTooltip:AddLine(title, 1, 1, 1) end
-	if body then GameTooltip:AddLine(body, 0.8, 0.8, 0.8, true) end
-	GameTooltip:Show()
+	local tip = Core:Tooltip()
+	-- at the mouse: a row runs the page's full width, so beside it would open by the
+	-- window's edge, far from what the pointer is on
+	tip:SetOwner(self, "ANCHOR_CURSOR")
+	if title then tip:AddLine(title) end
+	if body then tip:AddLine(body) end
+	if self.spTipHint then tip:AddHint(self.spTipHint) end
+	if self.spTipPath then tip:AddPath(self.spTipPath) end
+	tip:Show()
 end
 
 local function TipOnLeave(self)
-	if GameTooltip:IsOwned(self) then GameTooltip:Hide() end
+	local tip = Core:Tooltip()
+	if tip:IsOwned(self) then tip:Hide() end
 end
 
-function Core:AttachTooltip(frame, titleText, bodyText)
+function Core:AttachTooltip(frame, titleText, bodyText, hintText, pathText)
 	frame.spTipTitle = titleText
 	frame.spTipBody = bodyText
+	frame.spTipHint = hintText
+	frame.spTipPath = pathText
 	if frame.spTipHooked then return end
 	if not titleText and not bodyText then return end
 	frame.spTipHooked = true
@@ -281,7 +674,8 @@ end
 -- Drop the tooltip if it is currently showing for this frame (a hovered row
 -- that gets released back to its pool never receives OnLeave).
 function Core:HideTooltipFor(frame)
-	if GameTooltip:IsOwned(frame) then GameTooltip:Hide() end
+	local tip = self:Tooltip()
+	if tip:IsOwned(frame) then tip:Hide() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -577,7 +971,7 @@ local reloadDlg
 
 function Core:RequestReload(reason)
 	-- Classic line: the direct call has always worked, keep it instant.
-	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+	if not SPCompat.FOREVER then
 		ReloadUI()
 		return
 	end
@@ -618,20 +1012,50 @@ function Core:RequestReload(reason)
 	end
 
 	reloadDlg.text:SetText((reason and (reason .. "\n\n") or "")
-		.. "This client does not let an addon reload the UI for you, so the button below does it "
-		.. "instead. |cff808080Typing |cffFFD100/reload|r|cff808080 yourself works just as well.|r")
+		.. "Click Reload now to finish. "
+		.. "|cff808080You can also type |cffFFD100/reload|r|cff808080.|r")
 	reloadDlg:Show()
 end
 
--- A window shell: dark panel, 2px accent border, header band with title and
--- subtitle, accent rule, close button, drag-anywhere, toplevel, optional
--- Escape-to-close. Returns the frame; content goes in frame.body, which
--- spans from under the header to opts.footer pixels above the bottom.
---   opts = { name, width, height, title, subtitle, footer, special, strata }
+-- The wordmark lockup (D32; the graphic comes only from ShamanPowerBrand.lua): the
+-- totem graphic beside the name, "Shaman" in logo blue and "Power" in white, as in
+-- the settings sidebar (a 46 px wide graphic beside a 19 pt wordmark, its top 14
+-- above the name's middle, 8 between them), scaled to a title's font size.
+--   Core:Lockup(parent, size, text) -> graphic, width, gap, name
+--   graphic: a sized Frame on parent for the caller to place (nil without the brand
+--   kit, which loads only after a full restart: the name then stands alone); width
+--   and gap: 0 without it; name: text with every "ShamanPower" in the wordmark's colors.
+Core.wordmark = "|cff3FA9F5Shaman|r|cffFFFFFFPower|r"
+function Core:Lockup(parent, size, text)
+	local name = text and (text:gsub("ShamanPower", self.wordmark)) or nil
+	local sp = ShamanPower
+	if not (parent and sp and sp.CreateTotemGraphic) then return nil, 0, 0, name end
+	local k = (size or 16) / 19
+	local graphic = sp:CreateTotemGraphic(parent)
+	graphic:SetGraphicHeight(46 * k * 682 / 650)   -- 46 * k wide
+	return graphic, 46 * k, 8 * k, name
+end
+
+-- A window shell in the settings window's look (D32b "lit by the element"): a dark
+-- panel with the soft 1.5px edge and the four elements along its top, a header band
+-- (sidebarBg lit from its top left by the window's element, a 1px line along its
+-- bottom) holding the title, the subtitle and the element's 44 x 3 underline, a
+-- close button, drag-anywhere, toplevel, optional Escape-to-close. Returns the
+-- frame; content goes in frame.body, which spans from under the header to
+-- opts.footer pixels above the bottom.
+--   opts = { name, width, height, title, subtitle, footer, special, strata, element, logo }
+--   element: the brand element of the settings group the window belongs to ("earth",
+--     "fire", "water", "air"); default "spirit" (logo blue: pickers, copy boxes,
+--     confirms, What's New). It colors the band's light and the underline; f.spElement
+--     keeps it for Widgets:SetElement while the window draws its rows, and
+--     f:SetElement(key) changes it.
+--   logo: true for a title that shows "ShamanPower": the wordmark lockup (Core:Lockup).
 function Core:CreateDialog(opts)
 	local HEADER_H, PAD = opts.headerHeight or 46, opts.pad or 14
+	local BAND_H = HEADER_H + 2   -- the band runs from the top edge to where the header (2 in) ended
+	local W = opts.width or 320
 	local f = CreateFrame("Frame", opts.name, UIParent)
-	f:SetSize(opts.width or 320, opts.height or 200)
+	f:SetSize(W, opts.height or 200)
 	-- A frame with no anchor never renders; callers may re-anchor later.
 	f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 	f:SetFrameStrata(opts.strata or "HIGH")
@@ -644,21 +1068,52 @@ function Core:CreateDialog(opts)
 	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); if self.spOnMoved then self:spOnMoved() end end)
 	f:Hide()
 	if opts.special and opts.name then tinsert(UISpecialFrames, opts.name) end
+	local sp, level = ShamanPower, f:GetFrameLevel()
 
 	self:SolidTex(f, "windowBg", "BACKGROUND", nil, true)
-	self:MakeBorder(f, "accent", 2)
 
 	local header = CreateFrame("Frame", nil, f)
-	header:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -2)
-	header:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
-	header:SetHeight(HEADER_H)
+	header:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+	header:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+	header:SetHeight(BAND_H)
 	self:SolidTex(header, "sidebarBg", "BACKGROUND", nil, true)
 	f.header = header
+	-- the settings band's light (centered 12% across its top, reach 1.2), over a
+	-- caller's opaque copy of the band; placed again when the window changes width
+	-- (the color picker widens for a long title)
+	local light = self:Light(header, W, BAND_H, 0.12, 0, 1.2, 2)
+	self:RegisterFadeLight(light, self:Color("bandLight"))
+	header:SetScript("OnSizeChanged", function(_, hw, hh)
+		if hw and hh and hw > 0 and hh > 0 then Core:PlaceLight(light, header, hw, hh, 0.12, 0, 1.2) end
+	end)
+	f.bandLight = light
+	local bandEdge = header:CreateTexture(nil, "BORDER")
+	bandEdge:SetHeight(1)
+	bandEdge:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+	bandEdge:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+	bandEdge:SetColorTexture(self:Color("border"))
 
+	-- The title sits where it always did (2 + PAD in, its middle 4 under half the
+	-- header's height). With a logo it moves right of the totem graphic, whose top is
+	-- 14 / 19 of the font size above the title's middle (the sidebar's lockup), kept
+	-- 1px clear of the band's line.
+	local titleX, text = PAD + 2, opts.title or ""
+	if opts.logo then
+		local _, size = self.fonts.brand:GetFont()
+		size = size or 16
+		local graphic, gw, gap, name = self:Lockup(header, size, text)
+		text = name
+		if graphic then
+			local top = math.min(HEADER_H / 2 - 4 - 14 * size / 19, HEADER_H - gw * 682 / 650)
+			graphic:SetPoint("TOPLEFT", header, "TOPLEFT", titleX, -top)
+			titleX = titleX + gw + gap
+		end
+		f.spLogo = true
+	end
 	local title = header:CreateFontString(nil, "OVERLAY")
 	title:SetFontObject(self.fonts.brand)
-	title:SetPoint("LEFT", header, "LEFT", PAD, 6)
-	title:SetText(opts.title or "")
+	title:SetPoint("LEFT", header, "LEFT", titleX, 5)
+	title:SetText(text)
 	f.title = title
 
 	local sub = header:CreateFontString(nil, "OVERLAY")
@@ -667,9 +1122,26 @@ function Core:CreateDialog(opts)
 	sub:SetText(opts.subtitle and strupper(opts.subtitle) or "")
 	f.subtitle = sub
 
-	local glow = self:AccentGlow(f, 2)
-	glow:SetPoint("TOPLEFT", f, "TOPLEFT", 2, -(HEADER_H + 2))
-	glow:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -(HEADER_H + 2))
+	-- the element's underline under the title, on the band's line (a header too short
+	-- to hold it under the subtitle goes without)
+	local underline
+	if HEADER_H >= 40 then
+		underline = header:CreateTexture(nil, "ARTWORK")
+		underline:SetSize(44, 3)
+		underline:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", titleX, 0)
+	end
+	f.underline = underline
+
+	-- the band's light takes 26% of the element over its navy (the settings band's)
+	function f.SetElement(dialog, key)
+		dialog.spElement = key or "spirit"
+		local er, eg, eb = 0.247, 0.663, 0.961   -- logo blue (#3FA9F5) without the brand kit
+		if sp and sp.BrandElementRGB then er, eg, eb = sp:BrandElementRGB(dialog.spElement) end
+		local lr, lg, lb = Core:Color("bandLight")
+		Core:SetFadeColor(light, er * 0.26 + lr * 0.74, eg * 0.26 + lg * 0.74, eb * 0.26 + lb * 0.74)
+		if underline then underline:SetColorTexture(er, eg, eb, 1) end
+	end
+	f:SetElement(opts.element)
 
 	local close = self:CloseButton(f, 22)
 	close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -12)
@@ -682,6 +1154,20 @@ function Core:CreateDialog(opts)
 	f.body = body
 	f.pad = PAD
 
+	-- the settings window's edge (a soft 1.5px `border` line) and the four elements
+	-- along the top, over the band and everything else in the window
+	local edge = CreateFrame("Frame", nil, f)
+	edge:SetAllPoints(f)
+	edge:SetFrameLevel(level + 10)
+	self:MakeBorder(edge, "border", 1.5)
+	f.spEdge = edge
+	if sp and sp.CreateElementStripe then
+		local stripe = sp:CreateElementStripe(f)
+		stripe:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+		stripe:SetFrameLevel(level + 11)
+	end
+
 	f:SetScript("OnShow", function(self)
 		Core:SyncOpacity()
 		self:Raise()
@@ -693,7 +1179,9 @@ function Core:CreateDialog(opts)
 	end)
 
 	function f:SetTitles(t, st)
-		self.title:SetText(t or "")
+		t = t or ""
+		if self.spLogo then t = t:gsub("ShamanPower", Core.wordmark) end
+		self.title:SetText(t)
 		self.subtitle:SetText(st and strupper(st) or "")
 	end
 	return f

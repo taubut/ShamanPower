@@ -15,8 +15,8 @@ SP.Presets = {
 	{
 		key   = "srumar",
 		name  = "Srumar's Layout",
-		desc  = "The author's complete setup: bars, scales, colors, positions and every module tuned. The totem bar and cooldown bar start low in the middle of the screen instead, for you to move with /sp unlock. Your current totems and raid assignments are left as-is.",
-		str   = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and SRUMAR_FOREVER or SRUMAR_ANNIVERSARY,
+		desc  = "My complete setup: bars, sizes, colors, positions and every feature's settings. The Totem Bar and Cooldown Bar start low in the middle of your screen instead, so you can move them with /sp unlock. Your chosen totems and raid assignments stay the same.",
+		str   = (SPCompat.FOREVER) and SRUMAR_FOREVER or SRUMAR_ANNIVERSARY,
 	},
 }
 

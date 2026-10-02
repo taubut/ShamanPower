@@ -1045,7 +1045,7 @@ end
 -- none when it is not. Reading buffs one by one there (UnitBuff, SPCompat) makes a
 -- table for EVERY buff the player has, on every aura change. The Classic line
 -- keeps its own loop, which makes no tables.
-local GetAuraByName = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName or nil
+local GetAuraByName = (SPCompat.FOREVER) and C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName or nil
 
 -- ...and only when the SHIELD changed: the game says which auras each update
 -- added, changed or removed, so any other buff coming or going costs nothing.
@@ -1059,6 +1059,7 @@ local secret = issecretvalue or function() return false end
 if GetAuraByName then
 	local function has(list, id)   -- true when the list holds id, or can't be read
 		if secret(list) then return true end
+		if not list then return false end
 		for i = 1, #list do
 			local v = list[i]
 			if secret(v) or v == id then return true end
@@ -1073,14 +1074,12 @@ if GetAuraByName then
 		if info.isFullUpdate then shield.known = false return end
 		local id = shield.id
 		if id then
-			local list = info.removedAuraInstanceIDs
-			if list and has(list, id) then shield.known = false return end
-			list = info.updatedAuraInstanceIDs   -- a charge used
-			if list and has(list, id) then shield.known = false return end
+			if has(info.removedAuraInstanceIDs, id) then shield.known = false return end
+			if has(info.updatedAuraInstanceIDs, id) then shield.known = false return end   -- a charge used
 		end
 		local added = info.addedAuras
+		if secret(added) then shield.known = false return end
 		if added then
-			if secret(added) then shield.known = false return end
 			for i = 1, #added do
 				local a = added[i]
 				local name = not secret(a) and a.name
@@ -1170,7 +1169,7 @@ function SP:UpdateShieldChargeDisplays()
 			local sc = self._shieldChargeScan
 			if not sc then sc = {}; self._shieldChargeScan = sc end
 			local core = ShamanPower.shieldCache
-			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and core and not core.engineCount and ShamanPower._shieldCheckedGen ~= nil
+			if not SPCompat.FOREVER and core and not core.engineCount and ShamanPower._shieldCheckedGen ~= nil
 				and ShamanPower._shieldCheckedGen == (ShamanPower.auraGen and ShamanPower.auraGen["player"] or 0) then
 				-- TBC Anniversary: the core's shield check is current (it read the shield, or the
 				-- game said nothing about it changed): its answer, not a second read of every
@@ -1444,7 +1443,7 @@ if SP.OnThemeChanged then
 		end
 		SP._shieldWake = true
 		if SP.shieldChargesDemoActive then SP:ShieldChargesDemoRefresh() end
-		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.ThemeRepaintSoon then
+		if SPCompat.FOREVER and SP.ThemeRepaintSoon then
 			SP:ThemeRepaintSoon("shieldChargesEngine", RebuildEngineForTheme)
 		end
 	end)
@@ -1459,7 +1458,7 @@ function SP:ShieldChargeStyleChanged()
 	end
 	SP._shieldWake = true
 	if SP.shieldChargesDemoActive and SP.ShieldChargesDemoRefresh then SP:ShieldChargesDemoRefresh() end
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.ThemeRepaintSoon then
+	if SPCompat.FOREVER and SP.ThemeRepaintSoon then
 		SP:ThemeRepaintSoon("shieldChargesEngine", RebuildEngineForTheme)
 	end
 	SP:UpdateShieldChargeDisplays()

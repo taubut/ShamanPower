@@ -100,7 +100,7 @@ SP.SHARE_FEATURES = {
 	{ key = "readyCheck",         label = "Ready check sweep",                  get = function()
 		local c = O().readyCheck
 		if type(c) == "table" and c.enabled ~= nil then return c.enabled == true end
-		return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE    -- its default: on for Forever, off elsewhere
+		return SPCompat.FOREVER    -- its default: on for Forever, off elsewhere
 	end },
 	{ key = "announceUse",        label = "Announce: cooldown used",            get = function() return on(sub(O().announce, "announceUse")) end },
 	{ key = "announceSoon",       label = "Announce: ready soon",               get = function() return on(sub(O().announce, "announceSoon")) end },
@@ -108,7 +108,7 @@ SP.SHARE_FEATURES = {
 	{ key = "announceLocalCall",  label = "Announce: local Mana Tide call",     get = function() return on(sub(O().announce, "localCall")) end },
 	{ key = "loadoutAutoSwitch",  label = "Loadout auto-switch",                get = function() return on(sub(O().loadoutRules, "enabled")) end },
 	{ key = "trainerReminder",    label = "Trainer reminder",                   get = function()
-		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return false end
+		if not SPCompat.FOREVER then return false end
 		local t = O().trainerReminder
 		return not (type(t) == "table" and t.enabled == false)
 	end },
@@ -232,7 +232,7 @@ end
 
 function SP:BuildShareCode()
 	local client = 0
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then client = 1 elseif WOW_PROJECT_ID ~= nil then client = 2 end
+	if SPCompat.FOREVER then client = 1 elseif WOW_PROJECT_ID ~= nil then client = 2 end
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
 	local okStyle, style = pcall(function() return SP.GetTotemBarStyle and SP:GetTotemBarStyle() end)
 	local path = self.opt and self.opt.setupPath
@@ -289,7 +289,7 @@ do
 	if main then
 		main.share_setup = {
 			order = 91, type = "execute", name = "Share My Setup (for the developer)", width = "full",
-			desc = "Makes a short code listing which ShamanPower features you use (nothing personal: no name, realm or guild). Paste it in #setup-stats on the ShamanPower Discord so the developer can see what people use most. Also: /sp share",
+			desc = "Share which ShamanPower features you use. No name, realm or guild is included. Paste the code in #setup-stats on the ShamanPower Discord to help me see which features people use most. Also: /sp share",
 			func = function() SP:ShowShareCode() end,
 		}
 	end

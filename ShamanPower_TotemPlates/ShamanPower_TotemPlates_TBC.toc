@@ -3,7 +3,7 @@
 ## Title: |cff0070ddShamanPower|r |cffffd200[Totem Plates]|r
 ## Version: 3.0.5
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
-## Notes: Replaces totem nameplates with icons for easy identification
+## Notes: Shows totem icons in place of totem nameplates.
 ## Dependencies: ShamanPower
 ## LoadOnDemand: 0
 ## DefaultState: enabled

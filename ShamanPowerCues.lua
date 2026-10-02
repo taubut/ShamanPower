@@ -53,7 +53,7 @@ local function isSecret(v) return issecretvalue and issecretvalue(v) or false en
 -- Anniversary: the core stamps your own right-click dismissals on the Mainline
 -- family only (its in-combat record needs them there); the cues need them on
 -- every client, or a dismissed totem would read as destroyed.
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+if not SPCompat.FOREVER and type(DestroyTotem) == "function" and hooksecurefunc then
 	hooksecurefunc("DestroyTotem", function(slot)
 		slot = tonumber(slot)
 		if slot and SP._totemDismissedAt then SP._totemDismissedAt[slot] = GetTime() end
@@ -379,8 +379,25 @@ end
 -- A tracked cooldown (UpdateCooldownButtons, cooldown branch): ready when it
 -- stops being on cooldown within a few seconds of when it was due (a bar that
 -- was hidden meanwhile does not cue late).
-function SP:CueCooldownCheck(btn, start, duration)
-	if not self.opt.cdbarCueReady then btn._cueCdEnd = nil return end
+-- real (WoW: Forever): the game's own answer from that pass, true = cooling,
+-- false = ready (its flags; the engine's end signal wakes that pass at once).
+-- It cues the moment a cooldown seen cooling is ready, a reset or a shortened
+-- one included, if it was seen cooling in the last few seconds. nil: the game
+-- has no answer, and the estimate times it as before.
+function SP:CueCooldownCheck(btn, start, duration, real)
+	if not self.opt.cdbarCueReady then btn._cueCdEnd, btn._cueCdSeen = nil, nil return end
+	if real ~= nil then
+		local now = GetTime()
+		btn._cueCdEnd = nil
+		if real then
+			btn._cueCdSeen = now
+		elseif btn._cueCdSeen then
+			local seen = btn._cueCdSeen
+			btn._cueCdSeen = nil
+			if now - seen < 3 then playCue(btn, self.opt.cdbarCueReadyStyle or "pop", "ready") end
+		end
+		return
+	end
 	if type(start) ~= "number" or type(duration) ~= "number" or isSecret(start) or isSecret(duration) then return end
 	if start > 0 and duration > 1.5 then
 		btn._cueCdEnd = start + duration

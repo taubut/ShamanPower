@@ -63,6 +63,16 @@ local function Refresh()
 	if ns.SPConfig and ns.SPConfig.RefreshCurrent then ns.SPConfig:RefreshCurrent() end
 end
 
+-- A version's number in Fira Sans SemiBold (the settings window's titles). The
+-- game's font where Fira is missing (a new file loads only after a full restart)
+-- or on Chinese and Korean clients (SP:BrandFontPath gives the game's font there).
+local function VersionFont(fs, size)
+	local path = SP.BrandFontPath and SP:BrandFontPath("semibold")
+	local ok, set = false, false
+	if path then ok, set = pcall(fs.SetFont, fs, path, size, "") end
+	if not (ok and set) then fs:SetFont("Fonts\\FRIZQT__.TTF", size, "") end
+end
+
 -- "2026-09-28" -> "Sep 28, 2026"
 local MONTHS = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" }
 local function NiceDate(iso)
@@ -178,7 +188,7 @@ local function Header(key, y, W, big, sub, date, headline, counts, isOpen, lates
 			b.lines[i] = l
 		end
 		b.ver = b:CreateFontString(nil, "OVERLAY")
-		b.ver:SetFont("Fonts\\FRIZQT__.TTF", 20, "")
+		VersionFont(b.ver, 20)
 		b.ver:SetPoint("TOPLEFT", b, "TOPLEFT", 38, -9)
 		b.tag = Text(b, "section"); b.tag:SetWordWrap(false); b.tag:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
 		b.tag:SetPoint("LEFT", b.ver, "RIGHT", 10, 0)
@@ -208,7 +218,7 @@ local function Header(key, y, W, big, sub, date, headline, counts, isOpen, lates
 	local lr, lg, lb = GOLD[1], GOLD[2], GOLD[3]
 	if not isOpen then lr, lg, lb = Core:Color("textDim") end
 	a:SetVertexColor(lr, lg, lb); bb:SetVertexColor(lr, lg, lb)
-	h.ver:SetFont("Fonts\\FRIZQT__.TTF", big and 20 or 17, "")
+	VersionFont(h.ver, big and 20 or 17)
 	h.ver:SetText(sub)
 	if isOpen then h.ver:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else h.ver:SetTextColor(Core:Color("text")) end
 	h.tag:SetText(latest and "LATEST" or "")

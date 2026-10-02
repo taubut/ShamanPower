@@ -103,28 +103,28 @@ end
 
 function SP:EncodeShare(payload)
 	if not (Serializer and Deflate) then
-		return nil, "serialization libraries are missing"
+		return nil, "files needed to share settings are missing"
 	end
 	local ok, serialized = pcall(function() return Serializer:Serialize(payload) end)
-	if not ok or not serialized then return nil, "could not serialize" end
+	if not ok or not serialized then return nil, "could not prepare your settings for sharing" end
 	local compressed = Deflate:CompressDeflate(serialized, { level = 9 })
-	if not compressed then return nil, "could not compress" end
+	if not compressed then return nil, "could not create the setup code" end
 	return PREFIX .. Deflate:EncodeForPrint(compressed)
 end
 
 function SP:DecodeShare(str)
-	if not (Serializer and Deflate) then return nil, "serialization libraries are missing" end
-	if type(str) ~= "string" then return nil, "empty string" end
+	if not (Serializer and Deflate) then return nil, "files needed to share settings are missing" end
+	if type(str) ~= "string" then return nil, "paste a setup code first" end
 	str = strtrim(str)
-	if str:sub(1, #PREFIX) ~= PREFIX then return nil, "not a ShamanPower string" end
+	if str:sub(1, #PREFIX) ~= PREFIX then return nil, "not a ShamanPower setup code" end
 	local body = str:sub(#PREFIX + 1)
 	local compressed = Deflate:DecodeForPrint(body)
-	if not compressed then return nil, "corrupt string" end
+	if not compressed then return nil, "the setup code is damaged or incomplete" end
 	local serialized = Deflate:DecompressDeflate(compressed)
-	if not serialized then return nil, "corrupt string" end
+	if not serialized then return nil, "the setup code is damaged or incomplete" end
 	local ok, payload = Serializer:Deserialize(serialized)
-	if not ok or type(payload) ~= "table" then return nil, "could not read string" end
-	if payload.addon ~= "ShamanPower" then return nil, "string is for a different addon" end
+	if not ok or type(payload) ~= "table" then return nil, "could not read the setup code" end
+	if payload.addon ~= "ShamanPower" then return nil, "the setup code is for a different addon" end
 	return payload
 end
 
@@ -162,7 +162,7 @@ end
 function SP:ImportShare(str, mode, profileName)
 	local payload, err = self:DecodeShare(str)
 	if not payload then return nil, err end
-	if type(payload.profile) ~= "table" then return nil, "string has no profile data" end
+	if type(payload.profile) ~= "table" then return nil, "the setup code has no profile settings" end
 
 	if mode == "overwrite" then
 		wipe(self.db.profile)
@@ -274,7 +274,7 @@ function SP:BuildPresetPayload()
 end
 
 function SP:CaptureLayoutPreset()
-	local str = self:EncodeShare(self:BuildPresetPayload())
+	local str, err = self:EncodeShare(self:BuildPresetPayload())
 	SP.capturedPreset = str
 	if str then
 		if SP.ShowExportDialog then
@@ -285,7 +285,7 @@ function SP:CaptureLayoutPreset()
 			print(str)
 		end
 	else
-		print("|cff0070ddShamanPower|r: capture failed (serialization libraries missing).")
+		print("|cff0070ddShamanPower|r: could not capture the layout (" .. tostring(err or "unknown error") .. ").")
 	end
 	return str
 end
@@ -305,7 +305,7 @@ SlashCmdList["SHAMANPOWERPRESET"] = function(msg)
 			print("|cff0070ddShamanPower|r: " .. tostring(res))
 		end
 	else
-		print("|cff0070ddShamanPower|r: /sppreset capture — capture your layout as a string")
+		print("|cff0070ddShamanPower|r: /sppreset capture — copy your layout as a setup code")
 		print("|cff0070ddShamanPower|r: /sppreset apply [key] — apply a built-in preset (default: " .. (SP.Presets and SP.Presets[1] and SP.Presets[1].key or "none") .. ")")
 	end
 end

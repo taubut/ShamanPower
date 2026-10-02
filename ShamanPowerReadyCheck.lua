@@ -17,7 +17,7 @@ local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
-local FOREVER = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local FOREVER = (SPCompat.FOREVER)
 local secret = issecretvalue or function() return false end
 local GetWeaponEnchantInfoC = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 local GetItemCountC = (C_Item and C_Item.GetItemCount) or GetItemCount
@@ -38,7 +38,7 @@ local ITEMS_NEEDED = FOREVER
 
 local DEFAULTS = {
 	-- on for WoW: Forever; opt-in on Anniversary, so an upgrade changes nothing
-	enabled = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
+	enabled = (SPCompat.FOREVER),
 	onReadyCheck = true,
 	onEnterInstance = false,
 	checkShield = true,
@@ -244,7 +244,7 @@ local function themeLook(f, restore)
 	if r then
 		for _, t in ipairs(f.spEdges) do t:SetColorTexture(r, g, b, 1) end
 	elseif restore then
-		SP:SPSetBorderColor(f, "accent")
+		SP:SPSetBorderColor(f, "border")
 	end
 end
 
@@ -270,11 +270,17 @@ function SP:ReadyCheckFrame()
 	f:RegisterForDrag("LeftButton")
 	f:SetScript("OnDragStart", function(self) self:StartMoving() end)
 	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); savePos(self) end)
-	-- ShamanPower's own panel look (ShamanPowerDialog.lua): dark background,
-	-- 2px accent border, the dialog fonts for the title and the rows
+	-- ShamanPower's own panel look (ShamanPowerDialog.lua): dark background, the
+	-- settings window's soft 1.5px edge with the four elements along the top, the
+	-- dialog fonts (Fira Sans) for the title and the rows
 	f.bg = f:CreateTexture(nil, "BACKGROUND")
 	f.bg:SetAllPoints(f)
-	SP:SPMakeBorder(f, "accent", 2)
+	SP:SPMakeBorder(f, "border", 1.5)
+	if SP.CreateElementStripe then   -- (no brand file: an update the game has not loaded yet)
+		local stripe = SP:CreateElementStripe(f)
+		stripe:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+	end
 	local title = f:CreateFontString(nil, "OVERLAY")
 	title:SetFontObject(SP.SPDialogFonts.title)
 	title:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD)
@@ -454,7 +460,7 @@ if SP.OnThemeChanged then
 	-- today's colours, for the Themes tab's swatches (the dialog palette)
 	if SP.ThemeSetRoleStd then
 		SP:ThemeSetRoleStd("mod.readycheck", "bg", "0E141E")
-		SP:ThemeSetRoleStd("mod.readycheck", "border", "0070DD")
+		SP:ThemeSetRoleStd("mod.readycheck", "border", "2B374A")   -- the dialog palette's `border`: the window edge
 	end
 	SP:OnThemeChanged(function() if panel then themeLook(panel, true) end end)
 end

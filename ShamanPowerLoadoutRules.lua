@@ -32,7 +32,7 @@ local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
-local FOREVER = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local FOREVER = (SPCompat.FOREVER)
 local MAX_RULES = 20
 
 local function DB()

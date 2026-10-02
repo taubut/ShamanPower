@@ -14,15 +14,15 @@ local ELE = { { 0.72, 0.52, 0.32 }, { 1.00, 0.36, 0.22 }, { 0.42, 0.58, 1.00 }, 
 local QUICKSLOT = "Interface\\Buttons\\UI-Quickslot2"   -- the game's own action button ring
 
 ns.StyleCaptions = {
-	normal = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot while the assigned one grays out until it expires.",
-	totemtimers = "The dropped totem takes over the big icon and your assigned totem shrinks into the bottom-right corner until it expires.",
+	normal = "Your assigned totems stay on the bar. Drop a different totem and it appears above its slot. The assigned icon stays gray until the dropped totem is gone.",
+	totemtimers = "The dropped totem becomes the big icon. Your assigned totem stays in the bottom-right corner until the dropped totem is gone.",
 	dynamic = "The bar simply becomes whatever you last dropped - one totem per slot, nothing else. Great for PvP.",
-	single = "Like Dynamic, the button shows whatever totem is down, one per slot, but your assigned totems never change: a click always drops your assigned totem, and the slot goes back to it the moment the dropped totem is gone. Great for PvP.",
+	single = "Each button shows the totem that is down. Clicking drops your assigned totem. The button shows your assigned totem again when the dropped one is gone. Great for PvP.",
 	compact = "No icons: each slot is a colored line. The outline drains with the totem's duration and the pulse refills inside the line. Tiny icon squares are optional. Clicks and flyouts are unchanged.",
 	grid = "Every totem of every element stays visible in rows. Click one to drop it; the assigned one is highlighted"
 		.. " and the dropped one carries the timer. Split by Element (Totem Bar > Style)"
-		.. " gives each row its own frame.",
-	blizzard = "ShamanPower's bar hides and you play on Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout, which opens only from the arrow above each slot. Every other style opens its flyouts when you hover the totem.",
+		.. " lets you move each row separately.",
+	blizzard = "ShamanPower's bar hides and you play on Blizzard's own totem bar. ShamanPower draws its timers, duration bars, pulse and party dots on Blizzard's slots; you pick totems with Blizzard's flyout, which opens only from the arrow above each slot. Every other style opens its flyouts when you hover the totem, unless you set them to open only from an arrow or a key (Totem Bar > Clicks).",
 }
 
 local function Box(parent, x, y, w, h, r, g, b, a, layer, sub)

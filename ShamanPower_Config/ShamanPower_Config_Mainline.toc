@@ -11,6 +11,7 @@
 
 Core.lua
 Widgets.lua
+ContextMenu.lua
 ColorPicker.lua
 IconPicker.lua
 Tree.lua
@@ -18,6 +19,7 @@ Themes.lua
 PatchNotes.lua
 PatchNotesPage.lua
 Window.lua
+ReadyIcons.lua
 Assign.lua
 FrameSettings.lua
 PopOut.lua

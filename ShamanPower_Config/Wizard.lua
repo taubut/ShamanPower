@@ -17,6 +17,9 @@ local WIZ_W, WIZ_H = 1180, 760
 local RAIL_W = 210
 local HEADER_H = 64
 local FOOTER_H = 56
+-- The header's wordmark lockup (D32): the settings sidebar's 46 px of totem graphic
+-- beside its 19 pt wordmark, scaled to this 16 pt title; the title starts after it
+local LOGO_W, TITLE_X = 39, 66
 
 SP.Wizard = SP.Wizard or {}
 local wiz            -- the frame
@@ -222,7 +225,7 @@ function SP.Wizard.ApplySpecPicks(role)
 	-- WoW: Forever: Ready Reminders follow the spec's talents (read from the client's
 	-- trait tree). Elemental Mastery is not in Forever's tree, so Elemental's cooldowns
 	-- are Lava Burst and the shocks. Fire Nova and Earthbind stay opt-in (AoE / PvP).
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		SP.opt.cdbarShowElementalMastery = false
 		ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
 		ShamanPower_ReadyReminders.spells = ShamanPower_ReadyReminders.spells or {}
@@ -264,42 +267,42 @@ local STEPS = {
 	{ id = "look", title = "Pick your look", roles = ALL, build = "BuildLookStep",
 	  -- new installs; "/sp setup look" shows it on any setup (to try it: nothing is reset)
 	  when = function() return (state.freshInstall or SP.Wizard.showLookStep) and SP.SetThemeGlobal ~= nil and SP.ThemeGlobal ~= nil end,
-	  desc = "How ShamanPower looks: the colors of its bars, panels and effects. Only the look changes - everything ShamanPower does stays the same.",
+	  desc = "Choose the colors of ShamanPower's bars, panels and effects. This changes how they look, not what they do.",
 	  bullets = {
 	    "Hover a look to see it in the preview; click one to use it. Standard is how ShamanPower has always looked.",
 	    "Change it any time, or change any single part of it, in |cff3FA9F5Settings > General > Themes|r.",
 	  } },
 	{ id = "forever", title = "WoW: Forever", roles = ALL, build = "BuildForeverStep",   -- shaman-only content; the Raid Cooldowns step covers what a non-shaman needs
-	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
-	  desc = "Welcome to WoW: Forever. A few things ShamanPower does on other versions of the game do not exist here, and a few work differently because the game hides combat data from addons.",
+	  when = function() return SPCompat.FOREVER end,
+	  desc = "Welcome to WoW: Forever. Some spells are not available here, and a few features work differently.",
 	  bullets = {
-	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, Fire Nova Totem and the Elementals. Their pages, mocks and options are hidden.",
-	    "In combat the game itself draws the timers, party dots, alerts and cooldown numbers, so they keep working; some sounds can only start out of combat.",
+	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, Fire Nova Totem and the Elementals. Their settings and previews are hidden.",
+	    "Timers, party dots, alerts and cooldown numbers work in combat. Some sounds can only start out of combat.",
 	    "Blizzard's own totem bar is a style choice here, and its three totem sets stay in step with your assignments and loadouts.",
 	  } },
 	{ id = "totembar", title = "Totem Bar", roles = ALL, build = "BuildTotemBarStep",
-	  desc = "Your totem bar comes in several styles. Hover a card to see it in the preview; click one to make it yours and watch the preview drop, run down and expire.",
+	  desc = "Choose a Totem Bar style. Hover a card to see it in the preview, then click one to use it and watch it drop, run down and expire.",
 	  bullets = {
 	    "|cffffd100Normal|r: assigned totems stay put; a different dropped totem pops up above its slot.",
 	    "|cffffd100TotemTimers Style|r: the dropped totem becomes the big icon, assigned shrinks to the corner.",
 	    "|cffffd100Dynamic|r: the bar is simply whatever you last dropped. Great for PvP.",
 	    "|cffffd100Single Totem|r: the button shows the totem you dropped, but a click always drops your assigned one, and it goes back to it the moment the dropped totem is gone. Also great for PvP.",
 	    "|cffffd100Compact|r: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
-	    { "|cffffd100Grid|r: every totem of every element visible in rows, together or split into one frame per element.",
+	    { "|cffffd100Grid|r: all your totems in rows, together or in a separate group for each element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
 	    { "|cffffd100Blizzard's Totem Bar|r: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots. Its flyouts open only from the little arrow above each slot, one click before you can pick a totem.",
 	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
-	    { "|cff3FA9F5ShamanPower's own bar: just hover.|r Hover any totem and its flyout opens, in combat too, with no arrow to click. Left-click drops that totem, right-click makes it the assigned one.",
+	    { "|cff3FA9F5ShamanPower's own bar: just hover.|r By default, hovering any totem opens its flyout, in combat too, with no arrow to click (Totem Bar > Clicks can change that). Left-click drops that totem, right-click makes it the assigned one.",
 	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
-	    { "Hover any totem for its flyout: left-click drops that totem, right-click makes it the assigned one.",
+	    { "By default, hover any totem for its flyout (Totem Bar > Clicks can change that): left-click drops that totem, right-click makes it the assigned one.",
 	      when = function() return not (SP.HasTotemBar and SP:HasTotemBar()) end },
 	  },
 	  toggles = { { label = "Show the totem bar", bind = "totembar" } } },
 	{ id = "assign", title = "Assignments", roles = ALL, build = "BuildAssignStep",
-	  desc = "The assignments window: every shaman in your group who runs ShamanPower, side by side, with the totem each one should drop for Earth, Fire, Water and Air.",
+	  desc = "See which totems each shaman in your group should drop. Only shamans with ShamanPower appear here.",
 	  bullets = {
 	    "Your row is always yours to set. The raid leader or an assistant can set everyone's - or a shaman can allow it with Free Assign.",
-	    function() return "Left-click a cell (or wheel) for the next totem, right-click for the previous. Twisting" .. (SP.ESTrackerUnavailable and "" or " and the Earth Shield target") .. " are here too." end,
+	    function() return "Left-click a totem or scroll for the next one. Right-click for the previous one. Set Twisting" .. (SP.ESTrackerUnavailable and "" or " and the Earth Shield target") .. " here too." end,
 	    "Open it any time with /sp totems, the minimap icon, or the totem bar's handle.",
 	  } },
 	{ id = "totemsets", title = "Totem Sets", roles = ALL, build = "BuildTotemSetsStep",
@@ -313,7 +316,7 @@ local STEPS = {
 	{ id = "durationbars", title = "Duration Bars", roles = ALL, build = "BuildDurationBarsStep",
 	  desc = "How each totem shows its remaining time, cooldown and pulse timer.",
 	  bullets = {
-	    "Every control here is live - the preview redraws as you change it.",
+	    "The preview updates as you change these settings.",
 	  } },
 	{ id = "cooldownbar", title = "Cooldown Bar", roles = ALL, build = "BuildCooldownBarStep",
 	  desc = "A separate bar that tracks your big cooldowns so you never lose one in a crowded action bar.",
@@ -346,7 +349,7 @@ local STEPS = {
 	  },
 	  toggles = { { label = "Enable Earth Shield Tracker", bind = "estracker" } } },
 	{ id = "shieldcharges", title = "Shield Charges", roles = ALL, module = "ShamanPower_ShieldCharges", flag = "ShieldChargesLoaded", build = "BuildShieldChargesStep",
-	  desc = "Large on-screen numbers for your shield charges, so you re-apply before they run out.",
+	  desc = "Large numbers show your shield charges so you can refresh your shield before they run out.",
 	  bullets = {
 	    "Your Lightning / Water Shield charges - useful to every shaman.",
 	    { "Earth Shield charges on your target - for Resto healing a tank.", roles = { restoration = true },
@@ -373,14 +376,17 @@ local STEPS = {
 	    "Your buttons appear only when you are allowed to call, or a shaman gives you control.",
 	    "Try it: press a button in the preview to see what the shaman sees.",
 	  }, module = "ShamanPower_RaidCooldowns", flag = "RaidCooldownsLoaded", build = "BuildRaidCDStep",
-	  desc = function() return "One-press callers for " .. RaidCDNames() .. " - the whole raid is told, and the assigned player gets an alert they cannot miss." end,
+	  desc = function() return "Call for " .. RaidCDNames() .. " with one press. The whole raid is told, and the assigned player gets an alert they can't miss." end,
 	  bullets = {
 	    "Assign who does what in Settings > Group Tools > Raid Cooldowns (raid leader or assistant).",
-	    "Callers appear only for people allowed to call; you can give control to anyone.",
+	    "Call buttons appear only for people allowed to call. You can give control to anyone.",
 	    "Try it: press a button in the preview to see what the assigned player sees.",
 	  } },
 	{ id = "reactive", title = "Reactive Totems", roles = ALL, module = "ShamanPower_ReactiveTotems", flag = "ReactiveTotemsLoaded", build = "BuildReactiveStep",
-	  desc = "Big on-screen alerts the instant someone in your group gets feared, poisoned or diseased - telling you which totem fixes it.",
+	  desc = function()   -- on WoW: Forever the Fear alert is yours only
+	    if SPCompat.FOREVER then return "Big on-screen alerts the instant you get feared, or someone in your group gets poisoned or diseased - telling you which totem fixes it." end
+	    return "Big on-screen alerts the instant someone in your group gets feared, poisoned or diseased - telling you which totem fixes it."
+	  end,
 	  bullets = {
 	    "Tremor for fear and charm, Poison Cleansing for poison, Disease Cleansing for disease.",
 	    "Shows who has it and what it is; goes away when it is cleared or the totem is already down.",
@@ -388,7 +394,7 @@ local STEPS = {
 	  },
 	  toggles = { { label = "Enable Reactive Totems", bind = "reactive" } } },
 	{ id = "readyreminders", title = "Ready Reminders", roles = ALL, module = "ShamanPower_ReadyReminders", flag = "ReadyRemindersLoaded", build = "BuildReadyRemindersStep",
-	  desc = "An icon per spell that appears the moment the spell comes off cooldown - Earth Shock, Stormstrike, Lava Burst, Riptide - placed anywhere you like.",
+	  desc = "Place an icon for each spell anywhere you like. It appears when the spell comes off cooldown: Earth Shock, Stormstrike, Lava Burst, Riptide and more.",
 	  bullets = {
 	    "Only when ready: the icon shows up when you can press the spell and vanishes while it recharges.",
 	    "Only while on cooldown: the icon shows with a countdown while the spell recharges and vanishes when ready.",
@@ -405,31 +411,31 @@ local STEPS = {
 	  },
 	  toggles = { { label = "Enable Tremor Reminder", bind = "tremor" } } },
 	{ id = "expiring", title = "Expiring Alerts", roles = ALL, module = "ShamanPower_ExpiringAlerts", flag = "ExpiringAlertsLoaded", build = "BuildExpiringStep",
-	  desc = "Scrolling-combat-text style alerts the moment a shield runs out, a totem dies or times out, or a weapon imbue fades.",
+	  desc = "Alerts like scrolling combat text when a shield runs out, a totem is destroyed or expires, or a weapon imbue fades.",
 	  bullets = {
 	    function() return (SP.ESTrackerUnavailable and "Lightning / Water Shield, " or "Lightning / Water Shield, Earth Shield on your target, ") .. "totems destroyed or expired, main- and off-hand imbues." end,
-	    "Pick the look and animation; turn on a sound per category.",
+	    "Choose the look, animation and sound for each kind of alert.",
 	  },
 	  toggles = { { label = "Enable Expiring Alerts", bind = "expiring" } } },
 	{ id = "partybuff", title = "Party Buff Tracker", roles = ALL, module = "ShamanPower_PartyRange", flag = "PartyRangeLoaded", build = "BuildPartyBuffStep",
 	  desc = "Shows, right on your totem bar, which party members your totems are actually reaching.",
 	  bullets = {
-	    "A corner dot per party member - class color when your totem buff is on them, red when they are out of range.",
+	    "A corner dot for each party member: class color when they have your totem buff, red when they are out of range.",
 	    "Or a number: how many of them the totem reaches. Or both.",
 	    "This is about YOUR totems. Totem Range (later) is about other shamans' totems reaching you.",
 	  } },
 	{ id = "coverage", title = "Totem Coverage", roles = ALL, module = "ShamanPower_PartyRange", flag = "PartyRangeLoaded", build = "BuildCoverageStep",
 	  when = function() return SP.CoverageAvailable and SP:CoverageAvailable() or false end,
-	  desc = "Your own Totem Range: for every totem you have down, WHO is out of its range - by name.",
+	  desc = "See which party members are out of range of each of your totems.",
 	  bullets = {
-	    "One cell per totem, the party members' names under it: class color when they have the buff, red when they don't.",
-	    "Drawn by the game engine straight from their buffs, so it keeps working in combat and in dungeons.",
-	    "Once everyone is in range of a totem, it drops out of the list; pick which totems it watches in Settings.",
+	    "Each totem has party members' names underneath: class color when they have the buff, red when they don't.",
+	    "Works in combat and in dungeons.",
+	    "Once everyone is in range of a totem, it drops out of the list (you can turn that off); in dungeon fights every totem stays listed. Pick which totems it watches in Settings.",
 	  },
 	  toggles = { { label = "Enable Totem Coverage", bind = "coverage" } } },
 	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
 	  -- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): the step does not exist there
-	  when = function() return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end,
+	  when = function() return not SPCompat.FOREVER end,
 	  descNonShaman = "The game never shows Windfury Totem's weapon buff on other players, so your shaman's addon cannot see that you have it. A tiny WeakAura on YOUR side fixes that.",
 	  bulletsNonShaman = {
 	    "Import it into WeakAuras once. Nothing to configure.",
@@ -441,12 +447,12 @@ local STEPS = {
 	    "Your Air slot then counts them and shows whether each is in range.",
 	  } },
 	{ id = "range", title = "Totem Range", roles = EVERYONE,
-	  descNonShaman = "Are you standing in range of your shaman's totems? A small overlay that goes green, red or gray per totem - this is the main reason a non-shaman runs ShamanPower.",
+	  descNonShaman = "See whether you are in range of your shaman's totems. A green, red or gray border shows each totem's status. It's the main reason a non-shaman runs ShamanPower.",
 	  bulletsNonShaman = {
 	    "Pick the totems you care about: green in range, red out of range, gray when nobody has it down.",
 	    "Shows up automatically whenever there is a shaman in your group.",
 	  }, module = "ShamanPower_SPRange", flag = "SPRangeLoaded", build = "BuildRangeStep",
-	  desc = "Are you standing in range of the OTHER shamans' totems? A small overlay that goes green, red or gray per totem.",
+	  desc = "See whether you are in range of other shamans' totems. A green, red or gray border shows each totem's status.",
 	  bullets = {
 	    "Tracks the totems you pick: green in range, red out of range, gray when nobody has it down.",
 	    "Shows up automatically whenever there is a shaman in your group.",
@@ -463,14 +469,14 @@ local STEPS = {
 	  },
 	  toggles = { { label = "Enable Totem Plates", bind = "totemplates" } } },
 	{ id = "position", title = "Position", roles = EVERYONE,
-	  descNonShaman = "Put the Totem Range overlay where you want it.",
+	  descNonShaman = "Put Totem Range Tracker where you want it.",
 	  bulletsNonShaman = {
-	    "Setup steps aside; drag the overlay, then click Done.",
+	    "Setup steps aside. Drag the tracker, then click Done.",
 	    "The caller buttons can be dragged any time they are on screen.",
 	  }, build = "BuildPositionStep",
-	  desc = "Move your bars and frames wherever you like.",
+	  desc = "Move your bars, trackers and alerts wherever you like.",
 	  bullets = {
-	    "Setup fills the whole screen, so we'll step aside while you drag.",
+	    "The setup window hides while you drag things into place.",
 	    "Click below to unlock everything and position it.",
 	    "You can always move things later from Settings.",
 	  } },
@@ -485,6 +491,73 @@ local function VisibleSteps()
 	end
 	out[#out + 1] = { id = "finish", title = "Finish" }
 	return out
+end
+
+-- Each step wears the element of the settings group its feature lives in (the
+-- sidebar groups, SP.Brand.groupElement: General = Air, Bars = Earth, Group Tools =
+-- Water, Alerts & Reminders = Fire, Other = logo blue). Steps with no settings page
+-- of their own (Your Spec, WoW: Forever, Position, Finish) are Air.
+local STEP_GROUP = {
+	look = "General",   -- General > Themes
+	totembar = "Bars", totemsets = "Bars", durationbars = "Bars", cooldownbar = "Bars",
+	effects = "Bars", twisting = "Bars",
+	assign = "Group Tools",   -- the Totem Assignments window
+	estracker = "Group Tools", raidcd = "Group Tools", partybuff = "Group Tools",
+	coverage = "Group Tools", range = "Group Tools",
+	shieldcharges = "Alerts & Reminders", reactive = "Alerts & Reminders", readyreminders = "Alerts & Reminders",
+	tremor = "Alerts & Reminders", expiring = "Alerts & Reminders",
+	totemplates = "Other",
+	wfcompanion = "More",   -- its page is not in the sidebar's map: it sits under More, in logo blue
+}
+local function StepElement(s)
+	local group = s and STEP_GROUP[s.id]
+	if not group then return "air" end
+	local map = SP.Brand and SP.Brand.groupElement
+	return map and map[group] or "spirit"
+end
+-- {r, g, b} 0-1 (SP.Brand's own table: read it, never write into it). Without the
+-- brand file (a new file the game only sees after a restart) today's accent blue.
+local ACCENT = { Core:Color("accent") }
+local function ElementColor(key)
+	local els = SP.Brand and SP.Brand.elements
+	if not els then return ACCENT end
+	return els[key] or els.spirit
+end
+
+-- The step's element on the window (D32b "lit by the element"): the header band's
+-- light (26% over the band's navy), the content's faint light (11% over contentBg)
+-- and the title's underline. The rail's lit row, the step's switches and its
+-- slider fills take it as they are drawn. The lights stay at full strength: the
+-- tour's own panels do not fade with Background Opacity either.
+local function PaintStepElement(key)
+	local ec = ElementColor(key)
+	wiz.bandLight:SetVertexColor(Core:Mix(ec, "bandLight", 0.26))
+	wiz.contentLight:SetVertexColor(Core:Mix(ec, "contentBg", 0.11))
+	wiz.underline:SetColorTexture(ec[1], ec[2], ec[3])
+	wiz._element = key
+end
+
+-- The on / off switch: the tiny totem switch (D32 C2) in the element; without the
+-- brand file, the pill it replaced (accent on, `off` off), with the same SetChecked.
+local function PillSetChecked(b, on)
+	b.pillTrack:SetColorTexture(Core:ColorIf(on, "accent", "off"))
+	b.pillKnob:ClearAllPoints()
+	if on then
+		b.pillKnob:SetPoint("RIGHT", b, "RIGHT", -3, 0)
+	else
+		b.pillKnob:SetPoint("LEFT", b, "LEFT", 3, 0)
+	end
+end
+local function MakeSwitch(parent, element)
+	if SP.CreateTotemSwitch then return SP:CreateTotemSwitch(parent, { element = element }) end
+	local b = CreateFrame("Button", nil, parent)
+	b:SetSize(38, 18)
+	b.pillTrack = b:CreateTexture(nil, "BACKGROUND"); b.pillTrack:SetAllPoints(b)
+	Core:MakeBorder(b, "border")
+	b.pillKnob = b:CreateTexture(nil, "OVERLAY")
+	b.pillKnob:SetSize(12, 12); b.pillKnob:SetColorTexture(0.95, 0.96, 0.98, 1)
+	b.SetChecked = PillSetChecked
+	return b
 end
 
 -- ===========================================================================
@@ -505,7 +578,7 @@ local function Build()
 	wiz:EnableMouse(true)
 	wiz:Hide()
 	Core:SolidTex(wiz, "windowBg", "BACKGROUND")
-	Core:MakeBorder(wiz, "accent", 2)
+	local W, H = wiz:GetWidth(), wiz:GetHeight()
 
 	-- Dim the world behind it.
 	local shade = CreateFrame("Frame", nil, wiz)
@@ -514,44 +587,76 @@ local function Build()
 	local st = shade:CreateTexture(nil, "BACKGROUND"); st:SetAllPoints(shade); st:SetColorTexture(0, 0, 0, 0.55)
 	wiz.shade = shade
 
-	-- Header
+	-- Header: the settings window's band (D32b) at its own height and navy: a soft
+	-- light warmed by the step's element, a 1 px edge along its bottom, and the
+	-- wordmark lockup (the brand kit's totem graphic beside the name, as in the
+	-- settings sidebar) with the step counter under the name
 	local header = CreateFrame("Frame", nil, wiz)
-	header:SetPoint("TOPLEFT", wiz, "TOPLEFT", 2, -2)
-	header:SetPoint("TOPRIGHT", wiz, "TOPRIGHT", -2, -2)
+	header:SetPoint("TOPLEFT", wiz, "TOPLEFT", 0, 0)
+	header:SetPoint("TOPRIGHT", wiz, "TOPRIGHT", 0, 0)
 	header:SetHeight(HEADER_H)
 	Core:SolidTex(header, "sidebarBg", "BACKGROUND")
+	wiz.bandLight = Core:Light(header, W, HEADER_H, 0.12, 0, 1.2)
+	wiz.bandLight:SetVertexColor(Core:Color("bandLight"))
+	local bandEdge = header:CreateTexture(nil, "BORDER")
+	bandEdge:SetHeight(1)
+	bandEdge:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+	bandEdge:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+	bandEdge:SetColorTexture(Core:Color("border"))
+	-- (no brand file: no graphic, and the title where it always was)
+	local titleX = 20
+	if SP.CreateTotemGraphic then
+		local logo = SP:CreateTotemGraphic(header)
+		logo:SetGraphicHeight(LOGO_W * 682 / 650)
+		logo:SetPoint("TOPLEFT", header, "TOPLEFT", 20, -12)
+		titleX = TITLE_X
+	end
 	local brand = header:CreateFontString(nil, "OVERLAY")
 	brand:SetFontObject(Core.fonts.brand)
-	brand:SetPoint("LEFT", header, "LEFT", 20, 10)
-	brand:SetText("|cff0070ddShaman|r|cffE6EAF0Power|r Setup")
+	brand:SetPoint("LEFT", header, "TOPLEFT", titleX, -24)
+	brand:SetText("|cff3FA9F5Shaman|r|cffFFFFFFPower Setup|r")
 	local stepTitle = header:CreateFontString(nil, "OVERLAY")
 	stepTitle:SetFontObject(Core.fonts.tiny)
 	stepTitle:SetPoint("TOPLEFT", brand, "BOTTOMLEFT", 1, -3)
 	wiz.stepTitle = stepTitle
-	local glow = Core:AccentGlow(wiz, 2)
-	glow:SetPoint("TOPLEFT", wiz, "TOPLEFT", 2, -(HEADER_H + 2))
-	glow:SetPoint("TOPRIGHT", wiz, "TOPRIGHT", -2, -(HEADER_H + 2))
+	-- a short underline under the title in the step's element, as under a settings page's title
+	local underline = header:CreateTexture(nil, "ARTWORK")
+	underline:SetSize(44, 3)
+	underline:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", titleX, 0)
+	wiz.underline = underline
 
-	-- Left rail (step list)
+	-- Left rail (step list), like the settings sidebar: a 1 px edge on its right.
+	-- Its rows never draw past it (a long list on a short screen is cut, not laid
+	-- over the footer).
 	local rail = CreateFrame("Frame", nil, wiz)
-	rail:SetPoint("TOPLEFT", wiz, "TOPLEFT", 2, -(HEADER_H + 4))
-	rail:SetPoint("BOTTOMLEFT", wiz, "BOTTOMLEFT", 2, FOOTER_H)
+	rail:SetPoint("TOPLEFT", wiz, "TOPLEFT", 0, -HEADER_H)
+	rail:SetPoint("BOTTOMLEFT", wiz, "BOTTOMLEFT", 0, FOOTER_H)
 	rail:SetWidth(RAIL_W)
+	rail:SetClipsChildren(true)
 	Core:SolidTex(rail, "sidebarBg", "BACKGROUND")
+	local railEdge = rail:CreateTexture(nil, "BORDER")
+	railEdge:SetWidth(1)
+	railEdge:SetPoint("TOPRIGHT", rail, "TOPRIGHT", 0, 0)
+	railEdge:SetPoint("BOTTOMRIGHT", rail, "BOTTOMRIGHT", 0, 0)
+	railEdge:SetColorTexture(Core:Color("border"))
 	wiz.rail, wiz.railRows = rail, {}
 
-	-- Content
+	-- Content: lit faintly by the step's element from its top left (RenderStep fits
+	-- the light to the step: the welcome page has no rail)
 	local content = CreateFrame("Frame", nil, wiz)
 	content:SetPoint("TOPLEFT", rail, "TOPRIGHT", 0, 0)
-	content:SetPoint("BOTTOMRIGHT", wiz, "BOTTOMRIGHT", -2, FOOTER_H)
+	content:SetPoint("BOTTOMRIGHT", wiz, "BOTTOMRIGHT", 0, FOOTER_H)
 	Core:SolidTex(content, "contentBg", "BACKGROUND")
+	wiz.contentLight = Core:Light(content, W - RAIL_W, H - HEADER_H - FOOTER_H, 0.05, 0, 1)
+	wiz.contentLight:SetVertexColor(Core:Color("contentBg"))
 	wiz.content = content
 
-	-- Footer
+	-- Footer: its rule is the footer's top line, just under the rail and the content
+	-- (on their bottom line it sat under them and never showed)
 	local footRule = wiz:CreateTexture(nil, "ARTWORK")
 	footRule:SetHeight(1)
-	footRule:SetPoint("BOTTOMLEFT", wiz, "BOTTOMLEFT", 2, FOOTER_H)
-	footRule:SetPoint("BOTTOMRIGHT", wiz, "BOTTOMRIGHT", -2, FOOTER_H)
+	footRule:SetPoint("TOPLEFT", wiz, "BOTTOMLEFT", 0, FOOTER_H)
+	footRule:SetPoint("TOPRIGHT", wiz, "BOTTOMRIGHT", 0, FOOTER_H)
 	footRule:SetColorTexture(Core:Color("border"))
 
 	local back = Core:MakeButton(wiz, "Back", 90, false)
@@ -568,6 +673,19 @@ local function Build()
 	skip:SetPoint("BOTTOM", wiz, "BOTTOM", 0, 14)
 	skip:SetScript("OnClick", function() SP.Wizard:Close(true) end)
 	wiz.skip = skip
+
+	-- The window's edge (the settings window's soft 1.5 px `border`) and the four
+	-- elements along its top edge (D32b), over everything
+	local edge = CreateFrame("Frame", nil, wiz)
+	edge:SetAllPoints(wiz)
+	edge:SetFrameLevel(wiz:GetFrameLevel() + 14)
+	Core:MakeBorder(edge, "border", 1.5)
+	if SP.CreateElementStripe then
+		local stripe = SP:CreateElementStripe(wiz)
+		stripe:SetPoint("TOPLEFT", wiz, "TOPLEFT", 0, 0)
+		stripe:SetPoint("TOPRIGHT", wiz, "TOPRIGHT", 0, 0)
+		stripe:SetFrameLevel(wiz:GetFrameLevel() + 15)
+	end
 
 	wiz:SetScript("OnHide", function() SP:RestoreAllPreviews() end)
 	return wiz
@@ -597,31 +715,62 @@ local function ClearContent()
 end
 local function track(w) pageWidgets[#pageWidgets + 1] = w; return w end
 
-local function RenderRail(steps)
-	for _, r in ipairs(wiz.railRows) do r:Hide() end
-	wipe(wiz.railRows)
-	local y = 14
+-- The step list, like the settings sidebar (D32b): the current step's row lit in
+-- the step's element (28% over rowHover, fading out to the right) with a 3 px
+-- element bar at its left edge; a done step shows a tick. The rows are made once
+-- and reused. Every step always shows: a row is 30 tall, less when the list would
+-- not fit (a short screen: UI Scale 1.0 on a 768 high screen leaves a 588 rail for
+-- up to 21 steps, so 27 each; the smallest tour still gives 22, room for the text).
+local function RenderRail(steps, element)
+	local ec = ElementColor(element)
+	local litR, litG, litB = Core:Mix(ec, "rowHover", 0.28)
+	local hovR, hovG, hovB = Core:Color("rowHover")
+	local rows = wiz.railRows
+	-- the rail's height from the window's own (set once, when it is built), as its
+	-- anchors make it; read back, it can be 0 before the first layout
+	local railH = wiz:GetHeight() - HEADER_H - FOOTER_H
+	local pitch = math.min(30, math.floor((railH - 10) / math.max(1, #steps)))
+	local y = 10
 	for i, s in ipairs(steps) do
-		local row = CreateFrame("Frame", nil, wiz.rail)
-		row:SetSize(RAIL_W, 30)
+		local row = rows[i]
+		if not row then
+			row = CreateFrame("Frame", nil, wiz.rail)
+			row:SetSize(RAIL_W - 1, 30)   -- clear of the rail's edge
+			row.lit = row:CreateTexture(nil, "BACKGROUND", nil, 1)
+			row.lit:SetAllPoints(row)
+			row.lit:SetColorTexture(1, 1, 1, 1)
+			row.bar = row:CreateTexture(nil, "ARTWORK")
+			row.bar:SetWidth(3)
+			row.bar:SetPoint("TOPLEFT"); row.bar:SetPoint("BOTTOMLEFT")
+			row.num = row:CreateFontString(nil, "OVERLAY")
+			row.num:SetFontObject(Core.fonts.tiny)
+			row.num:SetPoint("LEFT", row, "LEFT", 16, 0)
+			row.text = row:CreateFontString(nil, "OVERLAY")
+			row.text:SetPoint("LEFT", row.num, "RIGHT", 8, 0)
+			rows[i] = row
+		end
+		row:ClearAllPoints()
 		row:SetPoint("TOPLEFT", wiz.rail, "TOPLEFT", 0, -y)
+		row:SetHeight(pitch)
 		local on = (i == state.step)
 		local done = (i < state.step)
-		local acc = row:CreateTexture(nil, "ARTWORK"); acc:SetWidth(2)
-		acc:SetPoint("TOPLEFT"); acc:SetPoint("BOTTOMLEFT")
-		acc:SetColorTexture(Core:Color("accent")); acc:SetShown(on)
-		local num = row:CreateFontString(nil, "OVERLAY")
-		num:SetFontObject(Core.fonts.tiny)
-		num:SetPoint("LEFT", row, "LEFT", 16, 0)
-		num:SetText(done and "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t" or tostring(i))
-		local t = row:CreateFontString(nil, "OVERLAY")
-		t:SetFontObject(on and Core.fonts.navOn or Core.fonts.nav)
-		t:SetPoint("LEFT", num, "RIGHT", 8, 0)
-		t:SetText(s.title)
-		if not on and not done then t:SetTextColor(Core:Color("textDim")) end
-		wiz.railRows[#wiz.railRows + 1] = row
-		y = y + 30
+		row.lit:SetShown(on)
+		row.bar:SetShown(on)
+		if on then
+			Core:Gradient(row.lit, "HORIZONTAL", litR, litG, litB, 1, hovR, hovG, hovB, 1)
+			row.bar:SetColorTexture(ec[1], ec[2], ec[3])
+			row.text:SetFontObject(Core.fonts.navOn)
+			row.text:SetTextColor(Core:Color("text"))
+		else
+			row.text:SetFontObject(Core.fonts.nav)
+			row.text:SetTextColor(Core:Color("textDim"))
+		end
+		row.num:SetText(done and "|TInterface\\RaidFrame\\ReadyCheck-Ready:14|t" or tostring(i))
+		row.text:SetText(s.title)
+		row:Show()
+		y = y + pitch
 	end
+	for i = #steps + 1, #rows do rows[i]:Hide() end
 end
 
 -- A framed preview panel on the right of the content; returns the inner box.
@@ -633,7 +782,7 @@ local function PreviewPanel(parent)
 	box:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -26, 26)
 	box:SetWidth((parent:GetWidth() - 52) * 0.50)
 	Core:SolidTex(box, "windowBg", "BACKGROUND")
-	Core:MakeBorder(box, "border")
+	Core:MakeBorder(box, "border", 1.5)   -- the soft edge of the settings window's preview pane (D32b)
 	local cap = track(box:CreateFontString(nil, "OVERLAY"))
 	cap:SetFontObject(Core.fonts.tiny)
 	cap:SetPoint("TOP", box, "TOP", 0, -9)
@@ -693,21 +842,16 @@ local function FitCardBody(card, minH)
 	C_Timer.After(0, measure); C_Timer.After(0.1, measure)
 end
 
-local function ToggleRow(parent, y, label, bind)
+-- A step's own on / off: the tiny totem switch (D32 C2) in the step's element,
+-- its label beside it. Only the switch takes the click, as before.
+local function ToggleRow(parent, y, label, bind, element)
 	local row = track(CreateFrame("Frame", nil, parent))
 	row:SetSize(parent:GetWidth() - 36, 28)
 	row:SetPoint("TOPLEFT", parent, "TOPLEFT", 18, -y)
-	local tr = CreateFrame("Button", nil, row)
-	tr:SetSize(38, 18); tr:SetPoint("LEFT", row, "LEFT", 0, 0)
-	local tex = tr:CreateTexture(nil, "BACKGROUND"); tex:SetAllPoints(tr)
-	Core:MakeBorder(tr, "border")
-	local knob = tr:CreateTexture(nil, "OVERLAY"); knob:SetSize(12, 12); knob:SetColorTexture(0.95, 0.96, 0.98, 1)
+	local tr = MakeSwitch(row, element)
+	tr:SetPoint("LEFT", row, "LEFT", 0, 0)
 	local b = BIND[bind]
-	local function paint()
-		local on = b and b.get()
-		tex:SetColorTexture(Core:ColorIf(on, "accent", "off"))
-		knob:ClearAllPoints(); knob:SetPoint(on and "RIGHT" or "LEFT", tr, on and "RIGHT" or "LEFT", on and -3 or 3, 0)
-	end
+	local function paint() tr:SetChecked(b and b.get()) end
 	tr:SetScript("OnClick", function() if b then b.set(not b.get()); paint() end end)
 	paint()
 	local lbl = row:CreateFontString(nil, "OVERLAY")
@@ -1331,7 +1475,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				end
 				notify()
 			end })
-		row("Toggle", { label = "Split by element (each row its own frame)", get = function() return OPT().gridSplit == true end,
+		row("Toggle", { label = "Split by element (move each row separately)", get = function() return OPT().gridSplit == true end,
 			set = function(v) OPT().gridSplit = v or nil; safecall("RefreshGridStyle"); notify(); SP.Wizard:Go(state.step) end })
 	else
 		row("Slider", { label = "Size", min = 0.4, max = 3.0, step = 0.05, get = function() return OPT().buffscale or 1 end,
@@ -1896,7 +2040,7 @@ function SP.Wizard.BuildTwistingStep(card, inner, y)
 	local function twistValues()
 		local v = {}
 		for idx, spellID in pairs(SP.AirTotems or {}) do
-			local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+			local forever = SPCompat.FOREVER
 			local exists = not forever or not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(spellID)
 			if exists and SP.TwistTotemIcons and SP.TwistTotemIcons[idx] then
 				local fallback = forever and SP.TotemNames and SP.TotemNames[4] and SP.TotemNames[4][idx]
@@ -2142,7 +2286,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
 	legend:SetText("Every totem has its own bubble, so someone can be inside Strength of Earth's range and outside Windfury's at the same time. A dot per member: class color = getting that totem, red = out of its range. The number = how many it reaches."
-		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and " Windfury (Air) only knows about melee running the companion aura - next step." or ""))
+		.. (not SPCompat.FOREVER and " Windfury (Air) only knows about melee running the companion aura - next step." or ""))
 	-- who is inside which totem's bubble right now (each totem has its own range)
 	local ENAME = { "Earth", "Fire", "Water", "Air" }
 	-- a small grid: member down the side, element across the top, in / out in the cells
@@ -2209,7 +2353,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 			local count = 0
 			for d, m in ipairs(PARTY) do
 				local dot = s.dots[d]
-				local known = (i ~= 4) or m.wf or WOW_PROJECT_ID == WOW_PROJECT_MAINLINE   -- Windfury: only companion users are visible (Forever: everyone, it is a party buff there)
+				local known = (i ~= 4) or m.wf or SPCompat.FOREVER   -- Windfury: only companion users are visible (Forever: everyone, it is a party buff there)
 				local cell = lines[d][i]
 				if not known then
 					dot:Hide(); s.rings[d]:Hide()
@@ -2365,8 +2509,14 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 		if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
 		local lbl = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); lbl:SetPoint("TOP", b, "BOTTOM", 0, -2); lbl:SetText(c.who)
 		b:SetScript("OnClick", function() if alertFn then alertFn(c, b) end end)
-		b:SetScript("OnEnter", function(self) GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText("Call " .. c.alert:gsub("^USE ", ""):gsub(" NOW!$", ""):lower():gsub("^%l", string.upper)); GameTooltip:AddLine("Will call: " .. c.who, 0, 1, 0); GameTooltip:Show() end)
-		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		b:SetScript("OnEnter", function(self)
+			local tip = Core:Tooltip()
+			tip:SetOwner(self, "ANCHOR_CURSOR")
+			tip:SetText("Call " .. c.alert:gsub("^USE ", ""):gsub(" NOW!$", ""):lower():gsub("^%l", string.upper))
+			tip:AddLine("Will call: " .. c.who, Core:Color("on"))
+			tip:Show()
+		end)
+		b:SetScript("OnLeave", function() Core:Tooltip():Hide() end)
 		buttons[i] = { f = b, icon = ic, cd = cd, until_ = 0 }
 	end
 	bar:SetSize(#CALLERS * 44 + 16, 62)
@@ -2427,7 +2577,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	rh:SetText("CALLERS NEED SHAMANPOWER TOO - EVEN IF THEY ARE NOT A SHAMAN")
 	local rb = req:CreateFontString(nil, "OVERLAY"); rb:SetFontObject(Core.fonts.rowDim); rb:SetPoint("TOPLEFT", rh, "BOTTOMLEFT", 0, -6); rb:SetWidth(reqW)
 	rb:SetJustifyH("LEFT"); rb:SetWordWrap(true)
-	rb:SetText("Callers do not have to be shamans: a warrior raid leader or a mage you give control to can call for your " .. RaidCDNames("Bloodlust", "or") .. ". But whoever calls must have |cffE6EAF0ShamanPower|r installed with the |cffE6EAF0Raid Cooldowns|r module enabled in their AddOns list - otherwise they see no buttons at all. Tell them.")
+	rb:SetText("Any class can call for " .. RaidCDNames("Bloodlust", "or") .. " if they are the raid leader, an assistant or someone you give control to. They need |cffE6EAF0ShamanPower|r installed and |cffE6EAF0Raid Cooldowns|r turned on in their AddOns list to see the call buttons.")
 	req:SetHeight(20 + rh:GetStringHeight() + 6 + rb:GetStringHeight() + 12)
 	y = y + req:GetHeight() + 14
 
@@ -2499,7 +2649,9 @@ function SP.Wizard.BuildReactiveStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("An alert pops up the moment someone in your group gets feared, poisoned or diseased, and disappears when it is cleared or the right totem is already down.")
+	legend:SetText(SPCompat.FOREVER   -- on WoW: Forever the Fear alert is yours only
+		and "An alert pops up the moment you get feared, or someone in your group gets poisoned or diseased, and disappears when it is cleared or the right totem is already down."
+		or "An alert pops up the moment someone in your group gets feared, poisoned or diseased, and disappears when it is cleared or the right totem is already down.")
 	inner:SetScript("OnUpdate", function()
 		story:SetText(SP.reactiveDemoStatus or "")
 		local size = get("iconSize", 64)
@@ -2532,7 +2684,7 @@ function SP.Wizard.BuildReactiveStep(card, inner, y)
 	row("Toggle", { label = "Show who has the debuff", disabled = off, get = function() return get("showDebuffName", true) end, set = function(v) sv().showDebuffName = v; upd("UpdateReactiveTotemAppearance") end })
 	row("Toggle", { label = "Show totem name", disabled = off, get = function() return get("showTotemName", true) end, set = function(v) sv().showTotemName = v; upd("UpdateReactiveTotemAppearance") end })
 	if SPCompat and SPCompat.secretsRegime then
-		row("Toggle", { label = "Show the debuff's icon", desc = "A small badge in the corner with the debuff's own icon, painted by the game (its name cannot be read in combat on this client).",
+		row("Toggle", { label = "Show the debuff's icon", desc = "Show the debuff's icon in the corner. Its name is unavailable in combat on this version of the game.",
 			disabled = off, get = function() return get("showDebuffIcon", false) and true or false end, set = function(v) sv().showDebuffIcon = v; upd("UpdateReactiveTotemAppearance") end })
 	end
 	row("Toggle", { label = "Show border", disabled = off, get = function() return not get("hideBorder", false) end, set = function(v) sv().hideBorder = not v; upd("UpdateReactiveTotemAppearance") end })
@@ -2651,7 +2803,7 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 		end
 	end
 	if not any then
-		local t = card:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.rowDim); t:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); t:SetText("No reminder spells exist on this client.")
+		local t = card:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.rowDim); t:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y); t:SetText("No reminder spells are available in this version of the game.")
 		y = y + 24
 	end
 	return y
@@ -2686,7 +2838,7 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 	end
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.coverageDemoActive then SP:CoverageDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", false) end
-	row("Toggle", { label = "Hide a totem once everyone is in range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.", disabled = off,
+	row("Toggle", { label = "Hide a totem once everyone is in range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range. During fights in dungeons every totem stays listed and the names show who is missing its buff.", disabled = off,
 		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
 	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Show totem time left instead of number of players out of range", desc = "The totem's time left on its icon, in place of how many are out of range (\"1 OUT\").", disabled = off,
@@ -2712,12 +2864,12 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 	row("Slider", { label = "Name size", min = 7, max = 14, step = 1,
 		disabled = function() return (type(off) == "function" and off()) or get("dots", false) end,
 		get = function() return get("fontSize", 9) end, set = function(v) co().fontSize = v; upd("UpdateCoverageLayout") end })
-	row("Toggle", { label = "Place each totem freely", desc = "Every cell gets its own spot and size"
-		.. " (Settings > Group Tools > Party Buff Tracker > Coverage has a size per totem).", disabled = off,
+	row("Toggle", { label = "Place each totem freely", desc = "Move and resize each totem separately"
+		.. ". Change each totem's size in Settings > Group Tools > Party Buff Tracker > Coverage.", disabled = off,
 		get = function() return get("freeCells", false) and true or false end, set = function(v) co().freeCells = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Vertical layout", disabled = function() return off() or get("freeCells", false) end,
 		get = function() return get("vertical", false) and true or false end, set = function(v) co().vertical = v; upd("UpdateCoverageLayout") end })
-	row("Toggle", { label = "Hide the frame", desc = "Only the cells; ALT+drag to move, right-click a cell's panel to configure.", disabled = off,
+	row("Toggle", { label = "Hide the frame", desc = "Show only the totems and party members. Alt-drag to move. Right-click a totem's panel for settings.", disabled = off,
 		get = function() return get("hideBorder", false) and true or false end, set = function(v) co().hideBorder = v; upd("UpdateCoverageBorder") end })
 	-- Which totems it watches: fewer ticked = fewer cells on screen (and fewer boxes
 	-- in Unlock UI). Only totems that exist on this client, labelled by totem name.
@@ -2763,7 +2915,7 @@ function SP.Wizard.BuildTremorStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Target a mob that is known to fear and this appears BEFORE anyone gets feared; drop Tremor and it goes away. It is its own floating frame - by default just above the middle of your screen, not part of the totem bar - and you can drag it anywhere in the Position step.")
+	legend:SetText("Target a mob known to fear and the reminder appears. Drop Tremor and it goes away. It starts just above the middle of your screen. Move it in the Position step.")
 	inner:SetScript("OnUpdate", function() story:SetText(SP.tremorDemoStatus or "") end)
 
 	local W = card:GetWidth() - 36
@@ -2826,7 +2978,7 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	local legend = inner:CreateFontString(nil, "OVERLAY"); legend:SetFontObject(Core.fonts.rowDim)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
-	legend:SetText("Scrolling-combat-text style. A new one fires every few seconds here; in game they fire the moment something fades.")
+	legend:SetText("Alerts appear like scrolling combat text. The preview shows one every few seconds. In game, they appear when something fades.")
 	-- Keep every alert inside the box: shrink the borrowed frame (never
 	-- enlarge) to fit the LONGEST demo line at the chosen sizes. Computed from
 	-- the settings, not the live alerts, so the scale never changes while an
@@ -2892,7 +3044,9 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 			get = function() return sget("shields", "earthShield", true) end,
 			set = function(v) sub("shields").earthShield = v; upd() end })
 	end
-	row("Toggle", { label = "    Sound", disabled = shOff, get = function() return sget("shields", "sound", false) end, set = function(v) sub("shields").sound = v; upd() end })
+	-- the shield-drop sound is ShamanPower's own (one setting with Shield Charges): it plays with these alerts off too
+	row("Toggle", { label = "Sound When Your Shield Drops", get = function() return SP.opt ~= nil and SP.opt.shieldDropSound == true end,
+		set = function(v) if SP.SetShieldDropSound then SP:SetShieldDropSound(v) end; upd() end })
 	local function toOff() return off() or not sget("totems", "enabled", true) end
 	row("Toggle", { label = "Totems", disabled = off, get = function() return sget("totems", "enabled", true) end, set = function(v) sub("totems").enabled = v; upd() end })
 	row("Toggle", { label = "    Destroyed by a mob", disabled = toOff, get = function() return sget("totems", "destroyed", true) end, set = function(v) sub("totems").destroyed = v; upd() end })
@@ -2949,7 +3103,7 @@ function SP.Wizard.BuildRangeStep(card, inner, y)
 	bh:SetText(IS_SHAMAN and "NOT JUST FOR SHAMANS" or "THIS IS THE ONE FOR YOU")
 	local bb = box:CreateFontString(nil, "OVERLAY"); bb:SetFontObject(Core.fonts.rowDim); bb:SetPoint("TOPLEFT", bh, "BOTTOMLEFT", 0, -6); bb:SetWidth(bw)
 	bb:SetJustifyH("LEFT"); bb:SetWordWrap(true)
-	bb:SetText(IS_SHAMAN and "Any class can install ShamanPower and enable only the |cffE6EAF0Totem Range|r module to see whether they are standing in range of their shaman's totems. As a shaman, keep it on if you run with other shamans and want to track their totems too."
+	bb:SetText(IS_SHAMAN and "Any class can use |cffE6EAF0Totem Range Tracker|r to see whether they are in range of their shaman's totems. Keep it on to track other shamans' totems in your group."
 		or "Green means you are getting that totem's buff, red means the totem is down but you are standing outside it - move closer to your shaman. It only appears when there is a shaman in your group.")
 	box:SetHeight(20 + bh:GetStringHeight() + 6 + bb:GetStringHeight() + 12)
 	y = y + box:GetHeight() + 14
@@ -3229,9 +3383,9 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 		plus(STYLES, STYLE_ORDER, "shine", "Shine", "dot", "Dot"))
 	cue("Weapon imbue gone", "A weapon imbue that drops off (it ran out, or the weapon was swapped) plays this on the imbue button, in blue.",
 		"cdbarCueImbue", "cdbarCueImbueStyle", "shake", plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag"))
-	cue("Shield gone", WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
-			and "Your shield going plays this on the shield button, in blue. In combat the game hides that moment, so there the button pulses red while no shield is up (at 100% cooldown bar opacity)."
-			or "Your shield going plays this on the shield button, in blue.",
+	cue("Shield gone", SPCompat.FOREVER
+			and "The shield button plays a blue effect when your shield fades out of combat. In combat, it pulses red while you have no shield (at 100% Cooldown Bar opacity)."
+			or "The shield button plays this effect in blue when your shield fades.",
 		"cdbarCueShield", "cdbarCueShieldStyle", "shake", plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag"))
 	return y
 end
@@ -3294,6 +3448,8 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		local corner = btn:CreateFontString(nil, "OVERLAY", "NumberFontNormal"); corner:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
 		corner:SetText(sp.charges or sp.count or "")
 		local lbl = btn:CreateFontString(nil, "OVERLAY"); lbl:SetFontObject(Core.fonts.tiny); lbl:SetPoint("TOP", btn, "BOTTOM", 0, -8)
+		-- Fira is wider than the old narrow font: at 9 neighbors like Bloodlust / Imbues stay apart
+		local capPath, _, capFlags = lbl:GetFont(); if capPath then lbl:SetFont(capPath, 9, capFlags or "") end
 		lbl:SetText(sp.name); lbl:SetWidth(SIZE + GAP + 14); lbl:SetJustifyH("CENTER"); lbl:SetWordWrap(false)
 		-- Shield charge bar (Show Shield Charge Bar): full, like the "3" on the chip
 		local strip
@@ -3636,7 +3792,7 @@ end
 function SP.Wizard.BuildFinishNote(card, inner, y) end
 
 function SP.Wizard.BuildPositionStep(card, inner, y)
-	local btn = Core:MakeButton(card, IS_SHAMAN and "Unlock & Position My Frames" or "Position the Range Overlay", 10, true)
+	local btn = Core:MakeButton(card, IS_SHAMAN and "Unlock & Move Everything" or "Move Totem Range Tracker", 10, true)
 	btn:SetPoint("TOPLEFT", card, "TOPLEFT", 18, -y)
 	btn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -18, -y)
 	btn:SetScript("OnClick", function() SP.Wizard:EnterPositioning() end)
@@ -3644,10 +3800,10 @@ function SP.Wizard.BuildPositionStep(card, inner, y)
 	local pic = inner:CreateFontString(nil, "OVERLAY")
 	pic:SetFontObject(Core.fonts.rowDim); pic:SetPoint("CENTER"); pic:SetWidth(inner:GetWidth() - 24)
 	pic:SetJustifyH("CENTER"); pic:SetWordWrap(true)
-	pic:SetText(IS_SHAMAN and "The setup screen will step aside so you can drag your totem bar, cooldown bar"
-		.. " and every frame you turned on in this setup. A small bar appears at the top - click Done when you are finished."
+	pic:SetText(IS_SHAMAN and "The setup window hides while you move your Totem Bar, Cooldown Bar"
+		.. " and everything you turned on. Click Done on the bar at the top when you are finished."
 		.. " Settings > General > Main > Unlock UI does the same any time."
-		or "The setup screen will step aside and show the Totem Range overlay so you can drag it where you want. A small bar appears at the top - click Done when you are finished.")
+		or "The setup window hides while you move Totem Range Tracker. Click Done on the bar at the top when you are finished.")
 end
 
 local posBar
@@ -3676,9 +3832,15 @@ function SP.Wizard:EnterPositioning()
 		posBar:SetSize(420, 52); posBar:SetPoint("TOP", UIParent, "TOP", 0, -80)
 		posBar:SetFrameStrata("FULLSCREEN_DIALOG")
 		Core:SolidTex(posBar, "windowBg", "BACKGROUND", nil, true)
-		Core:MakeBorder(posBar, "accent", 2)
+		-- every window's soft edge and the four elements along its top (D32b)
+		Core:MakeBorder(posBar, "border", 1.5)
+		if SP.CreateElementStripe then
+			local posStripe = SP:CreateElementStripe(posBar)
+			posStripe:SetPoint("TOPLEFT", posBar, "TOPLEFT", 0, 0)
+			posStripe:SetPoint("TOPRIGHT", posBar, "TOPRIGHT", 0, 0)
+		end
 		local t = posBar:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
-		t:SetPoint("LEFT", posBar, "LEFT", 16, 0); t:SetText(IS_SHAMAN and "Drag your bars to move them" or "Drag the highlighted frames to move them")
+		t:SetPoint("LEFT", posBar, "LEFT", 16, 0); t:SetText(IS_SHAMAN and "Drag your bars to move them" or "Drag the highlighted boxes to move them")
 		local done = Core:MakeButton(posBar, "Done", 90, true)
 		done:SetPoint("RIGHT", posBar, "RIGHT", -12, 0)
 		done:SetScript("OnClick", function() SP.Wizard:ExitPositioning() end)
@@ -3698,8 +3860,11 @@ function RenderStep()
 	ClearContent()
 	local steps = state.steps
 	local s = steps[state.step]
-	wiz.stepTitle:SetText(string.format("Step %d of %d", state.step, #steps))
-	RenderRail(steps)
+	local element = StepElement(s)
+	if wiz._element ~= element then PaintStepElement(element) end
+	-- the counter under the title, in small caps (as a window's subtitle)
+	wiz.stepTitle:SetText(string.upper(string.format("Step %d of %d", state.step, #steps)))
+	RenderRail(steps, element)
 
 	-- Role/welcome is a full-bleed centered screen (no rail); feature steps use
 	-- the rail.
@@ -3707,15 +3872,19 @@ function RenderStep()
 	wiz.rail:SetShown(not roleStep)
 	wiz.content:ClearAllPoints()
 	if roleStep then
-		wiz.content:SetPoint("TOPLEFT", wiz, "TOPLEFT", 2, -(HEADER_H + 4))
+		wiz.content:SetPoint("TOPLEFT", wiz, "TOPLEFT", 0, -HEADER_H)
 	else
 		wiz.content:SetPoint("TOPLEFT", wiz.rail, "TOPRIGHT", 0, 0)
 	end
-	wiz.content:SetPoint("BOTTOMRIGHT", wiz, "BOTTOMRIGHT", -2, FOOTER_H)
+	wiz.content:SetPoint("BOTTOMRIGHT", wiz, "BOTTOMRIGHT", 0, FOOTER_H)
+	-- the content's light over the width the content has on this step
+	local contentW = wiz:GetWidth()
+	if not roleStep then contentW = contentW - RAIL_W end
+	Core:PlaceLight(wiz.contentLight, wiz.content, contentW, wiz:GetHeight() - HEADER_H - FOOTER_H, 0.05, 0, 1)
 
 	if roleStep then
 		SP.Wizard:RenderRole()
-		wiz.stepTitle:SetText("Welcome")
+		wiz.stepTitle:SetText(string.upper("Welcome"))
 		wiz.next:SetShown(IS_SHAMAN and state.role ~= nil)   -- a non-shaman's welcome has its own Start
 		wiz.back:Hide()
 		wiz.next.text:SetText("Next")
@@ -3788,7 +3957,7 @@ function RenderStep()
 		y = y + 6
 		for _, tg in ipairs(s.toggles) do
 			if (not tg.roles or tg.roles[state.role]) and not (tg.bind == "earthshieldcharge" and SP.ESTrackerUnavailable) then
-				ToggleRow(card, y, tg.label, tg.bind)
+				ToggleRow(card, y, tg.label, tg.bind, element)
 				y = y + 34
 			end
 		end
@@ -3798,9 +3967,9 @@ function RenderStep()
 	local missing
 	if s.module then
 		if IsAddOnLoaded and not IsAddOnLoaded(s.module) then
-			missing = "The |cffffffff" .. s.module .. "|r module is not enabled.\n\nEnable it in the AddOns list (character select > AddOns, or the AddOns button at the main menu) and /reload, then come back to this step."
+			missing = "|cffffffff" .. s.module .. "|r is turned off.\n\nTurn it on in the AddOns list at character select or in the game menu. Type /reload, then return to this step."
 		elseif s.flag and not SP[s.flag] then
-			missing = "The |cffffffff" .. s.module .. "|r module is loaded but did not start - it only runs on a Shaman."
+			missing = "|cffffffff" .. (s.title or s.module) .. "|r is turned on but did not start. Type /reload. If it still does not start, copy your Support Code (Settings > General) and post it in #help on the ShamanPower Discord."
 		end
 	end
 	if missing then
@@ -3808,7 +3977,12 @@ function RenderStep()
 		t:SetWidth(box.inner:GetWidth() - 60); t:SetJustifyH("CENTER"); t:SetWordWrap(true); t:SetTextColor(Core:Color("warn")); t:SetText(missing)
 		FitCardBody(cardFrame, y + 4)
 	elseif s.build and SP.Wizard[s.build] then
+		-- the step's switches and slider fills in its element (none again after; none
+		-- at all without the brand file, which has the element colors)
+		local Widgets = ns.Widgets
+		if Widgets and SP.Brand then Widgets:SetElement(element) end
 		local ok, endY = pcall(SP.Wizard[s.build], card, box.inner, y + 4)
+		if Widgets then Widgets:SetElement(nil) end
 		if not ok then
 			print("|cff0070ddShamanPower setup|r: step '" .. s.id .. "' failed: " .. tostring(endY))
 			local err = box.inner:CreateFontString(nil, "OVERLAY"); err:SetFontObject(Core.fonts.rowDim); err:SetPoint("CENTER"); err:SetWidth(box.inner:GetWidth() - 40); err:SetJustifyH("CENTER"); err:SetWordWrap(true)
@@ -3892,8 +4066,10 @@ function SP.Wizard:ShowPresetPreview(preset, opts)
 		})
 		local body = previewDlg.body
 		-- opaque: this sits over the welcome screen and must be readable
-		local solid = previewDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2); solid:SetColorTexture(Core:Color("windowBg", 1))
-		local solidH = previewDlg.header:CreateTexture(nil, "BACKGROUND", nil, 1); solidH:SetAllPoints(previewDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
+		local solid = previewDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetAllPoints(previewDlg); solid:SetColorTexture(Core:Color("windowBg", 1))
+		-- (the header's copy sits under the header's own fill and light, never over them)
+		local solidH = previewDlg.header:CreateTexture(nil, "BACKGROUND", nil, -1)
+		solidH:SetAllPoints(previewDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
 		-- live mocks of the preset (rebuilt on every open, see below)
 		local shot = CreateFrame("Frame", nil, body); shot:SetSize(520, 400); shot:SetPoint("TOPLEFT", body, "TOPLEFT", 0, 0)
 		previewDlg.shot = shot
@@ -4016,7 +4192,9 @@ function SP.Wizard:RenderRole()
 	local bandIcon = band:CreateTexture(nil, "ARTWORK"); bandIcon:SetSize(44, 44)
 	bandIcon:SetPoint("TOPLEFT", band, "TOPLEFT", 8, -9); bandIcon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); bandIcon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
 	local intro = band:CreateFontString(nil, "OVERLAY")
-	intro:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE"); intro:SetTextColor(1, 0.82, 0.15)
+	-- the gold banner title (ui-style-guide 2.3 A) in the brand's SemiBold: the kit's
+	-- title face (Fira Sans, or the game's font on Chinese and Korean clients) at 26
+	intro:SetFont((Core.fonts.title:GetFont()), 26, "OUTLINE"); intro:SetTextColor(1, 0.82, 0.15)
 	intro:SetShadowColor(0, 0, 0, 1); intro:SetShadowOffset(2, -2)
 	intro:SetPoint("TOPLEFT", bandIcon, "TOPRIGHT", 12, 0)
 	intro:SetText("Welcome to ShamanPower")
@@ -4038,7 +4216,7 @@ function SP.Wizard:RenderRole()
 		local h = box:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.title); h:SetPoint("TOP", box, "TOP", 0, -16); h:SetWidth(600); h:SetJustifyH("CENTER")
 		h:SetTextColor(Core:Color("accentHi")); h:SetText("You are not a shaman - this will be quick")
 		local b = box:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim); b:SetPoint("TOP", h, "BOTTOM", 0, -6); b:SetWidth(560); b:SetJustifyH("CENTER"); b:SetWordWrap(true)
-		b:SetText("The totem bars and most modules only run on a shaman, so we skip them. Here is what ShamanPower does for you:")
+		b:SetText("This tour skips the features that only shamans can use. Here is what ShamanPower does for you:")
 		local hr = box:CreateTexture(nil, "ARTWORK"); hr:SetSize(560, 1); hr:SetPoint("TOP", b, "BOTTOM", 0, -12); hr:SetColorTexture(Core:Color("accent", 0.4))
 		-- one row per feature: icon, name, what it does
 		local spellTex = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
@@ -4046,7 +4224,7 @@ function SP.Wizard:RenderRole()
 		local feats = {
 			{ 8075, "Totem Range", "See whether you are inside your shaman's totem buffs." },
 			{ HasBL() and 2825 or 16190, "Raid Cooldowns", "Call for " .. RaidCDNames("Bloodlust") .. " as leader or assistant." },
-			(WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and { 8512, "Windfury Companion", "A WeakAura so your shaman can see your Windfury (melee)." } or nil,
+			(not SPCompat.FOREVER) and { 8512, "Windfury Companion", "A WeakAura so your shaman can see your Windfury (melee)." } or nil,
 			{ 8177, "Totem Plates", "Big icons on enemy totems so you kill the right one." },
 		}
 		local rowX, rowW, y = -250, 500, -12
@@ -4077,7 +4255,7 @@ function SP.Wizard:RenderRole()
 		end)
 		-- The one-click way out for melee who only want their shaman to see their Windfury.
 		-- (Not on WoW: Forever: Windfury is a party buff there, their shaman sees it anyway.)
-		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+		if not SPCompat.FOREVER then
 			local wfOnly = track(Core:MakeButton(c, "Just here so my shaman sees my Windfury", 320, false))
 			wfOnly:SetSize(320, 30); wfOnly:SetPoint("TOP", go, "BOTTOM", 0, -16)
 			wfOnly.text:SetTextColor(1, 0.82, 0)
@@ -4110,7 +4288,7 @@ function SP.Wizard:RenderRole()
 
 	-- Each card: the role in gold, then what picking it sets up, one spell per row.
 	-- Items are { spellID or list of IDs (first the client has), text }.
-	local FOREVER = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local FOREVER = SPCompat.FOREVER
 	local roles = FOREVER and {
 		{ key = "restoration", name = "Restoration", role = "Healer", items = {
 			{ 16190, "Mana Tide Totem" }, { 16188, "Nature's Swiftness" },
@@ -4239,7 +4417,7 @@ function SP.Wizard:RenderFinish()
 	local d = track(c:CreateFontString(nil, "OVERLAY"))
 	d:SetFontObject(Core.fonts.rowDim)
 	d:SetPoint("TOP", t, "BOTTOM", 0, -12); d:SetWidth(520); d:SetJustifyH("CENTER"); d:SetWordWrap(true)
-	d:SetText("ShamanPower will reload once so everything you chose is applied cleanly. You can run this setup again any time with /spsetup.")
+	d:SetText("Reload to finish applying your settings. Run this setup again any time with /spsetup.")
 
 	-- The big one: setup only scratched the surface.
 	local box = track(CreateFrame("Frame", nil, c))
@@ -4253,25 +4431,19 @@ function SP.Wizard:RenderFinish()
 	b:SetText(IS_SHAMAN and ("This walkthrough only covered the essentials. The full settings window has far more:"
 		.. " every totem bar and cooldown bar option, flyouts, macros, loadouts and the loadout bar,"
 		.. " pop-out trackers, mini bar, assignments, colors, sounds, keybinds, profiles"
-		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. ", and more.")
+		.. (not SPCompat.FOREVER and ", the Windfury Companion" or "") .. ", and more.")
 		or ("The settings window has the rest of what runs on your class: the Totem Range overlay's size,"
 		.. " opacity and layout, the Raid Cooldown caller buttons, Totem Plates"
-		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. " and profiles."))
+		.. (not SPCompat.FOREVER and ", the Windfury Companion" or "") .. " and profiles."))
 	local cmd = box:CreateFontString(nil, "OVERLAY"); cmd:SetFontObject(Core.fonts.row)
 	cmd:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -10); cmd:SetWidth(520); cmd:SetJustifyH("LEFT"); cmd:SetWordWrap(true)
 	cmd:SetText(IS_SHAMAN and "Open it any time with  |cffFFFFFF/spui|r  or the settings button on your totem bar."
 		or "Open it any time with  |cffFFFFFF/spui|r  or the minimap icon.")
 
-	-- Offer to open it straight after the reload.
-	local tr = CreateFrame("Button", nil, box); tr:SetSize(38, 18)
+	-- Offer to open it straight after the reload (the tiny totem switch, in this step's element).
+	local tr = MakeSwitch(box, wiz._element)
 	tr:SetPoint("TOPLEFT", cmd, "BOTTOMLEFT", 0, -14)
-	local tex = tr:CreateTexture(nil, "BACKGROUND"); tex:SetAllPoints(tr); Core:MakeBorder(tr, "border")
-	local knob = tr:CreateTexture(nil, "OVERLAY"); knob:SetSize(12, 12); knob:SetColorTexture(0.95, 0.96, 0.98, 1)
-	local function paint()
-		local on = SP.opt.openSettingsAfterSetup and true or false
-		tex:SetColorTexture(Core:ColorIf(on, "accent", "off"))
-		knob:ClearAllPoints(); knob:SetPoint(on and "RIGHT" or "LEFT", tr, on and "RIGHT" or "LEFT", on and -3 or 3, 0)
-	end
+	local function paint() tr:SetChecked(SP.opt.openSettingsAfterSetup) end
 	tr:SetScript("OnClick", function() SP.opt.openSettingsAfterSetup = not SP.opt.openSettingsAfterSetup or nil; paint() end)
 	if SP.opt.openSettingsAfterSetup == nil then SP.opt.openSettingsAfterSetup = true end
 	paint()
@@ -4368,7 +4540,7 @@ function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
 			title = "Your setup is backed up", subtitle = "nothing you had is lost", headerHeight = 46, footer = 52,
 			special = true, strata = "FULLSCREEN_DIALOG",
 		})
-		local solid = backupDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2); solid:SetColorTexture(Core:Color("windowBg", 1))
+		local solid = backupDlg:CreateTexture(nil, "BACKGROUND", nil, 1); solid:SetAllPoints(backupDlg); solid:SetColorTexture(Core:Color("windowBg", 1))
 		local t = backupDlg.body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
 		t:SetPoint("TOPLEFT", backupDlg.body, "TOPLEFT", 0, -2); t:SetWidth(490); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
 		backupDlg.text = t
@@ -4385,12 +4557,12 @@ function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
 			if self:IsShown() or not self.onOk then return end
 			local f = self.onOk
 			self.onOk = nil
-			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then C_Timer.After(0, f) else f() end
+			if SPCompat.FOREVER then C_Timer.After(0, f) else f() end
 		end
 	end
 	backupDlg.onOk = onOk
 	backupDlg.text:SetText(string.format(
-		"A complete snapshot of your current setup - profile |cffFFD100%s|r, every module's settings and all positions - was just saved (|cffFFD100%s|r).\n\n"
+		"Your setup was backed up: profile |cffFFD100%s|r, all settings and all positions (|cffFFD100%s|r).\n\n"
 		.. "If you ever want it back: |cff3FA9F5Settings > Profiles > Built-in Layouts > Restore My Previous Setup|r. It comes back as a new profile named |cffFFD100%s (restored ...)|r, so nothing gets overwritten.%s",
 		backup.profile or "?", backup.date or "", backup.profile or "?", extra and ("\n\n" .. extra) or ""))
 	backupDlg:SetHeight(46 + 4 + 10 + 2 + math.ceil(backupDlg.text:GetStringHeight()) + backupDlg.pad + 52)
@@ -4416,7 +4588,7 @@ function SP.Wizard:ShowUpgradePrompt()
 		upgradeDlg = Core:CreateDialog({
 			name = "ShamanPowerUpgradePrompt", width = 480,
 			title = "ShamanPower has changed", subtitle = "new settings window, new guided setup", headerHeight = 46, footer = 52,
-			special = true, strata = "DIALOG",
+			special = true, strata = "DIALOG", logo = true,   -- the wordmark lockup (the name is in the title)
 		})
 		local t = upgradeDlg.body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
 		t:SetPoint("TOPLEFT", upgradeDlg.body, "TOPLEFT", 0, -4); t:SetWidth(440); t:SetJustifyH("LEFT"); t:SetWordWrap(true)
@@ -4492,7 +4664,7 @@ function SP.Wizard:ShowWelcomeChoice()
 		welcomeDlg = Core:CreateDialog({
 			name = "ShamanPowerWelcomeChoice", width = 440,
 			title = "Welcome to ShamanPower", subtitle = "first time with ShamanPower", headerHeight = 46, footer = 52,
-			special = true, strata = "DIALOG",
+			special = true, strata = "DIALOG", logo = true,   -- the wordmark lockup (the name is in the title)
 		})
 		local body = welcomeDlg.body
 		local t = body:CreateFontString(nil, "OVERLAY"); t:SetFontObject(Core.fonts.row)
@@ -4544,14 +4716,14 @@ function SP.Wizard:ShowWelcomeChoice()
 			local role = SP.Wizard.DetectSpec()
 			if role then quickSetup(role) return end
 			-- under 10 there are no talents yet; at 10+ the points could not tell (tied, or not readable)
-			d.text:SetText(((UnitLevel("player") or 0) >= 10) and "What spec do you play?" or "What spec are you levelling as?")
+			d.text:SetText(((UnitLevel("player") or 0) >= 10) and "What spec do you play?" or "What spec are you leveling as?")
 			showSpecs(true)
 		end)
 	else
 		d.text:SetText("ShamanPower helps you play alongside shamans.")
 		d.a.text:SetText("Quick tour  (a minute)")
 		d.a:SetScript("OnClick", function() d:Hide(); SP.Wizard:Open() end)
-		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		if SPCompat.FOREVER then
 			-- WoW: Forever: Windfury is a party buff there, no Windfury-only mode to offer
 			d.b:Hide()
 		else
@@ -4633,7 +4805,7 @@ function SP.Wizard.BuildForeverStep(card, inner, y)
 		end
 	end
 	column("NOT IN THIS GAME", gone, 14)
-	column("DRAWN BY THE GAME IN COMBAT", engine, inner:GetWidth() / 2 + 6)
+	column("WORKS IN COMBAT", engine, inner:GetWidth() / 2 + 6)
 	local foot = inner:CreateFontString(nil, "OVERLAY"); foot:SetFontObject(Core.fonts.rowDim)
 	foot:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 14, 12); foot:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -14, 12)
 	foot:SetJustifyH("LEFT"); foot:SetWordWrap(true)

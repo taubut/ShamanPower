@@ -23,7 +23,7 @@ if not (SP and Core) then return end
 
 local floor, max, min = math.floor, math.max, math.min
 
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 
 -- Layout (px)
 local DLG_W    = 420   -- grows for a long title, never cuts it
@@ -252,9 +252,10 @@ local function Build()
 		title = "Color", subtitle = "changes show as you pick",
 		headerHeight = HEADER_H, footer = FOOTER_H, special = true, strata = "FULLSCREEN_DIALOG",
 	})
-	-- a color is judged against a solid panel: opaque at any Background Opacity
+	-- a color is judged against a solid panel: opaque at any Background Opacity (out to
+	-- the window's edge, which draws over it)
 	local solid = dlg:CreateTexture(nil, "BACKGROUND", nil, 1)
-	solid:SetPoint("TOPLEFT", 2, -2); solid:SetPoint("BOTTOMRIGHT", -2, 2)
+	solid:SetAllPoints(dlg)
 	solid:SetColorTexture(Core:Color("windowBg", 1))
 	local solidH = dlg.header:CreateTexture(nil, "BACKGROUND", nil, 1)
 	solidH:SetAllPoints(dlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
@@ -392,20 +393,29 @@ local function Build()
 	-- the swatch rows, under the square (placed at open, below the taller of the
 	-- square and the right column)
 	local rows = CreateFrame("Frame", nil, body)
+	-- the names' column is as wide as the widest name (at least LABEL_W): Fira Sans is
+	-- wider than the narrow font these had, and a name is never cut short. The
+	-- swatches start after it.
+	local swatches = CreateFrame("Frame", nil, rows)
+	swatches:SetSize(1, 1)
+	local names, labelW = {}, LABEL_W
 	local y = 0
 	local function rowLabel(text)
 		local l = rows:CreateFontString(nil, "OVERLAY")
 		l:SetFontObject(Core.fonts.section)
 		l:SetPoint("LEFT", rows, "TOPLEFT", 0, -(y + SW / 2))
-		l:SetWidth(LABEL_W - 6); l:SetJustifyH("LEFT"); l:SetWordWrap(true)
+		l:SetJustifyH("LEFT"); l:SetWordWrap(true)
 		l:SetText(strupper(text))
+		-- 2 px of slack: a UI scale change re-rounds the glyphs and must not cut a name
+		labelW = max(labelW, math.ceil(l:GetStringWidth()) + 8)
+		names[#names + 1] = l
 	end
 	for _, row in ipairs(PALETTE_ROWS) do
 		rowLabel(row.label)
 		for e = 1, 4 do
 			local r, g, b = HexRGB(row.hex[e])
 			local s = Swatch(rows, r, g, b, row.label .. " " .. ELEMENTS[e])
-			s:SetPoint("TOPLEFT", rows, "TOPLEFT", LABEL_W + (e - 1) * (SW + SGAP), -y)
+			s:SetPoint("TOPLEFT", swatches, "TOPLEFT", (e - 1) * (SW + SGAP), -y)
 		end
 		y = y + SW + SGAP
 	end
@@ -413,8 +423,10 @@ local function Build()
 	for i, item in ipairs(WOW_ROW) do
 		local r, g, b = WoWRGB(item)
 		local s = Swatch(rows, r, g, b, item.name)
-		s:SetPoint("TOPLEFT", rows, "TOPLEFT", LABEL_W + (i - 1) * (SW + SGAP), -y)
+		s:SetPoint("TOPLEFT", swatches, "TOPLEFT", (i - 1) * (SW + SGAP), -y)
 	end
+	swatches:SetPoint("TOPLEFT", rows, "TOPLEFT", labelW, 0)
+	for _, l in ipairs(names) do l:SetWidth(labelW - 6) end
 	rows:SetHeight(y + SW)
 	dlg.rows = rows
 
@@ -491,12 +503,14 @@ function SP:OpenColorPicker(opts)
 	dlg.rows:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, -rowsY)
 	local bodyH = rowsY + dlg.rows:GetHeight()
 	if session.hasAlpha and Widgets then
+		Widgets:SetElement(dlg.spElement)   -- its fill in the window's element (spirit: a picker)
 		local _, h = Widgets:Slider(dlg.alphaHost, {
 			label = "Opacity", desc = "How see-through this color is.",
 			x = 0, y = 0, width = bodyW, min = 0, max = 1, step = 0.01, isPercent = true,
 			get = function() return cur.a end,
 			set = function(v) cur.a = v; Changed() end,
 		})
+		Widgets:SetElement(nil)
 		dlg.alphaHost:Show()
 		bodyH = bodyH + 12 + (h - Widgets.ROW_GAP)
 	else

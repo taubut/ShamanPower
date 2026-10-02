@@ -20,7 +20,7 @@ local SAMPLES = {
 }
 
 local function HasSets()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.HasTotemBar and SP:HasTotemBar()
+	return SPCompat.FOREVER and SP.HasTotemBar and SP:HasTotemBar()
 end
 
 local function TotemIcon(element, index)
@@ -85,6 +85,13 @@ local function BuildLoadout(parent, loadout, anchor, hasSets)
 	end
 	if not SP.opt.loadoutBarHideNames then
 		local label = Label(frame, loadout and loadout.name or "", Core.fonts.row)
+		-- the bar's own name label: its template's design in the player's Labels font
+		-- (ShamanPower.lua's loadout bar), not the settings window's font
+		local tpl = rawget(_G, "GameFontHighlightSmallOutline")
+		local path, size, flags
+		if tpl and tpl.GetFont then path, size, flags = tpl:GetFont() end
+		if SP.SetSPFont then SP:SetSPFont(label, "labels", size or 10, flags or "OUTLINE", path) end
+		label:SetTextColor(1, 1, 1)
 		label:SetPoint("LEFT", frame, "RIGHT", 4, 0)
 		label:SetJustifyH("LEFT")
 	end

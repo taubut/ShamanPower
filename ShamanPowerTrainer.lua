@@ -12,7 +12,7 @@
 
 local SP = ShamanPower
 if not SP then return end
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+if not SPCompat.FOREVER then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
 -- [level] = { "Name", rank (0 = no ranks) , ... } pairs, as a flat list per level

@@ -42,7 +42,7 @@ local SP_SOUNDS = {
 	["Quest Failed"]          = { [[Sound\Interface\igQuestFailed.ogg]],        567459 },
 	["Level Up"]              = { [[Sound\Interface\LevelUp.ogg]],              567431 },
 }
-local SP_SOUND_BY_ID = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local SP_SOUND_BY_ID = (SPCompat.FOREVER)
 for name, entry in pairs(SP_SOUNDS) do
 	LSM3.MediaTable.sound[name] = SP_SOUND_BY_ID and entry[2] or entry[1]
 end
@@ -96,7 +96,7 @@ local SP_SECURE_ONLEAVE_PARENT_MAINLINE = [[
 	parent:ChildUpdate("show", false)
 ]]
 
-local SP_SECURE_ONLEAVE_PARENT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local SP_SECURE_ONLEAVE_PARENT = (SPCompat.FOREVER)
 	and SP_SECURE_ONLEAVE_PARENT_MAINLINE or SP_SECURE_ONLEAVE_PARENT_CLASSIC
 
 -- Every secure snippet write goes through here.
@@ -231,7 +231,7 @@ ShamanPower.FlyoutArrowArt = { texture = ARROW_TEXTURE, w = ARROW_W, h = ARROW_H
 -- element's colour, instead of a spell icon that reads as a real totem. It is a
 -- texture laid over the icon, so it can change mid-fight. Forever only: the
 -- Classic line keeps the look it shipped with.
-local EMPTY_SLOT_ART = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local EMPTY_SLOT_ART = (SPCompat.FOREVER)
 
 function ShamanPower:ShowEmptySlotArt(element, empty)
 	if not EMPTY_SLOT_ART then return end
@@ -283,7 +283,7 @@ local spFlyoutCombatLayout = false
 function ShamanPower:BlizzardStyleFlyouts()
 	if self._blizzardArrows == nil then
 		if not self.opt then return false end   -- too early to know: not cached
-		self._blizzardArrows = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self.opt.flyoutBlizzardArrows == true) and true or false
+		self._blizzardArrows = (SPCompat.FOREVER and self.opt.flyoutBlizzardArrows == true) and true or false
 	end
 	return self._blizzardArrows
 end
@@ -659,17 +659,32 @@ function ShamanPower:AnyTotemDown()
 		if not ok or res then down = true break end
 	end
 	self._totemDown = down
+	-- a totem seen down: whatever sleeps until one is wakes (the safety net for a
+	-- drop that came without an event, see spWhileTotemsDown)
+	if down then self:WakeTotemSleepers() end
 	return down
 end
 
 -- Runs fn while a totem is down, and twice more after the last one goes so the
 -- bars / glows it drew are cleared; then not at all until a totem is down again.
+-- Called from a subsystem of the update loop, that subsystem then sleeps (leaves
+-- the loop) until a totem change wakes it: InvalidateTotemInfo (PLAYER_TOTEM_UPDATE,
+-- your own casts, the combat edges) or any totem seen down by AnyTotemDown. A
+-- subsystem whose callback does other work as well keeps state.stayAwake set.
 local function spWhileTotemsDown(state, fn)
 	if ShamanPower:AnyTotemDown() then
 		state.idle = 0
 	else
 		state.idle = (state.idle or 0) + 1
-		if state.idle > 2 then return end
+		if state.idle > 2 then
+			local us = ShamanPower.updateSystem
+			local sys = us.running
+			if sys and not state.stayAwake then
+				us.totemSleepers[sys.name] = true
+				ShamanPower:SleepUpdateSubsystem(sys.name)
+			end
+			return
+		end
 	end
 	fn()
 end
@@ -678,20 +693,48 @@ ShamanPower._whileTotemsDown = spWhileTotemsDown
 function ShamanPower:InitUpdateSystem()
 	if self.updateSystem.frame then return end
 
-	self.updateSystem.frame = CreateFrame("Frame")
-	local activeList = self.updateSystem.activeList  -- Local reference for speed
+	local us = self.updateSystem
+	us.frame = CreateFrame("Frame")
+	us.pass, us.totemSleepers = 0, {}
+	local activeList = us.activeList  -- Local reference for speed
 
-	self.updateSystem.frame:SetScript("OnUpdate", function(frame, elapsed)
-		-- Fast array iteration (no pairs overhead, no garbage)
-		for i = 1, #activeList do
-			local sys = activeList[i]
-			sys.elapsed = sys.elapsed + elapsed
-			if sys.elapsed >= sys.interval then
-				sys.elapsed = 0
-				sys.callback()
+	us.frame:SetScript("OnUpdate", function(frame, elapsed)
+		-- Fast array iteration (no pairs overhead, no garbage). A callback may switch
+		-- a subsystem off or put one to sleep (itself too): the list then closes up,
+		-- so the index moves on only past one still in its place, and each subsystem
+		-- is looked at once a frame (its pass number).
+		local pass = us.pass + 1
+		us.pass = pass
+		us.running = nil
+		local i = 1
+		local sys = activeList[1]
+		while sys do
+			if sys.pass ~= pass then
+				sys.pass = pass
+				sys.elapsed = sys.elapsed + elapsed
+				if sys.elapsed >= sys.interval then
+					sys.elapsed = 0
+					us.running = sys
+					sys.callback()
+					us.running = nil
+				end
 			end
+			if activeList[i] == sys then i = i + 1 end
+			sys = activeList[i]
 		end
 	end)
+	us.frame:Hide()   -- nothing to run yet: the first subsystem switched on shows it
+end
+
+-- The loop's frame is shown only while a subsystem is in the active list and
+-- ShamanPower is on: a hidden frame gets no OnUpdate at all, so with everything
+-- off or asleep the loop costs nothing.
+function ShamanPower:SyncUpdateFrame()
+	local us = self.updateSystem
+	local f = us.frame
+	if not f then return end
+	local run = us.activeList[1] ~= nil and not self._appliedOff
+	if run ~= (f:IsShown() and true or false) then f:SetShown(run) end
 end
 
 function ShamanPower:RegisterUpdateSubsystem(name, interval, callback)
@@ -708,9 +751,13 @@ function ShamanPower:EnableUpdateSubsystem(name)
 	local sys = self.updateSystem.subsystems[name]
 	if sys and not sys.enabled then
 		sys.enabled = true
+		sys.asleep = nil
 		sys.elapsed = 0
 		-- Add to active list
 		self.updateSystem.activeList[#self.updateSystem.activeList + 1] = sys
+		self:SyncUpdateFrame()
+	elseif sys and sys.asleep then
+		self:WakeUpdateSubsystem(name)   -- switched on again while asleep: back at once
 	end
 end
 
@@ -718,14 +765,57 @@ function ShamanPower:DisableUpdateSubsystem(name)
 	local sys = self.updateSystem.subsystems[name]
 	if sys and sys.enabled then
 		sys.enabled = false
+		if sys.asleep then sys.asleep = nil return end   -- already out of the list
 		-- Remove from active list
 		local activeList = self.updateSystem.activeList
 		for i = #activeList, 1, -1 do
-			if activeList[i].name == name then
+			if activeList[i] == sys then
 				table.remove(activeList, i)
 				break
 			end
 		end
+		self:SyncUpdateFrame()
+	end
+end
+
+-- A switched-on subsystem with nothing to do can sleep: it leaves the active list
+-- (with the last one gone the frame stops) and stays switched on. Whoever puts one
+-- to sleep wakes it on every event that can give it work again (any doubt: stay
+-- awake). Waking, or switching it on again, brings it back for a pass on the next
+-- frame; waking one that is awake just moves its next pass to the next frame.
+function ShamanPower:SleepUpdateSubsystem(name)
+	local sys = self.updateSystem.subsystems[name]
+	if not (sys and sys.enabled) or sys.asleep then return end
+	sys.asleep = true
+	local activeList = self.updateSystem.activeList
+	for i = #activeList, 1, -1 do
+		if activeList[i] == sys then
+			table.remove(activeList, i)
+			break
+		end
+	end
+	self:SyncUpdateFrame()
+end
+
+function ShamanPower:WakeUpdateSubsystem(name)
+	local sys = self.updateSystem.subsystems[name]
+	if not (sys and sys.enabled) then return end
+	sys.elapsed = sys.interval   -- due on the next frame
+	if sys.asleep then
+		sys.asleep = nil
+		local activeList = self.updateSystem.activeList
+		activeList[#activeList + 1] = sys
+		self:SyncUpdateFrame()
+	end
+end
+
+-- Everything spWhileTotemsDown put to sleep: a totem may be down now.
+function ShamanPower:WakeTotemSleepers()
+	local sleepers = self.updateSystem.totemSleepers
+	if not (sleepers and next(sleepers)) then return end
+	for name in pairs(sleepers) do
+		sleepers[name] = nil
+		self:WakeUpdateSubsystem(name)
 	end
 end
 
@@ -903,7 +993,7 @@ function ShamanPower:OnInitialize()
 	self:SplitPulseFlashList()
 	-- switched off at login: the central update loop stays stopped (switch-on starts it)
 	self._appliedOff = self:IsOff()   -- the state everything was last set up for
-	if self._appliedOff then self.updateSystem.frame:Hide() end
+	self:SyncUpdateFrame()
 	if self.PreserveCompactLook then self:PreserveCompactLook() end   -- before anything reads the Compact look
 	if self.ApplyElementColors then self:ApplyElementColors() end
 	-- The cooldown bar now always floats free of the totem bar (the old
@@ -1092,7 +1182,7 @@ function ShamanPower:RestoreTotemBarPosition()
 	if not d.defaultSpotChecked then
 		d.defaultSpotChecked = true
 		local o = self.opt
-		local upgrade = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
+		local upgrade = not SPCompat.FOREVER and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
 		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
 		if upgrade and not (d.position and d.position.anchor) and not legacy then
 			d.position = { anchor = "CENTER", x = 0, y = 0 }
@@ -1131,6 +1221,11 @@ function ShamanPower:SaveFramePosition(frame)
 end
 
 function ShamanPower:OnEnable()
+	-- WoW only finds files an update added when it starts: after an update and a
+	-- /reload they are missing and the windows that use them cannot draw
+	if not self.Brand then
+		print("|cff0070ddShamanPower|r: I was updated while WoW was running. Please exit WoW completely and start it again to finish the update (a /reload is not enough).")
+	end
 	isShaman = select(2, UnitClass("player")) == "SHAMAN"
 	if not self:FixPlayerIdentity() then
 		local f = CreateFrame("Frame")
@@ -1173,6 +1268,7 @@ function ShamanPower:OnEnable()
 			self:ScanPlayerShield()
 			self:RefreshEarthShieldTarget()
 			self:RefreshPlayerBuffCache()
+			self:InvalidateTotemInfo()   -- the totems too: a loop asleep on the shadow model wakes and looks
 		end)
 	end
 	-- Forever: what the chat lockdown refused goes out once it lifts
@@ -1421,6 +1517,10 @@ end
 
 -- Settings live in the optional ShamanPower_Config module.
 function ShamanPower:OpenConfigWindow(path)
+	if not self.Brand then   -- updated without a restart: the window cannot draw
+		print("|cff0070ddShamanPower|r: I was updated while WoW was running. Please exit WoW completely and start it again to finish the update (a /reload is not enough).")
+		return
+	end
 	if ShamanPowerAssign then ShamanPowerAssign:Hide() end
 	if ShamanPowerConfig then
 		if path then ShamanPowerConfig:Open(path) else ShamanPowerConfig:Toggle() end
@@ -1432,17 +1532,20 @@ end
 -- Interface > AddOns entry (Esc > Options > AddOns > ShamanPower): ShamanPower's
 -- own page (D21b): the logo's totem boxes, the wordmark, "Totems, Done Right",
 -- one big button into the settings window, the tour / What's New / Discord, and
--- the ways in. Drawn from plain textures and WoW's font in the brand colours, so
--- it needs neither image files nor the settings module (its buttons use it when
--- it is there). Everything lives in this method: no main-chunk locals.
+-- the ways in. Drawn from plain textures and the brand's Fira Sans in the brand
+-- colors, so it needs neither image files nor the settings module (its buttons
+-- use it when it is there). Everything lives in this method: no main-chunk locals.
 function ShamanPower:CreateInterfaceOptionsPanel()
 	if self.optionsFrame then return end
+	if not self.Brand then return end   -- updated without a restart (OnEnable says so)
 	-- 2.5.6 removed InterfaceOptions_AddCategory; the modern Settings API is
 	-- the live path now, the legacy call kept as a fallback for older clients
 	local canModern = Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory
 	if not canModern and not InterfaceOptions_AddCategory then return end
 	local SP = self
-	local FONT = "Fonts\\FRIZQT__.TTF"
+	-- Fira Sans (ShamanPowerBrand.lua; the game's font on Chinese and Korean clients):
+	-- SemiBold for the wordmark, Regular for every other word
+	local FONT = SP:BrandFontPath("regular")
 	local BLUE, WHITE, TEXT = { 0.247, 0.663, 0.961 }, { 1, 1, 1 }, { 0.902, 0.918, 0.941 }
 	local DIM, MUTE = { 0.541, 0.580, 0.651 }, { 0.353, 0.392, 0.455 }
 	local panel = CreateFrame("Frame", "ShamanPowerInterfacePanel", UIParent)
@@ -1464,61 +1567,24 @@ function ShamanPower:CreateInterfaceOptionsPanel()
 	Edge("TOPLEFT", "TOPRIGHT", true); Edge("BOTTOMLEFT", "BOTTOMRIGHT", true)
 	Edge("TOPLEFT", "BOTTOMLEFT"); Edge("TOPRIGHT", "BOTTOMRIGHT")
 
-	local function Text(size, color, text)
+	local function Text(size, color, text, weight)
 		local fs = card:CreateFontString(nil, "ARTWORK")
-		fs:SetFont(FONT, size, "")
+		fs:SetFont(SP:BrandFontPath(weight), size, "")
 		fs:SetTextColor(color[1], color[2], color[3])
 		fs:SetText(text or "")
 		return fs
 	end
 
-	-- the logo's totem boxes (no letters, no SP): the fire column, the raised
-	-- earth box, the four elements and their bars, in the logo's own units. The
-	-- numbers are the brand kit's (~/Storage/ShamanPower/brand, sp_logo.py STATIC_*),
-	-- measured from the logo itself: keep them identical to it.
-	local logo = CreateFrame("Frame", nil, card)
-	local k = 0.25                                    -- 800 logo units -> 200 px
-	logo:SetSize(650 * k, 682 * k)                    -- the boxes span 75..725 x 59..741
+	-- the logo's totem boxes (no letters, no SP), drawn by the brand kit's port
+	-- (ShamanPowerBrand.lua): 800 logo units -> 200 px, the boxes' own bounds
+	local logo = SP:CreateTotemGraphic(card)
+	logo:SetGraphicHeight(682 * 0.25)
 	logo:SetPoint("TOP", card, "TOP", 0, -28)
-	-- sub: the draw order inside the layer (0 the black backing, 1 an edge, 2 the color).
-	-- Two textures on the same layer and sublevel draw in no fixed order, so without it
-	-- a backing can land on top of its color (the boxes went black once the page changed).
-	local function Rect(ux, uy, uw, uh, r, g, b, sub)
-		local t = logo:CreateTexture(nil, "ARTWORK", nil, sub or 2)
-		t:SetColorTexture(r, g, b, 1)
-		t:SetPoint("TOPLEFT", logo, "TOPLEFT", (ux - 75) * k, -(uy - 59) * k)
-		t:SetSize(uw * k, uh * k)
-		return t
-	end
-	local function Hex(h) return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255 end
-	-- a box: a 152 black plate, the 140 face inset 6 (the raised Earth: a 148 rim inset 2 under it)
-	local function Box(ux, uy, fill, edge)
-		local r, g, b = Hex("05070A")
-		Rect(ux, uy, 152, 152, r, g, b, 0)
-		if edge then
-			r, g, b = Hex(edge)
-			Rect(ux + 2, uy + 2, 148, 148, r, g, b, 1)
-		end
-		r, g, b = Hex(fill)
-		Rect(ux + 6, uy + 6, 140, 140, r, g, b, 2)
-	end
-	Box(241, 59, "9E3923"); Box(241, 225, "BD442A"); Box(241, 391, "DB4F30")
-	Box(75, 391, "A57749", "CE955B")
-	Box(75, 557, "493521"); Box(241, 557, "D94E30"); Box(407, 557, "5B7ED9"); Box(573, 557, "BABFD4")
-	-- bars: a 152 x 18 plate, the fill inset 4 (144 x 10 at full, to the whole unit as the logo has it)
-	local BARS = { { "AE7E4E", 0.62 }, { "F25735", 0.55 }, { "668DF2", 0.80 }, { "D0D5ED", 0.86 } }
-	for i, bar in ipairs(BARS) do
-		local bx = 75 + (i - 1) * 166
-		local r, g, b = Hex("05070A")
-		Rect(bx, 723, 152, 18, r, g, b, 0)
-		r, g, b = Hex(bar[1])
-		Rect(bx + 4, 727, math.floor(144 * bar[2]) + 1, 10, r, g, b, 2)
-	end
 
 	-- the wordmark ("Shaman" in logo blue, "Power" in white), centred as one
 	local word = CreateFrame("Frame", nil, card)
 	word:SetPoint("TOP", logo, "BOTTOM", 0, -26)
-	local shaman, power = Text(32, BLUE, "Shaman"), Text(32, WHITE, "Power")
+	local shaman, power = Text(32, BLUE, "Shaman", "semibold"), Text(32, WHITE, "Power", "semibold")
 	shaman:SetParent(word); power:SetParent(word)
 	shaman:SetPoint("LEFT", word, "LEFT", 0, 0)
 	power:SetPoint("LEFT", shaman, "RIGHT", 0, 0)
@@ -1691,8 +1757,8 @@ function ShamanPower:RestrictCommand(args)
 			-- nil on Forever: Lua cannot read it there (the cvar may still exist), so the line to type
 			-- is printed anyway; the Classic line has no such cvars at all
 			local v = value(r.cvar)
-			if v == nil and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
-				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
+			if v == nil and not SPCompat.FOREVER then
+				print("|cff0070ddShamanPower|r: " .. r.cvar .. " is not available in this version of the game.")
 				return
 			end
 			local on
@@ -1802,13 +1868,13 @@ end
 function ShamanPower:WindfuryOnly()
 	-- WoW: Forever made Windfury Totem a party buff the shaman's own addon reads,
 	-- so the report (this mode's only job) is gone there
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return false end
+	if SPCompat.FOREVER then return false end
 	return self.opt and self.opt.windfuryOnly == true and select(2, UnitClass("player")) ~= "SHAMAN" or false
 end
 
 function ShamanPower:SetWindfuryOnly(on)
 	if select(2, UnitClass("player")) == "SHAMAN" then return end
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end
+	if SPCompat.FOREVER then return end
 	self.opt.windfuryOnly = on and true or nil
 	ShamanPowerMinimapIcon_Toggle()
 	if self.UpdateSPRangeVisibility then self:UpdateSPRangeVisibility() end
@@ -1928,10 +1994,11 @@ ShamanPower:OnOnOff(function(off)
 	local sp = ShamanPower
 	sp._appliedOff = off
 	sp:ApplyPlayerTotemFrame()   -- switched off: Blizzard's totem timers come back
-	if sp.updateSystem.frame then sp.updateSystem.frame:SetShown(not off) end
+	sp:SyncUpdateFrame()   -- off: the loop stops; on: it runs whatever is switched on
 	sp:SetupKeybindings()
 	if off then
 		sp:DropHeldMessages()
+		sp:ForgetEngineCooldownReads()   -- nothing is read for the buttons on cooldown events while off
 		return
 	end
 	sp:ScanPlayerShield()
@@ -1963,13 +2030,13 @@ ShamanPower.ElementToSlot = {
 -- goes through GetElementTotemInfo: it trusts the fixed slot until it sees a
 -- totem of another element sitting there, then resolves by totem name for the
 -- rest of the session.
-ShamanPower.dynamicTotemSlots = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+ShamanPower.dynamicTotemSlots = (SPCompat.FOREVER)
 
 -- WoW: Forever cannot twist: its Windfury Totem is a party aura (no weapon buff
 -- that outlasts the totem), and Windfury, Grace of Air and Tranquil Air no
 -- longer stack. Twisting is not offered there and stays off, whatever a profile
 -- saved. Anniversary keeps all of it.
-ShamanPower.NoTotemTwisting = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+ShamanPower.NoTotemTwisting = (SPCompat.FOREVER)
 -- 3.0 changed defaults: both bars run across (Horizontal), and no frame or
 -- border is drawn behind the totem bar, the cooldown bar, the caller buttons,
 -- the Earth Shield tracker or the range tracker. A profile saved before keeps
@@ -2215,7 +2282,7 @@ local SHADOW_REDROP_WINDOW = 0.25
 -- where the shadow model is consulted. The one stamp of your own dismissals:
 -- modules that need it read ShamanPower._totemDismissedAt rather than hooking again.
 ShamanPower._totemDismissedAt = {}     -- [slot] = GetTime()
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+if SPCompat.FOREVER and type(DestroyTotem) == "function" and hooksecurefunc then
 	hooksecurefunc("DestroyTotem", function(slot)
 		if issecretvalue and issecretvalue(slot) then return end
 		slot = tonumber(slot)
@@ -2236,7 +2303,7 @@ end
 -- range. UnitPosition stays readable in combat in the open world; where it
 -- doesn't (instances), the range check keeps what it last knew.
 -- ----------------------------------------------------------------------------
-local TRACK_TOTEM_DROPS = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local TRACK_TOTEM_DROPS = (SPCompat.FOREVER)
 local TOTEM_AURA_RANGE = 30            -- yards: every buff totem's radius in the Forever 1.60.1 spell data
 ShamanPower.totemDropPos = {}          -- [element] = { x, y, map }
 ShamanPower.totemRangeLast = {}        -- [element] = last range answer while buffs were readable
@@ -2539,6 +2606,7 @@ ShamanPower._totemInfoGen = 0
 function ShamanPower:InvalidateTotemInfo()
 	self._totemInfoGen = (self._totemInfoGen or 0) + 1
 	self._totemDownAt = nil   -- AnyTotemDown asks again too
+	self:WakeTotemSleepers()  -- and the loops asleep until a totem is down take a look
 end
 
 function ShamanPower:GetElementTotemInfo(element)
@@ -3292,7 +3360,7 @@ end
 -- totem passive's period in the client's spell data (SpellEffect, periodic trigger).
 ShamanPower.PulsingTotems = {
 	-- Earth totems
-	["Tremor"] = { element = 1, interval = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
+	["Tremor"] = { element = 1, interval = (SPCompat.FOREVER) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
 	["Earthbind"] = { element = 1, interval = 3 },
 	["Stoneclaw"] = { element = 1, interval = 2 },   -- its taunt (Stoneclaw Totem Passive, every 2 s on both clients)
 	-- Fire totems
@@ -3856,7 +3924,7 @@ function ShamanPower:SetupTotemProgressBars()
 
 	-- Register progress bar updates with consolidated update system (10fps)
 	if not self.updateSystem.subsystems["progressBars"] then
-		local barState = {}
+		local barState = { stayAwake = true }   -- more than totem work below: never asleep
 		local function barPass() ShamanPower:UpdateTotemProgressBars() end
 		self:RegisterUpdateSubsystem("progressBars", 0.1, function()
 			spWhileTotemsDown(barState, barPass)   -- duration bars / texts / dropped-totem overlays need a totem down
@@ -3893,7 +3961,10 @@ function ShamanPower:SetupTotemProgressBars()
 			f:SetScript("OnEvent", function(_, ev)
 				ShamanPower._barWake = true
 				ShamanPower._ovWake = true
-				if ev == "SPELL_UPDATE_COOLDOWN" then ShamanPower:RefreshEngineCooldowns() end
+				-- (where SPCompat hands the event on itself, it calls this: see OnCooldownEvent)
+				if ev == "SPELL_UPDATE_COOLDOWN" and not (SPCompat and SPCompat.OnCooldownEvent) then
+					ShamanPower:RefreshEngineCooldowns()
+				end
 				if ev == "PLAYER_REGEN_DISABLED" or ev == "PLAYER_REGEN_ENABLED" then ShamanPower:InvalidateTotemInfo() end
 			end)
 			self._barWakeFrame = f
@@ -4278,10 +4349,12 @@ function ShamanPower:ApplyTotemCooldownVisual(btn, start, duration)
 end
 
 function ShamanPower:ClearTotemCooldownVisual(btn)
+	self:DisarmEngineCooldownEnd(btn.cooldown)
 	btn.cooldown:Clear()
 	if btn.cdSweep then btn.cdSweep:Hide() end
 	if btn.cdBar then btn.cdBar:Hide() end
 	btn._engineCDKey = nil   -- the next pass hands the engine whatever is running
+	btn._cdSpell = nil       -- and nothing is read for it on cooldown events (WoW: Forever)
 end
 
 -- ============================================================================
@@ -4293,7 +4366,8 @@ end
 -- which C_Spell.GetSpellCooldownDuration hands out secret-safe, in combat
 -- (measured, /spdiag engine timer pipeline). So on this family the engine is
 -- handed a cooldown once when it starts or ends (SPELL_UPDATE_COOLDOWN wakes
--- the pass; the shadow model only says whether one is running) and draws the
+-- the pass; the game's own flags say whether one is running, the shadow model
+-- only when they cannot: EngineCooldownRunning) and draws the
 -- sweep and the numbers itself from then on: nothing per tick, the real
 -- talent-adjusted length, and the same numbers as the action bars. The
 -- numbers obey the client's "Show Numbers for Cooldowns" setting; turning the
@@ -4303,7 +4377,7 @@ local COUNTDOWN_CVAR = "countdownForCooldowns"
 function ShamanPower:EngineCooldownsOn()
 	if self._engineCD == nil then
 		local on = false
-		if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and C_Spell and C_Spell.GetSpellCooldownDuration then
+		if SPCompat.FOREVER and C_Spell and C_Spell.GetSpellCooldownDuration then
 			local ok, probe = pcall(CreateFrame, "Cooldown", nil, UIParent, "CooldownFrameTemplate")
 			if ok and probe then
 				on = probe.SetCooldownFromDurationObject ~= nil and probe.GetCountdownFontString ~= nil
@@ -4418,8 +4492,8 @@ local function EngineSweepBar(btn)
 end
 
 -- Hand the engine a button's cooldown. Called from the cooldown pass with
--- the shadow model's answer to "is one running"; only does anything when
--- that, the spell or the style changed since the last call.
+-- the answer to "is one running" (EngineCooldownRunning); only does anything
+-- when that, the spell or the style changed since the last call.
 function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 	local cd = btn.cooldown
 	if not cd then return end
@@ -4430,12 +4504,14 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 	btn._engineCDKey, btn._ecdSpell, btn._ecdRunning, btn._ecdStyle = true, spellID, running, style
 	if btn.cdSweep then btn.cdSweep:Hide() end   -- the addon's own vertical sweep: never on this path
 	if not (spellID and running) then
+		self:DisarmEngineCooldownEnd(cd)
 		cd:Clear()
 		if btn.cdBar then btn.cdBar:Hide() end
 		return
 	end
 	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)   -- true: the global cooldown is not one
 	if not ok or d == nil then
+		self:DisarmEngineCooldownEnd(cd)
 		cd:Clear()
 		if btn.cdBar then btn.cdBar:Hide() end
 		btn._engineCDKey = nil   -- ask again next pass
@@ -4457,33 +4533,178 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 			bar:SetShown(okb and true or false)
 		end
 	end
+	self:WatchEngineCooldownEnd(cd)
 	pcall(cd.SetCooldownFromDurationObject, cd, d, true)   -- clearIfZero
+end
+
+-- WoW: Forever: is a button's spell on a real cooldown (longer than the global
+-- one)? The game's never-secret flags answer (SPCompat.CooldownRunning: read when
+-- SPELL_UPDATE_COOLDOWN is handled, kept between); the estimate (the shadow
+-- model's numbers, or the readable ones) answers only when the game never has. The
+-- game is asked afresh when the engine's widget says the cooldown it drew ended
+-- (a wake-up, never the answer), and when the estimate's run has just ended while
+-- the flags still say cooling (at most five times, half a second apart: the end
+-- signal may not come). A button that was really cooling stays so when the only
+-- news is the global cooldown (a cast in its last 1.5 s: it ends before that
+-- global cooldown does, so at most 1.5 s more) or no answer at all, until the
+-- flags say otherwise, the widget says done, or the estimate's run ends: no early
+-- clear, no flicker. Nothing here looks at a number.
+function ShamanPower:EngineCooldownRunning(btn, spellID, estimate)
+	local running = SPCompat and SPCompat.CooldownRunning
+	if not (running and spellID and self:EngineCooldownsOn()) then return estimate end
+	if btn._cdSpell ~= spellID then
+		btn._cdSpell, btn._cdReal, btn._cdRechecks, btn._cdRecheckAt = spellID, nil, nil, nil
+		btn._cdEstWas, btn._cdDone, btn._cdFresh, btn._cdHold = nil, nil, nil, nil
+	end
+	if estimate then btn._cdRechecks, btn._cdRecheckAt = nil, nil end   -- a run of its own: its end gets the checks
+	local done, estEnded = btn._cdDone, btn._cdEstWas and not estimate
+	local how
+	if btn._cdFresh then
+		btn._cdFresh, how = nil, "now"
+	elseif btn._cdReal == true and not estimate and (btn._cdEstWas or btn._cdRechecks) then
+		local now, n = GetTime(), btn._cdRechecks or 0
+		if n < 5 and now >= (btn._cdRecheckAt or 0) then
+			btn._cdRechecks, btn._cdRecheckAt, how = n + 1, now + 0.5, "now"
+		end
+	end
+	btn._cdEstWas, btn._cdDone = estimate and true or nil, nil
+	local real, why = running(spellID, how)
+	local hold = btn._cdHold
+	btn._cdHold = nil
+	if btn._cdReal == true and not (done or estEnded) then
+		if real == nil then
+			real = true   -- no answer: still the cooldown it was
+		elseif why == "gcd" then
+			local now = GetTime()
+			hold = hold or (now + 1.5)   -- what is left of it ends within the global cooldown
+			if now < hold then real, btn._cdHold = true, hold end
+		end
+	end
+	if real == true then
+		if done then self:ArmEngineCooldownEnd(btn.cooldown) end   -- still drawing it: its end still counts
+	else
+		btn._cdRechecks, btn._cdRecheckAt = nil, nil
+	end
+	btn._cdReal = real
+	if real == nil then return estimate end
+	return real
+end
+
+-- The widget handed a real duration object fires OnCooldownDone when that runs
+-- out. Not in the client's docs, so only a wake-up: the button's next pass, on
+-- the next frame, asks the game's flags afresh and they decide. Only a widget
+-- armed by a hand-over counts (one signal each): never one the addon cleared.
+function ShamanPower.EngineCooldownDone(cd)
+	local armed = ShamanPower._cdArmed
+	if not (armed and armed[cd]) then return end
+	armed[cd] = nil
+	local btn = cd:GetParent()
+	if btn then btn._cdFresh, btn._cdDone = true, true end
+	local sp = ShamanPower
+	sp._barWake = true
+	sp:WakeUpdateSubsystem("progressBars")
+	sp:WakeUpdateSubsystem("cooldownBar")
+end
+
+-- Right before a duration object is handed over: watch that widget's end.
+function ShamanPower:WatchEngineCooldownEnd(cd)
+	if self._cdDoneWatched == nil then
+		self._cdDoneWatched = setmetatable({}, { __mode = "k" })
+		self._cdArmed = setmetatable({}, { __mode = "k" })
+	end
+	self._cdArmed[cd] = true
+	if self._cdDoneWatched[cd] then return end
+	self._cdDoneWatched[cd] = true
+	pcall(cd.HookScript, cd, "OnCooldownDone", ShamanPower.EngineCooldownDone)
+end
+
+function ShamanPower:ArmEngineCooldownEnd(cd)
+	if cd and self._cdArmed and self._cdDoneWatched[cd] then self._cdArmed[cd] = true end
+end
+
+-- Right before the addon clears a widget itself: that is not a cooldown ending.
+function ShamanPower:DisarmEngineCooldownEnd(cd)
+	local armed = self._cdArmed
+	if armed and cd then armed[cd] = nil end
+end
+
+-- Whether the SPELL_UPDATE_COOLDOWN being handled can have changed this button's
+-- spell: it names no spell (all cooldowns), it names this spell in any rank, this
+-- button has no answer yet (its first event decides it), or it is cooling (the
+-- global cooldown may now outlast what is left of it). A spell's own cooldown
+-- starts only with an event that names it; for a ready one, the others only bring
+-- the global cooldown, which the kept answer already covers.
+function ShamanPower:CooldownEventConcerns(btn, evID, evBase, evName)
+	if evID == nil or btn._cdReal ~= false then return true end
+	local spell = btn._cdSpell
+	if spell == evID or spell == evBase then return true end
+	return evName ~= nil and GetSpellInfo(spell) == evName
+end
+
+-- Switched off: no button is read on cooldown events (the first pass after
+-- switching on starts them again).
+function ShamanPower:ForgetEngineCooldownReads()
+	for element = 1, 4 do
+		local btn = self.totemButtons and self.totemButtons[element]
+		if btn then btn._cdSpell = nil end
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		local list = flyout and flyout.buttons
+		if list then for i = 1, #list do list[i]._cdSpell = nil end end
+	end
+	local cds = self.cooldownButtons
+	if cds then for i = 1, #cds do cds[i]._cdSpell = nil end end
 end
 
 -- A duration object holds a fixed time span; it does not follow the spell
 -- (Forever's LuaDurationObject docs). A running cooldown shortened, lengthened
 -- or reset mid-fight would keep the old pace on screen, so each
 -- SPELL_UPDATE_COOLDOWN marks the running ones to be handed over again on the
--- next pass: a few buttons at most, one duration object each.
-function ShamanPower:RefreshEngineCooldowns()
+-- next pass: a few buttons at most, one duration object each. atEvent (the
+-- event itself, from SPCompat): the flags of the spells it concerns are read now,
+-- the one moment isOnGCD can be trusted. The pass after it would have read each
+-- of them anyway (the event empties the cache); now it finds these.
+function ShamanPower:RefreshEngineCooldowns(atEvent)
 	if not self:EngineCooldownsOn() then return end
+	local read = atEvent and not self:IsOff() and SPCompat and SPCompat.CooldownRunning
+	local evID, evBase, evName
+	if read and SPCompat.CooldownEventSpell then
+		evID, evBase = SPCompat.CooldownEventSpell()
+		if evID then evName = GetSpellInfo(evID) end
+	end
 	for element = 1, 4 do
 		local btn = self.totemButtons and self.totemButtons[element]
-		if btn and btn._ecdRunning then btn._engineCDKey = nil end
+		if btn then
+			if btn._ecdRunning then btn._engineCDKey = nil end
+			if read and btn._cdSpell and self:CooldownEventConcerns(btn, evID, evBase, evName) then
+				read(btn._cdSpell, "event")
+			end
+		end
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		local list = flyout and flyout.buttons
 		if list then
 			for i = 1, #list do
-				if list[i]._ecdRunning then list[i]._engineCDKey = nil end
+				local b = list[i]
+				if b._ecdRunning then b._engineCDKey = nil end
+				if read and b._cdSpell and b:IsVisible() and self:CooldownEventConcerns(b, evID, evBase, evName) then
+					read(b._cdSpell, "event")
+				end
 			end
 		end
 	end
 	local cds = self.cooldownButtons
 	if cds then
 		for i = 1, #cds do
-			if cds[i]._ebSpell then cds[i]._ebStale = true end
+			local b = cds[i]
+			if b._ebSpell then b._ebStale = true end
+			if read and b._cdSpell and b:IsVisible() and self:CooldownEventConcerns(b, evID, evBase, evName) then
+				read(b._cdSpell, "event")
+			end
 		end
 	end
+end
+-- SPCompat hands SPELL_UPDATE_COOLDOWN on right after emptying its cooldown cache
+if SPCompat and SPCompat.OnCooldownEvent then
+	SPCompat.OnCooldownEvent(function() ShamanPower:RefreshEngineCooldowns(true) end)
 end
 
 -- Update cooldown displays on totem buttons and flyout buttons
@@ -4510,7 +4731,8 @@ function ShamanPower:UpdateTotemCooldowns()
 				local start, duration, enabled = GetSpellCooldown(spellID)
 				-- Only show cooldown if it's longer than GCD (1.5 sec)
 				if engine then
-					self:FeedEngineCooldown(btn, spellID, start and duration and duration > 1.5 and enabled == 1)
+					local estimate = start and duration and duration > 1.5 and enabled == 1
+					self:FeedEngineCooldown(btn, spellID, self:EngineCooldownRunning(btn, spellID, estimate))
 				elseif start and duration and duration > 1.5 and enabled == 1 then
 					self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 					-- Calculate remaining time for text
@@ -4549,7 +4771,8 @@ function ShamanPower:UpdateTotemCooldowns()
 					local start, duration, enabled = GetSpellCooldown(btn.spellID)
 					-- Only show cooldown if it's longer than GCD (1.5 sec)
 					if engine then
-						self:FeedEngineCooldown(btn, btn.spellID, start and duration and duration > 1.5 and enabled == 1)
+						local estimate = start and duration and duration > 1.5 and enabled == 1
+						self:FeedEngineCooldown(btn, btn.spellID, self:EngineCooldownRunning(btn, btn.spellID, estimate))
 					elseif start and duration and duration > 1.5 and enabled == 1 then
 						self:ApplyTotemCooldownVisual(btn, start, duration); drawing = true
 						-- Calculate remaining time for text
@@ -5255,7 +5478,7 @@ local function PlayerKnowsTotem(spellID, totemName)
 	local spellName = GetSpellInfo(spellID)
 	-- An absent totem must not match an unrelated trainer spell by short name.
 	-- Only encrypted, allow-listed names may still use the spellbook fallback.
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not spellName
+	if SPCompat.FOREVER and not spellName
 		and not (SPCompat and SPCompat.spellAllowList and SPCompat.spellAllowList[spellID]) then
 		return false
 	end
@@ -6308,7 +6531,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine("|cff00ff00Middle-click:|r Return to bar", 1, 1, 1)
 		GameTooltip:AddLine("|cff00ff00SHIFT+Middle-click:|r Settings", 1, 1, 1)
-		GameTooltip:AddLine("|cff00ff00ALT+drag:|r Move (when frame hidden)", 1, 1, 1)
+		GameTooltip:AddLine("|cff00ff00ALT+drag:|r Move (when only the icon is shown)", 1, 1, 1)
 		GameTooltip:Show()
 	end)
 	btn:SetScript("OnLeave", function()
@@ -8216,7 +8439,7 @@ function ShamanPower:CreateTotemFlyout(element)
 		local flyoutKey = elementKey .. "_" .. totemIndex
 		local isEnabledInFlyout = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
 
-		if (isKnown and (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or spellName)) or isTalentTotem then
+		if (isKnown and (not SPCompat.FOREVER or spellName)) or isTalentTotem then
 			-- Create button as CHILD of totem button using SPFlyoutButtonTemplate
 			-- Parent is totemButton (parented to UIParent) for combat flyout support
 			-- Parent is the totem button: ChildUpdate needs it on the secure
@@ -8465,7 +8688,7 @@ function ShamanPower:CreateTotemFlyout(element)
 	-- Picking it clears the totem button's spell and Blizzard's slot through the
 	-- same secure helpers as an assign click, so it works in combat. WoW: Forever
 	-- only: it exists for Call of the Elements, and Anniversary has no totem sets.
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
+	if SPCompat.FOREVER and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
 		local name = "ShamanPowerFlyout" .. element .. "Btn0"
 		local btn = CreateFrame("Button", name, buttonParent, "SPFlyoutButtonTemplate")
 		btn:SetParent(buttonParent)
@@ -9123,7 +9346,7 @@ end
 -- secure templates, never published as a global, so any check against it is
 -- always false and silently disables the whole feature.
 function ShamanPower:TotemDestroySupported()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function"
+	return SPCompat.FOREVER and type(DestroyTotem) == "function"
 end
 
 function ShamanPower:RightClickDestroysTotems()
@@ -9345,7 +9568,7 @@ end
 -- spells, and unit = player would force a self-cast): they get the same action
 -- on the other click instead, so neither click is ever dead.
 -- The Classic line keeps the flyout-only behaviour it shipped with.
-local CLICK_SWAP_SUPPORTED = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local CLICK_SWAP_SUPPORTED = (SPCompat.FOREVER)
 
 function ShamanPower:ClicksSwapped()
 	return (CLICK_SWAP_SUPPORTED and self.opt and self.opt.swapFlyoutClickButtons) and true or false
@@ -9534,7 +9757,7 @@ end
 function ShamanPower:TotemExistsOnClient(element, totemIndex)
 	if not totemIndex or totemIndex == 0 then return true end
 	local id = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
-	if not id then return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end
+	if not id then return not SPCompat.FOREVER end
 	return spSpellExists(id)
 end
 
@@ -9617,7 +9840,7 @@ local ELEMENT_PALETTES = {
 -- empty-slot totems), so its colours are the default there. Elsewhere the look
 -- ShamanPower always had.
 function ShamanPower:DefaultElementPalette()
-	return (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "blizzard" or "classic"
+	return (SPCompat.FOREVER) and "blizzard" or "classic"
 end
 
 function ShamanPower:ElementPaletteColor(element)
@@ -9858,7 +10081,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local haveTotem, totemName = self:GetElementTotemInfo(element)
 		if haveTotem and totemName then
 			-- Check if this is a weapon enchant totem (Windfury or Flametongue)
-			if element == 4 and totemName:find("Windfury") and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+			if element == 4 and totemName:find("Windfury") and not SPCompat.FOREVER then
 				-- Windfury Totem (Air) - applies weapon enchant, not a buff
 				-- (WoW: Forever: a party buff, read below like the others)
 				isWeaponEnchantTotem[element] = true
@@ -10762,6 +10985,7 @@ end
 
 function ShamanPower:ClearEngineBarCooldown(btn)
 	btn._ebSpell = nil
+	self:DisarmEngineCooldownEnd(btn.cooldown)
 	if btn.cooldown then btn.cooldown:Clear(); btn.cooldown:SetHideCountdownNumbers(true) end   -- back to none (see the button's creation)
 	if btn.cdBar then btn.cdBar:Hide() end
 	if btn.engineBar then btn.engineBar:Hide() end
@@ -10824,12 +11048,15 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 			if btn.bgBar then btn.bgBar:Hide() end
 		end
 		PlaceEngineBarText(self, btn, textLocation, showText)
+		self:WatchEngineCooldownEnd(cd)
 		pcall(cd.SetCooldownFromDurationObject, cd, d, true)
 	end
-	-- the bar's colour rule, from the shadow remaining
+	-- the bar's colour rule, from the shadow remaining (none for a cooldown only the
+	-- game knows, after a reload mid-fight: the healthy color, never the critical red)
 	if showBars and btn.engineBar and btn.engineBar:IsShown() then
-		local remaining = (start + duration) - GetTime()
-		local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
+		local left = math.huge
+		if start and start > 0 then left = ((start + duration) - GetTime()) * 1000 end
+		local r, g, b = GetBarColor(left, btn.spellID)
 		if r ~= btn._ebColorR or g ~= btn._ebColorG or b ~= btn._ebColorB then
 			btn._ebColorR, btn._ebColorG, btn._ebColorB = r, g, b
 			btn.engineBar:SetStatusBarColor(r, g, b, 0.9)
@@ -11238,7 +11465,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						local bt = bar:GetStatusBarTexture()
 						if bt then bt:SetVertexColor(0.2, 0.8, 0.2, 0.9) end
 						-- General > Themes (cd.engine, WoW: Forever): the theme's green, set here when built
-						if bt and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+						if bt and SPCompat.FOREVER then
 							local er, eg, eb = ShamanPower:ThemeColor("cd.engine", "bar")
 							if er then bt:SetVertexColor(er, eg, eb, 0.9) end
 						end
@@ -11770,18 +11997,23 @@ function ShamanPower:UpdateCooldownButtons()
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
 			local start, duration, enabled = GetSpellCooldown(btn.spellID)
-			if self.CueCooldownCheck then self:CueCooldownCheck(btn, start, duration) end   -- "Cooldown Ready" effect
+			-- on a cooldown longer than the global one; on WoW: Forever the game's own
+			-- flags say it, the estimate only when they cannot (EngineCooldownRunning)
+			local cooling = start and start > 0 and duration > 1.5
+			local real   -- WoW: Forever: the game's own answer for the Ready cue too (nil: none)
+			if engine then cooling = self:EngineCooldownRunning(btn, btn.spellID, cooling); real = btn._cdReal end
+			if self.CueCooldownCheck then self:CueCooldownCheck(btn, start, duration, real) end   -- "Cooldown Ready" effect
 			-- a cooldown in its last 10 minutes (seconds in its text, its end to catch for
 			-- the Ready cue), any cooldown the engine is drawing, or a Ready cue waiting
 			-- out the global cooldown
-			if start and start > 0 and duration > 1.5 then
+			if cooling then
 				if engine or (start + duration) - GetTime() < 601 then busy = true end
 			elseif btn._cueCdEnd then
 				busy = true
 			end
-			if engine and start and start > 0 and duration > 1.5 then
+			if engine and cooling then
 				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
-			elseif start and start > 0 and duration > 1.5 then
+			elseif cooling then
 				-- Radial swipe only when chosen; otherwise the vertical grey sweep below
 				if showSweep and self.opt.cdbarSweepStyle == "radial" then
 					btn.cooldown:SetCooldown(start, duration)
@@ -11942,7 +12174,7 @@ function ShamanPower:UpdateCooldownButtons()
 			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) end   -- "Weapon Imbue Gone" effect
 			local buttonHeight = btn:GetHeight()
 			local buttonWidth = btn:GetWidth()
-			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
+			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and SPCompat.FOREVER) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
 			imbueCtx.buttonWidth, imbueCtx.buttonHeight = buttonWidth, buttonHeight
 			imbueCtx.barHeight, imbueCtx.barPosition = barHeight, barPosition
 			imbueCtx.isVerticalBar, imbueCtx.showSweep = isVerticalBar, showSweep
@@ -12013,7 +12245,7 @@ function ShamanPower:UpdateCooldownButtons()
 				-- the texture keeps whatever was set at creation, so a shaman
 				-- who has only Rockbiter sees a greyed Windfury icon.
 				local restIdx
-				if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+				if SPCompat.FOREVER then
 					-- Name-based spellbook checks allocate modern API result tables.
 					-- Keep the resting choice (including nil) until spells or preference change.
 					local generation = self._imbueSpellGeneration or 0
@@ -12720,7 +12952,7 @@ end
 -- Swiftness, Shamanistic Rage ...): aura reads go secret in combat, own casts
 -- never do. A cast stamps the start; the length is learned while readable.
 ShamanPower.shadowBuffs = {}   -- [spellName] = { start, duration }
-local cachePlayerBuffs = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local cachePlayerBuffs = SPCompat.FOREVER
 local buffIsSecret = _G.issecretvalue or function() return false end
 
 -- Opacity watches share the shadow entries, but only public aura observations
@@ -12865,6 +13097,8 @@ function ShamanPower:UpdateCooldownBarOpacity()
 						-- Reincarnation - active if off cooldown and available
 						local start, duration = GetSpellCooldown(spellID)
 						isActive = (not start or start == 0 or duration <= 1.5)
+						-- WoW: Forever: the game's own answer from the cooldown pass just before, when it has one
+						if btn._cdReal ~= nil and self:EngineCooldownsOn() then isActive = not btn._cdReal end
 					end
 				elseif btn.spellType == "imbue" then
 					-- Imbue is active if weapon is enchanted
@@ -15424,21 +15658,23 @@ end
 -- its removal), is read. Anything unclear reads, as before (see
 -- PlayerShieldMayHaveChanged). Not on WoW: Forever.
 function ShamanPower:TrackedEarthShieldMayHaveChanged(info, esSpellName)
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
-	if type(info) ~= "table" or info.isFullUpdate then return true end
+	if SPCompat.FOREVER then return true end
+	if not SPCompat.AuraInfoReadable(info) or info.isFullUpdate then return true end
 	local added = info.addedAuras
 	if added then
 		for i = 1, #added do
 			local a = added[i]
-			if a and a.name == esSpellName then return true end
+			if issecretvalue(a) then return true end
+			local name = a and a.name
+			if issecretvalue(name) or name == esSpellName then return true end
 		end
 	end
 	local id = self.esTrackedAuraGUID == self.esTrackedTargetGUID and self.esTrackedAuraInstanceID or nil
 	if not id then return true end
 	local upd = info.updatedAuraInstanceIDs
-	if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+	if upd then for i = 1, #upd do local v = upd[i] if issecretvalue(v) or v == id then return true end end end
 	local rem = info.removedAuraInstanceIDs
-	if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	if rem then for i = 1, #rem do local v = rem[i] if issecretvalue(v) or v == id then return true end end end
 	return false
 end
 
@@ -15465,7 +15701,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit, info)
 			found = true
 			-- TBC Anniversary: its instance, for TrackedEarthShieldMayHaveChanged
 			self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = nil, nil
-			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+			if not SPCompat.FOREVER and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
 				local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
 				if ok and type(a) == "table" and a.name == name then
 					self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = a.auraInstanceID, self.esTrackedTargetGUID
@@ -16250,7 +16486,7 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 		end
 		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
 	end
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and maxTotems == 0 then cur = 0 end
+	if SPCompat.FOREVER and maxTotems == 0 then cur = 0 end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
 		-- Also update the mini totem bar
@@ -16278,7 +16514,7 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 	end
 	-- Get max totems for this element
 	local maxTotems = self:GetTotemIndexLimit(class)
-	local sparse = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and class >= 1 and class <= 4
+	local sparse = SPCompat.FOREVER and class >= 1 and class <= 4
 	if sparse then
 		cur = ShamanPower_Assignments[name][class] or 0
 		-- The loop decrements first; begin above the last valid index when
@@ -16427,7 +16663,7 @@ end
 
 function ShamanPower:ScanSpells()
 	--self:Debug("[ScanSpells]")
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		self._imbueSpellGeneration = (self._imbueSpellGeneration or 0) + 1
 	end
 	self:InvalidateElementLearned()
@@ -17177,14 +17413,16 @@ end
 -- unclear (a full update, no list, a shield whose instance is not known) reads
 -- again, as before. Not on WoW: Forever, which keeps its own path.
 function ShamanPower:PlayerShieldMayHaveChanged(info)
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
+	if SPCompat.FOREVER then return true end
 	local c = self.shieldCache
-	if not c or type(info) ~= "table" or info.isFullUpdate then return true end
+	if not c or not SPCompat.AuraInfoReadable(info) or info.isFullUpdate then return true end
 	local added = info.addedAuras
 	if added then
 		for i = 1, #added do
 			local a = added[i]
+			if issecretvalue(a) then return true end
 			local name = a and a.name
+			if issecretvalue(name) then return true end
 			for j = 1, #self.ShieldSpells do
 				if name == self.ShieldSpells[j][2] then return true end
 			end
@@ -17193,9 +17431,9 @@ function ShamanPower:PlayerShieldMayHaveChanged(info)
 	local id = c.auraInstanceID
 	if id then
 		local upd = info.updatedAuraInstanceIDs
-		if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+		if upd then for i = 1, #upd do local v = upd[i] if issecretvalue(v) or v == id then return true end end end
 		local rem = info.removedAuraInstanceIDs
-		if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+		if rem then for i = 1, #rem do local v = rem[i] if issecretvalue(v) or v == id then return true end end end
 	elseif c.hasShield then
 		return true
 	end
@@ -17328,7 +17566,7 @@ function ShamanPower:ScanPlayerShield()
 	-- TBC Anniversary: the shield's instance, so a later change can be told apart
 	-- (PlayerShieldMayHaveChanged). One more read, only when a shield was found.
 	local instanceID
-	if hasShield and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+	if hasShield and not SPCompat.FOREVER and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
 		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, "player", shieldBuffIndex)
 		if ok and type(a) == "table" and a.name == shieldName then instanceID = a.auraInstanceID end
 	end
@@ -17647,7 +17885,7 @@ end
 -- wire format is unchanged. Readers accept both forms.
 function ShamanPower:EncodeESAssign(shaman, target)
 	target = target or "NONE"
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and (strfind(shaman, " ", 1, true) or strfind(target, " ", 1, true)) then
+	if SPCompat.FOREVER and (strfind(shaman, " ", 1, true) or strfind(target, " ", 1, true)) then
 		return "ESASSIGN|" .. shaman .. "|" .. target
 	end
 	return "ESASSIGN " .. shaman .. " " .. target
@@ -17751,7 +17989,7 @@ end
 -- else is keyed by (assignments, Windfury reports, raid calls), so Forever always
 -- uses the name alone. Classic keeps the realm when it is not ours: two players
 -- on different realms can share a name there.
-local REGION_UNIQUE_NAMES = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local REGION_UNIQUE_NAMES = (SPCompat.FOREVER)
 function ShamanPower:RemoveRealmName(unitID)
 	if type(unitID) ~= "string" then return unitID end
 	-- only the hyphen separates the realm: a WoW: Forever name may contain a space
@@ -18214,7 +18452,7 @@ do
 	end
 
 	function ShamanPower:AutoAssignTotems()
-		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local forever = SPCompat.FOREVER
 		local composition = self:AnalyzeGroupComposition()
 		local names, groups, controllable, assigned = {}, {}, {}, {}
 		local fallbackGroup
@@ -18282,13 +18520,13 @@ do
 		-- (this used to send "SHPWR_ASSIGNMENTSUPDATED" to the whole group, which no
 		-- client ever handled: it was meant as a local notification)
 		self:UpdateRoster()
-		self:Print("Totems have been smart-assigned based on party composition and roles.")
+		self:Print("Totems assigned to suit your party and roles.")
 	end
 
 	function ShamanPower:AnalyzeGroupComposition()
 		local composition = {}
 		for group = 1, 8 do composition[group] = Composition() end
-		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local forever = SPCompat.FOREVER
 		local knows = IsPlayerSpell or IsSpellKnown
 		-- Stormstrike is already catalogued in Ready Reminders (17364). This is
 		-- local spellbook knowledge, never an aura/spec read from another shaman.
@@ -18401,6 +18639,11 @@ ShamanPower.KeybindButtons = {
 	["SHAMANPOWER_AIR_TOTEM"] = "ShamanPowerTotemBtn4",
 	["SHAMANPOWER_EARTH_SHIELD"] = "ShamanPowerEarthShieldBtn",
 	["SHAMANPOWER_TOTEMIC_CALL"] = "ShamanPowerTotemicCallBtn",
+	-- Call of the Elements / Ancestors / Spirits, one key each (hidden buttons
+	-- made by ShamanPowerTotemSets.lua on WoW: Forever; inert elsewhere)
+	["SHAMANPOWER_CALL_ELEMENTS"] = "ShamanPowerCallElementsBtn",
+	["SHAMANPOWER_CALL_ANCESTORS"] = "ShamanPowerCallAncestorsBtn",
+	["SHAMANPOWER_CALL_SPIRITS"] = "ShamanPowerCallSpiritsBtn",
 	-- Flyouts (box mode): each key presses that flyout's TOGGLE helper (SPFT<K>,
 	-- see EnsureFlyoutBox), so one key opens and closes, in or out of combat,
 	-- and obeys the single-open setting. On clients without box mode these
@@ -18500,7 +18743,7 @@ function ShamanPower:MigrateMacroIcons()
 		self.opt.macroIconMigrationV1 = true
 	end
 
-	print("|cff0070ddShamanPower:|r Macro icons updated to use dynamic spell icons.")
+	print("|cff0070ddShamanPower:|r Macro icons now match their spells.")
 end
 
 -- Migrate macro reset timers to reset=combat/15 (one-time migration for v1.5.6)
@@ -19280,6 +19523,7 @@ function ShamanPower:SetupKeybindings()
 
 	-- Create the Totemic Call button if it doesn't exist
 	self:CreateTotemicCallButton()
+	if self.CreateTotemSetButtons then self:CreateTotemSetButtons() end
 
 	-- Clear any existing override bindings
 	ClearOverrideBindings(self.keybindFrame)
@@ -19507,7 +19751,7 @@ if not ShamanPower.RaidCooldownsLoaded then
 	-- Provide stub functions when module not loaded
 	function ShamanPower:InitRaidCooldowns() end
 	function ShamanPower:ToggleRaidCooldownPanel()
-		print("|cff0070ddShamanPower:|r Raid Cooldowns module not loaded. Enable 'ShamanPower [Raid Cooldowns]' in your addon list.")
+		print("|cff0070ddShamanPower:|r Raid Cooldowns isn't loaded. Turn on 'ShamanPower [Raid Cooldowns]' in your AddOns list.")
 	end
 	function ShamanPower:UpdateCallerButtons() end
 	function ShamanPower:HandleRaidCooldownMessage() end
@@ -19534,10 +19778,10 @@ if not ShamanPower.SPRangeLoaded then
 	function ShamanPower:InitSPRange() end
 	function ShamanPower:CreateSPRangeFrame() end
 	function ShamanPower:ToggleSPRange()
-		print("|cff0070ddShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+		print("|cff0070ddShamanPower:|r Totem Range Tracker isn't loaded. Turn on 'ShamanPower [Totem Range]' in your AddOns list.")
 	end
 	function ShamanPower:ShowSPRangeConfig()
-		print("|cff0070ddShamanPower:|r SPRange module not loaded. Enable 'ShamanPower [SPRange]' in your addon list.")
+		print("|cff0070ddShamanPower:|r Totem Range Tracker isn't loaded. Turn on 'ShamanPower [Totem Range]' in your AddOns list.")
 	end
 	function ShamanPower:InitializeSPRange() end
 	function ShamanPower:UpdateSPRangeVisibility() end
@@ -19567,9 +19811,9 @@ if not ShamanPower.ESTrackerLoaded then
 	function ShamanPower:CreateESTrackerFrame() end
 	function ShamanPower:ToggleESTracker()
 		if ShamanPower.ESTrackerUnavailable then
-			print("|cff0070ddShamanPower:|r Earth Shield does not exist on this client, so the tracker stays off.")
+			print("|cff0070ddShamanPower:|r Earth Shield isn't available in this version of the game. Earth Shield Tracker stays off.")
 		else
-			print("|cff0070ddShamanPower:|r ES Tracker module not loaded. Enable 'ShamanPower [Raid ES Tracker]' in your addon list.")
+			print("|cff0070ddShamanPower:|r Earth Shield Tracker isn't loaded. Turn on 'ShamanPower [Raid ES Tracker]' in your AddOns list.")
 		end
 	end
 	function ShamanPower:InitializeESTracker() end
@@ -19642,7 +19886,7 @@ if not ShamanPower.TotemPlatesLoaded then
 	-- Provide stub functions when module not loaded
 	function ShamanPower:InitializeTotemPlates() end
 	function ShamanPower:ToggleTotemPlates()
-		print("|cff0070ddShamanPower:|r Totem Plates module not loaded. Enable 'ShamanPower [Totem Plates]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Totem Plates isn't loaded. Turn on 'ShamanPower [Totem Plates]' in your AddOns list.")
 	end
 	function ShamanPower:UpdateTotemPlatesSize() end
 	function ShamanPower:UpdateTotemPlatesPulseSettings() end
@@ -19666,7 +19910,7 @@ if not ShamanPower.ReactiveTotemsLoaded then
 	function ShamanPower:ShowAllReactiveFrames() end
 	function ShamanPower:HideAllReactiveFrames() end
 	function ShamanPower:ShowReactiveTotemsConfig()
-		print("|cff0070ddShamanPower:|r Reactive Totems module not loaded. Enable 'ShamanPower [Reactive Totems]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Reactive Totems isn't loaded. Turn on 'ShamanPower [Reactive Totems]' in your AddOns list.")
 	end
 
 	-- Register slash commands (shows module not loaded message)
@@ -19704,7 +19948,7 @@ if not ShamanPower.ExpiringAlertsLoaded then
 	SLASH_SPALERTS1 = "/spalerts"
 	SLASH_SPALERTS2 = "/expiringalerts"
 	SlashCmdList["SPALERTS"] = function(msg)
-		print("|cff0070ddShamanPower:|r Expiring Alerts module not loaded. Enable 'ShamanPower [Expiring Alerts]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Expiring Alerts isn't loaded. Turn on 'ShamanPower [Expiring Alerts]' in your AddOns list.")
 	end
 end
 
@@ -19724,7 +19968,7 @@ if not ShamanPower.TremorReminderLoaded then
 
 	SLASH_SPTREMOR1 = "/sptremor"
 	SlashCmdList["SPTREMOR"] = function(msg)
-		print("|cff0070ddShamanPower:|r Tremor Reminder module not loaded. Enable 'ShamanPower [Tremor Reminder]' in your AddOns.")
+		print("|cff0070ddShamanPower:|r Tremor Reminder isn't loaded. Turn on 'ShamanPower [Tremor Reminder]' in your AddOns list.")
 	end
 end
 
@@ -19735,7 +19979,7 @@ end
 SLASH_SPCENTER1 = "/spcenter"
 SlashCmdList["SPCENTER"] = function(msg)
 	if InCombatLockdown() then
-		print("|cff0070ddShamanPower:|r Cannot reposition frames during combat.")
+		print("|cff0070ddShamanPower:|r Cannot move the bars during combat.")
 		return
 	end
 
@@ -19764,19 +20008,19 @@ SlashCmdList["SPCENTER"] = function(msg)
 		local rec = { anchor = "CENTER", x = -dx, y = -dy }
 		SP:SetStyleSpot(d, SP:BarStyleSpotKey(), rec)
 		SP:ApplyPositionRecord(mainFrame, rec)
-		print("|cff0070ddShamanPower:|r Totem bar moved to the center of the screen.")
+		print("|cff0070ddShamanPower:|r Totem Bar moved to the center of the screen.")
 		-- the hide rules keep it down (SetTotemBarFramesShown): say so, or it looks lost still
 		if SP.totemBarHidden then
-			print("|cff0070ddShamanPower:|r It is hidden right now by Hide Out of Combat / Hide When No Totems, and shows there when they allow it.")
+			print("|cff0070ddShamanPower:|r The Totem Bar is hidden right now by Hide Out of Combat or Hide When No Totems. It shows there when those settings allow it.")
 		end
 	end
 	if SP.cooldownBar and SP.opt.showCooldownBar then
 		SP:UpdateCooldownBarPosition(true)   -- detaches a bar still on the totem bar
-		print("|cff0070ddShamanPower:|r Cooldown bar moved under it.")
+		print("|cff0070ddShamanPower:|r Cooldown Bar moved under it.")
 	end
 	SP:ApplyDefaultBarPositions()
 
-	print("|cff0070ddShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset puts them back on their default spot.")
+	print("|cff0070ddShamanPower:|r Move them with /sp unlock (or ALT+drag). Unlock UI > Reset restores their starting positions.")
 end
 
 -- ============================================================================
@@ -20566,10 +20810,10 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	if msg == "" then
 		print("|cff0070ddShamanPower Loadouts:|r")
 		print("  /spl save <name>     - Save current totems as new loadout")
-		print("  /spl <number>        - Switch to loadout by index")
+		print("  /spl <number>        - Switch to loadout by number")
 		print("  /spl <name>          - Switch to loadout by name")
 		print("  /spl list            - List all saved loadouts")
-		print("  /spl delete <number> - Delete a loadout by index")
+		print("  /spl delete <number> - Delete a loadout by number")
 		if ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() then
 			print("  /spl set <1-3> <loadout> - Send a loadout to Call of the Elements / Ancestors / Spirits")
 		end
@@ -20580,7 +20824,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	local setPage, setWhich = msg:match("^[Ss][Ee][Tt]%s+([123])%s+(.+)$")
 	if setPage then
 		if not (ShamanPower.PushLoadoutToTotemSet and ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) then
-			print("|cff0070ddShamanPower:|r totem sets are not available on this client")
+			print("|cff0070ddShamanPower:|r totem sets are not available in this version of the game")
 			return
 		end
 		local idx = tonumber(setWhich)
@@ -20626,7 +20870,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 	if msg:lower():sub(1, 7) == "delete " then
 		local idx = tonumber(msg:sub(8):trim())
 		if not idx or not ShamanPower_TotemLoadouts[idx] then
-			print("|cff0070ddShamanPower:|r Invalid loadout index.")
+			print("|cff0070ddShamanPower:|r Invalid loadout number.")
 			return
 		end
 		local name = ShamanPower_TotemLoadouts[idx].name or ("Loadout " .. idx)
@@ -20641,7 +20885,7 @@ SlashCmdList["SPLOADOUT"] = function(msg)
 		if ShamanPower_TotemLoadouts[idx] then
 			ShamanPower:ApplyLoadout(idx)
 		else
-			print("|cff0070ddShamanPower:|r No loadout at index " .. idx .. ". Use /spl list to see available loadouts.")
+			print("|cff0070ddShamanPower:|r No loadout numbered " .. idx .. ". Use /spl list to see available loadouts.")
 		end
 		return
 	end
@@ -21025,7 +21269,7 @@ function ShamanPower:ThemeRepaintCore()
 		self:ThemeRepaintSoon("core.flyouttabs", self._themeTabsFn)
 	end
 	-- WoW: Forever: the game-drawn shield count / bar take their colours when built
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self._themeShieldFn then
+	if SPCompat.FOREVER and self._themeShieldFn then
 		s = 0
 		local r, g, b = self:ThemeColor("cd.engine", "bar")
 		if r then s = s + r * 3 + g * 5 + b * 7 end

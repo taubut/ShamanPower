@@ -1,7 +1,7 @@
 -- Forever native-bar hosts. Actions and every Blizzard-owned cooldown remain
 -- untouched; our own lifetime widgets consume the existing own-totem model.
 local SP = ShamanPower
-if not SP or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+if not SP or not SPCompat.FOREVER then return end
 
 local secret = issecretvalue or function() return false end
 local applied, refreshing, queued, pending, editing = false, false, false, false, false

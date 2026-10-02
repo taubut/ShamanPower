@@ -35,7 +35,7 @@ function SP:ShowExportDialog(str, title, heading)
 	if not exportDlg then
 		exportDlg = Core:CreateDialog({
 			name = "ShamanPowerExportDialog", width = 460, height = 300,
-			title = "Export", subtitle = "copy this string", headerHeight = 46, footer = 44,
+			title = "Export", subtitle = "copy this code", headerHeight = 46, footer = 44,
 			special = true, strata = "FULLSCREEN_DIALOG",
 		})
 
@@ -74,7 +74,7 @@ function SP:ShowExportDialog(str, title, heading)
 		sel:SetScript("OnClick", function() edit:SetFocus(); edit:HighlightText() end)
 	end
 
-	exportDlg:SetTitles(heading or "Export", title and title or "copy this string")
+	exportDlg:SetTitles(heading or "Export", title and title or "copy this code")
 	exportDlg.edit.spText = str
 	exportDlg.edit:SetText(str)
 	-- Size the dialog to the content: a link or short string gets a one-line
@@ -96,7 +96,7 @@ function SP:ShowImportDialog()
 	if not importDlg then
 		importDlg = Core:CreateDialog({
 			name = "ShamanPowerImportDialog", width = 460, height = IMPORT_H,
-			title = "Import", subtitle = "paste a string", headerHeight = 46, footer = 44,
+			title = "Import", subtitle = "paste a code", headerHeight = 46, footer = 44,
 			special = true, strata = "FULLSCREEN_DIALOG",
 		})
 
@@ -105,7 +105,7 @@ function SP:ShowImportDialog()
 		hint:SetPoint("TOPLEFT", importDlg.body, "TOPLEFT", 0, 0)
 		hint:SetPoint("RIGHT", importDlg.body, "RIGHT", 0, 0)
 		hint:SetJustifyH("LEFT")
-		hint:SetText("Paste a ShamanPower string, name the new profile, then Import.")
+		hint:SetText("Paste a ShamanPower code, name the new profile, then click Import.")
 
 		local scroll = CreateFrame("ScrollFrame", nil, importDlg.body)
 		scroll:SetPoint("TOPLEFT", hint, "BOTTOMLEFT", 0, -8)
@@ -194,16 +194,16 @@ local function InjectProfileButtons()
 	profiles.args.spShareHeader = { order = 0.1, type = "header", name = "Share" }
 	profiles.args.spShareDesc = {
 		order = 0.15, type = "description", fontSize = "medium",
-		name = "|cffE6EAF0Export|r turns this profile into a copyable string you can back up or send to someone. |cffE6EAF0Import|r loads a string as a new profile, leaving your current one untouched.",
+		name = "|cffE6EAF0Export|r gives you a code to back up or share this profile. |cffE6EAF0Import|r creates a new profile from a code and keeps your current profile.",
 	}
 	profiles.args.spExport = {
 		order = 0.2, type = "execute", name = "Export This Profile",
-		desc = "Copy this profile as a string you can back up or share.",
-		func = function() SP:ShowExportDialog(SP:ExportCurrentProfile(), "copy this string") end,
+		desc = "Copy this profile as a code you can back up or share.",
+		func = function() SP:ShowExportDialog(SP:ExportCurrentProfile(), "copy this code") end,
 	}
 	profiles.args.spImport = {
-		order = 0.3, type = "execute", name = "Import a String",
-		desc = "Paste a ShamanPower string to load it as a new profile.",
+		order = 0.3, type = "execute", name = "Import a Code",
+		desc = "Paste a ShamanPower code to create a new profile.",
 		func = function() SP:ShowImportDialog() end,
 	}
 	-- Built-in layouts: the same preview-then-apply dialog the setup uses.
@@ -211,7 +211,7 @@ local function InjectProfileButtons()
 		profiles.args.spPresetHeader = { order = 0.4, type = "header", name = "Built-in Layouts" }
 		profiles.args.spPresetDesc = {
 			order = 0.45, type = "description", fontSize = "medium",
-			name = "A complete, ready-made setup - bars, scales, colors, positions and every module tuned. You get to see it before anything is applied; your totem choices and raid assignments are never touched.",
+			name = "A complete setup with bars, sizes, colors, positions and all features ready to use. Preview it before applying it. Your totem choices and raid assignments stay as they are.",
 		}
 		profiles.args.spRestoreBackup = {
 			order = 0.9, type = "execute", name = "Restore My Previous Setup",
@@ -244,7 +244,7 @@ InjectProfileButtons()
 -- WeakAura to a melee again any time.
 function SP:ShowWindfuryCompanion(link)
 	local comp = self.Companions and self.Companions.windfury
-	if not comp then print("|cff0070ddShamanPower|r: companion data missing.") return end
+	if not comp then print("|cff0070ddShamanPower|r: Windfury Companion is unavailable.") return end
 	if link then
 		self:ShowExportDialog(comp.url, "send this link to your melee", "Windfury Companion")
 	else
@@ -254,7 +254,7 @@ end
 
 local function InjectCompanionPage()
 	-- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): no page there
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end
+	if SPCompat.FOREVER then return end
 	local root = SP.options
 	if not (root and root.args) or root.args.spWindfuryCompanion then return end
 	root.args.spWindfuryCompanion = {
@@ -268,12 +268,12 @@ local function InjectCompanionPage()
 				order = 2, type = "description", fontSize = "medium",
 				name = "The game never shows Windfury Totem's weapon buff on other players, so ShamanPower cannot see who has it. "
 					.. "This small WeakAura, installed by the |cffE6EAF0rogues, warriors and paladins|r in your group, quietly tells your addon they have Windfury. "
-					.. "Your Air slot then counts them and shows a dot for each one, yellow when they are in range of your totem.\n\n"
+					.. "Your Air slot then counts them and shows a dot for each one: their class color when they are in range of your totem, red when they are not.\n\n"
 					.. "You do |cffE6EAF0not|r install it. Send it to your melee; they import it into WeakAuras once and never touch it again.",
 			},
 			str = {
 				order = 3, type = "execute", name = "Show WeakAura String",
-				desc = "Opens the import string so you can copy it and send it to a melee.",
+				desc = "Show the WeakAura import string to copy and send to a melee player.",
 				func = function() SP:ShowWindfuryCompanion(false) end,
 			},
 			link = {

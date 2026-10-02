@@ -225,7 +225,13 @@ local RENDERABLE = {
 }
 
 local function HasContentRow(tree, entry)
-	return entry.kind == "option" and (entry.type ~= "description" or tree:StripColor(entry.label):find("%S"))
+	if entry.kind ~= "option" then return false end
+	if entry.type ~= "description" then return true end
+	-- a row a page draws with its own code (SP.OptionCustomRow) is content whatever
+	-- its name, so the heading above it stays
+	local sp = ShamanPower
+	if sp and sp.OptionCustomRow and sp.OptionCustomRow[entry.node] then return true end
+	return tree:StripColor(entry.label):find("%S") and true or false
 end
 
 function Tree:HasContent(list)
@@ -276,6 +282,7 @@ function Tree:BuildRenderList(pageNode, pagePath, pageChain, out, depth)
 					kind  = "section",
 					label = self:GetName(c.node, c.info),
 					depth = depth,
+					node  = c.node,   -- (a page may tag its heading: SP.OptionHeaderTag[node])
 				})
 			elseif RENDERABLE[t] then
 				table.insert(out, {
