@@ -32,7 +32,7 @@ ns.ThemesPage = Page
 local floor, ceil, max, min = math.floor, math.ceil, math.max, math.min
 local pairs, ipairs, pcall, tostring = pairs, ipairs, pcall, tostring
 
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 local PLAYER_IS_SHAMAN = select(2, UnitClass("player")) == "SHAMAN"
 local BEBAS = "Interface\\AddOns\\ShamanPower\\Media\\Fonts\\BebasNeue-Regular.ttf"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -2380,7 +2380,7 @@ for which = 1, 3 do
 	SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "orbs" .. which, orbs = which, label = ORB_ROW[which].label, note = ORB_ROW[which].note,
 		list = function() return OrbCards(which) end,
 		-- Earth Shield: Anniversary only (WoW: Forever has none)
-		shown = function() return ShieldBarShown() and (which < 3 or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) end,
+		shown = function() return ShieldBarShown() and (which < 3 or not SPCompat.FOREVER) end,
 		get = function() return SP.GetShieldLook and SP:GetShieldLook(which) or "bar" end,
 		set = function(k) if SP.SetShieldLook then SP:SetShieldLook(which, k) end end }
 end
@@ -2395,7 +2395,7 @@ SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient
 	extra = function(y, W)
 		y = GradientExtra("chargeGradient", "Charge Bar")(y, W)
 		-- each shield's own charge color (purple Water Shield? sure)
-		for w = 1, (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 2 or 3 do
+		for w = 1, (SPCompat.FOREVER) and 2 or 3 do
 			local _, h = Widgets:Color(page.body, {
 				label = CHARGE_NAMES[w], x = 0, y = y, width = W,
 				desc = "The color of this shield's charge bar and orbs (Shield Icon Orbs keep their icons). The same setting as on Shield Charges.",

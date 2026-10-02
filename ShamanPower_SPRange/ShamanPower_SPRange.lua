@@ -173,7 +173,7 @@ SP.TrackableTotems = {
 -- TBC Anniversary: Flametongue Totem enchants weapons and puts no buff on anyone
 -- (8215 is "Rapid Cast" there), so it sat at MISSING: not tracked on that client.
 -- Windfury, the same kind of totem, keeps its weapon-enchant check.
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+if not SPCompat.FOREVER then
 	for i = #SP.TrackableTotems, 1, -1 do
 		if SP.TrackableTotems[i].id == "flametongue" then table.remove(SP.TrackableTotems, i) end
 	end
@@ -183,7 +183,7 @@ end
 for _, totem in ipairs(SP.TrackableTotems) do
 	-- WoW: Forever made Windfury Totem a party buff (8515 / 10609 / 10612), not
 	-- TBC's weapon enchant: read it like any other totem buff there
-	if totem.id == "windfury" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if totem.id == "windfury" and SPCompat.FOREVER then
 		totem.detection = "buff"
 		totem.buffSpellID = 8515
 		totem.buffSpellIDs = { 8515, 10609, 10612 }
@@ -191,10 +191,10 @@ for _, totem in ipairs(SP.TrackableTotems) do
 	if totem.buffSpellID then
 		-- Forever reuses 8215 (TBC's Flametongue Totem buff) for "Rapid Cast"; the
 		-- aura party members carry there is the effect spell
-		if totem.id == "flametongue" and WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then totem.buffSpellID = 8230 end
+		if totem.id == "flametongue" and SPCompat.FOREVER then totem.buffSpellID = 8230 end
 		totem.buffName = GetSpellInfo(totem.buffSpellID)
 	end
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		-- Build once, after client-specific ID overrides; nameless auras need
 		-- ID matching, while named entries retain the single native lookup.
 		totem.buffSpellIDs = totem.buffSpellIDs or { totem.buffSpellID }
@@ -205,7 +205,7 @@ end
 
 -- Only totems this client has. WoW: Forever has no Totem of Wrath and no Wrath
 -- of Air; a tracked totem the client lacks would sit at MISSING forever.
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+if SPCompat.FOREVER and SPCompat and SPCompat.SpellExists then
 	local kept = {}
 	for _, totem in ipairs(SP.TrackableTotems) do
 		if SPCompat.SpellExists(totem.spellID) then kept[#kept + 1] = totem end
@@ -318,7 +318,7 @@ local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
 end
 
 function SP:SPRangeHasBuff(buffName, buffSpellIDSet)
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		return MainlineHasNamedBuff("player", buffName, buffSpellIDSet)
 	end
 	if not buffName then return false end
@@ -335,7 +335,7 @@ end
 function SP:SPRangeHasWindfuryWeapon()
 	-- WoW: Forever: Windfury Totem is the party buff there, and any other
 	-- temporary enchant (your own imbue, a rogue's poison) is not Windfury
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		local wf = SP.TrackableTotemsByID and SP.TrackableTotemsByID.windfury
 		if wf and MainlineHasNamedBuff("player", wf.buffName, wf.buffSpellIDSet) then return true, nil, nil end
 		return false, nil, nil
@@ -653,7 +653,7 @@ end
 -- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
 local rangePartyUnits = { "party1", "party2", "party3", "party4" }
 function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		if MainlineHasNamedBuff("player", buffName, buffSpellIDSet) then return true end
 		if IsInGroup() then
 			for _, unit in ipairs(rangePartyUnits) do
@@ -882,7 +882,7 @@ end
 -- two parts, so a whisper might not find its target (and the failed whisper's
 -- system message would repeat every heartbeat); there the report stays on
 -- INSTANCE_CHAT.
-local WF_WHISPER = not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local WF_WHISPER = not (SPCompat.FOREVER)
 local wfWhisperTargets = {}
 local function refreshWhisperTargets()
 	wipe(wfWhisperTargets)
@@ -1119,7 +1119,7 @@ function SP:UpdateWindfuryBroadcaster()
 		self:RegisterUpdateSubsystem("wfBroadcast", 6.0, function() SP:BroadcastWindfuryStatus(true) end)
 	end
 	-- WoW: Forever: the shaman reads Windfury as a party buff, nothing to report
-	if not self:IsOff() and self:ShamanInMyParty() and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+	if not self:IsOff() and self:ShamanInMyParty() and not SPCompat.FOREVER then
 		if not self:IsUpdateSubsystemEnabled("wfBroadcast") then
 			self:EnableUpdateSubsystem("wfBroadcast")
 			setWFEvents(true)

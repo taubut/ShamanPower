@@ -23,7 +23,7 @@ if not (SP and Core) then return end
 
 local floor, max, min = math.floor, math.max, math.min
 
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 
 -- Layout (px)
 local DLG_W    = 420   -- grows for a long title, never cuts it

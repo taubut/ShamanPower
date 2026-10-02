@@ -998,7 +998,7 @@ function Assign:Demo(on)
 			tick = tick + 1
 			local a = ShamanPower_Assignments["Nazgrel"]
 			local n = SP.TotemNames and SP.TotemNames[2] and #SP.TotemNames[2] or 6
-			if a and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE then
+			if a and SPCompat.FOREVER then
 				n = SP:GetTotemIndexLimit(2)
 				if n == 0 then
 					a[2] = 0

@@ -60,7 +60,7 @@ local MOCK_LOADOUT  = { mocks = {
 	{ label = "Loadout bar", build = "BuildLoadoutBarPane" },
 	{ label = "Blizzard totem sets", build = "BuildLoadoutSetsPane", when = function()
 		local sp = SP()
-		return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and sp and sp.HasTotemBar and sp:HasTotemBar()
+		return SPCompat.FOREVER and sp and sp.HasTotemBar and sp:HasTotemBar()
 	end },
 } }
 local MOCK_PARTY    = { mocks = {
@@ -2029,7 +2029,7 @@ end
 local themeReloadDlg
 local THEME_RELOAD_REASON = "You changed your ShamanPower theme. Reload the UI so every part picks up the new look."
 local function ShowThemeReloadPrompt()
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		Core:RequestReload(THEME_RELOAD_REASON)
 		return
 	end

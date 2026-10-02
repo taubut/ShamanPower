@@ -28,7 +28,7 @@ BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 -- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
 -- The flyout keys drive the box-mode flyouts, which only WoW: Forever uses; on
 -- other clients the flyouts open on hover and these keys do nothing.
-BINDING_HEADER_SHAMANPOWER_FLYOUT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "ShamanPower Flyouts (with Blizzard-style arrows)" or "ShamanPower Flyouts (WoW: Forever only)"
+BINDING_HEADER_SHAMANPOWER_FLYOUT = (SPCompat.FOREVER) and "ShamanPower Flyouts (with Blizzard-style arrows)" or "ShamanPower Flyouts (WoW: Forever only)"
 BINDING_NAME_SHAMANPOWER_FLYOUT_EARTH = "Toggle Earth Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_FIRE = "Toggle Fire Totem Flyout"
 BINDING_NAME_SHAMANPOWER_FLYOUT_WATER = "Toggle Water Totem Flyout"
@@ -807,7 +807,7 @@ end
 -- Keep the legacy bound on Classic, including the non-element fallback.
 function ShamanPower:GetTotemIndexLimit(element)
     local names = self.TotemNames and self.TotemNames[element]
-    if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or not names then
+    if not SPCompat.FOREVER or not names then
         return names and #names or 8
     end
     local highest = 0
@@ -820,7 +820,7 @@ end
 -- Totems holds the same Earth/Fire/Water/Air tables, so these removals also
 -- update every per-element alias. SpellExists retains allow-listed spells
 -- such as name-encrypted Tranquil Air. Saved assignment indexes stay intact.
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SPCompat and SPCompat.SpellExists then
+if SPCompat.FOREVER and SPCompat and SPCompat.SpellExists then
     for element, list in pairs(ShamanPower.Totems) do
         for index, spellID in pairs(list) do
             if not SPCompat.SpellExists(spellID) then

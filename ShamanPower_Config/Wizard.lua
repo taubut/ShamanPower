@@ -222,7 +222,7 @@ function SP.Wizard.ApplySpecPicks(role)
 	-- WoW: Forever: Ready Reminders follow the spec's talents (read from the client's
 	-- trait tree). Elemental Mastery is not in Forever's tree, so Elemental's cooldowns
 	-- are Lava Burst and the shocks. Fire Nova and Earthbind stay opt-in (AoE / PvP).
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		SP.opt.cdbarShowElementalMastery = false
 		ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
 		ShamanPower_ReadyReminders.spells = ShamanPower_ReadyReminders.spells or {}
@@ -270,7 +270,7 @@ local STEPS = {
 	    "Change it any time, or change any single part of it, in |cff3FA9F5Settings > General > Themes|r.",
 	  } },
 	{ id = "forever", title = "WoW: Forever", roles = ALL, build = "BuildForeverStep",   -- shaman-only content; the Raid Cooldowns step covers what a non-shaman needs
-	  when = function() return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
+	  when = function() return SPCompat.FOREVER end,
 	  desc = "Welcome to WoW: Forever. A few things ShamanPower does on other versions of the game do not exist here, and a few work differently because the game hides combat data from addons.",
 	  bullets = {
 	    "Not in this game: Earth Shield, Bloodlust / Heroism, Drums of Battle, Totem of Wrath, Wrath of Air, Fire Nova Totem and the Elementals. Their pages, mocks and options are hidden.",
@@ -429,7 +429,7 @@ local STEPS = {
 	  toggles = { { label = "Enable Totem Coverage", bind = "coverage" } } },
 	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
 	  -- WeakAuras is not a thing on Mainline-family clients (retail, WoW: Forever): the step does not exist there
-	  when = function() return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end,
+	  when = function() return not SPCompat.FOREVER end,
 	  descNonShaman = "The game never shows Windfury Totem's weapon buff on other players, so your shaman's addon cannot see that you have it. A tiny WeakAura on YOUR side fixes that.",
 	  bulletsNonShaman = {
 	    "Import it into WeakAuras once. Nothing to configure.",
@@ -1896,7 +1896,7 @@ function SP.Wizard.BuildTwistingStep(card, inner, y)
 	local function twistValues()
 		local v = {}
 		for idx, spellID in pairs(SP.AirTotems or {}) do
-			local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+			local forever = SPCompat.FOREVER
 			local exists = not forever or not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(spellID)
 			if exists and SP.TwistTotemIcons and SP.TwistTotemIcons[idx] then
 				local fallback = forever and SP.TotemNames and SP.TotemNames[4] and SP.TotemNames[4][idx]
@@ -2142,7 +2142,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 	legend:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 12, 14); legend:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -12, 14)
 	legend:SetJustifyH("CENTER"); legend:SetWordWrap(true)
 	legend:SetText("Every totem has its own bubble, so someone can be inside Strength of Earth's range and outside Windfury's at the same time. A dot per member: class color = getting that totem, red = out of its range. The number = how many it reaches."
-		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and " Windfury (Air) only knows about melee running the companion aura - next step." or ""))
+		.. (not SPCompat.FOREVER and " Windfury (Air) only knows about melee running the companion aura - next step." or ""))
 	-- who is inside which totem's bubble right now (each totem has its own range)
 	local ENAME = { "Earth", "Fire", "Water", "Air" }
 	-- a small grid: member down the side, element across the top, in / out in the cells
@@ -2209,7 +2209,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 			local count = 0
 			for d, m in ipairs(PARTY) do
 				local dot = s.dots[d]
-				local known = (i ~= 4) or m.wf or WOW_PROJECT_ID == WOW_PROJECT_MAINLINE   -- Windfury: only companion users are visible (Forever: everyone, it is a party buff there)
+				local known = (i ~= 4) or m.wf or SPCompat.FOREVER   -- Windfury: only companion users are visible (Forever: everyone, it is a party buff there)
 				local cell = lines[d][i]
 				if not known then
 					dot:Hide(); s.rings[d]:Hide()
@@ -3229,7 +3229,7 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 		plus(STYLES, STYLE_ORDER, "shine", "Shine", "dot", "Dot"))
 	cue("Weapon imbue gone", "A weapon imbue that drops off (it ran out, or the weapon was swapped) plays this on the imbue button, in blue.",
 		"cdbarCueImbue", "cdbarCueImbueStyle", "shake", plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag"))
-	cue("Shield gone", WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	cue("Shield gone", SPCompat.FOREVER
 			and "Your shield going plays this on the shield button, in blue. In combat the game hides that moment, so there the button pulses red while no shield is up (at 100% cooldown bar opacity)."
 			or "Your shield going plays this on the shield button, in blue.",
 		"cdbarCueShield", "cdbarCueShieldStyle", "shake", plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag"))
@@ -4046,7 +4046,7 @@ function SP.Wizard:RenderRole()
 		local feats = {
 			{ 8075, "Totem Range", "See whether you are inside your shaman's totem buffs." },
 			{ HasBL() and 2825 or 16190, "Raid Cooldowns", "Call for " .. RaidCDNames("Bloodlust") .. " as leader or assistant." },
-			(WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and { 8512, "Windfury Companion", "A WeakAura so your shaman can see your Windfury (melee)." } or nil,
+			(not SPCompat.FOREVER) and { 8512, "Windfury Companion", "A WeakAura so your shaman can see your Windfury (melee)." } or nil,
 			{ 8177, "Totem Plates", "Big icons on enemy totems so you kill the right one." },
 		}
 		local rowX, rowW, y = -250, 500, -12
@@ -4077,7 +4077,7 @@ function SP.Wizard:RenderRole()
 		end)
 		-- The one-click way out for melee who only want their shaman to see their Windfury.
 		-- (Not on WoW: Forever: Windfury is a party buff there, their shaman sees it anyway.)
-		if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+		if not SPCompat.FOREVER then
 			local wfOnly = track(Core:MakeButton(c, "Just here so my shaman sees my Windfury", 320, false))
 			wfOnly:SetSize(320, 30); wfOnly:SetPoint("TOP", go, "BOTTOM", 0, -16)
 			wfOnly.text:SetTextColor(1, 0.82, 0)
@@ -4110,7 +4110,7 @@ function SP.Wizard:RenderRole()
 
 	-- Each card: the role in gold, then what picking it sets up, one spell per row.
 	-- Items are { spellID or list of IDs (first the client has), text }.
-	local FOREVER = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local FOREVER = SPCompat.FOREVER
 	local roles = FOREVER and {
 		{ key = "restoration", name = "Restoration", role = "Healer", items = {
 			{ 16190, "Mana Tide Totem" }, { 16188, "Nature's Swiftness" },
@@ -4253,10 +4253,10 @@ function SP.Wizard:RenderFinish()
 	b:SetText(IS_SHAMAN and ("This walkthrough only covered the essentials. The full settings window has far more:"
 		.. " every totem bar and cooldown bar option, flyouts, macros, loadouts and the loadout bar,"
 		.. " pop-out trackers, mini bar, assignments, colors, sounds, keybinds, profiles"
-		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. ", and more.")
+		.. (not SPCompat.FOREVER and ", the Windfury Companion" or "") .. ", and more.")
 		or ("The settings window has the rest of what runs on your class: the Totem Range overlay's size,"
 		.. " opacity and layout, the Raid Cooldown caller buttons, Totem Plates"
-		.. (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and ", the Windfury Companion" or "") .. " and profiles."))
+		.. (not SPCompat.FOREVER and ", the Windfury Companion" or "") .. " and profiles."))
 	local cmd = box:CreateFontString(nil, "OVERLAY"); cmd:SetFontObject(Core.fonts.row)
 	cmd:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -10); cmd:SetWidth(520); cmd:SetJustifyH("LEFT"); cmd:SetWordWrap(true)
 	cmd:SetText(IS_SHAMAN and "Open it any time with  |cffFFFFFF/spui|r  or the settings button on your totem bar."
@@ -4385,7 +4385,7 @@ function SP.Wizard:ShowBackupNotice(backup, extra, onOk)
 			if self:IsShown() or not self.onOk then return end
 			local f = self.onOk
 			self.onOk = nil
-			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then C_Timer.After(0, f) else f() end
+			if SPCompat.FOREVER then C_Timer.After(0, f) else f() end
 		end
 	end
 	backupDlg.onOk = onOk
@@ -4551,7 +4551,7 @@ function SP.Wizard:ShowWelcomeChoice()
 		d.text:SetText("ShamanPower helps you play alongside shamans.")
 		d.a.text:SetText("Quick tour  (a minute)")
 		d.a:SetScript("OnClick", function() d:Hide(); SP.Wizard:Open() end)
-		if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+		if SPCompat.FOREVER then
 			-- WoW: Forever: Windfury is a party buff there, no Windfury-only mode to offer
 			d.b:Hide()
 		else

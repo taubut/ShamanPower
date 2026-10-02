@@ -577,7 +577,7 @@ local reloadDlg
 
 function Core:RequestReload(reason)
 	-- Classic line: the direct call has always worked, keep it instant.
-	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+	if not SPCompat.FOREVER then
 		ReloadUI()
 		return
 	end

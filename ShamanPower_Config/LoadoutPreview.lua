@@ -20,7 +20,7 @@ local SAMPLES = {
 }
 
 local function HasSets()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.HasTotemBar and SP:HasTotemBar()
+	return SPCompat.FOREVER and SP.HasTotemBar and SP:HasTotemBar()
 end
 
 local function TotemIcon(element, index)

@@ -28,7 +28,7 @@ local abs = math.abs
 -- ---------------------------------------------------------------------------
 -- Constants
 -- ---------------------------------------------------------------------------
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 
 local THEMES      = { standard = true, shamanpower = true, minimal = true }
 local PALETTE_KEY = { classic = true, blizzard = true, shamanpower = true, custom = true }

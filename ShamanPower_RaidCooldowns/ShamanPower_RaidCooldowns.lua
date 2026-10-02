@@ -531,7 +531,7 @@ end
 -- casts are never secret, and this listens only while an alert is up.
 local ownTideFrame, ownTideSerial = nil, 0
 local function WatchOwnManaTide()
-	if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+	if not SPCompat.FOREVER then return end
 	if not ownTideFrame then
 		ownTideFrame = CreateFrame("Frame")
 		ownTideFrame:SetScript("OnEvent", function(f, _, _, _, spellID)

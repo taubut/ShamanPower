@@ -24,7 +24,7 @@ ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
 local DEFAULTS = {
 	-- On for WoW: Forever (no WeakAuras there); opt-in on Anniversary, where most
 	-- players already cover this with WeakAuras. The setup tour and settings turn it on.
-	enabled = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
+	enabled = (SPCompat.FOREVER),
 	mode = "ready",        -- "ready": show only when ready | "cooldown": show only while on cooldown | "always": dim + countdown on cooldown
 	onlyInCombat = false,
 	iconSize = 48,
@@ -197,7 +197,7 @@ end
 -- WoW: Forever in combat: the compat model knows only the shock that was cast, so
 -- the other two read ready while the shared cooldown runs. A shock with no run of
 -- its own takes the family's.
-local IS_MAINLINE = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
 local isShock = { earthshock = true, flameshock = true, frostshock = true }
 local function cooldownOf(entry)

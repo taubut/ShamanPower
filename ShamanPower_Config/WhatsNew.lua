@@ -34,7 +34,7 @@ end
 local function CardSets(since, preview)
 	local s = VerNum(since)
 	local cur = VerNum(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
-	local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local forever = SPCompat.FOREVER
 	local out = {}
 	for _, ver in ipairs(ns.PATCH_NOTES or {}) do
 		local n = VerNum(ver.v)

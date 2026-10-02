@@ -26,7 +26,7 @@ if not SP then return end
 local type, pairs, ipairs, select, tonumber, rawget, pcall = type, pairs, ipairs, select, tonumber, rawget, pcall
 local floor, min, max = math.floor, math.min, math.max
 
-local IS_MAINLINE = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local IS_MAINLINE = (SPCompat.FOREVER)
 local secret = issecretvalue or function() return false end
 local SECRET = {}                         -- FileOf's answer for a secret texture
 

@@ -129,7 +129,7 @@ SP.TotemBuffSpellIDs = {
 		[7] = 15108,  -- Windwall
 	},
 }
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	-- WoW: Forever (1.60.1.70009) made Windfury Totem a party buff: 8515 / 10609 /
 	-- 10612 "Windfury Totem" is an aura on every party member in range (it procs
 	-- the extra attack itself), shown like Strength of Earth. TBC's weapon enchant
@@ -187,7 +187,7 @@ end
 -- On Forever a totem's name may differ from its effect aura's name. Cache all
 -- rank/effect IDs once; leave Anniversary's existing name-only scan unchanged.
 SP.TotemBuffIDSets = {}
-if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	for _, list in pairs(SP.TotemBuffSpellIDs) do
 		for _, base in pairs(list) do
 			local name = GetSpellInfo(base)
@@ -378,7 +378,7 @@ function SP:UnitNearShaman(unit)
 end
 
 function SP:UnitHasBuff(unit, buffName, element)
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and issecretvalue(buffName) then return false end
+	if SPCompat.FOREVER and issecretvalue(buffName) then return false end
 	if not buffName then return false end
 
 	if element and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
@@ -401,7 +401,7 @@ function SP:UnitHasBuff(unit, buffName, element)
 	end
 
 	local has = false
-	if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		local ids = SP.TotemBuffIDSets[buffName]
 		if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 			for i = 1, 40 do
@@ -1622,7 +1622,7 @@ function SP:UpdatePartyRangeDots()
 						local hasBuff = buffName and self:UnitHasBuff(unit, buffName, element)
 
 						-- Special case: Air element (4) with no buffName = Windfury Totem
-						local isWindfury = (element == 4 and not buffName and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
+						local isWindfury = (element == 4 and not buffName and not SPCompat.FOREVER)
 						if isWindfury then
 							local playerName = UnitName(unit)
 							local wfStatus = self:IsPlayerInWindfuryRange(playerName)
@@ -1952,7 +1952,7 @@ function SP:UpdateRangeCounters()
 			for _, unit in ipairs(partyUnits) do
 				if UnitExists(unit) then
 					-- Special case: Air element with Windfury
-					local isWindfury = (element == 4 and not buffName and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
+					local isWindfury = (element == 4 and not buffName and not SPCompat.FOREVER)
 					if isWindfury then
 						hasTrackableBuff = true  -- Windfury is trackable via broadcast
 						local playerName = UnitName(unit)

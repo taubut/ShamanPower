@@ -751,12 +751,14 @@ local auraFrames = {}
 -- is read. Anything unclear (a full update, no list, a row without its instance,
 -- a token that changed hands) reads, as before.
 local function esMayHaveChanged(unit, info)
-	if type(info) ~= "table" or info.isFullUpdate then return true end
+	if not SPCompat.AuraInfoReadable(info) or info.isFullUpdate then return true end   -- secret in combat on Forever: read
 	local added = info.addedAuras
 	if added then
 		for i = 1, #added do
 			local a = added[i]
-			if a and a.name == "Earth Shield" then return true end
+			if issecretvalue(a) then return true end
+			local name = a and a.name
+			if issecretvalue(name) or name == "Earth Shield" then return true end
 		end
 	end
 	local shields = SP.earthShields
@@ -771,9 +773,9 @@ local function esMayHaveChanged(unit, info)
 	local id = d.auraInstanceID
 	if not id then return true end
 	local upd = info.updatedAuraInstanceIDs
-	if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+	if upd then for i = 1, #upd do local v = upd[i] if issecretvalue(v) or v == id then return true end end end
 	local rem = info.removedAuraInstanceIDs
-	if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	if rem then for i = 1, #rem do local v = rem[i] if issecretvalue(v) or v == id then return true end end end
 	return false
 end
 local function onGroupAura(_, _, unit, info)

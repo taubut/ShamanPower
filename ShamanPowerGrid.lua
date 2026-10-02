@@ -26,7 +26,7 @@ end
 
 local function requested()
 	-- A saved native-bar selection wins a conflicting profile on Mainline.
-	return SP.opt and SP.opt.gridStyle and not (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	return SP.opt and SP.opt.gridStyle and not (SPCompat.FOREVER
 		and SP.opt.useBlizzardTotemBar and SP.HasTotemBar and SP:HasTotemBar())
 end
 

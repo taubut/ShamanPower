@@ -167,7 +167,7 @@ local defaultSettings = {
 		destroyed = true,
 		-- a line in your own chat window (nobody else sees it): on for Forever, where it is how
 		-- you notice a totem killed mid-fight; opt-in on Anniversary, where the alert always worked
-		destroyedChat = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
+		destroyedChat = (SPCompat.FOREVER),
 		destroyedCenter = false,  -- big raid-warning-style text, drawn only on your screen
 		destroyedParty = false,   -- tell the party / raid in chat (opt-in)
 		expired = false,  -- off by default (can be spammy)
@@ -178,7 +178,7 @@ local defaultSettings = {
 		-- totem alert sound: on for Forever, like the chat line above (it is how you
 		-- notice a totem killed mid-fight); opt-in on Anniversary as before. "expired"
 		-- is off, so out of the box it only sounds for a destroyed totem.
-		sound = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
+		sound = (SPCompat.FOREVER),
 		soundName = "Alarm Clock Warning 3",
 	},
 	weaponImbues = {
@@ -263,7 +263,7 @@ function SP:InitExpiringAlerts()
 	-- Forever: a profile made before the totem sound defaulted on already holds the
 	-- old default (off), written above on its first load. Turn it on once; a later
 	-- choice in the settings sticks.
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not sv.totems.soundDefaultForever then
+	if SPCompat.FOREVER and not sv.totems.soundDefaultForever then
 		sv.totems.sound = true
 		sv.totems.soundDefaultForever = true
 	end
@@ -654,7 +654,7 @@ local shieldSoundLog = {}          -- one entry per rank tried, read by /spalert
 
 local function shieldSoundWanted()
 	local sv = ShamanPowerExpiringAlertsDB
-	if not (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) then return false end
+	if not (SPCompat.FOREVER) then return false end
 	if not (C_UnitAuras and C_UnitAuras.AddAuraSound and Enum and Enum.UnitAuraSoundTrigger) then return false end
 	if not (sv and sv.enabled ~= false and not SP:IsOff() and sv.shields and sv.shields.enabled ~= false and sv.shields.sound) then return false end
 	return true
@@ -773,16 +773,18 @@ local function PayloadTouches(info, kindA, kindB, instA, instB)
 	local full = info.isFullUpdate
 	if isSecretValue(full) or full then return true end
 	local removed = info.removedAuraInstanceIDs
+	if isSecretValue(removed) then return true end   -- test before comparing: a secret cannot be compared
 	if removed ~= nil then
-		if type(removed) ~= "table" or isSecretValue(removed) then return true end
+		if type(removed) ~= "table" then return true end
 		for i = 1, #removed do
 			local id = removed[i]
 			if isSecretValue(id) or id == instA or id == instB then return true end
 		end
 	end
 	local added = info.addedAuras
+	if isSecretValue(added) then return true end
 	if added ~= nil then
-		if type(added) ~= "table" or isSecretValue(added) then return true end
+		if type(added) ~= "table" then return true end
 		for i = 1, #added do
 			local kind = ShieldKind(added[i])
 			if kind == -1 or kind == kindA or kind == kindB then return true end
@@ -1020,7 +1022,7 @@ end
 -- window (as the core's in-combat path does); a recall, your own destroy, your death,
 -- or a totem of that element standing again by then (a totem set re-filling the
 -- slots) is not "destroyed".
-local deferDestroyed = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local deferDestroyed = (SPCompat.FOREVER)
 local DESTROYED_BIND_WINDOW = 0.5
 local function ConfirmDestroyed(element, slot, totemName, elementColor)
 	local recallAt = ShamanPower._totemRecallAt
@@ -1114,7 +1116,7 @@ function SP:CheckTotemState(initializing)
 	end
 end
 
-local mainlineWeaponChecks = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local mainlineWeaponChecks = SPCompat.FOREVER
 local weaponExpiryTimer, weaponExpiryAt
 
 local function CancelWeaponExpiry()

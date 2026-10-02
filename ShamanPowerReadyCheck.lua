@@ -17,7 +17,7 @@ local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
-local FOREVER = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local FOREVER = (SPCompat.FOREVER)
 local secret = issecretvalue or function() return false end
 local GetWeaponEnchantInfoC = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
 local GetItemCountC = (C_Item and C_Item.GetItemCount) or GetItemCount
@@ -38,7 +38,7 @@ local ITEMS_NEEDED = FOREVER
 
 local DEFAULTS = {
 	-- on for WoW: Forever; opt-in on Anniversary, so an upgrade changes nothing
-	enabled = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE),
+	enabled = (SPCompat.FOREVER),
 	onReadyCheck = true,
 	onEnterInstance = false,
 	checkShield = true,

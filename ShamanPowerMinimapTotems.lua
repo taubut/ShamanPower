@@ -11,7 +11,7 @@ if not (C_Minimap and C_Minimap.GetViewRadius) then
 end
 SP.MinimapTotemsAvailable = true
 local secret = issecretvalue or function() return false end
-local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+local mainline = SPCompat.FOREVER
 local pins, classicDrops, blockedDrops, blocked = {}, {}, {}, {}
 SP.minimapTotemPins = pins   -- read by the ShamanPower Minimal flat boxes (ShamanPowerThemeBoxes.lua)
 for element = 1, 4 do classicDrops[element] = {} end

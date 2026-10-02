@@ -10,7 +10,7 @@ if not SP then return end
 
 local function HasGrid() return SP.SetGridStyle ~= nil end
 local function HasBlizzardBar()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and SP.HasTotemBar and SP:HasTotemBar() and SP.RefreshBlizzardTotemBar ~= nil
+	return SPCompat.FOREVER and SP.HasTotemBar and SP:HasTotemBar() and SP.RefreshBlizzardTotemBar ~= nil
 end
 
 -- key    stable id used by the tour, the dropdown and the what's-new card

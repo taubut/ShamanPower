@@ -39,7 +39,7 @@ local DEFAULT_FEAR_CASTERS = {
     ["Golemagg the Incinerator"] = true,
 }
 
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+if not SPCompat.FOREVER then
     local tbcFearCasters = {
         -- TBC Dungeons
         ["Nexus Terror"] = true,
@@ -96,7 +96,7 @@ if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
 end
 
 -- Vanilla fear/charm/sleep casters; keep these defaults off the Anniversary path.
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLINE
+if SPCompat.FOREVER then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLINE
     local foreverFearCasters = {
         -- Wailing Caverns
         ["Boahn"] = true,
@@ -334,7 +334,7 @@ end
 local function IsTremorTotemActive()
     -- On Forever the Earth slot may be secret; the core resolver falls back
     -- to the addon's own-cast shadow model instead of treating it as empty.
-    if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+    if SPCompat.FOREVER then
         local haveTotem, totemName = ShamanPower:GetElementTotemInfo(1)
         if issecretvalue(haveTotem) or issecretvalue(totemName) then return false end
         return haveTotem and type(totemName) == "string" and totemName:find("Tremor", 1, true) ~= nil
@@ -785,11 +785,11 @@ function SP:TremorDemo(on)
         -- appearance path so Display Mode / size / glow all show correctly.
         local SCENE = {
             { show = true, secs = 4.0, story = "You target |cffff8080"
-                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Scarlet Monk" or "Coilfang Siren")
+                .. (SPCompat.FOREVER and "Scarlet Monk" or "Coilfang Siren")
                 .. "|r - a known fear-caster. Get Tremor down." },
             { show = false, secs = 2.0, story = "Tremor Totem is down - reminder hidden.", tremor = true },
             { show = true, secs = 3.5, story = "New target: |cffff8080"
-                .. (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and "Thuzadin Shadowcaster" or "Sethekk Prophet")
+                .. (SPCompat.FOREVER and "Thuzadin Shadowcaster" or "Sethekk Prophet")
                 .. "|r. Tremor has expired - reminder is back." },
             { show = false, secs = 2.0, story = "You target a harmless mob - nothing to remind you about." },
         }

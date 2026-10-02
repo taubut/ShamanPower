@@ -19,7 +19,7 @@ local SP = ShamanPower
 if not SP then return end
 if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 
-local FOREVER = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local FOREVER = (SPCompat.FOREVER)
 local GetCD = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
 local secret = issecretvalue or function() return false end
 

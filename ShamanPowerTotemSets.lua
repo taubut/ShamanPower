@@ -48,7 +48,7 @@ end
 
 -- The client API the sets need. All three are Wrath-era globals.
 local function haveAPI()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	return SPCompat.FOREVER
 		and type(SetMultiCastSpell) == "function" and type(GetMultiCastTotemSpells) == "function"
 		and C_ActionBar and type(C_ActionBar.GetMultiCastBarIndex) == "function"
 end

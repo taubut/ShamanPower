@@ -34,7 +34,7 @@ local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local GetRaidRosterInfo = (SPCompat and SPCompat.GetRaidRosterInfo) or GetRaidRosterInfo
 local SP = ShamanPower
 if not SP then return end
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then return end
+if not SPCompat.FOREVER then return end
 
 local RESIST_INDEX = 6   -- the resistance totem's index in its element's table
 local ELEMENT_NAMES = { "Earth", "Fire", "Water", "Air" }

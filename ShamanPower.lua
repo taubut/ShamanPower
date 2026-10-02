@@ -42,7 +42,7 @@ local SP_SOUNDS = {
 	["Quest Failed"]          = { [[Sound\Interface\igQuestFailed.ogg]],        567459 },
 	["Level Up"]              = { [[Sound\Interface\LevelUp.ogg]],              567431 },
 }
-local SP_SOUND_BY_ID = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local SP_SOUND_BY_ID = (SPCompat.FOREVER)
 for name, entry in pairs(SP_SOUNDS) do
 	LSM3.MediaTable.sound[name] = SP_SOUND_BY_ID and entry[2] or entry[1]
 end
@@ -96,7 +96,7 @@ local SP_SECURE_ONLEAVE_PARENT_MAINLINE = [[
 	parent:ChildUpdate("show", false)
 ]]
 
-local SP_SECURE_ONLEAVE_PARENT = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local SP_SECURE_ONLEAVE_PARENT = (SPCompat.FOREVER)
 	and SP_SECURE_ONLEAVE_PARENT_MAINLINE or SP_SECURE_ONLEAVE_PARENT_CLASSIC
 
 -- Every secure snippet write goes through here.
@@ -231,7 +231,7 @@ ShamanPower.FlyoutArrowArt = { texture = ARROW_TEXTURE, w = ARROW_W, h = ARROW_H
 -- element's colour, instead of a spell icon that reads as a real totem. It is a
 -- texture laid over the icon, so it can change mid-fight. Forever only: the
 -- Classic line keeps the look it shipped with.
-local EMPTY_SLOT_ART = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local EMPTY_SLOT_ART = (SPCompat.FOREVER)
 
 function ShamanPower:ShowEmptySlotArt(element, empty)
 	if not EMPTY_SLOT_ART then return end
@@ -283,7 +283,7 @@ local spFlyoutCombatLayout = false
 function ShamanPower:BlizzardStyleFlyouts()
 	if self._blizzardArrows == nil then
 		if not self.opt then return false end   -- too early to know: not cached
-		self._blizzardArrows = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self.opt.flyoutBlizzardArrows == true) and true or false
+		self._blizzardArrows = (SPCompat.FOREVER and self.opt.flyoutBlizzardArrows == true) and true or false
 	end
 	return self._blizzardArrows
 end
@@ -1092,7 +1092,7 @@ function ShamanPower:RestoreTotemBarPosition()
 	if not d.defaultSpotChecked then
 		d.defaultSpotChecked = true
 		local o = self.opt
-		local upgrade = WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
+		local upgrade = not SPCompat.FOREVER and not o.setupPath and (o.setupDone or o.cooldownBarPosition)
 		local legacy = d.offsetX and d.offsetY and d.offsetX ~= 0 and d.offsetY ~= 0
 		if upgrade and not (d.position and d.position.anchor) and not legacy then
 			d.position = { anchor = "CENTER", x = 0, y = 0 }
@@ -1690,7 +1690,7 @@ function ShamanPower:RestrictCommand(args)
 			-- nil on Forever: Lua cannot read it there (the cvar may still exist), so the line to type
 			-- is printed anyway; the Classic line has no such cvars at all
 			local v = value(r.cvar)
-			if v == nil and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+			if v == nil and not SPCompat.FOREVER then
 				print("|cff0070ddShamanPower|r: " .. r.cvar .. " does not exist on this client.")
 				return
 			end
@@ -1801,13 +1801,13 @@ end
 function ShamanPower:WindfuryOnly()
 	-- WoW: Forever made Windfury Totem a party buff the shaman's own addon reads,
 	-- so the report (this mode's only job) is gone there
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return false end
+	if SPCompat.FOREVER then return false end
 	return self.opt and self.opt.windfuryOnly == true and select(2, UnitClass("player")) ~= "SHAMAN" or false
 end
 
 function ShamanPower:SetWindfuryOnly(on)
 	if select(2, UnitClass("player")) == "SHAMAN" then return end
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return end
+	if SPCompat.FOREVER then return end
 	self.opt.windfuryOnly = on and true or nil
 	ShamanPowerMinimapIcon_Toggle()
 	if self.UpdateSPRangeVisibility then self:UpdateSPRangeVisibility() end
@@ -1962,13 +1962,13 @@ ShamanPower.ElementToSlot = {
 -- goes through GetElementTotemInfo: it trusts the fixed slot until it sees a
 -- totem of another element sitting there, then resolves by totem name for the
 -- rest of the session.
-ShamanPower.dynamicTotemSlots = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+ShamanPower.dynamicTotemSlots = (SPCompat.FOREVER)
 
 -- WoW: Forever cannot twist: its Windfury Totem is a party aura (no weapon buff
 -- that outlasts the totem), and Windfury, Grace of Air and Tranquil Air no
 -- longer stack. Twisting is not offered there and stays off, whatever a profile
 -- saved. Anniversary keeps all of it.
-ShamanPower.NoTotemTwisting = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+ShamanPower.NoTotemTwisting = (SPCompat.FOREVER)
 -- 3.0 changed defaults: both bars run across (Horizontal), and no frame or
 -- border is drawn behind the totem bar, the cooldown bar, the caller buttons,
 -- the Earth Shield tracker or the range tracker. A profile saved before keeps
@@ -2214,7 +2214,7 @@ local SHADOW_REDROP_WINDOW = 0.25
 -- where the shadow model is consulted. The one stamp of your own dismissals:
 -- modules that need it read ShamanPower._totemDismissedAt rather than hooking again.
 ShamanPower._totemDismissedAt = {}     -- [slot] = GetTime()
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+if SPCompat.FOREVER and type(DestroyTotem) == "function" and hooksecurefunc then
 	hooksecurefunc("DestroyTotem", function(slot)
 		if issecretvalue and issecretvalue(slot) then return end
 		slot = tonumber(slot)
@@ -2235,7 +2235,7 @@ end
 -- range. UnitPosition stays readable in combat in the open world; where it
 -- doesn't (instances), the range check keeps what it last knew.
 -- ----------------------------------------------------------------------------
-local TRACK_TOTEM_DROPS = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local TRACK_TOTEM_DROPS = (SPCompat.FOREVER)
 local TOTEM_AURA_RANGE = 30            -- yards: every buff totem's radius in the Forever 1.60.1 spell data
 ShamanPower.totemDropPos = {}          -- [element] = { x, y, map }
 ShamanPower.totemRangeLast = {}        -- [element] = last range answer while buffs were readable
@@ -3291,7 +3291,7 @@ end
 -- totem passive's period in the client's spell data (SpellEffect, periodic trigger).
 ShamanPower.PulsingTotems = {
 	-- Earth totems
-	["Tremor"] = { element = 1, interval = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
+	["Tremor"] = { element = 1, interval = (SPCompat.FOREVER) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
 	["Earthbind"] = { element = 1, interval = 3 },
 	["Stoneclaw"] = { element = 1, interval = 2 },   -- its taunt (Stoneclaw Totem Passive, every 2 s on both clients)
 	-- Fire totems
@@ -4302,7 +4302,7 @@ local COUNTDOWN_CVAR = "countdownForCooldowns"
 function ShamanPower:EngineCooldownsOn()
 	if self._engineCD == nil then
 		local on = false
-		if WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and C_Spell and C_Spell.GetSpellCooldownDuration then
+		if SPCompat.FOREVER and C_Spell and C_Spell.GetSpellCooldownDuration then
 			local ok, probe = pcall(CreateFrame, "Cooldown", nil, UIParent, "CooldownFrameTemplate")
 			if ok and probe then
 				on = probe.SetCooldownFromDurationObject ~= nil and probe.GetCountdownFontString ~= nil
@@ -5254,7 +5254,7 @@ local function PlayerKnowsTotem(spellID, totemName)
 	local spellName = GetSpellInfo(spellID)
 	-- An absent totem must not match an unrelated trainer spell by short name.
 	-- Only encrypted, allow-listed names may still use the spellbook fallback.
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and not spellName
+	if SPCompat.FOREVER and not spellName
 		and not (SPCompat and SPCompat.spellAllowList and SPCompat.spellAllowList[spellID]) then
 		return false
 	end
@@ -8214,7 +8214,7 @@ function ShamanPower:CreateTotemFlyout(element)
 		local flyoutKey = elementKey .. "_" .. totemIndex
 		local isEnabledInFlyout = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
 
-		if (isKnown and (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or spellName)) or isTalentTotem then
+		if (isKnown and (not SPCompat.FOREVER or spellName)) or isTalentTotem then
 			-- Create button as CHILD of totem button using SPFlyoutButtonTemplate
 			-- Parent is totemButton (parented to UIParent) for combat flyout support
 			-- Parent is the totem button: ChildUpdate needs it on the secure
@@ -8463,7 +8463,7 @@ function ShamanPower:CreateTotemFlyout(element)
 	-- Picking it clears the totem button's spell and Blizzard's slot through the
 	-- same secure helpers as an assign click, so it works in combat. WoW: Forever
 	-- only: it exists for Call of the Elements, and Anniversary has no totem sets.
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
+	if SPCompat.FOREVER and self.opt.flyoutShowEmpty ~= false and #flyout.allButtons > 0 then
 		local name = "ShamanPowerFlyout" .. element .. "Btn0"
 		local btn = CreateFrame("Button", name, buttonParent, "SPFlyoutButtonTemplate")
 		btn:SetParent(buttonParent)
@@ -9121,7 +9121,7 @@ end
 -- secure templates, never published as a global, so any check against it is
 -- always false and silently disables the whole feature.
 function ShamanPower:TotemDestroySupported()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function"
+	return SPCompat.FOREVER and type(DestroyTotem) == "function"
 end
 
 function ShamanPower:RightClickDestroysTotems()
@@ -9343,7 +9343,7 @@ end
 -- spells, and unit = player would force a self-cast): they get the same action
 -- on the other click instead, so neither click is ever dead.
 -- The Classic line keeps the flyout-only behaviour it shipped with.
-local CLICK_SWAP_SUPPORTED = (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local CLICK_SWAP_SUPPORTED = (SPCompat.FOREVER)
 
 function ShamanPower:ClicksSwapped()
 	return (CLICK_SWAP_SUPPORTED and self.opt and self.opt.swapFlyoutClickButtons) and true or false
@@ -9532,7 +9532,7 @@ end
 function ShamanPower:TotemExistsOnClient(element, totemIndex)
 	if not totemIndex or totemIndex == 0 then return true end
 	local id = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
-	if not id then return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE end
+	if not id then return not SPCompat.FOREVER end
 	return spSpellExists(id)
 end
 
@@ -9615,7 +9615,7 @@ local ELEMENT_PALETTES = {
 -- empty-slot totems), so its colours are the default there. Elsewhere the look
 -- ShamanPower always had.
 function ShamanPower:DefaultElementPalette()
-	return (WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and "blizzard" or "classic"
+	return (SPCompat.FOREVER) and "blizzard" or "classic"
 end
 
 function ShamanPower:ElementPaletteColor(element)
@@ -9856,7 +9856,7 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local haveTotem, totemName = self:GetElementTotemInfo(element)
 		if haveTotem and totemName then
 			-- Check if this is a weapon enchant totem (Windfury or Flametongue)
-			if element == 4 and totemName:find("Windfury") and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+			if element == 4 and totemName:find("Windfury") and not SPCompat.FOREVER then
 				-- Windfury Totem (Air) - applies weapon enchant, not a buff
 				-- (WoW: Forever: a party buff, read below like the others)
 				isWeaponEnchantTotem[element] = true
@@ -11236,7 +11236,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						local bt = bar:GetStatusBarTexture()
 						if bt then bt:SetVertexColor(0.2, 0.8, 0.2, 0.9) end
 						-- General > Themes (cd.engine, WoW: Forever): the theme's green, set here when built
-						if bt and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+						if bt and SPCompat.FOREVER then
 							local er, eg, eb = ShamanPower:ThemeColor("cd.engine", "bar")
 							if er then bt:SetVertexColor(er, eg, eb, 0.9) end
 						end
@@ -11940,7 +11940,7 @@ function ShamanPower:UpdateCooldownButtons()
 			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) end   -- "Weapon Imbue Gone" effect
 			local buttonHeight = btn:GetHeight()
 			local buttonWidth = btn:GetWidth()
-			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
+			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and SPCompat.FOREVER) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
 			imbueCtx.buttonWidth, imbueCtx.buttonHeight = buttonWidth, buttonHeight
 			imbueCtx.barHeight, imbueCtx.barPosition = barHeight, barPosition
 			imbueCtx.isVerticalBar, imbueCtx.showSweep = isVerticalBar, showSweep
@@ -12011,7 +12011,7 @@ function ShamanPower:UpdateCooldownButtons()
 				-- the texture keeps whatever was set at creation, so a shaman
 				-- who has only Rockbiter sees a greyed Windfury icon.
 				local restIdx
-				if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+				if SPCompat.FOREVER then
 					-- Name-based spellbook checks allocate modern API result tables.
 					-- Keep the resting choice (including nil) until spells or preference change.
 					local generation = self._imbueSpellGeneration or 0
@@ -12718,7 +12718,7 @@ end
 -- Swiftness, Shamanistic Rage ...): aura reads go secret in combat, own casts
 -- never do. A cast stamps the start; the length is learned while readable.
 ShamanPower.shadowBuffs = {}   -- [spellName] = { start, duration }
-local cachePlayerBuffs = _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE
+local cachePlayerBuffs = SPCompat.FOREVER
 local buffIsSecret = _G.issecretvalue or function() return false end
 
 -- Opacity watches share the shadow entries, but only public aura observations
@@ -15422,21 +15422,23 @@ end
 -- its removal), is read. Anything unclear reads, as before (see
 -- PlayerShieldMayHaveChanged). Not on WoW: Forever.
 function ShamanPower:TrackedEarthShieldMayHaveChanged(info, esSpellName)
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
-	if type(info) ~= "table" or info.isFullUpdate then return true end
+	if SPCompat.FOREVER then return true end
+	if not SPCompat.AuraInfoReadable(info) or info.isFullUpdate then return true end
 	local added = info.addedAuras
 	if added then
 		for i = 1, #added do
 			local a = added[i]
-			if a and a.name == esSpellName then return true end
+			if issecretvalue(a) then return true end
+			local name = a and a.name
+			if issecretvalue(name) or name == esSpellName then return true end
 		end
 	end
 	local id = self.esTrackedAuraGUID == self.esTrackedTargetGUID and self.esTrackedAuraInstanceID or nil
 	if not id then return true end
 	local upd = info.updatedAuraInstanceIDs
-	if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+	if upd then for i = 1, #upd do local v = upd[i] if issecretvalue(v) or v == id then return true end end end
 	local rem = info.removedAuraInstanceIDs
-	if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+	if rem then for i = 1, #rem do local v = rem[i] if issecretvalue(v) or v == id then return true end end end
 	return false
 end
 
@@ -15463,7 +15465,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit, info)
 			found = true
 			-- TBC Anniversary: its instance, for TrackedEarthShieldMayHaveChanged
 			self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = nil, nil
-			if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+			if not SPCompat.FOREVER and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
 				local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, i)
 				if ok and type(a) == "table" and a.name == name then
 					self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = a.auraInstanceID, self.esTrackedTargetGUID
@@ -16248,7 +16250,7 @@ function ShamanPower:PerformCycle(name, class, skipzero)
 		end
 		if class < 1 or class > 4 or self:TotemExistsOnClient(class, cur) then break end
 	end
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and maxTotems == 0 then cur = 0 end
+	if SPCompat.FOREVER and maxTotems == 0 then cur = 0 end
 	ShamanPower_Assignments[name][class] = cur
 	if name == self.player and class >= 1 and class <= 4 then
 		-- Also update the mini totem bar
@@ -16276,7 +16278,7 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 	end
 	-- Get max totems for this element
 	local maxTotems = self:GetTotemIndexLimit(class)
-	local sparse = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and class >= 1 and class <= 4
+	local sparse = SPCompat.FOREVER and class >= 1 and class <= 4
 	if sparse then
 		cur = ShamanPower_Assignments[name][class] or 0
 		-- The loop decrements first; begin above the last valid index when
@@ -16425,7 +16427,7 @@ end
 
 function ShamanPower:ScanSpells()
 	--self:Debug("[ScanSpells]")
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		self._imbueSpellGeneration = (self._imbueSpellGeneration or 0) + 1
 	end
 	self:InvalidateElementLearned()
@@ -17175,14 +17177,16 @@ end
 -- unclear (a full update, no list, a shield whose instance is not known) reads
 -- again, as before. Not on WoW: Forever, which keeps its own path.
 function ShamanPower:PlayerShieldMayHaveChanged(info)
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then return true end
+	if SPCompat.FOREVER then return true end
 	local c = self.shieldCache
-	if not c or type(info) ~= "table" or info.isFullUpdate then return true end
+	if not c or not SPCompat.AuraInfoReadable(info) or info.isFullUpdate then return true end
 	local added = info.addedAuras
 	if added then
 		for i = 1, #added do
 			local a = added[i]
+			if issecretvalue(a) then return true end
 			local name = a and a.name
+			if issecretvalue(name) then return true end
 			for j = 1, #self.ShieldSpells do
 				if name == self.ShieldSpells[j][2] then return true end
 			end
@@ -17191,9 +17195,9 @@ function ShamanPower:PlayerShieldMayHaveChanged(info)
 	local id = c.auraInstanceID
 	if id then
 		local upd = info.updatedAuraInstanceIDs
-		if upd then for i = 1, #upd do if upd[i] == id then return true end end end
+		if upd then for i = 1, #upd do local v = upd[i] if issecretvalue(v) or v == id then return true end end end
 		local rem = info.removedAuraInstanceIDs
-		if rem then for i = 1, #rem do if rem[i] == id then return true end end end
+		if rem then for i = 1, #rem do local v = rem[i] if issecretvalue(v) or v == id then return true end end end
 	elseif c.hasShield then
 		return true
 	end
@@ -17326,7 +17330,7 @@ function ShamanPower:ScanPlayerShield()
 	-- TBC Anniversary: the shield's instance, so a later change can be told apart
 	-- (PlayerShieldMayHaveChanged). One more read, only when a shield was found.
 	local instanceID
-	if hasShield and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
+	if hasShield and not SPCompat.FOREVER and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
 		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, "player", shieldBuffIndex)
 		if ok and type(a) == "table" and a.name == shieldName then instanceID = a.auraInstanceID end
 	end
@@ -17645,7 +17649,7 @@ end
 -- wire format is unchanged. Readers accept both forms.
 function ShamanPower:EncodeESAssign(shaman, target)
 	target = target or "NONE"
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and (strfind(shaman, " ", 1, true) or strfind(target, " ", 1, true)) then
+	if SPCompat.FOREVER and (strfind(shaman, " ", 1, true) or strfind(target, " ", 1, true)) then
 		return "ESASSIGN|" .. shaman .. "|" .. target
 	end
 	return "ESASSIGN " .. shaman .. " " .. target
@@ -17749,7 +17753,7 @@ end
 -- else is keyed by (assignments, Windfury reports, raid calls), so Forever always
 -- uses the name alone. Classic keeps the realm when it is not ours: two players
 -- on different realms can share a name there.
-local REGION_UNIQUE_NAMES = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+local REGION_UNIQUE_NAMES = (SPCompat.FOREVER)
 function ShamanPower:RemoveRealmName(unitID)
 	if type(unitID) ~= "string" then return unitID end
 	-- only the hyphen separates the realm: a WoW: Forever name may contain a space
@@ -18212,7 +18216,7 @@ do
 	end
 
 	function ShamanPower:AutoAssignTotems()
-		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local forever = SPCompat.FOREVER
 		local composition = self:AnalyzeGroupComposition()
 		local names, groups, controllable, assigned = {}, {}, {}, {}
 		local fallbackGroup
@@ -18286,7 +18290,7 @@ do
 	function ShamanPower:AnalyzeGroupComposition()
 		local composition = {}
 		for group = 1, 8 do composition[group] = Composition() end
-		local forever = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local forever = SPCompat.FOREVER
 		local knows = IsPlayerSpell or IsSpellKnown
 		-- Stormstrike is already catalogued in Ready Reminders (17364). This is
 		-- local spellbook knowledge, never an aura/spec read from another shaman.
@@ -21023,7 +21027,7 @@ function ShamanPower:ThemeRepaintCore()
 		self:ThemeRepaintSoon("core.flyouttabs", self._themeTabsFn)
 	end
 	-- WoW: Forever: the game-drawn shield count / bar take their colours when built
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and self._themeShieldFn then
+	if SPCompat.FOREVER and self._themeShieldFn then
 		s = 0
 		local r, g, b = self:ThemeColor("cd.engine", "bar")
 		if r then s = s + r * 3 + g * 5 + b * 7 end

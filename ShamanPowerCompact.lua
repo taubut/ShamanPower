@@ -620,7 +620,7 @@ SHIELD_COLORS[324].spRole, SHIELD_COLORS[24398].spRole, SHIELD_COLORS[408510].sp
 -- aura events, so keep these spellbook answers separately from its aura state.
 local compactShieldNames
 local compactShieldGeneration = 0
-if _G.WOW_PROJECT_ID ~= nil and _G.WOW_PROJECT_ID == _G.WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	compactShieldNames = {}
 	local function RefreshCompactShieldNames()
 		for id in pairs(compactShieldNames) do compactShieldNames[id] = nil end

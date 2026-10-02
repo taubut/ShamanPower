@@ -149,7 +149,7 @@ local function items()
 			if not SP.spRangeFrame then SP:CreateSPRangeFrame() end
 			SP:ShowSPRangeConfig()
 		end })
-		if SP.SetWindfuryOnly and WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE then
+		if SP.SetWindfuryOnly and not SPCompat.FOREVER then
 			add({ text = "Windfury-Only Mode", checked = SP:WindfuryOnly(), fn = function() SP:SetWindfuryOnly(not SP:WindfuryOnly()) end })
 		end
 	end

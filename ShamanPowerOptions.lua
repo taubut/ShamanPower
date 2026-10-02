@@ -74,7 +74,7 @@ local loadoutElementNames = {
 -- Loadout totem pickers: a totem this character has not learned yet is marked, since the
 -- game will not drop it (and Blizzard's totem bar will not hold it) until it is
 local function GetTotemValues(element)
-	local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local mainline = SPCompat.FOREVER
 	return function()
 		local values = { [0] = "None" }
 		for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
@@ -89,7 +89,7 @@ end
 
 -- Build sorted key list for totem dropdown
 local function GetTotemSorting(element)
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+	if SPCompat.FOREVER then
 		return function()
 			local sorting = { 0 }
 			for idx in pairs(ShamanPower.TotemNames[element] or {}) do
@@ -454,7 +454,7 @@ function ShamanPower:OpenIconPicker(loadoutIndex, callback)
 end
 
 local function HasLoadoutSetControls()
-	return WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()
+	return SPCompat.FOREVER and ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()
 end
 
 -- the Set Page picker and Send to Set Now only show once Call of the Ancestors or
@@ -905,7 +905,7 @@ local function SCBarOn()
 	return s and s.showChargeBar and true or false
 end
 -- Earth Shield exists on Anniversary only (never on WoW: Forever)
-local function SCShields() return (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and 2 or 3 end
+local function SCShields() return (SPCompat.FOREVER) and 2 or 3 end
 local function SCAnyLook(look)
 	if not SCBarOn() then return false end
 	for w = 1, SCShields() do if SCLook(w) == look then return true end end
@@ -1462,7 +1462,7 @@ ShamanPower.options = {
 								for _, i in ipairs({2, 3, 4, 6}) do
 									local id = ShamanPower.AirTotems[i]   -- nil where this client lacks the totem (pruned tables)
 									local name = id and GetSpellInfo(id)
-									if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+									if SPCompat.FOREVER then
 										if not (SPCompat and SPCompat.SpellExists) or SPCompat.SpellExists(id) then
 											vals[i] = name or ShamanPower.TotemNames[4][i]
 										end
@@ -2688,7 +2688,7 @@ ShamanPower.options = {
 							desc = "Swap mouse buttons on totem flyout menus: Left-click assigns totem, Right-click casts (default is Left=cast, Right=assign)",
 							-- Mainline clients get the full swap in Appearance instead (same saved setting)
 							hidden = function(info)
-								return (ShamanPower.ApplyClickSwap and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE) and true or false
+								return (ShamanPower.ApplyClickSwap and SPCompat.FOREVER) and true or false
 							end,
 							width = "full",
 							disabled = function(info)
@@ -2870,7 +2870,7 @@ ShamanPower.options = {
 							desc = "Flips the mouse on ShamanPower's buttons, so right-click is the main action everywhere.\n\nTotem buttons: right-click drops the totem, left-click does the other action (pull it back or Totemic Call, shift for the shifted one).\nTotem flyouts: right-click casts, left-click assigns.\nShield flyout: right-click casts and sets the default, left-click only sets it.\nWeapon imbues: right-click is the main hand, left-click the off hand.\nDrop All: right-click drops, left-click recalls.\n\nCooldown buttons with a single action work with either click. Your keybinds keep doing what they did.",
 							width = "full",
 							hidden = function(info)
-								return not (ShamanPower.ApplyClickSwap and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+								return not (ShamanPower.ApplyClickSwap and SPCompat.FOREVER)
 							end,
 							disabled = function(info)
 								return not isShaman
@@ -2909,7 +2909,7 @@ ShamanPower.options = {
 							width = "full",
 							-- WoW: Forever, where secure snippets work (without them the arrows are the only way)
 							hidden = function(info)
-								return WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE or not (SPCompat and SPCompat.SecureSnippetsWork and SPCompat.SecureSnippetsWork())
+								return not SPCompat.FOREVER or not (SPCompat and SPCompat.SecureSnippetsWork and SPCompat.SecureSnippetsWork())
 							end,
 							disabled = function(info)
 								return not isShaman or not ShamanPower.opt.showTotemFlyouts
@@ -2988,7 +2988,7 @@ ShamanPower.options = {
 							width = "full",
 							hidden = function(info)
 								-- Call of the Elements only (WoW: Forever); Anniversary has no totem sets
-								return not isShaman or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+								return not isShaman or not SPCompat.FOREVER
 							end,
 							disabled = function(info)
 								return not isShaman or not ShamanPower.opt.showTotemFlyouts
@@ -6078,7 +6078,7 @@ ShamanPower.options = {
 						engine_note = {
 							order = 0.04,
 							type = "description",
-							name = "|cffffa040On this client the alerts are drawn by the game engine straight from the debuffs, so they work in combat. What that changes: the alert shows the affected player's name, the debuff's icon and its time left instead of the debuff's name; the Fear alert fires for any crowd control (the client has no fear-only filter); the sound can only play out of combat.|r",
+							name = "|cffffa040On this client the alerts are drawn by the game engine straight from the debuffs, so they work in combat. What that changes: the alert shows the affected player's name, the debuff's icon and its time left instead of the debuff's name; the Fear alert is for you only, and only while you're feared, charmed or asleep (the game doesn't tell addons what kind of crowd control is on another player); the sound can only play out of combat.|r",
 							hidden = function() return not (SPCompat and SPCompat.secretsRegime) end,
 						},
 						instance_only_note = {
@@ -6950,7 +6950,7 @@ ShamanPower.options = {
 							order = 15,
 							name = "Play Sound",
 							desc = WithNotes("Play a sound when shield alerts appear.",
-								function() return WOW_PROJECT_ID ~= nil and WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end, "On this client the game itself plays this sound the moment your shield's last charge is used, in combat too - the one place the addon cannot see the shield fall. Out of combat you get the on-screen alert as well."),
+								function() return SPCompat.FOREVER end, "On this client the game itself plays this sound the moment your shield's last charge is used, in combat too - the one place the addon cannot see the shield fall. Out of combat you get the on-screen alert as well."),
 							type = "toggle",
 							width = 1.0,
 							get = function(info)
@@ -7543,7 +7543,7 @@ ShamanPower.options = {
 							order = 3,
 							name = "Use Default Mob List",
 							desc = function()
-								if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+								if SPCompat.FOREVER then
 									return "Include the built-in list of fear-casting dungeon and raid mobs"
 								end
 								return "Include the built-in list of TBC fear-casting mobs"
@@ -8288,7 +8288,7 @@ ShamanPower.options = {
 							name = "Show Totem Cooldowns",
 							desc = function()
 								local elementals = ", Elementals"
-								if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+								if SPCompat.FOREVER
 									and SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(2894) then
 									elementals = ""
 								end
@@ -10442,7 +10442,7 @@ do
 		order = 1.5, type = "select", name = "Totem Bar Style", width = 1.5,
 		desc = function()
 			local d = "Which bar you play with: one of the four looks of ShamanPower's bar, every totem laid out in a grid"
-			if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then d = d .. ", or Blizzard's own totem bar with ShamanPower's timers, bars and dots on its slots" end
+			if SPCompat.FOREVER then d = d .. ", or Blizzard's own totem bar with ShamanPower's timers, bars and dots on its slots" end
 			return d .. ". Hover a style to see it in the live preview (the arrow tab on the right)."
 				.. " Totem Bar > Style has each style's settings. Change out of combat."
 		end,
@@ -10727,7 +10727,7 @@ do
 		order = 0.5, type = "toggle", name = "Windfury-Only Mode", width = "full",
 		desc = "Turns off every window, bar, icon and nameplate ShamanPower has on this character. It keeps quietly telling your group's shamans whether your weapon has Windfury, so their ShamanPower can show it.",
 		-- WoW: Forever: Windfury is a party buff there, so the report is gone
-		hidden = function() return isShaman or WOW_PROJECT_ID == WOW_PROJECT_MAINLINE end,
+		hidden = function() return isShaman or SPCompat.FOREVER end,
 		get = function() return SP.opt.windfuryOnly == true end,
 		set = function(_, v) SP:SetWindfuryOnly(v) end,
 	}
@@ -11194,7 +11194,7 @@ do
 			get = function() return SP.opt[key] == true end,
 			set = function(_, v) SP.opt[key] = v and true or nil; lookChanged() end }
 	end
-	local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+	local mainline = SPCompat.FOREVER
 	-- Each bar's effects sit with the bar they animate (Totem Bar > Effects,
 	-- Cooldown Bar > Effects): a player who sees a button shake looks there.
 	SP.options.args.fluffy.args.totembar_effects_section = { type = "group", name = "Effects", order = 1.35, args = {

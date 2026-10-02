@@ -19,6 +19,19 @@
 -- where the rest of its fields are set; that second line is a harmless no-op.
 SPCompat = SPCompat or {}
 
+-- Which client: WoW: Forever, or the classic family (TBC Anniversary). Forever said
+-- WOW_PROJECT_MAINLINE (1) until its 2026-10-01 patch (build 70170) gave it an ID of
+-- its own (WOW_PROJECT_CAMELOT, 18), which sent every "on Forever" test down the
+-- Anniversary path (Forever defines only MAINLINE, CLASSIC and CAMELOT). Decided
+-- once, here, as "not a classic client", so a new number cannot do that again: every
+-- file tests SPCompat.FOREVER, never WOW_PROJECT_ID.
+do
+	local id = WOW_PROJECT_ID
+	SPCompat.FOREVER = id ~= nil and id ~= (WOW_PROJECT_CLASSIC or 2) and id ~= (WOW_PROJECT_BURNING_CRUSADE_CLASSIC or 5)
+		and id ~= (WOW_PROJECT_WRATH_CLASSIC or 11) and id ~= (WOW_PROJECT_CATACLYSM_CLASSIC or 14)
+		and id ~= (WOW_PROJECT_MISTS_CLASSIC or 19)
+end
+
 -- Last-resort stub. If anything below this line throws, the rest of the file
 -- never runs, and every caller that does SPCompat.SpellExists(id) would error
 -- on a hot path. Defining it up front means a broken compat layer degrades to
@@ -145,7 +158,7 @@ do
 	-- bar never saw the shield. ShamanPower's code reads through these instead; on
 	-- Anniversary they are the game's own functions, exactly as before.
 	local A = C_UnitAuras
-	if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and A and A.GetBuffDataByIndex and A.GetDebuffDataByIndex and A.GetAuraDataByIndex then
+	if SPCompat.FOREVER and A and A.GetBuffDataByIndex and A.GetDebuffDataByIndex and A.GetAuraDataByIndex then
 		SPCompat.UnitBuff = function(unit, index, filter) return auraToClassic(A.GetBuffDataByIndex(unit, index, filter)) end
 		SPCompat.UnitDebuff = function(unit, index, filter) return auraToClassic(A.GetDebuffDataByIndex(unit, index, filter)) end
 		SPCompat.UnitAura = function(unit, index, filter) return auraToClassic(A.GetAuraDataByIndex(unit, index, filter)) end
@@ -182,7 +195,7 @@ end
 -- earlier today, and there is no reason to repeat it.
 -- ---------------------------------------------------------------------------
 do
-	local useList = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
+	local useList = (SPCompat.FOREVER)
 		and C_Item and C_Item.GetWeaponEnchantInfo and Enum and Enum.WeaponSlot
 
 	-- The list read builds fresh tables for both hands on every call. The cooldown
@@ -386,7 +399,7 @@ SPCompat.BUILD = "2026-09-19a"   -- bump when the diag tooling changes so a past
 local UNOBTAINABLE = {}   -- has a name, but nothing can learn it
 local REAL_UNNAMED = {}   -- no readable name, but genuinely castable
 
-if WOW_PROJECT_ID == WOW_PROJECT_MAINLINE then
+if SPCompat.FOREVER then
 	-- Earth Shield: 974 has no SkillLineAbility row at all; 408514 has one but
 	-- AcquireMethod 3 with no TraitDefinition and no Talent row, i.e. granted by
 	-- nothing. (Water Shield 408510 is also AcquireMethod 3 but DOES have a
@@ -591,7 +604,7 @@ function SPCompat.SecureSnippetsWork()
 	-- Mainline family: the marker must be set too. With an error display that
 	-- keeps the error handler for itself, a failed compile never reaches our
 	-- recording handler. Anniversary keeps its old verdict, unmeasured there.
-	local markerOk = SPCompat.snippetProbeMarked or WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE
+	local markerOk = SPCompat.snippetProbeMarked or not SPCompat.FOREVER
 	snippetsWork = (ok and not failed and markerOk) and true or false
 	snippetProbeErr = (not snippetsWork) and (firstErr or "probe call refused") or nil
 	return snippetsWork
@@ -634,6 +647,16 @@ function SPCompat.GetRaidRosterInfo(index)
 end
 if not issecretvalue then
 	function issecretvalue() return false end
+end
+
+-- Can this UNIT_AURA payload be read? Since WoW: Forever build 70170 (2026-10-01) its
+-- fields can be secret in combat (isFullUpdate a secret boolean, the instance lists
+-- secret tables), and testing one is a Lua error. false = treat it as a full update
+-- (read the auras again), as a missing payload always was.
+function SPCompat.AuraInfoReadable(info)
+	if type(info) ~= "table" or issecretvalue(info) then return false end
+	return not (issecretvalue(info.isFullUpdate) or issecretvalue(info.addedAuras)
+		or issecretvalue(info.updatedAuraInstanceIDs) or issecretvalue(info.removedAuraInstanceIDs))
 end
 
 -- Probe helpers as globals so they survive /reload (the beta checklist and
@@ -2170,7 +2193,7 @@ SlashCmdList["SPDIAG"] = function(msg)
 			cvar("addonCombatRestrictionsForced"), cvar("addonEncounterRestrictionsForced"), cvar("addonChatRestrictionsForced"))
 	end
 	if C_Secrets and C_Secrets.GetSpellAuraSecrecy then
-		local mainline = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
+		local mainline = SPCompat.FOREVER
 		local ids = { 324, mainline and 408510 or 24398, mainline and 408514 or 974,
 			8512, 8143, 3599, 2484, 5675, 8075, 20608, 2825, 16190 }
 		local parts = {}

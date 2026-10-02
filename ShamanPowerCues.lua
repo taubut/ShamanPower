@@ -53,7 +53,7 @@ local function isSecret(v) return issecretvalue and issecretvalue(v) or false en
 -- Anniversary: the core stamps your own right-click dismissals on the Mainline
 -- family only (its in-combat record needs them there); the cues need them on
 -- every client, or a dismissed totem would read as destroyed.
-if WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE and type(DestroyTotem) == "function" and hooksecurefunc then
+if not SPCompat.FOREVER and type(DestroyTotem) == "function" and hooksecurefunc then
 	hooksecurefunc("DestroyTotem", function(slot)
 		slot = tonumber(slot)
 		if slot and SP._totemDismissedAt then SP._totemDismissedAt[slot] = GetTime() end

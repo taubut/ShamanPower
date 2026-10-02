@@ -1,5 +1,15 @@
 # ShamanPower Changelog
 
+## v3.0.5.1 (2026-10-02)
+
+### Fixes
+- **WoW: Forever, after the October 1 patch:** ShamanPower thought it was running on TBC Anniversary. Forever's own options (Right-Click to Destroy Totems, Raid Resistance and more) went missing, Totem Twisting options showed up, and settings could look reset. Everything is back, and a future change to how the game names itself won't do this again.
+- **WoW: Forever:** no more Lua errors in combat from the shield check and the Earth Shield Tracker ("attempt to perform boolean test on field 'isFullUpdate'").
+- **WoW: Forever, Reactive Totems:** the Tremor Totem alert shows only while you're feared, charmed or asleep. Roots, Frost Nova, stuns and other debuffs no longer set it off. It's for you only now: the game doesn't tell addons what kind of crowd control is on someone else, so a party member's root would have looked like a fear.
+
+### Changes
+- **Get Help: Copy Support Code** also says whether ShamanPower and each of its modules loaded (and why not), when your settings were last saved, BugSack's ShamanPower errors and anything the game blocked, so #help can answer without asking you to type commands.
+
 ## v3.0.5 (2026-09-30)
 
 ### New
