@@ -187,7 +187,7 @@ local function HudText(parent, area, size, flags)
 	else
 		fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, flags or "OUTLINE")
 	end
-	if not fs:GetFont() then fs:SetFont("Fonts\\FRIZQT__.TTF", size, flags or "OUTLINE") end
+	if not fs:GetFont() then fs:SetFont(SP:ResolveLocaleFontPath("Fonts\\FRIZQT__.TTF"), size, flags or "OUTLINE") end
 	return fs
 end
 
@@ -479,18 +479,21 @@ local function EmptySlot(s, spot, colorSpot, e, file)
 	end
 end
 
--- a cooldown sweep: the grey sweep from the top, or (ShamanPower Minimal) a
--- dark band on the box
+-- A cooldown sweep in its selected direction; Minimal uses a dark band.
 local function PaintSweep(t, s, spot)
 	t:ClearAllPoints()
+	local totem = spot == "tb.sweep"
+	local style = totem and (SP.opt.totemCooldownSweep or "radial") or (SP.opt.cdbarSweepStyle or "greys")
+	local direction = SP.opt.cdbarSweepDirection
+	if totem then direction = SP.opt.totemCooldownSweepDirection end
+	local fromTop = SP:SweepGrayFromTop(style, direction)
+	local edge = fromTop and "TOP" or "BOTTOM"
+	t:SetPoint(edge .. "LEFT", s, edge .. "LEFT", 0, 0)
+	t:SetPoint(edge .. "RIGHT", s, edge .. "RIGHT", 0, 0)
 	if SP:ThemeSpotTheme(spot) == "minimal" then
-		t:SetPoint("BOTTOMLEFT", s, "BOTTOMLEFT", 0, 0)
-		t:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", 0, 0)
 		t:SetHeight(floor(s.size * 0.4))
 		t:SetColorTexture(0, 0, 0, 0.5)
 	else
-		t:SetPoint("TOPLEFT", s, "TOPLEFT", 0, 0)
-		t:SetPoint("TOPRIGHT", s, "TOPRIGHT", 0, 0)
 		t:SetHeight(floor(s.size * 0.45))
 		t:SetColorTexture(0, 0, 0, 0.6)
 	end
@@ -1247,7 +1250,8 @@ local BLOCKS = {
 	resetEverything = { label = "Reset Everything", caption = "Reset Everything",
 		desc = "Reset every setting on this page to its default. Includes Reset All Colors and Theme, plus:"
 			.. " Bar Texture and Shield Charge Bars, Dot Shape, Gem Dot Finish, Glow Shape, Frame Edge, each bar's Icon Shape,"
-			.. " Keep Borders Square, all three gradients, Duration Bar Background and each shield's charge look."
+			.. " Keep Borders Square, all three gradients, Duration Bar Background, each shield's charge look and"
+			.. " Sweep Direction on the bars, Ready Reminders and Target Tracker, plus Target Tracker's Look When Missing and Icon Edge."
 			.. " It asks first, then reloads your interface." },
 }
 
@@ -2418,6 +2422,20 @@ SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient
 		})
 		return y + bh + 10
 	end }
+-- Target Tracker's two looks: the same settings as each spell's right-click menu > Look on
+-- Target Tracker (Look When Missing on the three shocks, Icon Edge on all four spells); the
+-- cards are drawn by Target Tracker itself, so each shows exactly what the spell looks like
+local TT_SHOCKS, TT_ALL = { "fs", "frs", "ss" }, { "fs", "frs", "ss", "purge" }
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "ttmiss", tt = "miss", label = "Target Tracker Look When Missing",
+	note = "How the gray warning looks while your shock isn't on your target: Flame Shock, Frost Shock and Stormstrike. Also on Target Tracker (right-click a spell > Look).",
+	shown = function() return SP.TT_MISS_LOOKS ~= nil end, list = function() return SP.TT_MISS_LOOKS end,
+	get = function() return SP.TT_Get and SP:TT_Get("fs", "missLook") or "edge" end,
+	set = function(k) for _, key in ipairs(TT_SHOCKS) do SP:TT_Set(key, "missLook", k) end end }
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "ttedge", tt = "edge", label = "Target Tracker Icon Edge",
+	note = "The edge around each spell's icon: Flame Shock, Frost Shock, Stormstrike and Purge. Spell Color: each spell's own color. Also on Target Tracker (right-click a spell > Look).",
+	shown = function() return SP.TT_ICON_EDGES ~= nil end, list = function() return SP.TT_ICON_EDGES end,
+	get = function() return SP.TT_Get and SP:TT_Get("fs", "border") or "thin" end,
+	set = function(k) for _, key in ipairs(TT_ALL) do SP:TT_Set(key, "border", k) end end }
 local PREVIEW_H = 44
 local DOT_CLASSES = { "ROGUE", "WARRIOR", "PRIEST", "HUNTER" }
 
@@ -2427,7 +2445,10 @@ local function BuildShapePreview(c, row, s)
 	local p = CreateFrame("Frame", nil, c)
 	p:SetSize(120, PREVIEW_H)
 	c.preview = p
-	if row.key == "dot" then
+	if row.tt then
+		-- Target Tracker draws its own sample (its icon parts, with this look)
+		if SP.TT_LookSample then SP:TT_LookSample(p, row.tt, s.key) end
+	elseif row.key == "dot" then
 		local ic = p:CreateTexture(nil, "ARTWORK")
 		ic:SetSize(30, 30); ic:SetPoint("CENTER", p, "CENTER", 0, 0)
 		ic:SetTexture(I.soe); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -2757,6 +2778,8 @@ end
 -- would be unclear in the section.
 -- ---------------------------------------------------------------------------
 local SPOT_EXTRAS = {
+	["tb.sweep"] = { { "fluffy", "totembar_duration_section", "totem_cooldown_direction" } },
+	["cd.sweep"] = { { "fluffy", "cooldown_display_section", "cdbar_sweep_direction" } },
 	["tb.pulse"] = {
 		{ "fluffy", "totembar_duration_section", "pulse_bar_color" },
 		{ "fluffy", "totembar_duration_section", "pulse_flash_color" } },
@@ -3235,7 +3258,12 @@ local function SpotSearchParts(spot)
 	for _, path in ipairs(SPOT_EXTRAS[spot.id] or {}) do
 		if ColorRowShown(path) then
 			local o = OptionAt(path)
-			AddSearchText(parts, path.label or OptionValue(o.name, OptionInfo(path, o)))
+			local info = OptionInfo(path, o)
+			AddSearchText(parts, path.label or OptionValue(o.name, info))
+			AddSearchText(parts, OptionValue(o.desc, info))
+			if o.type == "select" then
+				for _, label in pairs(OptionValue(o.values, info) or {}) do AddSearchText(parts, label) end
+			end
 		end
 	end
 	return parts

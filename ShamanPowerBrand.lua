@@ -62,7 +62,8 @@
 --       :SetBuildTime(t)        draw the exact state at intro time t (clamped to
 --                               BUILD_START .. BUILD_END; nil = the end). Stops a
 --                               playback without calling its onDone.
---       :PlayBuild(onDone)      play BUILD_START -> BUILD_END in real time (1.66 s),
+--       :PlayBuild(onDone, speed)  play BUILD_START -> BUILD_END in real time (1.66 s;
+--                               speed 2 plays it twice as fast: Unlock UI's opening),
 --                               then hold the end state (the bars stop there) and
 --                               call onDone(frame) once. One OnUpdate while it
 --                               plays, removed when it ends. Calling it again
@@ -159,16 +160,11 @@ SP.Brand = {
 -- ---------------------------------------------------------------------------
 -- Fonts
 -- ---------------------------------------------------------------------------
--- Fira Sans has no Chinese or Korean letters: those clients keep the game's font
-local CLIENT_FONT_LOCALES = { zhCN = true, zhTW = true, koKR = true }
-local useClientFont = false
-if GetLocale and CLIENT_FONT_LOCALES[GetLocale()] then useClientFont = true end
-
 function SP:BrandFontPath(weight)
-	if useClientFont then return STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF" end
 	local fonts = self.Brand.fonts
-	if type(weight) == "string" then return fonts[weight:lower()] or fonts.regular end
-	return fonts.regular
+	local path = fonts.regular
+	if type(weight) == "string" then path = fonts[weight:lower()] or path end
+	return self:ResolveLocaleFontPath(path)
 end
 
 function SP:BrandFont(fs, weight, size, flags)
@@ -323,10 +319,11 @@ SP.BrandEaseBack = function(x, s) return EaseBack(x, s or 1.6) end
 SP.BrandEaseOut = EaseOut
 
 -- General > Main > UI Animations: the window motion (the settings window, Unlock UI,
--- Tuck Away, Keybind Mode) plays only while this is true; off = everything instant
+-- Tuck Away, Keybind Mode) plays only while this is true; off = everything instant.
+-- Off to start (the owner, 2026-10-04: lovely, but it must never overwhelm anyone).
 function SP:UIAnimationsOn()
 	local o = self.opt
-	return not (o and o.noUIAnimations)
+	return (o and o.uiAnimations == true) or false
 end
 
 local WHO_FLY = { "fly0", "fly1", "fly2" }
@@ -546,7 +543,7 @@ local function BuildFinish(f)
 end
 
 local function BuildOnUpdate(f, elapsed)
-	local t = f.spPlayT + elapsed
+	local t = f.spPlayT + elapsed * (f.spSpeed or 1)
 	if t >= BUILD_END then
 		BuildFinish(f)
 		return
@@ -555,9 +552,10 @@ local function BuildOnUpdate(f, elapsed)
 	DrawBuild(f, t)
 end
 
-local function BuildPlay(f, onDone)
+local function BuildPlay(f, onDone, speed)
 	StopPlaying(f)
 	f.spOnDone = onDone
+	f.spSpeed = (type(speed) == "number" and speed > 0) and speed or 1
 	f.spPlayT = BUILD_START
 	f.spPlaying = true
 	DrawBuild(f, BUILD_START)

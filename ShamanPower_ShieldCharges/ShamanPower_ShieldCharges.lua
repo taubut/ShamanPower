@@ -1056,6 +1056,22 @@ local shield = { known = false, id = nil, has = false, charges = 0, water = fals
 -- in combat the game hides auras' contents (secret values): nothing hidden is
 -- ever tested, only "read again once it can be read"
 local secret = issecretvalue or function() return false end
+local LS_IDS, WS_IDS = { 324 }, { 24398, 33736, 408510, 408511, 409941, 52127 }
+for _, set in ipairs(SP.ShieldAuraSets or {}) do
+	if set.name == "Lightning Shield" then LS_IDS = set.ids elseif set.name == "Water Shield" then WS_IDS = set.ids end
+end
+local function FindShieldAura(ids)
+	local name = SPCompat.AuraFamilyName(ids)
+	if name then return GetAuraByName("player", name, "HELPFUL") end
+	-- A client with no readable family name can still answer a known rank ID.
+	local byID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+	if not byID then return nil end
+	for _, id in ipairs(ids) do
+		local a = byID(id)
+		if secret(a) then return a end
+		if a then return a end
+	end
+end
 if GetAuraByName then
 	local function has(list, id)   -- true when the list holds id, or can't be read
 		if secret(list) then return true end
@@ -1082,8 +1098,10 @@ if GetAuraByName then
 		if added then
 			for i = 1, #added do
 				local a = added[i]
-				local name = not secret(a) and a.name
-				if secret(a) or secret(name) or name == "Lightning Shield" or name == "Water Shield" then shield.known = false return end
+				if secret(a) then shield.known = false return end
+				local name, spellID = a.name, a.spellId
+				if secret(name) or secret(spellID) or SPCompat.AuraMatches(name, spellID, LS_IDS)
+					or SPCompat.AuraMatches(name, spellID, WS_IDS) then shield.known = false return end
 			end
 		end
 	end)
@@ -1145,13 +1163,13 @@ function SP:UpdateShieldChargeDisplays()
 				-- WoW: Forever: the shield by name, only when it changed (see above)
 				if not shield.known then
 					-- the two shields never stand together: whichever is up
-					local a = GetAuraByName("player", "Lightning Shield", "HELPFUL")
+					local a = FindShieldAura(LS_IDS)
 					local w = false
-					if not a then
-						a = GetAuraByName("player", "Water Shield", "HELPFUL")
-						w = a ~= nil
+					if not secret(a) and not a then
+						a = FindShieldAura(WS_IDS)
+						if not secret(a) then w = a ~= nil end
 					end
-					if a and (secret(a.applications) or secret(a.auraInstanceID)) then
+					if secret(a) or (a and (secret(a.applications) or secret(a.auraInstanceID))) then
 						-- hidden right now: keep what is shown, read again on the next update
 					else
 						if a then
@@ -1177,15 +1195,17 @@ function SP:UpdateShieldChargeDisplays()
 				if core.hasShield then
 					local n = core.rawCount
 					if n == nil then n = 3 end
-					charges, hasShield, water = n, true, core.shieldName == "Water Shield"
+					local id = core.shieldID
+					charges, hasShield, water = n, true, not secret(id) and type(id) == "number" and id ~= 324
 				end
 			elseif self.AuraCacheValid and self:AuraCacheValid("player", sc.gen, sc.at) then
 				charges, hasShield, water = sc.charges, sc.hasShield, sc.water
 			else
 			for i = 1, 40 do
 				local name, _, count, _, _, _, _, _, _, spellId = UnitBuff("player", i)
+				if secret(name) or secret(spellId) or secret(count) then break end
 				if not name then break end
-				if name:find("Lightning Shield") or name:find("Water Shield") then
+				if SPCompat.AuraMatches(name, spellId, LS_IDS) or SPCompat.AuraMatches(name, spellId, WS_IDS) then
 					charges = count or 0
 					-- If charges is 0 but we have the buff, it might be stored differently
 					if charges == 0 then
@@ -1194,7 +1214,7 @@ function SP:UpdateShieldChargeDisplays()
 						charges = c or 3  -- Default to 3 if we can't get count
 					end
 					hasShield = true
-					water = name:find("Water Shield") and true or false
+					water = SPCompat.AuraMatches(name, spellId, WS_IDS)
 					break
 				end
 			end

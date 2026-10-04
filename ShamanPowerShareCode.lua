@@ -184,6 +184,18 @@ SP.SHARE_FEATURES = {
 	-- 3.0.5: Ready Reminders "only while on cooldown" and Grid placement
 	{ key = "readyRemindersCooldownOnly", label = "Ready reminders: only while on cooldown", get = function() return sub(G("ShamanPower_ReadyReminders"), "mode") == "cooldown" end },
 	{ key = "readyRemindersGrid", label = "Ready reminders: grid placement",    get = function() return sub(G("ShamanPower_ReadyReminders"), "arrange") == "grid" end },
+	-- 3.0.6: Target Tracker (any spell's Missing Warning / Every Nameplate: each spell's own saved setting)
+	{ key = "targetTracker",      label = "Target Tracker",                     get = function() return on(sub(G("ShamanPower_TargetTracker"), "enabled")) end },
+	{ key = "ttMissingWarning",   label = "Target Tracker: Missing Warning",    get = function()
+		local spells = sub(G("ShamanPower_TargetTracker"), "spells")
+		for _, k in ipairs({ "fs", "frs", "ss" }) do if on(sub(sub(spells, k), "missing")) then return true end end
+		return false
+	end },
+	{ key = "ttEveryNameplate",   label = "Target Tracker: Every Nameplate",    get = function()
+		local spells = sub(G("ShamanPower_TargetTracker"), "spells")
+		for _, k in ipairs({ "fs", "frs", "ss", "purge" }) do if on(sub(sub(spells, k), "everyPlate")) then return true end end
+		return false
+	end },
 }
 
 -- ---------------------------------------------------------------------------

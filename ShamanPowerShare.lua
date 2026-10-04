@@ -20,6 +20,7 @@ local EXTRA_SVARS = {
 	"ShamanPower_ESTracker",
 	"ShamanPowerExpiringAlertsDB",
 	"ShamanPower_ReadyReminders",
+	"ShamanPower_TargetTracker",
 	"ShamanPower_RaidCooldowns",
 	"ShamanPower_Assignments",
 	"ShamanPower_EarthShieldAssignments",
@@ -38,6 +39,7 @@ local PRESET_SVARS = {
 	"ShamanPower_ESTracker",          -- ES tracker settings + position
 	"ShamanPowerExpiringAlertsDB",    -- expiring-alerts settings + position
 	"ShamanPower_ReadyReminders",     -- which reminders, look + positions
+	"ShamanPower_TargetTracker",      -- each spell's look and when, rules, positions
 }
 -- The tables an import may write (a string names them itself, so it is checked
 -- against this list: a tampered string must not replace any other global).
@@ -232,6 +234,7 @@ function SP:ImportShare(str, mode, profileName)
 	call("UpdateTremorReminderAppearance")
 	call("UpdateAllReadyReminderAppearance")
 	call("UpdateReadyReminders")
+	call("TargetTrackerRefresh")
 	call("UpdateSPRangeFrame")
 	call("UpdateSPRangeBorder")
 	call("UpdateLoadoutBar")

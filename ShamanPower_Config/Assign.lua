@@ -267,7 +267,7 @@ local function CellTooltip(cell)
 	local a = ShamanPower_Assignments and ShamanPower_Assignments[row.name]
 	local idx = a and a[cell.element] or 0
 	local names = SP.TotemNames and SP.TotemNames[cell.element]
-	local title = (idx and idx > 0 and names and names[idx]) or "Unassigned"
+	local title = (idx and idx > 0 and names and names[idx] and SP:GetTotemName(cell.element, idx)) or "Unassigned"
 	local tip = Core:Tooltip()
 	tip:SetOwner(cell, "ANCHOR_CURSOR")
 	tip:AddLine(title)
@@ -539,11 +539,11 @@ end
 
 local function ResistTooltip(owner, r)
 	if not Tooltips() then return end
-	local totem = SP.TotemNames[r.element][6] or r.label
+	local totem = SPCompat.SpellLabel(SP:GetTotemSpell(r.element, 6), (SP.TotemNames[r.element][6] or r.label) .. " Totem")
 	local tip = Core:Tooltip()
 	tip:SetOwner(owner, "ANCHOR_CURSOR")
 	tip:AddLine("Need " .. r.label)
-	tip:AddLine("Ask one shaman to drop " .. totem .. " Totem in their " .. SLOT_NAME[r.element] .. " slot. ShamanPower"
+	tip:AddLine("Ask one shaman to drop " .. totem .. " in their " .. SLOT_NAME[r.element] .. " slot. ShamanPower"
 		.. " picks the shaman whose party loses the least from the change. They can accept or pass. With Free Assign or auto-accept"
 		.. " on, the assignment changes right away.")
 	tip:AddLine(" ")

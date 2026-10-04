@@ -34,14 +34,17 @@ local function KeyLabel(key)
 	if el then
 		local names = SP.TotemNames and SP.TotemNames[tonumber(el)]
 		local n = names and names[tonumber(idx)]
-		if n then return n .. " totem" end
+		if n then return SPCompat.SpellLabel(SP:GetTotemSpell(tonumber(el), tonumber(idx)), n .. " totem") end
 	end
-	if key == "earthshield" then return "Earth Shield" end
+	if key == "earthshield" then return SPCompat.SpellLabel(974, "Earth Shield") end
 	if key == "dropall" then return "Drop All" end
 	local cd = key:match("^cd_(.+)$")
 	if cd then
 		local names = { "Shield", "Totemic Call", "Reincarnation", "Nature's Swiftness", "Mana Tide", "Bloodlust", "Weapon Imbue" }
-		return (names[tonumber(cd)] or Cap((cd:gsub("_", " ")))) .. " cooldown"
+		local ids = { [2] = 36936, [3] = 20608, [4] = 16188, [5] = 16190, [6] = 2825 }
+		local label = names[tonumber(cd)] or Cap((cd:gsub("_", " ")))
+		if ids[tonumber(cd)] then label = SPCompat.SpellLabel(ids[tonumber(cd)], label) end
+		return label .. " cooldown"
 	end
 	return Cap((key:gsub("_", " ")))
 end

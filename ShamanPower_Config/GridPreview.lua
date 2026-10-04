@@ -27,7 +27,7 @@ local function Choices(element)
 		for _, button in ipairs(flyout.allButtons or flyout.buttons) do
 			local index = button.totemIndex
 			local popped = SP.IsSingleTotemPoppedOut and SP:IsSingleTotemPoppedOut(element, index)
-			local talentKnown = not button.talentSpellID or IsSpellKnown and IsSpellKnown(button.talentSpellID)
+			local talentKnown = not button.talentSpellID or SPCompat.KnowsSpellID(button.talentSpellID)
 			if index ~= nil and not button.isDisabledInFlyout and talentKnown and not popped then
 				choices[#choices + 1] = index
 			end

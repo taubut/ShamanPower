@@ -1328,7 +1328,7 @@ local LOOK = {
 		"borderSizeCooldown", "borderSizeCooldownFlyouts", "classColors", "showAs" },
 	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge", "iconShape", "iconShapeCooldown",
 		"iconShapeReady", "iconShapeSplit", "iconBordersSquare", "durationBarBackground",
-		"barGradientDirection", "barGradientDirections" },
+		"barGradientDirection", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection" },
 	shield = { "lookLS", "lookWS", "lookES", "barLook", "orbLook", "chargeColorLS", "chargeColorWS", "chargeColorES" },
 }
 for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
@@ -1629,6 +1629,15 @@ function LOOK.Restore(t, look)
 	for _, k in ipairs(LOOK.shield) do sc[k] = Copy(ls[k]) end
 end
 -- every part that draws a look, drawn again
+function LOOK.RepaintSweeps()
+	local o = SP.opt
+	if not o or SP:IsOff() then return end
+	if o.showTotemCooldowns ~= false and SP.totemButtons and SP.UpdateTotemCooldowns then SP:UpdateTotemCooldowns() end
+	if o.showCooldownBar and SP.cooldownBar and SP.cooldownButtons and SP.UpdateCooldownButtons then SP:UpdateCooldownButtons() end
+	if SPCompat.FOREVER and SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() and SP.RefreshBlizzardTotemBar then
+		SP:RefreshBlizzardTotemBar()
+	end
+end
 function LOOK.Repaint()
 	if SP.RefreshTextures then SP:RefreshTextures() end   -- the textures, Glow Shape, Frame Edge, Icon Shape
 	if SP.RefreshIconShapes then SP:RefreshIconShapes() end
@@ -1638,6 +1647,12 @@ function LOOK.Repaint()
 	if SP.ApplyDurationBarOpacity then SP:ApplyDurationBarOpacity() end   -- Duration Bar Background
 	if SP.ShieldLookChanged then SP:ShieldLookChanged() end
 	if SP.ShieldChargeStyleChanged then SP:ShieldChargeStyleChanged() end
+	local o = SP.opt
+	if o and not SP:IsOff() and ((o.showTotemCooldowns ~= false and SP.totemButtons)
+		or (o.showCooldownBar and SP.cooldownBar and SP.cooldownButtons)
+		or (SPCompat.FOREVER and SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar())) then
+		SP:ThemeRepaintSoon("sweepDirection", LOOK.RepaintSweeps)
+	end
 end
 -- anything a reset clears that is worth keeping on the Custom card: a theme,
 -- the Themes tab's fields, any color, and (Reset Everything) any look
@@ -1729,7 +1744,7 @@ function SP:ResetEverythingToDefault()
 	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
 	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge",
 		"iconShape", "iconShapeCooldown", "iconShapeReady", "iconShapeSplit", "iconBordersSquare",
-		"durationBarBackground", "barGradientDirections" }) do
+		"durationBarBackground", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection" }) do
 		o[k] = Copy(defaults[k])
 	end
 	for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
@@ -1742,6 +1757,7 @@ function SP:ResetEverythingToDefault()
 	if type(sc) == "table" then
 		sc.lookLS, sc.lookWS, sc.lookES, sc.barLook, sc.orbLook = nil, nil, nil, nil, nil
 	end
+	if SP.TT_ResetLooks then SP:TT_ResetLooks() end   -- Target Tracker's Look When Missing and Icon Edge
 end
 
 
@@ -1766,11 +1782,16 @@ end
 -- Only on clicks: nothing here runs while playing.
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
-Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB" }
+Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker" }
 Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor" }
 -- flat keys an update added, with their defaults (see Cards.Migrate)
+function Cards.InheritedSweepDirection() return "default" end
 Cards.ADDED = {
 	["rr.rangeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").rangeColor end,
+	["e.mod.readyreminders.sweepDirection"] = function() return "bottom" end,
+	["e.mod.targettracker.sweepDirection.fs"] = Cards.InheritedSweepDirection,
+	["e.mod.targettracker.sweepDirection.frs"] = Cards.InheritedSweepDirection,
+	["e.mod.targettracker.sweepDirection.ss"] = Cards.InheritedSweepDirection,
 }
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"
@@ -2062,6 +2083,14 @@ function Cards.LooksChanged()
 end
 function Cards.Migrate()
 	if not ready then return end
+	-- The optional module loads after this file. Register its per-icon defaults
+	-- once the spell catalog exists, so old theme baselines keep their card.
+	if SP.ReadyReminderSpells and not Cards.addedReadyDirections then
+		for _, entry in ipairs(SP.ReadyReminderSpells) do
+			Cards.ADDED["e.mod.readyreminders.sweepDirection." .. entry.key] = Cards.InheritedSweepDirection
+		end
+		Cards.addedReadyDirections = true
+	end
 	local t = TW()
 	if not t then return end
 	-- a theme deleted while another profile was loaded: this profile keeps its look, as
@@ -2188,6 +2217,7 @@ function Cards.Kinds()
 	for _, k in ipairs({ "iconShape", "iconShapeCooldown", "iconShapeReady" }) do K["o." .. k] = s(Cards.KeysOf(SP.ICON_SHAPES)) end
 	K["o.compactIdleColor"] = s({ grey = true, element = true })
 	K["o.compactOutlineColorMode"] = s({ element = true, custom = true })
+	K["o.totemCooldownSweepDirection"], K["o.cdbarSweepDirection"] = s({ top = true, bottom = true }), s({ top = true, bottom = true })
 	for _, k in ipairs({ "dotGem", "iconShapeSplit", "iconBordersSquare", "durationBarBackground", "shieldChargeColors",
 		"cdbarSpellColors", "rangeElementColors" }) do K["o." .. k] = { "b" } end
 	for _, k in ipairs({ "cBuffGood", "cBuffNeedSome", "cBuffNeedAll", "compactOutlineColor", "totemCooldownTextColor",

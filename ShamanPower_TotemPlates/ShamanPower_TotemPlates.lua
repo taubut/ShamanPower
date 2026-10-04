@@ -311,6 +311,7 @@ for npcId, totemName in pairs(npcIdToTotemName) do
     if not totemData[totemName] then
         totemData[totemName] = {
             name = totemName,
+            displayName = SPCompat.SpellLabel(TOTEM_SPELL_IDS[totemName], totemName),
             texture = GetTotemIcon(totemName),
             color = TOTEM_COLORS[totemName] or {r = 0.5, g = 0.5, b = 0.5},
             npcIds = {}
@@ -495,7 +496,7 @@ function SP:CreateTotemPlateFrame(nameplate)
         frame:SetScript("OnEnter", function(self)
             if self.totemInfo then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                GameTooltip:SetText(self.totemInfo.name, 1, 1, 1)
+                GameTooltip:SetText(self.totemInfo.displayName or self.totemInfo.name, 1, 1, 1)
                 if self.isEnemy then
                     GameTooltip:AddLine("Enemy Totem", 1, 0.2, 0.2)
                 else
@@ -529,21 +530,24 @@ end
 local function SPIdentitySecret(unit)
 	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
 		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
-		if ok and v == true then return true end
+		if not ok or (issecretvalue and issecretvalue(v)) or v == true then return true end
 	end
 	if issecretvalue and issecretvalue((UnitGUID(unit))) then return true end
 	return false
 end
 
 function SP:UpdateTotemPlateHighlights()
+    local settings = self.opt.totemPlates
+    if not settings or not settings.enabled or self:IsOff() then return end
     if SPIdentitySecret("target") then return end
     local targetGUID = UnitGUID("target")
+    if issecretvalue and issecretvalue(targetGUID) then return end
 
     for unitId, nameplate in pairs(self.activeTotemPlates) do
         local frame = nameplate.totemPlateFrame
         if frame and frame:IsShown() then
             local unitGUID = UnitGUID(unitId)
-            if unitGUID and unitGUID == targetGUID then
+            if not (issecretvalue and issecretvalue(unitGUID)) and unitGUID and unitGUID == targetGUID then
                 frame.highlight:SetAlpha(0.5)
             else
                 frame.highlight:SetAlpha(0)
@@ -557,9 +561,9 @@ end
 -- ============================================================================
 
 function SP:OnTotemPlateUnitAdded(unitId)
-    if SPIdentitySecret(unitId) then return end   -- instanced map on a restricted client: Blizzard's own totem plates apply
     local settings = self.opt.totemPlates
     if not settings or not settings.enabled or self:IsOff() then return end
+    if SPIdentitySecret(unitId) then return end   -- instanced map on a restricted client: Blizzard's own totem plates apply
 
     local nameplate = C_NamePlate.GetNamePlateForUnit(unitId)
     if not nameplate then return end
@@ -567,7 +571,7 @@ function SP:OnTotemPlateUnitAdded(unitId)
     -- Parse GUID to get NPC ID. Players' and pets' plates (most plates in PvP)
     -- are ruled out by the prefix before any string is split.
     local guid = UnitGUID(unitId)
-    if not guid or (issecretvalue and issecretvalue(guid)) then return end
+    if (issecretvalue and issecretvalue(guid)) or not guid then return end
     if not strfind(guid, "^Creature%-") then return end
 
     local npcId = tonumber((select(6, strsplit("-", guid))))
@@ -618,7 +622,7 @@ function SP:OnTotemPlateUnitAdded(unitId)
 
     -- Optional name
     if settings.showName then
-        frame.name:SetText(totemInfo.name)
+        frame.name:SetText(totemInfo.displayName)
         frame.name:Show()
     else
         frame.name:Hide()
@@ -1101,7 +1105,7 @@ function SP:TotemPlatesDemo(on)
         end
         local hidden = (d.enemy and settings.showEnemy == false) or (not d.enemy and settings.showFriendly == false)
             or (settings.enabled == false)
-        frame.totemInfo = { name = d.name, texture = GetTotemIcon(d.name) }
+        frame.totemInfo = { name = d.name, displayName = SPCompat.SpellLabel(TOTEM_SPELL_IDS[d.name], d.name), texture = GetTotemIcon(d.name) }
         frame.isEnemy = d.enemy
         frame.icon:SetTexture(GetTotemIcon(d.name))
         if d.enemy then
@@ -1119,7 +1123,7 @@ function SP:TotemPlatesDemo(on)
             frame:SetFrameLevel(np:GetFrameLevel() + 2)   -- draw over the beam
         end
         if settings.showName then
-            frame.name:SetText(d.name)
+            frame.name:SetText(frame.totemInfo.displayName)
             frame.name:Show()
         else
             frame.name:Hide()

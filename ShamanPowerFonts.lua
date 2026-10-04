@@ -17,6 +17,47 @@ local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 
 SP.DEFAULT_FONT_PATH = "Fonts\\FRIZQT__.TTF"
 
+-- Only our bundled faces have known coverage. Do not second-guess fonts from
+-- another addon or the client's other game faces. true = includes Cyrillic.
+local BUNDLED_FONTS = {
+	["barlowcondensed-semibold.ttf"] = false, ["bebasneue-regular.ttf"] = false,
+	["blackopsone-regular.ttf"] = false, ["chakrapetch-semibold.ttf"] = false,
+	["firasans-regular.ttf"] = true, ["firasans-medium.ttf"] = true,
+	["firasans-semibold.ttf"] = true, ["russoone-regular.ttf"] = true,
+	["oxanium-semibold.ttf"] = false, ["rajdhani-semibold.ttf"] = false,
+	["sairasemicondensed-semibold.ttf"] = false, ["teko-medium.ttf"] = false,
+}
+
+-- A saved font choice stays saved even when this client's alphabet needs a
+-- different file. The bundled Fira Sans and Russo One faces include Cyrillic;
+-- none of the bundled faces include Chinese or Korean.
+function SP:ResolveLocaleFontPath(path)
+	local locale = GetLocale and GetLocale()
+	if locale ~= "ruRU" and locale ~= "koKR" and locale ~= "zhCN" and locale ~= "zhTW" then return path end
+	if type(path) ~= "string" then return path end
+	local normalized = path:lower():gsub("/", "\\")
+	local file = normalized:match("^interface\\addons\\shamanpower\\media\\fonts\\([^\\]+)$")
+	if normalized ~= "fonts\\frizqt__.ttf" then
+		if not file or BUNDLED_FONTS[file] == nil then return path end
+		if locale == "ruRU" and BUNDLED_FONTS[file] then return path end
+	end
+	return STANDARD_TEXT_FONT or SP.DEFAULT_FONT_PATH
+end
+
+-- Added to the font pickers' tooltips only where a selected face may change.
+function SP:LocaleFontFallbackText()
+	local locale = GetLocale and GetLocale()
+	if locale == "ruRU" then
+		return " On Russian clients, bundled Fira Sans and Russo One support Russian letters."
+			.. " Other bundled fonts and the Friz default use the game's font."
+			.. " External fonts are unchanged. Your saved choice is kept."
+	elseif locale == "koKR" or locale == "zhCN" or locale == "zhTW" then
+		return " On Chinese and Korean clients, ShamanPower's bundled fonts and the Friz default use the game's font."
+			.. " External fonts are unchanged. Your saved choice is kept."
+	end
+	return ""
+end
+
 -- The areas a player can give their own font. Order = order on the settings page.
 SP.FONT_AREAS = {
 	{ key = "timers",  label = "Timers and Cooldown Numbers", desc = "Totem timers, duration bar text, cooldown numbers, pop-out and Grid timers." },
@@ -43,9 +84,10 @@ end
 
 -- The font path and outline flags for an area; the call site's own choice when
 -- the player has not picked anything.
-function SP:FontFor(area, _, defaultFlags, defaultPath)
+function SP:FontFor(area, _, defaultFlags, defaultPath, inherited)
 	local o = self.opt
 	local path, flags = defaultPath or SP.DEFAULT_FONT_PATH, defaultFlags or ""
+	local chosen
 	if o then
 		local a = area and o.fontAreas and o.fontAreas[area]
 		local name = (a and a.name) or o.fontName
@@ -61,10 +103,13 @@ function SP:FontFor(area, _, defaultFlags, defaultPath)
 				if pv.name == "__default" then name = nil else name = pv.name end
 			end
 		end
-		path = fontPath(name) or path
+		chosen = fontPath(name)
+		path = chosen or path
 		if outline ~= nil then flags = outline end
 	end
-	return path, flags
+	-- A template owns its font family and locale fallbacks until a font is chosen.
+	if inherited and not chosen then return path, flags end
+	return self:ResolveLocaleFontPath(path), flags
 end
 
 -- Settings hover: show `name` for `area` ("all" = the main font) until cleared.
@@ -87,7 +132,7 @@ local gen = 0
 -- leaves the string with no font, which GetFont shows as nil.
 local function apply(fs, path, size, flags, defaultPath, defaultFlags)
 	fs:SetFont(path, size, flags)
-	if not fs:GetFont() then fs:SetFont(defaultPath or SP.DEFAULT_FONT_PATH, size, defaultFlags or "") end
+	if not fs:GetFont() then fs:SetFont(SP:ResolveLocaleFontPath(defaultPath or SP.DEFAULT_FONT_PATH), size, defaultFlags or "") end
 end
 
 -- Drop-in for fs:SetFont(path, size, flags). area: one of SP.FONT_AREAS' keys.
@@ -100,9 +145,20 @@ function SP:SetSPFont(fs, area, size, defaultFlags, defaultPath)
 	end
 	if not rec then rec = {}; registry[fs] = rec end
 	rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, defaultFlags, defaultPath, gen
-	rec.template, rec.fontObject = nil, nil
+	rec.template, rec.fontObject, rec.inherited = nil, nil, nil
 	local path, flags = self:FontFor(area, size, defaultFlags, defaultPath)
 	apply(fs, path, size, flags, defaultPath, defaultFlags)   -- a missing font file falls back to the design
+end
+
+-- Back onto its font object without resetting its own colour and alignment.
+local function reattach(fs, rec)
+	local r, g, b, a = fs:GetTextColor()
+	local h, v = fs:GetJustifyH(), fs:GetJustifyV()
+	fs:SetFontObject(rec.fontObject)
+	if r then fs:SetTextColor(r, g, b, a) end
+	if h then fs:SetJustifyH(h) end
+	if v then fs:SetJustifyV(v) end
+	rec.template = true
 end
 
 -- A string that should look like another one (a game-drawn copy of our text):
@@ -110,6 +166,15 @@ end
 function SP:CopySPFont(dst, src, area)
 	if not (dst and src) then return end
 	local rec = registry[src]
+	local object = rec and rec.fontObject or (not rec and src:GetFontObject())
+	if object then
+		local path, size, flags = src:GetFont()
+		registry[dst] = { path = rec and rec.path or path, size = rec and rec.size or size,
+			flags = rec and rec.flags or flags, fontObject = object, inherited = true }
+		reattach(dst, registry[dst])
+		self:AdoptSPFont(dst, area or (rec and rec.area) or "timers")
+		return
+	end
 	if rec then self:SetSPFont(dst, area or rec.area, rec.size, rec.flags, rec.path) return end
 	local path, size, flags = src:GetFont()
 	if path then self:SetSPFont(dst, area or "timers", size, flags or "", path) end
@@ -134,29 +199,18 @@ function SP:AdoptSPFont(fs, area)
 		path, size, flags = fs:GetFont()
 		size, flags = size or 12, flags or ""
 	end
-	local wantPath, wantFlags = self:FontFor(area, size, flags, path)
+	local wantPath, wantFlags = self:FontFor(area, size, flags, path, true)
 	if wantPath == path and wantFlags == flags then
+		if rec and not rec.template and object then rec.fontObject = object; reattach(fs, rec) end
 		if not rec then rec = {}; registry[fs] = rec end
 		rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, flags, path, gen
-		rec.template, rec.fontObject = true, object
+		rec.template, rec.fontObject, rec.inherited = true, object, true
 		return
 	end
-	if rec then rec.gen = nil end   -- force the re-apply
-	self:SetSPFont(fs, area, size, flags, path)
-	registry[fs].fontObject = object
-end
-
--- Back onto its font object: the design again after a chosen font is cleared,
--- or after a font hovered in the settings list. SetFontObject also resets the
--- colour and alignment the string's own code gave it: those are kept.
-local function reattach(fs, rec)
-	local r, g, b, a = fs:GetTextColor()
-	local h, v = fs:GetJustifyH(), fs:GetJustifyV()
-	fs:SetFontObject(rec.fontObject)
-	if r then fs:SetTextColor(r, g, b, a) end
-	if h then fs:SetJustifyH(h) end
-	if v then fs:SetJustifyV(v) end
-	rec.template = true
+	if not rec then rec = {}; registry[fs] = rec end
+	rec.area, rec.size, rec.flags, rec.path, rec.gen = area, size, flags, path, gen
+	rec.template, rec.fontObject, rec.inherited = nil, object, true
+	apply(fs, wantPath, size, wantFlags, path, flags)
 end
 
 -- Re-apply every remembered font string: called when a font setting changes.
@@ -178,7 +232,7 @@ function SP:RefreshFonts()
 	for fs, rec in pairs(registry) do
 		if live(fs) then
 		rec.gen = gen
-		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path)
+		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path, rec.inherited)
 		if path == rec.path and flags == rec.flags and (rec.template or rec.fontObject) then
 			-- the design for a template string: its own font object, never SetFont
 			if not rec.template then reattach(fs, rec) end

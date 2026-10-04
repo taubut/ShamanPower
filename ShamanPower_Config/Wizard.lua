@@ -27,6 +27,31 @@ local state = { role = nil, step = 1, steps = {} }
 local RenderStep   -- defined further down; forward-declared so earlier code (positioning) can call it
 local LooksLikeExistingUser   -- defined near the login hook; used by Open()
 
+-- Conditional sweep rows change only after a click. Keep the user's scroll spot.
+local function RefreshSweepRows()
+	if not (wiz and wiz:IsShown()) then return end
+	local offset = wiz.sweepScroll and wiz.sweepScroll:GetVerticalScroll() or 0
+	RenderStep()
+	if wiz.sweepScroll then wiz.sweepScroll:SetVerticalScroll(offset) end
+end
+
+local function PaintVerticalSweep(gray, icon, size, amount, style, direction)
+	local fromTop = SP:SweepGrayFromTop(style, direction)
+	if gray._spSweepTop ~= fromTop then
+		gray._spSweepTop = fromTop
+		gray:ClearAllPoints()
+		if fromTop then
+			gray:SetPoint("TOPLEFT", icon, "TOPLEFT"); gray:SetPoint("TOPRIGHT", icon, "TOPRIGHT")
+		else
+			gray:SetPoint("BOTTOMLEFT", icon, "BOTTOMLEFT"); gray:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT")
+		end
+	end
+	gray:SetHeight(math.max(0.5, size * amount))
+	if fromTop then gray:SetTexCoord(0.08, 0.92, 0.08, 0.08 + 0.84 * amount)
+	else gray:SetTexCoord(0.08, 0.92, 0.92 - 0.84 * amount, 0.92) end
+	gray:Show()
+end
+
 -- ---------------------------------------------------------------------------
 -- Enable bindings: get/set for each feature's on/off, reused from the options.
 -- ---------------------------------------------------------------------------
@@ -96,7 +121,12 @@ local BIND = {
 	readyreminders = {
 		get = function() return ShamanPower_ReadyReminders and ShamanPower_ReadyReminders.enabled ~= false end,
 		set = function(v) ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}; ShamanPower_ReadyReminders.enabled = v; safecall("UpdateReadyReminders"); notify()
-			if ns.Widgets and SP.Wizard._readyCard then ns.Widgets:RefreshAll(SP.Wizard._readyCard) end end,
+			if ns.Widgets and SP.Wizard._readyCard then ns.Widgets:RefreshAll(SP.Wizard._readyCard) end; RefreshSweepRows() end,
+	},
+	targettracker = {
+		get = function() return SP.TT_Enabled and SP:TT_Enabled() or false end,
+		set = function(v) if SP.TT_SetEnabled then SP:TT_SetEnabled(v and true or false) end; notify()
+			if ns.Widgets and SP.Wizard._ttCard then ns.Widgets:RefreshAll(SP.Wizard._ttCard) end end,
 	},
 	tremor = {
 		get = function() return ShamanPowerTremorReminderDB and ShamanPowerTremorReminderDB.enabled ~= false end,
@@ -133,7 +163,7 @@ local BIND = {
 	cdsweep = {
 		get = function() return SP.opt.cdbarShowColorSweep ~= false end,
 		set = function(v) SP.opt.cdbarShowColorSweep = v; safecall("UpdateCooldownBar"); notify()
-			if ns.Widgets and SP.Wizard._cdbarCard then ns.Widgets:RefreshAll(SP.Wizard._cdbarCard) end end,   -- Sweep style depends on it
+			RefreshSweepRows() end,
 	},
 	cdtext = {
 		get = function() return SP.opt.cdbarShowCDText ~= false end,
@@ -402,6 +432,15 @@ local STEPS = {
 	    "Pick the spells below; icons only appear for spells you know.",
 	  },
 	  toggles = { { label = "Enable Ready Reminders", bind = "readyreminders" } } },
+	{ id = "targettracker", title = "Target Tracker", roles = ALL, module = "ShamanPower_TargetTracker", flag = "TargetTrackerLoaded", build = "BuildTargetTrackerStep",
+	  desc = "Your Flame Shock, Frost Shock and Stormstrike on your target, where you want them, and a Purge reminder when your target has a Magic buff you can remove.",
+	  bullets = {
+	    "Each of your debuffs on your target, with the time it has left.",
+	    "Warn When It's Missing grays a shock out while it is not on your target.",
+	    "Purge lights up while your target has a Magic buff you can remove.",
+	    "Rules can turn any part on or off in a place or against a boss: Settings > Alerts & Reminders > Target Tracker.",
+	  },
+	  toggles = { { label = "Enable Target Tracker", bind = "targettracker" } } },
 	{ id = "tremor", title = "Tremor Reminder", roles = ALL, module = "ShamanPower_TremorReminder", flag = "TremorReminderLoaded", build = "BuildTremorStep",
 	  desc = "A heads-up to drop Tremor Totem the moment you target a mob that is known to fear - before anyone in your group gets feared.",
 	  bullets = {
@@ -1568,7 +1607,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			s.cdf = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate"); s.cdf:SetAllPoints(b); s.cdf:SetDrawEdge(false)
 			if s.cdf.SetHideCountdownNumbers then s.cdf:SetHideCountdownNumbers(true) end
 			s.cdt = b:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(s.cdt, "timers", 11, "OUTLINE"); s.cdt:SetPoint("CENTER", b, "CENTER"); s.cdt:Hide()
-			-- vertical sweep alternative (grey grows down from the top, like the cooldown bar)
+			-- Vertical sweep; its gray edge follows Sweep Direction and the chosen style.
 			s.cdgray = b:CreateTexture(nil, "ARTWORK", nil, 1); s.cdgray:SetPoint("TOPLEFT", icon, "TOPLEFT"); s.cdgray:SetPoint("TOPRIGHT", icon, "TOPRIGHT")
 			s.cdgray:SetTexture(e.icon); s.cdgray:SetDesaturated(true); s.cdgray:SetVertexColor(0.5, 0.5, 0.5); s.cdgray:Hide()
 			if SP.ShapeIconTexture then SP:ShapeIconTexture(s.cdgray, icon, "totem"); SP:ShapeCooldown(s.cdf, "totem") end   -- Icon Shape
@@ -1711,7 +1750,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 					end
 					if vertical then
 						local dep = (cdStyleOpt == "reverse") and (cdRemain / e.cd) or (1 - cdRemain / e.cd)
-						s.cdgray:SetHeight(math.max(0.5, (SIZE - 4) * dep)); s.cdgray:SetTexCoord(0.08, 0.92, 0.08, 0.08 + dep * 0.84); s.cdgray:Show()
+						PaintVerticalSweep(s.cdgray, s.icon, SIZE - 4, dep, cdStyleOpt, OPT().totemCooldownSweepDirection)
 					else s.cdgray:Hide() end
 					if O("totemCooldownText", true) ~= false then
 						s.cdt:SetText(tostring(math.ceil(cdRemain))); s.cdt:Show()
@@ -1784,11 +1823,17 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	row("Slider", { label = "Text size", min = 6, max = 20, step = 1, get = function() return O("durationTextSize", 8) end,
 		set = function(v) OPT().durationTextSize = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end })
 	row("Toggle", { label = "Show totem cooldowns", get = function() return O("showTotemCooldowns", true) end,
-		set = function(v) OPT().showTotemCooldowns = v; upd("SetupTotemProgressBars"); Widgets:RefreshAll(card) end })
+		set = function(v) OPT().showTotemCooldowns = v; upd("SetupTotemProgressBars"); RefreshSweepRows() end })
 	row("Dropdown", { label = "Cooldown style", disabled = function() return O("showTotemCooldowns", true) == false end,
 		get = function() return O("totemCooldownSweep", "radial") end,
-		set = function(v) OPT().totemCooldownSweep = v; upd("UpdateTotemCooldowns") end,
-		values = function() return { radial = "Radial swipe", vertical = "Vertical sweep (grays out)", reverse = "Vertical sweep (fills back in)" } end, order = function() return { "radial", "vertical", "reverse" } end })
+		set = function(v) OPT().totemCooldownSweep = v; upd("UpdateTotemCooldowns"); RefreshSweepRows() end,
+		values = function() return { radial = "Radial Swipe", vertical = "Vertical - Grays Out", reverse = "Vertical - Fills Back In" } end, order = function() return { "radial", "vertical", "reverse" } end })
+	if O("showTotemCooldowns", true) and O("totemCooldownSweep", "radial") ~= "radial" then
+		row("Dropdown", { label = "Sweep Direction", desc = "Where the gray (Grays Out) or color (Fills Back In) starts.",
+			get = function() return OPT().totemCooldownSweepDirection or (OPT().totemCooldownSweep == "reverse" and "bottom" or "top") end,
+			set = function(v) OPT().totemCooldownSweepDirection = v; upd("UpdateTotemCooldowns"); safecall("RefreshBlizzardTotemBar") end,
+			values = function() return { top = "From The Top", bottom = "From The Bottom" } end, order = function() return { "top", "bottom" } end })
+	end
 	row("Toggle", { label = "Show cooldown time", desc = "The remaining seconds on the totem. Off = just the swipe.",
 		disabled = function() return O("showTotemCooldowns", true) == false end,
 		get = function() return O("totemCooldownText", true) ~= false end,
@@ -2776,14 +2821,20 @@ function SP.Wizard.BuildReadyRemindersStep(card, inner, y)
 			-- only while on cooldown starts in full colour, as it does in Settings
 			if v == "cooldown" and sv().mode ~= "cooldown" then sv().desaturate = false; sv().dimOpacity = 1 end
 			if v == "always" and (sv().dimOpacity or 0.35) >= 1 then sv().desaturate = true; sv().dimOpacity = 0.35 end   -- "dim + countdown"
-			sv().mode = v; upd("UpdateAllReadyReminderAppearance")
+			sv().mode = v; upd("UpdateAllReadyReminderAppearance"); RefreshSweepRows()
 		end,
 		values = function() return { ready = "Only when ready", cooldown = "Only while on cooldown", always = "Always (dim + countdown)" } end, order = function() return { "ready", "cooldown", "always" } end })
 	row("Dropdown", { label = "Ready effect", disabled = off, get = function() return get("readyEffect", "glow") end, set = function(v) sv().readyEffect = v; upd("UpdateAllReadyReminderAppearance") end,
 		values = function() return { glow = "Glow", pulse = "Pulse", both = "Glow + pulse", none = "None" } end, order = function() return { "glow", "pulse", "both", "none" } end })
 	row("Dropdown", { label = "Sweep while on cooldown", disabled = function() return off() or get("mode", "ready") == "ready" end,
-		get = function() return get("sweepStyle", "radial") end, set = function(v) sv().sweepStyle = v; upd("UpdateAllReadyReminderAppearance") end,
-		values = function() return { radial = "Radial (clock)", vertical = "Vertical (fills up)", none = "None" } end, order = function() return { "radial", "vertical", "none" } end })
+		get = function() return get("sweepStyle", "radial") end, set = function(v) sv().sweepStyle = v; upd("UpdateAllReadyReminderAppearance"); RefreshSweepRows() end,
+		values = function() return { radial = "Radial (Clock)", vertical = "Vertical - Fills Back In", none = "None" } end, order = function() return { "radial", "vertical", "none" } end })
+	if not off() and get("mode", "ready") ~= "ready" and get("sweepStyle", "radial") == "vertical" then
+		row("Dropdown", { label = "Sweep Direction", desc = "Where the color starts returning as the cooldown runs out.",
+			get = function() return get("sweepDirection", "bottom") end,
+			set = function(v) sv().sweepDirection = v; upd("UpdateAllReadyReminderAppearance"); safecall("UpdateReadyReminders") end,
+			values = function() return { top = "From The Top", bottom = "From The Bottom" } end, order = function() return { "top", "bottom" } end })
+	end
 	row("Slider", { label = "Icon size", min = 24, max = 96, step = 2, disabled = off, get = function() return get("iconSize", 48) end, set = function(v) sv().iconSize = v; upd("UpdateAllReadyReminderAppearance") end })
 	row("Slider", { label = "Opacity", min = 0.2, max = 1.0, step = 0.05, disabled = off, get = function() return get("opacity", 1.0) end, set = function(v) sv().opacity = v; upd("UpdateAllReadyReminderAppearance") end })
 	row("Toggle", { label = "Show spell names", disabled = off, get = function() return get("showNames", false) end, set = function(v) sv().showNames = v; upd("UpdateAllReadyReminderAppearance") end })
@@ -2899,6 +2950,60 @@ end
 
 -- Tremor Reminder: the REAL reminder frame running a targeting scene, with
 -- every option from its settings page live in the card.
+-- Target Tracker: its settings page's own live preview (your shocks on a target, Purge
+-- lighting up on its Magic buff), with where they show and which spells in the card.
+function SP.Wizard.BuildTargetTrackerStep(card, inner, y)
+	local Widgets = ns.Widgets
+	SP.Wizard._ttCard = card
+	inner.previewInsetBottom = 60
+	inner.previewMaxScale = 1.4
+	local function fit()
+		if not (inner:IsShown() and inner:GetWidth() > 0) then return end
+		SP:ShowPreview("targettracker", inner)
+	end
+	C_Timer.After(0.02, fit)   -- (the preview carries its own caption)
+
+	local W = card:GetWidth() - 36
+	local function row(kind, opts)
+		opts.x, opts.y, opts.width = 18, y, W
+		local _, h = Widgets[kind](Widgets, card, opts)
+		y = y + h
+	end
+	local function off() return not (SP.TT_Enabled and SP:TT_Enabled()) end
+	local function upd() notify(); fit(); Widgets:RefreshAll(card) end
+	row("Dropdown", { label = "Where Your Debuffs Show", disabled = off,
+		values = function() return { spot = "A spot you place", plate = "On your target's nameplate", frame = "Under the target frame" } end,
+		order = function() return { "spot", "plate", "frame" } end,
+		get = function() return SP.TT_GetPage and SP:TT_GetPage("showOn") or "spot" end,
+		set = function(v) if SP.TT_SetPage then SP:TT_SetPage("showOn", v) end; upd() end })
+	-- one switch per spell this character can use (Stormstrike only with its talent)
+	local debuffs = {}
+	for _, spell in ipairs(SP.TT_SPELLS or {}) do
+		if SP.TT_Usable and SP:TT_Usable(spell.key) then
+			local key = spell.key
+			if key ~= "purge" then debuffs[#debuffs + 1] = key end
+			row("Toggle", { label = key == "purge" and "Purge reminder" or spell.name, disabled = off,
+				get = function() return SP:TT_Get(key, "shown") and true or false end,
+				set = function(v) SP:TT_Set(key, "shown", v and true or false); upd() end })
+		end
+	end
+	if #debuffs > 0 then
+		row("Toggle", { label = "Warn When It's Missing", desc = "Gray a shock out while it is not on your target, so you see when to cast it again.",
+			disabled = off,
+			get = function()
+				for _, key in ipairs(debuffs) do
+					if SP:TT_Get(key, "missing") then return true end
+				end
+				return false
+			end,
+			set = function(v)
+				for _, key in ipairs(debuffs) do SP:TT_Set(key, "missing", v and true or false) end
+				upd()
+			end })
+	end
+	return y
+end
+
 function SP.Wizard.BuildTremorStep(card, inner, y)
 	local Widgets = ns.Widgets
 	SP.Wizard._tremorCard = card
@@ -3037,10 +3142,10 @@ function SP.Wizard.BuildExpiringStep(card, inner, y)
 	header("ALERT WHEN THESE FADE")
 	local function shOff() return off() or not sget("shields", "enabled", true) end
 	row("Toggle", { label = "Shields", disabled = off, get = function() return sget("shields", "enabled", true) end, set = function(v) sub("shields").enabled = v; upd() end })
-	row("Toggle", { label = "    Lightning Shield", disabled = shOff, get = function() return sget("shields", "lightning", true) end, set = function(v) sub("shields").lightning = v; upd() end })
-	row("Toggle", { label = "    Water Shield", disabled = shOff, get = function() return sget("shields", "water", true) end, set = function(v) sub("shields").water = v; upd() end })
+	row("Toggle", { label = "    " .. SPCompat.SpellLabel(324, "Lightning Shield"), disabled = shOff, get = function() return sget("shields", "lightning", true) end, set = function(v) sub("shields").lightning = v; upd() end })
+	row("Toggle", { label = "    " .. SPCompat.SpellLabel(SPCompat.FOREVER and 408510 or 24398, "Water Shield"), disabled = shOff, get = function() return sget("shields", "water", true) end, set = function(v) sub("shields").water = v; upd() end })
 	if not SP.ESTrackerUnavailable then
-		row("Toggle", { label = "    Earth Shield on your target", disabled = shOff,
+		row("Toggle", { label = "    " .. SPCompat.SpellLabel(974, "Earth Shield") .. " on your target", disabled = shOff,
 			get = function() return sget("shields", "earthShield", true) end,
 			set = function(v) sub("shields").earthShield = v; upd() end })
 	end
@@ -3428,11 +3533,14 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	Core:MakeBorder(bar, "border")
 	local buttons = {}
 	for i, sp in ipairs(SPELLS) do
+		-- The mock's short labels have fixed-width slots; only the long chip labels localize.
+		if not sp.imbue then
+			if sp.long then sp.long = SPCompat.SpellLabel(sp.id, sp.long) end
+		end
 		local btn = CreateFrame("Frame", nil, bar); btn:SetSize(SIZE, SIZE)
 		local icon = btn:CreateTexture(nil, "ARTWORK"); icon:SetAllPoints(btn)
 		icon:SetTexture(GetSpellTexture(sp.id)); icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		-- Grayed sweep overlay: like the real bar it grows DOWN from the top as
-		-- the cooldown depletes (no radial swipe on cooldown-type buttons).
+		-- Gray sweep overlay; style and direction match the real bar.
 		local gray = btn:CreateTexture(nil, "ARTWORK", nil, 1); gray:SetPoint("TOPLEFT"); gray:SetPoint("TOPRIGHT"); gray:SetHeight(0)
 		gray:SetTexture(GetSpellTexture(sp.id)); gray:SetDesaturated(true); gray:SetVertexColor(0.5, 0.5, 0.5); gray:Hide()
 		-- radial swipe (only used when Sweep style is "Radial swipe")
@@ -3613,8 +3721,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 						elseif showSweep then
 							if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
 							local dep = (style == "fills") and frac or (1 - frac)
-							b.gray:Show(); b.gray:SetHeight(math.max(0.5, SIZE * dep))
-							b.gray:SetTexCoord(0.08, 0.92, 0.08, 0.08 + 0.84 * dep)
+							PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, OPT().cdbarSweepDirection)
 						else
 							b.gray:Hide(); if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
 						end
@@ -3626,9 +3733,16 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 						if sp.count then b.corner:Show() end
 					end
 				else
-					-- Shield / imbues: always "up" in the demo.
+					-- Shields stay up; imbues show their duration, even with Radial Swipe.
 					if b.vert then b.pb:SetHeight(SIZE) else b.pb:SetWidth(SIZE) end
 					b.gray:Hide(); b.txt:SetText("")
+					if sp.imbue and showSweep then
+						b.t = (b.t + e) % 20
+						local style = OPT().cdbarSweepStyle or "greys"
+						local dep = b.t / 20
+						if style == "fills" then dep = 1 - dep end
+						PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, OPT().cdbarSweepDirection)
+					end
 				end
 			end
 		end
@@ -3679,7 +3793,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 				OPT()[sp.opt] = not (OPT()[sp.opt] ~= false)
 				if not InCombatLockdown() and SP.RecreateCooldownBar then pcall(SP.RecreateCooldownBar, SP) end
 				local reg = LibStub and LibStub("AceConfigRegistry-3.0", true); if reg then reg:NotifyChange("ShamanPower") end
-				paintChip(c); layoutMock()
+				paintChip(c); layoutMock(); if sp.imbue then RefreshSweepRows() end
 			end)
 			paintChip(c)
 			chips[#chips + 1] = c
@@ -3694,9 +3808,15 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 
 	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
 		get = function() return OPT().cdbarSweepStyle or "greys" end,
-		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify() end,
-		values = function() return { greys = "Vertical - grays out", fills = "Vertical - fills back in", radial = "Radial swipe" } end,
+		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify(); RefreshSweepRows() end,
+		values = function() return { greys = "Vertical - Grays Out", fills = "Vertical - Fills Back In", radial = "Radial Swipe" } end,
 		order = function() return { "greys", "fills", "radial" } end })
+	if OPT().cdbarShowColorSweep ~= false and ((OPT().cdbarSweepStyle or "greys") ~= "radial" or OPT().cdbarShowImbues ~= false) then
+		wrow("Dropdown", { label = "Sweep Direction", desc = "Where the gray (Grays Out) or color (Fills Back In) starts. With Radial Swipe, this only changes weapon imbues, which keep Vertical - Grays Out.",
+			get = function() return OPT().cdbarSweepDirection or (OPT().cdbarSweepStyle == "fills" and "bottom" or "top") end,
+			set = function(v) OPT().cdbarSweepDirection = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify() end,
+			values = function() return { top = "From The Top", bottom = "From The Bottom" } end, order = function() return { "top", "bottom" } end })
+	end
 	wrow("Dropdown", { label = "Progress bar position", get = function() return OPT().cdbarProgressPosition or "left" end,
 		set = function(v) SP.opt.cdbarProgressPosition = v; if not InCombatLockdown() then safecall("RecreateCooldownBar") end; notify(); layoutMock() end,
 		values = function() return { left = "Left", right = "Right", top = "Top (horizontal)", top_vert = "Top (vertical)", bottom = "Bottom (horizontal)", bottom_vert = "Bottom (vertical)", on_icon = "On the icon" } end,
@@ -3902,27 +4022,21 @@ function RenderStep()
 	-- Feature step: left card (title + description + controls) and a clipped
 	-- preview panel on the right.
 	local cardFrame = track(LeftCard(wiz.content))
+	wiz.sweepScroll = cardFrame.scroll
 	local card = cardFrame.body
 	local box = track(PreviewPanel(wiz.content))
 
-	-- The step's name on a gold band, as the settings' featured headings draw it
-	-- (Widgets SectionHeader, the Discord one): gold glow, gold title, gold rule.
-	local GR, GG, GB = 1, 0.82, 0.15
+	-- The step's name on the settings page header's band (D39 A), in the element of the settings
+	-- group its feature lives in, as the window around it
 	local band = card:CreateTexture(nil, "BACKGROUND")
 	band:SetPoint("TOPLEFT", card, "TOPLEFT", 10, -10)
 	band:SetPoint("BOTTOMRIGHT", card, "TOPRIGHT", -10, -52)
-	band:SetColorTexture(1, 1, 1, 1)
-	Core:Gradient(band, "HORIZONTAL", GR, GG, GB, 0.22, GR, GG, GB, 0)
 	local rule = card:CreateTexture(nil, "ARTWORK")
-	rule:SetHeight(2)
 	rule:SetPoint("TOPLEFT", band, "BOTTOMLEFT", 0, 0)
 	rule:SetPoint("TOPRIGHT", band, "BOTTOMRIGHT", 0, 0)
-	rule:SetColorTexture(GR, GG, GB, 0.9)
 	local title = card:CreateFontString(nil, "OVERLAY")
-	title:SetFontObject(Core.fonts.title)
 	title:SetPoint("LEFT", band, "LEFT", 8, 1)
-	title:SetTextColor(GR, GG, GB)
-	title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
+	Core:PageBanner({ host = card, glow = band, rule = rule, title = title, element = element, textX = 8 })   -- sets the title's font
 	title:SetText(s.title)
 	local desc = card:CreateFontString(nil, "OVERLAY")
 	desc:SetFontObject(Core.fonts.rowDim)
@@ -4181,23 +4295,16 @@ function SP.Wizard:RenderRole()
 	local c = wiz.content
 	local cw = c:GetWidth()
 
-	-- Banner in the What's New style: class icon, big gold title over a gold glow, gold rule.
+	-- The welcome banner (D39 A): the settings page header's band, the totem logo in front.
 	local band = track(CreateFrame("Frame", nil, c))
 	band:SetWidth(640); band:SetPoint("TOP", c, "TOP", 0, -30)
 	local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band); glow:SetColorTexture(1, 1, 1, 1)
-	Core:Gradient(glow, "HORIZONTAL", 1, 0.82, 0.15, 0.26, 1, 0.82, 0.15, 0)
-	local bandRule = band:CreateTexture(nil, "ARTWORK"); bandRule:SetHeight(2)
+	local bandRule = band:CreateTexture(nil, "ARTWORK")
 	bandRule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); bandRule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
-	bandRule:SetColorTexture(1, 0.82, 0.15, 0.9)
 	local bandIcon = band:CreateTexture(nil, "ARTWORK"); bandIcon:SetSize(44, 44)
 	bandIcon:SetPoint("TOPLEFT", band, "TOPLEFT", 8, -9); bandIcon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); bandIcon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
 	local intro = band:CreateFontString(nil, "OVERLAY")
-	-- the gold banner title (ui-style-guide 2.3 A) in the brand's SemiBold: the kit's
-	-- title face (Fira Sans, or the game's font on Chinese and Korean clients) at 26
-	intro:SetFont((Core.fonts.title:GetFont()), 26, "OUTLINE"); intro:SetTextColor(1, 0.82, 0.15)
-	intro:SetShadowColor(0, 0, 0, 1); intro:SetShadowOffset(2, -2)
 	intro:SetPoint("TOPLEFT", bandIcon, "TOPRIGHT", 12, 0)
-	intro:SetText("Welcome to ShamanPower")
 	local sub = band:CreateFontString(nil, "OVERLAY")
 	sub:SetFontObject(Core.fonts.row)
 	sub:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 1, -3)
@@ -4206,6 +4313,9 @@ function SP.Wizard:RenderRole()
 		or state.freshInstall
 		and "Pick your spec and we will walk you through the features that matter for it, showing each one live. You can change anything later."
 		or "Pick your spec and we will walk you through the features that matter for it, showing each one live. Your current settings are kept - nothing changes unless you change it here.")
+	Core:PageBanner({ host = band, glow = glow, rule = bandRule, title = intro, sub = sub, icon = bandIcon, element = "spirit",
+		big = true, textX = 64 })   -- sets the title's font
+	intro:SetText("Welcome to ShamanPower")
 	band:SetHeight(math.max(62, 9 + intro:GetStringHeight() + 3 + sub:GetStringHeight() + 12))
 
 	-- Not a shaman: a short, tailored run (no spec, no preset).
@@ -4356,7 +4466,12 @@ function SP.Wizard:RenderRole()
 			ic:SetPoint("TOPLEFT", rule, "BOTTOM", -listW / 2, y)
 			local tx = card:CreateFontString(nil, "OVERLAY"); tx:SetFontObject(Core.fonts.row)
 			tx:SetPoint("LEFT", ic, "RIGHT", 8, 0); tx:SetWidth(listW - 28); tx:SetJustifyH("LEFT"); tx:SetWordWrap(true)
-			tx:SetText(it[2]); tx:SetTextColor(Core:Color("text"))
+			local label = it[2]
+			if type(it[1]) == "number" and it[1] ~= 8512 then
+				if it[1] == 974 then label = SPCompat.SpellLabel(974, "Earth Shield") .. " tracker"
+				else label = SPCompat.SpellLabel(it[1], label) end
+			end
+			tx:SetText(label); tx:SetTextColor(Core:Color("text"))
 			y = y - math.max(20, tx:GetStringHeight()) - 7
 		end end
 

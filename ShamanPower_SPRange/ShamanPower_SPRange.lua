@@ -189,8 +189,38 @@ if not SPCompat.FOREVER then
 	end
 end
 
+-- Party Range is optional for this module. Keep its existing ranked buff
+-- families here too, so the ID fallback works when only Totem Range is loaded.
+-- Forever's Flametongue starts at 8230; 8215 belongs to Rapid Cast there.
+local BUFF_RANKS = {
+	[8076] = { 8076, 8162, 8163, 10441, 25362 },
+	[8072] = { 8072, 8156, 8157, 10403, 10404, 10405 },
+	[8230] = { 8230, 8250, 10521, 15036 },
+	[8182] = { 8182, 10476, 10477 },
+	[5677] = { 5677, 10491, 10493, 10494 },
+	[5672] = { 5672, 6371, 6372, 10460, 10461 },
+	[16191] = { 16191, 17355, 17360 },
+	[8185] = { 8185, 10534, 10535 },
+	[8836] = { 8836, 10626, 25360 },
+	[10596] = { 10596, 10598, 10599 },
+	[15108] = { 15108, 15109, 15110 },
+	[8515] = { 8515, 10609, 10612 },
+}
+
+-- TBC Anniversary's level-70 ranks (the buffs of 25528, 25508/25509, 25570, 25567,
+-- 25560, 25563, 25574 and 25577 in Anniversary's SpellName.db2): matched by ID too
+if not SPCompat.FOREVER then
+	for buff, ids in pairs({ [8076] = { 25527 }, [8072] = { 25506, 25507 }, [5677] = { 25569 }, [5672] = { 25566 },
+		[8182] = { 25559 }, [8185] = { 25562 }, [10596] = { 25573 }, [15108] = { 25576 } }) do
+		for _, id in ipairs(ids) do table.insert(BUFF_RANKS[buff], id) end
+	end
+end
+
 -- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
 for _, totem in ipairs(SP.TrackableTotems) do
+	-- Display the client's spell name; English keeps the existing compact labels.
+	totem.fallbackName = totem.name
+	totem.name = SPCompat.SpellLabel(totem.spellID, totem.name)
 	-- WoW: Forever made Windfury Totem a party buff (8515 / 10609 / 10612), not
 	-- TBC's weapon enchant: read it like any other totem buff there
 	if totem.id == "windfury" and SPCompat.FOREVER then
@@ -202,16 +232,46 @@ for _, totem in ipairs(SP.TrackableTotems) do
 		-- Forever reuses 8215 (TBC's Flametongue Totem buff) for "Rapid Cast"; the
 		-- aura party members carry there is the effect spell
 		if totem.id == "flametongue" and SPCompat.FOREVER then totem.buffSpellID = 8230 end
-		totem.buffName = GetSpellInfo(totem.buffSpellID)
+		totem.buffName = SPCompat.SpellName(totem.buffSpellID)
 	end
 	if SPCompat.FOREVER then
 		-- Build once, after client-specific ID overrides; nameless auras need
 		-- ID matching, while named entries retain the single native lookup.
-		totem.buffSpellIDs = totem.buffSpellIDs or { totem.buffSpellID }
+		totem.buffSpellIDs = totem.buffSpellIDs
+			or (SP.TotemBuffRanks and (SP.TotemBuffRanks[totem.buffSpellID] or SP.TotemBuffRanks[totem.spellID]))
+			or BUFF_RANKS[totem.buffSpellID] or { totem.buffSpellID }
 		totem.buffSpellIDSet = {}
 		for _, spellID in ipairs(totem.buffSpellIDs) do totem.buffSpellIDSet[spellID] = true end
 	end
 end
+
+-- Some translated ranks use a different name from rank one. Resolve those
+-- aliases outside range updates, reusing each family's tables on spell changes.
+-- English retains the original one-name query and its spell API count.
+local buffAliases, buffAliasSets = {}, {}
+local buffAliasGeneration = -1
+local function RefreshBuffAliases()
+	if buffAliasGeneration == SPCompat.SpellDataGeneration then return end
+	buffAliasGeneration = SPCompat.SpellDataGeneration
+	for name in pairs(buffAliases) do buffAliases[name] = nil end
+	for name in pairs(buffAliasSets) do buffAliasSets[name] = nil end
+	local locale = GetLocale and GetLocale()
+	if not locale or locale == "enUS" or locale == "enGB" then return end
+	for _, totem in ipairs(SP.TrackableTotems) do
+		local ranks = totem.buffSpellIDs or BUFF_RANKS[totem.buffSpellID]
+		if ranks then
+			totem.buffName = SPCompat.SpellName(totem.buffSpellID)
+			local names, nameSet = SPCompat.AuraFamilyNames(ranks)
+			if totem.buffName and names and #names > 1 then
+				buffAliases[totem.buffName], buffAliasSets[totem.buffName] = names, nameSet
+			end
+		end
+	end
+end
+RefreshBuffAliases()
+SPCompat.OnSpellDataChanged(function()
+	if SP.spRangeFrame and SP.spRangeFrame:IsShown() and not SP:IsOff() then RefreshBuffAliases() end
+end)
 
 -- Only totems this client has. WoW: Forever has no Totem of Wrath and no Wrath
 -- of Air; a tracked totem the client lacks would sit at MISSING forever.
@@ -312,7 +372,19 @@ local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
 		if not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then return false end
 		local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buffName, "HELPFUL")
 		-- The native lookup already selected the name; do not inspect secret fields.
-		return not issecretvalue(aura) and aura ~= nil
+		if issecretvalue(aura) then return false end
+		if aura ~= nil then return true end
+		local aliases = buffAliases[buffName]
+		if aliases then
+			for index = 1, #aliases do
+				if aliases[index] ~= buffName then
+					aura = C_UnitAuras.GetAuraDataBySpellName(unit, aliases[index], "HELPFUL")
+					if issecretvalue(aura) then return false end
+					if aura ~= nil then return true end
+				end
+			end
+		end
+		return false
 	end
 	if not (buffSpellIDSet and C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return false end
 	-- Tranquil Air's name is encrypted. Only public IDs from readable auras
@@ -328,6 +400,7 @@ local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
 end
 
 function SP:SPRangeHasBuff(buffName, buffSpellIDSet)
+	if issecretvalue(buffName) then return false end
 	if SPCompat.FOREVER then
 		return MainlineHasNamedBuff("player", buffName, buffSpellIDSet)
 	end
@@ -335,8 +408,9 @@ function SP:SPRangeHasBuff(buffName, buffSpellIDSet)
 
 	for i = 1, 32 do
 		local name = UnitBuff("player", i)
+		if issecretvalue(name) then return false end
 		if not name then break end
-		if name == buffName then return true end
+		if name == buffName or (buffAliasSets[buffName] and buffAliasSets[buffName][name]) then return true end
 	end
 	return false
 end
@@ -384,7 +458,8 @@ end
 function SP:SPRangeOwnTotemInRange(totemData)
 	if not self.TotemDropInRange or not self.GetElementTotemInfo then return nil end
 	local have, name = self:GetElementTotemInfo(totemData.element)
-	if not have or type(name) ~= "string" or not name:find(totemData.name, 1, true) then return nil end
+	if issecretvalue(have) or issecretvalue(name) or not have or type(name) ~= "string" then return nil end
+	if not SPCompat.TotemNameMatches(name, totemData.spellID, totemData.fallbackName) then return nil end
 	return self:TotemDropInRange(totemData.element)
 end
 
@@ -663,6 +738,7 @@ end
 -- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
 local rangePartyUnits = { "party1", "party2", "party3", "party4" }
 function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
+	if issecretvalue(buffName) then return false end
 	if SPCompat.FOREVER then
 		if MainlineHasNamedBuff("player", buffName, buffSpellIDSet) then return true end
 		if IsInGroup() then
@@ -679,8 +755,9 @@ function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
 	-- Check player first
 	for i = 1, 32 do
 		local name = UnitBuff("player", i)
+		if issecretvalue(name) then return false end
 		if not name then break end
-		if name == buffName then return true end
+		if name == buffName or (buffAliasSets[buffName] and buffAliasSets[buffName][name]) then return true end
 	end
 
 	-- Check party/subgroup members (party1-4 works in both party and raid)
@@ -690,8 +767,9 @@ function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
 			if UnitExists(unit) then
 				for j = 1, 32 do
 					local name = UnitBuff(unit, j)
+					if issecretvalue(name) then break end
 					if not name then break end
-					if name == buffName then return true end
+					if name == buffName or (buffAliasSets[buffName] and buffAliasSets[buffName][name]) then return true end
 				end
 			end
 		end
@@ -1164,6 +1242,8 @@ function SP:SPRangeAllowedHere()
 end
 
 function SP:ShowSPRangeOverlay()
+	-- Hidden/off modules leave spell changes pending until this active boundary.
+	RefreshBuffAliases()
 	local pos = ShamanPower_RangeTracker.position
 	if pos then
 		self.spRangeFrame:ClearAllPoints()

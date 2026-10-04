@@ -340,7 +340,7 @@ function SP:CueTotemUpdate()
 		if have then clearMark(element) end
 		if wanted and not secret and p.active and not have then
 			-- Fire Nova Totem (Anniversary) removes itself when it goes off, ahead of its time
-			local selfEnding = type(p.name) == "string" and p.name:find("Fire Nova", 1, true)
+			local selfEnding = SPCompat.TotemNameMatches(p.name, 1535, "Fire Nova Totem")
 			if selfEnding or (type(p.duration) == "number" and p.duration > 0 and now - p.start >= p.duration - 0.5) then
 				self:TotemEndCue(element, "expired")
 			else

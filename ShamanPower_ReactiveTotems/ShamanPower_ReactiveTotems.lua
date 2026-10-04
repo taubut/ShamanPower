@@ -64,6 +64,9 @@ SP.ReactiveTotems = {
 		defaultPos = { point = "CENTER", x = 80, y = 150 },
 	},
 }
+for _, data in pairs(SP.ReactiveTotems) do
+	data.totemName = SPCompat.SpellLabel(data.totemSpellID, data.totemName)
+end
 
 -- Theme (General > Themes, spot mod.reactive): each alert's colour table above
 -- is bound to the element of the totem that answers it (Tremor = Earth, the
@@ -77,19 +80,29 @@ if SP.ThemeBind then
 	end
 end
 
--- Known fear/charm spell names
-SP.FearSpellNames = {
-	["Fear"] = true,
-	["Howl of Terror"] = true,
-	["Death Coil"] = true,
-	["Seduction"] = true,
-	["Intimidating Shout"] = true,
-	["Psychic Scream"] = true,
-	["Bellowing Roar"] = true,
-	["Terrifying Screech"] = true,
-	["Ancient Hysteria"] = true,
-	["Intimidating Roar"] = true,
+-- Existing fear/charm list, by spell ID. The bundled duration library provides
+-- player spell ranks; localized-name matching also covers other NPC variants.
+SP.FearSpells = {
+	{ 5782, "Fear" }, { 6213, "Fear" }, { 6215, "Fear" },
+	{ 5484, "Howl of Terror" }, { 17928, "Howl of Terror" },
+	{ 6789, "Death Coil" }, { 17925, "Death Coil" }, { 17926, "Death Coil" },
+	{ 6358, "Seduction" },
+	{ 5246, "Intimidating Shout" }, { 20511, "Intimidating Shout" },
+	{ 8122, "Psychic Scream" }, { 8124, "Psychic Scream" }, { 10888, "Psychic Scream" }, { 10890, "Psychic Scream" },
+	-- The Forever spell catalog does not include 18431; retain the old English
+	-- match when a client cannot resolve it, and recognize its named variants.
+	{ 18431, "Bellowing Roar" }, { 22686, "Bellowing Roar" },
+	{ 445498, "Bellowing Roar" }, { 1214028, "Bellowing Roar" },
+	{ 6605, "Terrifying Screech" }, { 19372, "Ancient Hysteria" }, { 16508, "Intimidating Roar" },
 }
+SP.FearSpellNames = {}
+SP.FearSpellIDSet = {}
+for _, spell in ipairs(SP.FearSpells) do
+	local id = spell[1]
+	SP.FearSpellIDSet[id] = true
+	local name = SPCompat.SpellName(id, spell[2])
+	if name then SP.FearSpellNames[name] = true end
+end
 
 -- ============================================================================
 -- Default Settings
@@ -416,8 +429,9 @@ end
 -- Debuff Detection
 -- ============================================================================
 
-function SP:IsKnownFearDebuff(debuffName)
-	if not debuffName then return false end
+function SP:IsKnownFearDebuff(debuffName, spellID)
+	if not issecretvalue(spellID) and spellID and self.FearSpellIDSet[spellID] then return true end
+	if issecretvalue(debuffName) or not debuffName then return false end
 	return self.FearSpellNames[debuffName] or false
 end
 
@@ -449,13 +463,14 @@ function SP:ScanForReactiveDebuffs()
 	for _, unit in ipairs(SCAN_UNITS) do
 		if UnitExists(unit) and not UnitIsDeadOrGhost(unit) then
 			for i = 1, 40 do
-				local name, icon, count, debuffType = UnitDebuff(unit, i)
+				local name, icon, count, debuffType, _, _, _, _, _, spellID = UnitDebuff(unit, i)
+				if issecretvalue(name) or issecretvalue(spellID) or issecretvalue(debuffType) then break end
 				if not name then break end
 
 				-- Fear/Charm
 				if sv.trackFear and not found.fear then
 					if debuffType == "Fear" or debuffType == "Charm" or debuffType == "Horrify"
-						or self:IsKnownFearDebuff(name) then
+						or self:IsKnownFearDebuff(name, spellID) then
 						found.fear = Hit("fear", name, icon, unit)
 					end
 				end
@@ -549,7 +564,8 @@ function SP:UpdateReactiveTotemDisplay()
 			local element = totemData.totemElement
 			if element then
 				local haveTotem, totemName = ElementTotemInfo(element)
-				if haveTotem and totemName and totemName:find(totemData.totemName, 1, true) then
+				if not issecretvalue(haveTotem) and not issecretvalue(totemName) and haveTotem
+					and SPCompat.TotemNameMatches(totemName, totemData.totemSpellID, totemData.totemName) then
 					debuffData = nil
 				end
 			end
@@ -647,7 +663,8 @@ local function ReactiveShouldShow(totemId)
 	if sv.hideWhenTotemActive then
 		local data = SP.ReactiveTotems[totemId]
 		local haveTotem, totemName = ElementTotemInfo(data.totemElement)
-		if haveTotem and type(totemName) == "string" and not issecretvalue(totemName) and totemName:find(data.totemName, 1, true) then
+		if not issecretvalue(haveTotem) and not issecretvalue(totemName) and haveTotem
+			and SPCompat.TotemNameMatches(totemName, data.totemSpellID, data.totemName) then
 			return false
 		end
 	end
@@ -1143,7 +1160,7 @@ function SP:HideAllReactiveFrames()
 		-- Restore click-to-cast if enabled
 		if sv.clickToCast then
 			frame:SetAttribute("type1", "spell")
-			frame:SetAttribute("spell1", frame.totemData.totemName)
+			frame:SetAttribute("spell1", SPCompat.SpellName(frame.totemData.totemSpellID) or frame.totemData.totemSpellID)
 		end
 	end
 

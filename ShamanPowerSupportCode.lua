@@ -71,10 +71,10 @@ SP.SUPPORT_MODULE_DEFAULTS = SP.SUPPORT_MODULE_DEFAULTS or {}
 -- (announce, readyCheck): those files add [profile key] = their defaults here.
 SP.SUPPORT_PROFILE_DEFAULTS = SP.SUPPORT_PROFILE_DEFAULTS or {}
 local MODULE_SVARS = { "ShamanPowerExpiringAlertsDB", "ShamanPower_ReadyReminders", "ShamanPower_ReactiveTotems",
-	"ShamanPowerTremorReminderDB", "ShamanPower_RangeTracker" }
+	"ShamanPowerTremorReminderDB", "ShamanPower_RangeTracker", "ShamanPower_TargetTracker" }
 local MODULES = { "ShamanPower_Config", "ShamanPower_ESTracker", "ShamanPower_ExpiringAlerts", "ShamanPower_PartyRange",
 	"ShamanPower_RaidCooldowns", "ShamanPower_ReactiveTotems", "ShamanPower_ReadyReminders", "ShamanPower_ShieldCharges",
-	"ShamanPower_SPRange", "ShamanPower_TotemPlates", "ShamanPower_TremorReminder" }
+	"ShamanPower_SPRange", "ShamanPower_TargetTracker", "ShamanPower_TotemPlates", "ShamanPower_TremorReminder" }
 -- each module's own SavedVariables (the core's are checked by its save stamp instead)
 -- (not the Earth Shield Tracker's: it moved into the profile and clears its old one)
 local MODULE_SV_OF = {
@@ -82,6 +82,7 @@ local MODULE_SV_OF = {
 	ShamanPower_RaidCooldowns = { "ShamanPower_RaidCooldowns" }, ShamanPower_ReactiveTotems = { "ShamanPower_ReactiveTotems" },
 	ShamanPower_ReadyReminders = { "ShamanPower_ReadyReminders" }, ShamanPower_SPRange = { "ShamanPower_RangeTracker" },
 	ShamanPower_TremorReminder = { "ShamanPowerTremorReminderDB" },
+	ShamanPower_TargetTracker = { "ShamanPower_TargetTracker" },
 }
 
 -- ---------------------------------------------------------------------------

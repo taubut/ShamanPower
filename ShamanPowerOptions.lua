@@ -79,6 +79,7 @@ local function GetTotemValues(element)
 		local values = { [0] = "None" }
 		for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
 			if not mainline or ShamanPower:TotemExistsOnClient(element, idx) then
+				name = ShamanPower:GetTotemName(element, idx)
 				local learned = not ShamanPower.KnowsTotem or ShamanPower:KnowsTotem(element, idx)
 				values[idx] = learned and name or (name .. " |cff888888(not learned)|r")
 			end
@@ -1106,18 +1107,21 @@ ShamanPower.options = {
 							end
 						},
 						-- the window motion of 3.0.6 (ShamanPower:UIAnimationsOn); the HUD's own
-						-- effects (Ready Reminders, totem bar Effects, alerts) are not part of it
+						-- effects (Ready Reminders, totem bar Effects, alerts) are not part of it.
+						-- Hidden here: its switch sits in the settings sidebar under Keybind Mode
+						-- (Window.lua's SIDEBAR_ACTIONS), which reads this option's get and set
 						uiAnimations = {
-							order = 6,
+							order = 1.6,
 							name = "UI Animations",
-							desc = "Animate the settings window, Unlock UI and Tuck Away. Turn this off to make them open, close and move instantly. Ready Reminders, Totem Bar effects and alerts keep their animations.",
+							desc = "Off to start. On: the settings window drops in and flies away, Unlock UI's boxes rise into place, and Tuck Away glides. Off: they open, close and move at once. Ready Reminders, Totem Bar effects and alerts keep their own animations either way.",
 							type = "toggle",
-							width = 1.0,
+							width = "full",
+							hidden = true,
 							get = function()
 								return ShamanPower:UIAnimationsOn()
 							end,
 							set = function(_, val)
-								if val then ShamanPower.opt.noUIAnimations = nil else ShamanPower.opt.noUIAnimations = true end
+								ShamanPower.opt.uiAnimations = val and true or nil
 							end
 						},
 					}
@@ -3538,6 +3542,37 @@ ShamanPower.options = {
 							type = "description",
 							name = "Customize how cooldowns and durations are displayed on the cooldown bar.",
 						},
+						cdbar_own_style = {
+							order = 0.5,
+							type = "toggle",
+							name = "Do Not Mirror Totem Bar Style",
+							desc = "Off: the shield and weapon imbue buttons work the way your totem bar style does (Totem Bar Style on General > Main). On: they use the style you pick below, whatever the totem bar uses.",
+							width = "full",
+							get = function(info) return ShamanPower.opt.cdbarOwnStyle == true end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarOwnStyle = val and true or nil
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
+							end,
+						},
+						cdbar_style = {
+							order = 0.6,
+							type = "select",
+							name = "Cooldown Bar Style",
+							desc = "Normal: the button is the one you assigned, lit only while it is up; another one that is up shows beside it, and yours grays out.\n\nTotemTimers Style: the button is the one that is up, with your assigned one in its corner.\n\nSingle Totem: the one that is up, without the corner.\n\nDynamic (PvP): the one that is up, and casting another one makes it your assigned one.\n\nGrid: your assigned one on the button, and every choice laid out beside it (no flyout): your assigned one edged in gold, the one that is up in green.",
+							width = 1.4,
+							hidden = function(info) return ShamanPower.opt.cdbarOwnStyle ~= true end,
+							values = { normal = "Normal", totemtimers = "TotemTimers Style", single = "Single Totem", dynamic = "Dynamic (PvP)", grid = "Grid (every choice)" },
+							sorting = { "normal", "totemtimers", "single", "dynamic", "grid" },
+							get = function(info)
+								local v = ShamanPower.opt.cdbarStyle
+								if v == "normal" or v == "totemtimers" or v == "single" or v == "dynamic" or v == "grid" then return v end
+								return "normal"
+							end,
+							set = function(info, val)
+								ShamanPower.opt.cdbarStyle = val
+								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
+							end,
+						},
 						cdbar_show_progress_bars = {
 							order = 1,
 							type = "toggle",
@@ -3570,12 +3605,12 @@ ShamanPower.options = {
 							order = 2.5,
 							type = "select",
 							name = "Sweep Style",
-							desc = "Grays out: the gray grows down from the top as time runs out. Fills back in: the icon starts gray and the color returns as time runs down. Radial: the classic clock swipe (shields and cooldowns; weapon imbues keep the vertical sweep).",
+							desc = "Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and its color comes back as time runs out. Radial: the classic clock swipe (shields and cooldowns; weapon imbues keep Vertical - Grays Out).",
 							width = 1.2,
 							values = {
-								["greys"] = "Vertical - grays out",
-								["fills"] = "Vertical - fills back in",
-								["radial"] = "Radial swipe",
+								["greys"] = "Vertical - Grays Out",
+								["fills"] = "Vertical - Fills Back In",
+								["radial"] = "Radial Swipe",
 							},
 							disabled = function()
 								return ShamanPower.opt.cdbarShowColorSweep == false
@@ -3588,6 +3623,27 @@ ShamanPower.options = {
 								ShamanPower:UpdateCooldownBar()
 								if ShamanPower.RebuildShieldChargeContainer then ShamanPower:RebuildShieldChargeContainer() end   -- the engine-drawn shield display reads these once, when built
 							end
+						},
+						cdbar_sweep_direction = {
+							order = 2.6,
+							type = "select",
+							name = "Sweep Direction",
+							desc = "Where the gray (Grays Out) or color (Fills Back In) starts. With Radial Swipe, this only changes weapon imbues, which keep Vertical - Grays Out.",
+							width = 1.2,
+							values = { top = "From The Top", bottom = "From The Bottom" },
+							sorting = { "top", "bottom" },
+							hidden = function()
+								return ShamanPower.opt.cdbarShowColorSweep == false
+									or ((ShamanPower.opt.cdbarSweepStyle or "greys") == "radial" and ShamanPower.opt.cdbarShowImbues == false)
+							end,
+							get = function()
+								return ShamanPower.opt.cdbarSweepDirection or (ShamanPower.opt.cdbarSweepStyle == "fills" and "bottom" or "top")
+							end,
+							set = function(_, val)
+								ShamanPower.opt.cdbarSweepDirection = val
+								ShamanPower:UpdateCooldownBar()
+								if ShamanPower.RebuildShieldChargeContainer then ShamanPower:RebuildShieldChargeContainer() end
+							end,
 						},
 						cdbar_show_cd_text = {
 							order = 3,
@@ -4036,6 +4092,8 @@ ShamanPower.options = {
 							type = "description",
 							name = "|cff888888Must have Dialog sound at 100% for this slider to work.|r",
 							width = "full",
+							-- WoW: Forever plays this built-in sound at its own volume, without Dialog
+							hidden = function() return SPCompat.FOREVER end,
 						},
 						raidCDShowButtonAnimation = {
 							order = 6,
@@ -6970,7 +7028,7 @@ ShamanPower.options = {
 						alerts_shields_lightning = {
 							disabled = function(info) return (not (ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields and ShamanPowerExpiringAlertsDB.shields.enabled ~= false)) and true or false end,
 							order = 12,
-							name = "Lightning Shield",
+							name = SPCompat.SpellLabel(324, "Lightning Shield"),
 							desc = "Alert when Lightning Shield fades",
 							type = "toggle",
 							width = 1.0,
@@ -6990,7 +7048,7 @@ ShamanPower.options = {
 						alerts_shields_water = {
 							disabled = function(info) return (not (ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields and ShamanPowerExpiringAlertsDB.shields.enabled ~= false)) and true or false end,
 							order = 13,
-							name = "Water Shield",
+							name = SPCompat.SpellLabel(SPCompat.FOREVER and 408510 or 24398, "Water Shield"),
 							desc = "Alert when Water Shield fades",
 							type = "toggle",
 							width = 1.0,
@@ -7011,7 +7069,7 @@ ShamanPower.options = {
 							disabled = function(info) return (not (ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.shields and ShamanPowerExpiringAlertsDB.shields.enabled ~= false)) and true or false end,
 							hidden = function(info) return (SPCompat and SPCompat.earthShieldExists == false) and true or false end,
 							order = 14,
-							name = "Earth Shield (on target)",
+							name = SPCompat.SpellLabel(974, "Earth Shield") .. " (on target)",
 							desc = "Alert when Earth Shield fades on your assigned target",
 							type = "toggle",
 							width = 1.0,
@@ -7529,12 +7587,18 @@ ShamanPower.options = {
 						tremor_desc = {
 							order = 0,
 							type = "description",
-							name = "Remind you to drop Tremor Totem when targeting mobs that cast fear, before anyone gets feared.\n\nTurn on |cff00ff00ShamanPower [Tremor Reminder]|r in the AddOns list to use this feature.\n",
+							name = function()
+								local text = "Remind you to drop Tremor Totem when targeting mobs that cast fear, before anyone gets feared. A boss fight with fear, charm or sleep brings it up at the pull too, even if you haven't targeted the boss."
+								if SPCompat.FOREVER then
+									text = text .. "\n\nInside dungeons and raids, WoW: Forever hides mob names, so there only boss fights bring it up."
+								end
+								return text .. "\n\nTurn on |cff00ff00ShamanPower [Tremor Reminder]|r in the AddOns list to use this feature.\n"
+							end,
 						},
 						tremor_enabled = {
 							order = 1,
 							name = "Enable Tremor Reminder",
-							desc = "Show reminder when targeting known fear-casting mobs",
+							desc = "Show the reminder when you target a known fear-casting mob, or when a boss fight that fears starts",
 							type = "toggle",
 							width = "full",
 							get = function(info)
@@ -7547,6 +7611,7 @@ ShamanPower.options = {
 								if ShamanPowerTremorReminderDB then
 									ShamanPowerTremorReminderDB.enabled = val
 								end
+								if ShamanPower.TremorReminderRecheck then ShamanPower:TremorReminderRecheck() end
 							end
 						},
 						tremor_hide_when_active = {
@@ -7565,6 +7630,7 @@ ShamanPower.options = {
 								if ShamanPowerTremorReminderDB then
 									ShamanPowerTremorReminderDB.hideWhenTremorActive = val
 								end
+								if ShamanPower.TremorReminderRecheck then ShamanPower:TremorReminderRecheck() end
 							end
 						},
 						tremor_use_defaults = {
@@ -7572,9 +7638,9 @@ ShamanPower.options = {
 							name = "Use Default Mob List",
 							desc = function()
 								if SPCompat.FOREVER then
-									return "Include the built-in list of fear-casting dungeon and raid mobs"
+									return "Include the built-in list of fear-casting mobs and bosses (dungeons, raids and the open world)"
 								end
-								return "Include the built-in list of TBC fear-casting mobs"
+								return "Include the built-in list of TBC fear-casting mobs and bosses"
 							end,
 							type = "toggle",
 							width = "full",
@@ -7588,6 +7654,7 @@ ShamanPower.options = {
 								if ShamanPowerTremorReminderDB then
 									ShamanPowerTremorReminderDB.useDefaultList = val
 								end
+								if ShamanPower.TremorReminderRecheck then ShamanPower:TremorReminderRecheck() end
 							end
 						},
 						tremor_display_mode = {
@@ -8338,12 +8405,12 @@ ShamanPower.options = {
 							order = 3.75,
 							type = "select",
 							name = "Cooldown Style",
-							desc = "How a totem's spell cooldown is drawn on its button: the classic radial swipe, or the vertical gray sweep the cooldown bar uses.",
+							desc = "How a totem's spell cooldown is drawn. Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and its color comes back as time runs out. Radial: the classic clock swipe.",
 							width = 1.0,
 							values = {
 								["radial"] = "Radial Swipe",
-								["vertical"] = "Vertical Sweep (grays out)",
-								["reverse"] = "Vertical Sweep (fills back in)",
+								["vertical"] = "Vertical - Grays Out",
+								["reverse"] = "Vertical - Fills Back In",
 							},
 							disabled = function()
 								return ShamanPower.opt.showTotemCooldowns == false
@@ -8355,6 +8422,25 @@ ShamanPower.options = {
 								ShamanPower.opt.totemCooldownSweep = val
 								ShamanPower:UpdateTotemCooldowns()
 							end
+						},
+						totem_cooldown_direction = {
+							order = 3.755,
+							type = "select",
+							name = "Sweep Direction",
+							desc = "Where the gray (Grays Out) or color (Fills Back In) starts: From The Top or From The Bottom.",
+							width = 1.0,
+							values = { top = "From The Top", bottom = "From The Bottom" },
+							sorting = { "top", "bottom" },
+							hidden = function()
+								return ShamanPower.opt.showTotemCooldowns == false or (ShamanPower.opt.totemCooldownSweep or "radial") == "radial"
+							end,
+							get = function()
+								return ShamanPower.opt.totemCooldownSweepDirection or (ShamanPower.opt.totemCooldownSweep == "reverse" and "bottom" or "top")
+							end,
+							set = function(_, val)
+								ShamanPower.opt.totemCooldownSweepDirection = val
+								ShamanPower:UpdateTotemCooldowns()
+							end,
 						},
 						totem_cooldown_edge = {
 							order = 3.76,
@@ -8732,7 +8818,7 @@ ShamanPower.options = {
 						cdbar_show_reincarnation = {
 							order = 4,
 							type = "toggle",
-							name = "Reincarnation (Ankh)",
+							name = SPCompat.SpellLabel(20608, "Reincarnation") .. " (Ankh)",
 							desc = "Show Reincarnation cooldown on cooldown bar",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(3) end,
@@ -8747,7 +8833,7 @@ ShamanPower.options = {
 						cdbar_show_ns = {
 							order = 5,
 							type = "toggle",
-							name = "Nature's Swiftness",
+							name = SPCompat.SpellLabel(16188, "Nature's Swiftness"),
 							desc = "Show Nature's Swiftness cooldown on cooldown bar",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(4) end,
@@ -8762,7 +8848,7 @@ ShamanPower.options = {
 						cdbar_show_manatide = {
 							order = 6,
 							type = "toggle",
-							name = "Mana Tide Totem",
+							name = SPCompat.SpellLabel(16190, "Mana Tide Totem"),
 							desc = "Show Mana Tide Totem cooldown on cooldown bar",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(5) end,
@@ -8777,7 +8863,7 @@ ShamanPower.options = {
 						cdbar_show_shamanistic_rage = {
 							order = 7,
 							type = "toggle",
-							name = "Shamanistic Rage",
+							name = SPCompat.SpellLabel(30823, "Shamanistic Rage"),
 							desc = "Show Shamanistic Rage cooldown on cooldown bar (Enhancement talent)",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(8) end,
@@ -8792,7 +8878,7 @@ ShamanPower.options = {
 						cdbar_show_bloodlust = {
 							order = 8,
 							type = "toggle",
-							name = "Bloodlust / Heroism",
+							name = SPCompat.SpellLabel(2825, "Bloodlust") .. " / " .. SPCompat.SpellLabel(32182, "Heroism"),
 							desc = "Show Bloodlust/Heroism cooldown on cooldown bar",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(6) end,
@@ -8822,7 +8908,7 @@ ShamanPower.options = {
 						cdbar_show_elemental_mastery = {
 							order = 10,
 							type = "toggle",
-							name = "Elemental Mastery",
+							name = SPCompat.SpellLabel(16166, "Elemental Mastery"),
 							desc = "Show Elemental Mastery cooldown on cooldown bar (Elemental talent)",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(9) end,
@@ -8838,7 +8924,7 @@ ShamanPower.options = {
 						cdbar_show_rage_of_the_farseer = {
 							order = 10.1,
 							type = "toggle",
-							name = "Rage of the Farseer",
+							name = SPCompat.SpellLabel(425336, "Rage of the Farseer"),
 							desc = "Show the Rage of the Farseer cooldown on the cooldown bar (Enhancement capstone talent, WoW: Forever)",
 							width = "full",
 							hidden = function() return not ShamanPower.opt.showCooldownBar or not SPCompat.SpellExists(425336) end,
@@ -8853,7 +8939,7 @@ ShamanPower.options = {
 						cdbar_show_totemic_projection = {
 							order = 10.2,
 							type = "toggle",
-							name = "Totemic Projection",
+							name = SPCompat.SpellLabel(437009, "Totemic Projection"),
 							desc = "Show the Totemic Projection cooldown on the cooldown bar (WoW: Forever)",
 							width = "full",
 							hidden = function() return not ShamanPower.opt.showCooldownBar or not SPCompat.SpellExists(437009) end,
@@ -8958,7 +9044,7 @@ ShamanPower.options = {
 						earth_strength = {
 							order = 1.1,
 							type = "toggle",
-							name = "Strength of Earth",
+							name = SPCompat.SpellLabel(8075, "Strength of Earth"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_1 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[1]) end,   -- totem not in this client's data
@@ -8971,7 +9057,7 @@ ShamanPower.options = {
 						earth_stoneskin = {
 							order = 1.2,
 							type = "toggle",
-							name = "Stoneskin",
+							name = SPCompat.SpellLabel(8071, "Stoneskin"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_2 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[2]) end,   -- totem not in this client's data
@@ -8984,7 +9070,7 @@ ShamanPower.options = {
 						earth_tremor = {
 							order = 1.3,
 							type = "toggle",
-							name = "Tremor",
+							name = SPCompat.SpellLabel(8143, "Tremor"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_3 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[3]) end,   -- totem not in this client's data
@@ -8997,7 +9083,7 @@ ShamanPower.options = {
 						earth_earthbind = {
 							order = 1.4,
 							type = "toggle",
-							name = "Earthbind",
+							name = SPCompat.SpellLabel(2484, "Earthbind"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_4 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[4]) end,   -- totem not in this client's data
@@ -9010,7 +9096,7 @@ ShamanPower.options = {
 						earth_stoneclaw = {
 							order = 1.5,
 							type = "toggle",
-							name = "Stoneclaw",
+							name = SPCompat.SpellLabel(5730, "Stoneclaw"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_5 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[5]) end,   -- totem not in this client's data
@@ -9023,7 +9109,7 @@ ShamanPower.options = {
 						earth_elemental = {
 							order = 1.6,
 							type = "toggle",
-							name = "Earth Elemental",
+							name = SPCompat.SpellLabel(2062, "Earth Elemental"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.earth_6 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.EarthTotems[6]) end,   -- totem not in this client's data
@@ -9042,7 +9128,7 @@ ShamanPower.options = {
 						fire_wrath = {
 							order = 2.1,
 							type = "toggle",
-							name = "Totem of Wrath",
+							name = SPCompat.SpellLabel(30706, "Totem of Wrath"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_1 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[1]) end,   -- totem not in this client's data
@@ -9055,7 +9141,7 @@ ShamanPower.options = {
 						fire_searing = {
 							order = 2.2,
 							type = "toggle",
-							name = "Searing",
+							name = SPCompat.SpellLabel(3599, "Searing"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_2 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[2]) end,   -- totem not in this client's data
@@ -9068,7 +9154,7 @@ ShamanPower.options = {
 						fire_magma = {
 							order = 2.3,
 							type = "toggle",
-							name = "Magma",
+							name = SPCompat.SpellLabel(8190, "Magma"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_3 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[3]) end,   -- totem not in this client's data
@@ -9081,7 +9167,7 @@ ShamanPower.options = {
 						fire_nova = {
 							order = 2.4,
 							type = "toggle",
-							name = "Fire Nova",
+							name = SPCompat.SpellLabel(1535, "Fire Nova"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_4 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[4]) end,   -- totem not in this client's data
@@ -9094,7 +9180,7 @@ ShamanPower.options = {
 						fire_flametongue = {
 							order = 2.5,
 							type = "toggle",
-							name = "Flametongue",
+							name = SPCompat.SpellLabel(8227, "Flametongue"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_5 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[5]) end,   -- totem not in this client's data
@@ -9107,7 +9193,7 @@ ShamanPower.options = {
 						fire_frostres = {
 							order = 2.6,
 							type = "toggle",
-							name = "Frost Resistance",
+							name = SPCompat.SpellLabel(8181, "Frost Resistance"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_6 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[6]) end,   -- totem not in this client's data
@@ -9120,7 +9206,7 @@ ShamanPower.options = {
 						fire_elemental = {
 							order = 2.7,
 							type = "toggle",
-							name = "Fire Elemental",
+							name = SPCompat.SpellLabel(2894, "Fire Elemental"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.fire_7 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.FireTotems[7]) end,   -- totem not in this client's data
@@ -9139,7 +9225,7 @@ ShamanPower.options = {
 						water_manaspring = {
 							order = 3.1,
 							type = "toggle",
-							name = "Mana Spring",
+							name = SPCompat.SpellLabel(5675, "Mana Spring"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_1 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[1]) end,   -- totem not in this client's data
@@ -9152,7 +9238,7 @@ ShamanPower.options = {
 						water_healingstream = {
 							order = 3.2,
 							type = "toggle",
-							name = "Healing Stream",
+							name = SPCompat.SpellLabel(5394, "Healing Stream"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_2 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[2]) end,   -- totem not in this client's data
@@ -9165,7 +9251,7 @@ ShamanPower.options = {
 						water_manatide = {
 							order = 3.3,
 							type = "toggle",
-							name = "Mana Tide",
+							name = SPCompat.SpellLabel(16190, "Mana Tide"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_3 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[3]) end,   -- totem not in this client's data
@@ -9178,7 +9264,7 @@ ShamanPower.options = {
 						water_poison = {
 							order = 3.4,
 							type = "toggle",
-							name = "Poison Cleansing",
+							name = SPCompat.SpellLabel(8166, "Poison Cleansing"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_4 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[4]) end,   -- totem not in this client's data
@@ -9191,7 +9277,7 @@ ShamanPower.options = {
 						water_disease = {
 							order = 3.5,
 							type = "toggle",
-							name = "Disease Cleansing",
+							name = SPCompat.SpellLabel(8170, "Disease Cleansing"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_5 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[5]) end,   -- totem not in this client's data
@@ -9204,7 +9290,7 @@ ShamanPower.options = {
 						water_fireres = {
 							order = 3.6,
 							type = "toggle",
-							name = "Fire Resistance",
+							name = SPCompat.SpellLabel(8184, "Fire Resistance"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.water_6 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.WaterTotems[6]) end,   -- totem not in this client's data
@@ -9223,7 +9309,7 @@ ShamanPower.options = {
 						air_windfury = {
 							order = 4.1,
 							type = "toggle",
-							name = "Windfury",
+							name = SPCompat.SpellLabel(8512, "Windfury"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_1 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[1]) end,   -- totem not in this client's data
@@ -9236,7 +9322,7 @@ ShamanPower.options = {
 						air_graceofair = {
 							order = 4.2,
 							type = "toggle",
-							name = "Grace of Air",
+							name = SPCompat.SpellLabel(8835, "Grace of Air"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_2 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[2]) end,   -- totem not in this client's data
@@ -9249,7 +9335,7 @@ ShamanPower.options = {
 						air_wrathofair = {
 							order = 4.3,
 							type = "toggle",
-							name = "Wrath of Air",
+							name = SPCompat.SpellLabel(3738, "Wrath of Air"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_3 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[3]) end,   -- totem not in this client's data
@@ -9262,7 +9348,7 @@ ShamanPower.options = {
 						air_tranquil = {
 							order = 4.4,
 							type = "toggle",
-							name = "Tranquil Air",
+							name = SPCompat.SpellLabel(25908, "Tranquil Air"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_4 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[4]) end,   -- totem not in this client's data
@@ -9275,7 +9361,7 @@ ShamanPower.options = {
 						air_grounding = {
 							order = 4.5,
 							type = "toggle",
-							name = "Grounding",
+							name = SPCompat.SpellLabel(8177, "Grounding"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_5 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[5]) end,   -- totem not in this client's data
@@ -9288,7 +9374,7 @@ ShamanPower.options = {
 						air_natureres = {
 							order = 4.6,
 							type = "toggle",
-							name = "Nature Resistance",
+							name = SPCompat.SpellLabel(10595, "Nature Resistance"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_6 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[6]) end,   -- totem not in this client's data
@@ -9301,7 +9387,7 @@ ShamanPower.options = {
 						air_windwall = {
 							order = 4.7,
 							type = "toggle",
-							name = "Windwall",
+							name = SPCompat.SpellLabel(15107, "Windwall"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_7 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[7]) end,   -- totem not in this client's data
@@ -9314,7 +9400,7 @@ ShamanPower.options = {
 						air_sentry = {
 							order = 4.8,
 							type = "toggle",
-							name = "Sentry",
+							name = SPCompat.SpellLabel(6495, "Sentry"),
 							width = 0.9,
 							get = function() return ShamanPower.opt.flyoutTotems == nil or ShamanPower.opt.flyoutTotems.air_8 ~= false end,
 							hidden = function() return not SPCompat.SpellExists(ShamanPower.AirTotems[8]) end,   -- totem not in this client's data
@@ -9986,8 +10072,10 @@ do
 		order = 5.1, type = "execute", name = "Add Current Target", width = 1.5,
 		disabled = function() return not SP.TremorReminderLoaded end,
 		func = function()
-			local name, hostile = UnitName("target"), UnitCanAttack("player", "target")
-			if issecretvalue and (issecretvalue(name) or issecretvalue(hostile)) then
+			local name, blocked
+			if SP.TremorReminderTargetName then name, blocked = SP:TremorReminderTargetName() end
+			local hostile = UnitCanAttack("player", "target")
+			if blocked or (issecretvalue and (issecretvalue(name) or issecretvalue(hostile))) then
 				SP:Print("Cannot add this target now. Type its name in the list out of combat.")
 			elseif name and hostile then AddFearName(name); Notify()
 			else SP:Print("Target an enemy first.") end
@@ -10309,8 +10397,9 @@ do
 		"Show ShamanPower's active-totem lifetime swipe. Duration bars and positioned text are independent; "
 			.. "Blizzard's spell cooldowns are untouched.")
 	LifetimeOption(duration.totem_cooldown_sweep, "Lifetime Swipe Style",
-		"Draw the totem lifetime as a radial swipe, a vertical gray sweep, or a reverse vertical sweep.",
+		"Draw the totem lifetime as a radial swipe, Vertical - Grays Out (gray covers the color), or Vertical - Fills Back In (color returns as time runs out).",
 		function() return SP.opt.showTotemCooldowns == false end)
+	RefreshAfter(duration.totem_cooldown_direction)
 	LifetimeOption(duration.totem_cooldown_edge, "Radial Edge Line",
 		"Draw the bright edge on ShamanPower's radial lifetime swipe.",
 		function() return SP.opt.showTotemCooldowns == false or (SP.opt.totemCooldownSweep or "radial") ~= "radial" end)
@@ -10606,7 +10695,7 @@ do
 		},
 		fontName = {
 			order = 1, type = "select", name = "Font", width = 1.5,
-			desc = "The font for everything ShamanPower draws on screen, unless a section below picks its own.",
+			desc = function() return "The font for everything ShamanPower draws on screen, unless a section below picks its own." .. SP:LocaleFontFallbackText() end,
 			values = fontValues(), sorting = fontSorting("__default"),
 			get = function() return SP.opt.fontName or "__default" end,
 			set = function(_, v) SP.opt.fontName = (v ~= "__default") and v or nil; refresh() end,
@@ -10630,10 +10719,10 @@ do
 		},
 	}
 	for i, a in ipairs(SP.FONT_AREAS) do
-		local key = a.key
+		local key, desc = a.key, a.desc
 		args["font_" .. key] = {
 			order = 10 + i, type = "select", name = a.label, width = 1.5,
-			desc = a.desc,
+			desc = function() return desc .. SP:LocaleFontFallbackText() end,
 			hidden = not isShaman and key ~= "labels",
 			values = fontValues("Same as above"), sorting = fontSorting("__default"),
 			get = function() local t = SP.opt.fontAreas and SP.opt.fontAreas[key]; return (t and t.name) or "__default" end,
@@ -11593,6 +11682,187 @@ do
 			"tremor_test", "tremor_hide_test", "tremor_commands_desc",
 		} },
 	})
+end
+
+-- Target Tracker's page (D45, 2026-10-02): the Spells row, the Rules card and Position, plus
+-- (v2) Nameplates while your debuffs can show on one.
+-- Each spell's own settings are in its right-click menu and the rules are lines of their
+-- own, both drawn by the settings window (ShamanPower_Config TTIcons.lua, TTRules.lua);
+-- the on / off is the switch beside Target Tracker in the sidebar. The module
+-- (ShamanPower_TargetTracker) loads after this file, or not at all: it is asked only when
+-- a row is drawn or used.
+do
+	local SP = ShamanPower
+	local function Loaded() return type(SP.TT_GetPage) == "function" end
+	local function NotLoaded() return not Loaded() end
+	local function Call(name, ...)
+		local fn = SP[name]
+		if type(fn) == "function" then return fn(SP, ...) end
+	end
+	local function Page(opt, fallback)
+		local v = Call("TT_GetPage", opt)
+		if v == nil then return fallback end
+		return v
+	end
+	-- Move only while the debuffs show in a spot you place, Move Purge only while Purge shows on the screen
+	local function DebuffsInSpot() return Page("showOn", "spot") == "spot" end
+	local function PurgeOnScreen() return (Call("TT_Get", "purge", "showOn") or "screen") == "screen" end
+	-- your debuffs can show on a nameplate: your target's (Show Your Debuffs), or every enemy's
+	-- (a debuff's Every Nameplate, or a rule that turns Every Nameplate on). The Nameplates
+	-- section shows only then: its rows place those icons and hide WoW's own (Purge on a
+	-- nameplate always sits right of the health bar, and WoW shows no icon of its own for it)
+	local PLATE_DEBUFFS = { "fs", "frs", "ss" }
+	local function PlatesUsed()
+		if Page("showOn", "spot") == "plate" then return true end
+		for _, key in ipairs(PLATE_DEBUFFS) do
+			if Call("TT_Get", key, "everyPlate") then return true end
+		end
+		local rules = Call("TT_Rules")
+		if type(rules) == "table" then
+			for _, r in ipairs(rules) do
+				if type(r) == "table" and r.part == "plates:on" then return true end
+			end
+		end
+		return false
+	end
+	local function NoPlates() return NotLoaded() or not PlatesUsed() end
+	-- what a search finds in the Spells row and the Rules card (they draw themselves, so this
+	-- text is never shown): every word the row, its menus and the card draw, and the places
+	-- the Rules list offers (the bosses only show once a place is picked: too many to list)
+	local ICONS_SEARCH = "Flame Shock, Frost Shock, Stormstrike and Purge. Show: In And Out Of Combat, Only In"
+		.. " Combat or Only Out Of Combat. Places: Open World, Dungeons, Raids, Battlegrounds, Arenas; Copy Show And"
+		.. " Places To All Spells. Position: A Spot You Place, Your Target's Nameplate or Under The Target Frame."
+		.. " Look: Icon Size, Show Time Left, Sweep (Radial (Clock), Vertical - Grays Out, Vertical - Fills Back In or None), Sweep Direction (From The Top or From The Bottom), Show Charges, Glow, Show The Buff's"
+		.. " Picture; Copy Look To All Spells. Skip Long Buffs, Longer Than, Check Every Boss, Warn When It's"
+		.. " Missing, Show On Every Enemy's Nameplate. Copy Settings, Paste Settings, Copy Settings To, All Spells,"
+		.. " Hide This Spell, Show This Spell, Reset This Spell. Flame Shock, Frost Shock and Stormstrike show while"
+		.. " they are on your target; Purge lights up when your target has a Magic buff you can remove."
+	local RULES_SEARCH = "Rules. Example: in Molten Core, fighting Shazzrah, turn the Purge Reminder on. Any Raid,"
+		.. " Any Dungeon, Battlegrounds, Arenas, Open World, Any Boss, Anyone, A Target You Name. Purge Reminder,"
+		.. " Missing Warnings, Every Enemy's Nameplate, Flame Shock, Frost Shock, Stormstrike: On or Off. Add Rule."
+	local rulesSearch
+	local function RulesSearch()
+		if rulesSearch then return rulesSearch end
+		local text = RULES_SEARCH
+		if SPCompat and SPCompat.FOREVER then
+			text = text .. " On WoW: Forever a boss rule turns on at the pull; a rule that names a target works in the open world."
+		end
+		local places = Call("TT_RulePlaces")
+		if type(places) ~= "table" or #places == 0 then return text end   -- not there yet: asked again next time
+		local names = {}
+		for i, p in ipairs(places) do names[i] = tostring(p.text) end
+		rulesSearch = text .. " " .. table.concat(names, ", ") .. "."
+		return rulesSearch
+	end
+	local args = {
+		module_missing_note = {
+			type = "description", width = "full", hidden = Loaded,
+			name = "|cffffa040Target Tracker is not loaded. Turn on ShamanPower [Target Tracker] in the AddOns list, then type /reload.|r",
+		},
+		-- the Spells row and the Rules card: the settings window draws them (TTIcons.lua,
+		-- TTRules.lua); the text is what a search finds
+		iconsHeader = { type = "header", name = "Spells" },
+		ttIcons = { type = "description", width = "full", hidden = NotLoaded, desc = ICONS_SEARCH,
+			name = "Click a spell to show or hide it. Right-click it to set it up: Show, Places, Look and more. Copy"
+				.. " and paste the settings from spell to spell." },
+		rulesHeader = { type = "header", name = "Rules" },
+		ttRules = { type = "description", width = "full", hidden = NotLoaded, desc = RulesSearch,
+			name = "Turn one of these on or off by itself in a place or against a boss: in a raid, a dungeon,"
+				.. " Battlegrounds, Arenas or the open world, fighting any boss, one boss, anyone or a target you name." },
+		positionHeader = { type = "header", name = "Position" },
+		showOn = { type = "select", name = "Where Your Debuffs Show", width = 1.4, hidden = NotLoaded,
+			desc = "Where Flame Shock, Frost Shock and Stormstrike show while they are on your target: a spot you place"
+				.. " on your screen (Move Your Debuffs), on your target's nameplate, or under the target frame. Purge"
+				.. " has its own Position in its right-click menu. While your debuffs show on nameplates (this choice,"
+				.. " or a spell's Show On Every Enemy's Nameplate), a Nameplates section below has Spot On The"
+				.. " Nameplate, Move Up / Down, Move Left / Right and Hide WoW's Own Icons.",
+			values = { spot = "A spot you place", plate = "On your target's nameplate", frame = "Under the target frame" },
+			sorting = { "spot", "plate", "frame" },
+			get = function() return Page("showOn", "spot") end,
+			set = function(_, v) Call("TT_SetPage", "showOn", v) end },
+		arrange = { type = "select", name = "Arrange As", width = 1.0, hidden = NotLoaded,
+			desc = "Your debuffs side by side in a row, or one above the other in a column.",
+			values = { row = "Row", column = "Column" }, sorting = { "row", "column" },
+			get = function() return Page("arrange", "row") end,
+			set = function(_, v) Call("TT_SetPage", "arrange", v) end },
+		-- the Nameplates section (only while your debuffs can show on a nameplate: PlatesUsed):
+		-- where they sit on one (your target's, and every enemy's for Every Nameplate), a nudge
+		-- from there, and WoW's own icons for them
+		platesHeader = { type = "header", name = "Nameplates" },
+		plateSpot = { type = "select", name = "Spot On The Nameplate", width = 1.4, hidden = NoPlates,
+			desc = "Where your debuffs sit on a nameplate: your target's, and every enemy's for the spells with Show On"
+				.. " Every Enemy's Nameplate on. Below the health bar puts them under its cast bar, so they never cover a cast you"
+				.. " want to interrupt. Purge sits right of the health bar.",
+			values = { above = "Above the name", below = "Below the health bar", left = "Left of the health bar",
+				right = "Right of the health bar" },
+			sorting = { "above", "below", "left", "right" },
+			get = function() return Page("plateSpot", "above") end,
+			set = function(_, v) Call("TT_SetPage", "plateSpot", v) end },
+		plateY = { type = "range", name = "Move Up / Down", min = -60, max = 120, step = 1, width = 1.0, hidden = NoPlates,
+			desc = "Moves your debuffs on nameplates up (higher numbers) or down (lower numbers) from the Spot On The Nameplate.",
+			get = function() return Page("plateY", 0) end,
+			set = function(_, v) Call("TT_SetPage", "plateY", v) end },
+		plateX = { type = "range", name = "Move Left / Right", min = -80, max = 80, step = 1, width = 1.0, hidden = NoPlates,
+			desc = "Moves your debuffs on nameplates right (higher numbers) or left (lower numbers) from the Spot On The Nameplate.",
+			get = function() return Page("plateX", 0) end,
+			set = function(_, v) Call("TT_SetPage", "plateX", v) end },
+		-- (WoW: Forever redraws WoW's row without them, as the game hides which spell each of WoW's icons is
+		-- in a fight; Anniversary hides WoW's icon for each of them)
+		hideGame = { type = "toggle", name = "Hide WoW's Own Icons", width = 1.4, hidden = NoPlates,
+			desc = function()
+				if SPCompat and SPCompat.FOREVER then
+					return "WoW's nameplates can show your Flame Shock, Frost Shock and Stormstrike too. On: on a nameplate"
+						.. " where Target Tracker shows your spells (your target's, and every enemy's for the spells with"
+						.. " Show On Every Enemy's Nameplate on), WoW's own row of your debuffs is redrawn without them, in fights too. You"
+						.. " see each spell once, and your other debuffs stay. With Above the name, yours sit at the name and"
+						.. " your other debuffs go on top of them. Off: WoW's row stays as it is, and Above the name puts"
+						.. " yours on top of it. To hide every one of your debuffs on enemy nameplates, not only the ones"
+						.. " Target Tracker shows, turn off Personal Debuffs in WoW's Nameplates settings."
+				end
+				return "WoW's nameplates can show your Flame Shock, Frost Shock and Stormstrike too. On: WoW's own icon"
+					.. " for one of them hides on a nameplate where Target Tracker shows that spell (your target's, and"
+					.. " every enemy's for the spells with Show On Every Enemy's Nameplate on), so you see it once. Your other debuffs stay,"
+					.. " and with Above the name yours sit on top of them. Off: WoW's icons stay, and Above the name puts"
+					.. " yours on top of WoW's row. To hide every one of your debuffs on enemy nameplates, not only the"
+					.. " ones Target Tracker shows, turn off Personal Debuffs in WoW's Nameplates settings."
+			end,
+			get = function() return Page("hideGame", true) and true or false end,
+			set = function(_, v) Call("TT_SetPage", "hideGame", v and true or false) end },
+		move = { type = "execute", name = "Move Your Debuffs", width = 1.0,
+			desc = "Unlocks just your debuffs' box: drag it where you want it, then press Done to come back here.",
+			hidden = function() return NotLoaded() or not DebuffsInSpot() end,
+			func = function() Call("TT_Move", "debuffs") end },
+		movePurge = { type = "execute", name = "Move Purge", width = 1.0,
+			desc = "Unlocks just Purge's box: drag it where you want it, then press Done to come back here.",
+			hidden = function() return NotLoaded() or not PurgeOnScreen() end,
+			func = function() Call("TT_Move", "purge") end },
+		spacing = { type = "range", name = "Spacing", min = 0, max = 40, step = 1, width = 1.0, hidden = NotLoaded,
+			desc = "The gap between your debuffs.",
+			get = function() return Page("spacing", 6) end,
+			set = function(_, v) Call("TT_SetPage", "spacing", v) end },
+		-- the two spots, and the nameplate nudges (Up / Down, Left / Right) back to 0
+		reset = { type = "execute", name = "Reset Position", width = 1.0,
+			desc = "Puts your debuffs and Purge back on the spots they start on, and Move Up / Down and Move Left /"
+				.. " Right on nameplates back to 0.",
+			hidden = function() return NotLoaded() or not (DebuffsInSpot() or PurgeOnScreen() or PlatesUsed()) end,
+			func = function()
+				Call("TT_ResetPositions")
+				Call("TT_SetPage", "plateY", 0)
+				Call("TT_SetPage", "plateX", 0)
+			end },
+	}
+	-- Position as D45 drew it; the Nameplates section under it (its heading hides with its rows)
+	SP.OrderSettingsBands({ args = args }, {
+		{ keys = { "module_missing_note" } },
+		{ header = "iconsHeader", name = "Spells", keys = { "ttIcons" } },
+		{ header = "rulesHeader", name = "Rules", keys = { "ttRules" } },
+		{ header = "positionHeader", name = "Position", keys = { "showOn", "arrange", "move", "movePurge", "spacing", "reset" } },
+		{ header = "platesHeader", name = "Nameplates", keys = { "plateSpot", "hideGame", "plateY", "plateX" } },
+	})
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[args.ttIcons] = "ttIcons"
+	SP.OptionCustomRow[args.ttRules] = "ttRules"
+	SP.options.args.fluffy.args.targettracker_section = { order = 9.6, type = "group", name = "Target Tracker", args = args }
 end
 
 -- Totem Bar > Duration Bars: "Only Show Pulse Bars for Specific Totems", then one

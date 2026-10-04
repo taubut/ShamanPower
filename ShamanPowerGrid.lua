@@ -381,7 +381,7 @@ local function layoutRow(element, offset, visible)
 			local spell = child:GetAttribute("mySpell")
 			child.spGridSpell = not secret(spell) and type(spell) == "string" and spell ~= "" and spell or nil
 			local eligible = not child.isDisabledInFlyout
-				and (not child.talentSpellID or IsSpellKnown(child.talentSpellID))
+				and (not child.talentSpellID or SPCompat.KnowsSpellID(child.talentSpellID))
 				and not SP:IsSingleTotemPoppedOut(element, child.totemIndex)
 			child.spGridEligible = eligible
 			if eligible then

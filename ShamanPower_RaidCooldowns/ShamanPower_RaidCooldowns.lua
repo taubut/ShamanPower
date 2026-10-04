@@ -16,7 +16,7 @@ end
 -- Restoration talent), so the caller buttons can be tested end to end on any character.
 -- Local only: nothing that is sent changes, and a /reload ends it.
 local callPractice = false
-local function KnowsManaTide() return callPractice or IsSpellKnown(16190) end
+local function KnowsManaTide() return callPractice or SPCompat.KnowsSpellID(16190) end
 -- Every Mana Tide cast: 16190 (the talent), and on WoW: Forever the trainer ranks at
 -- level 48 and 58 (17354, 17359). A cast of a higher rank reports its own ID.
 local MANA_TIDE_CASTS = { [16190] = true, [17354] = true, [17359] = true }
@@ -322,7 +322,7 @@ function SP:CallManaTideForShaman(shamanName)
 	local canCall = self:CanAssignRaidCooldowns() or (mt[shamanName] and mt[shamanName].caller == self.player)
 
 	if not canCall then
-		print("|cff0070ddShamanPower:|r You don't have permission to call Mana Tide for " .. shamanName)
+		print("|cff0070ddShamanPower:|r You don't have permission to call " .. SPCompat.SpellLabel(16190, "Mana Tide") .. " for " .. shamanName)
 		return
 	end
 
@@ -342,7 +342,7 @@ function SP:CallManaTideForShaman(shamanName)
 		self:ShowManaTideAlert()
 	end
 
-	print("|cff0070ddShamanPower:|r Called Mana Tide from " .. shamanName)
+	print("|cff0070ddShamanPower:|r Called " .. SPCompat.SpellLabel(16190, "Mana Tide") .. " from " .. shamanName)
 end
 
 -- Send raid cooldown sync to group
@@ -417,7 +417,7 @@ function SP:CanCallDrums()
 end
 
 function SP:ShowDrumsAlert()
-	self:ShowCenterScreenAlert(DRUMS_ICON, "USE DRUMS NOW")
+	self:ShowCenterScreenAlert(DRUMS_ICON, "USE " .. SPCompat.SpellLabel(35476, "DRUMS") .. " NOW")
 end
 
 function SP:IsDrummer(name)
@@ -452,7 +452,7 @@ function SP:CallDrums()
 	if self:IsDrummer(self.player) then
 		self:ShowDrumsAlert()
 	end
-	print("|cff0070ddShamanPower:|r Called Drums of Battle (" .. table.concat(drummers, ", ") .. ")")
+	print("|cff0070ddShamanPower:|r Called " .. SPCompat.SpellLabel(35476, "Drums of Battle") .. " (" .. table.concat(drummers, ", ") .. ")")
 end
 
 function SP:CallBloodlust()
@@ -486,13 +486,14 @@ function SP:CallBloodlust()
 
 	local faction = UnitFactionGroup("player")
 	local blName = (faction == "Alliance") and "Heroism" or "Bloodlust"
+	blName = SPCompat.SpellName(faction == "Alliance" and 32182 or 2825, blName)
 	print("|cff0070ddShamanPower:|r Called " .. blName .. " from " .. target)
 end
 
 -- Call for Mana Tide
 function SP:CallManaTide()
 	if not self:CanCallRaidCooldowns() then
-		print("|cff0070ddShamanPower:|r You don't have permission to call for Mana Tide.")
+		print("|cff0070ddShamanPower:|r You don't have permission to call for " .. SPCompat.SpellLabel(16190, "Mana Tide") .. ".")
 		return
 	end
 
@@ -509,13 +510,14 @@ function SP:CallManaTide()
 		self:UpdateCallerButtonCooldowns()
 		self:StartCallerCooldownTracking()
 	end
-	print("|cff0070ddShamanPower:|r Called for Mana Tide!")
+	print("|cff0070ddShamanPower:|r Called for " .. SPCompat.SpellLabel(16190, "Mana Tide") .. "!")
 end
 
 -- Show alert when called for Bloodlust
 function SP:ShowBloodlustAlert()
 	local faction = UnitFactionGroup("player")
 	local blName = (faction == "Alliance") and "HEROISM" or "BLOODLUST"
+	blName = SPCompat.SpellLabel(faction == "Alliance" and 32182 or 2825, blName)
 	local icon = (faction == "Alliance") and "Interface\\Icons\\Ability_Shaman_Heroism" or "Interface\\Icons\\Spell_Nature_Bloodlust"
 
 	-- Show center screen alert
@@ -554,7 +556,7 @@ end
 function SP:ShowManaTideAlert()
 	if self:IsOff() then return end   -- ShamanPower switched off (Cooldown Announce's on-screen call comes here too)
 	-- Show center screen alert
-	self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE MANA TIDE NOW!")
+	self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE " .. SPCompat.SpellLabel(16190, "MANA TIDE") .. " NOW!")
 
 	-- Also add glow/shake to cooldown bar button
 	self:AddCooldownButtonAlert(16190)  -- Mana Tide Totem spell ID
@@ -883,6 +885,7 @@ function SP:CreateCallerButtonFrame()
 	blBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 		local name = (UnitFactionGroup("player") == "Alliance") and "Heroism" or "Bloodlust"
+		name = SPCompat.SpellName(UnitFactionGroup("player") == "Alliance" and 32182 or 2825, name)
 		GameTooltip:SetText("Call " .. name)
 		local target = SP:GetBloodlustTarget()
 		if target then
@@ -928,7 +931,7 @@ function SP:CreateCallerButtonFrame()
 	end)
 	drumBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText("Call Drums of Battle")
+		GameTooltip:SetText("Call " .. SPCompat.SpellLabel(35476, "Drums of Battle"))
 		local d = SP:GetDrummers()
 		GameTooltip:AddLine(#d > 0 and ("Drummers: " .. table.concat(d, ", ")) or "No drummers assigned", 0.9, 0.7, 0.3, true)
 		GameTooltip:Show()
@@ -1036,7 +1039,7 @@ function SP:BuildCallerMTButton(frame, i, shamanName, xOffset)
 	end)
 	mtBtn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:SetText("Call Mana Tide")
+		GameTooltip:SetText("Call " .. SPCompat.SpellLabel(16190, "Mana Tide"))
 		GameTooltip:AddLine("From: " .. self.shamanName, 0, 0.7, 1)
 		if callerRequestEstimates then
 			_G.GameTooltip:AddLine("These cooldowns are estimated from the call, not from a confirmed cast.", 1, 0.8, 0.2, true)
@@ -1602,11 +1605,12 @@ function SP:RaidCDDemoClick(kind, btn)
 	if kind == "bl" then
 		local faction = UnitFactionGroup("player")
 		local icon = (faction == "Alliance") and "Interface\\Icons\\Ability_Shaman_Heroism" or "Interface\\Icons\\Spell_Nature_Bloodlust"
-		self:ShowCenterScreenAlert(icon, "USE " .. ((faction == "Alliance") and "HEROISM" or "BLOODLUST") .. " NOW!")
+		local label = SPCompat.SpellLabel(faction == "Alliance" and 32182 or 2825, faction == "Alliance" and "HEROISM" or "BLOODLUST")
+		self:ShowCenterScreenAlert(icon, "USE " .. label .. " NOW!")
 		self.callerCooldowns[DEMO_BL_KEY] = self.callerCooldowns[DEMO_BL_KEY] or {}
 		self.callerCooldowns[DEMO_BL_KEY].bl = { start = GetTime(), duration = DEMO_CD.bl }
 	elseif kind == "mt" then
-		self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE MANA TIDE NOW!")
+		self:ShowCenterScreenAlert("Interface\\Icons\\Spell_Frost_SummonWaterElemental", "USE " .. SPCompat.SpellLabel(16190, "MANA TIDE") .. " NOW!")
 		local name = btn and btn.shamanName
 		if name then
 			self.callerCooldowns[name] = self.callerCooldowns[name] or {}

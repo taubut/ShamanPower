@@ -32,6 +32,7 @@ SP.earthShields = {}  -- { [targetGUID] = { target, caster, charges, expiration 
 
 -- Earth Shield spell ID (for icon)
 SP.EarthShieldSpellID = 32594  -- Rank 1, we just need the icon
+local ES_SPELL_IDS = { 974, 32593, 32594, 408514, 383648 }
 
 -- Theme looks (General > Themes, ShamanPowerTheme.lua), spot
 -- mod.estracker-colors: the panel's background and border, the charge count.
@@ -296,7 +297,7 @@ function SP:CreateESTrackerButton(parent, esData, index)
 	btn:SetScript("OnEnter", function(self)
 		local d = self.esData or {}
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Earth Shield", 0.4, 0.8, 0.4)
+		GameTooltip:AddLine(SPCompat.SpellName(974, "Earth Shield"), 0.4, 0.8, 0.4)
 		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine("Target: " .. (d.targetName or "Unknown"), 1, 1, 1)
 		GameTooltip:AddLine("Caster: " .. (d.casterName or "Unknown"), 1, 0.82, 0)
@@ -532,9 +533,10 @@ local function scanUnitES(unit, entry)
 	if not UnitExists(unit) then return nil end
 	local name, icon, count, expirationTime, caster, index
 	for i = 1, 40 do
-		local buffName, buffIcon, buffCount, _, _, buffExpiration, buffCaster = UnitBuff(unit, i)
+		local buffName, buffIcon, buffCount, _, _, buffExpiration, buffCaster, _, _, spellID = UnitBuff(unit, i)
+		if issecretvalue(buffName) or issecretvalue(spellID) then return nil end
 		if not buffName then break end
-		if buffName == "Earth Shield" then
+		if SPCompat.AuraMatches(buffName, spellID, ES_SPELL_IDS) then
 			name, icon, count, expirationTime, caster, index = buffName, buffIcon, buffCount, buffExpiration, buffCaster, i
 			break
 		end
@@ -562,7 +564,8 @@ local function scanUnitES(unit, entry)
 	entry.auraInstanceID = nil
 	if index and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
 		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, unit, index)
-		if ok and type(a) == "table" and a.name == name then entry.auraInstanceID = a.auraInstanceID end
+		if ok and not issecretvalue(a) and type(a) == "table" and not issecretvalue(a.name)
+			and not issecretvalue(a.auraInstanceID) and a.name == name then entry.auraInstanceID = a.auraInstanceID end
 	end
 	return entry
 end
@@ -757,8 +760,8 @@ local function esMayHaveChanged(unit, info)
 		for i = 1, #added do
 			local a = added[i]
 			if issecretvalue(a) then return true end
-			local name = a and a.name
-			if issecretvalue(name) or name == "Earth Shield" then return true end
+			local name, spellID = a and a.name, a and a.spellId
+			if issecretvalue(name) or issecretvalue(spellID) or SPCompat.AuraMatches(name, spellID, ES_SPELL_IDS) then return true end
 		end
 	end
 	local shields = SP.earthShields

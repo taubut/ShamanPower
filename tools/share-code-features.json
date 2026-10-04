@@ -108,6 +108,9 @@
     {"key": "shiftPullsTotem", "label": "Shift+right-click pulls the totem back"},
     {"key": "hidePlayerTotems", "label": "Hide Blizzard's totem timers"},
     {"key": "readyRemindersCooldownOnly", "label": "Ready reminders: only while on cooldown"},
-    {"key": "readyRemindersGrid", "label": "Ready reminders: grid placement"}
+    {"key": "readyRemindersGrid", "label": "Ready reminders: grid placement"},
+    {"key": "targetTracker", "label": "Target Tracker"},
+    {"key": "ttMissingWarning", "label": "Target Tracker: Missing Warning"},
+    {"key": "ttEveryNameplate", "label": "Target Tracker: Every Nameplate"}
   ]
 }

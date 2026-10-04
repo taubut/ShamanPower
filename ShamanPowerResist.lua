@@ -39,9 +39,9 @@ if not SPCompat.FOREVER then return end
 local RESIST_INDEX = 6   -- the resistance totem's index in its element's table
 local ELEMENT_NAMES = { "Earth", "Fire", "Water", "Air" }
 local RESIST = {
-	{ key = "fire",   element = 3, label = "Fire Resistance" },
-	{ key = "frost",  element = 2, label = "Frost Resistance" },
-	{ key = "nature", element = 4, label = "Nature Resistance" },
+	{ key = "fire",   element = 3, label = SPCompat.SpellLabel(8184, "Fire Resistance") },
+	{ key = "frost",  element = 2, label = SPCompat.SpellLabel(8181, "Frost Resistance") },
+	{ key = "nature", element = 4, label = SPCompat.SpellLabel(10595, "Nature Resistance") },
 }
 local BY_KEY = {}
 for i, r in ipairs(RESIST) do r.bit = i; BY_KEY[r.key] = r end
@@ -95,7 +95,14 @@ local function Say(text)
 end
 
 local function TotemName(r)
-	return (SP.TotemNames[r.element] and SP.TotemNames[r.element][RESIST_INDEX]) or r.label
+	return SP:GetTotemName(r.element, RESIST_INDEX)
+end
+
+-- Invalid or empty saved slots had no name before the language pass. Keep
+-- that omission instead of turning GetTotemName's "Unknown" into player text.
+local function AssignedTotemName(element, index)
+	local names = SP.TotemNames and SP.TotemNames[element]
+	if index and index > 0 and names and names[index] then return SP:GetTotemName(element, index) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -365,7 +372,7 @@ local function ApplyNow(r)
 	Applied()[r.key] = current
 	ShamanPower_Assignments[me][r.element] = RESIST_INDEX
 	RefreshOwnAssignment(r.element)
-	local was = current > 0 and SP.TotemNames[r.element][current]
+	local was = AssignedTotemName(r.element, current)
 	Say("your " .. ELEMENT_NAMES[r.element] .. " totem is now " .. TotemName(r) .. " for the raid" .. (was and (" (was " .. was .. ")") or "") .. ".")
 end
 
@@ -381,7 +388,7 @@ local function RestoreNow(r, quiet)
 	a[r.element] = prev
 	RefreshOwnAssignment(r.element)
 	if quiet then return end
-	local back = prev > 0 and SP.TotemNames[r.element][prev]
+	local back = AssignedTotemName(r.element, prev)
 	Say(TotemName(r) .. " is no longer requested; your " .. ELEMENT_NAMES[r.element] .. " totem is back to " .. (back or "none") .. ".")
 end
 
@@ -464,7 +471,7 @@ local function StandDown(r, other)
 	end
 	local prev = Applied()[r.key]
 	if prev == nil then return end
-	local back = prev > 0 and SP.TotemNames[r.element][prev]
+	local back = AssignedTotemName(r.element, prev)
 	Say(other .. " also took " .. TotemName(r) .. " for the raid, so you stand down: your " .. ELEMENT_NAMES[r.element] .. " totem goes back to " .. (back or "none") .. ".")
 	if InCombatLockdown() then
 		queued[r.key] = "standdown"
@@ -546,9 +553,10 @@ local function ShowPrompt(r, name, fake)
 	prompt = data
 	local current = AssignedIndex(name, r.element)
 	local slot = ELEMENT_NAMES[r.element]
-	local was = current > 0 and SP.TotemNames[r.element][current]
+	local was = AssignedTotemName(r.element, current)
+	local fullName = SPCompat.SpellLabel(SP:GetTotemSpell(r.element, RESIST_INDEX), TotemName(r) .. " Totem")
 	local body = "The raid needs " .. r.label .. ". Drop it for this fight?\n\n"
-		.. "Your " .. slot .. " totem" .. (was and (" (" .. was .. ")") or "") .. " becomes " .. TotemName(r) .. " Totem"
+		.. "Your " .. slot .. " totem" .. (was and (" (" .. was .. ")") or "") .. " becomes " .. fullName
 		.. " until the request ends; then it goes back. It reaches the whole raid within 30 yards."
 	if fake then
 		body = "|cffFFD100PRACTICE|r - " .. name .. " would see:\n\n" .. body
@@ -1011,7 +1019,7 @@ local function KeepOverLoadout()
 			applied[r.key] = current
 			a[r.element] = RESIST_INDEX
 			RefreshOwnAssignment(r.element)
-			local back = current > 0 and SP.TotemNames[r.element][current]
+			local back = AssignedTotemName(r.element, current)
 			Say(TotemName(r) .. " stays on your " .. ELEMENT_NAMES[r.element] .. " totem for the raid; " .. (back or "the empty slot") .. " from the loadout comes back when the request ends.")
 		end
 	end

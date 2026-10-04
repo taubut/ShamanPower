@@ -561,6 +561,11 @@ local FX = {
 	readycheck     = { page = { "fluffy", "readycheck_section" },     size = { node = "panelScale", under = "readycheck_section" } },
 	readyflash     = { page = { "fluffy", "readyreminders_section" }, size = { rr = "flashSize" } },
 	readyflashspell = { page = { "fluffy", "readyreminders_section" }, size = { rr = "flashSize" } },
+	-- Target Tracker: the debuffs' spot (each spell has its own size: none here) and Purge's
+	ttdebuffs      = { page = { "fluffy", "targettracker_section" } },
+	ttpurge        = { page = { "fluffy", "targettracker_section" }, size = { min = 32, max = 128, step = 1,
+		get = function() return SP.TT_Get and SP:TT_Get("purge", "size") end,
+		set = function(v) if SP.TT_Set then SP:TT_Set("purge", "size", v) end end } },
 }
 -- the split Grid style's rows are pop-out trackers: their own scale and opacity
 for _, name in ipairs({ "earth", "fire", "water", "air" }) do
@@ -729,11 +734,14 @@ end
 -- ---------------------------------------------------------------------------
 local MO = {
 	OUT = 0.15,          -- the settings window rises off the top first (its own motion)
-	DOCK = 0.24,         -- the finished logo shrinks into the bar: 1.81 -> 2.05
-	RIPPLE_AT = 0.09,    -- the boxes start rising 0.09 s after the build (1.90) ...
-	RIPPLE = 0.30,       -- ... the farthest 0.30 s after the nearest: the ripple ends at 2.50
-	BOX_RISE = 0.30, BOX_LIFT = 8, ALPHA_K = 1.6,   -- a box: the kit's own rise (opaque at 62% of it)
-	BAR_AT = 0.29, BAR_FADE = 0.35,                 -- the bar fades in around the logo: 2.10 -> 2.45
+	-- the opening, made quicker on 2026-10-03 (the owner: "can we make it faster", "even im already
+	-- annoyed with it"): the logo build plays at twice its speed (0.83 s), then the rest in about 0.4 s
+	BUILD_SPEED = 2,
+	DOCK = 0.16,         -- the finished logo shrinks into the bar
+	RIPPLE_AT = 0.06,    -- the boxes start rising this long after the build ...
+	RIPPLE = 0.20,       -- ... the farthest this long after the nearest
+	BOX_RISE = 0.20, BOX_LIFT = 8, ALPHA_K = 1.6,   -- a box: the kit's own rise (opaque at 62% of it)
+	BAR_AT = 0.19, BAR_FADE = 0.23,                 -- the bar fades in around the logo
 	DROP = 0.25, DROP_STEP = 0.02,                  -- right-click: everything drops away ...
 	RISE = 0.30, RISE_STEP = 0.02,                  -- ... and rises back up after the settings
 	SPAN = 0.16,         -- (mine) many boxes tighten those steps: a move stays about 0.4 s
@@ -833,7 +841,8 @@ end
 -- ---------------------------------------------------------------------------
 local BAR = { DOCK_H = 22, DOCK_X = 12, DOCK_Y = -8,    -- the docked logo, centered on the one-line bar (D36b A)
 	TAB_W = 34, TAB_H = 20, TAB_LOGO = 16,               -- (mine) the tab: the mock's 30 x 18 plate, logo at 78%
-	BIG = 646 / 1080 }                                   -- the logo's height on the intro's 1080-tall canvas
+	BIG = 0.30 }                                         -- the opening logo's height: 30% of the screen, at its center
+                                                         -- (was the intro's 646/1080; the owner: "more centered and smaller")
 BAR.DOCK_W = BAR.DOCK_H * 614 / 646                      -- the logo build's own proportions
 BAR.DOCK_CX, BAR.DOCK_CY = BAR.DOCK_X + BAR.DOCK_W / 2, BAR.DOCK_Y - BAR.DOCK_H / 2
 -- The bar's own spot (p, rel, rp, x, y: read while it sits there), how far above it
@@ -1369,7 +1378,7 @@ do
 				OP.phase = 2
 				if doneBar.logo then
 					driver:Hide()        -- the build runs itself (ShamanPowerBrand.lua)
-					doneBar.logo:PlayBuild(OpenBuilt)
+					doneBar.logo:PlayBuild(OpenBuilt, MO.BUILD_SPEED)
 				else
 					OpenBuilt()
 				end
@@ -1526,7 +1535,7 @@ do
 			driver:Show()
 		else
 			OP.phase = 2
-			if logo then logo:PlayBuild(OpenBuilt) else OpenBuilt() end
+			if logo then logo:PlayBuild(OpenBuilt, MO.BUILD_SPEED) else OpenBuilt() end
 		end
 	end
 

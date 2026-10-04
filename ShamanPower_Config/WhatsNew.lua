@@ -21,13 +21,6 @@ local DISCORD_INVITE = "https://discord.gg/eCtNeBqE8U"
 -- wordmark's weight, gold with its outline as before. The game's font where Fira
 -- is missing (a new file loads only after a full restart) or on Chinese and
 -- Korean clients (SP:BrandFontPath gives the game's font there).
-local function BannerFont(fs)
-	local path = SP.BrandFontPath and SP:BrandFontPath("semibold")
-	local ok, set = false, false
-	if path then ok, set = pcall(fs.SetFont, fs, path, 26, "OUTLINE") end
-	if not (ok and set) then fs:SetFont("Fonts\\FRIZQT__.TTF", 26, "OUTLINE") end
-end
-
 local function BaseVersion(v)
 	return v and (v:gsub("%-.*$", "")) or nil
 end
@@ -178,7 +171,6 @@ local LOOK_TEXT = "One look for every color in ShamanPower: the logo's element c
 -- onTry: a "Try it" button in the box (secondary, as the card's other Try it
 -- buttons). Returns the box and its height.
 local function LookBox(parent, y, W, onTry)
-	local GOLD = { 1, 0.82, 0.15 }
 	local box = CreateFrame("Frame", nil, parent)
 	box:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
 	box:SetWidth(W)
@@ -190,7 +182,7 @@ local function LookBox(parent, y, W, onTry)
 	tag:SetText("NEW")
 	local head = box:CreateFontString(nil, "OVERLAY")
 	head:SetFontObject(Core.fonts.row)
-	head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	head:SetTextColor(Core:Color("text"))
 	head:SetJustifyH("LEFT"); head:SetWordWrap(true)
 	head:SetText("The ShamanPower look")
 	tag:SetPoint("TOPLEFT", box, "TOPLEFT", 12, -12)
@@ -246,28 +238,25 @@ local function BuildLookDialog()
 	solidH:SetAllPoints(lookDlg.header); solidH:SetColorTexture(Core:Color("sidebarBg", 1))
 
 	local W, y = 526, 2
-	local GOLD = { 1, 0.82, 0.15 }
-	-- the gold banner (ui-style-guide 2.3 A), as the release card draws it
+	-- the banner (D39 A: the settings page header's band), as the release card draws it
 	do
 		local band = CreateFrame("Frame", nil, lookDlg.body)
 		band:SetPoint("TOPLEFT", lookDlg.body, "TOPLEFT", 0, 0); band:SetPoint("TOPRIGHT", lookDlg.body, "TOPRIGHT", 0, 0)
-		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band); glow:SetColorTexture(1, 1, 1, 1)
-		Core:Gradient(glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.26, GOLD[1], GOLD[2], GOLD[3], 0)
-		local rule = band:CreateTexture(nil, "ARTWORK"); rule:SetHeight(2)
+		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band)
+		local rule = band:CreateTexture(nil, "ARTWORK")
 		rule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); rule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
-		rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
 		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
 		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)
 		local title = band:CreateFontString(nil, "OVERLAY")
-		BannerFont(title); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
 		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
 		local installed = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
-		title:SetText("ShamanPower " .. ((installed or NOTES.version):gsub("%.0$", "")))
 		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
 		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
 		sub:SetWidth(W - 64 - 12); sub:SetJustifyH("LEFT"); sub:SetWordWrap(true)
 		sub:SetText("A new look, if you want one")
+		Core:PageBanner({ host = band, glow = glow, rule = rule, title = title, sub = sub, icon = icon, element = "spirit",
+			big = true, textX = 64 })   -- sets the title's font
+		title:SetText("ShamanPower " .. ((installed or NOTES.version):gsub("%.0$", "")))
 		local bandH = math.max(62, 9 + math.ceil(title:GetStringHeight()) + 3 + math.ceil(sub:GetStringHeight()) + 12)
 		band:SetHeight(bandH)
 		y = y + bandH + 14
@@ -294,7 +283,6 @@ end
 -- 3.0.4's NEW box: the release's look story (the notes' look item), the bar now
 -- and in the new shapes, Try it opens the Themes tab. Returns the box and its height.
 local function NewLookBox(parent, y, W, it, onTry)
-	local GOLD = { 1, 0.82, 0.15 }
 	local box = CreateFrame("Frame", nil, parent)
 	box:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -y)
 	box:SetWidth(W)
@@ -308,7 +296,7 @@ local function NewLookBox(parent, y, W, it, onTry)
 	local tagW = math.ceil(tag:GetStringWidth())
 	local head = box:CreateFontString(nil, "OVERLAY")
 	head:SetFontObject(Core.fonts.row)
-	head:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	head:SetTextColor(Core:Color("text"))
 	head:SetJustifyH("LEFT"); head:SetWordWrap(true)
 	head:SetPoint("TOPLEFT", box, "TOPLEFT", 12 + tagW + 8, -11)
 	head:SetWidth(W - 24 - tagW - 8)
@@ -387,31 +375,28 @@ local function BuildDialog(since, preview)
 
 	local W, y = 526, 2
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
-	local GOLD = { 1, 0.82, 0.15 }
 
-	-- the banner: big gold version title over a gold glow, like the Discord heading
+	-- the banner (D39 A): the version title on the settings page header's band, the totem logo in front
 	do
 		local band = CreateFrame("Frame", nil, dlg.body)
 		band:SetPoint("TOPLEFT", dlg.body, "TOPLEFT", 0, 0); band:SetPoint("TOPRIGHT", dlg.body, "TOPRIGHT", 0, 0)
 		band:SetHeight(62)
-		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band); glow:SetColorTexture(1, 1, 1, 1)
-		Core:Gradient(glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.26, GOLD[1], GOLD[2], GOLD[3], 0)
-		local rule = band:CreateTexture(nil, "ARTWORK"); rule:SetHeight(2)
+		local glow = band:CreateTexture(nil, "BACKGROUND"); glow:SetAllPoints(band)
+		local rule = band:CreateTexture(nil, "ARTWORK")
 		rule:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 0, 0); rule:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", 0, 0)
-		rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
 		local icon = band:CreateTexture(nil, "ARTWORK"); icon:SetSize(44, 44)
 		icon:SetPoint("LEFT", band, "LEFT", 8, 0); icon:SetTexture("Interface\\WorldStateFrame\\Icons-Classes"); icon:SetTexCoord(0.25, 0.5, 0.25, 0.5)   -- shaman emblem, no background
 		local title = band:CreateFontString(nil, "OVERLAY")
-		BannerFont(title); title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-		title:SetShadowColor(0, 0, 0, 1); title:SetShadowOffset(2, -2)
 		title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 12, 0)
 		-- the installed version (3.0.1), so a patch of the series needs no edit here
 		local installed = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
 		local about = CardSets(since, preview)[1]   -- the version this card is about (a test build may still carry the older number)
-		title:SetText("ShamanPower " .. (((about and about.ver.v) or installed or NOTES.version):gsub("%.0$", "")))
 		local sub = band:CreateFontString(nil, "OVERLAY"); sub:SetFontObject(Core.fonts.row)
 		sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 1, -3)
 		sub:SetText("Now on |cff3FA9F5WoW: Forever|r and TBC Anniversary")
+		Core:PageBanner({ host = band, glow = glow, rule = rule, title = title, sub = sub, icon = icon, element = "spirit",
+			big = true, textX = 64 })   -- sets the title's font
+		title:SetText("ShamanPower " .. (((about and about.ver.v) or installed or NOTES.version):gsub("%.0$", "")))
 		y = y + 62 + 14
 	end
 
@@ -450,7 +435,7 @@ local function BuildDialog(since, preview)
 		end
 		local h = content:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
 		h:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y); h:SetWidth(w); h:SetJustifyH("LEFT")
-		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		h:SetText(it.h); h:SetTextColor(Core:Color("text"))
 		y = y + h:GetStringHeight() + 4
 		local b = content:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
 		b:SetPoint("TOPLEFT", content, "TOPLEFT", x, -y); b:SetWidth(w); b:SetJustifyH("LEFT"); b:SetWordWrap(true)
@@ -465,7 +450,7 @@ local function BuildDialog(since, preview)
 		end
 		local h = content:CreateFontString(nil, "OVERLAY"); h:SetFontObject(Core.fonts.row)
 		h:SetPoint("TOPLEFT", content, "TOPLEFT", 38, -y); h:SetWidth(W - 38); h:SetJustifyH("LEFT")
-		h:SetText(it.h); h:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+		h:SetText(it.h); h:SetTextColor(Core:Color("text"))
 		y = y + h:GetStringHeight() + 3
 		local b = content:CreateFontString(nil, "OVERLAY"); b:SetFontObject(Core.fonts.rowDim)
 		b:SetPoint("TOPLEFT", content, "TOPLEFT", 38, -y); b:SetWidth(W - 38); b:SetJustifyH("LEFT"); b:SetWordWrap(true)

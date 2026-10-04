@@ -6,7 +6,9 @@ local GetTotemInfo = (SPCompat and SPCompat.GetTotemInfo) or GetTotemInfo  -- gu
     Proactive Tremor Totem reminder when targeting fear-casting mobs
 
     Shows a Tremor Totem icon when you target a mob known to cast fears,
-    even before anyone in your party gets feared.
+    even before anyone in your party gets feared. Boss fights that fear
+    bring it up at the pull too, targeted or not (inside dungeons and raids
+    on WoW: Forever the only way: mob names are hidden there).
 ]]
 
 local SP = ShamanPower
@@ -22,7 +24,7 @@ SP.TremorReminderLoaded = true
 local L = LibStub("AceLocale-3.0"):GetLocale("ShamanPower")
 
 -- Tremor Totem spell info
-local TREMOR_TOTEM_NAME = GetSpellInfo(8143) or "Tremor Totem"
+local TREMOR_TOTEM_NAME = SPCompat.SpellName(8143, "Tremor Totem")
 local TREMOR_TOTEM_ICON = select(3, GetSpellInfo(8143)) or 136108
 
 -- Default known fear-casting mobs (from Sweb's WeakAura + additions)
@@ -36,7 +38,6 @@ local DEFAULT_FEAR_CASTERS = {
     -- Classic Raids
     ["Onyxia"] = true,
     ["Magmadar"] = true,
-    ["Golemagg the Incinerator"] = true,
 }
 
 if not SPCompat.FOREVER then
@@ -87,6 +88,8 @@ if not SPCompat.FOREVER then
         -- Hyjal Summit
         ["Banshee"] = true,
         ["Crypt Fiend"] = true,
+        ["Anetheron"] = true, -- Sleep (sleep)
+        ["Archimonde"] = true, -- Fear (fear)
 
         -- Sunwell Plateau
         ["Sunblade Vindicator"] = true,
@@ -101,7 +104,8 @@ if SPCompat.FOREVER then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLIN
         -- 185 fear / charm / sleep casters (what Tremor breaks), researched 2026-10-02 from the Forever client's
         -- own spell data, vmangos, cmangos and Wowhead Forever (each name checked against them).
         -- Horror (Death Coil) is left out: Tremor does not break it.
-        -- In dungeons and raids the game hides mob names (measured), so those entries wait until names are readable.
+        -- In dungeons and raids the game hides mob names (measured): there only the bosses in FEAR_BOSS_ENCOUNTERS
+        -- (below) count, at the pull.
         -- Wailing Caverns
         ["Deviate Dreadfang"] = true, -- Terrify (fear)
         ["Druid of the Fang"] = true, -- Druid's Slumber (sleep)
@@ -414,6 +418,344 @@ if SPCompat.FOREVER then -- luacheck: globals WOW_PROJECT_ID WOW_PROJECT_MAINLIN
     for name, enabled in pairs(foreverFearCasters) do DEFAULT_FEAR_CASTERS[name] = enabled end
 end
 
+-- Boss fights that fear, charm or sleep, by encounter ID: the start of a boss fight
+-- says which fight it is, the same number in every client language. Inside dungeons
+-- and raids WoW: Forever hides every mob's name, in and out of combat, so the target
+-- check cannot work there; these bring the reminder up at the pull instead, targeted
+-- or not, on both clients. Each ID points at the boss's name in the lists above, so
+-- Use Default Mob List and a boss taken off the list still apply.
+-- IDs from each client's own DungeonEncounter table (2026-10-03). Left out on purpose:
+-- fights where the fear depends on which boss shows up (Opera Hall, Edge of Madness),
+-- fights that fear in one wave or on heroic only (General Rajaxx, Vazruden), and the
+-- Season of Discovery copies the Forever client still lists.
+local FEAR_BOSS_ENCOUNTERS = {
+    [664] = "Magmadar",         -- Molten Core
+    [1084] = "Onyxia",          -- Onyxia's Lair
+}
+if SPCompat.FOREVER then
+    local foreverFearBosses = {
+        -- Wailing Caverns
+        [585] = "Lady Anacondra",
+        [586] = "Lord Cobrahn",
+        [588] = "Lord Pythas",
+        [590] = "Lord Serpentis",
+        [592] = "Mutanus the Devourer",
+        -- The Deadmines (the fight is called Sneed; his Shredder fears)
+        [2742] = "Sneed's Shredder",
+        -- Blackfathom Deeps (one ID per difficulty)
+        [2766] = "Twilight Lord Kelris",
+        [2825] = "Twilight Lord Kelris",
+        [2911] = "Twilight Lord Kelris",
+        -- The Stockade
+        [2759] = "Dextren Ward",
+        -- Razorfen Kraul
+        [2775] = "Death Speaker Jargba",
+        -- Scarlet Monastery
+        [449] = "High Inquisitor Fairbanks",
+        [450] = "High Inquisitor Whitemane",
+        -- Razorfen Downs
+        [2783] = "Ragglesnout",
+        -- Zul'Farrak
+        [599] = "Shadowpriest Sezz'ziz",
+        -- Maraudon
+        [429] = "Princess Theradras",
+        -- Blackrock Depths
+        [227] = "High Interrogator Gerstahn",
+        -- Blackrock Spire
+        [271] = "Urok Doomhowl",
+        [3068] = "The Beast",
+        -- Dire Maul
+        [348] = "Magister Kalendris",
+        [366] = "Captain Kromcrush",
+        [367] = "Cho'Rush the Observer",
+        [2793] = "Lord Hel'nurath",
+        -- Stratholme
+        [473] = "Hearthsinger Forresten",
+        [478] = "Balnazzar",
+        [2798] = "Postmaster Malown",
+        -- Scholomance (two fights are called Kirtonos and Ras Frostwhisperer)
+        [2805] = "Kirtonos the Herald",
+        [2806] = "Lady Illucia Barov",
+        [2810] = "Ras Frostwhisper",
+        -- The Hall of Thanes
+        [3496] = "Durgen Dirgehammer",
+        -- Molten Core (Dominate Mind in Lucifron's fight)
+        [663] = "Lucifron",
+        -- Zul'Gurub
+        [785] = "High Priestess Jeklik",
+        [787] = "Bloodlord Mandokir",
+        [793] = "Hakkar",
+        -- Blackwing Lair
+        [617] = "Nefarian",
+        -- Temple of Ahn'Qiraj (the fight is called Silithid Royalty; Princess Yauj fears)
+        [710] = "Princess Yauj",
+        [714] = "Princess Huhuran",
+        -- Naxxramas
+        [1108] = "Gluth",
+    }
+    for id, name in pairs(foreverFearBosses) do FEAR_BOSS_ENCOUNTERS[id] = name end
+else
+    local tbcFearBosses = {
+        [1908] = "Ambassador Hellmaw",  -- Shadow Labyrinth
+        [1937] = "Warbringer O'mrogg",  -- The Shattered Halls
+        [1914] = "Harbinger Skyriss",   -- The Arcatraz
+        [662] = "Nightbane",            -- Karazhan
+        [651] = "Hellfire Channeler",   -- Magtheridon's Lair (the channelers fear)
+        [619] = "Anetheron",            -- Hyjal Summit
+        [622] = "Archimonde",           -- Hyjal Summit
+    }
+    for id, name in pairs(tbcFearBosses) do FEAR_BOSS_ENCOUNTERS[id] = name end
+end
+
+-- NPC identity is only read where the client permits it. IDs avoid assuming
+-- the target has an English name; the English values remain the existing
+-- saved-list keys, so an override still disables the same default everywhere.
+-- Sources: cmangos classic-db ClassicDB_1_12_1_z2815 and tbc-db
+-- TBCDB_1.11.0_Vengeance_One_A_Cmangos_Story creature_template (Entry, Name).
+-- Forever-only 185317 and 261319: wowhead.com/forever/npc=185317 and npc=261319.
+local DEFAULT_FEAR_NPCS
+if SPCompat.FOREVER then
+    DEFAULT_FEAR_NPCS = {
+        [202] = "Skeletal Horror",
+        [347] = "Grizzle Halfmane",
+        [469] = "Lieutenant Doren",
+        [534] = "Nefaru",
+        [599] = "Marisa du'Paige",
+        [642] = "Sneed's Shredder",
+        [680] = "Mosh'Ogg Lord",
+        [690] = "Cold Eye Basilisk",
+        [741] = "Dreaming Whelp",
+        [743] = "Wyrmkin Dreamwalker",
+        [1200] = "Morbent Fel",
+        [1559] = "King Mukla",
+        [1663] = "Dextren Ward",
+        [1785] = "Skeletal Terror",
+        [1840] = "Grand Inquisitor Isillien",
+        [1863] = "Succubus",
+        [2215] = "High Executor Darthalia",
+        [2256] = "Crushridge Enforcer",
+        [2283] = "Ravenclaw Regent",
+        [2423] = "Lord Aliden Perenolde",
+        [2425] = "Varimathras",
+        [2452] = "Skhowl",
+        [2464] = "Commander Aggro'gosh",
+        [2583] = "Stromgarde Troll Hunter",
+        [2590] = "Syndicate Conjuror",
+        [2600] = "Singer",
+        [2742] = "Shadowforge Chanter",
+        [2764] = "Sleeby",
+        [2804] = "Kurden Bloodclaw",
+        [3338] = "Sergra Darkthorn",
+        [3393] = "Captain Fairmount",
+        [3435] = "Lok Orcbane",
+        [3654] = "Mutanus the Devourer",
+        [3669] = "Lord Cobrahn",
+        [3670] = "Lord Pythas",
+        [3671] = "Lady Anacondra",
+        [3672] = "Boahn",
+        [3673] = "Lord Serpentis",
+        [3801] = "Severed Sleeper",
+        [3840] = "Druid of the Fang",
+        [3890] = "Brakgul Deathbringer",
+        [3944] = "Wrathtail Priestess",
+        [3977] = "High Inquisitor Whitemane",
+        [4041] = "Scorched Basilisk",
+        [4042] = "Singed Basilisk",
+        [4044] = "Blackened Basilisk",
+        [4139] = "Scorpid Terror",
+        [4147] = "Saltstone Basilisk",
+        [4293] = "Scarlet Scryer",
+        [4302] = "Scarlet Champion",
+        [4371] = "Strashaz Siren",
+        [4428] = "Death Speaker Jargba",
+        [4540] = "Scarlet Monk",
+        [4542] = "High Inquisitor Fairbanks",
+        [4728] = "Gritjaw Basilisk",
+        [4729] = "Hulking Gritjaw Basilisk",
+        [4813] = "Twilight Shadowmage",
+        [4820] = "Blindlight Oracle",
+        [4832] = "Twilight Lord Kelris",
+        [4863] = "Jadespine Basilisk",
+        [5056] = "Deviate Dreadfang",
+        [5259] = "Atal'ai Witch Doctor",
+        [5271] = "Atal'ai Deathwalker",
+        [5280] = "Nightmare Wyrmkin",
+        [5317] = "Jademir Oracle",
+        [5337] = "Hatecrest Siren",
+        [5401] = "Kazkaz the Unholy",
+        [5864] = "Swinegart Spearhide",
+        [5932] = "Taskmaster Whipfang",
+        [6072] = "Diathorus the Seeker",
+        [6116] = "Highborne Apparition",
+        [6490] = "Azshir the Sleepless",
+        [6500] = "Tyrant Devilsaur",
+        [6584] = "King Mosh",
+        [7275] = "Shadowpriest Sezz'ziz",
+        [7354] = "Ragglesnout",
+        [7410] = "Thelman Slatefist",
+        [7461] = "Hederine Initiate",
+        [8280] = "Shleipnarr",
+        [8521] = "Blighted Horror",
+        [8528] = "Dread Weaver",
+        [8542] = "Death Singer",
+        [8600] = "Plaguebat",
+        [8657] = "Hukku's Succubus",
+        [8716] = "Dreadlord",
+        [9018] = "High Interrogator Gerstahn",
+        [9166] = "Pterrordax",
+        [9167] = "Frenzied Pterrordax",
+        [9452] = "Scarlet Enchanter",
+        [9464] = "Overlord Ror",
+        [10162] = "Lord Victor Nefarius",
+        [10184] = "Onyxia",
+        [10197] = "Mezzir the Howler",
+        [10200] = "Rak'shiri",
+        [10201] = "Lady Hederine",
+        [10398] = "Thuzadin Shadowcaster",
+        [10409] = "Rockwing Screecher",
+        [10430] = "The Beast",
+        [10470] = "Scholomance Neophyte",
+        [10502] = "Lady Illucia Barov",
+        [10506] = "Kirtonos the Herald",
+        [10508] = "Ras Frostwhisper",
+        [10558] = "Hearthsinger Forresten",
+        [10584] = "Urok Doomhowl",
+        [10644] = "Mist Howler",
+        [10737] = "Shy-Rotam",
+        [10741] = "Sian-Rotam",
+        [10812] = "Grand Crusader Dathrohan",
+        [10813] = "Balnazzar",
+        [10938] = "Redpath the Corrupted",
+        [11143] = "Postmaster Malown",
+        [11339] = "Hakkari Shadow Hunter",
+        [11352] = "Gurubashi Berserker",
+        [11359] = "Soulflayer",
+        [11382] = "Bloodlord Mandokir",
+        [11445] = "Gordok Captain",
+        [11455] = "Wildspawn Felsworn",
+        [11487] = "Magister Kalendris",
+        [11583] = "Nefarian",
+        [11733] = "Hive'Regal Slavemaker",
+        [11830] = "Hakkari Priest",
+        [11878] = "Nathanos Blightcaller",
+        [11947] = "Captain Galvangar",
+        [11982] = "Magmadar",
+        [12118] = "Lucifron",
+        [12119] = "Flamewaker Protector",
+        [12201] = "Princess Theradras",
+        [12339] = "Demetria",
+        [12476] = "Emeraldon Oracle",
+        [12478] = "Verdantine Oracle",
+        [12496] = "Dreamtracker",
+        [12498] = "Dreamstalker",
+        [12557] = "Grethok the Controller",
+        [12900] = "Somnus",
+        [14324] = "Cho'Rush the Observer",
+        [14325] = "Captain Kromcrush",
+        [14392] = "Overlord Runthak",
+        [14506] = "Lord Hel'nurath",
+        [14516] = "Death Knight Darkreaver",
+        [14517] = "High Priestess Jeklik",
+        [14530] = "Solenor the Slayer",
+        [14536] = "Nelson the Nice",
+        [14682] = "Sever",
+        [14684] = "Balzaphon",
+        [14686] = "Lady Falther'ess",
+        [14697] = "Lumbering Horror",
+        [14720] = "High Overlord Saurfang",
+        [14781] = "Captain Shatterskull",
+        [14834] = "Hakkar",
+        [14890] = "Taerar",
+        [14942] = "Kartra Bloodsnarl",
+        [14981] = "Elfarran",
+        [15006] = "Deze Snowbane",
+        [15007] = "Sir Malory Wheeler",
+        [15008] = "Lady Hoteshem",
+        [15083] = "Hazza'rah",
+        [15200] = "Twilight Keeper Mayna",
+        [15215] = "Mistress Natalia Mar'alith",
+        [15246] = "Qiraji Mindslayer",
+        [15247] = "Qiraji Brainwasher",
+        [15252] = "Qiraji Champion",
+        [15308] = "Twilight Prophet",
+        [15311] = "Anubisath Warder",
+        [15391] = "Captain Qeez",
+        [15449] = "Hive'Zora Abomination",
+        [15509] = "Princess Huhuran",
+        [15543] = "Princess Yauj",
+        [15620] = "Hive'Regal Hunter-Killer",
+        [15629] = "Nightmare Phantasm",
+        [15744] = "Imperial Qiraji Destroyer",
+        [15749] = "Lesser Silithid Flayer",
+        [15752] = "Silithid Flayer",
+        [15756] = "Greater Silithid Flayer",
+        [15759] = "Supreme Silithid Flayer",
+        [15808] = "Minor Silithid Flayer",
+        [15811] = "Faltering Silithid Flayer",
+        [15932] = "Gluth",
+        [16021] = "Living Monstrosity",
+        [16055] = "Va'jashni",
+        [16059] = "Theldren",
+        [16080] = "Mor Grayhoof",
+        [16102] = "Sothos",
+        [16143] = "Shadow of Doom",
+        [16146] = "Deathknight",
+        [16379] = "Spirit of the Damned",
+        [16382] = "Patchwork Terror",
+        [16394] = "Pallid Horror",
+        [185317] = "Incubus",
+        [261319] = "Durgen Dirgehammer",
+    }
+else
+    DEFAULT_FEAR_NPCS = {
+        [4302] = "Scarlet Champion",
+        [4540] = "Scarlet Monk",
+        [5259] = "Atal'ai Witch Doctor",
+        [10184] = "Onyxia",
+        [10398] = "Thuzadin Shadowcaster",
+        [11982] = "Magmadar",
+        [15547] = "Spectral Charger",
+        [16461] = "Concubine",
+        [16809] = "Warbringer O'mrogg",
+        [17225] = "Nightbane",
+        [17256] = "Hellfire Channeler",
+        [17478] = "Bleeding Hollow Scryer",
+        [17521] = "The Big Bad Wolf",
+        [17535] = "Dorothee",
+        [17536] = "Nazan",
+        [17546] = "Roar",
+        [17694] = "Shadowmoon Darkcaster",
+        [17801] = "Coilfang Siren",
+        [17808] = "Anetheron",
+        [17833] = "Durnholde Warden",
+        [17897] = "Crypt Fiend",
+        [17905] = "Banshee",
+        [17968] = "Archimonde",
+        [18325] = "Sethekk Prophet",
+        [18731] = "Ambassador Hellmaw",
+        [18796] = "Fel Overseer",
+        [18829] = "Hellfire Warder",
+        [19307] = "Nexus Terror",
+        [19513] = "Mutate Fear-Shrieker",
+        [20033] = "Astromancer",
+        [20042] = "Tempest-Smith",
+        [20912] = "Harbinger Skyriss",
+        [20990] = "Bloodwarder Physician",
+        [21104] = "Rift Keeper",
+        [21128] = "Coilfang Ray",
+        [21148] = "Rift Keeper",
+        [21220] = "Coilfang Priestess",
+        [21229] = "Greyheart Tidecaller",
+        [21466] = "Harbinger Skyriss",
+        [21467] = "Harbinger Skyriss",
+        [22845] = "Ashtongue Mystic",
+        [23028] = "Bonechewer Taskmaster",
+        [23330] = "Dragonmaw Wind Reaver",
+        [23339] = "Illidari Heartseeker",
+        [25369] = "Sunblade Vindicator",
+    }
+end
+
 -- Default settings
 local defaults = {
     enabled = true,
@@ -439,7 +781,7 @@ if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPower
 -- Local state
 local reminderFrame = nil
 local isShowing = false
-local lastTargetName = nil
+local fearBossName = nil   -- the list name of the boss whose fight is on, while that fight fears
 
 -- Check if a mob name is in the fear-caster list
 -- Restricted clients: unit identity (name/GUID) is secret on instanced maps.
@@ -447,14 +789,25 @@ local lastTargetName = nil
 local function SPIdentitySecret(unit)
 	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
 		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
-		if ok and v == true then return true end
+		if not ok or issecretvalue(v) or v == true then return true end
 	end
-	if issecretvalue and issecretvalue((UnitGUID(unit))) then return true end
-	return false
+	local ok, guid = pcall(UnitGUID, unit)
+	if not ok or issecretvalue(guid) then return true end
+	return false, guid
+end
+
+-- The settings buttons and tooltip must ask the same policy before reading a
+-- name. The second answer distinguishes a hidden identity from no target.
+function SP:TremorReminderTargetName()
+    if SPIdentitySecret("target") then return nil, true end
+    local name = UnitName("target")
+    if issecretvalue(name) then return nil, true end
+    if type(name) == "string" then return name, false end
+    return nil, false
 end
 
 local function IsFearCaster(name)
-    if not name then return false end
+    if issecretvalue(name) or not name then return false end
 
     local sv = ShamanPowerTremorReminderDB
     if not sv then return false end
@@ -472,6 +825,23 @@ local function IsFearCaster(name)
     return false
 end
 
+local function IsTargetFearCaster(guid)
+    local name = UnitName("target")
+    if issecretvalue(name) then return false end
+    local sv = ShamanPowerTremorReminderDB
+    if not sv then return false end
+    -- A typed name keeps its exact spelling and takes precedence, including a
+    -- translated custom entry set to false. Never rewrite saved name keys.
+    if name and sv.fearCasters and sv.fearCasters[name] ~= nil then return sv.fearCasters[name] end
+    if not sv.useDefaultList then return false end
+    if name and DEFAULT_FEAR_CASTERS[name] then return true end
+    if issecretvalue(guid) or type(guid) ~= "string" then return false end
+    local kind, npc = guid:match("^(%a+)%-[^-]*%-[^-]*%-[^-]*%-[^-]*%-(%d+)%-")
+    if kind ~= "Creature" and kind ~= "Vehicle" then return false end
+    local defaultName = DEFAULT_FEAR_NPCS[tonumber(npc)]
+    return defaultName and IsFearCaster(defaultName) or false
+end
+
 -- Check if Tremor Totem is currently active
 local function IsTremorTotemActive()
     -- On Forever the Earth slot may be secret; the core resolver falls back
@@ -479,11 +849,16 @@ local function IsTremorTotemActive()
     if SPCompat.FOREVER then
         local haveTotem, totemName = ShamanPower:GetElementTotemInfo(1)
         if issecretvalue(haveTotem) or issecretvalue(totemName) then return false end
-        return haveTotem and type(totemName) == "string" and totemName:find("Tremor", 1, true) ~= nil
+        return haveTotem and SPCompat.TotemNameMatches(totemName, 8143, "Tremor Totem")
     end
     for slot = 1, 4 do
-        local haveTotem, totemName = GetTotemInfo(slot)
-        if haveTotem and totemName and totemName:find("Tremor") then
+        local haveTotem, totemName, _, _, _, _, totemSpellID = GetTotemInfo(slot)
+        -- named after its spell (the game's own totem name differs in some languages)
+        if ShamanPower.CanonicalTotemName and not issecretvalue(totemName) then
+            totemName = ShamanPower:CanonicalTotemName(totemName, totemSpellID)
+        end
+        if not issecretvalue(haveTotem) and not issecretvalue(totemName)
+            and haveTotem and SPCompat.TotemNameMatches(totemName, 8143, "Tremor Totem") then
             return true
         end
     end
@@ -567,8 +942,8 @@ local function CreateReminderFrame()
         if SP.opt and SP.opt.ShowTooltips then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:SetText("Tremor Totem Reminder", 1, 0.82, 0)
-            local targetName = UnitName("target")
-            if targetName then
+            local targetName = SP:TremorReminderTargetName()
+            if not issecretvalue(targetName) and targetName then
                 GameTooltip:AddLine("Target: " .. targetName .. " (fear-caster)", 1, 0.5, 0.5)
             end
             GameTooltip:AddLine(" ")
@@ -695,55 +1070,42 @@ local function HideReminder()
     isShowing = false
 end
 
--- Check if we should show the reminder
+-- Check if we should show the reminder: a known fear-caster targeted, or a boss
+-- fight that fears going on. The boss half needs no names, so it also works where
+-- the target half cannot: inside dungeons and raids on WoW: Forever.
 local function CheckTarget()
     if SP.TremorDemoActive then return end
-    -- instanced map on a restricted client: names are secret, so stand down, and
-    -- take down a reminder that was already up (it can no longer be checked)
-    if SPIdentitySecret("target") then
-        HideReminder()
-        return
-    end
     local sv = ShamanPowerTremorReminderDB
+    -- no reminder while you are dead: your totems die with you
     if not sv or not sv.enabled or SP:IsOff() then
         HideReminder()
         return
     end
-
-    -- Check if we're targeting an attackable unit
-    if not UnitExists("target") or not UnitCanAttack("player", "target") then
+    local dead = UnitIsDeadOrGhost("player")
+    if issecretvalue(dead) or dead then
         HideReminder()
-        lastTargetName = nil
         return
     end
 
-    local targetName = UnitName("target")
+    local wanted = fearBossName ~= nil and IsFearCaster(fearBossName)
 
-    -- Check if target is a known fear-caster
-    if not IsFearCaster(targetName) then
-        HideReminder()
-        lastTargetName = targetName
-        return
-    end
-
-    -- Check if Tremor Totem is already active
-    if sv.hideWhenTremorActive and IsTremorTotemActive() then
-        HideReminder()
-        lastTargetName = targetName
-        return
-    end
-
-    -- Only play sound once per target
-    local shouldSound = (targetName ~= lastTargetName)
-    lastTargetName = targetName
-
-    if not isShowing then
-        if shouldSound and sv.playSound then
-            ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+    -- instanced map on a restricted client: the target's name is secret, so it is
+    -- never read there and only a boss fight can bring the reminder up
+    if not wanted then
+        local exists, hostile = UnitExists("target"), UnitCanAttack("player", "target")
+        if not issecretvalue(exists) and not issecretvalue(hostile) and exists and hostile then
+            local hidden, guid = SPIdentitySecret("target")
+            if not hidden then wanted = IsTargetFearCaster(guid) end
         end
     end
 
-    ShowReminder()
+    -- Tremor Totem already down: nothing to remind
+    if not wanted or (sv.hideWhenTremorActive and IsTremorTotemActive()) then
+        HideReminder()
+        return
+    end
+
+    ShowReminder()   -- plays the sound when it comes up
 end
 
 -- Event handler frame
@@ -753,6 +1115,11 @@ eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("ENCOUNTER_START")
+eventFrame:RegisterEvent("ENCOUNTER_END")
+eventFrame:RegisterEvent("PLAYER_DEAD")
+eventFrame:RegisterEvent("PLAYER_ALIVE")
+eventFrame:RegisterEvent("PLAYER_UNGHOST")
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" and arg1 == "ShamanPower_TremorReminder" then
@@ -785,8 +1152,28 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- Re-check when totems change (might need to hide if Tremor placed)
         CheckTarget()
 
+    elseif event == "ENCOUNTER_START" then
+        -- arg1 is the encounter ID, a plain number on every client; test it before
+        -- using it as a key anyway (a secret can never index a table)
+        if issecretvalue and issecretvalue(arg1) then
+            fearBossName = nil
+        elseif type(arg1) == "number" then
+            fearBossName = FEAR_BOSS_ENCOUNTERS[arg1]
+        else
+            fearBossName = nil
+        end
+        CheckTarget()
+
+    elseif event == "ENCOUNTER_END" then
+        fearBossName = nil
+        CheckTarget()
+
+    elseif event == "PLAYER_DEAD" or event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
+        CheckTarget()
+
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Re-check on zone changes
+        -- a loading screen ends any boss fight that was on; re-check on zone changes
+        fearBossName = nil
         C_Timer.After(1, CheckTarget)
     end
 end)
@@ -797,7 +1184,8 @@ SP:OnOnOff(function() CheckTarget() end)
 -- Slash commands
 SLASH_SPTREMOR1 = "/sptremor"
 SlashCmdList["SPTREMOR"] = function(msg)
-    msg = msg:lower():trim()
+    local typed = msg:trim()
+    msg = typed:lower()
 
     if msg == "show" then
         -- Show positioning frame
@@ -842,14 +1230,14 @@ SlashCmdList["SPTREMOR"] = function(msg)
         end
 
     elseif msg:find("^add ") then
-        local mobName = msg:sub(5):trim()
+        local mobName = typed:sub(5):trim()
         if mobName ~= "" then
             ShamanPowerTremorReminderDB.fearCasters[mobName] = true
             print("|cff0070ddShamanPower|r [Tremor Reminder]: Added '" .. mobName .. "' to fear-caster list.")
         end
 
     elseif msg:find("^remove ") then
-        local mobName = msg:sub(8):trim()
+        local mobName = typed:sub(8):trim()
         if mobName ~= "" then
             ShamanPowerTremorReminderDB.fearCasters[mobName] = false
             print("|cff0070ddShamanPower|r [Tremor Reminder]: Removed '" .. mobName .. "' from fear-caster list.")
@@ -889,6 +1277,11 @@ SlashCmdList["SPTREMOR"] = function(msg)
 end
 
 -- Bridge functions for main addon
+-- A setting changed (on / off, Hide When Tremor Active, Use Default Mob List): check again now
+function SP:TremorReminderRecheck()
+    CheckTarget()
+end
+
 function SP:TremorReminderShow()
     if not reminderFrame then CreateReminderFrame() end
     reminderFrame:Show()
@@ -1103,8 +1496,9 @@ function SP:ShowMobList()
     targetBtn:SetPoint("TOPLEFT", addLabel, "BOTTOMLEFT", 0, -8)
     targetBtn:SetText("Add Target")
     targetBtn:SetScript("OnClick", function()
-        local name = not SPIdentitySecret("target") and UnitName("target") or nil
-        if name and UnitCanAttack("player", "target") then
+        local name = SP:TremorReminderTargetName()
+        local hostile = UnitCanAttack("player", "target")
+        if name and not issecretvalue(hostile) and hostile then
             ShamanPowerTremorReminderDB.fearCasters[name] = true
             SP:RefreshMobList()
         end

@@ -1,8 +1,6 @@
 -- ShamanPower_Config / MobList.lua
 -- Tremor Reminder's fear-caster mob list, drawn with the config kit. Replaces
 -- the module's Blizzard-template window (this addon loads after the module).
--- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
-local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
 local _, ns = ...
 local Core = ns.Core
 local SP = ShamanPower
@@ -41,6 +39,7 @@ local function BuildList()
 end
 
 local function AddName(name)
+	if issecretvalue(name) or (name ~= nil and type(name) ~= "string") then return end
 	name = name and strtrim(name) or ""
 	if name == "" then return end
 	DB().fearCasters[name] = true
@@ -74,8 +73,12 @@ local function Build()
 	add:SetScript("OnClick", function() AddName(box:GetText()); box:SetText(""); box:ClearFocus() end)
 	local tgt = Core:MakeButton(body, "Add target", 100, false); tgt:SetPoint("LEFT", add, "RIGHT", 6, 0)
 	tgt:SetScript("OnClick", function()
-		local name = UnitName("target")
-		if name and UnitCanAttack("player", "target") then AddName(name)
+		local name, blocked
+		if SP.TremorReminderTargetName then name, blocked = SP:TremorReminderTargetName() end
+		local hostile = UnitCanAttack("player", "target")
+		if blocked or issecretvalue(name) or issecretvalue(hostile) then
+			print("|cff0070ddShamanPower|r: Cannot add this target now: the game is hiding its name.")
+		elseif name and hostile then AddName(name)
 		else print("|cff0070ddShamanPower|r: target an enemy first.") end
 	end)
 

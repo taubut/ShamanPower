@@ -615,22 +615,21 @@ local SHIELD_COLORS = { [324] = { r = 1.0, g = 0.85, b = 0.25 }, [24398] = { r =
 -- which st.compact-shield role (General > Themes) each one's full colour is
 SHIELD_COLORS[324].spRole, SHIELD_COLORS[24398].spRole, SHIELD_COLORS[408510].spRole = "full", "water", "water"
 
--- Mainline's GetSpellInfo polyfill allocates: validate shield names on spellbook
--- changes, not in the 10 Hz painter. ScanPlayerShield replaces shieldCache on
+-- Validate shield names on spellbook changes for both clients, never in the
+-- 10 Hz painter. ScanPlayerShield replaces shieldCache on
 -- aura events, so keep these spellbook answers separately from its aura state.
-local compactShieldNames
+local compactShieldNames = {}
 local compactShieldGeneration = 0
-if SPCompat.FOREVER then
-	compactShieldNames = {}
+do
 	local function RefreshCompactShieldNames()
 		for id in pairs(compactShieldNames) do compactShieldNames[id] = nil end
 		for _, data in ipairs(SP.ShieldSpells) do
-			if _G.GetSpellInfo(data[2]) then compactShieldNames[data[1]] = data[2] end
+			if SPCompat.KnowsSpellID(data[1]) then compactShieldNames[data[1]] = SPCompat.SpellName(data[1]) end
 		end
 		compactShieldGeneration = compactShieldGeneration + 1
 	end
 	RefreshCompactShieldNames()
-	_G.hooksecurefunc(SP, "SPELLS_CHANGED", RefreshCompactShieldNames)
+	SPCompat.OnSpellDataChanged(RefreshCompactShieldNames)
 end
 
 -- Spell name to cast: the shield that is up, else the preferred one, else any known.
@@ -667,13 +666,13 @@ function SP:CompactKnownShield()
 	end
 	if cache and cache.hasShield and cache.shieldID then
 		for _, d in ipairs(self.ShieldSpells or {}) do
-			if d[1] == cache.shieldID and GetSpellInfo(d[2]) then return d[2], d[1] end
+			if d[1] == cache.shieldID and SPCompat.KnowsSpellID(d[1]) then return SPCompat.SpellName(d[1]), d[1] end
 		end
 	end
 	local pref = self.ShieldSpells and self.ShieldSpells[self.opt.preferredShield or 1]
-	if pref and GetSpellInfo(pref[2]) then return pref[2], pref[1] end
+	if pref and SPCompat.KnowsSpellID(pref[1]) then return SPCompat.SpellName(pref[1]), pref[1] end
 	for _, d in ipairs(self.ShieldSpells or {}) do
-		if GetSpellInfo(d[2]) then return d[2], d[1] end
+		if SPCompat.KnowsSpellID(d[1]) then return SPCompat.SpellName(d[1]), d[1] end
 	end
 	return nil
 end

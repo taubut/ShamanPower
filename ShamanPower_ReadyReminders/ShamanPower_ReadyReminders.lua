@@ -15,7 +15,6 @@ if select(2, UnitClass("player")) ~= "SHAMAN" then return end
 SP.ReadyRemindersLoaded = true   -- the setup tour checks this before borrowing our frames
 
 local GetSpellCooldownC = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
-local GetSpellInfoC = GetSpellInfo
 local GetSpellTextureC = (C_Spell and C_Spell.GetSpellTexture) or GetSpellTexture
 
 -- SavedVariables
@@ -33,6 +32,7 @@ local DEFAULTS = {
 	dimOpacity = 0.35,     -- "always" mode, while on cooldown
 	desaturate = true,     -- "always" mode, while on cooldown
 	sweepStyle = "radial", -- "always" mode: radial | vertical | none
+	sweepDirection = "bottom", -- vertical: the color returns from this edge (top | bottom)
 	barStyle = "none",     -- "always" mode: none | below | above  (thin bar draining with the cooldown)
 	barHeight = 4,
 	barColor = { r = 0.3, g = 0.8, b = 1.0 },
@@ -113,7 +113,16 @@ SP.ReadyReminderSpells = {
 local frames = {}
 SP.readyReminderFrames = frames   -- read by the setup tour's preview
 local catalogByKey = {}
-for i, e in ipairs(SP.ReadyReminderSpells) do e.order = i; catalogByKey[e.key] = e end
+for i, e in ipairs(SP.ReadyReminderSpells) do
+	e.order = i
+	catalogByKey[e.key] = e
+	if not e.combo then
+		for _, id in ipairs(e.ids) do
+			local name = SPCompat.SpellName(id)
+			if name then e.name = SPCompat.SpellLabel(id, e.name) break end
+		end
+	end
+end
 
 -- Filling in the defaults walks every one of them, and SV() is called about 20
 -- times per update pass. So the walk runs only when the saved table is a new one
@@ -165,7 +174,7 @@ local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "soundOnRe
 	"flashAnim", "flashSize", "flashHold", "flashEarly", "flashName",
 	-- D40: every setting the page had is the icon's own now (the page's saved value is
 	-- what an icon that never set one uses, so nothing on screen changed on the update)
-	"opacity", "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor",
+	"opacity", "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", "barStyle", "barHeight", "barColor",
 	"textPosition", "textSize", "borderColor", "rangeLook", "rangeColor", "hideBackground", "hideBorder",
 	"showNames", "soundVolume", "soundMinCooldown", "flashMin" }
 local ICON_KEY = {}
@@ -270,13 +279,7 @@ local function playerKnows(entry)
 	local id = clientSpellID(entry)
 	local known = false
 	if id then
-		if IsPlayerSpell then known = IsPlayerSpell(id) and true or false end
-		if not known and IsSpellKnown then known = IsSpellKnown(id) and true or false end
-		if not known then
-			-- name lookup resolves only spells in the spellbook, any rank
-			local name = GetSpellInfoC(id)
-			if name and GetSpellInfoC(name) then known = true end
-		end
+		known = SPCompat.KnowsSpellID(id)
 	end
 	knownCache[entry.key] = known
 	return known
@@ -288,7 +291,7 @@ local GCD_MAX = 1.6   -- a "cooldown" this short is only the global cooldown
 local function ownCooldownOf(entry)
 	local id = clientSpellID(entry)
 	if not id then return nil end
-	local name = GetSpellInfoC(id)
+	local name = SPCompat.SpellName(id)
 	local start, duration = GetSpellCooldownC(name or id)
 	if type(start) ~= "number" or type(duration) ~= "number" then return nil end
 	return start, duration
@@ -598,7 +601,7 @@ function SP:CreateReadyReminderFrame(entry)
 	if cd.SetIgnoreParentAlpha then cd:SetIgnoreParentAlpha(true) end   -- its countdown stays readable while the icon dims
 	cd:Hide()
 	f.cooldown = cd
-	-- vertical sweep: a grey sheet over the top part of the icon, shrinking as the cooldown ends
+	-- vertical sweep: a gray sheet shrinks toward the edge opposite the returning color
 	local overlay = f:CreateTexture(nil, "ARTWORK", nil, 2)
 	overlay:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0); overlay:SetPoint("TOPRIGHT", icon, "TOPRIGHT", 0, 0)
 	overlay:SetHeight(1); overlay:SetColorTexture(0, 0, 0, 0.65); overlay:Hide()
@@ -709,16 +712,16 @@ local lastShockKey   -- the shock cast last (UNIT_SPELLCAST_SUCCEEDED, see the w
 -- Own casts' spell IDs stay readable in combat. Any rank, matched by name once per ID.
 local shockKeyOf = {}   -- [spellID] = "earthshock" | "flameshock" | "frostshock" | false
 local function noteShockCast(spellID)
-	if spellID == nil or (issecretvalue and issecretvalue(spellID)) then return end
+	if (issecretvalue and issecretvalue(spellID)) or spellID == nil then return end
 	local key = shockKeyOf[spellID]
 	if key == nil then
 		key = false
-		local name = GetSpellInfoC(spellID)
-		if name and not (issecretvalue and issecretvalue(name)) then
+		local name = SPCompat.SpellName(spellID)
+		if name then
 			for _, k in ipairs(SHOCK_FAMILY) do
 				local e = catalogByKey[k]
 				local id = e and clientSpellID(e)
-				if id and GetSpellInfoC(id) == name then key = k break end
+				if id and SPCompat.SpellName(id) == name then key = k break end
 			end
 		end
 		shockKeyOf[spellID] = key
@@ -902,6 +905,16 @@ function SP:UpdateReadyReminderAppearance(key)
 	local e = f.entry
 	local size = IconOpt(e, "iconSize") or 48
 	f:SetSize(size, size)
+	-- Fills Back In: the remaining gray sheet sits opposite the edge where color returns.
+	local fromTop = IconOpt(e, "sweepDirection") == "top"
+	f.overlay:ClearAllPoints()
+	if fromTop then
+		f.overlay:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMLEFT", 0, 0)
+		f.overlay:SetPoint("BOTTOMRIGHT", f.icon, "BOTTOMRIGHT", 0, 0)
+	else
+		f.overlay:SetPoint("TOPLEFT", f.icon, "TOPLEFT", 0, 0)
+		f.overlay:SetPoint("TOPRIGHT", f.icon, "TOPRIGHT", 0, 0)
+	end
 	-- countdown text: size and position
 	local tsz = IconOpt(e, "textSize")
 	local ts = (tsz and tsz > 0) and tsz or math.max(10, math.floor(size * 0.34))
@@ -1126,8 +1139,7 @@ local function soundLength(entry, duration)
 	if type(duration) == "number" and duration > GCD_MAX then return duration end
 	local id = clientSpellID(entry)
 	if not id then return 0 end
-	local name = GetSpellInfoC(id)
-	if issecretvalue and issecretvalue(name) then name = nil end
+	local name = SPCompat.SpellName(id)
 	local shadow = SPCompat and SPCompat.shadowCooldowns
 	local learned = shadow and name and shadow[name]
 	if type(learned) == "table" and type(learned.duration) == "number" then return learned.duration end
@@ -1715,8 +1727,8 @@ local function flagSpell(entry)
 	end
 	local id = clientSpellID(e)
 	if not id then return nil end
-	local name = GetSpellInfoC(id)
-	if name == nil or (issecretvalue and issecretvalue(name)) then return id end
+	local name = SPCompat.SpellName(id)
+	if name == nil then return id end
 	return name
 end
 
@@ -1976,13 +1988,15 @@ end
 
 local function drawEngineCooldown(f)
 	local style = IconOpt(f.entry, "sweepStyle") or "radial"
+	local direction = IconOpt(f.entry, "sweepDirection") or "bottom"
 	local barOn = (IconOpt(f.entry, "barStyle") or "none") ~= "none"
-	if f.ecdOn and not f.cdChanged and f.ecdStyle == style and f.ecdBar == barOn then return end
+	if f.ecdOn and not f.cdChanged and f.ecdStyle == style and f.ecdDirection == direction and f.ecdBar == barOn then return end
 	local id = clientSpellID(f.entry)
 	if not id then return end
 	local ok, d = pcall(C_Spell.GetSpellCooldownDuration, id, true)   -- true: not the global cooldown
 	if not ok or d == nil then return end   -- tried again next pass
 	f.ecdOn, f.ecdStyle, f.ecdBar, f.ecdDur, f.cdChanged = true, style, barOn, d, nil
+	f.ecdDirection = direction
 	watchRealEnd(f, d)   -- the curve's switch to full runs when the real cooldown ends
 	local cd = f.cooldown
 	if f.countShown ~= false then f.countShown = false; f.count:SetText("") end   -- the engine's string counts
@@ -2002,12 +2016,13 @@ local function drawEngineCooldown(f)
 			sheet:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
 			sheet:SetStatusBarColor(0, 0, 0, 0.65)
 			sheet:SetOrientation("VERTICAL")
-			sheet:SetReverseFill(true)
 			if sheet.SetFillStyle then sheet:SetFillStyle("STANDARD") end
 			sheet:SetFrameLevel(f:GetFrameLevel() + 1)
 			f.engineSheet = sheet
 			if SP.ShapeIconTexture then SP:ShapeIconTexture(sheet:GetStatusBarTexture(), f.icon, "ready") end   -- Icon Shape
 		end
+		-- Remaining time drains toward the edge opposite the returning color.
+		sheet:SetReverseFill(direction ~= "top")
 		local okb = pcall(sheet.SetTimerDuration, sheet, d, Interp, Dir.RemainingTime)
 		sheet:SetShown(okb and true or false)
 	elseif f.engineSheet then
@@ -2795,7 +2810,8 @@ local function InjectOptions()
 			iconsHeader = { order = 0.1, type = "header", name = "Spells" },
 			yourIcons = { order = 0.2, type = "description", width = "full",
 				name = "Click a spell to show or hide it. Right-click it for its settings: Show, Only In Combat,"
-					.. " Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash." },
+					.. " Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash."
+					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom." },
 
 			move = { order = 1.5, type = "execute", name = "Move the Icons", width = 1.2,
 				desc = "Unlocks just the reminder icons: drag each box where you want it, then press Done to come back here.",
@@ -2966,7 +2982,7 @@ SP:OnOnOff(function() SP:UpdateReadyReminders() end)
 -- Color option does (this module's page still shows and changes it); Standard
 -- puts the player's own colour back.
 if SP.ThemeSpotSettings then
-	SP:ThemeSpotSettings("mod.readyreminders", {
+	local entries = {
 		{ role = "border", label = "Border",
 		  get = function()
 			local r, g, b = color(SV().borderColor, 0.2, 0.7, 1.0)
@@ -2980,7 +2996,26 @@ if SP.ThemeSpotSettings then
 		  -- ShamanPower and ShamanPower Minimal: logo blue #3FA9F5
 		  shamanpower = { r = 63 / 255, g = 169 / 255, b = 245 / 255 },
 		},
-	})
+		{ key = "sweepDirection", label = "Sweep Direction",
+		  get = function() return SV().sweepDirection end,
+		  set = function(v)
+			if v ~= "top" and v ~= "bottom" then return end
+			SV().sweepDirection = v
+			SP:UpdateAllReadyReminderAppearance(); SP:UpdateReadyReminders()
+		  end,
+		},
+	}
+	for _, entry in ipairs(SP.ReadyReminderSpells) do
+		local key = entry.key
+		entries[#entries + 1] = { key = "sweepDirection." .. key, label = entry.name .. " Sweep Direction",
+			-- Keep inheritance: restoring a theme must not turn the shared default into an override.
+			get = function() return SP:ReadyReminderOwnOpt(key, "sweepDirection") or "default" end,
+			set = function(v)
+				if v == "default" then SP:ReadyReminderSetIconOpt(key, "sweepDirection", nil)
+				elseif v == "top" or v == "bottom" then SP:ReadyReminderSetIconOpt(key, "sweepDirection", v) end
+			end }
+	end
+	SP:ThemeSpotSettings("mod.readyreminders", entries)
 end
 
 -- The Out of Range color is a theme color too (ShamanPowerTheme.lua Cards.RR): Reset

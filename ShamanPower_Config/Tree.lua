@@ -13,6 +13,8 @@ local ADDON, ns = ...
 
 local Tree = {}
 ns.Tree = Tree
+-- the Tester (a dev tool) sets a test's options through these same get / set paths
+if ShamanPower then ShamanPower.UIKit = ShamanPower.UIKit or {}; ShamanPower.UIKit.Tree = Tree end
 
 local INHERITED = {
 	handler = true, get = true, set = true, func = true,

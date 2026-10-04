@@ -18,6 +18,7 @@ local Core = ns.Core
 
 local Widgets = {}
 ns.Widgets = Widgets
+if ShamanPower then ShamanPower.UIKit = ShamanPower.UIKit or {}; ShamanPower.UIKit.Widgets = Widgets end
 
 -- Layout constants -----------------------------------------------------------
 local ROW_H       = 34
@@ -362,7 +363,7 @@ local function CreateSection(parent)
 end
 
 local FEATURED_H = 44
-local GOLD = { 1, 0.82, 0.15 }
+local DISCORD_BLURPLE = { 0.345, 0.396, 0.949 }
 
 function Widgets:SectionHeader(parent, opts)
 	local h = Acquire("section", parent, CreateSection)
@@ -373,7 +374,8 @@ function Widgets:SectionHeader(parent, opts)
 	local featured = opts.featured
 	h.label:ClearAllPoints(); h.rule:ClearAllPoints()
 	if featured then
-		-- the big gold heading: icon, large bold gold title, gold glow and rule
+		-- the featured heading (D39 A): the settings page header's look, its own icon kept; the
+		-- Discord one in Discord's blurple
 		h:SetHeight(FEATURED_H)
 		local path = type(featured) == "string" and featured or "Interface\\Icons\\ClassIcon_Shaman"
 		h.icon:SetTexture(path)
@@ -382,21 +384,18 @@ function Widgets:SectionHeader(parent, opts)
 		h.icon:SetSize(32, 32)
 		h.icon:ClearAllPoints(); h.icon:SetPoint("BOTTOMLEFT", h, "BOTTOMLEFT", PAD, 4)
 		h.icon:Show()
-		h.label:SetFontObject(Core.fonts.title)
-		h.label:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
-		h.label:SetShadowColor(0, 0, 0, 1); h.label:SetShadowOffset(2, -2)
 		h.label:SetPoint("LEFT", h.icon, "RIGHT", 10, 1)
 		h.label:SetText(opts.label or "")
-		h.rule:SetHeight(2)
 		h.rule:SetPoint("TOPLEFT", h, "BOTTOMLEFT", PAD, 0)
 		h.rule:SetPoint("TOPRIGHT", h, "BOTTOMRIGHT", -PAD, 0)
-		h.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.9)
 		h.glow:ClearAllPoints()
 		h.glow:SetPoint("TOPLEFT", h, "TOPLEFT", PAD, -2)
 		h.glow:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -PAD, 0)
-		Core:Gradient(h.glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.22, GOLD[1], GOLD[2], GOLD[3], 0)
-		h.glow:Show()
+		local discord = path:lower():find("discord", 1, true) ~= nil
+		Core:PageBanner({ host = h, glow = h.glow, rule = h.rule, title = h.label, icon = h.icon, keepIcon = true,
+			color = discord and DISCORD_BLURPLE or nil, element = "air", textX = PAD + 42 })
 	else
+		Core:PageBannerOff(h)
 		h:SetHeight(SECTION_H)
 		h.icon:Hide(); h.glow:Hide()
 		h.label:SetFontObject(Core.fonts.section)

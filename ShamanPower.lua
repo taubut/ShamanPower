@@ -824,24 +824,9 @@ function ShamanPower:IsUpdateSubsystemEnabled(name)
 end
 -- ============================================================================
 
--- Helper function to check if player knows a spell by name (works with any rank in Classic)
-local function PlayerKnowsSpellByName(spellName)
-	if not spellName then return false end
-	-- GetSpellInfo with a name will return info if the player can cast it
-	local name = GetSpellInfo(spellName)
-	if not name then return false end
-	-- Check if it's in the spellbook
-	local slot = FindSpellBookSlotBySpellID(select(7, GetSpellInfo(spellName)) or 0, false)
-	if slot then return true end
-	-- Fallback: try to find by name in spellbook
-	for i = 1, 500 do
-		local bookName = GetSpellBookItemName(i, BOOKTYPE_SPELL)
-		if not bookName then break end
-		if bookName == spellName or bookName:find("^" .. spellName) then
-			return true
-		end
-	end
-	return false
+-- Any rank, by spell ID only (SPCompat.KnowsSpellID: this client's own rank list).
+local function PlayerKnowsSpellByID(spellID)
+	return SPCompat.KnowsSpellID(spellID)
 end
 
 -- unit tables
@@ -880,7 +865,8 @@ function ShamanPower:Debug(s)
 	end
 end
 
--- Sound at a custom volume. WoW has no per-sound volume, so anything below 100
+-- Sound at a custom volume. WoW has no per-sound volume for sound files (WoW:
+-- Forever has one for built-in sound kits, used first), so a file below 100
 -- is routed through the Dialog channel with Sound_DialogVolume temporarily
 -- lowered. Rules that keep this from hurting the client:
 --   * never touch Sound_Enable* CVars - toggling one restarts the sound engine,
@@ -901,6 +887,13 @@ local function RestoreDialogVolume()
 end
 
 function ShamanPower:PlaySoundWithVolume(soundOrFile, volume, isFile)
+	-- WoW: Forever gives a built-in sound (a sound kit, not a file) a volume of its own:
+	-- it plays on Master at that volume, and the Dialog channel never comes into it
+	if not isFile and SPCompat.FOREVER and C_Sound and C_Sound.PlaySound then
+		if volume and volume <= 0 then return end
+		C_Sound.PlaySound(soundOrFile, "Master", false, false, nil, (volume and volume < 100) and volume / 100 or nil)
+		return
+	end
 	if not volume or volume >= 100 or GetCVar("Sound_EnableDialog") == "0" then
 		if volume and volume <= 0 then return end
 		if isFile then
@@ -1348,17 +1341,28 @@ function ShamanPower:OnCombatEnd()
 	end
 end
 
+-- The Earth Shield macro's body: its tooltip line names the spell in the game's own
+-- language (an English name shows a "?" icon with no tooltip on other clients)
+function ShamanPower:EarthShieldMacroBody()
+	return "#showtooltip " .. (SPCompat.SpellName(974) or "Earth Shield") .. "\n/click ShamanPowerESMacroBtn"
+end
+
 -- Create a macro for Earth Shield that users can keybind
 function ShamanPower:CreateEarthShieldMacro()
 	local macroName = "AC EarthShield"
-	local macroBody = "#showtooltip Earth Shield\n/click ShamanPowerESMacroBtn"
+	local macroBody = self:EarthShieldMacroBody()
 	-- Use ? icon so #showtooltip shows the correct spell icon dynamically
 	local macroIcon = "INV_Misc_QuestionMark"
 
 	-- Check if macro already exists
 	local existingIndex = GetMacroIndexByName(macroName)
 	if existingIndex and existingIndex > 0 then
-		-- Macro exists, no need to recreate
+		-- Macro exists, no need to recreate. One made before 3.0.6 with the English
+		-- tooltip line (and not changed by the player) gets this client's name.
+		local old = "#showtooltip Earth Shield\n/click ShamanPowerESMacroBtn"
+		if old ~= macroBody and not InCombatLockdown() and GetMacroBody(existingIndex) == old then
+			EditMacro(existingIndex, macroName, macroIcon, macroBody)
+		end
 		return
 	end
 
@@ -2101,44 +2105,51 @@ local totemNameElementCache = {}
 -- Teach the resolver a totem name (used by discovery on clients whose totem
 -- list differs from the static tables). Also clears a cached miss.
 function ShamanPower:RegisterTotemElement(totemName, element)
+	if issecretvalue(totemName) or issecretvalue(element) then return end
 	if totemName and element then
 		totemNameElementCache[totemName] = element
 	end
 end
 
 -- Element (1-4) a totem name belongs to, or nil if it matches nothing known.
--- Longest matching table entry wins so a future "Fire" style entry cannot
--- steal "Fire Resistance".
+-- Whole names prevent weapon imbues from being mistaken for totem casts.
 function ShamanPower:TotemNameElement(totemName)
+	if issecretvalue(totemName) then return nil end
 	if not totemName or totemName == "" then return nil end
 	local cached = totemNameElementCache[totemName]
 	if cached ~= nil then return cached or nil end
 
-	local lowerName = totemName:lower()
-	local found, foundLen = nil, 0
+	-- A translated cast name need not contain any part of its English label.
 	for element = 1, 4 do
-		local names = self.TotemNames and self.TotemNames[element]
-		if names then
-			for _, name in pairs(names) do
-				if name and #name > foundLen and lowerName:find(name:lower(), 1, true) then
-					found, foundLen = element, #name
-				end
+		for index, id in pairs(self.Totems and self.Totems[element] or {}) do
+			local fallback = self.TotemNames and self.TotemNames[element] and self.TotemNames[element][index]
+			if SPCompat.TotemNameMatches(totemName, id, fallback) then
+				totemNameElementCache[totemName] = element
+				return element
 			end
 		end
 	end
-	totemNameElementCache[totemName] = found or false
-	return found
+	totemNameElementCache[totemName] = false
+	return nil
 end
 
 -- Element (1-4) of a totem spell ID from the static tables, or nil.
 local totemSpellElementCache
 function ShamanPower:TotemSpellElement(spellID)
+	if issecretvalue(spellID) then return nil end
 	if type(spellID) ~= "number" or spellID == 0 then return nil end
 	if not totemSpellElementCache then
 		totemSpellElementCache = {}
 		for element = 1, 4 do
 			for _, id in pairs(self.Totems and self.Totems[element] or {}) do
-				if type(id) == "number" then totemSpellElementCache[id] = element end
+				if type(id) == "number" then
+					totemSpellElementCache[id] = element
+					-- and every rank of it, by ID: a higher rank's name can differ from the
+					-- first rank's in some languages, so it must never be found by name
+					for _, rank in ipairs(SPCompat.SpellRanks(id) or {}) do
+						if totemSpellElementCache[rank] == nil then totemSpellElementCache[rank] = element end
+					end
+				end
 			end
 		end
 		-- (TalentTotems' first field is the talent TREE, not the element: the talent
@@ -2151,6 +2162,39 @@ end
 -- (retail's 7th GetTotemInfo return), else the name tables. nil = unknown.
 local function slotTotemElement(self, totemName, spellID)
 	return self:TotemSpellElement(spellID) or self:TotemNameElement(totemName)
+end
+
+-- The name ShamanPower's checks use for a totem that is down. The game names a
+-- summoned totem on its own, and in some languages that name is not its spell's:
+-- Spanish above all ("Tótem piel de piedra" for the spell "Tótem Piel de piedra"),
+-- also a few totems in French, Portuguese, Russian and Chinese (every client
+-- language's game data checked, 2026-10-04). So a totem whose spell ID the game
+-- gives is named after its first rank's spell, the name every check compares with
+-- (Mana Spring: the name it is cast by). No ID, or a spell outside the tables:
+-- the game's own name, as before.
+function ShamanPower:CanonicalTotemName(name, spellID)
+	if issecretvalue(spellID) or type(spellID) ~= "number" or spellID == 0 then return name end
+	local canon = self._totemCanon
+	if not canon or canon.gen ~= SPCompat.SpellDataGeneration then
+		canon = { gen = SPCompat.SpellDataGeneration, names = {} }
+		for element = 1, 4 do
+			for _, id in pairs(self.Totems and self.Totems[element] or {}) do
+				if type(id) == "number" then
+					local castName
+					if SPCompat.HasTotemCastAliases(id) then castName = SPCompat.TotemCastName(id) end
+					castName = castName or SPCompat.SpellName(id)
+					if castName then
+						canon.names[id] = castName
+						for _, rank in ipairs(SPCompat.SpellRanks(id) or {}) do
+							if canon.names[rank] == nil then canon.names[rank] = castName end
+						end
+					end
+				end
+			end
+		end
+		self._totemCanon = canon
+	end
+	return canon.names[spellID] or name
 end
 
 -- ----------------------------------------------------------------------------
@@ -2345,30 +2389,31 @@ function ShamanPower:TotemDropInRange(element, unit)
 	return dx * dx + dy * dy <= TOTEM_AURA_RANGE * TOTEM_AURA_RANGE
 end
 
--- Element a cast totem spell belongs to (exact rank IDs are not in the tables,
--- so fall back to the spell name).
+-- Element a cast totem spell belongs to: by ID for every rank (TotemSpellElement),
+-- the spell name only for a spell outside the rank lists.
 function ShamanPower:TotemCastElement(spellID)
 	local element = self:TotemSpellElement(spellID)
 	if element then return element end
-	local name = GetSpellInfo(spellID)
-	if not name or (type(name) == "string" and not name:find("Totem")) then return nil end
+	local name = SPCompat.SpellName(spellID)
+	if not name then return nil end
 	return self:TotemNameElement(name)
 end
 
 function ShamanPower:ShadowTotemCast(unit, spellID)
+	if issecretvalue(unit) or issecretvalue(spellID) then return end
 	if unit ~= "player" or type(spellID) ~= "number" then return end
 	local element = self:TotemCastElement(spellID)
 	if not element then
 		-- Call of the Elements / Ancestors / Spirits (Forever): one cast, several totems
 		local set = self.TotemSetForSummon and self:TotemSetForSummon(spellID)
 		if set then self:ShadowTotemSetCast(set) return end
-		-- Totemic Recall / Totemic Call empties the slots on purpose: not "destroyed"
-		local name = GetSpellInfo(spellID)
-		if type(name) == "string" and name:find("^Totemic") then self._totemRecallAt = GetTime() end
+		-- Recall and Projection suppress destroyed cues while the slots settle.
+		if spellID == 36936 or spellID == 437009 then self._totemRecallAt = GetTime() end
 		return
 	end
 	self:RecordTotemDrop(element)
 	local name, _, icon = GetSpellInfo(spellID)
+	name = self:CanonicalTotemName(name, spellID)
 	local now = GetTime()
 	local learned = learnedDurations()[spellID] or (self.TotemBaseDurations and self.TotemBaseDurations[spellID])
 	local entry = {
@@ -2417,6 +2462,7 @@ function ShamanPower:ShadowTotemSetCast(spells)
 		local id = spells[element]
 		local name, _, icon = GetSpellInfo(id or 0)
 		if id and name then
+			name = self:CanonicalTotemName(name, id)
 			local slot = self.ElementToSlot and self.ElementToSlot[element] or element
 			local learned = learnedDurations()[id] or (self.TotemBaseDurations and self.TotemBaseDurations[id])
 			local entry = {
@@ -2634,6 +2680,7 @@ function ShamanPower:ReadElementTotemInfo(element)
 
 	local haveTotem, totemName, startTime, duration, icon, _, spellID = GetTotemInfo(fixedSlot)
 	if haveTotem and totemName and totemName ~= "" then
+		totemName = self:CanonicalTotemName(totemName, spellID)
 		local slotElement = slotTotemElement(self, totemName, spellID)
 		if not slotElement or slotElement == element then
 			shadowSyncFromAPI(self, element, haveTotem, totemName, startTime, duration, icon, fixedSlot, spellID)
@@ -2650,6 +2697,7 @@ function ShamanPower:ReadElementTotemInfo(element)
 		if slot ~= fixedSlot then
 			local h, n, s, d, i, _, id = GetTotemInfo(slot)
 			if h and n and slotTotemElement(self, n, id) == element then
+				n = self:CanonicalTotemName(n, id)
 				shadowSyncFromAPI(self, element, h, n, s, d, i, slot, id)
 				return h, n, s, d, i, slot
 			end
@@ -2667,20 +2715,25 @@ end
 
 -- Find the totem index for a given element based on the active totem name
 -- Used for Dynamic Mode to determine which totem is currently placed
+ShamanPower.activeTotemIndexCache = { {}, {}, {}, {} }
 function ShamanPower:GetActiveTotemIndex(element)
 	local haveTotem, activeTotemName = self:GetElementTotemInfo(element)
+	if issecretvalue(haveTotem) or issecretvalue(activeTotemName) then return nil end
 	if not haveTotem or not activeTotemName then return nil end
+	local cached = self.activeTotemIndexCache[element]
+	local generation = SPCompat.SpellDataGeneration
+	if cached and cached.name == activeTotemName and cached.generation == generation then return cached.index end
+	if cached then
+		cached.name, cached.generation, cached.index = activeTotemName, generation, nil
+	end
 
 	-- Search through all totems for this element to find a match
 	local totemNames = self.TotemNames[element]
 	if not totemNames then return nil end
 
-	-- Convert to lowercase once for faster comparison
-	local activeLower = activeTotemName:lower()
-
-	for totemIndex, totemName in pairs(totemNames) do
-		-- Check if the active totem name contains this totem's name (plain text match)
-		if totemName and activeLower:find(totemName:lower(), 1, true) then
+	for totemIndex in pairs(totemNames) do
+		if SPCompat.TotemNameMatches(activeTotemName, self:GetTotemSpell(element, totemIndex), totemNames[totemIndex]) then
+			if cached then cached.index = totemIndex end
 			return totemIndex
 		end
 	end
@@ -3360,17 +3413,17 @@ end
 -- totem passive's period in the client's spell data (SpellEffect, periodic trigger).
 ShamanPower.PulsingTotems = {
 	-- Earth totems
-	["Tremor"] = { element = 1, interval = (SPCompat.FOREVER) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
-	["Earthbind"] = { element = 1, interval = 3 },
-	["Stoneclaw"] = { element = 1, interval = 2 },   -- its taunt (Stoneclaw Totem Passive, every 2 s on both clients)
+	["Tremor"] = { element = 1, spellID = 8143, interval = (SPCompat.FOREVER) and 4 or 3 },   -- WoW: Forever pulses every 4 s (Tremor Totem Passive 8145)
+	["Earthbind"] = { element = 1, spellID = 2484, interval = 3 },
+	["Stoneclaw"] = { element = 1, spellID = 5730, interval = 2 },   -- its taunt (Stoneclaw Totem Passive, every 2 s on both clients)
 	-- Fire totems
-	["Magma"] = { element = 2, interval = 2 },
+	["Magma"] = { element = 2, spellID = 8190, interval = 2 },
 	-- Water totems
-	["Mana Tide"] = { element = 3, interval = 3 },
-	["Mana Spring"] = { element = 3, interval = 2 },
-	["Healing Stream"] = { element = 3, interval = 2 },
-	["Poison Cleansing"] = { element = 3, interval = 5 },
-	["Disease Cleansing"] = { element = 3, interval = 5 },
+	["Mana Tide"] = { element = 3, spellID = 16190, interval = 3 },
+	["Mana Spring"] = { element = 3, spellID = 5675, interval = 2 },
+	["Healing Stream"] = { element = 3, spellID = 5394, interval = 2 },
+	["Poison Cleansing"] = { element = 3, spellID = 8166, interval = 5 },
+	["Disease Cleansing"] = { element = 3, spellID = 8170, interval = 5 },
 }
 
 -- Only Show Pulse Bars / Pulse Flash for Specific Totems (Duration Bars): two
@@ -3393,7 +3446,9 @@ function ShamanPower:GetActivePulsingTotem(element)
 		if data == nil then
 			data = false
 			for pattern, entry in pairs(self.PulsingTotems) do
-				if entry.element == element and totemName:find(pattern) then data = entry; entry.key = pattern break end
+				if entry.element == element and SPCompat.TotemNameMatches(totemName, entry.spellID, pattern) then
+					data = entry; entry.key = pattern break
+				end
 			end
 			pulsingByName[key] = data
 		end
@@ -3602,7 +3657,7 @@ function ShamanPower:GetTwistTotemName()
 	local idx = self.opt.twistTotem or 2
 	local spellID = self.AirTotems[idx]
 	if spellID then
-		return GetSpellInfo(spellID) or "Grace of Air Totem"
+		return SPCompat.SpellName(spellID, "Grace of Air Totem")
 	end
 	return "Grace of Air Totem"
 end
@@ -3656,6 +3711,18 @@ function ShamanPower:HideTwistTimer()
 	self.twistStartTime = nil
 end
 
+-- The air name changes when a totem changes, not on each 20 Hz paint pass.
+ShamanPower.windfuryNameCache = {}
+function ShamanPower:IsWindfuryTotemName(name)
+	if issecretvalue(name) or type(name) ~= "string" then return false end
+	local cached, generation = self.windfuryNameCache, SPCompat.SpellDataGeneration
+	if cached.name ~= name or cached.generation ~= generation then
+		cached.name, cached.generation = name, generation
+		cached.matches = SPCompat.TotemNameMatches(name, 8512, "Windfury Totem")
+	end
+	return cached.matches
+end
+
 function ShamanPower:UpdateTwistTimer()
 	if not self.opt.enableTotemTwisting then
 		self:HideTwistTimer()
@@ -3664,6 +3731,8 @@ function ShamanPower:UpdateTwistTimer()
 
 	-- Check if Air totem is active
 	local haveTotem, name, startTime, duration = self:GetElementTotemInfo(4)
+	if issecretvalue(haveTotem) or issecretvalue(name) or issecretvalue(startTime) then return end
+	local isWindfury = self:IsWindfuryTotemName(name)
 
 	-- Only update icon in classic mode (not TotemTimers mode)
 	-- In TotemTimers mode, UpdateActiveTotemOverlays handles the icon
@@ -3673,7 +3742,7 @@ function ShamanPower:UpdateTwistTimer()
 		if iconTexture then
 			if haveTotem and name then
 				local twistName = self:GetTwistTotemName()
-				if name:find("Windfury") then
+				if isWindfury then
 					-- WF is down, show twist totem icon (what to cast next)
 					iconTexture:SetTexture(self:GetTwistTotemIcon())
 				elseif name:find(twistName, 1, true) then
@@ -3687,8 +3756,6 @@ function ShamanPower:UpdateTwistTimer()
 
 	if haveTotem and startTime and startTime > 0 then
 		-- Restart timer every time WINDFURY is placed
-		local isWindfury = name and name:find("Windfury")
-
 		if isWindfury and self.twistStartTime ~= startTime then
 			-- New Windfury placed - reset the 10 second timer
 			self.twistStartTime = startTime
@@ -4309,10 +4376,37 @@ local function FormatCooldownTime(seconds)
 	end
 end
 
--- Totem cooldown visual (opt.totemCooldownSweep):
---   "radial"   classic radial swipe
---   "vertical" grey grows down from the top as the cooldown runs (like the cooldown bar)
---   "reverse"  starts fully grey and the color comes back from the bottom up
+-- Direction names describe the advancing gray (Grays Out) or color (Fills
+-- Back In). A missing choice preserves the old top-gray / bottom-color look.
+function ShamanPower:SweepGrayFromTop(style, direction)
+	if direction ~= "top" and direction ~= "bottom" then return true end
+	if style == "reverse" or style == "fills" then return direction == "bottom" end
+	return direction == "top"
+end
+
+-- Plain, already-readable fractions only. The game-driven paths use a
+-- StatusBar instead. Shared by full icons and the two halves of an imbue.
+function ShamanPower:PaintVerticalSweep(texture, anchor, fraction, height, fromTop, left, right, width, side)
+	local h = height * fraction
+	if h <= 1 then texture:Hide(); return end
+	if texture._sweepAnchor ~= anchor or texture._sweepTop ~= fromTop or texture._sweepSide ~= side or texture._sweepWidth ~= width then
+		texture._sweepAnchor, texture._sweepTop, texture._sweepSide, texture._sweepWidth = anchor, fromTop, side, width
+		texture:ClearAllPoints()
+		if side == "right" then
+			texture:SetPoint(fromTop and "TOPRIGHT" or "BOTTOMRIGHT", anchor, fromTop and "TOPRIGHT" or "BOTTOMRIGHT", 0, 0)
+		else
+			texture:SetPoint(fromTop and "TOPLEFT" or "BOTTOMLEFT", anchor, fromTop and "TOPLEFT" or "BOTTOMLEFT", 0, 0)
+		end
+		if width then texture:SetWidth(width)
+		else texture:SetPoint(fromTop and "TOPRIGHT" or "BOTTOMRIGHT", anchor, fromTop and "TOPRIGHT" or "BOTTOMRIGHT", 0, 0) end
+	end
+	texture:SetHeight(h)
+	if fromTop then texture:SetTexCoord(left, right, 0.08, 0.08 + fraction * 0.84)
+	else texture:SetTexCoord(left, right, 0.92 - fraction * 0.84, 0.92) end
+	texture:Show()
+end
+
+-- Totem cooldown visual: radial swipe, growing gray, or returning color.
 function ShamanPower:ApplyTotemCooldownVisual(btn, start, duration)
 	local style = self.opt.totemCooldownSweep or "radial"
 	if style == "vertical" or style == "reverse" then
@@ -4331,15 +4425,9 @@ function ShamanPower:ApplyTotemCooldownVisual(btn, start, duration)
 			local remaining = (start + duration) - GetTime()
 			local frac = math.max(0, math.min(1, remaining / duration))
 			local depleted = (style == "reverse") and frac or (1 - frac)   -- reverse: grey shrinks as time runs down
-			local h = (icon and icon:GetHeight() or btn:GetHeight()) * depleted
-			if h > 1 then
-				btn.cdSweep:SetTexture(icon:GetTexture())
-				btn.cdSweep:SetHeight(h)
-				btn.cdSweep:SetTexCoord(0.08, 0.92, 0.08, 0.08 + depleted * 0.84)
-				btn.cdSweep:Show()
-			else
-				btn.cdSweep:Hide()
-			end
+			btn.cdSweep:SetTexture(icon:GetTexture())
+			self:PaintVerticalSweep(btn.cdSweep, icon, depleted, icon:GetHeight(),
+				self:SweepGrayFromTop(style, self.opt.totemCooldownSweepDirection), 0.08, 0.92)
 		end
 	else
 		if btn.cdSweep then btn.cdSweep:Hide() end
@@ -4457,9 +4545,9 @@ function ShamanPower:ClearEngineCooldowns()
 end
 
 -- The vertical sweep as a StatusBar the engine fills from the duration
--- object: the greyed icon on a bar filled from the top, oversized inside a
+-- object: the gray icon on a bar filled from the chosen edge, oversized inside a
 -- clip by the icon's own trim so the untrimmed bar texture lines up.
-local function EngineSweepBar(btn)
+local function EngineSweepBar(btn, fromTop)
 	local icon = btn.icon
 	if not icon then return nil end
 	if not btn.cdBar then
@@ -4469,12 +4557,12 @@ local function EngineSweepBar(btn)
 		clip:SetFrameLevel(btn:GetFrameLevel() + 1)
 		local bar = CreateFrame("StatusBar", nil, clip)
 		bar:SetOrientation("VERTICAL")
-		bar:SetReverseFill(true)
 		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end   -- texture cropped to the fill, never stretched into it
 		btn.cdBar, btn.cdBarClip = bar, clip
 		if ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(bar:GetStatusBarTexture(), icon) end   -- Icon Shape
 	end
 	local bar = btn.cdBar
+	bar:SetReverseFill(fromTop)
 	local left, _, _, _, right = icon:GetTexCoord()
 	local trim = (left and right and right > left) and (left / (right - left)) or 0
 	local margin = trim * icon:GetWidth()
@@ -4491,6 +4579,61 @@ local function EngineSweepBar(btn)
 	return bar
 end
 
+-- The totem bar's (and its flyouts') vertical sweep, drawn the way Target Tracker's is:
+-- the bar ALWAYS fills from the bottom. A bar filled from its top edge stretches the
+-- icon's copy into the fill instead of cropping it, so a whole second icon, hard edges
+-- and all, showed over the real one (2026-10-04). Gray from the top is drawn as the
+-- colored copy filling over a gray one instead, and FeedEngineCooldown turns the timer
+-- round for it. (The cooldown bar keeps EngineSweepBar above, unchanged.)
+function ShamanPower:TotemEngineSweepBar(btn, fromTop)
+	local icon = btn.icon
+	if not icon then return nil end
+	if not btn.cdBar then
+		local clip = CreateFrame("Frame", nil, btn)
+		clip:SetAllPoints(icon)
+		clip:SetClipsChildren(true)
+		clip:SetFrameLevel(btn:GetFrameLevel() + 1)
+		local bar = CreateFrame("StatusBar", nil, clip)
+		bar:SetOrientation("VERTICAL")
+		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end   -- texture cropped to the fill, never stretched into it
+		btn.cdBar, btn.cdBarClip = bar, clip
+		if self.ShapeIconTexture then self:ShapeIconTexture(bar:GetStatusBarTexture(), icon) end   -- Icon Shape
+	end
+	local bar = btn.cdBar
+	if not btn.cdBarGray then
+		-- the gray copy under a colored fill, on the bar so it shows and hides with it
+		local gray = bar:CreateTexture(nil, "BACKGROUND")
+		gray:SetAllPoints(bar)
+		btn.cdBarGray = gray
+		if self.ShapeIconTexture then self:ShapeIconTexture(gray, icon) end   -- Icon Shape
+	end
+	bar:SetReverseFill(false)
+	local left, _, _, _, right = icon:GetTexCoord()
+	local trim = (left and right and right > left) and (left / (right - left)) or 0
+	local margin = trim * icon:GetWidth()
+	bar:ClearAllPoints()
+	bar:SetPoint("TOPLEFT", btn.cdBarClip, "TOPLEFT", -margin, margin)
+	bar:SetPoint("BOTTOMRIGHT", btn.cdBarClip, "BOTTOMRIGHT", margin, -margin)
+	local file = icon:GetTexture()
+	bar:SetStatusBarTexture(file)
+	-- gray from the top: the colored copy fills from the bottom over the gray one;
+	-- gray from the bottom: the gray copy fills, over the real icon
+	local colored = fromTop and true or false
+	if bar.SetStatusBarDesaturated then bar:SetStatusBarDesaturated(not colored) end
+	if colored then bar:SetStatusBarColor(1, 1, 1, 1) else bar:SetStatusBarColor(0.5, 0.5, 0.5, 1) end
+	local t = bar:GetStatusBarTexture()
+	if t then
+		t:SetDesaturated(not colored)
+		if colored then t:SetVertexColor(1, 1, 1) else t:SetVertexColor(0.5, 0.5, 0.5) end
+	end
+	local gray = btn.cdBarGray
+	gray:SetTexture(file)
+	gray:SetDesaturated(true)
+	gray:SetVertexColor(0.5, 0.5, 0.5)
+	gray:SetShown(colored)
+	return bar
+end
+
 -- Hand the engine a button's cooldown. Called from the cooldown pass with
 -- the answer to "is one running" (EngineCooldownRunning); only does anything
 -- when that, the spell or the style changed since the last call.
@@ -4499,9 +4642,12 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 	if not cd then return end
 	if EngineTextChanged(self) then self:RestyleEngineCooldowns() end
 	local style = self.opt.totemCooldownSweep or "radial"
+	local fromTop = self:SweepGrayFromTop(style, self.opt.totemCooldownSweepDirection)
 	running = running and true or false
-	if btn._engineCDKey and btn._ecdSpell == spellID and btn._ecdRunning == running and btn._ecdStyle == style then return end
+	if btn._engineCDKey and btn._ecdSpell == spellID and btn._ecdRunning == running and btn._ecdStyle == style
+		and btn._ecdFromTop == fromTop then return end
 	btn._engineCDKey, btn._ecdSpell, btn._ecdRunning, btn._ecdStyle = true, spellID, running, style
+	btn._ecdFromTop = fromTop
 	if btn.cdSweep then btn.cdSweep:Hide() end   -- the addon's own vertical sweep: never on this path
 	if not (spellID and running) then
 		self:DisarmEngineCooldownEnd(cd)
@@ -4524,11 +4670,15 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 	else
 		cd:SetDrawSwipe(false)   -- the numbers stay; the sweep is the bar
 		cd:SetDrawEdge(false)    -- and the radial swipe's travelling edge goes with it
-		local bar = EngineSweepBar(btn)
+		local bar = self:TotemEngineSweepBar(btn, fromTop)
 		if bar then
 			local Dir = Enum and Enum.StatusBarTimerDirection or {}
 			local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
-			local direction = (style == "reverse") and Dir.RemainingTime or Dir.ElapsedTime
+			-- the gray copy grows with the time gone (Grays Out) or shrinks with the time
+			-- left (Fills Back In); a colored fill (gray from the top) runs the other way
+			local grayGrows = style ~= "reverse"
+			local direction
+			if grayGrows ~= fromTop then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
 			local okb = pcall(bar.SetTimerDuration, bar, d, Interp, direction)
 			bar:SetShown(okb and true or false)
 		end
@@ -5228,9 +5378,12 @@ function ShamanPower:UpdateActiveTotemOverlays()
 			elseif haveTotem and totemName and totemName ~= "" then
 				-- Check if active totem matches assigned
 				local matches = false
+				if SPCompat.HasTotemCastAliases(assignedSpellID) then
+					matches = SPCompat.TotemNameMatches(totemName, assignedSpellID)
+				end
 
 				-- Use pcall for string.find in case of pattern issues
-				if assignedName then
+				if not matches and assignedName then
 					local ok1, result1 = pcall(string.find, totemName, assignedName, 1, true)
 					local ok2, result2 = pcall(string.find, assignedName, totemName, 1, true)
 					if (ok1 and result1) or (ok2 and result2) then
@@ -5246,7 +5399,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 				elseif element == 4 and self.opt and self.opt.enableTotemTwisting then
 					-- Classic mode: Windfury or selected twist totem match
 					local twistName = self:GetTwistTotemName()
-					if totemName:find("Windfury") or totemName:find(twistName, 1, true) then
+					if SPCompat.TotemNameMatches(totemName, 8512, "Windfury Totem") or totemName:find(twistName, 1, true) then
 						matches = true
 					end
 				end
@@ -5263,6 +5416,8 @@ function ShamanPower:UpdateActiveTotemOverlays()
 								local totemSpellName = GetSpellInfo(totemSpellID)
 								if totemSpellName then
 									local ok, found = pcall(string.find, totemName, totemSpellName, 1, true)
+									if SPCompat.HasTotemCastAliases(totemSpellID)
+										and SPCompat.TotemNameMatches(totemName, totemSpellID) then ok, found = true, true end
 									if ok and found then
 										activeIcon = self:GetTotemIcon(element, idx)
 										break
@@ -5380,7 +5535,7 @@ function ShamanPower:UpdateActiveTotemOverlays()
 					-- Special case: Air totem with twisting - show the currently active totem icon
 					if element == 4 and self.opt.enableTotemTwisting and haveTotem and totemName then
 						-- Use hardcoded icons to avoid flicker from per-frame GetSpellInfo calls
-						if totemName:find("Windfury") then
+						if SPCompat.TotemNameMatches(totemName, 8512, "Windfury Totem") then
 							iconTexture:SetTexture("Interface\\Icons\\Spell_Nature_Windfury")
 						else
 							local twistName = self:GetTwistTotemName()
@@ -5430,6 +5585,9 @@ function ShamanPower:UpdatePoppedOutActiveBorders()
 
 			local isActive = false
 			if haveTotem and activeTotemName and frame.spellName then
+				if SPCompat.HasTotemCastAliases(frame.spellID) then
+					isActive = SPCompat.TotemNameMatches(activeTotemName, frame.spellID)
+				end
 				-- Check if active totem matches this pop-out's totem
 				local ok1, result1 = pcall(string.find, activeTotemName, frame.spellName, 1, true)
 				local ok2, result2 = pcall(string.find, frame.spellName, activeTotemName, 1, true)
@@ -5470,62 +5628,17 @@ end
 ShamanPower.totemFlyouts = {}  -- Flyout frames for each element
 
 -- Helper function to check if player knows a totem spell
--- Uses spellbook search since IsSpellKnown doesn't work reliably in Classic
-local function PlayerKnowsTotem(spellID, totemName)
-	if not spellID then return false end
-
-	-- First try GetSpellInfo - if it returns nil, the spell doesn't exist
-	local spellName = GetSpellInfo(spellID)
-	-- An absent totem must not match an unrelated trainer spell by short name.
-	-- Only encrypted, allow-listed names may still use the spellbook fallback.
-	if SPCompat.FOREVER and not spellName
-		and not (SPCompat and SPCompat.spellAllowList and SPCompat.spellAllowList[spellID]) then
-		return false
-	end
-
-	-- Build a list of names to search for
-	local searchNames = {}
-	if spellName then
-		table.insert(searchNames, spellName)
-	end
-	if totemName then
-		table.insert(searchNames, totemName)
-		-- Also try with " Totem" suffix removed/added
-		if totemName:find(" Totem$") then
-			table.insert(searchNames, (totemName:gsub(" Totem$", "")))  -- gsub returns two values; insert must see one
-		else
-			table.insert(searchNames, totemName .. " Totem")
-		end
-	end
-
-	if #searchNames == 0 then return false end
-
-	-- Search the spellbook for this spell
-	local i = 1
-	while true do
-		local bookName, bookSubName = GetSpellBookItemName(i, BOOKTYPE_SPELL)
-		if not bookName then break end
-
-		for _, searchName in ipairs(searchNames) do
-			-- Check for exact match
-			if bookName == searchName then
-				return true
-			end
-			-- Check if spellbook entry starts with our search name (handles ranks)
-			if bookName:find("^" .. searchName:gsub("([%(%)%.%%%+%-%*%?%[%^%$])", "%%%1")) then
-				return true
-			end
-		end
-
-		i = i + 1
-	end
-
-	return false
+-- Check every rank because Classic may only report the highest learned rank.
+local function PlayerKnowsTotem(spellID)
+	-- Any rank of the totem, by spell ID only, from this client's own rank list (SPCompat.KnowsSpellID).
+	-- Never by name: "Flametongue" matched Flametongue Weapon and "Nature Resistance" the Tauren racial,
+	-- so those totems showed (and were given to an empty slot) long before they were learned.
+	return SPCompat.KnowsSpellID(spellID)
 end
 
 -- the same check by element and totem index, for the settings (loadout pickers mark what is not learned yet)
 function ShamanPower:KnowsTotem(element, totemIndex)
-	return PlayerKnowsTotem(self:GetTotemSpell(element, totemIndex), self:GetTotemName(element, totemIndex)) and true or false
+	return PlayerKnowsTotem(self:GetTotemSpell(element, totemIndex))
 end
 ShamanPower.PlayerKnowsTotem = PlayerKnowsTotem
 
@@ -6481,6 +6594,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	-- Get totem spell info
 	local spellID = self:GetTotemSpell(element, totemIndex)
 	local spellName = spellID and GetSpellInfo(spellID)
+	if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
 	local icon = self:GetTotemIcon(element, totemIndex)
 	local totemName = self:GetTotemName(element, totemIndex) or "Totem"
 
@@ -6757,16 +6871,16 @@ end
 -- Cooldown type names for display
 local CooldownTypeNames = {
 	[1] = "Shield",
-	[2] = "Recall",
-	[3] = "Ankh",
-	[4] = "NS",
-	[5] = "Mana Tide",
-	[6] = "Bloodlust",
+	[2] = SPCompat.SpellLabel(36936, "Recall"),
+	[3] = SPCompat.SpellLabel(20608, "Ankh"),
+	[4] = SPCompat.SpellLabel(16188, "NS"),
+	[5] = SPCompat.SpellLabel(16190, "Mana Tide"),
+	[6] = SPCompat.SpellLabel(2825, "Bloodlust"),
 	[7] = "Imbue",
-	[8] = "Shamanistic Rage",
-	[9] = "Elemental Mastery",
-	[10] = "Rage of the Farseer",
-	[11] = "Totemic Projection",
+	[8] = SPCompat.SpellLabel(30823, "Shamanistic Rage"),
+	[9] = SPCompat.SpellLabel(16166, "Elemental Mastery"),
+	[10] = SPCompat.SpellLabel(425336, "Rage of the Farseer"),
+	[11] = SPCompat.SpellLabel(437009, "Totemic Projection"),
 }
 
 -- Pop out a cooldown bar item
@@ -6866,7 +6980,7 @@ function ShamanPower:PopOutEarthShield()
 
 	-- Create frame with title
 	local buttonSize = esBtn:GetWidth() or 26
-	local frame = self:CreatePopOutFrame(key, buttonSize, "Earth Shield")
+	local frame = self:CreatePopOutFrame(key, buttonSize, SPCompat.SpellLabel(974, "Earth Shield"))
 
 	-- Store original parent for restoration
 	frame.originalParent = esBtn:GetParent()
@@ -7350,14 +7464,14 @@ function ShamanPower:IsElementLearned(element)
 		for e = 1, 4 do
 			local known = false
 			for _, id in pairs(self.Totems and self.Totems[e] or {}) do
-				if type(id) == "number" and (IsSpellKnown(id) or PlayerKnowsTotem(id, (GetSpellInfo(id)))) then
+				if PlayerKnowsTotem(id) then
 					known = true
 					break
 				end
 			end
 			if not known then
 				for id, info in pairs(self.TalentTotems or {}) do
-					if type(info) == "table" and info[1] == e and IsSpellKnown(id) then known = true break end
+					if type(info) == "table" and info[1] == e and PlayerKnowsTotem(id) then known = true break end
 				end
 			end
 			elementLearnedCache[e] = known
@@ -7514,6 +7628,7 @@ function ShamanPower:UpdateTotemButtons()
 				icon = self:GetTotemIcon(element, totemIndex)
 				if spellID then
 					spellName = GetSpellInfo(spellID)
+					if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
 				end
 			end
 			if shownIndex ~= totemIndex then
@@ -7570,6 +7685,9 @@ function ShamanPower:UpdateTotemButtons()
 				local assignedIndex = assignments[element] or 0
 				local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
 				local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
+				if SPCompat.HasTotemCastAliases(assignedSpellID) then
+					assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
+				end
 				if assignedSpellName then
 					btn:SetAttribute("type2", "spell")
 					btn:SetAttribute("spell2", assignedSpellName)
@@ -8394,7 +8512,6 @@ function ShamanPower:CreateTotemFlyout(element)
 
 	-- Get totems for this element
 	local totems = self.Totems[element]
-	local totemNames = self.TotemNames[element]
 	local icons = self.TotemIcons[element]
 
 	-- Flyout is just a table to track buttons (buttons are children of parentButton)
@@ -8423,10 +8540,10 @@ function ShamanPower:CreateTotemFlyout(element)
 	local elementKey = elementKeys[element]
 
 	for totemIndex, spellID in pairs(totems) do
-		-- Check if player knows this totem using improved spellbook search
+		-- Ask knowledge by ID; the localized name below is used for casting.
 		local spellName = GetSpellInfo(spellID)
-		local totemName = totemNames and totemNames[totemIndex]
-		local isKnown = PlayerKnowsTotem(spellID, totemName)
+		if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
+		local isKnown = PlayerKnowsTotem(spellID)
 		-- Talent-gated totems (Totem of Wrath, Mana Tide) always get a button, so
 		-- a respec can show/hide them through the normal flyout filter with no
 		-- /reload - exactly like the settings toggles do.
@@ -9024,7 +9141,7 @@ function ShamanPower:RescueFilteredFlyout(flyout)
 	local changed = false
 	for _, btn in ipairs(flyout.allButtons or {}) do
 		if btn.totemIndex > 0 then
-			if want and btn.isDisabledInFlyout and (not btn.talentSpellID or IsSpellKnown(btn.talentSpellID)) then
+			if want and btn.isDisabledInFlyout and (not btn.talentSpellID or PlayerKnowsTotem(btn.talentSpellID)) then
 				btn.spRescued, btn.isDisabledInFlyout = true, false
 				btn:SetAttribute("flyoutHidden", false)
 				changed = true
@@ -9281,6 +9398,7 @@ function ShamanPower:RefreshTotemFlyouts()
 			local totems = self.Totems[element]
 			for _, btn in ipairs(flyout.buttons) do
 				local spellName = GetSpellInfo(btn.spellID)
+				if SPCompat.HasTotemCastAliases(btn.spellID) then spellName = SPCompat.TotemCastName(btn.spellID) end
 				if spellName then
 					btn:SetAttribute("spell", spellName)
 				end
@@ -9448,6 +9566,9 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 					local assignedIndex = assignments[element] or 0
 					local assignedSpellID = assignedIndex > 0 and self:GetTotemSpell(element, assignedIndex)
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
+					if SPCompat.HasTotemCastAliases(assignedSpellID) then
+						assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
+					end
 					if assignedSpellName then
 						btn:SetAttribute("type2", "spell")
 						btn:SetAttribute("spell2", assignedSpellName)
@@ -9488,6 +9609,9 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
 					if assignedSpellName then
 						btn:SetAttribute("type2", "spell")
+						if SPCompat.HasTotemCastAliases(assignedSpellID) then
+							assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
+						end
 						btn:SetAttribute("spell2", assignedSpellName)
 					else
 						btn:SetAttribute("type2", "spell")
@@ -9763,10 +9887,11 @@ end
 
 -- Cooldown bar button types (the 5th field of TrackedCooldowns; 7 = weapon imbue).
 ShamanPower.CooldownTypeLabels = {
-	[1] = "Shield", [2] = GetSpellInfo(36936) or "Totemic Call", [3] = "Reincarnation",
-	[4] = "Nature's Swiftness", [5] = "Mana Tide Totem",
-	[6] = "Bloodlust/Heroism", [7] = "Weapon Imbue", [8] = "Shamanistic Rage", [9] = "Elemental Mastery",
-	[10] = "Rage of the Farseer", [11] = "Totemic Projection",
+	[1] = "Shield", [2] = GetSpellInfo(36936) or "Totemic Call", [3] = SPCompat.SpellLabel(20608, "Reincarnation"),
+	[4] = SPCompat.SpellLabel(16188, "Nature's Swiftness"), [5] = SPCompat.SpellLabel(16190, "Mana Tide Totem"),
+	[6] = SPCompat.SpellLabel(2825, "Bloodlust") .. "/" .. SPCompat.SpellLabel(32182, "Heroism"),
+	[7] = "Weapon Imbue", [8] = SPCompat.SpellLabel(30823, "Shamanistic Rage"), [9] = SPCompat.SpellLabel(16166, "Elemental Mastery"),
+	[10] = SPCompat.SpellLabel(425336, "Rage of the Farseer"), [11] = SPCompat.SpellLabel(437009, "Totemic Projection"),
 }
 ShamanPower.COOLDOWN_TYPE_COUNT = 11
 
@@ -9943,12 +10068,17 @@ function ShamanPower:AddMissingFlyoutButtons()
 		local totems = self.Totems[element]
 		if flyout and totems then
 			local have = {}
-			for _, btn in ipairs(flyout.allButtons or {}) do have[btn.totemIndex] = true end
 			local missing = false
+			for _, btn in ipairs(flyout.allButtons or {}) do
+				have[btn.totemIndex] = true
+				if not self:IsOff() and SPCompat.HasTotemCastAliases(btn.spellID)
+					and btn:GetAttribute("mySpell") ~= SPCompat.TotemCastName(btn.spellID) then
+					missing = true -- refresh secure cast/assign actions after learning a renamed rank
+				end
+			end
 			for totemIndex, spellID in pairs(totems) do
 				if not have[totemIndex] then
-					local totemName = self.TotemNames[element] and self.TotemNames[element][totemIndex]
-					if PlayerKnowsTotem(spellID, totemName) then missing = true break end
+					if PlayerKnowsTotem(spellID) then missing = true break end
 				end
 			end
 			if missing then self:RebuildTotemFlyout(element) end
@@ -9971,8 +10101,7 @@ function ShamanPower:EnsureElementAssignments()
 		if assignments[element] == nil and totems then
 			local function known(idx)
 				local spellID = idx and totems[idx]
-				local name = self.TotemNames[element] and self.TotemNames[element][idx]
-				return spellID and PlayerKnowsTotem(spellID, name)
+				return spellID and PlayerKnowsTotem(spellID)
 			end
 			local pick = self.DefaultTotems and self.DefaultTotems[element]
 			if not known(pick) then
@@ -10027,7 +10156,7 @@ function ShamanPower:RecreateTotemFlyouts()
 				local isEnabled = self.opt.flyoutTotems == nil or self.opt.flyoutTotems[flyoutKey] ~= false
 				btn.spRescued = nil
 				-- Talent-gated totems only show while the talent is actually known
-				if btn.talentSpellID and not IsSpellKnown(btn.talentSpellID) then
+				if btn.talentSpellID and not PlayerKnowsTotem(btn.talentSpellID) then
 					isEnabled = false
 				end
 
@@ -10081,12 +10210,12 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local haveTotem, totemName = self:GetElementTotemInfo(element)
 		if haveTotem and totemName then
 			-- Check if this is a weapon enchant totem (Windfury or Flametongue)
-			if element == 4 and totemName:find("Windfury") and not SPCompat.FOREVER then
+			if element == 4 and SPCompat.TotemNameMatches(totemName, 8512, "Windfury Totem") and not SPCompat.FOREVER then
 				-- Windfury Totem (Air) - applies weapon enchant, not a buff
 				-- (WoW: Forever: a party buff, read below like the others)
 				isWeaponEnchantTotem[element] = true
 				buffNames[element] = nil
-			elseif element == 2 and totemName:find("Flametongue") then
+			elseif element == 2 and SPCompat.TotemNameMatches(totemName, 8227, "Flametongue Totem") then
 				-- Flametongue Totem (Fire) - applies weapon enchant, not a buff
 				isWeaponEnchantTotem[element] = true
 				buffNames[element] = nil
@@ -10310,7 +10439,7 @@ function ShamanPower:CooldownBarSpellKey()
 		bit = bit * 2
 	end
 	for _, s in ipairs(self.ShieldSpells or {}) do
-		if PlayerKnowsSpellByName(s[2]) then key = key + bit end
+		if PlayerKnowsSpellByID(s[1]) then key = key + bit end
 		bit = bit * 2
 	end
 	return key
@@ -10451,18 +10580,18 @@ function ShamanPower:CreateCooldownBar()
 			-- Check preferred shield first (use spell name for Classic compatibility)
 			local preferredShield = self.opt.preferredShield or 1
 			local preferredData = self.ShieldSpells[preferredShield]
-			if preferredData and PlayerKnowsSpellByName(preferredData[2]) then
+			if preferredData and PlayerKnowsSpellByID(preferredData[1]) then
 				knowsSpell = true
-				defaultShieldSpell = preferredData[2]  -- Use spell name for casting
-				local sName, _, sIcon = GetSpellInfo(preferredData[2])
+				defaultShieldSpell = SPCompat.SpellName(preferredData[1]) or preferredData[1]
+				local sName, _, sIcon = GetSpellInfo(preferredData[1])
 				if sIcon then icon = sIcon end
 			else
 				-- Fall back to any known shield
 				for _, shieldData in ipairs(self.ShieldSpells) do
-					if PlayerKnowsSpellByName(shieldData[2]) then
+					if PlayerKnowsSpellByID(shieldData[1]) then
 						knowsSpell = true
-						defaultShieldSpell = shieldData[2]  -- Use spell name for casting
-						local sName, _, sIcon = GetSpellInfo(shieldData[2])
+						defaultShieldSpell = SPCompat.SpellName(shieldData[1]) or shieldData[1]
+						local sName, _, sIcon = GetSpellInfo(shieldData[1])
 						if sIcon then icon = sIcon end
 						break
 					end
@@ -10474,7 +10603,7 @@ function ShamanPower:CreateCooldownBar()
 			-- (Elemental Mastery 16166 on the Forever line), and requiring a
 			-- readable name here dropped the button for a talent the player
 			-- actually had. The name check stays as the Classic fallback.
-			knowsSpell = IsSpellKnown(spellID) or PlayerKnowsSpellByName(spellName)
+			knowsSpell = PlayerKnowsSpellByID(spellID)
 		end
 
 		-- Only create button if player knows this spell and it's enabled
@@ -10612,7 +10741,7 @@ function ShamanPower:CreateCooldownBar()
 
 			-- Store spell info
 			btn.spellID = spellID
-			btn.spellName = spellName
+			btn.spellName = SPCompat.SpellLabel(spellID, spellName)
 			btn.spellType = spellType
 			btn.defaultShieldSpell = defaultShieldSpell
 
@@ -11003,13 +11132,15 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 	btn.icon:SetDesaturated(false)
 	if btn.ankhCountText then btn.ankhCountText:Hide() end
 	local sweepStyle = showSweep and (self.opt.cdbarSweepStyle or "greys") or "none"
+	local fromTop = self:SweepGrayFromTop(sweepStyle, self.opt.cdbarSweepDirection)
 	local textKey = showText and (textLocation .. "+") or textLocation
 	if btn._ebSpell ~= btn.spellID or btn._ebStale or btn._ebSweep ~= sweepStyle or btn._ebBars ~= showBars
-		or btn._ebText ~= textKey or btn._ebPos ~= barPosition then
+		or btn._ebText ~= textKey or btn._ebPos ~= barPosition or btn._ebFromTop ~= fromTop then
 		btn._ebStale = nil   -- a cooldown change since the last feed (RefreshEngineCooldowns)
 		local ok, d = pcall(C_Spell.GetSpellCooldownDuration, btn.spellID, true)   -- true: not the global cooldown
 		if not ok or d == nil then self:ClearEngineBarCooldown(btn) return end
 		btn._ebSpell, btn._ebSweep, btn._ebBars, btn._ebText, btn._ebPos = btn.spellID, sweepStyle, showBars, textKey, barPosition
+		btn._ebFromTop = fromTop
 		local cd = btn.cooldown
 		local Dir = Enum and Enum.StatusBarTimerDirection or {}
 		local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
@@ -11023,7 +11154,7 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 		-- radial swipe, or the greyed icon on an engine-filled bar
 		cd:SetDrawSwipe(sweepStyle == "radial")
 		if sweepStyle == "greys" or sweepStyle == "fills" then
-			local bar = EngineSweepBar(btn)
+			local bar = EngineSweepBar(btn, fromTop)
 			if bar then
 				local okb = pcall(bar.SetTimerDuration, bar, d, Interp, (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime)
 				bar:SetShown(okb and true or false)
@@ -11213,6 +11344,12 @@ ShamanPower.ShieldAuraSets = {
 	{ name = "Water Shield",     ids = { 24398, 33736, 52127, 408510, 408511, 409941 } },
 }
 
+function ShamanPower:ShieldIndexForAura(name, spellID)
+	for index, set in ipairs(self.ShieldAuraSets) do
+		if SPCompat.AuraMatches(name, spellID, set.ids) then return index end
+	end
+end
+
 -- The colour the cooldown bar's shield count is drawn in for `charges` (the
 -- addon's own text out of combat, the engine formatter in combat).
 function ShamanPower:ShieldCountColor(charges)
@@ -11400,7 +11537,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					reg("SetDurationCooldown", pcall(button.SetDurationCooldown, button, cd))
 
 					-- vertical sweep: greyed copy of this shield's icon on a StatusBar the
-					-- engine fills from the top; oversized in a clip so the untrimmed
+					-- engine fills from the chosen edge; oversized in a clip so the untrimmed
 					-- texture lines up with the trimmed icon
 					if showSweep and sweepStyle ~= "radial" and iconFile and (Dir.ElapsedTime or Dir.RemainingTime) then
 						local clip = CreateFrame("Frame", nil, button)
@@ -11415,7 +11552,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						if sbt then sbt:SetDesaturated(true); sbt:SetVertexColor(0.5, 0.5, 0.5) end
 						if sbt and ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(sbt, icon, "cooldown") end   -- Icon Shape
 						sb:SetOrientation("VERTICAL")
-						sb:SetReverseFill(true)
+						sb:SetReverseFill(ShamanPower:SweepGrayFromTop(sweepStyle, opt.cdbarSweepDirection))
 						local direction = (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime
 						reg("SetDurationBar(sweep)", pcall(button.SetDurationBar, button, sb, { interpolation = Interp, direction = direction }))
 					end
@@ -11727,32 +11864,12 @@ local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, in
 	if showSweep and grey then
 		-- "fills": grey recedes instead of growing.
 		local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)
-		local greyHeight = buttonHeight * depletedPercent
-		if greyHeight > 1 then
-			grey:ClearAllPoints()
-			-- Sweep on the icon itself (like other CD bar buttons)
-			if alignLeft and btn.icon2:IsShown() then
-				-- Split icon: left half (main hand)
-				grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-				grey:SetWidth(buttonWidth / 2)
-				grey:SetHeight(greyHeight)
-				grey:SetTexCoord(0.08, 0.50, 0.08, 0.08 + (depletedPercent * 0.84))
-			elseif not alignLeft and btn.icon2:IsShown() then
-				-- Split icon: right half (off hand)
-				grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-				grey:SetWidth(buttonWidth / 2)
-				grey:SetHeight(greyHeight)
-				grey:SetTexCoord(0.50, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
-			else
-				-- Full icon (single imbue or same on both)
-				grey:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-				grey:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-				grey:SetHeight(greyHeight)
-				grey:SetTexCoord(0.08, 0.92, 0.08, 0.08 + (depletedPercent * 0.84))
-			end
-			grey:Show()
+		local fromTop = self:SweepGrayFromTop(self.opt.cdbarSweepStyle, self.opt.cdbarSweepDirection)
+		if btn.icon2:IsShown() then
+			self:PaintVerticalSweep(grey, btn, depletedPercent, buttonHeight, fromTop,
+				alignLeft and 0.08 or 0.50, alignLeft and 0.50 or 0.92, buttonWidth / 2, alignLeft and "left" or "right")
 		else
-			grey:Hide()
+			self:PaintVerticalSweep(grey, btn, depletedPercent, buttonHeight, fromTop, 0.08, 0.92)
 		end
 	elseif grey then
 		grey:Hide()
@@ -11850,13 +11967,21 @@ function ShamanPower:UpdateCooldownButtons()
 			end
 			-- If cache exists and hasShield is false, we know there's no shield - no scanning needed!
 
+			-- the style (the totem bar's, or the cooldown bar's own): the shield the button shows, whether
+			-- it counts as up, the one shown above it, the one in its corner (CooldownBarShieldView)
+			local viewIdx, viewUp, aboveIdx, cornerIdx = self:CooldownBarShieldView(hasShield and self:ShieldIndexOf(activeShieldID) or nil)
+			local aboveCharges = aboveIdx and shieldCharges or 0
+			hasShield = viewUp
+
 			if hasShield then
 				btn.darkOverlay:Hide()
 				btn.icon:SetDesaturated(false)
-				if activeShieldIcon then
-					btn.icon:SetTexture(activeShieldIcon)
+				-- the icon is the shield the style shows (Normal: the assigned one, lit only while it is up)
+				local shownIcon = self:ShieldIcon(viewIdx) or activeShieldIcon
+				if shownIcon then
+					btn.icon:SetTexture(shownIcon)
 					if btn.greyOverlay then
-						btn.greyOverlay:SetTexture(activeShieldIcon)
+						btn.greyOverlay:SetTexture(shownIcon)
 					end
 				end
 				btn.activeShieldID = activeShieldID
@@ -11927,18 +12052,8 @@ function ShamanPower:UpdateCooldownButtons()
 				elseif showSweep and btn.greyOverlay and shieldDuration > 0 then
 					local percent = math.min(remaining / maxDuration, 1)
 					local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
-					local greyHeight = buttonHeight * depletedPercent
-					if greyHeight > 1 then
-						btn.greyOverlay:ClearAllPoints()
-						btn.greyOverlay:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-						btn.greyOverlay:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-						btn.greyOverlay:SetHeight(greyHeight)
-						local texBottom = 0.08 + (depletedPercent * 0.84)
-						btn.greyOverlay:SetTexCoord(0.08, 0.92, 0.08, texBottom)
-						btn.greyOverlay:Show()
-					else
-						btn.greyOverlay:Hide()
-					end
+					self:PaintVerticalSweep(btn.greyOverlay, btn, depletedPercent, buttonHeight,
+						self:SweepGrayFromTop(self.opt.cdbarSweepStyle, self.opt.cdbarSweepDirection), 0.08, 0.92)
 				elseif btn.greyOverlay then
 					btn.greyOverlay:Hide()
 				end
@@ -11979,6 +12094,9 @@ function ShamanPower:UpdateCooldownButtons()
 				btn.darkOverlay:Show()
 				btn.icon:SetDesaturated(true)
 				btn.activeShieldID = nil
+				-- not up: the shield the style shows, grayed (Normal: the assigned one)
+				local restIcon = self:ShieldIcon(viewIdx)
+				if restIcon then btn.icon:SetTexture(restIcon) end
 				btn.cooldown:Clear()
 				if btn.chargeText then btn.chargeText:SetText("") end
 				self:PaintShieldChargeStrip(btn, 0)   -- empty strip: no shield (in combat, under the engine's)
@@ -11993,6 +12111,30 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.iconText then btn.iconText:Hide() end
 			end
 			if not (showSweep and self.opt.cdbarSweepStyle == "radial") then btn.cooldown:Clear() end
+			-- the flyout never also offers the shield this button shows (made again out of a fight)
+			local gridOn = self:CooldownBarGridOn()
+			if (viewIdx or 0) + (gridOn and 100 or 0) ~= self._shieldFlyoutKey and not InCombatLockdown() then
+				self:RebuildShieldFlyout()
+			end
+			-- Grid: the assigned one edged on the row, the one that is up with its charges
+			if gridOn and self.shieldFlyout and self.shieldFlyout.grid then
+				local up = self.shieldCache and self.shieldCache.hasShield and self:ShieldIndexOf(self.shieldCache.shieldID) or nil
+				for _, b in ipairs(self.shieldFlyout.buttons) do
+					local idx = self:ShieldIndexOf(b.spellID)
+					local count = (idx == up and shieldCharges > 0 and not (cache and cache.engineCount)) and (NumberStrings[shieldCharges] or tostring(shieldCharges)) or nil
+					self:CooldownGridMark(b, idx ~= nil and idx == viewIdx, idx ~= nil and idx == up, count)
+				end
+			end
+			-- another shield up: above the button (Normal), as a different totem that is down shows; the
+			-- assigned one in its corner (TotemTimers Style)
+			do
+				local ar, ag, ab = 1, 0.82, 0
+				local color = aboveIdx and self.SpellBarColors and self.SpellBarColors[self.ShieldSpells[aboveIdx][1]]
+				if color then ar, ag, ab = color[1], color[2], color[3] end
+				local count = (aboveCharges > 0 and not (cache and cache.engineCount)) and (NumberStrings[aboveCharges] or tostring(aboveCharges)) or nil
+				self:CooldownBarAbove(btn, aboveIdx and self:ShieldIcon(aboveIdx), nil, ar, ag, ab, count, not viewUp)
+				self:CooldownBarCorner(btn, cornerIdx and self:ShieldIcon(cornerIdx))
+			end
 
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
@@ -12069,21 +12211,11 @@ function ShamanPower:UpdateCooldownButtons()
 					if btn.bgBar then btn.bgBar:Hide() end
 				end
 
-				-- Grey sweep overlay (vertical, from top)
+				-- Gray sweep overlay (vertical, from the chosen edge)
 				if showSweep and btn.greyOverlay and self.opt.cdbarSweepStyle ~= "radial" then
 					local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
-					local greyHeight = buttonHeight * depletedPercent
-					if greyHeight > 1 then
-						btn.greyOverlay:ClearAllPoints()
-						btn.greyOverlay:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
-						btn.greyOverlay:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 0, 0)
-						btn.greyOverlay:SetHeight(greyHeight)
-						local texBottom = 0.08 + (depletedPercent * 0.84)
-						btn.greyOverlay:SetTexCoord(0.08, 0.92, 0.08, texBottom)
-						btn.greyOverlay:Show()
-					else
-						btn.greyOverlay:Hide()
-					end
+					self:PaintVerticalSweep(btn.greyOverlay, btn, depletedPercent, buttonHeight,
+						self:SweepGrayFromTop(self.opt.cdbarSweepStyle, self.opt.cdbarSweepDirection), 0.08, 0.92)
 				elseif btn.greyOverlay then
 					btn.greyOverlay:Hide()
 				end
@@ -12172,6 +12304,16 @@ function ShamanPower:UpdateCooldownButtons()
 		elseif btn.spellType == "weaponImbue" then
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) end   -- "Weapon Imbue Gone" effect
+			-- the style (the totem bar's, or the cooldown bar's own): the imbue the button shows on each hand,
+			-- whether each hand counts as up, the ones shown above it, the one in its corner
+			local actualMain = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or nil
+			local actualOff = hasOff and (self.EnchantIDToImbue[offID] or self.lastOffHandImbue or 2) or nil
+			local viewMain, viewOff, upMain, upOff, above1, above2, cornerImbue = self:CooldownBarImbueView(actualMain, actualOff)
+			hasMain, hasOff = upMain, upOff
+			do
+				local first = viewMain or viewOff or 0
+				self:NoteImbuesShown(first, (viewOff and viewOff ~= first) and viewOff or 0)
+			end
 			local buttonHeight = btn:GetHeight()
 			local buttonWidth = btn:GetWidth()
 			local maxDuration = (SPCompat and SPCompat.GetWeaponEnchantInfo and SPCompat.FOREVER) and 3600000 or 1800000 -- imbues run 60 min on Forever, 30 on the Classic line
@@ -12191,8 +12333,8 @@ function ShamanPower:UpdateCooldownButtons()
 					busy = true
 				end
 				-- Track each hand separately
-				local mainType = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or 1
-				local offType = hasOff and (self.EnchantIDToImbue[offID] or self.lastOffHandImbue or 2) or mainType
+				local mainType = viewMain or viewOff or 1
+				local offType = viewOff or mainType
 
 				btn.hasMainActive = hasMain
 				btn.hasOffActive = hasOff
@@ -12201,21 +12343,23 @@ function ShamanPower:UpdateCooldownButtons()
 				btn.greyOverlayMain:SetTexture(self.WeaponIcons[mainType])
 				btn.greyOverlayOff:SetTexture(self.WeaponIcons[offType])
 
-				-- Split icon display when both hands have different imbues
-				if hasMain and hasOff and mainType ~= offType then
+				-- Split icon display when both hands have different imbues (Normal style: the assigned pair,
+				-- a hand whose imbue is not on grayed)
+				if viewMain and viewOff and viewMain ~= viewOff then
 					-- Left half = main hand
 					btn.icon:ClearAllPoints()
 					btn.icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 0, 0)
 					btn.icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOM", 0, 0)
 					btn.icon:SetTexture(self.WeaponIcons[mainType])
 					btn.icon:SetTexCoord(0.08, 0.50, 0.08, 0.92)
-					btn.icon:SetDesaturated(false)
+					btn.icon:SetDesaturated(not hasMain)
 					-- Right half = off hand
 					btn.icon2:ClearAllPoints()
 					btn.icon2:SetPoint("TOPLEFT", btn, "TOP", 0, 0)
 					btn.icon2:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
 					btn.icon2:SetTexture(self.WeaponIcons[offType])
 					btn.icon2:SetTexCoord(0.50, 0.92, 0.08, 0.92)
+					btn.icon2:SetDesaturated(not hasOff)
 					btn.icon2:Show()
 				else
 					-- Single imbue or same on both hands - full icon
@@ -12282,6 +12426,23 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.insideText2 then btn.insideText2:Hide() end
 				if btn.outsideText2 then btn.outsideText2:Hide() end
 				if btn.iconText2 then btn.iconText2:Hide() end
+			end
+			-- another imbue on a hand: above the button (Normal), as a different totem that is down shows
+			-- (both halves for two hands); the main hand's assigned one in its corner (TotemTimers Style)
+			-- Grid: the assigned ones edged on the row, the ones that are up marked
+			if self.weaponImbueFlyout and self.weaponImbueFlyout.grid and self:CooldownBarGridOn() then
+				for _, b in ipairs(self.weaponImbueFlyout.buttons) do
+					local i = b.imbueIndex
+					self:CooldownGridMark(b, i == viewMain or i == viewOff, i == actualMain or i == actualOff, nil)
+				end
+			end
+			do
+				local ar, ag, ab = 1, 0.82, 0
+				local shown = above1 or above2
+				local color = shown and self.ElementColors and self.ElementColors[self.IMBUE_ELEMENT[shown]]
+				if color then ar, ag, ab = color.r, color.g, color.b end
+				self:CooldownBarAbove(btn, above1 and self.WeaponIcons[above1], above2 and self.WeaponIcons[above2], ar, ag, ab, nil, not (upMain or upOff))
+				self:CooldownBarCorner(btn, cornerImbue and self.WeaponIcons[cornerImbue])
 			end
 		end
 	end
@@ -13004,7 +13165,9 @@ function ShamanPower:ShadowBuffCast(spellID)
 	self.shadowBuffs[name] = e
 end
 
-local function PlayerHasBuff(spellName)
+local function PlayerHasBuff(spellID)
+	local spellName = SPCompat.SpellName(spellID)
+	if not spellName then return false end
 	if totemsSecretNow() then
 		local e = ShamanPower.shadowBuffs[spellName]
 		if not (e and e.start) then return false end
@@ -13069,19 +13232,19 @@ function ShamanPower:UpdateCooldownBarOpacity()
 					-- Check for specific buff-based abilities
 					if spellID == 16188 then
 						-- Nature's Swiftness - check if NS buff is active
-						isActive = PlayerHasBuff("Nature's Swiftness")
+						isActive = PlayerHasBuff(16188)
 					elseif spellID == 30823 then
 						-- Shamanistic Rage - check if SR buff is active
-						isActive = PlayerHasBuff("Shamanistic Rage")
+						isActive = PlayerHasBuff(30823)
 					elseif spellID == 2825 or spellID == 32182 then
 						-- Bloodlust/Heroism - check if buff is active
-						local hasBL = PlayerHasBuff("Bloodlust")
-						local hasHero = PlayerHasBuff("Heroism")
+						local hasBL = PlayerHasBuff(2825)
+						local hasHero = PlayerHasBuff(32182)
 						isActive = hasBL or hasHero
 					elseif spellID == 16190 then
 						-- Mana Tide Totem - check if MTT is active (water totem)
 						local haveTotem, totemName = self:GetElementTotemInfo(3)
-						if haveTotem and totemName and totemName:find("Mana Tide") then
+						if haveTotem and SPCompat.TotemNameMatches(totemName, 16190, "Mana Tide Totem") then
 							isActive = true
 						end
 					elseif spellID == 36936 then
@@ -13211,10 +13374,11 @@ ShamanPower.lastOffHandImbue = nil   -- Last imbue applied to off hand
 function ShamanPower:CanDualWield()
 	-- Check if player has an off-hand weapon equipped
 	local offHandLink = GetInventoryItemLink("player", 17)  -- SecondaryHandSlot
+	if issecretvalue(offHandLink) then return false end
 	if offHandLink then
-		-- Check if it's a weapon (not a shield)
-		local _, _, _, _, _, itemType = GetItemInfo(offHandLink)
-		if itemType == "Weapon" then
+		-- Item class IDs do not change with the client's language.
+		local _, _, _, _, _, _, _, _, _, _, _, itemClass = GetItemInfo(offHandLink)
+		if not issecretvalue(itemClass) and itemClass == 2 then
 			return true
 		end
 	end
@@ -13238,12 +13402,12 @@ function ShamanPower:GetHighestRankImbue(imbueIndex)
 	local baseSpellID = self.WeaponImbueSpells[imbueIndex]
 	if not baseSpellID then return nil end
 
-	local baseName = GetSpellInfo(baseSpellID)
+	local baseName = SPCompat.SpellName(baseSpellID)
 	if not baseName then return nil end
 
 	-- Try to find the spell in the spellbook (gets highest rank)
 	local spellName = baseName
-	if GetSpellInfo(spellName) and PlayerKnowsSpellByName(spellName) then
+	if PlayerKnowsSpellByID(baseSpellID) then
 		return spellName
 	end
 
@@ -13429,7 +13593,7 @@ function ShamanPower:CreateWeaponImbueButton()
 		local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 		if hasMain then
 			local imbueType = ShamanPower.EnchantIDToImbue[mainID]
-			local imbueName = imbueType and ShamanPower.WeaponEnchantNames[imbueType] or "Unknown"
+			local imbueName = imbueType and SPCompat.SpellLabel(ShamanPower.WeaponImbueSpells[imbueType], ShamanPower.WeaponEnchantNames[imbueType]) or "Unknown"
 			GameTooltip:AddLine("Main Hand: " .. imbueName .. " (" .. math.floor(mainExp/60000) .. "m)", 0, 1, 0)
 		else
 			GameTooltip:AddLine("Main Hand: None", 1, 0.5, 0.5)
@@ -13438,7 +13602,7 @@ function ShamanPower:CreateWeaponImbueButton()
 		if ShamanPower:CanDualWield() then
 			if hasOff then
 				local imbueType = ShamanPower.EnchantIDToImbue[offID]
-				local imbueName = imbueType and ShamanPower.WeaponEnchantNames[imbueType] or "Unknown"
+				local imbueName = imbueType and SPCompat.SpellLabel(ShamanPower.WeaponImbueSpells[imbueType], ShamanPower.WeaponEnchantNames[imbueType]) or "Unknown"
 				GameTooltip:AddLine("Off Hand: " .. imbueName .. " (" .. math.floor(offExp/60000) .. "m)", 0, 1, 0)
 			else
 				GameTooltip:AddLine("Off Hand: None", 1, 0.5, 0.5)
@@ -13473,6 +13637,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	end
 
 	self.weaponImbueButton = btn
+	self:SetImbueButtonMacros()   -- each hand's own assigned imbue (the off hand's own pick, when it has one)
 
 	-- Add to cooldown buttons array for positioning
 	table.insert(self.cooldownButtons, btn)
@@ -13497,10 +13662,392 @@ function ShamanPower:SyncCdbarFlyout(flyout)
 	self:PlaceFlyoutArrows(flyout)
 end
 
+-- ---------------------------------------------------------------------------
+-- The cooldown bar's shield and imbue buttons follow a totem bar style the way the totem buttons do:
+-- the totem bar's own (General > Main: Totem Bar Style), or the cooldown bar's own pick when Do Not
+-- Mirror Totem Bar Style is on (Cooldown Bar page). Only these two buttons; the totem bar is untouched.
+--   Normal (and Blizzard's bar): the button is the assigned one, lit only while THAT one is up; another
+--     one up shows above it (on its flyout's side, as a totem's) and the assigned one is grayed out
+--   TotemTimers Style: the button is the one that is up, the assigned one in its corner
+--   Single Totem, Compact: the one that is up, no corner
+--   Dynamic: the one that is up, and casting another makes it the assigned one
+--   Grid: as Normal, with every choice pinned open as a row beside the button (the assigned one edged,
+--     the one that is up marked), as the totem bar's Grid lays out every totem
+-- The flyout leaves out what the button shows.
+-- ---------------------------------------------------------------------------
+ShamanPower.IMBUE_ELEMENT = { 4, 2, 3, 1 }
+ShamanPower.CDBAR_STYLE = {
+	normal = {}, blizzard = {}, grid = { grid = true },
+	totemtimers = { showsActive = true, corner = true },
+	single = { showsActive = true }, compact = { showsActive = true },
+	dynamic = { showsActive = true, adopt = true },
+}
+
+function ShamanPower:CooldownBarStyle()
+	local o = self.opt
+	if o and o.cdbarOwnStyle and o.cdbarStyle and self.CDBAR_STYLE[o.cdbarStyle] then return o.cdbarStyle end
+	return (self.GetTotemBarStyle and self:GetTotemBarStyle()) or "normal"
+end
+
+function ShamanPower:CooldownBarStyleFlags()
+	return self.CDBAR_STYLE[self:CooldownBarStyle()] or self.CDBAR_STYLE.normal
+end
+
+-- Grid on the cooldown bar
+function ShamanPower:CooldownBarGridOn()
+	return self:CooldownBarStyleFlags().grid or false
+end
+
+-- Grid: a flyout's choices shown for good (the open / close broadcasts leave them alone); arrow
+-- ("box") flyouts keep their box shown, as the totem bar's Grid does
+function ShamanPower:PinCooldownGrid(flyout)
+	if InCombatLockdown() or not flyout then return end
+	if flyout.box then
+		UnregisterUnitWatch(flyout.box)
+		flyout.box:Show()
+	end
+	for _, b in ipairs(flyout.buttons or {}) do
+		b:SetAttribute("spGridPinned", true)
+		b:Show()
+	end
+end
+
+-- before a Grid flyout goes: its box opens and closes by itself again
+function ShamanPower:UnpinCooldownGrid(flyout)
+	if not (flyout and flyout.grid and flyout.box) or InCombatLockdown() then return end
+	flyout.box:SetAttribute("unit", "none")
+	RegisterUnitWatch(flyout.box)
+	flyout.box:Hide()
+end
+
+-- Grid: a choice's marks, as the totem bar's Grid marks its totems: the assigned one edged in
+-- gold, the one that is up edged in green (text: a shield's charges)
+function ShamanPower:CooldownGridMark(b, assigned, up, text)
+	local m = b.spGridMark
+	if not m then
+		m = { edges = {} }
+		for i = 1, 4 do m.edges[i] = b:CreateTexture(nil, "OVERLAY", nil, 4) end
+		m.edges[1]:SetPoint("TOPLEFT"); m.edges[1]:SetPoint("TOPRIGHT"); m.edges[1]:SetHeight(2)
+		m.edges[2]:SetPoint("BOTTOMLEFT"); m.edges[2]:SetPoint("BOTTOMRIGHT"); m.edges[2]:SetHeight(2)
+		m.edges[3]:SetPoint("TOPLEFT"); m.edges[3]:SetPoint("BOTTOMLEFT"); m.edges[3]:SetWidth(2)
+		m.edges[4]:SetPoint("TOPRIGHT"); m.edges[4]:SetPoint("BOTTOMRIGHT"); m.edges[4]:SetWidth(2)
+		m.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		self:AdoptSPFont(m.text, "timers")
+		m.text:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
+		m.text:SetTextColor(1, 1, 1)
+		b.spGridMark = m
+	end
+	local show = assigned or up
+	for i = 1, 4 do
+		local e = m.edges[i]
+		if show then
+			if up then e:SetColorTexture(0.1, 1, 0.1, 1) else e:SetColorTexture(1, 0.82, 0, 1) end
+			e:Show()
+		else
+			e:Hide()
+		end
+	end
+	m.text:SetText(text or "")
+end
+
+-- The shield the button would cast: the preferred one when you know it, else the first you know
+function ShamanPower:AssignedShieldIndex()
+	local pref = self.opt and self.opt.preferredShield
+	local data = pref and self.ShieldSpells[pref]
+	if data and PlayerKnowsSpellByID(data[1]) then return pref end
+	for i, d in ipairs(self.ShieldSpells) do
+		if PlayerKnowsSpellByID(d[1]) then return i end
+	end
+	return nil
+end
+
+function ShamanPower:ShieldIndexOf(spellID)
+	if not spellID then return nil end
+	for i, d in ipairs(self.ShieldSpells) do
+		if d[1] == spellID then return i end
+	end
+	return nil
+end
+
+-- a shield's icon by its place in ShieldSpells (looked up once)
+function ShamanPower:ShieldIcon(idx)
+	local d = idx and self.ShieldSpells[idx]
+	if not d then return nil end
+	self._shieldIcons = self._shieldIcons or {}
+	local icon = self._shieldIcons[idx]
+	if icon == nil then
+		local _, _, found = GetSpellInfo(d[1])
+		icon = found or false
+		self._shieldIcons[idx] = icon
+	end
+	return icon or nil
+end
+
+-- A shield made the assigned one (Dynamic: the one you cast): the button casts it (out of combat)
+function ShamanPower:AssignShield(idx)
+	local d = idx and self.ShieldSpells[idx]
+	if not d or InCombatLockdown() then return end
+	local spellName = SPCompat.SpellName(d[1])
+	if not spellName then return end
+	local shieldBtn = self.shieldButton
+	if shieldBtn then
+		shieldBtn:SetAttribute("spell1", spellName)
+		if shieldBtn.spClickFilled then shieldBtn:SetAttribute("spell2", spellName) end
+		shieldBtn.defaultShieldSpell = spellName
+	end
+	self.opt.preferredShield = idx
+	self:RebuildShieldChargeContainer()
+end
+
+-- Which shield the button shows, whether it counts as up, which one shows above it (Normal), which
+-- one in its corner (TotemTimers). activeIdx: the shield you have up (nil: none).
+function ShamanPower:CooldownBarShieldView(activeIdx)
+	local f = self:CooldownBarStyleFlags()
+	local assigned = self:AssignedShieldIndex()
+	if f.adopt and activeIdx and activeIdx ~= assigned and not InCombatLockdown() then
+		self:AssignShield(activeIdx)
+		assigned = activeIdx
+	end
+	if f.showsActive then
+		local corner = (f.corner and activeIdx and assigned and activeIdx ~= assigned) and assigned or nil
+		return activeIdx or assigned, activeIdx ~= nil, nil, corner
+	end
+	if activeIdx and activeIdx ~= assigned then return assigned, false, (not f.grid) and activeIdx or nil, nil end
+	return assigned, activeIdx ~= nil, nil, nil
+end
+
+-- What the shield button shows (its flyout leaves that out)
+function ShamanPower:ShieldShownOnButton()
+	local cache = self.shieldCache
+	local activeIdx = (cache and cache.hasShield) and self:ShieldIndexOf(cache.shieldID) or nil
+	return (self:CooldownBarShieldView(activeIdx)) or 0
+end
+
+-- With an off-hand weapon (kept until the off-hand item changes)
+function ShamanPower:HasOffHandWeapon()
+	local id = GetInventoryItemID and GetInventoryItemID("player", 17)
+	if issecretvalue and issecretvalue(id) then return self._ohWeapon or false end
+	if id ~= self._ohItemID then
+		self._ohItemID = id
+		self._ohWeapon = (id ~= nil and self:CanDualWield()) or false
+	end
+	return self._ohWeapon
+end
+
+-- The off hand's assigned imbue: its own pick (a right-click with two weapons), else the main hand's
+function ShamanPower:AssignedOffImbue(main)
+	local o = self.opt and self.opt.preferredOffImbue
+	if o and self:GetHighestRankImbue(o) then return o end
+	return main
+end
+
+-- The imbue button's two casts: left the main hand's assigned imbue on the main hand, right the off
+-- hand's on the off hand (Click Swap flips which mouse button is which, as before). Out of combat.
+function ShamanPower:SetImbueButtonMacros()
+	local btn = self.weaponImbueButton
+	if not btn or InCombatLockdown() then return end
+	local main = self:DefaultImbueIndex()
+	local mainSpell = main and self:GetHighestRankImbue(main)
+	if not mainSpell then return end
+	local off = self:AssignedOffImbue(main)
+	local offSpell = (off and self:GetHighestRankImbue(off)) or mainSpell
+	btn:SetAttribute("type1", "macro")
+	btn:SetAttribute("macrotext1", "/cast [@none] " .. mainSpell .. "\n/use 16\n/click StaticPopup1Button1")
+	btn:SetAttribute("type2", "macro")
+	btn:SetAttribute("macrotext2", "/cast [@none] " .. offSpell .. "\n/use 17\n/click StaticPopup1Button1")
+	btn.currentImbueName = mainSpell
+end
+
+-- An imbue made a hand's assigned one (a pick, or Dynamic: the one you put on): out of combat
+function ShamanPower:AssignImbue(hand, idx)
+	if InCombatLockdown() or not idx then return end
+	if hand == "off" then
+		self.opt.preferredOffImbue = idx
+		self.lastOffHandImbue = idx
+	else
+		self.opt.preferredImbue = idx
+		self.lastMainHandImbue = idx
+	end
+	self:SetImbueButtonMacros()
+end
+
+-- Which imbue the button shows on each hand, whether each hand counts as up, which show above it
+-- (Normal), which in its corner (TotemTimers). actualMain / actualOff: the imbue on each hand (nil: none).
+function ShamanPower:CooldownBarImbueView(actualMain, actualOff)
+	local f = self:CooldownBarStyleFlags()
+	local dual = self:HasOffHandWeapon()
+	local main = self:DefaultImbueIndex()
+	local off = dual and self:AssignedOffImbue(main) or nil
+	if f.adopt and not InCombatLockdown() then
+		if actualMain and actualMain ~= main then
+			self:AssignImbue("main", actualMain)
+			main = actualMain
+			if dual then off = self:AssignedOffImbue(main) end
+		end
+		if dual and actualOff and actualOff ~= off then
+			self:AssignImbue("off", actualOff)
+			off = actualOff
+		end
+	end
+	if f.showsActive then
+		if actualMain or actualOff then
+			local corner
+			if f.corner then
+				if actualMain and actualMain ~= main then corner = main
+				elseif dual and actualOff and actualOff ~= off then corner = off end
+			end
+			return actualMain, actualOff, actualMain ~= nil, actualOff ~= nil, nil, nil, corner
+		end
+		return main, nil, false, false, nil, nil, nil
+	end
+	local litMain = actualMain ~= nil and actualMain == main
+	local litOff = dual and actualOff ~= nil and actualOff == off or false
+	local above1 = (not f.grid and actualMain and actualMain ~= main) and actualMain or nil
+	local above2 = (not f.grid and dual and actualOff and actualOff ~= off) and actualOff or nil
+	return main, off, litMain, litOff, above1, above2, nil
+end
+
+-- Where the one that is up shows: on the button's flyout side, as a totem's shows on the totem
+-- bar's flyout side (the flyout opens over it, as there)
+function ShamanPower:CooldownAboveAnchor()
+	local cdLayout = self.opt.cdbarLayout or self.opt.layout
+	local isLocked = (self.opt.cooldownBarLocked ~= false)
+	if cdLayout == "Horizontal" then
+		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
+		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
+		if goBelow then return "TOP", "BOTTOM", 0, -2 end
+		return "BOTTOM", "TOP", 0, 2
+	end
+	local isVerticalLeft = (cdLayout == "VerticalLeft")
+	local goRight
+	if isLocked then goRight = isVerticalLeft else goRight = not isVerticalLeft end
+	if goRight then return "LEFT", "RIGHT", 2, 0 end
+	return "RIGHT", "LEFT", -2, 0
+end
+
+-- The one that is up, above the button (Normal style), as a totem button shows a different totem
+-- that is down: the button grays out to half opacity when nothing on it is up (dim). icon2: an
+-- off-hand imbue beside it. r, g, b: its edge. text: a shield's charges.
+function ShamanPower:CooldownBarAbove(btn, icon1, icon2, r, g, b, text, dim)
+	local a = btn.spAbove
+	if not (icon1 or icon2) then
+		if a and a:IsShown() then a:Hide() end
+		if btn.spAboveDim then
+			btn.spAboveDim = nil
+			btn.icon:SetAlpha(1)
+			if btn.icon2 then btn.icon2:SetAlpha(1) end
+		end
+		return
+	end
+	if not a then
+		a = CreateFrame("Frame", nil, btn)
+		a:SetFrameLevel(btn:GetFrameLevel() + 5)
+		a.bg = a:CreateTexture(nil, "BACKGROUND")
+		a.bg:SetAllPoints()
+		a.bg:SetColorTexture(0, 0, 0, 0.7)
+		a.i1 = a:CreateTexture(nil, "ARTWORK")
+		a.i2 = a:CreateTexture(nil, "ARTWORK")
+		a.edges = {}
+		for i = 1, 4 do a.edges[i] = a:CreateTexture(nil, "BORDER") end
+		a.edges[1]:SetPoint("TOPLEFT"); a.edges[1]:SetPoint("TOPRIGHT"); a.edges[1]:SetHeight(2)
+		a.edges[2]:SetPoint("BOTTOMLEFT"); a.edges[2]:SetPoint("BOTTOMRIGHT"); a.edges[2]:SetHeight(2)
+		a.edges[3]:SetPoint("TOPLEFT"); a.edges[3]:SetPoint("BOTTOMLEFT"); a.edges[3]:SetWidth(2)
+		a.edges[4]:SetPoint("TOPRIGHT"); a.edges[4]:SetPoint("BOTTOMRIGHT"); a.edges[4]:SetWidth(2)
+		a.text = a:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		self:AdoptSPFont(a.text, "timers")
+		a.text:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", -1, 1)
+		a.text:SetTextColor(1, 1, 1)
+		btn.spAbove = a
+	end
+	local size = btn:GetWidth() or 22
+	if a.spSize ~= size then a.spSize = size; a:SetSize(size, size) end
+	local p, rp, ox, oy = self:CooldownAboveAnchor()
+	if a.spAnchor ~= p then
+		a.spAnchor = p
+		a:ClearAllPoints()
+		a:SetPoint(p, btn, rp, ox, oy)
+	end
+	a.i1:ClearAllPoints(); a.i2:ClearAllPoints()
+	if icon1 and icon2 then
+		a.i1:SetPoint("TOPLEFT", 2, -2); a.i1:SetPoint("BOTTOMRIGHT", a, "BOTTOM", 0, 2)
+		a.i1:SetTexture(icon1); a.i1:SetTexCoord(0.08, 0.50, 0.08, 0.92)
+		a.i2:SetPoint("TOPLEFT", a, "TOP", 0, -2); a.i2:SetPoint("BOTTOMRIGHT", -2, 2)
+		a.i2:SetTexture(icon2); a.i2:SetTexCoord(0.50, 0.92, 0.08, 0.92)
+		a.i2:Show()
+	else
+		a.i1:SetPoint("TOPLEFT", 2, -2); a.i1:SetPoint("BOTTOMRIGHT", -2, 2)
+		a.i1:SetTexture(icon1 or icon2); a.i1:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		a.i2:Hide()
+	end
+	for i = 1, 4 do a.edges[i]:SetColorTexture(r or 1, g or 0.82, b or 0, 1) end
+	a.text:SetText(text or "")
+	a:Show()
+	if (dim and true or nil) ~= btn.spAboveDim then
+		btn.spAboveDim = dim and true or nil
+		local alpha = dim and 0.5 or 1
+		btn.icon:SetAlpha(alpha)
+		if btn.icon2 then btn.icon2:SetAlpha(alpha) end
+	end
+end
+
+-- The assigned one in the button's corner (TotemTimers Style), as on a totem button
+function ShamanPower:CooldownBarCorner(btn, icon)
+	local c = btn.spCorner
+	if not icon then
+		if c and c:IsShown() then c:Hide() end
+		return
+	end
+	if not c then
+		c = CreateFrame("Frame", nil, btn)
+		c:SetSize(12, 12)
+		c:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+		c:SetFrameLevel(btn:GetFrameLevel() + 10)
+		local bg = c:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0, 0, 0, 0.8)
+		c.icon = c:CreateTexture(nil, "ARTWORK")
+		c.icon:SetPoint("TOPLEFT", 1, -1)
+		c.icon:SetPoint("BOTTOMRIGHT", -1, 1)
+		c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		btn.spCorner = c
+	end
+	c.icon:SetTexture(icon)
+	c:Show()
+end
+
+-- The shield flyout made again (what the button shows changed): out of combat only
+function ShamanPower:RebuildShieldFlyout()
+	if InCombatLockdown() then return end
+	local flyout = self.shieldFlyout
+	self:UnpinCooldownGrid(flyout)
+	if flyout then
+		for _, btn in ipairs(flyout.buttons or {}) do
+			btn:Hide()
+			btn:SetParent(nil)
+		end
+		self.shieldFlyout = nil
+	end
+	self:CreateShieldFlyout()
+end
+
 function ShamanPower:CreateShieldFlyout()
 	if self.shieldFlyout then return end
 	if InCombatLockdown() then return end
 	if not self.shieldButton then return end
+
+	-- Every shield you know except the one the button shows, as a totem flyout leaves out the totem
+	-- on its button; Grid: every one, pinned open as a row beside it. Nothing else to pick: no flyout.
+	local grid = self:CooldownBarGridOn()
+	local shown = self:ShieldShownOnButton()
+	self._shieldFlyoutKey = shown + (grid and 100 or 0)
+	local others = 0
+	for i, d in ipairs(self.ShieldSpells) do
+		if (grid or i ~= shown) and SPCompat.SpellName(d[1]) and PlayerKnowsSpellByID(d[1]) then others = others + 1 end
+	end
+	if others == 0 or (grid and others < 2) then
+		if self.boxFlyouts then self.boxFlyouts.S = nil end
+		return
+	end
 
 	local parentButton = self.shieldButton
 	local buttonSize = self:CooldownFlyoutButtonSize()
@@ -13523,11 +14070,12 @@ function ShamanPower:CreateShieldFlyout()
 
 	-- Create buttons for each known shield as children of the shield button
 	for i, shieldData in ipairs(self.ShieldSpells) do
-		local spellID, spellName = shieldData[1], shieldData[2]
+		local spellID = shieldData[1]
+		local spellName = (grid or i ~= shown) and SPCompat.SpellName(spellID)
 
 		-- Check if player knows this shield
-		if PlayerKnowsSpellByName(spellName) then
-			local name, _, icon = GetSpellInfo(spellName)
+		if spellName and PlayerKnowsSpellByID(spellID) then
+			local name, _, icon = GetSpellInfo(spellID)
 
 			-- Create as CHILD of shield button for ChildUpdate to work
 			local btn = CreateFrame("Button", "ShamanPowerShieldFlyout" .. i, buttonParent,
@@ -13556,6 +14104,7 @@ function ShamanPower:CreateShieldFlyout()
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
 			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
+				if self:GetAttribute("spGridPinned") then return end   -- Grid: always shown
 				if message then
 					self:Show()
 				else
@@ -13580,9 +14129,9 @@ function ShamanPower:CreateShieldFlyout()
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
 					local flyoutData = ShamanPower.shieldFlyout
-					if flyoutData and flyoutData.box then
+					if flyoutData and flyoutData.box and not flyoutData.grid then
 						ShamanPower:FlyoutFallbackSetShown(flyoutData.shieldButton, false)
-					elseif flyoutData and flyoutData.buttons then
+					elseif flyoutData and flyoutData.buttons and not flyoutData.grid then
 						for _, flyoutBtn in ipairs(flyoutData.buttons) do
 							flyoutBtn:Hide()
 						end
@@ -13603,7 +14152,7 @@ function ShamanPower:CreateShieldFlyout()
 
 					-- Persist preferred shield
 					for idx, shieldData in ipairs(ShamanPower.ShieldSpells) do
-						if shieldData[2] == spellName then
+						if shieldData[1] == spellID then
 							ShamanPower.opt.preferredShield = idx
 							break
 						end
@@ -13633,12 +14182,14 @@ function ShamanPower:CreateShieldFlyout()
 		end
 	end
 
+	flyout.grid = grid or nil
 	self.shieldFlyout = flyout
 	if flyout.box then self:ApplyFlyoutPickMacros() end
 	self:ApplyClickSwap()
 
 	-- Layout the flyout buttons
 	self:LayoutShieldFlyout()
+	if grid then self:PinCooldownGrid(flyout) end
 end
 
 -- Layout shield flyout buttons (called after creation and when layout changes)
@@ -13740,11 +14291,26 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	local buttonSize = self:CooldownFlyoutButtonSize()
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
+	-- Every imbue you know except what the button shows (both halves of a split icon), as a totem
+	-- flyout leaves out the totem on its button. Nothing else known: no flyout.
+	local grid = self:CooldownBarGridOn()
+	local shown1, shown2 = self:ImbuesShownOnButton()
+	self._imbueFlyoutKey = shown1 * 10 + shown2 + (grid and 1000 or 0)
+	if grid then shown1, shown2 = -1, -1 end   -- Grid: every imbue, pinned open as a row beside the button
+	local others = 0
+	for imbueIndex = 1, 4 do
+		if imbueIndex ~= shown1 and imbueIndex ~= shown2 and self:GetHighestRankImbue(imbueIndex) then others = others + 1 end
+	end
+	if others == 0 or (grid and others < 2) then
+		if self.boxFlyouts then self.boxFlyouts.I = nil end
+		return
+	end
+
 	local flyout = {
 		buttons = {},
 		buttonSize = buttonSize,
 		spacing = spacing,
-		imbueButton = parentButton
+		imbueButton = parentButton,
 	}
 
 	-- Box mode: same click-to-open arrows as the totem flyouts
@@ -13757,7 +14323,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 	-- Create buttons for each known imbue as children of the imbue button
 	for imbueIndex = 1, 4 do
-		local spellName = self:GetHighestRankImbue(imbueIndex)
+		local spellName = imbueIndex ~= shown1 and imbueIndex ~= shown2 and self:GetHighestRankImbue(imbueIndex)
 		if spellName then
 			-- Create as CHILD of imbue button for ChildUpdate to work
 			local btn = CreateFrame("Button", "ShamanPowerImbueFlyout" .. imbueIndex, buttonParent,
@@ -13771,6 +14337,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
 			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
+				if self:GetAttribute("spGridPinned") then return end   -- Grid: always shown
 				if message then
 					self:Show()
 				else
@@ -13810,9 +14377,9 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
 				if not InCombatLockdown() then
 					local flyoutData = ShamanPower.weaponImbueFlyout
-					if flyoutData and flyoutData.box then
+					if flyoutData and flyoutData.box and not flyoutData.grid then
 						ShamanPower:FlyoutFallbackSetShown(flyoutData.imbueButton, false)
-					elseif flyoutData and flyoutData.buttons then
+					elseif flyoutData and flyoutData.buttons and not flyoutData.grid then
 						for _, flyoutBtn in ipairs(flyoutData.buttons) do
 							flyoutBtn:Hide()
 						end
@@ -13820,26 +14387,19 @@ function ShamanPower:CreateWeaponImbueFlyout()
 				end
 				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
 
-				-- Remember last used imbue
-				if ShamanPower:LogicalButton(self, button) == "LeftButton" then
-					ShamanPower.lastMainHandImbue = imbueIndex
-					ShamanPower.opt.preferredImbue = imbueIndex
-					-- Update main imbue button's macros to match new default
-					local imbueBtn = ShamanPower.weaponImbueButton
-					if imbueBtn and not InCombatLockdown() then
-						local newSpell = ShamanPower:GetHighestRankImbue(imbueIndex)
-						if newSpell then
-							imbueBtn:SetAttribute("macrotext1", "/cast [@none] " .. newSpell .. "\n/use 16\n/click StaticPopup1Button1")
-							imbueBtn:SetAttribute("macrotext2", "/cast [@none] " .. newSpell .. "\n/use 17\n/click StaticPopup1Button1")
-							imbueBtn.currentImbueName = newSpell
-							-- Update the icon
-							if ShamanPower.WeaponIcons and ShamanPower.WeaponIcons[imbueIndex] then
-								imbueBtn.icon:SetTexture(ShamanPower.WeaponIcons[imbueIndex])
-							end
-						end
+				-- The pick is that hand's assigned imbue: left-click the main hand, right-click the off hand (with
+				-- no off-hand weapon a right-click lands on the main hand too, so it is the main hand's). In a
+				-- fight the button's casts change when it ends (the bar is made again then).
+				local hand = (ShamanPower:LogicalButton(self, button) == "LeftButton" or not ShamanPower:HasOffHandWeapon()) and "main" or "off"
+				if InCombatLockdown() then
+					if hand == "main" then
+						ShamanPower.lastMainHandImbue, ShamanPower.opt.preferredImbue = imbueIndex, imbueIndex
+					else
+						ShamanPower.lastOffHandImbue, ShamanPower.opt.preferredOffImbue = imbueIndex, imbueIndex
 					end
+					ShamanPower._cdBarRebuildPending = true
 				else
-					ShamanPower.lastOffHandImbue = imbueIndex
+					ShamanPower:AssignImbue(hand, imbueIndex)
 				end
 			end)
 
@@ -13865,12 +14425,52 @@ function ShamanPower:CreateWeaponImbueFlyout()
 		end
 	end
 
+	flyout.grid = grid or nil
 	self.weaponImbueFlyout = flyout
 	if flyout.box then self:ApplyFlyoutPickMacros() end
 	self:ApplyClickSwap()
 
 	-- Layout the flyout buttons
 	self:LayoutWeaponImbueFlyout()
+	if grid then self:PinCooldownGrid(flyout) end
+end
+
+-- What the imbue button shows (its flyout leaves that out): the main hand's and the off hand's (0: none,
+-- or the same as the main hand's), by the style's view (CooldownBarImbueView)
+function ShamanPower:ImbuesShownOnButton()
+	if self._imbueShown1 then return self._imbueShown1, self._imbueShown2 or 0 end
+	local hasMain, _, _, mainID, hasOff, _, _, offID = GetWeaponEnchantInfo()
+	if issecretvalue and (issecretvalue(hasMain) or issecretvalue(hasOff)) then return self:DefaultImbueIndex() or 0, 0 end
+	local actualMain = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or nil
+	local actualOff = hasOff and (self.EnchantIDToImbue[offID] or self.lastOffHandImbue or 2) or nil
+	local viewMain, viewOff = self:CooldownBarImbueView(actualMain, actualOff)
+	local first = viewMain or viewOff or 0
+	return first, (viewOff and viewOff ~= first) and viewOff or 0
+end
+
+-- The icon just drawn on the imbue button (UpdateCooldownButtons): the flyout is made again, out of
+-- a fight, when that changes, so it never also offers what the button shows. In a fight it waits.
+function ShamanPower:NoteImbuesShown(shown1, shown2)
+	self._imbueShown1, self._imbueShown2 = shown1 or 0, shown2 or 0
+	local key = self._imbueShown1 * 10 + self._imbueShown2 + (self:CooldownBarGridOn() and 1000 or 0)
+	if key ~= self._imbueFlyoutKey and not InCombatLockdown() then
+		self:RebuildWeaponImbueFlyout()
+	end
+end
+
+-- The imbue flyout made again (what the button shows changed): out of combat only
+function ShamanPower:RebuildWeaponImbueFlyout()
+	if InCombatLockdown() then return end
+	local flyout = self.weaponImbueFlyout
+	self:UnpinCooldownGrid(flyout)
+	if flyout then
+		for _, btn in ipairs(flyout.buttons or {}) do
+			btn:Hide()
+			btn:SetParent(nil)
+		end
+		self.weaponImbueFlyout = nil
+	end
+	self:CreateWeaponImbueFlyout()
 end
 
 -- Layout weapon imbue flyout buttons (called after creation and when layout changes)
@@ -14410,6 +15010,7 @@ function ShamanPower:UpdateMiniTotemBar()
 					-- TBC needs spell names, not IDs
 					if spellID then
 						spellName = GetSpellInfo(spellID)
+						if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
 					end
 				end
 				if shownIndex ~= totemIndex then
@@ -14477,6 +15078,9 @@ function ShamanPower:UpdateMiniTotemBar()
 					local assignedSpellName = assignedSpellID and GetSpellInfo(assignedSpellID)
 					if assignedSpellName then
 						totemButton:SetAttribute("type2", "spell")
+						if SPCompat.HasTotemCastAliases(assignedSpellID) then
+							assignedSpellName = SPCompat.TotemCastName(assignedSpellID)
+						end
 						totemButton:SetAttribute("spell2", assignedSpellName)
 					else
 						-- No assigned totem, fall back to Totemic Call
@@ -14845,7 +15449,7 @@ function ShamanPower:CreateEarthShieldButton()
 		local assignedTarget = ShamanPower_EarthShieldAssignments[ShamanPower.player]
 		local currentTarget, charges = ShamanPower:FindEarthShieldTarget()
 		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		GameTooltip:AddLine("Earth Shield", 0.2, 0.8, 0.2)
+		GameTooltip:AddLine(SPCompat.SpellLabel(974, "Earth Shield"), 0.2, 0.8, 0.2)
 
 		if currentTarget then
 			GameTooltip:AddLine("Active on: " .. currentTarget, 0, 1, 0)
@@ -15344,9 +15948,9 @@ function ShamanPower:UpdateOrCreateESFlyoutButton(index, name, class, unit, esBt
 			GameTooltip:AddLine(" ")
 			if ShamanPower.opt.swapFlyoutClickButtons then
 				GameTooltip:AddLine("|cff00ff00Left-click:|r Assign as ES target", 1, 1, 1)
-				GameTooltip:AddLine("|cffffcc00Right-click:|r Cast Earth Shield", 1, 1, 1)
+				GameTooltip:AddLine("|cffffcc00Right-click:|r Cast " .. SPCompat.SpellLabel(974, "Earth Shield"), 1, 1, 1)
 			else
-				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast Earth Shield", 1, 1, 1)
+				GameTooltip:AddLine("|cff00ff00Left-click:|r Cast " .. SPCompat.SpellLabel(974, "Earth Shield"), 1, 1, 1)
 				GameTooltip:AddLine("|cffffcc00Right-click:|r Assign as ES target", 1, 1, 1)
 			end
 			GameTooltip:Show()
@@ -16261,7 +16865,8 @@ function ShamanPower:UpdateDropAllButton()
 				if spellID then
 					local spellName = GetSpellInfo(spellID)
 					-- Fallback to our stored name if GetSpellInfo fails
-					if not spellName then
+					if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
+					if not spellName and (GetLocale() == "enUS" or GetLocale() == "enGB") then
 						spellName = self:GetTotemName(element, totemIndex)
 						-- Add "Totem" suffix if not present (for castsequence compatibility)
 						if spellName and not spellName:find("Totem") and not spellName:find("Elemental") then
@@ -16607,16 +17212,15 @@ function ShamanPower:ValidateAssignmentsForSpec()
 				local talentInfo = self.TalentTotems[spellID]
 				if talentInfo then
 					-- This totem requires a talent - check if player knows it
-					local spellName = GetSpellInfo(spellID)
-					if not spellName or not IsSpellKnown(spellID) then
+					if not PlayerKnowsTotem(spellID) then
 						-- Player doesn't have this spell anymore - reset to default
 						local defaultTotem = self.DefaultTotems[element] or 1
 						assignments[element] = defaultTotem
 						changed = true
 
 						local elementName = self.Elements[element] or "Unknown"
-						local oldTotemName = self.TotemNames[element] and self.TotemNames[element][totemIndex] or "Unknown"
-						local newTotemName = self.TotemNames[element] and self.TotemNames[element][defaultTotem] or "Unknown"
+						local oldTotemName = self:GetTotemName(element, totemIndex)
+						local newTotemName = self:GetTotemName(element, defaultTotem)
 						if not self:IsOff() then self:Print("|cffff9900Respec detected:|r " .. elementName .. " totem reset from " .. oldTotemName .. " to " .. newTotemName) end
 					end
 				end
@@ -16636,6 +17240,9 @@ function ShamanPower:OnTalentsChanged()
 		return
 	end
 
+	-- Talent events can precede SPELLS_CHANGED; do not validate a respec using
+	-- cached knowledge from the old talent selection.
+	SPCompat.InvalidateSpellData()
 	-- Rescan talents and spells
 	self:ScanTalents()
 	self:ScanSpells()
@@ -16671,27 +17278,27 @@ function ShamanPower:ScanSpells()
 		self:SyncAdd(self.player)
 		ShamanPower.AllShamans[self.player] = {}
 
-		-- Mark all totems as available for each element (Earth=1, Fire=2, Water=3, Air=4)
-		-- We don't check spell ranks - just show all totem types and let the shaman pick
+		-- Keep every display row, but advertise only totems known by spell ID.
+		-- Higher ranks count without reporting unlearned spells to the group.
 		for element = 1, SHAMANPOWER_MAXELEMENTS do
 			ShamanPower.AllShamans[self.player][element] = {}
 			local totemNames = self.TotemNames[element]
 			if totemNames then
 				for totemIndex, totemName in pairs(totemNames) do
 					ShamanPower.AllShamans[self.player][element][totemIndex] = {
-						known = true,
+						known = PlayerKnowsTotem(self:GetTotemSpell(element, totemIndex)),
 						name = totemName
 					}
 				end
 			end
 		end
 
-		-- Mark all weapon enchants as available
+		-- Weapon imbues have their own spell families, separate from totems.
 		ShamanPower.AllShamans[self.player].WeaponEnchants = {}
 		local enchantNames = {"Windfury Weapon", "Flametongue Weapon", "Frostbrand Weapon", "Rockbiter Weapon"}
 		for enchantIndex, enchantName in ipairs(enchantNames) do
 			ShamanPower.AllShamans[self.player].WeaponEnchants[enchantIndex] = {
-				known = true,
+				known = PlayerKnowsSpellByID(self.WeaponImbueSpells[enchantIndex]),
 				name = enchantName
 			}
 		end
@@ -16994,6 +17601,30 @@ function ShamanPower:SendMessage(msg, type, target, force)
 	end
 end
 
+-- A learned rank may change the cast spelling. Existing popouts and saved
+-- macros must follow it; the normal flyout rebuild handles its secure actions.
+function ShamanPower:RefreshAliasedTotemCasts()
+	if self:IsOff() or InCombatLockdown() or not SPCompat.HasTotemCastAliases(5675) then return end
+	local name = SPCompat.TotemCastName(5675)
+	if not name or name == self._lastTotemCastAlias then return end
+	self._lastTotemCastAlias = name
+	if self.poppedOutFrames then
+		for key, frame in pairs(self.poppedOutFrames) do
+			if frame.button and frame.totemIndex and SPCompat.HasTotemCastAliases(frame.spellID) then
+				frame.spellName = SPCompat.TotemCastName(frame.spellID)
+				frame.button:SetAttribute("spell1", frame.spellName)
+				local progress = self.poppedOutProgressBars and self.poppedOutProgressBars[key]
+				if progress then progress.spellName = frame.spellName end
+				local overlay = self.poppedOutOverlays and self.poppedOutOverlays[key]
+				if overlay then overlay.spellName = frame.spellName end
+				if frame.titleText then frame.titleText:SetText(self:GetTotemName(frame.element, frame.totemIndex)) end
+			end
+		end
+	end
+	self:UpdateSPMacros()
+	self:UpdateDropAllButton()
+end
+
 function ShamanPower:SPELLS_CHANGED()
 	--self:Debug("EVENT: SPELLS_CHANGED")
 	if not initialized then
@@ -17005,6 +17636,7 @@ function ShamanPower:SPELLS_CHANGED()
 	if not InCombatLockdown() then
 		ShamanPower:RecreateTotemFlyouts()
 		ShamanPower:EnsureElementAssignments()   -- an element's first totem gets assigned by itself
+		ShamanPower:RefreshAliasedTotemCasts()
 	end
 	-- a newly learned imbue or shield: rebuild the cooldown bar so its flyouts offer it.
 	-- Spells are learned out of combat; a fight's SPELLS_CHANGED (forms, procs) is
@@ -17230,6 +17862,7 @@ function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
+	if issecretvalue(unitTarget) or issecretvalue(spellID) then return end
 	-- Under the secrets regime the totem model is fed by the player's own casts, not
 	-- by the API, so a cast is a "totems may have changed" moment too.
 	if unitTarget == "player" then self:InvalidateTotemInfo() end
@@ -17249,8 +17882,7 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 
 	-- Trigger GCD swipe when player casts a totem (switched off: the bar is down)
 	if unitTarget == "player" and not self:IsOff() then
-		local spellName = GetSpellInfo(spellID)
-		if spellName and spellName:find("Totem") then
+		if self:TotemCastElement(spellID) or spellID == 36936 or spellID == 437009 or spellID == 425874 then
 			self:TriggerGCDSwipe()
 			-- Dynamic Mode (and Grid): immediately update assignment when totem is cast
 			if self:DropSetsAssignment() then
@@ -17421,11 +18053,9 @@ function ShamanPower:PlayerShieldMayHaveChanged(info)
 		for i = 1, #added do
 			local a = added[i]
 			if issecretvalue(a) then return true end
-			local name = a and a.name
-			if issecretvalue(name) then return true end
-			for j = 1, #self.ShieldSpells do
-				if name == self.ShieldSpells[j][2] then return true end
-			end
+			local name, spellID = a and a.name, a and a.spellId
+			if issecretvalue(name) or issecretvalue(spellID) then return true end
+			if self:ShieldIndexForAura(name, spellID) then return true end
 		end
 	end
 	local id = c.auraInstanceID
@@ -17469,10 +18099,12 @@ ShamanPower.shadowShield = nil          -- { name, spellID, icon, start, duratio
 local shieldLearned = {}                -- [name] = { duration, maxCharges }
 
 local function shieldNameFor(spellID)
-	local name = GetSpellInfo(spellID)
-	if not name then return nil end
-	for _, data in ipairs(ShamanPower.ShieldSpells) do
-		if data[2] == name then return name, data[1] end
+	if issecretvalue(spellID) then return nil end
+	local name = SPCompat.SpellName(spellID)
+	local index = ShamanPower:ShieldIndexForAura(name, spellID)
+	if index then
+		local data = ShamanPower.ShieldSpells[index]
+		return SPCompat.SpellName(data[1], name or data[2]), data[1]
 	end
 	return nil
 end
@@ -17525,21 +18157,20 @@ function ShamanPower:ScanPlayerShield()
 	end
 
 	for i = 1, 40 do
-		local name, icon, count, _, duration, expirationTime = SPCompat.UnitBuff("player", i)
+		local name, icon, count, _, duration, expirationTime, _, _, _, auraID = SPCompat.UnitBuff("player", i)
+		if issecretvalue(name) or issecretvalue(auraID) then break end
 		if not name then break end
-		for j = 1, #self.ShieldSpells do
-			local shieldData = self.ShieldSpells[j]
-			if name == shieldData[2] then
-				hasShield = true
-				shieldID = shieldData[1]
-				shieldName, shieldRawCount = name, count
-				shieldIcon = icon
-				shieldCharges = count or 0
-				shieldDuration = duration or 0
-				shieldExpiration = expirationTime or 0
-				shieldBuffIndex = i
-				break
-			end
+		local index = self:ShieldIndexForAura(name, auraID)
+		if index then
+			local shieldData = self.ShieldSpells[index]
+			hasShield = true
+			shieldID = shieldData[1]
+			shieldName, shieldRawCount = name, count
+			shieldIcon = icon
+			shieldCharges = count or 0
+			shieldDuration = duration or 0
+			shieldExpiration = expirationTime or 0
+			shieldBuffIndex = i
 		end
 		if hasShield then break end
 	end
@@ -17547,7 +18178,7 @@ function ShamanPower:ScanPlayerShield()
 	-- Readable: re-sync the shadow record from the truth and learn the shield's numbers
 	if hasShield then
 		local name = nil
-		for _, data in ipairs(self.ShieldSpells) do if data[1] == shieldID then name = data[2] end end
+		for _, data in ipairs(self.ShieldSpells) do if data[1] == shieldID then name = SPCompat.SpellName(shieldID, data[2]) end end
 		if name then
 			local learned = shieldLearned[name] or {}
 			if shieldDuration > 0 then learned.duration = shieldDuration end
@@ -17568,7 +18199,8 @@ function ShamanPower:ScanPlayerShield()
 	local instanceID
 	if hasShield and not SPCompat.FOREVER and C_UnitAuras and C_UnitAuras.GetBuffDataByIndex then
 		local ok, a = pcall(C_UnitAuras.GetBuffDataByIndex, "player", shieldBuffIndex)
-		if ok and type(a) == "table" and a.name == shieldName then instanceID = a.auraInstanceID end
+		if ok and not issecretvalue(a) and type(a) == "table" and not issecretvalue(a.name)
+			and a.name == shieldName and not issecretvalue(a.auraInstanceID) then instanceID = a.auraInstanceID end
 	end
 
 	-- Cache the result
@@ -18562,9 +19194,10 @@ function ShamanPower:IsDruidFeral(unit)
 	-- Check if they have Mangle or other feral abilities (by checking buffs/debuffs)
 	-- Ferals often have Leader of the Pack buff
 	for i = 1, 40 do
-		local name = SPCompat.UnitBuff(unit, i)
+		local name, _, _, _, _, _, _, _, _, spellID = SPCompat.UnitBuff(unit, i)
+		if issecretvalue(name) or issecretvalue(spellID) then return false end
 		if not name then break end
-		if name == "Leader of the Pack" then
+		if SPCompat.AuraMatches(name, spellID, 24932) then
 			return true
 		end
 	end
@@ -18580,9 +19213,12 @@ function ShamanPower:IsShamanEnhancement(unit)
 	-- Enhancement shamans dual wield or use 2H with Stormstrike
 	-- Check if they have Stormstrike buff/ability
 	for i = 1, 40 do
-		local name = SPCompat.UnitBuff(unit, i)
+		local name, _, _, _, _, _, _, _, _, spellID = SPCompat.UnitBuff(unit, i)
+		if issecretvalue(name) or issecretvalue(spellID) then return false end
 		if not name then break end
-		if name == "Unleashed Rage" or name == "Shamanistic Rage" then
+		-- Unleashed Rage family 30802 and buff 30809 share the localized name;
+		-- verified in Blizzard SpellName data, Classic 2.5.5.65463.
+		if SPCompat.AuraMatches(name, spellID, 30802) or SPCompat.AuraMatches(name, spellID, 30823) then
 			return true
 		end
 	end
@@ -18604,7 +19240,7 @@ function ShamanPower:ShamanHasTotemOfWrath(shamanName)
 	end
 	-- For self, check if we know the spell
 	if shamanName == self.player then
-		return IsSpellKnown(30706)  -- Totem of Wrath spell ID
+		return PlayerKnowsTotem(30706)  -- Totem of Wrath spell ID
 	end
 	return false
 end
@@ -18621,7 +19257,7 @@ function ShamanPower:ShamanHasManaTide(shamanName)
 	end
 	-- For self, check if we know the spell
 	if shamanName == self.player then
-		return IsSpellKnown(16190)  -- Mana Tide Totem spell ID
+		return PlayerKnowsTotem(16190)  -- Mana Tide Totem spell ID
 	end
 	return false
 end
@@ -18734,8 +19370,7 @@ function ShamanPower:MigrateMacroIcons()
 	-- Also update Earth Shield macro if it exists
 	local esIndex = GetMacroIndexByName("AC EarthShield")
 	if esIndex and esIndex > 0 then
-		local esBody = "#showtooltip Earth Shield\n/click ShamanPowerESMacroBtn"
-		EditMacro(esIndex, "AC EarthShield", "INV_Misc_QuestionMark", esBody)
+		EditMacro(esIndex, "AC EarthShield", "INV_Misc_QuestionMark", self:EarthShieldMacroBody())
 	end
 
 	-- Set migration flag
@@ -18819,6 +19454,7 @@ function ShamanPower:UpdateSPMacros()
 			local spellID = self:GetTotemSpell(element, totemIndex)
 			if spellID then
 				local spellName = GetSpellInfo(spellID)
+				if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
 				if spellName then
 					body = body .. spellName
 				else
@@ -18852,6 +19488,7 @@ function ShamanPower:UpdateSPMacros()
 				local spellID = self:GetTotemSpell(element, totemIndex)
 				if spellID then
 					local spellName = GetSpellInfo(spellID)
+					if SPCompat.HasTotemCastAliases(spellID) then spellName = SPCompat.TotemCastName(spellID) end
 					if spellName then
 						table.insert(totemSpells, spellName)
 					end
@@ -19240,6 +19877,7 @@ function ShamanPower:GetSpellNameForButton(buttonType, element)
 		if totemIndex > 0 then
 			local spellID = self:GetTotemSpell(element, totemIndex)
 			if spellID then
+				if SPCompat.HasTotemCastAliases(spellID) then return SPCompat.TotemCastName(spellID) end
 				return GetSpellInfo(spellID)
 			end
 		end
@@ -19348,8 +19986,10 @@ function ShamanPower:FlyoutSpellClickKey(spellName, element)
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		local cast = self.opt.swapFlyoutClickButtons and "RightButton" or "LeftButton"
 		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
-			if btn.totemIndex and btn.totemIndex > 0 and btn.spellID and GetSpellInfo(btn.spellID) == spellName then
-				return self:FlyoutClickKey(btn, cast)
+			if btn.totemIndex and btn.totemIndex > 0 and btn.spellID then
+				local name = GetSpellInfo(btn.spellID)
+				if SPCompat.HasTotemCastAliases(btn.spellID) then name = SPCompat.TotemCastName(btn.spellID) end
+				if name == spellName then return self:FlyoutClickKey(btn, cast) end
 			end
 		end
 		return nil
@@ -19492,7 +20132,9 @@ function ShamanPower:UpdateFlyoutKeybindText(enabled)
 	for element = 1, 4 do
 		local flyout = self.totemFlyouts and self.totemFlyouts[element]
 		for _, btn in ipairs(flyout and flyout.allButtons or {}) do
-			apply(btn, btn.spellID and GetSpellInfo(btn.spellID), cast)
+			local name = btn.spellID and GetSpellInfo(btn.spellID)
+			if SPCompat.HasTotemCastAliases(btn.spellID) then name = SPCompat.TotemCastName(btn.spellID) end
+			apply(btn, name, cast)
 		end
 	end
 	for k = 1, 2 do local flyout = self[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)

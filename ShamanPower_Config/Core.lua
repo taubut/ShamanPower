@@ -8,6 +8,8 @@ local ADDON, ns = ...
 
 local Core = {}
 ns.Core = Core
+-- the kit for dev tools in other addons (ShamanPower Tester): read-only use
+if ShamanPower then ShamanPower.UIKit = ShamanPower.UIKit or {}; ShamanPower.UIKit.Core = Core end
 -- rows a page draws with its own code (Window.lua's page packer): [key] = { Render, Release }
 ns.CustomRows = ns.CustomRows or {}
 
@@ -1185,6 +1187,86 @@ function Core:CreateDialog(opts)
 		self.subtitle:SetText(st and strupper(st) or "")
 	end
 	return f
+end
+
+-- The page-header banner (D39 A, approved 2026-10-03): the settings page header's own look for
+-- the headings that were gold (the Discord heading, the tour's welcome and step titles, the What's
+-- New cards). The band's navy warmed by the element, the huge faint totem graphic cut off by the
+-- band's edges, a white title, a short underline in the element. p: host (frame), glow (the band
+-- texture), rule, title, sub (optional), icon (the class emblem: the totem logo takes its place
+-- unless keepIcon), color {r,g,b} or element (a brand key), big (the page title's size), textX
+-- (the underline's x). The parts are made once per host and reused.
+function Core:PageBanner(p)
+	local sp = ShamanPower
+	local el = p.color
+	if not el then
+		local els = sp and sp.Brand and sp.Brand.elements
+		el = (els and (els[p.element or "spirit"] or els.spirit)) or { self:Color("accent") }
+	end
+	local host, glow, rule, title, icon = p.host, p.glow, p.rule, p.title, p.icon
+	local M = host._spBanner or {}
+	host._spBanner = M
+	-- the title (and its line under it) above the faint graphic
+	local over = M.over or CreateFrame("Frame", nil, host)
+	M.over = over
+	over:SetAllPoints(host)
+	over:SetFrameLevel(host:GetFrameLevel() + 6)
+	over:Show()
+	if title:GetParent() ~= over then M.home = title:GetParent(); M.title = title; title:SetParent(over) end
+	if p.sub and p.sub:GetParent() ~= over then p.sub:SetParent(over) end
+	glow:SetColorTexture(1, 1, 1, 1)
+	local r1, g1, b1 = self:Mix(el, "bandBg", 0.26)
+	local r2, g2, b2 = self:Color("bandBg")
+	self:Gradient(glow, "HORIZONTAL", r1, g1, b1, 1, r2, g2, b2, 1)
+	glow:Show()
+	if sp and sp.CreateTotemGraphic then
+		local clip = M.clip or CreateFrame("Frame", nil, host)
+		M.clip = clip
+		clip:ClearAllPoints()
+		clip:SetPoint("TOPLEFT", glow, "TOPLEFT", 0, 0)
+		clip:SetPoint("BOTTOMRIGHT", glow, "BOTTOMRIGHT", 0, 0)
+		clip:SetClipsChildren(true)
+		clip:SetFrameLevel(host:GetFrameLevel() + 2)
+		clip:Show()
+		local g = M.big or sp:CreateTotemGraphic(clip, { noOverlap = true })
+		M.big = g
+		g:SetGraphicHeight(p.big and 150 or 110)
+		g:ClearAllPoints()
+		g:SetPoint("TOPRIGHT", clip, "TOPRIGHT", -22, 8)
+		g:SetAlpha(0.12)
+	end
+	rule:SetHeight(1)
+	rule:SetColorTexture(self:Color("border"))
+	local ul = M.ul or over:CreateTexture(nil, "OVERLAY")
+	M.ul = ul
+	ul:SetSize(44, 3)
+	ul:ClearAllPoints()
+	ul:SetPoint("BOTTOMLEFT", glow, "BOTTOMLEFT", p.textX or 8, 0)
+	ul:SetColorTexture(el[1], el[2], el[3], 1)
+	ul:Show()
+	title:SetFontObject(p.big and self.fonts.pageTitle or self.fonts.title)
+	title:SetTextColor(self:Color("text"))
+	title:SetShadowColor(0, 0, 0, 0.8)
+	title:SetShadowOffset(1, -1)
+	if icon and not p.keepIcon and sp and sp.CreateTotemGraphic then
+		icon:SetAlpha(0)
+		local lg = M.logo or sp:CreateTotemGraphic(over)
+		M.logo = lg
+		lg:SetGraphicHeight(42)
+		lg:ClearAllPoints()
+		lg:SetPoint("CENTER", icon, "CENTER", 0, 0)
+		lg:Show()
+	end
+end
+-- a reused widget going back to an ordinary heading: the banner's parts away, its title home
+function Core:PageBannerOff(host)
+	local M = host._spBanner
+	if not M then return end
+	if M.title and M.home and M.title:GetParent() == M.over then M.title:SetParent(M.home) end
+	if M.clip then M.clip:Hide() end
+	if M.ul then M.ul:Hide() end
+	if M.logo then M.logo:Hide() end
+	if M.over then M.over:Hide() end
 end
 
 return Core

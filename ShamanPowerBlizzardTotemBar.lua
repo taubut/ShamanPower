@@ -203,11 +203,13 @@ local function styleHost(host, element)
 	host.activeIcon:ClearAllPoints()
 	host.activeIcon:SetPoint("TOPLEFT", host.indicator, "TOPLEFT", 2, -2)
 	host.activeIcon:SetPoint("BOTTOMRIGHT", host.indicator, "BOTTOMRIGHT", -2, 2)
+	host.activeIconHeight = host.activeAsMain and (host.height - 4) or 22
 	SP:StyleEngineCooldown(host.lifetime)
 	host.lifetime:SetHideCountdownNumbers(location ~= "icon" or opt.totemCooldownText == false)
 	local ok, font = pcall(host.lifetime.GetCountdownFontString, host.lifetime)
 	if ok and font then SP:SetSPFont(font, "timers", opt.durationTextSize or 8, "OUTLINE") end
 	host.sweepStyle = opt.totemCooldownSweep or "radial"
+	host.sweepDirection = opt.totemCooldownSweepDirection
 	host.showSweep = opt.showTotemCooldowns ~= false
 	host.lifetime:SetDrawSwipe(host.showSweep and host.sweepStyle == "radial")
 	host.lifetime:SetDrawEdge(host.showSweep and host.sweepStyle == "radial" and opt.totemCooldownEdge ~= false)
@@ -218,7 +220,9 @@ end
 local function updateDisplay(host, element, active, name, icon, remaining, duration)
 	local assigned = SP:AssignedIndex(element)   -- a flyout pick made in this fight first
 	local names = SP.TotemNames and SP.TotemNames[element]
-	local assignedName = names and names[assigned]
+	local assignedName = SPCompat.SpellName(SP:GetTotemSpell(element, assigned), names and names[assigned])
+	-- the name the totem that is down goes by (SP:CanonicalTotemName), so the two compare in every language
+	if assignedName and SP.CanonicalTotemName then assignedName = SP:CanonicalTotemName(assignedName, SP:GetTotemSpell(element, assigned)) end
 	-- Blizzard's bar works like our Dynamic mode: whatever sits in the slot is
 	-- what you drop, so the slot's own spell is the assignment here. The window's
 	-- assignment is only a fallback for a slot we could not read.
@@ -228,8 +232,9 @@ local function updateDisplay(host, element, active, name, icon, remaining, durat
 	local twisting = element == 4 and SP.opt.enableTotemTwisting
 	if twisting and not secret(name) and type(name) == "string" then
 		local twistNames = SP.TotemNames and SP.TotemNames[4]
-		local twistName = twistNames and twistNames[SP.opt.twistTotem or 2]
-		matches = host.activeAsMain or string.find(name, "Windfury", 1, true)
+		local twistIndex = SP.opt.twistTotem or 2
+		local twistName = SPCompat.SpellName(SP:GetTotemSpell(4, twistIndex), twistNames and twistNames[twistIndex])
+		matches = host.activeAsMain or SPCompat.TotemNameMatches(name, 8512, "Windfury Totem")
 			or (twistName and string.find(name, twistName, 1, true))
 	end
 	local validIcon = active and not secret(icon) and (type(icon) == "number" or type(icon) == "string")
@@ -262,10 +267,17 @@ local function updateDisplay(host, element, active, name, icon, remaining, durat
 		if host.textLocation ~= "none" and host.textLocation ~= "icon" then
 			host.durationText:SetText(durationLabel(remaining)); host.durationText:Show()
 		else host.durationText:Hide() end
-		-- Lifetime is the duration bar and its text here. On our own bar the grey
-		-- sweep belongs to SPELL cooldowns, which Blizzard's button already draws,
-		-- so drawing it for lifetime showed the same timer twice.
-		host.sweep:Hide()
+		-- The native-mode setting promises our own lifetime swipe, independently
+		-- of Blizzard's spell cooldown. Only the public own-totem model feeds it.
+		if host.showSweep and validIcon and (host.sweepStyle == "vertical" or host.sweepStyle == "reverse") then
+			-- Follow the timed icon when it is in the separate active indicator.
+			-- The assigned icon underneath stays dimmed, as before.
+			host.sweep:SetTexture(icon)
+			SP:PaintVerticalSweep(host.sweep, showIcon and host.activeIcon or host,
+				host.sweepStyle == "reverse" and fraction or (1 - fraction),
+				showIcon and host.activeIconHeight or host.height,
+				SP:SweepGrayFromTop(host.sweepStyle, host.sweepDirection), 0.08, 0.92)
+		else host.sweep:Hide() end
 	else
 		host.durationBackground:Hide(); host.durationBar:Hide(); host.durationText:Hide(); host.sweep:Hide()
 	end
@@ -475,7 +487,9 @@ local function mapHosts()
 				local id = okRead and slots and slots[element]
 				if id and not secret(id) then
 					local spellName = GetSpellInfo(id)
-					if type(spellName) == "string" then host.slotSpellName = spellName end
+					if type(spellName) == "string" then
+						host.slotSpellName = SP.CanonicalTotemName and SP:CanonicalTotemName(spellName, id) or spellName
+					end
 				end
 			end
 			elementHosts[element] = host

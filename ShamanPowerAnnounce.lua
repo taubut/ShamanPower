@@ -138,10 +138,9 @@ local function remainingOn(spellName)
 end
 
 local function knows(spell)
-	if not spell or not spell.name then return false end
+	if not spell then return false end
 	if spell == MANA_TIDE and SP.manaTideCallPractice then return true end   -- /sp calltest
-	if IsPlayerSpell and IsPlayerSpell(spell.id) then return true end
-	return GetSpellInfo(spell.name) ~= nil   -- a name lookup finds any known rank
+	return SPCompat.KnowsSpellID(spell.id)
 end
 
 -- ---------------------------------------------------------------------------
@@ -219,20 +218,61 @@ local function triggers()
 	if raw ~= parsedFrom then
 		parsedFrom, parsedTriggers = raw, {}
 		for part in raw:gmatch("[^,]+") do
-			local word = strtrim(part):lower()
+			local word = strlower(strtrim(part))
 			if word ~= "" then
-				-- whole words only: "tide" matches "tide pls", never "tides" or "stride"
-				parsedTriggers[#parsedTriggers + 1] = "%f[%w]" .. word:gsub("([%^%$%(%)%%%.%[%]%*%+%-%?])", "%%%1") .. "%f[%W]"
+				parsedTriggers[#parsedTriggers + 1] = word
 			end
 		end
 	end
 	return parsedTriggers
 end
 
+-- Lua's %w only recognizes ASCII. Read the entire neighboring UTF-8 character
+-- so translated trigger words work, without splitting a multibyte character.
+-- Keep the original ASCII behavior: punctuation and underscores are separators.
+local function triggerWordAt(text, at)
+	local byte = text:byte(at)
+	if not byte then return false end
+	while byte >= 128 and byte < 192 and at > 1 do
+		at = at - 1; byte = text:byte(at)
+	end
+	if byte < 128 then return text:sub(at, at):match("%w") ~= nil end
+	local length
+	if byte >= 0xC2 and byte <= 0xDF then length = 2
+	elseif byte >= 0xE0 and byte <= 0xEF then length = 3
+	elseif byte >= 0xF0 and byte <= 0xF4 then length = 4 end
+	if not length then return false end
+	local value = byte - (length == 2 and 192 or length == 3 and 224 or 240)
+	for i = 1, length - 1 do
+		local tail = text:byte(at + i)
+		if not tail or tail < 128 or tail >= 192 then return false end
+		value = value * 64 + tail - 128
+	end
+	if (length == 3 and value < 0x800) or (length == 4 and value < 0x10000)
+		or value > 0x10FFFF or (value >= 0xD800 and value <= 0xDFFF) then return false end
+	-- Spaces, punctuation and symbols commonly surrounding localized chat words.
+	return not (value <= 0xBF or value == 0xD7 or value == 0xF7 or value == 0x1680 or value == 0x180E
+		or value >= 0x2000 and value <= 0x206F or value >= 0x20A0 and value <= 0x20CF
+		or value >= 0x2190 and value <= 0x2BFF or value >= 0x2E00 and value <= 0x2E7F
+		or value >= 0x3000 and value <= 0x303F or value >= 0xFE10 and value <= 0xFE1F
+		or value >= 0xFE30 and value <= 0xFE6F or value == 0xFEFF
+		or value >= 0xFF01 and value <= 0xFF0F or value >= 0xFF1A and value <= 0xFF20
+		or value >= 0xFF3B and value <= 0xFF40 or value >= 0xFF5B and value <= 0xFF65
+		or value >= 0x1F000 and value <= 0x1FAFF)
+end
+
 local function mentionsTrigger(text)
-	local lower = text:lower()
-	for _, pattern in ipairs(triggers()) do
-		if lower:find(pattern) then return true end
+	local lower = strlower(text)
+	for _, word in ipairs(triggers()) do
+		local from = 1
+		while true do
+			local first, last = lower:find(word, from, true)
+			if not first then break end
+			-- Whole words only: "tide" matches "tide pls", not "tides" or "stride".
+			if triggerWordAt(lower, first) and not triggerWordAt(lower, first - 1)
+				and triggerWordAt(lower, last) and not triggerWordAt(lower, last + 1) then return true end
+			from = first + 1
+		end
 	end
 	return false
 end

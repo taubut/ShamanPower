@@ -31,9 +31,12 @@ local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompa
 
 local function Subtitle()
 	local parts = {}
-	if HasBL() then parts[#parts + 1] = (UnitFactionGroup("player") == "Alliance") and "Heroism" or "Bloodlust" end
-	parts[#parts + 1] = "Mana Tide"
-	if HasDrums() then parts[#parts + 1] = "Drums" end
+	if HasBL() then
+		local alliance = UnitFactionGroup("player") == "Alliance"
+		parts[#parts + 1] = SPCompat.SpellLabel(alliance and 32182 or 2825, alliance and "Heroism" or "Bloodlust")
+	end
+	parts[#parts + 1] = SPCompat.SpellLabel(16190, "Mana Tide")
+	if HasDrums() then parts[#parts + 1] = SPCompat.SpellLabel(35476, "Drums") end
 	if #parts == 1 then return parts[1] .. " calling" end
 	return table.concat(parts, ", ", 1, #parts - 1) .. " & " .. parts[#parts]
 end
@@ -93,6 +96,8 @@ local function Populate()
 	local shamans = SP:GetRaidShamans()
 	local members = SP:GetRaidMembers()
 	local blName = (UnitFactionGroup("player") == "Alliance") and "Heroism" or "Bloodlust"
+	blName = SPCompat.SpellLabel(UnitFactionGroup("player") == "Alliance" and 32182 or 2825, blName)
+	local tideName = SPCompat.SpellLabel(16190, "Mana Tide")
 	local locked = not CanAssign()
 	local lockNote = locked and " |cffff4444Group leader or assistant only.|r" or ""
 
@@ -161,16 +166,16 @@ local function Populate()
 	end
 
 	-- Mana Tide -------------------------------------------------------------
-	Section("Mana Tide callers", "one caller per shaman")
+	Section(tideName .. " callers", "one caller per shaman")
 	local mtShamans = SP:GetManaTideShamans()
 	if #mtShamans == 0 then
-		Row("Description", { text = "No shaman in your group has Mana Tide Totem." })
+		Row("Description", { text = "No shaman in your group has " .. SPCompat.SpellLabel(16190, "Mana Tide Totem") .. "." })
 	end
 	for _, info in ipairs(mtShamans) do
 		local name = info.name
 		Row("Dropdown", {
 			label = name .. "  |cff8A94A6G" .. tostring(info.group) .. "|r",
-			desc = "Who may call " .. name .. "'s Mana Tide." .. lockNote,
+			desc = "Who may call " .. name .. "'s " .. tideName .. "." .. lockNote,
 			values = memberValues, order = memberOrder,
 			get = function() return mt[name] and mt[name].caller or NONE end,
 			set = function(v)
@@ -186,7 +191,7 @@ local function Populate()
 
 	-- Drums of Battle --------------------------------------------------------
 	if HasDrums() then
-		Section("Drums of Battle", "one drummer per group")
+		Section(SPCompat.SpellLabel(35476, "Drums of Battle"), "one drummer per group")
 		local drums = ShamanPower_RaidCooldowns.drums
 		Row("Dropdown", {
 			label = "Caller", desc = "Who can call for Drums besides the group leader and assistants." .. lockNote,

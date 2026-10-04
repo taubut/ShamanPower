@@ -70,7 +70,7 @@ local function VersionFont(fs, size)
 	local path = SP.BrandFontPath and SP:BrandFontPath("semibold")
 	local ok, set = false, false
 	if path then ok, set = pcall(fs.SetFont, fs, path, size, "") end
-	if not (ok and set) then fs:SetFont("Fonts\\FRIZQT__.TTF", size, "") end
+	if not (ok and set) then fs:SetFont(SP:ResolveLocaleFontPath("Fonts\\FRIZQT__.TTF"), size, "") end
 end
 
 -- "2026-09-28" -> "Sep 28, 2026"
@@ -171,16 +171,23 @@ local function Count(key, parent, label)
 end
 
 -- a version's bar: the chevron, the version, LATEST, the date, the headline and
--- the counts; open, it takes the gold of the What's New banner
+-- the counts; open, it takes the What's New banner's look (D39 A: the page header's band and its
+-- short underline, in General's element), LATEST staying gold
 local function Header(key, y, W, big, sub, date, headline, counts, isOpen, latest, onClick)
 	local h = Keep("head:" .. key, function()
 		local b = CreateFrame("Button", nil, page.body)
 		b.bg = b:CreateTexture(nil, "BACKGROUND"); b.bg:SetAllPoints(b)
+		local el = (SP.Brand and SP.Brand.elements and (SP.Brand.elements.air or SP.Brand.elements.spirit)) or { Core:Color("accent") }
+		b.el = el
 		b.glow = b:CreateTexture(nil, "BACKGROUND", nil, 1); b.glow:SetAllPoints(b); b.glow:SetColorTexture(1, 1, 1, 1)
-		Core:Gradient(b.glow, "HORIZONTAL", GOLD[1], GOLD[2], GOLD[3], 0.20, GOLD[1], GOLD[2], GOLD[3], 0.02)
-		b.rule = b:CreateTexture(nil, "ARTWORK"); b.rule:SetHeight(2)
+		local r1, g1, b1 = Core:Mix(el, "bandBg", 0.26)
+		local r2, g2, b2 = Core:Color("bandBg")
+		Core:Gradient(b.glow, "HORIZONTAL", r1, g1, b1, 1, r2, g2, b2, 1)
+		b.rule = b:CreateTexture(nil, "ARTWORK"); b.rule:SetHeight(1)
 		b.rule:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0); b.rule:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 0, 0)
-		b.rule:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.85)
+		b.rule:SetColorTexture(Core:Color("border"))
+		b.ul = b:CreateTexture(nil, "OVERLAY"); b.ul:SetSize(44, 3)
+		b.ul:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 38, 0); b.ul:SetColorTexture(el[1], el[2], el[3], 1)
 		Core:MakeBorder(b, "borderSoft")
 		b.lines = {}
 		for i = 1, 2 do
@@ -204,7 +211,7 @@ local function Header(key, y, W, big, sub, date, headline, counts, isOpen, lates
 	h:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
 	h:SetSize(W, 58)
 	h.bg:SetColorTexture(Core:Color("rowBg"))
-	h.glow:SetShown(isOpen); h.rule:SetShown(isOpen)
+	h.glow:SetShown(isOpen); h.rule:SetShown(isOpen); h.ul:SetShown(isOpen)
 	-- the chevron: pointing down when open, right when shut
 	local a, bb = h.lines[1], h.lines[2]
 	local cx, cy = 20, -22
@@ -215,12 +222,12 @@ local function Header(key, y, W, big, sub, date, headline, counts, isOpen, lates
 		a:SetStartPoint("TOPLEFT", h, cx - 3, cy + 6); a:SetEndPoint("TOPLEFT", h, cx + 3, cy)
 		bb:SetStartPoint("TOPLEFT", h, cx + 3, cy); bb:SetEndPoint("TOPLEFT", h, cx - 3, cy - 6)
 	end
-	local lr, lg, lb = GOLD[1], GOLD[2], GOLD[3]
+	local lr, lg, lb = h.el[1], h.el[2], h.el[3]
 	if not isOpen then lr, lg, lb = Core:Color("textDim") end
 	a:SetVertexColor(lr, lg, lb); bb:SetVertexColor(lr, lg, lb)
 	VersionFont(h.ver, big and 20 or 17)
 	h.ver:SetText(sub)
-	if isOpen then h.ver:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else h.ver:SetTextColor(Core:Color("text")) end
+	h.ver:SetTextColor(Core:Color("text"))
 	h.tag:SetText(latest and "LATEST" or "")
 	h.date:SetText(date or "")
 	h.head:SetText(headline or "")
@@ -298,7 +305,7 @@ local function Feature(key, y, x, W, it)
 		local fr = CreateFrame("Frame", nil, page.body)
 		fr.icon = fr:CreateTexture(nil, "ARTWORK"); fr.icon:SetSize(32, 32)
 		fr.icon:SetPoint("TOPLEFT", fr, "TOPLEFT", 0, -2); fr.icon:SetTexCoord(ICON_TRIM, 1 - ICON_TRIM, ICON_TRIM, 1 - ICON_TRIM)
-		fr.title = Text(fr, "row"); fr.title:SetTextColor(GOLD[1], GOLD[2], GOLD[3]); fr.title:SetWordWrap(false)
+		fr.title = Text(fr, "row"); fr.title:SetTextColor(Core:Color("text")); fr.title:SetWordWrap(false)
 		fr.title:SetPoint("TOPLEFT", fr, "TOPLEFT", 46, 0)
 		fr.tag = Text(fr, "section", "accentHi"); fr.tag:SetWordWrap(false)
 		fr.tag:SetPoint("LEFT", fr.title, "RIGHT", 8, 0)

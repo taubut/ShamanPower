@@ -1,5 +1,39 @@
 # ShamanPower Changelog
 
+## v3.0.6 (2026-10-04)
+
+### New
+- **Target Tracker** (Settings > Alerts & Reminders > Target Tracker): your Flame Shock, Frost Shock and Stormstrike on your target, where you want them: a spot you place, your target's nameplate, or under the target frame. **Warn When It's Missing** grays a shock out when it isn't on your target, **Show On Every Enemy's Nameplate** puts your shocks on every mob, and the **Purge** reminder lights up when your target has a Magic buff you can remove. **Rules** switch any part on or off in a place or against a boss. It starts off: turn it on with the switch beside it.
+- **Every game language:** shields, totems, imbues, alerts and reminders now work in German, French, Spanish, Russian, Portuguese, Italian, Chinese and Korean. ShamanPower finds your spells by their ID, never their English name.
+- **Ready Reminders, made simple:** every setting is in each icon's right-click menu, with sliders right in the menu and **Copy To All Icons**. New: **Out of Range** (red tint, gray or dim), **Ready Flash** (a big flash when a spell is ready, which you can move), and a sound per icon.
+- **The cooldown bar follows your totem bar style:** the shield and imbue buttons work the way your totems do in your style (Normal, TotemTimers, Single, Dynamic or Grid). For a different one: Cooldown Bar > Display > **Do Not Mirror Totem Bar Style**.
+- **A new look for the settings:** pages lit by each group's element, the logo and new fonts; **Preview** and **Reset This Page** on every page; a module's page grays out with a **Turn On** button while the module is off; menus and tooltips got the same look. **UI Animations** (at the top of the settings sidebar) lets the settings window drop in and fly away and Unlock UI's boxes rise into place. It's off to start.
+- **Tremor Reminder at boss pulls:** in dungeons and raids it comes up the moment a fight with a fearing boss starts, even without targeting the boss.
+- **Sound When Your Shield Drops:** now in fights too.
+
+### Changes
+- Flyouts and the totem bar only show totems you've learned.
+- Party dots and Totem Coverage count only your own totems.
+- Every vertical sweep has a **Sweep Direction**.
+- Cooldown bar flyouts never repeat what's on the button, and a right-click assign stays put.
+- With two weapons, a right-click imbue pick is your off hand's, and the button's right-click applies it again.
+- WoW: Forever: Raid Cooldowns' sound plays at its own volume, not your Dialog volume.
+- WoW: Forever: Trainer Reminder matches your trainer exactly.
+- WoW: Forever: keybinds for Call of the Elements, Ancestors and Spirits.
+- Expiring Alerts stay quiet after logging in and after loading screens.
+- Tooltips in ShamanPower's windows show at the mouse.
+- The setup tour (`/spsetup`) has a Target Tracker step, right after Ready Reminders.
+
+### Fixes
+- Shields, totems and alerts didn't work in German and other non-English clients.
+- In Spanish, and for a few totems in Portuguese, French, Russian and Chinese, the bar couldn't tell which totem was down: no timer, duration bar, pulse, range or party dot for it.
+- TBC Anniversary: the Earth Shield macro showed a question mark on non-English clients.
+- Tauren saw Nature Resistance Totem from level 1, and Flametongue and Windfury Totem showed as soon as the weapon imbue was learned.
+- WoW: Forever: the shield-gone sound didn't play in fights.
+- WoW: Forever: the totem bar's vertical cooldown sweeps drew a squashed second icon, hard edges and all, over the real one.
+- The What's New card could run off the bottom of the screen.
+- The imbue flyout showed the imbue already on the button.
+
 ## v3.0.5.1 (2026-10-02)
 
 ### Fixes

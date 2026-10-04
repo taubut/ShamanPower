@@ -46,13 +46,18 @@ local SHOW_CHOICES = {
 	{ "flash", "Never (Ready Flash Only)" },
 }
 local EFFECT_CHOICES = { { "glow", "Glow" }, { "pulse", "Pulse" }, { "both", "Glow + Pulse" }, { "none", "None" } }
-local SWEEP_CHOICES = { { "radial", "Radial (Clock)" }, { "vertical", "Vertical (Fills Up)" }, { "none", "None" } }
+local SWEEP_CHOICES = { { "radial", "Radial (Clock)" }, { "vertical", "Vertical - Fills Back In" }, { "none", "None" } }
+local SWEEP_DIRECTION_CHOICES = { { "top", "From The Top" }, { "bottom", "From The Bottom" } }
 local BAR_CHOICES = { { "none", "None" }, { "below", "Below The Icon" }, { "above", "Above The Icon" } }
 local TEXTPOS_CHOICES = { { "center", "Center" }, { "top", "Top" }, { "bottom", "Bottom" }, { "below", "Below The Icon" }, { "above", "Above The Icon" } }
 local RANGE_CHOICES = { { "red", "Red Tint" }, { "gray", "Gray" }, { "dim", "Dim" } }
 local ANIM_CHOICES = { { "grow", "Grow and Fade" }, { "pop", "Pop" }, { "fade", "Fade Only" } }
 local SHOCK_CHOICES = { { "cycle", "Cycle" }, { "split", "Split" }, { "one", "One Shock" } }
-local PICK_CHOICES = { { "earthshock", "Earth Shock" }, { "flameshock", "Flame Shock" }, { "frostshock", "Frost Shock" } }
+local PICK_CHOICES = {
+	{ "earthshock", SPCompat.SpellLabel(8042, "Earth Shock") },
+	{ "flameshock", SPCompat.SpellLabel(8050, "Flame Shock") },
+	{ "frostshock", SPCompat.SpellLabel(8056, "Frost Shock") },
+}
 
 local function OnOff(v) if v then return "On" end return "Off" end
 local function LabelOf(list, v)
@@ -348,7 +353,7 @@ end
 
 local LOOK_KEYS = { "iconSize", "opacity", "hideBackground", "hideBorder", "borderColor", "showNames" }
 local READY_KEYS = { "readyEffect", "glowColor" }
-local COOL_KEYS = { "dimOpacity", "desaturate", "sweepStyle", "barStyle", "barHeight", "barColor", "showCountdown",
+local COOL_KEYS = { "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", "barStyle", "barHeight", "barColor", "showCountdown",
 	"textPosition", "textSize", "countdownUnder" }
 local RANGE_KEYS = { "outOfRange", "rangeLook", "rangeColor" }
 local SOUND_KEYS = { "soundOnReady", "soundName", "soundVolume", "soundMinCooldown" }
@@ -423,8 +428,11 @@ local function CoolRows(key, entry)
 		SliderRow(key, "Opacity", "dimOpacity", 0.1, 1, 0.05, 0.35, nil, true),
 		OnOffRow(key, "Gray Out The Icon", "desaturate", true),
 		ChoiceRow(key, "Sweep", "sweepStyle", SWEEP_CHOICES, "radial"),
-		ChoiceRow(key, "Progress Bar", "barStyle", BAR_CHOICES, "none"),
 	}
+	if Opt(key, "sweepStyle") == "vertical" then
+		t[#t + 1] = ChoiceRow(key, "Sweep Direction", "sweepDirection", SWEEP_DIRECTION_CHOICES, "bottom")
+	end
+	t[#t + 1] = ChoiceRow(key, "Progress Bar", "barStyle", BAR_CHOICES, "none")
 	if (Opt(key, "barStyle") or "none") ~= "none" then
 		t[#t + 1] = SliderRow(key, "Bar Height", "barHeight", 2, 12, 1, 4)
 		t[#t + 1] = ColorRow(key, entry, "Bar Color", "barColor", 0.3, 0.8, 1.0)
@@ -726,6 +734,8 @@ function Row:Release()
 		-- a redraw made by one of the menu's own choices: open it again when drawn
 		if self.writing then self.reopen = { key = self.openKey, path = ns.ContextMenu:OpenPath() } end
 		ns.ContextMenu:Close()
+	elseif self.queued then
+		self.reopen = self.queued   -- drawn twice in one go (D42's gray page): it still opens after the second
 	end
 	self.openKey, self.queued = nil, nil
 	if self.frame then self.frame:Hide() end

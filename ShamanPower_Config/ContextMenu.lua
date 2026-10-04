@@ -34,6 +34,8 @@
 --   disabled = true,
 --   icon = texture,                            a small spell icon before the text
 --   preview = function() end,                  a speaker button on the right (plays; picks nothing)
+--   tip = "text",                              a tooltip beside the menu, level with the row (titled with
+--                                              the row's text), on the side its submenus do not open on
 --   onClick = function() return keepOpen end,  nil / false: the chain closes; true: it repaints
 --   slider = { min, max, step, get = function() return v end, set = function(v) end,
 --              format = function(v) return text end, isPercent = true / false },
@@ -157,11 +159,38 @@ local function SetChild(lv, b)
 	end
 end
 
+-- item.tip: beside the menu, level with the row, on the side its submenus do not open on
+-- (they open to the right, to the left at the screen's edge: PlaceSub), so it never covers
+-- the submenu it explains; with no room left of the menu, right of where its submenu opens
+-- (a row with a tip opens an On / Off submenu: MIN_W_SUB wide). Our tooltip (SP.Tooltip),
+-- lit in the menu's element.
+local TIP_ROOM = 276   -- the tooltip's widest (its 250 wrap and its padding) and a gap
+local function ShowRowTip(b)
+	local item = b.item
+	if not (item and item.tip) then return end
+	local tip, lv = Core:Tooltip(), b.lv
+	local pl, pr, rl, rr = lv:GetLeft(), lv:GetRight(), b:GetLeft(), b:GetRight()
+	local sw = UIParent:GetWidth()
+	if not (pl and pr and rl and rr) then
+		tip:SetOwner(b, "ANCHOR_BOTTOMLEFT", -(EDGE + 6), ITEM_H)
+	elseif not (pr + 2 + MIN_W_SUB <= sw - 4 or pl - 2 - MIN_W_SUB < 4) then
+		tip:SetOwner(b, "ANCHOR_BOTTOMRIGHT", (pr - rr) + 6, ITEM_H)   -- its submenus open on the left
+	elseif pl - TIP_ROOM >= 4 then
+		tip:SetOwner(b, "ANCHOR_BOTTOMLEFT", -(rl - pl) - 6, ITEM_H)
+	else
+		tip:SetOwner(b, "ANCHOR_BOTTOMRIGHT", (pr - rr) + 2 + MIN_W_SUB + 6, ITEM_H)
+	end
+	tip:AddLine(item.text or "")
+	tip:AddLine(item.tip)
+	tip:Show()
+end
+
 local function RowEnter(b)
 	local lv = b.lv
 	b.hover = true
 	PaintRow(b)
 	if sliderDrag then return end   -- a thumb is held: the submenus stay as they are
+	ShowRowTip(b)
 	-- the mouse reached this level: its parent keeps the submenu it is in
 	local parent = levels[lv.depth - 1]
 	if parent then parent.pending = nil end
@@ -181,6 +210,7 @@ end
 local function RowLeave(b)
 	b.hover = false
 	PaintRow(b)
+	Core:HideTooltipFor(b)
 	if b.lv.pending == b then b.lv.pending = nil end
 end
 
@@ -745,6 +775,7 @@ local function FillLevel(lv, items, keepScroll)
 			b.arrow:SetShown(item.sub ~= nil)
 			b.speaker:SetShown(item.preview ~= nil)
 			b.hover = b:IsMouseOver() and true or false
+			if not (b.hover and item.tip) then Core:HideTooltipFor(b) end   -- (a pooled row's old tip)
 			b:Show()
 			PaintRow(b)
 			y = y + ITEM_H

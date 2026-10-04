@@ -95,8 +95,8 @@ local function ContentBucket()
 end
 
 local function Lower(s)
-	if type(s) ~= "string" then return "" end
-	return strtrim(s):lower()
+	if (issecretvalue and issecretvalue(s)) or type(s) ~= "string" then return "" end
+	return strlower(strtrim(s))
 end
 
 -- A rule's zone matches the real zone or the subzone (case-insensitive); an
@@ -155,7 +155,11 @@ end
 -- Raid resistance requests from rules (Forever). Only a request a rule made is
 -- ended by the rules; one the raid made by hand is left alone.
 -- ---------------------------------------------------------------------------
-local RESIST_NAMES = { fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" }
+local RESIST_NAMES = {
+	fire = SPCompat.SpellLabel(8184, "Fire Resistance"),
+	frost = SPCompat.SpellLabel(8181, "Frost Resistance"),
+	nature = SPCompat.SpellLabel(10595, "Nature Resistance"),
+}
 local heldResist = {}     -- key -> "zone" | "encounter"
 local heldInPractice = {} -- key -> true: held as a practice request (/sp resisttest)
 local encounterZone       -- where the encounter request was made
@@ -335,7 +339,7 @@ end
 local function IdentitySecret(unit)
 	if C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret then
 		local ok, v = pcall(C_Secrets.ShouldUnitIdentityBeSecret, unit)
-		if ok and v == true then return true end
+		if not ok or (issecretvalue and issecretvalue(v)) or v == true then return true end
 	end
 	if issecretvalue then
 		local name = UnitName(unit)
@@ -344,16 +348,33 @@ local function IdentitySecret(unit)
 	return false
 end
 
+-- WoW: Forever hides every mob's name in dungeons and raids, bosses too, but still says
+-- whether your target is a boss: a Boss Encounter rule that also names its Zone switches
+-- when you target a boss there before the pull (the first such rule for that zone)
+local function CheckBossTarget(d)
+	local boss = UnitIsBossMob and UnitIsBossMob("target")
+	if (issecretvalue and issecretvalue(boss)) or not boss then return end
+	for _, r in ipairs(d.rules) do
+		if Lower(r.encounter) ~= "" and Lower(r.zone) ~= "" and r.loadout and ZoneMatches(r.zone) then
+			local zone = GetRealZoneText()
+			Request(r.loadout, r.encounter, function() return GetRealZoneText() == zone end)
+			return
+		end
+	end
+end
+
 local function CheckTarget()
 	local d = DB()
 	if not (d and d.enabled) or SP:IsOff() or not UnitExists("target") then return end
-	if IdentitySecret("target") then return end
+	if IdentitySecret("target") then CheckBossTarget(d) return end
 	local name = Lower(UnitName("target"))
 	if name == "" then return end
 	for _, r in ipairs(d.rules) do
+		-- a Target rule, or a Boss Encounter rule whose boss you target (by name, where the game shows it)
 		local want = Lower(r.target)
+		if want == "" or want ~= name then want = Lower(r.encounter) end
 		if want ~= "" and want == name and r.loadout and ZoneMatches(r.zone) then
-			local display = r.target
+			local display = r.target or r.encounter
 			Request(r.loadout, display, function()
 				return UnitExists("target") and not IdentitySecret("target") and Lower(UnitName("target")) == want
 			end)
@@ -422,7 +443,8 @@ function SP:UpdateLoadoutRuleEvents()
 	-- resurrection before releasing
 	pcall(frame.RegisterEvent, frame, "PLAYER_UNGHOST")
 	pcall(frame.RegisterEvent, frame, "PLAYER_ALIVE")
-	if HasRule("target") then frame:RegisterEvent("PLAYER_TARGET_CHANGED") end
+	-- (a Boss Encounter rule also switches when you target that boss before the pull)
+	if HasRule("target") or HasRule("encounter") then frame:RegisterEvent("PLAYER_TARGET_CHANGED") end
 	if HasRule("encounter") then
 		pcall(frame.RegisterEvent, frame, "ENCOUNTER_START")
 		if FOREVER then pcall(frame.RegisterEvent, frame, "ENCOUNTER_END") end
@@ -554,7 +576,8 @@ local STATIC = {
 		order = 21, type = "description", width = "full",
 		name = "Each rule switches to its loadout when it matches. Zone matches the zone or subzone name (e.g. Blackwing Lair); leave it empty for anywhere."
 			.. " With a Target, the rule fires when you target a mob of exactly that name (e.g. Firemaw), so target the boss before the pull."
-			.. " With a Boss Encounter, it fires when that encounter starts; the switch lands when the fight ends, ready for the next attempt."
+			.. " With a Boss Encounter, it fires when you target that boss before the pull. In dungeons and raids WoW: Forever hides boss names, so also set the Zone there: then targeting any boss in that zone switches."
+			.. " If the fight starts first, the switch lands when it ends, ready for the next attempt."
 			.. " A rule with only a Zone fires when you arrive there.",
 	},
 	resist_desc = {
@@ -642,7 +665,7 @@ RebuildRuleArgs = function()
 		}
 		ruleArgs["rule_encounter_" .. i] = {
 			order = base + 4, type = "input", name = "Boss Encounter (optional)", width = 1.5,
-			desc = "Switch when this boss encounter starts (the name the game uses for the fight). The switch lands when the fight ends, ready for the next pull.",
+			desc = "Switch when you target this boss before the pull (the name the game uses for the fight). In dungeons and raids on WoW: Forever the game hides boss names: set the Zone too, then targeting any boss there switches. If the fight starts first, the switch lands when it ends.",
 			disabled = Disabled,
 			get = function() local r = rule(); return r and r.encounter or "" end,
 			set = function(_, v) local r = rule(); if r then r.encounter = (strtrim(v or "") ~= "") and strtrim(v) or nil end; SP:UpdateLoadoutRuleEvents() end,
@@ -655,7 +678,7 @@ RebuildRuleArgs = function()
 				.. " A /reload inside a zone rule's zone asks again, even if the raid unticked it.",
 			hidden = function() return not (FOREVER and SP.RESIST_REQUESTS) end,
 			disabled = Disabled,
-			values = { none = "None", fire = "Fire Resistance", frost = "Frost Resistance", nature = "Nature Resistance" },
+			values = { none = "None", fire = RESIST_NAMES.fire, frost = RESIST_NAMES.frost, nature = RESIST_NAMES.nature },
 			sorting = { "none", "fire", "frost", "nature" },
 			get = function() local r = rule(); return (r and r.resist) or "none" end,
 			set = function(_, v)

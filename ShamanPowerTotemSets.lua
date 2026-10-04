@@ -37,6 +37,9 @@ local function spellName(id)
 	if C_Spell and C_Spell.GetSpellName then return C_Spell.GetSpellName(id) end
 	return GetSpellInfo(id)
 end
+local function pageName(page)
+	return (SUMMON[page] and spellName(SUMMON[page])) or PAGE_NAMES[page] or ("page " .. page)
+end
 local function spellIcon(id)
 	if C_Spell and C_Spell.GetSpellTexture then return C_Spell.GetSpellTexture(id) end
 	return GetSpellTexture(id)
@@ -152,10 +155,22 @@ local function resolveInSlot(allowed, spellID)
 	-- change before the first Air totem was learned.
 	if not allowed then return nil end
 	if allowed[spellID] then return spellID end
+	-- another rank of the same spell, by ID, highest first (a rank's name can
+	-- differ from the first rank's in some languages)
+	local family = SPCompat.SpellRanks(spellID)
+	if family then
+		for index = #family, 1, -1 do
+			if allowed[family[index]] then return family[index] end
+		end
+	end
 	local want = spellName(spellID)
-	if not want then return nil end
+	if issecretvalue(want) or not want then return nil end
 	for id in pairs(allowed) do
-		if spellName(id) == want then return id end
+		local name = spellName(id)
+		if not issecretvalue(name) and (name == want
+			or (SPCompat.HasTotemCastAliases(spellID) and SPCompat.TotemNameMatches(name, spellID))) then
+			return id
+		end
 	end
 	return nil
 end
@@ -163,8 +178,18 @@ end
 local function sameSpell(a, b)
 	if a == b then return true end
 	if not a or not b then return false end
+	-- ranks of one spell, by ID
+	local family = SPCompat.SpellRanks(a)
+	if family then
+		for _, rank in ipairs(family) do
+			if rank == b then return true end
+		end
+	end
 	local na, nb = spellName(a), spellName(b)
-	return na ~= nil and na == nb
+	if issecretvalue(na) or issecretvalue(nb) then return false end
+	if na ~= nil and na == nb then return true end
+	return (SPCompat.HasTotemCastAliases(a) and SPCompat.TotemNameMatches(nb, a))
+		or (SPCompat.HasTotemCastAliases(b) and SPCompat.TotemNameMatches(na, b)) or false
 end
 
 -- Write { [element] = spellID | false } into a page: a spell ID sets the slot,
@@ -173,7 +198,7 @@ end
 function SP:WriteTotemSet(page, spells)
 	if not self:HasTotemBar() then return 0, 0, "totem sets are not available in this version of the game" end
 	-- page 1 is the bar itself; pages 2 and 3 only exist once their spell is known
-	if page ~= 1 and not self:KnownTotemSetPages()[page] then return 0, 0, (PAGE_NAMES[page] or "that set") .. " is not known yet" end
+	if page ~= 1 and not self:KnownTotemSetPages()[page] then return 0, 0, pageName(page) .. " is not known yet" end
 	if InCombatLockdown() then return 0, 0, "in combat" end
 	local written, skipped = 0, 0
 	for element = 1, 4 do
@@ -480,7 +505,7 @@ function SP:PushLoadoutToTotemSet(index, page)
 	local written, skipped, reason = self:WriteTotemSet(page, spells)
 	if reason then print("|cff0070ddShamanPower:|r " .. reason) return end
 	local name = loadout.name or ("Loadout " .. index)
-	print(string.format("|cff0070ddShamanPower:|r '%s' sent to %s (%d slot%s updated%s)", name, PAGE_NAMES[page] or ("page " .. page),
+	print(string.format("|cff0070ddShamanPower:|r '%s' sent to %s (%d slot%s updated%s)", name, pageName(page),
 		written, written == 1 and "" or "s", skipped > 0 and (", " .. skipped .. " not allowed in that slot") or ""))
 	self:UpdateDropAllButton()
 end
@@ -534,7 +559,7 @@ function SP:DropAllTotemSetsTooltip(button)
 	for page = 1, 3 do
 		if pages[page] then
 			GameTooltip:AddLine(" ", 1, 1, 1)
-			GameTooltip:AddLine(string.format("|cff00ccff%s:|r %s", mods[page], PAGE_NAMES[page]), 1, 1, 1)
+			GameTooltip:AddLine(string.format("|cff00ccff%s:|r %s", mods[page], pageName(page)), 1, 1, 1)
 			local set = self:ReadTotemSet(page)
 			for _, element in ipairs({ 1, 2, 3, 4 }) do
 				local id = set[element]
@@ -543,9 +568,9 @@ function SP:DropAllTotemSetsTooltip(button)
 		end
 	end
 	GameTooltip:AddLine(" ", 1, 1, 1)
-	if known(RECALL) then GameTooltip:AddLine("|cff00ccffRight-click:|r Totemic Recall", 1, 1, 1) end
+	if known(RECALL) then GameTooltip:AddLine("|cff00ccffRight-click:|r " .. (spellName(RECALL) or "Totemic Recall"), 1, 1, 1) end
 	if self.opt.totemSetsSyncAssignments ~= false then
-		GameTooltip:AddLine("Call of the Elements follows your assignments", 0.5, 0.5, 0.5)
+		GameTooltip:AddLine(pageName(1) .. " follows your assignments", 0.5, 0.5, 0.5)
 	end
 	GameTooltip:AddLine("/spl set <2|3> <loadout> sends a loadout to a set", 0.5, 0.5, 0.5)
 	if self.opt.enableMiddleClickPopOut ~= false then

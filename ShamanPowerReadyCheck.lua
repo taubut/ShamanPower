@@ -80,8 +80,7 @@ end
 -- Checks. Each returns a list entry { icon, text } when something is missing,
 -- false when all is well, nil when it cannot tell right now (a hidden value).
 -- ---------------------------------------------------------------------------
--- cached until the spellbook changes: bag updates ask this often, and a name
--- lookup builds a table per call on Forever
+-- Cached until the spellbook changes: bag updates ask this often.
 local knownCache = {}
 do
 	local f = CreateFrame("Frame")
@@ -91,16 +90,20 @@ do
 end
 local function elementKnown(element)
 	if knownCache[element] ~= nil then return knownCache[element] end
-	local names = SP.TotemNames and SP.TotemNames[element]
+	local spells = SP.Totems and SP.Totems[element]
 	local known = false
-	if names then
-		for _, name in pairs(names) do
-			-- a name lookup answers only for spells in the spellbook; the table holds short names
-			if type(name) == "string" and (GetSpellInfo(name .. " Totem") or GetSpellInfo(name)) then known = true break end
+	if spells then
+		for _, id in pairs(spells) do
+			if SPCompat.KnowsSpellID(id) then known = true break end
 		end
 	end
 	knownCache[element] = known
 	return known
+end
+
+local function shieldMissingText()
+	return "No " .. SPCompat.SpellLabel(324, "Lightning") .. " or "
+		.. SPCompat.SpellLabel(FOREVER and 408510 or 24398, "Water Shield")
 end
 
 local function shieldMissing()
@@ -118,7 +121,7 @@ local function shieldMissing()
 	if has then return false end
 	local data = SP.ShieldSpells and SP.ShieldSpells[1]
 	local icon = data and GetSpellTextureC(data[1]) or "Interface\\Icons\\Spell_Nature_LightningShield"
-	return { icon, "No Lightning or Water Shield" }
+	return { icon, shieldMissingText() }
 end
 
 local function isWeapon(slot)
@@ -158,7 +161,7 @@ local function totemItemsMissing(out)
 			local n = itemCount(TOTEM_ITEMS[element])
 			if n == 0 then
 				out[#out + 1] = { GetItemIconC(TOTEM_ITEMS[element]) or "Interface\\Icons\\INV_Misc_QuestionMark",
-					"No " .. ELEMENTS[element] .. " Totem in your bags" }
+					"No " .. (GetItemNameC(TOTEM_ITEMS[element]) or (ELEMENTS[element] .. " Totem")) .. " in your bags" }
 				any = true
 			end
 		end
@@ -175,8 +178,8 @@ local function assignedMissing(out)
 		if type(idx) == "number" and idx > 0 then
 			local spellID = SP.GetTotemSpell and SP:GetTotemSpell(element, idx)
 			local name, _, icon
-			if spellID then name, _, icon = GetSpellInfo(spellID) end
-			if name then   -- a totem this character knows
+			if spellID and SPCompat.KnowsSpellID(spellID) then name, _, icon = GetSpellInfo(spellID) end
+			if name then
 				local ok, have = pcall(SP.GetElementTotemInfo, SP, element)
 				if ok and not secret(have) and not have then
 					out[#out + 1] = { icon or "Interface\\Icons\\INV_Misc_QuestionMark", name .. " is not down" }
@@ -425,10 +428,11 @@ function SP:ReadyCheckDemo(on)
 	if on then
 		self.readyCheckDemoActive = true
 		local sample = {
-			{ GetSpellTextureC(324) or "Interface\\Icons\\Spell_Nature_LightningShield", "No Lightning or Water Shield" },
+			{ GetSpellTextureC(324) or "Interface\\Icons\\Spell_Nature_LightningShield", shieldMissingText() },
 			{ ImbueIcon(), "No weapon imbue on your main hand" },
 		}
-		if ITEMS_NEEDED then sample[#sample + 1] = { GetItemIconC(TOTEM_ITEMS[3]) or "Interface\\Icons\\INV_Misc_QuestionMark", "No Water Totem in your bags" } end
+		if ITEMS_NEEDED then sample[#sample + 1] = { GetItemIconC(TOTEM_ITEMS[3]) or "Interface\\Icons\\INV_Misc_QuestionMark",
+			"No " .. (GetItemNameC(TOTEM_ITEMS[3]) or "Water Totem") .. " in your bags" } end
 		applyLook(f)
 		layout("Ready check: you are missing", sample)
 		f:Show()
@@ -483,9 +487,10 @@ local itemHad = {}      -- [element] = true/false as last seen
 local errorWarnedAt = {}
 
 local function warnItem(element)
-	print(TAG .. "no |cffffffff" .. ELEMENTS[element] .. " Totem|r in your bags - " .. ELEMENTS[element] .. " totems cannot be cast without it.")
+	local name = GetItemNameC(TOTEM_ITEMS[element]) or (ELEMENTS[element] .. " Totem")
+	print(TAG .. "no |cffffffff" .. name .. "|r in your bags - " .. ELEMENTS[element] .. " totems cannot be cast without it.")
 	if cfg().itemWarnScreen and RaidNotice_AddMessage and RaidWarningFrame then
-		RaidNotice_AddMessage(RaidWarningFrame, "No " .. ELEMENTS[element] .. " Totem in your bags!", { r = 1, g = 0.3, b = 0.3 })
+		RaidNotice_AddMessage(RaidWarningFrame, "No " .. name .. " in your bags!", { r = 1, g = 0.3, b = 0.3 })
 	end
 end
 

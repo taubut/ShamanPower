@@ -434,6 +434,391 @@ if not GetItemCount and C_Item and C_Item.GetItemCount then
 	GetItemCount = C_Item.GetItemCount
 end
 
+-- IDs are stable across client languages; names returned by the game are not.
+-- Keep English labels and saved keys separate from spellbook/aura identity.
+do
+	local function plain(value)
+		return not (issecretvalue and issecretvalue(value))
+	end
+	local spellNames, knownIDs, auraFamilies, totemMatches, spellDataHooks = {}, {}, {}, {}, {}
+	-- Both client builds translate higher Mana Spring ranks differently in ptBR.
+	-- Keep this verified cast family separate from aura-effect spell families.
+	local manaSpringRanks = { 5675, 10495, 10496, 10497 }
+	local castFamilies = { [5675] = manaSpringRanks, [10495] = manaSpringRanks,
+		[10496] = manaSpringRanks, [10497] = manaSpringRanks }
+	if not SPCompat.FOREVER then
+		manaSpringRanks[#manaSpringRanks + 1] = 25570
+		castFamilies[25570] = manaSpringRanks
+		-- esMX (TBC Anniversary) names Nature Resistance's rank 4 differently from ranks
+		-- 1-3, so a cast by the first rank's name gave rank 3 (checked against every client
+		-- language's game data, 2026-10-04). Only a language whose ranks differ uses this.
+		local natureResRanks = { 10595, 10600, 10601, 25574 }
+		for _, id in ipairs(natureResRanks) do castFamilies[id] = natureResRanks end
+	end
+	local totemCastNames = {}
+	SPCompat.SpellDataGeneration = 0
+	function SPCompat.OnSpellDataChanged(callback)
+		spellDataHooks[#spellDataHooks + 1] = callback
+	end
+	function SPCompat.InvalidateSpellData()
+		for id in pairs(spellNames) do spellNames[id] = nil end
+		for id in pairs(knownIDs) do knownIDs[id] = nil end
+		for id in pairs(totemCastNames) do totemCastNames[id] = nil end
+		SPCompat.SpellDataGeneration = SPCompat.SpellDataGeneration + 1
+		for i = 1, #spellDataHooks do spellDataHooks[i]() end
+	end
+	-- This must also run on Anniversary, where the cooldown polyfill above is
+	-- not installed. No spell data is read until a consumer actually needs it.
+	if CreateFrame then
+		local frame = CreateFrame("Frame")
+		frame:RegisterEvent("SPELLS_CHANGED")
+		frame:SetScript("OnEvent", SPCompat.InvalidateSpellData)
+	end
+	function SPCompat.SpellName(id, fallback)
+		if not plain(id) or (type(id) ~= "number" and type(id) ~= "string") then return fallback end
+		local name = spellNames[id]
+		if name == nil then
+			name = GetSpellInfo and GetSpellInfo(id)
+			if not plain(name) or type(name) ~= "string" or name == "" then name = false end
+			spellNames[id] = name -- misses are stable until the spellbook changes too
+		end
+		if name then return name end
+		return fallback
+	end
+	function SPCompat.SpellLabel(id, fallback)
+		-- Preserve the existing short English captions; use game names elsewhere.
+		local locale = GetLocale and GetLocale()
+		if locale == "enUS" or locale == "enGB" or not locale then return fallback or SPCompat.SpellName(id) end
+		return SPCompat.SpellName(id, fallback)
+	end
+	-- Every rank of every shaman spell a player can learn, by spell ID, read from each client's own game
+	-- data (its SkillLineAbility, Spell and SpellEffect tables: Anniversary 2.5.6.69795, WoW: Forever
+	-- 1.60.1.70205, read 2026-10-04). The two clients do not share one list: Forever stops at the level 60
+	-- ranks and has spells of its own, so each client reads only its own. Only spells with more than one
+	-- rank are listed; any other spell is its own single ID.
+	local rankFamily = {}
+	do
+		local RANKS
+		if SPCompat.FOREVER then
+			RANKS = {
+				{ 20608, 21169 },   -- Reincarnation: its passive and the resurrection it gives (both clients list both)
+			{ 5730, 6390, 6391, 6392, 10427, 10428 },   -- Stoneclaw Totem
+			{ 8071, 8154, 8155, 10406, 10407, 10408 },   -- Stoneskin Totem
+			{ 8075, 8160, 8161, 10442, 25361 },   -- Strength of Earth Totem
+			{ 8227, 8249, 10526, 16387 },   -- Flametongue Totem
+			{ 8181, 10478, 10479 },   -- Frost Resistance Totem
+			{ 8190, 10585, 10586, 10587 },   -- Magma Totem
+			{ 3599, 6363, 6364, 6365, 10437, 10438 },   -- Searing Totem
+			{ 8184, 10537, 10538 },   -- Fire Resistance Totem
+			{ 5394, 6375, 6377, 10462, 10463 },   -- Healing Stream Totem
+			{ 5675, 10495, 10496, 10497 },   -- Mana Spring Totem
+			{ 16190, 17354, 17359 },   -- Mana Tide Totem
+			{ 8835, 10627, 25359 },   -- Grace of Air Totem
+			{ 10595, 10600, 10601 },   -- Nature Resistance Totem
+			{ 8512, 10613, 10614 },   -- Windfury Totem
+			{ 15107, 15111, 15112 },   -- Windwall Totem
+			{ 2008, 20609, 20610, 20776, 20777 },   -- Ancestral Spirit
+			{ 1064, 10622, 10623 },   -- Chain Heal
+			{ 421, 930, 2860, 10605 },   -- Chain Lightning
+			{ 8042, 8044, 8045, 8046, 10412, 10413, 10414 },   -- Earth Shock
+			{ 16259, 16295 },   -- Enhancing Totems
+			{ 408341, 408342, 408343, 408344, 408345 },   -- Fire Nova
+			{ 8050, 8052, 8053, 10447, 10448, 29228 },   -- Flame Shock
+			{ 8024, 8027, 8030, 16339, 16341, 16342 },   -- Flametongue Weapon
+			{ 8056, 8058, 10472, 10473 },   -- Frost Shock
+			{ 8033, 8038, 10456, 16355, 16356 },   -- Frostbrand Weapon
+			{ 29189, 29191 },   -- Healing Grace
+			{ 331, 332, 547, 913, 939, 959, 8005, 10395, 10396, 25357 },   -- Healing Wave
+			{ 29192, 29193 },   -- Improved Weapon Totems
+			{ 408490, 1238299, 1238300 },   -- Lava Burst
+			{ 8004, 8008, 8010, 10466, 10467, 10468 },   -- Lesser Healing Wave
+			{ 403, 529, 548, 915, 943, 6041, 10391, 10392, 15207, 15208 },   -- Lightning Bolt
+			{ 16579, 16580, 16581, 16582 },   -- Lightning Mastery
+			{ 324, 325, 905, 945, 8134, 10431, 10432 },   -- Lightning Shield
+			{ 16180, 16196, 16198 },   -- Nature's Guidance
+			{ 370, 8012 },   -- Purge
+			{ 408521, 1239242, 1239243 },   -- Riptide
+			{ 8017, 8018, 8019, 10399, 16314, 16315, 16316 },   -- Rockbiter Weapon
+			{ 16253, 16298, 16299, 16300, 16301 },   -- Shield Specialization
+			{ 29082, 29084, 29086, 29087, 29088 },   -- Weapon Mastery
+			{ 8232, 8235, 10486, 16362 },   -- Windfury Weapon
+			}
+		else
+			RANKS = {
+				{ 20608, 21169 },   -- Reincarnation: its passive and the resurrection it gives (both clients list both)
+			{ 5730, 6390, 6391, 6392, 10427, 10428, 25525 },   -- Stoneclaw Totem
+			{ 8071, 8154, 8155, 10406, 10407, 10408, 25508, 25509 },   -- Stoneskin Totem
+			{ 8075, 8160, 8161, 10442, 25361, 25528 },   -- Strength of Earth Totem
+			{ 1535, 8498, 8499, 11314, 11315, 25546, 25547 },   -- Fire Nova Totem
+			{ 8227, 8249, 10526, 16387, 25557 },   -- Flametongue Totem
+			{ 8181, 10478, 10479, 25560 },   -- Frost Resistance Totem
+			{ 8190, 10585, 10586, 10587, 25552 },   -- Magma Totem
+			{ 3599, 6363, 6364, 6365, 10437, 10438, 25533 },   -- Searing Totem
+			{ 8184, 10537, 10538, 25563 },   -- Fire Resistance Totem
+			{ 5394, 6375, 6377, 10462, 10463, 25567 },   -- Healing Stream Totem
+			{ 5675, 10495, 10496, 10497, 25570 },   -- Mana Spring Totem
+			{ 8835, 10627, 25359 },   -- Grace of Air Totem
+			{ 10595, 10600, 10601, 25574 },   -- Nature Resistance Totem
+			{ 8512, 10613, 10614, 25585, 25587 },   -- Windfury Totem
+			{ 15107, 15111, 15112, 25577 },   -- Windwall Totem
+			{ 16177, 16236, 16237 },   -- Ancestral Fortitude
+			{ 16176, 16235, 16240 },   -- Ancestral Healing
+			{ 17485, 17486, 17487, 17488, 17489 },   -- Ancestral Knowledge
+			{ 2008, 20609, 20610, 20776, 20777 },   -- Ancestral Spirit
+			{ 16254, 16271, 16272, 16273, 16274 },   -- Anticipation
+			{ 16038, 16160, 16161 },   -- Call of Flame
+			{ 16041, 16117, 16118, 16119, 16120 },   -- Call of Thunder
+			{ 1064, 10622, 10623, 25422, 25423 },   -- Chain Heal
+			{ 421, 930, 2860, 10605, 25439, 25442 },   -- Chain Lightning
+			{ 16035, 16105, 16106, 16107, 16108 },   -- Concussion
+			{ 16039, 16109, 16110, 16111, 16112 },   -- Convection
+			{ 30816, 30818, 30819 },   -- Dual Wield Specialization
+			{ 974, 32593, 32594 },   -- Earth Shield
+			{ 8042, 8044, 8045, 8046, 10412, 10413, 10414, 25454 },   -- Earth Shock
+			{ 16043, 16130 },   -- Earth's Grasp
+			{ 30160, 29179, 29180 },   -- Elemental Devastation: Talent 1645; lower IDs 29177/29178 are triggered buffs
+			{ 30672, 30673, 30674 },   -- Elemental Precision
+			{ 30669, 30670, 30671 },   -- Elemental Shields
+			{ 28996, 28997, 28998 },   -- Elemental Warding
+			{ 16266, 29079, 29080 },   -- Elemental Weapons
+			{ 16259, 16295 },   -- Enhancing Totems
+			{ 29062, 29064, 29065 },   -- Eye of the Storm
+			{ 8050, 8052, 8053, 10447, 10448, 29228, 25457 },   -- Flame Shock
+			{ 8024, 8027, 8030, 16339, 16341, 16342, 25489 },   -- Flametongue Weapon
+			{ 16256, 16281, 16282, 16283, 16284 },   -- Flurry
+			{ 30864, 30865, 30866 },   -- Focused Mind
+			{ 8056, 8058, 10472, 10473, 25464 },   -- Frost Shock
+			{ 8033, 8038, 10456, 16355, 16356, 25500 },   -- Frostbrand Weapon
+			{ 16258, 16293 },   -- Guardian Totems
+			{ 16181, 16230, 16232, 16233, 16234 },   -- Healing Focus
+			{ 29187, 29189, 29191 },   -- Healing Grace
+			{ 331, 332, 547, 913, 939, 959, 8005, 10395, 10396, 25357, 25391, 25396 },   -- Healing Wave
+			{ 29206, 29205, 29202 },   -- Healing Way
+			{ 30872, 30873 },   -- Improved Chain Heal
+			{ 16086, 16544 },   -- Improved Fire Totems
+			{ 16262, 16287 },   -- Improved Ghost Wolf
+			{ 16182, 16226, 16227, 16228, 16229 },   -- Improved Healing Wave
+			{ 16261, 16290, 16291 },   -- Improved Lightning Shield
+			{ 16184, 16209 },   -- Improved Reincarnation
+			{ 29192, 29193 },   -- Improved Weapon Totems
+			{ 8004, 8008, 8010, 10466, 10467, 10468, 25420 },   -- Lesser Healing Wave
+			{ 403, 529, 548, 915, 943, 6041, 10391, 10392, 15207, 15208, 25448, 25449 },   -- Lightning Bolt
+			{ 16578, 16579, 16580, 16581, 16582 },   -- Lightning Mastery
+			{ 30675, 30678, 30679, 30680, 30681 },   -- Lightning Overload
+			{ 324, 325, 905, 945, 8134, 10431, 10432, 25469, 25472 },   -- Lightning Shield
+			{ 30812, 30813, 30814 },   -- Mental Quickness
+			{ 30867, 30868, 30869 },   -- Nature's Blessing
+			{ 30881, 30883, 30884, 30885, 30886 },   -- Nature's Guardian
+			{ 16180, 16196, 16198 },   -- Nature's Guidance
+			{ 370, 8012 },   -- Purge
+			{ 16178, 16210, 16211, 16212, 16213 },   -- Purification
+			{ 16187, 16205, 16206, 16207, 16208 },   -- Restorative Totems
+			{ 16040, 16113, 16114, 16115, 16116 },   -- Reverberation
+			{ 8017, 8018, 8019, 10399, 16314, 16315, 16316, 25479, 25485 },   -- Rockbiter Weapon
+			{ 16253, 16298, 16299, 16300, 16301 },   -- Shield Specialization
+			{ 28999, 29000 },   -- Storm Reach
+			{ 16255, 16302, 16303, 16304, 16305 },   -- Thundering Strikes
+			{ 16179, 16214, 16215, 16216, 16217 },   -- Tidal Focus
+			{ 16194, 16218, 16219, 16220, 16221 },   -- Tidal Mastery
+			{ 16173, 16222, 16223, 16224, 16225 },   -- Totemic Focus
+			{ 16252, 16306, 16307, 16308, 16309 },   -- Toughness
+			{ 30802, 30808, 30809, 30810, 30811 },   -- Unleashed Rage: Talent 1689; IDs 30804..30807 are triggered buffs
+			{ 30664, 30665, 30666, 30667, 30668 },   -- Unrelenting Storm
+			{ 24398, 33736 },   -- Water Shield
+			{ 29082, 29084, 29086, 29087, 29088 },   -- Weapon Mastery
+			{ 8232, 8235, 10486, 16362, 25505 },   -- Windfury Weapon
+			}
+		end
+		for _, ranks in ipairs(RANKS) do
+			for i = 1, #ranks do rankFamily[ranks[i]] = ranks end
+		end
+	end
+	-- every rank of a spell on this client, lowest first (nil: the spell has one rank)
+	function SPCompat.SpellRanks(id)
+		if not plain(id) or type(id) ~= "number" then return nil end
+		return rankFamily[id]
+	end
+	local function knowsOneID(id)
+		if not plain(id) or type(id) ~= "number" then return false end
+		local ok, known
+		if IsSpellKnown then
+			ok, known = pcall(IsSpellKnown, id)
+			if ok and plain(known) and known then return true end
+		end
+		if IsPlayerSpell then
+			ok, known = pcall(IsPlayerSpell, id)
+			if ok and plain(known) and known then return true end
+		end
+		return false
+	end
+	-- this exact spell ID (one rank) is known
+	SPCompat.KnowsExactSpellID = knowsOneID
+	-- Known = any rank of the spell is known, asked by spell ID only. Never by name: a name also matched
+	-- other spells (Flametongue Totem through Flametongue Weapon, Nature Resistance Totem through the
+	-- Tauren racial "Nature Resistance"), and Classic can know a higher rank without reporting rank 1.
+	function SPCompat.KnowsSpellID(id)
+		if not plain(id) or type(id) ~= "number" then return false end
+		if knownIDs[id] ~= nil then return knownIDs[id] end
+		local known = false
+		local ranks = rankFamily[id]
+		if ranks then
+			for i = #ranks, 1, -1 do
+				if knowsOneID(ranks[i]) then known = true; break end
+			end
+		else
+			known = knowsOneID(id)
+		end
+		knownIDs[id] = known
+		return known
+	end
+	local function auraFamily(ids)
+		local family = auraFamilies[ids]
+		if not family then
+			family = { ids = {}, names = {}, nameSet = {}, generation = -1 }
+			for _, id in ipairs(ids) do
+				if plain(id) and type(id) == "number" then family.ids[id] = true end
+			end
+			auraFamilies[ids] = family
+		end
+		return family
+	end
+	local function namedAuraFamily(ids)
+		local family = auraFamily(ids)
+		if family.generation ~= SPCompat.SpellDataGeneration then
+			family.name = nil
+			for name in pairs(family.nameSet) do family.nameSet[name] = nil end
+			for index = #family.names, 1, -1 do family.names[index] = nil end
+			local locale = GetLocale and GetLocale()
+			local english = not locale or locale == "enUS" or locale == "enGB"
+			for _, id in ipairs(ids) do
+				local name = SPCompat.SpellName(id)
+				if name and not family.nameSet[name] then
+					if not family.name then family.name = name end
+					family.names[#family.names + 1], family.nameSet[name] = name, true
+				end
+				-- Translations can differ between ranks. English keeps its existing
+				-- single-name lookup and spell API count.
+				if english and name then break end
+			end
+			family.generation = SPCompat.SpellDataGeneration
+		end
+		return family
+	end
+	function SPCompat.AuraFamilyName(ids)
+		if not plain(ids) then return nil end
+		if type(ids) == "number" then return SPCompat.SpellName(ids) end
+		if type(ids) ~= "table" then return nil end
+		return namedAuraFamily(ids).name
+	end
+	function SPCompat.AuraFamilyNames(ids)
+		if not plain(ids) or type(ids) ~= "table" then return nil end
+		local family = namedAuraFamily(ids)
+		return family.names, family.nameSet
+	end
+	function SPCompat.HasTotemCastAliases(id)
+		if not plain(id) or type(id) ~= "number" or not castFamilies[id] then return false end
+		local locale = GetLocale and GetLocale()
+		if not locale or locale == "enUS" or locale == "enGB" then return false end
+		return #namedAuraFamily(castFamilies[id]).names > 1
+	end
+	function SPCompat.TotemCastName(id, fallback)
+		if not SPCompat.HasTotemCastAliases(id) then return SPCompat.SpellName(id, fallback) end
+		local selected = totemCastNames[id]
+		if selected == nil then
+			selected = false
+			local ranks = castFamilies[id]
+			for index = #ranks, 1, -1 do
+				local rank = ranks[index]
+				if knowsOneID(rank) then
+					selected = SPCompat.SpellName(rank) or false
+					if selected then break end
+				end
+			end
+			totemCastNames[id] = selected
+		end
+		if selected then return selected end
+		return SPCompat.SpellName(id, fallback)
+	end
+	function SPCompat.AuraMatches(name, spellID, ids)
+		if not plain(ids) then return false end
+		local readableID = plain(spellID) and type(spellID) == "number"
+		local readableName = plain(name) and type(name) == "string"
+		if type(ids) == "number" then
+			if readableID and spellID == ids then return true end
+			return readableName and name == SPCompat.SpellName(ids) or false
+		end
+		if type(ids) ~= "table" then return false end
+		if readableID and auraFamily(ids).ids[spellID] then return true end
+		-- Cache every distinct translation once; some ranks have a different name.
+		return readableName and namedAuraFamily(ids).nameSet[name] == true or false
+	end
+	local rankFormat, rankPattern
+	local function rankMatch()
+		local format = TRADESKILL_RANK_HEADER
+		if type(format) ~= "string" then return nil end
+		if format ~= rankFormat then
+			rankFormat = format
+			-- Escape the localized surrounding text, leaving the numeric slot.
+			local before, after = format:match("^(.-)%%d(.*)$")
+			if not before then before, after = format:match("^(.-)%%1%$d(.*)$") end
+			if before then
+				local function escape(s) return (s:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")) end
+				rankPattern = escape(before) .. "(%d+)" .. escape(after)
+			else rankPattern = nil end
+		end
+		return rankPattern
+	end
+	function SPCompat.RankNumber(text)
+		if not plain(text) or type(text) ~= "string" then return nil end
+		local pattern = rankMatch()
+		local rank = pattern and tonumber(text:match("^" .. pattern .. "$"))
+		return rank or tonumber(text:match("(%d+)"))
+	end
+	function SPCompat.StripSpellRank(name)
+		if not plain(name) or type(name) ~= "string" then return nil end
+		local pattern = rankMatch()
+		if pattern then name = name:gsub("%s*%(" .. pattern .. "%)$", ""):gsub("%s+" .. pattern .. "$", "") end
+		-- Older/missing globals still have a numeric parenthesized rank suffix.
+		return (name:gsub("%s*%([^%d%(%)]*%d+[^%d%(%)]*%)$", ""):gsub("%s+[IVX]+$", ""):gsub("%s+%d+$", ""))
+	end
+	function SPCompat.TotemNameMatches(name, spellID, fallback)
+		if not plain(name) or type(name) ~= "string" or not plain(spellID) then return false end
+		if not plain(fallback) or type(fallback) ~= "string" then fallback = nil end
+		local key = spellID or false
+		local cached = totemMatches[key]
+		if not cached then cached = {}; totemMatches[key] = cached end
+		if cached.generation ~= SPCompat.SpellDataGeneration or (not cached.resolved and cached.fallback ~= fallback) then
+			local expected = SPCompat.SpellName(spellID)
+			cached.resolved = expected ~= nil
+			if not expected and fallback then
+				expected = fallback
+				if not expected:find("Totem", 1, true) then expected = expected .. " Totem" end
+			end
+			cached.expected = SPCompat.StripSpellRank(expected)
+			if cached.expectedNames then
+				for alias in pairs(cached.expectedNames) do cached.expectedNames[alias] = nil end
+			end
+			local locale = GetLocale and GetLocale()
+			if castFamilies[spellID] and locale and locale ~= "enUS" and locale ~= "enGB" then
+				cached.expectedNames = cached.expectedNames or {}
+				local aliases = SPCompat.AuraFamilyNames(castFamilies[spellID])
+				for index = 1, #aliases do
+					cached.expectedNames[SPCompat.StripSpellRank(aliases[index])] = true
+				end
+			end
+			cached.name, cached.generation, cached.fallback = nil, SPCompat.SpellDataGeneration, fallback
+		end
+		if not cached.expected then return false end
+		if cached.name ~= name then
+			local stripped = SPCompat.StripSpellRank(name)
+			cached.name = name
+			cached.matches = stripped == cached.expected
+				or (cached.expectedNames and cached.expectedNames[stripped] == true) or false
+		end
+		return cached.matches
+	end
+end
+
 -- Constants the classic FrameXML defines as globals and modern clients do not
 -- (retail 12.1: MAX_*_MACROS gone - the macro code compared numbers against nil)
 --
@@ -744,7 +1129,7 @@ function SPCompat.GetRaidRosterInfo(index)
 	if not regionalNames() then return GetRaidRosterInfo(index) end
 	local name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML, combatRole = GetRaidRosterInfo(index)
 	local full = SPCompat.UnitName("raid" .. index)
-	if type(full) == "string" and full ~= "" and not (issecretvalue and issecretvalue(full)) then name = full end
+	if not (issecretvalue and issecretvalue(full)) and type(full) == "string" and full ~= "" then name = full end
 	return name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML, combatRole
 end
 if not issecretvalue then
@@ -1237,6 +1622,9 @@ local function CopyWindowKit()
 	end
 	local function font(name, size, key, path)
 		local f = CreateFont(name)
+		-- This error window can open before the shared font helpers are loaded.
+		local locale = GetLocale and GetLocale()
+		if locale == "ruRU" or locale == "koKR" or locale == "zhCN" or locale == "zhTW" then path = STANDARD_TEXT_FONT end
 		f:SetFont(path or STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", size, "")
 		f:SetShadowOffset(1, -1)
 		f:SetShadowColor(0, 0, 0, 0.8)
@@ -1645,11 +2033,15 @@ local function SPDiagCombat()
 
 	say("--- auras ---")
 	if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
-		for _, nm in ipairs({ "Lightning Shield", "Water Shield", "Earth Shield" }) do
-			local ok, a = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", nm, "HELPFUL")
-			local count, exp = "-", "-"
-			if ok and type(a) == "table" then count, exp = try(function() return SPV(a.applications) end), try(function() return SPV(a.expirationTime) end) end
-			say("by name %s: ok=%s found=%s count=%s exp=%s", nm, tostring(ok), tostring(ok and a ~= nil), count, exp)
+		for _, id in ipairs({ 324, 24398, 408510, 974 }) do
+			local nm = SPCompat.SpellName(id)
+			if nm then
+				local ok, a = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", nm, "HELPFUL")
+				local count, exp = "-", "-"
+				if ok and not issecretvalue(a) and type(a) == "table" then count, exp = try(function() return SPV(a.applications) end), try(function() return SPV(a.expirationTime) end) end
+				local found = ok and not issecretvalue(a) and a ~= nil
+				say("by name %s: ok=%s found=%s count=%s exp=%s", nm, tostring(ok), tostring(found), count, exp)
+			end
 		end
 	else
 		say("by name: C_UnitAuras.GetAuraDataBySpellName absent")
@@ -2068,9 +2460,12 @@ SlashCmdList["SPDIAG"] = function(msg)
 			local tok = SP.EarthShieldTargetToken and SP:EarthShieldTargetToken() or "n/a"
 			if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
 				local parts = {}
-				for _, nm in ipairs({ "Earth Shield", "Water Shield", "Lightning Shield" }) do
-					local ok, a = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", nm, "HELPFUL")
-					parts[#parts + 1] = string.format("%s=%s", nm, (ok and type(a) == "table") and (SPV(a.spellId) .. " x" .. SPV(a.applications) .. " src=" .. SPV(a.sourceUnit)) or "none")
+				for _, id in ipairs({ 974, 24398, 408510, 324 }) do
+					local nm = SPCompat.SpellName(id)
+					if nm then
+						local ok, a = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", nm, "HELPFUL")
+						parts[#parts + 1] = string.format("%s=%s", nm, (ok and not issecretvalue(a) and type(a) == "table") and (SPV(a.spellId) .. " x" .. SPV(a.applications) .. " src=" .. SPV(a.sourceUnit)) or "none")
+					end
 				end
 				say("own shield auras by name (readable only): %s", table.concat(parts, "  "))
 			end
@@ -2338,8 +2733,8 @@ SlashCmdList["SPDIAG"] = function(msg)
 		end
 	end
 
-	-- Totem tooltip: does a "Tools: <Element> Totem" line exist? If yes, totem
-	-- discovery can file every totem by element straight from the tooltip.
+	-- Keep the client's tooltip text intact for diagnostics. English-only labels
+	-- cannot tell us whether a translated tooltip contains an element requirement.
 	do
 		local lines, how = {}, "n/a"
 		if C_TooltipInfo and C_TooltipInfo.GetSpellByID then
@@ -2347,8 +2742,11 @@ SlashCmdList["SPDIAG"] = function(msg)
 			if okT and data and data.lines then
 				how = "C_TooltipInfo"
 				for _, l in ipairs(data.lines) do
-					local txt = l.leftText or (l.args and l.args[2] and l.args[2].stringVal)
-					if txt then lines[#lines + 1] = txt end
+					local txt = l.leftText
+					if type(txt) ~= "string" or (issecretvalue and issecretvalue(txt)) then
+						txt = l.args and l.args[2] and l.args[2].stringVal
+					end
+					if type(txt) == "string" and not (issecretvalue and issecretvalue(txt)) and txt ~= "" then lines[#lines + 1] = txt end
 				end
 			end
 		end
@@ -2360,15 +2758,12 @@ SlashCmdList["SPDIAG"] = function(msg)
 			for i = 1, tt:NumLines() do
 				local fs = _G["ShamanPowerDiagTooltipTextLeft" .. i]
 				local txt = fs and fs:GetText()
-				if txt and txt ~= "" then lines[#lines + 1] = txt end
+				if type(txt) == "string" and not (issecretvalue and issecretvalue(txt)) and txt ~= "" then lines[#lines + 1] = txt end
 			end
 			tt:Hide()
 		end
-		local tools
-		for _, txt in ipairs(lines) do
-			if txt:find("Totem") and (txt:find("^Tools") or txt:find("^Requires") or txt:find("Reagents")) then tools = txt end
-		end
-		say("totem tooltip (Windfury Totem, via %s): %d lines; element line -> %s", how, #lines, tools and ("|cff4cc776" .. tools .. "|r") or "|cffe5534bnone|r (no Tools: line - discovery must learn elements from the first cast)")
+		say("totem tooltip (spell 8512, via %s): %d readable lines", how, #lines)
+		for i, txt in ipairs(lines) do say("  %d: %s", i, txt) end
 	end
 
 	if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then

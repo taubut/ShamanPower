@@ -23,7 +23,7 @@ local COL_GAP        = 12
 local NAV_ROW_H      = 24
 local NAV_GROUP_H    = 24
 local NAV_GROUP_GAP  = 6       -- under each group's last row
-local ACTION_ROW_H   = 26      -- Unlock UI / Keybind Mode at the top of the sidebar (D30b A1)
+local ACTION_ROW_H   = 26      -- Unlock UI / Keybind Mode / UI Animations at the top of the sidebar (D30b A1)
 local CARD_TOP       = 6       -- the first section card under the tabs
 local CARD_GAP       = 12      -- between section cards
 
@@ -166,6 +166,14 @@ local POWER_READYREMINDERS = {
 	get    = function() return SP().ReadyRemindersEnabled() end,
 	set    = function(v) SP():SetReadyRemindersEnabled(v) end,
 }
+-- Target Tracker's on / off (its page has no Enable row; it starts off)
+local POWER_TARGETTRACKER = {
+	label  = "Target Tracker",
+	desc   = "Turn Target Tracker on or off.",
+	loaded = function() local sp = SP() return sp and type(sp.TT_Enabled) == "function" and type(sp.TT_SetEnabled) == "function" or false end,
+	get    = function() return SP():TT_Enabled() and true or false end,
+	set    = function(v) SP():TT_SetEnabled(v and true or false) end,
+}
 
 local POWER_SHIELDCHARGES = {
 	label  = "Shield Charge Display",
@@ -281,6 +289,7 @@ local NAV = {
 		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
 		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section"), power = POWER_READYREMINDERS },
+		{ label = "Target Tracker", preview = "targettracker", shamanOnly = true,       path = P("fluffy", "targettracker_section"), power = POWER_TARGETTRACKER, noReset = true },
 		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
@@ -905,18 +914,22 @@ do
 	-- rows with a small glyph each (accentHi), running exactly what General >
 	-- Main's two buttons run: those options' own functions (the buttons stay). A
 	-- row whose option is hidden (Keybind Mode for other classes) is left out.
+	-- Under them UI Animations, an on / off row: its option lives in General >
+	-- Main but is hidden there (this row is its only place), so it is read even
+	-- when hidden, through the option's own get and set.
 	-- ---------------------------------------------------------------------------
 	local SIDEBAR_ACTIONS = {
 		{ key = "master_unlock", label = "Unlock UI", glyph = "move" },
 		{ key = "keybind_mode", label = "Keybind Mode", glyph = "keys" },
+		{ key = "uiAnimations", label = "UI Animations", glyph = "motion", toggle = true },
 	}
 
-	local function MainOption(key)
+	local function MainOption(key, evenHidden)
 		local path = { "settings", "settings_show", key }
 		local node, chain = Tree:Resolve(path)
 		if not node then return nil end
 		local info = Tree:BuildInfo(path, node, chain)
-		if Tree:IsHidden(node, chain, info) then return nil end
+		if not evenHidden and Tree:IsHidden(node, chain, info) then return nil end
 		return node, chain, info
 	end
 
@@ -954,11 +967,28 @@ do
 		space:SetColorTexture(r, gr, b, 1)
 	end
 
+	-- UI Animations: a dot moving right with three speed lines behind it
+	local function MotionGlyph(g, r, gr, b)
+		for _, s in ipairs({ { 4, -4 }, { 0, -8 }, { -4, -4 } }) do
+			local l = g:CreateLine(nil, "ARTWORK")
+			l:SetThickness(1.4)
+			l:SetColorTexture(r, gr, b, 1)
+			l:SetStartPoint("CENTER", g, s[2], s[1])
+			l:SetEndPoint("CENTER", g, 0, s[1])
+		end
+		local dot = g:CreateTexture(nil, "OVERLAY")
+		dot:SetSize(6, 6)
+		dot:SetPoint("CENTER", g, "CENTER", 5, 0)
+		dot:SetTexture(MEDIA .. "Mask_Circle")
+		dot:SetVertexColor(r, gr, b, 1)
+	end
+
 	-- the rows from sidebar y `top` down; returns the y under them (where the nav list starts)
 	SidebarActions = function(side, top)
 		local y = top
+		local paints = {}
 		for _, a in ipairs(SIDEBAR_ACTIONS) do
-			local node, _, info = MainOption(a.key)
+			local node, _, info = MainOption(a.key, a.toggle)
 			if node then
 				local row = CreateFrame("Button", nil, side)
 				row:SetSize(SIDEBAR_W - 1, ACTION_ROW_H)
@@ -970,7 +1000,13 @@ do
 				g:SetSize(20, 20)
 				g:SetPoint("CENTER", row, "LEFT", 28, 0)
 				local r, gr, b = Core:Color("accentHi")
-				if a.glyph == "move" then MoveGlyph(g, r, gr, b) else KeysGlyph(g, r, gr, b) end
+				if a.glyph == "move" then
+					MoveGlyph(g, r, gr, b)
+				elseif a.glyph == "motion" then
+					MotionGlyph(g, r, gr, b)
+				else
+					KeysGlyph(g, r, gr, b)
+				end
 				local text = row:CreateFontString(nil, "OVERLAY")
 				text:SetFontObject(Core.fonts.nav)
 				text:SetTextColor(Core:Color("text"))
@@ -979,16 +1015,43 @@ do
 				local key = a.key
 				row:SetScript("OnEnter", function() bg:SetColorTexture(Core:Color("rowHover", 0.5)) end)
 				row:SetScript("OnLeave", function() bg:SetColorTexture(0, 0, 0, 0) end)
-				row:SetScript("OnClick", function()
-					local n, c, i = MainOption(key)   -- (read now: always what that button runs)
-					if not n then return end
-					Tree:MakeFunc(n, c, i)()
-					-- as the page's button does: the open page re-reads its settings after it
-					if frame:IsShown() and frame._onChanged then frame._onChanged() end
-				end)
-				Core:AttachTooltip(row, a.label, Tree:GetDesc(node, info))   -- (after SetScript, which would drop its hook)
+				local hint
+				if a.toggle then
+					-- on / off: the module rows' small totem switch at the right; the whole
+					-- row is the button (the switch takes no clicks of its own)
+					local pw = SP():CreateTotemSwitch(row, { scale = 0.62 })
+					pw:SetPoint("RIGHT", row, "RIGHT", -16, 0)
+					pw:EnableMouse(false)
+					local function Paint()
+						local n, c, i = MainOption(key, true)
+						pw:SetChecked(n ~= nil and Tree:MakeGetter(n, c, i)() == true)
+					end
+					row:SetScript("OnClick", function()
+						local n, c, i = MainOption(key, true)
+						if not n then return end
+						Tree:MakeSetter(n, c, i)(not (Tree:MakeGetter(n, c, i)() == true))
+						Paint()
+					end)
+					row:HookScript("OnShow", Paint)
+					Paint()
+					paints[#paints + 1] = Paint
+					hint = "Click to turn it on or off"
+				else
+					row:SetScript("OnClick", function()
+						local n, c, i = MainOption(key)   -- (read now: always what that button runs)
+						if not n then return end
+						Tree:MakeFunc(n, c, i)()
+						-- as the page's button does: the open page re-reads its settings after it
+						if frame:IsShown() and frame._onChanged then frame._onChanged() end
+					end)
+				end
+				Core:AttachTooltip(row, a.label, Tree:GetDesc(node, info), hint)   -- (after SetScript, which would drop its hook)
 				y = y + ACTION_ROW_H
 			end
+		end
+		-- the window's refresh after a change repaints the on / off rows (a profile change, a reset)
+		frame.spPaintActions = function()
+			for _, paint in ipairs(paints) do paint() end
 		end
 		return y + 6
 	end
@@ -1145,7 +1208,7 @@ local function BuildWindow()
 	navPlaceholder:SetText("Search all settings...")
 	navSearch.placeholder = navPlaceholder
 
-	-- Unlock UI and Keybind Mode, then the page list
+	-- Unlock UI, Keybind Mode and UI Animations, then the page list
 	local navTop = SidebarActions(side, 112)
 
 	-- Sidebar scroll: the whole width, so the open page's row runs edge to edge
@@ -2208,6 +2271,7 @@ local function RenderPageInner(self, entry, query, keepScroll)
 		for _, r in ipairs(navRows) do
 			if r.paintPower and r:IsShown() then r.paintPower() end
 		end
+		if frame.spPaintActions then frame.spPaintActions() end
 		if LibStub then
 			local reg = LibStub("AceConfigRegistry-3.0", true)
 			if reg then reg:NotifyChange("ShamanPower") end
@@ -2333,7 +2397,10 @@ local function RenderPageInner(self, entry, query, keepScroll)
 				local fontArea = spNow and spNow.OptionHoverFont and spNow.OptionHoverFont[e.node]
 				if fontArea then
 					local lsm = LibStub and LibStub("LibSharedMedia-3.0", true)
-					opts.itemFont = function(key) return lsm and key and key:sub(1, 2) ~= "__" and lsm:Fetch("font", key, true) or nil end
+					opts.itemFont = function(key)
+						local path = lsm and key and key:sub(1, 2) ~= "__" and lsm:Fetch("font", key, true) or nil
+						if path then return spNow:ResolveLocaleFontPath(path) end
+					end
 					opts.onHover = function(key) local sp = SP(); if sp and sp.PreviewFont then sp:PreviewFont(fontArea, key) end end
 					opts.onHoverEnd = function() local sp = SP(); if sp and sp.PreviewFont then sp:PreviewFont(nil) end end
 				end
@@ -3377,6 +3444,9 @@ do
 	-- Patch Notes, not on Profiles (it switches profiles), not on a page of buttons
 	ResetShown = function(entry)
 		if entry.custom == "patchnotes" or (entry.path and entry.path[1] == "profiles") then return false end
+		-- a page whose parts each reset on their own (Target Tracker: Reset This Spell, a rule's x,
+		-- Reset Position), its settings in a module's own saved table
+		if entry.noReset then return false end
 		if CustomTabActive(entry, nil) then return false end
 		local sp = SP()
 		if not sp then return false end
@@ -3519,7 +3589,7 @@ do
 	if main then
 		sp.OrderSettingsBands(main, {
 			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar", "hide_player_totems" } },
-			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips", "uiAnimations" } },
+			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
 			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
 			} },

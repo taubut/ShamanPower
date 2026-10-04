@@ -34,12 +34,7 @@ ShamanPowerExpiringAlertsDB = ShamanPowerExpiringAlertsDB or {}
 
 -- Strip rank from spell/totem names (e.g., "Strength of Earth Totem VII" -> "Strength of Earth Totem")
 local function StripRank(name)
-	if not name then return name end
-	-- Remove Roman numerals at the end (I, II, III, IV, V, VI, VII, VIII, IX, X, XI, XII, etc.)
-	name = name:gsub("%s+[IVX]+$", "")
-	-- Remove "(Rank X)" format
-	name = name:gsub("%s*%([Rr]ank%s*%d+%)%s*$", "")
-	return name
+	return SPCompat.StripSpellRank(name)
 end
 
 -- ============================================================================
@@ -784,9 +779,9 @@ local function ShieldKind(a)
 	if type(a) ~= "table" or isSecretValue(a) then return -1 end
 	local id, name = a.spellId, a.name
 	if isSecretValue(id) or isSecretValue(name) then return -1 end
-	if id == 324 or name == LS_NAME or name == "Lightning Shield" then return 1 end
-	if id == 24398 or name == WS_NAME or name == "Water Shield" then return 2 end
-	if id == 974 or name == ES_NAME or name == "Earth Shield" then return 3 end
+	if SPCompat.AuraMatches(name, id, LS_IDS) then return 1 end
+	if SPCompat.AuraMatches(name, id, WS_IDS) then return 2 end
+	if SPCompat.AuraMatches(name, id, ES_IDS) then return 3 end
 	return 0
 end
 
@@ -818,29 +813,40 @@ local function PayloadTouches(info, kindA, kindB, instA, instB)
 	return false
 end
 
--- One helpful aura on `unit`, looked up by the client's name for it, then the
--- English name, then the spell ID (the scans' three tests). true, instanceID when
+-- One helpful aura on `unit`, looked up once by the cached family name. Only
+-- clients with no readable family name need to try the individual rank IDs.
+-- true, instanceID when
 -- it is there; true, nil when it is not; false when the answer cannot be trusted
 -- (the caller scans instead).
-local function LookupAura(unit, name, englishName, spellID)
-	if not auraByName or type(name) ~= "string" then return false end
-	local ok, a = pcall(auraByName, unit, name, "HELPFUL")
-	if ok and a == nil and englishName ~= name then ok, a = pcall(auraByName, unit, englishName, "HELPFUL") end
-	if ok and a == nil then
-		if unit == "player" and playerAuraByID then
-			ok, a = pcall(playerAuraByID, spellID)
-		elseif unitAuraByID then
-			ok, a = pcall(unitAuraByID, unit, spellID)
-		else
-			return false
-		end
-		-- the spell-ID reads are not filtered: a harmful aura is not one the scans saw
-		if ok and type(a) == "table" and not isSecretValue(a) then
-			local helpful = a.isHelpful
-			if not isSecretValue(helpful) and helpful == false then a = nil end
+local function LookupAura(unit, ids)
+	local a, tried
+	local name = SPCompat.AuraFamilyName(ids)
+	if name then
+		if not auraByName then return false end
+		local ok
+		ok, a = pcall(auraByName, unit, name, "HELPFUL")
+		tried = true
+		if not ok or isSecretValue(a) then return false end
+	else
+		for _, spellID in ipairs(ids) do
+			local ok = true
+			if unit == "player" and playerAuraByID then
+				ok, a = pcall(playerAuraByID, spellID)
+				tried = true
+			elseif unitAuraByID then
+				ok, a = pcall(unitAuraByID, unit, spellID)
+				tried = true
+			end
+			if not ok or isSecretValue(a) then return false end
+			-- ID reads are not filtered: a harmful aura is not one the scans saw.
+			if type(a) == "table" then
+				local helpful = a.isHelpful
+				if not isSecretValue(helpful) and helpful == false then a = nil end
+			end
+			if a ~= nil then break end
 		end
 	end
-	if not ok then return false end
+	if not tried then return false end
 	if a == nil then
 		-- WoW: Forever: these lookups answer nothing (no error) for an aura the client
 		-- keeps secret, so "not there" holds only for a spell it does not hide, and
@@ -849,10 +855,7 @@ local function LookupAura(unit, name, englishName, spellID)
 		-- check accepts, so a client name that differs cannot slip past it.
 		if SPCompat and SPCompat.secretsRegime then
 			if SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return false end
-			if spellAuraSecret then
-				local okS, hidden = pcall(spellAuraSecret, spellID)
-				if not okS or isSecretValue(hidden) or hidden ~= false then return false end
-			end
+			if not AbsenceKnown(ids) then return false end
 		end
 		return true, nil
 	end
@@ -903,9 +906,9 @@ local function ReadPlayerShields()
 		UnitBuff("player", 1)   -- the guarded read notes the blocked look, as the scan's first read did
 		return nil
 	end
-	local okL, instL = LookupAura("player", LS_NAME, "Lightning Shield", 324)
+	local okL, instL = LookupAura("player", LS_IDS)
 	if okL then
-		local okW, instW = LookupAura("player", WS_NAME, "Water Shield", 24398)
+		local okW, instW = LookupAura("player", WS_IDS)
 		if okW then return instL ~= nil, instW ~= nil, instL, instW, true end
 	end
 	local ok, scanL, scanW = IndexedShieldScan("player", false)
@@ -917,12 +920,13 @@ local function ReadPlayerShields()
 
 	for i = 1, 40 do
 		local name, _, _, _, _, _, _, _, _, spellId = UnitBuff("player", i)
+		if isSecretValue(name) or isSecretValue(spellId) then return nil end
 		if not name then break end
 
 		-- Check by spell ID or name
-		if spellId == 324 or name == LS_NAME or name == "Lightning Shield" then
+		if SPCompat.AuraMatches(name, spellId, LS_IDS) then
 			hasLightningShield = true
-		elseif spellId == 24398 or name == WS_NAME or name == "Water Shield" then
+		elseif SPCompat.AuraMatches(name, spellId, WS_IDS) then
 			hasWaterShield = true
 		end
 	end
@@ -974,10 +978,10 @@ function SP:CheckShieldState(initializing)
 	-- Detect fade
 	if not initializing then
 		if previousState.shields.lightning and not hasLightningShield and sv.shields.lightning then
-			Raise("shield", "Lightning Shield", ShieldSpells.lightningShield.icon, ElementColors.lightning)
+			Raise("shield", LS_NAME, ShieldSpells.lightningShield.icon, ElementColors.lightning)
 		end
 		if previousState.shields.water and not hasWaterShield and sv.shields.water then
-			Raise("shield", "Water Shield", ShieldSpells.waterShield.icon, ElementColors.water)
+			Raise("shield", WS_NAME, ShieldSpells.waterShield.icon, ElementColors.water)
 		end
 	end
 
@@ -1386,14 +1390,15 @@ local function ReadEarthShield(u)
 		UnitBuff(u, 1)   -- as the scan's first read: the guard notes it and answers nothing
 		return nil, nil, false   -- not allowed to look: unknown, not "gone"
 	end
-	local ok, inst = LookupAura(u, ES_NAME, "Earth Shield", 974)
+	local ok, inst = LookupAura(u, ES_IDS)
 	if ok then return inst ~= nil, inst, true end
 	local okScan, _, _, scanE = IndexedShieldScan(u, true)
 	if okScan then return scanE ~= nil, scanE, true end
 	for i = 1, 40 do
 		local name, _, _, _, _, _, _, _, _, spellId = UnitBuff(u, i)
+		if isSecretValue(name) or isSecretValue(spellId) then return nil, nil, false end
 		if not name then break end
-		if spellId == 974 or name == ES_NAME or name == "Earth Shield" then return true, nil, false end
+		if SPCompat.AuraMatches(name, spellId, ES_IDS) then return true, nil, false end
 	end
 	-- a look blocked part way through (WoW: Forever) vouches for nothing
 	if unreadable and unreadable() then return nil, nil, false end
@@ -1402,7 +1407,8 @@ end
 
 local esAlertFor, esAlertText
 local function EarthShieldAlertName(esTarget)
-	if esTarget ~= esAlertFor then esAlertFor, esAlertText = esTarget, "Earth Shield (" .. esTarget .. ")" end
+	if isSecretValue(esTarget) then return ES_NAME end
+	if esTarget ~= esAlertFor then esAlertFor, esAlertText = esTarget, ES_NAME .. " (" .. esTarget .. ")" end
 	return esAlertText
 end
 
@@ -1772,12 +1778,12 @@ end
 
 function SP:ExpiringAlertsTest()
 	-- Show test alerts for each type
-	self:ShowExpiringAlert("shield", "Lightning Shield", ShieldSpells.lightningShield.icon, ElementColors.lightning)
+	self:ShowExpiringAlert("shield", LS_NAME, ShieldSpells.lightningShield.icon, ElementColors.lightning)
 	C_Timer.After(0.5, function()
-		SP:ShowExpiringAlert("totem", "Tremor Totem Destroyed!", "Interface\\Icons\\Spell_Nature_TremorTotem", TotemElements[1].color)
+		SP:ShowExpiringAlert("totem", SPCompat.SpellName(8143, "Tremor Totem") .. " Destroyed!", "Interface\\Icons\\Spell_Nature_TremorTotem", TotemElements[1].color)
 	end)
 	C_Timer.After(1.0, function()
-		SP:ShowExpiringAlert("imbue", "Windfury Weapon", WeaponImbues.windfury.icon, ElementColors.air)
+		SP:ShowExpiringAlert("imbue", WeaponImbues.windfury.name, WeaponImbues.windfury.icon, ElementColors.air)
 	end)
 end
 
@@ -1795,10 +1801,10 @@ function SP:ExpiringAlertsDemo(on)
 		local sv = ShamanPowerExpiringAlertsDB
 		local SCENE = {
 			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.lightning end,
-			  name = "Lightning Shield", icon = ShieldSpells.lightningShield.icon, color = ElementColors.lightning,
+			  name = LS_NAME, icon = ShieldSpells.lightningShield.icon, color = ElementColors.lightning,
 			  story = "Your Lightning Shield just ran out" },
 			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.destroyed end,
-			  name = "Tremor Totem Destroyed!", icon = "Interface\\Icons\\Spell_Nature_TremorTotem", color = TotemElements[1].color,
+			  name = SPCompat.SpellName(8143, "Tremor Totem") .. " Destroyed!", icon = "Interface\\Icons\\Spell_Nature_TremorTotem", color = TotemElements[1].color,
 			  story = "A mob killed your Tremor Totem" },
 			{ type = "imbue", cond = function() return sv.weaponImbues.enabled and sv.weaponImbues.mainHand end,
 			  name = "Weapon Imbue (MH)", icon = WeaponImbues.windfury.icon, color = ImbueAlertColor(sv),
@@ -1807,13 +1813,13 @@ function SP:ExpiringAlertsDemo(on)
 			  name = "Weapon Imbue (OH)", icon = WeaponImbues.flametongue.icon, color = ImbueAlertColor(sv),
 			  story = "Flametongue Weapon faded from your off hand" },
 			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.water end,
-			  name = "Water Shield", icon = ShieldSpells.waterShield.icon, color = ElementColors.water,
+			  name = WS_NAME, icon = ShieldSpells.waterShield.icon, color = ElementColors.water,
 			  story = "Your Water Shield just ran out" },
 			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.expired end,
-			  name = "Mana Spring Totem Expired", icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", color = TotemElements[3].color,
+			  name = SPCompat.SpellName(5675, "Mana Spring Totem") .. " Expired", icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", color = TotemElements[3].color,
 			  story = "Your Mana Spring Totem timed out" },
 			{ type = "earthshield", cond = function() return sv.shields.enabled and sv.shields.earthShield and not (SPCompat and SPCompat.earthShieldExists == false) end,
-			  name = "Earth Shield (Tank)", icon = ShieldSpells.earthShield.icon, color = ElementColors.earth,
+			  name = ES_NAME .. " (Tank)", icon = ShieldSpells.earthShield.icon, color = ElementColors.earth,
 			  story = "Earth Shield dropped off your tank" },
 		}
 		local idx = 0

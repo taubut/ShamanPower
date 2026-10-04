@@ -10,15 +10,15 @@ BINDING_NAME_SHAMANPOWER_DROPALL = "Drop All Totems"
 -- the totem sets (Wrath-era Calls) exist on WoW: Forever only
 do
 	local off = not (SPCompat and SPCompat.FOREVER) and " (not in this game)" or ""
-	BINDING_NAME_SHAMANPOWER_CALL_ELEMENTS = "Call of the Elements" .. off
-	BINDING_NAME_SHAMANPOWER_CALL_ANCESTORS = "Call of the Ancestors" .. off
-	BINDING_NAME_SHAMANPOWER_CALL_SPIRITS = "Call of the Spirits" .. off
+	BINDING_NAME_SHAMANPOWER_CALL_ELEMENTS = SPCompat.SpellLabel(66842, "Call of the Elements") .. off
+	BINDING_NAME_SHAMANPOWER_CALL_ANCESTORS = SPCompat.SpellLabel(66843, "Call of the Ancestors") .. off
+	BINDING_NAME_SHAMANPOWER_CALL_SPIRITS = SPCompat.SpellLabel(66844, "Call of the Spirits") .. off
 end
 BINDING_NAME_SHAMANPOWER_EARTH_TOTEM = "Cast Assigned Earth Totem"
 BINDING_NAME_SHAMANPOWER_FIRE_TOTEM = "Cast Assigned Fire Totem"
 BINDING_NAME_SHAMANPOWER_WATER_TOTEM = "Cast Assigned Water Totem"
 BINDING_NAME_SHAMANPOWER_AIR_TOTEM = "Cast Assigned Air Totem"
-BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast Earth Shield on Assigned Target"
+BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast " .. SPCompat.SpellLabel(974, "Earth Shield") .. " on Assigned Target"
     .. (ShamanPower.ESTrackerUnavailable and " (not in this game)" or "")
 BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall Totems)"
 
@@ -26,10 +26,10 @@ BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") 
 BINDING_HEADER_SHAMANPOWER_CD = "ShamanPower Cooldown Bar"
 BINDING_NAME_SHAMANPOWER_CD_SHIELD = "Cast Shield (Lightning/Water)"
 BINDING_NAME_SHAMANPOWER_CD_RECALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall)"
-BINDING_NAME_SHAMANPOWER_CD_ANKH = "Reincarnation (Ankh)"
-BINDING_NAME_SHAMANPOWER_CD_NS = "Nature's Swiftness"
-BINDING_NAME_SHAMANPOWER_CD_MANATIDE = "Mana Tide Totem"
-BINDING_NAME_SHAMANPOWER_CD_BLOODLUST = "Bloodlust / Heroism"
+BINDING_NAME_SHAMANPOWER_CD_ANKH = SPCompat.SpellLabel(20608, "Reincarnation") .. " (Ankh)"
+BINDING_NAME_SHAMANPOWER_CD_NS = SPCompat.SpellLabel(16188, "Nature's Swiftness")
+BINDING_NAME_SHAMANPOWER_CD_MANATIDE = SPCompat.SpellLabel(16190, "Mana Tide Totem")
+BINDING_NAME_SHAMANPOWER_CD_BLOODLUST = SPCompat.SpellLabel(2825, "Bloodlust") .. " / " .. SPCompat.SpellLabel(32182, "Heroism")
 BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
 
 -- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
@@ -527,28 +527,22 @@ ShamanPower.EarthShield = {
 
 -- Check if player has Earth Shield talent
 function ShamanPower:HasEarthShield()
-    -- Check if the player knows any rank of Earth Shield
-    local name = GetSpellInfo(self.EarthShield.rank1)
-    if name and IsSpellKnown(self.EarthShield.rank1) then return true end
-    name = GetSpellInfo(self.EarthShield.rank2)
-    if name and IsSpellKnown(self.EarthShield.rank2) then return true end
-    name = GetSpellInfo(self.EarthShield.rank3)
-    if name and IsSpellKnown(self.EarthShield.rank3) then return true end
-    return false
+    return SPCompat.earthShieldExists and SPCompat.KnowsSpellID(self.EarthShield.rank1)
 end
 
 -- Get the highest rank of Earth Shield the player knows
 function ShamanPower:GetEarthShieldSpell()
+    if not SPCompat.earthShieldExists then return nil, nil end
     local spellName = GetSpellInfo(self.EarthShield.rank3)
-    if spellName and IsSpellKnown(self.EarthShield.rank3) then
+    if spellName and SPCompat.KnowsExactSpellID(self.EarthShield.rank3) then
         return spellName, self.EarthShield.rank3
     end
     spellName = GetSpellInfo(self.EarthShield.rank2)
-    if spellName and IsSpellKnown(self.EarthShield.rank2) then
+    if spellName and SPCompat.KnowsExactSpellID(self.EarthShield.rank2) then
         return spellName, self.EarthShield.rank2
     end
     spellName = GetSpellInfo(self.EarthShield.rank1)
-    if spellName and IsSpellKnown(self.EarthShield.rank1) then
+    if spellName and SPCompat.KnowsExactSpellID(self.EarthShield.rank1) then
         return spellName, self.EarthShield.rank1
     end
     return nil, nil
@@ -789,7 +783,9 @@ end
 function ShamanPower:GetTotemName(element, totemIndex)
     local names = self.TotemNames[element]
     if names and names[totemIndex] then
-        return names[totemIndex]
+        local id = self:GetTotemSpell(element, totemIndex)
+        if SPCompat.HasTotemCastAliases(id) then return SPCompat.TotemCastName(id, names[totemIndex]) end
+        return SPCompat.SpellLabel(id, names[totemIndex])
     end
     return "Unknown"
 end

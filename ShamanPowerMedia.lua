@@ -10,10 +10,10 @@ if not LSM then return end
 
 local FONTS = "Interface\\AddOns\\ShamanPower\\Media\\Fonts\\"
 local SOUNDS = "Interface\\AddOns\\ShamanPower\\Media\\Sounds\\"
--- Western (Latin-script) client languages only: LibSharedMedia leaves a font out
--- on koKR, ruRU, zhCN and zhTW clients unless it is flagged for them, and these
--- fonts are not flagged, so they are not offered there
+-- LibSharedMedia offers only faces that contain this client's alphabet.
+-- Fira Sans and Russo One also contain Cyrillic; none contain Chinese or Korean.
 local LATIN = LSM.LOCALE_BIT_western
+local CYRILLIC = LATIN + LSM.LOCALE_BIT_ruRU
 
 for name, file in pairs({
 	["Barlow Condensed"]     = "BarlowCondensed-SemiBold.ttf",
@@ -27,7 +27,9 @@ for name, file in pairs({
 	["Saira Semi Condensed"] = "SairaSemiCondensed-SemiBold.ttf",
 	["Teko"]                 = "Teko-Medium.ttf",
 }) do
-	LSM:Register("font", name, FONTS .. file, LATIN)
+	local mask = LATIN
+	if name == "Fira Sans" or name == "Russo One" then mask = CYRILLIC end
+	LSM:Register("font", name, FONTS .. file, mask)
 end
 
 -- Bar textures from WeakAuras (Media/Textures). The first four carry the names

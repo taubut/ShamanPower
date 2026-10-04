@@ -168,6 +168,15 @@ SP.TotemBuffRanks = {
 	[8227]  = { 8230, 8250, 10521, 15036 },                 -- Flametongue Totem on Forever: the effect auras party members carry
 }
 
+-- TBC Anniversary's level-70 ranks (the buffs of 25528, 25508/25509, 25570, 25567,
+-- 25560, 25563, 25574 and 25577 in Anniversary's SpellName.db2): matched by ID too
+if not SPCompat.FOREVER then
+	for buff, ids in pairs({ [8076] = { 25527 }, [8072] = { 25506, 25507 }, [5677] = { 25569 }, [5672] = { 25566 },
+		[8182] = { 25559 }, [8185] = { 25562 }, [10596] = { 25573 }, [15108] = { 25576 } }) do
+		for _, id in ipairs(ids) do table.insert(SP.TotemBuffRanks[buff], id) end
+	end
+end
+
 -- Extra aura IDs for the engine-drawn dots only ([element] = { spell IDs }).
 SP.ExtraEngineAuraIDs = {}
 
@@ -177,20 +186,19 @@ SP.TotemBuffNames = {}
 for element, buffs in pairs(SP.TotemBuffSpellIDs) do
 	SP.TotemBuffNames[element] = {}
 	for idx, spellId in pairs(buffs) do
-		local name = GetSpellInfo(spellId)
+		local name = SPCompat.SpellName(spellId)
 		if name then
 			SP.TotemBuffNames[element][idx] = name
 		end
 	end
 end
 
--- On Forever a totem's name may differ from its effect aura's name. Cache all
--- rank/effect IDs once; leave Anniversary's existing name-only scan unchanged.
+-- A totem's name may differ from its effect aura's name. Cache all rank/effect IDs.
 SP.TotemBuffIDSets = {}
-if SPCompat.FOREVER then
+do
 	for _, list in pairs(SP.TotemBuffSpellIDs) do
 		for _, base in pairs(list) do
-			local name = GetSpellInfo(base)
+			local name = SPCompat.SpellName(base)
 			if not issecretvalue(name) and name then
 				local set = SP.TotemBuffIDSets[name] or {}
 				for _, id in ipairs(SP.TotemBuffRanks[base] or { base }) do set[id] = true end
@@ -305,6 +313,7 @@ end
 -- Get the buff name for the currently active totem of an element
 function SP:GetActiveTotemBuffName(element)
 	local haveTotem, totemName = self:GetElementTotemInfo(element)
+	if issecretvalue(haveTotem) or issecretvalue(totemName) then return nil end
 	if not haveTotem or not totemName then
 		self.totemBuffCache[element] = nil
 		return nil
@@ -317,24 +326,18 @@ function SP:GetActiveTotemBuffName(element)
 	end
 
 	local buffNames = self.TotemBuffNames[element]
-	local buffNamesLower = self.TotemBuffNamesLower[element]
 	if not buffNames then
 		self.totemBuffCache[element] = {totemName = totemName, buffName = nil}
 		return nil
 	end
 
-	-- Match based on actual totem name from GetTotemInfo (not assignments!)
-	-- This ensures we check the buff for the ACTIVE totem, not the assigned one
-	-- Strip rank number from totem name for matching (e.g., "Windfury Totem VII" -> "Windfury Totem")
-	local totemBaseName = totemName:gsub("%s+[IVXLCDM]+$", ""):gsub("%s+%d+$", "")
-	local totemLower = totemBaseName:lower()
-	local fullNameLower = totemName:lower()
-
+	-- Match the localized cast name: a translated effect aura can use different
+	-- words from the totem that applies it. Keep the active totem, not assignments.
 	for totemIndex, buffName in pairs(buffNames) do
 		if type(buffName) == "string" then
-			local buffLower = buffNamesLower[totemIndex]
-			-- Check if totem name contains the buff search term
-			if totemLower:find(buffLower, 1, true) or fullNameLower:find(buffLower, 1, true) then
+			local spellID = self:GetTotemSpell(element, totemIndex)
+			local fallback = self.TotemNames and self.TotemNames[element] and self.TotemNames[element][totemIndex]
+			if spellID and SPCompat.TotemNameMatches(totemName, spellID, fallback) then
 				-- Cache the result
 				self.totemBuffCache[element] = {totemName = totemName, buffName = buffName, totemIndex = totemIndex}
 				return buffName, totemIndex
@@ -400,12 +403,15 @@ function SP:UnitHasBuff(unit, buffName, element)
 		return has
 	end
 
+	-- only YOUR totem's buff counts: another shaman's Stoneskin on a party member never lights
+	-- your dot. The game marks a buff from your own totem as yours (measured on Forever: your
+	-- Stoneskin reads sourceUnit "player"), so the "PLAYER" filter keeps just those.
 	local has = false
 	if SPCompat.FOREVER then
 		local ids = SP.TotemBuffIDSets[buffName]
 		if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 			for i = 1, 40 do
-				local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
+				local aura = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL|PLAYER")
 				if issecretvalue(aura) or not aura then break end
 				local name, spellId = aura.name, aura.spellId
 				if (not issecretvalue(name) and name == buffName)
@@ -416,10 +422,12 @@ function SP:UnitHasBuff(unit, buffName, element)
 			end
 		end
 	else
+		local ids = SP.TotemBuffIDSets[buffName]
 		for i = 1, 32 do
-			local name = UnitBuff(unit, i)
+			local name, _, _, _, _, _, _, _, _, spellID = UnitBuff(unit, i, "PLAYER")
+			if issecretvalue(name) or issecretvalue(spellID) then break end
 			if not name then break end
-			if name == buffName then has = true break end
+			if (spellID and ids and ids[spellID]) or name == buffName then has = true break end
 		end
 	end
 	uc.gen[buffName], uc.at[buffName], uc.has[buffName] = self.auraGen[unit] or 0, GetTime(), has
@@ -520,7 +528,7 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 	end
 	container:SetAllPoints(btn)
 	container:SetFrameLevel(btn:GetFrameLevel() + 10)   -- above the button art and the active-totem overlay
-	local okAdd, err = pcall(container.AddAuraSlot, container, "dot", "HELPFUL", {
+	local okAdd, err = pcall(container.AddAuraSlot, container, "dot", "HELPFUL|PLAYER", {   -- your totem's buff only
 		candidateFilters = { includeSpellIDs = ElementBuffMap(element) },
 		initializeFrame = function(button)
 			button:ClearAllPoints()
@@ -966,6 +974,45 @@ end
 
 local SizeCell, HideAllCells   -- defined with the layout helpers below
 
+-- "Show Dots Instead of Names": the class-coloured dot drawn by the game whenever that player carries
+-- the totem's buff (in combat and in instances too, where buffs can't be read and the old answer was a
+-- range check from the shaman, not the totem), over our red one underneath: as the totem bar's dots
+local function BuildCoverageDot(element, partyIndex, btn, row, r, g, b)
+	local unit = SP.partyUnitStrings[partyIndex]
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, row, "CustomAuraContainerTemplate")
+	if not ok or not container then return nil end
+	container:SetAllPoints(row)
+	container:SetFrameLevel(row:GetFrameLevel() + 5)
+	local size, outline = CoverageDotSize(), CoverageOpts().dotOutline ~= false
+	local okAdd = pcall(container.AddAuraSlot, container, "cover", "HELPFUL|PLAYER", {   -- your totem's buff only
+		candidateFilters = { includeSpellIDs = CoverageBuffMap(element) },
+		initializeFrame = function(button)
+			button:ClearAllPoints()
+			button:SetAllPoints(row)
+			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+			local tex = SP:DotTexture()   -- Dot Shape
+			if outline then
+				local o = button:CreateTexture(nil, "OVERLAY", nil, -1)
+				o:SetTexture(tex)
+				o:SetVertexColor(0, 0, 0, 0.9)
+				o:SetPoint("CENTER", button, "CENTER", 0, 0)
+				o:SetSize(size + 2, size + 2)
+			end
+			local dot = button:CreateTexture(nil, "OVERLAY")
+			dot:SetTexture(tex)
+			dot:SetVertexColor(r, g, b)
+			dot:SetAllPoints(button)
+			if SP.DotGem then SP:DotGem(dot) end   -- Gem Dot Finish
+		end,
+	})
+	if not okAdd then container:Hide() return nil end
+	pcall(container.SetUnit, container, unit)
+	pcall(container.SetEnabled, container, true)
+	pcall(container.UpdateAllAuras, container)
+	return container
+end
+
 local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 	local unit = SP.partyUnitStrings[partyIndex]
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, row, "CustomAuraContainerTemplate")
@@ -973,7 +1020,7 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 	container:SetAllPoints(row)
 	container:SetFrameLevel(row:GetFrameLevel() + 5)
 	local fontSize = CoverageFont()
-	local okAdd = pcall(container.AddAuraSlot, container, "cover", "HELPFUL", {
+	local okAdd = pcall(container.AddAuraSlot, container, "cover", "HELPFUL|PLAYER", {   -- your totem's buff only
 		candidateFilters = { includeSpellIDs = CoverageBuffMap(element) },
 		initializeFrame = function(button)
 			button:ClearAllPoints()
@@ -1049,7 +1096,8 @@ local function BuildCellRows(self, btn, rowsKey, element)
 		local dots, dotSize = CoverageDots(), CoverageDotSize()
 		local key = name .. "|" .. tostring(class) .. "|" .. fontSize .. "|" .. CellIconSize(btn.cellKey) .. "|" .. CoverageWatchSig(element)
 			.. "|" .. (dots and ("d" .. dotSize .. CoverageDotPos() .. tostring(CoverageOpts().dotOutline ~= false) .. tostring(self.opt.dotShape)
-				.. tostring(self.ThemeClassColorSet and self:ThemeClassColorSet("mod.coverage-dots-class")) .. tostring(self.opt.dotGem)) or "n")
+				.. tostring(self.ThemeClassColorSet and self:ThemeClassColorSet("mod.coverage-dots-class")) .. tostring(self.opt.dotGem)
+				.. tostring(CoverageOpts().dotsMissingOnly)) or "n")
 		local slot = self.coverageRows[rowsKey][i]
 		local row = btn.rows[i]
 		if not slot or slot.key ~= key then
@@ -1077,8 +1125,14 @@ local function BuildCellRows(self, btn, rowsKey, element)
 			local cr, cg, cb = 0.4, 1, 0.4
 			local color = class and RAID_CLASS_COLORS[class]
 			if color then cr, cg, cb = color.r, color.g, color.b end
-			-- dots need no engine display: the range pass shows each from UnitHasBuff
-			local container = exists and not dots and BuildCoverageRow(element, i, btn, row, name, cr, cg, cb) or nil
+			-- names: the game draws the covered name; dots: the game draws the class-coloured dot over our red
+			-- one ("Only Show Who's Missing" keeps the range pass: the game can only add a look, not take ours away)
+			local container = nil
+			if exists and not dots then
+				container = BuildCoverageRow(element, i, btn, row, name, cr, cg, cb)
+			elseif exists and not CoverageOpts().dotsMissingOnly then
+				container = BuildCoverageDot(element, i, btn, row, row.cr or cr, row.cg or cg, row.cb or cb)
+			end
 			self.coverageRows[rowsKey][i] = { container = container, key = key }
 		end
 		row:SetShown(exists)
@@ -1269,16 +1323,24 @@ function SP:UpdateCoverage()
 				-- the totem bar dots' answer (UnitHasBuff; in combat, the distance model):
 				-- class colour with the buff, red without, or only the ones without it
 				local missingOnly = CoverageOpts().dotsMissingOnly
+				local slots = self.coverageRows[co.freeCells and ("t" .. tostring(btn.cellKey)) or element]
 				for i = 1, 4 do
 					local unit, row = self.partyUnitStrings[i], btn.rows[i]
 					local exists = UnitExists(unit)
-					local has = exists and self:UnitHasBuff(unit, buffName, element)
-					local red = not has and not missingOnly
-					if row.dotRed ~= red then
-						row.dotRed = red
-						if red then PaintMissingCov(row.dot) else row.dot:SetVertexColor(row.cr or 0, row.cg or 1, row.cb or 0) end
+					local slot = slots and slots[i]
+					if slot and slot.container then
+						-- the game draws the class-coloured dot over this one while that player has the buff
+						if not row.dotRed then row.dotRed = true; PaintMissingCov(row.dot) end
+						row:SetShown(exists)
+					else
+						local has = exists and self:UnitHasBuff(unit, buffName, element)
+						local red = not has and not missingOnly
+						if row.dotRed ~= red then
+							row.dotRed = red
+							if red then PaintMissingCov(row.dot) else row.dot:SetVertexColor(row.cr or 0, row.cg or 1, row.cb or 0) end
+						end
+						row:SetShown(exists and not (missingOnly and has))
 					end
-					row:SetShown(exists and not (missingOnly and has))
 				end
 			end
 			shown[#shown + 1] = btn
