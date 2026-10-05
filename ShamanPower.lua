@@ -3586,16 +3586,18 @@ function ShamanPower:UpdatePulseGlow(element, totemData, startTime)
 	if not glow then return end
 	local nativeBar = self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()
 	local activeOverlay = self.activeTotemOverlays and self.activeTotemOverlays[element]
+	-- Totem Rows with the main bar hidden: the pulse is the row's (ShamanPowerRows)
+	local rowsCarry = self.RowsCarryBar and self:RowsCarryBar()
 
 	-- Compact style paints the pulse inside the line
-	if self:CompactActive() then
+	if self:CompactActive() and not rowsCarry then
 		self:PulseVisualStop(glow)
 		return
 	end
 
 	-- Check if active overlay is showing for this element
 	-- In TotemTimers style mode (activeTotemAsMain), always use main button even when overlay is "active"
-	local useOverlay = not nativeBar and activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
+	local useOverlay = not nativeBar and not rowsCarry and activeOverlay and activeOverlay.isActive and not self.opt.activeTotemAsMain
 
 	-- Check if the active totem is popped out - if so, don't show pulse on main bar
 	local totemIsPoppedOut = false
@@ -6783,6 +6785,12 @@ end
 -- Pop out an entire element with its flyout
 function ShamanPower:PopOutElementWithFlyout(element)
 	if not self._gridRefreshing and self.GridPopOutElement and self:GridPopOutElement(element) then return end
+	-- Totem Rows: every row already moves on its own (Unlock UI); the element pop-outs
+	-- come back when it is off (ShamanPowerRows.lua keeps them)
+	if self.RowsActive and self:RowsActive() then
+		print("|cff0070ddShamanPower:|r In Totem Rows each row moves on its own: use Unlock UI.")
+		return
+	end
 	local elementName = self.Elements[element]:lower()  -- "earth", "fire", "water", "air"
 	local key = "totem_" .. elementName
 	if self.opt.poppedOut and self.opt.poppedOut[key] then return end
@@ -7199,12 +7207,14 @@ function ShamanPower:RestorePoppedOutTrackers()
 				local elementName = key:match("^totem_(.+)$")
 				if elementName then
 					local element = self.ElementToID[elementName:upper()]
-					if element and not (self.GridOwnsElementPopouts and self:GridOwnsElementPopouts()) then
+					if element and not (self.GridOwnsElementPopouts and self:GridOwnsElementPopouts())
+						and not (self.RowsOwnElementPopouts and self:RowsOwnElementPopouts()) then
 						local profile, popouts, requested = self.opt, self.opt.poppedOut, isPopped
 						-- Delay slightly to ensure buttons exist
 						C_Timer.After(0.1, function()
 							if self.opt ~= profile or profile.poppedOut ~= popouts or popouts[key] ~= requested then return end
 							if self.GridOwnsElementPopouts and self:GridOwnsElementPopouts() then return end
+							if self.RowsOwnElementPopouts and self:RowsOwnElementPopouts() then return end
 							self.opt.poppedOut[key] = nil  -- Clear so PopOutElementWithFlyout can proceed
 							self:PopOutElementWithFlyout(element)
 						end)
@@ -8687,7 +8697,9 @@ function ShamanPower:CreateTotemFlyout(element)
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(spellID)
 				GameTooltip:AddLine(" ")
-				if ShamanPower.opt.swapFlyoutClickButtons then
+				if self.spPullMode and ShamanPower.RowPullTooltipLines then
+					ShamanPower:RowPullTooltipLines(self)   -- (in a Totem Row that pulls totems back)
+				elseif ShamanPower.opt.swapFlyoutClickButtons then
 					GameTooltip:AddLine("|cff00ff00Left-click:|r Set as assigned totem", 1, 1, 1)
 					GameTooltip:AddLine("|cffffcc00Right-click:|r Cast totem", 1, 1, 1)
 				else
@@ -9169,15 +9181,14 @@ end
 -- and follows every swap, in a fight or out of one.
 function ShamanPower:MarkAssignedInFlyout(element)
 	if self.GridActive and self:GridActive() then self:UpdateGridTotems(); return end
+	-- Totem Rows: the row edges its assigned totem itself (ShamanPowerRows.lua)
+	if self.RowsOwnFlyouts and self:RowsOwnFlyouts(element) then self:UpdateTotemRows(); return end
 	local flyout = self.totemFlyouts and self.totemFlyouts[element]
 	if not (flyout and flyout.box) then return end
+	-- the choice a click on the button casts is the one drawn faded, in every style
+	-- (TotemTimers Style / Single Totem SHOW the totem that is down, but still cast
+	-- the assigned one: as UpdateFlyoutVisibility's hideIndex)
 	local cur = self:AssignedIndex(element)
-	-- TotemTimers Style / Single Totem: the button shows the totem that is DOWN,
-	-- so that is the choice drawn faded (as UpdateFlyoutVisibility's hideIndex)
-	if self.opt.activeTotemAsMain then
-		local active = self:GetActiveTotemIndex(element)
-		if active then cur = active end
-	end
 	for _, btn in ipairs(flyout.allButtons or {}) do
 		if btn.icon then
 			local on = btn.totemIndex == cur
@@ -9215,16 +9226,12 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	-- the button is drawn faded (MarkAssignedInFlyout).
 	local keepAll = flyout.box and true or false
 
-	-- In TotemTimers style mode (activeTotemAsMain), the main button ICON shows the active totem.
-	-- So we should hide the ACTIVE totem from the flyout, not the assigned one.
-	-- This prevents the visual confusion of the same totem appearing on the main button and in the flyout.
+	-- The flyout leaves out the totem a click on the button casts: the assigned one,
+	-- in every style. TotemTimers Style / Single Totem SHOW the totem that is down on
+	-- the button but still cast the assigned one; leaving the one that is down out
+	-- meant a dropped totem other than the assigned one could not be cast or assigned
+	-- again until it was gone (reported 2026-10-04). It stays in the flyout now.
 	local hideIndex = currentTotemIndex
-	if self.opt.activeTotemAsMain then
-		local activeIndex = self:GetActiveTotemIndex(element)
-		if activeIndex then
-			hideIndex = activeIndex
-		end
-	end
 
 	-- For horizontal bar, flyout is vertical. For vertical bar (both "Vertical" and "VerticalLeft"), flyout is horizontal.
 	local isHorizontalBar = self:IsTotemBarHorizontal()
@@ -9240,12 +9247,12 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	totemButton:SetAttribute("flyoutIsHorizontal", flyoutIsHorizontal)
 	totemButton:SetAttribute("flyoutGoesBelow", flyoutGoesBelow)
 	-- The in-combat re-sort after a pick (SPFU) redoes only the plain layouts
-	-- below: not a popped-out element's own direction, and not TotemTimers
-	-- Style, which hides the dropped totem rather than the assigned one.
+	-- below: not a popped-out element's own direction. (Every style leaves out the
+	-- assigned totem now, TotemTimers Style and Single Totem too.)
 	local ownDirection = self:IsElementPoppedOut(element) and self.opt.poppedOutSettings
 		and self.opt.poppedOutSettings["totem_" .. self.Elements[element]:lower()]
 	ownDirection = ownDirection and ownDirection.flyoutDirection
-	totemButton:SetAttribute("spSecureResort", (not flyout.box and not ownDirection and not self.opt.activeTotemAsMain) or nil)
+	totemButton:SetAttribute("spSecureResort", (not flyout.box and not ownDirection) or nil)
 
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
@@ -9357,7 +9364,8 @@ end
 
 -- Setup all flyout menus
 function ShamanPower:SetupTotemFlyouts()
-	if not self.opt.showTotemFlyouts and not self.opt.gridStyle then return end
+	-- (Grid and Totem Rows show the flyouts' buttons as their rows: built either way)
+	if not self.opt.showTotemFlyouts and not self.opt.gridStyle and not self.opt.totemRows then return end
 
 	-- Ensure totem buttons exist and are positioned
 	self:CreateTotemButtons()
@@ -9553,8 +9561,11 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 
 	for element = 1, 4 do
 		local btn = self.totemButtons[element]
+		-- Totem Rows: this element's choices are a row of their own, so its button opens
+		-- no flyout and its right-click does what it does with flyouts off
+		local rowHeld = self.RowsOwnFlyouts and self:RowsOwnFlyouts(element)
 		if btn then
-			if not enabled then
+			if not enabled or rowHeld then
 				-- Flyouts disabled
 				btn:SetAttribute("OpenMenu", nil)
 				-- Check if right-click should cast assigned totem
@@ -9580,9 +9591,11 @@ function ShamanPower:UpdateTotemFlyoutEnabled()
 					btn:SetAttribute("type2", "spell")
 					btn:SetAttribute("spell2", totemicCallName)
 				end
-				-- Hide any visible flyout buttons directly
+				-- Hide any visible flyout buttons directly (not a Totem Rows row: those stay out)
 				local flyout = self.totemFlyouts[element]
-				if flyout and flyout.box then
+				if rowHeld then
+					-- (the row owns them)
+				elseif flyout and flyout.box then
 					self:FlyoutFallbackSetShown(btn, false)
 				elseif flyout and flyout.buttons then
 					for _, flyoutBtn in ipairs(flyout.buttons) do
@@ -14647,8 +14660,8 @@ function ShamanPower:HideCustomTotemBarForBlizzard()
 			local flyout = self.totemFlyouts and self.totemFlyouts[element]
 			if flyout and flyout.box then
 				self:FlyoutFallbackSetShown(btn, false)
-			elseif flyout and flyout.buttons then
-				for _, child in ipairs(flyout.buttons) do child:Hide() end
+			elseif flyout and flyout.buttons and not (self.RowsOwnFlyouts and self:RowsOwnFlyouts(element)) then
+				for _, child in ipairs(flyout.buttons) do child:Hide() end   -- (a Totem Rows row keeps its own)
 			end
 		end
 	end
@@ -14676,6 +14689,7 @@ local function fadeFrames(self)
 	add(self.autoButton); add(_G["ShamanPowerAutoDropAll"]); add(_G["ShamanPowerEarthShieldBtn"])
 	if self.totemButtons then for element = 1, 4 do add(self.totemButtons[element]) end end
 	if self.GridFadeFrames then self:GridFadeFrames(add) end   -- Grid's rows glide too
+	if self.RowsFadeFrames then self:RowsFadeFrames(add) end   -- and Totem Rows' rows
 	return list
 end
 local function stopFades(self)
@@ -14759,6 +14773,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	if InCombatLockdown() then
 		self:UpdateTotemBarOpacity()   -- only a fade changed: alpha is allowed
 		if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
+		if self.ApplyTotemRowAlpha then self:ApplyTotemRowAlpha() end   -- and Totem Rows' rows
 	else
 		if shouldHide then
 			-- Hide everything
@@ -14811,6 +14826,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 				esBtn:SetAlpha(alpha)
 			end
 			if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
+			if self.ApplyTotemRowAlpha then self:ApplyTotemRowAlpha() end   -- and Totem Rows' rows
 			-- per-button rules (Full Opacity When Totem Placed) on top, unless faded
 			if not fade then self:UpdateTotemBarOpacity() end
 		end
@@ -15328,12 +15344,15 @@ function ShamanPower:TotemBarTooltip(button, element)
 	end
 
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-	GameTooltip:AddLine(elementName .. " Totem", 1, 1, 1)
 	if spellID then
-		GameTooltip:AddLine(totemName, 0, 1, 0)
+		-- the spell's own tooltip, as the flyout's buttons show it, with the clicks under it
+		GameTooltip:SetSpellByID(spellID)
+		GameTooltip:AddLine(" ")
 		GameTooltip:AddLine(self:ClickLabel(true) .. " Cast totem", 0.7, 0.7, 0.7)
-		-- The other click depends on options
-		if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() then
+		-- The other click depends on options (Totem Rows: this element's choices are its row,
+		-- so its button has no flyout: what it does with flyouts off)
+		local rowHeld = self.RowsOwnFlyouts and self:RowsOwnFlyouts(element)
+		if self.opt.showTotemFlyouts and self:FlyoutOpensOnRightClick() and not rowHeld then
 			GameTooltip:AddLine(self:ClickLabel(false) .. " Show flyout", 0.7, 0.7, 0.7)
 			if self:ShiftRightClickPullsTotem() then
 				GameTooltip:AddLine(self:ClickLabel(false, true) .. " Pull this totem back", 0.7, 0.7, 0.7)
@@ -15347,9 +15366,11 @@ function ShamanPower:TotemBarTooltip(button, element)
 			GameTooltip:AddLine(self:ClickLabel(false) .. " " .. (GetSpellInfo(36936) or "Totemic Call"), 0.7, 0.7, 0.7)
 		end
 	else
+		GameTooltip:AddLine(elementName .. " Totem", 1, 1, 1)
 		GameTooltip:AddLine("No totem assigned", 1, 0, 0)
 	end
-	if self.opt.enableMiddleClickPopOut ~= false then
+	-- (not in Totem Rows: every row already moves on its own)
+	if self.opt.enableMiddleClickPopOut ~= false and not (self.RowsActive and self:RowsActive()) then
 		GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
 	end
 	GameTooltip:Show()

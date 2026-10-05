@@ -122,6 +122,9 @@ local DIRECTION_CHOICES = { { "top", "From The Top" }, { "bottom", "From The Bot
 local SHOWON_CHOICES = { { "screen", "A Spot You Place" }, { "plate", "Your Target's Nameplate" }, { "frame", "Under The Target Frame" } }
 local MISS_CHOICES = { { "edge", "Red Edge" }, { "dotted", "Dotted Red Edge" }, { "faded", "Just Faded" }, { "glow", "Red Glow" },
 	{ "tint", "Red Tint" }, { "slash", "Red Slash" }, { "outline", "Empty Outline" }, { "pulse", "Pulsing Edge" } }
+-- Next Shock's cast-it look (Flame Shock's menu): WoW's gold dotted edge, or one of the Missing looks
+local CAST_CHOICES = { { "gold", "Gold Dotted Edge" } }
+for _, c in ipairs(MISS_CHOICES) do CAST_CHOICES[#CAST_CHOICES + 1] = c end
 local EDGE_CHOICES = { { "thin", "Thin Black" }, { "none", "None" }, { "thick", "Thick Black" }, { "dotted", "Dotted" },
 	{ "spell", "Spell Color" } }
 
@@ -417,6 +420,40 @@ local function LookRows(key)
 	return t
 end
 
+-- Next Shock (Flame Shock's menu): its settings live under Target Tracker's "ns"
+local function SpellName(id, fallback)
+	local n = SPCompat and SPCompat.SpellLabel and SPCompat.SpellLabel(id, fallback)
+	return (type(n) == "string" and n ~= "") and n or fallback
+end
+local function NextShockRows()
+	local t = {}
+	local on = OnOffRow("ns", "Show Next Shock", "on")
+	on.tip = "While your Flame Shock is on an enemy, its Flame Shock icon shows " .. SpellName(8042, "Earth Shock")
+		.. " (or " .. SpellName(8056, "Frost Shock") .. ") instead, with Flame Shock's time left, so you know which"
+		.. " shock to press. Each enemy goes by its own Flame Shock: your target's icon, and with Show On Every"
+		.. " Enemy's Nameplate, every enemy's. Without your Flame Shock, Warn When It's Missing shows Flame Shock."
+	t[#t + 1] = on
+	if Get("ns", "on") then
+		local shock = ChoiceRow("ns", "When Flame Shock Is On, Show", "whenOn",
+			{ { "earth", SpellName(8042, "Earth Shock") }, { "frost", SpellName(8056, "Frost Shock") } })
+		shock.tip = "The shock the icon shows while your Flame Shock is on that enemy."
+		t[#t + 1] = shock
+		local again = SliderRow("ns", "Show Flame Shock Again At", "refresh", 0, 6, 1,
+			function(v)
+				v = floor((v or 0) + 0.5)
+				if v == 0 then return "Never" end
+				return v .. " s left"
+			end)
+		again.tip = "When your Flame Shock on that enemy has this many seconds left, the icon shows Flame Shock again,"
+			.. " in the look below, so you can cast it before it runs out. Never: it keeps the other shock until it ends."
+		t[#t + 1] = again
+		local look = ChoiceRow("ns", "Look When It's Time to Cast", "castLook", CAST_CHOICES)
+		look.tip = "How Flame Shock looks in its last seconds."
+		t[#t + 1] = look
+	end
+	return t
+end
+
 -- Purge: skip a buff that lasts longer than this (Longer Than only while it skips); on the
 -- first level of the menu, so it's plain to see when it's on
 local function LongRows(key, t)
@@ -500,6 +537,12 @@ local function MenuItems(key)
 			.. " that has it. With Warn When It's Missing on, an enemy without it shows the gray warning. WoW's enemy"
 			.. " nameplates need to be on."
 		items[#items + 1] = plates
+		if key == "fs" then
+			local ns = Group("Next Shock", NextShockRows)
+			ns.value = function() return OnOff(Get("ns", "on")), false end
+			ns.tip = "Flame Shock's icon shows which shock to press next, on each enemy by its own Flame Shock."
+			items[#items + 1] = ns
+		end
 	end
 	items[#items + 1] = { separator = true }
 	items[#items + 1] = { text = "Copy Settings", onClick = function() TT("TT_Copy", key); return true end }

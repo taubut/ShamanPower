@@ -174,6 +174,30 @@ for element, name in ipairs({ "earth", "fire", "water", "air" }) do
 	}
 end
 
+-- Totem Rows (ShamanPowerRows.lua): each row is a box of its own. The box covers
+-- the row and moves its spot (the row's first totem); a row that is off has none.
+-- Never borrowed into a settings preview either (the rows hold secure buttons).
+for element, name in ipairs({ "earth", "fire", "water", "air" }) do
+	local index = element
+	local key = "rows_" .. name
+	local function rowSpot()
+		return SP.GetTotemRowAnchor and SP:GetTotemRowAnchor(index)
+	end
+	if SP.RegisterPreview then SP:RegisterPreview(key, { frame = rowSpot }) end
+	MODULES[#MODULES + 1] = {
+		key = key, label = name:sub(1, 1):upper() .. name:sub(2) .. " Row",
+		enabled = function()
+			return SP.RowsActive and SP:RowsActive() and rowSpot() ~= nil
+		end,
+		save = function()
+			if SP.SaveTotemRowPosition then SP:SaveTotemRowPosition(index) end
+		end,
+		reset = function()
+			if SP.ResetTotemRowPosition then SP:ResetTotemRowPosition(index) end
+		end,
+	}
+end
+
 local function ResolveFrames(def)
 	local out = {}
 	local function one(f)
@@ -578,6 +602,15 @@ for _, name in ipairs({ "earth", "fire", "water", "air" }) do
 		opacity = { pct = true, min = 0.1, max = 1, step = 0.05,
 			get = function() local s = saved(); return s and s.opacity or 1 end,
 			set = function(v) SP:SetPopOutOpacity(pop, v) end } }
+end
+
+-- Totem Rows: the wheel is Row Icon Size (all four rows share it); right-click opens
+-- Totem Bar > Style, where its settings are
+for _, name in ipairs({ "earth", "fire", "water", "air" }) do
+	FX["rows_" .. name] = { page = { "settings", "settings_totemMode" },
+		size = { pct = true, min = 0.5, max = 2, step = 0.05, label = "Row Icon Size ",
+			get = function() return SP.opt.rowsScale or 1 end,
+			set = function(v) if SP.SetTotemRowsScale then SP:SetTotemRowsScale(v) end end } }
 end
 
 -- a box's module key: "unlock_<key>_<n>", or the two bars' own keys
@@ -1690,7 +1723,7 @@ function SP:UnlockBoxWheel(mover, delta)
 	Select(mover)
 	local text = mover.spLabel or ""
 	local g1, _, _, _, _, p1 = Access(fx.size)
-	if g1 then text = text .. "   " .. (p1 and "Scale " or "Size ") .. Fmt(g1(), p1) end
+	if g1 then text = text .. "   " .. (fx.size.label or (p1 and "Scale " or "Size ")) .. Fmt(g1(), p1) end
 	local g2, _, _, _, _, p2 = Access(fx.opacity)
 	if g2 then text = text .. "   Opacity " .. Fmt(g2(), p2) end
 	accessMover = nil
@@ -2266,7 +2299,9 @@ function SP:SetMasterUnlock(on, only)
 
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
 	if only then isShaman = false end   -- one module only: the bars stay locked
-	if isShaman and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked then
+	-- (Totem Rows with Show the Bar off: no bar on screen, so no box for it)
+	if isShaman and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked
+		and not (self.RowsHideBar and self:RowsHideBar()) then
 		self:SetTotemBarUnlocked(true)
 		shown.totembar = { bar = true, reset = ResetTotemBar }
 		AddReset("totembar", ResetTotemBar)

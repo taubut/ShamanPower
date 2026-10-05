@@ -2436,6 +2436,12 @@ SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "ttedge", tt = "edge", label = "Target Tra
 	shown = function() return SP.TT_ICON_EDGES ~= nil end, list = function() return SP.TT_ICON_EDGES end,
 	get = function() return SP.TT_Get and SP:TT_Get("fs", "border") or "thin" end,
 	set = function(k) for _, key in ipairs(TT_ALL) do SP:TT_Set(key, "border", k) end end }
+-- Next Shock's look (D49): the same setting as Look When It's Time to Cast in Flame Shock's right-click menu (Target Tracker)
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "ttcast", tt = "cast", label = "Next Shock Look When It's Time to Cast",
+	note = "How Next Shock's Flame Shock looks when it's time to cast it: while your target doesn't have yours, and again just before yours runs out. Also in Flame Shock's right-click menu on Target Tracker, under Next Shock.",
+	shown = function() return SP.TT_CAST_LOOKS ~= nil end, list = function() return SP.TT_CAST_LOOKS end,
+	get = function() return SP.TT_Get and SP:TT_Get("ns", "castLook") or "gold" end,
+	set = function(k) if SP.TT_Set then SP:TT_Set("ns", "castLook", k) end end }
 local PREVIEW_H = 44
 local DOT_CLASSES = { "ROGUE", "WARRIOR", "PRIEST", "HUNTER" }
 

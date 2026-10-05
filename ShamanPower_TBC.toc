@@ -49,6 +49,7 @@ ShamanPowerShareCode.lua
 ShamanPowerSupportCode.lua
 ShamanPowerMinimapTotems.lua
 ShamanPowerGrid.lua
+ShamanPowerRows.lua
 ShamanPowerStyles.lua
 ShamanPowerCues.lua
 ShamanPowerShieldSound.lua

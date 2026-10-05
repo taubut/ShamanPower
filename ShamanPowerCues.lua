@@ -252,6 +252,12 @@ SP.CueFx = {
 -- The button a totem's cue plays on: the element's own button. The Compact,
 -- Grid and Blizzard's-bar styles draw their totems elsewhere: no cues there.
 local function totemHost(element)
+	-- Totem Rows with the main bar hidden: the row's totem that is down
+	local rowBtn = SP.RowsCarryButton and SP:RowsCarryButton(element)
+	if rowBtn then
+		if rowBtn.icon and rowBtn:IsVisible() then return rowBtn, rowBtn.icon end
+		return nil
+	end
 	if SP.CompactActive and SP:CompactActive() then return nil end
 	if SP.GridActive and SP:GridActive() then return nil end
 	if SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar() then return nil end

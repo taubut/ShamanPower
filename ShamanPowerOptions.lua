@@ -10534,6 +10534,121 @@ do
 	ClearGridBefore(mode.use_blizzard_totem_bar)
 end
 
+-- Totem Rows (D48): a switch that goes with any totem bar style but Grid, and its
+-- settings, under the style picker on Totem Bar > Style (onlyStyles below). The rows
+-- are laid out out of combat: a change made in a fight waits for its end.
+do
+	local SP = ShamanPower
+	local mode = SP.options.args.settings.args.settings_totemMode.args
+	local function Locked() return InCombatLockdown() end
+	local function Changed(laidOut)
+		if not laidOut and SP.RefreshRowsStyle then SP:RefreshRowsStyle() end
+		if SP.RefreshConfig then SP:RefreshConfig() end
+		local config = rawget(_G, "ShamanPowerConfig")
+		if config and config.PreviewChanged then config:PreviewChanged() end
+	end
+	local function Off() return not SP.opt.totemRows end
+	local args = {
+		rowsOn = {
+			order = 0.5, type = "toggle", name = "Show Every Totem in Rows", width = "full",
+			desc = "On: every element's totems also sit in a row of their own, which you can put anywhere"
+				.. " with Unlock UI, next to the totem bar style you picked above. Left-click a totem in a row"
+				.. " to drop it, right-click to make it your assigned one. Change out of combat.",
+			disabled = Locked,
+			get = function() return SP.opt.totemRows == true end,
+			set = function(_, value)
+				if Locked() then return end
+				if SP.SetTotemRows then SP:SetTotemRows(value) else SP.opt.totemRows = value or nil end
+				Changed(true)
+			end,
+		},
+		rowsGo = {
+			order = 1, type = "select", name = "Rows Go", width = 1.5, hidden = Off,
+			desc = "Horizontal: each row runs from side to side. Vertical: each row runs from top to bottom."
+				.. " A row near the edge of your screen opens away from it, the way the flyouts do."
+				.. " Change out of combat.",
+			values = { across = "Horizontal", down = "Vertical" },
+			sorting = { "across", "down" },
+			disabled = Locked,
+			get = function() return SP.opt.rowsGo == "down" and "down" or "across" end,
+			set = function(_, value)
+				if Locked() then return end
+				SP.opt.rowsGo = (value == "down") and "down" or nil
+				Changed()
+			end,
+		},
+		rowsShowBar = {
+			order = 2, type = "toggle", name = "Show Main Totem Bar", width = "full",
+			-- (Blizzard's bar is the game's own: not ShamanPower's to hide)
+			hidden = function() return Off() or (SP.opt.useBlizzardTotemBar and true or false) end,
+			desc = "On: your main totem bar shows as well as the rows. Off: only the rows show, and the bar's"
+				.. " pulse, duration bar, time left, party dots and effects show on the rows instead (on the totem"
+				.. " that is down). Your keybinds still drop your assigned totems. Change out of combat.",
+			disabled = Locked,
+			get = function() return SP.opt.rowsShowBar ~= false end,
+			set = function(_, value)
+				if Locked() then return end
+				if value then SP.opt.rowsShowBar = nil else SP.opt.rowsShowBar = false end
+				Changed()
+				if value then SP:UpdateLayout() end   -- the bar comes back
+			end,
+		},
+		rowsKeepFlyouts = {
+			order = 2.5, type = "toggle", name = "Keep Flyouts on Main Totem Bar", width = "full",
+			-- (no main bar showing, or Blizzard's bar: there is no flyout of ours to keep)
+			hidden = function() return Off() or SP.opt.rowsShowBar == false or (SP.opt.useBlizzardTotemBar and true or false) end,
+			desc = "On: your main totem bar still opens its flyouts, as well as showing the rows. Off: the rows"
+				.. " take the place of the flyouts. Change out of combat.",
+			disabled = Locked,
+			get = function() return SP.opt.rowsKeepFlyouts == true end,
+			set = function(_, value)
+				if Locked() then return end
+				SP.opt.rowsKeepFlyouts = value and true or nil
+				Changed()
+			end,
+		},
+		rowsIconSize = {
+			order = 7, type = "range", name = "Row Icon Size", width = 1.5, hidden = Off,
+			desc = "How big the totems in the rows are. 100% is the size of the totems in the flyouts."
+				.. " The mouse wheel over a row's box in Unlock UI changes it too.",
+			min = 0.5, max = 2, step = 0.05, isPercent = true,
+			disabled = Locked,
+			get = function() return SP.opt.rowsScale or 1 end,
+			-- only the rows here: rebuilding the settings page on every step of a drag made the slider
+			-- jerky (the window refreshes the page itself when the slider is let go)
+			set = function(_, value)
+				if Locked() then return end
+				if SP.SetTotemRowsScale then SP:SetTotemRowsScale(value) end   -- (lays the rows out itself)
+			end,
+		},
+		rowsMove = {
+			order = 9, type = "execute", name = "Move the Rows (Unlock UI)", width = "full", hidden = Off,
+			desc = "Opens Unlock UI: drag each row's box where you want it. Right-click a row's box to come back here.",
+			disabled = Locked,
+			func = function() if SP.SetMasterUnlock then SP:SetMasterUnlock(true) end end,
+		},
+	}
+	-- one switch per row, all on to start
+	for element, name in ipairs({ "Earth", "Fire", "Water", "Air" }) do
+		local index = element
+		args["rows" .. name] = {
+			order = 2 + element, type = "toggle", name = name .. " Row", width = "full", hidden = Off,
+			desc = "Off: no " .. name .. " row. With the main totem bar showing, its " .. name .. " button opens a flyout"
+				.. " when you hover it again, as in TotemTimers Style.",
+			disabled = Locked,
+			get = function() return not (type(SP.opt.rowsOff) == "table" and SP.opt.rowsOff[index]) end,
+			set = function(_, value)
+				if Locked() then return end
+				local off = type(SP.opt.rowsOff) == "table" and SP.opt.rowsOff or {}
+				off[index] = (not value) or nil
+				SP.opt.rowsOff = next(off) and off or nil
+				Changed()
+			end,
+		}
+	end
+	mode.rowsOptions = { order = 4.79, type = "group", inline = true, name = "Totem Rows", args = args }
+end
+
 -- WoW: Forever cannot twist (ShamanPower.NoTotemTwisting): its twisting options
 -- are not offered at all.
 if ShamanPower.NoTotemTwisting then
@@ -11472,6 +11587,8 @@ do
 		"gridOrientation1", "gridOrientation2", "gridOrientation3", "gridOrientation4" }) do
 		onlyStyles(key, { grid = true })
 	end
+	-- Totem Rows' switch and settings: with every style but Grid (Grid lays every totem out in rows itself)
+	onlyStyles("rowsOptions", { normal = true, totemtimers = true, single = true, dynamic = true, compact = true, blizzard = true })
 	onlyStyles("use_blizzard_totem_bar", {})
 	-- The native scale controls already have their exact native-only predicate.
 	for _, key in ipairs({ "activeAsMainSpacer", "compactSpacer", "twistSpacer" }) do
@@ -11864,6 +11981,7 @@ do
 	SP.OptionCustomRow[args.ttRules] = "ttRules"
 	SP.options.args.fluffy.args.targettracker_section = { order = 9.6, type = "group", name = "Target Tracker", args = args }
 end
+
 
 -- Totem Bar > Duration Bars: "Only Show Pulse Bars for Specific Totems", then one
 -- switch per totem that pulses (ShamanPower.PulsingTotems), on unless turned off.

@@ -380,9 +380,25 @@ function SP:UnitNearShaman(unit)
 	return inRange and true or false
 end
 
+-- A party member plainly far away: out of sight, or out of a 40 yd spell's reach. They
+-- cannot be in range of your totems, and the game can hand over a far-away member's
+-- buffs without saying whose they are, so another shaman's own totems lit your dots
+-- (reported 2026-10-04: a party member two zones away). An answer the game keeps to
+-- itself (a secret, or none) never counts as far.
+function SP:PartyUnitFarAway(unit)
+	if not unit or unit == "player" then return false end
+	local ok, visible = pcall(UnitIsVisible, unit)
+	if ok and not (issecretvalue and issecretvalue(visible)) and not visible then return true end
+	return self:UnitNearShaman(unit) == false
+end
+
 function SP:UnitHasBuff(unit, buffName, element)
 	if SPCompat.FOREVER and issecretvalue(buffName) then return false end
 	if not buffName then return false end
+	if self:PartyUnitFarAway(unit) then
+		if element then self.partyRangeLast[unit .. element] = false end
+		return false
+	end
 
 	if element and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then
 		local near = ShamanPower.TotemDropInRange and ShamanPower:TotemDropInRange(element, unit)
@@ -601,18 +617,28 @@ end
 function SP:SetEnginePartyDotsShown(on)
 	on = on and not self.opt.partyDotsMissingOnly and true or false   -- "only missing" draws its own dots
 	self.engineDotsShown = on
+	-- a member's dot only for an element you have a totem of down, and never for a member
+	-- plainly far away (the game draws a dot for any matching buff it is handed)
+	local near = self._engineDotNear
+	if not near then near = {}; self._engineDotNear = near end
+	for i = 1, 4 do
+		local unit = self.partyUnitStrings[i]
+		near[i] = on and unit ~= nil and UnitExists(unit) and not self:PartyUnitFarAway(unit) or false
+	end
 	for element = 1, 4 do
 		local slots = self.engineDots[element]
 		local overlay = UseEngineOverlay(element)
 		if slots then
+			local down = on and (self:GetElementTotemInfo(element)) and true or false
 			for i = 1, 4 do
 				local slot = slots[i]
 				if slot then
+					local shown = down and near[i] and true or false
 					-- Hide the old destination first, including when both are disabled.
 					if overlay then
-						ShowEngineRecord(slot.main, false); ShowEngineRecord(slot.overlay, on)
+						ShowEngineRecord(slot.main, false); ShowEngineRecord(slot.overlay, shown)
 					else
-						ShowEngineRecord(slot.overlay, false); ShowEngineRecord(slot.main, on)
+						ShowEngineRecord(slot.overlay, false); ShowEngineRecord(slot.main, shown)
 					end
 				end
 			end
@@ -1329,7 +1355,10 @@ function SP:UpdateCoverage()
 					local exists = UnitExists(unit)
 					local slot = slots and slots[i]
 					if slot and slot.container then
-						-- the game draws the class-coloured dot over this one while that player has the buff
+						-- the game draws the class-coloured dot over this one while that player has the
+						-- buff; never for a member plainly far away (their buffs can come without whose)
+						local far = exists and self:PartyUnitFarAway(unit) or false
+						if slot.far ~= far then slot.far = far; slot.container:SetShown(not far) end
 						if not row.dotRed then row.dotRed = true; PaintMissingCov(row.dot) end
 						row:SetShown(exists)
 					else
@@ -1340,6 +1369,17 @@ function SP:UpdateCoverage()
 							if red then PaintMissingCov(row.dot) else row.dot:SetVertexColor(row.cr or 0, row.cg or 1, row.cb or 0) end
 						end
 						row:SetShown(exists and not (missingOnly and has))
+					end
+				end
+			else
+				-- names: the game draws a covered member's name; never one plainly far away
+				local slots = self.coverageRows[co.freeCells and ("t" .. tostring(btn.cellKey)) or element]
+				for i = 1, 4 do
+					local slot = slots and slots[i]
+					if slot and slot.container then
+						local unit = self.partyUnitStrings[i]
+						local far = UnitExists(unit) and self:PartyUnitFarAway(unit) or false
+						if slot.far ~= far then slot.far = far; slot.container:SetShown(not far) end
 					end
 				end
 			end

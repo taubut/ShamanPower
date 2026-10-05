@@ -47,7 +47,8 @@ SP.TOTEM_BAR_STYLES = {
 }
 -- Blizzard's bar wins over Grid, Grid over the four looks of ShamanPower's bar,
 -- Compact over Dynamic over Single Totem over TotemTimers (Single Totem is
--- TotemTimers with the corner off); Normal is what is left.
+-- TotemTimers with the corner off); Normal is what is left. (Totem Rows is not a
+-- style: a switch that goes with any of them but Grid, ShamanPowerRows.lua.)
 local PRECEDENCE = { "blizzard", "grid", "compact", "dynamic", "single", "totemtimers", "normal" }
 
 local byKey = {}
@@ -106,6 +107,9 @@ function SP:SetTotemBarStyle(key)
 	-- landed would run those teardowns with the next style already "on"
 	-- (ApplyCompactStyle's layout pass is hooked by the Blizzard-bar code).
 	if o.gridStyle and key ~= "grid" and self.SetGridStyle then self:SetGridStyle(false) end
+	-- Grid lays every totem out in its own rows: Totem Rows lets go of the flyouts' buttons
+	-- first (it comes back by itself when Grid is left, if its switch is still on)
+	if key == "grid" and self.RowsLetGo then self:RowsLetGo() end
 	if o.useBlizzardTotemBar and key ~= "blizzard" then
 		o.useBlizzardTotemBar = nil
 		if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end

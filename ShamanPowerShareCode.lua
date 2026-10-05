@@ -196,6 +196,12 @@ SP.SHARE_FEATURES = {
 		for _, k in ipairs({ "fs", "frs", "ss", "purge" }) do if on(sub(sub(spells, k), "everyPlate")) then return true end end
 		return false
 	end },
+	-- 3.0.7
+	{ key = "totemRows",          label = "Totem Rows on",                       get = function() return on(O().totemRows) end },
+	{ key = "totemRowsBarHidden", label = "Totem Rows: bar hidden",              get = function() return O().rowsShowBar == false and on(O().totemRows) end },
+	{ key = "nextShock",          label = "Target Tracker: Next Shock",          get = function()
+		return on(sub(G("ShamanPower_TargetTracker"), "enabled")) and on(sub(sub(sub(G("ShamanPower_TargetTracker"), "spells"), "ns"), "on"))
+	end },
 }
 
 -- ---------------------------------------------------------------------------

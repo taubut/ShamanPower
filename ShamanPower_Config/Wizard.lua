@@ -320,6 +320,8 @@ local STEPS = {
 	    "|cffffd100Compact|r: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
 	    { "|cffffd100Grid|r: all your totems in rows, together or in a separate group for each element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
+	    { "|cffffd100Show every totem in rows|r (under the cards, with any style but Grid): each element's totems also in a row of their own that you place anywhere.",
+	      when = function() return SP.SetTotemRows ~= nil end },
 	    { "|cffffd100Blizzard's Totem Bar|r: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots. Its flyouts open only from the little arrow above each slot, one click before you can pick a totem.",
 	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
 	    { "|cff3FA9F5ShamanPower's own bar: just hover.|r By default, hovering any totem opens its flyout, in combat too, with no arrow to click (Totem Bar > Clicks can change that). Left-click drops that totem, right-click makes it the assigned one.",
@@ -995,6 +997,49 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			edge("TOPRIGHT", "BOTTOMRIGHT", 0, -2, 0, 2, 2, nil)
 		end
 	end
+	-- Totem Rows (its switch, with an icon style): every element's totems in a row of their own, apart from the bar
+	-- (two by two above it here; to its side on a vertical bar): plain totems, as the
+	-- real rows (the bar shows what is down and assigned).
+	local RS, RG, RT = 22, 3, 4                   -- a row's totem, the gap, the room under a row
+	local RW = 4 * RS + 3 * RG                    -- a row's width
+	local RM_H = 2 * (RS + RT) + 6 + 8            -- the rows above a horizontal bar, and the gap to it
+	local RM_W = RW + 14                          -- the rows beside a vertical bar
+	local rowsMock = CreateFrame("Frame", nil, bar); rowsMock:SetSize(1, 1); rowsMock:Hide()
+	local rowsUI = {}
+	for i, e in ipairs(ELE) do
+		local row = CreateFrame("Frame", nil, rowsMock); row:SetSize(RW, RS + RT)
+		local icons, seen = { e.icon, e.active }, { [e.icon] = true, [e.active] = true }
+		local list = SP.TotemIcons and SP.TotemIcons[i] or {}
+		for idx = 1, 12 do
+			local tex = list[idx]
+			if tex and not seen[tex] and #icons < 4 and (not SP.TotemExistsOnClient or SP:TotemExistsOnClient(i, idx)) then
+				icons[#icons + 1] = tex; seen[tex] = true
+			end
+		end
+		row.cells = {}
+		for k = 1, 4 do
+			local c = CreateFrame("Frame", nil, row); c:SetSize(RS, RS)
+			c:SetPoint("TOPLEFT", row, "TOPLEFT", (k - 1) * (RS + RG), 0)
+			local cbg = c:CreateTexture(nil, "BACKGROUND"); cbg:SetAllPoints(c); cbg:SetColorTexture(0, 0, 0, 0.6)
+			local ic = c:CreateTexture(nil, "ARTWORK"); ic:SetPoint("TOPLEFT", 1, -1); ic:SetPoint("BOTTOMRIGHT", -1, 1)
+			ic:SetTexCoord(0.08, 0.92, 0.08, 0.92); ic:SetTexture(icons[k] or e.icon)
+			c.edges = {}
+			for n, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+				local t = c:CreateTexture(nil, "OVERLAY", nil, 4)
+				if side == "TOP" or side == "BOTTOM" then
+					t:SetPoint(side .. "LEFT", c, side .. "LEFT", -1, side == "TOP" and 1 or -1)
+					t:SetPoint(side .. "RIGHT", c, side .. "RIGHT", 1, side == "TOP" and 1 or -1); t:SetHeight(2)
+				else
+					t:SetPoint("TOP" .. side, c, "TOP" .. side, side == "LEFT" and -1 or 1, 1)
+					t:SetPoint("BOTTOM" .. side, c, "BOTTOM" .. side, side == "LEFT" and -1 or 1, -1); t:SetWidth(2)
+				end
+				t:Hide()
+				c.edges[n] = t
+			end
+			row.cells[k] = c
+		end
+		rowsUI[i] = row
+	end
 	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
 	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
 		for i = 1, 3 do slots[i].main.icon = slots[i].mIcon end
@@ -1028,7 +1073,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	-- it runs down, expires, and after a short gap is dropped again.
 	-- Re-orient the mock for the chosen layout. Horizontal: overlay above the
 	-- button. Vertical: overlay pops out on the flyout side.
-	local lastLay, lastMode
+	local lastLay, lastMode, lastRowsGo
 	-- the tour plays Blizzard's flyout demo, which is taller than ours: that
 	-- style's bar sits lower there so the flyout's top is not cut off
 	local blizzDrop = SP.Wizard.previewOnly and 0 or 40
@@ -1036,6 +1081,38 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local vertical = (lay ~= "Horizontal")
 		local side = (lay == "VerticalLeft") and -1 or 1
 		local normal = (m == "normal")
+		-- (Totem Rows' switch, drawn with the four icon styles)
+		local rowsOn = OPT().totemRows == true and (m == "normal" or m == "tt" or m == "single" or m == "dynamic")
+		local downRows = rowsOn and OPT().rowsGo == "down"
+		-- room the rows take above a horizontal bar / beside a vertical one
+		local rmH = downRows and (RW + 8) or RM_H
+		local rmW = downRows and (4 * (RS + 30)) or RM_W
+		rowsMock:SetShown(rowsOn)
+		frameBg:ClearAllPoints()
+		frameBg:SetPoint("TOPLEFT", bar, "TOPLEFT", -8, rowsOn and not vertical and (-rmH + 8) or 8)
+		frameBg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", rowsOn and vertical and (-rmW + 8) or 8, -8)
+		if rowsOn then
+			for i, row in ipairs(rowsUI) do
+				row:ClearAllPoints()
+				for k, c in ipairs(row.cells) do
+					c:ClearAllPoints()
+					if downRows then c:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -(k - 1) * (RS + RG))
+					else c:SetPoint("TOPLEFT", row, "TOPLEFT", (k - 1) * (RS + RG), 0) end
+				end
+				if downRows then
+					row:SetSize(RS + 28, RW)
+					row:SetPoint("TOPLEFT", bar, "TOPLEFT", (vertical and (SIZE + 14) or 0) + (i - 1) * (RS + 30), 0)
+				else
+					row:SetSize(RW, RS + RT)
+					if vertical then
+						row:SetPoint("TOPLEFT", bar, "TOPLEFT", SIZE + 14, -(i - 1) * (RS + RT + 6))
+					else
+						local col, line = (i <= 2) and 0 or 1, (i - 1) % 2
+						row:SetPoint("TOPLEFT", bar, "TOPLEFT", col == 0 and 0 or (4 * STEP - GAP - RW), -line * (RS + RT + 6))
+					end
+				end
+			end
+		end
 		for i, s in ipairs(slots) do
 			local slot, main, over = s.main:GetParent(), s.main, s.over
 			slot:ClearAllPoints(); main:ClearAllPoints(); over:ClearAllPoints()
@@ -1046,13 +1123,14 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				over:SetPoint(side > 0 and "LEFT" or "RIGHT", main, side > 0 and "RIGHT" or "LEFT", side * 4, 0)
 			else
 				slot:SetSize(SIZE, normal and (SIZE * 2 + 30) or (SIZE + 14))
-				slot:SetPoint("LEFT", bar, "LEFT", (i - 1) * STEP, 0)
+				if rowsOn then slot:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", (i - 1) * STEP, 0)
+				else slot:SetPoint("LEFT", bar, "LEFT", (i - 1) * STEP, 0) end
 				main:SetPoint("BOTTOM", slot, "BOTTOM", 0, 14)
 				over:SetPoint("BOTTOM", main, "TOP", 0, 4)
 			end
 		end
-		if vertical then bar:SetSize(SIZE + (normal and (SIZE + 4) or 0), 4 * (SIZE + 14 + 8) - 8)
-		else bar:SetSize(4 * STEP - GAP, normal and (SIZE * 2 + 30) or (SIZE + 14)) end
+		if vertical then bar:SetSize(SIZE + (normal and (SIZE + 4) or 0) + (rowsOn and rmW or 0), 4 * (SIZE + 14 + 8) - 8)
+		else bar:SetSize(math.max(4 * STEP - GAP, rowsOn and downRows and 4 * (RS + 30) or 0), normal and (SIZE * 2 + 30) or (SIZE + 14 + (rowsOn and rmH or 0))) end
 		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", (vertical and normal) and (-side * (SIZE + 4) / 2) or 0, vertical and 10 or (normal and 8 or (m == "blizzard" and -14 - blizzDrop or -14)))
 	end
 
@@ -1173,7 +1251,9 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	bar:SetScript("OnUpdate", function(_, el)
 		local m = mode()
 		local lay = OPT().layout or "Horizontal"
-		if lay ~= lastLay or m ~= lastMode then lastLay, lastMode = lay, m; relayout(lay, m); skin(m) end
+		local rowsMode = OPT().totemRows == true and (m == "normal" or m == "tt" or m == "single" or m == "dynamic")
+		local rg = rowsMode and (OPT().rowsGo == "down" and "down" or "across") or nil
+		if lay ~= lastLay or m ~= lastMode or rg ~= lastRowsGo then lastLay, lastMode, lastRowsGo = lay, m, rg; relayout(lay, m); skin(m) end
 		local sc = OPT().buffscale or 1
 		if SP.Wizard.previewOnly then sc = math.min(sc, (inner:GetHeight() - 6) / math.max(1, bar:GetHeight() + 16)) end
 		bar:SetScale(sc)
@@ -1216,6 +1296,16 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetDesaturated(false); s.mIcon:SetAlpha(1)
 				s.inset:Hide(); s.insetBd:Hide()
 			end
+		end
+		if rowsMode then
+			-- the rows: plain totems (the bar shows what is down); Show the Bar off leaves only the rows
+			local off = OPT().rowsOff
+			for i, row in ipairs(rowsUI) do row:SetShown(not (type(off) == "table" and off[i])) end
+			local barOn = OPT().rowsShowBar ~= false
+			for _, sl in ipairs(slots) do sl.main:GetParent():SetShown(barOn) end
+			if not barOn then frameBg:Hide(); frameBd:Hide() end
+		else
+			for _, sl in ipairs(slots) do sl.main:GetParent():Show() end
 		end
 		if m == "compact" then bar:SetAlpha(0); cm:Show(); paintCompact(el)
 		elseif m == "grid" then bar:SetAlpha(0); cm:Hide()
@@ -1404,7 +1494,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			fly:Hide(); fire.flyOpen = nil; bfly:Hide(); flyCap:SetText("")
 			if m == "blizzard" then closeB() end
 		end
-		if m == "compact" or m == "grid" or (m == "blizzard" and not bBtns[1]) then   -- no icon bar to hover
+		-- (Totem Rows' switch on: no flyout to open, its totems are always out in their rows)
+		if m == "compact" or m == "grid" or OPT().totemRows == true or (m == "blizzard" and not bBtns[1]) then   -- no icon bar to hover
 			cur:Hide(); flyCap:SetText("")
 			return
 		end
@@ -1523,6 +1614,30 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			set = function(v) OPT().totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
 		row("Toggle", { label = "Full opacity while a totem is down", get = function() return OPT().totemBarFullOpacityWhenActive and true or false end,
 			set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
+	end
+	local tourStyle = SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT())
+	if SP.SetTotemRows and tourStyle ~= "grid" then
+		-- Totem Rows' switch (with any style but Grid) and, while it is on, the two choices a new player
+		-- looks for (Totem Bar > Style has the rest)
+		y = y + 6
+		row("Toggle", { label = "Show every totem in rows (Totem Rows)", get = function() return OPT().totemRows == true end,
+			set = function(v) if SP.SetTotemRows then SP:SetTotemRows(v) end; notify(); SP.Wizard:Go(state.step) end })
+		if OPT().totemRows then
+			row("Dropdown", { label = "Rows go", get = function() return OPT().rowsGo == "down" and "down" or "across" end,
+				set = function(v) OPT().rowsGo = (v == "down") and "down" or nil; safecall("RefreshRowsStyle"); notify() end,
+				values = function() return { across = "Horizontal", down = "Vertical" } end,
+				order = function() return { "across", "down" } end })
+			if tourStyle ~= "blizzard" then
+				row("Toggle", { label = "Show main totem bar", get = function() return OPT().rowsShowBar ~= false end,
+					set = function(v)
+						if v then OPT().rowsShowBar = nil else OPT().rowsShowBar = false end
+						safecall("RefreshRowsStyle")
+						if v then safecall("UpdateLayout") end
+						notify()
+					end })
+			end
+			row("Description", { text = "|cff9aa4b1Move each row where you want it with Unlock UI.|r" })
+		end
 	end
 	if OPT().compactStyle then
 		-- ---- Compact style options (Settings > Totem Bar > Compact Style) ----

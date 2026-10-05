@@ -1792,6 +1792,7 @@ Cards.ADDED = {
 	["e.mod.targettracker.sweepDirection.fs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.frs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.ss"] = Cards.InheritedSweepDirection,
+	["e.mod.targettracker.castLook.ns"] = function() return "gold" end,   -- (Next Shock's look, D49)
 }
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"

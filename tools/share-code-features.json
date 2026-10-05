@@ -111,6 +111,9 @@
     {"key": "readyRemindersGrid", "label": "Ready reminders: grid placement"},
     {"key": "targetTracker", "label": "Target Tracker"},
     {"key": "ttMissingWarning", "label": "Target Tracker: Missing Warning"},
-    {"key": "ttEveryNameplate", "label": "Target Tracker: Every Nameplate"}
+    {"key": "ttEveryNameplate", "label": "Target Tracker: Every Nameplate"},
+    {"key": "totemRows", "label": "Totem Rows on"},
+    {"key": "totemRowsBarHidden", "label": "Totem Rows: bar hidden"},
+    {"key": "nextShock", "label": "Target Tracker: Next Shock"}
   ]
 }
