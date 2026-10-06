@@ -2012,12 +2012,24 @@ do
 		return tex
 	end
 
+	-- the spots the strip has: one per member of your party (party1-4 are always filled
+	-- in order), so it grows and shrinks as people join and leave; a preview has four
+	local function Members(f)
+		if f.demo then return 4 end
+		local n = 0
+		for i = 1, 4 do if SafeExists(PARTY[i]) then n = i end end
+		return n
+	end
+
 	local function Layout(f)
 		local o = Opts()
 		local names, showIcon, column = o.showNames == true, o.showIcon == true, o.layout == "column"
+		local n = Members(f)
+		f.members = n
 		local nameW = {}
 		for i = 1, 4 do
 			local c = f.spots[i]
+			c:SetShown(i <= n)
 			c.name:SetShown(names)
 			nameW[i] = 0
 			if names then
@@ -2033,7 +2045,7 @@ do
 		if column then
 			local top = PAD + (showIcon and (ICON + 4) or 0)
 			local widest = 0
-			for i = 1, 4 do
+			for i = 1, n do
 				local c = f.spots[i]
 				local cw = MARK + ((names and nameW[i] > 0) and (NAME_GAP + nameW[i]) or 0)
 				widest = math.max(widest, cw)
@@ -2043,7 +2055,7 @@ do
 			end
 			if showIcon then f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD) end
 			w = math.max(PAD * 2 + widest, showIcon and (PAD * 2 + ICON) or 0)
-			h = top + 4 * rowH + 3 * ROW_GAP + PAD
+			h = top + (n > 0 and (n * rowH + (n - 1) * ROW_GAP) or 0) + PAD
 		else
 			local inner = math.max(MARK, showIcon and ICON or 0, names and (NAME_PX + 2) or 0)
 			local x = PAD
@@ -2051,15 +2063,16 @@ do
 				f.icon:SetPoint("LEFT", f, "TOPLEFT", PAD, -(PAD + inner / 2))
 				x = x + ICON + ICON_GAP
 			end
-			for i = 1, 4 do
+			for i = 1, n do
 				local c = f.spots[i]
 				local cw = MARK + ((names and nameW[i] > 0) and (NAME_GAP + nameW[i]) or 0)
 				c:SetSize(cw, rowH)
 				c:ClearAllPoints()
 				c:SetPoint("LEFT", f, "TOPLEFT", x, -(PAD + inner / 2))
 				x = x + cw
-				if i < 4 then x = x + (names and GAP_NAMES or GAP) end
+				if i < n then x = x + (names and GAP_NAMES or GAP) end
 			end
+			if n == 0 and showIcon then x = x - ICON_GAP end
 			w = x + PAD
 			h = inner + PAD * 2
 		end
@@ -2071,8 +2084,9 @@ do
 	end
 
 	-- -------------------------------------------------------------------------
-	-- The game's displays (WoW: Forever): one per spot, member or not (one who
-	-- joins in a fight then shows at once), keyed so only what changed is rebuilt
+	-- The game's displays (WoW: Forever): one per spot, member or not (a spot
+	-- shows only while someone is in it: one who joins in a fight shows when it
+	-- ends, with the layout), keyed so only what changed is rebuilt
 	-- -------------------------------------------------------------------------
 	local function BuildSlot(c, unit, ids, r, g, b)
 		local m = c.mark
