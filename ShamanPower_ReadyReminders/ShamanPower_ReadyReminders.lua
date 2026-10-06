@@ -1571,7 +1571,9 @@ function Buff.Layout(entry)
 		return
 	end
 	if IS_MAINLINE and Buff.engine == nil and not InCombatLockdown() then Buff.Engine() end
-	if Buff.Locked() then Buff.dirty = true return end
+	-- a fight: it all waits. The game hiding auras out of a fight: a container already made
+	-- waits to be painted again, but a new one is made now (as Compact's shield line does)
+	if Buff.Locked() and (InCombatLockdown() or (B and B.c)) then Buff.dirty = true return end
 	B = B or Buff.Make(entry)
 	local f = frames[entry.key] or SP:CreateReadyReminderFrame(entry)
 	local h = B.frame
