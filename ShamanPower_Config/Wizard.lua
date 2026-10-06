@@ -3727,6 +3727,8 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1, mark = "cdbarCueShieldMark" },
 			-- Running Out (its last seconds): a loop on the shield chip, captioned over it
 			{ btn = shield, cap = "Running out", capAbove = true, on = "cdbarCueRunning", style = "cdbarCueRunningStyle", def = "red", kind = "running", loop = true },
+			-- Turns Red While Missing: the imbue chip red, captioned over it
+			{ btn = imbue, cap = "Missing", capAbove = true, on = "cdbarCueMissing", def = "red", kind = "running", loop = true },
 			-- Cooldown Almost Ready: a loop in gold on another cooldown (the first one shown plays Ready)
 			{ pick = cdsAlmost, cap = "Almost ready", on = "cdbarCueAlmost", style = "cdbarCueAlmostStyle", def = "glow", kind = "almost", loop = true },
 		})

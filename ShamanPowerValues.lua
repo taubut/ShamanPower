@@ -172,6 +172,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueShieldStyle = "shake",
         cdbarCueImbueMark = false,          -- Red X Until You Imbue Again (with Weapon Imbue Gone)
         cdbarCueShieldMark = false,         -- Red X Until You Cast a Shield Again (with Shield Gone)
+        cdbarCueMissing = false,            -- Turns Red While Missing: a shield / imbue that is gone, red until recast
         -- The cooldown bar's "running out" moment (ShamanPowerCues.lua), one setting each, shown on
         -- Cooldown Bar > Display AND > Effects: a shield or imbue in its last N seconds (a shield also on
         -- its last charge), a cooldown in its last N seconds (0: only once it is ready)

@@ -11531,6 +11531,10 @@ do
 			disabled = function() return not SP.opt.cdbarCueShield end,
 			get = function() return SP.opt.cdbarCueShieldMark and true or false end,
 			set = function(_, v) SP.opt.cdbarCueShieldMark = v and true or false; apply() end },
+		-- Turns Red While Missing: a shield or imbue that is gone, red until you cast it again
+		cdbarCueMissing = toggle(2.67, "cdbarCueMissing", "Turns Red While Missing",
+			"While your shield or a weapon imbue is gone, its button turns red until you cast it again (with two weapons: either hand)."
+				.. (mainline and " In a fight on WoW: Forever the shield's red sits under the game's shield icon, so it shows the moment the icon goes (at 100% Cooldown Bar opacity)." or "")),
 		-- Running Out: the button that is running out (its last seconds) plays a look until you cast it again
 		cdbarCueRunning = toggle(2.7, "cdbarCueRunning", "Running Out",
 			"Over the last moments of your shield or weapon imbue" .. (mainline and "" or " (and your Earth Shield)")
@@ -11558,7 +11562,8 @@ do
 				.. " that turns red, the time stays white so you can read it."),
 		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
 			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button"
-				.. " Shield Gone, in the styles chosen above. Running Out and Cooldown Almost Ready play for 3 seconds.",
+				.. " Shield Gone, in the styles chosen above. Running Out and Cooldown Almost Ready play for 3 seconds,"
+				.. " then Turns Red While Missing for 3 more when it is on.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
 	-- Cooldown Bar > Display: Show Items Only When Running Out, under its own heading

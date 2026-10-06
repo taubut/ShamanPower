@@ -120,6 +120,7 @@
     {"key": "cueRunningOut", "label": "Effect: running out"},
     {"key": "cueTimeRed", "label": "Effect: time turns red"},
     {"key": "cueAlmostReady", "label": "Effect: cooldown almost ready"},
-    {"key": "cueRedXCooldownBar", "label": "Effect: red X on imbue / shield"}
+    {"key": "cueRedXCooldownBar", "label": "Effect: red X on imbue / shield"},
+    {"key": "cueMissingRed", "label": "Effect: red while shield / imbue missing"}
   ]
 }
