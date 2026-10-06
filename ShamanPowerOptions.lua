@@ -9434,7 +9434,10 @@ ShamanPower.options = {
 						totemplates_desc = {
 							order = 0,
 							type = "description",
-							name = "Replace totem nameplates with icons to recognize them quickly in PvP and raids.\n\nTurn on |cff00ff00ShamanPower [Totem Plates]|r in the AddOns list to use this feature.\n",
+							-- WoW: Forever hides which totem is which inside dungeons and raids
+							name = (SPCompat.FOREVER and "Replace totem nameplates with icons to recognize them quickly."
+								or "Replace totem nameplates with icons to recognize them quickly in PvP and raids.")
+								.. "\n\nTurn on |cff00ff00ShamanPower [Totem Plates]|r in the AddOns list to use this feature.\n",
 						},
 						totemplates_enabled = {
 							order = 1,
@@ -9454,7 +9457,9 @@ ShamanPower.options = {
 						totemplates_show_enemy = {
 							order = 2,
 							name = "Show Enemy Totems",
-							desc = "Replace enemy totem nameplates with icons",
+							desc = SPCompat.FOREVER
+								and "Replace enemy totem nameplates with icons. |cffffa040Inside dungeons and raids the game hides which totem is which, so no icons show there.|r"
+								or "Replace enemy totem nameplates with icons",
 							type = "toggle",
 							width = 1.0,
 							disabled = function() return not (ShamanPower.opt.totemPlates and ShamanPower.opt.totemPlates.enabled) end,
@@ -9469,7 +9474,9 @@ ShamanPower.options = {
 						totemplates_show_friendly = {
 							order = 3,
 							name = "Show Friendly Totems",
-							desc = "Replace friendly totem nameplates with icons. |cffffa040Friendly totem icons do not work inside dungeons and raids. Enemy totem icons work everywhere.|r",
+							desc = SPCompat.FOREVER
+								and "Replace friendly totem nameplates with icons. Needs WoW's friendly nameplates turned on (Shift+V). |cffffa040Inside dungeons and raids the game hides which totem is which, so no totem icons show there, enemy or friendly.|r"
+								or "Replace friendly totem nameplates with icons. Needs WoW's friendly nameplates turned on (Shift+V). |cffffa040Friendly totem icons do not work inside dungeons and raids. Enemy totem icons work everywhere.|r",
 							type = "toggle",
 							width = 1.0,
 							disabled = function() return not (ShamanPower.opt.totemPlates and ShamanPower.opt.totemPlates.enabled) end,

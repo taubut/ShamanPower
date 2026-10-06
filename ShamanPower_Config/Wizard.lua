@@ -500,13 +500,15 @@ local STEPS = {
 	    "The opposite of Party Buff Tracker, which is about YOUR totems reaching THEM.",
 	  } },
 	{ id = "totemplates", title = "Totem Plates", roles = EVERYONE, module = "ShamanPower_TotemPlates", flag = "TotemPlatesLoaded", build = "BuildTotemPlatesStep",
-	  desc = "Replaces the tiny nameplate on every totem with a big icon, so you can see exactly which totem that is - and kill the right one.",
+	  desc = "Replaces the tiny nameplate on a totem with a big icon, so you can see exactly which totem that is - and kill the right one.",
 	  bullets = {
 	    "Red border for enemy totems, green for friendly. Optional name under the icon.",
 	    "Pulsing totems get a countdown to their next tick: text, bar, or swipe.",
-	    (SPCompat and SPCompat.secretsRegime)
-	      and "|cffFFB000Friendly totems do not show inside dungeons and raids|r - the game keeps friendly nameplates away from addons there. Enemy totems work everywhere."
+	    -- WoW: Forever hides which totem is which on instanced maps (enemy totems too)
+	    (SPCompat and SPCompat.FOREVER)
+	      and "|cffFFB000Inside dungeons and raids the game hides which totem is which|r, so no icons show there, enemy or friendly: you see WoW's own nameplates instead."
 	      or "|cffFFB000Friendly totems do NOT show inside dungeons or raids|r (the game hides those nameplates there). Enemy totems work everywhere.",
+	    "Friendly totems (yours too) need WoW's friendly nameplates turned on (Shift+V) to get an icon.",
 	  },
 	  toggles = { { label = "Enable Totem Plates", bind = "totemplates" } } },
 	{ id = "position", title = "Position", roles = EVERYONE,
@@ -4015,9 +4017,9 @@ function SP.Wizard.BuildTotemPlatesStep(card, inner, y)
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.totemPlatesDemoActive then SP:TotemPlatesDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", false) end
 	row("Toggle", { label = "Enemy totems", disabled = off, get = function() return get("showEnemy", true) ~= false end, set = function(v) tp().showEnemy = v; upd() end })
-	row("Toggle", { label = "Friendly totems", desc = (SPCompat and SPCompat.secretsRegime)
-			and "Works in the open world and battlegrounds. Not inside dungeons and raids: the game keeps friendly nameplates away from addons there. Enemy totems work everywhere."
-			or "Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
+	row("Toggle", { label = "Friendly totems", desc = (SPCompat and SPCompat.FOREVER)
+			and "Needs WoW's friendly nameplates turned on (Shift+V). Works in the open world. Inside dungeons and raids the game hides which totem is which, so no totem icons show there, enemy or friendly."
+			or "Needs WoW's friendly nameplates turned on (Shift+V). Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
 		disabled = off, get = function() return get("showFriendly", true) ~= false end, set = function(v) tp().showFriendly = v; upd() end })
 	row("Slider", { label = "Icon size", min = 20, max = 80, step = 2, disabled = off, get = function() return get("iconSize", 40) end, set = function(v) tp().iconSize = v; upd("UpdateTotemPlatesSize") end })
 	row("Slider", { label = "Opacity", min = 0.3, max = 1.0, step = 0.1, disabled = off, get = function() return get("alpha", 0.9) end, set = function(v) tp().alpha = v; upd() end })
