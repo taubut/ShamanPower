@@ -1036,16 +1036,17 @@ local function Coverage()
 	end
 end
 
--- the Party Strip's totem icon, in the element of the buff it watches (that can change)
+-- the Party Strip's totem icons: one per totem line, on every strip (Break Up Totem
+-- List), each in its own totem's element (a line is one totem's for good)
 local function PartyStrip()
-	local f = SP.partyStrip
-	local icon = f and rawget(f, "icon")
-	if not icon then return end
-	local key = SP.PartyStripBuff and SP:PartyStripBuff()
-	local element = type(key) == "string" and tonumber(key:match("^(%d+)")) or nil
-	if element and (element < 1 or element > 4) then element = nil end
-	local s = SkinSpot(icon, "mod.partystrip-box", element, true)
-	if s then s.element = element end
+	for _, f in ipairs(SP.partyStripFrames or EMPTY) do
+		for _, line in ipairs(rawget(f, "lineList") or EMPTY) do
+			local element = line.element
+			if element and (element < 1 or element > 4) then element = nil end
+			local s = line.icon and SkinSpot(line.icon, "mod.partystrip-box", element, true)
+			if s then s.element = element end
+		end
+	end
 end
 
 local function RangeTracker()

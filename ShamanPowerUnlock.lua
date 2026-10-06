@@ -611,8 +611,10 @@ local FX = {
 	tremor         = { page = { "fluffy", "tremorreminder_section" }, size = { node = "tremor_icon_size" },    opacity = { node = "tremor_opacity" } },
 	partyrange     = { page = { "fluffy", "partybuff_section" },      size = { node = "partybuff_scale" },     opacity = { node = "partybuff_opacity" } },
 	coverage       = { page = { "fluffy", "coverage_section" },       size = { node = "coverage_icon_size" },  opacity = { node = "coverage_opacity" } },
-	-- the Party Strip: Ctrl + wheel is its Background Opacity (its markers always stay fully visible)
-	partystrip     = { page = { "fluffy", "partystrip_section" },     size = { node = "partystrip_size" },     opacity = { node = "partystrip_opacity" } },
+	-- the Party Strip: Ctrl + wheel is its Background Opacity (its markers always stay fully visible);
+	-- with Break Up Totem List the wheel is that strip's own Size (SP:PartyStripBoxAccess)
+	partystrip     = { page = { "fluffy", "partystrip_section" },     opacity = { node = "partystrip_opacity" },
+		size = { node = "partystrip_size", byFrame = function(fr) if SP.PartyStripBoxAccess then return SP:PartyStripBoxAccess(fr) end end } },
 	loadoutbar     = { page = { "fluffy", "loadoutbar_section" },     size = { node = "loadoutbar_scale" },    opacity = { node = "loadoutbar_opacity" } },
 	sprange        = { page = { "fluffy", "sprange_section" },        size = { node = "sprange_icon_size" },   opacity = { node = "sprange_opacity" } },
 	raidcd         = { page = { "fluffy", "raid_cd_section" },        size = { node = "raidCDButtonScale" },   opacity = { node = "raidCDButtonOpacity" } },
@@ -686,6 +688,15 @@ local function Access(spec)
 		local fr = e and e.frame
 		if not (fr and SP.ReadyReminderBoxAccess) then return nil end
 		return SP:ReadyReminderBoxAccess(spec.rr, fr)
+	end
+	-- a box whose frame has a size of its own (a broken-up Party Strip); else the slider below
+	if spec.byFrame then
+		local e = accessMover and shown[accessMover.key]
+		local fr = e and e.frame
+		if fr then
+			local get, set, lo, hi, step, pct = spec.byFrame(fr)
+			if get then return get, set, lo, hi, step, pct end
+		end
 	end
 	local node = spec._node
 	if node == nil then node = FindOption(spec.node, spec.under) or false; spec._node = node end

@@ -257,6 +257,15 @@ SP.SHARE_FEATURES = {
 		return (on(O().cdbarCueImbue) and on(O().cdbarCueImbueMark)) or (on(O().cdbarCueShield) and on(O().cdbarCueShieldMark))
 	end },
 	{ key = "cueMissingRed",      label = "Effect: red while shield / imbue missing", get = function() return on(O().cdbarCueMissing) end },
+	-- 3.0.8: the Party Strip broken up (Break Up Totem List: each picked totem a strip of its own)
+	{ key = "partyStripBreakUp",  label = "Party strip: broken up per totem",    get = function()
+		local ps = O().partyStrip
+		if not (on(sub(ps, "enabled")) and on(sub(ps, "breakUp"))) then return false end
+		local picked, n = sub(ps, "totems"), 0
+		if type(picked) ~= "table" then return false end   -- (still the one old Buff to Watch)
+		for _, v in pairs(picked) do if v == true then n = n + 1 end end
+		return n > 1
+	end },
 }
 
 -- ---------------------------------------------------------------------------
