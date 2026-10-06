@@ -625,10 +625,10 @@ local BUFF_TIPS = {
 }
 
 -- Show: Never (Ready Flash only): the icon is never on screen, so the buff can only show In
--- Its Own Spot: the corner and the sides next to the icon are left out of the choices, as
--- Fade Instead of Hide is. A look that cannot show then (one saved before, or the edge, which
--- needs the icon) gets a plain line saying why nothing shows.
-local BUFF_NEVER_HIDES = { corner = true, above = true, below = true, left = true, right = true }
+-- Its Own Spot: the corner, the edge (it needs the icon) and the sides next to the icon are
+-- left out of the choices, as Fade Instead of Hide is. A look saved before that cannot show
+-- then gets a plain line saying why nothing shows.
+local BUFF_NEVER_HIDES = { corner = true, edge = true, above = true, below = true, left = true, right = true }
 local function NeverChoices(list, cur)
 	local out = {}
 	for _, c in ipairs(list) do
