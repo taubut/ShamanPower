@@ -524,6 +524,7 @@ end
 local function SliderPaintFill(row, v)
 	local minV, maxV = row.min, row.max
 	local pct = (maxV > minV) and ((v - minV) / (maxV - minV)) or 0
+	pct = math.min(1, math.max(0, pct))   -- a value past the ends (set some other way) stops at the track's end
 	row.fill:SetWidth(math.max(1, SLIDER_W * pct))
 end
 
