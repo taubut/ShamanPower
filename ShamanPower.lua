@@ -17309,6 +17309,28 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 	)
 end
 
+-- The assignment window's right-click with Right-Click an Assignment = Clear Assignment
+-- (Totem Bar > Clicks): that element is left with no totem, through the cycle's own
+-- update path (your bar and macros now, the group's copy 2 s later). Callers check
+-- combat and permission first, as for a cycle. An element already empty is left alone.
+function ShamanPower:PerformClearAssignment(name, class)
+	if not name or not class then return end
+	local current = ShamanPower_Assignments[name] and ShamanPower_Assignments[name][class]
+	if not current or current == 0 then return end
+	ShamanPower_Assignments[name][class] = 0
+	if name == self.player and class >= 1 and class <= 4 then
+		self:UpdateMiniTotemBar()
+		self:UpdateDropAllButton()
+		self:UpdateSPMacros()
+	end
+	local msgQueue
+	msgQueue = C_Timer.NewTimer(2.0, function()
+		self:SendMessage("ASSIGN " .. name .. " " .. class .. " " .. ShamanPower_Assignments[name][class])
+		self:UpdateLayout()
+		msgQueue:Cancel()
+	end)
+end
+
 function ShamanPower:ScanTalents()
 	-- classic talent API only; modern clients use trait trees (no equivalent yet)
 	if not GetNumTalentTabs or not GetNumTalents or not GetTalentInfo then return end

@@ -210,6 +210,8 @@ SP.SHARE_FEATURES = {
 	{ key = "reactiveKeybinds",   label = "Reactive alerts show keybinds",       get = function()
 		return on(sub(G("ShamanPower_ReactiveTotems"), "enabled")) and on(sub(G("ShamanPower_ReactiveTotems"), "showSpellKeybind"))
 	end },
+	-- 3.0.8: Totem Bar > Clicks > Right-Click an Assignment = Clear Assignment
+	{ key = "assignRightClickClears", label = "Assignment window: right-click clears", get = function() return O().assignRightClick == "clear" end },
 }
 
 -- ---------------------------------------------------------------------------

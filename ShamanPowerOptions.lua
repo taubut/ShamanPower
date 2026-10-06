@@ -11608,6 +11608,18 @@ do
 	})
 	settings.settings_totemClicks.args.layout_desc.name =
 		"Choose how bar buttons and flyout menus respond to clicks and keys."
+	-- 3.0.8: the Totem Assignments window's right-click (GitHub #5)
+	settings.settings_totemClicks.args.assign_right_click = {
+		type = "select", width = 1.5,
+		name = "Right-Click an Assignment",
+		desc = "What a right-click on a totem in the Totem Assignments window does. Previous Totem: it changes to the totem"
+			.. " before it, as always. Clear Assignment: that element is left with no totem. Left-click and the mouse wheel"
+			.. " still step through the totems both ways.",
+		values = { previous = "Previous Totem", clear = "Clear Assignment" },
+		sorting = { "previous", "clear" },
+		get = function() return SP.opt.assignRightClick == "clear" and "clear" or "previous" end,
+		set = function(_, value) SP.opt.assignRightClick = (value == "clear") and "clear" or "previous" end,
+	}
 	SP.OrderSettingsBands(settings.settings_totemClicks, {
 		{ keys = { "layout_desc" } },
 		{ header = "button_header", name = "Bar Buttons", keys = {
@@ -11617,6 +11629,7 @@ do
 			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "flyout_arrow_only", "flyout_single_open",
 			"flyout_close_on_cast", "flyout_route_bar_keys",
 		} },
+		{ header = "assign_window_header", name = "Assignment Window", keys = { "assign_right_click" } },
 	})
 	SP.OrderSettingsBands(settings.settings_totemTwisting, {
 		{ keys = { "enableTwisting", "twistTotemSelect" } },

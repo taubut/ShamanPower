@@ -197,6 +197,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
         activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
         rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
+        assignRightClick = "previous",    -- Totem Assignments window, right-click on a totem: "previous" (the totem before it) | "clear" (no totem)
         activeOverlayDirection = "auto",
         esFlyoutRoles = {},               -- ES flyout filter: show only these group roles (TANK/HEALER/DAMAGER); empty = everyone
         esFlyoutClasses = {},             -- ES flyout filter: show only these classes (WARRIOR, ...); combined with roles as OR  -- Dropped-totem indicator: "auto" (above, or flyout side on vertical bars), "above", "below", "left", "right"
