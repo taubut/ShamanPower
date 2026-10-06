@@ -11576,7 +11576,7 @@ do
 		d.cdbarRunOutOnly = { order = 90.1, type = "toggle", width = "full", name = "Show Items Only When Running Out",
 			desc = "Shields, weapon imbues and cooldowns stay out of sight until they are running out, then come up with their time left."
 				.. " A shield or imbue that is gone stays up until you cast it again. Hidden items keep their spots, so nothing on the bar moves;"
-				.. " in a fight a click on a hidden item's spot still casts it."
+				.. " in a fight a click on a hidden item's spot still casts it. With the Grid style the shield and imbue stay up (every choice is laid out beside them)."
 				.. (mainline and " On WoW: Forever your shield stays on the bar during a fight: the game doesn't tell addons when it runs out there." or ""),
 			get = function() return SP.opt.cdbarRunOutOnly and true or false end,
 			set = function(_, v) SP.opt.cdbarRunOutOnly = v and true or false; apply() end }

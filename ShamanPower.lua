@@ -7830,6 +7830,9 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		local open = spFlyoutMakeArrow("ShamanPowerFlyoutOpen" .. element, totemButton, box, "player")
 		local close = spFlyoutMakeArrow("ShamanPowerFlyoutClose" .. element, box, box, "none")
 		open.spOwner, close.spOwner = totemButton, totemButton
+		-- (a tab reused by name from a rebuilt bar: its mouse as its button's now, Show Items Only
+		-- When Running Out takes it away with a hidden cooldown bar button: ShamanPowerCues.lua)
+		open:EnableMouse(not totemButton._roMouseOff)
 		-- Invisible press targets for macros (short names keep every macro far
 		-- below the length limit). Per flyout key K:
 		--   SPFO<K> / SPFC<K>  attribute: open / close the box
@@ -11673,10 +11676,11 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					local carrier = CreateFrame("Frame", nil, button)
 					carrier:SetAllPoints(button)
 					-- the count and the time on a frame of their own, over the button's effects (its cue
-					-- frame, +14): a running-out look over the game's icon keeps them sharp on top
+					-- frame, +14, and its parts up to +17): a running-out look over the game's icon keeps
+					-- them sharp on top
 					local texts = CreateFrame("Frame", nil, button)
 					texts:SetAllPoints(button)
-					texts:SetFrameLevel(btn:GetFrameLevel() + 15)
+					texts:SetFrameLevel(btn:GetFrameLevel() + 18)   -- (over the cue frame's own parts too)
 					local count = texts:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
 					local strip = opt.cdbarShieldChargeBar and btn.chargeStrip

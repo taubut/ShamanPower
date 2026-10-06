@@ -254,13 +254,20 @@ end
 -- cooldown bar's shield in a fight on WoW: Forever): the wash goes over it, on the
 -- cue frame. The same in every Effects Look. Built the first time, then only shown
 -- and hidden.
--- which bar's Icon Shape a button follows (nil: none of ours, e.g. the Earth Shield button)
+-- which bar's Icon Shape a button follows, and the icon it shapes (nil: none)
 local function shapeKind(host)
-	if host.spShapeKind then return host.spShapeKind end
-	if not host.icon then return nil end
-	if host.spellType then return "cooldown" end
-	if host.element then return "totem" end
-	return nil
+	local icon = host.icon
+	if not icon and host.GetName and host:GetName() == "ShamanPowerEarthShieldBtn" then
+		return "totem", _G.ShamanPowerEarthShieldBtnIcon   -- (its template icon has no .icon key)
+	end
+	if not icon then return nil end
+	if host.spShapeKind then return host.spShapeKind, icon end
+	if host.spellType then return "cooldown", icon end
+	return "totem", icon   -- (totem buttons, Totem Rows' buttons)
+end
+-- whether a bar's icons are masked to a shape (Flat is still square)
+local function shaped(kind)
+	return kind and SP.IconShapeOf and SP.IconShapeMaskFile and SP:IconShapeMaskFile(SP:IconShapeOf(kind)) ~= nil or false
 end
 local function redParts(host)
 	local r = host.spRed
@@ -302,9 +309,10 @@ local function redParts(host)
 	edge:Hide()
 	r.edge = edge
 	-- Icon Shape (Rounded / Circle): the red takes the icon's shape
-	r.kind = shapeKind(host)
-	if r.kind and SP.ShapeIconTexture then
-		for _, t in ipairs({ r.tint, r.wash, r.top, r.high }) do SP:ShapeIconTexture(t, host.icon, r.kind) end
+	local icon
+	r.kind, icon = shapeKind(host)
+	if r.kind and icon and SP.ShapeIconTexture then
+		for _, t in ipairs({ r.tint, r.wash, r.top, r.high }) do SP:ShapeIconTexture(t, icon, r.kind) end
 	end
 	host.spRed = r
 	return r
@@ -320,7 +328,7 @@ local function redOn(host, where)
 	r.top:SetShown(top)
 	r.high:SetShown(high)
 	-- the thin red edge is square: none round a shaped icon
-	r.edge:SetShown(not (r.kind and SP.IconShapeOf and SP:IconShapeOf(r.kind)))
+	r.edge:SetShown(not shaped(r.kind))
 end
 local function redOff(host)
 	local r = host.spRed
@@ -856,7 +864,7 @@ local function missingRed(btn, on)
 				SP:ShapeIconTexture(m.red, btn.icon, "cooldown")
 			end
 			m.red:Show()
-			m.redEdge:SetShown(not (SP.IconShapeOf and SP:IconShapeOf("cooldown")))
+			m.redEdge:SetShown(not shaped("cooldown"))
 		end
 	elseif m and m.redOn then
 		m.redOn = nil
