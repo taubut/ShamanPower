@@ -1256,6 +1256,8 @@ function ShamanPower:OnEnable()
 	self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
+	-- the game starts every /castsequence over on death: Drop All's icon follows it
+	self:RegisterEvent("PLAYER_DEAD", "OnDropAllSequenceReset")
 	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
 	if SPCompat and SPCompat.OnUnrestricted then
 		SPCompat.OnUnrestricted(function()
@@ -1324,7 +1326,10 @@ function ShamanPower:OnCombatEnd()
 	end
 	-- Force rebuild of the Drop All macro to reset the castsequence
 	self.dropAllLastMacro = ""
+	self.dropAllCurrentElement = 1   -- reset=combat: the game starts the sequence over now too
 	self:UpdateDropAllButton()
+	-- the game's own manager starts the sequence over on this same event; read it next frame
+	C_Timer.After(0, self.DropAllRefresh)
 	-- Deferred cooldown bar visibility update if blocked during combat
 	if self.cdbarVisibilityPending then
 		self.cdbarVisibilityPending = false
@@ -17022,18 +17027,16 @@ function ShamanPower:UpdateDropAllButton()
 	end
 
 	-- Build the macro text to check if it changed
-	local macroText = ""
+	local sequenceText, macroText = nil, ""
 	if #totemSpells > 0 then
-		macroText = "/castsequence reset=combat/15 " .. table.concat(totemSpells, ", ")
+		sequenceText = "reset=combat/15 " .. table.concat(totemSpells, ", ")
+		macroText = "/castsequence " .. sequenceText
 	end
 
 	-- Only update sequence and macro if the spell list actually changed
 	if macroText ~= self.dropAllLastMacro then
 		-- Update the cached sequence
 		self.dropAllSequence = newSequence
-
-		-- Reset to first element when sequence changes
-		self.dropAllCurrentElement = 1
 
 		-- Set up as a castsequence macro (only outside combat)
 		if not InCombatLockdown() then
@@ -17046,6 +17049,8 @@ function ShamanPower:UpdateDropAllButton()
 				dropAllBtn:SetAttribute("macrotext", nil)
 			end
 			self.dropAllLastMacro = macroText
+			-- what the button now really casts: its icon follows this sequence
+			self:SetDropAllLiveSequence(newSequence, sequenceText)
 		end
 	end
 
@@ -17061,6 +17066,58 @@ function ShamanPower:UpdateDropAllButton()
 	self:UpdateDropAllIcon()
 end
 
+-- The sequence the button's /castsequence really runs (written with its macro text,
+-- out of combat; a fight keeps the old one until it ends) and the name the game's
+-- cast-sequence manager files it under: the text after /castsequence, as the game's
+-- own option parser hands it over.
+function ShamanPower:SetDropAllLiveSequence(seq, sequenceText)
+	local key = sequenceText
+	if key and type(SecureCmdOptionParse) == "function" then
+		local ok, parsed = pcall(SecureCmdOptionParse, key)
+		if ok and type(parsed) == "string" and parsed ~= "" then key = parsed end
+	end
+	if key ~= self.dropAllSequenceKey then self.dropAllCurrentElement = 1 end   -- a new sequence starts at its first totem
+	self.dropAllLiveSequence = key and seq or nil
+	self.dropAllSequenceKey = key
+end
+
+-- Which step the Drop All button casts next (0 = none) and the sequence it is in.
+-- The game's own cast-sequence manager runs the button: a step moves on only once
+-- its totem's cast went through (a press during the global cooldown changes
+-- nothing), and the sequence starts over after its last totem, when a fight ends,
+-- 15 seconds after its last press, and on death. QueryCastSequence (both clients)
+-- asks that manager; without it, the count kept from your own casts stands in.
+function ShamanPower:DropAllStep()
+	local seq = self.dropAllLiveSequence or self.dropAllSequence
+	local n = #seq
+	if n == 0 then return 0, seq end
+	local key, query = self.dropAllSequenceKey, QueryCastSequence
+	if key and type(query) == "function" and not self._dropAllQueryBroken then
+		local ok, index = pcall(query, key)
+		if ok and type(index) == "number" and not issecretvalue(index) and index >= 1 and index <= n then
+			if index > 1 then self._dropAllQueryProven = true end
+			-- a press just dropped the first totem, so the game's sequence has moved on: still
+			-- step 1 twice means it is not found by this name. Then the count stands in.
+			if self._dropAllQueryCheck then
+				self._dropAllQueryCheck = nil
+				if index == 1 and not self._dropAllQueryProven then
+					self._dropAllQueryMisses = (self._dropAllQueryMisses or 0) + 1
+					if self._dropAllQueryMisses >= 2 then self._dropAllQueryBroken = true end
+				end
+			end
+			if not self._dropAllQueryBroken then return index, seq end
+		end
+	end
+	local i = self.dropAllCurrentElement or 1
+	if i < 1 or i > n then i = 1 end
+	return i, seq
+end
+
+-- How long the button's sequence waits after a press before it starts over (its reset=)
+function ShamanPower:DropAllResetSeconds()
+	return tonumber(((self.dropAllSequenceKey or ""):match("^reset=[^%s]-(%d+)"))) or 15
+end
+
 -- Update just the icon (can be called in combat)
 function ShamanPower:UpdateDropAllIcon()
 	if self.dropAllTotemSetsActive then return end   -- totem sets own the icon
@@ -17070,9 +17127,10 @@ function ShamanPower:UpdateDropAllIcon()
 	local iconTexture = dropAllBtn.icon or _G["ShamanPowerAutoDropAllIcon"]
 	if not iconTexture then return end
 
-	-- Show the icon of the current totem in the sequence (rotating)
-	if #self.dropAllSequence > 0 and self.dropAllCurrentElement <= #self.dropAllSequence then
-		local current = self.dropAllSequence[self.dropAllCurrentElement]
+	-- Show the icon of the totem the button casts next
+	local step, seq = self:DropAllStep()
+	if step > 0 then
+		local current = seq[step]
 		if current and current.icon then
 			iconTexture:SetTexture(current.icon)
 		end
@@ -17081,22 +17139,65 @@ function ShamanPower:UpdateDropAllIcon()
 		iconTexture:SetTexture(136024)
 	end
 end
+function ShamanPower.DropAllRefresh() ShamanPower:UpdateDropAllIcon() end
 
--- Called after clicking to advance to the next totem
-function ShamanPower:AdvanceDropAllTotem(button, mouseButton, down)
-	-- Only advance on mouse-up, not mouse-down (button fires both events)
-	if down then return end
+-- The button's PostClick (ShamanPower_TBC.xml). A press no longer moves the icon on:
+-- presses during the global cooldown ran it ahead of the totems really dropped. It
+-- only restarts the sequence's reset clock; the icon moves when a totem's cast goes
+-- through (DropAllOwnCast). The secure click itself is untouched.
+function ShamanPower:DropAllPressed(button, mouseButton, down)
+	if down then return end   -- the button fires on both the press and the release: once per click
+	if self.dropAllTotemSetsActive or not self.dropAllLiveSequence then return end
+	self._dropAllPressAt = GetTime()
+	self:DropAllActive()
+end
 
-	if #self.dropAllSequence == 0 then return end
-
-	-- Advance to next totem in sequence
-	self.dropAllCurrentElement = self.dropAllCurrentElement + 1
-	if self.dropAllCurrentElement > #self.dropAllSequence then
-		self.dropAllCurrentElement = 1  -- Wrap around
+-- Your own spell went through. A Drop All totem: the icon reads the sequence again
+-- next frame (the game's manager moves on in its own handler for this same event),
+-- and the stand-in count moves on when it was that step's totem.
+function ShamanPower:DropAllOwnCast(spellID)
+	if self.dropAllTotemSetsActive then return end
+	local seq = self.dropAllLiveSequence
+	if not seq or #seq == 0 then return end
+	local element = self:TotemCastElement(spellID)
+	if not element then return end
+	local i = self.dropAllCurrentElement or 1
+	if i < 1 or i > #seq then i = 1 end
+	if seq[i].element == element then self.dropAllCurrentElement = (i < #seq) and (i + 1) or 1 end
+	-- the first totem, dropped by a press: the next read must find the game's sequence past step 1
+	if not self._dropAllQueryProven and #seq >= 2 and seq[1].element == element
+		and self._dropAllPressAt and GetTime() - self._dropAllPressAt < 2 then
+		self._dropAllQueryCheck = true
 	end
+	self:DropAllActive()
+	C_Timer.After(0, self.DropAllRefresh)
+end
 
-	-- Update icon immediately (works in combat)
-	self:UpdateDropAllIcon()
+-- The sequence was just used (a press, or one of its totems cast): one timer reads it
+-- again once its reset time has passed (the game checks that once a second, so 2 more
+-- seconds), and again after the latest use while it keeps being used. Never a loop.
+function ShamanPower:DropAllActive()
+	self._dropAllActiveAt = GetTime()
+	if not self._dropAllResetTimer then
+		self._dropAllResetTimer = C_Timer.NewTimer(self:DropAllResetSeconds() + 2, self.DropAllResetCheck)
+	end
+end
+function ShamanPower.DropAllResetCheck()
+	local self = ShamanPower
+	self._dropAllResetTimer = nil
+	local wait = self:DropAllResetSeconds() + 2 - (GetTime() - (self._dropAllActiveAt or 0))
+	if wait > 0.1 then
+		self._dropAllResetTimer = C_Timer.NewTimer(wait, self.DropAllResetCheck)   -- used since: look again then
+	else
+		self.dropAllCurrentElement = 1   -- the stand-in count starts over with the game's
+	end
+	self:UpdateDropAllIcon()   -- the game's sequence may have started over already (a press long ago)
+end
+
+-- Death starts every /castsequence over (the game's own rule): the icon follows
+function ShamanPower:OnDropAllSequenceReset()
+	self.dropAllCurrentElement = 1
+	C_Timer.After(0, self.DropAllRefresh)
 end
 
 -- Tooltip for drop all button
@@ -17107,22 +17208,21 @@ function ShamanPower:DropAllTooltip(button)
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	GameTooltip:AddLine("Drop All Totems", 1, 0.8, 0)
 
-	-- Show current/next totem
-	if #self.dropAllSequence > 0 and self.dropAllCurrentElement <= #self.dropAllSequence then
-		local current = self.dropAllSequence[self.dropAllCurrentElement]
-		if current then
-			local elementName = self.Elements[current.element] or "Unknown"
-			GameTooltip:AddLine("Next: " .. elementName .. " - " .. current.spellName, 0, 1, 0)
-		end
+	-- Show current/next totem (the step the game's sequence is really on)
+	local step, seq = self:DropAllStep()
+	local current = step > 0 and seq[step]
+	if current then
+		local elementName = self.Elements[current.element] or "Unknown"
+		GameTooltip:AddLine("Next: " .. elementName .. " - " .. current.spellName, 0, 1, 0)
 	end
 
 	GameTooltip:AddLine(" ", 1, 1, 1)
 	GameTooltip:AddLine("Sequence:", 0.7, 0.7, 0.7)
 
 	-- Show all totems in sequence, highlighting current
-	for i, totem in ipairs(self.dropAllSequence) do
+	for i, totem in ipairs(seq) do
 		local elementName = self.Elements[totem.element] or "Unknown"
-		if i == self.dropAllCurrentElement then
+		if i == step then
 			GameTooltip:AddLine("  > " .. elementName .. ": " .. totem.spellName, 0, 1, 0)
 		else
 			GameTooltip:AddLine("    " .. elementName .. ": " .. totem.spellName, 0.7, 0.7, 0.7)
@@ -17130,7 +17230,8 @@ function ShamanPower:DropAllTooltip(button)
 	end
 
 	GameTooltip:AddLine(" ", 1, 1, 1)
-	GameTooltip:AddLine("Resets when combat ends", 0.5, 0.5, 0.5)
+	GameTooltip:AddLine("Starts over after the last totem, when combat ends, or "
+		.. self:DropAllResetSeconds() .. " seconds after your last press", 0.5, 0.5, 0.5, true)
 	if self.opt.enableMiddleClickPopOut ~= false then
 		GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
 	end
@@ -18013,6 +18114,7 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 	if unitTarget == "player" then
 		self:ShadowBuffCast(spellID)
 		self:ShadowShieldCast(unitTarget, spellID)
+		self:DropAllOwnCast(spellID)   -- Drop All's next-totem icon follows the casts, not the presses
 	end
 
 	-- Track Earth Shield casts (event-based tracking, no scanning!)
