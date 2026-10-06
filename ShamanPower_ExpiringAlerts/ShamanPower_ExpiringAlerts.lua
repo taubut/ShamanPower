@@ -1000,9 +1000,21 @@ local function ElementTotemInfo(element)
 	return haveTotem, totemName, startTime, duration, icon, slot
 end
 
+-- The picture on a totem's Destroyed / Expired alert: that totem's own icon, from
+-- ShamanPower's own record of it (on WoW: Forever in a fight that is the spell you
+-- cast, never the slot the game hides). A totem the record does not know shows its
+-- element's picture, which both clients have (Totemic Recall's picture, used here
+-- before, is not in TBC Anniversary at all: its alerts drew no icon).
+local function TotemAlertIcon(icon, element)
+	-- (hidden first: nothing is compared until the value is known to be readable)
+	if not isSecretValue(icon) and icon ~= nil and icon ~= "" and icon ~= 0 then return icon end
+	local icons = ShamanPower.ElementIcons
+	return (icons and icons[element]) or "Interface\\Icons\\INV_Misc_QuestionMark"
+end
+
 -- Every way of saying "a totem was destroyed": the alert (and its sound), a line
 -- in your own chat window, the big centre text, and (opt-in) the group chat.
-function SP:TotemDestroyedAlert(totemName, elementColor, element)
+function SP:TotemDestroyedAlert(totemName, elementColor, element, icon)
 	local t = ShamanPowerExpiringAlertsDB.totems
 	if not t.destroyed or self:IsOff() then return end
 	local stripped = StripRank(totemName or "")
@@ -1012,7 +1024,7 @@ function SP:TotemDestroyedAlert(totemName, elementColor, element)
 	local key = label
 	if stripped == "" then key = element end
 	if Quiet() or (key ~= nil and not Fresh(key)) then return end
-	self:ShowExpiringAlert("totem", label .. " Destroyed!", "Interface\\Icons\\Spell_Shaman_TotemRecall", elementColor)
+	self:ShowExpiringAlert("totem", label .. " Destroyed!", TotemAlertIcon(icon, element), elementColor)
 	if t.destroyedChat ~= false and DEFAULT_CHAT_FRAME then
 		DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cffff5050" .. label .. " destroyed.|r")
 	end
@@ -1064,10 +1076,10 @@ function SP:OnShadowTotemGone(element, entry, why)
 	local color = info and info.color or WHITE
 	if why == "destroyed" then
 		-- the core cannot tell your own right-click destroy from an enemy's
-		if not DestroyedByPlayer(entry.slot) then self:TotemDestroyedAlert(entry.name, color, element) end
+		if not DestroyedByPlayer(entry.slot) then self:TotemDestroyedAlert(entry.name, color, element, entry.icon) end
 	elseif why == "expired" and sv.totems.expired then
 		local text = StripRank(entry.name or "Totem") .. " Expired"
-		Raise("totem", text, "Interface\\Icons\\Spell_Shaman_TotemRecall", color, ExpiredKey(entry.name, element, text))
+		Raise("totem", text, TotemAlertIcon(entry.icon, element), color, ExpiredKey(entry.name, element, text))
 	end
 	if previousState.totems[element] then previousState.totems[element].active = false end
 end
@@ -1079,7 +1091,7 @@ end
 -- slots) is not "destroyed".
 local deferDestroyed = (SPCompat.FOREVER)
 local DESTROYED_BIND_WINDOW = 0.5
-local function ConfirmDestroyed(element, slot, totemName, elementColor)
+local function ConfirmDestroyed(element, slot, totemName, elementColor, icon)
 	local recallAt = ShamanPower._totemRecallAt
 	if recallAt and GetTime() - recallAt < 2 then return end
 	if DestroyedByPlayer(slot) then return end
@@ -1090,34 +1102,35 @@ local function ConfirmDestroyed(element, slot, totemName, elementColor)
 	-- that look ran into a secret slot: whether a totem stands there again is not known
 	if hits and hits.totem ~= seen then return end
 	if previousState.totems[element] then previousState.totems[element].active = false end
-	SP:TotemDestroyedAlert(totemName, elementColor, element)
+	SP:TotemDestroyedAlert(totemName, elementColor, element, icon)
 end
 -- The verdicts waiting out the window, per element and first in first out (a
 -- totem can be replaced and destroyed again inside it): reused arrays, answered
 -- by one callback per element, so no closure is made per destroyed totem.
-local pendingSlot, pendingName, pendingColor, pendingHead, pendingTail = {}, {}, {}, {}, {}
+local pendingSlot, pendingName, pendingColor, pendingIcon, pendingHead, pendingTail = {}, {}, {}, {}, {}, {}
 local confirmCallbacks = {}
 for element = 1, 4 do
-	pendingSlot[element], pendingName[element], pendingColor[element] = {}, {}, {}
+	pendingSlot[element], pendingName[element], pendingColor[element], pendingIcon[element] = {}, {}, {}, {}
 	pendingHead[element], pendingTail[element] = 1, 0
 	confirmCallbacks[element] = function()
 		local h = pendingHead[element]
 		if h > pendingTail[element] then return end
-		local slots, names, colors = pendingSlot[element], pendingName[element], pendingColor[element]
-		local slot, totemName, elementColor = slots[h], names[h], colors[h]
-		slots[h], names[h], colors[h] = nil, nil, nil
+		local slots, names, colors, icons = pendingSlot[element], pendingName[element], pendingColor[element], pendingIcon[element]
+		local slot, totemName, elementColor, icon = slots[h], names[h], colors[h], icons[h]
+		slots[h], names[h], colors[h], icons[h] = nil, nil, nil, nil
 		if h >= pendingTail[element] then
 			pendingHead[element], pendingTail[element] = 1, 0
 		else
 			pendingHead[element] = h + 1
 		end
-		ConfirmDestroyed(element, slot, totemName, elementColor)
+		ConfirmDestroyed(element, slot, totemName, elementColor, icon)
 	end
 end
-local function QueueDestroyedVerdict(element, slot, totemName, elementColor)
+local function QueueDestroyedVerdict(element, slot, totemName, elementColor, icon)
 	local t = pendingTail[element] + 1
 	pendingTail[element] = t
 	pendingSlot[element][t], pendingName[element][t], pendingColor[element][t] = slot, totemName, elementColor
+	pendingIcon[element][t] = icon
 	C_Timer.After(DESTROYED_BIND_WINDOW, confirmCallbacks[element])
 end
 
@@ -1134,7 +1147,7 @@ function SP:CheckTotemState(initializing)
 	if Quiet() then initializing = true end   -- settling in: take note only
 
 	for element = 1, 4 do
-		local haveTotem, totemName, startTime, duration, _, slot = ElementTotemInfo(element)
+		local haveTotem, totemName, startTime, duration, totemIcon, slot = ElementTotemInfo(element)
 		-- WoW: Forever: a look that ran into a secret slot tells nothing: stop, keep what is known
 		if isSecretValue(haveTotem) or (SPCompat and SPCompat.combatDataSecret) then
 			-- not known: the totems that stood go to the deferred verdict, which asks the
@@ -1144,7 +1157,7 @@ function SP:CheckTotemState(initializing)
 					local p = previousState.totems[e]
 					if p.active and sv.totems[ELEMENT_KEY[e] or "totem"] ~= false
 						and not (p.duration > 0 and GetTime() - p.startTime >= p.duration - 0.5) then
-						QueueDestroyedVerdict(e, p.slot, p.name, TotemElements[e] and TotemElements[e].color or WHITE)
+						QueueDestroyedVerdict(e, p.slot, p.name, TotemElements[e] and TotemElements[e].color or WHITE, p.icon)
 					end
 				end
 			end
@@ -1157,6 +1170,7 @@ function SP:CheckTotemState(initializing)
 		local prevSlot = prev.slot
 		local prevStart = prev.startTime
 		local prevDuration = prev.duration
+		local prevIcon = prev.icon
 
 		if not initializing and wasActive and not haveTotem then
 			-- Totem is gone - determine if destroyed or expired
@@ -1170,16 +1184,15 @@ function SP:CheckTotemState(initializing)
 				if isExpired then
 					-- Totem expired naturally
 					if sv.totems.expired then
-						local icon = "Interface\\Icons\\Spell_Shaman_TotemRecall"
 						local text = StripRank(prevName) .. " Expired"
-						Raise("totem", text, icon, elementColor, ExpiredKey(prevName, element, text))
+						Raise("totem", text, TotemAlertIcon(prevIcon, element), elementColor, ExpiredKey(prevName, element, text))
 					end
 				elseif deferDestroyed then
 					-- Totem was destroyed, unless a recall, your own destroy or death says otherwise (above)
-					QueueDestroyedVerdict(element, prevSlot, prevName, elementColor)
+					QueueDestroyedVerdict(element, prevSlot, prevName, elementColor, prevIcon)
 				else
 					-- Totem was destroyed
-					self:TotemDestroyedAlert(prevName, elementColor, element)
+					self:TotemDestroyedAlert(prevName, elementColor, element, prevIcon)
 				end
 			end
 		end
@@ -1190,6 +1203,7 @@ function SP:CheckTotemState(initializing)
 		prev.startTime = startTime
 		prev.duration = duration
 		prev.slot = slot
+		prev.icon = totemIcon   -- the totem's own picture, for its alert when it goes
 	end
 end
 
