@@ -1573,7 +1573,10 @@ function LOOK.CaptureColors(o)
 	for _, k in ipairs(GRADIENT_COLOR_KEYS) do c.opt[k] = Copy(o[k]) end
 	if type(o.rangeCounter) == "table" then c.rangeElem = o.rangeCounter.useElementColors end
 	local rr = ShamanPower_ReadyReminders
-	if type(rr) == "table" then c.rr = { borderColor = Copy(rr.borderColor), glowColor = Copy(rr.glowColor), barColor = Copy(rr.barColor) } end
+	if type(rr) == "table" then
+		c.rr = { borderColor = Copy(rr.borderColor), glowColor = Copy(rr.glowColor), barColor = Copy(rr.barColor),
+			buffEdgeColor = Copy(rr.buffEdgeColor) }   -- (D52: the buff's Edge Color)
+	end
 	local tr = ShamanPowerTremorReminderDB
 	if type(tr) == "table" then c.tremor = Copy(tr.glowColor) end
 	return c
@@ -1586,6 +1589,7 @@ function LOOK.RestoreColors(c)
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" and type(c.rr) == "table" then
 		rr.borderColor, rr.glowColor, rr.barColor = Copy(c.rr.borderColor), Copy(c.rr.glowColor), Copy(c.rr.barColor)
+		rr.buffEdgeColor = Copy(c.rr.buffEdgeColor)   -- (D52; a look kept before it existed: the default again)
 	end
 	local tr = ShamanPowerTremorReminderDB
 	if type(tr) == "table" and c.tremor ~= nil then tr.glowColor = Copy(c.tremor) end
@@ -1599,7 +1603,7 @@ function LOOK.ColorsDiffer(c)
 	if type(o.rangeCounter) == "table" and o.rangeCounter.useElementColors ~= c.rangeElem then return true end
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" and type(c.rr) == "table" then
-		for _, k in ipairs({ "borderColor", "glowColor", "barColor" }) do
+		for _, k in ipairs({ "borderColor", "glowColor", "barColor", "buffEdgeColor" }) do
 			if not Near(rr[k], c.rr[k]) then return true end
 		end
 	end
@@ -1727,6 +1731,7 @@ function SP:ResetAllColorsToDefault(everything)
 		ShamanPower_ReadyReminders.borderColor = nil
 		ShamanPower_ReadyReminders.glowColor = nil
 		ShamanPower_ReadyReminders.barColor = nil
+		ShamanPower_ReadyReminders.buffEdgeColor = nil   -- (D52) back to WoW's mana-bar blue on the next read
 	end
 	if type(ShamanPowerTremorReminderDB) == "table" then
 		ShamanPowerTremorReminderDB.glowColor = { r = 1, g = 0.8, b = 0 }
@@ -1783,11 +1788,12 @@ end
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
 Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker" }
-Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor" }
+Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor", "buffEdgeColor" }
 -- flat keys an update added, with their defaults (see Cards.Migrate)
 function Cards.InheritedSweepDirection() return "default" end
 Cards.ADDED = {
 	["rr.rangeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").rangeColor end,
+	["rr.buffEdgeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").buffEdgeColor end,   -- (D52)
 	["e.mod.readyreminders.sweepDirection"] = function() return "bottom" end,
 	["e.mod.targettracker.sweepDirection.fs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.frs"] = Cards.InheritedSweepDirection,
@@ -2432,6 +2438,7 @@ Cards.LABEL = {
 	["sc.chargeColorLS"] = "Lightning Shield Charge Color", ["sc.chargeColorWS"] = "Water Shield Charge Color",
 	["sc.chargeColorES"] = "Earth Shield Charge Color", ["tr.glowColor"] = "Tremor Reminder Glow",
 	["rr.rangeColor"] = "Ready Reminders Out of Range Color",
+	["rr.buffEdgeColor"] = "Ready Reminders Buff Edge Color",
 }
 function Cards.Label(k)
 	if Cards.LABEL[k] then return Cards.LABEL[k] end

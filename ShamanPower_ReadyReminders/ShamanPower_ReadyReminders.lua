@@ -31,6 +31,23 @@ local DEFAULTS = {
 	-- hiding (the page's default; each icon sets its own in its right-click menu)
 	fadeInsteadOfHide = false,
 	fadeOpacity = 0.4,
+	-- D52: the buff the spell puts on you, shown with its icon (each icon sets its own in
+	-- its right-click menu; these are what an icon that never set one uses)
+	buffLook = "off",      -- off | corner (in the icon's corner) | own (as its own icon) | edge (round the icon)
+	buffCorner = "tr",     -- corner: tr | tl | br | bl
+	buffSize = 0.45,       -- corner: its size, a share of the icon's (30% to 70%)
+	buffSide = "above",    -- own icon: above | below | left | right | spot (In Its Own Spot)
+	buffOwnSize = 1.0,     -- own icon: its size, a share of the icon's (30% to 100%)
+	buffTime = true,       -- the time it has left, in whole seconds
+	buffGoldUnder = 3,     -- seconds: the time turns WoW's gold under this (0 = never)
+	-- edge: WoW's mana-bar blue (PowerBarColor.MANA, read from the game; 0, 0, 1 on both)
+	buffEdgeColor = (function()
+		local all = rawget(_G, "PowerBarColor")
+		local m = type(all) == "table" and type(all.MANA) == "table" and all.MANA or nil
+		if not (m and type(m.r) == "number" and type(m.g) == "number" and type(m.b) == "number") then return { r = 0, g = 0, b = 1 } end
+		return { r = m.r, g = m.g, b = m.b }
+	end)(),
+	buffPositions = {},    -- [key] = { anchor, x, y }: a buff In Its Own Spot, once moved (none: above its icon)
 	iconSize = 48,
 	opacity = 1.0,
 	dimOpacity = 0.35,     -- "always" mode, while on cooldown
@@ -128,6 +145,52 @@ for i, e in ipairs(SP.ReadyReminderSpells) do
 	end
 end
 
+-- D52: the buff each spell puts on you, on this game (its display: "Your buff on its
+-- Ready Reminder", below). One table for all of it (this file is near Lua's 200 locals).
+local Buff = { of = {}, list = {}, formatters = {}, proxies = {},
+	KEY = { buffLook = true, buffCorner = true, buffSize = true, buffSide = true, buffOwnSize = true, buffTime = true,
+		buffGoldUnder = true, buffEdgeColor = true } }
+-- a buff setting copied or pasted onto an icon whose spell puts no buff on you here: left out
+function Buff.Skip(key, opt)
+	return Buff.KEY[opt] == true and not (catalogByKey[key] and catalogByKey[key].buff)
+end
+do
+	-- Every buff by spell ID, from each game's own data (SpellName / SpellEffect /
+	-- SpellMisc / ItemSet, read 2026-10-06, and Wowhead's tooltips for each game); each has
+	-- one rank. talent / setBonus: what puts the buff in reach (the menu says when it is
+	-- missing). timed = false: it lasts until used, so it has no time left to show.
+	local list
+	if SPCompat.FOREVER then
+		list = {
+			-- Improved Stormstrike: the talent 1223031 (trait node 104742, 2 points) gives the
+			-- buff 1238931 (15 s) when you Stormstrike
+			stormstrike = { ids = { 1238931 }, name = "Improved Stormstrike", talent = 1223031, node = 104742 },
+		}
+	else
+		list = {
+			-- no Improved Stormstrike here: Stormstrike's buff is Stormpower (38430, 12 s), from the
+			-- 4-piece bonus 38432 of the Skyshatter Harness (item set 682, any 4 of its 8 pieces)
+			stormstrike = { ids = { 38430 }, name = "Stormpower", setBonus = 38432, setID = 682, setName = "Skyshatter Harness",
+				setItems = { 31018, 31011, 31015, 31021, 31024, 34567, 34439, 34545 } },
+		}
+	end
+	for _, e in ipairs(SP.ReadyReminderSpells) do
+		local b = list[e.key]
+		if b then
+			b.timed = b.timed ~= false
+			b.map = {}
+			for _, id in ipairs(b.ids) do b.map[id] = true end
+			if b.setItems then
+				b.setMap = {}
+				for _, id in ipairs(b.setItems) do b.setMap[id] = true end
+			end
+			b.label = SPCompat.SpellLabel(b.ids[1], b.name) or b.name
+			e.buff = b
+			Buff.list[#Buff.list + 1] = e
+		end
+	end
+end
+
 -- Filling in the defaults walks every one of them, and SV() is called about 20
 -- times per update pass. So the walk runs only when the saved table is a new one
 -- (it loaded, an import replaced it), when a theme reset cleared one of the
@@ -142,7 +205,7 @@ local function SV()
 	local sv = ShamanPower_ReadyReminders
 	local now = GetTime()
 	if sv == filledFor and now - filledAt < 1 and sv.borderColor ~= nil and sv.glowColor ~= nil and sv.barColor ~= nil
-		and sv.rangeColor ~= nil then
+		and sv.rangeColor ~= nil and sv.buffEdgeColor ~= nil then
 		return sv
 	end
 	local changed = sv ~= filledFor
@@ -182,7 +245,9 @@ local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "soundOnRe
 	"textPosition", "textSize", "borderColor", "rangeLook", "rangeColor", "hideBackground", "hideBorder",
 	"showNames", "soundVolume", "soundMinCooldown", "flashMin",
 	-- D51: Fade Instead of Hide (with Only In Combat) and its Faded Opacity
-	"fadeInsteadOfHide", "fadeOpacity" }
+	"fadeInsteadOfHide", "fadeOpacity",
+	-- D52: the buff the spell puts on you, on its icon
+	"buffLook", "buffCorner", "buffSize", "buffSide", "buffOwnSize", "buffTime", "buffGoldUnder", "buffEdgeColor" }
 local ICON_KEY = {}
 for _, k in ipairs(ICON_KEYS) do ICON_KEY[k] = true end
 local resolved = {}   -- [catalog key] = { gen = n, <setting> = value }: one table per icon, made once
@@ -989,6 +1054,7 @@ function SP:UpdateAllReadyReminderAppearance()
 	layoutGrid(self.readyPositioning)
 	rangeRepaintAll()   -- the Out of Range look or color may have changed
 	if self.ReadyFlashRefresh then self:ReadyFlashRefresh() end   -- (defined below, with the flash)
+	Buff.LayoutAll()   -- (D52) each spell's buff: its look and place (defined below)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1175,6 +1241,714 @@ local function fadeGlideNow(f)
 	ag.alpha:SetFromAlpha(base)
 	ag.alpha:SetToAlpha(base * (f.fade or 1))
 	ag:Play()
+end
+
+-- ---------------------------------------------------------------------------
+-- Your buff on its Ready Reminder (D52, a Discord request: "a way to show, maybe on the
+-- ready reminder, that you currently have the stormstrike mana regen buff", then "a small
+-- buff icon that I could track"). A spell that puts a buff on you can show that buff with
+-- its icon: in the icon's corner, as its own icon (beside it, or In Its Own Spot with a
+-- box of its own in Unlock UI), or as an edge round the icon; with its time left in whole
+-- seconds, in WoW's gold for the last few. Each icon's own, in its right-click menu, off
+-- to start. The buff is found by spell ID only (Buff.list, at the top).
+--
+-- WoW: Forever: nothing is read. An AuraContainer slot on "player", filtered to the buff's
+-- spell IDs, has the game draw it: the game shows the slot's button only while the buff is
+-- on you, gives it the buff's icon and counts its time left (gold: a color code in the
+-- number formatter's text; the game writes it). Our parts hang on that button, made and
+-- painted out of combat; in a fight only the container's own switch (SetEnabled) and the
+-- alpha of a frame of ours (the holder) change, never the game's button or what is on it.
+-- TBC Anniversary: the buff is read by its ID on UNIT_AURA (player) and drawn on frames of
+-- our own; its time left is a duration text binding, or the pass where the client has none.
+--
+-- The holder is ours: anchored to the icon's spot (so the buff stays there while the icon
+-- hides between casts, and follows the icon when it moves), on its own spot, or for the
+-- edge a child of the icon (it shows and hides with the icon). The buff follows its icon's
+-- Opacity, Only In Combat and Fade Instead of Hide (D51: faded, gliding down as the fight
+-- ends, just like the icon), and stays off while the icons are being placed (Unlock UI) or
+-- borrowed by the settings preview. Nothing runs while idle: the game draws, or UNIT_AURA.
+-- ---------------------------------------------------------------------------
+Buff.CORNER = { tr = { "TOPRIGHT", -4, -4 }, tl = { "TOPLEFT", 4, -4 }, br = { "BOTTOMRIGHT", -4, 4 }, bl = { "BOTTOMLEFT", 4, 4 } }
+Buff.SIDES = { above = true, below = true, left = true, right = true, spot = true }
+
+function Buff.Clamp(v, lo, hi, def)
+	v = tonumber(v) or def
+	if v < lo then return lo elseif v > hi then return hi end
+	return v
+end
+
+-- WoW: Forever: the game's AuraContainer can draw (the probe's container is the first one used)
+function Buff.Engine()
+	if Buff.engine ~= nil then return Buff.engine end
+	Buff.engine = false
+	if not IS_MAINLINE then return false end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
+	if ok and c and type(c.AddAuraSlot) == "function" and type(c.SetUnit) == "function" then
+		Buff.engine = true
+		c:Hide()
+		Buff.spare = c
+	end
+	return Buff.engine
+end
+
+-- The game's button (and what hangs on it) must not be touched now: a fight, or WoW: Forever
+-- hiding auras. Only the engine's buffs care; Anniversary's are frames of our own.
+function Buff.Locked()
+	if not (IS_MAINLINE and Buff.engine ~= false) then return false end
+	if InCombatLockdown() then return true end
+	local S = C_Secrets
+	if S and S.ShouldAurasBeSecret then
+		local ok, v = pcall(S.ShouldAurasBeSecret)
+		if not ok or (issecretvalue and issecretvalue(v)) or v == true then return true end
+	end
+	if SPCompat.secretsRegime then
+		if SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return true end
+		if SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return true end
+	end
+	return false
+end
+
+-- WoW's gold (NORMAL_FONT_COLOR, read from the game: #FFD100 Anniversary, #FFD200 Forever)
+function Buff.GoldRGB()
+	local c = NORMAL_FONT_COLOR
+	if c and c.GetRGB then return c:GetRGB() end
+	return 1, 0.82, 0
+end
+
+-- The time left as the game writes it: whole seconds, rounded up as WoW counts down, in
+-- WoW's gold under `gold` seconds (a color code in the text), minutes from a minute on.
+-- One formatter per number of seconds, made once; nil where the client has none.
+function Buff.Formatter(gold)
+	gold = math.floor(tonumber(gold) or 0)
+	local f = Buff.formatters[gold]
+	if f ~= nil then return f or nil end
+	Buff.formatters[gold] = false
+	local S = C_StringUtil
+	if not (S and S.CreateNumericRuleFormatter) then return nil end
+	local ok, made = pcall(S.CreateNumericRuleFormatter)
+	if not (ok and made and made.AddBreakpoint) then return nil end
+	local up = Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Up or 1
+	local good
+	if gold > 0 then
+		local r, g, b = Buff.GoldRGB()
+		local code = string.format("|cff%02x%02x%02x", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+		good = pcall(made.AddBreakpoint, made, { threshold = 0, step = 1, rounding = up, format = code .. "%d|r" })
+			and pcall(made.AddBreakpoint, made, { threshold = gold, step = 1, rounding = up, format = "%d" })
+	else
+		good = pcall(made.AddBreakpoint, made, { threshold = 0, step = 1, rounding = up, format = "%d" })
+	end
+	if not good then return nil end
+	pcall(made.AddBreakpoint, made, { threshold = 60, format = "%dm", components = { { div = 60, step = 1, rounding = up } } })
+	Buff.formatters[gold] = made
+	return made
+end
+
+-- The parts, on `host` (the game's button, or a frame of ours): the backing, the buff's
+-- icon and its edge (four sides, or a ring round a Rounded / Circle icon) on one frame,
+-- the time left on a frame above it. Made once; Buff.Paint gives them their look.
+function Buff.NewParts(host)
+	local P = {}
+	local art = CreateFrame("Frame", nil, host)
+	art:SetAllPoints(host)
+	art:EnableMouse(false)
+	P.art = art
+	P.bg = art:CreateTexture(nil, "BACKGROUND")
+	P.bg:SetAllPoints(art)
+	P.icon = art:CreateTexture(nil, "ARTWORK")
+	P.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	P.edges = {}
+	for i = 1, 4 do P.edges[i] = art:CreateTexture(nil, "OVERLAY") end
+	P.ring = art:CreateTexture(nil, "OVERLAY")
+	P.ring:Hide()
+	local tf = CreateFrame("Frame", nil, host)
+	tf:SetAllPoints(host)
+	tf:SetFrameLevel(art:GetFrameLevel() + 3)
+	tf:EnableMouse(false)
+	P.text = tf
+	P.time = tf:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(P.time, "alerts", 12, "OUTLINE")   -- a font at once: the game may write the time into it straight away
+	P.time:SetTextColor(1, 1, 1)
+	return P
+end
+
+-- Icon Shape (Ready Reminders) on the buff's backing and icon, with masks of our own: the
+-- shared shape walk runs whenever a shape changes, in a fight too, and must never reach
+-- the game's button (Paint runs only while the button may be touched).
+function Buff.Shape(P)
+	local file = SP.IconShapeMaskFile and SP.IconShapeOf and SP:IconShapeMaskFile(SP:IconShapeOf("ready")) or false
+	if P.maskFile == file or not P.bg.AddMaskTexture then return end
+	if P.maskFile then
+		P.bg:RemoveMaskTexture(P.bgMask)
+		P.icon:RemoveMaskTexture(P.iconMask)
+	end
+	P.maskFile = file
+	if not file then return end
+	if not P.bgMask then
+		P.bgMask = P.art:CreateMaskTexture()
+		P.bgMask:SetAllPoints(P.art)
+		P.iconMask = P.art:CreateMaskTexture()
+		P.iconMask:SetAllPoints(P.icon)
+	end
+	P.bgMask:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	P.iconMask:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	P.bg:AddMaskTexture(P.bgMask)
+	P.icon:AddMaskTexture(P.iconMask)
+end
+
+-- the edge: `t` px thick, `out` px outside the parts' frame; a ring round a Rounded /
+-- Circle icon (Keep Borders Square off), as the icon's own border does
+function Buff.Edges(P, t, out, r, g, b, shown)
+	local ringFile = shown and SP.BorderRingFile and SP:BorderRingFile("ready") or nil
+	local E, art = P.edges, P.art
+	for i = 1, 4 do E[i]:SetShown(shown and not ringFile) end
+	if ringFile then
+		P.ring:ClearAllPoints()
+		P.ring:SetPoint("TOPLEFT", art, "TOPLEFT", -out, out)
+		P.ring:SetPoint("BOTTOMRIGHT", art, "BOTTOMRIGHT", out, -out)
+		if P.ring.spFile ~= ringFile then P.ring:SetTexture(ringFile); P.ring.spFile = ringFile end
+		P.ring:SetVertexColor(r, g, b)
+		P.ring:Show()
+		return
+	end
+	P.ring:Hide()
+	if not shown then return end
+	E[1]:ClearAllPoints(); E[1]:SetPoint("TOPLEFT", art, "TOPLEFT", -out, out); E[1]:SetPoint("TOPRIGHT", art, "TOPRIGHT", out, out); E[1]:SetHeight(t)
+	E[2]:ClearAllPoints(); E[2]:SetPoint("BOTTOMLEFT", art, "BOTTOMLEFT", -out, -out); E[2]:SetPoint("BOTTOMRIGHT", art, "BOTTOMRIGHT", out, -out); E[2]:SetHeight(t)
+	E[3]:ClearAllPoints(); E[3]:SetPoint("TOPLEFT", art, "TOPLEFT", -out, out); E[3]:SetPoint("BOTTOMLEFT", art, "BOTTOMLEFT", -out, -out); E[3]:SetWidth(t)
+	E[4]:ClearAllPoints(); E[4]:SetPoint("TOPRIGHT", art, "TOPRIGHT", out, out); E[4]:SetPoint("BOTTOMRIGHT", art, "BOTTOMRIGHT", out, -out); E[4]:SetWidth(t)
+	for i = 1, 4 do E[i]:SetColorTexture(r, g, b, 1) end
+end
+
+-- the look of the parts for the buff's look (WoW: Forever: only while Buff.Locked() is false)
+function Buff.Paint(B)
+	local P = B.P
+	if not P then return end
+	local entry, look, s = B.entry, B.look, B.size or 24
+	Buff.Shape(P)
+	if look == "edge" then
+		-- the icon's border, in the edge's color, with the time in the icon's corner
+		P.bg:Hide(); P.icon:Hide()
+		local r, g, b = color(IconOpt(entry, "buffEdgeColor"), 0, 0, 1)
+		Buff.Edges(P, 2, 2, r, g, b, true)
+		SP:SetSPFont(P.time, "alerts", math.max(10, math.floor(s * 0.30)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -2, 3)
+	elseif look == "corner" then
+		-- a small badge: dark backing, the buff's icon, a 1 px edge in the icon's Border Color
+		P.bg:SetColorTexture(0, 0, 0, 0.85); P.bg:Show()
+		P.icon:ClearAllPoints()
+		P.icon:SetPoint("TOPLEFT", P.art, "TOPLEFT", 1, -1); P.icon:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -1, 1)
+		P.icon:Show()
+		local r, g, b = color(IconOpt(entry, "borderColor"), 0.2, 0.7, 1.0)
+		Buff.Edges(P, 1, 1, r, g, b, true)
+		SP:SetSPFont(P.time, "alerts", math.max(8, math.floor(s * 0.55 + 0.5)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("CENTER", P.art, "CENTER", 1, 0)
+	else
+		-- its own icon, drawn like a Ready Reminder (the icon's Background, Border and Border Color)
+		local hideBg = IconOpt(entry, "hideBackground") and true or false
+		local e = (s >= 24) and 2 or 1
+		P.bg:SetColorTexture(0, 0, 0, 0.6); P.bg:SetShown(not hideBg)
+		P.icon:ClearAllPoints()
+		P.icon:SetPoint("TOPLEFT", P.art, "TOPLEFT", e, -e); P.icon:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -e, e)
+		P.icon:Show()
+		local r, g, b = color(IconOpt(entry, "borderColor"), 0.2, 0.7, 1.0)
+		Buff.Edges(P, e, e, r, g, b, not hideBg and not IconOpt(entry, "hideBorder"))
+		SP:SetSPFont(P.time, "alerts", math.max(8, math.floor(s * 0.34 + 0.5)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("CENTER", P.art, "CENTER", 0, 0)
+	end
+	if P.engine then
+		P.text:SetShown(B.timeOn and true or false)   -- (the game's button shows the buff only while it is on you)
+		Buff.EngineTime(B)
+	else
+		Buff.ShowParts(B)
+	end
+end
+
+-- WoW: Forever: the game counts the time left on its button, in the gold formatter
+-- (again only when the seconds of gold changed; never in a fight: Buff.Locked)
+function Buff.EngineTime(B)
+	local P = B.P
+	if not (P and P.engine and B.entry.buff.timed) then return end
+	local gold = B.gold or 3
+	if B.goldSet == gold then return end
+	if pcall(P.button.SetDurationText, P.button, P.time, { textFormatter = Buff.Formatter(gold) }) then B.goldSet = gold end
+end
+
+-- WoW: Forever: the game's button for the buff, made with the container (out of combat)
+function Buff.Init(B, button)
+	button:ClearAllPoints()
+	button:SetAllPoints(B.frame)
+	if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+	if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+	local P = Buff.NewParts(button)
+	P.engine, P.button = true, button
+	B.P = P
+	Buff.Paint(B)
+	pcall(button.SetIcon, button, P.icon)   -- the game puts the buff's own icon on it
+end
+
+-- WoW: Forever: the container, one slot for the buff (out of combat, once; three tries)
+function Buff.Build(B)
+	local h, c = B.frame, Buff.spare
+	if c then
+		Buff.spare = nil
+		c:SetParent(h)
+		c:Show()
+	else
+		local ok, made = pcall(CreateFrame, "AuraContainer", nil, h, "CustomAuraContainerTemplate")
+		c = ok and made and type(made.AddAuraSlot) == "function" and made or nil
+	end
+	if not c then B.fails = (B.fails or 0) + 1 return false end
+	c:ClearAllPoints()
+	c:SetSize(1, 1)
+	c:SetPoint("CENTER", h, "CENTER", 0, 0)
+	c:SetFrameLevel(h:GetFrameLevel() + 1)
+	-- WoW's Edit Mode fills aura displays with made-up auras while it is open: never this one
+	if c.SetEditModePreviewEnabled then pcall(c.SetEditModePreviewEnabled, c, false) end
+	local ok = pcall(c.AddAuraSlot, c, "buff", "HELPFUL", {
+		candidateFilters = { includeSpellIDs = B.entry.buff.map },
+		initializeFrame = function(button) Buff.Init(B, button) end,
+	})
+	if not (ok and B.P) then
+		pcall(c.SetEnabled, c, false)
+		c:Hide()
+		B.P = nil   -- (parts on a refused slot's button are never used)
+		B.fails = (B.fails or 0) + 1
+		return false
+	end
+	pcall(c.SetUnit, c, "player")
+	pcall(c.SetEnabled, c, false)   -- on only while the buff may show (Buff.Switch)
+	B.c, B.on = c, false
+	return true
+end
+
+-- a buff's display (the holder, ours): made the first time its look is turned on
+function Buff.Make(entry)
+	local h = CreateFrame("Frame", "ShamanPowerReadyBuff_" .. entry.key, UIParent)
+	h:SetSize(1, 1)
+	h:EnableMouse(false)
+	h:SetAlpha(0)
+	local B = { entry = entry, key = entry.key, frame = h, look = "off", on = false, alpha = 0, fade = 1 }
+	Buff.of[entry.key] = B
+	return B
+end
+
+-- Its own icon's place: beside the Ready Reminder (Side), or its own spot (In Its Own Spot:
+-- where Unlock UI put it; above the icon until it is moved there)
+function Buff.PlaceOwn(B, f)
+	local h, side, gap = B.frame, B.side, SV().spacing or 8
+	if side == "spot" then
+		local rec = SV().buffPositions[B.key]
+		if type(rec) == "table" and SP.ApplyPositionRecord and SP:ApplyPositionRecord(h, rec) then return end
+		side = "above"
+	end
+	if side == "below" then h:SetPoint("TOP", f, "BOTTOM", 0, -gap)
+	elseif side == "left" then h:SetPoint("RIGHT", f, "LEFT", -gap, 0)
+	elseif side == "right" then h:SetPoint("LEFT", f, "RIGHT", gap, 0)
+	else h:SetPoint("BOTTOM", f, "TOP", 0, gap) end
+end
+
+-- One buff's look and place, after a setting changed (WoW: Forever: out of combat, and
+-- not while the game hides auras: then right after, Buff.Flush). Off: switched off at once.
+function Buff.Layout(entry)
+	local b = entry.buff
+	if not b then return end
+	local B = Buff.of[entry.key]
+	local look = IconOpt(entry, "buffLook")
+	if look ~= "corner" and look ~= "own" and look ~= "edge" then look = "off" end
+	if look == "off" or not usable(entry) or not SV().enabled then   -- (Ready Reminders off: nothing made either)
+		if B then B.look = "off"; Buff.Switch(B, false, 0) end
+		return
+	end
+	if IS_MAINLINE and Buff.engine == nil and not InCombatLockdown() then Buff.Engine() end
+	if Buff.Locked() then Buff.dirty = true return end
+	B = B or Buff.Make(entry)
+	local f = frames[entry.key] or SP:CreateReadyReminderFrame(entry)
+	local h = B.frame
+	local S = IconOpt(entry, "iconSize") or 48
+	local side = IconOpt(entry, "buffSide")
+	B.look = look
+	B.side = (look == "own") and (Buff.SIDES[side] and side or "above") or nil
+	B.timeOn = b.timed and IconOpt(entry, "buffTime") ~= false
+	B.gold = math.floor(Buff.Clamp(IconOpt(entry, "buffGoldUnder"), 0, 10, 3))
+	local parent = (look == "edge") and f or UIParent
+	if h:GetParent() ~= parent then h:SetParent(parent) end
+	h:SetFrameStrata(f:GetFrameStrata())
+	h:SetFrameLevel(f:GetFrameLevel() + 10)
+	h:ClearAllPoints()
+	if look == "edge" then
+		h:SetAllPoints(f)
+		B.size = S
+	elseif look == "corner" then
+		local s = math.floor(S * Buff.Clamp(IconOpt(entry, "buffSize"), 0.3, 0.7, 0.45) + 0.5)
+		h:SetSize(s, s)
+		B.size = s
+		local c = Buff.CORNER[IconOpt(entry, "buffCorner")] or Buff.CORNER.tr
+		h:SetPoint("CENTER", f, c[1], c[2], c[3])
+	else
+		local s = math.floor(S * Buff.Clamp(IconOpt(entry, "buffOwnSize"), 0.3, 1, 1) + 0.5)
+		h:SetSize(s, s)
+		B.size = s
+		Buff.PlaceOwn(B, f)
+	end
+	if B.c then
+		B.c:SetFrameLevel(h:GetFrameLevel() + 1)
+		Buff.Paint(B)
+	elseif Buff.engine and (B.fails or 0) < 3 then
+		if not Buff.Build(B) then return end   -- (tried again on the next layout; B.P is painted by its button's Init)
+	else
+		-- TBC Anniversary, or the game's container refused three times: frames of our own
+		-- (WoW: Forever then shows the buff out of combat only: in a fight it cannot be read)
+		if not B.P then B.P = Buff.NewParts(h) end
+		Buff.Paint(B)
+		if B.on then   -- a new look, Time Left or gold: the buff as it is now, its time started again
+			B.bindOn, B.ticking = nil, nil
+			Buff.Read(B)
+		end
+	end
+	B.ready = true
+end
+
+function Buff.LayoutAll()
+	for i = 1, #Buff.list do Buff.Layout(Buff.list[i]) end
+	Buff.Events()
+end
+
+-- WoW: Forever: what waited for the end of a fight (or for the game to show auras again)
+function Buff.Flush()
+	if not Buff.dirty or Buff.Locked() then return end
+	Buff.dirty = nil
+	Buff.LayoutAll()
+	SP:UpdateReadyReminders()   -- (the pass switches them on)
+end
+
+-- On or off (in a fight too): the container's own switch (WoW: Forever) or our parts
+-- (Anniversary), and the holder's alpha. The pass calls it with what the icon allows.
+function Buff.Switch(B, on, alpha)
+	alpha = on and alpha or 0
+	if B.on ~= on then
+		B.on = on
+		if B.c then
+			pcall(B.c.SetEnabled, B.c, on)
+			if on then pcall(B.c.UpdateAllAuras, B.c) end
+		elseif on then
+			Buff.Read(B)
+		else
+			Buff.Hide(B)
+		end
+	end
+	if B.alpha ~= alpha then
+		B.alpha = alpha
+		if B.ag then B.ag:Stop() end
+		B.frame:SetAlpha(alpha)
+	end
+end
+
+-- a fight ended and the icon fades (D51): the buff glides down with it, over the same 0.2 s
+function Buff.Glide(B, from, to)
+	if not (from and from > 0.01) then return end
+	local ag = B.ag
+	if not ag then
+		ag = B.frame:CreateAnimationGroup()
+		ag.alpha = ag:CreateAnimation("Alpha")
+		ag.alpha:SetDuration(FADE_GLIDE)
+		ag.alpha:SetSmoothing("IN_OUT")
+		B.ag = ag
+	end
+	ag:Stop()
+	ag.alpha:SetFromAlpha(from)
+	ag.alpha:SetToAlpha(to)
+	ag:Play()
+end
+
+-- What the icon allows its buff now: on, the holder's alpha, the fade. As the icon: the
+-- spell switched on and known (In Its Own Spot: its own, the icon need not be on), Only In
+-- Combat (hidden out of combat, or faded with Fade Instead of Hide), Opacity. The edge is
+-- on the icon itself: the icon's own alpha carries all of that to it.
+function Buff.Wanted(entry, B, inCombat)
+	if not usable(entry) then return false, 0, 1 end
+	if not (B.look == "own" and B.side == "spot") and not (spellOn(entry) and playerKnows(entry)) then return false, 0, 1 end
+	local fade = 1
+	if not inCombat and IconOpt(entry, "onlyInCombat") then
+		if IconOpt(entry, "fadeInsteadOfHide") and IconOpt(entry, "mode") ~= "flash" then fade = fadedOpacity(entry)
+		else return false, 0, 1 end
+	end
+	if B.look == "edge" then return true, 1, 1 end
+	return true, (IconOpt(entry, "opacity") or 1) * fade, fade
+end
+
+-- Every pass (readyPass, 5 a second while something counts down, else once a second and on
+-- the wake events): each buff on or off. allOff: the icons are hidden, placed or previewed.
+-- Returns true while a buff's time is counted here (Anniversary without a binding).
+function Buff.Pass(inCombat, allOff)
+	allOff = allOff or Buff.placing
+	local ticks, now = false, nil
+	for i = 1, #Buff.list do
+		local entry = Buff.list[i]
+		local B = Buff.of[entry.key]
+		if B then
+			local on, alpha, fade = false, 0, 1
+			if not allOff and B.ready and B.look ~= "off" then on, alpha, fade = Buff.Wanted(entry, B, inCombat) end
+			local glide = on and B.on and (B.fade or 1) >= 1 and fade < 1   -- a fight ended: down to faded, as the icon
+			B.fade = fade
+			Buff.Switch(B, on, alpha)
+			if glide then Buff.Glide(B, alpha / fade, alpha) end
+			if B.ticking and B.on and B.shown then
+				now = now or GetTime()
+				Buff.TickText(B, now)
+				ticks = true
+			end
+		end
+	end
+	return ticks
+end
+
+-- ---- TBC Anniversary (and WoW: Forever without the engine): read by spell ID ----------
+-- found, icon, duration, expirationTime of the buff on you; nothing when it is not (or when
+-- the game hides it: a hidden value is never looked at)
+function Buff.FindAura(b)
+	local A = C_UnitAuras
+	local secret = issecretvalue or function() return false end
+	if A and A.GetPlayerAuraBySpellID then
+		for i = 1, #b.ids do
+			local ok, a = pcall(A.GetPlayerAuraBySpellID, b.ids[i])
+			if ok and type(a) == "table" and not secret(a) then
+				local dur, exp = a.duration, a.expirationTime
+				if secret(dur) or secret(exp) or secret(a.icon) then return false end
+				return true, a.icon, tonumber(dur) or 0, tonumber(exp) or 0
+			end
+		end
+		return false
+	end
+	if not SPCompat.UnitBuff then return false end
+	for i = 1, 40 do
+		local name, icon, _, _, dur, exp, _, _, _, spellID = SPCompat.UnitBuff("player", i)
+		if not name then break end
+		if not secret(spellID) and b.map[spellID] then
+			if secret(dur) or secret(exp) then return false end
+			return true, icon, tonumber(dur) or 0, tonumber(exp) or 0
+		end
+	end
+	return false
+end
+
+function Buff.ShowParts(B)
+	local P = B.P
+	if not P then return end
+	P.art:SetShown(B.shown and true or false)
+	P.text:SetShown((B.shown and B.timeOn and B.timedNow) and true or false)
+end
+
+-- the time left drawn by the game from numbers of ours (a duration text binding, with the
+-- gold formatter); false where the client has neither (the pass writes it then)
+function Buff.TimeBinding(B, start, duration)
+	local f = Buff.Formatter(B.gold)
+	if not f then return false end
+	if B.bind == nil then
+		B.bind = false
+		local D = C_DurationUtil
+		if D and D.CreateDurationTextBinding and D.CreateDuration then
+			local ok, bnd = pcall(D.CreateDurationTextBinding)
+			local okD, d = pcall(D.CreateDuration)
+			if ok and bnd and okD and d and pcall(bnd.SetFontString, bnd, B.P.time) then
+				if bnd.SetExpiredText then pcall(bnd.SetExpiredText, bnd, "") end
+				B.bind, B.dur = bnd, d
+			end
+		end
+	end
+	local bnd = B.bind
+	if not bnd then return false end
+	if B.bindGold ~= B.gold then
+		if not pcall(bnd.SetFormatter, bnd, f) then return false end
+		B.bindGold = B.gold
+	end
+	B.P.time:SetTextColor(1, 1, 1)
+	return pcall(B.dur.SetTimeFromStart, B.dur, start, duration) and pcall(bnd.SetDuration, bnd, B.dur)
+		and pcall(bnd.SetEnabled, bnd, true)
+end
+
+function Buff.StopTime(B)
+	if B.bind then pcall(B.bind.SetEnabled, B.bind, false) end
+	B.ticking, B.sec = nil, nil
+	if B.P then B.P.time:SetText("") end
+end
+
+-- the time left written by the pass (a client with no binding): once a second, gold at the end
+function Buff.TickText(B, now)
+	local left = (B.exp or 0) - now
+	local sec = (left > 0) and math.ceil(left) or 0
+	if B.sec == sec then return end
+	B.sec = sec
+	local t = B.P.time
+	if sec <= 0 then t:SetText("") return end
+	if sec >= 60 then t:SetText(string.format("%dm", math.ceil(left / 60))) else t:SetText(string.format("%d", sec)) end
+	if (B.gold or 0) > 0 and left < B.gold then t:SetTextColor(Buff.GoldRGB()) else t:SetTextColor(1, 1, 1) end
+end
+
+-- the buff as it is on you now (on UNIT_AURA, and when the buff is switched on)
+function Buff.Read(B)
+	if B.c or not B.P then return end
+	local found, icon, dur, exp = Buff.FindAura(B.entry.buff)
+	if not found then Buff.Hide(B) return end
+	B.shown = true
+	B.P.icon:SetTexture(icon or GetSpellTextureC(B.entry.buff.ids[1]) or 136243)
+	B.timedNow = (dur or 0) > 0 and (exp or 0) > 0
+	if B.timeOn and B.timedNow then
+		if B.exp ~= exp or not (B.ticking or B.bindOn) then
+			B.exp = exp
+			if Buff.TimeBinding(B, exp - dur, dur) then
+				B.ticking, B.bindOn = nil, true
+			else
+				B.ticking, B.bindOn, B.sec = true, nil, nil
+				Buff.TickText(B, GetTime())
+				SP.readyWake = true   -- the pass counts it down from now (five times a second)
+			end
+		end
+	else
+		Buff.StopTime(B)
+		B.bindOn = nil
+	end
+	Buff.ShowParts(B)
+end
+
+function Buff.Hide(B)
+	B.shown, B.exp, B.bindOn = nil, nil, nil
+	Buff.StopTime(B)
+	Buff.ShowParts(B)
+end
+
+function Buff.OnAura()
+	for i = 1, #Buff.list do
+		local B = Buff.of[Buff.list[i].key]
+		if B and B.on and not B.c then Buff.Read(B) end
+	end
+end
+
+-- The events: UNIT_AURA (player) while a buff is read here; the end of a fight while
+-- something waits for it (WoW: Forever).
+Buff.ev = CreateFrame("Frame")
+Buff.ev:SetScript("OnEvent", function(_, event, unit)
+	if event == "UNIT_AURA" then
+		if unit == "player" then Buff.OnAura() end
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		Buff.Flush()
+	end
+end)
+function Buff.Events()
+	local ev, read = Buff.ev, false
+	if SV().enabled then
+		for _, B in pairs(Buff.of) do
+			if B.look ~= "off" and B.P and not B.c then read = true break end
+		end
+	end
+	if read ~= (ev.read or false) then
+		ev.read = read
+		if read then
+			if not pcall(ev.RegisterUnitEvent, ev, "UNIT_AURA", "player") then ev:RegisterEvent("UNIT_AURA") end
+		else
+			ev:UnregisterEvent("UNIT_AURA")
+		end
+	end
+	if Buff.dirty then ev:RegisterEvent("PLAYER_REGEN_ENABLED") else ev:UnregisterEvent("PLAYER_REGEN_ENABLED") end
+end
+if SPCompat.OnUnrestricted then SPCompat.OnUnrestricted(function() Buff.Flush() end) end
+
+-- ---- what the menu says (the plain line before it can show) --------------------------
+-- WoW: Forever: the talent, by its spell ID, else its node's rank in your talents
+function Buff.KnowsTalent(b)
+	if SPCompat.KnowsSpellID(b.talent) then return true end
+	local CT, T = C_ClassTalents, C_Traits
+	if not (b.node and CT and CT.GetActiveConfigID and T and T.GetNodeInfo) then return false end
+	local secret = issecretvalue or function() return false end
+	local ok, cfg = pcall(CT.GetActiveConfigID)
+	if not ok or secret(cfg) or type(cfg) ~= "number" then return false end
+	local ok2, info = pcall(T.GetNodeInfo, cfg, b.node)
+	if not ok2 or type(info) ~= "table" then return false end
+	local rank = info.activeRank
+	if secret(rank) or type(rank) ~= "number" then rank = info.ranksPurchased end
+	return not secret(rank) and type(rank) == "number" and rank > 0
+end
+
+-- TBC Anniversary: four pieces of the set on (by item ID), else the bonus itself on you
+function Buff.HasSetBonus(b)
+	local n = 0
+	if GetInventoryItemID then
+		for slot = 1, 19 do
+			local id = GetInventoryItemID("player", slot)
+			if id and b.setMap[id] then n = n + 1 end
+		end
+	end
+	if n >= 4 then return true end
+	local A = C_UnitAuras
+	if A and A.GetPlayerAuraBySpellID then
+		local ok, a = pcall(A.GetPlayerAuraBySpellID, b.setBonus)
+		if ok and type(a) == "table" then return true end
+	end
+	return SPCompat.KnowsExactSpellID and SPCompat.KnowsExactSpellID(b.setBonus) or false
+end
+
+-- the set's name in the game's language
+function Buff.SetName(b)
+	local I = C_Item
+	if I and I.GetItemSetInfo then
+		local ok, name = pcall(I.GetItemSetInfo, b.setID)
+		if ok and type(name) == "string" and name ~= "" then return name end
+	end
+	return b.setName
+end
+
+-- ---- In Its Own Spot: Unlock UI's box (a still copy of the buff, as the flash's own spots) ----
+-- where the spot starts: above its icon (until moved)
+function Buff.DefaultSpot(entry, s)
+	local f = frames[entry.key] or SP:CreateReadyReminderFrame(entry)
+	local cx, cy = f:GetCenter()
+	if not cx then return { anchor = "CENTER", x = 0, y = -80 } end
+	local fs = f:GetEffectiveScale() / UIParent:GetEffectiveScale()
+	local S = IconOpt(entry, "iconSize") or 48
+	cx, cy = cx * fs, (cy + S / 2 + (SV().spacing or 8)) * fs + s / 2
+	return { anchor = "CENTER", x = cx - UIParent:GetWidth() / 2, y = cy - UIParent:GetHeight() / 2 }
+end
+
+function Buff.Proxy(key)
+	local entry = catalogByKey[key]
+	if not (entry and entry.buff) then return nil end
+	local p = Buff.proxies[key]
+	if not p then
+		p = CreateFrame("Frame", nil, UIParent)
+		p:SetFrameStrata("HIGH")
+		p.icon = p:CreateTexture(nil, "ARTWORK")
+		p.icon:SetAllPoints(p)
+		p.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		p.spBuffKey = key
+		p.spMoverLabel = entry.buff.label .. " Buff"   -- Unlock UI's box (the menu's name for it)
+		p:Hide()
+		Buff.proxies[key] = p
+	end
+	local s = math.floor((IconOpt(entry, "iconSize") or 48) * Buff.Clamp(IconOpt(entry, "buffOwnSize"), 0.3, 1, 1) + 0.5)
+	p:SetSize(s, s)
+	p.icon:SetTexture(GetSpellTextureC(entry.buff.ids[1]) or 136243)
+	p.icon:SetAlpha(0.6)
+	local rec = SV().buffPositions[key]
+	if type(rec) ~= "table" then rec = Buff.DefaultSpot(entry, s) end
+	if not (SP.ApplyPositionRecord and SP:ApplyPositionRecord(p, rec)) then
+		p:ClearAllPoints()
+		p:SetPoint("CENTER", UIParent, "CENTER", 0, -80)
+	end
+	return p
+end
+
+-- the buffs shown In Their Own Spot (Move This Buff: that one only)
+function Buff.SpotKeys(out)
+	for _, entry in ipairs(Buff.list) do
+		if usable(entry) and (Buff.moveOnly == nil or Buff.moveOnly == entry.key)
+			and IconOpt(entry, "buffLook") == "own" and IconOpt(entry, "buffSide") == "spot" then
+			out[#out + 1] = entry.key
+		end
+	end
+	return out
 end
 
 -- The look while it cools: the icon's Gray Out The Icon and Opacity While On
@@ -1791,6 +2565,59 @@ function SP:ReadyFlashResetSpellSpot(frame)
 	settingsChanged()
 end
 
+-- A buff In Its Own Spot (D52; its menu's Side, "Move This Buff"): Unlock UI gets a box
+-- for each one, a still copy of the buff in it. It starts above its icon; a drop gives it
+-- its spot, the box's Reset puts it back above the icon.
+function SP:ReadyBuffSpotFrames()
+	local out = {}
+	for _, key in ipairs(Buff.SpotKeys({})) do
+		local p = Buff.Proxy(key)
+		if p then out[#out + 1] = p end
+	end
+	return out
+end
+function SP:ReadyBuffSpotDemo(on)
+	if on then
+		Buff.placing = true
+		Buff.Pass(false, true)   -- the real buffs stay off while their boxes are placed
+		for _, p in ipairs(self:ReadyBuffSpotFrames()) do p:Show() end
+	else
+		Buff.placing, Buff.moveOnly = nil, nil
+		for _, p in pairs(Buff.proxies) do p:Hide() end
+		self:UpdateReadyReminders()
+	end
+end
+-- a buff's own spot, and the buff on it (out of combat: Unlock UI never runs in a fight)
+function Buff.SaveSpot(frame)
+	local key = frame and frame.spBuffKey
+	local rec = key and SP.GetPositionRecord and SP:GetPositionRecord(frame)
+	if not rec then return end
+	SV().buffPositions[key] = rec
+	settingsChanged()
+	if catalogByKey[key] then Buff.Layout(catalogByKey[key]) end
+end
+-- one box's Reset: that buff back above its icon (Reset All Positions: every one)
+function SP:ReadyBuffSpotReset(frame)
+	local key = frame and frame.spBuffKey
+	if not key then return self:ReadyBuffSpotResetAll() end
+	SV().buffPositions[key] = nil
+	settingsChanged()
+	Buff.Proxy(key)
+	if catalogByKey[key] then Buff.Layout(catalogByKey[key]) end
+end
+function SP:ReadyBuffSpotResetAll()
+	wipe(SV().buffPositions)
+	settingsChanged()
+	for key in pairs(Buff.proxies) do Buff.Proxy(key) end
+	Buff.LayoutAll()
+end
+-- Move This Buff: Unlock UI with that buff's box only
+function SP:ReadyBuffMoveSpot(key)
+	if not (catalogByKey[key] and catalogByKey[key].buff) then return end
+	Buff.moveOnly = key
+	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readybuffspot") end
+end
+
 -- ---------------------------------------------------------------------------
 -- WoW: Forever: the REAL "ready". C_Spell.GetSpellCooldown's isActive and
 -- isEnabled are never secret (readable in combat, measured 2026-09-30; Flame
@@ -2256,6 +3083,7 @@ local function readyPass(self)
 			if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil   -- gridVis: they appear anew
 			setFade(f, 1)   -- (D51) a hidden icon is never faded
 		end
+		Buff.Pass(false, true)   -- (D52) their buffs too
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
 		rangeSync()
 		return
@@ -2395,7 +3223,10 @@ local function readyPass(self)
 	end
 	layoutGrid(false)
 	rangeSync()
-	self.readyCooling = cooling
+	-- (D52) each spell's buff on or off as its icon allows; a buff whose time this pass writes
+	-- (a client with no duration binding) keeps the passes coming, as a countdown does
+	local buffTicks = Buff.Pass(inCombat)
+	self.readyCooling = cooling or buffTicks
 end
 
 -- fromTick: the subsystem's own pass. A setting found off there (changed
@@ -2430,6 +3261,7 @@ function SP:ShowAllReadyReminders()
 	end
 	layoutGrid(true)
 	rangeSync()   -- nothing is range-checked while positioning
+	Buff.Pass(false, true)   -- (D52) no buffs while the icons are placed
 	SP:Print("Ready Reminders unlocked: drag the icons where you want them, then /spready lock"
 		.. " (or turn off Unlock Position in settings).")
 end
@@ -2479,6 +3311,7 @@ function SP:ReadyRemindersDemo(on)
 		for _, f in pairs(frames) do setFade(f, 1) end   -- (D51) the previews keep the in-a-fight look
 		self:UpdateAllReadyReminderAppearance()
 		rangeSync()   -- the demo's icons are never range-checked
+		Buff.Pass(false, true)   -- (D52) nor do the buffs show over the borrowed icons
 		-- The preview shows every borrowed icon (enabled or not) before calling
 		-- this; sorting them right here, in the same frame, means the disabled
 		-- ones never get drawn. Waiting for the first tick flashed them all.
@@ -2589,6 +3422,8 @@ end
 if SP.RegisterPreview then
 	-- the spells' own flash spots (Unlock UI only)
 	SP:RegisterPreview("readyflashspell", { frame = function() return nil end, demo = "SP:ReadyFlashSpellDemo" })
+	-- (D52) the buffs In Their Own Spot (Unlock UI only)
+	SP:RegisterPreview("readybuffspot", { frame = function() return nil end, demo = "SP:ReadyBuffSpotDemo" })
 end
 if SP.UnlockModules then
 	table.insert(SP.UnlockModules, {
@@ -2605,6 +3440,15 @@ if SP.UnlockModules then
 		reset = function() SP:ReadyFlashResetSpellSpots() end,
 		resetOne = "ReadyFlashResetSpellSpot",   -- a box's Reset: that spell's own spot only
 	})
+	-- (D52) a buff In Its Own Spot: a box each
+	table.insert(SP.UnlockModules, {
+		key = "readybuffspot", label = "Buff",
+		frames = function() return SP:ReadyBuffSpotFrames() end,
+		enabled = function() return SV().enabled ~= false and #Buff.SpotKeys({}) > 0 end,
+		save = function(frame) Buff.SaveSpot(frame) end,
+		reset = function() SP:ReadyBuffSpotResetAll() end,
+		resetOne = "ReadyBuffSpotReset",   -- a box's Reset: that buff only
+	})
 end
 
 -- ---------------------------------------------------------------------------
@@ -2620,6 +3464,14 @@ function SP:ReadyRemindersDiag()
 		local start, duration = cooldownOf(entry)
 		out[#out + 1] = string.format("%-20s on=%-5s clientID=%-7s known=%-5s cd start=%s dur=%s shown=%s", entry.name, tostring(spellOn(entry)),
 			tostring(id), tostring(id and playerKnows(entry)), tostring(start), tostring(duration), tostring(frames[entry.key] and frames[entry.key]:IsShown()))
+	end
+	-- (D52) each buff's display: its look, how the game draws it, on / off (never what the buff reads)
+	for _, entry in ipairs(Buff.list) do
+		local B = Buff.of[entry.key]
+		out[#out + 1] = string.format("buff %-20s ids=%s look=%s drawn by=%s on=%s alpha=%s fails=%s waiting=%s", entry.buff.label,
+			table.concat(entry.buff.ids, ","), tostring(IconOpt(entry, "buffLook")),
+			B and (B.c and "game" or (B.P and "addon" or "-")) or "-", tostring(B and B.on), tostring(B and B.alpha),
+			tostring(B and B.fails or 0), tostring(Buff.dirty == true))
 	end
 	return out
 end
@@ -2671,6 +3523,33 @@ local function copyValue(v)
 	return t
 end
 SP.ReadyReminderKnown = playerKnows
+-- (D52) the buff an icon's spell puts on you, for its menu: nil when it puts none on you in
+-- this game. name, timed (it has a time left), known (it can come up now) and, when not,
+-- the plain line saying why nothing shows yet (two rows, as the menu draws them).
+function SP.ReadyReminderBuffInfo(_, key)
+	local entry = catalogByKey[key]
+	local b = entry and entry.buff
+	if not (b and usable(entry)) then return nil end
+	local info = b.info or {}
+	b.info = info
+	info.name, info.timed = b.label, b.timed
+	local known
+	if b.talent then
+		known = Buff.KnowsTalent(b)
+		info.line1 = "You don't have the " .. b.label .. " talent:"
+	elseif b.setBonus then
+		known = Buff.HasSetBonus(b)
+		info.line1 = "You don't have the " .. Buff.SetName(b) .. " 4-piece bonus:"
+	else
+		known = playerKnows(entry)
+		info.line1 = "You haven't learned " .. entry.name .. " yet:"
+	end
+	info.known = known and true or false
+	info.line2 = "there's no buff to show yet."
+	return info
+end
+-- (D52) Move This Buff: its box in Unlock UI (In Its Own Spot)
+function SP.ReadyReminderBuffMove(_, key) SP:ReadyBuffMoveSpot(key) end
 function SP.ReadyReminderIconOpt(_, key, opt)   -- what the icon uses now: its own, else the page's
 	local entry = catalogByKey[key]
 	return entry and IconOpt(entry, opt)
@@ -2717,8 +3596,10 @@ function SP.ReadyReminderCopyIcon(_, fromKey, targets)
 		if key ~= fromKey and catalogByKey[key] then
 			if type(src) == "table" and next(src) ~= nil then
 				local t = {}
-				for k, v in pairs(src) do t[k] = copyValue(v) end
-				icons[key] = t
+				for k, v in pairs(src) do
+					if not Buff.Skip(key, k) then t[k] = copyValue(v) end   -- (D52) no buff here: not its buff's settings
+				end
+				icons[key] = next(t) and t or nil
 			else
 				icons[key] = nil
 			end
@@ -2771,7 +3652,9 @@ end
 function SP.ReadyReminderPasteSnapshot(_, key, snap)
 	if not (catalogByKey[key] and type(snap) == "table") then return end
 	local t = {}
-	for k, v in pairs(snap) do t[k] = copyValue(v) end
+	for k, v in pairs(snap) do
+		if not Buff.Skip(key, k) then t[k] = copyValue(v) end   -- (D52) no buff here: not its buff's settings
+	end
 	iconTable()[key] = next(t) and t or nil
 	refreshIcons()
 end
@@ -2852,9 +3735,12 @@ function SP.ReadyReminderBoxAccess(_, what, frame)
 	if not frame then return nil end
 	local opt, lo, hi, step, pct = "iconSize", 24, 96, 2, false
 	if what == "opacity" then opt, lo, hi, step, pct = "opacity", 0.2, 1, 0.05, true
-	elseif what == "flashSize" then opt, lo, hi, step = "flashSize", 48, 200, 4 end
+	elseif what == "flashSize" then opt, lo, hi, step = "flashSize", 48, 200, 4
+	elseif what == "buffOwnSize" then opt, lo, hi, step, pct = "buffOwnSize", 0.3, 1, 0.05, true end   -- (D52) a buff In Its Own Spot
 	local targets = {}
-	if frame.entry and frame.entry.key and what ~= "flashSize" then
+	if what == "buffOwnSize" then
+		targets[1] = frame.spBuffKey and catalogByKey[frame.spBuffKey] or nil
+	elseif frame.entry and frame.entry.key and what ~= "flashSize" then
 		targets[1] = frame.entry
 	elseif frame.spFlashKey then
 		targets[1] = catalogByKey[frame.spFlashKey]
@@ -2882,6 +3768,7 @@ function SP.ReadyReminderBoxAccess(_, what, frame)
 		end
 		refreshIcons()
 		if frame.spFlashKey then flashProxy(frame.spFlashKey) end
+		if frame.spBuffKey then Buff.Proxy(frame.spBuffKey) end   -- (its box's copy, at the new size)
 	end
 	return get, set, lo, hi, step, pct
 end
@@ -2940,7 +3827,10 @@ local function InjectOptions()
 			yourIcons = { order = 0.2, type = "description", width = "full",
 				name = "Click a spell to show or hide it. Right-click it for its settings: Show, Only In Combat,"
 					.. " Fade Instead of Hide, Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash."
-					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom." },
+					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom."
+					-- (D52) the buff a spell puts on you, in that spell's menu
+					.. " Your buff on its icon (Improved Stormstrike, Stormpower ...): Show The Buff In The Icon's Corner,"
+					.. " As Its Own Icon, In Its Own Spot or As An Edge Around The Icon; Time Left, Time Turns Gold Under, Edge Color." },
 
 			move = { order = 1.5, type = "execute", name = "Move the Icons", width = 1.2,
 				desc = "Unlocks just the reminder icons: drag each box where you want it, then press Done to come back here.",

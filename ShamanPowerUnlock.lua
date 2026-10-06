@@ -618,6 +618,8 @@ local FX = {
 	readycheck     = { page = { "fluffy", "readycheck_section" },     size = { node = "panelScale", under = "readycheck_section" } },
 	readyflash     = { page = { "fluffy", "readyreminders_section" }, size = { rr = "flashSize" } },
 	readyflashspell = { page = { "fluffy", "readyreminders_section" }, size = { rr = "flashSize" } },
+	-- a Ready Reminder's buff In Its Own Spot (D52): the wheel is its Size, right-click its icon's menu
+	readybuffspot  = { page = { "fluffy", "readyreminders_section" }, size = { rr = "buffOwnSize" } },
 	-- Target Tracker: the debuffs' spot (each spell has its own size: none here) and Purge's
 	ttdebuffs      = { page = { "fluffy", "targettracker_section" } },
 	ttpurge        = { page = { "fluffy", "targettracker_section" }, size = { min = 32, max = 128, step = 1,
@@ -1791,9 +1793,10 @@ function SP:UnlockBoxClick(mover, button)
 		-- a Ready Reminder icon's own box (free placement) carries its catalog key;
 		-- the Grid block's box has none: the plain page
 		local rrKey
-		local e = mod == "readyreminders" and shown[mover.key]
+		local e = (mod == "readyreminders" or mod == "readybuffspot") and shown[mover.key]
 		local entry = e and e.frame and e.frame.entry
 		if entry then rrKey = entry.key end
+		if e and e.frame and e.frame.spBuffKey then rrKey = e.frame.spBuffKey end   -- (a buff's own spot: its icon's menu)
 		StartDrop(fx.page, rrKey)
 		return
 	end
