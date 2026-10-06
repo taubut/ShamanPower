@@ -20167,6 +20167,16 @@ local function GetSpellNameFromActionSlot(slot)
 		-- Check if macro casts a spell we care about
 		local macroSpell = GetMacroSpell(id)
 		if macroSpell then
+			-- The exact-key pass (ScanActionBarKeybinds, for Reactive Totems' Show
+			-- Spell Keybind) passes over ShamanPower's own SP_ macros: SP_Earth or
+			-- SP_DropAll cast whichever totem comes next, so their key is never
+			-- the key of the one totem the macro shows right now.
+			if ShamanPower.scanSkipSPMacros then
+				local macroName = GetMacroInfo(id)
+				if not issecretvalue(macroName) and type(macroName) == "string" and macroName:find("^SP_") then
+					return nil, nil
+				end
+			end
 			local spellName = GetSpellInfo(macroSpell)
 			if spellName then ShamanPower.barMacroSpells[spellName] = true end
 			return spellName, macroSpell
@@ -20387,12 +20397,30 @@ function ShamanPower:ScanDefaultActionBarKeybinds()
 	return keybinds
 end
 
--- Main function to scan all action bars and populate the keybind lookup table
+-- Main function to scan all action bars and populate the keybind lookup table.
+-- With Reactive Totems' Show Spell Keybind on, a second pass on the same call
+-- fills actionBarExactKeybinds: each spell's key with ShamanPower's own SP_
+-- macros passed over (an alert shows the key of ITS totem, never SP_Earth's or
+-- SP_DropAll's). The first pass, the one the bar buttons show, stays as it was.
 function ShamanPower:ScanActionBarKeybinds()
-	local addon = self:GetActiveActionBarAddon()
-	local keybinds = {}
 	wipe(self.barPlainSpells)
 	wipe(self.barMacroSpells)
+	self.scanSkipSPMacros = nil
+	self.actionBarKeybinds = self:ScanActionBarKeybindsPass()
+	local rt = ShamanPower_ReactiveTotems
+	if type(rt) == "table" and rt.showSpellKeybind then
+		self.scanSkipSPMacros = true
+		self.actionBarExactKeybinds = self:ScanActionBarKeybindsPass()
+		self.scanSkipSPMacros = nil
+	else
+		self.actionBarExactKeybinds = nil
+	end
+end
+
+-- One pass over the bars: [spell name] = key
+function ShamanPower:ScanActionBarKeybindsPass()
+	local addon = self:GetActiveActionBarAddon()
+	local keybinds = {}
 
 	-- Always scan default bars first (provides fallback)
 	local defaultKeybinds = self:ScanDefaultActionBarKeybinds()
@@ -20418,7 +20446,7 @@ function ShamanPower:ScanActionBarKeybinds()
 		end
 	end
 
-	self.actionBarKeybinds = keybinds
+	return keybinds
 end
 
 -- Get keybind for a spell by name (checks action bar keybinds first)

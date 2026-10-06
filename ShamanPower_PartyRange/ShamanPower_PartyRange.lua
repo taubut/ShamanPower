@@ -1697,7 +1697,9 @@ end
 --    (PartyUnitFarAway: the game draws a dot for any matching buff it is handed).
 --  * TBC Anniversary: buffs are read (UnitHasBuff, yours only). Windfury Totem is a
 --    weapon buff there: each member's own report (WFBUFF, or the Windfury
---    WeakAura) says it, and none (or none for 10 s) is "?", never "missing".
+--    WeakAura) says it, and none (or none for 10 s) is "?", never "missing". A
+--    report never says whose Windfury it is: your own totem's spot decides, or
+--    being the party's only shaman; else "?" (ReportOwner).
 -- The marks differ by shape, not only color: a filled dot in the member's class
 -- color (has it), WoW's red circle with a slash (missing), WoW's gray "?" (can't
 -- tell), a gray dash (nobody in that spot). Nothing ticks: the roster settle
@@ -2119,6 +2121,64 @@ do
 		return "unknown"
 	end
 
+	-- A report says "Windfury", never whose (G4). Your own totem's evidence decides:
+	-- where it went down (your spot as its slot filled; the open world gives
+	-- positions, instances do not) against where the member is now. Within its
+	-- reach the buff is yours to give; plainly out of it, it is not yours, whoever's
+	-- it is. Unmeasured or in between, it is yours only when no other shaman is in
+	-- your party (a totem reaches its own party only); else "?", never a guess.
+	local WF_REACH, WF_OUT = 20, 30      -- yards: Windfury Totem's reach (TBC), and plainly out of it
+	local ownDrop = {}                   -- your Windfury: start (its slot's start time), x, y, map
+	local function UnitSpot(unit)
+		if SP.debugNoPositions or not UnitPosition then return nil end   -- (the core's dev switch: act as in an instance)
+		local ok, y, x, _, map = pcall(UnitPosition, unit)
+		if not ok or issecretvalue(x) or issecretvalue(y) or type(x) ~= "number" or type(y) ~= "number" then return nil end
+		return x, y, map
+	end
+	-- your totems changed: a Windfury that has just gone down stands where you are now
+	local function NoteOwnDrop(w)
+		local have, _, start = SP:GetElementTotemInfo(w.element)
+		if issecretvalue(have) or issecretvalue(start) or not have or type(start) ~= "number" then
+			ownDrop.start = nil
+			return
+		end
+		if ownDrop.start == start then return end
+		ownDrop.start = start
+		ownDrop.x, ownDrop.y, ownDrop.map = nil, nil, nil
+		if GetTime() - start > 1.5 then return end   -- down a while already (the strip came on later): you may have walked off
+		ownDrop.x, ownDrop.y, ownDrop.map = UnitSpot("player")
+	end
+	-- yards from your Windfury to this member; nil when that can't be measured
+	local function OwnDropYards(unit, w)
+		if not ownDrop.x then return nil end
+		local _, _, start = SP:GetElementTotemInfo(w.element)
+		if issecretvalue(start) or start ~= ownDrop.start then return nil end   -- (another totem since)
+		local x, y, map = UnitSpot(unit)
+		if not x or map ~= ownDrop.map then return nil end
+		local dx, dy = x - ownDrop.x, y - ownDrop.y
+		return math.sqrt(dx * dx + dy * dy)
+	end
+	local function OtherShamanInParty()
+		for i = 1, 4 do
+			local unit = PARTY[i]
+			if SafeExists(unit) then
+				local _, class = UnitClass(unit)
+				if not issecretvalue(class) and class == "SHAMAN" then return true end
+			end
+		end
+		return false
+	end
+	-- a report that says the member has Windfury: yours ("has"), not yours, or "?"
+	local function ReportOwner(unit, w)
+		local yards = OwnDropYards(unit, w)
+		if yards then
+			if yards <= WF_REACH then return "has" end
+			if yards > WF_OUT then return "missing" end
+		end
+		if OtherShamanInParty() then return "unknown" end
+		return "has"
+	end
+
 	local function UpdateSpot(f, i, w, shown)
 		local unit, c, rec = PARTY[i], f.spots[i], f.slots[i]
 		local exists = SafeExists(unit)
@@ -2135,6 +2195,7 @@ do
 			else
 				state = ReportState(unit)
 				if state ~= "unknown" and ArmReport then ArmReport(i, unit) end
+				if state == "has" then state = ReportOwner(unit, w) end   -- (G4) whose Windfury it is
 			end
 		elseif w and w.buffName and not (SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
 			state = SP:UnitHasBuff(unit, w.buffName) and "has" or "missing"
@@ -2394,7 +2455,10 @@ do
 		if not f then return end
 		local w = Built(f)
 		UpdateIcon(f, w)
-		if w and w.reports and Wanted(f) then for i = 1, 4 do UpdateSpot(f, i, w, true) end end   -- (#2)
+		if w and w.reports and Wanted(f) then   -- (#2)
+			NoteOwnDrop(w)   -- (G4) where a new Windfury of yours went down
+			for i = 1, 4 do UpdateSpot(f, i, w, true) end
+		end
 	end
 	if SP.InvalidateTotemInfo then
 		hooksecurefunc(SP, "InvalidateTotemInfo", function()

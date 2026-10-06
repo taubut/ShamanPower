@@ -6679,8 +6679,10 @@ ShamanPower.options = {
 							set = function(info, val)
 								if not ShamanPower_ReactiveTotems then return end
 								ShamanPower_ReactiveTotems.noKeyText = (val == "show") and "show" or "none"
-								if ShamanPower.UpdateReactiveTotemAppearance then
-									ShamanPower:UpdateReactiveTotemAppearance()
+								-- only the key captions: never the general appearance update, which
+								-- in a fight on WoW: Forever showed the alerts' empty boxes
+								if ShamanPower.RefreshReactiveKeyCaptions then
+									ShamanPower:RefreshReactiveKeyCaptions()
 								end
 							end
 						},
