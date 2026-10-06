@@ -17364,14 +17364,12 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 		-- The loop decrements first; begin above the last valid index when
 		-- wrapping, including a saved index pruned from the end of the table.
 		if cur <= 0 or cur > maxTotems then cur = maxTotems + 1 end
-	elseif not ShamanPower_Assignments[name][class] then
-		cur = maxTotems
 	else
-		cur = ShamanPower_Assignments[name][class]
-		local testB = 1
-		if cur == 0 or (skipzero and cur == testB) then
-			cur = maxTotems
-		end
+		-- The loop decrements first, so wrapping (from no totem, or from the first
+		-- one when skipzero leaves out "none") begins above the last totem. Starting
+		-- AT the last one stepped straight past it to the one before.
+		cur = ShamanPower_Assignments[name][class] or 0
+		if cur <= 0 or cur > maxTotems or (skipzero and cur == 1) then cur = maxTotems + 1 end
 	end
 	ShamanPower_Assignments[name][class] = 0
 	-- Simple backwards cycle - go to previous totem (stepping over totems this
@@ -17386,7 +17384,7 @@ function ShamanPower:PerformCycleBackwards(name, class, skipzero)
 				cur = maxTotems
 			end
 		end
-		if not (sparse and skipzero and cur == 0)
+		if not (skipzero and cur == 0)   -- skipzero never lands on "none", on any client
 			and (class < 1 or class > 4 or self:TotemExistsOnClient(class, cur)) then break end
 	end
 	if sparse and maxTotems == 0 then cur = 0 end
