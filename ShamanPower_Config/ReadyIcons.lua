@@ -358,6 +358,7 @@ local COOL_KEYS = { "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", 
 local RANGE_KEYS = { "outOfRange", "rangeLook", "rangeColor" }
 local SOUND_KEYS = { "soundOnReady", "soundName", "soundVolume", "soundMinCooldown" }
 local FLASH_KEYS = { "flash", "flashAnim", "flashSize", "flashHold", "flashEarly", "flashName", "flashMin" }
+local FADE_KEYS = { "fadeInsteadOfHide", "fadeOpacity" }
 
 local function LookRows(key, entry)
 	local t = {
@@ -574,6 +575,33 @@ local function CopyItems(key)
 	return items
 end
 
+-- D51 Fade Instead of Hide: under Only In Combat (only while that is on, and not with
+-- Show: Never), On / Off; while On its Faded Opacity slider; then Copy Fade To All Icons
+local FADE_TIP = "Out of combat, this icon fades to the opacity below instead of hiding, so you can still see which spells are ready. In a fight it's back to full."
+local FADED_OPACITY_TIP = "How visible the icon stays out of combat. 100% is how it looks in a fight."
+local function FadeRow(key)
+	local function on() return Opt(key, "fadeInsteadOfHide") == true end
+	return {
+		text = "Fade Instead of Hide", tip = FADE_TIP,
+		value = function() return OnOff(on()), false end,
+		sub = function()
+			local isOn = on()
+			local t = {
+				{ text = "On", selected = isOn, onClick = function() return Set(key, "fadeInsteadOfHide", true) end },
+				{ text = "Off", selected = not isOn, onClick = function() return Set(key, "fadeInsteadOfHide", false) end },
+			}
+			if isOn then
+				local opacity = SliderRow(key, "Faded Opacity", "fadeOpacity", 0.05, 0.9, 0.05, 0.4, nil, true)
+				opacity.tip = FADED_OPACITY_TIP
+				t[#t + 1] = opacity
+			end
+			t[#t + 1] = { separator = true }
+			t[#t + 1] = CopyGroupRow(key, "Fade", FADE_KEYS)
+			return t
+		end,
+	}
+end
+
 local function MenuItems(key)
 	local entry
 	for _, e in ipairs(Row.list) do if e.key == key then entry = e break end end
@@ -595,6 +623,8 @@ local function MenuItems(key)
 		  end },
 		OnOffRow(key, "Only In Combat", "onlyInCombat"),
 	}
+	-- right under it: only does something while Only In Combat is on, and the icon is ever on screen
+	if Opt(key, "onlyInCombat") and show ~= "flash" then items[#items + 1] = FadeRow(key) end
 	if entry.combo then items[#items + 1] = Group("Shocks", function() return ShockRows() end) end
 	items[#items + 1] = Group("Look", function() return LookRows(key, entry) end)
 	items[#items + 1] = Group("When Ready", function() return ReadyRows(key, entry) end)

@@ -206,6 +206,16 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- 3.0.8: Ready Reminders Fade Instead of Hide (the page's default, or any icon's own)
+	{ key = "readyRemindersFade", label = "Ready reminders: fade instead of hide", get = function()
+		local sv = G("ShamanPower_ReadyReminders")
+		if on(sub(sv, "fadeInsteadOfHide")) then return true end
+		local icons = sub(sv, "icons")
+		if type(icons) == "table" then
+			for _, own in pairs(icons) do if on(sub(own, "fadeInsteadOfHide")) then return true end end
+		end
+		return false
+	end },
 }
 
 -- ---------------------------------------------------------------------------
