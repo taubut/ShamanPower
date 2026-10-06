@@ -841,6 +841,57 @@ local function AvailableShieldNotes(describe)
 			:gsub("so only the Earth Shield indicator uses this%.", "so no separate indicator is shown."))
 	end
 end
+-- Totem Plates page: why a totem shows only its name. WoW draws no nameplate for it
+-- while its own friendly / enemy nameplate options (or the Minions under them) are
+-- off, so there is nothing to put the icon on. Read when the page is drawn; WoW's own
+-- labels and keys, so the words match the player's Options page and language.
+local function GameLabel(global, fallback)
+	local v = _G[global]
+	if type(v) == "string" and v ~= "" then return v end
+	return fallback
+end
+local function BindingWord(action)
+	local key = GetBindingKey and GetBindingKey(action)
+	if type(key) ~= "string" or key == "" then return nil end
+	return (GetBindingText and GetBindingText(key)) or key
+end
+local function TotemPlatesNameplateNote()
+	local SP = ShamanPower
+	local tp = SP.opt and SP.opt.totemPlates
+	if not (SP.TotemPlatesLoaded and SP.TotemPlatesNameplateGap and tp and tp.enabled) then return nil end
+	local where = GameLabel("SETTINGS_TITLE", "Options") .. " > " .. GameLabel("SETTING_GROUP_GAMEPLAY", "Gameplay")
+		.. " > " .. GameLabel("NAMEPLATE_OPTIONS_LABEL", "Nameplates")
+	local lines = {}
+	if tp.showFriendly ~= false then
+		local gap = SP:TotemPlatesNameplateGap("friendly")
+		local option = GameLabel("UNIT_NAMEPLATES_SHOW_FRIENDS", "Friendly Player Nameplates")
+		local key = BindingWord("FRIENDNAMEPLATES")
+		if gap == "players" then
+			lines[#lines + 1] = "Your own totems (and other friendly ones) show only their name: WoW's \"" .. option
+				.. "\" option is off, so they have no nameplate to put an icon on. Turn it on with the button below, or in "
+				.. where .. (key and (" (" .. key .. " switches it too)") or "") .. "."
+		elseif gap == "minions" then
+			lines[#lines + 1] = "Your own totems (and other friendly ones) show only their name: the \""
+				.. GameLabel("UNIT_NAMEPLATES_SHOW_FRIENDLY_MINIONS", "Minions") .. "\" option under WoW's \"" .. option
+				.. "\" is off, so totems have no nameplate. Turn it on with the button below, or in " .. where .. "."
+		end
+	end
+	if tp.showEnemy ~= false then
+		local gap = SP:TotemPlatesNameplateGap("enemy")
+		local option = GameLabel("UNIT_NAMEPLATES_SHOW_ENEMIES", "Enemy Unit Nameplates")
+		local key = BindingWord("NAMEPLATES")
+		if gap == "players" then
+			lines[#lines + 1] = "Enemy totems show only their name: WoW's \"" .. option .. "\" option is off. Turn it on in "
+				.. where .. (key and (" (" .. key .. " switches it too)") or "") .. "."
+		elseif gap == "minions" then
+			lines[#lines + 1] = "Enemy totems show only their name: the \"" .. GameLabel("UNIT_NAMEPLATES_SHOW_ENEMY_MINIONS", "Minions")
+				.. "\" option under WoW's \"" .. option .. "\" is off. Turn it on in " .. where .. "."
+		end
+	end
+	if #lines == 0 then return nil end
+	return "|cffffa040" .. table.concat(lines, "\n\n") .. "|r"
+end
+
 local function SetsOwnDropAll()
 	return (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() and ShamanPower.opt.dropAllUsesTotemSets ~= false) and true or false
 end
@@ -9437,6 +9488,34 @@ ShamanPower.options = {
 							type = "description",
 							name = "|cffffa040Totem Plates is not loaded. These settings will not work and may not save. Turn on ShamanPower [Totem Plates] in the AddOns list, then type /reload.|r",
 							hidden = function() return not (not ShamanPower.TotemPlatesLoaded) end,
+						},
+						-- why a totem shows only its name: WoW's own nameplate options (only while one is off)
+						nameplates_off_note = {
+							order = 0.02,
+							type = "description",
+							width = "full",
+							name = function() return TotemPlatesNameplateNote() or "" end,
+							hidden = function() return TotemPlatesNameplateNote() == nil end,
+						},
+						nameplates_turn_on = {
+							order = 0.03,
+							type = "execute",
+							name = "Turn On Friendly Nameplates",
+							desc = "Turns on WoW's own friendly player nameplates and the Minions option under them, so your totems have a nameplate for their icon. Only when you click this, and only out of combat. You can turn them off again in WoW's Options > Gameplay > Nameplates.",
+							width = "full",
+							hidden = function()
+								local tp = ShamanPower.opt.totemPlates
+								return not (ShamanPower.TotemPlatesLoaded and ShamanPower.TotemPlatesNameplateGap and tp and tp.enabled
+									and tp.showFriendly ~= false and ShamanPower:TotemPlatesNameplateGap("friendly"))
+							end,
+							disabled = function() return InCombatLockdown() end,
+							func = function()
+								if not ShamanPower:TurnOnFriendlyNameplates() then
+									print("|cff0070ddShamanPower|r: |cffE64A4ACan't change WoW's nameplate options during a fight.|r Click it again once the fight is over.")
+									return
+								end
+								ShamanPower:RefreshConfig()   -- the note and this button go once they are on
+							end,
 						},
 						totemplates_desc = {
 							order = 0,

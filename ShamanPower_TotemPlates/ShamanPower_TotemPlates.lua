@@ -934,6 +934,49 @@ function SP:DisableTotemPlatesEvents()
 end
 
 -- ============================================================================
+-- WoW's own nameplate options that Totem Plates needs
+-- ============================================================================
+-- A totem only gets an icon where WoW draws it a nameplate. Your own and other
+-- friendly totems need WoW's friendly player nameplates (Shift+V) and the Minions
+-- option under them; enemy totems need enemy nameplates (V) and their Minions. With
+-- one off, WoW shows just the totem's floating name. Both clients name them the same
+-- on their Options > Gameplay > Nameplates page (Blizzard_SettingsDefinitions_Frame,
+-- Nameplates.lua). A client without one of them answers nil and is left alone.
+local NAMEPLATE_NEEDS = {
+    friendly = { "nameplateShowFriendlyPlayers", "nameplateShowFriendlyPlayerMinions" },
+    enemy = { "nameplateShowEnemies", "nameplateShowEnemyMinions" },
+}
+local function ReadNameplateCVar(name)
+    local get = (C_CVar and C_CVar.GetCVar) or GetCVar
+    if not get then return nil end
+    local ok, v = pcall(get, name)
+    if ok then return v end
+end
+
+-- What WoW's options leave out on one side ("friendly" or "enemy"): nil when nothing,
+-- "players" when the side's nameplates are off, "minions" when only its Minions are.
+function SP:TotemPlatesNameplateGap(side)
+    local names = NAMEPLATE_NEEDS[side]
+    if not names then return nil end
+    if ReadNameplateCVar(names[1]) == "0" then return "players" end
+    if ReadNameplateCVar(names[2]) == "0" then return "minions" end
+    return nil
+end
+
+-- The settings page's "Turn On Friendly Nameplates" button, and only that: WoW's
+-- friendly player nameplates and their Minions, each option on its own, out of combat
+-- only (as turning Totem Plates on sets its options). Returns false in a fight.
+function SP:TurnOnFriendlyNameplates()
+    if InCombatLockdown() then return false end
+    local set = SetCVar or (C_CVar and C_CVar.SetCVar)
+    if not set then return false end
+    for _, name in ipairs(NAMEPLATE_NEEDS.friendly) do
+        if ReadNameplateCVar(name) ~= nil then pcall(set, name, "1") end
+    end
+    return true
+end
+
+-- ============================================================================
 -- Toggle Function
 -- ============================================================================
 
