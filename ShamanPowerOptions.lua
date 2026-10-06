@@ -11241,9 +11241,10 @@ do
 		.. " Use Move below or ALT+drag to move the icons. Turn this off to group them in a row or column, with one icon for each element."
 end
 
--- Party Buff Tracker > Party Strip: one marker per party member for the one totem
--- buff picked, on screen with or without that totem down (ShamanPower_PartyRange
--- draws it). Settings in the profile: opt.partyStrip (defaults in ShamanPowerValues).
+-- Party Buff Tracker > Party Strip: one marker per party member for each totem buff
+-- picked in the Totems row (ShamanPower_Config TTIcons.lua draws it), on screen with or
+-- without that totem down (ShamanPower_PartyRange draws it). Settings in the profile:
+-- opt.partyStrip (defaults in ShamanPowerValues).
 do
 	local SP = ShamanPower
 	local pages = SP.options.args.fluffy.args
@@ -11256,14 +11257,22 @@ do
 	local function Changed(what)
 		if SP.PartyStripSettingChanged then SP:PartyStripSettingChanged(what) end
 	end
+	-- how many totems the strip shows (picked and learned), and how many are picked
+	local function Counts()
+		if not SP.PartyStripCounts then return 0, 0 end
+		return SP:PartyStripCounts()
+	end
+	local function Shown() return (Counts()) end
+	-- two or more totems in one strip: each line's icon is its label
+	local function SharedLines() return Shown() > 1 and not O().breakUp end
 	pages.partystrip_section = {
 		order = 14.2, type = "group", name = "Party Strip",
 		args = {
 			partystrip_desc = {
 				order = 1, type = "description",
-				name = "A small strip with one marker for each party member, for the one totem buff you pick. It stays on screen"
-					.. " even when that totem is not down, so you always see who has your buff. A filled dot in their class color:"
-					.. " they have it. A red circle with a slash: they are missing it.",
+				name = "A small strip with one marker for each party member, for each totem buff you pick. It stays on"
+					.. " screen even when that totem is not down, so you always see who has your buff. A filled dot in their"
+					.. " class color: they have it. A red circle with a slash: they are missing it.",
 			},
 			partystrip_module_missing = {
 				order = 2, type = "description",
@@ -11280,52 +11289,70 @@ do
 					Changed("show")
 				end,
 			},
-			partystrip_buff = {
-				order = 4, type = "select", width = "full",
-				name = "Buff to Watch",
-				desc = "The totem buff the strip watches. Only the buff from your own totem counts, like the totem bar's dots.",
-				hidden = Off,
-				values = function()
-					if not SP.PartyStripBuffValues then return {} end
-					return (SP:PartyStripBuffValues())
+			-- the Totems row: the settings window draws it (TTIcons.lua); the text is what a search finds
+			partystrip_totems = {
+				order = 4, type = "description", width = "full",
+				name = "Click a totem to show or hide it on the strip. Strength of Earth, Windfury, Mana Spring and every"
+					.. " other totem that gives your party a buff.",
+				hidden = function() return Off() or not SP.PartyStripTotems end,
+			},
+			partystrip_none_note = {
+				order = 5, type = "description",
+				name = function()
+					local _, picked = Counts()
+					if picked > 0 then
+						return "|cffffa040The totems you picked show on the strip once you learn them.|r"
+					end
+					return "|cffffa040Pick a totem above to show the strip.|r"
 				end,
-				sorting = function()
-					if not SP.PartyStripBuffValues then return {} end
-					return select(2, SP:PartyStripBuffValues())
-				end,
-				get = function() return SP.PartyStripBuff and SP:PartyStripBuff() or O().buff end,
+				hidden = function() return Off() or not SP.PartyStripCounts or Shown() > 0 end,
+			},
+			partystrip_breakup = {
+				order = 6, type = "toggle", width = "full",
+				name = "Break Up Totem List",
+				desc = "Give each totem you picked a strip of its own, instead of one line each in a single strip. Each"
+					.. " strip has its own box in Unlock UI: drag it anywhere, and the mouse wheel over it sets that strip's"
+					.. " size. They start one under the other.",
+				hidden = function() return Off() or Shown() < 2 end,
+				get = function() return O().breakUp == true end,
 				set = function(_, val)
-					O().buff = val
-					Changed("buff")
+					O().breakUp = val and true or false
+					Changed("breakup")
 				end,
 			},
 			partystrip_reports_note = {
-				order = 5, type = "description",
+				order = 7, type = "description",
 				name = "|cffffa040Windfury: each party member's own ShamanPower (or the Windfury WeakAura) reports it. Anyone who doesn't report it shows a gray question mark.|r",
 				hidden = function()
 					return Off() or not (SP.PartyStripWatchesReports and SP:PartyStripWatchesReports())
 				end,
 			},
 			partystrip_combat_note = {
-				order = 6, type = "description",
+				order = 8, type = "description",
 				name = "It keeps working in fights and in dungeons. A change made here during a fight shows when the fight ends.",
 				hidden = Off,
 			},
 			partystrip_icon = {
-				order = 7, type = "toggle", width = 1.0,
+				order = 9, type = "toggle", width = 1.0,
 				name = "Show Totem Icon",
 				desc = "The totem's icon at the start of the strip. It is grayed out while you have no such totem down.",
-				hidden = Off,
+				hidden = function() return Off() or SharedLines() end,
 				get = function() return O().showIcon == true end,
 				set = function(_, val)
 					O().showIcon = val and true or false
 					Changed("layout")
 				end,
 			},
+			partystrip_icon_note = {
+				order = 10, type = "description",
+				name = "With more than one totem, each line starts with its totem's icon so you can tell them apart. An"
+					.. " icon is grayed out while you have no such totem down.",
+				hidden = function() return Off() or not SharedLines() end,
+			},
 			partystrip_names = {
-				order = 8, type = "toggle", width = 1.0,
+				order = 11, type = "toggle", width = 1.0,
 				name = "Show Names",
-				desc = "Each party member's name, in their class color, next to their marker.",
+				desc = "Each party member's name, in their class color, next to their marker (once, by the first totem).",
 				hidden = Off,
 				get = function() return O().showNames == true end,
 				set = function(_, val)
@@ -11334,9 +11361,10 @@ do
 				end,
 			},
 			partystrip_layout = {
-				order = 9, type = "select", width = 1.0,
+				order = 12, type = "select", width = 1.0,
 				name = "Layout",
-				desc = "The markers side by side, or stacked one above the other.",
+				desc = "In a Row: party members side by side, one line for each totem. In a Column: party members one above"
+					.. " the other, one column for each totem.",
 				hidden = Off,
 				values = { row = "In a Row", column = "In a Column" },
 				sorting = { "row", "column" },
@@ -11347,9 +11375,15 @@ do
 				end,
 			},
 			partystrip_size = {
-				order = 10, type = "range", width = 1.0, isPercent = true,
+				order = 13, type = "range", width = 1.0, isPercent = true,
 				name = "Size",
-				desc = "How big the strip is.",
+				desc = function()
+					if O().breakUp and Shown() > 1 then
+						return "How big the strips are. This sets every strip; in Unlock UI the mouse wheel over a strip"
+							.. " sets that one."
+					end
+					return "How big the strip is."
+				end,
 				min = 0.5, max = 3, step = 0.05,
 				hidden = Off,
 				get = function() return tonumber(O().scale) or 1 end,
@@ -11359,7 +11393,7 @@ do
 				end,
 			},
 			partystrip_opacity = {
-				order = 11, type = "range", width = 1.0, isPercent = true,
+				order = 14, type = "range", width = 1.0, isPercent = true,
 				name = "Background Opacity",
 				desc = "How solid the strip's background is. The markers and names always stay fully visible.",
 				min = 0, max = 1, step = 0.05,
@@ -11371,8 +11405,11 @@ do
 				end,
 			},
 			partystrip_move = {
-				order = 12, type = "execute", width = 1.4,
-				name = "Move the Party Strip",
+				order = 15, type = "execute", width = 1.4,
+				name = function()
+					if O().breakUp and Shown() > 1 then return "Move the Party Strips" end
+					return "Move the Party Strip"
+				end,
 				desc = "Drag the strip where you want it, then press Done to come back here. Unlock UI moves it too.",
 				hidden = function() return Off() or not SP.UnlockModuleFrames end,
 				func = function() SP:UnlockModuleFrames("partystrip") end,
@@ -11381,12 +11418,17 @@ do
 	}
 	SP.OrderSettingsBands(pages.partystrip_section, {
 		{ keys = { "partystrip_desc", "partystrip_module_missing" } },
-		{ keys = { "partystrip_enabled", "partystrip_buff", "partystrip_reports_note", "partystrip_combat_note" } },
+		{ keys = { "partystrip_enabled", "partystrip_combat_note" } },
+		{ header = "totems_header", name = "Totems", keys = {
+			"partystrip_totems", "partystrip_none_note", "partystrip_breakup", "partystrip_reports_note",
+		} },
 		{ header = "look_header", name = "Look", keys = {
-			"partystrip_icon", "partystrip_names", "partystrip_layout", "partystrip_size", "partystrip_opacity",
+			"partystrip_icon", "partystrip_icon_note", "partystrip_names", "partystrip_layout", "partystrip_size", "partystrip_opacity",
 		} },
 		{ header = "position_header", name = "Position", keys = { "partystrip_move" } },
 	})
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[pages.partystrip_section.args.partystrip_totems] = "stripTotems"
 end
 
 -- Drop All has its own tab, separate from the order of the visible buttons.

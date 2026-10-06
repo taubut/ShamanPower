@@ -274,17 +274,22 @@ SHAMANPOWER_DEFAULT_VALUES = {
             opacity = 1.0,             -- Opacity for unlocked frames
         },
         -- Party Strip (Party Buff Tracker > Party Strip, ShamanPower_PartyRange):
-        -- one marker per party spot for ONE totem buff, on screen with or without
-        -- that totem down. Off to start.
+        -- one marker per party spot for each totem buff picked, on screen with or
+        -- without that totem down. Off to start.
         partyStrip = {
             enabled = false,           -- Show Party Strip
-            buff = "4:1",              -- Buff to Watch: "element:totem index" (4:1 = Windfury Totem)
+            buff = "4:1",              -- the old Buff to Watch: "element:totem index" (4:1 = Windfury Totem), the first pick
             showIcon = false,          -- Show Totem Icon
             showNames = false,         -- Show Names
             layout = "row",            -- "row" (side by side) or "column" (stacked)
             scale = 1.0,               -- Size
             bgOpacity = 0.8,           -- Background Opacity (the panel only; the markers stay)
+            breakUp = false,           -- Break Up Totem List: each picked totem a strip of its own
             -- position = { anchor, x, y } once moved (SP:SavePositionRecord)
+            -- totems = { ["element:index"] = true }: the Totems row's picks. No default: until the
+            --   first pick the strip shows the old Buff to Watch (buff above) alone
+            -- strips = { ["element:index"] = { position = {...}, scale = n } }: Break Up Totem
+            --   List's strips moved / sized in Unlock UI (none: under the strip before it, the tab's Size)
         },
         -- Shield Charge Display (large on-screen numbers)
         shieldChargeDisplay = {
