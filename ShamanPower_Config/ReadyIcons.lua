@@ -613,7 +613,7 @@ local BUFF_CORNER_CHOICES = { { "tr", "Top Right" }, { "tl", "Top Left" }, { "br
 local BUFF_SIDE_CHOICES = { { "above", "Above" }, { "below", "Below" }, { "left", "Left" }, { "right", "Right" },
 	{ "spot", "In Its Own Spot" } }
 local BUFF_TIPS = {
-	show = "Where the buff shows while it's on you. It stays on screen while this icon hides between casts, except as an edge (the edge needs the icon) and in a grid (there a hidden icon's place goes to the next icon; In Its Own Spot still stays). Off: nothing changes.",
+	show = "Where the buff shows while it's on you. It stays on screen while this icon hides between casts, except as an edge (the edge needs the icon) and in a grid (there a hidden icon's place goes to the next icon; In Its Own Spot still stays). In a grid its own icon goes In Its Own Spot, since next to this icon is the next icon. Off: nothing changes.",
 	corner = "Which corner of this icon the buff sits in.",
 	cornerSize = "How big the buff is, as a share of this icon.",
 	side = "Where the buff's own icon goes: next to this icon, or In Its Own Spot, anywhere on your screen (Move This Buff places it). In its own spot it shows even with this icon hidden.",
@@ -636,6 +636,16 @@ local function NeverChoices(list, cur)
 	end
 	return out
 end
+-- Grid: the icons sit side by side, so a buff beside its icon would land on the next icon:
+-- its own icon goes only In Its Own Spot there (the corner and the edge stay).
+local BUFF_GRID_HIDES = { above = true, below = true, left = true, right = true }
+local function GridSides(list, cur)
+	local out = {}
+	for _, c in ipairs(list) do
+		if not BUFF_GRID_HIDES[c[1]] or c[1] == cur then out[#out + 1] = c end
+	end
+	return out
+end
 
 local function BuffRows(key, entry)
 	local info = SP.ReadyReminderBuffInfo and SP:ReadyReminderBuffInfo(key)
@@ -649,9 +659,14 @@ local function BuffRows(key, entry)
 	local look = Opt(key, "buffLook") or "off"
 	local never = SP:ReadyReminderShowOf(key) == "flash"
 	local side = Opt(key, "buffSide") or "above"
+	local grid = ShamanPower_ReadyReminders and ShamanPower_ReadyReminders.arrange == "grid"
 	if never and (look == "corner" or look == "edge" or (look == "own" and side ~= "spot")) then
 		t[#t + 1] = { text = "Show: Never keeps this icon off your screen:", disabled = true }
 		t[#t + 1] = { text = "the buff shows only In Its Own Spot.", disabled = true }
+		t[#t + 1] = { separator = true }
+	elseif grid and look == "own" and side ~= "spot" then
+		t[#t + 1] = { text = "In a grid the icons sit side by side:", disabled = true }
+		t[#t + 1] = { text = "the buff's own icon shows only In Its Own Spot.", disabled = true }
 		t[#t + 1] = { separator = true }
 	end
 	t[#t + 1] = {
@@ -667,7 +682,7 @@ local function BuffRows(key, entry)
 				local v = c[1]
 				items[#items + 1] = { text = c[2], selected = cur == v, onClick = function()
 					-- Show: Never: its own icon goes In Its Own Spot (the one place it can show)
-					if never and v == "own" and Opt(key, "buffSide") ~= "spot" then SP:ReadyReminderSetIconOpt(key, "buffSide", "spot") end
+					if (never or grid) and v == "own" and Opt(key, "buffSide") ~= "spot" then SP:ReadyReminderSetIconOpt(key, "buffSide", "spot") end
 					return Set(key, "buffLook", v)
 				end }
 			end
@@ -679,7 +694,8 @@ local function BuffRows(key, entry)
 		row = ChoiceRow(key, "Corner", "buffCorner", BUFF_CORNER_CHOICES, "tr"); row.tip = BUFF_TIPS.corner; t[#t + 1] = row
 		row = SliderRow(key, "Size", "buffSize", 0.3, 0.7, 0.05, 0.45, nil, true); row.tip = BUFF_TIPS.cornerSize; t[#t + 1] = row
 	elseif look == "own" then
-		row = ChoiceRow(key, "Side", "buffSide", never and NeverChoices(BUFF_SIDE_CHOICES, side) or BUFF_SIDE_CHOICES, "above")
+		row = ChoiceRow(key, "Side", "buffSide", never and NeverChoices(BUFF_SIDE_CHOICES, side)
+			or grid and GridSides(BUFF_SIDE_CHOICES, side) or BUFF_SIDE_CHOICES, "above")
 		row.tip = BUFF_TIPS.side; t[#t + 1] = row
 		row = SliderRow(key, "Size", "buffOwnSize", 0.3, 1, 0.05, 1, nil, true); row.tip = BUFF_TIPS.ownSize; t[#t + 1] = row
 		if Opt(key, "buffSide") == "spot" and SP.ReadyReminderBuffMove then

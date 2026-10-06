@@ -1690,6 +1690,7 @@ function Buff.Wanted(entry, B, inCombat)
 	if not ownSpot and B.look ~= "edge" then
 		if IconOpt(entry, "mode") == "flash" then return false, 0, 1 end
 		if gridOn() and not (frames[entry.key] and frames[entry.key]:IsShown()) then return false, 0, 1 end
+		if gridOn() and B.look == "own" then return false, 0, 1 end   -- (beside the icon in a grid = on its neighbor)
 	end
 	local fade = 1
 	if not inCombat and IconOpt(entry, "onlyInCombat") then
