@@ -691,5 +691,6 @@ if SP.ThemeSpotSettings then
 		styleSetting("cdbarCueImbueStyle", "Imbue Style", "flare", "flag"),
 		styleSetting("cdbarCueShieldStyle", "Shield Style", "burst", "blinkflag"),
 		styleSetting("cdbarCueRunningStyle", "Running Out Style", "drain", "underbar"),
+		styleSetting("cdbarCueAlmostStyle", "Almost Ready Style", "drain", "underbar"),
 	})
 end

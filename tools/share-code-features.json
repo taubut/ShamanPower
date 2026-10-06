@@ -118,6 +118,7 @@
     {"key": "totemRowsKeepFlyouts", "label": "Totem Rows: flyouts kept on the bar"},
     {"key": "cdbarRunOutOnly", "label": "Cooldown bar: only items running out"},
     {"key": "cueRunningOut", "label": "Effect: running out"},
-    {"key": "cueTimeRed", "label": "Effect: time turns red"}
+    {"key": "cueTimeRed", "label": "Effect: time turns red"},
+    {"key": "cueAlmostReady", "label": "Effect: cooldown almost ready"}
   ]
 }

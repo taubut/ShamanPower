@@ -11181,6 +11181,7 @@ end
 
 function ShamanPower:ClearEngineBarCooldown(btn)
 	btn._ebSpell = nil
+	btn._ebDur = nil   -- (Cooldown Almost Ready's exact moment: ShamanPowerCues.lua)
 	self:DisarmEngineCooldownEnd(btn.cooldown)
 	if btn.cooldown then btn.cooldown:Clear(); btn.cooldown:SetHideCountdownNumbers(true) end   -- back to none (see the button's creation)
 	if btn.cdBar then btn.cdBar:Hide() end
@@ -11211,6 +11212,9 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 		btn._ebSpell, btn._ebSweep, btn._ebBars, btn._ebText, btn._ebPos = btn.spellID, sweepStyle, showBars, textKey, barPosition
 		btn._ebFromTop = fromTop
 		btn._ebBand = band
+		-- the duration object for Cooldown Almost Ready's exact moment, and its time text colored
+		-- again after PlaceEngineBarText below (ShamanPowerCues.lua)
+		btn._ebDur, btn._roEngTime = d, nil
 		local cd = btn.cooldown
 		local Dir = Enum and Enum.StatusBarTimerDirection or {}
 		local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate

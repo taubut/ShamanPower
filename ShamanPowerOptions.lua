@@ -11522,12 +11522,24 @@ do
 			{ "red", "pulse", "glow", "drain", "underbar" }),
 		cdbarRunOutSecs = runOutSecs(2.72, "Display (Show Items Only When Running Out)",
 			function() return not (SP.opt.cdbarCueRunning or SP.opt.cdbarCueTimeColor) end),
+		-- Cooldown Almost Ready: a cooldown's last seconds, in the Cooldown Ready gold
+		cdbarCueAlmost = toggle(2.75, "cdbarCueAlmost", "Cooldown Almost Ready",
+			"Over a cooldown's last seconds, its button plays the style below in gold, until it is ready."),
+		cdbarCueAlmostStyle = style(2.76, "cdbarCueAlmostStyle", "cdbarCueAlmost", "glow", "Almost Ready Style",
+			{ pulse = "Pulse", glow = "Glow", drain = "Frame drains", underbar = "Bar under it" },
+			{ "pulse", "glow", "drain", "underbar" }),
+		cdbarAlmostSecs = almostSecs(2.77, "Display (Show Items Only When Running Out)",
+			function() return not (SP.opt.cdbarCueAlmost or SP.opt.cdbarCueTimeColor) end),
+		-- why it isn't showing: at 0 seconds there are no last seconds
+		cdbar_almost_zero = { order = 2.775, type = "description", width = "full",
+			name = "|cffffa040At 0 seconds a cooldown has no last seconds, so Cooldown Almost Ready never plays. Raise Seconds Before a Cooldown Is Ready to see it.|r",
+			hidden = function() return not (SP.opt.cdbarCueAlmost and SP.opt.cdbarAlmostSecs == 0) end },
 		cdbarCueTimeColor = toggle(2.8, "cdbarCueTimeColor", "Time Turns Red While Running Out",
 			"The time on a button that is running out turns red (gold on a cooldown that is almost ready). On a button"
 				.. " that turns red, the time stays white so you can read it."),
 		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
 			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button"
-				.. " Shield Gone, in the styles chosen above. Running Out plays for 3 seconds.",
+				.. " Shield Gone, in the styles chosen above. Running Out and Cooldown Almost Ready play for 3 seconds.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
 	-- Cooldown Bar > Display: Show Items Only When Running Out, under its own heading

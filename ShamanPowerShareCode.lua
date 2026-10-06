@@ -210,6 +210,7 @@ SP.SHARE_FEATURES = {
 	{ key = "cdbarRunOutOnly",    label = "Cooldown bar: only items running out", get = function() return on(O().cdbarRunOutOnly) end },
 	{ key = "cueRunningOut",      label = "Effect: running out",                get = function() return on(O().cdbarCueRunning) end },
 	{ key = "cueTimeRed",         label = "Effect: time turns red",             get = function() return on(O().cdbarCueTimeColor) end },
+	{ key = "cueAlmostReady",     label = "Effect: cooldown almost ready",      get = function() return on(O().cdbarCueAlmost) end },
 }
 
 -- ---------------------------------------------------------------------------

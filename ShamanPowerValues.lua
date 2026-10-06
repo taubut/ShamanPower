@@ -182,6 +182,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueRunning = false,
         cdbarCueRunningStyle = "red",       -- red (Turns red) / pulse / glow / drain / underbar
         cdbarCueTimeColor = false,          -- Time Turns Red While Running Out (gold on a cooldown almost ready)
+        -- Cooldown Almost Ready (Cooldown Bar > Effects): a cooldown's last seconds, in gold
+        cdbarCueAlmost = false,
+        cdbarCueAlmostStyle = "glow",       -- pulse / glow / drain / underbar
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button

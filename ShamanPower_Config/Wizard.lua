@@ -3713,12 +3713,16 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			elseif b.sp.imbue then imbue = b.f
 			elseif (b.sp.cd or 0) > 0 then cds[#cds + 1] = b.f end
 		end
+		local cdsAlmost = {}   -- (every cooldown but the first, which shows Ready)
+		for k = 2, #cds do cdsAlmost[#cdsAlmost + 1] = cds[k] end
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ pick = cds, cap = "Ready", on = "cdbarCueReady", style = "cdbarCueReadyStyle", def = "pop", kind = "ready", at = 1.7 },
 			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4 },
 			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1 },
 			-- Running Out (its last seconds): a loop on the shield chip, captioned over it
 			{ btn = shield, cap = "Running out", capAbove = true, on = "cdbarCueRunning", style = "cdbarCueRunningStyle", def = "red", kind = "running", loop = true },
+			-- Cooldown Almost Ready: a loop in gold on another cooldown (the first one shown plays Ready)
+			{ pick = cdsAlmost, cap = "Almost ready", on = "cdbarCueAlmost", style = "cdbarCueAlmostStyle", def = "glow", kind = "almost", loop = true },
 		})
 	end
 

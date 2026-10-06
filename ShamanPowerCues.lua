@@ -812,6 +812,126 @@ function SP:RunOutEarthShield(esBtn, target, charges)
 	runLook(esBtn, on and esBtn:IsVisible(), "es", left and left / N or 1, false)
 end
 
+-- Cooldown Almost Ready (Cooldown Bar > Effects): a cooldown's last seconds play
+-- a look in the Cooldown Ready gold, on a frame of its own over the button (its
+-- holder). On WoW: Forever the game decides the exact moment, in and out of
+-- fights: the holder's alpha is a step on the real cooldown's time left (a curve
+-- on the duration object the bar's game-drawn cooldown uses, handed straight to
+-- SetAlpha, never read or compared: the same calls as Ready Reminders' Countdown
+-- Only Under). The look itself starts by ShamanPower's own estimate, a moment
+-- early, so it is not left running unseen for the whole cooldown.
+local underCurves = {}   -- [seconds] = curve (false: none), made once
+local function underCurve(sec)
+	local c = underCurves[sec]
+	if c == nil then
+		c = false
+		if C_CurveUtil and C_CurveUtil.CreateCurve then
+			local ok, made = pcall(C_CurveUtil.CreateCurve)
+			if ok and made then
+				local linear = Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear
+				if made.SetType and linear then pcall(made.SetType, made, linear) end
+				-- under the seconds: shown; from there up: hidden
+				if pcall(made.AddPoint, made, math.max(0, sec - 0.05), 1) and pcall(made.AddPoint, made, sec, 0) then c = made end
+			end
+		end
+		underCurves[sec] = c
+	end
+	return c or nil
+end
+
+local function almostHolder(btn)
+	local h = btn.spAlmost
+	if h then return h end
+	h = CreateFrame("Frame", nil, btn)
+	h:SetAllPoints(btn)
+	h:SetFrameLevel(btn:GetFrameLevel() + 1)
+	btn.spAlmost = h
+	return h
+end
+
+-- on: in its last seconds (WoW: Forever with dur: about to be, by the estimate);
+-- frac: the part of them still left (Frame drains, Bar under it); dur: the game's
+-- duration object for it (WoW: Forever), A: the seconds. Returns true while a look
+-- follows the time.
+local function almostLook(btn, on, frac, dur, A)
+	local o = SP.opt
+	local test = btn._roTestAlmost
+	if test then
+		local now = GetTime()
+		if now < test then
+			on, frac, dur = true, (test - now) / 3, nil
+		else
+			btn._roTestAlmost, test = nil, nil
+		end
+	end
+	if on and (o.cdbarCueAlmost or test) and not SP:IsOff() then
+		local h = almostHolder(btn)
+		h.spRunFrac = frac or 1
+		local style = o.cdbarCueAlmostStyle or "glow"
+		if style == "red" then style = "glow" end   -- (red is for what runs out; a cooldown gets gold)
+		local moving = style == "drain" or style == "underbar"
+		if btn._roAlmost ~= style or moving then
+			btn._roAlmost = style
+			loopOn(h, style, TINT.almost, nil, "almost")
+		end
+		local curve = dur and A and A > 0 and dur.EvaluateRemainingDuration and underCurve(A)
+		local curved = false
+		if curve then
+			local ok, a = pcall(dur.EvaluateRemainingDuration, dur, curve)
+			if ok then curved = pcall(h.SetAlpha, h, a) end   -- a may be secret: handed over, never looked at
+		end
+		if not curved then h:SetAlpha(1) end
+		return moving or test ~= nil
+	end
+	if btn._roAlmost then
+		btn._roAlmost = nil
+		local h = btn.spAlmost
+		if h then
+			loopOff(h)
+			h.spRunFrac = nil
+			h:SetAlpha(1)
+		end
+	end
+	return false
+end
+
+-- the time of a cooldown the game draws (WoW: Forever): its own countdown text, in
+-- WoW's gold while almost ready (the core marks it to be painted again whenever it
+-- places that text afresh: FeedEngineBarCooldown)
+local function engineTimeGold(btn, want)
+	want = want or nil
+	if btn._roEngTime == want then return end
+	btn._roEngTime = want
+	local cd = btn.cooldown
+	local ok, fs = false, nil
+	if cd and cd.GetCountdownFontString then ok, fs = pcall(cd.GetCountdownFontString, cd) end
+	if not (ok and fs) then return end
+	wowColors()
+	if want then
+		if not fs.spRoColored then
+			local b = fs.spRoBase
+			if not b then b = {}; fs.spRoBase = b end
+			b[1], b[2], b[3], b[4] = fs:GetTextColor()
+			fs.spRoColored = true
+		end
+		fs:SetTextColor(WOW_GOLD[1], WOW_GOLD[2], WOW_GOLD[3])
+	elseif fs.spRoColored then
+		local b = fs.spRoBase
+		fs:SetTextColor(b[1] or 1, b[2] or 1, b[3] or 1, b[4] or 1)
+		fs.spRoColored = nil
+	end
+end
+
+-- WoW: Forever: whether ShamanPower's estimate of a cooldown in a fight is only the
+-- spell's base length (never seen readable this session): talents can make the real
+-- one shorter, so the estimate may end late
+function SP:RunOutEstimateSeeded(spellID)
+	local shadow = SPCompat and SPCompat.shadowCooldowns
+	if not (shadow and spellID) then return false end
+	local e = shadow[GetSpellInfo(spellID) or spellID]
+	return (e and e.seeded) and true or false
+end
+
 -- A cooldown button. cooling: on a real cooldown (WoW: Forever: the game's own
 -- flags); left: its seconds left (nil: unknown, e.g. after a reload mid-fight).
 -- Totemic Call has nothing to wait for: it comes up while you have totems down.
@@ -856,6 +976,30 @@ function SP:RunOutCooldown(btn, cooling, left)
 	elseif btn._roHidden or btn._roMouseOff then
 		decideShown(btn, true)
 	end
+	-- Cooldown Almost Ready, and its time in gold (Time Turns Red While Running Out)
+	local dur = cooling and btn._ebSpell and btn._ebDur or nil
+	local lookOn
+	if A <= 0 then
+		lookOn = false
+	elseif dur then
+		-- the game shows it at the exact moment; the look starts by the estimate, or at once when
+		-- there is none or it is only the spell's base length (a first use in a fight: talents
+		-- can make the real one shorter)
+		lookOn = (left == nil) or left <= A + 0.5 or self:RunOutEstimateSeeded(btn.spellID)
+	else
+		lookOn = state == "almost"
+	end
+	if almostLook(btn, cooling and lookOn, (left and A > 0) and left / A or 1, dur, A) then busy = true end
+	local gold = (state == "almost" and o.cdbarCueTimeColor and not self:IsOff()) and "gold" or nil
+	if btn._ebSpell then
+		engineTimeGold(btn, gold)
+		timeColor(btn, "_roTime0", TIME0, nil)
+		timeColor(btn, "_roTime1", TIME1, nil)
+	else
+		engineTimeGold(btn, nil)
+		timeColor(btn, "_roTime0", TIME0, gold)
+		timeColor(btn, "_roTime1", TIME1, gold)
+	end
 	if cooling and left and left > A and left <= A + 1.2 then busy = true end
 	return busy
 end
@@ -872,6 +1016,12 @@ function SP:RunOutResetLooks()
 		timeColor(btn, "_roTime0", TIME0, nil)
 		timeColor(btn, "_roTime1", TIME1, nil)
 		timeColor(btn, "_roTime2", TIME2, nil)
+		if btn._roAlmost then
+			btn._roAlmost = nil
+			local h = btn.spAlmost
+			if h then loopOff(h); h.spRunFrac = nil; h:SetAlpha(1) end
+		end
+		if btn._roEngTime then engineTimeGold(btn, nil) end
 	end
 	for _, btn in ipairs(self.cooldownButtons or {}) do reset(btn) end
 	local es = _G["ShamanPowerEarthShieldBtn"]
@@ -1004,10 +1154,19 @@ function SP:TestCooldownCues()
 	if imbue and imbue:IsVisible() then playCue(imbue, o.cdbarCueImbueStyle or "shake", "imbue") end
 	local shield = self.shieldButton
 	if shield and shield:IsVisible() then playCue(shield, o.cdbarCueShieldStyle or "shake", "shield") end
-	-- Running Out plays for 3 seconds on the shield and the imbue (the cooldown bar's pass runs it)
+	-- Running Out plays for 3 seconds on the shield and the imbue, Cooldown Almost Ready on a
+	-- cooldown (the second one shown: the first plays Cooldown Ready); the cooldown bar's pass runs them
 	local runUntil = GetTime() + 3
 	if imbue and imbue:IsVisible() then imbue._roTestRun = runUntil end
 	if shield and shield:IsVisible() then shield._roTestRun = runUntil end
+	local first, second
+	for _, btn in ipairs(self.cooldownButtons or {}) do
+		if btn.spellType == "cooldown" and btn:IsVisible() then
+			if first then second = btn break end
+			first = btn
+		end
+	end
+	if second or first then (second or first)._roTestAlmost = runUntil end
 	if self.cooldownBar then self:WakeCooldownBar(); self:UpdateCooldownButtons() end
 end
 
