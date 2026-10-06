@@ -170,6 +170,14 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueImbueStyle = "shake",
         cdbarCueShield = false,             -- the shield gone (in combat on Forever: a red loop while missing)
         cdbarCueShieldStyle = "shake",
+        -- The cooldown bar's "running out" moment (ShamanPowerCues.lua), one setting each, shown on
+        -- Cooldown Bar > Display AND > Effects: a shield or imbue in its last N seconds (a shield also on
+        -- its last charge), a cooldown in its last N seconds (0: only once it is ready)
+        cdbarRunOutSecs = 60,
+        cdbarAlmostSecs = 5,
+        -- Show Items Only When Running Out (Cooldown Bar > Display): off to start
+        cdbarRunOutOnly = false,
+        cdbarRunOutReady = "hide",          -- a cooldown that is ready: "hide" (after its flash) / "keep" (until used)
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button

@@ -206,6 +206,8 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- 3.0.8: the cooldown bar's running-out moment
+	{ key = "cdbarRunOutOnly",    label = "Cooldown bar: only items running out", get = function() return on(O().cdbarRunOutOnly) end },
 }
 
 -- ---------------------------------------------------------------------------

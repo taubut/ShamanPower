@@ -500,6 +500,194 @@ function SP:CueShieldState(btn, hasShield, engine)
 end
 
 -- ---------------------------------------------------------------------------
+-- Running out: Show Items Only When Running Out (Cooldown Bar > Display) and
+-- the running-out effects (Cooldown Bar > Effects). One moment for both, set by
+-- two settings shown on both pages: a shield or weapon imbue runs out in its
+-- last cdbarRunOutSecs seconds (a shield also on its last charge); a cooldown
+-- is almost ready in its last cdbarAlmostSecs seconds. The cooldown bar's own
+-- pass (UpdateCooldownButtons: 5 a second while something counts down in
+-- seconds, once a second otherwise) hands each button's state to the three
+-- RunOut* methods below, which answer whether that pass should keep its fast
+-- pace (a moment due within the next second). Nothing here runs by itself.
+--
+-- WoW: Forever in a fight: weapon imbue times stay readable; cooldown times come
+-- from ShamanPower's own record of your casts (the same numbers the bar shows in
+-- fights); the shield is drawn by the game, and the moment it runs out early is
+-- hidden from addons, so Show Items Only When Running Out keeps it on the bar
+-- for the whole fight.
+-- ---------------------------------------------------------------------------
+local function runOutSecs(o) return o.cdbarRunOutSecs or 60 end
+local function almostSecs(o)
+	local s = o.cdbarAlmostSecs
+	if s == nil then return 5 end
+	return s
+end
+
+-- Show Items Only When Running Out shows everything while Keybind Mode or Unlock UI
+-- is open (to bind or place what is out of sight) and while the Test button plays
+local function showAll(btn)
+	if btn._roTestUntil and GetTime() < btn._roTestUntil then return true end
+	if SP.KeybindModeActive and SP:KeybindModeActive() then return true end
+	if SP.IsMasterUnlocked and SP:IsMasterUnlocked() then return true end
+	return false
+end
+
+-- a popped-out item is a tracker of its own: it stays in sight
+local function poppedOut(btn)
+	return SP.opt.poppedOut ~= nil and btn.cooldownType ~= nil and SP:IsCooldownPoppedOut(btn.cooldownType)
+end
+
+-- In or out of sight. Out of sight keeps the button's spot, so nothing on the bar
+-- moves: its alpha goes to 0 (UpdateCooldownBarOpacity; alpha may change in a
+-- fight), and out of a fight its mouse goes too, so it is really gone: no click,
+-- tooltip or flyout. In a fight the game locks the mouse: the fight's start
+-- gives every button its mouse back (a click on an empty spot still casts there).
+local function setShown(btn, want)
+	local hide = (not want) or nil
+	if btn._roHidden ~= hide then
+		btn._roHidden = hide
+		SP:UpdateCooldownBarOpacity()
+	end
+	if not InCombatLockdown() then
+		if hide and not btn._roMouseOff then
+			btn._roMouseOff = true
+			btn:EnableMouse(false)
+		elseif not hide and btn._roMouseOff then
+			btn._roMouseOff = nil
+			btn:EnableMouse(true)
+		end
+	end
+end
+
+local function onlyRunningOut()
+	local o = SP.opt
+	return o and o.cdbarRunOutOnly and not SP:IsOff() or false
+end
+
+local function decideShown(btn, want)
+	if not want and (not onlyRunningOut() or poppedOut(btn) or showAll(btn)) then want = true end
+	if want and not btn._roHidden and not btn._roMouseOff then return end   -- shown already: nothing to do
+	setShown(btn, want)
+end
+
+-- The shield button. up: the shield the button shows is up; left: its seconds
+-- left (nil: unknown); charges: its charges; engine: auras are hidden (WoW:
+-- Forever in a fight), the game draws the shield on the button. A shield that is
+-- gone stays in sight until you cast one again.
+function SP:RunOutShield(btn, up, left, charges, engine)
+	local o = self.opt
+	if not o or not btn then return false end
+	local N = runOutSecs(o)
+	local state
+	if engine then
+		state = "fight"
+	elseif not up then
+		state = "gone"
+	elseif (left and left <= N) or charges == 1 then
+		state = "out"
+	else
+		state = "plenty"
+	end
+	decideShown(btn, state ~= "plenty")
+	return (left ~= nil and left > N and left <= N + 1.2) and true or false
+end
+
+-- The weapon imbue button, from the game's read (hasMain / hasOff, the enchants'
+-- IDs, their milliseconds left). With an off-hand weapon both hands count: the
+-- button comes up when either hand's imbue is in its last seconds or gone.
+function SP:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
+	local o = self.opt
+	if not o or not btn then return false end
+	if isSecret(hasMain) or isSecret(hasOff) then return false end
+	local N = runOutSecs(o) * 1000
+	local upM, upO = ownImbue(hasMain, mainID, mainLeft), ownImbue(hasOff, offID, offLeft)
+	local mL = (upM and type(mainLeft) == "number" and not isSecret(mainLeft)) and mainLeft or nil
+	local oL = (upO and type(offLeft) == "number" and not isSecret(offLeft)) and offLeft or nil
+	local dual = self.HasOffHandWeapon and self:HasOffHandWeapon()
+	local state
+	if not upM or (dual and not upO) then
+		state = "gone"
+	elseif (mL and mL <= N) or (oL and oL <= N) then
+		state = "out"
+	else
+		state = "plenty"
+	end
+	decideShown(btn, state ~= "plenty")
+	return ((mL and mL > N and mL <= N + 1200) or (oL and oL > N and oL <= N + 1200)) and true or false
+end
+
+-- A cooldown button. cooling: on a real cooldown (WoW: Forever: the game's own
+-- flags); left: its seconds left (nil: unknown, e.g. after a reload mid-fight).
+-- Totemic Call has nothing to wait for: it comes up while you have totems down.
+-- Reincarnation also comes up while your bags have no Ankh.
+function SP:RunOutCooldown(btn, cooling, left)
+	local o = self.opt
+	if not o or not btn then return false end
+	local A = almostSecs(o)
+	local now = GetTime()
+	if left and left < 0 then left = 0 end
+	-- the moment it turned ready: Hide It Again keeps it up while its Cooldown Ready plays
+	if btn._roWasCooling and not cooling then btn._roReadyAt = now end
+	btn._roWasCooling = cooling and true or nil
+	local state
+	if cooling then
+		if left and left <= A then state = "almost" else state = "cooling" end
+	else
+		state = "ready"
+	end
+	local busy = false
+	if onlyRunningOut() then
+		local want
+		if state == "almost" then
+			want = true
+		elseif state == "ready" then
+			if o.cdbarRunOutReady == "keep" then
+				want = true
+			else
+				local at = btn._roReadyAt
+				want = at ~= nil and (now - at) < (o.cdbarCueReady and 2.2 or 0.5)
+				if want then busy = true end
+			end
+		else
+			want = false
+		end
+		if btn.spellID == 36936 then
+			want = state ~= "cooling" and self:AnyTotemDown()
+		elseif btn.spellID == 20608 and not want then
+			want = (GetItemCount and GetItemCount(17030) or 1) == 0
+		end
+		decideShown(btn, want)
+	elseif btn._roHidden or btn._roMouseOff then
+		decideShown(btn, true)
+	end
+	if cooling and left and left > A and left <= A + 1.2 then busy = true end
+	return busy
+end
+
+-- every button back in sight (the switch turned off, ShamanPower switched off)
+function SP:RunOutShowAll()
+	for _, btn in ipairs(self.cooldownButtons or {}) do
+		if btn._roHidden or btn._roMouseOff then setShown(btn, true) end
+	end
+end
+
+-- The fight's start, the last moment a button's mouse can change: every spot
+-- keeps working in the fight. After it, the cooldown bar's next pass takes the
+-- mouse off what is out of sight again.
+do
+	local watch = CreateFrame("Frame")
+	watch:RegisterEvent("PLAYER_REGEN_DISABLED")
+	watch:SetScript("OnEvent", function()
+		for _, btn in ipairs(SP.cooldownButtons or {}) do
+			if btn._roMouseOff then
+				btn._roMouseOff = nil
+				btn:EnableMouse(true)
+			end
+		end
+	end)
+end
+
+-- ---------------------------------------------------------------------------
 -- Settings
 -- ---------------------------------------------------------------------------
 -- The expiring loop's update runs only while the option is on; everything else
@@ -519,6 +707,13 @@ function SP:ApplyCueSettings()
 		for element = 1, 4 do stopExpiring(element) end
 	end
 	if not o.cdbarCueShield and self.shieldButton then stopMissing(self.shieldButton) end
+	-- the running-out settings: off or switched off, everything back in sight now; on, the
+	-- cooldown bar's next pass (at once) decides what shows
+	if not o.cdbarRunOutOnly or self:IsOff() then self:RunOutShowAll() end
+	if self.cooldownBar and self.WakeCooldownBar then
+		self:WakeCooldownBar()
+		if not self:IsOff() and self.cooldownBar:IsShown() then self:UpdateCooldownButtons() end
+	end
 end
 
 -- Test buttons: the chosen styles on the real bars, on or off.
@@ -539,6 +734,15 @@ end
 
 function SP:TestCooldownCues()
 	local o = self.opt
+	-- Show Items Only When Running Out: every item comes up while the test plays
+	if o.cdbarRunOutOnly and self.cooldownBar then
+		local untilAt = GetTime() + 3.5
+		for _, btn in ipairs(self.cooldownButtons or {}) do btn._roTestUntil = untilAt end
+		self:UpdateCooldownButtons()
+		C_Timer.After(3.6, function()
+			if SP.cooldownBar and not SP:IsOff() then SP:WakeCooldownBar(); SP:UpdateCooldownButtons() end
+		end)
+	end
 	for _, btn in ipairs(self.cooldownButtons or {}) do
 		if btn.spellType == "cooldown" and btn:IsVisible() then
 			playCue(btn, o.cdbarCueReadyStyle or "pop", "ready")

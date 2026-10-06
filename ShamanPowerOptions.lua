@@ -11495,6 +11495,50 @@ do
 			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button Shield Gone, in the styles chosen above.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
+	-- The cooldown bar's "running out" moment (ShamanPowerCues.lua): one saved setting each,
+	-- shown on Cooldown Bar > Display (Show Items Only When Running Out) and > Effects (the
+	-- running-out effects): change it in either place.
+	local function runOutSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 10, max = 300, step = 5,
+			name = "Seconds Before a Shield or Imbue Ends",
+			desc = "When a shield or weapon imbue counts as running out. A shield also counts as running out on its last charge."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() return SP.opt.cdbarRunOutSecs or 60 end,
+			set = function(_, v) SP.opt.cdbarRunOutSecs = v; apply() end }
+	end
+	local function almostSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 0, max = 30, step = 1,
+			name = "Seconds Before a Cooldown Is Ready",
+			desc = "When a cooldown counts as almost ready (0: only once it is ready, so Cooldown Almost Ready never plays)."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() local s = SP.opt.cdbarAlmostSecs if s == nil then s = 5 end return s end,
+			set = function(_, v) SP.opt.cdbarAlmostSecs = v; apply() end }
+	end
+	-- Cooldown Bar > Display: Show Items Only When Running Out, under its own heading
+	local display = SP.options.args.fluffy.args.cooldown_display_section
+	if display and display.args then
+		local d = display.args
+		local function d50Off() return not SP.opt.cdbarRunOutOnly end
+		d.runout_header = { order = 90, type = "header", name = "Show Only When Running Out" }
+		d.cdbarRunOutOnly = { order = 90.1, type = "toggle", width = "full", name = "Show Items Only When Running Out",
+			desc = "Shields, weapon imbues and cooldowns stay out of sight until they are running out, then come up with their time left."
+				.. " A shield or imbue that is gone stays up until you cast it again. Hidden items keep their spots, so nothing on the bar moves;"
+				.. " in a fight a click on a hidden item's spot still casts it."
+				.. (mainline and " On WoW: Forever your shield stays on the bar during a fight: the game doesn't tell addons when it runs out there." or ""),
+			get = function() return SP.opt.cdbarRunOutOnly and true or false end,
+			set = function(_, v) SP.opt.cdbarRunOutOnly = v and true or false; apply() end }
+		d.cdbarRunOutSecs = runOutSecs(90.2, "Effects (Running Out)", d50Off)
+		d.cdbarAlmostSecs = almostSecs(90.3, "Effects (Cooldown Almost Ready)", d50Off)
+		d.cdbarRunOutReady = { order = 90.4, type = "select", width = "full", name = "When a Cooldown Is Ready",
+			desc = "Hide It Again: a cooldown goes out of sight again once it is ready, after its Cooldown Ready flash (Cooldown Bar > Effects)."
+				.. " Keep It Up Until Used: it stays in sight from its last seconds until you use it.",
+			values = { hide = "Hide It Again", keep = "Keep It Up Until Used" }, sorting = { "hide", "keep" },
+			disabled = d50Off,
+			get = function() return (SP.opt.cdbarRunOutReady == "keep") and "keep" or "hide" end,
+			set = function(_, v) SP.opt.cdbarRunOutReady = v; apply() end }
+	end
 	-- the Effects page used to be Appearance > Effects: its old address lands here
 	SP.SettingsPathAliases["fluffy/effects_appearance"] = { "fluffy", "totembar_effects_section" }
 	for _, group in ipairs({ "totembar_effects_section", "cdbar_effects_section" }) do

@@ -12237,6 +12237,9 @@ function ShamanPower:UpdateCooldownButtons()
 				self:CooldownBarAbove(btn, aboveIdx and self:ShieldIcon(aboveIdx), nil, ar, ag, ab, count, not viewUp)
 				self:CooldownBarCorner(btn, cornerIdx and self:ShieldIcon(cornerIdx))
 			end
+			-- running out (Show Items Only When Running Out, the running-out effects: ShamanPowerCues.lua)
+			if self.RunOutShield and self:RunOutShield(btn, hasShield, (hasShield and shieldDuration > 0) and (shieldExpiration - GetTime()) or nil,
+				shieldCharges, cache and cache.engineCount) then busy = true end
 
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
@@ -12403,9 +12406,17 @@ function ShamanPower:UpdateCooldownButtons()
 					btn.icon:SetDesaturated(false)
 				end
 			end
+			-- running out (ShamanPowerCues.lua): its seconds left from the numbers above (in a fight on
+			-- WoW: Forever, ShamanPower's own record of your cast; none known: nil)
+			if self.RunOutCooldown then
+				local left = (cooling and type(start) == "number" and type(duration) == "number" and start > 0 and duration > 1.5)
+					and ((start + duration) - GetTime()) or nil
+				if self:RunOutCooldown(btn, cooling and true or false, left) then busy = true end
+			end
 		elseif btn.spellType == "weaponImbue" then
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) end   -- "Weapon Imbue Gone" effect
+			if self.RunOutImbue and self:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) then busy = true end   -- running out
 			-- the style (the totem bar's, or the cooldown bar's own): the imbue the button shows on each hand,
 			-- whether each hand counts as up, the ones shown above it, the one in its corner
 			local actualMain = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or nil
@@ -13371,14 +13382,16 @@ function ShamanPower:UpdateCooldownBarOpacity()
 					isActive = hasMain
 				end
 
-				btn:SetAlpha(isActive and 1.0 or opacity)
+				-- out of sight (Show Items Only When Running Out): 0, keeping its spot
+				btn:SetAlpha(btn._roHidden and 0 or (isActive and 1.0 or opacity))
 			end
 		else
 			self.cooldownBar:SetAlpha(opacity)
 			-- Reset all buttons to inherit bar opacity
 			if self.cooldownButtons then
 				for i = 1, #self.cooldownButtons do
-					self.cooldownButtons[i]:SetAlpha(1.0)  -- Full relative to parent
+					local btn = self.cooldownButtons[i]
+					btn:SetAlpha(btn._roHidden and 0 or 1.0)  -- Full relative to parent (0: out of sight)
 				end
 			end
 		end
