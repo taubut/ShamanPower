@@ -643,7 +643,17 @@ local function RebuildEngineRecord(record, element, i, host, exists, class, r, g
 		.. "|" .. tostring(SP.ThemeClassColorSet and SP:ThemeClassColorSet("tb.dots-class")) .. tostring(SP.opt.dotGem)   -- Class Colors / Gem Dot Finish
 	if record and record.key == key and record.host == host and (record.container or not exists) then return record end
 	RetireEngineRecord(record)
-	local container = exists and BuildEngineDot(element, i, host, r, g, b) or nil
+	-- this spot's display for this look, if it had one before (a class coming back): no new one
+	local kept = host.spEngineDotsKept
+	if not kept then kept = {}; host.spEngineDotsKept = kept end
+	local keptKey = element .. ":" .. i .. "|" .. key
+	local container = exists and kept[keptKey] or nil
+	if container then
+		container:Show()   -- (a retired one was hidden; rebuilds run out of combat only)
+	else
+		container = exists and BuildEngineDot(element, i, host, r, g, b) or nil
+		if container then kept[keptKey] = container end
+	end
 	if container then   -- (kept shown: SetEnginePartyDotsShown lights it, by alpha and its own on / off)
 		pcall(container.SetEnabled, container, false)
 		container:SetAlpha(0)
@@ -1778,6 +1788,8 @@ do
 		if not catalogByKey then return nil end
 		return catalogByKey[Opts().buff or DEFAULT_BUFF] or catalogByKey[DEFAULT_BUFF] or list[1]
 	end
+	-- the buff the live strip was built with (a pick made in a fight waits for its end)
+	local function Built(f) if f and f.watch and not f.demo then return f.watch end return Watched() end
 	-- Buff to Watch: key -> the buff's own name (as Coverage's Totems to Watch list),
 	-- and their order (Earth, Fire, Water, Air)
 	function SP:PartyStripBuffValues()
@@ -1934,7 +1946,7 @@ do
 		if not r then r, g, b = edge[1], edge[2], edge[3] end
 		f:SetBackdropBorderColor(r, g, b, a * edge[4])
 		if f.spEdge then f.spEdge:SetAlpha(a > 0 and 1 or 0) end   -- Frame Edges (a Drop Shadow keeps its own alpha)
-		local e = (Watched() or EMPTY).element or 4
+		local e = (Built(f) or EMPTY).element or 4
 		if SP.ThemeElement then
 			r, g, b = SP:ThemeElement(SPOT_LINE, e)
 		else
@@ -2092,6 +2104,7 @@ do
 	-- -------------------------------------------------------------------------
 	-- What each spot says, any time (a fight too): our mark, and the game's display on or off
 	-- -------------------------------------------------------------------------
+	local ArmReport   -- (with the hooks below)
 	local function ReportState(unit)
 		local name = UnitName(unit)
 		if type(name) ~= "string" or issecretvalue(name) then return "unknown" end
@@ -2116,7 +2129,13 @@ do
 		elseif game then
 			state = "missing"   -- the game draws "has it" over this mark
 		elseif w and w.reports then
-			state = ReportState(unit)
+			-- (#2) far away, or no such totem of yours down: nobody has YOUR buff (A05 Q4 / Q8)
+			if SP:PartyUnitFarAway(unit) or not (SP.GetActiveTotemIndex and SP:GetActiveTotemIndex(w.element) == w.index) then
+				state = "missing"
+			else
+				state = ReportState(unit)
+				if state ~= "unknown" and ArmReport then ArmReport(i, unit) end
+			end
 		elseif w and w.buffName and not (SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
 			state = SP:UnitHasBuff(unit, w.buffName) and "has" or "missing"
 		else
@@ -2155,7 +2174,7 @@ do
 		if not f or f.demo or not f:IsShown() then return end
 		local shown = Wanted(f)
 		f:SetAlpha(shown and 1 or 0)   -- by alpha: the frame holds the game's containers
-		local w = Watched()
+		local w = Built(f)
 		for i = 1, 4 do UpdateSpot(f, i, w, shown) end
 		if shown then UpdateIcon(f, w) end
 	end
@@ -2190,6 +2209,7 @@ do
 		end
 		ResolveColors()
 		local w = Watched()
+		f.watch = w
 		local engine = (w and w.ids and EngineDotsAvailable()) and true or false
 		if engine then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
 		local classSet = self.ThemeClassColorSet and self:ThemeClassColorSet(SPOT_CLASS)
@@ -2363,7 +2383,7 @@ do
 			local i = PARTY_INDEX[unit]
 			if not i then return end
 			local f = Live()
-			if f and Wanted(f) then UpdateSpot(f, i, Watched(), true) end
+			if f and Wanted(f) then UpdateSpot(f, i, Built(f), true) end
 		end)
 	end
 	-- your totems changed: the icon's "not down" look (next frame, once per burst)
@@ -2371,37 +2391,49 @@ do
 	local function IconNow()
 		iconQueued = false
 		local f = Live()
-		if f then UpdateIcon(f, Watched()) end
+		if not f then return end
+		local w = Built(f)
+		UpdateIcon(f, w)
+		if w and w.reports and Wanted(f) then for i = 1, 4 do UpdateSpot(f, i, w, true) end end   -- (#2)
 	end
 	if SP.InvalidateTotemInfo then
 		hooksecurefunc(SP, "InvalidateTotemInfo", function()
-			if iconQueued or not Opts().showIcon then return end
+			if iconQueued then return end
 			local f = Live()
 			if not (f and f:GetAlpha() > 0) then return end   -- (out of sight: the next update sets it)
+			if not (Opts().showIcon or (f.watch and f.watch.reports)) then return end   -- (#2: report spots follow your totem)
 			iconQueued = true
 			C_Timer.After(0, IconNow)
 		end)
 	end
 	-- a Windfury report (TBC Anniversary): that spot now, and again when it would run out
-	local reportTimers = {}
+	local reportTimers, reportDue = {}, {}
 	local function ReportRanOut(i)
-		reportTimers[i] = nil
+		reportTimers[i], reportDue[i] = nil, nil
 		local f = Live()
-		if f and Wanted(f) then UpdateSpot(f, i, Watched(), true) end
+		if f and Wanted(f) then UpdateSpot(f, i, Built(f), true) end
+	end
+	-- (#3) the spot's expiry, from the report it shows (whenever and however it was painted)
+	ArmReport = function(i, unit)
+		local d = SP.WindfuryRangeData and SP.WindfuryRangeData[(UnitName(unit))]
+		if not (d and d.timestamp) then return end
+		local due = d.timestamp + REPORT_TTL + 0.1
+		if reportDue[i] == due then return end
+		reportDue[i] = due
+		if reportTimers[i] then reportTimers[i]:Cancel() end
+		reportTimers[i] = C_Timer.NewTimer(math.max(0.05, due - GetTime()), function() ReportRanOut(i) end)
 	end
 	if SP.SetWindfuryReport then
 		hooksecurefunc(SP, "SetWindfuryReport", function(_, sender)
 			local f = Live()
 			if not f or type(sender) ~= "string" or not Wanted(f) then return end
-			local w = Watched()
+			local w = Built(f)
 			if not (w and w.reports) then return end
 			local name = strsplit("-", sender)
 			for i = 1, 4 do
 				local unit = PARTY[i]
 				if SafeExists(unit) and UnitName(unit) == name then
-					UpdateSpot(f, i, w, true)
-					if reportTimers[i] then reportTimers[i]:Cancel() end
-					reportTimers[i] = C_Timer.NewTimer(REPORT_TTL + 0.1, function() ReportRanOut(i) end)
+					UpdateSpot(f, i, w, true)   -- (arms its expiry)
 					return
 				end
 			end
