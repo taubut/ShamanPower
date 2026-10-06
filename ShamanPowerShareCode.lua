@@ -206,6 +206,13 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- (only while the sweep itself is on: its default is on for Forever, off elsewhere)
+	{ key = "readyCheckRez",      label = "Ready check after resurrection",     get = function()
+		local c = O().readyCheck
+		if type(c) ~= "table" or c.onResurrect ~= true then return false end
+		if c.enabled ~= nil then return c.enabled == true end
+		return SPCompat.FOREVER
+	end },
 }
 
 -- ---------------------------------------------------------------------------
