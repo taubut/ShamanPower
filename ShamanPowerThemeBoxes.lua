@@ -1036,16 +1036,14 @@ local function Coverage()
 	end
 end
 
--- the Party Strip's totem icons: one per totem line, on every strip (Break Up Totem
--- List), each in its own totem's element (a line is one totem's for good)
+-- the Party Strip's totem icons: one per totem line (whichever strip shows it: Break Up
+-- Totem List), each in its own totem's element (a line is one totem's for good)
 local function PartyStrip()
-	for _, f in ipairs(SP.partyStripFrames or EMPTY) do
-		for _, line in ipairs(rawget(f, "lineList") or EMPTY) do
-			local element = line.element
-			if element and (element < 1 or element > 4) then element = nil end
-			local s = line.icon and SkinSpot(line.icon, "mod.partystrip-box", element, true)
-			if s then s.element = element end
-		end
+	for _, line in ipairs(SP.partyStripLines or EMPTY) do
+		local element = line.element
+		if element and (element < 1 or element > 4) then element = nil end
+		local s = line.icon and SkinSpot(line.icon, "mod.partystrip-box", element, true)
+		if s then s.element = element end
 	end
 end
 

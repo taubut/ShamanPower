@@ -11263,6 +11263,7 @@ do
 		return SP:PartyStripCounts()
 	end
 	local function Shown() return (Counts()) end
+	local function Picked() return select(2, Counts()) end
 	-- two or more totems in one strip: each line's icon is its label
 	local function SharedLines() return Shown() > 1 and not O().breakUp end
 	pages.partystrip_section = {
@@ -11312,8 +11313,9 @@ do
 				name = "Break Up Totem List",
 				desc = "Give each totem you picked a strip of its own, instead of one line each in a single strip. Each"
 					.. " strip has its own box in Unlock UI: drag it anywhere, and the mouse wheel over it sets that strip's"
-					.. " size. They start one under the other.",
-				hidden = function() return Off() or Shown() < 2 end,
+					.. " size. They start one under the other. With one totem picked it keeps its own strip, spot and size.",
+				-- (shown while it is on, so it can be turned off, whatever is picked)
+				hidden = function() return Off() or (not O().breakUp and Picked() < 2) end,
 				get = function() return O().breakUp == true end,
 				set = function(_, val)
 					O().breakUp = val and true or false
@@ -11378,7 +11380,7 @@ do
 				order = 13, type = "range", width = 1.0, isPercent = true,
 				name = "Size",
 				desc = function()
-					if O().breakUp and Shown() > 1 then
+					if O().breakUp then
 						return "How big the strips are. This sets every strip; in Unlock UI the mouse wheel over a strip"
 							.. " sets that one."
 					end
