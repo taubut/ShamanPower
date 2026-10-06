@@ -9985,10 +9985,13 @@ do
 		if not SP.ESTrackerUnavailable and SP.ESTrackerLoaded then SP:ToggleESTracker(); Notify() end
 	end
 	local reactive = pages.reactivetotems_section.args
+	-- Hidden: this switch does nothing (the alerts cannot cast totems, on or off) and it
+	-- was on to start. Its saved value (clickToCast) stays, as every saved setting does.
 	reactive.click_to_cast = {
 		order = 1.55, type = "toggle", name = "Click to Cast Totem (old setting)", width = "full",
 		desc = "Keeps the old Click to Cast Totem setting in sync with the separate window. "
 			.. "Turning this on does not make the alerts cast totems.",
+		hidden = function() return true end,
 		disabled = function() return not SP.ReactiveTotemsLoaded end,
 		get = function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.clickToCast ~= false end,
 		set = function(_, value)
