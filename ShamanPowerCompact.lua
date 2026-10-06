@@ -511,6 +511,62 @@ function SP:CompactCounterShift(btn)
 	return shift
 end
 
+-- The key on Compact's own two lines (Show Keybinds on Buttons): Your Shield Line's binding
+-- (SHAMANPOWER_SHIELD_LINE) and the Earth Shield line's (SHAMANPOWER_EARTH_SHIELD: the Earth Shield
+-- button in its Compact look). Which key: the bar buttons' rule (ButtonKeybindText, Keybind Shown).
+-- Where and how: the totem lines' (the far end of the line, the same font and color), on a frame of
+-- its own over the line, so the game-drawn charges (WoW: Forever, in a fight) never cover it. Made
+-- out of a fight; after that only its text changes, which is fine in one. The icon-style Earth
+-- Shield button keeps its look (no key), as before.
+function SP:PaintCompactLineKey(btn, on, spellName, bindingName)
+	if not btn then return end
+	local fs = btn.spLineKey
+	local text = on and self.opt and self.opt.showButtonKeybinds and self:ButtonKeybindText(spellName, bindingName) or nil
+	if text and not fs and not InCombatLockdown() then
+		local holder = CreateFrame("Frame", nil, btn)
+		holder:SetAllPoints(btn)
+		holder:SetFrameLevel(btn:GetFrameLevel() + 10)   -- (the game-drawn layer is 2 above the line, its bars a few more)
+		fs = holder:CreateFontString(nil, "OVERLAY")
+		self:SetSPFont(fs, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF")
+		fs:SetTextColor(0.9, 0.9, 0.9, 1)
+		btn.spLineKey = fs
+	end
+	if not fs then return end
+	if not text then
+		fs:SetText("")
+		fs:Hide()
+		return
+	end
+	local c = btn.compact
+	if c and not InCombatLockdown() then   -- (laid out only out of a fight, like the line)
+		local ow = c.ow or 2
+		fs:ClearAllPoints()
+		if c.vertical then fs:SetPoint("BOTTOM", btn, "BOTTOM", 0, ow + 1)
+		else fs:SetPoint("RIGHT", btn, "RIGHT", -(ow + 2), 0) end
+	end
+	fs:SetText(text)
+	fs:Show()
+end
+
+function SP:UpdateCompactLineKeys()
+	local sh = _G["ShamanPowerCompactShieldBtn"]
+	if sh then
+		self:PaintCompactLineKey(sh, sh.compact ~= nil and self:CompactShieldLineActive(),
+			sh.spShieldName or self:CompactKnownShield(), "SHAMANPOWER_SHIELD_LINE")
+	end
+	local es = _G["ShamanPowerEarthShieldBtn"]
+	if es then
+		local spell = self.GetEarthShieldSpell and self:GetEarthShieldSpell() or nil
+		self:PaintCompactLineKey(es, (es.compactLayoutOn and spell) and true or false, spell, "SHAMANPOWER_EARTH_SHIELD")
+	end
+end
+
+-- every refresh of the bar buttons' keys (bindings, action bars, Keybind Shown, Keybind Mode's Done)
+-- refreshes the lines' too
+if SP.UpdateButtonKeybindText then
+	hooksecurefunc(SP, "UpdateButtonKeybindText", function(self) self:UpdateCompactLineKeys() end)
+end
+
 -- Switch one totem button between icon and compact rendering. `forceOff` is
 -- used for popped-out buttons, which always keep their icon.
 function SP:ApplyCompactButtonLayout(btn, forceOff)
@@ -600,6 +656,7 @@ function SP:ApplyCompactESLayout()
 			end
 			esBtn.compactLayoutOn = nil
 		end
+		self:PaintCompactLineKey(esBtn, false)   -- (the icon button shows no key, as before)
 		return
 	end
 
@@ -616,6 +673,9 @@ function SP:ApplyCompactESLayout()
 	self:EnsureCompactESLayer(esBtn)   -- (WoW: Forever: the charges in a fight)
 	-- No target name on the compact line: at line size it only adds clutter
 	if name then name:Hide() end
+	-- its key at the far end, like the totem lines' (Show Keybinds on Buttons; none without Earth Shield)
+	local esSpell = self.GetEarthShieldSpell and self:GetEarthShieldSpell() or nil
+	self:PaintCompactLineKey(esBtn, esSpell ~= nil, esSpell, "SHAMANPOWER_EARTH_SHIELD")
 	self:UpdateCompactES()
 end
 
@@ -978,6 +1038,10 @@ function SP:ApplyCompactShieldLayout()
 				layer:SetAlpha(0)
 				btn.spLayerOn = false
 			end
+			-- its key (SHAMANPOWER_SHIELD_LINE) does nothing while the line is off: a hidden button
+			-- still answers a key, and a line never made this session has nothing to cast either
+			if not InCombatLockdown() and btn:GetAttribute("type1") then btn:SetAttribute("type1", nil) end
+			self:PaintCompactLineKey(btn, false)
 		end
 		return
 	end
@@ -995,10 +1059,13 @@ function SP:ApplyCompactShieldLayout()
 	if not InCombatLockdown() then
 		local name = self:CompactKnownShield()
 		btn.spShieldName = name
+		if btn:GetAttribute("type1") ~= "spell" then btn:SetAttribute("type1", "spell") end   -- (back after the line was off)
 		btn:SetAttribute("spell1", name)
 	end
 	self:EnsureCompactShieldLayer(btn)   -- (WoW: Forever: the charges in a fight)
 	btn:SetShown(on)
+	-- its key at the far end, like the totem lines' (Show Keybinds on Buttons)
+	self:PaintCompactLineKey(btn, true, btn.spShieldName, "SHAMANPOWER_SHIELD_LINE")
 	self:UpdateCompactShield()
 end
 
@@ -1025,6 +1092,8 @@ function SP:UpdateCompactShield()
 		if name and name ~= btn.spShieldName then
 			btn.spShieldName = name
 			btn:SetAttribute("spell1", name)
+			-- the key shown follows the shield it casts (its action bar key, Keybind Shown)
+			self:PaintCompactLineKey(btn, true, name, "SHAMANPOWER_SHIELD_LINE")
 		end
 	end
 	-- the rest of the bar's opacity, the fade rules' faded opacity included (this

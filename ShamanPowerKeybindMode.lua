@@ -71,7 +71,13 @@ local function collect()
 			"Assigned " .. ELEMENT_NAMES[element] .. " totem")
 	end
 	add(_G["ShamanPowerAutoDropAll"], "SHAMANPOWER_DROPALL", "Drop All")
-	add(_G["ShamanPowerEarthShieldBtn"], "SHAMANPOWER_EARTH_SHIELD", "Earth Shield")
+	add(_G["ShamanPowerEarthShieldBtn"], "SHAMANPOWER_EARTH_SHIELD", "Earth Shield")   -- (Compact: the Earth Shield line)
+	-- Compact's Your Shield Line: its own binding action, so the core's override click presses the
+	-- click that casts (SetupKeybindings, KeyMouseButton). Only while the line is on: off, its key does nothing
+	local shieldLine = _G["ShamanPowerCompactShieldBtn"]
+	if shieldLine and SP.CompactShieldLineActive and SP:CompactShieldLineActive() then
+		add(shieldLine, "SHAMANPOWER_SHIELD_LINE", (shieldLine.spShieldName or "Your shield") .. " (Your Shield Line)")
+	end
 
 	-- cooldown bar (and Totemic Call when it sits on the totem bar): the types
 	-- with a binding action. The rest (Shamanistic Rage, Elemental Mastery, Rage
