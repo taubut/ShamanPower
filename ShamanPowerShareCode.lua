@@ -211,7 +211,9 @@ SP.SHARE_FEATURES = {
 	{ key = "cueRunningOut",      label = "Effect: running out",                get = function() return on(O().cdbarCueRunning) end },
 	{ key = "cueTimeRed",         label = "Effect: time turns red",             get = function() return on(O().cdbarCueTimeColor) end },
 	{ key = "cueAlmostReady",     label = "Effect: cooldown almost ready",      get = function() return on(O().cdbarCueAlmost) end },
-	{ key = "cueRedXCooldownBar", label = "Effect: red X on imbue / shield",    get = function() return on(O().cdbarCueImbueMark) or on(O().cdbarCueShieldMark) end },
+	{ key = "cueRedXCooldownBar", label = "Effect: red X on imbue / shield",    get = function()
+		return (on(O().cdbarCueImbue) and on(O().cdbarCueImbueMark)) or (on(O().cdbarCueShield) and on(O().cdbarCueShieldMark))
+	end },
 	{ key = "cueMissingRed",      label = "Effect: red while shield / imbue missing", get = function() return on(O().cdbarCueMissing) end },
 }
 

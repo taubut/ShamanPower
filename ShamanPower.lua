@@ -11672,7 +11672,12 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					-- kept a fixed blue and an empty options table.)
 					local carrier = CreateFrame("Frame", nil, button)
 					carrier:SetAllPoints(button)
-					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+					-- the count and the time on a frame of their own, over the button's effects (its cue
+					-- frame, +14): a running-out look over the game's icon keeps them sharp on top
+					local texts = CreateFrame("Frame", nil, button)
+					texts:SetAllPoints(button)
+					texts:SetFrameLevel(btn:GetFrameLevel() + 15)
+					local count = texts:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
 					local strip = opt.cdbarShieldChargeBar and btn.chargeStrip
 					if strip and btn.chargeText then
@@ -11721,7 +11726,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					local src = (textLocation == "inside" and btn.insideText) or (textLocation == "outside" and btn.outsideText)
 						or (textLocation == "icon" and btn.iconText)
 					if src then
-						local fs = carrier:CreateFontString(nil, "OVERLAY")
+						local fs = texts:CreateFontString(nil, "OVERLAY")
 						self:CopySPFont(fs, src)   -- same font as the addon's text, and follows later font changes
 						local r, g, b = src:GetTextColor()
 						fs:SetTextColor(r or 1, g or 1, b or 1)
@@ -11765,6 +11770,8 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 	pcall(container.UpdateAllAuras, container)
 	container:Hide()   -- shown only while auras are secret
 	btn.chargeContainer = container
+	-- what its time text is built with (Time Turns Red While Running Out: ShamanPowerCues.lua)
+	btn.spTimeKey = self.ShieldTimeTextKey and self:ShieldTimeTextKey() or 0
 	-- a shield slot that did not register: kept (it draws what it can), built again
 	-- after the next fight (OnCombatEnd), a few times at most
 	btn.chargeContainerFailed = failed or nil
@@ -12083,6 +12090,7 @@ function ShamanPower:UpdateCooldownButtons()
 			-- it counts as up, the one shown above it, the one in its corner (CooldownBarShieldView)
 			local viewIdx, viewUp, aboveIdx, cornerIdx = self:CooldownBarShieldView(hasShield and self:ShieldIndexOf(activeShieldID) or nil)
 			local aboveCharges = aboveIdx and shieldCharges or 0
+			local shieldUp = hasShield   -- (running out: the shield really up, whichever the style shows)
 			hasShield = viewUp
 
 			if hasShield then
@@ -12248,7 +12256,7 @@ function ShamanPower:UpdateCooldownButtons()
 				self:CooldownBarCorner(btn, cornerIdx and self:ShieldIcon(cornerIdx))
 			end
 			-- running out (Show Items Only When Running Out, the running-out effects: ShamanPowerCues.lua)
-			if self.RunOutShield and self:RunOutShield(btn, hasShield, (hasShield and shieldDuration > 0) and (shieldExpiration - GetTime()) or nil,
+			if self.RunOutShield and self:RunOutShield(btn, shieldUp, (shieldUp and shieldDuration > 0) and (shieldExpiration - GetTime()) or nil,
 				shieldCharges, cache and cache.engineCount) then busy = true end
 
 		elseif btn.spellType == "cooldown" then
@@ -12426,7 +12434,7 @@ function ShamanPower:UpdateCooldownButtons()
 		elseif btn.spellType == "weaponImbue" then
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) end   -- "Weapon Imbue Gone" effect
-			if self.RunOutImbue and self:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) then busy = true end   -- running out
+			local readMain, readOff = hasMain, hasOff   -- (running out, below: the game's own read)
 			-- the style (the totem bar's, or the cooldown bar's own): the imbue the button shows on each hand,
 			-- whether each hand counts as up, the ones shown above it, the one in its corner
 			local actualMain = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or nil
@@ -12567,6 +12575,8 @@ function ShamanPower:UpdateCooldownButtons()
 				self:CooldownBarAbove(btn, above1 and self.WeaponIcons[above1], above2 and self.WeaponIcons[above2], ar, ag, ab, nil, not (upMain or upOff))
 				self:CooldownBarCorner(btn, cornerImbue and self.WeaponIcons[cornerImbue])
 			end
+			-- running out (Show Items Only When Running Out, the running-out effects: ShamanPowerCues.lua)
+			if self.RunOutImbue and self:RunOutImbue(btn, readMain, readOff, mainID, offID, mainExp, offExp) then busy = true end
 		end
 	end
 

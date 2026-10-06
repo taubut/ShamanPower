@@ -1041,7 +1041,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	end
 	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
 	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
-		for i = 1, 3 do slots[i].main.icon = slots[i].mIcon end
+		for i = 1, 3 do slots[i].main.icon = slots[i].mIcon; slots[i].main.spShapeKind = "totem" end   -- (Icon Shape: the totem bar's)
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ btn = slots[1].main, cap = "Destroyed", on = "totemCueDestroyed", style = "totemCueDestroyedStyle", def = "shake", kind = "destroyed", at = 0.3 },
 			{ btn = slots[2].main, cap = "Expired", on = "totemCueExpired", style = "totemCueExpiredStyle", def = "pop", kind = "expired", at = 1.0 },
@@ -3708,6 +3708,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		end
 		-- Staggered sim clock so the bar is not in lockstep.
 		btn.icon = icon   -- for the Effects tab's demo (RunEffectsDemo)
+		btn.spShapeKind = "cooldown"   -- (its looks take the Cooldown Bar's Icon Shape)
 		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, strip = strip, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
 	end
 	-- Effects tab: the first cooldown shown plays Cooldown Ready, the imbue chip
