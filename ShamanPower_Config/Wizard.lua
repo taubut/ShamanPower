@@ -2767,7 +2767,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	row("Toggle", { label = "Show panel behind buttons", get = function() return not O("raidCDButtonHideFrame", nil) end,
 		set = function(v) SP.opt.raidCDButtonHideFrame = not v; upd("UpdateCallerButtonFrameStyle") end })
 	row("Toggle", { label = "Cooldown swipe on buttons", get = function() return O("raidCDShowButtonAnimation", true) end,
-		set = function(v) SP.opt.raidCDShowButtonAnimation = v; upd() end })
+		set = function(v) SP.opt.raidCDShowButtonAnimation = v; upd("UpdateCallerButtonCooldowns") end })
 	row("Toggle", { label = "Alert: big icon", get = function() return O("raidCDShowWarningIcon", true) end,
 		set = function(v) SP.opt.raidCDShowWarningIcon = v; upd() end })
 	row("Toggle", { label = "Alert: USE ... NOW text", get = function() return O("raidCDShowWarningText", true) end,

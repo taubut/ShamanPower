@@ -4119,6 +4119,8 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.raidCDShowButtonAnimation = val
+								-- show or clear the caller buttons' sweep now, not at the next cooldown
+								if ShamanPower.UpdateCallerButtonCooldowns then ShamanPower:UpdateCallerButtonCooldowns() end
 							end
 						},
 					}
