@@ -20,6 +20,9 @@ BINDING_NAME_SHAMANPOWER_WATER_TOTEM = "Cast Assigned Water Totem"
 BINDING_NAME_SHAMANPOWER_AIR_TOTEM = "Cast Assigned Air Totem"
 BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast " .. SPCompat.SpellLabel(974, "Earth Shield") .. " on Assigned Target"
     .. (ShamanPower.ESTrackerUnavailable and " (not in this game)" or "")
+-- Compact style's Your Shield Line (Lightning / Water): the key clicks the line, so it casts the
+-- shield the line casts, and does nothing while the line is off
+BINDING_NAME_SHAMANPOWER_SHIELD_LINE = "Cast Your Shield (Compact Shield Line)"
 BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall Totems)"
 
 -- Cooldown Bar keybindings

@@ -19412,6 +19412,9 @@ ShamanPower.KeybindButtons = {
 	["SHAMANPOWER_WATER_TOTEM"] = "ShamanPowerTotemBtn3",
 	["SHAMANPOWER_AIR_TOTEM"] = "ShamanPowerTotemBtn4",
 	["SHAMANPOWER_EARTH_SHIELD"] = "ShamanPowerEarthShieldBtn",
+	-- Compact's Your Shield Line (ShamanPowerCompact.lua). One click casts (type1), and the swap
+	-- (ApplyClickSwap) leaves it as it is, so KeyMouseButton's left click is its cast click
+	["SHAMANPOWER_SHIELD_LINE"] = "ShamanPowerCompactShieldBtn",
 	["SHAMANPOWER_TOTEMIC_CALL"] = "ShamanPowerTotemicCallBtn",
 	-- Call of the Elements / Ancestors / Spirits, one key each (hidden buttons
 	-- made by ShamanPowerTotemSets.lua on WoW: Forever; inert elsewhere)
