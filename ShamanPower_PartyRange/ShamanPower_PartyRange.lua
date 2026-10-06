@@ -1700,7 +1700,7 @@ end
 --    totem. Nothing is read, so it holds in fights and in instances. A member
 --    plainly far away gets none (PartyUnitFarAway: the game draws a dot for any
 --    matching buff it is handed).
---  * TBC Anniversary: buffs are read (UnitHasBuff, yours only). Windfury Totem is a
+--  * TBC Anniversary: buffs are read (yours only; once per member per aura change, for every line). Windfury Totem is a
 --    weapon buff there: each member's own report (WFBUFF, or the Windfury
 --    WeakAura) says it, and none (or none for 10 s) is "?", never "missing". A
 --    report never says whose Windfury it is: your own totem's spot decides, or
@@ -1985,16 +1985,20 @@ do
 		return cx * s, cy * s
 	end
 	-- Break Up Totem List: a strip with no spot of its own goes under the one before it,
-	-- left edges in line (again at every layout: a strip that grows never covers the next)
+	-- left edges in line (again at every layout: a strip that grows never covers the next).
+	-- The gap leaves room for Unlock UI: each strip's box is at least 24 tall round the
+	-- strip's middle, and the lower box's Reset tab stands 23 above that box (UIParent units)
 	local function StackUnder(f, prev)
 		if prev:GetParent() ~= UIParent then return false end
 		local px, py = CenterOf(prev)
 		if not px then return false end
 		local ps, s = prev:GetScale() or 1, f:GetScale() or 1
+		local ph, h = prev:GetHeight() * ps, f:GetHeight() * s
 		local left = px - prev:GetWidth() * ps / 2
-		local bottom = py - prev:GetHeight() * ps / 2
+		local bottom = py - ph / 2
+		local gap = math.max(STACK_GAP, 25 + math.max(0, (24 - ph) / 2) + math.max(0, (24 - h) / 2))
 		local cx = left + f:GetWidth() * s / 2
-		local cy = bottom - STACK_GAP - f:GetHeight() * s / 2
+		local cy = bottom - gap - h / 2
 		f:ClearAllPoints()
 		f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx / s, cy / s)
 		return true
@@ -2143,9 +2147,8 @@ do
 		f.line = line
 		-- the element line in parts: one per element its lines show (one: the whole line)
 		f.segs, f.segElement, f.segCount = { line }, { 4 }, 1
-		-- its lines: one per totem it has shown (kept and reused, keyed by the totem),
-		-- and the ones it shows now, in order (what a fight updates)
-		f.lineByKey, f.lineList, f.lines = {}, {}, {}
+		-- the totems' lines it shows now, in order (what a fight updates)
+		f.lines = {}
 		f.spots, f.slots = EMPTY, EMPTY   -- (the first line's, once it has one)
 		f.index = k
 		-- Unlock UI's box for a broken-up strip: as wide as its name on one line, so the box
@@ -2175,16 +2178,24 @@ do
 		return f
 	end
 
-	-- one totem's line in a strip: its icon and a spot per party member (made once, kept)
-	local linesMade = 0   -- (a new line's icon: the theme's flat box finds it)
+	-- one totem's line: its icon and a spot per party member, with the game's displays
+	-- (WoW: Forever), all on a host frame of its own. ONE per totem, made once and kept,
+	-- whichever strip shows it: Break Up Totem List, a pick or a reorder moves the host to
+	-- another strip (out of combat), so a totem's displays never pile up per strip.
+	-- (lineList: in the order made, a new one last: the theme's flat boxes find them)
+	local lineByKey, lineList = {}, {}
+	SP.partyStripLines = lineList
 	local function LineFor(f, w)
-		local line = f.lineByKey[w.key]
+		local line = lineByKey[w.key]
 		if line then return line end
 		line = { w = w, key = w.key, element = w.element, spots = {}, slots = {}, slotsBuilt = {} }
-		local icon = f:CreateTexture(nil, "ARTWORK", nil, 1)
+		local host = CreateFrame("Frame", nil, f)
+		host:SetAllPoints(f)
+		line.host = host
+		local icon = host:CreateTexture(nil, "ARTWORK", nil, 1)
 		icon:SetSize(ICON, ICON)
 		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		local iconEdge = f:CreateTexture(nil, "ARTWORK", nil, 0)
+		local iconEdge = host:CreateTexture(nil, "ARTWORK", nil, 0)
 		iconEdge:SetColorTexture(0, 0, 0, 1)
 		iconEdge:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 		iconEdge:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
@@ -2192,14 +2203,13 @@ do
 		iconEdge:Hide()
 		line.icon, line.iconEdge = icon, iconEdge
 		for i = 1, 4 do
-			local c = NewSpot(f, i)
+			local c = NewSpot(host, i)
 			PaintSpotColors(c)
 			c:Hide()
 			line.spots[i] = c
 		end
-		f.lineByKey[w.key] = line
-		f.lineList[#f.lineList + 1] = line
-		linesMade = linesMade + 1
+		lineByKey[w.key] = line
+		lineList[#lineList + 1] = line
 		return line
 	end
 
@@ -2244,12 +2254,6 @@ do
 		return n
 	end
 
-	-- the lines a strip shows now (f.lines) get their order; the rest it made sit out
-	local function MarkLines(f)
-		for _, line in ipairs(f.lineList) do line.order = nil end
-		for k, line in ipairs(f.lines) do line.order = k end
-	end
-
 	local nameW = {}   -- (reused: the first line's names' widths)
 	local function Layout(f)
 		local o = Opts()
@@ -2261,13 +2265,6 @@ do
 		f.iconsOn = showIcon and L > 0
 		local n = Members(f)
 		f.members = n
-		for _, line in ipairs(f.lineList) do
-			if not line.order then   -- a totem this strip shows no more
-				line.icon:Hide()
-				line.iconEdge:Hide()
-				for i = 1, 4 do line.spots[i]:Hide() end
-			end
-		end
 		local first = lines[1]
 		for i = 1, 4 do nameW[i] = 0 end
 		for k, line in ipairs(lines) do
@@ -2421,10 +2418,6 @@ do
 	end
 	-- names, classes and the game's displays for a strip's lines (out of combat)
 	local function BuildLines(f, engine, classSet)
-		MarkLines(f)
-		for _, line in ipairs(f.lineList) do
-			if not line.order then RetireLine(line) end
-		end
 		for k, line in ipairs(f.lines) do
 			local w = line.w
 			local lineEngine = engine and w.ids and true or false
@@ -2466,9 +2459,8 @@ do
 		f:SetPoint("CENTER", UIParent, "CENTER", DEFAULT_X, DEFAULT_Y)
 		f:Hide()
 	end
-	-- a strip not in use: its displays retired, hidden (out of combat)
+	-- a strip not in use: hidden (out of combat; its lines are elsewhere or sit out)
 	local function RetireStrip(f)
-		for _, line in ipairs(f.lineList) do RetireLine(line) end
 		wipe(f.lines)
 		f.used = false
 		f:Hide()
@@ -2552,6 +2544,47 @@ do
 			return "has"
 		end
 
+		-- A member's buffs, read ONCE per aura change for every line (not once per line):
+		-- yours only ("PLAYER"), by the buff's name or any rank's ID, as SP:UnitHasBuff reads
+		-- them. TBC Anniversary; on WoW: Forever only when the game's display could not be built.
+		local scans = {}   -- [party spot] = { unit, gen, at, names = {}, ids = {} }
+		local function MemberHasBuff(i, unit, buffName)
+			if SP:PartyUnitFarAway(unit) then return false end
+			local sc = scans[i]
+			if not sc then sc = { names = {}, ids = {} }; scans[i] = sc end
+			if not (sc.unit == unit and SP:AuraCacheValid(unit, sc.gen, sc.at)) then
+				local names, ids = sc.names, sc.ids
+				wipe(names)
+				wipe(ids)
+				if SPCompat.FOREVER then
+					local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+					if get then
+						for k = 1, 40 do
+							local aura = get(unit, k, "HELPFUL|PLAYER")
+							if issecretvalue(aura) or not aura then break end
+							local name, id = aura.name, aura.spellId
+							if not issecretvalue(name) and name then names[name] = true end
+							if not issecretvalue(id) and id then ids[id] = true end
+						end
+					end
+				else
+					local read = SPCompat.UnitBuff or UnitBuff   -- (ShamanPower's own reader)
+					for k = 1, 32 do
+						local name, _, _, _, _, _, _, _, _, id = read(unit, k, "PLAYER")
+						if issecretvalue(name) or issecretvalue(id) or not name then break end
+						names[name] = true
+						if id then ids[id] = true end
+					end
+				end
+				sc.unit, sc.gen, sc.at = unit, SP.auraGen and SP.auraGen[unit] or 0, GetTime()
+			end
+			if sc.names[buffName] then return true end
+			for id in pairs(SP.TotemBuffIDSets[buffName] or EMPTY) do
+				if sc.ids[id] then return true end
+			end
+			return false
+		end
+
 		-- one spot of one totem's line
 		UpdateSpot = function(line, i, shown)
 			local unit, c, rec, w = PARTY[i], line.spots[i], line.slots[i], line.w
@@ -2572,7 +2605,7 @@ do
 					if state == "has" then state = ReportOwner(unit, w) end   -- (G4) whose Windfury it is
 				end
 			elseif w and w.buffName and not (SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
-				state = SP:UnitHasBuff(unit, w.buffName) and "has" or "missing"
+				state = MemberHasBuff(i, unit, w.buffName) and "has" or "missing"
 			else
 				state = "unknown"   -- nothing can say right now (the game's display could not be built)
 			end
@@ -2633,12 +2666,15 @@ do
 		for _, e in ipairs(picks) do s = s .. e.key .. "," end
 		return s
 	end
-	-- the strips in use and their lines: one strip with every totem, or (Break Up
-	-- Totem List, two or more totems) a strip per totem. Returns how many strips.
-	local function AssignLines(picks)
+	-- the strips in use and their lines: one strip with every totem, or (Break Up Totem
+	-- List) a strip per totem, one totem too (it keeps its own spot and size). Each line's
+	-- host goes to its strip; a line no strip shows sits out (hidden; real: its game
+	-- displays retired). Out of combat only. Returns how many strips.
+	local function AssignLines(picks, real)
 		local count = #picks
-		local split = BreakUp() and count > 1
+		local split = BreakUp()
 		local used = split and count or 1
+		for _, line in ipairs(lineList) do line.strip = nil end
 		for k = 1, used do
 			local f = Strip(k)
 			wipe(f.lines)
@@ -2652,6 +2688,22 @@ do
 				f.spMoverLabel = "Party Strip"
 			end
 			f.used = true
+			for _, line in ipairs(f.lines) do
+				line.strip = f
+				local host = line.host
+				if host:GetParent() ~= f then   -- (this totem was on another strip)
+					host:SetParent(f)
+					host:ClearAllPoints()
+					host:SetAllPoints(f)
+				end
+				host:Show()
+			end
+		end
+		for _, line in ipairs(lineList) do
+			if not line.strip then
+				if real then RetireLine(line) end
+				line.host:Hide()
+			end
 		end
 		return used
 	end
@@ -2680,6 +2732,10 @@ do
 		local picks = Picks(picksNow)
 		builtSig = PicksSig(picks)
 		if not on or #picks == 0 then   -- off, or no totem to show (nothing picked, or none learned yet)
+			for _, line in ipairs(lineList) do
+				RetireLine(line)
+				line.host:Hide()
+			end
 			for _, fr in ipairs(frames) do RetireStrip(fr) end
 			return
 		end
@@ -2692,7 +2748,7 @@ do
 		end
 		if engine then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
 		local classSet = self.ThemeClassColorSet and self:ThemeClassColorSet(SPOT_CLASS)
-		local used = AssignLines(picks)
+		local used = AssignLines(picks, true)
 		for k = used + 1, #frames do RetireStrip(frames[k]) end
 		for k = 1, used do
 			local fr = frames[k]
@@ -2743,22 +2799,25 @@ do
 			for _, fr in ipairs(frames) do PaintPanel(fr) end
 			return
 		end
-		if what == "scale" and f and f:IsShown() and not InCombatLockdown() then
-			-- (a preview that has borrowed it fits it itself; Unlock UI's wheel resizes it on its spot)
-			if f.stripKey == nil then
-				if f:GetParent() == UIParent then
-					self:SetFrameScaleKeepCenter(f, Scale())   -- grows round its middle, then that is its spot
-					SavePosition(f)
-				end
-			else
-				-- Break Up Totem List: the tab's Size sizes every strip (Unlock UI's wheel sizes one)
-				local t = Opts().strips
-				if type(t) == "table" then
-					for _, r in pairs(t) do if type(r) == "table" then r.scale = nil end end
-				end
-				PlaceAll()   -- (each round its middle; the ones stacked under another follow it)
+		if what == "scale" then
+			-- the tab's Size sizes every strip: a broken-up strip's own size (Unlock UI's wheel)
+			-- goes at once, in a fight too (only the frames wait for its end)
+			local t = Opts().strips
+			if type(t) == "table" then
+				for _, r in pairs(t) do if type(r) == "table" then r.scale = nil end end
 			end
-			return
+			if f and f:IsShown() and not InCombatLockdown() then
+				-- (a preview that has borrowed it fits it itself; Unlock UI's wheel resizes it on its spot)
+				if f.stripKey == nil then
+					if f:GetParent() == UIParent then
+						self:SetFrameScaleKeepCenter(f, Scale())   -- grows round its middle, then that is its spot
+						SavePosition(f)
+					end
+				else
+					PlaceAll()   -- (each round its middle; the ones stacked under another follow it)
+				end
+				return
+			end
 		end
 		if f and f.demo then   -- a preview has it: show the change there, rebuild afterwards
 			if demoPaint then demoPaint() end
@@ -2818,7 +2877,7 @@ do
 			{ "missing", "missing", "missing", "missing" },          -- no totem of yours down
 			{ "has", "has", "unknown", "has", down = true, reports = true },   -- (TBC Anniversary Windfury: no report)
 		}
-		local demoBeat, demoTicker, demoLinesSeen = 1, nil, -1
+		local demoBeat, demoTicker, demoLinesSeen = 1, nil, -1   -- (demoLinesSeen: how many lines the theme's boxes saw)
 		-- a line's beat: the scene's, a step on for each line after the first (so they differ)
 		local function DemoBeat(n, w)
 			local idx = ((n - 1) % #DEMO_SCENE) + 1
@@ -2848,13 +2907,13 @@ do
 					end
 				end
 				local function paint()
+					if InCombatLockdown() then return end   -- (the lines move between strips: never in a fight)
 					ResolveColors()
 					local picks = DemoPicks()
 					local used = (#picks > 0) and AssignLines(picks) or 0
 					for k = 1, used do
 						local fr = frames[k]
 						fr.demo = true
-						MarkLines(fr)
 						for j, line in ipairs(fr.lines) do
 							local beat = DemoBeat(demoBeat + (k - 1) + (j - 1), line.w)
 							for i = 1, 4 do
@@ -2887,12 +2946,12 @@ do
 					for k = used + 1, #frames do
 						local fr = frames[k]
 						fr.demo, fr.used, fr.spDemoHidden = true, false, true
-						MarkLines(fr)
+						wipe(fr.lines)
 						fr:Hide()
 					end
 					PlaceAll()   -- (Unlock UI: on their spots; a preview's borrowed strips stay where it put them)
-					if linesMade ~= demoLinesSeen then   -- (a new line's icon: ShamanPower Minimal's flat box)
-						demoLinesSeen = linesMade
+					if #lineList ~= demoLinesSeen then   -- (a new line's icon: ShamanPower Minimal's flat box)
+						demoLinesSeen = #lineList
 						if self.ThemeBoxesRefresh then self:ThemeBoxesRefresh() end
 					end
 				end
@@ -2912,9 +2971,9 @@ do
 				for _, fr in ipairs(frames) do
 					fr.demo, fr.spDemoHidden = nil, nil
 					if not InCombatLockdown() then Rehome(fr) end   -- (in a fight: the rebuild after it)
-					for _, line in ipairs(fr.lineList) do
-						for i = 1, 4 do line.spots[i].state = nil end
-					end
+				end
+				for _, line in ipairs(lineList) do
+					for i = 1, 4 do line.spots[i].state = nil end
 				end
 				-- real names, classes, layout, place and the game's displays back
 				if InCombatLockdown() then pending = true else self:RebuildPartyStrip() end
@@ -3072,12 +3131,10 @@ do
 			local f = frames[1]
 			if not f then return end
 			ResolveColors()
-			for _, fr in ipairs(frames) do
-				for _, line in ipairs(fr.lineList) do
-					for i = 1, 4 do PaintSpotColors(line.spots[i]) end
-				end
-				PaintPanel(fr)
+			for _, line in ipairs(lineList) do
+				for i = 1, 4 do PaintSpotColors(line.spots[i]) end
 			end
+			for _, fr in ipairs(frames) do PaintPanel(fr) end
 			if f.demo and demoPaint then demoPaint() end
 			local set = SP.ThemeClassColorSet and SP:ThemeClassColorSet(SPOT_CLASS)
 			if set ~= classSetSeen then
