@@ -1041,11 +1041,14 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	end
 	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
 	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
-		for i = 1, 3 do slots[i].main.icon = slots[i].mIcon end
+		for i = 1, 4 do slots[i].main.icon = slots[i].mIcon end
+		slots[4].main.element = 4   -- (the Elemental look paints the reminder in Air's color)
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ btn = slots[1].main, cap = "Destroyed", on = "totemCueDestroyed", style = "totemCueDestroyedStyle", def = "shake", kind = "destroyed", at = 0.3 },
 			{ btn = slots[2].main, cap = "Expired", on = "totemCueExpired", style = "totemCueExpiredStyle", def = "pop", kind = "expired", at = 1.0 },
 			{ btn = slots[3].main, cap = "Expiring", on = "totemCueExpiring", style = "totemCueExpiringStyle", def = "pulse", kind = "expiring", loop = true },
+			-- Put Your Usual Totem Back (ShamanPowerUsualTotem.lua): Air asks for its usual totem
+			{ btn = slots[4].main, cap = "Put back", on = "usualTotemReminder", style = "usualTotemStyle", def = "glow", kind = "ready", loop = true },
 		})
 	end
 	local styleCap = inner:CreateFontString(nil, "OVERLAY"); styleCap:SetFontObject(Core.fonts.rowDim)

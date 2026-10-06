@@ -206,6 +206,8 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- 3.0.8 (alpha): Totem Bar > Effects > Put Your Usual Totem Back
+	{ key = "usualTotemReminder", label = "Return to usual totem reminder",   get = function() return on(O().usualTotemReminder) end },
 }
 
 -- ---------------------------------------------------------------------------
