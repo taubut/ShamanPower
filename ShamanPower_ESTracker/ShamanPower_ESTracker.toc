@@ -1,7 +1,7 @@
 ## Interface: 20506
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Raid ES Tracker]|r
-## Version: 3.0.6
+## Version: 3.0.6.1
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Track other shamans' Earth Shields in your party or raid.
 ## Dependencies: ShamanPower
