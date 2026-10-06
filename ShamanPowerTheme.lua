@@ -1927,6 +1927,20 @@ end
 function Cards.Apply(f, card, baseline, pre)
 	local t, o = TW(), SP.opt
 	if not (t and type(o) == "table") then return end
+	-- a look saved (or shared) before an update knows nothing of a setting the update hooked
+	-- in (Cards.ADDED): it had that setting's default then, so it puts the default back (a
+	-- buff's Edge Color changed since goes back with Undo too). Its own values stay as they are.
+	local filled
+	for k, default in pairs(Cards.ADDED) do
+		if f[k] == nil then
+			local v = default()
+			if v ~= nil then
+				if not filled then filled = {}; for fk, fv in pairs(f) do filled[fk] = fv end end
+				filled[k] = v
+			end
+		end
+	end
+	f = filled or f
 	local d = Cards.Defaults()
 	local g = f["t.global"]
 	t.global = (THEMES[g] and g ~= "standard") and g or nil
