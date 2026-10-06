@@ -613,6 +613,7 @@ function Row:Render(body, x, y, width, onChanged)
 		f.caption:SetFontObject(Core.fonts.rowDim)
 		f.caption:SetJustifyH("LEFT")
 		f.caption:SetWordWrap(true)
+		f.spNoCull = true   -- (redrawn by its own watcher, which skips a hidden row)
 		self.frame = f
 	end
 	f:SetParent(body)

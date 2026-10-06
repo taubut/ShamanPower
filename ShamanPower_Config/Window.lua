@@ -1447,6 +1447,7 @@ local function BuildWindow()
 
 	frame.bodyScroll, frame.body = bodyScroll, body
 	Core:AttachScrollbar(bodyScroll, body, { offset = 6 })
+	Core:CullScrollChild(bodyScroll, body)   -- rows out of view hidden: a long page (Themes) scrolls light
 
 	-- Footer: its own band (the mock's sidebar navy) under a rule
 	local footer = CreateFrame("Frame", nil, content)
@@ -1886,6 +1887,7 @@ end
 -- Widgets go back to their pools rather than being orphaned; pageWidgets is
 -- kept only as the "did this render draw anything" count for the empty state.
 local function ClearPage()
+	if frame.bodyScroll.spCullReset then frame.bodyScroll.spCullReset() end   -- rows hidden out of view: back first
 	Widgets:ReleaseAll(frame.body)
 	wipe(pageWidgets)
 	if ns.ThemesPage then ns.ThemesPage:Release() end

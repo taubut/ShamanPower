@@ -774,6 +774,8 @@ local function shapeButton(btn, kind)
 	local bar = rawget(btn, "cdBar")
 	local fill = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()
 	if fill then SP:ShapeIconTexture(fill, icon, kind) end
+	local gray = rawget(btn, "cdBarGray")   -- (the gray copy under a colored sweep)
+	if gray then SP:ShapeIconTexture(gray, icon, kind) end
 	local cd = rawget(btn, "cooldown")
 	if type(cd) == "table" then SP:ShapeCooldown(cd, kind) end
 end
@@ -786,6 +788,8 @@ function SP:ApplyIconShapes()
 		shapeButton(self.totemButtons and self.totemButtons[e], "totem")
 		local fl = self.totemFlyouts and self.totemFlyouts[e]
 		for _, b in ipairs(fl and (fl.allButtons or fl.buttons) or {}) do shapeButton(b, "totem") end
+		-- (Totem Rows' copies of them, Keep Flyouts on Main Totem Bar: shaped as the flyout's own)
+		for _, b in ipairs(self.RowsCopies and self:RowsCopies(e) or {}) do shapeButton(b, "totem") end
 		shapeButton(self.activeTotemOverlays and self.activeTotemOverlays[e], "totem")
 		local gcd = _G["ShamanPowerGCD" .. e]
 		if gcd then SP:ShapeCooldown(gcd, "totem") end

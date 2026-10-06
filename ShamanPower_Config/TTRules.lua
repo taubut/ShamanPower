@@ -284,6 +284,7 @@ function Rules:Render(body, x, y, width)
 		f.note:SetFontObject(Core.fonts.rowDim)
 		f.note:SetJustifyH("LEFT")
 		f.note:SetWordWrap(true)
+		f.spNoCull = true   -- (redrawn by its own watcher, which skips a hidden row)
 		self.frame = f
 	end
 	f:SetParent(body)

@@ -755,10 +755,12 @@ function Core:AttachScrollbar(scroll, child, opts)
 		thumb:SetPoint("TOP", track, "TOP", 0, -math.floor((trackH - thumbH) * frac))
 	end
 
+	-- (whole pixels, and only when that moves it: a held, still thumb scrolls nothing)
 	local function ScrollToFraction(frac)
 		local _, _, maxScroll = Range()
 		if frac < 0 then frac = 0 elseif frac > 1 then frac = 1 end
-		scroll:SetVerticalScroll(maxScroll * frac)
+		local v = math.min(maxScroll, math.floor(maxScroll * frac + 0.5))
+		if v ~= scroll:GetVerticalScroll() then scroll:SetVerticalScroll(v) end
 	end
 
 	-- Follow the scroll frame itself, whatever moved it (wheel, code, drag).
@@ -767,27 +769,20 @@ function Core:AttachScrollbar(scroll, child, opts)
 	scroll:HookScript("OnSizeChanged", Update)
 	scroll:HookScript("OnShow", Update)
 
-	-- Thumb drag: keep the grab point under the cursor.
+	-- Thumb drag: keep the grab point under the cursor. Its OnUpdate runs only
+	-- while the thumb is held (nothing runs per frame otherwise).
 	local dragging, grabOffset = false, 0
 	local function CursorY()
 		local _, y = GetCursorPosition()
 		return y / track:GetEffectiveScale()
 	end
-	thumb:SetScript("OnMouseDown", function(self)
-		dragging = true
-		grabOffset = self:GetTop() - CursorY()
-		self.tex:SetColorTexture(Core:Color("accentHi"))
-	end)
-	thumb:SetScript("OnMouseUp", function(self)
+	local function EndDrag(self)
 		dragging = false
-		self.tex:SetColorTexture(Core:Color(self:IsMouseOver() and "accent" or "textMute"))
-	end)
-	thumb:SetScript("OnEnter", function(self) if not dragging then self.tex:SetColorTexture(Core:Color("accent")) end end)
-	thumb:SetScript("OnLeave", function(self) if not dragging then self.tex:SetColorTexture(Core:Color("textMute")) end end)
-	thumb:SetScript("OnUpdate", function(self)
-		if not dragging then return end
+		self:SetScript("OnUpdate", nil)
+	end
+	local function DragStep(self)
 		if not IsMouseButtonDown("LeftButton") then
-			dragging = false
+			EndDrag(self)
 			self.tex:SetColorTexture(Core:Color("textMute"))
 			return
 		end
@@ -797,7 +792,19 @@ function Core:AttachScrollbar(scroll, child, opts)
 		local topWanted = CursorY() + grabOffset
 		local frac = (track:GetTop() - topWanted) / travel
 		ScrollToFraction(frac)
+	end
+	thumb:SetScript("OnMouseDown", function(self)
+		dragging = true
+		grabOffset = self:GetTop() - CursorY()
+		self.tex:SetColorTexture(Core:Color("accentHi"))
+		self:SetScript("OnUpdate", DragStep)
 	end)
+	thumb:SetScript("OnMouseUp", function(self)
+		EndDrag(self)
+		self.tex:SetColorTexture(Core:Color(self:IsMouseOver() and "accent" or "textMute"))
+	end)
+	thumb:SetScript("OnEnter", function(self) if not dragging then self.tex:SetColorTexture(Core:Color("accent")) end end)
+	thumb:SetScript("OnLeave", function(self) if not dragging then self.tex:SetColorTexture(Core:Color("textMute")) end end)
 
 	-- Click on the track (outside the thumb): page toward the click.
 	track:SetScript("OnClick", function(self)
@@ -821,6 +828,109 @@ function Core:AttachScrollbar(scroll, child, opts)
 	scroll.spScrollbar = track
 	scroll.spScrollbarUpdate = Update
 	return track
+end
+
+-- ---------------------------------------------------------------------------
+-- Rows out of view
+-- Every scroll step makes the game place again every shown frame, texture and
+-- text under the scroll child. A page thousands of pixels tall (General >
+-- Themes: over 7,000 of them) made each step that heavy: one wheel notch was
+-- a hitch, a scroll bar drag (a step every frame) lagged the whole game.
+-- The child's own frames out of view are hidden, and shown again before they
+-- come into view, from the scroll itself (in the same step: nothing seen
+-- changes). Only these hides are ever undone: the page's own Show / Hide /
+-- SetShown on such a frame takes it back, and scroll.spCullReset() shows them
+-- all again before the page draws anew. Nothing runs while the page sits still.
+-- ---------------------------------------------------------------------------
+local CULL_MARGIN = 120   -- kept shown this far past each edge of the view
+
+function Core:CullScrollChild(scroll, child)
+	local culled = {}             -- frame -> true: hidden here, still shown as far as the page knows
+	local tops, bottoms = {}, {}  -- frame -> its edges, down from the child's top (when last shown)
+	local own = false             -- (this code's own Show / Hide)
+	local kids, nKids = {}, -1
+	local settling = false         -- (a page just drawn: measured from the next frame on)
+
+	local function TakeBack(f) if not own then culled[f] = nil end end
+	local function Hook(f)
+		if f.spCullHooked then return end
+		f.spCullHooked = true
+		hooksecurefunc(f, "Show", TakeBack)
+		hooksecurefunc(f, "Hide", TakeBack)
+		hooksecurefunc(f, "SetShown", TakeBack)
+	end
+	-- (a row holding the edit box being typed in stays)
+	local function Holds(f, focus)
+		while focus do
+			if focus == f then return true end
+			focus = focus:GetParent()
+		end
+		return false
+	end
+
+	local function Pass()
+		if settling or not scroll:IsVisible() then return end
+		local cTop, viewH = child:GetTop(), scroll:GetHeight()
+		if not cTop or viewH <= 0 then return end
+		local n = child:GetNumChildren()
+		if n ~= nKids then
+			nKids = n
+			wipe(kids)
+			local list = { child:GetChildren() }
+			for i = 1, #list do kids[i] = list[i] end
+		end
+		local cs = child:GetEffectiveScale()
+		local off = scroll:GetVerticalScroll()
+		local lo, hi = off - CULL_MARGIN, off + viewH + CULL_MARGIN
+		local focus = GetCurrentKeyBoardFocus and GetCurrentKeyBoardFocus()
+		for i = 1, #kids do
+			local f = kids[i]
+			if f:GetParent() ~= child then
+				culled[f] = nil   -- (moved to another parent since: not this page's any more)
+			elseif culled[f] then
+				if bottoms[f] > lo and tops[f] < hi then
+					own = true
+					f:Show()
+					own = false
+					culled[f] = nil
+				end
+			elseif f:IsShown() and not f.spNoCull then
+				local t, b = f:GetTop(), f:GetBottom()
+				if t and b then
+					local k = f:GetEffectiveScale() / cs
+					t, b = cTop - t * k, cTop - b * k
+					tops[f], bottoms[f] = t, b
+					if (b <= lo or t >= hi) and not (focus and Holds(f, focus)) then
+						Hook(f)
+						own = true
+						f:Hide()
+						own = false
+						culled[f] = true
+					end
+				end
+			end
+		end
+	end
+
+	scroll:HookScript("OnVerticalScroll", Pass)
+	scroll:HookScript("OnScrollRangeChanged", Pass)
+	scroll:HookScript("OnSizeChanged", Pass)
+	scroll:HookScript("OnShow", Pass)
+
+	-- before the page is cleared and drawn again: everything as the page left it
+	scroll.spCullReset = function()
+		own = true
+		for f in pairs(culled) do
+			if f:GetParent() == child then f:Show() end
+		end
+		own = false
+		wipe(culled)
+		nKids = -1
+		if not settling then
+			settling = true
+			C_Timer.After(0, function() settling = false; Pass() end)
+		end
+	end
 end
 
 -- ---------------------------------------------------------------------------

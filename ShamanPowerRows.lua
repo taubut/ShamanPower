@@ -33,6 +33,7 @@ local ROW_GAP = 4 + 15
 
 local rows = {}                      -- [element] = { element, anchor, host, all, count, shown, gx, gy, side, box }
 local applied, owner = false, nil
+local newCopies = false              -- (a Keep Flyouts copy made since the looks were last painted)
 local carrying = false               -- Show Main Totem Bar off: the rows carry the bar's pieces (see "Carry")
 local secret = issecretvalue or function() return false end
 local pending, queued, refreshing = false, false, false
@@ -257,24 +258,44 @@ end
 -- ---------------------------------------------------------------------------
 -- Pulling a totem back from a row (WoW: Forever; Totem Bar > Clicks), as on the bar.
 -- Right-Click Pulls That Totem Back: right-click on any totem in a row pulls back that
--- element's totem, and what right-click did there (assign; cast with the clicks
--- swapped) moves to Shift+Right-Click. Shift+Right-Click Pulls That Totem Back:
--- Shift+Right-Click pulls it back. The game's own secure "destroytotem" action on the
--- element's slot, so it works in a fight. A button's own right-click is kept and put
--- back when the row lets it go (or the setting goes off).
+-- element's totem, and the assign moves to Shift+Right-Click. Shift+Right-Click Pulls That
+-- Totem Back: Shift+Right-Click pulls it back. With Swap Left and Right Click, left and right
+-- trade places, as on the bar. The game's own secure "destroytotem" action on the element's
+-- slot, so it works in a fight. A button's own clicks are kept and put back when the row lets
+-- it go (or the setting goes off).
 -- ---------------------------------------------------------------------------
-local PULL_KEYS = { "type2", "spell2", "macrotext2", "totem-slot2",
-	"shift-type2", "shift-spell2", "shift-macrotext2", "shift-totem-slot2" }
+-- Which mouse button: the ASSIGN click, never the cast click (an action bar key routed through the
+-- flyout, RouteFlyoutBarKeys, and a Keybind Mode key on the button press the cast click; with a modifier
+-- held WoW presses it too when that modifier's key is free, so even the shifted cast click is never
+-- touched). Swap Left and Right Click mirrors it all, as on the bar: there the assign click is the left one.
+local PULL_KEYS = {}
+for _, n in ipairs({ "1", "2" }) do
+	for _, k in ipairs({ "type", "spell", "macrotext", "totem-slot" }) do
+		PULL_KEYS[#PULL_KEYS + 1] = k .. n
+		PULL_KEYS[#PULL_KEYS + 1] = "shift-" .. k .. n
+	end
+end
 
+-- "right": the assign click pulls back, the assign moves to Shift + that click; "shift": Shift + the
+-- assign click pulls back.
 local function pullMode()
 	if SP.RightClickDestroysTotems and SP:RightClickDestroysTotems() then return "right" end
 	if SP.ShiftRightClickPullsTotem and SP:ShiftRightClickPullsTotem() then return "shift" end
 	return nil
 end
 
+-- a button's assign click as its number ("2" = right, "1" = left with the clicks swapped), read from the
+-- button's OWN layout (a copy: its flyout button's), never the option: a profile switch can leave buttons
+-- built the other way until they are rebuilt, and the cast click must never be the one taken
+local function pullN(b)
+	local src = b.spSource or b
+	return (src:GetAttribute("assignButton") == "LeftButton") and "1" or "2"
+end
+
 -- (a pull-back click never runs the assign click's after-click)
 local function pullPostClick(self, button)
-	if button == "RightButton" then
+	local pullButton = (self.spPullN == "1") and "LeftButton" or "RightButton"
+	if button == pullButton then
 		local shift = IsShiftKeyDown()
 		if (self.spPullMode == "right" and not shift) or (self.spPullMode == "shift" and shift) then return end
 	end
@@ -282,68 +303,69 @@ local function pullPostClick(self, button)
 	if post then post(self, button) end
 end
 
-local function setPull(b, mode, slot)
+local function setPull(b, mode, slot, n)
 	local saved = b.spPullSaved
 	if saved then
-		local key = (b.spPullMode == "right") and "type2" or "shift-type2"
+		local key = (b.spPullMode == "right" and "type" or "shift-type") .. (b.spPullN or "2")
 		if b:GetAttribute(key) ~= "destroytotem" then
-			saved = nil   -- (set up again since: what it has now is its own)
-		elseif b.spPullMode == mode and b.spPullSlot == slot then
+			-- set up again since by a writer: what it wrote is the button's own now; where our overlay is
+			-- still there untouched, the button's own value goes back (ours never becomes its own)
+			local set = b.spPullSet
+			if set then
+				for _, k in ipairs(PULL_KEYS) do
+					local mine = set[k]
+					if mine ~= nil and mine ~= false and b:GetAttribute(k) == mine then b:SetAttribute(k, saved[k] or nil) end
+				end
+			end
+			b.spPullSet = nil
+		elseif b.spPullMode == mode and b.spPullSlot == slot and b.spPullN == n then
 			return
 		else
-			for _, k in ipairs(PULL_KEYS) do b:SetAttribute(k, saved[k] or nil) end   -- its own first
+			-- its own first: only the keys the overlay set (a key it never touched stays as it is)
+			for k in pairs(b.spPullSet or {}) do b:SetAttribute(k, saved[k] or nil) end
 		end
 		b.spPullSaved = nil
 	end
-	if not (mode and slot) then
-		if b.spPullPost then
-			b:SetScript("PostClick", b.spPullPost)
-			b.spPullPost = nil
+	if not (mode and slot and n) then
+		if b.spPullHooked then
+			b:SetScript("PostClick", b.spPullPost)   -- (its own, or none)
+			b.spPullHooked, b.spPullPost = nil, nil
 		end
-		b.spPullMode, b.spPullSlot = nil, nil
+		b.spPullMode, b.spPullSlot, b.spPullSet, b.spPullN = nil, nil, nil, nil
 		return
 	end
 	saved = {}
 	for _, k in ipairs(PULL_KEYS) do saved[k] = b:GetAttribute(k) or false end
 	b.spPullSaved = saved
+	-- what we set (false: cleared), so a later writer's work is never mistaken for ours
+	local set = {}
 	if mode == "right" then
-		b:SetAttribute("shift-type2", saved["type2"] or nil)
-		b:SetAttribute("shift-spell2", saved["spell2"] or nil)
-		b:SetAttribute("shift-macrotext2", saved["macrotext2"] or nil)
-		b:SetAttribute("type2", "destroytotem")
-		b:SetAttribute("spell2", nil)
-		b:SetAttribute("macrotext2", nil)
-		b:SetAttribute("totem-slot2", slot)
+		set["shift-type" .. n], set["shift-spell" .. n], set["shift-macrotext" .. n] = saved["type" .. n], saved["spell" .. n], saved["macrotext" .. n]
+		set["type" .. n], set["spell" .. n], set["macrotext" .. n], set["totem-slot" .. n] = "destroytotem", false, false, slot
 	else
-		b:SetAttribute("shift-type2", "destroytotem")
-		b:SetAttribute("shift-spell2", nil)
-		b:SetAttribute("shift-macrotext2", nil)
-		b:SetAttribute("shift-totem-slot2", slot)
+		set["shift-type" .. n], set["shift-spell" .. n], set["shift-macrotext" .. n], set["shift-totem-slot" .. n] = "destroytotem", false, false, slot
 	end
-	if not b.spPullPost then
-		b.spPullPost = b:GetScript("PostClick")
+	for k, v in pairs(set) do b:SetAttribute(k, v or nil) end
+	b.spPullSet = set
+	if not b.spPullHooked then
+		b.spPullHooked, b.spPullPost = true, b:GetScript("PostClick")
 		b:SetScript("PostClick", pullPostClick)
 	end
-	b.spPullMode, b.spPullSlot = mode, slot
+	b.spPullMode, b.spPullSlot, b.spPullN = mode, slot, n
 end
 
 -- a row button's click lines while it pulls back (its tooltip, and the flyout button's own in the core)
 function SP:RowPullTooltipLines(b)
-	local swapped = self.opt and self.opt.swapFlyoutClickButtons
+	local swapped = b.spPullN == "1"
+	local cast, other = swapped and "Right-click" or "Left-click", swapped and "Left-click" or "Right-click"
 	local pull = "Pull this element's totem back"
+	GameTooltip:AddLine("|cff00ff00" .. cast .. ":|r Cast totem", 1, 1, 1)
 	if b.spPullMode == "right" then
-		GameTooltip:AddLine("|cff00ff00Left-click:|r " .. (swapped and "Set as assigned totem" or "Cast totem"), 1, 1, 1)
-		GameTooltip:AddLine("|cffffcc00Right-click:|r " .. pull, 1, 1, 1)
-		GameTooltip:AddLine("|cffffcc00Shift+Right-click:|r " .. (swapped and "Cast totem" or "Set as assigned totem"), 1, 1, 1)
+		GameTooltip:AddLine("|cffffcc00" .. other .. ":|r " .. pull, 1, 1, 1)
+		GameTooltip:AddLine("|cffffcc00Shift+" .. other:lower() .. ":|r Set as assigned totem", 1, 1, 1)
 	else
-		if swapped then
-			GameTooltip:AddLine("|cff00ff00Left-click:|r Set as assigned totem", 1, 1, 1)
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Cast totem", 1, 1, 1)
-		else
-			GameTooltip:AddLine("|cff00ff00Left-click:|r Cast totem", 1, 1, 1)
-			GameTooltip:AddLine("|cffffcc00Right-click:|r Set as assigned totem", 1, 1, 1)
-		end
-		GameTooltip:AddLine("|cffffcc00Shift+Right-click:|r " .. pull, 1, 1, 1)
+		GameTooltip:AddLine("|cffffcc00" .. other .. ":|r Set as assigned totem", 1, 1, 1)
+		GameTooltip:AddLine("|cffffcc00Shift+" .. other:lower() .. ":|r " .. pull, 1, 1, 1)
 	end
 end
 
@@ -381,8 +403,9 @@ local function releaseRow(element)
 	elseif r.all then
 		for i = 1, #r.all do releaseButton(r.all[i], r.host, size) end
 	end
-	if r.box then
-		-- the arrow flyout's watched box opens and closes by itself again
+	if r.box and not grid then
+		-- the arrow flyout's watched box opens and closes by itself again (with Grid on, the box is Grid's:
+		-- a profile switching to Grid lays Grid out before this runs)
 		r.box:SetAttribute("unit", "none")
 		RegisterUnitWatch(r.box)
 		r.box:Hide()
@@ -397,13 +420,12 @@ end
 -- button's own after-click), so the bar keeps its flyouts. Made out of combat; a
 -- copy follows its flyout button whenever the rows are laid out again.
 -- ---------------------------------------------------------------------------
-local COPY_ATTRS = { "type1", "spell1", "macrotext1", "type2", "spell2", "macrotext2", "totem-slot2",
-	"shift-type2", "shift-spell2", "shift-macrotext2", "shift-totem-slot2" }
+local COPY_ATTRS = PULL_KEYS   -- (every click key: the source's own, the pull-back goes on after)
 
 local function copyTooltip(self)
 	if not (SP.opt and SP.opt.ShowTooltips) or not self.spellID then return end
 	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-	GameTooltip:SetSpellByID(self.spellID)
+	GameTooltip:SetSpellByID(SPCompat.HighestKnownRank and SPCompat.HighestKnownRank(self.spellID) or self.spellID)
 	GameTooltip:AddLine(" ")
 	if self.spPullMode then
 		SP:RowPullTooltipLines(self)
@@ -436,6 +458,7 @@ local function copyButton(r, src)
 		hl:SetAllPoints()
 		hl:SetColorTexture(1, 1, 1, 0.3)
 		hl:SetBlendMode("ADD")
+		b:SetHighlightTexture(hl)   -- (the button's own highlight: Icon Shape shapes it with the icon)
 		local cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
 		cd:SetAllPoints(b.icon)
 		cd:SetDrawSwipe(true)
@@ -457,6 +480,9 @@ local function copyButton(r, src)
 		b:HookScript("OnLeave", function() GameTooltip:Hide() end)
 		b:SetScript("PostClick", copyPostClick)
 		r.copies[src] = b
+		r.copyAll = r.copyAll or {}
+		r.copyAll[#r.copyAll + 1] = b
+		newCopies = true
 	end
 	b.spSource = src
 	b.totemIndex, b.spellID, b.talentSpellID = src.totemIndex, src.spellID, src.talentSpellID
@@ -469,6 +495,9 @@ local function copyButton(r, src)
 	if src.icon then
 		b.icon:SetTexture(src.icon:GetTexture())
 		b.icon:SetTexCoord(src.icon:GetTexCoord())
+		-- Icon Shape's trim comes with the coordinates, its mark too (or a stale one goes): back on
+		-- Square, the shaping takes it off the copy as off the flyout's button
+		b.icon.spTrimmed = src.icon.spTrimmed
 	end
 	local c = SP.opt and SP.opt.totemCooldownTextColor
 	b.cooldownText:SetTextColor(c and c.r or 1, c and c.g or 1, c and c.b or 1)
@@ -560,7 +589,7 @@ local function layoutRow(element, n)
 		else
 			b.spRowSlot = nil
 		end
-		setPull(b, eligible and mode or nil, slot)
+		setPull(b, eligible and mode or nil, slot, mode and pullN(b) or nil)
 	end
 	r.count = count
 	r.size = S
@@ -709,6 +738,10 @@ local function carryStyle(c, element, size)
 	bar:SetPoint(c.vertical and "BOTTOMLEFT" or "TOPLEFT", bg, c.vertical and "BOTTOMLEFT" or "TOPLEFT", 0, 0)
 	local color = SP.DurationBarColors and SP.DurationBarColors[element]
 	if color then SP:SetSPBarColor(bar, "duration", color[1], color[2], color[3], 1) end
+	-- Duration Bar Opacity and Duration Bar Background (General > Themes too), as the bar's own
+	local a = opt.durationBarOpacity or 1
+	bg:SetAlpha(SP:DurationTrackAlpha(a))
+	bar:SetAlpha(a)
 	SP:SetSPFont(text, "timers", opt.durationTextSize or 8, "OUTLINE")
 	SP:ThemePaintDurationText(text, element)   -- General > Themes: Duration Text Color; white on Standard
 	c.location = opt.durationTextLocation or "none"
@@ -752,24 +785,28 @@ local function carryPulseOff(element, c)
 	c.savedPulse = nil
 end
 
--- every row's carried pieces on or off together (out of combat), the dots moved over
+-- each row's carried pieces on or off (out of combat), the dots moved over. Reconciled row by row, every
+-- layout: a row switched on (or off) while the others already carry gets (or gives back) its own pieces.
 local function setCarry(on)
-	if on == carrying then return end
+	local changed = (on ~= carrying)
 	carrying = on
 	for element = 1, 4 do
 		local r = rows[element]
-		if r and r.host then
-			local c = on and r.all and carryFrames(r) or r.carry
-			if c then
-				if on then carryPulseOn(element, c)
-				else
-					carryPulseOff(element, c)
-					c.host:Hide()
-					c.on = nil
-				end
-			end
+		local want = on and r ~= nil and r.host ~= nil and r.all ~= nil and (r.count or 0) > 0 or false
+		local c = r and (want and carryFrames(r) or r.carry)
+		if c and want and not c.active then
+			c.active = true
+			carryPulseOn(element, c)
+			changed = true
+		elseif c and not want and c.active then
+			c.active = nil
+			carryPulseOff(element, c)
+			c.host:Hide()
+			c.on, c.last, c.anchor = nil, nil, nil
+			changed = true
 		end
 	end
+	if not changed then return end
 	if SP.RefreshPartyRangeHosts then SP:RefreshPartyRangeHosts() end   -- the dots and range numbers move over
 	if SP.UpdatePulseBarPositions then SP:UpdatePulseBarPositions() end
 	if SP.UpdateTotemProgressBarPositions then SP:UpdateTotemProgressBarPositions() end   -- (the duration tick on)
@@ -777,8 +814,8 @@ end
 
 -- each layout while carrying: the dots' spot on the row's assigned totem (or its first), the duration look
 local function carryLayout(element, r)
-	if not (carrying and r.all and r.count > 0) then return end
-	local c = carryFrames(r)
+	local c = r.carry
+	if not (carrying and c and c.active) then return end
 	local S = r.size or 28
 	c.host:SetSize(S, S)
 	c.host:SetFrameLevel(r.host:GetFrameLevel() + 8)
@@ -793,6 +830,10 @@ local function carryLayout(element, r)
 	if b then c.dots:SetPoint("CENTER", b, "CENTER", 0, 0) end
 	c.anchor = b   -- (the effects' Test button, with no totem down)
 	c.dots:SetFrameLevel(r.host:GetFrameLevel() + 9)
+	-- the rows' fade: the pieces fade with the row's icons (siblings of them, never multiplied twice)
+	local a = rowAlpha()
+	c.host:SetAlpha(a)
+	c.dots:SetAlpha(a)
 	if c.pulse then
 		c.pulse.buttonWidth, c.pulse.buttonHeight = S - 4, S - 4
 		if c.pulse.wipeFrame then c.pulse.wipeFrame:SetFrameLevel(c.host:GetFrameLevel() + 2) end
@@ -810,7 +851,7 @@ function SP:UpdateRowsCarry()
 	for element = 1, 4 do
 		local r = rows[element]
 		local c = r and r.shown and r.carry
-		if c then
+		if c and c.active then
 			local have, _, start, duration = self:GetElementTotemInfo(element)
 			local valid = not secret(have) and have == true and not secret(start) and type(start) == "number"
 				and not secret(duration) and type(duration) == "number" and duration > 0 and start + duration > now
@@ -851,11 +892,19 @@ function SP:RowsCarryButton(element)
 	if not carrying then return nil end
 	local r = rows[element]
 	local c = r and r.shown and r.carry
-	return c and (c.on or c.last or c.anchor) or nil
+	return c and c.active and (c.on or c.last or c.anchor) or nil
 end
 
 -- true while the rows carry the bar's pieces
 function SP:RowsCarryBar() return applied and carrying or false end
+
+-- Keep Flyouts on Main Totem Bar: every copy a row has made, for the look painters (General > Themes'
+-- Element-Colored Borders on the flyouts, Icon Shape, Minimal's boxes, Cooldown Text Color), which paint
+-- them as the flyout's own buttons
+function SP:RowsCopies(element)
+	local r = rows[element]
+	return r and r.copyAll or nil
+end
 
 -- the party dots and range numbers: on the row while it carries them (PartyRange, the core's dot placing)
 local baseOverlayHost = SP.GetTotemOverlayHost
@@ -863,7 +912,7 @@ function SP:GetTotemOverlayHost(element)
 	if carrying then
 		local r = rows[element]
 		local c = r and r.carry
-		if c and r.all and (r.count or 0) > 0 then return c.dots end
+		if c and c.active then return c.dots end
 	end
 	if baseOverlayHost then return baseOverlayHost(self, element) end
 	return self.totemButtons and self.totemButtons[element]
@@ -953,6 +1002,20 @@ local function apply()
 	if carrying and SP.UpdatePartyDotPositions then SP:UpdatePartyDotPositions() end
 	SP:UpdateRowsCarry()
 	hideBar()
+	-- SetupTotemFlyouts above lays the bar's buttons out and shows them: a bar that is down right now goes
+	-- back down, as the layout leaves it (switched off, not used in this kind of group, or kept down by Hide
+	-- Out of Combat / Hide When No Totems). Keybind Mode's bar stays up; Blizzard's bar puts ours down itself.
+	if not InCombatLockdown() and not (SP.UsingBlizzardTotemBar and SP:UsingBlizzardTotemBar())
+		and not (SP.KeybindModeActive and SP:KeybindModeActive())
+		and (not SP:TotemBarInUse() or (SP.totemBarHidden and (o.hideOutOfCombat or o.hideWhenNoTotems))) then
+		SP:SetTotemBarFramesShown(false)
+	end
+	if newCopies then   -- (new copies on the rows: the looks General > Themes gives the flyout's own buttons)
+		newCopies = false
+		if SP.ApplyIconShapes then SP:ApplyIconShapes() end
+		if SP.ThemePaintTotemBorders then SP:ThemePaintTotemBorders() end
+		if SP.ThemeBoxesRefresh then SP:ThemeBoxesRefresh() end
+	end
 	if SP.RefreshUnlockBoxes then SP:RefreshUnlockBoxes() end   -- (Unlock UI open: the boxes follow)
 end
 
@@ -987,7 +1050,9 @@ function SP:RefreshRowsStyle()
 	refreshing, pending = true, false
 	local ok, err = pcall(function()
 		if owner and owner ~= self.opt then
-			-- a profile change: the old profile keeps its own snapshot (never copied here)
+			-- a profile change: the old profile keeps its own snapshot (never copied here). The bar's
+			-- pieces go back to the bar first (pulse, dots, duration), as when the switch goes off.
+			setCarry(false)
 			applied, owner = false, nil
 			for element = 1, 4 do releaseRow(element) end
 			if not requested() then
@@ -1088,6 +1153,9 @@ function SP:RowsFadeFrames(add)
 		local r = rows[element]
 		local all = r and r.shown and r.all
 		if all then for i = 1, #all do if all[i].spRowSlot then add(all[i]) end end end
+		-- the bar's pieces on the row (Show Main Totem Bar off) fade with its icons
+		local c = all and carrying and r.carry
+		if c and c.active then add(c.host); add(c.dots) end
 	end
 end
 
@@ -1095,8 +1163,11 @@ function SP:ApplyTotemRowAlpha()
 	if not applied then return end
 	local a = rowAlpha()
 	for element = 1, 4 do
-		local all = rows[element] and rows[element].all
+		local r = rows[element]
+		local all = r and r.all
 		if all then for i = 1, #all do if all[i].spRowSlot then all[i]:SetAlpha(a) end end end
+		local c = carrying and r and r.carry
+		if c and c.active then c.host:SetAlpha(a); c.dots:SetAlpha(a) end
 	end
 end
 
@@ -1123,6 +1194,33 @@ if SP.RefreshBlizzardTotemBar then
 	end
 end
 
+-- The flyout buttons' clicks written again by the core (Swap Flyout Click Buttons, Close Flyout After
+-- Casting From It): the rows' pull-back comes off first, so the writer writes the buttons' own clicks and
+-- never ours, and goes back on with the copies on the next layout (restore, write, reapply). Out of combat
+-- only, as both writers are.
+local function pullsOff()
+	for element = 1, 4 do
+		local r = rows[element]
+		if r and r.all then
+			for i = 1, #r.all do
+				if r.all[i].spPullMode then setPull(r.all[i], nil) end
+			end
+		end
+	end
+end
+for _, name in ipairs({ "UpdateFlyoutClickBehavior", "ApplyFlyoutPickMacros" }) do
+	local base = SP[name]
+	if base then
+		SP[name] = function(self, ...)
+			local strip = applied and not InCombatLockdown()
+			if strip then pullsOff() end
+			local a, b, c = base(self, ...)
+			if strip then queueRefresh() end
+			return a, b, c
+		end
+	end
+end
+
 -- cast-order clients: a row's pull-back follows the element's slot between fights, as the bar's does
 if SP.RefreshTotemDestroySlots then
 	hooksecurefunc(SP, "RefreshTotemDestroySlots", function(self)
@@ -1134,7 +1232,9 @@ if SP.RefreshTotemDestroySlots then
 				for i = 1, #r.all do
 					local b = r.all[i]
 					if b.spPullMode and b.spPullSlot ~= slot then
-						b:SetAttribute(b.spPullMode == "right" and "totem-slot2" or "shift-totem-slot2", slot)
+						local key = (b.spPullMode == "right" and "totem-slot" or "shift-totem-slot") .. (b.spPullN or "2")
+						b:SetAttribute(key, slot)
+						if b.spPullSet then b.spPullSet[key] = slot end
 						b.spPullSlot = slot
 					end
 				end
@@ -1143,7 +1243,9 @@ if SP.RefreshTotemDestroySlots then
 	end)
 end
 
--- the copies' cooldowns, as the flyout's buttons get theirs (only shown ones: a read builds a table on WoW: Forever)
+-- the copies' cooldowns, as the flyout's buttons get theirs (only shown ones: a read builds a table on WoW: Forever).
+-- The reader is SPCompat's, as the core's own (on WoW: Forever a fight hides cooldown numbers from addons; it
+-- answers from the player's own casts then, never with a hidden number), asked at the call: never the global.
 if SP.UpdateTotemCooldowns then
 	hooksecurefunc(SP, "UpdateTotemCooldowns", function(self)
 		if not applied then return end
@@ -1154,7 +1256,9 @@ if SP.UpdateTotemCooldowns then
 				for i = 1, #r.all do
 					local b = r.all[i]
 					if b.spRowSlot and b.spellID and b:IsVisible() then
-						local start, duration, enabled = GetSpellCooldown(b.spellID)
+						local read = (SPCompat and SPCompat.GetSpellCooldown) or GetSpellCooldown
+						local start, duration, enabled = read(b.spellID)
+						if secret(start) or secret(duration) or secret(enabled) then start, duration, enabled = nil, nil, nil end
 						if engine then
 							local estimate = start and duration and duration > 1.5 and enabled == 1
 							self:FeedEngineCooldown(b, b.spellID, self:EngineCooldownRunning(b, b.spellID, estimate))
@@ -1216,6 +1320,20 @@ end
 if SP.UpdateTotemFlyoutOpacity then
 	hooksecurefunc(SP, "UpdateTotemFlyoutOpacity", function() if applied then SP:ApplyTotemRowAlpha() end end)
 end
+-- Duration Bar Opacity / Duration Bar Background changed (the setting, or a theme picked): the rows' duration
+-- bars follow, as the bar's do
+if SP.ApplyDurationBarOpacity then
+	hooksecurefunc(SP, "ApplyDurationBarOpacity", function(self)
+		local a = self.opt and self.opt.durationBarOpacity or 1
+		for element = 1, 4 do
+			local c = rows[element] and rows[element].carry
+			if c then
+				c.bg:SetAlpha(self:DurationTrackAlpha(a))
+				c.bar:SetAlpha(a)
+			end
+		end
+	end)
+end
 
 -- Keybind Mode with Show the Bar off: the bar comes up for the length of the mode,
 -- so its buttons can take keys; closing the mode re-runs SetupKeybindings.
@@ -1225,11 +1343,23 @@ if SP.SetKeybindMode then
 			and not InCombatLockdown() then
 			self:SetTotemBarFramesShown(true)
 			self:UpdateMiniTotemBar()
+		elseif not on and applied and SP:RowsHideBar() ~= carrying then
+			-- (closed: the rows carry the bar's pieces again, with the bar hidden; at once when a fight starting
+			-- closed it, before the lockdown, or the fight would run with the pieces nowhere)
+			if InCombatLockdown() then queueRefresh() else SP:RefreshRowsStyle() end
 		end
 	end)
 end
 if SP.SetupKeybindings then
-	hooksecurefunc(SP, "SetupKeybindings", function() if applied then hideBar() end end)
+	hooksecurefunc(SP, "SetupKeybindings", function()
+		if not applied then return end
+		-- (Keybind Mode closing lands here too: the pieces go back on the rows, at once while the game still
+		-- allows it; a fight starting closes the mode just before its lockdown)
+		if SP:RowsHideBar() ~= carrying then
+			if InCombatLockdown() then queueRefresh() else SP:RefreshRowsStyle() end
+		end
+		hideBar()
+	end)
 end
 
 local events = CreateFrame("Frame")

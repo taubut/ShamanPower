@@ -571,7 +571,7 @@ local function CreateSlider(parent)
 	row._applying = false
 	-- Widgets.sliderDragging: a slider thumb is held down. The live preview waits for the
 	-- release before rebuilding (Window.lua PreviewChanged), so a drag stays smooth.
-	slider:HookScript("OnMouseDown", function() Widgets.sliderDragging = true end)
+	slider:HookScript("OnMouseDown", function() Widgets.sliderDragging = slider end)
 	slider:HookScript("OnMouseUp", function()
 		Widgets.sliderDragging = false
 		local opts = row.opts
@@ -580,7 +580,8 @@ local function CreateSlider(parent)
 		if pv ~= nil then row._pendingV = nil; opts.set(pv) end
 		if opts.onChanged then opts.onChanged() end   -- the page and preview, once, with the final value
 	end)
-	slider:HookScript("OnHide", function() Widgets.sliderDragging = false end)
+	-- (only the held slider's own hide ends the drag: the rows scrolled out of view hide theirs while it is held)
+	slider:HookScript("OnHide", function() if Widgets.sliderDragging == slider then Widgets.sliderDragging = false end end)
 
 	slider:SetScript("OnValueChanged", function(self, v)
 		if row._applying then return end

@@ -906,6 +906,14 @@ local function TotemBar()
 				if fb and fb.icon then Skin(fb.icon, "flyout", element) end
 			end
 		end
+		-- Totem Rows' copies of them (Keep Flyouts on Main Totem Bar): boxed as the flyout's own
+		local copies = SP.RowsCopies and SP:RowsCopies(element)
+		if copies then
+			for i = 1, #copies do
+				local cb = copies[i]
+				if cb and cb.icon then Skin(cb.icon, "flyout", element) end
+			end
+		end
 	end
 	local da = Named("ShamanPowerAutoDropAll")
 	if da then

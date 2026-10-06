@@ -114,6 +114,7 @@
     {"key": "ttEveryNameplate", "label": "Target Tracker: Every Nameplate"},
     {"key": "totemRows", "label": "Totem Rows on"},
     {"key": "totemRowsBarHidden", "label": "Totem Rows: bar hidden"},
-    {"key": "nextShock", "label": "Target Tracker: Next Shock"}
+    {"key": "nextShock", "label": "Target Tracker: Next Shock"},
+    {"key": "totemRowsKeepFlyouts", "label": "Totem Rows: flyouts kept on the bar"}
   ]
 }

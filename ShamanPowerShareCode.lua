@@ -202,6 +202,10 @@ SP.SHARE_FEATURES = {
 	{ key = "nextShock",          label = "Target Tracker: Next Shock",          get = function()
 		return on(sub(G("ShamanPower_TargetTracker"), "enabled")) and on(sub(sub(sub(G("ShamanPower_TargetTracker"), "spells"), "ns"), "on"))
 	end },
+	-- (Keep Flyouts on Main Totem Bar: only while the main bar shows)
+	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
+		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
+	end },
 }
 
 -- ---------------------------------------------------------------------------

@@ -1255,6 +1255,21 @@ function SP:ResetReactiveTotemPositions()
 	self:ResetReactivePositions()
 end
 
+-- One alert back on its default spot (Unlock UI: that box's Reset)
+function SP:ResetReactiveTotemPosition(frame)
+	local sv = ShamanPower_ReactiveTotems
+	for totemId, totemData in pairs(self.ReactiveTotems) do
+		if self.reactiveFrames[totemId] == frame then
+			local d = totemData.defaultPos
+			sv.positions[totemId] = { point = d.point, x = d.x, y = d.y }
+			frame:ClearAllPoints()
+			frame:SetPoint(d.point, UIParent, d.point, d.x, d.y)
+			return
+		end
+	end
+	self:ResetReactivePositions()   -- (not one of its alerts: all of them, as before)
+end
+
 -- Called by Show All button in options (bridge function)
 -- Note: ShowAllReactiveFrames is defined above, this just ensures consistent naming
 

@@ -376,6 +376,13 @@ local function showHiddenTotemBar()
 	if dropAll and SP.opt.showDropAllButton ~= false then dropAll:Show() end
 	local es = _G["ShamanPowerEarthShieldBtn"]
 	if es and SP.HasEarthShield and SP:HasEarthShield() then es:Show() end
+	-- Compact's Your Shield Line (a frame of its own, not a child of the bar), painted now: its
+	-- update skips a hidden line
+	local sh = _G["ShamanPowerCompactShieldBtn"]
+	if sh and SP.CompactShieldLineActive and SP:CompactShieldLineActive() then
+		sh:Show()
+		if SP.UpdateCompactShield then SP:UpdateCompactShield() end
+	end
 	-- Grid draws its rows, their totem choices and the split hosts from that
 	-- answer: lay them out again for a shown bar
 	if SP.GridActive and SP:GridActive() and SP.RefreshGridStyle then SP:RefreshGridStyle() end
@@ -402,6 +409,8 @@ function Leave(save, why)
 		barShown = false
 		if SP.UpdateTotemBarVisibility then SP:UpdateTotemBarVisibility(true) end
 	end
+	-- a bar not in use here (Use When Solo / In a Party off) that a layout brought up while the mode was open
+	if SP.TotemBarInUse and not SP:TotemBarInUse() and SP.SetTotemBarFramesShown then SP:SetTotemBarFramesShown(false) end
 	if why then print("|cff0070ddShamanPower|r: Keybind Mode closed - " .. why) end
 	-- the addon's override clicks and key labels follow the new bindings
 	if SP.SetupKeybindings then SP:SetupKeybindings() end

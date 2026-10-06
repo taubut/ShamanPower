@@ -671,6 +671,17 @@ do
 		knownIDs[id] = known
 		return known
 	end
+	-- The highest rank of a spell the player knows, by spell ID (this client's rank list): what a tooltip
+	-- shows. A spell with one rank, or none known, is itself. (Tooltips were fed rank 1 and said so.)
+	function SPCompat.HighestKnownRank(id)
+		if not plain(id) or type(id) ~= "number" then return id end
+		local ranks = rankFamily[id]
+		if not ranks then return id end
+		for i = #ranks, 1, -1 do
+			if knowsOneID(ranks[i]) then return ranks[i] end
+		end
+		return id
+	end
 	local function auraFamily(ids)
 		local family = auraFamilies[ids]
 		if not family then

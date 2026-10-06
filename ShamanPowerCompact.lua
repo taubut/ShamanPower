@@ -446,11 +446,11 @@ function SP:LayoutCompactSegments(frame, c, n, gap)
 	return seg
 end
 
--- charges = filled segments; active = false paints everything gray.
--- useColors mirrors the Shield Charges option: green / yellow / red as they
--- run low (thresholds scale with the segment count). base = the healthy color.
-function SP:PaintCompactSegments(seg, charges, active, useColors, base)
-	if not seg then return end
+-- The filled segments' colour for `charges` of `n`. useColors mirrors the Shield
+-- Charges option: green / yellow / red as they run low (thresholds scale with the
+-- segment count). base = the healthy color. Shared by the painting below and the
+-- game-drawn shield layer (a fight on WoW: Forever), so both always agree.
+local function SegmentColor(self, charges, n, useColors, base)
 	local r, g, b = 0.25, 0.85, 0.3
 	if base then r, g, b = base.r, base.g, base.b end
 	-- General > Themes (st.compact-shield): the full colour (Earth Shield line: "es",
@@ -461,13 +461,19 @@ function SP:PaintCompactSegments(seg, charges, active, useColors, base)
 		if tr then r, g, b = tr, tg, tb end
 	end
 	if useColors then
-		local n = seg.n or #seg
 		if charges <= n / 3 then r, g, b = 1, 0.25, 0.25 elseif charges <= 2 * n / 3 then r, g, b = 1, 0.85, 0.2 end
 		if themed and charges <= 2 * n / 3 then
 			local tr, tg, tb = self:ThemeColor("st.compact-shield", (charges <= n / 3) and "last" or "low")
 			if tr then r, g, b = tr, tg, tb end
 		end
 	end
+	return r, g, b
+end
+
+-- charges = filled segments; active = false paints everything gray.
+function SP:PaintCompactSegments(seg, charges, active, useColors, base)
+	if not seg then return end
+	local r, g, b = SegmentColor(self, charges, seg.n or #seg, useColors, base)
 	for i = 1, seg.n or #seg do
 		if active and i <= charges then
 			PaintBar(seg[i], seg.tex, seg.vertical, r, g, b, 0.95)
@@ -574,6 +580,13 @@ function SP:ApplyCompactESLayout()
 	local charges = _G["ShamanPowerEarthShieldBtnCharges"]
 	local on = self:CompactActive() and not (self.IsEarthShieldPoppedOut and self:IsEarthShieldPoppedOut())
 	if not on then
+		-- (its game-drawn layer, WoW: Forever, off with the line: no aura work for it)
+		local layer = esBtn.spShieldLayer
+		if layer and esBtn.spLayerOn ~= false then
+			pcall(layer.SetEnabled, layer, false)
+			layer:SetAlpha(0)
+			esBtn.spLayerOn = false
+		end
 		if esBtn.compactLayoutOn then
 			self:HideCompactVisuals(esBtn.compact)
 			self:HideCompactSegments(esBtn.compactSeg)
@@ -600,6 +613,7 @@ function SP:ApplyCompactESLayout()
 	self:LayoutCompactVisuals(c, esBtn, co, bw, bh)
 	c.line:Hide()
 	self:LayoutCompactSegments(esBtn, c, ES_MAX_CHARGES)
+	self:EnsureCompactESLayer(esBtn)   -- (WoW: Forever: the charges in a fight)
 	-- No target name on the compact line: at line size it only adds clutter
 	if name then name:Hide() end
 	self:UpdateCompactES()
@@ -677,6 +691,238 @@ function SP:CompactKnownShield()
 	return nil
 end
 
+-- ---------------------------------------------------------------------------
+-- WoW: Forever, in a fight: the game hides shield charges from addons, so the
+-- painting above (from the shield cache, or the Earth Shield button's count) can't
+-- know them. A layer the GAME draws takes over then, on each line (your shield's,
+-- and the Earth Shield line on its carrier): an aura container with one slot per
+-- bar (the game binds one application bar per button), each bar over one segment
+-- and shown by the game while the shield has at least that bar's count. Bars are
+-- stacked by count, so the line shows what the painting shows out of a fight: one
+-- segment per charge, coloured by how many are left. A slot's button shows only
+-- while the shield is up. Each bar is anchored to its segment (it follows every
+-- resize by itself) and drawn exactly like it (PaintBar: the same texture, turned
+-- the same way on a vertical line). Made out of combat; in a fight only its alpha,
+-- its own on / off and (Earth Shield) the unit it follows change. Its look is
+-- painted again in place, out of combat; only a different set of bars (Color by
+-- Count, a shield learned) builds a new one.
+-- ---------------------------------------------------------------------------
+local secret = issecretvalue or function() return false end
+
+-- the game hides auras right now (WoW: Forever only: a fight, a boss, a restricted map)
+local function ShieldRestricted()
+	if not (SPCompat and SPCompat.secretsRegime) then return false end
+	if SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return true end
+	return SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() or false
+end
+
+-- The bars, one plan per set of bars: i = the segment it sits on, min = the count it lights at (the game shows
+-- it while the shield has that many charges or more), band = its stacking (a higher band over a lower one),
+-- t = its band's first count (its colour), set = the shield it belongs to (nil: every shield's). Without Color
+-- by Count: one band, a bar per segment and shield. With it: three bands at SegmentColor's thresholds, each over
+-- its own segments; the two lower ones are the same colour for every shield, so they are shared.
+local function LayerPlan(n, useColors, nsets)
+	local plan, bands = {}, nil
+	if useColors then
+		local lo, mid = math.floor(n / 3), math.floor(2 * n / 3)
+		bands = { { 1, lo, true }, { lo + 1, mid, true }, { mid + 1, n, false } }
+	else
+		bands = { { 1, n, false } }
+	end
+	for band, def in ipairs(bands) do
+		local t, top, shared = def[1], def[2], def[3]
+		if top >= t then
+			for i = 1, top do
+				local min = math.max(i, t)
+				if shared or nsets == 1 then
+					plan[#plan + 1] = { i = i, min = min, band = band, t = t, set = not shared and 1 or nil }
+				else
+					for set = 1, nsets do plan[#plan + 1] = { i = i, min = min, band = band, t = t, set = set } end
+				end
+			end
+		end
+	end
+	return plan
+end
+
+-- a bar's colour: its band's, for its shield (a shared bar's colour is the same for every shield)
+local function PlanColor(self, e, sets, n, useColors)
+	local set = sets[e.set or 1]
+	return SegmentColor(self, e.t, n, useColors, set and set.base)
+end
+
+-- what the bars look like (out of combat only: it allocates)
+local function LayerLook(self, c, plan, sets, n, useColors)
+	local parts = { c.vertical and "v" or "h", c.tex or "flat" }
+	for _, e in ipairs(plan) do
+		local r, g, b = PlanColor(self, e, sets, n, useColors)
+		parts[#parts + 1] = ("%.3f,%.3f,%.3f"):format(r, g, b)
+	end
+	return table.concat(parts, "|")
+end
+
+local function PaintLayer(self, owner, sets, n, useColors)
+	local c = owner.compact
+	for _, e in ipairs(owner.spLayerPlan) do
+		if e.tex then
+			local r, g, b = PlanColor(self, e, sets, n, useColors)
+			PaintBar(e.tex, c.tex, c.vertical, r, g, b, 0.95)
+		end
+	end
+end
+
+local function BuildLayer(self, owner, segs, plan, sets, n, useColors, unit)
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, layer = pcall(CreateFrame, "AuraContainer", nil, owner, "CustomAuraContainerTemplate")
+	if not (ok and layer and layer.AddAuraSlot) then return nil end
+	layer:SetAllPoints(owner)
+	layer:SetFrameLevel(owner:GetFrameLevel() + 2)   -- (over the segments: textures of the line's button)
+	local c = owner.compact
+	local maps, all = {}, {}
+	for k, set in ipairs(sets) do
+		local m = {}
+		for _, id in ipairs(set.ids) do m[id] = true; all[id] = true end
+		maps[k] = m
+	end
+	local any = false
+	for pi, e in ipairs(plan) do
+		local seg = segs[e.i]
+		local added = seg and pcall(layer.AddAuraSlot, layer, "sp" .. pi, "HELPFUL|PLAYER", {
+			candidateFilters = { includeSpellIDs = e.set and maps[e.set] or all },
+			initializeFrame = function(button)
+				button:ClearAllPoints()
+				button:SetAllPoints(owner)
+				button:SetFrameLevel(layer:GetFrameLevel() + e.band)   -- (a higher count's colour over a lower one's)
+				if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+				if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+				-- the bar is only the game's switch (it shows it while the shield has e.min charges or more); what
+				-- shows is a piece drawn exactly like the segment under it
+				local bar = CreateFrame("StatusBar", nil, button)
+				bar:SetAllPoints(seg)
+				bar:SetMinMaxValues(e.min, e.min + 1)
+				bar:SetValue(e.min)
+				local t = bar:CreateTexture(nil, "ARTWORK")
+				t:SetAllPoints(bar)
+				local r, g, b = PlanColor(self, e, sets, n, useColors)
+				PaintBar(t, c.tex, c.vertical, r, g, b, 0.95)
+				e.tex = t
+				pcall(button.SetApplicationBar, button, bar, { minApplications = e.min, maxApplications = e.min + 1 })
+			end,
+		})
+		if added then any = true end
+	end
+	if not any then
+		layer:Hide()
+		return nil
+	end
+	pcall(layer.SetUnit, layer, unit or "none")
+	pcall(layer.SetEnabled, layer, false)   -- (on only while it draws: the line's tick)
+	layer:SetAlpha(0)
+	return layer
+end
+
+-- Out of combat: owner's layer for `sets` (its n segments, following `unit`). The same bars stay while only
+-- their look changed (painted again in place; never while the game hides auras: then on the next refresh).
+local function EnsureLayer(self, owner, n, sets, unit)
+	if not (SPCompat and SPCompat.secretsRegime) or InCombatLockdown() then return end
+	local c, segs = owner and owner.compact, owner and owner.compactSeg
+	if not (c and c.lineLen and segs and segs[n]) then return end
+	local useColors = self.opt.shieldChargeColors and true or false
+	local names = {}
+	for k, set in ipairs(sets) do names[k] = set.name end
+	local structure = (#sets > 0) and (n .. "|" .. (useColors and "c" or "-") .. "|" .. table.concat(names, ",")) or nil
+	local layer = owner.spShieldLayer
+	if layer and owner.spLayerStructure == structure then
+		local look = LayerLook(self, c, owner.spLayerPlan, sets, n, useColors)
+		if owner.spLayerLook ~= look and not ShieldRestricted() then
+			if pcall(PaintLayer, self, owner, sets, n, useColors) then owner.spLayerLook = look end
+		end
+		return
+	end
+	if layer then
+		pcall(layer.SetEnabled, layer, false)
+		pcall(layer.SetUnit, layer, "none")   -- (the old one stops following auras)
+		layer:SetAlpha(0)
+		layer:Hide()
+		owner.spShieldLayer = nil
+	end
+	owner.spLayerStructure, owner.spLayerPlan, owner.spLayerLook, owner.spLayerOn = structure, nil, nil, nil
+	if not structure or (owner.spLayerFails or 0) >= 3 then return end
+	local plan = LayerPlan(n, useColors, #sets)
+	layer = BuildLayer(self, owner, segs, plan, sets, n, useColors, unit)
+	if layer then
+		owner.spShieldLayer, owner.spLayerPlan, owner.spLayerUnit = layer, plan, unit or "none"
+		owner.spLayerLook = LayerLook(self, c, plan, sets, n, useColors)
+	else
+		owner.spLayerFails = (owner.spLayerFails or 0) + 1   -- (tried again on the next layout or refresh, three times)
+		owner.spLayerStructure = nil
+	end
+end
+
+-- a line's layer on or off: its alpha and its own on / off, both allowed in a fight
+local function SwitchLayer(owner, on)
+	local layer = owner.spShieldLayer
+	if not layer or owner.spLayerOn == on then return end
+	owner.spLayerOn = on
+	pcall(layer.SetEnabled, layer, on)
+	if on then pcall(layer.UpdateAllAuras, layer) end
+	layer:SetAlpha(on and 1 or 0)
+end
+
+-- the Earth Shield's carrier as a unit token, for its line's layer (SetUnit is the container's own call, allowed
+-- in a fight). Looked up again only when the shield moved, or the token in hand stopped being the carrier (a
+-- roster change), and at most twice a second (the lookup builds a list).
+local function FollowCarrier(self, owner, layer)
+	local guid = self.esTrackedTargetGUID
+	local unit = owner.spLayerUnit or "none"
+	local stale = guid ~= owner.spLayerGuid
+	if not stale and guid then
+		if unit == "none" then
+			stale = true   -- (not in view when last looked)
+		else
+			local g = UnitGUID(unit)
+			if not secret(g) and g ~= guid then stale = true end
+		end
+	end
+	if not stale then return end
+	local now = GetTime()
+	if guid == owner.spLayerGuid and (owner.spLayerNext or 0) > now then return end
+	owner.spLayerGuid, owner.spLayerNext = guid, now + 0.5
+	local u = guid and self.EarthShieldUnitToken and self:EarthShieldUnitToken() or "none"
+	if u ~= owner.spLayerUnit then
+		owner.spLayerUnit = u
+		pcall(layer.SetUnit, layer, u)
+		pcall(layer.UpdateAllAuras, layer)
+	end
+end
+
+-- the shields you know (SP.ShieldAuraSets: every rank), with their line colours
+local function ShieldLineSets(self)
+	local sets = {}
+	for _, set in ipairs(self.ShieldAuraSets or {}) do
+		for _, id in ipairs(set.ids) do
+			if compactShieldNames[id] then
+				sets[#sets + 1] = { name = set.name, ids = set.ids,
+					base = (set.name == "Water Shield") and SHIELD_COLORS[24398] or SHIELD_COLORS[324] }
+				break
+			end
+		end
+	end
+	return sets
+end
+
+-- Out of combat (layout, and the refreshes below): each line's layer.
+function SP:EnsureCompactShieldLayer(btn)
+	if btn then EnsureLayer(self, btn, SHIELD_MAX_CHARGES, ShieldLineSets(self), "player") end
+end
+
+function SP:EnsureCompactESLayer(esBtn)
+	if not esBtn then return end
+	local known = self.HasEarthShield and self:HasEarthShield()
+	local sets = known and { { name = "Earth Shield", ids = self.EarthShieldAuraIDs or { 974, 32593, 32594, 383648 } } } or {}
+	EnsureLayer(self, esBtn, ES_MAX_CHARGES, sets, esBtn.spLayerUnit or "none")
+end
+
 function SP:CompactShieldLineActive()
 	return self:CompactActive() and self.opt.compactShieldLine and self:CompactKnownShield() ~= nil and true or false
 end
@@ -702,7 +948,9 @@ function SP:EnsureCompactShieldButton()
 		local name = b.spShieldName or "Shield"
 		GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
 		GameTooltip:AddLine(name, 0.4, 0.7, 1)
-		if cache and cache.hasShield then
+		if b.spLayerOn then
+			-- (a fight on WoW: Forever: the line shows the charges; the game keeps the count from addons)
+		elseif cache and cache.hasShield then
 			GameTooltip:AddLine("Charges: " .. (cache.shieldCharges or 0), 1, 1, 1)
 		else
 			GameTooltip:AddLine("Not active", 1, 0.3, 0.3)
@@ -716,10 +964,21 @@ end
 
 function SP:ApplyCompactShieldLayout()
 	-- (switched off, a style change in the settings must not bring it up: a UIParent child)
-	local on = self:CompactShieldLineActive() and self.autoButton and not self.totemBarHidden and not self:IsOff()
+	local active = self:CompactShieldLineActive() and self.autoButton and not self:IsOff()
+	-- a bar the hide rules keep down right now (Hide Out of Combat, Hide When No Totems) still gets its line
+	-- laid out, its game-drawn layer included: it comes up with the bar at a pull, too late to make anything
+	local on = active and not self.totemBarHidden
 	local btn = _G["ShamanPowerCompactShieldBtn"]
-	if not on then
-		if btn then btn:Hide() end
+	if not active then
+		if btn then
+			btn:Hide()
+			local layer = btn.spShieldLayer
+			if layer then
+				pcall(layer.SetEnabled, layer, false)   -- (no aura work for a line that is off)
+				layer:SetAlpha(0)
+				btn.spLayerOn = false
+			end
+		end
 		return
 	end
 	btn = self:EnsureCompactShieldButton()
@@ -738,17 +997,27 @@ function SP:ApplyCompactShieldLayout()
 		btn.spShieldName = name
 		btn:SetAttribute("spell1", name)
 	end
-	btn:Show()
+	self:EnsureCompactShieldLayer(btn)   -- (WoW: Forever: the charges in a fight)
+	btn:SetShown(on)
 	self:UpdateCompactShield()
 end
 
 function SP:UpdateCompactShield()
 	local btn = _G["ShamanPowerCompactShieldBtn"]
 	if not btn or not btn:IsShown() or not btn.compactSeg then return end
+	-- WoW: Forever, the game hiding auras (a fight): the game draws the charges (its layer), and goes on
+	-- drawing them after the fight until the addon reads your shield again (the shield cache is a stand-in
+	-- till then: no blink). Ours stay empty underneath, never a count we can't read.
 	local cache = self.shieldCache
-	local active = cache and cache.hasShield and (cache.shieldCharges or 0) > 0
-	local base = active and SHIELD_COLORS[cache.shieldID] or nil
-	self:PaintCompactSegments(btn.compactSeg, active and cache.shieldCharges or 0, active and true or false, self.opt.shieldChargeColors, base)
+	local on = btn.spShieldLayer ~= nil and (ShieldRestricted() or (cache and cache.engineCount) or false)
+	SwitchLayer(btn, on)
+	if on then
+		self:PaintCompactSegments(btn.compactSeg, 0, false, self.opt.shieldChargeColors, nil)
+	else
+		local active = cache and cache.hasShield and (cache.shieldCharges or 0) > 0
+		local base = active and SHIELD_COLORS[cache.shieldID] or nil
+		self:PaintCompactSegments(btn.compactSeg, active and cache.shieldCharges or 0, active and true or false, self.opt.shieldChargeColors, base)
+	end
 	if btn.compact then btn.compact.bg:Show() end
 	-- keep the click on the shield that is actually up
 	if not InCombatLockdown() then
@@ -768,11 +1037,46 @@ end
 function SP:UpdateCompactES()
 	local esBtn = _G["ShamanPowerEarthShieldBtn"]
 	if not esBtn or not esBtn.compactLayoutOn or not esBtn:IsShown() then return end
-	local chargeText = _G["ShamanPowerEarthShieldBtnCharges"]
-	local charges = chargeText and tonumber(chargeText:GetText() or "") or 0
-	local active = self.currentEarthShieldTarget ~= nil and charges > 0
-	self:PaintCompactSegments(esBtn.compactSeg, charges, active, self.opt.shieldChargeColors)
+	-- WoW: Forever, the game hiding auras (a fight): the game draws the charges on the carrier (its layer),
+	-- and goes on after the fight until the Earth Shield button reads them again (its own game-drawn count is
+	-- up till then: no blink). Ours stay empty underneath (the button's count is blank then).
+	local layer = esBtn.spShieldLayer
+	local core = esBtn.chargeContainer
+	local on = layer ~= nil and (ShieldRestricted() or (core ~= nil and core:IsShown()) or false)
+	SwitchLayer(esBtn, on)
+	if on then
+		FollowCarrier(self, esBtn, layer)
+		self:PaintCompactSegments(esBtn.compactSeg, 0, false, self.opt.shieldChargeColors)
+	else
+		local chargeText = _G["ShamanPowerEarthShieldBtnCharges"]
+		local charges = chargeText and tonumber(chargeText:GetText() or "") or 0
+		local active = self.currentEarthShieldTarget ~= nil and charges > 0
+		self:PaintCompactSegments(esBtn.compactSeg, charges, active, self.opt.shieldChargeColors)
+	end
 	if esBtn.compact then esBtn.compact.bg:Show() end
+end
+
+-- The game-drawn layers' look follows the theme, Color Shield Charges by Count, a profile and the shields you
+-- know, also while the bar is down (no layout runs then): out of combat, a moment after the change (debounced,
+-- after the fight when in one); a no-op when nothing they show changed. Also once the game lets auras be read
+-- again (a repaint it refused meanwhile).
+if SPCompat and SPCompat.secretsRegime then
+	local function RefreshShieldLayers()
+		if InCombatLockdown() then return end
+		local sb = _G["ShamanPowerCompactShieldBtn"]
+		if sb and sb.compact and SP:CompactShieldLineActive() then SP:EnsureCompactShieldLayer(sb) end
+		local eb = _G["ShamanPowerEarthShieldBtn"]
+		if eb and eb.compactLayoutOn and eb.compact then SP:EnsureCompactESLayer(eb) end
+	end
+	local function QueueShieldLayers()
+		if SP.ThemeRepaintSoon then SP:ThemeRepaintSoon("compactShieldLayers", RefreshShieldLayers) else RefreshShieldLayers() end
+	end
+	if SP.OnThemeChanged then SP:OnThemeChanged(QueueShieldLayers) end
+	for _, name in ipairs({ "RebuildShieldChargeContainer", "OnProfileChanged" }) do
+		if SP[name] then hooksecurefunc(SP, name, QueueShieldLayers) end
+	end
+	if SPCompat.OnSpellDataChanged then SPCompat.OnSpellDataChanged(QueueShieldLayers) end
+	if SPCompat.OnUnrestricted then SPCompat.OnUnrestricted(QueueShieldLayers) end
 end
 
 -- Per-tick paint of the lines (consolidated update system, 10 Hz).
@@ -826,7 +1130,7 @@ function SP:HideActiveTotemOverlaysForCompact()
 	for element = 1, 4 do
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[element]
 		if ov then
-			if ov.frame then ov.frame:Hide() end
+			if ov.frame and ov.frame:IsShown() then ov.frame:Hide() end   -- (only when shown: this runs in fights too)
 			ov.isActive = false
 		end
 		local btn = self.totemButtons and self.totemButtons[element]

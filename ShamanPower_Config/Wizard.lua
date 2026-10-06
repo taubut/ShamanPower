@@ -1003,7 +1003,6 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	local RS, RG, RT = 22, 3, 4                   -- a row's totem, the gap, the room under a row
 	local RW = 4 * RS + 3 * RG                    -- a row's width
 	local RM_H = 2 * (RS + RT) + 6 + 8            -- the rows above a horizontal bar, and the gap to it
-	local RM_W = RW + 14                          -- the rows beside a vertical bar
 	local rowsMock = CreateFrame("Frame", nil, bar); rowsMock:SetSize(1, 1); rowsMock:Hide()
 	local rowsUI = {}
 	for i, e in ipairs(ELE) do
@@ -1084,13 +1083,17 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		-- (Totem Rows' switch, drawn with the four icon styles)
 		local rowsOn = OPT().totemRows == true and (m == "normal" or m == "tt" or m == "single" or m == "dynamic")
 		local downRows = rowsOn and OPT().rowsGo == "down"
+		-- vertical with rows: the bar's column on the left (Normal's dropped totem on its side of it), the rows to
+		-- its right, never over it
+		local colX = (vertical and normal and side < 0) and (SIZE + 4) or 0
+		local rowsX = colX + SIZE + ((vertical and normal and side > 0) and (SIZE + 4) or 0) + 14
+		local rowsW = downRows and (4 * (RS + 30)) or RW   -- (beside a vertical bar)
 		-- room the rows take above a horizontal bar / beside a vertical one
 		local rmH = downRows and (RW + 8) or RM_H
-		local rmW = downRows and (4 * (RS + 30)) or RM_W
 		rowsMock:SetShown(rowsOn)
 		frameBg:ClearAllPoints()
 		frameBg:SetPoint("TOPLEFT", bar, "TOPLEFT", -8, rowsOn and not vertical and (-rmH + 8) or 8)
-		frameBg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", rowsOn and vertical and (-rmW + 8) or 8, -8)
+		frameBg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", rowsOn and vertical and (-(rowsW + 14) + 8) or 8, -8)
 		if rowsOn then
 			for i, row in ipairs(rowsUI) do
 				row:ClearAllPoints()
@@ -1101,11 +1104,11 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				end
 				if downRows then
 					row:SetSize(RS + 28, RW)
-					row:SetPoint("TOPLEFT", bar, "TOPLEFT", (vertical and (SIZE + 14) or 0) + (i - 1) * (RS + 30), 0)
+					row:SetPoint("TOPLEFT", bar, "TOPLEFT", (vertical and rowsX or 0) + (i - 1) * (RS + 30), 0)
 				else
 					row:SetSize(RW, RS + RT)
 					if vertical then
-						row:SetPoint("TOPLEFT", bar, "TOPLEFT", SIZE + 14, -(i - 1) * (RS + RT + 6))
+						row:SetPoint("TOPLEFT", bar, "TOPLEFT", rowsX, -(i - 1) * (RS + RT + 6))
 					else
 						local col, line = (i <= 2) and 0 or 1, (i - 1) % 2
 						row:SetPoint("TOPLEFT", bar, "TOPLEFT", col == 0 and 0 or (4 * STEP - GAP - RW), -line * (RS + RT + 6))
@@ -1118,7 +1121,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			slot:ClearAllPoints(); main:ClearAllPoints(); over:ClearAllPoints()
 			if vertical then
 				slot:SetSize(SIZE, SIZE + 14)
-				slot:SetPoint("TOP", bar, "TOP", 0, -(i - 1) * (SIZE + 14 + 8))
+				if rowsOn then slot:SetPoint("TOPLEFT", bar, "TOPLEFT", colX, -(i - 1) * (SIZE + 14 + 8))
+				else slot:SetPoint("TOP", bar, "TOP", 0, -(i - 1) * (SIZE + 14 + 8)) end
 				main:SetPoint("TOP", slot, "TOP", 0, 0)
 				over:SetPoint(side > 0 and "LEFT" or "RIGHT", main, side > 0 and "RIGHT" or "LEFT", side * 4, 0)
 			else
@@ -1129,8 +1133,13 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				over:SetPoint("BOTTOM", main, "TOP", 0, 4)
 			end
 		end
-		if vertical then bar:SetSize(SIZE + (normal and (SIZE + 4) or 0) + (rowsOn and rmW or 0), 4 * (SIZE + 14 + 8) - 8)
-		else bar:SetSize(math.max(4 * STEP - GAP, rowsOn and downRows and 4 * (RS + 30) or 0), normal and (SIZE * 2 + 30) or (SIZE + 14 + (rowsOn and rmH or 0))) end
+		if vertical then bar:SetSize(rowsOn and (rowsX + rowsW) or (SIZE + (normal and (SIZE + 4) or 0)), 4 * (SIZE + 14 + 8) - 8)
+		else
+			-- the rows' room is above the bar in every style: Normal's own two rows of icons (the totem and the
+			-- one that is down over it) stay whole under them
+			local barH = normal and (SIZE * 2 + 30) or (SIZE + 14)
+			bar:SetSize(math.max(4 * STEP - GAP, rowsOn and downRows and 4 * (RS + 30) or 0), barH + (rowsOn and rmH or 0))
+		end
 		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", (vertical and normal) and (-side * (SIZE + 4) / 2) or 0, vertical and 10 or (normal and 8 or (m == "blizzard" and -14 - blizzDrop or -14)))
 	end
 

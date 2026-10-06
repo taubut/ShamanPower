@@ -24,6 +24,7 @@ local SP = ShamanPower
 if not SP then return end
 
 local ACTIVE = false
+local session = 0       -- counts each time the mode comes on: a box's Reset question belongs to one
 local onlyKey           -- the one module unlocked by itself (a "move these" button), else nil
 local shown = {}        -- mover keys that are up
 local demos = {}        -- registry keys whose Demo(true) was called
@@ -63,6 +64,7 @@ end
 
 local MODULES = {
 	{ key = "shieldcharges", label = "Shield Charges", labels = { "Shield Charges", "Earth Shield Charges" },
+		resetOne = "ResetShieldChargeFramePosition",   -- a box's Reset: its own frame (Reset All: both)
 		-- the real frames only: the preview's own Water Shield frame (the settings
 		-- preview draws Water apart; in play it shows in the player frame) got a box
 		-- named "Earth Shield Charges", and the real Earth frame "Shield Charges 3"
@@ -91,7 +93,7 @@ local MODULES = {
 			local s = SP.opt.shieldChargeDisplay
 			return not s or s.showPlayerShield ~= false or s.showEarthShield == true
 		end },
-	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions",
+	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions", resetOne = "ResetReadyReminderPosition",
 		-- only the reminders that are switched on get a box (Grid placement: one box for the block)
 		frames = function() return SP.ReadyReminderMoverFrames and SP:ReadyReminderMoverFrames() or {} end,
 		enabled = function() local d = DB("ShamanPower_ReadyReminders"); return not d or d.enabled ~= false end },
@@ -105,6 +107,7 @@ local MODULES = {
 			if pos and point then pos:ClearAllPoints(); pos:SetPoint(point, UIParent, point, x, y) end
 		end },
 	{ key = "reactive", label = "Reactive Totem", labels = { "Reactive: Fear", "Reactive: Poison", "Reactive: Disease" }, reset = "ResetReactiveTotemPositions",
+		resetOne = "ResetReactiveTotemPosition",
 		enabled = function() local d = DB("ShamanPower_ReactiveTotems"); return not d or d.enabled ~= false end },
 	{ key = "tremor", label = "Tremor Reminder", reset = "TremorReminderReset",
 		enabled = function() local d = DB("ShamanPowerTremorReminderDB"); return not d or d.enabled ~= false end },
@@ -122,7 +125,7 @@ local MODULES = {
 			return out
 		end,
 		labels = { "Range: Earth", "Range: Fire", "Range: Water", "Range: Air" } },
-	{ key = "coverage", label = "Totem Coverage", reset = "ResetCoveragePositions",
+	{ key = "coverage", label = "Totem Coverage", reset = "ResetCoveragePositions", resetOne = "ResetCoverageCellPosition",
 		enabled = function() return SP.opt.coverage and SP.opt.coverage.enabled and true or false end,
 		frames = function()
 			local f = SP.CreateCoverageFrame and SP:CreateCoverageFrame()
@@ -153,6 +156,19 @@ local MODULES = {
 }
 -- Files that load later (Ready Check) add their own entries here.
 SP.UnlockModules = MODULES
+
+-- One Shield Charges box's Reset: that frame back on its default spot, the other stays
+function SP:ResetShieldChargeFramePosition(frame)
+	local s, f = SP.opt.shieldChargeDisplay, SP.shieldChargeFrames
+	if not (s and f and frame) then return end
+	if frame == f.earth then
+		s.earthShieldX, s.earthShieldY = nil, nil
+		frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", 50, -100)
+	elseif frame == f.player then
+		s.playerShieldX, s.playerShieldY = nil, nil
+		frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", -50, -100)
+	end
+end
 
 -- Movers resolve existing split-row pop-outs lazily; these registrations are
 -- never borrowed into a settings preview (the rows have secure children).
@@ -217,7 +233,7 @@ end
 -- ---------------------------------------------------------------------------
 -- One blue box (reuses the bar mover) plus a small Reset button on it.
 -- ---------------------------------------------------------------------------
-local function AddReset(moverKey, resetFn)
+local function AddReset(moverKey, resetFn, label)
 	local mover = SP.barMovers and SP.barMovers[moverKey]
 	if not mover then return end
 	if not mover.spReset then
@@ -236,15 +252,31 @@ local function AddReset(moverKey, resetFn)
 			tip:Show()
 		end)
 		b:HookScript("OnLeave", function() (SP.Tooltip or GameTooltip):Hide() end)
+		-- asked first (a stray click lost a player's whole Ready Reminders layout, 2026-10-05)
 		b:SetScript("OnClick", function(self)
 			if InCombatLockdown() or not self.resetFn then return end
-			pcall(self.resetFn)
-			SP:RefreshUnlockBoxes()
-			C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
+			local fn, asked = self.resetFn, session
+			SP:ShowSPDialog({
+				key = "unlock_reset_one",
+				title = "Reset this position?",
+				text = ("Put %s back where it starts?\n\nThis resets its position only, not its settings."):format(self.spLabel or "this"),
+				buttons = {
+					{ text = "Reset", onClick = function()
+						-- only in the Unlock UI it was asked in: after Done, a trip to the settings
+						-- or another unlock it is void (a bar's Reset reads the profile in use as it runs)
+						if InCombatLockdown() or not ACTIVE or session ~= asked then return end
+						pcall(fn)
+						SP:RefreshUnlockBoxes()
+						C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
+					end },
+					{ text = "Cancel" },
+				},
+			})
 		end)
 		mover.spReset = b
 	end
 	mover.spReset.resetFn = resetFn
+	mover.spReset.spLabel = label
 	mover.spReset:SetShown(resetFn ~= nil)
 end
 
@@ -262,13 +294,14 @@ local function ArmMover(moverKey)
 	if m then m:EnableMouseWheel(true) end
 end
 
-local function ShowBox(moverKey, frame, label, save, resetFn)
+-- resetFn: the box's own Reset; resetAll: its module's whole reset (Reset All Positions)
+local function ShowBox(moverKey, frame, label, save, resetFn, resetAll)
 	if not (frame and frame.GetLeft) then return end
 	if not frame:IsShown() then forced[frame] = true; frame:Show() end
 	if not frame:GetLeft() then return end   -- still not laid out: nothing to put a box on
 	SP:ShowBarMover(moverKey, frame, MoverSize(frame), label, function() save(frame) end)
-	shown[moverKey] = { frame = frame, label = label, save = save, reset = resetFn }
-	AddReset(moverKey, resetFn)
+	shown[moverKey] = { frame = frame, label = label, save = save, reset = resetFn, resetAll = resetAll }
+	AddReset(moverKey, resetFn, label)
 	ArmMover(moverKey)
 end
 
@@ -281,7 +314,7 @@ function SP:RefreshUnlockBoxes()
 		elseif e.frame and e.frame:GetLeft() then
 			SP:ShowBarMover(moverKey, e.frame, MoverSize(e.frame), e.label, function() e.save(e.frame) end)
 		end
-		AddReset(moverKey, e.reset)
+		AddReset(moverKey, e.reset, e.label or (moverKey == "totembar" and "the totem bar") or (moverKey == "cooldownbar" and "the cooldown bar") or nil)
 		ArmMover(moverKey)
 	end
 end
@@ -2170,8 +2203,15 @@ end
 
 function SP:ResetAllUnlockPositions()
 	if InCombatLockdown() then return end
+	-- each element's own whole reset, once: a box's Reset puts back only that box,
+	-- Reset All everything (the reminders switched off and the totems not watched too)
+	local done = {}
 	for _, e in pairs(shown) do
-		if e.reset then pcall(e.reset) end
+		local fn = e.resetAll or e.reset
+		if fn and not done[fn] then
+			done[fn] = true
+			pcall(fn)
+		end
 	end
 	self:RefreshUnlockBoxes()
 	C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
@@ -2228,7 +2268,8 @@ OffRest = function()
 	end
 	if BS.tab then BS.tab:Hide() end
 	if gridFrame then gridFrame:Hide(); gridFrame:SetAlpha(1) end
-	SP:HideSPDialog("unlock_reset_all")   -- its question is about the boxes just put away
+	SP:HideSPDialog("unlock_reset_all")   -- their questions are about the boxes just put away
+	SP:HideSPDialog("unlock_reset_one")
 	-- whoever opened the unlock (the setup tour) gets control back
 	if SP.unlockOnDone then
 		local fn = SP.unlockOnDone
@@ -2284,6 +2325,7 @@ function SP:SetMasterUnlock(on, only)
 	local back = enterBack
 	enterBack = false
 	ACTIVE = true
+	session = session + 1
 	onlyKey = only
 	self.unlockDemoAll = true   -- demos fill every frame they own, not just the one the wizard borrows
 	-- our own windows would sit on top of what is being moved: the settings window
@@ -2304,13 +2346,13 @@ function SP:SetMasterUnlock(on, only)
 		and not (self.RowsHideBar and self:RowsHideBar()) then
 		self:SetTotemBarUnlocked(true)
 		shown.totembar = { bar = true, reset = ResetTotemBar }
-		AddReset("totembar", ResetTotemBar)
+		AddReset("totembar", ResetTotemBar, "the totem bar")
 		ArmMover("totembar")
 	end
 	if isShaman and self.cooldownBar and self.opt.showCooldownBar and self.SetCooldownBarUnlocked then
 		self:SetCooldownBarUnlocked(true)
 		shown.cooldownbar = { bar = true, reset = ResetCooldownBar }
-		AddReset("cooldownbar", ResetCooldownBar)
+		AddReset("cooldownbar", ResetCooldownBar, "the cooldown bar")
 		ArmMover("cooldownbar")
 	end
 
@@ -2342,7 +2384,15 @@ function SP:SetMasterUnlock(on, only)
 			end
 			for i, frame in ipairs(frames) do
 				local label = frame.spMoverLabel or (m.labels and m.labels[i]) or (#frames > 1 and (m.label .. " " .. i) or m.label)
-				ShowBox("unlock_" .. m.key .. "_" .. i, frame, label, m.save or SaveThroughOwnScripts, resetFn)
+				-- each Reset puts only its own box back, as its tooltip says (resetOne), the only
+				-- box too: the module's whole reset also took the spots of the reminders switched
+				-- off and the totems not watched. Reset All Positions keeps the whole one (resetFn).
+				local fn = resetFn
+				if m.resetOne and self[m.resetOne] then
+					local name, f = m.resetOne, frame
+					fn = function() SP[name](SP, f) end
+				end
+				ShowBox("unlock_" .. m.key .. "_" .. i, frame, label, m.save or SaveThroughOwnScripts, fn, resetFn)
 			end
 		end
 	end

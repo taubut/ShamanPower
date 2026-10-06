@@ -1692,6 +1692,18 @@ function SP:ReadyFlashResetSpellSpots()
 	for _, p in pairs(flashProxies) do p:Hide() end
 	settingsChanged()
 end
+-- One spell's own flash spot (Unlock UI: that box's Reset): back on the shared spot
+function SP:ReadyFlashResetSpellSpot(frame)
+	local key = frame and frame.spFlashKey
+	if not key then return self:ReadyFlashResetSpellSpots() end
+	SV().flashPositions[key] = nil
+	local rec = SV().flashPos
+	if not (rec and self.ApplyPositionRecord and self:ApplyPositionRecord(frame, rec)) then
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", FLASH_X, FLASH_Y)
+	end
+	settingsChanged()
+end
 
 -- ---------------------------------------------------------------------------
 -- WoW: Forever: the REAL "ready". C_Spell.GetSpellCooldown's isActive and
@@ -2340,6 +2352,15 @@ function SP:ResetReadyReminderPositions()
 	SP:Print(grid and "Ready Reminders: grid position reset." or "Ready Reminders: positions reset.")
 end
 
+-- One reminder back where it starts (Unlock UI: that box's Reset). Grid: the block's spot, as above.
+function SP:ResetReadyReminderPosition(frame)
+	if gridOn() or not (frame and frame.entry) then return self:ResetReadyReminderPositions() end
+	SV().positions[frame.entry.key] = nil
+	applyPos(frame)
+	gridDirty = true
+	layoutGrid(self.readyPositioning)
+end
+
 -- Setup tour demo: every enabled icon runs a pretend cooldown, staggered, so
 -- both looks are on screen: on cooldown (dimmed, counting down) then ready
 -- (lit up). Honors the mode: in "only when ready" the icon vanishes while
@@ -2475,6 +2496,7 @@ if SP.UnlockModules then
 		enabled = function() return SV().enabled ~= false and (flashMoveOnly ~= nil or next(SV().flashPositions) ~= nil) end,
 		save = function(frame) saveFlashSpot(frame) end,
 		reset = function() SP:ReadyFlashResetSpellSpots() end,
+		resetOne = "ReadyFlashResetSpellSpot",   -- a box's Reset: that spell's own spot only
 	})
 end
 

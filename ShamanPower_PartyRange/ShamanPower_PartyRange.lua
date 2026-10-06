@@ -380,16 +380,17 @@ function SP:UnitNearShaman(unit)
 	return inRange and true or false
 end
 
--- A party member plainly far away: out of sight, or out of a 40 yd spell's reach. They
+-- A party member plainly far away: out of sight (the game draws nobody past ~100 yd). They
 -- cannot be in range of your totems, and the game can hand over a far-away member's
 -- buffs without saying whose they are, so another shaman's own totems lit your dots
--- (reported 2026-10-04: a party member two zones away). An answer the game keeps to
--- itself (a secret, or none) never counts as far.
+-- (reported 2026-10-04: a party member two zones away). Never a range from the SHAMAN: a
+-- member standing at your totems while you are 40 yd away is covered (the buff read, or the
+-- drop point, answers that). An answer the game keeps to itself (a secret, or none) never
+-- counts as far.
 function SP:PartyUnitFarAway(unit)
 	if not unit or unit == "player" then return false end
 	local ok, visible = pcall(UnitIsVisible, unit)
-	if ok and not (issecretvalue and issecretvalue(visible)) and not visible then return true end
-	return self:UnitNearShaman(unit) == false
+	return ok and not (issecretvalue and issecretvalue(visible)) and not visible or false
 end
 
 function SP:UnitHasBuff(unit, buffName, element)
@@ -586,10 +587,17 @@ local function UseEngineOverlay(element)
 	return overlay and overlay.isActive and overlay.dots and true or false
 end
 
--- This is our own visibility intent, never a read from the aura subtree.
+-- This is our own visibility intent, never a read from the aura subtree. By ALPHA: the game's
+-- containers may not be shown or hidden in a fight (a totem dropped or a member walking off mid-pull
+-- changes this), and alpha is never protected. A live container stays shown (made shown, out of combat).
 local function ShowEngineRecord(record, shown)
 	if record and record.container and record.shown ~= shown then
-		record.container:SetShown(shown)
+		local c = record.container
+		-- (disabled while unlit: the game registers a container for aura events only while it is shown AND
+		-- enabled, so an unlit one costs nothing; enabling is the container's own call, allowed in a fight)
+		pcall(c.SetEnabled, c, shown)
+		if shown then pcall(c.UpdateAllAuras, c) end
+		c:SetAlpha(shown and 1 or 0)
 		record.shown = shown
 	end
 end
@@ -597,7 +605,9 @@ end
 local function RetireEngineRecord(record)
 	if record and record.container then
 		pcall(record.container.SetEnabled, record.container, false)
-		ShowEngineRecord(record, false)
+		record.container:SetAlpha(0)
+		record.shown = false
+		if not InCombatLockdown() then record.container:Hide() end   -- (retired in a rebuild: out of combat)
 	end
 end
 
@@ -610,7 +620,10 @@ local function RebuildEngineRecord(record, element, i, host, exists, class, r, g
 	if record and record.key == key and record.host == host and (record.container or not exists) then return record end
 	RetireEngineRecord(record)
 	local container = exists and BuildEngineDot(element, i, host, r, g, b) or nil
-	if container then container:Hide() end
+	if container then   -- (kept shown: SetEnginePartyDotsShown lights it, by alpha and its own on / off)
+		pcall(container.SetEnabled, container, false)
+		container:SetAlpha(0)
+	end
 	return { container = container, key = key, host = host, shown = false }
 end
 
@@ -1218,10 +1231,14 @@ local function PlaceFreeCell(btn)
 	if not btn.freePlaced then
 		btn.freePlaced = true
 		if not SP:ApplyPositionRecord(btn, CellOpts(btn.cellKey).position) then
-			-- never placed: spread in a row above the character, in the order they first appear
-			freeOrder = freeOrder + 1
+			-- never placed: spread in a row above the character, in the order they first appear.
+			-- A cell keeps its place in that row, so its Reset puts it back on the same spot
+			if not btn.freeSlot then
+				freeOrder = freeOrder + 1
+				btn.freeSlot = freeOrder
+			end
 			btn:ClearAllPoints()
-			btn:SetPoint("CENTER", UIParent, "CENTER", (freeOrder - 3) * 70, 120)
+			btn:SetPoint("CENTER", UIParent, "CENTER", (btn.freeSlot - 3) * 70, 120)
 		end
 	end
 end
@@ -1358,7 +1375,14 @@ function SP:UpdateCoverage()
 						-- the game draws the class-coloured dot over this one while that player has the
 						-- buff; never for a member plainly far away (their buffs can come without whose)
 						local far = exists and self:PartyUnitFarAway(unit) or false
-						if slot.far ~= far then slot.far = far; slot.container:SetShown(not far) end
+						-- (by alpha and the container's own on / off: never protected, so the cache can never claim a
+						-- change the game refused; a far member's container does no work)
+						if slot.far ~= far then
+							slot.far = far
+							pcall(slot.container.SetEnabled, slot.container, not far)
+							if not far then pcall(slot.container.UpdateAllAuras, slot.container) end
+							slot.container:SetAlpha(far and 0 or 1)
+						end
 						if not row.dotRed then row.dotRed = true; PaintMissingCov(row.dot) end
 						row:SetShown(exists)
 					else
@@ -1379,7 +1403,12 @@ function SP:UpdateCoverage()
 					if slot and slot.container then
 						local unit = self.partyUnitStrings[i]
 						local far = UnitExists(unit) and self:PartyUnitFarAway(unit) or false
-						if slot.far ~= far then slot.far = far; slot.container:SetShown(not far) end
+						if slot.far ~= far then
+							slot.far = far
+							pcall(slot.container.SetEnabled, slot.container, not far)
+							if not far then pcall(slot.container.UpdateAllAuras, slot.container) end
+							slot.container:SetAlpha(far and 0 or 1)
+						end
 					end
 				end
 			end
@@ -1417,20 +1446,52 @@ function SP:UpdateCoverage()
 	if not frame:IsShown() then frame:Show() end
 end
 
--- Everything back to where it starts (the unlock's Reset).
+-- Every spot back to where it starts (Unlock UI's Reset All): the panel's and each
+-- totem's own. Positions only, as its question says: a totem's own size stays.
 function SP:ResetCoveragePositions()
 	local co = CoverageOpts()
 	co.position = nil
-	co.cells = nil
+	for _, c in pairs(co.cells or {}) do
+		if type(c) == "table" then c.position = nil end
+	end
 	local frame = self.coverageFrame
 	if frame then
 		frame:ClearAllPoints()
 		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
 		for element = 1, 4 do frame.buttons[element].freePlaced = nil end
-		for _, btn in pairs(frame.totemCells) do btn.freePlaced = nil end
-		freeOrder = 0
+		for _, btn in pairs(frame.totemCells) do btn.freePlaced, btn.freeSlot = nil, nil end
+		freeOrder = 0   -- (all of them start the row again)
 	end
 	self:UpdateCoverageLayout()
+end
+
+-- One box back on its default spot (Unlock UI: that box's Reset). A watched totem's own
+-- box (free placement): that one only, on its own place in the starting row. The panel:
+-- its spot only; the totems' own spots (free placement) and sizes stay.
+function SP:ResetCoverageCellPosition(btn)
+	local co = CoverageOpts()
+	if co.freeCells and btn and btn.cellKey then
+		CellOpts(btn.cellKey).position = nil
+		btn.freePlaced = nil
+	else
+		co.position = nil
+		local frame = self.coverageFrame
+		if frame then
+			frame:ClearAllPoints()
+			frame:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
+		end
+	end
+	self:UpdateCoverageLayout()
+end
+
+-- A profile switch: free cells go to the new profile's spots (they kept the old one's)
+if SP.OnProfileChanged then
+	hooksecurefunc(SP, "OnProfileChanged", function()
+		local frame = SP.coverageFrame
+		if not frame then return end
+		for _, btn in pairs(frame.totemCells) do btn.freePlaced = nil end
+		SP:UpdateCoverageLayout()
+	end)
 end
 
 function SP:UpdateCoverageBorder()

@@ -1058,6 +1058,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.ShowInParty = val
 								ShamanPower:UpdateRoster()
+								ShamanPower:UpdateLayout()   -- the bar up or down now (the roster pass does nothing while solo)
 							end
 						},
 						showminimapicon = {
@@ -1090,6 +1091,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.ShowWhenSolo = val
 								ShamanPower:UpdateRoster()
+								ShamanPower:UpdateLayout()   -- the bar up or down now (the roster pass does nothing while solo)
 							end
 						},
 						showtooltips = {
@@ -2764,9 +2766,14 @@ ShamanPower.options = {
 								return ShamanPower.opt.swapFlyoutClickButtons
 							end,
 							set = function(info, val)
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower:|r the mouse buttons cannot be swapped in combat")
+									return
+								end
 								ShamanPower.opt.swapFlyoutClickButtons = val
 								-- Just update click attributes on existing buttons
 								ShamanPower:UpdateFlyoutClickBehavior()
+								ShamanPower:SetupKeybindings()   -- action bar keys sent to the new cast click
 							end
 						},
 						shift_right_click_pulls_totem = {
