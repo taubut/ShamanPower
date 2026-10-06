@@ -4544,47 +4544,13 @@ function ShamanPower:ClearEngineCooldowns()
 	end
 end
 
--- The vertical sweep as a StatusBar the engine fills from the duration
--- object: the gray icon on a bar filled from the chosen edge, oversized inside a
--- clip by the icon's own trim so the untrimmed bar texture lines up.
-local function EngineSweepBar(btn, fromTop)
-	local icon = btn.icon
-	if not icon then return nil end
-	if not btn.cdBar then
-		local clip = CreateFrame("Frame", nil, btn)
-		clip:SetAllPoints(icon)
-		clip:SetClipsChildren(true)
-		clip:SetFrameLevel(btn:GetFrameLevel() + 1)
-		local bar = CreateFrame("StatusBar", nil, clip)
-		bar:SetOrientation("VERTICAL")
-		if bar.SetFillStyle then bar:SetFillStyle("STANDARD") end   -- texture cropped to the fill, never stretched into it
-		btn.cdBar, btn.cdBarClip = bar, clip
-		if ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(bar:GetStatusBarTexture(), icon) end   -- Icon Shape
-	end
-	local bar = btn.cdBar
-	bar:SetReverseFill(fromTop)
-	local left, _, _, _, right = icon:GetTexCoord()
-	local trim = (left and right and right > left) and (left / (right - left)) or 0
-	local margin = trim * icon:GetWidth()
-	bar:ClearAllPoints()
-	bar:SetPoint("TOPLEFT", btn.cdBarClip, "TOPLEFT", -margin, margin)
-	bar:SetPoint("BOTTOMRIGHT", btn.cdBarClip, "BOTTOMRIGHT", margin, -margin)
-	bar:SetStatusBarTexture(icon:GetTexture())
-	-- grey at the bar level: the engine's fill re-applies the bar colour each
-	-- frame, so a vertex colour set on the texture alone does not stick
-	if bar.SetStatusBarDesaturated then bar:SetStatusBarDesaturated(true) end
-	bar:SetStatusBarColor(0.5, 0.5, 0.5, 1)
-	local t = bar:GetStatusBarTexture()
-	if t then t:SetDesaturated(true); t:SetVertexColor(0.5, 0.5, 0.5) end
-	return bar
-end
-
 -- The totem bar's (and its flyouts') vertical sweep, drawn the way Target Tracker's is:
 -- the bar ALWAYS fills from the bottom. A bar filled from its top edge stretches the
 -- icon's copy into the fill instead of cropping it, so a whole second icon, hard edges
 -- and all, showed over the real one (2026-10-04). Gray from the top is drawn as the
 -- colored copy filling over a gray one instead, and FeedEngineCooldown turns the timer
--- round for it. (The cooldown bar keeps EngineSweepBar above, unchanged.)
+-- round for it. The cooldown bar's buttons use it too (FeedEngineBarCooldown, 2026-10-05:
+-- the same hard edges there in a fight).
 function ShamanPower:TotemEngineSweepBar(btn, fromTop)
 	local icon = btn.icon
 	if not icon then return nil end
@@ -4643,11 +4609,15 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 	if EngineTextChanged(self) then self:RestyleEngineCooldowns() end
 	local style = self.opt.totemCooldownSweep or "radial"
 	local fromTop = self:SweepGrayFromTop(style, self.opt.totemCooldownSweepDirection)
+	-- ShamanPower Minimal draws the sweep as a flat dark band (ShamanPowerThemeBoxes.lua): a band has no
+	-- picture to stretch, so it fills from the chosen edge itself, with no gray copy under it
+	local band = (self.ThemeMinimal and self:ThemeMinimal("tb.sweep")) and true or false
 	running = running and true or false
 	if btn._engineCDKey and btn._ecdSpell == spellID and btn._ecdRunning == running and btn._ecdStyle == style
-		and btn._ecdFromTop == fromTop then return end
+		and btn._ecdFromTop == fromTop and btn._ecdBand == band then return end
 	btn._engineCDKey, btn._ecdSpell, btn._ecdRunning, btn._ecdStyle = true, spellID, running, style
 	btn._ecdFromTop = fromTop
+	btn._ecdBand = band
 	if btn.cdSweep then btn.cdSweep:Hide() end   -- the addon's own vertical sweep: never on this path
 	if not (spellID and running) then
 		self:DisarmEngineCooldownEnd(cd)
@@ -4670,7 +4640,7 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 	else
 		cd:SetDrawSwipe(false)   -- the numbers stay; the sweep is the bar
 		cd:SetDrawEdge(false)    -- and the radial swipe's travelling edge goes with it
-		local bar = self:TotemEngineSweepBar(btn, fromTop)
+		local bar = self:TotemEngineSweepBar(btn, fromTop and not band)
 		if bar then
 			local Dir = Enum and Enum.StatusBarTimerDirection or {}
 			local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
@@ -4678,7 +4648,10 @@ function ShamanPower:FeedEngineCooldown(btn, spellID, running)
 			-- left (Fills Back In); a colored fill (gray from the top) runs the other way
 			local grayGrows = style ~= "reverse"
 			local direction
-			if grayGrows ~= fromTop then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
+			if band then
+				bar:SetReverseFill(fromTop)   -- (Minimal's band: from the chosen edge, the timer as it reads)
+				if grayGrows then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
+			elseif grayGrows ~= fromTop then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
 			local okb = pcall(bar.SetTimerDuration, bar, d, Interp, direction)
 			bar:SetShown(okb and true or false)
 		end
@@ -7736,6 +7709,14 @@ function ShamanPower:UpdateTotemButtons()
 		if xmlButton then
 			xmlButton:Hide()
 		end
+	end
+
+	-- a bar the layout keeps down (not in use here) or the hide rules keep down goes back down: the buttons
+	-- above were shown for their layout (Dynamic Mode and the pop-outs run this after a fight too). Keybind
+	-- Mode's bar stays up
+	if not (self.KeybindModeActive and self:KeybindModeActive()) and (not self:TotemBarInUse()
+		or (self.totemBarHidden and (self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems))) then
+		self:SetTotemBarFramesShown(false)
 	end
 end
 
@@ -11133,14 +11114,17 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 	if btn.ankhCountText then btn.ankhCountText:Hide() end
 	local sweepStyle = showSweep and (self.opt.cdbarSweepStyle or "greys") or "none"
 	local fromTop = self:SweepGrayFromTop(sweepStyle, self.opt.cdbarSweepDirection)
+	-- ShamanPower Minimal's flat band (as on the totem bar, FeedEngineCooldown)
+	local band = (self.ThemeMinimal and self:ThemeMinimal("cd.sweep")) and true or false
 	local textKey = showText and (textLocation .. "+") or textLocation
 	if btn._ebSpell ~= btn.spellID or btn._ebStale or btn._ebSweep ~= sweepStyle or btn._ebBars ~= showBars
-		or btn._ebText ~= textKey or btn._ebPos ~= barPosition or btn._ebFromTop ~= fromTop then
+		or btn._ebText ~= textKey or btn._ebPos ~= barPosition or btn._ebFromTop ~= fromTop or btn._ebBand ~= band then
 		btn._ebStale = nil   -- a cooldown change since the last feed (RefreshEngineCooldowns)
 		local ok, d = pcall(C_Spell.GetSpellCooldownDuration, btn.spellID, true)   -- true: not the global cooldown
 		if not ok or d == nil then self:ClearEngineBarCooldown(btn) return end
 		btn._ebSpell, btn._ebSweep, btn._ebBars, btn._ebText, btn._ebPos = btn.spellID, sweepStyle, showBars, textKey, barPosition
 		btn._ebFromTop = fromTop
+		btn._ebBand = band
 		local cd = btn.cooldown
 		local Dir = Enum and Enum.StatusBarTimerDirection or {}
 		local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
@@ -11154,9 +11138,17 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 		-- radial swipe, or the greyed icon on an engine-filled bar
 		cd:SetDrawSwipe(sweepStyle == "radial")
 		if sweepStyle == "greys" or sweepStyle == "fills" then
-			local bar = EngineSweepBar(btn, fromTop)
+			local bar = self:TotemEngineSweepBar(btn, fromTop and not band)
 			if bar then
-				local okb = pcall(bar.SetTimerDuration, bar, d, Interp, (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime)
+				-- the gray copy grows with the time gone (Grays Out) or shrinks with the time left (Fills
+				-- Back In); a colored fill (gray from the top) runs the other way
+				local grayGrows = sweepStyle ~= "fills"
+				local direction
+				if band then
+					bar:SetReverseFill(fromTop)   -- (Minimal's band: from the chosen edge, the timer as it reads)
+					if grayGrows then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
+				elseif grayGrows ~= fromTop then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
+				local okb = pcall(bar.SetTimerDuration, bar, d, Interp, direction)
 				bar:SetShown(okb and true or false)
 			end
 		elseif btn.cdBar then
@@ -11536,9 +11528,12 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					if ShamanPower.ShapeCooldown then ShamanPower:ShapeCooldown(cd, "cooldown") end   -- Icon Shape: the swipe too
 					reg("SetDurationCooldown", pcall(button.SetDurationCooldown, button, cd))
 
-					-- vertical sweep: greyed copy of this shield's icon on a StatusBar the
-					-- engine fills from the chosen edge; oversized in a clip so the untrimmed
-					-- texture lines up with the trimmed icon
+					-- vertical sweep: a copy of this shield's icon on a StatusBar the engine fills,
+					-- oversized in a clip so the untrimmed texture lines up with the trimmed icon. The
+					-- bar ALWAYS fills from the bottom: one filled from its top edge is stretched by the
+					-- game instead of cropped (a squashed second icon with hard edges, in fights only,
+					-- 2026-10-05; the totem bar had the same, see TotemEngineSweepBar). Gray from the top
+					-- is the colored copy filling over a gray one, with the timer turned round.
 					if showSweep and sweepStyle ~= "radial" and iconFile and (Dir.ElapsedTime or Dir.RemainingTime) then
 						local clip = CreateFrame("Frame", nil, button)
 						clip:SetAllPoints(button)
@@ -11547,13 +11542,34 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						local margin = (0.08 / 0.84) * btn:GetWidth()
 						sb:SetPoint("TOPLEFT", clip, "TOPLEFT", -margin, margin)
 						sb:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", margin, -margin)
-						sb:SetStatusBarTexture(iconFile)
-						local sbt = sb:GetStatusBarTexture()
-						if sbt then sbt:SetDesaturated(true); sbt:SetVertexColor(0.5, 0.5, 0.5) end
-						if sbt and ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(sbt, icon, "cooldown") end   -- Icon Shape
 						sb:SetOrientation("VERTICAL")
-						sb:SetReverseFill(ShamanPower:SweepGrayFromTop(sweepStyle, opt.cdbarSweepDirection))
-						local direction = (sweepStyle == "fills") and Dir.RemainingTime or Dir.ElapsedTime
+						sb:SetReverseFill(false)
+						local fillStyle = Enum and Enum.StatusBarFillStyle and Enum.StatusBarFillStyle.Standard
+						if sb.SetFillStyle then sb:SetFillStyle(fillStyle or "STANDARD") end   -- cropped to the fill, never stretched
+						local grayTop = ShamanPower:SweepGrayFromTop(sweepStyle, opt.cdbarSweepDirection)
+						if grayTop then
+							-- the gray copy under the colored fill
+							local gray = sb:CreateTexture(nil, "BACKGROUND")
+							gray:SetAllPoints(sb)
+							gray:SetTexture(iconFile)
+							gray:SetDesaturated(true)
+							gray:SetVertexColor(0.5, 0.5, 0.5)
+							if ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(gray, icon, "cooldown") end   -- Icon Shape
+						end
+						sb:SetStatusBarTexture(iconFile)
+						if sb.SetStatusBarDesaturated then sb:SetStatusBarDesaturated(not grayTop) end
+						if grayTop then sb:SetStatusBarColor(1, 1, 1, 1) else sb:SetStatusBarColor(0.5, 0.5, 0.5, 1) end
+						local sbt = sb:GetStatusBarTexture()
+						if sbt then
+							sbt:SetDesaturated(not grayTop)
+							if grayTop then sbt:SetVertexColor(1, 1, 1) else sbt:SetVertexColor(0.5, 0.5, 0.5) end
+						end
+						if sbt and ShamanPower.ShapeIconTexture then ShamanPower:ShapeIconTexture(sbt, icon, "cooldown") end   -- Icon Shape
+						-- the gray grows with the time gone (Grays Out) or shrinks with the time left (Fills
+						-- Back In); a colored fill (gray from the top) runs the other way
+						local grayGrows = sweepStyle ~= "fills"
+						local direction
+						if grayGrows ~= grayTop then direction = Dir.ElapsedTime else direction = Dir.RemainingTime end
 						reg("SetDurationBar(sweep)", pcall(button.SetDurationBar, button, sb, { interpolation = Interp, direction = direction }))
 					end
 
@@ -14778,6 +14794,9 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 			-- Hide Earth Shield button
 			local esBtn = _G["ShamanPowerEarthShieldBtn"]
 			if esBtn then esBtn:Hide() end
+			-- and Compact's shield line (a frame of its own, not a child of the bar)
+			local shBtn = _G["ShamanPowerCompactShieldBtn"]
+			if shBtn then shBtn:Hide() end
 		else
 			-- Show everything with proper opacity (the faded opacity while a fade rule applies)
 			local alpha = fade and (self.opt.fadeOpacity or 0.25) or (self.opt.totemBarOpacity or 1.0)
@@ -14810,6 +14829,10 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 				esBtn:Show()
 				esBtn:SetAlpha(alpha)
 			end
+			-- and Compact's shield line with it (combat start lands here before the lockdown); its own tick
+			-- keeps its opacity with the bar's
+			local shBtn = _G["ShamanPowerCompactShieldBtn"]
+			if shBtn then shBtn:SetShown(self.CompactShieldLineActive and self:CompactShieldLineActive() or false) end
 			if self.ApplyGridRowAlpha then self:ApplyGridRowAlpha() end   -- Grid's rows ignore the bar's alpha
 			-- per-button rules (Full Opacity When Totem Placed) on top, unless faded
 			if not fade then self:UpdateTotemBarOpacity() end
@@ -14898,8 +14921,12 @@ function ShamanPower:UpdateMiniTotemBar()
 	-- stay down; switch-on lays the bar out again
 	if self:IsOff() then return end
 
-	-- Don't show buttons if totem bar should be hidden
-	if self.totemBarHidden and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then return end
+	-- A bar the hide rules keep down (Hide Out of Combat, Hide When No Totems) is laid out
+	-- all the same and put back down at the end: it used to return here, so a bar hidden from
+	-- login was never laid out at all, and the fight that showed it showed the raw XML bar
+	-- (the legacy element buttons in a column, no Compact lines, no keybinds or flyouts set up:
+	-- reported 2026-10-05, Compact + Hide Out of Combat).
+	local keptDown = self.totemBarHidden and not (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar())
 
 	local playerName = self.player
 	local assignments = ShamanPower_Assignments[playerName]
@@ -15250,6 +15277,16 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Note: Macros are created manually via Options -> Buttons -> "Create/Update Macros" button
 	-- or /spmacros command. No automatic macro updates to avoid interfering with macro UI.
+
+	-- laid out while the hide rules keep the bar down: down again (in the same frame, so nothing
+	-- flickers); the fight that brings it up shows it laid out
+	if keptDown and self.totemBarHidden then self:SetTotemBarFramesShown(false) end
+	-- and one the layout keeps down as not in use here (Use When Solo / In a Party off, the bar switched off):
+	-- this pass shows its buttons, and nothing put them back down (the bar came back after every fight).
+	-- Keybind Mode's bar stays up
+	if not self:TotemBarInUse() and not (self.KeybindModeActive and self:KeybindModeActive()) then
+		self:SetTotemBarFramesShown(false)
+	end
 end
 
 -- ============================================================================

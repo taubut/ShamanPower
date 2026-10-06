@@ -1,5 +1,16 @@
 # ShamanPower Changelog
 
+## v3.0.6.1 (2026-10-06)
+
+### Fixes
+- **The totem bar came back after you turned it off:** with Enable Totem Bar off, or Use in Party / Use when Solo off, the totem buttons showed up again after a fight, or when you picked a totem on Blizzard's own totem bar. They now stay hidden. Turning Use in Party or Use when Solo on or off also takes effect right away.
+- **Dynamic Mode with Hide Out of Combat:** no more loose totem buttons left on screen after every fight.
+- **WoW: Forever, Compact style:** Your Shield Line and the Earth Shield line keep showing your charges in fights, instead of going dark and saying "Not active". With Hide Out of Combat, your shield line now comes and goes with the bar.
+- **Hide Out of Combat:** a bar hidden since you logged in could show up in your first fight as plain icons instead of your style. It now shows the way you set it up.
+- **WoW: Forever, cooldown bar:** the Grays Out and Fills Back In sweeps on the cooldown bar and the shield button no longer show a stretched copy of the icon with hard edges in fights.
+- **Party Buff Tracker:** a party member far away (in another zone, or out of sight) no longer lights your party dots or the Coverage list. On WoW: Forever the dots also only light for an element you have a totem down for: another shaman's own totems lit them.
+- **Keybind Mode** shows Compact's shield line with the rest of the bar.
+
 ## v3.0.6 (2026-10-04)
 
 ### New

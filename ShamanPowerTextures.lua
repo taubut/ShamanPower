@@ -774,6 +774,8 @@ local function shapeButton(btn, kind)
 	local bar = rawget(btn, "cdBar")
 	local fill = bar and bar.GetStatusBarTexture and bar:GetStatusBarTexture()
 	if fill then SP:ShapeIconTexture(fill, icon, kind) end
+	local gray = rawget(btn, "cdBarGray")   -- (the gray copy under a colored sweep)
+	if gray then SP:ShapeIconTexture(gray, icon, kind) end
 	local cd = rawget(btn, "cooldown")
 	if type(cd) == "table" then SP:ShapeCooldown(cd, kind) end
 end

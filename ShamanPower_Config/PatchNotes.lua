@@ -8,6 +8,21 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.6.1",
+		date = "2026-10-06",
+		headline = "The totem bar stays off, Compact's shield line in fights, and party dots",
+		new = {},
+		fixes = {
+			"With Enable Totem Bar off, or Use in Party / Use when Solo off, the totem buttons came back after a fight or when you picked a totem on Blizzard's totem bar. They stay hidden now, and Use in Party / Use when Solo take effect right away.",
+			"Dynamic Mode with Hide Out of Combat: no more loose totem buttons on screen after every fight.",
+			"WoW: Forever, Compact style: Your Shield Line and the Earth Shield line keep showing your charges in fights instead of going dark (\"Not active\"). With Hide Out of Combat, your shield line comes and goes with the bar.",
+			"Hide Out of Combat: a bar hidden since you logged in could show up in your first fight as plain icons. It now shows in your style.",
+			"WoW: Forever: the Grays Out and Fills Back In sweeps on the cooldown bar and the shield button no longer show a stretched copy of the icon with hard edges in fights.",
+			"Party Buff Tracker: a party member far away (in another zone, or out of sight) no longer lights your party dots or the Coverage list. On WoW: Forever the dots also only light for an element you have a totem down for.",
+			"Keybind Mode shows Compact's shield line with the rest of the bar.",
+		},
+	},
+	{
 		v = "3.0.6",
 		date = "2026-10-04",
 		headline = "Target Tracker, every game language and a smarter cooldown bar",

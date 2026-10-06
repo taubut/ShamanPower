@@ -1058,6 +1058,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.ShowInParty = val
 								ShamanPower:UpdateRoster()
+								ShamanPower:UpdateLayout()   -- the bar up or down now (the roster pass does nothing while solo)
 							end
 						},
 						showminimapicon = {
@@ -1090,6 +1091,7 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.ShowWhenSolo = val
 								ShamanPower:UpdateRoster()
+								ShamanPower:UpdateLayout()   -- the bar up or down now (the roster pass does nothing while solo)
 							end
 						},
 						showtooltips = {
