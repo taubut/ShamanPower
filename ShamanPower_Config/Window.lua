@@ -281,6 +281,7 @@ local NAV = {
 		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF, tabs = {
 			{ label = "Dots & Counters", paths = { P("fluffy", "partybuff_section") } },
 			{ label = "Coverage", preview = "coverage", paths = { P("fluffy", "coverage_section") } },
+			{ label = "Party Strip", preview = "partystrip", paths = { P("fluffy", "partystrip_section") } },
 		}},
 		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
 		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },

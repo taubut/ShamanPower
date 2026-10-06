@@ -54,6 +54,7 @@ local BOX_SPOTS = {
 	"lo.bar", "mod.shieldcharges-icon", "mod.coverage-boxes", "mod.range-boxes", "mod.raidcd-boxes",
 	"mod.popouts-boxes", "mod.estracker-box", "mod.plates-boxes",
 	"mod.tremor-box", "mod.readyreminders-boxes", "mod.reactive-boxes", "mod.alerts-box", "mod.minimap-boxes",
+	"mod.partystrip-box",
 }
 local EMPTY_SPOTS = { "tb.flyout-empty", "tb.empty-slot" }
 local EMPTY_SET = { ["tb.flyout-empty"] = true, ["tb.empty-slot"] = true }
@@ -1035,6 +1036,18 @@ local function Coverage()
 	end
 end
 
+-- the Party Strip's totem icon, in the element of the buff it watches (that can change)
+local function PartyStrip()
+	local f = SP.partyStrip
+	local icon = f and rawget(f, "icon")
+	if not icon then return end
+	local key = SP.PartyStripBuff and SP:PartyStripBuff()
+	local element = type(key) == "string" and tonumber(key:match("^(%d+)")) or nil
+	if element and (element < 1 or element > 4) then element = nil end
+	local s = SkinSpot(icon, "mod.partystrip-box", element, true)
+	if s then s.element = element end
+end
+
 local function RangeTracker()
 	local frame = SP.spRangeFrame
 	local host = frame and rawget(frame, "iconContainer")
@@ -1350,6 +1363,7 @@ local function Scan()
 	LoadoutBar()
 	PopOuts()
 	Coverage()
+	PartyStrip()
 	RangeTracker()
 	ESTracker()
 	ShieldCharges()

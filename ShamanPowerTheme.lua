@@ -72,6 +72,7 @@ local WOW_FALLBACK = {
 	NORMAL_FONT_COLOR       = IS_MAINLINE and RGB("FFD200") or RGB("FFD100"),
 	ORANGE_FONT_COLOR       = RGB("FF8040"),
 	DEBUFF_TYPE_MAGIC_COLOR = RGB("0081FF"),
+	GRAY_FONT_COLOR         = RGB("808080"),
 }
 
 -- What the Themes tab's dropdowns and cards offer (labels as the player reads them).
@@ -398,6 +399,20 @@ SP.THEME_MODULES = {
 		  note = "The dot for a party member without the buff." },
 		{ id = "mod.coverage-dots-class", label = "Coverage Dots: Class Colors", roles = {}, classColors = true,
 		  note = "The coverage dots in class colors. Class Colors picks the set: Use Theme's follows the Class Colors cards at the top." },
+		-- the Party Strip (ShamanPower_PartyRange.lua): its panel, the element line on top, its marks,
+		-- its dots' class colors and its totem icon
+		{ id = "mod.partystrip-frame", label = "Party Strip Background", roles = Panel(PANEL_STD_BG, PANEL_STD_EDGE),
+		  note = "The Party Strip's background and border. Its Background Opacity setting still decides how solid they are." },
+		{ id = "mod.partystrip-line", label = "Party Strip Element Line", palette = true, roles = E4(),
+		  note = "The thin line along the top of the Party Strip, in the element color of the buff it watches." },
+		{ id = "mod.partystrip-marks", label = "Party Strip Markers", roles = {
+			Role("missing", "Missing Buff", "wow", "RED_FONT_COLOR", IS_MAINLINE and "FF2020" or "FF1919"),
+			Role("unknown", "Can't Tell", "wow", "GRAY_FONT_COLOR", "808080") },
+		  note = "The Party Strip's circle with a slash (missing your buff) and its question mark (can't tell)." },
+		{ id = "mod.partystrip-class", label = "Party Strip: Class Colors", roles = {}, classColors = true,
+		  note = "The Party Strip's dots and names in class colors. Class Colors picks the set: Use Theme's follows the Class Colors cards at the top." },
+		{ id = "mod.partystrip-box", label = "Party Strip Icon", box = true, palette = true, roles = E4(),
+		  note = "The totem icon on the Party Strip. ShamanPower Minimal draws it as a flat box." },
 	} },
 	{ key = "range", label = "Totem Range Tracker", spots = {
 		{ id = "mod.range-colors", label = "Panel", roles = Panel(PANEL_STD_BG, PANEL_STD_EDGE),

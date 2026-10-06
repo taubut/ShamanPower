@@ -530,6 +530,51 @@ end
 
 local DOT_TEXTURE = "Interface\\AddOns\\ShamanPower\\textures\\dot"
 
+-- One game-drawn aura slot on a party token: an AuraContainer over `parent` with
+-- a single slot for YOUR buffs among `ids` (spell IDs, every rank), whose look
+-- `init` draws once (initializeFrame), then bound to the unit and switched on.
+-- The totem bar's dots, Totem Coverage and the Party Strip all build theirs here.
+-- Out of combat only. Returns the container, or nil, the error and where it failed.
+local function NewPartyAuraSlot(parent, unit, key, ids, init, levelUp)
+	local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, "CustomAuraContainerTemplate")
+	if not ok or not container then return nil, container, "create" end
+	container:SetAllPoints(parent)
+	container:SetFrameLevel(parent:GetFrameLevel() + levelUp)
+	local okAdd, err = pcall(container.AddAuraSlot, container, key, "HELPFUL|PLAYER", {   -- your totem's buff only
+		candidateFilters = { includeSpellIDs = ids },
+		initializeFrame = init,
+	})
+	if not okAdd then
+		container:Hide()
+		return nil, err, "add"
+	end
+	pcall(container.SetUnit, container, unit)
+	pcall(container.SetEnabled, container, true)
+	pcall(container.UpdateAllAuras, container)
+	return container
+end
+
+-- The dot look inside a slot's button (from its initializeFrame): no mouse, an
+-- optional dark rim and the dot in its color. tex nil = the Dot Shape, with Gem Dot
+-- Finish; rimAlpha nil = 0.9 (the dots); noGem: a dot of its own fixed look.
+local function PaintDotButton(button, size, outline, r, g, b, tex, rimAlpha, noGem)
+	if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+	if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+	tex = tex or SP:DotTexture()   -- Dot Shape
+	if outline then
+		local o = button:CreateTexture(nil, "OVERLAY", nil, -1)
+		o:SetTexture(tex)
+		o:SetVertexColor(0, 0, 0, rimAlpha or 0.9)
+		o:SetPoint("CENTER", button, "CENTER", 0, 0)
+		o:SetSize(size + 2, size + 2)
+	end
+	local dot = button:CreateTexture(nil, "OVERLAY")
+	dot:SetTexture(tex)
+	dot:SetVertexColor(r, g, b)
+	dot:SetAllPoints(button)
+	if SP.DotGem and not noGem then SP:DotGem(dot) end   -- Gem Dot Finish
+end
+
 local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 	local unit = SP.partyUnitStrings[partyIndex]
 	local size = SP.opt.partyDotSize or 5
@@ -538,44 +583,23 @@ local function BuildEngineDot(element, partyIndex, btn, r, g, b)
 	-- the addon's own dots hang from the same stand-in, which steps out past a
 	-- flyout tab on the dots' side: both sets move together, no rebuild
 	local dotFrame = ShamanPower.PlacePartyDotFrame and ShamanPower:PlacePartyDotFrame(btn) or btn
-	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
-	if not ok or not container then
-		if SPCompat.Trace then SPCompat.Trace("DOTS container %d/%d create failed: %s", element, partyIndex, tostring(container)) end
-		return nil
-	end
-	container:SetAllPoints(btn)
-	container:SetFrameLevel(btn:GetFrameLevel() + 10)   -- above the button art and the active-totem overlay
-	local okAdd, err = pcall(container.AddAuraSlot, container, "dot", "HELPFUL|PLAYER", {   -- your totem's buff only
-		candidateFilters = { includeSpellIDs = ElementBuffMap(element) },
-		initializeFrame = function(button)
-			button:ClearAllPoints()
-			button:SetSize(size, size)
-			button:SetPoint(point, dotFrame, relPoint, x, y)
-			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
-			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-			local tex = SP:DotTexture()   -- Dot Shape
-			if outline then
-				local o = button:CreateTexture(nil, "OVERLAY", nil, -1)
-				o:SetTexture(tex)
-				o:SetVertexColor(0, 0, 0, 0.9)
-				o:SetPoint("CENTER", button, "CENTER", 0, 0)
-				o:SetSize(size + 2, size + 2)
+	-- (above the button art and the active-totem overlay)
+	local container, err, stage = NewPartyAuraSlot(btn, unit, "dot", ElementBuffMap(element), function(button)
+		button:ClearAllPoints()
+		button:SetSize(size, size)
+		button:SetPoint(point, dotFrame, relPoint, x, y)
+		PaintDotButton(button, size, outline, r, g, b)
+	end, 10)
+	if not container then
+		if SPCompat.Trace then
+			if stage == "create" then
+				SPCompat.Trace("DOTS container %d/%d create failed: %s", element, partyIndex, tostring(err))
+			else
+				SPCompat.Trace("DOTS AddAuraSlot %d/%d failed: %s", element, partyIndex, tostring(err))
 			end
-			local dot = button:CreateTexture(nil, "OVERLAY")
-			dot:SetTexture(tex)
-			dot:SetVertexColor(r, g, b)
-			dot:SetAllPoints(button)
-			if SP.DotGem then SP:DotGem(dot) end   -- Gem Dot Finish
-		end,
-	})
-	if not okAdd then
-		if SPCompat.Trace then SPCompat.Trace("DOTS AddAuraSlot %d/%d failed: %s", element, partyIndex, tostring(err)) end
-		container:Hide()
+		end
 		return nil
 	end
-	pcall(container.SetUnit, container, unit)
-	pcall(container.SetEnabled, container, true)
-	pcall(container.UpdateAllAuras, container)
 	return container
 end
 
@@ -726,6 +750,7 @@ local function rosterSettled()
 	rosterQueued = false
 	SP:RebuildEnginePartyDots()
 	if SP.RebuildCoverage then SP:RebuildCoverage() end
+	if SP.RebuildPartyStrip then SP:RebuildPartyStrip() end
 end
 local engineDotEvents = CreateFrame("Frame")
 if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(engineDotEvents, "Party Range") end
@@ -737,6 +762,7 @@ engineDotEvents:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_REGEN_ENABLED" then
 		if engineDotsPending then SP:RebuildEnginePartyDots() end
 		if SP._coveragePending and SP.RebuildCoverage then SP:RebuildCoverage() end   -- was a local read before it existed
+		if SP.PartyStripAfterCombat then SP:PartyStripAfterCombat() end
 	else
 		rosterLast = GetTime()
 		if not rosterQueued then
@@ -1017,73 +1043,33 @@ local SizeCell, HideAllCells   -- defined with the layout helpers below
 -- the totem's buff (in combat and in instances too, where buffs can't be read and the old answer was a
 -- range check from the shaman, not the totem), over our red one underneath: as the totem bar's dots
 local function BuildCoverageDot(element, partyIndex, btn, row, r, g, b)
-	local unit = SP.partyUnitStrings[partyIndex]
-	local ok, container = pcall(CreateFrame, "AuraContainer", nil, row, "CustomAuraContainerTemplate")
-	if not ok or not container then return nil end
-	container:SetAllPoints(row)
-	container:SetFrameLevel(row:GetFrameLevel() + 5)
 	local size, outline = CoverageDotSize(), CoverageOpts().dotOutline ~= false
-	local okAdd = pcall(container.AddAuraSlot, container, "cover", "HELPFUL|PLAYER", {   -- your totem's buff only
-		candidateFilters = { includeSpellIDs = CoverageBuffMap(element) },
-		initializeFrame = function(button)
-			button:ClearAllPoints()
-			button:SetAllPoints(row)
-			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
-			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-			local tex = SP:DotTexture()   -- Dot Shape
-			if outline then
-				local o = button:CreateTexture(nil, "OVERLAY", nil, -1)
-				o:SetTexture(tex)
-				o:SetVertexColor(0, 0, 0, 0.9)
-				o:SetPoint("CENTER", button, "CENTER", 0, 0)
-				o:SetSize(size + 2, size + 2)
-			end
-			local dot = button:CreateTexture(nil, "OVERLAY")
-			dot:SetTexture(tex)
-			dot:SetVertexColor(r, g, b)
-			dot:SetAllPoints(button)
-			if SP.DotGem then SP:DotGem(dot) end   -- Gem Dot Finish
-		end,
-	})
-	if not okAdd then container:Hide() return nil end
-	pcall(container.SetUnit, container, unit)
-	pcall(container.SetEnabled, container, true)
-	pcall(container.UpdateAllAuras, container)
-	return container
+	return (NewPartyAuraSlot(row, SP.partyUnitStrings[partyIndex], "cover", CoverageBuffMap(element), function(button)
+		button:ClearAllPoints()
+		button:SetAllPoints(row)
+		PaintDotButton(button, size, outline, r, g, b)
+	end, 5))
 end
 
 local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
-	local unit = SP.partyUnitStrings[partyIndex]
-	local ok, container = pcall(CreateFrame, "AuraContainer", nil, row, "CustomAuraContainerTemplate")
-	if not ok or not container then return nil end
-	container:SetAllPoints(row)
-	container:SetFrameLevel(row:GetFrameLevel() + 5)
 	local fontSize = CoverageFont()
-	local okAdd = pcall(container.AddAuraSlot, container, "cover", "HELPFUL|PLAYER", {   -- your totem's buff only
-		candidateFilters = { includeSpellIDs = CoverageBuffMap(element) },
-		initializeFrame = function(button)
-			button:ClearAllPoints()
-			button:SetAllPoints(row)
-			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
-			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-			-- the covered look: the same name, same font and place, in class
-			-- colour - identical glyphs, so the red one underneath disappears
-			-- under it. No tag, no strip: names float, frame or no frame.
-			local t = button:CreateFontString(nil, "OVERLAY")
-			SP:SetSPFont(t, "labels", fontSize, "OUTLINE")
-			t:SetPoint("LEFT", button, "LEFT", 2, 0)
-			t:SetPoint("RIGHT", button, "RIGHT", -2, 0)
-			t:SetJustifyH("CENTER")
-			t:SetWordWrap(false)
-			t:SetTextColor(r, g, b)
-			t:SetText(name)
-		end,
-	})
-	if not okAdd then container:Hide() return nil end
-	pcall(container.SetUnit, container, unit)
-	pcall(container.SetEnabled, container, true)
-	pcall(container.UpdateAllAuras, container)
-	return container
+	return (NewPartyAuraSlot(row, SP.partyUnitStrings[partyIndex], "cover", CoverageBuffMap(element), function(button)
+		button:ClearAllPoints()
+		button:SetAllPoints(row)
+		if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+		if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+		-- the covered look: the same name, same font and place, in class
+		-- colour - identical glyphs, so the red one underneath disappears
+		-- under it. No tag, no strip: names float, frame or no frame.
+		local t = button:CreateFontString(nil, "OVERLAY")
+		SP:SetSPFont(t, "labels", fontSize, "OUTLINE")
+		t:SetPoint("LEFT", button, "LEFT", 2, 0)
+		t:SetPoint("RIGHT", button, "RIGHT", -2, 0)
+		t:SetJustifyH("CENTER")
+		t:SetWordWrap(false)
+		t:SetTextColor(r, g, b)
+		t:SetText(name)
+	end, 5))
 end
 
 -- The cell of one watched totem (free placement), made on first use.
@@ -1683,6 +1669,780 @@ if ShamanPower.RegisterPreview then
 		pad = 24,
 		pane = { maxScale = 1.6 },
 	})
+end
+
+-- ============================================================================
+-- Party Strip (Party Buff Tracker > Party Strip)
+-- ============================================================================
+-- One marker per party spot (party1-4, always in that order) for ONE totem buff
+-- the player picks, on screen whether or not that totem is down. A Discord
+-- request: "a standalone, draggable party-dots frame, e.g. only for Windfury,
+-- that stays useful even when no totem is down". Totem Coverage shows only while
+-- your totem is down, so this is a frame of its own, built from Coverage's parts:
+--  * WoW: Forever: each spot's "has it" dot is the game's own (NewPartyAuraSlot:
+--    your buff only, every rank) over our "missing" mark. Nothing is read, so it
+--    holds in fights and in instances. A member plainly far away gets none
+--    (PartyUnitFarAway: the game draws a dot for any matching buff it is handed).
+--  * TBC Anniversary: buffs are read (UnitHasBuff, yours only). Windfury Totem is a
+--    weapon buff there: each member's own report (WFBUFF, or the Windfury
+--    WeakAura) says it, and none (or none for 10 s) is "?", never "missing".
+-- The marks differ by shape, not only color: a filled dot in the member's class
+-- color (has it), WoW's red circle with a slash (missing), WoW's gray "?" (can't
+-- tell), a gray dash (nobody in that spot). Nothing ticks: the roster settle
+-- above, the core's UNIT_AURA, totem changes (InvalidateTotemInfo) and reports
+-- (SetWindfuryReport, one expiry timer per report) wake it. The frame holds the
+-- game's containers, so a fight changes it by alpha and SetEnabled only: its
+-- layout, size, place and buff wait for the fight to end. Click-through: Unlock UI
+-- (or the tab's Move button) moves it. Settings: SP.opt.partyStrip.
+do
+	local SPOT_FRAME, SPOT_LINE, SPOT_MARKS = "mod.partystrip-frame", "mod.partystrip-line", "mod.partystrip-marks"
+	local SPOT_CLASS = "mod.partystrip-class"
+	local RING_TEX = "Interface\\AddOns\\ShamanPower\\Media\\Textures\\Ring_40px"
+	local SLASH_TEX = "Interface\\AddOns\\ShamanPower\\textures\\cue_slash"
+	-- sizes in the strip's own units at Size 100% (the mockup's numbers, A05)
+	local MARK, PAD, GAP, GAP_NAMES, ICON, ICON_GAP, NAME_PX, NAME_GAP, ROW_GAP = 12, 5, 5, 9, 16, 6, 11, 4, 3
+	local LINE = 2                       -- the element line over the top border
+	local DEFAULT_BUFF = "4:1"           -- Windfury Totem (the request)
+	local DEFAULT_X, DEFAULT_Y = -380, -60   -- left of the character, clear of both bars' and the reminders' first spots
+	local REPORT_TTL = 10                -- a Windfury report counts this long (SPRange's own rule)
+	local BACKING = { 0.055, 0.063, 0.078, 0.85 }   -- the dark disc under "missing" and "?" (windowBg)
+	local PARTY = SP.partyUnitStrings
+	local PARTY_INDEX = { party1 = 1, party2 = 2, party3 = 3, party4 = 4 }
+	local EMPTY = {}
+	local pending = false                -- a rebuild owed to the end of a fight
+
+	local function Opts()
+		local opt = SP.opt
+		if not opt then return EMPTY end
+		local o = opt.partyStrip
+		if type(o) ~= "table" then
+			SP:EnsureProfileTable("partyStrip")
+			o = opt.partyStrip
+		end
+		return type(o) == "table" and o or EMPTY
+	end
+	local function On() return Opts().enabled == true end
+	local function Scale()
+		local v = tonumber(Opts().scale)
+		if not v or v < 0.5 or v > 3 then return 1 end
+		return v
+	end
+	local function BgOpacity()
+		local v = tonumber(Opts().bgOpacity)
+		if not v then return 0.8 end
+		if v < 0 then return 0 elseif v > 1 then return 1 end
+		return v
+	end
+
+	-- -------------------------------------------------------------------------
+	-- What it can watch: every totem buff this client has (Totem Coverage's own
+	-- list), keyed "element:index" so one profile reads the same on both games.
+	-- TBC Anniversary adds Windfury Totem, watched through the party's reports.
+	-- -------------------------------------------------------------------------
+	local catalog, catalogByKey
+	local function Catalog()
+		if catalog then return catalog end
+		local list, byKey = {}, {}
+		for element = 1, 4 do
+			local buffs = SP.TotemBuffSpellIDs[element] or EMPTY
+			local idxs = {}
+			for idx in pairs(buffs) do idxs[#idxs + 1] = idx end
+			if element == 4 and not SPCompat.FOREVER and not buffs[1] then idxs[#idxs + 1] = 1 end
+			table.sort(idxs)
+			for _, idx in ipairs(idxs) do
+				local totem = SP.GetTotemSpell and SP:GetTotemSpell(element, idx)
+				if totem and SPCompat.SpellExists and SPCompat.SpellExists(totem) then
+					local e = { key = element .. ":" .. idx, element = element, index = idx, totem = totem }
+					local base = buffs[idx]
+					if base then
+						local ids = {}
+						for _, id in ipairs(SP.TotemBuffRanks[base] or { base }) do ids[id] = true end
+						e.ids = ids
+						e.buffName = SP.TotemBuffNames[element] and SP.TotemBuffNames[element][idx]
+					else
+						e.reports = true   -- Windfury Totem on TBC Anniversary
+					end
+					list[#list + 1] = e
+					byKey[e.key] = e
+				end
+			end
+		end
+		if #list == 0 then return list end   -- spells not known yet (too early): ask again later
+		catalog, catalogByKey = list, byKey
+		return catalog
+	end
+	local function Watched()
+		local list = Catalog()
+		if not catalogByKey then return nil end
+		return catalogByKey[Opts().buff or DEFAULT_BUFF] or catalogByKey[DEFAULT_BUFF] or list[1]
+	end
+	-- Buff to Watch: key -> the buff's own name (as Coverage's Totems to Watch list),
+	-- and their order (Earth, Fire, Water, Air)
+	function SP:PartyStripBuffValues()
+		local v, order = {}, {}
+		for _, e in ipairs(Catalog()) do
+			local base = self.TotemBuffSpellIDs[e.element] and self.TotemBuffSpellIDs[e.element][e.index]
+			local label = GetSpellInfo(base or e.totem)
+			if issecretvalue(label) or type(label) ~= "string" then
+				label = self.GetTotemName and self:GetTotemName(e.element, e.index) or e.key
+			end
+			v[e.key] = label
+			order[#order + 1] = e.key
+		end
+		return v, order
+	end
+	function SP:PartyStripBuff()
+		local w = Watched()
+		return w and w.key or DEFAULT_BUFF
+	end
+	function SP:PartyStripWatchesReports()
+		local w = Watched()
+		return w and w.reports and true or false
+	end
+
+	-- -------------------------------------------------------------------------
+	-- Colors: WoW's own, or the theme's (General > Themes, Party Buff Tracker)
+	-- -------------------------------------------------------------------------
+	local RED, GRAY = { 1, 0.125, 0.125 }, { 0.5, 0.5, 0.5 }
+	local function WoWColor(name, t, r, g, b)
+		local c = _G[name]
+		if type(c) == "table" and type(c.r) == "number" then r, g, b = c.r, c.g, c.b end
+		t[1], t[2], t[3] = r, g, b
+	end
+	local function ResolveColors()
+		local r, g, b = ThemeRGB(SPOT_MARKS, "missing")
+		if r then RED[1], RED[2], RED[3] = r, g, b else WoWColor("RED_FONT_COLOR", RED, 1, 0.125, 0.125) end
+		r, g, b = ThemeRGB(SPOT_MARKS, "unknown")
+		if r then GRAY[1], GRAY[2], GRAY[3] = r, g, b else WoWColor("GRAY_FONT_COLOR", GRAY, 0.5, 0.5, 0.5) end
+	end
+	local function UnitClassRGB(unit)
+		local _, class = UnitClass(unit)
+		if issecretvalue(class) then return 0, 1, 0, nil end   -- (green, as below)
+		local color = class and RAID_CLASS_COLORS[class]
+		if color then color = ThemeClassColor(SPOT_CLASS, class, color) end
+		if color then return color.r, color.g, color.b, class end
+		return 0, 1, 0, class   -- no class known: green, as the totem bar's dots
+	end
+	local function SafeGUID(unit)
+		local ok, g = pcall(UnitGUID, unit)
+		if not ok or issecretvalue(g) then return nil end
+		return g
+	end
+	local function SafeExists(unit)
+		local e = UnitExists(unit)
+		if issecretvalue(e) then return false end
+		return e and true or false
+	end
+
+	-- -------------------------------------------------------------------------
+	-- The frame: a HUD panel (SP:ApplyPanelBackdrop: the Frame Edges look too),
+	-- the element line, the totem icon and four spots
+	-- -------------------------------------------------------------------------
+	local function SavePosition(f)
+		Opts().position = SP:SavePositionRecord(f)
+	end
+	-- size, then its spot (out of combat, and never while a preview has borrowed it)
+	local function PlaceStrip(f)
+		if InCombatLockdown() or f:GetParent() ~= UIParent then return false end
+		f:SetScale(Scale())
+		if not SP:ApplyPositionRecord(f, Opts().position) then
+			f:ClearAllPoints()
+			f:SetPoint("CENTER", UIParent, "CENTER", DEFAULT_X, DEFAULT_Y)
+		end
+		return true
+	end
+
+	local function NewSpot(f, i)
+		local c = CreateFrame("Frame", nil, f)
+		c:SetSize(MARK, MARK)
+		local m = CreateFrame("Frame", nil, c)   -- the mark's own square: the game's container sits on it
+		m:SetSize(MARK, MARK)
+		m:SetPoint("LEFT", c, "LEFT", 0, 0)
+		local back = m:CreateTexture(nil, "ARTWORK", nil, 0)
+		back:SetTexture(DOT_TEXTURE)
+		back:SetVertexColor(BACKING[1], BACKING[2], BACKING[3], BACKING[4])
+		back:SetAllPoints(m)
+		local ring = m:CreateTexture(nil, "ARTWORK", nil, 1)
+		ring:SetTexture(RING_TEX)
+		ring:SetAllPoints(m)
+		local slash = m:CreateTexture(nil, "ARTWORK", nil, 2)
+		slash:SetTexture(SLASH_TEX)
+		slash:SetTexCoord(1, 0, 0, 1)   -- mirrored: the sign's own slash, top left to bottom right
+		local inset = MARK * 0.12
+		slash:SetPoint("TOPLEFT", m, "TOPLEFT", inset, -inset)
+		slash:SetPoint("BOTTOMRIGHT", m, "BOTTOMRIGHT", -inset, inset)
+		local q = m:CreateFontString(nil, "OVERLAY")
+		SP:SetSPFont(q, "labels", 11, "OUTLINE")
+		q:SetPoint("CENTER", m, "CENTER", 0, 0)
+		q:SetText("?")
+		local dash = m:CreateTexture(nil, "ARTWORK", nil, 1)
+		dash:SetColorTexture(1, 1, 1, 1)
+		dash:SetSize(MARK * 0.64, 2)
+		dash:SetPoint("CENTER", m, "CENTER", 0, 0)
+		-- "has it" drawn by us where the game does not draw it (TBC Anniversary, the
+		-- previews): the same look as the game's (an opaque rim, the class-colored dot)
+		local rim = m:CreateTexture(nil, "OVERLAY", nil, 0)
+		rim:SetTexture(DOT_TEXTURE)
+		rim:SetVertexColor(0, 0, 0, 1)
+		rim:SetPoint("CENTER", m, "CENTER", 0, 0)
+		rim:SetSize(MARK + 2, MARK + 2)
+		local lit = m:CreateTexture(nil, "OVERLAY", nil, 1)
+		lit:SetTexture(DOT_TEXTURE)
+		lit:SetAllPoints(m)
+		-- the name (Show Names): never cut short, the strip grows to fit it
+		local name = c:CreateFontString(nil, "OVERLAY")
+		SP:SetSPFont(name, "labels", NAME_PX, "OUTLINE")
+		name:SetJustifyH("LEFT")
+		name:SetPoint("LEFT", m, "RIGHT", NAME_GAP, 0)
+		c.mark, c.back, c.ring, c.slash, c.q, c.dash, c.rim, c.lit, c.name = m, back, ring, slash, q, dash, rim, lit, name
+		c.index = i
+		return c
+	end
+
+	local function PaintSpotColors(c)
+		c.ring:SetVertexColor(RED[1], RED[2], RED[3])
+		c.slash:SetVertexColor(RED[1], RED[2], RED[3])
+		c.q:SetTextColor(GRAY[1], GRAY[2], GRAY[3])
+		c.dash:SetVertexColor(GRAY[1], GRAY[2], GRAY[3], 0.6)
+	end
+
+	-- our own layer of a spot: "has" (where the game does not draw it), "missing",
+	-- "unknown" or "empty". Textures and text only: fine in a fight.
+	local function PaintMark(c, state)
+		if c.state == state then return end
+		c.state = state
+		local miss, unknown = state == "missing", state == "unknown"
+		c.back:SetShown(miss or unknown)
+		c.ring:SetShown(miss)
+		c.slash:SetShown(miss)
+		c.q:SetShown(unknown)
+		c.dash:SetShown(state == "empty")
+		c.rim:SetShown(state == "has")
+		c.lit:SetShown(state == "has")
+	end
+
+	-- the panel's colors at its Background Opacity (colors only: fine in a fight)
+	local function PaintPanel(f)
+		local a = BgOpacity()
+		local bg, edge = SP.PANEL_BG, SP.PANEL_BORDER
+		local r, g, b = ThemeRGB(SPOT_FRAME, "bg")
+		if not r then r, g, b = bg[1], bg[2], bg[3] end
+		f:SetBackdropColor(r, g, b, a)
+		r, g, b = ThemeRGB(SPOT_FRAME, "border")
+		if not r then r, g, b = edge[1], edge[2], edge[3] end
+		f:SetBackdropBorderColor(r, g, b, a * edge[4])
+		if f.spEdge then f.spEdge:SetAlpha(a > 0 and 1 or 0) end   -- Frame Edges (a Drop Shadow keeps its own alpha)
+		local e = (Watched() or EMPTY).element or 4
+		if SP.ThemeElement then
+			r, g, b = SP:ThemeElement(SPOT_LINE, e)
+		else
+			local ec = SP.ElementColors and SP.ElementColors[e]
+			r, g, b = ec and ec.r or 1, ec and ec.g or 1, ec and ec.b or 1
+		end
+		f.line:SetVertexColor(r, g, b, a)
+	end
+
+	function SP:CreatePartyStrip()
+		local f = self.partyStrip
+		if f then return f end
+		f = CreateFrame("Frame", "ShamanPowerPartyStrip", UIParent, "BackdropTemplate")
+		f:SetSize(PAD * 2 + 4 * MARK + 3 * GAP, PAD * 2 + MARK)
+		f:SetFrameStrata("MEDIUM")
+		f:SetClampedToScreen(true)
+		f:SetMovable(true)
+		f:EnableMouse(false)   -- clicks go through to the party frames under it
+		f:SetScript("OnDragStop", function(frame)
+			frame:StopMovingOrSizing()
+			SavePosition(frame)
+		end)
+		f.spMoverLabel = "Party Strip"
+		SP:ApplyPanelBackdrop(f)
+		local line = f:CreateTexture(nil, "ARTWORK", nil, -8)   -- over the top border, under everything else
+		line:SetColorTexture(1, 1, 1, 1)
+		line:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+		line:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
+		line:SetHeight(LINE)
+		f.line = line
+		local icon = f:CreateTexture(nil, "ARTWORK", nil, 1)
+		icon:SetSize(ICON, ICON)
+		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		local iconEdge = f:CreateTexture(nil, "ARTWORK", nil, 0)
+		iconEdge:SetColorTexture(0, 0, 0, 1)
+		iconEdge:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+		iconEdge:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+		f.icon, f.iconEdge = icon, iconEdge
+		f.spots, f.slots, f.slotsBuilt = {}, {}, {}   -- slots[i]: the game's display spot i shows now (WoW: Forever)
+		ResolveColors()
+		for i = 1, 4 do
+			f.spots[i] = NewSpot(f, i)
+			PaintSpotColors(f.spots[i])
+		end
+		f:Hide()
+		self.partyStrip = f
+		PaintPanel(f)
+		PlaceStrip(f)
+		return f
+	end
+
+	-- -------------------------------------------------------------------------
+	-- Layout: the spots in a row or a column, the names, the icon and the frame's
+	-- size. Out of combat only (the game's containers ride in the frame).
+	-- -------------------------------------------------------------------------
+	local function IconOf(w)
+		local tex
+		if w and w.totem and GetSpellInfo then tex = select(3, GetSpellInfo(w.totem)) end
+		if not tex and w and SP.GetTotemIcon then tex = SP:GetTotemIcon(w.element, w.index) end
+		return tex
+	end
+
+	local function Layout(f)
+		local o = Opts()
+		local names, showIcon, column = o.showNames == true, o.showIcon == true, o.layout == "column"
+		local nameW = {}
+		for i = 1, 4 do
+			local c = f.spots[i]
+			c.name:SetShown(names)
+			nameW[i] = 0
+			if names then
+				local t = c.name:GetText()
+				if t and t ~= "" then nameW[i] = math.ceil(c.name:GetStringWidth()) end
+			end
+		end
+		local rowH = names and math.max(MARK, NAME_PX + 2) or MARK
+		f.icon:SetShown(showIcon)
+		f.iconEdge:SetShown(showIcon)
+		f.icon:ClearAllPoints()
+		local w, h
+		if column then
+			local top = PAD + (showIcon and (ICON + 4) or 0)
+			local widest = 0
+			for i = 1, 4 do
+				local c = f.spots[i]
+				local cw = MARK + ((names and nameW[i] > 0) and (NAME_GAP + nameW[i]) or 0)
+				widest = math.max(widest, cw)
+				c:SetSize(cw, rowH)
+				c:ClearAllPoints()
+				c:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -(top + (i - 1) * (rowH + ROW_GAP)))
+			end
+			if showIcon then f.icon:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -PAD) end
+			w = math.max(PAD * 2 + widest, showIcon and (PAD * 2 + ICON) or 0)
+			h = top + 4 * rowH + 3 * ROW_GAP + PAD
+		else
+			local inner = math.max(MARK, showIcon and ICON or 0, names and (NAME_PX + 2) or 0)
+			local x = PAD
+			if showIcon then
+				f.icon:SetPoint("LEFT", f, "TOPLEFT", PAD, -(PAD + inner / 2))
+				x = x + ICON + ICON_GAP
+			end
+			for i = 1, 4 do
+				local c = f.spots[i]
+				local cw = MARK + ((names and nameW[i] > 0) and (NAME_GAP + nameW[i]) or 0)
+				c:SetSize(cw, rowH)
+				c:ClearAllPoints()
+				c:SetPoint("LEFT", f, "TOPLEFT", x, -(PAD + inner / 2))
+				x = x + cw
+				if i < 4 then x = x + (names and GAP_NAMES or GAP) end
+			end
+			w = x + PAD
+			h = inner + PAD * 2
+		end
+		f:SetSize(w, h)
+		local wch = Watched()
+		local tex = showIcon and IconOf(wch) or nil
+		if tex then f.icon:SetTexture(tex) end
+		f.iconDown = nil   -- (UpdateIcon sets its grayed look again)
+	end
+
+	-- -------------------------------------------------------------------------
+	-- The game's displays (WoW: Forever): one per spot, member or not (one who
+	-- joins in a fight then shows at once), keyed so only what changed is rebuilt
+	-- -------------------------------------------------------------------------
+	local function BuildSlot(c, unit, ids, r, g, b)
+		local m = c.mark
+		return (NewPartyAuraSlot(m, unit, "strip", ids, function(button)
+			button:ClearAllPoints()
+			button:SetAllPoints(m)
+			-- an opaque rim and the plain round dot (never the Dot Shape or Gem Dot
+			-- Finish): it must hide the circle and slash under it completely
+			PaintDotButton(button, MARK, true, r, g, b, DOT_TEXTURE, 1, true)
+		end, 5))
+	end
+	-- a spot's display for one look (buff, class, Class Colors set). Each spot keeps the
+	-- ones it built: a class that comes back (the next group) takes its old one again,
+	-- so a long night of groups never piles up displays. Out of combat (it may Show).
+	local function SlotFor(f, i, key, c, unit, ids, r, g, b)
+		local kept = f.slotsBuilt[i]
+		if not kept then kept = {}; f.slotsBuilt[i] = kept end
+		local container = kept[key]
+		if container then
+			container:Show()   -- (a retired one was hidden)
+		else
+			container = BuildSlot(c, unit, ids, r, g, b)
+			if container then kept[key] = container end
+		end
+		if container then   -- (lit by UpdateSpot, by alpha and its own on / off)
+			pcall(container.SetEnabled, container, false)
+			container:SetAlpha(0)
+		end
+		return container
+	end
+
+	-- -------------------------------------------------------------------------
+	-- What each spot says, any time (a fight too): our mark, and the game's display on or off
+	-- -------------------------------------------------------------------------
+	local function ReportState(unit)
+		local name = UnitName(unit)
+		if type(name) ~= "string" or issecretvalue(name) then return "unknown" end
+		local has
+		if SP.GetWindfuryRangeStatus then
+			has = SP:GetWindfuryRangeStatus(name)
+		else
+			local d = SP.WindfuryRangeData and SP.WindfuryRangeData[name]
+			if d and GetTime() - d.timestamp <= REPORT_TTL then has = d.hasWindfury end
+		end
+		if has == true then return "has" elseif has == false then return "missing" end
+		return "unknown"
+	end
+
+	local function UpdateSpot(f, i, w, shown)
+		local unit, c, rec = PARTY[i], f.spots[i], f.slots[i]
+		local exists = SafeExists(unit)
+		local game = rec and rec.container
+		local state
+		if not exists then
+			state = "empty"
+		elseif game then
+			state = "missing"   -- the game draws "has it" over this mark
+		elseif w and w.reports then
+			state = ReportState(unit)
+		elseif w and w.buffName and not (SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
+			state = SP:UnitHasBuff(unit, w.buffName) and "has" or "missing"
+		else
+			state = "unknown"   -- nothing can say right now (the game's display could not be built)
+		end
+		PaintMark(c, state)
+		if game then ShowEngineRecord(rec, shown and exists and not SP:PartyUnitFarAway(unit) or false) end
+		-- someone new in this spot during a fight: no name until it ends (the layout waits)
+		if exists and InCombatLockdown() and c.guid ~= SafeGUID(unit) and c.name:GetText() ~= "" then
+			c.name:SetText("")
+			pending = true
+		end
+	end
+
+	-- the icon grayed while you have no such totem down (only when that changes)
+	local function UpdateIcon(f, w)
+		if not (w and Opts().showIcon) then return end
+		local down = (SP.GetActiveTotemIndex and SP:GetActiveTotemIndex(w.element) == w.index) and true or false
+		if f.iconDown == down then return end
+		f.iconDown = down
+		f.icon:SetDesaturated(not down)
+		f.icon:SetAlpha(down and 1 or 0.5)
+	end
+
+	-- in a group (party1-4: your own subgroup in a raid), or a preview
+	local function Wanted(f)
+		if f.demo then return true end
+		if not On() or SP:IsOff() then return false end
+		if not IsInGroup() then return false end
+		local n = GetNumSubgroupMembers and GetNumSubgroupMembers() or 0
+		return (not issecretvalue(n)) and n > 0
+	end
+
+	function SP:UpdatePartyStrip()
+		local f = self.partyStrip
+		if not f or f.demo or not f:IsShown() then return end
+		local shown = Wanted(f)
+		f:SetAlpha(shown and 1 or 0)   -- by alpha: the frame holds the game's containers
+		local w = Watched()
+		for i = 1, 4 do UpdateSpot(f, i, w, shown) end
+		if shown then UpdateIcon(f, w) end
+	end
+
+	-- -------------------------------------------------------------------------
+	-- Rebuild: names, classes, the game's displays, layout and place. Out of combat
+	-- only; a fight leaves it owed (PartyStripAfterCombat) and keeps what is built.
+	-- -------------------------------------------------------------------------
+	function SP:RebuildPartyStrip()
+		local f = self.partyStrip
+		local on = On() and not self:IsOff()
+		if not f and not on then return end
+		f = f or self:CreatePartyStrip()
+		if f.demo then return end   -- a preview has it: its Demo(false) rebuilds
+		if InCombatLockdown() then
+			pending = true
+			self:UpdatePartyStrip()   -- (switched off in the fight: the alpha says so until it ends)
+			if not on then
+				f:SetAlpha(0)
+				for i = 1, 4 do ShowEngineRecord(f.slots[i], false) end
+			end
+			return
+		end
+		pending = false
+		if not on then
+			for i = 1, 4 do
+				RetireEngineRecord(f.slots[i])
+				f.slots[i] = nil
+			end
+			f:Hide()
+			return
+		end
+		ResolveColors()
+		local w = Watched()
+		local engine = (w and w.ids and EngineDotsAvailable()) and true or false
+		if engine then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+		local classSet = self.ThemeClassColorSet and self:ThemeClassColorSet(SPOT_CLASS)
+		for i = 1, 4 do
+			local unit, c = PARTY[i], f.spots[i]
+			local exists = SafeExists(unit)
+			local r, g, b, class = UnitClassRGB(unit)
+			local name = exists and UnitName(unit) or nil
+			if issecretvalue(name) or type(name) ~= "string" then name = nil end
+			c.name:SetText(name or "")
+			c.name:SetTextColor(r, g, b)
+			c.lit:SetVertexColor(r, g, b)
+			c.guid = exists and SafeGUID(unit) or nil
+			PaintSpotColors(c)
+			c.state = nil   -- (repainted below)
+			local rec = f.slots[i]
+			if engine then
+				local key = w.key .. "|" .. tostring(class) .. "|" .. tostring(classSet)
+				if not (rec and rec.key == key and rec.container) then
+					RetireEngineRecord(rec)
+					f.slots[i] = { container = SlotFor(f, i, key, c, unit, w.ids, r, g, b), key = key, shown = false }
+				end
+			elseif rec then
+				RetireEngineRecord(rec)
+				f.slots[i] = nil
+			end
+		end
+		Layout(f)
+		PaintPanel(f)
+		PlaceStrip(f)
+		if not f:IsShown() then f:Show() end
+		if self.ThemeBoxesRefresh then self:ThemeBoxesRefresh() end   -- (ShamanPower Minimal: its icon's flat box)
+		self:UpdatePartyStrip()
+	end
+
+	function SP:PartyStripAfterCombat()
+		if pending then self:RebuildPartyStrip() end
+	end
+
+	-- a setting changed (the Party Strip tab): what = "panel" (colors: at once, a
+	-- fight too), "scale" (Size), else a rebuild
+	function SP:PartyStripSettingChanged(what)
+		local f = self.partyStrip
+		if what == "panel" then
+			if f then PaintPanel(f) end
+			return
+		end
+		if what == "scale" and f and f:IsShown() and not InCombatLockdown() then
+			-- (a preview that has borrowed it fits it itself; Unlock UI's wheel resizes it on its spot)
+			if f:GetParent() == UIParent then
+				self:SetFrameScaleKeepCenter(f, Scale())   -- grows round its middle, then that is its spot
+				SavePosition(f)
+			end
+			return
+		end
+		if f and f.demo then   -- a preview has it: show the change there, rebuild afterwards
+			if f.demoPaint then f.demoPaint() end
+			return
+		end
+		self:RebuildPartyStrip()
+	end
+
+	function SP:ResetPartyStripPosition()
+		Opts().position = nil
+		local f = self.partyStrip
+		if f and not InCombatLockdown() and f:GetParent() == UIParent then
+			f:ClearAllPoints()
+			f:SetPoint("CENTER", UIParent, "CENTER", DEFAULT_X, DEFAULT_Y)
+		end
+	end
+
+	-- -------------------------------------------------------------------------
+	-- Previews (the tab's live preview and Unlock UI): sample members acting out
+	-- a short scene, looped. The game's live displays step aside meanwhile.
+	-- -------------------------------------------------------------------------
+	local DEMO_PARTY = { { "Brakka", "WARRIOR" }, { "Lyria", "ROGUE" }, { "Tamsin", "PRIEST" }, { "Orrin", "HUNTER" } }
+	local DEMO_SCENE = {
+		{ "has", "has", "has", "has", down = true },             -- your totem is down, everyone has it
+		{ "has", "missing", "has", "has", down = true },         -- the Rogue walked out of range
+		{ "has", "missing", "has", "missing", down = true },
+		{ "missing", "missing", "missing", "missing" },          -- no totem of yours down
+		{ "has", "has", "unknown", "has", down = true, reports = true },   -- (TBC Anniversary Windfury: no report)
+	}
+	function SP:PartyStripDemo(on)
+		local f = self:CreatePartyStrip()
+		if on then
+			local was = f.demo
+			f.demo = true
+			for i = 1, 4 do ShowEngineRecord(f.slots[i], false) end
+			local function paint()
+				local w = Watched()
+				ResolveColors()
+				local beat = DEMO_SCENE[f.demoBeat or 1]
+				if beat.reports and not (w and w.reports) then
+					f.demoBeat = ((f.demoBeat or 1) % #DEMO_SCENE) + 1
+					beat = DEMO_SCENE[f.demoBeat]
+				end
+				for i = 1, 4 do
+					local c, d = f.spots[i], DEMO_PARTY[i]
+					local color = ThemeClassColor(SPOT_CLASS, d[2], RAID_CLASS_COLORS[d[2]]) or RAID_CLASS_COLORS[d[2]]
+					local r, g, b = 0, 1, 0
+					if color then r, g, b = color.r, color.g, color.b end
+					c.name:SetText(d[1])
+					c.name:SetTextColor(r, g, b)
+					c.lit:SetVertexColor(r, g, b)
+					PaintSpotColors(c)
+					c.state = nil
+					PaintMark(c, beat[i])
+				end
+				Layout(f)
+				PaintPanel(f)
+				if Opts().showIcon then
+					f.icon:SetDesaturated(not beat.down)
+					f.icon:SetAlpha(beat.down and 1 or 0.5)
+				end
+			end
+			f.demoPaint = paint
+			f.demoBeat = f.demoBeat or 1
+			paint()
+			f:SetAlpha(1)
+			f:Show()
+			if not was then
+				if f.demoTicker then f.demoTicker:Cancel() end
+				f.demoTicker = C_Timer.NewTicker(2.2, function()
+					if not f.demo then return end
+					f.demoBeat = ((f.demoBeat or 1) % #DEMO_SCENE) + 1
+					if f.demoPaint then f.demoPaint() end
+				end)
+			end
+		else
+			if f.demoTicker then f.demoTicker:Cancel(); f.demoTicker = nil end
+			f.demo, f.demoPaint, f.demoBeat = nil, nil, nil
+			for i = 1, 4 do f.spots[i].state = nil end
+			-- real names, classes, layout, place and the game's displays back
+			if InCombatLockdown() then pending = true else self:RebuildPartyStrip() end
+			if not (On() and not self:IsOff()) and not InCombatLockdown() then f:Hide() end
+		end
+	end
+
+	if SP.RegisterPreview then
+		SP:RegisterPreview("partystrip", {
+			frame = function() return SP:CreatePartyStrip() end,
+			demo = "SP:PartyStripDemo",
+			pad = 24,
+			pane = { maxScale = 2.5 },
+		})
+	end
+	-- its own Unlock UI box, with Reset (ShamanPowerUnlock.lua)
+	if SP.UnlockModules then
+		table.insert(SP.UnlockModules, {
+			key = "partystrip", label = "Party Strip",
+			enabled = function() return On() and not SP:IsOff() end,
+			frames = function() return { SP:CreatePartyStrip() } end,
+			save = function(frame) SavePosition(frame) end,
+			reset = function() SP:ResetPartyStripPosition() end,
+		})
+	end
+
+	-- -------------------------------------------------------------------------
+	-- What wakes it (nothing ticks)
+	-- -------------------------------------------------------------------------
+	local function Live()
+		local f = SP.partyStrip
+		if f and f:IsShown() and not f.demo then return f end
+		return nil
+	end
+	-- a party member's auras changed (the core's UNIT_AURA, party1-4 included)
+	if SP.UNIT_AURA then
+		hooksecurefunc(SP, "UNIT_AURA", function(_, _, unit)
+			if issecretvalue(unit) then return end
+			local i = PARTY_INDEX[unit]
+			if not i then return end
+			local f = Live()
+			if f and Wanted(f) then UpdateSpot(f, i, Watched(), true) end
+		end)
+	end
+	-- your totems changed: the icon's "not down" look (next frame, once per burst)
+	local iconQueued = false
+	local function IconNow()
+		iconQueued = false
+		local f = Live()
+		if f then UpdateIcon(f, Watched()) end
+	end
+	if SP.InvalidateTotemInfo then
+		hooksecurefunc(SP, "InvalidateTotemInfo", function()
+			if iconQueued or not Opts().showIcon then return end
+			local f = Live()
+			if not (f and f:GetAlpha() > 0) then return end   -- (out of sight: the next update sets it)
+			iconQueued = true
+			C_Timer.After(0, IconNow)
+		end)
+	end
+	-- a Windfury report (TBC Anniversary): that spot now, and again when it would run out
+	local reportTimers = {}
+	local function ReportRanOut(i)
+		reportTimers[i] = nil
+		local f = Live()
+		if f and Wanted(f) then UpdateSpot(f, i, Watched(), true) end
+	end
+	if SP.SetWindfuryReport then
+		hooksecurefunc(SP, "SetWindfuryReport", function(_, sender)
+			local f = Live()
+			if not f or type(sender) ~= "string" or not Wanted(f) then return end
+			local w = Watched()
+			if not (w and w.reports) then return end
+			local name = strsplit("-", sender)
+			for i = 1, 4 do
+				local unit = PARTY[i]
+				if SafeExists(unit) and UnitName(unit) == name then
+					UpdateSpot(f, i, w, true)
+					if reportTimers[i] then reportTimers[i]:Cancel() end
+					reportTimers[i] = C_Timer.NewTimer(REPORT_TTL + 0.1, function() ReportRanOut(i) end)
+					return
+				end
+			end
+		end)
+	end
+	-- a theme change: the marks, the panel and the line repaint now; the game's dots
+	-- take their class colors when built, so a new Class Colors set rebuilds them
+	local classSetSeen
+	if SP.OnThemeChanged then
+		SP:OnThemeChanged(function()
+			local f = SP.partyStrip
+			if not f then return end
+			ResolveColors()
+			for i = 1, 4 do PaintSpotColors(f.spots[i]) end
+			PaintPanel(f)
+			if f.demo and f.demoPaint then f.demoPaint() end
+			local set = SP.ThemeClassColorSet and SP:ThemeClassColorSet(SPOT_CLASS)
+			if set ~= classSetSeen then
+				classSetSeen = set
+				if not f.demo then SP:RebuildPartyStrip() end
+			end
+		end)
+	end
+	-- another font for the names: the strip fits them again
+	if SP.RefreshFonts then
+		hooksecurefunc(SP, "RefreshFonts", function()
+			local f = SP.partyStrip
+			if not (f and f:IsShown()) then return end
+			if f.demo then
+				if f.demoPaint then f.demoPaint() end
+			elseif InCombatLockdown() then
+				pending = true
+			else
+				Layout(f)
+			end
+		end)
+	end
+	-- ShamanPower switched on or off (applied out of combat)
+	SP:OnOnOff(function() SP:RebuildPartyStrip() end)
+	-- another profile: its own settings and spot
+	if SP.OnProfileChanged then
+		hooksecurefunc(SP, "OnProfileChanged", function() SP:RebuildPartyStrip() end)
+	end
 end
 
 -- Update all party range dots

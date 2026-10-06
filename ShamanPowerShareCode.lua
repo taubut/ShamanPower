@@ -206,6 +206,8 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- 3.0.8: the Party Strip (Party Buff Tracker > Party Strip: one buff, one marker per party member)
+	{ key = "partyStrip",         label = "Party buff strip",                    get = function() return on(sub(O().partyStrip, "enabled")) end },
 }
 
 -- ---------------------------------------------------------------------------
