@@ -165,6 +165,9 @@ do
 			-- Improved Stormstrike: the talent 1223031 (trait node 104742, 2 points) gives the
 			-- buff 1238931 (15 s) when you Stormstrike
 			stormstrike = { ids = { 1238931 }, name = "Improved Stormstrike", talent = 1223031, node = 104742 },
+			farseer = { ids = { 425336 }, name = "Rage of the Farseer" },               -- 25 s
+			ns = { ids = { 16188 }, name = "Nature's Swiftness", timed = false },        -- until your next Nature spell
+			-- (no Shamanistic Rage or Elemental Mastery in this game's data)
 		}
 	else
 		list = {
@@ -172,6 +175,10 @@ do
 			-- 4-piece bonus 38432 of the Skyshatter Harness (item set 682, any 4 of its 8 pieces)
 			stormstrike = { ids = { 38430 }, name = "Stormpower", setBonus = 38432, setID = 682, setName = "Skyshatter Harness",
 				setItems = { 31018, 31011, 31015, 31021, 31024, 34567, 34439, 34545 } },
+			shamrage = { ids = { 30823 }, name = "Shamanistic Rage" },                  -- 15 s
+			elemastery = { ids = { 16166 }, name = "Elemental Mastery", timed = false }, -- until your next damage spell
+			ns = { ids = { 16188 }, name = "Nature's Swiftness", timed = false },        -- until your next Nature spell
+			-- (no Rage of the Farseer in this game's data)
 		}
 	end
 	for _, e in ipairs(SP.ReadyReminderSpells) do
