@@ -1097,7 +1097,9 @@ function SP:CoverageTotemCell(element, totemIndex)
 		btn = frame.NewCell(key, element, label)
 		btn.totemIndex = totemIndex
 		local totem = self.GetTotemSpell and self:GetTotemSpell(element, totemIndex)
-		local _, _, tex = totem and GetSpellInfo(totem)
+		-- the icon is the 3rd return: "totem and GetSpellInfo(totem)" kept only the first one
+		-- (an and-expression is one value), so every new cell started without its icon
+		local tex = totem and select(3, GetSpellInfo(totem))
 		if tex then btn.icon:SetTexture(tex); btn.iconTex = tex end
 		frame.totemCells[key] = btn
 	end
