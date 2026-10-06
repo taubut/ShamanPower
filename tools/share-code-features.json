@@ -119,6 +119,7 @@
     {"key": "readyRemindersFade", "label": "Ready reminders: fade instead of hide"},
     {"key": "readyCheckRez", "label": "Ready check after resurrection"},
     {"key": "reactiveKeybinds", "label": "Reactive alerts show keybinds"},
-    {"key": "assignRightClickClears", "label": "Assignment window: right-click clears"}
+    {"key": "assignRightClickClears", "label": "Assignment window: right-click clears"},
+    {"key": "partyStrip", "label": "Party buff strip"}
   ]
 }

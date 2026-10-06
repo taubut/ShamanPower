@@ -935,6 +935,45 @@ DRAW.partybuff = function(st)
 			dots[i][d] = dot
 		end
 	end
+	-- the Party Strip under the counters: its icon, two members with the buff, one
+	-- missing it (the circle with a slash) and one it can't tell ("?")
+	local DOT = "Interface\\AddOns\\ShamanPower\\textures\\dot"
+	local strip = NewPanel(st)
+	strip:SetSize(100, 22)
+	strip:SetPoint("TOPLEFT", st, "TOPLEFT", 0, -40)
+	local line = strip:CreateTexture(nil, "ARTWORK", nil, -8)
+	line:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, 0)
+	line:SetPoint("TOPRIGHT", strip, "TOPRIGHT", 0, 0)
+	line:SetHeight(2)
+	local sIcon = NewSlot(strip, 16)
+	sIcon:SetPoint("LEFT", strip, "LEFT", 5, 0)
+	local marks = {}
+	for m = 1, 4 do
+		local f = CreateFrame("Frame", nil, strip)
+		f:SetSize(12, 12)
+		f:SetPoint("LEFT", strip, "LEFT", 27 + (m - 1) * 17, 0)
+		local rim = f:CreateTexture(nil, "ARTWORK", nil, 0)
+		rim:SetTexture(DOT)
+		rim:SetPoint("CENTER", f, "CENTER", 0, 0)
+		rim:SetSize(14, 14)
+		local d = f:CreateTexture(nil, "ARTWORK", nil, 1)
+		d:SetTexture(DOT)
+		d:SetAllPoints(f)
+		f.rim, f.dot = rim, d
+		marks[m] = f
+	end
+	local ring = marks[3]:CreateTexture(nil, "ARTWORK", nil, 2)
+	ring:SetTexture("Interface\\AddOns\\ShamanPower\\Media\\Textures\\Ring_40px")
+	ring:SetAllPoints(marks[3])
+	local slash = marks[3]:CreateTexture(nil, "ARTWORK", nil, 3)
+	slash:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\cue_slash")
+	slash:SetTexCoord(1, 0, 0, 1)
+	slash:SetPoint("TOPLEFT", marks[3], "TOPLEFT", 1.5, -1.5)
+	slash:SetPoint("BOTTOMRIGHT", marks[3], "BOTTOMRIGHT", -1.5, 1.5)
+	local q = HudText(marks[4], "labels", 11, "OUTLINE")
+	q:SetPoint("CENTER", marks[4], "CENTER", 0, 0)
+	q:SetText("?")
+	local STRIP_CLASSES = { "WARRIOR", "PRIEST" }
 	return 350, 66, function()
 		for e = 1, 4 do PaintPanel(counters[e], "mod.partybuff-frame", 0.92) end
 		PaintPanel(cov, "mod.coverage-colors", 0.92)
@@ -943,6 +982,33 @@ DRAW.partybuff = function(st)
 			for d = 1, 3 do dots[i][d]:SetColorTexture(ClassRGB(CLASS_SAMPLE[d])) end
 			dots[i][4]:SetColorTexture(RGB("mod.coverage-dots-missing", "missing"))
 		end
+		-- the strip at its own Background Opacity (a theme colors it, never makes it more solid)
+		local ps = SP.opt and SP.opt.partyStrip
+		local a = tonumber(ps and ps.bgOpacity) or 0.8
+		strip.bg:SetColorTexture(RGB("mod.partystrip-frame", "bg"))
+		strip.bg:SetAlpha(a)
+		local er, eg, eb = RGB("mod.partystrip-frame", "border")
+		for _, t in pairs(strip.spBorder) do t:SetColorTexture(er, eg, eb, a) end
+		line:SetColorTexture(SP:ThemeElement("mod.partystrip-line", 4))
+		line:SetAlpha(a)
+		BoxSlot(sIcon, "mod.partystrip-box", 4, I.windfury, "WF")
+		for m = 1, 4 do
+			local f = marks[m]
+			local has = m <= 2
+			f.rim:SetVertexColor(0, 0, 0, has and 1 or 0)
+			if has then
+				local cls = STRIP_CLASSES[m]
+				local r, g, b = SP:ThemeClassSetRGB("mod.partystrip-class", cls)
+				if not r then r, g, b = ClassRGB(cls) end
+				f.dot:SetVertexColor(r, g, b, 1)
+			else
+				f.dot:SetVertexColor(0.055, 0.063, 0.078, 0.85)   -- the dark disc under "missing" and "?"
+			end
+		end
+		local mr, mg, mb = RGB("mod.partystrip-marks", "missing")
+		ring:SetVertexColor(mr, mg, mb)
+		slash:SetVertexColor(mr, mg, mb)
+		q:SetTextColor(RGB("mod.partystrip-marks", "unknown"))
 	end
 end
 

@@ -611,6 +611,8 @@ local FX = {
 	tremor         = { page = { "fluffy", "tremorreminder_section" }, size = { node = "tremor_icon_size" },    opacity = { node = "tremor_opacity" } },
 	partyrange     = { page = { "fluffy", "partybuff_section" },      size = { node = "partybuff_scale" },     opacity = { node = "partybuff_opacity" } },
 	coverage       = { page = { "fluffy", "coverage_section" },       size = { node = "coverage_icon_size" },  opacity = { node = "coverage_opacity" } },
+	-- the Party Strip: Ctrl + wheel is its Background Opacity (its markers always stay fully visible)
+	partystrip     = { page = { "fluffy", "partystrip_section" },     size = { node = "partystrip_size" },     opacity = { node = "partystrip_opacity" } },
 	loadoutbar     = { page = { "fluffy", "loadoutbar_section" },     size = { node = "loadoutbar_scale" },    opacity = { node = "loadoutbar_opacity" } },
 	sprange        = { page = { "fluffy", "sprange_section" },        size = { node = "sprange_icon_size" },   opacity = { node = "sprange_opacity" } },
 	raidcd         = { page = { "fluffy", "raid_cd_section" },        size = { node = "raidCDButtonScale" },   opacity = { node = "raidCDButtonOpacity" } },

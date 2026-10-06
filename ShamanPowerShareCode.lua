@@ -229,6 +229,8 @@ SP.SHARE_FEATURES = {
 	end },
 	-- 3.0.8: Totem Bar > Clicks > Right-Click an Assignment = Clear Assignment
 	{ key = "assignRightClickClears", label = "Assignment window: right-click clears", get = function() return O().assignRightClick == "clear" end },
+	-- 3.0.8: the Party Strip (Party Buff Tracker > Party Strip: one buff, one marker per party member)
+	{ key = "partyStrip",         label = "Party buff strip",                    get = function() return on(sub(O().partyStrip, "enabled")) end },
 }
 
 -- ---------------------------------------------------------------------------

@@ -254,6 +254,19 @@ SHAMANPOWER_DEFAULT_VALUES = {
             scale = 1.0,               -- Scale for unlocked frames
             opacity = 1.0,             -- Opacity for unlocked frames
         },
+        -- Party Strip (Party Buff Tracker > Party Strip, ShamanPower_PartyRange):
+        -- one marker per party spot for ONE totem buff, on screen with or without
+        -- that totem down. Off to start.
+        partyStrip = {
+            enabled = false,           -- Show Party Strip
+            buff = "4:1",              -- Buff to Watch: "element:totem index" (4:1 = Windfury Totem)
+            showIcon = false,          -- Show Totem Icon
+            showNames = false,         -- Show Names
+            layout = "row",            -- "row" (side by side) or "column" (stacked)
+            scale = 1.0,               -- Size
+            bgOpacity = 0.8,           -- Background Opacity (the panel only; the markers stay)
+            -- position = { anchor, x, y } once moved (SP:SavePositionRecord)
+        },
         -- Shield Charge Display (large on-screen numbers)
         shieldChargeDisplay = {
             showPlayerShield = true,  -- Show Lightning/Water Shield charges
