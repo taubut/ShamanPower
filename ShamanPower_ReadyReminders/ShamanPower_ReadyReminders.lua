@@ -27,6 +27,10 @@ local DEFAULTS = {
 	mode = "ready",        -- "ready": show only when ready | "cooldown": show only while on cooldown | "always": dim + countdown on cooldown
 	                       -- | "flash": never on screen, only the Ready Flash
 	onlyInCombat = false,
+	-- D51: with Only In Combat on, the icon fades to fadeOpacity out of combat instead of
+	-- hiding (the page's default; each icon sets its own in its right-click menu)
+	fadeInsteadOfHide = false,
+	fadeOpacity = 0.4,
 	iconSize = 48,
 	opacity = 1.0,
 	dimOpacity = 0.35,     -- "always" mode, while on cooldown
@@ -176,7 +180,9 @@ local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "soundOnRe
 	-- what an icon that never set one uses, so nothing on screen changed on the update)
 	"opacity", "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", "barStyle", "barHeight", "barColor",
 	"textPosition", "textSize", "borderColor", "rangeLook", "rangeColor", "hideBackground", "hideBorder",
-	"showNames", "soundVolume", "soundMinCooldown", "flashMin" }
+	"showNames", "soundVolume", "soundMinCooldown", "flashMin",
+	-- D51: Fade Instead of Hide (with Only In Combat) and its Faded Opacity
+	"fadeInsteadOfHide", "fadeOpacity" }
 local ICON_KEY = {}
 for _, k in ipairs(ICON_KEYS) do ICON_KEY[k] = true end
 local resolved = {}   -- [catalog key] = { gen = n, <setting> = value }: one table per icon, made once
@@ -968,7 +974,7 @@ function SP:UpdateReadyReminderAppearance(key)
 		local tex = id and GetSpellTextureC(id)
 		f.icon:SetTexture(tex or 136024)
 	end
-	f:SetAlpha(IconOpt(e, "opacity") or 1)
+	f:SetAlpha((IconOpt(e, "opacity") or 1) * (f.fade or 1))   -- (D51: below 1 only while faded)
 	applyPos(f)
 	styleEngine(f)
 end
@@ -1029,12 +1035,24 @@ end
 
 -- "Only when ready" keeps a cooling icon on screen at alpha 0 so the curve can
 -- show it the moment the real cooldown ends; it must not catch clicks then.
-local function curveMouseOff(f)
-	if not f.mouseByCurve and f:IsMouseEnabled() then f:EnableMouse(false); f.mouseByCurve = true end
+-- A faded icon (D51, see setFade) lets clicks through too. Two holders, one mouse:
+-- it is off while either holds it (mouseByCurve, mouseByFade) and comes back once
+-- neither does. A mouse something else switched off is not taken, nor given back.
+local function mouseHold(f, holder)
+	if f[holder] then return end
+	if not (f.mouseByCurve or f.mouseByFade) then
+		if not f:IsMouseEnabled() then return end
+		f:EnableMouse(false)
+	end
+	f[holder] = true
 end
-local function curveMouseBack(f)
-	if f.mouseByCurve then f:EnableMouse(true); f.mouseByCurve = nil end
+local function mouseRelease(f, holder)
+	if not f[holder] then return end
+	f[holder] = nil
+	if not (f.mouseByCurve or f.mouseByFade) then f:EnableMouse(true) end
 end
+local function curveMouseOff(f) mouseHold(f, "mouseByCurve") end
+local function curveMouseBack(f) mouseRelease(f, "mouseByCurve") end
 
 -- The curve is evaluated once per pass, so on its own the icon would light up
 -- on the next 0.2 s pass after the real cooldown ends. A Cooldown widget that
@@ -1076,9 +1094,13 @@ local function watchRealEnd(f, d)
 	pcall(w.SetCooldownFromDurationObject, w, d, true)
 end
 
-local function stopEffects(f)
+-- the Ready Effect's glow and pulse off (alone: a faded icon's Shocks picture keeps cycling)
+local function stopGlowPulse(f)
 	if f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
 	if f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+end
+local function stopEffects(f)
+	stopGlowPulse(f)
 	if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
 end
 
@@ -1094,6 +1116,67 @@ local function playEffects(f)
 	elseif f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
 end
 
+-- ---------------------------------------------------------------------------
+-- Fade Instead of Hide (D51, a Discord request): out of combat an icon with Only In
+-- Combat on stays on screen at its Faded Opacity instead of hiding, so the player
+-- still sees which spells are ready. f.fade is that opacity out of combat, and 1 in a
+-- fight, while hidden, in Unlock UI and in the previews. It multiplies every alpha the
+-- icon is given: setReady, the appearance, and on WoW: Forever the cooldown curves'
+-- two inputs (plain numbers going in; the curve's answer, maybe a hidden value, still
+-- goes straight to SetAlpha and is never looked at). At 1 each is today's value
+-- exactly. The countdown, the sweep (the engine's numbers live in it) and the bar
+-- ignore the icon's alpha, so they take the fade themselves. A faded icon lets clicks
+-- through and stays quiet: no glow, pulse, sound or Ready Flash (setReady, the pass).
+-- Display-only frames: none of this is protected, in a fight either.
+-- ---------------------------------------------------------------------------
+local FADE_GLIDE = 0.2   -- a fight ended: down to faded over this long (the totem bar's Smooth Fade)
+
+-- an icon's Faded Opacity (its own, else the page's), inside the slider's range
+local function fadedOpacity(entry)
+	local v = tonumber(IconOpt(entry, "fadeOpacity")) or 0.4
+	if v < 0.05 then return 0.05 elseif v > 0.9 then return 0.9 end
+	return v
+end
+
+-- Only when the value changes: the three children, the mouse, and the glide's turn.
+local function setFade(f, v)
+	local old = f.fade or 1
+	if old == v then return end
+	f.fade = v
+	f.cooldown:SetAlpha(v); f.bar:SetAlpha(v); f.count:SetAlpha(v)
+	if v < 1 then mouseHold(f, "mouseByFade") else mouseRelease(f, "mouseByFade") end
+	if old >= 1 and v < 1 and f:IsShown() then
+		f.fadeGlide = true   -- full to faded on screen (a fight ended): glided once this pass set the alpha
+	else
+		f.fadeGlide = nil
+		if f.fadeAG then f.fadeAG:Stop() end   -- back to full (a pull): at once
+	end
+end
+
+-- The glide (the totem bar's playFade): the icon already has its faded alpha; an Alpha
+-- animation runs from the alpha it had at full down to it and ends on the icon's own.
+-- f.fadeBase is the plain alpha the pass gave it at full (nothing is read back from
+-- the icon: on WoW: Forever its alpha may be a hidden value). An icon held at 0 (a
+-- curve keeps it invisible while it cools) has nothing to glide. One group per icon,
+-- made on its first glide; it stops by itself after FADE_GLIDE.
+local function fadeGlideNow(f)
+	f.fadeGlide = nil
+	local base = f.fadeBase
+	if not (base and base > 0.01 and f:IsShown()) then return end
+	local ag = f.fadeAG
+	if not ag then
+		ag = f:CreateAnimationGroup()
+		ag.alpha = ag:CreateAnimation("Alpha")
+		ag.alpha:SetDuration(FADE_GLIDE)
+		ag.alpha:SetSmoothing("IN_OUT")
+		f.fadeAG = ag
+	end
+	ag:Stop()
+	ag.alpha:SetFromAlpha(base)
+	ag.alpha:SetToAlpha(base * (f.fade or 1))
+	ag:Play()
+end
+
 -- The look while it cools: the icon's Gray Out The Icon and Opacity While On
 -- Cooldown. An icon set to "only while on cooldown" in its menu before these were
 -- its own (3.0.5) looks as the page did in that mode: no gray, full opacity.
@@ -1104,21 +1187,24 @@ local function coolingLook(f)
 end
 
 local function setReady(f, ready)
+	local fade = f.fade or 1   -- (D51: below 1 only while faded out of combat)
 	if ready then
 		setDesat(f, false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart, f.realDone = nil, nil, nil, nil, nil
 		curveMouseBack(f)
 		if f.engineSheet then f.engineSheet:Hide() end
-		f:SetAlpha(IconOpt(f.entry, "opacity") or 1)
-		playEffects(f)
+		local a = IconOpt(f.entry, "opacity") or 1
+		f:SetAlpha(a * fade); f.fadeBase = a
+		if fade < 1 then stopGlowPulse(f) else playEffects(f) end   -- faded: quiet
 		if f.entry.combo then shockIcon(f, true) end
 	else
 		local gray, dim = coolingLook(f)
 		setDesat(f, gray)
-		f:SetAlpha(dim)
+		f:SetAlpha(dim * fade); f.fadeBase = dim
 		if IconOpt(f.entry, "mode") == "cooldown" then
-			playEffects(f)   -- runs on untouched each pass: only a change starts or stops it
+			-- runs on untouched each pass: only a change starts or stops it (faded: quiet)
+			if fade < 1 then stopGlowPulse(f) else playEffects(f) end
 			if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
 		else
 			stopEffects(f)
@@ -2100,7 +2186,11 @@ local function drawCooldown(f, start, duration, remaining)
 		-- "only while on cooldown" goes invisible (and stops catching clicks) then instead
 		local onlyCooling = IconOpt(f.entry, "mode") == "cooldown"
 		local _, dim = coolingLook(f)
-		if f.ecdDur then curveAlpha(f, f.ecdDur, onlyCooling and 0 or (IconOpt(e, "opacity") or 1), dim) end
+		-- faded (D51): both inputs times the fade, plain numbers (the curve's answer is never read)
+		local fade = f.fade or 1
+		local readyA = onlyCooling and 0 or (IconOpt(e, "opacity") or 1)
+		if f.ecdDur then curveAlpha(f, f.ecdDur, readyA * fade, dim * fade) end
+		if f.realDone then f.fadeBase = readyA end   -- the game says it is over: the curve shows it ready
 		if onlyCooling and f.realDone then curveMouseOff(f) end
 		engineCountdownUnder(f)
 		return
@@ -2162,7 +2252,10 @@ local function readyPass(self)
 	if self.readyPositioning or self.readyDemoActive then return end
 	local hideAll = not sv.enabled or self:IsOff()
 	if hideAll then
-		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil end   -- gridVis: they appear anew
+		for _, f in pairs(frames) do
+			if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil   -- gridVis: they appear anew
+			setFade(f, 1)   -- (D51) a hidden icon is never faded
+		end
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
 		rangeSync()
 		return
@@ -2174,11 +2267,17 @@ local function readyPass(self)
 		local f = frames[entry.key]
 		local want = spellOn(entry) and usable(entry) and playerKnows(entry)
 		if f then f.inUse = want end   -- its flags are read on the cooldown events (Forever)
-		-- Only In Combat (the icon's own, else the page's): hidden out of combat
-		if want and not inCombat and IconOpt(entry, "onlyInCombat") then want = false end
+		-- Only In Combat (the icon's own, else the page's): hidden out of combat, or faded
+		-- with Fade Instead of Hide (D51; not in "never", where it is never on screen)
+		local faded = false
+		if want and not inCombat and IconOpt(entry, "onlyInCombat") then
+			if IconOpt(entry, "fadeInsteadOfHide") and IconOpt(entry, "mode") ~= "flash" then faded = true
+			else want = false end
+		end
 		if want then
 			if not f then f = self:CreateReadyReminderFrame(entry); f.inUse = true end
 			local mode = IconOpt(entry, "mode") or "ready"
+			setFade(f, faded and fadedOpacity(entry) or 1)   -- before any alpha this pass (in a fight: 1)
 			-- WoW: Forever: the game's own flags decide (see readFlags); the estimate times it
 			local st
 			if FLAGS then
@@ -2219,11 +2318,12 @@ local function readyPass(self)
 			end
 			if not ready then
 				cooling = true
-				if timed and not f.flashedEarly then flashEarlyCheck(f, duration, remaining) end
+				if timed and not f.flashedEarly and not faded then flashEarlyCheck(f, duration, remaining) end
 			end
 			f.gridReady = ready
 			if ready then
-				if f.wasReady == false then
+				-- faded (D51): quiet; it still counts as seen ready, so the pull plays nothing for it
+				if f.wasReady == false and not faded then
 					readySound(f, f.lastDuration)
 					if not f.flashedEarly then readyFlash(f, f.lastDuration) end   -- (Flash Early already flashed it)
 				end
@@ -2272,7 +2372,10 @@ local function readyPass(self)
 						f.ecdOn = nil
 						if not f.realDone then curveMouseOff(f) end
 						if not f:IsShown() then f:Show() end
-						curved = curveAlpha(f, f.readyDur, IconOpt(entry, "opacity") or 1, 0)
+						-- faded (D51): the ready input times the fade (a plain number; the answer is never read)
+						local readyA = IconOpt(entry, "opacity") or 1
+						curved = curveAlpha(f, f.readyDur, readyA * (f.fade or 1), 0)
+						f.fadeBase = f.realDone and readyA or 0   -- held at 0 while it cools: nothing to glide
 					end
 				end
 				if not curved then
@@ -2280,12 +2383,14 @@ local function readyPass(self)
 					if f:IsShown() then f:Hide() end
 				end
 			end
+			if f.fadeGlide then fadeGlideNow(f) end   -- (D51) a fight ended: down to faded
 		elseif f then
 			-- not on screen now (switched off, or Only In Combat out of combat): it is
 			-- first sight again when it comes back, as when every icon was hidden
 			-- (a cooldown that ended meanwhile makes no sound at the next pull)
 			if f:IsShown() then f:Hide() end
 			f.wasReady, f.flashedEarly = nil, nil
+			setFade(f, 1)   -- (D51) a hidden icon is never faded
 		end
 	end
 	layoutGrid(false)
@@ -2315,6 +2420,7 @@ function SP:ShowAllReadyReminders()
 	for _, entry in ipairs(self.ReadyReminderSpells) do
 		if spellOn(entry) and usable(entry) then
 			local f = self:CreateReadyReminderFrame(entry)
+			setFade(f, 1)       -- (D51) full while placed
 			curveMouseBack(f)   -- draggable again
 			stopEffects(f)
 			f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
@@ -2370,6 +2476,7 @@ function SP:ReadyRemindersDemo(on)
 	if on then
 		local wasActive = self.readyDemoActive
 		self.readyDemoActive = true
+		for _, f in pairs(frames) do setFade(f, 1) end   -- (D51) the previews keep the in-a-fight look
 		self:UpdateAllReadyReminderAppearance()
 		rangeSync()   -- the demo's icons are never range-checked
 		-- The preview shows every borrowed icon (enabled or not) before calling
@@ -2832,7 +2939,7 @@ local function InjectOptions()
 			iconsHeader = { order = 0.1, type = "header", name = "Spells" },
 			yourIcons = { order = 0.2, type = "description", width = "full",
 				name = "Click a spell to show or hide it. Right-click it for its settings: Show, Only In Combat,"
-					.. " Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash."
+					.. " Fade Instead of Hide, Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash."
 					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom." },
 
 			move = { order = 1.5, type = "execute", name = "Move the Icons", width = 1.2,
