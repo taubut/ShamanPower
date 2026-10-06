@@ -231,6 +231,17 @@ SP.SHARE_FEATURES = {
 	{ key = "assignRightClickClears", label = "Assignment window: right-click clears", get = function() return O().assignRightClick == "clear" end },
 	-- 3.0.8: the Party Strip (Party Buff Tracker > Party Strip: one buff, one marker per party member)
 	{ key = "partyStrip",         label = "Party buff strip",                    get = function() return on(sub(O().partyStrip, "enabled")) end },
+	-- 3.0.8: Ready Reminders, your buff on its icon (D52: the page's default, or any icon's own look)
+	{ key = "readyRemindersBuff", label = "Ready reminders: your buff on its icon", get = function()
+		local sv = G("ShamanPower_ReadyReminders")
+		local function shown(v) return type(v) == "string" and v ~= "off" end
+		if shown(sub(sv, "buffLook")) then return true end
+		local icons = sub(sv, "icons")
+		if type(icons) == "table" then
+			for _, own in pairs(icons) do if shown(sub(own, "buffLook")) then return true end end
+		end
+		return false
+	end },
 }
 
 -- ---------------------------------------------------------------------------

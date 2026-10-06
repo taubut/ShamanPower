@@ -602,6 +602,95 @@ local function FadeRow(key)
 	}
 end
 
+-- D52 Your buff on its icon: a group for a spell that puts a buff on you (in this game),
+-- named after the buff, right under When Ready. Off to start. Show The Buff picks the
+-- look; only the rows that do something in that look are there. Before the buff can come
+-- up (the talent, the set bonus or the spell itself missing), a plain line says why first.
+local BUFF_LOOK_CHOICES = { { "off", "Off" }, { "corner", "In The Icon's Corner" }, { "own", "As Its Own Icon" },
+	{ "edge", "As An Edge Around The Icon" } }
+local BUFF_LOOK_SHORT = { off = "Off", corner = "Corner", own = "Own Icon", edge = "Edge" }
+local BUFF_CORNER_CHOICES = { { "tr", "Top Right" }, { "tl", "Top Left" }, { "br", "Bottom Right" }, { "bl", "Bottom Left" } }
+local BUFF_SIDE_CHOICES = { { "above", "Above" }, { "below", "Below" }, { "left", "Left" }, { "right", "Right" },
+	{ "spot", "In Its Own Spot" } }
+local BUFF_TIPS = {
+	show = "Where the buff shows while it's on you. It stays on screen while this icon hides between casts (the edge needs the icon). Off: nothing changes.",
+	corner = "Which corner of this icon the buff sits in.",
+	cornerSize = "How big the buff is, as a share of this icon.",
+	side = "Where the buff's own icon goes: next to this icon, or In Its Own Spot, anywhere on your screen (Move This Buff places it). In its own spot it shows even with this icon hidden.",
+	ownSize = "How big the buff's icon is, as a share of this icon.",
+	move = "Opens Unlock UI with just this buff's box. Drag it where you want it, then press Done.",
+	edge = "The edge's color while the buff is on you. It starts as WoW's mana-bar blue.",
+	time = "The seconds the buff has left.",
+	gold = "The time turns WoW's gold for the buff's last seconds. Never: it stays white.",
+}
+
+local function BuffRows(key, entry)
+	local info = SP.ReadyReminderBuffInfo and SP:ReadyReminderBuffInfo(key)
+	if not info then return {} end
+	local t = {}
+	if not info.known then
+		t[#t + 1] = { text = info.line1, disabled = true }
+		t[#t + 1] = { text = info.line2, disabled = true }
+		t[#t + 1] = { separator = true }
+	end
+	local look = Opt(key, "buffLook") or "off"
+	t[#t + 1] = {
+		text = "Show The Buff", tip = BUFF_TIPS.show,
+		value = function()
+			local cur = Opt(key, "buffLook") or "off"
+			return LabelOf(BUFF_LOOK_CHOICES, cur), cur ~= "off"
+		end,
+		sub = function()
+			local cur = Opt(key, "buffLook") or "off"
+			local items = {}
+			for _, c in ipairs(BUFF_LOOK_CHOICES) do
+				local v = c[1]
+				items[#items + 1] = { text = c[2], selected = cur == v, onClick = function() return Set(key, "buffLook", v) end }
+			end
+			return items
+		end,
+	}
+	local row
+	if look == "corner" then
+		row = ChoiceRow(key, "Corner", "buffCorner", BUFF_CORNER_CHOICES, "tr"); row.tip = BUFF_TIPS.corner; t[#t + 1] = row
+		row = SliderRow(key, "Size", "buffSize", 0.3, 0.7, 0.05, 0.45, nil, true); row.tip = BUFF_TIPS.cornerSize; t[#t + 1] = row
+	elseif look == "own" then
+		row = ChoiceRow(key, "Side", "buffSide", BUFF_SIDE_CHOICES, "above"); row.tip = BUFF_TIPS.side; t[#t + 1] = row
+		row = SliderRow(key, "Size", "buffOwnSize", 0.3, 1, 0.05, 1, nil, true); row.tip = BUFF_TIPS.ownSize; t[#t + 1] = row
+		if Opt(key, "buffSide") == "spot" and SP.ReadyReminderBuffMove then
+			t[#t + 1] = { text = "Move This Buff", tip = BUFF_TIPS.move,
+				onClick = function() SP:ReadyReminderBuffMove(key); return false end }
+		end
+	elseif look == "edge" then
+		row = ColorRow(key, entry, "Edge Color", "buffEdgeColor", 0, 0, 1); row.tip = BUFF_TIPS.edge; t[#t + 1] = row
+	end
+	if look ~= "off" and info.timed then
+		row = OnOffRow(key, "Time Left", "buffTime", true); row.tip = BUFF_TIPS.time; t[#t + 1] = row
+		if Opt(key, "buffTime") ~= false then
+			row = SliderRow(key, "Time Turns Gold Under", "buffGoldUnder", 0, 10, 1, 3, function(v) return Secs(v, "Never") end)
+			row.tip = BUFF_TIPS.gold
+			t[#t + 1] = row
+		end
+	end
+	return t
+end
+
+-- the group's row: the buff's name, and the look it shows in (Off to start)
+local function BuffGroup(key, entry, info)
+	return {
+		text = info.name .. " Buff",
+		tip = "Shows when the " .. info.name .. " buff is on you" .. (info.timed and ", with the time it has left" or "")
+			.. ". Pick how under Show The Buff.",
+		value = function()
+			local look = Opt(key, "buffLook") or "off"
+			local v = BUFF_LOOK_SHORT[look] or "Off"
+			if look == "own" and Opt(key, "buffSide") == "spot" then v = "Own Spot" end
+			return v, look ~= "off"
+		end,
+		sub = function() return BuffRows(key, entry) end,
+	}
+end
+
 local function MenuItems(key)
 	local entry
 	for _, e in ipairs(Row.list) do if e.key == key then entry = e break end end
@@ -628,6 +717,9 @@ local function MenuItems(key)
 	if entry.combo then items[#items + 1] = Group("Shocks", function() return ShockRows() end) end
 	items[#items + 1] = Group("Look", function() return LookRows(key, entry) end)
 	items[#items + 1] = Group("When Ready", function() return ReadyRows(key, entry) end)
+	-- D52: the buff this spell puts on you (only a spell that puts one on you, in this game)
+	local buffInfo = SP.ReadyReminderBuffInfo and SP:ReadyReminderBuffInfo(key)
+	if buffInfo then items[#items + 1] = BuffGroup(key, entry, buffInfo) end
 	-- the cooling settings only do something while it shows on cooldown
 	if show == "cooldown" or show == "always" or show == "always_bright" then
 		items[#items + 1] = Group("While On Cooldown", function() return CoolRows(key, entry) end)
