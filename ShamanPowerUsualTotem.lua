@@ -25,8 +25,9 @@
 --            and a change to that element's assignment.
 --
 -- The look: the bar Effects' own loops (ShamanPowerCues.lua, SP.CueFx: Glow or
--- Pulse, in the Effects Look the bar's effects use) in the Cooldown Ready gold,
--- on a frame of ours over the element's button and over your usual totem in its
+-- Pulse, a loop kind of its own, "usual", in the Totem Bar's Effects Look: the
+-- Cooldown Ready gold, or the element's color under Elemental), on a frame of ours
+-- over the element's button and over your usual totem in its
 -- flyout, Totem Row or Grid row; a short BACK on the button (a Compact line says
 -- "Put Windfury back"); with Dynamic Mode, where the button shows the totem you
 -- dropped, your usual totem in the button's corner instead. Optionally one line
@@ -139,6 +140,7 @@ local function lastPlan()
 	return t
 end
 local worldAt = 0         -- the last loading screen: totems it takes are not a reminder
+local setWait = {}        -- [element] = the core's record of a set summon's totem, until its slot confirms it
 local testUntil = {}      -- [element] = GetTime() the Test button's look ends
 local testState = { {}, {}, {}, {} }   -- [element] = what the Test button shows (its usual totem)
 
@@ -230,10 +232,11 @@ local function hideLabel(ov)
 	ov.label:Hide(); ov.cornerBg:Hide(); ov.cornerIcon:Hide()
 end
 
--- The Effects Look the bar's effects use (Standard / Elemental / Signal)
+-- The Effects Look the totem bar's effects use (Standard / Elemental / Signal): the
+-- reminder's own loop kind follows it (never the cooldown bar's)
 local function effectsLook()
 	local cue = SP.ThemeCue
-	return cue and cue.lookOf and cue.lookOf("expiring") or "standard"
+	return cue and cue.lookOf and cue.lookOf("usual") or "standard"
 end
 
 -- The reminder's color: the bar Effects' gold, or the element's color under the
@@ -373,18 +376,39 @@ local function lookState(e)
 	return nil
 end
 
--- The label once the bar's destroyed mark has gone (it lasts 5 seconds at most): a
--- one-shot look every 0.3 s while it plays, then nothing. A newer paint or a release
--- makes it stand down.
+-- The label once the bar's destroyed mark has gone (it lasts 5 seconds at most). The
+-- mark's own animations say when they end: their finish and stop are hooked once per
+-- button, the first time a label waits there, so nothing runs while a mark plays. A
+-- newer paint or a release makes a waiting label stand down (its generation).
+local MARK_GROUPS = { "markHold", "stoneHold", "slashHold" }   -- (marking's three)
+local function markDone(host)
+	local w = host.spUsualWait
+	if not (w and w.gen) then return end
+	if labelGen[w.e] ~= w.gen then w.gen = nil return end   -- painted again or released since
+	if marking(host) then return end   -- another of its marks still plays: its own end comes
+	w.gen = nil
+	local s = lookState(w.e)
+	if s and w.ov:GetAlpha() > 0 then paintLabel(w.ov, host, w.e, s, w.isMain) end
+end
 local function labelWhenFree(ov, host, e, isMain)
-	local gen = labelGen[e]
-	local function try()
-		if labelGen[e] ~= gen then return end
-		if marking(host) then C_Timer.After(0.3, try) return end
-		local s = lookState(e)
-		if s and ov:GetAlpha() > 0 then paintLabel(ov, host, e, s, isMain) end
+	local w = host.spUsualWait
+	if not w then
+		w = {}
+		w.done = function() markDone(host) end
+		-- a stop can be the mark starting over (Stop, then Play at once): looked at a moment later
+		w.stopped = function() if w.gen then C_Timer.After(0, w.done) end end
+		host.spUsualWait = w
 	end
-	C_Timer.After(0.3, try)
+	w.ov, w.e, w.isMain, w.gen = ov, e, isMain, labelGen[e]
+	local c = host.spCue
+	for i = 1, #MARK_GROUPS do
+		local g = c and c[MARK_GROUPS[i]]
+		if g and not g.spUsualHooked then
+			g.spUsualHooked = true
+			g:HookScript("OnFinished", w.done)
+			g:HookScript("OnStop", w.stopped)
+		end
+	end
 end
 
 -- (a host list the same as what is lit: nothing to redo, so a loop never restarts)
@@ -416,9 +440,9 @@ local function paint(e, s)
 		if line then
 			-- a Compact line: a ring or edges sized for a square do not fit a line, so Glow is
 			-- the Signal look's thin frame and Pulse the plain darkening, both in the gold
-			fx.loop(ov, style, "ready", style == "glow" and "signal" or "standard")
+			fx.loop(ov, style, "usual", style == "glow" and "signal" or "standard")
 		else
-			fx.loop(ov, style, "ready")
+			fx.loop(ov, style, "usual")   -- (the Totem Bar's Effects Look, in ov.element's color)
 		end
 		ov:SetAlpha(1)
 		if not labelled and (i == 1 and not labelOnRow or i > 1 and labelOnRow) then
@@ -462,7 +486,7 @@ local function clear(e)
 	if not (testUntil[e] and testUntil[e] > GetTime()) and #shown[e] > 0 then release(e) end
 end
 local function clearAll()
-	for e = 1, 4 do clear(e) end
+	for e = 1, 4 do clear(e); setWait[e] = nil end
 end
 
 local function arm(e, temp, usual)
@@ -522,15 +546,35 @@ function SP:UsualTotemCast(spellID)
 	if not on() or isSecret(spellID) or type(spellID) ~= "number" then return end
 	if spellID == TOTEMIC_CALL then clearAll() return end
 	if spellID == DECOY_TOTEM then clear(DECOY_ELEMENT) return end
-	-- Call of the Elements / Ancestors / Spirits (WoW: Forever): each totem it drops
+	-- Call of the Elements / Ancestors / Spirits (WoW: Forever): each totem it drops, once
+	-- its slot says it landed. The core opens a record per totem of the summon and its
+	-- slot update confirms it (ShadowTotemSetCast / ShadowTotemSlotUpdate); one the summon
+	-- could not place (no mana, not known) never lands: that element keeps its reminder.
 	local set = self.TotemSetForSummon and self:TotemSetForSummon(spellID)
 	if set then
+		local records, now = self.shadowTotems, GetTime()
 		for e = 1, 4 do
-			if set[e] then castOf(set[e]) end
+			setWait[e] = nil
+			local id = set[e]
+			local entry = id and records and records[e]
+			if entry and entry.setAt == now and entry.spellID == id then   -- (this summon's record)
+				if entry.setPending then
+					setWait[e] = entry   -- its slot update still to come: UsualTotemSetPlaced
+				else
+					castOf(id)   -- its slot update came first: it landed
+				end
+			end
 		end
 		return
 	end
 	castOf(spellID)
+end
+
+-- The core: a totem of a set summon landed (its slot confirmed the record)
+function SP:UsualTotemSetPlaced(element, entry)
+	if setWait[element] ~= entry or entry == nil then return end
+	setWait[element] = nil
+	if on() then castOf(entry.spellID) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -855,6 +899,7 @@ do
 				set = function(_, v)
 					if type(SP.opt.usualTotemTemp) ~= "table" then SP.opt.usualTotemTemp = {} end
 					SP.opt.usualTotemTemp[id] = v and true or false
+					apply()   -- (unchecked while it is down: its reminder goes)
 				end }
 		end
 	end

@@ -1050,7 +1050,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			{ btn = slots[2].main, cap = "Expired", on = "totemCueExpired", style = "totemCueExpiredStyle", def = "pop", kind = "expired", at = 1.0 },
 			{ btn = slots[3].main, cap = "Expiring", on = "totemCueExpiring", style = "totemCueExpiringStyle", def = "pulse", kind = "expiring", loop = true },
 			-- Put Your Usual Totem Back (ShamanPowerUsualTotem.lua): Air asks for its usual totem
-			{ btn = slots[4].main, cap = "Put back", on = "usualTotemReminder", style = "usualTotemStyle", def = "glow", kind = "ready", loop = true },
+			{ btn = slots[4].main, cap = "Put back", on = "usualTotemReminder", style = "usualTotemStyle", def = "glow", kind = "usual", loop = true },
 		})
 	end
 	local styleCap = inner:CreateFontString(nil, "OVERLAY"); styleCap:SetFontObject(Core.fonts.rowDim)
