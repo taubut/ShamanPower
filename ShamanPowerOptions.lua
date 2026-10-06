@@ -6582,6 +6582,65 @@ ShamanPower.options = {
 								end
 							end
 						},
+						-- Show Spell Keybind (3.0.8): the key that casts each alert's own totem, under its name
+						reactive_show_keybind = {
+							order = 11.3,
+							name = "Show Spell Keybind",
+							desc = "Under each alert's totem name, show the key that casts that totem, like Shift-2."
+								.. " Only a key for that exact totem counts: the totem on your action bars, or its flyout button in Keybind Mode."
+								.. " The Earth and Water buttons' keys never show here, because they cast whichever totem is assigned."
+								.. " When the totem has a key in both places, Keybind Shown (General > Keybinds) picks which one shows.",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.showSpellKeybind and true or false
+							end,
+							set = function(info, val)
+								if not ShamanPower_ReactiveTotems then return end
+								ShamanPower_ReactiveTotems.showSpellKeybind = val and true or false
+								-- a fresh key scan: its hook works the keys out and updates the alerts
+								if ShamanPower.UpdateButtonKeybindText then ShamanPower:UpdateButtonKeybindText() end
+								if ShamanPower.RefreshReactiveKeys then ShamanPower:RefreshReactiveKeys() end
+							end
+						},
+						reactive_no_key = {
+							order = 11.31,
+							name = "When No Key Is Bound",
+							desc = "What an alert shows when its totem has no key: nothing, or \"No Key Bound\" as a reminder to bind one.",
+							type = "select",
+							width = 1.0,
+							values = { none = "Show Nothing", show = "Show 'No Key Bound'" },
+							sorting = { "none", "show" },
+							hidden = function()
+								return not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.showSpellKeybind)
+							end,
+							get = function(info)
+								return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.noKeyText == "show" and "show" or "none"
+							end,
+							set = function(info, val)
+								if not ShamanPower_ReactiveTotems then return end
+								ShamanPower_ReactiveTotems.noKeyText = (val == "show") and "show" or "none"
+								if ShamanPower.UpdateReactiveTotemAppearance then
+									ShamanPower:UpdateReactiveTotemAppearance()
+								end
+							end
+						},
+						reactive_key_status = {
+							order = 11.32,
+							type = "description",
+							width = "full",
+							name = function()
+								if not ShamanPower.ReactiveKeyStatus then return "" end
+								local text = "The keys found right now:\n" .. ShamanPower:ReactiveKeyStatus("\n")
+								if SPCompat and SPCompat.secretsRegime then
+									text = text .. "\n\nIn a fight the game draws these alerts: a key you change during a fight shows after it."
+								end
+								return text
+							end,
+							hidden = function()
+								return not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.showSpellKeybind)
+							end,
+						},
 						reactive_header_effects = {
 							order = 12,
 							type = "header",
@@ -11729,6 +11788,9 @@ do
 			"reactive_show_debuff_icon", "reactive_hide_totem_text",
 		}, names = {
 			reactive_font_size = "Text Size", reactive_font_outline = "Outline (unless Fonts & Textures sets one)",
+		} },
+		{ header = "reactive_header_keybind", name = "Spell Keybind", keys = {
+			"reactive_show_keybind", "reactive_no_key", "reactive_key_status",
 		} },
 		{ header = "reactive_header_effects", name = "Behavior", keys = {
 			"reactive_only_instance", "reactive_hide_when_active", "click_to_cast", "reactive_glow", "reactive_glow_intensity",

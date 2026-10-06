@@ -206,6 +206,10 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- 3.0.8: Show Spell Keybind (the key under each Reactive Totems alert's totem name)
+	{ key = "reactiveKeybinds",   label = "Reactive alerts show keybinds",       get = function()
+		return on(sub(G("ShamanPower_ReactiveTotems"), "enabled")) and on(sub(G("ShamanPower_ReactiveTotems"), "showSpellKeybind"))
+	end },
 }
 
 -- ---------------------------------------------------------------------------
