@@ -122,6 +122,7 @@
     {"key": "assignRightClickClears", "label": "Assignment window: right-click clears"},
     {"key": "partyStrip", "label": "Party buff strip"},
     {"key": "readyRemindersBuff", "label": "Ready reminders: your buff on its icon"},
-    {"key": "shieldRightClickOther", "label": "Cooldown bar: right-click casts the other shield"}
+    {"key": "shieldRightClickOther", "label": "Cooldown bar: right-click casts the other shield"},
+    {"key": "usualTotemReminder", "label": "Return to usual totem reminder"}
   ]
 }

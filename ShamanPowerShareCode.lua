@@ -246,6 +246,8 @@ SP.SHARE_FEATURES = {
 	{ key = "shieldRightClickOther", label = "Cooldown bar: right-click casts the other shield", get = function()
 		return on(O().cdbarShieldRightClickOther) and O().showCooldownBar == true and O().cdbarShowShields ~= false
 	end },
+	-- 3.0.8 (alpha): Totem Bar > Effects > Put Your Usual Totem Back
+	{ key = "usualTotemReminder", label = "Return to usual totem reminder",   get = function() return on(O().usualTotemReminder) end },
 }
 
 -- ---------------------------------------------------------------------------

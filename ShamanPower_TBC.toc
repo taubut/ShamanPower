@@ -52,5 +52,6 @@ ShamanPowerGrid.lua
 ShamanPowerRows.lua
 ShamanPowerStyles.lua
 ShamanPowerCues.lua
+ShamanPowerUsualTotem.lua
 ShamanPowerShieldSound.lua
 ShamanPower_TBC.xml

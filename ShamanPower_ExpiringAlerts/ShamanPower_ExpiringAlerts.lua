@@ -122,6 +122,12 @@ if SP.ThemeBind then
 	SP:ThemeBind(ElementColors.air, THEME_SPOT, 4)
 	SP:ThemeBind(DESTROYED_CENTER_COLOR, THEME_SPOT, "destroyed")
 end
+-- an element's totem line color (themed in place above), for Put Your Usual Totem
+-- Back's text line (ShamanPowerUsualTotem.lua): its line looks like the totem lines
+function SP:ExpiringAlertElementColor(element)
+	local info = TotemElements[element]
+	return info and info.color or WHITE
+end
 local THEME_IMBUE = { r = 1.0, g = 0.5, b = 0.0 }   -- refilled with the theme's colour
 local function ImbueAlertColor(sv)
 	local r, g, b
@@ -577,9 +583,10 @@ function SP:ProcessAlertQueue()
 	local textWidth = 0
 	if showText then
 		-- shields and imbues name the buff that faded; totem alerts carry their
-		-- own ending ("Destroyed!", "Expired")
+		-- own ending ("Destroyed!", "Expired"), and so does a reminder ("Put Windfury back",
+		-- ShamanPowerUsualTotem.lua: no sound either, PlayAlertSound has none for it)
 		local displayText = alertData.spellName
-		if alertData.alertType ~= "totem" then
+		if alertData.alertType ~= "totem" and alertData.alertType ~= "reminder" then
 			local faded = fadedText[displayText]
 			if not faded then faded = displayText .. " FADED!"; fadedText[displayText] = faded end
 			displayText = faded

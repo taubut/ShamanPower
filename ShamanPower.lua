@@ -2554,7 +2554,8 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 			-- While the game hides totem data (combat on Forever) this is the only way to
 			-- know a totem went: tell whoever listens (Expiring Alerts, the bar's
 			-- Effects) why, as best we can.
-			if (self.OnShadowTotemGone or (self.TotemCuesWanted and self:TotemCuesWanted())) and totemsSecretNow() then
+			if (self.OnShadowTotemGone or (self.TotemCuesWanted and self:TotemCuesWanted())
+				or (self.UsualTotemWanted and self:UsualTotemWanted())) and totemsSecretNow() then
 				-- announced one bind window later: a cast that arrives just after its own
 				-- slot updates (a totem set, or a re-drop of this element) claims the slot
 				-- and cancels this. The reason is worked out then too, so a Totemic Recall
@@ -2580,6 +2581,8 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 					end
 					if self.OnShadowTotemGone then pcall(self.OnShadowTotemGone, self, rec.element, e, why) end
 					if self.TotemEndCue then pcall(self.TotemEndCue, self, rec.element, why) end
+					-- Put Your Usual Totem Back (ShamanPowerUsualTotem.lua): last, after the bar's own effects
+					if self.UsualTotemGone then pcall(self.UsualTotemGone, self, rec.element, e, why) end
 				end)
 			end
 		end
@@ -18369,6 +18372,7 @@ function ShamanPower:PLAYER_TOTEM_UPDATE(event, slot)
 	self:RecordTotemDropFromSlot(slot)
 	self:RefreshTotemDestroySlots()   -- cast-order clients: keep right-click destroy on the right slot
 	if self.CueTotemUpdate then self:CueTotemUpdate() end   -- the bar's Effects (ShamanPowerCues.lua)
+	if self.UsualTotemUpdate then self:UsualTotemUpdate() end   -- Put Your Usual Totem Back (readable slots)
 end
 
 function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spellID)
@@ -18404,6 +18408,9 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 			end
 		end
 	end
+	-- Put Your Usual Totem Back (ShamanPowerUsualTotem.lua): your own temporary totem arms it.
+	-- Last, so nothing above waits on it (Dynamic Mode's new assignment comes a moment later)
+	if unitTarget == "player" and self.UsualTotemCast then self:UsualTotemCast(spellID) end
 end
 
 function ShamanPower:PLAYER_ROLES_ASSIGNED(event)
