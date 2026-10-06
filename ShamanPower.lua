@@ -7841,6 +7841,9 @@ function ShamanPower:EnsureFlyoutBox(element, totemButton, flyout, relayout)
 		local open = spFlyoutMakeArrow("ShamanPowerFlyoutOpen" .. element, totemButton, box, "player")
 		local close = spFlyoutMakeArrow("ShamanPowerFlyoutClose" .. element, box, box, "none")
 		open.spOwner, close.spOwner = totemButton, totemButton
+		-- (a tab reused by name from a rebuilt bar: its mouse as its button's now, Show Items Only
+		-- When Running Out takes it away with a hidden cooldown bar button: ShamanPowerCues.lua)
+		open:EnableMouse(not totemButton._roMouseOff)
 		-- Invisible press targets for macros (short names keep every macro far
 		-- below the length limit). Per flyout key K:
 		--   SPFO<K> / SPFC<K>  attribute: open / close the box
@@ -11210,6 +11213,7 @@ end
 
 function ShamanPower:ClearEngineBarCooldown(btn)
 	btn._ebSpell = nil
+	btn._ebDur = nil   -- (Cooldown Almost Ready's exact moment: ShamanPowerCues.lua)
 	self:DisarmEngineCooldownEnd(btn.cooldown)
 	if btn.cooldown then btn.cooldown:Clear(); btn.cooldown:SetHideCountdownNumbers(true) end   -- back to none (see the button's creation)
 	if btn.cdBar then btn.cdBar:Hide() end
@@ -11240,6 +11244,9 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 		btn._ebSpell, btn._ebSweep, btn._ebBars, btn._ebText, btn._ebPos = btn.spellID, sweepStyle, showBars, textKey, barPosition
 		btn._ebFromTop = fromTop
 		btn._ebBand = band
+		-- the duration object for Cooldown Almost Ready's exact moment, and its time text colored
+		-- again after PlaceEngineBarText below (ShamanPowerCues.lua)
+		btn._ebDur, btn._roEngTime = d, nil
 		local cd = btn.cooldown
 		local Dir = Enum and Enum.StatusBarTimerDirection or {}
 		local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
@@ -11697,7 +11704,13 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					-- kept a fixed blue and an empty options table.)
 					local carrier = CreateFrame("Frame", nil, button)
 					carrier:SetAllPoints(button)
-					local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+					-- the count and the time on a frame of their own, over the button's effects (its cue
+					-- frame, +14, and its parts up to +17): a running-out look over the game's icon keeps
+					-- them sharp on top
+					local texts = CreateFrame("Frame", nil, button)
+					texts:SetAllPoints(button)
+					texts:SetFrameLevel(btn:GetFrameLevel() + 18)   -- (over the cue frame's own parts too)
+					local count = texts:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
 					local strip = opt.cdbarShieldChargeBar and btn.chargeStrip
 					if strip and btn.chargeText then
@@ -11746,7 +11759,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					local src = (textLocation == "inside" and btn.insideText) or (textLocation == "outside" and btn.outsideText)
 						or (textLocation == "icon" and btn.iconText)
 					if src then
-						local fs = carrier:CreateFontString(nil, "OVERLAY")
+						local fs = texts:CreateFontString(nil, "OVERLAY")
 						self:CopySPFont(fs, src)   -- same font as the addon's text, and follows later font changes
 						local r, g, b = src:GetTextColor()
 						fs:SetTextColor(r or 1, g or 1, b or 1)
@@ -11765,7 +11778,13 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 							else point = "RIGHT" end   -- left, on_icon
 						end
 						fs:SetPoint(point, src, point, 0, 0)
-						reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
+						-- Time Turns Red While Running Out (Cooldown Bar > Effects): the game colors its own time
+						local topts = self.ShieldTimeTextOptions and self:ShieldTimeTextOptions()
+						if topts and pcall(button.SetDurationText, button, fs, topts) then
+							reg("SetDurationText(colored)", true)
+						else
+							reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
+						end
 					end
 					T("SHIELD init end %s", set.name)
 				end,
@@ -11784,6 +11803,8 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 	pcall(container.UpdateAllAuras, container)
 	container:Hide()   -- shown only while auras are secret
 	btn.chargeContainer = container
+	-- what its time text is built with (Time Turns Red While Running Out: ShamanPowerCues.lua)
+	btn.spTimeKey = self.ShieldTimeTextKey and self:ShieldTimeTextKey() or 0
 	-- a shield slot that did not register: kept (it draws what it can), built again
 	-- after the next fight (OnCombatEnd), a few times at most
 	btn.chargeContainerFailed = failed or nil
@@ -12102,6 +12123,7 @@ function ShamanPower:UpdateCooldownButtons()
 			-- it counts as up, the one shown above it, the one in its corner (CooldownBarShieldView)
 			local viewIdx, viewUp, aboveIdx, cornerIdx = self:CooldownBarShieldView(hasShield and self:ShieldIndexOf(activeShieldID) or nil)
 			local aboveCharges = aboveIdx and shieldCharges or 0
+			local shieldUp = hasShield   -- (running out: the shield really up, whichever the style shows)
 			hasShield = viewUp
 
 			if hasShield then
@@ -12280,6 +12302,9 @@ function ShamanPower:UpdateCooldownButtons()
 				self:CooldownBarAbove(btn, aboveIdx and self:ShieldIcon(aboveIdx), nil, ar, ag, ab, count, not viewUp)
 				self:CooldownBarCorner(btn, cornerIdx and self:ShieldIcon(cornerIdx))
 			end
+			-- running out (Show Items Only When Running Out, the running-out effects: ShamanPowerCues.lua)
+			if self.RunOutShield and self:RunOutShield(btn, shieldUp, (shieldUp and shieldDuration > 0) and (shieldExpiration - GetTime()) or nil,
+				shieldCharges, cache and cache.engineCount) then busy = true end
 
 		elseif btn.spellType == "cooldown" then
 			-- Check cooldown
@@ -12446,9 +12471,17 @@ function ShamanPower:UpdateCooldownButtons()
 					btn.icon:SetDesaturated(false)
 				end
 			end
+			-- running out (ShamanPowerCues.lua): its seconds left from the numbers above (in a fight on
+			-- WoW: Forever, ShamanPower's own record of your cast; none known: nil)
+			if self.RunOutCooldown then
+				local left = (cooling and type(start) == "number" and type(duration) == "number" and start > 0 and duration > 1.5)
+					and ((start + duration) - GetTime()) or nil
+				if self:RunOutCooldown(btn, cooling and true or false, left) then busy = true end
+			end
 		elseif btn.spellType == "weaponImbue" then
 			local hasMain, mainExp, _, mainID, hasOff, offExp, _, offID = GetWeaponEnchantInfo()
 			if self.CueImbueCheck then self:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainExp, offExp) end   -- "Weapon Imbue Gone" effect
+			local readMain, readOff = hasMain, hasOff   -- (running out, below: the game's own read)
 			-- the style (the totem bar's, or the cooldown bar's own): the imbue the button shows on each hand,
 			-- whether each hand counts as up, the ones shown above it, the one in its corner
 			local actualMain = hasMain and (self.EnchantIDToImbue[mainID] or self.lastMainHandImbue or 1) or nil
@@ -12589,6 +12622,8 @@ function ShamanPower:UpdateCooldownButtons()
 				self:CooldownBarAbove(btn, above1 and self.WeaponIcons[above1], above2 and self.WeaponIcons[above2], ar, ag, ab, nil, not (upMain or upOff))
 				self:CooldownBarCorner(btn, cornerImbue and self.WeaponIcons[cornerImbue])
 			end
+			-- running out (Show Items Only When Running Out, the running-out effects: ShamanPowerCues.lua)
+			if self.RunOutImbue and self:RunOutImbue(btn, readMain, readOff, mainID, offID, mainExp, offExp) then busy = true end
 		end
 	end
 
@@ -13414,14 +13449,16 @@ function ShamanPower:UpdateCooldownBarOpacity()
 					isActive = hasMain
 				end
 
-				btn:SetAlpha(isActive and 1.0 or opacity)
+				-- out of sight (Show Items Only When Running Out): 0, keeping its spot
+				btn:SetAlpha(btn._roHidden and 0 or (isActive and 1.0 or opacity))
 			end
 		else
 			self.cooldownBar:SetAlpha(opacity)
 			-- Reset all buttons to inherit bar opacity
 			if self.cooldownButtons then
 				for i = 1, #self.cooldownButtons do
-					self.cooldownButtons[i]:SetAlpha(1.0)  -- Full relative to parent
+					local btn = self.cooldownButtons[i]
+					btn:SetAlpha(btn._roHidden and 0 or 1.0)  -- Full relative to parent (0: out of sight)
 				end
 			end
 		end
@@ -16598,6 +16635,7 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 		self.esTrackedTargetGUID = self.esLastCastGUID
 		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 6  -- Full charges on fresh cast (will be updated by UNIT_AURA)
+		self.esTrackedExpiration = nil   -- (read with the charges, from the carrier's aura)
 
 		-- Clear pending
 		self.esLastCastTarget = nil
@@ -16620,13 +16658,14 @@ function ShamanPower:DiscoverEarthShieldTarget()
 	for _, u in ipairs(tokens) do
 		if UnitExists(u) then
 			for i = 1, 40 do
-				local name, _, count, _, _, _, source = SPCompat.UnitBuff(u, i)
+				local name, _, count, _, _, expiration, source = SPCompat.UnitBuff(u, i)
 				if not name then break end
 				if name == esSpellName and source == "player" then
 					self.esTrackedTarget = UnitName(u)
 					self.esTrackedTargetGUID = UnitGUID(u)
 					self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 					self.esTrackedCharges = count or 0
+					self.esTrackedExpiration = (type(expiration) == "number" and not issecretvalue(expiration)) and expiration or nil
 					self:UpdateEarthShieldButton()
 					return
 				end
@@ -16695,10 +16734,12 @@ function ShamanPower:OnEarthShieldAuraChange(unit, info)
 	-- Check this ONE unit for ES buff
 	local found = false
 	for i = 1, 40 do
-		local name, _, count, _, _, _, source = SPCompat.UnitBuff(unit, i)
+		local name, _, count, _, _, expiration, source = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == esSpellName and source == "player" then
 			self.esTrackedCharges = count or 0
+			-- its end, for Running Out (Cooldown Bar > Effects) in its last seconds
+			self.esTrackedExpiration = (type(expiration) == "number" and not issecretvalue(expiration)) and expiration or nil
 			found = true
 			-- TBC Anniversary: its instance, for TrackedEarthShieldMayHaveChanged
 			self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = nil, nil
@@ -16718,6 +16759,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit, info)
 		self.esTrackedTargetGUID = nil
 		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 0
+		self.esTrackedExpiration = nil
 	end
 
 	-- Update display (but not full rebuild)
@@ -16875,6 +16917,8 @@ function ShamanPower:UpdateEarthShieldCharges()
 
 	-- Store current target for display purposes
 	self.currentEarthShieldTarget = currentTarget
+	-- Running Out (Cooldown Bar > Effects): its last seconds or 2 charges (ShamanPowerCues.lua)
+	if self.RunOutEarthShield and esBtn then self:RunOutEarthShield(esBtn, currentTarget, charges) end
 end
 
 -- Check if a player is dead (by name)

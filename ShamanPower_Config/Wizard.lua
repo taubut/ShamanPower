@@ -1043,7 +1043,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	end
 	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
 	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
-		for i = 1, 4 do slots[i].main.icon = slots[i].mIcon end
+		for i = 1, 4 do slots[i].main.icon = slots[i].mIcon; slots[i].main.spShapeKind = "totem" end   -- (Icon Shape: the totem bar's)
 		slots[4].main.element = 4   -- (the Elemental look paints the reminder in Air's color)
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ btn = slots[1].main, cap = "Destroyed", on = "totemCueDestroyed", style = "totemCueDestroyedStyle", def = "shake", kind = "destroyed", at = 0.3 },
@@ -3445,7 +3445,8 @@ end
 -- ShamanPowerCues.lua); the one-shots take turns in a 3.6 s cycle and the
 -- expiring loop runs while it is on; a caption under each button says what it
 -- shows. items: { btn (a frame with .icon) or pick (several: the first one
--- shown), cap, on, style, def, kind, at (one-shot: its point in the cycle) or
+-- shown), cap, capAbove (the caption over the button: another effect's sits
+-- under it), on, style, def, kind, at (one-shot: its point in the cycle) or
 -- loop = true }.
 function SP.Wizard.RunEffectsDemo(parent, items)
 	local fx = SP.CueFx
@@ -3477,7 +3478,7 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 					it.capAt = btn
 					fs:ClearAllPoints()
 					if btn then
-						fs:SetPoint("TOP", btn, "BOTTOM", 0, -6)
+						if it.capAbove then fs:SetPoint("BOTTOM", btn, "TOP", 0, 6) else fs:SetPoint("TOP", btn, "BOTTOM", 0, -6) end
 						fs:SetWidth(math.max(40, btn:GetWidth() + 8))
 					end
 				end
@@ -3499,8 +3500,11 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 			tick = 0
 			captions(o)
 			for _, it in ipairs(items) do
-				if it.loop and it.btn then
-					if o[it.on] and it.btn:IsVisible() then fx.loop(it.btn, o[it.style] or it.def, it.kind) else fx.stop(it.btn) end
+				local lb = it.loop and shownBtn(it)
+				if lb then
+					if it.loopAt and it.loopAt ~= lb then fx.stop(it.loopAt) end   -- (a pick that moved to another button)
+					it.loopAt = lb
+					if o[it.on] and lb:IsVisible() then fx.loop(lb, o[it.style] or it.def, it.kind) else fx.stop(lb) end
 				end
 			end
 		end
@@ -3515,6 +3519,8 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 				if btn and btn:IsVisible() then
 					fx.play(btn, o[it.style] or it.def, it.kind)
 					if it.kind == "destroyed" and o.totemCueDestroyedMark ~= false then fx.mark(btn) end
+					-- the cooldown bar's Red X Until Recast, in that bar's own look
+					if it.mark and o[it.mark] then fx.mark(btn, SP.ThemeCue and SP.ThemeCue.lookOf and SP.ThemeCue.lookOf(it.kind) or nil) end
 				end
 			end
 		end
@@ -3607,8 +3613,12 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 		plus(STYLES, STYLE_ORDER, "ringin", "Ring draws in", "underline", "Underline runs out"))
 	cue("Totem expiring soon", "Over a totem's last seconds its button pulses darker, or its edges glow orange.",
 		"totemCueExpiring", "totemCueExpiringStyle", "pulse",
-		plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
-			"drain", "Frame drains", "underbar", "Bar under it"))
+		(function()   -- (and Turns red, as on the Effects page)
+			local v, o = plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
+				"drain", "Frame drains", "underbar", "Bar under it")
+			return function() local t = v(); t.red = "Turns red"; return t end,
+				function() local t = o(); t[#t + 1] = "red"; return t end
+		end)())
 	row("Slider", { label = "Seconds before it ends", min = 3, max = 15, step = 1,
 		disabled = function() return not O().totemCueExpiring end,
 		get = function() return O().totemCueExpiringSecs or 5 end, set = set("totemCueExpiringSecs") })
@@ -3703,6 +3713,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		end
 		-- Staggered sim clock so the bar is not in lockstep.
 		btn.icon = icon   -- for the Effects tab's demo (RunEffectsDemo)
+		btn.spShapeKind = "cooldown"   -- (its looks take the Cooldown Bar's Icon Shape)
 		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, strip = strip, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
 	end
 	-- Effects tab: the first cooldown shown plays Cooldown Ready, the imbue chip
@@ -3714,10 +3725,18 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			elseif b.sp.imbue then imbue = b.f
 			elseif (b.sp.cd or 0) > 0 then cds[#cds + 1] = b.f end
 		end
+		local cdsAlmost = {}   -- (every cooldown but the first, which shows Ready)
+		for k = 2, #cds do cdsAlmost[#cdsAlmost + 1] = cds[k] end
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ pick = cds, cap = "Ready", on = "cdbarCueReady", style = "cdbarCueReadyStyle", def = "pop", kind = "ready", at = 1.7 },
-			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4 },
-			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1 },
+			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4, mark = "cdbarCueImbueMark" },
+			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1, mark = "cdbarCueShieldMark" },
+			-- Running Out (its last seconds): a loop on the shield chip, captioned over it
+			{ btn = shield, cap = "Running out", capAbove = true, on = "cdbarCueRunning", style = "cdbarCueRunningStyle", def = "red", kind = "running", loop = true },
+			-- Turns Red While Missing: the imbue chip red, captioned over it
+			{ btn = imbue, cap = "Missing", capAbove = true, on = "cdbarCueMissing", def = "red", kind = "running", loop = true },
+			-- Cooldown Almost Ready: a loop in gold on another cooldown (the first one shown plays Ready)
+			{ pick = cdsAlmost, cap = "Almost ready", on = "cdbarCueAlmost", style = "cdbarCueAlmostStyle", def = "glow", kind = "almost", loop = true },
 		})
 	end
 

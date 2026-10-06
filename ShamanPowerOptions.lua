@@ -11776,6 +11776,35 @@ do
 			set = function(_, v) SP.opt[key] = v and true or nil; lookChanged() end }
 	end
 	local mainline = SPCompat.FOREVER
+	-- Totem Expiring Soon's list: today's two, the two the Effects Looks added, and Turns red
+	-- (the cooldown bar's Running Out look, one more choice: nothing changes unless it is picked)
+	local function expiringStyles()
+		local v, o = plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")
+		v.red = "Turns red"
+		o[#o + 1] = "red"
+		return v, o
+	end
+	-- The cooldown bar's "running out" moment (ShamanPowerCues.lua): one saved setting each,
+	-- shown on Cooldown Bar > Display (Show Items Only When Running Out) and > Effects (the
+	-- running-out effects): change it in either place.
+	local function runOutSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 10, max = 300, step = 5,
+			name = "Seconds Before a Shield or Imbue Ends",
+			desc = "When a shield or weapon imbue counts as running out. A shield also counts as running out on its last charge."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() return SP.opt.cdbarRunOutSecs or 60 end,
+			set = function(_, v) SP.opt.cdbarRunOutSecs = v; apply() end }
+	end
+	local function almostSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 0, max = 30, step = 1,
+			name = "Seconds Before a Cooldown Is Ready",
+			desc = "When a cooldown counts as almost ready (0: only once it is ready, so Cooldown Almost Ready never plays)."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() local s = SP.opt.cdbarAlmostSecs if s == nil then s = 5 end return s end,
+			set = function(_, v) SP.opt.cdbarAlmostSecs = v; apply() end }
+	end
 	-- Each bar's effects sit with the bar they animate (Totem Bar > Effects,
 	-- Cooldown Bar > Effects): a player who sees a button shake looks there.
 	SP.options.args.fluffy.args.totembar_effects_section = { type = "group", name = "Effects", order = 1.35, args = {
@@ -11801,7 +11830,7 @@ do
 		totemCueExpiring = toggle(1.6, "totemCueExpiring", "Totem Expiring Soon",
 			"Over a totem's last seconds its button pulses darker, or its edges glow orange, until it runs out or you drop it again."),
 		totemCueExpiringStyle = style(1.7, "totemCueExpiringStyle", "totemCueExpiring", "pulse", "Expiring Style",
-			plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")),
+			expiringStyles()),
 		totemCueExpiringSecs = { order = 1.8, type = "range", width = "full", name = "Seconds Before It Ends",
 			min = 3, max = 15, step = 1,
 			disabled = function() return not SP.opt.totemCueExpiring end,
@@ -11817,7 +11846,8 @@ do
 			.. " Every effect is off until you turn it on, and the look starts as Standard. The Test button plays the chosen styles on your bar." },
 		cdbarCueLook = look(2.02, "cdbarCueLook", "Choose the Cooldown Bar effects' look. Standard: the original look. Elemental: a ring and glow in the element's color. Signal: a thin border and a bar along the bottom."),
 		cdbarCueSignature = signature(2.03, "cdbarCueSignature", "cdbarCueLook",
-			"Shine, Element flare, Shield burst", "Dot, Corner flag, Border blink + flag"),
+			"Shine, Element flare, Shield burst, and Frame drains for Running Out and Cooldown Almost Ready",
+			"Dot, Corner flag, Border blink + flag, and Bar under it for Running Out and Cooldown Almost Ready"),
 		cdbarCueReady = toggle(2.1, "cdbarCueReady", "Cooldown Ready",
 			"When a cooldown on the bar is ready again, its button plays the style below in gold."),
 		cdbarCueReadyStyle = style(2.2, "cdbarCueReadyStyle", "cdbarCueReady", "pop", "Ready Style",
@@ -11826,6 +11856,11 @@ do
 			"When a weapon imbue drops off (it ran out, or the weapon was swapped), the imbue button plays the style below in blue."),
 		cdbarCueImbueStyle = style(2.4, "cdbarCueImbueStyle", "cdbarCueImbue", "shake", "Imbue Style",
 			plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag")),
+		cdbarCueImbueMark = { order = 2.45, type = "toggle", width = "full", name = "Red X Until You Imbue Again",
+			desc = "Also put a red X on the imbue button until you put an imbue on again (5 seconds at most).",
+			disabled = function() return not SP.opt.cdbarCueImbue end,
+			get = function() return SP.opt.cdbarCueImbueMark and true or false end,
+			set = function(_, v) SP.opt.cdbarCueImbueMark = v and true or false; apply() end },
 		cdbarCueShield = toggle(2.5, "cdbarCueShield", "Shield Gone",
 			mainline and ("When your Lightning or Water Shield is gone, the shield button plays the style below in blue."
 				.. " In combat, the button pulses red while no shield is up instead."
@@ -11833,10 +11868,70 @@ do
 			or "When your Lightning or Water Shield is gone, the shield button plays the style below in blue."),
 		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style",
 			plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag")),
+		cdbarCueShieldMark = { order = 2.65, type = "toggle", width = "full", name = "Red X Until You Cast a Shield Again",
+			desc = "Also put a red X on the shield button until you cast a shield again (5 seconds at most)."
+				.. (mainline and " In a fight it shows while no shield is up instead, like Shield Gone's red pulse (at 100% Cooldown Bar opacity)." or ""),
+			disabled = function() return not SP.opt.cdbarCueShield end,
+			get = function() return SP.opt.cdbarCueShieldMark and true or false end,
+			set = function(_, v) SP.opt.cdbarCueShieldMark = v and true or false; apply() end },
+		-- Turns Red While Missing: a shield or imbue that is gone, red until you cast it again
+		cdbarCueMissing = toggle(2.67, "cdbarCueMissing", "Turns Red While Missing",
+			"While your shield or a weapon imbue is gone, its button turns red until you cast it again (with two weapons: either hand)."
+				.. (mainline and " In a fight on WoW: Forever the shield's red sits under the game's shield icon, so it shows the moment the icon goes (at 100% Cooldown Bar opacity)." or "")),
+		-- Running Out: the button that is running out (its last seconds) plays a look until you cast it again
+		cdbarCueRunning = toggle(2.7, "cdbarCueRunning", "Running Out",
+			"Over the last moments of your shield or weapon imbue" .. (mainline and "" or " (and your Earth Shield)")
+				.. ", its button plays the style below until you cast it again. A shield also counts as running out on its last charge."
+				.. (mainline and " In a fight on WoW: Forever only the shield's time counts: the game hides its charges there (its number still turns red on the last one)." or "")),
+		cdbarCueRunningStyle = style(2.71, "cdbarCueRunningStyle", "cdbarCueRunning", "red", "Running Out Style",
+			{ red = "Turns red", pulse = "Pulse", glow = "Glow", drain = "Frame drains", underbar = "Bar under it" },
+			{ "red", "pulse", "glow", "drain", "underbar" }),
+		cdbarRunOutSecs = runOutSecs(2.72, "Display (Show Items Only When Running Out)",
+			function() return not (SP.opt.cdbarCueRunning or SP.opt.cdbarCueTimeColor) end),
+		-- Cooldown Almost Ready: a cooldown's last seconds, in the Cooldown Ready gold
+		cdbarCueAlmost = toggle(2.75, "cdbarCueAlmost", "Cooldown Almost Ready",
+			"Over a cooldown's last seconds, its button plays the style below in gold, until it is ready."),
+		cdbarCueAlmostStyle = style(2.76, "cdbarCueAlmostStyle", "cdbarCueAlmost", "glow", "Almost Ready Style",
+			{ pulse = "Pulse", glow = "Glow", drain = "Frame drains", underbar = "Bar under it" },
+			{ "pulse", "glow", "drain", "underbar" }),
+		cdbarAlmostSecs = almostSecs(2.77, "Display (Show Items Only When Running Out)",
+			function() return not (SP.opt.cdbarCueAlmost or SP.opt.cdbarCueTimeColor) end),
+		-- why it isn't showing: at 0 seconds there are no last seconds
+		cdbar_almost_zero = { order = 2.775, type = "description", width = "full",
+			name = "|cffffa040At 0 seconds a cooldown has no last seconds, so Cooldown Almost Ready never plays. Raise Seconds Before a Cooldown Is Ready to see it.|r",
+			hidden = function() return not (SP.opt.cdbarCueAlmost and SP.opt.cdbarAlmostSecs == 0) end },
+		cdbarCueTimeColor = toggle(2.8, "cdbarCueTimeColor", "Time Turns Red While Running Out",
+			"The time on a button that is running out turns red (gold on a cooldown that is almost ready). On a button"
+				.. " that turns red, the time stays white so you can read it."),
 		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
-			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button Shield Gone, in the styles chosen above.",
+			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button"
+				.. " Shield Gone, in the styles chosen above. Running Out and Cooldown Almost Ready play for 3 seconds,"
+				.. " then Turns Red While Missing for 3 more when it is on.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
+	-- Cooldown Bar > Display: Show Items Only When Running Out, under its own heading
+	local display = SP.options.args.fluffy.args.cooldown_display_section
+	if display and display.args then
+		local d = display.args
+		local function d50Off() return not SP.opt.cdbarRunOutOnly end
+		d.runout_header = { order = 90, type = "header", name = "Show Only When Running Out" }
+		d.cdbarRunOutOnly = { order = 90.1, type = "toggle", width = "full", name = "Show Items Only When Running Out",
+			desc = "Shields, weapon imbues and cooldowns stay out of sight until they are running out, then come up with their time left."
+				.. " A shield or imbue that is gone stays up until you cast it again. Hidden items keep their spots, so nothing on the bar moves;"
+				.. " in a fight a click on a hidden item's spot still casts it. With the Grid style the shield and imbue stay up (every choice is laid out beside them)."
+				.. (mainline and " On WoW: Forever your shield stays on the bar during a fight: the game doesn't tell addons when it runs out there." or ""),
+			get = function() return SP.opt.cdbarRunOutOnly and true or false end,
+			set = function(_, v) SP.opt.cdbarRunOutOnly = v and true or false; apply() end }
+		d.cdbarRunOutSecs = runOutSecs(90.2, "Effects (Running Out)", d50Off)
+		d.cdbarAlmostSecs = almostSecs(90.3, "Effects (Cooldown Almost Ready)", d50Off)
+		d.cdbarRunOutReady = { order = 90.4, type = "select", width = "full", name = "When a Cooldown Is Ready",
+			desc = "Hide It Again: a cooldown goes out of sight again once it is ready, after its Cooldown Ready flash (Cooldown Bar > Effects)."
+				.. " Keep It Up Until Used: it stays in sight from its last seconds until you use it.",
+			values = { hide = "Hide It Again", keep = "Keep It Up Until Used" }, sorting = { "hide", "keep" },
+			disabled = d50Off,
+			get = function() return (SP.opt.cdbarRunOutReady == "keep") and "keep" or "hide" end,
+			set = function(_, v) SP.opt.cdbarRunOutReady = v; apply() end }
+	end
 	-- the Effects page used to be Appearance > Effects: its old address lands here
 	SP.SettingsPathAliases["fluffy/effects_appearance"] = { "fluffy", "totembar_effects_section" }
 	for _, group in ipairs({ "totembar_effects_section", "cdbar_effects_section" }) do

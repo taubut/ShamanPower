@@ -166,7 +166,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemCueExpired = false,            -- a totem that ran out
         totemCueExpiredStyle = "pop",
         totemCueExpiring = false,           -- a loop over a totem's last seconds
-        totemCueExpiringStyle = "pulse",    -- pulse / glow
+        totemCueExpiringStyle = "pulse",    -- pulse / glow / drain / underbar / red (Turns red)
         totemCueExpiringSecs = 5,
         cdbarCueReady = false,              -- a cooldown on the cooldown bar ready again
         cdbarCueReadyStyle = "pop",
@@ -174,6 +174,24 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueImbueStyle = "shake",
         cdbarCueShield = false,             -- the shield gone (in combat on Forever: a red loop while missing)
         cdbarCueShieldStyle = "shake",
+        cdbarCueImbueMark = false,          -- Red X Until You Imbue Again (with Weapon Imbue Gone)
+        cdbarCueShieldMark = false,         -- Red X Until You Cast a Shield Again (with Shield Gone)
+        cdbarCueMissing = false,            -- Turns Red While Missing: a shield / imbue that is gone, red until recast
+        -- The cooldown bar's "running out" moment (ShamanPowerCues.lua), one setting each, shown on
+        -- Cooldown Bar > Display AND > Effects: a shield or imbue in its last N seconds (a shield also on
+        -- its last charge), a cooldown in its last N seconds (0: only once it is ready)
+        cdbarRunOutSecs = 60,
+        cdbarAlmostSecs = 5,
+        -- Show Items Only When Running Out (Cooldown Bar > Display): off to start
+        cdbarRunOutOnly = false,
+        cdbarRunOutReady = "hide",          -- a cooldown that is ready: "hide" (after its flash) / "keep" (until used)
+        -- Running Out (Cooldown Bar > Effects): the shield / imbue (Earth Shield) button that runs out plays a look
+        cdbarCueRunning = false,
+        cdbarCueRunningStyle = "red",       -- red (Turns red) / pulse / glow / drain / underbar
+        cdbarCueTimeColor = false,          -- Time Turns Red While Running Out (gold on a cooldown almost ready)
+        -- Cooldown Almost Ready (Cooldown Bar > Effects): a cooldown's last seconds, in gold
+        cdbarCueAlmost = false,
+        cdbarCueAlmostStyle = "glow",       -- pulse / glow / drain / underbar
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button

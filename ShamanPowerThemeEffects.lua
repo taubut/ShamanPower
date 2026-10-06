@@ -53,6 +53,7 @@ local cueFrame, TINT, iconMotion, alphaAnim
 local SPOT_OF = {
 	destroyed = "tb.effects", expired = "tb.effects", expiring = "tb.effects",
 	ready = "cd.effects", imbue = "cd.effects", shield = "cd.effects",
+	running = "cd.effects", almost = "cd.effects",   -- Cooldown Bar > Effects: Running Out, Cooldown Almost Ready
 }
 -- the new one-shot styles and the new loops (Totem Expiring Soon)
 local MOVES = { crumble = true, frameblink = true, ringin = true, underline = true, shine = true,
@@ -353,7 +354,14 @@ local PREVIEW_ELEMENT = { destroyed = 1, expired = 2, expiring = 3 }
 local function elementOf(host, kind)
 	if kind == "shield" then return 3 end
 	if kind == "imbue" then return imbueElement(host) end
-	if kind == "ready" then return nil end
+	if kind == "ready" or kind == "almost" then return nil end
+	-- Running Out: the item's own element (the shield Water's, an imbue its own, Earth Shield Earth's)
+	if kind == "running" then
+		local what = host.spRunKind
+		if what == "imbue" then return imbueElement(host) end
+		if what == "es" then return 1 end
+		return 3
+	end
 	local e = host.element
 	if type(e) == "number" and e >= 1 and e <= 4 then return e end
 	return PREVIEW_ELEMENT[kind]
@@ -362,7 +370,7 @@ local function lookTint(host, kind)
 	local element = elementOf(host, kind)
 	if element and SP.ThemeElement then
 		-- the element colour of this bar's effects spot (its own palette, or the player's own under Standard)
-		local spot = (kind == "ready" or kind == "imbue" or kind == "shield") and "cd.effects" or "tb.effects"
+		local spot = (kind == "ready" or kind == "imbue" or kind == "shield" or kind == "running" or kind == "almost") and "cd.effects" or "tb.effects"
 		return SP:ThemeElement(spot, element)
 	end
 	local t = TINT[kind] or TINT.expired
@@ -548,9 +556,14 @@ local function stop(c)
 end
 
 -- The part of the last seconds still left, for Frame drains / Bar under it:
--- the totem's own time on a real button; on a preview's mock button a 5-second
--- countdown, round and round.
+-- the totem's own time on a real button; the cooldown bar's running-out part (its
+-- pass sets spRunFrac); on a preview's mock button a 5-second countdown, round and round.
 local function loopFrac(host, c)
+	local f0 = host.spRunFrac
+	if f0 then
+		if f0 < 0 then f0 = 0 elseif f0 > 1 then f0 = 1 end
+		return f0
+	end
 	local element = host.element
 	local buttons = SP.totemButtons
 	if element and buttons and buttons[element] == host then
@@ -567,14 +580,17 @@ local function loopFrac(host, c)
 	return 1 - ((now - c.loopT0) % 5) / 5
 end
 
--- Called again and again while the loop runs (the expiring pass, the preview):
--- a running loop changes nothing, except Frame drains and Bar under it, which
--- follow the time left. Returns false for today's loops on the Standard look
--- (after taking down a theme loop left from before): the caller runs them.
-local function loop(host, style, t, lk)
+-- Called again and again while the loop runs (the expiring pass, the cooldown
+-- bar's pass, the preview): a running loop changes nothing, except Frame drains and
+-- Bar under it, which follow the time left. Returns false for today's loops on the
+-- Standard look (after taking down a theme loop left from before): the caller runs
+-- them. kind: whose loop (nil: Totem Expiring Soon; "running" / "almost": the
+-- cooldown bar's Running Out / Cooldown Almost Ready), for its look and colors.
+local function loop(host, style, t, lk, kind)
 	if not cueFrame or not host then return false end
+	kind = kind or "expiring"
 	local move = LOOP_MOVES[style]
-	if lk ~= "elemental" and lk ~= "signal" then lk = (lk == nil) and lookOf("expiring") or "standard" end
+	if lk ~= "elemental" and lk ~= "signal" then lk = (lk == nil) and lookOf(kind) or "standard" end
 	if not move and lk == "standard" then
 		local c = host.spCue
 		if c and c.loopMove then stop(c) end   -- back from a theme's loop: today's starts clean
@@ -589,7 +605,7 @@ local function loop(host, style, t, lk)
 	local h = host:GetHeight()
 	if style == "drain" then
 		if not c.drain:IsShown() then
-			local r, g, b = lookTint(host, "expiring")
+			local r, g, b = lookTint(host, kind)
 			tintEdges(c.drain.edges, r, g, b)
 			c.drain:Show()
 		end
@@ -610,13 +626,13 @@ local function loop(host, style, t, lk)
 	elseif lk == "elemental" then
 		if style == "glow" then
 			if not c.ringBreathe:IsPlaying() then
-				local r, g, b = lookTint(host, "expiring")
+				local r, g, b = lookTint(host, kind)
 				c.ring:SetVertexColor(r, g, b)
 				sizeRing(c, h, 1)
 				c.ringBreathe:Play()
 			end
 		elseif not c.ringTighten:IsPlaying() then
-			local r, g, b = lookTint(host, "expiring")
+			local r, g, b = lookTint(host, kind)
 			c.ring:SetVertexColor(r, g, b)
 			sizeRing(c, h, 1)
 			c.ringTighten:Play()
@@ -674,5 +690,7 @@ if SP.ThemeSpotSettings then
 		styleSetting("cdbarCueReadyStyle", "Ready Style", "shine", "dot"),
 		styleSetting("cdbarCueImbueStyle", "Imbue Style", "flare", "flag"),
 		styleSetting("cdbarCueShieldStyle", "Shield Style", "burst", "blinkflag"),
+		styleSetting("cdbarCueRunningStyle", "Running Out Style", "drain", "underbar"),
+		styleSetting("cdbarCueAlmostStyle", "Almost Ready Style", "drain", "underbar"),
 	})
 end
