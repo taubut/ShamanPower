@@ -1619,7 +1619,8 @@ function LOOK.ColorsDiffer(c)
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" and type(c.rr) == "table" then
 		for _, k in ipairs({ "borderColor", "glowColor", "barColor", "buffEdgeColor" }) do
-			if not Near(rr[k], c.rr[k]) then return true end
+			-- (D52) a look kept before the buff's Edge Color existed has none: nothing to load for it
+			if not (k == "buffEdgeColor" and c.rr[k] == nil) and not Near(rr[k], c.rr[k]) then return true end
 		end
 	end
 	local tr = ShamanPowerTremorReminderDB
@@ -2110,6 +2111,8 @@ function Cards.Migrate()
 	if SP.ReadyReminderSpells and not Cards.addedReadyDirections then
 		for _, entry in ipairs(SP.ReadyReminderSpells) do
 			Cards.ADDED["e.mod.readyreminders.sweepDirection." .. entry.key] = Cards.InheritedSweepDirection
+			-- (D52) each buff's Edge Color, inherited the same way ("default": the shared one)
+			if entry.buff then Cards.ADDED["e.mod.readyreminders.buffEdgeColor." .. entry.key] = Cards.InheritedSweepDirection end
 		end
 		Cards.addedReadyDirections = true
 	end
@@ -2289,6 +2292,9 @@ function Cards.FitsEntry(v, id, e)
 	local shape = Cards.Shape(v)
 	if shape == "table" then return false end
 	if shape == "color" and not Cards.GoodColor(v) then return false end
+	-- a setting that holds "default" or a color of its own (each Ready Reminder buff's Edge
+	-- Color): a color fits while it reads "default" now too
+	if shape == "color" and e.mayBeColor then return true end
 	if shape == "number" and not Cards.GoodNumber(v) then return false end
 	local refs = { Cards.DefaultOf(e), SafeGet(e) }
 	for i, key in ipairs({ "standard", "shamanpower", "minimal" }) do

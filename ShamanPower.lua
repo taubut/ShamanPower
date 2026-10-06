@@ -11712,6 +11712,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					texts:SetFrameLevel(btn:GetFrameLevel() + 18)   -- (over the cue frame's own parts too)
 					local count = texts:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
+					ShamanPower:SPFontGameOwned(count)   -- (on the game's button: a font change waits out fights and hidden auras)
 					local strip = opt.cdbarShieldChargeBar and btn.chargeStrip
 					if strip and btn.chargeText then
 						-- hung on the addon's count, which sits above the strip
@@ -11761,6 +11762,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					if src then
 						local fs = texts:CreateFontString(nil, "OVERLAY")
 						self:CopySPFont(fs, src)   -- same font as the addon's text, and follows later font changes
+						self:SPFontGameOwned(fs)
 						local r, g, b = src:GetTextColor()
 						fs:SetTextColor(r or 1, g or 1, b or 1)
 						-- hung on the addon's text by the same point, not a copy of its anchor:
@@ -16857,6 +16859,7 @@ function ShamanPower:EnsureESButtonContainer(esBtn)
 				carrier:SetAllPoints(button)
 				local count = carrier:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 				ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
+				ShamanPower:SPFontGameOwned(count)   -- (on the game's button: a font change waits out fights and hidden auras)
 				count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
 				count:SetJustifyH("RIGHT")
 				count:SetTextColor(0, 1, 0)   -- fixed green; a per-charge color would need the secret value

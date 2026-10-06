@@ -1827,6 +1827,7 @@ local function DebuffInit(key, box, partsOut, look)
 		p.engine, p.button, p.vtop = true, button, nil
 		if not button.SetDurationBar then p.vfail = true end
 		StyleDebuff(p, p.look)
+		SP:SPFontGameOwned(p.time); SP:SPFontGameOwned(p.count)   -- (a font change waits out fights and hidden auras)
 		pcall(button.SetDurationText, button, p.time, { textFormatter = TimeFormatter() })
 		pcall(button.SetApplicationCount, button, p.count, { formatter = CountFormatter() })
 		partsOut[key] = p
@@ -1839,6 +1840,7 @@ local function PurgeInit(box, partsOut, slot, blend, look)
 		button:SetAllPoints(box)
 		NoMouse(button)
 		local p = PurgeParts(button, look or PurgeLook(), blend)
+		SP:SPFontGameOwned(p.word)   -- (on the game's button: a font change waits out fights and hidden auras)
 		pcall(button.SetIcon, button, p.pic)   -- the game paints the buff's picture
 		partsOut[slot] = p
 	end
@@ -3645,6 +3647,7 @@ function NS.LateInit(anchor, size, out)
 			pcall(button.SetDurationText, button, L.big, { textFormatter = NS.DecFormatter() })
 		end
 		NS.LStyle(L, size())
+		SP:SPFontGameOwned(L.big)   -- (on the game's button: a font change waits out fights and hidden auras)
 		out.late = L
 	end
 end
