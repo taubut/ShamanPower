@@ -54,6 +54,7 @@ local SPOT_OF = {
 	destroyed = "tb.effects", expired = "tb.effects", expiring = "tb.effects",
 	ready = "cd.effects", imbue = "cd.effects", shield = "cd.effects",
 	running = "cd.effects", almost = "cd.effects",   -- Cooldown Bar > Effects: Running Out, Cooldown Almost Ready
+	usual = "tb.effects",   -- Totem Bar > Effects: Put Your Usual Totem Back (its element's color; Standard: gold)
 }
 -- the new one-shot styles and the new loops (Totem Expiring Soon)
 local MOVES = { crumble = true, frameblink = true, ringin = true, underline = true, shine = true,
@@ -327,7 +328,8 @@ end
 -- white expired, orange expiring, gold ready, blue imbue and shield); Elemental
 -- paints in the button's element colour (Element Colors). A totem button knows
 -- its element; an imbue takes its imbue's element, a shield Water's; a
--- cooldown has none and keeps its own gold. The settings and tour previews'
+-- cooldown has none and keeps its own gold. Put Your Usual Totem Back's frame
+-- carries its element (gold under Standard and Signal). The settings and tour previews'
 -- mock buttons carry no element: their Effects spots are laid out Earth
 -- destroyed, Fire expired, Water expiring.
 -- ---------------------------------------------------------------------------
@@ -585,7 +587,8 @@ end
 -- Bar under it, which follow the time left. Returns false for today's loops on the
 -- Standard look (after taking down a theme loop left from before): the caller runs
 -- them. kind: whose loop (nil: Totem Expiring Soon; "running" / "almost": the
--- cooldown bar's Running Out / Cooldown Almost Ready), for its look and colors.
+-- cooldown bar's Running Out / Cooldown Almost Ready; "usual": the totem bar's Put
+-- Your Usual Totem Back), for its look and colors.
 local function loop(host, style, t, lk, kind)
 	if not cueFrame or not host then return false end
 	kind = kind or "expiring"

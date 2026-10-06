@@ -2524,6 +2524,8 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 		if entry.setPending and entry.slot == slot and now - entry.setAt <= SET_CONFIRM_WINDOW then
 			entry.setPending = nil
 			self:RecordTotemDrop(element)   -- the summon really placed this one
+			-- Put Your Usual Totem Back (ShamanPowerUsualTotem.lua): that totem landed
+			if self.UsualTotemSetPlaced then self:UsualTotemSetPlaced(element, entry) end
 			return
 		end
 	end

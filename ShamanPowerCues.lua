@@ -40,6 +40,7 @@ local TINT = {
 	shield    = { 0.35, 0.65, 1 },
 	running   = { 1, 0.6, 0.1 },     -- Running Out: the Expiring Soon orange
 	almost    = { 1, 0.82, 0.25 },   -- Cooldown Almost Ready: the Cooldown Ready gold
+	usual     = { 1, 0.82, 0.25 },   -- Put Your Usual Totem Back: the same gold, in the Totem Bar's Effects Look
 }
 -- WoW's own red and gold (each client's RED_FONT_COLOR / NORMAL_FONT_COLOR), read
 -- once: Turns red, and the time on a button that is running out
@@ -1106,10 +1107,14 @@ function SP:RunOutCooldown(btn, cooling, left)
 	else
 		state = "ready"
 	end
+	-- cooling with no time known (WoW: Forever after a /reload in a fight: no record of the
+	-- cast): it can't be told when it is almost ready, so it stays in sight; its Cooldown
+	-- Almost Ready look still shows at the game's own moment (the curve below)
+	local unknown = cooling and left == nil
 	local busy = false
 	if onlyRunningOut() then
 		local want
-		if state == "almost" then
+		if state == "almost" or unknown then
 			want = true
 		elseif state == "ready" then
 			if o.cdbarRunOutReady == "keep" then
@@ -1123,7 +1128,7 @@ function SP:RunOutCooldown(btn, cooling, left)
 			want = false
 		end
 		if btn.spellID == 36936 then
-			want = state ~= "cooling" and self:AnyTotemDown()
+			want = (state ~= "cooling" or unknown) and self:AnyTotemDown()
 		elseif btn.spellID == 20608 and not want then
 			want = (GetItemCount and GetItemCount(17030) or 1) == 0
 		end
