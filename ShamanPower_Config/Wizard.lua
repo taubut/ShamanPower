@@ -2600,7 +2600,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		order = function() return { "corners", "above", "below", "left", "right" } end })
 	row("Toggle", { label = "Outline the dots", desc = "A thin dark ring under each dot so it shows on bright icons like Windfury.", disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotOutline ~= false end, set = function(v) SP.opt.partyDotOutline = v; safecall("UpdatePartyDotPositions"); upd() end })
-	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot.", disabled = function() return not SP.opt.showPartyRangeDots end,
+	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot." .. ((SPCompat and SPCompat.FOREVER) and " In fights on WoW: Forever it goes by estimated range instead." or ""), disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotsMissingOnly and true or false end, set = function(v) SP.opt.partyDotsMissingOnly = v or nil; upd() end })
 	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotSize or 5 end, set = function(v) SP.opt.partyDotSize = v; safecall("UpdatePartyDotPositions"); upd() end })
@@ -3036,7 +3036,7 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 		get = function() return get("dotOutline", true) ~= false end, set = function(v) co().dotOutline = v; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = noDots,
 		get = function() return get("dotSize", 5) end, set = function(v) co().dotSize = v; upd("UpdateCoverageLayout") end })
-	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot.", disabled = noDots,
+	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot." .. ((SPCompat and SPCompat.FOREVER) and " In fights on WoW: Forever it goes by estimated range instead." or ""), disabled = noDots,
 		get = function() return get("dotsMissingOnly", false) and true or false end, set = function(v) co().dotsMissingOnly = v or nil; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Name size", min = 7, max = 14, step = 1,
 		disabled = function() return (type(off) == "function" and off()) or get("dots", false) end,

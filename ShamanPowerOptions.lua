@@ -844,6 +844,11 @@ end
 local function SetsOwnDropAll()
 	return (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() and ShamanPower.opt.dropAllUsesTotemSets ~= false) and true or false
 end
+-- "Only Show Who's Missing" (party dots and Coverage): in fights on WoW: Forever the dots
+-- that show only who is missing go by estimated range, so they promise no more than that
+local MISSING_ONLY_DESC = SPCompat.FOREVER
+	and "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot. In fights on WoW: Forever the game hides buffs, so this then goes by estimated range: no dots means everyone looks close enough to your totem, not that their buffs were checked. Turn this off for dots that stay exact in fights."
+	or "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered."
 
 -- The Textures and Status Colors sections only style the panel behind the totem
 -- buttons. With "Hide Totem Bar Frame" on there is no panel, and the settings
@@ -4408,7 +4413,7 @@ ShamanPower.options = {
 							order = 1.65,
 							type = "toggle",
 							name = "Only Show Who's Missing",
-							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							desc = MISSING_ONLY_DESC,
 							width = "full",
 							get = function(info) return ShamanPower.opt.partyDotsMissingOnly and true or false end,
 							set = function(info, val)
@@ -4820,7 +4825,7 @@ ShamanPower.options = {
 							order = 11.5406,
 							type = "toggle",
 							name = "Only Show Who's Missing",
-							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							desc = MISSING_ONLY_DESC,
 							width = "full",
 							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
 								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
