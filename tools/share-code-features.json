@@ -121,6 +121,7 @@
     {"key": "reactiveKeybinds", "label": "Reactive alerts show keybinds"},
     {"key": "assignRightClickClears", "label": "Assignment window: right-click clears"},
     {"key": "partyStrip", "label": "Party buff strip"},
-    {"key": "readyRemindersBuff", "label": "Ready reminders: your buff on its icon"}
+    {"key": "readyRemindersBuff", "label": "Ready reminders: your buff on its icon"},
+    {"key": "shieldRightClickOther", "label": "Cooldown bar: right-click casts the other shield"}
   ]
 }
