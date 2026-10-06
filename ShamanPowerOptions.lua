@@ -2435,7 +2435,8 @@ ShamanPower.options = {
 									print("ShamanPower: Cannot update macros in combat")
 									return
 								end
-								ShamanPower:UpdateSPMacros()
+								-- say so when the macro lists are full: before, this claimed success either way
+								if not ShamanPower:ReportMacroResult(ShamanPower:UpdateSPMacros(), "click Create/Update Macros again") then return end
 								print("ShamanPower: Macros created! Check your macro panel (Esc -> Macros)")
 							end
 						}

@@ -19641,26 +19641,51 @@ function ShamanPower:MigrateMacroResetTimers()
 	print("|cff0070ddShamanPower:|r Macro reset timers updated (reset=combat/15).")
 end
 
--- Create or update a WoW macro
+-- Create or update a WoW macro. Says what happened: "updated", "created", or "full"
+-- (the character and the account macro lists are both full, so nothing was made);
+-- nil in combat, where nothing is touched.
 function ShamanPower:CreateOrUpdateMacro(name, icon, body)
-	if InCombatLockdown() then return end
+	if InCombatLockdown() then return nil end
 
 	local index = GetMacroIndexByName(name)
 	if index > 0 then
 		-- Macro exists, update it
 		EditMacro(index, name, icon, body)
-	else
-		-- Create new macro (character-specific)
-		local numGlobal, numChar = GetNumMacros()
-		if numChar < MAX_CHARACTER_MACROS then
-			CreateMacro(name, icon, body, true)  -- true = per-character
-		else
-			-- Try global macros if character slots full
-			if numGlobal < MAX_ACCOUNT_MACROS then
-				CreateMacro(name, icon, body, false)
-			end
-		end
+		return "updated"
 	end
+	-- Create new macro (character-specific)
+	local numGlobal, numChar = GetNumMacros()
+	if numChar < MAX_CHARACTER_MACROS then
+		CreateMacro(name, icon, body, true)  -- true = per-character
+	elseif numGlobal < MAX_ACCOUNT_MACROS then
+		-- Try global macros if character slots full
+		CreateMacro(name, icon, body, false)
+	end
+	-- made only if the game has it now
+	if GetMacroIndexByName(name) > 0 then return "created" end
+	return "full"
+end
+
+-- What a Create/Update Macros press really did. Returns true when every macro was
+-- made or updated (the caller then says so); otherwise says which could not be made
+-- and why. retry: how to try again ("type /spmacros again").
+function ShamanPower:ReportMacroResult(report, retry)
+	local prefix = "|cff0070ddShamanPower|r: "
+	if not report then
+		print(prefix .. "No macros were made: you have no totem assignments yet.")
+		return false
+	end
+	local full = report.full or {}
+	if #full == 0 then return true end
+	local why = "your character and account macro lists are both full"
+	local fix = ". Delete a macro you don't use (Esc > Macros), then " .. retry .. "."
+	if #(report.made or {}) == 0 then
+		print(prefix .. "|cffE64A4ANo macro slots available|r: " .. why .. ", so no ShamanPower macros were made" .. fix)
+	else
+		print(prefix .. "|cffE64A4ANo macro slots available|r for " .. table.concat(full, ", ") .. ": " .. why
+			.. ". The other ShamanPower macros were made or updated" .. fix)
+	end
+	return false
 end
 
 -- Update all ShamanPower macros based on current assignments
@@ -19677,6 +19702,12 @@ function ShamanPower:UpdateSPMacros()
 	local elementNames = {"Earth", "Fire", "Water", "Air"}
 	-- Use ? icon so #showtooltip shows the correct spell icon dynamically
 	local defaultIcon = "INV_Misc_QuestionMark"
+	-- what each macro came to, for a Create/Update Macros press (ReportMacroResult)
+	local report = { made = {}, full = {} }
+	local function track(name, result)
+		if result == "full" then report.full[#report.full + 1] = name
+		elseif result then report.made[#report.made + 1] = name end
+	end
 
 	-- Create/update individual totem macros
 	for element = 1, 4 do
@@ -19707,7 +19738,7 @@ function ShamanPower:UpdateSPMacros()
 			body = body .. "-- No totem assigned"
 		end
 
-		self:CreateOrUpdateMacro(macroName, icon, body)
+		track(macroName, self:CreateOrUpdateMacro(macroName, icon, body))
 	end
 
 	-- Create/update Drop All macro
@@ -19743,16 +19774,17 @@ function ShamanPower:UpdateSPMacros()
 	else
 		dropAllBody = dropAllBody .. "/cast -- No totems assigned"
 	end
-	self:CreateOrUpdateMacro(self.MacroNames.DropAll, "INV_Misc_QuestionMark", dropAllBody)
+	track(self.MacroNames.DropAll, self:CreateOrUpdateMacro(self.MacroNames.DropAll, "INV_Misc_QuestionMark", dropAllBody))
 
 	-- Create Totemic Call macro
 	local tcSpellName = GetSpellInfo(36936)
 	if tcSpellName then
 		local tcBody = "#showtooltip\n/cast " .. tcSpellName
-		self:CreateOrUpdateMacro(self.MacroNames.TotemicCall, "INV_Misc_QuestionMark", tcBody)
+		track(self.MacroNames.TotemicCall, self:CreateOrUpdateMacro(self.MacroNames.TotemicCall, "INV_Misc_QuestionMark", tcBody))
 	end
 
 	self.macroUpdatePending = false
+	return report
 end
 
 -- Slash command to create/refresh macros
@@ -19762,7 +19794,8 @@ SlashCmdList["SPMACROS"] = function()
 		print("ShamanPower: Cannot update macros in combat")
 		return
 	end
-	ShamanPower:UpdateSPMacros()
+	-- say so when the macro lists are full: before, this claimed success either way
+	if not ShamanPower:ReportMacroResult(ShamanPower:UpdateSPMacros(), "type /spmacros again") then return end
 	print("ShamanPower: Macros updated! Look for these in your macro list:")
 	print("  SP_Earth, SP_Fire, SP_Water, SP_Air - Cast assigned totem")
 	print("  SP_DropAll - Cast all totems in sequence")
