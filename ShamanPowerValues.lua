@@ -178,6 +178,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         -- Show Items Only When Running Out (Cooldown Bar > Display): off to start
         cdbarRunOutOnly = false,
         cdbarRunOutReady = "hide",          -- a cooldown that is ready: "hide" (after its flash) / "keep" (until used)
+        -- Running Out (Cooldown Bar > Effects): the shield / imbue (Earth Shield) button that runs out plays a look
+        cdbarCueRunning = false,
+        cdbarCueRunningStyle = "red",       -- red (Turns red) / pulse / glow / drain / underbar
+        cdbarCueTimeColor = false,          -- Time Turns Red While Running Out (gold on a cooldown almost ready)
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button

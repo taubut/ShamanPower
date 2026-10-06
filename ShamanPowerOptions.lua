@@ -11434,6 +11434,27 @@ do
 			set = function(_, v) SP.opt[key] = v and true or nil; lookChanged() end }
 	end
 	local mainline = SPCompat.FOREVER
+	-- The cooldown bar's "running out" moment (ShamanPowerCues.lua): one saved setting each,
+	-- shown on Cooldown Bar > Display (Show Items Only When Running Out) and > Effects (the
+	-- running-out effects): change it in either place.
+	local function runOutSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 10, max = 300, step = 5,
+			name = "Seconds Before a Shield or Imbue Ends",
+			desc = "When a shield or weapon imbue counts as running out. A shield also counts as running out on its last charge."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() return SP.opt.cdbarRunOutSecs or 60 end,
+			set = function(_, v) SP.opt.cdbarRunOutSecs = v; apply() end }
+	end
+	local function almostSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 0, max = 30, step = 1,
+			name = "Seconds Before a Cooldown Is Ready",
+			desc = "When a cooldown counts as almost ready (0: only once it is ready, so Cooldown Almost Ready never plays)."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() local s = SP.opt.cdbarAlmostSecs if s == nil then s = 5 end return s end,
+			set = function(_, v) SP.opt.cdbarAlmostSecs = v; apply() end }
+	end
 	-- Each bar's effects sit with the bar they animate (Totem Bar > Effects,
 	-- Cooldown Bar > Effects): a player who sees a button shake looks there.
 	SP.options.args.fluffy.args.totembar_effects_section = { type = "group", name = "Effects", order = 1.35, args = {
@@ -11491,31 +11512,24 @@ do
 			or "When your Lightning or Water Shield is gone, the shield button plays the style below in blue."),
 		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style",
 			plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag")),
+		-- Running Out: the button that is running out (its last seconds) plays a look until you cast it again
+		cdbarCueRunning = toggle(2.7, "cdbarCueRunning", "Running Out",
+			"Over the last moments of your shield or weapon imbue" .. (mainline and "" or " (and your Earth Shield)")
+				.. ", its button plays the style below until you cast it again. A shield also counts as running out on its last charge."
+				.. (mainline and " In a fight on WoW: Forever only the shield's time counts: the game hides its charges there (its number still turns red on the last one)." or "")),
+		cdbarCueRunningStyle = style(2.71, "cdbarCueRunningStyle", "cdbarCueRunning", "red", "Running Out Style",
+			{ red = "Turns red", pulse = "Pulse", glow = "Glow", drain = "Frame drains", underbar = "Bar under it" },
+			{ "red", "pulse", "glow", "drain", "underbar" }),
+		cdbarRunOutSecs = runOutSecs(2.72, "Display (Show Items Only When Running Out)",
+			function() return not (SP.opt.cdbarCueRunning or SP.opt.cdbarCueTimeColor) end),
+		cdbarCueTimeColor = toggle(2.8, "cdbarCueTimeColor", "Time Turns Red While Running Out",
+			"The time on a button that is running out turns red (gold on a cooldown that is almost ready). On a button"
+				.. " that turns red, the time stays white so you can read it."),
 		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
-			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button Shield Gone, in the styles chosen above.",
+			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button"
+				.. " Shield Gone, in the styles chosen above. Running Out plays for 3 seconds.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
-	-- The cooldown bar's "running out" moment (ShamanPowerCues.lua): one saved setting each,
-	-- shown on Cooldown Bar > Display (Show Items Only When Running Out) and > Effects (the
-	-- running-out effects): change it in either place.
-	local function runOutSecs(order, otherPage, disabled)
-		return { order = order, type = "range", width = "full", min = 10, max = 300, step = 5,
-			name = "Seconds Before a Shield or Imbue Ends",
-			desc = "When a shield or weapon imbue counts as running out. A shield also counts as running out on its last charge."
-				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
-			disabled = disabled,
-			get = function() return SP.opt.cdbarRunOutSecs or 60 end,
-			set = function(_, v) SP.opt.cdbarRunOutSecs = v; apply() end }
-	end
-	local function almostSecs(order, otherPage, disabled)
-		return { order = order, type = "range", width = "full", min = 0, max = 30, step = 1,
-			name = "Seconds Before a Cooldown Is Ready",
-			desc = "When a cooldown counts as almost ready (0: only once it is ready, so Cooldown Almost Ready never plays)."
-				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
-			disabled = disabled,
-			get = function() local s = SP.opt.cdbarAlmostSecs if s == nil then s = 5 end return s end,
-			set = function(_, v) SP.opt.cdbarAlmostSecs = v; apply() end }
-	end
 	-- Cooldown Bar > Display: Show Items Only When Running Out, under its own heading
 	local display = SP.options.args.fluffy.args.cooldown_display_section
 	if display and display.args then

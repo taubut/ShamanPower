@@ -11736,7 +11736,13 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 							else point = "RIGHT" end   -- left, on_icon
 						end
 						fs:SetPoint(point, src, point, 0, 0)
-						reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
+						-- Time Turns Red While Running Out (Cooldown Bar > Effects): the game colors its own time
+						local topts = self.ShieldTimeTextOptions and self:ShieldTimeTextOptions()
+						if topts and pcall(button.SetDurationText, button, fs, topts) then
+							reg("SetDurationText(colored)", true)
+						else
+							reg("SetDurationText", pcall(button.SetDurationText, button, fs, {}))
+						end
 					end
 					T("SHIELD init end %s", set.name)
 				end,
@@ -16352,6 +16358,7 @@ function ShamanPower:OnEarthShieldCastSucceeded(unit, castGUID, spellID)
 		self.esTrackedTargetGUID = self.esLastCastGUID
 		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 6  -- Full charges on fresh cast (will be updated by UNIT_AURA)
+		self.esTrackedExpiration = nil   -- (read with the charges, from the carrier's aura)
 
 		-- Clear pending
 		self.esLastCastTarget = nil
@@ -16374,13 +16381,14 @@ function ShamanPower:DiscoverEarthShieldTarget()
 	for _, u in ipairs(tokens) do
 		if UnitExists(u) then
 			for i = 1, 40 do
-				local name, _, count, _, _, _, source = SPCompat.UnitBuff(u, i)
+				local name, _, count, _, _, expiration, source = SPCompat.UnitBuff(u, i)
 				if not name then break end
 				if name == esSpellName and source == "player" then
 					self.esTrackedTarget = UnitName(u)
 					self.esTrackedTargetGUID = UnitGUID(u)
 					self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 					self.esTrackedCharges = count or 0
+					self.esTrackedExpiration = (type(expiration) == "number" and not issecretvalue(expiration)) and expiration or nil
 					self:UpdateEarthShieldButton()
 					return
 				end
@@ -16449,10 +16457,12 @@ function ShamanPower:OnEarthShieldAuraChange(unit, info)
 	-- Check this ONE unit for ES buff
 	local found = false
 	for i = 1, 40 do
-		local name, _, count, _, _, _, source = SPCompat.UnitBuff(unit, i)
+		local name, _, count, _, _, expiration, source = SPCompat.UnitBuff(unit, i)
 		if not name then break end
 		if name == esSpellName and source == "player" then
 			self.esTrackedCharges = count or 0
+			-- its end, for Running Out (Cooldown Bar > Effects) in its last seconds
+			self.esTrackedExpiration = (type(expiration) == "number" and not issecretvalue(expiration)) and expiration or nil
 			found = true
 			-- TBC Anniversary: its instance, for TrackedEarthShieldMayHaveChanged
 			self.esTrackedAuraInstanceID, self.esTrackedAuraGUID = nil, nil
@@ -16472,6 +16482,7 @@ function ShamanPower:OnEarthShieldAuraChange(unit, info)
 		self.esTrackedTargetGUID = nil
 		self:UpdateAuraCarrierFilter()   -- aura events follow the new carrier
 		self.esTrackedCharges = 0
+		self.esTrackedExpiration = nil
 	end
 
 	-- Update display (but not full rebuild)
@@ -16629,6 +16640,8 @@ function ShamanPower:UpdateEarthShieldCharges()
 
 	-- Store current target for display purposes
 	self.currentEarthShieldTarget = currentTarget
+	-- Running Out (Cooldown Bar > Effects): its last seconds or 2 charges (ShamanPowerCues.lua)
+	if self.RunOutEarthShield and esBtn then self:RunOutEarthShield(esBtn, currentTarget, charges) end
 end
 
 -- Check if a player is dead (by name)

@@ -116,6 +116,8 @@
     {"key": "totemRowsBarHidden", "label": "Totem Rows: bar hidden"},
     {"key": "nextShock", "label": "Target Tracker: Next Shock"},
     {"key": "totemRowsKeepFlyouts", "label": "Totem Rows: flyouts kept on the bar"},
-    {"key": "cdbarRunOutOnly", "label": "Cooldown bar: only items running out"}
+    {"key": "cdbarRunOutOnly", "label": "Cooldown bar: only items running out"},
+    {"key": "cueRunningOut", "label": "Effect: running out"},
+    {"key": "cueTimeRed", "label": "Effect: time turns red"}
   ]
 }

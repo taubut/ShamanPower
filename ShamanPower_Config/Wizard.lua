@@ -3440,7 +3440,8 @@ end
 -- ShamanPowerCues.lua); the one-shots take turns in a 3.6 s cycle and the
 -- expiring loop runs while it is on; a caption under each button says what it
 -- shows. items: { btn (a frame with .icon) or pick (several: the first one
--- shown), cap, on, style, def, kind, at (one-shot: its point in the cycle) or
+-- shown), cap, capAbove (the caption over the button: another effect's sits
+-- under it), on, style, def, kind, at (one-shot: its point in the cycle) or
 -- loop = true }.
 function SP.Wizard.RunEffectsDemo(parent, items)
 	local fx = SP.CueFx
@@ -3472,7 +3473,7 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 					it.capAt = btn
 					fs:ClearAllPoints()
 					if btn then
-						fs:SetPoint("TOP", btn, "BOTTOM", 0, -6)
+						if it.capAbove then fs:SetPoint("BOTTOM", btn, "TOP", 0, 6) else fs:SetPoint("TOP", btn, "BOTTOM", 0, -6) end
 						fs:SetWidth(math.max(40, btn:GetWidth() + 8))
 					end
 				end
@@ -3494,8 +3495,11 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 			tick = 0
 			captions(o)
 			for _, it in ipairs(items) do
-				if it.loop and it.btn then
-					if o[it.on] and it.btn:IsVisible() then fx.loop(it.btn, o[it.style] or it.def, it.kind) else fx.stop(it.btn) end
+				local lb = it.loop and shownBtn(it)
+				if lb then
+					if it.loopAt and it.loopAt ~= lb then fx.stop(it.loopAt) end   -- (a pick that moved to another button)
+					it.loopAt = lb
+					if o[it.on] and lb:IsVisible() then fx.loop(lb, o[it.style] or it.def, it.kind) else fx.stop(lb) end
 				end
 			end
 		end
@@ -3713,6 +3717,8 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			{ pick = cds, cap = "Ready", on = "cdbarCueReady", style = "cdbarCueReadyStyle", def = "pop", kind = "ready", at = 1.7 },
 			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4 },
 			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1 },
+			-- Running Out (its last seconds): a loop on the shield chip, captioned over it
+			{ btn = shield, cap = "Running out", capAbove = true, on = "cdbarCueRunning", style = "cdbarCueRunningStyle", def = "red", kind = "running", loop = true },
 		})
 	end
 

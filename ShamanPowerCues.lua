@@ -38,7 +38,24 @@ local TINT = {
 	ready     = { 1, 0.82, 0.25 },
 	imbue     = { 0.35, 0.65, 1 },
 	shield    = { 0.35, 0.65, 1 },
+	running   = { 1, 0.6, 0.1 },     -- Running Out: the Expiring Soon orange
+	almost    = { 1, 0.82, 0.25 },   -- Cooldown Almost Ready: the Cooldown Ready gold
 }
+-- WoW's own red and gold (each client's RED_FONT_COLOR / NORMAL_FONT_COLOR), read
+-- once: Turns red, and the time on a button that is running out
+local WOW_RED, WOW_GOLD = { 1, 0.125, 0.125 }, { 1, 0.82, 0 }
+local wowRead = false
+local function wowColors()
+	if wowRead then return end
+	wowRead = true
+	for _, pair in ipairs({ { RED_FONT_COLOR, WOW_RED }, { NORMAL_FONT_COLOR, WOW_GOLD } }) do
+		local c, into = pair[1], pair[2]
+		if c and c.GetRGB then
+			local ok, r, g, b = pcall(c.GetRGB, c)
+			if ok and type(r) == "number" then into[1], into[2], into[3] = r, g, b end
+		end
+	end
+end
 local VERDICT_WINDOW = 0.5   -- the core's bind window: a recall / dismiss / re-drop can trail the slot update
 -- the theme looks and the new styles (ShamanPowerThemeEffects.lua, loaded
 -- before this file): each painter below asks it first; on the Standard look
@@ -214,10 +231,80 @@ local function showMark(host, look)
 	c.markHold:Stop(); c.markHold:Play()
 end
 
--- A loop (pulse: the icon darkening and back; glow: the edges breathing) that
--- runs until loopOff. Calling it again while it runs changes nothing.
-local function loopOn(host, style, t, look)
-	if ThemeCue and ThemeCue.loop(host, style, t, look) then return end
+-- "Turns red" (Running Out, and the totem bar's Expiring Soon): the icon in WoW's
+-- red with its time and charges sharp on top. A tint (MOD) and a wash on the button
+-- itself, over its icon and under its text, and a 1 px red edge on the cue frame.
+-- high: the game draws the icon above the button's own art (the cooldown bar's
+-- shield in a fight on WoW: Forever): the wash goes over it, on the cue frame. The
+-- same in every Effects Look. Built the first time, then only shown and hidden.
+local function redParts(host)
+	local r = host.spRed
+	if r then return r end
+	wowColors()
+	local R = WOW_RED
+	local c = cueFrame(host)
+	r = {}
+	r.tint = host:CreateTexture(nil, "ARTWORK", nil, 6)
+	r.tint:SetAllPoints(host)
+	r.tint:SetColorTexture(1, 0.6, 0.6)
+	r.tint:SetBlendMode("MOD")
+	r.tint:Hide()
+	r.wash = host:CreateTexture(nil, "ARTWORK", nil, 7)
+	r.wash:SetAllPoints(host)
+	r.wash:SetColorTexture(R[1], R[2], R[3], 0.45)
+	r.wash:Hide()
+	r.high = c:CreateTexture(nil, "BACKGROUND")
+	r.high:SetAllPoints(c)
+	r.high:SetColorTexture(R[1], R[2], R[3], 0.5)
+	r.high:Hide()
+	local edge = CreateFrame("Frame", nil, c)
+	edge:SetAllPoints(c)
+	for i = 1, 4 do
+		local e = edge:CreateTexture(nil, "OVERLAY", nil, 6)
+		e:SetColorTexture(R[1], R[2], R[3], 1)
+		edge[i] = e
+	end
+	edge[1]:SetPoint("TOPLEFT"); edge[1]:SetPoint("TOPRIGHT"); edge[1]:SetHeight(1)
+	edge[2]:SetPoint("BOTTOMLEFT"); edge[2]:SetPoint("BOTTOMRIGHT"); edge[2]:SetHeight(1)
+	edge[3]:SetPoint("TOPLEFT"); edge[3]:SetPoint("BOTTOMLEFT"); edge[3]:SetWidth(1)
+	edge[4]:SetPoint("TOPRIGHT"); edge[4]:SetPoint("BOTTOMRIGHT"); edge[4]:SetWidth(1)
+	edge:Hide()
+	r.edge = edge
+	host.spRed = r
+	return r
+end
+local function redOn(host, high)
+	local r = redParts(host)
+	high = high and true or false
+	if host.spRedOn and host.spRedHigh == high then return end
+	host.spRedOn, host.spRedHigh = true, high
+	r.tint:SetShown(not high)
+	r.wash:SetShown(not high)
+	r.high:SetShown(high)
+	r.edge:Show()
+end
+local function redOff(host)
+	local r = host.spRed
+	if not (r and host.spRedOn) then return end
+	host.spRedOn, host.spRedHigh = nil, nil
+	r.tint:Hide(); r.wash:Hide(); r.high:Hide(); r.edge:Hide()
+end
+
+-- A loop (pulse: the icon darkening and back; glow: the edges breathing; Turns
+-- red) that runs until loopOff. Calling it again while it runs changes nothing.
+-- kind: whose loop, for its look and colors (nil: Totem Expiring Soon).
+local function loopOn(host, style, t, look, kind)
+	if style == "red" then
+		local c = host.spCue
+		if c then
+			c.dimLoop:Stop(); c.glowLoop:Stop()
+			if c.spTheme and ThemeCue then ThemeCue.stop(c) end
+		end
+		redOn(host, host.spRunHigh)
+		return
+	end
+	redOff(host)
+	if ThemeCue and ThemeCue.loop(host, style, t, look, kind) then return end
 	local c = cueFrame(host)
 	if style == "glow" then
 		if not c.glowLoop:IsPlaying() then
@@ -231,6 +318,7 @@ local function loopOn(host, style, t, look)
 	end
 end
 local function loopOff(host)
+	redOff(host)
 	local c = host.spCue
 	if c then c.dimLoop:Stop(); c.glowLoop:Stop() end
 	if c and c.spTheme and ThemeCue then ThemeCue.stop(c) end   -- a theme's loop
@@ -242,7 +330,7 @@ end
 SP.CueFx = {
 	play = function(host, style, kind, look) playCue(host, style, kind, host.icon, look) end,
 	mark = showMark,
-	loop = function(host, style, kind, look) loopOn(host, style, TINT[kind] or TINT.expiring, look) end,
+	loop = function(host, style, kind, look) loopOn(host, style, TINT[kind] or TINT.expiring, look, kind) end,
 	stop = loopOff,
 }
 
@@ -570,31 +658,118 @@ local function decideShown(btn, want)
 	setShown(btn, want)
 end
 
+-- The Running Out look (Cooldown Bar > Effects) on a button: on while it runs
+-- out, in the chosen style; the Test button plays it for 3 seconds whatever the
+-- switch. what: "shield" / "imbue" / "es" (its element for Frame drains); frac:
+-- the part of the running-out time still left (Frame drains, Bar under it); high:
+-- see redOn. Returns true while a look follows the time (the pass keeps its pace).
+local function runLook(btn, on, what, frac, high)
+	local o = SP.opt
+	local test = btn._roTestRun
+	if test then
+		local now = GetTime()
+		if now < test then
+			on, frac = true, (test - now) / 3
+		else
+			btn._roTestRun, test = nil, nil
+		end
+	end
+	if on and (o.cdbarCueRunning or test) and not SP:IsOff() then
+		local style = o.cdbarCueRunningStyle or "red"
+		high = high and true or false
+		btn.spRunKind, btn.spRunFrac, btn.spRunHigh = what, frac or 1, high
+		local moving = style == "drain" or style == "underbar"
+		if btn._roLook ~= style or btn._roHigh ~= high or moving then
+			btn._roLook, btn._roHigh = style, high
+			loopOn(btn, style, TINT.running, nil, "running")
+		end
+		return moving or test ~= nil
+	end
+	if btn._roLook then
+		btn._roLook, btn._roHigh = nil, nil
+		btn.spRunFrac, btn.spRunHigh = nil, nil
+		loopOff(btn)
+	end
+	return false
+end
+
+-- Time Turns Red While Running Out: the time on a button that is running out in
+-- WoW's red (WoW's gold on a cooldown almost ready); on a button that turns red it
+-- stays white, to read it. Painted only when it changes; each text's own color is
+-- kept and put back.
+local TIME0 = { "timeText" }                                 -- the time in the button's middle (Show Cooldown Text)
+local TIME1 = { "insideText", "outsideText", "iconText" }    -- Duration Text Location (the imbue's main hand)
+local TIME2 = { "insideText2", "outsideText2", "iconText2" } -- the imbue's off hand
+local function paintTimes(btn, fields, color)
+	for i = 1, #fields do
+		local fs = btn[fields[i]]
+		if fs then
+			if color then
+				if not fs.spRoColored then
+					local b = fs.spRoBase
+					if not b then b = {}; fs.spRoBase = b end
+					b[1], b[2], b[3], b[4] = fs:GetTextColor()
+					fs.spRoColored = true
+				end
+				fs:SetTextColor(color[1], color[2], color[3])
+			elseif fs.spRoColored then
+				local b = fs.spRoBase
+				fs:SetTextColor(b[1] or 1, b[2] or 1, b[3] or 1, b[4] or 1)
+				fs.spRoColored = nil
+			end
+		end
+	end
+end
+local function timeColor(btn, slot, fields, want)
+	if btn[slot] == want then return end
+	btn[slot] = want
+	wowColors()
+	paintTimes(btn, fields, (want == "red" and WOW_RED) or (want == "gold" and WOW_GOLD) or nil)
+end
+local function timeRed(o, btn, on)
+	return (on and o.cdbarCueTimeColor and btn._roLook ~= "red" and not SP:IsOff()) and "red" or nil
+end
+
 -- The shield button. up: the shield the button shows is up; left: its seconds
 -- left (nil: unknown); charges: its charges; engine: auras are hidden (WoW:
 -- Forever in a fight), the game draws the shield on the button. A shield that is
--- gone stays in sight until you cast one again.
+-- gone stays in sight until you cast one again. In a fight on WoW: Forever the
+-- Running Out look follows ShamanPower's own record of your cast (its time, and
+-- the charges it can count), over the game's own shield; the game colors its own
+-- time text (ShieldTimeTextOptions).
 function SP:RunOutShield(btn, up, left, charges, engine)
 	local o = self.opt
 	if not o or not btn then return false end
 	local N = runOutSecs(o)
-	local state
+	local state, runOn, frac
 	if engine then
 		state = "fight"
+		local sh = self.shadowShield
+		local sl = (sh and type(sh.start) == "number" and type(sh.duration) == "number") and (sh.start + sh.duration - GetTime()) or nil
+		if sl and sl <= 0 then sl = nil end
+		runOn = sl ~= nil and (sl <= N or sh.charges == 1)
+		frac, left = sl and sl / N or 1, sl
 	elseif not up then
 		state = "gone"
 	elseif (left and left <= N) or charges == 1 then
-		state = "out"
+		state, runOn = "out", true
+		frac = left and left / N or 1
 	else
 		state = "plenty"
 	end
 	decideShown(btn, state ~= "plenty")
-	return (left ~= nil and left > N and left <= N + 1.2) and true or false
+	local busy = runLook(btn, runOn, "shield", frac, engine)
+	local tc = (not engine) and timeRed(o, btn, runOn) or nil
+	timeColor(btn, "_roTime0", TIME0, tc)
+	timeColor(btn, "_roTime1", TIME1, tc)
+	if left ~= nil and left > N and left <= N + 1.2 then busy = true end
+	return busy
 end
 
 -- The weapon imbue button, from the game's read (hasMain / hasOff, the enchants'
 -- IDs, their milliseconds left). With an off-hand weapon both hands count: the
--- button comes up when either hand's imbue is in its last seconds or gone.
+-- button comes up when either hand's imbue is in its last seconds or gone; each
+-- hand's time turns red on its own.
 function SP:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
 	local o = self.opt
 	if not o or not btn then return false end
@@ -604,16 +779,37 @@ function SP:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
 	local mL = (upM and type(mainLeft) == "number" and not isSecret(mainLeft)) and mainLeft or nil
 	local oL = (upO and type(offLeft) == "number" and not isSecret(offLeft)) and offLeft or nil
 	local dual = self.HasOffHandWeapon and self:HasOffHandWeapon()
+	local outM, outO = mL ~= nil and mL <= N, oL ~= nil and oL <= N
 	local state
 	if not upM or (dual and not upO) then
 		state = "gone"
-	elseif (mL and mL <= N) or (oL and oL <= N) then
+	elseif outM or outO then
 		state = "out"
 	else
 		state = "plenty"
 	end
 	decideShown(btn, state ~= "plenty")
-	return ((mL and mL > N and mL <= N + 1200) or (oL and oL > N and oL <= N + 1200)) and true or false
+	local least = mL
+	if oL and (not least or oL < least) then least = oL end
+	local busy = runLook(btn, state == "out", "imbue", least and least / N or 1, false)
+	timeColor(btn, "_roTime0", TIME0, timeRed(o, btn, state == "out"))
+	timeColor(btn, "_roTime1", TIME1, timeRed(o, btn, outM))
+	timeColor(btn, "_roTime2", TIME2, timeRed(o, btn, outO))
+	if (mL and mL > N and mL <= N + 1200) or (oL and oL > N and oL <= N + 1200) then busy = true end
+	return busy
+end
+
+-- Earth Shield (TBC Anniversary: its button at the end of the totem bar): Running
+-- Out in its last seconds or on 2 charges (where its number turns red), from the
+-- core's carrier record (twice a second while the button shows: esButton).
+function SP:RunOutEarthShield(esBtn, target, charges)
+	local o = self.opt
+	if not (o and esBtn) then return end
+	local N = runOutSecs(o)
+	local exp = self.esTrackedExpiration
+	local left = (target and type(exp) == "number" and exp > 0) and (exp - GetTime()) or nil
+	local on = target ~= nil and type(charges) == "number" and charges > 0 and (charges <= 2 or (left ~= nil and left <= N))
+	runLook(esBtn, on and esBtn:IsVisible(), "es", left and left / N or 1, false)
 end
 
 -- A cooldown button. cooling: on a real cooldown (WoW: Forever: the game's own
@@ -664,6 +860,53 @@ function SP:RunOutCooldown(btn, cooling, left)
 	return busy
 end
 
+-- The looks and time colors start afresh (a switch, style, look or number of
+-- seconds changed): the cooldown bar's next pass puts back what is wanted.
+function SP:RunOutResetLooks()
+	local function reset(btn)
+		if btn._roLook then
+			btn._roLook, btn._roHigh = nil, nil
+			btn.spRunFrac, btn.spRunHigh = nil, nil
+			loopOff(btn)
+		end
+		timeColor(btn, "_roTime0", TIME0, nil)
+		timeColor(btn, "_roTime1", TIME1, nil)
+		timeColor(btn, "_roTime2", TIME2, nil)
+	end
+	for _, btn in ipairs(self.cooldownButtons or {}) do reset(btn) end
+	local es = _G["ShamanPowerEarthShieldBtn"]
+	if es then reset(es) end
+end
+
+-- The game-drawn shield's time (WoW: Forever, in a fight: EnsureShieldChargeContainer):
+-- with Time Turns Red While Running Out the game colors it itself, WoW's red in its
+-- last seconds (a step on the time left; nothing for Lua to read or compare). nil:
+-- today's white (the switch off, or a shield button that turns red: its time stays white).
+function SP:ShieldTimeTextOptions()
+	local o = self.opt
+	if not (o and o.cdbarCueTimeColor) then return nil end
+	if o.cdbarCueRunning and (o.cdbarCueRunningStyle or "red") == "red" then return nil end
+	local CU, P = C_CurveUtil, Enum and Enum.DurationTextBindingProperty
+	if not (CU and CU.CreateColorCurve and P and P.RemainingDuration and CreateColor) then return nil end
+	local N = runOutSecs(o)
+	local made = self._roTimeOpts
+	if made and made.n == N then return made.opts end
+	local ok, curve = pcall(CU.CreateColorCurve)
+	if not (ok and curve) then return nil end
+	wowColors()
+	local step = Enum.LuaCurveType and Enum.LuaCurveType.Step or 1
+	if not (pcall(curve.SetType, curve, step)
+		and pcall(curve.AddPoint, curve, 0, CreateColor(WOW_RED[1], WOW_RED[2], WOW_RED[3], 1))
+		and pcall(curve.AddPoint, curve, N, CreateColor(1, 1, 1, 1))) then return nil end
+	local opts = { textColor = { curve = curve, property = P.RemainingDuration } }
+	self._roTimeOpts = { n = N, opts = opts }
+	return opts
+end
+local function shieldTimeKey(o)
+	local red = o.cdbarCueRunning and (o.cdbarCueRunningStyle or "red") == "red"
+	return (o.cdbarCueTimeColor and 1 or 0) + (red and 2 or 0) + runOutSecs(o) * 4
+end
+
 -- every button back in sight (the switch turned off, ShamanPower switched off)
 function SP:RunOutShowAll()
 	for _, btn in ipairs(self.cooldownButtons or {}) do
@@ -708,8 +951,16 @@ function SP:ApplyCueSettings()
 	end
 	if not o.cdbarCueShield and self.shieldButton then stopMissing(self.shieldButton) end
 	-- the running-out settings: off or switched off, everything back in sight now; on, the
-	-- cooldown bar's next pass (at once) decides what shows
+	-- cooldown bar's next pass (at once) decides what shows; the looks start afresh
 	if not o.cdbarRunOutOnly or self:IsOff() then self:RunOutShowAll() end
+	self:RunOutResetLooks()
+	-- WoW: Forever: the game-drawn shield's time colors are set when it is built: build it
+	-- again (RebuildShieldChargeContainer waits for the end of a fight by itself)
+	if SPCompat.secretsRegime and self.shieldButton and self.RebuildShieldChargeContainer then
+		local key = shieldTimeKey(o)
+		if self._roShieldTimeKey ~= nil and self._roShieldTimeKey ~= key then self:RebuildShieldChargeContainer() end
+		self._roShieldTimeKey = key
+	end
 	if self.cooldownBar and self.WakeCooldownBar then
 		self:WakeCooldownBar()
 		if not self:IsOff() and self.cooldownBar:IsShown() then self:UpdateCooldownButtons() end
@@ -753,6 +1004,11 @@ function SP:TestCooldownCues()
 	if imbue and imbue:IsVisible() then playCue(imbue, o.cdbarCueImbueStyle or "shake", "imbue") end
 	local shield = self.shieldButton
 	if shield and shield:IsVisible() then playCue(shield, o.cdbarCueShieldStyle or "shake", "shield") end
+	-- Running Out plays for 3 seconds on the shield and the imbue (the cooldown bar's pass runs it)
+	local runUntil = GetTime() + 3
+	if imbue and imbue:IsVisible() then imbue._roTestRun = runUntil end
+	if shield and shield:IsVisible() then shield._roTestRun = runUntil end
+	if self.cooldownBar then self:WakeCooldownBar(); self:UpdateCooldownButtons() end
 end
 
 local loader = CreateFrame("Frame")
