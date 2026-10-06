@@ -841,9 +841,65 @@ local function AvailableShieldNotes(describe)
 			:gsub("so only the Earth Shield indicator uses this%.", "so no separate indicator is shown."))
 	end
 end
+-- Totem Plates page: why a totem shows only its name. WoW draws no nameplate for it
+-- while its own friendly / enemy nameplate options (or the Minions under them) are
+-- off, so there is nothing to put the icon on. Read when the page is drawn; WoW's own
+-- labels and keys, so the words match the player's Options page and language.
+local function GameLabel(global, fallback)
+	local v = _G[global]
+	if type(v) == "string" and v ~= "" then return v end
+	return fallback
+end
+local function BindingWord(action)
+	local key = GetBindingKey and GetBindingKey(action)
+	if type(key) ~= "string" or key == "" then return nil end
+	return (GetBindingText and GetBindingText(key)) or key
+end
+local function TotemPlatesNameplateNote()
+	local SP = ShamanPower
+	local tp = SP.opt and SP.opt.totemPlates
+	if not (SP.TotemPlatesLoaded and SP.TotemPlatesNameplateGap and tp and tp.enabled) then return nil end
+	local where = GameLabel("SETTINGS_TITLE", "Options") .. " > " .. GameLabel("SETTING_GROUP_GAMEPLAY", "Gameplay")
+		.. " > " .. GameLabel("NAMEPLATE_OPTIONS_LABEL", "Nameplates")
+	local lines = {}
+	if tp.showFriendly ~= false then
+		local gap = SP:TotemPlatesNameplateGap("friendly")
+		local option = GameLabel("UNIT_NAMEPLATES_SHOW_FRIENDS", "Friendly Player Nameplates")
+		local key = BindingWord("FRIENDNAMEPLATES")
+		if gap == "players" then
+			lines[#lines + 1] = "Your own totems (and other friendly ones) show only their name: WoW's \"" .. option
+				.. "\" option is off, so they have no nameplate to put an icon on. Turn it on with the button below, or in "
+				.. where .. (key and (" (" .. key .. " switches it too)") or "") .. "."
+		elseif gap == "minions" then
+			lines[#lines + 1] = "Your own totems (and other friendly ones) show only their name: the \""
+				.. GameLabel("UNIT_NAMEPLATES_SHOW_FRIENDLY_MINIONS", "Minions") .. "\" option under WoW's \"" .. option
+				.. "\" is off, so totems have no nameplate. Turn it on with the button below, or in " .. where .. "."
+		end
+	end
+	if tp.showEnemy ~= false then
+		local gap = SP:TotemPlatesNameplateGap("enemy")
+		local option = GameLabel("UNIT_NAMEPLATES_SHOW_ENEMIES", "Enemy Unit Nameplates")
+		local key = BindingWord("NAMEPLATES")
+		if gap == "players" then
+			lines[#lines + 1] = "Enemy totems show only their name: WoW's \"" .. option .. "\" option is off. Turn it on in "
+				.. where .. (key and (" (" .. key .. " switches it too)") or "") .. "."
+		elseif gap == "minions" then
+			lines[#lines + 1] = "Enemy totems show only their name: the \"" .. GameLabel("UNIT_NAMEPLATES_SHOW_ENEMY_MINIONS", "Minions")
+				.. "\" option under WoW's \"" .. option .. "\" is off. Turn it on in " .. where .. "."
+		end
+	end
+	if #lines == 0 then return nil end
+	return "|cffffa040" .. table.concat(lines, "\n\n") .. "|r"
+end
+
 local function SetsOwnDropAll()
 	return (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() and ShamanPower.opt.dropAllUsesTotemSets ~= false) and true or false
 end
+-- "Only Show Who's Missing" (party dots and Coverage): in fights on WoW: Forever the dots
+-- that show only who is missing go by estimated range, so they promise no more than that
+local MISSING_ONLY_DESC = SPCompat.FOREVER
+	and "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot. In fights on WoW: Forever the game hides buffs, so this then goes by estimated range: no dots means everyone looks close enough to your totem, not that their buffs were checked. Turn this off for dots that stay exact in fights."
+	or "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered."
 
 -- The Textures and Status Colors sections only style the panel behind the totem
 -- buttons. With "Hide Totem Bar Frame" on there is no panel, and the settings
@@ -1908,8 +1964,8 @@ ShamanPower.options = {
 							order = 2.1,
 							type = "toggle",
 							name = "Drop All Casts Call of the Elements",
-							desc = WithNotes("With totem sets available, Drop All casts Call of the Elements instead of one totem per click. Shift casts Call of the Ancestors. Ctrl casts Call of the Spirits. Right-click casts Totemic Recall.",
-								function() return ShamanPower.opt.showDropAllButton == false end, "\"Show Drop All Button\" is off, so there is no button for this to change. It still decides what the SP_DropAll macro and Blizzard's totem bar do."),
+							desc = WithNotes("With totem sets available, Drop All casts Call of the Elements instead of one totem per click. Shift casts Call of the Ancestors. Ctrl casts Call of the Spirits. Right-click casts Totemic Recall. The SP_DropAll macro still drops one totem per press.",
+								function() return ShamanPower.opt.showDropAllButton == false end, "\"Show Drop All Button\" is off, so there is no button for this to change."),
 							width = "full",
 							hidden = function() return not (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) end,
 							get = function(info) return ShamanPower.opt.dropAllUsesTotemSets ~= false end,
@@ -2435,7 +2491,8 @@ ShamanPower.options = {
 									print("ShamanPower: Cannot update macros in combat")
 									return
 								end
-								ShamanPower:UpdateSPMacros()
+								-- say so when the macro lists are full: before, this claimed success either way
+								if not ShamanPower:ReportMacroResult(ShamanPower:UpdateSPMacros(), "click Create/Update Macros again") then return end
 								print("ShamanPower: Macros created! Check your macro panel (Esc -> Macros)")
 							end
 						}
@@ -4113,6 +4170,8 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.raidCDShowButtonAnimation = val
+								-- show or clear the caller buttons' sweep now, not at the next cooldown
+								if ShamanPower.UpdateCallerButtonCooldowns then ShamanPower:UpdateCallerButtonCooldowns() end
 							end
 						},
 					}
@@ -4407,7 +4466,7 @@ ShamanPower.options = {
 							order = 1.65,
 							type = "toggle",
 							name = "Only Show Who's Missing",
-							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							desc = MISSING_ONLY_DESC,
 							width = "full",
 							get = function(info) return ShamanPower.opt.partyDotsMissingOnly and true or false end,
 							set = function(info, val)
@@ -4819,7 +4878,7 @@ ShamanPower.options = {
 							order = 11.5406,
 							type = "toggle",
 							name = "Only Show Who's Missing",
-							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							desc = MISSING_ONLY_DESC,
 							width = "full",
 							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
 								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
@@ -9525,10 +9584,41 @@ ShamanPower.options = {
 							name = "|cffffa040Totem Plates is not loaded. These settings will not work and may not save. Turn on ShamanPower [Totem Plates] in the AddOns list, then type /reload.|r",
 							hidden = function() return not (not ShamanPower.TotemPlatesLoaded) end,
 						},
+						-- why a totem shows only its name: WoW's own nameplate options (only while one is off)
+						nameplates_off_note = {
+							order = 0.02,
+							type = "description",
+							width = "full",
+							name = function() return TotemPlatesNameplateNote() or "" end,
+							hidden = function() return TotemPlatesNameplateNote() == nil end,
+						},
+						nameplates_turn_on = {
+							order = 0.03,
+							type = "execute",
+							name = "Turn On Friendly Nameplates",
+							desc = "Turns on WoW's own friendly player nameplates and the Minions option under them, so your totems have a nameplate for their icon. Only when you click this, and only out of combat. You can turn them off again in WoW's Options > Gameplay > Nameplates.",
+							width = "full",
+							hidden = function()
+								local tp = ShamanPower.opt.totemPlates
+								return not (ShamanPower.TotemPlatesLoaded and ShamanPower.TotemPlatesNameplateGap and tp and tp.enabled
+									and tp.showFriendly ~= false and ShamanPower:TotemPlatesNameplateGap("friendly"))
+							end,
+							disabled = function() return InCombatLockdown() end,
+							func = function()
+								if not ShamanPower:TurnOnFriendlyNameplates() then
+									print("|cff0070ddShamanPower|r: |cffE64A4ACan't change WoW's nameplate options during a fight.|r Click it again once the fight is over.")
+									return
+								end
+								ShamanPower:RefreshConfig()   -- the note and this button go once they are on
+							end,
+						},
 						totemplates_desc = {
 							order = 0,
 							type = "description",
-							name = "Replace totem nameplates with icons to recognize them quickly in PvP and raids.\n\nTurn on |cff00ff00ShamanPower [Totem Plates]|r in the AddOns list to use this feature.\n",
+							-- WoW: Forever hides which totem is which inside dungeons and raids
+							name = (SPCompat.FOREVER and "Replace totem nameplates with icons to recognize them quickly."
+								or "Replace totem nameplates with icons to recognize them quickly in PvP and raids.")
+								.. "\n\nTurn on |cff00ff00ShamanPower [Totem Plates]|r in the AddOns list to use this feature.\n",
 						},
 						totemplates_enabled = {
 							order = 1,
@@ -9548,7 +9638,9 @@ ShamanPower.options = {
 						totemplates_show_enemy = {
 							order = 2,
 							name = "Show Enemy Totems",
-							desc = "Replace enemy totem nameplates with icons",
+							desc = SPCompat.FOREVER
+								and "Replace enemy totem nameplates with icons. |cffffa040Inside dungeons and raids the game hides which totem is which, so no icons show there.|r"
+								or "Replace enemy totem nameplates with icons",
 							type = "toggle",
 							width = 1.0,
 							disabled = function() return not (ShamanPower.opt.totemPlates and ShamanPower.opt.totemPlates.enabled) end,
@@ -9563,7 +9655,9 @@ ShamanPower.options = {
 						totemplates_show_friendly = {
 							order = 3,
 							name = "Show Friendly Totems",
-							desc = "Replace friendly totem nameplates with icons. |cffffa040Friendly totem icons do not work inside dungeons and raids. Enemy totem icons work everywhere.|r",
+							desc = SPCompat.FOREVER
+								and "Replace friendly totem nameplates with icons. Needs WoW's friendly nameplates turned on (Shift+V). |cffffa040Inside dungeons and raids the game hides which totem is which, so no totem icons show there, enemy or friendly.|r"
+								or "Replace friendly totem nameplates with icons. Needs WoW's friendly nameplates turned on (Shift+V). |cffffa040Friendly totem icons do not work inside dungeons and raids. Enemy totem icons work everywhere.|r",
 							type = "toggle",
 							width = 1.0,
 							disabled = function() return not (ShamanPower.opt.totemPlates and ShamanPower.opt.totemPlates.enabled) end,
@@ -9986,10 +10080,13 @@ do
 		if not SP.ESTrackerUnavailable and SP.ESTrackerLoaded then SP:ToggleESTracker(); Notify() end
 	end
 	local reactive = pages.reactivetotems_section.args
+	-- Hidden: this switch does nothing (the alerts cannot cast totems, on or off) and it
+	-- was on to start. Its saved value (clickToCast) stays, as every saved setting does.
 	reactive.click_to_cast = {
 		order = 1.55, type = "toggle", name = "Click to Cast Totem (old setting)", width = "full",
 		desc = "Keeps the old Click to Cast Totem setting in sync with the separate window. "
 			.. "Turning this on does not make the alerts cast totems.",
+		hidden = function() return true end,
 		disabled = function() return not SP.ReactiveTotemsLoaded end,
 		get = function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.clickToCast ~= false end,
 		set = function(_, value)

@@ -158,7 +158,7 @@
 				<Scripts>
 					<OnEnter>ShamanPower:DropAllTooltip(self)</OnEnter>
 					<OnLeave>GameTooltip:Hide()</OnLeave>
-					<PostClick>ShamanPower:AdvanceDropAllTotem(self, button, down)</PostClick>
+					<PostClick>ShamanPower:DropAllPressed(self, button, down)</PostClick>
 				</Scripts>
 			</Button>
 			<!-- Totemic Call Button - recalls all totems (optional, shown when "Recall on Totem Bar" is enabled) -->
