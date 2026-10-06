@@ -117,6 +117,8 @@
     {"key": "nextShock", "label": "Target Tracker: Next Shock"},
     {"key": "totemRowsKeepFlyouts", "label": "Totem Rows: flyouts kept on the bar"},
     {"key": "readyRemindersFade", "label": "Ready reminders: fade instead of hide"},
-    {"key": "readyCheckRez", "label": "Ready check after resurrection"}
+    {"key": "readyCheckRez", "label": "Ready check after resurrection"},
+    {"key": "reactiveKeybinds", "label": "Reactive alerts show keybinds"},
+    {"key": "assignRightClickClears", "label": "Assignment window: right-click clears"}
   ]
 }

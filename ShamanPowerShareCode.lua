@@ -223,6 +223,12 @@ SP.SHARE_FEATURES = {
 		if c.enabled ~= nil then return c.enabled == true end
 		return SPCompat.FOREVER
 	end },
+	-- 3.0.8: Show Spell Keybind (the key under each Reactive Totems alert's totem name)
+	{ key = "reactiveKeybinds",   label = "Reactive alerts show keybinds",       get = function()
+		return on(sub(G("ShamanPower_ReactiveTotems"), "enabled")) and on(sub(G("ShamanPower_ReactiveTotems"), "showSpellKeybind"))
+	end },
+	-- 3.0.8: Totem Bar > Clicks > Right-Click an Assignment = Clear Assignment
+	{ key = "assignRightClickClears", label = "Assignment window: right-click clears", get = function() return O().assignRightClick == "clear" end },
 }
 
 -- ---------------------------------------------------------------------------

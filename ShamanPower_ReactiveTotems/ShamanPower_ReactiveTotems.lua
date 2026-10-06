@@ -123,6 +123,8 @@ local defaultSettings = {
 	showDebuffName = true,
 	showTotemName = true,
 	showDebuffIcon = false,       -- engine-drawn alerts: the debuff's own icon as a corner badge (opt-in)
+	showSpellKeybind = false,     -- the key bound to the alert's own totem, under its name (opt-in)
+	noKeyText = "none",           -- that totem has no key: "none" (show nothing) | "show" ("No Key Bound")
 	fontSize = 14,
 	fontOutline = true,
 
@@ -413,6 +415,7 @@ function SP:UpdateReactiveFrameAppearance(totemId)
 			frame.totemText:Hide()
 		end
 
+		self:ReactiveHostKeyCaption(frame, id)
 	end
 
 	if totemId then
@@ -423,6 +426,251 @@ function SP:UpdateReactiveFrameAppearance(totemId)
 		end
 	end
 	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end   -- engine copies of the art (no-op unless it changed)
+end
+
+-- ============================================================================
+-- Spell keybind under the alert (Show Spell Keybind, off to start)
+-- ============================================================================
+-- Each alert can show the key that casts ITS totem ("Tremor Totem" / "Shift-2"),
+-- under the totem's name. Only a key bound to that exact spell counts: the spell
+-- on the action bars (the core's key scan, the same one the bar buttons show) or
+-- the flyout button that casts it in Keybind Mode, in Keybind Shown's order
+-- (General > Keybinds). Never an element button's key: the Earth button casts
+-- whichever Earth totem is assigned (Stoneskin, Strength of Earth...).
+-- The text is worked out out of combat, from the scan, and handed to the alert
+-- as a plain string: on WoW: Forever the game draws the alert in fights and the
+-- caption with it, so a key that changes in a fight shows after the fight (the
+-- engine displays are rebuilt then, as for any other change to their art).
+
+local KEY_MODS = { CTRL = "Ctrl", ALT = "Alt", SHIFT = "Shift", META = "Cmd" }
+local KEY_NAMES = {
+	SPACE = "Space", TAB = "Tab", ENTER = "Enter", ESCAPE = "Esc", BACKSPACE = "Backspace",
+	CAPSLOCK = "Caps Lock", INSERT = "Insert", DELETE = "Delete", HOME = "Home", END = "End",
+	PAGEUP = "Page Up", PAGEDOWN = "Page Down", UP = "Up", DOWN = "Down", LEFT = "Left", RIGHT = "Right",
+	MOUSEWHEELUP = "Wheel Up", MOUSEWHEELDOWN = "Wheel Down", PRINTSCREEN = "Print Screen",
+	NUMLOCK = "Num Lock", SCROLLLOCK = "Scroll Lock", PAUSE = "Pause",
+	NUMPADPLUS = "Numpad+", NUMPADMINUS = "Numpad-", NUMPADMULTIPLY = "Numpad*", NUMPADDIVIDE = "Numpad/",
+	NUMPADDECIMAL = "Numpad.", NUMPADENTER = "Numpad Enter", NUMPADEQUALS = "Numpad=",
+}
+
+-- A binding ("CTRL-SHIFT-BUTTON4") in words ("Ctrl-Shift-Mouse4"); other languages
+-- get the game's own key names.
+local function KeyWords(key)
+	if type(key) ~= "string" or key == "" then return nil end
+	local locale = GetLocale and GetLocale()
+	if locale and locale ~= "enUS" and locale ~= "enGB" and GetBindingText then
+		local text = GetBindingText(key)
+		if type(text) == "string" and text ~= "" then return text end
+	end
+	local parts, rest = {}, key
+	while true do
+		local mod, after = rest:match("^(%u+)%-(.+)$")
+		if not (mod and KEY_MODS[mod]) then break end
+		parts[#parts + 1] = KEY_MODS[mod]
+		rest = after
+	end
+	local word = KEY_NAMES[rest]
+	if not word then
+		local n = rest:match("^BUTTON(%d+)$")
+		if n then
+			word = "Mouse" .. n
+		else
+			n = rest:match("^NUMPAD(%d)$")
+			if n then
+				word = "Numpad" .. n
+			elseif #rest > 1 and rest:match("^%u+$") then
+				word = rest:sub(1, 1) .. rest:sub(2):lower()
+			else
+				word = rest
+			end
+		end
+	end
+	parts[#parts + 1] = word
+	return table.concat(parts, "-")
+end
+
+-- The raw key bound to this alert's own totem, or nil.
+local function ReactiveSpellKey(data)
+	local name = SPCompat.TotemCastName and SPCompat.TotemCastName(data.totemSpellID) or SPCompat.SpellName(data.totemSpellID)
+	if not name then return nil end
+	local mode = SP.opt and SP.opt.keybindSource
+	local barKey = (mode ~= "sponly") and SP.GetKeybindForSpell and SP:GetKeybindForSpell(name) or nil
+	local spKey = SP.FlyoutSpellClickKey and SP:FlyoutSpellClickKey(name, data.totemElement) or nil
+	if mode == "sp" or mode == "sponly" then return spKey or barKey end
+	return barKey or spKey
+end
+
+-- [totemId] = the key in words, false (learned, no key) or nil (not learned / not worked out)
+local reactiveKeyWords = {}
+
+local measureFS
+local function TextWidth(text, size, outline)
+	if not measureFS then
+		measureFS = UIParent:CreateFontString(nil, "OVERLAY")
+		measureFS:Hide()
+	end
+	SP:SetSPFont(measureFS, "alerts", size, outline)
+	measureFS:SetText(text)
+	return (measureFS.GetUnboundedStringWidth and measureFS:GetUnboundedStringWidth()) or measureFS:GetStringWidth() or 0
+end
+
+-- Lines no wider than one and a half icons or the totem's name (whichever is
+-- wider), broken after a "-" or at a space, so a long key wraps ("Ctrl-Shift-" /
+-- "Mouse4") instead of running wide, and is never cut short.
+local function WrapCaption(text, data)
+	local sv = ShamanPower_ReactiveTotems
+	local size, outline = (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or ""
+	local limit = math.max((sv.iconSize or 64) * 1.5, TextWidth(data.totemName or "", size, outline))
+	if TextWidth(text, size, outline) <= limit + 0.5 then return text end
+	local tokens, cur = {}, ""
+	for ch in text:gmatch(".") do
+		cur = cur .. ch
+		if (ch == "-" or ch == " ") and cur:find("[^%-%s]") then
+			tokens[#tokens + 1] = cur
+			cur = ""
+		end
+	end
+	if cur ~= "" then
+		if cur:find("[^%-%s]") or #tokens == 0 then tokens[#tokens + 1] = cur else tokens[#tokens] = tokens[#tokens] .. cur end
+	end
+	local lines, line = {}, ""
+	for _, t in ipairs(tokens) do
+		local try = line .. t
+		if line ~= "" and TextWidth((try:gsub("%s+$", "")), size, outline) > limit + 0.5 then
+			lines[#lines + 1] = (line:gsub("%s+$", ""))
+			line = t
+		else
+			line = try
+		end
+	end
+	if line ~= "" then lines[#lines + 1] = (line:gsub("%s+$", "")) end
+	return table.concat(lines, "\n")
+end
+
+-- What the alert shows under the totem's name: text ("" = nothing), and true for
+-- a key (white, like the time left) or false for "No Key Bound" (WoW's gray).
+function SP:ReactiveKeyCaption(totemId)
+	local sv = ShamanPower_ReactiveTotems
+	local data = self.ReactiveTotems[totemId]
+	if not (sv and sv.showSpellKeybind and data) then return "", false end
+	local words = reactiveKeyWords[totemId]
+	if words then return WrapCaption(words, data), true end
+	if words == false and sv.noKeyText == "show" then return WrapCaption("No Key Bound", data), false end
+	return "", false
+end
+
+local function KeyCaptionColor(isKey)
+	if isKey then return 1, 1, 1 end
+	local c = GRAY_FONT_COLOR
+	if c and c.GetRGB then return c:GetRGB() end
+	return 0.5, 0.5, 0.5
+end
+
+-- The host frame's copy (TBC Anniversary's alerts; the test, Show All and preview
+-- on both clients): directly under the totem's name, or under what is shown.
+function SP:ReactiveHostKeyCaption(frame, totemId)
+	local text, isKey = self:ReactiveKeyCaption(totemId)
+	local fs = frame.keyText
+	if text == "" then
+		if fs then fs:SetText(""); fs:Hide() end
+		return
+	end
+	local sv = ShamanPower_ReactiveTotems
+	if not fs then
+		fs = frame:CreateFontString(nil, "OVERLAY")
+		fs:SetShadowColor(0, 0, 0, 1)
+		fs:SetShadowOffset(1, -1)
+		fs:SetJustifyH("CENTER")
+		frame.keyText = fs
+	end
+	SP:SetSPFont(fs, "alerts", (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or "")
+	fs:ClearAllPoints()
+	if sv.showTotemName then
+		fs:SetPoint("TOP", frame.totemText, "BOTTOM", 0, -2)
+	elseif sv.showDebuffName then
+		fs:SetPoint("TOP", frame.debuffText, "BOTTOM", 0, -2)
+	else
+		fs:SetPoint("TOP", frame, "BOTTOM", 0, -4)
+	end
+	fs:SetTextColor(KeyCaptionColor(isKey))
+	fs:SetText(text)
+	fs:SetShown(not self:ReactiveEngineLive())
+end
+
+-- Work the keys out again (after the core's key scan, or a setting changed): the
+-- host frames take the new text at once, the engine displays are rebuilt where
+-- their caption changed (RebuildReactiveEngine waits for the end of a fight).
+-- Nothing at all while Show Spell Keybind is off.
+function SP:RefreshReactiveKeys()
+	local sv = ShamanPower_ReactiveTotems
+	if not (sv and self.ReactiveTotems) then return end
+	local on = sv.showSpellKeybind and true or false
+	if not on and not self.reactiveKeysShown then return end
+	self.reactiveKeysShown = on or nil
+	local changed = false
+	for totemId, data in pairs(self.ReactiveTotems) do
+		local words
+		if on and SPCompat.KnowsSpellID(data.totemSpellID) then
+			words = KeyWords(ReactiveSpellKey(data)) or false
+		end
+		if reactiveKeyWords[totemId] ~= words then
+			reactiveKeyWords[totemId] = words
+			changed = true
+		end
+	end
+	self:ReactiveKeyEventsOn(on)
+	if not changed then return end
+	for totemId, frame in pairs(self.reactiveFrames) do self:ReactiveHostKeyCaption(frame, totemId) end
+	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end
+	-- the settings page lists the keys found (Reactive Totems > Spell Keybind)
+	local reg = on and LibStub and LibStub("AceConfigRegistry-3.0", true)
+	if reg then reg:NotifyChange("ShamanPower") end
+end
+
+-- For the settings page and /spreactive status: what each alert's totem has now.
+function SP:ReactiveKeyStatus(sep)
+	local parts = {}
+	for _, totemId in ipairs({ "fear", "poison", "disease" }) do
+		local data = self.ReactiveTotems[totemId]
+		local words = reactiveKeyWords[totemId]
+		local shown
+		if words then
+			shown = words
+		elseif words == false then
+			shown = "no key bound"
+		else
+			shown = "not learned yet"
+		end
+		parts[#parts + 1] = (data and data.totemName or totemId) .. ": " .. shown
+	end
+	return table.concat(parts, sep or "   ")
+end
+
+-- The bar and binding events that can move a key, heard only while the feature
+-- is on (the core hears them itself only while the bar buttons show keys).
+-- Each one queues the core's coalesced key scan; the scan's hook below does the rest.
+function SP:ReactiveKeyEventsOn(on)
+	local f = self.reactiveKeyEvents
+	if not f then
+		if not on then return end
+		f = CreateFrame("Frame")
+		f:SetScript("OnEvent", function()
+			if SP:IsOff() then return end
+			if SP.QueueKeybindTextRefresh then SP:QueueKeybindTextRefresh() end
+		end)
+		self.reactiveKeyEvents = f
+	end
+	if on == (f.spOn or false) then return end
+	f.spOn = on
+	for _, event in ipairs({ "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_PAGE_CHANGED", "SPELLS_CHANGED" }) do
+		if on then f:RegisterEvent(event) else f:UnregisterEvent(event) end
+	end
+end
+
+-- Every key scan the core runs (logins, bindings, bars, Keybind Mode, Keybind Shown)
+-- ends in UpdateButtonKeybindText: the keys are worked out again from its fresh scan.
+if type(SP.UpdateButtonKeybindText) == "function" then
+	hooksecurefunc(SP, "UpdateButtonKeybindText", function() SP:RefreshReactiveKeys() end)
 end
 
 -- ============================================================================
@@ -717,6 +965,7 @@ function SP:SetReactiveHostMode()
 			frame.bg:Hide(); frame.icon:Hide(); frame.borderFrame:Hide()
 			frame.glow:Hide(); frame.glowAnim:Stop()
 			frame.debuffText:Hide(); frame.totemText:Hide()
+			if frame.keyText then frame.keyText:Hide() end
 			frame:EnableMouse(false)
 			frame:SetAlpha(sv.opacity or 1.0)
 			frame:Show()
@@ -726,6 +975,7 @@ function SP:SetReactiveHostMode()
 			frame.borderFrame:SetShown(not sv.hideBorder)
 			frame.debuffText:SetShown(sv.showDebuffName and true or false)
 			frame.totemText:SetShown(sv.showTotemName and true or false)
+			if frame.keyText then frame.keyText:SetShown((frame.keyText:GetText() or "") ~= "") end
 			frame:EnableMouse(true)
 		end
 	end
@@ -764,6 +1014,8 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 	if class and RAID_CLASS_COLORS[class] then
 		lr, lg, lb = RAID_CLASS_COLORS[class].r, RAID_CLASS_COLORS[class].g, RAID_CLASS_COLORS[class].b
 	end
+	local caption, captionIsKey = SP:ReactiveKeyCaption(totemId)   -- Show Spell Keybind ("" = none)
+	local kr, kg, kb = KeyCaptionColor(captionIsKey)
 	options.initializeFrame = function(button)
 		button:ClearAllPoints()
 		button:SetAllPoints(host)
@@ -839,10 +1091,27 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 			left:SetShadowOffset(1, -1)
 			pcall(button.SetDurationText, button, left, {})
 		end
+		-- the key that casts this totem (Show Spell Keybind), directly under its
+		-- name: the name moves up to make room. Plain text, set now.
+		local keyLine
+		if caption ~= "" then
+			keyLine = carrier:CreateFontString(nil, "OVERLAY")
+			SP:SetSPFont(keyLine, "alerts", fontSize - 2, outline)
+			keyLine:SetPoint("BOTTOM", button, "TOP", 0, 3)
+			keyLine:SetJustifyH("CENTER")
+			keyLine:SetTextColor(kr, kg, kb)
+			keyLine:SetShadowColor(0, 0, 0, 1)
+			keyLine:SetShadowOffset(1, -1)
+			keyLine:SetText(caption)
+		end
 		if sv.showTotemName ~= false then
 			local totem = carrier:CreateFontString(nil, "OVERLAY")
 			SP:SetSPFont(totem, "alerts", fontSize - 2, outline)
-			totem:SetPoint("BOTTOM", button, "TOP", 0, 3)
+			if keyLine then
+				totem:SetPoint("BOTTOM", keyLine, "TOP", 0, 2)
+			else
+				totem:SetPoint("BOTTOM", button, "TOP", 0, 3)
+			end
 			totem:SetText(data.totemName)
 			totem:SetTextColor(1, 0.82, 0)
 			totem:SetShadowColor(0, 0, 0, 1)
@@ -874,6 +1143,9 @@ function SP:ReactiveEngineReport()
 	self:Print(("  look: size=%s glow=%s debuffName=%s totemName=%s font=%s border=%s background=%s"):format(
 		tostring(sv and sv.iconSize), tostring(sv and sv.showGlow), tostring(sv and sv.showDebuffName), tostring(sv and sv.showTotemName),
 		tostring(sv and sv.fontSize), tostring(not (sv and sv.hideBorder)), tostring(not (sv and sv.hideBackground))))
+	if sv and sv.showSpellKeybind then
+		self:Print(("  keys (%s): %s"):format(sv.noKeyText == "show" and "No Key Bound shown" or "nothing when unbound", self:ReactiveKeyStatus()))
+	end
 	for totemId in pairs(self.ReactiveTotems) do
 		local host = self.reactiveFrames[totemId]
 		local parts = {}
@@ -903,10 +1175,12 @@ function SP:RebuildReactiveEngine()
 		if host then
 			self.reactiveEngine[totemId] = self.reactiveEngine[totemId] or {}
 			local list = self.reactiveEngine[totemId]
+			local caption = self:ReactiveKeyCaption(totemId)   -- its key changed: this totem's displays are built again
 			for i, unit in ipairs(REACTIVE_UNITS) do
 				local exists = UnitExists(unit)
 				local _, class = UnitClass(unit)
 				local key = (exists and ((UnitName(unit) or "?") .. "/" .. tostring(class)) or "-") .. "|" .. look
+				if caption ~= "" then key = key .. "|" .. caption end
 				local slot = list[i]
 				if not slot or slot.key ~= key then
 					if slot and slot.container then
@@ -1399,6 +1673,10 @@ function SP:InitializeReactiveTotems()
 	self:InitReactiveTotems()
 	self:CreateAllReactiveFrames()
 	self:SetupReactiveTotemsEvents()
+	-- Show Spell Keybind: the keys before the first build (the core's own scan
+	-- after login comes later and updates them through its hook)
+	if ShamanPower_ReactiveTotems.showSpellKeybind and self.ScanActionBarKeybinds then self:ScanActionBarKeybinds() end
+	self:RefreshReactiveKeys()
 	self:RebuildReactiveEngine()
 	self:UpdateReactiveTotemDisplay()
 end
