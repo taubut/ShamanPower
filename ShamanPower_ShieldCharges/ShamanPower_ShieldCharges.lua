@@ -973,6 +973,7 @@ local function buildChargeContainer(frame, kind, scale, sets, icon, number, corn
 						carrier:SetAllPoints(button)
 						count = carrier:CreateFontString(nil, "OVERLAY")
 						SP:SetSPFont(count, "charges", numberSize(icon, corner) * scale, "OUTLINE")
+						SP:SPFontGameOwned(count)   -- (on the game's button: a font change waits out fights and hidden auras)
 						count:SetTextColor(c[1], c[2], c[3])   -- fallback if the formatter is unavailable
 					end
 					placeParts(button, scale, icon, number, corner, iconTex, count, chargeBar, barSide)

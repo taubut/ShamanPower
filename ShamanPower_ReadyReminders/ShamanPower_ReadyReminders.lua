@@ -1303,17 +1303,7 @@ end
 -- hiding auras. Only the engine's buffs care; Anniversary's are frames of our own.
 function Buff.Locked()
 	if not (IS_MAINLINE and Buff.engine ~= false) then return false end
-	if InCombatLockdown() then return true end
-	local S = C_Secrets
-	if S and S.ShouldAurasBeSecret then
-		local ok, v = pcall(S.ShouldAurasBeSecret)
-		if not ok or (issecretvalue and issecretvalue(v)) or v == true then return true end
-	end
-	if SPCompat.secretsRegime then
-		if SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return true end
-		if SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return true end
-	end
-	return false
+	return SP:GameAuraButtonsLocked()   -- (a fight, or the game hiding auras: ShamanPowerFonts.lua)
 end
 
 -- WoW's gold (NORMAL_FONT_COLOR, read from the game: #FFD100 Anniversary, #FFD200 Forever)
@@ -1494,6 +1484,7 @@ function Buff.Init(B, button)
 	P.engine, P.button = true, button
 	B.P = P
 	Buff.Paint(B)
+	SP:SPFontGameOwned(P.time)   -- on the game's button: a font change waits out fights and hidden auras
 	pcall(button.SetIcon, button, P.icon)   -- the game puts the buff's own icon on it
 end
 
@@ -1607,8 +1598,11 @@ function Buff.Layout(entry)
 		B.c:SetFrameLevel(h:GetFrameLevel() + 1)
 		Buff.Paint(B)
 	elseif Buff.engine and (B.fails or 0) < 3 then
-		if not Buff.Build(B) then return end   -- (tried again on the next layout; B.P is painted by its button's Init)
-	else
+		-- the game's container (B.P is painted by its button's Init). Refused: tried again on the
+		-- next layout; the third refusal goes on to frames of our own at once (below)
+		if not Buff.Build(B) and B.fails < 3 then return end
+	end
+	if not B.c then
 		-- TBC Anniversary, or the game's container refused three times: frames of our own
 		-- (WoW: Forever then shows the buff out of combat only: in a fight it cannot be read)
 		if not B.P then B.P = Buff.NewParts(h) end
@@ -1619,6 +1613,13 @@ function Buff.Layout(entry)
 		end
 	end
 	B.ready = true
+end
+
+-- this game's buffs by name, for the settings page's text (what a search finds)
+function Buff.Names()
+	local t = {}
+	for i = 1, #Buff.list do t[i] = Buff.list[i].buff.label end
+	return table.concat(t, ", ")
 end
 
 function Buff.LayoutAll()
@@ -1677,9 +1678,19 @@ end
 -- spell switched on and known (In Its Own Spot: its own, the icon need not be on), Only In
 -- Combat (hidden out of combat, or faded with Fade Instead of Hide), Opacity. The edge is
 -- on the icon itself: the icon's own alpha carries all of that to it.
+-- In the icon's corner or beside it, the buff goes only where its icon can be: never with
+-- Show: Never (the icon is never on screen), and in a grid not while the icon is hidden
+-- (its cell goes to the next icon, and the buff would sit on that spell). WoW: Forever: an
+-- icon a cooldown keeps invisible stays shown, in a free cell after the ones on screen
+-- (gridBefore), so its buff shows there and on no other icon. Our own frame's IsShown only.
 function Buff.Wanted(entry, B, inCombat)
 	if not usable(entry) then return false, 0, 1 end
-	if not (B.look == "own" and B.side == "spot") and not (spellOn(entry) and playerKnows(entry)) then return false, 0, 1 end
+	local ownSpot = B.look == "own" and B.side == "spot"
+	if not ownSpot and not (spellOn(entry) and playerKnows(entry)) then return false, 0, 1 end
+	if not ownSpot and B.look ~= "edge" then
+		if IconOpt(entry, "mode") == "flash" then return false, 0, 1 end
+		if gridOn() and not (frames[entry.key] and frames[entry.key]:IsShown()) then return false, 0, 1 end
+	end
 	local fade = 1
 	if not inCombat and IconOpt(entry, "onlyInCombat") then
 		if IconOpt(entry, "fadeInsteadOfHide") and IconOpt(entry, "mode") ~= "flash" then fade = fadedOpacity(entry)
@@ -2548,6 +2559,7 @@ local function saveFlashSpot(frame)
 end
 function SP:ReadyFlashMoveSpell(key)
 	if not catalogByKey[key] then return end
+	if Buff.CombatRefused() then return end   -- (no one-box filter left behind for the next Unlock UI)
 	flashMoveOnly = key
 	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readyflashspell") end
 end
@@ -2572,6 +2584,14 @@ function SP:ReadyFlashResetSpellSpot(frame)
 		frame:SetPoint("CENTER", UIParent, "CENTER", FLASH_X, FLASH_Y)
 	end
 	settingsChanged()
+end
+
+-- Move This Buff / Move This Flash in a fight: Unlock UI never opens in one, so nothing is
+-- set up for it; the player gets the line Unlock UI itself prints then
+function Buff.CombatRefused()
+	if not InCombatLockdown() then return false end
+	print("|cff0070ddShamanPower|r: |cffe64a4athe UI cannot be unlocked in combat.|r")
+	return true
 end
 
 -- A buff In Its Own Spot (D52; its menu's Side, "Move This Buff"): Unlock UI gets a box
@@ -2623,6 +2643,7 @@ end
 -- Move This Buff: Unlock UI with that buff's box only
 function SP:ReadyBuffMoveSpot(key)
 	if not (catalogByKey[key] and catalogByKey[key].buff) then return end
+	if Buff.CombatRefused() then return end   -- (no one-box filter left behind for the next Unlock UI)
 	Buff.moveOnly = key
 	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readybuffspot") end
 end
@@ -3837,9 +3858,10 @@ local function InjectOptions()
 				name = "Click a spell to show or hide it. Right-click it for its settings: Show, Only In Combat,"
 					.. " Fade Instead of Hide, Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash."
 					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom."
-					-- (D52) the buff a spell puts on you, in that spell's menu
-					.. " Your buff on its icon (Improved Stormstrike, Stormpower ...): Show The Buff In The Icon's Corner,"
-					.. " As Its Own Icon, In Its Own Spot or As An Edge Around The Icon; Time Left, Time Turns Gold Under, Edge Color." },
+					-- (D52) the buff a spell puts on you, in that spell's menu (this game's buffs only)
+					.. " Your buff on its icon (" .. Buff.Names() .. "): Show The Buff In The Icon's Corner,"
+					.. " As Its Own Icon (Side: Above, Below, Left, Right or In Its Own Spot) or As An Edge Around The Icon;"
+					.. " Time Left, Time Turns Gold Under, Edge Color." },
 
 			move = { order = 1.5, type = "execute", name = "Move the Icons", width = 1.2,
 				desc = "Unlocks just the reminder icons: drag each box where you want it, then press Done to come back here.",
@@ -4042,17 +4064,46 @@ if SP.ThemeSpotSettings then
 				if v == "default" then SP:ReadyReminderSetIconOpt(key, "sweepDirection", nil)
 				elseif v == "top" or v == "bottom" then SP:ReadyReminderSetIconOpt(key, "sweepDirection", v) end
 			end }
+		-- (D52) the buff's Edge Color, picked in the icon's menu: the same way ("default" = the
+		-- shared one, WoW's mana-bar blue; a color = this icon's own). Only a spell with a buff here.
+		if entry.buff then
+			entries[#entries + 1] = { key = "buffEdgeColor." .. key, label = entry.buff.label .. " Buff Edge Color",
+				mayBeColor = true,   -- (a theme may hold a color here while the icon has none: ShamanPowerTheme Cards.FitsEntry)
+				get = function()
+					local c = SP:ReadyReminderOwnOpt(key, "buffEdgeColor")
+					if type(c) ~= "table" then return "default" end
+					local r, g, b = color(c, 0, 0, 1)
+					return { r = r, g = g, b = b }
+				end,
+				set = function(v)
+					if v == "default" then SP:ReadyReminderSetIconOpt(key, "buffEdgeColor", nil)
+					elseif type(v) == "table" then
+						SP:ReadyReminderSetIconOpt(key, "buffEdgeColor", { r = v.r or v[1], g = v.g or v[2], b = v.b or v[3] })
+					end
+				end }
+		end
 	end
 	SP:ThemeSpotSettings("mod.readyreminders", entries)
 end
 
 -- The Out of Range color is a theme color too (ShamanPowerTheme.lua Cards.RR): Reset
 -- All Colors (and Reset Everything, which runs it) clears it with the module's
--- other colors, back to the game's red on the next read.
+-- other colors, back to the game's red on the next read. So is each icon's buff Edge
+-- Color (D52): back to the shared one, WoW's mana-bar blue.
 if SP.ResetAllColorsToDefault and hooksecurefunc then
 	hooksecurefunc(SP, "ResetAllColorsToDefault", function()
 		local sv = rawget(_G, "ShamanPower_ReadyReminders")
-		if type(sv) == "table" then sv.rangeColor = nil end
+		if type(sv) == "table" then
+			sv.rangeColor = nil
+			if type(sv.icons) == "table" then
+				for k, own in pairs(sv.icons) do
+					if type(own) == "table" and own.buffEdgeColor ~= nil then
+						own.buffEdgeColor = nil
+						if next(own) == nil then sv.icons[k] = nil end
+					end
+				end
+			end
+		end
 		settingsChanged()
 	end)
 end

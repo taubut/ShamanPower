@@ -1073,6 +1073,7 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 		-- under it. No tag, no strip: names float, frame or no frame.
 		local t = button:CreateFontString(nil, "OVERLAY")
 		SP:SetSPFont(t, "labels", fontSize, "OUTLINE")
+		SP:SPFontGameOwned(t)   -- (on the game's button: a font change waits out fights and hidden auras)
 		t:SetPoint("LEFT", button, "LEFT", 2, 0)
 		t:SetPoint("RIGHT", button, "RIGHT", -2, 0)
 		t:SetJustifyH("CENTER")

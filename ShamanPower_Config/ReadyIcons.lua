@@ -613,7 +613,7 @@ local BUFF_CORNER_CHOICES = { { "tr", "Top Right" }, { "tl", "Top Left" }, { "br
 local BUFF_SIDE_CHOICES = { { "above", "Above" }, { "below", "Below" }, { "left", "Left" }, { "right", "Right" },
 	{ "spot", "In Its Own Spot" } }
 local BUFF_TIPS = {
-	show = "Where the buff shows while it's on you. It stays on screen while this icon hides between casts (the edge needs the icon). Off: nothing changes.",
+	show = "Where the buff shows while it's on you. It stays on screen while this icon hides between casts, except as an edge (the edge needs the icon) and in a grid (there a hidden icon's place goes to the next icon; In Its Own Spot still stays). Off: nothing changes.",
 	corner = "Which corner of this icon the buff sits in.",
 	cornerSize = "How big the buff is, as a share of this icon.",
 	side = "Where the buff's own icon goes: next to this icon, or In Its Own Spot, anywhere on your screen (Move This Buff places it). In its own spot it shows even with this icon hidden.",
@@ -623,6 +623,19 @@ local BUFF_TIPS = {
 	time = "The seconds the buff has left.",
 	gold = "The time turns WoW's gold for the buff's last seconds. Never: it stays white.",
 }
+
+-- Show: Never (Ready Flash only): the icon is never on screen, so the buff can only show In
+-- Its Own Spot: the corner and the sides next to the icon are left out of the choices, as
+-- Fade Instead of Hide is. A look that cannot show then (one saved before, or the edge, which
+-- needs the icon) gets a plain line saying why nothing shows.
+local BUFF_NEVER_HIDES = { corner = true, above = true, below = true, left = true, right = true }
+local function NeverChoices(list, cur)
+	local out = {}
+	for _, c in ipairs(list) do
+		if not BUFF_NEVER_HIDES[c[1]] or c[1] == cur then out[#out + 1] = c end
+	end
+	return out
+end
 
 local function BuffRows(key, entry)
 	local info = SP.ReadyReminderBuffInfo and SP:ReadyReminderBuffInfo(key)
@@ -634,6 +647,13 @@ local function BuffRows(key, entry)
 		t[#t + 1] = { separator = true }
 	end
 	local look = Opt(key, "buffLook") or "off"
+	local never = SP:ReadyReminderShowOf(key) == "flash"
+	local side = Opt(key, "buffSide") or "above"
+	if never and (look == "corner" or look == "edge" or (look == "own" and side ~= "spot")) then
+		t[#t + 1] = { text = "Show: Never keeps this icon off your screen:", disabled = true }
+		t[#t + 1] = { text = "the buff shows only In Its Own Spot.", disabled = true }
+		t[#t + 1] = { separator = true }
+	end
 	t[#t + 1] = {
 		text = "Show The Buff", tip = BUFF_TIPS.show,
 		value = function()
@@ -643,9 +663,13 @@ local function BuffRows(key, entry)
 		sub = function()
 			local cur = Opt(key, "buffLook") or "off"
 			local items = {}
-			for _, c in ipairs(BUFF_LOOK_CHOICES) do
+			for _, c in ipairs(never and NeverChoices(BUFF_LOOK_CHOICES, cur) or BUFF_LOOK_CHOICES) do
 				local v = c[1]
-				items[#items + 1] = { text = c[2], selected = cur == v, onClick = function() return Set(key, "buffLook", v) end }
+				items[#items + 1] = { text = c[2], selected = cur == v, onClick = function()
+					-- Show: Never: its own icon goes In Its Own Spot (the one place it can show)
+					if never and v == "own" and Opt(key, "buffSide") ~= "spot" then SP:ReadyReminderSetIconOpt(key, "buffSide", "spot") end
+					return Set(key, "buffLook", v)
+				end }
 			end
 			return items
 		end,
@@ -655,7 +679,8 @@ local function BuffRows(key, entry)
 		row = ChoiceRow(key, "Corner", "buffCorner", BUFF_CORNER_CHOICES, "tr"); row.tip = BUFF_TIPS.corner; t[#t + 1] = row
 		row = SliderRow(key, "Size", "buffSize", 0.3, 0.7, 0.05, 0.45, nil, true); row.tip = BUFF_TIPS.cornerSize; t[#t + 1] = row
 	elseif look == "own" then
-		row = ChoiceRow(key, "Side", "buffSide", BUFF_SIDE_CHOICES, "above"); row.tip = BUFF_TIPS.side; t[#t + 1] = row
+		row = ChoiceRow(key, "Side", "buffSide", never and NeverChoices(BUFF_SIDE_CHOICES, side) or BUFF_SIDE_CHOICES, "above")
+		row.tip = BUFF_TIPS.side; t[#t + 1] = row
 		row = SliderRow(key, "Size", "buffOwnSize", 0.3, 1, 0.05, 1, nil, true); row.tip = BUFF_TIPS.ownSize; t[#t + 1] = row
 		if Opt(key, "buffSide") == "spot" and SP.ReadyReminderBuffMove then
 			t[#t + 1] = { text = "Move This Buff", tip = BUFF_TIPS.move,

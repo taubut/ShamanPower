@@ -234,6 +234,7 @@ local function buildESRowContainer(btn)
 				carrier:SetAllPoints(button)
 				local count = carrier:CreateFontString(nil, "OVERLAY")
 				SP:SetSPFont(count, "labels", 12, "OUTLINE")
+				SP:SPFontGameOwned(count)   -- (on the game's button: a font change waits out fights and hidden auras)
 				count:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
 				count:SetTextColor(0.4, 1, 0.4)
 				ThemeCount(count)   -- the game-drawn count takes the theme's colour when built
