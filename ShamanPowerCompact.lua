@@ -557,7 +557,7 @@ function SP:UpdateCompactLineKeys()
 	local es = _G["ShamanPowerEarthShieldBtn"]
 	if es then
 		local spell = self.GetEarthShieldSpell and self:GetEarthShieldSpell() or nil
-		self:PaintCompactLineKey(es, (es.compactLayoutOn and spell) and true or false, spell, "SHAMANPOWER_EARTH_SHIELD")
+		self:PaintCompactLineKey(es, (es.compactLayoutOn and spell) and true or false, nil, "SHAMANPOWER_EARTH_SHIELD")   -- (its own key only: a bar key for Earth Shield casts on your target, the line on your assigned one)
 	end
 end
 
@@ -675,7 +675,7 @@ function SP:ApplyCompactESLayout()
 	if name then name:Hide() end
 	-- its key at the far end, like the totem lines' (Show Keybinds on Buttons; none without Earth Shield)
 	local esSpell = self.GetEarthShieldSpell and self:GetEarthShieldSpell() or nil
-	self:PaintCompactLineKey(esBtn, esSpell ~= nil, esSpell, "SHAMANPOWER_EARTH_SHIELD")
+	self:PaintCompactLineKey(esBtn, esSpell ~= nil, nil, "SHAMANPOWER_EARTH_SHIELD")   -- (its own key only, as above)
 	self:UpdateCompactES()
 end
 
