@@ -556,7 +556,7 @@ function SP:RunReadyCheckSweep(reason)
 	if (not c.enabled or SP:IsOff()) and reason ~= "manual" then return end   -- /sp check still answers when switched off
 	-- a ghost run back into an instance: the check after the resurrection is the
 	-- one list (the entering check would be a second one a moment later)
-	if reason == "instance" and (sweepReason == "rez" or (rezCovers and rezCovers())) then return end
+	if reason == "instance" and rezCovers and rezCovers() then return end
 	-- alive again: read the shield fresh (one read, nothing kept from the life before)
 	if reason == "rez" and SP.ScanPlayerShield and not SP:IsOff() then SP:ScanPlayerShield() end
 	local list, unknown = collect()
@@ -764,7 +764,8 @@ local rezWaiting         -- the check waits for the fight to end
 local rezReminded        -- the short reminder was shown for this resurrection
 local deadSeen           -- you died (or logged in dead) and have not been checked since
 local rezSweptAt         -- when the check after a resurrection last ran
-local REZ_COVERS = 30    -- seconds an entering-an-instance check is left to it (loading screens can be long)
+local rezLoad            -- the last loading screen began dead, as a ghost, or with that check on its way
+local REZ_COVERS = 5     -- seconds a just-run check still counts as on its way when a loading screen begins
 
 local rezFrame = CreateFrame("Frame")
 if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(rezFrame, "Ready Check (resurrection)") end
@@ -816,7 +817,8 @@ rezCovers = function()
 	if not rezOn() then return false end
 	if rezTimer or rezWaiting then return true end              -- on its way
 	if deadSeen and not aliveNow() then return true end         -- still a ghost: it comes once you are alive
-	return rezSweptAt ~= nil and GetTime() - rezSweptAt < REZ_COVERS   -- it has just run
+	if rezLoad then rezLoad = nil; return true end   -- this loading screen began as a ghost run back (that one entering check)
+	return false
 end
 
 local function startRezSettle(seconds)
@@ -828,6 +830,7 @@ rezFrame:RegisterEvent("PLAYER_DEAD")
 rezFrame:RegisterEvent("PLAYER_ALIVE")
 rezFrame:RegisterEvent("PLAYER_UNGHOST")
 rezFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+rezFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
 rezFrame:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_DEAD" then
 		diedAt, deadSeen = GetTime(), true
@@ -843,6 +846,11 @@ rezFrame:SetScript("OnEvent", function(_, event)
 			rezFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
 			startRezSettle(FIGHT_SETTLE)
 		end
+	elseif event == "PLAYER_LEAVING_WORLD" then
+		-- a loading screen begins: a ghost running back in (or a check after a resurrection on its
+		-- way) makes that check the one list for the instance entered; any other trip is checked as usual
+		rezLoad = (deadSeen and not aliveNow()) or rezTimer ~= nil or rezWaiting == true
+			or (rezSweptAt ~= nil and GetTime() - rezSweptAt < REZ_COVERS)
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		-- logged in, or through a loading screen, dead or as a ghost
 		if not aliveNow() then deadSeen = true end
