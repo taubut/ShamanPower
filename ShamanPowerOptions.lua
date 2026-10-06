@@ -8782,6 +8782,42 @@ ShamanPower.options = {
 								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
 							end
 						},
+						-- the shield button's right-click casts the other shield and keeps it on the button, in
+						-- fights too (ApplyShieldButtonClicks); its own "Shield Button" band, under the list
+						cdbar_shield_right_click_other = {
+							order = 2.2,
+							type = "toggle",
+							name = function()
+								return ((ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped()) and "Left" or "Right")
+									.. "-Click Casts Your Other Shield"
+							end,
+							desc = WithNotes(function()
+									local click = (ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped()) and "Left-click" or "Right-click"
+									return click .. " the shield button to cast your other shield: Water Shield while the button is on"
+										.. " Lightning Shield, Lightning Shield while it's on Water Shield. That shield then stays on the"
+										.. " button, so your next click or key casts it again. Works in fights."
+								end,
+								function() return ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped() end,
+									"Swap Left and Right Click is on, so this is the left-click. The right-click and your key cast the shield on the button.",
+								function() return ShamanPower.FlyoutOpensOnRightClick and ShamanPower:FlyoutOpensOnRightClick() end,
+									"\"Flyout Requires Right-Click\" is on and takes the right-click first, so this does nothing right now.",
+								function() return ShamanPower.KnownShieldCount and ShamanPower:KnownShieldCount() < 2 end,
+									"You know only one of the two shields right now, so there is nothing to switch to yet."),
+							width = "full",
+							hidden = function() return not ShamanPower.opt.showCooldownBar or ShamanPower.opt.cdbarShowShields == false end,
+							disabled = function() return not isShaman end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShieldRightClickOther == true
+							end,
+							set = function(info, val)
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower:|r the shield button's clicks cannot change in combat - try again after the fight.")
+									return
+								end
+								ShamanPower.opt.cdbarShieldRightClickOther = val or nil
+								ShamanPower:ApplyShieldButtonClicks()
+							end
+						},
 						cdbar_show_recall = {
 							order = 3,
 							type = "toggle",
@@ -11128,7 +11164,8 @@ do
 	local page = SP.options.args.fluffy.args.cdbar_items_section
 	local items = {}
 	for key in pairs(page.args) do
-		if key ~= "cdbar_items_desc" and key ~= "show_cooldown_bar" and key ~= "unlock_cd_bar" then
+		if key ~= "cdbar_items_desc" and key ~= "show_cooldown_bar" and key ~= "unlock_cd_bar"
+			and key ~= "cdbar_shield_right_click_other" then
 			items[#items + 1] = key
 		end
 	end
@@ -11137,6 +11174,7 @@ do
 		{ keys = { "cdbar_items_desc" } },
 		{ keys = { "show_cooldown_bar" } },
 		{ header = "items_header", name = "Buttons to Show", keys = items },
+		{ header = "shield_button_header", name = "Shield Button", keys = { "cdbar_shield_right_click_other" } },
 		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" },
 			names = { unlock_cd_bar = "Move (unlock bar)" } },
 	})

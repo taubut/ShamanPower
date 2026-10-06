@@ -149,6 +149,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         twistSoundName = "Raid Warning",
         twistSoundVolume = 100,
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
+        cdbarShieldRightClickOther = false,  -- Cooldown Bar > Items: the shield button's right-click casts the other shield and keeps it on the button
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         cdbarShowShieldCount = true,  -- Charge count on the cooldown bar's shield button
         cdbarShieldChargeBar = false,  -- Charge bar (one segment per charge) along the bottom of the cooldown bar's shield button

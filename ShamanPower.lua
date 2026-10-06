@@ -1291,6 +1291,8 @@ end
 
 -- Called when combat ends - reset Drop All castsequence
 function ShamanPower:OnCombatEnd()
+	self:LandPendingShield()   -- a shield picked in the fight: saved now (the button already casts it)
+	if self._shieldClicksPending then self:ApplyShieldButtonClicks() end
 	if self._onOffPendingCombat then self:ApplyOnOff() end
 	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
 	-- WoW: Forever: the game-drawn shield layers on the cooldown bar's shield button and
@@ -1446,6 +1448,7 @@ function ShamanPower:OnProfileChanged()
 
 	self:ApplySkin()
 	self:SyncFlyoutClicks()   -- the new profile's Swap Left and Right Click, before the layout sends the keys
+	self:ApplyShieldButtonClicks()   -- and its Right-Click Casts Your Other Shield (after the fight if in one)
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:ApplyAllOpacity()
@@ -9731,6 +9734,9 @@ function ShamanPower:UpdateCooldownBarFlyoutEnabled()
 			end
 		end
 	end
+
+	-- the shield button's right-click: the flyout's (above), or Right-Click Casts Your Other Shield
+	self:ApplyShieldButtonClicks()
 end
 
 -- A flyout only has buttons for the totems that were known when it was built,
@@ -9745,7 +9751,8 @@ end
 -- button itself the other way round: right-click dropped a totem in the flyout
 -- and pulled it back on the bar. Now it flips the mouse on everything with two
 -- click meanings: totem buttons, Drop All, the imbue button and the shield and
--- imbue flyouts. (Totem flyout buttons keep their own attribute swap.)
+-- imbue flyouts, and the shield button while Right-Click Casts Your Other Shield
+-- is on (ApplyShieldButtonClicks). (Totem flyout buttons keep their own attribute swap.)
 --
 -- It is done with the secure templates' own button remap rather than by
 -- mirroring attributes: a button with a "unit" it can assist looks up
@@ -9799,11 +9806,17 @@ function ShamanPower:ApplyClickSwap()
 	spFlipClicks(_G["ShamanPowerAutoDropAll"], on)
 	local fill = on and not self:FlyoutOpensOnRightClick()
 	for _, btn in ipairs(self.cooldownButtons or {}) do
-		if btn == self.weaponImbueButton then spFlipClicks(btn, on) else spFillOtherClick(btn, fill) end
+		if btn == self.weaponImbueButton then
+			spFlipClicks(btn, on)
+		elseif btn ~= self.shieldButton then   -- (the shield button's own: ApplyShieldButtonClicks, below)
+			spFillOtherClick(btn, fill)
+		end
 	end
 	for k = 1, 2 do local flyout = self[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)
 		for _, btn in ipairs(flyout and (flyout.allButtons or flyout.buttons) or {}) do spFlipClicks(btn, on) end
 	end
+	-- the shield button: filled as the others, or flipped while Right-Click Casts Your Other Shield is on
+	self:ApplyShieldButtonClicks()
 end
 
 -- The mouse button a handler should reason about: what the click MEANT.
@@ -9821,6 +9834,8 @@ function ShamanPower:KeyMouseButton(buttonName)
 	if buttonName:match("^ShamanPowerTotemBtn%d$") or buttonName == "ShamanPowerAutoDropAll" then return "RightButton" end
 	local f = _G[buttonName]
 	if f and f == self.weaponImbueButton then return "RightButton" end
+	-- the shield button flips only while Right-Click Casts Your Other Shield is on: its key still casts
+	if f and f == self.shieldButton and f.spClickFlipped then return "RightButton" end
 	return "LeftButton"
 end
 
@@ -10644,25 +10659,15 @@ function ShamanPower:CreateCooldownBar()
 		local knowsSpell = false
 		local defaultShieldSpell = nil
 		if spellType == "shield" then
-			-- Check preferred shield first (use spell name for Classic compatibility)
-			local preferredShield = self.opt.preferredShield or 1
-			local preferredData = self.ShieldSpells[preferredShield]
-			if preferredData and PlayerKnowsSpellByID(preferredData[1]) then
+			-- The preferred shield when you know it, else any known one (AssignedShieldIndex: a pick made in a
+			-- fight counts too, if the bar is made again as it ends before that pick is saved)
+			local shieldIdx = self:AssignedShieldIndex()
+			local shieldData = shieldIdx and self.ShieldSpells[shieldIdx]
+			if shieldData then
 				knowsSpell = true
-				defaultShieldSpell = SPCompat.SpellName(preferredData[1]) or preferredData[1]
-				local sName, _, sIcon = GetSpellInfo(preferredData[1])
+				defaultShieldSpell = SPCompat.SpellName(shieldData[1]) or shieldData[1]
+				local _, _, sIcon = GetSpellInfo(shieldData[1])
 				if sIcon then icon = sIcon end
-			else
-				-- Fall back to any known shield
-				for _, shieldData in ipairs(self.ShieldSpells) do
-					if PlayerKnowsSpellByID(shieldData[1]) then
-						knowsSpell = true
-						defaultShieldSpell = SPCompat.SpellName(shieldData[1]) or shieldData[1]
-						local sName, _, sIcon = GetSpellInfo(shieldData[1])
-						if sIcon then icon = sIcon end
-						break
-					end
-				end
 			end
 		else
 			-- IsSpellKnown answers by ID and needs no string at all, which is the
@@ -10850,6 +10855,10 @@ function ShamanPower:CreateCooldownBar()
 						self:ChildUpdate("show", true)
 					end
 				]])
+
+				-- Right-Click Casts Your Other Shield (ApplyShieldButtonClicks) puts that shield on the button
+				-- through secure helpers, in a fight too: the icon and the flyout follow (ShieldButtonChanged)
+				btn:HookScript("PostClick", function() ShamanPower:ShieldButtonChanged() end)
 			else
 				-- Regular cooldown buttons cast their spell
 				local castSpellName = GetSpellInfo(spellID)
@@ -10871,6 +10880,17 @@ function ShamanPower:CreateCooldownBar()
 						GameTooltip:AddLine("Active: " .. (activeName or "Unknown"), 0, 1, 0)
 					else
 						GameTooltip:AddLine("No shield active", 1, 0.5, 0.5)
+					end
+					-- Right-Click Casts Your Other Shield: both clicks (Swap Left and Right Click trades them)
+					if ShamanPower:ShieldOtherClickActive() then
+						local cur = ShamanPower:ShieldIndexOfName(self:GetAttribute("spell1")) or ShamanPower:AssignedShieldIndex()
+						local other = ShamanPower:OtherShieldIndex(cur)
+						local curName = cur and SPCompat.SpellName(ShamanPower.ShieldSpells[cur][1])
+						local otherName = other and SPCompat.SpellName(ShamanPower.ShieldSpells[other][1])
+						if curName and otherName then
+							GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Cast " .. curName, 1, 1, 1)
+							GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Cast " .. otherName .. " and keep it on the button", 1, 1, 1)
+						end
 					end
 					if ShamanPower.opt.enableMiddleClickPopOut ~= false then
 						GameTooltip:AddLine("|cff00ccffMiddle-click:|r Pop out", 1, 1, 1)
@@ -10985,6 +11005,7 @@ function ShamanPower:CreateCooldownBar()
 	end
 	-- Note: Enabled/disabled in UpdateCooldownBarVisibility
 	self:ApplyClickSwap()
+	self:ApplyShieldButtonClicks()   -- (both clients: ApplyClickSwap is WoW: Forever's only)
 end
 
 -- Something the cooldown bar shows may have changed: 5 passes a second again for
@@ -12213,10 +12234,24 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.iconText then btn.iconText:Hide() end
 			end
 			if not (showSweep and self.opt.cdbarSweepStyle == "radial") then btn.cooldown:Clear() end
-			-- the flyout never also offers the shield this button shows (made again out of a fight)
+			-- the flyout holds every shield you know and leaves out (arrows: fades) the one a click on the
+			-- button casts; out of a fight it follows a change that came from elsewhere (Dynamic, a profile).
+			-- Grid on or off makes it again.
 			local gridOn = self:CooldownBarGridOn()
-			if (viewIdx or 0) + (gridOn and 100 or 0) ~= self._shieldFlyoutKey and not InCombatLockdown() then
-				self:RebuildShieldFlyout()
+			if not InCombatLockdown() then
+				if (gridOn and 1 or 0) ~= self._shieldFlyoutGrid then
+					self:RebuildShieldFlyout()
+				else
+					local assigned = self:AssignedShieldIndex()
+					if (assigned or 0) ~= self._shieldFlyoutMarked then
+						-- (a profile switch: the button's click follows the new profile's shield too)
+						if assigned and self:ShieldIndexOfName(btn:GetAttribute("spell1")) ~= assigned then
+							self:AssignShield(assigned)
+						else
+							self:MarkShieldFlyout()
+						end
+					end
+				end
 			end
 			-- Grid: the assigned one edged on the row, the one that is up with its charges
 			if gridOn and self.shieldFlyout and self.shieldFlyout.grid then
@@ -13782,7 +13817,9 @@ end
 --   Dynamic: the one that is up, and casting another makes it the assigned one
 --   Grid: as Normal, with every choice pinned open as a row beside the button (the assigned one edged,
 --     the one that is up marked), as the totem bar's Grid lays out every totem
--- The flyout leaves out what the button shows.
+-- The imbue flyout leaves out what the button shows. The shield flyout leaves out the shield a click on the
+-- button casts (arrows: drawn faded), as the totem flyouts do, so a pick can change it in a fight
+-- (CreateShieldFlyout).
 -- ---------------------------------------------------------------------------
 ShamanPower.IMBUE_ELEMENT = { 4, 2, 3, 1 }
 ShamanPower.CDBAR_STYLE = {
@@ -13859,15 +13896,71 @@ function ShamanPower:CooldownGridMark(b, assigned, up, text)
 	m.text:SetText(text or "")
 end
 
--- The shield the button would cast: the preferred one when you know it, else the first you know
+-- The shield the button would cast: one picked in this fight (pendingShield: the button already casts it,
+-- the saved choice lands when the fight ends), else the preferred one when you know it, else the first you know
 function ShamanPower:AssignedShieldIndex()
+	local pend = self.pendingShield
+	local data = pend and self.ShieldSpells[pend]
+	if data and PlayerKnowsSpellByID(data[1]) then return pend end
 	local pref = self.opt and self.opt.preferredShield
-	local data = pref and self.ShieldSpells[pref]
+	data = pref and self.ShieldSpells[pref]
 	if data and PlayerKnowsSpellByID(data[1]) then return pref end
 	for i, d in ipairs(self.ShieldSpells) do
 		if PlayerKnowsSpellByID(d[1]) then return i end
 	end
 	return nil
+end
+
+-- A shield's place in ShieldSpells by the name a button casts (nil: not a shield, or unreadable)
+function ShamanPower:ShieldIndexOfName(name)
+	if not name or (issecretvalue and issecretvalue(name)) then return nil end
+	for i, d in ipairs(self.ShieldSpells) do
+		if SPCompat.SpellName(d[1]) == name then return i end
+	end
+	return nil
+end
+
+-- The shields you know (Lightning Shield, Water Shield): how many, and the one that isn't idx
+function ShamanPower:KnownShieldCount()
+	local n = 0
+	for _, d in ipairs(self.ShieldSpells) do
+		if SPCompat.SpellName(d[1]) and PlayerKnowsSpellByID(d[1]) then n = n + 1 end
+	end
+	return n
+end
+
+function ShamanPower:OtherShieldIndex(idx)
+	for i, d in ipairs(self.ShieldSpells) do
+		if i ~= idx and SPCompat.SpellName(d[1]) and PlayerKnowsSpellByID(d[1]) then return i end
+	end
+	return nil
+end
+
+-- A shield picked in a fight (flyout, Right-Click Casts Your Other Shield) lands when it ends: saved, and
+-- everything that waited for the fight follows (AssignShield). Both end-of-fight handlers call this.
+function ShamanPower:LandPendingShield()
+	local idx = self.pendingShield
+	if not idx or InCombatLockdown() then return end
+	self:AssignShield(idx)
+end
+
+-- After a click that may have put another shield on the shield button: a flyout pick, or Right-Click Casts
+-- Your Other Shield. Secure helpers changed the button's cast (in a fight too); this reads what it casts now.
+-- The icon and the flyout follow at once; in a fight the saved choice waits for its end (pendingShield).
+-- A click runs this twice (press and release): only the edge that acted changes anything.
+function ShamanPower:ShieldButtonChanged()
+	local btn = self.shieldButton
+	if not btn then return end
+	local idx = self:ShieldIndexOfName(btn:GetAttribute("spell1"))
+	if not idx or idx == self:AssignedShieldIndex() then return end
+	if InCombatLockdown() then
+		self.pendingShield = idx
+		self:FadeShieldFlyoutMarks()
+		self:WakeCooldownBar()
+		self:UpdateCooldownButtons()   -- the icon now (textures only), not at the next pass
+	else
+		self:AssignShield(idx)
+	end
 end
 
 function ShamanPower:ShieldIndexOf(spellID)
@@ -13892,12 +13985,14 @@ function ShamanPower:ShieldIcon(idx)
 	return icon or nil
 end
 
--- A shield made the assigned one (Dynamic: the one you cast): the button casts it (out of combat)
+-- A shield made the assigned one (Dynamic: the one you cast; a pick from the flyout): the button casts it,
+-- saved (out of combat: a pick in a fight waits in pendingShield, see LandPendingShield)
 function ShamanPower:AssignShield(idx)
 	local d = idx and self.ShieldSpells[idx]
 	if not d or InCombatLockdown() then return end
 	local spellName = SPCompat.SpellName(d[1])
 	if not spellName then return end
+	self.pendingShield = nil
 	local shieldBtn = self.shieldButton
 	if shieldBtn then
 		shieldBtn:SetAttribute("spell1", spellName)
@@ -13905,6 +14000,8 @@ function ShamanPower:AssignShield(idx)
 		shieldBtn.defaultShieldSpell = spellName
 	end
 	self.opt.preferredShield = idx
+	self:ApplyShieldButtonClicks()   -- Right-Click Casts Your Other Shield: now the other one
+	self:MarkShieldFlyout()          -- the flyout leaves out (arrows: fades) the new one
 	self:RebuildShieldChargeContainer()
 end
 
@@ -13923,13 +14020,6 @@ function ShamanPower:CooldownBarShieldView(activeIdx)
 	end
 	if activeIdx and activeIdx ~= assigned then return assigned, false, (not f.grid) and activeIdx or nil, nil end
 	return assigned, activeIdx ~= nil, nil, nil
-end
-
--- What the shield button shows (its flyout leaves that out)
-function ShamanPower:ShieldShownOnButton()
-	local cache = self.shieldCache
-	local activeIdx = (cache and cache.hasShield) and self:ShieldIndexOf(cache.shieldID) or nil
-	return (self:CooldownBarShieldView(activeIdx)) or 0
 end
 
 -- With an off-hand weapon (kept until the off-hand item changes)
@@ -14124,7 +14214,7 @@ function ShamanPower:CooldownBarCorner(btn, icon)
 	c:Show()
 end
 
--- The shield flyout made again (what the button shows changed): out of combat only
+-- The shield flyout made again (Grid turned on or off, a shield learned, a profile): out of combat only
 function ShamanPower:RebuildShieldFlyout()
 	if InCombatLockdown() then return end
 	local flyout = self.shieldFlyout
@@ -14139,22 +14229,210 @@ function ShamanPower:RebuildShieldFlyout()
 	self:CreateShieldFlyout()
 end
 
+-- ---------------------------------------------------------------------------
+-- The shield flyout in a fight (GitHub #11). A pick makes that shield the button's shield at once, in a
+-- fight too, the way a totem flyout's assign click does (CreateTotemFlyout): each click is a macro that
+-- presses hidden secure "attribute" helpers, and those write the shield button's own attributes:
+--   SPFSS<i>  its cast (spell1) = shield i
+--   SPFSF<i>  its other click (spell2), while Swap Left and Right Click fills that click with the cast
+--   SPFSX<i>  its right-click's macro while Right-Click Casts Your Other Shield is on: the shield that isn't i
+--   SPFUS     (hover flyouts) the totem flyouts' re-sort (FlyoutResortHelper): every flyout button learns
+--             the button's new spell1, the rest are packed from the button, and the flyout closes
+-- Only attribute helpers and that click snippet: a macro button pressed from a macro does not run. The cast
+-- click is the helpers and "/cast <shield>", the other click the helpers alone. PostClick then reads what
+-- the button casts (ShieldButtonChanged): the icon follows at once, the saved choice when the fight ends
+-- (pendingShield). So the flyout holds every shield you know: hover flyouts leave out the one a click on
+-- the button casts (isCurrentAssignment, the totem flyouts' secure show), arrow ("box") flyouts keep it,
+-- faded, and Grid pins them all. Indexes are ShieldSpells' (1 Lightning Shield, 2 Water Shield).
+-- ---------------------------------------------------------------------------
+
+-- Right-Click Casts Your Other Shield (Cooldown Bar > Items) does something right now: switched on, a
+-- second shield known, and the right-click free (Flyout Requires Right-Click opens the flyout with it)
+function ShamanPower:ShieldOtherClickActive()
+	return (self.opt and self.opt.cdbarShieldRightClickOther and not self:FlyoutOpensOnRightClick()
+		and self:KnownShieldCount() >= 2) and true or false
+end
+
+-- The macro lines that make shield idx the button's shield: its cast, plus what the button's other click
+-- does right now (the Swap fill, or the other-shield macro)
+function ShamanPower:ShieldAssignLines(idx)
+	local btn = self.shieldButton
+	local lines = "/click SPFSS" .. idx
+	if btn and btn.spShieldOther then
+		lines = lines .. "\n/click SPFSX" .. idx
+	elseif btn and btn.spClickFilled then
+		lines = lines .. "\n/click SPFSF" .. idx
+	end
+	return lines
+end
+
+-- The button's right-click while shield idx is on it (Right-Click Casts Your Other Shield): cast the other
+-- one and make it the button's shield, its own right-click then casting idx again (hover flyouts re-sort)
+function ShamanPower:ShieldOtherMacro(idx)
+	local other = self:OtherShieldIndex(idx)
+	local name = other and SPCompat.SpellName(self.ShieldSpells[other][1])
+	if not name then return nil end
+	local flyout = self.shieldFlyout
+	local tail = (flyout and not flyout.box and not flyout.grid) and "\n/click SPFUS" or ""
+	return "/click SPFSS" .. other .. "\n/click SPFSX" .. other .. "\n/cast " .. name .. tail
+end
+
+-- The shield button's clicks, from the settings (out of combat; one asked for in a fight waits for its end):
+--   its cast (type1 / spell1) is set where it is built, by AssignShield and by the helpers;
+--   Right-Click Casts Your Other Shield: the right-click is the other-shield macro. Swap Left and Right
+--     Click makes it the left-click by flipping the mouse, as on the imbue button (keys press the cast:
+--     KeyMouseButton);
+--   else Swap fills the right-click with the cast, as before (spFillOtherClick).
+-- The helpers and the flyout's macros follow (ApplyShieldPickMacros).
+function ShamanPower:ApplyShieldButtonClicks()
+	local btn = self.shieldButton
+	if not btn then return end
+	if InCombatLockdown() then self._shieldClicksPending = true return end
+	self._shieldClicksPending = nil
+	local swapped = self:ClicksSwapped()
+	local idx = self:ShieldIndexOfName(btn:GetAttribute("spell1")) or self:AssignedShieldIndex()
+	local macro = self:ShieldOtherClickActive() and idx and self:ShieldOtherMacro(idx)
+	local wasFlipped = btn.spClickFlipped and true or false
+	if macro then
+		spFlipClicks(btn, swapped)
+		if btn.spClickFilled then
+			btn.spClickFilled = nil
+			spSetAttr(btn, "spell2", nil)
+		end
+		spSetAttr(btn, "type2", "macro")
+		spSetAttr(btn, "macrotext2", macro)
+		btn.spShieldOther = true
+	else
+		if btn.spShieldOther then   -- switched off, or nothing to switch to: the right-click is free again
+			spSetAttr(btn, "type2", nil)
+			spSetAttr(btn, "macrotext2", nil)
+			btn.spShieldOther = nil
+		end
+		spFlipClicks(btn, false)
+		if CLICK_SWAP_SUPPORTED then spFillOtherClick(btn, swapped and not self:FlyoutOpensOnRightClick()) end
+	end
+	self:ApplyShieldPickMacros()
+	-- the button flipped (or back): its key presses the other mouse button now (KeyMouseButton). A frame
+	-- later, so a call from SetupKeybindings itself (ApplyClickSwap) is not entered twice.
+	if wasFlipped ~= (btn.spClickFlipped and true or false) then
+		C_Timer.After(0, function() ShamanPower:SetupKeybindings() end)
+	end
+end
+
+-- The helpers, and the flyout's click macros for what the button's clicks do right now (out of combat).
+-- A flyout button's cast click (type1) = the helpers + /cast (arrows: + the close, as every pick there,
+-- ApplyFlyoutPickMacros); its other click (type2) = the helpers alone (hover: re-sort and close; arrows:
+-- close, as a totem's assign click). Swap Left and Right Click flips their mouse (ApplyClickSwap), never
+-- these attributes.
+function ShamanPower:ApplyShieldPickMacros()
+	local btn = self.shieldButton
+	if not btn or InCombatLockdown() or self:KnownShieldCount() < 2 then return end
+	for i, d in ipairs(self.ShieldSpells) do
+		local name = SPCompat.SpellName(d[1])
+		if name and PlayerKnowsSpellByID(d[1]) then
+			local S = self:FlyoutAssignHelper("SPFSS" .. i, btn)
+			S:SetAttribute("type", "attribute")
+			S:SetAttribute("attribute-frame", btn)
+			S:SetAttribute("attribute-name", "spell1")
+			S:SetAttribute("attribute-value", name)
+			local F = self:FlyoutAssignHelper("SPFSF" .. i, btn)
+			F:SetAttribute("type", "attribute")
+			F:SetAttribute("attribute-frame", btn)
+			F:SetAttribute("attribute-name", "spell2")
+			F:SetAttribute("attribute-value", name)
+			local X = self:FlyoutAssignHelper("SPFSX" .. i, btn)
+			X:SetAttribute("type", "attribute")
+			X:SetAttribute("attribute-frame", btn)
+			X:SetAttribute("attribute-name", "macrotext2")
+			X:SetAttribute("attribute-value", self:ShieldOtherMacro(i))
+		end
+	end
+	local flyout = self.shieldFlyout
+	if not flyout then return end
+	local hover = not flyout.box and not flyout.grid
+	if hover then self:FlyoutResortHelper("S", btn) end
+	for _, fb in ipairs(flyout.buttons or {}) do
+		local assign = self:ShieldAssignLines(fb.shieldIndex)
+		local cast = assign .. "\n/cast " .. fb.spellName
+		if flyout.box then
+			fb.spPick = { ["1"] = cast }   -- finished by ApplyFlyoutPickMacros (Close Flyout After Casting From It)
+			assign = assign .. "\n/click SPFCS\n/click SPFRS"
+		elseif hover then
+			cast, assign = cast .. "\n/click SPFUS", assign .. "\n/click SPFUS"
+		end
+		fb:SetAttribute("type1", "macro")
+		fb:SetAttribute("macrotext1", cast)
+		fb:SetAttribute("type2", "macro")
+		fb:SetAttribute("macrotext2", assign)
+	end
+	if flyout.box then self:ApplyFlyoutPickMacros() end
+end
+
+-- Arrow ("box") flyouts keep the shield that is on the button in the list: its icon is drawn faded, as a
+-- box-mode totem flyout draws its assigned totem. A texture, so it follows every pick in a fight too.
+-- (Hover flyouts leave it out; Grid edges it in gold, UpdateCooldownButtons.)
+function ShamanPower:FadeShieldFlyoutMarks()
+	local flyout = self.shieldFlyout
+	if not (flyout and flyout.box) or flyout.grid then return end
+	local cur = self:AssignedShieldIndex()
+	for _, fb in ipairs(flyout.buttons or {}) do
+		if fb.icon then
+			local on = fb.shieldIndex == cur
+			fb.icon:SetAlpha(on and 0.3 or 1)
+			fb.icon:SetDesaturated(on and true or false)
+		end
+	end
+end
+
+-- The flyout follows the shield on the button, out of a fight (in one: the helpers' re-sort and the fade
+-- above): hover flyouts leave it out and pack the rest from the button, arrow flyouts fade it.
+function ShamanPower:MarkShieldFlyout()
+	local cur = self:AssignedShieldIndex()
+	self._shieldFlyoutMarked = cur or 0
+	local flyout = self.shieldFlyout
+	if not flyout then return end
+	self:FadeShieldFlyoutMarks()
+	if InCombatLockdown() then return end
+	local hover = not flyout.box and not flyout.grid
+	local open = false
+	for _, fb in ipairs(flyout.buttons or {}) do
+		if hover then fb:SetAttribute("isCurrentAssignment", fb.shieldIndex == cur) end
+		if fb:IsShown() then open = true end
+	end
+	self:LayoutShieldFlyout()
+	if hover and open then   -- left open while the shield changed: the new set, as opening it shows it
+		for _, fb in ipairs(flyout.buttons) do fb:SetShown(fb.shieldIndex ~= cur) end
+	end
+end
+
+-- What a shield's two clicks in the flyout do, the same in and out of fights (Swap Left and Right Click
+-- trades the labels, ClickLabel)
+function ShamanPower:ShieldFlyoutTooltipLines(fb)
+	local btn = self.shieldButton
+	if btn and self:ShieldIndexOfName(btn:GetAttribute("spell1")) == fb.shieldIndex then
+		local r, g, b = 0.5, 0.5, 0.5
+		if GRAY_FONT_COLOR and GRAY_FONT_COLOR.GetRGB then r, g, b = GRAY_FONT_COLOR:GetRGB() end
+		GameTooltip:AddLine("On the shield button now", r, g, b)
+		GameTooltip:AddLine(self:ClickLabel(true) .. " Cast it", 1, 1, 1)
+	else
+		GameTooltip:AddLine(self:ClickLabel(true) .. " Cast it and make it the button's shield", 1, 1, 1)
+		GameTooltip:AddLine(self:ClickLabel(false) .. " Make it the button's shield (no cast)", 1, 1, 1)
+	end
+end
+
 function ShamanPower:CreateShieldFlyout()
 	if self.shieldFlyout then return end
 	if InCombatLockdown() then return end
 	if not self.shieldButton then return end
 
-	-- Every shield you know except the one the button shows, as a totem flyout leaves out the totem
-	-- on its button; Grid: every one, pinned open as a row beside it. Nothing else to pick: no flyout.
+	-- Every shield you know (see above); Grid: pinned open as a row beside the button. With only one known
+	-- there is nothing to pick: no flyout.
 	local grid = self:CooldownBarGridOn()
-	local shown = self:ShieldShownOnButton()
-	self._shieldFlyoutKey = shown + (grid and 100 or 0)
-	local others = 0
-	for i, d in ipairs(self.ShieldSpells) do
-		if (grid or i ~= shown) and SPCompat.SpellName(d[1]) and PlayerKnowsSpellByID(d[1]) then others = others + 1 end
-	end
-	if others == 0 or (grid and others < 2) then
+	self._shieldFlyoutGrid = grid and 1 or 0
+	if self:KnownShieldCount() < 2 then
 		if self.boxFlyouts then self.boxFlyouts.S = nil end
+		self._shieldFlyoutMarked = self:AssignedShieldIndex() or 0
+		self:ApplyShieldButtonClicks()
 		return
 	end
 
@@ -14180,7 +14458,7 @@ function ShamanPower:CreateShieldFlyout()
 	-- Create buttons for each known shield as children of the shield button
 	for i, shieldData in ipairs(self.ShieldSpells) do
 		local spellID = shieldData[1]
-		local spellName = (grid or i ~= shown) and SPCompat.SpellName(spellID)
+		local spellName = SPCompat.SpellName(spellID)
 
 		-- Check if player knows this shield
 		if spellName and PlayerKnowsSpellByID(spellID) then
@@ -14211,64 +14489,33 @@ function ShamanPower:CreateShieldFlyout()
 			highlight:SetAllPoints()
 			highlight:SetColorTexture(1, 1, 1, 0.3)
 
-			-- SECURE HANDLER: Respond to parent's ChildUpdate (WORKS IN COMBAT)
-			ShamanPower:SetSnippet(btn, "_childupdate-show", [[
-				if self:GetAttribute("spGridPinned") then return end   -- Grid: always shown
-				if message then
-					self:Show()
-				else
-					self:Hide()
-				end
-			]])
+			-- SECURE HANDLERS (WORK IN COMBAT): the totem flyouts' own. The shield button's enter (or
+			-- right-click) broadcasts "show": every shield but the one it casts (isCurrentAssignment) shows.
+			-- After a pick SPFUS broadcasts "assignment" (from the button's new spell1) and "relayout" (the
+			-- rest packed from the button, by the attributes LayoutShieldFlyout leaves on it).
+			ShamanPower:SetSnippet(btn, "_childupdate-show", SP_FLYOUT_CHILD_SHOW)
+			ShamanPower:SetSnippet(btn, "_childupdate-assignment", SP_FLYOUT_CHILD_ASSIGNMENT)
+			ShamanPower:SetSnippet(btn, "_childupdate-relayout", SP_FLYOUT_CHILD_RELAYOUT)
 
 			-- SECURE HANDLER: Check parent on leave (WORKS IN COMBAT)
 			ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
 			btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
+			btn:SetAttribute("mySpell", spellName)
+			btn:SetAttribute("myTotemIndex", i)           -- (the re-sort keeps this order)
+			btn:SetAttribute("isFlyoutButton", true)
+			-- the clicks are macros of the helpers: ApplyShieldPickMacros
+			btn:SetAttribute("spell", nil)
 
-			-- Left-click casts shield; right-click has no type2 so no cast happens
-			btn:SetAttribute("type1", "spell")
-			btn:SetAttribute("spell", spellName)
-			if flyout.box then
-				-- box mode: cast and close the flyout in the same click
-				btn.spPick = { ["1"] = "/cast " .. spellName }   -- finished by ApplyFlyoutPickMacros
-			end
-
-			-- PostClick: both clicks assign default; left-click also casts (via type1 above)
+			-- After either click the secure part is done, in a fight too (the helpers): the icon and the
+			-- flyout follow, the saved choice too (in a fight: when it ends). Out of a fight a hover flyout
+			-- closes here as well (an arrow flyout's macros close it).
 			btn:HookScript("PostClick", function(self, button)
-				-- Hide flyout buttons only if NOT in combat (in combat, secure handler handles it)
-				if not InCombatLockdown() then
-					local flyoutData = ShamanPower.shieldFlyout
-					if flyoutData and flyoutData.box and not flyoutData.grid then
-						ShamanPower:FlyoutFallbackSetShown(flyoutData.shieldButton, false)
-					elseif flyoutData and flyoutData.buttons and not flyoutData.grid then
-						for _, flyoutBtn in ipairs(flyoutData.buttons) do
-							flyoutBtn:Hide()
-						end
-					end
-
-					-- Update default shield assignment
-					local shieldBtn = ShamanPower.shieldButton
-					if shieldBtn then
-						shieldBtn:SetAttribute("spell1", spellName)
-						if shieldBtn.spClickFilled then shieldBtn:SetAttribute("spell2", spellName) end
-						shieldBtn.defaultShieldSpell = spellName
-						-- Update the icon
-						local _, _, newIcon = GetSpellInfo(spellName)
-						if newIcon and shieldBtn.icon then
-							shieldBtn.icon:SetTexture(newIcon)
-						end
-					end
-
-					-- Persist preferred shield
-					for idx, shieldData in ipairs(ShamanPower.ShieldSpells) do
-						if shieldData[1] == spellID then
-							ShamanPower.opt.preferredShield = idx
-							break
-						end
-					end
-					ShamanPower:RebuildShieldChargeContainer()
+				if button ~= "LeftButton" and button ~= "RightButton" then return end
+				local flyoutData = ShamanPower.shieldFlyout
+				if not InCombatLockdown() and flyoutData and not flyoutData.box and not flyoutData.grid then
+					for _, flyoutBtn in ipairs(flyoutData.buttons) do flyoutBtn:Hide() end
 				end
-				-- In combat: flyout will close when mouse leaves (via secure _onleave handler)
+				ShamanPower:ShieldButtonChanged()
 			end)
 
 			-- Tooltip (Lua hooks work alongside secure handlers)
@@ -14277,8 +14524,7 @@ function ShamanPower:CreateShieldFlyout()
 				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 				GameTooltip:SetSpellByID(SPCompat.HighestKnownRank and SPCompat.HighestKnownRank(spellID) or spellID)
 				GameTooltip:AddLine(" ")
-				GameTooltip:AddLine(ShamanPower:ClickLabel(true) .. " Cast and set as default", 1, 1, 1)
-				GameTooltip:AddLine(ShamanPower:ClickLabel(false) .. " Set as default (no cast)", 1, 1, 1)
+				ShamanPower:ShieldFlyoutTooltipLines(self)
 				GameTooltip:Show()
 			end)
 			btn:HookScript("OnLeave", function()
@@ -14287,25 +14533,25 @@ function ShamanPower:CreateShieldFlyout()
 
 			btn.spellID = spellID
 			btn.spellName = spellName
+			btn.shieldIndex = i
 			table.insert(flyout.buttons, btn)
 		end
 	end
 
 	flyout.grid = grid or nil
 	self.shieldFlyout = flyout
-	if flyout.box then self:ApplyFlyoutPickMacros() end
-	self:ApplyClickSwap()
-
-	-- Layout the flyout buttons
-	self:LayoutShieldFlyout()
+	self:ApplyClickSwap()           -- Swap Left and Right Click flips their mouse (WoW: Forever)
+	self:ApplyShieldButtonClicks()  -- the button's clicks, the helpers and these buttons' macros
+	self:MarkShieldFlyout()         -- leave out (arrows: fade) the one on the button, and lay them out
 	if grid then self:PinCooldownGrid(flyout) end
 end
 
 -- Layout shield flyout buttons (called after creation and when layout changes)
--- Buttons are children of shieldButton, positioned relative to parent
+-- Buttons are children of shieldButton, positioned relative to parent. Out of combat: the arrows' combat
+-- layout is placed as the fight starts, before the lock (setCombatLayout).
 function ShamanPower:LayoutShieldFlyout()
 	local flyout = self.shieldFlyout
-	if not flyout then return end
+	if not flyout or InCombatLockdown() then return end
 
 	local buttons = flyout.buttons
 	if not buttons or #buttons == 0 then return end
@@ -14316,6 +14562,10 @@ function ShamanPower:LayoutShieldFlyout()
 	local buttonSize = flyout.buttonSize
 	local spacing = flyout.spacing
 	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow tab in combat
+	-- a hover flyout leaves out the shield the button casts: only the rest take a place, packed from the
+	-- button (the one it casts sits in the first place, hidden). Arrows and Grid: every one in order.
+	local hover = not flyout.box and not flyout.grid
+	local cur = hover and self:AssignedShieldIndex()
 
 	-- Determine flyout direction based on CD bar layout
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
@@ -14326,11 +14576,11 @@ function ShamanPower:LayoutShieldFlyout()
 	-- For horizontal bar: flyout goes vertical
 	-- For vertical bar: flyout goes horizontal
 	local flyoutIsHorizontal = not isHorizontalBar
+	local goRight, goBelow = false, false
 
 	if flyoutIsHorizontal then
 		-- When locked to totem bar, go OPPOSITE direction to avoid clipping
 		-- When unlocked, go same direction as layout
-		local goRight
 		if isLocked then
 			-- Locked: opposite direction
 			goRight = isVerticalLeft  -- VerticalLeft -> go right, VerticalRight -> go left
@@ -14338,43 +14588,44 @@ function ShamanPower:LayoutShieldFlyout()
 			-- Unlocked: same direction as layout
 			goRight = not isVerticalLeft  -- VerticalLeft -> go left, VerticalRight -> go right
 		end
-
 		flyout.arrowDir = goRight and "right" or "left"
-		if goRight then
-			-- Extend to the RIGHT
-			for i, btn in ipairs(buttons) do
-				btn:ClearAllPoints()
-				btn:SetPoint("LEFT", shieldButton, "RIGHT", lead + (i - 1) * (buttonSize + spacing), 0)
-			end
-		else
-			-- Extend to the LEFT
-			for i, btn in ipairs(buttons) do
-				btn:ClearAllPoints()
-				btn:SetPoint("RIGHT", shieldButton, "LEFT", -lead - (i - 1) * (buttonSize + spacing), 0)
-			end
-		end
 	else
 		-- Vertical flyout: buttons extend upward or downward based on option
 		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
 
 		-- When "auto" and locked to totem bar, go below (to avoid clipping into totem icons)
 		-- When "auto" and unlocked, go above
-		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
-
+		goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
 		flyout.arrowDir = goBelow and "bottom" or "top"
-		if goBelow then
-			-- Extend downward
-			for i, btn in ipairs(buttons) do
-				btn:ClearAllPoints()
-				btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -lead - (i - 1) * (buttonSize + spacing))
+	end
+
+	local slot = 0
+	for _, btn in ipairs(buttons) do
+		local n = 0
+		if not (hover and btn.shieldIndex == cur) then n = slot; slot = slot + 1 end
+		local off = lead + n * (buttonSize + spacing)
+		btn:ClearAllPoints()
+		if flyoutIsHorizontal then
+			if goRight then
+				btn:SetPoint("LEFT", shieldButton, "RIGHT", off, 0)    -- Extend to the RIGHT
+			else
+				btn:SetPoint("RIGHT", shieldButton, "LEFT", -off, 0)   -- Extend to the LEFT
 			end
+		elseif goBelow then
+			btn:SetPoint("TOP", shieldButton, "BOTTOM", 0, -off)     -- Extend downward
 		else
-			-- Extend upward
-			for i, btn in ipairs(buttons) do
-				btn:ClearAllPoints()
-				btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, lead + (i - 1) * (buttonSize + spacing))
-			end
+			btn:SetPoint("BOTTOM", shieldButton, "TOP", 0, off)      -- Extend upward
 		end
+	end
+
+	-- what the secure re-sort (SP_FLYOUT_CHILD_RELAYOUT, pressed by SPFUS after a pick in a fight) reads
+	if hover then
+		shieldButton:SetAttribute("flyoutButtonSize", buttonSize)
+		shieldButton:SetAttribute("flyoutSpacing", spacing)
+		shieldButton:SetAttribute("flyoutIsHorizontal", flyoutIsHorizontal)
+		shieldButton:SetAttribute("isVerticalLeft", flyoutIsHorizontal and not goRight)
+		shieldButton:SetAttribute("flyoutGoesBelow", (not flyoutIsHorizontal) and goBelow)
+		shieldButton:SetAttribute("spSecureResort", true)
 	end
 
 	self:SyncCdbarFlyout(flyout)
@@ -20442,6 +20693,8 @@ keybindEventFrame:SetScript("OnEvent", function(self, event, arg1)
 				ShamanPower:UpdateFlyoutVisibility(elem)
 			end
 		end
+		-- and a shield picked in the fight (OnCombatEnd lands it too, whichever runs first)
+		ShamanPower:LandPendingShield()
 		if ShamanPower.keybindsPending then
 			ShamanPower:SetupKeybindings()
 		end

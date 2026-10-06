@@ -206,6 +206,10 @@ SP.SHARE_FEATURES = {
 	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
 		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
 	end },
+	-- 3.0.8: the cooldown bar's shield button, Right-Click Casts Your Other Shield
+	{ key = "shieldRightClickOther", label = "Cooldown bar: right-click casts the other shield", get = function()
+		return on(O().cdbarShieldRightClickOther) and O().showCooldownBar == true and O().cdbarShowShields ~= false
+	end },
 }
 
 -- ---------------------------------------------------------------------------
