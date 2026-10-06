@@ -1294,6 +1294,7 @@ end
 -- Called when combat ends - reset Drop All castsequence
 function ShamanPower:OnCombatEnd()
 	self:LandPendingShield()   -- a shield picked in the fight: saved now (the button already casts it)
+	self:SyncShieldButtonCast()   -- a profile switched in the fight: its shield on the button now
 	if self._shieldClicksPending then self:ApplyShieldButtonClicks() end
 	if self._onOffPendingCombat then self:ApplyOnOff() end
 	if self._cdBarRebuildPending then self:RecreateCooldownBar() end
@@ -1454,6 +1455,7 @@ function ShamanPower:OnProfileChanged()
 	self:ApplySkin()
 	self:SyncFlyoutClicks()   -- the new profile's Swap Left and Right Click, before the layout sends the keys
 	self:ApplyShieldButtonClicks()   -- and its Right-Click Casts Your Other Shield (after the fight if in one)
+	self:SyncShieldButtonCast()      -- the new profile's shield on the button (also with the cooldown bar hidden)
 	self:UpdateLayout()
 	self:UpdateRoster()
 	self:ApplyAllOpacity()
@@ -10846,6 +10848,7 @@ function ShamanPower:CreateCooldownBar()
 				if shieldSpellName then
 					btn:SetAttribute("type1", "spell")
 					btn:SetAttribute("spell1", shieldSpellName)
+					btn.spShieldSeen = ShamanPower:ShieldIndexOfName(shieldSpellName)   -- (ShieldButtonChanged)
 				end
 
 				-- SECURE HANDLER: Show flyout on enter (WORKS IN COMBAT)
@@ -10869,7 +10872,7 @@ function ShamanPower:CreateCooldownBar()
 
 				-- Right-Click Casts Your Other Shield (ApplyShieldButtonClicks) puts that shield on the button
 				-- through secure helpers, in a fight too: the icon and the flyout follow (ShieldButtonChanged)
-				btn:HookScript("PostClick", function() ShamanPower:ShieldButtonChanged() end)
+				btn:HookScript("PostClick", function() ShamanPower:ShieldButtonChanged(true) end)
 			else
 				-- Regular cooldown buttons cast their spell
 				local castSpellName = GetSpellInfo(spellID)
@@ -11811,12 +11814,13 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 	if SPCompat.Trace then SPCompat.Trace("SHIELD container ready on %s (sweep=%s bars=%s text=%s)", tostring(btn:GetName()), tostring(sweepStyle), tostring(showBars), tostring(textLocation)) end
 end
 
--- Preferred shield or display options changed: the greyed copy and layout were
--- baked in at creation, so build a fresh container (out of combat only).
+-- Display options changed (sweep, bar, count, time text and its color, a theme, a profile): those are
+-- baked in at creation, so build a fresh container (out of combat only). The shield on the button is not
+-- one of them: there is a slot for every shield, each with its own icon, count and time.
 function ShamanPower:RebuildShieldChargeContainer()
 	local btn = self.shieldButton
 	if not btn then return end
-	-- asked for in a fight (a setting, the preferred shield, a profile): after it (OnCombatEnd)
+	-- asked for in a fight (a setting, a profile): after it (OnCombatEnd)
 	if InCombatLockdown() then self._shieldContainerRebuildPending = true return end
 	self._shieldContainerRebuildPending = nil
 	if btn.chargeContainer then
@@ -12266,21 +12270,15 @@ function ShamanPower:UpdateCooldownButtons()
 			if not (showSweep and self.opt.cdbarSweepStyle == "radial") then btn.cooldown:Clear() end
 			-- the flyout holds every shield you know and leaves out (arrows: fades) the one a click on the
 			-- button casts; out of a fight it follows a change that came from elsewhere (Dynamic, a profile).
-			-- Grid on or off makes it again.
+			-- Grid on or off makes it again. The button's cast first, in every style (SyncShieldButtonCast:
+			-- a profile switch, a shield learned or unlearned), so the flyout is made or marked from it.
 			local gridOn = self:CooldownBarGridOn()
 			if not InCombatLockdown() then
 				if (gridOn and 1 or 0) ~= self._shieldFlyoutGrid then
+					self:SyncShieldButtonCast(true)
 					self:RebuildShieldFlyout()
 				else
-					local assigned = self:AssignedShieldIndex()
-					if (assigned or 0) ~= self._shieldFlyoutMarked then
-						-- (a profile switch: the button's click follows the new profile's shield too)
-						if assigned and self:ShieldIndexOfName(btn:GetAttribute("spell1")) ~= assigned then
-							self:AssignShield(assigned)
-						else
-							self:MarkShieldFlyout()
-						end
-					end
+					self:SyncShieldButtonCast()
 				end
 			end
 			-- Grid: the assigned one edged on the row, the one that is up with its charges
@@ -13993,10 +13991,16 @@ end
 -- Your Other Shield. Secure helpers changed the button's cast (in a fight too); this reads what it casts now.
 -- The icon and the flyout follow at once; in a fight the saved choice waits for its end (pendingShield).
 -- A click runs this twice (press and release): only the edge that acted changes anything.
-function ShamanPower:ShieldButtonChanged()
+-- ownClick: the shield button's own click, which counts only when it changed the shield (Right-Click Casts
+-- Your Other Shield). A plain cast is no pick, also while a profile switched in this fight still has the
+-- old profile's shield on the button (it goes on when the fight ends: SyncShieldButtonCast).
+function ShamanPower:ShieldButtonChanged(ownClick)
 	local btn = self.shieldButton
 	if not btn then return end
 	local idx = self:ShieldIndexOfName(btn:GetAttribute("spell1"))
+	local seen = btn.spShieldSeen   -- what the button cast before (SetShieldButtonSpell, the last click)
+	btn.spShieldSeen = idx
+	if ownClick and seen and idx == seen then return end
 	if not idx or idx == self:AssignedShieldIndex() then return end
 	if InCombatLockdown() then
 		self.pendingShield = idx
@@ -14030,24 +14034,51 @@ function ShamanPower:ShieldIcon(idx)
 	return icon or nil
 end
 
+-- The shield button casts shield `name` (out of combat): its cast click, and its other click while Swap
+-- Left and Right Click fills that one with the cast
+function ShamanPower:SetShieldButtonSpell(name)
+	local btn = self.shieldButton
+	if not btn or not name or InCombatLockdown() then return end
+	btn:SetAttribute("spell1", name)
+	if btn.spClickFilled then btn:SetAttribute("spell2", name) end
+	btn.defaultShieldSpell = name
+	btn.spShieldSeen = self:ShieldIndexOfName(name)   -- (ShieldButtonChanged)
+end
+
 -- A shield made the assigned one (Dynamic: the one you cast; a pick from the flyout): the button casts it,
--- saved (out of combat: a pick in a fight waits in pendingShield, see LandPendingShield)
+-- saved (out of combat: a pick in a fight waits in pendingShield, see LandPendingShield). The game-drawn
+-- shield display (WoW: Forever) has a slot for every shield, so nothing is built again for it here.
 function ShamanPower:AssignShield(idx)
 	local d = idx and self.ShieldSpells[idx]
 	if not d or InCombatLockdown() then return end
 	local spellName = SPCompat.SpellName(d[1])
 	if not spellName then return end
 	self.pendingShield = nil
-	local shieldBtn = self.shieldButton
-	if shieldBtn then
-		shieldBtn:SetAttribute("spell1", spellName)
-		if shieldBtn.spClickFilled then shieldBtn:SetAttribute("spell2", spellName) end
-		shieldBtn.defaultShieldSpell = spellName
-	end
+	self:SetShieldButtonSpell(spellName)
 	self.opt.preferredShield = idx
 	self:ApplyShieldButtonClicks()   -- Right-Click Casts Your Other Shield: now the other one
 	self:MarkShieldFlyout()          -- the flyout leaves out (arrows: fades) the new one
-	self:RebuildShieldChargeContainer()
+end
+
+-- The shield button's cast follows the shield it shows, out of a fight: AssignedShieldIndex, the saved
+-- choice while you know it, else the first shield you know. A profile switch in any style (Normal, Grid,
+-- hover or arrow flyouts) and a talent change that unlearns or learns a shield (WoW: Forever: Water Shield
+-- is a Restoration talent) come through here. The saved choice (opt.preferredShield) is never written
+-- here, so a shield learned again goes back on the button. In a fight: nothing (the end of the fight and
+-- the cooldown bar's next pass catch up). castOnly: the flyout is made again right after, not marked here.
+function ShamanPower:SyncShieldButtonCast(castOnly)
+	local btn = self.shieldButton
+	if not btn or InCombatLockdown() then return end
+	local idx = self:AssignedShieldIndex()
+	local d = idx and self.ShieldSpells[idx]
+	local name = d and SPCompat.SpellName(d[1])
+	if name and btn:GetAttribute("spell1") ~= name then
+		self:SetShieldButtonSpell(name)
+		self:ApplyShieldButtonClicks()   -- Right-Click Casts Your Other Shield: the other one from this one
+		if not castOnly then self:MarkShieldFlyout() end
+	elseif not castOnly and (idx or 0) ~= self._shieldFlyoutMarked then
+		self:MarkShieldFlyout()
+	end
 end
 
 -- Which shield the button shows, whether it counts as up, which one shows above it (Normal), which
@@ -14055,7 +14086,10 @@ end
 function ShamanPower:CooldownBarShieldView(activeIdx)
 	local f = self:CooldownBarStyleFlags()
 	local assigned = self:AssignedShieldIndex()
-	if f.adopt and activeIdx and activeIdx ~= assigned and not InCombatLockdown() then
+	-- (Dynamic adopts only a shield you know: one still up after a talent change took it away stays off
+	-- the button, as SyncShieldButtonCast keeps it)
+	if f.adopt and activeIdx and activeIdx ~= assigned and not InCombatLockdown()
+		and PlayerKnowsSpellByID(self.ShieldSpells[activeIdx][1]) then
 		self:AssignShield(activeIdx)
 		assigned = activeIdx
 	end
