@@ -489,12 +489,16 @@ local function KeyWords(key)
 	return table.concat(parts, "-")
 end
 
--- The raw key bound to this alert's own totem, or nil.
+-- The raw key bound to this alert's own totem, or nil. The action bar key comes
+-- from the core's exact-key pass (actionBarExactKeybinds, scanned while Show Spell
+-- Keybind is on), which passes over ShamanPower's own SP_ macros: SP_Earth or
+-- SP_DropAll cast whichever totem comes next, never this totem for sure.
 local function ReactiveSpellKey(data)
 	local name = SPCompat.TotemCastName and SPCompat.TotemCastName(data.totemSpellID) or SPCompat.SpellName(data.totemSpellID)
 	if not name then return nil end
 	local mode = SP.opt and SP.opt.keybindSource
-	local barKey = (mode ~= "sponly") and SP.GetKeybindForSpell and SP:GetKeybindForSpell(name) or nil
+	local exact = SP.actionBarExactKeybinds
+	local barKey = (mode ~= "sponly") and exact and exact[name] or nil
 	local spKey = SP.FlyoutSpellClickKey and SP:FlyoutSpellClickKey(name, data.totemElement) or nil
 	if mode == "sp" or mode == "sponly" then return spKey or barKey end
 	return barKey or spKey
@@ -515,8 +519,10 @@ local function TextWidth(text, size, outline)
 end
 
 -- Lines no wider than one and a half icons or the totem's name (whichever is
--- wider), broken after a "-" or at a space, so a long key wraps ("Ctrl-Shift-" /
--- "Mouse4") instead of running wide, and is never cut short.
+-- wider), broken only after a "-", so a long key wraps between its parts
+-- ("Ctrl-Shift-" / "Mouse4", "Alt-Ctrl-Shift-" / "Wheel Down") instead of running
+-- wide. A part is never split ("Wheel Down" stays one line, as does "No Key
+-- Bound"), and nothing is ever cut short.
 local function WrapCaption(text, data)
 	local sv = ShamanPower_ReactiveTotems
 	local size, outline = (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or ""
@@ -525,7 +531,7 @@ local function WrapCaption(text, data)
 	local tokens, cur = {}, ""
 	for ch in text:gmatch(".") do
 		cur = cur .. ch
-		if (ch == "-" or ch == " ") and cur:find("[^%-%s]") then
+		if ch == "-" and cur:find("[^%-%s]") then
 			tokens[#tokens + 1] = cur
 			cur = ""
 		end
@@ -620,11 +626,20 @@ function SP:RefreshReactiveKeys()
 	end
 	self:ReactiveKeyEventsOn(on)
 	if not changed then return end
-	for totemId, frame in pairs(self.reactiveFrames) do self:ReactiveHostKeyCaption(frame, totemId) end
-	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end
+	self:RefreshReactiveKeyCaptions()
 	-- the settings page lists the keys found (Reactive Totems > Spell Keybind)
 	local reg = on and LibStub and LibStub("AceConfigRegistry-3.0", true)
 	if reg then reg:NotifyChange("ShamanPower") end
+end
+
+-- The captions again (the keys changed, or When No Key Is Bound did): each host's
+-- copy at once (hidden while the game draws the alerts), and the game-drawn alerts
+-- rebuilt, which waits for the end of a fight. Only the captions: the general
+-- appearance update would show the hosts' own art (background, border, names)
+-- with nothing in it, in a fight on WoW: Forever, until the rebuild.
+function SP:RefreshReactiveKeyCaptions()
+	for totemId, frame in pairs(self.reactiveFrames) do self:ReactiveHostKeyCaption(frame, totemId) end
+	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end
 end
 
 -- For the settings page and /spreactive status: what each alert's totem has now.

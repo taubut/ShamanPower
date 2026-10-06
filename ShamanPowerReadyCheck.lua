@@ -89,6 +89,19 @@ end
 -- When you last died (GetTime(), from PLAYER_DEAD below): your shield goes with
 -- you, so a record of a shield cast before then is known to be gone.
 local diedAt
+-- WoW: Forever: when you last cast Lightning or Water Shield yourself (your own
+-- casts are always seen, in fights too). While buffs are hidden the record of
+-- that cast can go before the shield does (its charges are counted down by
+-- guess), so after a death only "no cast since" counts as missing.
+local lastShieldCast
+if FOREVER and SP.ShadowShieldCast then
+	hooksecurefunc(SP, "ShadowShieldCast", function(_, unit)
+		if unit ~= "player" then return end
+		-- a cast opens a new record stamped now; a proc only takes a charge off
+		local rec = SP.shadowShield
+		if rec and rec.start == GetTime() then lastShieldCast = rec.start end
+	end)
+end
 -- Cached until the spellbook changes: bag updates ask this often.
 local knownCache = {}
 do
@@ -129,10 +142,12 @@ local function shieldMissing()
 	if c.engineCount then
 		-- buffs are hidden right now: our own record of the last shield cast.
 		-- Shields drop when you die, so a record from before your last death
-		-- is stale, and with no cast since that death the shield is gone.
+		-- is stale, and with no cast since that death the shield is gone. A
+		-- cast since then whose record has gone (its charges guessed used up)
+		-- could still be on you: that one is "could not check".
 		local rec = SP.shadowShield
 		if rec and not (diedAt and (rec.start or 0) < diedAt) then has = true
-		elseif diedAt then has = false
+		elseif diedAt and not (lastShieldCast and lastShieldCast >= diedAt) then has = false
 		else return nil end
 	else
 		has = c.hasShield and true or false
@@ -261,6 +276,9 @@ local hideTimer
 -- "rezfight" for the short reminder in a fight); nil while none is (a sample
 -- can cover it)
 local sweepReason
+-- true while the check after your resurrection is still to come or has just run
+-- (set with Check After Resurrection, below)
+local rezCovers
 local refreshEvents = { "UNIT_AURA", "UNIT_INVENTORY_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_TOTEM_UPDATE", "UNIT_POWER_UPDATE" }
 
 -- the title: what is missing, or (only checks that could not run) what to look at yourself
@@ -536,6 +554,9 @@ end
 function SP:RunReadyCheckSweep(reason)
 	local c = cfg()
 	if (not c.enabled or SP:IsOff()) and reason ~= "manual" then return end   -- /sp check still answers when switched off
+	-- a ghost run back into an instance: the check after the resurrection is the
+	-- one list (the entering check would be a second one a moment later)
+	if reason == "instance" and (sweepReason == "rez" or (rezCovers and rezCovers())) then return end
 	-- alive again: read the shield fresh (one read, nothing kept from the life before)
 	if reason == "rez" and SP.ScanPlayerShield and not SP:IsOff() then SP:ScanPlayerShield() end
 	local list, unknown = collect()
@@ -742,6 +763,8 @@ local rezTimer           -- the settling timer
 local rezWaiting         -- the check waits for the fight to end
 local rezReminded        -- the short reminder was shown for this resurrection
 local deadSeen           -- you died (or logged in dead) and have not been checked since
+local rezSweptAt         -- when the check after a resurrection last ran
+local REZ_COVERS = 30    -- seconds an entering-an-instance check is left to it (loading screens can be long)
 
 local rezFrame = CreateFrame("Frame")
 if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(rezFrame, "Ready Check (resurrection)") end
@@ -783,7 +806,17 @@ local function rezSettled()
 		return
 	end
 	stopRez()
+	rezSweptAt = GetTime()
 	SP:RunReadyCheckSweep("rez")
+end
+
+-- (RunReadyCheckSweep) a ghost that runs back into an instance comes back to life
+-- as it enters: that resurrection's check covers the entering check
+rezCovers = function()
+	if not rezOn() then return false end
+	if rezTimer or rezWaiting then return true end              -- on its way
+	if deadSeen and not aliveNow() then return true end         -- still a ghost: it comes once you are alive
+	return rezSweptAt ~= nil and GetTime() - rezSweptAt < REZ_COVERS   -- it has just run
 end
 
 local function startRezSettle(seconds)
