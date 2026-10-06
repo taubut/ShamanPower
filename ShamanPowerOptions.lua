@@ -2796,6 +2796,8 @@ ShamanPower.options = {
 								return ShamanPower.opt.cdbarFlyoutDirection or "auto"
 							end,
 							set = function(info, val)
+								-- Don't move the flyouts in combat
+								if InCombatLockdown() then print("|cff0070ddShamanPower:|r the flyout direction cannot change during combat - try again after the fight."); return end
 								ShamanPower.opt.cdbarFlyoutDirection = val
 								-- Re-layout the shield and weapon imbue flyouts for new direction
 								if ShamanPower.LayoutShieldFlyout then
@@ -8915,7 +8917,8 @@ ShamanPower.options = {
 									local click = (ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped()) and "Left-click" or "Right-click"
 									return click .. " the shield button to cast your other shield: Water Shield while the button is on"
 										.. " Lightning Shield, Lightning Shield while it's on Water Shield. That shield then stays on the"
-										.. " button, so your next click or key casts it again. Works in fights."
+										.. " button, so your next click or key casts it again. Works in fights. If the cast doesn't"
+										.. " go off (for example during the global cooldown), the button still switches to the other shield."
 								end,
 								function() return ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped() end,
 									"Swap Left and Right Click is on, so this is the left-click. The right-click and your key cast the shield on the button.",
