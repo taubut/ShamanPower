@@ -231,6 +231,20 @@ local function showMark(host, look)
 	c.markHold:Stop(); c.markHold:Play()
 end
 
+-- the mark on a button goes (it was recast): today's red X and a theme's marks and flags
+local function clearHostMark(host)
+	local c = host and host.spCue
+	if not c then return end
+	if c.markHold:IsPlaying() then c.markHold:Stop() end
+	if c.spTheme and ThemeCue then ThemeCue.clear(c) end
+end
+
+-- Red X Until You Imbue Again / Cast a Shield Again (Cooldown Bar > Effects): the
+-- totem bar's mark, in the cooldown bar's own Effects Look
+local function cdbarMark(btn, kind)
+	showMark(btn, ThemeCue and ThemeCue.lookOf and ThemeCue.lookOf(kind) or nil)
+end
+
 -- "Turns red" (Running Out, and the totem bar's Expiring Soon): the icon in WoW's
 -- red with its time and charges sharp on top. A tint (MOD) and a wash on the button
 -- itself, over its icon and under its text, and a 1 px red edge on the cue frame.
@@ -519,10 +533,13 @@ function SP:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft
 	if isSecret(hasMain) or isSecret(hasOff) then return end
 	hasMain, hasOff = ownImbue(hasMain, mainID, mainLeft), ownImbue(hasOff, offID, offLeft)
 	local gone = (btn._cueMain and not hasMain) or (btn._cueOff and not hasOff)
-	-- imbued again: a theme's corner flag goes (until recast, like the red X)
-	if ThemeCue and ((hasMain and btn._cueMain == false) or (hasOff and btn._cueOff == false)) then ThemeCue.clear(btn.spCue) end
+	-- imbued again: the red X and a theme's corner flag go (until recast)
+	if (hasMain and btn._cueMain == false) or (hasOff and btn._cueOff == false) then clearHostMark(btn) end
 	btn._cueMain, btn._cueOff = hasMain, hasOff
-	if gone then playCue(btn, self.opt.cdbarCueImbueStyle or "shake", "imbue") end
+	if gone then
+		playCue(btn, self.opt.cdbarCueImbueStyle or "shake", "imbue")
+		if self.opt.cdbarCueImbueMark then cdbarMark(btn, "imbue") end   -- Red X Until You Imbue Again
+	end
 end
 
 -- The shield. Seen going: confirmed a moment later (a shield swapped for the
@@ -536,6 +553,7 @@ local function confirmShield()
 	if not btn or btn._cueShield or not SP.opt.cdbarCueShield then return end
 	if UnitIsDeadOrGhost("player") then return end   -- dying strips the shield: not "gone"
 	playCue(btn, SP.opt.cdbarCueShieldStyle or "shake", "shield")
+	if SP.opt.cdbarCueShieldMark then cdbarMark(btn, "shield") end   -- Red X Until You Cast a Shield Again
 end
 
 local function missingLayer(btn)
@@ -551,6 +569,13 @@ local function missingLayer(btn)
 	m.loop = t:CreateAnimationGroup()
 	m.loop:SetLooping("BOUNCE")
 	alphaAnim(m.loop, 1, 0.08, 0.5, 0.5)
+	-- Red X Until You Cast a Shield Again, in a fight: the X under the game's shield icon,
+	-- seen while no shield is up (the moment it went cannot be seen there)
+	local x = m:CreateTexture(nil, "OVERLAY", nil, 1)
+	x:SetTexture(MARK)
+	x:SetPoint("CENTER")
+	x:SetAlpha(0)
+	m.x = x
 	btn.spCueMissing = m
 	return m
 end
@@ -558,6 +583,7 @@ end
 local function stopMissing(btn)
 	local m = btn.spCueMissing
 	if m and m.loop:IsPlaying() then m.loop:Stop() end
+	if m and m.xOn then m.xOn = nil; m.x:SetAlpha(0) end
 end
 
 function SP:CueShieldState(btn, hasShield, engine)
@@ -572,6 +598,13 @@ function SP:CueShieldState(btn, hasShield, engine)
 		if (btn:GetEffectiveAlpha() or 1) >= 0.99 then
 			local m = missingLayer(btn)
 			if not m.loop:IsPlaying() then m.loop:Play() end
+			local xOn = self.opt.cdbarCueShieldMark and true or nil
+			if m.xOn ~= xOn then
+				m.xOn = xOn
+				local size = btn:GetHeight() * 0.75
+				m.x:SetSize(size, size)
+				m.x:SetAlpha(xOn and 1 or 0)
+			end
 		else
 			stopMissing(btn)
 		end
@@ -580,7 +613,7 @@ function SP:CueShieldState(btn, hasShield, engine)
 	stopMissing(btn)
 	local had = btn._cueShield
 	btn._cueShield = hasShield and true or false
-	if hasShield and had == false and ThemeCue then ThemeCue.clear(btn.spCue) end   -- recast: a theme's flag goes
+	if hasShield and had == false then clearHostMark(btn) end   -- recast: the red X and a theme's flag go
 	if had and not hasShield then
 		pendingShieldBtn = btn
 		C_Timer.After(0.4, confirmShield)
@@ -1151,9 +1184,15 @@ function SP:TestCooldownCues()
 		end
 	end
 	local imbue = self.weaponImbueButton
-	if imbue and imbue:IsVisible() then playCue(imbue, o.cdbarCueImbueStyle or "shake", "imbue") end
+	if imbue and imbue:IsVisible() then
+		playCue(imbue, o.cdbarCueImbueStyle or "shake", "imbue")
+		if o.cdbarCueImbueMark then cdbarMark(imbue, "imbue") end
+	end
 	local shield = self.shieldButton
-	if shield and shield:IsVisible() then playCue(shield, o.cdbarCueShieldStyle or "shake", "shield") end
+	if shield and shield:IsVisible() then
+		playCue(shield, o.cdbarCueShieldStyle or "shake", "shield")
+		if o.cdbarCueShieldMark then cdbarMark(shield, "shield") end
+	end
 	-- Running Out plays for 3 seconds on the shield and the imbue, Cooldown Almost Ready on a
 	-- cooldown (the second one shown: the first plays Cooldown Ready); the cooldown bar's pass runs them
 	local runUntil = GetTime() + 3

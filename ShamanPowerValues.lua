@@ -162,7 +162,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemCueExpired = false,            -- a totem that ran out
         totemCueExpiredStyle = "pop",
         totemCueExpiring = false,           -- a loop over a totem's last seconds
-        totemCueExpiringStyle = "pulse",    -- pulse / glow
+        totemCueExpiringStyle = "pulse",    -- pulse / glow / drain / underbar / red (Turns red)
         totemCueExpiringSecs = 5,
         cdbarCueReady = false,              -- a cooldown on the cooldown bar ready again
         cdbarCueReadyStyle = "pop",
@@ -170,6 +170,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueImbueStyle = "shake",
         cdbarCueShield = false,             -- the shield gone (in combat on Forever: a red loop while missing)
         cdbarCueShieldStyle = "shake",
+        cdbarCueImbueMark = false,          -- Red X Until You Imbue Again (with Weapon Imbue Gone)
+        cdbarCueShieldMark = false,         -- Red X Until You Cast a Shield Again (with Shield Gone)
         -- The cooldown bar's "running out" moment (ShamanPowerCues.lua), one setting each, shown on
         -- Cooldown Bar > Display AND > Effects: a shield or imbue in its last N seconds (a shield also on
         -- its last charge), a cooldown in its last N seconds (0: only once it is ready)

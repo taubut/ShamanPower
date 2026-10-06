@@ -11434,6 +11434,14 @@ do
 			set = function(_, v) SP.opt[key] = v and true or nil; lookChanged() end }
 	end
 	local mainline = SPCompat.FOREVER
+	-- Totem Expiring Soon's list: today's two, the two the Effects Looks added, and Turns red
+	-- (the cooldown bar's Running Out look, one more choice: nothing changes unless it is picked)
+	local function expiringStyles()
+		local v, o = plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")
+		v.red = "Turns red"
+		o[#o + 1] = "red"
+		return v, o
+	end
 	-- The cooldown bar's "running out" moment (ShamanPowerCues.lua): one saved setting each,
 	-- shown on Cooldown Bar > Display (Show Items Only When Running Out) and > Effects (the
 	-- running-out effects): change it in either place.
@@ -11480,7 +11488,7 @@ do
 		totemCueExpiring = toggle(1.6, "totemCueExpiring", "Totem Expiring Soon",
 			"Over a totem's last seconds its button pulses darker, or its edges glow orange, until it runs out or you drop it again."),
 		totemCueExpiringStyle = style(1.7, "totemCueExpiringStyle", "totemCueExpiring", "pulse", "Expiring Style",
-			plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")),
+			expiringStyles()),
 		totemCueExpiringSecs = { order = 1.8, type = "range", width = "full", name = "Seconds Before It Ends",
 			min = 3, max = 15, step = 1,
 			disabled = function() return not SP.opt.totemCueExpiring end,
@@ -11505,6 +11513,11 @@ do
 			"When a weapon imbue drops off (it ran out, or the weapon was swapped), the imbue button plays the style below in blue."),
 		cdbarCueImbueStyle = style(2.4, "cdbarCueImbueStyle", "cdbarCueImbue", "shake", "Imbue Style",
 			plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag")),
+		cdbarCueImbueMark = { order = 2.45, type = "toggle", width = "full", name = "Red X Until You Imbue Again",
+			desc = "Also put a red X on the imbue button until you put an imbue on again (5 seconds at most).",
+			disabled = function() return not SP.opt.cdbarCueImbue end,
+			get = function() return SP.opt.cdbarCueImbueMark and true or false end,
+			set = function(_, v) SP.opt.cdbarCueImbueMark = v and true or false; apply() end },
 		cdbarCueShield = toggle(2.5, "cdbarCueShield", "Shield Gone",
 			mainline and ("When your Lightning or Water Shield is gone, the shield button plays the style below in blue."
 				.. " In combat, the button pulses red while no shield is up instead."
@@ -11512,6 +11525,12 @@ do
 			or "When your Lightning or Water Shield is gone, the shield button plays the style below in blue."),
 		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style",
 			plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag")),
+		cdbarCueShieldMark = { order = 2.65, type = "toggle", width = "full", name = "Red X Until You Cast a Shield Again",
+			desc = "Also put a red X on the shield button until you cast a shield again (5 seconds at most)."
+				.. (mainline and " In a fight it shows while no shield is up instead, like Shield Gone's red pulse (at 100% Cooldown Bar opacity)." or ""),
+			disabled = function() return not SP.opt.cdbarCueShield end,
+			get = function() return SP.opt.cdbarCueShieldMark and true or false end,
+			set = function(_, v) SP.opt.cdbarCueShieldMark = v and true or false; apply() end },
 		-- Running Out: the button that is running out (its last seconds) plays a look until you cast it again
 		cdbarCueRunning = toggle(2.7, "cdbarCueRunning", "Running Out",
 			"Over the last moments of your shield or weapon imbue" .. (mainline and "" or " (and your Earth Shield)")

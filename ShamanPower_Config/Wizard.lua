@@ -3514,6 +3514,8 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 				if btn and btn:IsVisible() then
 					fx.play(btn, o[it.style] or it.def, it.kind)
 					if it.kind == "destroyed" and o.totemCueDestroyedMark ~= false then fx.mark(btn) end
+					-- the cooldown bar's Red X Until Recast, in that bar's own look
+					if it.mark and o[it.mark] then fx.mark(btn, SP.ThemeCue and SP.ThemeCue.lookOf and SP.ThemeCue.lookOf(it.kind) or nil) end
 				end
 			end
 		end
@@ -3606,8 +3608,12 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 		plus(STYLES, STYLE_ORDER, "ringin", "Ring draws in", "underline", "Underline runs out"))
 	cue("Totem expiring soon", "Over a totem's last seconds its button pulses darker, or its edges glow orange.",
 		"totemCueExpiring", "totemCueExpiringStyle", "pulse",
-		plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
-			"drain", "Frame drains", "underbar", "Bar under it"))
+		(function()   -- (and Turns red, as on the Effects page)
+			local v, o = plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
+				"drain", "Frame drains", "underbar", "Bar under it")
+			return function() local t = v(); t.red = "Turns red"; return t end,
+				function() local t = o(); t[#t + 1] = "red"; return t end
+		end)())
 	row("Slider", { label = "Seconds before it ends", min = 3, max = 15, step = 1,
 		disabled = function() return not O().totemCueExpiring end,
 		get = function() return O().totemCueExpiringSecs or 5 end, set = set("totemCueExpiringSecs") })
@@ -3717,8 +3723,8 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		for k = 2, #cds do cdsAlmost[#cdsAlmost + 1] = cds[k] end
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ pick = cds, cap = "Ready", on = "cdbarCueReady", style = "cdbarCueReadyStyle", def = "pop", kind = "ready", at = 1.7 },
-			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4 },
-			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1 },
+			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4, mark = "cdbarCueImbueMark" },
+			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1, mark = "cdbarCueShieldMark" },
 			-- Running Out (its last seconds): a loop on the shield chip, captioned over it
 			{ btn = shield, cap = "Running out", capAbove = true, on = "cdbarCueRunning", style = "cdbarCueRunningStyle", def = "red", kind = "running", loop = true },
 			-- Cooldown Almost Ready: a loop in gold on another cooldown (the first one shown plays Ready)
