@@ -21499,6 +21499,43 @@ function ShamanPower:DeleteLoadout(index)
 	self:UpdateLoadoutBar()
 end
 
+-- Moves a loadout to another place in the list (Loadouts > Loadouts: drag a loadout). The
+-- loadout bar's flyout and its click cycle follow the list's order. Auto-Switch rules point at
+-- a loadout by its own id (lo.uid) and Blizzard's totem sets by the loadout itself, so both keep
+-- pointing at the same loadouts; the one in use stays in use (on every profile: the list is
+-- shared by your characters). A loadout with no name of its own keeps the one it showed
+-- ("Loadout 3"), which would otherwise follow its new place. Out of a fight only.
+function ShamanPower:MoveLoadout(from, to)
+	local list = ShamanPower_TotemLoadouts
+	if InCombatLockdown() or not (list and list[from]) then return false end
+	to = math.max(1, math.min(#list, to or from))
+	if to == from then return false end
+	local before, where = {}, {}
+	for i, lo in ipairs(list) do before[i] = lo end
+	tinsert(list, to, tremove(list, from))
+	for i, lo in ipairs(list) do where[lo] = i end
+	for i, lo in ipairs(before) do
+		if not lo.name and where[lo] ~= i then lo.name = "Loadout " .. i end
+	end
+	-- each profile's loadout in use, by the loadout it was (each profile table once: the open
+	-- one is self.opt and also in db.profiles)
+	local seen = {}
+	local function follow(p)
+		if type(p) ~= "table" or seen[p] then return end
+		seen[p] = true
+		local a = rawget(p, "activeLoadout")
+		if type(a) == "number" and before[a] then rawset(p, "activeLoadout", where[before[a]]) end
+	end
+	follow(self.opt)
+	if self.db and type(self.db.profiles) == "table" then
+		for _, p in pairs(self.db.profiles) do follow(p) end
+	end
+	self:UpdateLoadoutBar()
+	local reg = LibStub("AceConfigRegistry-3.0", true)
+	if reg then reg:NotifyChange("ShamanPower") end
+	return true
+end
+
 function ShamanPower:UpdateLoadout(index)
 	local loadout = ShamanPower_TotemLoadouts[index]
 	if not loadout then return end
@@ -21625,17 +21662,23 @@ local loadoutTooltipColors = {
 	[4] = {r = 1.0, g = 1.0, b = 1.0},  -- Air (white)
 }
 
--- Delete set confirmation (Settings > Loadouts > Delete)
+-- Delete a loadout, asked first (Settings > Loadouts > a loadout's menu > Delete This Loadout...).
+-- The loadout is found again when Delete is clicked (a drag while the question was up moves it).
 function ShamanPower:ConfirmDeleteLoadout(nr, name)
+	local target = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[nr]
 	self:ShowSPDialog({
-		key = "deleteLoadout", title = "Delete totem set", text = "Delete totem set " .. tostring(name) .. "?",
+		key = "deleteLoadout", title = "Delete loadout", text = "Delete loadout " .. tostring(name) .. "?",
 		buttons = {
 			{ text = "Delete", onClick = function()
 				-- combat began while it was open: say so, and keep the question up for after the fight
 				if InCombatLockdown() then
-					print("|cff0070ddShamanPower|r: |cffe64a4atotem sets cannot be deleted in combat - click Delete again after the fight.|r")
+					print("|cff0070ddShamanPower|r: |cffe64a4aLoadouts can't be deleted in combat - click Delete again after the fight.|r")
 					return true
 				end
+				for i, lo in ipairs(ShamanPower_TotemLoadouts or {}) do
+					if lo == target then nr = i break end
+				end
+				if ShamanPower_TotemLoadouts[nr] ~= target then return end   -- gone already
 				ShamanPower:DeleteLoadout(nr)
 				if ShamanPower.RefreshLoadoutArgs then ShamanPower:RefreshLoadoutArgs() end
 				ShamanPower:RefreshConfig()
