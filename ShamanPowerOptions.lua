@@ -11148,11 +11148,69 @@ do
 	SP.SettingsPathAliases["buttons/auto_button/show_cooldown_bar"] = {
 		"fluffy", "cdbar_items_section", "show_cooldown_bar",
 	}
+	-- A15 (3.0.8): the Bar tab is the Totem Bar's icon page (ShamanPower_Config TotemBarIcons.lua): a
+	-- Buttons row (each element, Drop All and, on TBC Anniversary, Earth Shield: click on / off the bar,
+	-- right-click its settings, drag an element to its place on the bar) and the Totems rows (every
+	-- totem, a line per element: click in / out of its flyout, right-click its settings). Items, Order,
+	-- Drop All and Flyouts are no tabs any more: their rows are clicks, a drag or lines in the menus
+	-- (the old groups stay as their holders, unreached; their addresses land here). The Earth Shield
+	-- flyout rows are in Earth Shield's menu (how flyouts open stays on Clicks).
+	do
+		local items = pages.totembar_items_section.args
+		SP.MoveSettingsOptions({ "fluffy", "totembar_items_section" }, { "buttons", "auto_button" }, { "totembar_hide_unlearned" })
+		local hu = bar.args.totembar_hide_unlearned
+		if hu then
+			local previous = hu.hidden
+			hu.hidden = function(info)
+				if NativeTotemBarSelected() then return true end   -- (Blizzard's own buttons are on screen)
+				if type(previous) == "function" then return previous(info) end
+				return previous
+			end
+		end
+		items.totembar_desc = nil
+		bar.args.auto_desc = nil   -- (the rows' captions say what to do)
+		bar.args.show_es_flyout, bar.args.es_flyout_filter = nil, nil
+		-- what a search finds in the two rows (they draw themselves, so this text is never shown): every
+		-- button, every totem and every word their right-click menus draw, the old tabs' rows included
+		local BUTTONS_SEARCH = "Buttons: Earth, Fire, Water, Air, Drop All, Earth Shield. Show Earth Totem, Show Fire Totem,"
+			.. " Show Water Totem, Show Air Totem, Show Earth Shield, Show Drop All Button: click a button to show or hide it on"
+			.. " the bar, right-click it for its settings, drag an element to change its place on the bar (Button Order, 1st"
+			.. " Button, 2nd Button, 3rd Button, 4th Button, Totem Bar Order). Drop All: 1st, 2nd, 3rd, 4th, Not Dropped (Drop"
+			.. " All Order, 1st in Drop All Order, Exclude from Drop All, Exclude Earth, Exclude Fire, Exclude Water, Exclude"
+			.. " Air). Drop Order. Blizzard Totem Sets: Drop All Casts Call of the Elements, Call of the Elements Follows My"
+			.. " Assignments, My Assignments Follow Blizzard's Totem Bar. Earth Shield: Flyout, Show Earth Shield Flyout,"
+			.. " Players In The Flyout, Earth Shield Flyout Filter, Tanks, Healers, Damage, Warriors, Paladins, Hunters,"
+			.. " Rogues, Priests, Shamans, Mages, Warlocks, Druids, Everyone; Running Out, Running Out At. Keybind: Button Key,"
+			.. " Flyout Key, Set Keys In Keybind Mode. Hide This Button, Show This Button, Reset This Button."
+		local TOTEMS_SEARCH = "Totems in the Flyouts: every totem, a line per element (Earth Totems, Fire Totems, Water"
+			.. " Totems, Air Totems): click a totem to show or hide it in its flyout (Totem Flyouts, which totems appear in the"
+			.. " flyout menus), right-click it for its settings. Pulse Bar, Pulse Flash (Only Show Pulse Bars for Specific"
+			.. " Totems, Only Show Pulse Flash for Specific Totems), Counts As Temporary (Totems That Count as Temporary, Put"
+			.. " Your Usual Totem Back), Keybind, Its Key, Copy Settings, Paste Settings, Copy Settings To, All Totems, Hide"
+			.. " From The Flyout, Show In The Flyout, Reset This Totem. Strength of Earth, Stoneskin, Tremor, Earthbind,"
+			.. " Stoneclaw, Earth Elemental, Totem of Wrath, Searing, Magma, Fire Nova, Flametongue, Frost Resistance, Fire"
+			.. " Elemental, Mana Spring, Healing Stream, Mana Tide, Poison Cleansing, Disease Cleansing, Fire Resistance,"
+			.. " Windfury, Grace of Air, Wrath of Air, Tranquil Air, Grounding, Nature Resistance, Windwall, Sentry."
+		bar.args.tb_buttons = { type = "description", width = "full", name = " ", desc = BUTTONS_SEARCH }
+		bar.args.tb_totems = { type = "description", width = "full", name = " ", desc = TOTEMS_SEARCH }
+		bar.args.tb_flyouts_note = { type = "description", width = "full",
+			name = "|cffffa040Totem flyouts are turned off (Show Totem Flyouts), so a click on a totem has no effect until you"
+				.. " turn them on.|r",
+			hidden = function() return NativeTotemBarSelected() or SP.opt.showTotemFlyouts ~= false end }
+		SP.OptionCustomRow = SP.OptionCustomRow or {}
+		SP.OptionCustomRow[bar.args.tb_buttons] = "tbButtons"
+		SP.OptionCustomRow[bar.args.tb_totems] = "tbTotems"
+		-- the old tabs' addresses (settings links, patch notes, search paths kept in old notes) open this tab
+		for _, old in ipairs({ "fluffy/totembar_items_section", "fluffy/totembar_order_section", "fluffy/totemflyouts_section",
+			"buttons/dropall_section" }) do
+			SP.SettingsPathAliases[old] = { "buttons", "auto_button" }
+		end
+	end
 	SP.OrderSettingsBands(bar, {
-		{ keys = { "auto_desc" } },
 		{ keys = { "auto_enable" } },
-		{ header = "flyouts_header", name = "Flyouts", keys = {
-			"show_totem_flyouts", "show_es_flyout", "es_flyout_filter",
+		{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "totembar_hide_unlearned" } },
+		{ header = "flyouts_header", name = "Totems in the Flyouts", keys = {
+			"show_totem_flyouts", "tb_flyouts_note", "tb_totems",
 		} },
 		{ header = "position_header", name = "Position", keys = { "unlock_totem_bar" },
 			names = { unlock_totem_bar = "Move (unlock bar)" } },
@@ -12188,100 +12246,22 @@ do
 end
 
 
--- Totem Bar > Duration Bars: "Only Show Pulse Bars for Specific Totems", then one
--- switch per totem that pulses (ShamanPower.PulsingTotems), on unless turned off.
+-- Totem Bar > Duration Bars: which totems get the pulse bar and the pulse flash is each totem's
+-- menu on Totem Bar > Bar now (A15: ShamanPower_Config TotemBarIcons.lua, Pulse Bar / Pulse
+-- Flash), in place of "Only Show Pulse Bars / Pulse Flash for Specific Totems" and their two
+-- lists of 9. The saved lists are the same (pulseOnlySome / pulseTotemsOff, pulseFlashOnlySome /
+-- pulseFlashTotemsOff: ShamanPower:PulsePartsOff reads them); one line says where they went.
 do
 	local SP = ShamanPower
 	local sec = SP.options.args.fluffy.args.totembar_duration_section
 	local args = sec and sec.args
 	if args then
-		-- key in ShamanPower.PulsingTotems, a spell for the name and the client check
-		local PULSING = {
-			{ "Tremor", 8143 }, { "Earthbind", 2484 }, { "Stoneclaw", 5730 }, { "Magma", 8190 },
-			{ "Healing Stream", 5394 }, { "Mana Spring", 5675 }, { "Mana Tide", 16190 },
-			{ "Poison Cleansing", 8166 }, { "Disease Cleansing", 8170 },
+		args.pulse_totems_note = {
+			order = 9, type = "description", width = "full",
+			name = "Which totems get the pulse bar and the pulse flash: right-click a totem on Totem Bar > Bar, then Pulse Bar"
+				.. " or Pulse Flash.",
+			hidden = function() return SP.opt.pulseBarPosition == "none" end,
 		}
-		local function pulseOff() return (SP.opt.pulseBarPosition or "none") == "none" end
-		args.pulse_only_some = {
-			order = 9, type = "toggle", width = "full",
-			name = "Only Show Pulse Bars for Specific Totems",
-			desc = "Turn this on to pick which totems get a pulse bar. Every totem that pulses is listed below; turn off the ones you don't want. A totem turned off also gets no pulse time. The pulse flash has its own list.",
-			disabled = function() return CompactOn() end,
-			hidden = pulseOff,
-			get = function() return SP.opt.pulseOnlySome and true or false end,
-			set = function(_, val)
-				if val then SP.opt.pulseOnlySome = true else SP.opt.pulseOnlySome = nil end
-			end,
-		}
-		for i, t in ipairs(PULSING) do
-			local key, spell = t[1], t[2]
-			args["pulse_totem_" .. key:gsub("%s", ""):lower()] = {
-				order = 9 + i / 100, type = "toggle", width = 1.4,
-				name = function()
-					local n = GetSpellInfo and GetSpellInfo(spell)
-					if type(n) == "string" and n ~= "" then return n end
-					return key .. " Totem"
-				end,
-				desc = "Show the pulse bar for this totem.",
-				disabled = function() return CompactOn() end,
-				hidden = function()
-					if pulseOff() or not SP.opt.pulseOnlySome then return true end
-					-- totems this client does not have are left out
-					if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(spell) then return true end
-					return false
-				end,
-				get = function() return not (SP.opt.pulseTotemsOff and SP.opt.pulseTotemsOff[key]) end,
-				set = function(_, val)
-					if val then
-						if SP.opt.pulseTotemsOff then SP.opt.pulseTotemsOff[key] = nil end
-					else
-						SP.opt.pulseTotemsOff = SP.opt.pulseTotemsOff or {}
-						SP.opt.pulseTotemsOff[key] = true
-					end
-				end,
-			}
-		end
-		-- the same for the pulse flash, its own list (a totem can keep its bar and lose the flash, or the other way round)
-		local function flashOff() return pulseOff() or SP.opt.pulseFlashOpacity == 0 end
-		args.pulse_flash_only_some = {
-			order = 9.5, type = "toggle", width = "full",
-			name = "Only Show Pulse Flash for Specific Totems",
-			desc = "Turn this on to pick which totems get the pulse flash. Every totem that pulses is listed below; turn off the ones you don't want. This list is separate from the pulse bar list above.",
-			disabled = function() return CompactOn() end,
-			hidden = flashOff,
-			get = function() return SP.opt.pulseFlashOnlySome and true or false end,
-			set = function(_, val)
-				if val then SP.opt.pulseFlashOnlySome = true else SP.opt.pulseFlashOnlySome = nil end
-			end,
-		}
-		for i, t in ipairs(PULSING) do
-			local key, spell = t[1], t[2]
-			args["pulse_flash_totem_" .. key:gsub("%s", ""):lower()] = {
-				order = 9.5 + i / 100, type = "toggle", width = 1.4,
-				name = function()
-					local n = GetSpellInfo and GetSpellInfo(spell)
-					if type(n) == "string" and n ~= "" then return n end
-					return key .. " Totem"
-				end,
-				desc = "Show the pulse flash for this totem.",
-				disabled = function() return CompactOn() end,
-				hidden = function()
-					if flashOff() or not SP.opt.pulseFlashOnlySome then return true end
-					-- totems this client does not have are left out
-					if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(spell) then return true end
-					return false
-				end,
-				get = function() return not (SP.opt.pulseFlashTotemsOff and SP.opt.pulseFlashTotemsOff[key]) end,
-				set = function(_, val)
-					if val then
-						if SP.opt.pulseFlashTotemsOff then SP.opt.pulseFlashTotemsOff[key] = nil end
-					else
-						SP.opt.pulseFlashTotemsOff = SP.opt.pulseFlashTotemsOff or {}
-						SP.opt.pulseFlashTotemsOff[key] = true
-					end
-				end,
-			}
-		end
 	end
 end
 

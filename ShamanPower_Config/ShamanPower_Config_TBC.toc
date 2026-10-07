@@ -26,6 +26,7 @@ IconRow.lua
 CdbarIcons.lua
 ShieldIcons.lua
 LoadoutIcons.lua
+TotemBarIcons.lua
 ControllerButtons.lua
 Assign.lua
 FrameSettings.lua

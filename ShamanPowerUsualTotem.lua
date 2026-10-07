@@ -102,6 +102,29 @@ function SP:UsualTotemChoiceExists(base)
 	return t ~= nil and t.base == base
 end
 
+-- how a totem came (Counts As Temporary on the Totem Bar's Bar tab: each totem's menu)
+function SP:UsualTotemTempDefault(base)
+	return TEMP_DEFAULT[base] == true
+end
+
+-- the settings page (a totem's menu): saved only where it differs from how it came
+function SP:SetUsualTotemTemporary(base, v)
+	if type(base) ~= "number" or TEMP_DEFAULT[base] == nil then return end
+	v = v and true or false
+	local o = self.opt
+	if not o then return end
+	if v == (TEMP_DEFAULT[base] == true) then
+		if type(o.usualTotemTemp) == "table" then
+			o.usualTotemTemp[base] = nil
+			if next(o.usualTotemTemp) == nil then o.usualTotemTemp = nil end
+		end
+	else
+		if type(o.usualTotemTemp) ~= "table" then o.usualTotemTemp = {} end
+		o.usualTotemTemp[base] = v
+	end
+	self:ApplyUsualTotemSettings()   -- (taken off while it is down: its reminder goes)
+end
+
 function SP:UsualTotemIsTemporary(base)
 	local o = self.opt and self.opt.usualTotemTemp
 	local v
@@ -882,25 +905,10 @@ do
 				.. " (Water, Earth, Fire), with the text alert if it is on.",
 			disabled = off,
 			func = function() SP:TestUsualTotemReminder() end }
-		args.usual_temp_header = { order = 3.1, type = "header", name = "Totems That Count as Temporary" }
-		args.usual_temp_desc = { order = 3.11, type = "description",
-			name = "When one of these ends, the reminder asks for your usual totem of that element. Turn a totem off if"
-				.. " you keep it down on purpose." }
-		for i, id in ipairs(SP.USUAL_TOTEM_CHOICES) do
-			args["usual_temp_" .. id] = { order = 3.12 + i / 1000, type = "toggle",
-				name = function()
-					local t = totemOf(id)
-					return t and SP:GetTotemName(t.element, t.index) or tostring(id)
-				end,
-				desc = "Counts as a temporary totem: when it ends, the reminder asks for your usual totem of its element.",
-				hidden = function() return not SP:UsualTotemChoiceExists(id) end,
-				disabled = off,
-				get = function() return SP:UsualTotemIsTemporary(id) end,
-				set = function(_, v)
-					if type(SP.opt.usualTotemTemp) ~= "table" then SP.opt.usualTotemTemp = {} end
-					SP.opt.usualTotemTemp[id] = v and true or false
-					apply()   -- (unchecked while it is down: its reminder goes)
-				end }
-		end
+		-- Totems That Count as Temporary (13 / 16 switches): each totem's menu on Totem Bar > Bar now
+		-- (SP:SetUsualTotemTemporary); one line says where they went
+		args.usual_temp_note = { order = 3.1, type = "description",
+			name = "Which totems count as temporary (Tremor, Grounding, Mana Tide...): right-click a totem on Totem Bar > Bar,"
+				.. " then Counts As Temporary." }
 	end
 end
