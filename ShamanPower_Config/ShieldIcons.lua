@@ -94,7 +94,14 @@ local START = {
 	look = "bar", direction = "below", orbColor = "bar", orbEmpty = true, anim = false, texture = "default",
 	gradient = "default", gradientDirection = "default", gradientFade = 0.15,
 }
-local function StartOf(name)
+local WHICH_OF = { LS = 1, WS = 2, ES = 3 }
+local function StartOf(name, s)
+	-- (Earth Shield's starts from the shared sound only while Expiring Alerts' Earth Shield alert is on)
+	if (name == "sound" or name == "soundName") and SP.ShieldSoundShared and WHICH_OF[s] then
+		local on, sound = SP:ShieldSoundShared(WHICH_OF[s])
+		if name == "sound" then return on end
+		return sound
+	end
 	if name == "sound" then return (SP.opt and SP.opt.shieldDropSound == true) or false end
 	if name == "soundName" then return (SP.opt and SP.opt.shieldDropSoundName) or "Raid Warning" end
 	if name == "gradientColor2" then return { r = 1, g = 0.82, b = 0 } end
@@ -112,7 +119,7 @@ local Row   -- (below)
 local function Get(s, name)
 	if not HasAPI() then return nil, false end
 	local v = SP:ShieldOpt(s, name)
-	return v, not Same(v, StartOf(name))
+	return v, not Same(v, StartOf(name, s))
 end
 local function Val(s, name) return (Get(s, name)) end
 -- (SetShieldOpt refreshes the shield itself; a copy or a reset is refreshed here)

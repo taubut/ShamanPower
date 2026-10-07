@@ -12217,74 +12217,7 @@ do
 		}, names = { shieldcharges_drop_sound_picker = "Sound" } },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked" } },
 	})
-	SP.OrderSettingsBands(SP.options.args.fluffy.args.reactivetotems_section, {
-		{ keys = { "reactive_desc", "module_missing_note", "engine_note", "instance_only_note", "master_off_note" } },
-		{ keys = { "reactive_enabled" } },
-		{ header = "reactive_header_tracking", name = "Debuff Tracking", keys = {
-			"reactive_track_fear", "reactive_track_poison", "reactive_track_disease",
-		} },
-		{ header = "reactive_header_appearance", name = "Look", keys = {
-			"reactive_icon_size", "reactive_opacity", "reactive_font_size", "reactive_font_outline",
-			"reactive_hide_border", "reactive_hide_background", "reactive_hide_debuff_text",
-			"reactive_show_debuff_icon", "reactive_hide_totem_text",
-		}, names = {
-			reactive_font_size = "Text Size", reactive_font_outline = "Outline (unless Fonts & Textures sets one)",
-		} },
-		{ header = "reactive_header_keybind", name = "Spell Keybind", keys = {
-			"reactive_show_keybind", "reactive_no_key", "reactive_key_status",
-		} },
-		{ header = "reactive_header_effects", name = "Behavior", keys = {
-			"reactive_only_instance", "reactive_hide_when_active", "click_to_cast", "reactive_glow", "reactive_glow_intensity",
-		} },
-		{ header = "sound_header", name = "Sound", keys = {
-			"reactive_sound", "reactive_sound_picker", "reactive_sound_picker_testsound",
-			"reactive_sound_volume", "reactive_sound_volume_note",
-		}, names = { reactive_sound = "Play Sound", reactive_sound_picker = "Sound", reactive_sound_volume = "Volume" } },
-		{ header = "position_header", name = "Position", keys = {
-			"reactive_show", "reactive_locked", "reactive_reset", "reactive_hide",
-		}, names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Position" } },
-		{ header = "reactive_header_buttons", name = "Test / Reset", keys = { "reactive_test" } },
-	})
-	SP.OrderSettingsBands(SP.options.args.fluffy.args.expiringalerts_section, {
-		{ keys = { "alerts_desc", "module_missing_note", "master_off_note" } },
-		{ keys = { "alerts_enabled", "alerts_display_mode" } },
-		{ header = "alerts_header_shields", name = "Shield Alerts", keys = {
-			"alerts_shields_enabled", "alerts_shields_lightning", "alerts_shields_water", "alerts_shields_earth",
-		} },
-		{ header = "alerts_header_totems", name = "Totem Alerts", keys = {
-			"alerts_totems_enabled", "alerts_totems_destroyed", "alerts_totems_expired",
-			"alerts_totems_earth", "alerts_totems_fire", "alerts_totems_water", "alerts_totems_air",
-		} },
-		{ header = "destroyed_header", name = "When a Totem Is Destroyed", keys = {
-			"alerts_totems_destroyedChat", "alerts_totems_destroyedCenter", "alerts_totems_destroyedParty",
-		}, names = {
-			alerts_totems_destroyedChat = "Line in My Chat Window", alerts_totems_destroyedCenter = "Big Text on My Screen",
-			alerts_totems_destroyedParty = "Tell My Group in Chat",
-		} },
-		{ header = "alerts_header_imbues", name = "Weapon Imbue Alerts", keys = {
-			"alerts_imbues_enabled", "alerts_imbues_mainhand", "alerts_imbues_offhand",
-		} },
-		{ header = "alerts_header_display", name = "Look", keys = {
-			"alerts_icon_size", "alerts_opacity", "alerts_text_size", "alerts_font_outline",
-		}, names = { alerts_font_outline = "Outline (unless Fonts & Textures sets one)" } },
-		{ header = "behaviour_header", name = "Behavior", keys = { "alerts_animation", "alerts_duration" } },
-		{ header = "shield_sound_header", name = "Sound: Shields", keys = {
-			"alerts_shields_sound", "alerts_shields_sound_picker", "alerts_shields_sound_picker_testsound",
-		}, names = { alerts_shields_sound_picker = "Sound" } },
-		{ header = "totem_sound_header", name = "Sound: Totems", keys = {
-			"alerts_totems_sound", "alerts_totems_sound_picker", "alerts_totems_sound_picker_testsound",
-		}, names = { alerts_totems_sound_picker = "Sound" } },
-		{ header = "imbue_sound_header", name = "Sound: Weapon Imbues", keys = {
-			"alerts_imbues_sound", "alerts_imbues_sound_picker", "alerts_imbues_sound_picker_testsound",
-		}, names = { alerts_imbues_sound_picker = "Sound" } },
-		{ header = "volume_header", name = "Sound: Shared Volume", keys = {
-			"alerts_sound_volume", "alerts_sound_volume_note",
-		}, names = { alerts_sound_volume = "Volume" } },
-		{ header = "position_header", name = "Position", keys = {
-			"alerts_show_pos", "alerts_hide_pos", "alerts_reset_pos",
-		}, names = { alerts_show_pos = "Move" } },
-		{ header = "alerts_header_testing", name = "Test / Reset", keys = { "alerts_test" } },
-	})
+	-- Reactive Totems and Expiring Alerts: their icon pages (A16) are banded at the end of this file
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.tremorreminder_section, {
 		{ keys = { "tremor_desc", "module_missing_note", "master_off_note" } },
 		{ keys = { "tremor_enabled", "tremor_display_mode", "tremor_manage_mobs" } },
@@ -12865,4 +12798,134 @@ do
 	-- the old address (settings links, patch notes, Unlock UI's right-click) opens this page
 	SP.SettingsPathAliases = SP.SettingsPathAliases or {}
 	SP.SettingsPathAliases["fluffy/shieldcharges_section"] = { "fluffy", "shieldcharges_page" }
+end
+
+-- Expiring Alerts and Reactive Totems (A16, 3.0.8): icon pages. Each page keeps only what is
+-- about the whole page; every alert is an icon in an Alerts row (ShamanPower_Config
+-- AlertIcons.lua: click an alert on or off, right-click it for everything about that one
+-- alert). On / off: the switch beside each page in the sidebar (Window.lua POWER_EXPIRING /
+-- POWER_REACTIVE: the setting the Enable rows had). The rows that moved into the menus are
+-- gone from the pages; their saved keys stay, and each alert uses them until it has its own.
+do
+	local SP = ShamanPower
+	local F = SP.options.args.fluffy.args
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+
+	-- ---- Expiring Alerts ------------------------------------------------------------------
+	local ea = F.expiringalerts_section.args
+	-- what a search finds in the Alerts row (it draws itself, so this text is never shown): every alert
+	-- and every word its right-click menu draws, the old rows' names too
+	local EA_ICONS_SEARCH = "Alerts: Lightning Shield, Water Shield, Earth Shield (on your target), Earth Totems, Fire Totems,"
+		.. " Water Totems, Air Totems, Main Hand, Off Hand. Shield Alerts, Totem Alerts, Weapon Imbue Alerts, Enable Shield"
+		.. " Alerts, Enable Totem Alerts, Enable Imbue Alerts: click an alert to turn it on or off, right-click it for its"
+		.. " settings. It Shows. When One Is Destroyed: Totem Destroyed, Alert On My Screen, Line in My Chat Window, Big Text"
+		.. " on My Screen, Tell My Group in Chat, Copy When One Is Destroyed To All Totems. When One Expires, Totem Expired."
+		.. " Put Your Usual Totem Back, Also Show a Text Alert, Open Totem Bar > Effects. Sound: Sound When It Drops, Sound"
+		.. " When Your Shield Drops, Play Sound, Totem Alert Sound, Imbue Alert Sound, Test Sound, Copy Sound To All Shields,"
+		.. " Copy Sound To All Totems, Copy Sound To Off Hand, Copy Sound To Main Hand. Copy Settings, Paste Settings, Copy"
+		.. " Settings To, All Alerts, Turn This Alert Off, Turn This Alert On, Reset This Alert."
+	ea.eaIcons = { type = "description", width = "full", name = " ", desc = EA_ICONS_SEARCH }
+	for _, k in ipairs({ "alerts_desc", "alerts_enabled", "alerts_header_display", "alerts_header_shields",
+		"alerts_shields_enabled", "alerts_shields_lightning", "alerts_shields_water", "alerts_shields_earth",
+		"alerts_shields_sound", "alerts_shields_sound_picker", "alerts_shields_sound_picker_testsound", "alerts_sound_volume_note",
+		"alerts_header_totems", "alerts_totems_enabled", "alerts_totems_destroyed", "alerts_totems_destroyedChat",
+		"alerts_totems_destroyedCenter", "alerts_totems_destroyedParty", "alerts_totems_expired", "alerts_totems_earth",
+		"alerts_totems_fire", "alerts_totems_water", "alerts_totems_air", "alerts_totems_sound", "alerts_totems_sound_picker",
+		"alerts_totems_sound_picker_testsound", "alerts_header_imbues", "alerts_imbues_enabled", "alerts_imbues_mainhand",
+		"alerts_imbues_offhand", "alerts_imbues_sound", "alerts_imbues_sound_picker", "alerts_imbues_sound_picker_testsound",
+		"alerts_header_testing" }) do
+		ea[k] = nil
+	end
+	-- two to a line where they pair up
+	for _, k in ipairs({ "alerts_display_mode", "alerts_font_outline", "alerts_icon_size", "alerts_text_size", "alerts_opacity",
+		"alerts_animation", "alerts_duration", "alerts_sound_volume" }) do
+		if ea[k] then ea[k].width = 1.0 end
+	end
+	-- Volume: every alert's sound (each has its own now); the Dialog line is its tooltip
+	local function anyAlertSound()
+		if SP.ShieldSoundOn and (SP:ShieldSoundOn(1) or SP:ShieldSoundOn(2)
+			or (not SPCompat.FOREVER and SP:ShieldSoundOn(3))) then return true end
+		if not SP.ExpiringAlertOpt then return false end
+		for _, key in ipairs({ "earth", "fire", "water", "air", "mh", "oh" }) do
+			if SP:ExpiringAlertOpt(key, "sound") then return true end
+		end
+		return false
+	end
+	if ea.alerts_sound_volume then
+		ea.alerts_sound_volume.desc = "How loud every alert's sound is: the totems', the weapon imbues'"
+			.. (SPCompat.FOREVER and "." or ", and your shields'.")
+			.. " Each alert's own sound is in its menu (right-click it)."
+			.. (SPCompat.FOREVER and " Your own shields' sound is played by the game, so this doesn't change it." or "")
+			.. " Your game's Dialog volume must be at 100% for this to work."
+		ea.alerts_sound_volume.disabled = function() return not anyAlertSound() end
+	end
+	-- Test Alerts: Put Your Usual Totem Back's line too, while that text alert is on (A16 Q9)
+	if ea.alerts_test then
+		ea.alerts_test.desc = "Shows a Lightning Shield, a totem and a weapon imbue line at the alerts' spot, the totem and the"
+			.. " weapon with their own sounds (Earth Totems' and Main Hand's). With Totem Bar > Effects > Also Show a Text Alert"
+			.. " on, a Put Windfury back line too."
+		ea.alerts_test.func = function()
+			if not SP.ExpiringAlertsTest then return end
+			local sv = ShamanPowerExpiringAlertsDB
+			local style = sv and sv.animationStyle or "scrollUp"
+			local duration = sv and sv.duration or 2.5
+			-- Fade duration PLUS its start delay, then the final sample at 1 s.
+			local span = duration * (style == "staticFade" and 1.3 or style == "bounce" and 1.5 or 1.4)
+			-- Preview release clears demo alerts; real queued alerts finish first. Three show at a
+			-- time: the test's lines (three, or four with the reminder line) after any already up.
+			local backlog = 0
+			if not SP.expiringAlertsDemoActive then
+				backlog = #(SP.activeAlerts or {}) + #(SP.alertQueue or {})
+			end
+			local lines = (SP.ExpiringAlertsTestHasReminder and SP:ExpiringAlertsTestHasReminder()) and 4 or 3
+			SP:RunWithSettingsHidden(1 + span * math.ceil((backlog + lines) / 3), SP.ExpiringAlertsTest)
+		end
+	end
+	SP.OptionCustomRow[ea.eaIcons] = "eaIcons"
+	SP.OrderSettingsBands(F.expiringalerts_section, {
+		{ keys = { "module_missing_note", "master_off_note" } },
+		{ header = "alerts_header", name = "Alerts", keys = { "eaIcons" } },
+		{ header = "look_header", name = "Look", keys = { "alerts_display_mode", "alerts_font_outline", "alerts_icon_size",
+			"alerts_text_size", "alerts_opacity" }, names = { alerts_font_outline = "Outline (unless Fonts & Textures sets one)" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "alerts_animation", "alerts_duration" } },
+		{ header = "sound_header", name = "Sound", keys = { "alerts_sound_volume" },
+			names = { alerts_sound_volume = "Volume (every alert)" } },
+		{ header = "position_header", name = "Position", keys = { "alerts_show_pos", "alerts_hide_pos", "alerts_reset_pos" },
+			names = { alerts_show_pos = "Move" } },
+		{ header = "test_header", name = "Test / Reset", keys = { "alerts_test" } },
+	})
+
+	-- ---- Reactive Totems ------------------------------------------------------------------
+	local rt = F.reactivetotems_section.args
+	local RT_ICONS_SEARCH = "Alerts: Fear (Tremor Totem), Poison (Poison Cleansing Totem), Disease (Disease Cleansing"
+		.. " Totem). Debuff Tracking, Track Fear/Charm, Track Poison, Track Disease: click an alert to turn it on or off,"
+		.. " right-click it for its settings. It Shows. Hide While Its Totem Is Down, Hide When Totem Active. Look: Icon Size,"
+		.. " Opacity, Text Size, Font Size, Outline, Font Outline, Background, Hide Background, Border, Hide Border, Debuff"
+		.. " Text, Hide Debuff Text, Debuff Icon, Show Debuff Icon, Totem Name, Hide Totem Name, Copy Look To All Alerts. Spell"
+		.. " Keybind: Show Spell Keybind, When No Key Is Bound, Key Now, the keys found right now, Set Keys In Keybind Mode,"
+		.. " Copy Spell Keybind To All Alerts. Glow: Show Glow Effect, Glow Intensity, Copy Glow To All Alerts. Sound: Play"
+		.. " Sound, Play Alert Sound, Sound, Alert Sound, Volume, Sound Volume, Test Sound, Copy Sound To All Alerts. Copy"
+		.. " Settings, Paste Settings, Copy Settings To, All Alerts, Turn This Alert Off, Turn This Alert On, Reset This Alert."
+	rt.rtIcons = { type = "description", width = "full", name = " ", desc = RT_ICONS_SEARCH }
+	for _, k in ipairs({ "reactive_desc", "reactive_enabled", "reactive_header_tracking", "reactive_track_fear",
+		"reactive_track_poison", "reactive_track_disease", "reactive_header_appearance", "reactive_icon_size", "reactive_opacity",
+		"reactive_hide_border", "reactive_hide_background", "reactive_font_size", "reactive_hide_debuff_text",
+		"reactive_show_debuff_icon", "reactive_hide_totem_text", "reactive_show_keybind", "reactive_no_key", "reactive_key_status",
+		"reactive_header_effects", "reactive_glow", "reactive_glow_intensity", "reactive_sound", "reactive_sound_picker",
+		"reactive_sound_picker_testsound", "reactive_sound_volume", "reactive_sound_volume_note", "reactive_font_outline",
+		"reactive_hide_when_active", "reactive_header_buttons" }) do
+		rt[k] = nil
+	end
+	if rt.reactive_test then
+		rt.reactive_test.desc = "Shows every alert for 3 seconds, each with its own look and glow, and plays each alert's own sound."
+	end
+	SP.OptionCustomRow[rt.rtIcons] = "rtIcons"
+	SP.OrderSettingsBands(F.reactivetotems_section, {
+		{ keys = { "module_missing_note", "engine_note", "instance_only_note", "master_off_note" } },
+		{ header = "alerts_header", name = "Alerts", keys = { "rtIcons" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "reactive_only_instance" } },
+		{ header = "position_header", name = "Position", keys = { "reactive_show", "reactive_locked", "reactive_reset", "reactive_hide" },
+			names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Positions" } },
+		{ header = "test_header", name = "Test / Reset", keys = { "reactive_test" } },
+	})
 end

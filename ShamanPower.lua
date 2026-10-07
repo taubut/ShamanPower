@@ -20480,7 +20480,10 @@ function ShamanPower:ScanActionBarKeybinds()
 	self.scanSkipSPMacros = nil
 	self.actionBarKeybinds = self:ScanActionBarKeybindsPass()
 	local rt = ShamanPower_ReactiveTotems
-	if type(rt) == "table" and rt.showSpellKeybind then
+	-- (3.0.8: each alert has its own Show Spell Keybind: any of them)
+	local rtKeys = type(rt) == "table" and rt.showSpellKeybind
+	if type(rt) == "table" and self.ReactiveAnyKeybind then rtKeys = self:ReactiveAnyKeybind() end
+	if rtKeys then
 		self.scanSkipSPMacros = true
 		self.actionBarExactKeybinds = self:ScanActionBarKeybindsPass()
 		self.scanSkipSPMacros = nil
