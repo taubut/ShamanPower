@@ -255,9 +255,35 @@ function SP:ResetCdItem(t)
 end
 
 -- Copy from's settings onto to: afterwards to reads the same as from for every name both
--- items have. A value from inherits is copied as "inherit" when both inherit the same shared
--- key, otherwise as the value it reads (the shield's and the imbue's Gone keys differ).
-local function copyOne(self, from, to, group)
+-- items have. A value from inherits is copied as "inherit" only when both fall back the same
+-- way (the same shared key, the same rule); otherwise as the value it reads: the shield's and
+-- the imbue's Gone keys differ, and the imbue's Progress Bar is on where the cooldowns follow
+-- Show Progress Bars.
+local function sameInherit(name, from, to)
+	if sharedKey(name, from) ~= sharedKey(name, to) then return false end
+	if name == "progressBar" and ((from == IMBUE) ~= (to == IMBUE)) then return false end
+	return true
+end
+
+-- An item's settings as they are now, kept apart from the item (Copy Settings: Paste writes
+-- these, whatever the item does meanwhile): per name, its own value (nil: it inherits) and
+-- the value it reads.
+function SP:CdItemSnapshot(t)
+	local snap = { from = t, own = {}, eff = {} }
+	for gi = 1, #GROUP_ORDER do
+		for _, name in ipairs(GROUPS[GROUP_ORDER[gi]]) do
+			local a = APPLIES[name]
+			if a and a[t] then
+				snap.own[name] = self:CdItemOwnOpt(t, name)
+				snap.eff[name] = self:CdItemOpt(t, name)
+			end
+		end
+	end
+	return snap
+end
+
+local function pasteOne(self, snap, to, group)
+	local from = snap.from
 	if from == to then return end
 	local groups = group and { group } or GROUP_ORDER
 	for gi = 1, #groups do
@@ -266,8 +292,8 @@ local function copyOne(self, from, to, group)
 			for _, name in ipairs(names) do
 				local a = APPLIES[name]
 				if a and a[from] and a[to] then
-					local v = self:CdItemOwnOpt(from, name)
-					if v == nil and sharedKey(name, from) ~= sharedKey(name, to) then v = self:CdItemOpt(from, name) end
+					local v = snap.own[name]
+					if v == nil and not sameInherit(name, from, to) then v = snap.eff[name] end
 					local it, items = itemTable(self, to, v ~= nil)
 					if it then
 						it[name] = v
@@ -277,6 +303,24 @@ local function copyOne(self, from, to, group)
 			end
 		end
 	end
+end
+
+local function copyOne(self, from, to, group)
+	if from == to then return end
+	pasteOne(self, self:CdItemSnapshot(from), to, group)
+end
+
+-- Paste Settings: a snapshot (SP:CdItemSnapshot) onto an item; to = "all" pastes onto every
+-- other item
+function SP:PasteCdItem(snap, to, group)
+	if type(snap) ~= "table" or type(snap.own) ~= "table" then return end
+	if to == "all" then
+		for t = 1, 11 do pasteOne(self, snap, t, group) end
+		self:CdItemChanged(nil)
+		return
+	end
+	pasteOne(self, snap, to, group)
+	self:CdItemChanged(to)
 end
 
 function SP:CopyCdItem(from, to, group)
