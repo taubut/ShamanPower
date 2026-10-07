@@ -1819,6 +1819,56 @@ Cards.ADDED = {
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"
 
+-- The Cooldown Bar's looks per item (3.0.8, A13 Q10; ShamanPowerCdItems.lua): each item's
+-- own Sweep, Sweep Direction, Progress Bar, its color, Time Left On The Icon, Ankh Count,
+-- Button Style and the shield's charge looks are part of a theme, the way Ready Reminders'
+-- per-icon Sweep Direction is: "default" = the item follows the bar's shared setting, a value
+-- = the item's own. A theme card (every default first) puts every item back on the shared
+-- look, even one set by hand; a saved or shared theme brings each item's own back. Themes are
+-- looks only: an item's effects, Show and flyout are never part of one.
+Cards.CD_ITEM_LOOKS = {
+	{ "buttonStyle", "Button Style", { 1, 7 }, { mirror = true, normal = true, totemtimers = true, single = true, dynamic = true, grid = true } },
+	{ "sweep", "Sweep", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, { none = true, greys = true, fills = true, radial = true } },
+	{ "sweepDirection", "Sweep Direction", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, { top = true, bottom = true } },
+	{ "progressBar", "Progress Bar", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+	{ "progressColor", "Progress Bar Color", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+	{ "timeOnIcon", "Time Left On The Icon", { 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+	{ "ankhCount", "Ankh Count", { 3 } },
+	{ "chargeCount", "Charge Count", { 1 } },
+	{ "colorCount", "Color The Count", { 1 } },
+	{ "chargeBar", "Charge Bar", { 1 } },
+}
+Cards.CD_BOOLEAN = { boolean = true }   -- (an item's own on / off: Cards.FitsEntry)
+do
+	local entries = {}
+	local labels = SP.CooldownTypeLabels or {}
+	local NAMES = { [1] = "Shield", [2] = "Totemic Call", [6] = "Bloodlust / Heroism", [7] = "Weapon Imbue" }
+	for _, look in ipairs(Cards.CD_ITEM_LOOKS) do
+		local name, what, types, valid = look[1], look[2], look[3], look[4]
+		for _, t in ipairs(types) do
+			local id = name .. "." .. t
+			entries[#entries + 1] = {
+				key = id, label = "Cooldown Bar: " .. (NAMES[t] or labels[t] or ("Item " .. t)) .. " " .. what,
+				mayBe = (valid == nil) and Cards.CD_BOOLEAN or nil,
+				-- Keep inheritance: restoring a theme must not turn the shared value into the item's own
+				get = function()
+					local v = SP.CdItemOwnOpt and SP:CdItemOwnOpt(t, name)
+					if v == nil then return "default" end
+					return v
+				end,
+				set = function(v)
+					if not SP.SetCdItemOpt then return end
+					if v == "default" then SP:SetCdItemOpt(t, name, nil)
+					elseif valid then if valid[v] then SP:SetCdItemOpt(t, name, v) end
+					elseif type(v) == "boolean" then SP:SetCdItemOpt(t, name, v) end
+				end,
+			}
+			Cards.ADDED["e.cd.items." .. id] = Cards.InheritedSweepDirection   -- (a look saved before: every item followed the bar)
+		end
+	end
+	SP:ThemeSpotSettings("cd.items", entries)
+end
+
 function Cards.Defaults()
 	return SP.db and SP.db.defaults and SP.db.defaults.profile or {}
 end
@@ -2309,6 +2359,9 @@ function Cards.FitsEntry(v, id, e)
 	-- a setting that holds "default" or a color of its own (each Ready Reminder buff's Edge
 	-- Color): a color fits while it reads "default" now too
 	if shape == "color" and e.mayBeColor then return true end
+	-- a setting that holds "default" or a value of its own of another kind (a Cooldown Bar
+	-- item's own on / off: Cards.CD_ITEM_LOOKS)
+	if e.mayBe and e.mayBe[shape] then return true end
 	if shape == "number" and not Cards.GoodNumber(v) then return false end
 	local refs = { Cards.DefaultOf(e), SafeGet(e) }
 	for i, key in ipairs({ "standard", "shamanpower", "minimal" }) do

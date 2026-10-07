@@ -316,6 +316,51 @@ local GONE_STYLES = {
 		{ "flare", "Element flare" }, { "flag", "Corner flag" } },
 }
 
+-- ---------------------------------------------------------------------------
+-- Copy, Paste, Copy To, and each group's own copy line (the item's values, or "follow the
+-- bar" where it has none: SP:CopyCdItem copies only what both items have)
+-- ---------------------------------------------------------------------------
+local function HasAPI(fn) return type(SP[fn]) == "function" end
+-- the shield's and the imbue's Gone styles differ in their last two: a copy between them takes
+-- the other one's own (Shield burst <-> Element flare, Frame blink + flag <-> Corner flag)
+local GONE_TWIN = { [SHIELD] = { flare = "burst", flag = "blinkflag" }, [IMBUE] = { burst = "flare", blinkflag = "flag" } }
+local function FixGoneStyles()
+	if not HasAPI("CdItemOwnOpt") then return end
+	for t, map in pairs(GONE_TWIN) do
+		local v = SP:CdItemOwnOpt(t, "cueGoneStyle")
+		if v and map[v] then SP:SetCdItemOpt(t, "cueGoneStyle", map[v]) end
+	end
+end
+local function Copy(from, to, group)
+	if not HasAPI("CopyCdItem") then return end
+	SP:CopyCdItem(from, to, group)
+	FixGoneStyles()
+end
+local function CopyGroup(t, to, group)
+	Copy(t, to, group)
+	Row:Changed(true)
+	return true
+end
+-- Cooldown Ready, Cooldown Almost Ready and the time's gold onto every other cooldown this game
+-- has (never the shield or the imbue: theirs are other effects)
+local function CopyEffectsToCooldowns(t)
+	if not (HasAPI("CdItemNames") and HasAPI("CdItemApplies") and HasAPI("CdItemOwnOpt")) then return true end
+	local names = SP:CdItemNames("effects") or {}
+	for _, x in ipairs(SP:GetCooldownBarOrder()) do
+		if x ~= t and x ~= SHIELD and x ~= IMBUE then
+			for _, name in ipairs(names) do
+				if SP:CdItemApplies(t, name) and SP:CdItemApplies(x, name) then
+					local v = SP:CdItemOwnOpt(t, name)
+					if SP:CdItemOwnOpt(x, name) ~= v then SP:SetCdItemOpt(x, name, v) end
+				end
+			end
+		end
+	end
+	Row:Changed(true)
+	return true
+end
+local function CopyLine(text, fn) return { text = text, onClick = fn } end
+
 local function LookRows(t)
 	local r = {}
 	if IsShieldOrImbue(t) then
@@ -325,10 +370,16 @@ local function LookRows(t)
 			.. " one in its corner. Single Totem: the one that is up, without the corner. Dynamic (PvP): the one that is up, and"
 			.. " casting another one makes it your assigned one. Grid: every choice laid out beside it (no flyout).", "mirror")
 	end
-	r[#r + 1] = ChoiceName(t, "Sweep", "sweep", t == IMBUE and SWEEP_CHOICES_IMBUE or SWEEP_CHOICES,
+	-- (the imbue draws a Radial Swipe as Vertical - Grays Out: one copied from another item reads that way)
+	r[#r + 1] = Choice("Sweep", t == IMBUE and SWEEP_CHOICES_IMBUE or SWEEP_CHOICES, function()
+		local v, own = Get(t, "sweep")
+		if v == nil or (t == IMBUE and v == "radial") then v = "greys" end
+		return v, own
+	end, function(v) return Set(t, "sweep", v) end,
 		"Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and"
-		.. " its color comes back. Radial Swipe: the classic clock swipe. None: no sweep.", "greys")
+		.. " its color comes back." .. (t == IMBUE and "" or " Radial Swipe: the classic clock swipe.") .. " None: no sweep.")
 	local sweep = Get(t, "sweep")
+	if t == IMBUE and sweep == "radial" then sweep = "greys" end
 	if sweep == "greys" or sweep == "fills" then
 		r[#r + 1] = ChoiceName(t, "Sweep Direction", "sweepDirection", DIRECTION_CHOICES,
 			"Where the gray (Grays Out) or the color (Fills Back In) starts.", "top")
@@ -352,6 +403,8 @@ local function LookRows(t)
 	if t == ANKH then
 		r[#r + 1] = OnOffName(t, "Ankh Count", "ankhCount", "How many Ankhs are in your bags, on the icon.")
 	end
+	r[#r + 1] = SEP
+	r[#r + 1] = CopyLine("Copy Look To All Items", function() return CopyGroup(t, "all", "look") end)
 	return r
 end
 
@@ -399,6 +452,11 @@ local function EffectRows(t)
 			"The time on the button turns red while it is running out. On a button that turns red, the time stays white so you can read it.")
 		r[#r + 1] = SEP
 		r[#r + 1] = { text = "Test This Item's Effects", onClick = function() return TestItem(t) end }
+		if shield then
+			r[#r + 1] = CopyLine("Copy Effects To Weapon Imbue", function() return CopyGroup(t, IMBUE, "effects") end)
+		else
+			r[#r + 1] = CopyLine("Copy Effects To Shield", function() return CopyGroup(t, SHIELD, "effects") end)
+		end
 	else
 		r[#r + 1] = EffectRow(t, "Cooldown Ready", "cueReady", "cueReadyStyle", READY_STYLES, "pop",
 			"When the cooldown is ready again, the button plays this in gold.")
@@ -408,6 +466,7 @@ local function EffectRows(t)
 			"The time on the button turns gold over its last seconds (Almost Ready At).")
 		r[#r + 1] = SEP
 		r[#r + 1] = { text = "Test This Item's Effects", onClick = function() return TestItem(t) end }
+		r[#r + 1] = CopyLine("Copy Effects To All Cooldowns", function() return CopyEffectsToCooldowns(t) end)
 	end
 	return r
 end
@@ -432,6 +491,12 @@ local function FlyoutRows(t)
 		"How big the icons in the flyout are. 22 is the classic size. The Cooldown Bar's scale still applies on top.")
 	r[#r + 1] = Slider("Opacity", 0.1, 1, 0.05, function() return Get(t, "flyoutOpacity") or 1 end,
 		function(v) SliderSet(t, "flyoutOpacity", v) end, nil, true, "How see-through the flyout is.")
+	r[#r + 1] = SEP
+	if t == SHIELD then
+		r[#r + 1] = CopyLine("Copy Flyout To Weapon Imbue", function() return CopyGroup(t, IMBUE, "flyout") end)
+	else
+		r[#r + 1] = CopyLine("Copy Flyout To Shield", function() return CopyGroup(t, SHIELD, "flyout") end)
+	end
 	return r
 end
 
@@ -505,11 +570,42 @@ local function MenuItems(item)
 	if IsShieldOrImbue(t) then r[#r + 1] = Group("Flyout", function() return FlyoutRows(t) end) end
 	if BINDINGS[t] then r[#r + 1] = Group("Keybind", function() return KeybindRows(t) end) end
 	r[#r + 1] = SEP
+	r[#r + 1] = { text = "Copy Settings", disabled = not HasAPI("CopyCdItem"), onClick = function()
+		Row.clip = { from = t, name = NAMES[t] or ("Item " .. t) }
+		return true
+	end }
+	local clip = Row.clip
+	r[#r + 1] = { text = clip and ("Paste Settings  (from " .. clip.name .. ")") or "Paste Settings",
+		disabled = not clip or clip.from == t,
+		onClick = function()
+			if Row.clip then Copy(Row.clip.from, t) end
+			Row:Changed(true)
+			return true
+		end }
+	r[#r + 1] = { text = "Copy Settings To...", subMaxHeight = 420, disabled = not HasAPI("CopyCdItem"), sub = function()
+		local o = {}
+		for _, x in ipairs(SP:GetCooldownBarOrder()) do
+			if x ~= t then
+				o[#o + 1] = { text = NAMES[x] or ("Item " .. x), icon = ICONS[x] and ICONS[x][1],
+					onClick = function() Copy(t, x); Row:Changed(false) end }
+			end
+		end
+		o[#o + 1] = SEP
+		o[#o + 1] = { text = "All Items", onClick = function() Copy(t, "all"); Row:Changed(false) end }
+		return o
+	end }
+	r[#r + 1] = SEP
 	local on = ShownOnBar(t)
 	r[#r + 1] = { text = on and "Hide This Item" or "Show This Item", onClick = function()
 		OptSet(I, SHOW_OPTION[t], not on)
 		Row:Changed(false)
 	end }
+	r[#r + 1] = { text = "Reset This Item", disabled = not (SP.CdItemHasOwn and SP:CdItemHasOwn(t)),
+		tip = "Back to the bar's settings: everything this item set for itself goes.",
+		onClick = function()
+			if SP.ResetCdItem then SP:ResetCdItem(t) end
+			Row:Changed(false)
+		end }
 	return r
 end
 
@@ -577,4 +673,49 @@ function SP.CooldownBarOpenItemMenu(_, t, path)
 	if not (cfg and cfg.Open) then return end
 	Row:QueueMenu(t, path)
 	cfg:Open({ "fluffy", "cdbar_page" })
+end
+
+-- ---------------------------------------------------------------------------
+-- Reset This Page (Window.lua calls it after the page's own rows): every item's own values,
+-- the settings the items' menus show for an item with none of its own, each item's on / off
+-- and the bar's order, back to how they came. Left alone, as on every page: where the bar sits
+-- and what a theme holds (Sweep Direction, Spell-Colored Progress Bars, Color Shield Charges by
+-- Count). Earth Shield (TBC Anniversary) shares the Running Out settings today but is not on
+-- this page: it keeps the values it has (as its own).
+-- ---------------------------------------------------------------------------
+local RESET_SHARED = { "cdbarRunOutOnly", "cdbarRunOutReady", "cdbarRunOutSecs", "cdbarAlmostSecs", "cdbarOwnStyle",
+	"cdbarStyle", "cdbarShowColorSweep", "cdbarSweepStyle", "cdbarShowProgressBars", "cdbarShowCDText", "showAnkhCount",
+	"cdbarShowShieldCount", "cdbarShieldChargeBar", "cdbarCueReady", "cdbarCueReadyStyle", "cdbarCueAlmost",
+	"cdbarCueAlmostStyle", "cdbarCueShield", "cdbarCueShieldStyle", "cdbarCueShieldMark", "cdbarCueImbue",
+	"cdbarCueImbueStyle", "cdbarCueImbueMark", "cdbarCueMissing", "cdbarCueRunning", "cdbarCueRunningStyle",
+	"cdbarCueTimeColor", "cdbarFlyoutDirection", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity",
+	"cdbarShieldRightClickOther", "totemicCallOnTotemBar", "cooldownBarOrder" }
+local RESET_SHOWN = { "cdbarShowShields", "cdbarShowRecall", "cdbarShowReincarnation", "cdbarShowNS", "cdbarShowManaTide",
+	"cdbarShowBloodlust", "cdbarShowImbues", "cdbarShowShamanisticRage", "cdbarShowElementalMastery",
+	"cdbarShowRageOfTheFarseer", "cdbarShowTotemicProjection" }
+local EARTH_SHIELD, EARTH_NAMES = 12, { "runOutSecs", "cueRunning", "cueRunningStyle" }
+function SP.CooldownBarResetPage(sp)
+	if InCombatLockdown() or not sp.opt then return end
+	local o = sp.opt
+	-- Earth Shield keeps what it has
+	if sp.CdItemOwnOpt and sp.SetCdItemOpt and sp.CdItemOpt then
+		for _, name in ipairs(EARTH_NAMES) do
+			if sp:CdItemOwnOpt(EARTH_SHIELD, name) == nil then sp:SetCdItemOpt(EARTH_SHIELD, name, sp:CdItemOpt(EARTH_SHIELD, name)) end
+		end
+	end
+	if sp.CdItemHasOwn and sp.ResetCdItem then
+		for t = 1, 11 do
+			if sp:CdItemHasOwn(t) then sp:ResetCdItem(t) end
+		end
+	end
+	for _, k in ipairs(RESET_SHARED) do o[k] = nil end
+	for _, k in ipairs(RESET_SHOWN) do o[k] = nil end   -- (every item on the bar)
+	sp:RecreateCooldownBar()
+	for _, fn in ipairs({ "UpdateMiniTotemBar", "ApplyShieldButtonClicks", "ApplyCooldownFlyoutButtonSize",
+		"UpdateCooldownFlyoutOpacity", "ApplyCueSettings" }) do
+		if sp[fn] then
+			local ok, err = pcall(sp[fn], sp)
+			if not ok then geterrorhandler()(err) end
+		end
+	end
 end

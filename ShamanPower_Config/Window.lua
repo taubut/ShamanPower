@@ -263,6 +263,7 @@ local NAV = {
 		-- one page (A13): the Items row (click, right-click, drag) and what is about the whole bar
 		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, power = POWER_CDBAR,
 			desc = "Click an item to show or hide it, right-click it for its settings, drag it to move it.",
+			onReset = function() local sp = SP() if sp and sp.CooldownBarResetPage then sp:CooldownBarResetPage() end end,
 			path = P("fluffy", "cdbar_page") },
 		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, power = false, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
@@ -3415,6 +3416,12 @@ do
 			for _, e in ipairs(rows) do
 				if Resettable(e, sp) then ResetOption(e, view, sp) end
 			end
+		end
+		-- a page's own part that is not a row (the Cooldown Bar's items: each one's settings, its
+		-- on / off and the order)
+		if type(entry.onReset) == "function" then
+			local ok, err = pcall(entry.onReset)
+			if not ok then geterrorhandler()(err) end
 		end
 		-- the theme came out as it went in: no reload prompt for it on closing
 		if startFlat and sp:ThemeFlatSame(startFlat, sp:ThemeFlatSnapshot()) then
