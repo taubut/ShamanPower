@@ -453,6 +453,10 @@
       "label": "Target Tracker: Every Nameplate"
     },
     {
+      "key": "dropAllIcon",
+      "label": "Drop All: a picked icon"
+    },
+    {
       "key": "totemRows",
       "label": "Totem Rows on"
     },
@@ -527,10 +531,6 @@
     {
       "key": "partyStripBreakUp",
       "label": "Party strip: broken up per totem"
-    },
-    {
-      "key": "dropAllIcon",
-      "label": "Drop All: a picked icon"
     }
   ]
 }
