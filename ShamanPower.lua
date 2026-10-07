@@ -7758,7 +7758,8 @@ function ShamanPower:UpdateTotemButtons()
 	-- above were shown for their layout (Dynamic Mode and the pop-outs run this after a fight too). Keybind
 	-- Mode's bar stays up
 	if not (self.KeybindModeActive and self:KeybindModeActive()) and (not self:TotemBarInUse()
-		or (self.totemBarHidden and (self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems))) then
+		or (self.totemBarHidden and (self.opt.hideOutOfCombat or self.opt.hideWhenNoTotems
+			or (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar())))) then
 		self:SetTotemBarFramesShown(false)
 	end
 end
@@ -15076,7 +15077,8 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	-- (roster after a fight, zone change, new spell) must not bring back a bar they
 	-- hide, since nothing would hide it again before their next event.
 	local o, asked = self.opt, shown
-	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems) then shown = false end
+	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems
+		or (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar())) then shown = false end
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -15206,6 +15208,9 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	end
 	local fade = shouldHide and self.opt.fadeInsteadOfHide == true
 	if fade then shouldHide = false end
+	-- the controller bar is showing (WoW: Forever controller mode): the same buttons twice, so the totem
+	-- bar hides; its keys, and the controller bar's slots that press them, keep working while hidden
+	if self.ControllerHidesTotemBar and self:ControllerHidesTotemBar() then shouldHide, fade = true, false end
 
 	-- Skip update if state hasn't changed (prevents blinking)
 	if self.totemBarHidden == shouldHide and (self.totemBarFaded or false) == fade then return end

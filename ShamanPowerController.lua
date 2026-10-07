@@ -209,6 +209,15 @@ function C:IsActive() return applied end
 -- fn(active) runs when the controller look turns on or off, always out of combat
 function C:OnChange(fn) if type(fn) == "function" then changeFns[#changeFns + 1] = fn end end
 
+-- the totem bar hides while the controller bar shows (Hide My Totem Bar While This Shows, on to start);
+-- read by the totem bar's own hide rules (ShamanPower.lua UpdateTotemBarVisibility)
+function SP:ControllerHidesTotemBar()
+	if not C:IsActive() then return false end
+	local o = self.opt and self.opt.controller
+	return not (o and o.hideTotemBar == false)
+end
+C:OnChange(function() if SP.UpdateTotemBarVisibility then SP:UpdateTotemBarVisibility(true) end end)
+
 -- ---------------------------------------------------------------------------
 -- The bar
 -- ---------------------------------------------------------------------------
@@ -829,6 +838,11 @@ do
 			controller_glyphs = { type = "toggle", width = 1.0, name = "Show The Pad Button's Picture",
 				desc = "Shows the controller button for each slot in its corner, as Xbox, PlayStation or Switch pictures, whichever pad you use.",
 				get = function() local o = O(); return not (o and o.glyphs == false) end, set = set("glyphs") },
+			controller_hide_bar = { type = "toggle", width = "full", name = "Hide My Totem Bar While This Shows",
+				desc = "While the controller bar shows, your normal totem bar hides: they are the same buttons. Your totem keys and the controller bar keep working while it is hidden. It hides and comes back out of a fight only.",
+				get = function() local o = O(); return not (o and o.hideTotemBar == false) end,
+				set = function(_, v) local o = O(); if not o then return end; o.hideTotemBar = v and true or false
+					if SP.UpdateTotemBarVisibility then SP:UpdateTotemBarVisibility(true) end end },
 			controller_rumble = { type = "toggle", width = "full", name = "Rumble When A Totem Is About To Expire",
 				desc = "Your controller rumbles once when a totem has a few seconds left (the same seconds as Totem Bar > Effects > Expiring Soon).",
 				get = get("rumble", false), set = set("rumble") },
@@ -848,7 +862,7 @@ do
 		SP.OrderSettingsBands(F.controller_page, {
 			{ keys = { "controller_intro", "controller_move" } },
 			{ header = "controller_look_header", name = "Look", keys = { "controller_look", "controller_layout",
-				"controller_scale", "controller_glyphs", "controller_rumble" } },
+				"controller_scale", "controller_glyphs", "controller_hide_bar", "controller_rumble" } },
 			{ header = "controller_buttons_header", name = "Controller Buttons", keys = { "controller_buttons" } },
 		})
 		C.pageArgs = args
