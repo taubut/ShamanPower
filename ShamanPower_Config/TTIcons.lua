@@ -497,10 +497,20 @@ local function OffPlaces(key)
 	if #off == 1 then return off[1] end
 	return table.concat(off, ", ", 1, #off - 1) .. " and " .. off[#off]
 end
-local function MenuItems(key)
+-- the spell of a key: its drawn icon's, or the list's (the Old Settings Look draws no icons)
+local function SpellByKey(key)
 	local b = Row.byKey[key]
-	if not (b and b.spell) then return {} end
-	local name = b.spell.name
+	if b and b.spell then return b.spell end
+	for _, s in ipairs(Row.list) do
+		if s.key == key then return s end
+	end
+	return nil
+end
+
+local function MenuItems(key)
+	local spell = SpellByKey(key)
+	if not spell then return {} end
+	local name = spell.name
 	local items = {}
 	local show = ChoiceRow(key, "Show", "show", SHOW_CHOICES)
 	show.tip = "In a fight, out of one, or both. The places below can still turn it off in a kind of place."
@@ -677,6 +687,20 @@ function Row:Release()
 	end
 end
 
+-- Use the Old Settings Look (ListLook.lua, 3.0.8): this row as plain rows built from the
+-- same menus. The shared icon row's def fields it reads, for this row's own copy.
+Row.listDef = {
+	hint = "Click: show or hide it\nRight-click: its settings",
+	list = function(out)
+		if not Loaded() then return end
+		for _, s in ipairs(Usable(Row.list)) do out[#out + 1] = s end
+	end,
+	shown = function(s) return Shown(s.key) end,
+	learned = function(s) return Known(s.key) end,
+	toggle = function(s) TT("TT_Set", s.key, "shown", not Shown(s.key)) end,
+	menu = function(s) return MenuItems(s.key) end,
+}
+
 -- ===========================================================================
 -- Party Buff Tracker > Party Strip: the Totems row (owner, 2026-10-06: "allow for
 -- multiple totems, not just a single one", drawn like this page's Spells row: the
@@ -812,4 +836,18 @@ do
 			b.hoverEdge:Hide()
 		end
 	end
+
+	-- Use the Old Settings Look (ListLook.lua, 3.0.8): one card per totem with its switch
+	Strip.listDef = {
+		hint = "Click: show or hide it on the strip",
+		list = function(out)
+			if not StripLoaded() then return end
+			for _, e in ipairs(SP:PartyStripTotems() or {}) do
+				out[#out + 1] = { key = e.key, name = SP:PartyStripTotemName(e), totem = e }
+			end
+		end,
+		shown = function(it) return SP:PartyStripPicked(it.totem.key) and true or false end,
+		learned = function(it) return SP:PartyStripTotemLearned(it.totem) and true or false end,
+		toggle = function(it) SP:PartyStripSetPicked(it.totem.key, not SP:PartyStripPicked(it.totem.key)) end,
+	}
 end

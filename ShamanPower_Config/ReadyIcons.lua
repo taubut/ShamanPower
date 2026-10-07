@@ -910,6 +910,20 @@ function Row:Release()
 	end
 end
 
+-- Use the Old Settings Look (ListLook.lua, 3.0.8): this row as plain rows built from the
+-- same menus. The shared icon row's def fields it reads, for this row's own copy.
+Row.listDef = {
+	hint = "Click: show or hide it\nRight-click: its settings",
+	list = function(out)
+		if not (SP.ReadyReminderSpells and SP.ReadyReminderIconTextures and SP.ReadyReminderKnown) then return end
+		for _, entry in ipairs(Known(Row.list)) do out[#out + 1] = entry end
+	end,
+	shown = function(entry) return SP.ReadyReminderOn(entry) and true or false end,
+	learned = function(entry) return SP.ReadyReminderKnown(entry) and true or false end,
+	toggle = function(entry) SP:ReadyReminderSetSpell(entry.key, not SP.ReadyReminderOn(entry)) end,
+	menu = function(entry) return MenuItems(entry.key) end,
+}
+
 -- ---------------------------------------------------------------------------
 -- Entry point: an icon's own settings from anywhere
 -- ---------------------------------------------------------------------------
