@@ -159,6 +159,187 @@ local defaultSettings = {
 if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPower_ReactiveTotems = defaultSettings end
 
 -- ============================================================================
+-- Each alert's own settings (3.0.8, the settings page's icon row: A16)
+-- ============================================================================
+-- Fear, Poison and Disease each have their own look, Spell Keybind, glow, sound (with
+-- its own volume) and Hide While Its Totem Is Down: sv.alertOwn[id][name], EMPTY until
+-- the player changes one, and until then the shared value it always used (sv[name]),
+-- so an untouched profile looks and works exactly as before. Unlock UI's wheel over an
+-- alert's box sets that alert's own Icon Size (Ctrl: Opacity).
+local RT_OWN_NAMES = { "hideWhenTotemActive", "iconSize", "opacity", "fontSize", "fontOutline", "hideBackground", "hideBorder",
+	"showDebuffName", "showDebuffIcon", "showTotemName", "showSpellKeybind", "noKeyText", "showGlow", "glowIntensity",
+	"playSound", "soundName", "soundVolume" }
+local RT_OWN = {}
+for _, name in ipairs(RT_OWN_NAMES) do RT_OWN[name] = true end
+SP.ReactiveOwnNames = RT_OWN_NAMES
+-- the alert's value as the code reads it: its own, else the shared one (nil = as today)
+local function R(id, name)
+	local sv = ShamanPower_ReactiveTotems
+	local all = sv and sv.alertOwn
+	local own = type(all) == "table" and id and all[id]
+	if type(own) == "table" then
+		local v = own[name]
+		if v ~= nil then return v end
+	end
+	return sv and sv[name]
+end
+local function SameValue(a, b)
+	if type(a) == "number" and type(b) == "number" then return math.abs(a - b) < 1e-4 end
+	return a == b
+end
+-- a value with today's default filled in (what the old rows showed)
+local function WithDefault(name, v)
+	if v == nil then v = defaultSettings[name] end
+	return v
+end
+-- value, own: own = this alert has a value of its own that differs from the shared one
+function SP:ReactiveOpt(id, name)
+	if not RT_OWN[name] then return nil, false end
+	local sv = ShamanPower_ReactiveTotems
+	local shared = WithDefault(name, sv and sv[name])
+	local v = WithDefault(name, R(id, name))
+	return v, not SameValue(v, shared)
+end
+local function SetOwn(sv, id, name, v)
+	if type(sv.alertOwn) ~= "table" then sv.alertOwn = {} end
+	local own = sv.alertOwn[id]
+	if type(own) ~= "table" then own = {}; sv.alertOwn[id] = own end
+	own[name] = v
+	if next(own) == nil then sv.alertOwn[id] = nil end
+	if next(sv.alertOwn) == nil then sv.alertOwn = nil end
+end
+-- v: the alert's own value (nil: back on the shared one); the alert is drawn again
+function SP:SetReactiveOpt(id, name, v)
+	local sv = ShamanPower_ReactiveTotems
+	if not (sv and RT_OWN[name] and self.ReactiveTotems[id]) then return end
+	SetOwn(sv, id, name, v)
+	self:ReactiveOptChanged(id, name)
+end
+-- several at once (Paste, Copy To): own[name] = values[name] (nil: the shared one) for
+-- each of names, then the alert is drawn again once
+function SP:SetReactiveOpts(id, values, names)
+	local sv = ShamanPower_ReactiveTotems
+	if not (sv and self.ReactiveTotems[id]) then return end
+	local keys, look, hide = false, false, false
+	for _, name in ipairs(names) do
+		if RT_OWN[name] then
+			SetOwn(sv, id, name, values[name])
+			if name == "showSpellKeybind" or name == "noKeyText" then keys = true
+			elseif name == "hideWhenTotemActive" then hide = true
+			elseif name ~= "playSound" and name ~= "soundName" and name ~= "soundVolume" then look = true end
+		end
+	end
+	if keys then self:ReactiveOptChanged(id, "showSpellKeybind") elseif look then self:ReactiveOptChanged(id, "iconSize") end
+	if hide then self:ReactiveOptChanged(id, "hideWhenTotemActive") end
+end
+-- an alert's own value as saved (nil: it uses the shared one), for Copy Settings
+function SP:ReactiveOwnRaw(id, name)
+	local sv = ShamanPower_ReactiveTotems
+	local own = sv and type(sv.alertOwn) == "table" and sv.alertOwn[id]
+	if type(own) ~= "table" then return nil end
+	return own[name]
+end
+-- The game-drawn alerts (WoW: Forever) are built again once a change settles: a slider
+-- dragged or the wheel turned in Unlock UI makes one rebuild, not one per step.
+local rebuildAt, rebuildWaiting = 0, false
+local function RebuildWhenSettled()
+	local wait = rebuildAt - GetTime()
+	if wait > 0.02 then C_Timer.After(wait, RebuildWhenSettled) return end
+	rebuildWaiting = false
+	if SP.reactiveEngineBuilt then SP:RebuildReactiveEngine() end
+end
+function SP:QueueReactiveRebuild()
+	if not self.reactiveEngineBuilt then return end
+	rebuildAt = GetTime() + 0.4
+	if not rebuildWaiting then
+		rebuildWaiting = true
+		C_Timer.After(0.4, RebuildWhenSettled)
+	end
+end
+-- a setting of one alert (or, id nil, of all) changed: what it touches is drawn again
+function SP:ReactiveOptChanged(id, name)
+	if name == "showSpellKeybind" then
+		-- a fresh key scan: its hook works the keys out and updates the alerts
+		if self.UpdateButtonKeybindText then self:UpdateButtonKeybindText() end
+		self:RefreshReactiveKeys()
+		self:UpdateReactiveFrameAppearance(id, true)
+		self:QueueReactiveRebuild()
+	elseif name == "noKeyText" then
+		-- only the key captions: never the general appearance update, which in a fight on
+		-- WoW: Forever showed the alerts' empty boxes
+		self:RefreshReactiveKeyCaptions()
+	elseif name == "hideWhenTotemActive" then
+		self:UpdateReactiveTotems()
+		self:ApplyReactiveEngineVisibility()
+	elseif name == "playSound" or name == "soundName" or name == "soundVolume" then
+		return
+	else
+		self:UpdateReactiveFrameAppearance(id, true)
+		self:QueueReactiveRebuild()
+	end
+end
+-- the blue corner: any value of its own that differs from the shared one
+function SP:ReactiveOwnChanged(id)
+	for _, name in ipairs(RT_OWN_NAMES) do
+		local _, own = self:ReactiveOpt(id, name)
+		if own then return true end
+	end
+	return false
+end
+-- Reset This Alert: back on the shared values
+function SP:ResetReactiveAlert(id)
+	local sv = ShamanPower_ReactiveTotems
+	if not (sv and type(sv.alertOwn) == "table") then return end
+	local had = sv.alertOwn[id]
+	sv.alertOwn[id] = nil
+	if next(sv.alertOwn) == nil then sv.alertOwn = nil end
+	if type(had) == "table" then
+		if had.showSpellKeybind ~= nil then self:ReactiveOptChanged(id, "showSpellKeybind") end
+		self:ReactiveOptChanged(id, "iconSize")
+		self:ReactiveOptChanged(id, "hideWhenTotemActive")
+	end
+end
+-- the alert on / off: today's Track Fear/Charm, Track Poison, Track Disease
+local RT_TRACK = { fear = "trackFear", poison = "trackPoison", disease = "trackDisease" }
+function SP:ReactiveAlertOn(id)
+	local sv = ShamanPower_ReactiveTotems
+	return not (sv and sv[RT_TRACK[id]] == false)
+end
+function SP:SetReactiveAlertOn(id, on)
+	local sv = ShamanPower_ReactiveTotems
+	if not (sv and RT_TRACK[id]) then return end
+	sv[RT_TRACK[id]] = on and true or false
+	self:UpdateReactiveTotems()
+	self:ApplyReactiveEngineVisibility()
+end
+-- any alert with this on (Show Spell Keybind, Play Sound)
+function SP:ReactiveAnyOpt(name)
+	for id in pairs(self.ReactiveTotems) do
+		if R(id, name) then return true end
+	end
+	return false
+end
+-- the core's key scan does its second pass while any alert shows its key (ShamanPower.lua)
+function SP:ReactiveAnyKeybind() return self:ReactiveAnyOpt("showSpellKeybind") end
+-- an alert's own sound, at its own volume (Test Sound, Test All Frames)
+function SP:PlayReactiveSound(id)
+	self:PlaySoundWithVolume(self:GetSoundFile(R(id, "soundName") or "Raid Warning"), R(id, "soundVolume"), true)
+end
+-- Unlock UI: the wheel over an alert's box is that alert's own Icon Size, Ctrl + wheel its Opacity
+function SP:ReactiveBoxAccess(name, frame)
+	local id = frame and frame.totemId
+	if not (id and self.ReactiveTotems[id] and ShamanPower_ReactiveTotems) then return nil end
+	if name == "opacity" then
+		return function() return (SP:ReactiveOpt(id, "opacity")) end,
+			function(v) SP:SetReactiveOpt(id, "opacity", v) end, 0.2, 1.0, 0.1, true
+	end
+	return function() return (SP:ReactiveOpt(id, "iconSize")) end,
+		function(v) SP:SetReactiveOpt(id, "iconSize", v) end, 32, 256, 4, false
+end
+-- the defaults (Reset This Page)
+function SP:ReactiveTotemsDefaults() return defaultSettings end
+
+-- ============================================================================
 -- Initialization
 -- ============================================================================
 
@@ -218,7 +399,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 	local totemData = self.ReactiveTotems[totemId]
 	if not totemData then return nil end
 
-	local size = sv.iconSize or 64
+	local size = R(totemId, "iconSize") or 64
 	local pos = sv.positions[totemId] or totemData.defaultPos
 
 	-- Main frame - regular button (no click-to-cast due to combat restrictions)
@@ -276,12 +457,12 @@ function SP:CreateReactiveTotemFrame(totemId)
 
 	local fadeIn = ag:CreateAnimation("Alpha")
 	fadeIn:SetFromAlpha(0.2)
-	fadeIn:SetToAlpha(sv.glowIntensity or 0.8)
+	fadeIn:SetToAlpha(R(totemId, "glowIntensity") or 0.8)
 	fadeIn:SetDuration(0.4)
 	fadeIn:SetOrder(1)
 
 	local fadeOut = ag:CreateAnimation("Alpha")
-	fadeOut:SetFromAlpha(sv.glowIntensity or 0.8)
+	fadeOut:SetFromAlpha(R(totemId, "glowIntensity") or 0.8)
 	fadeOut:SetToAlpha(0.2)
 	fadeOut:SetDuration(0.4)
 	fadeOut:SetOrder(2)
@@ -290,7 +471,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 
 	-- Debuff name text
 	local debuffText = frame:CreateFontString(nil, "OVERLAY")
-	SP:SetSPFont(debuffText, "alerts", sv.fontSize or 14, sv.fontOutline and "OUTLINE" or "")
+	SP:SetSPFont(debuffText, "alerts", R(totemId, "fontSize") or 14, R(totemId, "fontOutline") and "OUTLINE" or "")
 	debuffText:SetPoint("TOP", frame, "BOTTOM", 0, -4)
 	debuffText:SetTextColor(c.r, c.g, c.b)
 	debuffText:SetShadowColor(0, 0, 0, 1)
@@ -299,7 +480,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 
 	-- Totem name text
 	local totemText = frame:CreateFontString(nil, "OVERLAY")
-	SP:SetSPFont(totemText, "alerts", (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or "")
+	SP:SetSPFont(totemText, "alerts", (R(totemId, "fontSize") or 14) - 2, R(totemId, "fontOutline") and "OUTLINE" or "")
 	totemText:SetPoint("TOP", debuffText, "BOTTOM", 0, -2)
 	totemText:SetText(totemData.totemName)
 	totemText:SetTextColor(1, 0.82, 0)
@@ -355,7 +536,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 		end
 	end)
 
-	frame:SetAlpha(sv.opacity or 1.0)
+	frame:SetAlpha(R(totemId, "opacity") or 1.0)
 	frame:Hide()
 
 	self.reactiveFrames[totemId] = frame
@@ -370,46 +551,46 @@ function SP:CreateAllReactiveFrames()
 	end
 end
 
--- Update appearance for one or all frames
-function SP:UpdateReactiveFrameAppearance(totemId)
-	local sv = ShamanPower_ReactiveTotems
+-- Update appearance for one or all frames (noEngine: the game-drawn copies are rebuilt
+-- by the caller, once its change settles)
+function SP:UpdateReactiveFrameAppearance(totemId, noEngine)
 
 	local function updateFrame(id)
 		local frame = self.reactiveFrames[id]
 		if not frame then return end
 
-		local size = sv.iconSize or 64
+		local size = R(id, "iconSize") or 64
 		frame:SetSize(size, size)
-		frame:SetAlpha(sv.opacity or 1.0)
+		frame:SetAlpha(R(id, "opacity") or 1.0)
 
 		-- Background
-		if sv.hideBackground then
+		if R(id, "hideBackground") then
 			frame.bg:Hide()
 		else
 			frame.bg:Show()
 		end
 
 		-- Border
-		if sv.hideBorder then
+		if R(id, "hideBorder") then
 			frame.borderFrame:Hide()
 		else
 			frame.borderFrame:Show()
 		end
 
 		-- Font
-		local fontSize = sv.fontSize or 14
-		local outline = sv.fontOutline and "OUTLINE" or ""
+		local fontSize = R(id, "fontSize") or 14
+		local outline = R(id, "fontOutline") and "OUTLINE" or ""
 		SP:SetSPFont(frame.debuffText, "alerts", fontSize, outline)
 		SP:SetSPFont(frame.totemText, "alerts", fontSize - 2, outline)
 
 		-- Text visibility
-		if sv.showDebuffName then
+		if R(id, "showDebuffName") then
 			frame.debuffText:Show()
 		else
 			frame.debuffText:Hide()
 		end
 
-		if sv.showTotemName then
+		if R(id, "showTotemName") then
 			frame.totemText:Show()
 		else
 			frame.totemText:Hide()
@@ -425,7 +606,7 @@ function SP:UpdateReactiveFrameAppearance(totemId)
 			updateFrame(id)
 		end
 	end
-	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end   -- engine copies of the art (no-op unless it changed)
+	if self.reactiveEngineBuilt and not noEngine then self:RebuildReactiveEngine() end   -- engine copies of the art (no-op unless it changed)
 end
 
 -- ============================================================================
@@ -524,9 +705,9 @@ end
 -- wide. A part is never split ("Wheel Down" stays one line, as does "No Key
 -- Bound"), and nothing is ever cut short.
 local function WrapCaption(text, data)
-	local sv = ShamanPower_ReactiveTotems
-	local size, outline = (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or ""
-	local limit = math.max((sv.iconSize or 64) * 1.5, TextWidth(data.totemName or "", size, outline))
+	local id = data.id
+	local size, outline = (R(id, "fontSize") or 14) - 2, R(id, "fontOutline") and "OUTLINE" or ""
+	local limit = math.max((R(id, "iconSize") or 64) * 1.5, TextWidth(data.totemName or "", size, outline))
 	if TextWidth(text, size, outline) <= limit + 0.5 then return text end
 	local tokens, cur = {}, ""
 	for ch in text:gmatch(".") do
@@ -558,10 +739,10 @@ end
 function SP:ReactiveKeyCaption(totemId)
 	local sv = ShamanPower_ReactiveTotems
 	local data = self.ReactiveTotems[totemId]
-	if not (sv and sv.showSpellKeybind and data) then return "", false end
+	if not (sv and data and R(totemId, "showSpellKeybind")) then return "", false end
 	local words = reactiveKeyWords[totemId]
 	if words then return WrapCaption(words, data), true end
-	if words == false and sv.noKeyText == "show" then return WrapCaption("No Key Bound", data), false end
+	if words == false and R(totemId, "noKeyText") == "show" then return WrapCaption("No Key Bound", data), false end
 	return "", false
 end
 
@@ -581,7 +762,6 @@ function SP:ReactiveHostKeyCaption(frame, totemId)
 		if fs then fs:SetText(""); fs:Hide() end
 		return
 	end
-	local sv = ShamanPower_ReactiveTotems
 	if not fs then
 		fs = frame:CreateFontString(nil, "OVERLAY")
 		fs:SetShadowColor(0, 0, 0, 1)
@@ -589,11 +769,11 @@ function SP:ReactiveHostKeyCaption(frame, totemId)
 		fs:SetJustifyH("CENTER")
 		frame.keyText = fs
 	end
-	SP:SetSPFont(fs, "alerts", (sv.fontSize or 14) - 2, sv.fontOutline and "OUTLINE" or "")
+	SP:SetSPFont(fs, "alerts", (R(totemId, "fontSize") or 14) - 2, R(totemId, "fontOutline") and "OUTLINE" or "")
 	fs:ClearAllPoints()
-	if sv.showTotemName then
+	if R(totemId, "showTotemName") then
 		fs:SetPoint("TOP", frame.totemText, "BOTTOM", 0, -2)
-	elseif sv.showDebuffName then
+	elseif R(totemId, "showDebuffName") then
 		fs:SetPoint("TOP", frame.debuffText, "BOTTOM", 0, -2)
 	else
 		fs:SetPoint("TOP", frame, "BOTTOM", 0, -4)
@@ -610,13 +790,13 @@ end
 function SP:RefreshReactiveKeys()
 	local sv = ShamanPower_ReactiveTotems
 	if not (sv and self.ReactiveTotems) then return end
-	local on = sv.showSpellKeybind and true or false
+	local on = self:ReactiveAnyKeybind()   -- (any alert that shows its key: 3.0.8, each alert its own)
 	if not on and not self.reactiveKeysShown then return end
 	self.reactiveKeysShown = on or nil
 	local changed = false
 	for totemId, data in pairs(self.ReactiveTotems) do
 		local words
-		if on and SPCompat.KnowsSpellID(data.totemSpellID) then
+		if on and R(totemId, "showSpellKeybind") and SPCompat.KnowsSpellID(data.totemSpellID) then
 			words = KeyWords(ReactiveSpellKey(data)) or false
 		end
 		if reactiveKeyWords[totemId] ~= words then
@@ -640,6 +820,16 @@ end
 function SP:RefreshReactiveKeyCaptions()
 	for totemId, frame in pairs(self.reactiveFrames) do self:ReactiveHostKeyCaption(frame, totemId) end
 	if self.reactiveEngineBuilt then self:RebuildReactiveEngine() end
+end
+
+-- One alert's key now, in words (its menu's Key Now)
+function SP:ReactiveKeyNow(totemId)
+	local words = reactiveKeyWords[totemId]
+	if words then return words end
+	if words == false then return "No Key Bound" end
+	local data = self.ReactiveTotems[totemId]
+	if data and not SPCompat.KnowsSpellID(data.totemSpellID) then return "Not Learned Yet" end
+	return "No Key Bound"
 end
 
 -- For the settings page and /spreactive status: what each alert's totem has now.
@@ -786,14 +976,14 @@ function SP:UpdateReactiveTotemDisplay()
 		-- and the sound is the one thing left to the scan, while it can read.
 		self:SetReactiveHostMode()
 		self:ApplyReactiveEngineVisibility()
-		if sv and sv.enabled and sv.playSound and not self:IsOff() and not (SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
+		if sv and sv.enabled and self:ReactiveAnyOpt("playSound") and not self:IsOff() and not (SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()) then
 			local found = self:ScanForReactiveDebuffs()
 			for totemId, frame in pairs(self.reactiveFrames) do
 				local hit = found[totemId]
 				if hit and totemId == "fear" and hit.unit ~= "player" then hit = nil end   -- Tremor: you only, as drawn
 				if hit then
-					if not frame.soundPlayed then
-						ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+					if not frame.soundPlayed and R(totemId, "playSound") then
+						self:PlayReactiveSound(totemId)
 						frame.soundPlayed = true
 					end
 				else
@@ -823,7 +1013,7 @@ function SP:UpdateReactiveTotemDisplay()
 		local debuffData = found[totemId]
 
 		-- Check if relevant totem is already active
-		if debuffData and sv.hideWhenTotemActive then
+		if debuffData and R(totemId, "hideWhenTotemActive") then
 			local element = totemData.totemElement
 			if element then
 				local haveTotem, totemName = ElementTotemInfo(element)
@@ -850,7 +1040,7 @@ function SP:UpdateReactiveTotemDisplay()
 			frame.currentUnitName = unitName
 
 			-- Glow
-			if sv.showGlow then
+			if R(totemId, "showGlow") then
 				frame.glow:Show()
 				frame.glowAnim:Play()
 			else
@@ -859,8 +1049,8 @@ function SP:UpdateReactiveTotemDisplay()
 			end
 
 			-- Sound (only once per debuff application)
-			if sv.playSound and not frame.soundPlayed then
-				ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+			if R(totemId, "playSound") and not frame.soundPlayed then
+				self:PlayReactiveSound(totemId)
 				frame.soundPlayed = true
 			end
 
@@ -909,12 +1099,12 @@ function SP:ReactiveEngineLive()
 end
 
 -- Everything about the art the display was built with; a change rebuilds it.
-local function ReactiveAppearanceKey()
-	local sv = ShamanPower_ReactiveTotems
-	return table.concat({ tostring(sv.iconSize or 64), tostring(sv.hideBackground and 1 or 0), tostring(sv.hideBorder and 1 or 0),
-		tostring(sv.showGlow ~= false and 1 or 0), tostring(sv.glowIntensity or 0.8), tostring(sv.fontSize or 14),
-		tostring(sv.fontOutline and 1 or 0), tostring(sv.showDebuffName ~= false and 1 or 0), tostring(sv.showTotemName ~= false and 1 or 0),
-		tostring(sv.showDebuffIcon and 1 or 0) }, "|")
+-- (each alert its own, 3.0.8)
+local function ReactiveAppearanceKey(id)
+	return table.concat({ tostring(R(id, "iconSize") or 64), tostring(R(id, "hideBackground") and 1 or 0), tostring(R(id, "hideBorder") and 1 or 0),
+		tostring(R(id, "showGlow") ~= false and 1 or 0), tostring(R(id, "glowIntensity") or 0.8), tostring(R(id, "fontSize") or 14),
+		tostring(R(id, "fontOutline") and 1 or 0), tostring(R(id, "showDebuffName") ~= false and 1 or 0), tostring(R(id, "showTotemName") ~= false and 1 or 0),
+		tostring(R(id, "showDebuffIcon") and 1 or 0) }, "|")
 end
 
 local function ReactiveShouldShow(totemId)
@@ -923,7 +1113,7 @@ local function ReactiveShouldShow(totemId)
 	if SP.reactivePositioningMode or SP.reactiveDemoActive then return false end
 	if sv[REACTIVE_TRACK[totemId]] == false then return false end
 	if sv.onlyInInstance and not IsInInstance() then return false end
-	if sv.hideWhenTotemActive then
+	if R(totemId, "hideWhenTotemActive") then
 		local data = SP.ReactiveTotems[totemId]
 		local haveTotem, totemName = ElementTotemInfo(data.totemElement)
 		if not issecretvalue(haveTotem) and not issecretvalue(totemName) and haveTotem
@@ -973,23 +1163,22 @@ end
 -- positioning and the wizard demo; the engine's copies are the live alerts.
 function SP:SetReactiveHostMode()
 	if not self.reactiveEngineBuilt then return end
-	local sv = ShamanPower_ReactiveTotems
 	local live = self:ReactiveEngineLive()
-	for _, frame in pairs(self.reactiveFrames) do
+	for id, frame in pairs(self.reactiveFrames) do
 		if live then
 			frame.bg:Hide(); frame.icon:Hide(); frame.borderFrame:Hide()
 			frame.glow:Hide(); frame.glowAnim:Stop()
 			frame.debuffText:Hide(); frame.totemText:Hide()
 			if frame.keyText then frame.keyText:Hide() end
 			frame:EnableMouse(false)
-			frame:SetAlpha(sv.opacity or 1.0)
+			frame:SetAlpha(R(id, "opacity") or 1.0)
 			frame:Show()
 		elseif not frame.icon:IsShown() then
 			frame.icon:Show()
-			frame.bg:SetShown(not sv.hideBackground)
-			frame.borderFrame:SetShown(not sv.hideBorder)
-			frame.debuffText:SetShown(sv.showDebuffName and true or false)
-			frame.totemText:SetShown(sv.showTotemName and true or false)
+			frame.bg:SetShown(not R(id, "hideBackground"))
+			frame.borderFrame:SetShown(not R(id, "hideBorder"))
+			frame.debuffText:SetShown(R(id, "showDebuffName") and true or false)
+			frame.totemText:SetShown(R(id, "showTotemName") and true or false)
 			if frame.keyText then frame.keyText:SetShown((frame.keyText:GetText() or "") ~= "") end
 			frame:EnableMouse(true)
 		end
@@ -999,7 +1188,6 @@ end
 local reactiveLog = {}   -- one line per display built or refused, for /spreactive status
 
 local function BuildReactiveContainer(totemId, unitIndex, host)
-	local sv = ShamanPower_ReactiveTotems
 	local data = SP.ReactiveTotems[totemId]
 	local unit = REACTIVE_UNITS[unitIndex]
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, host, "CustomAuraContainerTemplate")
@@ -1019,10 +1207,13 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		options.candidateFilters = { includeDispelTypes = { Disease = true } }
 	end
 	-- decided now, drawn by the engine later
-	local size = sv.iconSize or 64
+	local size = R(totemId, "iconSize") or 64
 	local c = data.color
-	local fontSize = sv.fontSize or 14
-	local outline = sv.fontOutline and "OUTLINE" or ""
+	local fontSize = R(totemId, "fontSize") or 14
+	local outline = R(totemId, "fontOutline") and "OUTLINE" or ""
+	local hideBackground, hideBorder, showGlow = R(totemId, "hideBackground"), R(totemId, "hideBorder"), R(totemId, "showGlow")
+	local glowIntensity, showDebuffIcon = R(totemId, "glowIntensity"), R(totemId, "showDebuffIcon")
+	local showDebuffName, showTotemName = R(totemId, "showDebuffName"), R(totemId, "showTotemName")
 	local label = (unit == "player") and "You" or (UnitName(unit) or unit)
 	local lr, lg, lb = c.r, c.g, c.b
 	local _, class = UnitClass(unit)
@@ -1036,7 +1227,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		button:SetAllPoints(host)
 		if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
 		if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
-		if not sv.hideBackground then
+		if not hideBackground then
 			local bg = button:CreateTexture(nil, "BACKGROUND")
 			bg:SetAllPoints(button)
 			bg:SetColorTexture(0, 0, 0, 0.6)
@@ -1046,14 +1237,14 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		icon:SetPoint("BOTTOMRIGHT", -3, 3)
 		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		icon:SetTexture(data.icon)
-		if not sv.hideBorder then
+		if not hideBorder then
 			local border = CreateFrame("Frame", nil, button, "BackdropTemplate")
 			border:SetPoint("TOPLEFT", -2, 2)
 			border:SetPoint("BOTTOMRIGHT", 2, -2)
 			border:SetBackdrop({ edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 2 })
 			border:SetBackdropBorderColor(c.r, c.g, c.b, 1)
 		end
-		if sv.showGlow ~= false then
+		if showGlow ~= false then
 			local glow = button:CreateTexture(nil, "OVERLAY", nil, 1)
 			glow:SetPoint("TOPLEFT", -12, 12)
 			glow:SetPoint("BOTTOMRIGHT", 12, -12)
@@ -1065,8 +1256,8 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 			glow:SetAlpha(0.2)
 			local ag = glow:CreateAnimationGroup()
 			ag:SetLooping("REPEAT")
-			local a1 = ag:CreateAnimation("Alpha"); a1:SetFromAlpha(0.2); a1:SetToAlpha(sv.glowIntensity or 0.8); a1:SetDuration(0.4); a1:SetOrder(1)
-			local a2 = ag:CreateAnimation("Alpha"); a2:SetFromAlpha(sv.glowIntensity or 0.8); a2:SetToAlpha(0.2); a2:SetDuration(0.4); a2:SetOrder(2)
+			local a1 = ag:CreateAnimation("Alpha"); a1:SetFromAlpha(0.2); a1:SetToAlpha(glowIntensity or 0.8); a1:SetDuration(0.4); a1:SetOrder(1)
+			local a2 = ag:CreateAnimation("Alpha"); a2:SetFromAlpha(glowIntensity or 0.8); a2:SetToAlpha(0.2); a2:SetDuration(0.4); a2:SetOrder(2)
 			ag:Play()
 		end
 		-- the debuff itself: its icon as a badge hanging off the corner, painted
@@ -1074,7 +1265,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		-- Opt-in: off, the badge is still registered (the engine wants an icon
 		-- region) but stays invisible.
 		local badge = CreateFrame("Frame", nil, button)
-		if not sv.showDebuffIcon then badge:SetAlpha(0) end
+		if not showDebuffIcon then badge:SetAlpha(0) end
 		local dsize = math.floor(size * 0.4)
 		badge:SetSize(dsize, dsize)
 		badge:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 6, -6)
@@ -1090,7 +1281,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 		-- who and how long: one row per unit, so several alerts read as a list
 		local carrier = CreateFrame("Frame", nil, button)
 		carrier:SetAllPoints(button)
-		if sv.showDebuffName ~= false then
+		if showDebuffName ~= false then
 			local who = carrier:CreateFontString(nil, "OVERLAY")
 			SP:SetSPFont(who, "alerts", fontSize, outline)
 			SP:SPFontGameOwned(who)   -- (on the game's button: a font change waits out fights and hidden auras)
@@ -1122,7 +1313,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 			keyLine:SetShadowOffset(1, -1)
 			keyLine:SetText(caption)
 		end
-		if sv.showTotemName ~= false then
+		if showTotemName ~= false then
 			local totem = carrier:CreateFontString(nil, "OVERLAY")
 			SP:SetSPFont(totem, "alerts", fontSize - 2, outline)
 			SP:SPFontGameOwned(totem)
@@ -1187,10 +1378,10 @@ function SP:RebuildReactiveEngine()
 	if InCombatLockdown() then reactivePending = true return end
 	reactivePending = false
 	pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer")
-	local look = ReactiveAppearanceKey()
 	local built = false
 	for totemId in pairs(self.ReactiveTotems) do
 		local host = self.reactiveFrames[totemId] or self:CreateReactiveTotemFrame(totemId)
+		local look = ReactiveAppearanceKey(totemId)
 		if host then
 			self.reactiveEngine[totemId] = self.reactiveEngine[totemId] or {}
 			local list = self.reactiveEngine[totemId]
@@ -1313,7 +1504,7 @@ function SP:SetupReactiveTotemsEvents()
 		local sv = ShamanPower_ReactiveTotems
 		if not sv or not sv.enabled then return end   -- switching it on updates at once
 		-- engine mode: aura changes are the engine's business; the scan only serves the sound
-		if SP:ReactiveEngineLive() and not sv.playSound then return end
+		if SP:ReactiveEngineLive() and not SP:ReactiveAnyOpt("playSound") then return end
 		if not AuraChangeMatters(info) then return end
 		RequestUpdate()
 	end
@@ -1377,7 +1568,6 @@ end
 
 -- Test all alerts
 function SP:TestReactiveAlerts()
-	local sv = ShamanPower_ReactiveTotems
 	self.reactiveTestActive = true
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
@@ -1391,7 +1581,7 @@ function SP:TestReactiveAlerts()
 		frame.debuffText:SetText("Test " .. totemData.name)
 		frame.currentDebuffName = "Test " .. totemData.name
 
-		if sv.showGlow then
+		if R(totemId, "showGlow") then
 			frame.glow:Show()
 			frame.glowAnim:Play()
 		end
@@ -1399,8 +1589,22 @@ function SP:TestReactiveAlerts()
 		frame:Show()
 	end
 
-	if sv.playSound then
-		ShamanPower:PlaySoundWithVolume(ShamanPower:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
+	-- each alert's own sound (3.0.8), one after another; the same sound only once (as before:
+	-- one sound while they all share it)
+	local played, n = {}, 0
+	for _, id in ipairs({ "fear", "poison", "disease" }) do
+		if R(id, "playSound") then
+			local key = tostring(R(id, "soundName") or "Raid Warning") .. "|" .. tostring(R(id, "soundVolume"))
+			if not played[key] then
+				played[key] = true
+				if n == 0 then
+					self:PlayReactiveSound(id)
+				else
+					C_Timer.After(n * 0.7, function() SP:PlayReactiveSound(id) end)
+				end
+				n = n + 1
+			end
+		end
 	end
 
 	-- Hide after 3 seconds
@@ -1654,11 +1858,9 @@ function SP:ReactiveDemo(on)
 			if id and sv[track[id]] ~= false then
 				local frame = self.reactiveFrames[id]
 				frame.debuffText:SetText(text); frame.currentDebuffName = text
-				if sv.showGlow ~= false then frame.glow:Show(); frame.glowAnim:Play() end
-				if sv.showDebuffIcon then demoBadge(frame, id) end
-				if sv.playSound then
-					self:PlaySoundWithVolume(self:GetSoundFile(sv.soundName or "Raid Warning"), sv.soundVolume, true)
-				end
+				if R(id, "showGlow") ~= false then frame.glow:Show(); frame.glowAnim:Play() end
+				if R(id, "showDebuffIcon") then demoBadge(frame, id) end
+				if R(id, "playSound") then self:PlayReactiveSound(id) end
 				frame:Show()
 			elseif id then
 				self.reactiveDemoStatus = b.story .. "  (tracking for this debuff is off)"
@@ -1694,7 +1896,7 @@ function SP:InitializeReactiveTotems()
 	self:SetupReactiveTotemsEvents()
 	-- Show Spell Keybind: the keys before the first build (the core's own scan
 	-- after login comes later and updates them through its hook)
-	if ShamanPower_ReactiveTotems.showSpellKeybind and self.ScanActionBarKeybinds then self:ScanActionBarKeybinds() end
+	if self:ReactiveAnyKeybind() and self.ScanActionBarKeybinds then self:ScanActionBarKeybinds() end
 	self:RefreshReactiveKeys()
 	self:RebuildReactiveEngine()
 	self:UpdateReactiveTotemDisplay()

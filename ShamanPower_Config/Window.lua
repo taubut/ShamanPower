@@ -229,6 +229,32 @@ local POWER_SHIELDCHARGES = {
 	end,
 }
 
+-- Expiring Alerts' and Reactive Totems' on / off (A16: their pages have no Enable row any
+-- more; the same setting the row had)
+local POWER_EXPIRING = {
+	label  = "Expiring Alerts",
+	desc   = "Turn Expiring Alerts on or off.",
+	loaded = function() local sp = SP() return sp and sp.ExpiringAlertsLoaded and type(rawget(_G, "ShamanPowerExpiringAlertsDB")) == "table" or false end,
+	get    = function() local db = rawget(_G, "ShamanPowerExpiringAlertsDB") return type(db) == "table" and db.enabled ~= false end,
+	set    = function(v)
+		local db = rawget(_G, "ShamanPowerExpiringAlertsDB")
+		if type(db) == "table" then db.enabled = v and true or false end
+	end,
+}
+local POWER_REACTIVE = {
+	label  = "Reactive Totems",
+	desc   = "Turn Reactive Totems on or off.",
+	loaded = function() local sp = SP() return sp and sp.ReactiveTotemsLoaded and type(rawget(_G, "ShamanPower_ReactiveTotems")) == "table" or false end,
+	get    = function() local db = rawget(_G, "ShamanPower_ReactiveTotems") return type(db) == "table" and db.enabled ~= false end,
+	set    = function(v)
+		local db = rawget(_G, "ShamanPower_ReactiveTotems")
+		if type(db) ~= "table" then return end
+		db.enabled = v and true or false
+		local sp = SP()
+		if sp.UpdateReactiveTotems then sp:UpdateReactiveTotems() end
+	end,
+}
+
 -- Sidebar information architecture.
 -- An entry is either { label, path = {...} } (one option group = one page) or
 -- { label, tabs = { { label, paths = { {...}, ... } }, ... } } (a composed
@@ -319,10 +345,17 @@ local NAV = {
 			desc = "Your shields' charges on screen. Each shield has its own settings: right-click it.",
 			onReset = function() local sp = SP() if sp and sp.ShieldChargesResetPage then sp:ShieldChargesResetPage() end end,
 			path = P("fluffy", "shieldcharges_page") },
-		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
+		-- one page each (A16): the Alerts row (click, right-click) and what is about the whole page
+		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true, power = POWER_REACTIVE,
+			desc = "A big totem icon when you or your group is feared, poisoned or diseased. Right-click an alert for its settings.",
+			onReset = function() local sp = SP() if sp and sp.ReactiveTotemsResetPage then sp:ReactiveTotemsResetPage() end end,
+			path = P("fluffy", "reactivetotems_section") },
 		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section"), power = POWER_READYREMINDERS },
 		{ label = "Target Tracker", preview = "targettracker", shamanOnly = true,       path = P("fluffy", "targettracker_section"), power = POWER_TARGETTRACKER, noReset = true },
-		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
+		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true, power = POWER_EXPIRING,
+			desc = "A line on your screen when a shield or weapon imbue fades or a totem is destroyed. Right-click an alert for its settings.",
+			onReset = function() local sp = SP() if sp and sp.ExpiringAlertsResetPage then sp:ExpiringAlertsResetPage() end end,
+			path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
 	}},

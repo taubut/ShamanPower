@@ -620,7 +620,10 @@ local FX = {
 	-- Ready Reminders (D40): every icon has its own Icon Size and Opacity (ReadyReminderBoxAccess)
 	readyreminders = { page = { "fluffy", "readyreminders_section" }, size = { rr = "size" }, opacity = { rr = "opacity" } },
 	expiring       = { page = { "fluffy", "expiringalerts_section" }, size = { node = "alerts_icon_size" } },
-	reactive       = { page = { "fluffy", "reactivetotems_section" }, size = { node = "reactive_icon_size" },  opacity = { node = "reactive_opacity" } },
+	-- Reactive Totems (3.0.8, A16): each alert's box is that alert's own Icon Size and Opacity
+	reactive       = { page = { "fluffy", "reactivetotems_section" },
+		size = { byFrame = function(fr) if SP.ReactiveBoxAccess then return SP:ReactiveBoxAccess("size", fr) end end },
+		opacity = { byFrame = function(fr) if SP.ReactiveBoxAccess then return SP:ReactiveBoxAccess("opacity", fr) end end } },
 	tremor         = { page = { "fluffy", "tremorreminder_section" }, size = { node = "tremor_icon_size" },    opacity = { node = "tremor_opacity" } },
 	partyrange     = { page = { "fluffy", "partybuff_section" },      size = { node = "partybuff_scale" },     opacity = { node = "partybuff_opacity" } },
 	coverage       = { page = { "fluffy", "coverage_section" },       size = { node = "coverage_icon_size" },  opacity = { node = "coverage_opacity" } },

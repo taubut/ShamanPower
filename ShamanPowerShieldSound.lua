@@ -37,14 +37,29 @@ local ENGINE = SPCompat.FOREVER and C_UnitAuras ~= nil and C_UnitAuras.AddAuraSo
 -- Shield Charges and Expiring Alerts: opt.shieldDropSound<S> / shieldDropSoundName<S>
 -- (S = LS, WS, ES), empty until changed, using the shared opt.shieldDropSound /
 -- shieldDropSoundName until then, so every shield starts with today's one sound.
--- Earth Shield's plays only through Expiring Alerts' Earth Shield alert (as before).
+-- Earth Shield's plays only through Expiring Alerts' Earth Shield alert (as before),
+-- so its starting value is the shared one only while that alert is on (A16): it never
+-- starts sounding for someone who had that alert off.
 local SOUND_ON = { "shieldDropSoundLS", "shieldDropSoundWS", "shieldDropSoundES" }
 local SOUND_NAME = { "shieldDropSoundNameLS", "shieldDropSoundNameWS", "shieldDropSoundNameES" }
+local function EarthAlertOn()
+	local ea = rawget(_G, "ShamanPowerExpiringAlertsDB")
+	if type(ea) ~= "table" or ea.enabled == false then return false end
+	local s = ea.shields
+	return type(s) == "table" and s.enabled ~= false and s.earthShield ~= false
+end
+-- the value a shield starts from (until it has its own): the shared Sound When Your Shield Drops
+function SP:ShieldSoundShared(which)
+	local o = self.opt
+	local on = o ~= nil and o.shieldDropSound == true
+	if which == 3 and on then on = EarthAlertOn() end
+	return on, (o and o.shieldDropSoundName) or DEFAULT_SOUND
+end
 function SP:ShieldSoundOn(which)
 	local o = self.opt
 	if not o or not SOUND_ON[which] then return false end
 	local v = o[SOUND_ON[which]]
-	if v == nil then v = o.shieldDropSound end
+	if v == nil then return (self:ShieldSoundShared(which)) end
 	return v == true
 end
 function SP:ShieldSoundName(which)
@@ -71,8 +86,9 @@ function SP:ShieldSoundOwnChanged(which)
 	local o = self.opt
 	if not o or not SOUND_ON[which] then return false end
 	local on, name = o[SOUND_ON[which]], o[SOUND_NAME[which]]
-	if on ~= nil and on ~= (o.shieldDropSound == true) then return true end
-	if name ~= nil and name ~= (o.shieldDropSoundName or DEFAULT_SOUND) then return true end
+	local sharedOn, sharedName = self:ShieldSoundShared(which)
+	if on ~= nil and on ~= sharedOn then return true end
+	if name ~= nil and name ~= sharedName then return true end
 	return false
 end
 -- each shield's Test Sound (shield = "LS" / "WS" / "ES")

@@ -197,6 +197,148 @@ local defaultSettings = {
 if SP and SP.SUPPORT_MODULE_DEFAULTS then SP.SUPPORT_MODULE_DEFAULTS.ShamanPowerExpiringAlertsDB = defaultSettings end
 
 -- ============================================================================
+-- Each alert's own settings (3.0.8, the settings page's icon row: A16)
+-- ============================================================================
+-- The four totem elements each have their own When One Is Destroyed (the alert, the
+-- chat line, the big text, telling your group), When One Expires and sound; Main
+-- Hand and Off Hand their own sound. sv.alertOwn[key][name], key = earth / fire /
+-- water / air / mh / oh: EMPTY until the player changes one, and until then the
+-- shared value it always used (sv.totems.* / sv.weaponImbues.*), so an untouched
+-- profile works exactly as before. The shields' sound is ShamanPower's own (one per
+-- shield, ShamanPowerShieldSound.lua). The on / off of each alert is today's keys
+-- (shields.lightning ..., totems.earth ..., weaponImbues.mainHand ...) behind their
+-- group switches (shields.enabled ...): an alert is on only while both are.
+local ALERT_GROUP = { earth = "totems", fire = "totems", water = "totems", air = "totems", mh = "weaponImbues", oh = "weaponImbues",
+	LS = "shields", WS = "shields", ES = "shields" }
+local ALERT_SWITCH = { earth = "earth", fire = "fire", water = "water", air = "air", mh = "mainHand", oh = "offHand",
+	LS = "lightning", WS = "water", ES = "earthShield" }
+-- what each kind owns, and how today's code reads the shared value (nil = on, or a boolean)
+local OWN_TOTEM = { destroyed = "notFalse", destroyedChat = "notFalse", destroyedCenter = "bool", destroyedParty = "bool",
+	expired = "bool", sound = "bool", soundName = "name" }
+local OWN_IMBUE = { sound = "bool", soundName = "name" }
+local SOUND_DEFAULT = { totems = "Alarm Clock Warning 3", weaponImbues = "Raid Warning" }
+SP.ExpiringAlertTotemNames = { "destroyed", "destroyedChat", "destroyedCenter", "destroyedParty", "expired", "sound", "soundName" }
+SP.ExpiringAlertImbueNames = { "sound", "soundName" }
+
+local function OwnSpec(key)
+	local g = ALERT_GROUP[key]
+	if g == "totems" then return OWN_TOTEM, g end
+	if g == "weaponImbues" then return OWN_IMBUE, g end
+	return nil, g
+end
+local function Normal(kind, v, group)
+	if kind == "notFalse" then return v ~= false end
+	if kind == "bool" then return v and true or false end
+	if type(v) ~= "string" or v == "" then return SOUND_DEFAULT[group] end
+	return v
+end
+-- the shared value (today's), as today's code reads it
+local function SharedOpt(sv, group, name, kind)
+	local t = sv and sv[group]
+	return Normal(kind, t and t[name], group)
+end
+
+-- value, own: own = this alert has a value of its own that differs from the shared one
+function SP:ExpiringAlertOpt(key, name)
+	local spec, group = OwnSpec(key)
+	local kind = spec and spec[name]
+	local sv = ShamanPowerExpiringAlertsDB
+	if not kind then return nil, false end
+	local shared = SharedOpt(sv, group, name, kind)
+	local all = sv and sv.alertOwn
+	local mine = type(all) == "table" and all[key]
+	local own
+	if type(mine) == "table" then own = mine[name] end
+	if own == nil or (own == false and kind == "name") then return shared, false end
+	local v = Normal(kind, own, group)
+	return v, v ~= shared
+end
+-- v: the alert's own value; nil puts it back on the shared one
+function SP:SetExpiringAlertOpt(key, name, v)
+	local spec = OwnSpec(key)
+	local sv = ShamanPowerExpiringAlertsDB
+	if not (spec and spec[name] and sv) then return end
+	if type(sv.alertOwn) ~= "table" then sv.alertOwn = {} end
+	local own = sv.alertOwn[key]
+	if v == nil then
+		if type(own) == "table" then
+			own[name] = nil
+			if next(own) == nil then sv.alertOwn[key] = nil end
+		end
+	else
+		if type(own) ~= "table" then own = {}; sv.alertOwn[key] = own end
+		own[name] = v
+	end
+	if next(sv.alertOwn) == nil then sv.alertOwn = nil end
+end
+-- the blue corner: any value of its own that differs from the shared one
+function SP:ExpiringAlertOwnChanged(key)
+	local spec = OwnSpec(key)
+	if not spec then return false end
+	for name in pairs(spec) do
+		local _, own = self:ExpiringAlertOpt(key, name)
+		if own then return true end
+	end
+	return false
+end
+-- Reset This Alert: back on the shared values
+function SP:ResetExpiringAlert(key)
+	local sv = ShamanPowerExpiringAlertsDB
+	if sv and type(sv.alertOwn) == "table" then
+		sv.alertOwn[key] = nil
+		if next(sv.alertOwn) == nil then sv.alertOwn = nil end
+	end
+end
+-- the alert on / off: on, offByGroup (off only through its group's old Enable switch)
+function SP:ExpiringAlertOn(key)
+	local sv = ShamanPowerExpiringAlertsDB
+	local group, switch = ALERT_GROUP[key], ALERT_SWITCH[key]
+	local g = sv and group and sv[group]
+	if type(g) ~= "table" then return true, false end
+	local own = g[switch] ~= false
+	local groupOn = g.enabled ~= false
+	return own and groupOn, own and not groupOn
+end
+-- on: this alert alone comes on. An alert that was off through its group's old Enable
+-- switch: the switch goes back on and the others of that group that were off through
+-- it stay off, each by its own switch (a click turns on only that one).
+function SP:SetExpiringAlertOn(key, on)
+	local sv = ShamanPowerExpiringAlertsDB
+	local group, switch = ALERT_GROUP[key], ALERT_SWITCH[key]
+	if not (sv and group) then return end
+	if type(sv[group]) ~= "table" then sv[group] = {} end
+	local g = sv[group]
+	if on then
+		if g.enabled == false then
+			for k, grp in pairs(ALERT_GROUP) do
+				if grp == group and k ~= key then g[ALERT_SWITCH[k]] = false end
+			end
+			g.enabled = true
+		end
+		g[switch] = true
+	else
+		g[switch] = false
+	end
+end
+-- the shared value an alert falls back on (for the settings page)
+function SP:ExpiringAlertShared(key, name)
+	local spec, group = OwnSpec(key)
+	local kind = spec and spec[name]
+	if not kind then return nil end
+	return SharedOpt(ShamanPowerExpiringAlertsDB, group, name, kind)
+end
+-- the defaults (Reset This Page)
+function SP:ExpiringAlertsDefaults() return defaultSettings end
+
+-- one element's value at alert time (element 1-4; nil: the shared one)
+local ELEMENT_ALERT_KEY = { "earth", "fire", "water", "air" }
+local function TotemOpt(element, name)
+	local key = element and ELEMENT_ALERT_KEY[element]
+	if key then return (SP:ExpiringAlertOpt(key, name)) end
+	return SharedOpt(ShamanPowerExpiringAlertsDB, "totems", name, OWN_TOTEM[name])
+end
+
+-- ============================================================================
 -- State Tracking
 -- ============================================================================
 
@@ -522,13 +664,14 @@ end
 
 -- Queued alerts are small records kept for reuse (ProcessAlertQueue hands them back)
 local alertRecordPool = {}
-local function QueueAlert(queue, alertType, spellName, spellIcon, color)
+-- soundKey: whose sound it plays (a totem's element 1-4, "mh" / "oh"; nil: the shared one)
+local function QueueAlert(queue, alertType, spellName, spellIcon, color, soundKey)
 	local r = tremove(alertRecordPool) or {}
-	r.alertType, r.spellName, r.spellIcon, r.color = alertType, spellName, spellIcon, color
+	r.alertType, r.spellName, r.spellIcon, r.color, r.soundKey = alertType, spellName, spellIcon, color, soundKey
 	queue[#queue + 1] = r
 end
 local function ReleaseAlertRecord(r)
-	r.alertType, r.spellName, r.spellIcon, r.color = nil, nil, nil, nil
+	r.alertType, r.spellName, r.spellIcon, r.color, r.soundKey = nil, nil, nil, nil, nil
 	alertRecordPool[#alertRecordPool + 1] = r
 end
 -- empty the queue, keeping its records
@@ -541,13 +684,13 @@ end
 -- "<name> FADED!", made once per name
 local fadedText = {}
 
-function SP:ShowExpiringAlert(alertType, spellName, spellIcon, color)
+function SP:ShowExpiringAlert(alertType, spellName, spellIcon, color, soundKey)
 	local sv = ShamanPowerExpiringAlertsDB
 	if not sv.enabled then return end
 	if self.expiringAlertsDemoActive then return end
 
 	-- Queue the alert
-	QueueAlert(self.alertQueue, alertType, spellName, spellIcon, color)
+	QueueAlert(self.alertQueue, alertType, spellName, spellIcon, color, soundKey)
 
 	self:ProcessAlertQueue()
 end
@@ -647,12 +790,14 @@ function SP:ProcessAlertQueue()
 	tinsert(self.activeAlerts, frame)
 
 	-- Play sound
-	local alertType = alertData.alertType
+	local alertType, soundKey = alertData.alertType, alertData.soundKey
 	ReleaseAlertRecord(alertData)
-	self:PlayAlertSound(alertType)
+	self:PlayAlertSound(alertType, soundKey)
 end
 
-function SP:PlayAlertSound(alertType)
+-- soundKey: a totem's element (1-4) or "mh" / "oh": that alert's own sound (3.0.8),
+-- else the shared one, as before
+function SP:PlayAlertSound(alertType, soundKey)
 	local sv = ShamanPowerExpiringAlertsDB
 
 	local soundName = nil
@@ -660,7 +805,18 @@ function SP:PlayAlertSound(alertType)
 
 	-- your own faded shield has no sound here: ShamanPower's own Sound When Your Shield
 	-- Drops plays it (ShamanPowerShieldSound.lua), one sound per drop, not two
-	if alertType == "totem" and sv.totems and sv.totems.sound then
+	if alertType == "totem" and type(soundKey) == "number" and ELEMENT_ALERT_KEY[soundKey] then
+		local key = ELEMENT_ALERT_KEY[soundKey]
+		if self:ExpiringAlertOpt(key, "sound") then
+			soundName = self:ExpiringAlertOpt(key, "soundName")
+			playSound = true
+		end
+	elseif alertType == "imbue" and (soundKey == "mh" or soundKey == "oh") then
+		if self:ExpiringAlertOpt(soundKey, "sound") then
+			soundName = self:ExpiringAlertOpt(soundKey, "soundName")
+			playSound = true
+		end
+	elseif alertType == "totem" and sv.totems and sv.totems.sound then
 		soundName = sv.totems.soundName or "Alarm Clock Warning 3"
 		playSound = true
 	elseif alertType == "imbue" and sv.weaponImbues and sv.weaponImbues.sound then
@@ -710,9 +866,9 @@ end
 
 -- An alert from a state change: none while settling in, one per change. key: what
 -- counts as "the same alert" when the text cannot tell (nil = the text)
-local function Raise(alertType, text, icon, color, key)
+local function Raise(alertType, text, icon, color, key, soundKey)
 	if Quiet() or not Fresh(key or text) then return end
-	SP:ShowExpiringAlert(alertType, text, icon, color)
+	SP:ShowExpiringAlert(alertType, text, icon, color, soundKey)
 end
 
 -- ----------------------------------------------------------------------------
@@ -1022,9 +1178,9 @@ end
 
 -- Every way of saying "a totem was destroyed": the alert (and its sound), a line
 -- in your own chat window, the big centre text, and (opt-in) the group chat.
+-- (3.0.8: each element's own choices, the shared ones until it has its own)
 function SP:TotemDestroyedAlert(totemName, elementColor, element, icon)
-	local t = ShamanPowerExpiringAlertsDB.totems
-	if not t.destroyed or self:IsOff() then return end
+	if not TotemOpt(element, "destroyed") or self:IsOff() then return end
 	local stripped = StripRank(totemName or "")
 	local label = stripped ~= "" and stripped or "Totem"
 	-- none while settling in; one totem, one of each (chat lines too). A totem the
@@ -1032,14 +1188,14 @@ function SP:TotemDestroyedAlert(totemName, elementColor, element, icon)
 	local key = label
 	if stripped == "" then key = element end
 	if Quiet() or (key ~= nil and not Fresh(key)) then return end
-	self:ShowExpiringAlert("totem", label .. " Destroyed!", TotemAlertIcon(icon, element), elementColor)
-	if t.destroyedChat ~= false and DEFAULT_CHAT_FRAME then
+	self:ShowExpiringAlert("totem", label .. " Destroyed!", TotemAlertIcon(icon, element), elementColor, element)
+	if TotemOpt(element, "destroyedChat") and DEFAULT_CHAT_FRAME then
 		DEFAULT_CHAT_FRAME:AddMessage("|cff0070ddShamanPower|r: |cffff5050" .. label .. " destroyed.|r")
 	end
-	if t.destroyedCenter and RaidNotice_AddMessage and RaidWarningFrame then
+	if TotemOpt(element, "destroyedCenter") and RaidNotice_AddMessage and RaidWarningFrame then
 		RaidNotice_AddMessage(RaidWarningFrame, label .. " destroyed!", DESTROYED_CENTER_COLOR)
 	end
-	if t.destroyedParty and IsInGroup() then
+	if TotemOpt(element, "destroyedParty") and IsInGroup() then
 		local channel = (IsInGroup(LE_PARTY_CATEGORY_INSTANCE) and "INSTANCE_CHAT") or (IsInRaid() and "RAID") or "PARTY"
 		-- Forever has SendChatMessage only as C_ChatInfo.SendChatMessage, and locks
 		-- addon chat in boss fights, M+ and PvP matches: skip the send there (as
@@ -1085,9 +1241,9 @@ function SP:OnShadowTotemGone(element, entry, why)
 	if why == "destroyed" then
 		-- the core cannot tell your own right-click destroy from an enemy's
 		if not DestroyedByPlayer(entry.slot) then self:TotemDestroyedAlert(entry.name, color, element, entry.icon) end
-	elseif why == "expired" and sv.totems.expired then
+	elseif why == "expired" and TotemOpt(element, "expired") then
 		local text = StripRank(entry.name or "Totem") .. " Expired"
-		Raise("totem", text, TotemAlertIcon(entry.icon, element), color, ExpiredKey(entry.name, element, text))
+		Raise("totem", text, TotemAlertIcon(entry.icon, element), color, ExpiredKey(entry.name, element, text), element)
 	end
 	if previousState.totems[element] then previousState.totems[element].active = false end
 end
@@ -1191,9 +1347,9 @@ function SP:CheckTotemState(initializing)
 
 				if isExpired then
 					-- Totem expired naturally
-					if sv.totems.expired then
+					if TotemOpt(element, "expired") then
 						local text = StripRank(prevName) .. " Expired"
-						Raise("totem", text, TotemAlertIcon(prevIcon, element), elementColor, ExpiredKey(prevName, element, text))
+						Raise("totem", text, TotemAlertIcon(prevIcon, element), elementColor, ExpiredKey(prevName, element, text), element)
 					end
 				elseif deferDestroyed then
 					-- Totem was destroyed, unless a recall, your own destroy or death says otherwise (above)
@@ -1299,12 +1455,12 @@ function SP:CheckWeaponEnchantState(initializing)
 	if not initializing then
 		-- Main hand: was enchanted, now not enchanted, and still has weapon
 		if prevMainHand and not mainHandEnchanted and hasMainHandWeapon and sv.weaponImbues.mainHand then
-			Raise("imbue", "Weapon Imbue (MH)", WeaponImbues.windfury.icon, ImbueAlertColor(sv))
+			Raise("imbue", "Weapon Imbue (MH)", WeaponImbues.windfury.icon, ImbueAlertColor(sv), nil, "mh")
 		end
 
 		-- Off hand: was enchanted, now not enchanted, and still has weapon
 		if prevOffHand and not offHandEnchanted and hasOffHandWeapon and sv.weaponImbues.offHand then
-			Raise("imbue", "Weapon Imbue (OH)", WeaponImbues.flametongue.icon, ImbueAlertColor(sv))
+			Raise("imbue", "Weapon Imbue (OH)", WeaponImbues.flametongue.icon, ImbueAlertColor(sv), nil, "oh")
 		end
 	end
 
@@ -1798,15 +1954,39 @@ function SP:ExpiringAlertsUpdate()
 	self:UpdateExpiringAlertsState()
 end
 
+-- Put Your Usual Totem Back's text line (Totem Bar > Effects > Also Show a Text Alert,
+-- ShamanPowerUsualTotem.lua): Test Alerts plays one too while it is on (3.0.8, A16 Q9)
+function SP:ExpiringAlertsTestHasReminder()
+	local o = self.opt
+	return o ~= nil and o.usualTotemReminder == true and o.usualTotemAlert == true
+end
+local function ReminderTestLine()
+	local names = SP.TotemNames and SP.TotemNames[4]
+	if SP.GetTotemSpell and type(names) == "table" then
+		for i in pairs(names) do
+			if SP:GetTotemSpell(4, i) == 8512 then
+				return "Put " .. SP:GetTotemName(4, i) .. " back", SP:GetTotemIcon(4, i)
+			end
+		end
+	end
+	return "Put " .. SPCompat.SpellLabel(8512, "Windfury Totem") .. " back", "Interface\\Icons\\Spell_Nature_Windfury"
+end
+
 function SP:ExpiringAlertsTest()
-	-- Show test alerts for each type
+	-- Show test alerts for each type (each with its own sound: Earth's, Main Hand's)
 	self:ShowExpiringAlert("shield", LS_NAME, ShieldSpells.lightningShield.icon, ElementColors.lightning)
 	C_Timer.After(0.5, function()
-		SP:ShowExpiringAlert("totem", SPCompat.SpellName(8143, "Tremor Totem") .. " Destroyed!", "Interface\\Icons\\Spell_Nature_TremorTotem", TotemElements[1].color)
+		SP:ShowExpiringAlert("totem", SPCompat.SpellName(8143, "Tremor Totem") .. " Destroyed!", "Interface\\Icons\\Spell_Nature_TremorTotem", TotemElements[1].color, 1)
 	end)
 	C_Timer.After(1.0, function()
-		SP:ShowExpiringAlert("imbue", WeaponImbues.windfury.name, WeaponImbues.windfury.icon, ElementColors.air)
+		SP:ShowExpiringAlert("imbue", WeaponImbues.windfury.name, WeaponImbues.windfury.icon, ElementColors.air, "mh")
 	end)
+	if self:ExpiringAlertsTestHasReminder() then
+		C_Timer.After(1.5, function()
+			local text, icon = ReminderTestLine()
+			SP:ShowExpiringAlert("reminder", text, icon, SP:ExpiringAlertElementColor(4))
+		end)
+	end
 end
 
 function SP:ExpiringAlertsDemo(on)
@@ -1822,24 +2002,25 @@ function SP:ExpiringAlertsDemo(on)
 		frame:Show()
 		local sv = ShamanPowerExpiringAlertsDB
 		local SCENE = {
+			-- (each alert's own switch and its own choices, 3.0.8)
 			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.lightning end,
 			  name = LS_NAME, icon = ShieldSpells.lightningShield.icon, color = ElementColors.lightning,
 			  story = "Your Lightning Shield just ran out" },
-			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.destroyed end,
+			{ type = "totem", cond = function() return (self:ExpiringAlertOn("earth")) and TotemOpt(1, "destroyed") end,
 			  name = SPCompat.SpellName(8143, "Tremor Totem") .. " Destroyed!", icon = "Interface\\Icons\\Spell_Nature_TremorTotem", color = TotemElements[1].color,
-			  story = "A mob killed your Tremor Totem" },
+			  story = "A mob killed your Tremor Totem", soundKey = 1 },
 			{ type = "imbue", cond = function() return sv.weaponImbues.enabled and sv.weaponImbues.mainHand end,
 			  name = "Weapon Imbue (MH)", icon = WeaponImbues.windfury.icon, color = ImbueAlertColor(sv),
-			  story = "Windfury Weapon faded from your main hand" },
+			  story = "Windfury Weapon faded from your main hand", soundKey = "mh" },
 			{ type = "imbue", cond = function() return sv.weaponImbues.enabled and sv.weaponImbues.offHand end,
 			  name = "Weapon Imbue (OH)", icon = WeaponImbues.flametongue.icon, color = ImbueAlertColor(sv),
-			  story = "Flametongue Weapon faded from your off hand" },
+			  story = "Flametongue Weapon faded from your off hand", soundKey = "oh" },
 			{ type = "shield", cond = function() return sv.shields.enabled and sv.shields.water end,
 			  name = WS_NAME, icon = ShieldSpells.waterShield.icon, color = ElementColors.water,
 			  story = "Your Water Shield just ran out" },
-			{ type = "totem", cond = function() return sv.totems.enabled and sv.totems.expired end,
+			{ type = "totem", cond = function() return (self:ExpiringAlertOn("water")) and TotemOpt(3, "expired") end,
 			  name = SPCompat.SpellName(5675, "Mana Spring Totem") .. " Expired", icon = "Interface\\Icons\\Spell_Nature_ManaRegenTotem", color = TotemElements[3].color,
-			  story = "Your Mana Spring Totem timed out" },
+			  story = "Your Mana Spring Totem timed out", soundKey = 3 },
 			{ type = "earthshield", cond = function() return sv.shields.enabled and sv.shields.earthShield and not (SPCompat and SPCompat.earthShieldExists == false) end,
 			  name = ES_NAME .. " (Tank)", icon = ShieldSpells.earthShield.icon, color = ElementColors.earth,
 			  story = "Earth Shield dropped off your tank" },
@@ -1852,7 +2033,7 @@ function SP:ExpiringAlertsDemo(on)
 				local a = SCENE[idx]
 				if a.cond() then
 					self.expiringDemoStatus = a.story
-					QueueAlert(self.alertQueue, a.type, a.name, a.icon, a.color)
+					QueueAlert(self.alertQueue, a.type, a.name, a.icon, a.color, a.soundKey)
 					self:ProcessAlertQueue()
 					return
 				end
