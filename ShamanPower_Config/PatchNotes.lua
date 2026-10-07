@@ -8,6 +8,16 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.6.2",
+		date = "2026-10-07",
+		headline = "Your Fire totem stays on Blizzard's totem bar, and the Support Code always builds",
+		new = {},
+		fixes = {
+			"WoW: Forever, Blizzard's totem sets: with My Assignments Follow Blizzard's Totem Bar on, an element you had never set in ShamanPower (for example Fire, if you learned Searing Totem later) wiped the totem you put on Blizzard's own totem bar every time ShamanPower loaded. Now that totem becomes your ShamanPower assignment instead, and Blizzard's bar keeps it.",
+			"Support Code: on WoW: Forever, pressing Support Code could fail with \"could not build the support code\" when your settings held something the code can't carry (for example a name the game keeps hidden in dungeons and fights). The code now always builds: anything it can't carry is left out, and the code says what was left out, so I can still see your setup.",
+		},
+	},
+	{
 		v = "3.0.6.1",
 		date = "2026-10-06",
 		headline = "The totem bar stays off, Compact's shield line in fights, and party dots",
