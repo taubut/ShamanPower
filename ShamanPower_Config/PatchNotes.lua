@@ -12,7 +12,11 @@ ns.PATCH_NOTES = {
 		date = "2026-10-07",
 		headline = "Pick an icon for Drop All, and its icon stays in step",
 		new = {
-			"Drop All Icon (Totem Bar > Drop All): pick any icon for the Drop All button instead of the icon of the totem it drops next. It stays put, with Call of the Elements too. Next Totem puts the usual icon back.",
+			{ h = "Drop All Icon", icon = 136024,
+			  b = "Pick any icon for the Drop All button instead of the icon of the totem it drops next. It stays put, with Call of the Elements too. Next Totem puts the usual icon back.",
+			  path = "Settings > Totem Bar > Drop All", open = { "buttons", "dropall_section" },
+			  card = true,
+			  s = "Pick any icon for the Drop All button, and it stays put." },
 		},
 		fixes = {
 			"Drop All button (the one-totem-per-click version): a fast double-click, or a click that cast nothing, moved the button's icon on anyway, so from then on it showed one totem and dropped the next. The icon now asks the game where the button's sequence stands, so it moves only when a totem cast goes through, and forgets its place exactly when the button does: 15 seconds after the last press, at the end of a fight, or on death.",
