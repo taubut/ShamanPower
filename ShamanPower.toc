@@ -44,6 +44,7 @@ ShamanPowerCompact.lua
 ShamanPowerUnlock.lua
 ShamanPowerReadyCheck.lua
 ShamanPowerKeybindMode.lua
+ShamanPowerControllerPad.lua
 ShamanPowerTrainer.lua
 ShamanPowerShareCode.lua
 ShamanPowerSupportCode.lua
