@@ -12644,6 +12644,25 @@ do
 			.. " in the styles each item has (right-click an item, then Effects). Running Out and Cooldown Almost Ready play"
 			.. " for 3 seconds, then Turns Red While Missing for 3 more when it is on."
 	end
+	-- the bar-wide rows ask the items now: any item with a progress bar, any with its time on the icon
+	local function anyItem(name, shared)
+		if SP.CdItemAny then return SP:CdItemAny(name) end
+		return shared()
+	end
+	local function anyBar() return anyItem("progressBar", function() return SP.opt.cdbarShowProgressBars ~= false end) end
+	local function anyTime() return anyItem("timeOnIcon", function() return SP.opt.cdbarShowCDText ~= false end) end
+	local function noBars() return not anyBar() end
+	if args.cdbar_progress_position then args.cdbar_progress_position.disabled = noBars end
+	if args.cdbar_progress_height then args.cdbar_progress_height.disabled = noBars end
+	if args.cdbar_gradient_direction then
+		args.cdbar_gradient_direction.hidden = function() return SP.opt.barGradient == nil or noBars() end
+	end
+	local function numbersHidden()
+		return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and not SP:CountdownNumbersEnabled()
+			and (anyTime() or (SP.opt.cdbarDurationTextLocation or "none") ~= "none"))
+	end
+	if args.cdbar_numbers_note then args.cdbar_numbers_note.hidden = numbersHidden end
+	if args.cdbar_numbers_button then args.cdbar_numbers_button.hidden = numbersHidden end
 	F.cdbar_page = { type = "group", name = "Cooldown Bar", order = 12, args = args }
 	SP.OptionCustomRow = SP.OptionCustomRow or {}
 	SP.OptionCustomRow[args.cdbarIcons] = "cdbarIcons"

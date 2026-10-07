@@ -8,8 +8,10 @@
 -- the bar (the bar's own order, opt.cooldownBarOrder). The rest of the page (Bar,
 -- Progress Bars and Time, Effects, Position) is ShamanPowerOptions.lua's.
 --
--- Every value goes through Data.Get / Data.Set by the item's setting names
--- (CONTRACT-cdbar-items: runOutOnly, sweep, cueGone ...).
+-- Every value goes through Data.Get / Data.Set by the item's setting names (runOutOnly,
+-- sweep, cueGone ...: ShamanPowerCdItems.lua): SP:CdItemOpt reads the item's own value,
+-- else today's shared one; SP:SetCdItemOpt saves it as the item's own (the bar follows).
+-- A value of the item's own is drawn in blue in the menu, and the item gets the blue corner.
 local _, ns = ...
 local Core = ns.Core
 local SP = ShamanPower
@@ -124,9 +126,12 @@ local function ShownOnBar(t)
 end
 
 -- ---------------------------------------------------------------------------
--- The item values (stage 1: the shared settings, through their own options)
+-- The item values: each item's own (SP:CdItemOpt / SetCdItemOpt, ShamanPowerCdItems.lua);
+-- with a core that has no per-item settings yet (an update not restarted), the shared
+-- settings through their own options, as the page was before
 -- ---------------------------------------------------------------------------
 local Data = {}
+local function PerItem() return type(SP.CdItemOpt) == "function" and type(SP.SetCdItemOpt) == "function" end
 ns.CdbarData = Data
 local D, E, I = "cooldown_display_section", "cdbar_effects_section", "cdbar_items_section"
 local GONE = { [SHIELD] = { "cdbarCueShield", "cdbarCueShieldStyle", "cdbarCueShieldMark" },
@@ -159,8 +164,12 @@ local SHARED = {
 	onTotemBar      = { I, "cdbar_recall_on_totembar" },
 }
 
--- value, own (own: the item's own value, drawn in blue; stage 1 has none)
+-- value, own (own: the item's own value, drawn in blue)
 function Data.Get(t, name)
+	if PerItem() then
+		local own = SP.CdItemOwnOpt and SP:CdItemOwnOpt(t, name)
+		return SP:CdItemOpt(t, name), own ~= nil
+	end
 	if name == "buttonStyle" then
 		if not OptGet(D, "cdbar_own_style") then return "mirror", false end
 		return OptGet(D, "cdbar_style") or "normal", false
@@ -179,6 +188,10 @@ function Data.Get(t, name)
 end
 
 function Data.Set(t, name, v)
+	if PerItem() then
+		SP:SetCdItemOpt(t, name, v)
+		return
+	end
 	if name == "buttonStyle" then
 		if v == "mirror" then
 			OptSet(D, "cdbar_own_style", false)
@@ -240,6 +253,12 @@ local function Secs(v) return string.format("%d sec", tonumber(v) or 0) end
 local function IsShieldOrImbue(t) return t == SHIELD or t == IMBUE end
 
 -- an effect's switch and style as one row: Off, or the style it plays (Q7)
+-- Signature Moves (the page's Effects): every effect plays the Effects Look's own move
+local function SignatureOn()
+	local o = SP.opt
+	return (o and o.cdbarCueSignature and (o.cdbarCueLook or "standard") ~= "standard") and true or false
+end
+
 local function EffectRow(t, text, onName, styleName, list, fallback, tip)
 	local function cur()
 		local on, own1 = Get(t, onName)
@@ -255,10 +274,12 @@ local function EffectRow(t, text, onName, styleName, list, fallback, tip)
 		end,
 		sub = function()
 			local now = cur()
+			-- Signature Moves on: the move it plays (Off still turns it off)
+			local sig = SignatureOn() and (Get(t, styleName) or fallback) or nil
 			local items = {}
 			for _, c in ipairs(list) do
 				local v = c[1]
-				items[#items + 1] = { text = c[2], selected = now == v, onClick = function()
+				items[#items + 1] = { text = c[2], selected = now == v, disabled = (sig and v ~= "off" and v ~= sig) or nil, onClick = function()
 					if v == "off" then
 						Data.Set(t, onName, false)
 					else
@@ -344,8 +365,18 @@ local function ChargeRows(t)
 end
 
 local FOREVER = SPCompat and SPCompat.FOREVER
+-- this item's effects on the bar (the page's Test button plays every item's)
+local function TestItem(t)
+	if SP.TestCdItemCues then SP:TestCdItemCues(t) elseif SP.TestCooldownCues then SP:TestCooldownCues() end
+	return true
+end
 local function EffectRows(t)
 	local r = {}
+	if SignatureOn() then
+		r[#r + 1] = { text = "Signature Moves is on (this page, Effects):", disabled = true }
+		r[#r + 1] = { text = "each effect plays the look's own move.", disabled = true }
+		r[#r + 1] = SEP
+	end
 	if IsShieldOrImbue(t) then
 		local shield = t == SHIELD
 		r[#r + 1] = EffectRow(t, shield and "Shield Gone" or "Weapon Imbue Gone", "cueGone", "cueGoneStyle", GONE_STYLES[t], "shake",
@@ -367,10 +398,7 @@ local function EffectRows(t)
 		r[#r + 1] = OnOffName(t, "Time Turns Red While Running Out", "cueTimeColor",
 			"The time on the button turns red while it is running out. On a button that turns red, the time stays white so you can read it.")
 		r[#r + 1] = SEP
-		r[#r + 1] = { text = "Test This Item's Effects", onClick = function()
-			if SP.TestCooldownCues then SP:TestCooldownCues() end
-			return true
-		end }
+		r[#r + 1] = { text = "Test This Item's Effects", onClick = function() return TestItem(t) end }
 	else
 		r[#r + 1] = EffectRow(t, "Cooldown Ready", "cueReady", "cueReadyStyle", READY_STYLES, "pop",
 			"When the cooldown is ready again, the button plays this in gold.")
@@ -379,10 +407,7 @@ local function EffectRows(t)
 		r[#r + 1] = OnOffName(t, "Time Turns Gold When Almost Ready", "cueTimeColor",
 			"The time on the button turns gold over its last seconds (Almost Ready At).")
 		r[#r + 1] = SEP
-		r[#r + 1] = { text = "Test This Item's Effects", onClick = function()
-			if SP.TestCooldownCues then SP:TestCooldownCues() end
-			return true
-		end }
+		r[#r + 1] = { text = "Test This Item's Effects", onClick = function() return TestItem(t) end }
 	end
 	return r
 end
@@ -533,7 +558,7 @@ Row = ns.IconRow.New({
 	end,
 	shown = function(item) return ShownOnBar(item.key) end,
 	learned = function(item) return Learned(item.key) end,
-	hasOwn = function() return false end,
+	hasOwn = function(item) return SP.CdItemHasOwn and SP:CdItemHasOwn(item.key) or false end,
 	toggle = function(item)
 		local key = SHOW_OPTION[item.key]
 		if key then OptSet(I, key, not ShownOnBar(item.key)) end
