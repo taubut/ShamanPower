@@ -24,6 +24,7 @@ TTIcons.lua
 TTRules.lua
 IconRow.lua
 CdbarIcons.lua
+ShieldIcons.lua
 ControllerButtons.lua
 Assign.lua
 FrameSettings.lua

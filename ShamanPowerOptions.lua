@@ -12700,3 +12700,164 @@ do
 		SP.SettingsPathAliases["fluffy/" .. old] = { "fluffy", "cdbar_page" }
 	end
 end
+
+-- Shield Charges (A17, 3.0.8): one page. The Shields row (ShamanPower_Config ShieldIcons.lua:
+-- click a shield to show or hide its charges, right-click it for all of its settings: each
+-- shield owns its own, nothing shared), then only Position (Lock Position, Move). On / off:
+-- the switch beside Shield Charges in the sidebar (Window.lua POWER_SHIELDCHARGES). The old
+-- group stays as the holder of its rows (Expiring Alerts and General > Themes still build
+-- from the same helpers); its old address lands on this page.
+do
+	local SP = ShamanPower
+	local F = SP.options.args.fluffy.args
+	local sc = F.shieldcharges_section.args
+	-- what a search finds in the Shields row (it draws itself, so this text is never shown): every shield
+	-- and every word its right-click menu draws, so a search for a setting that moved into a menu lands here
+	local SHIELDS_SEARCH = "Shields: Lightning Shield, Water Shield, Earth Shield. Show Player Shield Charges, Show Earth"
+		.. " Shield Charges: click a shield to show or hide its charges, right-click it for its settings. Show: While It's Up,"
+		.. " Always (Gray While It's Not Up), In Fights, While It's Up, In Fights (Gray While It's Not Up); Hide Out of Combat,"
+		.. " Hide When No Shields. Scale, Opacity. Icon & Number: Shield Icon, Show Shield Icon, Number, Show Number, Number"
+		.. " Position (Center, Bottom-Right Corner). Charge Bar: Show Charge Bar, Look (Bar, Glowing Orbs, Shield Icon Orbs,"
+		.. " Flat Orbs, Storm Orbs, Tide Orbs, Bubble Orbs, Foam Orbs, Stone Ring Orbs, Leaf Wreath Orbs, Spiked Stone Orbs),"
+		.. " Lightning Shield Look, Water Shield Look, Earth Shield Look, Direction, Charge Bar Direction (Below, Above, Vertical),"
+		.. " Texture, Charge Bar Texture, Orb Color, Empty Orbs, Show Empty Orbs, Animated Lightning, Animated Water, Animated"
+		.. " Earth. Color: Charge Color, Lightning Shield Charge Color, Water Shield Charge Color, Earth Shield Charge Color,"
+		.. " Gradient, Charge Bar Gradient, Gradient Direction, Start From Its Own Color, First Color, Second Color, Fade To,"
+		.. " Default Color, Default Charge Colors. Sound: Sound When It Drops, Sound When Your Shield Drops, Shield Drop Sound,"
+		.. " Test Sound. Copy Settings, Paste Settings, Copy Settings To, Copy To All Shields, Hide This Shield, Reset This Shield."
+	local function anyFightsOnly()
+		if InCombatLockdown() or not SP.ShieldOpt then return nil end
+		local names = {}
+		local noEarth = SP.ESTrackerUnavailable or (SPCompat and SPCompat.FOREVER)
+		for _, s in ipairs({ "LS", "WS", "ES" }) do
+			if not (s == "ES" and noEarth) and SP:ShieldOpt(s, "enabled") then
+				local show = SP:ShieldOpt(s, "show")
+				if show == "fights" or show == "fightsUp" then
+					names[#names + 1] = (s == "LS" and "Lightning Shield") or (s == "WS" and "Water Shield") or "Earth Shield"
+				end
+			end
+		end
+		if #names == 0 then return nil end
+		return names
+	end
+	local args = {
+		shieldIcons = { type = "description", width = "full", name = " ", desc = SHIELDS_SEARCH },
+		-- a shield whose Show is a fights-only choice: says why it isn't on screen now
+		shieldcharges_fights_note = { type = "description", width = "full",
+			name = function()
+				local n = anyFightsOnly()
+				if not n then return "" end
+				local who = table.concat(n, " and ")
+				return "|cffffa040" .. who .. ((#n > 1) and " show" or " shows") .. " only in fights, so you won't see "
+					.. ((#n > 1) and "them" or "it") .. " now. Its menu's Show changes that.|r"
+			end,
+			hidden = function() return anyFightsOnly() == nil end },
+		-- at the top of Position: a button into Unlock UI (Done there ends it), a box per shield
+		shieldcharges_move = { type = "execute", width = 1.0, name = "Move",
+			desc = "Hides this window and draws a box round each shield's charges on your screen. Drag them where you want"
+				.. " them, then press Done. The mouse wheel over a box is that shield's Scale. It can't be done in a fight.",
+			func = function()
+				if SP.ShieldChargesRefuseInCombat and SP.ShieldChargesRefuseInCombat() then return end
+				SP:UnlockModuleFrames("shieldcharges")
+			end },
+	}
+	args.module_missing_note = sc.module_missing_note
+	args.shieldcharges_locked = sc.shieldcharges_locked
+	if args.shieldcharges_locked then
+		args.shieldcharges_locked.width = 1.0
+		args.shieldcharges_locked.desc = "Locks every shield's charges in place (click-through)."
+		local set = args.shieldcharges_locked.set
+		args.shieldcharges_locked.set = function(info, v)
+			if SP.ShieldChargesRefuseInCombat and SP.ShieldChargesRefuseInCombat() then return end
+			set(info, v)
+		end
+	end
+	F.shieldcharges_page = { type = "group", name = "Shield Charges", order = 17, args = args }
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[args.shieldIcons] = "shieldIcons"
+	SP.OrderSettingsBands(F.shieldcharges_page, {
+		{ keys = { "module_missing_note", "shieldcharges_fights_note" } },
+		{ header = "shields_header", name = "Shields", keys = { "shieldIcons" } },
+		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked", "shieldcharges_move" } },
+	})
+	-- the old page's rows wrote the shared keys every shield read before the split: gone (each shield's
+	-- menu has its own now). The old group keeps only what this page shares with it.
+	for _, k in ipairs({ "both_off_note", "hide_ooc_note", "shieldcharges_player", "shieldcharges_earth", "shieldcharges_scale",
+		"shieldcharges_opacity", "shieldcharges_show_icon", "shieldcharges_show_number", "shieldcharges_number_position",
+		"shieldcharges_show_bar", "shieldcharges_look_ls", "shieldcharges_look_ws", "shieldcharges_look_es",
+		"shieldcharges_orb_color", "shieldcharges_orb_empty", "shieldcharges_orb_anim", "shieldcharges_orb_anim_ws",
+		"shieldcharges_orb_anim_es", "shieldcharges_bar_direction", "shieldcharges_bar_texture", "shieldcharges_hide_ooc",
+		"shieldcharges_hide_none", "shieldcharges_drop_sound", "shieldcharges_drop_sound_picker",
+		"shieldcharges_drop_sound_testsound", "shieldcharges_color_1", "shieldcharges_color_2", "shieldcharges_color_3",
+		"shieldcharges_color_default", "chargeGradient", "chargeGradient_direction", "chargeGradient_own",
+		"chargeGradient_color1", "chargeGradient_color2", "chargeGradient_fade", "look_header", "charge_colors_header",
+		"behaviour_header", "sound_header" }) do
+		sc[k] = nil
+	end
+	-- General > Themes, Shield Charge Display: one row per shield (Q5) drawn from these (Themes.lua
+	-- MODULE_EXTRAS): its own Charge Bar Texture and Gradient, the same settings as its menu here
+	do
+		local NAME = { LS = "Lightning Shield", WS = "Water Shield", ES = "Earth Shield" }
+		local function texValues()
+			local v = { default = "Default (as designed)" }
+			for _, name in ipairs(SP.TextureList and SP:TextureList() or {}) do v[name] = name end
+			return v
+		end
+		local function texSorting()
+			local o = { "default" }
+			for _, name in ipairs(SP.TextureList and SP:TextureList() or {}) do o[#o + 1] = name end
+			return o
+		end
+		local function gradValues()
+			local v = {}
+			for _, g in ipairs(SP.GRADIENTS or {}) do v[g.key] = g.label end
+			return v
+		end
+		local function gradSorting()
+			local o = {}
+			for _, g in ipairs(SP.GRADIENTS or {}) do o[#o + 1] = g.key end
+			return o
+		end
+		local DIRS = { default = "Along the Bar (default)", ttb = "Top to Bottom", btt = "Bottom to Top", ltr = "Left to Right",
+			rtl = "Right to Left" }
+		local DIR_ORDER = { "default", "ttb", "btt", "ltr", "rtl" }
+		for _, w in ipairs({ "LS", "WS", "ES" }) do
+			local function gone()
+				if not (SP.ShieldOpt and SP.ShieldChargesLoaded) then return true end
+				if w == "ES" and (SP.ESTrackerUnavailable or SPCompat.FOREVER) then return true end
+				return not SP:ShieldOpt(w, "bar")
+			end
+			local function look() return SP.ShieldOpt and SP:ShieldOpt(w, "look") or "bar" end
+			local function noGradient() return gone() or not (look() == "bar" or look() == "glow" or look() == "flat") end
+			local function grad() return SP.ShieldOpt and SP:ShieldOpt(w, "gradient") or "default" end
+			local function set(name) return function(_, v) if not InCombatLockdown() then SP:SetShieldOpt(w, name, v) end end end
+			sc["sctheme_texture_" .. w] = { type = "select", name = "Charge Bar Texture",
+				desc = NAME[w] .. "'s own bar texture (the Bar look): it never follows Bar Texture. The same setting as its menu on"
+					.. " Shield Charges > Charge Bar > Texture.",
+				hidden = function() return gone() or look() ~= "bar" end,
+				values = texValues, sorting = texSorting,
+				get = function() return SP:ShieldOpt(w, "texture") or "default" end, set = set("texture") }
+			sc["sctheme_gradient_" .. w] = { type = "select", name = "Charge Bar Gradient",
+				desc = "Shades " .. NAME[w] .. "'s charge bar (and its Glowing and Flat orbs): its own, never Bar Gradient's. The same"
+					.. " setting as its menu on Shield Charges > Color > Gradient.",
+				hidden = noGradient, values = gradValues, sorting = gradSorting,
+				get = function() return grad() end, set = set("gradient") }
+			sc["sctheme_gradientDirection_" .. w] = { type = "select", name = "Gradient Direction",
+				desc = "Where the gradient starts on screen.",
+				hidden = function() return noGradient() or grad() == "default" end,
+				values = DIRS, sorting = DIR_ORDER,
+				get = function() return SP:ShieldOpt(w, "gradientDirection") or "default" end, set = set("gradientDirection") }
+			sc["sctheme_gradientColor2_" .. w] = { type = "color", name = "Gradient Second Color",
+				desc = "The color the Two-Tone gradient shades into. WoW gold to start.",
+				hidden = function() return noGradient() or grad() ~= "two" end,
+				get = function()
+					local c = SP:ShieldOpt(w, "gradientColor2") or {}
+					return c.r or 1, c.g or 0.82, c.b or 0
+				end,
+				set = function(_, r, g, b) if not InCombatLockdown() then SP:SetShieldOpt(w, "gradientColor2", { r = r, g = g, b = b }) end end }
+		end
+	end
+	-- the old address (settings links, patch notes, Unlock UI's right-click) opens this page
+	SP.SettingsPathAliases = SP.SettingsPathAliases or {}
+	SP.SettingsPathAliases["fluffy/shieldcharges_section"] = { "fluffy", "shieldcharges_page" }
+end

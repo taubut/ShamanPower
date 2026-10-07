@@ -1301,8 +1301,8 @@ local BLOCKS = {
 		desc = "The texture of every bar ShamanPower draws, unless a part picks its own."
 			.. " The same setting as Bar Texture on General > Fonts & Textures." },
 	shieldTexture = { label = "Shield Charge Bars",
-		desc = "The texture for Shield Charges' bars and the Cooldown Bar's Shield Charge Bar. Set separately from Bar Texture."
-			.. " The same setting as on General > Fonts & Textures and Shield Charges." },
+		desc = "The texture for the Cooldown Bar's Shield Charge Bar. Set separately from Bar Texture. Each shield's charges on"
+			.. " screen have their own (Shield Charge Display, below). The same setting as on General > Fonts & Textures." },
 	wow = { label = "WoW's Own Colors",
 		desc = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game."
 			.. " A swatch below tagged WOW is one of these; click it to pick your own color for that part instead." },
@@ -2442,9 +2442,18 @@ local function OrbCards(which)
 	orbCardCache[which] = cards
 	return cards
 end
-local function ShieldBarShown()
+-- which: 1 Lightning, 2 Water, 3 Earth Shield (nil: any); each shield has its own Charge Bar (A17)
+local SHIELD_KEY = { "LS", "WS", "ES" }
+local function ShieldBarShown(which)
+	if not SP.ShieldChargesLoaded then return false end
+	if SP.ShieldOpt then
+		for w = which or 1, which or 3 do
+			if not (w == 3 and SPCompat.FOREVER) and SP:ShieldOpt(SHIELD_KEY[w], "bar") then return true end
+		end
+		return false
+	end
 	local s = SP.opt and SP.opt.shieldChargeDisplay
-	return SP.ShieldChargesLoaded and s and s.showChargeBar and true or false
+	return s and s.showChargeBar and true or false
 end
 local ORB_ROW = {
 	{ label = "Lightning Shield Charges", note = "Lightning Shield's charges: the bar, or one orb per charge. Also on Shield Charges (Lightning Shield Look)." },
@@ -2455,7 +2464,7 @@ for which = 1, 3 do
 	SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "orbs" .. which, orbs = which, label = ORB_ROW[which].label, note = ORB_ROW[which].note,
 		list = function() return OrbCards(which) end,
 		-- Earth Shield: Anniversary only (WoW: Forever has none)
-		shown = function() return ShieldBarShown() and (which < 3 or not SPCompat.FOREVER) end,
+		shown = function() return ShieldBarShown(which) and (which < 3 or not SPCompat.FOREVER) end,
 		get = function() return SP.GetShieldLook and SP:GetShieldLook(which) or "bar" end,
 		set = function(k) if SP.SetShieldLook then SP:SetShieldLook(which, k) end end }
 end
@@ -2464,7 +2473,7 @@ end
 local CHARGE_NAMES = { "Lightning Shield Charge Color", "Water Shield Charge Color", "Earth Shield Charge Color" }
 SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient", list = function() return SP.GRADIENTS end,
 	search = "Charge Bar Gradient Direction Lightning Shield Charge Color Water Shield Charge Color Earth Shield Charge Color Default Charge Colors",
-	note = "Shield Charges' own: the charge bar, the Glowing and Flat orbs and the cooldown bar's Shield Charge Bar. Bar Gradient never touches them. Also on Shield Charges.",
+	note = "The cooldown bar's Shield Charge Bar (each shield's charges on screen have their own gradient: Shield Charge Display, below), and each shield's Charge Color. Bar Gradient never touches them.",
 	shown = function() return ShieldBarShown() end,
 	get = function() return SP.opt.chargeGradient or "default" end, set = function(k) SP:SetGradientField("chargeGradient", k) end,
 	extra = function(y, W)
@@ -2871,7 +2880,17 @@ local MODULE_EXTRAS = {
 	totembar = { { key = "extra.manatint", label = "Mana Tint",
 		note = "Totem and cooldown buttons you do not have the mana for. Also on Appearance > Textures & Colors (turn Mana Tint on there).",
 		paths = { { "fluffy", "button_tints_section", "manaTintColor" } } } },
+	shieldcharges = {},
 }
+-- Shield Charge Display: one row per shield (A17 Q5), its own charge bar texture and gradient (the
+-- same settings as its right-click menu on Shield Charges; rows for the shield's charge bar only)
+for _, w in ipairs({ { "LS", "Lightning Shield" }, { "WS", "Water Shield" }, { "ES", "Earth Shield" } }) do
+	local function P(name) return { "fluffy", "shieldcharges_section", "sctheme_" .. name .. "_" .. w[1] } end
+	local list = MODULE_EXTRAS.shieldcharges
+	list[#list + 1] = { key = "extra.sc" .. w[1], label = w[2] .. " Charge Bar",
+		note = w[2] .. "'s own charge bar: its texture and gradient. Also on Shield Charges (right-click " .. w[2] .. ").",
+		paths = { P("texture"), P("gradient"), P("gradientDirection"), P("gradientColor2") } }
+end
 local function OptionAt(path)
 	local node = SP.options
 	for i = 1, #path do node = node and node.args and node.args[path[i]] end
