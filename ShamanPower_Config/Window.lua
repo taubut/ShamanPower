@@ -312,7 +312,11 @@ local NAV = {
 		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
 	}},
 	{ group = "Alerts & Reminders", power = true, entries = {
-		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
+		-- one page (A17): the Shields row (click, right-click) and Position
+		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true, power = POWER_SHIELDCHARGES,
+			desc = "Your shields' charges on screen. Each shield has its own settings: right-click it.",
+			onReset = function() local sp = SP() if sp and sp.ShieldChargesResetPage then sp:ShieldChargesResetPage() end end,
+			path = P("fluffy", "shieldcharges_page") },
 		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
 		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section"), power = POWER_READYREMINDERS },
 		{ label = "Target Tracker", preview = "targettracker", shamanOnly = true,       path = P("fluffy", "targettracker_section"), power = POWER_TARGETTRACKER, noReset = true },
