@@ -1812,7 +1812,7 @@ end
 -- Only on clicks: nothing here runs while playing.
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
-Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker" }
+Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker", "ShamanPower_ReactiveTotems" }
 Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor", "buffEdgeColor" }
 -- flat keys an update added, with their defaults (see Cards.Migrate)
 function Cards.InheritedSweepDirection() return "default" end
@@ -1829,6 +1829,14 @@ Cards.ADDED = {
 	["e.ctrl.bar.glyphs"] = function() return true end,
 	["e.ctrl.bar.cdLayout"] = function() return "cross" end,   -- (Show My Cooldowns > Separate's Cooldown Layout)
 }
+-- Reactive Totems: each alert's own looks (3.0.8; ShamanPower_ReactiveTotems registers the entries on
+-- mod.reactive, "default" = the alert follows the page's shared value): a look saved before had none
+for _, name in ipairs({ "iconSize", "opacity", "fontSize", "fontOutline", "hideBackground", "hideBorder",
+	"showDebuffName", "showDebuffIcon", "showTotemName", "showGlow", "glowIntensity" }) do
+	for _, id in ipairs({ "fear", "poison", "disease" }) do
+		Cards.ADDED["e.mod.reactive." .. name .. "." .. id] = Cards.InheritedSweepDirection
+	end
+end
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"
 

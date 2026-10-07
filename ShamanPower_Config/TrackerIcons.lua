@@ -445,8 +445,7 @@ do
 			if snap.flyoutDirection ~= nil then
 				SP:SetPopOutFlyoutDirection(key, snap.flyoutDirection)
 			elseif (Saved(key) or {}).flyoutDirection ~= nil then
-				SP:SetPopOutFlyoutDirection(key, "bottom")
-				Saved(key).flyoutDirection = nil
+				SP:SetPopOutFlyoutDirection(key, nil)   -- back on the inherited direction: the setter lays the flyout out again
 			end
 		end
 	end

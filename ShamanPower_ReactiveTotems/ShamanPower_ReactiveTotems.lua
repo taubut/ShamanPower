@@ -208,10 +208,13 @@ local function SetOwn(sv, id, name, v)
 	if next(own) == nil then sv.alertOwn[id] = nil end
 	if next(sv.alertOwn) == nil then sv.alertOwn = nil end
 end
--- v: the alert's own value (nil: back on the shared one); the alert is drawn again
+-- v: the alert's own value (nil: back on the shared one); the alert is drawn again.
+-- In a fight these refuse, as the settings page does (on WoW: Forever the game draws the
+-- alerts then, and a change waits for the fight's end): nothing is saved or drawn.
 function SP:SetReactiveOpt(id, name, v)
 	local sv = ShamanPower_ReactiveTotems
 	if not (sv and RT_OWN[name] and self.ReactiveTotems[id]) then return end
+	if InCombatLockdown() then return end
 	SetOwn(sv, id, name, v)
 	self:ReactiveOptChanged(id, name)
 end
@@ -220,6 +223,7 @@ end
 function SP:SetReactiveOpts(id, values, names)
 	local sv = ShamanPower_ReactiveTotems
 	if not (sv and self.ReactiveTotems[id]) then return end
+	if InCombatLockdown() then return end
 	local keys, look, hide = false, false, false
 	for _, name in ipairs(names) do
 		if RT_OWN[name] then
@@ -286,10 +290,11 @@ function SP:ReactiveOwnChanged(id)
 	end
 	return false
 end
--- Reset This Alert: back on the shared values
+-- Reset This Alert: back on the shared values (refused in a fight, as a change is)
 function SP:ResetReactiveAlert(id)
 	local sv = ShamanPower_ReactiveTotems
 	if not (sv and type(sv.alertOwn) == "table") then return end
+	if InCombatLockdown() then return end
 	local had = sv.alertOwn[id]
 	sv.alertOwn[id] = nil
 	if next(sv.alertOwn) == nil then sv.alertOwn = nil end
@@ -338,6 +343,51 @@ function SP:ReactiveBoxAccess(name, frame)
 end
 -- the defaults (Reset This Page)
 function SP:ReactiveTotemsDefaults() return defaultSettings end
+
+-- General > Themes (ShamanPowerTheme.lua, the theme cards): each alert's own looks are part
+-- of a theme, the way the Cooldown Bar's per-item looks are: "default" = the alert follows
+-- the page's shared value, a value = its own. A theme card (every default first) puts every
+-- alert back on the shared looks; a saved or shared theme brings each alert's own back.
+-- Looks only: Spell Keybind, Hide While Its Totem Is Down and the sound are never part of
+-- a theme. (ShamanPowerTheme.lua Cards.ADDED holds the same keys' "default" for a theme saved
+-- before; Reset This Page keeps these, so the theme stays as it is.)
+local RT_THEME_LOOKS = { "iconSize", "opacity", "fontSize", "fontOutline", "hideBackground", "hideBorder",
+	"showDebuffName", "showDebuffIcon", "showTotemName", "showGlow", "glowIntensity" }
+SP.ReactiveThemeLooks = RT_THEME_LOOKS
+if SP.ThemeSpotSettings then
+	local RANGE = { iconSize = { 32, 256 }, opacity = { 0.2, 1 }, fontSize = { 8, 24 }, glowIntensity = { 0.2, 1 } }
+	local WHAT = { iconSize = "Icon Size", opacity = "Opacity", fontSize = "Text Size", fontOutline = "Outline",
+		hideBackground = "Background", hideBorder = "Border", showDebuffName = "Debuff Text", showDebuffIcon = "Debuff Icon",
+		showTotemName = "Totem Name", showGlow = "Glow", glowIntensity = "Glow Intensity" }
+	local TITLE = { fear = "Fear", poison = "Poison", disease = "Disease" }
+	local MAY_BE_NUMBER, MAY_BE_BOOLEAN = { number = true }, { boolean = true }   -- (an alert's own value: Cards.FitsEntry)
+	local entries = {}
+	for _, name in ipairs(RT_THEME_LOOKS) do
+		local range = RANGE[name]
+		for _, id in ipairs({ "fear", "poison", "disease" }) do
+			entries[#entries + 1] = {
+				key = name .. "." .. id, label = "Reactive Totems: " .. TITLE[id] .. " " .. WHAT[name],
+				mayBe = range and MAY_BE_NUMBER or MAY_BE_BOOLEAN,
+				-- Keep inheritance: restoring a theme must not turn the shared value into the alert's own
+				get = function()
+					local v = SP:ReactiveOwnRaw(id, name)
+					if v == nil then return "default" end
+					return v
+				end,
+				set = function(v)
+					if v == "default" then
+						SP:SetReactiveOpt(id, name, nil)
+					elseif range then
+						if type(v) == "number" and v >= range[1] and v <= range[2] then SP:SetReactiveOpt(id, name, v) end
+					elseif type(v) == "boolean" then
+						SP:SetReactiveOpt(id, name, v)
+					end
+				end,
+			}
+		end
+	end
+	SP:ThemeSpotSettings("mod.reactive", entries)
+end
 
 -- ============================================================================
 -- Initialization
@@ -558,23 +608,28 @@ function SP:UpdateReactiveFrameAppearance(totemId, noEngine)
 	local function updateFrame(id)
 		local frame = self.reactiveFrames[id]
 		if not frame then return end
+		-- The host's own art (background, border, names) shows only while the host is the
+		-- alert. While the game draws the alerts (WoW: Forever, the engine's displays live)
+		-- it stays hidden whatever changed, until the rebuild that follows lands
+		-- (SetReactiveHostMode); size, opacity and fonts are taken at once.
+		local host = not (self.ReactiveEngineLive and self:ReactiveEngineLive())
 
 		local size = R(id, "iconSize") or 64
 		frame:SetSize(size, size)
 		frame:SetAlpha(R(id, "opacity") or 1.0)
 
 		-- Background
-		if R(id, "hideBackground") then
-			frame.bg:Hide()
-		else
+		if host and not R(id, "hideBackground") then
 			frame.bg:Show()
+		else
+			frame.bg:Hide()
 		end
 
 		-- Border
-		if R(id, "hideBorder") then
-			frame.borderFrame:Hide()
-		else
+		if host and not R(id, "hideBorder") then
 			frame.borderFrame:Show()
+		else
+			frame.borderFrame:Hide()
 		end
 
 		-- Font
@@ -584,13 +639,13 @@ function SP:UpdateReactiveFrameAppearance(totemId, noEngine)
 		SP:SetSPFont(frame.totemText, "alerts", fontSize - 2, outline)
 
 		-- Text visibility
-		if R(id, "showDebuffName") then
+		if host and R(id, "showDebuffName") then
 			frame.debuffText:Show()
 		else
 			frame.debuffText:Hide()
 		end
 
-		if R(id, "showTotemName") then
+		if host and R(id, "showTotemName") then
 			frame.totemText:Show()
 		else
 			frame.totemText:Hide()

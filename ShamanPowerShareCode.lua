@@ -54,6 +54,19 @@ local function anyTrue(t)
 	for _, v in pairs(t) do if v then return true end end
 	return false
 end
+-- Expiring Alerts' totem settings (3.0.8: each element has its own value, else the shared one): on
+-- for any element. shared(totems): today's read of the shared key, when the module's per-alert
+-- reader is not there
+local EA_ELEMENTS = { "earth", "fire", "water", "air" }
+local function anyTotemAlert(name, shared)
+	local sv = G("ShamanPowerExpiringAlertsDB")
+	if type(sv) ~= "table" then return false end
+	if not SP.ExpiringAlertOpt then return shared(sub(sv, "totems")) end
+	for _, k in ipairs(EA_ELEMENTS) do
+		if SP:ExpiringAlertOpt(k, name) == true then return true end
+	end
+	return false
+end
 
 -- APPEND-ONLY. { key, label, get }
 SP.SHARE_FEATURES = {
@@ -92,11 +105,12 @@ SP.SHARE_FEATURES = {
 	{ key = "expiringShields",    label = "Expiring alerts: shields",           get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "shields"), "enabled")) end },
 	{ key = "expiringTotems",     label = "Expiring alerts: totems",            get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "enabled")) end },
 	{ key = "expiringImbues",     label = "Expiring alerts: weapon imbues",     get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "weaponImbues"), "enabled")) end },
-	{ key = "totemDestroyed",     label = "Totem destroyed alert",              get = function() return notOff(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyed")) end },
-	{ key = "destroyedChat",      label = "Destroyed: chat line",               get = function() return notOff(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyedChat")) end },
-	{ key = "destroyedCenter",    label = "Destroyed: big text",                get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyedCenter")) end },
-	{ key = "destroyedParty",     label = "Destroyed: group chat",              get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyedParty")) end },
-	{ key = "totemExpired",       label = "Totem expired alert",                get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "expired")) end },
+	-- (3.0.8: each element's own value, else the shared one: on for any element)
+	{ key = "totemDestroyed",     label = "Totem destroyed alert",              get = function() return anyTotemAlert("destroyed", function(t) return notOff(sub(t, "destroyed")) end) end },
+	{ key = "destroyedChat",      label = "Destroyed: chat line",               get = function() return anyTotemAlert("destroyedChat", function(t) return notOff(sub(t, "destroyedChat")) end) end },
+	{ key = "destroyedCenter",    label = "Destroyed: big text",                get = function() return anyTotemAlert("destroyedCenter", function(t) return on(sub(t, "destroyedCenter")) end) end },
+	{ key = "destroyedParty",     label = "Destroyed: group chat",              get = function() return anyTotemAlert("destroyedParty", function(t) return on(sub(t, "destroyedParty")) end) end },
+	{ key = "totemExpired",       label = "Totem expired alert",                get = function() return anyTotemAlert("expired", function(t) return on(sub(t, "expired")) end) end },
 	{ key = "tremor",             label = "Tremor reminder",                    get = function() return on(sub(G("ShamanPowerTremorReminderDB"), "enabled")) end },
 	{ key = "partyDots",          label = "Party buff dots",                    get = function() return on(O().showPartyRangeDots) end },
 	{ key = "rangeCounters",      label = "Party range counters",               get = function() return on(sub(O().rangeCounter, "enabled")) end },
@@ -237,7 +251,11 @@ SP.SHARE_FEATURES = {
 	end },
 	-- 3.0.8: Show Spell Keybind (the key under each Reactive Totems alert's totem name)
 	{ key = "reactiveKeybinds",   label = "Reactive alerts show keybinds",       get = function()
-		return on(sub(G("ShamanPower_ReactiveTotems"), "enabled")) and on(sub(G("ShamanPower_ReactiveTotems"), "showSpellKeybind"))
+		local sv = G("ShamanPower_ReactiveTotems")
+		if not on(sub(sv, "enabled")) then return false end
+		-- (3.0.8: each alert's own value, else the shared one: on for any alert)
+		if SP.ReactiveAnyKeybind then return SP:ReactiveAnyKeybind() == true end
+		return on(sub(sv, "showSpellKeybind"))
 	end },
 	-- 3.0.8: Totem Bar > Clicks > Right-Click an Assignment = Clear Assignment
 	{ key = "assignRightClickClears", label = "Assignment window: right-click clears", get = function() return O().assignRightClick == "clear" end },

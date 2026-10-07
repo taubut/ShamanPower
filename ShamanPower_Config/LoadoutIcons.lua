@@ -97,9 +97,20 @@ end
 -- ---------------------------------------------------------------------------
 -- The menu
 -- ---------------------------------------------------------------------------
+-- the loadout in use, changed in its menu since it was switched to: its saved totems are not the
+-- ones on your bar now (a click on its tile, or Switch To This Loadout, puts them on the bar again)
+local function Differs(lo)
+	if not InUse(lo) then return false end
+	local mine = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player] or {}
+	for e = 1, 4 do
+		if (lo[e] or 0) ~= (mine[e] or 0) then return true end
+	end
+	return false
+end
+
 local function Switch(lo)
 	local i = IndexOf(lo)
-	if i and not InUse(lo) then SP:ApplyLoadout(i) end
+	if i and (not InUse(lo) or Differs(lo)) then SP:ApplyLoadout(i) end
 end
 
 -- every totem of an element this game has, in the old Edit totems dropdown's order
@@ -244,13 +255,15 @@ end
 local function MenuItems(item)
 	local lo = item.key
 	local r = {}
-	if InUse(lo) then
+	if InUse(lo) and not Differs(lo) then
 		r[#r + 1] = { text = "Switch To This Loadout", value = function() return "In use", false end, disabled = true,
 			tip = "It is the loadout in use: the green bar under it." }
 	else
 		r[#r + 1] = { text = "Switch To This Loadout",
-			tip = "Your totem bar takes its 4 totems and its Drop All choices, as a click on it (or on the loadout bar)"
-				.. " does. Out of a fight only.",
+			tip = InUse(lo) and ("It is the loadout in use, but its totems changed here since: your totem bar takes its 4 totems"
+					.. " (and its Drop All choices) again, as a click on it does. Out of a fight only.")
+				or ("Your totem bar takes its 4 totems and its Drop All choices, as a click on it (or on the loadout bar)"
+					.. " does. Out of a fight only."),
 			onClick = function() Switch(lo); Row:Changed(false) end }
 	end
 	r[#r + 1] = SEP
@@ -332,7 +345,9 @@ Row = ns.IconRow.New({
 		local body = i and SP:GetLoadoutDescription(i) or ""
 		local p = SetPageOf(lo)
 		if PAGE_NAMES[p] then body = body .. "\nBlizzard totem set: " .. PAGE_NAMES[p] .. "." end
-		if InUse(lo) then body = "In use.\n" .. body end
+		if InUse(lo) then
+			body = (Differs(lo) and "In use. Its totems changed here since: click it to put them on your bar.\n" or "In use.\n") .. body
+		end
 		return body
 	end,
 	label = function(item) return NameOf(item.key), InUse(item.key) end,

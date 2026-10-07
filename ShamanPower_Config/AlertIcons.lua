@@ -4,9 +4,10 @@
 -- every alert is an icon in its Alerts row. Click: that alert on or off. Right-click:
 -- everything about that one alert, grouped (an It Shows line first: what it says and when).
 -- No drag: Expiring Alerts' lines show as things happen and each Reactive Totems alert has
--- its own spot, so there is no order. The pages do not lock in a fight (they never did):
--- nothing here reaches a protected frame, and the game-drawn alerts (WoW: Forever) are
--- built again after a fight by their module.
+-- its own spot, so there is no order. In a fight the rows refuse changes, as the other icon
+-- pages do (the row's lock closes the menus when a fight starts; a click, a menu choice,
+-- Copy / Paste and Reset refuse and say so): on WoW: Forever the game draws the alerts in a
+-- fight, and the module builds them again with any change once the fight ends.
 --
 -- Expiring Alerts: Lightning Shield, Water Shield (and Earth Shield on your target, TBC
 -- Anniversary), the Earth, Fire, Water and Air totems, Main Hand, Off Hand. Each alert's
@@ -87,6 +88,13 @@ local EA_CAPTION = "|cff3FA9F5Click|r an alert to turn it on or off. |cff3FA9F5R
 	.. " each alert has its own. |cff3FA9F5Dark|r: not learned yet (you can still set it up)."
 local EA_HINT = "Click: turn it on or off\nRight-click: its settings"
 local NOT_LOADED = "Expiring Alerts is not loaded: turn on ShamanPower [Expiring Alerts] in the AddOns list, then type /reload."
+local EA_COMBAT = "|cff0070ddShamanPower|r: |cffe64a4aExpiring Alerts' settings can't change in combat - try again after the fight.|r"
+-- a change in a fight: refused, and said (the row's lock closes the menu when a fight starts)
+local function EARefuse()
+	if not InCombatLockdown() then return false end
+	print(EA_COMBAT)
+	return true
+end
 
 local EAItems, EAByKey = {}, {}
 local SHIELD_KEYS = { "LS", "WS", "ES" }
@@ -187,6 +195,7 @@ local function RawSet(it, name, v)
 end
 -- a choice: saved as this alert's own, the menu stays open and is drawn again
 local function Set(it, name, v)
+	if EARefuse() then return true end
 	if it.kind == "shield" then
 		if SP.SetShieldSoundOpt then SP:SetShieldSoundOpt(it.which, name, v) end
 	elseif EALoaded() then
@@ -235,6 +244,7 @@ local function Snapshot(it, names)
 	return snap
 end
 local function Paste(snap, to, only)
+	if EARefuse() then return end
 	local same = snap.family == Family(to)
 	local wanted = {}
 	for _, n in ipairs(only or NamesOf(to)) do wanted[n] = true end
@@ -245,6 +255,7 @@ local function Paste(snap, to, only)
 	end
 end
 local function CopyTo(from, list, names)
+	if EARefuse() then return end
 	local snap = Snapshot(from, names)
 	for _, to in ipairs(list) do
 		if to ~= from then Paste(snap, to, names) end
@@ -361,6 +372,7 @@ local function TurnLine(it, on)
 	return { text = on and "Turn This Alert Off" or "Turn This Alert On",
 		tip = "The same as a click on its icon. Its settings stay as they are.",
 		onClick = function()
+			if EARefuse() then return end
 			if EALoaded() then SP:SetExpiringAlertOn(it.key, not on) end
 			EARow:Changed(false)
 		end }
@@ -440,6 +452,7 @@ local function EAMenu(item)
 		tip = own and "Back to the settings it used before it had its own (what the page had)."
 			or "Nothing to reset: it uses the settings the page had.",
 		onClick = function()
+			if EARefuse() then return end
 			if it.kind == "shield" then
 				if SP.SetShieldSoundOpt then SP:SetShieldSoundOpt(it.which, "reset") end
 			elseif EALoaded() then
@@ -502,9 +515,12 @@ EARow = ns.IconRow.New({
 	hasOwn = EAOwn,
 	tooltip = EATooltip,
 	toggle = function(it)
+		if EARefuse() then return end
 		if EALoaded() then SP:SetExpiringAlertOn(it.key, not AlertOn(it)) end
 	end,
 	menu = EAMenu,
+	locked = function() return InCombatLockdown() end,
+	onLocked = function() print(EA_COMBAT) end,
 })
 ns.CustomRows.eaIcons = EARow
 ns.ExpiringAlertsRow = EARow
@@ -552,6 +568,14 @@ end
 local RT_CAPTION = "|cff3FA9F5Click|r an alert to turn it on or off. |cff3FA9F5Right-click|r it for its settings:"
 	.. " each alert has its own. |cff3FA9F5Dark|r: its totem isn't learned yet (you can still set it up)."
 local RT_NOT_LOADED = "Reactive Totems is not loaded: turn on ShamanPower [Reactive Totems] in the AddOns list, then type /reload."
+local RT_COMBAT = "|cff0070ddShamanPower|r: |cffe64a4aReactive Totems' settings can't change in combat - try again after the fight.|r"
+-- a change in a fight: refused, and said (the module's setters refuse it too; the row's lock closes
+-- the menu when a fight starts)
+local function RTRefuse()
+	if not InCombatLockdown() then return false end
+	print(RT_COMBAT)
+	return true
+end
 local RT_IDS = { "fear", "poison", "disease" }
 local RT_TITLE = { fear = "Fear", poison = "Poison", disease = "Disease" }
 local RTItems = {}
@@ -576,6 +600,7 @@ local function RGet(id, name)
 end
 local function RVal(id, name) return (RGet(id, name)) end
 local function RSet(id, name, v)
+	if RTRefuse() then return true end
 	if RTLoaded() then SP:SetReactiveOpt(id, name, v) end
 	RTRow:Changed(true)
 	return true
@@ -583,6 +608,7 @@ end
 -- a slider's value: only saved, the icons and the preview follow; never a redraw of the page
 -- under a drag
 local function RSliderSet(id, name, v)
+	if RTRefuse() then return end
 	if RTLoaded() then SP:SetReactiveOpt(id, name, v) end
 	RTRow:Repaint()
 	PreviewChanged()
@@ -619,7 +645,7 @@ local function RSnapshot(id, names)
 	return snap
 end
 local function RCopyTo(from, to, names)
-	if not RTLoaded() then return end
+	if RTRefuse() or not RTLoaded() then return end
 	names = names or SP.ReactiveOwnNames
 	local snap = RSnapshot(from, names)
 	for _, id in ipairs(RT_IDS) do
@@ -768,6 +794,7 @@ local function RTMenu(it)
 			or (clip.from == id) and "These are this alert's own settings: paste them on another alert."
 			or "Puts the settings you copied onto this alert, once. The two never stay linked.",
 		onClick = function()
+			if RTRefuse() then return true end
 			if RTRow.clip then SP:SetReactiveOpts(id, RTRow.clip.snap, SP.ReactiveOwnNames) end
 			RTRow:Changed(true)
 			PreviewChanged()
@@ -790,6 +817,7 @@ local function RTMenu(it)
 	r[#r + 1] = { text = on and "Turn This Alert Off" or "Turn This Alert On",
 		tip = "The same as a click on its icon. Its settings stay as they are.",
 		onClick = function()
+			if RTRefuse() then return end
 			SP:SetReactiveAlertOn(id, not on)
 			RTRow:Changed(false)
 		end }
@@ -798,6 +826,7 @@ local function RTMenu(it)
 		tip = own and "Back to the settings it used before it had its own (what the page had)."
 			or "Nothing to reset: it uses the settings the page had.",
 		onClick = function()
+			if RTRefuse() then return end
 			SP:ResetReactiveAlert(id)
 			RTRow:Changed(false)
 			PreviewChanged()
@@ -833,10 +862,13 @@ RTRow = ns.IconRow.New({
 		return table.concat(lines, "\n\n")
 	end,
 	toggle = function(it)
+		if RTRefuse() then return end
 		if RTLoaded() then SP:SetReactiveAlertOn(it.key, not SP:ReactiveAlertOn(it.key)) end
 		PreviewChanged()
 	end,
 	menu = RTMenu,
+	locked = function() return InCombatLockdown() end,
+	onLocked = function() print(RT_COMBAT) end,
 })
 ns.CustomRows.rtIcons = RTRow
 ns.ReactiveTotemsRow = RTRow
@@ -851,15 +883,25 @@ end
 
 -- Reset This Page: every alert's menu settings back to how they came (each alert's own
 -- values gone, the values they fall back on back to their defaults, every alert on
--- again). Left alone: where the alerts sit, and what a theme holds (the alert colors).
+-- again). Left alone: where the alerts sit, and what a theme holds (the alert colors, and
+-- each alert's own looks: the alert's entries in the theme cards, General > Themes).
 function SP.ReactiveTotemsResetPage(sp)
 	if InCombatLockdown() or not RTLoaded() then return end
 	local sv = rawget(_G, "ShamanPower_ReactiveTotems")
 	local d = sp.ReactiveTotemsDefaults and sp:ReactiveTotemsDefaults()
 	if not d then return end
+	-- each alert's own looks a theme holds stay: the theme stays as it is
+	local looks, keep = sp.ReactiveThemeLooks or {}, {}
+	for _, id in ipairs(RT_IDS) do
+		for _, name in ipairs(looks) do
+			local v = sp:ReactiveOwnRaw(id, name)
+			if v ~= nil then keep[id] = keep[id] or {}; keep[id][name] = v end
+		end
+	end
 	sv.alertOwn = nil
 	for _, name in ipairs(sp.ReactiveOwnNames or {}) do sv[name] = d[name] end
 	sv.trackFear, sv.trackPoison, sv.trackDisease = true, true, true
+	for id, own in pairs(keep) do sp:SetReactiveOpts(id, own, looks) end
 	sp:ReactiveOptChanged(nil, "showSpellKeybind")
 	sp:ReactiveOptChanged(nil, "hideWhenTotemActive")
 	RTRow:Repaint()
