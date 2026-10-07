@@ -602,7 +602,7 @@ end
 -- list's background only).
 local FX = {
 	totembar       = { page = { "fluffy", "totembar_appearance" },    size = { node = "buffscale" },           opacity = { node = "totemBarOpacity" } },
-	cooldownbar    = { page = { "fluffy", "cooldownbar_appearance" }, size = { node = "cooldownBarScale" },    opacity = { node = "cooldownBarOpacity" } },
+	cooldownbar    = { page = { "fluffy", "cdbar_page" }, size = { node = "cooldownBarScale" },    opacity = { node = "cooldownBarOpacity" } },
 	shieldcharges  = { page = { "fluffy", "shieldcharges_section" },  size = { node = "shieldcharges_scale" }, opacity = { node = "shieldcharges_opacity" } },
 	-- Ready Reminders (D40): every icon has its own Icon Size and Opacity (ReadyReminderBoxAccess)
 	readyreminders = { page = { "fluffy", "readyreminders_section" }, size = { rr = "size" }, opacity = { rr = "opacity" } },

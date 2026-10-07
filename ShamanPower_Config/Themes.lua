@@ -2287,7 +2287,7 @@ local SHAPE_ROWS = {
 	  note = "The totem bar's buttons, its flyouts, pop-outs and Drop All (ShamanPower Minimal's boxes too). Also on Appearance > Totem Bar.",
 	  get = function() return SP:IconShapeOf("totem") or "default" end, set = function(k) SP:SetIconShape(k, "totem") end },
 	{ key = "iconcd", iconKind = "cooldown", label = "Cooldown Bar Icon Shape", list = function() return SP.ICON_SHAPES end,
-	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on Appearance > Cooldown Bar.",
+	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on the Cooldown Bar page (Bar).",
 	  get = function() return SP:IconShapeOf("cooldown") or "default" end, set = function(k) SP:SetIconShape(k, "cooldown") end },
 	{ key = "iconrr", iconKind = "ready", label = "Ready Reminders Icon Shape", list = function() return SP.ICON_SHAPES end,
 	  search = "Keep Borders Square",

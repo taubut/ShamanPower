@@ -52,9 +52,8 @@ local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotem
 local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsPane" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
--- each bar's Effects tab: that bar's preview with its effects playing on it
+-- the Totem Bar's Effects tab: its preview with its effects playing on it
 local MOCK_TOTEM_EFFECTS = { mocks = MOCK_TOTEM.mocks, effects = true }
-local MOCK_CDBAR_EFFECTS = { mocks = MOCK_CDBAR.mocks, effects = true }
 local MOCK_THEMES   = { mocks = MOCK_BARS.mocks }   -- General > Themes: the split bar preview, rebuilt on every theme change (no Effects: themes are not effects)
 -- which bar a mock is, for a theme's flat boxes on it (SP:ThemeSkinPreview)
 local MOCK_SKIN_FAMILY = {
@@ -175,6 +174,19 @@ local POWER_TARGETTRACKER = {
 	set    = function(v) SP():TT_SetEnabled(v and true or false) end,
 }
 
+-- the Cooldown Bar's on / off (A13: its page has no Enable row any more)
+local POWER_CDBAR = {
+	label  = "Cooldown Bar",
+	desc   = "Turn the Cooldown Bar on or off.",
+	get    = function() local o = SP().opt return o and o.showCooldownBar and true or false end,
+	set    = function(v)
+		local sp = SP()
+		if not sp.opt then return end
+		sp.opt.showCooldownBar = v and true or false
+		sp:UpdateCooldownBar()
+	end,
+}
+
 local POWER_SHIELDCHARGES = {
 	label  = "Shield Charge Display",
 	desc   = "Turn the on-screen shield charge numbers on or off.",
@@ -233,8 +245,8 @@ local NAV = {
 			desc = "What changed in each version, newest first. Click a version to open or close it.",
 			newTag = function() local sp = ShamanPower; return sp and sp.PatchNotesUnseen and sp:PatchNotesUnseen() end },
 	}},
-	{ group = "Bars", entries = {
-		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
+	{ group = "Bars", power = true, entries = {
+		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true, power = false,
 			desc = "The totem bar: its style and clicks, what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
 			{ label = "Style",         paths = { P("settings", "settings_totemMode") } },
 			{ label = "Clicks",        paths = { P("settings", "settings_totemClicks") } },
@@ -248,17 +260,14 @@ local NAV = {
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
 			{ label = "Twisting",      paths = { P("settings", "settings_totemTwisting") } },   -- no rows (so no tab) on WoW: Forever
 		}},
-		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
-			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
-			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
-			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
-			{ label = "Effects", preview = MOCK_CDBAR_EFFECTS, paths = { P("fluffy", "cdbar_effects_section") } },
-		}},
-		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
+		-- one page (A13): the Items row (click, right-click, drag) and what is about the whole bar
+		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, power = POWER_CDBAR,
+			desc = "Click an item to show or hide it, right-click it for its settings, drag it to move it.",
+			path = P("fluffy", "cdbar_page") },
+		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, power = false, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
 				P("fluffy", "totembar_appearance"), P("fluffy", "appearance_resets"),
 			} },
-			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
 			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },
 			{ label = "Textures & Colors", paths = {
 				P("fluffy", "texture_section"), P("fluffy", "color_section"),
@@ -266,7 +275,7 @@ local NAV = {
 			} },
 			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
 		}},
-		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true,
+		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true, power = false,
 			desc = "Save totem loadouts, set up their bar and choose when to switch automatically.", tabs = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
