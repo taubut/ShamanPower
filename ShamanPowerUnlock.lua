@@ -63,18 +63,28 @@ if SP.RegisterPreview and SP.PreviewRegistry and not SP.PreviewRegistry.loadoutb
 end
 
 local MODULES = {
-	{ key = "shieldcharges", label = "Shield Charges", labels = { "Shield Charges", "Earth Shield Charges" },
-		resetOne = "ResetShieldChargeFramePosition",   -- a box's Reset: its own frame (Reset All: both)
-		-- the real frames only: the preview's own Water Shield frame (the settings
-		-- preview draws Water apart; in play it shows in the player frame) got a box
-		-- named "Earth Shield Charges", and the real Earth frame "Shield Charges 3"
+	{ key = "shieldcharges", label = "Shield Charges", labels = { "Lightning Shield Charges", "Water Shield Charges", "Earth Shield Charges" },
+		resetOne = "ResetShieldChargeFramePosition",   -- a box's Reset: its own shield's spot (Reset All: every one)
+		-- the real frames only, one box per shield that is shown (3.0.8: each shield has
+		-- its own spot; Lightning and Water Shield start on the same one, today's)
 		frames = function()
 			if not (SP.shieldChargeFrames and SP.shieldChargeFrames.player) and SP.CreateShieldChargeDisplays then SP:CreateShieldChargeDisplays() end
-			local f, s, out = SP.shieldChargeFrames or {}, SP.opt.shieldChargeDisplay, {}
-			if f.player and (not s or s.showPlayerShield ~= false) then
-				f.player.spMoverLabel = "Shield Charges"
+			local f, out = SP.shieldChargeFrames or {}, {}
+			if f.player and SP:ShieldOpt("LS", "enabled") then
+				f.player.spMoverLabel = "Lightning Shield Charges"
 				out[#out + 1] = f.player
 			end
+			if f.water and SP:ShieldOpt("WS", "enabled") then
+				f.water.spMoverLabel = "Water Shield Charges"
+				out[#out + 1] = f.water
+				-- both on the same spot (as they start): one name on the two boxes, so it reads
+				-- clearly; dragging the top one apart gives each its own spot
+				if out[1] == f.player and SP:ShieldOpt("LS", "x") == SP:ShieldOpt("WS", "x") and SP:ShieldOpt("LS", "y") == SP:ShieldOpt("WS", "y") then
+					f.player.spMoverLabel = "Lightning / Water Shield Charges"
+					f.water.spMoverLabel = "Lightning / Water Shield Charges"
+				end
+			end
+			local s = SP.opt.shieldChargeDisplay
 			if f.earth and not ShamanPower.ESTrackerUnavailable and s and s.showEarthShield == true then
 				f.earth.spMoverLabel = "Earth Shield Charges"
 				out[#out + 1] = f.earth
@@ -82,16 +92,13 @@ local MODULES = {
 			return out
 		end,
 		reset = function()
-			local s = SP.opt.shieldChargeDisplay
-			if not s then return end
-			s.playerShieldX, s.playerShieldY, s.earthShieldX, s.earthShieldY = nil, nil, nil, nil
-			local f = SP.shieldChargeFrames
-			if f and f.player then f.player:ClearAllPoints(); f.player:SetPoint("CENTER", UIParent, "CENTER", -50, -100) end
-			if f and f.earth then f.earth:ClearAllPoints(); f.earth:SetPoint("CENTER", UIParent, "CENTER", 50, -100) end
+			if not SP.ResetShieldSpot then return end
+			for which = 1, 3 do SP:ResetShieldSpot(which) end
 		end,
 		enabled = function()
+			if not SP.ShieldOpt then return false end
 			local s = SP.opt.shieldChargeDisplay
-			return not s or s.showPlayerShield ~= false or s.showEarthShield == true
+			return SP:ShieldOpt("LS", "enabled") or SP:ShieldOpt("WS", "enabled") or (s and s.showEarthShield == true) or false
 		end },
 	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions", resetOne = "ResetReadyReminderPosition",
 		-- only the reminders that are switched on get a box (Grid placement: one box for the block)
@@ -157,17 +164,20 @@ local MODULES = {
 -- Files that load later (Ready Check) add their own entries here.
 SP.UnlockModules = MODULES
 
--- One Shield Charges box's Reset: that frame back on its default spot, the other stays
+-- One Shield Charges box's Reset: that shield back on its starting spot, the others stay
 function SP:ResetShieldChargeFramePosition(frame)
-	local s, f = SP.opt.shieldChargeDisplay, SP.shieldChargeFrames
-	if not (s and f and frame) then return end
-	if frame == f.earth then
-		s.earthShieldX, s.earthShieldY = nil, nil
-		frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", 50, -100)
-	elseif frame == f.player then
-		s.playerShieldX, s.playerShieldY = nil, nil
-		frame:ClearAllPoints(); frame:SetPoint("CENTER", UIParent, "CENTER", -50, -100)
-	end
+	if frame and frame.spWhich and SP.ResetShieldSpot then SP:ResetShieldSpot(frame.spWhich) end
+end
+
+-- the wheel over a shield's box: that shield's own Scale (Ctrl: its Opacity)
+local SHIELD_OF = { "LS", "WS", "ES" }
+function SP:ShieldBoxAccess(name, frame)
+	local shield = frame and SHIELD_OF[frame.spWhich or 0]
+	if not (shield and SP.ShieldOpt) then return nil end
+	local lo = (name == "opacity") and 0.1 or 0.5
+	local hi = (name == "opacity") and 1.0 or 3.0
+	return function() return SP:ShieldOpt(shield, name) end,
+		function(v) SP:SetShieldOpt(shield, name, v) end, lo, hi, 0.05, true
 end
 
 -- Movers resolve existing split-row pop-outs lazily; these registrations are
@@ -603,7 +613,10 @@ end
 local FX = {
 	totembar       = { page = { "fluffy", "totembar_appearance" },    size = { node = "buffscale" },           opacity = { node = "totemBarOpacity" } },
 	cooldownbar    = { page = { "fluffy", "cdbar_page" }, size = { node = "cooldownBarScale" },    opacity = { node = "cooldownBarOpacity" } },
-	shieldcharges  = { page = { "fluffy", "shieldcharges_section" },  size = { node = "shieldcharges_scale" }, opacity = { node = "shieldcharges_opacity" } },
+	-- Shield Charges (3.0.8): each shield's box is that shield's own Scale and Opacity
+	shieldcharges  = { page = { "fluffy", "shieldcharges_section" },
+		size = { node = "shieldcharges_scale", byFrame = function(fr) return SP:ShieldBoxAccess("scale", fr) end },
+		opacity = { node = "shieldcharges_opacity", byFrame = function(fr) return SP:ShieldBoxAccess("opacity", fr) end } },
 	-- Ready Reminders (D40): every icon has its own Icon Size and Opacity (ReadyReminderBoxAccess)
 	readyreminders = { page = { "fluffy", "readyreminders_section" }, size = { rr = "size" }, opacity = { rr = "opacity" } },
 	expiring       = { page = { "fluffy", "expiringalerts_section" }, size = { node = "alerts_icon_size" } },

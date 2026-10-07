@@ -308,6 +308,20 @@ SHAMANPOWER_DEFAULT_VALUES = {
             playerShieldY = -100,
             earthShieldX = 50,
             earthShieldY = -100,
+            -- 3.0.8: each shield owns all its settings (LS Lightning, WS Water, ES Earth Shield; the
+            -- shared keys above were copied into these once, ShamanPower_ShieldCharges ShieldMigrate).
+            -- showWhen: "up" / "always" / "fightsUp" / "fights" (the two hide switches as one choice).
+            -- Earth Shield keeps showEarthShield / earthShieldX / Y. Looks, colors, textures and
+            -- gradients per shield start empty (nil = the starting look).
+            showLS = true, showWS = true,
+            xLS = -50, yLS = -100, xWS = -50, yWS = -100,
+            showWhenLS = "up", showWhenWS = "up", showWhenES = "up",
+            scaleLS = 1.0, scaleWS = 1.0, scaleES = 1.0,
+            opacityLS = 1.0, opacityWS = 1.0, opacityES = 1.0,
+            showIconLS = false, showIconWS = false, showIconES = false,
+            showNumberLS = true, showNumberWS = true, showNumberES = true,
+            numberPositionLS = "center", numberPositionWS = "center", numberPositionES = "center",
+            showChargeBarLS = false, showChargeBarWS = false, showChargeBarES = false,
         },
         -- Earth Shield Tracker (raid/party ES tracking)
         esTracker = {

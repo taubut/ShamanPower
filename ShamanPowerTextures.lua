@@ -30,6 +30,19 @@ SP.TEXTURE_AREAS = {
 -- Settings (AceDB profile):
 --   opt.barTexture             LibSharedMedia statusbar name, or nil = as designed
 --   opt.barTextureAreas[key]   a name for one area
+-- 3.0.8: Lightning / Water / Earth Shield each have their own Charge Bar Texture and
+-- Gradient (Shield Charges, each shield's menu): the areas "shieldchargesLS" / "WS" /
+-- "ES", kept in opt.shieldChargeDisplay (barTexture<S>, chargeGradient<S> and its
+-- Direction / Color1 / Color2 / Fade). "shieldcharges" stays the cooldown bar's
+-- Shield Charge Bar's own (opt.barTextureAreas.shieldcharges, opt.chargeGradient*).
+local SHIELD_AREA = { shieldchargesLS = "LS", shieldchargesWS = "WS", shieldchargesES = "ES" }
+local SHIELD_GRAD = { shieldchargesLS = "chargeGradientLS", shieldchargesWS = "chargeGradientWS", shieldchargesES = "chargeGradientES" }
+local SHIELD_TEX = { shieldchargesLS = "barTextureLS", shieldchargesWS = "barTextureWS", shieldchargesES = "barTextureES" }
+local function shieldStore()
+	local o = SP.opt
+	local s = o and o.shieldChargeDisplay
+	return type(s) == "table" and s or nil
+end
 local function texturePath(name)
 	if not name or not LSM then return nil end
 	return LSM:Fetch("statusbar", name, true)
@@ -40,8 +53,9 @@ function SP:TextureFor(area)
 	local o = self.opt
 	if not o then return nil end
 	local per = area and o.barTextureAreas and o.barTextureAreas[area]
+	if SHIELD_TEX[area] then local sc = shieldStore(); per = sc and sc[SHIELD_TEX[area]] or nil end
 	-- Shield Charges are their own thing: their bars never follow Bar Texture
-	local own = (area == "shieldcharges")
+	local own = (area == "shieldcharges") or SHIELD_AREA[area] ~= nil
 	local name = per
 	if not own then name = per or o.barTexture end
 	-- a texture being hovered in the settings list, shown without saving it
@@ -79,8 +93,8 @@ end
 local function mixc(v, to, t) return v + (to - v) * t end
 -- the start / end colors of a gradient on a part colored r, g, b, a:
 -- "along" runs the length of a bar (or top to bottom of an outline), "across" its width
-local function gradientEnds(kind, prefix, r, g, b, a)
-	local o = SP.opt
+local function gradientEnds(kind, prefix, r, g, b, a, src)
+	local o = src or SP.opt
 	if kind == "shade" then
 		return "along", r * 0.45, g * 0.45, b * 0.45, a, r, g, b, a
 	elseif kind == "glass" then
@@ -143,6 +157,7 @@ end
 -- Charge Bar Gradient (opt.chargeGradient*), never Bar Gradient.
 local function barKind(area)
 	if area == "shieldcharges" then return SP.opt and SP.opt.chargeGradient end
+	if SHIELD_GRAD[area] then local sc = shieldStore(); return sc and sc[SHIELD_GRAD[area]] or nil end
 	return SP.opt and SP.opt.barGradient
 end
 -- a bar fill: t colored r, g, b, a, the bar running left-right (vertical: bottom-top)
@@ -150,14 +165,23 @@ local function paintBarGradient(t, r, g, b, a, vertical, kindOverride, area)
 	local o = SP.opt
 	local kind = kindOverride or barKind(area)
 	local charge = (area == "shieldcharges")
-	local way, r1, g1, b1, a1, r2, g2, b2, a2 = gradientEnds(kind, charge and "chargeGradient" or "barGradient", r, g, b, a or 1)
+	local shieldPrefix = SHIELD_GRAD[area]   -- one shield's own gradient (its values in opt.shieldChargeDisplay)
+	local sc = shieldPrefix and shieldStore() or nil
+	local way, r1, g1, b1, a1, r2, g2, b2, a2
+	if shieldPrefix then
+		way, r1, g1, b1, a1, r2, g2, b2, a2 = gradientEnds(kind, shieldPrefix, r, g, b, a or 1, sc or {})
+	else
+		way, r1, g1, b1, a1, r2, g2, b2, a2 = gradientEnds(kind, charge and "chargeGradient" or "barGradient", r, g, b, a or 1)
+	end
 	local A, B = gradColors()
 	if not way or not (A and t.SetGradient) then
 		if t.spGrad then t.spGrad = nil; t:SetVertexColor(r, g, b, a or 1) end
 		return false
 	end
 	local dir
-	if o and charge then
+	if shieldPrefix then
+		dir = sc and GRAD_DIRS[sc[shieldPrefix .. "Direction"]] or nil
+	elseif o and charge then
 		dir = GRAD_DIRS[o.chargeGradientDirection]
 	elseif o then
 		local dirs = o.barGradientDirections
@@ -385,6 +409,8 @@ end
 if LSM and LSM.RegisterCallback then
 	local function saved(o, key)
 		if o.barTexture == key then return true end
+		local sc = type(o.shieldChargeDisplay) == "table" and o.shieldChargeDisplay or nil
+		if sc and (sc.barTextureLS == key or sc.barTextureWS == key or sc.barTextureES == key) then return true end
 		if type(o.barTextureAreas) == "table" then
 			for _, name in pairs(o.barTextureAreas) do
 				if name == key then return true end

@@ -1349,6 +1349,14 @@ local LOOK = {
 for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
 	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do LOOK.opt[#LOOK.opt + 1] = field .. part end
 end
+-- 3.0.8: each shield's own Charge Bar Texture and Gradient (Shield Charges, each shield's
+-- menu; opt.shieldChargeDisplay barTexture<S>, chargeGradient<S> + Direction / Color1 / Color2 / Fade)
+LOOK.SHIELD_PER = {}
+for _, sh in ipairs({ "LS", "WS", "ES" }) do
+	LOOK.SHIELD_PER[#LOOK.SHIELD_PER + 1] = "barTexture" .. sh
+	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do LOOK.SHIELD_PER[#LOOK.SHIELD_PER + 1] = "chargeGradient" .. sh .. part end
+end
+for _, k in ipairs(LOOK.SHIELD_PER) do LOOK.shield[#LOOK.shield + 1] = k end
 function LOOK.Capture(t)
 	local o = SP.opt
 	local look = { theme = {}, opt = {}, shield = {} }
@@ -1777,6 +1785,7 @@ function SP:ResetEverythingToDefault()
 	local sc = o.shieldChargeDisplay
 	if type(sc) == "table" then
 		sc.lookLS, sc.lookWS, sc.lookES, sc.barLook, sc.orbLook = nil, nil, nil, nil, nil
+		for _, k in ipairs(LOOK.SHIELD_PER) do sc[k] = nil end   -- each shield's texture and gradient
 	end
 	if SP.TT_ResetLooks then SP:TT_ResetLooks() end   -- Target Tracker's Look When Missing and Icon Edge
 end
@@ -2324,6 +2333,15 @@ function Cards.Kinds()
 	end
 	for _, k in ipairs({ "lookLS", "lookWS", "lookES", "barLook", "orbLook" }) do K["sc." .. k] = s() end
 	for _, k in ipairs({ "chargeColorLS", "chargeColorWS", "chargeColorES" }) do K["sc." .. k] = { "c" } end
+	do   -- each shield's own Charge Bar Texture and Gradient (3.0.8)
+		local dirs = SP.GradientDirectionValues and (SP:GradientDirectionValues("chargeGradient")) or nil
+		for _, sh in ipairs({ "LS", "WS", "ES" }) do
+			local g = "sc.chargeGradient" .. sh
+			K["sc.barTexture" .. sh] = s()
+			K[g], K[g .. "Direction"] = s(Cards.KeysOf(SP.GRADIENTS)), s(dirs)
+			K[g .. "Color1"], K[g .. "Color2"], K[g .. "Fade"] = { "c" }, { "c" }, { "f" }
+		end
+	end
 	for _, k in ipairs(Cards.RR) do K["rr." .. k] = { "c" } end
 	K["tr.glowColor"] = { "c" }
 	K["t.global"], K["t.palette"], K["t.shield"] = s(THEMES), s(PALETTE_KEY), s(SHIELD_KEY)
@@ -2529,9 +2547,16 @@ Cards.LABEL = {
 	["sc.lookES"] = "Earth Shield Look", ["sc.barLook"] = "Shield Charges Look", ["sc.orbLook"] = "Shield Charges Look",
 	["sc.chargeColorLS"] = "Lightning Shield Charge Color", ["sc.chargeColorWS"] = "Water Shield Charge Color",
 	["sc.chargeColorES"] = "Earth Shield Charge Color", ["tr.glowColor"] = "Tremor Reminder Glow",
+	["sc.barTextureLS"] = "Lightning Shield Charge Bar Texture", ["sc.barTextureWS"] = "Water Shield Charge Bar Texture",
+	["sc.barTextureES"] = "Earth Shield Charge Bar Texture",
 	["rr.rangeColor"] = "Ready Reminders Out of Range Color",
 	["rr.buffEdgeColor"] = "Ready Reminders Buff Edge Color",
 }
+for sh, nm in pairs({ LS = "Lightning Shield", WS = "Water Shield", ES = "Earth Shield" }) do   -- each shield's own gradient (3.0.8)
+	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do
+		Cards.LABEL["sc.chargeGradient" .. sh .. part] = nm .. " Charge Bar Gradient"
+	end
+end
 function Cards.Label(k)
 	if Cards.LABEL[k] then return Cards.LABEL[k] end
 	local p = k:match("^o%.(%a+)Gradient") or k:match("^o%.(%a+)Gradient.+")
