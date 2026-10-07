@@ -8,6 +8,16 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.6.2",
+		date = "2026-10-07",
+		headline = "Your Fire totem no longer turns to Empty on its own",
+		new = {},
+		fixes = {
+			"WoW: Forever: your Fire totem (or Water or Air) could turn to Empty on its own after a /reload or a loading screen, and the totem you put back on Blizzard's totem bar was wiped again the next time ShamanPower loaded. ShamanPower read Blizzard's totem bar before the game had finished loading it, took the empty slots for your choice, and then wrote that Empty back over the bar. Now only a totem you change on Blizzard's bar yourself counts, a totem on Blizzard's bar fills an Empty element instead of being wiped when ShamanPower loads, and a totem you pick on Blizzard's bar during a fight is kept when the fight ends.",
+			"Support Code: on WoW: Forever, pressing Support Code could fail with \"could not build the support code\" when your settings held something the code can't carry. The code now always builds: anything it can't carry is left out, and the code says what was left out, so I can still see your setup.",
+		},
+	},
+	{
 		v = "3.0.6.1",
 		date = "2026-10-06",
 		headline = "The totem bar stays off, Compact's shield line in fights, and party dots",
