@@ -282,6 +282,8 @@ local function EffectRow(t, text, onName, styleName, list, fallback, tip)
 				items[#items + 1] = { text = c[2], selected = now == v, disabled = (sig and v ~= "off" and v ~= sig) or nil, onClick = function()
 					if v == "off" then
 						Data.Set(t, onName, false)
+					elseif SignatureOn() then
+						Data.Set(t, onName, true)   -- (Signature Moves plays its move: the item's own style stays for after)
 					else
 						Data.Set(t, styleName, v)
 						Data.Set(t, onName, true)
@@ -570,15 +572,18 @@ local function MenuItems(item)
 	if IsShieldOrImbue(t) then r[#r + 1] = Group("Flyout", function() return FlyoutRows(t) end) end
 	if BINDINGS[t] then r[#r + 1] = Group("Keybind", function() return KeybindRows(t) end) end
 	r[#r + 1] = SEP
-	r[#r + 1] = { text = "Copy Settings", disabled = not HasAPI("CopyCdItem"), onClick = function()
-		Row.clip = { from = t, name = NAMES[t] or ("Item " .. t) }
+	r[#r + 1] = { text = "Copy Settings", disabled = not HasAPI("CdItemSnapshot"), onClick = function()
+		Row.clip = { from = t, name = NAMES[t] or ("Item " .. t), snap = SP:CdItemSnapshot(t) }
 		return true
 	end }
 	local clip = Row.clip
 	r[#r + 1] = { text = clip and ("Paste Settings  (from " .. clip.name .. ")") or "Paste Settings",
 		disabled = not clip or clip.from == t,
 		onClick = function()
-			if Row.clip then Copy(Row.clip.from, t) end
+			if Row.clip and HasAPI("PasteCdItem") then
+				SP:PasteCdItem(Row.clip.snap, t)
+				FixGoneStyles()
+			end
 			Row:Changed(true)
 			return true
 		end }
@@ -662,6 +667,9 @@ Row = ns.IconRow.New({
 	menu = MenuItems,
 	move = MoveItem,
 	locked = function() return InCombatLockdown() end,
+	onLocked = function()
+		print("|cff0070ddShamanPower|r: |cffe64a4aThe Cooldown Bar's settings can't change in combat - try again after the fight.|r")
+	end,
 })
 ns.CustomRows.cdbarIcons = Row
 ns.CdbarRow = Row
@@ -679,8 +687,8 @@ end
 -- Reset This Page (Window.lua calls it after the page's own rows): every item's own values,
 -- the settings the items' menus show for an item with none of its own, each item's on / off
 -- and the bar's order, back to how they came. Left alone, as on every page: where the bar sits
--- and what a theme holds (Sweep Direction, Spell-Colored Progress Bars, Color Shield Charges by
--- Count). Earth Shield (TBC Anniversary) shares the Running Out settings today but is not on
+-- and what a theme holds (each item's own looks, Sweep Direction, Spell-Colored Progress Bars,
+-- Color Shield Charges by Count). Earth Shield (TBC Anniversary) shares the Running Out settings today but is not on
 -- this page: it keeps the values it has (as its own).
 -- ---------------------------------------------------------------------------
 local RESET_SHARED = { "cdbarRunOutOnly", "cdbarRunOutReady", "cdbarRunOutSecs", "cdbarAlmostSecs", "cdbarOwnStyle",
@@ -703,9 +711,19 @@ function SP.CooldownBarResetPage(sp)
 			if sp:CdItemOwnOpt(EARTH_SHIELD, name) == nil then sp:SetCdItemOpt(EARTH_SHIELD, name, sp:CdItemOpt(EARTH_SHIELD, name)) end
 		end
 	end
+	-- each item's own looks a theme holds (General > Themes) stay: the theme stays as it is
+	local looks = sp.CdItemThemeLooks or {}
 	if sp.CdItemHasOwn and sp.ResetCdItem then
 		for t = 1, 11 do
-			if sp:CdItemHasOwn(t) then sp:ResetCdItem(t) end
+			if sp:CdItemHasOwn(t) then
+				local keep
+				for _, look in ipairs(looks) do
+					local v = sp:CdItemOwnOpt(t, look[1])
+					if v ~= nil then keep = keep or {}; keep[look[1]] = v end
+				end
+				sp:ResetCdItem(t)
+				for name, v in pairs(keep or {}) do sp:SetCdItemOpt(t, name, v) end
+			end
 		end
 	end
 	for _, k in ipairs(RESET_SHARED) do o[k] = nil end

@@ -1839,6 +1839,7 @@ Cards.CD_ITEM_LOOKS = {
 	{ "chargeBar", "Charge Bar", { 1 } },
 }
 Cards.CD_BOOLEAN = { boolean = true }   -- (an item's own on / off: Cards.FitsEntry)
+SP.CdItemThemeLooks = Cards.CD_ITEM_LOOKS   -- (Reset This Page keeps them: the theme stays)
 do
 	local entries = {}
 	local labels = SP.CooldownTypeLabels or {}

@@ -14646,6 +14646,7 @@ function ShamanPower:CreateShieldFlyout()
 
 	flyout.grid = grid or nil
 	self.shieldFlyout = flyout
+	self:UpdateCooldownFlyoutOpacity()   -- new buttons take the shield's own Flyout Opacity (every rebuild)
 	self:ApplyClickSwap()           -- Swap Left and Right Click flips their mouse (WoW: Forever)
 	self:ApplyShieldButtonClicks()  -- the button's clicks, the helpers and these buttons' macros
 	self:MarkShieldFlyout()         -- leave out (arrows: fade) the one on the button, and lay them out
@@ -14893,6 +14894,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 
 	flyout.grid = grid or nil
 	self.weaponImbueFlyout = flyout
+	self:UpdateCooldownFlyoutOpacity()   -- new buttons take the imbue's own Flyout Opacity (every rebuild)
 	if flyout.box then self:ApplyFlyoutPickMacros() end
 	self:ApplyClickSwap()
 

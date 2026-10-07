@@ -135,8 +135,49 @@ end
 local Proto = {}
 local MT = { __index = Proto }
 
+-- rows whose page locks in a fight (def.locked): a fight's start closes their menu and drops a drag
+local lockedRows = {}
 function IconRow.New(def)
-	return setmetatable({ def = def, buttons = {}, list = {}, byKey = {}, tex = {}, scratch = {} }, MT)
+	local row = setmetatable({ def = def, buttons = {}, list = {}, byKey = {}, tex = {}, scratch = {} }, MT)
+	if def.locked then lockedRows[#lockedRows + 1] = row end
+	return row
+end
+
+-- locked now (a fight): says why (def.onLocked) and answers true
+function Proto:RefuseLocked()
+	local def = self.def
+	if not (def.locked and Call(def.locked)) then return false end
+	Call(def.onLocked)
+	return true
+end
+
+-- the menu's items, each change refused while locked (a menu left open into a fight, a key
+-- pressed in it): its click, its slider and its submenu's items
+local function Guard(row, items)
+	if type(items) ~= "table" then return items end
+	for _, it in ipairs(items) do
+		if type(it) == "table" and not it.spGuarded then
+			it.spGuarded = true
+			local click = it.onClick
+			if click then
+				it.onClick = function(...)
+					if row:RefuseLocked() then return false end
+					return click(...)
+				end
+			end
+			local sl = it.slider
+			if sl and sl.set then
+				local set = sl.set
+				sl.set = function(...)
+					if row:RefuseLocked() then return end
+					return set(...)
+				end
+			end
+			local sub = it.sub
+			if sub then it.sub = function(...) return Guard(row, sub(...)) end end
+		end
+	end
+	return items
 end
 
 local function CaptionText(def)
@@ -221,6 +262,7 @@ end
 function Proto:OpenMenu(key, path)
 	local b = self.byKey[key]
 	if not (b and b.item and b:IsVisible()) then return end
+	if self:RefuseLocked() then return end
 	local item = b.item
 	local icons = {}
 	local n = Call(self.def.textures, item, self.tex) or 0
@@ -230,7 +272,11 @@ function Proto:OpenMenu(key, path)
 	local row = self
 	ns.ContextMenu:Open(b, {
 		header = { text = item.name, icons = icons },
-		items = function() return Call(row.def.menu, item) or {} end,
+		items = function()
+			local items = Call(row.def.menu, item) or {}
+			if row.def.locked then Guard(row, items) end
+			return items
+		end,
 		onClose = function()
 			if row.openKey == key then row.openKey = nil end
 			row:Repaint()
@@ -334,7 +380,7 @@ end
 function Proto:StartDrag(b)
 	local def = self.def
 	if not (def.move and b.item) then return end
-	if def.locked and Call(def.locked) then return end
+	if self:RefuseLocked() then return end
 	if ns.ContextMenu:IsOpen() then ns.ContextMenu:Close() end
 	local key = b.item.key
 	b.dragging = true
@@ -358,7 +404,7 @@ function Proto:StopDrag(b)
 	C_Timer.After(0, function() b.dragging = nil end)
 	if not (key and gap) then return end
 	local def = self.def
-	if def.locked and Call(def.locked) then return end
+	if self:RefuseLocked() then return end
 	local from
 	for i, item in ipairs(self.list) do if item.key == key then from = i break end end
 	if not from then return end
@@ -385,6 +431,7 @@ local function ButtonClick(b, button)
 		row:OpenMenu(item.key)
 		return
 	end
+	if row:RefuseLocked() then return end
 	Call(row.def.toggle, item)
 	row:Changed(false)
 end
@@ -504,6 +551,22 @@ end
 -- open an item's menu once the page is drawn (the page is opened by the caller)
 function Proto:QueueMenu(key, path)
 	self.reopen = { key = key, at = GetTime(), path = path }
+end
+
+-- a fight starts: the locked rows' menus close and a drag in progress is dropped (made at load)
+do
+	local w = CreateFrame("Frame")
+	w:RegisterEvent("PLAYER_REGEN_DISABLED")
+	w:SetScript("OnEvent", function()
+		for _, row in ipairs(lockedRows) do
+			if row.liftKey then
+				local b = row.byKey[row.liftKey]
+				row:EndDrag()
+				if b then b.dragging = nil end
+			end
+			if row.openKey and ns.ContextMenu:IsOpen() then ns.ContextMenu:Close() end
+		end
+	end)
 end
 
 -- ---------------------------------------------------------------------------

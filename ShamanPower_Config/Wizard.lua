@@ -3640,22 +3640,33 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	local horde = UnitFactionGroup and UnitFactionGroup("player") == "Horde"
 	-- Spells the real bar can track, in bar order. roles = who sees the chip.
 	local SPELLS = {
-		{ id = 324,   name = "Shield",         opt = "cdbarShowShields",          cd = 0,  ready = 0,  charges = "3", color = {0.4, 0.6, 1.0} },
+		{ id = 324,   name = "Shield",         cdType = 1, opt = "cdbarShowShields",          cd = 0,  ready = 0,  charges = "3", color = {0.4, 0.6, 1.0} },
 		{ id = 36936, name = "Recall", long = GetSpellInfo(36936) or "Totemic Call",
-		  opt = "cdbarShowRecall", cd = 6, ready = 5, color = {0.6, 0.4, 0.2} },
-		{ id = 20608, name = "Ankh",           opt = "cdbarShowReincarnation",    cd = 14, ready = 6,  count = "2", color = {0.8, 0.2, 0.2} },
-		{ id = 16188, name = "NS", long = "Nature's Swiftness", opt = "cdbarShowNS",           cd = 9,  ready = 4,  color = {0.2, 0.8, 0.3}, roles = { restoration = true } },
-		{ id = 16190, name = "Mana Tide",      opt = "cdbarShowManaTide",         cd = 11, ready = 3,  color = {0.2, 0.5, 1.0}, roles = { restoration = true } },
-		{ id = 30823, name = "Sham. Rage", long = "Shamanistic Rage", opt = "cdbarShowShamanisticRage", cd = 8, ready = 5,  color = {0.8, 0.5, 0.1}, roles = { enhancement = true } },
-		{ id = horde and 2825 or 32182, name = horde and "Bloodlust" or "Heroism", opt = "cdbarShowBloodlust", cd = 16, ready = 4, color = {0.8, 0.1, 0.1} },
-		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
+		  cdType = 2, opt = "cdbarShowRecall", cd = 6, ready = 5, color = {0.6, 0.4, 0.2} },
+		{ id = 20608, name = "Ankh",           cdType = 3, opt = "cdbarShowReincarnation",    cd = 14, ready = 6,  count = "2", color = {0.8, 0.2, 0.2} },
+		{ id = 16188, name = "NS", long = "Nature's Swiftness", cdType = 4, opt = "cdbarShowNS",           cd = 9,  ready = 4,  color = {0.2, 0.8, 0.3}, roles = { restoration = true } },
+		{ id = 16190, name = "Mana Tide",      cdType = 5, opt = "cdbarShowManaTide",         cd = 11, ready = 3,  color = {0.2, 0.5, 1.0}, roles = { restoration = true } },
+		{ id = 30823, name = "Sham. Rage", long = "Shamanistic Rage", cdType = 8, opt = "cdbarShowShamanisticRage", cd = 8, ready = 5,  color = {0.8, 0.5, 0.1}, roles = { enhancement = true } },
+		{ id = horde and 2825 or 32182, name = horde and "Bloodlust" or "Heroism", cdType = 6, opt = "cdbarShowBloodlust", cd = 16, ready = 4, color = {0.8, 0.1, 0.1} },
+		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", cdType = 9, opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
 		-- WoW: Forever only; the chips exist only where the client has the spell
-		{ id = 425336, name = "Farseer", long = "Rage of the Farseer", opt = "cdbarShowRageOfTheFarseer", cd = 16, ready = 4, color = {0.8, 0.1, 0.1}, roles = { enhancement = true }, only = function() return GetSpellInfo(425336) ~= nil end },
-		{ id = 437009, name = "Projection", long = "Totemic Projection", opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
-		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
+		{ id = 425336, name = "Farseer", long = "Rage of the Farseer", cdType = 10, opt = "cdbarShowRageOfTheFarseer", cd = 16, ready = 4, color = {0.8, 0.1, 0.1}, roles = { enhancement = true }, only = function() return GetSpellInfo(425336) ~= nil end },
+		{ id = 437009, name = "Projection", long = "Totemic Projection", cdType = 11, opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
+		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  cdType = 7, opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
 	}
 	-- spell exists in this client's data (asked of the client for every chip: WoW: Forever has no
 	-- Bloodlust, Shamanistic Rage ...; other clients have no Rage of the Farseer / Totemic Projection)
+	-- a sample's look as its item on the real bar has it (the Cooldown Bar page's item menus:
+	-- SP:CdItemOpt); a preview of other settings (Wizard.optOverride) keeps the shared ones
+	local function ItemLook(sp, name, shared)
+		if sp.cdType and SP.CdItemOpt and OPT() == SP.opt then return SP:CdItemOpt(sp.cdType, name) end
+		return shared
+	end
+	local function ItemSweep(sp)
+		if sp.cdType and SP.CdItemOpt and OPT() == SP.opt then return SP:CdItemOpt(sp.cdType, "sweep") end
+		if OPT().cdbarShowColorSweep == false then return "none" end
+		return OPT().cdbarSweepStyle or "greys"
+	end
 	local function onClient(sp)
 		if sp.only and not sp.only() then return false end
 		if SPCompat and SPCompat.SpellExists and sp.id then return SPCompat.SpellExists(sp.id) end
@@ -3780,10 +3791,10 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			end
 			-- shield charge bar: same geometry as PaintShieldChargeStrip, count lifted above it
 			if b.strip then
-				local on = OPT().cdbarShieldChargeBar and true or false
+				local on = ItemLook(b.sp, "chargeBar", OPT().cdbarShieldChargeBar) and true or false
 				local sh = math.max(3, math.floor(SIZE * 0.14 + 0.5))
 				if on then
-					local inset = 2 + ((pos == "on_icon" and OPT().cdbarShowProgressBars ~= false) and size or 0)
+					local inset = 2 + ((pos == "on_icon" and ItemLook(b.sp, "progressBar", OPT().cdbarShowProgressBars ~= false)) and size or 0)
 					local st = b.strip
 					st:ClearAllPoints()
 					st:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", inset, 2); st:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -inset, 2); st:SetHeight(sh)
@@ -3795,7 +3806,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 				end
 				b.strip:SetShown(on)
 				b.corner:ClearAllPoints(); b.corner:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, on and (sh + 3) or 1)
-				b.corner:SetShown(OPT().cdbarShowShieldCount ~= false)
+				b.corner:SetShown(ItemLook(b.sp, "chargeCount", OPT().cdbarShowShieldCount ~= false) and true or false)
 			end
 		end
 	end
@@ -3826,15 +3837,18 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 
 	bar:SetScript("OnUpdate", function(_, e)
 		local showBars  = OPT().cdbarShowProgressBars ~= false
-		local showSweep = OPT().cdbarShowColorSweep ~= false
 		local showText  = OPT().cdbarShowCDText ~= false
 		-- the bars' geometry settings, compared one by one (no string built per frame)
 		local o = OPT()
 		local g = lastGeom
+		local shieldSp = buttons[1] and buttons[1].sp   -- (the shield: its charge bar and count)
+		local chargeBar = ItemLook(shieldSp, "chargeBar", o.cdbarShieldChargeBar)
+		local chargeCount = ItemLook(shieldSp, "chargeCount", o.cdbarShowShieldCount)
+		local shieldBar = ItemLook(shieldSp, "progressBar", o.cdbarShowProgressBars)
 		if o.cdbarProgressPosition ~= g[1] or o.cdbarProgressBarHeight ~= g[2] or o.cdbarDurationTextLocation ~= g[3]
-			or o.cdbarDurationTextSize ~= g[4] or o.cdbarShieldChargeBar ~= g[5] or o.cdbarShowShieldCount ~= g[6] then
+			or o.cdbarDurationTextSize ~= g[4] or chargeBar ~= g[5] or chargeCount ~= g[6] or shieldBar ~= g[7] then
 			g[1], g[2], g[3] = o.cdbarProgressPosition, o.cdbarProgressBarHeight, o.cdbarDurationTextLocation
-			g[4], g[5], g[6] = o.cdbarDurationTextSize, o.cdbarShieldChargeBar, o.cdbarShowShieldCount
+			g[4], g[5], g[6], g[7] = o.cdbarDurationTextSize, chargeBar, chargeCount, shieldBar
 			layoutBars()
 		end
 		local opacity, fullActive = OPT().cooldownBarOpacity or 1, OPT().cooldownBarFullOpacityWhenActive
@@ -3848,7 +3862,10 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			if b.f:IsShown() then
 				local sp = b.sp
 				b.f:SetAlpha((fullActive and b.onCd) and 1 or opacity)
-				b.pbg:SetShown(showBars); b.pb:SetShown(showBars)
+				local bars = ItemLook(sp, "progressBar", showBars) and true or false
+				b.pbg:SetShown(bars); b.pb:SetShown(bars)
+				local sweep = ItemSweep(sp)
+				local direction = ItemLook(sp, "sweepDirection", OPT().cdbarSweepDirection)
 				if sp.cd > 0 then
 					b.t = b.t + e
 					local cycle = sp.cd + sp.ready
@@ -3860,16 +3877,16 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 						local frac = remain / sp.cd
 						if b.vert then b.pb:SetHeight(math.max(0.5, SIZE * frac)) else b.pb:SetWidth(math.max(0.5, SIZE * frac)) end
 						-- duration text: chosen location, or the legacy centre text when the toggle is on
-						local wantText = (b.textMode ~= "none" and b.textMode ~= nil) or showText
+						local wantText = (b.textMode ~= "none" and b.textMode ~= nil) or ItemLook(sp, "timeOnIcon", showText)
 						b.txt:SetText(wantText and tostring(math.ceil(remain)) or "")
-						local style = OPT().cdbarSweepStyle or "greys"
-						if showSweep and style == "radial" then
+						local style = sweep
+						if style == "radial" then
 							b.gray:Hide()
 							if not b.radialSet then b.cdr:SetCooldown(GetTime() - b.t, sp.cd); b.radialSet = true end
-						elseif showSweep then
+						elseif style ~= "none" then
 							if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
 							local dep = (style == "fills") and frac or (1 - frac)
-							PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, OPT().cdbarSweepDirection)
+							PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, direction)
 						else
 							b.gray:Hide(); if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
 						end
@@ -3884,12 +3901,12 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 					-- Shields stay up; imbues show their duration, even with Radial Swipe.
 					if b.vert then b.pb:SetHeight(SIZE) else b.pb:SetWidth(SIZE) end
 					b.gray:Hide(); b.txt:SetText("")
-					if sp.imbue and showSweep then
+					if sp.imbue and sweep ~= "none" then
 						b.t = (b.t + e) % 20
-						local style = OPT().cdbarSweepStyle or "greys"
+						local style = sweep
 						local dep = b.t / 20
 						if style == "fills" then dep = 1 - dep end
-						PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, OPT().cdbarSweepDirection)
+						PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, direction)
 					end
 				end
 			end
