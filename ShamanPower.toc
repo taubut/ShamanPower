@@ -51,6 +51,7 @@ ShamanPowerMinimapTotems.lua
 ShamanPowerGrid.lua
 ShamanPowerRows.lua
 ShamanPowerStyles.lua
+ShamanPowerCdItems.lua
 ShamanPowerCues.lua
 ShamanPowerUsualTotem.lua
 ShamanPowerShieldSound.lua

@@ -8370,7 +8370,7 @@ function ShamanPower:DressFlyoutFrame(flyout)
 	-- The panel (border and fill) has its own opacity on top of the flyout's; the
 	-- tab keeps the flyout's, so it never fades out of reach.
 	-- a shield / imbue flyout follows the CD Flyouts opacity, not the totem one
-	local alpha = (flyout.isCdbarFlyout and self.opt.cooldownFlyoutOpacity or self.opt.totemFlyoutOpacity) or 1.0
+	local alpha = (flyout.isCdbarFlyout and self:CdItemOpt(flyout.cdItemType, "flyoutOpacity") or self.opt.totemFlyoutOpacity) or 1.0
 	local panelAlpha = alpha * (self.opt.flyoutFrameOpacity or 1.0)
 	for _, t in ipairs({ band, cap, foot }) do t:SetAlpha(panelAlpha); t:Show() end
 	fill:SetAlpha(panelAlpha * 0.85); fill:Show()
@@ -10103,8 +10103,9 @@ function ShamanPower:TotemFlyoutButtonSize()
 	return spClampSize(self.opt and self.opt.totemFlyoutButtonSize, 28)
 end
 
-function ShamanPower:CooldownFlyoutButtonSize()
-	return spClampSize(self.opt and self.opt.cooldownFlyoutButtonSize, 22)
+-- t: 1 the shield's flyout, 7 the weapon imbue's (their own Icon Size: ShamanPowerCdItems.lua); nil: the shared one
+function ShamanPower:CooldownFlyoutButtonSize(t)
+	return spClampSize(self.opt and self:CdItemOpt(t, "flyoutIconSize"), 22)
 end
 
 function ShamanPower:ApplyCooldownFlyoutButtonSize()
@@ -10112,9 +10113,9 @@ function ShamanPower:ApplyCooldownFlyoutButtonSize()
 		print("|cff0070ddShamanPower:|r the flyout size cannot change in combat")
 		return
 	end
-	local size = self:CooldownFlyoutButtonSize()
-	for _, def in ipairs({ { self.shieldFlyout, "LayoutShieldFlyout" }, { self.weaponImbueFlyout, "LayoutWeaponImbueFlyout" } }) do
+	for _, def in ipairs({ { self.shieldFlyout, "LayoutShieldFlyout", 1 }, { self.weaponImbueFlyout, "LayoutWeaponImbueFlyout", 7 } }) do
 		local flyout = def[1]
+		local size = self:CooldownFlyoutButtonSize(def[3])
 		if flyout then
 			flyout.buttonSize = size
 			for _, b in ipairs(flyout.allButtons or flyout.buttons or {}) do b:SetSize(size, size) end
@@ -10665,7 +10666,7 @@ function ShamanPower:CreateCooldownBar()
 		local isEnabled = (optionKey == nil) or (self.opt[optionKey] ~= false)
 
 		-- Skip Totemic Call on cooldown bar if it should be on totem bar instead
-		if spellID == 36936 and self.opt.totemicCallOnTotemBar then
+		if spellID == 36936 and self:CdItemOpt(2, "onTotemBar") then
 			isEnabled = false
 		end
 
@@ -10997,7 +10998,7 @@ function ShamanPower:CreateCooldownBar()
 				ShamanPower:UpdateCooldownBarOpacity()
 			end
 			-- Update Totemic Call on totem bar opacity if shown there
-			if ShamanPower.opt.totemicCallOnTotemBar then
+			if ShamanPower:CdItemOpt(2, "onTotemBar") then
 				ShamanPower:UpdateTotemicCallOpacity()
 			end
 			-- Nothing counting down in seconds (all ready, or only long timers shown in
@@ -11155,9 +11156,10 @@ local function GetTimerBarColor(expiration)
 end
 
 -- Get progress bar color: spell color when healthy, yellow/red when low
+-- spellID: only when the item uses Spell Color (its Progress Bar Color: ShamanPowerCdItems.lua), else nil
 local function GetBarColor(expiration, spellID)
 	local mins = expiration / 60000
-	if ShamanPower.opt.cdbarSpellColors and spellID and mins >= 10 then
+	if spellID and mins >= 10 then
 		local c = ShamanPower.SpellBarColors[spellID]
 		if c then return c[1], c[2], c[3] end
 	end
@@ -11165,9 +11167,9 @@ local function GetBarColor(expiration, spellID)
 end
 
 -- Get imbue bar color: imbue color when healthy, yellow/red when low
-local function GetImbueBarColor(expiration, imbueType)
+local function GetImbueBarColor(expiration, imbueType)   -- (imbueType: only with Spell Color, as GetBarColor)
 	local mins = expiration / 60000
-	if ShamanPower.opt.cdbarSpellColors and imbueType and mins >= 10 then
+	if imbueType and mins >= 10 then
 		local c = ShamanPower.ImbueBarColors[imbueType]
 		if c then return c[1], c[2], c[3] end
 	end
@@ -11236,8 +11238,9 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 	btn.darkOverlay:Hide()
 	btn.icon:SetDesaturated(false)
 	if btn.ankhCountText then btn.ankhCountText:Hide() end
-	local sweepStyle = showSweep and (self.opt.cdbarSweepStyle or "greys") or "none"
-	local fromTop = self:SweepGrayFromTop(sweepStyle, self.opt.cdbarSweepDirection)
+	local ct = btn.cooldownType   -- (the item's own sweep: ShamanPowerCdItems.lua)
+	local sweepStyle = showSweep and self:CdItemOpt(ct, "sweep") or "none"
+	local fromTop = self:SweepGrayFromTop(sweepStyle, self:CdItemOpt(ct, "sweepDirection"))
 	-- ShamanPower Minimal's flat band (as on the totem bar, FeedEngineCooldown)
 	local band = (self.ThemeMinimal and self:ThemeMinimal("cd.sweep")) and true or false
 	local textKey = showText and (textLocation .. "+") or textLocation
@@ -11306,7 +11309,7 @@ function ShamanPower:FeedEngineBarCooldown(btn, start, duration, showSweep, show
 	if showBars and btn.engineBar and btn.engineBar:IsShown() then
 		local left = math.huge
 		if start and start > 0 then left = ((start + duration) - GetTime()) * 1000 end
-		local r, g, b = GetBarColor(left, btn.spellID)
+		local r, g, b = GetBarColor(left, self:CdItemOpt(ct, "progressColor") and btn.spellID or nil)
 		if r ~= btn._ebColorR or g ~= btn._ebColorG or b ~= btn._ebColorB then
 			btn._ebColorR, btn._ebColorG, btn._ebColorB = r, g, b
 			btn.engineBar:SetStatusBarColor(r, g, b, 0.9)
@@ -11354,8 +11357,9 @@ function ShamanPower:UpdateCooldownBarLayout()
 	local numButtons = #visibleButtons
 
 	-- Extra padding for progress bars based on position
-	-- Only reserve space when progress bars are enabled AND at least one is currently visible
-	local showBars = self.opt.cdbarShowProgressBars ~= false
+	-- Only reserve space when at least one is currently visible (Progress Bar is per item:
+	-- an item with it off never shows one)
+	local showBars = true
 	if showBars then
 		local anyBarVisible = false
 		for _, btn in ipairs(self.cooldownButtons) do
@@ -11471,8 +11475,8 @@ end
 
 -- The colour the cooldown bar's shield count is drawn in for `charges` (the
 -- addon's own text out of combat, the engine formatter in combat).
-function ShamanPower:ShieldCountColor(charges)
-	if not self.opt.shieldChargeColors then return 1, 1, 1 end
+function ShamanPower:ShieldCountColor(charges, t)
+	if not self:CdItemOpt(t, "colorCount") then return 1, 1, 1 end
 	-- General > Themes (cd.count): the theme's green / yellow / red; nil = the ones below
 	if self:ThemeActive("cd.count") then
 		local r, g, b = self:ThemeColor("cd.count", (charges >= 3 and "high") or (charges == 2 and "mid") or "low")
@@ -11481,12 +11485,12 @@ function ShamanPower:ShieldCountColor(charges)
 	if charges >= 3 then return 0, 1, 0 elseif charges == 2 then return 1, 1, 0 else return 1, 0, 0 end
 end
 
-function ShamanPower:ShieldCountFormatter(maxCharges)
+function ShamanPower:ShieldCountFormatter(maxCharges, t)
 	if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return nil end
 	local ok, fmt = pcall(C_StringUtil.CreateNumericRuleFormatter)
 	if not ok or not fmt or not fmt.AddBreakpoint then return nil end
 	for n = 0, maxCharges do
-		local r, g, b = self:ShieldCountColor(n)
+		local r, g, b = self:ShieldCountColor(n, t)
 		pcall(fmt.AddBreakpoint, fmt, {
 			threshold = n,
 			format = ("|cff%02x%02x%02x%%d|r"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5)),
@@ -11530,7 +11534,7 @@ end
 
 function ShamanPower:PaintShieldChargeStrip(btn, charges)
 	local strip = btn.chargeStrip
-	if not self.opt.cdbarShieldChargeBar then
+	if not self:CdItemOpt(btn.cooldownType, "chargeBar") then
 		if strip and strip:IsShown() then
 			strip:Hide(); strip.lines:Hide()
 			strip.lw = nil   -- laid out again (and the count raised again) when it comes back
@@ -11561,7 +11565,7 @@ function ShamanPower:PaintShieldChargeStrip(btn, charges)
 	local opt = self.opt
 	local w, h = btn:GetWidth(), btn:GetHeight()
 	local inset = 2
-	if opt.cdbarShowProgressBars ~= false and opt.cdbarProgressPosition == "on_icon" then
+	if self:CdItemOpt(btn.cooldownType, "progressBar") and opt.cdbarProgressPosition == "on_icon" then
 		inset = inset + (opt.cdbarProgressBarHeight or 3)
 	end
 	if strip.lw ~= w or strip.lh ~= h or strip.li ~= inset then
@@ -11594,7 +11598,8 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 	if not (SPCompat and SPCompat.secretsRegime) then return end
 	if btn.chargeContainer then return end
 	-- the engine's charge bar is hung on the addon's strip, so that exists first
-	if self.opt.cdbarShieldChargeBar and btn.chargeText then self:PaintShieldChargeStrip(btn, 0) end
+	local ct = btn.cooldownType   -- (the shield item's own settings: ShamanPowerCdItems.lua)
+	if self:CdItemOpt(ct, "chargeBar") and btn.chargeText then self:PaintShieldChargeStrip(btn, 0) end
 	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
 	local ok, container = pcall(CreateFrame, "AuraContainer", nil, btn, "CustomAuraContainerTemplate")
 	if not ok or not container then
@@ -11605,9 +11610,12 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 	container:SetFrameLevel(btn:GetFrameLevel() + 6)
 
 	local opt = self.opt
-	local showSweep = opt.cdbarShowColorSweep ~= false
-	local sweepStyle = opt.cdbarSweepStyle
-	local showBars = opt.cdbarShowProgressBars ~= false
+	local sweepStyle = self:CdItemOpt(ct, "sweep")
+	local showSweep = sweepStyle ~= "none"
+	local sweepDir = self:CdItemOpt(ct, "sweepDirection")
+	local showBars = self:CdItemOpt(ct, "progressBar")
+	local chargeBar = self:CdItemOpt(ct, "chargeBar")
+	local chargeCount = self:CdItemOpt(ct, "chargeCount")
 	local barPosition = opt.cdbarProgressPosition or "left"
 	local textLocation = opt.cdbarDurationTextLocation or "none"
 	local Interp = Enum and Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate
@@ -11673,7 +11681,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 						sb:SetReverseFill(false)
 						local fillStyle = Enum and Enum.StatusBarFillStyle and Enum.StatusBarFillStyle.Standard
 						if sb.SetFillStyle then sb:SetFillStyle(fillStyle or "STANDARD") end   -- cropped to the fill, never stretched
-						local grayTop = ShamanPower:SweepGrayFromTop(sweepStyle, opt.cdbarSweepDirection)
+						local grayTop = ShamanPower:SweepGrayFromTop(sweepStyle, sweepDir)
 						if grayTop then
 							-- the gray copy under the colored fill
 							local gray = sb:CreateTexture(nil, "BACKGROUND")
@@ -11718,7 +11726,7 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 					local count = texts:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
 					ShamanPower:AdoptSPFont(count, "charges")   -- template font = the design; follows the Fonts settings
 					ShamanPower:SPFontGameOwned(count)   -- (on the game's button: a font change waits out fights and hidden auras)
-					local strip = opt.cdbarShieldChargeBar and btn.chargeStrip
+					local strip = chargeBar and btn.chargeStrip
 					if strip and btn.chargeText then
 						-- hung on the addon's count, which sits above the strip
 						count:SetPoint("BOTTOMRIGHT", btn.chargeText, "BOTTOMRIGHT", 0, 0)
@@ -11737,8 +11745,8 @@ function ShamanPower:EnsureShieldChargeContainer(btn)
 							{ maxApplications = ShieldStrip.SEGMENTS, minApplications = 0, interpolation = Interp }))
 					end
 					-- "Show Shield Charge Count" off: the engine is never handed the count
-					if opt.cdbarShowShieldCount ~= false then
-						reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3) }))
+					if chargeCount then
+						reg("SetApplicationCount", pcall(button.SetApplicationCount, button, count, { formatter = self:ShieldCountFormatter(3, ct) }))
 					end
 
 					-- progress bar in the addon's bar slot: black background + engine-filled bar
@@ -11999,8 +12007,9 @@ local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, in
 	end
 
 	local percent = math.min(expMS / maxDuration, 1)
-	local r, g, b = GetImbueBarColor(expMS, imbueType)
+	local r, g, b = GetImbueBarColor(expMS, ctx.spellColors and imbueType or nil)
 
+	if ctx.showBars then
 	bg:Show()
 	bar:ClearAllPoints()
 
@@ -12020,11 +12029,16 @@ local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, in
 
 	ShamanPower:SetSPBarColor(bar, "cooldown", r, g, b, 0.9)
 	bar:Show()
+	else
+		-- the imbue item's own Progress Bar off (it always showed them before per-item settings)
+		bar:Hide()
+		bg:Hide()
+	end
 
 	if showSweep and grey then
 		-- "fills": grey recedes instead of growing.
-		local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)
-		local fromTop = self:SweepGrayFromTop(self.opt.cdbarSweepStyle, self.opt.cdbarSweepDirection)
+		local depletedPercent = (ctx.sweepStyle == "fills") and percent or (1 - percent)
+		local fromTop = ctx.sweepTop
 		if btn.icon2:IsShown() then
 			self:PaintVerticalSweep(grey, btn, depletedPercent, buttonHeight, fromTop,
 				alignLeft and 0.08 or 0.50, alignLeft and 0.50 or 0.92, buttonWidth / 2, alignLeft and "left" or "right")
@@ -12075,10 +12089,7 @@ local function UpdateImbueHand(ctx, hasHand, expMS, imbueType, bg, bar, grey, in
 end
 
 function ShamanPower:UpdateCooldownButtons()
-	-- Get display options
-	local showBars = self.opt.cdbarShowProgressBars ~= false
-	local showSweep = self.opt.cdbarShowColorSweep ~= false
-	local showText = self.opt.cdbarShowCDText ~= false
+	-- Get display options (the per-item ones in the loop: ShamanPowerCdItems.lua)
 	local barPosition = self.opt.cdbarProgressPosition or "left"
 	local barHeight = self.opt.cdbarProgressBarHeight or 3
 	local textLocation = self.opt.cdbarDurationTextLocation or "none"
@@ -12094,6 +12105,14 @@ function ShamanPower:UpdateCooldownButtons()
 		local btn = self.cooldownButtons[i]
 		local buttonHeight = btn:GetHeight()
 		local buttonWidth = btn:GetWidth()
+		-- this item's own settings, else the bar's shared ones (no allocation)
+		local ct = btn.cooldownType
+		local showBars = self:CdItemOpt(ct, "progressBar")
+		local sweepStyle = self:CdItemOpt(ct, "sweep")
+		local showSweep = sweepStyle ~= "none"
+		local sweepTop = self:SweepGrayFromTop(sweepStyle, self:CdItemOpt(ct, "sweepDirection"))
+		local showText = self:CdItemOpt(ct, "timeOnIcon")
+		local spellColors = self:CdItemOpt(ct, "progressColor")
 
 		if btn.spellType == "shield" then
 			-- Use cached shield state from UNIT_AURA event (no UnitBuff calls here!)
@@ -12155,9 +12174,9 @@ function ShamanPower:UpdateCooldownButtons()
 
 				-- Show charge count with optional coloring
 				if btn.chargeText then
-					if shieldCharges > 0 and self.opt.cdbarShowShieldCount ~= false then
+					if shieldCharges > 0 and self:CdItemOpt(ct, "chargeCount") then
 						btn.chargeText:SetText((cache and cache.engineCount) and "" or (NumberStrings[shieldCharges] or tostring(shieldCharges)))
-						btn.chargeText:SetTextColor(self:ShieldCountColor(shieldCharges))   -- same rule the engine formatter uses in combat
+						btn.chargeText:SetTextColor(self:ShieldCountColor(shieldCharges, ct))   -- same rule the engine formatter uses in combat
 					else
 						btn.chargeText:SetText("")
 					end
@@ -12169,7 +12188,7 @@ function ShamanPower:UpdateCooldownButtons()
 				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 				if showBars and btn.progressBar and shieldDuration > 0 then
 					local percent = math.min(remaining / maxDuration, 1)
-					local r, g, b = GetBarColor(remaining * 1000, activeShieldID)
+					local r, g, b = GetBarColor(remaining * 1000, spellColors and activeShieldID or nil)
 
 					if btn.bgBar then btn.bgBar:Show() end
 					btn.progressBar:ClearAllPoints()   -- on its background, which steps out past a flyout tab
@@ -12207,14 +12226,13 @@ function ShamanPower:UpdateCooldownButtons()
 				end
 
 				-- Grey sweep overlay
-				if showSweep and self.opt.cdbarSweepStyle == "radial" and shieldDuration > 0 then
+				if showSweep and sweepStyle == "radial" and shieldDuration > 0 then
 					if btn.greyOverlay then btn.greyOverlay:Hide() end
 					btn.cooldown:SetCooldown(shieldExpiration - maxDuration, maxDuration)
 				elseif showSweep and btn.greyOverlay and shieldDuration > 0 then
 					local percent = math.min(remaining / maxDuration, 1)
-					local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
-					self:PaintVerticalSweep(btn.greyOverlay, btn, depletedPercent, buttonHeight,
-						self:SweepGrayFromTop(self.opt.cdbarSweepStyle, self.opt.cdbarSweepDirection), 0.08, 0.92)
+					local depletedPercent = (sweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
+					self:PaintVerticalSweep(btn.greyOverlay, btn, depletedPercent, buttonHeight, sweepTop, 0.08, 0.92)
 				elseif btn.greyOverlay then
 					btn.greyOverlay:Hide()
 				end
@@ -12271,12 +12289,12 @@ function ShamanPower:UpdateCooldownButtons()
 				if btn.belowText and btn.belowText ~= btn.outsideText then btn.belowText:Hide() end
 				if btn.iconText then btn.iconText:Hide() end
 			end
-			if not (showSweep and self.opt.cdbarSweepStyle == "radial") then btn.cooldown:Clear() end
+			if not (showSweep and sweepStyle == "radial") then btn.cooldown:Clear() end
 			-- the flyout holds every shield you know and leaves out (arrows: fades) the one a click on the
 			-- button casts; out of a fight it follows a change that came from elsewhere (Dynamic, a profile).
 			-- Grid on or off makes it again. The button's cast first, in every style (SyncShieldButtonCast:
 			-- a profile switch, a shield learned or unlearned), so the flyout is made or marked from it.
-			local gridOn = self:CooldownBarGridOn()
+			local gridOn = self:CooldownBarGridOn(ct)
 			if not InCombatLockdown() then
 				if (gridOn and 1 or 0) ~= self._shieldFlyoutGrid then
 					self:SyncShieldButtonCast(true)
@@ -12329,7 +12347,7 @@ function ShamanPower:UpdateCooldownButtons()
 				self:FeedEngineBarCooldown(btn, start, duration, showSweep, showBars, textLocation, showText, barPosition)
 			elseif cooling then
 				-- Radial swipe only when chosen; otherwise the vertical grey sweep below
-				if showSweep and self.opt.cdbarSweepStyle == "radial" then
+				if showSweep and sweepStyle == "radial" then
 					btn.cooldown:SetCooldown(start, duration)
 				else
 					btn.cooldown:Clear()
@@ -12346,7 +12364,7 @@ function ShamanPower:UpdateCooldownButtons()
 				-- Progress bar
 				local isVerticalBar = (barPosition == "left" or barPosition == "right" or barPosition == "top_vert" or barPosition == "bottom_vert" or barPosition == "on_icon")
 				if showBars and btn.progressBar then
-					local r, g, b = GetBarColor(remaining * 1000, btn.spellID)
+					local r, g, b = GetBarColor(remaining * 1000, spellColors and btn.spellID or nil)
 
 					if btn.bgBar then btn.bgBar:Show() end
 					btn.progressBar:ClearAllPoints()   -- on its background, which steps out past a flyout tab
@@ -12384,10 +12402,9 @@ function ShamanPower:UpdateCooldownButtons()
 				end
 
 				-- Gray sweep overlay (vertical, from the chosen edge)
-				if showSweep and btn.greyOverlay and self.opt.cdbarSweepStyle ~= "radial" then
-					local depletedPercent = (self.opt.cdbarSweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
-					self:PaintVerticalSweep(btn.greyOverlay, btn, depletedPercent, buttonHeight,
-						self:SweepGrayFromTop(self.opt.cdbarSweepStyle, self.opt.cdbarSweepDirection), 0.08, 0.92)
+				if showSweep and btn.greyOverlay and sweepStyle ~= "radial" then
+					local depletedPercent = (sweepStyle == "fills") and percent or (1 - percent)   -- "fills": grey recedes instead of growing
+					self:PaintVerticalSweep(btn.greyOverlay, btn, depletedPercent, buttonHeight, sweepTop, 0.08, 0.92)
 				elseif btn.greyOverlay then
 					btn.greyOverlay:Hide()
 				end
@@ -12443,7 +12460,7 @@ function ShamanPower:UpdateCooldownButtons()
 					btn.icon:SetDesaturated(ankhCount == 0)
 					-- Show Ankh count if option enabled
 					if btn.ankhCountText then
-						if self.opt.showAnkhCount then
+						if self:CdItemOpt(ct, "ankhCount") then
 							btn.ankhCountText:SetText(ankhCount > 0 and tostring(ankhCount) or "0")
 							-- Color based on count
 							if ankhCount == 0 then
@@ -12500,6 +12517,10 @@ function ShamanPower:UpdateCooldownButtons()
 			imbueCtx.buttonWidth, imbueCtx.buttonHeight = buttonWidth, buttonHeight
 			imbueCtx.barHeight, imbueCtx.barPosition = barHeight, barPosition
 			imbueCtx.isVerticalBar, imbueCtx.showSweep = isVerticalBar, showSweep
+			-- (radial is drawn as Grays Out on the imbue, as before; its Progress Bar inherits "on": its bars
+			-- always showed, whatever the shared Show Progress Bars said)
+			imbueCtx.sweepStyle, imbueCtx.sweepTop, imbueCtx.spellColors = sweepStyle, sweepTop, spellColors
+			imbueCtx.showBars = showBars
 			imbueCtx.maxDuration, imbueCtx.hasMain, imbueCtx.hasOff = maxDuration, hasMain, hasOff
 			imbueCtx.btn, imbueCtx.self = btn, self
 			imbueCtx.textLocation, imbueCtx.showText = textLocation, showText
@@ -12610,7 +12631,7 @@ function ShamanPower:UpdateCooldownButtons()
 			-- another imbue on a hand: above the button (Normal), as a different totem that is down shows
 			-- (both halves for two hands); the main hand's assigned one in its corner (TotemTimers Style)
 			-- Grid: the assigned ones edged on the row, the ones that are up marked
-			if self.weaponImbueFlyout and self.weaponImbueFlyout.grid and self:CooldownBarGridOn() then
+			if self.weaponImbueFlyout and self.weaponImbueFlyout.grid and self:CooldownBarGridOn(ct) then
 				for _, b in ipairs(self.weaponImbueFlyout.buttons) do
 					local i = b.imbueIndex
 					self:CooldownGridMark(b, i == viewMain or i == viewOff, i == actualMain or i == actualOff, nil)
@@ -12629,8 +12650,8 @@ function ShamanPower:UpdateCooldownButtons()
 		end
 	end
 
-	-- Check if progress bar visibility changed and relayout if needed
-	if self.opt.cdbarShowProgressBars ~= false then
+	-- Check if progress bar visibility changed and relayout if needed (Progress Bar is per item)
+	do
 		local anyBarVisible = false
 		for i = 1, #self.cooldownButtons do
 			local btn = self.cooldownButtons[i]
@@ -13497,15 +13518,16 @@ function ShamanPower:ApplyCdbarTextSize()
 end
 
 function ShamanPower:UpdateCooldownFlyoutOpacity()
-	local opacity = self.opt.cooldownFlyoutOpacity or 1.0
-	-- Update cooldown bar flyouts (shield selector, imbue selector)
+	-- Update cooldown bar flyouts (shield selector, imbue selector), each at its item's own Opacity
 	-- Flyouts are now tables with buttons as children of the parent button
 	if self.shieldFlyout and self.shieldFlyout.buttons then
+		local opacity = self:CdItemOpt(1, "flyoutOpacity") or 1.0
 		for _, btn in ipairs(self.shieldFlyout.buttons) do
 			btn:SetAlpha(opacity)
 		end
 	end
 	if self.weaponImbueFlyout and self.weaponImbueFlyout.buttons then
+		local opacity = self:CdItemOpt(7, "flyoutOpacity") or 1.0
 		for _, btn in ipairs(self.weaponImbueFlyout.buttons) do
 			btn:SetAlpha(opacity)
 		end
@@ -13876,19 +13898,20 @@ ShamanPower.CDBAR_STYLE = {
 	dynamic = { showsActive = true, adopt = true },
 }
 
-function ShamanPower:CooldownBarStyle()
-	local o = self.opt
-	if o and o.cdbarOwnStyle and o.cdbarStyle and self.CDBAR_STYLE[o.cdbarStyle] then return o.cdbarStyle end
+-- t: the item (1 the shield, 7 the weapon imbue: its own Button Style, ShamanPowerCdItems.lua); nil: the shared one
+function ShamanPower:CooldownBarStyle(t)
+	local s = self.opt and self:CdItemOpt(t, "buttonStyle")
+	if s and s ~= "mirror" and self.CDBAR_STYLE[s] then return s end
 	return (self.GetTotemBarStyle and self:GetTotemBarStyle()) or "normal"
 end
 
-function ShamanPower:CooldownBarStyleFlags()
-	return self.CDBAR_STYLE[self:CooldownBarStyle()] or self.CDBAR_STYLE.normal
+function ShamanPower:CooldownBarStyleFlags(t)
+	return self.CDBAR_STYLE[self:CooldownBarStyle(t)] or self.CDBAR_STYLE.normal
 end
 
--- Grid on the cooldown bar
-function ShamanPower:CooldownBarGridOn()
-	return self:CooldownBarStyleFlags().grid or false
+-- Grid on the cooldown bar (t: as CooldownBarStyle)
+function ShamanPower:CooldownBarGridOn(t)
+	return self:CooldownBarStyleFlags(t).grid or false
 end
 
 -- Grid: a flyout's choices shown for good (the open / close broadcasts leave them alone); arrow
@@ -14088,7 +14111,7 @@ end
 -- Which shield the button shows, whether it counts as up, which one shows above it (Normal), which
 -- one in its corner (TotemTimers). activeIdx: the shield you have up (nil: none).
 function ShamanPower:CooldownBarShieldView(activeIdx)
-	local f = self:CooldownBarStyleFlags()
+	local f = self:CooldownBarStyleFlags(1)
 	local assigned = self:AssignedShieldIndex()
 	-- (Dynamic adopts only a shield you know: one still up after a talent change took it away stays off
 	-- the button, as SyncShieldButtonCast keeps it)
@@ -14156,7 +14179,7 @@ end
 -- Which imbue the button shows on each hand, whether each hand counts as up, which show above it
 -- (Normal), which in its corner (TotemTimers). actualMain / actualOff: the imbue on each hand (nil: none).
 function ShamanPower:CooldownBarImbueView(actualMain, actualOff)
-	local f = self:CooldownBarStyleFlags()
+	local f = self:CooldownBarStyleFlags(7)
 	local dual = self:HasOffHandWeapon()
 	local main = self:DefaultImbueIndex()
 	local off = dual and self:AssignedOffImbue(main) or nil
@@ -14191,11 +14214,11 @@ end
 
 -- Where the one that is up shows: on the button's flyout side, as a totem's shows on the totem
 -- bar's flyout side (the flyout opens over it, as there)
-function ShamanPower:CooldownAboveAnchor()
+function ShamanPower:CooldownAboveAnchor(t)
 	local cdLayout = self.opt.cdbarLayout or self.opt.layout
 	local isLocked = (self.opt.cooldownBarLocked ~= false)
 	if cdLayout == "Horizontal" then
-		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
+		local flyoutDir = self:CdItemOpt(t, "flyoutDirection")
 		local goBelow = (flyoutDir == "below") or (flyoutDir == "auto" and isLocked)
 		if goBelow then return "TOP", "BOTTOM", 0, -2 end
 		return "BOTTOM", "TOP", 0, 2
@@ -14243,7 +14266,7 @@ function ShamanPower:CooldownBarAbove(btn, icon1, icon2, r, g, b, text, dim)
 	end
 	local size = btn:GetWidth() or 22
 	if a.spSize ~= size then a.spSize = size; a:SetSize(size, size) end
-	local p, rp, ox, oy = self:CooldownAboveAnchor()
+	local p, rp, ox, oy = self:CooldownAboveAnchor(btn.cooldownType)
 	if a.spAnchor ~= p then
 		a.spAnchor = p
 		a:ClearAllPoints()
@@ -14332,7 +14355,7 @@ end
 -- Right-Click Casts Your Other Shield (Cooldown Bar > Items) does something right now: switched on, a
 -- second shield known, and the right-click free (Flyout Requires Right-Click opens the flyout with it)
 function ShamanPower:ShieldOtherClickActive()
-	return (self.opt and self.opt.cdbarShieldRightClickOther and not self:FlyoutOpensOnRightClick()
+	return (self.opt and self:CdItemOpt(1, "rightClickOther") and not self:FlyoutOpensOnRightClick()
 		and self:KnownShieldCount() >= 2) and true or false
 end
 
@@ -14510,7 +14533,7 @@ function ShamanPower:CreateShieldFlyout()
 
 	-- Every shield you know (see above); Grid: pinned open as a row beside the button. With only one known
 	-- there is nothing to pick: no flyout.
-	local grid = self:CooldownBarGridOn()
+	local grid = self:CooldownBarGridOn(1)
 	self._shieldFlyoutGrid = grid and 1 or 0
 	if self:KnownShieldCount() < 2 then
 		if self.boxFlyouts then self.boxFlyouts.S = nil end
@@ -14520,7 +14543,7 @@ function ShamanPower:CreateShieldFlyout()
 	end
 
 	local parentButton = self.shieldButton
-	local buttonSize = self:CooldownFlyoutButtonSize()
+	local buttonSize = self:CooldownFlyoutButtonSize(1)
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
 	local flyout = {
@@ -14533,7 +14556,7 @@ function ShamanPower:CreateShieldFlyout()
 	-- Box mode: same click-to-open arrows as the totem flyouts
 	local buttonParent = parentButton
 	if spFlyoutBoxMode() then
-		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex = true, parentButton, 5
+		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex, flyout.cdItemType = true, parentButton, 5, 1
 		buttonParent = self:EnsureFlyoutBox("S", parentButton, flyout,
 			function() ShamanPower:LayoutShieldFlyout() end) or parentButton
 	end
@@ -14674,7 +14697,7 @@ function ShamanPower:LayoutShieldFlyout()
 		flyout.arrowDir = goRight and "right" or "left"
 	else
 		-- Vertical flyout: buttons extend upward or downward based on option
-		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
+		local flyoutDir = self:CdItemOpt(1, "flyoutDirection")   -- (the shield's own: ShamanPowerCdItems.lua)
 
 		-- When "auto" and locked to totem bar, go below (to avoid clipping into totem icons)
 		-- When "auto" and unlocked, go above
@@ -14731,12 +14754,12 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	if not self.weaponImbueButton then return end
 
 	local parentButton = self.weaponImbueButton
-	local buttonSize = self:CooldownFlyoutButtonSize()
+	local buttonSize = self:CooldownFlyoutButtonSize(7)
 	local spacing = 0  -- No gap between buttons for smooth mouse movement
 
 	-- Every imbue you know except what the button shows (both halves of a split icon), as a totem
 	-- flyout leaves out the totem on its button. Nothing else known: no flyout.
-	local grid = self:CooldownBarGridOn()
+	local grid = self:CooldownBarGridOn(7)
 	local shown1, shown2 = self:ImbuesShownOnButton()
 	self._imbueFlyoutKey = shown1 * 10 + shown2 + (grid and 1000 or 0)
 	if grid then shown1, shown2 = -1, -1 end   -- Grid: every imbue, pinned open as a row beside the button
@@ -14759,7 +14782,7 @@ function ShamanPower:CreateWeaponImbueFlyout()
 	-- Box mode: same click-to-open arrows as the totem flyouts
 	local buttonParent = parentButton
 	if spFlyoutBoxMode() then
-		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex = true, parentButton, 5
+		flyout.isCdbarFlyout, flyout.anchorButton, flyout.artIndex, flyout.cdItemType = true, parentButton, 5, 7
 		buttonParent = self:EnsureFlyoutBox("I", parentButton, flyout,
 			function() ShamanPower:LayoutWeaponImbueFlyout() end) or parentButton
 	end
@@ -14895,7 +14918,7 @@ end
 -- a fight, when that changes, so it never also offers what the button shows. In a fight it waits.
 function ShamanPower:NoteImbuesShown(shown1, shown2)
 	self._imbueShown1, self._imbueShown2 = shown1 or 0, shown2 or 0
-	local key = self._imbueShown1 * 10 + self._imbueShown2 + (self:CooldownBarGridOn() and 1000 or 0)
+	local key = self._imbueShown1 * 10 + self._imbueShown2 + (self:CooldownBarGridOn(7) and 1000 or 0)
 	if key ~= self._imbueFlyoutKey and not InCombatLockdown() then
 		self:RebuildWeaponImbueFlyout()
 	end
@@ -14970,7 +14993,7 @@ function ShamanPower:LayoutWeaponImbueFlyout()
 		end
 	else
 		-- Vertical flyout: buttons extend upward or downward based on option
-		local flyoutDir = self.opt.cdbarFlyoutDirection or "auto"
+		local flyoutDir = self:CdItemOpt(7, "flyoutDirection")   -- (the imbue's own: ShamanPowerCdItems.lua)
 
 		-- When "auto" and locked to totem bar, go below (to avoid clipping into totem icons)
 		-- When "auto" and unlocked, go above
@@ -15376,7 +15399,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	local showDropAll = self:ShowsDropAllButton()  -- the option (on by default), once a totem is learned
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
 	-- Show Totemic Call on totem bar if option is enabled (spell knowledge is validated by CD bar settings)
-	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
+	local showTotemicCall = self:CdItemOpt(2, "onTotemBar") and self.opt.cdbarShowRecall ~= false
 
 	-- Check which totem buttons should be visible (not hidden in options and not popped out)
 	local elementVisible = {
@@ -17134,7 +17157,7 @@ function ShamanPower:RepositionEarthShieldButton()
 	local spacing = self:TotemBarSpacing()   -- Button Spacing, plus room for dots between the buttons
 	local showDropAll = self:ShowsDropAllButton()
 	local dropAllPoppedOut = self:IsDropAllPoppedOut()
-	local showTotemicCall = self.opt.totemicCallOnTotemBar and self.opt.cdbarShowRecall ~= false
+	local showTotemicCall = self:CdItemOpt(2, "onTotemBar") and self.opt.cdbarShowRecall ~= false
 
 	-- Find the anchor point - Totemic Call > Drop All > last visible totem button
 	local anchorFrame = nil
@@ -19916,7 +19939,7 @@ function ShamanPower:GetCooldownButtonByCooldownType(cooldownType)
 		return self.weaponImbueButton
 	end
 	-- Totemic Call (cooldownType 2) - check if it's on the totem bar instead
-	if cooldownType == 2 and self.opt.totemicCallOnTotemBar then
+	if cooldownType == 2 and self:CdItemOpt(2, "onTotemBar") then
 		return _G["ShamanPowerAutoTotemicCall"]
 	end
 	if not self.cooldownButtons then return nil end
