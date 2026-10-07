@@ -648,7 +648,7 @@ local FX = {
 for _, name in ipairs({ "earth", "fire", "water", "air" }) do
 	local pop = "totem_" .. name
 	local function saved() return SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[pop] end
-	FX["grid_" .. name] = { page = { "fluffy", "popout_section" }, pick = { node = "selected_tracker", value = pop },
+	FX["grid_" .. name] = { page = { "fluffy", "popout_section" }, popout = pop,
 		size = { pct = true, min = 0.5, max = 3, step = 0.05,
 			get = function() local s = saved(); return s and s.scale or SP.opt.poppedOutDefaultScale or 1 end,
 			set = function(v) SP:SetPopOutScale(pop, v) end },
@@ -1813,13 +1813,10 @@ function SP:UnlockBoxClick(mover, button)
 	if fx and fx.page then
 		-- no settings module (switched off): nowhere to go. It says so; Unlock UI stays
 		if not rawget(_G, "ShamanPowerConfig") then self:OpenConfigWindow(fx.page) return end
-		-- a page that shows one of several (Pop-Out Trackers): this box's one first
-		local pick = fx.pick
-		local node = pick and FindOption(pick.node, nil, "select")
-		if node and type(node.set) == "function" then pcall(node.set, { pick.node, option = node }, pick.value) end
 		-- a Ready Reminder icon's own box (free placement) carries its catalog key;
-		-- the Grid block's box has none: the plain page
-		local rrKey
+		-- the Grid block's box has none: the plain page. A pop-out tracker's box (a split
+		-- Grid row): that tracker's menu on the Pop-Out Trackers page
+		local rrKey = fx.popout and { popout = fx.popout } or nil
 		local e = (mod == "readyreminders" or mod == "readybuffspot") and shown[mover.key]
 		local entry = e and e.frame and e.frame.entry
 		if entry then rrKey = entry.key end
@@ -1913,7 +1910,14 @@ function SP:UnlockSettingsPage(page, rrKey)
 	self.unlockOnDone, self.unlockReturnToConfig = nil, nil
 	TurnOff(true)   -- (its boxes have dropped away already)
 	local opened = false
-	if rrKey and type(self.ReadyReminderOpenIconMenu) == "function" then
+	if type(rrKey) == "table" then
+		-- a pop-out tracker's box: its menu on the Pop-Out Trackers page (ShamanPower_Config)
+		if rrKey.popout and type(self.PopOutOpenTrackerMenu) == "function" then
+			local ok = pcall(self.PopOutOpenTrackerMenu, self, rrKey.popout)
+			local w = SettingsWindow()
+			opened = ok and w ~= nil and w:IsShown()
+		end
+	elseif rrKey and type(self.ReadyReminderOpenIconMenu) == "function" then
 		local ok = pcall(self.ReadyReminderOpenIconMenu, self, rrKey)
 		local w = SettingsWindow()   -- (the call may have built the window)
 		opened = ok and w ~= nil and w:IsShown()

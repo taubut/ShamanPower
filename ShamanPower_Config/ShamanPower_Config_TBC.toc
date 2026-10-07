@@ -25,6 +25,7 @@ TTRules.lua
 IconRow.lua
 CdbarIcons.lua
 ShieldIcons.lua
+TrackerIcons.lua
 ControllerButtons.lua
 Assign.lua
 FrameSettings.lua
