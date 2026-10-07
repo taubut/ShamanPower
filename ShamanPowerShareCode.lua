@@ -38,6 +38,9 @@ local function O() return SP.opt or {} end
 local function sub(t, k) return type(t) == "table" and t[k] or nil end
 local function G(name) return rawget(_G, name) end
 local function on(v) return v == true end
+-- the Cooldown Bar's per-item settings (ShamanPowerCdItems.lua): one item's value, or on for any item
+local function item(t, name) return SP.CdItemOpt and SP.opt and SP:CdItemOpt(t, name) end
+local function anyItem(name) return SP.CdItemAny and SP.opt and SP:CdItemAny(name) or false end
 local function notOff(v) return v ~= nil and v ~= false end   -- "on unless switched off", set tables only
 local function changed(v) return v ~= nil and v ~= "default" end   -- a look picked away from its default
 local function anyTrue(t)
@@ -70,7 +73,7 @@ SP.SHARE_FEATURES = {
 	{ key = "customTexture",      label = "Custom bar texture chosen",          get = function() return O().barTexture ~= nil or anyTrue(O().barTextureAreas) end },
 	{ key = "compactTexture",     label = "Compact line texture set",           get = function() return O().compactLineTexture ~= nil end },
 	{ key = "popOuts",            label = "Pop-out trackers in use",            get = function() return anyTrue(O().poppedOut) end },
-	{ key = "totemicCallOnBar",   label = "Totemic Call on the totem bar",      get = function() return on(O().totemicCallOnTotemBar) end },
+	{ key = "totemicCallOnBar",   label = "Totemic Call on the totem bar",      get = function() return on(item(2, "onTotemBar")) end },
 	{ key = "twistSound",         label = "Twist sound",                        get = function() return on(O().twistSoundEnabled) end },
 	{ key = "keybindsFlyoutKeys", label = "Flyouts open from bar keys",         get = function() return on(O().flyoutRouteBarKeys) end },
 	-- Modules
@@ -128,14 +131,14 @@ SP.SHARE_FEATURES = {
 		local s = O().shieldChargeDisplay
 		return on(sub(s, "showIcon")) and sub(s, "numberPosition") == "corner" and sub(s, "showNumber") ~= false
 	end },
-	{ key = "cdbarShieldBar",     label = "Cooldown bar: shield charge bar",    get = function() return on(O().cdbarShieldChargeBar) end },
-	{ key = "cdbarShieldNoCount", label = "Cooldown bar: shield count hidden",  get = function() return O().cdbarShowShieldCount == false end },
+	{ key = "cdbarShieldBar",     label = "Cooldown bar: shield charge bar",    get = function() return on(item(1, "chargeBar")) end },
+	{ key = "cdbarShieldNoCount", label = "Cooldown bar: shield count hidden",  get = function() return item(1, "chargeCount") == false end },
 	{ key = "cueTotemDestroyed",  label = "Effect: totem destroyed",            get = function() return on(O().totemCueDestroyed) end },
 	{ key = "cueTotemExpired",    label = "Effect: totem expired",              get = function() return on(O().totemCueExpired) end },
 	{ key = "cueTotemExpiring",   label = "Effect: totem expiring soon",        get = function() return on(O().totemCueExpiring) end },
-	{ key = "cueCooldownReady",   label = "Effect: cooldown ready",             get = function() return on(O().cdbarCueReady) end },
-	{ key = "cueImbueGone",       label = "Effect: weapon imbue gone",          get = function() return on(O().cdbarCueImbue) end },
-	{ key = "cueShieldGone",      label = "Effect: shield gone",                get = function() return on(O().cdbarCueShield) end },
+	{ key = "cueCooldownReady",   label = "Effect: cooldown ready",             get = function() return on(anyItem("cueReady")) end },
+	{ key = "cueImbueGone",       label = "Effect: weapon imbue gone",          get = function() return on(item(7, "cueGone")) end },
+	{ key = "cueShieldGone",      label = "Effect: shield gone",                get = function() return on(item(1, "cueGone")) end },
 	{ key = "coverageDots",       label = "Coverage: dots instead of names",    get = function() return on(sub(O().coverage, "dots")) end },
 	{ key = "partyDotsMissing",   label = "Party dots: only who's missing",     get = function() return on(O().partyDotsMissingOnly) end },
 	{ key = "coverageDotsMissing", label = "Coverage dots: only who's missing", get = function() return on(sub(O().coverage, "dotsMissingOnly")) end },
@@ -244,19 +247,19 @@ SP.SHARE_FEATURES = {
 	end },
 	-- 3.0.8: the cooldown bar's shield button, Right-Click Casts Your Other Shield
 	{ key = "shieldRightClickOther", label = "Cooldown bar: right-click casts the other shield", get = function()
-		return on(O().cdbarShieldRightClickOther) and O().showCooldownBar == true and O().cdbarShowShields ~= false
+		return on(item(1, "rightClickOther")) and O().showCooldownBar == true and O().cdbarShowShields ~= false
 	end },
 	-- 3.0.8 (alpha): Totem Bar > Effects > Put Your Usual Totem Back
 	{ key = "usualTotemReminder", label = "Return to usual totem reminder",   get = function() return on(O().usualTotemReminder) end },
 	-- 3.0.8: the cooldown bar's running-out moment
-	{ key = "cdbarRunOutOnly",    label = "Cooldown bar: only items running out", get = function() return on(O().cdbarRunOutOnly) end },
-	{ key = "cueRunningOut",      label = "Effect: running out",                get = function() return on(O().cdbarCueRunning) end },
-	{ key = "cueTimeRed",         label = "Effect: time turns red",             get = function() return on(O().cdbarCueTimeColor) end },
-	{ key = "cueAlmostReady",     label = "Effect: cooldown almost ready",      get = function() return on(O().cdbarCueAlmost) end },
+	{ key = "cdbarRunOutOnly",    label = "Cooldown bar: only items running out", get = function() return on(anyItem("runOutOnly")) end },
+	{ key = "cueRunningOut",      label = "Effect: running out",                get = function() return on(anyItem("cueRunning")) end },
+	{ key = "cueTimeRed",         label = "Effect: time turns red",             get = function() return on(anyItem("cueTimeColor")) end },
+	{ key = "cueAlmostReady",     label = "Effect: cooldown almost ready",      get = function() return on(anyItem("cueAlmost")) end },
 	{ key = "cueRedXCooldownBar", label = "Effect: red X on imbue / shield",    get = function()
-		return (on(O().cdbarCueImbue) and on(O().cdbarCueImbueMark)) or (on(O().cdbarCueShield) and on(O().cdbarCueShieldMark))
+		return (on(item(7, "cueGone")) and on(item(7, "cueMark"))) or (on(item(1, "cueGone")) and on(item(1, "cueMark")))
 	end },
-	{ key = "cueMissingRed",      label = "Effect: red while shield / imbue missing", get = function() return on(O().cdbarCueMissing) end },
+	{ key = "cueMissingRed",      label = "Effect: red while shield / imbue missing", get = function() return on(anyItem("cueMissing")) end },
 	-- 3.0.8: the Party Strip broken up (Break Up Totem List: each picked totem a strip of its own)
 	{ key = "partyStripBreakUp",  label = "Party strip: broken up per totem",    get = function()
 		local ps = O().partyStrip
