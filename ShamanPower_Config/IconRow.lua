@@ -27,6 +27,19 @@
 --   locked   = function() return true end,            (optional) no drag right now (a fight)
 --   beside   = function() return text end,            (optional) a few lines right of the icons (a summary),
 --                                                     drawn again with the icons; under them when there's no room
+--   label    = function(item) return text, bright end, (optional, A17 Loadouts) a name under each icon: it wraps,
+--                                                     never cut short; bright: in text, else textDim. The icons
+--                                                     then sit in tiles `tileWidth` wide, the icon centered over
+--                                                     its name; a line of tiles is as tall as its tallest name
+--   tileWidth = 76,                                   (optional, with label) a tile's width
+--   mark     = function(item) return on end,         (optional, A17 Loadouts) a 3 px green (`on`) bar under the
+--                                                     icon: the one in use
+--   add      = { name = "New", tip = "...", hint = "Click: ...",
+--                shown = function() return true end, click = function() end },
+--                                                     (optional, A17 Loadouts) a "+" tile after the items (its name
+--                                                     under it when the row has labels); a click runs add.click
+--                                                     (refused while locked); never dragged, a drag lands before it
+--   (none of label / tileWidth / mark / add given: the row is exactly as before)
 -- }
 -- row:Render(body, x, y, width, onChanged) / row:Release()   (ns.CustomRows)
 -- row:Changed(keepMenu)  row:Repaint()  row:OpenMenu(key, path)  row:ShowDrag(key, gap)
@@ -53,6 +66,13 @@ local HIDDEN_SHADE = 0.5   -- hidden: gray and half as bright
 local NOT_LEARNED_SHADE = 0.3   -- not learned yet: gray and dark
 local LIFTED_ALPHA = 0.55  -- a dragged item's empty place
 local DRAG_LIFT    = 8     -- the lifted copy sits this much above the row
+-- def.label / def.mark / def.add (the Loadouts row): tiles with a name under each icon
+local TILE_W       = 76    -- a tile (def.tileWidth): the plate centered in it, the name wrapped to its width
+local NAME_GAP     = 9     -- plate to name (room for the mark)
+local MARK_GAP     = 2     -- plate to the mark
+local MARK_H       = 3
+local LABEL_LINE_GAP = 10  -- a line of tiles to the next
+local PLUS_LEN     = 16    -- the + tile's cross
 
 local IconRow = {}
 ns.IconRow = IconRow
@@ -211,6 +231,13 @@ function Proto:PaintButton(b)
 	PaintIcons(b, self.tex, n, on, learned)
 	b.corner:SetShown((def.hasOwn and Call(def.hasOwn, item)) and true or false)
 	b.openEdge:SetShown(self.openKey == item.key)
+	if b.label then
+		local text, bright = Call(def.label, item)
+		b.label:SetText(text or "")
+		b.label:SetTextColor(Core:ColorIf(bright, "text", "textDim"))
+		b.label:Show()
+	end
+	if b.mark then b.mark:SetShown((def.mark and Call(def.mark, item)) and true or false) end
 	Core:AttachTooltip(b, item.name, TooltipBody(self, item), def.hint)
 	if self.liftKey == item.key then self:PaintLifted(b) else b:SetAlpha(1) end
 end
@@ -241,7 +268,10 @@ function Proto:ListChanged()
 	wipe(s)
 	Call(self.def.list, s)
 	if #s ~= #self.list then return true end
-	for i = 1, #s do if s[i].key ~= self.list[i].key then return true end end
+	for i = 1, #s do
+		if s[i].key ~= self.list[i].key then return true end
+		if self.def.label and s[i].name ~= self.list[i].name then return true end   -- (a name under it: its height)
+	end
 	return false
 end
 
@@ -303,12 +333,15 @@ end
 -- where an index's plate sits in the row frame (top left, y down)
 function Proto:SlotXY(i)
 	local per = self.perRow or 1
-	return self.padX + ((i - 1) % per) * PITCH, PAD_TOP + floor((i - 1) / per) * PITCH
+	local pitch, lineH = self.pitch or PITCH, self.lineH or PITCH
+	return self.padX + (self.lead or 0) + ((i - 1) % per) * pitch, PAD_TOP + floor((i - 1) / per) * lineH
 end
 
 function Proto:PaintLifted(b)
 	for i = 1, 3 do b.icons[i]:Hide() end
 	b.corner:Hide()
+	if b.label then b.label:Hide() end
+	if b.mark then b.mark:Hide() end
 	b:SetAlpha(LIFTED_ALPHA)
 end
 
@@ -338,12 +371,13 @@ function Proto:ShowDrag(key, gap, x, y)
 	g.corner:Hide()
 	-- the line: at the left of the place it lands (after the last plate for the end)
 	local lx, ly
+	local half = ((self.pitch or PITCH) - PLATE) / 2
 	if gap <= n then
 		lx, ly = self:SlotXY(gap)
-		lx = lx - (PITCH - PLATE) / 2 - 1
+		lx = lx - half - 1
 	else
 		lx, ly = self:SlotXY(n)
-		lx = lx + PLATE + (PITCH - PLATE) / 2 - 1
+		lx = lx + PLATE + half - 1
 	end
 	if not x then x, y = lx - PITCH / 2 + 10, ly - DRAG_LIFT end
 	g:ClearAllPoints()
@@ -375,8 +409,9 @@ end
 function Proto:GapAt(cx, cy)
 	local n = #self.list
 	local per = self.perRow or 1
-	local line = max(0, floor((cy - PAD_TOP) / PITCH))
-	local col = floor((cx - self.padX + (PITCH - PLATE) / 2 + PITCH / 2) / PITCH)
+	local pitch = self.pitch or PITCH
+	local line = max(0, floor((cy - PAD_TOP) / (self.lineH or PITCH)))
+	local col = floor((cx - self.padX - (self.lead or 0) + (pitch - PLATE) / 2 + pitch / 2) / pitch)
 	col = max(0, min(per, col))
 	return max(1, min(n + 1, line * per + col + 1))
 end
@@ -448,6 +483,29 @@ local function ButtonClick(b, button)
 	row:Changed(false)
 end
 
+-- def.label: a name under the plate (wraps to the tile's width); def.mark: the green bar under it
+local function AddLabel(b)
+	if b.label then return end
+	local fs = b:CreateFontString(nil, "OVERLAY")
+	fs:SetFontObject(Core.fonts.rowDim)
+	fs:SetJustifyH("CENTER")
+	fs:SetJustifyV("TOP")
+	fs:SetWordWrap(true)
+	if fs.SetNonSpaceWrap then fs:SetNonSpaceWrap(true) end   -- (a long word wraps too: never cut short)
+	fs:SetPoint("TOP", b, "BOTTOM", 0, -NAME_GAP)
+	b.label = fs
+end
+local function AddMark(b)
+	if b.mark then return end
+	local t = b:CreateTexture(nil, "OVERLAY")
+	t:SetColorTexture(Core:Color("on"))
+	t:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -MARK_GAP)
+	t:SetPoint("TOPRIGHT", b, "BOTTOMRIGHT", 0, -MARK_GAP)
+	t:SetHeight(MARK_H)
+	t:Hide()
+	b.mark = t
+end
+
 function Proto:NewButton(parent)
 	local b = NewPlate(parent)
 	b.row = self
@@ -459,6 +517,40 @@ function Proto:NewButton(parent)
 		b:SetScript("OnDragStart", function(s) s.row:StartDrag(s) end)
 		b:SetScript("OnDragStop", function(s) s.row:StopDrag(s) end)
 	end
+	if self.def.label then AddLabel(b) end
+	if self.def.mark then AddMark(b) end
+	return b
+end
+
+-- def.add: the "+" tile after the items (a 1 px edge, an accentHi cross, its name under it)
+local function AddClick(b, button)
+	local row = b.row
+	if not row or button ~= "LeftButton" then return end
+	if row:RefuseLocked() then return end
+	local add = row.def.add
+	if add then Call(add.click) end
+	row:Changed(false)
+end
+
+function Proto:NewAddButton(parent)
+	local b = NewPlate(parent)
+	b.row = self
+	b.edge = CreateFrame("Frame", nil, b)
+	b.edge:SetAllPoints(b)
+	Core:MakeBorder(b.edge, "border", 1)
+	for i = 1, 2 do   -- (the plate's own icon textures, as the cross)
+		local t = b.icons[i]
+		t:SetColorTexture(Core:Color("accentHi"))
+		t:ClearAllPoints()
+		t:SetPoint("CENTER", b, "CENTER", 0, 0)
+		t:Show()
+	end
+	b.icons[1]:SetSize(PLUS_LEN, 2)
+	b.icons[2]:SetSize(2, PLUS_LEN)
+	b:SetScript("OnClick", AddClick)
+	b:SetScript("OnEnter", function(s) s.hoverEdge:Show() end)
+	b:SetScript("OnLeave", function(s) s.hoverEdge:Hide() end)
+	if self.def.label then AddLabel(b) end
 	return b
 end
 
@@ -504,17 +596,26 @@ function Proto:Render(body, x, y, width, onChanged)
 	wipe(list)
 	Call(self.def.list, list)
 	wipe(self.byKey)
+	local def = self.def
 	local padX = PAD_X + (ns.Widgets and tonumber(ns.Widgets.CARD_INSET) or 0)   -- in line with the rows' labels
-	local perRow = max(1, floor((width - padX * 2 + (PITCH - PLATE)) / PITCH))
-	self.padX, self.perRow = padX, perRow
+	-- def.label: tiles (the plate centered, its name under it); otherwise plates 4 px apart
+	local labeled = def.label and true or false
+	local pitch = labeled and (tonumber(def.tileWidth) or TILE_W) or PITCH
+	local lead = labeled and floor((pitch - PLATE) / 2) or 0
+	local add = def.add
+	local addShown = (add and (add.shown == nil or Call(add.shown))) and true or false
+	local slots = #list + (addShown and 1 or 0)
+	local perRow
+	if labeled then
+		perRow = max(1, floor((width - padX * 2) / pitch))
+	else
+		perRow = max(1, floor((width - padX * 2 + (PITCH - PLATE)) / PITCH))
+	end
+	self.padX, self.perRow, self.pitch, self.lead = padX, perRow, pitch, lead
 	for i, item in ipairs(list) do
 		local b = self.buttons[i] or self:NewButton(f)
 		self.buttons[i] = b
 		b.item = item
-		b:ClearAllPoints()
-		local bx, by = self:SlotXY(i)
-		b:SetPoint("TOPLEFT", f, "TOPLEFT", bx, -by)
-		b:Show()
 		self.byKey[item.key] = b
 	end
 	for i = #list + 1, #self.buttons do
@@ -522,7 +623,61 @@ function Proto:Render(body, x, y, width, onChanged)
 		b.item = nil
 		b:Hide()
 	end
-	local iconsH = max(1, ceil(#list / perRow)) * PITCH - (PITCH - PLATE)
+	local ab = self.addButton
+	if addShown and not ab then
+		ab = self:NewAddButton(f)
+		self.addButton = ab
+	end
+	-- the names first (a line of tiles is as tall as its tallest name)
+	local nameH = 0
+	if labeled then
+		for i, item in ipairs(list) do
+			local b = self.buttons[i]
+			b.label:SetWidth(pitch - 4)
+			b.label:SetText((Call(def.label, item)) or "")
+			nameH = max(nameH, b.label:GetStringHeight() or 0)
+		end
+		if addShown then
+			ab.label:SetWidth(pitch - 4)
+			ab.label:SetText(add.name or "")
+			nameH = max(nameH, ab.label:GetStringHeight() or 0)
+		end
+		nameH = ceil(nameH)
+		self.lineH = PLATE + NAME_GAP + nameH + LABEL_LINE_GAP
+	else
+		self.lineH = PITCH
+	end
+	for i in ipairs(list) do
+		local b = self.buttons[i]
+		b:ClearAllPoints()
+		local bx, by = self:SlotXY(i)
+		b:SetPoint("TOPLEFT", f, "TOPLEFT", bx, -by)
+		-- the name is part of the tile: a click or a hover on it is one on the icon
+		if labeled and b.SetHitRectInsets then b:SetHitRectInsets(0, 0, 0, -(NAME_GAP + nameH)) end
+		b:Show()
+	end
+	if ab then
+		if addShown then
+			ab:ClearAllPoints()
+			local bx, by = self:SlotXY(#list + 1)
+			ab:SetPoint("TOPLEFT", f, "TOPLEFT", bx, -by)
+			if ab.label then
+				ab.label:SetTextColor(Core:Color("textDim"))
+				if ab.SetHitRectInsets then ab:SetHitRectInsets(0, 0, 0, -(NAME_GAP + nameH)) end
+			end
+			Core:AttachTooltip(ab, add.name, add.tip, add.hint)
+			ab:Show()
+		else
+			Core:HideTooltipFor(ab)
+			ab:Hide()
+		end
+	end
+	local iconsH
+	if labeled then
+		iconsH = max(1, ceil(slots / perRow)) * self.lineH - LABEL_LINE_GAP
+	else
+		iconsH = max(1, ceil(slots / perRow)) * PITCH - (PITCH - PLATE)
+	end
 	-- the summary beside the icons (def.beside): right of the last one when it fits, else under them
 	if self.def.beside then
 		if not f.beside then
@@ -536,8 +691,8 @@ function Proto:Render(body, x, y, width, onChanged)
 		local b = f.beside
 		b:SetText(BesideText(self.def))
 		b:ClearAllPoints()
-		local left = padX + min(#list, perRow) * PITCH - (PITCH - PLATE) + BESIDE_GAP
-		if #list <= perRow and width - padX - left >= BESIDE_MIN then
+		local left = padX + lead + (min(slots, perRow) - 1) * pitch + PLATE + BESIDE_GAP
+		if slots <= perRow and width - padX - left >= BESIDE_MIN then
 			b:SetWidth(width - padX - left)
 			local bh = ceil(b:GetStringHeight())
 			b:SetPoint("TOPLEFT", f, "TOPLEFT", left, -(PAD_TOP + max(0, floor((iconsH - bh) / 2))))
@@ -585,6 +740,10 @@ function Proto:Release()
 	for _, b in ipairs(self.buttons) do
 		Core:HideTooltipFor(b)
 		b.hoverEdge:Hide()
+	end
+	if self.addButton then
+		Core:HideTooltipFor(self.addButton)
+		self.addButton.hoverEdge:Hide()
 	end
 end
 

@@ -62,55 +62,6 @@ end
 -- Shared args table for loadouts section (rebuilt in-place by RefreshLoadoutArgs)
 local loadoutArgs = {}
 
--- Element names and color codes for totem dropdowns (matches TotemTimers ElementColors)
-local loadoutElementNames = {
-	[1] = "|cffb3804dEarth|r",  -- 0.7, 0.5, 0.3
-	[2] = "|cffff1a1aFire|r",   -- 1.0, 0.1, 0.1
-	[3] = "|cff6666ffWater|r",  -- 0.4, 0.4, 1.0
-	[4] = "|cffffffffAir|r",    -- 1.0, 1.0, 1.0
-}
-
--- Build totem dropdown values for a given element
--- Loadout totem pickers: a totem this character has not learned yet is marked, since the
--- game will not drop it (and Blizzard's totem bar will not hold it) until it is
-local function GetTotemValues(element)
-	local mainline = SPCompat.FOREVER
-	return function()
-		local values = { [0] = "None" }
-		for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
-			if not mainline or ShamanPower:TotemExistsOnClient(element, idx) then
-				name = ShamanPower:GetTotemName(element, idx)
-				local learned = not ShamanPower.KnowsTotem or ShamanPower:KnowsTotem(element, idx)
-				values[idx] = learned and name or (name .. " |cff888888(not learned)|r")
-			end
-		end
-		return values
-	end
-end
-
--- Build sorted key list for totem dropdown
-local function GetTotemSorting(element)
-	if SPCompat.FOREVER then
-		return function()
-			local sorting = { 0 }
-			for idx in pairs(ShamanPower.TotemNames[element] or {}) do
-				if ShamanPower:TotemExistsOnClient(element, idx) then tinsert(sorting, idx) end
-			end
-			table.sort(sorting)
-			return sorting
-		end
-	end
-	local sorting = {0}
-	local names = ShamanPower.TotemNames[element]
-	if names then
-		for idx in pairs(names) do
-			tinsert(sorting, idx)
-		end
-	end
-	table.sort(sorting)
-	return sorting
-end
-
 -- Icon choices for custom loadout icons (element icons + common totems + "None" to reset)
 -- ============================================================================
 -- ICON PICKER POPUP (same as TotemTimers IconPicker.lua)
@@ -458,50 +409,53 @@ local function HasLoadoutSetControls()
 	return SPCompat.FOREVER and ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()
 end
 
--- the Set Page picker and Send to Set Now only show once Call of the Ancestors or
--- Call of the Spirits is known; before that the Loadouts page's note says when they come
-local function KnowsSetPage()
-	if not (HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages) then return false end
-	local known = ShamanPower:KnownTotemSetPages()
-	return (known[2] or known[3]) and true or false
-end
-
-local function LoadoutSetPageValues()
-	local values = { [0] = "None" }
-	if HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages then
-		local known = ShamanPower:KnownTotemSetPages()
-		if known[2] then values[2] = "Call of the Ancestors" end
-		if known[3] then values[3] = "Call of the Spirits" end
-	end
-	return values
-end
-
 local PlaceLoadoutBarOptions
+-- Loadouts > Loadouts (A17, 3.0.8): the page text, then Saved Loadouts: a tile per saved
+-- loadout and a + (ShamanPower_Config LoadoutIcons.lua draws the row: click a loadout to switch
+-- to it, right-click it for its totems, Drop All, Blizzard totem set, name, icon and Delete, drag
+-- it to change its place). Each loadout's 11 to 13 rows and Create New Loadout's 7 rows went into
+-- that row (its menus and its + tile); the loadouts themselves are untouched. Show Loadout Bar,
+-- Move and its hint are built here and moved to the Loadout Bar tab (PlaceLoadoutBarOptions).
+-- What a search finds in the Saved Loadouts row (it draws itself, so this text is never shown):
+-- every word its tiles and menus draw, and the old rows' names, so a search for a setting that
+-- moved into a menu lands here.
+local LOADOUTS_SEARCH = "Saved Loadouts: your saved totem loadouts, each with its icon and its name. Click a loadout to"
+	.. " switch to it (Active, In Use: the green bar), right-click it to change it, drag it to change its place on the"
+	.. " loadout bar. + saves a new loadout from the totems on your bar now (Create New Loadout, Create Loadout, Loadout"
+	.. " Name). Switch To This Loadout. Edit totems: Earth, Fire, Water, Air. Drop All: Leave Out Earth, Leave Out Fire,"
+	.. " Leave Out Water, Leave Out Air (Exclude, leave out of Drop All and Call of the Elements). Blizzard Totem Set: Set"
+	.. " Page (Call of the Ancestors, Call of the Spirits, None), Send to Set Now. Rename, Icon, Delete This Loadout."
 local function RefreshLoadoutArgs()
 	-- Guard: ShamanPower_TotemLoadouts may not exist yet at file load time (SavedVariable)
 	if not ShamanPower_TotemLoadouts then return end
+	-- the Saved Loadouts row's node is kept: the settings window knows the row by it
+	local iconsNode = loadoutArgs.loadoutIcons
 	-- Wipe and rebuild - preserves the table reference
 	wipe(loadoutArgs)
 
 	loadoutArgs.loadouts_desc = {
 		order = 0,
 		type = "description",
-		name = "Save up to 8 totem loadouts. Each remembers your 4 assigned totems.\n\nUse |cffffd200/spl save <name>|r to save and |cffffd200/spl <name>|r to switch, or use the settings below.\n",
+		name = "Save up to 8 totem loadouts. Each remembers your 4 totems and which of them Drop All leaves out. Typing"
+			.. " |cffffd200/spl save <name>|r saves one, |cffffd200/spl <name>|r switches to it.",
 	}
 	loadoutArgs.loadouts_sets_note = {
 		order = 0.5,
 		type = "description",
 		width = "full",
-		-- The Set Page picker below only lists set pages the character knows; say why it is empty.
+		-- a loadout's menu only lists the Call spells the character knows; say why it has none
 		name = function()
 			local known = ShamanPower.KnownTotemSetPages and ShamanPower:KnownTotemSetPages() or {}
 			if known[2] or known[3] then
-				return "Blizzard's totem sets: pick a loadout's |cffffd200Set Page|r below to put it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments.\n"
+				return "Blizzard's totem sets: a loadout's menu > Blizzard Totem Set puts it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments."
 			end
-			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) with a Set Page picker, which appears on each loadout below once your character knows one of them. Call of the Elements always follows your assignments.|r\n"
+			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) in its menu (right-click it > Blizzard Totem Set), once your character knows one of them. Call of the Elements always follows your assignments.|r"
 		end,
 		hidden = function() return not HasLoadoutSetControls() end,
 	}
+	loadoutArgs.loadoutIcons = iconsNode or { type = "description", width = "full", name = " ", desc = LOADOUTS_SEARCH }
+	ShamanPower.OptionCustomRow = ShamanPower.OptionCustomRow or {}
+	ShamanPower.OptionCustomRow[loadoutArgs.loadoutIcons] = "loadoutIcons"
 	loadoutArgs.show_bar = {
 		order = 1,
 		type = "toggle",
@@ -531,270 +485,11 @@ local function RefreshLoadoutArgs()
 		name = "Hold ALT and drag the loadout button to move the bar "
 			.. "while ALT+drag is unlocked (Loadout Bar tab).",
 	}
-	loadoutArgs.new_header = {
-		order = 2,
-		type = "header",
-		name = "Create New Loadout",
-	}
-	loadoutArgs.new_name = {
-		order = 3,
-		type = "input",
-		name = "Loadout Name",
-		desc = "Enter a name for the new loadout (e.g. 'Enhance', 'Resto')",
-		width = 1.2,
-		get = function(info)
-			return ShamanPower._newLoadoutName or ""
-		end,
-		set = function(info, val)
-			ShamanPower._newLoadoutName = val
-		end,
-	}
-	loadoutArgs.new_icon = {
-		order = 3.5,
-		type = "execute",
-		name = function()
-			local icon = ShamanPower._newLoadoutIcon or "Interface\\Icons\\INV_Misc_QuestionMark"
-			return "|T" .. icon .. ":16|t Icon"
-		end,
-		desc = "Click to choose an icon for the new loadout",
-		width = 0.5,
-		func = function()
-			ShamanPower:OpenIconPicker(nil, function(selectedIcon)
-				ShamanPower._newLoadoutIcon = selectedIcon
-				ShamanPower:RefreshConfig()
-			end)
-		end,
-	}
-	-- Pre-fill new loadout totems from current assignments
-	if not ShamanPower._newLoadoutTotems then
-		ShamanPower._newLoadoutTotems = {}
-		local assignments = ShamanPower_Assignments and ShamanPower_Assignments[ShamanPower.player]
-		for element = 1, 4 do
-			ShamanPower._newLoadoutTotems[element] = (assignments and assignments[element]) or 0
-		end
-	end
-	for element = 1, 4 do
-		local elem = element
-		loadoutArgs["new_totem_" .. elem] = {
-			order = 4 + elem * 0.1,
-			type = "select",
-			name = loadoutElementNames[elem],
-			width = 0.75,
-			values = GetTotemValues(elem),
-			sorting = GetTotemSorting(elem),
-			get = function(info)
-				return ShamanPower._newLoadoutTotems and ShamanPower._newLoadoutTotems[elem] or 0
-			end,
-			set = function(info, val)
-				if not ShamanPower._newLoadoutTotems then ShamanPower._newLoadoutTotems = {} end
-				ShamanPower._newLoadoutTotems[elem] = val
-			end,
-		}
-	end
-	loadoutArgs.create_loadout = {
-		order = 4.9,
-		type = "execute",
-		name = "Create Loadout",
-		desc = "Create a new loadout with the name, icon, and totems chosen above",
-		width = 1.0,
-		disabled = function()
-			return not ShamanPower_TotemLoadouts or #ShamanPower_TotemLoadouts >= 8
-		end,
-		func = function()
-			local name = ShamanPower._newLoadoutName
-			if name and name:trim() == "" then name = nil end
-			local icon = ShamanPower._newLoadoutIcon
-			local totems = ShamanPower._newLoadoutTotems or {}
-			ShamanPower:CreateLoadout(name, icon, totems)
-			-- Clear temp fields and re-fill from current assignments
-			ShamanPower._newLoadoutName = nil
-			ShamanPower._newLoadoutIcon = nil
-			ShamanPower._newLoadoutTotems = nil
-			RefreshLoadoutArgs()
-			ShamanPower:RefreshConfig()
-		end,
-	}
-	loadoutArgs.loadouts_header = {
-		order = 5,
-		type = "header",
-		name = "Saved Loadouts",
-		hidden = function() return not ShamanPower_TotemLoadouts or #ShamanPower_TotemLoadouts == 0 end,
-	}
-
-	-- Dynamically add per-loadout management controls
-	if ShamanPower_TotemLoadouts then
-		for i = 1, #ShamanPower_TotemLoadouts do
-			local idx = i
-			local baseOrder = 10 + (i - 1) * 20 -- More spacing for extra controls
-
-			local loadout = ShamanPower_TotemLoadouts[idx]
-			local lname = loadout and (loadout.name or ("Loadout " .. idx)) or ("Loadout " .. idx)
-
-			-- Header with name and active indicator
-			loadoutArgs["lo_header_" .. idx] = {
-				order = baseOrder,
-				type = "description",
-				name = function()
-					local lo = ShamanPower_TotemLoadouts[idx]
-					if not lo then return "" end
-					local n = lo.name or ("Loadout " .. idx)
-					local active = (ShamanPower.opt.activeLoadout == idx) and "  |cff00ff00[Active]|r" or ""
-					return "\n|cffffd200" .. idx .. ". " .. n .. "|r" .. active
-				end,
-				fontSize = "medium",
-			}
-
-			-- Color-coded description
-			loadoutArgs["lo_desc_" .. idx] = {
-				order = baseOrder + 1,
-				type = "description",
-				name = function()
-					return ShamanPower:GetLoadoutDescription(idx) .. "\n"
-				end,
-			}
-
-			-- Rename input (same layout as TotemTimers: Rename | Icon | Update | Delete)
-			loadoutArgs["lo_rename_" .. idx] = {
-				order = baseOrder + 2,
-				type = "input",
-				name = "Rename",
-				width = 0.9,
-				get = function(info)
-					local lo = ShamanPower_TotemLoadouts[idx]
-					return lo and lo.name or ""
-				end,
-				set = function(info, val)
-					if val and val:trim() == "" then val = nil end
-					ShamanPower:RenameLoadout(idx, val)
-					RefreshLoadoutArgs()
-					ShamanPower:RefreshConfig()
-				end,
-			}
-
-			-- Icon picker button (same as TotemTimers GUI/Sets.lua setIcon)
-			loadoutArgs["lo_icon_" .. idx] = {
-				order = baseOrder + 2.5,
-				type = "execute",
-				name = function()
-					local lo = ShamanPower_TotemLoadouts[idx]
-					if not lo then return "Icon" end
-					local icon = lo.icon or ShamanPower:GetLoadoutIcon(idx)
-					return "|T" .. icon .. ":16|t Icon"
-				end,
-				desc = "Click to choose an icon for this loadout",
-				width = 0.5,
-				func = function()
-					if not ShamanPower_TotemLoadouts[idx] then return end
-					local loadoutIndex = idx
-					ShamanPower:OpenIconPicker(loadoutIndex, function(selectedIcon)
-						if not ShamanPower_TotemLoadouts[loadoutIndex] then return end
-						ShamanPower_TotemLoadouts[loadoutIndex].icon = selectedIcon
-						ShamanPower:UpdateLoadoutBar()
-						RefreshLoadoutArgs()
-						ShamanPower:RefreshConfig()
-					end)
-				end,
-			}
-
-			loadoutArgs["lo_delete_" .. idx] = {
-				order = baseOrder + 3,
-				type = "execute",
-				name = "Delete",
-				width = 0.5,
-				func = function()
-					if not ShamanPower_TotemLoadouts[idx] then return end
-					ShamanPower:ConfirmDeleteLoadout(idx, lname)
-				end,
-			}
-
-			-- Per-element totem dropdowns (pick totems individually)
-			loadoutArgs["lo_totems_header_" .. idx] = {
-				order = baseOrder + 4,
-				type = "description",
-				name = "    |cff888888Edit totems:|r",
-			}
-
-			for element = 1, 4 do
-				local elem = element
-				loadoutArgs["lo_totem_" .. idx .. "_" .. elem] = {
-					order = baseOrder + 4 + elem,
-					type = "select",
-					name = loadoutElementNames[elem],
-					width = 0.75,
-					values = GetTotemValues(elem),
-					sorting = GetTotemSorting(elem),
-					get = function(info)
-						local lo = ShamanPower_TotemLoadouts[idx]
-						return lo and lo[elem] or 0
-					end,
-					set = function(info, val)
-						ShamanPower:SetLoadoutTotem(idx, elem, val)
-						ShamanPower:RefreshConfig()
-					end,
-				}
-			end
-			loadoutArgs["lo_dropall_header_" .. idx] = {
-				order = baseOrder + 8.5,
-				type = "description",
-				name = "    |cff888888Leave out of Drop All and Call of the Elements (switches with this loadout):|r",
-			}
-			for element = 1, 4 do
-				local elem = element
-				loadoutArgs["lo_dropall_" .. idx .. "_" .. elem] = {
-					order = baseOrder + 8.5 + elem * 0.1,
-					type = "toggle",
-					name = "Exclude " .. loadoutElementNames[elem],
-					width = 0.75,
-					get = function() return ShamanPower:LoadoutExcluded(idx, elem) end,
-					set = function(_, val)
-						ShamanPower:SetDropAllExclude(elem, val, idx)
-						ShamanPower:RefreshConfig()
-					end,
-				}
-			end
-			loadoutArgs["lo_set_page_" .. idx] = {
-				order = baseOrder + 9, type = "select", name = "Set Page", width = 1.5,
-				desc = "Choose a Blizzard totem set for this loadout. Each set can hold one loadout. "
-					.. "Choosing a set replaces its previous loadout. Call of the Elements follows your assignments. "
-					.. "Choose None to switch loadouts as usual. Saved choices stay saved if their set is unavailable.",
-				hidden = function() return not KnowsSetPage() end,
-				disabled = function() return not ShamanPower.BindLoadoutToTotemSet end,
-				values = LoadoutSetPageValues,
-				get = function()
-					local lo = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[idx]
-					if lo and HasLoadoutSetControls() and ShamanPower.BoundLoadoutSummon
-						and ShamanPower:BoundLoadoutSummon(idx) then return lo.setPage end
-					return 0
-				end,
-				set = function(_, page)
-					if not HasLoadoutSetControls() or not ShamanPower.BindLoadoutToTotemSet then return end
-					local ok, reason = ShamanPower:BindLoadoutToTotemSet(idx, page)
-					if not ok and reason then ShamanPower:Print(reason) end
-					RefreshLoadoutArgs()
-					ShamanPower:RefreshConfig()
-					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
-				end,
-			}
-			loadoutArgs["lo_send_set_" .. idx] = {
-				order = baseOrder + 10, type = "execute", name = "Send to Set Now", width = 1.5,
-				desc = "Put all four saved totems in the chosen set. None leaves that element empty. Changes made in combat take effect when the fight ends.",
-				hidden = function() return not KnowsSetPage() end,
-				disabled = function()
-					return not (HasLoadoutSetControls() and ShamanPower.SyncBoundLoadout
-						and ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(idx))
-				end,
-				func = function()
-					if not HasLoadoutSetControls() or not ShamanPower.SyncBoundLoadout
-						or not ShamanPower.BoundLoadoutSummon or not ShamanPower:BoundLoadoutSummon(idx) then return end
-					local ok, reason = ShamanPower:SyncBoundLoadout(idx)
-					if not ok and reason then ShamanPower:Print(reason) end
-					ShamanPower:RefreshConfig()
-					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
-				end,
-			}
-		end
-	end
 	if PlaceLoadoutBarOptions then PlaceLoadoutBarOptions() end
+	ShamanPower.OrderSettingsBands({ args = loadoutArgs }, {
+		{ keys = { "loadouts_desc", "loadouts_sets_note" } },
+		{ header = "loadouts_header", name = "Saved Loadouts", keys = { "loadoutIcons" } },
+	})
 end
 
 -- Initialize once (ShamanPower_TotemLoadouts won't exist yet at file load, so just build static part)
