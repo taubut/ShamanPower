@@ -367,6 +367,12 @@ function Proto:StopDrag(b)
 	if to == from then return end
 	Call(def.move, self.list[from], to)
 	self:Changed(false)
+	-- the new order: the row is laid out again in it (the page keeps its scroll); without
+	-- this the icons stayed in the old order until the page was opened again
+	if self:ListChanged() then
+		local cfg = _G.ShamanPowerConfig
+		if cfg and cfg.RefreshCurrent then cfg:RefreshCurrent() end
+	end
 end
 
 -- ---------------------------------------------------------------------------
