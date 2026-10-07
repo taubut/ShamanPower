@@ -148,20 +148,32 @@ local FREE_TEXT = {
 }
 local CUSTOM_TEXT = "(custom text)"
 
+-- WoW: Forever keeps some values hidden (secret) in dungeons and fights: no math or
+-- comparison may touch one, so it goes in as this word, never as itself
+local HIDDEN = "(hidden)"
+local function isSecret(v)
+	if issecretvalue and issecretvalue(v) then return true end
+	return false
+end
+
 -- a value as it goes in: decimals cut to 4 digits (a saved 1.3999999761581 is 1.4)
 local function plain(v)
+	if isSecret(v) then return HIDDEN end
 	if type(v) == "number" and v ~= math.floor(v) then return tonumber(string.format("%.4g", v)) end
-	if type(v) == "function" or type(v) == "userdata" then return nil end
+	if type(v) == "function" or type(v) == "userdata" or type(v) == "thread" then return nil end
 	return v
 end
 
-local function copyPlain(v, name)
-	if type(v) ~= "table" then return plain(v) end
+-- (depth: a table that holds itself, or a frame's own fields, never runs away)
+local function copyPlain(v, name, depth)
+	if type(v) ~= "table" or isSecret(v) then return plain(v) end
+	depth = depth or 0
+	if depth > 12 then return nil end
 	local out = {}
 	for k, x in pairs(v) do
-		if not skipKey(k, name) then
+		if not isSecret(k) and not skipKey(k, name) then
 			local c
-			if FREE_TEXT[k] and type(x) == "string" then c = CUSTOM_TEXT else c = copyPlain(x, k) end
+			if FREE_TEXT[k] and type(x) == "string" and not isSecret(x) then c = CUSTOM_TEXT else c = copyPlain(x, k, depth + 1) end
 			if c ~= nil then out[k] = c end
 		end
 	end
@@ -173,15 +185,17 @@ local function diff(cur, def, name, depth)
 	if depth > 12 then return nil end
 	local out
 	for k, v in pairs(cur) do
-		if not skipKey(k, name) then
+		if not isSecret(k) and not skipKey(k, name) then
 			local d = nil
 			if type(def) == "table" then
 				d = def[k]
 				if d == nil then d = def["**"] or def["*"] end
 			end
 			local x
-			if type(v) == "table" then
-				if type(d) == "table" then x = diff(v, d, k, depth + 1) else x = copyPlain(v, k) end
+			if isSecret(v) then
+				x = HIDDEN
+			elseif type(v) == "table" then
+				if type(d) == "table" then x = diff(v, d, k, depth + 1) else x = copyPlain(v, k, depth + 1) end
 			elseif v ~= d then
 				if FREE_TEXT[k] and type(v) == "string" then x = CUSTOM_TEXT else x = plain(v) end
 			end
@@ -536,6 +550,39 @@ local function snapshot()
 	return n
 end
 
+-- a copy of t with only what LibSerialize can pack; what it leaves out goes into bad
+-- by where it was ("code.mod.ShamanPower_X.y: function"), the first 20 of them
+local PACKABLE = { string = true, number = true, boolean = true }
+local function skipped(bad, path, what)
+	if #bad < 20 then bad[#bad + 1] = path .. ": " .. what end
+end
+local function packable(v, path, bad, depth, seen)
+	if isSecret(v) then return HIDDEN end
+	local t = type(v)
+	if PACKABLE[t] then
+		if t == "number" and (v ~= v or v == math.huge or v == -math.huge) then skipped(bad, path, "not a number") return nil end
+		return v
+	end
+	if t ~= "table" then skipped(bad, path, t) return nil end
+	if seen[v] then skipped(bad, path, "a table inside itself") return nil end
+	if depth > 16 then skipped(bad, path, "too deep") return nil end
+	seen[v] = true
+	local out = {}
+	for k, x in pairs(v) do
+		local kt = type(k)
+		if isSecret(k) then
+			skipped(bad, path, "a hidden key")
+		elseif not PACKABLE[kt] or (kt == "number" and k ~= k) then
+			skipped(bad, path, "a " .. kt .. " key")
+		else
+			local c = packable(x, path .. "." .. tostring(k), bad, depth + 1, seen)
+			if c ~= nil then out[k] = c end
+		end
+	end
+	seen[v] = nil
+	return out
+end
+
 function SP:BuildSupportCode()
 	local LS = LibStub and LibStub("LibSerialize", true)
 	local LD = LibStub and LibStub("LibDeflate", true)
@@ -600,8 +647,19 @@ function SP:BuildSupportCode()
 	local okH, h = pcall(loadHealth)
 	payload.h = okH and h or { fail = tostring(h) }
 
+	-- only what the code can carry goes in (text, numbers, true/false, tables of them):
+	-- anything else is left out and named in payload.bad, so the code always builds
+	-- and still says what it had to skip
+	local bad = {}
+	payload = packable(payload, "code", bad, 0, {}) or {}
+	if #bad > 0 then payload.bad = bad end
 	local ok, serialized = pcall(LS.Serialize, LS, payload)
-	if not ok or not serialized then return nil, "could not prepare the Support Code" end
+	if not (ok and serialized) and LS.SerializeEx then
+		ok, serialized = pcall(LS.SerializeEx, LS, { errorOnUnserializableType = false }, payload)
+	end
+	if not (ok and serialized) then
+		return nil, "could not prepare the Support Code: " .. tostring(serialized):sub(1, 120)
+	end
 	local compressed = LD:CompressDeflate(serialized, { level = 9 })
 	if not compressed then return nil, "could not create the Support Code" end
 	return PREFIX .. LD:EncodeForPrint(compressed)
