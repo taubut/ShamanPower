@@ -3486,6 +3486,8 @@ do
 		-- Reset Position), its settings in a module's own saved table
 		if entry.noReset then return false end
 		if CustomTabActive(entry, nil) then return false end
+		-- an icon page resets its items' own settings itself (Cooldown Bar, Shield Charges): always offered
+		if type(entry.onReset) == "function" then return true end
 		local sp = SP()
 		if not sp then return false end
 		if entry._resettable == nil then
