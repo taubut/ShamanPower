@@ -140,6 +140,7 @@ local defaultSettings = {
 
 	-- Behavior
 	clickToCast = true,
+	clickCasts = false,           -- Click an Alert to Cast Its Totem (3.0.8): a left-click on a showing alert casts its totem
 	onlyInInstance = false,       -- Only show alerts inside instances (dungeons/raids/PvP)
 	hideWhenTotemActive = true,   -- Hide alert when the relevant totem is already placed
 
@@ -243,6 +244,17 @@ function SP:ReactiveOwnRaw(id, name)
 	if type(own) ~= "table" then return nil end
 	return own[name]
 end
+-- A frame the game protects: a secure frame, or one with a secure frame anywhere below it
+-- (Click an Alert to Cast Its Totem puts a secure cast button inside a display). In a fight
+-- the game refuses Show / Hide / SetPoint / SetSize / EnableMouse on such a frame.
+local function Protected(f)
+	if not (f and f.IsProtected) then return false end
+	return (f:IsProtected()) == true
+end
+local function HostLocked(f)
+	return InCombatLockdown() and Protected(f)
+end
+
 -- The game-drawn alerts (WoW: Forever) are built again once a change settles: a slider
 -- dragged or the wheel turned in Unlock UI makes one rebuild, not one per step.
 local rebuildAt, rebuildWaiting = 0, false
@@ -615,7 +627,11 @@ function SP:UpdateReactiveFrameAppearance(totemId, noEngine)
 		local host = not (self.ReactiveEngineLive and self:ReactiveEngineLive())
 
 		local size = R(id, "iconSize") or 64
-		frame:SetSize(size, size)
+		if HostLocked(frame) then
+			self.reactiveSizePending = true   -- (the end of the fight sizes it)
+		else
+			frame:SetSize(size, size)
+		end
 		frame:SetAlpha(R(id, "opacity") or 1.0)
 
 		-- Background
@@ -1052,6 +1068,7 @@ function SP:UpdateReactiveTotemDisplay()
 		-- Hide all frames
 		for id, frame in pairs(self.reactiveFrames) do
 			frame:Hide()
+			self:ReactiveCastHostShown(id, false)
 		end
 		return
 	end
@@ -1110,6 +1127,7 @@ function SP:UpdateReactiveTotemDisplay()
 			end
 
 			frame:Show()
+			self:ReactiveCastHostShown(totemId, true)
 		else
 			-- Hide this totem's frame
 			frame.glowAnim:Stop()
@@ -1117,8 +1135,371 @@ function SP:UpdateReactiveTotemDisplay()
 			frame.currentDebuffName = nil
 			frame.soundPlayed = nil
 			frame:Hide()
+			self:ReactiveCastHostShown(totemId, false)
 		end
 	end
+end
+
+-- ============================================================================
+-- Click an Alert to Cast Its Totem (3.0.8, A21; off to start)
+-- ============================================================================
+-- A left-click on a showing alert casts the totem it points at (Fear/Charm: Tremor Totem,
+-- Poison: Poison Cleansing Totem, Disease: Disease Cleansing Totem), in a fight too, on
+-- both games; a party member's alert casts the same totem. The click lands on a secure
+-- cast button (SecureActionButtonTemplate, type "spell", the totem's cast name through
+-- SPCompat, highest known rank; no spell while the totem is not learned): see-through,
+-- no art of its own, left-clicks only. ALT + left-drag moves the alert as before (the
+-- cast button starts the host's drag; the ALT-click itself runs an empty macro) and a
+-- right-click opens its settings. Hovered: a 1 px accent ring right outside the alert's
+-- own border and a "Click: <totem>" tooltip (with Show Tooltips); not hovered, nothing
+-- about the alert changes.
+-- In a fight the game refuses Show / Hide / SetPoint / SetParent / SetAttribute /
+-- EnableMouse on a protected frame and on any frame with a protected child, and a click
+-- must never cast while the alert is not showing (the owner's rule). So:
+--  * WoW: Forever, the game-drawn alerts: the cast button is a CHILD of the game's aura
+--    button (parented out of a fight, again after every rebuild; a rebuild that lands in
+--    a fight waits for its end): the game shows and hides it with the alert. That makes
+--    the aura button, its container and the host protected, so as a fight begins every
+--    display is shown (invisible where it is off, its spot covered) and in the fight a
+--    display goes invisible instead of hidden (ApplyReactiveEngineVisibility); the host's
+--    mouse and shown state are left alone, and Move / Test / Reset Positions wait.
+--  * TBC Anniversary, and the module's own alerts anywhere: the module shows and hides
+--    the host itself, in a fight too, so the cast button is NOT the host's child: it is
+--    parented to the module's own always-shown holder, anchored on the host, shown and
+--    hidden with the host out of a fight and shown as a fight begins (PLAYER_REGEN_DISABLED
+--    comes before the lockdown). THE COVER: one plain frame per alert, the alert's size
+--    and spot, above the cast button, mouse on, no art: in a fight it is shown whenever
+--    the alert is not and hidden the moment the alert shows, by the code that shows and
+--    hides the host. A click on an empty spot in a fight hits the cover; out of a fight
+--    with no alert, cast button and cover are hidden, so a click reaches the world.
+--    (Known: in a fight with no alert up, that small square swallows clicks on the world.)
+-- Move (positioning) and the settings preview put every cast button and cover away;
+-- with the option off nothing of this exists until it is first turned on.
+local castHolder                 -- the always-shown parent of the hosts' cast buttons and the covers
+local castHosts = {}             -- [totemId] = the cast button over the host (the module's own alert)
+local castCovers = {}            -- [totemId] = the cover
+local engineCasts = {}           -- [auraButton] = the cast button inside it (WoW: Forever)
+local engineCastFree = {}        -- engine cast buttons inside no aura button
+local engineCastCount = 0
+local castPending = false        -- put in place again at the end of the fight
+local RING_COLOR = SP.PANEL_ACCENT or { 0, 0.439, 0.867 }   -- Core.lua accent (#0070DD), the rows' hover
+
+local function ClickCastOn()
+	local sv = ShamanPower_ReactiveTotems
+	return sv ~= nil and sv.clickCasts == true
+end
+function SP:ReactiveClickCast() return ClickCastOn() end
+
+-- any host protected in a fight (a cast button inside its display): Move / Test / Reset
+-- Positions wait for the end of the fight
+function SP:ReactiveHostsLocked()
+	if not InCombatLockdown() then return false end
+	for _, frame in pairs(self.reactiveFrames) do
+		if Protected(frame) then return true end
+	end
+	return false
+end
+function SP:ReactiveCoverShown(id, shown)
+	local c = castCovers[id]
+	if c and c:IsShown() ~= shown then c:SetShown(shown) end
+end
+local function HideCovers()
+	for _, c in pairs(castCovers) do c:Hide() end
+end
+
+local function CastHolder()
+	if not castHolder then
+		castHolder = CreateFrame("Frame", "ShamanPowerReactiveCastHolder", UIParent)
+		castHolder:SetAllPoints(UIParent)
+	end
+	return castHolder
+end
+
+-- the drag, as the host's own handlers do it (ALT + left, not locked)
+local function StartHostDrag(host)
+	if ShamanPower_ReactiveTotems.locked or HostLocked(host) then return end
+	host:StartMoving()
+	host.isMoving = true
+end
+local function StopHostDrag(host)
+	if not host.isMoving then return false end
+	host:StopMovingOrSizing()
+	host.isMoving = false
+	local point, _, _, x, y = host:GetPoint()
+	ShamanPower_ReactiveTotems.positions[host.totemId] = { point = point, x = x, y = y }
+	return true
+end
+local function CastMouseDown(b, button)
+	if button == "LeftButton" and IsAltKeyDown() and b.host then StartHostDrag(b.host) end
+end
+local function CastMouseUp(b, button)
+	if b.host and StopHostDrag(b.host) then return end
+	if button == "RightButton" and b:IsMouseOver() and ShamanPowerConfig then
+		ShamanPowerConfig:Open({ "fluffy", "reactivetotems_section" })
+	end
+end
+local function CastEnter(b)
+	for _, t in ipairs(b.ring) do t:Show() end
+	if SP.opt and SP.opt.ShowTooltips and b.totemId then
+		-- beside the icon (ANCHOR_RIGHT would sit over the name line above a game-drawn alert)
+		GameTooltip:SetOwner(b, "ANCHOR_NONE")
+		GameTooltip:ClearAllPoints()
+		GameTooltip:SetPoint("TOPLEFT", b, "TOPRIGHT", 12, 2)
+		GameTooltip:SetText("Click: " .. SP.ReactiveTotems[b.totemId].totemName)
+		if not ShamanPower_ReactiveTotems.locked then
+			GameTooltip:AddLine("ALT+drag to move | Right-click for options", 0.5, 0.5, 0.5)
+		end
+		GameTooltip:Show()
+	end
+end
+local function CastLeave(b)
+	for _, t in ipairs(b.ring) do t:Hide() end
+	GameTooltip:Hide()
+end
+
+-- one edge of the ring: 1 px, 3 px out from the button (the alert's own 2 px border, then it)
+local function RingEdge(b, p1, x1, y1, p2, x2, y2, w, h)
+	local t = b:CreateTexture(nil, "OVERLAY")
+	t:SetColorTexture(RING_COLOR[1], RING_COLOR[2], RING_COLOR[3], 1)
+	t:SetPoint(p1, b, p1, x1, y1)
+	t:SetPoint(p2, b, p2, x2, y2)
+	if w then t:SetWidth(w) else t:SetHeight(h) end
+	t:Hide()
+	return t
+end
+local function MakeCastButton(name)
+	local b = CreateFrame("Button", name, CastHolder(), "SecureActionButtonTemplate")
+	b:RegisterForClicks("LeftButtonUp")
+	b:SetAttribute("alt-type1", "macro")   -- ALT + left-click casts nothing: ALT + drag moves the alert
+	b:SetAttribute("alt-macrotext1", "")
+	b.ring = {
+		RingEdge(b, "TOPLEFT", -3, 3, "TOPRIGHT", 3, 3, nil, 1),
+		RingEdge(b, "BOTTOMLEFT", -3, -3, "BOTTOMRIGHT", 3, -3, nil, 1),
+		RingEdge(b, "TOPLEFT", -3, 3, "BOTTOMLEFT", -3, -3, 1, nil),
+		RingEdge(b, "TOPRIGHT", 3, 3, "BOTTOMRIGHT", 3, -3, 1, nil),
+	}
+	b:HookScript("OnMouseDown", CastMouseDown)
+	b:HookScript("OnMouseUp", CastMouseUp)
+	b:HookScript("OnEnter", CastEnter)
+	b:HookScript("OnLeave", CastLeave)
+	b:Hide()
+	return b
+end
+-- the totem: its cast name (the one the Drop All macro uses), highest known rank; none while
+-- the totem is not learned, so the click does nothing (set out of a fight only)
+local function SetCastSpell(b, id)
+	local data = SP.ReactiveTotems[id]
+	local spellID = data and data.totemSpellID
+	if spellID and SPCompat.KnowsSpellID and SPCompat.KnowsSpellID(spellID) then
+		local name = SPCompat.TotemCastName and SPCompat.TotemCastName(spellID) or SPCompat.SpellName(spellID)
+		b:SetAttribute("type", "spell")
+		b:SetAttribute("spell", name or data.totemName)
+	else
+		b:SetAttribute("type", nil)
+		b:SetAttribute("spell", nil)
+	end
+end
+
+-- the host's cast button and cover, made on the first switch-on
+local function HostCast(id)
+	local b = castHosts[id]
+	local host = SP.reactiveFrames[id]
+	if not b and host then
+		b = MakeCastButton("ShamanPowerReactiveCast_" .. id)
+		b:SetAllPoints(host)
+		b.host, b.totemId = host, id
+		castHosts[id] = b
+	end
+	if b and host then
+		b:SetFrameStrata(host:GetFrameStrata())
+		b:SetFrameLevel(host:GetFrameLevel() + 10)
+	end
+	return b
+end
+local function Cover(id)
+	local c = castCovers[id]
+	local host = SP.reactiveFrames[id]
+	if not c and host then
+		c = CreateFrame("Frame", "ShamanPowerReactiveCover_" .. id, CastHolder())
+		c:SetAllPoints(host)
+		c:EnableMouse(true)
+		c:Hide()
+		castCovers[id] = c
+	end
+	if c and host then
+		c:SetFrameStrata(host:GetFrameStrata())
+		c:SetFrameLevel(host:GetFrameLevel() + 40)
+	end
+	return c
+end
+
+-- WoW: Forever: a cast button inside the game's aura button (out of a fight)
+local function AttachEngineCast(id, host, auraButton)
+	local b = engineCasts[auraButton]
+	if not b then
+		b = table.remove(engineCastFree)
+		if not b then
+			engineCastCount = engineCastCount + 1
+			b = MakeCastButton("ShamanPowerReactiveEngineCast" .. engineCastCount)
+		end
+		b:SetParent(auraButton)
+		b:ClearAllPoints()
+		b:SetAllPoints(auraButton)
+		b:SetFrameLevel(auraButton:GetFrameLevel() + 5)
+		engineCasts[auraButton] = b
+	end
+	b.host, b.totemId = host, id
+	SetCastSpell(b, id)
+	b:Show()
+end
+local function DetachEngineCasts(container)
+	local list = container and container.spAuraButtons
+	if not list then return end
+	for _, ab in ipairs(list) do
+		local b = engineCasts[ab]
+		if b then
+			engineCasts[ab] = nil
+			b:Hide()
+			b:SetParent(CastHolder())
+			b:ClearAllPoints()
+			b.host, b.totemId = nil, nil
+			engineCastFree[#engineCastFree + 1] = b
+		end
+	end
+end
+-- BuildReactiveContainer: the game made a button for this display (at the build, or later)
+function SP:ReactiveClickCastAuraButton(container, button)
+	container.spAuraButtons = container.spAuraButtons or {}
+	container.spAuraButtons[#container.spAuraButtons + 1] = button
+	if ClickCastOn() then castPending = true end   -- (the build's own apply, or the end of the fight)
+end
+-- RebuildReactiveEngine: a slot's display is replaced (out of a fight)
+function SP:ReactiveClickCastRelease(container) DetachEngineCasts(container) end
+
+-- every cast button where the option wants it, out of a fight (in one: again at its end)
+function SP:ReactiveClickCastApply()
+	if InCombatLockdown() then castPending = true return end
+	castPending = false
+	local on = ClickCastOn() and not self.reactivePositioningMode and not self.reactiveDemoActive
+	if not on and not next(castHosts) and engineCastCount == 0 then return end   -- never turned on: nothing to do
+	local live = on and self:ReactiveEngineLive()
+	for id, host in pairs(self.reactiveFrames) do
+		local list = self.reactiveEngine[id]
+		if list then
+			for _, slot in pairs(list) do
+				local c = slot.container
+				if c and c.spAuraButtons then
+					if on and self.reactiveEngineBuilt then
+						for _, ab in ipairs(c.spAuraButtons) do AttachEngineCast(id, host, ab) end
+					else
+						DetachEngineCasts(c)
+					end
+				end
+			end
+		end
+		local b = on and HostCast(id) or castHosts[id]
+		if b then
+			if on and not live then
+				SetCastSpell(b, id)
+				b:SetShown(host:IsShown())
+			else
+				b:Hide()
+			end
+		end
+		if on then Cover(id) end
+	end
+	HideCovers()
+end
+-- the host is shown or hidden by the live display (the module's own alert)
+function SP:ReactiveCastHostShown(id, shown)
+	local b = castHosts[id]
+	if not b then return end
+	if InCombatLockdown() then
+		-- the cast button stays as it is; while it is out, the cover guards an empty spot (a hidden
+		-- one is not in play: the game's displays and their covers are ApplyReactiveEngineVisibility's)
+		local c = castCovers[id]
+		if c and b:IsShown() then c:SetShown(not shown) end
+	else
+		b:SetShown(shown and ClickCastOn() and not self.reactivePositioningMode and not self.reactiveDemoActive
+			and not self:ReactiveEngineLive())
+		local c = castCovers[id]
+		if c then c:Hide() end
+	end
+end
+-- a fight begins (PLAYER_REGEN_DISABLED comes before the lockdown)
+function SP:ReactiveClickCastFightStart()
+	if not ClickCastOn() or InCombatLockdown() then return end
+	if self.reactivePositioningMode or self.reactiveDemoActive then return end
+	if self:ReactiveEngineLive() then
+		-- every display shown for the fight, invisible where it is off, its spot covered: in the
+		-- fight only the alpha changes (ApplyReactiveEngineVisibility)
+		for id, list in pairs(self.reactiveEngine) do
+			local off = false
+			for _, slot in pairs(list) do
+				local c = slot.container
+				if c and not c:IsShown() then
+					c:SetAlpha(0)
+					c:Show()
+					off = true
+				end
+			end
+			if off then
+				local cover = Cover(id)
+				if cover then cover:Show() end
+			end
+		end
+	else
+		for id, host in pairs(self.reactiveFrames) do
+			local b = HostCast(id)
+			if b then
+				SetCastSpell(b, id)
+				b:Show()
+				local cover = Cover(id)
+				if cover then cover:SetShown(not host:IsShown()) end
+			end
+		end
+	end
+end
+-- the fight is over: covers away, displays back on Show / Hide, what waited is done
+function SP:ReactiveClickCastRegen()
+	HideCovers()
+	if self.reactiveEngineBuilt then self:ApplyReactiveEngineVisibility() end
+	if self.reactiveSizePending then
+		self.reactiveSizePending = nil
+		self:UpdateReactiveFrameAppearance(nil, true)
+		self:QueueReactiveRebuild()
+	end
+	if castPending or next(castHosts) or engineCastCount > 0 then self:ReactiveClickCastApply() end
+end
+-- the spells changed (learned, or a new rank): the cast names again
+function SP:ReactiveClickCastSpells()
+	if not ClickCastOn() then return end
+	if InCombatLockdown() then castPending = true return end
+	for id, b in pairs(castHosts) do SetCastSpell(b, id) end
+	for _, b in pairs(engineCasts) do if b.totemId then SetCastSpell(b, b.totemId) end end
+end
+-- the switch (Reactive Totems > Behavior): refused in a fight, as the page's other changes are
+function SP:SetReactiveClickCast(on)
+	local sv = ShamanPower_ReactiveTotems
+	if not sv then return end
+	if InCombatLockdown() then
+		self:Print("Click an Alert to Cast Its Totem can't be changed in a fight.")
+		return
+	end
+	sv.clickCasts = on and true or false
+	self:ReactiveClickCastApply()
+end
+-- /spreactive status
+function SP:ReactiveClickCastReport()
+	local hosts, covers, inside = {}, {}, 0
+	for _, id in ipairs({ "fear", "poison", "disease" }) do
+		local b, c = castHosts[id], castCovers[id]
+		hosts[#hosts + 1] = id .. "=" .. (b and (b:IsShown() and "shown" or "hidden") or "-")
+		covers[#covers + 1] = id .. "=" .. (c and (c:IsShown() and "shown" or "hidden") or "-")
+	end
+	for _ in pairs(engineCasts) do inside = inside + 1 end
+	return ("click to cast: %s  buttons: %s  inside the game's displays: %d  covers: %s  waiting: %s"):format(
+		ClickCastOn() and "on" or "off", table.concat(hosts, " "), inside, table.concat(covers, " "), tostring(castPending))
 end
 
 -- ============================================================================
@@ -1203,13 +1584,25 @@ end
 
 function SP:ApplyReactiveEngineVisibility()
 	if not self.reactiveEngineBuilt then return end
+	local fight, clicks = InCombatLockdown(), ClickCastOn()
 	for totemId, list in pairs(self.reactiveEngine) do
 		local show = ReactiveShouldShow(totemId)
 		for i, slot in pairs(list) do
 			local c = slot.container
 			local on = show
 			if on and i == 1 and totemId == "fear" then on = PlayerTremorBreakable() end   -- slot 1 is you
-			if c and c:IsShown() ~= on then c:SetShown(on) end
+			if c then
+				if fight and clicks and (c:IsShown() or Protected(c)) then
+					-- Click an Alert to Cast Its Totem: the cast button inside makes the display protected, so
+					-- in a fight it goes invisible instead of hidden, and the alert's cover takes any click there
+					local a = on and 1 or 0
+					if c:GetAlpha() ~= a then c:SetAlpha(a) end
+				else
+					if c:GetAlpha() < 1 then c:SetAlpha(1) end   -- (invisible from a fight)
+					if c:IsShown() ~= on then c:SetShown(on) end
+				end
+				if fight and clicks then self:ReactiveCoverShown(totemId, not on) end
+			end
 		end
 	end
 end
@@ -1225,9 +1618,11 @@ function SP:SetReactiveHostMode()
 			frame.glow:Hide(); frame.glowAnim:Stop()
 			frame.debuffText:Hide(); frame.totemText:Hide()
 			if frame.keyText then frame.keyText:Hide() end
-			frame:EnableMouse(false)
+			-- (a cast button inside the display makes the host protected: in a fight the game allows
+			-- neither call, and both states are already right from the build)
+			if frame:IsMouseEnabled() and not HostLocked(frame) then frame:EnableMouse(false) end
 			frame:SetAlpha(R(id, "opacity") or 1.0)
-			frame:Show()
+			if not frame:IsShown() and not HostLocked(frame) then frame:Show() end
 		elseif not frame.icon:IsShown() then
 			frame.icon:Show()
 			frame.bg:SetShown(not R(id, "hideBackground"))
@@ -1235,7 +1630,7 @@ function SP:SetReactiveHostMode()
 			frame.debuffText:SetShown(R(id, "showDebuffName") and true or false)
 			frame.totemText:SetShown(R(id, "showTotemName") and true or false)
 			if frame.keyText then frame.keyText:SetShown((frame.keyText:GetText() or "") ~= "") end
-			frame:EnableMouse(true)
+			if not HostLocked(frame) then frame:EnableMouse(true) end
 		end
 	end
 end
@@ -1382,6 +1777,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 			totem:SetShadowColor(0, 0, 0, 1)
 			totem:SetShadowOffset(1, -1)
 		end
+		SP:ReactiveClickCastAuraButton(container, button)   -- Click an Alert to Cast Its Totem: a cast button inside, out of a fight
 	end
 	local okAdd, err = pcall(container.AddAuraSlot, container, "alert", filter, options)
 	if not okAdd then
@@ -1423,6 +1819,7 @@ function SP:ReactiveEngineReport()
 			host and (host:IsShown() and "shown" or "hidden") or "none", tostring(sv and sv[REACTIVE_TRACK[totemId]]), table.concat(parts, " ")))
 	end
 	self:Print("  built: " .. (#reactiveLog > 0 and table.concat(reactiveLog, "; ") or "(nothing built yet)"))
+	self:Print("  " .. self:ReactiveClickCastReport())
 end
 
 -- Build, or rebuild where a unit's name / class or the art changed. Cheap when
@@ -1449,6 +1846,7 @@ function SP:RebuildReactiveEngine()
 				local slot = list[i]
 				if not slot or slot.key ~= key then
 					if slot and slot.container then
+						self:ReactiveClickCastRelease(slot.container)
 						pcall(slot.container.SetEnabled, slot.container, false)
 						slot.container:Hide()
 					end
@@ -1462,6 +1860,7 @@ function SP:RebuildReactiveEngine()
 	self.reactiveEngineBuilt = built or nil
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
+	self:ReactiveClickCastApply()
 end
 
 function SP:ReactiveEngineRegen()
@@ -1498,6 +1897,8 @@ function SP:SetupReactiveTotemsEvents()
 	eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- engine displays rebuilt after a fight if asked for in one
+	eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- Click an Alert to Cast Its Totem: the cast buttons out for the fight
+	eventFrame:RegisterEvent("SPELLS_CHANGED")         -- (the cast names)
 	-- your Tremor alert follows your loss-of-control list (PlayerTremorBreakable)
 	if SPCompat and SPCompat.secretsRegime and C_LossOfControl and eventFrame.RegisterUnitEvent then
 		local loc = CreateFrame("Frame")
@@ -1592,6 +1993,11 @@ function SP:SetupReactiveTotemsEvents()
 			end
 		elseif event == "PLAYER_REGEN_ENABLED" then
 			SP:ReactiveEngineRegen()
+			SP:ReactiveClickCastRegen()
+		elseif event == "PLAYER_REGEN_DISABLED" then
+			SP:ReactiveClickCastFightStart()
+		elseif event == "SPELLS_CHANGED" then
+			SP:ReactiveClickCastSpells()
 		elseif event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE"
 			or event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_TOTEM_UPDATE" then
 			if event ~= "PLAYER_TOTEM_UPDATE" and ReactiveEngineAvailable() then   -- names / classes may have changed
@@ -1623,6 +2029,10 @@ end
 
 -- Test all alerts
 function SP:TestReactiveAlerts()
+	if self:ReactiveHostsLocked() then
+		self:Print("Test waits for the end of the fight while Click an Alert to Cast Its Totem is on.")
+		return
+	end
 	self.reactiveTestActive = true
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
@@ -1642,6 +2052,7 @@ function SP:TestReactiveAlerts()
 		end
 
 		frame:Show()
+		self:ReactiveCastHostShown(totemId, true)
 	end
 
 	-- each alert's own sound (3.0.8), one after another; the same sound only once (as before:
@@ -1668,6 +2079,7 @@ function SP:TestReactiveAlerts()
 			frame.glowAnim:Stop()
 			frame.glow:Hide()
 			frame:Hide()
+			SP:ReactiveCastHostShown(totemId, false)
 		end
 		SP.reactiveTestActive = nil
 		SP:SetReactiveHostMode()
@@ -1677,7 +2089,13 @@ end
 
 -- Show all frames for positioning (disables click-to-cast so user can drag freely)
 function SP:ShowAllReactiveFrames()
+	if self:ReactiveHostsLocked() then
+		self:Print("Move waits for the end of the fight while Click an Alert to Cast Its Totem is on.")
+		return
+	end
 	self.reactivePositioningMode = true
+	self:ReactiveClickCastApply()   -- cast buttons away (in a fight they stay; the covers go, so the alerts can be dragged)
+	HideCovers()
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
 
@@ -1708,6 +2126,7 @@ function SP:HideAllReactiveFrames()
 
 	for totemId, frame in pairs(self.reactiveFrames) do
 		frame:Hide()
+		self:ReactiveCastHostShown(totemId, false)
 
 		-- Restore click-to-cast if enabled
 		if sv.clickToCast then
@@ -1718,12 +2137,17 @@ function SP:HideAllReactiveFrames()
 
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
+	self:ReactiveClickCastApply()   -- the cast buttons back (after the fight, if one is on)
 	SP:Print("Finished moving Reactive Totems.")
 end
 
 -- Reset positions
 function SP:ResetReactivePositions()
 	local sv = ShamanPower_ReactiveTotems
+	if self:ReactiveHostsLocked() then
+		self:Print("Reset Positions waits for the end of the fight while Click an Alert to Cast Its Totem is on.")
+		return
+	end
 
 	for totemId, totemData in pairs(self.ReactiveTotems) do
 		sv.positions[totemId] = {
@@ -1810,6 +2234,10 @@ end
 -- One alert back on its default spot (Unlock UI: that box's Reset)
 function SP:ResetReactiveTotemPosition(frame)
 	local sv = ShamanPower_ReactiveTotems
+	if self:ReactiveHostsLocked() then
+		self:Print("Reset waits for the end of the fight while Click an Alert to Cast Its Totem is on.")
+		return
+	end
 	for totemId, totemData in pairs(self.ReactiveTotems) do
 		if self.reactiveFrames[totemId] == frame then
 			local d = totemData.defaultPos
@@ -1889,6 +2317,7 @@ function SP:ReactiveDemo(on)
 			return
 		end
 		self.reactiveDemoActive = true
+		self:ReactiveClickCastApply()   -- (cast buttons and covers away for the preview)
 		self:SetReactiveHostMode()
 		self:ApplyReactiveEngineVisibility()
 		self:UpdateReactiveFrameAppearance()
@@ -1936,6 +2365,7 @@ function SP:ReactiveDemo(on)
 		if self.reactiveDemoTicker then self.reactiveDemoTicker:Cancel(); self.reactiveDemoTicker = nil end
 		self.reactiveDemoStatus = nil
 		clearAll()
+		self:ReactiveClickCastApply()
 		-- Hand control back to the real scan (frames hide when no debuff).
 		self:UpdateReactiveTotemDisplay()
 	end
@@ -1955,6 +2385,7 @@ function SP:InitializeReactiveTotems()
 	self:RefreshReactiveKeys()
 	self:RebuildReactiveEngine()
 	self:UpdateReactiveTotemDisplay()
+	self:ReactiveClickCastApply()   -- Click an Alert to Cast Its Totem (nothing is made while it is off)
 end
 
 local initFrame = CreateFrame("Frame")
@@ -1973,6 +2404,7 @@ SP:OnOnOff(function(off)
 	if not SP.reactiveEventsSetup then return end   -- not set up yet: login does it
 	if not off then SP:RebuildReactiveEngine() end
 	SP:UpdateReactiveTotemDisplay()
+	SP:ReactiveClickCastApply()
 end)
 
 -- ============================================================================

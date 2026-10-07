@@ -6065,6 +6065,20 @@ ShamanPower.options = {
 								end
 							end
 						},
+						-- 3.0.8 (A21): a left-click on a showing alert casts its totem, in a fight too (the module:
+						-- SP:SetReactiveClickCast). Off to start; refused in a fight.
+						reactive_click_cast = {
+							order = 1.65,
+							name = "Click an Alert to Cast Its Totem",
+							desc = "Left-click a reactive alert to cast the totem it points at, in a fight too. Off: alerts are only a picture.",
+							type = "toggle",
+							width = "full",
+							disabled = function() return not ShamanPower.ReactiveTotemsLoaded end,
+							get = function() return ShamanPower_ReactiveTotems ~= nil and ShamanPower_ReactiveTotems.clickCasts == true end,
+							set = function(_, val)
+								if ShamanPower.SetReactiveClickCast then ShamanPower:SetReactiveClickCast(val) end
+							end,
+						},
 						reactive_hide_when_active = {
 							order = 1.7,
 							name = "Hide When Totem Active",
@@ -12493,7 +12507,7 @@ do
 	SP.OrderSettingsBands(F.reactivetotems_section, {
 		{ keys = { "module_missing_note", "engine_note", "instance_only_note", "master_off_note" } },
 		{ header = "alerts_header", name = "Alerts", keys = { "rtIcons" } },
-		{ header = "behaviour_header", name = "Behavior", keys = { "reactive_only_instance" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "reactive_only_instance", "reactive_click_cast" } },
 		{ header = "position_header", name = "Position", keys = { "reactive_show", "reactive_locked", "reactive_reset", "reactive_hide" },
 			names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Positions" } },
 		{ header = "test_header", name = "Test / Reset", keys = { "reactive_test" } },
