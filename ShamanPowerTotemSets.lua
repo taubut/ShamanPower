@@ -17,6 +17,13 @@ local boundPages = {} -- Session-only: owner record, readiness, actual slots and
 local selfWriteDepth = 0
 local boundRefreshPending = false
 local boundRefreshQueued = false
+-- Page 1 (Call of the Elements) as it was after ShamanPower last wrote or read it: a pick on
+-- Blizzard's bar is only what CHANGED since. A slot Blizzard's bar couldn't take (Searing not
+-- listed yet), a loading screen or a bar not ready yet is never taken as "the player chose Empty".
+local page1Actual
+local barChangeQueued = false
+local changedPages = {}
+local editedSlots = {}   -- [element] = true: Blizzard said this one page-1 slot changed (a pick or a clear)
 
 local function boundLoadout(page)
 	for index, loadout in ipairs(ShamanPower_TotemLoadouts or {}) do
@@ -98,6 +105,15 @@ function SP:ReadTotemSet(page)
 		end
 	end
 	return t
+end
+
+-- Page 1 as it is now, or nil while the client can't say (no multi-cast bar index yet):
+-- an unreadable bar is never taken as every slot emptied
+local function readPage1()
+	if not haveAPI() then return nil end
+	local ok, action = pcall(setActionSlot, 1, 1)
+	if not ok or not action then return nil end
+	return SP:ReadTotemSet(1)
 end
 
 -- What a summon places, for the shadow totem model: one Call of the Elements /
@@ -195,6 +211,12 @@ end
 -- Write { [element] = spellID | false } into a page: a spell ID sets the slot,
 -- false clears it, nil leaves it alone. Out of combat only.
 -- Returns written, skipped, reason.
+-- a page-1 slot differs from what it held (nil = empty; another rank of the same totem is no change)
+local function slotChanged(now, was)
+	if now == nil or was == nil then return now ~= was end
+	return not sameSpell(now, was)
+end
+
 function SP:WriteTotemSet(page, spells)
 	if not self:HasTotemBar() then return 0, 0, "totem sets are not available in this version of the game" end
 	-- page 1 is the bar itself; pages 2 and 3 only exist once their spell is known
@@ -228,6 +250,7 @@ function SP:WriteTotemSet(page, spells)
 			end
 		end
 	end
+	if page == 1 then page1Actual = readPage1() or page1Actual end   -- what the slots really hold now
 	local state = boundPages[page]
 	if state and state.loadout == boundLoadout(page) then
 		-- Snapshot actual slots, not requested spells: a skipped unlearned slot
@@ -251,12 +274,26 @@ function SP:TotemSetSpellsFromAssignments()
 	for element = 1, 4 do
 		local idx = assignments[element] or 0
 		if idx > 0 and not exclude[element] then
-			t[element] = self:GetTotemSpell(element, idx) or false
+			-- (a totem our tables can't find right now: its slot is left as it is, never emptied)
+			t[element] = self:GetTotemSpell(element, idx)
 		else
 			t[element] = false
 		end
 	end
 	return t
+end
+
+-- Before Sync writes the assignments over page 1:
+-- 1. a pick on Blizzard's bar not taken yet (made in a fight, or this very frame, or while
+--    switched off) is newer than the assignments: it is taken first, so the write never wipes it;
+-- 2. the session's first write: an element Empty here takes the totem on Blizzard's bar instead
+--    of wiping it (put there while ShamanPower was off or not loaded, or never set here).
+local function adoptBeforeWrite(self)
+	if changedPages[1] or self.totemSetsAdoptPending then
+		changedPages[1] = nil
+		self:AdoptTotemBarAssignments()
+	end
+	if not self.totemSetsSyncedOnce then self:AdoptIntoEmptyAssignments() end
 end
 
 -- Keep Call of the Elements (page 1) equal to the assignments. Silent, cheap,
@@ -265,15 +302,27 @@ end
 function SP:SyncTotemSetFromAssignments()
 	-- switched off: Blizzard's bar is left alone (brought in step on switch-on)
 	if self.opt.totemSetsSyncAssignments == false or self:IsOff() then return end
+	-- a cold login while the game still calls the player "Unknown": the real assignments aren't
+	-- read yet, so nothing is written (the session's first real write comes once the name is known)
+	local me = self.player
+	if type(me) ~= "string" or me == "" or me == "Unknown" or me == UNKNOWNOBJECT then return end
 	if not self:HasTotemBar() or InCombatLockdown() then
 		self.totemSetsSyncPending = self:HasTotemBar() or nil
 		return
 	end
+	-- Blizzard's bar not readable yet (the first moments of a login): the session's first write
+	-- waits for it, so the totems on it are seen before anything is written over them
+	if not self.totemSetsSyncedOnce and not readPage1() then
+		self.totemSetsSyncPending = true
+		return
+	end
+	-- (an adoption below is assigning: the one write follows when it is done)
+	if self.totemSetsAdopting then return end
 	self.totemSetsSyncPending = nil
-	-- an element left Empty here never wipes a totem the player put on Blizzard's bar: that
-	-- totem becomes the assignment first (players who never set Fire here, e.g. Searing learned
-	-- later, lost their Blizzard Fire slot at every login)
-	if self.AdoptIntoEmptyAssignments then self:AdoptIntoEmptyAssignments() end
+	self.totemSetsAdopting = true
+	local ok, err = pcall(adoptBeforeWrite, self)
+	self.totemSetsAdopting = nil
+	if not ok then geterrorhandler()(err) end
 	self:WriteTotemSet(1, self:TotemSetSpellsFromAssignments())
 	self.totemSetsSyncedOnce = true   -- from here on Blizzard's bar may lead (AdoptTotemBarAssignments)
 end
@@ -466,8 +515,8 @@ local function syncAllBoundLoadouts()
 end
 
 function SP:AdoptTotemBarAssignments()
-	if self.opt.totemSetsAdoptFromBar == false or not self:HasTotemBar() or not self.totemSetsSyncedOnce then
-		if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS adopt skipped: option=%s bar=%s syncedOnce=%s", tostring(self.opt.totemSetsAdoptFromBar), tostring(self:HasTotemBar()), tostring(self.totemSetsSyncedOnce)) end
+	if self.opt.totemSetsAdoptFromBar == false or not self:HasTotemBar() or not page1Actual then
+		if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS adopt skipped: option=%s bar=%s known=%s", tostring(self.opt.totemSetsAdoptFromBar), tostring(self:HasTotemBar()), tostring(page1Actual ~= nil)) end
 		return
 	end
 	if InCombatLockdown() then self.totemSetsAdoptPending = true return end
@@ -478,19 +527,27 @@ function SP:AdoptTotemBarAssignments()
 		[1] = self.opt.excludeEarthFromDropAll, [2] = self.opt.excludeFireFromDropAll,
 		[3] = self.opt.excludeWaterFromDropAll, [4] = self.opt.excludeAirFromDropAll,
 	}
-	local slots = self:ReadTotemSet(1)
+	local slots = readPage1()
+	if not slots then return end   -- (the client can't say yet: nothing changes)
+	local before = page1Actual
+	page1Actual = slots
+	local edited = editedSlots
+	editedSlots = {}
 	if SPCompat and SPCompat.Trace then
 		SPCompat.Trace("TOTEMSETS adopt read: E=%s F=%s W=%s A=%s  assigned %s/%s/%s/%s", tostring(slots[1]), tostring(slots[2]), tostring(slots[3]), tostring(slots[4]),
 			tostring(assignments[1]), tostring(assignments[2]), tostring(assignments[3]), tostring(assignments[4]))
 	end
 	for element = 1, 4 do
-		if not exclude[element] then
+		-- only a slot that CHANGED since ShamanPower last wrote or read it is the player's pick
+		if not exclude[element] and slotChanged(slots[element], before[element]) then
 			local current = assignments[element] or 0
 			local want
 			if slots[element] then
 				want = totemIndexForSpell(element, slots[element])   -- nil: not one of ours, leave it
+			elseif edited[element] then
+				want = 0   -- the player emptied that slot on Blizzard's bar
 			else
-				want = 0
+				want = nil   -- an empty read with no edit (a reload, a loading screen): not a choice
 			end
 			if want ~= nil and want ~= current then
 				if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS adopt element %d: %d -> %d", element, current, want) end
@@ -498,6 +555,14 @@ function SP:AdoptTotemBarAssignments()
 			end
 		end
 	end
+end
+
+-- A newer choice made in ShamanPower (a loadout): a pick on Blizzard's bar still waiting
+-- to be taken is dropped, so it never undoes that choice
+function SP:ForgetPendingBarPicks()
+	self.totemSetsAdoptPending = nil
+	changedPages[1] = nil
+	editedSlots = {}
 end
 
 -- What a flyout pick writes into Blizzard's bar: the page-1 action slot of an
@@ -664,8 +729,7 @@ pcall(ef.RegisterEvent, ef, "ACTIONBAR_SLOT_CHANGED")   -- a pick on Blizzard's 
 
 -- Read only the affected page on the next frame. A page-2/3 pick must not
 -- rewrite page 1, and an unrelated action-slot event must not write anything.
-local barChangeQueued = false
-local changedPages = {}
+-- (barChangeQueued / changedPages: declared at the top, Sync reads them)
 local function FlushBarChanges()
 	barChangeQueued = false
 	if not SP.opt or not SP:HasTotemBar() then return end
@@ -714,6 +778,13 @@ local function OnTotemBarChanged(event, slot)
 		local first = (bar - 1) * (NUM_ACTIONBAR_BUTTONS or 12) + 1
 		if slot < first or slot >= first + 3 * SLOTS_PER_PAGE then return end
 		changedPage = math.floor((slot - first) / SLOTS_PER_PAGE) + 1
+		if changedPage == 1 then
+			-- the one slot the player touched: only this one may be adopted as emptied
+			local wowSlot = (slot - first) % SLOTS_PER_PAGE + 1
+			for element = 1, 4 do
+				if (SP.ElementToSlot and SP.ElementToSlot[element] or element) == wowSlot then editedSlots[element] = true end
+			end
+		end
 	end
 	if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS bar change via %s %s", event, tostring(slot)) end
 	for page = changedPage or 1, changedPage or 3 do

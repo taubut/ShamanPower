@@ -8828,11 +8828,9 @@ function ShamanPower:CreateTotemFlyout(element)
 			self:FlyoutResortHelper(element, parentButton)
 			tail = "\n/click SPFU" .. element
 		end
-		local macro = "/click SPFN" .. element .. "\n/click SPFM" .. element .. "_0" .. tail
-		for _, n in ipairs({ "1", "2" }) do
-			btn:SetAttribute("type" .. n, "macro")
-			btn:SetAttribute("macrotext" .. n, macro)
-		end
+		-- left-click and right-click both empty the element (Swap Left/Right Click changes nothing here)
+		btn.spEmptyMacro = "/click SPFN" .. element .. "\n/click SPFM" .. element .. "_0" .. tail
+		ShamanPower:WireEmptyFlyoutButton(btn)
 
 		btn.icon = spOwnIcon(btn)
 		btn.icon:ClearAllPoints()
@@ -8851,7 +8849,9 @@ function ShamanPower:CreateTotemFlyout(element)
 		end)
 		btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
-		btn:SetScript("PostClick", function(self)
+		btn:SetScript("PostClick", function(self, button)
+			-- (left or right click, as the macro: a middle-click (pop out) or another button changes nothing)
+			if button ~= "LeftButton" and button ~= "RightButton" then return end
 			local elem = element
 			if InCombatLockdown() then
 				-- the secure helper already cleared the spell; show it now, save it after the fight
@@ -9389,6 +9389,14 @@ function ShamanPower:RefreshTotemFlyouts()
 end
 
 -- Update click behavior on existing flyout buttons (no recreation needed)
+-- A flyout's Empty entry: its clear macro on left-click and right-click alike. Out of combat only.
+function ShamanPower:WireEmptyFlyoutButton(btn)
+	for _, n in ipairs({ "1", "2" }) do
+		btn:SetAttribute("type" .. n, "macro")
+		btn:SetAttribute("macrotext" .. n, btn.spEmptyMacro)
+	end
+end
+
 function ShamanPower:UpdateFlyoutClickBehavior()
 	if InCombatLockdown() then
 		print("|cff0070ddShamanPower:|r Cannot change flyout settings in combat")
@@ -9407,22 +9415,26 @@ function ShamanPower:UpdateFlyoutClickBehavior()
 		elseif flyout and flyout.buttons then
 			for _, btn in ipairs(flyout.buttons) do
 				local spellName = btn:GetAttribute("mySpell")
-
-				-- Clear old attributes
-				btn:SetAttribute("type1", nil)
-				btn:SetAttribute("spell1", nil)
-				btn:SetAttribute("type2", nil)
-				btn:SetAttribute("spell2", nil)
-
-				-- Set new attributes based on swap setting
-				if swapped then
-					btn:SetAttribute("type2", "spell")
-					btn:SetAttribute("spell2", spellName)
-					btn:SetAttribute("assignButton", "LeftButton")
+				if btn.spEmptyMacro then
+					self:WireEmptyFlyoutButton(btn)   -- (Empty keeps its clear macro on both clicks)
 				else
-					btn:SetAttribute("type1", "spell")
-					btn:SetAttribute("spell1", spellName)
-					btn:SetAttribute("assignButton", "RightButton")
+
+					-- Clear old attributes
+					btn:SetAttribute("type1", nil)
+					btn:SetAttribute("spell1", nil)
+					btn:SetAttribute("type2", nil)
+					btn:SetAttribute("spell2", nil)
+
+					-- Set new attributes based on swap setting
+					if swapped then
+						btn:SetAttribute("type2", "spell")
+						btn:SetAttribute("spell2", spellName)
+						btn:SetAttribute("assignButton", "LeftButton")
+					else
+						btn:SetAttribute("type1", "spell")
+						btn:SetAttribute("spell1", spellName)
+						btn:SetAttribute("assignButton", "RightButton")
+					end
 				end
 			end
 		end
@@ -20798,6 +20810,8 @@ function ShamanPower:ApplyLoadout(index, quiet)
 	for element = 1, 4 do
 		assignments[element] = loadout[element] or 0
 	end
+	-- (a loadout chosen now is newer than a pick on Blizzard's bar still waiting to be taken)
+	if self.ForgetPendingBarPicks then self:ForgetPendingBarPicks() end
 	if loadout.noDropAll then
 		for e, key in ipairs(self.DropAllExcludeKeys) do self.opt[key] = loadout.noDropAll[e] and true or false end
 	end
