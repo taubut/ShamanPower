@@ -195,8 +195,14 @@ function SP:OpenConfigIconPicker(loadoutIndex, onSelected)
 	BuildCatalogue()
 	CreatePicker()
 	callback, pendingIcon, query = nil, nil, ""
-	local loadout = loadoutIndex and ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[loadoutIndex]
-	local current = loadoutIndex and loadout and loadout.icon or (not loadoutIndex and self._newLoadoutIcon)
+	-- a loadout's icon, a new loadout's, or (loadoutIndex = a table { icon = ... }) any other button's
+	local current
+	if type(loadoutIndex) == "table" then
+		current = loadoutIndex.icon
+	else
+		local loadout = loadoutIndex and ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[loadoutIndex]
+		current = loadoutIndex and loadout and loadout.icon or (not loadoutIndex and self._newLoadoutIcon)
+	end
 	if not secret(current) and (type(current) == "number" or type(current) == "string") then pendingIcon = current end
 	callback = onSelected
 	dialog.search.box:SetText("")

@@ -17390,7 +17390,7 @@ function ShamanPower:UpdateDropAllButton()
 					end
 					if spellName then
 						local icon = self:GetTotemIcon(element, totemIndex)
-						table.insert(newSequence, {element = element, spellName = spellName, icon = icon})
+						table.insert(newSequence, {element = element, spellName = spellName, icon = icon, spellID = spellID})
 						table.insert(totemSpells, spellName)
 					end
 				end
@@ -17491,6 +17491,14 @@ function ShamanPower:DropAllResetSeconds()
 end
 
 -- Update just the icon (can be called in combat)
+-- Drop All Icon (Totem Bar > Drop All): the player's own picked icon for the button, whatever
+-- it casts (the next totem, or Call of the Elements); nil = the button's usual icon
+function ShamanPower:DropAllOwnIcon()
+	local icon = self.opt and self.opt.dropAllIcon
+	if type(icon) == "string" or type(icon) == "number" then return icon end
+	return nil
+end
+
 function ShamanPower:UpdateDropAllIcon()
 	if self.dropAllTotemSetsActive then return end   -- totem sets own the icon
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
@@ -17499,6 +17507,11 @@ function ShamanPower:UpdateDropAllIcon()
 	local iconTexture = dropAllBtn.icon or _G["ShamanPowerAutoDropAllIcon"]
 	if not iconTexture then return end
 
+	local own = self:DropAllOwnIcon()
+	if own then
+		iconTexture:SetTexture(own)
+		return
+	end
 	-- Show the icon of the totem the button casts next
 	local step, seq = self:DropAllStep()
 	if step > 0 then

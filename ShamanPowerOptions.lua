@@ -11071,7 +11071,7 @@ do
 		bar.args.show_es_flyout, bar.args.es_flyout_filter = nil, nil
 		-- what a search finds in the two rows (they draw themselves, so this text is never shown): every
 		-- button, every totem and every word their right-click menus draw, the old tabs' rows included
-		local BUTTONS_SEARCH = "Buttons: Earth, Fire, Water, Air, Drop All, Earth Shield. Show Earth Totem, Show Fire Totem,"
+		local BUTTONS_SEARCH = "Buttons: Earth, Fire, Water, Air, Drop All, Earth Shield. Drop All Icon, Next Totem, Pick an Icon. Show Earth Totem, Show Fire Totem,"
 			.. " Show Water Totem, Show Air Totem, Show Earth Shield, Show Drop All Button: click a button to show or hide it on"
 			.. " the bar, right-click it for its settings, drag an element to change its place on the bar (Button Order, 1st"
 			.. " Button, 2nd Button, 3rd Button, 4th Button, Totem Bar Order). Drop All: 1st, 2nd, 3rd, 4th, Not Dropped (Drop"

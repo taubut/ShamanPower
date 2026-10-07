@@ -296,6 +296,7 @@ SP.SHARE_FEATURES = {
 		for _, v in pairs(picked) do if v == true then n = n + 1 end end
 		return n > 1
 	end },
+	{ key = "dropAllIcon",        label = "Drop All: a picked icon",             get = function() return O().dropAllIcon ~= nil end },
 }
 
 -- ---------------------------------------------------------------------------

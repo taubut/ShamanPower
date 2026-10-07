@@ -212,6 +212,8 @@ local function SetsOwnDropAll() return SetsKnown() and O().dropAllUsesTotemSets 
 -- what the real Drop All button shows: Call of the Elements with Blizzard's totem sets (dark until
 -- it is learned), else the button's own icon (the next totem it drops)
 local function DropAllIcon()
+	local own = SP.DropAllOwnIcon and SP:DropAllOwnIcon()
+	if own then return own end
 	if SetsBar() and (not SetsKnown() or O().dropAllUsesTotemSets ~= false) then
 		return SpellTexture(COTE) or GENERIC_DROPALL
 	end
@@ -226,6 +228,7 @@ local function DropAllLearned()
 	return false
 end
 local function DropAllOwn()
+	if SP.DropAllOwnIcon and SP:DropAllOwnIcon() then return true end
 	for e = 1, 4 do if Excluded(e) then return true end end
 	if not IsDefaultOrder(DropOrder()) then return true end
 	if SetsBar() then
@@ -517,6 +520,31 @@ local function DropAllMenu()
 			}
 		end }
 	end
+	-- Icon (a player's request): the button's usual icon, or one picked in the icon picker
+	local ownIcon = SP.DropAllOwnIcon and SP:DropAllOwnIcon()
+	local function pick()
+		SP:OpenIconPicker({ icon = SP:DropAllOwnIcon() }, function(selected)
+			O().dropAllIcon = selected
+			if not InCombatLockdown() then Run("UpdateDropAllButton") end
+			BtnRow:Changed(false)
+		end)
+		return false   -- the menu closes; the picker is open
+	end
+	r[#r + 1] = { text = "Icon", icon = ownIcon,
+		value = function() return ownIcon and "Picked" or "Next Totem", ownIcon and true or false end,
+		tip = "What the button shows. Next Totem: the icon of the totem it drops next (Call of the Elements when it casts that)."
+			.. " Pick an Icon: one icon you choose, which stays put.",
+		sub = function()
+			return {
+				{ text = "Next Totem", selected = not ownIcon, onClick = function()
+					O().dropAllIcon = nil
+					if not InCombatLockdown() then Run("UpdateDropAllButton") end
+					BtnRow:Changed(false)
+				end },
+				{ text = ownIcon and "Pick Another Icon..." or "Pick an Icon...", selected = ownIcon and true or false, icon = ownIcon,
+					onClick = pick },
+			}
+		end }
 	r[#r + 1] = Keybind(function() return KeyRows("SHAMANPOWER_DROPALL") end)
 	r[#r + 1] = SEP
 	if not native then
@@ -528,11 +556,12 @@ local function DropAllMenu()
 		end }
 	end
 	r[#r + 1] = { text = "Reset This Button", disabled = not (DropAllOwn() or O().showDropAllButton == false),
-		tip = "Back to how it came: on the bar, dropping Earth, Fire, Water, Air in that order"
+		tip = "Back to how it came: on the bar with its usual icon, dropping Earth, Fire, Water, Air in that order"
 			.. (SetsBar() and ", the Blizzard Totem Sets switches on." or "."),
 		onClick = function()
 			local o = O()
 			o.showDropAllButton = true
+			o.dropAllIcon = nil
 			o.dropOrder = { 1, 2, 3, 4 }
 			if SetsBar() then o.dropAllUsesTotemSets, o.totemSetsSyncAssignments, o.totemSetsAdoptFromBar = nil, nil, nil end
 			for e = 1, 4 do if Excluded(e) then SP:SetDropAllExclude(e, false) end end

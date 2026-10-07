@@ -639,7 +639,7 @@ function SP:UpdateDropAllButtonForTotemSets(btn)
 		self.dropAllLastMacro = "totemsets"
 	end
 	local icon = btn.icon or _G["ShamanPowerAutoDropAllIcon"]
-	if icon then icon:SetTexture(spellIcon(pages[1]) or 136024) end
+	if icon then icon:SetTexture((self.DropAllOwnIcon and self:DropAllOwnIcon()) or spellIcon(pages[1]) or 136024) end
 	return true
 end
 
