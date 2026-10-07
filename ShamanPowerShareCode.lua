@@ -196,6 +196,7 @@ SP.SHARE_FEATURES = {
 		for _, k in ipairs({ "fs", "frs", "ss", "purge" }) do if on(sub(sub(spells, k), "everyPlate")) then return true end end
 		return false
 	end },
+	{ key = "dropAllIcon",        label = "Drop All: a picked icon",             get = function() return O().dropAllIcon ~= nil end },
 }
 
 -- ---------------------------------------------------------------------------

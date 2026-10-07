@@ -1255,6 +1255,7 @@ function ShamanPower:OnEnable()
 	self:RegisterBucketEvent("GROUP_ROSTER_UPDATE", 1, "UpdateAllShamans")
 	-- Reset Drop All castsequence when combat ends
 	self:RegisterEvent("PLAYER_REGEN_ENABLED", "OnCombatEnd")
+	self:RegisterEvent("PLAYER_DEAD", "OnPlayerDeadDropAll")   -- the game forgets every castsequence on death
 	-- Restricted clients: once secrets lift, re-read what the engine/shadow paths served
 	if SPCompat and SPCompat.OnUnrestricted then
 		SPCompat.OnUnrestricted(function()
@@ -16924,7 +16925,7 @@ function ShamanPower:UpdateDropAllButton()
 					end
 					if spellName then
 						local icon = self:GetTotemIcon(element, totemIndex)
-						table.insert(newSequence, {element = element, spellName = spellName, icon = icon})
+						table.insert(newSequence, {element = element, spellName = spellName, icon = icon, spellID = spellID})
 						table.insert(totemSpells, spellName)
 					end
 				end
@@ -16943,8 +16944,11 @@ function ShamanPower:UpdateDropAllButton()
 		-- Update the cached sequence
 		self.dropAllSequence = newSequence
 
-		-- Reset to first element when sequence changes
+		-- Reset to first element when sequence changes (then the game is asked: a text that
+		-- did not really change, a fight's end, keeps the sequence the game still holds)
 		self.dropAllCurrentElement = 1
+		if self.dropAllIdleTimer then self.dropAllIdleTimer:Cancel(); self.dropAllIdleTimer = nil end
+		self:QueueDropAllStep()
 
 		-- Set up as a castsequence macro (only outside combat)
 		if not InCombatLockdown() then
@@ -16973,6 +16977,14 @@ function ShamanPower:UpdateDropAllButton()
 end
 
 -- Update just the icon (can be called in combat)
+-- Drop All Icon (Totem Bar > Drop All): the player's own picked icon for the button, whatever
+-- it casts (the next totem, or Call of the Elements); nil = the button's usual icon
+function ShamanPower:DropAllOwnIcon()
+	local icon = self.opt and self.opt.dropAllIcon
+	if type(icon) == "string" or type(icon) == "number" then return icon end
+	return nil
+end
+
 function ShamanPower:UpdateDropAllIcon()
 	if self.dropAllTotemSetsActive then return end   -- totem sets own the icon
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
@@ -16981,6 +16993,11 @@ function ShamanPower:UpdateDropAllIcon()
 	local iconTexture = dropAllBtn.icon or _G["ShamanPowerAutoDropAllIcon"]
 	if not iconTexture then return end
 
+	local own = self:DropAllOwnIcon()
+	if own then
+		iconTexture:SetTexture(own)
+		return
+	end
 	-- Show the icon of the current totem in the sequence (rotating)
 	if #self.dropAllSequence > 0 and self.dropAllCurrentElement <= #self.dropAllSequence then
 		local current = self.dropAllSequence[self.dropAllCurrentElement]
@@ -16993,21 +17010,123 @@ function ShamanPower:UpdateDropAllIcon()
 	end
 end
 
--- Called after clicking to advance to the next totem
+-- Called after clicking (PostClick). The icon follows the macro's castsequence, and only
+-- the game knows where that stands: it moves a sequence on only when the cast it started
+-- succeeds (a double-click inside the global cooldown, no mana, moving: nothing moves), it
+-- forgets it 15 s after the last press (reset=combat/15: the clock restarts on every press,
+-- a failed one too) and at the end of a fight or on death, and a totem cast from another
+-- button moves it as well, but only while the sequence is in use. So nothing is counted
+-- here: QueryCastSequence, the answer Blizzard's own action buttons draw, is asked after
+-- every press and every cast, once the game has handled it.
 function ShamanPower:AdvanceDropAllTotem(button, mouseButton, down)
-	-- Only advance on mouse-up, not mouse-down (button fires both events)
-	if down then return end
+	if self.dropAllTotemSetsActive then return end
+	self:QueueDropAllStep()
+end
 
-	if #self.dropAllSequence == 0 then return end
+-- The macro text after "/castsequence ", the way the game keys its sequence table
+function ShamanPower:DropAllSequenceKey()
+	local text = self.dropAllLastMacro
+	if type(text) ~= "string" then return nil end
+	local body = text:match("^/castsequence%s+(.-)%s*$")
+	if not body or body == "" then return nil end
+	if SecureCmdOptionParse then
+		local parsed = SecureCmdOptionParse(body)
+		if type(parsed) == "string" and parsed ~= "" then return parsed end
+	end
+	return body
+end
 
-	-- Advance to next totem in sequence
+-- Where the game says the sequence stands: 1 before its first press and after a reset.
+-- nil on a client without QueryCastSequence.
+function ShamanPower:DropAllStepFromGame()
+	if type(QueryCastSequence) ~= "function" then return nil end
+	local key = self:DropAllSequenceKey()
+	if not key then return nil end
+	local ok, index = pcall(QueryCastSequence, key)
+	if not ok or type(index) ~= "number" then return nil end
+	return index
+end
+
+-- Look at the sequence on the next frame, after the game's own handler has run (several
+-- asks in one frame are one look)
+function ShamanPower:QueueDropAllStep()
+	if self.dropAllStepQueued then return end
+	self.dropAllStepQueued = true
+	C_Timer.After(0, self.dropAllStepRunner)
+end
+
+ShamanPower.dropAllStepRunner = function()
+	local self = ShamanPower
+	self.dropAllStepQueued = nil
+	self:RefreshDropAllStep()
+end
+
+function ShamanPower:RefreshDropAllStep()
+	if self.dropAllTotemSetsActive or #self.dropAllSequence == 0 then return end
+	local index = self:DropAllStepFromGame()
+	if not index then return end
+	if index < 1 or index > #self.dropAllSequence then index = 1 end
+	if index ~= self.dropAllCurrentElement then
+		self.dropAllCurrentElement = index
+		self:UpdateDropAllIcon()
+	end
+	-- Past step 1 the game forgets the sequence on its own clock (15 s after the last press,
+	-- checked about once a second), and nothing fires when it does: look again every second
+	-- until it is back at 1 (one cheap lookup, only while the button is in use)
+	if index > 1 and not self.dropAllRecheckQueued then
+		self.dropAllRecheckQueued = true
+		C_Timer.After(1, self.dropAllRecheckRunner)
+	end
+end
+
+ShamanPower.dropAllRecheckRunner = function()
+	local self = ShamanPower
+	self.dropAllRecheckQueued = nil
+	self:RefreshDropAllStep()
+end
+
+-- death: the game forgets every sequence
+function ShamanPower:OnPlayerDeadDropAll()
+	self:QueueDropAllStep()
+end
+
+-- a totem cast succeeded (UNIT_SPELLCAST_SUCCEEDED): the game moves the sequence on in its
+-- own handler, so the icon is looked at once that has run. A client without
+-- QueryCastSequence counts the casts of the totem shown instead, with the macro's 15 s reset.
+function ShamanPower:DropAllCastSucceeded(spellID)
+	if self.dropAllTotemSetsActive or #self.dropAllSequence == 0 then return end
+	if type(QueryCastSequence) == "function" then
+		self:QueueDropAllStep()
+		return
+	end
+	local current = self.dropAllSequence[self.dropAllCurrentElement]
+	if not current then return end
+	if not self:SameTotemSpell(current.spellID, spellID) then return end
 	self.dropAllCurrentElement = self.dropAllCurrentElement + 1
 	if self.dropAllCurrentElement > #self.dropAllSequence then
-		self.dropAllCurrentElement = 1  -- Wrap around
+		self.dropAllCurrentElement = 1  -- Wrap around, as the castsequence does
 	end
-
-	-- Update icon immediately (works in combat)
 	self:UpdateDropAllIcon()
+	if self.dropAllIdleTimer then self.dropAllIdleTimer:Cancel() end
+	self.dropAllIdleTimer = C_Timer.NewTimer(15, function()
+		self.dropAllIdleTimer = nil
+		if self.dropAllCurrentElement ~= 1 then
+			self.dropAllCurrentElement = 1
+			self:UpdateDropAllIcon()
+		end
+	end)
+end
+
+-- the same totem, any rank (the sequence stores the assigned rank's ID; the cast may be another)
+function ShamanPower:SameTotemSpell(a, b)
+	if not a or not b then return false end
+	if a == b then return true end
+	local family = SPCompat and SPCompat.SpellRanks and SPCompat.SpellRanks(a)
+	if family then
+		for _, rank in ipairs(family) do if rank == b then return true end end
+	end
+	local na, nb = GetSpellInfo(a), GetSpellInfo(b)
+	return na ~= nil and na == nb
 end
 
 -- Tooltip for drop all button
@@ -17933,6 +18052,7 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 	if unitTarget == "player" and not self:IsOff() then
 		if self:TotemCastElement(spellID) or spellID == 36936 or spellID == 437009 or spellID == 425874 then
 			self:TriggerGCDSwipe()
+			self:DropAllCastSucceeded(spellID)   -- the Drop All icon follows real casts
 			-- Dynamic Mode (and Grid): immediately update assignment when totem is cast
 			if self:DropSetsAssignment() then
 				-- Small delay to let GetTotemInfo update

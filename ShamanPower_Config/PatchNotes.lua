@@ -8,6 +8,19 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.6.3",
+		date = "2026-10-07",
+		headline = "Pick an icon for Drop All, and its icon stays in step",
+		new = {
+			"Drop All Icon (Totem Bar > Drop All): pick any icon for the Drop All button instead of the icon of the totem it drops next. It stays put, with Call of the Elements too. Next Totem puts the usual icon back.",
+		},
+		fixes = {
+			"Drop All button (the one-totem-per-click version): a fast double-click, or a click that cast nothing, moved the button's icon on anyway, so from then on it showed one totem and dropped the next. The icon now asks the game where the button's sequence stands, so it moves only when a totem cast goes through, and forgets its place exactly when the button does: 15 seconds after the last press, at the end of a fight, or on death.",
+			"Support Code with Deadly Boss Mods installed (WoW: Forever): pressing Support Code failed with \"Division by zero\" when DBM was loaded. DBM brings a newer copy of a shared library (LibSerialize) that WoW: Forever can't run, and the game uses whichever copy is newest. ShamanPower now ships the library's latest version, which has the fix, so the code builds with DBM on.",
+			"My Assignments Follow Blizzard's Totem Bar (WoW: Forever): it did nothing unless Call of the Elements Follows My Assignments was on too (both are on the Buttons > Mini Totem Bar page). Each now works on its own: with only the first on, a totem you pick on Blizzard's bar still becomes your assignment, and when you log in your assignments take what is on the bar; with only the second on, Blizzard's bar still follows your assignments.",
+		},
+	},
+	{
 		v = "3.0.6.2",
 		date = "2026-10-07",
 		headline = "Your Fire totem no longer turns to Empty on its own",

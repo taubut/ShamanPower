@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Target Tracker]|r
-## Version: 3.0.6.2
+## Version: 3.0.6.3
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Your Flame Shock, Frost Shock and Stormstrike on your target and on enemy nameplates, Missing Warnings, and a Purge reminder
 ## Dependencies: ShamanPower

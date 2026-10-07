@@ -1903,6 +1903,47 @@ ShamanPower.options = {
 								end
 							end
 						},
+						-- Drop All Icon (a player's request, 3.0.6.3): the button's usual icon, or one picked here
+						dropall_icon = {
+							order = 2.05,
+							type = "select",
+							name = "Drop All Icon",
+							desc = "What the Drop All button shows. Next Totem: the icon of the totem it drops next (Call of the Elements when it casts that). Pick an Icon: one icon you choose, which stays put.",
+							width = "full",
+							values = function()
+								local own = ShamanPower.DropAllOwnIcon and ShamanPower:DropAllOwnIcon()
+								return { auto = "Next Totem", own = own and ("|T" .. own .. ":16|t Picked Icon") or "Pick an Icon..." }
+							end,
+							sorting = { "auto", "own" },
+							get = function() return (ShamanPower.DropAllOwnIcon and ShamanPower:DropAllOwnIcon()) and "own" or "auto" end,
+							set = function(info, val)
+								if val == "auto" then
+									ShamanPower.opt.dropAllIcon = nil
+									if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
+									return
+								end
+								ShamanPower:OpenIconPicker({ icon = ShamanPower:DropAllOwnIcon() }, function(selectedIcon)
+									ShamanPower.opt.dropAllIcon = selectedIcon
+									if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
+									ShamanPower:RefreshConfig()
+								end)
+							end,
+						},
+						dropall_icon_change = {
+							order = 2.06,
+							type = "execute",
+							name = "Change the Picked Icon",
+							desc = "Opens the icon picker to choose another icon for the Drop All button.",
+							width = "full",
+							hidden = function() return not (ShamanPower.DropAllOwnIcon and ShamanPower:DropAllOwnIcon()) end,
+							func = function()
+								ShamanPower:OpenIconPicker({ icon = ShamanPower:DropAllOwnIcon() }, function(selectedIcon)
+									ShamanPower.opt.dropAllIcon = selectedIcon
+									if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
+									ShamanPower:RefreshConfig()
+								end)
+							end,
+						},
 						-- Totem sets (WoW: Forever only; hidden elsewhere)
 						dropall_totem_sets = {
 							order = 2.1,
@@ -10328,7 +10369,7 @@ do
 	end
 	HideFields(pages, { "totembar_items_section", "totembar_order_section", "totemflyouts_section",
 		"texture_section", "color_section" })
-	HideFields(bar, { "unlock_totem_bar", "auto_enable", "show_dropall", "show_totem_flyouts" })
+	HideFields(bar, { "unlock_totem_bar", "auto_enable", "show_dropall", "dropall_icon", "dropall_icon_change", "show_totem_flyouts" })
 	HideFields(root.settings.args.settings_totemMode.args, { "dynamicMode", "dynamicModeDesc", "activeAsMainSpacer",
 		"rightClickCastsAssigned", "rightClickDestroysTotem", "compactOptions" })
 	HideFields(root.settings.args.settings_show.args, { "showparty", "showsingle" })
@@ -10929,7 +10970,7 @@ do
 	local SP = ShamanPower
 	local buttons, pages = SP.options.args.buttons.args, SP.options.args.fluffy.args
 	local bar = buttons.auto_button
-	local keys = { "show_dropall", "dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
+	local keys = { "show_dropall", "dropall_icon", "dropall_icon_change", "dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
 		"drop_order_header", "drop_order_1", "drop_order_2", "drop_order_3", "drop_order_4",
 		"exclude_from_drop_all_header", "exclude_earth", "exclude_fire", "exclude_water", "exclude_air" }
 	for key in pairs(bar.args) do
@@ -10954,7 +10995,7 @@ do
 			names = { unlock_totem_bar = "Move (unlock bar)" } },
 	})
 	SP.OrderSettingsBands(buttons.dropall_section, {
-		{ keys = { "show_dropall" } },
+		{ keys = { "show_dropall", "dropall_icon", "dropall_icon_change" } },
 		{ header = "sets_header", name = "Blizzard Totem Sets", keys = {
 			"dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
 		} },

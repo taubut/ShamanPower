@@ -1,9 +1,19 @@
 # ShamanPower Changelog
 
+## v3.0.6.3 (2026-10-07)
+
+### New
+- **Drop All Icon (Totem Bar > Drop All):** pick any icon for the Drop All button instead of the icon of the totem it drops next. It stays put, with Call of the Elements too. Next Totem puts the usual icon back.
+
+### Fixes
+- **Drop All button (the one-totem-per-click version):** a fast double-click, or a click that cast nothing, moved the button's icon on anyway, so from then on it showed one totem and dropped the next. The icon now asks the game where the button's sequence stands, so it moves only when a totem cast goes through, and forgets its place exactly when the button does: 15 seconds after the last press, at the end of a fight, or on death.
+- **Support Code with Deadly Boss Mods installed (WoW: Forever):** pressing Support Code failed with "Division by zero" when DBM was loaded. DBM brings a newer copy of a shared library (LibSerialize) that WoW: Forever can't run, and the game uses whichever copy is newest. ShamanPower now ships the library's latest version, which has the fix, so the code builds with DBM on.
+- **My Assignments Follow Blizzard's Totem Bar (WoW: Forever):** it did nothing unless Call of the Elements Follows My Assignments was on too (both are on the Buttons > Mini Totem Bar page). Each now works on its own: with only the first on, a totem you pick on Blizzard's bar still becomes your assignment, and when you log in your assignments take what is on the bar; with only the second on, Blizzard's bar still follows your assignments.
+
 ## v3.0.6.2 (2026-10-07)
 
 ### Fixes
-- **WoW:** Forever: your Fire totem (or Water or Air) could turn to Empty on its own after a /reload or a loading screen, and the totem you put back on Blizzard's totem bar was wiped again the next time ShamanPower loaded. ShamanPower read Blizzard's totem bar before the game had finished loading it, took the empty slots for your choice, and then wrote that Empty back over the bar. Now only a totem you change on Blizzard's bar yourself counts, a totem on Blizzard's bar fills an Empty element instead of being wiped when ShamanPower loads, and a totem you pick on Blizzard's bar during a fight is kept when the fight ends.
+- **WoW: Forever:** your Fire totem (or Water or Air) could turn to Empty on its own after a /reload or a loading screen, and the totem you put back on Blizzard's totem bar was wiped again the next time ShamanPower loaded. ShamanPower read Blizzard's totem bar before the game had finished loading it, took the empty slots for your choice, and then wrote that Empty back over the bar. Now only a totem you change on Blizzard's bar yourself counts, a totem on Blizzard's bar fills an Empty element instead of being wiped when ShamanPower loads, and a totem you pick on Blizzard's bar during a fight is kept when the fight ends.
 - **Support Code:** on WoW: Forever, pressing Support Code could fail with "could not build the support code" when your settings held something the code can't carry. The code now always builds: anything it can't carry is left out, and the code says what was left out, so I can still see your setup.
 
 ## v3.0.6.1 (2026-10-06)
