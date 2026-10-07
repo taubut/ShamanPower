@@ -31,7 +31,8 @@ local PAD_BOTTOM   = 12
 local ROW_GAP      = 6     -- the settings rows' gap (Widgets.ROW_GAP)
 local CORNER       = 11
 local HIDDEN_SHADE = 0.5   -- a hidden icon: gray and half as bright
-local CAPTION = "Click a spell to show or hide it. Right-click it for its settings. Dark spells aren't learned yet."
+-- (the words that say what to do in the settings' blue, so a player sees them first)
+local CAPTION = "|cff3FA9F5Click|r a spell to show or hide it. |cff3FA9F5Right-click|r it for its settings. |cff3FA9F5Dark|r spells aren't learned yet."
 local NOT_LEARNED_SHADE = 0.3   -- a spell not learned yet: gray and dark
 
 local Row = { buttons = {}, list = {}, byKey = {} }

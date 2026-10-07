@@ -31,8 +31,9 @@ local ROW_GAP      = 6     -- the settings rows' gap (Widgets.ROW_GAP)
 local CORNER       = 11
 local HIDDEN_SHADE = 0.5   -- a hidden spell: gray and half as bright
 local NOT_LEARNED_SHADE = 0.3   -- a spell not learned yet: gray and dark
-local CAPTION = "Click a spell to show or hide it. Right-click it to set it up: when and where it shows, how it"
-	.. " looks, and more. Dark: you haven't learned it yet (set it up now, it shows once you learn it)."
+-- (the words that say what to do in the settings' blue, so a player sees them first)
+local CAPTION = "|cff3FA9F5Click|r a spell to show or hide it. |cff3FA9F5Right-click|r it to set it up: when and where it shows, how it"
+	.. " looks, and more. |cff3FA9F5Dark|r: you haven't learned it yet (set it up now, it shows once you learn it)."
 
 local Row = { buttons = {}, list = {}, byKey = {} }
 ns.CustomRows.ttIcons = Row
@@ -687,7 +688,7 @@ end
 -- ===========================================================================
 do
 	local ELEMENT_GAP = 14   -- between the elements (as Purge's step above)
-	local STRIP_CAPTION = "Click a totem to show or hide it on the strip. A blue corner: it's on the strip. Dark: you"
+	local STRIP_CAPTION = "|cff3FA9F5Click|r a totem to show or hide it on the strip. A blue corner: it's on the strip. |cff3FA9F5Dark|r: you"
 		.. " haven't learned it yet (pick it now, it shows once you learn it)."
 	local Strip = { buttons = {} }
 	ns.CustomRows.stripTotems = Strip
