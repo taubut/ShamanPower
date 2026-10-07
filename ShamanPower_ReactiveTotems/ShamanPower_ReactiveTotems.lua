@@ -1199,6 +1199,16 @@ function SP:ReactiveHostsLocked()
 	end
 	return false
 end
+-- a temporary display mode (Test, Move / Show All, Hide All, the preview) in a fight while the option
+-- is on, on both games: the cast buttons could neither follow it nor come back for a real alert, so
+-- it waits for the end of the fight (one chat line, `what` first)
+local MODE_WAITS = " waits for the end of the fight while Click an Alert to Cast Its Totem is on."
+function SP:ReactiveModeLocked(what)
+	if not InCombatLockdown() then return false end
+	if not (ClickCastOn() or self:ReactiveHostsLocked()) then return false end
+	if what then self:Print(what .. MODE_WAITS) end
+	return true
+end
 function SP:ReactiveCoverShown(id, shown)
 	local c = castCovers[id]
 	if c and c:IsShown() ~= shown then c:SetShown(shown) end
@@ -1270,6 +1280,7 @@ end
 local function MakeCastButton(name)
 	local b = CreateFrame("Button", name, CastHolder(), "SecureActionButtonTemplate")
 	b:RegisterForClicks("LeftButtonUp")
+	b:SetAttribute("useOnKeyDown", false)   -- the click on the release, whatever Action Button Use Key Down says (else it never fires)
 	b:SetAttribute("alt-type1", "macro")   -- ALT + left-click casts nothing: ALT + drag moves the alert
 	b:SetAttribute("alt-macrotext1", "")
 	b.ring = {
@@ -1429,7 +1440,16 @@ end
 -- a fight begins (PLAYER_REGEN_DISABLED comes before the lockdown)
 function SP:ReactiveClickCastFightStart()
 	if not ClickCastOn() or InCombatLockdown() then return end
-	if self.reactivePositioningMode or self.reactiveDemoActive then return end
+	-- a temporary display mode ends here, before the lockdown: in the fight the cast buttons could
+	-- neither follow it nor come back for a real alert (the Test's pending run is dropped with it)
+	if self.reactiveTestActive then self:EndReactiveTest() end
+	if self.reactivePositioningMode then self:HideAllReactiveFrames() end
+	if self.reactiveDemoActive then
+		if self.RestorePreview then self:RestorePreview("reactive") end   -- the frames back where they live; ends the demo
+		if self.reactiveDemoActive then self:ReactiveDemo(false) end
+	end
+	self:UpdateReactiveTotemDisplay()   -- the real alerts, as the scan or the game's displays have them
+	self:ReactiveClickCastApply()       -- every cast button in its place (still before the lockdown)
 	if self:ReactiveEngineLive() then
 		-- every display shown for the fight, invisible where it is off, its spot covered: in the
 		-- fight only the alpha changes (ApplyReactiveEngineVisibility)
@@ -1463,6 +1483,7 @@ end
 -- the fight is over: covers away, displays back on Show / Hide, what waited is done
 function SP:ReactiveClickCastRegen()
 	HideCovers()
+	self.reactivePreviewSaid = nil
 	if self.reactiveEngineBuilt then self:ApplyReactiveEngineVisibility() end
 	if self.reactiveSizePending then
 		self.reactiveSizePending = nil
@@ -2029,10 +2050,8 @@ end
 
 -- Test all alerts
 function SP:TestReactiveAlerts()
-	if self:ReactiveHostsLocked() then
-		self:Print("Test waits for the end of the fight while Click an Alert to Cast Its Totem is on.")
-		return
-	end
+	if self:ReactiveModeLocked("Test") then return end
+	self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1
 	self.reactiveTestActive = true
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
@@ -2073,28 +2092,33 @@ function SP:TestReactiveAlerts()
 		end
 	end
 
-	-- Hide after 3 seconds
+	-- Hide after 3 seconds (a fight beginning before then ends the test at once and drops this run)
+	local generation = self.reactiveTestGeneration
 	C_Timer.After(3, function()
-		for totemId, frame in pairs(SP.reactiveFrames) do
-			frame.glowAnim:Stop()
-			frame.glow:Hide()
-			frame:Hide()
-			SP:ReactiveCastHostShown(totemId, false)
-		end
-		SP.reactiveTestActive = nil
-		SP:SetReactiveHostMode()
-		SP:ApplyReactiveEngineVisibility()
+		if SP.reactiveTestGeneration == generation then SP:EndReactiveTest() end
 	end)
+end
+
+-- the test over: the alerts hidden, the live display back
+function SP:EndReactiveTest()
+	self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1   -- (a pending 3-second run is dropped)
+	if not self.reactiveTestActive then return end
+	for totemId, frame in pairs(self.reactiveFrames) do
+		frame.glowAnim:Stop()
+		frame.glow:Hide()
+		frame:Hide()
+		self:ReactiveCastHostShown(totemId, false)
+	end
+	self.reactiveTestActive = nil
+	self:SetReactiveHostMode()
+	self:ApplyReactiveEngineVisibility()
 end
 
 -- Show all frames for positioning (disables click-to-cast so user can drag freely)
 function SP:ShowAllReactiveFrames()
-	if self:ReactiveHostsLocked() then
-		self:Print("Move waits for the end of the fight while Click an Alert to Cast Its Totem is on.")
-		return
-	end
+	if self:ReactiveModeLocked("Move") then return end
 	self.reactivePositioningMode = true
-	self:ReactiveClickCastApply()   -- cast buttons away (in a fight they stay; the covers go, so the alerts can be dragged)
+	self:ReactiveClickCastApply()   -- cast buttons and covers away (never in a fight: refused above)
 	HideCovers()
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
@@ -2121,6 +2145,7 @@ end
 -- Hide all frames and restore click-to-cast
 function SP:HideAllReactiveFrames()
 	local sv = ShamanPower_ReactiveTotems
+	if self:ReactiveModeLocked("Hide All") then return end
 	self.reactivePositioningMode = false
 	if self.SettingsTestDone then self:SettingsTestDone() end   -- back to the settings page that started positioning
 
@@ -2316,6 +2341,7 @@ function SP:ReactiveDemo(on)
 			self:UpdateReactiveFrameAppearance()   -- re-entrant: options changed
 			return
 		end
+		if self:ReactiveModeLocked("The preview") then return end
 		self.reactiveDemoActive = true
 		self:ReactiveClickCastApply()   -- (cast buttons and covers away for the preview)
 		self:SetReactiveHostMode()
@@ -2465,6 +2491,16 @@ if ShamanPower.RegisterPreview then
 			function() return SP.reactiveFrames.disease or SP:CreateReactiveTotemFrame("disease") end,
 		},
 		demo = "SP:ReactiveDemo",
+		-- held back in a fight while Click an Alert to Cast Its Totem is on (ShowPreview asks before
+		-- it borrows the frames; said once per fight)
+		locked = function()
+			if not (SP.ReactiveModeLocked and SP:ReactiveModeLocked()) then return false end
+			if not SP.reactivePreviewSaid then
+				SP.reactivePreviewSaid = true
+				SP:Print("The preview" .. MODE_WAITS)
+			end
+			return true
+		end,
 		pad = 24,
 		pane = { overlap = true },   -- settings-window pane only: the scene lights one alert at a time, so one centred spot
 	})

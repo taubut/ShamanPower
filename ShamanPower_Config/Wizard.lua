@@ -2811,7 +2811,7 @@ function SP.Wizard.BuildReactiveStep(card, inner, y)
 	local ORDER = { "fear", "poison", "disease" }
 	local function fit()
 		if not (inner:IsShown() and inner:GetWidth() > 0) then return end
-		SP:ShowPreview("reactive", inner)
+		if not SP:ShowPreview("reactive", inner) then return end   -- (held back: a fight with Click an Alert to Cast Its Totem on)
 		local size = get("iconSize", 64)
 		local gap = math.max(size + 40, 120)
 		gap = math.min(gap, (inner:GetWidth() - size) / 2 - 10)

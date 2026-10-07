@@ -43,6 +43,9 @@ end
 function SP:ShowPreview(key, container)
 	local def = self.PreviewRegistry[key]
 	if not def or not container then return nil end
+	-- a module may hold its preview back (Reactive Totems in a fight with Click an Alert to Cast Its
+	-- Totem on): nothing is borrowed, nothing shown
+	if type(def.locked) == "function" and def.locked() then return nil end
 
 	local demoFn
 	if def.demo then demoFn = self[(def.demo):match("^SP:(.+)$") or def.demo] end
