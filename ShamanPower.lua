@@ -8903,7 +8903,9 @@ function ShamanPower:CreateTotemFlyout(element)
 		end)
 		btn:HookScript("OnLeave", function() GameTooltip:Hide() end)
 
-		btn:SetScript("PostClick", function(self)
+		btn:SetScript("PostClick", function(self, button)
+			-- (left or right click, as the macro: a middle-click (pop out) or another button changes nothing)
+			if button ~= "LeftButton" and button ~= "RightButton" then return end
 			local elem = element
 			if InCombatLockdown() then
 				-- the secure helper already cleared the spell; show it now, save it after the fight
@@ -21467,6 +21469,8 @@ function ShamanPower:ApplyLoadout(index, quiet)
 	for element = 1, 4 do
 		assignments[element] = loadout[element] or 0
 	end
+	-- (a loadout chosen now is newer than a pick on Blizzard's bar still waiting to be taken)
+	if self.ForgetPendingBarPicks then self:ForgetPendingBarPicks() end
 	if loadout.noDropAll then
 		for e, key in ipairs(self.DropAllExcludeKeys) do self.opt[key] = loadout.noDropAll[e] and true or false end
 	end

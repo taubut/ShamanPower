@@ -164,38 +164,105 @@ local function plain(v)
 	return v
 end
 
--- (depth: a table that holds itself, or a frame's own fields, never runs away)
-local function copyPlain(v, name, depth)
+-- What the walks below leave out, listed in the code (payload.bad, BuildSupportCode). Every
+-- walk counts the entries it reads against one budget, cuts a table where it comes round
+-- again (a table inside itself), skips a table the game keeps hidden, and names a key by
+-- its type only unless it is text, a number or true/false: the code never grows without end
+-- and never stops on an odd value
+local WALK_MAX = 50000
+local walk = { bad = nil, left = WALK_MAX, full = false }
+local function label(x)
+	if isSecret(x) then return HIDDEN end
+	local t = type(x)
+	if t == "string" or t == "number" or t == "boolean" then return tostring(x) end
+	return "(" .. t .. ")"
+end
+local function leftOut(where, what)
+	local bad = walk.bad
+	if bad and #bad < 20 then bad[#bad + 1] = where .. ": " .. what end
+end
+local function spend()   -- one entry read: false once the budget is used up
+	if walk.left <= 0 then
+		if not walk.full then walk.full = true; leftOut("settings", "too much to carry, the rest left out") end
+		return false
+	end
+	walk.left = walk.left - 1
+	return true
+end
+local function keyOK(k)
+	local t = type(k)
+	return t == "string" or t == "number" or t == "boolean"
+end
+local function openable(v)   -- a table WoW: Forever lets us read
+	if canaccesstable and not canaccesstable(v) then return false end
+	return true
+end
+local function unpackable(x)
+	local t = type(x)
+	return (t == "function" or t == "userdata" or t == "thread") and t or nil
+end
+
+-- (seen: the tables above this one; depth: a frame's own fields never run away)
+local function copyPlain(v, name, depth, seen)
 	if type(v) ~= "table" or isSecret(v) then return plain(v) end
 	depth = depth or 0
 	if depth > 12 then return nil end
+	if not openable(v) then leftOut(label(name), "a table the game keeps hidden") return nil end
+	seen = seen or {}
+	if seen[v] then leftOut(label(name), "a table inside itself") return nil end
+	seen[v] = true
 	local out = {}
 	for k, x in pairs(v) do
-		if not isSecret(k) and not skipKey(k, name) then
+		if not spend() then break end
+		if isSecret(k) then
+			-- (a hidden key: left out)
+		elseif not keyOK(k) then
+			leftOut(label(name), "a " .. type(k) .. " key")
+		elseif not skipKey(k, name) then
 			local c
-			if FREE_TEXT[k] and type(x) == "string" and not isSecret(x) then c = CUSTOM_TEXT else c = copyPlain(x, k, depth + 1) end
+			local what = not isSecret(x) and unpackable(x)
+			if what then
+				leftOut(label(name) .. "." .. label(k), what)
+			elseif FREE_TEXT[k] and type(x) == "string" and not isSecret(x) then
+				c = CUSTOM_TEXT
+			else
+				c = copyPlain(x, k, depth + 1, seen)
+			end
 			if c ~= nil then out[k] = c end
 		end
 	end
+	seen[v] = nil
 	return next(out) and out or nil
 end
 
 -- what differs from the defaults (the database's wildcard defaults included)
-local function diff(cur, def, name, depth)
+local function diff(cur, def, name, depth, seen)
 	if depth > 12 then return nil end
+	if not openable(cur) then leftOut(label(name), "a table the game keeps hidden") return nil end
+	seen = seen or {}
+	if seen[cur] then leftOut(label(name), "a table inside itself") return nil end
+	seen[cur] = true
 	local out
 	for k, v in pairs(cur) do
-		if not isSecret(k) and not skipKey(k, name) then
+		if not spend() then break end
+		if isSecret(k) then
+			-- (a hidden key: left out)
+		elseif not keyOK(k) then
+			leftOut(label(name), "a " .. type(k) .. " key")
+		elseif not skipKey(k, name) then
 			local d = nil
 			if type(def) == "table" then
 				d = def[k]
 				if d == nil then d = def["**"] or def["*"] end
 			end
 			local x
+			local what = not isSecret(v) and unpackable(v)
 			if isSecret(v) then
 				x = HIDDEN
+			elseif what then
+				leftOut(label(name) .. "." .. label(k), what)
 			elseif type(v) == "table" then
-				if type(d) == "table" then x = diff(v, d, k, depth + 1) else x = copyPlain(v, k, depth + 1) end
+				if type(d) == "table" then x = diff(v, d, k, depth + 1, seen) else x = copyPlain(v, k, depth + 1, seen) end
 			elseif v ~= d then
 				if FREE_TEXT[k] and type(v) == "string" then x = CUSTOM_TEXT else x = plain(v) end
 			end
@@ -205,6 +272,7 @@ local function diff(cur, def, name, depth)
 			end
 		end
 	end
+	seen[cur] = nil
 	return out
 end
 
@@ -566,9 +634,11 @@ local function packable(v, path, bad, depth, seen)
 	if t ~= "table" then skipped(bad, path, t) return nil end
 	if seen[v] then skipped(bad, path, "a table inside itself") return nil end
 	if depth > 16 then skipped(bad, path, "too deep") return nil end
+	if not openable(v) then skipped(bad, path, "a table the game keeps hidden") return nil end
 	seen[v] = true
 	local out = {}
 	for k, x in pairs(v) do
+		if not spend() then break end
 		local kt = type(k)
 		if isSecret(k) then
 			skipped(bad, path, "a hidden key")
@@ -587,6 +657,7 @@ function SP:BuildSupportCode()
 	local LS = LibStub and LibStub("LibSerialize", true)
 	local LD = LibStub and LibStub("LibDeflate", true)
 	if not (LS and LD) then return nil, "files needed to create a Support Code are missing" end
+	walk.bad, walk.left, walk.full = {}, WALK_MAX, false   -- (the walks below list what they leave out here)
 	local o = self.opt or {}
 	local version, build = GetBuildInfo()
 	local getMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
@@ -650,8 +721,10 @@ function SP:BuildSupportCode()
 	-- only what the code can carry goes in (text, numbers, true/false, tables of them):
 	-- anything else is left out and named in payload.bad, so the code always builds
 	-- and still says what it had to skip
-	local bad = {}
+	local bad = walk.bad or {}
+	walk.left, walk.full = WALK_MAX, false   -- (the packing below gets a budget of its own)
 	payload = packable(payload, "code", bad, 0, {}) or {}
+	walk.bad = nil
 	if #bad > 0 then payload.bad = bad end
 	local ok, serialized = pcall(LS.Serialize, LS, payload)
 	if not (ok and serialized) and LS.SerializeEx then
