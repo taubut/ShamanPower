@@ -257,16 +257,15 @@ local NAV = {
 			newTag = function() local sp = ShamanPower; return sp and sp.PatchNotesUnseen and sp:PatchNotesUnseen() end },
 	}},
 	{ group = "Bars", power = true, entries = {
+		-- Bar first (A15): the icon page (TotemBarIcons.lua: the Buttons row and the Totems rows; Items,
+		-- Order, Drop All and Flyouts are clicks, a drag and lines in their menus now)
 		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true, power = false,
-			desc = "The totem bar: its style and clicks, what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
+			desc = "The totem bar: its buttons and the totems in their flyouts, its style and clicks, duration bars, effects and macros.",
+			onReset = function() local sp = SP() if sp and sp.TotemBarResetPage then sp:TotemBarResetPage() end end, tabs = {
+			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Style",         paths = { P("settings", "settings_totemMode") } },
 			{ label = "Clicks",        paths = { P("settings", "settings_totemClicks") } },
-			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
-			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
-			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
-			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
 			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
-			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Effects",       preview = MOCK_TOTEM_EFFECTS, paths = { P("fluffy", "totembar_effects_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
 			{ label = "Twisting",      paths = { P("settings", "settings_totemTwisting") } },   -- no rows (so no tab) on WoW: Forever

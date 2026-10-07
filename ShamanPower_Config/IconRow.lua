@@ -27,6 +27,17 @@
 --   locked   = function() return true end,            (optional) no drag right now (a fight)
 --   beside   = function() return text end,            (optional) a few lines right of the icons (a summary),
 --                                                     drawn again with the icons; under them when there's no room
+--   (optional, A15 Totem Bar; each one left out = the row exactly as before)
+--   gapBefore = function(item) return px end,         extra room before this item on its line (a step apart)
+--   group    = function(item) return key end,         items of one group share a line; a new group starts a new line
+--   groupLabel = function(holder, key) end,           draws a group's label into holder (a frame groupLabelWidth wide,
+--                                                     one plate tall, at the start of its first line; made once, reused)
+--   groupLabelWidth = px,                             the label's room at the start of every line (default 0)
+--   groupGap = px,                                    extra room between two groups' lines (default 0)
+--   under    = function(item, out) return n end,      n colors ({ r, g, b }) into out: a 2 px line under the plate in
+--                                                     n equal parts (0: none); the row keeps room for it
+--   movable  = function(item) return can end,         (with move) only these drag, and only among themselves
+--   menuElement = function(item) return "fire" end,   the item menu's element (ns.ContextMenu spec.element)
 -- }
 -- row:Render(body, x, y, width, onChanged) / row:Release()   (ns.CustomRows)
 -- row:Changed(keepMenu)  row:Repaint()  row:OpenMenu(key, path)  row:ShowDrag(key, gap)
@@ -53,6 +64,8 @@ local HIDDEN_SHADE = 0.5   -- hidden: gray and half as bright
 local NOT_LEARNED_SHADE = 0.3   -- not learned yet: gray and dark
 local LIFTED_ALPHA = 0.55  -- a dragged item's empty place
 local DRAG_LIFT    = 8     -- the lifted copy sits this much above the row
+local UNDER_GAP    = 3     -- def.under: the 2 px line this far under the plate
+local UNDER_ROOM   = 5     -- and the room the row keeps for it
 
 local IconRow = {}
 ns.IconRow = IconRow
@@ -201,6 +214,32 @@ local function TooltipBody(row, item)
 	return "It uses the default settings (right-click to change them)."
 end
 
+-- def.under: the 2 px line under the plate, in its parts (dimmer while the item is gray)
+function Proto:PaintUnder(b, item, lit)
+	local cols = self.underCols
+	if not cols then cols = {}; self.underCols = cols end
+	local n = Call(self.def.under, item, cols) or 0
+	local lines = b.underLines
+	if not lines then lines = {}; b.underLines = lines end
+	for i = 1, max(n, #lines) do
+		local t = lines[i]
+		if i <= n and type(cols[i]) == "table" then
+			if not t then
+				t = b:CreateTexture(nil, "ARTWORK")
+				lines[i] = t
+			end
+			t:ClearAllPoints()
+			t:SetSize(PLATE / n, 2)
+			t:SetPoint("TOPLEFT", b, "BOTTOMLEFT", (i - 1) * PLATE / n, -UNDER_GAP)
+			local c = cols[i]
+			t:SetColorTexture(c[1] or 1, c[2] or 1, c[3] or 1, lit and 1 or 0.4)
+			t:Show()
+		elseif t then
+			t:Hide()
+		end
+	end
+end
+
 function Proto:PaintButton(b)
 	local item = b.item
 	if not item then return end
@@ -209,6 +248,7 @@ function Proto:PaintButton(b)
 	local learned = Learned(def, item)
 	local n = Call(def.textures, item, self.tex) or 0
 	PaintIcons(b, self.tex, n, on, learned)
+	if def.under then self:PaintUnder(b, item, on and learned) end
 	b.corner:SetShown((def.hasOwn and Call(def.hasOwn, item)) and true or false)
 	b.openEdge:SetShown(self.openKey == item.key)
 	Core:AttachTooltip(b, item.name, TooltipBody(self, item), def.hint)
@@ -284,6 +324,7 @@ function Proto:OpenMenu(key, path)
 	local row = self
 	ns.ContextMenu:Open(b, {
 		header = { text = item.name, icons = icons },
+		element = self.def.menuElement and Call(self.def.menuElement, item) or nil,
 		items = function()
 			local items = Call(row.def.menu, item) or {}
 			if row.def.locked then Guard(row, items) end
@@ -302,12 +343,30 @@ end
 -- ---------------------------------------------------------------------------
 -- where an index's plate sits in the row frame (top left, y down)
 function Proto:SlotXY(i)
+	local sx = self.slotX   -- (a laid-out row: gapBefore / group / under)
+	if sx and sx[i] then return sx[i], self.slotY[i] end
 	local per = self.perRow or 1
 	return self.padX + ((i - 1) % per) * PITCH, PAD_TOP + floor((i - 1) / per) * PITCH
 end
 
+-- def.movable: the places a drag can land, the run of items that move (the rest keep theirs)
+function Proto:MovableSpan()
+	local def = self.def
+	if not def.movable then return 1, #self.list + 1 end
+	local first, last
+	for i, item in ipairs(self.list) do
+		if Call(def.movable, item) then
+			first = first or i
+			last = i
+		end
+	end
+	if not first then return 1, 1 end
+	return first, last + 1
+end
+
 function Proto:PaintLifted(b)
 	for i = 1, 3 do b.icons[i]:Hide() end
+	for _, t in ipairs(b.underLines or {}) do t:Hide() end
 	b.corner:Hide()
 	b:SetAlpha(LIFTED_ALPHA)
 end
@@ -338,7 +397,11 @@ function Proto:ShowDrag(key, gap, x, y)
 	g.corner:Hide()
 	-- the line: at the left of the place it lands (after the last plate for the end)
 	local lx, ly
-	if gap <= n then
+	if self.slotX and gap > 1 then
+		-- (a laid-out row: right after the item before it, so a step apart doesn't move the line)
+		lx, ly = self:SlotXY(gap - 1)
+		lx = lx + PLATE + (PITCH - PLATE) / 2 - 1
+	elseif gap <= n then
 		lx, ly = self:SlotXY(gap)
 		lx = lx - (PITCH - PLATE) / 2 - 1
 	else
@@ -374,11 +437,32 @@ end
 -- the cursor over the row frame: the place it would land
 function Proto:GapAt(cx, cy)
 	local n = #self.list
-	local per = self.perRow or 1
-	local line = max(0, floor((cy - PAD_TOP) / PITCH))
-	local col = floor((cx - self.padX + (PITCH - PLATE) / 2 + PITCH / 2) / PITCH)
-	col = max(0, min(per, col))
-	return max(1, min(n + 1, line * per + col + 1))
+	local gap
+	if self.slotX then
+		-- a laid-out row: the line nearest the cursor, then the first plate whose middle is right of it
+		local lineY, best
+		for i = 1, n do
+			local d = math.abs(cy - (self.slotY[i] + PLATE / 2))
+			if not best or d < best then best, lineY = d, self.slotY[i] end
+		end
+		local lastOnLine
+		for i = 1, n do
+			if self.slotY[i] == lineY then
+				lastOnLine = i
+				if not gap and cx < self.slotX[i] + PLATE / 2 then gap = i end
+			end
+		end
+		gap = gap or ((lastOnLine or n) + 1)
+	else
+		local per = self.perRow or 1
+		local line = max(0, floor((cy - PAD_TOP) / PITCH))
+		local col = floor((cx - self.padX + (PITCH - PLATE) / 2 + PITCH / 2) / PITCH)
+		col = max(0, min(per, col))
+		gap = line * per + col + 1
+	end
+	local lo, hi = 1, n + 1
+	if self.def.movable then lo, hi = self:MovableSpan() end
+	return max(lo, min(hi, gap))
 end
 
 function Proto:CursorInFrame()
@@ -392,6 +476,7 @@ end
 function Proto:StartDrag(b)
 	local def = self.def
 	if not (def.move and b.item) then return end
+	if def.movable and not Call(def.movable, b.item) then return end
 	if self:RefuseLocked() then return end
 	if ns.ContextMenu:IsOpen() then ns.ContextMenu:Close() end
 	local key = b.item.key
@@ -471,6 +556,54 @@ local function OpenQueued(row)
 	if q then row:OpenMenu(q.key, q.path) end
 end
 
+-- def.gapBefore / group / under: each item's place worked out here (SlotXY reads it). Returns
+-- the icons' height, or nil for a plain row (placed by index, exactly as before)
+function Proto:LayOut(f, list, width, padX)
+	local def = self.def
+	if not (def.gapBefore or def.group or def.under) then
+		self.slotX, self.slotY = nil, nil
+		return nil
+	end
+	local sx, sy = self.slotX or {}, self.slotY or {}
+	wipe(sx); wipe(sy)
+	self.slotX, self.slotY = sx, sy
+	local lead = def.group and (tonumber(def.groupLabelWidth) or 0) or 0
+	local groupGap = def.group and (tonumber(def.groupGap) or 0) or 0
+	local step = PITCH + (def.under and UNDER_ROOM or 0)
+	local room = max(PLATE, width - padX * 2 - lead)
+	local labels = self.groupLabels
+	if not labels then labels = {}; self.groupLabels = labels end
+	local used = 0
+	local yy, xx, n, prev = PAD_TOP, 0, 0, nil
+	for i, item in ipairs(list) do
+		local g = def.group and Call(def.group, item)
+		local newGroup = def.group and (i == 1 or g ~= prev)
+		local gap = (n > 0 and def.gapBefore) and (tonumber(Call(def.gapBefore, item)) or 0) or 0
+		if i > 1 and (newGroup or (n > 0 and xx + gap + PLATE > room)) then
+			yy = yy + step + (newGroup and groupGap or 0)
+			xx, n, gap = 0, 0, 0
+		end
+		if newGroup and def.groupLabel then
+			used = used + 1
+			local h = labels[used]
+			if not h then h = CreateFrame("Frame", nil, f); labels[used] = h end
+			h:SetParent(f)
+			h:SetSize(max(1, lead), PLATE)
+			h:ClearAllPoints()
+			h:SetPoint("TOPLEFT", f, "TOPLEFT", padX, -yy)
+			h:Show()
+			Call(def.groupLabel, h, g)
+		end
+		prev = g
+		xx = xx + gap
+		sx[i], sy[i] = padX + lead + xx, yy
+		xx = xx + PITCH
+		n = n + 1
+	end
+	for i = used + 1, #labels do labels[i]:Hide() end
+	return (yy - PAD_TOP) + PLATE + (def.under and UNDER_ROOM or 0)
+end
+
 function Proto:Render(body, x, y, width, onChanged)
 	self.onChanged = onChanged
 	-- the menu closes with the settings window (hooked once: never SetScript on it)
@@ -507,6 +640,7 @@ function Proto:Render(body, x, y, width, onChanged)
 	local padX = PAD_X + (ns.Widgets and tonumber(ns.Widgets.CARD_INSET) or 0)   -- in line with the rows' labels
 	local perRow = max(1, floor((width - padX * 2 + (PITCH - PLATE)) / PITCH))
 	self.padX, self.perRow = padX, perRow
+	local laid = self:LayOut(f, list, width, padX)   -- (gapBefore / group / under: each item's own place)
 	for i, item in ipairs(list) do
 		local b = self.buttons[i] or self:NewButton(f)
 		self.buttons[i] = b
@@ -522,7 +656,7 @@ function Proto:Render(body, x, y, width, onChanged)
 		b.item = nil
 		b:Hide()
 	end
-	local iconsH = max(1, ceil(#list / perRow)) * PITCH - (PITCH - PLATE)
+	local iconsH = laid or (max(1, ceil(#list / perRow)) * PITCH - (PITCH - PLATE))
 	-- the summary beside the icons (def.beside): right of the last one when it fits, else under them
 	if self.def.beside then
 		if not f.beside then
@@ -537,7 +671,7 @@ function Proto:Render(body, x, y, width, onChanged)
 		b:SetText(BesideText(self.def))
 		b:ClearAllPoints()
 		local left = padX + min(#list, perRow) * PITCH - (PITCH - PLATE) + BESIDE_GAP
-		if #list <= perRow and width - padX - left >= BESIDE_MIN then
+		if not laid and #list <= perRow and width - padX - left >= BESIDE_MIN then
 			b:SetWidth(width - padX - left)
 			local bh = ceil(b:GetStringHeight())
 			b:SetPoint("TOPLEFT", f, "TOPLEFT", left, -(PAD_TOP + max(0, floor((iconsH - bh) / 2))))
