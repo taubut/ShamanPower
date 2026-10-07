@@ -2053,6 +2053,7 @@ end
 
 -- Test all alerts
 function SP:TestReactiveAlerts()
+	if self:IsOff() then return end   -- switched off: no test (its timed run would touch frames the fight may lock)
 	if self:ReactiveModeLocked("Test") then return end
 	self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1
 	self.reactiveTestActive = true
