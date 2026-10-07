@@ -270,6 +270,10 @@ function SP:SyncTotemSetFromAssignments()
 		return
 	end
 	self.totemSetsSyncPending = nil
+	-- an element left Empty here never wipes a totem the player put on Blizzard's bar: that
+	-- totem becomes the assignment first (players who never set Fire here, e.g. Searing learned
+	-- later, lost their Blizzard Fire slot at every login)
+	if self.AdoptIntoEmptyAssignments then self:AdoptIntoEmptyAssignments() end
 	self:WriteTotemSet(1, self:TotemSetSpellsFromAssignments())
 	self.totemSetsSyncedOnce = true   -- from here on Blizzard's bar may lead (AdoptTotemBarAssignments)
 end
@@ -288,6 +292,30 @@ local function totemIndexForSpell(element, spellID)
 		if sameSpell(SP:GetTotemSpell(element, i), spellID) then return i end
 	end
 	return nil
+end
+
+-- (SyncTotemSetFromAssignments, out of combat) Empty elements take the totem on Blizzard's
+-- bar, when My Assignments Follow Blizzard's Totem Bar is on. Elements kept out of Drop All are
+-- skipped (their slot is meant to be empty), so is a spell our tables do not know.
+function SP:AdoptIntoEmptyAssignments()
+	if self.opt.totemSetsAdoptFromBar == false or InCombatLockdown() then return end
+	local assignments = ShamanPower_Assignments and ShamanPower_Assignments[self.player]
+	if not assignments then return end
+	local exclude = {
+		[1] = self.opt.excludeEarthFromDropAll, [2] = self.opt.excludeFireFromDropAll,
+		[3] = self.opt.excludeWaterFromDropAll, [4] = self.opt.excludeAirFromDropAll,
+	}
+	local slots
+	for element = 1, 4 do
+		if not exclude[element] and (assignments[element] or 0) == 0 then
+			slots = slots or self:ReadTotemSet(1)
+			local idx = slots[element] and totemIndexForSpell(element, slots[element])
+			if idx and idx > 0 then
+				if SPCompat and SPCompat.Trace then SPCompat.Trace("TOTEMSETS empty element %d takes Blizzard's %s", element, tostring(slots[element])) end
+				self:ApplyAssignment(element, idx)
+			end
+		end
+	end
 end
 
 local function refreshLoadouts()
