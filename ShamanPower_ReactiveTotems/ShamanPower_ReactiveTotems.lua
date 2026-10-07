@@ -1443,7 +1443,10 @@ function SP:ReactiveClickCastFightStart()
 	-- a temporary display mode ends here, before the lockdown: in the fight the cast buttons could
 	-- neither follow it nor come back for a real alert (the Test's pending run is dropped with it)
 	if self.reactiveTestActive then self:EndReactiveTest() end
-	if self.reactivePositioningMode then self:HideAllReactiveFrames() end
+	if self.reactivePositioningMode then
+		self.settingsTestReturn = nil   -- (Move hid the settings window: it is not brought back for the fight)
+		self:HideAllReactiveFrames()
+	end
 	if self.reactiveDemoActive then
 		if self.RestorePreview then self:RestorePreview("reactive") end   -- the frames back where they live; ends the demo
 		if self.reactiveDemoActive then self:ReactiveDemo(false) end
@@ -2428,6 +2431,7 @@ end)
 -- the engine displays (the group may have changed meanwhile) and scans again.
 SP:OnOnOff(function(off)
 	if not SP.reactiveEventsSetup then return end   -- not set up yet: login does it
+	SP:EndReactiveTest()   -- a running Test ends (switched off, its pending run would reach the hosts in a fight)
 	if not off then SP:RebuildReactiveEngine() end
 	SP:UpdateReactiveTotemDisplay()
 	SP:ReactiveClickCastApply()
