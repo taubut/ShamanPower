@@ -12614,8 +12614,22 @@ do
 		F.cdbar_effects_section.args, F.cooldownbar_appearance.args
 	SP.MoveSettingsOptions({ "fluffy", "flyout_appearance" }, { "fluffy", "cdbar_items_section" },
 		{ "cdbar_flyout_direction", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity" })
+	-- what a search finds in the Items row (it draws itself, so this text is never shown): every item and
+	-- every word its right-click menu draws, so a search for a setting that moved into a menu lands here
+	local CDBAR_ICONS_SEARCH = "Items: Lightning Shield, Water Shield, Totemic Call, Totemic Recall, Reincarnation, Ankh,"
+		.. " Nature's Swiftness, Mana Tide Totem, Bloodlust, Heroism, Weapon Imbue, Shamanistic Rage, Elemental Mastery,"
+		.. " Rage of the Farseer, Totemic Projection. Click an item to show or hide it on the bar, right-click it for its"
+		.. " settings, drag it to change its place (the bar's order). Show: Only When Running Out, Only When Almost Ready,"
+		.. " Then Hide Again, Until Used; Running Out At, Almost Ready At (seconds). Where: Cooldown Bar or Totem Bar."
+		.. " Look: Button Style (Same As The Totem Bar), Sweep (Radial, Vertical - Grays Out, Vertical - Fills Back In or"
+		.. " None), Sweep Direction, Progress Bar, Progress Bar Color (Spell Color), Time Left On The Icon, Ankh Count."
+		.. " Charges: Charge Count, Color The Count, Charge Bar. Effects: Cooldown Ready, Cooldown Almost Ready, Shield"
+		.. " Gone, Weapon Imbue Gone, Red X Until You Cast A Shield Again, Red X Until You Imbue Again, Turns Red While"
+		.. " Missing, Running Out, Time Turns Red While Running Out, Test This Item's Effects. Clicks: Right-Click Casts"
+		.. " Your Other Shield. Flyout: Cooldown Flyout Direction, Icon Size, Opacity. Keybind: Set Keys In Keybind Mode."
+		.. " Copy Settings, Paste Settings, Copy Settings To, Copy To All Items, Hide This Item, Reset This Item."
 	local args = {
-		cdbarIcons = { type = "description", width = "full", name = " " },
+		cdbarIcons = { type = "description", width = "full", name = " ", desc = CDBAR_ICONS_SEARCH },
 		cdbar_fx_note = { type = "description", width = "full",
 			name = "Which effect each item plays, and when: right-click the item, then Effects." },
 	}
