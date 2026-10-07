@@ -2443,8 +2443,9 @@ local function OrbCards(which)
 	return cards
 end
 local function ShieldBarShown()
-	local s = SP.opt and SP.opt.shieldChargeDisplay
-	return SP.ShieldChargesLoaded and s and s.showChargeBar and true or false
+	-- (3.0.8: each shield has its own Charge Bar switch: any of them)
+	if not (SP.ShieldChargesLoaded and SP.ShieldOpt and SP.opt and SP.opt.shieldChargeDisplay) then return false end
+	return (SP:ShieldOpt("LS", "bar") or SP:ShieldOpt("WS", "bar") or SP:ShieldOpt("ES", "bar")) and true or false
 end
 local ORB_ROW = {
 	{ label = "Lightning Shield Charges", note = "Lightning Shield's charges: the bar, or one orb per charge. Also on Shield Charges (Lightning Shield Look)." },

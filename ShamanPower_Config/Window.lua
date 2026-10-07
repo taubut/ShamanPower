@@ -197,32 +197,33 @@ local POWER_CONTROLLER = {
 	set    = function(v) local sp = SP() if sp.Controller then sp.Controller:SetEnabled(v) end end,
 }
 
+-- (3.0.8: off = every shield off; on = each shield back as it was, by its own switch)
 local POWER_SHIELDCHARGES = {
 	label  = "Shield Charge Display",
 	desc   = "Turn the on-screen shield charge numbers on or off.",
-	loaded = function() local sp = SP() return sp and sp.ShieldChargesLoaded and true or false end,
+	loaded = function() local sp = SP() return sp and sp.ShieldChargesLoaded and sp.ShieldOpt ~= nil or false end,
 	get    = function()
-		local o = SP().opt
-		local s = o and o.shieldChargeDisplay
-		if not s then return false end
-		return ((s.showPlayerShield ~= false) or (s.showEarthShield ~= false)) and true or false
+		local sp = SP()
+		if not (sp.opt and sp.opt.shieldChargeDisplay) then return false end
+		return (sp:ShieldOpt("LS", "enabled") or sp:ShieldOpt("WS", "enabled") or sp:ShieldOpt("ES", "enabled")) and true or false
 	end,
 	set    = function(v)
 		local sp = SP()
 		if not sp.opt then return end
 		sp:EnsureProfileTable("shieldChargeDisplay")
-		local s = sp.opt.shieldChargeDisplay
+		local last = shieldLastPlayer
 		if v then
-			local p = shieldLastPlayer
-			local e = shieldLastEarth
-			if p == nil and e == nil then p, e = true, true end
-			s.showPlayerShield = p and true or false
-			s.showEarthShield  = e and true or false
+			if type(last) ~= "table" then last = { LS = true, WS = true, ES = true } end
+			for _, sh in ipairs({ "LS", "WS", "ES" }) do
+				sp:SetShieldOpt(sh, "enabled", last[sh] and true or false)
+			end
 		else
-			shieldLastPlayer = (s.showPlayerShield ~= false)
-			shieldLastEarth  = (s.showEarthShield ~= false)
-			s.showPlayerShield = false
-			s.showEarthShield  = false
+			last = {}
+			for _, sh in ipairs({ "LS", "WS", "ES" }) do
+				last[sh] = sp:ShieldOpt(sh, "enabled") and true or false
+				sp:SetShieldOpt(sh, "enabled", false)
+			end
+			shieldLastPlayer = last
 		end
 		sp:UpdateShieldChargeDisplays()
 	end,

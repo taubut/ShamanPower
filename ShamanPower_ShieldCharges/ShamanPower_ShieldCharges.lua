@@ -33,6 +33,7 @@ function SP:ShieldChargeWaterPreviewFrame()
 	local f = self.shieldChargeWaterPreview
 	if f then return f end
 	f = CreateFrame("Frame", "ShamanPowerWaterShieldChargePreview", UIParent)
+	f.spWhich, f.spKind = 2, "player"
 	f:SetSize(60, 60)
 	f:SetPoint("CENTER", UIParent, "CENTER", 0, -100)
 	f:SetFrameStrata("MEDIUM")
@@ -48,76 +49,63 @@ function SP:ShieldChargeWaterPreviewFrame()
 	return f
 end
 
+-- One display per shield (3.0.8: each shield owns all its settings and its own
+-- spot): [player] Lightning Shield (the frame name it always had), [water] Water
+-- Shield, [earth] Earth Shield. Lightning and Water Shield are never up together:
+-- only the one that is up shows (or, with none up, the last one you had).
+local FRAME_DEF = {
+	{ key = "player", name = "ShamanPowerPlayerShieldCharge", kind = "player", color = { 0.2, 0.6, 1.0 } },   -- Lightning Shield
+	{ key = "water", name = "ShamanPowerWaterShieldCharge", kind = "player", color = { 0.2, 0.6, 1.0 } },     -- Water Shield
+	{ key = "earth", name = "ShamanPowerEarthShieldCharge", kind = "earth", color = { 0.2, 0.8, 0.2 } },      -- Earth Shield
+}
+local shieldSpot   -- below: one shield's spot (x, y)
+local function makeShieldFrame(which)
+	local def = FRAME_DEF[which]
+	local frame = CreateFrame("Frame", def.name, UIParent)
+	frame.spWhich, frame.spKind = which, def.kind
+	frame:SetSize(60, 60)
+	local x, y = shieldSpot(which)
+	frame:SetPoint("CENTER", UIParent, "CENTER", x, y)
+	frame.spSpotX, frame.spSpotY = x, y
+	frame:SetFrameStrata("MEDIUM")
+
+	local text = frame:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(text, "charges", 48, "OUTLINE")
+	text:SetPoint("CENTER", frame, "CENTER", 0, 0)
+	text:SetTextColor(def.color[1], def.color[2], def.color[3])
+	frame.text = text
+
+	-- Make movable when unlocked; the drop saves this shield's own spot
+	frame:SetMovable(true)
+	frame:RegisterForDrag("LeftButton")
+	frame:SetScript("OnDragStart", function(self)
+		if not SP.opt.shieldChargeDisplay.locked then
+			self:StartMoving()
+		end
+	end)
+	frame:SetScript("OnDragStop", function(self)
+		self:StopMovingOrSizing()
+		local _, _, _, fx, fy = self:GetPoint()
+		if SP.SetShieldSpot then SP:SetShieldSpot(self.spWhich, fx, fy) end
+	end)
+
+	frame:Hide()
+	SP.shieldChargeFrames[def.key] = frame
+	return frame
+end
+
 function SP:CreateShieldChargeDisplays()
 	local settings = self.opt.shieldChargeDisplay
 	if not settings then
 		self:EnsureProfileTable("shieldChargeDisplay")
 		settings = self.opt.shieldChargeDisplay
 	end
+	if self.ShieldMigrate then self:ShieldMigrate() end
 
-	-- Create player shield frame (Lightning/Water Shield)
-	if not self.shieldChargeFrames.player then
-		local frame = CreateFrame("Frame", "ShamanPowerPlayerShieldCharge", UIParent)
-		frame:SetSize(60, 60)
-		frame:SetPoint("CENTER", UIParent, "CENTER", settings.playerShieldX or -50, settings.playerShieldY or -100)
-		frame:SetFrameStrata("MEDIUM")
-
-		local text = frame:CreateFontString(nil, "OVERLAY")
-		SP:SetSPFont(text, "charges", 48, "OUTLINE")
-		text:SetPoint("CENTER", frame, "CENTER", 0, 0)
-		text:SetTextColor(0.2, 0.6, 1.0)  -- Blue for Lightning/Water Shield
-		frame.text = text
-
-		-- Make movable when unlocked
-		frame:SetMovable(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", function(self)
-			if not SP.opt.shieldChargeDisplay.locked then
-				self:StartMoving()
-			end
-		end)
-		frame:SetScript("OnDragStop", function(self)
-			self:StopMovingOrSizing()
-			local _, _, _, x, y = self:GetPoint()
-			SP.opt.shieldChargeDisplay.playerShieldX = x
-			SP.opt.shieldChargeDisplay.playerShieldY = y
-		end)
-
-		frame:Hide()
-		self.shieldChargeFrames.player = frame
-	end
-
-	-- Create Earth Shield frame
-	if not self.shieldChargeFrames.earth then
-		local frame = CreateFrame("Frame", "ShamanPowerEarthShieldCharge", UIParent)
-		frame:SetSize(60, 60)
-		frame:SetPoint("CENTER", UIParent, "CENTER", settings.earthShieldX or 50, settings.earthShieldY or -100)
-		frame:SetFrameStrata("MEDIUM")
-
-		local text = frame:CreateFontString(nil, "OVERLAY")
-		SP:SetSPFont(text, "charges", 48, "OUTLINE")
-		text:SetPoint("CENTER", frame, "CENTER", 0, 0)
-		text:SetTextColor(0.2, 0.8, 0.2)  -- Green for Earth Shield
-		frame.text = text
-
-		-- Make movable when unlocked
-		frame:SetMovable(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", function(self)
-			if not SP.opt.shieldChargeDisplay.locked then
-				self:StartMoving()
-			end
-		end)
-		frame:SetScript("OnDragStop", function(self)
-			self:StopMovingOrSizing()
-			local _, _, _, x, y = self:GetPoint()
-			SP.opt.shieldChargeDisplay.earthShieldX = x
-			SP.opt.shieldChargeDisplay.earthShieldY = y
-		end)
-
-		frame:Hide()
-		self.shieldChargeFrames.earth = frame
-	end
+	-- Lightning Shield, Water Shield and Earth Shield, each its own frame
+	if not self.shieldChargeFrames.player then makeShieldFrame(1) end
+	if not self.shieldChargeFrames.water then makeShieldFrame(2) end
+	if not self.shieldChargeFrames.earth then makeShieldFrame(3) end
 
 	-- Register shield charge updates with consolidated update system (10fps)
 	if not self.updateSystem.subsystems["shieldCharge"] then
@@ -163,7 +151,7 @@ function SP:CreateShieldChargeDisplays()
 		end)
 	end
 	-- Only enable if shield charge display is configured to show something (and ShamanPower is on)
-	local showAny = ((settings.showPlayerShield ~= false) or earthShieldWanted(settings)) and not self:IsOff()
+	local showAny = (self:ShieldOpt("LS", "enabled") or self:ShieldOpt("WS", "enabled") or earthShieldWanted(settings)) and not self:IsOff()
 	if showAny then
 		self:EnableUpdateSubsystem("shieldCharge")
 	else
@@ -244,6 +232,9 @@ local NUMBER_SIDE    = 16   -- how far the plain number's digits reach right of 
 local NUMBER_TOP     = 18   -- how far the plain number's digits reach above its center
 local MAX_CHARGES = { player = 3, earth = 6 }
 local NO_SETTINGS = {}
+-- each shield's charge bar texture / gradient area (ShamanPowerTextures.lua)
+local SHIELD_AREA = { "shieldchargesLS", "shieldchargesWS", "shieldchargesES" }
+local shieldView   -- below: one shield's own settings (Lightning 1, Water 2, Earth 3)
 -- The bar keeps the display's own color at every count: in combat the game
 -- fills it and cannot recolor it by count, so out of combat does the same.
 local SHIELD_COLOR = { player = { 0.2, 0.6, 1.0 }, earth = { 0.2, 0.8, 0.2 } }
@@ -310,16 +301,17 @@ local function orbLookOf(settings, which)
 	if STORM_LOOK[v] and not STORM_LOOK[v][which] then return "storm" end   -- a look this shield does not have
 	return v
 end
--- everything about the orbs a built display depends on (a change rebuilds it)
-local function orbSig(settings)
-	local a, b, c = orbLookOf(settings, 1), orbLookOf(settings, 2), orbLookOf(settings, 3)
-	local gen = SP.chargeStyleGen or 0   -- Charge Colors / Charge Bar Gradient changed
-	if not (a or b or c) then return gen end
-	return tostring(a) .. "," .. tostring(b) .. "," .. tostring(c) .. "|" .. tostring(settings.orbColor) .. "|" .. tostring(settings.orbEmpty ~= false) .. "|" .. gen
-		.. "|" .. tostring(settings.orbAnim == true) .. tostring(settings.orbAnimWS == true) .. tostring(settings.orbAnimES == true)
-end
 -- the Animated setting for a shield (Lightning / Water / Earth)
 local ANIM_KEY = { "orbAnim", "orbAnimWS", "orbAnimES" }
+-- everything about the orbs a built display depends on (a change rebuilds it)
+-- (one shield's: each display draws only its own shield)
+local function orbSig(settings, which)
+	local a = orbLookOf(settings, which)
+	local gen = SP.chargeStyleGen or 0   -- Charge Colors / Charge Bar Gradient changed
+	if not a then return gen end
+	return tostring(a) .. "|" .. tostring(settings.orbColor) .. "|" .. tostring(settings.orbEmpty ~= false) .. "|" .. gen
+		.. "|" .. tostring(settings[ANIM_KEY[which]] == true)
+end
 local function animOn(settings, which) return settings[ANIM_KEY[which]] == true and isStorm(orbLookOf(settings, which)) end
 
 -- Shared with the options and General > Themes: one shield's look, and setting it
@@ -340,6 +332,312 @@ function SP:SetShieldLook(which, look)
 	end
 	if look == "bar" then s[LOOK_KEY[which]] = nil else s[LOOK_KEY[which]] = look end
 	if self.ShieldLookChanged then self:ShieldLookChanged() end
+end
+
+-- ============================================================================
+-- Per-shield settings (3.0.8, the owner's rule: Lightning, Water and Earth Shield
+-- are three separate shields, each owns ALL of its settings, nothing shared or
+-- linked). The settings pages reach them only through SP:ShieldOpt / SetShieldOpt
+-- and the calls below; the drawing reads one shield's values through a view with
+-- the field names it always used. shield = "LS" | "WS" | "ES".
+-- ============================================================================
+local SFX = { "LS", "WS", "ES" }
+local WHICH = { LS = 1, WS = 2, ES = 3 }
+-- the Show choice and today's two switches { Hide Out of Combat, Hide When No Shields }
+local SHOW_HIDE = { up = { false, true }, always = { false, false }, fightsUp = { true, true }, fights = { true, false } }
+-- key: one per shield (or suffix .. LS / WS / ES); def: the starting value; nilIs: the
+-- value kept as "not set" (nil); color: an { r, g, b } or nil
+local OPT = {
+	enabled = { key = { "showLS", "showWS", "showEarthShield" }, def = true },
+	x = { key = { "xLS", "xWS", "earthShieldX" }, def = { -50, -50, 50 } },
+	y = { key = { "yLS", "yWS", "earthShieldY" }, def = { -100, -100, -100 } },
+	show = { suffix = "showWhen", def = "up" },
+	scale = { suffix = "scale", def = 1.0 },
+	opacity = { suffix = "opacity", def = 1.0 },
+	icon = { suffix = "showIcon", def = false },
+	number = { suffix = "showNumber", def = true },
+	numberPosition = { suffix = "numberPosition", def = "center" },
+	bar = { suffix = "showChargeBar", def = false },
+	look = { key = LOOK_KEY, def = "bar", nilIs = "bar" },
+	direction = { suffix = "chargeBarDirection", def = "below", nilIs = "below" },
+	orbColor = { suffix = "orbColor", def = "bar", nilIs = "bar" },
+	orbEmpty = { suffix = "orbEmpty", def = true, nilIs = true },
+	anim = { key = ANIM_KEY, def = false, nilIs = false },
+	texture = { suffix = "barTexture", def = "default", nilIs = "default" },
+	chargeColor = { key = CHARGE_COLOR_KEY, color = true },
+	gradient = { key = { "chargeGradientLS", "chargeGradientWS", "chargeGradientES" }, def = "default", nilIs = "default" },
+	gradientDirection = { key = { "chargeGradientLSDirection", "chargeGradientWSDirection", "chargeGradientESDirection" }, def = "default", nilIs = "default" },
+	gradientColor1 = { key = { "chargeGradientLSColor1", "chargeGradientWSColor1", "chargeGradientESColor1" }, color = true },
+	gradientColor2 = { key = { "chargeGradientLSColor2", "chargeGradientWSColor2", "chargeGradientESColor2" }, color = true, def = { r = 1, g = 0.82, b = 0 } },
+	gradientFade = { key = { "chargeGradientLSFade", "chargeGradientWSFade", "chargeGradientESFade" }, def = 0.15 },
+	sound = { sound = true },        -- (ShamanPowerShieldSound.lua keeps these two: shared with Expiring Alerts)
+	soundName = { sound = true },
+}
+local GROUPS = { "show", "icon", "bar", "color", "sound" }
+local GROUP_NAMES = {
+	show = { "show", "scale", "opacity" },
+	icon = { "icon", "number", "numberPosition" },
+	bar = { "bar", "look", "direction", "orbColor", "orbEmpty", "anim", "texture" },
+	color = { "chargeColor", "gradient", "gradientDirection", "gradientColor1", "gradientColor2", "gradientFade" },
+	sound = { "sound", "soundName" },
+}
+local ALL_NAMES = {}
+for _, g in ipairs(GROUPS) do for _, n in ipairs(GROUP_NAMES[g]) do ALL_NAMES[#ALL_NAMES + 1] = n end end
+-- [which][name] = the saved key (made once: the drawing reads them on every update)
+local KEY = { {}, {}, {} }
+for name, spec in pairs(OPT) do
+	if not spec.sound then
+		for w = 1, 3 do KEY[w][name] = spec.key and spec.key[w] or (spec.suffix .. SFX[w]) end
+	end
+end
+SP.SHIELD_KEYS = KEY   -- (General > Themes and the tests read the key names)
+local function startOf(name, which)
+	local d = OPT[name].def
+	if type(d) == "table" and not OPT[name].color then return d[which] end
+	return d
+end
+
+-- One shield's view: its own values under the field names the drawing reads.
+local VIEW_FIELD = { showIcon = "icon", showNumber = "number", numberPosition = "numberPosition", showChargeBar = "bar",
+	chargeBarDirection = "direction", orbColor = "orbColor", orbEmpty = "orbEmpty", scale = "scale", opacity = "opacity" }
+local views = { {}, {}, {} }
+shieldView = function(which)
+	local s = SP.opt and SP.opt.shieldChargeDisplay or NO_SETTINGS
+	local v, k = views[which], KEY[which]
+	for field, name in pairs(VIEW_FIELD) do v[field] = s[k[name]] end
+	if v.scale == nil then v.scale = 1 end
+	if v.opacity == nil then v.opacity = 1 end
+	if v.showNumber == nil then v.showNumber = true end
+	local hide = SHOW_HIDE[s[k.show]] or SHOW_HIDE.up
+	v.hideOutOfCombat, v.hideNoShields = hide[1], hide[2]
+	local lk, ak, ck = LOOK_KEY[which], ANIM_KEY[which], CHARGE_COLOR_KEY[which]
+	v[lk], v[ak], v[ck] = s[lk], s[ak], s[ck]
+	v.barLook, v.orbLook, v.locked = s.barLook, s.orbLook, s.locked
+	return v
+end
+
+-- COPY ONCE (the update to 3.0.8): every shared Shield Charges value goes into
+-- each shield's own new key, so every shield starts with exactly what it showed.
+-- New keys only; the old ones are never renamed or deleted. A mark, not "is it
+-- nil" (AceDB fills defaults in). Runs at login and on a profile switch / import.
+local COPY_SHARED = { scale = "scale", opacity = "opacity", showIcon = "icon", showNumber = "number",
+	numberPosition = "numberPosition", showChargeBar = "bar", chargeBarDirection = "direction", orbColor = "orbColor", orbEmpty = "orbEmpty" }
+local GRADIENT_PART = { gradient = "", gradientDirection = "Direction", gradientColor1 = "Color1", gradientColor2 = "Color2", gradientFade = "Fade" }
+local function copyValue(v)
+	if type(v) ~= "table" then return v end
+	local c = {}
+	for k, x in pairs(v) do c[k] = x end
+	return c
+end
+function SP:ShieldMigrate()
+	local o = self.opt
+	local s = o and o.shieldChargeDisplay
+	if type(s) ~= "table" or rawget(s, "perShieldMigrated") then return end
+	s.perShieldMigrated = true
+	for w = 1, 3 do
+		local k = KEY[w]
+		for old, name in pairs(COPY_SHARED) do
+			local v = s[old]
+			if v ~= nil then s[k[name]] = copyValue(v) end
+		end
+		local hoc, hns = s.hideOutOfCombat and true or false, s.hideNoShields ~= false
+		s[k.show] = (hoc and (hns and "fightsUp" or "fights")) or (hns and "up" or "always")
+		local areas = o.barTextureAreas
+		local tex = type(areas) == "table" and areas.shieldcharges or nil
+		if tex ~= nil then s[k.texture] = tex end
+		for name, part in pairs(GRADIENT_PART) do
+			local v = o["chargeGradient" .. part]
+			if v ~= nil then s[k[name]] = copyValue(v) end
+		end
+	end
+	-- Lightning and Water Shield shared one switch and one spot (Earth Shield had its own)
+	local on = s.showPlayerShield
+	if on ~= nil then s.showLS, s.showWS = on, on end
+	local x, y = s.playerShieldX, s.playerShieldY
+	if x ~= nil then s.xLS, s.xWS = x, x end
+	if y ~= nil then s.yLS, s.yWS = y, y end
+end
+
+local function rawSet(self, which, name, v)
+	local spec = OPT[name]
+	if spec.sound then
+		if self.SetShieldSoundOpt then self:SetShieldSoundOpt(which, name, v) end
+		return
+	end
+	if name == "look" then
+		local s = self.opt.shieldChargeDisplay
+		if s.barLook == "orbs" then
+			-- the first build's one look for all: each shield keeps what it showed, then it goes
+			for w = 1, 3 do if s[LOOK_KEY[w]] == nil then s[LOOK_KEY[w]] = s.orbLook or "glow" end end
+			s.barLook, s.orbLook = nil, nil
+		end
+	end
+	local s = self.opt.shieldChargeDisplay
+	if spec.color then
+		if type(v) == "table" then v = { r = v.r or v[1] or 1, g = v.g or v[2] or 1, b = v.b or v[3] or 1 } else v = nil end
+	elseif spec.nilIs ~= nil and v == spec.nilIs then
+		v = nil
+	end
+	if name == "show" and not SHOW_HIDE[v] then v = nil end
+	s[KEY[which][name]] = v
+	-- the number can only be off while the icon or the charge bar is on (as today)
+	if (name == "icon" or name == "bar") and not v then
+		local other = (name == "icon") and "bar" or "icon"
+		if not s[KEY[which][other]] then s[KEY[which].number] = true end
+	end
+end
+
+function SP:ShieldOpt(shield, name)
+	local which, spec = WHICH[shield], OPT[name]
+	if not (which and spec) then return nil end
+	if spec.sound then
+		if name == "sound" then return self.ShieldSoundOn and self:ShieldSoundOn(which) or false end
+		return self.ShieldSoundName and self:ShieldSoundName(which) or nil
+	end
+	if name == "look" then return self:GetShieldLook(which) end
+	local s = self.opt and self.opt.shieldChargeDisplay or NO_SETTINGS
+	local k = KEY[which]
+	local v = s[k[name]]
+	if name == "number" and not (s[k.icon] or s[k.bar]) then return true end
+	if name == "show" then return SHOW_HIDE[v] and v or "up" end
+	if v == nil then v = startOf(name, which) end
+	if spec.color then return copyValue(v) end
+	if name == "orbEmpty" or name == "anim" or name == "enabled" or name == "icon" or name == "number" or name == "bar" then
+		if name == "orbEmpty" or name == "enabled" or name == "number" then return v ~= false end
+		return v == true
+	end
+	return v
+end
+
+function SP:SetShieldOpt(shield, name, v)
+	local which = WHICH[shield]
+	if not (which and OPT[name] and self.opt) then return end
+	self:EnsureProfileTable("shieldChargeDisplay")
+	rawSet(self, which, name, v)
+	self:ShieldChanged(shield, name)
+end
+
+-- a value as it starts (for the blue corner): the profile's default, else the table above
+local function startValue(self, which, name)
+	local d = self.db and self.db.defaults and self.db.defaults.profile
+	d = d and d.shieldChargeDisplay
+	local v = type(d) == "table" and d[KEY[which][name]] or nil
+	if v == nil then v = startOf(name, which) end
+	if name == "show" then return "up" end
+	return v
+end
+local function same(a, b)
+	if type(a) == "number" and type(b) == "number" then return math.abs(a - b) < 1e-4 end
+	if type(a) == "table" and type(b) == "table" then
+		return same(a.r, b.r) and same(a.g, b.g) and same(a.b, b.b)
+	end
+	return a == b
+end
+-- the blue corner: settings changed from their starting values (not shown / hidden, not its spot)
+function SP:ShieldOwnChanged(shield)
+	local which = WHICH[shield]
+	if not which then return false end
+	for _, name in ipairs(ALL_NAMES) do
+		if OPT[name].sound then
+			if self.ShieldSoundOwnChanged and self:ShieldSoundOwnChanged(which) then return true end
+		elseif not same(self:ShieldOpt(shield, name), startValue(self, which, name)) then
+			return true
+		end
+	end
+	return false
+end
+
+-- Reset This Shield: its settings back to their starting values. all (Reset This
+-- Page): it is shown again and back on today's spot too.
+function SP:ResetShield(shield, all)
+	local which = WHICH[shield]
+	if not (which and self.opt) then return end
+	self:EnsureProfileTable("shieldChargeDisplay")
+	local s = self.opt.shieldChargeDisplay
+	for _, name in ipairs(ALL_NAMES) do
+		if OPT[name].sound then
+			if name == "sound" and self.SetShieldSoundOpt then self:SetShieldSoundOpt(which, "reset") end
+		else
+			if name == "look" then rawSet(self, which, "look", "bar") end
+			s[KEY[which][name]] = nil
+		end
+	end
+	if all then
+		local k = KEY[which]
+		s[k.enabled], s[k.x], s[k.y] = nil, nil, nil
+	end
+	self:ShieldChanged(shield, "reset")
+end
+
+function SP:ShieldLookAvailable(shield, look)
+	local which = WHICH[shield]
+	if not which then return false end
+	if STORM_LOOK[look] then return STORM_LOOK[look][which] ~= nil end
+	return look == "bar" or look == "glow" or look == "flat" or look == "icon"
+end
+
+-- Copy Settings: the values, once (never linked). A look the other shield does not
+-- have becomes Storm Orbs (as the drawing already does).
+function SP:CopyShield(from, to, group)
+	local a, b = WHICH[from], WHICH[to]
+	if not (a and b and a ~= b and self.opt) then return end
+	self:EnsureProfileTable("shieldChargeDisplay")
+	local s = self.opt.shieldChargeDisplay
+	local list = group and GROUP_NAMES[group] or ALL_NAMES
+	for _, name in ipairs(list) do
+		local v = self:ShieldOpt(from, name)
+		if name == "look" and not self:ShieldLookAvailable(to, v) then v = "storm" end
+		if name == "number" then v = s[KEY[a].number] end   -- (as stored: on / off follows icon and bar)
+		rawSet(self, b, name, v)
+	end
+	self:ShieldChanged(to, group or "copy")
+end
+
+function SP:ShieldNames(group)
+	local list = group and GROUP_NAMES[group] or ALL_NAMES
+	local out = {}
+	for i = 1, #list do out[i] = list[i] end
+	return out
+end
+function SP:ShieldGroups()
+	local out = {}
+	for i = 1, #GROUPS do out[i] = GROUPS[i] end
+	return out
+end
+
+-- a shield's spot (its own; Lightning and Water Shield start on today's one spot)
+shieldSpot = function(which)
+	local s = SP.opt and SP.opt.shieldChargeDisplay or NO_SETTINGS
+	local k = KEY[which]
+	local x, y = s[k.x], s[k.y]
+	if x == nil then x = startOf("x", which) end
+	if y == nil then y = startOf("y", which) end
+	return x, y
+end
+function SP:SetShieldSpot(which, x, y)
+	if not self.opt then return end
+	self:EnsureProfileTable("shieldChargeDisplay")
+	local s, k = self.opt.shieldChargeDisplay, KEY[which]
+	s[k.x], s[k.y] = x, y
+	local f = self:ShieldChargeFrameOf(which)
+	if f then f.spSpotX, f.spSpotY = x, y end   -- (it is there already: dropped on it)
+end
+-- a box's Reset (Unlock UI): that shield back on its starting spot
+function SP:ResetShieldSpot(which)
+	if not self.opt then return end
+	self:EnsureProfileTable("shieldChargeDisplay")
+	local s, k = self.opt.shieldChargeDisplay, KEY[which]
+	s[k.x], s[k.y] = nil, nil
+	local f = self:ShieldChargeFrameOf(which)
+	if f then
+		local x, y = shieldSpot(which)
+		f:ClearAllPoints(); f:SetPoint("CENTER", UIParent, "CENTER", x, y)
+		f.spSpotX, f.spSpotY = x, y
+	end
+end
+function SP:ShieldChargeFrameOf(which)
+	local d = FRAME_DEF[which]
+	return d and self.shieldChargeFrames[d.key] or nil
 end
 
 -- bumped when a theme moves these colours: the game-drawn displays read them
@@ -363,13 +661,13 @@ end
 -- How far a display's parts reach from its center, in the frame's own units:
 -- half its width, above, below. The setup tour lays the preview out by it.
 function SP:ShieldChargeDisplayExtent(frame)
-	local settings = self.opt.shieldChargeDisplay or NO_SETTINGS
+	local settings = shieldView(frame and frame.spWhich or 1)
 	local s = settings.scale or 1
 	local icon, number, _, bar, barSide = displayParts(settings)
 	local halfW, above, below = 0, 0, 0
 	local BAR_WIDTH, BAR_HEIGHT = BAR_WIDTH, BAR_HEIGHT   -- the orb strip's size with Orbs on
 	local cb = frame and frame.chargeBar
-	local look = orbLookOf(settings, cb and cb.spWhich or 1)
+	local look = orbLookOf(settings, (cb and cb.spWhich) or (frame and frame.spWhich) or 1)
 	if look then
 		BAR_WIDTH, BAR_HEIGHT = orbLength(cb and cb.spKind or "player", look), orbThickness(look)
 	end
@@ -462,10 +760,11 @@ end
 -- Today's segmented bar, or the orbs (Charge Bar Look). which: 1 Lightning
 -- Shield, 2 Water Shield, 3 Earth Shield (the icon orbs and By Shield colors).
 styleChargeBar = function(bar, which)
-	local settings = SP.opt and SP.opt.shieldChargeDisplay or NO_SETTINGS
 	local kind = bar.spKind
 	which = which or bar.spWhich or ((kind == "earth") and 3 or 1)
 	bar.spWhich = which
+	local settings = shieldView(which)   -- this shield's own settings
+	local area = SHIELD_AREA[which]      -- its own Charge Bar Texture and Gradient
 	local look = orbLookOf(settings, which)
 	local back = bar.back
 	local c = SHIELD_COLOR[kind]
@@ -500,7 +799,7 @@ styleChargeBar = function(bar, which)
 		-- Charge Bar Gradient: the tinted Glowing and Flat orbs shade too; pictures keep their art
 		if fill then
 			if look == "glow" or look == "flat" then
-				SP:PaintBarGradient(fill, r, g, b, 1, bar:GetOrientation() == "VERTICAL", nil, "shieldcharges")
+				SP:PaintBarGradient(fill, r, g, b, 1, bar:GetOrientation() == "VERTICAL", nil, area)
 			elseif fill.spGrad then
 				fill.spGrad = nil
 				fill:SetVertexColor(r, g, b, 1)
@@ -530,7 +829,7 @@ styleChargeBar = function(bar, which)
 			local fill = bar:GetStatusBarTexture()
 			if fill then fill:SetBlendMode("BLEND") end
 		end
-		SP:SetSPStatusBarTexture(bar, "shieldcharges", "Interface\\Buttons\\WHITE8x8")   -- Shield Charge Bars (Fonts & Textures)
+		SP:SetSPStatusBarTexture(bar, area, "Interface\\Buttons\\WHITE8x8")   -- this shield's Charge Bar Texture
 		local r, g, b = c[1], c[2], c[3]
 		local cr, cg, cbl = customChargeColor(settings, which)
 		if cr then r, g, b = cr, cg, cbl end   -- Charge Colors
@@ -717,10 +1016,11 @@ local function buildGates(frame, settings, s, which)
 	return gates
 end
 local function ensureGates(frame, kind, settings, s)
-	local wantLS = kind == "player" and animOn(settings, 1)
-	local wantWS = kind == "player" and animOn(settings, 2)
-	local sig = (wantLS or wantWS) and (tostring(wantLS) .. tostring(wantWS) .. "|" .. tostring(s) .. "|" .. tostring(settings.chargeBarDirection)
-		.. "|" .. tostring(settings.showIcon) .. "|" .. tostring(settings.showNumber) .. "|" .. tostring(settings.numberPosition)) or false
+	local which = frame.spWhich or 1
+	local want = kind == "player" and which ~= 3 and animOn(settings, which)
+	local sig = want and (tostring(which) .. "|" .. tostring(s) .. "|" .. tostring(settings.chargeBarDirection)
+		.. "|" .. tostring(settings.showIcon) .. "|" .. tostring(settings.showNumber) .. "|" .. tostring(settings.numberPosition)
+		.. "|" .. tostring(orbLookOf(settings, which))) or false
 	if frame.stormGateSig == sig then
 		-- the same gates: shown again after the settings preview hid them (none built:
 		-- nothing to do, and no empty table made on every update)
@@ -737,8 +1037,7 @@ local function ensureGates(frame, kind, settings, s)
 	frame.stormGateSig = sig
 	if not sig then return end
 	frame.stormGates = {}
-	if wantLS then frame.stormGates[1] = buildGates(frame, settings, s, 1) end
-	if wantWS then frame.stormGates[2] = buildGates(frame, settings, s, 2) end
+	frame.stormGates[which] = buildGates(frame, settings, s, which)
 end
 
 -- Place a display's parts on `box` (the display frame, or the engine's aura
@@ -829,9 +1128,12 @@ end
 -- engine's live count, so in combat it is only drawn at full opacity (the
 -- grayed icon and empty bar stay at any opacity).
 -- iconWhich: 1 Lightning Shield, 2 Water Shield, 3 Earth Shield.
-local function paintDisplay(frame, kind, settings, s, charges, present, restricted, iconWhich)
+-- noGray: in a fight on WoW: Forever the game draws whichever shield is up on its
+-- own display; only one of Lightning / Water Shield (the last one you had) keeps
+-- the gray layer under it, so two grays never sit on one spot.
+local function paintDisplay(frame, kind, settings, s, charges, present, restricted, iconWhich, noGray)
 	local icon, number, corner, bar, barSide = displayParts(settings)
-	local orbs = orbSig(settings)
+	local orbs = orbSig(settings, iconWhich or 1)
 	if frame.layScale ~= s or frame.layIcon ~= icon or frame.layNumber ~= number
 		or frame.layCorner ~= corner or frame.layBar ~= bar or frame.layBarSide ~= barSide or frame.layOrbs ~= orbs then
 		frame.layScale, frame.layIcon, frame.layNumber, frame.layCorner, frame.layBar = s, icon, number, corner, bar
@@ -858,7 +1160,7 @@ local function paintDisplay(frame, kind, settings, s, charges, present, restrict
 		end
 	end
 
-	local own = not restricted or not settings.hideNoShields
+	local own = (not restricted or not settings.hideNoShields) and not noGray
 	local text = frame.text
 	local r, g, b = SP:GetShieldChargeColor(charges, MAX_CHARGES[kind], kind == "earth")
 	-- restricted: our 0 sits under the engine's icon, which hides it while the
@@ -1010,28 +1312,43 @@ end
 -- Make sure each frame has an engine container for the current look and unit.
 -- The engine button's parts are laid out once, when the game builds it: a new
 -- scale or a different set of parts (icon, number, corner, bar) needs a new one.
+-- Each shield's display has its own layer, built with that shield's own settings,
+-- and only OUT OF COMBAT: a setting changed in a fight keeps the layer it has
+-- until the fight ends (the end of combat wakes the update, which builds it).
+local SET_NAME = { "Lightning Shield", "Water Shield" }
 function SP:EnsureShieldChargeEngine(frame, kind, scale)
 	if not (SPCompat and SPCompat.secretsRegime) then return end
-	local icon, number, corner, bar, barSide = displayParts(self.opt.shieldChargeDisplay or NO_SETTINGS)
+	local which = frame.spWhich or ((kind == "earth") and 3 or 1)
+	local settings = shieldView(which)
+	local icon, number, corner, bar, barSide = displayParts(settings)
+	local orbs = orbSig(settings, which)
 	if frame.engine and (frame.engineScale ~= scale or frame.engineIcon ~= icon or frame.engineNumber ~= number
 		or frame.engineCorner ~= corner or frame.engineBar ~= bar or frame.engineTheme ~= themeStamp
-		or frame.engineBarSide ~= barSide or frame.engineOrbs ~= orbSig(self.opt.shieldChargeDisplay or NO_SETTINGS)) then
+		or frame.engineBarSide ~= barSide or frame.engineOrbs ~= orbs) and not InCombatLockdown() then
 		frame.engine:Hide()
 		pcall(frame.engine.SetUnit, frame.engine, "none")   -- the old one stops following auras
 		frame.engine = nil
 	end
-	if not frame.engine then
-		-- player: blue, like the module at full charges; Earth Shield: green
-		local sets = (kind == "player") and (ShamanPower.ShieldAuraSets or {}) or { { name = "Earth Shield", ids = ES_SPELL_IDS } }
+	if not frame.engine and not InCombatLockdown() then
+		-- Lightning / Water Shield: blue, like the module at full charges; Earth Shield: green
+		local sets
+		if kind == "earth" then
+			sets = { { name = "Earth Shield", ids = ES_SPELL_IDS } }
+		else
+			sets = {}
+			for _, set in ipairs(ShamanPower.ShieldAuraSets or {}) do
+				if set.name == SET_NAME[which] then sets[#sets + 1] = set end
+			end
+		end
 		frame.engine = buildChargeContainer(frame, kind, scale, sets, icon, number, corner, bar, barSide)
 		frame.engineScale = scale
 		frame.engineIcon, frame.engineNumber, frame.engineCorner, frame.engineBar = icon, number, corner, bar
 		frame.engineBarSide = barSide
-		frame.engineOrbs = orbSig(self.opt.shieldChargeDisplay or NO_SETTINGS)
+		frame.engineOrbs = orbs
 		frame.engineTheme = themeStamp
 		frame.engineUnit = nil
 	end
-	if not self.shieldChargesDemoActive then ensureGates(frame, kind, self.opt.shieldChargeDisplay or NO_SETTINGS, scale) end
+	if not self.shieldChargesDemoActive then ensureGates(frame, kind, settings, scale) end
 	local c = frame.engine
 	if not c then return end
 	local unit = (kind == "player") and "player" or (self:EarthShieldTargetToken() or "none")
@@ -1108,56 +1425,69 @@ if GetAuraByName then
 	end)
 end
 
+-- a display's spot, set again when it changed (a profile switch, Reset): out of combat
+local PF, ON = {}, {}   -- (reused: the update makes no tables)
+local function placeFrame(frame)
+	if InCombatLockdown() then return end
+	local x, y = shieldSpot(frame.spWhich)
+	if frame.spSpotX ~= x or frame.spSpotY ~= y then
+		frame.spSpotX, frame.spSpotY = x, y
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", x, y)
+	end
+end
+
 function SP:UpdateShieldChargeDisplays()
 	if self.shieldChargesDemoActive then return end
 	local settings = self.opt.shieldChargeDisplay
 	if not settings then return end
 
+	local frames = self.shieldChargeFrames
 	-- ShamanPower switched off: no numbers, and the update stops
 	if self:IsOff() then
 		self:DisableUpdateSubsystem("shieldCharge")
-		if self.shieldChargeFrames.player then self.shieldChargeFrames.player:Hide() end
-		if self.shieldChargeFrames.earth then self.shieldChargeFrames.earth:Hide() end
+		for _, f in pairs(frames) do f:Hide() end
 		return
 	end
 
+	local onLS, onWS = self:ShieldOpt("LS", "enabled"), self:ShieldOpt("WS", "enabled")
 	-- Enable/disable the shieldCharge subsystem based on settings
-	local showAny = (settings.showPlayerShield ~= false) or earthShieldWanted(settings)
+	local showAny = onLS or onWS or earthShieldWanted(settings)
 	if showAny then
 		self:EnableUpdateSubsystem("shieldCharge")
 	else
 		self:DisableUpdateSubsystem("shieldCharge")
 	end
 
-	local playerFrame = self.shieldChargeFrames.player
-	local earthFrame = self.shieldChargeFrames.earth
-	if not playerFrame or not earthFrame then return end
-
-	local scale = settings.scale or 1.0
-	local opacity = settings.opacity or 1.0
+	local lsFrame, wsFrame, earthFrame = frames.player, frames.water, frames.earth
+	if not lsFrame or not wsFrame or not earthFrame then return end
 	local locked = settings.locked
-	local hideOOC = settings.hideOutOfCombat
-	local hideNoShields = settings.hideNoShields
 
 	-- Check combat state
 	local inCombat = InCombatLockdown() or UnitAffectingCombat("player")
 
-	-- Update player shield (Lightning/Water Shield)
-	if settings.showPlayerShield ~= false then
+	-- Lightning / Water Shield: read once (whichever is up), each drawn on its own display
+	if onLS or onWS then
 		local charges = 0
 		local hasShield = false
-		local water = false   -- Water Shield (not Lightning Shield): which icon to draw
+		local water = false   -- Water Shield (not Lightning Shield): which display shows it
 
 		local restricted = self:ShieldChargesRestricted()
-		-- Animated Lightning on WoW: Forever: the per-orb gates are built out of combat
+		local pf, on = PF, ON
+		pf[1], pf[2], on[1], on[2] = lsFrame, wsFrame, onLS, onWS
+		-- Animated Lightning / Water on WoW: Forever: the per-orb gates are built out of combat
 		-- (they track the shield themselves, in and out of combat, once built)
 		if SPCompat and SPCompat.secretsRegime and not self.shieldChargesDemoActive then
-			ensureGates(playerFrame, "player", settings, scale)
+			for w = 1, 2 do
+				if on[w] then local v = shieldView(w); ensureGates(pf[w], "player", v, v.scale) end
+			end
 		end
 		if restricted then
-			-- auras are secret: the engine draws the count (nothing while no shield)
+			-- auras are secret: the game draws the count on each shield's display (nothing while it is not up)
 			hasShield = true
-			self:EnsureShieldChargeEngine(playerFrame, "player", scale)
+			for w = 1, 2 do
+				if on[w] then self:EnsureShieldChargeEngine(pf[w], "player", shieldView(w).scale) end
+			end
 		else
 			-- Check for Lightning Shield or Water Shield; the answer holds until the next aura event
 			if GetAuraByName then
@@ -1225,43 +1555,68 @@ function SP:UpdateShieldChargeDisplays()
 			end
 			-- the icon shown with no shield up (and under the engine's in combat) is the last one seen
 			if hasShield then self._shieldLastWater = water end
-			-- WoW: Forever: the game's layer is built out of combat, before the first fight,
-			-- instead of in it (and again here if a build ever came back empty). Only while
-			-- there is none: a built one is kept up to date by the settings (see below)
-			if SPCompat and SPCompat.secretsRegime and not playerFrame.engine and not InCombatLockdown()
-				and not self.shieldChargesDemoActive then
-				self:EnsureShieldChargeEngine(playerFrame, "player", scale)
+			-- WoW: Forever: each shield's game layer is built out of combat, before the first
+			-- fight, instead of in it. Only while there is none: a built one is kept up to
+			-- date by the settings (see below)
+			if SPCompat and SPCompat.secretsRegime and not InCombatLockdown() and not self.shieldChargesDemoActive then
+				for w = 1, 2 do
+					if on[w] and not pf[w].engine then self:EnsureShieldChargeEngine(pf[w], "player", shieldView(w).scale) end
+				end
 			end
 		end
-		if playerFrame.engine then playerFrame.engine:SetShown(restricted) end
+		-- with no shield to read, the last one seen (else the preferred one) shows its gray
+		-- look; if that one is hidden, the other one
+		local gray = self._shieldLastWater
+		if gray == nil then gray = (self.opt.preferredShield == 2) end
+		gray = gray and 2 or 1
+		if not on[gray] then gray = 3 - gray end
+		local upWhich = (hasShield and not restricted) and (water and 2 or 1) or nil
 
-		-- Determine visibility
-		local shouldShow = hasShield or not hideNoShields
-		if hideOOC and not inCombat then
-			shouldShow = false
-		end
-
-		if shouldShow then
-			if not (hasShield and not restricted) then
-				-- no shield to read: the last one seen, else the preferred shield
-				water = self._shieldLastWater
-				if water == nil then water = (self.opt.preferredShield == 2) end
+		for w = 1, 2 do
+			local frame = pf[w]
+			if frame.engine then frame.engine:SetShown(restricted and on[w] and true or false) end
+			if on[w] then
+				local v = shieldView(w)
+				placeFrame(frame)
+				-- Determine visibility
+				local shouldShow, present
+				if restricted then
+					shouldShow, present = true, true
+				elseif upWhich then
+					shouldShow, present = (upWhich == w), true
+				else
+					shouldShow, present = (gray == w) and not v.hideNoShields, false
+				end
+				if v.hideOutOfCombat and not inCombat then
+					shouldShow = false
+				end
+				if shouldShow then
+					paintDisplay(frame, "player", v, v.scale, (upWhich == w) and charges or 0, present, restricted, w,
+						restricted and gray ~= w)
+					frame:SetAlpha(v.opacity)
+					frame:EnableMouse(not locked)
+					frame:Show()
+				else
+					frame:Hide()
+				end
+			else
+				frame:Hide()
 			end
-			paintDisplay(playerFrame, "player", settings, scale, charges, hasShield, restricted, water and 2 or 1)
-			playerFrame:SetAlpha(opacity)
-			playerFrame:EnableMouse(not locked)
-			playerFrame:Show()
-		else
-			playerFrame:Hide()
 		end
 	else
-		playerFrame:Hide()
+		lsFrame:Hide()
+		wsFrame:Hide()
+		if lsFrame.engine then lsFrame.engine:Hide() end
+		if wsFrame.engine then wsFrame.engine:Hide() end
 	end
 
 	-- Update Earth Shield
 	if earthShieldWanted(settings) then
 		local charges = 0
 		local hasShield = false
+		local v = shieldView(3)
+		local scale = v.scale
+		placeFrame(earthFrame)
 
 		local restricted = self:ShieldChargesRestricted()
 		if restricted then
@@ -1284,14 +1639,14 @@ function SP:UpdateShieldChargeDisplays()
 		if earthFrame.engine then earthFrame.engine:SetShown(restricted) end
 
 		-- Determine visibility
-		local shouldShow = hasShield or not hideNoShields
-		if hideOOC and not inCombat then
+		local shouldShow = hasShield or not v.hideNoShields
+		if v.hideOutOfCombat and not inCombat then
 			shouldShow = false
 		end
 
 		if shouldShow then
-			paintDisplay(earthFrame, "earth", settings, scale, charges, hasShield, restricted, 3)
-			earthFrame:SetAlpha(opacity)
+			paintDisplay(earthFrame, "earth", v, scale, charges, hasShield, restricted, 3)
+			earthFrame:SetAlpha(v.opacity)
 			earthFrame:EnableMouse(not locked)
 			earthFrame:Show()
 		else
@@ -1311,23 +1666,25 @@ end
 function SP:ShieldChargesDemoRefresh()
 	local playerFrame = self.shieldChargeFrames.player
 	local earthFrame = self.shieldChargeFrames.earth
+	local waterReal = self.shieldChargeFrames.water
 	if not playerFrame or not earthFrame then return end
-	local settings = self.opt.shieldChargeDisplay or {}
-	local scale, opacity = settings.scale or 1.0, settings.opacity or 1.0
 	local d = self.shieldChargesDemoState or { player = 3, earth = 6 }
 	-- the demo draws the whole display itself: the game-drawn copy (restricted,
 	-- WoW: Forever) keeps the look it was built with, so a changed setting would
 	-- show twice; it is put back as the settings say when the demo ends
-	if playerFrame.engine then playerFrame.engine:Hide() end
-	if earthFrame.engine then earthFrame.engine:Hide() end
-	for _, set in pairs(playerFrame.stormGates or {}) do   -- the demo draws its own effects
-		for _, g in ipairs(set) do g:Hide() end
+	for _, f in pairs(self.shieldChargeFrames) do
+		if f.engine then f.engine:Hide() end
+		for _, set in pairs(f.stormGates or {}) do   -- the demo draws its own effects
+			for _, g in ipairs(set) do g:Hide() end
+		end
 	end
 
-	if settings.showPlayerShield ~= false then
+	-- each shield with its own settings (scale, opacity, look ...)
+	local ls, ws, es = shieldView(1), nil, nil
+	if self:ShieldOpt("LS", "enabled") then
 		-- Lightning Shield, like the character on stage; at 0 it shows the no-shield look
-		paintDisplay(playerFrame, "player", settings, scale, d.player, d.player > 0, false, 1)
-		playerFrame:SetAlpha(opacity)
+		paintDisplay(playerFrame, "player", ls, ls.scale, d.player, d.player > 0, false, 1)
+		playerFrame:SetAlpha(ls.opacity)
 		playerFrame:EnableMouse(false)
 		playerFrame:Show()
 	else
@@ -1335,20 +1692,35 @@ function SP:ShieldChargesDemoRefresh()
 	end
 	-- the settings preview also shows Water Shield, its own display and bar
 	local waterFrame = self.shieldChargeWaterPreview
+	local wsOn = self:ShieldOpt("WS", "enabled")
 	if waterFrame then
-		if self.shieldChargesDemoPane and settings.showPlayerShield ~= false then
+		if self.shieldChargesDemoPane and wsOn then
+			ws = shieldView(2)
 			waterFrame.spDemoHidden = nil
-			paintDisplay(waterFrame, "player", settings, scale, d.player, d.player > 0, false, 2)
-			waterFrame:SetAlpha(opacity)
+			paintDisplay(waterFrame, "player", ws, ws.scale, d.player, d.player > 0, false, 2)
+			waterFrame:SetAlpha(ws.opacity)
 			waterFrame:Show()
 		else
 			waterFrame.spDemoHidden = true
 			waterFrame:Hide()
 		end
 	end
-	if earthShieldWanted(settings) then
-		paintDisplay(earthFrame, "earth", settings, scale, d.earth, d.earth > 0, false, 3)
-		earthFrame:SetAlpha(opacity)
+	-- Unlock UI: Water Shield's own display on its own spot, so it has a box to drag
+	if waterReal then
+		if self.unlockDemoAll and not self.shieldChargesDemoPane and wsOn and self.IsMasterUnlocked and self:IsMasterUnlocked() then
+			ws = shieldView(2)
+			paintDisplay(waterReal, "player", ws, ws.scale, d.player, d.player > 0, false, 2)
+			waterReal:SetAlpha(ws.opacity)
+			waterReal:EnableMouse(false)
+			waterReal:Show()
+		else
+			waterReal:Hide()
+		end
+	end
+	if earthShieldWanted(self.opt.shieldChargeDisplay or NO_SETTINGS) then
+		es = shieldView(3)
+		paintDisplay(earthFrame, "earth", es, es.scale, d.earth, d.earth > 0, false, 3)
+		earthFrame:SetAlpha(es.opacity)
 		earthFrame:EnableMouse(false)
 		earthFrame:Show()
 	else
@@ -1399,8 +1771,7 @@ function SP:ShieldChargesDemo(on)
 		self.shieldChargesDemoState = nil
 		local settings = self.opt.shieldChargeDisplay
 		local locked = settings and settings.locked
-		if self.shieldChargeFrames.player then self.shieldChargeFrames.player:EnableMouse(not locked) end
-		if self.shieldChargeFrames.earth then self.shieldChargeFrames.earth:EnableMouse(not locked) end
+		for _, f in pairs(self.shieldChargeFrames) do f:EnableMouse(not locked) end
 		self:UpdateShieldChargeDisplays()
 	end
 end
@@ -1419,8 +1790,11 @@ if ShamanPower.RegisterPreview then
 		pad = 24,
 		-- vertical bars: Lightning, Water and Earth side by side, spaced by their real reach
 		row = function()
-			local st = SP.opt and SP.opt.shieldChargeDisplay
-			return st and st.showChargeBar and (st.chargeBarDirection == "right" or st.chargeBarDirection == "left") or false
+			for w = 1, 3 do
+				local st = shieldView(w)
+				if st.showChargeBar and (st.chargeBarDirection == "right" or st.chargeBarDirection == "left") then return true end
+			end
+			return false
 		end,
 		extent = function(frame) return SP:ShieldChargeDisplayExtent(frame) end,
 		stage = "player",   -- the player's own character behind the number: it floats near them on screen
@@ -1450,16 +1824,15 @@ end
 ThemeColorsMoved()   -- the colours in use now (today's, or a saved theme's), before anything is built
 local function RebuildEngineForTheme()
 	themeStamp = themeStamp + 1
-	local s = SP.opt and SP.opt.shieldChargeDisplay
-	for kind, f in pairs(SP.shieldChargeFrames) do
-		if f.engine then SP:EnsureShieldChargeEngine(f, kind, (s and s.scale) or 1.0) end
+	for _, f in pairs(SP.shieldChargeFrames) do
+		if f.engine then SP:EnsureShieldChargeEngine(f, f.spKind, shieldView(f.spWhich).scale) end
 	end
 	SP._shieldWake = true
 end
 if SP.OnThemeChanged then
 	SP:OnThemeChanged(function()
 		if not ThemeColorsMoved() then return end
-		for kind, f in pairs(SP.shieldChargeFrames) do
+		for _, f in pairs(SP.shieldChargeFrames) do
 			for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end   -- each shield's own bar
 		end
 		SP._shieldWake = true
@@ -1498,6 +1871,41 @@ function SP:SetShieldChargeColor(which, r, g, b)
 	local s = SP.opt.shieldChargeDisplay
 	if r then s[CHARGE_COLOR_KEY[which]] = { r = r, g = g, b = b } else s[CHARGE_COLOR_KEY[which]] = nil end
 	self:ShieldChargeStyleChanged()
+end
+
+-- One shield's settings changed (the settings pages, Copy, Reset): that shield is
+-- drawn again now; its game-drawn layer (WoW: Forever) is rebuilt by the update,
+-- out of combat only (a change in a fight shows when it ends, as before).
+function SP:ShieldChanged(shield, name)
+	if name == "sound" or name == "soundName" then
+		if self.UpdateShieldSounds then self:UpdateShieldSounds() end
+		return
+	end
+	if name == "reset" or name == "copy" or name == "color" or name == "texture" or (type(name) == "string" and name:find("^gradient")) then
+		if self.RefreshTextures then self:RefreshTextures() end   -- this shield's Charge Bar Texture / Gradient
+		if name == "reset" and self.UpdateShieldSounds then self:UpdateShieldSounds() end
+	end
+	SP.chargeStyleGen = (SP.chargeStyleGen or 0) + 1   -- the built layers carry it: a new one is built
+	for _, f in pairs(self.shieldChargeFrames) do
+		for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end
+	end
+	local wf = self.shieldChargeWaterPreview
+	if wf then for w, cb in pairs(wf.chargeBars or {}) do styleChargeBar(cb, w) end end
+	SP._shieldWake = true
+	if self.shieldChargesDemoActive then self:ShieldChargesDemoRefresh() end
+	if self.CreateShieldChargeDisplays and self.opt then self:CreateShieldChargeDisplays() end
+end
+
+-- A profile switched, copied, reset or imported: its values copied once (an older
+-- profile) and every display put where that profile has it.
+if hooksecurefunc and SP.OnProfileChanged then
+	hooksecurefunc(SP, "OnProfileChanged", function()
+		C_Timer.After(0, function()
+			if not SP.opt then return end
+			SP:ShieldMigrate()
+			if SP.shieldChargeFrames.player then SP:ShieldChanged(nil, "reset") end
+		end)
+	end)
 end
 
 -- Enable ShamanPower switched: hide the numbers (off), or show them as the settings say (on)

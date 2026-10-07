@@ -33,9 +33,64 @@ local function isSecret(v) return issecret ~= nil and issecret(v) == true end
 local ENGINE = SPCompat.FOREVER and C_UnitAuras ~= nil and C_UnitAuras.AddAuraSound ~= nil
 	and Enum ~= nil and Enum.UnitAuraSoundTrigger ~= nil and Enum.UnitAuraSoundTrigger.Removed ~= nil
 
+-- 3.0.8: one setting PER SHIELD (Lightning, Water, Earth Shield), the same one on
+-- Shield Charges and Expiring Alerts: opt.shieldDropSound<S> / shieldDropSoundName<S>
+-- (S = LS, WS, ES), empty until changed, using the shared opt.shieldDropSound /
+-- shieldDropSoundName until then, so every shield starts with today's one sound.
+-- Earth Shield's plays only through Expiring Alerts' Earth Shield alert (as before).
+local SOUND_ON = { "shieldDropSoundLS", "shieldDropSoundWS", "shieldDropSoundES" }
+local SOUND_NAME = { "shieldDropSoundNameLS", "shieldDropSoundNameWS", "shieldDropSoundNameES" }
+function SP:ShieldSoundOn(which)
+	local o = self.opt
+	if not o or not SOUND_ON[which] then return false end
+	local v = o[SOUND_ON[which]]
+	if v == nil then v = o.shieldDropSound end
+	return v == true
+end
+function SP:ShieldSoundName(which)
+	local o = self.opt
+	local v = o and SOUND_NAME[which] and o[SOUND_NAME[which]]
+	if v == nil then v = o and o.shieldDropSoundName end
+	return v or DEFAULT_SOUND
+end
+-- name: "sound" (on / off), "soundName", or "reset" (back to the shared one)
+function SP:SetShieldSoundOpt(which, name, v)
+	local o = self.opt
+	if not o or not SOUND_ON[which] then return end
+	if name == "sound" then
+		o[SOUND_ON[which]] = v and true or false
+	elseif name == "soundName" then
+		o[SOUND_NAME[which]] = v
+	elseif name == "reset" then
+		o[SOUND_ON[which]], o[SOUND_NAME[which]] = nil, nil
+	end
+	self:UpdateShieldSounds()
+end
+-- the blue corner: this shield's sound is its own and not the shared one
+function SP:ShieldSoundOwnChanged(which)
+	local o = self.opt
+	if not o or not SOUND_ON[which] then return false end
+	local on, name = o[SOUND_ON[which]], o[SOUND_NAME[which]]
+	if on ~= nil and on ~= (o.shieldDropSound == true) then return true end
+	if name ~= nil and name ~= (o.shieldDropSoundName or DEFAULT_SOUND) then return true end
+	return false
+end
+-- each shield's Test Sound (shield = "LS" / "WS" / "ES")
+local SHIELD_WHICH = { LS = 1, WS = 2, ES = 3 }
+function SP:TestShieldSound(shield)
+	local which = SHIELD_WHICH[shield] or shield
+	local vol = 100
+	local ea = rawget(_G, "ShamanPowerExpiringAlertsDB")
+	if not ENGINE or which == 3 then
+		local v = type(ea) == "table" and ea.soundVolume or nil
+		if type(v) == "number" then vol = v end
+	end
+	self:PlaySoundWithVolume(self:GetSoundFile(self:ShieldSoundName(which)), vol, true)
+end
+
 local function Wanted()
 	local o = SP.opt
-	return IS_SHAMAN and o ~= nil and o.shieldDropSound == true and not SP:IsOff()
+	return IS_SHAMAN and o ~= nil and (SP:ShieldSoundOn(1) or SP:ShieldSoundOn(2)) and not SP:IsOff()
 end
 
 -- ---------------------------------------------------------------------------
@@ -119,8 +174,11 @@ local function EngineUpdate()
 		if #engineIDs > 0 then SP:RemoveShieldSounds() end
 		return
 	end
-	local sound = SP:GetSoundFile(SP:ShieldDropSoundName())
-	local key = tostring(sound)
+	-- each shield its own sound (or none): the key covers both
+	local onL, onW = SP:ShieldSoundOn(1), SP:ShieldSoundOn(2)
+	local soundL = onL and SP:GetSoundFile(SP:ShieldSoundName(1)) or nil
+	local soundW = onW and SP:GetSoundFile(SP:ShieldSoundName(2)) or nil
+	local key = tostring(soundL) .. "|" .. tostring(soundW)
 	if key == engineKey and #engineIDs > 0 then return end
 	if InCombatLockdown() then
 		enginePending = true
@@ -131,13 +189,14 @@ local function EngineUpdate()
 	SP:RemoveShieldSounds()
 	wipe(engineLog)
 	local info = engineInfo
-	if type(sound) == "number" then
-		info.soundFileID, info.soundFileName = sound, nil
-	else
-		info.soundFileID, info.soundFileName = nil, sound
-	end
 	for _, set in ipairs(SP.ShieldAuraSets or {}) do
-		if set.name == "Lightning Shield" or set.name == "Water Shield" then
+		local sound = (set.name == "Lightning Shield" and soundL) or (set.name == "Water Shield" and soundW) or nil
+		if sound then
+			if type(sound) == "number" then
+				info.soundFileID, info.soundFileName = sound, nil
+			else
+				info.soundFileID, info.soundFileName = nil, sound
+			end
 			for _, spellID in ipairs(set.ids) do
 				if SP.shieldSoundSolo and spellID ~= SP.shieldSoundSolo then
 					engineLog[#engineLog + 1] = spellID .. " solo-off"
@@ -223,11 +282,11 @@ local function Prime()
 	goneL, goneW = false, false
 end
 
-local function Play()
+local function Play(kind)
 	local now = GetTime()
 	if now - lastPlayed < THROTTLE then return end
 	lastPlayed = now
-	SP:PlaySoundWithVolume(SP:GetSoundFile(SP:ShieldDropSoundName()), Volume(), true)
+	SP:PlaySoundWithVolume(SP:GetSoundFile(SP:ShieldSoundName(kind)), Volume(), true)
 	if SP.shieldSoundDebug then SP:Print("shield drop: sound played") end
 end
 
@@ -237,7 +296,9 @@ local function Confirm()
 	local l, w = goneL, goneW
 	goneL, goneW = false, false
 	if not (watching and inWorld and primed and Wanted()) then return end
-	if (l and instL == nil) or (w and instW == nil) then Play() end
+	-- each shield's own setting and sound
+	if l and instL == nil and SP:ShieldSoundOn(1) then Play(1)
+	elseif w and instW == nil and SP:ShieldSoundOn(2) then Play(2) end
 end
 
 -- 1 Lightning, 2 Water, 0 another aura, -1 cannot tell (secret)
@@ -339,7 +400,8 @@ end
 function SP:ShieldSoundReport()
 	local o = self.opt or {}
 	self:Print(("Shield drop sound: on=%s wanted=%s off=%s combat=%s played by=%s"):format(
-		tostring(o.shieldDropSound == true), tostring(Wanted()), tostring(self:IsOff()),
+		tostring(o.shieldDropSound == true) .. " LS=" .. tostring(self:ShieldSoundOn(1)) .. " WS=" .. tostring(self:ShieldSoundOn(2))
+			.. " ES=" .. tostring(self:ShieldSoundOn(3)), tostring(Wanted()), tostring(self:IsOff()),
 		tostring(InCombatLockdown()), ENGINE and "the game" or "ShamanPower"))
 	local sound = self:GetSoundFile(self:ShieldDropSoundName())
 	self:Print(("  sound=%s (%s) name=%s volume=%s"):format(tostring(sound), type(sound),

@@ -38,6 +38,12 @@ local function O() return SP.opt or {} end
 local function sub(t, k) return type(t) == "table" and t[k] or nil end
 local function G(name) return rawget(_G, name) end
 local function on(v) return v == true end
+-- Shield Charges (3.0.8): on for any shield (each shield owns its settings)
+local function anyShield(...)
+	local s = O().shieldChargeDisplay
+	for i = 1, select("#", ...) do if on(sub(s, (select(i, ...)))) then return true end end
+	return false
+end
 -- the Cooldown Bar's per-item settings (ShamanPowerCdItems.lua): one item's value, or on for any item
 local function item(t, name) return SP.CdItemOpt and SP.opt and SP:CdItemOpt(t, name) end
 local function anyItem(name) return SP.CdItemAny and SP.opt and SP:CdItemAny(name) or false end
@@ -78,7 +84,7 @@ SP.SHARE_FEATURES = {
 	{ key = "keybindsFlyoutKeys", label = "Flyouts open from bar keys",         get = function() return on(O().flyoutRouteBarKeys) end },
 	-- Modules
 	{ key = "esTracker",          label = "Earth Shield tracker",               get = function() return on(sub(O().esTracker, "enabled")) end },
-	{ key = "shieldChargesSelf",  label = "Shield charges (own shield)",        get = function() return on(sub(O().shieldChargeDisplay, "showPlayerShield")) end },
+	{ key = "shieldChargesSelf",  label = "Shield charges (own shield)",        get = function() return anyShield("showLS", "showWS") end },   -- (3.0.8: one switch per shield)
 	{ key = "shieldChargesES",    label = "Shield charges (Earth Shield)",      get = function() return on(sub(O().shieldChargeDisplay, "showEarthShield")) end },
 	{ key = "reactive",           label = "Reactive totems",                    get = function() return on(sub(G("ShamanPower_ReactiveTotems"), "enabled")) end },
 	{ key = "readyReminders",     label = "Ready reminders",                    get = function() return on(sub(G("ShamanPower_ReadyReminders"), "enabled")) end },
@@ -125,11 +131,14 @@ SP.SHARE_FEATURES = {
 	end },
 	{ key = "coverageFreeCells",  label = "Coverage: one box per totem",        get = function() return on(sub(O().coverage, "freeCells")) end },
 	-- 3.0.3: Shield Charges looks, the cooldown bar's shield charge bar, the bar Effects
-	{ key = "shieldChargesIcon",  label = "Shield charges: shield icon",        get = function() return on(sub(O().shieldChargeDisplay, "showIcon")) end },
-	{ key = "shieldChargesBar",   label = "Shield charges: charge bar",         get = function() return on(sub(O().shieldChargeDisplay, "showChargeBar")) end },
+	{ key = "shieldChargesIcon",  label = "Shield charges: shield icon",        get = function() return anyShield("showIconLS", "showIconWS", "showIconES") end },
+	{ key = "shieldChargesBar",   label = "Shield charges: charge bar",         get = function() return anyShield("showChargeBarLS", "showChargeBarWS", "showChargeBarES") end },
 	{ key = "shieldChargesCorner", label = "Shield charges: number in the corner", get = function()
 		local s = O().shieldChargeDisplay
-		return on(sub(s, "showIcon")) and sub(s, "numberPosition") == "corner" and sub(s, "showNumber") ~= false
+		for _, sh in ipairs({ "LS", "WS", "ES" }) do   -- (3.0.8: each shield its own)
+			if on(sub(s, "showIcon" .. sh)) and sub(s, "numberPosition" .. sh) == "corner" and sub(s, "showNumber" .. sh) ~= false then return true end
+		end
+		return false
 	end },
 	{ key = "cdbarShieldBar",     label = "Cooldown bar: shield charge bar",    get = function() return on(item(1, "chargeBar")) end },
 	{ key = "cdbarShieldNoCount", label = "Cooldown bar: shield count hidden",  get = function() return item(1, "chargeCount") == false end },

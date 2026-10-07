@@ -666,11 +666,12 @@ function SP:PlayAlertSound(alertType)
 	elseif alertType == "imbue" and sv.weaponImbues and sv.weaponImbues.sound then
 		soundName = sv.weaponImbues.soundName or "Raid Warning"
 		playSound = true
-	elseif alertType == "earthshield" and SP.opt and SP.opt.shieldDropSound == true and SP.ShieldDropSoundName then
-		-- Earth Shield off the player it is on: that same setting and sound. The game's
-		-- own drop sound (WoW: Forever) covers only your own shields, so this one is
-		-- always played here.
-		soundName = SP:ShieldDropSoundName()
+	elseif alertType == "earthshield" and SP.opt and SP.ShieldSoundOn and SP:ShieldSoundOn(3) then
+		-- Earth Shield off the player it is on: Earth Shield's own Sound When It Drops
+		-- (3.0.8: one per shield, the shared one until it is changed). Only here, with
+		-- this alert on, as before. The game's own drop sound (WoW: Forever) covers
+		-- only your own shields, so this one is always played here.
+		soundName = SP:ShieldSoundName(3)
 		playSound = true
 	end
 

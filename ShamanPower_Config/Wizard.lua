@@ -90,8 +90,9 @@ local BIND = {
 			if SP.SetESTrackerEnabled then pcall(SP.SetESTrackerEnabled, SP, v) end; notify() end,
 	},
 	playershield = {
-		get = function() return SP.opt.shieldChargeDisplay and SP.opt.shieldChargeDisplay.showPlayerShield ~= false end,
-		set = function(v) SP.opt.shieldChargeDisplay = SP.opt.shieldChargeDisplay or {}; SP.opt.shieldChargeDisplay.showPlayerShield = v; safecall("UpdateShieldChargeDisplays"); notify()
+		-- (3.0.8: Lightning and Water Shield each have their own switch: this sets both)
+		get = function() local t = SP.opt.shieldChargeDisplay; return t and (t.showLS ~= false or t.showWS ~= false) or false end,
+		set = function(v) SP.opt.shieldChargeDisplay = SP.opt.shieldChargeDisplay or {}; local t = SP.opt.shieldChargeDisplay; t.showLS, t.showWS = v, v; safecall("UpdateShieldChargeDisplays"); notify()
 			if SP.shieldChargesDemoActive then SP:ShieldChargesDemo(true) end; if SP.Wizard._shieldFit then SP.Wizard._shieldFit() end end,
 	},
 	earthshieldcharge = {
@@ -236,7 +237,7 @@ function SP.Wizard.ApplySpecPicks(role)
 	-- Where the spell has no acquisition path, leave both off for every spec.
 	local hasES = not SP.ESTrackerUnavailable
 	SP:EnsureProfileTable("esTracker");           SP.opt.esTracker.enabled = resto and hasES
-	SP:EnsureProfileTable("shieldChargeDisplay"); SP.opt.shieldChargeDisplay.showPlayerShield = true
+	SP:EnsureProfileTable("shieldChargeDisplay"); SP.opt.shieldChargeDisplay.showLS, SP.opt.shieldChargeDisplay.showWS = true, true
 	SP.opt.shieldChargeDisplay.showEarthShield = resto and hasES
 	-- Twisting: on by default for Enhancement only.
 	if SP.opt.enableTotemTwisting ~= enh then
@@ -2048,6 +2049,21 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 	local Widgets = ns.Widgets
 	local function sc() SP:EnsureProfileTable("shieldChargeDisplay"); return SP.opt.shieldChargeDisplay end
 	local function get(k, d) local t = SP.opt.shieldChargeDisplay; local v = t and t[k]; if v == nil then return d end; return v end
+	-- (3.0.8) each shield owns its settings: the tour's rows read Lightning Shield's and set every shield
+	local SH = { "LS", "WS", "ES" }
+	local function sget(name) return SP.ShieldOpt and SP:ShieldOpt("LS", name) end
+	local function sset(name, v) if SP.SetShieldOpt then for _, sh in ipairs(SH) do SP:SetShieldOpt(sh, name, v) end end end
+	local HIDE_SHOW = { up = { false, true }, always = { false, false }, fightsUp = { true, true }, fights = { true, false } }
+	local function hideFlag(i) local h = HIDE_SHOW[sget("show") or "up"] or HIDE_SHOW.up; return h[i] end
+	local function setHide(i, v)
+		if not SP.SetShieldOpt then return end
+		for _, sh in ipairs(SH) do
+			local h = HIDE_SHOW[SP:ShieldOpt(sh, "show")] or HIDE_SHOW.up
+			local hoc, hns = h[1], h[2]
+			if i == 1 then hoc = v and true or false else hns = v and true or false end
+			SP:SetShieldOpt(sh, "show", (hoc and (hns and "fightsUp" or "fights")) or (hns and "up" or "always"))
+		end
+	end
 
 	local resto = state.role == "restoration"
 	if not resto or SP.ESTrackerUnavailable then sc().showEarthShield = false end   -- Enhancement / Elemental cannot cast Earth Shield; Forever has none
@@ -2081,7 +2097,7 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 		local ly = cy - below - 8
 		lblL:ClearAllPoints(); lblL:SetPoint("TOP", inner, "CENTER", -dx, ly)
 		lblR:ClearAllPoints(); lblR:SetPoint("TOP", inner, "CENTER", dx, ly)
-		lblL:SetShown(get("showPlayerShield", true) ~= false); lblR:SetShown(showE)
+		lblL:SetShown(sget("enabled") ~= false or (SP.ShieldOpt and SP:ShieldOpt("WS", "enabled")) or false); lblR:SetShown(showE)
 	end
 	C_Timer.After(0.02, fit)
 	SP.Wizard._shieldFit = fit
@@ -2100,30 +2116,30 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 	local function upd() notify(); if SP.ShieldChargesDemo then SP:ShieldChargesDemo(true) end; fit() end
 	-- the look: same options and rules as Settings > Shield Charges (the number
 	-- can only be off while the icon or the charge bar is on)
-	local function other(k) return get(k, false) and true or false end
+	local function other(k) return sget(k) and true or false end
 	row("Toggle", { label = "Show shield icon", desc = "The shield's icon with the charge count on it. Grayed out while no shield is up.",
-		get = function() return other("showIcon") end,
-		set = function(v) local t = sc(); t.showIcon = v; if not v and not t.showChargeBar then t.showNumber = true end; upd(); Widgets:RefreshAll(card) end })
+		get = function() return other("icon") end,
+		set = function(v) sset("icon", v); upd(); Widgets:RefreshAll(card) end })
 	row("Toggle", { label = "Show number", desc = "The charge count as a number. It can only be off while the icon or the charge bar is on.",
-		disabled = function() return not (other("showIcon") or other("showChargeBar")) end,
-		get = function() return get("showNumber", true) ~= false or not (other("showIcon") or other("showChargeBar")) end,
-		set = function(v) sc().showNumber = v; upd(); Widgets:RefreshAll(card) end })
+		disabled = function() return not (other("icon") or other("bar")) end,
+		get = function() return sget("number") ~= false end,
+		set = function(v) sset("number", v); upd(); Widgets:RefreshAll(card) end })
 	row("Dropdown", { label = "Number position", desc = "Where the number sits on the icon.",
-		disabled = function() return not (other("showIcon") and get("showNumber", true) ~= false) end,
-		get = function() return get("numberPosition", "center") end,
-		set = function(v) sc().numberPosition = v; upd() end,
+		disabled = function() return not (other("icon") and sget("number") ~= false) end,
+		get = function() return sget("numberPosition") or "center" end,
+		set = function(v) sset("numberPosition", v); upd() end,
 		values = function() return { center = "Center", corner = "Bottom-right corner" } end, order = function() return { "center", "corner" } end })
 	row("Toggle", { label = "Show charge bar", desc = "A bar under the display with one segment per charge, filled to the charges left.",
-		get = function() return other("showChargeBar") end,
-		set = function(v) local t = sc(); t.showChargeBar = v; if not v and not t.showIcon then t.showNumber = true end; upd(); Widgets:RefreshAll(card) end })
-	row("Slider", { label = "Size", min = 0.5, max = 3.0, step = 0.1, get = function() return get("scale", 1.0) end,
-		set = function(v) sc().scale = v; upd() end })
-	row("Slider", { label = "Opacity", min = 0.1, max = 1.0, step = 0.1, get = function() return get("opacity", 1.0) end,
-		set = function(v) sc().opacity = v; upd() end })
-	row("Toggle", { label = "Hide out of combat", get = function() return get("hideOutOfCombat", false) end,
-		set = function(v) sc().hideOutOfCombat = v; upd() end })
-	row("Toggle", { label = "Hide when no shield is up", get = function() return get("hideNoShields", false) end,
-		set = function(v) sc().hideNoShields = v; upd() end })
+		get = function() return other("bar") end,
+		set = function(v) sset("bar", v); upd(); Widgets:RefreshAll(card) end })
+	row("Slider", { label = "Size", min = 0.5, max = 3.0, step = 0.1, get = function() return sget("scale") or 1.0 end,
+		set = function(v) sset("scale", v); upd() end })
+	row("Slider", { label = "Opacity", min = 0.1, max = 1.0, step = 0.1, get = function() return sget("opacity") or 1.0 end,
+		set = function(v) sset("opacity", v); upd() end })
+	row("Toggle", { label = "Hide out of combat", get = function() return hideFlag(1) end,
+		set = function(v) setHide(1, v); upd() end })
+	row("Toggle", { label = "Hide when no shield is up", get = function() return hideFlag(2) end,
+		set = function(v) setHide(2, v); upd() end })
 	return y
 end
 
@@ -4320,7 +4336,7 @@ local function PresetSummary(preset)
 		{ "Duration bars", dbp .. ((p.durationTextLocation and p.durationTextLocation ~= "none") and (", time " .. p.durationTextLocation) or "") },
 		{ "Cooldown bar", (p.showCooldownBar == false) and "off" or string.format("%s, size %d%%%s", p.cdbarLayout or p.layout or "Horizontal", pct(p.cooldownBarScale or 0.9), p.hideCooldownBarFrame and ", no frame" or "") },
 		{ "Totem twisting", on(p.enableTotemTwisting) },
-		{ "Shield charges", on(p.shieldChargeDisplay and p.shieldChargeDisplay.showPlayerShield ~= false) },
+		{ "Shield charges", on(p.shieldChargeDisplay and (p.shieldChargeDisplay.showLS ~= false or p.shieldChargeDisplay.showWS ~= false)) },
 		{ "Party Buff Tracker", dots .. (p.partyDotPosition and p.partyDotPosition ~= "corners" and (", dots " .. p.partyDotPosition) or "") },
 		{ "Totem Plates", on(p.totemPlates and p.totemPlates.enabled) },
 		{ "Reactive Totems", on(x.ShamanPower_ReactiveTotems and x.ShamanPower_ReactiveTotems.enabled ~= false) },
