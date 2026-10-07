@@ -1131,7 +1131,8 @@ end
 -- noGray: in a fight on WoW: Forever the game draws whichever shield is up on its
 -- own display; only one of Lightning / Water Shield (the last one you had) keeps
 -- the gray layer under it, so two grays never sit on one spot.
-local function paintDisplay(frame, kind, settings, s, charges, present, restricted, iconWhich, noGray)
+-- sample: the Shield Charges page's own copy (SP:PaintShieldChargeSample), which plays its effects on both clients
+local function paintDisplay(frame, kind, settings, s, charges, present, restricted, iconWhich, noGray, sample)
 	local icon, number, corner, bar, barSide = displayParts(settings)
 	local orbs = orbSig(settings, iconWhich or 1)
 	if frame.layScale ~= s or frame.layIcon ~= icon or frame.layNumber ~= number
@@ -1213,7 +1214,7 @@ local function paintDisplay(frame, kind, settings, s, charges, present, restrict
 		cb:SetValue(v)
 		cb:Show()
 		local anim = cb.spOrbs and animOn(settings, cb.spWhich or 1)
-			and (SP.shieldChargesDemoActive or not (SPCompat and SPCompat.secretsRegime))   -- Forever: the gates draw them
+			and (sample or SP.shieldChargesDemoActive or not (SPCompat and SPCompat.secretsRegime))   -- Forever: the gates draw them
 		stormModels(cb, anim and v or 0, s)
 	end
 end
@@ -1776,6 +1777,49 @@ function SP:ShieldChargesDemo(on)
 	end
 end
 
+-- ============================================================================
+-- The Shield Charges page's WHAT YOU SEE (3.0.8): one shield's display drawn by
+-- the same painter as the real one, with that shield's own settings, on a plain
+-- frame of its own (never the real display, which the live preview may be
+-- borrowing). No spot, no mouse, no game-drawn copy, nothing on the screen.
+-- ============================================================================
+local SAMPLE_KIND = { "player", "player", "earth" }
+local sampleGen = 0   -- bumped when the real bars restyle (a theme, Charge Colors, a shield's change)
+local function SamplesRestyle() sampleGen = sampleGen + 1 end
+SP.ShieldSamplesRestyle = SamplesRestyle
+function SP:ShieldChargeSample(which, parent)
+	self.shieldChargeSamples = self.shieldChargeSamples or {}
+	local f = self.shieldChargeSamples[which]
+	if not f then
+		f = CreateFrame("Frame", nil, parent)
+		f.spWhich, f.spKind = which, SAMPLE_KIND[which]
+		f:SetSize(60, 60)
+		local text = f:CreateFontString(nil, "OVERLAY")
+		SP:SetSPFont(text, "charges", 48, "OUTLINE")
+		text:SetPoint("CENTER", f, "CENTER", 0, 0)
+		f.text = text
+		f:EnableMouse(false)
+		self.shieldChargeSamples[which] = f
+	end
+	if parent and f:GetParent() ~= parent then f:SetParent(parent) end
+	return f
+end
+
+-- a sample with this many charges (0: the shield's no-shield look); a lower count
+-- than last time pops the orb, as on screen
+function SP:PaintShieldChargeSample(f, charges)
+	local v = shieldView(f.spWhich)
+	if f.spSampleGen ~= sampleGen then
+		f.spSampleGen = sampleGen
+		for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end
+	end
+	paintDisplay(f, f.spKind, v, v.scale, charges, charges > 0, false, f.spWhich, nil, true)
+	f:SetAlpha(v.opacity or 1)
+end
+
+-- a full shield's charges (Lightning / Water Shield 3, Earth Shield 6)
+function SP:ShieldChargeMax(which) return MAX_CHARGES[SAMPLE_KIND[which] or "player"] end
+
 if ShamanPower.RegisterPreview then
 	ShamanPower:RegisterPreview("shieldcharges", {
 		frames = {
@@ -1835,6 +1879,7 @@ if SP.OnThemeChanged then
 		for _, f in pairs(SP.shieldChargeFrames) do
 			for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end   -- each shield's own bar
 		end
+		if SP.ShieldSamplesRestyle then SP.ShieldSamplesRestyle() end   -- the Shield Charges page's samples
 		SP._shieldWake = true
 		if SP.shieldChargesDemoActive then SP:ShieldChargesDemoRefresh() end
 		if SPCompat.FOREVER and SP.ThemeRepaintSoon then
@@ -1850,6 +1895,7 @@ function SP:ShieldChargeStyleChanged()
 	for _, f in pairs(SP.shieldChargeFrames) do
 		for w, cb in pairs(f.chargeBars or {}) do styleChargeBar(cb, w) end   -- each shield's own bar
 	end
+	if SP.ShieldSamplesRestyle then SP.ShieldSamplesRestyle() end
 	SP._shieldWake = true
 	if SP.shieldChargesDemoActive and SP.ShieldChargesDemoRefresh then SP:ShieldChargesDemoRefresh() end
 	if SPCompat.FOREVER and SP.ThemeRepaintSoon then
@@ -1891,6 +1937,7 @@ function SP:ShieldChanged(shield, name)
 	end
 	local wf = self.shieldChargeWaterPreview
 	if wf then for w, cb in pairs(wf.chargeBars or {}) do styleChargeBar(cb, w) end end
+	if self.ShieldSamplesRestyle then self.ShieldSamplesRestyle() end
 	SP._shieldWake = true
 	if self.shieldChargesDemoActive then self:ShieldChargesDemoRefresh() end
 	if self.CreateShieldChargeDisplays and self.opt then self:CreateShieldChargeDisplays() end

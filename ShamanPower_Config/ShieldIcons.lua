@@ -6,7 +6,9 @@
 -- settings (Show, Scale and Opacity on the first level; Icon & Number, Charge Bar,
 -- Color, Sound; Copy / Paste / Copy To, Hide, Reset). No drag: each shield has its own
 -- spot on screen, so there is no order. The rest of the page (Lock Position, Move) is
--- ShamanPowerOptions.lua's.
+-- ShamanPowerOptions.lua's. Beside the icons: a line per shield saying how it is set up
+-- (A17c). Under the row, What You See: each shield's real display, drawn by the Shield
+-- Charges module with that shield's own settings; a click plays its charges being used.
 --
 -- The owner's rule: Lightning, Water and Earth Shield are three separate shields. Each
 -- owns every one of its settings; a copy copies values once and never links them. Every
@@ -453,6 +455,42 @@ end
 
 local function Shown(s) return Val(s, "enabled") and true or false end
 
+-- the line beside the icons (A17c): how each shield is set up, in its menu's words
+local function LookName(s)
+	local look = Val(s, "look") or "bar"
+	if look == "bar" then return "Charge Bar" end
+	for _, l in ipairs(LookList(s)) do if l[1] == look then return l[2] end end
+	return "Charge Bar"
+end
+local NAME_COLOR = "|cffE6EAF0"   -- Core's text (the rest is the row's dim text)
+local function Summary()
+	Setup()
+	local lines = {}
+	for _, s in ipairs(List()) do
+		local what
+		if not Shown(s) then
+			what = "hidden"
+		else
+			local icon, bar = Val(s, "icon"), Val(s, "bar")
+			local number = Val(s, "number") ~= false or not (icon or bar)
+			local parts = {}
+			if bar then parts[#parts + 1] = LookName(s) end
+			if icon then
+				parts[#parts + 1] = number and "icon + number" or "icon"
+			elseif number then
+				parts[#parts + 1] = "number"
+			end
+			parts[#parts + 1] = "size " .. Pct(Val(s, "scale") or 1)
+			local op = Val(s, "opacity") or 1
+			if op < 0.995 then parts[#parts + 1] = "opacity " .. Pct(op) end
+			what = table.concat(parts, ", ")
+		end
+		if not Known(SPELLS[s]) then what = what .. "  (not learned yet)" end
+		lines[#lines + 1] = NAME_COLOR .. (NAMES[s] or s) .. ":|r  " .. what
+	end
+	return table.concat(lines, "\n")
+end
+
 local function MenuItems(item)
 	local s = item.key
 	local r = {}
@@ -552,11 +590,204 @@ Row = ns.IconRow.New({
 		SP:SetShieldOpt(item.key, "enabled", not Shown(item.key))
 	end,
 	menu = MenuItems,
+	beside = Summary,
 	locked = function() return InCombatLockdown() end,
 	onLocked = function() Red(LOCKED_TEXT) end,
 })
 ns.CustomRows.shieldIcons = Row
 ns.ShieldRow = Row
+
+-- ---------------------------------------------------------------------------
+-- What You See (A17c): each shield's real display in a box of its own, drawn by the
+-- module (SP:ShieldChargeSample) with that shield's own settings, shrunk to fit only
+-- when it is bigger than its box. It follows every change (the row's Repaint). A click
+-- plays its charges being used one by one, then puts it back to full. Hidden or not
+-- learned yet: shown dim, with a word why.
+-- ---------------------------------------------------------------------------
+local PV_H, PV_GAP, PV_MAXW = 132, 12, 260
+local PV_NAME_H = 24        -- the name under the display
+local PV_PAD = 10           -- the display's margin inside its box
+local PV_STEP = 0.6         -- a charge used every this many seconds while it plays
+local PV_DIM = 0.4          -- hidden / not learned yet
+local PV_CAPTION = "Each shield as it looks on your screen, with its own settings: it changes as you change them."
+	.. " |cff3FA9F5Click|r one to watch it use its charges."
+local WHICH_NUM = { [LS] = 1, [WS] = 2, [ES] = 3 }
+local Preview = { boxes = {} }
+
+local function PvTip(s)
+	if not Known(SPELLS[s]) then
+		return "You haven't learned it yet: this is how it will look once you do."
+	end
+	if not Shown(s) then return "Hidden: a click on its icon above brings it back." end
+	return "How it looks on your screen with its settings now. A click plays its charges being used, then fills it again."
+end
+
+function Preview:Paint()
+	local f = self.frame
+	if not (f and f:IsShown() and SP.ShieldChargeSample and SP.PaintShieldChargeSample) then return end
+	for _, b in ipairs(self.boxes) do
+		local s = b.shield
+		if s and b:IsShown() then
+			local which = WHICH_NUM[s]
+			local sample = SP:ShieldChargeSample(which, b.area)
+			local full = SP.ShieldChargeMax and SP:ShieldChargeMax(which) or 3
+			sample:SetScale(1)
+			SP:PaintShieldChargeSample(sample, b.charges or full)
+			-- shrink to fit the box (never grow): the display's reach at its own size
+			local halfW, above, below = 30, 30, 30
+			if SP.ShieldChargeDisplayExtent then halfW, above, below = SP:ShieldChargeDisplayExtent(sample) end
+			local aw, ah = b.area:GetWidth() - PV_PAD * 2, b.area:GetHeight() - PV_PAD * 2
+			local fit = 1
+			if halfW > 0 and halfW * 2 > aw then fit = math.min(fit, aw / (halfW * 2)) end
+			if above + below > ah then fit = math.min(fit, ah / (above + below)) end
+			sample:SetScale(math.max(0.2, fit))
+			sample:ClearAllPoints()
+			sample:SetPoint("CENTER", b.area, "CENTER", 0, (below - above) / 2)
+			sample:Show()
+			local dim = not (Shown(s) and Known(SPELLS[s]))
+			b.area:SetAlpha(dim and PV_DIM or 1)
+			local note = (not Known(SPELLS[s])) and "not learned yet" or ((not Shown(s)) and "hidden")
+				or (fit < 0.98 and "shown smaller to fit") or nil
+			b.name:SetText(note and ((NAMES[s] or s) .. "  |cff8A94A6(" .. note .. ")|r") or (NAMES[s] or s))
+			local r, g, bl = 0.2, 0.6, 1
+			local own = Val(s, "chargeColor")
+			if type(own) == "table" then
+				r, g, bl = own.r or own[1], own.g or own[2], own.b or own[3]
+			elseif SP.ShieldChargeColorOf then
+				r, g, bl = SP:ShieldChargeColorOf(which)
+			end
+			b.stripe:SetColorTexture(r or 0.2, g or 0.6, bl or 1, 1)
+			Core:AttachTooltip(b, NAMES[s], PvTip(s), "Click: watch it use its charges")
+		end
+	end
+end
+
+-- a click: its charges used one by one, a short wait at none, then full again
+local function PvStop(b)
+	if b.ticker then b.ticker:Cancel() end
+	b.ticker, b.charges = nil, nil
+end
+local function PvPlay(b)
+	local s = b.shield
+	if not s then return end
+	PvStop(b)
+	local full = SP.ShieldChargeMax and SP:ShieldChargeMax(WHICH_NUM[s]) or 3
+	b.charges = full
+	local waited = false
+	b.ticker = C_Timer.NewTicker(PV_STEP, function()
+		if not (Preview.frame and Preview.frame:IsVisible()) then PvStop(b) return end
+		if b.charges > 0 then
+			b.charges = b.charges - 1
+		elseif not waited then
+			waited = true
+			return
+		else
+			PvStop(b)
+		end
+		Preview:Paint()
+	end)
+	Preview:Paint()
+end
+
+local function PvBox(parent)
+	local b = CreateFrame("Button", nil, parent)
+	b:RegisterForClicks("LeftButtonUp")
+	local plate = SP.Brand and SP.Brand.plate or { 5 / 255, 7 / 255, 10 / 255 }   -- the icons' plate (#05070A)
+	b.bg = b:CreateTexture(nil, "BACKGROUND")
+	b.bg:SetAllPoints(b)
+	b.bg:SetColorTexture(plate[1], plate[2], plate[3], 1)
+	b.edge = CreateFrame("Frame", nil, b)
+	b.edge:SetAllPoints(b)
+	Core:MakeBorder(b.edge, "border", 1)
+	b.hover = CreateFrame("Frame", nil, b)
+	b.hover:SetAllPoints(b)
+	b.hover:SetFrameLevel(b:GetFrameLevel() + 4)
+	Core:MakeBorder(b.hover, "accent", 1)
+	b.hover:Hide()
+	-- the shield's own charge color along the top, 2 px
+	b.stripe = b:CreateTexture(nil, "ARTWORK")
+	b.stripe:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -1)
+	b.stripe:SetPoint("TOPRIGHT", b, "TOPRIGHT", -1, -1)
+	b.stripe:SetHeight(2)
+	b.area = CreateFrame("Frame", nil, b)
+	b.area:SetPoint("TOPLEFT", b, "TOPLEFT", 1, -3)
+	b.area:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, PV_NAME_H)
+	if b.area.SetClipsChildren then b.area:SetClipsChildren(true) end
+	b.name = b:CreateFontString(nil, "OVERLAY")
+	b.name:SetFontObject(Core.fonts.row)
+	b.name:SetJustifyH("CENTER")
+	b.name:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 6, 7)
+	b.name:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -6, 7)
+	b:SetScript("OnEnter", function(self) self.hover:Show() end)
+	b:SetScript("OnLeave", function(self) self.hover:Hide() end)
+	b:SetScript("OnClick", PvPlay)
+	return b
+end
+
+function Preview:Render(body, x, y, width, onChanged)
+	local f = self.frame
+	if not f then
+		f = CreateFrame("Frame", nil, body)
+		f.caption = f:CreateFontString(nil, "OVERLAY")
+		f.caption:SetFontObject(Core.fonts.rowDim)
+		f.caption:SetJustifyH("LEFT")
+		f.caption:SetWordWrap(true)
+		f.spNoCull = true
+		self.frame = f
+	end
+	f:SetParent(body)
+	f:ClearAllPoints()
+	f:SetPoint("TOPLEFT", body, "TOPLEFT", x or 0, -(y or 0))
+	f:SetWidth(width)
+	f:Show()
+	Setup()
+	local list = List()
+	local padX = 12 + (ns.Widgets and tonumber(ns.Widgets.CARD_INSET) or 0)   -- in line with the rows (IconRow's PAD_X)
+	local n = #list
+	local bw = math.min(PV_MAXW, math.floor((width - padX * 2 - PV_GAP * (n - 1)) / math.max(1, n)))
+	for i, s in ipairs(list) do
+		local b = self.boxes[i] or PvBox(f)
+		self.boxes[i] = b
+		if b.shield ~= s then PvStop(b) end
+		b.shield = s
+		b:SetSize(bw, PV_H)
+		b:ClearAllPoints()
+		b:SetPoint("TOPLEFT", f, "TOPLEFT", padX + (i - 1) * (bw + PV_GAP), -10)
+		b:Show()
+	end
+	for i = n + 1, #self.boxes do
+		PvStop(self.boxes[i])
+		self.boxes[i].shield = nil
+		self.boxes[i]:Hide()
+	end
+	f.caption:ClearAllPoints()
+	f.caption:SetPoint("TOPLEFT", f, "TOPLEFT", padX, -(10 + PV_H + 10))
+	f.caption:SetWidth(width - padX * 2)
+	f.caption:SetText(PV_CAPTION)
+	local h = 10 + PV_H + 10 + math.ceil(f.caption:GetStringHeight()) + 12
+	f:SetHeight(h)
+	self:Paint()
+	return f, h + 6
+end
+
+function Preview:Release()
+	for _, b in ipairs(self.boxes) do
+		PvStop(b)
+		Core:HideTooltipFor(b)
+		b.hover:Hide()
+	end
+	if self.frame then self.frame:Hide() end
+end
+ns.CustomRows.shieldPreview = Preview
+
+-- the previews follow every change the row makes or hears (a slider, a theme, a profile)
+do
+	local repaint = Row.Repaint
+	function Row:Repaint(...)
+		repaint(self, ...)
+		Preview:Paint()
+	end
+end
 
 -- SP:ShieldChargesOpenMenu(shield, path): the settings window on the Shield Charges page with
 -- that shield's menu open once the row is drawn

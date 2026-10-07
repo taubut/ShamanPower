@@ -12742,6 +12742,9 @@ do
 	end
 	local args = {
 		shieldIcons = { type = "description", width = "full", name = " ", desc = SHIELDS_SEARCH },
+		-- What You See (A17c): each shield's real display (ShieldIcons.lua draws it)
+		shieldPreview = { type = "description", width = "full", name = " ",
+			desc = "What You See: each shield's charges as they look on your screen, with its own settings. Click one to watch it use its charges." },
 		-- a shield whose Show is a fights-only choice: says why it isn't on screen now
 		shieldcharges_fights_note = { type = "description", width = "full",
 			name = function()
@@ -12775,9 +12778,11 @@ do
 	F.shieldcharges_page = { type = "group", name = "Shield Charges", order = 17, args = args }
 	SP.OptionCustomRow = SP.OptionCustomRow or {}
 	SP.OptionCustomRow[args.shieldIcons] = "shieldIcons"
+	SP.OptionCustomRow[args.shieldPreview] = "shieldPreview"
 	SP.OrderSettingsBands(F.shieldcharges_page, {
 		{ keys = { "module_missing_note", "shieldcharges_fights_note" } },
 		{ header = "shields_header", name = "Shields", keys = { "shieldIcons" } },
+		{ header = "preview_header", name = "What You See", keys = { "shieldPreview" } },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked", "shieldcharges_move" } },
 	})
 	-- the old page's rows wrote the shared keys every shield read before the split: gone (each shield's

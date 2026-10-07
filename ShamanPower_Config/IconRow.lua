@@ -25,6 +25,8 @@
 --   menu     = function(item) return { menu item, ... } end,   ns.ContextMenu items
 --   move     = function(item, index) end,             drag: the item to place `index` (optional)
 --   locked   = function() return true end,            (optional) no drag right now (a fight)
+--   beside   = function() return text end,            (optional) a few lines right of the icons (a summary),
+--                                                     drawn again with the icons; under them when there's no room
 -- }
 -- row:Render(body, x, y, width, onChanged) / row:Release()   (ns.CustomRows)
 -- row:Changed(keepMenu)  row:Repaint()  row:OpenMenu(key, path)  row:ShowDrag(key, gap)
@@ -213,7 +215,17 @@ function Proto:PaintButton(b)
 	if self.liftKey == item.key then self:PaintLifted(b) else b:SetAlpha(1) end
 end
 
+local BESIDE_GAP = 14     -- icons to the summary beside them
+local BESIDE_MIN = 180    -- narrower than this: the summary goes under the icons
+
+local function BesideText(def)
+	local t = Call(def.beside)
+	if type(t) ~= "string" then return "" end
+	return t
+end
+
 function Proto:Repaint()
+	if self.frame and self.frame.beside and self.def.beside then self.frame.beside:SetText(BesideText(self.def)) end
 	for _, b in ipairs(self.buttons) do
 		if b:IsShown() then self:PaintButton(b) end
 	end
@@ -511,6 +523,34 @@ function Proto:Render(body, x, y, width, onChanged)
 		b:Hide()
 	end
 	local iconsH = max(1, ceil(#list / perRow)) * PITCH - (PITCH - PLATE)
+	-- the summary beside the icons (def.beside): right of the last one when it fits, else under them
+	if self.def.beside then
+		if not f.beside then
+			f.beside = f:CreateFontString(nil, "OVERLAY")
+			f.beside:SetFontObject(Core.fonts.rowDim)
+			f.beside:SetJustifyH("LEFT")
+			f.beside:SetJustifyV("TOP")
+			f.beside:SetWordWrap(true)
+			f.beside:SetSpacing(3)
+		end
+		local b = f.beside
+		b:SetText(BesideText(self.def))
+		b:ClearAllPoints()
+		local left = padX + min(#list, perRow) * PITCH - (PITCH - PLATE) + BESIDE_GAP
+		if #list <= perRow and width - padX - left >= BESIDE_MIN then
+			b:SetWidth(width - padX - left)
+			local bh = ceil(b:GetStringHeight())
+			b:SetPoint("TOPLEFT", f, "TOPLEFT", left, -(PAD_TOP + max(0, floor((iconsH - bh) / 2))))
+			iconsH = max(iconsH, bh)
+		else
+			b:SetWidth(width - padX * 2)
+			b:SetPoint("TOPLEFT", f, "TOPLEFT", padX, -(PAD_TOP + iconsH + CAPTION_GAP))
+			iconsH = iconsH + CAPTION_GAP + ceil(b:GetStringHeight())
+		end
+		b:Show()
+	elseif f.beside then
+		f.beside:Hide()
+	end
 	f.caption:ClearAllPoints()
 	f.caption:SetPoint("TOPLEFT", f, "TOPLEFT", padX, -(PAD_TOP + iconsH + CAPTION_GAP))
 	f.caption:SetWidth(width - padX * 2)
