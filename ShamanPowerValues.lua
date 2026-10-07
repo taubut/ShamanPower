@@ -348,6 +348,13 @@ SHAMANPOWER_DEFAULT_VALUES = {
             rumble = false,
             binds = { layer = "PADLSHOULDER", earth = "PADDUP", fire = "PADDRIGHT", water = "PADDDOWN", air = "PADDLEFT",
                 dropall = "PAD1", picker = "PADRSHOULDER" },
+            -- Show My Cooldowns (ShamanPowerControllerCooldowns.lua): "off" / "bar" (on the controller bar) /
+            -- "separate" (a frame of its own: cdLayout "cross" / "row", cdScale = Size (1 = 100%), cdPosition = its
+            -- spot, nil = its default spot); hideCooldownBar: the cooldown bar hides while they show
+            cooldowns = "off",
+            cdLayout = "cross",
+            cdScale = 1,
+            hideCooldownBar = true,
         },
         -- Totem Range Tracker (SPRange)
         rangeTracker = {

@@ -1827,6 +1827,7 @@ Cards.ADDED = {
 	-- the controller bar's looks (3.0.8, WoW: Forever only: ShamanPowerController.lua registers them)
 	["e.ctrl.bar.layout"] = function() return "dpad" end,
 	["e.ctrl.bar.glyphs"] = function() return true end,
+	["e.ctrl.bar.cdLayout"] = function() return "cross" end,   -- (Show My Cooldowns > Separate's Cooldown Layout)
 }
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"

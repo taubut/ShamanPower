@@ -12734,7 +12734,9 @@ function ShamanPower:UpdateCooldownBar()
 			-- Unlocked: set up independent positioning
 			self:UpdateCooldownBarPosition()
 		end
-		self.cooldownBar:Show()
+		-- your cooldowns show in the controller look (WoW: Forever, Hide The Cooldown Bar While This Shows):
+		-- the bar hides, and its pass keeps running for its keys and the controller slots that press them
+		self.cooldownBar:SetShown(not (self.ControllerHidesCooldownBar and self:ControllerHidesCooldownBar()))
 		self:EnableUpdateSubsystem("cooldownBar")
 		self:WakeCooldownBar()
 
@@ -12869,7 +12871,8 @@ function ShamanPower:UpdateCooldownBarPosition(forceReposition)
 		self.cooldownBar:RegisterForDrag("LeftButton")
 		-- shown only when UpdateCooldownBar would show it (switched on, something on
 		-- it): a Reset or a reposition never brings up an empty or disabled bar
-		if self.opt.showCooldownBar and not self:IsOff() and #self.cooldownButtons > 0 then self.cooldownBar:Show() end
+		if self.opt.showCooldownBar and not self:IsOff() and #self.cooldownButtons > 0
+			and not (self.ControllerHidesCooldownBar and self:ControllerHidesCooldownBar()) then self.cooldownBar:Show() end
 	end
 
 	self:UpdateCooldownBarScale()

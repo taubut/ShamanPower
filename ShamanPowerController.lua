@@ -42,6 +42,10 @@ if SP.ThemeSpotSettings then
 		{ key = "glyphs", label = "Controller Pad Button Pictures",
 			get = function() local o = O(); return not (o and o.glyphs == false) end,
 			set = function(v) local o = O(); if o and type(v) == "boolean" then o.glyphs = v; changed() end end },
+		-- Show My Cooldowns > Separate: its Cooldown Layout (ShamanPowerControllerCooldowns.lua)
+		{ key = "cdLayout", label = "Controller Cooldown Layout",
+			get = function() local o = O(); return (o and o.cdLayout == "row") and "row" or "cross" end,
+			set = function(v) local o = O(); if o and (v == "cross" or v == "row") then o.cdLayout = v; changed() end end },
 	})
 end
 
@@ -70,6 +74,7 @@ local SLOT_NAME = { earth = "ShamanPowerControllerEarth", fire = "ShamanPowerCon
 -- layout, in UI units before Size: a 40-unit slot, 46 between slot centers
 local SLOT, STEP, ARC_N, ARC_W = 40, 46, 36, 3
 local SQUARE_BAR_H = 4
+C.SLOT, C.STEP = SLOT, STEP   -- (your cooldowns in the controller look use the same sizes)
 local POS = {
 	dpad = { earth = { 0, 1 }, fire = { 1, 0 }, water = { 0, -1 }, air = { -1, 0 }, dropall = { 0, 0 } },
 	row  = { earth = { -2, 0 }, fire = { -1, 0 }, water = { 0, 0 }, air = { 1, 0 }, dropall = { 2, 0 } },
@@ -416,14 +421,19 @@ local POST = [[
 	local t = self:GetFrameRef("spTarget")
 	if t and message == "restore" then t:SetAttribute("useOnKeyDown", self:GetAttribute("sp-prevkd")) end
 ]]
-local function WireSlot(s)
-	local real = C:TargetButton(s.key)
+-- s: a secure "click" slot; real: the button it presses (out of combat only). Your cooldowns'
+-- slots (ShamanPowerControllerCooldowns.lua) are wired the same way.
+function C:WireClick(s, real)
+	if InCombatLockdown() then return end
 	s:SetAttribute("clickbutton", real)
 	if real and SecureHandlerSetFrameRef then SecureHandlerSetFrameRef(s, "spTarget", real) end
 	if not s.spWrapped and header and SecureHandlerWrapScript and SPCompat.SecureSnippetsWork and SPCompat.SecureSnippetsWork() then
 		local ok = pcall(SecureHandlerWrapScript, s, "OnClick", header, PRE, POST)
 		s.spWrapped = ok and true or nil
 	end
+end
+local function WireSlot(s)
+	C:WireClick(s, (C:TargetButton(s.key)))
 end
 
 local function Build()
@@ -542,12 +552,15 @@ local function Place()
 	local cols, rows = 3, 3
 	if lk ~= "dpad" then cols, rows = 5, 1 end
 	local extraH = (lk == "square") and (SQUARE_BAR_H + 2) or 0
-	bar:SetSize((cols - 1) * STEP + SLOT + 8, (rows - 1) * STEP + SLOT + 8 + extraH)
+	-- room for your cooldowns above / under the totems (Show My Cooldowns > On The Controller Bar)
+	local top, bottom = 0, 0
+	if C.CdExtent then top, bottom = C:CdExtent(lk) end
+	bar:SetSize((cols - 1) * STEP + SLOT + 8, (rows - 1) * STEP + SLOT + 8 + extraH + top + bottom)
 	for _, key in ipairs(C.KEYS) do
 		local s = C.slot[key]
 		local p = pos[key]
 		s:ClearAllPoints()
-		s:SetPoint("CENTER", bar, "CENTER", p[1] * STEP, p[2] * STEP + extraH / 2)
+		s:SetPoint("CENTER", bar, "CENTER", p[1] * STEP, p[2] * STEP + extraH / 2 + (bottom - top) / 2)
 	end
 	local scale = tonumber(o and o.scale) or 1.35
 	if scale < 0.5 then scale = 0.5 elseif scale > 2.5 then scale = 2.5 end
@@ -846,6 +859,35 @@ do
 			controller_rumble = { type = "toggle", width = "full", name = "Rumble When A Totem Is About To Expire",
 				desc = "Your controller rumbles once when a totem has a few seconds left (the same seconds as Totem Bar > Effects > Expiring Soon).",
 				get = get("rumble", false), set = set("rumble") },
+			-- your cooldowns in the controller look (ShamanPowerControllerCooldowns.lua)
+			controller_cooldowns = { type = "select", width = 1.0, name = "Show My Cooldowns",
+				desc = "Shows the items on your Cooldown Bar (shield, imbue and cooldowns, in the Cooldown Bar's order) in the controller look."
+					.. " On The Controller Bar: Controller Layout puts your first four in the cross's corners and the rest in a small row under it;"
+					.. " Round Slots In A Row and Square put them all in a smaller row above your totems. Separate: in a frame of their own."
+					.. " Clicking one presses the same button on your cooldown bar. It shows, hides, moves and changes size out of a fight only.",
+				values = { off = "Off", bar = "On The Controller Bar", separate = "Separate" }, sorting = { "off", "bar", "separate" },
+				get = function() local o = O(); local v = o and o.cooldowns; return (v == "bar" or v == "separate") and v or "off" end,
+				set = function(_, v) local o = O(); if not o then return end; o.cooldowns = v; if C.CdChanged then C:CdChanged() end end },
+			controller_cd_layout = { type = "select", width = 1.0, name = "Cooldown Layout",
+				desc = "Cross: four of your cooldowns around a fifth in the middle, the rest in a small row under them. Row: all of them side by side.",
+				values = { cross = "Cross", row = "Row" }, sorting = { "cross", "row" },
+				hidden = function() local o = O(); return not (o and o.cooldowns == "separate") end,
+				get = function() local o = O(); return (o and o.cdLayout == "row") and "row" or "cross" end,
+				set = function(_, v) local o = O(); if not o then return end; o.cdLayout = v; if C.CdChanged then C:CdChanged() end end },
+			controller_cd_scale = { type = "range", width = 1.0, name = "Size Of My Cooldowns", isPercent = true, min = 0.5, max = 2.5, step = 0.05,
+				desc = "How big your cooldowns are in their own frame. The controller bar and your cooldown bar keep their own sizes.",
+				hidden = function() local o = O(); return not (o and o.cooldowns == "separate") end,
+				get = get("cdScale", 1), set = function(_, v) local o = O(); if not o then return end; o.cdScale = v; if C.CdChanged then C:CdChanged() end end },
+			controller_cd_hide_bar = { type = "toggle", width = "full", name = "Hide The Cooldown Bar While This Shows",
+				desc = "While your cooldowns show in the controller look, your normal cooldown bar hides: they are the same buttons. Your cooldown keys and these slots keep working while it is hidden. It hides and comes back out of a fight only.",
+				hidden = function() local o = O(); local v = o and o.cooldowns; return not (v == "bar" or v == "separate") end,
+				get = function() local o = O(); return not (o and o.hideCooldownBar == false) end,
+				set = function(_, v) local o = O(); if not o then return end; o.hideCooldownBar = v and true or false; if C.CdChanged then C:CdChanged() end end },
+			controller_cd_move = { type = "execute", width = "full", name = "Move My Cooldowns",
+				desc = "Unlocks only your cooldowns' own frame: drag its box where you want it, then press Done. It can't be done in a fight. Turn on the Controller switch first.",
+				hidden = function() local o = O(); return not (o and o.cooldowns == "separate") end,
+				disabled = function() local o = O(); return not (o and o.enabled) end,
+				func = function() SP:UnlockModuleFrames("controllerCooldowns") end },
 			controller_move = { type = "execute", width = "full", name = "Move the Controller Bar",
 				desc = "Unlocks only the controller bar: drag its box where you want it, then press Done. It can't be done in a fight. Turn on the Controller switch first.",
 				disabled = function() local o = O(); return not (o and o.enabled) end,
@@ -862,7 +904,8 @@ do
 		SP.OrderSettingsBands(F.controller_page, {
 			{ keys = { "controller_intro", "controller_move" } },
 			{ header = "controller_look_header", name = "Look", keys = { "controller_look", "controller_layout",
-				"controller_scale", "controller_glyphs", "controller_hide_bar", "controller_rumble" } },
+				"controller_scale", "controller_glyphs", "controller_hide_bar", "controller_rumble",
+				"controller_cooldowns", "controller_cd_layout", "controller_cd_scale", "controller_cd_hide_bar", "controller_cd_move" } },
 			{ header = "controller_buttons_header", name = "Controller Buttons", keys = { "controller_buttons" } },
 		})
 		C.pageArgs = args
