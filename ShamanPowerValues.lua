@@ -320,6 +320,21 @@ SHAMANPOWER_DEFAULT_VALUES = {
             hideCharges = false,
             position = { point = "CENTER", x = 200, y = 0 },
         },
+        -- Controller mode (3.0.8, WoW: Forever only: ShamanPowerController.lua and the pad layer /
+        -- totem picker files). Off to start; on = the Controller switch beside Bars > Controller.
+        -- look: "auto" (while Blizzard's Gamepad UI is on) / "always"; layout: "dpad" / "row" / "square";
+        -- scale: Size (1.35 = 135%); position: its own spot (nil = its default spot);
+        -- binds: the pad buttons of the held layer (the pad layer owns them)
+        controller = {
+            enabled = false,
+            look = "auto",
+            layout = "dpad",
+            scale = 1.35,
+            glyphs = true,
+            rumble = false,
+            binds = { layer = "PADLSHOULDER", earth = "PADDUP", fire = "PADDRIGHT", water = "PADDDOWN", air = "PADDLEFT",
+                dropall = "PAD1", picker = "PADRSHOULDER" },
+        },
         -- Totem Range Tracker (SPRange)
         rangeTracker = {
             opacity = 1.0,

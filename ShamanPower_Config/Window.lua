@@ -187,6 +187,16 @@ local POWER_CDBAR = {
 	end,
 }
 
+-- Controller mode's on / off (3.0.8, WoW: Forever only: ShamanPowerController.lua). On, the
+-- controller bar shows as its Controller Look says (Automatic: while Blizzard's Gamepad UI is on)
+local POWER_CONTROLLER = {
+	label  = "Controller",
+	desc   = "Turn the controller bar on or off.",
+	loaded = function() local sp = SP() return sp and sp.Controller ~= nil and sp.Controller.SetEnabled ~= nil or false end,
+	get    = function() local o = SP().opt local c = o and o.controller return c and c.enabled and true or false end,
+	set    = function(v) local sp = SP() if sp.Controller then sp.Controller:SetEnabled(v) end end,
+}
+
 local POWER_SHIELDCHARGES = {
 	label  = "Shield Charge Display",
 	desc   = "Turn the on-screen shield charge numbers on or off.",
@@ -282,6 +292,10 @@ local NAV = {
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
 		}},
+		-- WoW: Forever only (the page exists only there): the controller bar (ShamanPowerController.lua)
+		{ label = "Controller", shamanOnly = true, lock = true, power = POWER_CONTROLLER,
+			desc = "Your totem bar shaped like your controller, for Blizzard's controller mode.",
+			path = P("fluffy", "controller_page") },
 	}},
 	{ group = "Group Tools", power = true, entries = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section") },

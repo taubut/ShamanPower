@@ -616,6 +616,7 @@ local FX = {
 	partystrip     = { page = { "fluffy", "partystrip_section" },     opacity = { node = "partystrip_opacity" },
 		size = { node = "partystrip_size", byFrame = function(fr) if SP.PartyStripBoxAccess then return SP:PartyStripBoxAccess(fr) end end } },
 	loadoutbar     = { page = { "fluffy", "loadoutbar_section" },     size = { node = "loadoutbar_scale" },    opacity = { node = "loadoutbar_opacity" } },
+	controller     = { page = { "fluffy", "controller_page" },        size = { node = "controller_scale" } },   -- (WoW: Forever only)
 	sprange        = { page = { "fluffy", "sprange_section" },        size = { node = "sprange_icon_size" },   opacity = { node = "sprange_opacity" } },
 	raidcd         = { page = { "fluffy", "raid_cd_section" },        size = { node = "raidCDButtonScale" },   opacity = { node = "raidCDButtonOpacity" } },
 	estracker      = { page = { "fluffy", "estrack_section" },        size = { node = "estrack_icon_size" },   opacity = { node = "estrack_opacity" } },

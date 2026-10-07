@@ -1815,6 +1815,9 @@ Cards.ADDED = {
 	["e.mod.targettracker.sweepDirection.frs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.ss"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.castLook.ns"] = function() return "gold" end,   -- (Next Shock's look, D49)
+	-- the controller bar's looks (3.0.8, WoW: Forever only: ShamanPowerController.lua registers them)
+	["e.ctrl.bar.layout"] = function() return "dpad" end,
+	["e.ctrl.bar.glyphs"] = function() return true end,
 }
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"
