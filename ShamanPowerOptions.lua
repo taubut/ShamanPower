@@ -12635,8 +12635,8 @@ do
 		-- at the top, where it is seen: a button into Unlock UI (Done there ends it), as the other pages'
 		-- Move buttons; the old "Unlock Bar (move)" switch stays in the old tab's table, unused here
 		cdbar_move = { type = "execute", width = "full", name = "Move the Cooldown Bar",
-			desc = "Opens Unlock UI: drag the Cooldown Bar's box where you want it, then press Done. It can't be done in a fight.",
-			func = function() SP:SetMasterUnlock(true) end },
+			desc = "Unlocks only the Cooldown Bar: drag its box where you want it, then press Done. It can't be done in a fight.",
+			func = function() SP:UnlockModuleFrames("cooldownbar") end },
 	}
 	local function take(src, keys) for _, k in ipairs(keys) do if src[k] then args[k] = src[k] end end end
 	take(app, { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",

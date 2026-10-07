@@ -2356,16 +2356,20 @@ function SP:SetMasterUnlock(on, only)
 	if ShamanPowerAssign and ShamanPowerAssign.Hide then pcall(ShamanPowerAssign.Hide, ShamanPowerAssign) end
 
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
-	if only then isShaman = false end   -- one module only: the bars stay locked
+	-- one module only: the bars stay locked, unless that one IS a bar (its page's Move button)
+	local barOnly = only == "totembar" or only == "cooldownbar"
+	local tbOk = isShaman and (not only or only == "totembar")
+	local cdOk = isShaman and (not only or only == "cooldownbar")
+	if only then isShaman = false end
 	-- (Totem Rows with Show the Bar off: no bar on screen, so no box for it)
-	if isShaman and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked
+	if tbOk and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked
 		and not (self.RowsHideBar and self:RowsHideBar()) then
 		self:SetTotemBarUnlocked(true)
 		shown.totembar = { bar = true, reset = ResetTotemBar }
 		AddReset("totembar", ResetTotemBar, "the totem bar")
 		ArmMover("totembar")
 	end
-	if isShaman and self.cooldownBar and self.opt.showCooldownBar and self.SetCooldownBarUnlocked then
+	if cdOk and self.cooldownBar and self.opt.showCooldownBar and self.SetCooldownBarUnlocked then
 		self:SetCooldownBarUnlocked(true)
 		shown.cooldownbar = { bar = true, reset = ResetCooldownBar }
 		AddReset("cooldownbar", ResetCooldownBar, "the cooldown bar")
@@ -2374,7 +2378,7 @@ function SP:SetMasterUnlock(on, only)
 
 	for _, m in ipairs(MODULES) do
 		local def = self.PreviewRegistry and self.PreviewRegistry[m.key]   -- nil when the module is not loaded
-		local wanted = def ~= nil and (only == nil or only == m.key)
+		local wanted = def ~= nil and (only == nil or only == m.key) and not barOnly
 		if wanted and m.enabled then
 			local ok, res = pcall(m.enabled)
 			wanted = ok and res and true or false
