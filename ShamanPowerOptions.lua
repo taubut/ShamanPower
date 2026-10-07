@@ -12597,3 +12597,88 @@ function ShamanPower:ShieldChargeBarAlone()
 	if s and s.showChargeBar and not s.showIcon and s.showNumber == false then return true end
 	return false
 end
+
+-- Cooldown Bar (A13, 3.0.8): one page, no tabs. The Items row (ShamanPower_Config
+-- CdbarIcons.lua: click an item to show or hide it, right-click it for its settings, drag
+-- it to move it), then only what is about the whole bar: Bar (Appearance > Cooldown
+-- Bar's rows), Progress Bars and Time, Effects (the look; which effect each item plays is
+-- in its menu) and Position. The same option objects as before (moved, not copied); the
+-- old groups stay as their holders (the item menus and General > Themes read them there)
+-- and their old addresses land on this page. On / off: the switch beside Cooldown Bar in
+-- the sidebar (Window.lua POWER_CDBAR). The Cooldown Bar Flyouts rows (Appearance >
+-- Flyouts) move into the shield's and the imbue's menu > Flyout.
+do
+	local SP = ShamanPower
+	local F = SP.options.args.fluffy.args
+	local items, disp, fx, app = F.cdbar_items_section.args, F.cooldown_display_section.args,
+		F.cdbar_effects_section.args, F.cooldownbar_appearance.args
+	SP.MoveSettingsOptions({ "fluffy", "flyout_appearance" }, { "fluffy", "cdbar_items_section" },
+		{ "cdbar_flyout_direction", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity" })
+	local args = {
+		cdbarIcons = { type = "description", width = "full", name = " " },
+		cdbar_fx_note = { type = "description", width = "full",
+			name = "Which effect each item plays, and when: right-click the item, then Effects." },
+	}
+	local function take(src, keys) for _, k in ipairs(keys) do if src[k] then args[k] = src[k] end end end
+	take(app, { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
+		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" })
+	take(disp, { "cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
+		"cdbar_duration_text_size", "cdbar_numbers_note", "cdbar_numbers_button" })
+	take(fx, { "cdbarCueLook", "cdbarCueSignature", "cdbar_test" })
+	take(items, { "unlock_cd_bar" })
+	-- two to a line where they pair up
+	for _, k in ipairs({ "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
+		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square",
+		"cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
+		"cdbar_duration_text_size", "cdbarCueLook", "cdbarCueSignature" }) do
+		if args[k] then args[k].width = 1.0 end
+	end
+	if args.cdbarCueSignature then
+		args.cdbarCueSignature.desc = "Sets each effect's style to the look's own move (Elemental: Shine, Element flare, Shield"
+			.. " burst, and Frame drains for Running Out and Cooldown Almost Ready. Signal: Dot, Corner flag, Border blink +"
+			.. " flag, and Bar under it for Running Out and Cooldown Almost Ready). Turning it off puts your own styles back."
+			.. " Needs an Effects Look other than Standard."
+	end
+	if args.cdbar_test then
+		args.cdbar_test.desc = "The first cooldown plays Cooldown Ready, the imbue Weapon Imbue Gone and the shield Shield Gone,"
+			.. " in the styles each item has (right-click an item, then Effects). Running Out and Cooldown Almost Ready play"
+			.. " for 3 seconds, then Turns Red While Missing for 3 more when it is on."
+	end
+	-- the bar-wide rows ask the items now: any item with a progress bar, any with its time on the icon
+	local function anyItem(name, shared)
+		if SP.CdItemAny then return SP:CdItemAny(name) end
+		return shared()
+	end
+	local function anyBar() return anyItem("progressBar", function() return SP.opt.cdbarShowProgressBars ~= false end) end
+	local function anyTime() return anyItem("timeOnIcon", function() return SP.opt.cdbarShowCDText ~= false end) end
+	local function noBars() return not anyBar() end
+	if args.cdbar_progress_position then args.cdbar_progress_position.disabled = noBars end
+	if args.cdbar_progress_height then args.cdbar_progress_height.disabled = noBars end
+	if args.cdbar_gradient_direction then
+		args.cdbar_gradient_direction.hidden = function() return SP.opt.barGradient == nil or noBars() end
+	end
+	local function numbersHidden()
+		return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and not SP:CountdownNumbersEnabled()
+			and (anyTime() or (SP.opt.cdbarDurationTextLocation or "none") ~= "none"))
+	end
+	if args.cdbar_numbers_note then args.cdbar_numbers_note.hidden = numbersHidden end
+	if args.cdbar_numbers_button then args.cdbar_numbers_button.hidden = numbersHidden end
+	F.cdbar_page = { type = "group", name = "Cooldown Bar", order = 12, args = args }
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[args.cdbarIcons] = "cdbarIcons"
+	SP.OrderSettingsBands(F.cdbar_page, {
+		{ header = "items_header", name = "Items", keys = { "cdbarIcons" } },
+		{ header = "bar_header", name = "Bar", keys = { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity",
+			"cooldownBarPadding", "hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" } },
+		{ header = "progress_header", name = "Progress Bars and Time", keys = { "cdbar_progress_position", "cdbar_progress_height",
+			"cdbar_gradient_direction", "cdbar_duration_text", "cdbar_duration_text_size", "cdbar_numbers_note", "cdbar_numbers_button" },
+			names = { cdbar_duration_text = "Where the Time Shows", cdbar_duration_text_size = "Time Text Size" } },
+		{ header = "effects_header", name = "Effects", keys = { "cdbar_fx_note", "cdbarCueLook", "cdbarCueSignature", "cdbar_test" } },
+		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" } },
+	})
+	-- the old tabs' addresses (settings links, patch notes, search paths kept in old notes) open this page
+	for _, old in ipairs({ "cdbar_items_section", "cdbar_order_section", "cooldown_display_section", "cdbar_effects_section",
+		"cooldownbar_appearance" }) do
+		SP.SettingsPathAliases["fluffy/" .. old] = { "fluffy", "cdbar_page" }
+	end
+end
