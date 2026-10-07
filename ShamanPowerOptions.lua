@@ -12632,6 +12632,11 @@ do
 		cdbarIcons = { type = "description", width = "full", name = " ", desc = CDBAR_ICONS_SEARCH },
 		cdbar_fx_note = { type = "description", width = "full",
 			name = "Which effect each item plays, and when: right-click the item, then Effects." },
+		-- at the top, where it is seen: a button into Unlock UI (Done there ends it), as the other pages'
+		-- Move buttons; the old "Unlock Bar (move)" switch stays in the old tab's table, unused here
+		cdbar_move = { type = "execute", width = "full", name = "Move the Cooldown Bar",
+			desc = "Opens Unlock UI: drag the Cooldown Bar's box where you want it, then press Done. It can't be done in a fight.",
+			func = function() SP:SetMasterUnlock(true) end },
 	}
 	local function take(src, keys) for _, k in ipairs(keys) do if src[k] then args[k] = src[k] end end end
 	take(app, { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
@@ -12639,7 +12644,6 @@ do
 	take(disp, { "cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
 		"cdbar_duration_text_size", "cdbar_numbers_note", "cdbar_numbers_button" })
 	take(fx, { "cdbarCueLook", "cdbarCueSignature", "cdbar_test" })
-	take(items, { "unlock_cd_bar" })
 	-- two to a line where they pair up
 	for _, k in ipairs({ "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
 		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square",
@@ -12681,6 +12685,7 @@ do
 	SP.OptionCustomRow = SP.OptionCustomRow or {}
 	SP.OptionCustomRow[args.cdbarIcons] = "cdbarIcons"
 	SP.OrderSettingsBands(F.cdbar_page, {
+		{ keys = { "cdbar_move" } },
 		{ header = "items_header", name = "Items", keys = { "cdbarIcons" } },
 		{ header = "bar_header", name = "Bar", keys = { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity",
 			"cooldownBarPadding", "hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" } },
@@ -12688,7 +12693,6 @@ do
 			"cdbar_gradient_direction", "cdbar_duration_text", "cdbar_duration_text_size", "cdbar_numbers_note", "cdbar_numbers_button" },
 			names = { cdbar_duration_text = "Where the Time Shows", cdbar_duration_text_size = "Time Text Size" } },
 		{ header = "effects_header", name = "Effects", keys = { "cdbar_fx_note", "cdbarCueLook", "cdbarCueSignature", "cdbar_test" } },
-		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" } },
 	})
 	-- the old tabs' addresses (settings links, patch notes, search paths kept in old notes) open this page
 	for _, old in ipairs({ "cdbar_items_section", "cdbar_order_section", "cooldown_display_section", "cdbar_effects_section",
