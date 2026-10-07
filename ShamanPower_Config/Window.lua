@@ -301,8 +301,11 @@ local NAV = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section") },
 		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = POWER_RESIST },   -- WoW: Forever only (the group exists only there)
 		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
-		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF, tabs = {
+		-- (A18) the icon rows' own parts reset too: the tracked totems, Coverage's watched totems and sizes
+		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE,
+			onReset = function() local sp = SP() if sp and sp.RangeTrackerResetPage then sp:RangeTrackerResetPage() end end },
+		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF,
+			onReset = function() local sp = SP() if sp and sp.CoverageResetPage then sp:CoverageResetPage() end end, tabs = {
 			{ label = "Dots & Counters", paths = { P("fluffy", "partybuff_section") } },
 			{ label = "Coverage", preview = "coverage", paths = { P("fluffy", "coverage_section") } },
 			{ label = "Party Strip", preview = "partystrip", paths = { P("fluffy", "partystrip_section") } },
@@ -325,7 +328,9 @@ local NAV = {
 	}},
 	{ group = "Other", power = true, entries = {
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
-		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
+		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.",
+			-- (A18) each popped-out tracker's own Scale, Opacity, Hide Background and Flyout Direction
+			onReset = function() local sp = SP() if sp and sp.PopOutResetPage then sp:PopOutResetPage() end end, tabs = {
 			{ label = "Pop-Out Trackers", paths = {
 				{ "settings", "settings_popout", label = "Middle-Click Pop-Out" },
 				{ "fluffy",   "popout_section",  label = "Popped-Out Trackers" },

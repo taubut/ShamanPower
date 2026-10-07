@@ -9738,36 +9738,19 @@ do
 			if SP.UpdateSPRangeVisibility then SP:UpdateSPRangeVisibility() end
 		end,
 	}
-	range.tracked_header = { order = 6, type = "header", name = "Totems to Track" }
-	-- The settings renderer supports individual toggles, not Ace multiselects.
-	-- Resolve labels and availability from the module's filtered source table.
-	local trackableIds = {
-		"soe", "stoneskin", "tow", "flametongue", "frostresist",
-		"manaspring", "healingstream", "fireresist", "manatide",
-		"windfury", "graceofair", "wrathofair", "tranquilair", "natureresist", "windwall",
+	-- Totems to Track (A18, 3.0.8): one row of totems (ShamanPower_Config TrackerIcons.lua draws it),
+	-- clicks only: a click tracks a totem or stops tracking it (ShamanPower_RangeTracker.tracked,
+	-- as the old switches wrote it). The text below is what "Search all settings" finds in it.
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	range.rangeIcons = {
+		order = 6, type = "description", width = "full", name = " ",
+		desc = "Totems to Track: Strength of Earth, Stoneskin, Totem of Wrath, Flametongue Totem, Frost Resistance,"
+			.. " Mana Spring, Healing Stream, Fire Resistance, Mana Tide Totem, Windfury Totem, Grace of Air, Wrath of Air,"
+			.. " Tranquil Air, Nature Resistance, Windwall. Click a totem to track it or stop tracking it: it comes onto the"
+			.. " overlay, or leaves it.",
+		hidden = function() return not SP.SPRangeLoaded end,
 	}
-	for position, id in ipairs(trackableIds) do
-		range["tracked_" .. id] = {
-			order = 6 + position / 100, type = "toggle", width = 1.5,
-			name = function()
-				local totem = SP.TrackableTotemsByID and SP.TrackableTotemsByID[id]
-				return totem and totem.name or id
-			end,
-			hidden = function() return not (SP.TrackableTotemsByID and SP.TrackableTotemsByID[id]) end,
-			disabled = function() return not SP.SPRangeLoaded end,
-			get = function()
-				return ShamanPower_RangeTracker and ShamanPower_RangeTracker.tracked
-					and ShamanPower_RangeTracker.tracked[id] or false
-			end,
-			set = function(_, value)
-				if not SP.SPRangeLoaded then return end
-				SP:InitSPRange()
-				ShamanPower_RangeTracker.tracked[id] = value
-				SP:UpdateSPRangeConfigButtons()
-				SP:UpdateSPRangeFrame()
-			end,
-		}
-	end
+	SP.OptionCustomRow[range.rangeIcons] = "rangeIcons"
 	pages.partybuff_section.args.open_coverage = {
 		order = 0.5, type = "execute", name = "Open Totem Coverage Settings", width = "full",
 		hidden = function() return not (SP.CoverageAvailable and SP:CoverageAvailable()) end,
@@ -9797,7 +9780,7 @@ do
 	}
 
 	-- Assignment selectors are UI state only. No new SavedVariables or protocol.
-	local selectedShaman, selectedGroup = "", 1
+	local selectedShaman = ""
 	local function RaidDB()
 		if not SP.RaidCooldownsLoaded or not SP.InitRaidCooldowns then return nil end
 		SP:InitRaidCooldowns()
@@ -9819,27 +9802,24 @@ do
 	end
 	local function HasBloodlust() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
 	local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+	-- TBC Anniversary (A18, 3.0.8): Bloodlust / Heroism, Mana Tide Totem and Drums of Battle are one
+	-- row of icons (ShamanPower_Config TrackerIcons.lua); who casts each one and who may call for it
+	-- are in its menu (the same saved assignments, sent to the raid the same way). WoW: Forever has
+	-- only Mana Tide: its two rows below stay as they were.
+	local function RaidIcons() return HasBloodlust() or HasDrums() end
 	local raid = pages.raid_cd_section.args
 	raid.open_window = OpenButton("Raid Cooldown Assignments", "ToggleRaidCooldownPanel", "RaidCooldownsLoaded")
 	raid.assignment_header = { order = 7, type = "header", name = "Cooldown Assignments" }
-	for index, field in ipairs({ "primary", "backup1", "backup2", "caller" }) do
-		local label = ({ "Primary", "Backup 1", "Backup 2", "Caller" })[index]
-		raid["bloodlust_" .. field] = {
-			order = 7 + index / 10, type = "select", width = 1.5,
-			name = function()
-				return (UnitFactionGroup("player") == "Alliance" and "Heroism " or "Bloodlust ") .. label
-			end,
-			hidden = function() return not HasBloodlust() end,
-			disabled = RaidLocked,
-			values = function() return NameValues(field == "caller" and "GetRaidMembers" or "GetRaidShamans") end,
-			get = function() local db = RaidDB(); return db and db.bloodlust[field] or "" end,
-			set = function(_, value)
-				if RaidLocked() then return end
-				RaidDB().bloodlust[field] = value ~= "" and value or nil
-				AssignmentChanged()
-			end,
-		}
-	end
+	raid.raidIcons = {
+		order = 7.05, type = "description", width = "full", name = " ",
+		desc = "Cooldown Assignments: Bloodlust, Heroism, Mana Tide Totem, Drums of Battle. Click a cooldown to choose who"
+			.. " casts it and who may call for it. Bloodlust Primary, Bloodlust Backup 1, Bloodlust Backup 2, Bloodlust Caller,"
+			.. " Heroism Primary, Heroism Backup 1, Heroism Backup 2, Heroism Caller, Primary, Backup 1, Backup 2, Caller,"
+			.. " Mana Tide Shaman, Selected Shaman's Mana Tide Caller, Mana Tide Caller, Drums Caller, Drums Group, Selected"
+			.. " Group's Drummer, Group Drummer, Party Drummer, Clear Its Assignments.",
+		hidden = function() return not RaidIcons() end,
+	}
+	SP.OptionCustomRow[raid.raidIcons] = "raidIcons"
 	local function ManaTideValues()
 		local values = { [""] = "Select a shaman" }
 		if SP.RaidCooldownsLoaded and SP.GetManaTideShamans then
@@ -9855,12 +9835,14 @@ do
 	end
 	raid.manatide_shaman = {
 		order = 8, type = "select", name = "Mana Tide Shaman", width = 1.5,
+		hidden = RaidIcons,
 		disabled = function() return not SP.RaidCooldownsLoaded end,
 		values = ManaTideValues, get = SelectedManaTide,
 		set = function(_, value) selectedShaman = value end,
 	}
 	raid.manatide_caller = {
 		order = 8.1, type = "select", name = "Selected Shaman's Mana Tide Caller", width = 1.5,
+		hidden = RaidIcons,
 		disabled = function() return RaidLocked() or SelectedManaTide() == "" end,
 		values = function() return NameValues("GetRaidMembers") end,
 		get = function()
@@ -9874,53 +9856,6 @@ do
 			local mt = RaidDB().manatide
 			mt[name] = mt[name] or {}
 			mt[name].caller = value ~= "" and value or nil
-			AssignmentChanged()
-		end,
-	}
-	raid.drums_caller = {
-		order = 9, type = "select", name = "Drums Caller", width = 1.5,
-		hidden = function() return not HasDrums() end, disabled = RaidLocked,
-		values = function() return NameValues("GetRaidMembers") end,
-		get = function() local db = RaidDB(); return db and db.drums.caller or "" end,
-		set = function(_, value)
-			if RaidLocked() then return end
-			RaidDB().drums.caller = value ~= "" and value or nil
-			AssignmentChanged()
-		end,
-	}
-	local function GroupValues()
-		local values = {}
-		if SP.RaidCooldownsLoaded and SP.GetGroupMembers then
-			for group in pairs(SP:GetGroupMembers()) do values[group] = "Group " .. group end
-		end
-		return values
-	end
-	local function SelectedGroup()
-		if GroupValues()[selectedGroup] then return selectedGroup end
-		return nil
-	end
-	raid.drums_group = {
-		order = 9.1, type = "select", name = "Drums Group", width = 1.5,
-		hidden = function() return not HasDrums() end,
-		disabled = function() return not SP.RaidCooldownsLoaded end,
-		values = GroupValues, get = SelectedGroup,
-		set = function(_, value) selectedGroup = value end,
-	}
-	raid.drums_drummer = {
-		order = 9.2, type = "select", name = "Selected Group's Drummer", width = 1.5,
-		hidden = function() return not HasDrums() end,
-		disabled = function() return RaidLocked() or not SelectedGroup() end,
-		values = function()
-			local values = { [""] = "None" }
-			if SP.RaidCooldownsLoaded and SP.GetGroupMembers then
-				for _, name in ipairs(SP:GetGroupMembers()[selectedGroup] or {}) do values[name] = name end
-			end
-			return values
-		end,
-		get = function() local db = RaidDB(); return db and db.drums.drummers[selectedGroup] or "" end,
-		set = function(_, value)
-			if RaidLocked() or not SelectedGroup() then return end
-			RaidDB().drums.drummers[selectedGroup] = value ~= "" and value or nil
 			AssignmentChanged()
 		end,
 	}
@@ -10014,74 +9949,21 @@ do
 		end,
 	}
 
+	-- Popped-Out Trackers (A18, 3.0.8): one icon per tracker you have popped out (ShamanPower_Config
+	-- TrackerIcons.lua); a click opens its menu: Scale, Opacity, Hide Background, Flyout Direction,
+	-- Open Its Settings Panel, Copy / Paste Settings, Return It to the Bar, Reset This Tracker (the
+	-- same saved settings the old pick-one rows changed).
 	local popout = pages.popout_section.args
-	local selectedPopout = ""
-	local function PopoutKey()
-		if SP.poppedOutFrames and SP.poppedOutFrames[selectedPopout] then return selectedPopout end
-		return nil
-	end
-	local function PopoutSettings()
-		local key = PopoutKey()
-		return key and SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[key] or {}
-	end
-	local function PopoutLocked() return InCombatLockdown() or not PopoutKey() end
-	popout.open_window = {
-		order = 0.5, type = "execute", name = "Open Pop-Out Settings", width = "full",
-		disabled = function() return not PopoutKey() end,
-		func = function()
-			local key = PopoutKey()
-			if key then SP:ShowPopOutSettingsPanel(key, SP.poppedOutFrames[key]) end
-		end,
+	popout.popoutIcons = {
+		order = 0.6, type = "description", width = "full", name = " ",
+		desc = "Popped-Out Trackers: every tracker you have popped out (a totem button with its flyout, a single totem,"
+			.. " a cooldown bar item, Earth Shield, Drop All). Click a tracker for its settings. Popped-Out Tracker,"
+			.. " Selected Tracker Scale, Selected Tracker Opacity, Hide Background, Selected Tracker Flyout Direction,"
+			.. " Return Selected Tracker to Bar, Open Pop-Out Settings. Scale, Opacity, Hide Background, Flyout Direction"
+			.. " (Top, Bottom, Left, Right), Open Its Settings Panel, Copy Settings, Paste Settings, Copy Settings To,"
+			.. " All Trackers, Return It to the Bar, Reset This Tracker.",
 	}
-	popout.selected_tracker = {
-		order = 3, type = "select", name = "Popped-Out Tracker", width = "full",
-		values = function()
-			local values = { [""] = "Select a popped-out tracker" }
-			for key, frame in pairs(SP.poppedOutFrames or {}) do
-				values[key] = frame.title and frame.title ~= "" and frame.title or key
-			end
-			return values
-		end,
-		get = function() return PopoutKey() or "" end,
-		set = function(_, value) selectedPopout = value end,
-	}
-	popout.selected_scale = {
-		order = 3.1, type = "range", name = "Selected Tracker Scale", width = 1.5,
-		min = 0.5, max = 3, step = 0.05, isPercent = true, disabled = PopoutLocked,
-		get = function() return PopoutSettings().scale or SP.opt.poppedOutDefaultScale or 1 end,
-		set = function(_, value) if not PopoutLocked() then SP:SetPopOutScale(PopoutKey(), value) end end,
-	}
-	popout.selected_opacity = {
-		order = 3.2, type = "range", name = "Selected Tracker Opacity", width = 1.5,
-		min = 0.1, max = 1, step = 0.05, isPercent = true, disabled = PopoutLocked,
-		get = function() return PopoutSettings().opacity or SP.opt.poppedOutDefaultOpacity or 1 end,
-		set = function(_, value) if not PopoutLocked() then SP:SetPopOutOpacity(PopoutKey(), value) end end,
-	}
-	popout.selected_hide_frame = {
-		order = 3.3, type = "toggle", name = "Hide Background", width = "full", disabled = PopoutLocked,
-		desc = "Hide the selected tracker's background and border; its icon stays visible.",
-		get = function() return PopoutSettings().hideFrame or false end,
-		set = function(_, value)
-			if not PopoutLocked() and (PopoutSettings().hideFrame or false) ~= value then SP:TogglePopOutFrame(PopoutKey()) end
-		end,
-	}
-	popout.selected_flyout_direction = {
-		order = 3.4, type = "select", name = "Selected Tracker Flyout Direction", width = 1.5,
-		values = { top = "Top", bottom = "Bottom", left = "Left", right = "Right" },
-		sorting = { "top", "bottom", "left", "right" }, disabled = PopoutLocked,
-		hidden = function() local key = PopoutKey(); return not (key and key:match("^totem_")) end,
-		get = function() return PopoutSettings().flyoutDirection or "bottom" end,
-		set = function(_, value) if not PopoutLocked() then SP:SetPopOutFlyoutDirection(PopoutKey(), value) end end,
-	}
-	popout.selected_return = {
-		order = 3.5, type = "execute", name = "Return Selected Tracker to Bar", width = "full", disabled = PopoutLocked,
-		func = function()
-			if PopoutLocked() then return end
-			SP:ReturnPopOutToBar(PopoutKey())
-			selectedPopout = ""
-			Notify()
-		end,
-	}
+	SP.OptionCustomRow[popout.popoutIcons] = "popoutIcons"
 
 	-- Existing page setters also publish changes, so a dialog/cog that is already
 	-- open refreshes. Wrapping once at definition time preserves their behaviour.
@@ -10919,20 +10801,37 @@ do
 		}, names = { partybuff_move_counters = "Move", partybuff_locked = "Lock Position",
 			partybuff_reset = "Reset Position" } },
 	})
+	-- Totems to Watch and Per-Totem Icon Size (A18, 3.0.8): one row of totems (ShamanPower_Config
+	-- TrackerIcons.lua draws it): a click watches a totem or stops watching it (opt.coverage.tracked),
+	-- its right-click menu holds its own icon size (opt.coverage.cells, as the sliders saved it). The
+	-- old switches and sliders leave the page; the text below is what "Search all settings" finds.
+	local cov = pages.coverage_section.args
+	for _, key in ipairs(watches) do cov[key] = nil end
+	for _, key in ipairs(sizes) do cov[key] = nil end
+	cov.coverageIcons = {
+		type = "description", width = "full", name = " ",
+		desc = "Totems to Watch: Strength of Earth, Stoneskin, Flametongue Totem, Frost Resistance, Mana Spring, Healing"
+			.. " Stream, Mana Tide, Fire Resistance, Windfury Totem, Grace of Air, Tranquil Air, Nature Resistance, Windwall."
+			.. " Choose which totems appear in the coverage list: click a totem to watch it or stop watching it. Right-click"
+			.. " it for its own icon size: Per-Totem Icon Size, Icon Size, Choose a size for each totem while Place Each Totem"
+			.. " Freely is on, Copy Icon Size To, All Totems, Reset Icon Size, Watch This Totem, Stop Watching This Totem.",
+		hidden = function() return not (SP.CoverageAvailable and SP:CoverageAvailable()) end,
+	}
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[cov.coverageIcons] = "coverageIcons"
 	SP.OrderSettingsBands(pages.coverage_section, {
 		{ keys = { "coverage_desc" } },
 		{ keys = { "coverage_enabled", "open_coverage" } },
-		{ header = "coverage_watch_header", name = "Totems to Watch", keys = watches },
+		{ header = "coverage_watch_header", name = "Totems to Watch", keys = { "coverageIcons" } },
 		{ header = "look_header", name = "Look", keys = {
 			"coverage_icon_size", "coverage_opacity", "coverage_show_timer", "coverage_plain_icon", "coverage_dots", "coverage_dot_size", "coverage_dot_outline", "coverage_dot_shape", "coverage_dot_position", "coverage_dots_missing_only", "coverage_font", "coverage_hide_border",
 		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
-		{ header = "sizes_header", name = "Per-Totem Icon Size", keys = sizes },
 		{ header = "behaviour_header", name = "Behavior", keys = {
 			"coverage_hide_covered", "coverage_free", "coverage_vertical",
 		} },
 		{ header = "position_header", name = "Position", keys = { "coverage_move" }, names = { coverage_move = "Move" } },
 	})
-	pages.coverage_section.args.coverage_free.desc = "Every watched totem gets its own spot and size."
+	cov.coverage_free.desc = "Every watched totem gets its own spot and size (right-click a totem in Totems to Watch for its size)."
 		.. " Use Move below or ALT+drag to move the icons. Turn this off to group them in a row or column, with one icon for each element."
 end
 
@@ -11881,16 +11780,11 @@ end
 -- Module pages keep their controls and callbacks; only their reading order changes.
 do
 	local SP = ShamanPower
-	local tracked = {
-		"tracked_soe", "tracked_stoneskin", "tracked_tow", "tracked_flametongue", "tracked_frostresist",
-		"tracked_manaspring", "tracked_healingstream", "tracked_fireresist", "tracked_manatide",
-		"tracked_windfury", "tracked_graceofair", "tracked_wrathofair", "tracked_tranquilair",
-		"tracked_natureresist", "tracked_windwall",
-	}
+	-- Show the Overlay sits under Show Overlay, its switch (A18 Q12: it was left out of this order)
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.sprange_section, {
 		{ keys = { "sprange_desc", "module_missing_note", "not_shown_note" } },
-		{ keys = { "show_overlay", "open_window" } },
-		{ header = "tracked_header", name = "Totems to Track", keys = tracked },
+		{ keys = { "show_overlay", "show_when", "open_window" } },
+		{ header = "tracked_header", name = "Totems to Track", keys = { "rangeIcons" } },
 		{ header = "look_header", name = "Look", keys = {
 			"sprange_icon_size", "sprange_opacity", "sprange_vertical", "sprange_hide_names", "sprange_hide_border",
 		} },
@@ -11908,10 +11802,11 @@ do
 	})
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.raid_cd_section, {
 		{ keys = { "raid_cd_desc", "module_missing_note", "no_group_note" } },
-		{ keys = { "open_window" } },
+		-- Enable Raid Cooldowns at the top, over what it switches (A18 Q12: it sat last, under Sound)
+		{ keys = { "raidCDEnabled", "open_window" } },
+		-- TBC Anniversary: the row of icons; WoW: Forever: Mana Tide's two rows, as they were
 		{ header = "assignment_header", name = "Cooldown Assignments", keys = {
-			"bloodlust_primary", "bloodlust_backup1", "bloodlust_backup2", "bloodlust_caller",
-			"manatide_shaman", "manatide_caller", "drums_caller", "drums_group", "drums_drummer",
+			"raidIcons", "manatide_shaman", "manatide_caller",
 		} },
 		{ header = "warnings_header", name = "Warnings", keys = {
 			"raidCDShowWarningIcon", "raidCDShowWarningText",

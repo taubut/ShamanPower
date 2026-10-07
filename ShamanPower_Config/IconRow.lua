@@ -51,6 +51,15 @@
 --                                                     n equal parts (0: none); the row keeps room for it
 --   movable  = function(item) return can end,         (with move) only these drag, and only among themselves
 --   menuElement = function(item) return "fire" end,   the item menu's element (ns.ContextMenu spec.element)
+--   (optional, A18; each left out = the behavior above)
+--   (its step between the elements is A15's gapBefore: 14 px before an item whose element differs)
+--   clickMenu  = true,                                a left-click opens the menu too (items with no on / off;
+--                                                     `toggle` is not used)
+--   openLocked = true,                                while `locked` the menu still opens (the page grays its
+--                                                     lines and says why); a fight's start repaints an open
+--                                                     menu instead of closing it, its end repaints it again
+--   empty    = "text" or function() return text end, no items: an empty plate with this hint beside it
+--   menu = nil                                        no menu: a right-click does nothing
 -- }
 -- row:Render(body, x, y, width, onChanged) / row:Release()   (ns.CustomRows)
 -- row:Changed(keepMenu)  row:Repaint()  row:OpenMenu(key, path)  row:ShowDrag(key, gap)
@@ -344,7 +353,8 @@ end
 function Proto:OpenMenu(key, path)
 	local b = self.byKey[key]
 	if not (b and b.item and b:IsVisible()) then return end
-	if self:RefuseLocked() then return end
+	if not self.def.menu then return end   -- (a row with no menu: clicks only)
+	if not self.def.openLocked and self:RefuseLocked() then return end
 	local item = b.item
 	local icons = {}
 	local n = Call(self.def.textures, item, self.tex) or 0
@@ -559,7 +569,7 @@ end
 local function ButtonClick(b, button)
 	local row, item = b.row, b.item
 	if not (row and item) or b.dragging then return end
-	if button == "RightButton" then
+	if button == "RightButton" or row.def.clickMenu then
 		row:OpenMenu(item.key)
 		return
 	end
@@ -814,6 +824,35 @@ function Proto:Render(body, x, y, width, onChanged)
 	else
 		iconsH = max(1, ceil(slots / perRow)) * PITCH - (PITCH - PLATE)
 	end
+	-- def.empty: no items, an empty plate with the hint beside it
+	if f.empty then f.empty:Hide(); f.hint:Hide() end
+	if self.def.empty and #list == 0 then
+		if not f.empty then
+			f.empty = CreateFrame("Frame", nil, f)
+			f.empty:SetSize(PLATE, PLATE)
+			local plate = SP.Brand and SP.Brand.plate or { 5 / 255, 7 / 255, 10 / 255 }
+			local t = f.empty:CreateTexture(nil, "BACKGROUND")
+			t:SetAllPoints(f.empty)
+			t:SetColorTexture(plate[1], plate[2], plate[3], 0.6)
+			Core:MakeBorder(f.empty, "border", 1)
+			f.hint = f:CreateFontString(nil, "OVERLAY")
+			f.hint:SetFontObject(Core.fonts.rowDim)
+			f.hint:SetJustifyH("LEFT")
+			f.hint:SetWordWrap(true)
+		end
+		f.empty:ClearAllPoints()
+		f.empty:SetPoint("TOPLEFT", f, "TOPLEFT", padX, -PAD_TOP)
+		f.empty:Show()
+		local hint = self.def.empty
+		if type(hint) == "function" then hint = Call(hint) end
+		f.hint:SetWidth(max(60, width - padX * 2 - PLATE - BESIDE_GAP))
+		f.hint:SetText(hint or "")
+		local hh = ceil(f.hint:GetStringHeight())
+		f.hint:ClearAllPoints()
+		f.hint:SetPoint("TOPLEFT", f, "TOPLEFT", padX + PLATE + BESIDE_GAP, -(PAD_TOP + max(0, floor((PLATE - hh) / 2))))
+		f.hint:Show()
+		iconsH = max(PLATE, hh)
+	end
 	-- the summary beside the icons (def.beside): right of the last one when it fits, else under them
 	if self.def.beside then
 		if not f.beside then
@@ -888,19 +927,36 @@ function Proto:QueueMenu(key, path)
 	self.reopen = { key = key, at = GetTime(), path = path }
 end
 
--- a fight starts: the locked rows' menus close and a drag in progress is dropped (made at load)
+-- a fight starts: the locked rows' menus close and a drag in progress is dropped (made at load).
+-- A row with def.openLocked keeps its menu open and draws it again (gray, saying why) once the
+-- lock is on, and again when the fight ends
 do
+	local function RepaintOpen()
+		for _, row in ipairs(lockedRows) do
+			if row.def.openLocked and row.openKey and ns.ContextMenu:IsOpen() then ns.ContextMenu:Refresh() end
+		end
+	end
 	local w = CreateFrame("Frame")
 	w:RegisterEvent("PLAYER_REGEN_DISABLED")
-	w:SetScript("OnEvent", function()
+	w:RegisterEvent("PLAYER_REGEN_ENABLED")
+	w:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_ENABLED" then
+			RepaintOpen()
+			return
+		end
+		local later = false
 		for _, row in ipairs(lockedRows) do
 			if row.liftKey then
 				local b = row.byKey[row.liftKey]
 				row:EndDrag()
 				if b then b.dragging = nil end
 			end
-			if row.openKey and ns.ContextMenu:IsOpen() then ns.ContextMenu:Close() end
+			if row.openKey and ns.ContextMenu:IsOpen() then
+				if row.def.openLocked then later = true else ns.ContextMenu:Close() end
+			end
 		end
+		-- (the lock is on from the next frame: the event comes just before it)
+		if later then C_Timer.After(0, RepaintOpen) end
 	end)
 end
 
