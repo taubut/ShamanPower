@@ -527,7 +527,8 @@ end
 -- one included, if it was seen cooling in the last few seconds. nil: the game
 -- has no answer, and the estimate times it as before.
 function SP:CueCooldownCheck(btn, start, duration, real)
-	if not self.opt.cdbarCueReady then btn._cueCdEnd, btn._cueCdSeen = nil, nil return end
+	local t = btn.cooldownType   -- (its own settings: ShamanPowerCdItems.lua)
+	if not self:CdItemOpt(t, "cueReady") then btn._cueCdEnd, btn._cueCdSeen = nil, nil return end
 	if real ~= nil then
 		local now = GetTime()
 		btn._cueCdEnd = nil
@@ -536,7 +537,7 @@ function SP:CueCooldownCheck(btn, start, duration, real)
 		elseif btn._cueCdSeen then
 			local seen = btn._cueCdSeen
 			btn._cueCdSeen = nil
-			if now - seen < 3 then playCue(btn, self.opt.cdbarCueReadyStyle or "pop", "ready") end
+			if now - seen < 3 then playCue(btn, self:CdItemOpt(t, "cueReadyStyle"), "ready") end
 		end
 		return
 	end
@@ -548,7 +549,7 @@ function SP:CueCooldownCheck(btn, start, duration, real)
 		-- still due later: the global cooldown is showing over the spell's last moment
 		if late < -0.1 then return end
 		btn._cueCdEnd = nil
-		if late < 3 then playCue(btn, self.opt.cdbarCueReadyStyle or "pop", "ready") end
+		if late < 3 then playCue(btn, self:CdItemOpt(t, "cueReadyStyle"), "ready") end
 	end
 end
 
@@ -563,7 +564,8 @@ local function ownImbue(has, id, left)
 	return type(left) == "number" and left > 15000
 end
 function SP:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
-	if not self.opt.cdbarCueImbue then btn._cueMain, btn._cueOff = nil, nil return end
+	local t = btn.cooldownType
+	if not self:CdItemOpt(t, "cueGone") then btn._cueMain, btn._cueOff = nil, nil return end
 	if isSecret(hasMain) or isSecret(hasOff) then return end
 	hasMain, hasOff = ownImbue(hasMain, mainID, mainLeft), ownImbue(hasOff, offID, offLeft)
 	local gone = (btn._cueMain and not hasMain) or (btn._cueOff and not hasOff)
@@ -571,8 +573,8 @@ function SP:CueImbueCheck(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft
 	if (hasMain and btn._cueMain == false) or (hasOff and btn._cueOff == false) then clearHostMark(btn) end
 	btn._cueMain, btn._cueOff = hasMain, hasOff
 	if gone then
-		playCue(btn, self.opt.cdbarCueImbueStyle or "shake", "imbue")
-		if self.opt.cdbarCueImbueMark then cdbarMark(btn, "imbue") end   -- Red X Until You Imbue Again
+		playCue(btn, self:CdItemOpt(t, "cueGoneStyle"), "imbue")
+		if self:CdItemOpt(t, "cueMark") then cdbarMark(btn, "imbue") end   -- Red X Until You Imbue Again
 	end
 end
 
@@ -584,10 +586,10 @@ local pendingShieldBtn
 local function confirmShield()
 	local btn = pendingShieldBtn
 	pendingShieldBtn = nil
-	if not btn or btn._cueShield or not SP.opt.cdbarCueShield then return end
+	if not btn or btn._cueShield or not SP:CdItemOpt(btn.cooldownType, "cueGone") then return end
 	if UnitIsDeadOrGhost("player") then return end   -- dying strips the shield: not "gone"
-	playCue(btn, SP.opt.cdbarCueShieldStyle or "shake", "shield")
-	if SP.opt.cdbarCueShieldMark then cdbarMark(btn, "shield") end   -- Red X Until You Cast a Shield Again
+	playCue(btn, SP:CdItemOpt(btn.cooldownType, "cueGoneStyle"), "shield")
+	if SP:CdItemOpt(btn.cooldownType, "cueMark") then cdbarMark(btn, "shield") end   -- Red X Until You Cast a Shield Again
 end
 
 local function missingLayer(btn)
@@ -641,7 +643,7 @@ local function stopMissing(btn)
 end
 
 function SP:CueShieldState(btn, hasShield, engine)
-	if not self.opt.cdbarCueShield then
+	if not self:CdItemOpt(btn.cooldownType, "cueGone") then
 		stopMissing(btn)
 		btn._cueShield = nil
 		return
@@ -652,7 +654,7 @@ function SP:CueShieldState(btn, hasShield, engine)
 		if (btn:GetEffectiveAlpha() or 1) >= 0.99 then
 			local m = missingLayer(btn)
 			if not m.loop:IsPlaying() then m.loop:Play() end
-			local xOn = self.opt.cdbarCueShieldMark and true or nil
+			local xOn = self:CdItemOpt(btn.cooldownType, "cueMark") and true or nil
 			if m.xOn ~= xOn then
 				m.xOn = xOn
 				local size = btn:GetHeight() * 0.75
@@ -691,12 +693,10 @@ end
 -- hidden from addons, so Show Items Only When Running Out keeps it on the bar
 -- for the whole fight.
 -- ---------------------------------------------------------------------------
-local function runOutSecs(o) return o.cdbarRunOutSecs or 60 end
-local function almostSecs(o)
-	local s = o.cdbarAlmostSecs
-	if s == nil then return 5 end
-	return s
-end
+-- Both per item (ShamanPowerCdItems.lua: Running Out At / Almost Ready At); t nil (the totem
+-- bar's Earth Shield button): the shared seconds
+local function runOutSecs(t) return SP:CdItemOpt(t, "runOutSecs") or 60 end
+local function almostSecs(t) return SP:CdItemOpt(t, "almostSecs") or 5 end
 
 -- Show Items Only When Running Out shows everything while Keybind Mode or Unlock UI
 -- is open (to bind or place what is out of sight) and while the Test button plays
@@ -719,7 +719,7 @@ end
 -- Grid lays every shield / imbue choice out beside the button: with nothing single to hide,
 -- the shield and imbue stay in sight there
 local function gridKeeps(btn)
-	return (btn.spellType == "shield" or btn.spellType == "weaponImbue") and SP.CooldownBarGridOn and SP:CooldownBarGridOn() or false
+	return (btn.spellType == "shield" or btn.spellType == "weaponImbue") and SP.CooldownBarGridOn and SP:CooldownBarGridOn(btn.cooldownType) or false
 end
 
 -- In or out of sight. Out of sight keeps the button's spot, so nothing on the bar
@@ -748,13 +748,12 @@ local function setShown(btn, want)
 	end
 end
 
-local function onlyRunningOut()
-	local o = SP.opt
-	return o and o.cdbarRunOutOnly and not SP:IsOff() or false
+local function onlyRunningOut(btn)
+	return SP.opt and SP:CdItemOpt(btn.cooldownType, "runOutOnly") and not SP:IsOff() or false
 end
 
 local function decideShown(btn, want)
-	if not want and (not onlyRunningOut() or poppedOut(btn) or showAll(btn) or gridKeeps(btn)) then want = true end
+	if not want and (not onlyRunningOut(btn) or poppedOut(btn) or showAll(btn) or gridKeeps(btn)) then want = true end
 	if want and not btn._roHidden and not btn._roMouseOff then return end   -- shown already: nothing to do
 	setShown(btn, want)
 end
@@ -768,13 +767,12 @@ end
 -- redOn. Returns true while a look follows the time or a test plays (the pass keeps
 -- its pace).
 local function runLook(btn, style, what, frac, where)
-	local o = SP.opt
 	local now = GetTime()
 	local test = false
 	local t = btn._roTestRun
 	if t then
 		if now < t then
-			style, frac, test = o.cdbarCueRunningStyle or "red", (t - now) / 3, true
+			style, frac, test = SP:CdItemOpt(btn.cooldownType or (what == "es" and 12) or nil, "cueRunningStyle"), (t - now) / 3, true
 		else
 			btn._roTestRun = nil
 		end
@@ -807,9 +805,9 @@ local function runLook(btn, style, what, frac, where)
 end
 
 -- the look a readable shield / imbue wants: its Running Out style, or the missing red
-local function wantedLook(o, state)
-	if state == "out" and o.cdbarCueRunning then return o.cdbarCueRunningStyle or "red", false end
-	if state == "gone" and o.cdbarCueMissing then return "red", "top" end
+local function wantedLook(t, state)
+	if state == "out" and SP:CdItemOpt(t, "cueRunning") then return SP:CdItemOpt(t, "cueRunningStyle"), false end
+	if state == "gone" and SP:CdItemOpt(t, "cueMissing") then return "red", "top" end
 	return nil, false
 end
 
@@ -846,8 +844,8 @@ local function timeColor(btn, slot, fields, want)
 	wowColors()
 	paintTimes(btn, fields, (want == "red" and WOW_RED) or (want == "gold" and WOW_GOLD) or nil)
 end
-local function timeRed(o, btn, on)
-	return (on and o.cdbarCueTimeColor and btn._roLook ~= "red" and not SP:IsOff()) and "red" or nil
+local function timeRed(btn, on)
+	return (on and SP:CdItemOpt(btn.cooldownType, "cueTimeColor") and btn._roLook ~= "red" and not SP:IsOff()) and "red" or nil
 end
 
 -- Turns Red While Missing in a fight on WoW: Forever: the moment a shield goes
@@ -884,7 +882,8 @@ end
 function SP:RunOutShield(btn, up, left, charges, engine)
 	local o = self.opt
 	if not o or not btn then return false end
-	local N = runOutSecs(o)
+	local t = btn.cooldownType
+	local N = runOutSecs(t)
 	local state, runOn, frac
 	if engine then
 		state = "fight"
@@ -905,14 +904,14 @@ function SP:RunOutShield(btn, up, left, charges, engine)
 	local style, where
 	if engine then
 		-- (missing, in a fight: the red under the game's icon, missingRed below)
-		style, where = (runOn and o.cdbarCueRunning) and (o.cdbarCueRunningStyle or "red") or nil, true
+		style, where = (runOn and self:CdItemOpt(t, "cueRunning")) and self:CdItemOpt(t, "cueRunningStyle") or nil, true
 	else
-		style, where = wantedLook(o, state)
+		style, where = wantedLook(t, state)
 		if where == false and btn.darkOverlay and btn.darkOverlay:IsShown() then where = "top" end
 	end
 	local busy = runLook(btn, style, "shield", frac, where)
-	missingRed(btn, engine and o.cdbarCueMissing and not self:IsOff() and (btn:GetEffectiveAlpha() or 1) >= 0.99)
-	local tc = (not engine) and timeRed(o, btn, runOn) or nil
+	missingRed(btn, engine and self:CdItemOpt(t, "cueMissing") and not self:IsOff() and (btn:GetEffectiveAlpha() or 1) >= 0.99)
+	local tc = (not engine) and timeRed(btn, runOn) or nil
 	timeColor(btn, "_roTime0", TIME0, tc)
 	timeColor(btn, "_roTime1", TIME1, tc)
 	if left ~= nil and left > N and left <= N + 1.2 then busy = true end
@@ -927,7 +926,8 @@ function SP:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
 	local o = self.opt
 	if not o or not btn then return false end
 	if isSecret(hasMain) or isSecret(hasOff) then return false end
-	local N = runOutSecs(o) * 1000
+	local t = btn.cooldownType
+	local N = runOutSecs(t) * 1000
 	local upM, upO = ownImbue(hasMain, mainID, mainLeft), ownImbue(hasOff, offID, offLeft)
 	local mL = (upM and type(mainLeft) == "number" and not isSecret(mainLeft)) and mainLeft or nil
 	local oL = (upO and type(offLeft) == "number" and not isSecret(offLeft)) and offLeft or nil
@@ -944,27 +944,28 @@ function SP:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
 	decideShown(btn, state ~= "plenty")
 	local least = mL
 	if oL and (not least or oL < least) then least = oL end
-	local style, where = wantedLook(o, state)
+	local style, where = wantedLook(t, state)
 	if where == false and btn.darkOverlay and btn.darkOverlay:IsShown() then where = "top" end   -- (a style's view not lit)
 	local busy = runLook(btn, style, "imbue", least and least / N or 1, where)
-	timeColor(btn, "_roTime0", TIME0, timeRed(o, btn, state == "out"))
-	timeColor(btn, "_roTime1", TIME1, timeRed(o, btn, outM))
-	timeColor(btn, "_roTime2", TIME2, timeRed(o, btn, outO))
+	timeColor(btn, "_roTime0", TIME0, timeRed(btn, state == "out"))
+	timeColor(btn, "_roTime1", TIME1, timeRed(btn, outM))
+	timeColor(btn, "_roTime2", TIME2, timeRed(btn, outO))
 	if (mL and mL > N and mL <= N + 1200) or (oL and oL > N and oL <= N + 1200) then busy = true end
 	return busy
 end
 
 -- Earth Shield (TBC Anniversary: its button at the end of the totem bar): Running
 -- Out in its last seconds or on 2 charges (where its number turns red), from the
--- core's carrier record (twice a second while the button shows: esButton).
+-- core's carrier record (twice a second while the button shows: esButton). Its
+-- settings are its own slot, 12 (ShamanPowerCdItems.lua: never the shield's).
 function SP:RunOutEarthShield(esBtn, target, charges)
 	local o = self.opt
 	if not (o and esBtn) then return end
-	local N = runOutSecs(o)
+	local N = runOutSecs(12)
 	local exp = self.esTrackedExpiration
 	local left = (target and type(exp) == "number" and exp > 0) and (exp - GetTime()) or nil
 	local on = target ~= nil and type(charges) == "number" and charges > 0 and (charges <= 2 or (left ~= nil and left <= N))
-	local style = (on and o.cdbarCueRunning and esBtn:IsVisible()) and (o.cdbarCueRunningStyle or "red") or nil
+	local style = (on and self:CdItemOpt(12, "cueRunning") and esBtn:IsVisible()) and self:CdItemOpt(12, "cueRunningStyle") or nil
 	runLook(esBtn, style, "es", left and left / N or 1, false)
 end
 
@@ -1010,7 +1011,7 @@ end
 -- duration object for it (WoW: Forever), A: the seconds. Returns true while a look
 -- follows the time.
 local function almostLook(btn, on, frac, dur, A)
-	local o = SP.opt
+	local t = btn.cooldownType
 	local test = btn._roTestAlmost
 	if test then
 		local now = GetTime()
@@ -1020,10 +1021,10 @@ local function almostLook(btn, on, frac, dur, A)
 			btn._roTestAlmost, test = nil, nil
 		end
 	end
-	if on and (o.cdbarCueAlmost or test) and not SP:IsOff() then
+	if on and (SP:CdItemOpt(t, "cueAlmost") or test) and not SP:IsOff() then
 		local h = almostHolder(btn)
 		h.spRunFrac = frac or 1
-		local style = o.cdbarCueAlmostStyle or "glow"
+		local style = SP:CdItemOpt(t, "cueAlmostStyle")
 		if style == "red" then style = "glow" end   -- (red is for what runs out; a cooldown gets gold)
 		local moving = style == "drain" or style == "underbar"
 		if btn._roAlmost ~= style or moving then
@@ -1095,7 +1096,8 @@ end
 function SP:RunOutCooldown(btn, cooling, left)
 	local o = self.opt
 	if not o or not btn then return false end
-	local A = almostSecs(o)
+	local t = btn.cooldownType
+	local A = almostSecs(t)
 	local now = GetTime()
 	if left and left < 0 then left = 0 end
 	-- the moment it turned ready: Hide It Again keeps it up while its Cooldown Ready plays
@@ -1112,16 +1114,16 @@ function SP:RunOutCooldown(btn, cooling, left)
 	-- Almost Ready look still shows at the game's own moment (the curve below)
 	local unknown = cooling and left == nil
 	local busy = false
-	if onlyRunningOut() then
+	if onlyRunningOut(btn) then
 		local want
 		if state == "almost" or unknown then
 			want = true
 		elseif state == "ready" then
-			if o.cdbarRunOutReady == "keep" then
+			if self:CdItemOpt(t, "runOutReady") == "keep" then
 				want = true
 			else
 				local at = btn._roReadyAt
-				want = at ~= nil and (now - at) < (o.cdbarCueReady and 2.2 or 0.5)
+				want = at ~= nil and (now - at) < (self:CdItemOpt(t, "cueReady") and 2.2 or 0.5)
 				if want then busy = true end
 			end
 		else
@@ -1139,7 +1141,7 @@ function SP:RunOutCooldown(btn, cooling, left)
 	-- Cooldown Almost Ready, and its time in gold (Time Turns Red While Running Out)
 	local dur = cooling and btn._ebSpell and btn._ebDur or nil
 	local lookOn
-	if A <= 0 or not (o.cdbarCueAlmost or btn._roTestAlmost) then
+	if A <= 0 or not (self:CdItemOpt(t, "cueAlmost") or btn._roTestAlmost) then
 		lookOn = false
 	elseif dur then
 		-- the game shows it at the exact moment; the look starts by the estimate, or at once when
@@ -1150,7 +1152,7 @@ function SP:RunOutCooldown(btn, cooling, left)
 		lookOn = state == "almost"
 	end
 	if almostLook(btn, cooling and lookOn, (left and A > 0) and left / A or 1, dur, A) then busy = true end
-	local gold = (state == "almost" and o.cdbarCueTimeColor and not self:IsOff()) and "gold" or nil
+	local gold = (state == "almost" and self:CdItemOpt(t, "cueTimeColor") and not self:IsOff()) and "gold" or nil
 	if btn._ebSpell then
 		engineTimeGold(btn, gold)
 		timeColor(btn, "_roTime0", TIME0, nil)
@@ -1191,14 +1193,14 @@ end
 -- Whether the game-drawn shield's time is colored: Time Turns Red While Running Out on,
 -- and not on a shield button that turns red (its time stays white)
 local function shieldTimeColored(o)
-	if not (o and o.cdbarCueTimeColor) then return false end
-	return not (o.cdbarCueRunning and (o.cdbarCueRunningStyle or "red") == "red")
+	if not (o and SP:CdItemOpt(1, "cueTimeColor")) then return false end
+	return not (SP:CdItemOpt(1, "cueRunning") and SP:CdItemOpt(1, "cueRunningStyle") == "red")
 end
 -- what the game-drawn shield's time is built with: 0 (today's white) or its seconds.
 -- EnsureShieldChargeContainer keeps it on the button; a change builds the display again.
 function SP:ShieldTimeTextKey()
 	local o = self.opt
-	return shieldTimeColored(o) and runOutSecs(o) or 0
+	return shieldTimeColored(o) and runOutSecs(1) or 0
 end
 
 -- The game-drawn shield's time (WoW: Forever, in a fight: EnsureShieldChargeContainer):
@@ -1210,7 +1212,7 @@ function SP:ShieldTimeTextOptions()
 	if not shieldTimeColored(o) then return nil end
 	local CU, P = C_CurveUtil, Enum and Enum.DurationTextBindingProperty
 	if not (CU and CU.CreateColorCurve and P and P.RemainingDuration and CreateColor) then return nil end
-	local N = runOutSecs(o)
+	local N = runOutSecs(1)
 	local made = self._roTimeOpts
 	if made and made.n == N then return made.opts end
 	local ok, curve = pcall(CU.CreateColorCurve)
@@ -1252,7 +1254,7 @@ end
 -- Keybind Mode and Unlock UI show every item: at once when they open or close
 if hooksecurefunc then
 	local function modeChanged()
-		if SP.cooldownBar and SP.opt and SP.opt.cdbarRunOutOnly and not SP:IsOff() then
+		if SP.cooldownBar and SP.opt and SP:CdItemAny("runOutOnly") and not SP:IsOff() then
 			SP:WakeCooldownBar()
 			SP:UpdateCooldownButtons()
 		end
@@ -1280,10 +1282,10 @@ function SP:ApplyCueSettings()
 		self:DisableUpdateSubsystem("totemCues")
 		for element = 1, 4 do stopExpiring(element) end
 	end
-	if not o.cdbarCueShield and self.shieldButton then stopMissing(self.shieldButton) end
+	if self.shieldButton and not self:CdItemOpt(self.shieldButton.cooldownType, "cueGone") then stopMissing(self.shieldButton) end
 	-- the running-out settings: off or switched off, everything back in sight now; on, the
 	-- cooldown bar's next pass (at once) decides what shows; the looks start afresh
-	if not o.cdbarRunOutOnly or self:IsOff() then self:RunOutShowAll() end
+	if not self:CdItemAny("runOutOnly") or self:IsOff() then self:RunOutShowAll() end
 	self:RunOutResetLooks()
 	-- WoW: Forever: the game-drawn shield's time colors are set when it is built: a change
 	-- builds it again, once the settings stop changing (a slider drag sends many; a profile
@@ -1321,10 +1323,11 @@ function SP:TestTotemCues()
 end
 
 function SP:TestCooldownCues()
-	local o = self.opt
 	-- Show Items Only When Running Out: every item comes up while the test plays
-	local testFor = o.cdbarCueMissing and 6 or 3
-	if o.cdbarRunOutOnly and self.cooldownBar then
+	local imbue, shield = self.weaponImbueButton, self.shieldButton
+	local miss = (imbue and self:CdItemOpt(imbue.cooldownType, "cueMissing")) or (shield and self:CdItemOpt(shield.cooldownType, "cueMissing")) or false
+	local testFor = miss and 6 or 3
+	if self:CdItemAny("runOutOnly") and self.cooldownBar then
 		local untilAt = GetTime() + testFor + 0.5
 		for _, btn in ipairs(self.cooldownButtons or {}) do btn._roTestUntil = untilAt end
 		self:UpdateCooldownButtons()
@@ -1334,19 +1337,17 @@ function SP:TestCooldownCues()
 	end
 	for _, btn in ipairs(self.cooldownButtons or {}) do
 		if btn.spellType == "cooldown" and btn:IsVisible() then
-			playCue(btn, o.cdbarCueReadyStyle or "pop", "ready")
+			playCue(btn, self:CdItemOpt(btn.cooldownType, "cueReadyStyle"), "ready")
 			break
 		end
 	end
-	local imbue = self.weaponImbueButton
 	if imbue and imbue:IsVisible() then
-		playCue(imbue, o.cdbarCueImbueStyle or "shake", "imbue")
-		if o.cdbarCueImbueMark then cdbarMark(imbue, "imbue") end
+		playCue(imbue, self:CdItemOpt(imbue.cooldownType, "cueGoneStyle"), "imbue")
+		if self:CdItemOpt(imbue.cooldownType, "cueMark") then cdbarMark(imbue, "imbue") end
 	end
-	local shield = self.shieldButton
 	if shield and shield:IsVisible() then
-		playCue(shield, o.cdbarCueShieldStyle or "shake", "shield")
-		if o.cdbarCueShieldMark then cdbarMark(shield, "shield") end
+		playCue(shield, self:CdItemOpt(shield.cooldownType, "cueGoneStyle"), "shield")
+		if self:CdItemOpt(shield.cooldownType, "cueMark") then cdbarMark(shield, "shield") end
 	end
 	-- Running Out plays for 3 seconds on the shield and the imbue, Cooldown Almost Ready on a
 	-- cooldown (the second one shown: the first plays Cooldown Ready); the cooldown bar's pass runs them
@@ -1354,10 +1355,8 @@ function SP:TestCooldownCues()
 	if imbue and imbue:IsVisible() then imbue._roTestRun = runUntil end
 	if shield and shield:IsVisible() then shield._roTestRun = runUntil end
 	-- then Turns Red While Missing, for 3 more (when it is on)
-	if o.cdbarCueMissing then
-		if imbue and imbue:IsVisible() then imbue._roTestMiss = runUntil + 3 end
-		if shield and shield:IsVisible() then shield._roTestMiss = runUntil + 3 end
-	end
+	if imbue and imbue:IsVisible() and self:CdItemOpt(imbue.cooldownType, "cueMissing") then imbue._roTestMiss = runUntil + 3 end
+	if shield and shield:IsVisible() and self:CdItemOpt(shield.cooldownType, "cueMissing") then shield._roTestMiss = runUntil + 3 end
 	local first, second
 	for _, btn in ipairs(self.cooldownButtons or {}) do
 		if btn.spellType == "cooldown" and btn:IsVisible() then
@@ -1367,6 +1366,44 @@ function SP:TestCooldownCues()
 	end
 	if second or first then (second or first)._roTestAlmost = runUntil end
 	if self.cooldownBar then self:WakeCooldownBar(); self:UpdateCooldownButtons() end
+end
+
+-- One item's effects, with its own settings (its menu's Test This Item's Effects; t: its
+-- cooldownType). A shield / imbue: its Gone style (and red X), then Running Out for 3
+-- seconds, then Turns Red While Missing for 3 more when it is on. A cooldown: Cooldown
+-- Ready, then Cooldown Almost Ready for 3 seconds. Shown while it plays even with Show
+-- Only When Running Out. Returns false when the item is not on the bar.
+function SP:TestCdItemCues(t)
+	local btn
+	if t == 1 then btn = self.shieldButton elseif t == 7 then btn = self.weaponImbueButton end
+	if not btn then
+		for _, b in ipairs(self.cooldownButtons or {}) do
+			if b.cooldownType == t then btn = b break end
+		end
+	end
+	if not (btn and btn:IsVisible() and btn.cooldownType) then return false end
+	local now = GetTime()
+	if btn.spellType == "cooldown" then
+		btn._roTestUntil = now + 5
+		playCue(btn, self:CdItemOpt(t, "cueReadyStyle"), "ready")
+		C_Timer.After(1.2, function()
+			btn._roTestAlmost = GetTime() + 3
+			if SP.cooldownBar then SP:WakeCooldownBar(); SP:UpdateCooldownButtons() end
+		end)
+	else
+		local miss = self:CdItemOpt(t, "cueMissing")
+		btn._roTestUntil = now + (miss and 6 or 3) + 0.5
+		local kind = (btn.spellType == "shield") and "shield" or "imbue"
+		playCue(btn, self:CdItemOpt(t, "cueGoneStyle"), kind)
+		if self:CdItemOpt(t, "cueMark") then cdbarMark(btn, kind) end
+		btn._roTestRun = now + 3
+		if miss then btn._roTestMiss = now + 6 end
+	end
+	C_Timer.After(6.6, function()
+		if SP.cooldownBar and not SP:IsOff() then SP:WakeCooldownBar(); SP:UpdateCooldownButtons() end
+	end)
+	if self.cooldownBar then self:WakeCooldownBar(); self:UpdateCooldownButtons() end
+	return true
 end
 
 local loader = CreateFrame("Frame")
