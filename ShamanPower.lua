@@ -15206,20 +15206,29 @@ function ShamanPower:UpdateTotemBarBridge(active)
 			if self:GetAttribute("bridge") ~= 1 then return end
 			if self:GetAttribute("hideooc") == 1 and SecureCmdOptionParse("[combat] 1; 0") ~= "1"
 				and not (self:GetAttribute("withtarget") == 1 and SecureCmdOptionParse("[@target,harm] 1; 0") == "1") then return end
-			for _, key in ipairs({ "bar", "b1", "b2", "b3", "b4", "dropall", "es", "sh" }) do
-				if self:GetAttribute("show-" .. key) == 1 then
-					local f = self:GetFrameRef(key)
-					if f then f:Show() end
-				end
-			end
+			-- (no tables or loops over them: the restricted environment allows neither)
+			local f
+			if self:GetAttribute("show-bar") == 1 then f = self:GetFrameRef("bar") if f then f:Show() end end
+			if self:GetAttribute("show-b1") == 1 then f = self:GetFrameRef("b1") if f then f:Show() end end
+			if self:GetAttribute("show-b2") == 1 then f = self:GetFrameRef("b2") if f then f:Show() end end
+			if self:GetAttribute("show-b3") == 1 then f = self:GetFrameRef("b3") if f then f:Show() end end
+			if self:GetAttribute("show-b4") == 1 then f = self:GetFrameRef("b4") if f then f:Show() end end
+			if self:GetAttribute("show-dropall") == 1 then f = self:GetFrameRef("dropall") if f then f:Show() end end
+			if self:GetAttribute("show-es") == 1 then f = self:GetFrameRef("es") if f then f:Show() end end
+			if self:GetAttribute("show-sh") == 1 then f = self:GetFrameRef("sh") if f then f:Show() end end
 		]=])
 		h:SetAttribute("_onhide", [=[
 			if self:GetAttribute("bridge") ~= 1 then return end
 			if self:GetAttribute("withtarget") == 1 and SecureCmdOptionParse("[@target,harm] 1; 0") == "1" then return end
-			for _, key in ipairs({ "bar", "b1", "b2", "b3", "b4", "dropall", "es", "sh" }) do
-				local f = self:GetFrameRef(key)
-				if f then f:Hide() end
-			end
+			local f
+			f = self:GetFrameRef("bar") if f then f:Hide() end
+			f = self:GetFrameRef("b1") if f then f:Hide() end
+			f = self:GetFrameRef("b2") if f then f:Hide() end
+			f = self:GetFrameRef("b3") if f then f:Hide() end
+			f = self:GetFrameRef("b4") if f then f:Hide() end
+			f = self:GetFrameRef("dropall") if f then f:Hide() end
+			f = self:GetFrameRef("es") if f then f:Hide() end
+			f = self:GetFrameRef("sh") if f then f:Hide() end
 		]=])
 		h:Show()
 		self.totemBarBridge = h
