@@ -15092,8 +15092,7 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	local o, asked = self.opt, shown
 	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems
 		or (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar())) then shown = false end
-	-- the bar not in use (switched off, solo / party choice): the totem-frame helper must not bring it back
-	if not asked then self:UpdateTotemBarBridge(false) else self:RefreshTotemBarBridge() end
+	self:RefreshTotemBarBridge()   -- (the helper follows the bar's state: off while the layout keeps it down)
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -15194,8 +15193,22 @@ end
 -- it receives that show / hide and may pass it on to the bar. The helper acts only while
 -- "bridge" is 1, set here out of a fight: Hide When No Totems on, no fade, the bar in use.
 -- Hide Out of Combat and Show When I Have a Target are honored inside the snippets.
-function ShamanPower:UpdateTotemBarBridge(active)
+-- when the helper is wanted at all: Hide When No Totems without a fade, the bar in use (the
+-- same gates UpdateTotemBarVisibility has), not Grid or Totem Rows (their rows are frames the
+-- helper does not carry), not while the controller bar stands in for the totem bar
+function ShamanPower:TotemBarBridgeWanted()
+	local o = self.opt
+	if not (o and o.hideWhenNoTotems == true and o.fadeInsteadOfHide ~= true) then return false end
+	if o.gridStyle or o.totemRows then return false end
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then return false end
+	if not self:TotemBarEnabled() or not self:TotemBarInUse() then return false end
+	if self.ControllerHidesTotemBar and self:ControllerHidesTotemBar() then return false end
+	return true
+end
+
+function ShamanPower:UpdateTotemBarBridge()
 	if InCombatLockdown() then return end
+	local active = self:TotemBarBridgeWanted()
 	local tf = _G.TotemFrame
 	if not (tf and self.autoButton) then self.totemBarBridgeOn = false return end
 	local h = self.totemBarBridge
@@ -15271,18 +15284,18 @@ end
 -- the helper's references and "show it" attributes follow the pieces (an element popped out or
 -- back, Drop All on or off, Earth Shield learned): out of a fight, whenever the bar is laid out
 function ShamanPower:RefreshTotemBarBridge()
-	if self.totemBarBridge and not InCombatLockdown() then self:UpdateTotemBarBridge(self.totemBarBridgeOn) end
+	if self.totemBarBridge and not InCombatLockdown() then self:UpdateTotemBarBridge() end
 end
 
 function ShamanPower:UpdateTotemBarVisibility(force)
 	if force then self.totemBarHidden, self.totemBarFaded = nil, nil end   -- a fade setting changed: re-apply
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
-		self:UpdateTotemBarBridge(false)
+		self:RefreshTotemBarBridge()
 		self:HideCustomTotemBarForBlizzard()
 		return
 	end
-	if not self:TotemBarEnabled() then self:UpdateTotemBarBridge(false) return end   -- bar is switched off entirely
-	if not self:TotemBarInUse() then self:UpdateTotemBarBridge(false) return end     -- the layout keeps it down (solo / party choice)
+	if not self:TotemBarEnabled() then self:RefreshTotemBarBridge() return end   -- bar is switched off entirely
+	if not self:TotemBarInUse() then self:RefreshTotemBarBridge() return end     -- the layout keeps it down (solo / party choice)
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -15315,10 +15328,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	-- bar hides; its keys, and the controller bar's slots that press them, keep working while hidden
 	if self.ControllerHidesTotemBar and self:ControllerHidesTotemBar() then shouldHide, fade = true, false end
 	-- Hide When No Totems in a fight goes through Blizzard's totem frame (UpdateTotemBarBridge)
-	-- (not with Grid or Totem Rows: their rows are frames the helper does not carry)
-	self:UpdateTotemBarBridge(self.opt.hideWhenNoTotems == true and self.opt.fadeInsteadOfHide ~= true
-		and not self.opt.gridStyle and not self.opt.totemRows
-		and not (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar()))
+	self:UpdateTotemBarBridge()   -- (made and switched on only when TotemBarBridgeWanted)
 
 	-- Skip update if state hasn't changed (prevents blinking)
 	if self.totemBarHidden == shouldHide and (self.totemBarFaded or false) == fade then return end
