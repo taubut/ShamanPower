@@ -685,52 +685,76 @@ function SP:UpdateSPRangeFrame()
 		end
 	end
 
+	frame.trackedList = trackedList
 	if #trackedList == 0 then
 		frame:SetSize(120, 50)
 		frame.title:SetText("Totem Range (none)")
 		return
 	end
+	frame.title:SetText("Totem Range")
 
-	-- Calculate frame size based on icon size setting
+	-- Create buttons (every tracked totem; the layout below places the ones the show mode allows)
+	for i, totemData in ipairs(trackedList) do
+		local btn = self:CreateSPRangeTotemButton(frame.iconContainer, totemData, i)
+		frame.totemButtons[totemData.id] = btn
+	end
+	self:LayoutSPRangeButtons()
+end
+
+-- Show a Tracked Totem's Icon (Look): "always" (nil), "notmissing", "inrange". A button whose
+-- status the mode hides keeps its status reads (UpdateSPRangeStatus) so it can come back.
+local function SPRangeShownByMode(btn)
+	if SP.sprangeDemoActive then return true end   -- the preview shows every icon
+	local mode = SP.opt.rangeTracker and SP.opt.rangeTracker.showMode
+	if not mode or mode == "always" then return true end
+	local status = btn.status
+	if not status or status == "unknown" then return true end   -- (not read yet: shown until it is)
+	if mode == "notmissing" then return status ~= "missing" end
+	if mode == "inrange" then return status == "inrange" end
+	return true
+end
+
+-- Place the tracked totems' buttons: the ones the show mode allows, in tracking order, the frame
+-- sized to them. Called by UpdateSPRangeFrame and whenever a status change alters that set.
+function SP:LayoutSPRangeButtons()
+	local frame = self.spRangeFrame
+	if not frame or not frame.trackedList then return end
+	local shown = {}
+	for _, totemData in ipairs(frame.trackedList) do
+		local btn = frame.totemButtons[totemData.id]
+		if btn then
+			if SPRangeShownByMode(btn) then shown[#shown + 1] = btn else btn:Hide() end
+		end
+	end
 	local buttonSize = SP.opt.rangeTracker.iconSize or 36
 	local padding = 6
-	local numButtons = #trackedList
+	local numButtons = #shown
 	local nameSpace = SP.opt.rangeTracker.hideNames and 0 or 14
 	local isVertical = SP.opt.rangeTracker.vertical
-
 	local width, height
 	if isVertical then
-		-- Vertical layout
 		width = buttonSize + 24 + nameSpace
-		height = (buttonSize * numButtons) + (padding * (numButtons - 1)) + 28  -- Title + padding
+		height = (math.max(numButtons, 1) * buttonSize) + (padding * math.max(numButtons - 1, 0)) + 28
 	else
-		-- Horizontal layout
-		local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
+		local buttonsWidth = (numButtons * buttonSize) + (padding * math.max(numButtons - 1, 0))
 		width = buttonsWidth + 24
 		height = buttonSize + 26 + nameSpace
 	end
-
 	frame:SetSize(math.max(80, width), height)
-	frame.title:SetText("Totem Range")
-
-	-- Create buttons
-	for i, totemData in ipairs(trackedList) do
-		local btn = self:CreateSPRangeTotemButton(frame.iconContainer, totemData, i)
-
+	for i, btn in ipairs(shown) do
+		btn:ClearAllPoints()
 		if isVertical then
-			-- Vertical: stack top to bottom
-			local startY = -20
-			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, startY - (i - 1) * (buttonSize + padding))
+			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -20 - (i - 1) * (buttonSize + padding))
 		else
-			-- Horizontal: left to right, centered
-			local buttonsWidth = (buttonSize * numButtons) + (padding * (numButtons - 1))
+			local buttonsWidth = (numButtons * buttonSize) + (padding * (numButtons - 1))
 			local startX = (frame:GetWidth() - buttonsWidth) / 2
 			btn:SetPoint("TOPLEFT", frame, "TOPLEFT", startX + (i - 1) * (buttonSize + padding), -20)
 		end
-
 		btn:Show()
-		frame.totemButtons[totemData.id] = btn
 	end
+	local sig = {}
+	for _, btn in ipairs(shown) do sig[#sig + 1] = tostring(btn.totemData and btn.totemData.id) end
+	frame.shownSignature = table.concat(sig, ",")
 end
 
 -- Check if ANYONE in the group has a specific buff (indicates totem is down somewhere)
@@ -861,6 +885,16 @@ function SP:UpdateSPRangeStatus()
 			btn.nameText:SetTextColor(0.5, 0.5, 0.5)  -- Grey name
 			btn.status = "missing"
 		end
+	end
+	-- Show a Tracked Totem's Icon: a status change may hide or bring back a button
+	local mode = self.opt.rangeTracker and self.opt.rangeTracker.showMode
+	if mode and mode ~= "always" and frame.trackedList then
+		local sig = {}
+		for _, totemData in ipairs(frame.trackedList) do
+			local btn = frame.totemButtons[totemData.id]
+			if btn and SPRangeShownByMode(btn) then sig[#sig + 1] = tostring(totemData.id) end
+		end
+		if table.concat(sig, ",") ~= (frame.shownSignature or "") then self:LayoutSPRangeButtons() end
 	end
 end
 

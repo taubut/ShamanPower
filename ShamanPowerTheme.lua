@@ -1828,6 +1828,9 @@ Cards.ADDED = {
 	["e.ctrl.bar.layout"] = function() return "dpad" end,
 	["e.ctrl.bar.glyphs"] = function() return true end,
 	["e.ctrl.bar.cdLayout"] = function() return "cross" end,   -- (Show My Cooldowns > Separate's Cooldown Layout)
+	-- the minimap rings' colors (3.0.8: Use My Own Ring Colors)
+	["e.mod.minimap.ringColorMode"] = function() return "element" end,
+	["e.mod.minimap.ringColors"] = function() return false end,
 }
 -- Reactive Totems: each alert's own looks (3.0.8; ShamanPower_ReactiveTotems registers the entries on
 -- mod.reactive, "default" = the alert follows the page's shared value): a look saved before had none

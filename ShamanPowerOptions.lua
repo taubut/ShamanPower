@@ -3922,6 +3922,73 @@ ShamanPower.options = {
 							get = function() return ShamanPower.opt.minimapTotemPinSize or 14 end,
 							set = function(_, value) ShamanPower.opt.minimapTotemPinSize = value; ShamanPower:RefreshMinimapTotems() end,
 						},
+						minimapRingColorMode = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+							order = 0.25, type = "toggle", name = "Use My Own Ring Colors", width = "full",
+							desc = "Pick a color for each element's range ring on the minimap. Off: each ring takes its element's color (a theme's palette if one is on).",
+							get = function() return ShamanPower.opt.minimapRingColorMode == "custom" end,
+							set = function(_, value)
+								ShamanPower.opt.minimapRingColorMode = value and "custom" or nil
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor1 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.251, type = "color", name = "Earth Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[1] or ShamanPower.ElementColors[1]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[1] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor2 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.252, type = "color", name = "Fire Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[2] or ShamanPower.ElementColors[2]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[2] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor3 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.253, type = "color", name = "Water Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[3] or ShamanPower.ElementColors[3]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[3] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor4 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.254, type = "color", name = "Air Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[4] or ShamanPower.ElementColors[4]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[4] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
 						sprange_opacity = {
 							order = 1,
 							name = "Opacity",
@@ -4004,6 +4071,21 @@ ShamanPower.options = {
 								ShamanPower.opt.rangeTracker.hideBorder = val
 								ShamanPower:UpdateSPRangeBorder()
 							end
+						},
+						sprange_show_mode = {
+							order = 5.1,
+							type = "select",
+							name = "Show a Tracked Totem's Icon",
+							desc = "Always: every tracked totem shows, gray while no one has put it down and red while you are out of its range. Not While It's Missing: a totem no one has put down is hidden until someone does. Only While I'm in Range: a totem shows only while you have its buff.",
+							width = "full",
+							values = { always = "Always", notmissing = "Not While It's Missing", inrange = "Only While I'm in Range" },
+							sorting = { "always", "notmissing", "inrange" },
+							get = function() return ShamanPower.opt.rangeTracker.showMode or "always" end,
+							set = function(_, value)
+								ShamanPower.opt.rangeTracker.showMode = (value ~= "always") and value or nil
+								if ShamanPower.LayoutSPRangeButtons then ShamanPower:LayoutSPRangeButtons() end
+								if ShamanPower.UpdateSPRangeStatus then ShamanPower:UpdateSPRangeStatus() end
+							end,
 						},
 					}
 				},
@@ -11787,9 +11869,11 @@ do
 		{ header = "tracked_header", name = "Totems to Track", keys = { "rangeIcons" } },
 		{ header = "look_header", name = "Look", keys = {
 			"sprange_icon_size", "sprange_opacity", "sprange_vertical", "sprange_hide_names", "sprange_hide_border",
+			"sprange_show_mode",
 		} },
 		{ header = "minimap_header", name = "Minimap Markers", keys = {
 			"minimapTotemMarkers", "minimapTotemRings", "minimapTotemPinSize",
+			"minimapRingColorMode", "minimapRingColor1", "minimapRingColor2", "minimapRingColor3", "minimapRingColor4",
 		} },
 	})
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.estrack_section, {

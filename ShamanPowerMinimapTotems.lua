@@ -231,7 +231,19 @@ end
 -- Theme (General > Themes, spot mod.minimap): a ring in the spot's palette.
 -- today = true (a theme change) paints the Appearance colour on Standard;
 -- otherwise Standard leaves the colour set by refreshModels exactly as it is.
+-- The ring's color: its element's (today), or one you picked (Totem Range Tracker > Minimap
+-- Markers > Use My Own Ring Colors). A theme's palette paints over the element's only.
+local function ringColor(element)
+	local o = SP.opt
+	if o and o.minimapRingColorMode == "custom" then
+		local c = o.minimapRingColors and o.minimapRingColors[element]
+		if type(c) == "table" and type(c.r) == "number" then return c end
+	end
+	return SP.ElementColors[element]
+end
+
 local function themeRing(pin, element, today)
+	if SP.opt and SP.opt.minimapRingColorMode == "custom" then return end   -- your own colors stay
 	if not SP.ThemeActive then return end
 	if not today and not SP:ThemeActive("mod.minimap") then return end
 	local r, g, b = SP:ThemeElement("mod.minimap", element)
@@ -281,7 +293,7 @@ refreshModels = function()
 			local indexOK, index = pcall(SP.GetActiveTotemIndex, SP, element)
 			pin.radius = nil
 			if indexOK and number(index) and SP.opt.minimapTotemRings ~= false then pin.radius = radiusFor(element, index) end
-			local color = SP.ElementColors[element]
+			local color = ringColor(element)
 			for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(color.r, color.g, color.b, 0.65) end
 			themeRing(pin, element)   -- the theme's colour (nothing on Standard)
 			active = true
@@ -397,4 +409,45 @@ if SP.OnThemeChanged then
 			if pin and pin.active and pin.lines then themeRing(pin, element, true) end
 		end
 	end)
+end
+
+-- Theme hook (General > Themes, spot mod.minimap): the ring colors a theme carries. The brand
+-- themes paint their palette (Ring Colors "element"); your own colors travel with a saved theme.
+if SP.ThemeSpotSettings then
+	SP:ThemeSpotSettings("mod.minimap", {
+		{ key = "ringColorMode", label = "Ring Colors",
+		  get = function() return SP.opt and SP.opt.minimapRingColorMode or "element" end,
+		  set = function(v)
+			SP.opt.minimapRingColorMode = (v == "custom") and "custom" or nil
+			SP.RefreshMinimapTotems()
+		  end,
+		  shamanpower = "element",
+		},
+		{ key = "ringColors", label = "My Ring Colors",
+		  get = function()
+			local c = SP.opt and SP.opt.minimapRingColors
+			if type(c) ~= "table" then return false end
+			local out = {}
+			for e = 1, 4 do
+				local x = c[e]
+				if type(x) == "table" then out[e] = { r = x.r or 1, g = x.g or 1, b = x.b or 1 } end
+			end
+			return out
+		  end,
+		  set = function(v)
+			if type(v) == "table" then
+				local out = {}
+				for e = 1, 4 do
+					local x = v[e]
+					if type(x) == "table" then out[e] = { r = x.r or x[1] or 1, g = x.g or x[2] or 1, b = x.b or x[3] or 1 } end
+				end
+				SP.opt.minimapRingColors = out
+			else
+				SP.opt.minimapRingColors = nil
+			end
+			SP.RefreshMinimapTotems()
+		  end,
+		  shamanpower = false,
+		},
+	})
 end
