@@ -424,6 +424,7 @@ if SP.ThemeSpotSettings then
 		  shamanpower = "element",
 		},
 		{ key = "ringColors", label = "My Ring Colors",
+		  mayBe = { colors = true },   -- a table of colors is a valid value for a theme to hold (false when none)
 		  get = function()
 			local c = SP.opt and SP.opt.minimapRingColors
 			if type(c) ~= "table" then return false end
