@@ -2029,6 +2029,8 @@ function SP:TestReactiveAlerts()
 	local generation = clicks and self.reactiveTestGeneration or nil
 	C_Timer.After(3, function()
 		if generation == nil then
+			-- (click casting turned on after this test began, and a fight has locked the frames: nothing to touch)
+			if SP.ReactiveModeLocked and SP:ReactiveModeLocked() then return end
 			SP:EndReactiveTest(true)
 		elseif SP.reactiveTestGeneration == generation then
 			SP:EndReactiveTest()
