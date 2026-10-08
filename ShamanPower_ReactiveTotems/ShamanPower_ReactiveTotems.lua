@@ -1206,8 +1206,9 @@ local function StartHostDrag(host)
 end
 local function StopHostDrag(host)
 	if not host.isMoving then return false end
-	host:StopMovingOrSizing()
 	host.isMoving = false
+	if HostLocked(host) then return true end   -- (a fight already on: the start of it stopped the drag; nothing protected here)
+	host:StopMovingOrSizing()
 	local point, _, _, x, y = host:GetPoint()
 	ShamanPower_ReactiveTotems.positions[host.totemId] = { point = point, x = x, y = y }
 	return true
@@ -1237,9 +1238,22 @@ local function CastEnter(b)
 		GameTooltip:Show()
 	end
 end
-local function CastLeave(b)
+local function TooltipOwned(b)
+	if GameTooltip.IsOwned then return GameTooltip:IsOwned(b) end
+	return GameTooltip:GetOwner() == b
+end
+-- the hover feedback off (the ring, and the tooltip while it is ours)
+local function ClearCastHover(b)
 	for _, t in ipairs(b.ring) do t:Hide() end
-	GameTooltip:Hide()
+	if TooltipOwned(b) then GameTooltip:Hide() end
+end
+local function CastLeave(b) ClearCastHover(b) end
+-- a display going invisible (your Fear display, another crowd control up): nothing of a hover stays
+function SP:ReactiveClearCastHover(container)
+	for _, ab in ipairs(container.spAuraButtons or {}) do
+		local b = engineCasts[ab]
+		if b then ClearCastHover(b) end
+	end
 end
 
 -- one edge of the ring: 1 px, 3 px out from the button (the alert's own 2 px border, then it)
@@ -1355,6 +1369,11 @@ end
 -- a fight begins (PLAYER_REGEN_DISABLED comes before the lockdown)
 function SP:ReactiveClickCastFightStart()
 	if not ClickCastOn() or InCombatLockdown() then return end
+	-- a drag still held through a cast button ends here, its spot saved: the release in the fight could not
+	-- stop it (the host is protected then)
+	for _, host in pairs(self.reactiveFrames) do
+		if host.isMoving then StopHostDrag(host) end
+	end
 	-- a temporary display mode ends here, before the lockdown: in the fight the cast buttons could
 	-- neither follow it nor come back for a real alert (the Test's pending run is dropped with it)
 	if self.reactiveTestActive then self:EndReactiveTest() end
@@ -1508,7 +1527,10 @@ function SP:ApplyReactiveEngineVisibility()
 					-- display, shown for the fight (ReactiveFearDisplayForFight), follows your loss of control by its alpha
 					if totemId == "fear" and i == 1 then
 						local a = on and 1 or 0
-						if c:GetAlpha() ~= a then c:SetAlpha(a) end
+						if c:GetAlpha() ~= a then
+							c:SetAlpha(a)
+							if a == 0 then self:ReactiveClearCastHover(c) end   -- (a hover on it: ring and tooltip off)
+						end
 					end
 				else
 					if c:GetAlpha() < 1 then c:SetAlpha(1) end   -- (from a fight)
@@ -1822,8 +1844,10 @@ function SP:SetupReactiveTotemsEvents()
 	eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 	eventFrame:RegisterEvent("PLAYER_TOTEM_UPDATE")
 	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")   -- engine displays rebuilt after a fight if asked for in one
-	eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")  -- Click an Alert to Cast Its Totem: the cast buttons out for the fight
-	eventFrame:RegisterEvent("SPELLS_CHANGED")         -- (the cast names)
+	if SPCompat.FOREVER then   -- Click an Alert to Cast Its Totem (WoW: Forever only): a fight's start, the cast names
+		eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+		eventFrame:RegisterEvent("SPELLS_CHANGED")
+	end
 	-- your Tremor alert follows your loss-of-control list (PlayerTremorBreakable)
 	if SPCompat and SPCompat.secretsRegime and C_LossOfControl and eventFrame.RegisterUnitEvent then
 		local loc = CreateFrame("Frame")
@@ -1954,9 +1978,13 @@ end
 
 -- Test all alerts
 function SP:TestReactiveAlerts()
-	if self:IsOff() then return end   -- switched off: no test (its timed run would touch frames the fight may lock)
+	-- with Click an Alert to Cast Its Totem on: no test while ShamanPower is switched off (its timed run would
+	-- touch frames the fight may lock), none in a fight, and a new test drops the earlier one's timed run.
+	-- Off, the test is exactly as it always was.
+	local clicks = ClickCastOn()
+	if clicks and self:IsOff() then return end
 	if self:ReactiveModeLocked("Test") then return end
-	self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1
+	if clicks then self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1 end
 	self.reactiveTestActive = true
 	self:SetReactiveHostMode()
 	self:ApplyReactiveEngineVisibility()
@@ -1996,17 +2024,25 @@ function SP:TestReactiveAlerts()
 		end
 	end
 
-	-- Hide after 3 seconds (a fight beginning before then ends the test at once and drops this run)
-	local generation = self.reactiveTestGeneration
+	-- Hide after 3 seconds (with click casting on, a fight beginning before then ends the test at once and
+	-- drops this run; otherwise this run goes as it always has)
+	local generation = clicks and self.reactiveTestGeneration or nil
 	C_Timer.After(3, function()
-		if SP.reactiveTestGeneration == generation then SP:EndReactiveTest() end
+		if generation == nil then
+			SP:EndReactiveTest(true)
+		elseif SP.reactiveTestGeneration == generation then
+			SP:EndReactiveTest()
+		end
 	end)
 end
 
--- the test over: the alerts hidden, the live display back
-function SP:EndReactiveTest()
-	self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1   -- (a pending 3-second run is dropped)
-	if not self.reactiveTestActive then return end
+-- the test over: the alerts hidden, the live display back (asIs: the timed run as it always was,
+-- whatever the test's state; otherwise only a running test, and a pending timed run is dropped)
+function SP:EndReactiveTest(asIs)
+	if not asIs then
+		self.reactiveTestGeneration = (self.reactiveTestGeneration or 0) + 1
+		if not self.reactiveTestActive then return end
+	end
 	for totemId, frame in pairs(self.reactiveFrames) do
 		frame.glowAnim:Stop()
 		frame.glow:Hide()
