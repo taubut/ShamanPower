@@ -1458,7 +1458,7 @@ ShamanPower.options = {
 							name = "Faded Opacity",
 							desc = "How visible the totem bar stays while faded.",
 							type = "range",
-							min = 0.05, max = 0.9, step = 0.05, isPercent = true,
+							min = 0, max = 0.9, step = 0.01, isPercent = true,
 							width = 1.0,
 							disabled = function(info)
 								return ShamanPower.opt.fadeInsteadOfHide ~= true
