@@ -15185,14 +15185,85 @@ local function playFade(frame, fromAlpha)
 	ag:Play()   -- ends on the frame's own (already set) alpha
 end
 
+-- Hide When No Totems in a fight. An addon may not show a bar of cast buttons once a fight is
+-- on (measured on WoW: Forever 2026-10-08: the bar is protected, Show() does nothing; the same
+-- rule on Anniversary). Blizzard's own TotemFrame is shown by the game's trusted code the moment
+-- a totem is down and hidden when none is left, in a fight too, and a secure helper placed under
+-- it receives that show / hide and may pass it on to the bar. The helper acts only while
+-- "bridge" is 1, set here out of a fight: Hide When No Totems on, no fade, the bar in use.
+-- Hide Out of Combat and Show When I Have a Target are honored inside the snippets.
+function ShamanPower:UpdateTotemBarBridge(active)
+	if InCombatLockdown() then return end
+	local tf = _G.TotemFrame
+	if not (tf and self.autoButton) then self.totemBarBridgeOn = false return end
+	local h = self.totemBarBridge
+	if not h then
+		if not active then self.totemBarBridgeOn = false return end
+		h = CreateFrame("Frame", "ShamanPowerTotemBridge", tf, "SecureHandlerShowHideTemplate")
+		-- the pieces the bar is made of hang off UIParent, not the bar: each gets its own reference
+		-- and a "show it" attribute set here with the rule the usual show path uses
+		h:SetAttribute("_onshow", [=[
+			if self:GetAttribute("bridge") ~= 1 then return end
+			if self:GetAttribute("hideooc") == 1 and SecureCmdOptionParse("[combat] 1; 0") ~= "1"
+				and not (self:GetAttribute("withtarget") == 1 and SecureCmdOptionParse("[@target,harm] 1; 0") == "1") then return end
+			for _, key in ipairs({ "bar", "b1", "b2", "b3", "b4", "dropall", "es", "sh" }) do
+				if self:GetAttribute("show-" .. key) == 1 then
+					local f = self:GetFrameRef(key)
+					if f then f:Show() end
+				end
+			end
+		]=])
+		h:SetAttribute("_onhide", [=[
+			if self:GetAttribute("bridge") ~= 1 then return end
+			if self:GetAttribute("withtarget") == 1 and SecureCmdOptionParse("[@target,harm] 1; 0") == "1" then return end
+			for _, key in ipairs({ "bar", "b1", "b2", "b3", "b4", "dropall", "es", "sh" }) do
+				local f = self:GetFrameRef(key)
+				if f then f:Hide() end
+			end
+		]=])
+		h:Show()
+		self.totemBarBridge = h
+		-- the bar shown or hidden by the helper in a fight: keep the addon's own picture of it
+		self.autoButton:HookScript("OnShow", function()
+			if InCombatLockdown() and ShamanPower.totemBarBridgeOn then
+				ShamanPower.totemBarHidden = false
+				ShamanPower:UpdateTotemBarOpacity()
+			end
+		end)
+		self.autoButton:HookScript("OnHide", function()
+			if InCombatLockdown() and ShamanPower.totemBarBridgeOn then ShamanPower.totemBarHidden = true end
+		end)
+	end
+	-- Blizzard's frame kept down by another addon while totems are out: the helper would never
+	-- hear a show, so the bar keeps today's way (back after the fight)
+	if active and self:HasAnyTotemsPlaced() and not tf:IsVisible() then active = false end
+	local function piece(key, frame, show)
+		if frame then h:SetFrameRef(key, frame) end
+		h:SetAttribute("show-" .. key, (frame and show) and 1 or 0)
+	end
+	piece("bar", self.autoButton, true)
+	for element = 1, 4 do
+		piece("b" .. element, self.totemButtons and self.totemButtons[element],
+			self:IsElementShown(element) or self:IsElementPoppedOut(element))
+	end
+	piece("dropall", _G["ShamanPowerAutoDropAll"], self:ShowsDropAllButton())
+	piece("es", _G["ShamanPowerEarthShieldBtn"], self:HasEarthShield())
+	piece("sh", _G["ShamanPowerCompactShieldBtn"], self.CompactShieldLineActive and self:CompactShieldLineActive() or false)
+	h:SetAttribute("bridge", active and 1 or 0)
+	h:SetAttribute("hideooc", self.opt.hideOutOfCombat and 1 or 0)
+	h:SetAttribute("withtarget", self.opt.showWithTarget and 1 or 0)
+	self.totemBarBridgeOn = active
+end
+
 function ShamanPower:UpdateTotemBarVisibility(force)
 	if force then self.totemBarHidden, self.totemBarFaded = nil, nil end   -- a fade setting changed: re-apply
 	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then
+		self:UpdateTotemBarBridge(false)
 		self:HideCustomTotemBarForBlizzard()
 		return
 	end
-	if not self:TotemBarEnabled() then return end   -- bar is switched off entirely
-	if not self:TotemBarInUse() then return end     -- the layout keeps it down (solo / party choice)
+	if not self:TotemBarEnabled() then self:UpdateTotemBarBridge(false) return end   -- bar is switched off entirely
+	if not self:TotemBarInUse() then self:UpdateTotemBarBridge(false) return end     -- the layout keeps it down (solo / party choice)
 	if not self.autoButton then return end
 
 	local shouldHide = false
@@ -15224,6 +15295,9 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	-- the controller bar is showing (WoW: Forever controller mode): the same buttons twice, so the totem
 	-- bar hides; its keys, and the controller bar's slots that press them, keep working while hidden
 	if self.ControllerHidesTotemBar and self:ControllerHidesTotemBar() then shouldHide, fade = true, false end
+	-- Hide When No Totems in a fight goes through Blizzard's totem frame (UpdateTotemBarBridge)
+	self:UpdateTotemBarBridge(self.opt.hideWhenNoTotems == true and self.opt.fadeInsteadOfHide ~= true
+		and not (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar()))
 
 	-- Skip update if state hasn't changed (prevents blinking)
 	if self.totemBarHidden == shouldHide and (self.totemBarFaded or false) == fade then return end
