@@ -15092,6 +15092,8 @@ function ShamanPower:SetTotemBarFramesShown(shown)
 	local o, asked = self.opt, shown
 	if shown and self.totemBarHidden and o and (o.hideOutOfCombat or o.hideWhenNoTotems
 		or (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar())) then shown = false end
+	-- the bar not in use (switched off, solo / party choice): the totem-frame helper must not bring it back
+	if not asked then self:UpdateTotemBarBridge(false) else self:RefreshTotemBarBridge() end
 	if self.autoButton then self.autoButton:SetShown(shown) end
 	if self.totemButtons then
 		for element = 1, 4 do
@@ -15219,6 +15221,8 @@ function ShamanPower:UpdateTotemBarBridge(active)
 		]=])
 		h:SetAttribute("_onhide", [=[
 			if self:GetAttribute("bridge") ~= 1 then return end
+			local tf = self:GetParent()
+			if tf and tf:IsShown() then return end   -- an ancestor hid (PlayerFrame): totems are still down
 			if self:GetAttribute("withtarget") == 1 and SecureCmdOptionParse("[@target,harm] 1; 0") == "1" then return end
 			local f
 			f = self:GetFrameRef("bar") if f then f:Hide() end
@@ -15234,13 +15238,13 @@ function ShamanPower:UpdateTotemBarBridge(active)
 		self.totemBarBridge = h
 		-- the bar shown or hidden by the helper in a fight: keep the addon's own picture of it
 		self.autoButton:HookScript("OnShow", function()
-			if InCombatLockdown() and ShamanPower.totemBarBridgeOn then
+			if ShamanPower.totemBarBridgeOn then
 				ShamanPower.totemBarHidden = false
 				ShamanPower:UpdateTotemBarOpacity()
 			end
 		end)
 		self.autoButton:HookScript("OnHide", function()
-			if InCombatLockdown() and ShamanPower.totemBarBridgeOn then ShamanPower.totemBarHidden = true end
+			if ShamanPower.totemBarBridgeOn then ShamanPower.totemBarHidden = true end
 		end)
 	end
 	-- Blizzard's frame kept down by another addon while totems are out: the helper would never
@@ -15262,6 +15266,12 @@ function ShamanPower:UpdateTotemBarBridge(active)
 	h:SetAttribute("hideooc", self.opt.hideOutOfCombat and 1 or 0)
 	h:SetAttribute("withtarget", self.opt.showWithTarget and 1 or 0)
 	self.totemBarBridgeOn = active
+end
+
+-- the helper's references and "show it" attributes follow the pieces (an element popped out or
+-- back, Drop All on or off, Earth Shield learned): out of a fight, whenever the bar is laid out
+function ShamanPower:RefreshTotemBarBridge()
+	if self.totemBarBridge and not InCombatLockdown() then self:UpdateTotemBarBridge(self.totemBarBridgeOn) end
 end
 
 function ShamanPower:UpdateTotemBarVisibility(force)
@@ -15305,7 +15315,9 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 	-- bar hides; its keys, and the controller bar's slots that press them, keep working while hidden
 	if self.ControllerHidesTotemBar and self:ControllerHidesTotemBar() then shouldHide, fade = true, false end
 	-- Hide When No Totems in a fight goes through Blizzard's totem frame (UpdateTotemBarBridge)
+	-- (not with Grid or Totem Rows: their rows are frames the helper does not carry)
 	self:UpdateTotemBarBridge(self.opt.hideWhenNoTotems == true and self.opt.fadeInsteadOfHide ~= true
+		and not self.opt.gridStyle and not self.opt.totemRows
 		and not (self.ControllerHidesTotemBar and self:ControllerHidesTotemBar()))
 
 	-- Skip update if state hasn't changed (prevents blinking)
@@ -15437,8 +15449,8 @@ end
 -- nothing hidden is left to the layout, as the old 5 Hz pass left it.
 function ShamanPower:SetupTotemBarVisibilityUpdater()
 	local o = self.opt
-	if o and (o.hideOutOfCombat or o.hideWhenNoTotems or self.totemBarHidden or self.totemBarFaded) then
-		self:UpdateTotemBarVisibility()
+	if o and (o.hideOutOfCombat or o.hideWhenNoTotems or self.totemBarHidden or self.totemBarFaded or self.totemBarBridge) then
+		self:UpdateTotemBarVisibility()   -- (a helper from an earlier profile: its state is worked out again)
 	end
 end
 
@@ -15844,6 +15856,7 @@ function ShamanPower:UpdateMiniTotemBar()
 	if not self:TotemBarInUse() and not (self.KeybindModeActive and self:KeybindModeActive()) then
 		self:SetTotemBarFramesShown(false)
 	end
+	self:RefreshTotemBarBridge()
 end
 
 -- ============================================================================
