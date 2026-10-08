@@ -23,6 +23,7 @@ ReadyIcons.lua
 TTIcons.lua
 TTRules.lua
 IconRow.lua
+ListLook.lua
 CdbarIcons.lua
 ShieldIcons.lua
 LoadoutIcons.lua

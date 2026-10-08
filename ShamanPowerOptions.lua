@@ -10556,6 +10556,25 @@ do
 		get = function() return SP:GetTotemBarStyle() end,
 		set = function(_, value) SP:SetTotemBarStyle(value) end,
 	}
+	-- right under it (3.0.8): the settings pages' look. On: every icon page (Cooldown Bar,
+	-- Shield Charges, Totem Bar ...) draws its items as plain rows built from the same menus
+	-- (ShamanPower_Config/ListLook.lua). Off to start for everyone. The row is lit, with a
+	-- NEW tag, until it is used once (account-wide: db.global.oldLookSeen).
+	main.oldSettingsLook = {
+		order = 1.52, type = "toggle", name = "Use the Old Settings Look", width = "full",
+		desc = "Every setting as a plain row on each page, as before 3.0.8, instead of a row of icons. Both looks change the same settings.",
+		get = function() return SP.opt.oldSettingsLook == true end,
+		set = function(_, value)
+			SP.opt.oldSettingsLook = value and true or nil
+			if SP.db and SP.db.global then SP.db.global.oldLookSeen = true end
+		end,
+	}
+	SP.OptionRowLit = {
+		[main.oldSettingsLook] = function()
+			local g = SP.db and SP.db.global
+			return not (g and g.oldLookSeen)
+		end,
+	}
 	-- right under the style picker too (same setting as on Mode & Twisting)
 	main.hide_blizzard_totem_bar = {
 		order = 1.55, type = "toggle", name = "Hide Blizzard's Totem Bar", width = "full",

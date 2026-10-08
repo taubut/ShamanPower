@@ -626,5 +626,10 @@ local ef = CreateFrame("Frame")
 ef:RegisterEvent("PLAYER_ENTERING_WORLD")
 ef:SetScript("OnEvent", function(self)
 	self:UnregisterAllEvents()
-	C_Timer.After(4, function() SP:ShowWhatsNew() end)
+	C_Timer.After(4, function()
+		-- 3.0.8: the one-time "new look" prompt first (ListLook.lua); it shows What's New
+		-- itself once it is closed, so the two are never up at once
+		if SP.ShowOldLookPrompt and SP:ShowOldLookPrompt() then return end
+		SP:ShowWhatsNew()
+	end)
 end)

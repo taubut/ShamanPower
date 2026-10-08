@@ -1959,6 +1959,7 @@ local function ClearPage()
 	wipe(pageWidgets)
 	if ns.ThemesPage then ns.ThemesPage:Release() end
 	if ns.PatchNotesPage then ns.PatchNotesPage:Release() end
+	if ns.ListLook then ns.ListLook:Release() end
 	for _, row in pairs(ns.CustomRows) do
 		if row.Release then row:Release() end
 	end
@@ -2433,6 +2434,8 @@ local function RenderPageInner(self, entry, query, keepScroll)
 				opts.get = Tree:MakeGetter(e.node, e.chain, e.info)
 				local setter = Tree:MakeSetter(e.node, e.chain, e.info)
 				opts.set = function(v) setter(v) end
+				-- a row lit until the player uses it (SP.OptionRowLit[option] = function() -> lit): Widgets:Toggle opts.lit
+				opts.lit = spNow and spNow.OptionRowLit and spNow.OptionRowLit[e.node] or nil
 				local hs = hoverStyles and hoverStyles[e.node]
 				if hs and hs ~= "select" then
 					opts.onEnter = function() SPConfig:HoverStyle(hs) end
@@ -2510,7 +2513,19 @@ local function RenderPageInner(self, entry, query, keepScroll)
 				local customKey = spNow and spNow.OptionCustomRow and spNow.OptionCustomRow[e.node]
 				local customRow = customKey and ns.CustomRows[customKey]
 				BreakRow()
-				if customRow then
+				if customRow and ns.ListLook and ns.ListLook:Takes(customKey, customRow) then
+					-- Use the Old Settings Look (ListLook.lua): the icon row's items as cards of plain
+					-- rows after the open card (a card holding only its strip stays as the heading)
+					CloseCard()
+					local ok, cf, ch = pcall(ns.ListLook.Render, ns.ListLook, customRow, body, y, fullW, element, onChanged)
+					if ok and cf then
+						table.insert(pageWidgets, cf)
+						y = y + (ch or 0)
+						rowY = y
+					elseif not ok then
+						geterrorhandler()(cf)
+					end
+				elseif customRow then
 					local ok, cf, ch = pcall(customRow.Render, customRow, body, 0, rowY, fullW, onChanged)
 					if ok and cf then
 						table.insert(pageWidgets, cf)
@@ -3665,7 +3680,7 @@ do
 	local main = root and root.settings.args.settings_show
 	if main then
 		sp.OrderSettingsBands(main, {
-			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar", "hide_player_totems" } },
+			{ keys = { "globally", "totemBarStyle", "oldSettingsLook", "hide_blizzard_totem_bar", "hide_player_totems" } },
 			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
 			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",
