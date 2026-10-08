@@ -531,10 +531,6 @@
     {
       "key": "partyStripBreakUp",
       "label": "Party strip: broken up per totem"
-    },
-    {
-      "key": "reactiveClickToCast",
-      "label": "Reactive alerts: click to cast"
     }
   ]
 }

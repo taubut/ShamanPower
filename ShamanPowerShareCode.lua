@@ -297,11 +297,6 @@ SP.SHARE_FEATURES = {
 		for _, v in pairs(picked) do if v == true then n = n + 1 end end
 		return n > 1
 	end },
-	-- 3.0.8: Click an Alert to Cast Its Totem (Reactive Totems > Behavior)
-	{ key = "reactiveClickToCast", label = "Reactive alerts: click to cast",     get = function()
-		local sv = G("ShamanPower_ReactiveTotems")
-		return on(sub(sv, "enabled")) and on(sub(sv, "clickCasts"))
-	end },
 }
 
 -- ---------------------------------------------------------------------------
