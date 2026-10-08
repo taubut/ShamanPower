@@ -1167,10 +1167,9 @@ end
 -- TBC Anniversary: the module draws its own alerts and shows / hides them in a fight, which a
 -- secure child would forbid; the feature is not there (its row is hidden), nothing below is
 -- ever made, and every path of the module is today's.
-local engineCasts = {}           -- [auraButton] = the cast button inside it
-local engineCastFree = {}        -- cast buttons inside no aura button (parked under UIParent, hidden)
-local engineCastCount = 0
-local castPending = false        -- put in place again at the end of the fight
+local engineCasts = {}           -- [auraButton] = true: a game-drawn display built as the cast button
+local castPending = false        -- the displays built again at the end of the fight (the option flipped in one)
+local spellsPending = false      -- the cast names set again at the end of the fight
 local RING_COLOR = SP.PANEL_ACCENT or { 0, 0.439, 0.867 }   -- Core.lua accent (#0070DD), the rows' hover
 
 local function ClickCastOn()
@@ -1250,9 +1249,8 @@ end
 local function CastLeave(b) ClearCastHover(b) end
 -- a display going invisible (your Fear display, another crowd control up): nothing of a hover stays
 function SP:ReactiveClearCastHover(container)
-	for _, ab in ipairs(container.spAuraButtons or {}) do
-		local b = engineCasts[ab]
-		if b then ClearCastHover(b) end
+	for _, b in ipairs(container.spAuraButtons or {}) do
+		if engineCasts[b] then ClearCastHover(b) end
 	end
 end
 
@@ -1266,9 +1264,13 @@ local function RingEdge(b, p1, x1, y1, p2, x2, y2, w, h)
 	t:Hide()
 	return t
 end
-local function MakeCastButton(name)
-	local b = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
-	b:RegisterForClicks("LeftButtonUp")
+-- The game builds each display's button from "CustomAuraButtonTemplate, SecureActionButtonTemplate"
+-- while the option is on (BuildReactiveContainer asks for it): the alert IS the cast button, shown
+-- and hidden by the game itself, nothing of ours is reparented into it (the game forbids that).
+-- Set up once, at its creation, out of a fight (the container's initializeFrame).
+local function InitEngineCastButton(b, id, host)
+	if engineCasts[b] then return end
+	if b.RegisterForClicks then b:RegisterForClicks("LeftButtonUp") end
 	b:SetAttribute("useOnKeyDown", false)   -- the click on the release, whatever Action Button Use Key Down says (else it never fires)
 	b:SetAttribute("alt-type1", "macro")   -- ALT + left-click casts nothing: ALT + drag moves the alert
 	b:SetAttribute("alt-macrotext1", "")
@@ -1282,8 +1284,8 @@ local function MakeCastButton(name)
 	b:HookScript("OnMouseUp", CastMouseUp)
 	b:HookScript("OnEnter", CastEnter)
 	b:HookScript("OnLeave", CastLeave)
-	b:Hide()
-	return b
+	b.host, b.totemId = host, id
+	engineCasts[b] = true
 end
 -- the totem: its cast name (the one the Drop All macro uses), highest known rank; none while
 -- the totem is not learned, so the click does nothing (set out of a fight only)
@@ -1300,71 +1302,30 @@ local function SetCastSpell(b, id)
 	end
 end
 
--- a cast button into the game's aura button (out of a fight)
-local function AttachEngineCast(id, host, auraButton)
-	if engineCasts[auraButton] then return end   -- (its spell: ReactiveClickCastSpells)
-	local b = table.remove(engineCastFree)
-	if not b then
-		engineCastCount = engineCastCount + 1
-		b = MakeCastButton("ShamanPowerReactiveEngineCast" .. engineCastCount)
-	end
-	b:SetParent(auraButton)
-	b:ClearAllPoints()
-	b:SetAllPoints(auraButton)
-	b:SetFrameLevel(auraButton:GetFrameLevel() + 5)
-	b.host, b.totemId = host, id
-	SetCastSpell(b, id)
-	b:Show()
-	engineCasts[auraButton] = b
-end
-local function DetachEngineCasts(container)
-	local list = container and container.spAuraButtons
-	if not list then return end
-	for _, ab in ipairs(list) do
-		local b = engineCasts[ab]
-		if b then
-			engineCasts[ab] = nil
-			b:Hide()
-			b:SetParent(UIParent)
-			b:ClearAllPoints()
-			b.host, b.totemId = nil, nil
-			engineCastFree[#engineCastFree + 1] = b
-		end
-	end
-end
--- every cast button where the option wants it: inside each display that is shown, nowhere else
-local function SyncEngineCasts()
-	local on = ClickCastOn() and SP.reactiveEngineBuilt == true and not SP.reactivePositioningMode and not SP.reactiveDemoActive
-	for id, list in pairs(SP.reactiveEngine) do
-		local host = SP.reactiveFrames[id]
-		for _, slot in pairs(list) do
-			local c = slot.container
-			if c and c.spAuraButtons then
-				if on and host and c:IsShown() then
-					for _, ab in ipairs(c.spAuraButtons) do AttachEngineCast(id, host, ab) end
-				else
-					DetachEngineCasts(c)
-				end
-			end
-		end
-	end
-end
 -- BuildReactiveContainer: the game made a button for this display (at the build, or later)
-function SP:ReactiveClickCastAuraButton(container, button)
+function SP:ReactiveClickCastAuraButton(container, button, host, totemId)
 	container.spAuraButtons = container.spAuraButtons or {}
 	container.spAuraButtons[#container.spAuraButtons + 1] = button
-	if ClickCastOn() then castPending = true end   -- (the build's own apply, or the end of the fight)
+	if host then
+		InitEngineCastButton(button, totemId, host)
+		SetCastSpell(button, totemId)
+	end
 end
 -- RebuildReactiveEngine: a slot's display is replaced (out of a fight)
-function SP:ReactiveClickCastRelease(container) DetachEngineCasts(container) end
+function SP:ReactiveClickCastRelease(container)
+	for _, b in ipairs(container and container.spAuraButtons or {}) do
+		if engineCasts[b] then ClearCastHover(b); engineCasts[b] = nil end
+	end
+end
 
 -- the cast buttons where the displays are, out of a fight (in one: again at its end). Nothing
 -- happens while the option was never on (TBC Anniversary: always).
 function SP:ReactiveClickCastApply()
-	if engineCastCount == 0 and not ClickCastOn() then return end
-	if InCombatLockdown() then castPending = true return end
+	if not castPending then return end   -- (only the switch sets it: the displays are built the other way then)
+	if InCombatLockdown() then return end   -- the end of the fight (ReactiveClickCastRegen)
 	castPending = false
-	SyncEngineCasts()
+	-- the build key carries the option (RebuildReactiveEngine): only a display built the other way is built again
+	self:RebuildReactiveEngine()
 end
 -- a fight begins (PLAYER_REGEN_DISABLED comes before the lockdown)
 function SP:ReactiveClickCastFightStart()
@@ -1400,13 +1361,15 @@ function SP:ReactiveClickCastRegen()
 		self:UpdateReactiveFrameAppearance(nil, true)
 		self:QueueReactiveRebuild()
 	end
-	if castPending or engineCastCount > 0 then self:ReactiveClickCastApply() end
+	if castPending then self:ReactiveClickCastApply() end
+	if spellsPending then self:ReactiveClickCastSpells() end
 end
 -- the spells changed (learned, or a new rank): the cast names again
 function SP:ReactiveClickCastSpells()
-	if not ClickCastOn() then return end
-	if InCombatLockdown() then castPending = true return end
-	for _, b in pairs(engineCasts) do if b.totemId then SetCastSpell(b, b.totemId) end end
+	if not next(engineCasts) then return end
+	if InCombatLockdown() then spellsPending = true return end
+	spellsPending = false
+	for b in pairs(engineCasts) do if b.totemId then SetCastSpell(b, b.totemId) end end
 end
 -- the switch (Reactive Totems > Behavior, WoW: Forever): refused in a fight, as the page's other changes are
 function SP:SetReactiveClickCast(on)
@@ -1417,18 +1380,19 @@ function SP:SetReactiveClickCast(on)
 		return
 	end
 	sv.clickCasts = on and true or false
+	castPending = true   -- (the displays are built the other way)
 	self:ReactiveClickCastApply()
 end
 -- /spreactive status
 function SP:ReactiveClickCastReport()
 	local inside, where = 0, {}
-	for ab, b in pairs(engineCasts) do
+	for b in pairs(engineCasts) do
 		inside = inside + 1
-		where[#where + 1] = tostring(b.totemId) .. (ab:IsShown() and "(up)" or "")
+		where[#where + 1] = tostring(b.totemId) .. (b:IsShown() and "(up)" or "")
 	end
 	table.sort(where)
-	return ("click to cast: %s  inside the game's displays: %d %s waiting: %s"):format(
-		ClickCastOn() and "on" or "off", inside, inside > 0 and ("[" .. table.concat(where, " ") .. "] ") or "", tostring(castPending))
+	return ("click to cast: %s  displays built as cast buttons: %d %s waiting: %s"):format(
+		ClickCastOn() and "on" or "off", inside, inside > 0 and ("[" .. table.concat(where, " ") .. "] ") or "", tostring(castPending or spellsPending))
 end
 
 -- ============================================================================
@@ -1619,11 +1583,18 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 	end
 	local caption, captionIsKey = SP:ReactiveKeyCaption(totemId)   -- Show Spell Keybind ("" = none)
 	local kr, kg, kb = KeyCaptionColor(captionIsKey)
+	-- Click an Alert to Cast Its Totem (WoW: Forever): the game builds the display's button as a secure
+	-- cast button too (its templates: "CustomAuraButtonTemplate, SecureActionButtonTemplate"), so the
+	-- alert itself takes the click, shown and hidden by the game. Then its mouse stays on.
+	local castBuilt = ClickCastOn()
+	if castBuilt then options.templateNames = { "SecureActionButtonTemplate" } end
 	options.initializeFrame = function(button)
 		button:ClearAllPoints()
 		button:SetAllPoints(host)
-		if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
-		if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+		if not castBuilt then
+			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+		end
 		if not hideBackground then
 			local bg = button:CreateTexture(nil, "BACKGROUND")
 			bg:SetAllPoints(button)
@@ -1724,7 +1695,7 @@ local function BuildReactiveContainer(totemId, unitIndex, host)
 			totem:SetShadowColor(0, 0, 0, 1)
 			totem:SetShadowOffset(1, -1)
 		end
-		SP:ReactiveClickCastAuraButton(container, button)   -- Click an Alert to Cast Its Totem: a cast button inside, out of a fight
+		SP:ReactiveClickCastAuraButton(container, button, castBuilt and host or nil, totemId)   -- Click an Alert to Cast Its Totem
 	end
 	local okAdd, err = pcall(container.AddAuraSlot, container, "alert", filter, options)
 	if not okAdd then
@@ -1790,6 +1761,7 @@ function SP:RebuildReactiveEngine()
 				local _, class = UnitClass(unit)
 				local key = (exists and ((UnitName(unit) or "?") .. "/" .. tostring(class)) or "-") .. "|" .. look
 				if caption ~= "" then key = key .. "|" .. caption end
+				if ClickCastOn() then key = key .. "|cast" end   -- (built as a cast button: Click an Alert to Cast Its Totem)
 				local slot = list[i]
 				if not slot or slot.key ~= key then
 					if slot and slot.container then
