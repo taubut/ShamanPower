@@ -8372,6 +8372,7 @@ function ShamanPower:DressFlyoutFrame(flyout)
 	-- tab keeps the flyout's, so it never fades out of reach.
 	-- a shield / imbue flyout follows the CD Flyouts opacity, not the totem one
 	local alpha = (flyout.isCdbarFlyout and self:CdItemOpt(flyout.cdItemType, "flyoutOpacity") or self.opt.totemFlyoutOpacity) or 1.0
+	if not flyout.isCdbarFlyout then alpha = alpha * self:TotemFlyoutFadeMultiplier() end   -- (the totem bar's fade)
 	local panelAlpha = alpha * (self.opt.flyoutFrameOpacity or 1.0)
 	for _, t in ipairs({ band, cap, foot }) do t:SetAlpha(panelAlpha); t:Show() end
 	fill:SetAlpha(panelAlpha * 0.85); fill:Show()
@@ -9376,8 +9377,8 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 		end
 	end
 
-	-- Apply flyout opacity
-	local opacity = self.opt.totemFlyoutOpacity or 1.0
+	-- Apply flyout opacity (with the totem bar's fade)
+	local opacity = (self.opt.totemFlyoutOpacity or 1.0) * self:TotemFlyoutFadeMultiplier()
 	for _, btn in ipairs(flyout.buttons) do
 		btn:SetAlpha(opacity)
 	end
@@ -13494,8 +13495,15 @@ function ShamanPower:UpdateCooldownBarOpacity()
 	end
 end
 
+-- The totem flyouts follow the bar's fade (Fade Instead of Hide): a bar faded to 0% opens
+-- invisible flyouts, and both come back together when a totem drops (alpha may change in a fight)
+function ShamanPower:TotemFlyoutFadeMultiplier()
+	if self.totemBarFaded then return self.opt.fadeOpacity or 0.25 end
+	return 1
+end
+
 function ShamanPower:UpdateTotemFlyoutOpacity()
-	local opacity = self.opt.totemFlyoutOpacity or 1.0
+	local opacity = (self.opt.totemFlyoutOpacity or 1.0) * self:TotemFlyoutFadeMultiplier()
 	-- Update all totem flyout buttons (flyout is now a table with buttons array)
 	if self.totemFlyouts then
 		for element = 1, 4 do
@@ -15267,6 +15275,7 @@ function ShamanPower:UpdateTotemBarVisibility(force)
 
 			self.autoButton:Show()
 			self.autoButton:SetAlpha(alpha)
+			self:UpdateTotemFlyoutOpacity()   -- the flyouts fade with the bar (and come back with it)
 
 			-- only the elements the layout shows (a hidden or not yet learned one stays
 			-- hidden; a popped-out one shows in its own frame)
