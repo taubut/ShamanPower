@@ -52,9 +52,8 @@ local MOCK_TOTEM    = { mocks = { { label = "Totem bar",     build = "BuildTotem
 local MOCK_DURATION = { mocks = { { label = "Duration bars", build = "BuildDurationBarsPane" } } }
 local MOCK_CDBAR    = { mocks = { { label = "Cooldown bar",  build = "BuildCooldownBarStep" } } }
 local MOCK_BARS     = { mocks = { MOCK_TOTEM.mocks[1], MOCK_CDBAR.mocks[1] } }
--- each bar's Effects tab: that bar's preview with its effects playing on it
+-- the Totem Bar's Effects tab: its preview with its effects playing on it
 local MOCK_TOTEM_EFFECTS = { mocks = MOCK_TOTEM.mocks, effects = true }
-local MOCK_CDBAR_EFFECTS = { mocks = MOCK_CDBAR.mocks, effects = true }
 local MOCK_THEMES   = { mocks = MOCK_BARS.mocks }   -- General > Themes: the split bar preview, rebuilt on every theme change (no Effects: themes are not effects)
 -- which bar a mock is, for a theme's flat boxes on it (SP:ThemeSkinPreview)
 local MOCK_SKIN_FAMILY = {
@@ -121,35 +120,25 @@ local POWER_SPRANGE = {
 -- The page's "Display Mode" select maps the pair to dots/numbers/both/none;
 -- the dot remembers which mode was active when it was switched off so
 -- switching back on restores it (session-only, nothing new is persisted).
-local partyBuffLastMode
 local POWER_PARTYBUFF = {
 	label  = "Party Buff Tracker",
-	desc   = "Turn the party range dots and counters on or off.",
+	desc   = "Turn the Party Buff Tracker on or off: its dots and counters, Coverage and the Party Strip.",
 	loaded = function() local sp = SP() return sp and sp.PartyRangeLoaded and true or false end,
+	-- the whole module (SP:PartyBuffOff); each feature keeps its own switch and settings
 	get    = function()
 		local o = SP().opt
 		if not o then return false end
-		return (o.showPartyRangeDots or (o.rangeCounter and o.rangeCounter.enabled)) and true or false
+		return o.partyBuffOff ~= true
 	end,
 	set    = function(v)
 		local sp = SP()
 		local o = sp.opt
 		if not o then return end
-		sp:EnsureProfileTable("rangeCounter")
-		if v then
-			local mode = partyBuffLastMode or "dots"
-			o.showPartyRangeDots   = (mode == "dots" or mode == "both")
-			o.rangeCounter.enabled = (mode == "numbers" or mode == "both")
-		else
-			local dots, nums = o.showPartyRangeDots, o.rangeCounter.enabled
-			if dots and nums then partyBuffLastMode = "both"
-			elseif nums then partyBuffLastMode = "numbers"
-			else partyBuffLastMode = "dots" end
-			o.showPartyRangeDots   = false
-			o.rangeCounter.enabled = false
-		end
+		if v then o.partyBuffOff = nil else o.partyBuffOff = true end
 		sp:UpdatePartyRangeDots()
 		sp:UpdateRangeCounters()
+		if sp.RebuildCoverage then sp:RebuildCoverage() end
+		if sp.RebuildPartyStrip then sp:RebuildPartyStrip() end
 	end,
 }
 
@@ -175,34 +164,84 @@ local POWER_TARGETTRACKER = {
 	set    = function(v) SP():TT_SetEnabled(v and true or false) end,
 }
 
+-- the Cooldown Bar's on / off (A13: its page has no Enable row any more)
+local POWER_CDBAR = {
+	label  = "Cooldown Bar",
+	desc   = "Turn the Cooldown Bar on or off.",
+	get    = function() local o = SP().opt return o and o.showCooldownBar and true or false end,
+	set    = function(v)
+		local sp = SP()
+		if not sp.opt then return end
+		sp.opt.showCooldownBar = v and true or false
+		sp:UpdateCooldownBar()
+	end,
+}
+
+-- Controller mode's on / off (3.0.8, WoW: Forever only: ShamanPowerController.lua). On, the
+-- controller bar shows as its Controller Look says (Automatic: while Blizzard's Gamepad UI is on)
+local POWER_CONTROLLER = {
+	label  = "Controller",
+	desc   = "Turn the controller bar on or off.",
+	loaded = function() local sp = SP() return sp and sp.Controller ~= nil and sp.Controller.SetEnabled ~= nil or false end,
+	get    = function() local o = SP().opt local c = o and o.controller return c and c.enabled and true or false end,
+	set    = function(v) local sp = SP() if sp.Controller then sp.Controller:SetEnabled(v) end end,
+}
+
+-- (3.0.8: off = every shield off; on = each shield back as it was, by its own switch)
 local POWER_SHIELDCHARGES = {
 	label  = "Shield Charge Display",
 	desc   = "Turn the on-screen shield charge numbers on or off.",
-	loaded = function() local sp = SP() return sp and sp.ShieldChargesLoaded and true or false end,
+	loaded = function() local sp = SP() return sp and sp.ShieldChargesLoaded and sp.ShieldOpt ~= nil or false end,
 	get    = function()
-		local o = SP().opt
-		local s = o and o.shieldChargeDisplay
-		if not s then return false end
-		return ((s.showPlayerShield ~= false) or (s.showEarthShield ~= false)) and true or false
+		local sp = SP()
+		if not (sp.opt and sp.opt.shieldChargeDisplay) then return false end
+		return (sp:ShieldOpt("LS", "enabled") or sp:ShieldOpt("WS", "enabled") or sp:ShieldOpt("ES", "enabled")) and true or false
 	end,
 	set    = function(v)
 		local sp = SP()
 		if not sp.opt then return end
 		sp:EnsureProfileTable("shieldChargeDisplay")
-		local s = sp.opt.shieldChargeDisplay
+		local last = shieldLastPlayer
 		if v then
-			local p = shieldLastPlayer
-			local e = shieldLastEarth
-			if p == nil and e == nil then p, e = true, true end
-			s.showPlayerShield = p and true or false
-			s.showEarthShield  = e and true or false
+			if type(last) ~= "table" then last = { LS = true, WS = true, ES = true } end
+			for _, sh in ipairs({ "LS", "WS", "ES" }) do
+				sp:SetShieldOpt(sh, "enabled", last[sh] and true or false)
+			end
 		else
-			shieldLastPlayer = (s.showPlayerShield ~= false)
-			shieldLastEarth  = (s.showEarthShield ~= false)
-			s.showPlayerShield = false
-			s.showEarthShield  = false
+			last = {}
+			for _, sh in ipairs({ "LS", "WS", "ES" }) do
+				last[sh] = sp:ShieldOpt(sh, "enabled") and true or false
+				sp:SetShieldOpt(sh, "enabled", false)
+			end
+			shieldLastPlayer = last
 		end
 		sp:UpdateShieldChargeDisplays()
+	end,
+}
+
+-- Expiring Alerts' and Reactive Totems' on / off (A16: their pages have no Enable row any
+-- more; the same setting the row had)
+local POWER_EXPIRING = {
+	label  = "Expiring Alerts",
+	desc   = "Turn Expiring Alerts on or off.",
+	loaded = function() local sp = SP() return sp and sp.ExpiringAlertsLoaded and type(rawget(_G, "ShamanPowerExpiringAlertsDB")) == "table" or false end,
+	get    = function() local db = rawget(_G, "ShamanPowerExpiringAlertsDB") return type(db) == "table" and db.enabled ~= false end,
+	set    = function(v)
+		local db = rawget(_G, "ShamanPowerExpiringAlertsDB")
+		if type(db) == "table" then db.enabled = v and true or false end
+	end,
+}
+local POWER_REACTIVE = {
+	label  = "Reactive Totems",
+	desc   = "Turn Reactive Totems on or off.",
+	loaded = function() local sp = SP() return sp and sp.ReactiveTotemsLoaded and type(rawget(_G, "ShamanPower_ReactiveTotems")) == "table" or false end,
+	get    = function() local db = rawget(_G, "ShamanPower_ReactiveTotems") return type(db) == "table" and db.enabled ~= false end,
+	set    = function(v)
+		local db = rawget(_G, "ShamanPower_ReactiveTotems")
+		if type(db) ~= "table" then return end
+		db.enabled = v and true or false
+		local sp = SP()
+		if sp.UpdateReactiveTotems then sp:UpdateReactiveTotems() end
 	end,
 }
 
@@ -233,70 +272,94 @@ local NAV = {
 			desc = "What changed in each version, newest first. Click a version to open or close it.",
 			newTag = function() local sp = ShamanPower; return sp and sp.PatchNotesUnseen and sp:PatchNotesUnseen() end },
 	}},
-	{ group = "Bars", entries = {
-		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true,
-			desc = "The totem bar: its style and clicks, what it shows, button and drop order, duration bars, flyouts and macros.", tabs = {
+	{ group = "Bars", power = true, entries = {
+		-- Bar first (A15): the icon page (TotemBarIcons.lua: the Buttons row and the Totems rows; Items,
+		-- Order, Drop All and Flyouts are clicks, a drag and lines in their menus now)
+		{ label = "Totem Bar", preview = MOCK_TOTEM, shamanOnly = true, lock = true, power = false,
+			desc = "The totem bar: its buttons and the totems in their flyouts, its style and clicks, duration bars, effects and macros.",
+			onReset = function() local sp = SP() if sp and sp.TotemBarResetPage then sp:TotemBarResetPage() end end, tabs = {
+			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
 			{ label = "Style",         paths = { P("settings", "settings_totemMode") } },
 			{ label = "Clicks",        paths = { P("settings", "settings_totemClicks") } },
-			{ label = "Bar",           paths = { P("buttons", "auto_button") } },
-			{ label = "Items",         paths = { P("fluffy", "totembar_items_section") } },
-			{ label = "Order",         paths = { P("fluffy", "totembar_order_section") } },
-			{ label = "Drop All",      paths = { P("buttons", "dropall_section") } },
 			{ label = "Duration Bars", preview = MOCK_DURATION, paths = { P("fluffy", "totembar_duration_section") } },
-			{ label = "Flyouts",       paths = { P("fluffy", "totemflyouts_section") } },
 			{ label = "Effects",       preview = MOCK_TOTEM_EFFECTS, paths = { P("fluffy", "totembar_effects_section") } },
 			{ label = "Macros",        paths = { P("buttons", "macros_section") } },
 			{ label = "Twisting",      paths = { P("settings", "settings_totemTwisting") } },   -- no rows (so no tab) on WoW: Forever
 		}},
-		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, desc = "Which cooldowns the bar shows, their order and display.", tabs = {
-			{ label = "Items",   paths = { P("fluffy", "cdbar_items_section") } },
-			{ label = "Order",   paths = { P("fluffy", "cdbar_order_section") } },
-			{ label = "Display", paths = { P("fluffy", "cooldown_display_section") } },
-			{ label = "Effects", preview = MOCK_CDBAR_EFFECTS, paths = { P("fluffy", "cdbar_effects_section") } },
-		}},
-		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
+		-- one page (A13): the Items row (click, right-click, drag) and what is about the whole bar
+		{ label = "Cooldown Bar", preview = MOCK_CDBAR, shamanOnly = true, lock = true, power = POWER_CDBAR,
+			desc = "Click an item to show or hide it, right-click it for its settings, drag it to move it.",
+			onReset = function() local sp = SP() if sp and sp.CooldownBarResetPage then sp:CooldownBarResetPage() end end,
+			path = P("fluffy", "cdbar_page") },
+		{ label = "Appearance", preview = MOCK_BARS, shamanOnly = true, lock = true, power = false, desc = "Layout, size, opacity, textures and visibility of the bars.", tabs = {
 			{ label = "Totem Bar", preview = MOCK_TOTEM, paths = {
 				P("fluffy", "totembar_appearance"), P("fluffy", "appearance_resets"),
 			} },
-			{ label = "Cooldown Bar", preview = MOCK_CDBAR, paths = { P("fluffy", "cooldownbar_appearance") } },
 			{ label = "Flyouts", paths = { P("fluffy", "flyout_appearance") } },
 			{ label = "Textures & Colors", paths = {
 				P("fluffy", "texture_section"), P("fluffy", "color_section"),
 				P("fluffy", "element_colors_section"), P("fluffy", "button_tints_section"),
 			} },
-			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
+			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" },
+				{ "settings", "settings_town", label = "Out Of The Way" } } },
 		}},
-		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true,
+		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true, power = false,
 			desc = "Save totem loadouts, set up their bar and choose when to switch automatically.", tabs = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") } },
 			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") } },
 		}},
+		-- WoW: Forever only (the page exists only there): the controller bar (ShamanPowerController.lua)
+		{ label = "Controller", shamanOnly = true, lock = true, power = POWER_CONTROLLER,
+			desc = "Your totem bar shaped like your controller, for Blizzard's controller mode.",
+			path = P("fluffy", "controller_page") },
 	}},
 	{ group = "Group Tools", power = true, entries = {
 		{ label = "Raid Cooldowns", preview = "raidcd",       path = P("fluffy", "raid_cd_section") },
 		{ label = "Raid Resistance", shamanOnly = true, path = P("buttons", "resist_section"), power = POWER_RESIST },   -- WoW: Forever only (the group exists only there)
 		{ label = "Cooldown Announce", shamanOnly = true, path = P("fluffy", "announce_section") },
-		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE },
-		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF, tabs = {
+		-- (A18) the icon rows' own parts reset too: the tracked totems, Coverage's watched totems and sizes
+		{ label = "Totem Range Tracker", preview = "sprange",  path = P("fluffy", "sprange_section"), power = POWER_SPRANGE,
+			onReset = function() local sp = SP() if sp and sp.RangeTrackerResetPage then sp:RangeTrackerResetPage() end end },
+		{ label = "Party Buff Tracker", preview = MOCK_PARTY, shamanOnly = true, power = POWER_PARTYBUFF,
+			onReset = function() local sp = SP() if sp and sp.CoverageResetPage then sp:CoverageResetPage() end end, tabs = {
 			{ label = "Dots & Counters", paths = { P("fluffy", "partybuff_section") } },
 			{ label = "Coverage", preview = "coverage", paths = { P("fluffy", "coverage_section") } },
+			{ label = "Party Strip", preview = "partystrip", paths = { P("fluffy", "partystrip_section") } },
 		}},
 		{ label = "Earth Shield Tracker", preview = "estracker", path = P("fluffy", "estrack_section") },
 		{ label = "Ready Check", preview = "readycheck", shamanOnly = true, path = P("fluffy", "readycheck_section") },
 	}},
 	{ group = "Alerts & Reminders", power = true, entries = {
-		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true,       path = P("fluffy", "shieldcharges_section"), power = POWER_SHIELDCHARGES },
-		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true,      path = P("fluffy", "reactivetotems_section") },
-		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section"), power = POWER_READYREMINDERS },
+		-- one page (A17): the Shields row (click, right-click) and Position
+		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true, lock = true, power = POWER_SHIELDCHARGES,
+			desc = "Your shields' charges on screen. Each shield has its own settings: right-click it.",
+			onReset = function() local sp = SP() if sp and sp.ShieldChargesResetPage then sp:ShieldChargesResetPage() end end,
+			path = P("fluffy", "shieldcharges_page") },
+		-- one page each (A16): the Alerts row (click, right-click) and what is about the whole page
+		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true, lock = true, power = POWER_REACTIVE,
+			desc = "A big totem icon when you or your group is feared, poisoned or diseased. Right-click an alert for its settings.",
+			onReset = function() local sp = SP() if sp and sp.ReactiveTotemsResetPage then sp:ReactiveTotemsResetPage() end end,
+			path = P("fluffy", "reactivetotems_section") },
+		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true, power = POWER_READYREMINDERS,
+			desc = "Icons that show when a spell is ready, and a big flash of the spell on its own spot.",
+			onReset = function() local sp = SP() if sp and sp.ReadyFlashResetPage then sp:ReadyFlashResetPage() end end, tabs = {
+			{ label = "Icons",       preview = "readyreminders", paths = { P("fluffy", "readyreminders_section") } },
+			{ label = "Ready Flash", preview = "readyflashpane", paths = { P("fluffy", "readyflash_section") } },
+		}},
 		{ label = "Target Tracker", preview = "targettracker", shamanOnly = true,       path = P("fluffy", "targettracker_section"), power = POWER_TARGETTRACKER, noReset = true },
-		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true,      path = P("fluffy", "expiringalerts_section") },
+		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true, lock = true, power = POWER_EXPIRING,
+			desc = "A line on your screen when a shield or weapon imbue fades or a totem is destroyed. Right-click an alert for its settings.",
+			onReset = function() local sp = SP() if sp and sp.ExpiringAlertsResetPage then sp:ExpiringAlertsResetPage() end end,
+			path = P("fluffy", "expiringalerts_section") },
 		{ label = "Tremor Reminder", preview = "tremor", shamanOnly = true,      path = P("fluffy", "tremorreminder_section") },
 		{ label = "Trainer Reminder", shamanOnly = true, path = P("fluffy", "trainer_section") },
 	}},
 	{ group = "Other", power = true, entries = {
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
-		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.", tabs = {
+		{ label = "Pop-Out Trackers", shamanOnly = true, lock = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.",
+			-- (A18) each popped-out tracker's own Scale, Opacity, Hide Background and Flyout Direction
+			onReset = function() local sp = SP() if sp and sp.PopOutResetPage then sp:PopOutResetPage() end end, tabs = {
 			{ label = "Pop-Out Trackers", paths = {
 				{ "settings", "settings_popout", label = "Middle-Click Pop-Out" },
 				{ "fluffy",   "popout_section",  label = "Popped-Out Trackers" },
@@ -1447,6 +1510,7 @@ local function BuildWindow()
 
 	frame.bodyScroll, frame.body = bodyScroll, body
 	Core:AttachScrollbar(bodyScroll, body, { offset = 6 })
+	Core:CullScrollChild(bodyScroll, body)   -- rows out of view hidden: a long page (Themes) scrolls light
 
 	-- Footer: its own band (the mock's sidebar navy) under a rule
 	local footer = CreateFrame("Frame", nil, content)
@@ -1886,10 +1950,12 @@ end
 -- Widgets go back to their pools rather than being orphaned; pageWidgets is
 -- kept only as the "did this render draw anything" count for the empty state.
 local function ClearPage()
+	if frame.bodyScroll.spCullReset then frame.bodyScroll.spCullReset() end   -- rows hidden out of view: back first
 	Widgets:ReleaseAll(frame.body)
 	wipe(pageWidgets)
 	if ns.ThemesPage then ns.ThemesPage:Release() end
 	if ns.PatchNotesPage then ns.PatchNotesPage:Release() end
+	if ns.ListLook then ns.ListLook:Release() end
 	for _, row in pairs(ns.CustomRows) do
 		if row.Release then row:Release() end
 	end
@@ -2240,8 +2306,8 @@ local function RenderPageInner(self, entry, query, keepScroll)
 	end
 
 	local onChanged = function()
-		-- A set() may flip another option's hidden= (e.g. TotemTimers Style
-		-- Display reveals Right-Click Drops Corner Totem). Re-resolve the page
+		-- A set() may flip another option's hidden= (e.g. the active-totem
+		-- display reveals Right-Click Drops Corner Totem). Re-resolve the page
 		-- and redraw only when the visible row set actually changed.
 		selfNotify = true
 		local navQuery = string.lower(frame.navSearch:GetText() or ""):match("^%s*(.-)%s*$")
@@ -2364,6 +2430,8 @@ local function RenderPageInner(self, entry, query, keepScroll)
 				opts.get = Tree:MakeGetter(e.node, e.chain, e.info)
 				local setter = Tree:MakeSetter(e.node, e.chain, e.info)
 				opts.set = function(v) setter(v) end
+				-- a row lit until the player uses it (SP.OptionRowLit[option] = function() -> lit): Widgets:Toggle opts.lit
+				opts.lit = spNow and spNow.OptionRowLit and spNow.OptionRowLit[e.node] or nil
 				local hs = hoverStyles and hoverStyles[e.node]
 				if hs and hs ~= "select" then
 					opts.onEnter = function() SPConfig:HoverStyle(hs) end
@@ -2441,7 +2509,19 @@ local function RenderPageInner(self, entry, query, keepScroll)
 				local customKey = spNow and spNow.OptionCustomRow and spNow.OptionCustomRow[e.node]
 				local customRow = customKey and ns.CustomRows[customKey]
 				BreakRow()
-				if customRow then
+				if customRow and ns.ListLook and ns.ListLook:Takes(customKey, customRow) then
+					-- Use the Old Settings Look (ListLook.lua): the icon row's items as cards of plain
+					-- rows after the open card (a card holding only its strip stays as the heading)
+					CloseCard()
+					local ok, cf, ch = pcall(ns.ListLook.Render, ns.ListLook, customRow, body, y, fullW, element, onChanged)
+					if ok and cf then
+						table.insert(pageWidgets, cf)
+						y = y + (ch or 0)
+						rowY = y
+					elseif not ok then
+						geterrorhandler()(cf)
+					end
+				elseif customRow then
 					local ok, cf, ch = pcall(customRow.Render, customRow, body, 0, rowY, fullW, onChanged)
 					if ok and cf then
 						table.insert(pageWidgets, cf)
@@ -3404,6 +3484,12 @@ do
 				if Resettable(e, sp) then ResetOption(e, view, sp) end
 			end
 		end
+		-- a page's own part that is not a row (the Cooldown Bar's items: each one's settings, its
+		-- on / off and the order)
+		if type(entry.onReset) == "function" then
+			local ok, err = pcall(entry.onReset)
+			if not ok then geterrorhandler()(err) end
+		end
 		-- the theme came out as it went in: no reload prompt for it on closing
 		if startFlat and sp:ThemeFlatSame(startFlat, sp:ThemeFlatSnapshot()) then
 			themeChangedWhileOpen, sp.ThemeChangedThisSession = wasChanged, wasSession
@@ -3448,6 +3534,8 @@ do
 		-- Reset Position), its settings in a module's own saved table
 		if entry.noReset then return false end
 		if CustomTabActive(entry, nil) then return false end
+		-- an icon page resets its items' own settings itself (Cooldown Bar, Shield Charges): always offered
+		if type(entry.onReset) == "function" then return true end
 		local sp = SP()
 		if not sp then return false end
 		if entry._resettable == nil then
@@ -3588,7 +3676,7 @@ do
 	local main = root and root.settings.args.settings_show
 	if main then
 		sp.OrderSettingsBands(main, {
-			{ keys = { "globally", "totemBarStyle", "hide_blizzard_totem_bar", "hide_player_totems" } },
+			{ keys = { "globally", "totemBarStyle", "oldSettingsLook", "hide_blizzard_totem_bar", "hide_player_totems" } },
 			{ keys = { "showparty", "showsingle", "showminimapicon", "showtooltips" } },
 			{ keys = { "master_unlock", "keybind_mode", "open_assignments" }, names = {
 				master_unlock = "Unlock UI", keybind_mode = "Keybind Mode", open_assignments = "Open Totem Assignments",

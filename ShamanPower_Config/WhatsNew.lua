@@ -566,6 +566,11 @@ end
 -- never stamps anything. "/spwhatsnew preview <style>" opens a style preview,
 -- "/spwhatsnew look" the look card.
 function SP:ShowWhatsNew(force)
+	-- the new-look prompt is up (ListLook.lua): What's New comes once it is closed, never both
+	if SP._oldLookPromptUp then
+		if force or not SP._whatsNewAfterPrompt then SP._whatsNewAfterPrompt = force and "force" or true end
+		return
+	end
 	if force then
 		-- opened on request (tour, settings button, /spwhatsnew): on top of the tour's layer
 		local d = BuildDialog()
@@ -626,5 +631,10 @@ local ef = CreateFrame("Frame")
 ef:RegisterEvent("PLAYER_ENTERING_WORLD")
 ef:SetScript("OnEvent", function(self)
 	self:UnregisterAllEvents()
-	C_Timer.After(4, function() SP:ShowWhatsNew() end)
+	C_Timer.After(4, function()
+		-- 3.0.8: the one-time "new look" prompt first (ListLook.lua); it shows What's New
+		-- itself once it is closed, so the two are never up at once
+		if SP.ShowOldLookPrompt and SP:ShowOldLookPrompt() then return end
+		SP:ShowWhatsNew()
+	end)
 end)

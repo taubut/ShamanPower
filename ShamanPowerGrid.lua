@@ -507,6 +507,9 @@ function SP:RefreshGridStyle()
 end
 
 function SP:GridLayoutElement(element)
+	-- Totem Rows (ShamanPowerRows.lua) holds this element's flyout buttons as its row:
+	-- the flyout code leaves them alone the same way
+	if element and self.RowsOwnFlyouts and self:RowsOwnFlyouts(element) then return true end
 	if not element or not self:GridActive() then return false end
 	if not self._gridRefreshing then self:RefreshGridStyle() end
 	return true

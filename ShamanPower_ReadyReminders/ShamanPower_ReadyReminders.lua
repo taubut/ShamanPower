@@ -27,6 +27,27 @@ local DEFAULTS = {
 	mode = "ready",        -- "ready": show only when ready | "cooldown": show only while on cooldown | "always": dim + countdown on cooldown
 	                       -- | "flash": never on screen, only the Ready Flash
 	onlyInCombat = false,
+	-- D51: with Only In Combat on, the icon fades to fadeOpacity out of combat instead of
+	-- hiding (the page's default; each icon sets its own in its right-click menu)
+	fadeInsteadOfHide = false,
+	fadeOpacity = 0.4,
+	-- D52: the buff the spell puts on you, shown with its icon (each icon sets its own in
+	-- its right-click menu; these are what an icon that never set one uses)
+	buffLook = "off",      -- off | corner (in the icon's corner) | own (as its own icon) | edge (round the icon)
+	buffCorner = "tr",     -- corner: tr | tl | br | bl
+	buffSize = 0.45,       -- corner: its size, a share of the icon's (30% to 70%)
+	buffSide = "above",    -- own icon: above | below | left | right | spot (In Its Own Spot)
+	buffOwnSize = 1.0,     -- own icon: its size, a share of the icon's (30% to 100%)
+	buffTime = true,       -- the time it has left, in whole seconds
+	buffGoldUnder = 3,     -- seconds: the time turns WoW's gold under this (0 = never)
+	-- edge: WoW's mana-bar blue (PowerBarColor.MANA, read from the game; 0, 0, 1 on both)
+	buffEdgeColor = (function()
+		local all = rawget(_G, "PowerBarColor")
+		local m = type(all) == "table" and type(all.MANA) == "table" and all.MANA or nil
+		if not (m and type(m.r) == "number" and type(m.g) == "number" and type(m.b) == "number") then return { r = 0, g = 0, b = 1 } end
+		return { r = m.r, g = m.g, b = m.b }
+	end)(),
+	buffPositions = {},    -- [key] = { anchor, x, y }: a buff In Its Own Spot, once moved (none: above its icon)
 	iconSize = 48,
 	opacity = 1.0,
 	dimOpacity = 0.35,     -- "always" mode, while on cooldown
@@ -61,6 +82,15 @@ local DEFAULTS = {
 	flashEarly = 0,        -- seconds before it is ready (0 = the moment it is ready)
 	flashName = false,     -- the spell's name under it
 	flashMin = 10,         -- seconds; shorter cooldowns never flash (an icon's own On always does)
+	flashCombat = false,   -- A26: Only In Combat: no flashes out of a fight
+	-- A25: When The Cooldown Resets (Stormstrike on WoW: Forever: a tank's dodge or parry resets it)
+	resetVisual = "none", -- none | burst (the Proc Glow ring) | word (RESET over the icon) | both
+	resetColor = { r = 1, g = 0.82, b = 0 },   -- the burst's color: WoW's gold
+	resetLength = 1.5,     -- seconds the burst / word stays
+	resetFlash = false,    -- the Ready Flash, saying it was a reset
+	resetSound = false,    -- its own sound (the Ready sound stays quiet for a reset)
+	resetSoundName = "ShamanPower: Ready Ping",
+	resetVolume = 100,
 	-- flashPos = { anchor, x, y }: its spot (nil = the default, a little above the middle)
 	flashPositions = {},   -- [key] = { point, x, y }: a spell's own flash spot (none: the shared one)
 	layout = "row",        -- row | column: arrangement used by Reset Positions
@@ -91,7 +121,7 @@ SP.ReadyReminderSpells = {
 	{ key = "earthshock",   name = "Earth Shock",         ids = { 8042 },                 def = true },
 	{ key = "flameshock",   name = "Flame Shock",         ids = { 8050 },                 def = true },
 	{ key = "frostshock",   name = "Frost Shock",         ids = { 8056 },                 def = true },
-	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true },
+	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true, reset = true },   -- reset: a tank's dodge or parry resets its cooldown (WoW: Forever)
 	{ key = "lavaburst",    name = "Lava Burst",          ids = { 408490, 51505 },        def = true },
 	{ key = "riptide",      name = "Riptide",             ids = { 408521, 61295 },        def = true },
 	{ key = "farseer",      name = "Rage of the Farseer", ids = { 425336 },               def = true },
@@ -105,6 +135,12 @@ SP.ReadyReminderSpells = {
 	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false },
 	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false },
 	{ key = "chainlightning", name = "Chain Lightning",   ids = { 421 },                  def = false },   -- 6 s cooldown on both clients
+	-- Weapon Imbue (3.0.8, a shaman tank's ask): shows while an imbue is missing (the main hand;
+	-- with an off-hand weapon, either hand) with the icon of the imbue last on, and counts the
+	-- shorter one down while both are on. ids: Rockbiter, Flametongue, Windfury, Frostbrand.
+	{ key = "imbue", name = "Weapon Imbue", optName = "Weapon Imbue (shows while it is missing)", ids = { 8017, 8024, 8232, 8033 }, def = false, imbue = true },
+	-- A28: what you hold (a shield, a two-hander, two weapons, a one-hander), read from the weapon slots; no spell
+	{ key = "weaponset", name = "Weapon Set", optName = "Weapon Set (shows what you hold)", ids = {}, def = false, weaponSet = true },
 	-- Earth, Flame and Frost Shock in one icon (they share one cooldown). Earth Shock's
 	-- ID stands for the cooldown: the game puts all three on it whichever is cast.
 	{ key = "shocks", name = "Combined Shocks", optName = "Combined Shocks (Earth, Flame and Frost Shock)", ids = { 8042 }, def = false, combo = true },
@@ -124,6 +160,59 @@ for i, e in ipairs(SP.ReadyReminderSpells) do
 	end
 end
 
+-- D52: the buff each spell puts on you, on this game (its display: "Your buff on its
+-- Ready Reminder", below). One table for all of it (this file is near Lua's 200 locals).
+local Buff = { of = {}, list = {}, formatters = {}, proxies = {},
+	KEY = { buffLook = true, buffCorner = true, buffSize = true, buffSide = true, buffOwnSize = true, buffTime = true,
+		buffGoldUnder = true, buffEdgeColor = true } }
+-- a buff setting copied or pasted onto an icon whose spell puts no buff on you here: left out
+function Buff.Skip(key, opt)
+	return Buff.KEY[opt] == true and not (catalogByKey[key] and catalogByKey[key].buff)
+end
+do
+	-- Every buff by spell ID, from each game's own data (SpellName / SpellEffect /
+	-- SpellMisc / ItemSet, read 2026-10-06, and Wowhead's tooltips for each game); each has
+	-- one rank. talent / setBonus: what puts the buff in reach (the menu says when it is
+	-- missing). timed = false: it lasts until used, so it has no time left to show.
+	local list
+	if SPCompat.FOREVER then
+		list = {
+			-- Improved Stormstrike: the talent 1223031 (trait node 104742, 2 points) gives the
+			-- buff 1238931 (15 s) when you Stormstrike
+			stormstrike = { ids = { 1238931 }, name = "Improved Stormstrike", talent = 1223031, node = 104742 },
+			farseer = { ids = { 425336 }, name = "Rage of the Farseer" },               -- 25 s
+			ns = { ids = { 16188 }, name = "Nature's Swiftness", timed = false },        -- until your next Nature spell
+			-- (no Shamanistic Rage or Elemental Mastery in this game's data)
+		}
+	else
+		list = {
+			-- no Improved Stormstrike here: Stormstrike's buff is Stormpower (38430, 12 s), from the
+			-- 4-piece bonus 38432 of the Skyshatter Harness (item set 682, any 4 of its 8 pieces)
+			stormstrike = { ids = { 38430 }, name = "Stormpower", setBonus = 38432, setID = 682, setName = "Skyshatter Harness",
+				setItems = { 31018, 31011, 31015, 31021, 31024, 34567, 34439, 34545 } },
+			shamrage = { ids = { 30823 }, name = "Shamanistic Rage" },                  -- 15 s
+			elemastery = { ids = { 16166 }, name = "Elemental Mastery", timed = false }, -- until your next damage spell
+			ns = { ids = { 16188 }, name = "Nature's Swiftness", timed = false },        -- until your next Nature spell
+			-- (no Rage of the Farseer in this game's data)
+		}
+	end
+	for _, e in ipairs(SP.ReadyReminderSpells) do
+		local b = list[e.key]
+		if b then
+			b.timed = b.timed ~= false
+			b.map = {}
+			for _, id in ipairs(b.ids) do b.map[id] = true end
+			if b.setItems then
+				b.setMap = {}
+				for _, id in ipairs(b.setItems) do b.setMap[id] = true end
+			end
+			b.label = SPCompat.SpellLabel(b.ids[1], b.name) or b.name
+			e.buff = b
+			Buff.list[#Buff.list + 1] = e
+		end
+	end
+end
+
 -- Filling in the defaults walks every one of them, and SV() is called about 20
 -- times per update pass. So the walk runs only when the saved table is a new one
 -- (it loaded, an import replaced it), when a theme reset cleared one of the
@@ -138,7 +227,7 @@ local function SV()
 	local sv = ShamanPower_ReadyReminders
 	local now = GetTime()
 	if sv == filledFor and now - filledAt < 1 and sv.borderColor ~= nil and sv.glowColor ~= nil and sv.barColor ~= nil
-		and sv.rangeColor ~= nil then
+		and sv.rangeColor ~= nil and sv.buffEdgeColor ~= nil and sv.resetColor ~= nil then
 		return sv
 	end
 	local changed = sv ~= filledFor
@@ -169,18 +258,27 @@ end
 -- answers are kept per icon until a setting changes (optGen), so an update pass
 -- reads plain fields and builds nothing.
 -- ---------------------------------------------------------------------------
-local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "soundOnReady", "soundName",
+local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "glowShape", "glowThick", "glowCombatOnly", "soundOnReady", "soundName",
 	"onlyInCombat", "showCountdown", "iconSize", "countdownUnder", "flash",
 	"flashAnim", "flashSize", "flashHold", "flashEarly", "flashName",
 	-- D40: every setting the page had is the icon's own now (the page's saved value is
 	-- what an icon that never set one uses, so nothing on screen changed on the update)
 	"opacity", "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", "barStyle", "barHeight", "barColor",
 	"textPosition", "textSize", "borderColor", "rangeLook", "rangeColor", "hideBackground", "hideBorder",
-	"showNames", "soundVolume", "soundMinCooldown", "flashMin" }
+	"showNames", "soundVolume", "soundMinCooldown", "flashMin",
+	-- D51: Fade Instead of Hide (with Only In Combat) and its Faded Opacity
+	"fadeInsteadOfHide", "fadeOpacity",
+	-- D52: the buff the spell puts on you, on its icon
+	"buffLook", "buffCorner", "buffSize", "buffSide", "buffOwnSize", "buffTime", "buffGoldUnder", "buffEdgeColor",
+	-- A25: When The Cooldown Resets (Stormstrike on WoW: Forever)
+	"resetVisual", "resetColor", "resetLength", "resetFlash", "resetFlashWord", "resetSound", "resetSoundName", "resetVolume",
+	-- A28: Weapon Set (the word under the icon, the set that glows, the swap switches)
+	"wsWord", "wsGlow", "wsSound", "wsFlash" }
 local ICON_KEY = {}
 for _, k in ipairs(ICON_KEYS) do ICON_KEY[k] = true end
 local resolved = {}   -- [catalog key] = { gen = n, <setting> = value }: one table per icon, made once
 local function IconOpt(entry, key)
+	if key == "mode" and entry and (entry.imbue or entry.weaponSet) then return "ready" end   -- Weapon Imbue: only while it is missing; Weapon Set: always (always ready)
 	local r = resolved[entry.key]
 	if not r then r = {}; resolved[entry.key] = r end
 	if r.gen ~= optGen or ShamanPower_ReadyReminders ~= filledFor then   -- (a new saved table: SV() moves optGen)
@@ -201,7 +299,6 @@ local function IconOpt(entry, key)
 		-- its own Sound When Ready turned on: it plays whatever its cooldown (see readySound)
 		r.ownSound = own ~= nil and own.soundOnReady == true
 		-- its own Ready Flash turned on: it flashes whatever its cooldown (see flashWanted)
-		r.ownFlash = own ~= nil and own.flash == true
 		-- its own cooling look (Gray Out / Opacity While On Cooldown) set (see coolingLook)
 		r.ownCoolLook = own ~= nil and (own.desaturate ~= nil or own.dimOpacity ~= nil)
 		r.gen = optGen
@@ -263,6 +360,7 @@ end
 
 -- Usable on this client: exists in the data and has a real cooldown here.
 local function usable(entry)
+	if entry.weaponSet then return true end   -- (A28) no spell: what you hold
 	local id = clientSpellID(entry)
 	if not id then return false end
 	if entry.noCooldownIDs and entry.noCooldownIDs[id] then return false end
@@ -274,6 +372,7 @@ SP.ReadyReminderOn = spellOn
 -- Does the player know the spell (any rank)? Cached until SPELLS_CHANGED.
 local knownCache = {}
 local function playerKnows(entry)
+	if entry.weaponSet then return true end   -- (A28)
 	local c = knownCache[entry.key]
 	if c ~= nil then return c end
 	local id = clientSpellID(entry)
@@ -303,9 +402,43 @@ end
 -- its own takes the family's. ownOnly: the game's own flags already say whether
 -- this shock is cooling (they report the shared cooldown), so it keeps its own.
 local IS_MAINLINE = (SPCompat.FOREVER)
+-- Weapon Imbue: an imbue that is missing reads as ready (no cooldown); imbues on both hands
+-- read as a cooldown that ends when the shorter one does (imbues run 60 min on WoW: Forever,
+-- 30 on the Classic line). In a fight on WoW: Forever the game can hide the answer: then the
+-- last one stands. The icon is the imbue on now, else the one last seen (kept in the saved
+-- settings, so it is still right after a reload).
+local IMBUE_MAX = IS_MAINLINE and 3600 or 1800
+local imbueLast = { start = nil, duration = nil }
+local function imbueCooldown()
+	local read = (SPCompat and SPCompat.GetWeaponEnchantInfo) or GetWeaponEnchantInfo
+	local hasMain, mainMs, _, mainID, hasOff, offMs, _, offID = read()
+	if issecretvalue and (issecretvalue(hasMain) or issecretvalue(hasOff)) then return imbueLast.start, imbueLast.duration end
+	local map = SP.EnchantIDToImbue
+	local idx = (hasMain and map and map[mainID]) or (hasOff and map and map[offID]) or nil
+	if idx and SV().lastImbue ~= idx then SV().lastImbue = idx end
+	local dual = SP.HasOffHandWeapon and SP:HasOffHandWeapon()
+	if not (hasMain and (not dual or hasOff)) then
+		imbueLast.start, imbueLast.duration = nil, nil
+		return nil, nil
+	end
+	local left
+	if type(mainMs) == "number" and not (issecretvalue and issecretvalue(mainMs)) then left = mainMs / 1000 end
+	if dual and type(offMs) == "number" and not (issecretvalue and issecretvalue(offMs)) and (left == nil or offMs / 1000 < left) then left = offMs / 1000 end
+	local duration = IMBUE_MAX
+	if left == nil then left = duration elseif left > duration then duration = left end
+	imbueLast.start, imbueLast.duration = GetTime() - (duration - left), duration
+	return imbueLast.start, imbueLast.duration
+end
+-- the icon of the imbue on now, else the one last seen, else the one the imbue button would cast
+local function imbueIcon()
+	local idx = SV().lastImbue or (SP.DefaultImbueIndex and SP:DefaultImbueIndex()) or 1
+	return (SP.WeaponIcons and SP.WeaponIcons[idx]) or 136024
+end
 local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
 local isShock = { earthshock = true, flameshock = true, frostshock = true }
 local function cooldownOf(entry, ownOnly)
+	if entry.imbue then return imbueCooldown() end
+	if entry.weaponSet then return 0, 0 end   -- (A28) always ready: always on screen
 	if entry.combo then
 		-- Shocks: the family's cooldown (the latest end among the shocks known)
 		local bs, bd
@@ -340,6 +473,42 @@ end
 -- is placed from Earth Shock, below), so adding it moved nobody's icons. Each
 -- spot is as wide as that icon's own Icon Size, so a bigger one never overlaps
 -- its neighbors (every icon at the page's size: the same spots as before).
+-- ---------------------------------------------------------------------------
+-- The icons' order, and the Rows placement (3.0.8). One table holds the state: the
+-- file is close to Lua's limit on locals.
+--   sv.order: the keys in the order the settings page shows them (drag a spell there
+--   to change it, in every placement): the grid fills in that order, Reset Position
+--   lays Free out in it. A spell not in it goes after them, in the catalog's order
+--   (a spell new to an update).
+--   sv.rows: Rows placement, the rows you build: { name, spells = { key, ... },
+--   spacing, direction = "row" | "column", pos }. A spell on no row stays off screen.
+-- ---------------------------------------------------------------------------
+local R = { anchors = {}, gen = 0, orderIndex = {}, orderGen = 0, orderBuilt = -1, list = {} }
+local function rankOf(entry)
+	if R.orderBuilt ~= R.orderGen then
+		wipe(R.orderIndex)
+		local list = SV().order
+		if type(list) == "table" then for n, key in ipairs(list) do R.orderIndex[key] = n end end
+		R.orderBuilt = R.orderGen
+	end
+	return R.orderIndex[entry.key] or (10000 + (entry.order or 0))
+end
+local function rankBefore(a, b) return rankOf(a) < rankOf(b) end
+local function rowsOn() return SV().arrange == "rows" end
+local function freeOn() local a = SV().arrange; return a == nil or a == "free" end
+local function rowsList()
+	local sv = SV()
+	if type(sv.rows) ~= "table" then sv.rows = {} end
+	return sv.rows
+end
+local function rowOf(key)
+	for i, r in ipairs(rowsList()) do
+		for j, k in ipairs(r.spells) do if k == key then return i, j end end
+	end
+end
+-- on screen at all: in Rows placement only a spell on a row is
+local function placed(entry) return not rowsOn() or rowOf(entry.key) ~= nil end
+
 local function defaultPos(entry)
 	local sv = SV()
 	local gap = sv.spacing or 8
@@ -362,7 +531,7 @@ local function defaultPos(entry)
 		if not e.combo then
 			local cell = (IconOpt(e, "iconSize") or 48) + gap
 			total = total + cell
-			if e.order < entry.order then before = before + cell end
+			if rankOf(e) < rankOf(entry) then before = before + cell end
 		end
 	end
 	local off = before + (IconOpt(entry, "iconSize") or 48) / 2 - total / 2   -- its center, the row centered
@@ -445,10 +614,11 @@ end
 
 -- the icons still on screen but invisible (a cooldown curve holds them at
 -- alpha 0) go after the visible ones, so they never leave a hole
+-- (3.0.8: the grid fills in the Spells row's order, the one you drag on the settings page;
+-- before, in the order the icons came on screen)
 local function gridBefore(p, q)
 	if p.gridVis ~= q.gridVis then return p.gridVis end
-	if gridByCatalog or not p.gridVis or p.gridSeq == q.gridSeq then return p.entry.order < q.entry.order end
-	return p.gridSeq < q.gridSeq
+	return rankBefore(p.entry, q.entry)
 end
 
 -- byCatalog: every icon at once, in the list's order (Unlock Positions)
@@ -552,6 +722,214 @@ local function layoutGrid(byCatalog)
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- Rows placement: each row is a block of its own (as the grid is one block), the
+-- icons on it in the row's order, its spacing apart, running right (a row) or down
+-- (a column). Each row's block is its own box in Unlock UI.
+-- ---------------------------------------------------------------------------
+function R.saveRowPos(i)
+	local a, r = R.anchors[i], rowsList()[i]
+	if not (a and r and a:GetLeft()) then return end
+	r.pos = { point = "TOPLEFT", x = a:GetLeft(), y = a:GetTop() - UIParent:GetHeight() }
+end
+function R.applyRowPos(i)
+	local a, r = R.anchors[i], rowsList()[i]
+	if not (a and r) then return end
+	a:ClearAllPoints()
+	local p = r.pos
+	if p then
+		a:SetPoint(p.point or "TOPLEFT", UIParent, p.point or "TOPLEFT", p.x or 0, p.y or 0)
+	else
+		-- by default the rows stack where the default row of icons sits, one under the other
+		local size = SV().iconSize or 48
+		a:SetPoint("TOP", UIParent, "TOP", 0, -140 + size / 2 - (i - 1) * (size + 12))
+	end
+end
+function R.ensureRowAnchor(i)
+	local a = R.anchors[i]
+	if a then return a end
+	a = CreateFrame("Frame", "ShamanPowerReadyRow" .. i, UIParent)
+	a:SetSize(48, 48); a:SetMovable(true); a:SetClampedToScreen(true)
+	a.spRowIndex = i
+	-- Unlock UI's box and a dragged icon both end here: record where the row is now
+	a:SetScript("OnMouseUp", function(self)
+		if self.isMoving then self:StopMovingOrSizing(); self.isMoving = false; R.saveRowPos(i); R.applyRowPos(i) end
+	end)
+	R.anchors[i] = a
+	R.applyRowPos(i)
+	return a
+end
+-- a row's icons: the ones on screen first, each run in the row's order (no hole where a
+-- hidden spell would be, as in the grid)
+function R.rowBefore(p, q)
+	if p.gridVis ~= q.gridVis then return p.gridVis end
+	return p.rowAt < q.rowAt
+end
+local function layoutRows(byCatalog)
+	local sv = SV()
+	if sv.arrange ~= "rows" then return end
+	local rows = rowsList()
+	byCatalog = byCatalog and true or false
+	local changed = gridDirty or byCatalog ~= gridByCatalog
+	for _, entry in ipairs(SP.ReadyReminderSpells) do
+		local f = frames[entry.key]
+		if f then
+			local mode = IconOpt(entry, "mode") or "ready"
+			local inList = f:IsShown() and f:GetParent() == UIParent   -- not while the settings preview has it
+			local vis = false
+			if inList then
+				if byCatalog or mode == "always" then vis = true
+				elseif mode == "ready" then vis = (f.gridReady or f.realDone == true) and true or false
+				else vis = not f.gridReady and not f.realDone end
+			end
+			if vis ~= (f.gridVis or false) or inList ~= (f.gridIn or false) then changed = true end
+			f.gridVis, f.gridIn = vis, inList
+		end
+	end
+	local k = gridKey
+	if k.rowsGen ~= R.gen or k.gen ~= optGen or k.mode ~= "rows" then
+		changed = true
+		k.rowsGen, k.gen, k.mode = R.gen, optGen, "rows"
+	end
+	if not changed then return end   -- the usual pass: nothing to move
+	gridDirty = false
+	gridByCatalog = byCatalog
+	local list = R.list
+	for i, r in ipairs(rows) do
+		local a = R.ensureRowAnchor(i)
+		a.spMoverLabel = r.name or ("Row " .. i)
+		local gap, column = tonumber(r.spacing) or 8, r.direction == "column"
+		wipe(list)
+		for j, key in ipairs(r.spells) do
+			local f = frames[key]
+			if f and f.gridIn then f.rowAt = j; list[#list + 1] = f end
+		end
+		table.sort(list, R.rowBefore)
+		local x, y, W, H, nVis = 0, 0, 0, 0, 0
+		for _, f in ipairs(list) do
+			local sz = IconOpt(f.entry, "iconSize") or 48
+			if f.gridX ~= x or f.gridY ~= -y or f.gridAnchored ~= a then
+				f:ClearAllPoints(); f:SetPoint("TOPLEFT", a, "TOPLEFT", x, -y)
+				f.gridX, f.gridY, f.gridAnchored = x, -y, a
+			end
+			if f.gridVis then
+				nVis = nVis + 1
+				if column then W = math.max(W, sz); H = y + sz else H = math.max(H, sz); W = x + sz end
+			end
+			if column then y = y + sz + gap else x = x + sz + gap end
+		end
+		if nVis == 0 then W, H = sv.iconSize or 48, sv.iconSize or 48 end   -- (an empty row keeps a box)
+		if a.gridW ~= W or a.gridH ~= H then a:SetSize(W, H); a.gridW, a.gridH = W, H end
+		a:Show()
+	end
+	for i = #rows + 1, #R.anchors do R.anchors[i]:Hide() end
+end
+-- a row or the order changed (the settings page): laid out again, the page told
+function R.changed()
+	R.gen = R.gen + 1
+	gridDirty = true
+	settingsChanged()
+	SP:UpdateAllReadyReminderAppearance()
+	SP:UpdateReadyReminders()
+end
+-- the first switch to Rows: from the grid, each of its lines becomes a row; from Free,
+-- one row of the spells shown; always in the page's order, with the page's spacing
+function R.buildRows(prev)
+	local sv, rows, shown = SV(), {}, {}
+	for _, entry in ipairs(SP.ReadyReminderSpells) do
+		if spellOn(entry) and usable(entry) then shown[#shown + 1] = entry end
+	end
+	table.sort(shown, rankBefore)
+	local per = (prev == "grid") and (sv.gridColumns or 6) or #shown
+	if per < 1 then per = 1 end
+	local row
+	for i, entry in ipairs(shown) do
+		if (i - 1) % per == 0 then
+			row = { name = "Row " .. (#rows + 1), spells = {}, spacing = sv.spacing or 8, direction = "row" }
+			rows[#rows + 1] = row
+		end
+		row.spells[#row.spells + 1] = entry.key
+	end
+	if #rows == 0 then rows[1] = { name = "Row 1", spells = {}, spacing = sv.spacing or 8, direction = "row" } end
+	sv.rows = rows
+end
+
+-- ---- for the settings page (ShamanPower_Config ReadyIcons.lua)
+function SP:ReadyRowsOn() return rowsOn() end
+function SP:ReadyRows() return rowsList() end
+function SP:ReadyRowOf(key) return rowOf(key) end
+function SP:ReadyRowAdd()
+	local rows = rowsList()
+	rows[#rows + 1] = { name = "Row " .. (#rows + 1), spells = {}, spacing = SV().spacing or 8, direction = "row" }
+	R.changed()
+	return #rows
+end
+function SP:ReadyRowDelete(i)
+	local rows = rowsList()
+	if not rows[i] then return end
+	table.remove(rows, i)
+	for j = i, #R.anchors do   -- the rows after it move up one block
+		if R.anchors[j] then R.anchors[j]:Hide(); R.applyRowPos(j) end
+	end
+	for _, f in pairs(frames) do f.gridAnchored = nil end   -- every icon finds its row again
+	R.changed()
+end
+function SP:ReadyRowRemove(key)
+	local i, j = rowOf(key)
+	if not i then return end
+	table.remove(rowsList()[i].spells, j)
+	R.changed()
+end
+-- the spell onto row i (nil: the last row) at place `at` (nil: its end), from wherever it was
+function SP:ReadyRowPlace(key, i, at)
+	local rows = rowsList()
+	if #rows == 0 then rows[1] = { name = "Row 1", spells = {}, spacing = SV().spacing or 8, direction = "row" } end
+	local target = rows[i] or rows[#rows]
+	local oi, oj = rowOf(key)
+	if oi then
+		table.remove(rows[oi].spells, oj)   -- (`at` is counted without this spell already)
+	end
+	local n = #target.spells
+	at = at or (n + 1)
+	if at < 1 then at = 1 elseif at > n + 1 then at = n + 1 end
+	table.insert(target.spells, at, key)
+	local f = frames[key]
+	if f then f.gridAnchored = nil end
+	R.changed()
+end
+function SP:ReadyRowSet(i, field, value)
+	local r = rowsList()[i]
+	if not r then return end
+	r[field] = value
+	R.changed()
+end
+-- Unlock UI with just this row's box
+function SP:ReadyRowMove(i)
+	if InCombatLockdown() then return end
+	R.moveOnly = i
+	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readyreminders") end
+end
+-- the page's order (drag a spell): the key goes before `beforeKey` (nil: to the end)
+function SP:ReadyOrderMove(key, beforeKey)
+	local sorted, list = {}, {}
+	for _, entry in ipairs(SP.ReadyReminderSpells) do sorted[#sorted + 1] = entry end
+	table.sort(sorted, rankBefore)
+	for _, entry in ipairs(sorted) do if entry.key ~= key then list[#list + 1] = entry.key end end
+	local at = #list + 1
+	if beforeKey then for n, k in ipairs(list) do if k == beforeKey then at = n break end end end
+	table.insert(list, at, key)
+	SV().order = list
+	R.orderGen = R.orderGen + 1
+	R.changed()
+end
+-- the catalog in the page's order
+function SP:ReadyOrderedSpells(out)
+	wipe(out)
+	for _, entry in ipairs(SP.ReadyReminderSpells) do out[#out + 1] = entry end
+	table.sort(out, rankBefore)
+	return out
+end
+
 local function applyPos(frame)
 	if gridOn() then
 		-- the grid places it (layoutGrid); until then it waits on the first slot
@@ -560,6 +938,18 @@ local function applyPos(frame)
 			frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
 			frame.gridX, frame.gridY, frame.gridAnchored = 0, 0, a
 			gridDirty = true   -- off its slot: the next layout puts it back
+		end
+		return
+	end
+	if rowsOn() then
+		local i = rowOf(frame.entry.key)
+		if i then   -- (on no row: off screen, left where it is)
+			local a = R.ensureRowAnchor(i)
+			if frame.gridAnchored ~= a then
+				frame:ClearAllPoints(); frame:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
+				frame.gridX, frame.gridY, frame.gridAnchored = 0, 0, a
+				gridDirty = true
+			end
 		end
 		return
 	end
@@ -652,7 +1042,11 @@ function SP:CreateReadyReminderFrame(entry)
 	f:SetScript("OnMouseDown", function(self, button)
 		-- icons move only while positions are unlocked
 		if button == "LeftButton" and SP.readyPositioning then
-			if gridOn() then   -- one block: any icon drags the whole grid
+			local ri = rowsOn() and rowOf(self.entry.key) or nil
+			if ri then   -- Rows: an icon drags its row
+				local a = R.ensureRowAnchor(ri)
+				a:StartMoving(); a.isMoving = true; self.movesRow = ri
+			elseif gridOn() then   -- one block: any icon drags the whole grid
 				local a = ensureGridAnchor()
 				a:StartMoving(); a.isMoving = true; self.movesGrid = true
 			else
@@ -661,7 +1055,12 @@ function SP:CreateReadyReminderFrame(entry)
 		end
 	end)
 	f:SetScript("OnMouseUp", function(self)
-		if self.movesGrid then
+		if self.movesRow then
+			local i = self.movesRow
+			self.movesRow = nil
+			local a = R.anchors[i]
+			if a and a.isMoving then a:StopMovingOrSizing(); a.isMoving = false; R.saveRowPos(i); R.applyRowPos(i) end
+		elseif self.movesGrid then
 			self.movesGrid = nil
 			local a = gridAnchor
 			if a and a.isMoving then a:StopMovingOrSizing(); a.isMoving = false; saveGridPos(); applyGridPos() end
@@ -948,7 +1347,18 @@ function SP:UpdateReadyReminderAppearance(key)
 		f.ring:Hide()
 	end
 	f.glow:SetVertexColor(color(IconOpt(e, "glowColor"), 0.3, 0.8, 1.0))
+	local shape = IconOpt(e, "glowShape") or (SP.opt and SP.opt.glowShape) or "default"
+	if SP.PaintGlowShape then SP:PaintGlowShape(f.glow, shape) end
+	-- a running glow takes a new shape, color or thickness now (only the thickness: no start burst)
+	local gc = IconOpt(e, "glowColor")
+	local sig = shape .. "|" .. tostring(gc and (gc.r or gc[1])) .. "," .. tostring(gc and (gc.g or gc[2])) .. "," .. tostring(gc and (gc.b or gc[3]))
+	local thick = tostring(IconOpt(e, "glowThick"))
+	if f.glowShown and (f.glowSig ~= sig or f.glowThickSig ~= thick) then
+		SP:ReadyReminderGlowRefresh(f, f.glowSig == sig)
+	end
+	f.glowSig, f.glowThickSig = sig, thick
 	local namesOn = IconOpt(e, "showNames") == true
+	if e.weaponSet then namesOn = IconOpt(e, "wsWord") ~= false; R.WeaponSet.label(f) end   -- (A28) the word under the icon
 	f.label:SetShown(namesOn)
 	-- bar placement
 	local barStyle = IconOpt(e, "barStyle")
@@ -963,12 +1373,16 @@ function SP:UpdateReadyReminderAppearance(key)
 	if barStyle == "above" and namesOn then f.label:ClearAllPoints(); f.label:SetPoint("TOP", f, "BOTTOM", 0, -3) end
 	if f.entry.combo then
 		applyShockLook(f)
+	elseif f.entry.imbue then
+		f.icon:SetTexture(imbueIcon())
+	elseif f.entry.weaponSet then
+		f.icon:SetTexture(R.WeaponSet.icon())   -- (A28)
 	else
 		local id = clientSpellID(f.entry)
 		local tex = id and GetSpellTextureC(id)
 		f.icon:SetTexture(tex or 136024)
 	end
-	f:SetAlpha(IconOpt(e, "opacity") or 1)
+	f:SetAlpha((IconOpt(e, "opacity") or 1) * (f.fade or 1))   -- (D51: below 1 only while faded)
 	applyPos(f)
 	styleEngine(f)
 end
@@ -980,9 +1394,10 @@ function SP:UpdateAllReadyReminderAppearance()
 	for key, f in pairs(frames) do self:UpdateReadyReminderAppearance(key); applyPos(f) end   -- positions too: an import replaces them
 	if gridAnchor then applyGridPos() end   -- an import replaces the grid's spot as well
 	gridDirty = true   -- any setting may have changed
-	layoutGrid(self.readyPositioning)
+	layoutGrid(self.readyPositioning); layoutRows(self.readyPositioning)
 	rangeRepaintAll()   -- the Out of Range look or color may have changed
 	if self.ReadyFlashRefresh then self:ReadyFlashRefresh() end   -- (defined below, with the flash)
+	Buff.LayoutAll()   -- (D52) each spell's buff: its look and place (defined below)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1029,12 +1444,24 @@ end
 
 -- "Only when ready" keeps a cooling icon on screen at alpha 0 so the curve can
 -- show it the moment the real cooldown ends; it must not catch clicks then.
-local function curveMouseOff(f)
-	if not f.mouseByCurve and f:IsMouseEnabled() then f:EnableMouse(false); f.mouseByCurve = true end
+-- A faded icon (D51, see setFade) lets clicks through too. Two holders, one mouse:
+-- it is off while either holds it (mouseByCurve, mouseByFade) and comes back once
+-- neither does. A mouse something else switched off is not taken, nor given back.
+local function mouseHold(f, holder)
+	if f[holder] then return end
+	if not (f.mouseByCurve or f.mouseByFade) then
+		if not f:IsMouseEnabled() then return end
+		f:EnableMouse(false)
+	end
+	f[holder] = true
 end
-local function curveMouseBack(f)
-	if f.mouseByCurve then f:EnableMouse(true); f.mouseByCurve = nil end
+local function mouseRelease(f, holder)
+	if not f[holder] then return end
+	f[holder] = nil
+	if not (f.mouseByCurve or f.mouseByFade) then f:EnableMouse(true) end
 end
+local function curveMouseOff(f) mouseHold(f, "mouseByCurve") end
+local function curveMouseBack(f) mouseRelease(f, "mouseByCurve") end
 
 -- The curve is evaluated once per pass, so on its own the icon would light up
 -- on the next 0.2 s pass after the real cooldown ends. A Cooldown widget that
@@ -1076,22 +1503,856 @@ local function watchRealEnd(f, d)
 	pcall(w.SetCooldownFromDurationObject, w, d, true)
 end
 
-local function stopEffects(f)
-	if f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
+-- each icon's own Glow Shape (nil: General > Themes' Glow Shape) and Proc Glow Thickness
+local function glowShapeOf(e) return IconOpt(e, "glowShape") or (SP.opt and SP.opt.glowShape) or "default" end
+-- Proc Glow: WeakAuras' Proc Glow on the icon, in the glow's color, instead of the glow texture
+local function glowOn(f, quiet)
+	if glowShapeOf(f.entry) == "proc" and SP.ProcGlow_Start then
+		-- the color from the setting (the texture's own color reads back secret in a fight on WoW: Forever)
+		local r, g, b = color(IconOpt(f.entry, "glowColor"), 0.3, 0.8, 1.0)
+		local c = { r or 1, g or 1, b or 1, 1 }
+		if c[1] > 0.98 and c[2] > 0.98 and c[3] > 0.98 then c = nil end   -- (white: the game's gold)
+		SP.ProcGlow_Start(f, SP:ProcGlowOptions(f, c, "rr", quiet, IconOpt(f.entry, "glowThick") or SP.PROC_GLOW_OUT or 0.2))   -- (its own thickness; 20% until it picks one)
+	else
+		if SP.PaintGlowShape then SP:PaintGlowShape(f.glow, glowShapeOf(f.entry)) end
+		f.glow:Show(); f.glowAnim:Play()
+	end
+end
+local function glowOff(f)
+	f.glow:Hide(); f.glowAnim:Stop()
+	if SP.ProcGlow_Stop then SP.ProcGlow_Stop(f, "rr") end
+end
+-- the Ready Effect's glow and pulse off (alone: a faded icon's Shocks picture keeps cycling)
+local function stopGlowPulse(f)
+	if f.glowShown then glowOff(f); f.glowShown = nil end
 	if f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+end
+local function stopEffects(f)
+	stopGlowPulse(f)
 	if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
 end
 
 -- The Ready Effect (glow / pulse): on a ready icon, or in "only while on
 -- cooldown" (where a ready icon is never shown) on the icon while it counts down.
 local function playEffects(f)
+	if f.entry.weaponSet and not R.WeaponSet.glowWanted(f.entry) then stopGlowPulse(f) return end   -- (A28) the effect only while holding the picked set
 	local fx = IconOpt(f.entry, "readyEffect") or "glow"
-	if (fx == "glow" or fx == "both") then
-		if not f.glowShown then f.glow:Show(); f.glowAnim:Play(); f.glowShown = true end
-	elseif f.glowShown then f.glow:Hide(); f.glowAnim:Stop(); f.glowShown = nil end
+	-- Glow Only In Combat: out of a fight the icon shows with no glow (the pulse is its own)
+	local glowWanted = (fx == "glow" or fx == "both") and not (IconOpt(f.entry, "glowCombatOnly") and not InCombatLockdown())
+	if glowWanted then
+		if not f.glowShown then glowOn(f); f.glowShown = true end
+	elseif f.glowShown then glowOff(f); f.glowShown = nil end
+-- Glow Shape, Proc Glow Size or a glow color changed while icons glow: each glowing icon's
+-- glow redone the new way (only: just that icon; quiet: no start burst, for the size slider)
+function SP:ReadyReminderGlowRefresh(only, quiet)
+	for _, f in pairs(frames) do
+		if only == nil or f == only then
+			if SP.PaintGlowShape and f.glow then SP:PaintGlowShape(f.glow, glowShapeOf(f.entry)) end   -- (its own shape, after any shared repaint)
+			if f.glowShown then glowOff(f); glowOn(f, quiet) end
+		end
+	end
+end
 	if (fx == "pulse" or fx == "both") then
 		if not f.pulsing then f.pulseAnim:Play(); f.pulsing = true end
 	elseif f.pulsing then f.pulseAnim:Stop(); f.pulsing = nil end
+end
+
+-- ---------------------------------------------------------------------------
+-- Fade Instead of Hide (D51, a Discord request): out of combat an icon with Only In
+-- Combat on stays on screen at its Faded Opacity instead of hiding, so the player
+-- still sees which spells are ready. f.fade is that opacity out of combat, and 1 in a
+-- fight, while hidden, in Unlock UI and in the previews. It multiplies every alpha the
+-- icon is given: setReady, the appearance, and on WoW: Forever the cooldown curves'
+-- two inputs (plain numbers going in; the curve's answer, maybe a hidden value, still
+-- goes straight to SetAlpha and is never looked at). At 1 each is today's value
+-- exactly. The countdown, the sweep (the engine's numbers live in it) and the bar
+-- ignore the icon's alpha, so they take the fade themselves. A faded icon lets clicks
+-- through and stays quiet: no glow, pulse, sound or Ready Flash (setReady, the pass).
+-- Display-only frames: none of this is protected, in a fight either.
+-- ---------------------------------------------------------------------------
+local FADE_GLIDE = 0.2   -- a fight ended: down to faded over this long (the totem bar's Smooth Fade)
+
+-- an icon's Faded Opacity (its own, else the page's), inside the slider's range
+local function fadedOpacity(entry)
+	local v = tonumber(IconOpt(entry, "fadeOpacity")) or 0.4
+	if v < 0.05 then return 0.05 elseif v > 0.9 then return 0.9 end
+	return v
+end
+
+-- Only when the value changes: the three children, the mouse, and the glide's turn.
+local function setFade(f, v)
+	local old = f.fade or 1
+	if old == v then return end
+	f.fade = v
+	f.cooldown:SetAlpha(v); f.bar:SetAlpha(v); f.count:SetAlpha(v)
+	if v < 1 then mouseHold(f, "mouseByFade") else mouseRelease(f, "mouseByFade") end
+	if old >= 1 and v < 1 and f:IsShown() then
+		f.fadeGlide = true   -- full to faded on screen (a fight ended): glided once this pass set the alpha
+	else
+		f.fadeGlide = nil
+		if f.fadeAG then f.fadeAG:Stop() end   -- back to full (a pull): at once
+	end
+end
+
+-- The glide (the totem bar's playFade): the icon already has its faded alpha; an Alpha
+-- animation runs from the alpha it had at full down to it and ends on the icon's own.
+-- f.fadeBase is the plain alpha the pass gave it at full (nothing is read back from
+-- the icon: on WoW: Forever its alpha may be a hidden value). An icon held at 0 (a
+-- curve keeps it invisible while it cools) has nothing to glide. One group per icon,
+-- made on its first glide; it stops by itself after FADE_GLIDE.
+local function fadeGlideNow(f)
+	f.fadeGlide = nil
+	local base = f.fadeBase
+	if not (base and base > 0.01 and f:IsShown()) then return end
+	local ag = f.fadeAG
+	if not ag then
+		ag = f:CreateAnimationGroup()
+		ag.alpha = ag:CreateAnimation("Alpha")
+		ag.alpha:SetDuration(FADE_GLIDE)
+		ag.alpha:SetSmoothing("IN_OUT")
+		f.fadeAG = ag
+	end
+	ag:Stop()
+	ag.alpha:SetFromAlpha(base)
+	ag.alpha:SetToAlpha(base * (f.fade or 1))
+	ag:Play()
+end
+
+-- ---------------------------------------------------------------------------
+-- Your buff on its Ready Reminder (D52, a Discord request: "a way to show, maybe on the
+-- ready reminder, that you currently have the stormstrike mana regen buff", then "a small
+-- buff icon that I could track"). A spell that puts a buff on you can show that buff with
+-- its icon: in the icon's corner, as its own icon (beside it, or In Its Own Spot with a
+-- box of its own in Unlock UI), or as an edge round the icon; with its time left in whole
+-- seconds, in WoW's gold for the last few. Each icon's own, in its right-click menu, off
+-- to start. The buff is found by spell ID only (Buff.list, at the top).
+--
+-- WoW: Forever: nothing is read. An AuraContainer slot on "player", filtered to the buff's
+-- spell IDs, has the game draw it: the game shows the slot's button only while the buff is
+-- on you, gives it the buff's icon and counts its time left (gold: a color code in the
+-- number formatter's text; the game writes it). Our parts hang on that button, made and
+-- painted out of combat; in a fight only the container's own switch (SetEnabled) and the
+-- alpha of a frame of ours (the holder) change, never the game's button or what is on it.
+-- TBC Anniversary: the buff is read by its ID on UNIT_AURA (player) and drawn on frames of
+-- our own; its time left is a duration text binding, or the pass where the client has none.
+--
+-- The holder is ours: anchored to the icon's spot (so the buff stays there while the icon
+-- hides between casts, and follows the icon when it moves), on its own spot, or for the
+-- edge a child of the icon (it shows and hides with the icon). The buff follows its icon's
+-- Opacity, Only In Combat and Fade Instead of Hide (D51: faded, gliding down as the fight
+-- ends, just like the icon), and stays off while the icons are being placed (Unlock UI) or
+-- borrowed by the settings preview. Nothing runs while idle: the game draws, or UNIT_AURA.
+-- ---------------------------------------------------------------------------
+Buff.CORNER = { tr = { "TOPRIGHT", -4, -4 }, tl = { "TOPLEFT", 4, -4 }, br = { "BOTTOMRIGHT", -4, 4 }, bl = { "BOTTOMLEFT", 4, 4 } }
+Buff.SIDES = { above = true, below = true, left = true, right = true, spot = true }
+
+function Buff.Clamp(v, lo, hi, def)
+	v = tonumber(v) or def
+	if v < lo then return lo elseif v > hi then return hi end
+	return v
+end
+
+-- WoW: Forever: the game's AuraContainer can draw (the probe's container is the first one used)
+function Buff.Engine()
+	if Buff.engine ~= nil then return Buff.engine end
+	Buff.engine = false
+	if not IS_MAINLINE then return false end
+	if C_AddOns and C_AddOns.LoadAddOn then pcall(C_AddOns.LoadAddOn, "Blizzard_AuraContainer") end
+	local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
+	if ok and c and type(c.AddAuraSlot) == "function" and type(c.SetUnit) == "function" then
+		Buff.engine = true
+		c:Hide()
+		Buff.spare = c
+	end
+	return Buff.engine
+end
+
+-- The game's button (and what hangs on it) must not be touched now: a fight, or WoW: Forever
+-- hiding auras. Only the engine's buffs care; Anniversary's are frames of our own.
+function Buff.Locked()
+	if not (IS_MAINLINE and Buff.engine ~= false) then return false end
+	return SP:GameAuraButtonsLocked()   -- (a fight, or the game hiding auras: ShamanPowerFonts.lua)
+end
+
+-- WoW's gold (NORMAL_FONT_COLOR, read from the game: #FFD100 Anniversary, #FFD200 Forever)
+function Buff.GoldRGB()
+	local c = NORMAL_FONT_COLOR
+	if c and c.GetRGB then return c:GetRGB() end
+	return 1, 0.82, 0
+end
+
+-- The time left as the game writes it: whole seconds, rounded up as WoW counts down, in
+-- WoW's gold under `gold` seconds (a color code in the text), minutes from a minute on.
+-- One formatter per number of seconds, made once; nil where the client has none.
+function Buff.Formatter(gold)
+	gold = math.floor(tonumber(gold) or 0)
+	local f = Buff.formatters[gold]
+	if f ~= nil then return f or nil end
+	Buff.formatters[gold] = false
+	local S = C_StringUtil
+	if not (S and S.CreateNumericRuleFormatter) then return nil end
+	local ok, made = pcall(S.CreateNumericRuleFormatter)
+	if not (ok and made and made.AddBreakpoint) then return nil end
+	local up = Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Up or 1
+	local good
+	if gold > 0 then
+		local r, g, b = Buff.GoldRGB()
+		local code = string.format("|cff%02x%02x%02x", math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+		good = pcall(made.AddBreakpoint, made, { threshold = 0, step = 1, rounding = up, format = code .. "%d|r" })
+			and pcall(made.AddBreakpoint, made, { threshold = gold, step = 1, rounding = up, format = "%d" })
+	else
+		good = pcall(made.AddBreakpoint, made, { threshold = 0, step = 1, rounding = up, format = "%d" })
+	end
+	if not good then return nil end
+	pcall(made.AddBreakpoint, made, { threshold = 60, format = "%dm", components = { { div = 60, step = 1, rounding = up } } })
+	Buff.formatters[gold] = made
+	return made
+end
+
+-- The parts, on `host` (the game's button, or a frame of ours): the backing, the buff's
+-- icon and its edge (four sides, or a ring round a Rounded / Circle icon) on one frame,
+-- the time left on a frame above it. Made once; Buff.Paint gives them their look.
+function Buff.NewParts(host)
+	local P = {}
+	local art = CreateFrame("Frame", nil, host)
+	art:SetAllPoints(host)
+	art:EnableMouse(false)
+	P.art = art
+	P.bg = art:CreateTexture(nil, "BACKGROUND")
+	P.bg:SetAllPoints(art)
+	P.icon = art:CreateTexture(nil, "ARTWORK")
+	P.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	P.edges = {}
+	for i = 1, 4 do P.edges[i] = art:CreateTexture(nil, "OVERLAY") end
+	P.ring = art:CreateTexture(nil, "OVERLAY")
+	P.ring:Hide()
+	local tf = CreateFrame("Frame", nil, host)
+	tf:SetAllPoints(host)
+	tf:SetFrameLevel(art:GetFrameLevel() + 3)
+	tf:EnableMouse(false)
+	P.text = tf
+	P.time = tf:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(P.time, "alerts", 12, "OUTLINE")   -- a font at once: the game may write the time into it straight away
+	P.time:SetTextColor(1, 1, 1)
+	return P
+end
+
+-- Icon Shape (Ready Reminders) on the buff's backing and icon, with masks of our own: the
+-- shared shape walk runs whenever a shape changes, in a fight too, and must never reach
+-- the game's button (Paint runs only while the button may be touched).
+function Buff.Shape(P)
+	local file = SP.IconShapeMaskFile and SP.IconShapeOf and SP:IconShapeMaskFile(SP:IconShapeOf("ready")) or false
+	if P.maskFile == file or not P.bg.AddMaskTexture then return end
+	if P.maskFile then
+		P.bg:RemoveMaskTexture(P.bgMask)
+		P.icon:RemoveMaskTexture(P.iconMask)
+	end
+	P.maskFile = file
+	if not file then return end
+	if not P.bgMask then
+		P.bgMask = P.art:CreateMaskTexture()
+		P.bgMask:SetAllPoints(P.art)
+		P.iconMask = P.art:CreateMaskTexture()
+		P.iconMask:SetAllPoints(P.icon)
+	end
+	P.bgMask:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	P.iconMask:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+	P.bg:AddMaskTexture(P.bgMask)
+	P.icon:AddMaskTexture(P.iconMask)
+end
+
+-- the edge: `t` px thick, `out` px outside the parts' frame; a ring round a Rounded /
+-- Circle icon (Keep Borders Square off), as the icon's own border does
+function Buff.Edges(P, t, out, r, g, b, shown)
+	local ringFile = shown and SP.BorderRingFile and SP:BorderRingFile("ready") or nil
+	local E, art = P.edges, P.art
+	for i = 1, 4 do E[i]:SetShown(shown and not ringFile) end
+	if ringFile then
+		P.ring:ClearAllPoints()
+		P.ring:SetPoint("TOPLEFT", art, "TOPLEFT", -out, out)
+		P.ring:SetPoint("BOTTOMRIGHT", art, "BOTTOMRIGHT", out, -out)
+		if P.ring.spFile ~= ringFile then P.ring:SetTexture(ringFile); P.ring.spFile = ringFile end
+		P.ring:SetVertexColor(r, g, b)
+		P.ring:Show()
+		return
+	end
+	P.ring:Hide()
+	if not shown then return end
+	E[1]:ClearAllPoints(); E[1]:SetPoint("TOPLEFT", art, "TOPLEFT", -out, out); E[1]:SetPoint("TOPRIGHT", art, "TOPRIGHT", out, out); E[1]:SetHeight(t)
+	E[2]:ClearAllPoints(); E[2]:SetPoint("BOTTOMLEFT", art, "BOTTOMLEFT", -out, -out); E[2]:SetPoint("BOTTOMRIGHT", art, "BOTTOMRIGHT", out, -out); E[2]:SetHeight(t)
+	E[3]:ClearAllPoints(); E[3]:SetPoint("TOPLEFT", art, "TOPLEFT", -out, out); E[3]:SetPoint("BOTTOMLEFT", art, "BOTTOMLEFT", -out, -out); E[3]:SetWidth(t)
+	E[4]:ClearAllPoints(); E[4]:SetPoint("TOPRIGHT", art, "TOPRIGHT", out, out); E[4]:SetPoint("BOTTOMRIGHT", art, "BOTTOMRIGHT", out, -out); E[4]:SetWidth(t)
+	for i = 1, 4 do E[i]:SetColorTexture(r, g, b, 1) end
+end
+
+-- the look of the parts for the buff's look (WoW: Forever: only while Buff.Locked() is false)
+function Buff.Paint(B)
+	local P = B.P
+	if not P then return end
+	local entry, look, s = B.entry, B.look, B.size or 24
+	Buff.Shape(P)
+	if look == "swap" then
+		-- Replaces The Icon: the buff's own icon over this icon's picture while it is on (the
+		-- game paints it on WoW: Forever), with the time in the corner; the icon's border and
+		-- background stay as they are
+		P.bg:Hide()
+		P.icon:ClearAllPoints()
+		P.icon:SetPoint("TOPLEFT", P.art, "TOPLEFT", 2, -2); P.icon:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -2, 2)
+		P.icon:Show()
+		Buff.Edges(P, 2, 2, 0, 0, 0, false)
+		SP:SetSPFont(P.time, "alerts", math.max(10, math.floor(s * 0.30)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -2, 3)
+	elseif look == "edge" then
+		-- the icon's border, in the edge's color, with the time in the icon's corner
+		P.bg:Hide(); P.icon:Hide()
+		local r, g, b = color(IconOpt(entry, "buffEdgeColor"), 0, 0, 1)
+		Buff.Edges(P, 2, 2, r, g, b, true)
+		SP:SetSPFont(P.time, "alerts", math.max(10, math.floor(s * 0.30)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -2, 3)
+	elseif look == "corner" then
+		-- a small badge: dark backing, the buff's icon, a 1 px edge in the icon's Border Color
+		P.bg:SetColorTexture(0, 0, 0, 0.85); P.bg:Show()
+		P.icon:ClearAllPoints()
+		P.icon:SetPoint("TOPLEFT", P.art, "TOPLEFT", 1, -1); P.icon:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -1, 1)
+		P.icon:Show()
+		local r, g, b = color(IconOpt(entry, "borderColor"), 0.2, 0.7, 1.0)
+		Buff.Edges(P, 1, 1, r, g, b, true)
+		SP:SetSPFont(P.time, "alerts", math.max(8, math.floor(s * 0.55 + 0.5)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("CENTER", P.art, "CENTER", 1, 0)
+	else
+		-- its own icon, drawn like a Ready Reminder (the icon's Background, Border and Border Color)
+		local hideBg = IconOpt(entry, "hideBackground") and true or false
+		local e = (s >= 24) and 2 or 1
+		P.bg:SetColorTexture(0, 0, 0, 0.6); P.bg:SetShown(not hideBg)
+		P.icon:ClearAllPoints()
+		P.icon:SetPoint("TOPLEFT", P.art, "TOPLEFT", e, -e); P.icon:SetPoint("BOTTOMRIGHT", P.art, "BOTTOMRIGHT", -e, e)
+		P.icon:Show()
+		local r, g, b = color(IconOpt(entry, "borderColor"), 0.2, 0.7, 1.0)
+		Buff.Edges(P, e, e, r, g, b, not hideBg and not IconOpt(entry, "hideBorder"))
+		SP:SetSPFont(P.time, "alerts", math.max(8, math.floor(s * 0.34 + 0.5)), "OUTLINE")
+		P.time:ClearAllPoints()
+		P.time:SetPoint("CENTER", P.art, "CENTER", 0, 0)
+	end
+	if P.engine then
+		P.text:SetShown(B.timeOn and true or false)   -- (the game's button shows the buff only while it is on you)
+		Buff.EngineTime(B)
+	else
+		Buff.ShowParts(B)
+	end
+end
+
+-- WoW: Forever: the game counts the time left on its button, in the gold formatter
+-- (again only when the seconds of gold changed; never in a fight: Buff.Locked)
+function Buff.EngineTime(B)
+	local P = B.P
+	if not (P and P.engine and B.entry.buff.timed) then return end
+	local gold = B.gold or 3
+	if B.goldSet == gold then return end
+	if pcall(P.button.SetDurationText, P.button, P.time, { textFormatter = Buff.Formatter(gold) }) then B.goldSet = gold end
+end
+
+-- WoW: Forever: the game's button for the buff, made with the container (out of combat)
+function Buff.Init(B, button)
+	button:ClearAllPoints()
+	button:SetAllPoints(B.frame)
+	if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+	if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+	local P = Buff.NewParts(button)
+	P.engine, P.button = true, button
+	B.P = P
+	Buff.Paint(B)
+	SP:SPFontGameOwned(P.time)   -- on the game's button: a font change waits out fights and hidden auras
+	pcall(button.SetIcon, button, P.icon)   -- the game puts the buff's own icon on it
+end
+
+-- WoW: Forever: the container, one slot for the buff (out of combat, once; three tries)
+function Buff.Build(B)
+	local h, c = B.frame, Buff.spare
+	if c then
+		Buff.spare = nil
+		c:SetParent(h)
+		c:Show()
+	else
+		local ok, made = pcall(CreateFrame, "AuraContainer", nil, h, "CustomAuraContainerTemplate")
+		c = ok and made and type(made.AddAuraSlot) == "function" and made or nil
+	end
+	if not c then B.fails = (B.fails or 0) + 1 return false end
+	c:ClearAllPoints()
+	c:SetSize(1, 1)
+	c:SetPoint("CENTER", h, "CENTER", 0, 0)
+	c:SetFrameLevel(h:GetFrameLevel() + 1)
+	-- WoW's Edit Mode fills aura displays with made-up auras while it is open: never this one
+	if c.SetEditModePreviewEnabled then pcall(c.SetEditModePreviewEnabled, c, false) end
+	local ok = pcall(c.AddAuraSlot, c, "buff", "HELPFUL", {
+		candidateFilters = { includeSpellIDs = B.entry.buff.map },
+		initializeFrame = function(button) Buff.Init(B, button) end,
+	})
+	if not (ok and B.P) then
+		pcall(c.SetEnabled, c, false)
+		c:Hide()
+		B.P = nil   -- (parts on a refused slot's button are never used)
+		B.fails = (B.fails or 0) + 1
+		return false
+	end
+	pcall(c.SetUnit, c, "player")
+	pcall(c.SetEnabled, c, false)   -- on only while the buff may show (Buff.Switch)
+	B.c, B.on = c, false
+	return true
+end
+
+-- a buff's display (the holder, ours): made the first time its look is turned on
+function Buff.Make(entry)
+	local h = CreateFrame("Frame", "ShamanPowerReadyBuff_" .. entry.key, UIParent)
+	h:SetSize(1, 1)
+	h:EnableMouse(false)
+	h:SetAlpha(0)
+	local B = { entry = entry, key = entry.key, frame = h, look = "off", on = false, alpha = 0, fade = 1 }
+	Buff.of[entry.key] = B
+	return B
+end
+
+-- Its own icon's place: beside the Ready Reminder (Side), or its own spot (In Its Own Spot:
+-- where Unlock UI put it; above the icon until it is moved there)
+function Buff.PlaceOwn(B, f)
+	local h, side, gap = B.frame, B.side, SV().spacing or 8
+	if side == "spot" then
+		local rec = SV().buffPositions[B.key]
+		if type(rec) == "table" and SP.ApplyPositionRecord and SP:ApplyPositionRecord(h, rec) then return end
+		side = "above"
+	end
+	if side == "below" then h:SetPoint("TOP", f, "BOTTOM", 0, -gap)
+	elseif side == "left" then h:SetPoint("RIGHT", f, "LEFT", -gap, 0)
+	elseif side == "right" then h:SetPoint("LEFT", f, "RIGHT", gap, 0)
+	else h:SetPoint("BOTTOM", f, "TOP", 0, gap) end
+end
+
+-- One buff's look and place, after a setting changed (WoW: Forever: out of combat, and
+-- not while the game hides auras: then right after, Buff.Flush). Off: switched off at once.
+function Buff.Layout(entry)
+	local b = entry.buff
+	if not b then return end
+	local B = Buff.of[entry.key]
+	local look = IconOpt(entry, "buffLook")
+	if look ~= "corner" and look ~= "own" and look ~= "edge" and look ~= "swap" then look = "off" end
+	if look == "off" or not usable(entry) or not SV().enabled then   -- (Ready Reminders off: nothing made either)
+		if B then B.look = "off"; Buff.Switch(B, false, 0) end
+		return
+	end
+	if IS_MAINLINE and Buff.engine == nil and not InCombatLockdown() then Buff.Engine() end
+	-- a fight: it all waits. The game hiding auras out of a fight: a container already made
+	-- waits to be painted again, but a new one is made now (as Compact's shield line does)
+	if Buff.Locked() and (InCombatLockdown() or (B and B.c)) then Buff.dirty = true return end
+	B = B or Buff.Make(entry)
+	local f = frames[entry.key] or SP:CreateReadyReminderFrame(entry)
+	local h = B.frame
+	local S = IconOpt(entry, "iconSize") or 48
+	local side = IconOpt(entry, "buffSide")
+	B.look = look
+	B.side = (look == "own") and (Buff.SIDES[side] and side or "above") or nil
+	B.timeOn = b.timed and IconOpt(entry, "buffTime") ~= false
+	B.gold = math.floor(Buff.Clamp(IconOpt(entry, "buffGoldUnder"), 0, 10, 3))
+	local parent = (look == "edge" or look == "swap") and f or UIParent
+	if h:GetParent() ~= parent then h:SetParent(parent) end
+	h:SetFrameStrata(f:GetFrameStrata())
+	h:SetFrameLevel(f:GetFrameLevel() + 10)
+	h:ClearAllPoints()
+	if look == "edge" or look == "swap" then
+		h:SetAllPoints(f)
+		B.size = S
+	elseif look == "corner" then
+		local s = math.floor(S * Buff.Clamp(IconOpt(entry, "buffSize"), 0.3, 0.7, 0.45) + 0.5)
+		h:SetSize(s, s)
+		B.size = s
+		local c = Buff.CORNER[IconOpt(entry, "buffCorner")] or Buff.CORNER.tr
+		h:SetPoint("CENTER", f, c[1], c[2], c[3])
+	else
+		local s = math.floor(S * Buff.Clamp(IconOpt(entry, "buffOwnSize"), 0.3, 1, 1) + 0.5)
+		h:SetSize(s, s)
+		B.size = s
+		Buff.PlaceOwn(B, f)
+	end
+	if B.c then
+		B.c:SetFrameLevel(h:GetFrameLevel() + 1)
+		Buff.Paint(B)
+	elseif Buff.engine and (B.fails or 0) < 3 then
+		-- the game's container (B.P is painted by its button's Init). Refused: tried again on the
+		-- next layout; the third refusal goes on to frames of our own at once (below)
+		if not Buff.Build(B) and B.fails < 3 then return end
+	end
+	if not B.c then
+		-- TBC Anniversary, or the game's container refused three times: frames of our own
+		-- (WoW: Forever then shows the buff out of combat only: in a fight it cannot be read)
+		if not B.P then B.P = Buff.NewParts(h) end
+		Buff.Paint(B)
+		if B.on then   -- a new look, Time Left or gold: the buff as it is now, its time started again
+			B.bindOn, B.ticking = nil, nil
+			Buff.Read(B)
+		end
+	end
+	B.ready = true
+end
+
+-- this game's buffs by name, for the settings page's text (what a search finds)
+function Buff.Names()
+	local t = {}
+	for i = 1, #Buff.list do t[i] = Buff.list[i].buff.label end
+	return table.concat(t, ", ")
+end
+
+function Buff.LayoutAll()
+	for i = 1, #Buff.list do Buff.Layout(Buff.list[i]) end
+	Buff.Events()
+end
+
+-- WoW: Forever: what waited for the end of a fight (or for the game to show auras again)
+function Buff.Flush()
+	if not Buff.dirty or Buff.Locked() then return end
+	Buff.dirty = nil
+	Buff.LayoutAll()
+	SP:UpdateReadyReminders()   -- (the pass switches them on)
+end
+
+-- On or off (in a fight too): the container's own switch (WoW: Forever) or our parts
+-- (Anniversary), and the holder's alpha. The pass calls it with what the icon allows.
+function Buff.Switch(B, on, alpha)
+	alpha = on and alpha or 0
+	if B.on ~= on then
+		B.on = on
+		if B.c then
+			pcall(B.c.SetEnabled, B.c, on)
+			if on then pcall(B.c.UpdateAllAuras, B.c) end
+		elseif on then
+			Buff.Read(B)
+		else
+			Buff.Hide(B)
+		end
+	end
+	if B.alpha ~= alpha then
+		B.alpha = alpha
+		if B.ag then B.ag:Stop() end
+		B.frame:SetAlpha(alpha)
+	end
+end
+
+-- a fight ended and the icon fades (D51): the buff glides down with it, over the same 0.2 s
+function Buff.Glide(B, from, to)
+	if not (from and from > 0.01) then return end
+	local ag = B.ag
+	if not ag then
+		ag = B.frame:CreateAnimationGroup()
+		ag.alpha = ag:CreateAnimation("Alpha")
+		ag.alpha:SetDuration(FADE_GLIDE)
+		ag.alpha:SetSmoothing("IN_OUT")
+		B.ag = ag
+	end
+	ag:Stop()
+	ag.alpha:SetFromAlpha(from)
+	ag.alpha:SetToAlpha(to)
+	ag:Play()
+end
+
+-- What the icon allows its buff now: on, the holder's alpha, the fade. As the icon: the
+-- spell switched on and known (In Its Own Spot: its own, the icon need not be on), Only In
+-- Combat (hidden out of combat, or faded with Fade Instead of Hide), Opacity. The edge is
+-- on the icon itself: the icon's own alpha carries all of that to it.
+-- In the icon's corner or beside it, the buff goes only where its icon can be: never with
+-- Show: Never (the icon is never on screen), and in a grid not while the icon is hidden
+-- (its cell goes to the next icon, and the buff would sit on that spell). WoW: Forever: an
+-- icon a cooldown keeps invisible stays shown, in a free cell after the ones on screen
+-- (gridBefore), so its buff shows there and on no other icon. Our own frame's IsShown only.
+function Buff.Wanted(entry, B, inCombat)
+	if not usable(entry) then return false, 0, 1 end
+	local ownSpot = B.look == "own" and B.side == "spot"
+	if not ownSpot and not (spellOn(entry) and playerKnows(entry) and placed(entry)) then return false, 0, 1 end
+	if not ownSpot and B.look ~= "edge" and B.look ~= "swap" then
+		if IconOpt(entry, "mode") == "flash" then return false, 0, 1 end
+		if gridOn() and not (frames[entry.key] and frames[entry.key]:IsShown()) then return false, 0, 1 end
+		if gridOn() and B.look == "own" then return false, 0, 1 end   -- (beside the icon in a grid = on its neighbor)
+	end
+	local fade = 1
+	if not inCombat and IconOpt(entry, "onlyInCombat") then
+		if IconOpt(entry, "fadeInsteadOfHide") and IconOpt(entry, "mode") ~= "flash" then fade = fadedOpacity(entry)
+		else return false, 0, 1 end
+	end
+	if B.look == "edge" or B.look == "swap" then return true, 1, 1 end
+	if SP.TownHides and SP:TownHides("rr") then   -- (A27) Out Of The Way: a buff on its own frame follows the rule itself
+		if SP:TownFades() then fade = fade * SP:TownFadeAlpha() else return false, 0, 1 end
+	end
+	return true, (IconOpt(entry, "opacity") or 1) * fade, fade
+end
+
+-- Every pass (readyPass, 5 a second while something counts down, else once a second and on
+-- the wake events): each buff on or off. allOff: the icons are hidden, placed or previewed.
+-- Returns true while a buff's time is counted here (Anniversary without a binding).
+function Buff.Pass(inCombat, allOff)
+	allOff = allOff or Buff.placing
+	local ticks, now = false, nil
+	for i = 1, #Buff.list do
+		local entry = Buff.list[i]
+		local B = Buff.of[entry.key]
+		if B then
+			local on, alpha, fade = false, 0, 1
+			if not allOff and B.ready and B.look ~= "off" then on, alpha, fade = Buff.Wanted(entry, B, inCombat) end
+			local glide = on and B.on and (B.fade or 1) >= 1 and fade < 1   -- a fight ended: down to faded, as the icon
+			B.fade = fade
+			Buff.Switch(B, on, alpha)
+			if glide then Buff.Glide(B, alpha / fade, alpha) end
+			if B.ticking and B.on and B.shown then
+				now = now or GetTime()
+				Buff.TickText(B, now)
+				ticks = true
+			end
+		end
+	end
+	return ticks
+end
+
+-- ---- TBC Anniversary (and WoW: Forever without the engine): read by spell ID ----------
+-- found, icon, duration, expirationTime of the buff on you; nothing when it is not (or when
+-- the game hides it: a hidden value is never looked at)
+function Buff.FindAura(b)
+	local A = C_UnitAuras
+	local secret = issecretvalue or function() return false end
+	if A and A.GetPlayerAuraBySpellID then
+		for i = 1, #b.ids do
+			local ok, a = pcall(A.GetPlayerAuraBySpellID, b.ids[i])
+			if ok and type(a) == "table" and not secret(a) then
+				local dur, exp = a.duration, a.expirationTime
+				if secret(dur) or secret(exp) or secret(a.icon) then return false end
+				return true, a.icon, tonumber(dur) or 0, tonumber(exp) or 0
+			end
+		end
+		return false
+	end
+	if not SPCompat.UnitBuff then return false end
+	for i = 1, 40 do
+		local name, icon, _, _, dur, exp, _, _, _, spellID = SPCompat.UnitBuff("player", i)
+		if not name then break end
+		if not secret(spellID) and b.map[spellID] then
+			if secret(dur) or secret(exp) then return false end
+			return true, icon, tonumber(dur) or 0, tonumber(exp) or 0
+		end
+	end
+	return false
+end
+
+function Buff.ShowParts(B)
+	local P = B.P
+	if not P then return end
+	P.art:SetShown(B.shown and true or false)
+	P.text:SetShown((B.shown and B.timeOn and B.timedNow) and true or false)
+end
+
+-- the time left drawn by the game from numbers of ours (a duration text binding, with the
+-- gold formatter); false where the client has neither (the pass writes it then)
+function Buff.TimeBinding(B, start, duration)
+	local f = Buff.Formatter(B.gold)
+	if not f then return false end
+	if B.bind == nil then
+		B.bind = false
+		local D = C_DurationUtil
+		if D and D.CreateDurationTextBinding and D.CreateDuration then
+			local ok, bnd = pcall(D.CreateDurationTextBinding)
+			local okD, d = pcall(D.CreateDuration)
+			if ok and bnd and okD and d and pcall(bnd.SetFontString, bnd, B.P.time) then
+				if bnd.SetExpiredText then pcall(bnd.SetExpiredText, bnd, "") end
+				B.bind, B.dur = bnd, d
+			end
+		end
+	end
+	local bnd = B.bind
+	if not bnd then return false end
+	if B.bindGold ~= B.gold then
+		if not pcall(bnd.SetFormatter, bnd, f) then return false end
+		B.bindGold = B.gold
+	end
+	B.P.time:SetTextColor(1, 1, 1)
+	return pcall(B.dur.SetTimeFromStart, B.dur, start, duration) and pcall(bnd.SetDuration, bnd, B.dur)
+		and pcall(bnd.SetEnabled, bnd, true)
+end
+
+function Buff.StopTime(B)
+	if B.bind then pcall(B.bind.SetEnabled, B.bind, false) end
+	B.ticking, B.sec = nil, nil
+	if B.P then B.P.time:SetText("") end
+end
+
+-- the time left written by the pass (a client with no binding): once a second, gold at the end
+function Buff.TickText(B, now)
+	local left = (B.exp or 0) - now
+	local sec = (left > 0) and math.ceil(left) or 0
+	if B.sec == sec then return end
+	B.sec = sec
+	local t = B.P.time
+	if sec <= 0 then t:SetText("") return end
+	if sec >= 60 then t:SetText(string.format("%dm", math.ceil(left / 60))) else t:SetText(string.format("%d", sec)) end
+	if (B.gold or 0) > 0 and left < B.gold then t:SetTextColor(Buff.GoldRGB()) else t:SetTextColor(1, 1, 1) end
+end
+
+-- the buff as it is on you now (on UNIT_AURA, and when the buff is switched on)
+function Buff.Read(B)
+	if B.c or not B.P then return end
+	local found, icon, dur, exp = Buff.FindAura(B.entry.buff)
+	if not found then Buff.Hide(B) return end
+	B.shown = true
+	B.P.icon:SetTexture(icon or GetSpellTextureC(B.entry.buff.ids[1]) or 136243)
+	B.timedNow = (dur or 0) > 0 and (exp or 0) > 0
+	if B.timeOn and B.timedNow then
+		if B.exp ~= exp or not (B.ticking or B.bindOn) then
+			B.exp = exp
+			if Buff.TimeBinding(B, exp - dur, dur) then
+				B.ticking, B.bindOn = nil, true
+			else
+				B.ticking, B.bindOn, B.sec = true, nil, nil
+				Buff.TickText(B, GetTime())
+				SP.readyWake = true   -- the pass counts it down from now (five times a second)
+			end
+		end
+	else
+		Buff.StopTime(B)
+		B.bindOn = nil
+	end
+	Buff.ShowParts(B)
+end
+
+function Buff.Hide(B)
+	B.shown, B.exp, B.bindOn = nil, nil, nil
+	Buff.StopTime(B)
+	Buff.ShowParts(B)
+end
+
+function Buff.OnAura()
+	for i = 1, #Buff.list do
+		local B = Buff.of[Buff.list[i].key]
+		if B and B.on and not B.c then Buff.Read(B) end
+	end
+end
+
+-- The events: UNIT_AURA (player) while a buff is read here; the end of a fight while
+-- something waits for it (WoW: Forever).
+Buff.ev = CreateFrame("Frame")
+Buff.ev:SetScript("OnEvent", function(_, event, unit)
+	if event == "UNIT_AURA" then
+		if unit == "player" then Buff.OnAura() end
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		Buff.Flush()
+	end
+end)
+function Buff.Events()
+	local ev, read = Buff.ev, false
+	if SV().enabled then
+		for _, B in pairs(Buff.of) do
+			if B.look ~= "off" and B.P and not B.c then read = true break end
+		end
+	end
+	if read ~= (ev.read or false) then
+		ev.read = read
+		if read then
+			if not pcall(ev.RegisterUnitEvent, ev, "UNIT_AURA", "player") then ev:RegisterEvent("UNIT_AURA") end
+		else
+			ev:UnregisterEvent("UNIT_AURA")
+		end
+	end
+	if Buff.dirty then ev:RegisterEvent("PLAYER_REGEN_ENABLED") else ev:UnregisterEvent("PLAYER_REGEN_ENABLED") end
+end
+if SPCompat.OnUnrestricted then SPCompat.OnUnrestricted(function() Buff.Flush() end) end
+
+-- ---- what the menu says (the plain line before it can show) --------------------------
+-- WoW: Forever: the talent, by its spell ID, else its node's rank in your talents
+function Buff.KnowsTalent(b)
+	if SPCompat.KnowsSpellID(b.talent) then return true end
+	local CT, T = C_ClassTalents, C_Traits
+	if not (b.node and CT and CT.GetActiveConfigID and T and T.GetNodeInfo) then return false end
+	local secret = issecretvalue or function() return false end
+	local ok, cfg = pcall(CT.GetActiveConfigID)
+	if not ok or secret(cfg) or type(cfg) ~= "number" then return false end
+	local ok2, info = pcall(T.GetNodeInfo, cfg, b.node)
+	if not ok2 or type(info) ~= "table" then return false end
+	local rank = info.activeRank
+	if secret(rank) or type(rank) ~= "number" then rank = info.ranksPurchased end
+	return not secret(rank) and type(rank) == "number" and rank > 0
+end
+
+-- TBC Anniversary: four pieces of the set on (by item ID), else the bonus itself on you
+function Buff.HasSetBonus(b)
+	local n = 0
+	if GetInventoryItemID then
+		for slot = 1, 19 do
+			local id = GetInventoryItemID("player", slot)
+			if id and b.setMap[id] then n = n + 1 end
+		end
+	end
+	if n >= 4 then return true end
+	local A = C_UnitAuras
+	if A and A.GetPlayerAuraBySpellID then
+		local ok, a = pcall(A.GetPlayerAuraBySpellID, b.setBonus)
+		if ok and type(a) == "table" then return true end
+	end
+	return SPCompat.KnowsExactSpellID and SPCompat.KnowsExactSpellID(b.setBonus) or false
+end
+
+-- the set's name in the game's language
+function Buff.SetName(b)
+	local I = C_Item
+	if I and I.GetItemSetInfo then
+		local ok, name = pcall(I.GetItemSetInfo, b.setID)
+		if ok and type(name) == "string" and name ~= "" then return name end
+	end
+	return b.setName
+end
+
+-- ---- In Its Own Spot: Unlock UI's box (a still copy of the buff, as the flash's own spots) ----
+-- where the spot starts: above its icon (until moved)
+function Buff.DefaultSpot(entry, s)
+	local f = frames[entry.key] or SP:CreateReadyReminderFrame(entry)
+	local cx, cy = f:GetCenter()
+	if not cx then return { anchor = "CENTER", x = 0, y = -80 } end
+	local fs = f:GetEffectiveScale() / UIParent:GetEffectiveScale()
+	local S = IconOpt(entry, "iconSize") or 48
+	cx, cy = cx * fs, (cy + S / 2 + (SV().spacing or 8)) * fs + s / 2
+	return { anchor = "CENTER", x = cx - UIParent:GetWidth() / 2, y = cy - UIParent:GetHeight() / 2 }
+end
+
+function Buff.Proxy(key)
+	local entry = catalogByKey[key]
+	if not (entry and entry.buff) then return nil end
+	local p = Buff.proxies[key]
+	if not p then
+		p = CreateFrame("Frame", nil, UIParent)
+		p:SetFrameStrata("HIGH")
+		p.icon = p:CreateTexture(nil, "ARTWORK")
+		p.icon:SetAllPoints(p)
+		p.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+		p.spBuffKey = key
+		p.spMoverLabel = entry.buff.label .. " Buff"   -- Unlock UI's box (the menu's name for it)
+		p:Hide()
+		Buff.proxies[key] = p
+	end
+	local s = math.floor((IconOpt(entry, "iconSize") or 48) * Buff.Clamp(IconOpt(entry, "buffOwnSize"), 0.3, 1, 1) + 0.5)
+	p:SetSize(s, s)
+	p.icon:SetTexture(GetSpellTextureC(entry.buff.ids[1]) or 136243)
+	p.icon:SetAlpha(0.6)
+	local rec = SV().buffPositions[key]
+	if type(rec) ~= "table" then rec = Buff.DefaultSpot(entry, s) end
+	if not (SP.ApplyPositionRecord and SP:ApplyPositionRecord(p, rec)) then
+		p:ClearAllPoints()
+		p:SetPoint("CENTER", UIParent, "CENTER", 0, -80)
+	end
+	return p
+end
+
+-- the buffs shown In Their Own Spot (Move This Buff: that one only)
+function Buff.SpotKeys(out)
+	for _, entry in ipairs(Buff.list) do
+		if usable(entry) and (Buff.moveOnly == nil or Buff.moveOnly == entry.key)
+			and IconOpt(entry, "buffLook") == "own" and IconOpt(entry, "buffSide") == "spot" then
+			out[#out + 1] = entry.key
+		end
+	end
+	return out
 end
 
 -- The look while it cools: the icon's Gray Out The Icon and Opacity While On
@@ -1103,22 +2364,29 @@ local function coolingLook(f)
 	return IconOpt(e, "desaturate") ~= false, IconOpt(e, "dimOpacity") or 0.35
 end
 
+local Reset = { SLACK = 1.0 }   -- (A25, below) When The Cooldown Resets: one table (this file is near Lua's 200 locals)
+R.FlashTab = {}                 -- (A26, below) the Ready Flash tab: its page, its switch per spell, the one-time move (no local left for it)
+R.WeaponSet = {}                -- (A28, below) Weapon Set: what you hold, its icon and word, the swap
 local function setReady(f, ready)
+	local fade = f.fade or 1   -- (D51: below 1 only while faded out of combat)
 	if ready then
 		setDesat(f, false)
 		f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 		f.ecdOn, f.ecdDur, f.readyDur, f.readyDurStart, f.realDone = nil, nil, nil, nil, nil
 		curveMouseBack(f)
 		if f.engineSheet then f.engineSheet:Hide() end
-		f:SetAlpha(IconOpt(f.entry, "opacity") or 1)
-		playEffects(f)
+		local a = IconOpt(f.entry, "opacity") or 1
+		f:SetAlpha(a * fade); f.fadeBase = a
+		if fade < 1 then stopGlowPulse(f) else playEffects(f) end   -- faded: quiet
 		if f.entry.combo then shockIcon(f, true) end
 	else
 		local gray, dim = coolingLook(f)
 		setDesat(f, gray)
-		f:SetAlpha(dim)
+		if Reset.stop then Reset.stop(f) end   -- (A25) on cooldown again: the reset's burst and word off
+		f:SetAlpha(dim * fade); f.fadeBase = dim
 		if IconOpt(f.entry, "mode") == "cooldown" then
-			playEffects(f)   -- runs on untouched each pass: only a change starts or stops it
+			-- runs on untouched each pass: only a change starts or stops it (faded: quiet)
+			if fade < 1 then stopGlowPulse(f) else playEffects(f) end
 			if f.entry.combo then showCastShock(f) end   -- Shocks: no cycling while not ready
 		else
 			stopEffects(f)
@@ -1156,6 +2424,7 @@ local SOUND_GAP = 1.0
 local function readySound(f, duration)
 	local entry = f.entry
 	if not IconOpt(entry, "soundOnReady") then return end
+	if SP.TownHides and SP:TownHides("rr") then return end   -- (A27) Out Of The Way: quiet (a flash-only spell reaches here)
 	-- the minimum is for the old page switch: a sound the player turned on for this one
 	-- spell (its right-click menu) always plays
 	if not IconOpt(entry, "ownSound") and soundLength(entry, duration) < (IconOpt(entry, "soundMinCooldown") or 20) then return end
@@ -1222,6 +2491,8 @@ local function flashArt(entry)
 		local e = k and catalogByKey[k]
 		return tex or GetSpellTextureC(8042) or 136024, e and e.name or entry.name
 	end
+	if entry.imbue then return imbueIcon(), entry.name end
+	if entry.weaponSet then return R.WeaponSet.icon(), R.WeaponSet.word() end   -- (A28)
 	local id = clientSpellID(entry)
 	return id and GetSpellTextureC(id) or 136024, entry.name
 end
@@ -1472,6 +2743,18 @@ local function flashPlay(entry, f)
 	playersOn[f] = true
 	if f == flashFrame then flashPlaying = entry end
 	flashLook(entry, f)
+	-- (A25) a reset's flash says so under the icon, in the flash's own font
+	local rt = f.spResetText
+	f.spResetText = nil
+	if rt then
+		local size = f.spSize or 96
+		local edge = math.max(2, math.floor(size / 32 + 0.5))
+		SP:SetSPFont(body.label, "alerts", math.max(12, math.floor(size * 0.16 + 0.5)), "OUTLINE")
+		body.label:ClearAllPoints()
+		body.label:SetPoint("TOP", body, "BOTTOM", 0, -(edge + 4))
+		body.label:SetText(rt)
+		body.label:Show()
+	end
 	-- the spell's animation over its Time On Screen (start to finish)
 	local m = FLASH_MOTION[IconOpt(entry, "flashAnim")] or FLASH_MOTION.grow
 	local total = IconOpt(entry, "flashHold") or SV().flashHold or 1
@@ -1524,12 +2807,12 @@ local function flashQueueUp(entry)
 	flashPlay(entry, f)
 end
 
--- Ready Flash on for this icon (its own, else the page's). Only For Cooldowns Over
--- is the page's switch: an icon whose own menu turned the flash on always flashes
--- (as Sound When Ready). The length is measured as the sound's minimum is.
+-- Ready Flash on for this spell (the Ready Flash tab). Only For Cooldowns Over is the
+-- tab's switch, for every spell. The length is measured as the sound's minimum is.
 local function flashWanted(entry, duration)
 	if not IconOpt(entry, "flash") then return false end
-	if IconOpt(entry, "ownFlash") then return true end
+	if SV().flashCombat and not InCombatLockdown() then return false end   -- (A26) Only In Combat
+	if SP.TownHides and SP:TownHides("rr") then return false end   -- (A27) Hide In Town
 	return soundLength(entry, duration) >= (IconOpt(entry, "flashMin") or 10)
 end
 
@@ -1546,6 +2829,195 @@ local function flashEarlyCheck(f, duration, remaining)
 	f.flashedEarly = true
 	readyFlash(f, duration)
 end
+
+-- ---------------------------------------------------------------------------
+-- When The Cooldown Resets (A25; WoW: Forever). A shaman tank's dodge or parry resets
+-- Stormstrike's cooldown. The addon sees the cast and knows the cooldown's length; a
+-- spell that turns ready more than a second before that length is up was reset. Our
+-- own clock and our own count, nothing the game hides in a fight. The icon can burst
+-- (the Proc Glow ring in its own color), show the word RESET, flash (the Ready Flash,
+-- saying so) and sound, each its own switch; all off to start. Only a spell whose
+-- catalog entry says reset = true; the reset's sound takes the Ready sound's place.
+-- ---------------------------------------------------------------------------
+-- UNIT_SPELLCAST_SUCCEEDED: a reset spell was cast; when, and how long its cooldown is
+function Reset.noteCast(spellID)
+	if (issecretvalue and issecretvalue(spellID)) or spellID == nil then return end
+	for _, entry in ipairs(SP.ReadyReminderSpells) do
+		if entry.reset then
+			local f = frames[entry.key]
+			if f and f.inUse then
+				local id = clientSpellID(entry)
+				local same = id == spellID
+				if not same and id then
+					local n1, n2 = SPCompat.SpellName(id), SPCompat.SpellName(spellID)
+					same = n1 ~= nil and n1 == n2
+				end
+				if same then
+					f.resetCastAt = GetTime()
+					f.resetCastDur = soundLength(entry, nil)   -- (learned from the game out of a fight, else its base cooldown)
+				end
+			end
+		end
+	end
+end
+
+-- the word over the icon, made the first time it is wanted
+function Reset.word(f)
+	local w = f.resetWord
+	if not w then
+		w = CreateFrame("Frame", nil, f)
+		w:SetAllPoints(f)
+		w:SetFrameLevel(f:GetFrameLevel() + 12)
+		local fs = w:CreateFontString(nil, "OVERLAY", nil, 7)
+		fs:SetPoint("LEFT", w, "LEFT", 0, 0); fs:SetPoint("RIGHT", w, "RIGHT", 0, 0)
+		fs:SetJustifyH("CENTER")
+		fs:SetTextColor(1, 0.82, 0)
+		w.text = fs
+		w:Hide()
+		f.resetWord = w
+	end
+	SP:SetSPFont(w.text, "alerts", math.max(12, math.floor(f:GetWidth() * 0.3 + 0.5)), "OUTLINE")
+	w.text:SetText("RESET")
+	return w
+end
+
+function Reset.stop(f)
+	f.resetSerial = (f.resetSerial or 0) + 1   -- (an older timer sees a newer serial and leaves the next effect alone)
+	if f.resetBurst then
+		f.resetBurst = nil
+		if SP.ProcGlow_Stop then SP.ProcGlow_Stop(f, "reset") end
+	end
+	if f.resetWord and f.resetWord:IsShown() then f.resetWord:Hide() end
+end
+
+-- the reset's own burst / word, flash and sound; answers: did its sound play, did its flash
+function Reset.play(f)
+	local entry = f.entry
+	if SP.TownHides and SP:TownHides("rr") then return false, false end   -- (A27) quiet in town
+	local vis = IconOpt(entry, "resetVisual") or "none"
+	local len = tonumber(IconOpt(entry, "resetLength")) or 1.5
+	Reset.stop(f)
+	if f:IsShown() and (f.fade or 1) >= 1 then
+		if (vis == "burst" or vis == "both") and SP.ProcGlow_Start then
+			local r, g, b = color(IconOpt(entry, "resetColor"), 1, 0.82, 0)
+			SP.ProcGlow_Start(f, SP:ProcGlowOptions(f, { r or 1, g or 0.82, b or 0, 1 }, "reset", false,
+				IconOpt(entry, "glowThick") or SP.PROC_GLOW_OUT or 0.2))   -- (the icon's own thickness)
+			f.resetBurst = true
+		end
+		if vis == "word" or vis == "both" then Reset.word(f):Show() end
+		if f.resetBurst or (f.resetWord and f.resetWord:IsShown()) then
+			local serial = (f.resetSerial or 0) + 1
+			f.resetSerial = serial
+			C_Timer.After(len, function() if f.resetSerial == serial then Reset.stop(f) end end)
+		end
+	end
+	local flashed = false
+	if IconOpt(entry, "resetFlash") and not flashSampleOn then
+		local p = playerFor(entry)
+		p.spResetText = (IconOpt(entry, "resetFlashWord") ~= false) and (entry.name .. " reset!") or nil   -- (Word Under The Flash)
+		flashQueueUp(entry)
+		flashed = true
+	end
+	local sounded = false
+	if IconOpt(entry, "resetSound") and SP.PlaySoundWithVolume and SP.GetSoundFile then
+		SP:PlaySoundWithVolume(SP:GetSoundFile(IconOpt(entry, "resetSoundName") or "ShamanPower: Ready Ping"), IconOpt(entry, "resetVolume") or 100, true)
+		sounded = true
+	end
+	return sounded, flashed
+end
+
+-- the spell turned ready: was its cooldown reset (ready well before the length it started with)?
+function Reset.check(f)
+	local at, dur = f.resetCastAt, f.resetCastDur
+	f.resetCastAt, f.resetCastDur = nil, nil
+	if not (f.entry.reset and at and dur and dur > 2) then return false end
+	return (GetTime() - at) < (dur - Reset.SLACK)
+end
+
+-- the menu's Test: the reset's effects once, as a reset would play them
+function SP:ReadyReminderResetTest(key)
+	local f = key and frames[key]
+	if f then Reset.play(f) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Weapon Set (A28; the reviewer's ask: a tank swaps between a two-hander and a one-hander
+-- with a shield all day). An entry that is always on screen and shows what you hold: your
+-- shield's icon (a one-hander and shield), your two-hander's, your off-hand weapon's (two
+-- weapons) or your weapon's (a one-hander alone), with the word under it. Read from the two
+-- weapon slots (plain on both games; a hidden answer keeps the last set), told by the game
+-- the moment a slot changes, in a fight too. Glow While Holding: the icon's effect plays
+-- only while you hold the picked set. A swap can play the icon's Sound and Ready Flash.
+-- ---------------------------------------------------------------------------
+R.WeaponSet.WORD = { shield = "Shield", ["2h"] = "Two-Hander", dual = "Two Weapons", one = "One-Hander" }
+function R.WeaponSet.read()
+	local get = GetInventoryItemID
+	local mh = get and get("player", 16)
+	local oh = get and get("player", 17)
+	if issecretvalue and (issecretvalue(mh) or issecretvalue(oh)) then return R.WeaponSet.set or "one", R.WeaponSet.set ~= nil end
+	local info = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+	local function loc(id)
+		if not id or not info then return nil end
+		local ok, _, _, _, _, _, _, _, _, equipLoc = pcall(info, id)
+		if not ok or (issecretvalue and issecretvalue(equipLoc)) then return nil end
+		return equipLoc
+	end
+	local ml, ol = loc(mh), loc(oh)
+	-- known: every equipped item answered (an item the game has not cached yet answers nothing: not a one-hander)
+	local known = (mh == nil or ml ~= nil) and (oh == nil or ol ~= nil)
+	if ml == "INVTYPE_2HWEAPON" then return "2h", known end
+	if ol == "INVTYPE_SHIELD" then return "shield", known end
+	if ol == "INVTYPE_WEAPON" or ol == "INVTYPE_WEAPONOFFHAND" then return "dual", known end
+	return "one", known
+end
+function R.WeaponSet.cur()
+	if not R.WeaponSet.set then
+		local set, known = R.WeaponSet.read()
+		if not known then R.WeaponSet.pending = true return set end   -- (asked again when the item's info arrives)
+		R.WeaponSet.set = set
+	end
+	return R.WeaponSet.set
+end
+function R.WeaponSet.word() return R.WeaponSet.WORD[R.WeaponSet.cur()] or "One-Hander" end
+-- the item's own icon: the off hand for a shield or two weapons, the main hand otherwise
+function R.WeaponSet.icon()
+	local set = R.WeaponSet.cur()
+	local slot = (set == "shield" or set == "dual") and 17 or 16
+	local tex = GetInventoryItemTexture and GetInventoryItemTexture("player", slot)
+	if issecretvalue and issecretvalue(tex) then tex = nil end
+	return tex or 134400
+end
+function R.WeaponSet.glowWanted(entry)
+	local want = IconOpt(entry, "wsGlow") or "never"
+	return want ~= "never" and want == R.WeaponSet.cur()
+end
+function R.WeaponSet.label(f)
+	if f.label then f.label:SetText(R.WeaponSet.word()) end
+end
+-- a slot changed: the set again; a real swap repaints the icon, plays the effect for the new set
+-- and the swap switches (Sound On A Swap, Ready Flash On A Swap)
+function R.WeaponSet.changed()
+	local before = R.WeaponSet.set
+	local now, known = R.WeaponSet.read()
+	if not known then R.WeaponSet.pending = true return end   -- (GET_ITEM_INFO_RECEIVED brings it back here)
+	R.WeaponSet.pending = nil
+	R.WeaponSet.set = now
+	local entry = catalogByKey.weaponset
+	local f = entry and frames[entry.key]
+	if not (f and f.inUse) then return end
+	f.wsTex = nil   -- (the next pass paints the icon again)
+	R.WeaponSet.label(f)
+	local live = f:IsShown() and (f.fade or 1) >= 1
+	if f.wasReady and live then playEffects(f) end
+	if before and before ~= now and live and not (SP.TownHides and SP:TownHides("rr")) then
+		if IconOpt(entry, "wsSound") and SP.PlaySoundWithVolume and SP.GetSoundFile then
+			SP:PlaySoundWithVolume(SP:GetSoundFile(IconOpt(entry, "soundName") or "Raid Warning"), IconOpt(entry, "soundVolume") or 100, true)
+		end
+		if IconOpt(entry, "wsFlash") then flashQueueUp(entry) end
+	end
+	SP.readyWake = true
+end
+function SP:ReadyReminderWeaponSetChanged() R.WeaponSet.changed() end
 
 -- the page or any icon of its own has the flash on (the settings rows, Unlock UI)
 local function flashUsedAnywhere()
@@ -1606,6 +3078,37 @@ function SP:ReadyFlashDemo(on)
 	end
 end
 
+-- The Ready Flash tab's live preview (A26): a still flash of its own in the settings pane,
+-- in the tab's look, for the first spell that flashes. Never the real spot: a flash on
+-- screen keeps playing there while the pane is open.
+function SP:ReadyFlashPaneDemo(on)
+	local p = R.flashPreview
+	if on then
+		if not p then p = newFlashFrame(nil); R.flashPreview = p end
+		local pick
+		for _, entry in ipairs(self.ReadyReminderSpells) do
+			if R.FlashTab.on(entry) and usable(entry) and playerKnows(entry) then pick = entry break end
+		end
+		if not pick then
+			for _, entry in ipairs(self.ReadyReminderSpells) do
+				if usable(entry) and playerKnows(entry) and not entry.combo then pick = entry break end
+			end
+		end
+		pick = pick or catalogByKey.earthshock
+		flashLook(pick, p)
+		stopFlashMotion(p.body)
+		p.body:SetAlpha(1)
+		p.body:Show()
+		p:Show()
+	elseif p then
+		p.body:Hide()
+		p:Hide()
+	end
+end
+if SP.RegisterPreview then
+	SP:RegisterPreview("readyflashpane", { frame = function() return R.flashPreview end, demo = "SP:ReadyFlashPaneDemo", pad = 24 })
+end
+
 -- a setting changed or a profile came in: the flash's spot and look again (once it exists)
 function SP:ReadyFlashRefresh()
 	if not flashFrame then return end
@@ -1618,6 +3121,17 @@ function SP:ReadyFlashMove()
 	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readyflash") end
 end
 
+-- Reset This Page (Window.lua): every spell's Ready Flash switch and Flash Early back off (spots and sizes stay)
+function SP:ReadyFlashResetPage()
+	local icons = iconTable()
+	for key, own in pairs(icons) do
+		if type(own) == "table" then
+			own.flash, own.flashEarly = nil, nil
+			if next(own) == nil then icons[key] = nil end
+		end
+	end
+	settingsChanged()
+end
 function SP:ReadyFlashResetPosition()
 	SV().flashPos = nil
 	applyFlashPos()
@@ -1679,6 +3193,7 @@ local function saveFlashSpot(frame)
 end
 function SP:ReadyFlashMoveSpell(key)
 	if not catalogByKey[key] then return end
+	if Buff.CombatRefused() then return end   -- (no one-box filter left behind for the next Unlock UI)
 	flashMoveOnly = key
 	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readyflashspell") end
 end
@@ -1691,6 +3206,80 @@ function SP:ReadyFlashResetSpellSpots()
 	wipe(SV().flashPositions)
 	for _, p in pairs(flashProxies) do p:Hide() end
 	settingsChanged()
+end
+-- One spell's own flash spot (Unlock UI: that box's Reset): back on the shared spot
+function SP:ReadyFlashResetSpellSpot(frame)
+	local key = frame and frame.spFlashKey
+	if not key then return self:ReadyFlashResetSpellSpots() end
+	SV().flashPositions[key] = nil
+	local rec = SV().flashPos
+	if not (rec and self.ApplyPositionRecord and self:ApplyPositionRecord(frame, rec)) then
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", FLASH_X, FLASH_Y)
+	end
+	settingsChanged()
+end
+
+-- Move This Buff / Move This Flash in a fight: Unlock UI never opens in one, so nothing is
+-- set up for it; the player gets the line Unlock UI itself prints then
+function Buff.CombatRefused()
+	if not InCombatLockdown() then return false end
+	print("|cff0070ddShamanPower|r: |cffe64a4athe UI cannot be unlocked in combat.|r")
+	return true
+end
+
+-- A buff In Its Own Spot (D52; its menu's Side, "Move This Buff"): Unlock UI gets a box
+-- for each one, a still copy of the buff in it. It starts above its icon; a drop gives it
+-- its spot, the box's Reset puts it back above the icon.
+function SP:ReadyBuffSpotFrames()
+	local out = {}
+	for _, key in ipairs(Buff.SpotKeys({})) do
+		local p = Buff.Proxy(key)
+		if p then out[#out + 1] = p end
+	end
+	return out
+end
+function SP:ReadyBuffSpotDemo(on)
+	if on then
+		Buff.placing = true
+		Buff.Pass(false, true)   -- the real buffs stay off while their boxes are placed
+		for _, p in ipairs(self:ReadyBuffSpotFrames()) do p:Show() end
+	else
+		Buff.placing, Buff.moveOnly = nil, nil
+		for _, p in pairs(Buff.proxies) do p:Hide() end
+		self:UpdateReadyReminders()
+	end
+end
+-- a buff's own spot, and the buff on it (out of combat: Unlock UI never runs in a fight)
+function Buff.SaveSpot(frame)
+	local key = frame and frame.spBuffKey
+	local rec = key and SP.GetPositionRecord and SP:GetPositionRecord(frame)
+	if not rec then return end
+	SV().buffPositions[key] = rec
+	settingsChanged()
+	if catalogByKey[key] then Buff.Layout(catalogByKey[key]) end
+end
+-- one box's Reset: that buff back above its icon (Reset All Positions: every one)
+function SP:ReadyBuffSpotReset(frame)
+	local key = frame and frame.spBuffKey
+	if not key then return self:ReadyBuffSpotResetAll() end
+	SV().buffPositions[key] = nil
+	settingsChanged()
+	Buff.Proxy(key)
+	if catalogByKey[key] then Buff.Layout(catalogByKey[key]) end
+end
+function SP:ReadyBuffSpotResetAll()
+	wipe(SV().buffPositions)
+	settingsChanged()
+	for key in pairs(Buff.proxies) do Buff.Proxy(key) end
+	Buff.LayoutAll()
+end
+-- Move This Buff: Unlock UI with that buff's box only
+function SP:ReadyBuffMoveSpot(key)
+	if not (catalogByKey[key] and catalogByKey[key].buff) then return end
+	if Buff.CombatRefused() then return end   -- (no one-box filter left behind for the next Unlock UI)
+	Buff.moveOnly = key
+	if SP.UnlockModuleFrames then SP:UnlockModuleFrames("readybuffspot") end
 end
 
 -- ---------------------------------------------------------------------------
@@ -2088,7 +3677,11 @@ local function drawCooldown(f, start, duration, remaining)
 		-- "only while on cooldown" goes invisible (and stops catching clicks) then instead
 		local onlyCooling = IconOpt(f.entry, "mode") == "cooldown"
 		local _, dim = coolingLook(f)
-		if f.ecdDur then curveAlpha(f, f.ecdDur, onlyCooling and 0 or (IconOpt(e, "opacity") or 1), dim) end
+		-- faded (D51): both inputs times the fade, plain numbers (the curve's answer is never read)
+		local fade = f.fade or 1
+		local readyA = onlyCooling and 0 or (IconOpt(e, "opacity") or 1)
+		if f.ecdDur then curveAlpha(f, f.ecdDur, readyA * fade, dim * fade) end
+		if f.realDone then f.fadeBase = readyA end   -- the game says it is over: the curve shows it ready
 		if onlyCooling and f.realDone then curveMouseOff(f) end
 		engineCountdownUnder(f)
 		return
@@ -2130,7 +3723,8 @@ end
 -- switches the ticker off: it runs inside the core's walk over the active
 -- subsystems, and taking an entry out of that list mid-walk breaks the walk.
 local wakeFrame   -- made at login with the subsystem
-local WAKE_EVENTS = { "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD" }
+local WAKE_EVENTS = { "SPELL_UPDATE_COOLDOWN", "SPELL_UPDATE_CHARGES", "SPELLS_CHANGED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
+	"WEAPON_ENCHANT_CHANGED", "UNIT_INVENTORY_CHANGED", "PLAYER_EQUIPMENT_CHANGED", "GET_ITEM_INFO_RECEIVED" }   -- (the last four: Weapon Imbue, Weapon Set)
 local ticking = nil
 local function setTicking(on)
 	if ticking == on or not wakeFrame then return end
@@ -2150,26 +3744,53 @@ local function readyPass(self)
 	if self.readyPositioning or self.readyDemoActive then return end
 	local hideAll = not sv.enabled or self:IsOff()
 	if hideAll then
-		for _, f in pairs(frames) do if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil end   -- gridVis: they appear anew
+		for _, f in pairs(frames) do
+			if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil   -- gridVis: they appear anew
+			setFade(f, 1)   -- (D51) a hidden icon is never faded
+		end
+		Buff.Pass(false, true)   -- (D52) their buffs too
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
 		rangeSync()
 		return
 	end
 	local now = GetTime()
 	local inCombat = InCombatLockdown()
+	-- a fight began or ended: every ready icon's effects redone (Glow Only In Combat)
+	if R.fxCombat ~= inCombat then
+		R.fxCombat = inCombat
+		for _, f in pairs(frames) do
+			if f.wasReady and f:IsShown() and (f.fade or 1) >= 1 and IconOpt(f.entry, "mode") ~= "flash" then playEffects(f) end
+		end
+	end
 	local cooling = false   -- anything still counting down? if not, the ticker can sleep (see the subsystem callback)
 	for _, entry in ipairs(self.ReadyReminderSpells) do
 		local f = frames[entry.key]
-		local want = spellOn(entry) and usable(entry) and playerKnows(entry)
+		local can = usable(entry) and playerKnows(entry)
+		local want = can and spellOn(entry) and placed(entry)
+		-- (A26) off on the Icons tab, on in Ready Flash: timed like the rest, never on screen
+		local flashOnly = false
+		if not want and can and R.FlashTab.on(entry) then want = true; flashOnly = true end
 		if f then f.inUse = want end   -- its flags are read on the cooldown events (Forever)
-		-- Only In Combat (the icon's own, else the page's): hidden out of combat
-		if want and not inCombat and IconOpt(entry, "onlyInCombat") then want = false end
+		-- Only In Combat (the icon's own, else the page's): hidden out of combat, or faded
+		-- with Fade Instead of Hide (D51; not in "never", where it is never on screen)
+		local faded = false
+		if want and not flashOnly and not inCombat and IconOpt(entry, "onlyInCombat") then   -- (a flash-only spell: the Ready Flash tab's Only In Combat, in flashWanted)
+			if IconOpt(entry, "fadeInsteadOfHide") and IconOpt(entry, "mode") ~= "flash" then faded = true
+			else want = false end
+		end
+		-- (A27) Hide In Town: hidden, or faded to Appearance > Visibility's Faded Opacity (quiet, as a fade is)
+		local townFade
+		if want and not flashOnly and SP.TownHides and SP:TownHides("rr") then
+			if SP:TownFades() then faded = true; townFade = SP:TownFadeAlpha() else want = false end
+		end
 		if want then
 			if not f then f = self:CreateReadyReminderFrame(entry); f.inUse = true end
-			local mode = IconOpt(entry, "mode") or "ready"
+			local mode = flashOnly and "flash" or (IconOpt(entry, "mode") or "ready")
+			setFade(f, faded and (townFade or fadedOpacity(entry)) or 1)   -- before any alpha this pass (in a fight: 1)
 			-- WoW: Forever: the game's own flags decide (see readFlags); the estimate times it
 			local st
-			if FLAGS then
+			local flags = FLAGS and not entry.imbue and not entry.weaponSet   -- (the imbue and the weapon set have no spell cooldown to ask about)
+			if flags then
 				if f.flagFresh then f.flagFresh = nil; readFlags(entry, true, false, false)
 				elseif flagState[entry.key] == "cooling" then readFlags(entry, false, false, false) end
 				st = flagState[entry.key]
@@ -2187,7 +3808,14 @@ local function readyPass(self)
 				readFlags(entry, true, false, false)
 				st = flagState[entry.key]
 			end
-			if FLAGS then
+			if entry.imbue then
+				local tex = imbueIcon()
+				if f.imbueTex ~= tex then f.imbueTex = tex; f.icon:SetTexture(tex) end
+			elseif entry.weaponSet then
+				local tex = R.WeaponSet.icon()
+				if f.wsTex ~= tex then f.wsTex = tex; f.icon:SetTexture(tex); R.WeaponSet.label(f) end
+			end
+			if flags then
 				if st == "cooling" and f.flagWas ~= "cooling" then
 					f.flagRun = (f.flagRun or 0) + 1   -- a new cooldown: the last one's end signal is not this one's
 					f.realDone = nil
@@ -2207,13 +3835,19 @@ local function readyPass(self)
 			end
 			if not ready then
 				cooling = true
-				if timed and not f.flashedEarly then flashEarlyCheck(f, duration, remaining) end
+				if timed and not f.flashedEarly and not faded then flashEarlyCheck(f, duration, remaining) end
 			end
 			f.gridReady = ready
 			if ready then
-				if f.wasReady == false then
-					readySound(f, f.lastDuration)
-					if not f.flashedEarly then readyFlash(f, f.lastDuration) end   -- (Flash Early already flashed it)
+				-- faded (D51): quiet; it still counts as seen ready, so the pull plays nothing for it
+				if f.wasReady == false and not faded then
+					-- (A25) reset early: its own effects; its sound takes the Ready sound's place, its flash the Ready Flash's
+					local sounded, flashed = false, false
+					if Reset.check(f) then sounded, flashed = Reset.play(f) end
+					if not sounded then readySound(f, f.lastDuration) end
+					if not f.flashedEarly and not flashed then readyFlash(f, f.lastDuration) end   -- (Flash Early already flashed it)
+				elseif f.wasReady == false then
+					Reset.check(f)   -- (faded: quiet; the cast is spent all the same)
 				end
 				f.wasReady, f.flashedEarly = true, nil
 				if mode == "cooldown" or mode == "flash" then
@@ -2238,7 +3872,7 @@ local function readyPass(self)
 				-- Forever: stay on screen, invisible, and let the real cooldown's curve
 				-- show the icon when it ends, even if our estimate says it is still cooling
 				local curved = false
-				if engineOn() and not self.readyDemoActive and C_CurveUtil then
+				if engineOn() and not entry.imbue and not entry.weaponSet and not self.readyDemoActive and C_CurveUtil then   -- (the imbue and the weapon set have no spell cooldown object: plain hide)
 					-- fetch the duration object once per cooldown, and again when the client
 					-- says a cooldown changed (see the wake frame)
 					if f.readyDurStart ~= start or f.cdChanged then
@@ -2260,7 +3894,10 @@ local function readyPass(self)
 						f.ecdOn = nil
 						if not f.realDone then curveMouseOff(f) end
 						if not f:IsShown() then f:Show() end
-						curved = curveAlpha(f, f.readyDur, IconOpt(entry, "opacity") or 1, 0)
+						-- faded (D51): the ready input times the fade (a plain number; the answer is never read)
+						local readyA = IconOpt(entry, "opacity") or 1
+						curved = curveAlpha(f, f.readyDur, readyA * (f.fade or 1), 0)
+						f.fadeBase = f.realDone and readyA or 0   -- held at 0 while it cools: nothing to glide
 					end
 				end
 				if not curved then
@@ -2268,17 +3905,22 @@ local function readyPass(self)
 					if f:IsShown() then f:Hide() end
 				end
 			end
+			if f.fadeGlide then fadeGlideNow(f) end   -- (D51) a fight ended: down to faded
 		elseif f then
 			-- not on screen now (switched off, or Only In Combat out of combat): it is
 			-- first sight again when it comes back, as when every icon was hidden
 			-- (a cooldown that ended meanwhile makes no sound at the next pull)
 			if f:IsShown() then f:Hide() end
 			f.wasReady, f.flashedEarly = nil, nil
+			setFade(f, 1)   -- (D51) a hidden icon is never faded
 		end
 	end
-	layoutGrid(false)
+	layoutGrid(false); layoutRows(false)
 	rangeSync()
-	self.readyCooling = cooling
+	-- (D52) each spell's buff on or off as its icon allows; a buff whose time this pass writes
+	-- (a client with no duration binding) keeps the passes coming, as a countdown does
+	local buffTicks = Buff.Pass(inCombat)
+	self.readyCooling = cooling or buffTicks
 end
 
 -- fromTick: the subsystem's own pass. A setting found off there (changed
@@ -2301,17 +3943,19 @@ function SP:ShowAllReadyReminders()
 	self.readyPositioning = true
 	SV().locked = false
 	for _, entry in ipairs(self.ReadyReminderSpells) do
-		if spellOn(entry) and usable(entry) then
+		if spellOn(entry) and usable(entry) and placed(entry) then
 			local f = self:CreateReadyReminderFrame(entry)
+			setFade(f, 1)       -- (D51) full while placed
 			curveMouseBack(f)   -- draggable again
 			stopEffects(f)
 			f.cooldown:Hide(); f.overlay:Hide(); f.bar:Hide(); f.count:SetText(""); f.countShown = nil
 			setDesat(f, false); f:SetAlpha(IconOpt(entry, "opacity") or 1)
-			f.label:SetShown(IconOpt(entry, "showNames") == true); f:Show()
+			f.label:SetShown(entry.weaponSet and IconOpt(entry, "wsWord") ~= false or (not entry.weaponSet and IconOpt(entry, "showNames") == true)); f:Show()
 		end
 	end
-	layoutGrid(true)
+	layoutGrid(true); layoutRows(true)
 	rangeSync()   -- nothing is range-checked while positioning
+	Buff.Pass(false, true)   -- (D52) no buffs while the icons are placed
 	SP:Print("Ready Reminders unlocked: drag the icons where you want them, then /spready lock"
 		.. " (or turn off Unlock Position in settings).")
 end
@@ -2326,18 +3970,40 @@ end
 
 function SP:ResetReadyReminderPositions()
 	-- only the placement in use: Grid puts the block back on its default spot and
-	-- keeps the Free spots, Free lays the icons out again and keeps the grid's spot
-	local grid = gridOn()
+	-- keeps the Free spots, Free lays the icons out again and keeps the grid's spot,
+	-- Rows puts every row back on its default spot, one under the other
+	local grid, rows = gridOn(), rowsOn()
 	if grid then
 		SV().gridPos = nil
 		if gridAnchor then applyGridPos() end
+	elseif rows then
+		for i, r in ipairs(rowsList()) do r.pos = nil; if R.anchors[i] then R.applyRowPos(i) end end
 	else
 		SV().positions = {}
 	end
 	for _, f in pairs(frames) do applyPos(f) end
 	gridDirty = true
-	layoutGrid(self.readyPositioning)
-	SP:Print(grid and "Ready Reminders: grid position reset." or "Ready Reminders: positions reset.")
+	layoutGrid(self.readyPositioning); layoutRows(self.readyPositioning)
+	SP:Print(grid and "Ready Reminders: grid position reset." or rows and "Ready Reminders: row positions reset." or "Ready Reminders: positions reset.")
+end
+
+-- One reminder back where it starts (Unlock UI: that box's Reset). Grid: the block's spot, as above.
+-- Rows: that row's spot.
+function SP:ResetReadyReminderPosition(frame)
+	if frame and frame.spRowIndex then
+		local i = frame.spRowIndex
+		local r = rowsList()[i]
+		if r then r.pos = nil end
+		R.applyRowPos(i)
+		gridDirty = true
+		layoutRows(self.readyPositioning)
+		return
+	end
+	if gridOn() or rowsOn() or not (frame and frame.entry) then return self:ResetReadyReminderPositions() end
+	SV().positions[frame.entry.key] = nil
+	applyPos(frame)
+	gridDirty = true
+	layoutGrid(self.readyPositioning); layoutRows(self.readyPositioning)
 end
 
 -- Setup tour demo: every enabled icon runs a pretend cooldown, staggered, so
@@ -2349,8 +4015,10 @@ function SP:ReadyRemindersDemo(on)
 	if on then
 		local wasActive = self.readyDemoActive
 		self.readyDemoActive = true
+		for _, f in pairs(frames) do setFade(f, 1) end   -- (D51) the previews keep the in-a-fight look
 		self:UpdateAllReadyReminderAppearance()
 		rangeSync()   -- the demo's icons are never range-checked
+		Buff.Pass(false, true)   -- (D52) nor do the buffs show over the borrowed icons
 		-- The preview shows every borrowed icon (enabled or not) before calling
 		-- this; sorting them right here, in the same frame, means the disabled
 		-- ones never get drawn. Waiting for the first tick flashed them all.
@@ -2366,7 +4034,7 @@ function SP:ReadyRemindersDemo(on)
 			local idx, readyCount, total = 0, 0, 0
 			for _, entry in ipairs(self.ReadyReminderSpells) do
 				local f = frames[entry.key]
-				local want = spellOn(entry) and usable(entry)
+				local want = spellOn(entry) and usable(entry) and placed(entry)
 				if want then
 					if not f then f = self:CreateReadyReminderFrame(entry) end
 					idx = idx + 1; total = total + 1
@@ -2393,7 +4061,7 @@ function SP:ReadyRemindersDemo(on)
 				end
 				if f then f.spDemoOff = not want end   -- ticked off: no cell in the settings preview's grid
 			end
-			layoutGrid(false)   -- the grid fills and empties as it would in play
+			layoutGrid(false); layoutRows(false)   -- the grid fills and empties as it would in play
 			-- tell the preview which icons this demo is keeping hidden (see ShamanPowerPreview showFrame)
 			for _, fr in pairs(frames) do fr.spDemoHidden = not fr:IsShown() end
 			self.readyDemoStatus = total == 0 and "No spells enabled - tick some below."
@@ -2414,7 +4082,7 @@ function SP:ReadyRemindersDemo(on)
 		-- would be undone, so every icon goes back on the spot the settings say now
 		for _, f in pairs(frames) do f.gridAnchored = nil; applyPos(f) end
 		self:UpdateReadyReminders()
-		layoutGrid(self.readyPositioning)   -- the pass skips the layout while positioning
+		layoutGrid(self.readyPositioning); layoutRows(self.readyPositioning)   -- the pass skips the layout while positioning
 	end
 end
 
@@ -2423,7 +4091,7 @@ end
 function SP:ReadyReminderEnabledFrames()
 	local out = {}
 	for _, entry in ipairs(self.ReadyReminderSpells) do
-		if spellOn(entry) and usable(entry) and IconOpt(entry, "mode") ~= "flash" then
+		if spellOn(entry) and usable(entry) and placed(entry) and IconOpt(entry, "mode") ~= "flash" then
 			out[#out + 1] = frames[entry.key] or self:CreateReadyReminderFrame(entry)
 		end
 	end
@@ -2433,10 +4101,22 @@ end
 -- What Unlock UI boxes: the icons one by one, or in Grid placement the one block
 -- (sized for every enabled icon; the demo fills and empties it meanwhile).
 function SP:ReadyReminderMoverFrames()
+	if rowsOn() then
+		-- one box per row (Move This Row: just that one); the frames the rows lay out are made first
+		local only = R.moveOnly
+		R.moveOnly = nil
+		self:ReadyReminderEnabledFrames()
+		local out = {}
+		for i in ipairs(rowsList()) do
+			if only == nil or only == i then out[#out + 1] = R.ensureRowAnchor(i) end
+		end
+		layoutRows(self.readyPositioning)
+		return out
+	end
 	if not gridOn() then return self:ReadyReminderEnabledFrames() end
 	if #self:ReadyReminderEnabledFrames() == 0 then return {} end   -- (makes the frames the block lays out)
 	local a = ensureGridAnchor()
-	layoutGrid(self.readyPositioning)
+	layoutGrid(self.readyPositioning); layoutRows(self.readyPositioning)
 	return { a }
 end
 
@@ -2461,6 +4141,8 @@ end
 if SP.RegisterPreview then
 	-- the spells' own flash spots (Unlock UI only)
 	SP:RegisterPreview("readyflashspell", { frame = function() return nil end, demo = "SP:ReadyFlashSpellDemo" })
+	-- (D52) the buffs In Their Own Spot (Unlock UI only)
+	SP:RegisterPreview("readybuffspot", { frame = function() return nil end, demo = "SP:ReadyBuffSpotDemo" })
 end
 if SP.UnlockModules then
 	table.insert(SP.UnlockModules, {
@@ -2475,6 +4157,16 @@ if SP.UnlockModules then
 		enabled = function() return SV().enabled ~= false and (flashMoveOnly ~= nil or next(SV().flashPositions) ~= nil) end,
 		save = function(frame) saveFlashSpot(frame) end,
 		reset = function() SP:ReadyFlashResetSpellSpots() end,
+		resetOne = "ReadyFlashResetSpellSpot",   -- a box's Reset: that spell's own spot only
+	})
+	-- (D52) a buff In Its Own Spot: a box each
+	table.insert(SP.UnlockModules, {
+		key = "readybuffspot", label = "Buff",
+		frames = function() return SP:ReadyBuffSpotFrames() end,
+		enabled = function() return SV().enabled ~= false and #Buff.SpotKeys({}) > 0 end,
+		save = function(frame) Buff.SaveSpot(frame) end,
+		reset = function() SP:ReadyBuffSpotResetAll() end,
+		resetOne = "ReadyBuffSpotReset",   -- a box's Reset: that buff only
 	})
 end
 
@@ -2491,6 +4183,14 @@ function SP:ReadyRemindersDiag()
 		local start, duration = cooldownOf(entry)
 		out[#out + 1] = string.format("%-20s on=%-5s clientID=%-7s known=%-5s cd start=%s dur=%s shown=%s", entry.name, tostring(spellOn(entry)),
 			tostring(id), tostring(id and playerKnows(entry)), tostring(start), tostring(duration), tostring(frames[entry.key] and frames[entry.key]:IsShown()))
+	end
+	-- (D52) each buff's display: its look, how the game draws it, on / off (never what the buff reads)
+	for _, entry in ipairs(Buff.list) do
+		local B = Buff.of[entry.key]
+		out[#out + 1] = string.format("buff %-20s ids=%s look=%s drawn by=%s on=%s alpha=%s fails=%s waiting=%s", entry.buff.label,
+			table.concat(entry.buff.ids, ","), tostring(IconOpt(entry, "buffLook")),
+			B and (B.c and "game" or (B.P and "addon" or "-")) or "-", tostring(B and B.on), tostring(B and B.alpha),
+			tostring(B and B.fails or 0), tostring(Buff.dirty == true))
 	end
 	return out
 end
@@ -2542,6 +4242,33 @@ local function copyValue(v)
 	return t
 end
 SP.ReadyReminderKnown = playerKnows
+-- (D52) the buff an icon's spell puts on you, for its menu: nil when it puts none on you in
+-- this game. name, timed (it has a time left), known (it can come up now) and, when not,
+-- the plain line saying why nothing shows yet (two rows, as the menu draws them).
+function SP.ReadyReminderBuffInfo(_, key)
+	local entry = catalogByKey[key]
+	local b = entry and entry.buff
+	if not (b and usable(entry)) then return nil end
+	local info = b.info or {}
+	b.info = info
+	info.name, info.timed = b.label, b.timed
+	local known
+	if b.talent then
+		known = Buff.KnowsTalent(b)
+		info.line1 = "You don't have the " .. b.label .. " talent:"
+	elseif b.setBonus then
+		known = Buff.HasSetBonus(b)
+		info.line1 = "You don't have the " .. Buff.SetName(b) .. " 4-piece bonus:"
+	else
+		known = playerKnows(entry)
+		info.line1 = "You haven't learned " .. entry.name .. " yet:"
+	end
+	info.known = known and true or false
+	info.line2 = "there's no buff to show yet."
+	return info
+end
+-- (D52) Move This Buff: its box in Unlock UI (In Its Own Spot)
+function SP.ReadyReminderBuffMove(_, key) SP:ReadyBuffMoveSpot(key) end
 function SP.ReadyReminderIconOpt(_, key, opt)   -- what the icon uses now: its own, else the page's
 	local entry = catalogByKey[key]
 	return entry and IconOpt(entry, opt)
@@ -2588,8 +4315,10 @@ function SP.ReadyReminderCopyIcon(_, fromKey, targets)
 		if key ~= fromKey and catalogByKey[key] then
 			if type(src) == "table" and next(src) ~= nil then
 				local t = {}
-				for k, v in pairs(src) do t[k] = copyValue(v) end
-				icons[key] = t
+				for k, v in pairs(src) do
+					if not Buff.Skip(key, k) then t[k] = copyValue(v) end   -- (D52) no buff here: not its buff's settings
+				end
+				icons[key] = next(t) and t or nil
 			else
 				icons[key] = nil
 			end
@@ -2642,7 +4371,9 @@ end
 function SP.ReadyReminderPasteSnapshot(_, key, snap)
 	if not (catalogByKey[key] and type(snap) == "table") then return end
 	local t = {}
-	for k, v in pairs(snap) do t[k] = copyValue(v) end
+	for k, v in pairs(snap) do
+		if not Buff.Skip(key, k) then t[k] = copyValue(v) end   -- (D52) no buff here: not its buff's settings
+	end
 	iconTable()[key] = next(t) and t or nil
 	refreshIcons()
 end
@@ -2723,9 +4454,12 @@ function SP.ReadyReminderBoxAccess(_, what, frame)
 	if not frame then return nil end
 	local opt, lo, hi, step, pct = "iconSize", 24, 96, 2, false
 	if what == "opacity" then opt, lo, hi, step, pct = "opacity", 0.2, 1, 0.05, true
-	elseif what == "flashSize" then opt, lo, hi, step = "flashSize", 48, 200, 4 end
+	elseif what == "flashSize" then opt, lo, hi, step = "flashSize", 48, 200, 4
+	elseif what == "buffOwnSize" then opt, lo, hi, step, pct = "buffOwnSize", 0.3, 1, 0.05, true end   -- (D52) a buff In Its Own Spot
 	local targets = {}
-	if frame.entry and frame.entry.key and what ~= "flashSize" then
+	if what == "buffOwnSize" then
+		targets[1] = frame.spBuffKey and catalogByKey[frame.spBuffKey] or nil
+	elseif frame.entry and frame.entry.key and what ~= "flashSize" then
 		targets[1] = frame.entry
 	elseif frame.spFlashKey then
 		targets[1] = catalogByKey[frame.spFlashKey]
@@ -2753,6 +4487,7 @@ function SP.ReadyReminderBoxAccess(_, what, frame)
 		end
 		refreshIcons()
 		if frame.spFlashKey then flashProxy(frame.spFlashKey) end
+		if frame.spBuffKey then Buff.Proxy(frame.spBuffKey) end   -- (its box's copy, at the new size)
 	end
 	return get, set, lo, hi, step, pct
 end
@@ -2777,6 +4512,8 @@ function SP.ReadyReminderIconTextures(_, key, out)
 		if n == 0 then n = 1; out[1] = GetSpellTextureC(8042) or 136024 end
 		return n
 	end
+	if entry.imbue then out[1] = imbueIcon(); return 1 end
+	if entry.weaponSet then out[1] = R.WeaponSet.icon(); return 1 end   -- (A28)
 	local id = clientSpellID(entry)
 	out[1] = id and GetSpellTextureC(id) or 136024
 	return 1
@@ -2788,6 +4525,135 @@ function SP.ReadyReminderPlaySound(_, name, key)
 	if SP.PlaySoundWithVolume and SP.GetSoundFile then
 		SP:PlaySoundWithVolume(SP:GetSoundFile(name or (entry and IconOpt(entry, "soundName")) or "Raid Warning"), vol, true)
 	end
+end
+
+-- ---------------------------------------------------------------------------
+-- The Ready Flash tab (A26). Everything about the flash in one place: its own Spells
+-- row (click a spell: it flashes when ready, whether or not it shows an icon), one look
+-- every flash shares, when it plays, and its spot. A spell's menu on the tab keeps only
+-- what is truly per spell (on / off, Flash Early, a spot of its own with its own size).
+-- One table (this file is near Lua's 200 locals).
+-- ---------------------------------------------------------------------------
+-- the spell flashes when ready (its own switch; the page's old "all icons" switch is moved below)
+function R.FlashTab.on(entry) return IconOpt(entry, "flash") == true end
+
+-- once, the first load with the tab: what every icon's menu held becomes the tab's.
+-- The page's one switch: every spell it covered gets its own On. A spell's own look
+-- values go (the look is one now); its own spot keeps its own Size. "Never (Ready
+-- Flash Only)" becomes: off on the Icons tab, on in Ready Flash. Nobody's flash stops,
+-- and nobody's starts: a spell that was off on the Icons tab never flashed, so it keeps no flash.
+function R.FlashTab.migrate()
+	local sv = SV()
+	if sv.flashTab then return end
+	sv.flashTab = 1
+	local icons = iconTable()
+	if sv.flash == true then
+		for _, entry in ipairs(SP.ReadyReminderSpells) do
+			if IconOpt(entry, "flash") and spellOn(entry) then
+				local own = icons[entry.key]
+				if type(own) ~= "table" then own = {}; icons[entry.key] = own end
+				own.flash = true
+			end
+		end
+		sv.flash = false
+	end
+	for key, own in pairs(icons) do
+		if type(own) == "table" then
+			own.flashAnim, own.flashHold, own.flashName, own.flashMin = nil, nil, nil, nil
+			if not sv.flashPositions[key] then own.flashSize = nil end
+			local e = catalogByKey[key]
+			local wasOn = e == nil or spellOn(e)
+			if own.mode == "flash" then
+				own.mode = nil; sv.spells[key] = false
+				if wasOn then own.flash = true else own.flash = nil end
+			elseif not wasOn then
+				own.flash = nil   -- (off on the Icons tab: it never flashed)
+			end
+			if next(own) == nil then icons[key] = nil end
+		end
+	end
+	settingsChanged()
+end
+
+-- the spells with a spot of their own, by name
+function R.FlashTab.ownSpots()
+	local names = {}
+	for _, entry in ipairs(SP.ReadyReminderSpells) do
+		if SV().flashPositions[entry.key] then names[#names + 1] = entry.name end
+	end
+	return names
+end
+
+function R.FlashTab.inject(root)
+	if root.args.fluffy.args.readyflash_section then return end
+	local function sv() return SV() end
+	local function look() SP:ReadyFlashRefresh() end
+	local args = {
+		iconsHeader = { order = 0.1, type = "header", name = "Spells" },
+		-- the Spells row: the settings window draws it (ReadyIcons.lua); the text is what a search finds
+		yourFlash = { order = 0.2, type = "description", width = "full",
+			name = "Click a spell to flash it when it is ready. Right-click it for its own spot, its size there and Flash Early." },
+		lookHeader = { order = 1, type = "header", name = "Look" },
+		flashAnim = { order = 1.1, type = "select", name = "Animation", width = 1.0,
+			values = { grow = "Grow and Fade", pop = "Pop", fade = "Fade Only" }, sorting = { "grow", "pop", "fade" },
+			get = function() return sv().flashAnim or "grow" end, set = function(_, v) sv().flashAnim = v end },
+		flashSize = { order = 1.2, type = "range", name = "Size", min = 48, max = 200, step = 4, width = 1.0,
+			desc = "The flash on the shared spot. A spell with a spot of its own has its own Size in its menu.",
+			get = function() return sv().flashSize or 96 end, set = function(_, v) sv().flashSize = v; look() end },
+		flashHold = { order = 1.3, type = "range", name = "Time On Screen", min = 0.5, max = 3, step = 0.1, width = 1.0,
+			desc = "Seconds from the flash's start to its end.",
+			get = function() return sv().flashHold or 1 end, set = function(_, v) sv().flashHold = v end },
+		flashName = { order = 1.4, type = "toggle", name = "Show Spell Name", width = 1.0,
+			desc = "The spell's name under the flash.",
+			get = function() return sv().flashName == true end, set = function(_, v) sv().flashName = v and true or false; look() end },
+		flashTest = { order = 1.9, type = "execute", name = "Test Ready Flash", width = 1.2,
+			desc = "Plays one flash on the shared spot with the look above.",
+			func = function() SP:ReadyFlashTest(nil) end },
+		whenHeader = { order = 2, type = "header", name = "When" },
+		flashMin = { order = 2.1, type = "range", name = "Only For Cooldowns Over", min = 0, max = 120, step = 5, width = 1.0,
+			desc = "Seconds. A spell with a shorter cooldown never flashes. 0: every spell you turned on flashes.",
+			get = function() return sv().flashMin or 10 end, set = function(_, v) sv().flashMin = v end },
+		flashEarly = { order = 2.2, type = "range", name = "Flash Early", min = 0, max = 5, step = 0.5, width = 1.0,
+			desc = "Seconds before the spell is ready, once per cooldown. 0: the moment it is ready. A spell's menu can give it its own.",
+			get = function() return sv().flashEarly or 0 end, set = function(_, v) sv().flashEarly = v end },
+		flashCombat = { order = 2.3, type = "toggle", name = "Only In Combat", width = 1.0,
+			desc = "No flashes out of a fight.",
+			get = function() return sv().flashCombat == true end, set = function(_, v) sv().flashCombat = v and true or false end },
+		positionHeader = { order = 3, type = "header", name = "Position" },
+		flashMove = { order = 3.1, type = "execute", name = "Move Ready Flash", width = 1.2,
+			desc = "Unlock UI with just the Ready Flash's box: drag it where you want it, then press Done to come back here.",
+			hidden = function() return not SP.UnlockModuleFrames end,
+			func = function() SP:ReadyFlashMove() end },
+		flashReset = { order = 3.2, type = "execute", name = "Reset Position", width = 1.0,
+			desc = "Puts the shared spot back a little above the middle of your screen.",
+			func = function() SP:ReadyFlashResetPosition() end },
+		ownSpots = { order = 3.3, type = "description", width = "full",
+			name = function()
+				local names = R.FlashTab.ownSpots()
+				if #names == 0 then return "Every spell flashes on the shared spot. Right-click a spell above to give it a spot of its own." end
+				return "Spells with a spot of their own: " .. table.concat(names, ", ") .. ". Right-click a spell above to move it or send it back to the shared spot."
+			end },
+		ownReset = { order = 3.4, type = "execute", name = "Reset Their Spots", width = 1.0,
+			desc = "Every spell flashes on the shared spot again.",
+			hidden = function() return #R.FlashTab.ownSpots() == 0 end,
+			func = function() SP:ReadyFlashResetSpellSpots() end },
+	}
+	SP.OrderSettingsBands({ args = args }, {
+		{ header = "iconsHeader", name = "Spells", keys = { "yourFlash" } },
+		{ header = "lookHeader", name = "Look", keys = { "flashAnim", "flashSize", "flashHold", "flashName", "flashTest" } },
+		{ header = "whenHeader", name = "When", keys = { "flashMin", "flashEarly", "flashCombat" } },
+		{ header = "positionHeader", name = "Position", keys = { "flashMove", "flashReset", "ownSpots", "ownReset" } },
+	})
+	-- every write on the tab: each icon reads its settings again
+	for _, option in pairs(args) do
+		if type(option) == "table" and type(option.set) == "function" then
+			local set = option.set
+			option.set = function(...) set(...); settingsChanged() end
+		end
+	end
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[args.yourFlash] = "readyFlashIcons"
+	root.args.fluffy.args.readyflash_section = { order = 9.6, type = "group", name = "Ready Flash", args = args }
 end
 
 -- The page (D40, 2026-10-02): the notice, the Spells row and Position. Every other
@@ -2810,18 +4676,29 @@ local function InjectOptions()
 			iconsHeader = { order = 0.1, type = "header", name = "Spells" },
 			yourIcons = { order = 0.2, type = "description", width = "full",
 				name = "Click a spell to show or hide it. Right-click it for its settings: Show, Only In Combat,"
-					.. " Look, When Ready, While On Cooldown, Out of Range, Sound and Ready Flash."
-					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom." },
+					.. " Fade Instead of Hide, Look, When Ready, While On Cooldown, Out of Range and Sound."
+					.. " Vertical - Fills Back In, Sweep Direction: From The Top or From The Bottom."
+					-- (D52) the buff a spell puts on you, in that spell's menu (this game's buffs only)
+					.. " Your buff on its icon (" .. Buff.Names() .. "): Show The Buff In The Icon's Corner,"
+					.. " As Its Own Icon (Side: Above, Below, Left, Right or In Its Own Spot) or As An Edge Around The Icon;"
+					.. " Time Left, Time Turns Gold Under, Edge Color." },
 
+			-- Rows placement: the spells on no row (ShamanPower_Config ReadyIcons.lua, the unplaced row)
+			yourUnplaced = { order = 0.21, type = "description", width = "full", name = " " },
+			-- (A27) Hide In Town covers this page: one plain line, where the icons are
+			townNote = { order = 0.015, type = "description", width = "full",
+				name = function() return "|cff3FA9F5Out of the way|r " .. (SP.opt and SP.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+				hidden = function() return not (SP.TownCovers and SP:TownCovers("rr")) end },
 			move = { order = 1.5, type = "execute", name = "Move the Icons", width = 1.2,
-				desc = "Unlocks just the reminder icons: drag each box where you want it, then press Done to come back here.",
+				desc = function()
+					if rowsOn() then return "Unlock UI with a box for each row: drag it where you want it, then press Done to come back here." end
+					if gridOn() then return "Unlock UI with a box for the grid: drag it where you want it, then press Done to come back here." end
+					return "Unlock UI with a box for each icon: drag it where you want it, then press Done to come back here."
+				end,
 				hidden = function() return not SP.UnlockModuleFrames end,
 				func = function() SP:UnlockModuleFrames("readyreminders") end },
-			flashMove = { order = 1.6, type = "execute", name = "Move Ready Flash", width = 1.2,
-				desc = "Unlocks just the Ready Flash's spot: drag its box where you want it, then press Done to come back here. A spell can have its own spot too (Ready Flash > Move This Flash in its menu).",
-				hidden = function() return not SP.UnlockModuleFrames or not flashUsedAnywhere() end,
-				func = function() SP:ReadyFlashMove() end },
-			unlock = { order = 3, type = "toggle", name = "Unlock Positions", width = 1.0,
+			-- (3.0.8: the old drag-the-icons switch is gone from the page; Move opens Unlock UI, with its boxes)
+			unlock = { order = 3, type = "toggle", name = "Unlock Positions", width = 1.0, hidden = function() return SP.UnlockModuleFrames ~= nil end,
 				desc = "Shows every enabled icon with settings hidden. Drag them, then press Done to return here.",
 				get = function() return SP.readyPositioning == true end,
 				set = function(_, v)
@@ -2831,15 +4708,23 @@ local function InjectOptions()
 			reset = { order = 5, type = "execute", name = "Reset Positions",
 				desc = function()
 					if gridOn() then return "Puts the grid back on its default spot." end
+					if rowsOn() then return "Puts every row back on its default spot, one under the other." end
 					return "Lays the icons out again in a row or column (see Arrange As)."
 				end, width = 1.0,
 				func = function() SP:ResetReadyReminderPositions() end },
 			arrange = { order = 4.9, type = "select", name = "Placement", width = 1.4,
-				desc = "Free: each icon has its own spot, and a hidden icon leaves a gap. Grid: the icons form one block you move as a whole; the icons on screen fill it in the order they appeared, so there are never gaps.",
-				values = { free = "Free (each icon its own spot)", grid = "Grid (fills in the order they appear)" },
-				sorting = { "free", "grid" },
+				desc = "Free: each icon has its own spot, and a hidden icon leaves a gap. Grid: the icons form one block you move as a whole; the icons on screen fill it in the Spells row's order (drag a spell there to change it). Rows: you build each row yourself in the Spells row above, as many as you want, and move each row on its own.",
+				values = { free = "Free (each icon its own spot)", grid = "Grid (fills in the Spells row's order)", rows = "Rows (you build each row)" },
+				sorting = { "free", "grid", "rows" },
 				get = function() return SV().arrange or "free" end,
-				set = function(_, v) SV().arrange = v; refresh() end },
+				set = function(_, v)
+					local sv = SV()
+					local prev = sv.arrange or "free"
+					sv.arrange = v
+					if v == "rows" and type(sv.rows) ~= "table" then R.buildRows(prev) end   -- (the first time: from what is on screen)
+					for _, f in pairs(frames) do f.gridAnchored = nil end
+					R.changed()
+				end },
 			gridColumns = { order = 4.91, type = "range", name = "Icons Per Row", min = 1, max = 12, step = 1, width = 1.0,
 				desc = "How many icons fit in a row before the next row starts. 1 makes a column.",
 				hidden = function() return not gridOn() end,
@@ -2853,19 +4738,30 @@ local function InjectOptions()
 				hidden = function() return not gridOn() end,
 				values = { left = "Left", center = "Center", right = "Right" }, sorting = { "left", "center", "right" },
 				get = function() return SV().gridAlign or "center" end, set = function(_, v) SV().gridAlign = v; refresh() end },
+			addRow = { order = 4.95, type = "execute", name = "Add a Row", width = 1.0,
+				desc = "A new empty row under the others. Put spells on it in the Spells row above (click a spell on Not On A Row, or drag it); right-click the row's name for its spacing, direction and spot.",
+				hidden = function() return not rowsOn() end,
+				func = function() SP:ReadyRowAdd() end },
 			layout = { order = 5.1, type = "select", name = "Reset Layout", width = 1.0,
-				hidden = function() return gridOn() end,
+				hidden = function() return not freeOn() end,
 				values = { row = "Row", column = "Column" },
 				get = function() return SV().layout or "row" end, set = function(_, v) SV().layout = v end },
 			spacing = { order = 5.2, type = "range", name = "Reset Spacing", min = 0, max = 40, step = 1, width = 1.0,
-				desc = "The gap between icons: in the grid, and when Reset Position lays them out in Free placement.",
+				desc = "The gap between the icons: in the grid, or on every row at once (a row's own menu can give that row its own).",
+				hidden = function() return not (gridOn() or rowsOn()) end,
 				get = function() return SV().spacing or 8 end,
-				set = function(_, v) SV().spacing = v; if gridOn() then refresh() end end },
+				set = function(_, v)
+					SV().spacing = v
+					if rowsOn() then
+						for _, r in ipairs(rowsList()) do r.spacing = v end
+						R.changed()
+					elseif gridOn() then refresh() end
+				end },
 	}
 	SP.OrderSettingsBands({ args = args }, {
 		{ header = "noticeHeader", name = "Settings Moved", keys = { "notice306" } },
-		{ header = "iconsHeader", name = "Spells", keys = { "yourIcons" } },
-		{ header = "positionHeader", name = "Position", keys = { "arrange", "gridColumns", "gridGrow", "gridAlign", "move", "flashMove", "unlock", "layout", "spacing", "reset" },
+		{ header = "iconsHeader", name = "Spells", keys = { "townNote", "yourIcons", "yourUnplaced" } },
+		{ header = "positionHeader", name = "Position", keys = { "arrange", "gridColumns", "gridGrow", "gridAlign", "addRow", "move", "unlock", "layout", "spacing", "reset" },
 			names = { move = "Move", unlock = "Unlock Position", layout = "Arrange As",
 				spacing = "Spacing", reset = "Reset Position" } },
 	})
@@ -2879,8 +4775,11 @@ local function InjectOptions()
 	-- the notice and the Spells row, drawn by the settings window (ShamanPower_Config ReadyIcons.lua)
 	SP.OptionCustomRow = SP.OptionCustomRow or {}
 	SP.OptionCustomRow[args.yourIcons] = "readyIcons"
+	SP.OptionCustomRow[args.yourUnplaced] = "readyUnplaced"
 	SP.OptionCustomRow[args.notice306] = "readyNotice"
 	root.args.fluffy.args.readyreminders_section = { order = 9.5, type = "group", name = "Ready Reminders", args = args }
+	R.FlashTab.migrate()   -- (A26) once: the icons' flash settings become the tab's
+	R.FlashTab.inject(root)
 end
 
 -- ---------------------------------------------------------------------------
@@ -2945,7 +4844,9 @@ ef:SetScript("OnEvent", function(_, event)
 			local wake = CreateFrame("Frame")   -- its events follow the setting (setTicking)
 			if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(wake, "Ready Reminders (wake)") end
 			wake:SetScript("OnEvent", function(_, event, _, _, spellID)
-				if event == "UNIT_SPELLCAST_SUCCEEDED" then noteShockCast(spellID) return end
+				if event == "UNIT_SPELLCAST_SUCCEEDED" then noteShockCast(spellID); Reset.noteCast(spellID) return end
+				if event == "GET_ITEM_INFO_RECEIVED" then if R.WeaponSet.pending then R.WeaponSet.changed() end return end   -- (A28: an item answered late)
+				if event == "PLAYER_EQUIPMENT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then R.WeaponSet.changed() end   -- (A28)
 				SP.readyWake = true
 				-- a cooldown can change without its start time changing (reset, haste,
 				-- a secret start): fetch the duration object again on the next pass,
@@ -3014,17 +4915,66 @@ if SP.ThemeSpotSettings then
 				if v == "default" then SP:ReadyReminderSetIconOpt(key, "sweepDirection", nil)
 				elseif v == "top" or v == "bottom" then SP:ReadyReminderSetIconOpt(key, "sweepDirection", v) end
 			end }
+		-- (A25) the reset burst's color, the same way ("default" = the shared one, WoW's gold)
+		if entry.reset then
+			entries[#entries + 1] = { key = "resetColor." .. key, label = entry.name .. " Reset Burst Color",
+				mayBeColor = true,
+				get = function()
+					local c = SP:ReadyReminderOwnOpt(key, "resetColor")
+					if type(c) ~= "table" then return "default" end
+					local r, g, b = color(c, 1, 0.82, 0)
+					return { r = r, g = g, b = b }
+				end,
+				set = function(v)
+					if v == "default" then SP:ReadyReminderSetIconOpt(key, "resetColor", nil)
+					elseif type(v) == "table" then
+						SP:ReadyReminderSetIconOpt(key, "resetColor", { r = v.r or v[1], g = v.g or v[2], b = v.b or v[3] })
+					end
+				end }
+		end
+		-- (D52) the buff's Edge Color, picked in the icon's menu: the same way ("default" = the
+		-- shared one, WoW's mana-bar blue; a color = this icon's own). Only a spell with a buff here.
+		if entry.buff then
+			entries[#entries + 1] = { key = "buffEdgeColor." .. key, label = entry.buff.label .. " Buff Edge Color",
+				mayBeColor = true,   -- (a theme may hold a color here while the icon has none: ShamanPowerTheme Cards.FitsEntry)
+				get = function()
+					local c = SP:ReadyReminderOwnOpt(key, "buffEdgeColor")
+					if type(c) ~= "table" then return "default" end
+					local r, g, b = color(c, 0, 0, 1)
+					return { r = r, g = g, b = b }
+				end,
+				set = function(v)
+					if v == "default" then SP:ReadyReminderSetIconOpt(key, "buffEdgeColor", nil)
+					elseif type(v) == "table" then
+						SP:ReadyReminderSetIconOpt(key, "buffEdgeColor", { r = v.r or v[1], g = v.g or v[2], b = v.b or v[3] })
+					end
+				end }
+		end
 	end
 	SP:ThemeSpotSettings("mod.readyreminders", entries)
 end
 
 -- The Out of Range color is a theme color too (ShamanPowerTheme.lua Cards.RR): Reset
 -- All Colors (and Reset Everything, which runs it) clears it with the module's
--- other colors, back to the game's red on the next read.
+-- other colors, back to the game's red on the next read. So is each icon's buff Edge
+-- Color (D52): back to the shared one, WoW's mana-bar blue.
 if SP.ResetAllColorsToDefault and hooksecurefunc then
 	hooksecurefunc(SP, "ResetAllColorsToDefault", function()
 		local sv = rawget(_G, "ShamanPower_ReadyReminders")
-		if type(sv) == "table" then sv.rangeColor = nil end
+		if type(sv) == "table" then
+			sv.rangeColor = nil
+			if type(sv.icons) == "table" then
+				for k, own in pairs(sv.icons) do
+					if type(own) == "table" and (own.buffEdgeColor ~= nil or own.resetColor ~= nil) then
+						own.buffEdgeColor, own.resetColor = nil, nil   -- (A25: the burst back to the shared gold too)
+						if next(own) == nil then sv.icons[k] = nil end
+					end
+				end
+			end
+		end
 		settingsChanged()
 	end)
 end
+
+-- (A27) Hide In Town changed: a pass now, so the icons hide, fade or come back at once
+if SP.OnTownChange then SP:OnTownChange(function() SP.readyWake = true; if SP.UpdateReadyReminders then SP:UpdateReadyReminders(true) end end) end

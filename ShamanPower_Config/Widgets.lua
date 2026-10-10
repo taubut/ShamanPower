@@ -247,6 +247,7 @@ end
 local function ClampRowLabel(row, controlWidth)
 	local tagW = 0
 	if row.tag:IsShown() then tagW = row.tag:GetStringWidth() + 8 end
+	if row.litTag and row.litTag:IsShown() then tagW = tagW + row.litTag:GetStringWidth() + 8 end   -- (a lit row's NEW)
 	local avail = row:GetWidth() - controlWidth - (PAD * 2) - 8 - tagW
 	local label = row.label
 	-- a control taller than one line (a dropdown whose value wraps) sets the floor
@@ -504,10 +505,48 @@ local function CreateToggle(parent)
 	return row
 end
 
+-- opts.lit (optional): function() -> true while the row is new to the player (3.0.8's Use
+-- the Old Settings Look, until it is used once): a 3 px accentHi bar on its left edge, its
+-- background tinted 20% toward accent, and a gold NEW tag after its label (the sidebar's
+-- Patch Notes NEW, in the tiny font). Asked again on every refresh; nil = the row as always.
+local function PaintLit(row)
+	local opts = row.opts
+	local on = (opts and opts.lit and opts.lit()) and true or false
+	if on and not row.litBg then
+		-- under the row's own card (a hover still paints over it)
+		local bg = row:CreateTexture(nil, "BACKGROUND", nil, -1)
+		bg:SetAllPoints(row)
+		Core:RegisterFadeRGB(bg, Core:Mix("accent", "rowBg", 0.2))
+		row.litBg = bg
+		local bar = row:CreateTexture(nil, "ARTWORK")
+		bar:SetWidth(3)
+		bar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, 0)
+		bar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 0)
+		bar:SetColorTexture(Core:Color("accentHi"))
+		row.litBar = bar
+		local tag = row:CreateFontString(nil, "OVERLAY")
+		tag:SetFontObject(Core.fonts.tiny)
+		tag:SetTextColor(Core:Color("help"))
+		tag:SetText("NEW")
+		tag:SetPoint("LEFT", row.label, "RIGHT", 8, 0)
+		row.litTag = tag
+		row.spPaintLit = function() PaintLit(row) end
+	end
+	if row.litBg then
+		row.litBg:SetShown(on)
+		row.litBar:SetShown(on)
+		row.litTag:SetShown(on)
+	end
+end
+
 function Widgets:Toggle(parent, opts)
 	local row = Acquire("toggle", parent, CreateToggle)
 	ConfigureRow(row, parent, opts)
 	row.track:SetElement(row._element or "spirit")
+	if opts.lit or row.litBg then
+		PaintLit(row)   -- (before the label is measured: its NEW tag takes room)
+		if opts.lit then RegisterRefresh(parent, row.spPaintLit) end
+	end
 	return FinishRow(row, parent, TOGGLE_W)
 end
 
@@ -515,6 +554,11 @@ end
 -- Slider with numeric readout
 -- ---------------------------------------------------------------------------
 local function SliderFormat(row, v)
+	-- opts.format (optional, the List look): the row's own words for a value, as a menu slider's
+	if row.formatFn then
+		local ok, t = pcall(row.formatFn, v)
+		if ok and t ~= nil then return tostring(t) end
+	end
 	-- isPercent (AceConfig): the value is a 0-1 fraction, shown as a percentage
 	if row.isPercent then return string.format("%d%%", math.floor(v * 100 + 0.5)) end
 	if row.step < 1 then return string.format("%.2f", v) end
@@ -524,6 +568,7 @@ end
 local function SliderPaintFill(row, v)
 	local minV, maxV = row.min, row.max
 	local pct = (maxV > minV) and ((v - minV) / (maxV - minV)) or 0
+	pct = math.min(1, math.max(0, pct))   -- a value past the ends (set some other way) stops at the track's end
 	row.fill:SetWidth(math.max(1, SLIDER_W * pct))
 end
 
@@ -571,7 +616,7 @@ local function CreateSlider(parent)
 	row._applying = false
 	-- Widgets.sliderDragging: a slider thumb is held down. The live preview waits for the
 	-- release before rebuilding (Window.lua PreviewChanged), so a drag stays smooth.
-	slider:HookScript("OnMouseDown", function() Widgets.sliderDragging = true end)
+	slider:HookScript("OnMouseDown", function() Widgets.sliderDragging = slider end)
 	slider:HookScript("OnMouseUp", function()
 		Widgets.sliderDragging = false
 		local opts = row.opts
@@ -580,7 +625,8 @@ local function CreateSlider(parent)
 		if pv ~= nil then row._pendingV = nil; opts.set(pv) end
 		if opts.onChanged then opts.onChanged() end   -- the page and preview, once, with the final value
 	end)
-	slider:HookScript("OnHide", function() Widgets.sliderDragging = false end)
+	-- (only the held slider's own hide ends the drag: the rows scrolled out of view hide theirs while it is held)
+	slider:HookScript("OnHide", function() if Widgets.sliderDragging == slider then Widgets.sliderDragging = false end end)
 
 	slider:SetScript("OnValueChanged", function(self, v)
 		if row._applying then return end
@@ -669,6 +715,7 @@ function Widgets:Slider(parent, opts)
 	row.min  = opts.min or 0
 	row.max  = opts.max or 100
 	row.step = opts.step or 1
+	row.formatFn = type(opts.format) == "function" and opts.format or nil   -- (rows are pooled: always reset)
 	-- Percent display: AceConfig pages say so explicitly (true/false). Sliders built
 	-- by hand (the setup tour, module windows) do not; a fractional step on a
 	-- 0-3 range is a scale or an opacity there, so it shows as 70% / 180% too.
@@ -1078,7 +1125,10 @@ local function CreateDropdown(parent)
 
 	row.spSetControlEnabled = function(_, enabled)
 		if enabled then btn:Enable() else btn:Disable() end
-		txt:SetTextColor(Core:ColorIf(enabled, "text", "textMute"))
+		-- opts.own (optional, the List look): true = a value of the item's own, in accentHi as the menu shows it
+		local key = "text"
+		if enabled and row.opts and row.opts.own and row.opts.own() then key = "accentHi" end
+		txt:SetTextColor(Core:ColorIf(enabled, key, "textMute"))
 	end
 
 	row.refresh = function()
@@ -1140,6 +1190,8 @@ local function CreateColor(parent)
 	btn:SetScript("OnClick", function()
 		local opts = row.opts
 		if not opts or row._disabled then return end
+		-- opts.click (optional, the List look): the row opens its own picker (a menu line's onClick)
+		if opts.click then opts.click() return end
 		local r, g, b, a = opts.get()
 		r, g, b, a = r or 1, g or 1, b or 1, a or 1
 

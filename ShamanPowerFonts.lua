@@ -227,21 +227,88 @@ local function live(fs)
 	return false
 end
 
-function SP:RefreshFonts()
-	gen = gen + 1
+-- WoW: Forever: a string that lives on one of the game's own aura buttons (an
+-- AuraContainer slot's button: a buff's time left, a charge count, an alert's names)
+-- may not be touched in a fight or while the game hides auras, not even read
+-- (GetParent). Its code marks it once (SP:SPFontGameOwned; weak keys, as the
+-- registry). A refresh then leaves it alone before any frame access and remembers
+-- it; the font goes on the moment those restrictions clear (the end of the fight,
+-- or SPCompat's "unrestricted" call). Nothing is marked on TBC Anniversary.
+local gameOwned = setmetatable({}, { __mode = "k" })
+local gameOwnedWaiting = false
+local gameOwnedWatch   -- made the first time a string has to wait
+
+-- the game's aura buttons may not be touched now: a fight, or the game hiding auras
+-- (the check Ready Reminders' buffs use, Buff.Locked)
+function SP:GameAuraButtonsLocked()
+	if InCombatLockdown() then return true end
+	local S = C_Secrets
+	if S and S.ShouldAurasBeSecret then
+		local ok, v = pcall(S.ShouldAurasBeSecret)
+		if not ok or (issecretvalue and issecretvalue(v)) or v == true then return true end
+	end
+	if SPCompat and SPCompat.secretsRegime then
+		if SPCompat.AnyRestrictionActive and SPCompat.AnyRestrictionActive() then return true end
+		if SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return true end
+	end
+	return false
+end
+
+-- fs sits on the game's aura button (marked as it is made, with the button)
+function SP:SPFontGameOwned(fs)
+	if fs then gameOwned[fs] = true end
+end
+
+local function refreshOne(self, fs, rec)
+	rec.gen = gen
+	local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path, rec.inherited)
+	if path == rec.path and flags == rec.flags and (rec.template or rec.fontObject) then
+		-- the design for a template string: its own font object, never SetFont
+		if not rec.template then reattach(fs, rec) end
+	else
+		rec.template = nil
+		apply(fs, path, rec.size, flags, rec.path, rec.flags)
+	end
+end
+
+-- the strings that waited get their font now (nothing to do, or still restricted: nothing)
+function SP:FlushGameOwnedFonts()
+	if not gameOwnedWaiting or self:GameAuraButtonsLocked() then return end
+	gameOwnedWaiting = false
+	if gameOwnedWatch then gameOwnedWatch:UnregisterEvent("PLAYER_REGEN_ENABLED") end
 	for fs, rec in pairs(registry) do
-		if live(fs) then
-		rec.gen = gen
-		local path, flags = self:FontFor(rec.area, rec.size, rec.flags, rec.path, rec.inherited)
-		if path == rec.path and flags == rec.flags and (rec.template or rec.fontObject) then
-			-- the design for a template string: its own font object, never SetFont
-			if not rec.template then reattach(fs, rec) end
-		else
-			rec.template = nil
-			apply(fs, path, rec.size, flags, rec.path, rec.flags)
-		end
+		if rec.waiting then
+			rec.waiting = nil
+			if live(fs) then refreshOne(self, fs, rec) end
 		end
 	end
+end
+
+local function waitForUnrestricted()
+	gameOwnedWaiting = true
+	if not gameOwnedWatch then
+		gameOwnedWatch = CreateFrame("Frame")
+		gameOwnedWatch:SetScript("OnEvent", function() SP:FlushGameOwnedFonts() end)
+		-- the game stops hiding auras (and a fight's restrictions end ~2 s after it does)
+		if SPCompat and SPCompat.OnUnrestricted then SPCompat.OnUnrestricted(function() SP:FlushGameOwnedFonts() end) end
+	end
+	gameOwnedWatch:RegisterEvent("PLAYER_REGEN_ENABLED")   -- (only while a string waits)
+end
+
+function SP:RefreshFonts()
+	gen = gen + 1
+	local locked   -- asked once, at the first string on the game's buttons
+	for fs, rec in pairs(registry) do
+		local owned = gameOwned[fs]
+		if owned and locked == nil then locked = self:GameAuraButtonsLocked() end
+		if owned and locked then
+			rec.waiting = true   -- (before any frame access: not even GetParent)
+		elseif live(fs) then
+			rec.waiting = nil
+			refreshOne(self, fs, rec)
+		end
+	end
+	if locked then waitForUnrestricted() end
 	-- game-drawn cooldown numbers copy their font from our strings when placed
 	if self.ResetEngineBarCooldowns then pcall(self.ResetEngineBarCooldowns, self) end
 end

@@ -5,8 +5,8 @@
 -- reach macros / secure bars are gated, and the engine already gates those.
 --
 -- Engine boundary: this file never writes ShamanPower_Assignments. Cells call
--- ShamanPower:PerformCycle / PerformCycleBackwards; every other write mirrors
--- the exact sequence the XML window used (spec §3.4, §3.5, §3.8).
+-- ShamanPower:PerformCycle / PerformCycleBackwards / PerformClearAssignment; every
+-- other write mirrors the exact sequence the XML window used (spec §3.4, §3.5, §3.8).
 
 -- "First Surname" on WoW: Forever (SPCompat.UnitName); other clients unchanged
 local UnitName = (SPCompat and SPCompat.UnitName) or UnitName
@@ -238,13 +238,22 @@ end
 -- ---------------------------------------------------------------------------
 -- Rows
 -- ---------------------------------------------------------------------------
-local function CellOnClick(cell, button)
+-- Right-Click an Assignment (Totem Bar > Clicks): "previous" steps back (as always),
+-- "clear" leaves that element with no totem.
+local function RightClickClears()
+	return Opt().assignRightClick == "clear"
+end
+
+-- action: "next" / "previous" / "clear", with the same checks for each
+local function CellAction(cell, action)
 	local row = cell.row
 	if not row or not row.name then return end
 	if Assign.demo then return end
 	if CombatBlocked() then return end
 	if not SP:CanControl(row.name) then return end
-	if button == "RightButton" then
+	if action == "clear" then
+		SP:PerformClearAssignment(row.name, cell.element)
+	elseif action == "previous" then
 		SP:PerformCycleBackwards(row.name, cell.element)
 	else
 		SP:PerformCycle(row.name, cell.element)
@@ -252,12 +261,17 @@ local function CellOnClick(cell, button)
 	MarkDirty()
 end
 
-local function CellOnWheel(cell, delta)
-	if delta < 0 then
-		CellOnClick(cell, "LeftButton")
+local function CellOnClick(cell, button)
+	if button == "RightButton" then
+		CellAction(cell, RightClickClears() and "clear" or "previous")
 	else
-		CellOnClick(cell, "RightButton")
+		CellAction(cell, "next")
 	end
+end
+
+-- the wheel steps both ways whatever a right-click does
+local function CellOnWheel(cell, delta)
+	CellAction(cell, delta < 0 and "next" or "previous")
 end
 
 local function CellTooltip(cell)
@@ -274,7 +288,12 @@ local function CellTooltip(cell)
 	tip:AddLine(ELEMENTS[cell.element].label .. " totem for " .. row.name, Core:Color("textDim"))
 	if SP:CanControl(row.name) then
 		tip:AddHint("Left-click / wheel down: next totem")
-		tip:AddHint("Right-click / wheel up: previous totem")
+		if RightClickClears() then
+			tip:AddHint("Wheel up: previous totem")
+			tip:AddHint("Right-click: clear (no totem)")
+		else
+			tip:AddHint("Right-click / wheel up: previous totem")
+		end
 	else
 		tip:AddLine(" ")
 		tip:AddLine("Group leader or assistant only", Core:Color("warn"))

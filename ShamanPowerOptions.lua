@@ -62,58 +62,9 @@ end
 -- Shared args table for loadouts section (rebuilt in-place by RefreshLoadoutArgs)
 local loadoutArgs = {}
 
--- Element names and color codes for totem dropdowns (matches TotemTimers ElementColors)
-local loadoutElementNames = {
-	[1] = "|cffb3804dEarth|r",  -- 0.7, 0.5, 0.3
-	[2] = "|cffff1a1aFire|r",   -- 1.0, 0.1, 0.1
-	[3] = "|cff6666ffWater|r",  -- 0.4, 0.4, 1.0
-	[4] = "|cffffffffAir|r",    -- 1.0, 1.0, 1.0
-}
-
--- Build totem dropdown values for a given element
--- Loadout totem pickers: a totem this character has not learned yet is marked, since the
--- game will not drop it (and Blizzard's totem bar will not hold it) until it is
-local function GetTotemValues(element)
-	local mainline = SPCompat.FOREVER
-	return function()
-		local values = { [0] = "None" }
-		for idx, name in pairs(ShamanPower.TotemNames[element] or {}) do
-			if not mainline or ShamanPower:TotemExistsOnClient(element, idx) then
-				name = ShamanPower:GetTotemName(element, idx)
-				local learned = not ShamanPower.KnowsTotem or ShamanPower:KnowsTotem(element, idx)
-				values[idx] = learned and name or (name .. " |cff888888(not learned)|r")
-			end
-		end
-		return values
-	end
-end
-
--- Build sorted key list for totem dropdown
-local function GetTotemSorting(element)
-	if SPCompat.FOREVER then
-		return function()
-			local sorting = { 0 }
-			for idx in pairs(ShamanPower.TotemNames[element] or {}) do
-				if ShamanPower:TotemExistsOnClient(element, idx) then tinsert(sorting, idx) end
-			end
-			table.sort(sorting)
-			return sorting
-		end
-	end
-	local sorting = {0}
-	local names = ShamanPower.TotemNames[element]
-	if names then
-		for idx in pairs(names) do
-			tinsert(sorting, idx)
-		end
-	end
-	table.sort(sorting)
-	return sorting
-end
-
 -- Icon choices for custom loadout icons (element icons + common totems + "None" to reset)
 -- ============================================================================
--- ICON PICKER POPUP (same as TotemTimers IconPicker.lua)
+-- ICON PICKER POPUP (scrollable loadout icon choices)
 -- Scrollable grid of icons for choosing a loadout icon
 -- ============================================================================
 local ICONS_PER_ROW = 6
@@ -145,7 +96,7 @@ local function BuildIconList()
 		end
 	end
 
-	-- Fallback: hardcoded shaman-relevant icons (same as TotemTimers)
+	-- Fallback: shaman and general-purpose icons when the macro icon APIs return none
 	if #allIcons == 0 then
 		local commonIcons = {
 			"Interface\\Icons\\Spell_Nature_Lightning",
@@ -458,50 +409,53 @@ local function HasLoadoutSetControls()
 	return SPCompat.FOREVER and ShamanPower.HasTotemBar and ShamanPower:HasTotemBar()
 end
 
--- the Set Page picker and Send to Set Now only show once Call of the Ancestors or
--- Call of the Spirits is known; before that the Loadouts page's note says when they come
-local function KnowsSetPage()
-	if not (HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages) then return false end
-	local known = ShamanPower:KnownTotemSetPages()
-	return (known[2] or known[3]) and true or false
-end
-
-local function LoadoutSetPageValues()
-	local values = { [0] = "None" }
-	if HasLoadoutSetControls() and ShamanPower.KnownTotemSetPages then
-		local known = ShamanPower:KnownTotemSetPages()
-		if known[2] then values[2] = "Call of the Ancestors" end
-		if known[3] then values[3] = "Call of the Spirits" end
-	end
-	return values
-end
-
 local PlaceLoadoutBarOptions
+-- Loadouts > Loadouts (A17, 3.0.8): the page text, then Saved Loadouts: a tile per saved
+-- loadout and a + (ShamanPower_Config LoadoutIcons.lua draws the row: click a loadout to switch
+-- to it, right-click it for its totems, Drop All, Blizzard totem set, name, icon and Delete, drag
+-- it to change its place). Each loadout's 11 to 13 rows and Create New Loadout's 7 rows went into
+-- that row (its menus and its + tile); the loadouts themselves are untouched. Show Loadout Bar,
+-- Move and its hint are built here and moved to the Loadout Bar tab (PlaceLoadoutBarOptions).
+-- What a search finds in the Saved Loadouts row (it draws itself, so this text is never shown):
+-- every word its tiles and menus draw, and the old rows' names, so a search for a setting that
+-- moved into a menu lands here.
+local LOADOUTS_SEARCH = "Saved Loadouts: your saved totem loadouts, each with its icon and its name. Click a loadout to"
+	.. " switch to it (Active, In Use: the green bar), right-click it to change it, drag it to change its place on the"
+	.. " loadout bar. + saves a new loadout from the totems on your bar now (Create New Loadout, Create Loadout, Loadout"
+	.. " Name). Switch To This Loadout. Edit totems: Earth, Fire, Water, Air. Drop All: Leave Out Earth, Leave Out Fire,"
+	.. " Leave Out Water, Leave Out Air (Exclude, leave out of Drop All and Call of the Elements). Blizzard Totem Set: Set"
+	.. " Page (Call of the Ancestors, Call of the Spirits, None), Send to Set Now. Rename, Icon, Delete This Loadout."
 local function RefreshLoadoutArgs()
 	-- Guard: ShamanPower_TotemLoadouts may not exist yet at file load time (SavedVariable)
 	if not ShamanPower_TotemLoadouts then return end
+	-- the Saved Loadouts row's node is kept: the settings window knows the row by it
+	local iconsNode = loadoutArgs.loadoutIcons
 	-- Wipe and rebuild - preserves the table reference
 	wipe(loadoutArgs)
 
 	loadoutArgs.loadouts_desc = {
 		order = 0,
 		type = "description",
-		name = "Save up to 8 totem loadouts. Each remembers your 4 assigned totems.\n\nUse |cffffd200/spl save <name>|r to save and |cffffd200/spl <name>|r to switch, or use the settings below.\n",
+		name = "Save up to 8 totem loadouts. Each remembers your 4 totems and which of them Drop All leaves out. Typing"
+			.. " |cffffd200/spl save <name>|r saves one, |cffffd200/spl <name>|r switches to it.",
 	}
 	loadoutArgs.loadouts_sets_note = {
 		order = 0.5,
 		type = "description",
 		width = "full",
-		-- The Set Page picker below only lists set pages the character knows; say why it is empty.
+		-- a loadout's menu only lists the Call spells the character knows; say why it has none
 		name = function()
 			local known = ShamanPower.KnownTotemSetPages and ShamanPower:KnownTotemSetPages() or {}
 			if known[2] or known[3] then
-				return "Blizzard's totem sets: pick a loadout's |cffffd200Set Page|r below to put it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments.\n"
+				return "Blizzard's totem sets: a loadout's menu > Blizzard Totem Set puts it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments."
 			end
-			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) with a Set Page picker, which appears on each loadout below once your character knows one of them. Call of the Elements always follows your assignments.|r\n"
+			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) in its menu (right-click it > Blizzard Totem Set), once your character knows one of them. Call of the Elements always follows your assignments.|r"
 		end,
 		hidden = function() return not HasLoadoutSetControls() end,
 	}
+	loadoutArgs.loadoutIcons = iconsNode or { type = "description", width = "full", name = " ", desc = LOADOUTS_SEARCH }
+	ShamanPower.OptionCustomRow = ShamanPower.OptionCustomRow or {}
+	ShamanPower.OptionCustomRow[loadoutArgs.loadoutIcons] = "loadoutIcons"
 	loadoutArgs.show_bar = {
 		order = 1,
 		type = "toggle",
@@ -531,270 +485,11 @@ local function RefreshLoadoutArgs()
 		name = "Hold ALT and drag the loadout button to move the bar "
 			.. "while ALT+drag is unlocked (Loadout Bar tab).",
 	}
-	loadoutArgs.new_header = {
-		order = 2,
-		type = "header",
-		name = "Create New Loadout",
-	}
-	loadoutArgs.new_name = {
-		order = 3,
-		type = "input",
-		name = "Loadout Name",
-		desc = "Enter a name for the new loadout (e.g. 'Enhance', 'Resto')",
-		width = 1.2,
-		get = function(info)
-			return ShamanPower._newLoadoutName or ""
-		end,
-		set = function(info, val)
-			ShamanPower._newLoadoutName = val
-		end,
-	}
-	loadoutArgs.new_icon = {
-		order = 3.5,
-		type = "execute",
-		name = function()
-			local icon = ShamanPower._newLoadoutIcon or "Interface\\Icons\\INV_Misc_QuestionMark"
-			return "|T" .. icon .. ":16|t Icon"
-		end,
-		desc = "Click to choose an icon for the new loadout",
-		width = 0.5,
-		func = function()
-			ShamanPower:OpenIconPicker(nil, function(selectedIcon)
-				ShamanPower._newLoadoutIcon = selectedIcon
-				ShamanPower:RefreshConfig()
-			end)
-		end,
-	}
-	-- Pre-fill new loadout totems from current assignments
-	if not ShamanPower._newLoadoutTotems then
-		ShamanPower._newLoadoutTotems = {}
-		local assignments = ShamanPower_Assignments and ShamanPower_Assignments[ShamanPower.player]
-		for element = 1, 4 do
-			ShamanPower._newLoadoutTotems[element] = (assignments and assignments[element]) or 0
-		end
-	end
-	for element = 1, 4 do
-		local elem = element
-		loadoutArgs["new_totem_" .. elem] = {
-			order = 4 + elem * 0.1,
-			type = "select",
-			name = loadoutElementNames[elem],
-			width = 0.75,
-			values = GetTotemValues(elem),
-			sorting = GetTotemSorting(elem),
-			get = function(info)
-				return ShamanPower._newLoadoutTotems and ShamanPower._newLoadoutTotems[elem] or 0
-			end,
-			set = function(info, val)
-				if not ShamanPower._newLoadoutTotems then ShamanPower._newLoadoutTotems = {} end
-				ShamanPower._newLoadoutTotems[elem] = val
-			end,
-		}
-	end
-	loadoutArgs.create_loadout = {
-		order = 4.9,
-		type = "execute",
-		name = "Create Loadout",
-		desc = "Create a new loadout with the name, icon, and totems chosen above",
-		width = 1.0,
-		disabled = function()
-			return not ShamanPower_TotemLoadouts or #ShamanPower_TotemLoadouts >= 8
-		end,
-		func = function()
-			local name = ShamanPower._newLoadoutName
-			if name and name:trim() == "" then name = nil end
-			local icon = ShamanPower._newLoadoutIcon
-			local totems = ShamanPower._newLoadoutTotems or {}
-			ShamanPower:CreateLoadout(name, icon, totems)
-			-- Clear temp fields and re-fill from current assignments
-			ShamanPower._newLoadoutName = nil
-			ShamanPower._newLoadoutIcon = nil
-			ShamanPower._newLoadoutTotems = nil
-			RefreshLoadoutArgs()
-			ShamanPower:RefreshConfig()
-		end,
-	}
-	loadoutArgs.loadouts_header = {
-		order = 5,
-		type = "header",
-		name = "Saved Loadouts",
-		hidden = function() return not ShamanPower_TotemLoadouts or #ShamanPower_TotemLoadouts == 0 end,
-	}
-
-	-- Dynamically add per-loadout management controls
-	if ShamanPower_TotemLoadouts then
-		for i = 1, #ShamanPower_TotemLoadouts do
-			local idx = i
-			local baseOrder = 10 + (i - 1) * 20 -- More spacing for extra controls
-
-			local loadout = ShamanPower_TotemLoadouts[idx]
-			local lname = loadout and (loadout.name or ("Loadout " .. idx)) or ("Loadout " .. idx)
-
-			-- Header with name and active indicator
-			loadoutArgs["lo_header_" .. idx] = {
-				order = baseOrder,
-				type = "description",
-				name = function()
-					local lo = ShamanPower_TotemLoadouts[idx]
-					if not lo then return "" end
-					local n = lo.name or ("Loadout " .. idx)
-					local active = (ShamanPower.opt.activeLoadout == idx) and "  |cff00ff00[Active]|r" or ""
-					return "\n|cffffd200" .. idx .. ". " .. n .. "|r" .. active
-				end,
-				fontSize = "medium",
-			}
-
-			-- Color-coded description
-			loadoutArgs["lo_desc_" .. idx] = {
-				order = baseOrder + 1,
-				type = "description",
-				name = function()
-					return ShamanPower:GetLoadoutDescription(idx) .. "\n"
-				end,
-			}
-
-			-- Rename input (same layout as TotemTimers: Rename | Icon | Update | Delete)
-			loadoutArgs["lo_rename_" .. idx] = {
-				order = baseOrder + 2,
-				type = "input",
-				name = "Rename",
-				width = 0.9,
-				get = function(info)
-					local lo = ShamanPower_TotemLoadouts[idx]
-					return lo and lo.name or ""
-				end,
-				set = function(info, val)
-					if val and val:trim() == "" then val = nil end
-					ShamanPower:RenameLoadout(idx, val)
-					RefreshLoadoutArgs()
-					ShamanPower:RefreshConfig()
-				end,
-			}
-
-			-- Icon picker button (same as TotemTimers GUI/Sets.lua setIcon)
-			loadoutArgs["lo_icon_" .. idx] = {
-				order = baseOrder + 2.5,
-				type = "execute",
-				name = function()
-					local lo = ShamanPower_TotemLoadouts[idx]
-					if not lo then return "Icon" end
-					local icon = lo.icon or ShamanPower:GetLoadoutIcon(idx)
-					return "|T" .. icon .. ":16|t Icon"
-				end,
-				desc = "Click to choose an icon for this loadout",
-				width = 0.5,
-				func = function()
-					if not ShamanPower_TotemLoadouts[idx] then return end
-					local loadoutIndex = idx
-					ShamanPower:OpenIconPicker(loadoutIndex, function(selectedIcon)
-						if not ShamanPower_TotemLoadouts[loadoutIndex] then return end
-						ShamanPower_TotemLoadouts[loadoutIndex].icon = selectedIcon
-						ShamanPower:UpdateLoadoutBar()
-						RefreshLoadoutArgs()
-						ShamanPower:RefreshConfig()
-					end)
-				end,
-			}
-
-			loadoutArgs["lo_delete_" .. idx] = {
-				order = baseOrder + 3,
-				type = "execute",
-				name = "Delete",
-				width = 0.5,
-				func = function()
-					if not ShamanPower_TotemLoadouts[idx] then return end
-					ShamanPower:ConfirmDeleteLoadout(idx, lname)
-				end,
-			}
-
-			-- Per-element totem dropdowns (pick totems individually)
-			loadoutArgs["lo_totems_header_" .. idx] = {
-				order = baseOrder + 4,
-				type = "description",
-				name = "    |cff888888Edit totems:|r",
-			}
-
-			for element = 1, 4 do
-				local elem = element
-				loadoutArgs["lo_totem_" .. idx .. "_" .. elem] = {
-					order = baseOrder + 4 + elem,
-					type = "select",
-					name = loadoutElementNames[elem],
-					width = 0.75,
-					values = GetTotemValues(elem),
-					sorting = GetTotemSorting(elem),
-					get = function(info)
-						local lo = ShamanPower_TotemLoadouts[idx]
-						return lo and lo[elem] or 0
-					end,
-					set = function(info, val)
-						ShamanPower:SetLoadoutTotem(idx, elem, val)
-						ShamanPower:RefreshConfig()
-					end,
-				}
-			end
-			loadoutArgs["lo_dropall_header_" .. idx] = {
-				order = baseOrder + 8.5,
-				type = "description",
-				name = "    |cff888888Leave out of Drop All and Call of the Elements (switches with this loadout):|r",
-			}
-			for element = 1, 4 do
-				local elem = element
-				loadoutArgs["lo_dropall_" .. idx .. "_" .. elem] = {
-					order = baseOrder + 8.5 + elem * 0.1,
-					type = "toggle",
-					name = "Exclude " .. loadoutElementNames[elem],
-					width = 0.75,
-					get = function() return ShamanPower:LoadoutExcluded(idx, elem) end,
-					set = function(_, val)
-						ShamanPower:SetDropAllExclude(elem, val, idx)
-						ShamanPower:RefreshConfig()
-					end,
-				}
-			end
-			loadoutArgs["lo_set_page_" .. idx] = {
-				order = baseOrder + 9, type = "select", name = "Set Page", width = 1.5,
-				desc = "Choose a Blizzard totem set for this loadout. Each set can hold one loadout. "
-					.. "Choosing a set replaces its previous loadout. Call of the Elements follows your assignments. "
-					.. "Choose None to switch loadouts as usual. Saved choices stay saved if their set is unavailable.",
-				hidden = function() return not KnowsSetPage() end,
-				disabled = function() return not ShamanPower.BindLoadoutToTotemSet end,
-				values = LoadoutSetPageValues,
-				get = function()
-					local lo = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[idx]
-					if lo and HasLoadoutSetControls() and ShamanPower.BoundLoadoutSummon
-						and ShamanPower:BoundLoadoutSummon(idx) then return lo.setPage end
-					return 0
-				end,
-				set = function(_, page)
-					if not HasLoadoutSetControls() or not ShamanPower.BindLoadoutToTotemSet then return end
-					local ok, reason = ShamanPower:BindLoadoutToTotemSet(idx, page)
-					if not ok and reason then ShamanPower:Print(reason) end
-					RefreshLoadoutArgs()
-					ShamanPower:RefreshConfig()
-					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
-				end,
-			}
-			loadoutArgs["lo_send_set_" .. idx] = {
-				order = baseOrder + 10, type = "execute", name = "Send to Set Now", width = 1.5,
-				desc = "Put all four saved totems in the chosen set. None leaves that element empty. Changes made in combat take effect when the fight ends.",
-				hidden = function() return not KnowsSetPage() end,
-				disabled = function()
-					return not (HasLoadoutSetControls() and ShamanPower.SyncBoundLoadout
-						and ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(idx))
-				end,
-				func = function()
-					if not HasLoadoutSetControls() or not ShamanPower.SyncBoundLoadout
-						or not ShamanPower.BoundLoadoutSummon or not ShamanPower:BoundLoadoutSummon(idx) then return end
-					local ok, reason = ShamanPower:SyncBoundLoadout(idx)
-					if not ok and reason then ShamanPower:Print(reason) end
-					ShamanPower:RefreshConfig()
-					LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
-				end,
-			}
-		end
-	end
 	if PlaceLoadoutBarOptions then PlaceLoadoutBarOptions() end
+	ShamanPower.OrderSettingsBands({ args = loadoutArgs }, {
+		{ keys = { "loadouts_desc", "loadouts_sets_note" } },
+		{ header = "loadouts_header", name = "Saved Loadouts", keys = { "loadoutIcons" } },
+	})
 end
 
 -- Initialize once (ShamanPower_TotemLoadouts won't exist yet at file load, so just build static part)
@@ -841,9 +536,65 @@ local function AvailableShieldNotes(describe)
 			:gsub("so only the Earth Shield indicator uses this%.", "so no separate indicator is shown."))
 	end
 end
+-- Totem Plates page: why a totem shows only its name. WoW draws no nameplate for it
+-- while its own friendly / enemy nameplate options (or the Minions under them) are
+-- off, so there is nothing to put the icon on. Read when the page is drawn; WoW's own
+-- labels and keys, so the words match the player's Options page and language.
+local function GameLabel(global, fallback)
+	local v = _G[global]
+	if type(v) == "string" and v ~= "" then return v end
+	return fallback
+end
+local function BindingWord(action)
+	local key = GetBindingKey and GetBindingKey(action)
+	if type(key) ~= "string" or key == "" then return nil end
+	return (GetBindingText and GetBindingText(key)) or key
+end
+local function TotemPlatesNameplateNote()
+	local SP = ShamanPower
+	local tp = SP.opt and SP.opt.totemPlates
+	if not (SP.TotemPlatesLoaded and SP.TotemPlatesNameplateGap and tp and tp.enabled) then return nil end
+	local where = GameLabel("SETTINGS_TITLE", "Options") .. " > " .. GameLabel("SETTING_GROUP_GAMEPLAY", "Gameplay")
+		.. " > " .. GameLabel("NAMEPLATE_OPTIONS_LABEL", "Nameplates")
+	local lines = {}
+	if tp.showFriendly ~= false then
+		local gap = SP:TotemPlatesNameplateGap("friendly")
+		local option = GameLabel("UNIT_NAMEPLATES_SHOW_FRIENDS", "Friendly Player Nameplates")
+		local key = BindingWord("FRIENDNAMEPLATES")
+		if gap == "players" then
+			lines[#lines + 1] = "Your own totems (and other friendly ones) show only their name: WoW's \"" .. option
+				.. "\" option is off, so they have no nameplate to put an icon on. Turn it on with the button below, or in "
+				.. where .. (key and (" (" .. key .. " switches it too)") or "") .. "."
+		elseif gap == "minions" then
+			lines[#lines + 1] = "Your own totems (and other friendly ones) show only their name: the \""
+				.. GameLabel("UNIT_NAMEPLATES_SHOW_FRIENDLY_MINIONS", "Minions") .. "\" option under WoW's \"" .. option
+				.. "\" is off, so totems have no nameplate. Turn it on with the button below, or in " .. where .. "."
+		end
+	end
+	if tp.showEnemy ~= false then
+		local gap = SP:TotemPlatesNameplateGap("enemy")
+		local option = GameLabel("UNIT_NAMEPLATES_SHOW_ENEMIES", "Enemy Unit Nameplates")
+		local key = BindingWord("NAMEPLATES")
+		if gap == "players" then
+			lines[#lines + 1] = "Enemy totems show only their name: WoW's \"" .. option .. "\" option is off. Turn it on in "
+				.. where .. (key and (" (" .. key .. " switches it too)") or "") .. "."
+		elseif gap == "minions" then
+			lines[#lines + 1] = "Enemy totems show only their name: the \"" .. GameLabel("UNIT_NAMEPLATES_SHOW_ENEMY_MINIONS", "Minions")
+				.. "\" option under WoW's \"" .. option .. "\" is off. Turn it on in " .. where .. "."
+		end
+	end
+	if #lines == 0 then return nil end
+	return "|cffffa040" .. table.concat(lines, "\n\n") .. "|r"
+end
+
 local function SetsOwnDropAll()
 	return (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets() and ShamanPower.opt.dropAllUsesTotemSets ~= false) and true or false
 end
+-- "Only Show Who's Missing" (party dots and Coverage): in fights on WoW: Forever the dots
+-- that show only who is missing go by estimated range, so they promise no more than that
+local MISSING_ONLY_DESC = SPCompat.FOREVER
+	and "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot. In fights on WoW: Forever the game hides buffs, so this then goes by estimated range: no dots means everyone looks close enough to your totem, not that their buffs were checked. Turn this off for dots that stay exact in fights."
+	or "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered."
 
 -- The Textures and Status Colors sections only style the panel behind the totem
 -- buttons. With "Hide Totem Bar Frame" on there is no panel, and the settings
@@ -1707,7 +1458,7 @@ ShamanPower.options = {
 							name = "Faded Opacity",
 							desc = "How visible the totem bar stays while faded.",
 							type = "range",
-							min = 0.05, max = 0.9, step = 0.05, isPercent = true,
+							min = 0, max = 0.9, step = 0.01, isPercent = true,
 							width = 1.0,
 							disabled = function(info)
 								return ShamanPower.opt.fadeInsteadOfHide ~= true
@@ -1750,6 +1501,144 @@ ShamanPower.options = {
 							end
 						},
 					}
+				},
+				-- A27: Out Of The Way (ShamanPowerTown.lua): one switch, Where, Hide or Fade, one line per module
+				settings_town = {
+					order = 2.35,
+					name = "Out Of The Way",
+					type = "group",
+					args = {
+						hideInTown = {
+							order = 1, type = "toggle", name = "Out Of The Way", width = 1.5,
+							desc = "Out of a fight, not inside a dungeon, raid or battleground, and with no enemy targeted (red or yellow: anything you can attack), ShamanPower's displays get out of the way: in a city or an inn, or anywhere (Where, below). Any one of those brings them back at once.",
+							get = function() return ShamanPower.opt.hideInTown == true end,
+							set = function(_, v)
+								if v then ShamanPower.opt.hideInTown = true else ShamanPower.opt.hideInTown = nil end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townWhere = {
+							order = 1.5, type = "select", name = "Where", width = 1.5,
+							desc = "In A City Or Inn: only while you are resting there. Anywhere Outside A Fight: wherever you are, as long as you have no enemy targeted and are not in a fight or an instance.",
+							values = { town = "In A City Or Inn", anywhere = "Anywhere Outside A Fight" }, sorting = { "town", "anywhere" },
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() return ShamanPower.opt.townWhere or "town" end,
+							set = function(_, v) ShamanPower.opt.townWhere = v; ShamanPower:TownRefresh(true) end,
+						},
+						townHow = {
+							order = 2, type = "select", name = "Hide Or Fade", width = 1.5,
+							desc = "Hide: gone. Fade: dimmed to the Faded Opacity above, still there.",
+							values = { hide = "Hide", fade = "Fade To Faded Opacity" }, sorting = { "hide", "fade" },
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() return ShamanPower.opt.townHow or "hide" end,
+							set = function(_, v) ShamanPower.opt.townHow = v; ShamanPower:TownRefresh(true) end,
+						},
+						townWhich = {
+							order = 3, type = "description", width = "full",
+							name = "What gets out of the way. Each is its own switch: turn one off and it stays on screen.",
+						},
+						townMod_rr = {
+							order = 4.0, type = "toggle", name = "Ready Reminders", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.rr == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.rr = nil else o.townModules.rr = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_sc = {
+							order = 4.1, type = "toggle", name = "Shield Charges", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.sc == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.sc = nil else o.townModules.sc = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_cd = {
+							order = 4.2, type = "toggle", name = "Cooldown Bar", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.cd == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.cd = nil else o.townModules.cd = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_tb = {
+							order = 4.3, type = "toggle", name = "Totem Bar (and its flyouts)", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.tb == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.tb = nil else o.townModules.tb = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_lb = {
+							order = 4.4, type = "toggle", name = "Loadout Bar", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.lb == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.lb = nil else o.townModules.lb = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_ctl = {
+							order = 4.5, type = "toggle", name = "Controller Bar", width = 1.0,
+							hidden = function() return not (SPCompat and SPCompat.FOREVER) end,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.ctl == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.ctl = nil else o.townModules.ctl = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_ea = {
+							order = 4.6, type = "toggle", name = "Expiring Alerts", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.ea == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.ea = nil else o.townModules.ea = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_es = {
+							order = 4.7, type = "toggle", name = "Earth Shield Tracker", width = 1.0,
+							hidden = function() return SPCompat and SPCompat.FOREVER end,   -- (no Earth Shield on WoW: Forever)
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.es == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.es = nil else o.townModules.es = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_pb = {
+							order = 4.8, type = "toggle", name = "Party Buff Tracker", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.pb == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.pb = nil else o.townModules.pb = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+					},
 				},
 				settings_popout = {
 					order = 2.5,
@@ -1903,54 +1792,13 @@ ShamanPower.options = {
 								end
 							end
 						},
-						-- Drop All Icon (a player's request, 3.0.6.3): the button's usual icon, or one picked here
-						dropall_icon = {
-							order = 2.05,
-							type = "select",
-							name = "Drop All Icon",
-							desc = "What the Drop All button shows. Next Totem: the icon of the totem it drops next (Call of the Elements when it casts that). Pick an Icon: one icon you choose, which stays put.",
-							width = "full",
-							values = function()
-								local own = ShamanPower.DropAllOwnIcon and ShamanPower:DropAllOwnIcon()
-								return { auto = "Next Totem", own = own and ("|T" .. own .. ":16|t Picked Icon") or "Pick an Icon..." }
-							end,
-							sorting = { "auto", "own" },
-							get = function() return (ShamanPower.DropAllOwnIcon and ShamanPower:DropAllOwnIcon()) and "own" or "auto" end,
-							set = function(info, val)
-								if val == "auto" then
-									ShamanPower.opt.dropAllIcon = nil
-									if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
-									return
-								end
-								ShamanPower:OpenIconPicker({ icon = ShamanPower:DropAllOwnIcon() }, function(selectedIcon)
-									ShamanPower.opt.dropAllIcon = selectedIcon
-									if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
-									ShamanPower:RefreshConfig()
-								end)
-							end,
-						},
-						dropall_icon_change = {
-							order = 2.06,
-							type = "execute",
-							name = "Change the Picked Icon",
-							desc = "Opens the icon picker to choose another icon for the Drop All button.",
-							width = "full",
-							hidden = function() return not (ShamanPower.DropAllOwnIcon and ShamanPower:DropAllOwnIcon()) end,
-							func = function()
-								ShamanPower:OpenIconPicker({ icon = ShamanPower:DropAllOwnIcon() }, function(selectedIcon)
-									ShamanPower.opt.dropAllIcon = selectedIcon
-									if not InCombatLockdown() then ShamanPower:UpdateDropAllButton() end
-									ShamanPower:RefreshConfig()
-								end)
-							end,
-						},
 						-- Totem sets (WoW: Forever only; hidden elsewhere)
 						dropall_totem_sets = {
 							order = 2.1,
 							type = "toggle",
 							name = "Drop All Casts Call of the Elements",
-							desc = WithNotes("With totem sets available, Drop All casts Call of the Elements instead of one totem per click. Shift casts Call of the Ancestors. Ctrl casts Call of the Spirits. Right-click casts Totemic Recall.",
-								function() return ShamanPower.opt.showDropAllButton == false end, "\"Show Drop All Button\" is off, so there is no button for this to change. It still decides what the SP_DropAll macro and Blizzard's totem bar do."),
+							desc = WithNotes("With totem sets available, Drop All casts Call of the Elements instead of one totem per click. Shift casts Call of the Ancestors. Ctrl casts Call of the Spirits. Right-click casts Totemic Recall. The SP_DropAll macro still drops one totem per press.",
+								function() return ShamanPower.opt.showDropAllButton == false end, "\"Show Drop All Button\" is off, so there is no button for this to change."),
 							width = "full",
 							hidden = function() return not (ShamanPower.HasTotemSets and ShamanPower:HasTotemSets()) end,
 							get = function(info) return ShamanPower.opt.dropAllUsesTotemSets ~= false end,
@@ -2476,7 +2324,8 @@ ShamanPower.options = {
 									print("ShamanPower: Cannot update macros in combat")
 									return
 								end
-								ShamanPower:UpdateSPMacros()
+								-- say so when the macro lists are full: before, this claimed success either way
+								if not ShamanPower:ReportMacroResult(ShamanPower:UpdateSPMacros(), "click Create/Update Macros again") then return end
 								print("ShamanPower: Macros created! Check your macro panel (Esc -> Macros)")
 							end
 						}
@@ -2780,6 +2629,8 @@ ShamanPower.options = {
 								return ShamanPower.opt.cdbarFlyoutDirection or "auto"
 							end,
 							set = function(info, val)
+								-- Don't move the flyouts in combat
+								if InCombatLockdown() then print("|cff0070ddShamanPower:|r the flyout direction cannot change during combat - try again after the fight."); return end
 								ShamanPower.opt.cdbarFlyoutDirection = val
 								-- Re-layout the shield and weapon imbue flyouts for new direction
 								if ShamanPower.LayoutShieldFlyout then
@@ -2807,9 +2658,14 @@ ShamanPower.options = {
 								return ShamanPower.opt.swapFlyoutClickButtons
 							end,
 							set = function(info, val)
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower:|r the mouse buttons cannot be swapped in combat")
+									return
+								end
 								ShamanPower.opt.swapFlyoutClickButtons = val
 								-- Just update click attributes on existing buttons
 								ShamanPower:UpdateFlyoutClickBehavior()
+								ShamanPower:SetupKeybindings()   -- action bar keys sent to the new cast click
 							end
 						},
 						shift_right_click_pulls_totem = {
@@ -4149,6 +4005,8 @@ ShamanPower.options = {
 							end,
 							set = function(info, val)
 								ShamanPower.opt.raidCDShowButtonAnimation = val
+								-- show or clear the caller buttons' sweep now, not at the next cooldown
+								if ShamanPower.UpdateCallerButtonCooldowns then ShamanPower:UpdateCallerButtonCooldowns() end
 							end
 						},
 					}
@@ -4201,6 +4059,73 @@ ShamanPower.options = {
 							order = 0.3, type = "range", name = "Minimap totem pin size", min = 8, max = 28, step = 1,
 							get = function() return ShamanPower.opt.minimapTotemPinSize or 14 end,
 							set = function(_, value) ShamanPower.opt.minimapTotemPinSize = value; ShamanPower:RefreshMinimapTotems() end,
+						},
+						minimapRingColorMode = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+							order = 0.25, type = "toggle", name = "Use My Own Ring Colors", width = "full",
+							desc = "Pick a color for each element's range ring on the minimap. Off: each ring takes its element's color (a theme's palette if one is on).",
+							get = function() return ShamanPower.opt.minimapRingColorMode == "custom" end,
+							set = function(_, value)
+								ShamanPower.opt.minimapRingColorMode = value and "custom" or nil
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor1 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.251, type = "color", name = "Earth Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[1] or ShamanPower.ElementColors[1]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[1] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor2 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.252, type = "color", name = "Fire Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[2] or ShamanPower.ElementColors[2]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[2] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor3 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.253, type = "color", name = "Water Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[3] or ShamanPower.ElementColors[3]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[3] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
+						},
+						minimapRingColor4 = {
+							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+							order = 0.254, type = "color", name = "Air Ring", width = 1.2,
+							get = function()
+								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[4] or ShamanPower.ElementColors[4]
+								return c.r, c.g, c.b
+							end,
+							set = function(_, r, g, b)
+								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+								ShamanPower.opt.minimapRingColors[4] = { r = r, g = g, b = b }
+								ShamanPower.RefreshMinimapTotems()
+								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+							end,
 						},
 						sprange_opacity = {
 							order = 1,
@@ -4285,6 +4210,21 @@ ShamanPower.options = {
 								ShamanPower:UpdateSPRangeBorder()
 							end
 						},
+						sprange_show_mode = {
+							order = 5.1,
+							type = "select",
+							name = "Show a Tracked Totem's Icon",
+							desc = "Always: every tracked totem shows, gray while no one has put it down and red while you are out of its range. Not While It's Missing: a totem no one has put down is hidden until someone does. Only While I'm in Range: a totem shows only while you have its buff.",
+							width = "full",
+							values = { always = "Always", notmissing = "Not While It's Missing", inrange = "Only While I'm in Range" },
+							sorting = { "always", "notmissing", "inrange" },
+							get = function() return ShamanPower.opt.rangeTracker.showMode or "always" end,
+							set = function(_, value)
+								ShamanPower.opt.rangeTracker.showMode = (value ~= "always") and value or nil
+								if ShamanPower.LayoutSPRangeButtons then ShamanPower:LayoutSPRangeButtons() end
+								if ShamanPower.UpdateSPRangeStatus then ShamanPower:UpdateSPRangeStatus() end
+							end,
+						},
 					}
 				},
 				partybuff_section = {
@@ -4292,6 +4232,9 @@ ShamanPower.options = {
 					name = "|cff0070ddParty Buff Tracker|r",
 					type = "group",
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("pb")) end },
 						module_missing_note = {
 							order = 0.01,
 							type = "description",
@@ -4443,7 +4386,7 @@ ShamanPower.options = {
 							order = 1.65,
 							type = "toggle",
 							name = "Only Show Who's Missing",
-							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							desc = MISSING_ONLY_DESC,
 							width = "full",
 							get = function(info) return ShamanPower.opt.partyDotsMissingOnly and true or false end,
 							set = function(info, val)
@@ -4855,7 +4798,7 @@ ShamanPower.options = {
 							order = 11.5406,
 							type = "toggle",
 							name = "Only Show Who's Missing",
-							desc = "A dot in class color only for party members WITHOUT the totem's buff. Anyone who has it shows no dot, so no dots means everyone is covered.",
+							desc = MISSING_ONLY_DESC,
 							width = "full",
 							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()
 								and ShamanPower.opt.coverage and ShamanPower.opt.coverage.dots) end,
@@ -5763,6 +5706,9 @@ ShamanPower.options = {
 					-- hiding the group removes the sidebar row with it.
 					hidden = function() return ShamanPower.ESTrackerUnavailable == true end,
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("es")) end },
 						module_missing_note = {
 							order = 0.01,
 							type = "description",
@@ -6618,6 +6564,67 @@ ShamanPower.options = {
 								end
 							end
 						},
+						-- Show Spell Keybind (3.0.8): the key that casts each alert's own totem, under its name
+						reactive_show_keybind = {
+							order = 11.3,
+							name = "Show Spell Keybind",
+							desc = "Under each alert's totem name, show the key that casts that totem, like Shift-2."
+								.. " Only a key for that exact totem counts: the totem on your action bars, or its flyout button in Keybind Mode."
+								.. " The Earth and Water buttons' keys never show here, because they cast whichever totem is assigned."
+								.. " When the totem has a key in both places, Keybind Shown (General > Keybinds) picks which one shows.",
+							type = "toggle",
+							width = 1.0,
+							get = function(info)
+								return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.showSpellKeybind and true or false
+							end,
+							set = function(info, val)
+								if not ShamanPower_ReactiveTotems then return end
+								ShamanPower_ReactiveTotems.showSpellKeybind = val and true or false
+								-- a fresh key scan: its hook works the keys out and updates the alerts
+								if ShamanPower.UpdateButtonKeybindText then ShamanPower:UpdateButtonKeybindText() end
+								if ShamanPower.RefreshReactiveKeys then ShamanPower:RefreshReactiveKeys() end
+							end
+						},
+						reactive_no_key = {
+							order = 11.31,
+							name = "When No Key Is Bound",
+							desc = "What an alert shows when its totem has no key: nothing, or \"No Key Bound\" as a reminder to bind one.",
+							type = "select",
+							width = 1.0,
+							values = { none = "Show Nothing", show = "Show 'No Key Bound'" },
+							sorting = { "none", "show" },
+							hidden = function()
+								return not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.showSpellKeybind)
+							end,
+							get = function(info)
+								return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.noKeyText == "show" and "show" or "none"
+							end,
+							set = function(info, val)
+								if not ShamanPower_ReactiveTotems then return end
+								ShamanPower_ReactiveTotems.noKeyText = (val == "show") and "show" or "none"
+								-- only the key captions: never the general appearance update, which
+								-- in a fight on WoW: Forever showed the alerts' empty boxes
+								if ShamanPower.RefreshReactiveKeyCaptions then
+									ShamanPower:RefreshReactiveKeyCaptions()
+								end
+							end
+						},
+						reactive_key_status = {
+							order = 11.32,
+							type = "description",
+							width = "full",
+							name = function()
+								if not ShamanPower.ReactiveKeyStatus then return "" end
+								local text = "The keys found right now:\n" .. ShamanPower:ReactiveKeyStatus("\n")
+								if SPCompat and SPCompat.secretsRegime then
+									text = text .. "\n\nIn a fight the game draws these alerts: a key you change during a fight shows after it."
+								end
+								return text
+							end,
+							hidden = function()
+								return not (ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.showSpellKeybind)
+							end,
+						},
 						reactive_header_effects = {
 							order = 12,
 							type = "header",
@@ -6841,6 +6848,9 @@ ShamanPower.options = {
 					name = "|cff0070ddExpiring Alerts|r",
 					type = "group",
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("ea")) end },
 						master_off_note = {
 							order = 0.05,
 							type = "description",
@@ -8713,6 +8723,19 @@ ShamanPower.options = {
 							get = function() return ShamanPower.opt.glowShape or "default" end,
 							set = function(_, v) ShamanPower:SetGlowShape(v) end,
 						},
+						pulse_proc_size = {
+							order = 4.536,
+							type = "range",
+							name = "Proc Glow Thickness",
+							desc = "How thick the Proc Glow ring is: it grows outward from the icon's edge. 20% by default. The same setting as on General > Themes; each Ready Reminders icon has its own.",
+							min = 0, max = 0.6, step = 0.01, isPercent = true,
+							width = 1.0,
+							hidden = function()
+								return ShamanPower.opt.glowShape ~= "proc" or ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseFlashOpacity == 0
+							end,
+							get = function() return ShamanPower:ProcGlowOut() end,
+							set = function(_, v) ShamanPower:SetProcGlowOut(v) end,
+						},
 						pulse_time_display = {
 							disabled = function(info) return (((ShamanPower.opt.pulseBarPosition or "none") == "none") and true or false) or (CompactOn()) end,
 							order = 5,
@@ -8816,6 +8839,43 @@ ShamanPower.options = {
 							set = function(info, val)
 								ShamanPower.opt.cdbarShowShields = val
 								ShamanPower:RecreateCooldownBar()   -- waits for the end of combat by itself
+							end
+						},
+						-- the shield button's right-click casts the other shield and keeps it on the button, in
+						-- fights too (ApplyShieldButtonClicks); its own "Shield Button" band, under the list
+						cdbar_shield_right_click_other = {
+							order = 2.2,
+							type = "toggle",
+							name = function()
+								return ((ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped()) and "Left" or "Right")
+									.. "-Click Casts Your Other Shield"
+							end,
+							desc = WithNotes(function()
+									local click = (ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped()) and "Left-click" or "Right-click"
+									return click .. " the shield button to cast your other shield: Water Shield while the button is on"
+										.. " Lightning Shield, Lightning Shield while it's on Water Shield. That shield then stays on the"
+										.. " button, so your next click or key casts it again. Works in fights. If the cast doesn't"
+										.. " go off (for example during the global cooldown), the button still switches to the other shield."
+								end,
+								function() return ShamanPower.ClicksSwapped and ShamanPower:ClicksSwapped() end,
+									"Swap Left and Right Click is on, so this is the left-click. The right-click and your key cast the shield on the button.",
+								function() return ShamanPower.FlyoutOpensOnRightClick and ShamanPower:FlyoutOpensOnRightClick() end,
+									"\"Flyout Requires Right-Click\" is on and takes the right-click first, so this does nothing right now.",
+								function() return ShamanPower.KnownShieldCount and ShamanPower:KnownShieldCount() < 2 end,
+									"You know only one of the two shields right now, so there is nothing to switch to yet."),
+							width = "full",
+							hidden = function() return not ShamanPower.opt.showCooldownBar or ShamanPower.opt.cdbarShowShields == false end,
+							disabled = function() return not isShaman end,
+							get = function(info)
+								return ShamanPower.opt.cdbarShieldRightClickOther == true
+							end,
+							set = function(info, val)
+								if InCombatLockdown() then
+									print("|cff0070ddShamanPower:|r the shield button's clicks cannot change in combat - try again after the fight.")
+									return
+								end
+								ShamanPower.opt.cdbarShieldRightClickOther = val or nil
+								ShamanPower:ApplyShieldButtonClicks()
 							end
 						},
 						cdbar_show_recall = {
@@ -9466,10 +9526,41 @@ ShamanPower.options = {
 							name = "|cffffa040Totem Plates is not loaded. These settings will not work and may not save. Turn on ShamanPower [Totem Plates] in the AddOns list, then type /reload.|r",
 							hidden = function() return not (not ShamanPower.TotemPlatesLoaded) end,
 						},
+						-- why a totem shows only its name: WoW's own nameplate options (only while one is off)
+						nameplates_off_note = {
+							order = 0.02,
+							type = "description",
+							width = "full",
+							name = function() return TotemPlatesNameplateNote() or "" end,
+							hidden = function() return TotemPlatesNameplateNote() == nil end,
+						},
+						nameplates_turn_on = {
+							order = 0.03,
+							type = "execute",
+							name = "Turn On Friendly Nameplates",
+							desc = "Turns on WoW's own friendly player nameplates and the Minions option under them, so your totems have a nameplate for their icon. Only when you click this, and only out of combat. You can turn them off again in WoW's Options > Gameplay > Nameplates.",
+							width = "full",
+							hidden = function()
+								local tp = ShamanPower.opt.totemPlates
+								return not (ShamanPower.TotemPlatesLoaded and ShamanPower.TotemPlatesNameplateGap and tp and tp.enabled
+									and tp.showFriendly ~= false and ShamanPower:TotemPlatesNameplateGap("friendly"))
+							end,
+							disabled = function() return InCombatLockdown() end,
+							func = function()
+								if not ShamanPower:TurnOnFriendlyNameplates() then
+									print("|cff0070ddShamanPower|r: |cffE64A4ACan't change WoW's nameplate options during a fight.|r Click it again once the fight is over.")
+									return
+								end
+								ShamanPower:RefreshConfig()   -- the note and this button go once they are on
+							end,
+						},
 						totemplates_desc = {
 							order = 0,
 							type = "description",
-							name = "Replace totem nameplates with icons to recognize them quickly in PvP and raids.\n\nTurn on |cff00ff00ShamanPower [Totem Plates]|r in the AddOns list to use this feature.\n",
+							-- WoW: Forever hides which totem is which inside dungeons and raids
+							name = (SPCompat.FOREVER and "Replace totem nameplates with icons to recognize them quickly."
+								or "Replace totem nameplates with icons to recognize them quickly in PvP and raids.")
+								.. "\n\nTurn on |cff00ff00ShamanPower [Totem Plates]|r in the AddOns list to use this feature.\n",
 						},
 						totemplates_enabled = {
 							order = 1,
@@ -9489,7 +9580,9 @@ ShamanPower.options = {
 						totemplates_show_enemy = {
 							order = 2,
 							name = "Show Enemy Totems",
-							desc = "Replace enemy totem nameplates with icons",
+							desc = SPCompat.FOREVER
+								and "Replace enemy totem nameplates with icons. |cffffa040Inside dungeons and raids the game hides which totem is which, so no icons show there.|r"
+								or "Replace enemy totem nameplates with icons",
 							type = "toggle",
 							width = 1.0,
 							disabled = function() return not (ShamanPower.opt.totemPlates and ShamanPower.opt.totemPlates.enabled) end,
@@ -9504,7 +9597,9 @@ ShamanPower.options = {
 						totemplates_show_friendly = {
 							order = 3,
 							name = "Show Friendly Totems",
-							desc = "Replace friendly totem nameplates with icons. |cffffa040Friendly totem icons do not work inside dungeons and raids. Enemy totem icons work everywhere.|r",
+							desc = SPCompat.FOREVER
+								and "Replace friendly totem nameplates with icons. Needs WoW's friendly nameplates turned on (Shift+V). |cffffa040Inside dungeons and raids the game hides which totem is which, so no totem icons show there, enemy or friendly.|r"
+								or "Replace friendly totem nameplates with icons. Needs WoW's friendly nameplates turned on (Shift+V). |cffffa040Friendly totem icons do not work inside dungeons and raids. Enemy totem icons work everywhere.|r",
 							type = "toggle",
 							width = 1.0,
 							disabled = function() return not (ShamanPower.opt.totemPlates and ShamanPower.opt.totemPlates.enabled) end,
@@ -9679,6 +9774,9 @@ ShamanPower.options = {
 						return not isShaman
 					end,
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("lb")) end },
 						loadoutbar_desc = {
 							order = 0,
 							type = "description",
@@ -9885,36 +9983,19 @@ do
 			if SP.UpdateSPRangeVisibility then SP:UpdateSPRangeVisibility() end
 		end,
 	}
-	range.tracked_header = { order = 6, type = "header", name = "Totems to Track" }
-	-- The settings renderer supports individual toggles, not Ace multiselects.
-	-- Resolve labels and availability from the module's filtered source table.
-	local trackableIds = {
-		"soe", "stoneskin", "tow", "flametongue", "frostresist",
-		"manaspring", "healingstream", "fireresist", "manatide",
-		"windfury", "graceofair", "wrathofair", "tranquilair", "natureresist", "windwall",
+	-- Totems to Track (A18, 3.0.8): one row of totems (ShamanPower_Config TrackerIcons.lua draws it),
+	-- clicks only: a click tracks a totem or stops tracking it (ShamanPower_RangeTracker.tracked,
+	-- as the old switches wrote it). The text below is what "Search all settings" finds in it.
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	range.rangeIcons = {
+		order = 6, type = "description", width = "full", name = " ",
+		desc = "Totems to Track: Strength of Earth, Stoneskin, Totem of Wrath, Flametongue Totem, Frost Resistance,"
+			.. " Mana Spring, Healing Stream, Fire Resistance, Mana Tide Totem, Windfury Totem, Grace of Air, Wrath of Air,"
+			.. " Tranquil Air, Nature Resistance, Windwall. Click a totem to track it or stop tracking it: it comes onto the"
+			.. " overlay, or leaves it.",
+		hidden = function() return not SP.SPRangeLoaded end,
 	}
-	for position, id in ipairs(trackableIds) do
-		range["tracked_" .. id] = {
-			order = 6 + position / 100, type = "toggle", width = 1.5,
-			name = function()
-				local totem = SP.TrackableTotemsByID and SP.TrackableTotemsByID[id]
-				return totem and totem.name or id
-			end,
-			hidden = function() return not (SP.TrackableTotemsByID and SP.TrackableTotemsByID[id]) end,
-			disabled = function() return not SP.SPRangeLoaded end,
-			get = function()
-				return ShamanPower_RangeTracker and ShamanPower_RangeTracker.tracked
-					and ShamanPower_RangeTracker.tracked[id] or false
-			end,
-			set = function(_, value)
-				if not SP.SPRangeLoaded then return end
-				SP:InitSPRange()
-				ShamanPower_RangeTracker.tracked[id] = value
-				SP:UpdateSPRangeConfigButtons()
-				SP:UpdateSPRangeFrame()
-			end,
-		}
-	end
+	SP.OptionCustomRow[range.rangeIcons] = "rangeIcons"
 	pages.partybuff_section.args.open_coverage = {
 		order = 0.5, type = "execute", name = "Open Totem Coverage Settings", width = "full",
 		hidden = function() return not (SP.CoverageAvailable and SP:CoverageAvailable()) end,
@@ -9927,10 +10008,13 @@ do
 		if not SP.ESTrackerUnavailable and SP.ESTrackerLoaded then SP:ToggleESTracker(); Notify() end
 	end
 	local reactive = pages.reactivetotems_section.args
+	-- Hidden: this switch does nothing (the alerts cannot cast totems, on or off) and it
+	-- was on to start. Its saved value (clickToCast) stays, as every saved setting does.
 	reactive.click_to_cast = {
 		order = 1.55, type = "toggle", name = "Click to Cast Totem (old setting)", width = "full",
 		desc = "Keeps the old Click to Cast Totem setting in sync with the separate window. "
 			.. "Turning this on does not make the alerts cast totems.",
+		hidden = function() return true end,
 		disabled = function() return not SP.ReactiveTotemsLoaded end,
 		get = function() return ShamanPower_ReactiveTotems and ShamanPower_ReactiveTotems.clickToCast ~= false end,
 		set = function(_, value)
@@ -9941,7 +10025,7 @@ do
 	}
 
 	-- Assignment selectors are UI state only. No new SavedVariables or protocol.
-	local selectedShaman, selectedGroup = "", 1
+	local selectedShaman = ""
 	local function RaidDB()
 		if not SP.RaidCooldownsLoaded or not SP.InitRaidCooldowns then return nil end
 		SP:InitRaidCooldowns()
@@ -9963,27 +10047,24 @@ do
 	end
 	local function HasBloodlust() return not (SPCompat and SPCompat.HasBloodlust) or SPCompat.HasBloodlust() end
 	local function HasDrums() return not (SPCompat and SPCompat.HasDrums) or SPCompat.HasDrums() end
+	-- TBC Anniversary (A18, 3.0.8): Bloodlust / Heroism, Mana Tide Totem and Drums of Battle are one
+	-- row of icons (ShamanPower_Config TrackerIcons.lua); who casts each one and who may call for it
+	-- are in its menu (the same saved assignments, sent to the raid the same way). WoW: Forever has
+	-- only Mana Tide: its two rows below stay as they were.
+	local function RaidIcons() return HasBloodlust() or HasDrums() end
 	local raid = pages.raid_cd_section.args
 	raid.open_window = OpenButton("Raid Cooldown Assignments", "ToggleRaidCooldownPanel", "RaidCooldownsLoaded")
 	raid.assignment_header = { order = 7, type = "header", name = "Cooldown Assignments" }
-	for index, field in ipairs({ "primary", "backup1", "backup2", "caller" }) do
-		local label = ({ "Primary", "Backup 1", "Backup 2", "Caller" })[index]
-		raid["bloodlust_" .. field] = {
-			order = 7 + index / 10, type = "select", width = 1.5,
-			name = function()
-				return (UnitFactionGroup("player") == "Alliance" and "Heroism " or "Bloodlust ") .. label
-			end,
-			hidden = function() return not HasBloodlust() end,
-			disabled = RaidLocked,
-			values = function() return NameValues(field == "caller" and "GetRaidMembers" or "GetRaidShamans") end,
-			get = function() local db = RaidDB(); return db and db.bloodlust[field] or "" end,
-			set = function(_, value)
-				if RaidLocked() then return end
-				RaidDB().bloodlust[field] = value ~= "" and value or nil
-				AssignmentChanged()
-			end,
-		}
-	end
+	raid.raidIcons = {
+		order = 7.05, type = "description", width = "full", name = " ",
+		desc = "Cooldown Assignments: Bloodlust, Heroism, Mana Tide Totem, Drums of Battle. Click a cooldown to choose who"
+			.. " casts it and who may call for it. Bloodlust Primary, Bloodlust Backup 1, Bloodlust Backup 2, Bloodlust Caller,"
+			.. " Heroism Primary, Heroism Backup 1, Heroism Backup 2, Heroism Caller, Primary, Backup 1, Backup 2, Caller,"
+			.. " Mana Tide Shaman, Selected Shaman's Mana Tide Caller, Mana Tide Caller, Drums Caller, Drums Group, Selected"
+			.. " Group's Drummer, Group Drummer, Party Drummer, Clear Its Assignments.",
+		hidden = function() return not RaidIcons() end,
+	}
+	SP.OptionCustomRow[raid.raidIcons] = "raidIcons"
 	local function ManaTideValues()
 		local values = { [""] = "Select a shaman" }
 		if SP.RaidCooldownsLoaded and SP.GetManaTideShamans then
@@ -9999,12 +10080,14 @@ do
 	end
 	raid.manatide_shaman = {
 		order = 8, type = "select", name = "Mana Tide Shaman", width = 1.5,
+		hidden = RaidIcons,
 		disabled = function() return not SP.RaidCooldownsLoaded end,
 		values = ManaTideValues, get = SelectedManaTide,
 		set = function(_, value) selectedShaman = value end,
 	}
 	raid.manatide_caller = {
 		order = 8.1, type = "select", name = "Selected Shaman's Mana Tide Caller", width = 1.5,
+		hidden = RaidIcons,
 		disabled = function() return RaidLocked() or SelectedManaTide() == "" end,
 		values = function() return NameValues("GetRaidMembers") end,
 		get = function()
@@ -10018,53 +10101,6 @@ do
 			local mt = RaidDB().manatide
 			mt[name] = mt[name] or {}
 			mt[name].caller = value ~= "" and value or nil
-			AssignmentChanged()
-		end,
-	}
-	raid.drums_caller = {
-		order = 9, type = "select", name = "Drums Caller", width = 1.5,
-		hidden = function() return not HasDrums() end, disabled = RaidLocked,
-		values = function() return NameValues("GetRaidMembers") end,
-		get = function() local db = RaidDB(); return db and db.drums.caller or "" end,
-		set = function(_, value)
-			if RaidLocked() then return end
-			RaidDB().drums.caller = value ~= "" and value or nil
-			AssignmentChanged()
-		end,
-	}
-	local function GroupValues()
-		local values = {}
-		if SP.RaidCooldownsLoaded and SP.GetGroupMembers then
-			for group in pairs(SP:GetGroupMembers()) do values[group] = "Group " .. group end
-		end
-		return values
-	end
-	local function SelectedGroup()
-		if GroupValues()[selectedGroup] then return selectedGroup end
-		return nil
-	end
-	raid.drums_group = {
-		order = 9.1, type = "select", name = "Drums Group", width = 1.5,
-		hidden = function() return not HasDrums() end,
-		disabled = function() return not SP.RaidCooldownsLoaded end,
-		values = GroupValues, get = SelectedGroup,
-		set = function(_, value) selectedGroup = value end,
-	}
-	raid.drums_drummer = {
-		order = 9.2, type = "select", name = "Selected Group's Drummer", width = 1.5,
-		hidden = function() return not HasDrums() end,
-		disabled = function() return RaidLocked() or not SelectedGroup() end,
-		values = function()
-			local values = { [""] = "None" }
-			if SP.RaidCooldownsLoaded and SP.GetGroupMembers then
-				for _, name in ipairs(SP:GetGroupMembers()[selectedGroup] or {}) do values[name] = name end
-			end
-			return values
-		end,
-		get = function() local db = RaidDB(); return db and db.drums.drummers[selectedGroup] or "" end,
-		set = function(_, value)
-			if RaidLocked() or not SelectedGroup() then return end
-			RaidDB().drums.drummers[selectedGroup] = value ~= "" and value or nil
 			AssignmentChanged()
 		end,
 	}
@@ -10158,74 +10194,21 @@ do
 		end,
 	}
 
+	-- Popped-Out Trackers (A18, 3.0.8): one icon per tracker you have popped out (ShamanPower_Config
+	-- TrackerIcons.lua); a click opens its menu: Scale, Opacity, Hide Background, Flyout Direction,
+	-- Open Its Settings Panel, Copy / Paste Settings, Return It to the Bar, Reset This Tracker (the
+	-- same saved settings the old pick-one rows changed).
 	local popout = pages.popout_section.args
-	local selectedPopout = ""
-	local function PopoutKey()
-		if SP.poppedOutFrames and SP.poppedOutFrames[selectedPopout] then return selectedPopout end
-		return nil
-	end
-	local function PopoutSettings()
-		local key = PopoutKey()
-		return key and SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[key] or {}
-	end
-	local function PopoutLocked() return InCombatLockdown() or not PopoutKey() end
-	popout.open_window = {
-		order = 0.5, type = "execute", name = "Open Pop-Out Settings", width = "full",
-		disabled = function() return not PopoutKey() end,
-		func = function()
-			local key = PopoutKey()
-			if key then SP:ShowPopOutSettingsPanel(key, SP.poppedOutFrames[key]) end
-		end,
+	popout.popoutIcons = {
+		order = 0.6, type = "description", width = "full", name = " ",
+		desc = "Popped-Out Trackers: every tracker you have popped out (a totem button with its flyout, a single totem,"
+			.. " a cooldown bar item, Earth Shield, Drop All). Click a tracker for its settings. Popped-Out Tracker,"
+			.. " Selected Tracker Scale, Selected Tracker Opacity, Hide Background, Selected Tracker Flyout Direction,"
+			.. " Return Selected Tracker to Bar, Open Pop-Out Settings. Scale, Opacity, Hide Background, Flyout Direction"
+			.. " (Top, Bottom, Left, Right), Open Its Settings Panel, Copy Settings, Paste Settings, Copy Settings To,"
+			.. " All Trackers, Return It to the Bar, Reset This Tracker.",
 	}
-	popout.selected_tracker = {
-		order = 3, type = "select", name = "Popped-Out Tracker", width = "full",
-		values = function()
-			local values = { [""] = "Select a popped-out tracker" }
-			for key, frame in pairs(SP.poppedOutFrames or {}) do
-				values[key] = frame.title and frame.title ~= "" and frame.title or key
-			end
-			return values
-		end,
-		get = function() return PopoutKey() or "" end,
-		set = function(_, value) selectedPopout = value end,
-	}
-	popout.selected_scale = {
-		order = 3.1, type = "range", name = "Selected Tracker Scale", width = 1.5,
-		min = 0.5, max = 3, step = 0.05, isPercent = true, disabled = PopoutLocked,
-		get = function() return PopoutSettings().scale or SP.opt.poppedOutDefaultScale or 1 end,
-		set = function(_, value) if not PopoutLocked() then SP:SetPopOutScale(PopoutKey(), value) end end,
-	}
-	popout.selected_opacity = {
-		order = 3.2, type = "range", name = "Selected Tracker Opacity", width = 1.5,
-		min = 0.1, max = 1, step = 0.05, isPercent = true, disabled = PopoutLocked,
-		get = function() return PopoutSettings().opacity or SP.opt.poppedOutDefaultOpacity or 1 end,
-		set = function(_, value) if not PopoutLocked() then SP:SetPopOutOpacity(PopoutKey(), value) end end,
-	}
-	popout.selected_hide_frame = {
-		order = 3.3, type = "toggle", name = "Hide Background", width = "full", disabled = PopoutLocked,
-		desc = "Hide the selected tracker's background and border; its icon stays visible.",
-		get = function() return PopoutSettings().hideFrame or false end,
-		set = function(_, value)
-			if not PopoutLocked() and (PopoutSettings().hideFrame or false) ~= value then SP:TogglePopOutFrame(PopoutKey()) end
-		end,
-	}
-	popout.selected_flyout_direction = {
-		order = 3.4, type = "select", name = "Selected Tracker Flyout Direction", width = 1.5,
-		values = { top = "Top", bottom = "Bottom", left = "Left", right = "Right" },
-		sorting = { "top", "bottom", "left", "right" }, disabled = PopoutLocked,
-		hidden = function() local key = PopoutKey(); return not (key and key:match("^totem_")) end,
-		get = function() return PopoutSettings().flyoutDirection or "bottom" end,
-		set = function(_, value) if not PopoutLocked() then SP:SetPopOutFlyoutDirection(PopoutKey(), value) end end,
-	}
-	popout.selected_return = {
-		order = 3.5, type = "execute", name = "Return Selected Tracker to Bar", width = "full", disabled = PopoutLocked,
-		func = function()
-			if PopoutLocked() then return end
-			SP:ReturnPopOutToBar(PopoutKey())
-			selectedPopout = ""
-			Notify()
-		end,
-	}
+	SP.OptionCustomRow[popout.popoutIcons] = "popoutIcons"
 
 	-- Existing page setters also publish changes, so a dialog/cog that is already
 	-- open refreshes. Wrapping once at definition time preserves their behaviour.
@@ -10369,7 +10352,7 @@ do
 	end
 	HideFields(pages, { "totembar_items_section", "totembar_order_section", "totemflyouts_section",
 		"texture_section", "color_section" })
-	HideFields(bar, { "unlock_totem_bar", "auto_enable", "show_dropall", "dropall_icon", "dropall_icon_change", "show_totem_flyouts" })
+	HideFields(bar, { "unlock_totem_bar", "auto_enable", "show_dropall", "show_totem_flyouts" })
 	HideFields(root.settings.args.settings_totemMode.args, { "dynamicMode", "dynamicModeDesc", "activeAsMainSpacer",
 		"rightClickCastsAssigned", "rightClickDestroysTotem", "compactOptions" })
 	HideFields(root.settings.args.settings_show.args, { "showparty", "showsingle" })
@@ -10577,6 +10560,121 @@ do
 	ClearGridBefore(mode.use_blizzard_totem_bar)
 end
 
+-- Totem Rows (D48): a switch that goes with any totem bar style but Grid, and its
+-- settings, under the style picker on Totem Bar > Style (onlyStyles below). The rows
+-- are laid out out of combat: a change made in a fight waits for its end.
+do
+	local SP = ShamanPower
+	local mode = SP.options.args.settings.args.settings_totemMode.args
+	local function Locked() return InCombatLockdown() end
+	local function Changed(laidOut)
+		if not laidOut and SP.RefreshRowsStyle then SP:RefreshRowsStyle() end
+		if SP.RefreshConfig then SP:RefreshConfig() end
+		local config = rawget(_G, "ShamanPowerConfig")
+		if config and config.PreviewChanged then config:PreviewChanged() end
+	end
+	local function Off() return not SP.opt.totemRows end
+	local args = {
+		rowsOn = {
+			order = 0.5, type = "toggle", name = "Show Every Totem in Rows", width = "full",
+			desc = "On: every element's totems also sit in a row of their own, which you can put anywhere"
+				.. " with Unlock UI, next to the totem bar style you picked above. Left-click a totem in a row"
+				.. " to drop it, right-click to make it your assigned one. Change out of combat.",
+			disabled = Locked,
+			get = function() return SP.opt.totemRows == true end,
+			set = function(_, value)
+				if Locked() then return end
+				if SP.SetTotemRows then SP:SetTotemRows(value) else SP.opt.totemRows = value or nil end
+				Changed(true)
+			end,
+		},
+		rowsGo = {
+			order = 1, type = "select", name = "Rows Go", width = 1.5, hidden = Off,
+			desc = "Horizontal: each row runs from side to side. Vertical: each row runs from top to bottom."
+				.. " A row near the edge of your screen opens away from it, the way the flyouts do."
+				.. " Change out of combat.",
+			values = { across = "Horizontal", down = "Vertical" },
+			sorting = { "across", "down" },
+			disabled = Locked,
+			get = function() return SP.opt.rowsGo == "down" and "down" or "across" end,
+			set = function(_, value)
+				if Locked() then return end
+				SP.opt.rowsGo = (value == "down") and "down" or nil
+				Changed()
+			end,
+		},
+		rowsShowBar = {
+			order = 2, type = "toggle", name = "Show Main Totem Bar", width = "full",
+			-- (Blizzard's bar is the game's own: not ShamanPower's to hide)
+			hidden = function() return Off() or (SP.opt.useBlizzardTotemBar and true or false) end,
+			desc = "On: your main totem bar shows as well as the rows. Off: only the rows show, and the bar's"
+				.. " pulse, duration bar, time left, party dots and effects show on the rows instead (on the totem"
+				.. " that is down). Your keybinds still drop your assigned totems. Change out of combat.",
+			disabled = Locked,
+			get = function() return SP.opt.rowsShowBar ~= false end,
+			set = function(_, value)
+				if Locked() then return end
+				if value then SP.opt.rowsShowBar = nil else SP.opt.rowsShowBar = false end
+				Changed()
+				if value then SP:UpdateLayout() end   -- the bar comes back
+			end,
+		},
+		rowsKeepFlyouts = {
+			order = 2.5, type = "toggle", name = "Keep Flyouts on Main Totem Bar", width = "full",
+			-- (no main bar showing, or Blizzard's bar: there is no flyout of ours to keep)
+			hidden = function() return Off() or SP.opt.rowsShowBar == false or (SP.opt.useBlizzardTotemBar and true or false) end,
+			desc = "On: your main totem bar still opens its flyouts, as well as showing the rows. Off: the rows"
+				.. " take the place of the flyouts. Change out of combat.",
+			disabled = Locked,
+			get = function() return SP.opt.rowsKeepFlyouts == true end,
+			set = function(_, value)
+				if Locked() then return end
+				SP.opt.rowsKeepFlyouts = value and true or nil
+				Changed()
+			end,
+		},
+		rowsIconSize = {
+			order = 7, type = "range", name = "Row Icon Size", width = 1.5, hidden = Off,
+			desc = "How big the totems in the rows are. 100% is the size of the totems in the flyouts."
+				.. " The mouse wheel over a row's box in Unlock UI changes it too.",
+			min = 0.5, max = 2, step = 0.05, isPercent = true,
+			disabled = Locked,
+			get = function() return SP.opt.rowsScale or 1 end,
+			-- only the rows here: rebuilding the settings page on every step of a drag made the slider
+			-- jerky (the window refreshes the page itself when the slider is let go)
+			set = function(_, value)
+				if Locked() then return end
+				if SP.SetTotemRowsScale then SP:SetTotemRowsScale(value) end   -- (lays the rows out itself)
+			end,
+		},
+		rowsMove = {
+			order = 9, type = "execute", name = "Move the Rows (Unlock UI)", width = "full", hidden = Off,
+			desc = "Opens Unlock UI: drag each row's box where you want it. Right-click a row's box to come back here.",
+			disabled = Locked,
+			func = function() if SP.SetMasterUnlock then SP:SetMasterUnlock(true) end end,
+		},
+	}
+	-- one switch per row, all on to start
+	for element, name in ipairs({ "Earth", "Fire", "Water", "Air" }) do
+		local index = element
+		args["rows" .. name] = {
+			order = 2 + element, type = "toggle", name = name .. " Row", width = "full", hidden = Off,
+			desc = "Off: no " .. name .. " row. With the main totem bar showing, its " .. name .. " button opens a flyout"
+				.. " when you hover it again, as in TotemTimers Style.",
+			disabled = Locked,
+			get = function() return not (type(SP.opt.rowsOff) == "table" and SP.opt.rowsOff[index]) end,
+			set = function(_, value)
+				if Locked() then return end
+				local off = type(SP.opt.rowsOff) == "table" and SP.opt.rowsOff or {}
+				off[index] = (not value) or nil
+				SP.opt.rowsOff = next(off) and off or nil
+				Changed()
+			end,
+		}
+	end
+	mode.rowsOptions = { order = 4.79, type = "group", inline = true, name = "Totem Rows", args = args }
+end
+
 -- WoW: Forever cannot twist (ShamanPower.NoTotemTwisting): its twisting options
 -- are not offered at all.
 if ShamanPower.NoTotemTwisting then
@@ -10620,6 +10718,25 @@ do
 		end,
 		get = function() return SP:GetTotemBarStyle() end,
 		set = function(_, value) SP:SetTotemBarStyle(value) end,
+	}
+	-- right under it (3.0.8): the settings pages' look. On: every icon page (Cooldown Bar,
+	-- Shield Charges, Totem Bar ...) draws its items as plain rows built from the same menus
+	-- (ShamanPower_Config/ListLook.lua). Off to start for everyone. The row is lit, with a
+	-- NEW tag, until it is used once (account-wide: db.global.oldLookSeen).
+	main.oldSettingsLook = {
+		order = 1.52, type = "toggle", name = "Use the Old Settings Look", width = "full",
+		desc = "Every setting as a plain row on each page, as before 3.0.8, instead of a row of icons. Both looks change the same settings.",
+		get = function() return SP.opt.oldSettingsLook == true end,
+		set = function(_, value)
+			SP.opt.oldSettingsLook = value and true or nil
+			if SP.db and SP.db.global then SP.db.global.oldLookSeen = true end
+		end,
+	}
+	SP.OptionRowLit = {
+		[main.oldSettingsLook] = function()
+			local g = SP.db and SP.db.global
+			return not (g and g.oldLookSeen)
+		end,
 	}
 	-- right under the style picker too (same setting as on Mode & Twisting)
 	main.hide_blizzard_totem_bar = {
@@ -10948,21 +11065,230 @@ do
 		}, names = { partybuff_move_counters = "Move", partybuff_locked = "Lock Position",
 			partybuff_reset = "Reset Position" } },
 	})
+	-- Totems to Watch and Per-Totem Icon Size (A18, 3.0.8): one row of totems (ShamanPower_Config
+	-- TrackerIcons.lua draws it): a click watches a totem or stops watching it (opt.coverage.tracked),
+	-- its right-click menu holds its own icon size (opt.coverage.cells, as the sliders saved it). The
+	-- old switches and sliders leave the page; the text below is what "Search all settings" finds.
+	local cov = pages.coverage_section.args
+	for _, key in ipairs(watches) do cov[key] = nil end
+	for _, key in ipairs(sizes) do cov[key] = nil end
+	cov.coverageIcons = {
+		type = "description", width = "full", name = " ",
+		desc = "Totems to Watch: Strength of Earth, Stoneskin, Flametongue Totem, Frost Resistance, Mana Spring, Healing"
+			.. " Stream, Mana Tide, Fire Resistance, Windfury Totem, Grace of Air, Tranquil Air, Nature Resistance, Windwall."
+			.. " Choose which totems appear in the coverage list: click a totem to watch it or stop watching it. Right-click"
+			.. " it for its own icon size: Per-Totem Icon Size, Icon Size, Choose a size for each totem while Place Each Totem"
+			.. " Freely is on, Copy Icon Size To, All Totems, Reset Icon Size, Watch This Totem, Stop Watching This Totem.",
+		hidden = function() return not (SP.CoverageAvailable and SP:CoverageAvailable()) end,
+	}
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[cov.coverageIcons] = "coverageIcons"
 	SP.OrderSettingsBands(pages.coverage_section, {
 		{ keys = { "coverage_desc" } },
 		{ keys = { "coverage_enabled", "open_coverage" } },
-		{ header = "coverage_watch_header", name = "Totems to Watch", keys = watches },
+		{ header = "coverage_watch_header", name = "Totems to Watch", keys = { "coverageIcons" } },
 		{ header = "look_header", name = "Look", keys = {
 			"coverage_icon_size", "coverage_opacity", "coverage_show_timer", "coverage_plain_icon", "coverage_dots", "coverage_dot_size", "coverage_dot_outline", "coverage_dot_shape", "coverage_dot_position", "coverage_dots_missing_only", "coverage_font", "coverage_hide_border",
 		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
-		{ header = "sizes_header", name = "Per-Totem Icon Size", keys = sizes },
 		{ header = "behaviour_header", name = "Behavior", keys = {
 			"coverage_hide_covered", "coverage_free", "coverage_vertical",
 		} },
 		{ header = "position_header", name = "Position", keys = { "coverage_move" }, names = { coverage_move = "Move" } },
 	})
-	pages.coverage_section.args.coverage_free.desc = "Every watched totem gets its own spot and size."
+	cov.coverage_free.desc = "Every watched totem gets its own spot and size (right-click a totem in Totems to Watch for its size)."
 		.. " Use Move below or ALT+drag to move the icons. Turn this off to group them in a row or column, with one icon for each element."
+end
+
+-- Party Buff Tracker > Party Strip: one marker per party member for each totem buff
+-- picked in the Totems row (ShamanPower_Config TTIcons.lua draws it), on screen with or
+-- without that totem down (ShamanPower_PartyRange draws it). Settings in the profile:
+-- opt.partyStrip (defaults in ShamanPowerValues).
+do
+	local SP = ShamanPower
+	local pages = SP.options.args.fluffy.args
+	local function O()
+		SP:EnsureProfileTable("partyStrip")
+		return SP.opt.partyStrip
+	end
+	local function On() return SP.opt.partyStrip and SP.opt.partyStrip.enabled == true or false end
+	local function Off() return not On() end
+	local function Changed(what)
+		if SP.PartyStripSettingChanged then SP:PartyStripSettingChanged(what) end
+	end
+	-- how many totems the strip shows (picked and learned), and how many are picked
+	local function Counts()
+		if not SP.PartyStripCounts then return 0, 0 end
+		return SP:PartyStripCounts()
+	end
+	local function Shown() return (Counts()) end
+	local function Picked() return select(2, Counts()) end
+	-- two or more totems in one strip: each line's icon is its label
+	local function SharedLines() return Shown() > 1 and not O().breakUp end
+	pages.partystrip_section = {
+		order = 14.2, type = "group", name = "Party Strip",
+		args = {
+			partystrip_desc = {
+				order = 1, type = "description",
+				name = "A small strip with one marker for each party member, for each totem buff you pick. It stays on"
+					.. " screen even when that totem is not down, so you always see who has your buff. A filled dot in their"
+					.. " class color: they have it. A red circle with a slash: they are missing it.",
+			},
+			partystrip_module_missing = {
+				order = 2, type = "description",
+				name = "|cffffa040This module is not loaded, so nothing on this page does anything right now. Enable the ShamanPower [Party Totem Range] addon in the AddOns list and /reload.|r",
+				hidden = function() return SP.PartyRangeLoaded and true or false end,
+			},
+			partystrip_enabled = {
+				order = 3, type = "toggle", width = "full",
+				name = "Show Party Strip",
+				desc = "Show the Party Strip while you are in a group. In a raid it shows your own party.",
+				get = function() return On() end,
+				set = function(_, val)
+					O().enabled = val and true or false
+					Changed("show")
+				end,
+			},
+			-- the Totems row: the settings window draws it (TTIcons.lua); the text is what a search finds
+			partystrip_totems = {
+				order = 4, type = "description", width = "full",
+				name = "Click a totem to show or hide it on the strip. Strength of Earth, Windfury, Mana Spring and every"
+					.. " other totem that gives your party a buff.",
+				hidden = function() return Off() or not SP.PartyStripTotems end,
+			},
+			partystrip_none_note = {
+				order = 5, type = "description",
+				name = function()
+					local _, picked = Counts()
+					if picked > 0 then
+						return "|cffffa040The totems you picked show on the strip once you learn them.|r"
+					end
+					return "|cffffa040Pick a totem above to show the strip.|r"
+				end,
+				hidden = function() return Off() or not SP.PartyStripCounts or Shown() > 0 end,
+			},
+			partystrip_breakup = {
+				order = 6, type = "toggle", width = "full",
+				name = "Break Up Totem List",
+				desc = "Give each totem you picked a strip of its own, instead of one line each in a single strip. Each"
+					.. " strip has its own box in Unlock UI: drag it anywhere, and the mouse wheel over it sets that strip's"
+					.. " size. They start one under the other. With one totem picked it keeps its own strip, spot and size.",
+				-- (shown while it is on, so it can be turned off, whatever is picked)
+				hidden = function() return Off() or (not O().breakUp and Picked() < 2) end,
+				get = function() return O().breakUp == true end,
+				set = function(_, val)
+					O().breakUp = val and true or false
+					Changed("breakup")
+				end,
+			},
+			partystrip_reports_note = {
+				order = 7, type = "description",
+				name = "|cffffa040Windfury: each party member's own ShamanPower (or the Windfury WeakAura) reports it. Anyone who doesn't report it shows a gray question mark.|r",
+				hidden = function()
+					return Off() or not (SP.PartyStripWatchesReports and SP:PartyStripWatchesReports())
+				end,
+			},
+			partystrip_combat_note = {
+				order = 8, type = "description",
+				name = "It keeps working in fights and in dungeons. A change made here during a fight shows when the fight ends.",
+				hidden = Off,
+			},
+			partystrip_icon = {
+				order = 9, type = "toggle", width = 1.0,
+				name = "Show Totem Icon",
+				desc = "The totem's icon at the start of the strip. It is grayed out while you have no such totem down.",
+				hidden = function() return Off() or SharedLines() end,
+				get = function() return O().showIcon == true end,
+				set = function(_, val)
+					O().showIcon = val and true or false
+					Changed("layout")
+				end,
+			},
+			partystrip_icon_note = {
+				order = 10, type = "description",
+				name = "With more than one totem, each line starts with its totem's icon so you can tell them apart. An"
+					.. " icon is grayed out while you have no such totem down.",
+				hidden = function() return Off() or not SharedLines() end,
+			},
+			partystrip_names = {
+				order = 11, type = "toggle", width = 1.0,
+				name = "Show Names",
+				desc = "Each party member's name, in their class color, next to their marker (once, by the first totem).",
+				hidden = Off,
+				get = function() return O().showNames == true end,
+				set = function(_, val)
+					O().showNames = val and true or false
+					Changed("layout")
+				end,
+			},
+			partystrip_layout = {
+				order = 12, type = "select", width = 1.0,
+				name = "Layout",
+				desc = "In a Row: party members side by side, one line for each totem. In a Column: party members one above"
+					.. " the other, one column for each totem.",
+				hidden = Off,
+				values = { row = "In a Row", column = "In a Column" },
+				sorting = { "row", "column" },
+				get = function() return (O().layout == "column") and "column" or "row" end,
+				set = function(_, val)
+					O().layout = (val == "column") and "column" or "row"
+					Changed("layout")
+				end,
+			},
+			partystrip_size = {
+				order = 13, type = "range", width = 1.0, isPercent = true,
+				name = "Size",
+				desc = function()
+					if O().breakUp then
+						return "How big the strips are. This sets every strip; in Unlock UI the mouse wheel over a strip"
+							.. " sets that one."
+					end
+					return "How big the strip is."
+				end,
+				min = 0.5, max = 3, step = 0.05,
+				hidden = Off,
+				get = function() return tonumber(O().scale) or 1 end,
+				set = function(_, val)
+					O().scale = val
+					Changed("scale")
+				end,
+			},
+			partystrip_opacity = {
+				order = 14, type = "range", width = 1.0, isPercent = true,
+				name = "Background Opacity",
+				desc = "How solid the strip's background is. The markers and names always stay fully visible.",
+				min = 0, max = 1, step = 0.05,
+				hidden = Off,
+				get = function() return tonumber(O().bgOpacity) or 0.8 end,
+				set = function(_, val)
+					O().bgOpacity = val
+					Changed("panel")
+				end,
+			},
+			partystrip_move = {
+				order = 15, type = "execute", width = 1.4,
+				name = function()
+					if O().breakUp and Shown() > 1 then return "Move the Party Strips" end
+					return "Move the Party Strip"
+				end,
+				desc = "Drag the strip where you want it, then press Done to come back here. Unlock UI moves it too.",
+				hidden = function() return Off() or not SP.UnlockModuleFrames end,
+				func = function() SP:UnlockModuleFrames("partystrip") end,
+			},
+		},
+	}
+	SP.OrderSettingsBands(pages.partystrip_section, {
+		{ keys = { "partystrip_desc", "partystrip_module_missing" } },
+		{ keys = { "partystrip_enabled", "partystrip_combat_note" } },
+		{ header = "totems_header", name = "Totems", keys = {
+			"partystrip_totems", "partystrip_none_note", "partystrip_breakup", "partystrip_reports_note",
+		} },
+		{ header = "look_header", name = "Look", keys = {
+			"partystrip_icon", "partystrip_icon_note", "partystrip_names", "partystrip_layout", "partystrip_size", "partystrip_opacity",
+		} },
+		{ header = "position_header", name = "Position", keys = { "partystrip_move" } },
+	})
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[pages.partystrip_section.args.partystrip_totems] = "stripTotems"
 end
 
 -- Drop All has its own tab, separate from the order of the visible buttons.
@@ -10970,7 +11296,7 @@ do
 	local SP = ShamanPower
 	local buttons, pages = SP.options.args.buttons.args, SP.options.args.fluffy.args
 	local bar = buttons.auto_button
-	local keys = { "show_dropall", "dropall_icon", "dropall_icon_change", "dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
+	local keys = { "show_dropall", "dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
 		"drop_order_header", "drop_order_1", "drop_order_2", "drop_order_3", "drop_order_4",
 		"exclude_from_drop_all_header", "exclude_earth", "exclude_fire", "exclude_water", "exclude_air" }
 	for key in pairs(bar.args) do
@@ -10985,17 +11311,75 @@ do
 	SP.SettingsPathAliases["buttons/auto_button/show_cooldown_bar"] = {
 		"fluffy", "cdbar_items_section", "show_cooldown_bar",
 	}
+	-- A15 (3.0.8): the Bar tab is the Totem Bar's icon page (ShamanPower_Config TotemBarIcons.lua): a
+	-- Buttons row (each element, Drop All and, on TBC Anniversary, Earth Shield: click on / off the bar,
+	-- right-click its settings, drag an element to its place on the bar) and the Totems rows (every
+	-- totem, a line per element: click in / out of its flyout, right-click its settings). Items, Order,
+	-- Drop All and Flyouts are no tabs any more: their rows are clicks, a drag or lines in the menus
+	-- (the old groups stay as their holders, unreached; their addresses land here). The Earth Shield
+	-- flyout rows are in Earth Shield's menu (how flyouts open stays on Clicks).
+	do
+		local items = pages.totembar_items_section.args
+		SP.MoveSettingsOptions({ "fluffy", "totembar_items_section" }, { "buttons", "auto_button" }, { "totembar_hide_unlearned" })
+		local hu = bar.args.totembar_hide_unlearned
+		if hu then
+			local previous = hu.hidden
+			hu.hidden = function(info)
+				if NativeTotemBarSelected() then return true end   -- (Blizzard's own buttons are on screen)
+				if type(previous) == "function" then return previous(info) end
+				return previous
+			end
+		end
+		items.totembar_desc = nil
+		bar.args.auto_desc = nil   -- (the rows' captions say what to do)
+		bar.args.show_es_flyout, bar.args.es_flyout_filter = nil, nil
+		-- what a search finds in the two rows (they draw themselves, so this text is never shown): every
+		-- button, every totem and every word their right-click menus draw, the old tabs' rows included
+		local BUTTONS_SEARCH = "Buttons: Earth, Fire, Water, Air, Drop All, Earth Shield. Drop All Icon, Next Totem, Pick an Icon. Show Earth Totem, Show Fire Totem,"
+			.. " Show Water Totem, Show Air Totem, Show Earth Shield, Show Drop All Button: click a button to show or hide it on"
+			.. " the bar, right-click it for its settings, drag an element to change its place on the bar (Button Order, 1st"
+			.. " Button, 2nd Button, 3rd Button, 4th Button, Totem Bar Order). Drop All: 1st, 2nd, 3rd, 4th, Not Dropped (Drop"
+			.. " All Order, 1st in Drop All Order, Exclude from Drop All, Exclude Earth, Exclude Fire, Exclude Water, Exclude"
+			.. " Air). Drop Order. Blizzard Totem Sets: Drop All Casts Call of the Elements, Call of the Elements Follows My"
+			.. " Assignments, My Assignments Follow Blizzard's Totem Bar. Earth Shield: Flyout, Show Earth Shield Flyout,"
+			.. " Players In The Flyout, Earth Shield Flyout Filter, Tanks, Healers, Damage, Warriors, Paladins, Hunters,"
+			.. " Rogues, Priests, Shamans, Mages, Warlocks, Druids, Everyone; Running Out, Running Out At. Keybind: Button Key,"
+			.. " Flyout Key, Set Keys In Keybind Mode. Hide This Button, Show This Button, Reset This Button."
+		local TOTEMS_SEARCH = "Totems in the Flyouts: every totem, a line per element (Earth Totems, Fire Totems, Water"
+			.. " Totems, Air Totems): click a totem to show or hide it in its flyout (Totem Flyouts, which totems appear in the"
+			.. " flyout menus), right-click it for its settings. Pulse Bar, Pulse Flash (Only Show Pulse Bars for Specific"
+			.. " Totems, Only Show Pulse Flash for Specific Totems), Counts As Temporary (Totems That Count as Temporary, Put"
+			.. " Your Usual Totem Back), Keybind, Its Key, Copy Settings, Paste Settings, Copy Settings To, All Totems, Hide"
+			.. " From The Flyout, Show In The Flyout, Reset This Totem. Strength of Earth, Stoneskin, Tremor, Earthbind,"
+			.. " Stoneclaw, Earth Elemental, Totem of Wrath, Searing, Magma, Fire Nova, Flametongue, Frost Resistance, Fire"
+			.. " Elemental, Mana Spring, Healing Stream, Mana Tide, Poison Cleansing, Disease Cleansing, Fire Resistance,"
+			.. " Windfury, Grace of Air, Wrath of Air, Tranquil Air, Grounding, Nature Resistance, Windwall, Sentry."
+		bar.args.tb_buttons = { type = "description", width = "full", name = " ", desc = BUTTONS_SEARCH }
+		bar.args.tb_totems = { type = "description", width = "full", name = " ", desc = TOTEMS_SEARCH }
+		bar.args.tb_flyouts_note = { type = "description", width = "full",
+			name = "|cffffa040Totem flyouts are turned off (Show Totem Flyouts), so a click on a totem has no effect until you"
+				.. " turn them on.|r",
+			hidden = function() return NativeTotemBarSelected() or SP.opt.showTotemFlyouts ~= false end }
+		SP.OptionCustomRow = SP.OptionCustomRow or {}
+		SP.OptionCustomRow[bar.args.tb_buttons] = "tbButtons"
+		SP.OptionCustomRow[bar.args.tb_totems] = "tbTotems"
+		-- the old tabs' addresses (settings links, patch notes, search paths kept in old notes) open this tab
+		for _, old in ipairs({ "fluffy/totembar_items_section", "fluffy/totembar_order_section", "fluffy/totemflyouts_section",
+			"buttons/dropall_section" }) do
+			SP.SettingsPathAliases[old] = { "buttons", "auto_button" }
+		end
+	end
 	SP.OrderSettingsBands(bar, {
-		{ keys = { "auto_desc" } },
 		{ keys = { "auto_enable" } },
-		{ header = "flyouts_header", name = "Flyouts", keys = {
-			"show_totem_flyouts", "show_es_flyout", "es_flyout_filter",
+		{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "totembar_hide_unlearned" } },
+		{ header = "flyouts_header", name = "Totems in the Flyouts", keys = {
+			"show_totem_flyouts", "tb_flyouts_note", "tb_totems",
 		} },
 		{ header = "position_header", name = "Position", keys = { "unlock_totem_bar" },
 			names = { unlock_totem_bar = "Move (unlock bar)" } },
 	})
 	SP.OrderSettingsBands(buttons.dropall_section, {
-		{ keys = { "show_dropall", "dropall_icon", "dropall_icon_change" } },
+		{ keys = { "show_dropall" } },
 		{ header = "sets_header", name = "Blizzard Totem Sets", keys = {
 			"dropall_totem_sets", "dropall_totem_sets_sync", "dropall_totem_sets_adopt",
 		} },
@@ -11049,7 +11433,8 @@ do
 	local page = SP.options.args.fluffy.args.cdbar_items_section
 	local items = {}
 	for key in pairs(page.args) do
-		if key ~= "cdbar_items_desc" and key ~= "show_cooldown_bar" and key ~= "unlock_cd_bar" then
+		if key ~= "cdbar_items_desc" and key ~= "show_cooldown_bar" and key ~= "unlock_cd_bar"
+			and key ~= "cdbar_shield_right_click_other" then
 			items[#items + 1] = key
 		end
 	end
@@ -11058,6 +11443,7 @@ do
 		{ keys = { "cdbar_items_desc" } },
 		{ keys = { "show_cooldown_bar" } },
 		{ header = "items_header", name = "Buttons to Show", keys = items },
+		{ header = "shield_button_header", name = "Shield Button", keys = { "cdbar_shield_right_click_other" } },
 		{ header = "position_header", name = "Position", keys = { "unlock_cd_bar" },
 			names = { unlock_cd_bar = "Move (unlock bar)" } },
 	})
@@ -11355,6 +11741,35 @@ do
 			set = function(_, v) SP.opt[key] = v and true or nil; lookChanged() end }
 	end
 	local mainline = SPCompat.FOREVER
+	-- Totem Expiring Soon's list: today's two, the two the Effects Looks added, and Turns red
+	-- (the cooldown bar's Running Out look, one more choice: nothing changes unless it is picked)
+	local function expiringStyles()
+		local v, o = plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")
+		v.red = "Turns red"
+		o[#o + 1] = "red"
+		return v, o
+	end
+	-- The cooldown bar's "running out" moment (ShamanPowerCues.lua): one saved setting each,
+	-- shown on Cooldown Bar > Display (Show Items Only When Running Out) and > Effects (the
+	-- running-out effects): change it in either place.
+	local function runOutSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 10, max = 300, step = 5,
+			name = "Seconds Before a Shield or Imbue Ends",
+			desc = "When a shield or weapon imbue counts as running out. A shield also counts as running out on its last charge."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() return SP.opt.cdbarRunOutSecs or 60 end,
+			set = function(_, v) SP.opt.cdbarRunOutSecs = v; apply() end }
+	end
+	local function almostSecs(order, otherPage, disabled)
+		return { order = order, type = "range", width = "full", min = 0, max = 30, step = 1,
+			name = "Seconds Before a Cooldown Is Ready",
+			desc = "When a cooldown counts as almost ready (0: only once it is ready, so Cooldown Almost Ready never plays)."
+				.. " The same setting as on Cooldown Bar > " .. otherPage .. ": change it in either place.",
+			disabled = disabled,
+			get = function() local s = SP.opt.cdbarAlmostSecs if s == nil then s = 5 end return s end,
+			set = function(_, v) SP.opt.cdbarAlmostSecs = v; apply() end }
+	end
 	-- Each bar's effects sit with the bar they animate (Totem Bar > Effects,
 	-- Cooldown Bar > Effects): a player who sees a button shake looks there.
 	SP.options.args.fluffy.args.totembar_effects_section = { type = "group", name = "Effects", order = 1.35, args = {
@@ -11380,7 +11795,7 @@ do
 		totemCueExpiring = toggle(1.6, "totemCueExpiring", "Totem Expiring Soon",
 			"Over a totem's last seconds its button pulses darker, or its edges glow orange, until it runs out or you drop it again."),
 		totemCueExpiringStyle = style(1.7, "totemCueExpiringStyle", "totemCueExpiring", "pulse", "Expiring Style",
-			plus({ pulse = "Pulse", glow = "Glow" }, { "pulse", "glow" }, "drain", "Frame drains", "underbar", "Bar under it")),
+			expiringStyles()),
 		totemCueExpiringSecs = { order = 1.8, type = "range", width = "full", name = "Seconds Before It Ends",
 			min = 3, max = 15, step = 1,
 			disabled = function() return not SP.opt.totemCueExpiring end,
@@ -11396,7 +11811,8 @@ do
 			.. " Every effect is off until you turn it on, and the look starts as Standard. The Test button plays the chosen styles on your bar." },
 		cdbarCueLook = look(2.02, "cdbarCueLook", "Choose the Cooldown Bar effects' look. Standard: the original look. Elemental: a ring and glow in the element's color. Signal: a thin border and a bar along the bottom."),
 		cdbarCueSignature = signature(2.03, "cdbarCueSignature", "cdbarCueLook",
-			"Shine, Element flare, Shield burst", "Dot, Corner flag, Border blink + flag"),
+			"Shine, Element flare, Shield burst, and Frame drains for Running Out and Cooldown Almost Ready",
+			"Dot, Corner flag, Border blink + flag, and Bar under it for Running Out and Cooldown Almost Ready"),
 		cdbarCueReady = toggle(2.1, "cdbarCueReady", "Cooldown Ready",
 			"When a cooldown on the bar is ready again, its button plays the style below in gold."),
 		cdbarCueReadyStyle = style(2.2, "cdbarCueReadyStyle", "cdbarCueReady", "pop", "Ready Style",
@@ -11405,6 +11821,11 @@ do
 			"When a weapon imbue drops off (it ran out, or the weapon was swapped), the imbue button plays the style below in blue."),
 		cdbarCueImbueStyle = style(2.4, "cdbarCueImbueStyle", "cdbarCueImbue", "shake", "Imbue Style",
 			plus(STYLES, STYLE_ORDER, "flare", "Element flare", "flag", "Corner flag")),
+		cdbarCueImbueMark = { order = 2.45, type = "toggle", width = "full", name = "Red X Until You Imbue Again",
+			desc = "Also put a red X on the imbue button until you put an imbue on again (5 seconds at most).",
+			disabled = function() return not SP.opt.cdbarCueImbue end,
+			get = function() return SP.opt.cdbarCueImbueMark and true or false end,
+			set = function(_, v) SP.opt.cdbarCueImbueMark = v and true or false; apply() end },
 		cdbarCueShield = toggle(2.5, "cdbarCueShield", "Shield Gone",
 			mainline and ("When your Lightning or Water Shield is gone, the shield button plays the style below in blue."
 				.. " In combat, the button pulses red while no shield is up instead."
@@ -11412,10 +11833,79 @@ do
 			or "When your Lightning or Water Shield is gone, the shield button plays the style below in blue."),
 		cdbarCueShieldStyle = style(2.6, "cdbarCueShieldStyle", "cdbarCueShield", "shake", "Shield Style",
 			plus(STYLES, STYLE_ORDER, "burst", "Shield burst", "blinkflag", "Frame blink + flag")),
+		cdbarCueShieldMark = { order = 2.65, type = "toggle", width = "full", name = "Red X Until You Cast a Shield Again",
+			desc = "Also put a red X on the shield button until you cast a shield again (5 seconds at most)."
+				.. (mainline and " In a fight it shows while no shield is up instead, like Shield Gone's red pulse (at 100% Cooldown Bar opacity)." or ""),
+			disabled = function() return not SP.opt.cdbarCueShield end,
+			get = function() return SP.opt.cdbarCueShieldMark and true or false end,
+			set = function(_, v) SP.opt.cdbarCueShieldMark = v and true or false; apply() end },
+		-- Turns Red While Missing: a shield or imbue that is gone, red until you cast it again
+		cdbarCueMissing = toggle(2.67, "cdbarCueMissing", "Turns Red While Missing",
+			"While your shield or a weapon imbue is gone, its button turns red until you cast it again (with two weapons: either hand)."
+				.. (mainline and " In a fight on WoW: Forever the shield's red sits under the game's shield icon, so it shows the moment the icon goes (at 100% Cooldown Bar opacity)." or "")),
+		-- Glow While Missing: the same moment, the button's edges glow red (and Proc Glow plays round it, when chosen)
+		cdbarCueMissingGlow = toggle(2.675, "cdbarCueMissingGlow", "Glow While Missing",
+			"While your shield or a weapon imbue is gone, the button's edges glow red until you cast it again (with two weapons: either hand). With Proc Glow as your Glow Shape, that plays round the button too."
+				.. (mainline and " In a fight on WoW: Forever the shield's glow sits under the game's shield icon, so it shows the moment the icon goes (at 100% Cooldown Bar opacity)." or "")),
+		-- Time Only While Running Out (the shield): its time out of sight while there is plenty, up when running out
+		cdbarCueTimeOnly = toggle(2.705, "cdbarCueTimeOnly", "Time Only While Running Out",
+			"The shield's time stays out of sight while there is plenty left, and shows the moment it is running out (Running Out At)."
+				.. (mainline and " In a fight on WoW: Forever the game draws it, so it is exact to the second." or "")),
+		-- Running Out: the button that is running out (its last seconds) plays a look until you cast it again
+		cdbarCueRunning = toggle(2.7, "cdbarCueRunning", "Running Out",
+			"Over the last moments of your shield or weapon imbue" .. (mainline and "" or " (and your Earth Shield)")
+				.. ", its button plays the style below until you cast it again. A shield also counts as running out on its last charge."
+				.. (mainline and " In a fight on WoW: Forever only the shield's time counts: the game hides its charges there (its number still turns red on the last one)." or "")),
+		cdbarCueRunningStyle = style(2.71, "cdbarCueRunningStyle", "cdbarCueRunning", "red", "Running Out Style",
+			{ red = "Turns red", pulse = "Pulse", glow = "Glow", drain = "Frame drains", underbar = "Bar under it" },
+			{ "red", "pulse", "glow", "drain", "underbar" }),
+		cdbarRunOutSecs = runOutSecs(2.72, "Display (Show Items Only When Running Out)",
+			function() return not (SP.opt.cdbarCueRunning or SP.opt.cdbarCueTimeColor) end),
+		-- Cooldown Almost Ready: a cooldown's last seconds, in the Cooldown Ready gold
+		cdbarCueAlmost = toggle(2.75, "cdbarCueAlmost", "Cooldown Almost Ready",
+			"Over a cooldown's last seconds, its button plays the style below in gold, until it is ready."),
+		cdbarCueAlmostStyle = style(2.76, "cdbarCueAlmostStyle", "cdbarCueAlmost", "glow", "Almost Ready Style",
+			{ pulse = "Pulse", glow = "Glow", drain = "Frame drains", underbar = "Bar under it" },
+			{ "pulse", "glow", "drain", "underbar" }),
+		cdbarAlmostSecs = almostSecs(2.77, "Display (Show Items Only When Running Out)",
+			function() return not (SP.opt.cdbarCueAlmost or SP.opt.cdbarCueTimeColor) end),
+		-- why it isn't showing: at 0 seconds there are no last seconds
+		cdbar_almost_zero = { order = 2.775, type = "description", width = "full",
+			name = "|cffffa040At 0 seconds a cooldown has no last seconds, so Cooldown Almost Ready never plays. Raise Seconds Before a Cooldown Is Ready to see it.|r",
+			hidden = function() return not (SP.opt.cdbarCueAlmost and SP.opt.cdbarAlmostSecs == 0) end },
+		cdbarCueTimeColor = toggle(2.8, "cdbarCueTimeColor", "Time Turns Red While Running Out",
+			"The time on a button that is running out turns red (gold on a cooldown that is almost ready). On a button"
+				.. " that turns red, the time stays white so you can read it."),
 		cdbar_test = { order = 2.9, type = "execute", name = "Test Cooldown Bar Effects",
-			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button Shield Gone, in the styles chosen above.",
+			desc = "The first cooldown plays Cooldown Ready, the imbue button Weapon Imbue Gone and the shield button"
+				.. " Shield Gone, in the styles chosen above. Running Out and Cooldown Almost Ready play for 3 seconds,"
+				.. " then Turns Red While Missing for 3 more when it is on.",
 			func = function() if SP.TestCooldownCues then SP:TestCooldownCues() end end },
 	} }
+	-- Cooldown Bar > Display: Show Items Only When Running Out, under its own heading
+	local display = SP.options.args.fluffy.args.cooldown_display_section
+	if display and display.args then
+		local d = display.args
+		local function d50Off() return not SP.opt.cdbarRunOutOnly end
+		d.runout_header = { order = 90, type = "header", name = "Show Only When Running Out" }
+		d.cdbarRunOutOnly = { order = 90.1, type = "toggle", width = "full", name = "Show Items Only When Running Out",
+			desc = "Shields, weapon imbues and cooldowns stay out of sight until they are running out, then come up with their time left."
+				.. " A shield or imbue that is gone stays up until you cast it again. Hidden items keep their spots, so nothing on the bar moves;"
+				.. " in a fight a click on a hidden item's spot still casts it. With the Grid style the shield and imbue stay up (every choice is laid out beside them)."
+				.. (mainline and (" On WoW: Forever your shield stays on the bar during a fight: the game doesn't tell addons when it runs out there."
+					.. " After a /reload in a fight, a cooldown that was already counting down stays on the bar until it is ready.") or ""),
+			get = function() return SP.opt.cdbarRunOutOnly and true or false end,
+			set = function(_, v) SP.opt.cdbarRunOutOnly = v and true or false; apply() end }
+		d.cdbarRunOutSecs = runOutSecs(90.2, "Effects (Running Out)", d50Off)
+		d.cdbarAlmostSecs = almostSecs(90.3, "Effects (Cooldown Almost Ready)", d50Off)
+		d.cdbarRunOutReady = { order = 90.4, type = "select", width = "full", name = "When a Cooldown Is Ready",
+			desc = "Hide It Again: a cooldown goes out of sight again once it is ready, after its Cooldown Ready flash (Cooldown Bar > Effects)."
+				.. " Keep It Up Until Used: it stays in sight from its last seconds until you use it.",
+			values = { hide = "Hide It Again", keep = "Keep It Up Until Used" }, sorting = { "hide", "keep" },
+			disabled = d50Off,
+			get = function() return (SP.opt.cdbarRunOutReady == "keep") and "keep" or "hide" end,
+			set = function(_, v) SP.opt.cdbarRunOutReady = v; apply() end }
+	end
 	-- the Effects page used to be Appearance > Effects: its old address lands here
 	SP.SettingsPathAliases["fluffy/effects_appearance"] = { "fluffy", "totembar_effects_section" }
 	for _, group in ipairs({ "totembar_effects_section", "cdbar_effects_section" }) do
@@ -11470,6 +11960,18 @@ do
 	})
 	settings.settings_totemClicks.args.layout_desc.name =
 		"Choose how bar buttons and flyout menus respond to clicks and keys."
+	-- 3.0.8: the Totem Assignments window's right-click (GitHub #5)
+	settings.settings_totemClicks.args.assign_right_click = {
+		type = "select", width = 1.5,
+		name = "Right-Click an Assignment",
+		desc = "What a right-click on a totem in the Totem Assignments window does. Previous Totem: it changes to the totem"
+			.. " before it, as always. Clear Assignment: that element is left with no totem. Left-click and the mouse wheel"
+			.. " still step through the totems both ways.",
+		values = { previous = "Previous Totem", clear = "Clear Assignment" },
+		sorting = { "previous", "clear" },
+		get = function() return SP.opt.assignRightClick == "clear" and "clear" or "previous" end,
+		set = function(_, value) SP.opt.assignRightClick = (value == "clear") and "clear" or "previous" end,
+	}
 	SP.OrderSettingsBands(settings.settings_totemClicks, {
 		{ keys = { "layout_desc" } },
 		{ header = "button_header", name = "Bar Buttons", keys = {
@@ -11479,6 +11981,7 @@ do
 			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "flyout_arrow_only", "flyout_single_open",
 			"flyout_close_on_cast", "flyout_route_bar_keys",
 		} },
+		{ header = "assign_window_header", name = "Assignment Window", keys = { "assign_right_click" } },
 	})
 	SP.OrderSettingsBands(settings.settings_totemTwisting, {
 		{ keys = { "enableTwisting", "twistTotemSelect" } },
@@ -11504,7 +12007,7 @@ do
 	-- the totems either: Grid's Left-Click Also Assigns decides what a drop does.)
 	onlyStyles("dynamicMode", {})
 	onlyStyles("dynamicModeDesc", { normal = true, dynamic = true, grid = true })
-	-- TotemTimers Style / Single Totem ARE this switch (turning it off = Normal, in the
+	-- Both activeTotemAsMain styles ARE this switch (turning it off = Normal, in the
 	-- style picker above); only Blizzard's Totem Bar still needs it for this look
 	onlyStyles("activeTotemAsMain", { blizzard = true })
 	onlyStyles("singleTotemDesc", { single = true })
@@ -11515,6 +12018,8 @@ do
 		"gridOrientation1", "gridOrientation2", "gridOrientation3", "gridOrientation4" }) do
 		onlyStyles(key, { grid = true })
 	end
+	-- Totem Rows' switch and settings: with every style but Grid (Grid lays every totem out in rows itself)
+	onlyStyles("rowsOptions", { normal = true, totemtimers = true, single = true, dynamic = true, compact = true, blizzard = true })
 	onlyStyles("use_blizzard_totem_bar", {})
 	-- The native scale controls already have their exact native-only predicate.
 	for _, key in ipairs({ "activeAsMainSpacer", "compactSpacer", "twistSpacer" }) do
@@ -11547,21 +12052,18 @@ end
 -- Module pages keep their controls and callbacks; only their reading order changes.
 do
 	local SP = ShamanPower
-	local tracked = {
-		"tracked_soe", "tracked_stoneskin", "tracked_tow", "tracked_flametongue", "tracked_frostresist",
-		"tracked_manaspring", "tracked_healingstream", "tracked_fireresist", "tracked_manatide",
-		"tracked_windfury", "tracked_graceofair", "tracked_wrathofair", "tracked_tranquilair",
-		"tracked_natureresist", "tracked_windwall",
-	}
+	-- Show the Overlay sits under Show Overlay, its switch (A18 Q12: it was left out of this order)
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.sprange_section, {
 		{ keys = { "sprange_desc", "module_missing_note", "not_shown_note" } },
-		{ keys = { "show_overlay", "open_window" } },
-		{ header = "tracked_header", name = "Totems to Track", keys = tracked },
+		{ keys = { "show_overlay", "show_when", "open_window" } },
+		{ header = "tracked_header", name = "Totems to Track", keys = { "rangeIcons" } },
 		{ header = "look_header", name = "Look", keys = {
 			"sprange_icon_size", "sprange_opacity", "sprange_vertical", "sprange_hide_names", "sprange_hide_border",
+			"sprange_show_mode",
 		} },
 		{ header = "minimap_header", name = "Minimap Markers", keys = {
 			"minimapTotemMarkers", "minimapTotemRings", "minimapTotemPinSize",
+			"minimapRingColorMode", "minimapRingColor1", "minimapRingColor2", "minimapRingColor3", "minimapRingColor4",
 		} },
 	})
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.estrack_section, {
@@ -11574,10 +12076,11 @@ do
 	})
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.raid_cd_section, {
 		{ keys = { "raid_cd_desc", "module_missing_note", "no_group_note" } },
-		{ keys = { "open_window" } },
+		-- Enable Raid Cooldowns at the top, over what it switches (A18 Q12: it sat last, under Sound)
+		{ keys = { "raidCDEnabled", "open_window" } },
+		-- TBC Anniversary: the row of icons; WoW: Forever: Mana Tide's two rows, as they were
 		{ header = "assignment_header", name = "Cooldown Assignments", keys = {
-			"bloodlust_primary", "bloodlust_backup1", "bloodlust_backup2", "bloodlust_caller",
-			"manatide_shaman", "manatide_caller", "drums_caller", "drums_group", "drums_drummer",
+			"raidIcons", "manatide_shaman", "manatide_caller",
 		} },
 		{ header = "warnings_header", name = "Warnings", keys = {
 			"raidCDShowWarningIcon", "raidCDShowWarningText",
@@ -11636,71 +12139,7 @@ do
 		}, names = { shieldcharges_drop_sound_picker = "Sound" } },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked" } },
 	})
-	SP.OrderSettingsBands(SP.options.args.fluffy.args.reactivetotems_section, {
-		{ keys = { "reactive_desc", "module_missing_note", "engine_note", "instance_only_note", "master_off_note" } },
-		{ keys = { "reactive_enabled" } },
-		{ header = "reactive_header_tracking", name = "Debuff Tracking", keys = {
-			"reactive_track_fear", "reactive_track_poison", "reactive_track_disease",
-		} },
-		{ header = "reactive_header_appearance", name = "Look", keys = {
-			"reactive_icon_size", "reactive_opacity", "reactive_font_size", "reactive_font_outline",
-			"reactive_hide_border", "reactive_hide_background", "reactive_hide_debuff_text",
-			"reactive_show_debuff_icon", "reactive_hide_totem_text",
-		}, names = {
-			reactive_font_size = "Text Size", reactive_font_outline = "Outline (unless Fonts & Textures sets one)",
-		} },
-		{ header = "reactive_header_effects", name = "Behavior", keys = {
-			"reactive_only_instance", "reactive_hide_when_active", "click_to_cast", "reactive_glow", "reactive_glow_intensity",
-		} },
-		{ header = "sound_header", name = "Sound", keys = {
-			"reactive_sound", "reactive_sound_picker", "reactive_sound_picker_testsound",
-			"reactive_sound_volume", "reactive_sound_volume_note",
-		}, names = { reactive_sound = "Play Sound", reactive_sound_picker = "Sound", reactive_sound_volume = "Volume" } },
-		{ header = "position_header", name = "Position", keys = {
-			"reactive_show", "reactive_locked", "reactive_reset", "reactive_hide",
-		}, names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Position" } },
-		{ header = "reactive_header_buttons", name = "Test / Reset", keys = { "reactive_test" } },
-	})
-	SP.OrderSettingsBands(SP.options.args.fluffy.args.expiringalerts_section, {
-		{ keys = { "alerts_desc", "module_missing_note", "master_off_note" } },
-		{ keys = { "alerts_enabled", "alerts_display_mode" } },
-		{ header = "alerts_header_shields", name = "Shield Alerts", keys = {
-			"alerts_shields_enabled", "alerts_shields_lightning", "alerts_shields_water", "alerts_shields_earth",
-		} },
-		{ header = "alerts_header_totems", name = "Totem Alerts", keys = {
-			"alerts_totems_enabled", "alerts_totems_destroyed", "alerts_totems_expired",
-			"alerts_totems_earth", "alerts_totems_fire", "alerts_totems_water", "alerts_totems_air",
-		} },
-		{ header = "destroyed_header", name = "When a Totem Is Destroyed", keys = {
-			"alerts_totems_destroyedChat", "alerts_totems_destroyedCenter", "alerts_totems_destroyedParty",
-		}, names = {
-			alerts_totems_destroyedChat = "Line in My Chat Window", alerts_totems_destroyedCenter = "Big Text on My Screen",
-			alerts_totems_destroyedParty = "Tell My Group in Chat",
-		} },
-		{ header = "alerts_header_imbues", name = "Weapon Imbue Alerts", keys = {
-			"alerts_imbues_enabled", "alerts_imbues_mainhand", "alerts_imbues_offhand",
-		} },
-		{ header = "alerts_header_display", name = "Look", keys = {
-			"alerts_icon_size", "alerts_opacity", "alerts_text_size", "alerts_font_outline",
-		}, names = { alerts_font_outline = "Outline (unless Fonts & Textures sets one)" } },
-		{ header = "behaviour_header", name = "Behavior", keys = { "alerts_animation", "alerts_duration" } },
-		{ header = "shield_sound_header", name = "Sound: Shields", keys = {
-			"alerts_shields_sound", "alerts_shields_sound_picker", "alerts_shields_sound_picker_testsound",
-		}, names = { alerts_shields_sound_picker = "Sound" } },
-		{ header = "totem_sound_header", name = "Sound: Totems", keys = {
-			"alerts_totems_sound", "alerts_totems_sound_picker", "alerts_totems_sound_picker_testsound",
-		}, names = { alerts_totems_sound_picker = "Sound" } },
-		{ header = "imbue_sound_header", name = "Sound: Weapon Imbues", keys = {
-			"alerts_imbues_sound", "alerts_imbues_sound_picker", "alerts_imbues_sound_picker_testsound",
-		}, names = { alerts_imbues_sound_picker = "Sound" } },
-		{ header = "volume_header", name = "Sound: Shared Volume", keys = {
-			"alerts_sound_volume", "alerts_sound_volume_note",
-		}, names = { alerts_sound_volume = "Volume" } },
-		{ header = "position_header", name = "Position", keys = {
-			"alerts_show_pos", "alerts_hide_pos", "alerts_reset_pos",
-		}, names = { alerts_show_pos = "Move" } },
-		{ header = "alerts_header_testing", name = "Test / Reset", keys = { "alerts_test" } },
-	})
+	-- Reactive Totems and Expiring Alerts: their icon pages (A16) are banded at the end of this file
 	SP.OrderSettingsBands(SP.options.args.fluffy.args.tremorreminder_section, {
 		{ keys = { "tremor_desc", "module_missing_note", "master_off_note" } },
 		{ keys = { "tremor_enabled", "tremor_display_mode", "tremor_manage_mobs" } },
@@ -11780,6 +12219,8 @@ do
 		.. " Missing, Show On Every Enemy's Nameplate. Copy Settings, Paste Settings, Copy Settings To, All Spells,"
 		.. " Hide This Spell, Show This Spell, Reset This Spell. Flame Shock, Frost Shock and Stormstrike show while"
 		.. " they are on your target; Purge lights up when your target has a Magic buff you can remove."
+		.. " Next Shock (Flame Shock's menu): Show Next Shock; When Flame Shock Is On, Show Earth Shock or Frost Shock;"
+		.. " Show Flame Shock Again At (seconds left); Look When It's Time to Cast."
 	local RULES_SEARCH = "Rules. Example: in Molten Core, fighting Shazzrah, turn the Purge Reminder on. Any Raid,"
 		.. " Any Dungeon, Battlegrounds, Arenas, Open World, Any Boss, Anyone, A Target You Name. Purge Reminder,"
 		.. " Missing Warnings, Every Enemy's Nameplate, Flame Shock, Frost Shock, Stormstrike: On or Off. Add Rule."
@@ -11908,100 +12349,23 @@ do
 	SP.options.args.fluffy.args.targettracker_section = { order = 9.6, type = "group", name = "Target Tracker", args = args }
 end
 
--- Totem Bar > Duration Bars: "Only Show Pulse Bars for Specific Totems", then one
--- switch per totem that pulses (ShamanPower.PulsingTotems), on unless turned off.
+
+-- Totem Bar > Duration Bars: which totems get the pulse bar and the pulse flash is each totem's
+-- menu on Totem Bar > Bar now (A15: ShamanPower_Config TotemBarIcons.lua, Pulse Bar / Pulse
+-- Flash), in place of "Only Show Pulse Bars / Pulse Flash for Specific Totems" and their two
+-- lists of 9. The saved lists are the same (pulseOnlySome / pulseTotemsOff, pulseFlashOnlySome /
+-- pulseFlashTotemsOff: ShamanPower:PulsePartsOff reads them); one line says where they went.
 do
 	local SP = ShamanPower
 	local sec = SP.options.args.fluffy.args.totembar_duration_section
 	local args = sec and sec.args
 	if args then
-		-- key in ShamanPower.PulsingTotems, a spell for the name and the client check
-		local PULSING = {
-			{ "Tremor", 8143 }, { "Earthbind", 2484 }, { "Stoneclaw", 5730 }, { "Magma", 8190 },
-			{ "Healing Stream", 5394 }, { "Mana Spring", 5675 }, { "Mana Tide", 16190 },
-			{ "Poison Cleansing", 8166 }, { "Disease Cleansing", 8170 },
+		args.pulse_totems_note = {
+			order = 9, type = "description", width = "full",
+			name = "Which totems get the pulse bar and the pulse flash: right-click a totem on Totem Bar > Bar, then Pulse Bar"
+				.. " or Pulse Flash.",
+			hidden = function() return SP.opt.pulseBarPosition == "none" end,
 		}
-		local function pulseOff() return (SP.opt.pulseBarPosition or "none") == "none" end
-		args.pulse_only_some = {
-			order = 9, type = "toggle", width = "full",
-			name = "Only Show Pulse Bars for Specific Totems",
-			desc = "Turn this on to pick which totems get a pulse bar. Every totem that pulses is listed below; turn off the ones you don't want. A totem turned off also gets no pulse time. The pulse flash has its own list.",
-			disabled = function() return CompactOn() end,
-			hidden = pulseOff,
-			get = function() return SP.opt.pulseOnlySome and true or false end,
-			set = function(_, val)
-				if val then SP.opt.pulseOnlySome = true else SP.opt.pulseOnlySome = nil end
-			end,
-		}
-		for i, t in ipairs(PULSING) do
-			local key, spell = t[1], t[2]
-			args["pulse_totem_" .. key:gsub("%s", ""):lower()] = {
-				order = 9 + i / 100, type = "toggle", width = 1.4,
-				name = function()
-					local n = GetSpellInfo and GetSpellInfo(spell)
-					if type(n) == "string" and n ~= "" then return n end
-					return key .. " Totem"
-				end,
-				desc = "Show the pulse bar for this totem.",
-				disabled = function() return CompactOn() end,
-				hidden = function()
-					if pulseOff() or not SP.opt.pulseOnlySome then return true end
-					-- totems this client does not have are left out
-					if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(spell) then return true end
-					return false
-				end,
-				get = function() return not (SP.opt.pulseTotemsOff and SP.opt.pulseTotemsOff[key]) end,
-				set = function(_, val)
-					if val then
-						if SP.opt.pulseTotemsOff then SP.opt.pulseTotemsOff[key] = nil end
-					else
-						SP.opt.pulseTotemsOff = SP.opt.pulseTotemsOff or {}
-						SP.opt.pulseTotemsOff[key] = true
-					end
-				end,
-			}
-		end
-		-- the same for the pulse flash, its own list (a totem can keep its bar and lose the flash, or the other way round)
-		local function flashOff() return pulseOff() or SP.opt.pulseFlashOpacity == 0 end
-		args.pulse_flash_only_some = {
-			order = 9.5, type = "toggle", width = "full",
-			name = "Only Show Pulse Flash for Specific Totems",
-			desc = "Turn this on to pick which totems get the pulse flash. Every totem that pulses is listed below; turn off the ones you don't want. This list is separate from the pulse bar list above.",
-			disabled = function() return CompactOn() end,
-			hidden = flashOff,
-			get = function() return SP.opt.pulseFlashOnlySome and true or false end,
-			set = function(_, val)
-				if val then SP.opt.pulseFlashOnlySome = true else SP.opt.pulseFlashOnlySome = nil end
-			end,
-		}
-		for i, t in ipairs(PULSING) do
-			local key, spell = t[1], t[2]
-			args["pulse_flash_totem_" .. key:gsub("%s", ""):lower()] = {
-				order = 9.5 + i / 100, type = "toggle", width = 1.4,
-				name = function()
-					local n = GetSpellInfo and GetSpellInfo(spell)
-					if type(n) == "string" and n ~= "" then return n end
-					return key .. " Totem"
-				end,
-				desc = "Show the pulse flash for this totem.",
-				disabled = function() return CompactOn() end,
-				hidden = function()
-					if flashOff() or not SP.opt.pulseFlashOnlySome then return true end
-					-- totems this client does not have are left out
-					if SPCompat and SPCompat.SpellExists and not SPCompat.SpellExists(spell) then return true end
-					return false
-				end,
-				get = function() return not (SP.opt.pulseFlashTotemsOff and SP.opt.pulseFlashTotemsOff[key]) end,
-				set = function(_, val)
-					if val then
-						if SP.opt.pulseFlashTotemsOff then SP.opt.pulseFlashTotemsOff[key] = nil end
-					else
-						SP.opt.pulseFlashTotemsOff = SP.opt.pulseFlashTotemsOff or {}
-						SP.opt.pulseFlashTotemsOff[key] = true
-					end
-				end,
-			}
-		end
 	end
 end
 
@@ -12011,4 +12375,426 @@ function ShamanPower:ShieldChargeBarAlone()
 	local s = self.opt and self.opt.shieldChargeDisplay
 	if s and s.showChargeBar and not s.showIcon and s.showNumber == false then return true end
 	return false
+end
+
+-- Cooldown Bar (A13, 3.0.8): one page, no tabs. The Items row (ShamanPower_Config
+-- CdbarIcons.lua: click an item to show or hide it, right-click it for its settings, drag
+-- it to move it), then only what is about the whole bar: Bar (Appearance > Cooldown
+-- Bar's rows), Progress Bars and Time, Effects (the look; which effect each item plays is
+-- in its menu) and Position. The same option objects as before (moved, not copied); the
+-- old groups stay as their holders (the item menus and General > Themes read them there)
+-- and their old addresses land on this page. On / off: the switch beside Cooldown Bar in
+-- the sidebar (Window.lua POWER_CDBAR). The Cooldown Bar Flyouts rows (Appearance >
+-- Flyouts) move into the shield's and the imbue's menu > Flyout.
+do
+	local SP = ShamanPower
+	local F = SP.options.args.fluffy.args
+	local items, disp, fx, app = F.cdbar_items_section.args, F.cooldown_display_section.args,
+		F.cdbar_effects_section.args, F.cooldownbar_appearance.args
+	SP.MoveSettingsOptions({ "fluffy", "flyout_appearance" }, { "fluffy", "cdbar_items_section" },
+		{ "cdbar_flyout_direction", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity" })
+	-- what a search finds in the Items row (it draws itself, so this text is never shown): every item and
+	-- every word its right-click menu draws, so a search for a setting that moved into a menu lands here
+	local CDBAR_ICONS_SEARCH = "Items: Lightning Shield, Water Shield, Totemic Call, Totemic Recall, Reincarnation, Ankh,"
+		.. " Nature's Swiftness, Mana Tide Totem, Bloodlust, Heroism, Weapon Imbue, Shamanistic Rage, Elemental Mastery,"
+		.. " Rage of the Farseer, Totemic Projection. Click an item to show or hide it on the bar, right-click it for its"
+		.. " settings, drag it to change its place (the bar's order). Show: Only When Running Out, Only When Almost Ready,"
+		.. " Then Hide Again, Until Used; Running Out At, Almost Ready At (seconds). Where: Cooldown Bar or Totem Bar."
+		.. " Look: Button Style (Same As The Totem Bar), Sweep (Radial, Vertical - Grays Out, Vertical - Fills Back In or"
+		.. " None), Sweep Direction, Progress Bar, Progress Bar Color (Spell Color), Time Left On The Icon, Ankh Count."
+		.. " Charges: Charge Count, Color The Count, Charge Bar. Effects: Cooldown Ready, Cooldown Almost Ready, Shield"
+		.. " Gone, Weapon Imbue Gone, Red X Until You Cast A Shield Again, Red X Until You Imbue Again, Turns Red While"
+		.. " Missing, Running Out, Time Turns Red While Running Out, Test This Item's Effects. Clicks: Right-Click Casts"
+		.. " Your Other Shield. Flyout: Cooldown Flyout Direction, Icon Size, Opacity. Keybind: Set Keys In Keybind Mode."
+		.. " Copy Settings, Paste Settings, Copy Settings To, Copy To All Items, Hide This Item, Reset This Item."
+	local args = {
+		cdbarIcons = { type = "description", width = "full", name = " ", desc = CDBAR_ICONS_SEARCH },
+		cdbar_fx_note = { type = "description", width = "full",
+			name = "Which effect each item plays, and when: right-click the item, then Effects." },
+		-- at the top, where it is seen: a button into Unlock UI (Done there ends it), as the other pages'
+		-- Move buttons; the old "Unlock Bar (move)" switch stays in the old tab's table, unused here
+		cdbar_move = { type = "execute", width = "full", name = "Move the Cooldown Bar",
+			desc = "Unlocks only the Cooldown Bar: drag its box where you want it, then press Done. It can't be done in a fight.",
+			func = function() SP:UnlockModuleFrames("cooldownbar") end },
+	}
+	local function take(src, keys) for _, k in ipairs(keys) do if src[k] then args[k] = src[k] end end end
+	take(app, { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
+		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" })
+	take(disp, { "cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
+		"cdbar_duration_text_size", "cdbar_numbers_note", "cdbar_numbers_button" })
+	take(fx, { "cdbarCueLook", "cdbarCueSignature", "cdbar_test" })
+	-- two to a line where they pair up
+	for _, k in ipairs({ "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
+		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square",
+		"cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
+		"cdbar_duration_text_size", "cdbarCueLook", "cdbarCueSignature" }) do
+		if args[k] then args[k].width = 1.0 end
+	end
+	if args.cdbarCueSignature then
+		args.cdbarCueSignature.desc = "Sets each effect's style to the look's own move (Elemental: Shine, Element flare, Shield"
+			.. " burst, and Frame drains for Running Out and Cooldown Almost Ready. Signal: Dot, Corner flag, Border blink +"
+			.. " flag, and Bar under it for Running Out and Cooldown Almost Ready). Turning it off puts your own styles back."
+			.. " Needs an Effects Look other than Standard."
+	end
+	if args.cdbar_test then
+		args.cdbar_test.desc = "The first cooldown plays Cooldown Ready, the imbue Weapon Imbue Gone and the shield Shield Gone,"
+			.. " in the styles each item has (right-click an item, then Effects). Running Out and Cooldown Almost Ready play"
+			.. " for 3 seconds, then Turns Red While Missing for 3 more when it is on."
+	end
+	-- the bar-wide rows ask the items now: any item with a progress bar, any with its time on the icon
+	local function anyItem(name, shared)
+		if SP.CdItemAny then return SP:CdItemAny(name) end
+		return shared()
+	end
+	local function anyBar() return anyItem("progressBar", function() return SP.opt.cdbarShowProgressBars ~= false end) end
+	local function anyTime() return anyItem("timeOnIcon", function() return SP.opt.cdbarShowCDText ~= false end) end
+	local function noBars() return not anyBar() end
+	if args.cdbar_progress_position then args.cdbar_progress_position.disabled = noBars end
+	if args.cdbar_progress_height then args.cdbar_progress_height.disabled = noBars end
+	if args.cdbar_gradient_direction then
+		args.cdbar_gradient_direction.hidden = function() return SP.opt.barGradient == nil or noBars() end
+	end
+	local function numbersHidden()
+		return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and not SP:CountdownNumbersEnabled()
+			and (anyTime() or (SP.opt.cdbarDurationTextLocation or "none") ~= "none"))
+	end
+	if args.cdbar_numbers_note then args.cdbar_numbers_note.hidden = numbersHidden end
+	if args.cdbar_numbers_button then args.cdbar_numbers_button.hidden = numbersHidden end
+	F.cdbar_page = { type = "group", name = "Cooldown Bar", order = 12, args = args }
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[args.cdbarIcons] = "cdbarIcons"
+	SP.OrderSettingsBands(F.cdbar_page, {
+		{ keys = { "cdbar_move" } },
+		{ header = "items_header", name = "Items", keys = { "cdbarIcons" } },
+		{ header = "bar_header", name = "Bar", keys = { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity",
+			"cooldownBarPadding", "hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" } },
+		{ header = "progress_header", name = "Progress Bars and Time", keys = { "cdbar_progress_position", "cdbar_progress_height",
+			"cdbar_gradient_direction", "cdbar_duration_text", "cdbar_duration_text_size", "cdbar_numbers_note", "cdbar_numbers_button" },
+			names = { cdbar_duration_text = "Where the Time Shows", cdbar_duration_text_size = "Time Text Size" } },
+		{ header = "effects_header", name = "Effects", keys = { "cdbar_fx_note", "cdbarCueLook", "cdbarCueSignature", "cdbar_test" } },
+	})
+	-- the old tabs' addresses (settings links, patch notes, search paths kept in old notes) open this page
+	for _, old in ipairs({ "cdbar_items_section", "cdbar_order_section", "cooldown_display_section", "cdbar_effects_section",
+		"cooldownbar_appearance" }) do
+		SP.SettingsPathAliases["fluffy/" .. old] = { "fluffy", "cdbar_page" }
+	end
+end
+
+-- Shield Charges (A17, 3.0.8): one page. The Shields row (ShamanPower_Config ShieldIcons.lua:
+-- click a shield to show or hide its charges, right-click it for all of its settings: each
+-- shield owns its own, nothing shared), then only Position (Lock Position, Move). On / off:
+-- the switch beside Shield Charges in the sidebar (Window.lua POWER_SHIELDCHARGES). The old
+-- group stays as the holder of its rows (Expiring Alerts and General > Themes still build
+-- from the same helpers); its old address lands on this page.
+do
+	local SP = ShamanPower
+	local F = SP.options.args.fluffy.args
+	local sc = F.shieldcharges_section.args
+	-- what a search finds in the Shields row (it draws itself, so this text is never shown): every shield
+	-- and every word its right-click menu draws, so a search for a setting that moved into a menu lands here
+	local SHIELDS_SEARCH = "Shields: Lightning Shield, Water Shield, Earth Shield. Show Player Shield Charges, Show Earth"
+		.. " Shield Charges: click a shield to show or hide its charges, right-click it for its settings. Show: While It's Up,"
+		.. " Always (Gray While It's Not Up), In Fights, While It's Up, In Fights (Gray While It's Not Up); Hide Out of Combat,"
+		.. " Hide When No Shields. Scale, Opacity. Icon & Number: Shield Icon, Show Shield Icon, Number, Show Number, Number"
+		.. " Position (Center, Bottom-Right Corner). Charge Bar: Show Charge Bar, Look (Bar, Glowing Orbs, Shield Icon Orbs,"
+		.. " Flat Orbs, Storm Orbs, Tide Orbs, Bubble Orbs, Foam Orbs, Stone Ring Orbs, Leaf Wreath Orbs, Spiked Stone Orbs),"
+		.. " Lightning Shield Look, Water Shield Look, Earth Shield Look, Direction, Charge Bar Direction (Below, Above, Vertical),"
+		.. " Texture, Charge Bar Texture, Orb Color, Empty Orbs, Show Empty Orbs, Animated Lightning, Animated Water, Animated"
+		.. " Earth. Color: Charge Color, Lightning Shield Charge Color, Water Shield Charge Color, Earth Shield Charge Color,"
+		.. " Gradient, Charge Bar Gradient, Gradient Direction, Start From Its Own Color, First Color, Second Color, Fade To,"
+		.. " Default Color, Default Charge Colors. Sound: Sound When It Drops, Sound When Your Shield Drops, Shield Drop Sound,"
+		.. " Test Sound. Copy Settings, Paste Settings, Copy Settings To, Copy To All Shields, Hide This Shield, Reset This Shield."
+	local function anyFightsOnly()
+		if InCombatLockdown() or not SP.ShieldOpt then return nil end
+		local names = {}
+		local noEarth = SP.ESTrackerUnavailable or (SPCompat and SPCompat.FOREVER)
+		for _, s in ipairs({ "LS", "WS", "ES" }) do
+			if not (s == "ES" and noEarth) and SP:ShieldOpt(s, "enabled") then
+				local show = SP:ShieldOpt(s, "show")
+				if show == "fights" or show == "fightsUp" then
+					names[#names + 1] = (s == "LS" and "Lightning Shield") or (s == "WS" and "Water Shield") or "Earth Shield"
+				end
+			end
+		end
+		if #names == 0 then return nil end
+		return names
+	end
+	local args = {
+		shieldIcons = { type = "description", width = "full", name = " ", desc = SHIELDS_SEARCH },
+		-- What You See (A17c): each shield's real display (ShieldIcons.lua draws it)
+		shieldPreview = { type = "description", width = "full", name = " ",
+			desc = "What You See: each shield's charges as they look on your screen, with its own settings. Click one to watch it use its charges." },
+		-- a shield whose Show is a fights-only choice: says why it isn't on screen now
+		shieldcharges_fights_note = { type = "description", width = "full",
+			name = function()
+				local n = anyFightsOnly()
+				if not n then return "" end
+				local who = table.concat(n, " and ")
+				return "|cffffa040" .. who .. ((#n > 1) and " show" or " shows") .. " only in fights, so you won't see "
+					.. ((#n > 1) and "them" or "it") .. " now. Its menu's Show changes that.|r"
+			end,
+			hidden = function() return anyFightsOnly() == nil end },
+		-- at the top of Position: a button into Unlock UI (Done there ends it), a box per shield
+		shieldcharges_move = { type = "execute", width = 1.0, name = "Move",
+			desc = "Hides this window and draws a box round each shield's charges on your screen. Drag them where you want"
+				.. " them, then press Done. The mouse wheel over a box is that shield's Scale. It can't be done in a fight.",
+			func = function()
+				if SP.ShieldChargesRefuseInCombat and SP.ShieldChargesRefuseInCombat() then return end
+				SP:UnlockModuleFrames("shieldcharges")
+			end },
+	}
+	args.module_missing_note = sc.module_missing_note
+	args.shieldcharges_locked = sc.shieldcharges_locked
+	if args.shieldcharges_locked then
+		args.shieldcharges_locked.width = 1.0
+		args.shieldcharges_locked.desc = "Locks every shield's charges in place (click-through)."
+		local set = args.shieldcharges_locked.set
+		args.shieldcharges_locked.set = function(info, v)
+			if SP.ShieldChargesRefuseInCombat and SP.ShieldChargesRefuseInCombat() then return end
+			set(info, v)
+		end
+	end
+	-- (WoW: Forever) ONE switch: on = the Cooldown Manager set up for the shields (the first-time dialog does the same)
+	-- and its own shield icon hidden; off = the game's icon back (the layout stays, nothing of the player's is touched)
+	args.shieldcharges_cdm = { type = "toggle", width = 1.5, name = "Set Up The Cooldown Manager",
+		desc = "On: the Cooldown Manager set up to show your shields (one reload) and its shield icon hidden. Off: the game's shield icon shows again.",
+		hidden = function() return not (SPCompat and SPCompat.FOREVER) end,
+		get = function() return SP.opt.cdmHideShieldIcon == true end,
+		set = function(_, v)
+			if not v then
+				SP.opt.cdmHideShieldIcon = false
+				if SP.ShieldGoneBindQueue then SP:ShieldGoneBindQueue() end
+			elseif SP.ShieldGoneCdmReady and SP:ShieldGoneCdmReady() then
+				SP.opt.cdmHideShieldIcon = true   -- (the shields are tracked already: nothing to set up, just the icon)
+				if SP.ShieldGoneBindQueue then SP:ShieldGoneBindQueue() end
+			elseif SP.ShieldGoneOffer then
+				SP:ShieldGoneOffer()   -- the dialog: Set It Up And Reload (the switch is on after the reload) or Not Now (it stays off)
+			end
+		end }
+	args.shieldcharges_cdm_desc = { type = "description", width = "full",
+		name = "In order for ShamanPower to fully see your shield charges count, the Cooldown Manager needs to be set up to show shields. "
+			.. "When you toggle this setting on, the addon will turn on the Cooldown Manager for you and HIDE its shield icon so that you don't see it. "
+			.. "The addon will ask you to reload once you toggle this on to confirm.",
+		hidden = function() return not (SPCompat and SPCompat.FOREVER) end }
+	F.shieldcharges_page = { type = "group", name = "Shield Charges", order = 17, args = args }
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+	SP.OptionCustomRow[args.shieldIcons] = "shieldIcons"
+	SP.OptionCustomRow[args.shieldPreview] = "shieldPreview"
+	SP.OrderSettingsBands(F.shieldcharges_page, {
+		{ keys = { "module_missing_note", "shieldcharges_fights_note" } },
+		{ header = "shields_header", name = "Shields", keys = { "shieldIcons" } },
+		{ header = "cdm_header", name = "In Fights (WoW: Forever)", keys = { "shieldcharges_cdm", "shieldcharges_cdm_desc" } },
+		{ header = "preview_header", name = "What You See", keys = { "shieldPreview" } },
+		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked", "shieldcharges_move" } },
+	})
+	-- the old page's rows wrote the shared keys every shield read before the split: gone (each shield's
+	-- menu has its own now). The old group keeps only what this page shares with it.
+	for _, k in ipairs({ "both_off_note", "hide_ooc_note", "shieldcharges_player", "shieldcharges_earth", "shieldcharges_scale",
+		"shieldcharges_opacity", "shieldcharges_show_icon", "shieldcharges_show_number", "shieldcharges_number_position",
+		"shieldcharges_show_bar", "shieldcharges_look_ls", "shieldcharges_look_ws", "shieldcharges_look_es",
+		"shieldcharges_orb_color", "shieldcharges_orb_empty", "shieldcharges_orb_anim", "shieldcharges_orb_anim_ws",
+		"shieldcharges_orb_anim_es", "shieldcharges_bar_direction", "shieldcharges_bar_texture", "shieldcharges_hide_ooc",
+		"shieldcharges_hide_none", "shieldcharges_drop_sound", "shieldcharges_drop_sound_picker",
+		"shieldcharges_drop_sound_testsound", "shieldcharges_color_1", "shieldcharges_color_2", "shieldcharges_color_3",
+		"shieldcharges_color_default", "chargeGradient", "chargeGradient_direction", "chargeGradient_own",
+		"chargeGradient_color1", "chargeGradient_color2", "chargeGradient_fade", "look_header", "charge_colors_header",
+		"behaviour_header", "sound_header" }) do
+		sc[k] = nil
+	end
+	-- General > Themes, Shield Charge Display: one row per shield (Q5) drawn from these (Themes.lua
+	-- MODULE_EXTRAS): its own Charge Bar Texture and Gradient, the same settings as its menu here
+	do
+		local NAME = { LS = "Lightning Shield", WS = "Water Shield", ES = "Earth Shield" }
+		local function texValues()
+			local v = { default = "Default (as designed)" }
+			for _, name in ipairs(SP.TextureList and SP:TextureList() or {}) do v[name] = name end
+			return v
+		end
+		local function texSorting()
+			local o = { "default" }
+			for _, name in ipairs(SP.TextureList and SP:TextureList() or {}) do o[#o + 1] = name end
+			return o
+		end
+		local function gradValues()
+			local v = {}
+			for _, g in ipairs(SP.GRADIENTS or {}) do v[g.key] = g.label end
+			return v
+		end
+		local function gradSorting()
+			local o = {}
+			for _, g in ipairs(SP.GRADIENTS or {}) do o[#o + 1] = g.key end
+			return o
+		end
+		local DIRS = { default = "Along the Bar (default)", ttb = "Top to Bottom", btt = "Bottom to Top", ltr = "Left to Right",
+			rtl = "Right to Left" }
+		local DIR_ORDER = { "default", "ttb", "btt", "ltr", "rtl" }
+		for _, w in ipairs({ "LS", "WS", "ES" }) do
+			local function gone()
+				if not (SP.ShieldOpt and SP.ShieldChargesLoaded) then return true end
+				if w == "ES" and (SP.ESTrackerUnavailable or SPCompat.FOREVER) then return true end
+				return not SP:ShieldOpt(w, "bar")
+			end
+			local function look() return SP.ShieldOpt and SP:ShieldOpt(w, "look") or "bar" end
+			local function noGradient() return gone() or not (look() == "bar" or look() == "glow" or look() == "flat") end
+			local function grad() return SP.ShieldOpt and SP:ShieldOpt(w, "gradient") or "default" end
+			local function set(name) return function(_, v) if not InCombatLockdown() then SP:SetShieldOpt(w, name, v) end end end
+			sc["sctheme_texture_" .. w] = { type = "select", name = "Charge Bar Texture",
+				desc = NAME[w] .. "'s own bar texture (the Bar look): it never follows Bar Texture. The same setting as its menu on"
+					.. " Shield Charges > Charge Bar > Texture.",
+				hidden = function() return gone() or look() ~= "bar" end,
+				values = texValues, sorting = texSorting,
+				get = function() return SP:ShieldOpt(w, "texture") or "default" end, set = set("texture") }
+			sc["sctheme_gradient_" .. w] = { type = "select", name = "Charge Bar Gradient",
+				desc = "Shades " .. NAME[w] .. "'s charge bar (and its Glowing and Flat orbs): its own, never Bar Gradient's. The same"
+					.. " setting as its menu on Shield Charges > Color > Gradient.",
+				hidden = noGradient, values = gradValues, sorting = gradSorting,
+				get = function() return grad() end, set = set("gradient") }
+			sc["sctheme_gradientDirection_" .. w] = { type = "select", name = "Gradient Direction",
+				desc = "Where the gradient starts on screen.",
+				hidden = function() return noGradient() or grad() == "default" end,
+				values = DIRS, sorting = DIR_ORDER,
+				get = function() return SP:ShieldOpt(w, "gradientDirection") or "default" end, set = set("gradientDirection") }
+			sc["sctheme_gradientColor2_" .. w] = { type = "color", name = "Gradient Second Color",
+				desc = "The color the Two-Tone gradient shades into. WoW gold to start.",
+				hidden = function() return noGradient() or grad() ~= "two" end,
+				get = function()
+					local c = SP:ShieldOpt(w, "gradientColor2") or {}
+					return c.r or 1, c.g or 0.82, c.b or 0
+				end,
+				set = function(_, r, g, b) if not InCombatLockdown() then SP:SetShieldOpt(w, "gradientColor2", { r = r, g = g, b = b }) end end }
+		end
+	end
+	-- the old address (settings links, patch notes, Unlock UI's right-click) opens this page
+	SP.SettingsPathAliases = SP.SettingsPathAliases or {}
+	SP.SettingsPathAliases["fluffy/shieldcharges_section"] = { "fluffy", "shieldcharges_page" }
+end
+
+-- Expiring Alerts and Reactive Totems (A16, 3.0.8): icon pages. Each page keeps only what is
+-- about the whole page; every alert is an icon in an Alerts row (ShamanPower_Config
+-- AlertIcons.lua: click an alert on or off, right-click it for everything about that one
+-- alert). On / off: the switch beside each page in the sidebar (Window.lua POWER_EXPIRING /
+-- POWER_REACTIVE: the setting the Enable rows had). The rows that moved into the menus are
+-- gone from the pages; their saved keys stay, and each alert uses them until it has its own.
+do
+	local SP = ShamanPower
+	local F = SP.options.args.fluffy.args
+	SP.OptionCustomRow = SP.OptionCustomRow or {}
+
+	-- ---- Expiring Alerts ------------------------------------------------------------------
+	local ea = F.expiringalerts_section.args
+	-- what a search finds in the Alerts row (it draws itself, so this text is never shown): every alert
+	-- and every word its right-click menu draws, the old rows' names too
+	local EA_ICONS_SEARCH = "Alerts: Lightning Shield, Water Shield, Earth Shield (on your target), Earth Totems, Fire Totems,"
+		.. " Water Totems, Air Totems, Main Hand, Off Hand. Shield Alerts, Totem Alerts, Weapon Imbue Alerts, Enable Shield"
+		.. " Alerts, Enable Totem Alerts, Enable Imbue Alerts: click an alert to turn it on or off, right-click it for its"
+		.. " settings. It Shows. When One Is Destroyed: Totem Destroyed, Alert On My Screen, Line in My Chat Window, Big Text"
+		.. " on My Screen, Tell My Group in Chat, Copy When One Is Destroyed To All Totems. When One Expires, Totem Expired."
+		.. " Put Your Usual Totem Back, Also Show a Text Alert, Open Totem Bar > Effects. Sound: Sound When It Drops, Sound"
+		.. " When Your Shield Drops, Play Sound, Totem Alert Sound, Imbue Alert Sound, Test Sound, Copy Sound To All Shields,"
+		.. " Copy Sound To All Totems, Copy Sound To Off Hand, Copy Sound To Main Hand. Copy Settings, Paste Settings, Copy"
+		.. " Settings To, All Alerts, Turn This Alert Off, Turn This Alert On, Reset This Alert."
+	ea.eaIcons = { type = "description", width = "full", name = " ", desc = EA_ICONS_SEARCH }
+	for _, k in ipairs({ "alerts_desc", "alerts_enabled", "alerts_header_display", "alerts_header_shields",
+		"alerts_shields_enabled", "alerts_shields_lightning", "alerts_shields_water", "alerts_shields_earth",
+		"alerts_shields_sound", "alerts_shields_sound_picker", "alerts_shields_sound_picker_testsound", "alerts_sound_volume_note",
+		"alerts_header_totems", "alerts_totems_enabled", "alerts_totems_destroyed", "alerts_totems_destroyedChat",
+		"alerts_totems_destroyedCenter", "alerts_totems_destroyedParty", "alerts_totems_expired", "alerts_totems_earth",
+		"alerts_totems_fire", "alerts_totems_water", "alerts_totems_air", "alerts_totems_sound", "alerts_totems_sound_picker",
+		"alerts_totems_sound_picker_testsound", "alerts_header_imbues", "alerts_imbues_enabled", "alerts_imbues_mainhand",
+		"alerts_imbues_offhand", "alerts_imbues_sound", "alerts_imbues_sound_picker", "alerts_imbues_sound_picker_testsound",
+		"alerts_header_testing" }) do
+		ea[k] = nil
+	end
+	-- two to a line where they pair up
+	for _, k in ipairs({ "alerts_display_mode", "alerts_font_outline", "alerts_icon_size", "alerts_text_size", "alerts_opacity",
+		"alerts_animation", "alerts_duration", "alerts_sound_volume" }) do
+		if ea[k] then ea[k].width = 1.0 end
+	end
+	-- Volume: every alert's sound (each has its own now); the Dialog line is its tooltip
+	local function anyAlertSound()
+		if SP.ShieldSoundOn and (SP:ShieldSoundOn(1) or SP:ShieldSoundOn(2)
+			or (not SPCompat.FOREVER and SP:ShieldSoundOn(3))) then return true end
+		if not SP.ExpiringAlertOpt then return false end
+		for _, key in ipairs({ "earth", "fire", "water", "air", "mh", "oh" }) do
+			if SP:ExpiringAlertOpt(key, "sound") then return true end
+		end
+		return false
+	end
+	if ea.alerts_sound_volume then
+		ea.alerts_sound_volume.desc = "How loud every alert's sound is: the totems', the weapon imbues'"
+			.. (SPCompat.FOREVER and "." or ", and your shields'.")
+			.. " Each alert's own sound is in its menu (right-click it)."
+			.. (SPCompat.FOREVER and " Your own shields' sound is played by the game, so this doesn't change it." or "")
+			.. " Your game's Dialog volume must be at 100% for this to work."
+		ea.alerts_sound_volume.disabled = function() return not anyAlertSound() end
+	end
+	-- Test Alerts: Put Your Usual Totem Back's line too, while that text alert is on (A16 Q9)
+	if ea.alerts_test then
+		ea.alerts_test.desc = "Shows a Lightning Shield, a totem and a weapon imbue line at the alerts' spot, the totem and the"
+			.. " weapon with their own sounds (Earth Totems' and Main Hand's). With Totem Bar > Effects > Also Show a Text Alert"
+			.. " on, a Put Windfury back line too."
+		ea.alerts_test.func = function()
+			if not SP.ExpiringAlertsTest then return end
+			local sv = ShamanPowerExpiringAlertsDB
+			local style = sv and sv.animationStyle or "scrollUp"
+			local duration = sv and sv.duration or 2.5
+			-- Fade duration PLUS its start delay, then the final sample at 1 s.
+			local span = duration * (style == "staticFade" and 1.3 or style == "bounce" and 1.5 or 1.4)
+			-- Preview release clears demo alerts; real queued alerts finish first. Three show at a
+			-- time: the test's lines (three, or four with the reminder line) after any already up.
+			local backlog = 0
+			if not SP.expiringAlertsDemoActive then
+				backlog = #(SP.activeAlerts or {}) + #(SP.alertQueue or {})
+			end
+			local lines = (SP.ExpiringAlertsTestHasReminder and SP:ExpiringAlertsTestHasReminder()) and 4 or 3
+			SP:RunWithSettingsHidden(1 + span * math.ceil((backlog + lines) / 3), SP.ExpiringAlertsTest)
+		end
+	end
+	SP.OptionCustomRow[ea.eaIcons] = "eaIcons"
+	SP.OrderSettingsBands(F.expiringalerts_section, {
+		{ keys = { "module_missing_note", "master_off_note" } },
+		{ header = "alerts_header", name = "Alerts", keys = { "eaIcons" } },
+		{ header = "look_header", name = "Look", keys = { "alerts_display_mode", "alerts_font_outline", "alerts_icon_size",
+			"alerts_text_size", "alerts_opacity" }, names = { alerts_font_outline = "Outline (unless Fonts & Textures sets one)" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "alerts_animation", "alerts_duration" } },
+		{ header = "sound_header", name = "Sound", keys = { "alerts_sound_volume" },
+			names = { alerts_sound_volume = "Volume (every alert)" } },
+		{ header = "position_header", name = "Position", keys = { "alerts_show_pos", "alerts_hide_pos", "alerts_reset_pos" },
+			names = { alerts_show_pos = "Move" } },
+		{ header = "test_header", name = "Test / Reset", keys = { "alerts_test" } },
+	})
+
+	-- ---- Reactive Totems ------------------------------------------------------------------
+	local rt = F.reactivetotems_section.args
+	local RT_ICONS_SEARCH = "Alerts: Fear (Tremor Totem), Poison (Poison Cleansing Totem), Disease (Disease Cleansing"
+		.. " Totem). Debuff Tracking, Track Fear/Charm, Track Poison, Track Disease: click an alert to turn it on or off,"
+		.. " right-click it for its settings. It Shows. Hide While Its Totem Is Down, Hide When Totem Active. Look: Icon Size,"
+		.. " Opacity, Text Size, Font Size, Outline, Font Outline, Background, Hide Background, Border, Hide Border, Debuff"
+		.. " Text, Hide Debuff Text, Debuff Icon, Show Debuff Icon, Totem Name, Hide Totem Name, Copy Look To All Alerts. Spell"
+		.. " Keybind: Show Spell Keybind, When No Key Is Bound, Key Now, the keys found right now, Set Keys In Keybind Mode,"
+		.. " Copy Spell Keybind To All Alerts. Glow: Show Glow Effect, Glow Intensity, Copy Glow To All Alerts. Sound: Play"
+		.. " Sound, Play Alert Sound, Sound, Alert Sound, Volume, Sound Volume, Test Sound, Copy Sound To All Alerts. Copy"
+		.. " Settings, Paste Settings, Copy Settings To, All Alerts, Turn This Alert Off, Turn This Alert On, Reset This Alert."
+	rt.rtIcons = { type = "description", width = "full", name = " ", desc = RT_ICONS_SEARCH }
+	for _, k in ipairs({ "reactive_desc", "reactive_enabled", "reactive_header_tracking", "reactive_track_fear",
+		"reactive_track_poison", "reactive_track_disease", "reactive_header_appearance", "reactive_icon_size", "reactive_opacity",
+		"reactive_hide_border", "reactive_hide_background", "reactive_font_size", "reactive_hide_debuff_text",
+		"reactive_show_debuff_icon", "reactive_hide_totem_text", "reactive_show_keybind", "reactive_no_key", "reactive_key_status",
+		"reactive_header_effects", "reactive_glow", "reactive_glow_intensity", "reactive_sound", "reactive_sound_picker",
+		"reactive_sound_picker_testsound", "reactive_sound_volume", "reactive_sound_volume_note", "reactive_font_outline",
+		"reactive_hide_when_active", "reactive_header_buttons" }) do
+		rt[k] = nil
+	end
+	if rt.reactive_test then
+		rt.reactive_test.desc = "Shows every alert for 3 seconds, each with its own look and glow, and plays each alert's own sound."
+	end
+	SP.OptionCustomRow[rt.rtIcons] = "rtIcons"
+	SP.OrderSettingsBands(F.reactivetotems_section, {
+		{ keys = { "module_missing_note", "engine_note", "instance_only_note", "master_off_note" } },
+		{ header = "alerts_header", name = "Alerts", keys = { "rtIcons" } },
+		{ header = "behaviour_header", name = "Behavior", keys = { "reactive_only_instance" } },
+		{ header = "position_header", name = "Position", keys = { "reactive_show", "reactive_locked", "reactive_reset", "reactive_hide" },
+			names = { reactive_show = "Move", reactive_locked = "Lock Position", reactive_reset = "Reset Positions" } },
+		{ header = "test_header", name = "Test / Reset", keys = { "reactive_test" } },
+	})
 end

@@ -1501,8 +1501,10 @@ end
 
 -- Set cooldown display on a caller button
 function SP:SetCallerButtonCooldown(btn, start, duration)
-	-- Check if animation is enabled
+	-- Animation off: no sweep and no gray, including the ones a cooldown already
+	-- started before it was turned off (they used to run on to the end)
 	if self.opt.raidCDShowButtonAnimation == false then
+		self:ClearCallerButtonCooldown(btn)
 		return
 	end
 

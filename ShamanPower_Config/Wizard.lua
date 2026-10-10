@@ -90,8 +90,9 @@ local BIND = {
 			if SP.SetESTrackerEnabled then pcall(SP.SetESTrackerEnabled, SP, v) end; notify() end,
 	},
 	playershield = {
-		get = function() return SP.opt.shieldChargeDisplay and SP.opt.shieldChargeDisplay.showPlayerShield ~= false end,
-		set = function(v) SP.opt.shieldChargeDisplay = SP.opt.shieldChargeDisplay or {}; SP.opt.shieldChargeDisplay.showPlayerShield = v; safecall("UpdateShieldChargeDisplays"); notify()
+		-- (3.0.8: Lightning and Water Shield each have their own switch: this sets both)
+		get = function() local t = SP.opt.shieldChargeDisplay; return t and (t.showLS ~= false or t.showWS ~= false) or false end,
+		set = function(v) SP.opt.shieldChargeDisplay = SP.opt.shieldChargeDisplay or {}; local t = SP.opt.shieldChargeDisplay; t.showLS, t.showWS = v, v; safecall("UpdateShieldChargeDisplays"); notify()
 			if SP.shieldChargesDemoActive then SP:ShieldChargesDemo(true) end; if SP.Wizard._shieldFit then SP.Wizard._shieldFit() end end,
 	},
 	earthshieldcharge = {
@@ -236,7 +237,7 @@ function SP.Wizard.ApplySpecPicks(role)
 	-- Where the spell has no acquisition path, leave both off for every spec.
 	local hasES = not SP.ESTrackerUnavailable
 	SP:EnsureProfileTable("esTracker");           SP.opt.esTracker.enabled = resto and hasES
-	SP:EnsureProfileTable("shieldChargeDisplay"); SP.opt.shieldChargeDisplay.showPlayerShield = true
+	SP:EnsureProfileTable("shieldChargeDisplay"); SP.opt.shieldChargeDisplay.showLS, SP.opt.shieldChargeDisplay.showWS = true, true
 	SP.opt.shieldChargeDisplay.showEarthShield = resto and hasES
 	-- Twisting: on by default for Enhancement only.
 	if SP.opt.enableTotemTwisting ~= enh then
@@ -320,6 +321,8 @@ local STEPS = {
 	    "|cffffd100Compact|r: no icons - each slot is a colored line that drains with the totem and refills with each pulse.",
 	    { "|cffffd100Grid|r: all your totems in rows, together or in a separate group for each element.",
 	      when = function() return SP.SetGridStyle ~= nil end },
+	    { "|cffffd100Show every totem in rows|r (under the cards, with any style but Grid): each element's totems also in a row of their own that you place anywhere.",
+	      when = function() return SP.SetTotemRows ~= nil end },
 	    { "|cffffd100Blizzard's Totem Bar|r: keep the game's own bar and get ShamanPower's timers, bars and dots on its slots. Its flyouts open only from the little arrow above each slot, one click before you can pick a totem.",
 	      when = function() return SP.HasTotemBar and SP:HasTotemBar() end },
 	    { "|cff3FA9F5ShamanPower's own bar: just hover.|r By default, hovering any totem opens its flyout, in combat too, with no arrow to click (Totem Bar > Clicks can change that). Left-click drops that totem, right-click makes it the assigned one.",
@@ -498,13 +501,15 @@ local STEPS = {
 	    "The opposite of Party Buff Tracker, which is about YOUR totems reaching THEM.",
 	  } },
 	{ id = "totemplates", title = "Totem Plates", roles = EVERYONE, module = "ShamanPower_TotemPlates", flag = "TotemPlatesLoaded", build = "BuildTotemPlatesStep",
-	  desc = "Replaces the tiny nameplate on every totem with a big icon, so you can see exactly which totem that is - and kill the right one.",
+	  desc = "Replaces the tiny nameplate on a totem with a big icon, so you can see exactly which totem that is - and kill the right one.",
 	  bullets = {
 	    "Red border for enemy totems, green for friendly. Optional name under the icon.",
 	    "Pulsing totems get a countdown to their next tick: text, bar, or swipe.",
-	    (SPCompat and SPCompat.secretsRegime)
-	      and "|cffFFB000Friendly totems do not show inside dungeons and raids|r - the game keeps friendly nameplates away from addons there. Enemy totems work everywhere."
+	    -- WoW: Forever hides which totem is which on instanced maps (enemy totems too)
+	    (SPCompat and SPCompat.FOREVER)
+	      and "|cffFFB000Inside dungeons and raids the game hides which totem is which|r, so no icons show there, enemy or friendly: you see WoW's own nameplates instead."
 	      or "|cffFFB000Friendly totems do NOT show inside dungeons or raids|r (the game hides those nameplates there). Enemy totems work everywhere.",
+	    "Friendly totems (yours too) need WoW's friendly nameplates turned on (Shift+V) to get an icon.",
 	  },
 	  toggles = { { label = "Enable Totem Plates", bind = "totemplates" } } },
 	{ id = "position", title = "Position", roles = EVERYONE,
@@ -953,7 +958,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if SP.ShapeIconTexture then SP:ShapeIconTexture(mIcon, mIcon, "totem"); SP:ShapeIconTexture(mbg, main, "totem") end   -- Totem Bar Icon Shape
 		Core:MakeBorder(main, "border")
 		local key = main:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("BOTTOMLEFT", main, "BOTTOMLEFT", 2, 2); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
-		-- Assigned-totem corner badge (TotemTimers style).
+		-- Assigned-totem corner badge.
 		local inset = main:CreateTexture(nil, "OVERLAY"); inset:SetSize(18, 18); inset:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -2, 2); inset:SetTexCoord(0.08, 0.92, 0.08, 0.92); inset:SetTexture(e.icon)
 		local insetBd = main:CreateTexture(nil, "OVERLAY"); insetBd:SetPoint("TOPLEFT", inset, -1, 1); insetBd:SetPoint("BOTTOMRIGHT", inset, 1, -1); insetBd:SetColorTexture(0, 0, 0, 0.9); insetBd:SetDrawLayer("OVERLAY", -1)
 		-- Duration bar under the button (3px, element color), like the real bar.
@@ -995,13 +1000,58 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			edge("TOPRIGHT", "BOTTOMRIGHT", 0, -2, 0, 2, 2, nil)
 		end
 	end
+	-- Totem Rows (its switch, with an icon style): every element's totems in a row of their own, apart from the bar
+	-- (two by two above it here; to its side on a vertical bar): plain totems, as the
+	-- real rows (the bar shows what is down and assigned).
+	local RS, RG, RT = 22, 3, 4                   -- a row's totem, the gap, the room under a row
+	local RW = 4 * RS + 3 * RG                    -- a row's width
+	local RM_H = 2 * (RS + RT) + 6 + 8            -- the rows above a horizontal bar, and the gap to it
+	local rowsMock = CreateFrame("Frame", nil, bar); rowsMock:SetSize(1, 1); rowsMock:Hide()
+	local rowsUI = {}
+	for i, e in ipairs(ELE) do
+		local row = CreateFrame("Frame", nil, rowsMock); row:SetSize(RW, RS + RT)
+		local icons, seen = { e.icon, e.active }, { [e.icon] = true, [e.active] = true }
+		local list = SP.TotemIcons and SP.TotemIcons[i] or {}
+		for idx = 1, 12 do
+			local tex = list[idx]
+			if tex and not seen[tex] and #icons < 4 and (not SP.TotemExistsOnClient or SP:TotemExistsOnClient(i, idx)) then
+				icons[#icons + 1] = tex; seen[tex] = true
+			end
+		end
+		row.cells = {}
+		for k = 1, 4 do
+			local c = CreateFrame("Frame", nil, row); c:SetSize(RS, RS)
+			c:SetPoint("TOPLEFT", row, "TOPLEFT", (k - 1) * (RS + RG), 0)
+			local cbg = c:CreateTexture(nil, "BACKGROUND"); cbg:SetAllPoints(c); cbg:SetColorTexture(0, 0, 0, 0.6)
+			local ic = c:CreateTexture(nil, "ARTWORK"); ic:SetPoint("TOPLEFT", 1, -1); ic:SetPoint("BOTTOMRIGHT", -1, 1)
+			ic:SetTexCoord(0.08, 0.92, 0.08, 0.92); ic:SetTexture(icons[k] or e.icon)
+			c.edges = {}
+			for n, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+				local t = c:CreateTexture(nil, "OVERLAY", nil, 4)
+				if side == "TOP" or side == "BOTTOM" then
+					t:SetPoint(side .. "LEFT", c, side .. "LEFT", -1, side == "TOP" and 1 or -1)
+					t:SetPoint(side .. "RIGHT", c, side .. "RIGHT", 1, side == "TOP" and 1 or -1); t:SetHeight(2)
+				else
+					t:SetPoint("TOP" .. side, c, "TOP" .. side, side == "LEFT" and -1 or 1, 1)
+					t:SetPoint("BOTTOM" .. side, c, "BOTTOM" .. side, side == "LEFT" and -1 or 1, -1); t:SetWidth(2)
+				end
+				t:Hide()
+				c.edges[n] = t
+			end
+			row.cells[k] = c
+		end
+		rowsUI[i] = row
+	end
 	-- Effects tab: Earth plays Totem Destroyed, Fire Totem Expired, Water the expiring loop
 	if SP.Wizard.effectsDemo and SP.Wizard.RunEffectsDemo then
-		for i = 1, 3 do slots[i].main.icon = slots[i].mIcon end
+		for i = 1, 4 do slots[i].main.icon = slots[i].mIcon; slots[i].main.spShapeKind = "totem" end   -- (Icon Shape: the totem bar's)
+		slots[4].main.element = 4   -- (the Elemental look paints the reminder in Air's color)
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ btn = slots[1].main, cap = "Destroyed", on = "totemCueDestroyed", style = "totemCueDestroyedStyle", def = "shake", kind = "destroyed", at = 0.3 },
 			{ btn = slots[2].main, cap = "Expired", on = "totemCueExpired", style = "totemCueExpiredStyle", def = "pop", kind = "expired", at = 1.0 },
 			{ btn = slots[3].main, cap = "Expiring", on = "totemCueExpiring", style = "totemCueExpiringStyle", def = "pulse", kind = "expiring", loop = true },
+			-- Put Your Usual Totem Back (ShamanPowerUsualTotem.lua): Air asks for its usual totem
+			{ btn = slots[4].main, cap = "Put back", on = "usualTotemReminder", style = "usualTotemStyle", def = "glow", kind = "usual", loop = true },
 		})
 	end
 	local styleCap = inner:CreateFontString(nil, "OVERLAY"); styleCap:SetFontObject(Core.fonts.rowDim)
@@ -1019,7 +1069,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if OPT().gridStyle then return "grid" end
 		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
-		-- Single Totem = TotemTimers with the corner totem off
+		-- Single Totem shows the active totem without the assigned corner
 		if OPT().activeTotemAsMain then return (OPT().activeAssignedCorner == false) and "single" or "tt" end
 		return "normal"
 	end
@@ -1028,7 +1078,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	-- it runs down, expires, and after a short gap is dropped again.
 	-- Re-orient the mock for the chosen layout. Horizontal: overlay above the
 	-- button. Vertical: overlay pops out on the flyout side.
-	local lastLay, lastMode
+	local lastLay, lastMode, lastRowsGo
 	-- the tour plays Blizzard's flyout demo, which is taller than ours: that
 	-- style's bar sits lower there so the flyout's top is not cut off
 	local blizzDrop = SP.Wizard.previewOnly and 0 or 40
@@ -1036,23 +1086,66 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		local vertical = (lay ~= "Horizontal")
 		local side = (lay == "VerticalLeft") and -1 or 1
 		local normal = (m == "normal")
+		-- (Totem Rows' switch, drawn with the four icon styles)
+		local rowsOn = OPT().totemRows == true and (m == "normal" or m == "tt" or m == "single" or m == "dynamic")
+		local downRows = rowsOn and OPT().rowsGo == "down"
+		-- vertical with rows: the bar's column on the left (Normal's dropped totem on its side of it), the rows to
+		-- its right, never over it
+		local colX = (vertical and normal and side < 0) and (SIZE + 4) or 0
+		local rowsX = colX + SIZE + ((vertical and normal and side > 0) and (SIZE + 4) or 0) + 14
+		local rowsW = downRows and (4 * (RS + 30)) or RW   -- (beside a vertical bar)
+		-- room the rows take above a horizontal bar / beside a vertical one
+		local rmH = downRows and (RW + 8) or RM_H
+		rowsMock:SetShown(rowsOn)
+		frameBg:ClearAllPoints()
+		frameBg:SetPoint("TOPLEFT", bar, "TOPLEFT", -8, rowsOn and not vertical and (-rmH + 8) or 8)
+		frameBg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", rowsOn and vertical and (-(rowsW + 14) + 8) or 8, -8)
+		if rowsOn then
+			for i, row in ipairs(rowsUI) do
+				row:ClearAllPoints()
+				for k, c in ipairs(row.cells) do
+					c:ClearAllPoints()
+					if downRows then c:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -(k - 1) * (RS + RG))
+					else c:SetPoint("TOPLEFT", row, "TOPLEFT", (k - 1) * (RS + RG), 0) end
+				end
+				if downRows then
+					row:SetSize(RS + 28, RW)
+					row:SetPoint("TOPLEFT", bar, "TOPLEFT", (vertical and rowsX or 0) + (i - 1) * (RS + 30), 0)
+				else
+					row:SetSize(RW, RS + RT)
+					if vertical then
+						row:SetPoint("TOPLEFT", bar, "TOPLEFT", rowsX, -(i - 1) * (RS + RT + 6))
+					else
+						local col, line = (i <= 2) and 0 or 1, (i - 1) % 2
+						row:SetPoint("TOPLEFT", bar, "TOPLEFT", col == 0 and 0 or (4 * STEP - GAP - RW), -line * (RS + RT + 6))
+					end
+				end
+			end
+		end
 		for i, s in ipairs(slots) do
 			local slot, main, over = s.main:GetParent(), s.main, s.over
 			slot:ClearAllPoints(); main:ClearAllPoints(); over:ClearAllPoints()
 			if vertical then
 				slot:SetSize(SIZE, SIZE + 14)
-				slot:SetPoint("TOP", bar, "TOP", 0, -(i - 1) * (SIZE + 14 + 8))
+				if rowsOn then slot:SetPoint("TOPLEFT", bar, "TOPLEFT", colX, -(i - 1) * (SIZE + 14 + 8))
+				else slot:SetPoint("TOP", bar, "TOP", 0, -(i - 1) * (SIZE + 14 + 8)) end
 				main:SetPoint("TOP", slot, "TOP", 0, 0)
 				over:SetPoint(side > 0 and "LEFT" or "RIGHT", main, side > 0 and "RIGHT" or "LEFT", side * 4, 0)
 			else
 				slot:SetSize(SIZE, normal and (SIZE * 2 + 30) or (SIZE + 14))
-				slot:SetPoint("LEFT", bar, "LEFT", (i - 1) * STEP, 0)
+				if rowsOn then slot:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", (i - 1) * STEP, 0)
+				else slot:SetPoint("LEFT", bar, "LEFT", (i - 1) * STEP, 0) end
 				main:SetPoint("BOTTOM", slot, "BOTTOM", 0, 14)
 				over:SetPoint("BOTTOM", main, "TOP", 0, 4)
 			end
 		end
-		if vertical then bar:SetSize(SIZE + (normal and (SIZE + 4) or 0), 4 * (SIZE + 14 + 8) - 8)
-		else bar:SetSize(4 * STEP - GAP, normal and (SIZE * 2 + 30) or (SIZE + 14)) end
+		if vertical then bar:SetSize(rowsOn and (rowsX + rowsW) or (SIZE + (normal and (SIZE + 4) or 0)), 4 * (SIZE + 14 + 8) - 8)
+		else
+			-- the rows' room is above the bar in every style: Normal's own two rows of icons (the totem and the
+			-- one that is down over it) stay whole under them
+			local barH = normal and (SIZE * 2 + 30) or (SIZE + 14)
+			bar:SetSize(math.max(4 * STEP - GAP, rowsOn and downRows and 4 * (RS + 30) or 0), barH + (rowsOn and rmH or 0))
+		end
 		bar:ClearAllPoints(); bar:SetPoint("CENTER", inner, "CENTER", (vertical and normal) and (-side * (SIZE + 4) / 2) or 0, vertical and 10 or (normal and 8 or (m == "blizzard" and -14 - blizzDrop or -14)))
 	end
 
@@ -1173,7 +1266,9 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 	bar:SetScript("OnUpdate", function(_, el)
 		local m = mode()
 		local lay = OPT().layout or "Horizontal"
-		if lay ~= lastLay or m ~= lastMode then lastLay, lastMode = lay, m; relayout(lay, m); skin(m) end
+		local rowsMode = OPT().totemRows == true and (m == "normal" or m == "tt" or m == "single" or m == "dynamic")
+		local rg = rowsMode and (OPT().rowsGo == "down" and "down" or "across") or nil
+		if lay ~= lastLay or m ~= lastMode or rg ~= lastRowsGo then lastLay, lastMode, lastRowsGo = lay, m, rg; relayout(lay, m); skin(m) end
 		local sc = OPT().buffscale or 1
 		if SP.Wizard.previewOnly then sc = math.min(sc, (inner:GetHeight() - 6) / math.max(1, bar:GetHeight() + 16)) end
 		bar:SetScale(sc)
@@ -1196,7 +1291,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetDesaturated(activeNow); s.mIcon:SetAlpha(activeNow and 0.5 or 1)
 				s.inset:Hide(); s.insetBd:Hide()
 			elseif m == "tt" or m == "single" then
-				-- the dropped totem takes the button; TotemTimers keeps the assigned one
+				-- the dropped totem takes the button; the corner display keeps the assigned one
 				-- in the corner, Single Totem shows nothing else and goes back to it after
 				s.over:Hide()
 				s.mIcon:SetTexture(activeNow and e.active or e.icon)
@@ -1216,6 +1311,16 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetDesaturated(false); s.mIcon:SetAlpha(1)
 				s.inset:Hide(); s.insetBd:Hide()
 			end
+		end
+		if rowsMode then
+			-- the rows: plain totems (the bar shows what is down); Show the Bar off leaves only the rows
+			local off = OPT().rowsOff
+			for i, row in ipairs(rowsUI) do row:SetShown(not (type(off) == "table" and off[i])) end
+			local barOn = OPT().rowsShowBar ~= false
+			for _, sl in ipairs(slots) do sl.main:GetParent():SetShown(barOn) end
+			if not barOn then frameBg:Hide(); frameBd:Hide() end
+		else
+			for _, sl in ipairs(slots) do sl.main:GetParent():Show() end
 		end
 		if m == "compact" then bar:SetAlpha(0); cm:Show(); paintCompact(el)
 		elseif m == "grid" then bar:SetAlpha(0); cm:Hide()
@@ -1404,7 +1509,8 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			fly:Hide(); fire.flyOpen = nil; bfly:Hide(); flyCap:SetText("")
 			if m == "blizzard" then closeB() end
 		end
-		if m == "compact" or m == "grid" or (m == "blizzard" and not bBtns[1]) then   -- no icon bar to hover
+		-- (Totem Rows' switch on: no flyout to open, its totems are always out in their rows)
+		if m == "compact" or m == "grid" or OPT().totemRows == true or (m == "blizzard" and not bBtns[1]) then   -- no icon bar to hover
 			cur:Hide(); flyCap:SetText("")
 			return
 		end
@@ -1523,6 +1629,30 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 			set = function(v) OPT().totemBarOpacity = v; safecall("UpdateTotemBarOpacity"); notify() end })
 		row("Toggle", { label = "Full opacity while a totem is down", get = function() return OPT().totemBarFullOpacityWhenActive and true or false end,
 			set = function(v) OPT().totemBarFullOpacityWhenActive = v; safecall("UpdateTotemBarOpacity"); notify() end })
+	end
+	local tourStyle = SP.GetTotemBarStyle and SP:GetTotemBarStyle(OPT())
+	if SP.SetTotemRows and tourStyle ~= "grid" then
+		-- Totem Rows' switch (with any style but Grid) and, while it is on, the two choices a new player
+		-- looks for (Totem Bar > Style has the rest)
+		y = y + 6
+		row("Toggle", { label = "Show every totem in rows (Totem Rows)", get = function() return OPT().totemRows == true end,
+			set = function(v) if SP.SetTotemRows then SP:SetTotemRows(v) end; notify(); SP.Wizard:Go(state.step) end })
+		if OPT().totemRows then
+			row("Dropdown", { label = "Rows go", get = function() return OPT().rowsGo == "down" and "down" or "across" end,
+				set = function(v) OPT().rowsGo = (v == "down") and "down" or nil; safecall("RefreshRowsStyle"); notify() end,
+				values = function() return { across = "Horizontal", down = "Vertical" } end,
+				order = function() return { "across", "down" } end })
+			if tourStyle ~= "blizzard" then
+				row("Toggle", { label = "Show main totem bar", get = function() return OPT().rowsShowBar ~= false end,
+					set = function(v)
+						if v then OPT().rowsShowBar = nil else OPT().rowsShowBar = false end
+						safecall("RefreshRowsStyle")
+						if v then safecall("UpdateLayout") end
+						notify()
+					end })
+			end
+			row("Description", { text = "|cff9aa4b1Move each row where you want it with Unlock UI.|r" })
+		end
 	end
 	if OPT().compactStyle then
 		-- ---- Compact style options (Settings > Totem Bar > Compact Style) ----
@@ -1919,6 +2049,21 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 	local Widgets = ns.Widgets
 	local function sc() SP:EnsureProfileTable("shieldChargeDisplay"); return SP.opt.shieldChargeDisplay end
 	local function get(k, d) local t = SP.opt.shieldChargeDisplay; local v = t and t[k]; if v == nil then return d end; return v end
+	-- (3.0.8) each shield owns its settings: the tour's rows read Lightning Shield's and set every shield
+	local SH = { "LS", "WS", "ES" }
+	local function sget(name) return SP.ShieldOpt and SP:ShieldOpt("LS", name) end
+	local function sset(name, v) if SP.SetShieldOpt then for _, sh in ipairs(SH) do SP:SetShieldOpt(sh, name, v) end end end
+	local HIDE_SHOW = { up = { false, true }, always = { false, false }, fightsUp = { true, true }, fights = { true, false } }
+	local function hideFlag(i) local h = HIDE_SHOW[sget("show") or "up"] or HIDE_SHOW.up; return h[i] end
+	local function setHide(i, v)
+		if not SP.SetShieldOpt then return end
+		for _, sh in ipairs(SH) do
+			local h = HIDE_SHOW[SP:ShieldOpt(sh, "show")] or HIDE_SHOW.up
+			local hoc, hns = h[1], h[2]
+			if i == 1 then hoc = v and true or false else hns = v and true or false end
+			SP:SetShieldOpt(sh, "show", (hoc and (hns and "fightsUp" or "fights")) or (hns and "up" or "always"))
+		end
+	end
 
 	local resto = state.role == "restoration"
 	if not resto or SP.ESTrackerUnavailable then sc().showEarthShield = false end   -- Enhancement / Elemental cannot cast Earth Shield; Forever has none
@@ -1952,7 +2097,7 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 		local ly = cy - below - 8
 		lblL:ClearAllPoints(); lblL:SetPoint("TOP", inner, "CENTER", -dx, ly)
 		lblR:ClearAllPoints(); lblR:SetPoint("TOP", inner, "CENTER", dx, ly)
-		lblL:SetShown(get("showPlayerShield", true) ~= false); lblR:SetShown(showE)
+		lblL:SetShown(sget("enabled") ~= false or (SP.ShieldOpt and SP:ShieldOpt("WS", "enabled")) or false); lblR:SetShown(showE)
 	end
 	C_Timer.After(0.02, fit)
 	SP.Wizard._shieldFit = fit
@@ -1971,30 +2116,30 @@ function SP.Wizard.BuildShieldChargesStep(card, inner, y)
 	local function upd() notify(); if SP.ShieldChargesDemo then SP:ShieldChargesDemo(true) end; fit() end
 	-- the look: same options and rules as Settings > Shield Charges (the number
 	-- can only be off while the icon or the charge bar is on)
-	local function other(k) return get(k, false) and true or false end
+	local function other(k) return sget(k) and true or false end
 	row("Toggle", { label = "Show shield icon", desc = "The shield's icon with the charge count on it. Grayed out while no shield is up.",
-		get = function() return other("showIcon") end,
-		set = function(v) local t = sc(); t.showIcon = v; if not v and not t.showChargeBar then t.showNumber = true end; upd(); Widgets:RefreshAll(card) end })
+		get = function() return other("icon") end,
+		set = function(v) sset("icon", v); upd(); Widgets:RefreshAll(card) end })
 	row("Toggle", { label = "Show number", desc = "The charge count as a number. It can only be off while the icon or the charge bar is on.",
-		disabled = function() return not (other("showIcon") or other("showChargeBar")) end,
-		get = function() return get("showNumber", true) ~= false or not (other("showIcon") or other("showChargeBar")) end,
-		set = function(v) sc().showNumber = v; upd(); Widgets:RefreshAll(card) end })
+		disabled = function() return not (other("icon") or other("bar")) end,
+		get = function() return sget("number") ~= false end,
+		set = function(v) sset("number", v); upd(); Widgets:RefreshAll(card) end })
 	row("Dropdown", { label = "Number position", desc = "Where the number sits on the icon.",
-		disabled = function() return not (other("showIcon") and get("showNumber", true) ~= false) end,
-		get = function() return get("numberPosition", "center") end,
-		set = function(v) sc().numberPosition = v; upd() end,
+		disabled = function() return not (other("icon") and sget("number") ~= false) end,
+		get = function() return sget("numberPosition") or "center" end,
+		set = function(v) sset("numberPosition", v); upd() end,
 		values = function() return { center = "Center", corner = "Bottom-right corner" } end, order = function() return { "center", "corner" } end })
 	row("Toggle", { label = "Show charge bar", desc = "A bar under the display with one segment per charge, filled to the charges left.",
-		get = function() return other("showChargeBar") end,
-		set = function(v) local t = sc(); t.showChargeBar = v; if not v and not t.showIcon then t.showNumber = true end; upd(); Widgets:RefreshAll(card) end })
-	row("Slider", { label = "Size", min = 0.5, max = 3.0, step = 0.1, get = function() return get("scale", 1.0) end,
-		set = function(v) sc().scale = v; upd() end })
-	row("Slider", { label = "Opacity", min = 0.1, max = 1.0, step = 0.1, get = function() return get("opacity", 1.0) end,
-		set = function(v) sc().opacity = v; upd() end })
-	row("Toggle", { label = "Hide out of combat", get = function() return get("hideOutOfCombat", false) end,
-		set = function(v) sc().hideOutOfCombat = v; upd() end })
-	row("Toggle", { label = "Hide when no shield is up", get = function() return get("hideNoShields", false) end,
-		set = function(v) sc().hideNoShields = v; upd() end })
+		get = function() return other("bar") end,
+		set = function(v) sset("bar", v); upd(); Widgets:RefreshAll(card) end })
+	row("Slider", { label = "Size", min = 0.5, max = 3.0, step = 0.1, get = function() return sget("scale") or 1.0 end,
+		set = function(v) sset("scale", v); upd() end })
+	row("Slider", { label = "Opacity", min = 0.1, max = 1.0, step = 0.1, get = function() return sget("opacity") or 1.0 end,
+		set = function(v) sset("opacity", v); upd() end })
+	row("Toggle", { label = "Hide out of combat", get = function() return hideFlag(1) end,
+		set = function(v) setHide(1, v); upd() end })
+	row("Toggle", { label = "Hide when no shield is up", get = function() return hideFlag(2) end,
+		set = function(v) setHide(2, v); upd() end })
 	return y
 end
 
@@ -2474,7 +2619,7 @@ function SP.Wizard.BuildPartyBuffStep(card, inner, y)
 		order = function() return { "corners", "above", "below", "left", "right" } end })
 	row("Toggle", { label = "Outline the dots", desc = "A thin dark ring under each dot so it shows on bright icons like Windfury.", disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotOutline ~= false end, set = function(v) SP.opt.partyDotOutline = v; safecall("UpdatePartyDotPositions"); upd() end })
-	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot.", disabled = function() return not SP.opt.showPartyRangeDots end,
+	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot." .. ((SPCompat and SPCompat.FOREVER) and " In fights on WoW: Forever it goes by estimated range instead." or ""), disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotsMissingOnly and true or false end, set = function(v) SP.opt.partyDotsMissingOnly = v or nil; upd() end })
 	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = function() return not SP.opt.showPartyRangeDots end,
 		get = function() return SP.opt.partyDotSize or 5 end, set = function(v) SP.opt.partyDotSize = v; safecall("UpdatePartyDotPositions"); upd() end })
@@ -2641,7 +2786,7 @@ function SP.Wizard.BuildRaidCDStep(card, inner, y)
 	row("Toggle", { label = "Show panel behind buttons", get = function() return not O("raidCDButtonHideFrame", nil) end,
 		set = function(v) SP.opt.raidCDButtonHideFrame = not v; upd("UpdateCallerButtonFrameStyle") end })
 	row("Toggle", { label = "Cooldown swipe on buttons", get = function() return O("raidCDShowButtonAnimation", true) end,
-		set = function(v) SP.opt.raidCDShowButtonAnimation = v; upd() end })
+		set = function(v) SP.opt.raidCDShowButtonAnimation = v; upd("UpdateCallerButtonCooldowns") end })
 	row("Toggle", { label = "Alert: big icon", get = function() return O("raidCDShowWarningIcon", true) end,
 		set = function(v) SP.opt.raidCDShowWarningIcon = v; upd() end })
 	row("Toggle", { label = "Alert: USE ... NOW text", get = function() return O("raidCDShowWarningText", true) end,
@@ -2910,7 +3055,7 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 		get = function() return get("dotOutline", true) ~= false end, set = function(v) co().dotOutline = v; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Dot size", min = 4, max = 10, step = 1, disabled = noDots,
 		get = function() return get("dotSize", 5) end, set = function(v) co().dotSize = v; upd("UpdateCoverageLayout") end })
-	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot.", disabled = noDots,
+	row("Toggle", { label = "Only show who's missing the buff", desc = "A dot in class color only for party members WITHOUT the totem's buff; anyone who has it shows no dot." .. ((SPCompat and SPCompat.FOREVER) and " In fights on WoW: Forever it goes by estimated range instead." or ""), disabled = noDots,
 		get = function() return get("dotsMissingOnly", false) and true or false end, set = function(v) co().dotsMissingOnly = v or nil; upd("UpdateCoverageLayout") end })
 	row("Slider", { label = "Name size", min = 7, max = 14, step = 1,
 		disabled = function() return (type(off) == "function" and off()) or get("dots", false) end,
@@ -3316,7 +3461,8 @@ end
 -- ShamanPowerCues.lua); the one-shots take turns in a 3.6 s cycle and the
 -- expiring loop runs while it is on; a caption under each button says what it
 -- shows. items: { btn (a frame with .icon) or pick (several: the first one
--- shown), cap, on, style, def, kind, at (one-shot: its point in the cycle) or
+-- shown), cap, capAbove (the caption over the button: another effect's sits
+-- under it), on, style, def, kind, at (one-shot: its point in the cycle) or
 -- loop = true }.
 function SP.Wizard.RunEffectsDemo(parent, items)
 	local fx = SP.CueFx
@@ -3348,7 +3494,7 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 					it.capAt = btn
 					fs:ClearAllPoints()
 					if btn then
-						fs:SetPoint("TOP", btn, "BOTTOM", 0, -6)
+						if it.capAbove then fs:SetPoint("BOTTOM", btn, "TOP", 0, 6) else fs:SetPoint("TOP", btn, "BOTTOM", 0, -6) end
 						fs:SetWidth(math.max(40, btn:GetWidth() + 8))
 					end
 				end
@@ -3370,8 +3516,11 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 			tick = 0
 			captions(o)
 			for _, it in ipairs(items) do
-				if it.loop and it.btn then
-					if o[it.on] and it.btn:IsVisible() then fx.loop(it.btn, o[it.style] or it.def, it.kind) else fx.stop(it.btn) end
+				local lb = it.loop and shownBtn(it)
+				if lb then
+					if it.loopAt and it.loopAt ~= lb then fx.stop(it.loopAt) end   -- (a pick that moved to another button)
+					it.loopAt = lb
+					if o[it.on] and lb:IsVisible() then fx.loop(lb, o[it.style] or it.def, it.kind) else fx.stop(lb) end
 				end
 			end
 		end
@@ -3386,6 +3535,8 @@ function SP.Wizard.RunEffectsDemo(parent, items)
 				if btn and btn:IsVisible() then
 					fx.play(btn, o[it.style] or it.def, it.kind)
 					if it.kind == "destroyed" and o.totemCueDestroyedMark ~= false then fx.mark(btn) end
+					-- the cooldown bar's Red X Until Recast, in that bar's own look
+					if it.mark and o[it.mark] then fx.mark(btn, SP.ThemeCue and SP.ThemeCue.lookOf and SP.ThemeCue.lookOf(it.kind) or nil) end
 				end
 			end
 		end
@@ -3478,8 +3629,12 @@ function SP.Wizard.BuildEffectsStep(card, inner, y)
 		plus(STYLES, STYLE_ORDER, "ringin", "Ring draws in", "underline", "Underline runs out"))
 	cue("Totem expiring soon", "Over a totem's last seconds its button pulses darker, or its edges glow orange.",
 		"totemCueExpiring", "totemCueExpiringStyle", "pulse",
-		plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
-			"drain", "Frame drains", "underbar", "Bar under it"))
+		(function()   -- (and Turns red, as on the Effects page)
+			local v, o = plus(function() return { pulse = "Pulse", glow = "Glow" } end, function() return { "pulse", "glow" } end,
+				"drain", "Frame drains", "underbar", "Bar under it")
+			return function() local t = v(); t.red = "Turns red"; return t end,
+				function() local t = o(); t[#t + 1] = "red"; return t end
+		end)())
 	row("Slider", { label = "Seconds before it ends", min = 3, max = 15, step = 1,
 		disabled = function() return not O().totemCueExpiring end,
 		get = function() return O().totemCueExpiringSecs or 5 end, set = set("totemCueExpiringSecs") })
@@ -3501,22 +3656,33 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	local horde = UnitFactionGroup and UnitFactionGroup("player") == "Horde"
 	-- Spells the real bar can track, in bar order. roles = who sees the chip.
 	local SPELLS = {
-		{ id = 324,   name = "Shield",         opt = "cdbarShowShields",          cd = 0,  ready = 0,  charges = "3", color = {0.4, 0.6, 1.0} },
+		{ id = 324,   name = "Shield",         cdType = 1, opt = "cdbarShowShields",          cd = 0,  ready = 0,  charges = "3", color = {0.4, 0.6, 1.0} },
 		{ id = 36936, name = "Recall", long = GetSpellInfo(36936) or "Totemic Call",
-		  opt = "cdbarShowRecall", cd = 6, ready = 5, color = {0.6, 0.4, 0.2} },
-		{ id = 20608, name = "Ankh",           opt = "cdbarShowReincarnation",    cd = 14, ready = 6,  count = "2", color = {0.8, 0.2, 0.2} },
-		{ id = 16188, name = "NS", long = "Nature's Swiftness", opt = "cdbarShowNS",           cd = 9,  ready = 4,  color = {0.2, 0.8, 0.3}, roles = { restoration = true } },
-		{ id = 16190, name = "Mana Tide",      opt = "cdbarShowManaTide",         cd = 11, ready = 3,  color = {0.2, 0.5, 1.0}, roles = { restoration = true } },
-		{ id = 30823, name = "Sham. Rage", long = "Shamanistic Rage", opt = "cdbarShowShamanisticRage", cd = 8, ready = 5,  color = {0.8, 0.5, 0.1}, roles = { enhancement = true } },
-		{ id = horde and 2825 or 32182, name = horde and "Bloodlust" or "Heroism", opt = "cdbarShowBloodlust", cd = 16, ready = 4, color = {0.8, 0.1, 0.1} },
-		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
+		  cdType = 2, opt = "cdbarShowRecall", cd = 6, ready = 5, color = {0.6, 0.4, 0.2} },
+		{ id = 20608, name = "Ankh",           cdType = 3, opt = "cdbarShowReincarnation",    cd = 14, ready = 6,  count = "2", color = {0.8, 0.2, 0.2} },
+		{ id = 16188, name = "NS", long = "Nature's Swiftness", cdType = 4, opt = "cdbarShowNS",           cd = 9,  ready = 4,  color = {0.2, 0.8, 0.3}, roles = { restoration = true } },
+		{ id = 16190, name = "Mana Tide",      cdType = 5, opt = "cdbarShowManaTide",         cd = 11, ready = 3,  color = {0.2, 0.5, 1.0}, roles = { restoration = true } },
+		{ id = 30823, name = "Sham. Rage", long = "Shamanistic Rage", cdType = 8, opt = "cdbarShowShamanisticRage", cd = 8, ready = 5,  color = {0.8, 0.5, 0.1}, roles = { enhancement = true } },
+		{ id = horde and 2825 or 32182, name = horde and "Bloodlust" or "Heroism", cdType = 6, opt = "cdbarShowBloodlust", cd = 16, ready = 4, color = {0.8, 0.1, 0.1} },
+		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", cdType = 9, opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
 		-- WoW: Forever only; the chips exist only where the client has the spell
-		{ id = 425336, name = "Farseer", long = "Rage of the Farseer", opt = "cdbarShowRageOfTheFarseer", cd = 16, ready = 4, color = {0.8, 0.1, 0.1}, roles = { enhancement = true }, only = function() return GetSpellInfo(425336) ~= nil end },
-		{ id = 437009, name = "Projection", long = "Totemic Projection", opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
-		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
+		{ id = 425336, name = "Farseer", long = "Rage of the Farseer", cdType = 10, opt = "cdbarShowRageOfTheFarseer", cd = 16, ready = 4, color = {0.8, 0.1, 0.1}, roles = { enhancement = true }, only = function() return GetSpellInfo(425336) ~= nil end },
+		{ id = 437009, name = "Projection", long = "Totemic Projection", cdType = 11, opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
+		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  cdType = 7, opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
 	}
 	-- spell exists in this client's data (asked of the client for every chip: WoW: Forever has no
 	-- Bloodlust, Shamanistic Rage ...; other clients have no Rage of the Farseer / Totemic Projection)
+	-- a sample's look as its item on the real bar has it (the Cooldown Bar page's item menus:
+	-- SP:CdItemOpt); a preview of other settings (Wizard.optOverride) keeps the shared ones
+	local function ItemLook(sp, name, shared)
+		if sp.cdType and SP.CdItemOpt and OPT() == SP.opt then return SP:CdItemOpt(sp.cdType, name) end
+		return shared
+	end
+	local function ItemSweep(sp)
+		if sp.cdType and SP.CdItemOpt and OPT() == SP.opt then return SP:CdItemOpt(sp.cdType, "sweep") end
+		if OPT().cdbarShowColorSweep == false then return "none" end
+		return OPT().cdbarSweepStyle or "greys"
+	end
 	local function onClient(sp)
 		if sp.only and not sp.only() then return false end
 		if SPCompat and SPCompat.SpellExists and sp.id then return SPCompat.SpellExists(sp.id) end
@@ -3574,6 +3740,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		end
 		-- Staggered sim clock so the bar is not in lockstep.
 		btn.icon = icon   -- for the Effects tab's demo (RunEffectsDemo)
+		btn.spShapeKind = "cooldown"   -- (its looks take the Cooldown Bar's Icon Shape)
 		buttons[i] = { sp = sp, f = btn, icon = icon, gray = gray, cdr = cdr, lbl = lbl, pbg = pbg, corner = corner, pb = pb, txt = txt, strip = strip, t = (i * 2.7) % math.max(1, sp.cd + sp.ready), onCd = false }
 	end
 	-- Effects tab: the first cooldown shown plays Cooldown Ready, the imbue chip
@@ -3585,10 +3752,18 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			elseif b.sp.imbue then imbue = b.f
 			elseif (b.sp.cd or 0) > 0 then cds[#cds + 1] = b.f end
 		end
+		local cdsAlmost = {}   -- (every cooldown but the first, which shows Ready)
+		for k = 2, #cds do cdsAlmost[#cdsAlmost + 1] = cds[k] end
 		SP.Wizard.RunEffectsDemo(bar, {
 			{ pick = cds, cap = "Ready", on = "cdbarCueReady", style = "cdbarCueReadyStyle", def = "pop", kind = "ready", at = 1.7 },
-			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4 },
-			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1 },
+			{ btn = imbue, cap = "Imbue gone", on = "cdbarCueImbue", style = "cdbarCueImbueStyle", def = "shake", kind = "imbue", at = 2.4, mark = "cdbarCueImbueMark" },
+			{ btn = shield, cap = "Shield gone", on = "cdbarCueShield", style = "cdbarCueShieldStyle", def = "shake", kind = "shield", at = 3.1, mark = "cdbarCueShieldMark" },
+			-- Running Out (its last seconds): a loop on the shield chip, captioned over it
+			{ btn = shield, cap = "Running out", capAbove = true, on = "cdbarCueRunning", style = "cdbarCueRunningStyle", def = "red", kind = "running", loop = true },
+			-- Turns Red While Missing: the imbue chip red, captioned over it
+			{ btn = imbue, cap = "Missing", capAbove = true, on = "cdbarCueMissing", def = "red", kind = "running", loop = true },
+			-- Cooldown Almost Ready: a loop in gold on another cooldown (the first one shown plays Ready)
+			{ pick = cdsAlmost, cap = "Almost ready", on = "cdbarCueAlmost", style = "cdbarCueAlmostStyle", def = "glow", kind = "almost", loop = true },
 		})
 	end
 
@@ -3632,10 +3807,10 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			end
 			-- shield charge bar: same geometry as PaintShieldChargeStrip, count lifted above it
 			if b.strip then
-				local on = OPT().cdbarShieldChargeBar and true or false
+				local on = ItemLook(b.sp, "chargeBar", OPT().cdbarShieldChargeBar) and true or false
 				local sh = math.max(3, math.floor(SIZE * 0.14 + 0.5))
 				if on then
-					local inset = 2 + ((pos == "on_icon" and OPT().cdbarShowProgressBars ~= false) and size or 0)
+					local inset = 2 + ((pos == "on_icon" and ItemLook(b.sp, "progressBar", OPT().cdbarShowProgressBars ~= false)) and size or 0)
 					local st = b.strip
 					st:ClearAllPoints()
 					st:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", inset, 2); st:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -inset, 2); st:SetHeight(sh)
@@ -3647,7 +3822,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 				end
 				b.strip:SetShown(on)
 				b.corner:ClearAllPoints(); b.corner:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, on and (sh + 3) or 1)
-				b.corner:SetShown(OPT().cdbarShowShieldCount ~= false)
+				b.corner:SetShown(ItemLook(b.sp, "chargeCount", OPT().cdbarShowShieldCount ~= false) and true or false)
 			end
 		end
 	end
@@ -3678,15 +3853,18 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 
 	bar:SetScript("OnUpdate", function(_, e)
 		local showBars  = OPT().cdbarShowProgressBars ~= false
-		local showSweep = OPT().cdbarShowColorSweep ~= false
 		local showText  = OPT().cdbarShowCDText ~= false
 		-- the bars' geometry settings, compared one by one (no string built per frame)
 		local o = OPT()
 		local g = lastGeom
+		local shieldSp = buttons[1] and buttons[1].sp   -- (the shield: its charge bar and count)
+		local chargeBar = ItemLook(shieldSp, "chargeBar", o.cdbarShieldChargeBar)
+		local chargeCount = ItemLook(shieldSp, "chargeCount", o.cdbarShowShieldCount)
+		local shieldBar = ItemLook(shieldSp, "progressBar", o.cdbarShowProgressBars)
 		if o.cdbarProgressPosition ~= g[1] or o.cdbarProgressBarHeight ~= g[2] or o.cdbarDurationTextLocation ~= g[3]
-			or o.cdbarDurationTextSize ~= g[4] or o.cdbarShieldChargeBar ~= g[5] or o.cdbarShowShieldCount ~= g[6] then
+			or o.cdbarDurationTextSize ~= g[4] or chargeBar ~= g[5] or chargeCount ~= g[6] or shieldBar ~= g[7] then
 			g[1], g[2], g[3] = o.cdbarProgressPosition, o.cdbarProgressBarHeight, o.cdbarDurationTextLocation
-			g[4], g[5], g[6] = o.cdbarDurationTextSize, o.cdbarShieldChargeBar, o.cdbarShowShieldCount
+			g[4], g[5], g[6], g[7] = o.cdbarDurationTextSize, chargeBar, chargeCount, shieldBar
 			layoutBars()
 		end
 		local opacity, fullActive = OPT().cooldownBarOpacity or 1, OPT().cooldownBarFullOpacityWhenActive
@@ -3700,7 +3878,10 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 			if b.f:IsShown() then
 				local sp = b.sp
 				b.f:SetAlpha((fullActive and b.onCd) and 1 or opacity)
-				b.pbg:SetShown(showBars); b.pb:SetShown(showBars)
+				local bars = ItemLook(sp, "progressBar", showBars) and true or false
+				b.pbg:SetShown(bars); b.pb:SetShown(bars)
+				local sweep = ItemSweep(sp)
+				local direction = ItemLook(sp, "sweepDirection", OPT().cdbarSweepDirection)
 				if sp.cd > 0 then
 					b.t = b.t + e
 					local cycle = sp.cd + sp.ready
@@ -3712,16 +3893,16 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 						local frac = remain / sp.cd
 						if b.vert then b.pb:SetHeight(math.max(0.5, SIZE * frac)) else b.pb:SetWidth(math.max(0.5, SIZE * frac)) end
 						-- duration text: chosen location, or the legacy centre text when the toggle is on
-						local wantText = (b.textMode ~= "none" and b.textMode ~= nil) or showText
+						local wantText = (b.textMode ~= "none" and b.textMode ~= nil) or ItemLook(sp, "timeOnIcon", showText)
 						b.txt:SetText(wantText and tostring(math.ceil(remain)) or "")
-						local style = OPT().cdbarSweepStyle or "greys"
-						if showSweep and style == "radial" then
+						local style = sweep
+						if style == "radial" then
 							b.gray:Hide()
 							if not b.radialSet then b.cdr:SetCooldown(GetTime() - b.t, sp.cd); b.radialSet = true end
-						elseif showSweep then
+						elseif style ~= "none" then
 							if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
 							local dep = (style == "fills") and frac or (1 - frac)
-							PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, OPT().cdbarSweepDirection)
+							PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, direction)
 						else
 							b.gray:Hide(); if b.radialSet then b.cdr:Clear(); b.radialSet = nil end
 						end
@@ -3736,12 +3917,12 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 					-- Shields stay up; imbues show their duration, even with Radial Swipe.
 					if b.vert then b.pb:SetHeight(SIZE) else b.pb:SetWidth(SIZE) end
 					b.gray:Hide(); b.txt:SetText("")
-					if sp.imbue and showSweep then
+					if sp.imbue and sweep ~= "none" then
 						b.t = (b.t + e) % 20
-						local style = OPT().cdbarSweepStyle or "greys"
+						local style = sweep
 						local dep = b.t / 20
 						if style == "fills" then dep = 1 - dep end
-						PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, OPT().cdbarSweepDirection)
+						PaintVerticalSweep(b.gray, b.icon, SIZE, dep, style, direction)
 					end
 				end
 			end
@@ -3891,9 +4072,9 @@ function SP.Wizard.BuildTotemPlatesStep(card, inner, y)
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.totemPlatesDemoActive then SP:TotemPlatesDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", false) end
 	row("Toggle", { label = "Enemy totems", disabled = off, get = function() return get("showEnemy", true) ~= false end, set = function(v) tp().showEnemy = v; upd() end })
-	row("Toggle", { label = "Friendly totems", desc = (SPCompat and SPCompat.secretsRegime)
-			and "Works in the open world and battlegrounds. Not inside dungeons and raids: the game keeps friendly nameplates away from addons there. Enemy totems work everywhere."
-			or "Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
+	row("Toggle", { label = "Friendly totems", desc = (SPCompat and SPCompat.FOREVER)
+			and "Needs WoW's friendly nameplates turned on (Shift+V). Works in the open world. Inside dungeons and raids the game hides which totem is which, so no totem icons show there, enemy or friendly."
+			or "Needs WoW's friendly nameplates turned on (Shift+V). Only works in the open world and battlegrounds. Inside dungeons and raids the game hides friendly totem nameplates, so friendly plates cannot show there - enemy totems still work everywhere.",
 		disabled = off, get = function() return get("showFriendly", true) ~= false end, set = function(v) tp().showFriendly = v; upd() end })
 	row("Slider", { label = "Icon size", min = 20, max = 80, step = 2, disabled = off, get = function() return get("iconSize", 40) end, set = function(v) tp().iconSize = v; upd("UpdateTotemPlatesSize") end })
 	row("Slider", { label = "Opacity", min = 0.3, max = 1.0, step = 0.1, disabled = off, get = function() return get("alpha", 0.9) end, set = function(v) tp().alpha = v; upd() end })
@@ -4155,7 +4336,7 @@ local function PresetSummary(preset)
 		{ "Duration bars", dbp .. ((p.durationTextLocation and p.durationTextLocation ~= "none") and (", time " .. p.durationTextLocation) or "") },
 		{ "Cooldown bar", (p.showCooldownBar == false) and "off" or string.format("%s, size %d%%%s", p.cdbarLayout or p.layout or "Horizontal", pct(p.cooldownBarScale or 0.9), p.hideCooldownBarFrame and ", no frame" or "") },
 		{ "Totem twisting", on(p.enableTotemTwisting) },
-		{ "Shield charges", on(p.shieldChargeDisplay and p.shieldChargeDisplay.showPlayerShield ~= false) },
+		{ "Shield charges", on(p.shieldChargeDisplay and (p.shieldChargeDisplay.showLS ~= false or p.shieldChargeDisplay.showWS ~= false)) },
 		{ "Party Buff Tracker", dots .. (p.partyDotPosition and p.partyDotPosition ~= "corners" and (", dots " .. p.partyDotPosition) or "") },
 		{ "Totem Plates", on(p.totemPlates and p.totemPlates.enabled) },
 		{ "Reactive Totems", on(x.ShamanPower_ReactiveTotems and x.ShamanPower_ReactiveTotems.enabled ~= false) },

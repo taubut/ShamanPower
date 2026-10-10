@@ -1,10 +1,12 @@
 -- ============================================================================
 -- Ready Check Sweep + Totem Items
 --
--- On a ready check (and, if wanted, on entering an instance or /sp check) list
--- what this shaman is missing: shield, weapon imbue, totem items in the bags
--- (WoW: Forever, where totems still need them), assigned totems not down, low
--- mana. Each check and each way of showing it is an option.
+-- On a ready check (and, if wanted, on entering an instance, after you come
+-- back to life, or /sp check) list what this shaman is missing: shield, weapon
+-- imbue, totem items in the bags (WoW: Forever, where totems still need them),
+-- assigned totems not down, low mana. Each check and each way of showing it is
+-- an option. A check the game hides right now is listed as "could not check",
+-- never counted as fine.
 --
 -- Separately, on WoW: Forever, warn once when one of the four totem items goes
 -- missing from the bags.
@@ -55,6 +57,10 @@ local DEFAULTS = {
 	panelOpacity = 1,
 	itemWarn = true,
 	itemWarnScreen = false,
+	-- 3.0.8: the same check once you are alive again (opt-in). Brought back in a
+	-- fight: "wait" for its end, or "remind" at once with a short reminder.
+	onResurrect = false,
+	resurrectInFight = "wait",
 }
 -- the support code (/sp support) reports only what differs from these
 SP.SUPPORT_PROFILE_DEFAULTS = SP.SUPPORT_PROFILE_DEFAULTS or {}
@@ -80,6 +86,22 @@ end
 -- Checks. Each returns a list entry { icon, text } when something is missing,
 -- false when all is well, nil when it cannot tell right now (a hidden value).
 -- ---------------------------------------------------------------------------
+-- When you last died (GetTime(), from PLAYER_DEAD below): your shield goes with
+-- you, so a record of a shield cast before then is known to be gone.
+local diedAt
+-- WoW: Forever: when you last cast Lightning or Water Shield yourself (your own
+-- casts are always seen, in fights too). While buffs are hidden the record of
+-- that cast can go before the shield does (its charges are counted down by
+-- guess), so after a death only "no cast since" counts as missing.
+local lastShieldCast
+if FOREVER and SP.ShadowShieldCast then
+	hooksecurefunc(SP, "ShadowShieldCast", function(_, unit)
+		if unit ~= "player" then return end
+		-- a cast opens a new record stamped now; a proc only takes a charge off
+		local rec = SP.shadowShield
+		if rec and rec.start == GetTime() then lastShieldCast = rec.start end
+	end)
+end
 -- Cached until the spellbook changes: bag updates ask this often.
 local knownCache = {}
 do
@@ -101,9 +123,14 @@ local function elementKnown(element)
 	return known
 end
 
-local function shieldMissingText()
-	return "No " .. SPCompat.SpellLabel(324, "Lightning") .. " or "
-		.. SPCompat.SpellLabel(FOREVER and 408510 or 24398, "Water Shield")
+local function shieldLabel()
+	return SPCompat.SpellLabel(324, "Lightning") .. " or " .. SPCompat.SpellLabel(FOREVER and 408510 or 24398, "Water Shield")
+end
+local function shieldMissingText() return "No " .. shieldLabel() end
+
+local function shieldIcon()
+	local data = SP.ShieldSpells and SP.ShieldSpells[1]
+	return data and GetSpellTextureC(data[1]) or "Interface\\Icons\\Spell_Nature_LightningShield"
 end
 
 local function shieldMissing()
@@ -113,15 +140,20 @@ local function shieldMissing()
 	if not c then return nil end
 	local has
 	if c.engineCount then
-		-- buffs are hidden right now: our own record of the last shield cast
-		if SP.shadowShield then has = true else return nil end
+		-- buffs are hidden right now: our own record of the last shield cast.
+		-- Shields drop when you die, so a record from before your last death
+		-- is stale, and with no cast since that death the shield is gone. A
+		-- cast since then whose record has gone (its charges guessed used up)
+		-- could still be on you: that one is "could not check".
+		local rec = SP.shadowShield
+		if rec and not (diedAt and (rec.start or 0) < diedAt) then has = true
+		elseif diedAt and not (lastShieldCast and lastShieldCast >= diedAt) then has = false
+		else return nil end
 	else
 		has = c.hasShield and true or false
 	end
 	if has then return false end
-	local data = SP.ShieldSpells and SP.ShieldSpells[1]
-	local icon = data and GetSpellTextureC(data[1]) or "Interface\\Icons\\Spell_Nature_LightningShield"
-	return { icon, shieldMissingText() }
+	return { shieldIcon(), shieldMissingText() }
 end
 
 local function isWeapon(slot)
@@ -153,26 +185,31 @@ local function itemCount(id)
 	return n
 end
 
+-- adds a row per missing item; nil when any item's count could not be read
 local function totemItemsMissing(out)
 	if not ITEMS_NEEDED then return false end
-	local any = false
+	local any, unread = false, false
 	for element = 1, 4 do
 		if elementKnown(element) then
 			local n = itemCount(TOTEM_ITEMS[element])
-			if n == 0 then
+			if n == nil then
+				unread = true
+			elseif n == 0 then
 				out[#out + 1] = { GetItemIconC(TOTEM_ITEMS[element]) or "Interface\\Icons\\INV_Misc_QuestionMark",
 					"No " .. (GetItemNameC(TOTEM_ITEMS[element]) or (ELEMENTS[element] .. " Totem")) .. " in your bags" }
 				any = true
 			end
 		end
 	end
+	if unread then return nil end
 	return any
 end
 
+-- adds a row per assigned totem not down; nil when any of them could not be read
 local function assignedMissing(out)
 	local mine = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
 	if not mine and not SP.pendingAssignments then return false end
-	local any = false
+	local any, unread = false, false
 	for element = 1, 4 do
 		local idx = SP:AssignedIndex(element)   -- a flyout pick made in this fight first
 		if type(idx) == "number" and idx > 0 then
@@ -181,32 +218,51 @@ local function assignedMissing(out)
 			if spellID and SPCompat.KnowsSpellID(spellID) then name, _, icon = GetSpellInfo(spellID) end
 			if name then
 				local ok, have = pcall(SP.GetElementTotemInfo, SP, element)
-				if ok and not secret(have) and not have then
+				if not ok or secret(have) then
+					unread = true
+				elseif not have then
 					out[#out + 1] = { icon or "Interface\\Icons\\INV_Misc_QuestionMark", name .. " is not down" }
 					any = true
 				end
 			end
 		end
 	end
+	if unread then return nil end
 	return any
 end
 
+local MANA_ICON = "Interface\\Icons\\Spell_Nature_ManaRegenTotem"
 local function manaMissing()
 	local ok, cur, max = pcall(function() return UnitPower("player", 0), UnitPowerMax("player", 0) end)
 	if not ok or secret(cur) or secret(max) or type(cur) ~= "number" or type(max) ~= "number" or max <= 0 then return nil end
 	local pct = cur / max
 	if pct >= (cfg().manaPercent or 0.8) then return false end
-	return { "Interface\\Icons\\Spell_Nature_ManaRegenTotem", string.format("Mana at %d%%", math.floor(pct * 100 + 0.5)) }
+	return { MANA_ICON, string.format("Mana at %d%%", math.floor(pct * 100 + 0.5)) }
 end
 
+-- Two lists of { icon, text }: what is missing, and what could not be checked
+-- (the game hides it right now). An empty first list only means "nothing
+-- missing" while the second one is empty too.
 local function collect()
-	local c, out = cfg(), {}
-	if c.checkShield then local r = shieldMissing(); if r then out[#out + 1] = r end end
-	if c.checkImbue then imbueMissing(out) end
-	if c.checkTotemItems then totemItemsMissing(out) end
-	if c.checkAssigned then assignedMissing(out) end
-	if c.checkMana then local r = manaMissing(); if r then out[#out + 1] = r end end
-	return out
+	local c, out, unknown = cfg(), {}, {}
+	if c.checkShield then
+		local r = shieldMissing()
+		if r then out[#out + 1] = r
+		elseif r == nil then unknown[#unknown + 1] = { shieldIcon(), shieldLabel() } end
+	end
+	if c.checkImbue and imbueMissing(out) == nil then unknown[#unknown + 1] = { ImbueIcon(), "Weapon imbues" } end
+	if c.checkTotemItems and totemItemsMissing(out) == nil then
+		unknown[#unknown + 1] = { GetItemIconC(TOTEM_ITEMS[1]) or "Interface\\Icons\\INV_Misc_QuestionMark", "Totem items in your bags" }
+	end
+	if c.checkAssigned and assignedMissing(out) == nil then
+		unknown[#unknown + 1] = { "Interface\\Icons\\Spell_Nature_StoneSkinTotem", "Assigned totems" }
+	end
+	if c.checkMana then
+		local r = manaMissing()
+		if r then out[#out + 1] = r
+		elseif r == nil then unknown[#unknown + 1] = { MANA_ICON, "Mana" } end
+	end
+	return out, unknown
 end
 
 -- ---------------------------------------------------------------------------
@@ -216,8 +272,30 @@ end
 local PANEL_W, ROW_ICON, PAD = 280, 20, 10
 local panel, rows = nil, {}
 local hideTimer
-local sweepTitle   -- the title of the real list while one is up (a sample can cover it)
+-- why the real list is up ("readycheck", "instance", "manual", "rez", or
+-- "rezfight" for the short reminder in a fight); nil while none is (a sample
+-- can cover it)
+local sweepReason
+-- true while the check after your resurrection is still to come or has just run
+-- (set with Check After Resurrection, below)
+local rezCovers
 local refreshEvents = { "UNIT_AURA", "UNIT_INVENTORY_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_TOTEM_UPDATE", "UNIT_POWER_UPDATE" }
+
+-- the title: what is missing, or (only checks that could not run) what to look at yourself
+-- (each fits the panel on one line)
+local TITLES = {
+	readycheck = { "Ready check: you are missing", "Ready check: look at these" },
+	rez = { "Resurrected: you are missing", "Resurrected: look at these" },
+	other = { "You are missing", "Look at these" },
+}
+local function titleFor(reason, anyMissing)
+	local t = TITLES[reason] or TITLES.other
+	if anyMissing then return t[1] end
+	return t[2]
+end
+-- brought back in a fight, with "Show a Short Reminder": it never says what is missing
+local REMINDER_TITLE = "Resurrected in a fight"
+local REMINDER_TEXT = "Check your shield and weapon imbues"
 
 local function savePos(f)
 	local point, _, relPoint, x, y = f:GetPoint(1)
@@ -299,7 +377,7 @@ function SP:ReadyCheckFrame()
 	-- hidden UI (Alt+Z), where the frame stays "shown".
 	tinsert(UISpecialFrames, "ShamanPowerReadyCheckFrame")
 	f:SetScript("OnHide", function(self)
-		if not self:IsShown() and not SP.readyCheckDemoActive and (hideTimer or sweepTitle) then
+		if not self:IsShown() and not SP.readyCheckDemoActive and (hideTimer or sweepReason) then
 			SP:HideReadyCheckPanel()
 		end
 	end)
@@ -323,21 +401,66 @@ local function row(i)
 	return r
 end
 
-local function layout(titleText, list)
+-- one row at y; gray = a check that could not run (dimmed icon and text). Returns the next y.
+local function placeRow(f, i, y, item, gray)
+	local r = row(i)
+	r.icon:SetTexture(item[1])
+	r.icon:SetDesaturated(gray == true)
+	r.icon:SetAlpha(gray and 0.7 or 1)
+	r.text:SetText(item[2])
+	r.text:SetTextColor(SP:SPColor(gray and "textDim" or "text"))
+	r.icon:ClearAllPoints(); r.icon:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
+	r.text:ClearAllPoints(); r.text:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
+	r.icon:Show(); r.text:Show()
+	return y + math.max(ROW_ICON, r.text:GetStringHeight()) + 6
+end
+
+-- the small-caps heading over the checks that could not run
+local function unknownHeading(f)
+	local h = f.unknownHead
+	if not h then
+		h = f:CreateFontString(nil, "OVERLAY")
+		h:SetFontObject(SP.SPDialogFonts.tiny)
+		h:SetJustifyH("LEFT"); h:SetWordWrap(true)
+		h:SetWidth(PANEL_W - 2 * PAD)
+		h:SetTextColor(SP:SPColor("textDim"))   -- the dim label color: reads over the world at any opacity
+		f.unknownHead = h
+	end
+	return h
+end
+
+-- list: what is missing; unknown (optional): what could not be checked, under its own heading
+local function layout(titleText, list, unknown)
 	local f = SP:ReadyCheckFrame()
 	f.title:SetText(titleText)
 	local y = PAD + f.title:GetStringHeight() + 8
-	for i, item in ipairs(list) do
-		local r = row(i)
-		r.icon:SetTexture(item[1])
-		r.text:SetText(item[2])
-		r.icon:ClearAllPoints(); r.icon:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
-		r.text:ClearAllPoints(); r.text:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
-		r.icon:Show(); r.text:Show()
-		y = y + math.max(ROW_ICON, r.text:GetStringHeight()) + 6
+	local n = 0
+	for _, item in ipairs(list) do
+		n = n + 1
+		y = placeRow(f, n, y, item)
 	end
-	for i = #list + 1, #rows do rows[i].icon:Hide(); rows[i].text:Hide() end
+	if unknown and #unknown > 0 then
+		local h = unknownHeading(f)
+		h:SetText(#unknown > 1 and "COULD NOT CHECK: THE GAME HIDES THESE RIGHT NOW"
+			or "COULD NOT CHECK: THE GAME HIDES IT RIGHT NOW")
+		if n > 0 then y = y + 2 end
+		h:ClearAllPoints(); h:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -y)
+		h:Show()
+		y = y + h:GetStringHeight() + 6
+		for _, item in ipairs(unknown) do
+			n = n + 1
+			y = placeRow(f, n, y, item, true)
+		end
+	elseif f.unknownHead then
+		f.unknownHead:Hide()
+	end
+	for i = n + 1, #rows do rows[i].icon:Hide(); rows[i].text:Hide() end
 	f:SetHeight(y + PAD - 6)
+end
+
+-- the short reminder for a resurrection in a fight
+local function reminderLayout()
+	layout(REMINDER_TITLE, { { shieldIcon(), REMINDER_TEXT } })
 end
 
 local watcher = CreateFrame("Frame")
@@ -351,26 +474,45 @@ end
 
 function SP:HideReadyCheckPanel()
 	if hideTimer then hideTimer:Cancel(); hideTimer = nil end
-	sweepTitle = nil
+	sweepReason = nil
 	stopWatching()
 	if panel and not SP.readyCheckDemoActive then panel:Hide() end
 end
 
--- Re-check while the panel is up; the panel goes away once nothing is missing.
+-- Re-check while the panel is up; the panel goes away once nothing is missing
+-- and every check could run. (The short reminder never changes on its own.)
 local function refresh()
 	refreshQueued = false
-	if not (panel and panel:IsShown()) or SP.readyCheckDemoActive then stopWatching() return end
-	local list = collect()
-	if #list == 0 then SP:HideReadyCheckPanel() return end
-	layout(panel.title:GetText(), list)
+	if not (panel and panel:IsShown()) or SP.readyCheckDemoActive or not sweepReason or sweepReason == "rezfight" then
+		stopWatching()
+		return
+	end
+	local list, unknown = collect()
+	if #list == 0 and #unknown == 0 then SP:HideReadyCheckPanel() return end
+	layout(titleFor(sweepReason, #list > 0), list, unknown)
+end
+
+local function queueRefresh()
+	if refreshQueued then return end
+	refreshQueued = true
+	C_Timer.After(0.3, refresh)   -- coalesce bursts (a bag sort, an aura storm)
 end
 
 watcher:SetScript("OnEvent", function(_, event, unit)
 	if (event == "UNIT_AURA" or event == "UNIT_INVENTORY_CHANGED" or event == "UNIT_POWER_UPDATE") and unit ~= "player" then return end
-	if refreshQueued then return end
-	refreshQueued = true
-	C_Timer.After(0.3, refresh)   -- coalesce bursts (a bag sort, an aura storm)
+	queueRefresh()
 end)
+
+-- WoW: Forever: the moment the game stops hiding things (a little after a
+-- fight), a list that is up looks again, so "could not check" turns into the
+-- real answer
+if SPCompat and SPCompat.OnUnrestricted then
+	SPCompat.OnUnrestricted(function()
+		if panel and panel:IsShown() and sweepReason and sweepReason ~= "rezfight" and not SP.readyCheckDemoActive then
+			queueRefresh()
+		end
+	end)
+end
 
 -- the unit events for the player only: in a raid the others' auras, bags and
 -- mana would otherwise all reach the handler just to be dropped
@@ -391,35 +533,79 @@ end
 -- ---------------------------------------------------------------------------
 -- The sweep
 -- ---------------------------------------------------------------------------
--- reason: "readycheck", "instance", "manual"
+local function names(items)
+	local parts = {}
+	for _, item in ipairs(items) do parts[#parts + 1] = item[2] end
+	return table.concat(parts, ", ")
+end
+
+local function playListSound(c)
+	if c.playSound and SP.GetSoundFile then
+		pcall(SP.PlaySoundWithVolume, SP, SP:GetSoundFile(c.soundName), nil, true)
+	end
+end
+
+local function hideLater()
+	if hideTimer then hideTimer:Cancel() end
+	hideTimer = C_Timer.NewTimer(30, function() hideTimer = nil; SP:HideReadyCheckPanel() end)
+end
+
+-- reason: "readycheck", "instance", "manual", "rez" (alive again)
 function SP:RunReadyCheckSweep(reason)
 	local c = cfg()
 	if (not c.enabled or SP:IsOff()) and reason ~= "manual" then return end   -- /sp check still answers when switched off
-	local list = collect()
-	if #list == 0 then
+	-- a ghost run back into an instance: the check after the resurrection is the
+	-- one list (the entering check would be a second one a moment later)
+	if reason == "instance" and rezCovers and rezCovers() then return end
+	-- alive again: read the shield fresh (one read, nothing kept from the life before)
+	if reason == "rez" and SP.ScanPlayerShield and not SP:IsOff() then SP:ScanPlayerShield() end
+	local list, unknown = collect()
+	if #list == 0 and #unknown == 0 then
 		if reason == "manual" then print(TAG .. "nothing missing.") end
 		if panel and panel:IsShown() then SP:HideReadyCheckPanel() end
 		return
 	end
-	if c.showChat then
-		local parts = {}
-		for _, item in ipairs(list) do parts[#parts + 1] = item[2] end
-		print(TAG .. GOLD .. "missing:|r " .. table.concat(parts, ", "))
+	-- /sp check always answers in chat, as "nothing missing" does
+	if c.showChat or (reason == "manual" and #list == 0) then
+		local line = TAG
+		if #list > 0 then line = line .. GOLD .. "missing:|r " .. names(list) end
+		if #unknown > 0 then
+			line = line .. (#list > 0 and "; " or "") .. "could not check (the game hides it right now): " .. names(unknown)
+		end
+		print(line)
 	end
-	if c.playSound and SP.GetSoundFile then
-		pcall(SP.PlaySoundWithVolume, SP, SP:GetSoundFile(c.soundName), nil, true)
-	end
+	-- the sound means something to put back: not for checks that only could not run
+	if #list > 0 then playListSound(c) end
 	if c.showPanel then
 		local f = SP:ReadyCheckFrame()
 		applyLook(f)
-		sweepTitle = reason == "readycheck" and "Ready check: you are missing" or "You are missing"
-		layout(sweepTitle, list)
+		sweepReason = reason
+		layout(titleFor(reason, #list > 0), list, unknown)
 		f:Show()
 		startWatching()
-		if hideTimer then hideTimer:Cancel() end
 		-- a ready check hides at READY_CHECK_FINISHED; the others after a while
-		if reason ~= "readycheck" then hideTimer = C_Timer.NewTimer(30, function() hideTimer = nil; SP:HideReadyCheckPanel() end) end
+		if reason ~= "readycheck" then
+			hideLater()
+		elseif hideTimer then
+			hideTimer:Cancel(); hideTimer = nil
+		end
 	end
+end
+
+-- Brought back in a fight with "Show a Short Reminder": a reminder that claims
+-- nothing about what is missing (the full check follows once the fight ends).
+local function showRezReminder()
+	local c = cfg()
+	if c.showChat then print(TAG .. "resurrected in a fight: check your shield and weapon imbues") end
+	playListSound(c)
+	if not c.showPanel then return end
+	stopWatching()   -- it never changes on its own
+	local f = SP:ReadyCheckFrame()
+	applyLook(f)
+	sweepReason = "rezfight"
+	reminderLayout()
+	f:Show()
+	hideLater()
 end
 
 -- Settings preview / Unlock UI: sample rows, never hidden by the sweep's timers.
@@ -439,11 +625,17 @@ function SP:ReadyCheckDemo(on)
 	else
 		self.readyCheckDemoActive = nil
 		-- a real list that was up under the sample (a ready check still running) comes back
-		if sweepTitle then
-			local list = collect()
-			if #list > 0 then
+		if sweepReason == "rezfight" then
+			applyLook(f)
+			reminderLayout()
+			f:Show()
+			return
+		end
+		if sweepReason then
+			local list, unknown = collect()
+			if #list > 0 or #unknown > 0 then
 				applyLook(f)
-				layout(sweepTitle, list)
+				layout(titleFor(sweepReason, #list > 0), list, unknown)
 				f:Show()
 				startWatching()
 				return
@@ -496,7 +688,8 @@ end
 
 -- atLogin: warn about every missing one; otherwise only a change from present to missing
 local function checkItems(atLogin)
-	if not (ITEMS_NEEDED and cfg().itemWarn) or SP:IsOff() then return end
+	-- (nothing while the sweep is switched off: the sidebar switch turns the whole page off)
+	if not (ITEMS_NEEDED and cfg().itemWarn and cfg().enabled) or SP:IsOff() then return end
 	for element = 1, 4 do
 		if elementKnown(element) then
 			local n = itemCount(TOTEM_ITEMS[element])
@@ -539,7 +732,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 	elseif event == "UI_ERROR_MESSAGE" then
 		-- "Requires Water Totem": only when the message is readable
 		local msg = a2
-		if not cfg().itemWarn or type(msg) ~= "string" or secret(msg) then return end
+		if not (cfg().itemWarn and cfg().enabled) or type(msg) ~= "string" or secret(msg) then return end
 		for element = 1, 4 do
 			local name = GetItemNameC(TOTEM_ITEMS[element])
 			if type(name) == "string" and name ~= "" and msg:find(name, 1, true) then
@@ -557,8 +750,123 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 	end
 end)
 
--- switched off: a list that is up goes away with the rest
-SP:OnOnOff(function(off) if off then SP:HideReadyCheckPanel() end end)
+-- ---------------------------------------------------------------------------
+-- Check After Resurrection (opt-in): once you are alive again, the same check.
+-- Three events that only come around a death; the end of a fight is listened
+-- to only while a check waits for it. One settling timer per resurrection
+-- (PLAYER_ALIVE and PLAYER_UNGHOST can both come for one), and dying again
+-- cancels whatever was waiting. Nothing hidden is read in a fight: there it
+-- waits for the fight to end, or shows a reminder that names nothing missing.
+-- ---------------------------------------------------------------------------
+local REZ_SETTLE = 2     -- seconds for your auras, mana and the shield read to settle
+local FIGHT_SETTLE = 3   -- after a fight: the game shows your buffs again about 2 seconds after it ends
+local rezTimer           -- the settling timer
+local rezWaiting         -- the check waits for the fight to end
+local rezReminded        -- the short reminder was shown for this resurrection
+local deadSeen           -- you died (or logged in dead) and have not been checked since
+local rezSweptAt         -- when the check after a resurrection last ran
+local rezLoad            -- the last loading screen began dead, as a ghost, or with that check on its way
+local REZ_COVERS = 5     -- seconds a just-run check still counts as on its way when a loading screen begins
+
+local rezFrame = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(rezFrame, "Ready Check (resurrection)") end
+
+local function aliveNow()
+	local ok, dead = pcall(UnitIsDeadOrGhost, "player")
+	return ok and not secret(dead) and not dead
+end
+
+local function rezOn()
+	local c = cfg()
+	return c.enabled and c.onResurrect and not SP:IsOff()
+end
+
+local function stopRez()
+	if rezTimer then rezTimer:Cancel(); rezTimer = nil end
+	rezWaiting, rezReminded = nil, nil
+	rezFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+end
+
+local function rezSettled()
+	rezTimer = nil
+	if not rezOn() then
+		stopRez()
+		if aliveNow() then deadSeen = nil end
+		return
+	end
+	-- PLAYER_ALIVE also comes on releasing your spirit: a ghost waits for PLAYER_UNGHOST
+	if not aliveNow() then return end
+	deadSeen = nil
+	if InCombatLockdown() then
+		-- brought back in a fight: the check waits for its end
+		if cfg().resurrectInFight == "remind" and not rezReminded then
+			rezReminded = true
+			showRezReminder()
+		end
+		rezWaiting = true
+		rezFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	stopRez()
+	rezSweptAt = GetTime()
+	SP:RunReadyCheckSweep("rez")
+end
+
+-- (RunReadyCheckSweep) a ghost that runs back into an instance comes back to life
+-- as it enters: that resurrection's check covers the entering check
+rezCovers = function()
+	if not rezOn() then return false end
+	if rezTimer or rezWaiting then return true end              -- on its way
+	if deadSeen and not aliveNow() then return true end         -- still a ghost: it comes once you are alive
+	if rezLoad then rezLoad = nil; return true end   -- this loading screen began as a ghost run back (that one entering check)
+	return false
+end
+
+local function startRezSettle(seconds)
+	if rezTimer then rezTimer:Cancel() end
+	rezTimer = C_Timer.NewTimer(seconds or REZ_SETTLE, rezSettled)
+end
+
+rezFrame:RegisterEvent("PLAYER_DEAD")
+rezFrame:RegisterEvent("PLAYER_ALIVE")
+rezFrame:RegisterEvent("PLAYER_UNGHOST")
+rezFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+rezFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
+rezFrame:SetScript("OnEvent", function(_, event)
+	if event == "PLAYER_DEAD" then
+		diedAt, deadSeen = GetTime(), true
+		stopRez()
+		-- what was listed for the life before goes with it
+		if sweepReason == "rez" or sweepReason == "rezfight" then SP:HideReadyCheckPanel() end
+	elseif event == "PLAYER_ALIVE" or event == "PLAYER_UNGHOST" then
+		if not deadSeen then return end   -- (PLAYER_ALIVE can come at login too)
+		if rezOn() then startRezSettle() elseif aliveNow() then deadSeen = nil end
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		if rezWaiting then
+			rezWaiting = nil
+			rezFrame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+			startRezSettle(FIGHT_SETTLE)
+		end
+	elseif event == "PLAYER_LEAVING_WORLD" then
+		-- a loading screen begins: a ghost running back in (or a check after a resurrection on its
+		-- way) makes that check the one list for the instance entered; any other trip is checked as usual
+		rezLoad = (deadSeen and not aliveNow()) or rezTimer ~= nil or rezWaiting == true
+			or (rezSweptAt ~= nil and GetTime() - rezSweptAt < REZ_COVERS)
+	elseif event == "PLAYER_ENTERING_WORLD" then
+		-- logged in, or through a loading screen, dead or as a ghost
+		if not aliveNow() then deadSeen = true end
+	end
+end)
+
+-- For testing without dying: act as if you were just brought back (your death
+-- is not recorded, so your shield reads as it really is).
+function SP:ReadyCheckTestResurrection()
+	deadSeen = true
+	if rezOn() then startRezSettle() end
+end
+
+-- switched off: a list that is up goes away with the rest, and nothing waits
+SP:OnOnOff(function(off) if off then SP:HideReadyCheckPanel(); stopRez() end end)
 
 -- ---------------------------------------------------------------------------
 -- Options: Modules > Ready Check
@@ -588,6 +896,18 @@ if fluffy and fluffy.args then
 				desc = "Check the moment someone starts a ready check." },
 			onEnterInstance = { order = 12, type = "toggle", name = "On Entering a Dungeon or Raid", width = 1.5, disabled = off, get = get("onEnterInstance"), set = set("onEnterInstance"),
 				desc = "Check a few seconds after you enter an instance." },
+			onResurrect = { order = 12.5, type = "toggle", name = "Check After Resurrection", width = 1.5, disabled = off,
+				get = get("onResurrect"), set = set("onResurrect"),
+				desc = "When you come back to life (someone resurrects you, you use Reincarnation, or you release and run back),"
+					.. " check what you need to put back before the next pull: your shield, weapon imbues and anything else on under"
+					.. " What to Check. It shows the way you picked under How to Show It." },
+			resurrectInFight = { order = 12.6, type = "select", name = "During a Fight", width = 1.5,
+				values = { wait = "Wait Until the Fight Ends", remind = "Show a Short Reminder" }, sorting = { "wait", "remind" },
+				hidden = function() return not cfg().onResurrect end, disabled = off,
+				get = get("resurrectInFight"), set = set("resurrectInFight"),
+				desc = "Brought back in the middle of a fight: wait and check once the fight is over, or right away show"
+					.. " \"Check your shield and weapon imbues\" and still check once the fight is over. The reminder never says"
+					.. " what is missing." },
 			checkNow = { order = 13, type = "execute", name = "Check Now", width = 1,
 				desc = "Run the check right now (same as /sp check).",
 				func = function() SP:RunReadyCheckSweep("manual") end },
@@ -645,7 +965,7 @@ if fluffy and fluffy.args then
 		{ header = "items_header", name = "Totem Items", keys = { "itemWarn", "itemWarnScreen" } },
 		{ header = "look_header", name = "Look", keys = { "panelScale", "panelOpacity" },
 			names = { panelScale = "Scale", panelOpacity = "Background Opacity" } },
-		{ header = "when_header", name = "Behavior", keys = { "onReadyCheck", "onEnterInstance" } },
+		{ header = "when_header", name = "Behavior", keys = { "onReadyCheck", "onEnterInstance", "onResurrect", "resurrectInFight" } },
 		{ header = "sound_header", name = "Sound", keys = { "playSound", "soundName", "testSound" },
 			names = { playSound = "Play Sound" } },
 		{ header = "position_header", name = "Position", keys = { "resetPos" },

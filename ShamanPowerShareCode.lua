@@ -38,11 +38,33 @@ local function O() return SP.opt or {} end
 local function sub(t, k) return type(t) == "table" and t[k] or nil end
 local function G(name) return rawget(_G, name) end
 local function on(v) return v == true end
+-- Shield Charges (3.0.8): on for any shield (each shield owns its settings)
+local function anyShield(...)
+	local s = O().shieldChargeDisplay
+	for i = 1, select("#", ...) do if on(sub(s, (select(i, ...)))) then return true end end
+	return false
+end
+-- the Cooldown Bar's per-item settings (ShamanPowerCdItems.lua): one item's value, or on for any item
+local function item(t, name) return SP.CdItemOpt and SP.opt and SP:CdItemOpt(t, name) end
+local function anyItem(name) return SP.CdItemAny and SP.opt and SP:CdItemAny(name) or false end
 local function notOff(v) return v ~= nil and v ~= false end   -- "on unless switched off", set tables only
 local function changed(v) return v ~= nil and v ~= "default" end   -- a look picked away from its default
 local function anyTrue(t)
 	if type(t) ~= "table" then return false end
 	for _, v in pairs(t) do if v then return true end end
+	return false
+end
+-- Expiring Alerts' totem settings (3.0.8: each element has its own value, else the shared one): on
+-- for any element. shared(totems): today's read of the shared key, when the module's per-alert
+-- reader is not there
+local EA_ELEMENTS = { "earth", "fire", "water", "air" }
+local function anyTotemAlert(name, shared)
+	local sv = G("ShamanPowerExpiringAlertsDB")
+	if type(sv) ~= "table" then return false end
+	if not SP.ExpiringAlertOpt then return shared(sub(sv, "totems")) end
+	for _, k in ipairs(EA_ELEMENTS) do
+		if SP:ExpiringAlertOpt(k, name) == true then return true end
+	end
 	return false
 end
 
@@ -70,12 +92,12 @@ SP.SHARE_FEATURES = {
 	{ key = "customTexture",      label = "Custom bar texture chosen",          get = function() return O().barTexture ~= nil or anyTrue(O().barTextureAreas) end },
 	{ key = "compactTexture",     label = "Compact line texture set",           get = function() return O().compactLineTexture ~= nil end },
 	{ key = "popOuts",            label = "Pop-out trackers in use",            get = function() return anyTrue(O().poppedOut) end },
-	{ key = "totemicCallOnBar",   label = "Totemic Call on the totem bar",      get = function() return on(O().totemicCallOnTotemBar) end },
+	{ key = "totemicCallOnBar",   label = "Totemic Call on the totem bar",      get = function() return on(item(2, "onTotemBar")) end },
 	{ key = "twistSound",         label = "Twist sound",                        get = function() return on(O().twistSoundEnabled) end },
 	{ key = "keybindsFlyoutKeys", label = "Flyouts open from bar keys",         get = function() return on(O().flyoutRouteBarKeys) end },
 	-- Modules
 	{ key = "esTracker",          label = "Earth Shield tracker",               get = function() return on(sub(O().esTracker, "enabled")) end },
-	{ key = "shieldChargesSelf",  label = "Shield charges (own shield)",        get = function() return on(sub(O().shieldChargeDisplay, "showPlayerShield")) end },
+	{ key = "shieldChargesSelf",  label = "Shield charges (own shield)",        get = function() return anyShield("showLS", "showWS") end },   -- (3.0.8: one switch per shield)
 	{ key = "shieldChargesES",    label = "Shield charges (Earth Shield)",      get = function() return on(sub(O().shieldChargeDisplay, "showEarthShield")) end },
 	{ key = "reactive",           label = "Reactive totems",                    get = function() return on(sub(G("ShamanPower_ReactiveTotems"), "enabled")) end },
 	{ key = "readyReminders",     label = "Ready reminders",                    get = function() return on(sub(G("ShamanPower_ReadyReminders"), "enabled")) end },
@@ -83,11 +105,12 @@ SP.SHARE_FEATURES = {
 	{ key = "expiringShields",    label = "Expiring alerts: shields",           get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "shields"), "enabled")) end },
 	{ key = "expiringTotems",     label = "Expiring alerts: totems",            get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "enabled")) end },
 	{ key = "expiringImbues",     label = "Expiring alerts: weapon imbues",     get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "weaponImbues"), "enabled")) end },
-	{ key = "totemDestroyed",     label = "Totem destroyed alert",              get = function() return notOff(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyed")) end },
-	{ key = "destroyedChat",      label = "Destroyed: chat line",               get = function() return notOff(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyedChat")) end },
-	{ key = "destroyedCenter",    label = "Destroyed: big text",                get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyedCenter")) end },
-	{ key = "destroyedParty",     label = "Destroyed: group chat",              get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "destroyedParty")) end },
-	{ key = "totemExpired",       label = "Totem expired alert",                get = function() return on(sub(sub(G("ShamanPowerExpiringAlertsDB"), "totems"), "expired")) end },
+	-- (3.0.8: each element's own value, else the shared one: on for any element)
+	{ key = "totemDestroyed",     label = "Totem destroyed alert",              get = function() return anyTotemAlert("destroyed", function(t) return notOff(sub(t, "destroyed")) end) end },
+	{ key = "destroyedChat",      label = "Destroyed: chat line",               get = function() return anyTotemAlert("destroyedChat", function(t) return notOff(sub(t, "destroyedChat")) end) end },
+	{ key = "destroyedCenter",    label = "Destroyed: big text",                get = function() return anyTotemAlert("destroyedCenter", function(t) return on(sub(t, "destroyedCenter")) end) end },
+	{ key = "destroyedParty",     label = "Destroyed: group chat",              get = function() return anyTotemAlert("destroyedParty", function(t) return on(sub(t, "destroyedParty")) end) end },
+	{ key = "totemExpired",       label = "Totem expired alert",                get = function() return anyTotemAlert("expired", function(t) return on(sub(t, "expired")) end) end },
 	{ key = "tremor",             label = "Tremor reminder",                    get = function() return on(sub(G("ShamanPowerTremorReminderDB"), "enabled")) end },
 	{ key = "partyDots",          label = "Party buff dots",                    get = function() return on(O().showPartyRangeDots) end },
 	{ key = "rangeCounters",      label = "Party range counters",               get = function() return on(sub(O().rangeCounter, "enabled")) end },
@@ -122,20 +145,23 @@ SP.SHARE_FEATURES = {
 	end },
 	{ key = "coverageFreeCells",  label = "Coverage: one box per totem",        get = function() return on(sub(O().coverage, "freeCells")) end },
 	-- 3.0.3: Shield Charges looks, the cooldown bar's shield charge bar, the bar Effects
-	{ key = "shieldChargesIcon",  label = "Shield charges: shield icon",        get = function() return on(sub(O().shieldChargeDisplay, "showIcon")) end },
-	{ key = "shieldChargesBar",   label = "Shield charges: charge bar",         get = function() return on(sub(O().shieldChargeDisplay, "showChargeBar")) end },
+	{ key = "shieldChargesIcon",  label = "Shield charges: shield icon",        get = function() return anyShield("showIconLS", "showIconWS", "showIconES") end },
+	{ key = "shieldChargesBar",   label = "Shield charges: charge bar",         get = function() return anyShield("showChargeBarLS", "showChargeBarWS", "showChargeBarES") end },
 	{ key = "shieldChargesCorner", label = "Shield charges: number in the corner", get = function()
 		local s = O().shieldChargeDisplay
-		return on(sub(s, "showIcon")) and sub(s, "numberPosition") == "corner" and sub(s, "showNumber") ~= false
+		for _, sh in ipairs({ "LS", "WS", "ES" }) do   -- (3.0.8: each shield its own)
+			if on(sub(s, "showIcon" .. sh)) and sub(s, "numberPosition" .. sh) == "corner" and sub(s, "showNumber" .. sh) ~= false then return true end
+		end
+		return false
 	end },
-	{ key = "cdbarShieldBar",     label = "Cooldown bar: shield charge bar",    get = function() return on(O().cdbarShieldChargeBar) end },
-	{ key = "cdbarShieldNoCount", label = "Cooldown bar: shield count hidden",  get = function() return O().cdbarShowShieldCount == false end },
+	{ key = "cdbarShieldBar",     label = "Cooldown bar: shield charge bar",    get = function() return on(item(1, "chargeBar")) end },
+	{ key = "cdbarShieldNoCount", label = "Cooldown bar: shield count hidden",  get = function() return item(1, "chargeCount") == false end },
 	{ key = "cueTotemDestroyed",  label = "Effect: totem destroyed",            get = function() return on(O().totemCueDestroyed) end },
 	{ key = "cueTotemExpired",    label = "Effect: totem expired",              get = function() return on(O().totemCueExpired) end },
 	{ key = "cueTotemExpiring",   label = "Effect: totem expiring soon",        get = function() return on(O().totemCueExpiring) end },
-	{ key = "cueCooldownReady",   label = "Effect: cooldown ready",             get = function() return on(O().cdbarCueReady) end },
-	{ key = "cueImbueGone",       label = "Effect: weapon imbue gone",          get = function() return on(O().cdbarCueImbue) end },
-	{ key = "cueShieldGone",      label = "Effect: shield gone",                get = function() return on(O().cdbarCueShield) end },
+	{ key = "cueCooldownReady",   label = "Effect: cooldown ready",             get = function() return on(anyItem("cueReady")) end },
+	{ key = "cueImbueGone",       label = "Effect: weapon imbue gone",          get = function() return on(item(7, "cueGone")) end },
+	{ key = "cueShieldGone",      label = "Effect: shield gone",                get = function() return on(item(1, "cueGone")) end },
 	{ key = "coverageDots",       label = "Coverage: dots instead of names",    get = function() return on(sub(O().coverage, "dots")) end },
 	{ key = "partyDotsMissing",   label = "Party dots: only who's missing",     get = function() return on(O().partyDotsMissingOnly) end },
 	{ key = "coverageDotsMissing", label = "Coverage dots: only who's missing", get = function() return on(sub(O().coverage, "dotsMissingOnly")) end },
@@ -196,7 +222,81 @@ SP.SHARE_FEATURES = {
 		for _, k in ipairs({ "fs", "frs", "ss", "purge" }) do if on(sub(sub(spells, k), "everyPlate")) then return true end end
 		return false
 	end },
+	-- 3.0.7
 	{ key = "dropAllIcon",        label = "Drop All: a picked icon",             get = function() return O().dropAllIcon ~= nil end },
+	{ key = "totemRows",          label = "Totem Rows on",                       get = function() return on(O().totemRows) end },
+	{ key = "totemRowsBarHidden", label = "Totem Rows: bar hidden",              get = function() return O().rowsShowBar == false and on(O().totemRows) end },
+	{ key = "nextShock",          label = "Target Tracker: Next Shock",          get = function()
+		return on(sub(G("ShamanPower_TargetTracker"), "enabled")) and on(sub(sub(sub(G("ShamanPower_TargetTracker"), "spells"), "ns"), "on"))
+	end },
+	-- (Keep Flyouts on Main Totem Bar: only while the main bar shows)
+	{ key = "totemRowsKeepFlyouts", label = "Totem Rows: flyouts kept on the bar", get = function()
+		return on(O().totemRows) and on(O().rowsKeepFlyouts) and O().rowsShowBar ~= false
+	end },
+	-- 3.0.8: Ready Reminders Fade Instead of Hide (the page's default, or any icon's own)
+	{ key = "readyRemindersFade", label = "Ready reminders: fade instead of hide", get = function()
+		local sv = G("ShamanPower_ReadyReminders")
+		if on(sub(sv, "fadeInsteadOfHide")) then return true end
+		local icons = sub(sv, "icons")
+		if type(icons) == "table" then
+			for _, own in pairs(icons) do if on(sub(own, "fadeInsteadOfHide")) then return true end end
+		end
+		return false
+	end },
+	-- (only while the sweep itself is on: its default is on for Forever, off elsewhere)
+	{ key = "readyCheckRez",      label = "Ready check after resurrection",     get = function()
+		local c = O().readyCheck
+		if type(c) ~= "table" or c.onResurrect ~= true then return false end
+		if c.enabled ~= nil then return c.enabled == true end
+		return SPCompat.FOREVER
+	end },
+	-- 3.0.8: Show Spell Keybind (the key under each Reactive Totems alert's totem name)
+	{ key = "reactiveKeybinds",   label = "Reactive alerts show keybinds",       get = function()
+		local sv = G("ShamanPower_ReactiveTotems")
+		if not on(sub(sv, "enabled")) then return false end
+		-- (3.0.8: each alert's own value, else the shared one: on for any alert)
+		if SP.ReactiveAnyKeybind then return SP:ReactiveAnyKeybind() == true end
+		return on(sub(sv, "showSpellKeybind"))
+	end },
+	-- 3.0.8: Totem Bar > Clicks > Right-Click an Assignment = Clear Assignment
+	{ key = "assignRightClickClears", label = "Assignment window: right-click clears", get = function() return O().assignRightClick == "clear" end },
+	-- 3.0.8: the Party Strip (Party Buff Tracker > Party Strip: one buff, one marker per party member)
+	{ key = "partyStrip",         label = "Party buff strip",                    get = function() return on(sub(O().partyStrip, "enabled")) end },
+	-- 3.0.8: Ready Reminders, your buff on its icon (D52: the page's default, or any icon's own look)
+	{ key = "readyRemindersBuff", label = "Ready reminders: your buff on its icon", get = function()
+		local sv = G("ShamanPower_ReadyReminders")
+		local function shown(v) return type(v) == "string" and v ~= "off" end
+		if shown(sub(sv, "buffLook")) then return true end
+		local icons = sub(sv, "icons")
+		if type(icons) == "table" then
+			for _, own in pairs(icons) do if shown(sub(own, "buffLook")) then return true end end
+		end
+		return false
+	end },
+	-- 3.0.8: the cooldown bar's shield button, Right-Click Casts Your Other Shield
+	{ key = "shieldRightClickOther", label = "Cooldown bar: right-click casts the other shield", get = function()
+		return on(item(1, "rightClickOther")) and O().showCooldownBar == true and O().cdbarShowShields ~= false
+	end },
+	-- 3.0.8 (alpha): Totem Bar > Effects > Put Your Usual Totem Back
+	{ key = "usualTotemReminder", label = "Return to usual totem reminder",   get = function() return on(O().usualTotemReminder) end },
+	-- 3.0.8: the cooldown bar's running-out moment
+	{ key = "cdbarRunOutOnly",    label = "Cooldown bar: only items running out", get = function() return on(anyItem("runOutOnly")) end },
+	{ key = "cueRunningOut",      label = "Effect: running out",                get = function() return on(anyItem("cueRunning")) end },
+	{ key = "cueTimeRed",         label = "Effect: time turns red",             get = function() return on(anyItem("cueTimeColor")) end },
+	{ key = "cueAlmostReady",     label = "Effect: cooldown almost ready",      get = function() return on(anyItem("cueAlmost")) end },
+	{ key = "cueRedXCooldownBar", label = "Effect: red X on imbue / shield",    get = function()
+		return (on(item(7, "cueGone")) and on(item(7, "cueMark"))) or (on(item(1, "cueGone")) and on(item(1, "cueMark")))
+	end },
+	{ key = "cueMissingRed",      label = "Effect: red while shield / imbue missing", get = function() return on(anyItem("cueMissing")) end },
+	-- 3.0.8: the Party Strip broken up (Break Up Totem List: each picked totem a strip of its own)
+	{ key = "partyStripBreakUp",  label = "Party strip: broken up per totem",    get = function()
+		local ps = O().partyStrip
+		if not (on(sub(ps, "enabled")) and on(sub(ps, "breakUp"))) then return false end
+		local picked, n = sub(ps, "totems"), 0
+		if type(picked) ~= "table" then return false end   -- (still the one old Buff to Watch)
+		for _, v in pairs(picked) do if v == true then n = n + 1 end end
+		return n > 1
+	end },
 }
 
 -- ---------------------------------------------------------------------------

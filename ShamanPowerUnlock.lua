@@ -24,6 +24,7 @@ local SP = ShamanPower
 if not SP then return end
 
 local ACTIVE = false
+local session = 0       -- counts each time the mode comes on: a box's Reset question belongs to one
 local onlyKey           -- the one module unlocked by itself (a "move these" button), else nil
 local shown = {}        -- mover keys that are up
 local demos = {}        -- registry keys whose Demo(true) was called
@@ -62,17 +63,28 @@ if SP.RegisterPreview and SP.PreviewRegistry and not SP.PreviewRegistry.loadoutb
 end
 
 local MODULES = {
-	{ key = "shieldcharges", label = "Shield Charges", labels = { "Shield Charges", "Earth Shield Charges" },
-		-- the real frames only: the preview's own Water Shield frame (the settings
-		-- preview draws Water apart; in play it shows in the player frame) got a box
-		-- named "Earth Shield Charges", and the real Earth frame "Shield Charges 3"
+	{ key = "shieldcharges", label = "Shield Charges", labels = { "Lightning Shield Charges", "Water Shield Charges", "Earth Shield Charges" },
+		resetOne = "ResetShieldChargeFramePosition",   -- a box's Reset: its own shield's spot (Reset All: every one)
+		-- the real frames only, one box per shield that is shown (3.0.8: each shield has
+		-- its own spot; Lightning and Water Shield start on the same one, today's)
 		frames = function()
 			if not (SP.shieldChargeFrames and SP.shieldChargeFrames.player) and SP.CreateShieldChargeDisplays then SP:CreateShieldChargeDisplays() end
-			local f, s, out = SP.shieldChargeFrames or {}, SP.opt.shieldChargeDisplay, {}
-			if f.player and (not s or s.showPlayerShield ~= false) then
-				f.player.spMoverLabel = "Shield Charges"
+			local f, out = SP.shieldChargeFrames or {}, {}
+			if f.player and SP:ShieldOpt("LS", "enabled") then
+				f.player.spMoverLabel = "Lightning Shield Charges"
 				out[#out + 1] = f.player
 			end
+			if f.water and SP:ShieldOpt("WS", "enabled") then
+				f.water.spMoverLabel = "Water Shield Charges"
+				out[#out + 1] = f.water
+				-- both on the same spot (as they start): one name on the two boxes, so it reads
+				-- clearly; dragging the top one apart gives each its own spot
+				if out[1] == f.player and SP:ShieldOpt("LS", "x") == SP:ShieldOpt("WS", "x") and SP:ShieldOpt("LS", "y") == SP:ShieldOpt("WS", "y") then
+					f.player.spMoverLabel = "Lightning / Water Shield Charges"
+					f.water.spMoverLabel = "Lightning / Water Shield Charges"
+				end
+			end
+			local s = SP.opt.shieldChargeDisplay
 			if f.earth and not ShamanPower.ESTrackerUnavailable and s and s.showEarthShield == true then
 				f.earth.spMoverLabel = "Earth Shield Charges"
 				out[#out + 1] = f.earth
@@ -80,18 +92,15 @@ local MODULES = {
 			return out
 		end,
 		reset = function()
-			local s = SP.opt.shieldChargeDisplay
-			if not s then return end
-			s.playerShieldX, s.playerShieldY, s.earthShieldX, s.earthShieldY = nil, nil, nil, nil
-			local f = SP.shieldChargeFrames
-			if f and f.player then f.player:ClearAllPoints(); f.player:SetPoint("CENTER", UIParent, "CENTER", -50, -100) end
-			if f and f.earth then f.earth:ClearAllPoints(); f.earth:SetPoint("CENTER", UIParent, "CENTER", 50, -100) end
+			if not SP.ResetShieldSpot then return end
+			for which = 1, 3 do SP:ResetShieldSpot(which) end
 		end,
 		enabled = function()
+			if not SP.ShieldOpt then return false end
 			local s = SP.opt.shieldChargeDisplay
-			return not s or s.showPlayerShield ~= false or s.showEarthShield == true
+			return SP:ShieldOpt("LS", "enabled") or SP:ShieldOpt("WS", "enabled") or (s and s.showEarthShield == true) or false
 		end },
-	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions",
+	{ key = "readyreminders", label = "Ready Reminder", reset = "ResetReadyReminderPositions", resetOne = "ResetReadyReminderPosition",
 		-- only the reminders that are switched on get a box (Grid placement: one box for the block)
 		frames = function() return SP.ReadyReminderMoverFrames and SP:ReadyReminderMoverFrames() or {} end,
 		enabled = function() local d = DB("ShamanPower_ReadyReminders"); return not d or d.enabled ~= false end },
@@ -105,6 +114,7 @@ local MODULES = {
 			if pos and point then pos:ClearAllPoints(); pos:SetPoint(point, UIParent, point, x, y) end
 		end },
 	{ key = "reactive", label = "Reactive Totem", labels = { "Reactive: Fear", "Reactive: Poison", "Reactive: Disease" }, reset = "ResetReactiveTotemPositions",
+		resetOne = "ResetReactiveTotemPosition",
 		enabled = function() local d = DB("ShamanPower_ReactiveTotems"); return not d or d.enabled ~= false end },
 	{ key = "tremor", label = "Tremor Reminder", reset = "TremorReminderReset",
 		enabled = function() local d = DB("ShamanPowerTremorReminderDB"); return not d or d.enabled ~= false end },
@@ -122,7 +132,7 @@ local MODULES = {
 			return out
 		end,
 		labels = { "Range: Earth", "Range: Fire", "Range: Water", "Range: Air" } },
-	{ key = "coverage", label = "Totem Coverage", reset = "ResetCoveragePositions",
+	{ key = "coverage", label = "Totem Coverage", reset = "ResetCoveragePositions", resetOne = "ResetCoverageCellPosition",
 		enabled = function() return SP.opt.coverage and SP.opt.coverage.enabled and true or false end,
 		frames = function()
 			local f = SP.CreateCoverageFrame and SP:CreateCoverageFrame()
@@ -154,6 +164,22 @@ local MODULES = {
 -- Files that load later (Ready Check) add their own entries here.
 SP.UnlockModules = MODULES
 
+-- One Shield Charges box's Reset: that shield back on its starting spot, the others stay
+function SP:ResetShieldChargeFramePosition(frame)
+	if frame and frame.spWhich and SP.ResetShieldSpot then SP:ResetShieldSpot(frame.spWhich) end
+end
+
+-- the wheel over a shield's box: that shield's own Scale (Ctrl: its Opacity)
+local SHIELD_OF = { "LS", "WS", "ES" }
+function SP:ShieldBoxAccess(name, frame)
+	local shield = frame and SHIELD_OF[frame.spWhich or 0]
+	if not (shield and SP.ShieldOpt) then return nil end
+	local lo = (name == "opacity") and 0.1 or 0.5
+	local hi = (name == "opacity") and 1.0 or 3.0
+	return function() return SP:ShieldOpt(shield, name) end,
+		function(v) SP:SetShieldOpt(shield, name, v) end, lo, hi, 0.05, true
+end
+
 -- Movers resolve existing split-row pop-outs lazily; these registrations are
 -- never borrowed into a settings preview (the rows have secure children).
 for element, name in ipairs({ "earth", "fire", "water", "air" }) do
@@ -170,6 +196,30 @@ for element, name in ipairs({ "earth", "fire", "water", "air" }) do
 		end,
 		reset = function()
 			if SP.ResetGridRowPosition then SP:ResetGridRowPosition(index) end
+		end,
+	}
+end
+
+-- Totem Rows (ShamanPowerRows.lua): each row is a box of its own. The box covers
+-- the row and moves its spot (the row's first totem); a row that is off has none.
+-- Never borrowed into a settings preview either (the rows hold secure buttons).
+for element, name in ipairs({ "earth", "fire", "water", "air" }) do
+	local index = element
+	local key = "rows_" .. name
+	local function rowSpot()
+		return SP.GetTotemRowAnchor and SP:GetTotemRowAnchor(index)
+	end
+	if SP.RegisterPreview then SP:RegisterPreview(key, { frame = rowSpot }) end
+	MODULES[#MODULES + 1] = {
+		key = key, label = name:sub(1, 1):upper() .. name:sub(2) .. " Row",
+		enabled = function()
+			return SP.RowsActive and SP:RowsActive() and rowSpot() ~= nil
+		end,
+		save = function()
+			if SP.SaveTotemRowPosition then SP:SaveTotemRowPosition(index) end
+		end,
+		reset = function()
+			if SP.ResetTotemRowPosition then SP:ResetTotemRowPosition(index) end
 		end,
 	}
 end
@@ -193,7 +243,7 @@ end
 -- ---------------------------------------------------------------------------
 -- One blue box (reuses the bar mover) plus a small Reset button on it.
 -- ---------------------------------------------------------------------------
-local function AddReset(moverKey, resetFn)
+local function AddReset(moverKey, resetFn, label)
 	local mover = SP.barMovers and SP.barMovers[moverKey]
 	if not mover then return end
 	if not mover.spReset then
@@ -212,15 +262,31 @@ local function AddReset(moverKey, resetFn)
 			tip:Show()
 		end)
 		b:HookScript("OnLeave", function() (SP.Tooltip or GameTooltip):Hide() end)
+		-- asked first (a stray click lost a player's whole Ready Reminders layout, 2026-10-05)
 		b:SetScript("OnClick", function(self)
 			if InCombatLockdown() or not self.resetFn then return end
-			pcall(self.resetFn)
-			SP:RefreshUnlockBoxes()
-			C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
+			local fn, asked = self.resetFn, session
+			SP:ShowSPDialog({
+				key = "unlock_reset_one",
+				title = "Reset this position?",
+				text = ("Put %s back where it starts?\n\nThis resets its position only, not its settings."):format(self.spLabel or "this"),
+				buttons = {
+					{ text = "Reset", onClick = function()
+						-- only in the Unlock UI it was asked in: after Done, a trip to the settings
+						-- or another unlock it is void (a bar's Reset reads the profile in use as it runs)
+						if InCombatLockdown() or not ACTIVE or session ~= asked then return end
+						pcall(fn)
+						SP:RefreshUnlockBoxes()
+						C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
+					end },
+					{ text = "Cancel" },
+				},
+			})
 		end)
 		mover.spReset = b
 	end
 	mover.spReset.resetFn = resetFn
+	mover.spReset.spLabel = label
 	mover.spReset:SetShown(resetFn ~= nil)
 end
 
@@ -238,13 +304,14 @@ local function ArmMover(moverKey)
 	if m then m:EnableMouseWheel(true) end
 end
 
-local function ShowBox(moverKey, frame, label, save, resetFn)
+-- resetFn: the box's own Reset; resetAll: its module's whole reset (Reset All Positions)
+local function ShowBox(moverKey, frame, label, save, resetFn, resetAll)
 	if not (frame and frame.GetLeft) then return end
 	if not frame:IsShown() then forced[frame] = true; frame:Show() end
 	if not frame:GetLeft() then return end   -- still not laid out: nothing to put a box on
 	SP:ShowBarMover(moverKey, frame, MoverSize(frame), label, function() save(frame) end)
-	shown[moverKey] = { frame = frame, label = label, save = save, reset = resetFn }
-	AddReset(moverKey, resetFn)
+	shown[moverKey] = { frame = frame, label = label, save = save, reset = resetFn, resetAll = resetAll }
+	AddReset(moverKey, resetFn, label)
 	ArmMover(moverKey)
 end
 
@@ -257,7 +324,7 @@ function SP:RefreshUnlockBoxes()
 		elseif e.frame and e.frame:GetLeft() then
 			SP:ShowBarMover(moverKey, e.frame, MoverSize(e.frame), e.label, function() e.save(e.frame) end)
 		end
-		AddReset(moverKey, e.reset)
+		AddReset(moverKey, e.reset, e.label or (moverKey == "totembar" and "the totem bar") or (moverKey == "cooldownbar" and "the cooldown bar") or nil)
 		ArmMover(moverKey)
 	end
 end
@@ -545,22 +612,35 @@ end
 -- list's background only).
 local FX = {
 	totembar       = { page = { "fluffy", "totembar_appearance" },    size = { node = "buffscale" },           opacity = { node = "totemBarOpacity" } },
-	cooldownbar    = { page = { "fluffy", "cooldownbar_appearance" }, size = { node = "cooldownBarScale" },    opacity = { node = "cooldownBarOpacity" } },
-	shieldcharges  = { page = { "fluffy", "shieldcharges_section" },  size = { node = "shieldcharges_scale" }, opacity = { node = "shieldcharges_opacity" } },
+	cooldownbar    = { page = { "fluffy", "cdbar_page" }, size = { node = "cooldownBarScale" },    opacity = { node = "cooldownBarOpacity" } },
+	-- Shield Charges (3.0.8): each shield's box is that shield's own Scale and Opacity
+	shieldcharges  = { page = { "fluffy", "shieldcharges_section" },
+		size = { node = "shieldcharges_scale", byFrame = function(fr) return SP:ShieldBoxAccess("scale", fr) end },
+		opacity = { node = "shieldcharges_opacity", byFrame = function(fr) return SP:ShieldBoxAccess("opacity", fr) end } },
 	-- Ready Reminders (D40): every icon has its own Icon Size and Opacity (ReadyReminderBoxAccess)
 	readyreminders = { page = { "fluffy", "readyreminders_section" }, size = { rr = "size" }, opacity = { rr = "opacity" } },
 	expiring       = { page = { "fluffy", "expiringalerts_section" }, size = { node = "alerts_icon_size" } },
-	reactive       = { page = { "fluffy", "reactivetotems_section" }, size = { node = "reactive_icon_size" },  opacity = { node = "reactive_opacity" } },
+	-- Reactive Totems (3.0.8, A16): each alert's box is that alert's own Icon Size and Opacity
+	reactive       = { page = { "fluffy", "reactivetotems_section" },
+		size = { byFrame = function(fr) if SP.ReactiveBoxAccess then return SP:ReactiveBoxAccess("size", fr) end end },
+		opacity = { byFrame = function(fr) if SP.ReactiveBoxAccess then return SP:ReactiveBoxAccess("opacity", fr) end end } },
 	tremor         = { page = { "fluffy", "tremorreminder_section" }, size = { node = "tremor_icon_size" },    opacity = { node = "tremor_opacity" } },
 	partyrange     = { page = { "fluffy", "partybuff_section" },      size = { node = "partybuff_scale" },     opacity = { node = "partybuff_opacity" } },
 	coverage       = { page = { "fluffy", "coverage_section" },       size = { node = "coverage_icon_size" },  opacity = { node = "coverage_opacity" } },
+	-- the Party Strip: Ctrl + wheel is its Background Opacity (its markers always stay fully visible);
+	-- with Break Up Totem List the wheel is that strip's own Size (SP:PartyStripBoxAccess)
+	partystrip     = { page = { "fluffy", "partystrip_section" },     opacity = { node = "partystrip_opacity" },
+		size = { node = "partystrip_size", byFrame = function(fr) if SP.PartyStripBoxAccess then return SP:PartyStripBoxAccess(fr) end end } },
 	loadoutbar     = { page = { "fluffy", "loadoutbar_section" },     size = { node = "loadoutbar_scale" },    opacity = { node = "loadoutbar_opacity" } },
+	controller     = { page = { "fluffy", "controller_page" },        size = { node = "controller_scale" } },   -- (WoW: Forever only)
 	sprange        = { page = { "fluffy", "sprange_section" },        size = { node = "sprange_icon_size" },   opacity = { node = "sprange_opacity" } },
 	raidcd         = { page = { "fluffy", "raid_cd_section" },        size = { node = "raidCDButtonScale" },   opacity = { node = "raidCDButtonOpacity" } },
 	estracker      = { page = { "fluffy", "estrack_section" },        size = { node = "estrack_icon_size" },   opacity = { node = "estrack_opacity" } },
 	readycheck     = { page = { "fluffy", "readycheck_section" },     size = { node = "panelScale", under = "readycheck_section" } },
 	readyflash     = { page = { "fluffy", "readyreminders_section" }, size = { rr = "flashSize" } },
 	readyflashspell = { page = { "fluffy", "readyreminders_section" }, size = { rr = "flashSize" } },
+	-- a Ready Reminder's buff In Its Own Spot (D52): the wheel is its Size, right-click its icon's menu
+	readybuffspot  = { page = { "fluffy", "readyreminders_section" }, size = { rr = "buffOwnSize" } },
 	-- Target Tracker: the debuffs' spot (each spell has its own size: none here) and Purge's
 	ttdebuffs      = { page = { "fluffy", "targettracker_section" } },
 	ttpurge        = { page = { "fluffy", "targettracker_section" }, size = { min = 32, max = 128, step = 1,
@@ -571,13 +651,22 @@ local FX = {
 for _, name in ipairs({ "earth", "fire", "water", "air" }) do
 	local pop = "totem_" .. name
 	local function saved() return SP.opt.poppedOutSettings and SP.opt.poppedOutSettings[pop] end
-	FX["grid_" .. name] = { page = { "fluffy", "popout_section" }, pick = { node = "selected_tracker", value = pop },
+	FX["grid_" .. name] = { page = { "fluffy", "popout_section" }, popout = pop,
 		size = { pct = true, min = 0.5, max = 3, step = 0.05,
 			get = function() local s = saved(); return s and s.scale or SP.opt.poppedOutDefaultScale or 1 end,
 			set = function(v) SP:SetPopOutScale(pop, v) end },
 		opacity = { pct = true, min = 0.1, max = 1, step = 0.05,
 			get = function() local s = saved(); return s and s.opacity or 1 end,
 			set = function(v) SP:SetPopOutOpacity(pop, v) end } }
+end
+
+-- Totem Rows: the wheel is Row Icon Size (all four rows share it); right-click opens
+-- Totem Bar > Style, where its settings are
+for _, name in ipairs({ "earth", "fire", "water", "air" }) do
+	FX["rows_" .. name] = { page = { "settings", "settings_totemMode" },
+		size = { pct = true, min = 0.5, max = 2, step = 0.05, label = "Row Icon Size ",
+			get = function() return SP.opt.rowsScale or 1 end,
+			set = function(v) if SP.SetTotemRowsScale then SP:SetTotemRowsScale(v) end end } }
 end
 
 -- a box's module key: "unlock_<key>_<n>", or the two bars' own keys
@@ -616,6 +705,15 @@ local function Access(spec)
 		local fr = e and e.frame
 		if not (fr and SP.ReadyReminderBoxAccess) then return nil end
 		return SP:ReadyReminderBoxAccess(spec.rr, fr)
+	end
+	-- a box whose frame has a size of its own (a broken-up Party Strip); else the slider below
+	if spec.byFrame then
+		local e = accessMover and shown[accessMover.key]
+		local fr = e and e.frame
+		if fr then
+			local get, set, lo, hi, step, pct = spec.byFrame(fr)
+			if get then return get, set, lo, hi, step, pct end
+		end
 	end
 	local node = spec._node
 	if node == nil then node = FindOption(spec.node, spec.under) or false; spec._node = node end
@@ -1690,7 +1788,7 @@ function SP:UnlockBoxWheel(mover, delta)
 	Select(mover)
 	local text = mover.spLabel or ""
 	local g1, _, _, _, _, p1 = Access(fx.size)
-	if g1 then text = text .. "   " .. (p1 and "Scale " or "Size ") .. Fmt(g1(), p1) end
+	if g1 then text = text .. "   " .. (fx.size.label or (p1 and "Scale " or "Size ")) .. Fmt(g1(), p1) end
 	local g2, _, _, _, _, p2 = Access(fx.opacity)
 	if g2 then text = text .. "   Opacity " .. Fmt(g2(), p2) end
 	accessMover = nil
@@ -1718,16 +1816,14 @@ function SP:UnlockBoxClick(mover, button)
 	if fx and fx.page then
 		-- no settings module (switched off): nowhere to go. It says so; Unlock UI stays
 		if not rawget(_G, "ShamanPowerConfig") then self:OpenConfigWindow(fx.page) return end
-		-- a page that shows one of several (Pop-Out Trackers): this box's one first
-		local pick = fx.pick
-		local node = pick and FindOption(pick.node, nil, "select")
-		if node and type(node.set) == "function" then pcall(node.set, { pick.node, option = node }, pick.value) end
 		-- a Ready Reminder icon's own box (free placement) carries its catalog key;
-		-- the Grid block's box has none: the plain page
-		local rrKey
-		local e = mod == "readyreminders" and shown[mover.key]
+		-- the Grid block's box has none: the plain page. A pop-out tracker's box (a split
+		-- Grid row): that tracker's menu on the Pop-Out Trackers page
+		local rrKey = fx.popout and { popout = fx.popout } or nil
+		local e = (mod == "readyreminders" or mod == "readybuffspot") and shown[mover.key]
 		local entry = e and e.frame and e.frame.entry
 		if entry then rrKey = entry.key end
+		if e and e.frame and e.frame.spBuffKey then rrKey = e.frame.spBuffKey end   -- (a buff's own spot: its icon's menu)
 		StartDrop(fx.page, rrKey)
 		return
 	end
@@ -1817,7 +1913,14 @@ function SP:UnlockSettingsPage(page, rrKey)
 	self.unlockOnDone, self.unlockReturnToConfig = nil, nil
 	TurnOff(true)   -- (its boxes have dropped away already)
 	local opened = false
-	if rrKey and type(self.ReadyReminderOpenIconMenu) == "function" then
+	if type(rrKey) == "table" then
+		-- a pop-out tracker's box: its menu on the Pop-Out Trackers page (ShamanPower_Config)
+		if rrKey.popout and type(self.PopOutOpenTrackerMenu) == "function" then
+			local ok = pcall(self.PopOutOpenTrackerMenu, self, rrKey.popout)
+			local w = SettingsWindow()
+			opened = ok and w ~= nil and w:IsShown()
+		end
+	elseif rrKey and type(self.ReadyReminderOpenIconMenu) == "function" then
 		local ok = pcall(self.ReadyReminderOpenIconMenu, self, rrKey)
 		local w = SettingsWindow()   -- (the call may have built the window)
 		opened = ok and w ~= nil and w:IsShown()
@@ -2137,8 +2240,15 @@ end
 
 function SP:ResetAllUnlockPositions()
 	if InCombatLockdown() then return end
+	-- each element's own whole reset, once: a box's Reset puts back only that box,
+	-- Reset All everything (the reminders switched off and the totems not watched too)
+	local done = {}
 	for _, e in pairs(shown) do
-		if e.reset then pcall(e.reset) end
+		local fn = e.resetAll or e.reset
+		if fn and not done[fn] then
+			done[fn] = true
+			pcall(fn)
+		end
 	end
 	self:RefreshUnlockBoxes()
 	C_Timer.After(0, function() SP:RefreshUnlockBoxes() end)   -- again once the moved frames are laid out
@@ -2195,7 +2305,8 @@ OffRest = function()
 	end
 	if BS.tab then BS.tab:Hide() end
 	if gridFrame then gridFrame:Hide(); gridFrame:SetAlpha(1) end
-	SP:HideSPDialog("unlock_reset_all")   -- its question is about the boxes just put away
+	SP:HideSPDialog("unlock_reset_all")   -- their questions are about the boxes just put away
+	SP:HideSPDialog("unlock_reset_one")
 	-- whoever opened the unlock (the setup tour) gets control back
 	if SP.unlockOnDone then
 		local fn = SP.unlockOnDone
@@ -2251,6 +2362,7 @@ function SP:SetMasterUnlock(on, only)
 	local back = enterBack
 	enterBack = false
 	ACTIVE = true
+	session = session + 1
 	onlyKey = only
 	self.unlockDemoAll = true   -- demos fill every frame they own, not just the one the wizard borrows
 	-- our own windows would sit on top of what is being moved: the settings window
@@ -2265,23 +2377,29 @@ function SP:SetMasterUnlock(on, only)
 	if ShamanPowerAssign and ShamanPowerAssign.Hide then pcall(ShamanPowerAssign.Hide, ShamanPowerAssign) end
 
 	local isShaman = select(2, UnitClass("player")) == "SHAMAN"
-	if only then isShaman = false end   -- one module only: the bars stay locked
-	if isShaman and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked then
+	-- one module only: the bars stay locked, unless that one IS a bar (its page's Move button)
+	local barOnly = only == "totembar" or only == "cooldownbar"
+	local tbOk = isShaman and (not only or only == "totembar")
+	local cdOk = isShaman and (not only or only == "cooldownbar")
+	if only then isShaman = false end
+	-- (Totem Rows with Show the Bar off: no bar on screen, so no box for it)
+	if tbOk and self.TotemBarEnabled and self:TotemBarEnabled() and self.SetTotemBarUnlocked
+		and not (self.RowsHideBar and self:RowsHideBar()) then
 		self:SetTotemBarUnlocked(true)
 		shown.totembar = { bar = true, reset = ResetTotemBar }
-		AddReset("totembar", ResetTotemBar)
+		AddReset("totembar", ResetTotemBar, "the totem bar")
 		ArmMover("totembar")
 	end
-	if isShaman and self.cooldownBar and self.opt.showCooldownBar and self.SetCooldownBarUnlocked then
+	if cdOk and self.cooldownBar and self.opt.showCooldownBar and self.SetCooldownBarUnlocked then
 		self:SetCooldownBarUnlocked(true)
 		shown.cooldownbar = { bar = true, reset = ResetCooldownBar }
-		AddReset("cooldownbar", ResetCooldownBar)
+		AddReset("cooldownbar", ResetCooldownBar, "the cooldown bar")
 		ArmMover("cooldownbar")
 	end
 
 	for _, m in ipairs(MODULES) do
 		local def = self.PreviewRegistry and self.PreviewRegistry[m.key]   -- nil when the module is not loaded
-		local wanted = def ~= nil and (only == nil or only == m.key)
+		local wanted = def ~= nil and (only == nil or only == m.key) and not barOnly
 		if wanted and m.enabled then
 			local ok, res = pcall(m.enabled)
 			wanted = ok and res and true or false
@@ -2307,7 +2425,15 @@ function SP:SetMasterUnlock(on, only)
 			end
 			for i, frame in ipairs(frames) do
 				local label = frame.spMoverLabel or (m.labels and m.labels[i]) or (#frames > 1 and (m.label .. " " .. i) or m.label)
-				ShowBox("unlock_" .. m.key .. "_" .. i, frame, label, m.save or SaveThroughOwnScripts, resetFn)
+				-- each Reset puts only its own box back, as its tooltip says (resetOne), the only
+				-- box too: the module's whole reset also took the spots of the reminders switched
+				-- off and the totems not watched. Reset All Positions keeps the whole one (resetFn).
+				local fn = resetFn
+				if m.resetOne and self[m.resetOne] then
+					local name, f = m.resetOne, frame
+					fn = function() SP[name](SP, f) end
+				end
+				ShowBox("unlock_" .. m.key .. "_" .. i, frame, label, m.save or SaveThroughOwnScripts, fn, resetFn)
 			end
 		end
 	end

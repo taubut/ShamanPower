@@ -54,6 +54,7 @@ local BOX_SPOTS = {
 	"lo.bar", "mod.shieldcharges-icon", "mod.coverage-boxes", "mod.range-boxes", "mod.raidcd-boxes",
 	"mod.popouts-boxes", "mod.estracker-box", "mod.plates-boxes",
 	"mod.tremor-box", "mod.readyreminders-boxes", "mod.reactive-boxes", "mod.alerts-box", "mod.minimap-boxes",
+	"mod.partystrip-box",
 }
 local EMPTY_SPOTS = { "tb.flyout-empty", "tb.empty-slot" }
 local EMPTY_SET = { ["tb.flyout-empty"] = true, ["tb.empty-slot"] = true }
@@ -876,7 +877,7 @@ local function IconOf(btn, name)
 	return name and Named(name .. "Icon") or nil
 end
 
--- the totem bar: buttons, the corner of TotemTimers, the dropped-totem overlay,
+-- the totem bar: buttons, the assigned-totem corner, the dropped-totem overlay,
 -- flyouts, Compact's squares, Drop All and Totemic Call
 local function TotemBar()
 	local bars = SP.totemProgressBars
@@ -904,6 +905,14 @@ local function TotemBar()
 			for i = 1, #all do
 				local fb = all[i]
 				if fb and fb.icon then Skin(fb.icon, "flyout", element) end
+			end
+		end
+		-- Totem Rows' copies of them (Keep Flyouts on Main Totem Bar): boxed as the flyout's own
+		local copies = SP.RowsCopies and SP:RowsCopies(element)
+		if copies then
+			for i = 1, #copies do
+				local cb = copies[i]
+				if cb and cb.icon then Skin(cb.icon, "flyout", element) end
 			end
 		end
 	end
@@ -1024,6 +1033,17 @@ local function Coverage()
 		if element and (element < 1 or element > 4) then element = nil end
 		local s = btn.icon and SkinSpot(btn.icon, "mod.coverage-boxes", element)
 		if s then s.noSweeps = true; AddText(s, rawget(btn, "statusText"), true) end
+	end
+end
+
+-- the Party Strip's totem icons: one per totem line (whichever strip shows it: Break Up
+-- Totem List), each in its own totem's element (a line is one totem's for good)
+local function PartyStrip()
+	for _, line in ipairs(SP.partyStripLines or EMPTY) do
+		local element = line.element
+		if element and (element < 1 or element > 4) then element = nil end
+		local s = line.icon and SkinSpot(line.icon, "mod.partystrip-box", element, true)
+		if s then s.element = element end
 	end
 end
 
@@ -1342,6 +1362,7 @@ local function Scan()
 	LoadoutBar()
 	PopOuts()
 	Coverage()
+	PartyStrip()
 	RangeTracker()
 	ESTracker()
 	ShieldCharges()

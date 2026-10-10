@@ -39,10 +39,18 @@ local CD_ACTION = {}         -- cooldownType -> SHAMANPOWER_CD_* action (from th
 
 local function isShaman() return select(2, UnitClass("player")) == "SHAMAN" end
 
+-- WoW: Forever: controller buttons bind too (the normal UI with a pad): the catcher
+-- also takes pad buttons (EnableGamePadButton, out of combat like the whole mode)
+local PAD_KEYS = SPCompat and SPCompat.FOREVER and true or false
+local PAD_SHORT = { PAD1 = "A", PAD2 = "B", PAD3 = "X", PAD4 = "Y", PADDUP = "DUp", PADDDOWN = "DDn", PADDLEFT = "DLt",
+	PADDRIGHT = "DRt", PADLSHOULDER = "LB", PADRSHOULDER = "RB", PADLTRIGGER = "LT", PADRTRIGGER = "RT", PADLSTICK = "L3",
+	PADRSTICK = "R3", PADBACK = "Back", PADFORWARD = "Menu" }
+
 local function shortKey(key)
 	if not key then return nil end
 	key = key:gsub("CTRL%-", "C-"):gsub("ALT%-", "A-"):gsub("SHIFT%-", "S-")
 	key = key:gsub("NUMPAD", "N"):gsub("BUTTON", "M"):gsub("MOUSEWHEELUP", "MWU"):gsub("MOUSEWHEELDOWN", "MWD")
+	if PAD_KEYS then key = key:gsub("PAD[%u%d]+$", function(pad) return PAD_SHORT[pad] or pad:gsub("^PAD", "") end) end
 	return key
 end
 
@@ -71,7 +79,13 @@ local function collect()
 			"Assigned " .. ELEMENT_NAMES[element] .. " totem")
 	end
 	add(_G["ShamanPowerAutoDropAll"], "SHAMANPOWER_DROPALL", "Drop All")
-	add(_G["ShamanPowerEarthShieldBtn"], "SHAMANPOWER_EARTH_SHIELD", "Earth Shield")
+	add(_G["ShamanPowerEarthShieldBtn"], "SHAMANPOWER_EARTH_SHIELD", "Earth Shield")   -- (Compact: the Earth Shield line)
+	-- Compact's Your Shield Line: its own binding action, so the core's override click presses the
+	-- click that casts (SetupKeybindings, KeyMouseButton). Only while the line is on: off, its key does nothing
+	local shieldLine = _G["ShamanPowerCompactShieldBtn"]
+	if shieldLine and SP.CompactShieldLineActive and SP:CompactShieldLineActive() then
+		add(shieldLine, "SHAMANPOWER_SHIELD_LINE", (shieldLine.spShieldName or "Your shield") .. " (Your Shield Line)")
+	end
 
 	-- cooldown bar (and Totemic Call when it sits on the totem bar): the types
 	-- with a binding action. The rest (Shamanistic Rage, Elemental Mastery, Rage
@@ -243,6 +257,15 @@ local function onKey(_, key)
 	refreshOverlays(); setHoverLine()
 end
 
+-- a controller button over a lit button: bound like a key (Shift / Ctrl / Alt too:
+-- with the pad's trigger set to act as Shift, LT + A arrives as SHIFT-PAD1)
+local function onPadButton(_, button)
+	if not (hovered and type(button) == "string" and button:match("^PAD")) then return end
+	local combo = (IsAltKeyDown() and "ALT-" or "") .. (IsControlKeyDown() and "CTRL-" or "") .. (IsShiftKeyDown() and "SHIFT-" or "") .. button
+	bindKey(hovered, combo)
+	refreshOverlays(); setHoverLine()
+end
+
 -- ---------------------------------------------------------------------------
 -- The mode
 -- ---------------------------------------------------------------------------
@@ -256,6 +279,7 @@ local function build()
 	cap:EnableMouse(false)
 	cap:Hide()
 	cap:SetScript("OnKeyDown", onKey)
+	if PAD_KEYS and cap.EnableGamePadButton then cap:SetScript("OnGamePadButtonDown", onPadButton) end
 	local acc = 0
 	cap:SetScript("OnUpdate", function(_, elapsed)
 		acc = acc + elapsed
@@ -321,7 +345,8 @@ local function build()
 	local text = bar:CreateFontString(nil, "OVERLAY")
 	text:SetFontObject(SP.SPDialogFonts.text)
 	text:SetJustifyH("LEFT"); text:SetWordWrap(true)
-	text:SetText("Hover a button and press a key. You can include Shift, Ctrl or Alt. Esc over a button clears its key."
+	text:SetText("Hover a button and press a key" .. (PAD_KEYS and " or a controller button" or "")
+		.. ". You can include Shift, Ctrl or Alt. Esc over a button clears its key."
 		.. " Esc elsewhere saves your keys and closes Keybind Mode.")
 	local textW = (text.GetUnboundedStringWidth and text:GetUnboundedStringWidth()) or text:GetStringWidth()
 	bar:SetWidth(math.max(620, math.ceil(x + textW / 3 + 30 + 190)))
@@ -401,6 +426,7 @@ function Leave(save, why)
 	hovered = nil
 	capture:UnregisterEvent("PLAYER_REGEN_DISABLED")
 	capture:EnableKeyboard(false)
+	if PAD_KEYS and capture.EnableGamePadButton then capture:EnableGamePadButton(false) end
 	capture:Hide()
 	topBar:Hide()
 	hideOverlays()
@@ -448,6 +474,7 @@ function SP:SetKeybindMode(on)
 	capture:Show()
 	capture:EnableKeyboard(true)
 	capture:SetPropagateKeyboardInput(false)
+	if PAD_KEYS and capture.EnableGamePadButton then capture:EnableGamePadButton(true) end
 	topBar:Show()
 	setHoverLine()
 	fitBar()

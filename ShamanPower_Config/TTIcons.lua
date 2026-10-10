@@ -31,8 +31,9 @@ local ROW_GAP      = 6     -- the settings rows' gap (Widgets.ROW_GAP)
 local CORNER       = 11
 local HIDDEN_SHADE = 0.5   -- a hidden spell: gray and half as bright
 local NOT_LEARNED_SHADE = 0.3   -- a spell not learned yet: gray and dark
-local CAPTION = "Click a spell to show or hide it. Right-click it to set it up: when and where it shows, how it"
-	.. " looks, and more. Dark: you haven't learned it yet (set it up now, it shows once you learn it)."
+-- (the words that say what to do in the settings' blue, so a player sees them first)
+local CAPTION = "|cff3FA9F5CLICK|r a spell to show or hide it. |cff3FA9F5RIGHT-CLICK|r it to set it up: when and where it shows, how it"
+	.. " looks, and more. |cff3FA9F5Dark|r: you haven't learned it yet (set it up now, it shows once you learn it)."
 
 local Row = { buttons = {}, list = {}, byKey = {} }
 ns.CustomRows.ttIcons = Row
@@ -122,6 +123,9 @@ local DIRECTION_CHOICES = { { "top", "From The Top" }, { "bottom", "From The Bot
 local SHOWON_CHOICES = { { "screen", "A Spot You Place" }, { "plate", "Your Target's Nameplate" }, { "frame", "Under The Target Frame" } }
 local MISS_CHOICES = { { "edge", "Red Edge" }, { "dotted", "Dotted Red Edge" }, { "faded", "Just Faded" }, { "glow", "Red Glow" },
 	{ "tint", "Red Tint" }, { "slash", "Red Slash" }, { "outline", "Empty Outline" }, { "pulse", "Pulsing Edge" } }
+-- Next Shock's cast-it look (Flame Shock's menu): WoW's gold dotted edge, or one of the Missing looks
+local CAST_CHOICES = { { "gold", "Gold Dotted Edge" } }
+for _, c in ipairs(MISS_CHOICES) do CAST_CHOICES[#CAST_CHOICES + 1] = c end
 local EDGE_CHOICES = { { "thin", "Thin Black" }, { "none", "None" }, { "thick", "Thick Black" }, { "dotted", "Dotted" },
 	{ "spell", "Spell Color" } }
 
@@ -417,6 +421,40 @@ local function LookRows(key)
 	return t
 end
 
+-- Next Shock (Flame Shock's menu): its settings live under Target Tracker's "ns"
+local function SpellName(id, fallback)
+	local n = SPCompat and SPCompat.SpellLabel and SPCompat.SpellLabel(id, fallback)
+	return (type(n) == "string" and n ~= "") and n or fallback
+end
+local function NextShockRows()
+	local t = {}
+	local on = OnOffRow("ns", "Show Next Shock", "on")
+	on.tip = "While your Flame Shock is on an enemy, its Flame Shock icon shows " .. SpellName(8042, "Earth Shock")
+		.. " (or " .. SpellName(8056, "Frost Shock") .. ") instead, with Flame Shock's time left, so you know which"
+		.. " shock to press. Each enemy goes by its own Flame Shock: your target's icon, and with Show On Every"
+		.. " Enemy's Nameplate, every enemy's. Without your Flame Shock, Warn When It's Missing shows Flame Shock."
+	t[#t + 1] = on
+	if Get("ns", "on") then
+		local shock = ChoiceRow("ns", "When Flame Shock Is On, Show", "whenOn",
+			{ { "earth", SpellName(8042, "Earth Shock") }, { "frost", SpellName(8056, "Frost Shock") } })
+		shock.tip = "The shock the icon shows while your Flame Shock is on that enemy."
+		t[#t + 1] = shock
+		local again = SliderRow("ns", "Show Flame Shock Again At", "refresh", 0, 6, 1,
+			function(v)
+				v = floor((v or 0) + 0.5)
+				if v == 0 then return "Never" end
+				return v .. " s left"
+			end)
+		again.tip = "When your Flame Shock on that enemy has this many seconds left, the icon shows Flame Shock again,"
+			.. " in the look below, so you can cast it before it runs out. Never: it keeps the other shock until it ends."
+		t[#t + 1] = again
+		local look = ChoiceRow("ns", "Look When It's Time to Cast", "castLook", CAST_CHOICES)
+		look.tip = "How Flame Shock looks in its last seconds."
+		t[#t + 1] = look
+	end
+	return t
+end
+
 -- Purge: skip a buff that lasts longer than this (Longer Than only while it skips); on the
 -- first level of the menu, so it's plain to see when it's on
 local function LongRows(key, t)
@@ -459,10 +497,20 @@ local function OffPlaces(key)
 	if #off == 1 then return off[1] end
 	return table.concat(off, ", ", 1, #off - 1) .. " and " .. off[#off]
 end
-local function MenuItems(key)
+-- the spell of a key: its drawn icon's, or the list's (the Old Settings Look draws no icons)
+local function SpellByKey(key)
 	local b = Row.byKey[key]
-	if not (b and b.spell) then return {} end
-	local name = b.spell.name
+	if b and b.spell then return b.spell end
+	for _, s in ipairs(Row.list) do
+		if s.key == key then return s end
+	end
+	return nil
+end
+
+local function MenuItems(key)
+	local spell = SpellByKey(key)
+	if not spell then return {} end
+	local name = spell.name
 	local items = {}
 	local show = ChoiceRow(key, "Show", "show", SHOW_CHOICES)
 	show.tip = "In a fight, out of one, or both. The places below can still turn it off in a kind of place."
@@ -500,6 +548,12 @@ local function MenuItems(key)
 			.. " that has it. With Warn When It's Missing on, an enemy without it shows the gray warning. WoW's enemy"
 			.. " nameplates need to be on."
 		items[#items + 1] = plates
+		if key == "fs" then
+			local ns = Group("Next Shock", NextShockRows)
+			ns.value = function() return OnOff(Get("ns", "on")), false end
+			ns.tip = "Flame Shock's icon shows which shock to press next, on each enemy by its own Flame Shock."
+			items[#items + 1] = ns
+		end
 	end
 	items[#items + 1] = { separator = true }
 	items[#items + 1] = { text = "Copy Settings", onClick = function() TT("TT_Copy", key); return true end }
@@ -567,9 +621,10 @@ function Row:Render(body, x, y, width, onChanged)
 	if not f then
 		f = CreateFrame("Frame", nil, body)
 		f.caption = f:CreateFontString(nil, "OVERLAY")
-		f.caption:SetFontObject(Core.fonts.rowDim)
+		f.caption:SetFontObject(Core.fonts.caption)
 		f.caption:SetJustifyH("LEFT")
 		f.caption:SetWordWrap(true)
+		f.spNoCull = true   -- (redrawn by its own watcher, which skips a hidden row)
 		self.frame = f
 	end
 	f:SetParent(body)
@@ -630,4 +685,169 @@ function Row:Release()
 		Core:HideTooltipFor(b)
 		b.hoverEdge:Hide()
 	end
+end
+
+-- Use the Old Settings Look (ListLook.lua, 3.0.8): this row as plain rows built from the
+-- same menus. The shared icon row's def fields it reads, for this row's own copy.
+Row.listDef = {
+	hint = "Click: show or hide it\nRight-click: its settings",
+	list = function(out)
+		if not Loaded() then return end
+		for _, s in ipairs(Usable(Row.list)) do out[#out + 1] = s end
+	end,
+	shown = function(s) return Shown(s.key) end,
+	learned = function(s) return Known(s.key) end,
+	toggle = function(s) TT("TT_Set", s.key, "shown", not Shown(s.key)) end,
+	menu = function(s) return MenuItems(s.key) end,
+}
+
+-- ===========================================================================
+-- Party Buff Tracker > Party Strip: the Totems row (owner, 2026-10-06: "allow for
+-- multiple totems, not just a single one", drawn like this page's Spells row: the
+-- same plates, icons, shades, corner and caption). One icon per totem buff this game
+-- version has (ShamanPower_PartyRange's list), in element order, a step apart between
+-- the elements. Left-click shows or hides that totem on the strip. Dark: not learned
+-- yet (it can still be picked; the strip shows it once it is learned). The accentHi
+-- corner: it's on the strip (on a dark one too). No menu.
+-- ===========================================================================
+do
+	local ELEMENT_GAP = 14   -- between the elements (as Purge's step above)
+	local STRIP_CAPTION = "|cff3FA9F5CLICK|r a totem to show or hide it on the strip. A blue corner: it's on the strip. |cff3FA9F5Dark|r: you"
+		.. " haven't learned it yet (pick it now, it shows once you learn it)."
+	local Strip = { buttons = {} }
+	ns.CustomRows.stripTotems = Strip
+
+	local function StripLoaded()
+		return type(SP.PartyStripTotems) == "function" and type(SP.PartyStripSetPicked) == "function"
+	end
+	local function TotemTexture(e)
+		local tex
+		if C_Spell and C_Spell.GetSpellTexture then tex = C_Spell.GetSpellTexture(e.totem)
+		elseif GetSpellTexture then tex = GetSpellTexture(e.totem) end
+		if not tex and SP.GetTotemIcon then tex = SP:GetTotemIcon(e.element, e.index) end
+		return tex or 134400   -- the question mark
+	end
+	local function TipBody(picked, learned)
+		if not learned then
+			if picked then return "You haven't learned this yet. It shows on the strip once you learn it." end
+			return "You haven't learned this yet. You can still pick it: it shows on the strip once you learn it."
+		end
+		if picked then return "It's on the strip." end
+		return "It's not on the strip."
+	end
+
+	local function PaintStripButton(b)
+		local e = b.totem
+		if not e then return end
+		local picked = SP:PartyStripPicked(e.key) and true or false
+		local learned = SP:PartyStripTotemLearned(e) and true or false
+		local shade = 1
+		if not learned then shade = NOT_LEARNED_SHADE elseif not picked then shade = HIDDEN_SHADE end
+		b.icon:SetTexture(TotemTexture(e))
+		b.icon:SetDesaturated(not (picked and learned))
+		b.icon:SetVertexColor(shade, shade, shade)
+		b.corner:SetShown(picked)
+		b.openEdge:Hide()
+		Core:AttachTooltip(b, SP:PartyStripTotemName(e), TipBody(picked, learned),
+			picked and "Click: take it off the strip" or "Click: show it on the strip")
+	end
+
+	function Strip:Repaint()
+		for _, b in ipairs(self.buttons) do
+			if b:IsShown() then PaintStripButton(b) end
+		end
+	end
+
+	-- a pick saved (the strip follows it; in a fight, when the fight ends), then the page
+	-- (rows that show or hide with the picks) and its preview
+	local function StripClick(b)
+		local e = b.totem
+		if not e then return end
+		SP:PartyStripSetPicked(e.key, not SP:PartyStripPicked(e.key))
+		Strip:Repaint()
+		local fn = Strip.onChanged
+		if fn then
+			local ok, err = pcall(fn)
+			if not ok then geterrorhandler()(err) end
+		end
+	end
+
+	local function NewStripButton(parent)
+		local b = NewButton(parent)   -- (the Spells row's look)
+		b:RegisterForClicks("LeftButtonUp")
+		b:SetScript("OnClick", StripClick)
+		return b
+	end
+
+	function Strip:Render(body, x, y, width, onChanged)
+		if not StripLoaded() then return nil, 0 end
+		self.onChanged = onChanged
+		local f = self.frame
+		if not f then
+			f = CreateFrame("Frame", nil, body)
+			f.caption = f:CreateFontString(nil, "OVERLAY")
+			f.caption:SetFontObject(Core.fonts.caption)
+			f.caption:SetJustifyH("LEFT")
+			f.caption:SetWordWrap(true)
+			self.frame = f
+		end
+		f:SetParent(body)
+		f:ClearAllPoints()
+		f:SetPoint("TOPLEFT", body, "TOPLEFT", x or 0, -(y or 0))
+		f:SetWidth(width)
+		f:Show()
+
+		local list = SP:PartyStripTotems() or {}
+		local padX = PAD_X + (ns.Widgets and tonumber(ns.Widgets.CARD_INSET) or 0)   -- in line with the rows' labels
+		local px, py, last = padX, PAD_TOP, nil
+		for i, e in ipairs(list) do
+			local b = self.buttons[i] or NewStripButton(f)
+			self.buttons[i] = b
+			b.totem = e
+			if last and e.element ~= last then px = px + ELEMENT_GAP end
+			if i > 1 and px + PLATE > width - padX then   -- no room left: the next line
+				px, py = padX, py + PITCH
+			end
+			b:ClearAllPoints()
+			b:SetPoint("TOPLEFT", f, "TOPLEFT", px, -py)
+			b:Show()
+			px, last = px + PITCH, e.element
+		end
+		for i = #list + 1, #self.buttons do
+			local b = self.buttons[i]
+			b.totem = nil
+			b:Hide()
+		end
+		local iconsH = (py - PAD_TOP) + PLATE
+		f.caption:ClearAllPoints()
+		f.caption:SetPoint("TOPLEFT", f, "TOPLEFT", padX, -(PAD_TOP + iconsH + CAPTION_GAP))
+		f.caption:SetWidth(width - padX * 2)
+		f.caption:SetText(STRIP_CAPTION)
+		local h = PAD_TOP + iconsH + CAPTION_GAP + ceil(f.caption:GetStringHeight()) + PAD_BOTTOM
+		f:SetHeight(h)
+		self:Repaint()
+		return f, h + ROW_GAP
+	end
+
+	function Strip:Release()
+		if self.frame then self.frame:Hide() end
+		for _, b in ipairs(self.buttons) do
+			Core:HideTooltipFor(b)
+			b.hoverEdge:Hide()
+		end
+	end
+
+	-- Use the Old Settings Look (ListLook.lua, 3.0.8): one card per totem with its switch
+	Strip.listDef = {
+		hint = "Click: show or hide it on the strip",
+		list = function(out)
+			if not StripLoaded() then return end
+			for _, e in ipairs(SP:PartyStripTotems() or {}) do
+				out[#out + 1] = { key = e.key, name = SP:PartyStripTotemName(e), totem = e }
+			end
+		end,
+		shown = function(it) return SP:PartyStripPicked(it.totem.key) and true or false end,
+		learned = function(it) return SP:PartyStripTotemLearned(it.totem) and true or false end,
+		toggle = function(it) SP:PartyStripSetPicked(it.totem.key, not SP:PartyStripPicked(it.totem.key)) end,
+	}
 end

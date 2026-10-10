@@ -94,7 +94,7 @@ local DEFAULTS = {
 	plateSpot = "above",  -- on your target's nameplate: above (its name) | below | left | right (of its health bar)
 	plateX = 0, plateY = 0,   -- and nudged from there (the page's Left / Right and Up / Down)
 	hideGame = true,      -- WoW's own nameplate icons for the spells Target Tracker shows: hidden (nothing twice)
-	-- debuffsPos, purgePos = { anchor, x, y }: the two spots (nil = where they start)
+	-- debuffsPos, purgePos, nsPos = { anchor, x, y }: the spots (Next Shock's is nsPos; nil = where they start)
 	spells = {},       -- [key] = { [setting] = value }: only what a spell sets for itself
 	hidden = {},       -- [key] = true: a spell clicked off on the page
 	rules = {},        -- { place =, who =, name =, part = }, in order: a later rule wins
@@ -116,6 +116,15 @@ local OPT = {
 		sweepDirection = "top", missLook = "edge", border = "thin" },
 	purge = { show = "always", size = 64, glow = true, buffPicture = true, skipLong = true, longerThan = 2,
 		watchBosses = true, showOn = "screen", everyPlate = false, border = "thin" },
+	-- Next Shock (D49): one icon that shows which shock to press. Not one of the spells (never in SPELLS:
+	-- the Spells row, rules, Every Nameplate and copy / paste know nothing of it); its settings are saved
+	-- like a spell's own (spells.ns). on: Show Next Shock, off to start; whenOn: the shock it shows while
+	-- your Flame Shock is on your target; refresh: Flame Shock again with this many seconds left (0 =
+	-- never); noTarget: with no enemy target; castLook: its look when it's time to cast; gray: grayed out
+	-- while Flame Shock is missing; showOn: its spot (a box you move, your target's nameplate, under the
+	-- target frame)
+	ns = { on = false, whenOn = "earth", refresh = 3, noTarget = "show", castLook = "gold", gray = true,
+		showOn = "screen", size = 64 },
 }
 for _, key in ipairs(DEBUFFS) do
 	for _, k in ipairs(KINDS) do OPT[key]["w_" .. k] = true end
@@ -128,11 +137,16 @@ local CHOICE = {
 	showOn = { screen = true, plate = true, frame = true },
 	missLook = { edge = true, dotted = true, faded = true, glow = true, tint = true, slash = true, outline = true, pulse = true },
 	border = { thin = true, none = true, thick = true, dotted = true, spell = true },
+	-- Next Shock's: Earth Shock or Frost Shock; Flame Shock or nothing; Gold Dotted Edge or a Missing look
+	whenOn = { earth = true, frost = true },
+	noTarget = { show = true, hide = true },
+	castLook = { gold = true, edge = true, dotted = true, faded = true, glow = true, tint = true, slash = true, outline = true, pulse = true },
 }
-local SIZE = { fs = { 16, 64 }, frs = { 16, 64 }, ss = { 16, 64 }, purge = { 32, 128 } }
+local SIZE = { fs = { 16, 64 }, frs = { 16, 64 }, ss = { 16, 64 }, purge = { 32, 128 }, ns = { 24, 128 } }
 -- how a part looks: changed on the parts already there (nothing is made again)
 local LOOK = { size = true, timeLeft = true, sweep = true, sweepDirection = true, charges = true, glow = true, buffPicture = true, showOn = true,
-	missLook = true, border = true }
+	missLook = true, border = true, castLook = true, whenOn = true, gray = true,
+	on = true }   -- (Next Shock's own switch: Flame Shock's sweep copies the shock it shows)
 -- what Purge counts as a buff to light for: the game's own slot filter, updated in place
 local FILTER = { skipLong = true, longerThan = true }
 local GROUPS = {
@@ -147,11 +161,11 @@ local PAGE = { showOn = { spot = true, plate = true, frame = true }, arrange = {
 local function Normalize(key, opt, v)
 	local d = OPT[key] and OPT[key][opt]
 	if d == nil then return nil end
-	if opt == "size" or opt == "longerThan" then
+	if opt == "size" or opt == "longerThan" or opt == "refresh" then
 		v = tonumber(v)
 		if not v or v ~= v then return nil end
 		local lo, hi = 1, 10
-		if opt == "size" then lo, hi = SIZE[key][1], SIZE[key][2] end
+		if opt == "size" then lo, hi = SIZE[key][1], SIZE[key][2] elseif opt == "refresh" then lo, hi = 0, 6 end
 		return min(hi, max(lo, floor(v + 0.5)))
 	end
 	if type(d) == "boolean" then
@@ -201,7 +215,7 @@ local function Clean(sv)
 	if py and py == py then sv.plateY = min(120, max(-60, floor(py + 0.5))) else sv.plateY = DEFAULTS.plateY end
 	if type(sv.hideGame) ~= "boolean" then sv.hideGame = DEFAULTS.hideGame end
 	if type(sv.enabled) ~= "boolean" then sv.enabled = DEFAULTS.enabled end
-	for _, k in ipairs({ "debuffsPos", "purgePos" }) do
+	for _, k in ipairs({ "debuffsPos", "purgePos", "nsPos" }) do
 		local p = sv[k]
 		if p ~= nil and (type(p) ~= "table" or type(p.anchor) ~= "string") then sv[k] = nil end
 	end
@@ -733,6 +747,14 @@ local demo = {}          -- debuffs / purge: Unlock UI is showing its stand-ins 
 local OnPlate = { want = {}, warnWant = {}, lay = {}, entryOf = {}, waiting = {}, skipped = {}, soon = {}, tried = {}, scratch = {},
 	hooked = setmetatable({}, { __mode = "k" }), hidden = setmetatable({}, { __mode = "k" }), servedBy = {}, faded = {},
 	gwork = {}, gScale = 1, gStride = 8 }
+-- Next Shock (D49), in one table too: its frames, the records of your Flame Shock on your targets, the
+-- one-shot timer for its last seconds, and its functions (further down, once the frames and the engine
+-- are known). recs: [target GUID] = { start, duration }; cur: your current target's; learned: [spell ID]
+-- = Flame Shock's duration as read off the aura; last: your last Flame Shock cast. BASE: Flame Shock's
+-- duration in each client's own spell data (SpellMisc DurationIndex 29 -> SpellDuration 12000 ms, every
+-- rank and every Flame Shock aura ID, on WoW: Forever 1.60.1 and TBC Anniversary 2.5.6: read 2026-10-04).
+local NS = { recs = {}, learned = {}, last = { id = nil, t = 0 }, BASE = 12, plain = { border = "thin", size = 36 },
+	lk = { border = "thin" }, EARTH = "Interface\\Icons\\Spell_Nature_EarthShock" }
 
 local function ModuleOn()
 	return built and SV().enabled == true and not SP:IsOff()
@@ -882,6 +904,13 @@ local function SweepBarArt(p, look)
 	-- bottom), From The Bottom the time gone (it grows up). Grays Out from the top: the color
 	-- copy fills, over a gray one; Fills Back In from the top: the gray copy fills. From the
 	-- bottom it is the other way round.
+	-- the picture its copies show: the icon's own, or (Flame Shock with Next Shock on) the shock it shows
+	local art = NS.Art(p.key)
+	if p.vart ~= art then
+		p.vart = art
+		p.vbg:SetTexture(art)
+		p.vbar:SetStatusBarTexture(art)
+	end
 	local fills = look.sweep == "fills"
 	local direction = look.sweepDirection
 	if direction == nil then direction = fills and "bottom" or "top" end
@@ -1147,7 +1176,9 @@ local function DebuffParts(host, key, look)
 	p.vbg:SetVertexColor(0.5, 0.5, 0.5)
 	p.vbar = CreateFrame("StatusBar", nil, p.vclip)
 	p.vbar:SetOrientation("VERTICAL")
-	if p.vbar.SetFillStyle then p.vbar:SetFillStyle("STANDARD") end   -- the texture cropped to the fill, never stretched
+	-- the texture cropped to the fill, never stretched (the game's enum: Anniversary takes only that, not the string)
+	local fillStyle = Enum and Enum.StatusBarFillStyle and Enum.StatusBarFillStyle.Standard
+	if p.vbar.SetFillStyle then p.vbar:SetFillStyle(fillStyle or "STANDARD") end
 	p.vbar:SetMinMaxValues(0, 1)
 	p.vbar:SetValue(0)
 	p.vbar:SetStatusBarTexture(SPELL[key].icon)
@@ -1183,6 +1214,7 @@ local function MissingLook(p, on)
 		LK.Edge(p, p.key, p.look or {})
 	end
 	SweepBarRefresh(p)
+	if p.nsF then NS.Shown(p) end   -- (Next Shock's face never on a Missing Warning)
 end
 
 local function StylePurge(p, look)
@@ -1370,8 +1402,10 @@ local K = {
 	TARGET = "[@target,harm,nodead] show; hide",   -- the one gate: an attackable target that is alive
 	PLATE_SCALE = 0.7, PURGE_PLATE_SCALE = 0.6,     -- on a nameplate: smaller
 	FRAME_X = 8, FRAME_Y = -12,                     -- under the target frame: from its bottom left corner
-	-- where the two spots start: right of the middle, clear of the other modules' starting spots
-	SPOT = { debuffs = { anchor = "CENTER", x = 200, y = -60 }, purge = { anchor = "CENTER", x = 200, y = 40 } },
+	-- where the spots start: right of the middle, clear of the other modules' starting spots (Next Shock's
+	-- right of Purge's, clear of its buff picture)
+	SPOT = { debuffs = { anchor = "CENTER", x = 200, y = -60 }, purge = { anchor = "CENTER", x = 200, y = 40 },
+		ns = { anchor = "CENTER", x = 330, y = 40 } },
 	POOL = 40,                                      -- nameplate entries made ahead, so a fight never has to make one
 	-- no Missing Warning on these kinds of enemy (WoW's creature types): a critter, a totem, a pet, a gas cloud
 	NOWARN = { [8] = true, [11] = true, [12] = true, [13] = true },
@@ -1392,12 +1426,16 @@ local K = {
 }
 local blockH = 0        -- the debuffs' block height, as last laid out (Purge goes under it below the target frame)
 local pending = {}      -- build / look / driver: wanted while a fight was on, done when it ends
-local placed = { debuffs = true, purge = true }   -- false: on a nameplate that is not there right now
+local placed = { debuffs = true, purge = true, ns = true }   -- false: on a nameplate that is not there right now
 
 local function EnsureHolders()
 	if H.debuffs then return end
+	-- the lowest strata for everything the tracker puts on screen: above the world and the
+	-- nameplates, below the minimap, the unit frames and every window (children inherit it)
 	local function spot(name, label, size)
 		local f = CreateFrame("Frame", name, UIParent)
+		f:SetFrameStrata("BACKGROUND")
+		f:SetFrameLevel(1)
 		f:SetSize(size, size)
 		f:SetMovable(true)
 		f:SetClampedToScreen(true)
@@ -1408,14 +1446,19 @@ local function EnsureHolders()
 	end
 	H.debuffs = spot("ShamanPowerTargetTrackerDebuffs", "Target Tracker", 36)
 	H.purge = spot("ShamanPowerTargetTrackerPurge", "Target Tracker: Purge", 64)
+	H.ns = spot("ShamanPowerTargetTrackerNextShock", "Target Tracker: Next Shock", 64)   -- Next Shock's spot
 	-- shown while Purge is on (here and now): what it shows sits in it (Anniversary's icon)
 	H.purgeCell = CreateFrame("Frame", nil, H.purge)
 	H.purgeCell:SetAllPoints(H.purge)
 	H.purgeCell:Hide()
 	H.bossSpot = CreateFrame("Frame", nil, UIParent)
+	H.bossSpot:SetFrameStrata("BACKGROUND")
+	H.bossSpot:SetFrameLevel(1)
 	H.bossSpot:SetSize(64, 64)
 	H.bossSpot:SetPoint("CENTER")
 	H.plates = CreateFrame("Frame", nil, UIParent)   -- every nameplate's row (Every Nameplate) hangs off this one
+	H.plates:SetFrameStrata("BACKGROUND")
+	H.plates:SetFrameLevel(1)
 	H.plates:SetSize(1, 1)
 	H.plates:SetPoint("CENTER")
 	H.plates:Hide()
@@ -1571,6 +1614,17 @@ function OnPlate.Purge(p, plate, row)
 	local bar = uf and uf.HealthBarsContainer
 	if not bar then return false end
 	return pcall(p.SetPoint, p, "LEFT", OnPlate.RightOf(uf, bar), "RIGHT", 6, 0)
+end
+
+-- Next Shock on a nameplate: left of its health bar and of WoW's marks and buff icons there (Purge sits on
+-- the right), or left of your debuffs' row when that row sits there too (never on top of either)
+function OnPlate.NextShock(f, plate, row)
+	if row then return pcall(f.SetPoint, f, "RIGHT", row, "LEFT", -6, 0) end
+	if OnPlate.addonPlates then return pcall(f.SetPoint, f, "RIGHT", plate, "CENTER", -66, 0) end
+	local uf = plate.UnitFrame
+	local bar = uf and uf.HealthBarsContainer
+	if not bar then return false end
+	return pcall(f.SetPoint, f, "RIGHT", OnPlate.LeftOf(uf, bar), "LEFT", -6, 0)
 end
 
 -- under WoW's target frame. Anniversary: under the target's cast bar, which WoW itself moves down
@@ -1752,6 +1806,7 @@ local function NewContainer(parent)
 		end
 	end
 	c:ClearAllPoints()
+	pcall(c.SetFrameStrata, c, "BACKGROUND")
 	c:SetSize(1, 1)
 	c:SetPoint("CENTER", parent, "CENTER")
 	-- WoW's Edit Mode fills aura displays with made-up auras while it is open: never these
@@ -1761,10 +1816,10 @@ local function NewContainer(parent)
 end
 
 -- one slot: the button the game makes for it gets the parts (init); false when refused
-local function AddSlot(c, slot, filter, candidate, init)
+local function AddSlot(c, slot, filter, candidate, init, quiet)
 	local ok, err = pcall(c.AddAuraSlot, c, slot, filter, { candidateFilters = candidate, initializeFrame = init })
-	if not ok then Log("%s: slot refused (%s)", slot, tostring(err)) end
-	return ok
+	if not ok and not quiet then Log("%s: slot refused (%s)", slot, tostring(err)) end
+	return ok, err
 end
 
 -- the debuff slot's button: our parts, the game's icon, sweep, time left and charges
@@ -1772,6 +1827,7 @@ local function DebuffInit(key, box, partsOut, look)
 	return function(button)
 		button:ClearAllPoints()
 		button:SetAllPoints(box)
+		pcall(button.SetFrameStrata, button, "BACKGROUND")
 		NoMouse(button)
 		local p = DebuffParts(button, key, look or DebuffLook(key))
 		pcall(button.SetIcon, button, p.icon)
@@ -1781,6 +1837,7 @@ local function DebuffInit(key, box, partsOut, look)
 		p.engine, p.button, p.vtop = true, button, nil
 		if not button.SetDurationBar then p.vfail = true end
 		StyleDebuff(p, p.look)
+		SP:SPFontGameOwned(p.time); SP:SPFontGameOwned(p.count)   -- (a font change waits out fights and hidden auras)
 		pcall(button.SetDurationText, button, p.time, { textFormatter = TimeFormatter() })
 		pcall(button.SetApplicationCount, button, p.count, { formatter = CountFormatter() })
 		partsOut[key] = p
@@ -1791,8 +1848,10 @@ local function PurgeInit(box, partsOut, slot, blend, look)
 	return function(button)
 		button:ClearAllPoints()
 		button:SetAllPoints(box)
+		pcall(button.SetFrameStrata, button, "BACKGROUND")
 		NoMouse(button)
 		local p = PurgeParts(button, look or PurgeLook(), blend)
+		SP:SPFontGameOwned(p.word)   -- (on the game's button: a font change waits out fights and hidden auras)
 		pcall(button.SetIcon, button, p.pic)   -- the game paints the buff's picture
 		partsOut[slot] = p
 	end
@@ -1804,6 +1863,8 @@ end
 function E.Gate()
 	if E.gate then return E.gate end
 	local g = CreateFrame("Frame", nil, UIParent)
+	g:SetFrameStrata("BACKGROUND")
+	g:SetFrameLevel(1)
 	g:SetSize(1, 1)
 	g:SetPoint("CENTER")
 	g:Hide()
@@ -1865,6 +1926,8 @@ end
 local function BuildBosses()
 	if E.bossLayer then return end
 	E.bossLayer = CreateFrame("Frame", nil, UIParent)
+	E.bossLayer:SetFrameStrata("BACKGROUND")
+	E.bossLayer:SetFrameLevel(1)
 	E.bossLayer:SetSize(1, 1)
 	E.bossLayer:SetPoint("CENTER")
 	E.bossLayer:Hide()
@@ -1988,6 +2051,9 @@ local function Store(rec, a)
 	rec.id = id
 	rec.duration = d or 0
 	rec.start = (e or 0) - (d or 0)
+	local sid = a.spellId   -- (Next Shock learns Flame Shock's duration per spell ID from it)
+	if secret(sid) then sid = nil end
+	rec.spell = sid
 	local n = a.applications
 	if secret(n) or type(n) ~= "number" then n = 0 end
 	rec.count = n
@@ -2019,11 +2085,12 @@ end
 
 -- a full read; true when the game let it read (auras not hidden, the unit there)
 local function TrackFull(t, mine, magic)
+	local A = C_UnitAuras
+	-- (nothing can be read now: what was known stays, rather than an empty record)
+	if not (A and A.GetAuraDataByIndex) or AurasHidden() then return false end
 	for _, key in ipairs(DEBUFFS) do t.mine[key].id = nil end
 	wipe(t.magic)
 	t.magicN = 0
-	local A = C_UnitAuras
-	if not (A and A.GetAuraDataByIndex) or AurasHidden() then return false end
 	local ex = UnitExists(t.unit)
 	if secret(ex) or not ex then return false end
 	if mine then
@@ -2120,6 +2187,7 @@ local function TrackUpdate(t, info, mine, magic)
 end
 
 local function HideRec(p)
+	if p.nsF then NS.Track(p, nil) end
 	if p.host:IsShown() then p.host:Hide() end
 	if p.shownId ~= nil then
 		p.shownId = nil
@@ -2138,6 +2206,7 @@ local function ShowRec(p, rec)
 		ShowTime(p, rec.start, rec.duration)
 	end
 	if p.look.charges and rec.count and rec.count > 0 then p.count:SetText(rec.count) else p.count:SetText("") end
+	if p.nsF then NS.Track(p, rec.start, rec.duration) end   -- (Next Shock: this enemy's own Flame Shock)
 	if not p.host:IsShown() then p.host:Show() end
 end
 
@@ -2284,12 +2353,14 @@ function OnPlate.NewEntry()
 		pcall(c.SetUnit, c, "none")
 		pcall(c.SetEnabled, c, true)
 		e.c = c
+		if NS.built then NS.PlateBuild(e) end   -- (Next Shock on this nameplate's Flame Shock icon)
 	else
 		for key, cell in pairs(e.cells) do
 			local host = Carrier(cell)
 			host:Hide()
 			local p = DebuffParts(host, key, DebuffLook(key))
 			p.host = host
+			if key == "fs" then NS.Attach(p) end
 			e.parts[key] = p
 		end
 		if Usable("purge") then
@@ -2378,6 +2449,7 @@ function OnPlate.Sync(e)
 	end
 	e.purgeBox:SetShown(pon)
 	e.row:SetShown(any or pon)   -- (WoW: Forever: the container is in the row; it works only while shown)
+	if e.nc then NS.PlateSync(e) end
 	if not e.c then OnPlate.Fill(e) end
 end
 
@@ -2473,6 +2545,14 @@ function OnPlate.Attach(unit)
 			return
 		end
 		pcall(e.c.UpdateAllAuras, e.c)
+		if e.nc then
+			pcall(e.nc.SetUnit, e.nc, unit)
+			pcall(e.nc.UpdateAllAuras, e.nc)
+		end
+		if e.lc then
+			pcall(e.lc.SetUnit, e.lc, unit)
+			pcall(e.lc.UpdateAllAuras, e.lc)
+		end
 	else
 		e.t.unit = unit
 		e.watch:RegisterUnitEvent("UNIT_AURA", unit)
@@ -2482,6 +2562,7 @@ function OnPlate.Attach(unit)
 	plateUsed[unit] = e
 	OnPlate.entryOf[plate] = e
 	OnPlate.Sync(e)
+	if e.c and e.parts.fs and NS.built then NS.Refresh() end   -- (Next Shock: this enemy's own Flame Shock)
 	if OnPlate.hiding then OnPlate.RefreshGame(plate) end
 end
 
@@ -2500,10 +2581,16 @@ function OnPlate.Detach(unit, all)
 	e.purgeBox:Hide()
 	e.purgeBox:ClearAllPoints()
 	e.unit, e.plate, e.bound, e.fresh, e.purgeOn = nil, nil, false, false, false
+	if e.parts.fs then NS.Track(e.parts.fs, nil) end
 	for key in pairs(e.keyOn) do e.keyOn[key] = false end
 	for _, m in pairs(e.miss) do m.host:Hide() end
 	if e.c then
 		pcall(e.c.SetUnit, e.c, "none")
+		if e.lc then pcall(e.lc.SetUnit, e.lc, "none") end
+		if e.nc then
+			pcall(e.nc.SetUnit, e.nc, "none")
+			NS.PlateSync(e)
+		end
 	else
 		e.watch:UnregisterEvent("UNIT_AURA")
 		for key, p in pairs(e.parts) do
@@ -2583,6 +2670,7 @@ function OnPlate.Retry()
 			if unit == "target" then
 				PlaceDebuffs()
 				PlacePurge()
+				NS.Place()
 				Apply()
 			elseif OnPlate.anyLay then
 				OnPlate.Attach(unit)
@@ -3254,6 +3342,774 @@ function OnPlate.FindAddons()
 end
 
 -- ---------------------------------------------------------------------------
+-- Next Shock (D49, reworked 2026-10-04: part of Flame Shock's own icon, set in Flame Shock's right-click
+-- menu): which shock to press, on EACH enemy's own Flame Shock icon (your target's, and every enemy's
+-- nameplate with Show On Every Enemy's Nameplate), from THAT enemy's own Flame Shock:
+--   * your Flame Shock is on it: Earth Shock (or Frost Shock) over the Flame Shock icon, with Flame
+--     Shock's sweep and time left (the icon only shows while yours is on that enemy: the game's own button
+--     on WoW: Forever, which it shows only then, so this holds in a fight too; an icon of ours elsewhere)
+--   * its last N seconds: Flame Shock again over the sweep, in its "cast it" look (N = 0: never)
+--   * not on it: Flame Shock's own Missing Warning, when that is on
+-- The last N seconds come from one one-shot timer per enemy, from that enemy's own Flame Shock: the aura
+-- wherever the game shows it, else (a fight on WoW: Forever) your own cast on it (by its GUID, where the
+-- game names it; else your target only). Nothing polls. On WoW: Forever nothing on the game's buttons
+-- changes in a fight: the last seconds are a SECOND container of Next Shock's own (Flame Shock in the
+-- cast-it look on the game's button), switched on and off by the timer, so the game still decides whether
+-- your Flame Shock is really there (a resist, an immunity or a dispel shows nothing). Icons of ours
+-- (Anniversary) switch an overlay of ours by alpha.
+-- ---------------------------------------------------------------------------
+function NS.On() return Get("ns", "on") == true and Known("fs") end
+
+function NS.ShockIcon() return Get("ns", "whenOn") == "frost" and SPELL.frs.icon or NS.EARTH end
+-- the picture a debuff icon's vertical sweep copies: its own, or with Next Shock on, Flame Shock's shows the shock to press
+function NS.Art(key)
+	if key == "fs" and NS.On() then return NS.ShockIcon() end
+	return SPELL[key].icon
+end
+function NS.CornerSize(size) return max(8, floor(size * 0.22 + 0.5)) end
+function NS.BigSize(size) return max(10, floor(size * 0.25 + 0.5)) end
+NS.parts = {}   -- every Flame Shock icon with Next Shock's parts on it
+
+-- an icon in Target Tracker's art (in a 1 px black edge) on `host`, with an opaque back: nothing under it
+-- ever shows through, whatever its look
+function NS.Parts(host, icon)
+	local p = { host = host, key = "fs" }
+	p.back = host:CreateTexture(nil, "BACKGROUND", nil, -8)
+	p.back:SetAllPoints(host)
+	p.back:SetColorTexture(0, 0, 0, 1)
+	p.edge = host:CreateTexture(nil, "BACKGROUND")
+	p.edge:SetPoint("TOPLEFT", host, "TOPLEFT", -1, 1)
+	p.edge:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 1, -1)
+	p.edge:SetColorTexture(0, 0, 0, 1)
+	p.icon = host:CreateTexture(nil, "ARTWORK")
+	p.icon:SetAllPoints(host)
+	p.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	p.icon:SetTexture(icon)
+	return p
+end
+
+-- the cast-it look on Flame Shock: Gold Dotted Edge (WoW's gold) or one of the Missing Warnings' looks,
+-- drawn as they are; gray: grayed out as a Missing Warning is, else in full color. Like a Missing Warning
+-- it reaches no further out than 1 px, the edge of the icon that covers it (state 3)
+function NS.Look(p, style, gray, size)
+	if style == "gold" then
+		LK.ExtrasOff(p)
+		LK.Solid(p, 1, 0, 0, 0)
+		LK.IconAt(p, 0)
+		LK.Dots(p, size, 2, size >= 30 and 4 or 3, 3, 1, GOLD[1], GOLD[2], GOLD[3], "OVERLAY")
+		p.icon:SetDesaturated(gray and true or false)
+		if gray then
+			p.icon:SetVertexColor(0.55, 0.55, 0.55)
+			p.icon:SetAlpha(0.85)
+		else
+			p.icon:SetVertexColor(1, 1, 1)
+			p.icon:SetAlpha(1)
+		end
+		return
+	end
+	local lk = NS.lk
+	lk.missLook, lk.size = style, size
+	LK.Missing(p, "fs", lk)
+	if not gray then
+		p.icon:SetDesaturated(false)
+		p.icon:SetVertexColor(1, 1, 1)
+		p.icon:SetAlpha((style == "faded" and 0.45) or (style == "outline" and 0) or 1)
+	end
+end
+
+
+-- Next Shock's parts on one Flame Shock icon `p` (made with it). nsF: the shock to press over the icon,
+-- on a frame of its own just above the icon (under the sweep and the time left). On WoW: Forever the icon
+-- is the game's own button, which no addon may touch in a fight: the face is set out of combat and then
+-- simply stays (that button only shows while your Flame Shock is on that enemy). Its last seconds are an
+-- overlay of ours, never on the game's button (NS.NewOver), switched in a fight too.
+function NS.Attach(p)
+	if p.nsF then return end
+	local host = p.host
+	local fc = Carrier(host, host:GetFrameLevel() + 1)
+	p.nsF = fc:CreateTexture(nil, "ARTWORK")
+	p.nsF:SetAllPoints(p.icon)
+	p.nsF:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	p.nsFC = fc
+	if not p.engine then
+		-- an icon of ours: its overlay can be its own child, over the icon's own time left (its opaque back
+		-- covers that number; its own big one is drawn above it): one countdown only
+		p.nsL = NS.NewOver(host, host, p.text:GetFrameLevel() + 1)
+	end
+	p.nsFire = function() NS.Eval(p) end
+	NS.parts[#NS.parts + 1] = p
+	NS.Face(p)
+end
+
+-- the last seconds' overlay: Flame Shock in the cast-it look with its time left big, on a frame of ours
+-- over `anchor` (made out of combat; only its alpha changes after)
+NS.overs = {}
+function NS.NewOver(parent, anchor, level, gate)
+	local f = CreateFrame("Frame", nil, parent)
+	f:SetAllPoints(anchor)
+	f:SetFrameLevel(level)
+	f:SetAlpha(0)
+	local L = NS.Parts(f, SPELL.fs.icon)
+	L.text = Carrier(f, f:GetFrameLevel() + 2)
+	L.big = L.text:CreateFontString(nil, "OVERLAY")
+	L.big:SetFontObject(GameFontHighlight)
+	L.big:SetPoint("CENTER", f, "CENTER", 0, 0)
+	L.big:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+	Outline(L.big)
+	NS.Time(L, L.big, nil, nil, NS.DecFormatter(), 0.1)   -- (its binding made now, off until it shows)
+	L.gate = gate
+	NS.overs[#NS.overs + 1] = L
+	NS.StyleOver(L)
+	return L
+end
+
+function NS.StyleOver(L)
+	local size = Get("fs", "size")   -- (in the icon row's scale: the target's overlay follows it, NS.Place)
+	NS.Look(L, Get("ns", "castLook"), false, size)
+	SP:SetSPFont(L.big, "timers", NS.BigSize(size), "OUTLINE")
+end
+
+-- the game's button may not be touched now (WoW: Forever, in a fight or while it hides auras)
+function NS.Locked(p)
+	return p.engine and (InCombatLockdown() or AurasHidden()) or false
+end
+
+-- the face: the shock while Next Shock is on (and the icon is not its Missing Warning); on the game's
+-- button only out of combat (done after the fight otherwise)
+function NS.Face(p)
+	if NS.Locked(p) then
+		NS.dirty = true
+		return
+	end
+	local on = NS.On() and not p.missing
+	if on then p.nsF:SetTexture(NS.ShockIcon()) end
+	p.nsFC:SetShown(on)
+	if not on and p.nsLate then NS.PartLate(p, false) end
+end
+NS.Shown = NS.Face
+
+function NS.PartLate(p, on)
+	if p.lc then
+		-- WoW: Forever: the last seconds' container on or off (the game's own call, in a fight too); the game
+		-- shows its button only while that enemy really has your Flame Shock, its time left the game's own
+		on = on and NS.On() and true or false
+		if p.nsLate == on then return end
+		p.nsLate = on
+		pcall(p.lc.SetEnabled, p.lc, on)
+		if on then pcall(p.lc.UpdateAllAuras, p.lc) end
+		return
+	end
+	on = on and NS.On() and not p.missing and p.nsL ~= nil or false
+	if p.nsLate == on then return end
+	p.nsLate = on
+	local L = p.nsL
+	if not L then return end
+	if on then
+		NS.Time(L, L.big, p.nsStart, p.nsDur, NS.DecFormatter(), 0.1)
+		L.host:SetAlpha(1)
+	else
+		L.host:SetAlpha(0)
+		NS.Time(L, L.big, nil)
+	end
+end
+
+-- after a fight: what waited for the game's buttons
+NS.flush = CreateFrame("Frame")
+NS.flush:SetScript("OnEvent", function(self)
+	if AurasHidden() then return end
+	self:UnregisterAllEvents()
+	if NS.dirty then NS.Restyle() end
+end)
+
+-- that enemy's Flame Shock (start, duration; nil: not on or not known): its timer set again only when that changes
+function NS.Track(p, start, duration)
+	if not p.nsF then return end
+	local n = NS.On() and (Get("ns", "refresh") or 0) or 0
+	if not (start and duration and duration > 0) or n <= 0 then
+		if p.nsT then p.nsT:Cancel(); p.nsT = nil end
+		p.nsStart = nil
+		NS.PartLate(p, false)
+		return
+	end
+	if p.nsStart and math.abs(p.nsStart - start) < 0.2 and math.abs(p.nsDur - duration) < 0.2 and p.nsN == n then return end
+	if p.nsT then p.nsT:Cancel(); p.nsT = nil end
+	p.nsStart, p.nsDur, p.nsN = start, duration, n
+	NS.Eval(p)
+end
+
+-- the last N seconds on or off now, and ONE one-shot timer to the next change (never polled)
+function NS.Eval(p)
+	p.nsT = nil
+	local s = p.nsStart
+	if not s then NS.PartLate(p, false) return end
+	local now, stop = GetTime(), s + p.nsDur
+	if now >= stop then
+		p.nsStart = nil
+		NS.PartLate(p, false)
+		return
+	end
+	local late = now >= stop - p.nsN
+	NS.PartLate(p, late)
+	p.nsT = C_Timer.NewTimer(max(0.01, (late and stop + 0.05 or stop - p.nsN) - now), p.nsFire)
+end
+
+-- a time left the game draws from numbers of ours: a duration text binding on `fs` (the game updates the
+-- number, no Lua each frame), made once; no start: off. A client without one gets no number, never a
+-- wrong one.
+function NS.Time(p, fs, start, duration, formatter, interval)
+	if p.bind == nil then
+		p.bind = false
+		local D = C_DurationUtil
+		if D and D.CreateDurationTextBinding and D.CreateDuration then
+			local ok, b = pcall(D.CreateDurationTextBinding)
+			local okD, d = pcall(D.CreateDuration)
+			if ok and b and okD and d and pcall(b.SetFontString, b, fs) then
+				if formatter then pcall(b.SetFormatter, b, formatter) end
+				if interval and b.SetUpdateInterval then pcall(b.SetUpdateInterval, b, interval) end
+				if b.SetExpiredText then pcall(b.SetExpiredText, b, "") end
+				p.bind, p.dur = b, d
+			end
+		end
+	end
+	if not start then
+		if p.bind then pcall(p.bind.SetEnabled, p.bind, false) end
+		fs:SetText("")
+		return
+	end
+	if not p.bind then
+		fs:SetText("")
+		return
+	end
+	pcall(p.dur.SetTimeFromStart, p.dur, start, duration)
+	pcall(p.bind.SetDuration, p.bind, p.dur)
+	pcall(p.bind.SetEnabled, p.bind, true)
+end
+
+-- state 4's big time: tenths of a second (2.8), rounded up as WoW counts down (whole seconds from 10 on)
+function NS.DecFormatter()
+	if NS.dec ~= nil then return NS.dec or nil end
+	NS.dec = false
+	local S = C_StringUtil
+	if not (S and S.CreateNumericRuleFormatter) then return nil end
+	local ok, f = pcall(S.CreateNumericRuleFormatter)
+	if not (ok and f and f.AddBreakpoint) then return nil end
+	local up = Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Up or 1
+	if pcall(f.AddBreakpoint, f, { threshold = 0, step = 0.1, rounding = up, format = "%.1f" }) then
+		pcall(f.AddBreakpoint, f, { threshold = 10, step = 1, rounding = up, format = "%d" })
+		NS.dec = f
+	end
+	return NS.dec or nil
+end
+
+-- ---------------------------------------------------------------------------
+-- WoW: Forever (the game's containers): Next Shock's OWN Flame Shock slot (yours: HARMFUL|PLAYER and
+-- Flame Shock's aura IDs) in a container of its own, its button sitting exactly on Target Tracker's
+-- Flame Shock icon: over the icon, under its sweep and time left (the sweep runs over the shock, as on
+-- Anniversary). The game shows that button only while YOUR Flame Shock is on your target, so nothing is
+-- read: Earth Shock (or Frost Shock) on it, made once out of combat. Its last N seconds: a SECOND
+-- container of its own (NS.lc; e.lc per nameplate), Flame Shock again over everything with the game's own
+-- time big in tenths, switched on by ONE one-shot timer from the aura (out of a fight) or your own cast:
+-- the game still shows it only while your Flame Shock is really there.
+-- ---------------------------------------------------------------------------
+function NS.GateSize()
+	local scale = (H.debuffs and H.debuffs:GetScale()) or 1
+	return Get("fs", "size") * scale
+end
+
+function NS.EFace(host)
+	return NS.Parts(host, NS.ShockIcon())
+end
+
+function NS.EStyle(f, s)
+	f.icon:SetTexture(NS.ShockIcon())
+	NS.plain.size = s
+	LK.Edge(f, "fs", NS.plain)
+end
+
+function NS.Init(button)
+	button:ClearAllPoints()
+	button:SetAllPoints(H.ns)
+	NoMouse(button)
+	local f = NS.EFace(button)
+	NS.EStyle(f, NS.GateSize())
+	NS.face = f
+end
+
+-- the last seconds on the game's own button (WoW: Forever): Flame Shock in the cast-it look, its time left
+-- big in the middle (the game's own duration text, in tenths). Made once, out of combat, as the game makes
+-- the button (AddSlot); out.late gets the parts. size: a function (the look follows the spot's scale).
+function NS.LateInit(anchor, size, out)
+	return function(button)
+		button:ClearAllPoints()
+		button:SetAllPoints(anchor)
+		NoMouse(button)
+		local L = NS.Parts(button, SPELL.fs.icon)
+		L.text = Carrier(button, button:GetFrameLevel() + 2)
+		L.big = L.text:CreateFontString(nil, "OVERLAY")
+		L.big:SetFontObject(GameFontHighlight)   -- (a font at once: the game's button writes into it before ours is set)
+		L.big:SetPoint("CENTER", button, "CENTER", 0, 0)
+		Outline(L.big)
+		local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+		cd:SetAllPoints(button)
+		if cd.SetDrawSwipe then cd:SetDrawSwipe(false) end
+		if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+		if cd.SetDrawBling then cd:SetDrawBling(false) end
+		cd:SetHideCountdownNumbers(true)
+		cd.noCooldownCount = true   -- (OmniCC and the like: the time left is drawn here)
+		pcall(button.SetDurationCooldown, button, cd)
+		local b = NS.LateBinding()
+		if not (b and pcall(button.SetDurationText, button, L.big, { binding = b })) then
+			pcall(button.SetDurationText, button, L.big, { textFormatter = NS.DecFormatter() })
+		end
+		NS.LStyle(L, size())
+		SP:SPFontGameOwned(L.big)   -- (on the game's button: a font change waits out fights and hidden auras)
+		out.late = L
+	end
+end
+
+-- the last seconds' time left on the game's button ticks in tenths: a binding of ours, which the game copies
+-- onto the button (its SetDurationText Assign()s options.binding), with the tenths formatter and a 0.1 s
+-- update interval (the formatter alone keeps the binding's default interval). Made once; false where the
+-- client has none (the formatter alone then).
+function NS.LateBinding()
+	if NS.lb ~= nil then return NS.lb or nil end
+	NS.lb = false
+	local D, f = C_DurationUtil, NS.DecFormatter()
+	if not (D and D.CreateDurationTextBinding and f) then return nil end
+	local ok, b = pcall(D.CreateDurationTextBinding)
+	if not (ok and b and pcall(b.SetFormatter, b, f)) then return nil end
+	if b.SetUpdateInterval then pcall(b.SetUpdateInterval, b, 0.1) end
+	if b.SetExpiredText then pcall(b.SetExpiredText, b, "") end
+	NS.lb = b
+	return b
+end
+
+-- a refusal said once per kind (the plates' entries would fill the /sptt log otherwise)
+NS.said = {}
+function NS.Say(kind, fmt, ...)
+	if NS.said[kind] then return end
+	NS.said[kind] = true
+	Log(fmt, ...)
+end
+
+-- the last seconds' look: the cast-it look at its size, its time left in WoW's gold (out of combat)
+function NS.LStyle(L, s)
+	NS.Look(L, Get("ns", "castLook"), false, s)
+	SP:SetSPFont(L.big, "timers", NS.BigSize(s), "OUTLINE")
+	L.big:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+end
+
+-- state 4 on or off: the last seconds' own container (the game's own call, in a fight too). Nothing on the
+-- game's buttons changes; the game shows that button only while your Flame Shock is really on your target.
+function NS.Late(on)
+	on = on and true or false
+	if NS.lateOn == on then return end
+	NS.lateOn = on
+	local c = NS.lc
+	if not c then return end
+	pcall(c.SetEnabled, c, on)
+	if on then pcall(c.UpdateAllAuras, c) end
+end
+
+function NS.Arm()
+	local now, n = GetTime(), NS.sN
+	local stop = NS.sStart + NS.sDur
+	local at = stop + 0.1
+	if n > 0 then
+		if now < stop - n then
+			at = stop - n
+		elseif now < stop and not NS.lateOn then
+			NS.Late(true)
+		end
+	end
+	NS.timer = C_Timer.NewTimer(max(0.01, at - now), NS.Fire)
+end
+
+function NS.Fire()
+	NS.timer = nil
+	if not NS.sStart then return end
+	if GetTime() < NS.sStart + NS.sDur then
+		NS.Arm()
+	else
+		NS.Refresh()   -- (it ran out)
+	end
+end
+
+function NS.Schedule(start, duration)
+	local n = Get("ns", "refresh") or 0
+	local s0 = NS.sStart
+	if start and s0 and NS.sN == n and math.abs(s0 - start) < 0.2 and math.abs(s0 + NS.sDur - start - duration) < 0.2 then return end
+	if not start and not s0 and not NS.timer and not NS.lateOn then return end
+	if NS.timer then
+		NS.timer:Cancel()
+		NS.timer = nil
+	end
+	NS.Late(false)
+	NS.sStart, NS.sDur, NS.sN = start, duration, n
+	if start then NS.Arm() end
+end
+
+-- every icon's look. On WoW: Forever the game's buttons only out of combat and while the game shows auras
+-- (its own guard: done when they show again otherwise)
+function NS.Restyle()
+	if engine and (InCombatLockdown() or AurasHidden()) then
+		NS.dirty = true
+		if InCombatLockdown() then NS.flush:RegisterEvent("PLAYER_REGEN_ENABLED") end
+		return
+	end
+	NS.dirty = nil
+	for _, L in ipairs(NS.overs) do NS.StyleOver(L) end
+	for _, p in ipairs(NS.parts) do NS.Face(p) end
+	local gs = NS.GateSize()
+	if NS.face then NS.EStyle(NS.face, gs) end
+	if NS.late then NS.LStyle(NS.late, gs) end
+	local ps = Get("fs", "size")
+	for _, e in ipairs(E.plateAll) do
+		local q = e.nsP
+		if q then
+			NS.EStyle(q.face, ps)
+			if q.late then NS.LStyle(q.late, ps) end
+		end
+	end
+	NS.Refresh()
+end
+
+-- WoW: Forever, every nameplate: the same as your target's (its own container and Flame Shock slot on
+-- that enemy, its button on that plate's Flame Shock icon), and its last seconds' container, made out of
+-- combat once per nameplate entry. Out of combat is enough, in a Battleground or Arena too: the game runs a
+-- button's setup (initializeFrame) before it locks the button while auras are hidden (Blizzard's
+-- AuraContainerCustomFrameProvider CreateFrame). A refusal can be passing: each part is asked again on later
+-- passes (NS.Apply), three times at most (nil: ask again; false: given up).
+function NS.PlateBuild(e)
+	if not (engine and e.c and e.cells.fs) or InCombatLockdown() then return end
+	if e.nc == nil then
+		local c = NewContainer(e.row)
+		-- (the levels before the slots: the game's buttons, and what is made on them, take them then)
+		-- (over the Flame Shock icon, under its sweep and time left: the sweep runs over the shock, as on Anniversary)
+		if c then c:SetFrameLevel(e.c:GetFrameLevel() + 1) end
+		local got
+		local ok, err = false, nil
+		if c then
+			ok, err = AddSlot(c, "ns", "HARMFUL|PLAYER", { includeSpellIDs = AURA_IDS.fs }, function(button)
+				button:ClearAllPoints()
+				button:SetAllPoints(e.cells.fs)
+				NoMouse(button)
+				got = NS.EFace(button)
+				NS.EStyle(got, Get("fs", "size"))
+			end, true)
+		end
+		if not (ok and got) then
+			if c then c:Hide() end
+			e.nsTries = (e.nsTries or 0) + 1
+			if e.nsTries >= 3 then e.nc = false end
+			NS.Say("plateFace", "next shock: the game refused a nameplate's Flame Shock slot (%s)", tostring(err))
+			return
+		end
+		pcall(c.SetEnabled, c, false)
+		pcall(c.SetUnit, c, e.unit or "none")
+		e.nc, e.nsOn = c, false
+		local q = { nsF = true, face = got }
+		q.nsFire = function() NS.Eval(q) end
+		e.nsP = q
+	end
+	if e.nc and e.lc == nil then
+		-- its last seconds: a second container of its own (the game's button in the cast-it look), over the
+		-- icon's time left; off until that enemy's timer says so
+		local out = {}
+		local lc = NewContainer(e.row)
+		if lc then lc:SetFrameLevel(e.c:GetFrameLevel() + 6) end
+		local ok, err = false, nil
+		if lc then
+			ok, err = AddSlot(lc, "nsl", "HARMFUL|PLAYER", { includeSpellIDs = AURA_IDS.fs },
+				NS.LateInit(e.cells.fs, function() return Get("fs", "size") end, out), true)
+		end
+		if ok and out.late then
+			pcall(lc.SetEnabled, lc, false)
+			pcall(lc.SetUnit, lc, e.unit or "none")
+			local q = e.nsP
+			e.lc, q.lc, q.late = lc, lc, out.late
+			if q.nsStart then
+				-- (asked again while that enemy's Flame Shock runs: its timer set again, on at once if it is late)
+				if q.nsT then q.nsT:Cancel(); q.nsT = nil end
+				q.nsLate = nil
+				NS.Eval(q)
+			end
+		else
+			if lc then lc:Hide() end
+			e.lcTries = (e.lcTries or 0) + 1
+			if e.lcTries >= 3 then e.lc = false end
+			NS.Say("plateLate", "next shock: the game refused a nameplate's last seconds (%s); Earth Shock still shows there",
+				tostring(err))
+		end
+	end
+end
+
+-- a nameplate's Next Shock on or off (the game's own call, in a fight too): only where its Flame Shock shows
+function NS.PlateSync(e)
+	if not e.nc then return end
+	local on = NS.wanted and e.unit ~= nil and e.keyOn.fs and true or false
+	if e.nsOn ~= on then
+		e.nsOn = on
+		pcall(e.nc.SetEnabled, e.nc, on)
+		-- (the game's container never reads the enemy's auras again by itself: as on a new target)
+		if on then pcall(e.nc.UpdateAllAuras, e.nc) end
+	end
+	if e.nsP then
+		local st, du
+		if on then st, du = NS.RecOf(e.unit) end
+		NS.Track(e.nsP, st, du)
+	end
+end
+
+-- WoW: Forever: Next Shock's containers on your target, made once out of combat, after Target Tracker's own
+-- (icons of ours need nothing of their own). Out of combat is enough, in a Battleground or Arena too (see
+-- NS.PlateBuild). A refusal can be passing: asked again on later passes, three times at most.
+function NS.Build()
+	if NS.built then return end
+	if FOREVER and InCombatLockdown() then return end
+	EnsureHolders()
+	if engine then
+		if not E.tc then return end   -- (Target Tracker's own container first)
+		if not NS.c then
+			NS.engine = false
+			local c = NewContainer(E.Gate())
+			-- (the levels before the slots: the game's buttons, and what is made on them, take them then)
+			-- (over the Flame Shock icon, under its sweep and time left: the sweep runs over the shock, as on Anniversary)
+			if c then c:SetFrameLevel(E.tc:GetFrameLevel() + 1) end
+			local ok, err = false, nil
+			if c then ok, err = AddSlot(c, "ns", "HARMFUL|PLAYER", { includeSpellIDs = AURA_IDS.fs }, NS.Init, true) end
+			NS.bound = ok and pcall(c.SetUnit, c, "target") or false
+			if NS.bound and NS.face then
+				pcall(c.SetEnabled, c, false)   -- (on while Next Shock shows: NS.Apply)
+				NS.enabled = false
+				NS.c, NS.engine = c, true
+			else
+				if c then c:Hide() end
+				NS.face = nil
+				NS.tries = (NS.tries or 0) + 1
+				NS.Say("face", "next shock: the game refused its container (%s)", tostring(err))
+				if NS.tries < 3 then return end   -- (a refusal can be passing)
+			end
+		end
+		NS.BuildLate()
+		Log("next shock: %s", NS.engine and "built" or "not built")
+	end
+	NS.built = true
+	for _, e in ipairs(E.plateAll) do NS.PlateBuild(e) end
+end
+
+-- your target's last seconds: a second container of Next Shock's own, over the icon's time left (off until the
+-- timer). Out of combat; asked again on later passes (NS.Apply), three times at most (nil: ask again; false:
+-- given up).
+function NS.BuildLate()
+	if not (NS.c and NS.lc == nil) or InCombatLockdown() then return end
+	local out = {}
+	local lc = NewContainer(E.Gate())
+	if lc then lc:SetFrameLevel(E.tc:GetFrameLevel() + 6) end   -- (over the icon's time left)
+	local ok, err = false, nil
+	if lc then
+		ok, err = AddSlot(lc, "nsl", "HARMFUL|PLAYER", { includeSpellIDs = AURA_IDS.fs }, NS.LateInit(H.ns, NS.GateSize, out), true)
+	end
+	if ok and out.late and pcall(lc.SetUnit, lc, "target") then
+		pcall(lc.SetEnabled, lc, false)
+		NS.lc, NS.late = lc, out.late
+		-- (it starts off; already in its last seconds, as the timer said meanwhile: on at once)
+		local late = NS.lateOn
+		NS.lateOn = false
+		if late then NS.Late(true) end
+		return
+	end
+	if lc then lc:Hide() end
+	NS.lcTries = (NS.lcTries or 0) + 1
+	if NS.lcTries >= 3 then NS.lc = false end
+	NS.Say("late", "next shock: the game refused its last seconds (%s); Earth Shock still shows", tostring(err))
+end
+
+-- Next Shock's spot: exactly Target Tracker's Flame Shock icon (anchored once: it moves with it)
+function NS.Place()
+	local f = H.ns
+	if not f then return end
+	local cell = cells.fs and cells.fs.frame
+	if not (NS.engine and cell) then
+		placed.ns = false
+		f:Hide()
+		return
+	end
+	if f.spOn ~= cell then
+		f:ClearAllPoints()
+		f:SetScale(1)
+		f:SetClampedToScreen(false)
+		f:SetAllPoints(cell)
+		f.spOn = cell
+	end
+	-- the row's scale (bigger or smaller on a nameplate): the looks on the game's buttons are drawn again for
+	-- it (out of combat and while the game shows auras; once it does otherwise)
+	local k = H.debuffs:GetScale()
+	if NS.scale ~= k then
+		NS.scale = k
+		NS.Restyle()   -- (its own guard: after the fight, or once auras show again)
+	end
+	placed.ns = placed.debuffs and cells.fs.slot and true or false
+end
+
+-- your target's Next Shock shows right now: Next Shock and Target Tracker on, its spot there, Flame Shock's
+-- own rules say Flame Shock shows here and now (Show In / Out of Combat, Hide This Spell, a rule), and not
+-- while Unlock UI shows its stand-ins. (Each nameplate follows its own row: OnPlate.want.)
+function NS.TargetWant(on)
+	return on and NS.On() and not demo.debuffs and placed.ns and CellWanted("fs") and true or false
+end
+
+-- what shows right now (cheap; in a fight too: frames of ours, and the containers' own on / off)
+function NS.Apply(on)
+	NS.wanted = on and NS.On() or false
+	NS.tWant = NS.TargetWant(on)
+	for _, p in ipairs(NS.parts) do NS.Face(p) end
+	if NS.engine then
+		local want = NS.tWant
+		H.ns:SetShown(want)
+		if NS.c and NS.enabled ~= want then
+			NS.enabled = want
+			pcall(NS.c.SetEnabled, NS.c, want)
+		end
+	end
+	if NS.wanted and not InCombatLockdown() then
+		NS.BuildLate()   -- (a refusal asked again)
+		for _, e in ipairs(E.plateAll) do NS.PlateBuild(e) end   -- (turned on after the nameplates were made)
+	end
+	NS.Refresh()
+end
+-- Flame Shock's duration per spell ID, learned from the aura wherever the game shows it (until then each
+-- client's own spell data, NS.BASE); the aura your last cast put on counts for that cast's ID too
+function NS.Learn(r)
+	local d = r.duration
+	if not (d and d > 0) then return end
+	if r.spell then NS.learned[r.spell] = d end
+	local c = NS.last
+	if c.id and math.abs(r.start - c.t) < 1 then NS.learned[c.id] = d end
+end
+
+-- your Flame Shock on your target: its start and duration (nil: not on, or not known). From the aura itself
+-- wherever the game shows it; in a fight on WoW: Forever (where only the game's button knows whether it is
+-- on) from your own cast
+NS.GRACE = 1.5   -- seconds a cast's aura may take to land (the readable path waits that long for it)
+function NS.Rec()
+	local c = NS.cur
+	if not AurasHidden() then
+		local r = tgt.mine.fs
+		if r.id then
+			NS.Learn(r)
+			NS.from = "the aura"
+			return r.start, r.duration
+		end
+		-- no aura where the game shows auras: it is not there (a resist, an immunity, a dispel, it ran out),
+		-- unless your cast just went out and its aura has not landed yet (an opener just before a pull). With
+		-- icons of ours, the tracker alone decides.
+		if engine and c and GetTime() - c.start < NS.GRACE then
+			NS.from = "your cast"
+			return c.start, c.duration
+		end
+		return nil
+	end
+	if c and GetTime() < c.start + c.duration then
+		NS.from = "your cast"
+		return c.start, c.duration
+	end
+	return nil
+end
+
+-- an enemy's record from your own casts, by its GUID (nil where the game hides who it is)
+function NS.RecOf(unit)
+	local g = UnitGUID(unit)
+	if secret(g) or type(g) ~= "string" then return nil end
+	local r = NS.recs[g]
+	if r and GetTime() < r.start + r.duration then return r.start, r.duration end
+	return nil
+end
+
+-- each enemy's Flame Shock icon follows its own Flame Shock: icons of ours (Anniversary) their own records
+-- (ShowRec); on WoW: Forever your target's from its aura or your cast (state 4's timer)
+function NS.Refresh()
+	if not NS.built then return end
+	for _, p in ipairs(NS.parts) do
+		NS.Track(p, p.shownId and p.shownStart or nil, p.shownDur)
+	end
+	if NS.engine then
+		local s, d
+		if NS.tWant then s, d = NS.Rec() end   -- (Flame Shock's own rules hide it: no last seconds either)
+		NS.Schedule(s, d)
+	end
+	for _, e in pairs(plateUsed) do
+		if e.nc then NS.PlateSync(e) end
+	end
+	for _, e in ipairs(E.plateAll) do
+		if e.nc and not e.unit then NS.PlateSync(e) end
+	end
+end
+-- your target, when the game names it (its GUID; nil where it hides it)
+function NS.Guid()
+	local g = UnitGUID("target")
+	if secret(g) or type(g) ~= "string" then return nil end
+	return g
+end
+
+-- one of your Flame Shock casts landed: a record for your target (its own, by GUID, where the game names it)
+function NS.Cast(id)
+	local now = GetTime()
+	NS.last.id, NS.last.t = id, now
+	if not TargetAttackable() then return end   -- (it went to another unit: a mouseover or focus macro)
+	local rec = { start = now, duration = NS.learned[id] or NS.BASE }
+	local g = NS.Guid()
+	if g then
+		for k, r in pairs(NS.recs) do
+			if r.start + r.duration < now then NS.recs[k] = nil end   -- (the ones that ran out)
+		end
+		NS.recs[g] = rec
+	end
+	NS.cur = rec
+	NS.Refresh()
+end
+
+-- a new target: its own record where the game names it (its GUID). Where the game hides who it is, there is
+-- none until your next Flame Shock on it: after you switch away and back, Next Shock shows Earth Shock (or
+-- Frost Shock) while your Flame Shock is on it, without its last seconds, until that next cast (never a guess)
+function NS.TargetChanged()
+	NS.cur = nil
+	if not NS.On() then return end
+	local g = NS.Guid()
+	local r = g and NS.recs[g]
+	if r and GetTime() < r.start + r.duration then NS.cur = r end
+	if not NS.built then return end
+	-- (the game's containers start over on the new target: they never tell it themselves)
+	if NS.c then pcall(NS.c.UpdateAllAuras, NS.c) end
+	if NS.lc then pcall(NS.lc.UpdateAllAuras, NS.lc) end
+	NS.Refresh()
+end
+
+-- your own casts (registered only while Next Shock is on): Flame Shock, any rank. UNIT_SPELLCAST_SENT names
+-- the unit a cast goes to: one sent to another unit than your target (a mouseover or focus macro: another
+-- name, where the game shows both) is not your target's
+NS.castFrame = CreateFrame("Frame")
+NS.castFrame:SetScript("OnEvent", function(_, event, unit, a2, a3, a4)
+	if secret(unit) or unit ~= "player" then return end
+	if event == "UNIT_SPELLCAST_SENT" then
+		local name, guid, id = a2, a3, a4
+		if secret(id) or not AURA_IDS.fs[id] then return end
+		NS.sentOff, NS.sentGuid = false, nil
+		if not secret(guid) then NS.sentGuid = guid end
+		if secret(name) or type(name) ~= "string" or name == "" then return end
+		local t = UnitName("target")
+		if secret(t) or type(t) ~= "string" then return end
+		if (name:match("^([^%-]+)") or name) ~= t then NS.sentOff = true end
+		return
+	end
+	local guid, id = a2, a3   -- UNIT_SPELLCAST_SUCCEEDED
+	if secret(id) or not AURA_IDS.fs[id] then return end
+	local off = NS.sentOff and (NS.sentGuid == nil or secret(guid) or NS.sentGuid == guid)
+	NS.sentOff = false
+	if not off then NS.Cast(id) end
+end)
+
+-- ---------------------------------------------------------------------------
 -- The look of every part, changed on the parts already there. The game's buttons
 -- (WoW: Forever) are touched only out of combat and not while the game hides
 -- auras (as all through a Battleground or Arena); icons of our own (Anniversary)
@@ -3293,6 +4149,7 @@ local function Restyle()
 		if e.parts.purge then StylePurge(e.parts.purge, plp) end
 	end
 	OnPlate.GameResize()   -- (WoW's row redrawn: its icons at WoW's size)
+	NS.Restyle()
 end
 
 -- ---------------------------------------------------------------------------
@@ -3342,6 +4199,7 @@ local function Build()
 				host:Hide()
 				c.p = DebuffParts(host, key, DebuffLook(key))
 				c.p.host = host
+				if key == "fs" then NS.Attach(c.p) end   -- (Next Shock rides on it)
 			end
 		end
 		if not E.purgeIcon and Usable("purge") then
@@ -3367,7 +4225,23 @@ end
 local ev = CreateFrame("Frame")
 local auraFrame = CreateFrame("Frame")   -- UNIT_AURA for "target" (RegisterUnitEvent: the game filters)
 local bossFrames = { CreateFrame("Frame"), CreateFrame("Frame"), CreateFrame("Frame") }   -- boss1-5, two a frame
-local L = { core = false, plates = false, aura = false, boss = false }   -- what is registered now
+local L = { core = false, plates = false, aura = false, boss = false, casts = false }   -- what is registered now (casts: Next Shock's)
+-- WoW: Forever lets auras be read again a moment after a fight ends: your target's are read again then (Next
+-- Shock's record of your Flame Shock; the icons of ours where the game's containers are not used)
+if SPCompat and SPCompat.OnUnrestricted then
+	SPCompat.OnUnrestricted(function()
+		if not (FOREVER and L.aura) then return end
+		TrackFull(tgt, true, not engine)
+		RefreshIcons()
+		if NS.On() and not NS.built then
+			Update()   -- (Next Shock waited for the game to let it build)
+		elseif NS.dirty then
+			NS.Restyle()
+		elseif NS.built then
+			NS.Refresh()
+		end
+	end)
+end
 local BOSS_UNITS = { { "boss1", "boss2" }, { "boss3", "boss4" }, { "boss5" } }
 local CORE_EVENTS = { "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
 	"PLAYER_TARGET_CHANGED", "ENCOUNTER_START", "ENCOUNTER_END", "SPELLS_CHANGED", "INSTANCE_ENCOUNTER_ENGAGE_UNIT",
@@ -3417,17 +4291,30 @@ local function SetListening()
 		end
 		if E.purgeIcon and PurgeWanted() then aura = true end
 	end
+	-- Next Shock reads your Flame Shock on your target wherever the game shows it (both game versions:
+	-- on WoW: Forever out of a fight), and follows your own Flame Shock casts
+	local ns = on and built and NS.On() or false
+	if ns then aura = true end
 	if aura ~= L.aura then
 		L.aura = aura
 		if aura then
 			auraFrame:RegisterUnitEvent("UNIT_AURA", "target")
-			TrackFull(tgt, true, true)
+			TrackFull(tgt, true, not engine)
 		else
 			auraFrame:UnregisterEvent("UNIT_AURA")
 		end
 	end
+	if ns ~= L.casts then
+		L.casts = ns
+		if ns then
+			NS.castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+			NS.castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+		else
+			NS.castFrame:UnregisterAllEvents()
+		end
+	end
 	-- the bosses' buffs: only in a boss fight, and only where they are read here
-	local boss = aura and encounter.id ~= nil and Get("purge", "watchBosses") and PurgeWanted() or false
+	local boss = aura and not engine and encounter.id ~= nil and Get("purge", "watchBosses") and PurgeWanted() or false
 	if boss ~= L.boss then
 		L.boss = boss
 		for i, f in ipairs(bossFrames) do
@@ -3480,7 +4367,7 @@ Apply = function()
 	if not built then return end
 	local on = ModuleOn()
 	if ReadPurgeLimit() then
-		if L.aura then TrackFull(tgt, true, true) end
+		if L.aura then TrackFull(tgt, true, not engine) end
 		OnPlate.stale = true   -- (Anniversary: every plate's Magic buffs are read again)
 	end
 	H.debuffs:SetShown(demo.debuffs or (on and placed.debuffs) or false)
@@ -3522,6 +4409,7 @@ Apply = function()
 	OnPlate.SyncAll()
 	SetListening()
 	RefreshIcons()
+	NS.Apply(on)
 	OnPlate.SyncGame()
 end
 
@@ -3531,6 +4419,7 @@ local function Layout()
 	LayoutDebuffs()
 	PlaceDebuffs()
 	PlacePurge()
+	NS.Place()   -- (after the two: under the target frame it goes under them)
 	for _, e in pairs(plateUsed) do OnPlate.Layout(e) end
 end
 
@@ -3573,6 +4462,15 @@ Update = function()
 			if groups then OnPlate.BuildGroups() end
 		end
 	end
+	-- Next Shock, the first time it is on (WoW: Forever makes its containers out of combat only: a fight waits)
+	if on and NS.On() and not NS.built then
+		if FOREVER and InCombatLockdown() then
+			pending.build = true
+			afterFight:RegisterEvent("PLAYER_REGEN_ENABLED")
+		else
+			NS.Build()
+		end
+	end
 	EvaluateRules()
 	Layout()
 	Apply()
@@ -3581,6 +4479,7 @@ end
 afterFight:SetScript("OnEvent", function(self)
 	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
 	if pending.look then Restyle() end
+	if NS.dirty then NS.Restyle() end   -- (its own guard: waits again while the game hides auras)
 	if pending.filters then ApplyFilters() end
 	if pending.build or pending.driver then Update() end
 	-- nameplates the game refused in the fight (or that found no free entry): now
@@ -3613,6 +4512,7 @@ Changed = function(kind)
 	-- Unlock UI is up (a size changed with the mouse wheel over Purge's box): its stand-ins follow
 	if demo.debuffs and SP.TargetTrackerDebuffsDemo then SP:TargetTrackerDebuffsDemo(true) end
 	if demo.purge and SP.TargetTrackerPurgeDemo then SP:TargetTrackerPurgeDemo(true) end
+	if demo.ns and SP.TargetTrackerNextShockBoxDemo then SP:TargetTrackerNextShockBoxDemo(true) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -3629,10 +4529,11 @@ local function OnTargetChanged()
 	tgt.warn = w
 	local oldD, oldP = H.debuffs.spPlate, H.purge.spPlate
 	if PlatePlacement() then
-		local d, p = placed.debuffs, placed.purge
+		local d, p, n = placed.debuffs, placed.purge, placed.ns
 		PlaceDebuffs()
 		PlacePurge()
-		if d ~= placed.debuffs or p ~= placed.purge then apply = true end
+		NS.Place()
+		if d ~= placed.debuffs or p ~= placed.purge or n ~= placed.ns then apply = true end
 	end
 	if apply then Apply() else E.GateByHand(true) end
 	-- the plates your target left and came to: their entries step back in or aside, WoW's own icons come
@@ -3643,9 +4544,10 @@ local function OnTargetChanged()
 	OnPlate.Touch(oldD)
 	OnPlate.Touch(oldP)
 	if L.aura then
-		TrackFull(tgt, true, true)
+		TrackFull(tgt, true, not engine)
 		RefreshIcons()
 	end
+	NS.TargetChanged()
 	-- last: a rule that names a target (a name the game hides never stops the rest)
 	if nameRules then
 		ReadTargetName()
@@ -3658,7 +4560,11 @@ end
 
 auraFrame:SetScript("OnEvent", function(_, _, unit, info)
 	if secret(unit) or unit ~= "target" then return end
-	if TrackUpdate(tgt, info, true, true) then RefreshIcons() end
+	-- (Magic buffs only where Purge is filled in here: the game's containers draw it on WoW: Forever)
+	if TrackUpdate(tgt, info, true, not engine) then
+		RefreshIcons()
+		NS.Refresh()
+	end
 end)
 
 for _, f in ipairs(bossFrames) do
@@ -3675,11 +4581,12 @@ function OnPlate.Event(event, unit)
 	if event == "NAME_PLATE_UNIT_ADDED" then
 		OnPlate.tried[unit] = nil
 		if ModuleOn() and OnPlate.anyLay then OnPlate.Attach(unit) end
-		-- your target's plate came: your debuffs and Purge go on it
+		-- your target's plate came: your debuffs, Purge and Next Shock go on it
 		if PlatePlacement() and plate and plate == TargetPlate() then
 			OnPlate.tried.target = nil
 			PlaceDebuffs()
 			PlacePurge()
+			NS.Place()
 			Apply()
 		end
 	else
@@ -3687,7 +4594,8 @@ function OnPlate.Event(event, unit)
 		-- the plate a spot hangs off is going (the game may still name it your target's)
 		if plate and (plate == H.debuffs.spPlate or plate == H.purge.spPlate) then
 			if plate == H.debuffs.spPlate then
-				placed.debuffs, H.debuffs.spPlate = false, nil
+				-- (Next Shock sits on your debuffs' Flame Shock: off with them; NS.Place puts it back with the plate)
+				placed.debuffs, placed.ns, H.debuffs.spPlate = false, false, nil
 				Park(H.debuffs)
 			end
 			if plate == H.purge.spPlate then
@@ -3751,8 +4659,9 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 		Apply()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		inCombat = false
-		-- (WoW: Forever without its containers: your target's auras, hidden in the fight, are read again)
-		if FOREVER and not engine and L.aura then TrackFull(tgt, true, true) end
+		-- (WoW: Forever without its containers, or with Next Shock on: your target's auras, hidden in the
+		-- fight, are read again)
+		if FOREVER and L.aura then TrackFull(tgt, true, not engine) end
 		if pending.build or pending.driver then Update() else Apply() end
 	elseif event == "NAME_PLATE_UNIT_ADDED" or event == "NAME_PLATE_UNIT_REMOVED" then
 		OnPlate.Event(event, a1)
@@ -3800,6 +4709,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 		end
 		ReadZone()
 		if pending.look then Restyle() end   -- (a look changed while the game hid auras: now, if it shows them)
+		if NS.dirty then NS.Restyle() end    -- (Next Shock's too: its own guard waits again if they still hide)
 		Update()
 		if nameRules then
 			ReadTargetName()
@@ -3817,6 +4727,7 @@ end)
 local function HideAll()
 	if H.debuffs then H.debuffs:Hide() end
 	if H.purge then H.purge:Hide() end
+	if H.ns then H.ns:Hide() end
 	if H.plates then H.plates:Hide() end
 	if E.bossLayer then E.bossLayer:Hide() end
 	OnPlate.DetachAll()
@@ -3866,10 +4777,20 @@ SP.TT_MISS_LOOKS = { { key = "edge", label = "Red Edge (default)" }, { key = "do
 	{ key = "slash", label = "Red Slash" }, { key = "outline", label = "Empty Outline" }, { key = "pulse", label = "Pulsing Edge" } }
 SP.TT_ICON_EDGES = { { key = "thin", label = "Thin Black (default)" }, { key = "none", label = "None" },
 	{ key = "thick", label = "Thick Black" }, { key = "dotted", label = "Dotted" }, { key = "spell", label = "Spell Color" } }
+-- Next Shock's Look When It's Time to Cast: its choices (General > Themes cards; "cast" samples)
+SP.TT_CAST_LOOKS = { { key = "gold", label = "Gold Dotted Edge (default)" }, { key = "edge", label = "Red Edge" },
+	{ key = "dotted", label = "Dotted Red Edge" }, { key = "faded", label = "Just Faded" }, { key = "glow", label = "Red Glow" },
+	{ key = "tint", label = "Red Tint" }, { key = "slash", label = "Red Slash" }, { key = "outline", label = "Empty Outline" },
+	{ key = "pulse", label = "Pulsing Edge" } }
 function SP:TT_LookSample(parent, kind, value)
 	local host = CreateFrame("Frame", nil, parent)
 	host:SetSize(30, 30)
 	host:SetPoint("CENTER", parent, "CENTER", 0, 0)
+	if kind == "cast" then
+		-- Next Shock's Flame Shock when it's time to cast it again (state 4: in full color)
+		NS.Look(NS.Parts(host, SPELL.fs.icon), value, false, 30)
+		return host
+	end
 	local look = { size = 30, timeLeft = true, sweep = "none", charges = false, missLook = "edge", border = "thin" }
 	if kind == "miss" then look.missLook = value else look.border = value end
 	local p = DebuffParts(host, "fs", look)
@@ -3884,18 +4805,20 @@ function SP:TT_ResetLooks()
 		if OPT[s.key].sweepDirection ~= nil then SP:TT_Set(s.key, "sweepDirection", nil) end
 		SP:TT_Set(s.key, "border", nil)
 	end
+	SP:TT_Set("ns", "castLook", nil)   -- (Next Shock's Look When It's Time to Cast)
 end
 
 function SP:TT_Usable(key) return SPELL[key] ~= nil and Usable(key) end
 function SP:TT_Known(key) return SPELL[key] ~= nil and Known(key) end
 
+-- (key: a spell's, or "ns": Next Shock's settings, the Next Shock tab)
 function SP:TT_Get(key, opt)
-	if not SPELL[key] then return nil end
+	if not (SPELL[key] or key == "ns") then return nil end
 	return Get(key, opt)
 end
 
 function SP:TT_Set(key, opt, value)
-	if not SPELL[key] then return end
+	if not (SPELL[key] or key == "ns") then return end
 	if opt == "shown" then
 		local hidden = (value == false) or nil
 		if SV().hidden[key] == hidden then return end
@@ -4155,7 +5078,7 @@ do   -- (in a block: this chunk's locals are counted)
 	local function SaveSpot(which, frame)
 		local rec = SP.GetPositionRecord and SP:GetPositionRecord(frame)
 		if not rec then return end
-		if which == "debuffs" then SV().debuffsPos = rec else SV().purgePos = rec end
+		if which == "debuffs" then SV().debuffsPos = rec elseif which == "ns" then SV().nsPos = rec else SV().purgePos = rec end
 		SP:ApplyPositionRecord(frame, rec)
 	end
 
@@ -4389,13 +5312,9 @@ do   -- (in a block: this chunk's locals are counted; the preview's own things l
 		plate:Show()
 	end
 
-	function P.Stage()
-		if P.stage then return P.stage end
-		local s = CreateFrame("Frame", "ShamanPowerTargetTrackerDemo", UIParent)
-		s:SetSize(P.W, 320)
-		s:Hide()
-		-- the pretend target: WoW's own (Classic) target frame art
-		local tf = CreateFrame("Frame", nil, s)
+	-- the pretend target: WoW's own (Classic) target frame art, its name and level (in `parent`)
+	function P.TargetArt(parent)
+		local tf = CreateFrame("Frame", nil, parent)
 		tf:SetSize(256, 128)
 		local function tex(layer, sub, x, y, w, h, file)
 			local t = tf:CreateTexture(nil, layer, nil, sub)
@@ -4427,6 +5346,15 @@ do   -- (in a block: this chunk's locals are counted; the preview's own things l
 		level:SetFontObject(GameFontNormalSmall)
 		level:SetPoint("CENTER", tf, "TOPLEFT", 208, -67)
 		level:SetText("60")
+		return tf
+	end
+
+	function P.Stage()
+		if P.stage then return P.stage end
+		local s = CreateFrame("Frame", "ShamanPowerTargetTrackerDemo", UIParent)
+		s:SetSize(P.W, 320)
+		s:Hide()
+		local tf = P.TargetArt(s)
 		-- its Magic buff, in WoW's own small aura row under the frame (a Magic buff's blue edge)
 		local buff = CreateFrame("Frame", nil, tf)
 		buff:SetSize(18, 18)
@@ -4785,6 +5713,46 @@ do
 		p(("  hide WoW's own icons: %s; WoW's row redrawn by the game without your tracked spells: %s; icons hidden one by one now: %d;"
 			.. " WoW's own icons can be told apart right now: %s; another addon's nameplates: %s"):format(
 			onoff(OnPlate.hiding), redrawn, hid, table.concat(apart, ", "), OnPlate.addonPlates and "yes" or "no"))
+		-- Next Shock: who draws it, your Flame Shock on your target as known now, its last seconds' timer
+		local nsStart, nsDur = nil, nil
+		if NS.built and ((NS.engine and NS.tWant) or (not NS.engine and NS.wanted)) then nsStart, nsDur = NS.Rec() end
+		-- icons of ours (Anniversary), your target's own containers and every nameplate's (WoW: Forever)
+		local icons, late, timers = #NS.parts, 0, 0
+		for _, q in ipairs(NS.parts) do
+			if q.nsLate then late = late + 1 end
+			if q.nsT then timers = timers + 1 end
+		end
+		if NS.c then icons = icons + 1 end
+		if NS.lateOn and NS.lc then late = late + 1 end
+		if NS.timer then timers = timers + 1 end
+		for _, e in ipairs(E.plateAll) do
+			if e.nc then icons = icons + 1 end
+			local q = e.nsP
+			if q and q.nsLate then late = late + 1 end
+			if q and q.nsT then timers = timers + 1 end
+		end
+		p(("  next shock: %s; on %d Flame Shock icons (your target's: %s, its last seconds: %s); your Flame Shock on your"
+			.. " target: %s; last %d seconds showing on %d, timers set %d; your target's GUID shown by the game: %s"):format(
+			onoff(NS.On()), icons, NS.c and "the game's" or (#NS.parts > 0 and "ours" or "none"),
+			NS.lc and "the game's" or (NS.lc == false and "refused" or (#NS.parts > 0 and "ours" or "none")),
+			nsStart and ("%.1f s left (from %s)"):format(nsStart + nsDur - GetTime(), NS.from or "your cast") or "not on (or not known)",
+			Get("ns", "refresh"), late, timers, NS.Guid() and "yes" or "no"))
+		local nsBuilt, nsUsed, nsOn, nsRec, nsBound = 0, 0, 0, 0, 0
+		for _, e in ipairs(E.plateAll) do if e.nc then nsBuilt = nsBuilt + 1 end end
+		for unit, e in pairs(plateUsed) do
+			nsUsed = nsUsed + 1
+			if e.nsOn then nsOn = nsOn + 1 end
+			if e.nc and e.nc.GetUnit then
+				local okU, u = pcall(e.nc.GetUnit, e.nc)
+				if okU and not secret(u) and u == unit then nsBound = nsBound + 1 end
+			end
+			if NS.RecOf(unit) then nsRec = nsRec + 1 end
+		end
+		local nsLateBuilt = 0
+		for _, e in ipairs(E.plateAll) do if e.lc then nsLateBuilt = nsLateBuilt + 1 end end
+		p(("  next shock on nameplates: its slot on %d of %d entries (last seconds on %d); %d nameplates now, %d of them on,"
+			.. " %d bound to their enemy, %d with your Flame Shock cast on record"):format(nsBuilt, #E.plateAll, nsLateBuilt,
+			nsUsed, nsOn, nsBound, nsRec))
 		p("  built: " .. (#E.log > 0 and table.concat(E.log, "; ") or "nothing yet"))
 	end
 
@@ -4824,6 +5792,10 @@ do
 					get = function() return Get(key, "border") end,
 					set = function(v) SP:TT_Set(key, "border", v) end }
 			end
+			-- Next Shock's Look When It's Time to Cast (its Size is not a look: as each spell's Icon Size)
+			entries[#entries + 1] = { key = "castLook.ns", label = "Next Shock Look When It's Time to Cast",
+				get = function() return Get("ns", "castLook") end,
+				set = function(v) SP:TT_Set("ns", "castLook", v) end }
 			SP:ThemeSpotSettings("mod.targettracker", entries)
 		end
 		inCombat = InCombatLockdown() and true or false

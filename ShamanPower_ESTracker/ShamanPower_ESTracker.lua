@@ -61,32 +61,31 @@ function SP:InitESTracker()
 	-- Ensure profile table exists
 	self:EnsureProfileTable("esTracker")
 
-	-- Migrate from old global variable if it exists
-	if ShamanPower_ESTracker and next(ShamanPower_ESTracker) then
-		-- Copy old settings to profile if profile is empty/default
-		if SP.opt.esTracker.enabled == false and SP.opt.esTracker.enabled then
-			SP.opt.esTracker.enabled = SP.opt.esTracker.enabled
+	-- Migrate from the old global if it exists: settings from before profiles (v1.4 and
+	-- older kept them in the account-wide ShamanPower_ESTracker), carried into the
+	-- profile once, then the old table goes. Read from that old table (this used to read
+	-- the profile into itself, so nothing ever came across). Only what the player had
+	-- changed there comes over (the old defaults it was filled with stay behind), and
+	-- only onto a profile setting still at its default: a choice made in the profile stays.
+	local old = ShamanPower_ESTracker
+	if type(old) == "table" and next(old) then
+		local p = self.opt.esTracker
+		local profileDefaults = SHAMANPOWER_DEFAULT_VALUES and SHAMANPOWER_DEFAULT_VALUES.profile
+		local d = profileDefaults and profileDefaults.esTracker or {}
+		-- each old setting, with the default the old version filled it with
+		for key, oldDefault in pairs({ enabled = false, opacity = 1.0, iconSize = 40, vertical = false,
+			hideNames = false, hideBorder = false, hideCharges = false }) do
+			local v = old[key]
+			if v ~= nil and type(v) == type(oldDefault) and v ~= oldDefault and p[key] == d[key] then
+				p[key] = v
+			end
 		end
-		if SP.opt.esTracker.position then
-			self.opt.esTracker.position = SP.opt.esTracker.position
-		end
-		if SP.opt.esTracker.opacity and SP.opt.esTracker.opacity ~= 1.0 then
-			self.opt.esTracker.opacity = SP.opt.esTracker.opacity
-		end
-		if SP.opt.esTracker.iconSize and SP.opt.esTracker.iconSize ~= 40 then
-			self.opt.esTracker.iconSize = SP.opt.esTracker.iconSize
-		end
-		if SP.opt.esTracker.vertical then
-			self.opt.esTracker.vertical = SP.opt.esTracker.vertical
-		end
-		if SP.opt.esTracker.hideNames then
-			self.opt.esTracker.hideNames = SP.opt.esTracker.hideNames
-		end
-		if SP.opt.esTracker.hideBorder then
-			self.opt.esTracker.hideBorder = SP.opt.esTracker.hideBorder
-		end
-		if SP.opt.esTracker.hideCharges then
-			self.opt.esTracker.hideCharges = SP.opt.esTracker.hideCharges
+		local pos, dpos, mine = old.position, d.position, p.position
+		local mineAtDefault = mine == nil
+			or (type(dpos) == "table" and mine.point == dpos.point and mine.x == dpos.x and mine.y == dpos.y)
+		if type(pos) == "table" and type(pos.point) == "string" and type(pos.x) == "number" and type(pos.y) == "number"
+			and mineAtDefault then
+			p.position = { point = pos.point, x = pos.x, y = pos.y }
 		end
 		-- Clear the old global after migration
 		ShamanPower_ESTracker = nil
@@ -235,6 +234,7 @@ local function buildESRowContainer(btn)
 				carrier:SetAllPoints(button)
 				local count = carrier:CreateFontString(nil, "OVERLAY")
 				SP:SetSPFont(count, "labels", 12, "OUTLINE")
+				SP:SPFontGameOwned(count)   -- (on the game's button: a font change waits out fights and hidden auras)
 				count:SetPoint("TOPRIGHT", button, "TOPRIGHT", -2, -2)
 				count:SetTextColor(0.4, 1, 0.4)
 				ThemeCount(count)   -- the game-drawn count takes the theme's colour when built
@@ -428,8 +428,8 @@ function SP:UpdateESTrackerFrame()
 	end
 	self:ESTrackerSetRestricted(false)
 
-	-- Apply opacity
-	frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
+	-- Apply opacity (times Out Of The Way's fade while it fades the tracker)
+	frame:SetAlpha((SP.opt.esTracker.opacity or 1.0) * (SP.TownAlphaMul and SP:TownAlphaMul("es") or 1))
 end
 
 -- Setup-wizard preview: fill the tracker with a believable raid's worth of
@@ -689,12 +689,29 @@ end
 function SP:UpdateESTrackerOpacity()
 	local frame = self.esTrackerFrame
 	if frame then
-		frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
+		frame:SetAlpha((SP.opt.esTracker.opacity or 1.0) * (SP.TownAlphaMul and SP:TownAlphaMul("es") or 1))
 	end
 end
 
 -- Set the Earth Shield tracker on or off explicitly (settings and the tour use
 -- this; flipping on IsShown() went backwards while a preview had the frame shown).
+-- (A27) Hide In Town: the tracker hidden, or faded through its opacity; back as it was after
+function SP:TownApplyESTracker()
+	local frame = self.esTrackerFrame
+	if not (frame and SP.opt and SP.opt.esTracker and SP.opt.esTracker.enabled) then return end
+	if self.IsOff and self:IsOff() then return end   -- (switched off: as the off path left it)
+	local hides = self.TownHides and self:TownHides("es")
+	if hides and not self:TownFades() then
+		if frame:IsShown() then frame:Hide() end
+		return
+	end
+	frame:SetAlpha((SP.opt.esTracker.opacity or 1.0) * (self.TownAlphaMul and self:TownAlphaMul("es") or 1))
+	if not frame:IsShown() then
+		frame:Show()
+		if self.ScanEarthShields then self:ScanEarthShields() end   -- (changes while hidden were skipped)
+	end
+end
+
 function SP:SetESTrackerEnabled(on)
 	self:InitESTracker()
 	if not self.esTrackerFrame then self:CreateESTrackerFrame() end

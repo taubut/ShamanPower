@@ -935,6 +935,45 @@ DRAW.partybuff = function(st)
 			dots[i][d] = dot
 		end
 	end
+	-- the Party Strip under the counters: its icon, two members with the buff, one
+	-- missing it (the circle with a slash) and one it can't tell ("?")
+	local DOT = "Interface\\AddOns\\ShamanPower\\textures\\dot"
+	local strip = NewPanel(st)
+	strip:SetSize(100, 22)
+	strip:SetPoint("TOPLEFT", st, "TOPLEFT", 0, -40)
+	local line = strip:CreateTexture(nil, "ARTWORK", nil, -8)
+	line:SetPoint("TOPLEFT", strip, "TOPLEFT", 0, 0)
+	line:SetPoint("TOPRIGHT", strip, "TOPRIGHT", 0, 0)
+	line:SetHeight(2)
+	local sIcon = NewSlot(strip, 16)
+	sIcon:SetPoint("LEFT", strip, "LEFT", 5, 0)
+	local marks = {}
+	for m = 1, 4 do
+		local f = CreateFrame("Frame", nil, strip)
+		f:SetSize(12, 12)
+		f:SetPoint("LEFT", strip, "LEFT", 27 + (m - 1) * 17, 0)
+		local rim = f:CreateTexture(nil, "ARTWORK", nil, 0)
+		rim:SetTexture(DOT)
+		rim:SetPoint("CENTER", f, "CENTER", 0, 0)
+		rim:SetSize(14, 14)
+		local d = f:CreateTexture(nil, "ARTWORK", nil, 1)
+		d:SetTexture(DOT)
+		d:SetAllPoints(f)
+		f.rim, f.dot = rim, d
+		marks[m] = f
+	end
+	local ring = marks[3]:CreateTexture(nil, "ARTWORK", nil, 2)
+	ring:SetTexture("Interface\\AddOns\\ShamanPower\\Media\\Textures\\Ring_40px")
+	ring:SetAllPoints(marks[3])
+	local slash = marks[3]:CreateTexture(nil, "ARTWORK", nil, 3)
+	slash:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\cue_slash")
+	slash:SetTexCoord(1, 0, 0, 1)
+	slash:SetPoint("TOPLEFT", marks[3], "TOPLEFT", 1.5, -1.5)
+	slash:SetPoint("BOTTOMRIGHT", marks[3], "BOTTOMRIGHT", -1.5, 1.5)
+	local q = HudText(marks[4], "labels", 11, "OUTLINE")
+	q:SetPoint("CENTER", marks[4], "CENTER", 0, 0)
+	q:SetText("?")
+	local STRIP_CLASSES = { "WARRIOR", "PRIEST" }
 	return 350, 66, function()
 		for e = 1, 4 do PaintPanel(counters[e], "mod.partybuff-frame", 0.92) end
 		PaintPanel(cov, "mod.coverage-colors", 0.92)
@@ -943,6 +982,33 @@ DRAW.partybuff = function(st)
 			for d = 1, 3 do dots[i][d]:SetColorTexture(ClassRGB(CLASS_SAMPLE[d])) end
 			dots[i][4]:SetColorTexture(RGB("mod.coverage-dots-missing", "missing"))
 		end
+		-- the strip at its own Background Opacity (a theme colors it, never makes it more solid)
+		local ps = SP.opt and SP.opt.partyStrip
+		local a = tonumber(ps and ps.bgOpacity) or 0.8
+		strip.bg:SetColorTexture(RGB("mod.partystrip-frame", "bg"))
+		strip.bg:SetAlpha(a)
+		local er, eg, eb = RGB("mod.partystrip-frame", "border")
+		for _, t in pairs(strip.spBorder) do t:SetColorTexture(er, eg, eb, a) end
+		line:SetColorTexture(SP:ThemeElement("mod.partystrip-line", 4))
+		line:SetAlpha(a)
+		BoxSlot(sIcon, "mod.partystrip-box", 4, I.windfury, "WF")
+		for m = 1, 4 do
+			local f = marks[m]
+			local has = m <= 2
+			f.rim:SetVertexColor(0, 0, 0, has and 1 or 0)
+			if has then
+				local cls = STRIP_CLASSES[m]
+				local r, g, b = SP:ThemeClassSetRGB("mod.partystrip-class", cls)
+				if not r then r, g, b = ClassRGB(cls) end
+				f.dot:SetVertexColor(r, g, b, 1)
+			else
+				f.dot:SetVertexColor(0.055, 0.063, 0.078, 0.85)   -- the dark disc under "missing" and "?"
+			end
+		end
+		local mr, mg, mb = RGB("mod.partystrip-marks", "missing")
+		ring:SetVertexColor(mr, mg, mb)
+		slash:SetVertexColor(mr, mg, mb)
+		q:SetTextColor(RGB("mod.partystrip-marks", "unknown"))
 	end
 end
 
@@ -1235,8 +1301,8 @@ local BLOCKS = {
 		desc = "The texture of every bar ShamanPower draws, unless a part picks its own."
 			.. " The same setting as Bar Texture on General > Fonts & Textures." },
 	shieldTexture = { label = "Shield Charge Bars",
-		desc = "The texture for Shield Charges' bars and the Cooldown Bar's Shield Charge Bar. Set separately from Bar Texture."
-			.. " The same setting as on General > Fonts & Textures and Shield Charges." },
+		desc = "The texture for the Cooldown Bar's Shield Charge Bar. Set separately from Bar Texture. Each shield's charges on"
+			.. " screen have their own (Shield Charge Display, below). The same setting as on General > Fonts & Textures." },
 	wow = { label = "WoW's Own Colors",
 		desc = "The colors WoW itself uses, so the ShamanPower themes match the rest of your game."
 			.. " A swatch below tagged WOW is one of these; click it to pick your own color for that part instead." },
@@ -2212,7 +2278,19 @@ local SHAPE_ROWS = {
 	  get = function() return SP.opt.dotShape or "default" end, set = function(k) SP:SetDotShape(k) end },
 	{ key = "glow", label = "Glow Shape", list = function() return SP.GLOW_SHAPES end,
 	  note = "The pulse flash and the ready and alert glows. Also on Totem Bar > Duration Bars and Ready Reminders.",
-	  get = function() return SP.opt.glowShape or "default" end, set = function(k) SP:SetGlowShape(k) end },
+	  get = function() return SP.opt.glowShape or "default" end, set = function(k) SP:SetGlowShape(k) end,
+	  extra = function(y, W)
+		-- Proc Glow Thickness: how thick the ring is (only while Proc Glow is in use)
+		if SP.opt.glowShape ~= "proc" or not SP.SetProcGlowOut then return y end
+		local _, h = Widgets:Slider(page.body, {
+			label = "Proc Glow Thickness", x = 0, y = y, width = W, min = 0, max = 0.6, step = 0.01, isPercent = true,
+			desc = "How thick the Proc Glow ring is: it grows outward from the icon's edge. 20% by default. Also on Totem Bar > Duration Bars; each Ready Reminders icon has its own.",
+			get = function() return SP:ProcGlowOut() end,
+			set = function(v) SP:SetProcGlowOut(v) end,
+			onChanged = PageChanged,
+		})
+		return y + h + 10
+	  end },
 	{ key = "edge", label = "Frame Edge", list = function() return SP.FRAME_EDGES end,
 	  note = "The totem bar, the cooldown bar and ShamanPower's panels. Also on Appearance > Totem Bar and Cooldown Bar.",
 	  get = function() return SP.opt.frameEdge or "default" end, set = function(k) SP:SetFrameEdge(k) end },
@@ -2221,7 +2299,7 @@ local SHAPE_ROWS = {
 	  note = "The totem bar's buttons, its flyouts, pop-outs and Drop All (ShamanPower Minimal's boxes too). Also on Appearance > Totem Bar.",
 	  get = function() return SP:IconShapeOf("totem") or "default" end, set = function(k) SP:SetIconShape(k, "totem") end },
 	{ key = "iconcd", iconKind = "cooldown", label = "Cooldown Bar Icon Shape", list = function() return SP.ICON_SHAPES end,
-	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on Appearance > Cooldown Bar.",
+	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on the Cooldown Bar page (Bar).",
 	  get = function() return SP:IconShapeOf("cooldown") or "default" end, set = function(k) SP:SetIconShape(k, "cooldown") end },
 	{ key = "iconrr", iconKind = "ready", label = "Ready Reminders Icon Shape", list = function() return SP.ICON_SHAPES end,
 	  search = "Keep Borders Square",
@@ -2376,9 +2454,18 @@ local function OrbCards(which)
 	orbCardCache[which] = cards
 	return cards
 end
-local function ShieldBarShown()
+-- which: 1 Lightning, 2 Water, 3 Earth Shield (nil: any); each shield has its own Charge Bar (A17)
+local SHIELD_KEY = { "LS", "WS", "ES" }
+local function ShieldBarShown(which)
+	if not SP.ShieldChargesLoaded then return false end
+	if SP.ShieldOpt then
+		for w = which or 1, which or 3 do
+			if not (w == 3 and SPCompat.FOREVER) and SP:ShieldOpt(SHIELD_KEY[w], "bar") then return true end
+		end
+		return false
+	end
 	local s = SP.opt and SP.opt.shieldChargeDisplay
-	return SP.ShieldChargesLoaded and s and s.showChargeBar and true or false
+	return s and s.showChargeBar and true or false
 end
 local ORB_ROW = {
 	{ label = "Lightning Shield Charges", note = "Lightning Shield's charges: the bar, or one orb per charge. Also on Shield Charges (Lightning Shield Look)." },
@@ -2389,7 +2476,7 @@ for which = 1, 3 do
 	SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "orbs" .. which, orbs = which, label = ORB_ROW[which].label, note = ORB_ROW[which].note,
 		list = function() return OrbCards(which) end,
 		-- Earth Shield: Anniversary only (WoW: Forever has none)
-		shown = function() return ShieldBarShown() and (which < 3 or not SPCompat.FOREVER) end,
+		shown = function() return ShieldBarShown(which) and (which < 3 or not SPCompat.FOREVER) end,
 		get = function() return SP.GetShieldLook and SP:GetShieldLook(which) or "bar" end,
 		set = function(k) if SP.SetShieldLook then SP:SetShieldLook(which, k) end end }
 end
@@ -2398,7 +2485,7 @@ end
 local CHARGE_NAMES = { "Lightning Shield Charge Color", "Water Shield Charge Color", "Earth Shield Charge Color" }
 SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "chargegrad", label = "Charge Bar Gradient", list = function() return SP.GRADIENTS end,
 	search = "Charge Bar Gradient Direction Lightning Shield Charge Color Water Shield Charge Color Earth Shield Charge Color Default Charge Colors",
-	note = "Shield Charges' own: the charge bar, the Glowing and Flat orbs and the cooldown bar's Shield Charge Bar. Bar Gradient never touches them. Also on Shield Charges.",
+	note = "The cooldown bar's Shield Charge Bar (each shield's charges on screen have their own gradient: Shield Charge Display, below), and each shield's Charge Color. Bar Gradient never touches them.",
 	shown = function() return ShieldBarShown() end,
 	get = function() return SP.opt.chargeGradient or "default" end, set = function(k) SP:SetGradientField("chargeGradient", k) end,
 	extra = function(y, W)
@@ -2436,6 +2523,12 @@ SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "ttedge", tt = "edge", label = "Target Tra
 	shown = function() return SP.TT_ICON_EDGES ~= nil end, list = function() return SP.TT_ICON_EDGES end,
 	get = function() return SP.TT_Get and SP:TT_Get("fs", "border") or "thin" end,
 	set = function(k) for _, key in ipairs(TT_ALL) do SP:TT_Set(key, "border", k) end end }
+-- Next Shock's look (D49): the same setting as Look When It's Time to Cast in Flame Shock's right-click menu (Target Tracker)
+SHAPE_ROWS[#SHAPE_ROWS + 1] = { key = "ttcast", tt = "cast", label = "Next Shock Look When It's Time to Cast",
+	note = "How Next Shock's Flame Shock looks when it's time to cast it: while your target doesn't have yours, and again just before yours runs out. Also in Flame Shock's right-click menu on Target Tracker, under Next Shock.",
+	shown = function() return SP.TT_CAST_LOOKS ~= nil end, list = function() return SP.TT_CAST_LOOKS end,
+	get = function() return SP.TT_Get and SP:TT_Get("ns", "castLook") or "gold" end,
+	set = function(k) if SP.TT_Set then SP:TT_Set("ns", "castLook", k) end end }
 local PREVIEW_H = 44
 local DOT_CLASSES = { "ROGUE", "WARRIOR", "PRIEST", "HUNTER" }
 
@@ -2465,9 +2558,15 @@ local function BuildShapePreview(c, row, s)
 		local ic = p:CreateTexture(nil, "ARTWORK")
 		ic:SetSize(26, 26); ic:SetPoint("CENTER", p, "CENTER", 0, 0)
 		ic:SetTexture(I.tremor); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		local g = p:CreateTexture(nil, "OVERLAY")
-		g:SetPoint("TOPLEFT", ic, "TOPLEFT", -10, 10); g:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 10, -10)
-		g:SetTexture(s.file); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0.9)
+		if s.key == "proc" and SP.ProcGlow_Start then
+			local fr = CreateFrame("Frame", nil, p); fr:SetAllPoints(ic)
+			SP.ProcGlow_Start(fr, SP:ProcGlowOptions(fr, { 0.4, 1, 0.4, 1 }, "sample"))
+		else
+			local g = p:CreateTexture(nil, "OVERLAY")
+			g:SetPoint("TOPLEFT", ic, "TOPLEFT", -10, 10); g:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 10, -10)
+			g:SetTexture(s.file); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0.9)
+			if SP.PaintGlowShape then SP:PaintGlowShape(g, s.key) end
+		end
 	elseif row.orbs then
 		local n = s.count or 3
 		local bar = CreateFrame("StatusBar", nil, p)
@@ -2799,7 +2898,17 @@ local MODULE_EXTRAS = {
 	totembar = { { key = "extra.manatint", label = "Mana Tint",
 		note = "Totem and cooldown buttons you do not have the mana for. Also on Appearance > Textures & Colors (turn Mana Tint on there).",
 		paths = { { "fluffy", "button_tints_section", "manaTintColor" } } } },
+	shieldcharges = {},
 }
+-- Shield Charge Display: one row per shield (A17 Q5), its own charge bar texture and gradient (the
+-- same settings as its right-click menu on Shield Charges; rows for the shield's charge bar only)
+for _, w in ipairs({ { "LS", "Lightning Shield" }, { "WS", "Water Shield" }, { "ES", "Earth Shield" } }) do
+	local function P(name) return { "fluffy", "shieldcharges_section", "sctheme_" .. name .. "_" .. w[1] } end
+	local list = MODULE_EXTRAS.shieldcharges
+	list[#list + 1] = { key = "extra.sc" .. w[1], label = w[2] .. " Charge Bar",
+		note = w[2] .. "'s own charge bar: its texture and gradient. Also on Shield Charges (right-click " .. w[2] .. ").",
+		paths = { P("texture"), P("gradient"), P("gradientDirection"), P("gradientColor2") } }
+end
 local function OptionAt(path)
 	local node = SP.options
 	for i = 1, #path do node = node and node.args and node.args[path[i]] end

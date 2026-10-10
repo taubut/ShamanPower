@@ -716,6 +716,20 @@ function SP:StartPulseTimer(frame, pulseInterval)
     frame.pulseInterval = pulseInterval
     frame.pulseStartTime = GetTime()
     frame.lastPulseTime = GetTime()
+    -- Your own totem: its real drop time, so the countdown matches the totem bar's. The plate
+    -- appears a frame or more after the drop (a recycled plate later still), and a clock started
+    -- then runs that much behind the bar's. Another shaman's totem keeps the plate's own clock:
+    -- the game does not say when it was dropped.
+    local start = self:OwnTotemPlateStart(frame)
+    if start then
+        frame.pulseStartTime = start
+        frame.lastPulseTime = start + math.floor((GetTime() - start) / pulseInterval) * pulseInterval
+        -- the swipe starts from this cycle's real beginning too (its updater re-arms at a cycle's start)
+        if settings.showPulseCooldown and frame.cooldown then
+            frame.cooldown:SetCooldown(frame.lastPulseTime, pulseInterval)
+            frame.cooldown:Show()
+        end
+    end
 
     -- Apply current size settings
     local textSize = settings.pulseTextSize or 14
@@ -743,6 +757,23 @@ function SP:StartPulseTimer(frame, pulseInterval)
     frame.pulseShownTenth, frame.pulseTextBand, frame.pulseBarBand = nil, nil, nil
     frame:SetScript("OnUpdate", PulseOnUpdate)
     SP:UpdatePulseTimer(frame)
+end
+
+-- The drop time of the totem on this plate when the game says the unit is yours (GetTotemInfo
+-- knows it); nil for another shaman's, or when the game hides the owner (then the plate keeps
+-- its own clock: a name match could be another shaman's totem of the same name). Which of your
+-- four it is comes from the plate's own totem identity: its spell, so its element.
+function SP:OwnTotemPlateStart(frame)
+    local unit, info = frame.unitId, frame.totemInfo
+    if not unit or not info or not self.GetElementTotemInfo or not UnitIsOwnerOrControllerOfUnit then return nil end
+    local owned = UnitIsOwnerOrControllerOfUnit("player", unit)
+    if (issecretvalue and issecretvalue(owned)) or owned ~= true then return nil end
+    local spellID = TOTEM_SPELL_IDS[info.name]
+    local element = spellID and self.TotemCastElement and self:TotemCastElement(spellID)
+    if not element then return nil end
+    local have, _, s = self:GetElementTotemInfo(element)
+    if have ~= true or (issecretvalue and issecretvalue(s)) or type(s) ~= "number" or s <= 0 then return nil end
+    return s
 end
 
 -- Stop pulse timer for a totem plate frame
@@ -931,6 +962,49 @@ function SP:DisableTotemPlatesEvents()
     for unitId, _ in pairs(self.activeTotemPlates) do
         self:OnTotemPlateUnitRemoved(unitId)
     end
+end
+
+-- ============================================================================
+-- WoW's own nameplate options that Totem Plates needs
+-- ============================================================================
+-- A totem only gets an icon where WoW draws it a nameplate. Your own and other
+-- friendly totems need WoW's friendly player nameplates (Shift+V) and the Minions
+-- option under them; enemy totems need enemy nameplates (V) and their Minions. With
+-- one off, WoW shows just the totem's floating name. Both clients name them the same
+-- on their Options > Gameplay > Nameplates page (Blizzard_SettingsDefinitions_Frame,
+-- Nameplates.lua). A client without one of them answers nil and is left alone.
+local NAMEPLATE_NEEDS = {
+    friendly = { "nameplateShowFriendlyPlayers", "nameplateShowFriendlyPlayerMinions" },
+    enemy = { "nameplateShowEnemies", "nameplateShowEnemyMinions" },
+}
+local function ReadNameplateCVar(name)
+    local get = (C_CVar and C_CVar.GetCVar) or GetCVar
+    if not get then return nil end
+    local ok, v = pcall(get, name)
+    if ok then return v end
+end
+
+-- What WoW's options leave out on one side ("friendly" or "enemy"): nil when nothing,
+-- "players" when the side's nameplates are off, "minions" when only its Minions are.
+function SP:TotemPlatesNameplateGap(side)
+    local names = NAMEPLATE_NEEDS[side]
+    if not names then return nil end
+    if ReadNameplateCVar(names[1]) == "0" then return "players" end
+    if ReadNameplateCVar(names[2]) == "0" then return "minions" end
+    return nil
+end
+
+-- The settings page's "Turn On Friendly Nameplates" button, and only that: WoW's
+-- friendly player nameplates and their Minions, each option on its own, out of combat
+-- only (as turning Totem Plates on sets its options). Returns false in a fight.
+function SP:TurnOnFriendlyNameplates()
+    if InCombatLockdown() then return false end
+    local set = SetCVar or (C_CVar and C_CVar.SetCVar)
+    if not set then return false end
+    for _, name in ipairs(NAMEPLATE_NEEDS.friendly) do
+        if ReadNameplateCVar(name) ~= nil then pcall(set, name, "1") end
+    end
+    return true
 end
 
 -- ============================================================================

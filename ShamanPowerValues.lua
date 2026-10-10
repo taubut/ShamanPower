@@ -20,6 +20,9 @@ BINDING_NAME_SHAMANPOWER_WATER_TOTEM = "Cast Assigned Water Totem"
 BINDING_NAME_SHAMANPOWER_AIR_TOTEM = "Cast Assigned Air Totem"
 BINDING_NAME_SHAMANPOWER_EARTH_SHIELD = "Cast " .. SPCompat.SpellLabel(974, "Earth Shield") .. " on Assigned Target"
     .. (ShamanPower.ESTrackerUnavailable and " (not in this game)" or "")
+-- Compact style's Your Shield Line (Lightning / Water): the key clicks the line, so it casts the
+-- shield the line casts, and does nothing while the line is off
+BINDING_NAME_SHAMANPOWER_SHIELD_LINE = "Cast Your Shield (Compact Shield Line)"
 BINDING_NAME_SHAMANPOWER_TOTEMIC_CALL = (GetSpellInfo(36936) or "Totemic Call") .. " (Recall Totems)"
 
 -- Cooldown Bar keybindings
@@ -98,6 +101,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showDropAllButton = true,  -- Show the Drop All Totems button on mini bar
         totemicCallOnTotemBar = false,  -- Show Totemic Call (recall) on totem bar instead of cooldown bar
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
+        partyBuffOff = false,       -- The whole Party Buff Tracker off (the sidebar switch): dots, counters, Coverage, Party Strip
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
         showButtonKeybinds = false,  -- Show keybind text on buttons (top-right corner)
         keybindSource = "actionbar",  -- which key the buttons show: actionbar (first) | sp (ShamanPower's own first) | sponly
@@ -149,6 +153,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         twistSoundName = "Raid Warning",
         twistSoundVolume = 100,
         preferredShield = 1,  -- Preferred shield: 1=Lightning Shield, 2=Water Shield
+        cdbarShieldRightClickOther = false,  -- Cooldown Bar > Items: the shield button's right-click casts the other shield and keeps it on the button
         shieldChargeColors = true,  -- Color shield charges based on amount (green=full, yellow=half, red=low)
         cdbarShowShieldCount = true,  -- Charge count on the cooldown bar's shield button
         cdbarShieldChargeBar = false,  -- Charge bar (one segment per charge) along the bottom of the cooldown bar's shield button
@@ -162,7 +167,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         totemCueExpired = false,            -- a totem that ran out
         totemCueExpiredStyle = "pop",
         totemCueExpiring = false,           -- a loop over a totem's last seconds
-        totemCueExpiringStyle = "pulse",    -- pulse / glow
+        totemCueExpiringStyle = "pulse",    -- pulse / glow / drain / underbar / red (Turns red)
         totemCueExpiringSecs = 5,
         cdbarCueReady = false,              -- a cooldown on the cooldown bar ready again
         cdbarCueReadyStyle = "pop",
@@ -170,6 +175,27 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueImbueStyle = "shake",
         cdbarCueShield = false,             -- the shield gone (in combat on Forever: a red loop while missing)
         cdbarCueShieldStyle = "shake",
+        cdbarCueImbueMark = false,          -- Red X Until You Imbue Again (with Weapon Imbue Gone)
+        cdbarCueShieldMark = false,         -- Red X Until You Cast a Shield Again (with Shield Gone)
+        cdbarCueMissing = false,            -- Turns Red While Missing: a shield / imbue that is gone, red until recast
+        cdbarCueMissingGlow = false,        -- Glow While Missing: its edges glow red (and Proc Glow, when chosen) until recast
+        -- The cooldown bar's "running out" moment (ShamanPowerCues.lua), one setting each, shown on
+        -- Cooldown Bar > Display AND > Effects: a shield or imbue in its last N seconds (a shield also on
+        -- its last charge), a cooldown in its last N seconds (0: only once it is ready)
+        cdbarRunOutSecs = 60,
+        cdbarAlmostSecs = 5,
+        -- Show Items Only When Running Out (Cooldown Bar > Display): off to start
+        cdbarRunOutOnly = false,
+        cdbarRunOutReady = "hide",          -- a cooldown that is ready: "hide" (after its flash) / "keep" (until used)
+        -- Running Out (Cooldown Bar > Effects): the shield / imbue (Earth Shield) button that runs out plays a look
+        cdbarCueRunning = false,
+        cdbarCueRunningStyle = "red",       -- red (Turns red) / pulse / glow / drain / underbar
+        cdbarCueTimeColor = false,          -- Time Turns Red While Running Out (gold on a cooldown almost ready)
+        cdbarCueTimeOnly = false,           -- Time Only While Running Out (the shield's time out of sight while there is plenty)
+        cdmHideShieldIcon = false,          -- (WoW: Forever) the Cooldown Manager's own shield icon out of sight (on after Set Up The Cooldown Manager)
+        -- Cooldown Almost Ready (Cooldown Bar > Effects): a cooldown's last seconds, in gold
+        cdbarCueAlmost = false,
+        cdbarCueAlmostStyle = "glow",       -- pulse / glow / drain / underbar
         dropOrder = {1, 2, 3, 4},  -- Order to drop totems: 1=Earth, 2=Fire, 3=Water, 4=Air
         excludeEarthFromDropAll = false,  -- Exclude Earth totem from Drop All button
         excludeFireFromDropAll = false,   -- Exclude Fire totem from Drop All button
@@ -195,8 +221,9 @@ SHAMANPOWER_DEFAULT_VALUES = {
         skin = "Smooth",
 
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
-        activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
-        rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
+        activeTotemAsMain = false,  -- Show active totem as main icon, assigned as small corner indicator
+        rightClickCastsAssigned = false,  -- With activeTotemAsMain: right-click casts assigned totem instead of Totemic Call
+        assignRightClick = "previous",    -- Totem Assignments window, right-click on a totem: "previous" (the totem before it) | "clear" (no totem)
         activeOverlayDirection = "auto",
         esFlyoutRoles = {},               -- ES flyout filter: show only these group roles (TANK/HEALER/DAMAGER); empty = everyone
         esFlyoutClasses = {},             -- ES flyout filter: show only these classes (WARRIOR, ...); combined with roles as OR  -- Dropped-totem indicator: "auto" (above, or flyout side on vertical bars), "above", "below", "left", "right"
@@ -222,6 +249,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         loadoutBarLocked = false,       -- Lock the loadout bar position (prevent dragging)
         hideOutOfCombat = false,  -- Hide totem bar when not in combat
         hideWhenNoTotems = false,  -- Hide totem bar when no totems are placed
+        hideInTown = false,        -- A27: Hide In Town (Appearance > Visibility > In Town)
+        townWhere = "town",        -- town (a rested area) | anywhere (outside a fight, with no enemy targeted)
+        townHow = "hide",          -- hide | fade (to fadeOpacity)
+        townModules = {},          -- [module key] = false: that module stays on screen in town
         -- Duration Bar settings (shows totem remaining time)
         durationBarPosition = "bottom",  -- "none", "bottom", "bottom_vert", "top", "top_vert", "left", "right"
         durationBarHeight = 3,           -- Size of duration bar (2-26)
@@ -250,6 +281,24 @@ SHAMANPOWER_DEFAULT_VALUES = {
             scale = 1.0,               -- Scale for unlocked frames
             opacity = 1.0,             -- Opacity for unlocked frames
         },
+        -- Party Strip (Party Buff Tracker > Party Strip, ShamanPower_PartyRange):
+        -- one marker per party spot for each totem buff picked, on screen with or
+        -- without that totem down. Off to start.
+        partyStrip = {
+            enabled = false,           -- Show Party Strip
+            buff = "4:1",              -- the old Buff to Watch: "element:totem index" (4:1 = Windfury Totem), the first pick
+            showIcon = false,          -- Show Totem Icon
+            showNames = false,         -- Show Names
+            layout = "row",            -- "row" (side by side) or "column" (stacked)
+            scale = 1.0,               -- Size
+            bgOpacity = 0.8,           -- Background Opacity (the panel only; the markers stay)
+            breakUp = false,           -- Break Up Totem List: each picked totem a strip of its own
+            -- position = { anchor, x, y } once moved (SP:SavePositionRecord)
+            -- totems = { ["element:index"] = true }: the Totems row's picks. No default: until the
+            --   first pick the strip shows the old Buff to Watch (buff above) alone
+            -- strips = { ["element:index"] = { position = {...}, scale = n } }: Break Up Totem
+            --   List's strips moved / sized in Unlock UI (none: under the strip before it, the tab's Size)
+        },
         -- Shield Charge Display (large on-screen numbers)
         shieldChargeDisplay = {
             showPlayerShield = true,  -- Show Lightning/Water Shield charges
@@ -267,6 +316,20 @@ SHAMANPOWER_DEFAULT_VALUES = {
             playerShieldY = -100,
             earthShieldX = 50,
             earthShieldY = -100,
+            -- 3.0.8: each shield owns all its settings (LS Lightning, WS Water, ES Earth Shield; the
+            -- shared keys above were copied into these once, ShamanPower_ShieldCharges ShieldMigrate).
+            -- showWhen: "up" / "always" / "fightsUp" / "fights" (the two hide switches as one choice).
+            -- Earth Shield keeps showEarthShield / earthShieldX / Y. Looks, colors, textures and
+            -- gradients per shield start empty (nil = the starting look).
+            showLS = true, showWS = true,
+            xLS = -50, yLS = -100, xWS = -50, yWS = -100,
+            showWhenLS = "up", showWhenWS = "up", showWhenES = "up",
+            scaleLS = 1.0, scaleWS = 1.0, scaleES = 1.0,
+            opacityLS = 1.0, opacityWS = 1.0, opacityES = 1.0,
+            showIconLS = false, showIconWS = false, showIconES = false,
+            showNumberLS = true, showNumberWS = true, showNumberES = true,
+            numberPositionLS = "center", numberPositionWS = "center", numberPositionES = "center",
+            showChargeBarLS = false, showChargeBarWS = false, showChargeBarES = false,
         },
         -- Earth Shield Tracker (raid/party ES tracking)
         esTracker = {
@@ -278,6 +341,28 @@ SHAMANPOWER_DEFAULT_VALUES = {
             hideBorder = true,
             hideCharges = false,
             position = { point = "CENTER", x = 200, y = 0 },
+        },
+        -- Controller mode (3.0.8, WoW: Forever only: ShamanPowerController.lua and the pad layer /
+        -- totem picker files). Off to start; on = the Controller switch beside Bars > Controller.
+        -- look: "auto" (while Blizzard's Gamepad UI is on) / "always"; layout: "dpad" / "row" / "square";
+        -- scale: Size (1.35 = 135%); position: its own spot (nil = its default spot);
+        -- binds: the pad buttons of the held layer (the pad layer owns them)
+        controller = {
+            enabled = false,
+            look = "auto",
+            layout = "dpad",
+            scale = 1.35,
+            glyphs = true,
+            rumble = false,
+            binds = { layer = "PADLSHOULDER", earth = "PADDUP", fire = "PADDRIGHT", water = "PADDDOWN", air = "PADDLEFT",
+                dropall = "PAD1", picker = "PADRSHOULDER" },
+            -- Show My Cooldowns (ShamanPowerControllerCooldowns.lua): "off" / "bar" (on the controller bar) /
+            -- "separate" (a frame of its own: cdLayout "cross" / "row", cdScale = Size (1 = 100%), cdPosition = its
+            -- spot, nil = its default spot); hideCooldownBar: the cooldown bar hides while they show
+            cooldowns = "off",
+            cdLayout = "cross",
+            cdScale = 1,
+            hideCooldownBar = true,
         },
         -- Totem Range Tracker (SPRange)
         rangeTracker = {

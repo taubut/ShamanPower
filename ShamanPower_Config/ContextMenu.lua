@@ -615,7 +615,9 @@ local function FillHeader(lv, header)
 			t:SetSize(18 / n, 18)
 			t:SetPoint("TOPLEFT", hd, "TOPLEFT", 9 + (i - 1) * 18 / n, -7)
 			t:SetTexture(icons[i])
-			t:SetTexCoord(0.08 + 0.84 * (i - 1) / n, 0.08 + 0.84 * i / n, 0.08, 0.92)
+			local c = header.texCoords and header.texCoords[i]   -- a piece of an atlas (the empty totem art)
+			if c then t:SetTexCoord(c[1], c[2], c[3], c[4])
+			else t:SetTexCoord(0.08 + 0.84 * (i - 1) / n, 0.08 + 0.84 * i / n, 0.08, 0.92) end
 			t:Show()
 		else
 			t:Hide()

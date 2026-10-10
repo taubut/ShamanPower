@@ -1,6 +1,6 @@
 <Ui xmlns = "http://www.blizzard.com/wow/ui/" xmlns:xsi = "http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation = "http://www.blizzard.com/wow/ui/ C:\Projects\WoW\Bin\Interface\FrameXML\UI.xsd">
 
-<!-- Combat-Functional Totem Button Templates (TotemTimers architecture) -->
+<!-- Secure parent and flyout button templates for use in combat -->
 <!-- Parent totem button: parented to UIParent, enables combat flyouts -->
 <!-- NOTE: No ActionButtonTemplate - just secure templates to avoid visual clutter -->
 	<Button name="SPTotemButtonTemplate" virtual="true" frameStrata="MEDIUM"
@@ -158,7 +158,7 @@
 				<Scripts>
 					<OnEnter>ShamanPower:DropAllTooltip(self)</OnEnter>
 					<OnLeave>GameTooltip:Hide()</OnLeave>
-					<PostClick>ShamanPower:AdvanceDropAllTotem(self, button, down)</PostClick>
+					<PostClick>ShamanPower:DropAllPressed(self, button, down)</PostClick>
 				</Scripts>
 			</Button>
 			<!-- Totemic Call Button - recalls all totems (optional, shown when "Recall on Totem Bar" is enabled) -->

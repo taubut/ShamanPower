@@ -72,6 +72,7 @@ local WOW_FALLBACK = {
 	NORMAL_FONT_COLOR       = IS_MAINLINE and RGB("FFD200") or RGB("FFD100"),
 	ORANGE_FONT_COLOR       = RGB("FF8040"),
 	DEBUFF_TYPE_MAGIC_COLOR = RGB("0081FF"),
+	GRAY_FONT_COLOR         = RGB("808080"),
 }
 
 -- What the Themes tab's dropdowns and cards offer (labels as the player reads them).
@@ -398,6 +399,20 @@ SP.THEME_MODULES = {
 		  note = "The dot for a party member without the buff." },
 		{ id = "mod.coverage-dots-class", label = "Coverage Dots: Class Colors", roles = {}, classColors = true,
 		  note = "The coverage dots in class colors. Class Colors picks the set: Use Theme's follows the Class Colors cards at the top." },
+		-- the Party Strip (ShamanPower_PartyRange.lua): its panel, the element line on top, its marks,
+		-- its dots' class colors and its totem icon
+		{ id = "mod.partystrip-frame", label = "Party Strip Background", roles = Panel(PANEL_STD_BG, PANEL_STD_EDGE),
+		  note = "The Party Strip's background and border. Its Background Opacity setting still decides how solid they are." },
+		{ id = "mod.partystrip-line", label = "Party Strip Element Line", palette = true, roles = E4(),
+		  note = "The thin line along the top of the Party Strip, in the element color of the buff it watches." },
+		{ id = "mod.partystrip-marks", label = "Party Strip Markers", roles = {
+			Role("missing", "Missing Buff", "wow", "RED_FONT_COLOR", IS_MAINLINE and "FF2020" or "FF1919"),
+			Role("unknown", "Can't Tell", "wow", "GRAY_FONT_COLOR", "808080") },
+		  note = "The Party Strip's circle with a slash (missing your buff) and its question mark (can't tell)." },
+		{ id = "mod.partystrip-class", label = "Party Strip: Class Colors", roles = {}, classColors = true,
+		  note = "The Party Strip's dots and names in class colors. Class Colors picks the set: Use Theme's follows the Class Colors cards at the top." },
+		{ id = "mod.partystrip-box", label = "Party Strip Icon", box = true, palette = true, roles = E4(),
+		  note = "The totem icon on the Party Strip. ShamanPower Minimal draws it as a flat box." },
 	} },
 	{ key = "range", label = "Totem Range Tracker", spots = {
 		{ id = "mod.range-colors", label = "Panel", roles = Panel(PANEL_STD_BG, PANEL_STD_EDGE),
@@ -1326,14 +1341,24 @@ SP.ThemeChangedThisSession = false
 local LOOK = {
 	theme = { "borders", "bordersFlyouts", "bordersCooldown", "bordersCooldownFlyouts", "borderSize", "borderSizeFlyouts",
 		"borderSizeCooldown", "borderSizeCooldownFlyouts", "classColors", "showAs" },
-	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge", "iconShape", "iconShapeCooldown",
+	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "procGlowOut", "frameEdge", "iconShape", "iconShapeCooldown",
 		"iconShapeReady", "iconShapeSplit", "iconBordersSquare", "durationBarBackground",
 		"barGradientDirection", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection" },
-	shield = { "lookLS", "lookWS", "lookES", "barLook", "orbLook", "chargeColorLS", "chargeColorWS", "chargeColorES" },
+	shield = { "lookLS", "lookWS", "lookES", "barLook", "orbLook", "chargeColorLS", "chargeColorWS", "chargeColorES",
+		"goneGlowColorLS", "goneGlowColorWS", "goneGlowColorES", "goneGlowShapeLS", "goneGlowShapeWS", "goneGlowShapeES",
+		"goneGlowThickLS", "goneGlowThickWS", "goneGlowThickES" },
 }
 for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
 	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do LOOK.opt[#LOOK.opt + 1] = field .. part end
 end
+-- 3.0.8: each shield's own Charge Bar Texture and Gradient (Shield Charges, each shield's
+-- menu; opt.shieldChargeDisplay barTexture<S>, chargeGradient<S> + Direction / Color1 / Color2 / Fade)
+LOOK.SHIELD_PER = {}
+for _, sh in ipairs({ "LS", "WS", "ES" }) do
+	LOOK.SHIELD_PER[#LOOK.SHIELD_PER + 1] = "barTexture" .. sh
+	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do LOOK.SHIELD_PER[#LOOK.SHIELD_PER + 1] = "chargeGradient" .. sh .. part end
+end
+for _, k in ipairs(LOOK.SHIELD_PER) do LOOK.shield[#LOOK.shield + 1] = k end
 function LOOK.Capture(t)
 	local o = SP.opt
 	local look = { theme = {}, opt = {}, shield = {} }
@@ -1537,7 +1562,10 @@ local function ClearPickedColors(o)
 	if type(o) ~= "table" then return end
 	for _, k in ipairs(GRADIENT_COLOR_KEYS) do o[k] = nil end
 	local s = o.shieldChargeDisplay
-	if type(s) == "table" then s.chargeColorLS, s.chargeColorWS, s.chargeColorES = nil, nil, nil end
+	if type(s) == "table" then
+		s.chargeColorLS, s.chargeColorWS, s.chargeColorES = nil, nil, nil
+		s.goneGlowColorLS, s.goneGlowColorWS, s.goneGlowColorES = nil, nil, nil
+	end
 end
 
 -- "Reset Colors for Current Theme": colour edits, Colors and Shield Colors choices go,
@@ -1573,7 +1601,10 @@ function LOOK.CaptureColors(o)
 	for _, k in ipairs(GRADIENT_COLOR_KEYS) do c.opt[k] = Copy(o[k]) end
 	if type(o.rangeCounter) == "table" then c.rangeElem = o.rangeCounter.useElementColors end
 	local rr = ShamanPower_ReadyReminders
-	if type(rr) == "table" then c.rr = { borderColor = Copy(rr.borderColor), glowColor = Copy(rr.glowColor), barColor = Copy(rr.barColor) } end
+	if type(rr) == "table" then
+		c.rr = { borderColor = Copy(rr.borderColor), glowColor = Copy(rr.glowColor), barColor = Copy(rr.barColor),
+			buffEdgeColor = Copy(rr.buffEdgeColor), resetColor = Copy(rr.resetColor) }   -- (D52: the buff's Edge Color; A25: the reset burst's)
+	end
 	local tr = ShamanPowerTremorReminderDB
 	if type(tr) == "table" then c.tremor = Copy(tr.glowColor) end
 	return c
@@ -1586,6 +1617,8 @@ function LOOK.RestoreColors(c)
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" and type(c.rr) == "table" then
 		rr.borderColor, rr.glowColor, rr.barColor = Copy(c.rr.borderColor), Copy(c.rr.glowColor), Copy(c.rr.barColor)
+		rr.buffEdgeColor = Copy(c.rr.buffEdgeColor)   -- (D52; a look kept before it existed: the default again)
+		rr.resetColor = Copy(c.rr.resetColor)   -- (A25; the same)
 	end
 	local tr = ShamanPowerTremorReminderDB
 	if type(tr) == "table" and c.tremor ~= nil then tr.glowColor = Copy(c.tremor) end
@@ -1599,8 +1632,9 @@ function LOOK.ColorsDiffer(c)
 	if type(o.rangeCounter) == "table" and o.rangeCounter.useElementColors ~= c.rangeElem then return true end
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" and type(c.rr) == "table" then
-		for _, k in ipairs({ "borderColor", "glowColor", "barColor" }) do
-			if not Near(rr[k], c.rr[k]) then return true end
+		for _, k in ipairs({ "borderColor", "glowColor", "barColor", "buffEdgeColor", "resetColor" }) do
+			-- (D52, A25) a look kept before the buff's Edge Color / the reset burst's color existed has none: nothing to load for it
+			if not ((k == "buffEdgeColor" or k == "resetColor") and c.rr[k] == nil) and not Near(rr[k], c.rr[k]) then return true end
 		end
 	end
 	local tr = ShamanPowerTremorReminderDB
@@ -1727,6 +1761,8 @@ function SP:ResetAllColorsToDefault(everything)
 		ShamanPower_ReadyReminders.borderColor = nil
 		ShamanPower_ReadyReminders.glowColor = nil
 		ShamanPower_ReadyReminders.barColor = nil
+		ShamanPower_ReadyReminders.buffEdgeColor = nil   -- (D52) back to WoW's mana-bar blue on the next read
+		ShamanPower_ReadyReminders.resetColor = nil   -- (A25) back to WoW's gold on the next read
 	end
 	if type(ShamanPowerTremorReminderDB) == "table" then
 		ShamanPowerTremorReminderDB.glowColor = { r = 1, g = 0.8, b = 0 }
@@ -1742,7 +1778,7 @@ function SP:ResetEverythingToDefault()
 	local o = SP.opt
 	if type(o) ~= "table" then return end
 	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
-	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge",
+	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "procGlowOut", "frameEdge",
 		"iconShape", "iconShapeCooldown", "iconShapeReady", "iconShapeSplit", "iconBordersSquare",
 		"durationBarBackground", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection" }) do
 		o[k] = Copy(defaults[k])
@@ -1756,6 +1792,7 @@ function SP:ResetEverythingToDefault()
 	local sc = o.shieldChargeDisplay
 	if type(sc) == "table" then
 		sc.lookLS, sc.lookWS, sc.lookES, sc.barLook, sc.orbLook = nil, nil, nil, nil, nil
+		for _, k in ipairs(LOOK.SHIELD_PER) do sc[k] = nil end   -- each shield's texture and gradient
 	end
 	if SP.TT_ResetLooks then SP:TT_ResetLooks() end   -- Target Tracker's Look When Missing and Icon Edge
 end
@@ -1782,19 +1819,88 @@ end
 -- Only on clicks: nothing here runs while playing.
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
-Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker" }
-Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor" }
+Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker", "ShamanPower_ReactiveTotems" }
+Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor", "buffEdgeColor", "resetColor" }
 -- flat keys an update added, with their defaults (see Cards.Migrate)
 function Cards.InheritedSweepDirection() return "default" end
 Cards.ADDED = {
 	["rr.rangeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").rangeColor end,
+	["rr.buffEdgeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").buffEdgeColor end,   -- (D52)
+	["rr.resetColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").resetColor end,   -- (A25)
 	["e.mod.readyreminders.sweepDirection"] = function() return "bottom" end,
 	["e.mod.targettracker.sweepDirection.fs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.frs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.ss"] = Cards.InheritedSweepDirection,
+	["e.mod.targettracker.castLook.ns"] = function() return "gold" end,   -- (Next Shock's look, D49)
+	-- the controller bar's looks (3.0.8, WoW: Forever only: ShamanPowerController.lua registers them)
+	["e.ctrl.bar.layout"] = function() return "dpad" end,
+	["e.ctrl.bar.glyphs"] = function() return true end,
+	["e.ctrl.bar.cdLayout"] = function() return "cross" end,   -- (Show My Cooldowns > Separate's Cooldown Layout)
+	-- the minimap rings' colors (3.0.8: Use My Own Ring Colors)
+	["e.mod.minimap.ringColorMode"] = function() return "element" end,
+	["e.mod.minimap.ringColors"] = function() return false end,
 }
+-- Reactive Totems: each alert's own looks (3.0.8; ShamanPower_ReactiveTotems registers the entries on
+-- mod.reactive, "default" = the alert follows the page's shared value): a look saved before had none
+for _, name in ipairs({ "iconSize", "opacity", "fontSize", "fontOutline", "hideBackground", "hideBorder",
+	"showDebuffName", "showDebuffIcon", "showTotemName" }) do   -- (the glow is an effect: never a theme's)
+	for _, id in ipairs({ "fear", "poison", "disease" }) do
+		Cards.ADDED["e.mod.reactive." .. name .. "." .. id] = Cards.InheritedSweepDirection
+	end
+end
 Cards.TREMOR_GLOW = { r = 1, g = 0.8, b = 0 }
 Cards.PREFIX = "SPT1:"
+
+-- The Cooldown Bar's looks per item (3.0.8, A13 Q10; ShamanPowerCdItems.lua): each item's
+-- own Sweep, Sweep Direction, Progress Bar, its color, Time Left On The Icon, Ankh Count,
+-- Button Style and the shield's charge looks are part of a theme, the way Ready Reminders'
+-- per-icon Sweep Direction is: "default" = the item follows the bar's shared setting, a value
+-- = the item's own. A theme card (every default first) puts every item back on the shared
+-- look, even one set by hand; a saved or shared theme brings each item's own back. Themes are
+-- looks only: an item's effects, Show and flyout are never part of one.
+Cards.CD_ITEM_LOOKS = {
+	{ "buttonStyle", "Button Style", { 1, 7 }, { mirror = true, normal = true, totemtimers = true, single = true, dynamic = true, grid = true } },
+	{ "sweep", "Sweep", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, { none = true, greys = true, fills = true, radial = true } },
+	{ "sweepDirection", "Sweep Direction", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 }, { top = true, bottom = true } },
+	{ "progressBar", "Progress Bar", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+	{ "progressColor", "Progress Bar Color", { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+	{ "timeOnIcon", "Time Left On The Icon", { 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+	{ "ankhCount", "Ankh Count", { 3 } },
+	{ "chargeCount", "Charge Count", { 1 } },
+	{ "colorCount", "Color The Count", { 1 } },
+	{ "chargeBar", "Charge Bar", { 1 } },
+}
+Cards.CD_BOOLEAN = { boolean = true }   -- (an item's own on / off: Cards.FitsEntry)
+SP.CdItemThemeLooks = Cards.CD_ITEM_LOOKS   -- (Reset This Page keeps them: the theme stays)
+do
+	local entries = {}
+	local labels = SP.CooldownTypeLabels or {}
+	local NAMES = { [1] = "Shield", [2] = "Totemic Call", [6] = "Bloodlust / Heroism", [7] = "Weapon Imbue" }
+	for _, look in ipairs(Cards.CD_ITEM_LOOKS) do
+		local name, what, types, valid = look[1], look[2], look[3], look[4]
+		for _, t in ipairs(types) do
+			local id = name .. "." .. t
+			entries[#entries + 1] = {
+				key = id, label = "Cooldown Bar: " .. (NAMES[t] or labels[t] or ("Item " .. t)) .. " " .. what,
+				mayBe = (valid == nil) and Cards.CD_BOOLEAN or nil,
+				-- Keep inheritance: restoring a theme must not turn the shared value into the item's own
+				get = function()
+					local v = SP.CdItemOwnOpt and SP:CdItemOwnOpt(t, name)
+					if v == nil then return "default" end
+					return v
+				end,
+				set = function(v)
+					if not SP.SetCdItemOpt then return end
+					if v == "default" then SP:SetCdItemOpt(t, name, nil)
+					elseif valid then if valid[v] then SP:SetCdItemOpt(t, name, v) end
+					elseif type(v) == "boolean" then SP:SetCdItemOpt(t, name, v) end
+				end,
+			}
+			Cards.ADDED["e.cd.items." .. id] = Cards.InheritedSweepDirection   -- (a look saved before: every item followed the bar)
+		end
+	end
+	SP:ThemeSpotSettings("cd.items", entries)
+end
 
 function Cards.Defaults()
 	return SP.db and SP.db.defaults and SP.db.defaults.profile or {}
@@ -1904,6 +2010,20 @@ end
 function Cards.Apply(f, card, baseline, pre)
 	local t, o = TW(), SP.opt
 	if not (t and type(o) == "table") then return end
+	-- a look saved (or shared) before an update knows nothing of a setting the update hooked
+	-- in (Cards.ADDED): it had that setting's default then, so it puts the default back (a
+	-- buff's Edge Color changed since goes back with Undo too). Its own values stay as they are.
+	local filled
+	for k, default in pairs(Cards.ADDED) do
+		if f[k] == nil then
+			local v = default()
+			if v ~= nil then
+				if not filled then filled = {}; for fk, fv in pairs(f) do filled[fk] = fv end end
+				filled[k] = v
+			end
+		end
+	end
+	f = filled or f
 	local d = Cards.Defaults()
 	local g = f["t.global"]
 	t.global = (THEMES[g] and g ~= "standard") and g or nil
@@ -2088,6 +2208,10 @@ function Cards.Migrate()
 	if SP.ReadyReminderSpells and not Cards.addedReadyDirections then
 		for _, entry in ipairs(SP.ReadyReminderSpells) do
 			Cards.ADDED["e.mod.readyreminders.sweepDirection." .. entry.key] = Cards.InheritedSweepDirection
+			-- (D52) each buff's Edge Color, inherited the same way ("default": the shared one)
+			if entry.buff then Cards.ADDED["e.mod.readyreminders.buffEdgeColor." .. entry.key] = Cards.InheritedSweepDirection end
+			-- (A25) the reset burst's color, the same way
+			if entry.reset then Cards.ADDED["e.mod.readyreminders.resetColor." .. entry.key] = Cards.InheritedSweepDirection end
 		end
 		Cards.addedReadyDirections = true
 	end
@@ -2227,10 +2351,22 @@ function Cards.Kinds()
 		local dirs = SP.GradientDirectionValues and (SP:GradientDirectionValues(field)) or nil
 		K["o." .. field], K["o." .. field .. "Direction"] = s(Cards.KeysOf(SP.GRADIENTS)), s(dirs)
 		K["o." .. field .. "Color1"], K["o." .. field .. "Color2"], K["o." .. field .. "Fade"] = { "c" }, { "c" }, { "f" }
+		K["o.procGlowOut"] = { "f" }
 		if field == "barGradient" then K["o.barGradientDirections"] = { "d", dirs } end
 	end
 	for _, k in ipairs({ "lookLS", "lookWS", "lookES", "barLook", "orbLook" }) do K["sc." .. k] = s() end
-	for _, k in ipairs({ "chargeColorLS", "chargeColorWS", "chargeColorES" }) do K["sc." .. k] = { "c" } end
+	for _, k in ipairs({ "chargeColorLS", "chargeColorWS", "chargeColorES", "goneGlowColorLS", "goneGlowColorWS", "goneGlowColorES" }) do K["sc." .. k] = { "c" } end
+	for _, k in ipairs({ "goneGlowShapeLS", "goneGlowShapeWS", "goneGlowShapeES" }) do K["sc." .. k] = s(Cards.KeysOf(SP.GLOW_SHAPES)) end
+	for _, k in ipairs({ "goneGlowThickLS", "goneGlowThickWS", "goneGlowThickES" }) do K["sc." .. k] = { "f" } end
+	do   -- each shield's own Charge Bar Texture and Gradient (3.0.8)
+		local dirs = SP.GradientDirectionValues and (SP:GradientDirectionValues("chargeGradient")) or nil
+		for _, sh in ipairs({ "LS", "WS", "ES" }) do
+			local g = "sc.chargeGradient" .. sh
+			K["sc.barTexture" .. sh] = s()
+			K[g], K[g .. "Direction"] = s(Cards.KeysOf(SP.GRADIENTS)), s(dirs)
+			K[g .. "Color1"], K[g .. "Color2"], K[g .. "Fade"] = { "c" }, { "c" }, { "f" }
+		end
+	end
 	for _, k in ipairs(Cards.RR) do K["rr." .. k] = { "c" } end
 	K["tr.glowColor"] = { "c" }
 	K["t.global"], K["t.palette"], K["t.shield"] = s(THEMES), s(PALETTE_KEY), s(SHIELD_KEY)
@@ -2267,6 +2403,12 @@ function Cards.FitsEntry(v, id, e)
 	local shape = Cards.Shape(v)
 	if shape == "table" then return false end
 	if shape == "color" and not Cards.GoodColor(v) then return false end
+	-- a setting that holds "default" or a color of its own (each Ready Reminder buff's Edge
+	-- Color): a color fits while it reads "default" now too
+	if shape == "color" and e.mayBeColor then return true end
+	-- a setting that holds "default" or a value of its own of another kind (a Cooldown Bar
+	-- item's own on / off: Cards.CD_ITEM_LOOKS)
+	if e.mayBe and e.mayBe[shape] then return true end
 	if shape == "number" and not Cards.GoodNumber(v) then return false end
 	local refs = { Cards.DefaultOf(e), SafeGet(e) }
 	for i, key in ipairs({ "standard", "shamanpower", "minimal" }) do
@@ -2418,7 +2560,7 @@ Cards.LABEL = {
 	["t.bordersCooldown"] = "Element-Colored Borders", ["t.bordersCooldownFlyouts"] = "Element-Colored Borders",
 	["t.borderSize"] = "Border Size", ["t.borderSizeFlyouts"] = "Border Size", ["t.borderSizeCooldown"] = "Border Size",
 	["t.borderSizeCooldownFlyouts"] = "Border Size",
-	["o.barTexture"] = "Bar Texture", ["o.dotShape"] = "Dot Shape", ["o.dotGem"] = "Gem Dot Finish", ["o.glowShape"] = "Glow Shape",
+	["o.barTexture"] = "Bar Texture", ["o.dotShape"] = "Dot Shape", ["o.dotGem"] = "Gem Dot Finish", ["o.glowShape"] = "Glow Shape", ["o.procGlowOut"] = "Proc Glow Thickness",
 	["o.frameEdge"] = "Frame Edge", ["o.iconShape"] = "Icon Shape", ["o.iconShapeCooldown"] = "Icon Shape (Cooldown Bar)",
 	["o.iconShapeReady"] = "Icon Shape (Ready Reminders)", ["o.iconBordersSquare"] = "Keep Borders Square",
 	["o.durationBarBackground"] = "Duration Bar Background", ["o.shieldTexture"] = "Shield Charges Texture",
@@ -2430,8 +2572,22 @@ Cards.LABEL = {
 	["sc.lookES"] = "Earth Shield Look", ["sc.barLook"] = "Shield Charges Look", ["sc.orbLook"] = "Shield Charges Look",
 	["sc.chargeColorLS"] = "Lightning Shield Charge Color", ["sc.chargeColorWS"] = "Water Shield Charge Color",
 	["sc.chargeColorES"] = "Earth Shield Charge Color", ["tr.glowColor"] = "Tremor Reminder Glow",
+	["sc.goneGlowColorLS"] = "Lightning Shield Glow Color When Gone", ["sc.goneGlowColorWS"] = "Water Shield Glow Color When Gone",
+	["sc.goneGlowColorES"] = "Earth Shield Glow Color When Gone", ["sc.goneGlowShapeLS"] = "Lightning Shield Glow Shape When Gone",
+	["sc.goneGlowShapeWS"] = "Water Shield Glow Shape When Gone", ["sc.goneGlowShapeES"] = "Earth Shield Glow Shape When Gone",
+	["sc.goneGlowThickLS"] = "Lightning Shield Proc Glow Thickness", ["sc.goneGlowThickWS"] = "Water Shield Proc Glow Thickness",
+	["sc.goneGlowThickES"] = "Earth Shield Proc Glow Thickness",
+	["sc.barTextureLS"] = "Lightning Shield Charge Bar Texture", ["sc.barTextureWS"] = "Water Shield Charge Bar Texture",
+	["sc.barTextureES"] = "Earth Shield Charge Bar Texture",
 	["rr.rangeColor"] = "Ready Reminders Out of Range Color",
+	["rr.buffEdgeColor"] = "Ready Reminders Buff Edge Color",
+	["rr.resetColor"] = "Ready Reminders Reset Burst Color",
 }
+for sh, nm in pairs({ LS = "Lightning Shield", WS = "Water Shield", ES = "Earth Shield" }) do   -- each shield's own gradient (3.0.8)
+	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do
+		Cards.LABEL["sc.chargeGradient" .. sh .. part] = nm .. " Charge Bar Gradient"
+	end
+end
 function Cards.Label(k)
 	if Cards.LABEL[k] then return Cards.LABEL[k] end
 	local p = k:match("^o%.(%a+)Gradient") or k:match("^o%.(%a+)Gradient.+")

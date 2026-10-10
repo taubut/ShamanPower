@@ -8,6 +8,7 @@
 	<Binding name="SHAMANPOWER_WATER_TOTEM" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_AIR_TOTEM" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_EARTH_SHIELD" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_SHIELD_LINE" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_TOTEMIC_CALL" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_CD_SHIELD" category="SHAMANPOWER" header="SHAMANPOWER_CD">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_CD_RECALL" category="SHAMANPOWER">--[[dummy]]</Binding>

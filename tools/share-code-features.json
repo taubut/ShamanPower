@@ -455,6 +455,82 @@
     {
       "key": "dropAllIcon",
       "label": "Drop All: a picked icon"
+    },
+    {
+      "key": "totemRows",
+      "label": "Totem Rows on"
+    },
+    {
+      "key": "totemRowsBarHidden",
+      "label": "Totem Rows: bar hidden"
+    },
+    {
+      "key": "nextShock",
+      "label": "Target Tracker: Next Shock"
+    },
+    {
+      "key": "totemRowsKeepFlyouts",
+      "label": "Totem Rows: flyouts kept on the bar"
+    },
+    {
+      "key": "readyRemindersFade",
+      "label": "Ready reminders: fade instead of hide"
+    },
+    {
+      "key": "readyCheckRez",
+      "label": "Ready check after resurrection"
+    },
+    {
+      "key": "reactiveKeybinds",
+      "label": "Reactive alerts show keybinds"
+    },
+    {
+      "key": "assignRightClickClears",
+      "label": "Assignment window: right-click clears"
+    },
+    {
+      "key": "partyStrip",
+      "label": "Party buff strip"
+    },
+    {
+      "key": "readyRemindersBuff",
+      "label": "Ready reminders: your buff on its icon"
+    },
+    {
+      "key": "shieldRightClickOther",
+      "label": "Cooldown bar: right-click casts the other shield"
+    },
+    {
+      "key": "usualTotemReminder",
+      "label": "Return to usual totem reminder"
+    },
+    {
+      "key": "cdbarRunOutOnly",
+      "label": "Cooldown bar: only items running out"
+    },
+    {
+      "key": "cueRunningOut",
+      "label": "Effect: running out"
+    },
+    {
+      "key": "cueTimeRed",
+      "label": "Effect: time turns red"
+    },
+    {
+      "key": "cueAlmostReady",
+      "label": "Effect: cooldown almost ready"
+    },
+    {
+      "key": "cueRedXCooldownBar",
+      "label": "Effect: red X on imbue / shield"
+    },
+    {
+      "key": "cueMissingRed",
+      "label": "Effect: red while shield / imbue missing"
+    },
+    {
+      "key": "partyStripBreakUp",
+      "label": "Party strip: broken up per totem"
     }
   ]
 }

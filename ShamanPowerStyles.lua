@@ -29,7 +29,7 @@ SP.TOTEM_BAR_STYLES = {
 	{ key = "dynamic", label = "Dynamic (PvP)",
 	  apply = function(o) o.gridStyle = false; o.useBlizzardTotemBar = nil; o.compactStyle = false; o.dynamicTotemMode = true; o.activeTotemAsMain = false; o.activeAssignedCorner = nil end,
 	  is = function(o) return o.dynamicTotemMode == true end },
-	-- Single Totem: TotemTimers Style without the assigned totem in the corner. The
+	-- Single Totem: the active totem without the assigned totem in the corner. The
 	-- button shows the totem that is down, a click always drops the assigned one,
 	-- and it goes back to the assigned one the moment the dropped totem is gone.
 	{ key = "single", label = "Single Totem",
@@ -46,8 +46,9 @@ SP.TOTEM_BAR_STYLES = {
 	  is = function(o) return o.useBlizzardTotemBar == true end },
 }
 -- Blizzard's bar wins over Grid, Grid over the four looks of ShamanPower's bar,
--- Compact over Dynamic over Single Totem over TotemTimers (Single Totem is
--- TotemTimers with the corner off); Normal is what is left.
+-- Compact over Dynamic over Single Totem over the display with a corner (Single Totem is
+-- the same display with the corner off); Normal is what is left. (Totem Rows is not a
+-- style: a switch that goes with any of them but Grid, ShamanPowerRows.lua.)
 local PRECEDENCE = { "blizzard", "grid", "compact", "dynamic", "single", "totemtimers", "normal" }
 
 local byKey = {}
@@ -106,6 +107,9 @@ function SP:SetTotemBarStyle(key)
 	-- landed would run those teardowns with the next style already "on"
 	-- (ApplyCompactStyle's layout pass is hooked by the Blizzard-bar code).
 	if o.gridStyle and key ~= "grid" and self.SetGridStyle then self:SetGridStyle(false) end
+	-- Grid lays every totem out in its own rows: Totem Rows lets go of the flyouts' buttons
+	-- first (it comes back by itself when Grid is left, if its switch is still on)
+	if key == "grid" and self.RowsLetGo then self:RowsLetGo() end
 	if o.useBlizzardTotemBar and key ~= "blizzard" then
 		o.useBlizzardTotemBar = nil
 		if self.RefreshBlizzardTotemBar then self:RefreshBlizzardTotemBar() end
