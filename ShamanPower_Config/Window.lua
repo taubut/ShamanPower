@@ -120,35 +120,25 @@ local POWER_SPRANGE = {
 -- The page's "Display Mode" select maps the pair to dots/numbers/both/none;
 -- the dot remembers which mode was active when it was switched off so
 -- switching back on restores it (session-only, nothing new is persisted).
-local partyBuffLastMode
 local POWER_PARTYBUFF = {
 	label  = "Party Buff Tracker",
-	desc   = "Turn the party range dots and counters on or off.",
+	desc   = "Turn the Party Buff Tracker on or off: its dots and counters, Coverage and the Party Strip.",
 	loaded = function() local sp = SP() return sp and sp.PartyRangeLoaded and true or false end,
+	-- the whole module (SP:PartyBuffOff); each feature keeps its own switch and settings
 	get    = function()
 		local o = SP().opt
 		if not o then return false end
-		return (o.showPartyRangeDots or (o.rangeCounter and o.rangeCounter.enabled)) and true or false
+		return o.partyBuffOff ~= true
 	end,
 	set    = function(v)
 		local sp = SP()
 		local o = sp.opt
 		if not o then return end
-		sp:EnsureProfileTable("rangeCounter")
-		if v then
-			local mode = partyBuffLastMode or "dots"
-			o.showPartyRangeDots   = (mode == "dots" or mode == "both")
-			o.rangeCounter.enabled = (mode == "numbers" or mode == "both")
-		else
-			local dots, nums = o.showPartyRangeDots, o.rangeCounter.enabled
-			if dots and nums then partyBuffLastMode = "both"
-			elseif nums then partyBuffLastMode = "numbers"
-			else partyBuffLastMode = "dots" end
-			o.showPartyRangeDots   = false
-			o.rangeCounter.enabled = false
-		end
+		if v then o.partyBuffOff = nil else o.partyBuffOff = true end
 		sp:UpdatePartyRangeDots()
 		sp:UpdateRangeCounters()
+		if sp.RebuildCoverage then sp:RebuildCoverage() end
+		if sp.RebuildPartyStrip then sp:RebuildPartyStrip() end
 	end,
 }
 
@@ -310,7 +300,8 @@ local NAV = {
 				P("fluffy", "texture_section"), P("fluffy", "color_section"),
 				P("fluffy", "element_colors_section"), P("fluffy", "button_tints_section"),
 			} },
-			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" } } },
+			{ label = "Visibility",        paths = { P("fluffy", "visibility_section"), { "settings", "settings_visibility", label = "Auto-Hide" },
+				{ "settings", "settings_town", label = "Out Of The Way" } } },
 		}},
 		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true, power = false,
 			desc = "Save totem loadouts, set up their bar and choose when to switch automatically.", tabs = {
@@ -341,18 +332,23 @@ local NAV = {
 	}},
 	{ group = "Alerts & Reminders", power = true, entries = {
 		-- one page (A17): the Shields row (click, right-click) and Position
-		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true, power = POWER_SHIELDCHARGES,
+		{ label = "Shield Charges", preview = "shieldcharges", shamanOnly = true, lock = true, power = POWER_SHIELDCHARGES,
 			desc = "Your shields' charges on screen. Each shield has its own settings: right-click it.",
 			onReset = function() local sp = SP() if sp and sp.ShieldChargesResetPage then sp:ShieldChargesResetPage() end end,
 			path = P("fluffy", "shieldcharges_page") },
 		-- one page each (A16): the Alerts row (click, right-click) and what is about the whole page
-		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true, power = POWER_REACTIVE,
+		{ label = "Reactive Totems", preview = "reactive", shamanOnly = true, lock = true, power = POWER_REACTIVE,
 			desc = "A big totem icon when you or your group is feared, poisoned or diseased. Right-click an alert for its settings.",
 			onReset = function() local sp = SP() if sp and sp.ReactiveTotemsResetPage then sp:ReactiveTotemsResetPage() end end,
 			path = P("fluffy", "reactivetotems_section") },
-		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true,      path = P("fluffy", "readyreminders_section"), power = POWER_READYREMINDERS },
+		{ label = "Ready Reminders", preview = "readyreminders", shamanOnly = true, power = POWER_READYREMINDERS,
+			desc = "Icons that show when a spell is ready, and a big flash of the spell on its own spot.",
+			onReset = function() local sp = SP() if sp and sp.ReadyFlashResetPage then sp:ReadyFlashResetPage() end end, tabs = {
+			{ label = "Icons",       preview = "readyreminders", paths = { P("fluffy", "readyreminders_section") } },
+			{ label = "Ready Flash", preview = "readyflashpane", paths = { P("fluffy", "readyflash_section") } },
+		}},
 		{ label = "Target Tracker", preview = "targettracker", shamanOnly = true,       path = P("fluffy", "targettracker_section"), power = POWER_TARGETTRACKER, noReset = true },
-		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true, power = POWER_EXPIRING,
+		{ label = "Expiring Alerts", preview = "expiring", shamanOnly = true, lock = true, power = POWER_EXPIRING,
 			desc = "A line on your screen when a shield or weapon imbue fades or a totem is destroyed. Right-click an alert for its settings.",
 			onReset = function() local sp = SP() if sp and sp.ExpiringAlertsResetPage then sp:ExpiringAlertsResetPage() end end,
 			path = P("fluffy", "expiringalerts_section") },
@@ -361,7 +357,7 @@ local NAV = {
 	}},
 	{ group = "Other", power = true, entries = {
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
-		{ label = "Pop-Out Trackers", shamanOnly = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.",
+		{ label = "Pop-Out Trackers", shamanOnly = true, lock = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.",
 			-- (A18) each popped-out tracker's own Scale, Opacity, Hide Background and Flyout Direction
 			onReset = function() local sp = SP() if sp and sp.PopOutResetPage then sp:PopOutResetPage() end end, tabs = {
 			{ label = "Pop-Out Trackers", paths = {
@@ -2310,8 +2306,8 @@ local function RenderPageInner(self, entry, query, keepScroll)
 	end
 
 	local onChanged = function()
-		-- A set() may flip another option's hidden= (e.g. TotemTimers Style
-		-- Display reveals Right-Click Drops Corner Totem). Re-resolve the page
+		-- A set() may flip another option's hidden= (e.g. the active-totem
+		-- display reveals Right-Click Drops Corner Totem). Re-resolve the page
 		-- and redraw only when the visible row set actually changed.
 		selfNotify = true
 		local navQuery = string.lower(frame.navSearch:GetText() or ""):match("^%s*(.-)%s*$")

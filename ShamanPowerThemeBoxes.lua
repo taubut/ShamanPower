@@ -877,7 +877,7 @@ local function IconOf(btn, name)
 	return name and Named(name .. "Icon") or nil
 end
 
--- the totem bar: buttons, the corner of TotemTimers, the dropped-totem overlay,
+-- the totem bar: buttons, the assigned-totem corner, the dropped-totem overlay,
 -- flyouts, Compact's squares, Drop All and Totemic Call
 local function TotemBar()
 	local bars = SP.totemProgressBars

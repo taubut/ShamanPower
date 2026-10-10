@@ -688,7 +688,8 @@ end
 
 -- atLogin: warn about every missing one; otherwise only a change from present to missing
 local function checkItems(atLogin)
-	if not (ITEMS_NEEDED and cfg().itemWarn) or SP:IsOff() then return end
+	-- (nothing while the sweep is switched off: the sidebar switch turns the whole page off)
+	if not (ITEMS_NEEDED and cfg().itemWarn and cfg().enabled) or SP:IsOff() then return end
 	for element = 1, 4 do
 		if elementKnown(element) then
 			local n = itemCount(TOTEM_ITEMS[element])
@@ -731,7 +732,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
 	elseif event == "UI_ERROR_MESSAGE" then
 		-- "Requires Water Totem": only when the message is readable
 		local msg = a2
-		if not cfg().itemWarn or type(msg) ~= "string" or secret(msg) then return end
+		if not (cfg().itemWarn and cfg().enabled) or type(msg) ~= "string" or secret(msg) then return end
 		for element = 1, 4 do
 			local name = GetItemNameC(TOTEM_ITEMS[element])
 			if type(name) == "string" and name ~= "" and msg:find(name, 1, true) then

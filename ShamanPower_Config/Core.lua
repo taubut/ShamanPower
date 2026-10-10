@@ -141,6 +141,7 @@ Core.fonts = {
 	row       = MakeFont("Row",       REGULAR,  12, "", "text"),
 	rowDim    = MakeFont("RowDim",    REGULAR,  12, "", "textDim"),
 	section   = MakeFont("Section",   MEDIUM,   12, "", "textDim"),
+	caption   = MakeFont("Caption",   MEDIUM,   15, "", "text"),      -- the icon pages' CLICK / RIGHT-CLICK line
 	strip     = MakeFont("Strip",     MEDIUM,   10, "", "textDim"),    -- a section card's name (and its tag)
 	nav       = MakeFont("Nav",       REGULAR,  12, "", "textDim"),
 	navOn     = MakeFont("NavOn",     REGULAR,  12, "", "text"),

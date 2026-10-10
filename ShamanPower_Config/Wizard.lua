@@ -958,7 +958,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if SP.ShapeIconTexture then SP:ShapeIconTexture(mIcon, mIcon, "totem"); SP:ShapeIconTexture(mbg, main, "totem") end   -- Totem Bar Icon Shape
 		Core:MakeBorder(main, "border")
 		local key = main:CreateFontString(nil, "OVERLAY"); SP:SetSPFont(key, "labels", 9, "OUTLINE", "Fonts\\ARIALN.TTF"); key:SetPoint("BOTTOMLEFT", main, "BOTTOMLEFT", 2, 2); key:SetText("S-" .. i); key:SetTextColor(0.9, 0.9, 0.9)
-		-- Assigned-totem corner badge (TotemTimers style).
+		-- Assigned-totem corner badge.
 		local inset = main:CreateTexture(nil, "OVERLAY"); inset:SetSize(18, 18); inset:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -2, 2); inset:SetTexCoord(0.08, 0.92, 0.08, 0.92); inset:SetTexture(e.icon)
 		local insetBd = main:CreateTexture(nil, "OVERLAY"); insetBd:SetPoint("TOPLEFT", inset, -1, 1); insetBd:SetPoint("BOTTOMRIGHT", inset, 1, -1); insetBd:SetColorTexture(0, 0, 0, 0.9); insetBd:SetDrawLayer("OVERLAY", -1)
 		-- Duration bar under the button (3px, element color), like the real bar.
@@ -1069,7 +1069,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 		if OPT().gridStyle then return "grid" end
 		if OPT().compactStyle then return "compact" end
 		if OPT().dynamicTotemMode then return "dynamic" end
-		-- Single Totem = TotemTimers with the corner totem off
+		-- Single Totem shows the active totem without the assigned corner
 		if OPT().activeTotemAsMain then return (OPT().activeAssignedCorner == false) and "single" or "tt" end
 		return "normal"
 	end
@@ -1291,7 +1291,7 @@ function SP.Wizard.BuildTotemBarStep(card, inner, y)
 				s.mIcon:SetDesaturated(activeNow); s.mIcon:SetAlpha(activeNow and 0.5 or 1)
 				s.inset:Hide(); s.insetBd:Hide()
 			elseif m == "tt" or m == "single" then
-				-- the dropped totem takes the button; TotemTimers keeps the assigned one
+				-- the dropped totem takes the button; the corner display keeps the assigned one
 				-- in the corner, Single Totem shows nothing else and goes back to it after
 				s.over:Hide()
 				s.mIcon:SetTexture(activeNow and e.active or e.icon)

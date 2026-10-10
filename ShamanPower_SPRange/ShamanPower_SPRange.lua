@@ -34,7 +34,7 @@ end
 -- Trackable totems with their detection methods
 -- detection: "buff" = check for buff, "weapon" = check weapon enchant
 -- buffSpellID: the BUFF spell ID (aura on party members), NOT the cast spell ID
--- buffName is resolved at load time via GetSpellInfo (same approach as TotemTimers)
+-- buffName is resolved at load time through SPCompat.SpellName
 SP.TrackableTotems = {
 	-- Earth
 	{
@@ -216,7 +216,7 @@ if not SPCompat.FOREVER then
 	end
 end
 
--- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
+-- Resolve localized buff names and build client-specific spell ID sets once
 for _, totem in ipairs(SP.TrackableTotems) do
 	-- Display the client's spell name; English keeps the existing compact labels.
 	totem.fallbackName = totem.name
@@ -364,7 +364,7 @@ function SP:InitSPRange()
 	end
 end
 
--- Check if player has a specific buff (same approach as TotemTimers)
+-- Check readable player or group auras through the native aura API
 local function MainlineHasNamedBuff(unit, buffName, buffSpellIDSet)
 	if issecretvalue(buffName) then return false end
 	if SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable() then return false end
@@ -759,7 +759,7 @@ end
 
 -- Check if ANYONE in the group has a specific buff (indicates totem is down somewhere)
 -- Optimized: party1-4 works in both party AND raid (refers to subgroup in raids)
--- Same approach as TotemTimers: exact name match with names resolved from buff spell IDs
+-- Match cached aura names or rank IDs on the player and party units
 local rangePartyUnits = { "party1", "party2", "party3", "party4" }
 function SP:SPRangeAnyoneHasBuff(buffName, buffSpellIDSet)
 	if issecretvalue(buffName) then return false end

@@ -35,8 +35,8 @@ local GLYPH      = 22     -- a pad button's picture
 local BOX        = 10     -- the tiny totem box before a totem's name
 local GOLD_R, GOLD_G, GOLD_B = 1, 0.82, 0   -- gold text (ui-style-guide 2.3)
 -- (the words that say what to do in the settings' blue, so a player sees them first)
-local CAPTION_HOW = " |cff3FA9F5Click|r a line (or move with the |cff3FA9F5d-pad|r and press |cff3FA9F5A|r), then press the"
-	.. " controller button you want. |cff3FA9F5Right-click|r a line to take its button off. |cff3FA9F5Esc|r stops."
+local CAPTION_HOW = " |cff3FA9F5CLICK|r a line (or move with the |cff3FA9F5d-pad|r and press |cff3FA9F5A|r), then press the"
+	.. " controller button you want. |cff3FA9F5RIGHT-CLICK|r a line to take its button off. |cff3FA9F5Esc|r stops."
 local PRESS = "Press a controller button..."
 local HINTS = { { "PADDUP", "Up" }, { "PADDDOWN", "Down" }, { "PAD1", "Change" }, { "PAD2", "Back" } }
 local ELEMENT_OF = { earth = "earth", fire = "fire", water = "water", air = "air" }

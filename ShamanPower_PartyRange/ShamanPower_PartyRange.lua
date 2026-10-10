@@ -12,6 +12,14 @@ if not SP then return end
 -- Mark module as loaded
 SP.PartyRangeLoaded = true
 
+-- The whole module off (the switch beside Party Buff Tracker in the settings
+-- sidebar): the dots, the counters, Coverage and the Party Strip all hide, and
+-- each keeps its own settings for when it comes back on.
+function SP:PartyBuffOff()
+	local o = self.opt
+	return o ~= nil and o.partyBuffOff == true
+end
+
 -- ============================================================================
 -- Party Range Dots (shows which party members are in totem range)
 -- ============================================================================
@@ -103,7 +111,7 @@ if SP.ThemeSetRoleStd then
 	SP:ThemeSetRoleStd("mod.partybuff-frame", "border", "4D4D4D")
 end
 
--- Buff spell IDs for totem buffs (same approach as TotemTimers)
+-- Aura spell IDs for the totem buffs tracked on party members
 -- These are the BUFF spell IDs (auras on party members), NOT the cast spell IDs
 SP.TotemBuffSpellIDs = {
 	[1] = {  -- Earth
@@ -180,7 +188,7 @@ end
 -- Extra aura IDs for the engine-drawn dots only ([element] = { spell IDs }).
 SP.ExtraEngineAuraIDs = {}
 
--- Resolve buff spell IDs to exact names via GetSpellInfo (same approach as TotemTimers)
+-- Resolve localized buff names through SPCompat.SpellName
 -- This guarantees exact name matching with UnitBuff results
 SP.TotemBuffNames = {}
 for element, buffs in pairs(SP.TotemBuffSpellIDs) do
@@ -351,7 +359,7 @@ function SP:GetActiveTotemBuffName(element)
 	return nil
 end
 
--- Check if a unit has a specific buff (same approach as TotemTimers).
+-- Check buff coverage using client-specific aura reads or the unreadable-aura fallback.
 --
 -- On the Mainline family, combat hides other players' buffs, and an empty read
 -- looks exactly like "no buff", which turned every dot red the moment a fight
@@ -1180,7 +1188,7 @@ end
 -- Rows for every cell in use. Out of combat only.
 function SP:RebuildCoverage()
 	local co = self.opt.coverage
-	if not (co and co.enabled and EngineDotsAvailable()) then
+	if not (co and co.enabled and not self:PartyBuffOff() and EngineDotsAvailable()) then
 		if self.coverageFrame then HideAllCells(self.coverageFrame) end
 		return
 	end
@@ -1319,7 +1327,7 @@ end
 function SP:UpdateCoverage()
 	local co = self.opt.coverage
 	local frame = self.coverageFrame
-	if not (co and co.enabled and frame) then
+	if not (co and co.enabled and frame and not self:PartyBuffOff()) then
 		if frame then HideAllCells(frame) end
 		return
 	end
@@ -1419,11 +1427,14 @@ function SP:UpdateCoverage()
 		-- no panel: every totem's cell shows or hides on its own, where it was put
 		frame:Hide()
 		for element = 1, 4 do if frame.buttons[element]:IsShown() then frame.buttons[element]:Hide() end end
+		local townHide = SP.TownHides and SP:TownHides("pb") and not SP:TownFades()   -- (A27) Out Of The Way: hidden,
+		local townMul = SP.TownAlphaMul and SP:TownAlphaMul("pb") or 1                   -- or faded, cell by cell
 		for _, btn in pairs(frame.totemCells) do
 			local wanted = false
 			for _, b in ipairs(shown) do if b == btn then wanted = true break end end
-			if wanted then
+			if wanted and not townHide then
 				PlaceFreeCell(btn)
+				btn:SetAlpha(townMul)
 				if not btn:IsShown() then btn:Show() end
 			elseif btn:IsShown() then
 				btn:Hide()
@@ -1443,6 +1454,12 @@ function SP:UpdateCoverage()
 		for _, btn in ipairs(shown) do btn:Show() end
 	end
 	if not frame:IsShown() then frame:Show() end
+	-- (A27) Hide In Town: the panel hidden, or faded through its opacity
+	if SP.TownHides and SP:TownHides("pb") then
+		if SP:TownFades() then frame:SetAlpha((CoverageOpts().opacity or 1) * SP:TownFadeAlpha()) else frame:Hide() end
+	else
+		frame:SetAlpha(CoverageOpts().opacity or 1)
+	end
 end
 
 -- Every spot back to where it starts (Unlock UI's Reset All): the panel's and each
@@ -1750,7 +1767,7 @@ do
 		end
 		return type(o) == "table" and o or EMPTY
 	end
-	local function On() return Opts().enabled == true end
+	local function On() return Opts().enabled == true and not SP:PartyBuffOff() end
 	local function Scale()
 		local v = tonumber(Opts().scale)
 		if not v or v < 0.5 or v > 3 then return 1 end
@@ -2645,7 +2662,9 @@ do
 		for _, f in ipairs(frames) do
 			if Live(f) then
 				local shown = Wanted(f)
-				f:SetAlpha(shown and 1 or 0)   -- by alpha: the frame holds the game's containers
+				local a = shown and 1 or 0
+				if shown and SP.TownHides and SP:TownHides("pb") then a = SP:TownFades() and SP:TownFadeAlpha() or 0 end   -- (A27) Hide In Town
+				f:SetAlpha(a)   -- by alpha: the frame holds the game's containers
 				for _, line in ipairs(f.lines) do
 					for i = 1, 4 do UpdateSpot(line, i, shown) end
 					if shown then UpdateIcon(f, line) end
@@ -3183,8 +3202,8 @@ function SP:UpdatePartyRangeDots()
 	self:UpdateRangeCounters()
 
 	-- Enable/disable partyRange subsystem based on whether any features are enabled
-	-- (none are while ShamanPower is switched off: every dot hides and the pass stops)
-	local off = self:IsOff()
+	-- (none are while ShamanPower or the module is switched off: every dot hides and the pass stops)
+	local off = self:IsOff() or self:PartyBuffOff()
 	local rangeCounterEnabled = self.opt.rangeCounter and self.opt.rangeCounter.enabled and not off
 	local dotsEnabled = self.opt.showPartyRangeDots and not off
 	local coverageEnabled = self.opt.coverage and self.opt.coverage.enabled and not off
@@ -3581,8 +3600,8 @@ function SP:UpdateRangeCounters()
 	-- Setup-wizard preview: keep sample data while a demo is showing
 	if self.partyRangeDemoActive then return end
 	local rcOpt = self.opt.rangeCounter
-	if not rcOpt or not rcOpt.enabled or self:IsOff() then
-		-- Hide all counters when disabled (or ShamanPower is switched off)
+	if not rcOpt or not rcOpt.enabled or self:IsOff() or self:PartyBuffOff() then
+		-- Hide all counters when disabled (or ShamanPower or the module is switched off)
 		for element = 1, 4 do
 			if self.rangeCounterTexts[element] then
 				self.rangeCounterTexts[element]:Hide()

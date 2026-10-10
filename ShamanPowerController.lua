@@ -710,6 +710,16 @@ local function FireChange(active)
 	end
 end
 
+-- (A27) Hide In Town: the bar hidden by a secure state driver (a fight shows it again), or faded
+function SP:TownApplyController()
+	if not bar then return end
+	local on = C:WantsActive()
+	local hide = on and SP.TownHides and SP:TownHides("ctl") and not SP:TownFades()
+	SP:TownDriveHidden(bar, hide and true or false)
+	if on and not hide and not InCombatLockdown() and not bar:IsShown() then bar:Show() end
+	bar:SetAlpha(SP.TownAlphaMul and SP:TownAlphaMul("ctl") or 1)
+end
+
 function C:Refresh()
 	if InCombatLockdown() then
 		pending = true
@@ -728,6 +738,7 @@ function C:Refresh()
 		PaintStatic()
 		Place()
 		bar:Show()
+		SP:TownApplyController()   -- (A27) Hide In Town
 		EnsureSubsystem()
 		SP:EnableUpdateSubsystem("controllerBar")
 		SP:WakeUpdateSubsystem("controllerBar")

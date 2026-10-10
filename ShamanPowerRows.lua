@@ -2,7 +2,7 @@
 -- Totem Rows (D48): a switch that goes with any totem bar style but Grid (Grid lays
 -- every totem out in rows of its own): every element's totems also stay out for good
 -- in a row of their own, each row placed on its own in Unlock UI, next to the bar the
--- player picked (Normal, TotemTimers, Single Totem, Dynamic, Compact, Blizzard's).
+-- player picked (Normal, dropped totem with corner, Single Totem, Dynamic, Compact, Blizzard's).
 --
 -- The rows ARE the flyouts' own secure buttons, pinned the way Grid pins them
 -- (the spGridPinned attribute and the totem button's spGridPinned field), moved
@@ -126,7 +126,7 @@ local function hideVisual(b)
 	v.text:Hide()
 end
 
--- The rows are plain totems, as TotemTimers drew them: what is down, what is assigned and
+-- The rows show plain totem choices: what is down, what is assigned and
 -- the time left are the bar's to show. (Kept for the core's flyout-mark call: nothing to do.)
 function SP:UpdateTotemRows() end
 
@@ -578,7 +578,7 @@ local function layoutRow(element, n)
 			end
 			if not b:GetAttribute("spGridPinned") then b:SetAttribute("spGridPinned", true) end
 		end
-		-- (never the flyout's "Empty" choice: a row is the element's totems, as in TotemTimers)
+		-- (never the flyout's "Empty" choice: a row contains the element's totems)
 		local eligible = b.totemIndex ~= 0 and not b.isDisabledInFlyout
 			and (not b.talentSpellID or SPCompat.KnowsSpellID(b.talentSpellID))
 			and not SP:IsSingleTotemPoppedOut(element, b.totemIndex)

@@ -428,8 +428,8 @@ function SP:UpdateESTrackerFrame()
 	end
 	self:ESTrackerSetRestricted(false)
 
-	-- Apply opacity
-	frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
+	-- Apply opacity (times Out Of The Way's fade while it fades the tracker)
+	frame:SetAlpha((SP.opt.esTracker.opacity or 1.0) * (SP.TownAlphaMul and SP:TownAlphaMul("es") or 1))
 end
 
 -- Setup-wizard preview: fill the tracker with a believable raid's worth of
@@ -689,12 +689,29 @@ end
 function SP:UpdateESTrackerOpacity()
 	local frame = self.esTrackerFrame
 	if frame then
-		frame:SetAlpha(SP.opt.esTracker.opacity or 1.0)
+		frame:SetAlpha((SP.opt.esTracker.opacity or 1.0) * (SP.TownAlphaMul and SP:TownAlphaMul("es") or 1))
 	end
 end
 
 -- Set the Earth Shield tracker on or off explicitly (settings and the tour use
 -- this; flipping on IsShown() went backwards while a preview had the frame shown).
+-- (A27) Hide In Town: the tracker hidden, or faded through its opacity; back as it was after
+function SP:TownApplyESTracker()
+	local frame = self.esTrackerFrame
+	if not (frame and SP.opt and SP.opt.esTracker and SP.opt.esTracker.enabled) then return end
+	if self.IsOff and self:IsOff() then return end   -- (switched off: as the off path left it)
+	local hides = self.TownHides and self:TownHides("es")
+	if hides and not self:TownFades() then
+		if frame:IsShown() then frame:Hide() end
+		return
+	end
+	frame:SetAlpha((SP.opt.esTracker.opacity or 1.0) * (self.TownAlphaMul and self:TownAlphaMul("es") or 1))
+	if not frame:IsShown() then
+		frame:Show()
+		if self.ScanEarthShields then self:ScanEarthShields() end   -- (changes while hidden were skipped)
+	end
+end
+
 function SP:SetESTrackerEnabled(on)
 	self:InitESTracker()
 	if not self.esTrackerFrame then self:CreateESTrackerFrame() end

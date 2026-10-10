@@ -867,7 +867,7 @@ end
 -- An alert from a state change: none while settling in, one per change. key: what
 -- counts as "the same alert" when the text cannot tell (nil = the text)
 local function Raise(alertType, text, icon, color, key, soundKey)
-	if Quiet() or not Fresh(key or text) then return end
+	if Quiet() or (SP.TownHides and SP:TownHides("ea")) or not Fresh(key or text) then return end   -- (A27) nothing nags in town
 	SP:ShowExpiringAlert(alertType, text, icon, color, soundKey)
 end
 
@@ -1154,6 +1154,30 @@ function SP:CheckShieldState(initializing)
 	if exact then shieldInstL, shieldInstW, shieldTracked = instL, instW, true end
 end
 
+-- WoW: Forever, in a fight: the game's Cooldown Manager item for Lightning / Water Shield
+-- says the moment the shield goes (and comes back): ShamanPower_ShieldCharges' ShieldGoneHooks
+-- calls this with which (1 Lightning, 2 Water) and up. The alert fires on "gone" as the
+-- readable path would, and the state is kept so the look when restrictions lift says nothing twice.
+-- are the shield-gone alerts on (the Cooldown Manager hook is wanted then)
+function SP:ExpiringAlertShieldsOn()
+	local sv = ShamanPowerExpiringAlertsDB
+	return (sv and sv.enabled and sv.shields and sv.shields.enabled and (sv.shields.lightning or sv.shields.water)) and true or false
+end
+function SP:ExpiringAlertShieldHook(which, up)
+	local sv = ShamanPowerExpiringAlertsDB
+	local key = (which == 1) and "lightning" or (which == 2) and "water" or nil
+	if not key then return end
+	if up then previousState.shields[key] = true return end
+	local was = previousState.shields[key]
+	previousState.shields[key] = false
+	if was == false then return end   -- (already seen down; unknown: the game's removal is the word, it counts)
+	if not sv or not sv.enabled or self:IsOff() or not sv.shields or not sv.shields.enabled or not sv.shields[key] then return end
+	if key == "lightning" then
+		Raise("shield", LS_NAME, ShieldSpells.lightningShield.icon, ElementColors.lightning)
+	else
+		Raise("shield", WS_NAME, ShieldSpells.waterShield.icon, ElementColors.water)
+	end
+end
 -- Totem state by addon element (1 Earth, 2 Fire, 3 Water, 4 Air). The core's
 -- resolver handles clients that fill slots in cast order; otherwise the fixed
 -- slot map applies (WoW slot 1 is Fire, slot 2 is Earth). Sixth value: the slot.

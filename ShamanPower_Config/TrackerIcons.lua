@@ -231,8 +231,8 @@ do
 	end
 
 	Coverage = ns.IconRow.New({
-		caption = B .. "Click" .. E .. " a totem to watch it or stop watching it. A blue corner: it's in the list. "
-			.. B .. "Right-click" .. E .. " it for its own icon size. " .. B .. "Dark" .. E .. ": you haven't learned it yet"
+		caption = B .. "CLICK" .. E .. " a totem to watch it or stop watching it. A blue corner: it's in the list. "
+			.. B .. "RIGHT-CLICK" .. E .. " it for its own icon size. " .. B .. "Dark" .. E .. ": you haven't learned it yet"
 			.. " (pick it now, it shows once you learn it).",
 		hint = "Click: watch it or stop watching it\nRight-click: its icon size",
 		list = function(out) Items(out); MarkSteps(out) end,
@@ -286,7 +286,7 @@ do
 	end
 
 	Range = ns.IconRow.New({
-		caption = B .. "Click" .. E .. " a totem to track it or stop tracking it. A blue corner: it's on the overlay."
+		caption = B .. "CLICK" .. E .. " a totem to track it or stop tracking it. A blue corner: it's on the overlay."
 			.. " The overlay watches the other shamans in your group, so every totem is here, learned or not.",
 		hint = "Click: track it or stop tracking it",
 		list = function(out)
@@ -562,7 +562,7 @@ do
 	Popouts = ns.IconRow.New({
 		caption = function()
 			if next(Frames()) == nil then return "Each tracker you pop out shows up here, with its settings in its menu." end
-			return B .. "Click" .. E .. " or " .. B .. "right-click" .. E .. " a tracker for its settings: its size, opacity"
+			return B .. "CLICK" .. E .. " or " .. B .. "RIGHT-CLICK" .. E .. " a tracker for its settings: its size, opacity"
 				.. " and background, or put it back on its bar. A blue corner: it has settings of its own."
 		end,
 		hint = "Click: its settings",
@@ -571,9 +571,9 @@ do
 				.. " or Drop All to pop it out as a tracker of its own."
 			if SP.opt and SP.opt.enableMiddleClickPopOut == false then
 				return "Nothing is popped out right now. Enable Middle-Click Pop-Out (above) is off: turn it on, then "
-					.. B .. "middle-click" .. E .. how
+					.. B .. "MIDDLE-CLICK" .. E .. how
 			end
-			return "Nothing is popped out right now. " .. B .. "Middle-click" .. E .. how
+			return "Nothing is popped out right now. " .. B .. "MIDDLE-CLICK" .. E .. how
 		end,
 		list = Items,
 		textures = function(item, out)
@@ -804,7 +804,7 @@ do
 	end
 
 	Raid = ns.IconRow.New({
-		caption = B .. "Click" .. E .. " a cooldown to choose who casts it and who may call for it. A blue corner: someone"
+		caption = B .. "CLICK" .. E .. " a cooldown to choose who casts it and who may call for it. A blue corner: someone"
 			.. " is assigned. Your raid leader and assistants set these; everyone else sees them.",
 		hint = "Click: who casts it and who may call for it",
 		list = function(out)

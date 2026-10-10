@@ -294,7 +294,7 @@ end
 -- The rest of the picture (every part guarded: a client without an API just leaves it out)
 local KEY_SPELLS = { 324, 24398, 974, 36936, 20608, 16188, 16190, 30823, 16166, 17364 }
 local CVARS = { "countdownForCooldowns", "ActionButtonUseKeyDown", "useUiScale", "uiScale", "nameplateShowEnemyTotems",
-	"nameplateShowFriendlyTotems", "addonProfilerEnabled" }
+	"nameplateShowFriendlyTotems", "nameplateShowFriendlyPlayers", "nameplateShowFriendlyPlayerMinions", "addonProfilerEnabled" }
 -- game functions ShamanPower calls by their old names: on Forever the game has none of
 -- these and ShamanPower adds its own only when no other addon has (Questie's UnitBuff
 -- once hid a shield); on Anniversary they are the game's unless an addon replaced one

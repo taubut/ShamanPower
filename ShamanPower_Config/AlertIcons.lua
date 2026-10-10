@@ -84,7 +84,7 @@ end
 -- ===========================================================================
 -- Expiring Alerts
 -- ===========================================================================
-local EA_CAPTION = "|cff3FA9F5Click|r an alert to turn it on or off. |cff3FA9F5Right-click|r it for its settings:"
+local EA_CAPTION = "|cff3FA9F5CLICK|r an alert to turn it on or off. |cff3FA9F5RIGHT-CLICK|r it for its settings:"
 	.. " each alert has its own. |cff3FA9F5Dark|r: not learned yet (you can still set it up)."
 local EA_HINT = "Click: turn it on or off\nRight-click: its settings"
 local NOT_LOADED = "Expiring Alerts is not loaded: turn on ShamanPower [Expiring Alerts] in the AddOns list, then type /reload."
@@ -490,11 +490,28 @@ local function EATooltip(it)
 	return table.concat(lines, "\n\n")
 end
 
+-- A totem element wears Blizzard's faded empty totem in its element's color (the totem bar's
+-- Empty Totem in Flyouts art, Interface\\Buttons\\UI-TotemBar) with EARTH / FIRE / WATER / AIR
+-- over it: it reads as "this element", not as one totem you own (the owner, 2026-10-09).
+local EMPTY_ART = SP.FlyoutArrowArt
+local ELEMENT_WORD = { "EARTH", "FIRE", "WATER", "AIR" }
+local function EmptyArt(it)
+	if it.kind ~= "totem" or not (EMPTY_ART and EMPTY_ART.texture and EMPTY_ART.empty) then return nil end
+	return EMPTY_ART.empty[it.element]
+end
+local function EATexCoords(it)
+	local c = EmptyArt(it)
+	if c then return c[1], c[2], c[3], c[4] end
+end
+local function EAOverlay(it)
+	if EmptyArt(it) then return ELEMENT_WORD[it.element] end
+end
+
 local function EATextures(it, out)
 	if it.kind == "shield" then
 		out[1] = it.icon
 	elseif it.kind == "totem" then
-		out[1] = (SP.ElementIcons and SP.ElementIcons[it.element]) or "Interface\\Icons\\INV_Misc_QuestionMark"
+		out[1] = (EmptyArt(it) and EMPTY_ART.texture) or (SP.ElementIcons and SP.ElementIcons[it.element]) or "Interface\\Icons\\INV_Misc_QuestionMark"
 	else
 		-- the weapon you hold; a plain weapon icon when that hand is empty
 		out[1] = HeldWeapon(it) or EMPTY_HAND[it.key]
@@ -507,6 +524,8 @@ EARow = ns.IconRow.New({
 	hint = EA_HINT,
 	list = function(out) for _, it in ipairs(EAList()) do out[#out + 1] = it end end,
 	textures = EATextures,
+	texCoords = EATexCoords,
+	overlay = EAOverlay,
 	shown = AlertOn,
 	learned = function(it)
 		if it.kind == "shield" then return Known(it.spell) end
@@ -565,7 +584,7 @@ end
 -- ===========================================================================
 -- Reactive Totems
 -- ===========================================================================
-local RT_CAPTION = "|cff3FA9F5Click|r an alert to turn it on or off. |cff3FA9F5Right-click|r it for its settings:"
+local RT_CAPTION = "|cff3FA9F5CLICK|r an alert to turn it on or off. |cff3FA9F5RIGHT-CLICK|r it for its settings:"
 	.. " each alert has its own. |cff3FA9F5Dark|r: its totem isn't learned yet (you can still set it up)."
 local RT_NOT_LOADED = "Reactive Totems is not loaded: turn on ShamanPower [Reactive Totems] in the AddOns list, then type /reload."
 local RT_COMBAT = "|cff0070ddShamanPower|r: |cffe64a4aReactive Totems' settings can't change in combat - try again after the fight.|r"

@@ -716,6 +716,20 @@ function SP:StartPulseTimer(frame, pulseInterval)
     frame.pulseInterval = pulseInterval
     frame.pulseStartTime = GetTime()
     frame.lastPulseTime = GetTime()
+    -- Your own totem: its real drop time, so the countdown matches the totem bar's. The plate
+    -- appears a frame or more after the drop (a recycled plate later still), and a clock started
+    -- then runs that much behind the bar's. Another shaman's totem keeps the plate's own clock:
+    -- the game does not say when it was dropped.
+    local start = self:OwnTotemPlateStart(frame)
+    if start then
+        frame.pulseStartTime = start
+        frame.lastPulseTime = start + math.floor((GetTime() - start) / pulseInterval) * pulseInterval
+        -- the swipe starts from this cycle's real beginning too (its updater re-arms at a cycle's start)
+        if settings.showPulseCooldown and frame.cooldown then
+            frame.cooldown:SetCooldown(frame.lastPulseTime, pulseInterval)
+            frame.cooldown:Show()
+        end
+    end
 
     -- Apply current size settings
     local textSize = settings.pulseTextSize or 14
@@ -743,6 +757,23 @@ function SP:StartPulseTimer(frame, pulseInterval)
     frame.pulseShownTenth, frame.pulseTextBand, frame.pulseBarBand = nil, nil, nil
     frame:SetScript("OnUpdate", PulseOnUpdate)
     SP:UpdatePulseTimer(frame)
+end
+
+-- The drop time of the totem on this plate when the game says the unit is yours (GetTotemInfo
+-- knows it); nil for another shaman's, or when the game hides the owner (then the plate keeps
+-- its own clock: a name match could be another shaman's totem of the same name). Which of your
+-- four it is comes from the plate's own totem identity: its spell, so its element.
+function SP:OwnTotemPlateStart(frame)
+    local unit, info = frame.unitId, frame.totemInfo
+    if not unit or not info or not self.GetElementTotemInfo or not UnitIsOwnerOrControllerOfUnit then return nil end
+    local owned = UnitIsOwnerOrControllerOfUnit("player", unit)
+    if (issecretvalue and issecretvalue(owned)) or owned ~= true then return nil end
+    local spellID = TOTEM_SPELL_IDS[info.name]
+    local element = spellID and self.TotemCastElement and self:TotemCastElement(spellID)
+    if not element then return nil end
+    local have, _, s = self:GetElementTotemInfo(element)
+    if have ~= true or (issecretvalue and issecretvalue(s)) or type(s) ~= "number" or s <= 0 then return nil end
+    return s
 end
 
 -- Stop pulse timer for a totem plate frame

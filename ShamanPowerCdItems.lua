@@ -35,6 +35,7 @@
 --   cueGone / cueGoneStyle         shield: cdbarCueShield / cdbarCueShieldStyle, imbue: cdbarCueImbue / cdbarCueImbueStyle ("shake")   1, 7
 --   cueMark                        shield: cdbarCueShieldMark, imbue: cdbarCueImbueMark                1, 7
 --   cueMissing                     cdbarCueMissing                                                     1, 7
+--   cueMissingGlow                 cdbarCueMissingGlow                                                 1, 7
 --   cueRunning / cueRunningStyle   cdbarCueRunning / cdbarCueRunningStyle ("red")                      1, 7
 --   cueTimeColor                   cdbarCueTimeColor                                                   all
 -- [flyout]
@@ -73,7 +74,7 @@ local GROUPS = {
 	look    = { "buttonStyle", "sweep", "sweepDirection", "progressBar", "progressColor", "timeOnIcon", "ankhCount" },
 	charges = { "chargeCount", "colorCount", "chargeBar" },
 	effects = { "cueReady", "cueReadyStyle", "cueAlmost", "cueAlmostStyle", "cueGone", "cueGoneStyle", "cueMark",
-	            "cueMissing", "cueRunning", "cueRunningStyle", "cueTimeColor" },
+	            "cueMissing", "cueMissingGlow", "cueRunning", "cueRunningStyle", "cueTimeColor", "cueTimeOnly" },
 	flyout  = { "flyoutDirection", "flyoutIconSize", "flyoutOpacity" },
 	clicks  = { "rightClickOther" },
 	where   = { "onTotemBar" },
@@ -87,8 +88,8 @@ local APPLIES = {
 	timeOnIcon = CDS_IMBUE, ankhCount = { [3] = true },
 	chargeCount = { [SHIELD] = true }, colorCount = { [SHIELD] = true }, chargeBar = { [SHIELD] = true },
 	cueReady = CDS, cueReadyStyle = CDS, cueAlmost = CDS, cueAlmostStyle = CDS,
-	cueGone = SI, cueGoneStyle = SI, cueMark = SI, cueMissing = SI, cueRunning = SI_ES, cueRunningStyle = SI_ES,
-	cueTimeColor = ALL,
+	cueGone = SI, cueGoneStyle = SI, cueMark = SI, cueMissing = SI, cueMissingGlow = SI, cueRunning = SI_ES, cueRunningStyle = SI_ES,
+	cueTimeColor = ALL, cueTimeOnly = { [SHIELD] = true },
 	flyoutDirection = SI, flyoutIconSize = SI, flyoutOpacity = SI,
 	rightClickOther = { [SHIELD] = true }, onTotemBar = { [2] = true },
 }
@@ -149,9 +150,11 @@ local FALLBACK = {
 	end,
 	cueMark         = function(o, t) if t == IMBUE then return truthy(o.cdbarCueImbueMark) end return truthy(o.cdbarCueShieldMark) end,
 	cueMissing      = function(o) return truthy(o.cdbarCueMissing) end,
+	cueMissingGlow  = function(o) return truthy(o.cdbarCueMissingGlow) end,
 	cueRunning      = function(o) return truthy(o.cdbarCueRunning) end,
 	cueRunningStyle = function(o) return o.cdbarCueRunningStyle or "red" end,
 	cueTimeColor    = function(o) return truthy(o.cdbarCueTimeColor) end,
+	cueTimeOnly     = function(o) return truthy(o.cdbarCueTimeOnly) end,
 	flyoutDirection = function(o) return o.cdbarFlyoutDirection or "auto" end,
 	flyoutIconSize  = function(o) return o.cooldownFlyoutButtonSize or 22 end,
 	flyoutOpacity   = function(o) return o.cooldownFlyoutOpacity or 1.0 end,

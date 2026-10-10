@@ -1,7 +1,7 @@
 ## Interface: 120100, 16001
 ## Author: taubut
 ## Title: |cff0070ddShamanPower|r |cffffd200[Raid Cooldowns]|r
-## Version: 3.0.6.1
+## Version: 3.0.8
 ## IconTexture: Interface\Icons\ClassIcon_Shaman
 ## Notes: Call for Mana Tide, plus Bloodlust or Heroism where available.
 ## Dependencies: ShamanPower

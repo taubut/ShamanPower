@@ -352,7 +352,7 @@ function SP:ReactiveTotemsDefaults() return defaultSettings end
 -- a theme. (ShamanPowerTheme.lua Cards.ADDED holds the same keys' "default" for a theme saved
 -- before; Reset This Page keeps these, so the theme stays as it is.)
 local RT_THEME_LOOKS = { "iconSize", "opacity", "fontSize", "fontOutline", "hideBackground", "hideBorder",
-	"showDebuffName", "showDebuffIcon", "showTotemName", "showGlow", "glowIntensity" }
+	"showDebuffName", "showDebuffIcon", "showTotemName" }   -- (the glow is an effect: never a theme's)
 SP.ReactiveThemeLooks = RT_THEME_LOOKS
 if SP.ThemeSpotSettings then
 	local RANGE = { iconSize = { 32, 256 }, opacity = { 0.2, 1 }, fontSize = { 8, 24 }, glowIntensity = { 0.2, 1 } }
@@ -500,6 +500,7 @@ function SP:CreateReactiveTotemFrame(totemId)
 	glow:SetBlendMode("ADD")
 	glow:SetVertexColor(c.r, c.g, c.b)
 	frame.glow = glow
+	frame.glowRGB = { c.r, c.g, c.b }   -- (Proc Glow takes its color from here)
 
 	-- Animation
 	local ag = glow:CreateAnimationGroup()
@@ -1098,9 +1099,11 @@ function SP:UpdateReactiveTotemDisplay()
 			if R(totemId, "showGlow") then
 				frame.glow:Show()
 				frame.glowAnim:Play()
+				SP:ProcGlowStart(frame, frame.glowRGB[1], frame.glowRGB[2], frame.glowRGB[3], "rt")
 			else
 				frame.glow:Hide()
 				frame.glowAnim:Stop()
+				SP:ProcGlowStop(frame, "rt")
 			end
 
 			-- Sound (only once per debuff application)
@@ -1114,6 +1117,7 @@ function SP:UpdateReactiveTotemDisplay()
 			-- Hide this totem's frame
 			frame.glowAnim:Stop()
 			frame.glow:Hide()
+			SP:ProcGlowStop(frame, "rt")
 			frame.currentDebuffName = nil
 			frame.soundPlayed = nil
 			frame:Hide()
@@ -1222,7 +1226,7 @@ function SP:SetReactiveHostMode()
 	for id, frame in pairs(self.reactiveFrames) do
 		if live then
 			frame.bg:Hide(); frame.icon:Hide(); frame.borderFrame:Hide()
-			frame.glow:Hide(); frame.glowAnim:Stop()
+			frame.glow:Hide(); frame.glowAnim:Stop(); SP:ProcGlowStop(frame, "rt")
 			frame.debuffText:Hide(); frame.totemText:Hide()
 			if frame.keyText then frame.keyText:Hide() end
 			frame:EnableMouse(false)
@@ -1639,6 +1643,7 @@ function SP:TestReactiveAlerts()
 		if R(totemId, "showGlow") then
 			frame.glow:Show()
 			frame.glowAnim:Play()
+			SP:ProcGlowStart(frame, frame.glowRGB[1], frame.glowRGB[2], frame.glowRGB[3], "rt")
 		end
 
 		frame:Show()
@@ -1667,6 +1672,7 @@ function SP:TestReactiveAlerts()
 		for totemId, frame in pairs(SP.reactiveFrames) do
 			frame.glowAnim:Stop()
 			frame.glow:Hide()
+			SP:ProcGlowStop(frame, "rt")
 			frame:Hide()
 		end
 		SP.reactiveTestActive = nil
@@ -1694,6 +1700,7 @@ function SP:ShowAllReactiveFrames()
 		frame.debuffText:SetText(totemData.name)
 		frame.glow:Hide()
 		frame.glowAnim:Stop()
+		SP:ProcGlowStop(frame, "rt")
 		frame:Show()
 	end
 

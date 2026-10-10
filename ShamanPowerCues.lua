@@ -782,7 +782,7 @@ local function runLook(btn, style, what, frac, where)
 		if now >= t then
 			btn._roTestMiss = nil
 		elseif now >= t - 3 then
-			style, frac, test = "red", 1, true
+			style, frac, test = (SP:CdItemOpt(btn.cooldownType, "cueMissing") and "red" or nil), 1, true
 			if where ~= true then where = "top" end   -- (in a fight on WoW: Forever: over the game's icon)
 		end
 	end
@@ -847,6 +847,19 @@ end
 local function timeRed(btn, on)
 	return (on and SP:CdItemOpt(btn.cooldownType, "cueTimeColor") and btn._roLook ~= "red" and not SP:IsOff()) and "red" or nil
 end
+-- Time Only While Running Out (the shield; out of a fight the time is Lua-drawn): the time
+-- texts out of sight while there is plenty left, back the moment it is running out
+local function timeHidden(btn, hide)
+	hide = hide and true or false
+	if btn._roTimeHid == hide then return end
+	btn._roTimeHid = hide
+	for _, fields in ipairs({ TIME0, TIME1 }) do
+		for i = 1, #fields do
+			local fs = btn[fields[i]]
+			if fs then fs:SetAlpha(hide and 0 or 1) end
+		end
+	end
+end
 
 -- Turns Red While Missing in a fight on WoW: Forever: the moment a shield goes
 -- cannot be seen there, so the red sits under the game's shield icon (the missing
@@ -869,6 +882,57 @@ local function missingRed(btn, on)
 		m.redOn = nil
 		m.red:Hide()
 		m.redEdge:Hide()
+	end
+end
+
+-- Glow While Missing: the button's edges glow red (the Glow look, breathing) while a
+-- shield / imbue is gone, and Proc Glow plays round it when that is the Glow Shape. In a
+-- fight on WoW: Forever the shield's glow sits under the game's shield icon (the missing
+-- layer), like Turns Red While Missing: it shows the moment the icon goes.
+local function edgeGlow(parent)
+	local g = CreateFrame("Frame", nil, parent)
+	g:SetAllPoints(parent)
+	g:SetAlpha(0)
+	local E = {}
+	for i = 1, 4 do
+		local e = g:CreateTexture(nil, "OVERLAY")
+		e:SetTexture(WHITE)
+		e:SetBlendMode("ADD")
+		E[i] = e
+	end
+	E[1]:SetPoint("TOPLEFT"); E[1]:SetPoint("TOPRIGHT")
+	E[2]:SetPoint("BOTTOMLEFT"); E[2]:SetPoint("BOTTOMRIGHT")
+	E[3]:SetPoint("TOPLEFT"); E[3]:SetPoint("BOTTOMLEFT")
+	E[4]:SetPoint("TOPRIGHT"); E[4]:SetPoint("BOTTOMRIGHT")
+	g.edges = E
+	g.loop = g:CreateAnimationGroup()
+	g.loop:SetLooping("BOUNCE")
+	alphaAnim(g.loop, 1, 0.2, 1, 0.5)
+	g:Hide()
+	return g
+end
+local function missingGlow(btn, on, engine)
+	local host, key
+	if engine then host, key = btn.spCueMissing or (on and missingLayer(btn)) or nil, "glow"
+	else host, key = btn.spCue or (on and cueFrame(btn)) or nil, "miss" end
+	if not host then return end
+	local g = host[key]
+	if on then
+		if not g then g = edgeGlow(host); host[key] = g end
+		if not g.on then
+			g.on = true
+			wowColors()
+			local w = math.max(2, math.floor(btn:GetHeight() * 0.1 + 0.5))
+			local E = g.edges
+			E[1]:SetHeight(w); E[2]:SetHeight(w); E[3]:SetWidth(w); E[4]:SetWidth(w)
+			for i = 1, 4 do E[i]:SetVertexColor(WOW_RED[1], WOW_RED[2], WOW_RED[3], 0.9) end
+			g:Show(); g.loop:Play()
+			if not engine then SP:ProcGlowStart(btn, WOW_RED[1], WOW_RED[2], WOW_RED[3], "cdmiss") end
+		end
+	elseif g and g.on then
+		g.on = nil
+		g.loop:Stop(); g:Hide()
+		if not engine then SP:ProcGlowStop(btn, "cdmiss") end
 	end
 end
 
@@ -911,9 +975,16 @@ function SP:RunOutShield(btn, up, left, charges, engine)
 	end
 	local busy = runLook(btn, style, "shield", frac, where)
 	missingRed(btn, engine and self:CdItemOpt(t, "cueMissing") and not self:IsOff() and (btn:GetEffectiveAlpha() or 1) >= 0.99)
+	local mg = self:CdItemOpt(t, "cueMissingGlow") and not self:IsOff()
+	local testMiss = btn._roTestMiss ~= nil and GetTime() >= btn._roTestMiss - 3
+	missingGlow(btn, mg and engine and (btn:GetEffectiveAlpha() or 1) >= 0.99, true)
+	missingGlow(btn, mg and not engine and (state == "gone" or testMiss), false)
 	local tc = (not engine) and timeRed(btn, runOn) or nil
 	timeColor(btn, "_roTime0", TIME0, tc)
 	timeColor(btn, "_roTime1", TIME1, tc)
+	-- Time Only While Running Out: out of a fight the Lua time hides while there is plenty; in a fight on
+	-- WoW: Forever the game's own time does it (ShieldTimeTextOptions: see-through above Running Out At)
+	timeHidden(btn, (not engine) and self:CdItemOpt(t, "cueTimeOnly") and not self:IsOff() and state == "plenty")
 	if left ~= nil and left > N and left <= N + 1.2 then busy = true end
 	return busy
 end
@@ -947,6 +1018,10 @@ function SP:RunOutImbue(btn, hasMain, hasOff, mainID, offID, mainLeft, offLeft)
 	local style, where = wantedLook(t, state)
 	if where == false and btn.darkOverlay and btn.darkOverlay:IsShown() then where = "top" end   -- (a style's view not lit)
 	local busy = runLook(btn, style, "imbue", least and least / N or 1, where)
+	local mg = self:CdItemOpt(t, "cueMissingGlow") and not self:IsOff()
+	local testMiss = btn._roTestMiss ~= nil and GetTime() >= btn._roTestMiss - 3
+	missingGlow(btn, false, true)
+	missingGlow(btn, mg and (state == "gone" or testMiss), false)
 	timeColor(btn, "_roTime0", TIME0, timeRed(btn, state == "out"))
 	timeColor(btn, "_roTime1", TIME1, timeRed(btn, outM))
 	timeColor(btn, "_roTime2", TIME2, timeRed(btn, outO))
@@ -1178,6 +1253,7 @@ function SP:RunOutResetLooks()
 		timeColor(btn, "_roTime0", TIME0, nil)
 		timeColor(btn, "_roTime1", TIME1, nil)
 		timeColor(btn, "_roTime2", TIME2, nil)
+		timeHidden(btn, false)
 		if btn._roAlmost then
 			btn._roAlmost = nil
 			local h = btn.spAlmost
@@ -1196,11 +1272,16 @@ local function shieldTimeColored(o)
 	if not (o and SP:CdItemOpt(1, "cueTimeColor")) then return false end
 	return not (SP:CdItemOpt(1, "cueRunning") and SP:CdItemOpt(1, "cueRunningStyle") == "red")
 end
+-- Time Only While Running Out: the game's time see-through above Running Out At (a step on the
+-- time left, like the red: nothing for Lua to read or compare)
+local function shieldTimeOnly(o) return (o and SP:CdItemOpt(1, "cueTimeOnly") and not SP:IsOff()) and true or false end
 -- what the game-drawn shield's time is built with: 0 (today's white) or its seconds.
 -- EnsureShieldChargeContainer keeps it on the button; a change builds the display again.
 function SP:ShieldTimeTextKey()
 	local o = self.opt
-	return shieldTimeColored(o) and runOutSecs(1) or 0
+	local c, only = shieldTimeColored(o), shieldTimeOnly(o)
+	if not (c or only) then return 0 end
+	return (c and "c" or "-") .. (only and "o" or "-") .. runOutSecs(1)
 end
 
 -- The game-drawn shield's time (WoW: Forever, in a fight: EnsureShieldChargeContainer):
@@ -1209,21 +1290,24 @@ end
 -- today's white (the switch off, or a shield button that turns red: its time stays white).
 function SP:ShieldTimeTextOptions()
 	local o = self.opt
-	if not shieldTimeColored(o) then return nil end
+	local colored, only = shieldTimeColored(o), shieldTimeOnly(o)
+	if not (colored or only) then return nil end
 	local CU, P = C_CurveUtil, Enum and Enum.DurationTextBindingProperty
 	if not (CU and CU.CreateColorCurve and P and P.RemainingDuration and CreateColor) then return nil end
 	local N = runOutSecs(1)
 	local made = self._roTimeOpts
-	if made and made.n == N then return made.opts end
+	if made and made.n == N and made.c == colored and made.o == only then return made.opts end
 	local ok, curve = pcall(CU.CreateColorCurve)
 	if not (ok and curve) then return nil end
 	wowColors()
 	local step = Enum.LuaCurveType and Enum.LuaCurveType.Step or 1
+	-- under N: WoW's red (Time Turns Red), else white; at N and above: white, and see-through with Time Only
+	local low = colored and CreateColor(WOW_RED[1], WOW_RED[2], WOW_RED[3], 1) or CreateColor(1, 1, 1, 1)
 	if not (pcall(curve.SetType, curve, step)
-		and pcall(curve.AddPoint, curve, 0, CreateColor(WOW_RED[1], WOW_RED[2], WOW_RED[3], 1))
-		and pcall(curve.AddPoint, curve, N, CreateColor(1, 1, 1, 1))) then return nil end
+		and pcall(curve.AddPoint, curve, 0, low)
+		and pcall(curve.AddPoint, curve, N, CreateColor(1, 1, 1, only and 0 or 1))) then return nil end
 	local opts = { textColor = { curve = curve, property = P.RemainingDuration } }
-	self._roTimeOpts = { n = N, opts = opts }
+	self._roTimeOpts = { n = N, c = colored, o = only, opts = opts }
 	return opts
 end
 -- every button back in sight (the switch turned off, ShamanPower switched off)
@@ -1355,7 +1439,7 @@ function SP:TestCooldownCues()
 	if imbue and imbue:IsVisible() then imbue._roTestRun = runUntil end
 	if shield and shield:IsVisible() then shield._roTestRun = runUntil end
 	-- then Turns Red While Missing, for 3 more (when it is on)
-	if imbue and imbue:IsVisible() and self:CdItemOpt(imbue.cooldownType, "cueMissing") then imbue._roTestMiss = runUntil + 3 end
+	if imbue and imbue:IsVisible() and (self:CdItemOpt(imbue.cooldownType, "cueMissing") or self:CdItemOpt(imbue.cooldownType, "cueMissingGlow")) then imbue._roTestMiss = runUntil + 3 end
 	if shield and shield:IsVisible() and self:CdItemOpt(shield.cooldownType, "cueMissing") then shield._roTestMiss = runUntil + 3 end
 	local first, second
 	for _, btn in ipairs(self.cooldownButtons or {}) do

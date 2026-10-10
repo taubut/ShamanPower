@@ -2278,7 +2278,19 @@ local SHAPE_ROWS = {
 	  get = function() return SP.opt.dotShape or "default" end, set = function(k) SP:SetDotShape(k) end },
 	{ key = "glow", label = "Glow Shape", list = function() return SP.GLOW_SHAPES end,
 	  note = "The pulse flash and the ready and alert glows. Also on Totem Bar > Duration Bars and Ready Reminders.",
-	  get = function() return SP.opt.glowShape or "default" end, set = function(k) SP:SetGlowShape(k) end },
+	  get = function() return SP.opt.glowShape or "default" end, set = function(k) SP:SetGlowShape(k) end,
+	  extra = function(y, W)
+		-- Proc Glow Thickness: how thick the ring is (only while Proc Glow is in use)
+		if SP.opt.glowShape ~= "proc" or not SP.SetProcGlowOut then return y end
+		local _, h = Widgets:Slider(page.body, {
+			label = "Proc Glow Thickness", x = 0, y = y, width = W, min = 0, max = 0.6, step = 0.01, isPercent = true,
+			desc = "How thick the Proc Glow ring is: it grows outward from the icon's edge. 20% by default. Also on Totem Bar > Duration Bars; each Ready Reminders icon has its own.",
+			get = function() return SP:ProcGlowOut() end,
+			set = function(v) SP:SetProcGlowOut(v) end,
+			onChanged = PageChanged,
+		})
+		return y + h + 10
+	  end },
 	{ key = "edge", label = "Frame Edge", list = function() return SP.FRAME_EDGES end,
 	  note = "The totem bar, the cooldown bar and ShamanPower's panels. Also on Appearance > Totem Bar and Cooldown Bar.",
 	  get = function() return SP.opt.frameEdge or "default" end, set = function(k) SP:SetFrameEdge(k) end },
@@ -2546,9 +2558,15 @@ local function BuildShapePreview(c, row, s)
 		local ic = p:CreateTexture(nil, "ARTWORK")
 		ic:SetSize(26, 26); ic:SetPoint("CENTER", p, "CENTER", 0, 0)
 		ic:SetTexture(I.tremor); ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-		local g = p:CreateTexture(nil, "OVERLAY")
-		g:SetPoint("TOPLEFT", ic, "TOPLEFT", -10, 10); g:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 10, -10)
-		g:SetTexture(s.file); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0.9)
+		if s.key == "proc" and SP.ProcGlow_Start then
+			local fr = CreateFrame("Frame", nil, p); fr:SetAllPoints(ic)
+			SP.ProcGlow_Start(fr, SP:ProcGlowOptions(fr, { 0.4, 1, 0.4, 1 }, "sample"))
+		else
+			local g = p:CreateTexture(nil, "OVERLAY")
+			g:SetPoint("TOPLEFT", ic, "TOPLEFT", -10, 10); g:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT", 10, -10)
+			g:SetTexture(s.file); g:SetBlendMode("ADD"); g:SetVertexColor(0.4, 1, 0.4); g:SetAlpha(0.9)
+			if SP.PaintGlowShape then SP:PaintGlowShape(g, s.key) end
+		end
 	elseif row.orbs then
 		local n = s.count or 3
 		local bar = CreateFrame("StatusBar", nil, p)

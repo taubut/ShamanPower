@@ -101,6 +101,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         showDropAllButton = true,  -- Show the Drop All Totems button on mini bar
         totemicCallOnTotemBar = false,  -- Show Totemic Call (recall) on totem bar instead of cooldown bar
         showPartyRangeDots = true,  -- Show party range indicator dots on mini totem bar
+        partyBuffOff = false,       -- The whole Party Buff Tracker off (the sidebar switch): dots, counters, Coverage, Party Strip
         showCooldownBar = true,  -- Show the cooldown tracker bar below totem bar
         showButtonKeybinds = false,  -- Show keybind text on buttons (top-right corner)
         keybindSource = "actionbar",  -- which key the buttons show: actionbar (first) | sp (ShamanPower's own first) | sponly
@@ -177,6 +178,7 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueImbueMark = false,          -- Red X Until You Imbue Again (with Weapon Imbue Gone)
         cdbarCueShieldMark = false,         -- Red X Until You Cast a Shield Again (with Shield Gone)
         cdbarCueMissing = false,            -- Turns Red While Missing: a shield / imbue that is gone, red until recast
+        cdbarCueMissingGlow = false,        -- Glow While Missing: its edges glow red (and Proc Glow, when chosen) until recast
         -- The cooldown bar's "running out" moment (ShamanPowerCues.lua), one setting each, shown on
         -- Cooldown Bar > Display AND > Effects: a shield or imbue in its last N seconds (a shield also on
         -- its last charge), a cooldown in its last N seconds (0: only once it is ready)
@@ -189,6 +191,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         cdbarCueRunning = false,
         cdbarCueRunningStyle = "red",       -- red (Turns red) / pulse / glow / drain / underbar
         cdbarCueTimeColor = false,          -- Time Turns Red While Running Out (gold on a cooldown almost ready)
+        cdbarCueTimeOnly = false,           -- Time Only While Running Out (the shield's time out of sight while there is plenty)
+        cdmHideShieldIcon = false,          -- (WoW: Forever) the Cooldown Manager's own shield icon out of sight (on after Set Up The Cooldown Manager)
         -- Cooldown Almost Ready (Cooldown Bar > Effects): a cooldown's last seconds, in gold
         cdbarCueAlmost = false,
         cdbarCueAlmostStyle = "glow",       -- pulse / glow / drain / underbar
@@ -217,8 +221,8 @@ SHAMANPOWER_DEFAULT_VALUES = {
         skin = "Smooth",
 
         dynamicTotemMode = false,  -- Dynamic Mode: bar shows active totems instead of assigned (for PVP)
-        activeTotemAsMain = false,  -- TotemTimers style: show active totem as main icon, assigned as small corner indicator
-        rightClickCastsAssigned = false,  -- In TotemTimers mode: right-click casts assigned totem instead of Totemic Call
+        activeTotemAsMain = false,  -- Show active totem as main icon, assigned as small corner indicator
+        rightClickCastsAssigned = false,  -- With activeTotemAsMain: right-click casts assigned totem instead of Totemic Call
         assignRightClick = "previous",    -- Totem Assignments window, right-click on a totem: "previous" (the totem before it) | "clear" (no totem)
         activeOverlayDirection = "auto",
         esFlyoutRoles = {},               -- ES flyout filter: show only these group roles (TANK/HEALER/DAMAGER); empty = everyone
@@ -245,6 +249,10 @@ SHAMANPOWER_DEFAULT_VALUES = {
         loadoutBarLocked = false,       -- Lock the loadout bar position (prevent dragging)
         hideOutOfCombat = false,  -- Hide totem bar when not in combat
         hideWhenNoTotems = false,  -- Hide totem bar when no totems are placed
+        hideInTown = false,        -- A27: Hide In Town (Appearance > Visibility > In Town)
+        townWhere = "town",        -- town (a rested area) | anywhere (outside a fight, with no enemy targeted)
+        townHow = "hide",          -- hide | fade (to fadeOpacity)
+        townModules = {},          -- [module key] = false: that module stays on screen in town
         -- Duration Bar settings (shows totem remaining time)
         durationBarPosition = "bottom",  -- "none", "bottom", "bottom_vert", "top", "top_vert", "left", "right"
         durationBarHeight = 3,           -- Size of duration bar (2-26)

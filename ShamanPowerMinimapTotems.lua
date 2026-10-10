@@ -1,6 +1,50 @@
 -- Own-totem minimap markers. Geometry is plain world-yard data, never aura coverage.
 local SP = ShamanPower
 if not SP then return end
+
+-- Theme hook (General > Themes, spot mod.minimap): the ring colors a theme carries. The brand
+-- themes paint their palette (Ring Colors "element"); your own colors travel with a saved theme.
+-- Registered before the availability gate below: a client without rings (Anniversary) still
+-- keeps the two settings in a theme it saves or shares, so a round trip through it loses nothing.
+if SP.ThemeSpotSettings then
+	SP:ThemeSpotSettings("mod.minimap", {
+		{ key = "ringColorMode", label = "Ring Colors",
+		  get = function() return SP.opt and SP.opt.minimapRingColorMode or "element" end,
+		  set = function(v)
+			SP.opt.minimapRingColorMode = (v == "custom") and "custom" or nil
+			if SP.RefreshMinimapTotems then SP.RefreshMinimapTotems() end
+		  end,
+		  shamanpower = "element",
+		},
+		{ key = "ringColors", label = "My Ring Colors",
+		  mayBe = { colors = true },   -- a table of colors is a valid value for a theme to hold (false when none)
+		  get = function()
+			local c = SP.opt and SP.opt.minimapRingColors
+			if type(c) ~= "table" then return false end
+			local out = {}
+			for e = 1, 4 do
+				local x = c[e]
+				if type(x) == "table" then out[e] = { r = x.r or 1, g = x.g or 1, b = x.b or 1 } end
+			end
+			return out
+		  end,
+		  set = function(v)
+			if type(v) == "table" then
+				local out = {}
+				for e = 1, 4 do
+					local x = v[e]
+					if type(x) == "table" then out[e] = { r = x.r or x[1] or 1, g = x.g or x[2] or 1, b = x.b or x[3] or 1 } end
+				end
+				SP.opt.minimapRingColors = out
+			else
+				SP.opt.minimapRingColors = nil
+			end
+			if SP.RefreshMinimapTotems then SP.RefreshMinimapTotems() end
+		  end,
+		  shamanpower = false,
+		},
+	})
+end
 -- The markers need the minimap's view radius in yards. The Anniversary client
 -- has no C_Minimap.GetViewRadius, so there the feature is off entirely: no
 -- events, no retries on every step, and the options stay hidden.
@@ -409,46 +453,4 @@ if SP.OnThemeChanged then
 			if pin and pin.active and pin.lines then themeRing(pin, element, true) end
 		end
 	end)
-end
-
--- Theme hook (General > Themes, spot mod.minimap): the ring colors a theme carries. The brand
--- themes paint their palette (Ring Colors "element"); your own colors travel with a saved theme.
-if SP.ThemeSpotSettings then
-	SP:ThemeSpotSettings("mod.minimap", {
-		{ key = "ringColorMode", label = "Ring Colors",
-		  get = function() return SP.opt and SP.opt.minimapRingColorMode or "element" end,
-		  set = function(v)
-			SP.opt.minimapRingColorMode = (v == "custom") and "custom" or nil
-			SP.RefreshMinimapTotems()
-		  end,
-		  shamanpower = "element",
-		},
-		{ key = "ringColors", label = "My Ring Colors",
-		  mayBe = { colors = true },   -- a table of colors is a valid value for a theme to hold (false when none)
-		  get = function()
-			local c = SP.opt and SP.opt.minimapRingColors
-			if type(c) ~= "table" then return false end
-			local out = {}
-			for e = 1, 4 do
-				local x = c[e]
-				if type(x) == "table" then out[e] = { r = x.r or 1, g = x.g or 1, b = x.b or 1 } end
-			end
-			return out
-		  end,
-		  set = function(v)
-			if type(v) == "table" then
-				local out = {}
-				for e = 1, 4 do
-					local x = v[e]
-					if type(x) == "table" then out[e] = { r = x.r or x[1] or 1, g = x.g or x[2] or 1, b = x.b or x[3] or 1 } end
-				end
-				SP.opt.minimapRingColors = out
-			else
-				SP.opt.minimapRingColors = nil
-			end
-			SP.RefreshMinimapTotems()
-		  end,
-		  shamanpower = false,
-		},
-	})
 end

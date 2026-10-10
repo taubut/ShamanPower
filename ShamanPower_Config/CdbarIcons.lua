@@ -22,8 +22,8 @@ local Choice, OnOff, Slider, Group = Menu.Choice, Menu.OnOff, Menu.Slider, Menu.
 local SEP = { separator = true }
 
 -- (the words that say what to do in the settings' blue, so a player sees them first)
-local CAPTION = "|cff3FA9F5Click|r an item to show or hide it on the bar. |cff3FA9F5Right-click|r it for its settings."
-	.. " |cff3FA9F5Drag|r it to move it. |cff3FA9F5Dark|r: not learned yet."
+local CAPTION = "|cff3FA9F5CLICK|r an item to show or hide it on the bar. |cff3FA9F5RIGHT-CLICK|r it for its settings."
+	.. " |cff3FA9F5DRAG|r it to move it. |cff3FA9F5Dark|r: not learned yet."
 
 -- ---------------------------------------------------------------------------
 -- The items
@@ -154,9 +154,11 @@ local SHARED = {
 	cueAlmost       = { E, "cdbarCueAlmost" },
 	cueAlmostStyle  = { E, "cdbarCueAlmostStyle" },
 	cueMissing      = { E, "cdbarCueMissing" },
+	cueMissingGlow  = { E, "cdbarCueMissingGlow" },
 	cueRunning      = { E, "cdbarCueRunning" },
 	cueRunningStyle = { E, "cdbarCueRunningStyle" },
 	cueTimeColor    = { E, "cdbarCueTimeColor" },
+	cueTimeOnly     = { E, "cdbarCueTimeOnly" },
 	flyoutDirection = { I, "cdbar_flyout_direction" },
 	flyoutIconSize  = { I, "cooldownFlyoutButtonSize" },
 	flyoutOpacity   = { I, "cooldownFlyoutOpacity" },
@@ -447,11 +449,20 @@ local function EffectRows(t)
 		r[#r + 1] = OnOffName(t, "Turns Red While Missing", "cueMissing",
 			shield and "While your shield is gone, the button turns red until you cast it again."
 			or "While a weapon imbue is gone, the button turns red until you imbue again (with two weapons: either hand).")
+		r[#r + 1] = OnOffName(t, "Glow While Missing", "cueMissingGlow",
+			(shield and "While your shield is gone, the button's edges glow red until you cast it again."
+			or "While a weapon imbue is gone, the button's edges glow red until you imbue again (with two weapons: either hand).")
+			.. " With Proc Glow as your Glow Shape, that plays round the button too.")
 		r[#r + 1] = EffectRow(t, "Running Out", "cueRunning", "cueRunningStyle", RUNNING_STYLES, "red",
 			"Over its last moments (Running Out At), the button plays this until you cast it again."
 			.. (shield and " A shield also counts as running out on its last charge." or ""))
 		r[#r + 1] = OnOffName(t, "Time Turns Red While Running Out", "cueTimeColor",
 			"The time on the button turns red while it is running out. On a button that turns red, the time stays white so you can read it.")
+		if shield then
+			r[#r + 1] = OnOffName(t, "Time Only While Running Out", "cueTimeOnly",
+				"The shield's time stays out of sight while there is plenty left, and shows the moment it is running out (Running Out At)."
+				.. (FOREVER and " In a fight the game draws it, so it is exact to the second." or ""))
+		end
 		r[#r + 1] = SEP
 		r[#r + 1] = { text = "Test This Item's Effects", onClick = function() return TestItem(t) end }
 		if shield then
@@ -475,10 +486,21 @@ end
 
 local function ClickRows(t)
 	local swapped = SP.ClicksSwapped and SP:ClicksSwapped()
-	return { OnOffName(t, (swapped and "Left" or "Right") .. "-Click Casts Your Other Shield", "rightClickOther",
-		"Click the shield button with this button to cast your other shield: Water Shield while the button is on Lightning"
-		.. " Shield, Lightning Shield while it's on Water Shield. That shield then stays on the button. Works in fights."
-		.. " (The totem bar's clicks are on Totem Bar > Clicks.)") }
+	local click = swapped and "Left-click" or "Right-click"
+	local desc = click .. " the shield button to cast your other shield: Water Shield while the button is on Lightning"
+		.. " Shield, Lightning Shield while it's on Water Shield. That shield then stays on the button, so your next"
+		.. " click or key casts it again. Works in fights. If the cast doesn't go off (for example during the global"
+		.. " cooldown), the button still switches to the other shield. (The totem bar's clicks are on Totem Bar > Clicks.)"
+	if swapped then
+		desc = desc .. "\n\nSwap Left and Right Click is on, so this is the left-click. The right-click and your key cast the shield on the button."
+	end
+	if SP.FlyoutOpensOnRightClick and SP:FlyoutOpensOnRightClick() then
+		desc = desc .. "\n\n\"Flyout Requires Right-Click\" is on and takes the right-click first, so this does nothing right now."
+	end
+	if SP.KnownShieldCount and SP:KnownShieldCount() < 2 then
+		desc = desc .. "\n\nYou know only one of the two shields right now, so there is nothing to switch to yet."
+	end
+	return { OnOffName(t, (swapped and "Left" or "Right") .. "-Click Casts Your Other Shield", "rightClickOther", desc) }
 end
 
 local function FlyoutRows(t)
@@ -695,8 +717,8 @@ local RESET_SHARED = { "cdbarRunOutOnly", "cdbarRunOutReady", "cdbarRunOutSecs",
 	"cdbarStyle", "cdbarShowColorSweep", "cdbarSweepStyle", "cdbarShowProgressBars", "cdbarShowCDText", "showAnkhCount",
 	"cdbarShowShieldCount", "cdbarShieldChargeBar", "cdbarCueReady", "cdbarCueReadyStyle", "cdbarCueAlmost",
 	"cdbarCueAlmostStyle", "cdbarCueShield", "cdbarCueShieldStyle", "cdbarCueShieldMark", "cdbarCueImbue",
-	"cdbarCueImbueStyle", "cdbarCueImbueMark", "cdbarCueMissing", "cdbarCueRunning", "cdbarCueRunningStyle",
-	"cdbarCueTimeColor", "cdbarFlyoutDirection", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity",
+	"cdbarCueImbueStyle", "cdbarCueImbueMark", "cdbarCueMissing", "cdbarCueMissingGlow", "cdbarCueRunning", "cdbarCueRunningStyle",
+	"cdbarCueTimeColor", "cdbarCueTimeOnly", "cdbarFlyoutDirection", "cooldownFlyoutButtonSize", "cooldownFlyoutOpacity",
 	"cdbarShieldRightClickOther", "totemicCallOnTotemBar", "cooldownBarOrder" }
 local RESET_SHOWN = { "cdbarShowShields", "cdbarShowRecall", "cdbarShowReincarnation", "cdbarShowNS", "cdbarShowManaTide",
 	"cdbarShowBloodlust", "cdbarShowImbues", "cdbarShowShamanisticRage", "cdbarShowElementalMastery",

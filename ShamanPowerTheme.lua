@@ -1341,10 +1341,12 @@ SP.ThemeChangedThisSession = false
 local LOOK = {
 	theme = { "borders", "bordersFlyouts", "bordersCooldown", "bordersCooldownFlyouts", "borderSize", "borderSizeFlyouts",
 		"borderSizeCooldown", "borderSizeCooldownFlyouts", "classColors", "showAs" },
-	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge", "iconShape", "iconShapeCooldown",
+	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "procGlowOut", "frameEdge", "iconShape", "iconShapeCooldown",
 		"iconShapeReady", "iconShapeSplit", "iconBordersSquare", "durationBarBackground",
 		"barGradientDirection", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection" },
-	shield = { "lookLS", "lookWS", "lookES", "barLook", "orbLook", "chargeColorLS", "chargeColorWS", "chargeColorES" },
+	shield = { "lookLS", "lookWS", "lookES", "barLook", "orbLook", "chargeColorLS", "chargeColorWS", "chargeColorES",
+		"goneGlowColorLS", "goneGlowColorWS", "goneGlowColorES", "goneGlowShapeLS", "goneGlowShapeWS", "goneGlowShapeES",
+		"goneGlowThickLS", "goneGlowThickWS", "goneGlowThickES" },
 }
 for _, field in ipairs({ "barGradient", "outlineGradient", "chargeGradient" }) do
 	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do LOOK.opt[#LOOK.opt + 1] = field .. part end
@@ -1560,7 +1562,10 @@ local function ClearPickedColors(o)
 	if type(o) ~= "table" then return end
 	for _, k in ipairs(GRADIENT_COLOR_KEYS) do o[k] = nil end
 	local s = o.shieldChargeDisplay
-	if type(s) == "table" then s.chargeColorLS, s.chargeColorWS, s.chargeColorES = nil, nil, nil end
+	if type(s) == "table" then
+		s.chargeColorLS, s.chargeColorWS, s.chargeColorES = nil, nil, nil
+		s.goneGlowColorLS, s.goneGlowColorWS, s.goneGlowColorES = nil, nil, nil
+	end
 end
 
 -- "Reset Colors for Current Theme": colour edits, Colors and Shield Colors choices go,
@@ -1598,7 +1603,7 @@ function LOOK.CaptureColors(o)
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" then
 		c.rr = { borderColor = Copy(rr.borderColor), glowColor = Copy(rr.glowColor), barColor = Copy(rr.barColor),
-			buffEdgeColor = Copy(rr.buffEdgeColor) }   -- (D52: the buff's Edge Color)
+			buffEdgeColor = Copy(rr.buffEdgeColor), resetColor = Copy(rr.resetColor) }   -- (D52: the buff's Edge Color; A25: the reset burst's)
 	end
 	local tr = ShamanPowerTremorReminderDB
 	if type(tr) == "table" then c.tremor = Copy(tr.glowColor) end
@@ -1613,6 +1618,7 @@ function LOOK.RestoreColors(c)
 	if type(rr) == "table" and type(c.rr) == "table" then
 		rr.borderColor, rr.glowColor, rr.barColor = Copy(c.rr.borderColor), Copy(c.rr.glowColor), Copy(c.rr.barColor)
 		rr.buffEdgeColor = Copy(c.rr.buffEdgeColor)   -- (D52; a look kept before it existed: the default again)
+		rr.resetColor = Copy(c.rr.resetColor)   -- (A25; the same)
 	end
 	local tr = ShamanPowerTremorReminderDB
 	if type(tr) == "table" and c.tremor ~= nil then tr.glowColor = Copy(c.tremor) end
@@ -1626,9 +1632,9 @@ function LOOK.ColorsDiffer(c)
 	if type(o.rangeCounter) == "table" and o.rangeCounter.useElementColors ~= c.rangeElem then return true end
 	local rr = ShamanPower_ReadyReminders
 	if type(rr) == "table" and type(c.rr) == "table" then
-		for _, k in ipairs({ "borderColor", "glowColor", "barColor", "buffEdgeColor" }) do
-			-- (D52) a look kept before the buff's Edge Color existed has none: nothing to load for it
-			if not (k == "buffEdgeColor" and c.rr[k] == nil) and not Near(rr[k], c.rr[k]) then return true end
+		for _, k in ipairs({ "borderColor", "glowColor", "barColor", "buffEdgeColor", "resetColor" }) do
+			-- (D52, A25) a look kept before the buff's Edge Color / the reset burst's color existed has none: nothing to load for it
+			if not ((k == "buffEdgeColor" or k == "resetColor") and c.rr[k] == nil) and not Near(rr[k], c.rr[k]) then return true end
 		end
 	end
 	local tr = ShamanPowerTremorReminderDB
@@ -1756,6 +1762,7 @@ function SP:ResetAllColorsToDefault(everything)
 		ShamanPower_ReadyReminders.glowColor = nil
 		ShamanPower_ReadyReminders.barColor = nil
 		ShamanPower_ReadyReminders.buffEdgeColor = nil   -- (D52) back to WoW's mana-bar blue on the next read
+		ShamanPower_ReadyReminders.resetColor = nil   -- (A25) back to WoW's gold on the next read
 	end
 	if type(ShamanPowerTremorReminderDB) == "table" then
 		ShamanPowerTremorReminderDB.glowColor = { r = 1, g = 0.8, b = 0 }
@@ -1771,7 +1778,7 @@ function SP:ResetEverythingToDefault()
 	local o = SP.opt
 	if type(o) ~= "table" then return end
 	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
-	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "frameEdge",
+	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "procGlowOut", "frameEdge",
 		"iconShape", "iconShapeCooldown", "iconShapeReady", "iconShapeSplit", "iconBordersSquare",
 		"durationBarBackground", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection" }) do
 		o[k] = Copy(defaults[k])
@@ -1813,12 +1820,13 @@ end
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
 Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker", "ShamanPower_ReactiveTotems" }
-Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor", "buffEdgeColor" }
+Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor", "buffEdgeColor", "resetColor" }
 -- flat keys an update added, with their defaults (see Cards.Migrate)
 function Cards.InheritedSweepDirection() return "default" end
 Cards.ADDED = {
 	["rr.rangeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").rangeColor end,
 	["rr.buffEdgeColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").buffEdgeColor end,   -- (D52)
+	["rr.resetColor"] = function() return Cards.ModuleDefault("ShamanPower_ReadyReminders").resetColor end,   -- (A25)
 	["e.mod.readyreminders.sweepDirection"] = function() return "bottom" end,
 	["e.mod.targettracker.sweepDirection.fs"] = Cards.InheritedSweepDirection,
 	["e.mod.targettracker.sweepDirection.frs"] = Cards.InheritedSweepDirection,
@@ -1835,7 +1843,7 @@ Cards.ADDED = {
 -- Reactive Totems: each alert's own looks (3.0.8; ShamanPower_ReactiveTotems registers the entries on
 -- mod.reactive, "default" = the alert follows the page's shared value): a look saved before had none
 for _, name in ipairs({ "iconSize", "opacity", "fontSize", "fontOutline", "hideBackground", "hideBorder",
-	"showDebuffName", "showDebuffIcon", "showTotemName", "showGlow", "glowIntensity" }) do
+	"showDebuffName", "showDebuffIcon", "showTotemName" }) do   -- (the glow is an effect: never a theme's)
 	for _, id in ipairs({ "fear", "poison", "disease" }) do
 		Cards.ADDED["e.mod.reactive." .. name .. "." .. id] = Cards.InheritedSweepDirection
 	end
@@ -2202,6 +2210,8 @@ function Cards.Migrate()
 			Cards.ADDED["e.mod.readyreminders.sweepDirection." .. entry.key] = Cards.InheritedSweepDirection
 			-- (D52) each buff's Edge Color, inherited the same way ("default": the shared one)
 			if entry.buff then Cards.ADDED["e.mod.readyreminders.buffEdgeColor." .. entry.key] = Cards.InheritedSweepDirection end
+			-- (A25) the reset burst's color, the same way
+			if entry.reset then Cards.ADDED["e.mod.readyreminders.resetColor." .. entry.key] = Cards.InheritedSweepDirection end
 		end
 		Cards.addedReadyDirections = true
 	end
@@ -2341,10 +2351,13 @@ function Cards.Kinds()
 		local dirs = SP.GradientDirectionValues and (SP:GradientDirectionValues(field)) or nil
 		K["o." .. field], K["o." .. field .. "Direction"] = s(Cards.KeysOf(SP.GRADIENTS)), s(dirs)
 		K["o." .. field .. "Color1"], K["o." .. field .. "Color2"], K["o." .. field .. "Fade"] = { "c" }, { "c" }, { "f" }
+		K["o.procGlowOut"] = { "f" }
 		if field == "barGradient" then K["o.barGradientDirections"] = { "d", dirs } end
 	end
 	for _, k in ipairs({ "lookLS", "lookWS", "lookES", "barLook", "orbLook" }) do K["sc." .. k] = s() end
-	for _, k in ipairs({ "chargeColorLS", "chargeColorWS", "chargeColorES" }) do K["sc." .. k] = { "c" } end
+	for _, k in ipairs({ "chargeColorLS", "chargeColorWS", "chargeColorES", "goneGlowColorLS", "goneGlowColorWS", "goneGlowColorES" }) do K["sc." .. k] = { "c" } end
+	for _, k in ipairs({ "goneGlowShapeLS", "goneGlowShapeWS", "goneGlowShapeES" }) do K["sc." .. k] = s(Cards.KeysOf(SP.GLOW_SHAPES)) end
+	for _, k in ipairs({ "goneGlowThickLS", "goneGlowThickWS", "goneGlowThickES" }) do K["sc." .. k] = { "f" } end
 	do   -- each shield's own Charge Bar Texture and Gradient (3.0.8)
 		local dirs = SP.GradientDirectionValues and (SP:GradientDirectionValues("chargeGradient")) or nil
 		for _, sh in ipairs({ "LS", "WS", "ES" }) do
@@ -2547,7 +2560,7 @@ Cards.LABEL = {
 	["t.bordersCooldown"] = "Element-Colored Borders", ["t.bordersCooldownFlyouts"] = "Element-Colored Borders",
 	["t.borderSize"] = "Border Size", ["t.borderSizeFlyouts"] = "Border Size", ["t.borderSizeCooldown"] = "Border Size",
 	["t.borderSizeCooldownFlyouts"] = "Border Size",
-	["o.barTexture"] = "Bar Texture", ["o.dotShape"] = "Dot Shape", ["o.dotGem"] = "Gem Dot Finish", ["o.glowShape"] = "Glow Shape",
+	["o.barTexture"] = "Bar Texture", ["o.dotShape"] = "Dot Shape", ["o.dotGem"] = "Gem Dot Finish", ["o.glowShape"] = "Glow Shape", ["o.procGlowOut"] = "Proc Glow Thickness",
 	["o.frameEdge"] = "Frame Edge", ["o.iconShape"] = "Icon Shape", ["o.iconShapeCooldown"] = "Icon Shape (Cooldown Bar)",
 	["o.iconShapeReady"] = "Icon Shape (Ready Reminders)", ["o.iconBordersSquare"] = "Keep Borders Square",
 	["o.durationBarBackground"] = "Duration Bar Background", ["o.shieldTexture"] = "Shield Charges Texture",
@@ -2559,10 +2572,16 @@ Cards.LABEL = {
 	["sc.lookES"] = "Earth Shield Look", ["sc.barLook"] = "Shield Charges Look", ["sc.orbLook"] = "Shield Charges Look",
 	["sc.chargeColorLS"] = "Lightning Shield Charge Color", ["sc.chargeColorWS"] = "Water Shield Charge Color",
 	["sc.chargeColorES"] = "Earth Shield Charge Color", ["tr.glowColor"] = "Tremor Reminder Glow",
+	["sc.goneGlowColorLS"] = "Lightning Shield Glow Color When Gone", ["sc.goneGlowColorWS"] = "Water Shield Glow Color When Gone",
+	["sc.goneGlowColorES"] = "Earth Shield Glow Color When Gone", ["sc.goneGlowShapeLS"] = "Lightning Shield Glow Shape When Gone",
+	["sc.goneGlowShapeWS"] = "Water Shield Glow Shape When Gone", ["sc.goneGlowShapeES"] = "Earth Shield Glow Shape When Gone",
+	["sc.goneGlowThickLS"] = "Lightning Shield Proc Glow Thickness", ["sc.goneGlowThickWS"] = "Water Shield Proc Glow Thickness",
+	["sc.goneGlowThickES"] = "Earth Shield Proc Glow Thickness",
 	["sc.barTextureLS"] = "Lightning Shield Charge Bar Texture", ["sc.barTextureWS"] = "Water Shield Charge Bar Texture",
 	["sc.barTextureES"] = "Earth Shield Charge Bar Texture",
 	["rr.rangeColor"] = "Ready Reminders Out of Range Color",
 	["rr.buffEdgeColor"] = "Ready Reminders Buff Edge Color",
+	["rr.resetColor"] = "Ready Reminders Reset Burst Color",
 }
 for sh, nm in pairs({ LS = "Lightning Shield", WS = "Water Shield", ES = "Earth Shield" }) do   -- each shield's own gradient (3.0.8)
 	for _, part in ipairs({ "", "Direction", "Color1", "Color2", "Fade" }) do

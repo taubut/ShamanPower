@@ -503,16 +503,284 @@ end
 SP.GLOW_SHAPES = {
 	{ key = "default", label = "Square (default)", file = "Interface\\Buttons\\UI-ActionButton-Border" },
 	{ key = "round",   label = "Round",            file = SHAPES .. "ring_glow3" },
+	-- 3.0.8, a shaman tank's ask: Proc Glow, WeakAuras' Proc Glow (its code, below), on
+	-- Ready Reminders; the other glows keep their square art under it
+	{ key = "proc",    label = "Proc Glow" },
 }
 local glowKind = setmetatable({}, { __mode = "k" })   -- [texture] = "border" (pulse flash) | "alert"
-local function paintGlow(t, kind)
-	if SP.opt and SP.opt.glowShape == "round" then
-		t:SetTexture(SHAPES .. "ring_glow3"); t:SetTexCoord(0, 1, 0, 1)
+local function glowShapeDef(key)
+	for _, s in ipairs(SP.GLOW_SHAPES) do if s.key == key then return s end end
+end
+-- a texture takes a shape (kind = "border" / "alert": the default art for each)
+local function paintShape(t, kind, shape)
+	local def = shape and glowShapeDef(shape)
+	if def and def.file and shape ~= "default" then
+		t:SetTexture(def.file); t:SetTexCoord(0, 1, 0, 1)
 	elseif kind == "alert" then
 		t:SetTexture("Interface\\SpellActivationOverlay\\IconAlert"); t:SetTexCoord(0.00781250, 0.50781250, 0.27734375, 0.52734375)
 	else
 		t:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); t:SetTexCoord(0, 1, 0, 1)
 	end
+end
+local function paintGlow(t, kind)
+	paintShape(t, kind, SP.opt and SP.opt.glowShape)
+end
+-- a sample for the Themes cards: the shape on a texture, whatever the setting is
+function SP:PaintGlowShape(t, key) paintShape(t, "alert", key) end
+
+-- Proc Glow: WeakAuras' Proc Glow, its code as it ships in LibCustomGlow-1.0 (the game's
+-- proc burst, then its looping swirl, on a frame over the icon)
+local GlowParent = UIParent
+-- ProcGlow
+
+local function ProcGlowResetter(framePool, frame)
+    frame:Hide()
+    frame:ClearAllPoints()
+    frame:SetScript("OnShow", nil)
+    frame:SetScript("OnHide", nil)
+    local parent = frame:GetParent()
+    if frame.key and parent[frame.key] then
+        parent[frame.key] = nil
+    end
+end
+
+local ProcGlowPool = CreateFramePool("Frame", GlowParent, nil, ProcGlowResetter)
+SP.ProcGlowPool = ProcGlowPool
+
+local function InitProcGlow(f)
+    f.ProcStart = f:CreateTexture(nil, "ARTWORK")
+    f.ProcStart:SetBlendMode("ADD")
+    f.ProcStart:SetAtlas("UI-HUD-ActionBar-Proc-Start-Flipbook")
+    f.ProcStart:SetAlpha(1)
+    f.ProcStart:SetSize(150, 150)
+    f.ProcStart:SetPoint("CENTER")
+
+    f.ProcLoop = f:CreateTexture(nil, "ARTWORK")
+    f.ProcLoop:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
+    f.ProcLoop:SetAlpha(0)
+    f.ProcLoop:SetAllPoints()
+
+    f.ProcLoopAnim = f:CreateAnimationGroup()
+    f.ProcLoopAnim:SetLooping("REPEAT")
+    f.ProcLoopAnim:SetToFinalAlpha(true)
+
+    local alphaRepeat = f.ProcLoopAnim:CreateAnimation("Alpha")
+    alphaRepeat:SetChildKey("ProcLoop")
+    alphaRepeat:SetFromAlpha(1)
+    alphaRepeat:SetToAlpha(1)
+    alphaRepeat:SetDuration(.001)
+    alphaRepeat:SetOrder(0)
+    f.ProcLoopAnim.alphaRepeat = alphaRepeat
+
+    local flipbookRepeat = f.ProcLoopAnim:CreateAnimation("FlipBook")
+    flipbookRepeat:SetChildKey("ProcLoop")
+    flipbookRepeat:SetDuration(1)
+    flipbookRepeat:SetOrder(0)
+    flipbookRepeat:SetFlipBookRows(6)
+    flipbookRepeat:SetFlipBookColumns(5)
+    flipbookRepeat:SetFlipBookFrames(30)
+    flipbookRepeat:SetFlipBookFrameWidth(0)
+    flipbookRepeat:SetFlipBookFrameHeight(0)
+    f.ProcLoopAnim.flipbookRepeat = flipbookRepeat
+
+    f.ProcStartAnim = f:CreateAnimationGroup()
+    f.ProcStartAnim:SetToFinalAlpha(true)
+
+    local flipbookStartAlphaIn = f.ProcStartAnim:CreateAnimation("Alpha")
+    flipbookStartAlphaIn:SetChildKey("ProcStart")
+    flipbookStartAlphaIn:SetDuration(.001)
+    flipbookStartAlphaIn:SetOrder(0)
+    flipbookStartAlphaIn:SetFromAlpha(1)
+    flipbookStartAlphaIn:SetToAlpha(1)
+
+    local flipbookStart = f.ProcStartAnim:CreateAnimation("FlipBook")
+    flipbookStart:SetChildKey("ProcStart")
+    flipbookStart:SetDuration(0.7)
+    flipbookStart:SetOrder(1)
+    flipbookStart:SetFlipBookRows(6)
+    flipbookStart:SetFlipBookColumns(5)
+    flipbookStart:SetFlipBookFrames(30)
+    flipbookStart:SetFlipBookFrameWidth(0)
+    flipbookStart:SetFlipBookFrameHeight(0)
+
+    local flipbookStartAlphaOut = f.ProcStartAnim:CreateAnimation("Alpha")
+    flipbookStartAlphaOut:SetChildKey("ProcStart")
+    flipbookStartAlphaOut:SetDuration(.001)
+    flipbookStartAlphaOut:SetOrder(2)
+    flipbookStartAlphaOut:SetFromAlpha(1)
+    flipbookStartAlphaOut:SetToAlpha(0)
+
+    f.ProcStartAnim.flipbookStart = flipbookStart
+    f.ProcStartAnim:SetScript("OnFinished", function(self)
+        self:GetParent().ProcLoopAnim:Play()
+        self:GetParent().ProcLoop:Show()
+    end)
+
+end
+
+local function SetupProcGlow(f, options)
+    f.key = "_ProcGlow" .. options.key -- for resetter
+    f:SetScript("OnHide", function(self)
+        if self.ProcStartAnim:IsPlaying() then
+            self.ProcStartAnim:Stop()
+        end
+        if self.ProcLoopAnim:IsPlaying() then
+            self.ProcLoopAnim:Stop()
+        end
+    end)
+    f:SetScript("OnShow", function(self)
+        if self.startAnim then
+            if not self.ProcStartAnim:IsPlaying() and not self.ProcLoopAnim:IsPlaying() then
+                --[[
+to future me:
+i wish you'r ok, if you wonder where are this constants coming from, check:
+https://github.com/Gethe/wow-ui-source/blob/eb4459c679a1bd8919cad92934ea83c4f5e77e8b/Interface/FrameXML/ActionButton.lua#L816
+https://github.com/Gethe/wow-ui-source/blob/d8e8ebf572c3b28237cf83e8fc5c0583b5453a2b/Interface/FrameXML/ActionButtonTemplate.xml#L5-L14
+                ]]
+                local width, height = self:GetSize()
+                self.ProcStart:SetSize((width / 42 * 150) / 1.4, (height / 42 * 150) / 1.4)
+                self.ProcStart:Show()
+                self.ProcLoop:Hide()
+                self.ProcStartAnim:Play()
+            end
+        else
+            if not self.ProcLoopAnim:IsPlaying() then
+                self.ProcStart:Hide()
+                self.ProcLoop:Show()
+                self.ProcLoopAnim:Play()
+            end
+        end
+    end)
+    if not options.color then
+        f.ProcStart:SetDesaturated(nil)
+        f.ProcStart:SetVertexColor(1, 1, 1, 1)
+        f.ProcLoop:SetDesaturated(nil)
+        f.ProcLoop:SetVertexColor(1, 1, 1, 1)
+    else
+        f.ProcStart:SetDesaturated(1)
+        f.ProcStart:SetVertexColor(options.color[1], options.color[2], options.color[3], options.color[4])
+        f.ProcLoop:SetDesaturated(1)
+        f.ProcLoop:SetVertexColor(options.color[1], options.color[2], options.color[3], options.color[4])
+    end
+    f.ProcLoopAnim.flipbookRepeat:SetDuration(options.duration)
+    f.startAnim = options.startAnim
+end
+
+local ProcGlowDefaults = {
+    frameLevel = 8,
+    color = nil,
+    startAnim = true,
+    xOffset = 0,
+    yOffset = 0,
+    duration = 1,
+    key = ""
+}
+
+function SP.ProcGlow_Start(r, options)
+    if not r then
+        return
+    end
+    options = options or {}
+    setmetatable(options, { __index = ProcGlowDefaults })
+    local key = "_ProcGlow" .. options.key
+    local f, new
+    if r[key] then
+        f = r[key]
+    else
+        f, new = ProcGlowPool:Acquire()
+        if new then
+            InitProcGlow(f)
+        end
+        r[key] = f
+    end
+    f:SetParent(r)
+    f:SetFrameLevel(r:GetFrameLevel() + options.frameLevel)
+
+    local width, height = r:GetSize()
+    local xOffset = options.xOffset + width * 0.2
+    local yOffset = options.yOffset + height * 0.2
+    f:SetPoint("TOPLEFT", r, "TOPLEFT", -xOffset, yOffset)
+    f:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", xOffset, -yOffset)
+
+    -- ShamanPower: the ring never covers the icon (a mask over the icon's box hides that part),
+    -- so a bigger frame makes the band thicker outward with its inner edge on the icon's edge
+    if not f.spMask then
+        f.spMask = f:CreateMaskTexture()
+        f.spMask:SetTexture("Interface\\AdventureMap\\BrokenIsles\\AM_29", "CLAMPTOWHITE", "CLAMPTOWHITE")
+        f.ProcLoop:AddMaskTexture(f.spMask)
+    end
+    f.spMask:ClearAllPoints()
+    f.spMask:SetAllPoints(r)
+    -- ShamanPower: the band between the icon's edge and the ring's inner edge filled in, in the
+    -- glow's color, so Proc Glow Thickness is one solid glow from the icon's edge out to the ring
+    -- (the ring's inner edge sits at 57% of the frame's half-width)
+    if not f.spFill then
+        f.spFill = {}
+        for i = 1, 4 do
+            local t = f:CreateTexture(nil, "ARTWORK", nil, -1)
+            t:SetTexture("Interface\\Buttons\\WHITE8X8")
+            t:SetBlendMode("BLEND")   -- (the color as it is: added onto the ground it would shift, green on orange to yellow)
+            f.spFill[i] = t
+        end
+    end
+    local F = f.spFill
+    local inX = 0.57 * (width / 2 + xOffset) - width / 2 + 2    -- the ring's inner edge, out from the icon's edge (+2: no seam)
+    local inY = 0.57 * (height / 2 + yOffset) - height / 2 + 2
+    local c = options.color or { 1, 0.82, 0, 1 }
+    for i = 1, 4 do F[i]:SetVertexColor(c[1], c[2], c[3], 1); F[i]:ClearAllPoints() end
+    if inX > 2 and inY > 2 then
+        F[1]:SetPoint("BOTTOMLEFT", r, "TOPLEFT", -inX, 0); F[1]:SetPoint("TOPRIGHT", r, "TOPRIGHT", inX, inY)
+        F[2]:SetPoint("TOPLEFT", r, "BOTTOMLEFT", -inX, 0); F[2]:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", inX, -inY)
+        F[3]:SetPoint("TOPRIGHT", r, "TOPLEFT", 0, 0); F[3]:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", -inX, 0)
+        F[4]:SetPoint("TOPLEFT", r, "TOPRIGHT", 0, 0); F[4]:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", inX, 0)
+        for i = 1, 4 do F[i]:Show() end
+    else
+        for i = 1, 4 do F[i]:Hide() end
+    end
+
+    SetupProcGlow(f, options)
+    f:Show()
+end
+
+function SP.ProcGlow_Stop(r, key)
+    key = key or ""
+    local f = r["_ProcGlow" .. key]
+    if f then
+        ProcGlowPool:Release(f)
+    end
+end
+function SP:ProcGlowOn() return self.opt and self.opt.glowShape == "proc" end
+-- Proc Glow Thickness (General > Themes, Totem Bar > Duration Bars; Ready Reminders icons each
+-- have their own): how thick the ring is, as a share of the icon's size. The ring's inner edge
+-- sits on the icon's edge (the mask above); the band grows outward from there. 20% by default.
+SP.PROC_GLOW_OUT = 0.2
+function SP:ProcGlowOut() return tonumber(self.opt and self.opt.procGlowOut) or SP.PROC_GLOW_OUT end
+-- quiet: no start burst (a glow redone while the thickness slider moves: the ring just follows);
+-- thick: this icon's own thickness (nil: the shared setting)
+function SP:ProcGlowOptions(frame, color, key, quiet, thick)
+	local w, h = frame:GetSize()
+	local o = tonumber(thick) or self:ProcGlowOut()
+	return { color = color, key = key or "", startAnim = not quiet, xOffset = (tonumber(w) or 0) * o, yOffset = (tonumber(h) or 0) * o }
+end
+function SP:SetProcGlowOut(v)
+	if not self.opt then return end
+	v = tonumber(v)
+	if v ~= nil then v = math.max(0, math.min(0.6, v)) end
+	if v ~= nil and math.abs(v - SP.PROC_GLOW_OUT) < 0.0001 then v = nil end
+	self.opt.procGlowOut = v
+	if self.ReadyReminderGlowRefresh then self:ReadyReminderGlowRefresh(nil, true) end   -- (glowing icons take it now, no burst; the others on their next glow)
+end
+-- Proc Glow on a frame of ours, in a color from its settings (plain numbers: never a color read
+-- back from a widget, that is secret in a fight on WoW: Forever); white = the game's gold
+function SP:ProcGlowStart(frame, r, g, b, key)
+	if not (frame and self:ProcGlowOn() and SP.ProcGlow_Start) then return end
+	local c = { r or 1, g or 1, b or 1, 1 }
+	if issecretvalue and (issecretvalue(c[1]) or issecretvalue(c[2]) or issecretvalue(c[3])) then c = nil
+	elseif c[1] > 0.98 and c[2] > 0.98 and c[3] > 0.98 then c = nil end
+	SP.ProcGlow_Start(frame, self:ProcGlowOptions(frame, c, key))
+end
+function SP:ProcGlowStop(frame, key)
+	if frame and SP.ProcGlow_Stop then SP.ProcGlow_Stop(frame, key or "") end
 end
 -- a glow texture joins the setting (call after creating it)
 function SP:ShapeGlow(t, kind)
@@ -533,6 +801,7 @@ function SP:SetGlowShape(key)
 	if key == "default" then key = nil end
 	self.opt.glowShape = key
 	self:RepaintGlows()
+	if self.ReadyReminderGlowRefresh then self:ReadyReminderGlowRefresh() end   -- (Proc Glow on / off on glowing icons)
 end
 
 -- Frame Edges (General > Themes, Appearance > Totem Bar / Cooldown Bar; one

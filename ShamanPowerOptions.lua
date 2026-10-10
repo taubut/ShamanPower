@@ -64,7 +64,7 @@ local loadoutArgs = {}
 
 -- Icon choices for custom loadout icons (element icons + common totems + "None" to reset)
 -- ============================================================================
--- ICON PICKER POPUP (same as TotemTimers IconPicker.lua)
+-- ICON PICKER POPUP (scrollable loadout icon choices)
 -- Scrollable grid of icons for choosing a loadout icon
 -- ============================================================================
 local ICONS_PER_ROW = 6
@@ -96,7 +96,7 @@ local function BuildIconList()
 		end
 	end
 
-	-- Fallback: hardcoded shaman-relevant icons (same as TotemTimers)
+	-- Fallback: shaman and general-purpose icons when the macro icon APIs return none
 	if #allIcons == 0 then
 		local commonIcons = {
 			"Interface\\Icons\\Spell_Nature_Lightning",
@@ -1501,6 +1501,144 @@ ShamanPower.options = {
 							end
 						},
 					}
+				},
+				-- A27: Out Of The Way (ShamanPowerTown.lua): one switch, Where, Hide or Fade, one line per module
+				settings_town = {
+					order = 2.35,
+					name = "Out Of The Way",
+					type = "group",
+					args = {
+						hideInTown = {
+							order = 1, type = "toggle", name = "Out Of The Way", width = 1.5,
+							desc = "Out of a fight, not inside a dungeon, raid or battleground, and with no enemy targeted (red or yellow: anything you can attack), ShamanPower's displays get out of the way: in a city or an inn, or anywhere (Where, below). Any one of those brings them back at once.",
+							get = function() return ShamanPower.opt.hideInTown == true end,
+							set = function(_, v)
+								if v then ShamanPower.opt.hideInTown = true else ShamanPower.opt.hideInTown = nil end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townWhere = {
+							order = 1.5, type = "select", name = "Where", width = 1.5,
+							desc = "In A City Or Inn: only while you are resting there. Anywhere Outside A Fight: wherever you are, as long as you have no enemy targeted and are not in a fight or an instance.",
+							values = { town = "In A City Or Inn", anywhere = "Anywhere Outside A Fight" }, sorting = { "town", "anywhere" },
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() return ShamanPower.opt.townWhere or "town" end,
+							set = function(_, v) ShamanPower.opt.townWhere = v; ShamanPower:TownRefresh(true) end,
+						},
+						townHow = {
+							order = 2, type = "select", name = "Hide Or Fade", width = 1.5,
+							desc = "Hide: gone. Fade: dimmed to the Faded Opacity above, still there.",
+							values = { hide = "Hide", fade = "Fade To Faded Opacity" }, sorting = { "hide", "fade" },
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() return ShamanPower.opt.townHow or "hide" end,
+							set = function(_, v) ShamanPower.opt.townHow = v; ShamanPower:TownRefresh(true) end,
+						},
+						townWhich = {
+							order = 3, type = "description", width = "full",
+							name = "What gets out of the way. Each is its own switch: turn one off and it stays on screen.",
+						},
+						townMod_rr = {
+							order = 4.0, type = "toggle", name = "Ready Reminders", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.rr == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.rr = nil else o.townModules.rr = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_sc = {
+							order = 4.1, type = "toggle", name = "Shield Charges", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.sc == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.sc = nil else o.townModules.sc = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_cd = {
+							order = 4.2, type = "toggle", name = "Cooldown Bar", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.cd == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.cd = nil else o.townModules.cd = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_tb = {
+							order = 4.3, type = "toggle", name = "Totem Bar (and its flyouts)", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.tb == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.tb = nil else o.townModules.tb = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_lb = {
+							order = 4.4, type = "toggle", name = "Loadout Bar", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.lb == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.lb = nil else o.townModules.lb = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_ctl = {
+							order = 4.5, type = "toggle", name = "Controller Bar", width = 1.0,
+							hidden = function() return not (SPCompat and SPCompat.FOREVER) end,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.ctl == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.ctl = nil else o.townModules.ctl = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_ea = {
+							order = 4.6, type = "toggle", name = "Expiring Alerts", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.ea == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.ea = nil else o.townModules.ea = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_es = {
+							order = 4.7, type = "toggle", name = "Earth Shield Tracker", width = 1.0,
+							hidden = function() return SPCompat and SPCompat.FOREVER end,   -- (no Earth Shield on WoW: Forever)
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.es == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.es = nil else o.townModules.es = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+						townMod_pb = {
+							order = 4.8, type = "toggle", name = "Party Buff Tracker", width = 1.0,
+							disabled = function() return ShamanPower.opt.hideInTown ~= true end,
+							get = function() local m = ShamanPower.opt.townModules; return not (type(m) == "table" and m.pb == false) end,
+							set = function(_, v)
+								local o = ShamanPower.opt
+								if type(o.townModules) ~= "table" then o.townModules = {} end
+								if v then o.townModules.pb = nil else o.townModules.pb = false end
+								ShamanPower:TownRefresh(true)
+							end,
+						},
+					},
 				},
 				settings_popout = {
 					order = 2.5,
@@ -4094,6 +4232,9 @@ ShamanPower.options = {
 					name = "|cff0070ddParty Buff Tracker|r",
 					type = "group",
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("pb")) end },
 						module_missing_note = {
 							order = 0.01,
 							type = "description",
@@ -5565,6 +5706,9 @@ ShamanPower.options = {
 					-- hiding the group removes the sidebar row with it.
 					hidden = function() return ShamanPower.ESTrackerUnavailable == true end,
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("es")) end },
 						module_missing_note = {
 							order = 0.01,
 							type = "description",
@@ -6704,6 +6848,9 @@ ShamanPower.options = {
 					name = "|cff0070ddExpiring Alerts|r",
 					type = "group",
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("ea")) end },
 						master_off_note = {
 							order = 0.05,
 							type = "description",
@@ -8576,6 +8723,19 @@ ShamanPower.options = {
 							get = function() return ShamanPower.opt.glowShape or "default" end,
 							set = function(_, v) ShamanPower:SetGlowShape(v) end,
 						},
+						pulse_proc_size = {
+							order = 4.536,
+							type = "range",
+							name = "Proc Glow Thickness",
+							desc = "How thick the Proc Glow ring is: it grows outward from the icon's edge. 20% by default. The same setting as on General > Themes; each Ready Reminders icon has its own.",
+							min = 0, max = 0.6, step = 0.01, isPercent = true,
+							width = 1.0,
+							hidden = function()
+								return ShamanPower.opt.glowShape ~= "proc" or ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseFlashOpacity == 0
+							end,
+							get = function() return ShamanPower:ProcGlowOut() end,
+							set = function(_, v) ShamanPower:SetProcGlowOut(v) end,
+						},
 						pulse_time_display = {
 							disabled = function(info) return (((ShamanPower.opt.pulseBarPosition or "none") == "none") and true or false) or (CompactOn()) end,
 							order = 5,
@@ -9614,6 +9774,9 @@ ShamanPower.options = {
 						return not isShaman
 					end,
 					args = {
+						townNote = { order = 0.015, type = "description", width = "full",
+							name = function() return "|cff3FA9F5Out of the way|r " .. (ShamanPower.opt.townWhere == "anywhere" and "outside a fight" or "in a city or inn") .. " (Appearance > Visibility > Out Of The Way)." end,
+							hidden = function() return not (ShamanPower.TownCovers and ShamanPower:TownCovers("lb")) end },
 						loadoutbar_desc = {
 							order = 0,
 							type = "description",
@@ -11680,6 +11843,14 @@ do
 		cdbarCueMissing = toggle(2.67, "cdbarCueMissing", "Turns Red While Missing",
 			"While your shield or a weapon imbue is gone, its button turns red until you cast it again (with two weapons: either hand)."
 				.. (mainline and " In a fight on WoW: Forever the shield's red sits under the game's shield icon, so it shows the moment the icon goes (at 100% Cooldown Bar opacity)." or "")),
+		-- Glow While Missing: the same moment, the button's edges glow red (and Proc Glow plays round it, when chosen)
+		cdbarCueMissingGlow = toggle(2.675, "cdbarCueMissingGlow", "Glow While Missing",
+			"While your shield or a weapon imbue is gone, the button's edges glow red until you cast it again (with two weapons: either hand). With Proc Glow as your Glow Shape, that plays round the button too."
+				.. (mainline and " In a fight on WoW: Forever the shield's glow sits under the game's shield icon, so it shows the moment the icon goes (at 100% Cooldown Bar opacity)." or "")),
+		-- Time Only While Running Out (the shield): its time out of sight while there is plenty, up when running out
+		cdbarCueTimeOnly = toggle(2.705, "cdbarCueTimeOnly", "Time Only While Running Out",
+			"The shield's time stays out of sight while there is plenty left, and shows the moment it is running out (Running Out At)."
+				.. (mainline and " In a fight on WoW: Forever the game draws it, so it is exact to the second." or "")),
 		-- Running Out: the button that is running out (its last seconds) plays a look until you cast it again
 		cdbarCueRunning = toggle(2.7, "cdbarCueRunning", "Running Out",
 			"Over the last moments of your shield or weapon imbue" .. (mainline and "" or " (and your Earth Shield)")
@@ -11836,7 +12007,7 @@ do
 	-- the totems either: Grid's Left-Click Also Assigns decides what a drop does.)
 	onlyStyles("dynamicMode", {})
 	onlyStyles("dynamicModeDesc", { normal = true, dynamic = true, grid = true })
-	-- TotemTimers Style / Single Totem ARE this switch (turning it off = Normal, in the
+	-- Both activeTotemAsMain styles ARE this switch (turning it off = Normal, in the
 	-- style picker above); only Blizzard's Totem Bar still needs it for this look
 	onlyStyles("activeTotemAsMain", { blizzard = true })
 	onlyStyles("singleTotemDesc", { single = true })
@@ -12048,6 +12219,8 @@ do
 		.. " Missing, Show On Every Enemy's Nameplate. Copy Settings, Paste Settings, Copy Settings To, All Spells,"
 		.. " Hide This Spell, Show This Spell, Reset This Spell. Flame Shock, Frost Shock and Stormstrike show while"
 		.. " they are on your target; Purge lights up when your target has a Magic buff you can remove."
+		.. " Next Shock (Flame Shock's menu): Show Next Shock; When Flame Shock Is On, Show Earth Shock or Frost Shock;"
+		.. " Show Flame Shock Again At (seconds left); Look When It's Time to Cast."
 	local RULES_SEARCH = "Rules. Example: in Molten Core, fighting Shazzrah, turn the Purge Reminder on. Any Raid,"
 		.. " Any Dungeon, Battlegrounds, Arenas, Open World, Any Boss, Anyone, A Target You Name. Purge Reminder,"
 		.. " Missing Warnings, Every Enemy's Nameplate, Flame Shock, Frost Shock, Stormstrike: On or Off. Add Rule."
@@ -12381,6 +12554,28 @@ do
 			set(info, v)
 		end
 	end
+	-- (WoW: Forever) ONE switch: on = the Cooldown Manager set up for the shields (the first-time dialog does the same)
+	-- and its own shield icon hidden; off = the game's icon back (the layout stays, nothing of the player's is touched)
+	args.shieldcharges_cdm = { type = "toggle", width = 1.5, name = "Set Up The Cooldown Manager",
+		desc = "On: the Cooldown Manager set up to show your shields (one reload) and its shield icon hidden. Off: the game's shield icon shows again.",
+		hidden = function() return not (SPCompat and SPCompat.FOREVER) end,
+		get = function() return SP.opt.cdmHideShieldIcon == true end,
+		set = function(_, v)
+			if not v then
+				SP.opt.cdmHideShieldIcon = false
+				if SP.ShieldGoneBindQueue then SP:ShieldGoneBindQueue() end
+			elseif SP.ShieldGoneCdmReady and SP:ShieldGoneCdmReady() then
+				SP.opt.cdmHideShieldIcon = true   -- (the shields are tracked already: nothing to set up, just the icon)
+				if SP.ShieldGoneBindQueue then SP:ShieldGoneBindQueue() end
+			elseif SP.ShieldGoneOffer then
+				SP:ShieldGoneOffer()   -- the dialog: Set It Up And Reload (the switch is on after the reload) or Not Now (it stays off)
+			end
+		end }
+	args.shieldcharges_cdm_desc = { type = "description", width = "full",
+		name = "In order for ShamanPower to fully see your shield charges count, the Cooldown Manager needs to be set up to show shields. "
+			.. "When you toggle this setting on, the addon will turn on the Cooldown Manager for you and HIDE its shield icon so that you don't see it. "
+			.. "The addon will ask you to reload once you toggle this on to confirm.",
+		hidden = function() return not (SPCompat and SPCompat.FOREVER) end }
 	F.shieldcharges_page = { type = "group", name = "Shield Charges", order = 17, args = args }
 	SP.OptionCustomRow = SP.OptionCustomRow or {}
 	SP.OptionCustomRow[args.shieldIcons] = "shieldIcons"
@@ -12388,6 +12583,7 @@ do
 	SP.OrderSettingsBands(F.shieldcharges_page, {
 		{ keys = { "module_missing_note", "shieldcharges_fights_note" } },
 		{ header = "shields_header", name = "Shields", keys = { "shieldIcons" } },
+		{ header = "cdm_header", name = "In Fights (WoW: Forever)", keys = { "shieldcharges_cdm", "shieldcharges_cdm_desc" } },
 		{ header = "preview_header", name = "What You See", keys = { "shieldPreview" } },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_locked", "shieldcharges_move" } },
 	})

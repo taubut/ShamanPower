@@ -331,7 +331,7 @@ local function paintLabel(ov, host, e, s, isMain)
 	local h = host:GetHeight()
 	if isMain and SP:AssignedIndex(e) ~= s.usual then
 		-- the bar's button shows another totem (Dynamic Mode: the one you dropped): your
-		-- usual totem in its corner, where TotemTimers Style keeps the assigned one (a row's
+		-- usual totem in its corner, where the assigned-totem indicator normally sits (a row's
 		-- or flyout's button IS your usual totem: BACK on it)
 		local size = max(10, floor(h * 0.46 + 0.5))
 		ov.cornerBg:ClearAllPoints()
@@ -784,7 +784,7 @@ function SP:TestUsualTotemReminder()
 end
 
 -- What the reminder is doing now, per element: phase, temporary totem, usual totem
--- (indexes). For tests (the sim, /sptest buttons).
+-- (indexes). For tests (the renderer, the test round's buttons).
 function SP:UsualTotemState(e)
 	local s = st[e]
 	return s and s.phase, s and s.temp, s and s.usual

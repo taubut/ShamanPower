@@ -26,11 +26,11 @@ local MAX_NAME = 32      -- the name box's letters
 local Row
 
 -- (the words that say what to do in the settings' blue, so a player sees them first)
-local CAPTION = "|cff3FA9F5Click|r a loadout to switch to it (the green bar: the one in use). |cff3FA9F5Right-click|r it"
-	.. " to change its totems, name, icon or Drop All. |cff3FA9F5Drag|r it to change its place on the loadout bar."
+local CAPTION = "|cff3FA9F5CLICK|r a loadout to switch to it (the green bar: the one in use). |cff3FA9F5RIGHT-CLICK|r it"
+	.. " to change its totems, name, icon or Drop All. |cff3FA9F5DRAG|r it to change its place on the loadout bar."
 	.. " |cff3FA9F5+|r saves a new one from the totems on your bar now."
-local CAPTION_FULL = "|cff3FA9F5Click|r a loadout to switch to it (the green bar: the one in use). |cff3FA9F5Right-click|r"
-	.. " it to change its totems, name, icon or Drop All. |cff3FA9F5Drag|r it to change its place on the loadout bar."
+local CAPTION_FULL = "|cff3FA9F5CLICK|r a loadout to switch to it (the green bar: the one in use). |cff3FA9F5RIGHT-CLICK|r"
+	.. " it to change its totems, name, icon or Drop All. |cff3FA9F5DRAG|r it to change its place on the loadout bar."
 	.. " 8 of 8 saved: delete one to make room for a new one."
 local CAPTION_NONE = "No loadouts saved yet. |cff3FA9F5+|r saves one from the totems on your bar now: your 4 totems and"
 	.. " which of them Drop All leaves out."

@@ -1010,6 +1010,7 @@ local function UpdateAppearance()
         reminderFrame.text:ClearAllPoints()
         reminderFrame.text:SetPoint("CENTER", reminderFrame, "CENTER", 0, 0)
         reminderFrame.glow:Hide()
+        SP:ProcGlowStop(reminderFrame, "tremor")
     elseif mode == "both" then
         reminderFrame.icon:Show()
         reminderFrame.text:Show()
@@ -1028,9 +1029,11 @@ local function UpdateAppearance()
         reminderFrame.glow:Show()
         reminderFrame.glow:SetVertexColor(sv.glowColor.r or 1, sv.glowColor.g or 0.8, sv.glowColor.b or 0)
         reminderFrame.glowAnim:Play()
+        SP:ProcGlowStart(reminderFrame, sv.glowColor.r or 1, sv.glowColor.g or 0.8, sv.glowColor.b or 0, "tremor")
     else
         reminderFrame.glow:Hide()
         reminderFrame.glowAnim:Stop()
+        SP:ProcGlowStop(reminderFrame, "tremor")
     end
 end
 

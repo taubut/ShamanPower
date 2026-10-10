@@ -16,6 +16,10 @@
 --   caption  = "text" or function() return text end,
 --   list     = function(out) fill out with the items, in order (each { key = ..., name = ... }) end,
 --   textures = function(item, out) return n end,     up to three textures into out
+--   texCoords = function(item, i) return l, r, t, b end,   (optional) texture i is a piece of an atlas:
+--                                                     these coordinates instead of the icon's usual crop
+--   overlay  = function(item) return word end,        (optional) a short word drawn over the icon, outlined
+--                                                     (EARTH over the empty totem art); nil: nothing
 --   shown    = function(item) return on end,
 --   learned  = function(item) return known end,       (nil: every item counts as learned)
 --   hasOwn   = function(item) return own end,         (nil: no corner)
@@ -106,6 +110,12 @@ local function Call(fn, ...)
 	if not ok then Report(a) return nil end
 	return a, b
 end
+local function Call4(fn, ...)
+	if type(fn) ~= "function" then return nil end
+	local ok, a, b, c, d = pcall(fn, ...)
+	if not ok then Report(a) return nil end
+	return a, b, c, d
+end
 
 -- ---------------------------------------------------------------------------
 -- A plate (the button)
@@ -156,6 +166,7 @@ end
 local function PaintIcons(b, tex, n, on, learned)
 	local shade = 1
 	if not learned then shade = NOT_LEARNED_SHADE elseif not on then shade = HIDDEN_SHADE end
+	local def = b.row and b.row.def
 	for i = 1, 3 do
 		local t = b.icons[i]
 		if i <= n then
@@ -163,13 +174,34 @@ local function PaintIcons(b, tex, n, on, learned)
 			t:SetSize(ICON / n, ICON)
 			t:SetPoint("TOPLEFT", b, "TOPLEFT", 2 + (i - 1) * ICON / n, -2)
 			t:SetTexture(tex[i])
-			t:SetTexCoord(0.08 + 0.84 * (i - 1) / n, 0.08 + 0.84 * i / n, 0.08, 0.92)
+			local l, r, tp, bt
+			if def and def.texCoords then l, r, tp, bt = Call4(def.texCoords, b.item, i) end
+			if l then t:SetTexCoord(l, r, tp, bt)   -- a piece of an atlas
+			else t:SetTexCoord(0.08 + 0.84 * (i - 1) / n, 0.08 + 0.84 * i / n, 0.08, 0.92) end
 			t:SetDesaturated(not (on and learned))
 			t:SetVertexColor(shade, shade, shade)
 			t:Show()
 		else
 			t:Hide()
 		end
+	end
+	-- def.overlay: a word over the icon, outlined so it reads on any art, dimmed with the icon
+	local word = def and def.overlay and Call(def.overlay, b.item) or nil
+	if word and word ~= "" then
+		local o = b.overlay
+		if not o then
+			o = b:CreateFontString(nil, "OVERLAY")
+			local path = Core.fonts.tiny:GetFont()
+			o:SetFont(path, 9, "OUTLINE")
+			o:SetPoint("CENTER", b, "CENTER", 0, 0)
+			o:SetJustifyH("CENTER")
+			b.overlay = o
+		end
+		o:SetText(word)
+		o:SetTextColor(Core:ColorIf(on and learned, "text", "textDim"))
+		o:Show()
+	elseif b.overlay then
+		b.overlay:Hide()
 	end
 end
 
@@ -362,8 +394,15 @@ function Proto:OpenMenu(key, path)
 	self.openKey = key
 	self:PaintButton(b)
 	local row = self
+	local coords   -- (def.texCoords: the header draws the same piece of the atlas)
+	if self.def.texCoords then
+		for i = 1, n do
+			local l, r, t, bt = Call4(self.def.texCoords, item, i)
+			if l then coords = coords or {}; coords[i] = { l, r, t, bt } end
+		end
+	end
 	ns.ContextMenu:Open(b, {
-		header = { text = item.name, icons = icons },
+		header = { text = item.name, icons = icons, texCoords = coords },
 		element = self.def.menuElement and Call(self.def.menuElement, item) or nil,
 		items = function()
 			local items = Call(row.def.menu, item) or {}
@@ -552,7 +591,9 @@ function Proto:StopDrag(b)
 	if not from then return end
 	local to = gap
 	if to > from then to = to - 1 end
-	if to == from then return end
+	-- the same place in the list is no move, unless the def decides by where the cursor is
+	-- (Ready Reminders' rows: the line under the cursor, which the list order does not say)
+	if to == from and not (def.moveAlways and Call(def.moveAlways)) then return end
 	Call(def.move, self.list[from], to)
 	self:Changed(false)
 	-- the new order: the row is laid out again in it (the page keeps its scroll); without
@@ -702,6 +743,17 @@ function Proto:LayOut(f, list, width, padX)
 		xx = xx + PITCH
 		n = n + 1
 	end
+	-- def.add's tile: under the groups on a line of its own (a row of lines), else after the last item
+	local count = #list
+	if self.addShown then
+		if def.group then
+			if count > 0 then yy = yy + step + groupGap end
+			sx[count + 1], sy[count + 1] = padX + lead, yy
+		else
+			if n > 0 and xx + PLATE > room then yy = yy + step; xx = 0 end
+			sx[count + 1], sy[count + 1] = padX + lead + xx, yy
+		end
+	end
 	for i = used + 1, #labels do labels[i]:Hide() end
 	return (yy - PAD_TOP) + PLATE + (def.under and UNDER_ROOM or 0)
 end
@@ -723,7 +775,7 @@ function Proto:Render(body, x, y, width, onChanged)
 	if not f then
 		f = CreateFrame("Frame", nil, body)
 		f.caption = f:CreateFontString(nil, "OVERLAY")
-		f.caption:SetFontObject(Core.fonts.rowDim)
+		f.caption:SetFontObject(Core.fonts.caption)
 		f.caption:SetJustifyH("LEFT")
 		f.caption:SetWordWrap(true)
 		f.spNoCull = true
@@ -755,6 +807,7 @@ function Proto:Render(body, x, y, width, onChanged)
 		perRow = max(1, floor((width - padX * 2 + (PITCH - PLATE)) / PITCH))
 	end
 	self.padX, self.perRow, self.pitch, self.lead = padX, perRow, pitch, lead
+	self.addShown = addShown
 	local laid = self:LayOut(f, list, width, padX)   -- (gapBefore / group / under: each item's own place)
 	for i, item in ipairs(list) do
 		local b = self.buttons[i] or self:NewButton(f)

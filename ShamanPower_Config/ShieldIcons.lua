@@ -25,7 +25,7 @@ local Choice, OnOff, Slider, Group = Menu.Choice, Menu.OnOff, Menu.Slider, Menu.
 local SEP = { separator = true }
 
 -- (the words that say what to do in the settings' blue, so a player sees them first)
-local CAPTION = "|cff3FA9F5Click|r a shield to show or hide its charges. |cff3FA9F5Right-click|r it for all of its"
+local CAPTION = "|cff3FA9F5CLICK|r a shield to show or hide its charges. |cff3FA9F5RIGHT-CLICK|r it for all of its"
 	.. " settings: each shield has its own, and nothing is shared. |cff3FA9F5Dark|r: not learned yet (you can still set it up)."
 
 local function Red(text) print("|cff0070ddShamanPower|r: |cffe64a4a" .. text .. "|r") end
@@ -498,6 +498,34 @@ local function Summary()
 	return table.concat(lines, "\n")
 end
 
+-- When It's Gone: the icon's effect at 0 charges / no shield (each shield its own)
+local GONE_EFFECTS = { { "none", "None" }, { "glow", "Glow" }, { "pulse", "Pulse" }, { "both", "Glow + Pulse" } }
+local GONE_COLOR = { [LS] = { 0.2, 0.6, 1 }, [WS] = { 0.2, 0.6, 1 }, [ES] = { 0.2, 0.8, 0.2 } }
+local function GoneRows(s)
+	local r = {}
+	r[#r + 1] = ChoiceName(s, "Effect", "goneEffect", GONE_EFFECTS,
+		"At 0 charges, or with no shield up, this shield's icon plays this until a shield is up again. Needs the icon on, and Show set so the display stays while no shield is up."
+		.. ((SPCompat and SPCompat.FOREVER) and " In a fight on WoW: Forever the game's Cooldown Manager tells the moment: keep it enabled with your shield in it." or ""), "none")
+	local fx = Val(s, "goneEffect") or "none"
+	if fx == "glow" or fx == "both" then
+		r[#r + 1] = ColorRow(s, "Glow Color", "goneGlowColor", GONE_COLOR[s] or GONE_COLOR[LS], "The glow's color.")
+		local map, order
+		if SP.GlowShapeValues then map, order = SP:GlowShapeValues() end   -- (two values: never through "and", which keeps one)
+		if map then
+			local shapes = {}
+			for _, k in ipairs(order or {}) do shapes[#shapes + 1] = { k, map[k] } end
+			local shared = SP.opt and SP.opt.glowShape or "default"
+			r[#r + 1] = ChoiceName(s, "Glow Shape", "goneGlowShape", shapes, "This shield's glow shape (an unset one follows General > Themes' Glow Shape).", shared)
+			if (Val(s, "goneGlowShape") or shared) == "proc" then
+				r[#r + 1] = Slider("Proc Glow Thickness", 0, 0.6, 0.01, function() return tonumber(Val(s, "goneGlowThick")) or 0.2 end,
+					function(v) SliderSet(s, "goneGlowThick", v) end, Pct, true, "How thick the ring is. It grows outward from the icon's edge.")
+			end
+		end
+	end
+	r[#r + 1] = ToAll(s, "When It's Gone", "gone")
+	return r
+end
+
 local function MenuItems(item)
 	local s = item.key
 	local r = {}
@@ -512,6 +540,8 @@ local function MenuItems(item)
 	r[#r + 1] = Group("Color", function() return ColorRows(s) end)
 	r[#r + 1] = Group("Sound", function() return SoundRows(s) end,
 		"The same setting as this shield's sound in Expiring Alerts: each shield has its own.")
+	r[#r + 1] = Group("When It's Gone", function() return GoneRows(s) end,
+		"What this shield's icon does at 0 charges, or with no shield up: a glow, a pulse, both, or nothing.")
 	r[#r + 1] = SEP
 	r[#r + 1] = { text = "Copy Settings", disabled = (not HasAPI()) or nil,
 		tip = "Remembers every setting of this shield as it is now, for Paste Settings on another shield.",
@@ -617,7 +647,7 @@ local PV_PAD = 10           -- the display's margin inside its box
 local PV_STEP = 0.6         -- a charge used every this many seconds while it plays
 local PV_DIM = 0.4          -- hidden / not learned yet
 local PV_CAPTION = "Each shield as it looks on your screen, with its own settings: it changes as you change them."
-	.. " |cff3FA9F5Click|r one to watch it use its charges."
+	.. " |cff3FA9F5CLICK|r one to watch it use its charges."
 local WHICH_NUM = { [LS] = 1, [WS] = 2, [ES] = 3 }
 local Preview = { boxes = {} }
 
@@ -819,7 +849,7 @@ end
 -- texture and gradient: the shield's entries in the theme cards, General > Themes).
 -- ---------------------------------------------------------------------------
 local THEME_HELD = { "look", "chargeColor", "texture", "gradient", "gradientDirection", "gradientColor1", "gradientColor2",
-	"gradientFade" }
+	"gradientFade", "goneGlowColor", "goneGlowShape", "goneGlowThick" }
 function SP.ShieldChargesResetPage(sp)
 	if InCombatLockdown() or not (sp.ResetShield and HasAPI()) then return end
 	for _, s in ipairs({ LS, WS, ES }) do

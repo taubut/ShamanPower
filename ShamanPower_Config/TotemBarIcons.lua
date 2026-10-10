@@ -41,13 +41,13 @@ local ES_SLOT = 12          -- Earth Shield's own Running Out settings (ShamanPo
 local COTE = 66842          -- Call of the Elements: the Drop All button's icon with Blizzard's totem sets
 local GENERIC_DROPALL = 136024
 
-local BTN_CAPTION = "|cff3FA9F5Click|r a button to show or hide it on the bar. |cff3FA9F5Right-click|r it for its settings."
-	.. " |cff3FA9F5Drag|r an element to move it on the bar. |cff3FA9F5Dark|r: not learned yet."
-local BTN_CAPTION_NATIVE = "|cff3FA9F5Right-click|r Drop All for its drop order and Blizzard Totem Sets. You use Blizzard's"
+local BTN_CAPTION = "|cff3FA9F5CLICK|r a button to show or hide it on the bar. |cff3FA9F5RIGHT-CLICK|r it for its settings."
+	.. " |cff3FA9F5DRAG|r an element to move it on the bar. |cff3FA9F5Dark|r: not learned yet."
+local BTN_CAPTION_NATIVE = "|cff3FA9F5RIGHT-CLICK|r Drop All for its drop order and Blizzard Totem Sets. You use Blizzard's"
 	.. " Totem Bar (Totem Bar > Style), so its own buttons are on screen instead of ShamanPower's."
-local TOT_CAPTION = "|cff3FA9F5Click|r a totem to show or hide it in its flyout. |cff3FA9F5Right-click|r it for its settings."
+local TOT_CAPTION = "|cff3FA9F5CLICK|r a totem to show or hide it in its flyout. |cff3FA9F5RIGHT-CLICK|r it for its settings."
 	.. " |cff3FA9F5Dark|r totems aren't learned yet: set them up now, they show once learned."
-local TOT_CAPTION_NATIVE = "|cff3FA9F5Right-click|r a totem for its settings. Blizzard's Totem Bar shows its own flyouts,"
+local TOT_CAPTION_NATIVE = "|cff3FA9F5RIGHT-CLICK|r a totem for its settings. Blizzard's Totem Bar shows its own flyouts,"
 	.. " so a click here doesn't change them."
 
 local function O() return SP.opt end
@@ -524,6 +524,7 @@ local function DropAllMenu()
 	local ownIcon = SP.DropAllOwnIcon and SP:DropAllOwnIcon()
 	local function pick()
 		SP:OpenIconPicker({ icon = SP:DropAllOwnIcon() }, function(selected)
+			if BtnRow:RefuseLocked() then return end   -- (the picker was open when a fight started)
 			O().dropAllIcon = selected
 			if not InCombatLockdown() then Run("UpdateDropAllButton") end
 			BtnRow:Changed(false)
@@ -988,7 +989,7 @@ TotRow = ns.IconRow.New({
 ns.CustomRows.tbButtons = BtnRow
 ns.CustomRows.tbTotems = TotRow
 ns.TotemBarRows = { buttons = BtnRow, totems = TotRow }
-SP.TotemBarRows = ns.TotemBarRows   -- (the /sptest round and the renderer reach the rows here)
+SP.TotemBarRows = ns.TotemBarRows   -- (the test round and the renderer reach the rows here)
 
 -- SP:TotemBarOpenItemMenu(kind, key, path): the settings window on Totem Bar > Bar with that
 -- button's ("button": 1-4, "dropall", "es") or totem's ("totem": its rank-1 spell) menu open
@@ -1020,6 +1021,7 @@ function SP.TotemBarResetPage(sp)
 	o.flyoutTotems = nil
 	o.pulseOnlySome, o.pulseTotemsOff, o.pulseFlashOnlySome, o.pulseFlashTotemsOff = nil, nil, nil, nil
 	o.usualTotemTemp = nil
+	o.dropAllIcon = nil   -- (a picked Drop All icon goes too: the button rotates again)
 	ResetES()
 	for _, fn in ipairs({ "UpdateMiniTotemBar", "UpdateDropAllButton", "RecreateTotemFlyouts", "ApplyUsualTotemSettings" }) do
 		Run(fn)

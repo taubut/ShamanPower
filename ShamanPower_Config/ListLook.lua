@@ -119,12 +119,18 @@ local function Resolve(def, item, path)
 	return entry
 end
 -- the choices of a resolved entry, separators left out
-local function Choices(entry, out)
+local function Choices(entry, out, onlyChoices)
 	wipe(out)
 	for _, c in ipairs(SubOf(entry)) do
-		if type(c) == "table" and not c.separator then out[#out + 1] = c end
+		if type(c) == "table" and not c.separator and (not onlyChoices or c.selected ~= nil) then out[#out + 1] = c end
 	end
 	return out
+end
+-- a choice's own disabled flag (a value or a function), read when it is used
+local function ChoiceDisabled(c)
+	local d = c and c.disabled
+	if type(d) == "function" then d = Call(d) end
+	return d and true or false
 end
 local scratch = {}
 
@@ -136,14 +142,25 @@ local function Kind(entry, sub)
 	if entry.slider then return "slider" end
 	if entry.swatch then return "swatch" end
 	if entry.sub then
-		local n, onoff, choice = 0, true, false
+		local n, onoff, choice, other, multi = 0, true, false, 0, entry.multi and true or false
 		for _, e in ipairs(sub) do
 			if type(e) == "table" and not e.separator then
 				n = n + 1
-				if e.selected ~= nil then choice = true end
-				if not (e.text == "On" or e.text == "Off") then onoff = false end
+				if e.selected ~= nil then
+					choice = true
+					if not (e.text == "On" or e.text == "Off") then onoff = false end
+				else
+					other = other + 1
+					-- a "(Clear)" line clears several picks: the menu is a pick-any list
+					if type(e.text) == "string" and e.text:find("%(Clear%)$") then multi = true end
+				end
 			end
 		end
+		-- a pick-any list (Earth Shield's roles and classes): a toggle per pick, then its other lines
+		if choice and multi then return "multi" end
+		-- choices beside other lines (Fade Instead of Hide: On / Off, then Faded Opacity and Copy
+		-- Fade): the choices as one control, the rest as their own rows
+		if choice and other > 0 then return (onoff and n - other == 2) and "mixedonoff" or "mixed" end
 		if choice and onoff and n == 2 then return "onoff" end
 		if choice then return "choice" end
 		return "group"
@@ -362,22 +379,35 @@ local function Opts(pack, label, desc, span, disabled)
 	}
 end
 
-local function Disabled(ctx, entry, forced)
-	local def = ctx.def
-	local off = (forced or (entry and entry.disabled)) and true or false
-	return function() return off or Locked(def) end
+-- an entry's disabled flag, or one of its parents', read again every time (the menus answer for
+-- the moment: a group that was disabled during a fight is not after it)
+local function Disabled(ctx, p, forced)
+	local def, item = ctx.def, ctx.item
+	local prefix = {}
+	return function()
+		if forced or Locked(def) then return true end
+		for d = 1, #p do
+			prefix[d] = p[d]
+			for k = #prefix, d + 1, -1 do prefix[k] = nil end
+			local e = Resolve(def, item, prefix)
+			if e and ChoiceDisabled(e) then return true end
+		end
+		return false
+	end
 end
 
-local function AddEntries(pack, ctx, list, path, forced)
+local function AddEntries(pack, ctx, list, path, forced, skipChoices)
 	local def, item, row = ctx.def, ctx.item, ctx.row
 	for index, entry in ipairs(list) do
-		if type(entry) == "table" then
+		if type(entry) == "table" and not (skipChoices and entry.selected ~= nil) then
 			local sub = entry.sub and SubOf(entry) or nil
 			local kind = Kind(entry, sub)
 			local p = {}
 			for i = 1, #path do p[i] = path[i] end
 			p[#p + 1] = { text = entry.text, index = index }
-			local disabled = Disabled(ctx, entry, forced)
+			local disabled = Disabled(ctx, p, forced)
+			local mixed = kind == "mixed" or kind == "mixedonoff"
+			if kind == "mixedonoff" then kind = "onoff" elseif kind == "mixed" then kind = "choice" end
 
 			if kind == "sep" then
 				pack:Gap(SEP_GAP)
@@ -385,13 +415,37 @@ local function AddEntries(pack, ctx, list, path, forced)
 			elseif kind == "group" then
 				local vt, vown
 				if entry.value then vt, vown = Call(entry.value) end
-				Heading(pack, entry.text, vt, vown and true or false, (forced or entry.disabled) and true or false)
-				AddEntries(pack, ctx, sub, p, (forced or entry.disabled) and true or false)
+				Heading(pack, entry.text, vt, vown and true or false, (forced or ChoiceDisabled(entry)) and true or false)
+				AddEntries(pack, ctx, sub, p, forced)
+
+			elseif kind == "multi" then
+				-- each pick its own On / Off row (a click on a pick toggles it, as the menu's does)
+				Heading(pack, entry.text, nil, false, (forced or ChoiceDisabled(entry)) and true or false)
+				for ci, c in ipairs(Choices(Resolve(def, item, p), scratch, true)) do
+					local text = c.text
+					local o = Opts(pack, text, c.tip or entry.tip, 1, disabled)
+					o.get = function()
+						local cc = Choices(Resolve(def, item, p), scratch, true)[ci]
+						if cc and cc.text ~= text then cc = nil; for _, x in ipairs(Choices(Resolve(def, item, p), scratch, true)) do if x.text == text then cc = x end end end
+						return cc and cc.selected and true or false
+					end
+					o.set = function(v)
+						if Refuse(row) then return end
+						local cc
+						for _, x in ipairs(Choices(Resolve(def, item, p), scratch, true)) do if x.text == text then cc = x end end
+						if not cc or ChoiceDisabled(cc) or (cc.selected and true or false) == (v and true or false) then return end
+						Invalidate()
+						if cc.onClick then Call(cc.onClick) end
+					end
+					local f, h = Widgets:Toggle(pack.body, o)
+					pack:Place(f, h, 1)
+				end
+				AddEntries(pack, ctx, sub, p, forced, true)   -- (its other lines: Everyone (Clear))
 
 			elseif kind == "onoff" then
 				local o = Opts(pack, entry.text, entry.tip, 1, disabled)
 				o.get = function()
-					for _, c in ipairs(Choices(Resolve(def, item, p), scratch)) do
+					for _, c in ipairs(Choices(Resolve(def, item, p), scratch, true)) do
 						if c.text == "On" then return c.selected and true or false end
 					end
 					return false
@@ -400,7 +454,8 @@ local function AddEntries(pack, ctx, list, path, forced)
 					if Refuse(row) then return end
 					Invalidate()
 					local want = v and "On" or "Off"
-					for _, c in ipairs(Choices(Resolve(def, item, p), scratch)) do
+					for _, c in ipairs(Choices(Resolve(def, item, p), scratch, true)) do
+						if c.text == want and ChoiceDisabled(c) then return end
 						if c.text == want then
 							if not c.selected and c.onClick then Call(c.onClick) end
 							return
@@ -409,30 +464,33 @@ local function AddEntries(pack, ctx, list, path, forced)
 				end
 				local f, h = Widgets:Toggle(pack.body, o)
 				pack:Place(f, h, 1)
+				if mixed then AddEntries(pack, ctx, sub, p, forced, true) end
 
 			elseif kind == "choice" then
 				local o = Opts(pack, entry.text, entry.tip, 1, disabled)
 				o.values = function()
 					local v = {}
-					for i, c in ipairs(Choices(Resolve(def, item, p), scratch)) do v[i] = c.text or "" end
+					for i, c in ipairs(Choices(Resolve(def, item, p), scratch, true)) do v[i] = c.text or "" end
 					return v
 				end
 				o.order = function()
 					local order = {}
-					for i in ipairs(Choices(Resolve(def, item, p), scratch)) do order[i] = i end
+					for i in ipairs(Choices(Resolve(def, item, p), scratch, true)) do order[i] = i end
 					return order
 				end
 				o.get = function()
-					for i, c in ipairs(Choices(Resolve(def, item, p), scratch)) do
+					for i, c in ipairs(Choices(Resolve(def, item, p), scratch, true)) do
 						if c.selected then return i end
 					end
 					return nil
 				end
 				o.set = function(i)
 					if Refuse(row) then return end
+					local c = Choices(Resolve(def, item, p), scratch, true)[i]
+					if not c or ChoiceDisabled(c) then return end   -- (a choice the menu grays out)
 					Invalidate()
-					local c = Choices(Resolve(def, item, p), scratch)[i]
-					if c and not c.selected and c.onClick then Call(c.onClick) end
+					-- the selected one too: a pick that opens something (Pick Another Icon...) or clears itself
+					if c.onClick then Call(c.onClick) end
 				end
 				o.own = function()
 					local e = Resolve(def, item, p)
@@ -442,6 +500,7 @@ local function AddEntries(pack, ctx, list, path, forced)
 				end
 				local f, h = Widgets:Dropdown(pack.body, o)
 				pack:Place(f, h, 1)
+				if mixed then AddEntries(pack, ctx, sub, p, forced, true) end
 
 			elseif kind == "slider" then
 				local sl = entry.slider
@@ -480,7 +539,12 @@ local function AddEntries(pack, ctx, list, path, forced)
 					if Refuse(row) then return end
 					Invalidate()
 					local e = Resolve(def, item, p)
-					if e and e.onClick then Call(e.onClick) end
+					local fn = e and e.onClick
+					if not fn and e and e.sub then   -- the picker as the submenu's first line (Pick Color...)
+						local first = Choices(e, scratch)[1]
+						fn = first and first.onClick
+					end
+					if fn then Call(fn) end
 				end
 				local f, h = Widgets:Color(pack.body, o)
 				pack:Place(f, h, 1)
@@ -488,6 +552,10 @@ local function AddEntries(pack, ctx, list, path, forced)
 			elseif kind == "button" then
 				local o = Opts(pack, entry.text, entry.tip, 1, disabled)
 				o.buttonText = entry.text
+				if entry.value then   -- a line that says something and takes a click (It Shows, Key Now): its words stay
+					local vt = Call(entry.value)
+					if vt ~= nil and vt ~= "" then o.buttonText = entry.text .. ": " .. tostring(vt) end
+				end
 				o.func = function()
 					if Refuse(row) then return end
 					Invalidate()
@@ -645,9 +713,10 @@ local function PromptDue()
 	local cur = VerNum(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version"))
 	if not cur or cur < NEW_LOOK then return false end
 	local seen = VerNum(g.lastSeenVersion)
-	if seen and seen >= NEW_LOOK then return false end
+	if not seen or seen >= NEW_LOOK then return false end   -- (no readable earlier version: a new install, no prompt)
 	return true
 end
+local promptWaiter
 
 -- true: the prompt is up (or waits out a fight) and What's New is its to show afterwards
 function SP:ShowOldLookPrompt()
@@ -655,16 +724,26 @@ function SP:ShowOldLookPrompt()
 	local wiz = _G["ShamanPowerWizard"]
 	if wiz and wiz:IsShown() then return false end
 	if InCombatLockdown() then
-		C_Timer.After(15, function()
-			if not SP:ShowOldLookPrompt() then SP:ShowWhatsNew() end
-		end)
+		-- once the fight ends (no polling)
+		if not promptWaiter then
+			promptWaiter = CreateFrame("Frame")
+			promptWaiter:SetScript("OnEvent", function(self)
+				self:UnregisterAllEvents()
+				if not SP:ShowOldLookPrompt() then SP:ShowWhatsNew() end
+			end)
+		end
+		promptWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
 		return true
 	end
 	local g = SP.db.global
 	g.oldLookPromptSeen = true
+	SP._oldLookPromptUp = true   -- (What's New waits: ShowWhatsNew defers to `after` below)
 	local version = BaseVersion(GetAddOnMetadata and GetAddOnMetadata("ShamanPower", "Version")) or "3.0.8"
 	local function after()
-		C_Timer.After(0, function() SP:ShowWhatsNew() end)   -- (once this one is gone: never both at once)
+		SP._oldLookPromptUp = nil
+		local force = SP._whatsNewAfterPrompt == "force"
+		SP._whatsNewAfterPrompt = nil
+		C_Timer.After(0, function() SP:ShowWhatsNew(force) end)   -- (once this one is gone: never both at once)
 	end
 	SP:ShowSPDialog({
 		key = "oldLook",

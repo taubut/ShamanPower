@@ -566,6 +566,11 @@ end
 -- never stamps anything. "/spwhatsnew preview <style>" opens a style preview,
 -- "/spwhatsnew look" the look card.
 function SP:ShowWhatsNew(force)
+	-- the new-look prompt is up (ListLook.lua): What's New comes once it is closed, never both
+	if SP._oldLookPromptUp then
+		if force or not SP._whatsNewAfterPrompt then SP._whatsNewAfterPrompt = force and "force" or true end
+		return
+	end
 	if force then
 		-- opened on request (tour, settings button, /spwhatsnew): on top of the tour's layer
 		local d = BuildDialog()
