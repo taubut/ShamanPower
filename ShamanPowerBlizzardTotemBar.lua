@@ -177,6 +177,7 @@ local function styleHost(host, element)
 	text:SetTextColor(1, 1, 1)
 	SP:ThemePaintDurationText(text, element)   -- Appearance > Themes (tb.duration-text); nothing on Standard
 	if location == "inside_top" then text:SetPoint("TOP", bg, "TOP", 0, -1)
+	elseif location == "inside_center" then text:SetPoint("CENTER", bg, "CENTER", 0, 0)
 	elseif location == "inside_bottom" then text:SetPoint("BOTTOM", bg, "BOTTOM", 0, 1)
 	elseif location == "above" then
 		if position == "left" then text:SetPoint("RIGHT", bg, "LEFT", -1, 0)
@@ -205,9 +206,12 @@ local function styleHost(host, element)
 	host.activeIcon:SetPoint("BOTTOMRIGHT", host.indicator, "BOTTOMRIGHT", -2, 2)
 	host.activeIconHeight = host.activeAsMain and (host.height - 4) or 22
 	SP:StyleEngineCooldown(host.lifetime)
-	host.lifetime:SetHideCountdownNumbers(location ~= "icon" or opt.totemCooldownText == false)
+	host.lifetime:SetHideCountdownNumbers(not SP.ICON_TEXT_SIDE[location] or opt.totemCooldownText == false)
 	local ok, font = pcall(host.lifetime.GetCountdownFontString, host.lifetime)
-	if ok and font then SP:SetSPFont(font, "timers", opt.durationTextSize or 8, "OUTLINE") end
+	if ok and font then
+		SP:SetSPFont(font, "timers", opt.durationTextSize or 8, "OUTLINE")
+		SP:AnchorIconText(font, host.lifetime, location)   -- Time Left Position: On Icon (Top / Center / Bottom)
+	end
 	host.sweepStyle = opt.totemCooldownSweep or "radial"
 	host.sweepDirection = opt.totemCooldownSweepDirection
 	host.showSweep = opt.showTotemCooldowns ~= false
@@ -264,7 +268,7 @@ local function updateDisplay(host, element, active, name, icon, remaining, durat
 			else host.durationBar:SetSize(math.max(1, host.width * fraction), host.barSize) end
 			host.durationBackground:Show(); host.durationBar:Show()
 		else host.durationBackground:Hide(); host.durationBar:Hide() end
-		if host.textLocation ~= "none" and host.textLocation ~= "icon" then
+		if host.textLocation ~= "none" and not SP.ICON_TEXT_SIDE[host.textLocation] then
 			host.durationText:SetText(durationLabel(remaining)); host.durationText:Show()
 		else host.durationText:Hide() end
 		-- The native-mode setting promises our own lifetime swipe, independently

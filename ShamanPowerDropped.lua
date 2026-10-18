@@ -29,7 +29,7 @@ local idle = 0                 -- passes with nothing down: the loop sleeps afte
 local queued                   -- an apply asked this frame (the hooks at the end): once
 local isSecret = issecretvalue or function() return false end
 local TEXTS = { "insideTextTop", "insideTextBottom", "aboveBarText", "belowBarText", "iconText" }
-local TEXT_OF = { inside_top = "insideTextTop", inside_bottom = "insideTextBottom", above = "aboveBarText", below = "belowBarText", icon = "iconText" }
+local TEXT_OF = { inside_top = "insideTextTop", inside_center = "insideTextTop", inside_bottom = "insideTextBottom", above = "aboveBarText", below = "belowBarText", icon = "iconText", icon_top = "iconText", icon_bottom = "iconText" }
 local NONE = "nil"             -- a saved setting that was unset
 -- A totem that went stays on screen this long while its end is worked out (a destroyed or expired verdict
 -- comes half a second after the slot empties: ShamanPowerCues.lua), so the Effects tab's cues have a picture
@@ -151,7 +151,7 @@ end
 local function PlaceDuration(p)
 	local o = SP.opt
 	local pos, size = o.durationBarPosition or "bottom", o.durationBarHeight or 3
-	local sig = pos .. ":" .. size
+	local sig = pos .. ":" .. size .. ":" .. (o.durationTextLocation or "none")   -- the location too: Top / Center share a text
 	if p.spDurSig == sig then return end
 	p.spDurSig = sig
 	local b = p.bars
@@ -189,6 +189,13 @@ local function PlaceDuration(p)
 		b.aboveBarText:SetPoint("BOTTOM", b.bg, "TOP", 0, 1)
 		b.belowBarText:SetPoint("TOP", b.bg, "BOTTOM", 0, -1)
 	end
+	-- Time Left Position: Inside Bar (Center) is the Top text, at the middle of the bar
+	if SP.opt.durationTextLocation == "inside_center" then
+		b.insideTextTop:ClearAllPoints()
+		b.insideTextTop:SetPoint("CENTER", b.bg, "CENTER", 0, 0)
+	end
+	-- Time Left Position: On Icon (Top / Center / Bottom)
+	SP:AnchorIconText(b.iconText, p, SP.opt.durationTextLocation)
 	SP:PositionPulseWipe(p.pulse)
 end
 
@@ -219,9 +226,10 @@ local function PaintDuration(p, start, duration, now)
 		if not b.bg:IsShown() then b.bg:Show(); b.bar:Show() end
 	end
 	local key = TEXT_OF[o.durationTextLocation or "none"]
-	if key ~= p.spTextKey then
+	local loc = o.durationTextLocation or "none"
+	if key ~= p.spTextKey or loc ~= p.spTextLoc then
 		for _, k in ipairs(TEXTS) do b[k]:Hide() end
-		p.spTextKey = key
+		p.spTextKey, p.spTextLoc = key, loc
 		if key then
 			PlaceDuration(p)
 			SP:SetSPFont(b[key], "timers", o.durationTextSize or 8, "OUTLINE")

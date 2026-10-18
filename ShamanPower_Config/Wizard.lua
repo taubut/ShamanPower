@@ -1766,8 +1766,8 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		s.dbg = b:CreateTexture(nil, "BACKGROUND", nil, 1); s.dbg:SetColorTexture(0, 0, 0, 0.6)
 		s.dbar = b:CreateTexture(nil, "ARTWORK", nil, 1); SP:SetSPBarColor(s.dbar, "duration", e.r, e.g, e.b, 0.95)
 		local function fs(parent) local t = parent:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(t, "timers", 8, "OUTLINE"); t:SetTextColor(1, 1, 1); t:Hide(); return t end
-		s.txt = { inside_top = fs(b), inside_bottom = fs(b), above = fs(b), below = fs(b), icon = fs(b) }
-		s.txt.icon:SetPoint("CENTER", b, "CENTER")
+		s.txt = { inside_top = fs(b), inside_center = fs(b), inside_bottom = fs(b), above = fs(b), below = fs(b), icon = fs(b), icon_top = fs(b), icon_bottom = fs(b) }
+		s.txt.icon:SetPoint("CENTER", b, "CENTER"); s.txt.icon_top:SetPoint("TOP", b, "TOP", 0, -2); s.txt.icon_bottom:SetPoint("BOTTOM", b, "BOTTOM", 0, 2)
 		-- totem cooldown: radial swipe + colored remaining text (Water only)
 		if e.cd then
 			s.cdf = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate"); s.cdf:SetAllPoints(b); s.cdf:SetDrawEdge(false)
@@ -1786,8 +1786,9 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			s.flash = b:CreateTexture(nil, "OVERLAY", nil, 7); s.flash:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); SP:ShapeGlow(s.flash, "border")
 			s.flash:SetBlendMode("ADD"); s.flash:SetVertexColor(0.4, 1, 0.4); s.flash:SetPoint("CENTER", b, "CENTER", 0, 0)
 			s.flash:SetSize(SIZE * 1.8, SIZE * 1.8); s.flash:SetAlpha(0)
-			s.ptxt = { inside_top = fs(s.wf), inside_bottom = fs(s.wf), above = fs(s.wf), below = fs(s.wf), on_icon = fs(b) }
+			s.ptxt = { inside_top = fs(s.wf), inside_center = fs(s.wf), inside_bottom = fs(s.wf), above = fs(s.wf), below = fs(s.wf), on_icon = fs(b) }
 			s.ptxt.inside_top:SetPoint("TOP", s.wf, "TOP", 0, -1); s.ptxt.inside_bottom:SetPoint("BOTTOM", s.wf, "BOTTOM", 0, 1)
+			s.ptxt.inside_center:SetPoint("CENTER", s.wf, "CENTER", 0, 0)
 			s.ptxt.above:SetPoint("BOTTOM", s.wf, "TOP", 0, 1); s.ptxt.below:SetPoint("TOP", s.wf, "BOTTOM", 0, -1)
 			s.ptxt.on_icon:SetPoint("CENTER", b, "CENTER", 0, -12)
 		end
@@ -1835,8 +1836,9 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 				s.dbar:SetWidth(ds); s.dbar:SetPoint("BOTTOMLEFT", b, "BOTTOMRIGHT", 1, 0)
 			end
 			for _, t in pairs(s.txt) do t:ClearAllPoints() end
-			s.txt.icon:SetPoint("CENTER", b, "CENTER")
+			s.txt.icon:SetPoint("CENTER", b, "CENTER"); s.txt.icon_top:SetPoint("TOP", b, "TOP", 0, -2); s.txt.icon_bottom:SetPoint("BOTTOM", b, "BOTTOM", 0, 2)
 			s.txt.inside_top:SetPoint("TOP", s.dbg, "TOP", 0, -1); s.txt.inside_bottom:SetPoint("BOTTOM", s.dbg, "BOTTOM", 0, 1)
+			s.txt.inside_center:SetPoint("CENTER", s.dbg, "CENTER", 0, 0)
 			s.txt.above:SetPoint("BOTTOM", s.dbg, "TOP", 0, 1); s.txt.below:SetPoint("TOP", s.dbg, "BOTTOM", 0, -1)
 			-- pulse wipe geometry (same anchors as PositionPulseWipe)
 			if s.wf then
@@ -1895,7 +1897,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 				if s.vert then s.dbar:SetHeight(math.max(1, SIZE * pct)) else s.dbar:SetWidth(math.max(1, SIZE * pct)) end
 			end
 			for k, t in pairs(s.txt) do
-				local on = active and tl == k and (k == "icon" or dp ~= "none")
+				local on = active and tl == k and (SP.ICON_TEXT_SIDE[k] or dp ~= "none")
 				t:SetShown(on)
 				if on then
 					if t._spSize ~= ts then SP:SetSPFont(t, "timers", ts, "OUTLINE"); t._spSize = ts end   -- not every frame
@@ -1984,8 +1986,8 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		set = function(v) OPT().durationBarHeight = v; upd("UpdateTotemProgressBarHeight") end })
 	row("Dropdown", { label = "Show duration", get = function() return O("durationTextLocation", "none") end,
 		set = function(v) OPT().durationTextLocation = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end,
-		values = function() return { none = "None", inside_top = "Inside Bar (Top)", inside_bottom = "Inside Bar (Bottom)", above = "Above Bar", below = "Below Bar", icon = "On Icon" } end,
-		order = function() return { "none", "inside_top", "inside_bottom", "above", "below", "icon" } end })
+		values = function() return { none = "None", inside_top = "Inside Bar (Top)", inside_center = "Inside Bar (Center)", inside_bottom = "Inside Bar (Bottom)", above = "Above Bar", below = "Below Bar", icon_top = "On Icon (Top)", icon = "On Icon (Center)", icon_bottom = "On Icon (Bottom)" } end,
+		order = function() return { "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "icon_top", "icon", "icon_bottom" } end })
 	row("Slider", { label = "Text size", min = 6, max = 20, step = 1, get = function() return O("durationTextSize", 8) end,
 		set = function(v) OPT().durationTextSize = v; upd("UpdateTotemProgressBarPositions", "UpdateTotemProgressBars") end })
 	row("Toggle", { label = "Show totem cooldowns", get = function() return O("showTotemCooldowns", true) end,
@@ -2015,8 +2017,8 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		set = function(v) OPT().pulseBarSize = v; upd("UpdatePulseBarPositions") end })
 	row("Dropdown", { label = "Pulse time", get = function() return O("pulseTimeDisplay", "none") end,
 		set = function(v) OPT().pulseTimeDisplay = v; upd("UpdatePulseBarPositions") end,
-		values = function() return { none = "None", inside_top = "Inside Bar (Top)", inside_bottom = "Inside Bar (Bottom)", above = "Above Bar", below = "Below Bar", on_icon = "On Icon" } end,
-		order = function() return { "none", "inside_top", "inside_bottom", "above", "below", "on_icon" } end })
+		values = function() return { none = "None", inside_top = "Inside Bar (Top)", inside_center = "Inside Bar (Center)", inside_bottom = "Inside Bar (Bottom)", above = "Above Bar", below = "Below Bar", on_icon = "On Icon" } end,
+		order = function() return { "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "on_icon" } end })
 	row("Slider", { label = "Pulse text size", min = 6, max = 20, step = 1, get = function() return O("pulseTextSize", 8) end,
 		set = function(v) OPT().pulseTextSize = v; upd("UpdatePulseBarPositions") end })
 	local endY = y

@@ -70,12 +70,12 @@ do
 		SP.OrderSettingsBands(d, {
 			{ header = "td_header", name = "Totem Duration", keys = { "duration_desc", "duration_bar_position", "duration_bar_height",
 				"duration_bar_opacity", "duration_bar_background", "barGradient", "barGradient_direction", "barGradient_own",
-				"barGradient_color1", "barGradient_color2", "barGradient_fade", "barGradient_dir_duration", "show_duration_text",
+				"barGradient_color1", "barGradient_color2", "barGradient_fade", "barGradient_dir_duration", "show_duration_text", "duration_icon_side",
 				"duration_text_size", "totem_timer_colors" } },
 			{ header = "cd_header", name = "Cooldown", keys = { "cd_desc", "show_totem_cooldowns", "totem_cooldown_sweep", "totem_cooldown_edge",
 				"totem_cooldown_text", "totem_cooldown_numbers_note", "totem_cooldown_numbers_button", "totem_cooldown_text_color",
 				"totem_countdown_colors" } },
-			{ header = "pulse_header", name = "Pulse Timer", keys = { "pulse_desc", "pulse_bar_position", "pulse_bar_color", "pulse_flash_opacity",
+			{ header = "pulse_header", name = "Pulse Timer", keys = { "pulse_desc", "pulse_bar_position", "pulse_icon_sweep", "pulse_bar_color", "pulse_flash_opacity",
 				"pulse_flash_color", "pulse_flash_shape", "pulse_time_display", "barGradient_dir_pulse", "pulse_totems_note" } },
 		})
 	end
