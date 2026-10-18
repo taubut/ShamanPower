@@ -92,8 +92,9 @@ local function Pic(element)
 	bars.bg:Hide()
 	bars.bar = p:CreateTexture(nil, "OVERLAY", nil, 1)
 	bars.bar:Hide()
+	local textHost = SP:DurationTextHost(p, bars)   -- the time texts' frame, above the pulse bar
 	for _, key in ipairs(TEXTS) do
-		local fs = p:CreateFontString(nil, "OVERLAY", nil, (key == "insideTextTop" or key == "insideTextBottom") and 7 or nil)
+		local fs = textHost:CreateFontString(nil, "OVERLAY", nil, (key == "insideTextTop" or key == "insideTextBottom") and 7 or nil)
 		SP:SetSPFont(fs, "timers", key == "iconText" and 9 or 8, "OUTLINE")
 		fs:SetTextColor(1, 1, 1)
 		fs:Hide()

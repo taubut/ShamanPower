@@ -3137,10 +3137,15 @@ function ShamanPower:CreatePulseOverlay(button)
 	belowTimeText:Hide()
 	container.belowTimeText = belowTimeText
 
-	-- Time text on the icon
-	local iconTimeText = button:CreateFontString(nil, "OVERLAY")
+	-- Time text on the icon. It sits on a frame of its own, one level above the pulse
+	-- bar's frame: a child frame always draws over its parent's own regions, so a font
+	-- string on the button itself was drawn UNDER the On Icon pulse bar.
+	local iconTextFrame = CreateFrame("Frame", nil, button)
+	iconTextFrame:SetAllPoints(button)
+	iconTextFrame:SetFrameLevel(button:GetFrameLevel() + 2)
+	local iconTimeText = iconTextFrame:CreateFontString(nil, "OVERLAY")
 	ShamanPower:SetSPFont(iconTimeText, "timers", 10, "OUTLINE")
-	iconTimeText:SetPoint("CENTER", button, "CENTER", 0, 0)
+	iconTimeText:SetPoint("CENTER", iconTextFrame, "CENTER", 0, 0)
 	iconTimeText:SetTextColor(1, 1, 1)  -- White text
 	iconTimeText:Hide()
 	container.iconTimeText = iconTimeText
@@ -3918,6 +3923,20 @@ function ShamanPower:SetDurationBarBackground(on)
 	self:ApplyDurationBarOpacity()
 end
 
+-- The totem's time texts (the duration bar's texts) sit on a frame of their own ABOVE the pulse
+-- bar's frame (+1) and its on-icon time (+2): a child frame draws over its parent's own regions, so
+-- texts on the button itself were covered by the pulse bar wherever the two met. `store` keeps the
+-- frame (store.textHost) so it is made once.
+function ShamanPower:DurationTextHost(host, store)
+	local h = store and store.textHost
+	if h then return h end
+	h = CreateFrame("Frame", nil, host)
+	h:SetAllPoints(host)
+	h:SetFrameLevel(host:GetFrameLevel() + 3)
+	if store then store.textHost = h end
+	return h
+end
+
 -- Create progress bars for totem buttons
 function ShamanPower:SetupTotemProgressBars()
 	local barSize = self.opt.durationBarHeight or 3
@@ -3936,32 +3955,34 @@ function ShamanPower:SetupTotemProgressBars()
 			ShamanPower:SetSPBarColor(progressBar, "duration", colors[1], colors[2], colors[3], 1)
 			progressBar:Hide()
 
+			local textHost = self:DurationTextHost(totemButton)   -- the time texts' frame, above the pulse bar
+
 			-- Duration text INSIDE the bar (top)
-			local insideTextTop = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
+			local insideTextTop = textHost:CreateFontString(nil, "OVERLAY", nil, 7)
 			ShamanPower:SetSPFont(insideTextTop, "timers", 8, "OUTLINE")
 			insideTextTop:SetTextColor(1, 1, 1)
 			insideTextTop:Hide()
 
 			-- Duration text INSIDE the bar (bottom)
-			local insideTextBottom = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
+			local insideTextBottom = textHost:CreateFontString(nil, "OVERLAY", nil, 7)
 			ShamanPower:SetSPFont(insideTextBottom, "timers", 8, "OUTLINE")
 			insideTextBottom:SetTextColor(1, 1, 1)
 			insideTextBottom:Hide()
 
 			-- Duration text ABOVE the bar
-			local aboveBarText = totemButton:CreateFontString(nil, "OVERLAY")
+			local aboveBarText = textHost:CreateFontString(nil, "OVERLAY")
 			ShamanPower:SetSPFont(aboveBarText, "timers", 8, "OUTLINE")
 			aboveBarText:SetTextColor(1, 1, 1)
 			aboveBarText:Hide()
 
 			-- Duration text BELOW the bar
-			local belowBarText = totemButton:CreateFontString(nil, "OVERLAY")
+			local belowBarText = textHost:CreateFontString(nil, "OVERLAY")
 			ShamanPower:SetSPFont(belowBarText, "timers", 8, "OUTLINE")
 			belowBarText:SetTextColor(1, 1, 1)
 			belowBarText:Hide()
 
 			-- Duration text ON the icon
-			local iconText = totemButton:CreateFontString(nil, "OVERLAY")
+			local iconText = textHost:CreateFontString(nil, "OVERLAY")
 			ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 			iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 			iconText:SetTextColor(1, 1, 1)
@@ -3978,15 +3999,17 @@ function ShamanPower:SetupTotemProgressBars()
 				belowText = belowBarText,  -- Keep old name for compatibility
 				outsideText = belowBarText,  -- Keep old name for compatibility
 				iconText = iconText,
+				textHost = textHost,
 				maxWidth = totemButton:GetWidth(),
 				maxHeight = totemButton:GetHeight()
 			}
 		elseif totemButton and self.totemProgressBars[element] then
 			-- Bars exist but maybe missing text elements (upgrade from old version)
 			local bars = self.totemProgressBars[element]
+			local textHost = self:DurationTextHost(totemButton, bars)
 
 			if not bars.insideTextTop then
-				local insideTextTop = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
+				local insideTextTop = textHost:CreateFontString(nil, "OVERLAY", nil, 7)
 				ShamanPower:SetSPFont(insideTextTop, "timers", 8, "OUTLINE")
 				insideTextTop:SetTextColor(1, 1, 1)
 				insideTextTop:Hide()
@@ -3995,7 +4018,7 @@ function ShamanPower:SetupTotemProgressBars()
 			end
 
 			if not bars.insideTextBottom then
-				local insideTextBottom = totemButton:CreateFontString(nil, "OVERLAY", nil, 7)
+				local insideTextBottom = textHost:CreateFontString(nil, "OVERLAY", nil, 7)
 				ShamanPower:SetSPFont(insideTextBottom, "timers", 8, "OUTLINE")
 				insideTextBottom:SetTextColor(1, 1, 1)
 				insideTextBottom:Hide()
@@ -4003,7 +4026,7 @@ function ShamanPower:SetupTotemProgressBars()
 			end
 
 			if not bars.aboveBarText then
-				local aboveBarText = totemButton:CreateFontString(nil, "OVERLAY")
+				local aboveBarText = textHost:CreateFontString(nil, "OVERLAY")
 				ShamanPower:SetSPFont(aboveBarText, "timers", 8, "OUTLINE")
 				aboveBarText:SetTextColor(1, 1, 1)
 				aboveBarText:Hide()
@@ -4011,7 +4034,7 @@ function ShamanPower:SetupTotemProgressBars()
 			end
 
 			if not bars.belowBarText then
-				local belowBarText = totemButton:CreateFontString(nil, "OVERLAY")
+				local belowBarText = textHost:CreateFontString(nil, "OVERLAY")
 				ShamanPower:SetSPFont(belowBarText, "timers", 8, "OUTLINE")
 				belowBarText:SetTextColor(1, 1, 1)
 				belowBarText:Hide()
@@ -4021,7 +4044,7 @@ function ShamanPower:SetupTotemProgressBars()
 			end
 
 			if not bars.iconText then
-				local iconText = totemButton:CreateFontString(nil, "OVERLAY")
+				local iconText = textHost:CreateFontString(nil, "OVERLAY")
 				ShamanPower:SetSPFont(iconText, "timers", 9, "OUTLINE")
 				iconText:SetPoint("CENTER", totemButton, "CENTER", 0, 0)
 				iconText:SetTextColor(1, 1, 1)
@@ -5316,10 +5339,14 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 	belowTimeText:Hide()
 	overlay.belowTimeText = belowTimeText
 
-	-- Time text on the icon
-	local iconTimeText = frame:CreateFontString(nil, "OVERLAY")
+	-- Time text on the icon: on a frame above the pulse bar's, so the On Icon pulse bar
+	-- never covers it (see CreatePulseOverlay)
+	local iconTextFrame = CreateFrame("Frame", nil, frame)
+	iconTextFrame:SetAllPoints(frame)
+	iconTextFrame:SetFrameLevel(frame:GetFrameLevel() + 2)
+	local iconTimeText = iconTextFrame:CreateFontString(nil, "OVERLAY")
 	ShamanPower:SetSPFont(iconTimeText, "timers", 10, "OUTLINE")
-	iconTimeText:SetPoint("CENTER", frame, "CENTER", 0, 0)
+	iconTimeText:SetPoint("CENTER", iconTextFrame, "CENTER", 0, 0)
 	iconTimeText:SetTextColor(1, 1, 1)
 	iconTimeText:Hide()
 	overlay.iconTimeText = iconTimeText
@@ -6806,8 +6833,9 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 	progressBar:SetWidth(1)
 	progressBar:Hide()
 
-	-- Duration text on icon
-	local durationText = iconHolder:CreateFontString(nil, "OVERLAY")
+	-- Duration text on icon: on the time texts' frame, above the pulse overlay made below
+	-- (see DurationTextHost), so a pulse bar never covers it
+	local durationText = self:DurationTextHost(iconHolder):CreateFontString(nil, "OVERLAY")
 	ShamanPower:SetSPFont(durationText, "timers", 11, "OUTLINE")
 	durationText:SetPoint("CENTER", iconHolder, "CENTER", 0, 0)
 	durationText:SetTextColor(1, 1, 1)
