@@ -85,11 +85,10 @@ local function Label(key, y, W, text)
 end
 
 -- the names in columns inside a card, the four elements along its top; gold: the
--- Earthen Ring card (its names in WoW's gold)
+-- Earthen Ring card (its names in WoW's gold). A name too long for its column wraps
+-- onto more lines (never "...", even one long word) and its row grows to fit it.
 local function Names(key, y, W, names, gold)
 	local cols, rowH = 4, 20
-	local rows = max(1, ceil(#names / cols))
-	local h = 16 + rows * rowH + 8
 	local card = Keep("card:" .. key, function()
 		local c = CreateFrame("Frame", nil, page.body)
 		c.bg = c:CreateTexture(nil, "BACKGROUND"); c.bg:SetAllPoints(c)
@@ -105,7 +104,6 @@ local function Names(key, y, W, names, gold)
 		return c
 	end)
 	card:SetPoint("TOPLEFT", page.body, "TOPLEFT", 0, -y)
-	card:SetSize(W, h)
 	card.bg:SetColorTexture(Core:Color("rowBg"))
 	for i, t in ipairs(card.stripe) do
 		t:ClearAllPoints()
@@ -113,21 +111,26 @@ local function Names(key, y, W, names, gold)
 		t:SetWidth(W / 4)
 	end
 	local colW = floor((W - 32) / cols)
+	local top, tallest = 14, rowH                         -- this row's top, and its tallest name so far
 	for i, name in ipairs(names) do
 		local fs = card.names[i]
 		if not fs then
-			fs = Text(card, "row"); fs:SetWordWrap(false)
+			fs = Text(card, "row"); fs:SetNonSpaceWrap(true)
 			card.names[i] = fs
 		end
 		if gold then fs:SetTextColor(GOLD[1], GOLD[2], GOLD[3]) else fs:SetTextColor(Core:Color("text")) end
-		local col, row = (i - 1) % cols, floor((i - 1) / cols)
+		local col = (i - 1) % cols
+		if col == 0 and i > 1 then top, tallest = top + tallest, rowH end
 		fs:ClearAllPoints()
-		fs:SetPoint("TOPLEFT", card, "TOPLEFT", 16 + col * colW, -(14 + row * rowH))
+		fs:SetPoint("TOPLEFT", card, "TOPLEFT", 16 + col * colW, -top)
 		fs:SetWidth(colW - 8)
 		fs:SetText(name)
 		fs:Show()
+		tallest = max(tallest, ceil(fs:GetStringHeight()) + 6)
 	end
 	for i = #names + 1, #card.names do card.names[i]:Hide() end
+	local h = top + tallest + 10
+	card:SetSize(W, h)
 	return h
 end
 
