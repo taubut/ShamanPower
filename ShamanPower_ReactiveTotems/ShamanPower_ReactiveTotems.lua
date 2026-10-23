@@ -956,6 +956,33 @@ local function Hit(kind, name, icon, unit)
 	return h
 end
 
+-- An alert is for what you can do about it: Tremor Totem for fear, and for poison and disease the cleansing
+-- totem or the spell that cures it (Cure Poison, Cure Disease). Until one of them is learned the alert
+-- stays quiet, in a fight too. Read once for each alert, and again when the spellbook changes.
+local REACTIVE_ANSWERS = {
+	fear = { { 8143, "Tremor Totem" } },
+	poison = { { 8166, "Poison Cleansing Totem" }, { 526, "Cure Poison" } },
+	disease = { { 8170, "Disease Cleansing Totem" }, { 2870, "Cure Disease" } },
+}
+local reactiveAnswer = {}
+function SP:ReactiveCanAnswer(totemId)
+	local known = reactiveAnswer[totemId]
+	if known ~= nil then return known end
+	known = false
+	for _, spell in ipairs(REACTIVE_ANSWERS[totemId] or {}) do
+		-- by ID (any rank), else by name: a name asks whether it is in the spellbook now, for a client whose IDs differ
+		if SPCompat.KnowsSpellID(spell[1]) or GetSpellInfo(SPCompat.SpellName(spell[1], spell[2])) then known = true break end
+	end
+	reactiveAnswer[totemId] = known
+	return known
+end
+local learnFrame = CreateFrame("Frame")
+learnFrame:RegisterEvent("SPELLS_CHANGED")
+learnFrame:SetScript("OnEvent", function()
+	wipe(reactiveAnswer)
+	if SP.reactiveEventsSetup then SP:UpdateReactiveTotemDisplay() end   -- (an alert shown for a spell no longer known goes; one just learned can show)
+end)
+
 function SP:ScanForReactiveDebuffs()
 	local sv = ShamanPower_ReactiveTotems
 	if not sv or not sv.enabled then SP.reactiveAnyFound = false return SCAN_NONE end
@@ -967,6 +994,10 @@ function SP:ScanForReactiveDebuffs()
 
 	local found = scanFound
 	found.fear, found.poison, found.disease = nil, nil, nil
+	local wantFear = sv.trackFear and self:ReactiveCanAnswer("fear")
+	local wantPoison = sv.trackPoison and self:ReactiveCanAnswer("poison")
+	local wantDisease = sv.trackDisease and self:ReactiveCanAnswer("disease")
+	if not (wantFear or wantPoison or wantDisease) then SP.reactiveAnyFound = false return SCAN_NONE end
 
 	-- Scan player and party members only (totems are party-wide, not raid-wide)
 	for _, unit in ipairs(SCAN_UNITS) do
@@ -977,7 +1008,7 @@ function SP:ScanForReactiveDebuffs()
 				if not name then break end
 
 				-- Fear/Charm
-				if sv.trackFear and not found.fear then
+				if wantFear and not found.fear then
 					if debuffType == "Fear" or debuffType == "Charm" or debuffType == "Horrify"
 						or self:IsKnownFearDebuff(name, spellID) then
 						found.fear = Hit("fear", name, icon, unit)
@@ -985,17 +1016,17 @@ function SP:ScanForReactiveDebuffs()
 				end
 
 				-- Poison
-				if sv.trackPoison and not found.poison and debuffType == "Poison" then
+				if wantPoison and not found.poison and debuffType == "Poison" then
 					found.poison = Hit("poison", name, icon, unit)
 				end
 
 				-- Disease
-				if sv.trackDisease and not found.disease and debuffType == "Disease" then
+				if wantDisease and not found.disease and debuffType == "Disease" then
 					found.disease = Hit("disease", name, icon, unit)
 				end
 
 				-- Early exit if we found all types
-				if found.fear and found.poison and found.disease then
+				if (found.fear or not wantFear) and (found.poison or not wantPoison) and (found.disease or not wantDisease) then
 					SP.reactiveAnyFound = true
 					return found
 				end
@@ -1171,6 +1202,7 @@ local function ReactiveShouldShow(totemId)
 	if not sv or not sv.enabled or SP:IsOff() then return false end
 	if SP.reactivePositioningMode or SP.reactiveDemoActive then return false end
 	if sv[REACTIVE_TRACK[totemId]] == false then return false end
+	if not SP:ReactiveCanAnswer(totemId) then return false end   -- nothing learned that answers it
 	if sv.onlyInInstance and not IsInInstance() then return false end
 	if R(totemId, "hideWhenTotemActive") then
 		local data = SP.ReactiveTotems[totemId]
