@@ -10881,6 +10881,18 @@ function ShamanPower:CooldownBarSpellKey()
 	return key
 end
 
+-- A frame name nothing has had yet: base, else base_2, base_3 ... A key bound to a button (its CLICK
+-- binding) presses the FIRST frame ever made under that name, so a cooldown bar made again under the
+-- same names left the keys on the old, hidden buttons: the shield key kept casting the shield the button
+-- had at login, and the imbue key the old imbue (the owner's report, 3.0.9.4). The first bar keeps the
+-- plain names (ShamanPowerCD1, ShamanPowerWeaponImbue).
+function ShamanPower:FreshFrameName(base)
+	if not _G[base] then return base end
+	local n = 2
+	while _G[base .. "_" .. n] do n = n + 1 end
+	return base .. "_" .. n
+end
+
 function ShamanPower:CreateCooldownBar()
 	if self.cooldownBar then return end
 	self._cdBarSpellKey = self:CooldownBarSpellKey()
@@ -11052,7 +11064,7 @@ function ShamanPower:CreateCooldownBar()
 			else
 				templateString = "SecureActionButtonTemplate"
 			end
-			local btn = CreateFrame("Button", "ShamanPowerCD" .. i, bar, templateString)
+			local btn = CreateFrame("Button", ShamanPower:FreshFrameName("ShamanPowerCD" .. i), bar, templateString)   -- (FreshFrameName: the keys)
 			btn:SetSize(buttonSize, buttonSize)
 			btn:RegisterForClicks("AnyUp", "AnyDown")
 
@@ -11063,7 +11075,7 @@ function ShamanPower:CreateCooldownBar()
 			btn.icon = iconTex
 
 			-- Cooldown overlay
-			local cd = CreateFrame("Cooldown", "ShamanPowerCD" .. i .. "Cooldown", btn, "CooldownFrameTemplate")
+			local cd = CreateFrame("Cooldown", btn:GetName() .. "Cooldown", btn, "CooldownFrameTemplate")
 			cd:SetAllPoints()
 			cd:SetDrawEdge(false)
 			cd:SetDrawBling(false)
@@ -13172,8 +13184,9 @@ function ShamanPower:RecreateCooldownBar()
 
 	-- Apply lock/unlock state, position, and drag handle visibility
 	self:UpdateCooldownBarPosition()
-	-- Keybinds Still Work Even If Icon Is Turned Off: an item just turned off hands its key to its stand-in
-	if self.opt.keybindsWorkWhenOff then self:SetupKeybindings() end
+	-- the keys onto the new buttons (new names, FreshFrameName), and Keybinds Still Work Even If Icon Is
+	-- Turned Off: an item just turned off hands its key to its stand-in
+	self:SetupKeybindings()
 end
 
 -- Update cooldown bar position based on lock state
@@ -14064,7 +14077,7 @@ function ShamanPower:CreateWeaponImbueButton()
 	local buttonSize = self.cooldownBar.buttonSize or 22
 
 	-- Create the button with secure templates for combat-functional flyout
-	local btn = CreateFrame("Button", "ShamanPowerWeaponImbue", self.cooldownBar,
+	local btn = CreateFrame("Button", self:FreshFrameName("ShamanPowerWeaponImbue"), self.cooldownBar,   -- (FreshFrameName: the keys)
 		"SecureActionButtonTemplate, SecureHandlerEnterLeaveTemplate, SecureHandlerMouseUpDownTemplate, SecureHandlerBaseTemplate")
 	btn:SetSize(buttonSize, buttonSize)
 	btn:RegisterForClicks("LeftButtonUp", "LeftButtonDown", "RightButtonUp", "RightButtonDown")
