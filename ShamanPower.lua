@@ -2966,8 +2966,9 @@ local function PulseTenths(t)
 	return s
 end
 
+-- inside_center is the Top text, anchored at the bar's middle (see PulseVisualText)
 local PULSE_TEXT_KEYS = {
-	inside_top = "barTimeTextTop", inside_bottom = "barTimeTextBottom",
+	inside_top = "barTimeTextTop", inside_center = "barTimeTextTop", inside_bottom = "barTimeTextBottom",
 	above = "aboveTimeText", below = "belowTimeText", on_icon = "iconTimeText",
 }
 
@@ -2988,6 +2989,13 @@ function ShamanPower:PulseVisualText(o, remain, opt)
 	if o._tOpt ~= opt then
 		self:PulseVisualHideText(o)
 		o._tOpt = opt
+		-- Inside Bar (Center) and (Top) share one text: put it at the middle of the bar, or back at its top
+		local top = o.barTimeTextTop
+		if top and o.wipeFrame and (opt == "inside_center" or opt == "inside_top") then
+			top:ClearAllPoints()
+			if opt == "inside_center" then top:SetPoint("CENTER", o.wipeFrame, "CENTER", 0, 0)
+			else top:SetPoint("TOP", o.wipeFrame, "TOP", 0, -1) end
+		end
 	end
 	local key = PULSE_TEXT_KEYS[opt]
 	local fs = key and o[key]
@@ -3002,6 +3010,30 @@ end
 local function stopWipe(o)
 	if o._wipeAG then o._wipeAG:Stop() end
 	if o.wipe then o.wipe:Hide() end
+	if o.sweep then o.sweep:Hide() end
+end
+
+-- Pulse Bar On Icon > Clock Sweep: the engine's Cooldown widget draws the pulse as a clock
+-- hand filling the icon over one cycle, in place of the bar sliding down it. Built on first use.
+function ShamanPower:PulseSweepFrame(o)
+	local sw = o.sweep
+	if not sw then
+		sw = CreateFrame("Cooldown", nil, o.wipeFrame, "CooldownFrameTemplate")
+		sw:SetPoint("TOPLEFT", o.wipeFrame, "TOPLEFT", 2, -2)
+		sw:SetPoint("BOTTOMRIGHT", o.wipeFrame, "BOTTOMRIGHT", -2, 2)
+		sw:SetDrawEdge(false)
+		if sw.SetDrawBling then sw:SetDrawBling(false) end
+		sw:SetHideCountdownNumbers(true)
+		sw:SetReverse(true)   -- the filled part grows over the cycle
+		sw.noCooldownCount = true
+		o.sweep = sw
+	end
+	local c = self.opt.pulseBarColor
+	local a = 0.7 * (self.opt.pulseBarOpacity or 1)   -- Pulse Bar Opacity, on top of the bar's own 70%
+	if c then sw:SetSwipeColor(c.r or 1, c.g or 1, c.b or 1, a) else sw:SetSwipeColor(1, 1, 1, a) end
+	-- under the time texts (the pulse time and the duration time sit on frames above the bar)
+	sw:SetFrameLevel(o.wipeFrame:GetFrameLevel())
+	return sw
 end
 
 local function stopGlows(o, hide)
@@ -3044,8 +3076,11 @@ function ShamanPower:PulseVisualSync(o, start, interval, now)
 	local wipe = o.wipe
 	-- Only Show Pulse Bars / Pulse Flash for Specific Totems: set by the caller (PulsePartsOff)
 	local noBar = o._noBar
-	local mask = (noBar and 1 or 0) + (o._noFlash and 2 or 0)
-	local wipeOk = o.isDisabled or noBar or not wipe or (wipe:IsShown() and o._wipeAG ~= nil and o._wipeAG:IsPlaying())
+	local sweepOn = wipe and o.isOnIcon and o.wipeFrame and self.opt.pulseOnIconSweep and not o.isDisabled and not noBar
+	local mask = (noBar and 1 or 0) + (o._noFlash and 2 or 0) + (sweepOn and 4 or 0)
+	local wipeOk = o.isDisabled or noBar or not wipe
+		or (sweepOn and o.sweep ~= nil and o.sweep:IsShown())
+		or (not sweepOn and wipe:IsShown() and o._wipeAG ~= nil and o._wipeAG:IsPlaying())
 	if o._pState == "on" and o._pIdx == idx and o._pStart == start and o._pInt == interval and o._pMask == mask and wipeOk then
 		return age
 	end
@@ -3056,7 +3091,13 @@ function ShamanPower:PulseVisualSync(o, start, interval, now)
 	if wipe then
 		if o.isDisabled or noBar then
 			stopWipe(o)
+		elseif sweepOn then
+			stopWipe(o)
+			local sw = self:PulseSweepFrame(o)
+			sw:SetCooldown(start + idx * interval, interval)
+			sw:Show()
 		else
+			if o.sweep then o.sweep:Hide() end
 			local ag = o._wipeAG
 			if not ag then
 				ag = wipe:CreateAnimationGroup()
@@ -3972,6 +4013,16 @@ end
 -- bar's frame (+1) and its on-icon time (+2): a child frame draws over its parent's own regions, so
 -- texts on the button itself were covered by the pulse bar wherever the two met. `store` keeps the
 -- frame (store.textHost) so it is made once.
+-- Time Left Position "On Icon": where on the icon the time goes. "icon" is the centre (as it always
+-- was, so saved settings still mean the same); icon_top and icon_bottom put it on the icon's top or
+-- bottom edge. ICON_TEXT_SIDE[location] is the anchor point, nil for every other location.
+ShamanPower.ICON_TEXT_SIDE = { icon = "CENTER", icon_top = "TOP", icon_bottom = "BOTTOM" }
+function ShamanPower:AnchorIconText(fs, host, location)
+	local side = self.ICON_TEXT_SIDE[location] or "CENTER"
+	fs:ClearAllPoints()
+	fs:SetPoint(side, host, side, 0, side == "TOP" and -2 or (side == "BOTTOM" and 2 or 0))
+end
+
 function ShamanPower:DurationTextHost(host, store)
 	local h = store and store.textHost
 	if h then return h end
@@ -4274,6 +4325,13 @@ function ShamanPower:UpdateTotemProgressBarPositions()
 				if bars.aboveBarText then bars.aboveBarText:SetPoint("LEFT", bars.bg, "RIGHT", 1, 0) end
 				if bars.belowBarText then bars.belowBarText:SetPoint("RIGHT", bars.bg, "LEFT", -1, 0) end
 			end
+			-- Time Left Position: Inside Bar (Center) is the Top text, at the middle of the bar
+			if self.opt.durationTextLocation == "inside_center" and bars.insideTextTop then
+				bars.insideTextTop:ClearAllPoints()
+				bars.insideTextTop:SetPoint("CENTER", bars.bg, "CENTER", 0, 0)
+			end
+			-- Time Left Position: On Icon (Top / Center / Bottom)
+			if bars.iconText then self:AnchorIconText(bars.iconText, totemButton, self.opt.durationTextLocation) end
 		end
 	end
 	self:ApplyDurationBarOpacity()   -- new bars, or a settings change
@@ -4428,7 +4486,7 @@ function ShamanPower:UpdateTotemProgressBars()
 					if bars.iconText then bars.iconText:Hide() end
 
 					-- Show the appropriate text element (apply text size)
-					if textLocation == "inside_top" then
+					if textLocation == "inside_top" or textLocation == "inside_center" then
 						if bars.insideTextTop then
 							ShamanPower:SetSPFont(bars.insideTextTop, "timers", textSize, "OUTLINE")
 							bars.insideTextTop:SetText(durationStr)
@@ -4452,7 +4510,7 @@ function ShamanPower:UpdateTotemProgressBars()
 							bars.belowBarText:SetText(durationStr)
 							bars.belowBarText:Show()
 						end
-					elseif textLocation == "icon" then
+					elseif ShamanPower.ICON_TEXT_SIDE[textLocation] then
 						if bars.iconText then
 							ShamanPower:SetSPFont(bars.iconText, "timers", textSize, "OUTLINE")
 							bars.iconText:SetText(durationStr)
@@ -5140,7 +5198,11 @@ function ShamanPower:UpdatePoppedOutProgressBars()
 					bars.bar:Show()
 
 					-- Update duration text if option is set to show on icon
-					if textLocation == "icon" then
+					if self.ICON_TEXT_SIDE[textLocation] then
+						if bars.spTextLoc ~= textLocation and bars.holder then
+							bars.spTextLoc = textLocation
+							self:AnchorIconText(bars.text, bars.holder, textLocation)
+						end
 						local durationStr = FormatDuration(remaining)
 						bars.text:SetText(durationStr)
 						bars.text:Show()
@@ -6926,6 +6988,7 @@ function ShamanPower:PopOutSingleTotem(element, totemIndex)
 		bg = bgBar,
 		bar = progressBar,
 		text = durationText,
+		holder = iconHolder,   -- what the on-icon time is anchored to (Time Left Position)
 		maxWidth = iconHolder:GetWidth(),
 		element = element,
 		spellName = spellName

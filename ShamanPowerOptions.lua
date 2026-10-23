@@ -8547,14 +8547,37 @@ ShamanPower.options = {
 							values = {
 								["none"] = "None",
 								["inside_top"] = "Inside Bar (Top)",
+								["inside_center"] = "Inside Bar (Center)",
 								["inside_bottom"] = "Inside Bar (Bottom)",
 								["above"] = "Above Bar",
 								["below"] = "Below Bar",
 								["icon"] = "On Icon",
 							},
+							sorting = { "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "icon" },
 							get = function(info)
-								return ShamanPower.opt.durationTextLocation or "none"
+								local loc = ShamanPower.opt.durationTextLocation or "none"
+								return ShamanPower.ICON_TEXT_SIDE[loc] and "icon" or loc   -- icon_top / icon_bottom show as On Icon
 							end,
+							set = function(info, val)
+								local cur = ShamanPower.opt.durationTextLocation
+								-- picking On Icon again keeps the side already chosen
+								if val == "icon" and ShamanPower.ICON_TEXT_SIDE[cur] then val = cur end
+								ShamanPower.opt.durationTextLocation = val
+								ShamanPower:UpdateTotemProgressBarPositions()
+								ShamanPower:UpdateTotemProgressBars()
+							end
+						},
+						duration_icon_side = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 3.1,
+							type = "select",
+							name = "Icon Text Position",
+							desc = "Where on the icon the remaining time is shown",
+							width = 1.0,
+							values = { icon_top = "Top", icon = "Center", icon_bottom = "Bottom" },
+							sorting = { "icon_top", "icon", "icon_bottom" },
+							hidden = function() return not ShamanPower.ICON_TEXT_SIDE[ShamanPower.opt.durationTextLocation] end,
+							get = function(info) return ShamanPower.opt.durationTextLocation end,
 							set = function(info, val)
 								ShamanPower.opt.durationTextLocation = val
 								ShamanPower:UpdateTotemProgressBarPositions()
@@ -8756,6 +8779,20 @@ ShamanPower.options = {
 								ShamanPower:UpdatePulseBarPositions()
 							end
 						},
+						pulse_icon_sweep = {
+							disabled = function(info) return (CompactOn()) and true or false end,
+							order = 4.1,
+							type = "toggle",
+							name = "Clock Sweep",
+							desc = "Show the pulse as a clock sweep that fills the icon, instead of a bar sliding down it.",
+							width = 1.0,
+							hidden = function() return ShamanPower.opt.pulseBarPosition ~= "on_icon" end,
+							get = function(info) return ShamanPower.opt.pulseOnIconSweep == true end,
+							set = function(info, val)
+								ShamanPower.opt.pulseOnIconSweep = val and true or false
+								ShamanPower:UpdatePulseBarPositions()
+							end
+						},
 						pulse_bar_size = {
 							disabled = function(info) return (CompactOn()) and true or false end,
 							order = 4.5,
@@ -8786,7 +8823,7 @@ ShamanPower.options = {
 							width = 0.8,
 							min = 0.1, max = 1, step = 0.05, isPercent = true,
 							hidden = function()
-								return ShamanPower.opt.pulseBarPosition == "none" or ShamanPower.opt.pulseBarPosition == "on_icon"
+								return ShamanPower.opt.pulseBarPosition == "none"
 							end,
 							get = function(info)
 								return ShamanPower.opt.pulseBarOpacity or 1
@@ -8900,11 +8937,13 @@ ShamanPower.options = {
 							values = {
 								["none"] = "None",
 								["inside_top"] = "Inside Bar (Top)",
+								["inside_center"] = "Inside Bar (Center)",
 								["inside_bottom"] = "Inside Bar (Bottom)",
 								["above"] = "Above Bar",
 								["below"] = "Below Bar",
 								["on_icon"] = "On Icon",
 							},
+							sorting = { "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "on_icon" },
 							get = function(info)
 								return ShamanPower.opt.pulseTimeDisplay or "none"
 							end,
@@ -10622,7 +10661,7 @@ do
 	RefreshAfter(mode.activeTotemAsMain)
 	RefreshAfter(pages.layout_section.args.activeOverlayDirection)
 	for _, name in ipairs({ "duration_bar_position", "duration_bar_height",
-		"show_duration_text", "duration_text_size" }) do
+		"show_duration_text", "duration_icon_side", "duration_text_size" }) do
 		RefreshAfter(duration[name])
 	end
 	local durationDescription = duration.duration_desc.name
@@ -10666,16 +10705,16 @@ do
 		function() return SP.opt.showTotemCooldowns == false or (SP.opt.totemCooldownSweep or "radial") ~= "radial" end)
 	LifetimeOption(duration.totem_cooldown_text, "Show Time Left on Icon",
 		"Show the totem's time left when Show Duration is set to On Icon. Other text locations have their own settings.",
-		function() return SP.opt.durationTextLocation ~= "icon" end)
+		function() return not SP.ICON_TEXT_SIDE[SP.opt.durationTextLocation] end)
 	LifetimeOption(duration.totem_cooldown_text_color, "Duration Text Color",
 		"Color of the totem's time left on the icon.",
-		function() return SP.opt.totemCooldownText == false or SP.opt.durationTextLocation ~= "icon" end)
+		function() return SP.opt.totemCooldownText == false or not SP.ICON_TEXT_SIDE[SP.opt.durationTextLocation] end)
 	for _, name in ipairs({ "totem_cooldown_numbers_note", "totem_cooldown_numbers_button" }) do
 		local option = duration[name]
 		local oldHidden = option.hidden
 		option.hidden = function(info)
 			if not NativeTotemBarSelected() then return oldHidden(info) end
-			return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and SP.opt.durationTextLocation == "icon"
+			return not (SP.EngineCooldownsOn and SP:EngineCooldownsOn() and SP.ICON_TEXT_SIDE[SP.opt.durationTextLocation]
 				and SP.opt.totemCooldownText ~= false
 				and not SP:CountdownNumbersEnabled())
 		end

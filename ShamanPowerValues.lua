@@ -263,13 +263,14 @@ SHAMANPOWER_DEFAULT_VALUES = {
         -- Duration Bar settings (shows totem remaining time)
         durationBarPosition = "bottom",  -- "none", "bottom", "bottom_vert", "top", "top_vert", "left", "right"
         durationBarHeight = 3,           -- Size of duration bar (2-26)
-        durationTextLocation = "none",   -- "none", "inside_top", "inside_bottom", "above", "below", "icon"
+        durationTextLocation = "none",   -- "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "icon_top", "icon" (centre), "icon_bottom"
         durationTextSize = 8,            -- Font size for duration text (6-20)
         totemCooldownTextColor = { r = 1, g = 1, b = 1 },  -- Color for totem cooldown text
         -- Pulse Bar settings (shows pulse countdown for pulsing totems)
+        pulseOnIconSweep = false,        -- Pulse Bar On Icon: draw the pulse as a clock sweep instead of the sliding bar
         pulseBarPosition = "on_icon",    -- "none", "on_icon", "above", "above_vert", "below", "below_vert", "left", "right"
         pulseBarSize = 4,                -- Size of pulse bar (2-16)
-        pulseTimeDisplay = "none",       -- "none", "inside_top", "inside_bottom", "above", "below", "on_icon"
+        pulseTimeDisplay = "none",       -- "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "on_icon"
         pulseTextSize = 8,               -- Font size for pulse time text (6-20)
         -- Range Counter settings (shows number of players in range of each totem)
         rangeCounter = {

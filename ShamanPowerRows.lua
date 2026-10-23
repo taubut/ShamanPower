@@ -792,6 +792,7 @@ local function carryStyle(c, element, size)
 	SP:ThemePaintDurationText(text, element)   -- Appearance > Themes: Duration Text Color; white on Standard
 	c.location = opt.durationTextLocation or "none"
 	if c.location == "inside_top" then text:SetPoint("TOP", bg, "TOP", 0, -1)
+	elseif c.location == "inside_center" then text:SetPoint("CENTER", bg, "CENTER", 0, 0)
 	elseif c.location == "inside_bottom" then text:SetPoint("BOTTOM", bg, "BOTTOM", 0, 1)
 	elseif c.location == "above" then
 		if position == "left" then text:SetPoint("RIGHT", bg, "LEFT", -1, 0)
@@ -801,6 +802,7 @@ local function carryStyle(c, element, size)
 		if position == "left" then text:SetPoint("LEFT", bg, "RIGHT", 1, 0)
 		elseif position == "right" then text:SetPoint("RIGHT", bg, "LEFT", -1, 0)
 		else text:SetPoint("TOP", bg, "BOTTOM", 0, -1) end
+	elseif SP.ICON_TEXT_SIDE[c.location] then SP:AnchorIconText(text, h, c.location)   -- On Icon (Top / Center / Bottom)
 	else text:SetPoint("CENTER", h, "CENTER", 0, 0) end
 	c.secs = false
 end

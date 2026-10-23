@@ -112,6 +112,7 @@ local function styleVisual(v, button, element, size)
 	v.location = opt.durationTextLocation or "none"
 	SP:SetSPFont(text, "timers", opt.durationTextSize or 8, "OUTLINE")
 	if v.location == "inside_top" then text:SetPoint("TOP", bg, "TOP", 0, -1)
+	elseif v.location == "inside_center" then text:SetPoint("CENTER", bg, "CENTER", 0, 0)
 	elseif v.location == "inside_bottom" then text:SetPoint("BOTTOM", bg, "BOTTOM", 0, 1)
 	elseif v.location == "above" then
 		if position == "left" then text:SetPoint("RIGHT", bg, "LEFT", -1, 0)
@@ -121,6 +122,7 @@ local function styleVisual(v, button, element, size)
 		if position == "left" then text:SetPoint("LEFT", bg, "RIGHT", 1, 0)
 		elseif position == "right" then text:SetPoint("RIGHT", bg, "LEFT", -1, 0)
 		else text:SetPoint("TOP", bg, "BOTTOM", 0, -1) end
+	elseif SP.ICON_TEXT_SIDE[v.location] then SP:AnchorIconText(text, button, v.location)   -- On Icon (Top / Center / Bottom)
 	else text:SetPoint("CENTER", button, "CENTER", 0, 0) end
 end
 
