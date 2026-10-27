@@ -3596,12 +3596,12 @@ ShamanPower.options = {
 							order = 2.5,
 							type = "select",
 							name = "Sweep Style",
-							desc = "Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and its color comes back as time runs out. Radial: the classic clock swipe (shields and cooldowns; weapon imbues keep Vertical - Grays Out).",
+							desc = "Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and its color comes back as time runs out. Clock Sweep: the classic clock sweep (shields and cooldowns; weapon imbues keep Vertical - Grays Out).",
 							width = 1.2,
 							values = {
 								["greys"] = "Vertical - Grays Out",
 								["fills"] = "Vertical - Fills Back In",
-								["radial"] = "Radial Swipe",
+								["radial"] = "Clock Sweep",
 							},
 							disabled = function()
 								return ShamanPower.opt.cdbarShowColorSweep == false
@@ -3619,7 +3619,7 @@ ShamanPower.options = {
 							order = 2.6,
 							type = "select",
 							name = "Sweep Direction",
-							desc = "Where the gray (Grays Out) or color (Fills Back In) starts. With Radial Swipe, this only changes weapon imbues, which keep Vertical - Grays Out.",
+							desc = "Where the gray (Grays Out) or color (Fills Back In) starts. With Clock Sweep, this only changes weapon imbues, which keep Vertical - Grays Out.",
 							width = 1.2,
 							values = { top = "From The Top", bottom = "From The Bottom" },
 							sorting = { "top", "bottom" },
@@ -8551,33 +8551,14 @@ ShamanPower.options = {
 								["inside_bottom"] = "Inside Bar (Bottom)",
 								["above"] = "Above Bar",
 								["below"] = "Below Bar",
-								["icon"] = "On Icon",
+								["icon_top"] = "On Icon (Top)",
+								["icon"] = "On Icon (Center)",   -- (the saved "icon" it always was)
+								["icon_bottom"] = "On Icon (Bottom)",
 							},
-							sorting = { "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "icon" },
+							sorting = { "none", "inside_top", "inside_center", "inside_bottom", "above", "below", "icon_top", "icon", "icon_bottom" },
 							get = function(info)
-								local loc = ShamanPower.opt.durationTextLocation or "none"
-								return ShamanPower.ICON_TEXT_SIDE[loc] and "icon" or loc   -- icon_top / icon_bottom show as On Icon
+								return ShamanPower.opt.durationTextLocation or "none"
 							end,
-							set = function(info, val)
-								local cur = ShamanPower.opt.durationTextLocation
-								-- picking On Icon again keeps the side already chosen
-								if val == "icon" and ShamanPower.ICON_TEXT_SIDE[cur] then val = cur end
-								ShamanPower.opt.durationTextLocation = val
-								ShamanPower:UpdateTotemProgressBarPositions()
-								ShamanPower:UpdateTotemProgressBars()
-							end
-						},
-						duration_icon_side = {
-							disabled = function(info) return (CompactOn()) and true or false end,
-							order = 3.1,
-							type = "select",
-							name = "Icon Text Position",
-							desc = "Where on the icon the remaining time is shown",
-							width = 1.0,
-							values = { icon_top = "Top", icon = "Center", icon_bottom = "Bottom" },
-							sorting = { "icon_top", "icon", "icon_bottom" },
-							hidden = function() return not ShamanPower.ICON_TEXT_SIDE[ShamanPower.opt.durationTextLocation] end,
-							get = function(info) return ShamanPower.opt.durationTextLocation end,
 							set = function(info, val)
 								ShamanPower.opt.durationTextLocation = val
 								ShamanPower:UpdateTotemProgressBarPositions()
@@ -8634,7 +8615,7 @@ ShamanPower.options = {
 							order = 3.75,
 							type = "select",
 							name = "Cooldown Style",
-							desc = "How a totem's spell cooldown is drawn. Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and its color comes back as time runs out. Radial: the classic clock swipe.",
+							desc = "How a totem's spell cooldown is drawn. Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and its color comes back as time runs out. Clock Sweep: the classic clock sweep.",
 							width = 1.0,
 							values = {
 								["radial"] = "Clock Sweep",
@@ -8675,7 +8656,7 @@ ShamanPower.options = {
 							order = 3.76,
 							type = "toggle",
 							name = "Clock Sweep Edge",
-							desc = "The bright line that travels around the icon with the radial swipe. Off for a plain dark swipe.",
+							desc = "The bright line that travels around the icon with the Clock Sweep. Off for a plain dark sweep.",
 							width = 1.0,
 							disabled = function()
 								return ShamanPower.opt.showTotemCooldowns == false or (ShamanPower.opt.totemCooldownSweep or "radial") ~= "radial"
@@ -8763,7 +8744,8 @@ ShamanPower.options = {
 							width = 1.2,
 							values = {
 								["none"] = "None (Disabled)",
-								["on_icon"] = "On Icon",
+								["on_icon"] = "On Icon (Sliding Bar)",
+								["on_icon_sweep"] = "On Icon (Clock Sweep)",
 								["above"] = "Above (Horizontal)",
 								["above_vert"] = "Above (Vertical)",
 								["below"] = "Below (Horizontal)",
@@ -8771,25 +8753,15 @@ ShamanPower.options = {
 								["left"] = "Left",
 								["right"] = "Right",
 							},
+							-- On Icon (Clock Sweep) is saved as On Icon plus pulseOnIconSweep (PulseVisualSync draws it)
 							get = function(info)
-								return ShamanPower.opt.pulseBarPosition or "on_icon"
+								local pos = ShamanPower.opt.pulseBarPosition or "on_icon"
+								if pos == "on_icon" and ShamanPower.opt.pulseOnIconSweep then return "on_icon_sweep" end
+								return pos
 							end,
 							set = function(info, val)
-								ShamanPower.opt.pulseBarPosition = val
-								ShamanPower:UpdatePulseBarPositions()
-							end
-						},
-						pulse_icon_sweep = {
-							disabled = function(info) return (CompactOn()) and true or false end,
-							order = 4.1,
-							type = "toggle",
-							name = "Clock Sweep",
-							desc = "Show the pulse as a clock sweep that fills the icon, instead of a bar sliding down it.",
-							width = 1.0,
-							hidden = function() return ShamanPower.opt.pulseBarPosition ~= "on_icon" end,
-							get = function(info) return ShamanPower.opt.pulseOnIconSweep == true end,
-							set = function(info, val)
-								ShamanPower.opt.pulseOnIconSweep = val and true or false
+								ShamanPower.opt.pulseOnIconSweep = (val == "on_icon_sweep") or nil
+								ShamanPower.opt.pulseBarPosition = (val == "on_icon_sweep") and "on_icon" or val
 								ShamanPower:UpdatePulseBarPositions()
 							end
 						},
@@ -10661,7 +10633,7 @@ do
 	RefreshAfter(mode.activeTotemAsMain)
 	RefreshAfter(pages.layout_section.args.activeOverlayDirection)
 	for _, name in ipairs({ "duration_bar_position", "duration_bar_height",
-		"show_duration_text", "duration_icon_side", "duration_text_size" }) do
+		"show_duration_text", "duration_text_size" }) do
 		RefreshAfter(duration[name])
 	end
 	local durationDescription = duration.duration_desc.name
@@ -10697,14 +10669,14 @@ do
 		"Show ShamanPower's active-totem lifetime swipe. Duration bars and positioned text are independent; "
 			.. "Blizzard's spell cooldowns are untouched.")
 	LifetimeOption(duration.totem_cooldown_sweep, "Lifetime Swipe Style",
-		"Draw the totem lifetime as a radial swipe, Vertical - Grays Out (gray covers the color), or Vertical - Fills Back In (color returns as time runs out).",
+		"Draw the totem lifetime as a Clock Sweep, Vertical - Grays Out (gray covers the color), or Vertical - Fills Back In (color returns as time runs out).",
 		function() return SP.opt.showTotemCooldowns == false end)
 	RefreshAfter(duration.totem_cooldown_direction)
 	LifetimeOption(duration.totem_cooldown_edge, "Radial Edge Line",
 		"Draw the bright edge on ShamanPower's radial lifetime swipe.",
 		function() return SP.opt.showTotemCooldowns == false or (SP.opt.totemCooldownSweep or "radial") ~= "radial" end)
 	LifetimeOption(duration.totem_cooldown_text, "Show Time Left on Icon",
-		"Show the totem's time left when Show Duration is set to On Icon. Other text locations have their own settings.",
+		"Show the totem's time left when Time Left Position is On Icon (Top, Center or Bottom). Other text locations have their own settings.",
 		function() return not SP.ICON_TEXT_SIDE[SP.opt.durationTextLocation] end)
 	LifetimeOption(duration.totem_cooldown_text_color, "Duration Text Color",
 		"Color of the totem's time left on the icon.",

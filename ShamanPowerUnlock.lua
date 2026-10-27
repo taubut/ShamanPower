@@ -159,7 +159,7 @@ local MODULES = {
 		reset = function()
 			local a = SP.loadoutAnchor
 			if not a then return end
-			a:ClearAllPoints(); a:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
+			SP:ApplyPositionRecord(a, SP.DEFAULT_LOADOUT_BAR_POSITION)   -- (RestoreLoadoutBarPosition's default)
 			if SP.SaveLoadoutBarPosition then SP:SaveLoadoutBarPosition() end
 		end },
 	{ key = "sprange", label = "Totem Range" },

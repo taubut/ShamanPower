@@ -20,5 +20,6 @@ local dlg = __sim.frameWithText("What's new")
 if dlg and dlg.Hide then dlg:Hide() end
 SlashCmdList["SPWHATSNEW"]("")
 __sim.advance(0.3)
-check("opened on request, the card leads with the newest version", __sim.frameWithText("ShamanPower 3.0.9.4") ~= nil)
+local newest = ShamanPower.PATCH_NOTES and ShamanPower.PATCH_NOTES[1] and ShamanPower.PATCH_NOTES[1].v   -- (3.0.9.5 since then)
+check("opened on request, the card leads with the newest version", newest ~= nil and __sim.frameWithText("ShamanPower " .. newest) ~= nil)
 finish()

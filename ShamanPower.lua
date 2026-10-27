@@ -3028,9 +3028,9 @@ function ShamanPower:PulseSweepFrame(o)
 		sw.noCooldownCount = true
 		o.sweep = sw
 	end
-	local c = self.opt.pulseBarColor
-	local a = 0.7 * (self.opt.pulseBarOpacity or 1)   -- Pulse Bar Opacity, on top of the bar's own 70%
-	if c then sw:SetSwipeColor(c.r or 1, c.g or 1, c.b or 1, a) else sw:SetSwipeColor(1, 1, 1, a) end
+	-- the pulse bar's color (Pulse Bar Color, else the theme's, else white: ThemePaintPulse), Pulse Bar
+	-- Opacity on top of the bar's own 70%
+	sw:SetSwipeColor(o.spPulseR or 1, o.spPulseG or 1, o.spPulseB or 1, 0.7 * (self.opt.pulseBarOpacity or 1))
 	-- under the time texts (the pulse time and the duration time sit on frames above the bar)
 	sw:SetFrameLevel(o.wipeFrame:GetFrameLevel())
 	return sw
@@ -4013,7 +4013,7 @@ end
 -- bar's frame (+1) and its on-icon time (+2): a child frame draws over its parent's own regions, so
 -- texts on the button itself were covered by the pulse bar wherever the two met. `store` keeps the
 -- frame (store.textHost) so it is made once.
--- Time Left Position "On Icon": where on the icon the time goes. "icon" is the centre (as it always
+-- Time Left Position "On Icon": where on the icon the time goes. "icon" is the center (as it always
 -- was, so saved settings still mean the same); icon_top and icon_bottom put it on the icon's top or
 -- bottom edge. ICON_TEXT_SIDE[location] is the anchor point, nil for every other location.
 ShamanPower.ICON_TEXT_SIDE = { icon = "CENTER", icon_top = "TOP", icon_bottom = "BOTTOM" }
@@ -5436,10 +5436,11 @@ function ShamanPower:CreateActiveTotemOverlay(element)
 		overlay.glows[i] = glow
 	end
 
-	-- Create range dots on this frame
+	-- Create range dots on this frame (on its dot frame: over the game's picture of the totem in a fight)
 	overlay.dots = {}
+	local dotHolder = self:PlacePartyDotFrame(frame)
 	for i = 1, 4 do
-		local dot = frame:CreateTexture(nil, "OVERLAY")
+		local dot = dotHolder:CreateTexture(nil, "OVERLAY")
 		dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot")
 		dot:SetSize(5, 5)
 		dot:SetVertexColor(1, 1, 1)
@@ -13623,6 +13624,9 @@ function ShamanPower:PlacePartyDotFrame(frame)
 	if f and f.spX == x and f.spY == y then return f end   -- already there
 	if not f then
 		f = CreateFrame("Frame", nil, frame)
+		-- the addon's own dots are drawn on it: above the game's picture of your totem over the icon
+		-- in a fight (ShamanPower_PartyRange, own range: one level up), under the game's own dots
+		f:SetFrameLevel(frame:GetFrameLevel() + 2)
 		frame.spDotFrame = f
 	elseif InCombatLockdown() and f:IsProtected() then
 		return f   -- an engine dot anchored to it may protect it: left for the next layout
@@ -22687,7 +22691,7 @@ function ShamanPower:CreateLoadoutBar()
 	local anchor = CreateFrame("Button", "ShamanPowerSetAnchor", UIParent,
 		"SecureHandlerEnterLeaveTemplate, SecureHandlerBaseTemplate")
 	anchor:SetSize(32, 32)
-	anchor:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
+	anchor:SetPoint("CENTER", UIParent, "CENTER", 0, 0)   -- (RestoreLoadoutBarPosition places it: the saved spot or the default)
 	anchor:SetFrameStrata("MEDIUM")
 	anchor:SetClampedToScreen(true)
 	anchor:SetMovable(true)
@@ -23167,9 +23171,16 @@ function ShamanPower:SaveLoadoutBarPosition()
 	end
 end
 
+-- With no saved spot the bar sits left of the middle of the screen, half way up (it used to start
+-- low down, over the action bars). UIParent units, so its scale does not move it. Unlock UI's Reset
+-- puts it here too (ShamanPowerUnlock.lua).
+ShamanPower.DEFAULT_LOADOUT_BAR_POSITION = { anchor = "CENTER", x = -300, y = 0 }
+
 function ShamanPower:RestoreLoadoutBarPosition()
 	local pos = self.opt.loadoutBarPosition
-	if pos and self.loadoutAnchor then
+	if not pos and self.loadoutAnchor then
+		self:ApplyPositionRecord(self.loadoutAnchor, self.DEFAULT_LOADOUT_BAR_POSITION)
+	elseif pos and self.loadoutAnchor then
 		self.loadoutAnchor:ClearAllPoints()
 		if pos.anchor then
 			self:ApplyPositionRecord(self.loadoutAnchor, pos)
@@ -23317,6 +23328,10 @@ function ShamanPower:ThemePaintPulse(o, element)
 		o.spThemePulse = nil
 		self:SetSPBarColor(wipe, "pulse", 1, 1, 1, 0.7)
 	end
+	-- the On Icon (Clock Sweep) pulse takes the same color (PulseSweepFrame; nil is white)
+	o.spPulseR, o.spPulseG, o.spPulseB = r, g, b
+	local sw = o.sweep
+	if sw then sw:SetSwipeColor(r or 1, g or 1, b or 1, 0.7 * (self.opt.pulseBarOpacity or 1)) end
 end
 
 -- Pulse Bar Color changed: every pulse bar and wipe takes it now

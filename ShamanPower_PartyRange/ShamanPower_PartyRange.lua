@@ -244,8 +244,10 @@ function SP:CreatePartyRangeDots(button, element)
 
 	self.partyRangeDots[element] = {}
 
+	-- on the button's dot frame, over the game's picture of your totem in a fight (own range, below)
+	local holder = self.PlacePartyDotFrame and self:PlacePartyDotFrame(button) or button
 	for i = 1, 4 do
-		local dot = button:CreateTexture(nil, "OVERLAY")
+		local dot = holder:CreateTexture(nil, "OVERLAY")
 		dot:SetTexture("Interface\\AddOns\\ShamanPower\\textures\\dot")
 		dot:SetSize(5, 5)  -- Smaller dots for inside corners
 		dot:SetVertexColor(1, 1, 1)  -- Default white, will be colored by class
@@ -265,11 +267,12 @@ function SP:RefreshPartyRangeHosts()
 		local button = PartyRangeHost(element)
 		local dots = self.partyRangeDots[element]
 		if button and dots then
+			local holder = self.PlacePartyDotFrame and self:PlacePartyDotFrame(button) or button   -- (CreatePartyRangeDots)
 			for i = 1, 4 do
 				local dot = dots[i]
-				if dot:GetParent() ~= button then dot:SetParent(button) end
+				if dot:GetParent() ~= holder then dot:SetParent(holder) end
 				local outline = dot.spOutline
-				if outline and outline:GetParent() ~= button then outline:SetParent(button) end
+				if outline and outline:GetParent() ~= holder then outline:SetParent(holder) end
 			end
 			if self.PositionPartyDots then self:PositionPartyDots(dots, button) end
 		end

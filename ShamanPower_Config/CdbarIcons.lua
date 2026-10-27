@@ -341,7 +341,7 @@ end
 
 local STYLE_CHOICES = { { "mirror", "Same As The Totem Bar" }, { "normal", "Normal" }, { "totemtimers", "TotemTimers Style" },
 	{ "single", "Single Totem" }, { "dynamic", "Dynamic (PvP)" }, { "grid", "Grid (every choice)" } }
--- (the sweeps' pictures: Radial Swipe as it is, Grays Out as the gray; Fills Back In has no picture of its own)
+-- (the sweeps' pictures: Clock Sweep as it is, Grays Out as the gray; Fills Back In has no picture of its own)
 local SWEEP_CHOICES = { { "none", "None", nil, PIC.plain }, { "greys", "Gray Fills In", nil, { kind = "gray" } },
 	{ "fills", "Color Fills In", nil, PIC.none },
 	{ "radial", "Clock Sweep", nil, { kind = "sweep", frac = 0.6, text = "6m" } } }
@@ -437,14 +437,14 @@ local function AppearanceRows(t)
 			.. " one in its corner. Single Totem: the one that is up, without the corner. Dynamic (PvP): the one that is up, and"
 			.. " casting another one makes it your assigned one. Grid: every choice laid out beside it (no flyout).", "mirror")
 	end
-	-- (the imbue draws a Radial Swipe as Vertical - Grays Out: one copied from another item reads that way)
+	-- (the imbue draws a Clock Sweep as Vertical - Grays Out: one copied from another item reads that way)
 	r[#r + 1] = Choice("Sweep", t == IMBUE and SWEEP_CHOICES_IMBUE or SWEEP_CHOICES, function()
 		local v, own = Get(t, "sweep")
 		if v == nil or (t == IMBUE and v == "radial") then v = "greys" end
 		return v, own
 	end, function(v) return Set(t, "sweep", v) end,
 		"Grays Out: the icon starts in color and gray covers it as time runs out. Fills Back In: the icon starts gray and"
-		.. " its color comes back." .. (t == IMBUE and "" or " Radial Swipe: the classic clock swipe.") .. " None: no sweep.")
+		.. " its color comes back." .. (t == IMBUE and "" or " Clock Sweep: the classic clock sweep.") .. " None: no sweep.")
 	local sweep = Get(t, "sweep")
 	if t == IMBUE and sweep == "radial" then sweep = "greys" end
 	if sweep == "greys" or sweep == "fills" then

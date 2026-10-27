@@ -477,7 +477,7 @@ local function AppearanceRows(key)
 			ChoiceRow(key, "Sweep", "sweep", SWEEP_CHOICES, PIC.plain),
 		}
 		t[2].tip = "The seconds your debuff has left, on its icon."
-		t[3].tip = "How the icon counts down. Radial: the clock swipe. Grays Out: gray covers the icon as the time runs"
+		t[3].tip = "How the icon counts down. Clock Sweep: the clock sweep. Grays Out: gray covers the icon as the time runs"
 			.. " out. Fills Back In: the icon starts gray and its color comes back as the time runs out."
 		local sweep = Get(key, "sweep")
 		if sweep == "greys" or sweep == "fills" then

@@ -1762,17 +1762,20 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		if SP.ShapeIconTexture then SP:ShapeIconTexture(icon, icon, "totem"); SP:ShapeIconTexture(bg, b, "totem") end   -- Totem Bar Icon Shape
 		Core:MakeBorder(b, "border")
 		local s = { e = e, f = b, icon = icon, t = e.off, wasActive = false }
+		-- the time texts sit on a layer above the pulse bar and the sweeps, as on the real bar (on the button
+		-- itself they were drawn under them)
+		s.th = CreateFrame("Frame", nil, b); s.th:SetAllPoints(b); s.th:SetFrameLevel(b:GetFrameLevel() + 4)
 		-- duration bar + its five text slots (mirrors totemProgressBars)
 		s.dbg = b:CreateTexture(nil, "BACKGROUND", nil, 1); s.dbg:SetColorTexture(0, 0, 0, 0.6)
 		s.dbar = b:CreateTexture(nil, "ARTWORK", nil, 1); SP:SetSPBarColor(s.dbar, "duration", e.r, e.g, e.b, 0.95)
 		local function fs(parent) local t = parent:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(t, "timers", 8, "OUTLINE"); t:SetTextColor(1, 1, 1); t:Hide(); return t end
-		s.txt = { inside_top = fs(b), inside_center = fs(b), inside_bottom = fs(b), above = fs(b), below = fs(b), icon = fs(b), icon_top = fs(b), icon_bottom = fs(b) }
+		s.txt = { inside_top = fs(s.th), inside_center = fs(s.th), inside_bottom = fs(s.th), above = fs(s.th), below = fs(s.th), icon = fs(s.th), icon_top = fs(s.th), icon_bottom = fs(s.th) }
 		s.txt.icon:SetPoint("CENTER", b, "CENTER"); s.txt.icon_top:SetPoint("TOP", b, "TOP", 0, -2); s.txt.icon_bottom:SetPoint("BOTTOM", b, "BOTTOM", 0, 2)
-		-- totem cooldown: radial swipe + colored remaining text (Water only)
+		-- totem cooldown: Clock Sweep + colored remaining text (Water only)
 		if e.cd then
 			s.cdf = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate"); s.cdf:SetAllPoints(b); s.cdf:SetDrawEdge(false)
 			if s.cdf.SetHideCountdownNumbers then s.cdf:SetHideCountdownNumbers(true) end
-			s.cdt = b:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(s.cdt, "timers", 11, "OUTLINE"); s.cdt:SetPoint("CENTER", b, "CENTER"); s.cdt:Hide()
+			s.cdt = s.th:CreateFontString(nil, "OVERLAY", nil, 7); SP:SetSPFont(s.cdt, "timers", 11, "OUTLINE"); s.cdt:SetPoint("CENTER", b, "CENTER"); s.cdt:Hide()
 			-- Vertical sweep; its gray edge follows Sweep Direction and the chosen style.
 			s.cdgray = b:CreateTexture(nil, "ARTWORK", nil, 1); s.cdgray:SetPoint("TOPLEFT", icon, "TOPLEFT"); s.cdgray:SetPoint("TOPRIGHT", icon, "TOPRIGHT")
 			s.cdgray:SetTexture(e.icon); s.cdgray:SetDesaturated(true); s.cdgray:SetVertexColor(0.5, 0.5, 0.5); s.cdgray:Hide()
@@ -1782,11 +1785,19 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 		if e.pulse then
 			s.wf = CreateFrame("Frame", nil, b); s.wf:SetFrameLevel(b:GetFrameLevel() + 2)
 			s.wipe = s.wf:CreateTexture(nil, "OVERLAY"); SP:SetSPBarColor(s.wipe, "pulse", 1, 1, 1, 0.7)
+			-- On Icon (Clock Sweep): the pulse as a sweep filling the icon, as SP:PulseSweepFrame draws it
+			s.psw = CreateFrame("Cooldown", nil, s.wf, "CooldownFrameTemplate")
+			s.psw:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2); s.psw:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
+			s.psw:SetDrawEdge(false); if s.psw.SetDrawBling then s.psw:SetDrawBling(false) end
+			s.psw:SetHideCountdownNumbers(true); s.psw:SetReverse(true); s.psw.noCooldownCount = true
+			s.psw:SetFrameLevel(s.wf:GetFrameLevel()); s.psw:Hide()
 			-- the flash at each pulse, as the bar draws it (green glow around the button, sized outward)
 			s.flash = b:CreateTexture(nil, "OVERLAY", nil, 7); s.flash:SetTexture("Interface\\Buttons\\UI-ActionButton-Border"); SP:ShapeGlow(s.flash, "border")
 			s.flash:SetBlendMode("ADD"); s.flash:SetVertexColor(0.4, 1, 0.4); s.flash:SetPoint("CENTER", b, "CENTER", 0, 0)
 			s.flash:SetSize(SIZE * 1.8, SIZE * 1.8); s.flash:SetAlpha(0)
-			s.ptxt = { inside_top = fs(s.wf), inside_center = fs(s.wf), inside_bottom = fs(s.wf), above = fs(s.wf), below = fs(s.wf), on_icon = fs(b) }
+			-- the pulse bar's own texts on a layer above it and the sweep (hidden with the bar)
+			s.wth = CreateFrame("Frame", nil, s.wf); s.wth:SetAllPoints(s.wf); s.wth:SetFrameLevel(s.wf:GetFrameLevel() + 2)
+			s.ptxt = { inside_top = fs(s.wth), inside_center = fs(s.wth), inside_bottom = fs(s.wth), above = fs(s.wth), below = fs(s.wth), on_icon = fs(s.th) }
 			s.ptxt.inside_top:SetPoint("TOP", s.wf, "TOP", 0, -1); s.ptxt.inside_bottom:SetPoint("BOTTOM", s.wf, "BOTTOM", 0, 1)
 			s.ptxt.inside_center:SetPoint("CENTER", s.wf, "CENTER", 0, 0)
 			s.ptxt.above:SetPoint("BOTTOM", s.wf, "TOP", 0, 1); s.ptxt.below:SetPoint("TOP", s.wf, "BOTTOM", 0, -1)
@@ -1932,11 +1943,21 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 			if s.wf then
 				local vis = active and pp ~= "none"
 				s.wf:SetShown(vis and barOn)
-				if vis and barOn then
-					local prog = (s.t % e.pulse) / e.pulse
-					local size = math.max(1, s.pmax * prog)
-					if s.pvert then s.wipe:SetHeight(size) else s.wipe:SetWidth(size) end
-					s.wipe:SetShown(prog > 0.02); s.wipe:SetAlpha(pOp)
+				if vis and barOn and pp == "on_icon" and O("pulseOnIconSweep", false) then
+					-- On Icon (Clock Sweep): restarted at each pulse, the engine draws it in between
+					s.wipe:Hide()
+					local n = math.floor(s.t / e.pulse)
+					if s.pswN ~= n then s.pswN = n; s.psw:SetCooldown(GetTime() - (s.t % e.pulse), e.pulse) end
+					if s.pswA ~= pOp then s.pswA = pOp; s.psw:SetSwipeColor(1, 1, 1, 0.7 * pOp) end
+					s.psw:Show()
+				else
+					s.psw:Hide(); s.pswN = nil
+					if vis and barOn then
+						local prog = (s.t % e.pulse) / e.pulse
+						local size = math.max(1, s.pmax * prog)
+						if s.pvert then s.wipe:SetHeight(size) else s.wipe:SetWidth(size) end
+						s.wipe:SetShown(prog > 0.02); s.wipe:SetAlpha(pOp)
+					end
 				end
 				-- the flash: bright at the pulse, gone after 15% of the cycle (0% = off)
 				if s.flash then
@@ -1995,7 +2016,7 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	row("Dropdown", { label = "Cooldown style", disabled = function() return O("showTotemCooldowns", true) == false end,
 		get = function() return O("totemCooldownSweep", "radial") end,
 		set = function(v) OPT().totemCooldownSweep = v; upd("UpdateTotemCooldowns"); RefreshSweepRows() end,
-		values = function() return { radial = "Radial Swipe", vertical = "Vertical - Grays Out", reverse = "Vertical - Fills Back In" } end, order = function() return { "radial", "vertical", "reverse" } end })
+		values = function() return { radial = "Clock Sweep", vertical = "Vertical - Grays Out", reverse = "Vertical - Fills Back In" } end, order = function() return { "radial", "vertical", "reverse" } end })
 	if O("showTotemCooldowns", true) and O("totemCooldownSweep", "radial") ~= "radial" then
 		row("Dropdown", { label = "Sweep Direction", desc = "Where the gray (Grays Out) or color (Fills Back In) starts.",
 			get = function() return OPT().totemCooldownSweepDirection or (OPT().totemCooldownSweep == "reverse" and "bottom" or "top") end,
@@ -2009,10 +2030,19 @@ function SP.Wizard.BuildDurationBarsStep(card, inner, y)
 	row("Color", { label = "Cooldown text color", disabled = function() return O("showTotemCooldowns", true) == false or O("totemCooldownText", true) == false end,
 		get = function() local c = OPT().totemCooldownTextColor; if c then return c.r or 1, c.g or 1, c.b or 1 end; return 1, 1, 1 end,
 		set = function(r, g, b) OPT().totemCooldownTextColor = OPT().totemCooldownTextColor or {}; local c = OPT().totemCooldownTextColor; c.r, c.g, c.b = r, g, b; upd("ApplyTotemCooldownTextColor") end })
-	row("Dropdown", { label = "Pulse position", get = function() return O("pulseBarPosition", "on_icon") end,
-		set = function(v) OPT().pulseBarPosition = v; upd("UpdatePulseBarPositions") end,
-		values = function() return { none = "None", on_icon = "On Icon", above = "Above (Horizontal)", above_vert = "Above (Vertical)", below = "Below (Horizontal)", below_vert = "Below (Vertical)", left = "Left", right = "Right" } end,
-		order = function() return { "none", "on_icon", "above", "above_vert", "below", "below_vert", "left", "right" } end })
+	-- On Icon (Clock Sweep) is saved as On Icon plus pulseOnIconSweep, as on Totem Bar > Duration Bars
+	row("Dropdown", { label = "Pulse position", get = function()
+			local pos = O("pulseBarPosition", "on_icon")
+			if pos == "on_icon" and O("pulseOnIconSweep", false) then return "on_icon_sweep" end
+			return pos
+		end,
+		set = function(v)
+			OPT().pulseOnIconSweep = (v == "on_icon_sweep") or nil
+			OPT().pulseBarPosition = (v == "on_icon_sweep") and "on_icon" or v
+			upd("UpdatePulseBarPositions")
+		end,
+		values = function() return { none = "None", on_icon = "On Icon (Sliding Bar)", on_icon_sweep = "On Icon (Clock Sweep)", above = "Above (Horizontal)", above_vert = "Above (Vertical)", below = "Below (Horizontal)", below_vert = "Below (Vertical)", left = "Left", right = "Right" } end,
+		order = function() return { "none", "on_icon", "on_icon_sweep", "above", "above_vert", "below", "below_vert", "left", "right" } end })
 	row("Slider", { label = "Pulse size", min = 2, max = 26, step = 1, get = function() return O("pulseBarSize", 4) end,
 		set = function(v) OPT().pulseBarSize = v; upd("UpdatePulseBarPositions") end })
 	row("Dropdown", { label = "Pulse time", get = function() return O("pulseTimeDisplay", "none") end,
@@ -3747,7 +3777,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		-- Gray sweep overlay; style and direction match the real bar.
 		local gray = btn:CreateTexture(nil, "ARTWORK", nil, 1); gray:SetPoint("TOPLEFT"); gray:SetPoint("TOPRIGHT"); gray:SetHeight(0)
 		gray:SetTexture(GetSpellTexture(sp.id)); gray:SetDesaturated(true); gray:SetVertexColor(0.5, 0.5, 0.5); gray:Hide()
-		-- radial swipe (only used when Sweep style is "Radial swipe")
+		-- Clock Sweep (only used when Sweep Style is "Clock Sweep")
 		local cdr = CreateFrame("Cooldown", nil, btn, "CooldownFrameTemplate"); cdr:SetAllPoints(icon); cdr:SetDrawEdge(false); cdr:SetSwipeColor(0, 0, 0, 0.8)
 		if SP.ShapeIconTexture then   -- Cooldown Bar Icon Shape
 			SP:ShapeIconTexture(icon, icon, "cooldown"); SP:ShapeIconTexture(gray, icon, "cooldown"); SP:ShapeCooldown(cdr, "cooldown")
@@ -3952,7 +3982,7 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 						if sp.count then b.corner:Show() end
 					end
 				else
-					-- Shields stay up; imbues show their duration, even with Radial Swipe.
+					-- Shields stay up; imbues show their duration, even with Clock Sweep.
 					if b.vert then b.pb:SetHeight(SIZE) else b.pb:SetWidth(SIZE) end
 					b.gray:Hide(); b.txt:SetText("")
 					if sp.imbue and sweep ~= "none" then
@@ -4028,10 +4058,10 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 	wrow("Dropdown", { label = "Sweep style", disabled = function() return OPT().cdbarShowColorSweep == false end,
 		get = function() return OPT().cdbarSweepStyle or "greys" end,
 		set = function(v) SP.opt.cdbarSweepStyle = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify(); RefreshSweepRows() end,
-		values = function() return { greys = "Vertical - Grays Out", fills = "Vertical - Fills Back In", radial = "Radial Swipe" } end,
+		values = function() return { greys = "Vertical - Grays Out", fills = "Vertical - Fills Back In", radial = "Clock Sweep" } end,
 		order = function() return { "greys", "fills", "radial" } end })
 	if OPT().cdbarShowColorSweep ~= false and ((OPT().cdbarSweepStyle or "greys") ~= "radial" or OPT().cdbarShowImbues ~= false) then
-		wrow("Dropdown", { label = "Sweep Direction", desc = "Where the gray (Grays Out) or color (Fills Back In) starts. With Radial Swipe, this only changes weapon imbues, which keep Vertical - Grays Out.",
+		wrow("Dropdown", { label = "Sweep Direction", desc = "Where the gray (Grays Out) or color (Fills Back In) starts. With Clock Sweep, this only changes weapon imbues, which keep Vertical - Grays Out.",
 			get = function() return OPT().cdbarSweepDirection or (OPT().cdbarSweepStyle == "fills" and "bottom" or "top") end,
 			set = function(v) OPT().cdbarSweepDirection = v; safecall("RebuildShieldChargeContainer"); safecall("UpdateCooldownBar"); notify() end,
 			values = function() return { top = "From The Top", bottom = "From The Bottom" } end, order = function() return { "top", "bottom" } end })

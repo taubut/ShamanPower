@@ -960,18 +960,17 @@ end
 -- totem or the spell that cures it (Cure Poison, Cure Disease). Until one of them is learned the alert
 -- stays quiet, in a fight too. Read once for each alert, and again when the spellbook changes.
 local REACTIVE_ANSWERS = {
-	fear = { { 8143, "Tremor Totem" } },
-	poison = { { 8166, "Poison Cleansing Totem" }, { 526, "Cure Poison" } },
-	disease = { { 8170, "Disease Cleansing Totem" }, { 2870, "Cure Disease" } },
+	fear = { 8143 },            -- Tremor Totem
+	poison = { 8166, 526 },     -- Poison Cleansing Totem, Cure Poison
+	disease = { 8170, 2870 },   -- Disease Cleansing Totem, Cure Disease
 }
 local reactiveAnswer = {}
 function SP:ReactiveCanAnswer(totemId)
 	local known = reactiveAnswer[totemId]
 	if known ~= nil then return known end
 	known = false
-	for _, spell in ipairs(REACTIVE_ANSWERS[totemId] or {}) do
-		-- by ID (any rank), else by name: a name asks whether it is in the spellbook now, for a client whose IDs differ
-		if SPCompat.KnowsSpellID(spell[1]) or GetSpellInfo(SPCompat.SpellName(spell[1], spell[2])) then known = true break end
+	for _, id in ipairs(REACTIVE_ANSWERS[totemId] or {}) do
+		if SPCompat.KnowsSpellID(id) then known = true break end   -- by spell ID, any rank
 	end
 	reactiveAnswer[totemId] = known
 	return known

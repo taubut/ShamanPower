@@ -604,6 +604,18 @@
     {
       "key": "totemPlatesImportant",
       "label": "Totem plates: important totems"
+    },
+    {
+      "key": "pulseClockSweep",
+      "label": "Pulse bar: On Icon (Clock Sweep)"
+    },
+    {
+      "key": "timeLeftIconEdge",
+      "label": "Time left: On Icon (Top or Bottom)"
+    },
+    {
+      "key": "timeInsideBarCenter",
+      "label": "Time text: Inside Bar (Center)"
     }
   ]
 }

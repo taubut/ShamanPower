@@ -343,6 +343,10 @@ SP.SHARE_FEATURES = {
 		end
 		return false
 	end },
+	-- 3.0.9.5: Miska's Clock Sweep and time spots (Totem Bar > Duration Bars)
+	{ key = "pulseClockSweep",    label = "Pulse bar: On Icon (Clock Sweep)",   get = function() return (O().pulseBarPosition or "on_icon") == "on_icon" and on(O().pulseOnIconSweep) end },
+	{ key = "timeLeftIconEdge",   label = "Time left: On Icon (Top or Bottom)", get = function() local v = O().durationTextLocation; return v == "icon_top" or v == "icon_bottom" end },
+	{ key = "timeInsideBarCenter", label = "Time text: Inside Bar (Center)",    get = function() return O().durationTextLocation == "inside_center" or O().pulseTimeDisplay == "inside_center" end },
 }
 
 -- ---------------------------------------------------------------------------

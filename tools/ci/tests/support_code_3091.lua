@@ -1,7 +1,7 @@
 -- client: both
 -- The Support Code (/sp support) and the setup code it carries, for 3.0.9.1's additions:
 -- the keys Keybinds Still Work took over (x.ko), the cooldown number color scale (n.cc, only
--- where the game has duration text), and the setup code's new feature bits (143 now).
+-- where the game has duration text), and the setup code's new feature bits (146 now: 3 more in 3.0.9.5).
 local SP = ShamanPower
 local o = SP.opt
 local LS, LD = LibStub("LibSerialize", true), LibStub("LibDeflate", true)
@@ -78,7 +78,7 @@ local function bitOf(key)
 	return nil
 end
 checkEq("the setup code counts every feature", bytes[8], #SP.SHARE_FEATURES)
-checkEq("143 features (126 through 3.0.8, 17 since)", #SP.SHARE_FEATURES, 143)
+checkEq("146 features (126 through 3.0.8, 17 through 3.0.9.4, 3 in 3.0.9.5)", #SP.SHARE_FEATURES, 146)
 for _, key in ipairs({ "iconScreens", "keysWhenOff", "loadoutsRememberOrder", "raidCoverage", "countdownColors",
 	"totemBarClickThrough", "dropAllStartOver" }) do
 	checkEq("setup code: " .. key .. " on", bitOf(key), true)

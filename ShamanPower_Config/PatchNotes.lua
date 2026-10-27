@@ -9,6 +9,31 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.5",
+		date = "in progress",
+		headline = "Clock Sweep for the pulse, and new spots for the time left",
+		new = {
+			{ h = "Clock Sweep for the Pulse", icon = "Interface\\Icons\\Spell_Nature_TremorTotem",
+			  b = "Pulse Bar Position has a new choice, On Icon (Clock Sweep): a pulsing totem's icon fills up like a clock until its next pulse, instead of a bar sliding down it, in the pulse bar's color. The On Icon you had is called On Icon (Sliding Bar) now.",
+			  path = "Settings > Bars > Totem Bar > Duration Bars", open = { "fluffy", "totembar_duration_section" } },
+			{ h = "Time Left: Top, Center or Bottom of the Icon", icon = "Interface\\Icons\\INV_Misc_PocketWatch_01",
+			  b = "Time Left Position has On Icon (Top), On Icon (Center) and On Icon (Bottom); On Icon (Center) is the On Icon you had. Time Left Position and Pulse Time Position also have Inside Bar (Center).",
+			  path = "Settings > Bars > Totem Bar > Duration Bars", open = { "fluffy", "totembar_duration_section" } },
+		},
+		changes = {
+			"Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.",
+			"Loadout Bar: it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.",
+		},
+		fixes = {
+			"Cooldown Bar keys: after a change that rebuilt the cooldown bar, the shield key kept casting the shield it had when you logged in, and the weapon imbue key the old imbue. The keys follow the button again.",
+			"Reactive Totems: no alert for a debuff you have nothing learned to answer (Tremor Totem for fear; a cleansing totem or Cure Poison / Cure Disease for poison and disease).",
+			"Supporters: a long name wraps onto more lines instead of being cut off.",
+			"Setup tour, Duration Bars: the preview's times were drawn under the pulse sweep and the cooldown sweep. They're on top now, as on your bar.",
+			"Party dots (WoW: Forever, in a fight): the red dots were drawn under the totem's picture, so only their edges showed. They're drawn on top now.",
+		},
+		thanks = "Thanks to Miska for the Clock Sweep, the new time spots and the Reactive Totems fix.",
+	},
+	{
 		v = "3.0.9.4",
 		date = "2026-10-21",
 		headline = "Out of range in fights, dungeons and raids too",

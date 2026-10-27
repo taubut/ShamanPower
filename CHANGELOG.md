@@ -1,5 +1,26 @@
 # ShamanPower Changelog
 
+## v3.0.9.5 (in progress)
+
+### New
+- **Clock Sweep for the pulse** (Settings > Bars > Totem Bar > Duration Bars): Pulse Bar Position has a new choice, On Icon (Clock Sweep). A pulsing totem's icon fills up like a clock until its next pulse, instead of a bar sliding down it. It takes the pulse bar's color (Pulse Bar Color, or your theme's). The On Icon you had is called On Icon (Sliding Bar) now. The setup tour has it too.
+- **Time left at the top or bottom of the icon** (Duration Bars): Time Left Position has On Icon (Top), On Icon (Center) and On Icon (Bottom). On Icon (Center) is the On Icon you had.
+- **Inside Bar (Center)** for Time Left Position and Pulse Time Position (Duration Bars).
+
+### Changes
+- Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.
+- **Loadout Bar:** it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.
+
+### Fixes
+- **Cooldown Bar keys:** after a change that rebuilt the cooldown bar (a setting, a profile, a talent), the shield key kept casting the shield the button had when you logged in, and the weapon imbue key the old imbue, while clicking the button cast the right one. The keys follow the button again.
+- **Reactive Totems:** no alert for a debuff you have nothing learned to answer. Fear needs Tremor Totem; poison needs Poison Cleansing Totem or Cure Poison; disease needs Disease Cleansing Totem or Cure Disease.
+- **Supporters** (Settings > General > Supporters): a long name wraps onto more lines instead of being cut off.
+- **Setup tour, Duration Bars:** the preview's times were drawn under the pulse sweep and the cooldown sweep. They're on top now, as on your bar.
+- **Party dots** (WoW: Forever, in a fight): the red dots for party members out of range were drawn under the totem's picture, on the icon above a button that shows the totem you dropped (and on the button itself), so only their edges showed. They're drawn on top now.
+
+### Thanks
+- Thanks to Miska for the Clock Sweep, the new time spots and the Reactive Totems fix.
+
 ## v3.0.9.4 (2026-10-21)
 
 ### After updating

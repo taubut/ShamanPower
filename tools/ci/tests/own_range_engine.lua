@@ -32,6 +32,19 @@ for _, ch in ipairs({ btn:GetChildren() }) do
 	if not e3.main.mine[ch] and not ch:IsProtected() and ch:GetFrameLevel() <= L + 1 then low = low + 1 end
 end
 checkEq("nothing of the bar's own left at the slot's level", low, 0)
+-- the bar's own party dots draw over the game's picture (the owner's report, 3.0.9.4: the red dots sat
+-- under it on the Mana Tide overlay, only their rims showing)
+local dots = SP.partyRangeDots and SP.partyRangeDots[3]
+if dots and dots[1] then
+	check("the party dots draw over the game's picture", dots[1]:GetParent():GetFrameLevel() > e3.main.slots[2]:GetFrameLevel())
+end
+local ovr = SP.activeTotemOverlays and SP.activeTotemOverlays[3]
+local oslot = e3.overlay and e3.overlay.slots and select(2, next(e3.overlay.slots))
+if ovr and ovr.dots and oslot then
+	check("on the active-totem overlay too", ovr.dots[1]:GetParent():GetFrameLevel() > oslot:GetFrameLevel())
+else
+	check("an active-totem overlay with its slots to test", false)
+end
 check("all dark before any fight", e3.main.slots[2]:GetAlpha() == 0)
 
 -- Healing Stream down; a dungeon fight (no positions)
