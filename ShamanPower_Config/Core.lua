@@ -170,6 +170,7 @@ local fadeRegistry = setmetatable({}, { __mode = "k" })
 -- texture file tinted by vertex color, info.light) or a whole region's alpha
 -- (info.whole: the faint totem graphic).
 local function PaintFade(tex, info, o)
+	if info.solid then o = 1 end   -- a window that must never show what is under it (opts.opaque)
 	if info.whole then
 		tex:SetAlpha(info.alpha * o)
 		return
@@ -1183,13 +1184,21 @@ function Core:CreateDialog(opts)
 	if opts.special and opts.name then tinsert(UISpecialFrames, opts.name) end
 	local sp, level = ShamanPower, f:GetFrameLevel()
 
-	self:SolidTex(f, "windowBg", "BACKGROUND", nil, true)
+	local bg = self:SolidTex(f, "windowBg", "BACKGROUND", nil, true)
 
 	local header = CreateFrame("Frame", nil, f)
 	header:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
 	header:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, 0)
 	header:SetHeight(BAND_H)
-	self:SolidTex(header, "sidebarBg", "BACKGROUND", nil, true)
+	local headerBg = self:SolidTex(header, "sidebarBg", "BACKGROUND", nil, true)
+	-- opts.opaque: a window opened over the settings page stays solid whatever the Background
+	-- Opacity, or the page's text shows through it
+	if opts.opaque then
+		for _, t in ipairs({ bg, headerBg }) do
+			fadeRegistry[t].solid = true
+			PaintFade(t, fadeRegistry[t], 1)
+		end
+	end
 	f.header = header
 	-- the settings band's light (centered 12% across its top, reach 1.2), over a
 	-- caller's opaque copy of the band; placed again when the window changes width

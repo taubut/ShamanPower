@@ -488,6 +488,55 @@ function SP:BindLoadoutToTotemSet(index, page)
 	return true, reason
 end
 
+-- Add Call of the Ancestors / Spirits Loadout (Loadouts > Loadouts, 3.0.9.5): a loadout named after
+-- the spell, tied to its set, holding the four totems the set holds now, first in Everywhere (the
+-- one in use stays in use). Its button shows while you know the spell and no loadout is tied to
+-- the set (SP:CallLoadoutButtonShown), so deleting the loadout or untying it brings it back.
+function SP:CallLoadoutButtonShown(page)
+	if not ((page == 2 or page == 3) and self:HasTotemBar() and known(SUMMON[page])) then return false end
+	for _, lo in ipairs(ShamanPower_TotemLoadouts or {}) do
+		if lo.setPage == page then return false end
+	end
+	return true
+end
+
+-- fromMenu: a loadout's menu > Blizzard Totem Set made it (SP:HasCallLoadout said there was none yet);
+-- the right-clicked loadout goes on the set right after, so another loadout on the set doesn't stop it
+function SP:AddCallLoadout(page, fromMenu)
+	if InCombatLockdown() then return false, "loadouts can't change in combat" end
+	if fromMenu then
+		if not ((page == 2 or page == 3) and self:HasTotemBar() and known(SUMMON[page])) then
+			return false, "you have not learned that Call spell yet"
+		end
+	elseif not self:CallLoadoutButtonShown(page) then
+		return false, "you have not learned that Call spell yet"
+	end
+	local spells = self:ReadTotemSet(page)
+	local loadout = { name = PAGE_NAMES[page], callPage = page, noDropAll = self:CurrentDropAllExcludes() }
+	for element = 1, 4 do
+		loadout[element] = (spells[element] and totemIndexForSpell(element, spells[element])) or 0
+	end
+	local icon = (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(SUMMON[page]))
+		or (GetSpellTexture and GetSpellTexture(SUMMON[page]))
+	loadout.icon = icon
+	self:LoadoutTakeOrder(loadout)
+	tinsert(ShamanPower_TotemLoadouts, loadout)
+	local n = #ShamanPower_TotemLoadouts
+	if n > 1 then self:MoveLoadout(n, 1) end
+	self:BindLoadoutToTotemSet(1, page)
+	self:UpdateLoadoutBar()
+	return true
+end
+
+-- The set's own loadout was made already (its Add button or a loadout's menu): marked callPage, or
+-- one made before the mark that still has the set's name
+function SP:HasCallLoadout(page)
+	for _, lo in ipairs(ShamanPower_TotemLoadouts or {}) do
+		if lo.callPage == page or lo.name == PAGE_NAMES[page] then return true end
+	end
+	return false
+end
+
 local function adoptBoundPage(page)
 	local loadout = boundLoadout(page)
 	local state = boundPages[page]

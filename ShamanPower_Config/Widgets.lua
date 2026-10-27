@@ -1390,6 +1390,12 @@ function Widgets:Input(parent, opts)
 	local row = Acquire("input", parent, CreateInput)
 	ConfigureRow(row, parent, opts)
 	Core:SetBorderColor(row.box, "border")
+	-- a page may move the box or watch its typing (Search Loadouts): a reused row starts plain again
+	row.box:ClearAllPoints()
+	row.box:SetPoint("RIGHT", row, "RIGHT", -PAD, 0)
+	row.box:SetScript("OnTextChanged", nil)
+	row.box:SetScript("OnTabPressed", nil)
+	row.box.spTyped = nil
 	-- the box is wide enough for its whole value (a link, a long name): never a
 	-- cut-off field. It grows up to about two thirds of the row.
 	local w = DROPDOWN_W

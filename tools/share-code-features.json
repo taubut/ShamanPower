@@ -243,7 +243,7 @@
     },
     {
       "key": "loadoutAutoSwitch",
-      "label": "Loadout auto-switch"
+      "label": "Auto loadout groups"
     },
     {
       "key": "trainerReminder",

@@ -11,7 +11,7 @@
 ## OptionalDeps: Ace3, LibSharedMedia-3.0, SharedMedia
 ## X-Category: Shaman
 ## X-Embeds: Ace3, LibClassicDurations, LibSharedMedia-3.0, LibUIDropDownMenu
-## SavedVariables: ShamanPowerDB, ShamanPower_Assignments, ShamanPower_EarthShieldAssignments, ShamanPower_TwistAssignments, ShamanPower_RaidCooldowns, ShamanPower_RangeTracker, ShamanPower_TotemLoadouts, ShamanPowerErrorLog
+## SavedVariables: ShamanPowerDB, ShamanPower_Assignments, ShamanPower_EarthShieldAssignments, ShamanPower_TwistAssignments, ShamanPower_RaidCooldowns, ShamanPower_RangeTracker, ShamanPower_TotemLoadouts, ShamanPower_LoadoutGroups, ShamanPowerErrorLog
 
 #@no-lib-strip@
 embeds.xml
@@ -38,6 +38,7 @@ ShamanPowerValues.lua
 ShamanPowerOptions.lua
 ShamanPowerManaTint.lua
 ShamanPowerMinimapMenu.lua
+ShamanPowerZoneNames.lua
 ShamanPowerLoadoutRules.lua
 ShamanPowerResist.lua
 ShamanPowerAnnounce.lua
@@ -46,6 +47,7 @@ ShamanPowerPresets.lua
 ShamanPowerPreview.lua
 ShamanPowerCompact.lua
 ShamanPowerUnlock.lua
+ShamanPowerLoadoutList.lua
 ShamanPowerReadyCheck.lua
 ShamanPowerKeybindMode.lua
 ShamanPowerControllerPad.lua

@@ -11,8 +11,14 @@ ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.5",
 		date = "in progress",
-		headline = "Clock Sweep for the pulse, and new spots for the time left",
+		headline = "Auto Loadout Groups, and Clock Sweep for the pulse",
 		new = {
+			{ h = "Auto Loadout Groups", icon = "Interface\\Icons\\INV_Misc_Map_01",
+			  b = "Group your loadouts by place: a zone like The Molten Core, any raid, any dungeon, any battleground or arena, or outside. Drag loadouts onto a group: they show in your flyout only there, and you switch to the group's first one when you enter. Zone names fill in as you type. On WoW: Forever a raid group can ask the raid's shamans for a resistance totem.",
+			  path = "Settings > Bars > Loadouts", open = { "buttons", "loadouts_section" } },
+			{ h = "Loadout List", icon = "Interface\\Icons\\INV_Misc_Note_01",
+			  b = "A list of the loadouts for where you are, each with its four totems: click one to switch to it.",
+			  path = "Settings > Bars > Loadouts > Loadout List", open = { "fluffy", "loadoutlist_section" } },
 			{ h = "Clock Sweep for the Pulse", icon = "Interface\\Icons\\Spell_Nature_TremorTotem",
 			  b = "Pulse Bar Position has a new choice, On Icon (Clock Sweep): a pulsing totem's icon fills up like a clock until its next pulse, instead of a bar sliding down it, in the pulse bar's color. The On Icon you had is called On Icon (Sliding Bar) now.",
 			  path = "Settings > Bars > Totem Bar > Duration Bars", open = { "fluffy", "totembar_duration_section" } },
@@ -21,6 +27,8 @@ ns.PATCH_NOTES = {
 			  path = "Settings > Bars > Totem Bar > Duration Bars", open = { "fluffy", "totembar_duration_section" } },
 		},
 		changes = {
+			"Auto-Switch is gone: Auto Loadout Groups take its place. Its old rules don't carry over: make a group for each place.",
+			"Loadouts: as many as you like (was 8). Click one on the page to hide it from your flyout, Search Loadouts finds one, and on WoW: Forever Add Call of the Ancestors / Call of the Spirits Loadout makes one for that totem set.",
 			"Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.",
 			"Loadout Bar: it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.",
 		},
@@ -792,7 +800,7 @@ ns.PATCH_NOTES = {
 			  client = "forever" },
 			{ h = "Loadout Auto-Switch", icon = "Interface\\Icons\\Spell_Nature_RavenForm",
 			  b = "Pick a loadout for raids, dungeons, battlegrounds and the open world, or add rules by zone, target or boss. It never switches in combat.",
-			  path = "Settings > Bars > Loadouts > Auto-Switch", open = { "buttons", "loadoutrules_section" } },
+			  path = "Settings > Bars > Loadouts > Loadouts", open = { "buttons", "loadouts_section" } },
 			{ h = "Ready Check sweep", icon = "Interface\\Icons\\Spell_Holy_MindSooth",
 			  b = "On a ready check ShamanPower lists what you are missing: shield, weapon imbue, totem items, assigned totems not down, low mana.",
 			  path = "Settings > Group Tools > Ready Check", open = { "fluffy", "readycheck_section" } },

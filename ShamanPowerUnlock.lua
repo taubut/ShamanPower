@@ -152,7 +152,7 @@ local MODULES = {
 			return { f }
 		end },
 	{ key = "loadoutbar", label = "Loadout Bar",
-		enabled = function() return SP.opt.showLoadoutBar and true or false end,
+		enabled = function() return (SP.opt.showLoadoutBar and not SP.opt.loadoutsOff) and true or false end,
 		frames = function() return SP.loadoutAnchor and { SP.loadoutAnchor } or {} end,
 		-- the anchor's own drag scripts want ALT and an unlocked bar; the box moves it directly
 		save = function() if SP.SaveLoadoutBarPosition then SP:SaveLoadoutBarPosition() end end,

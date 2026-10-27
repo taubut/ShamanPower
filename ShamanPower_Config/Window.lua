@@ -163,6 +163,17 @@ local POWER_TARGETTRACKER = {
 	set    = function(v) SP():TT_SetEnabled(v and true or false) end,
 }
 
+-- Loadouts' on / off (3.0.9.5, sheet A79): one switch for the loadout bar, the Loadout List and
+-- Auto Loadout Groups' switching (ShamanPowerLoadoutRules.lua); loadouts and groups stay saved
+local POWER_LOADOUTS = {
+	label  = "Loadouts",
+	desc   = "Turn loadouts on or off: the loadout bar, the Loadout List and switching when you enter a group's place."
+		.. " Your loadouts and groups stay saved; Switch To This Loadout and /spl still work.",
+	loaded = function() local sp = SP() return sp and type(sp.SetLoadoutsOn) == "function" or false end,
+	get    = function() local o = SP().opt return not (o and o.loadoutsOff) end,
+	set    = function(v) SP():SetLoadoutsOn(v and true or false) end,
+}
+
 -- the Cooldown Bar's on / off (A13: its page has no Enable row any more)
 local POWER_CDBAR = {
 	label  = "Cooldown Bar",
@@ -311,11 +322,11 @@ local NAV = {
 			desc = "Click an item to show or hide it, right-click it for its settings, drag it to move it.",
 			onReset = function() local sp = SP() if sp and sp.CooldownBarResetPage then sp:CooldownBarResetPage() end end,
 			path = P("fluffy", "cdbar_page") },
-		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true, power = false,
-			desc = "Save totem loadouts, set up their bar and choose when to switch automatically.", tabs = {
+		{ label = "Loadouts", preview = MOCK_LOADOUT, shamanOnly = true, lock = true, power = POWER_LOADOUTS,
+			desc = "Save totem loadouts, set up their bar, and group them by zone to switch automatically.", tabs = {
 			{ label = "Loadouts", preview = MOCK_LOADOUT, paths = { P("buttons", "loadouts_section") } },
 			{ label = "Loadout Bar", preview = MOCK_LOADOUT, paths = { P("fluffy", "loadoutbar_section") }, power = true },
-			{ label = "Auto-Switch", paths = { P("buttons", "loadoutrules_section") }, power = true },
+			{ label = "Loadout List", paths = { P("fluffy", "loadoutlist_section") }, power = true },
 		}},
 		-- WoW: Forever only (the page exists only there): the controller bar (ShamanPowerController.lua)
 		{ label = "Controller", shamanOnly = true, lock = true, power = POWER_CONTROLLER,

@@ -3,11 +3,20 @@
 ## v3.0.9.5 (in progress)
 
 ### New
+- **Auto Loadout Groups** (Settings > Bars > Loadouts > Loadouts): put your loadouts in groups for the places you use them. Make an Auto Loadout Group for a zone (The Molten Core, Ragefire Chasm, any zone), or for any raid, any dungeon, any battleground or arena, or outside. Drag loadouts onto the group's row: they show in your loadout flyout only there, and when you enter you're switched to the group's first loadout (On Entry under it; never in a fight, it waits until the fight ends). Raid names are in red. A group can also keep your other loadouts in the flyout there, or show only its own. On WoW: Forever a raid group can ask the raid's shamans for Fire, Frost or Nature Resistance when you enter. Edit under a group's name changes or deletes it; drag its name to move the whole group.
+- **Zone names fill in as you type** in the group window: every dungeon, raid and battleground in the game, every zone on its map and every place you've been, with Did you mean for a typo. Capital letters, extra spaces and a leading The don't matter, so Molten Core is The Molten Core.
+- **Loadout List** (Loadouts > Loadout List): the loadouts that show where you are, each with its four totems; click one to switch to it. Scale, Background Opacity and Visible Rows; move it in Unlock UI.
+- **Hide a loadout** from your flyout without deleting it: click it on the Loadouts page (gray: hidden). **Search Loadouts** finds one by name.
+- **Call of the Ancestors and Call of the Spirits loadouts** (WoW: Forever): Add Call of the Ancestors Loadout and Add Call of the Spirits Loadout make a loadout tied to that Blizzard totem set, with the totems the set holds. Picking a set in a loadout's right-click menu makes it for you if you never did.
+- **As many loadouts as you like** (was 8): the flyout grows with them.
+- **Loadouts switch** in the settings sidebar: off, there's no loadout bar and nothing switches.
 - **Clock Sweep for the pulse** (Settings > Bars > Totem Bar > Duration Bars): Pulse Bar Position has a new choice, On Icon (Clock Sweep). A pulsing totem's icon fills up like a clock until its next pulse, instead of a bar sliding down it. It takes the pulse bar's color (Pulse Bar Color, or your theme's). The On Icon you had is called On Icon (Sliding Bar) now. The setup tour has it too.
 - **Time left at the top or bottom of the icon** (Duration Bars): Time Left Position has On Icon (Top), On Icon (Center) and On Icon (Bottom). On Icon (Center) is the On Icon you had.
 - **Inside Bar (Center)** for Time Left Position and Pulse Time Position (Duration Bars).
 
 ### Changes
+- **Auto-Switch is gone:** Auto Loadout Groups take its place. Its old settings and rules (target and boss rules too) don't carry over: make a group for each place.
+- A group's switch says so in your chat; Show Loadout Changes in My Chat (Loadouts) turns that off.
 - Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.
 - **Loadout Bar:** it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.
 

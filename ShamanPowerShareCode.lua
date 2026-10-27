@@ -129,7 +129,7 @@ SP.SHARE_FEATURES = {
 	{ key = "announceSoon",       label = "Announce: ready soon",               get = function() return on(sub(O().announce, "announceSoon")) end },
 	{ key = "announceReply",      label = "Announce: tide auto-reply",          get = function() return on(sub(O().announce, "reply")) end },
 	{ key = "announceLocalCall",  label = "Announce: local Mana Tide call",     get = function() return on(sub(O().announce, "localCall")) end },
-	{ key = "loadoutAutoSwitch",  label = "Loadout auto-switch",                get = function() return on(sub(O().loadoutRules, "enabled")) end },
+	{ key = "loadoutAutoSwitch",  label = "Auto loadout groups",                get = function() local g = G("ShamanPower_LoadoutGroups"); return type(g) == "table" and #g > 0 end },
 	{ key = "trainerReminder",    label = "Trainer reminder",                   get = function()
 		if not SPCompat.FOREVER then return false end
 		local t = O().trainerReminder

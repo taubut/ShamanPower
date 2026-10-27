@@ -51,6 +51,10 @@
 --                                                     one plate tall, at the start of its first line; made once, reused)
 --   groupLabelWidth = px,                             the label's room at the start of every line (default 0)
 --   groupGap = px,                                    extra room between two groups' lines (default 0)
+--   addGroup = key,                                   (with group and add) the + tile goes at the end of this
+--                                                     group's line(s), not on a line of its own under the groups
+--   (with label: grouped tiles are tileWidth apart and as tall as the tallest name, as the plain row's;
+--    3.0.9.5 Auto Loadout Groups)
 --   under    = function(item, out) return n end,      n colors ({ r, g, b }) into out: a 2 px line under the plate in
 --                                                     n equal parts (0: none); the row keeps room for it
 --   movable  = function(item) return can end,         (with move) only these drag, and only among themselves
@@ -475,7 +479,8 @@ function Proto:LineXY(gap, lineY)
 	if self.slotX and gap > 1 and not startsLine then
 		-- (a laid-out row: right after the item before it, so a step apart doesn't move the line)
 		lx, ly = self:SlotXY(gap - 1)
-		lx = lx + PLATE + (PITCH - PLATE) / 2 - 1
+		local p = (self.def.label and self.pitch) or PITCH   -- (labeled tiles: half way to the next tile)
+		lx = lx + PLATE + (p - PLATE) / 2 - 1
 	elseif gap <= n then
 		lx, ly = self:SlotXY(gap)
 		lx = lx - half - 1
@@ -826,16 +831,33 @@ function Proto:LayOut(f, list, width, padX)
 	local lead = def.group and (tonumber(def.groupLabelWidth) or 0) or 0
 	local groupGap = def.group and (tonumber(def.groupGap) or 0) or 0
 	local step = PITCH + (def.under and UNDER_ROOM or 0)
+	-- labeled tiles (the Loadouts row's groups): a tile's width apart, a line as tall as its names
+	-- (Render lays the row out again once the names are measured: self.lineH)
+	local tile = def.label and (self.pitch or PITCH) or nil
+	if tile then step = self.lineH or (PLATE + NAME_GAP + 28 + LABEL_LINE_GAP) end
+	local tileLead = tile and (self.lead or 0) or 0
 	local room = max(PLATE, width - padX * 2 - lead)
+	local addKey, addDone = self.addShown and def.addGroup, false
 	local labels = self.groupLabels
 	if not labels then labels = {}; self.groupLabels = labels end
 	local used = 0
 	local yy, xx, n, prev = PAD_TOP, 0, 0, nil
+	local count = #list
+	-- def.addGroup: the + tile at the end of that group's line(s)
+	local function PlaceAdd()
+		if n > 0 and xx + (tile or PLATE) > room then yy = yy + step; xx, n = 0, 0 end
+		-- nothing else in the row (no loadouts, no groups): no label beside it, so it starts at the left edge
+		sx[count + 1], sy[count + 1] = padX + (count == 0 and 0 or lead + tileLead) + xx, yy
+		xx = xx + (tile or PITCH)
+		n = n + 1
+		addDone = true
+	end
 	for i, item in ipairs(list) do
 		local g = def.group and Call(def.group, item)
 		local newGroup = def.group and (i == 1 or g ~= prev)
+		if newGroup and addKey and not addDone and i > 1 and prev == addKey then PlaceAdd() end
 		local gap = (n > 0 and def.gapBefore) and (tonumber(Call(def.gapBefore, item)) or 0) or 0
-		if i > 1 and (newGroup or (n > 0 and xx + gap + PLATE > room)) then
+		if i > 1 and (newGroup or (n > 0 and xx + gap + (tile or PLATE) > room)) then
 			yy = yy + step + (newGroup and groupGap or 0)
 			xx, n, gap = 0, 0, 0
 		end
@@ -852,13 +874,13 @@ function Proto:LayOut(f, list, width, padX)
 		end
 		prev = g
 		xx = xx + gap
-		sx[i], sy[i] = padX + lead + xx, yy
-		xx = xx + PITCH
+		sx[i], sy[i] = padX + lead + tileLead + xx, yy
+		xx = xx + (tile or PITCH)
 		n = n + 1
 	end
+	if addKey and not addDone and (prev == addKey or count == 0) then PlaceAdd() end
 	-- def.add's tile: under the groups on a line of its own (a row of lines), else after the last item
-	local count = #list
-	if self.addShown then
+	if self.addShown and not addDone then
 		if def.group then
 			if count > 0 then yy = yy + step + groupGap end
 			sx[count + 1], sy[count + 1] = padX + lead, yy
@@ -868,6 +890,7 @@ function Proto:LayOut(f, list, width, padX)
 		end
 	end
 	for i = used + 1, #labels do labels[i]:Hide() end
+	if tile then return (yy - PAD_TOP) + step - LABEL_LINE_GAP end
 	return (yy - PAD_TOP) + PLATE + (def.under and UNDER_ROOM or 0)
 end
 
@@ -954,6 +977,7 @@ function Proto:Render(body, x, y, width, onChanged)
 		end
 		nameH = ceil(nameH)
 		self.lineH = PLATE + NAME_GAP + nameH + LABEL_LINE_GAP
+		if def.group then laid = self:LayOut(f, list, width, padX) end   -- (grouped tiles: again, at the names' height)
 	else
 		self.lineH = PITCH
 	end

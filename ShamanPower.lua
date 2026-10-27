@@ -22396,10 +22396,6 @@ function ShamanPower:LoadoutOrderText(loadout)
 end
 
 function ShamanPower:SaveLoadout(name)
-	if #ShamanPower_TotemLoadouts >= 8 then
-		print("|cff0070ddShamanPower:|r Maximum of 8 loadouts reached.")
-		return
-	end
 	local assignments = ShamanPower_Assignments[self.player]
 	if not assignments then return end
 	local loadout = { name = name or nil, noDropAll = self:CurrentDropAllExcludes() }
@@ -22417,10 +22413,6 @@ function ShamanPower:SaveLoadout(name)
 end
 
 function ShamanPower:CreateLoadout(name, icon, totems)
-	if #ShamanPower_TotemLoadouts >= 8 then
-		print("|cff0070ddShamanPower:|r Maximum of 8 loadouts reached.")
-		return
-	end
 	local loadout = { name = name or nil, icon = icon or nil, noDropAll = self:CurrentDropAllExcludes() }
 	for element = 1, 4 do
 		loadout[element] = (totems and totems[element]) or 0
@@ -22712,9 +22704,20 @@ function ShamanPower:CreateLoadoutBar()
 		if not ShamanPower.opt.loadoutBarClickCycle then return end
 		if IsAltKeyDown() then return end   -- ALT is for moving it
 		local n = ShamanPower_TotemLoadouts and #ShamanPower_TotemLoadouts or 0
-		if n < 2 then return end
 		local cur = ShamanPower.opt.activeLoadout or 0
-		ShamanPower:ApplyLoadout(button == "RightButton" and ((cur - 2) % n) + 1 or (cur % n) + 1)
+		-- (only the loadouts the flyout shows here: hidden ones and other places' groups are skipped)
+		local shown = ShamanPower.LoadoutShownSet and ShamanPower:LoadoutShownSet()
+		local cycle, at = {}, 0
+		for i = 1, n do
+			if not shown or shown[i] or i == cur then
+				cycle[#cycle + 1] = i
+				if i == cur then at = #cycle end
+			end
+		end
+		local m = #cycle
+		if m < 2 then return end
+		local step = (button == "RightButton") and (((at - 2) % m) + 1) or ((at % m) + 1)
+		ShamanPower:ApplyLoadout(cycle[step])
 	end)
 	self.loadoutAnchor = anchor
 
@@ -22816,145 +22819,152 @@ function ShamanPower:CreateLoadoutBar()
 		GameTooltip:Hide()
 	end)
 
-	-- Pre-create 8 set buttons as CHILDREN of anchor (required for ChildUpdate to work)
+	-- 8 set buttons made with the bar, as CHILDREN of anchor (required for ChildUpdate to work);
+	-- more are made when more loadouts show (3.0.9.5: no limit on loadouts)
 	self.loadoutButtons = {}
-	local hasTotemBar = self.HasTotemBar and self:HasTotemBar()
-	local buttonTemplates = "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate"
-	if hasTotemBar then buttonTemplates = "SecureActionButtonTemplate, " .. buttonTemplates end
-	for i = 1, 8 do
-		local btn = CreateFrame("Button", "ShamanPowerSetButton" .. i, anchor,
-			buttonTemplates)
-		btn:SetSize(32, 32)
-		btn:SetClampedToScreen(true)
-		btn:EnableMouse(true)
-		if hasTotemBar then btn:RegisterForClicks("AnyUp", "AnyDown")
-		else btn:RegisterForClicks("LeftButtonUp") end
-		btn:SetFrameStrata("HIGH")
-
-		-- SECURE HANDLER: Hide flyout when mouse leaves set button (if not over parent anchor)
-		-- Same pattern as totem flyout _onleave
-		ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
-		btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
-
-		-- SECURE HANDLER: Toggle visibility on parent ChildUpdate("toggle")
-		-- Toggle visibility of loadout buttons whose inactive flag is clear
-		ShamanPower:SetSnippet(btn, "_childupdate-toggle", [[
-			if not self:GetAttribute("inactive") then
-				if self:IsVisible() then
-					self:Hide()
-				else
-					self:Show()
-				end
-			end
-		]])
-
-		-- SECURE HANDLER: Show/hide on parent ChildUpdate("show", bool)
-		-- Show eligible loadout buttons for a truthy message; otherwise hide them
-		ShamanPower:SetSnippet(btn, "_childupdate-show", [[
-			if message and not self:GetAttribute("inactive") then
-				self:Show()
-			else
-				self:Hide()
-			end
-		]])
-
-		-- Normal texture (standard WoW action button)
-		local btnNormal = btn:CreateTexture(nil, "BORDER")
-		btnNormal:SetTexture("Interface\\Buttons\\UI-Quickslot2")
-		btnNormal:SetSize(52, 52)
-		btnNormal:SetPoint("CENTER", 0, -1)
-		btn.normalTex = btnNormal
-
-		-- Button background icon
-		local btnIcon = btn:CreateTexture(nil, "ARTWORK")
-		btnIcon:SetAllPoints()
-		btnIcon:SetTexture(nil)
-		btn.icon = btnIcon
-
-		-- Highlight
-		local btnHL = btn:CreateTexture(nil, "HIGHLIGHT")
-		btnHL:SetAllPoints()
-		btnHL:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
-		btnHL:SetBlendMode("ADD")
-
-		-- Four 13x13 totem icons in the button's corners
-		btn.miniIcons = {}
-		local positions = {
-			{point = "TOPLEFT", x = 3, y = -3},
-			{point = "TOPRIGHT", x = -3, y = -3},
-			{point = "BOTTOMLEFT", x = 3, y = 3},
-			{point = "BOTTOMRIGHT", x = -3, y = 3},
-		}
-		for e = 1, 4 do
-			local miniIcon = btn:CreateTexture(nil, "OVERLAY")
-			miniIcon:SetSize(13, 13)
-			miniIcon:SetPoint(positions[e].point, positions[e].x, positions[e].y)
-			miniIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-			btn.miniIcons[e] = miniIcon
-		end
-
-		-- Name label to the right of button
-		local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
-		ShamanPower:AdoptSPFont(nameText, "labels")   -- template font = the design; follows the Fonts settings
-		nameText:SetPoint("LEFT", btn, "RIGHT", 4, 0)
-		nameText:SetText("")
-		nameText:SetJustifyH("LEFT")
-		btn.nameText = nameText
-
-		btn.nr = i
-
-		-- Keep the secure template's OnClick for bound summons. Unbound buttons
-		-- still select assignments on release; Classic retains its old OnClick.
-		btn:SetScript(hasTotemBar and "PostClick" or "OnClick", function(buttonFrame, button, down)
-			if hasTotemBar and (down or buttonFrame:GetAttribute("spBoundLoadout")) then return end
-			if button == "LeftButton" then
-				if InCombatLockdown() then
-					print("|cff0070ddShamanPower:|r Cannot change loadout during combat")
-					return
-				end
-				local index = buttonFrame:GetAttribute("loadoutIndex")
-				ShamanPower:ApplyLoadout(index)
-				-- Close flyout (ApplyLoadout calls UpdateLoadoutBar which reconfigures buttons,
-				-- but doesn't hide the open flyout — do it explicitly)
-				ShamanPower:HideLoadoutMenu()
-			end
-		end)
-
-		-- Tooltip (HookScript so secure _onleave still fires)
-		btn:HookScript("OnEnter", function(self)
-			if not ShamanPower.opt.ShowTooltips then return end
-			GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-			local set = ShamanPower_TotemLoadouts[self.nr]
-			if set then
-				GameTooltip:AddLine(set.name or ("Set " .. self.nr), 1, 1, 1)
-				for element = 1, 4 do
-					local totemIdx = set[element] or 0
-					local color = loadoutTooltipColors[element]
-					if totemIdx > 0 then
-						GameTooltip:AddLine(ShamanPower:GetTotemName(element, totemIdx), color.r, color.g, color.b)
-					else
-						GameTooltip:AddLine("None", color.r, color.g, color.b)
-					end
-				end
-				GameTooltip:AddLine(" ")
-			end
-			local summon = ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(self.nr)
-			if summon then GameTooltip:AddLine("Click to cast this Blizzard totem set", 0, 0.9, 1)
-			else GameTooltip:AddLine("Left-click to load totem set", 0, 0.9, 1) end
-			GameTooltip:Show()
-		end)
-		btn:HookScript("OnLeave", function(self)
-			GameTooltip:Hide()
-		end)
-
-		-- Start hidden and marked inactive (UpdateLoadoutBar will activate populated ones)
-		btn:SetAttribute("inactive", true)
-		btn:Hide()
-		self.loadoutButtons[i] = btn
-	end
+	for i = 1, 8 do self:NewLoadoutSetButton(i) end
 
 	-- Restore position
 	self:RestoreLoadoutBarPosition()
+end
+
+-- One flyout button, a child of the anchor so the secure ChildUpdate reaches it. Out of a fight
+-- only (UpdateLoadoutBar never runs in one).
+function ShamanPower:NewLoadoutSetButton(i)
+	local anchor = self.loadoutAnchor
+	local hasTotemBar = self.HasTotemBar and self:HasTotemBar()
+	local buttonTemplates = "SecureHandlerShowHideTemplate, SecureHandlerEnterLeaveTemplate"
+	if hasTotemBar then buttonTemplates = "SecureActionButtonTemplate, " .. buttonTemplates end
+	local btn = CreateFrame("Button", "ShamanPowerSetButton" .. i, anchor,
+		buttonTemplates)
+	btn:SetSize(32, 32)
+	btn:SetClampedToScreen(true)
+	btn:EnableMouse(true)
+	if hasTotemBar then btn:RegisterForClicks("AnyUp", "AnyDown")
+	else btn:RegisterForClicks("LeftButtonUp") end
+	btn:SetFrameStrata("HIGH")
+
+	-- SECURE HANDLER: Hide flyout when mouse leaves set button (if not over parent anchor)
+	-- Same pattern as totem flyout _onleave
+	ShamanPower:SetSnippet(btn, "_onleave", SP_SECURE_ONLEAVE_PARENT)
+	btn:SetAttribute("spFlyoutProtocol", true)  -- lets sibling leave snippets tell flyout buttons from decoration
+
+	-- SECURE HANDLER: Toggle visibility on parent ChildUpdate("toggle")
+	-- Toggle visibility of loadout buttons whose inactive flag is clear
+	ShamanPower:SetSnippet(btn, "_childupdate-toggle", [[
+		if not self:GetAttribute("inactive") then
+			if self:IsVisible() then
+				self:Hide()
+			else
+				self:Show()
+			end
+		end
+	]])
+
+	-- SECURE HANDLER: Show/hide on parent ChildUpdate("show", bool)
+	-- Show eligible loadout buttons for a truthy message; otherwise hide them
+	ShamanPower:SetSnippet(btn, "_childupdate-show", [[
+		if message and not self:GetAttribute("inactive") then
+			self:Show()
+		else
+			self:Hide()
+		end
+	]])
+
+	-- Normal texture (standard WoW action button)
+	local btnNormal = btn:CreateTexture(nil, "BORDER")
+	btnNormal:SetTexture("Interface\\Buttons\\UI-Quickslot2")
+	btnNormal:SetSize(52, 52)
+	btnNormal:SetPoint("CENTER", 0, -1)
+	btn.normalTex = btnNormal
+
+	-- Button background icon
+	local btnIcon = btn:CreateTexture(nil, "ARTWORK")
+	btnIcon:SetAllPoints()
+	btnIcon:SetTexture(nil)
+	btn.icon = btnIcon
+
+	-- Highlight
+	local btnHL = btn:CreateTexture(nil, "HIGHLIGHT")
+	btnHL:SetAllPoints()
+	btnHL:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+	btnHL:SetBlendMode("ADD")
+
+	-- Four 13x13 totem icons in the button's corners
+	btn.miniIcons = {}
+	local positions = {
+		{point = "TOPLEFT", x = 3, y = -3},
+		{point = "TOPRIGHT", x = -3, y = -3},
+		{point = "BOTTOMLEFT", x = 3, y = 3},
+		{point = "BOTTOMRIGHT", x = -3, y = 3},
+	}
+	for e = 1, 4 do
+		local miniIcon = btn:CreateTexture(nil, "OVERLAY")
+		miniIcon:SetSize(13, 13)
+		miniIcon:SetPoint(positions[e].point, positions[e].x, positions[e].y)
+		miniIcon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+		btn.miniIcons[e] = miniIcon
+	end
+
+	-- Name label to the right of button
+	local nameText = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmallOutline")
+	ShamanPower:AdoptSPFont(nameText, "labels")   -- template font = the design; follows the Fonts settings
+	nameText:SetPoint("LEFT", btn, "RIGHT", 4, 0)
+	nameText:SetText("")
+	nameText:SetJustifyH("LEFT")
+	btn.nameText = nameText
+
+	btn.nr = i
+
+	-- Keep the secure template's OnClick for bound summons. Unbound buttons
+	-- still select assignments on release; Classic retains its old OnClick.
+	btn:SetScript(hasTotemBar and "PostClick" or "OnClick", function(buttonFrame, button, down)
+		if hasTotemBar and (down or buttonFrame:GetAttribute("spBoundLoadout")) then return end
+		if button == "LeftButton" then
+			if InCombatLockdown() then
+				print("|cff0070ddShamanPower:|r Cannot change loadout during combat")
+				return
+			end
+			local index = buttonFrame:GetAttribute("loadoutIndex")
+			ShamanPower:ApplyLoadout(index)
+			-- Close flyout (ApplyLoadout calls UpdateLoadoutBar which reconfigures buttons,
+			-- but doesn't hide the open flyout — do it explicitly)
+			ShamanPower:HideLoadoutMenu()
+		end
+	end)
+
+	-- Tooltip (HookScript so secure _onleave still fires)
+	btn:HookScript("OnEnter", function(self)
+		if not ShamanPower.opt.ShowTooltips then return end
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		local set = ShamanPower_TotemLoadouts[self.nr]
+		if set then
+			GameTooltip:AddLine(set.name or ("Set " .. self.nr), 1, 1, 1)
+			for element = 1, 4 do
+				local totemIdx = set[element] or 0
+				local color = loadoutTooltipColors[element]
+				if totemIdx > 0 then
+					GameTooltip:AddLine(ShamanPower:GetTotemName(element, totemIdx), color.r, color.g, color.b)
+				else
+					GameTooltip:AddLine("None", color.r, color.g, color.b)
+				end
+			end
+			GameTooltip:AddLine(" ")
+		end
+		local summon = ShamanPower.BoundLoadoutSummon and ShamanPower:BoundLoadoutSummon(self.nr)
+		if summon then GameTooltip:AddLine("Click to cast this Blizzard totem set", 0, 0.9, 1)
+		else GameTooltip:AddLine("Left-click to load totem set", 0, 0.9, 1) end
+		GameTooltip:Show()
+	end)
+	btn:HookScript("OnLeave", function(self)
+		GameTooltip:Hide()
+	end)
+
+	-- Start hidden and marked inactive (UpdateLoadoutBar will activate populated ones)
+	btn:SetAttribute("inactive", true)
+	btn:Hide()
+	self.loadoutButtons[i] = btn
+	return btn
 end
 
 function ShamanPower:UpdateLoadoutBar()
@@ -22968,7 +22978,7 @@ function ShamanPower:UpdateLoadoutBar()
 	local numLoadouts = #ShamanPower_TotemLoadouts
 
 	-- Show/hide anchor (need loadouts AND setting enabled)
-	if not self.opt.showLoadoutBar or numLoadouts == 0 or self:IsOff() then
+	if not self.opt.showLoadoutBar or numLoadouts == 0 or self:IsOff() or self.opt.loadoutsOff then
 		if self.HasTotemBar and self:HasTotemBar() then
 			for _, button in ipairs(self.loadoutButtons) do
 				button:SetAttribute("type", nil)
@@ -23050,13 +23060,20 @@ function ShamanPower:UpdateLoadoutBar()
 	local btnIndex = 0
 	local opensDown = self:LoadoutFlyoutOpensDown()
 	self.loadoutFlyoutDown = opensDown
+	-- (3.0.9.5) only the loadouts that show here: hidden ones and other places' groups stay out
+	local shown = self.LoadoutShownSet and self:LoadoutShownSet()
+	local made = false
 	for i = 1, numLoadouts do
 		local summon = self.BoundLoadoutSummon and self:BoundLoadoutSummon(i)
 		-- A bound active loadout still needs a cast button: the anchor is only
 		-- a hover handle, not a secure action button.
-		if i ~= self.opt.activeLoadout or summon then
+		if (i ~= self.opt.activeLoadout or summon) and (not shown or shown[i]) then
 			btnIndex = btnIndex + 1
-			if btnIndex <= 8 then
+			if btnIndex > #self.loadoutButtons then
+				self:NewLoadoutSetButton(btnIndex)
+				made = true
+			end
+			do
 				local btn = self.loadoutButtons[btnIndex]
 				local loadout = ShamanPower_TotemLoadouts[i]
 
@@ -23104,8 +23121,11 @@ function ShamanPower:UpdateLoadoutBar()
 		end
 	end
 
+	-- a button made just now takes the theme's look
+	if made and self.ThemeBoxesRefresh then self:ThemeBoxesRefresh() end
+
 	-- Mark remaining buttons as inactive
-	for j = btnIndex + 1, 8 do
+	for j = btnIndex + 1, #self.loadoutButtons do
 		local btn = self.loadoutButtons[j]
 		btn:SetAttribute("inactive", true)
 		if self.HasTotemBar and self:HasTotemBar() then
@@ -23123,8 +23143,7 @@ end
 -- Lua fallback for out-of-combat toggle (used by slash commands etc)
 function ShamanPower:ToggleLoadoutMenu()
 	if InCombatLockdown() then return end
-	for i = 1, 8 do
-		local btn = self.loadoutButtons[i]
+	for _, btn in ipairs(self.loadoutButtons or {}) do
 		if not btn:GetAttribute("inactive") then
 			if btn:IsVisible() then
 				btn:Hide()
@@ -23137,21 +23156,14 @@ end
 
 function ShamanPower:ShowLoadoutMenu()
 	if InCombatLockdown() then return end
-	local numLoadouts = #ShamanPower_TotemLoadouts
-	for i = 1, 8 do
-		if i <= numLoadouts then
-			self.loadoutButtons[i]:Show()
-		else
-			self.loadoutButtons[i]:Hide()
-		end
+	for _, btn in ipairs(self.loadoutButtons or {}) do
+		if btn:GetAttribute("inactive") then btn:Hide() else btn:Show() end
 	end
 end
 
 function ShamanPower:HideLoadoutMenu()
 	if InCombatLockdown() then return end
-	for i = 1, 8 do
-		self.loadoutButtons[i]:Hide()
-	end
+	for _, btn in ipairs(self.loadoutButtons or {}) do btn:Hide() end
 end
 
 function ShamanPower:SaveLoadoutBarPosition()

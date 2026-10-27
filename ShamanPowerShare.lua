@@ -17,6 +17,7 @@ local EXTRA_SVARS = {
 	"ShamanPower_ReactiveTotems",
 	"ShamanPowerTremorReminderDB",
 	"ShamanPower_TotemLoadouts",
+	"ShamanPower_LoadoutGroups",      -- Auto Loadout Groups (3.0.9.5): your own, like the loadouts (never in a preset)
 	"ShamanPower_ESTracker",
 	"ShamanPowerExpiringAlertsDB",
 	"ShamanPower_ReadyReminders",

@@ -420,8 +420,10 @@ local PlaceLoadoutBarOptions
 -- every word its tiles and menus draw, and the old rows' names, so a search for a setting that
 -- moved into a menu lands here.
 local LOADOUTS_SEARCH = "Saved Loadouts: your saved totem loadouts, each with its icon and its name. Click a loadout to"
-	.. " switch to it (Active, In Use: the green bar), right-click it to change it, drag it to change its place on the"
-	.. " loadout bar. + saves a new loadout from the totems on your bar now (Create New Loadout, Create Loadout, Loadout"
+	.. " show or hide it (Hide This Loadout, Show This Loadout), right-click it to switch to it or change it, drag it onto"
+	.. " a group (Everywhere, The Molten Core, Auto Loadout Groups, Auto-Switch, zone, raid, dungeon) or to change its"
+	.. " place on the loadout bar. On Entry: the first loadout in a group. Search Loadouts. Make an Auto Loadout Group,"
+	.. " Change Auto Loadout Group, Delete This Group. + saves a new loadout from the totems on your bar now (Create New Loadout, Create Loadout, Loadout"
 	.. " Name). Switch To This Loadout. Edit totems: Earth, Fire, Water, Air. Drop All: Leave Out Earth, Leave Out Fire,"
 	.. " Leave Out Water, Leave Out Air (Exclude, leave out of Drop All and Call of the Elements). Blizzard Totem Set: Set"
 	.. " Page (Call of the Ancestors, Call of the Spirits, None), Send to Set Now. Rename, Icon, Delete This Loadout."
@@ -436,8 +438,8 @@ local function RefreshLoadoutArgs()
 	loadoutArgs.loadouts_desc = {
 		order = 0,
 		type = "description",
-		name = "Save up to 8 totem loadouts. Each remembers your 4 totems and which of them Drop All leaves out. Typing"
-			.. " |cffffd200/spl save <name>|r saves one, |cffffd200/spl <name>|r switches to it.",
+		name = "Save as many totem loadouts as you like. Each remembers your 4 totems and which of them Drop All leaves out."
+			.. " Typing |cffffd200/spl save <name>|r saves one, |cffffd200/spl <name>|r switches to it.",
 	}
 	loadoutArgs.loadouts_sets_note = {
 		order = 0.5,
@@ -467,6 +469,59 @@ local function RefreshLoadoutArgs()
 		end,
 	}
 	loadoutArgs.loadoutIcons = iconsNode or { type = "description", width = "full", name = " ", desc = LOADOUTS_SEARCH }
+	-- Auto Loadout Groups (3.0.9.5, sheet A79): the button that makes a group, the Call loadout buttons
+	-- (WoW: Forever) and the chat line, under the Saved Loadouts row
+	loadoutArgs.make_group = {
+		order = 0.81, type = "execute", width = "full",
+		name = "Make an Auto Loadout Group",
+		desc = "A group for a zone (The Molten Core) or a kind of place (Any Raid, Any Dungeon, Any Battleground or Arena,"
+			.. " Outside). Then drag loadouts onto its row.",
+		disabled = function() return InCombatLockdown() end,
+		func = function() if ShamanPower.OpenLoadoutGroupWindow then ShamanPower:OpenLoadoutGroupWindow() end end,
+	}
+	loadoutArgs.make_group_desc = {
+		order = 0.82, type = "description", width = "full",
+		name = "A group is for a raid or another place, like The Molten Core. Drag your MC loadouts onto its row: they show"
+			.. " in your flyout only in MC, and when you enter MC you're switched to the group's first loadout.",
+	}
+	local function CallShown(page)
+		return HasLoadoutSetControls() and ShamanPower.CallLoadoutButtonShown and ShamanPower:CallLoadoutButtonShown(page) or false
+	end
+	local function AddCall(page)
+		local ok, reason = ShamanPower:AddCallLoadout(page)
+		if not ok and reason then ShamanPower:Print(reason) end
+		ShamanPower:RefreshConfig()
+	end
+	loadoutArgs.call_ancestors = {
+		order = 0.83, type = "execute", width = 1.5,
+		name = "Add Call of the Ancestors Loadout",
+		desc = "A loadout tied to Blizzard's Call of the Ancestors set, with the four totems the set holds now, first in Everywhere.",
+		hidden = function() return not CallShown(2) end,
+		disabled = function() return InCombatLockdown() end,
+		func = function() AddCall(2) end,
+	}
+	loadoutArgs.call_spirits = {
+		order = 0.84, type = "execute", width = 1.5,
+		name = "Add Call of the Spirits Loadout",
+		desc = "A loadout tied to Blizzard's Call of the Spirits set, with the four totems the set holds now, first in Everywhere.",
+		hidden = function() return not CallShown(3) end,
+		disabled = function() return InCombatLockdown() end,
+		func = function() AddCall(3) end,
+	}
+	loadoutArgs.call_desc = {
+		order = 0.85, type = "description", width = "full",
+		name = "Each makes a loadout tied to that Blizzard totem set, with the four totems the set holds now, first in"
+			.. " Everywhere. Its button comes back if that loadout is deleted or untied from the set.",
+		hidden = function() return not (CallShown(2) or CallShown(3)) end,
+	}
+	loadoutArgs.loadout_chat = {
+		order = 0.86, type = "toggle", width = "full",
+		name = "Show Loadout Changes in My Chat",
+		desc = "A line in your own chat window when a group switches you, e.g. \"switched to loadout MC Trash (The Molten Core)\"."
+			.. " Only you see it.",
+		get = function() return ShamanPower.opt.loadoutChat ~= false end,
+		set = function(info, val) if val then ShamanPower.opt.loadoutChat = nil else ShamanPower.opt.loadoutChat = false end end,
+	}
 	ShamanPower.OptionCustomRow = ShamanPower.OptionCustomRow or {}
 	ShamanPower.OptionCustomRow[loadoutArgs.loadoutIcons] = "loadoutIcons"
 	loadoutArgs.show_bar = {
@@ -501,7 +556,8 @@ local function RefreshLoadoutArgs()
 	if PlaceLoadoutBarOptions then PlaceLoadoutBarOptions() end
 	ShamanPower.OrderSettingsBands({ args = loadoutArgs }, {
 		-- the pictures first, the words and switches under them (the owner, 2026-10-17: every icon page)
-		{ header = "loadouts_header", name = "Saved Loadouts", keys = { "loadoutIcons" } },
+		{ header = "loadouts_header", name = "Saved Loadouts", keys = { "loadoutIcons", "make_group", "make_group_desc",
+			"call_ancestors", "call_spirits", "call_desc", "loadout_chat" } },
 		{ keys = { "loadouts_desc", "loadouts_sets_note", "remember_order" } },
 	})
 end
