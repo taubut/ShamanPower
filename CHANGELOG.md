@@ -17,6 +17,8 @@
 ### Changes
 - **Auto-Switch is gone:** Auto Loadout Groups take its place. Its old settings and rules (target and boss rules too) don't carry over: make a group for each place.
 - A group's switch says so in your chat; Show Loadout Changes in My Chat (Loadouts) turns that off.
+- **Auto-Assign** (Totem Assignments, WoW: Forever): the raid-wide totems go round the raid first. One shaman drops Windfury (an Enhancement shaman first), the next Grace of Air, one Strength of Earth, and nobody Flametongue while Windfury is down. So the raid has all of them before anyone doubles up. A raid-wide totem someone you can't change already drops isn't doubled. The other totems still follow each party's makeup.
+- **Auto-Assign:** a shaman with Guardian Totems gets Stoneskin Totem (the talent makes it stronger). The other shamans' talents and spec reach you from their ShamanPower 3.0.9.5 on WoW: Forever.
 - Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.
 - **Loadout Bar:** it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.
 

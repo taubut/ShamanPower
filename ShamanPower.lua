@@ -18577,6 +18577,27 @@ function ShamanPower:SpecGuess()
 	return (ele and "ele") or (enh and "enh") or "resto"
 end
 
+-- Guardian Totems (Enhancement talent: Stoneskin Totem reduces more damage), any rank: Auto-Assign gives
+-- you Stoneskin. WoW: Forever reads its talent tree (C_SpecializationInfo: a talent you've taken gives
+-- its rank's spell ID, an untaken one 0), matching the rank's spell by the name the game gives spell
+-- 16258 (its ranks share it); elsewhere by the spells (16258, 16293).
+function ShamanPower:HasGuardianTotems()
+	local CSI = C_SpecializationInfo
+	local want = C_Spell and C_Spell.GetSpellName and C_Spell.GetSpellName(16258)
+	if CSI and CSI.GetTalentInfo and want then
+		for tab = 1, 3 do
+			for i = 1, 40 do
+				local ok, info = pcall(CSI.GetTalentInfo, { specializationIndex = tab, talentIndex = i, groupIndex = 1 })
+				if not ok or type(info) ~= "table" then break end
+				local id = info.spellID
+				if type(id) == "number" and id > 0 and (id == 16258 or C_Spell.GetSpellName(id) == want) then return true end
+			end
+		end
+	end
+	local K = SPCompat.KnowsSpellID
+	return (K and (K(16258) or K(16293))) and true or false
+end
+
 function ShamanPower:ScanTalents()
 	-- classic talent API only; modern clients use trait trees (no equivalent yet)
 	if not GetNumTalentTabs or not GetNumTalents or not GetTalentInfo then return end
@@ -18818,13 +18839,17 @@ function ShamanPower:SendSelf(sender, force)
 	end
 	-- WoW: Forever (3.0.9.1): the spec guess rides along as its own message, after SELF
 	-- (SELF starts the sender's record over). Older clients ignore a word they do not know.
+	-- 3.0.9.5: " gt" after it says you have Guardian Totems (Auto-Assign gives you Stoneskin); "none" when there
+	-- is no spec guess. Older clients read only the first word and ignore "none".
 	if SPCompat.FOREVER then
 		local spec = self:SpecGuess()
-		if spec then
+		local gt = self:HasGuardianTotems()
+		if spec or gt then
+			local msg = "SPEC " .. (spec or "none") .. (gt and " gt" or "")
 			if sender and not leader then
-				self:SendMessage("SPEC " .. spec, "WHISPER", sender)
+				self:SendMessage(msg, "WHISPER", sender)
 			else
-				self:SendMessage("SPEC " .. spec, nil, nil, force)
+				self:SendMessage(msg, nil, nil, force)
 			end
 		end
 	end
@@ -19687,10 +19712,17 @@ function ShamanPower:ParseMessage(sender, msg)
 
 	-- SPEC (WoW: Forever, 3.0.9.1): the sender's spec guess, under their name in the assignment window
 	if kw == "SPEC" then
-		local spec = strmatch(msg, "^SPEC (%l+)")
-		if spec == "ele" or spec == "enh" or spec == "resto" then
-			ShamanPower.AllShamans[sender] = ShamanPower.AllShamans[sender] or {}
-			ShamanPower.AllShamans[sender].spec = spec
+		local spec, rest = strmatch(msg, "^SPEC (%l+)(.*)")
+		local known = spec == "ele" or spec == "enh" or spec == "resto"
+		local gt = rest and rest:find(" gt", 1, true) and true or nil   -- Guardian Totems (3.0.9.5)
+		local info = ShamanPower.AllShamans[sender]
+		if not info and (known or gt) then
+			info = {}
+			ShamanPower.AllShamans[sender] = info
+		end
+		if info then
+			if known then info.spec = spec end
+			info.guardian = gt
 		end
 		return
 	end
@@ -20507,6 +20539,11 @@ do
 			end
 		end
 		table.sort(names)
+		-- Raid-wide totems (WoW: Forever since the 10-15 patch): Strength of Earth, Windfury, Grace of Air and
+		-- Flametongue reach the whole raid, so each goes to one shaman of the raid, covering as many as there are
+		-- shamans for; Windfury and Flametongue cancel each other (never both). [element][index]
+		local raidWide = forever and { [1] = { [1] = true }, [2] = { [5] = true }, [4] = { [1] = true, [2] = true } } or {}
+		local raidTaken = { {}, {}, {}, {} }
 		-- Preserve others' assignments and count them before picking our slots.
 		for _, name in ipairs(names) do
 			if not controllable[name] then
@@ -20515,14 +20552,69 @@ do
 					local index = existing and Public(existing[element])
 					if type(index) == "number" and index > 0 and self:TotemExistsOnClient(element, index) then
 						assigned[groups[name]][element][index] = true
+						if raidWide[element] and raidWide[element][index] then raidTaken[element][index] = true end
 					end
 				end
 			end
 		end
+		if raidTaken[4][1] then raidTaken[2][5] = true end   -- Windfury down: Flametongue would cancel it
+		if raidTaken[2][5] then raidTaken[4][1] = true end
+		-- yours from your own talents; the other shamans' from their SPEC (WoW: Forever)
+		local function Spec(name)
+			if name == self.player then return self:SpecGuess() end
+			return self.AllShamans[name] and self.AllShamans[name].spec
+		end
+		local function Guardian(name)
+			if name == self.player then return self:HasGuardianTotems() end
+			return self.AllShamans[name] and self.AllShamans[name].guardian or false
+		end
+		-- can that shaman drop it (what their SELF says they know; without that, as before: the game has it)
+		local function Knows(name, element, index)
+			if not self:TotemExistsOnClient(element, index) then return false end
+			if name == self.player then return self:KnowsTotem(element, index) and true or false end
+			local el = self.AllShamans[name] and self.AllShamans[name][element]
+			if type(el) == "table" and next(el) ~= nil then return el[index] and el[index].known and true or false end
+			return true
+		end
+		-- totems settled before the party picks: [name][element] = index
+		local fixed = {}
+		for _, name in ipairs(names) do if controllable[name] then fixed[name] = {} end end
+		local function Settle(name, element, index)
+			fixed[name][element] = index
+			assigned[groups[name]][element][index] = true
+			if raidWide[element] and raidWide[element][index] then raidTaken[element][index] = true end
+		end
+		-- Guardian Totems makes Stoneskin stronger: that shaman drops Stoneskin
+		for _, name in ipairs(names) do
+			if controllable[name] and Guardian(name) and Knows(name, 1, 2) then Settle(name, 1, 2) end
+		end
+		-- each raid-wide totem to one shaman whose slot for it is still free, the preferred ones first
+		local function Share(element, index, prefer)
+			if raidTaken[element][index] then return end
+			for pass = 1, 2 do
+				for _, name in ipairs(names) do
+					if controllable[name] and fixed[name][element] == nil and Knows(name, element, index)
+						and (pass == 2 or prefer(name)) then
+						Settle(name, element, index)
+						return
+					end
+				end
+			end
+		end
+		if forever then
+			local function Enhancement(name) return Spec(name) == "enh" end
+			Share(4, 1, Enhancement)   -- Windfury: an Enhancement shaman first
+			if raidTaken[4][1] then raidTaken[2][5] = true end
+			Share(4, 2, Enhancement)   -- Grace of Air: the next shaman (with only one Enhancement, another)
+			Share(1, 1, Enhancement)   -- Strength of Earth (a Guardian Totems shaman has Stoneskin already)
+			if not raidTaken[4][1] then Share(2, 5, Enhancement) end   -- Flametongue only without Windfury
+		end
+		-- a raid-wide totem someone already drops is never doubled; with every choice taken, the first one
+		-- left (as before: the party's own totems may repeat in another party)
 		local function Pick(group, element, choices)
 			local first
 			for _, index in ipairs(choices) do
-				if self:TotemExistsOnClient(element, index) then
+				if self:TotemExistsOnClient(element, index) and not raidTaken[element][index] then
 					first = first or index
 					if not assigned[group][element][index] then
 						assigned[group][element][index] = true
@@ -20549,12 +20641,20 @@ do
 				else
 					air = forever and comp.tank == 0 and priorities.airMeleeThreat or priorities.airMelee
 				end
+				-- WoW: Forever: with Windfury and Grace of Air dropped by others, Grounding is next
+				if forever then
+					local list = {}
+					for _, index in ipairs(air) do list[#list + 1] = index end
+					list[#list + 1] = 5
+					air = list
+				end
 				local loadout = ShamanPower_Assignments[name] or {}
 				ShamanPower_Assignments[name] = loadout
-				loadout[1] = Pick(group, 1, physical and priorities.earthPhysical or priorities.earthCaster)
-				loadout[2] = Pick(group, 2, fire)
-				loadout[3] = Pick(group, 3, comp.manaUsers > 0 and priorities.waterMana or priorities.waterHealth)
-				loadout[4] = Pick(group, 4, air)
+				local own = fixed[name]
+				loadout[1] = own[1] or Pick(group, 1, physical and priorities.earthPhysical or priorities.earthCaster)
+				loadout[2] = own[2] or Pick(group, 2, fire)
+				loadout[3] = own[3] or Pick(group, 3, comp.manaUsers > 0 and priorities.waterMana or priorities.waterHealth)
+				loadout[4] = own[4] or Pick(group, 4, air)
 			end
 		end
 		-- (this used to send "SHPWR_ASSIGNMENTSUPDATED" to the whole group, which no

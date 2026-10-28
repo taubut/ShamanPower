@@ -29,6 +29,8 @@ ns.PATCH_NOTES = {
 		changes = {
 			"Auto-Switch is gone: Auto Loadout Groups take its place. Its old rules don't carry over: make a group for each place.",
 			"Loadouts: as many as you like (was 8). Click one on the page to hide it from your flyout, Search Loadouts finds one, and on WoW: Forever Add Call of the Ancestors / Call of the Spirits Loadout makes one for that totem set.",
+			"Auto-Assign (WoW: Forever): the raid-wide totems go round the raid first: one Windfury (an Enhancement shaman first), one Grace of Air, one Strength of Earth, and no Flametongue with Windfury, before anyone doubles up.",
+			"Auto-Assign: a shaman with Guardian Totems gets Stoneskin Totem.",
 			"Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.",
 			"Loadout Bar: it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.",
 		},
