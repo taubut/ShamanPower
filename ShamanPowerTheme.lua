@@ -332,8 +332,8 @@ SP.THEME_MODULES = {
 		  note = "The entries in the shield and imbue flyouts. ShamanPower Minimal draws them as flat boxes." },
 		{ id = "cd.class-icons", label = "Earth Shield Class Icons", box = true, roles = {},
 		  note = "The class icons in the Earth Shield flyout. ShamanPower Minimal shows a class-color box with letters." },
-		{ id = "cd.recall", label = "Totemic Call", box = true, roles = { Role("box", "Box", "fixed", "3FA9F5") },
-		  note = "Totemic Call on the cooldown bar. ShamanPower Minimal draws it as a flat box." },
+		{ id = "cd.recall", label = GetSpellInfo(36936) or "Totemic Call", box = true, roles = { Role("box", "Box", "fixed", "3FA9F5") },
+		  note = (GetSpellInfo(36936) or "Totemic Call") .. " on the cooldown bar. ShamanPower Minimal draws it as a flat box." },
 		{ id = "cd.count", label = "Shield Charge Count", roles = {
 			Role("high", "Healthy", "wow", "GREEN_FONT_COLOR", "00FF00"),
 			Role("mid", "Low", "wow", "YELLOW_FONT_COLOR", "FFFF00"),
@@ -1893,7 +1893,7 @@ SP.CdItemThemeLooks = Cards.CD_ITEM_LOOKS   -- (Reset This Page keeps them: the 
 do
 	local entries = {}
 	local labels = SP.CooldownTypeLabels or {}
-	local NAMES = { [1] = "Shield", [2] = "Totemic Call", [6] = "Bloodlust / Heroism", [7] = "Weapon Imbue" }
+	local NAMES = { [1] = "Shield", [2] = GetSpellInfo(36936) or "Totemic Call", [6] = "Bloodlust / Heroism", [7] = "Weapon Imbue" }
 	for _, look in ipairs(Cards.CD_ITEM_LOOKS) do
 		local name, what, types, valid = look[1], look[2], look[3], look[4]
 		for _, t in ipairs(types) do

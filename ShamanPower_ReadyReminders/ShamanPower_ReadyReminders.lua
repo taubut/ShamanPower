@@ -137,16 +137,18 @@ SP.ReadyReminderSpells = {
 	{ key = "flameshock",   name = "Flame Shock",         ids = { 8050 },                 def = true },
 	{ key = "frostshock",   name = "Frost Shock",         ids = { 8056 },                 def = true },
 	{ key = "stormstrike",  name = "Stormstrike",         ids = { 17364 },                def = true, reset = true },   -- reset: a tank's dodge or parry resets its cooldown (WoW: Forever)
+	-- Lava Burst: out of WoW: Forever since the November 2 notes (SPCompat lists its ranks as
+	-- unobtainable, so it never shows); kept so the default row keeps its spacing
 	{ key = "lavaburst",    name = "Lava Burst",          ids = { 408490, 51505 },        def = true },
 	{ key = "riptide",      name = "Riptide",             ids = { 408521, 61295 },        def = true },
 	{ key = "farseer",      name = "Rage of the Farseer", ids = { 425336 },               def = true },
 	{ key = "firenova",     name = "Fire Nova",           ids = { 408341, 1535 },         def = false },
-	{ key = "projection",   name = "Totemic Projection",  ids = { 437009 },               def = false },
+	{ key = "projection",   name = "Totemic Call",        ids = { 437009 },               def = false },   -- (Totemic Projection until the November 2 notes)
 	{ key = "grounding",    name = "Grounding Totem",     ids = { 8177 },                 def = false },
 	{ key = "ns",           name = "Nature's Swiftness",  ids = { 16188 },                def = false },
 	{ key = "manatide",     name = "Mana Tide Totem",     ids = { 16190 },                def = false },
 	{ key = "shamrage",     name = "Shamanistic Rage",    ids = { 30823 },                def = false },
-	{ key = "elemastery",   name = "Elemental Mastery",   ids = { 16166 },                def = false },
+	{ key = "elemastery",   name = SPCompat.FOREVER and "Lightning Mastery" or "Elemental Mastery", ids = { 16166 }, def = false },
 	{ key = "earthbind",    name = "Earthbind Totem",     ids = { 2484 },                 def = false },
 	{ key = "stoneclaw",    name = "Stoneclaw Totem",     ids = { 5730 },                 def = false },   -- (3.0.9.2, a reviewer's ask)
 	{ key = "reincarnation", name = "Reincarnation",      ids = { 20608 },                def = false },   -- (3.0.9.2) its long cooldown
@@ -221,9 +223,9 @@ do
 			farseer = { ids = { 425336 }, name = "Rage of the Farseer" },               -- 25 s
 			ns = { ids = { 16188 }, name = "Nature's Swiftness", timed = false },        -- until your next Nature spell
 			-- Elemental Mastery is back since the 10-15 patch (build 70425), the 31-point Elemental
-			-- talent: 15 s of faster Lightning Bolt / Lava Burst and no Chain Lightning cooldown, 3-minute
-			-- cooldown. The buff is the spell's own aura, 16166.
-			elemastery = { ids = { 16166 }, name = "Elemental Mastery" },               -- 15 s
+			-- talent, renamed Lightning Mastery by the November 2 notes: 15 s of faster Lightning Bolt
+			-- and no Chain Lightning cooldown, 3-minute cooldown. The buff is the spell's own aura, 16166.
+			elemastery = { ids = { 16166 }, name = "Lightning Mastery" },               -- 15 s
 			-- (no Shamanistic Rage in this game's data)
 		}
 	else

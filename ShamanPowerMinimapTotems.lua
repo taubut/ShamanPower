@@ -56,7 +56,7 @@ end
 SP.MinimapTotemsAvailable = true
 local secret = issecretvalue or function() return false end
 local mainline = SPCompat.FOREVER
-local pins, classicDrops, blockedDrops, blocked = {}, {}, {}, {}
+local pins, classicDrops = {}, {}
 SP.minimapTotemPins = pins   -- read by the ShamanPower Minimal flat boxes (ShamanPowerThemeBoxes.lua)
 for element = 1, 4 do classicDrops[element] = {} end
 local circleX, circleY = {}, {}
@@ -319,9 +319,8 @@ refreshModels = function()
 		local pin = pins[element]
 		local ok, have, name, start, duration, icon = pcall(SP.GetElementTotemInfo, SP, element)
 		local drop = mainline and SP.totemDropPos[element] or classicDrops[element]
-		if blocked[element] and drop ~= blockedDrops[element] then blocked[element], blockedDrops[element] = nil, nil end
 		pin.active = false
-		if not blocked[element] and ok and not secret(have) and have == true and not secret(name)
+		if ok and not secret(have) and have == true and not secret(name)
 			and number(start) and number(duration) and duration > 0 and number(start + duration) and start + duration > now
 			and not secret(icon) and (type(icon) == "string" or type(icon) == "number")
 			and drop and number(drop.x) and number(drop.y) and number(drop.map) and drop.map == worldID then
@@ -370,7 +369,6 @@ local function classicDrop(element)
 	local a, b, map = position()
 	local drop = classicDrops[element]
 	drop.x, drop.y, drop.map = b, a, map
-	blocked[element], blockedDrops[element] = nil, nil
 end
 
 local function afterTotem(_self, _event, slot)
@@ -386,9 +384,9 @@ end
 
 local function afterCast(_self, _event, unit, _guid, spellID)
 	if secret(unit) or unit ~= "player" or not number(spellID) then return end
-	if mainline and spellID == 437009 then
-		for element = 1, 4 do blocked[element], blockedDrops[element] = true, SP.totemDropPos[element] end
-	elseif not mainline and allowed() then
+	-- Totemic Call (WoW: Forever; Totemic Projection until the November 2 notes) brings your totems to
+	-- where you stand: the core records that spot on the cast (ShadowTotemCast), and the markers follow it
+	if not mainline and allowed() then
 		local ok, element = pcall(SP.TotemCastElement, SP, spellID)
 		if ok and number(element) then classicDrop(element) end
 	end

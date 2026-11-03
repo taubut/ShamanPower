@@ -95,16 +95,16 @@ local SPELLS = {
 	[8232] = { "WF", "element", 4 }, [8024] = { "FT", "element", 2 }, [8033] = { "FB", "element", 3 },
 	[8017] = { "RB", "element", 1 }, [51730] = { "EL", "element", 1 },
 	-- the cooldown bar
-	[36936] = { "TC", "brand" },           -- Totemic Call / Recall
+	[36936] = { SPCompat.FOREVER and "TR" or "TC", "brand" },   -- Totemic Call (TBC) / Totemic Recall (WoW: Forever)
 	[20608] = { "RE", "brand" },           -- Reincarnation
 	[16188] = { "NS", "element", 4 },      -- Nature's Swiftness
 	[16190] = { "MT", "element", 3 },      -- Mana Tide Totem
 	[30823] = { "SR", "brand" },           -- Shamanistic Rage
 	[2825] = { "BL", "element", 2 },       -- Bloodlust
 	[32182] = { "HE", "element", 2 },      -- Heroism
-	[16166] = { "EM", "brand" },           -- Elemental Mastery
+	[16166] = { SPCompat.FOREVER and "LM" or "EM", "brand" },   -- Elemental Mastery (TBC) / Lightning Mastery (WoW: Forever)
 	[425336] = { "RF", "brand" },          -- Rage of the Farseer (WoW: Forever)
-	[437009] = { "TP", "brand" },          -- Totemic Projection (WoW: Forever)
+	[437009] = { "TC", "brand" },          -- Totemic Call (WoW: Forever; Totemic Projection until the November 2 notes)
 	[425874] = { "DT", "element", 1 },     -- Decoy Totem (WoW: Forever, Earth)
 }
 -- items and plain icon files some displays use: { letters, kind, arg }

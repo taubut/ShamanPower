@@ -88,8 +88,8 @@ local function collect()
 	end
 
 	-- cooldown bar (and Totemic Call when it sits on the totem bar): the types
-	-- with a binding action. The rest (Shamanistic Rage, Elemental Mastery, Rage
-	-- of the Farseer, Totemic Projection) have none, and their button names
+	-- with a binding action. The rest (Shamanistic Rage, Elemental / Lightning Mastery,
+	-- Rage of the Farseer, Totemic Projection / Call on Forever) have none, and their button names
 	-- follow the bar's order, so a CLICK binding would move with a reorder.
 	for cdType, action in pairs(CD_ACTION) do
 		local btn = SP.GetCooldownButtonByCooldownType and SP:GetCooldownButtonByCooldownType(cdType)

@@ -33,6 +33,7 @@ ns.PATCH_NOTES = {
 			"Auto-Assign: a shaman with Guardian Totems gets Stoneskin Totem.",
 			"Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.",
 			"Loadout Bar: it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.",
+			"WoW: Forever's November 2 changes: Lava Burst is gone from Ready Reminders and the setup tour, Totemic Projection is Totemic Call (your totems come to you, and the range follows), and Elemental Mastery is Lightning Mastery.",
 		},
 		fixes = {
 			"Cooldown Bar keys: after a change that rebuilt the cooldown bar, the shield key kept casting the shield it had when you logged in, and the weapon imbue key the old imbue. The keys follow the button again.",

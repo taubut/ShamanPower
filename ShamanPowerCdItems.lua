@@ -9,7 +9,8 @@
 --
 -- cooldownType: 1 Shield, 2 Totemic Call / Recall, 3 Reincarnation, 4 Nature's Swiftness,
 -- 5 Mana Tide, 6 Bloodlust / Heroism, 7 Weapon Imbue, 8 Shamanistic Rage, 9 Elemental
--- Mastery, 10 Rage of the Farseer, 11 Totemic Projection. "cooldowns" = 2-6, 8-11.
+-- Mastery (Lightning Mastery on Forever), 10 Rage of the Farseer, 11 Totemic Call (Forever's
+-- Totemic Projection until the November 2 notes). "cooldowns" = 2-6, 8-11.
 --
 -- NAME             VALUE                                     SHARED KEY (today)                       ITEMS
 -- [show]

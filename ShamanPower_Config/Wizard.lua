@@ -255,14 +255,15 @@ function SP.Wizard.ApplySpecPicks(role)
 	SP.opt.cdbarShowElementalMastery = ele
 	-- WoW: Forever: Ready Reminders follow the spec's talents (read from the client's
 	-- trait tree). Elemental Mastery is Elemental's 31-point talent again since the 10-15
-	-- patch (build 70425). Fire Nova and Earthbind stay opt-in (AoE / PvP).
+	-- patch (build 70425), Lightning Mastery since the November 2 notes, which also took
+	-- Lava Burst out of the game. Fire Nova and Earthbind stay opt-in (AoE / PvP).
 	if SPCompat.FOREVER then
 		ShamanPower_ReadyReminders = ShamanPower_ReadyReminders or {}
 		ShamanPower_ReadyReminders.spells = ShamanPower_ReadyReminders.spells or {}
 		local rr = ShamanPower_ReadyReminders.spells
 		rr.riptide, rr.manatide, rr.ns = resto, resto, resto
 		rr.stormstrike, rr.farseer = enh, enh
-		rr.lavaburst, rr.elemastery = ele, ele
+		rr.elemastery = ele
 		rr.earthshock = true                             -- the interrupt, for every spec
 		rr.flameshock, rr.frostshock = not resto, not resto
 		safecall("UpdateReadyReminders")
@@ -427,7 +428,7 @@ local STEPS = {
 	  },
 	  toggles = { { label = "Enable Reactive Totems", bind = "reactive" } } },
 	{ id = "readyreminders", title = "Ready Reminders", roles = ALL, module = "ShamanPower_ReadyReminders", flag = "ReadyRemindersLoaded", build = "BuildReadyRemindersStep",
-	  desc = "Place an icon for each spell anywhere you like. It appears when the spell comes off cooldown: Earth Shock, Stormstrike, Lava Burst, Riptide and more.",
+	  desc = "Place an icon for each spell anywhere you like. It appears when the spell comes off cooldown: Earth Shock, Stormstrike, Riptide and more.",
 	  bullets = {
 	    "Only when ready: the icon shows up when you can press the spell and vanishes while it recharges.",
 	    "Only while on cooldown: the icon shows with a countdown while the spell recharges and vanishes when ready.",
@@ -3732,14 +3733,14 @@ function SP.Wizard.BuildCooldownBarStep(card, inner, y)
 		{ id = 16190, name = "Mana Tide",      cdType = 5, opt = "cdbarShowManaTide",         cd = 11, ready = 3,  color = {0.2, 0.5, 1.0}, roles = { restoration = true } },
 		{ id = 30823, name = "Sham. Rage", long = "Shamanistic Rage", cdType = 8, opt = "cdbarShowShamanisticRage", cd = 8, ready = 5,  color = {0.8, 0.5, 0.1}, roles = { enhancement = true } },
 		{ id = horde and 2825 or 32182, name = horde and "Bloodlust" or "Heroism", cdType = 6, opt = "cdbarShowBloodlust", cd = 16, ready = 4, color = {0.8, 0.1, 0.1} },
-		{ id = 16166, name = "Ele. Mastery", long = "Elemental Mastery", cdType = 9, opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
+		{ id = 16166, name = SPCompat.FOREVER and "Ltng. Mastery" or "Ele. Mastery", long = SPCompat.SpellLabel(16166, "Elemental Mastery"), cdType = 9, opt = "cdbarShowElementalMastery", cd = 10, ready = 5, color = {0.9, 0.6, 0.1}, roles = { elemental = true } },
 		-- WoW: Forever only; the chips exist only where the client has the spell
 		{ id = 425336, name = "Farseer", long = "Rage of the Farseer", cdType = 10, opt = "cdbarShowRageOfTheFarseer", cd = 16, ready = 4, color = {0.8, 0.1, 0.1}, roles = { enhancement = true }, only = function() return GetSpellInfo(425336) ~= nil end },
-		{ id = 437009, name = "Projection", long = "Totemic Projection", cdType = 11, opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
+		{ id = 437009, name = "Totemic Call", long = SPCompat.SpellLabel(437009, "Totemic Call"), cdType = 11, opt = "cdbarShowTotemicProjection", cd = 12, ready = 5, color = {0.6, 0.4, 0.2}, only = function() return GetSpellInfo(437009) ~= nil end },
 		{ id = 8232,  name = "Imbues", long = "Weapon Imbues",  cdType = 7, opt = "cdbarShowImbues",           cd = 0,  ready = 0,  imbue = true, color = {0.6, 0.8, 1.0} },
 	}
 	-- spell exists in this client's data (asked of the client for every chip: WoW: Forever has no
-	-- Bloodlust, Shamanistic Rage ...; other clients have no Rage of the Farseer / Totemic Projection)
+	-- Bloodlust, Shamanistic Rage ...; other clients have no Rage of the Farseer / Totemic Call)
 	-- a sample's look as its item on the real bar has it (the Cooldown Bar page's item menus:
 	-- SP:CdItemOpt); a preview of other settings (Wizard.optOverride) keeps the shared ones
 	local function ItemLook(sp, name, shared)
@@ -4658,7 +4659,7 @@ function SP.Wizard:RenderRole()
 			{ 8042, "Earth Shock" }, { 8050, "Flame Shock" }, { 8056, "Frost Shock" },
 			(not (SPCompat and SPCompat.FOREVER)) and { 8512, "Totem twisting" } or nil } },
 		{ key = "elemental",   name = "Elemental",   role = "Caster", items = {
-			{ 408490, "Lava Burst" }, { 16166, "Elemental Mastery" },
+			{ 16166, SPCompat.SpellLabel(16166, "Lightning Mastery") },
 			{ 8042, "Earth Shock" }, { 8050, "Flame Shock" }, { 8056, "Frost Shock" } } },
 	} or {
 		{ key = "restoration", name = "Restoration", role = "Healer", items = {

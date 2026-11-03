@@ -2467,14 +2467,14 @@ function ShamanPower:ShadowTotemCast(unit, spellID)
 		-- Call of the Elements / Ancestors / Spirits (Forever): one cast, several totems
 		local set = self.TotemSetForSummon and self:TotemSetForSummon(spellID)
 		if set then self:ShadowTotemSetCast(set) return end
-		-- Recall and Projection suppress destroyed cues while the slots settle.
+		-- Recall and Totemic Call suppress destroyed cues while the slots settle.
 		if spellID == 36936 or spellID == 437009 then self._totemRecallAt = GetTime() end
-		if spellID == 36936 then self._totemProjectAt = nil end   -- (Recall right after a Projection: the slots emptying are the totems going, not landing)
+		if spellID == 36936 then self._totemProjectAt = nil end   -- (Recall right after a Totemic Call: the slots emptying are the totems going, not landing)
 		if spellID == 437009 then
 			self._totemProjectAt = GetTime()   -- (the slot updates that follow are the totems landing, see ShadowTotemSlotUpdate)
-			-- Totemic Projection moves the totems to the spot you aimed at (within casting range of
-			-- you): the old drop spots are wrong now. Measure from where you stand until buffs can be
-			-- read again, and start from "in range": never gray on the spot they left
+			-- Totemic Call (WoW: Forever; Totemic Projection until the November 2 notes) brings the
+			-- totems to where you stand: the old drop spots are wrong now and yours is right. Measure
+			-- from here, and start from "in range": never gray on the spot they left
 			for element = 1, 4 do
 				if self.shadowTotems[element] then
 					self:RecordTotemDrop(element)
@@ -2610,9 +2610,10 @@ function ShamanPower:ShadowTotemSlotUpdate(slot)
 			return
 		end
 	end
-	-- Totemic Projection (Forever): the slot updates right after its cast are the totems landing on
-	-- their new spot, not going. Keep each record (the same totem, its time still running) and
-	-- measure range from where you stand; retiring them here left the bar gray for the whole fight
+	-- Totemic Call (Forever; Totemic Projection until the November 2 notes): the slot updates right
+	-- after its cast are the totems landing where you stand, not going. Keep each record (the same
+	-- totem, its time still running) and measure range from there; retiring them here left the bar
+	-- gray for the whole fight
 	if self._totemProjectAt and now - self._totemProjectAt < 2 then
 		for element, entry in pairs(self.shadowTotems) do
 			if entry.slot == slot then
@@ -7123,7 +7124,7 @@ local CooldownTypeNames = {
 	[8] = SPCompat.SpellLabel(30823, "Shamanistic Rage"),
 	[9] = SPCompat.SpellLabel(16166, "Elemental Mastery"),
 	[10] = SPCompat.SpellLabel(425336, "Rage of the Farseer"),
-	[11] = SPCompat.SpellLabel(437009, "Totemic Projection"),
+	[11] = SPCompat.SpellLabel(437009, "Totemic Call"),
 }
 
 -- Pop out a cooldown bar item
@@ -10261,7 +10262,7 @@ end
 -- ---------------------------------------------------------------------------
 -- One code base serves clients with different spell lists (no Bloodlust,
 -- Shamanistic Rage, Earth/Fire Elemental, Totem of Wrath or Wrath of Air on WoW:
--- Forever; no Rage of the Farseer or Totemic Projection anywhere else). The
+-- Forever; no Rage of the Farseer or Totemic Call anywhere else). The
 -- client is asked (SPCompat.SpellExists: a readable spell name, minus the
 -- known name-only leftovers), nothing is assumed per game version.
 local function spSpellExists(id)
@@ -10283,7 +10284,7 @@ ShamanPower.CooldownTypeLabels = {
 	[4] = SPCompat.SpellLabel(16188, "Nature's Swiftness"), [5] = SPCompat.SpellLabel(16190, "Mana Tide Totem"),
 	[6] = SPCompat.SpellLabel(2825, "Bloodlust") .. "/" .. SPCompat.SpellLabel(32182, "Heroism"),
 	[7] = "Weapon Imbue", [8] = SPCompat.SpellLabel(30823, "Shamanistic Rage"), [9] = SPCompat.SpellLabel(16166, "Elemental Mastery"),
-	[10] = SPCompat.SpellLabel(425336, "Rage of the Farseer"), [11] = SPCompat.SpellLabel(437009, "Totemic Projection"),
+	[10] = SPCompat.SpellLabel(425336, "Rage of the Farseer"), [11] = SPCompat.SpellLabel(437009, "Totemic Call"),
 }
 ShamanPower.COOLDOWN_TYPE_COUNT = 11
 
@@ -10298,7 +10299,7 @@ end
 -- The order the bar is sorted by: the saved order, limited to what this client
 -- has, with anything it has that the saved order never mentioned added at the end
 -- (the saved list was 8 long; Elemental Mastery, Rage of the Farseer and Totemic
--- Projection could not be placed at all).
+-- Projection, now Lightning Mastery and Totemic Call on Forever, could not be placed at all).
 function ShamanPower:GetCooldownBarOrder()
 	local out, seen = {}, {}
 	for _, t in ipairs(self.opt.cooldownBarOrder or {}) do
@@ -10883,10 +10884,10 @@ ShamanPower.TrackedCooldowns = {
 	{30823, "Shamanistic Rage", "cooldown", "cdbarShowShamanisticRage", 8},  -- Shamanistic Rage cooldown (Enhancement talent)
 	{2825, "Bloodlust", "cooldown", "cdbarShowBloodlust", 6},  -- Bloodlust (Horde)
 	{32182, "Heroism", "cooldown", "cdbarShowBloodlust", 6},  -- Heroism (Alliance)
-	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery", 9},  -- Elemental Mastery (Elemental talent)
+	{16166, "Elemental Mastery", "cooldown", "cdbarShowElementalMastery", 9},  -- Elemental Mastery (Elemental talent; Lightning Mastery on Forever)
 	-- WoW: Forever only (the spells do not exist on other clients, so the buttons never appear there)
 	{425336, "Rage of the Farseer", "cooldown", "cdbarShowRageOfTheFarseer", 10},  -- Enhancement capstone, 3 min
-	{437009, "Totemic Projection", "cooldown", "cdbarShowTotemicProjection", 11},  -- level 22, 1 min
+	{437009, "Totemic Call", "cooldown", "cdbarShowTotemicProjection", 11},  -- level 22, 30 s (Totemic Projection, 1 min, until the November 2 notes)
 }
 
 -- Spell colors for progress bars (used when cdbarSpellColors is enabled)
@@ -10904,7 +10905,7 @@ ShamanPower.SpellBarColors = {
 	[32182] = {0.8, 0.1, 0.1},   -- Heroism - red
 	[16166] = {0.9, 0.6, 0.1},   -- Elemental Mastery - golden
 	[425336] = {0.8, 0.1, 0.1},  -- Rage of the Farseer (Forever) - red, the Bloodlust slot
-	[437009] = {0.6, 0.4, 0.2},  -- Totemic Projection (Forever) - earthy brown
+	[437009] = {0.6, 0.4, 0.2},  -- Totemic Call (Forever, was Totemic Projection) - earthy brown
 }
 
 -- Weapon imbue colors (by imbue type index)
@@ -18563,13 +18564,14 @@ function ShamanPower:PerformAssignTotem(name, class, index)
 	end)
 end
 
--- A guess at your spec from the talents you have, by spell ID: Elemental Mastery or Lava
--- Burst = Elemental, Stormstrike = Enhancement, Mana Tide = Restoration. Nil when none or
--- more than one fits. Shown under your name in the assignment window (WoW: Forever) and
--- told to the other shamans as SPEC.
+-- A guess at your spec from the talents you have, by spell ID: Elemental Mastery (Lightning
+-- Mastery on WoW: Forever) = Elemental, and on WoW: Forever Call of Thunder 16120 too, the talent
+-- in Lava Burst's spot since the November 2 notes (Lava Burst 408490 until that reaches the
+-- game), Stormstrike = Enhancement, Mana Tide = Restoration. Nil when none or more than one fits.
+-- Shown under your name in the assignment window (WoW: Forever) and told to the other shamans as SPEC.
 function ShamanPower:SpecGuess()
 	local K = SPCompat.KnowsSpellID
-	local ele = K(16166) or K(408490)
+	local ele = K(16166) or (SPCompat.FOREVER and K(16120)) or K(408490)
 	local enh = K(17364)
 	local resto = K(16190)
 	local n = (ele and 1 or 0) + (enh and 1 or 0) + (resto and 1 or 0)

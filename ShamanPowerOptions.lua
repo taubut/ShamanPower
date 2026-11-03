@@ -9232,7 +9232,7 @@ ShamanPower.options = {
 							order = 10,
 							type = "toggle",
 							name = SPCompat.SpellLabel(16166, "Elemental Mastery"),
-							desc = "Show Elemental Mastery cooldown on cooldown bar (Elemental talent)",
+							desc = "Show " .. SPCompat.SpellLabel(16166, "Elemental Mastery") .. " cooldown on cooldown bar (Elemental talent)",
 							width = "full",
 							hidden = function() return (not ShamanPower.opt.showCooldownBar) or not ShamanPower:CooldownTypeExists(9) end,
 							get = function(info)
@@ -9262,8 +9262,8 @@ ShamanPower.options = {
 						cdbar_show_totemic_projection = {
 							order = 10.2,
 							type = "toggle",
-							name = SPCompat.SpellLabel(437009, "Totemic Projection"),
-							desc = "Show the Totemic Projection cooldown on the cooldown bar (WoW: Forever)",
+							name = SPCompat.SpellLabel(437009, "Totemic Call"),
+							desc = "Show the " .. SPCompat.SpellLabel(437009, "Totemic Call") .. " cooldown on the cooldown bar (WoW: Forever)",
 							width = "full",
 							hidden = function() return not ShamanPower.opt.showCooldownBar or not SPCompat.SpellExists(437009) end,
 							get = function(info)
@@ -13037,7 +13037,7 @@ do
 	-- every word its right-click menu draws, so a search for a setting that moved into a menu lands here
 	local CDBAR_ICONS_SEARCH = "Items: Lightning Shield, Water Shield, Totemic Call, Totemic Recall, Reincarnation, Ankh,"
 		.. " Nature's Swiftness, Mana Tide Totem, Bloodlust, Heroism, Weapon Imbue, Shamanistic Rage, Elemental Mastery,"
-		.. " Rage of the Farseer, Totemic Projection. Click an item to show or hide it on the bar, right-click it for its"
+		.. " Lightning Mastery, Rage of the Farseer, Totemic Projection. Click an item to show or hide it on the bar, right-click it for its"
 		.. " settings, drag it to change its place (the bar's order). Show: Only When Running Out, Only When Almost Ready,"
 		.. " Then Hide Again, Until Used; Running Out At, Almost Ready At (seconds). Where: Cooldown Bar or Totem Bar."
 		.. " Look: Button Style (Same As The Totem Bar), Sweep (Radial, Vertical - Grays Out, Vertical - Fills Back In or"

@@ -44,6 +44,7 @@ local function KeyLabel(key)
 		local ids = { [2] = 36936, [3] = 20608, [4] = 16188, [5] = 16190, [6] = 2825 }
 		local label = names[tonumber(cd)] or Cap((cd:gsub("_", " ")))
 		if ids[tonumber(cd)] then label = SPCompat.SpellLabel(ids[tonumber(cd)], label) end
+		if tonumber(cd) == 2 then label = GetSpellInfo(36936) or label end   -- Totemic Recall on WoW: Forever, where Totemic Call is another spell
 		return label .. " cooldown"
 	end
 	return Cap((key:gsub("_", " ")))

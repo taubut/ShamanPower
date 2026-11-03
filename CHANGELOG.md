@@ -21,6 +21,11 @@
 - **Auto-Assign:** a shaman with Guardian Totems gets Stoneskin Totem (the talent makes it stronger). The other shamans' talents and spec reach you from their ShamanPower 3.0.9.5 on WoW: Forever.
 - Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.
 - **Loadout Bar:** it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.
+- **WoW: Forever's November 2 shaman changes:**
+  - Lava Burst is out of the game, so it's gone from Ready Reminders, the trainer reminder and the setup tour. Call of Thunder, the talent in its place, counts as Elemental for the spec under your name in Totem Assignments.
+  - Totemic Projection is now Totemic Call. Your totems come to you, so after it the totem range is measured from where you stand, and the minimap totem markers stay up.
+  - Elemental Mastery is now Lightning Mastery on the Cooldown Bar, in Ready Reminders and in the setup tour.
+  - These names are the game's own, so they change when the game does. The Cooldown Bar's Totemic Recall is called Totemic Recall on WoW: Forever, so it isn't mixed up with the new Totemic Call.
 
 ### Fixes
 - **Cooldown Bar keys:** after a change that rebuilt the cooldown bar (a setting, a profile, a talent), the shield key kept casting the shield the button had when you logged in, and the weapon imbue key the old imbue, while clicking the button cast the right one. The keys follow the button again.

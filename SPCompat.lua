@@ -506,7 +506,12 @@ do
 		if name then return name end
 		return fallback
 	end
+	-- Renamed on WoW: Forever by the November 2 notes: Elemental Mastery is Lightning Mastery,
+	-- Totemic Projection is Totemic Call. Their labels are the game's own name, so they follow the
+	-- game whether or not the rename has reached it yet; the new name when the game has none.
+	local RENAMED = { [16166] = "Lightning Mastery", [437009] = "Totemic Call" }
 	function SPCompat.SpellLabel(id, fallback)
+		if plain(id) and RENAMED[id] then return SPCompat.SpellName(id, SPCompat.FOREVER and RENAMED[id] or fallback) end
 		-- Preserve the existing short English captions; use game names elsewhere.
 		local locale = GetLocale and GetLocale()
 		if locale == "enUS" or locale == "enGB" or not locale then return fallback or SPCompat.SpellName(id) end
@@ -551,7 +556,6 @@ do
 			{ 29189, 29191 },   -- Healing Grace
 			{ 331, 332, 547, 913, 939, 959, 8005, 10395, 10396, 25357 },   -- Healing Wave
 			{ 29192, 29193 },   -- Improved Weapon Totems
-			{ 408490, 1238299, 1238300, 1326047 },   -- Lava Burst (rank 4 at 60 since the 10-15 patch; ranks 2-3 moved to 40 and 50)
 			{ 8004, 8008, 8010, 10466, 10467, 10468 },   -- Lesser Healing Wave
 			{ 403, 529, 548, 915, 943, 6041, 10391, 10392, 15207, 15208 },   -- Lightning Bolt
 			{ 16579, 16580, 16581, 16582 },   -- Lightning Mastery
@@ -937,6 +941,11 @@ if SPCompat.FOREVER then
 	-- nothing (Earth Shield 408514's signature above), and its name stays encrypted.
 	-- Hidden here: cycles and flyouts skip Air index 4, and saved assignments keep it.
 	UNOBTAINABLE[25908] = true
+
+	-- Lava Burst: taken out of WoW: Forever by the November 2 notes (Call of Thunder took its
+	-- talent spot). Its rows may stay in the data, so every rank is hidden here: Ready Reminders,
+	-- the trainer and the setup tour leave it out on their own.
+	for _, id in ipairs({ 408490, 1238299, 1238300, 1326047 }) do UNOBTAINABLE[id] = true end
 end
 
 SPCompat.spellDenyList = UNOBTAINABLE
