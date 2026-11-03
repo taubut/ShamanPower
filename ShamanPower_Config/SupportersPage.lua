@@ -15,7 +15,9 @@ local PATREON = "https://www.patreon.com/cw/ShamanPower"
 -- the names, A to Z within each list (updated with each release)
 ns.SUPPORTERS = {
 	earthenRing = {},
-	supporters = {},
+	supporters = {
+		"Afren",
+	},
 }
 
 -- the page: an option group under General (like Patch Notes), so the sidebar search
