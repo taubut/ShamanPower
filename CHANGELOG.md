@@ -1,6 +1,9 @@
 # ShamanPower Changelog
 
-## v3.0.9.5 (in progress)
+## v3.0.9.5 (2026-11-03)
+
+### After updating
+- After updating, fully close and restart the game once: 3.0.9.5 adds new files (the Loadout List and the zone names for Auto Loadout Groups), and a /reload alone does not load them.
 
 ### New
 - **Auto Loadout Groups** (Settings > Bars > Loadouts > Loadouts): put your loadouts in groups for the places you use them. Make an Auto Loadout Group for a zone (The Molten Core, Ragefire Chasm, any zone), or for any raid, any dungeon, any battleground or arena, or outside. Drag loadouts onto the group's row: they show in your loadout flyout only there, and when you enter you're switched to the group's first loadout (On Entry under it; never in a fight, it waits until the fight ends). Raid names are in red. A group can also keep your other loadouts in the flyout there, or show only its own. On WoW: Forever a raid group can ask the raid's shamans for Fire, Frost or Nature Resistance when you enter. Edit under a group's name changes or deletes it; drag its name to move the whole group.
@@ -20,6 +23,7 @@
 - **Auto-Assign** (Totem Assignments, WoW: Forever): the raid-wide totems go round the raid first. One shaman drops Windfury (an Enhancement shaman first), the next Grace of Air, one Strength of Earth, and nobody Flametongue while Windfury is down. So the raid has all of them before anyone doubles up. A raid-wide totem someone you can't change already drops isn't doubled. The other totems still follow each party's makeup.
 - **Auto-Assign:** a shaman with Guardian Totems gets Stoneskin Totem (the talent makes it stronger). The other shamans' talents and spec reach you from their ShamanPower 3.0.9.5 on WoW: Forever.
 - Cooldown Bar: Sweep Style's Radial Swipe is called Clock Sweep now, like on the Totem Bar.
+- ShamanPower's libraries are on their newest versions (AceDB-3.0, and LibSharedMedia-3.0 on WoW: Forever).
 - **Loadout Bar:** it starts left of the middle of the screen instead of low down over your action bars (if you never moved it). Reset in Unlock UI puts it there too.
 - **WoW: Forever's November 2 shaman changes:**
   - Lava Burst is out of the game, so it's gone from Ready Reminders, the trainer reminder and the setup tour. Call of Thunder, the talent in its place, counts as Elemental for the spec under your name in Totem Assignments.
