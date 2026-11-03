@@ -171,19 +171,18 @@ function Page:Render(body, W)
 	y = y + max(Line("lead", y, W - 180, "ShamanPower is free for every shaman, and it always will be. These people"
 		.. " support it on Patreon and keep it going. Thank you!", "text"), 26) + 18
 
-	-- Earthen Ring: the top tier, first, its names in gold
-	y = y + Label("ring", y, W, "EARTHEN RING")
+	-- Earthen Ring: the top tier, first, its names in gold (only once someone is in it)
 	if #ring > 0 then
+		y = y + Label("ring", y, W, "EARTHEN RING")
 		y = y + Names("ring", y, W, ring, true) + 18
-	else
-		y = y + Line("ringNone", y, W, "No Earthen Ring supporters yet.") + 18
 	end
 
-	-- every supporter
-	y = y + Label("all", y, W, "SUPPORTERS")
+	-- every other supporter; with nobody at all, the one empty line
 	if #all > 0 then
+		y = y + Label("all", y, W, "SUPPORTERS")
 		y = y + Names("all", y, W, all, false) + 10
-	else
+	elseif #ring == 0 then
+		y = y + Label("all", y, W, "SUPPORTERS")
 		y = y + Line("allNone", y, W, "No supporters yet. You could be the first.") + 10
 	end
 	return y
