@@ -3,8 +3,9 @@
 -- Shield leaves you (its last charge used, run out, canceled or replaced), in
 -- combat too. ONE setting (SP.opt.shieldDropSound / shieldDropSoundName), shown on
 -- Shield Charges and on Expiring Alerts > Sound: Shields (ShamanPowerOptions.lua).
--- It plays with Expiring Alerts on, off or not loaded. Until 3.0.6 it was Expiring
--- Alerts' own (shields.sound / soundName): Migrate carries it over, once.
+-- It plays only while Expiring Alerts is on (3.0.9.6): with that module off or not
+-- loaded, none of its sounds play. Until 3.0.6 it was Expiring Alerts' own
+-- (shields.sound / soundName): Migrate carries it over, once.
 --  * WoW: Forever: in combat the addon cannot see the shield fall (aura reads come
 --    back empty, nothing fires), so the GAME plays it: C_UnitAuras.AddAuraSound with
 --    the Removed trigger, one registration per shield rank on the list (measured
@@ -104,9 +105,16 @@ function SP:TestShieldSound(shield)
 	self:PlaySoundWithVolume(self:GetSoundFile(self:ShieldSoundName(which)), vol, true)
 end
 
+-- Expiring Alerts loaded and switched on: off, the shield sound is off with it
+local function ExpiringAlertsOn()
+	local ea = rawget(_G, "ShamanPowerExpiringAlertsDB")
+	return SP.ExpiringAlertsLoaded == true and type(ea) == "table" and ea.enabled ~= false
+end
+
 local function Wanted()
 	local o = SP.opt
 	return IS_SHAMAN and o ~= nil and (SP:ShieldSoundOn(1) or SP:ShieldSoundOn(2)) and not SP:IsOff()
+		and ExpiringAlertsOn()
 end
 
 -- ---------------------------------------------------------------------------

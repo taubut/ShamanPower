@@ -1,5 +1,10 @@
 # ShamanPower Changelog
 
+## v3.0.9.6 (in progress)
+
+### Fixes
+- **Expiring Alerts:** turned off, it still played the sound when your Lightning Shield or Water Shield dropped. With Expiring Alerts off, none of its sounds play now. Your sound settings are kept for when you turn it back on.
+
 ## v3.0.9.5 (2026-11-03)
 
 ### After updating

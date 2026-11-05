@@ -137,6 +137,7 @@ local BIND = {
 	expiring = {
 		get = function() return ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.enabled ~= false end,
 		set = function(v) ShamanPowerExpiringAlertsDB = ShamanPowerExpiringAlertsDB or {}; ShamanPowerExpiringAlertsDB.enabled = v; notify()
+			safecall("UpdateShieldSounds")
 			if ns.Widgets and SP.Wizard._expiringCard then ns.Widgets:RefreshAll(SP.Wizard._expiringCard) end end,
 	},
 	partybuff = {

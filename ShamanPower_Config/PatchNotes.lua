@@ -9,6 +9,13 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.6",
+		date = "in progress",
+		fixes = {
+			"Expiring Alerts: turned off, it still played the sound when your Lightning Shield or Water Shield dropped. With Expiring Alerts off, none of its sounds play now.",
+		},
+	},
+	{
 		v = "3.0.9.5",
 		date = "2026-11-03",
 		headline = "Auto Loadout Groups, and Clock Sweep for the pulse",

@@ -845,8 +845,8 @@ end
 -- Shield-dropped sound
 -- ============================================================================
 -- ShamanPower's own since 3.0.6 (Sound When Your Shield Drops,
--- ShamanPowerShieldSound.lua): both clients, in combat too, with this module on,
--- off or not loaded. The visual shield alert below stays this module's.
+-- ShamanPowerShieldSound.lua): both clients, in combat too, only while this module is on
+-- (3.0.9.6). The visual shield alert below stays this module's.
 
 -- ============================================================================
 -- State Detection and Updates
@@ -2146,6 +2146,7 @@ SlashCmdList["SPALERTS"] = function(msg)
 		SP:ExpiringAlertsReset()
 	elseif msg == "toggle" then
 		ShamanPowerExpiringAlertsDB.enabled = not ShamanPowerExpiringAlertsDB.enabled
+		if SP.UpdateShieldSounds then SP:UpdateShieldSounds() end
 		SP:Print("Expiring Alerts " .. (ShamanPowerExpiringAlertsDB.enabled and "on" or "off"))
 	elseif msg == "sound" or msg == "sound solo" or msg == "sound all" then
 		-- the shield-drop sound is the core's (ShamanPowerShieldSound.lua): its report

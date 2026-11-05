@@ -7031,14 +7031,13 @@ ShamanPower.options = {
 						master_off_note = {
 							order = 0.05,
 							type = "description",
-							name = "|cffffa040Expiring Alerts is off, including Test Alerts."
-								.. " Sound When Your Shield Drops can still play without Expiring Alerts.|r",
+							name = "|cffffa040Expiring Alerts is off, including Test Alerts.|r",
 							hidden = function() return not (ShamanPowerExpiringAlertsDB and ShamanPowerExpiringAlertsDB.enabled == false) end,
 						},
 						module_missing_note = {
 							order = 0.01,
 							type = "description",
-							name = "|cffffa040Expiring Alerts is not loaded. These settings will not work and may not save. Turn on ShamanPower [Expiring Alerts] in the AddOns list, then type /reload. Sound When Your Shield Drops works either way.|r",
+							name = "|cffffa040Expiring Alerts is not loaded. These settings will not work and may not save. Turn on ShamanPower [Expiring Alerts] in the AddOns list, then type /reload.|r",
 							hidden = function() return not (not ShamanPower.ExpiringAlertsLoaded) end,
 						},
 						alerts_desc = {
@@ -7062,6 +7061,7 @@ ShamanPower.options = {
 								if ShamanPowerExpiringAlertsDB then
 									ShamanPowerExpiringAlertsDB.enabled = val
 								end
+								if ShamanPower.UpdateShieldSounds then ShamanPower:UpdateShieldSounds() end
 							end
 						},
 						alerts_header_display = {

@@ -239,6 +239,8 @@ local POWER_EXPIRING = {
 	set    = function(v)
 		local db = rawget(_G, "ShamanPowerExpiringAlertsDB")
 		if type(db) == "table" then db.enabled = v and true or false end
+		local sp = SP()
+		if sp and sp.UpdateShieldSounds then sp:UpdateShieldSounds() end   -- (the shield sound goes with it)
 	end,
 }
 local POWER_REACTIVE = {
