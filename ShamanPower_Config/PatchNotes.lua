@@ -11,6 +11,9 @@ ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.6",
 		date = "in progress",
+		changes = {
+			"Totem Coverage (WoW: Forever): in a dungeon or raid fight, a totem's border turns green when everyone in your party has its buff, and red when someone doesn't, instead of going gray.",
+		},
 		fixes = {
 			"Expiring Alerts: turned off, it still played the sound when your Lightning Shield or Water Shield dropped. With Expiring Alerts off, none of its sounds play now.",
 			"Totem bar (WoW: Forever): in a dungeon or raid fight, if you were out of a totem's range when the fight started, its icon could stay gray for the whole fight, even after you dropped the totem again right next to you. It now changes as soon as the totem's buff reaches you. The Totem Range Tracker's icons had the same problem and are fixed too.",

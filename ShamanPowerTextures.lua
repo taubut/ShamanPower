@@ -895,6 +895,16 @@ local function paintEdge(frame)
 	drawEdge(frame, SP.opt and SP.opt.frameEdge)
 	paintFrameOutline(frame)
 end
+-- (3.0.9.6) today's edge on a frame, once, with no hooks: for a frame that may not be touched in a
+-- fight (inside the game's aura buttons: Totem Coverage's game-drawn green border, a copy of its
+-- cell's). noShadow: no Drop Shadow of its own (the cell's shadow under it is the one).
+function SP:PaintFrameEdgeOnce(frame, noShadow)
+	if not (frame and frame.SetBackdrop) then return end
+	local kind = SP.opt and SP.opt.frameEdge
+	if noShadow and kind == "shadow" then kind = nil end
+	drawEdge(frame, kind)
+	paintFrameOutline(frame)
+end
 -- the Themes tab's cards: one edge kind on a sample frame
 function SP:PaintFrameEdgePreview(frame, kind)
 	if kind == "default" then kind = nil end

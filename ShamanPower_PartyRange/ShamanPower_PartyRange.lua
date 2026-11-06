@@ -1016,10 +1016,10 @@ end)
 -- the red name is covered; out of range = the engine hides it and the red
 -- name shows. No reads, so it holds in combat and in instances. Out of
 -- combat, where reads work, the cell's border says green (everyone) or red
--- (someone missing) and a totem everyone has can be left out; in combat the
--- border is neutral and the names carry the answer (the engine never says
--- "all covered"). Rows are built out of combat (names, classes); a roster
--- change in a fight rebuilds at regen.
+-- (someone missing) and a totem everyone has can be left out; in a fight in
+-- a dungeon the game draws the green itself (BuildCoverAll, 3.0.9.6). Rows
+-- are built out of combat (names, classes); a roster change in a fight
+-- rebuilds at regen.
 SP.coverageRows = {}   -- [element][partyIndex] = { container = frame|nil, key = string }
 
 function SP:CoverageAvailable() return EngineDotsAvailable() end
@@ -1305,6 +1305,122 @@ local function BuildCoverageRow(element, partyIndex, btn, row, name, r, g, b)
 	end, 5))
 end
 
+-- (3.0.9.6) "Everyone has it" in a fight in a dungeon, drawn by the game. There it gives out no
+-- positions and hides everyone's buffs, so the cell's border went neutral gray and said nothing.
+-- The game still draws each member's buff (the names and dots), and a frame only shows while every
+-- frame it sits in shows: one game-drawn slot per member, each inside the one before, and in the
+-- last a copy of the cell's green border. The border under it is red: someone is missing the buff.
+-- Nothing else of it shows (the names and dots stay as they are). Built out of combat with the
+-- rows, for the party as it is then; a party that changed in a fight keeps the gray until the
+-- rebuild at regen. The copy sits inside the game's aura buttons: painted only out of a fight.
+local coverAllDirty = false
+local function PaintCoverAllRing(ring)
+	ring:SetBackdrop(SP.PANEL_BACKDROP)
+	ring:SetBackdropColor(0, 0, 0, 0)
+	ring:SetBackdropBorderColor(0, 1, 0, 1)   -- the cell's covered green (PaintCoverageCell)
+	if SP.PaintFrameEdgeOnce then SP:PaintFrameEdgeOnce(ring, true) end   -- its Frame Edges and Outline Gradient
+end
+
+local function RetireCoverAll(btn)
+	local chain = btn.coverAll
+	if not chain then return end
+	for _, c in ipairs(chain.containers) do pcall(c.SetEnabled, c, false) end
+	if chain.top then chain.top:Hide() end
+	btn.coverAll = nil
+end
+
+local function BuildCoverAll(btn, element)
+	local units, key = {}, CoverageWatchSig(element)
+	for i = 1, 4 do
+		local unit = SP.partyUnitStrings[i]
+		if UnitExists(unit) then
+			units[#units + 1] = unit
+			key = key .. "|" .. unit .. "=" .. tostring(UnitName(unit))
+		end
+	end
+	if btn.coverAll and btn.coverAll.key == key then return end
+	RetireCoverAll(btn)
+	local holder = btn.coverAllHolder
+	if not holder then
+		holder = CreateFrame("Frame", nil, btn)
+		holder:SetAllPoints(btn)
+		holder.spNoHoverWalk = true
+		btn.coverAllHolder = holder
+	end
+	holder:SetAlpha(0)
+	btn.coverAllOn = false
+	local n = #units
+	if n == 0 then return end
+	local ids = CoverageBuffMap(element)
+	local chain = { key = key, units = units, containers = {} }
+	local function link(parent, i)
+		local c = NewPartyAuraSlot(parent, units[i], "coverall", ids, function(button)
+			button:ClearAllPoints()
+			button:SetAllPoints(parent)
+			if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+			if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+			if i < n then link(button, i + 1) return end
+			local ring = CreateFrame("Frame", nil, button, "BackdropTemplate")
+			ring:SetAllPoints(btn)
+			ring:SetFrameLevel(btn:GetFrameLevel() + 1)   -- just over the cell's own border
+			PaintCoverAllRing(ring)
+			chain.ring = ring
+		end, 1)
+		if c then chain.containers[#chain.containers + 1] = c end
+		return c
+	end
+	chain.top = link(holder, 1)
+	btn.coverAll = chain
+	if #chain.containers ~= n or not chain.ring then RetireCoverAll(btn) return end   -- (not all of it: the gray)
+	chain.level = btn:GetFrameLevel()
+end
+
+-- in a fight: the cell's slots were built for the party as it is now
+local function CoverAllReady(btn, partyUnits, count)
+	local chain = btn.coverAll
+	if not chain or SP._coveragePending or #chain.units ~= count then return false end
+	for i = 1, count do
+		if chain.units[i] ~= partyUnits[i] then return false end
+	end
+	return true
+end
+
+-- on: the game may draw the green (it does while everyone has the buff); off: never
+local function SetCoverAll(btn, on)
+	local holder = btn.coverAllHolder
+	if holder and btn.coverAllOn ~= on then
+		btn.coverAllOn = on
+		holder:SetAlpha(on and 1 or 0)
+	end
+end
+
+-- out of a fight: the copies take a changed Frame Edges / Outline Gradient / theme, and stay just over
+-- their cell's border when the cell moved levels (free placement puts it on the screen itself)
+function SP:CoverAllTidy(btn)
+	local chain = btn and btn.coverAll
+	if not (chain and chain.ring) then return end
+	if not coverAllDirty and chain.level == btn:GetFrameLevel() then return end
+	if self.GameAuraButtonsLocked and self:GameAuraButtonsLocked() then return end
+	local frame = self.coverageFrame
+	if coverAllDirty and frame then
+		coverAllDirty = false
+		local cells = {}
+		for element = 1, 4 do cells[#cells + 1] = frame.buttons[element] end
+		for _, b in pairs(frame.totemCells or {}) do cells[#cells + 1] = b end
+		for _, b in ipairs(cells) do
+			if b.coverAll and b.coverAll.ring then PaintCoverAllRing(b.coverAll.ring) end
+		end
+	end
+	local L = btn:GetFrameLevel()
+	if chain.level ~= L then
+		chain.level = L
+		chain.ring:SetFrameLevel(L + 1)
+	end
+end
+if hooksecurefunc and SP.RepaintFrameEdges then
+	hooksecurefunc(SP, "RepaintFrameEdges", function() coverAllDirty = true end)
+end
+
 -- The cell of one watched totem (free placement), made on first use.
 function SP:CoverageTotemCell(element, totemIndex)
 	local frame = self:CreateCoverageFrame()
@@ -1397,6 +1513,7 @@ local function BuildCellRows(self, btn, rowsKey, element)
 		end
 		row:SetShown(exists)
 	end
+	BuildCoverAll(btn, element)   -- (3.0.9.6: the game's "everyone has it")
 end
 
 -- Rows for every cell in use. Out of combat only.
@@ -1518,6 +1635,10 @@ local function PaintCoverageCell(btn, state, missing)
 		btn.rangeOverlay:Show()
 		btn.statusText:SetText(missing == 1 and "1 OUT" or (missing .. " OUT"))
 		btn.statusText:SetShown(not timer)
+	elseif state == "engine" then   -- (3.0.9.6) red: the game draws the green over it while everyone has it
+		btn:SetBackdropBorderColor(0.8, 0, 0, 1)
+		btn.rangeOverlay:Hide()
+		btn.statusText:Hide()
 	else   -- "combat": the names carry the answer
 		btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 		btn.rangeOverlay:Hide()
@@ -1558,9 +1679,10 @@ function SP:UpdateCoverage()
 		local state, missing = "combat", 0
 		-- In combat inside an instance the game gives out no positions, so the
 		-- distance model can only ask "is this player near the SHAMAN", which is
-		-- wrong whenever the shaman walks away from the totem. There the border
-		-- stays neutral grey and says nothing; the game-drawn names (from the
-		-- real buffs) are the answer. Measured in RFC, 2026-09-23.
+		-- wrong whenever the shaman walks away from the totem. There the game
+		-- draws the answer (the names, and since 3.0.9.6 the green border:
+		-- BuildCoverAll); without that border built, it stays neutral gray and
+		-- says nothing. Measured in RFC, 2026-09-23.
 		local noPositions = show and SPCompat and SPCompat.AurasUnreadable and SPCompat.AurasUnreadable()
 			and self.TotemDropInRange and self:TotemDropInRange(element) == nil
 		if noPositions then
@@ -1580,7 +1702,19 @@ function SP:UpdateCoverage()
 			-- the panel's cell for the element, or the totem's own cell when placed freely
 			local btn = co.freeCells and self:CoverageTotemCell(element, totemIndex) or frame.buttons[element]
 			if icon ~= nil and not issecretvalue(icon) and btn.iconTex ~= icon then btn.iconTex = icon; btn.icon:SetTexture(icon) end
+			-- (3.0.9.6) the game's "everyone has it" over a red border. A member plainly far away is missing it
+			-- (the game can't say whose their buffs are, as with the dots); Plain Totem Icon: the plain border
+			local all = false
+			if state == "combat" and CoverAllReady(btn, partyUnits, count) then
+				state = "engine"
+				all = not co.plainIcon
+				for i = 1, count do
+					if all and self:PartyUnitFarAway(partyUnits[i]) then all = false end
+				end
+			end
 			PaintCoverageCell(btn, state, missing)
+			SetCoverAll(btn, all)
+			self:CoverAllTidy(btn)
 			-- the totem bar's own time left (GetElementTotemInfo, readable in combat too)
 			SetCellTimer(btn, co.showTimer and tDur and tDur > 0 and (tStart + tDur - GetTime()) or nil)
 			if CoverageDots() then
@@ -1784,6 +1918,9 @@ function SP:CoverageDemo(on)
 				if slot.container then slot.container:Hide() end
 			end
 		end
+		-- and the game's green border (3.0.9.6)
+		for element = 1, 4 do SetCoverAll(frame.buttons[element], false) end
+		for _, btn in pairs(frame.totemCells or {}) do SetCoverAll(btn, false) end
 		-- the unlock movers show free cells at their own spots; a preview (wizard, pane) shows the panel
 		local freeDemo = CoverageOpts().freeCells and self.unlockDemoAll
 		local d = self.coverageDemo or { beat = 1 }
