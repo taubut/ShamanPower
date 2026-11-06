@@ -10,7 +10,7 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.6",
-		date = "in progress",
+		date = "2026-11-06",
 		changes = {
 			"Totem Coverage (WoW: Forever): in a dungeon or raid fight, a totem's border turns green when everyone in your party has its buff, and red when someone doesn't, instead of going gray.",
 		},

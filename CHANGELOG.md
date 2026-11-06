@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.6 (in progress)
+## v3.0.9.6 (2026-11-06)
 
 ### Changes
 - **Totem Coverage (WoW: Forever):** in a dungeon or raid fight, a totem's border went gray, because the game hides everyone's buffs there. Now it turns green when everyone in your party has the totem's buff, and red when someone doesn't, like outside a fight. If your party changes during the fight, the border stays gray until the fight ends.
