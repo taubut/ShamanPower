@@ -1218,6 +1218,11 @@ end
 -- game says what kind of control it is, in combat too (the player's loss-of-control
 -- list is secret only for other units). It shows for fear, charm or sleep (and
 -- horror, as the scan counts it); anything unreadable shows it, as before.
+-- (3.0.9.7) Build 70790 hides your own kind too, out in the world as well (the owner's
+-- probe 11-06: every root read SECRET), so every root showed it. Its priority stays
+-- readable: fear and sheep read 5 (full loss of control), a root 1 (measured 10-02). A
+-- hidden kind shows it at 5 or more only; sheep and stuns still do (nothing readable tells
+-- them from fear).
 local TREMOR_LOC_TYPES = { FEAR = true, FEAR_MECHANIC = true, CHARM = true, POSSESS = true }
 local function PlayerTremorBreakable()
 	local L = C_LossOfControl
@@ -1229,8 +1234,12 @@ local function PlayerTremorBreakable()
 		local d = L.GetActiveLossOfControlData(i)
 		if d then
 			local t, text = d.locType, d.displayText
-			if issecretvalue(t) or issecretvalue(text) then return true end
-			if TREMOR_LOC_TYPES[t] or (text ~= nil and (text == sleep or text == horror)) then return true end
+			if issecretvalue(t) or issecretvalue(text) then
+				local p = d.priority
+				if issecretvalue(p) or type(p) ~= "number" or p >= 5 then return true end
+			elseif TREMOR_LOC_TYPES[t] or (text ~= nil and (text == sleep or text == horror)) then
+				return true
+			end
 		end
 	end
 	return false

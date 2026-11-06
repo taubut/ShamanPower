@@ -9,6 +9,13 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.7",
+		date = "in progress",
+		fixes = {
+			"Reactive Totems (WoW: Forever): your Tremor alert showed every time you were rooted. It now shows only when you lose full control, like fear, charm or sleep. A sheep or a stun still shows it, because the game no longer says what kind of control you're under.",
+		},
+	},
+	{
 		v = "3.0.9.6",
 		date = "2026-11-06",
 		headline = "Totem Coverage in dungeon and raid fights, and each character its own profile",

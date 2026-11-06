@@ -1,5 +1,10 @@
 # ShamanPower Changelog
 
+## v3.0.9.7 (in progress)
+
+### Fixes
+- **Reactive Totems (WoW: Forever):** your Tremor alert showed every time you were rooted. The game no longer says what kind of loss of control you're under, so a root looked the same as a fear. The alert now shows only when you lose full control, like fear, charm or sleep, and not for roots. A sheep or a stun still shows it, because the game gives nothing that tells those apart from fear.
+
 ## v3.0.9.6 (2026-11-06)
 
 ### Changes
