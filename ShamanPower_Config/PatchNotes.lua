@@ -14,6 +14,7 @@ ns.PATCH_NOTES = {
 		fixes = {
 			"Expiring Alerts: turned off, it still played the sound when your Lightning Shield or Water Shield dropped. With Expiring Alerts off, none of its sounds play now.",
 			"Totem bar (WoW: Forever): in a dungeon or raid fight, if you were out of a totem's range when the fight started, its icon could stay gray for the whole fight, even after you dropped the totem again right next to you. It now changes as soon as the totem's buff reaches you. The Totem Range Tracker's icons had the same problem and are fixed too.",
+			"Profiles (WoW: Forever): characters with the same first name on one server (different last names) shared one profile choice, so switching profiles on one switched the others too. Each character keeps its own choice now. Your profiles and their names don't change.",
 		},
 	},
 	{

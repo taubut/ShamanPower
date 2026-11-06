@@ -2292,8 +2292,10 @@ function ShamanPower:FixPlayerIdentity()
 		if old and old ~= name then self.AllShamans[old] = nil end
 		if first ~= name then self.AllShamans[first] = nil end
 	end
-	-- AceDB took its character key when it loaded and never looks again (KeepCharKey)
-	if self:KeepCharKey() == "moved" then
+	-- AceDB took its character key when it loaded and never looks again (KeepCharKey); no realm yet:
+	-- asked again (the caller's next event), so the character is never left on another key
+	local kept = self:KeepCharKey()
+	if kept == "moved" then
 		shadowDurationsSaved, shadowLearnedDuration = false, {}   -- rebind learned lengths to the real character
 	end
 	local db = self.db
@@ -2301,59 +2303,99 @@ function ShamanPower:FixPlayerIdentity()
 	local sv = db and rawget(db, "sv")
 	if keys and sv and type(keys.char) == "string" then
 		-- "Unknown" leftovers from earlier cold logins, whoever they were: never read again (a key
-		-- without " - " is AceDB-3.0 39's region-wide name: the whole key is the name)
+		-- without " - " is a region-wide name, "First" or "First Surname": its first word is the name)
 		for _, store in ipairs({ sv.char, sv.profileKeys }) do
 			if type(store) == "table" then
 				for key in pairs(store) do
-					if key ~= keys.char and type(key) == "string" and not nameKnown(key:match("^(.-) %- ") or key) then store[key] = nil end
+					if key ~= keys.char and type(key) == "string" and not nameKnown(key:match("^(.-) %- ") or key:match("^(%S+)") or key) then store[key] = nil end
 				end
 			end
 		end
 	end
-	return true
+	return kept ~= false
 end
 
--- ShamanPower files each character under "Name - Realm": AceDB-3.0's character key up to MINOR 33, and
--- the key every saved ShamanPower setting already uses. AceDB-3.0 39 (Ace3, 2026-09-25) keys WoW: Forever
--- characters by their region-wide name instead ("Name" or "Name Surname"), and the newest AceDB copy
--- among a player's addons is the one every addon gets: left alone, it would put each character on the
--- Default profile and lose its own data (learned totem lengths). Right after the db opens (and again
--- once a cold login's name is known) the character goes back to our key with the profile it had there.
+-- The key each character is filed under (which profile it uses, its own data such as learned totem
+-- lengths). Other clients: "Name - Realm", AceDB-3.0's character key up to MINOR 33. WoW: Forever (regional
+-- unique names, 3.0.9.6): "First Surname", AceDB-3.0 40's own key there and the game's own (its
+-- per-character folders); names are unique across the region, so no two characters share one. Until
+-- 3.0.9.6 ShamanPower kept Forever characters under "First - Realm" too, which leaves the surname out:
+-- every shaman with the same first name on a server shared one profile pick and one set of data (the
+-- owner's test 11-05: a new Sru Testing came up on Sru Shamanpower's profile, and switching one switched
+-- both; a player's "my profile keeps resetting"). Once per character the old "First - Realm" entry is
+-- carried to the full name: the profile it was on and its data, so nothing changes for anyone that day.
+-- The old entry is never cleared: another character with the same first name may not have logged in yet.
+-- AceDB-3.0 39 (2026-09-25) keyed Forever characters by first name alone; whatever key the newest AceDB
+-- copy loaded with, the character goes to ours with the profile it had there, right after the db opens
+-- (and again once a cold login's name is known).
 -- now: switch that profile at once (OnInitialize, before anything reads it), else on the next frame.
--- Returns false while the game has no name yet, "moved" when the key changed.
+-- Returns false while the game has no name (or realm) yet, "moved" when the key or its data changed.
 function ShamanPower:KeepCharKey(now)
 	local first = _G.UnitName("player")      -- AceDB-3.0 33 keys on the game's first return
 	if not nameKnown(first) then return false end
+	local realm = GetRealmName()
+	if type(realm) ~= "string" or realm == "" then return false end   -- (never file anything under "Name - ")
 	local db = self.db
 	local keys = db and rawget(db, "keys")
 	local sv = db and rawget(db, "sv")
 	if not (keys and sv and type(keys.char) == "string") then return true end
-	local ours, aceKey = first .. " - " .. (GetRealmName() or ""), keys.char
-	if aceKey == ours then return true end
-	keys.char = ours
-	rawset(db, "char", nil)   -- AceDB builds db.char from sv.char[keys.char] on its next use
-	-- this character's data under AceDB's key comes along; an "Unknown" one mixed whichever
-	-- characters logged in cold, so it goes
-	if sv.char and sv.char[aceKey] ~= nil then
-		if sv.char[ours] == nil and nameKnown(aceKey:match("^(.-) %- ") or aceKey) then sv.char[ours] = sv.char[aceKey] end
-		sv.char[aceKey] = nil
+	local realmKey = first .. " - " .. realm
+	local ours = realmKey
+	local regional = rawget(_G, "RegionalUniqueNamesEnabled")
+	if SPCompat and SPCompat.FOREVER and regional and regional() and UnitNameUnmodified then
+		local name, surname = UnitNameUnmodified("player")   -- (as AceDB-3.0 40 builds it)
+		if nameKnown(name) and type(surname) == "string" and surname ~= "" then ours = name .. " " .. surname end
 	end
-	self.aceCharKeyFix = { bad = aceKey, real = ours }
+	local aceKey = keys.char
 	local pk = sv.profileKeys
-	if pk then
-		local current = db:GetCurrentProfile()
-		local want = pk[ours] or current
-		pk[aceKey], pk[ours] = nil, want
-		-- this character has its own profile: switch to it (a name AceDB-3.0 39 refuses, over 50
-		-- letters, leaves it where it is)
-		if want ~= current then
-			local function switch()
-				if pcall(db.SetProfile, db, want) then self:SyncCharProfileKey() end
+	local current = db:GetCurrentProfile()
+	local want, moved
+	if aceKey ~= ours then
+		keys.char = ours
+		moved = true
+		-- this character's data under AceDB's key comes along; an "Unknown" one mixed whichever
+		-- characters logged in cold, so it goes. The old "First - Realm" entry stays (carried below).
+		if aceKey ~= realmKey then
+			if sv.char and sv.char[aceKey] ~= nil then
+				if sv.char[ours] == nil and nameKnown(aceKey:match("^(.-) %- ") or aceKey:match("^(%S+)") or aceKey) then sv.char[ours] = sv.char[aceKey] end
+				sv.char[aceKey] = nil
 			end
-			if now then switch() else C_Timer.After(0, switch) end
+			if pk then pk[aceKey] = nil end
+		end
+		-- (keep: AceDB keyed it "First - Realm" itself; that entry is put back after each pick it writes there)
+		self.aceCharKeyFix = { bad = aceKey, real = ours, keep = aceKey == realmKey and pk and pk[realmKey] or nil }
+		if pk then want = pk[ours] or current; pk[ours] = want end
+	end
+	-- (3.0.9.6) the one carry from "First - Realm" to the full name: the profile it was on, and its data
+	-- (copied: another character with the same first name may still read the old entry). Marked in the
+	-- character's own data: a version before 3.0.9.6 clears that, so going back and updating again
+	-- carries once more instead of landing on Default.
+	if ours ~= realmKey then
+		if type(sv.char) ~= "table" then sv.char = {} end
+		local dst = sv.char[ours]
+		if not (type(dst) == "table" and dst.charKeyCarried) then
+			if pk and type(pk[realmKey]) == "string" then want = pk[realmKey]; pk[ours] = want end
+			if type(dst) ~= "table" then dst = {}; sv.char[ours] = dst end
+			local src = sv.char[realmKey]
+			if type(src) == "table" then
+				for k, v in pairs(src) do
+					if dst[k] == nil and k ~= "charKeyCarried" then dst[k] = type(v) == "table" and CopyTable(v) or v end
+				end
+			end
+			dst.charKeyCarried = true
+			moved = true
 		end
 	end
-	return "moved"
+	if moved then rawset(db, "char", nil) end   -- AceDB builds db.char from sv.char[keys.char] on its next use
+	-- this character has its own profile: switch to it (a name AceDB-3.0 39 refuses, over 50 letters,
+	-- leaves it where it is)
+	if want and want ~= current then
+		local function switch()
+			if pcall(db.SetProfile, db, want) then self:SyncCharProfileKey() end
+		end
+		if now then switch() else C_Timer.After(0, switch) end
+	end
+	return moved and "moved" or true
 end
 
 -- AceDB writes a profile pick under the key it loaded with (a local of its own), not db.keys.char:
@@ -2362,7 +2404,7 @@ function ShamanPower:SyncCharProfileKey()
 	local fix = self.aceCharKeyFix
 	local sv = fix and self.db and rawget(self.db, "sv")
 	local pk = sv and sv.profileKeys
-	if pk then pk[fix.real], pk[fix.bad] = self.db:GetCurrentProfile(), nil end
+	if pk then pk[fix.real], pk[fix.bad] = self.db:GetCurrentProfile(), fix.keep end
 end
 
 local SHADOW_BIND_WINDOW = 0.5         -- seconds between a cast and its PLAYER_TOTEM_UPDATE

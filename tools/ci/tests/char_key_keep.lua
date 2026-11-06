@@ -1,13 +1,18 @@
 -- client: both
--- ShamanPower keeps each character under "Name - Realm" (AceDB-3.0 33's key, the one every saved setting
--- uses) whatever AceDB copy loads. AceDB-3.0 39 keys WoW: Forever characters by their region-wide name
--- ("Name"): left alone, the first login with it put the character on Default and lost its own data.
--- KeepCharKey moves it back with the profile it had; FixPlayerIdentity's cleanup keeps other characters'
--- keys and drops only "Unknown" ones.
+-- ShamanPower keeps each character under its own key whatever AceDB copy loads: "Name - Realm" (AceDB-3.0
+-- 33's key) on other clients, the full name "First Surname" on WoW: Forever (3.0.9.6; char_key_fullname has
+-- the carry from the old key). AceDB-3.0 39 keyed Forever characters by first name alone ("Name"): left
+-- alone, the first login with it put the character on Default and lost its own data. KeepCharKey moves it
+-- to ours with the profile it had; FixPlayerIdentity's cleanup keeps other characters' keys and drops only
+-- "Unknown" ones.
 local SP = ShamanPower
 local db = SP.db
 local keys, sv = rawget(db, "keys"), rawget(db, "sv")
 local ours = UnitName("player") .. " - " .. GetRealmName()
+if SPCompat.FOREVER and RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled() then
+	local name, surname = UnitNameUnmodified("player")
+	ours = name .. " " .. surname
+end
 checkEq("the character is on our key after login", keys.char, ours)
 checkEq("its profile is kept under our key", sv.profileKeys[ours], db:GetCurrentProfile())
 if RegionalUniqueNamesEnabled and RegionalUniqueNamesEnabled() then
