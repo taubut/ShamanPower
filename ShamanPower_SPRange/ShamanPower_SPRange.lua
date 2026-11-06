@@ -541,6 +541,22 @@ function SP:SPRangeEngineRoom(btn)
 		if ch ~= c and not (ch.IsForbidden and ch:IsForbidden()) and ch:GetFrameLevel() <= lvl then ch:SetFrameLevel(lvl + 1) end
 	end
 end
+-- (3.0.9.6) as on the totem bar: a slot switched on in a fight heard of no change to your auras after
+-- that moment, so a buff that reached you later never showed. While one is on, each change to your
+-- auras has it read them again (once a frame at most); asleep again once none is.
+local spEngineAuraWatch = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(spEngineAuraWatch, "Totem Range Tracker") end
+spEngineAuraWatch:SetScript("OnEvent", function(self)
+	local frame = SP.spRangeFrame
+	local any = false
+	if frame and frame.totemButtons then
+		for _, btn in pairs(frame.totemButtons) do
+			local c = btn.spEngineOn and btn.spEngine
+			if c then any = true; pcall(c.UpdateAllAuras, c) end
+		end
+	end
+	if not any then self:UnregisterEvent("UNIT_AURA") end
+end)
 -- on: in a fight, the icon takes its Out of Range look and the game covers it while the buff is on you
 function SP:SPRangeEngineApply(btn, on)
 	local c = btn.spEngine
@@ -557,6 +573,7 @@ function SP:SPRangeEngineApply(btn, on)
 		if on then pcall(c.UpdateAllAuras, c) end
 		c:SetAlpha(on and 1 or 0)
 		btn.spEngineOn = on
+		if on then spEngineAuraWatch:RegisterUnitEvent("UNIT_AURA", "player") end
 	end
 end
 local spEngineEvents = CreateFrame("Frame")

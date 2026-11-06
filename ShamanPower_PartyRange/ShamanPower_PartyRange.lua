@@ -949,6 +949,27 @@ function SP:OwnRangeEngineFor(element, host)
 	return nil
 end
 
+-- (3.0.9.6) A slot switched on in a fight knew your auras only from that moment and heard of no change
+-- after it: out of range at the pull, then the totem dropped again, its aura never showed and the icon
+-- stayed gray (the owner's report; a fresh read brought the color, measured 11-05 in a dungeon). While
+-- one is lit, each change to your auras has it read them again (the game does that once a frame at
+-- most); asleep again once none is.
+local ownRangeAuraWatch = CreateFrame("Frame")
+if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(ownRangeAuraWatch, "Party Range") end
+ownRangeAuraWatch:SetScript("OnEvent", function(self)
+	local any = false
+	for element = 1, 4 do
+		local e = SP.ownRangeEngine[element]
+		if e then
+			for _, rec in pairs(e) do   -- main, overlay
+				local c = rec.lit and rec.slots[rec.lit]
+				if c then any = true; pcall(c.UpdateAllAuras, c) end
+			end
+		end
+	end
+	if not any then self:UnregisterEvent("UNIT_AURA") end
+end)
+
 -- By alpha and the container's own on / off (both allowed in a fight; a dark one costs nothing)
 local function LightOwnRange(rec, idx)
 	if not rec or rec.lit == idx then return end
@@ -961,6 +982,7 @@ local function LightOwnRange(rec, idx)
 		end
 	end
 	rec.lit = idx
+	if idx then ownRangeAuraWatch:RegisterUnitEvent("UNIT_AURA", "player") end
 end
 
 -- light the slot of the totem down (totemIndex) over `host`; every other one of the element dark
