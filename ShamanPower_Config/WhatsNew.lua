@@ -36,6 +36,34 @@ local function VerNum(v)
 	if not a then return nil end
 	return ((tonumber(a) * 1000 + tonumber(b)) * 1000 + (tonumber(c) or 0)) * 1000 + (tonumber(d) or 0)
 end
+-- (3.0.9.6) A version with no new items (3.0.9.6: changes and fixes only) stood in as an empty
+-- heading; its changes and fixes stand in instead, a row each: the title is the part before the first
+-- ": " outside brackets, so "Profiles (WoW: Forever): ..." keeps its game. A "(WoW: Forever)" line
+-- stays off Anniversary's card (Patch Notes lists every line on both games).
+local function LineRows(ver, forever)
+	local rows = {}
+	for _, list in ipairs({ ver.changes or {}, ver.fixes or {} }) do
+		for _, line in ipairs(list) do
+			if forever or not line:find("(WoW: Forever)", 1, true) then
+				local depth, cut = 0, nil
+				for i = 1, #line - 1 do
+					local ch = line:sub(i, i)
+					if ch == "(" then depth = depth + 1
+					elseif ch == ")" then depth = depth - 1
+					elseif ch == ":" and depth == 0 and line:sub(i + 1, i + 1) == " " then cut = i break end
+				end
+				if cut then
+					local b = line:sub(cut + 2)
+					rows[#rows + 1] = { h = line:sub(1, cut - 1), b = b:sub(1, 1):upper() .. b:sub(2) }
+				else
+					rows[#rows + 1] = { h = line, b = "" }
+				end
+			end
+		end
+	end
+	return rows
+end
+
 -- the card's versions: newer than `since` and not newer than the running one
 -- (since = nil: all of them), each with its card items for this game; newest first
 local function CardSets(since, preview)
@@ -71,6 +99,7 @@ local function CardSets(since, preview)
 						local gameOK = it.client == nil or ((it.client == "forever") == forever)
 						if gameOK and (not it.when or it.when()) then items[#items + 1] = it end
 					end
+					if #items == 0 then items = LineRows(ver, forever) end
 					table.insert(out, 1, { ver = ver, items = items })
 				end
 				break
