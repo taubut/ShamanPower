@@ -10,7 +10,8 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.8",
-		date = "in progress",
+		date = "2026-11-07",
+		headline = "Ready Reminders: Proc Glow with Pulse no longer fills your screen",
 		fixes = {
 			"Ready Reminders: an icon with Proc Glow and Glow + Pulse could fill your whole screen with its glow color in the first fight after a /reload (with Glow Only In Combat on). It glows and pulses the right size every time now.",
 		},

@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.8 (in progress)
+## v3.0.9.8 (2026-11-07)
 
 ### Fixes
 - **Ready Reminders:** an icon with Glow Shape set to Proc Glow and Ready Effect set to Glow + Pulse could fill your whole screen with its glow color in the first fight after a /reload, when Glow Only In Combat was on. It glows and pulses the right size every time now.
