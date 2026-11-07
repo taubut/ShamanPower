@@ -10,6 +10,10 @@
 - **Cooldown Bar keys:** Totemic Call (WoW: Forever), Shamanistic Rage, Elemental Mastery (Lightning Mastery on WoW: Forever) and Rage of the Farseer (WoW: Forever) couldn't be given a key, so Keybind Mode skipped them. Each has its own key now: set it in Keybind Mode, or in the game's Key Bindings under ShamanPower Cooldown Bar. The key stays on its spell when you reorder the bar.
 - **Shield tracking in fights (WoW: Forever):** with WoW's Tracked Buffs bar set to Hidden in Edit Mode, the "Track Lightning Shield and Water Shield in Fights" popup came back after every reload, even though Set It Up and Reload had worked. Set It Up and Reload now also puts that bar back on Always. Nothing new shows on screen, because ShamanPower already hides WoW's shield icon. The popup also only asks now when the setup is really missing.
 - **Totem Coverage (WoW: Forever):** with Hide a Totem Once Everyone Is in Range on, a totem stayed on screen in a dungeon or raid fight even while its border was green. It hides now while everyone in your party has its buff, and comes back with its red border and names as soon as someone is out of range.
+- **Srumar's Layout:** it hid Searing Totem and Flametongue Totem from your fire flyout (and Windwall and Sentry from your air flyout). A new shaman who used it at first login had no fire totem to pick, so the fire button said "No totem assigned" and Call of the Elements had no fire totem to drop. Using Srumar's Layout now hides no totem. If you used it before, open Totem Bar > Bar > Totems in the Flyouts and click a grayed-out totem you've learned to show it again.
+
+### Thanks
+- Thanks to Angus, Baloozi and LupoxKugelblitz for the fire totem reports.
 
 ## v3.0.9.6 (2026-11-06)
 

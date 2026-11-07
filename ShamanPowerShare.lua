@@ -170,6 +170,10 @@ function SP:ImportShare(str, mode, profileName)
 	local payload, err = self:DecodeShare(str)
 	if not payload then return nil, err end
 	if type(payload.profile) ~= "table" then return nil, "the setup code has no profile settings" end
+	-- (3.0.9.8) a built-in preset hides no totem from the flyouts: Srumar's Layout hid Searing, so a new
+	-- shaman who took it at first login had no fire totem to pick (three players' reports, 11-07). A
+	-- code a player shares, or your own backup, keeps its list.
+	if payload.preset then payload.profile.flyoutTotems = nil end
 
 	self.shareImporting = true   -- (no theme migration of the half-written profile)
 	if mode == "overwrite" then
