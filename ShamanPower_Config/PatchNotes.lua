@@ -18,6 +18,7 @@ ns.PATCH_NOTES = {
 			"Reactive Totems (WoW: Forever): your Tremor alert showed every time you were rooted. It now shows only when you lose full control, like fear, charm or sleep. A sheep or a stun still shows it, because the game no longer says what kind of control you're under.",
 			"Cooldown Bar keys: Totemic Call (WoW: Forever), Shamanistic Rage, Elemental Mastery and Rage of the Farseer couldn't be given a key. Each has its own now, in Keybind Mode and the game's Key Bindings, and it stays on its spell when you reorder the bar.",
 			"Shield tracking in fights (WoW: Forever): with WoW's Tracked Buffs bar set to Hidden in Edit Mode, the Track Lightning Shield and Water Shield in Fights popup came back after every reload. Set It Up and Reload now puts that bar back on Always, and the popup only asks when the setup is really missing.",
+			"Totem Coverage (WoW: Forever): with Hide a Totem Once Everyone Is in Range on, a totem stayed on screen in a dungeon or raid fight even while its border was green. It hides now, and comes back as soon as someone is out of range.",
 		},
 	},
 	{

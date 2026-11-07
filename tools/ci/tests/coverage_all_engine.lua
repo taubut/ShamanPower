@@ -64,7 +64,7 @@ check("out of a fight: the game's green off", cell.coverAllHolder:GetAlpha() == 
 fight = true
 SP:UpdateCoverage()
 checkEq("dungeon fight: the game's answer", cell.state, "engine")
-local br, bg = cell:GetBackdropBorderColor()
+local br, bg = cell.visual:GetBackdropBorderColor()
 check("dungeon fight: red under it", br == 0.8 and bg == 0)
 check("dungeon fight: no red tint, no count", not cell.rangeOverlay:IsShown() and not cell.statusText:IsShown())
 check("dungeon fight: the game's green on", cell.coverAllHolder:GetAlpha() == 1)
@@ -81,7 +81,7 @@ check("a member plainly far away: no green", cell.coverAllHolder:GetAlpha() == 0
 far.party2 = nil
 o.coverage.plainIcon = true
 SP:UpdateCoverage()
-local pr, pg, pb = cell:GetBackdropBorderColor()
+local pr, pg, pb = cell.visual:GetBackdropBorderColor()
 local P = SP.PANEL_BORDER
 check("Plain Totem Icon: the plain border, no green", cell.coverAllHolder:GetAlpha() == 0 and pr == P[1] and pg == P[2] and pb == P[3])
 o.coverage.plainIcon = nil

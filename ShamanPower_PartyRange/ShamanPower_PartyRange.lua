@@ -1179,18 +1179,26 @@ function SP:CreateCoverageFrame()
 	-- a cell: icon, status, and the name rows under the icon. The panel
 	-- layouts use one per element; free placement one per watched totem.
 	local function NewCell(key, element, label)
-		local btn = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-		SP:ApplyPanelBackdrop(btn)
-		local icon = btn:CreateTexture(nil, "ARTWORK")
+		local btn = CreateFrame("Frame", nil, frame)
+		-- Keep the layout/mover outside the clip, and EVERY drawable inside it.
+		-- SetClipsChildren does not clip the clipping frame's own icon/backdrop.
+		local clip = CreateFrame("Frame", nil, btn, EngineDotsAvailable() and "DisableUntrustedLayoutScriptsTemplate" or nil)
+		clip:SetAllPoints(btn)
+		local visual = CreateFrame("Frame", nil, clip, "BackdropTemplate")
+		visual:SetAllPoints(btn)
+		visual:SetFrameLevel(btn:GetFrameLevel())
+		btn.coverageClip, btn.visual = clip, visual
+		SP:ApplyPanelBackdrop(visual)
+		local icon = visual:CreateTexture(nil, "ARTWORK")
 		icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 3, -3)
 		icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 		btn.icon = icon
-		local overlay = btn:CreateTexture(nil, "OVERLAY")
+		local overlay = visual:CreateTexture(nil, "OVERLAY")
 		overlay:SetAllPoints(icon)
 		overlay:SetColorTexture(0.3, 0, 0, 0.6)
 		overlay:Hide()
 		btn.rangeOverlay = overlay
-		local statusText = btn:CreateFontString(nil, "OVERLAY")
+		local statusText = visual:CreateFontString(nil, "OVERLAY")
 		SP:SetSPFont(statusText, "labels", 7, "OUTLINE")
 		statusText:SetPoint("CENTER", icon, "CENTER", 0, 0)
 		statusText:SetTextColor(1, 0.2, 0.2)
@@ -1199,7 +1207,7 @@ function SP:CreateCoverageFrame()
 		statusText:Hide()
 		btn.statusText = statusText
 		-- "Show Totem Time Left": the totem's time left in place of "N OUT"
-		local timerText = btn:CreateFontString(nil, "OVERLAY")
+		local timerText = visual:CreateFontString(nil, "OVERLAY")
 		SP:SetSPFont(timerText, "timers", 12, "OUTLINE")
 		timerText:SetPoint("CENTER", icon, "CENTER", 0, 0)
 		timerText:SetTextColor(1, 1, 1)
@@ -1209,7 +1217,7 @@ function SP:CreateCoverageFrame()
 		for i = 1, 4 do
 			-- a name-tag pill under the icon: the dark tag is what the engine's
 			-- strip can match to cover the red name
-			local row = CreateFrame("Frame", nil, btn)
+			local row = CreateFrame("Frame", nil, visual)
 			row.spNoHoverWalk = true   -- holds the engine's name display: the settings-cog hover walk stays out
 			local t = row:CreateFontString(nil, "OVERLAY")
 			SP:SetSPFont(t, "labels", 9, "OUTLINE")
@@ -1321,11 +1329,71 @@ local function PaintCoverAllRing(ring)
 	if SP.PaintFrameEdgeOnce then SP:PaintFrameEdgeOnce(ring, true) end   -- its Frame Edges and Outline Gradient
 end
 
+-- Native aura-group layout is usable without reading a secret aura button.
+-- One invisible ruler per member is 4096 wide with the buff, at most 1 without.
+-- Their right edges add through anchors. Only all-present moves the clip's left
+-- edge past the entire cell; one missing leaves room for names, dots and shadows.
+-- The rulers stay OUTSIDE the clip, so hiding the art cannot stop aura updates.
+local COVER_HIDE_SPAN = 4096
+local function BuildCoverHide(btn, chain, ids)
+	local holder = CreateFrame("Frame", nil, btn)
+	holder:SetAllPoints(btn)
+	holder.spNoHoverWalk = true
+	chain.hideHolder, chain.hideContainers = holder, {}
+	local ok, err = pcall(function()
+		local previous
+		for _, unit in ipairs(chain.units) do
+			local c = CreateFrame("AuraContainer", nil, holder, "CustomAuraContainerTemplate, DisableUntrustedLayoutScriptsTemplate")
+			chain.hideContainers[#chain.hideContainers + 1] = c
+			if previous then
+				c:SetPoint("TOPLEFT", previous, "TOPRIGHT", 0, 0)
+			else
+				c:SetPoint("TOPLEFT", btn, "TOPLEFT", -(#chain.units - 1) * COVER_HIDE_SPAN - COVER_HIDE_SPAN / 2, COVER_HIDE_SPAN / 2)
+			end
+			c:SetFlowLayoutPadding(0, 0, 0, 0)
+			c:AddAuraGroup("coverhide", "HELPFUL|PLAYER", {
+				candidateFilters = { includeSpellIDs = ids }, maxFrameCount = 1,
+				layout = { elementWidth = COVER_HIDE_SPAN, elementHeight = 1 },
+				initializeFrame = function(button)
+					button:SetSize(1, 1)
+					button:EnableMouse(false)
+				end,
+			})
+			c:SetUnit(unit)
+			c:SetEnabled(true)
+			c:UpdateAllAuras()
+			previous = c
+		end
+		local clip = btn.coverageClip
+		clip:ClearAllPoints()
+		clip:SetPoint("TOPLEFT", previous, "TOPRIGHT", 0, 0)
+		clip:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", COVER_HIDE_SPAN, -COVER_HIDE_SPAN / 2)
+	end)
+	chain.hideReady = ok
+	if not ok then
+		for _, c in ipairs(chain.hideContainers) do pcall(c.SetEnabled, c, false) end
+		holder:Hide()
+		if SPCompat.Trace then SPCompat.Trace("Coverage hide setup failed: %s", tostring(err)) end
+	end
+end
+
+local function SetCoverHide(btn, on)
+	local chain = btn.coverAll
+	on = on and chain ~= nil and chain.hideReady == true
+	if btn.coverageHideOn ~= on then
+		btn.coverageHideOn = on
+		btn.coverageClip:SetClipsChildren(on)
+	end
+end
+
 local function RetireCoverAll(btn)
+	SetCoverHide(btn, false)
 	local chain = btn.coverAll
 	if not chain then return end
 	for _, c in ipairs(chain.containers) do pcall(c.SetEnabled, c, false) end
 	if chain.top then chain.top:Hide() end
+	for _, c in ipairs(chain.hideContainers or {}) do pcall(c.SetEnabled, c, false) end
+	if chain.hideHolder then chain.hideHolder:Hide() end
 	btn.coverAll = nil
 end
 
@@ -1342,7 +1410,7 @@ local function BuildCoverAll(btn, element)
 	RetireCoverAll(btn)
 	local holder = btn.coverAllHolder
 	if not holder then
-		holder = CreateFrame("Frame", nil, btn)
+		holder = CreateFrame("Frame", nil, btn.visual)
 		holder:SetAllPoints(btn)
 		holder.spNoHoverWalk = true
 		btn.coverAllHolder = holder
@@ -1373,6 +1441,7 @@ local function BuildCoverAll(btn, element)
 	btn.coverAll = chain
 	if #chain.containers ~= n or not chain.ring then RetireCoverAll(btn) return end   -- (not all of it: the gray)
 	chain.level = btn:GetFrameLevel()
+	BuildCoverHide(btn, chain, ids)
 end
 
 -- in a fight: the cell's slots were built for the party as it is now
@@ -1544,6 +1613,12 @@ end
 SizeCell = function(btn, iconSize)
 	btn:SetSize(iconSize + 6, iconSize + 6)
 	btn.icon:SetSize(iconSize, iconSize)
+	-- The clip disables untrusted layout callbacks. Refresh our backdrop from
+	-- the ordinary cell's size instead of depending on visual's OnSizeChanged.
+	if btn.visualIconSize ~= iconSize then
+		btn.visualIconSize = iconSize
+		btn.visual:OnBackdropSizeChanged()
+	end
 	SP:SetSPFont(btn.timerText, "timers", math.max(9, math.floor(iconSize / 3)), "OUTLINE")
 end
 
@@ -1627,26 +1702,26 @@ local function PaintCoverageCell(btn, state, missing)
 	if btn.state == state and btn.missing == missing and btn.timerMode == timer and btn.plainMode == plain then return end
 	btn.state, btn.missing, btn.timerMode, btn.plainMode = state, missing, timer, plain
 	if state == "covered" then
-		btn:SetBackdropBorderColor(0, 1, 0, 1)
+		btn.visual:SetBackdropBorderColor(0, 1, 0, 1)
 		btn.rangeOverlay:Hide()
 		btn.statusText:Hide()
 	elseif state == "missing" then
-		btn:SetBackdropBorderColor(0.8, 0, 0, 1)
+		btn.visual:SetBackdropBorderColor(0.8, 0, 0, 1)
 		btn.rangeOverlay:Show()
 		btn.statusText:SetText(missing == 1 and "1 OUT" or (missing .. " OUT"))
 		btn.statusText:SetShown(not timer)
 	elseif state == "engine" then   -- (3.0.9.6) red: the game draws the green over it while everyone has it
-		btn:SetBackdropBorderColor(0.8, 0, 0, 1)
+		btn.visual:SetBackdropBorderColor(0.8, 0, 0, 1)
 		btn.rangeOverlay:Hide()
 		btn.statusText:Hide()
 	else   -- "combat": the names carry the answer
-		btn:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+		btn.visual:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 		btn.rangeOverlay:Hide()
 		btn.statusText:Hide()
 	end
 	if plain then
 		local b = SP.PANEL_BORDER
-		btn:SetBackdropBorderColor(b[1], b[2], b[3], b[4])
+		btn.visual:SetBackdropBorderColor(b[1], b[2], b[3], b[4])
 		btn.rangeOverlay:Hide()
 	end
 end
@@ -1707,13 +1782,14 @@ function SP:UpdateCoverage()
 			local all = false
 			if state == "combat" and CoverAllReady(btn, partyUnits, count) then
 				state = "engine"
-				all = not co.plainIcon
+				all = true
 				for i = 1, count do
 					if all and self:PartyUnitFarAway(partyUnits[i]) then all = false end
 				end
 			end
 			PaintCoverageCell(btn, state, missing)
-			SetCoverAll(btn, all)
+			SetCoverAll(btn, all and not co.plainIcon)
+			SetCoverHide(btn, all and co.hideWhenCovered ~= false)
 			self:CoverAllTidy(btn)
 			-- the totem bar's own time left (GetElementTotemInfo, readable in combat too)
 			SetCellTimer(btn, co.showTimer and tDur and tDur > 0 and (tStart + tDur - GetTime()) or nil)
@@ -1919,8 +1995,8 @@ function SP:CoverageDemo(on)
 			end
 		end
 		-- and the game's green border (3.0.9.6)
-		for element = 1, 4 do SetCoverAll(frame.buttons[element], false) end
-		for _, btn in pairs(frame.totemCells or {}) do SetCoverAll(btn, false) end
+		for element = 1, 4 do SetCoverAll(frame.buttons[element], false); SetCoverHide(frame.buttons[element], false) end
+		for _, btn in pairs(frame.totemCells or {}) do SetCoverAll(btn, false); SetCoverHide(btn, false) end
 		-- the unlock movers show free cells at their own spots; a preview (wizard, pane) shows the panel
 		local freeDemo = CoverageOpts().freeCells and self.unlockDemoAll
 		local d = self.coverageDemo or { beat = 1 }
