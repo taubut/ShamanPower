@@ -1608,7 +1608,14 @@ local function glowOn(f, quiet)
 		local r, g, b = color(IconOpt(f.entry, "glowColor"), 0.3, 0.8, 1.0)
 		local c = { r or 1, g or 1, b or 1, 1 }
 		if c[1] > 0.98 and c[2] > 0.98 and c[3] > 0.98 then c = nil end   -- (white: the game's gold)
+		-- (3.0.9.8) a Proc Glow started while the icon breathes (Glow + Pulse, mid-scale) grew in the game until
+		-- it covered the whole screen (a player's ticket, 11-07: Glow Only In Combat, so the glow came at the
+		-- pull with the pulse already going). The pulse holds while the glow starts, then plays on, as when the
+		-- two start together (the glow first, playEffects).
+		local pulsing = f.pulsing and f.pulseAnim:IsPlaying()
+		if pulsing then f.pulseAnim:Stop() end
 		SP.ProcGlow_Start(f, SP:ProcGlowOptions(f, c, "rr", quiet, IconOpt(f.entry, "glowThick") or SP.PROC_GLOW_OUT or 0.2))   -- (its own thickness; 20% until it picks one)
+		if pulsing then f.pulseAnim:Play() end
 	else
 		if SP.PaintGlowShape then SP:PaintGlowShape(f.glow, glowShapeOf(f.entry)) end
 		f.glow:Show(); f.glowAnim:Play()
@@ -1752,7 +1759,10 @@ function R.Oom.effect(f, v)
 		if fx == "glow" or fx == "both" then
 			local shape = IconOpt(e, "oomGlowShape") or glowShapeOf(e)
 			if shape == "proc" and SP.ProcGlow_Start then
+				local pulsing = f.pulsing and f.pulseAnim:IsPlaying()   -- (3.0.9.8) as glowOn: not on a breathing icon
+				if pulsing then f.pulseAnim:Stop() end
 				SP.ProcGlow_Start(h, SP:ProcGlowOptions(h, { r, g, b, 1 }, "oom", false, IconOpt(e, "glowThick") or SP.PROC_GLOW_OUT or 0.2))
+				if pulsing then f.pulseAnim:Play() end
 				h.spProc = true
 			else
 				if SP.PaintGlowShape then SP:PaintGlowShape(h.glow, shape) end

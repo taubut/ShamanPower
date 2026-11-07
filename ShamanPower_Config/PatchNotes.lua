@@ -9,6 +9,14 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.8",
+		date = "in progress",
+		fixes = {
+			"Ready Reminders: an icon with Proc Glow and Glow + Pulse could fill your whole screen with its glow color in the first fight after a /reload (with Glow Only In Combat on). It glows and pulses the right size every time now.",
+		},
+		thanks = "Thanks to Chaos Cheese for the report and the settings that showed it.",
+	},
+	{
 		v = "3.0.9.7",
 		date = "2026-11-07",
 		headline = "Keys for every Cooldown Bar spell, and Totem Coverage hides in fights",
