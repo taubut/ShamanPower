@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.7 (in progress)
+## v3.0.9.7 (2026-11-07)
 
 ### After updating
 - After updating, fully close and restart the game once: 3.0.9.7 adds new key bindings, and a /reload alone does not load them.

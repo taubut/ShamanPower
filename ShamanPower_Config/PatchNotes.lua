@@ -10,7 +10,8 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.7",
-		date = "in progress",
+		date = "2026-11-07",
+		headline = "Keys for every Cooldown Bar spell, and Totem Coverage hides in fights",
 		changes = {
 			"After updating, fully close and restart the game once: 3.0.9.7 adds new key bindings that a /reload does not load.",
 		},
