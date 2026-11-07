@@ -263,7 +263,7 @@ if FS then
 					set = function(v) CO().vertical = v and true or false; SP:UpdateCoverageLayout(); Notify() end,
 				})
 				Row("Toggle", {
-					label = "Hide a Totem Once Everyone Is in Range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range. During fights in dungeons every totem stays listed and the names show who is missing its buff.",
+					label = "Hide a Totem Once Everyone Is in Range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.",
 					get = function() return CO().hideWhenCovered ~= false end,
 					set = function(v) CO().hideWhenCovered = v and true or false; SP:UpdateCoverage(); Notify() end,
 				})

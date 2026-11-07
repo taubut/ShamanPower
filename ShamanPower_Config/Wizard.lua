@@ -474,7 +474,7 @@ local STEPS = {
 	  bullets = {
 	    "Each totem has party members' names underneath: class color when they have the buff, red when they don't.",
 	    "Works in combat and in dungeons.",
-	    "Once everyone is in range of a totem, it drops out of the list (you can turn that off); in dungeon fights every totem stays listed. Pick which totems it watches in Settings.",
+	    "Once everyone is in range of a totem, it drops out of the list (you can turn that off). Pick which totems it watches in Settings.",
 	  },
 	  toggles = { { label = "Enable Totem Coverage", bind = "coverage" } } },
 	{ id = "wfcompanion", title = "Windfury Companion", roles = EVERYONE,
@@ -3104,7 +3104,7 @@ function SP.Wizard.BuildCoverageStep(card, inner, y)
 	end
 	local function upd(fn) if fn then safecall(fn) end; notify(); if SP.coverageDemoActive then SP:CoverageDemo(true) end; fit(); Widgets:RefreshAll(card) end
 	local function off() return not get("enabled", false) end
-	row("Toggle", { label = "Hide a totem once everyone is in range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range. During fights in dungeons every totem stays listed and the names show who is missing its buff.", disabled = off,
+	row("Toggle", { label = "Hide a totem once everyone is in range", desc = "When the whole party is getting a totem's buff, its cell disappears; it comes back as soon as someone is out of range.", disabled = off,
 		get = function() return get("hideWhenCovered", true) ~= false end, set = function(v) co().hideWhenCovered = v; upd("UpdateCoverage") end })
 	row("Slider", { label = "Icon size", min = 20, max = 60, step = 4, disabled = off, get = function() return get("iconSize", 36) end, set = function(v) co().iconSize = v; upd("UpdateCoverageLayout") end })
 	row("Toggle", { label = "Show totem time left instead of number of players out of range", desc = "The totem's time left on its icon, in place of how many are out of range (\"1 OUT\").", disabled = off,
