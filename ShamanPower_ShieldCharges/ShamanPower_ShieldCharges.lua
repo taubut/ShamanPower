@@ -1744,7 +1744,9 @@ local function bindShieldHooks()
 	-- from an addon taints the Cooldown Manager for the whole session (measured 2026-10-09)
 	if wanted and not goneHook.asked and not (SP.opt and SP.opt.cdmShieldDeclined) and not InCombatLockdown() and not settingsOpen() and SP.ShowSPDialog then
 		local missing = (knowsShield(1) and not have[1]) or (knowsShield(2) and not have[2])
-		if missing then
+		-- (3.0.9.7) no item can also mean WoW's Tracked Buffs bar hasn't shown yet: asked only when
+		-- ShamanPower's layout isn't saved, or that bar is Hidden in Edit Mode (it never builds one then)
+		if missing and SP:ShieldGoneAskNeeded() then
 			goneHook.asked = true
 			SP:ShieldGoneAsk()
 		end
@@ -1778,6 +1780,7 @@ function SP:ShieldGoneAsk()
 		text = "During a fight, WoW hides your Lightning Shield and Water Shield from addons, so ShamanPower can't tell when one falls off. WoW's own Cooldown Manager can still see them, so ShamanPower can watch them through it and warn you the moment your shield is gone, even mid-fight."
 			.. "\n\nThe |cff3FA9F5Set It Up|r Button does this once for you:"
 			.. "\n\226\128\162 Turns on WoW's Cooldown Manager if it's off"
+			.. "\n\226\128\162 Makes sure WoW's Tracked Buffs bar isn't hidden in Edit Mode"
 			.. "\n\226\128\162 Adds a ShamanPower layout to Cooldown Manager that tracks only Lightning Shield and Water Shield"
 			.. "\n\226\128\162 Hides WoW's own shield icon, so you don't see it twice"
 			.. "\n\226\128\162 Reloads your UI"
@@ -1980,6 +1983,58 @@ end
 -- ShamanPower is reused; else one is made the way the game makes one (the next free ID, a
 -- name, active for this class and spec). The player's other layouts stay as they are, and the
 -- string before is kept in the profile (CdmLayoutRestore). Answers: done, or why not.
+-- (3.0.9.7) WoW's Tracked Buffs bar in the player's Edit Mode layout. The shield's item lives there and
+-- the bar builds its items only once it shows, so on Hidden ShamanPower never saw the shield, in a fight
+-- or out of one, and the ask came back after every reload (a player's ticket, 11-07: his ShamanPower
+-- layout was saved and active all along). Read and written through C_EditMode's saved layouts, as the
+-- Cooldown Manager's own string (never the Edit Mode window's live tables). Answers the layouts and the
+-- bar's Visibility entry in the active one, or nil: one of the game's presets (never saved, and they
+-- show it) or no such entry.
+local function editModeTracked()
+	local E, M = C_EditMode, EditModePresetLayoutManager
+	local S, I, V = Enum and Enum.EditModeSystem, Enum and Enum.EditModeCooldownViewerSystemIndices, Enum and Enum.EditModeCooldownViewerSetting
+	if not (E and E.GetLayouts and E.SaveLayouts and M and M.GetCopyOfPresetLayouts and S and I and V) then return nil end
+	local ok, info = pcall(E.GetLayouts)
+	if not ok or type(info) ~= "table" or type(info.layouts) ~= "table" or type(info.activeLayout) ~= "number" then return nil end
+	local okP, presets = pcall(M.GetCopyOfPresetLayouts, M)   -- (activeLayout counts the presets first; GetLayouts hands the saved ones)
+	if not okP or type(presets) ~= "table" then return nil end
+	local layout = info.layouts[info.activeLayout - #presets]
+	if type(layout) ~= "table" or type(layout.systems) ~= "table" then return nil end
+	for _, sys in ipairs(layout.systems) do
+		if sys.system == S.CooldownViewer and sys.systemIndex == I.BuffIcon and type(sys.settings) == "table" then
+			for _, s in ipairs(sys.settings) do
+				if s.setting == V.VisibleSetting then return info, s end
+			end
+		end
+	end
+	return nil
+end
+local function visibleSetting(name, fallback)
+	local V = Enum and Enum.CooldownViewerVisibleSetting
+	return V and V[name] or fallback
+end
+-- the bar is Hidden (In Combat builds the items in the first fight, where the hooks work)
+function SP:ShieldGoneTrackedHidden()
+	local _, s = editModeTracked()
+	return s ~= nil and s.value == visibleSetting("Hidden", 2)
+end
+-- the ask: ShamanPower's layout isn't saved, or the bar can never show the shield
+function SP:ShieldGoneAskNeeded()
+	return not self:ShieldGoneLayoutComplete() or self:ShieldGoneTrackedHidden()
+end
+-- the setup: the bar on Always when it is on Hidden or In Combat (nothing else of the layout changes; the
+-- reload after the setup applies it). Answers true when it switched it; false and why when it couldn't.
+function SP:ShieldGoneShowTrackedBuffs()
+	local info, s = editModeTracked()
+	local always = visibleSetting("Always", 0)
+	if not (info and s) or s.value == always then return false end
+	local was = s.value
+	s.value = always
+	local ok, err = pcall(C_EditMode.SaveLayouts, info)
+	if not ok then s.value = was return false, tostring(err) end
+	return true
+end
+
 function SP:ShieldGoneSetup()
 	if InCombatLockdown() then return false, "in a fight" end
 	local C = C_CooldownViewer
@@ -2033,6 +2088,8 @@ function SP:ShieldGoneSetup()
 	if not ok then return false, tostring(e2) end
 	if C.GetLayoutData() ~= out then return false, "the game did not keep the string" end
 	self.opt.cdmHideShieldIcon = true   -- (the player took ShamanPower's layout: its own shield display takes the icon's place)
+	local okBar, whyBar = self:ShieldGoneShowTrackedBuffs()   -- (3.0.9.7: WoW's Tracked Buffs bar shown, so its shield item exists)
+	if not okBar and whyBar then print("|cff0070ddShamanPower|r: couldn't show WoW's Tracked Buffs bar (" .. whyBar .. ").") end
 	return true
 end
 -- ShamanPower's layout is the active one and holds exactly what the setup puts there (the shields
