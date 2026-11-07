@@ -34,6 +34,15 @@ BINDING_NAME_SHAMANPOWER_CD_NS = SPCompat.SpellLabel(16188, "Nature's Swiftness"
 BINDING_NAME_SHAMANPOWER_CD_MANATIDE = SPCompat.SpellLabel(16190, "Mana Tide Totem")
 BINDING_NAME_SHAMANPOWER_CD_BLOODLUST = SPCompat.SpellLabel(2825, "Bloodlust") .. " / " .. SPCompat.SpellLabel(32182, "Heroism")
 BINDING_NAME_SHAMANPOWER_CD_IMBUE = "Cast Weapon Imbue"
+-- (3.0.9.7) the Cooldown Bar's other spells, a key each (Rage of the Farseer and WoW: Forever's
+-- Totemic Call exist there only)
+do
+	local off = not (SPCompat and SPCompat.FOREVER) and " (not in this game)" or ""
+	BINDING_NAME_SHAMANPOWER_CD_SHAMANISTIC_RAGE = SPCompat.SpellLabel(30823, "Shamanistic Rage")
+	BINDING_NAME_SHAMANPOWER_CD_ELEMENTAL_MASTERY = SPCompat.SpellLabel(16166, "Elemental Mastery")
+	BINDING_NAME_SHAMANPOWER_CD_RAGE_OF_THE_FARSEER = SPCompat.SpellLabel(425336, "Rage of the Farseer") .. off
+	BINDING_NAME_SHAMANPOWER_CD_TOTEMIC_PROJECTION = SPCompat.SpellLabel(437009, "Totemic Call") .. off
+end
 
 -- Flyout keybindings (open a flyout from the keyboard, in or out of combat)
 -- The flyout keys drive the box-mode flyouts, which only WoW: Forever uses; on

@@ -17,6 +17,10 @@
 	<Binding name="SHAMANPOWER_CD_MANATIDE" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_CD_BLOODLUST" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_CD_IMBUE" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CD_SHAMANISTIC_RAGE" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CD_ELEMENTAL_MASTERY" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CD_RAGE_OF_THE_FARSEER" category="SHAMANPOWER">--[[dummy]]</Binding>
+	<Binding name="SHAMANPOWER_CD_TOTEMIC_PROJECTION" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_FLYOUT_EARTH" category="SHAMANPOWER" header="SHAMANPOWER_FLYOUT">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_FLYOUT_FIRE" category="SHAMANPOWER">--[[dummy]]</Binding>
 	<Binding name="SHAMANPOWER_FLYOUT_WATER" category="SHAMANPOWER">--[[dummy]]</Binding>

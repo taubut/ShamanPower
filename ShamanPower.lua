@@ -20849,7 +20849,9 @@ ShamanPower.KeybindButtons = {
 }
 
 -- Map cooldown bar binding names to cooldownType values
--- cooldownType: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL/Hero, 7=Imbue
+-- cooldownType: 1=Shield, 2=Recall, 3=Ankh, 4=NS, 5=MTT, 6=BL/Hero, 7=Imbue, 8=Shamanistic Rage,
+-- 9=Elemental (Lightning) Mastery, 10=Rage of the Farseer, 11=Totemic Call on WoW: Forever (3.0.9.7:
+-- 8-11 had no key; a key follows the type, so a reorder of the bar keeps it on its spell)
 ShamanPower.CooldownBarKeybinds = {
 	["SHAMANPOWER_CD_SHIELD"] = 1,
 	["SHAMANPOWER_CD_RECALL"] = 2,
@@ -20858,6 +20860,10 @@ ShamanPower.CooldownBarKeybinds = {
 	["SHAMANPOWER_CD_MANATIDE"] = 5,
 	["SHAMANPOWER_CD_BLOODLUST"] = 6,
 	["SHAMANPOWER_CD_IMBUE"] = 7,
+	["SHAMANPOWER_CD_SHAMANISTIC_RAGE"] = 8,
+	["SHAMANPOWER_CD_ELEMENTAL_MASTERY"] = 9,
+	["SHAMANPOWER_CD_RAGE_OF_THE_FARSEER"] = 10,
+	["SHAMANPOWER_CD_TOTEMIC_PROJECTION"] = 11,
 }
 
 -- Find a cooldown button by its cooldownType
@@ -21639,6 +21645,14 @@ function ShamanPower:GetSpellNameForButton(buttonType, element)
 		return GetSpellInfo(16188)  -- Nature's Swiftness
 	elseif buttonType == "manatide" then
 		return GetSpellInfo(16190)  -- Mana Tide Totem
+	elseif buttonType == "shamanisticrage" then
+		return GetSpellInfo(30823)  -- Shamanistic Rage
+	elseif buttonType == "elementalmastery" then
+		return GetSpellInfo(16166)  -- Elemental Mastery (Lightning Mastery on WoW: Forever)
+	elseif buttonType == "farseer" then
+		return GetSpellInfo(425336)  -- Rage of the Farseer (WoW: Forever)
+	elseif buttonType == "projection" then
+		return GetSpellInfo(437009)  -- Totemic Call (WoW: Forever)
 	elseif buttonType == "bloodlust" then
 		-- Check faction for Bloodlust vs Heroism
 		local faction = UnitFactionGroup("player")
@@ -21739,6 +21753,10 @@ ShamanPower.CooldownTypeToButtonType = {
 	[5] = "manatide",
 	[6] = "bloodlust",
 	[7] = "imbue",
+	[8] = "shamanisticrage",
+	[9] = "elementalmastery",
+	[10] = "farseer",
+	[11] = "projection",
 }
 
 -- Update keybind text on all buttons (totem bar + cooldown bar)

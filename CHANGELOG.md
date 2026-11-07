@@ -2,8 +2,12 @@
 
 ## v3.0.9.7 (in progress)
 
+### After updating
+- After updating, fully close and restart the game once: 3.0.9.7 adds new key bindings, and a /reload alone does not load them.
+
 ### Fixes
 - **Reactive Totems (WoW: Forever):** your Tremor alert showed every time you were rooted. The game no longer says what kind of loss of control you're under, so a root looked the same as a fear. The alert now shows only when you lose full control, like fear, charm or sleep, and not for roots. A sheep or a stun still shows it, because the game gives nothing that tells those apart from fear.
+- **Cooldown Bar keys:** Totemic Call (WoW: Forever), Shamanistic Rage, Elemental Mastery (Lightning Mastery on WoW: Forever) and Rage of the Farseer (WoW: Forever) couldn't be given a key, so Keybind Mode skipped them. Each has its own key now: set it in Keybind Mode, or in the game's Key Bindings under ShamanPower Cooldown Bar. The key stays on its spell when you reorder the bar.
 
 ## v3.0.9.6 (2026-11-06)
 

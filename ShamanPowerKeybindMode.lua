@@ -87,10 +87,10 @@ local function collect()
 		add(shieldLine, "SHAMANPOWER_SHIELD_LINE", (shieldLine.spShieldName or "Your shield") .. " (Your Shield Line)")
 	end
 
-	-- cooldown bar (and Totemic Call when it sits on the totem bar): the types
-	-- with a binding action. The rest (Shamanistic Rage, Elemental / Lightning Mastery,
-	-- Rage of the Farseer, Totemic Projection / Call on Forever) have none, and their button names
-	-- follow the bar's order, so a CLICK binding would move with a reorder.
+	-- cooldown bar (and Totemic Call when it sits on the totem bar): every type has a binding
+	-- action (3.0.9.7: Shamanistic Rage, Elemental / Lightning Mastery, Rage of the Farseer and
+	-- WoW: Forever's Totemic Call too). The button names follow the bar's order, so a key goes on
+	-- the action, never a CLICK binding that would move with a reorder.
 	for cdType, action in pairs(CD_ACTION) do
 		local btn = SP.GetCooldownButtonByCooldownType and SP:GetCooldownButtonByCooldownType(cdType)
 		if btn then add(btn, action, _G["BINDING_NAME_" .. action] or action) end
