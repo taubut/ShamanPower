@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.9 (in progress)
+## v3.0.9.9 (2026-11-09)
 
 ### New
 - **Pick a Call from Drop All (WoW: Forever):** turn on Totem Bar > Clicks > Call Flyout on Drop All, then hover Drop All (or right-click it, with Flyout Requires Right-Click on) to put Call of the Ancestors or Call of the Spirits on it. Your four totems switch to that Call's, and a totem you pick on the bar goes into it. Pick Call of the Elements to come back. It works in fights too.

@@ -10,7 +10,7 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.9",
-		date = "in progress",
+		date = "2026-11-09",
 		headline = "Pick a Call from Drop All, racials, and a Minimap Totems page",
 		new = {
 			{ h = "Pick a Call from Drop All", icon = 136053, client = "forever",
@@ -41,16 +41,16 @@ ns.PATCH_NOTES = {
 		changes = {
 			"Ready Flash: Minimum Cooldown is gone. Every spell you turn on flashes when it's ready, shocks too.",
 			"Ready Reminders: Sound When Ready, turned on for the whole page, no longer skips spells with a cooldown under 20 seconds.",
-			{ t = "Maelstrom Weapon: the sound at 5 stacks plays like every Ready Reminder sound now, at its icon's Volume.", client = "forever" },
-			{ t = "Loadouts: Call of the Elements Follows My Assignments is on the Loadouts page too.", client = "forever" },
+			"Maelstrom Weapon (WoW: Forever): the sound at 5 stacks plays like every Ready Reminder sound now, at its icon's Volume.",
+			"Loadouts (WoW: Forever): Call of the Elements Follows My Assignments is on the Loadouts page too.",
 			"Loadouts: Show Loadout Changes in My Chat covers the loadouts you switch to yourself too.",
-			{ t = "Totem Range Tracker: the minimap marker settings moved to Other > Minimap Totems.", client = "forever" },
+			"Totem Range Tracker (WoW: Forever): the minimap marker settings moved to Other > Minimap Totems.",
 			"Supporters: Zegma joins the list.",
 		},
 		fixes = {
 			"Low-Mana Tint: the totem rows (TotemTimers Style with Keep Flyouts on Main Totem Bar) weren't tinted.",
 			"Cooldown Bar: with Click Through on, a Cooldown Bar placed on its own still held on to your cursor.",
-			{ t = "Maelstrom Weapon: the sound at 5 stacks never played.", client = "forever" },
+			"Maelstrom Weapon (WoW: Forever): the sound at 5 stacks never played.",
 			"Loadouts: changing the totem bar order while a loadout was in use didn't save it into the loadout.",
 		},
 		thanks = "Thanks to Tugror, Bambi, interslice, Sento, Aleks, Frisk, Kasai, jeremy and Aldarax for the ideas and reports on Discord, and to my Patreon supporters Afren and Zegma.",
