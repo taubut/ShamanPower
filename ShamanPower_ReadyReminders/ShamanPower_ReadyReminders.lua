@@ -74,7 +74,6 @@ local DEFAULTS = {
 	soundOnReady = false,
 	soundName = "Raid Warning",
 	soundVolume = 100,
-	soundMinCooldown = 20, -- seconds; shorter cooldowns never make a sound
 	-- Ready Flash (D38): a big copy of the icon on its own spot when the spell is ready
 	flash = false,
 	flashAnim = "grow",    -- grow (and fade) | pop | fade (only)
@@ -82,7 +81,6 @@ local DEFAULTS = {
 	flashHold = 1.0,       -- seconds on screen, start to finish
 	flashEarly = 0,        -- seconds before it is ready (0 = the moment it is ready)
 	flashName = false,     -- the spell's name under it
-	flashMin = 10,         -- seconds; shorter cooldowns never flash (an icon's own On always does)
 	flashCombat = false,   -- A26: Only In Combat: no flashes out of a fight
 	-- A25: When The Cooldown Resets (Stormstrike on WoW: Forever: a tank's dodge or parry resets it)
 	resetVisual = "none", -- none | burst (the Proc Glow ring) | word (RESET over the icon) | both
@@ -171,6 +169,20 @@ SP.ReadyReminderSpells = {
 	-- Earth, Flame and Frost Shock in one icon (they share one cooldown). Earth Shock's
 	-- ID stands for the cooldown: the game puts all three on it whichever is cast.
 	{ key = "shocks", name = "Combined Shocks", optName = "Combined Shocks (Earth, Flame and Frost Shock)", ids = { 8042 }, def = false, combo = true },
+	-- (3.0.9.9) Racials, off until clicked. races: the race IDs (UnitRace's third value) that have it; any
+	-- other race never sees it, not even dark on the page. From each game's own data (11-07: ChrRaces,
+	-- CharBaseInfo, SkillLineAbility; the owner checked the list): a shaman's races there are Orc 2,
+	-- Dwarf 3, Tauren 6, Troll 8 and Windshaper Skyborne 96 on WoW: Forever, Orc, Tauren, Troll and
+	-- Draenei 11 on Anniversary. Left out: Find Treasure (a toggle, no cooldown) and Cultivation (herbs).
+	{ key = "bloodfury",    name = "Blood Fury",          ids = SPCompat.FOREVER and { 20572 } or { 33697 }, def = false, races = { [2] = true } },   -- (Anniversary: the shaman's own, Attack Power and Spell Power)
+	{ key = "shattercurse", name = "Shatter Curse",       ids = SPCompat.FOREVER and { 1299026 } or {}, def = false, races = { [2] = true } },
+	{ key = "stoneform",    name = "Stoneform",           ids = SPCompat.FOREVER and { 20594 } or {}, def = false, races = { [3] = true } },   -- (no Dwarf shaman on Anniversary)
+	{ key = "warstomp",     name = "War Stomp",           ids = { 20549 },                def = false, races = { [6] = true } },
+	{ key = "berserking",   name = "Berserking",          ids = { 20554 },                def = false, races = { [8] = true } },
+	{ key = "rapidregen",   name = "Rapid Regeneration",  ids = SPCompat.FOREVER and { 1260270 } or {}, def = false, races = { [8] = true } },
+	{ key = "naaru",        name = "Gift of the Naaru",   ids = SPCompat.FOREVER and {} or { 28880 }, def = false, races = { [11] = true } },   -- (no Draenei on WoW: Forever)
+	{ key = "skysight",     name = "Skysight",            ids = SPCompat.FOREVER and { 1259686 } or {}, def = false, races = { [96] = true } },
+	{ key = "walkonair",    name = "Walk on Air",         ids = SPCompat.FOREVER and { 1259416 } or {}, def = false, races = { [96] = true } },
 }
 
 local frames = {}
@@ -310,7 +322,7 @@ local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "glowShape
 	-- what an icon that never set one uses, so nothing on screen changed on the update)
 	"opacity", "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", "barStyle", "barHeight", "barColor",
 	"textPosition", "textSize", "borderColor", "rangeLook", "rangeColor", "hideBackground", "hideBorder",
-	"showNames", "soundVolume", "soundMinCooldown", "flashMin",
+	"showNames", "soundVolume",
 	-- D51: Fade Instead of Hide (with Only In Combat) and its Faded Opacity
 	"fadeInsteadOfHide", "fadeOpacity",
 	-- D52: the buff the spell puts on you, on its icon
@@ -345,9 +357,6 @@ local function IconOpt(entry, key)
 		local ownMode
 		if own then ownMode = own.mode end
 		r.ownMode = ownMode
-		-- its own Sound When Ready turned on: it plays whatever its cooldown (see readySound)
-		r.ownSound = own ~= nil and own.soundOnReady == true
-		-- its own Ready Flash turned on: it flashes whatever its cooldown (see flashWanted)
 		-- its own cooling look (Gray Out / Opacity While On Cooldown) set (see coolingLook)
 		r.ownCoolLook = own ~= nil and (own.desaturate ~= nil or own.dimOpacity ~= nil)
 		r.gen = optGen
@@ -408,8 +417,17 @@ local function clientSpellID(entry)
 end
 
 -- Usable on this client: exists in the data and has a real cooldown here.
+-- (3.0.9.9) your race's ID, read once (it never changes in a session)
+function SP:ReadyPlayerRace()
+	if self.readyRaceID == nil then
+		local _, _, id = UnitRace("player")
+		self.readyRaceID = id
+	end
+	return self.readyRaceID
+end
 local function usable(entry)
 	if entry.weaponSet then return true end   -- (A28) no spell: what you hold
+	if entry.races and not entry.races[SP:ReadyPlayerRace() or 0] then return false end   -- (a racial: another race's)
 	local id = clientSpellID(entry)
 	if not id then return false end
 	if entry.noCooldownIDs and entry.noCooldownIDs[id] then return false end
@@ -588,9 +606,25 @@ local function defaultPos(entry)
 		end
 		return { point = p.point or "CENTER", x = x, y = y }
 	end
+	if entry.races then
+		-- (3.0.9.9) a racial: a short row of its own under the spells' (only your race's racials,
+		-- centered), so every spell's spot is as it was
+		local width, before = -gap, 0
+		for _, e in ipairs(SP.ReadyReminderSpells) do
+			if e.races and usable(e) then
+				local cell = (IconOpt(e, "iconSize") or 48) + gap
+				width = width + cell
+				if rankOf(e) < rankOf(entry) then before = before + cell end
+			end
+		end
+		local size = IconOpt(entry, "iconSize") or 48
+		local off, step = before + size / 2 - width / 2, size + gap
+		if sv.layout == "column" then return { point = "CENTER", x = 260 + step, y = -off } end
+		return { point = "CENTER", x = off, y = -140 - step }
+	end
 	local total, before = -gap, 0
 	for _, e in ipairs(SP.ReadyReminderSpells) do
-		if not e.combo then
+		if not (e.combo or e.races) then
 			local cell = (IconOpt(e, "iconSize") or 48) + gap
 			total = total + cell
 			if rankOf(e) < rankOf(entry) then before = before + cell end
@@ -1168,6 +1202,7 @@ function SP:CreateReadyReminderFrame(entry)
 	f:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	f:Hide()
 	frames[entry.key] = f
+	if R.applyThrough then R.applyThrough() end   -- (3.0.9.9) Click Through
 	self:UpdateReadyReminderAppearance(entry.key)   -- styles the engine string too
 	return f
 end
@@ -1540,12 +1575,13 @@ end
 
 -- "Only when ready" keeps a cooling icon on screen at alpha 0 so the curve can
 -- show it the moment the real cooldown ends; it must not catch clicks then.
--- A faded icon (D51, see setFade) lets clicks through too. Two holders, one mouse:
--- it is off while either holds it (mouseByCurve, mouseByFade) and comes back once
--- neither does. A mouse something else switched off is not taken, nor given back.
+-- A faded icon (D51, see setFade) lets clicks through too, and so does Click Through
+-- (3.0.9.9, R.applyThrough below). Three holders, one mouse: it is off while any holds
+-- it (mouseByCurve, mouseByFade, mouseByThrough) and comes back once none does. A mouse
+-- something else switched off is not taken, nor given back.
 local function mouseHold(f, holder)
 	if f[holder] then return end
-	if not (f.mouseByCurve or f.mouseByFade) then
+	if not (f.mouseByCurve or f.mouseByFade or f.mouseByThrough) then
 		if not f:IsMouseEnabled() then return end
 		f:EnableMouse(false)
 	end
@@ -1554,10 +1590,35 @@ end
 local function mouseRelease(f, holder)
 	if not f[holder] then return end
 	f[holder] = nil
-	if not (f.mouseByCurve or f.mouseByFade) then f:EnableMouse(true) end
+	if not (f.mouseByCurve or f.mouseByFade or f.mouseByThrough) then f:EnableMouse(true) end
 end
 local function curveMouseOff(f) mouseHold(f, "mouseByCurve") end
 local function curveMouseBack(f) mouseRelease(f, "mouseByCurve") end
+
+-- (3.0.9.9) Click Through (Off / In Combat / Always), as the Totem Bar's and the Cooldown Bar's (a Discord
+-- ask): the icons ignore the mouse, so a click lands on whatever is behind them; no tooltip, no right-click
+-- settings. In Combat: they let go as the fight starts and take it back when it ends. The icons are plain
+-- buttons, so this works in a fight too. While they are being moved they always take the mouse.
+-- fighting: true at the fight's start, false at its end, nil to ask the game.
+function R.applyThrough(fighting)
+	local mode = SV().clickThrough
+	if fighting == nil then fighting = InCombatLockdown() or UnitAffectingCombat("player") end
+	local want = not SP.readyPositioning and (mode == "always" or (mode == "combat" and fighting))
+	for _, f in pairs(frames) do
+		if want then mouseHold(f, "mouseByThrough") else mouseRelease(f, "mouseByThrough") end
+	end
+end
+function SP:ReadyReminderSetClickThrough(mode)   -- (the page's setting; the tests)
+	SV().clickThrough = (mode == "combat" or mode == "always") and mode or nil
+	R.applyThrough()
+end
+R.throughEvents = CreateFrame("Frame")
+R.throughEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
+R.throughEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+R.throughEvents:SetScript("OnEvent", function(_, event)
+	if SV().clickThrough ~= "combat" then return end
+	R.applyThrough(event == "PLAYER_REGEN_DISABLED")
+end)
 
 -- The curve is evaluated once per pass, so on its own the icon would light up
 -- on the next 0.2 s pass after the real cooldown ends. A Cooldown widget that
@@ -2705,9 +2766,9 @@ local function plainBool(v)
 	return type(v) == "boolean"
 end
 
--- "Sound Only For Cooldowns Over" is measured on the cooldown's length: the run
--- the estimate saw, else the length learned from the game, else the spell's base
--- cooldown (a cooldown the game's flags reported with no run of ours).
+-- A cooldown's length: the run the estimate saw, else the length learned from the
+-- game, else the spell's base cooldown (a cooldown the game's flags reported with no
+-- run of ours).
 local function soundLength(entry, duration)
 	if type(duration) == "number" and duration > GCD_MAX then return duration end
 	local id = clientSpellID(entry)
@@ -2726,13 +2787,12 @@ end
 -- The icon's own Sound When Ready and sound, else the page's. WoW: Forever: one
 -- sound per icon per second at most (the same edge reported twice).
 local SOUND_GAP = 1.0
-local function readySound(f, duration)
+-- (3.0.9.9) Whatever its cooldown: the page's Sound When Ready too, the shocks' 6 seconds as well (its
+-- Minimum Cooldown, 20 seconds, is gone, as Ready Flash's is)
+local function readySound(f)
 	local entry = f.entry
 	if not IconOpt(entry, "soundOnReady") then return end
 	if SP.TownHides and SP:TownHides("rr") then return end   -- (A27) Out Of The Way: quiet (a flash-only spell reaches here)
-	-- the minimum is for the old page switch: a sound the player turned on for this one
-	-- spell (its right-click menu) always plays
-	if not IconOpt(entry, "ownSound") and soundLength(entry, duration) < (IconOpt(entry, "soundMinCooldown") or 20) then return end
 	if IS_MAINLINE then
 		local now = GetTime()
 		if f.soundAt and now - f.soundAt < SOUND_GAP then return end
@@ -3118,17 +3178,17 @@ local function flashQueueUp(entry)
 	flashPlay(entry, f)
 end
 
--- Ready Flash on for this spell (the Ready Flash tab). Only For Cooldowns Over is the
--- tab's switch, for every spell. The length is measured as the sound's minimum is.
-local function flashWanted(entry, duration)
+-- Ready Flash on for this spell (the Ready Flash tab). (3.0.9.9) Whatever its cooldown: a
+-- spell turned on flashes, the shocks' 6 seconds too (the tab's Minimum Cooldown is gone).
+local function flashWanted(entry)
 	if not IconOpt(entry, "flash") then return false end
 	if SV().flashCombat and not InCombatLockdown() then return false end   -- (A26) Only In Combat
 	if SP.TownHides and SP:TownHides("rr") then return false end   -- (A27) Hide In Town
-	return soundLength(entry, duration) >= (IconOpt(entry, "flashMin") or 10)
+	return true
 end
 
-local function readyFlash(f, duration)
-	if flashWanted(f.entry, duration) then flashQueueUp(f.entry) end
+local function readyFlash(f)
+	if flashWanted(f.entry) then flashQueueUp(f.entry) end
 end
 
 -- Flash Early: once per cooldown, when the countdown (our estimate) reaches it;
@@ -3138,7 +3198,7 @@ local function flashEarlyCheck(f, duration, remaining)
 	local early = IconOpt(f.entry, "flashEarly") or 0
 	if early <= 0 or not duration or duration <= early or remaining > early then return end
 	f.flashedEarly = true
-	readyFlash(f, duration)
+	readyFlash(f)
 end
 
 -- ---------------------------------------------------------------------------
@@ -4205,8 +4265,8 @@ local function readyPass(self)
 					-- (A25) reset early: its own effects; its sound takes the Ready sound's place, its flash the Ready Flash's
 					local sounded, flashed = false, false
 					if Reset.check(f) then sounded, flashed = Reset.play(f) end
-					if not sounded then readySound(f, f.lastDuration) end
-					if not f.flashedEarly and not flashed then readyFlash(f, f.lastDuration) end   -- (Flash Early already flashed it)
+					if not sounded then readySound(f) end
+					if not f.flashedEarly and not flashed then readyFlash(f) end   -- (Flash Early already flashed it)
 				elseif f.wasReady == false then
 					Reset.check(f)   -- (faded: quiet; the cast is spent all the same)
 				end
@@ -4306,6 +4366,7 @@ end
 function SP:ShowAllReadyReminders()
 	self.readyPositioning = true
 	SV().locked = false
+	R.applyThrough()   -- (3.0.9.9) moving: every icon takes the mouse, whatever Click Through says
 	for _, entry in ipairs(self.ReadyReminderSpells) do
 		if spellOn(entry) and usable(entry) and placed(entry) then
 			local f = self:CreateReadyReminderFrame(entry)
@@ -4328,6 +4389,7 @@ end
 function SP:HideAllReadyReminders()
 	self.readyPositioning = false
 	SV().locked = true
+	R.applyThrough()   -- (3.0.9.9) Click Through again
 	for _, f in pairs(frames) do f:Hide() end
 	self:UpdateReadyReminders()
 	if self.SettingsTestDone then self:SettingsTestDone() end
@@ -5012,9 +5074,6 @@ function R.FlashTab.inject(root)
 			desc = "Plays one flash on the shared spot with the look above.",
 			func = function() SP:ReadyFlashTest(nil) end },
 		whenHeader = { order = 2, type = "header", name = "When" },
-		flashMin = { order = 2.1, type = "range", name = "Minimum Cooldown (Seconds)", min = 0, max = 120, step = 5, width = 1.0,
-			desc = "Seconds. A spell with a shorter cooldown never flashes. 0: every spell you turned on flashes.",
-			get = function() return sv().flashMin or 10 end, set = function(_, v) sv().flashMin = v end },
 		flashEarly = { order = 2.2, type = "range", name = "Flash Early", min = 0, max = 5, step = 0.5, width = 1.0,
 			desc = "Seconds before the spell is ready, once per cooldown. 0: the moment it is ready. A spell's menu can give it its own.",
 			get = function() return sv().flashEarly or 0 end, set = function(_, v) sv().flashEarly = v end },
@@ -5043,7 +5102,7 @@ function R.FlashTab.inject(root)
 	SP.OrderSettingsBands({ args = args }, {
 		{ header = "iconsHeader", name = "Spells", keys = { "yourFlash" } },
 		{ header = "lookHeader", name = "Look", keys = { "flashSize", "flashAnim", "flashHold", "flashName" } },
-		{ header = "whenHeader", name = "When", keys = { "flashMin", "flashEarly", "flashCombat" } },
+		{ header = "whenHeader", name = "When", keys = { "flashEarly", "flashCombat" } },
 		{ header = "positionHeader", name = "Position", keys = { "flashMove", "ownSpots", "ownReset", "flashReset" },
 			names = { flashMove = "Move the Ready Flash", flashReset = "Reset Shared Flash Position" } },
 		{ header = "testHeader", name = "Test", keys = { "flashTest" } },
@@ -5158,6 +5217,13 @@ local function InjectOptions()
 				hidden = function() return not freeOn() end,
 				values = { row = "Row", column = "Column" },
 				get = function() return SV().layout or "row" end, set = function(_, v) SV().layout = v end },
+			-- (3.0.9.9) Click Through, as the Totem Bar's and the Cooldown Bar's (R.applyThrough)
+			clickThrough = { order = 5.3, type = "select", name = "Click Through", width = 1.4,
+				desc = "The icons ignore the mouse: no tooltip and no right-click settings. Clicks land on whatever is behind them. In Combat: only during fights, so they're yours again between them. Move the Icons still works.",
+				values = { off = "Off", combat = "In Combat", always = "Always" },
+				sorting = { "off", "combat", "always" },
+				get = function() return SV().clickThrough or "off" end,
+				set = function(_, v) SP:ReadyReminderSetClickThrough(v) end },
 			spacing = { order = 5.2, type = "range", name = "Icon Spacing", min = 0, max = 40, step = 1, width = 1.0,
 				desc = "The gap between the icons: in the grid, or on every row at once (a row's own menu can give that row its own).",
 				hidden = function() return not (gridOn() or rowsOn()) end,
@@ -5179,6 +5245,7 @@ local function InjectOptions()
 		{ header = "positionHeader", name = "Position", keys = { "move", "unlock", "arrange", "gridColumns", "gridGrow", "gridAlign", "addRow", "layout", "spacing", "reset" },
 			names = { move = "Move the Ready Reminders", unlock = "Unlock Position", layout = "Layout After Reset",
 				spacing = "Spacing", reset = "Reset Ready Reminder Positions" } },
+		{ header = "clicksHeader", name = "Clicks", keys = { "clickThrough" }, names = { clickThrough = "Click Through the Ready Reminders" } },
 	})
 	-- every write on this page: each icon reads its settings again (some setters draw nothing)
 	for _, option in pairs(args) do
@@ -5235,7 +5302,8 @@ end
 
 -- (3.0.9.2) Maelstrom Weapon's stacks (ShamanPower_ReadyStacks.lua, loaded next): what it uses from here
 SP.ReadyStacksAPI = { IconOpt = IconOpt, SV = SV, Buff = Buff, color = color, spellOn = spellOn, usable = usable,
-	knows = playerKnows, mouseOff = curveMouseOff, mouseBack = curveMouseBack }
+	knows = playerKnows, mouseOff = curveMouseOff, mouseBack = curveMouseBack,
+	readySound = readySound }   -- (3.0.9.9) Maelstrom Weapon's sound at 5 stacks: every reminder's own ready sound
 
 -- ---------------------------------------------------------------------------
 -- Slash + events

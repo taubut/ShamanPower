@@ -168,7 +168,12 @@ local function buildPins()
 			pin:Hide()
 			pin:SetAllPoints(Minimap)
 			pin:EnableMouse(false)
-			pin.icon = pin:CreateTexture(nil, "OVERLAY")
+			-- (3.0.9.9) the marker on a layer of its own, so Marker Opacity fades it (and a theme's box
+			-- on it, ShamanPowerThemeBoxes.lua: drawn on the icon's parent) and never the ring
+			pin.mark = CreateFrame("Frame", nil, pin)
+			pin.mark:SetAllPoints(pin)
+			pin.mark:EnableMouse(false)
+			pin.icon = pin.mark:CreateTexture(nil, "OVERLAY")
 			pin.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 			pin.lines = {}
 			for i = 1, SEGMENTS do
@@ -272,11 +277,17 @@ local function expire()
 	refreshModels()
 end
 
+-- (3.0.9.9) Other > Minimap Totems: how solid the rings and the markers are (65% and full until set),
+-- and which elements get a ring
+local function ringAlpha() local v = SP.opt and SP.opt.minimapRingOpacity return number(v) and v or 0.65 end
+local function markAlpha() local v = SP.opt and SP.opt.minimapMarkerOpacity return number(v) and v or 1 end
+local RING_KEYS = { "minimapRing1", "minimapRing2", "minimapRing3", "minimapRing4" }
+
 -- Theme (Appearance > Themes, spot mod.minimap): a ring in the spot's palette.
 -- today = true (a theme change) paints the Appearance colour on Standard;
 -- otherwise Standard leaves the colour set by refreshModels exactly as it is.
--- The ring's color: its element's (today), or one you picked (Totem Range Tracker > Minimap
--- Markers > Use My Own Ring Colors). A theme's palette paints over the element's only.
+-- The ring's color: its element's (today), or one you picked (Other > Minimap Totems > Use My
+-- Own Ring Colors). A theme's palette paints over the element's only.
 local function ringColor(element)
 	local o = SP.opt
 	if o and o.minimapRingColorMode == "custom" then
@@ -291,7 +302,8 @@ local function themeRing(pin, element, today)
 	if not SP.ThemeActive then return end
 	if not today and not SP:ThemeActive("mod.minimap") then return end
 	local r, g, b = SP:ThemeElement("mod.minimap", element)
-	for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(r, g, b, 0.65) end
+	local a = ringAlpha()
+	for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(r, g, b, a) end
 end
 
 local function radiusFor(element, index)
@@ -335,9 +347,12 @@ refreshModels = function()
 			pin.icon:SetSize(pin.size, pin.size)
 			local indexOK, index = pcall(SP.GetActiveTotemIndex, SP, element)
 			pin.radius = nil
-			if indexOK and number(index) and SP.opt.minimapTotemRings ~= false then pin.radius = radiusFor(element, index) end
-			local color = ringColor(element)
-			for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(color.r, color.g, color.b, 0.65) end
+			if indexOK and number(index) and SP.opt.minimapTotemRings ~= false and SP.opt[RING_KEYS[element]] ~= false then
+				pin.radius = radiusFor(element, index)
+			end
+			local color, ra = ringColor(element), ringAlpha()
+			for i = 1, SEGMENTS do pin.lines[i]:SetColorTexture(color.r, color.g, color.b, ra) end
+			if pin.mark then pin.mark:SetAlpha(markAlpha()) end
 			themeRing(pin, element)   -- the theme's colour (nothing on Standard)
 			active = true
 			if not earliest or pin.expires < earliest then earliest = pin.expires end

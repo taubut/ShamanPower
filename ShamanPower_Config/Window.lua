@@ -174,6 +174,15 @@ local POWER_LOADOUTS = {
 	set    = function(v) SP():SetLoadoutsOn(v and true or false) end,
 }
 
+-- (3.0.9.9, sheet A91) Minimap Totems' on / off: Totem markers on the minimap (WoW: Forever only)
+local POWER_MINIMAP = {
+	label  = "Minimap Totems",
+	desc   = "Your own totems on the minimap, with their range rings. Open world only.",
+	loaded = function() local sp = SP() return sp and sp.MinimapTotemsAvailable == true or false end,
+	get    = function() return SP().opt.minimapTotemMarkers ~= false end,
+	set    = function(v) local sp = SP() sp.opt.minimapTotemMarkers = v and true or false; sp:RefreshMinimapTotems() end,
+}
+
 -- the Cooldown Bar's on / off (A13: its page has no Enable row any more)
 local POWER_CDBAR = {
 	label  = "Cooldown Bar",
@@ -384,6 +393,8 @@ local NAV = {
 	}},
 	{ group = "Other", power = true, entries = {
 		{ label = "Totem Plates", preview = "totemplates",         path = P("fluffy", "totemplates_section") },
+		{ label = "Minimap Totems", shamanOnly = true, power = POWER_MINIMAP,
+			desc = "Your own totems on the minimap, with a ring for how far each reaches.", path = P("fluffy", "minimaptotems_section") },
 		{ label = "Pop-Out Trackers", shamanOnly = true, lock = true, power = false, desc = "Middle-click any bar button to pop it out as a movable tracker.",
 			-- (A18) each popped-out tracker's own Scale, Opacity, Hide Background and Flyout Direction
 			onReset = function() local sp = SP() if sp and sp.PopOutResetPage then sp:PopOutResetPage() end end, tabs = {

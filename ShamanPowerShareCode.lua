@@ -310,7 +310,7 @@ SP.SHARE_FEATURES = {
 	{ key = "totemBarClickThrough", label = "Totem bar: click through",         get = function() local v = O().totemBarClickThrough; return v ~= nil and v ~= "off" end },
 	{ key = "cdbarClickThrough",  label = "Cooldown bar: click through",        get = function() local v = O().cdbarClickThrough; return v ~= nil and v ~= "off" end },
 	-- 3.0.9.1
-	{ key = "loadoutsRememberOrder", label = "Loadouts remember the totem bar order", get = function() return on(O().loadoutsRememberOrder) end },
+	{ key = "loadoutsRememberOrder", label = "Loadouts remember the totem bar and drop order", get = function() return on(O().loadoutsRememberOrder) end },
 	{ key = "raidCoverage",       label = "Raid coverage",                      get = function() return on(sub(O().raidCoverage, "enabled")) end },
 	-- Cooldown Numbers / Buff Timers (Appearance > Colors & Borders): on for any bar
 	{ key = "countdownColors",    label = "Cooldown numbers colored",           get = function()

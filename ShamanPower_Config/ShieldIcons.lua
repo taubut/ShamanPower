@@ -484,9 +484,13 @@ local function ColorRows(s)
 	return r
 end
 
-local function PlayName(name)
+-- (3.0.9.9) at the volume it plays at: yours at Shield Sound Volume, Earth Shield's at Expiring Alerts' Alert Volume
+local function PlayName(name, s)
 	if not (SP.PlaySoundWithVolume and SP.GetSoundFile) then return end
-	SP:PlaySoundWithVolume(SP:GetSoundFile(name), 100, true)
+	local vol = 100
+	if s == ES and SP.ShieldSoundEarthVolume then vol = SP:ShieldSoundEarthVolume()
+	elseif s ~= ES and SP.ShieldSoundVolume then vol = SP:ShieldSoundVolume() end
+	SP:PlaySoundWithVolume(SP:GetSoundFile(name), vol, true)
 end
 local function SoundRows(s)
 	local r = { OnOffName(s, "Sound When Shield Ends", "sound", s == ES
@@ -508,7 +512,7 @@ local function SoundRows(s)
 				for _, name in ipairs(type(names) == "table" and names or {}) do
 					-- only the speaker button plays one; choosing or moving through the list is silent
 					items[#items + 1] = { text = name, selected = name == cur,
-						preview = function() PlayName(name) end,
+						preview = function() PlayName(name, s) end,
 						onClick = function() return Set(s, "soundName", name) end }
 				end
 				return items
@@ -985,4 +989,6 @@ function SP.ShieldChargesResetPage(sp)
 		if not Shown(s) then sp:SetShieldOpt(s, "enabled", true) end
 		Changed(s)
 	end
+	-- (3.0.9.9) the page's Sound: Shield Sound Volume back to the volume it played at before it was moved
+	if sp.opt and sp.opt.shieldSoundVolume ~= nil and sp.SetShieldSoundVolume then sp:SetShieldSoundVolume(nil) end
 end

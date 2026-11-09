@@ -97,6 +97,9 @@ local function Gather()
 		end
 	end
 	put(_G.ShamanPowerAutoDropAll, "tb")
+	-- (3.0.9.9) Call Flyout on Drop All: its Calls, and its holder shut at the fight's start
+	for _, b in pairs(SP.callFlyoutButtons or {}) do put(b, "tb") end
+	parent(SP.callFlyoutHeader, "tb")
 	put(_G.ShamanPowerAutoTotemicCall, "tb")
 	put(_G.ShamanPowerEarthShieldBtn, "tb")
 	parent(_G.ShamanPowerEarthShieldBtn, "tb")
@@ -107,6 +110,11 @@ local function Gather()
 		put(b.spFlyoutOpenArrow, "cd")
 		put(b.spFlyoutCloseArrow, "cd")
 	end
+	-- (3.0.9.9) the Cooldown Bar's own frame while it stands on its own: it takes the mouse to be
+	-- dragged (UpdateCooldownBarPosition), and with its buttons let go it still held the cursor
+	-- (a Discord report). Unlock UI moves it by a box of its own; attached, it never has the mouse.
+	local bar = SP.cooldownBar
+	if bar and SP.opt and not SP.opt.cooldownBarLocked and bar:GetParent() == UIParent then put(bar, "cd") end
 	local sh, im = SP.shieldFlyout, SP.weaponImbueFlyout
 	if sh then for _, b in ipairs(sh.buttons or {}) do put(b, "cd") end end
 	if im then for _, b in ipairs(im.buttons or {}) do put(b, "cd") end end
@@ -154,6 +162,7 @@ function SP:ApplyClickThrough()
 	local d = Driver()
 	local fight = Fighting()
 	wipe(listed)
+	local n = 0
 	for _, f in ipairs(frames) do
 		local mode = Mode(f.spClickThroughBar)
 		local owner = f.spOwner or f   -- (a flyout arrow: its button's Running Out state)
@@ -161,10 +170,16 @@ function SP:ApplyClickThrough()
 		f:EnableMouse(on)
 		if mode ~= "off" then
 			listed[#listed + 1] = f
-			d:SetFrameRef("spct" .. #listed, f)
+			-- (3.0.9.9) the driver only gets protected frames: in a fight the game refuses a handle to any
+			-- other, and that would stop the snippet. The Cooldown Bar's own frame is protected through
+			-- its secure buttons; it is checked all the same (the buttons are secure themselves).
+			if f ~= SP.cooldownBar or f:IsProtected() then
+				n = n + 1
+				d:SetFrameRef("spct" .. n, f)
+			end
 		end
 	end
-	d:SetAttribute("spctN", #listed)
+	d:SetAttribute("spctN", n)
 	-- the flyouts to shut at the fight's start: the parents under In Combat or Always, and in
 	-- box mode each box with its key's toggle (SPFT<K>) and the helper holding its "open" text
 	-- (SPFR<K>, see EnsureFlyoutBox in ShamanPower.lua)
@@ -216,6 +231,6 @@ local function Queue()
 end
 for _, name in ipairs({ "UpdateMiniTotemBar", "CreateTotemFlyout", "CreateShieldFlyout", "CreateWeaponImbueFlyout",
 	"CreateEarthShieldFlyout", "UpdateOrCreateESFlyoutButton", "CreateCooldownBar", "RefreshRowsStyle",
-	"EnsureCompactShieldButton", "ApplyClickSwap", "UpdateFlyoutClickBehavior" }) do
+	"EnsureCompactShieldButton", "ApplyClickSwap", "UpdateFlyoutClickBehavior", "UpdateCooldownBarPosition" }) do
 	if type(SP[name]) == "function" then hooksecurefunc(SP, name, Queue) end
 end

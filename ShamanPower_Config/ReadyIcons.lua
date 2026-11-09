@@ -348,7 +348,7 @@ local READY_KEYS = { "readyEffect", "glowCombatOnly", "wsGlow" }
 local COOL_KEYS = { "dimOpacity", "desaturate", "sweepStyle", "sweepDirection", "barStyle", "barHeight", "barColor", "showCountdown",
 	"textPosition", "textSize", "countdownUnder" }
 local RANGE_KEYS = { "outOfRange", "rangeLook", "rangeColor" }
-local SOUND_KEYS = { "soundOnReady", "soundName", "soundVolume", "soundMinCooldown" }
+local SOUND_KEYS = { "soundOnReady", "soundName", "soundVolume" }
 local FADE_KEYS = { "fadeInsteadOfHide", "fadeOpacity" }
 
 local function AppearanceRows(key, entry)
@@ -680,16 +680,7 @@ local function SoundRows(key, entry)
 				return items
 			end,
 		}
-		if entry and entry.stacks and SPCompat and SPCompat.FOREVER then
-			t[#t + 1] = { text = "Volume: the game plays this sound", disabled = true,
-				tip = "At 5 stacks the game plays it, in a fight too, at your game's sound volume (it has no volume of its own)." }
-		else
-			t[#t + 1] = SliderRow(key, "Volume", "soundVolume", 0, 100, 1, 100, function(v) return string.format("%d%%", v or 0) end)
-		end
-		-- a sound turned on in this menu always plays: the minimum only filters the old default
-		if not Opt(key, "ownSound") and not ws and not (entry and entry.stacks) then
-			t[#t + 1] = SliderRow(key, "Minimum Cooldown (Seconds)", "soundMinCooldown", 0, 300, 5, 20, function(v) return Secs(v, "Always") end)
-		end
+		t[#t + 1] = SliderRow(key, "Volume", "soundVolume", 0, 100, 1, 100, function(v) return string.format("%d%%", v or 0) end)
 	end
 	t[#t + 1] = { separator = true }
 	t[#t + 1] = CopyGroupRow(key, "Sound", SOUND_KEYS)

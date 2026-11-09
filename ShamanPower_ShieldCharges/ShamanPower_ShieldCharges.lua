@@ -1656,6 +1656,7 @@ local function shieldEvent(item, up)
 	if up then SP._shieldLastWater = (w == 2) end   -- (the shield seen last: its look once it is gone)
 	if SP.UpdateShieldChargeDisplays then SP:UpdateShieldChargeDisplays() end
 	if SP.ExpiringAlertShieldHook then SP:ExpiringAlertShieldHook(w, up) end   -- Expiring Alerts' shield-gone alert, in a fight too
+	if SP.ShieldSoundHook then SP:ShieldSoundHook(w, up) end   -- (3.0.9.9) the drop sound at Shield Sound Volume (ShamanPowerShieldSound.lua)
 end
 -- Is the hook wanted at all: a shield's When It's Gone effect is on, or Expiring Alerts' shield alerts
 local function hookWanted()
@@ -1699,6 +1700,7 @@ local function bindShieldHooks()
 	-- something uses the signal and ShamanPower is on
 	local wanted = hookWanted() and not SP:IsOff()
 	local have = goneHook.have
+	local had1, had2 = have[1], have[2]
 	have[1], have[2] = nil, nil
 	for _, name in ipairs(HOOK_VIEWERS) do
 		local v = _G[name]
@@ -1725,6 +1727,8 @@ local function bindShieldHooks()
 			end
 		end
 	end
+	-- (3.0.9.9) a shield's item came or went: the drop sound is ShamanPower's or the game's (Shield Sound Volume)
+	if (have[1] ~= had1 or have[2] ~= had2) and SP.UpdateShieldSounds then SP:UpdateShieldSounds() end
 	-- no item carries a shield: the observation is gone, back to unknown (the fight-time
 	-- display then says nothing it cannot know); one carries it again: the next firing says more
 	if not (have[1] or have[2]) then
@@ -1758,6 +1762,9 @@ queueBind = function()
 	C_Timer.After(0, function() goneHook.bindQueued = nil; bindShieldHooks() end)
 end
 function SP:ShieldGoneBindQueue() queueBind() end
+-- (3.0.9.9) does the player's Cooldown Manager have an item for this shield (1 Lightning, 2 Water): its hook then
+-- says when the shield goes, in a fight too (the drop sound at Shield Sound Volume, ShamanPowerShieldSound.lua)
+function SP.ShieldHookHas(_, w) return goneHook.have[w] == true end
 -- the one-time ask: the step the player does once in the game's Cooldown Manager
 function SP:ShieldGoneAsk()
 	local avail = true

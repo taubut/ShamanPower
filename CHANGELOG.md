@@ -1,5 +1,33 @@
 # ShamanPower Changelog
 
+## v3.0.9.9 (in progress)
+
+### New
+- **Pick a Call from Drop All (WoW: Forever):** turn on Totem Bar > Clicks > Call Flyout on Drop All, then hover Drop All (or right-click it, with Flyout Requires Right-Click on) to put Call of the Ancestors or Call of the Spirits on it. Your four totems switch to that Call's, and a totem you pick on the bar goes into it. Pick Call of the Elements to come back. It works in fights too.
+- **Racials in Ready Reminders:** your own race's racials (Blood Fury, Berserking, War Stomp, Stoneform and more) on the Spells row and in Ready Flash. They're off until you click them.
+- **Minimap Totems page (WoW: Forever):** your totem markers on the minimap have their own page under Other, with their switch in the sidebar. New there: Marker Opacity, Ring Opacity, and a range ring on or off for each element.
+- **Click Through for Ready Reminders and Totem Coverage:** Off, In Combat or Always, like the Totem Bar's.
+- **Shield Sound Volume:** Shield Charges > Sound sets how loud your Lightning Shield and Water Shield sound plays, in fights too.
+- **Loadouts keep their Drop Order:** Loadouts Remember the Totem Bar Order is now Loadouts Remember the Totem Bar and Drop Order. Each loadout keeps its own Drop Order too, and changing either order while a loadout is in use saves it into that loadout.
+
+### Changes
+- **Ready Flash:** Minimum Cooldown is gone. Every spell you turn on flashes when it's ready, shocks too.
+- **Ready Reminders:** Sound When Ready, turned on for the whole page, no longer skips spells with a cooldown under 20 seconds.
+- **Maelstrom Weapon (WoW: Forever):** the sound at 5 stacks plays like every Ready Reminder sound now, at its icon's Volume.
+- **Loadouts:** Call of the Elements Follows My Assignments is on the Loadouts page too (WoW: Forever).
+- **Loadouts:** Show Loadout Changes in My Chat covers the loadouts you switch to yourself too.
+- **Totem Range Tracker:** the minimap marker settings moved to Other > Minimap Totems.
+- **Supporters:** Zegma joins the list.
+
+### Fixes
+- **Low-Mana Tint:** the totem rows (TotemTimers Style with Keep Flyouts on Main Totem Bar) weren't tinted.
+- **Cooldown Bar:** with Click Through on, a Cooldown Bar placed on its own still held on to your cursor.
+- **Maelstrom Weapon (WoW: Forever):** the sound at 5 stacks never played.
+- **Loadouts:** changing the totem bar order while a loadout was in use didn't save it into the loadout.
+
+### Thanks
+- Thanks to Tugror, Bambi, interslice, Sento, Aleks, Frisk, Kasai, jeremy and Aldarax for the ideas and reports on Discord, and to my Patreon supporters Afren and Zegma.
+
 ## v3.0.9.8 (2026-11-07)
 
 ### Fixes

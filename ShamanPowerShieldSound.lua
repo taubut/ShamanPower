@@ -96,12 +96,8 @@ end
 local SHIELD_WHICH = { LS = 1, WS = 2, ES = 3 }
 function SP:TestShieldSound(shield)
 	local which = SHIELD_WHICH[shield] or shield
-	local vol = 100
-	local ea = rawget(_G, "ShamanPowerExpiringAlertsDB")
-	if not ENGINE or which == 3 then
-		local v = type(ea) == "table" and ea.soundVolume or nil
-		if type(v) == "number" then vol = v end
-	end
+	-- Earth Shield's plays through Expiring Alerts, at its Alert Volume; yours at Shield Sound Volume
+	local vol = (which == 3) and self:ShieldSoundEarthVolume() or self:ShieldSoundVolume()
 	self:PlaySoundWithVolume(self:GetSoundFile(self:ShieldSoundName(which)), vol, true)
 end
 
@@ -140,13 +136,39 @@ function SP:SetShieldDropSoundName(name)
 	self:UpdateShieldSounds()   -- the game's registrations carry the sound
 end
 
--- How loud: the game's own sound (WoW: Forever) has no volume; on Anniversary it
--- keeps the Expiring Alerts shared volume it always played at, while that module is there.
-local function Volume()
-	if ENGINE then return 100 end
+-- Expiring Alerts' Alert Volume (100 without that module)
+local function EAVolume()
 	local ea = rawget(_G, "ShamanPowerExpiringAlertsDB")
 	local v = type(ea) == "table" and ea.soundVolume or nil
 	return type(v) == "number" and v or 100
+end
+-- How loud: Shield Charges > Sound > Shield Sound Volume (3.0.9.9, a Discord ask: "Lightning
+-- Shield is super loud") once it is moved. Until then as before: the game's own sound (WoW:
+-- Forever) has no volume; on Anniversary it keeps the Expiring Alerts shared volume it always
+-- played at, while that module is there.
+local function Volume()
+	local own = SP.opt and SP.opt.shieldSoundVolume
+	if type(own) == "number" then return own end
+	if ENGINE then return 100 end
+	return EAVolume()
+end
+function SP.ShieldSoundVolume() return Volume() end
+function SP.ShieldSoundEarthVolume() return EAVolume() end
+function SP:SetShieldSoundVolume(v)
+	self.opt.shieldSoundVolume = v
+	self:UpdateShieldSounds()   -- (WoW: Forever: below 100, ShamanPower plays it; at 100, the game again)
+end
+
+-- (3.0.9.9) WoW: Forever, Shield Sound Volume below 100: the game's own sound has no volume, so
+-- ShamanPower plays Lightning / Water Shield's drop itself, at that volume, when the game's
+-- Cooldown Manager says the shield went (Shield Charges' hook, in a fight too: SP:ShieldSoundHook
+-- below). A shield the Cooldown Manager has no item for keeps the game's sound (full volume), so
+-- it never goes quiet. At 100, and until the slider is moved: the game's sound, as before.
+local function HookPlays(kind)
+	if not ENGINE then return false end
+	local own = SP.opt and SP.opt.shieldSoundVolume
+	if type(own) ~= "number" or own >= 100 then return false end
+	return SP.ShieldHookHas ~= nil and SP:ShieldHookHas(kind) == true
 end
 
 -- the Test Sound buttons
@@ -182,12 +204,14 @@ local engineKey          -- the sound the registrations were made with
 local enginePending = false
 local engineLog = {}     -- one entry per rank tried, read by /spalerts sound
 local engineInfo = { unitToken = "player", outputChannel = "Master", throttleSeconds = THROTTLE }
+local engineFor = {}     -- [1 Lightning / 2 Water] = the game's sound is registered for it (then ShamanPower plays none)
 
 function SP:RemoveShieldSounds()
 	if C_UnitAuras and C_UnitAuras.RemoveAuraSound then
 		for i = 1, #engineIDs do pcall(C_UnitAuras.RemoveAuraSound, engineIDs[i]) end
 	end
 	wipe(engineIDs)
+	engineFor[1], engineFor[2] = nil, nil
 	engineKey = nil
 	self.shieldSoundEngineActive = nil
 end
@@ -198,12 +222,13 @@ local function EngineUpdate()
 		if #engineIDs > 0 then SP:RemoveShieldSounds() end
 		return
 	end
-	-- each shield its own sound (or none): the key covers both
-	local onL, onW = SP:ShieldSoundOn(1), SP:ShieldSoundOn(2)
+	-- each shield its own sound (or none): the key covers both. (3.0.9.9) A shield ShamanPower
+	-- plays itself (Shield Sound Volume below 100, see HookPlays) gets no registration
+	local onL, onW = SP:ShieldSoundOn(1) and not HookPlays(1), SP:ShieldSoundOn(2) and not HookPlays(2)
 	local soundL = onL and SP:GetSoundFile(SP:ShieldSoundName(1)) or nil
 	local soundW = onW and SP:GetSoundFile(SP:ShieldSoundName(2)) or nil
 	local key = tostring(soundL) .. "|" .. tostring(soundW)
-	if key == engineKey and #engineIDs > 0 then return end
+	if key == engineKey and (#engineIDs > 0 or (soundL == nil and soundW == nil)) then return end
 	if InCombatLockdown() then
 		enginePending = true
 		frame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -216,6 +241,7 @@ local function EngineUpdate()
 	for _, set in ipairs(SP.ShieldAuraSets or {}) do
 		local sound = (set.name == "Lightning Shield" and soundL) or (set.name == "Water Shield" and soundW) or nil
 		if sound then
+			engineFor[set.name == "Lightning Shield" and 1 or 2] = true
 			if type(sound) == "number" then
 				info.soundFileID, info.soundFileName = sound, nil
 			else
@@ -312,6 +338,24 @@ local function Play(kind)
 	lastPlayed = now
 	SP:PlaySoundWithVolume(SP:GetSoundFile(SP:ShieldSoundName(kind)), Volume(), true)
 	if SP.shieldSoundDebug then SP:Print("shield drop: sound played") end
+end
+
+-- (3.0.9.9) WoW: Forever: the Cooldown Manager's word, from Shield Charges' hook (up = the shield
+-- came on, in a fight too). Gone and not back within CONFIRM (a refresh, not a drop): the sound,
+-- at Shield Sound Volume. Only for a shield ShamanPower plays itself (HookPlays) and the game
+-- has no registration for (never two sounds for one drop).
+local hookSerial = { 0, 0 }
+local function HookWants(kind)
+	return Wanted() and SP:ShieldSoundOn(kind) and HookPlays(kind) and not engineFor[kind]
+end
+function SP:ShieldSoundHook(kind, up)
+	if kind ~= 1 and kind ~= 2 then return end
+	hookSerial[kind] = hookSerial[kind] + 1
+	if up or not HookWants(kind) then return end
+	local serial = hookSerial[kind]
+	C_Timer.After(CONFIRM, function()
+		if hookSerial[kind] == serial and HookWants(kind) then Play(kind) end
+	end)
 end
 
 -- a moment after a shield went: still gone (not put straight back) = dropped

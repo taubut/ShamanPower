@@ -64,6 +64,11 @@ function SP:UpdateManaTint()
 		if flyout and flyout.buttons then
 			for _, fb in ipairs(flyout.buttons) do paint(fb.icon, castName(fb.spellID), on) end
 		end
+		-- (3.0.9.9) Totem Rows with Keep Flyouts on Main Totem Bar: the rows are copies, buttons of their own
+		local copies = self.RowsCopies and self:RowsCopies(element)
+		if copies then
+			for _, c in ipairs(copies) do paint(c.icon, castName(c.spellID), on) end
+		end
 	end
 	-- the cooldown bar
 	if self.cooldownButtons then

@@ -22530,30 +22530,54 @@ function ShamanPower:SetDropAllExclude(element, val, index)
 	end
 end
 
--- Loadouts Remember the Totem Bar Order (3.0.9.1, a CurseForge ask): with the switch on, a loadout
--- saved or updated keeps the bar's element order as well, and switching to it puts that order on
--- the bar. Off (the default), loadouts are the four totems and the Drop All excludes, as before.
+-- Loadouts Remember the Totem Bar and Drop Order (3.0.9.1, a CurseForge ask; the Drop Order since
+-- 3.0.9.9, a Discord ask): with the switch on, a loadout saved keeps the bar's element order and the
+-- order Drop All drops them in, and switching to it puts both back. Off (the default), loadouts are
+-- the four totems and the Drop All excludes, as before. A loadout saved before (no Drop Order of its
+-- own) leaves the Drop Order as it is until it takes one (LoadoutOrderChanged).
+function ShamanPower.LoadoutCopyOrder(o)   -- (a field, not a local: this file's main chunk is at Lua's local limit)
+	o = o or { 1, 2, 3, 4 }
+	return { o[1] or 1, o[2] or 2, o[3] or 3, o[4] or 4 }
+end
 function ShamanPower:LoadoutTakeOrder(loadout)
 	if not (loadout and self.opt and self.opt.loadoutsRememberOrder) then return end
-	local order = self.opt.totemBarOrder or { 1, 2, 3, 4 }
-	loadout.order = { order[1] or 1, order[2] or 2, order[3] or 3, order[4] or 4 }
+	loadout.order = self.LoadoutCopyOrder(self.opt.totemBarOrder)
+	loadout.dropOrder = self.LoadoutCopyOrder(self.opt.dropOrder)
 end
-function ShamanPower:LoadoutGiveOrder(loadout)
-	if not (loadout and self.opt and self.opt.loadoutsRememberOrder and type(loadout.order) == "table") then return false end
+-- every element once, in the list's order (a damaged list: the rest in the usual order)
+function ShamanPower.LoadoutCleanOrder(list)
 	local seen, order = {}, {}
 	for i = 1, 4 do
-		local e = tonumber(loadout.order[i])
+		local e = tonumber(list[i])
 		if e and e >= 1 and e <= 4 and not seen[e] then seen[e] = true; order[#order + 1] = e end
 	end
-	for e = 1, 4 do if not seen[e] then order[#order + 1] = e end end   -- (a damaged list: the rest in the usual order)
-	self.opt.totemBarOrder = order
-	return true
+	for e = 1, 4 do if not seen[e] then order[#order + 1] = e end end
+	return order
 end
--- the order a loadout carries, in words (its tooltip)
-function ShamanPower:LoadoutOrderText(loadout)
-	if not (loadout and type(loadout.order) == "table") then return nil end
+function ShamanPower:LoadoutGiveOrder(loadout)
+	if not (loadout and self.opt and self.opt.loadoutsRememberOrder) then return false end
+	local gave = false
+	if type(loadout.order) == "table" then self.opt.totemBarOrder = self.LoadoutCleanOrder(loadout.order); gave = true end
+	if type(loadout.dropOrder) == "table" then self.opt.dropOrder = self.LoadoutCleanOrder(loadout.dropOrder); gave = true end
+	return gave
+end
+-- (3.0.9.9) the bar's order or the Drop Order changed while a loadout is in use (the Totem Bar screen,
+-- the Position and Drop Order dropdowns, Drop All's menu): with the switch on, that loadout keeps the new
+-- orders. Before, only saving a loadout took the order, so a loadout's order could never be changed (a
+-- Discord report)
+function ShamanPower:LoadoutOrderChanged()
+	local i = self.opt and self.opt.activeLoadout
+	local loadout = i and ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[i]
+	if not (loadout and self.opt.loadoutsRememberOrder) then return end
+	self:LoadoutTakeOrder(loadout)
+	if self.UpdateLoadoutBar then self:UpdateLoadoutBar() end   -- (its tooltip says the order)
+end
+-- the order a loadout carries, in words (its tooltip); field: "order" (the bar's, the default) or "dropOrder"
+function ShamanPower:LoadoutOrderText(loadout, field)
+	local list = loadout and loadout[field or "order"]
+	if type(list) ~= "table" then return nil end
 	local names, out = { "Earth", "Fire", "Water", "Air" }, {}
-	for i = 1, 4 do out[#out + 1] = names[tonumber(loadout.order[i]) or 0] or "?" end
+	for i = 1, 4 do out[#out + 1] = names[tonumber(list[i]) or 0] or "?" end
 	return table.concat(out, ", ")
 end
 
@@ -22611,7 +22635,7 @@ function ShamanPower:ApplyLoadout(index, quiet)
 	if loadout.noDropAll then
 		for e, key in ipairs(self.DropAllExcludeKeys) do self.opt[key] = loadout.noDropAll[e] and true or false end
 	end
-	self:LoadoutGiveOrder(loadout)   -- (Loadouts Remember the Totem Bar Order; UpdateMiniTotemBar lays the bar out by it)
+	self:LoadoutGiveOrder(loadout)   -- (Loadouts Remember the Totem Bar and Drop Order; UpdateMiniTotemBar lays the bar out by it)
 	self.opt.activeLoadout = index
 	self:UpdateMiniTotemBar()
 	self:UpdateDropAllButton()   -- Drop All and Call of the Elements follow the new totems and excludes
@@ -22629,7 +22653,8 @@ function ShamanPower:ApplyLoadout(index, quiet)
 		self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (assignments[element] or 0))
 	end
 	local name = loadout.name or ("Loadout " .. index)
-	if not quiet then print("|cff0070ddShamanPower:|r Activated '" .. name .. "'") end
+	-- (3.0.9.9) Show Loadout Changes in My Chat covers a switch you make too, not only a group's (a Discord report)
+	if not quiet and self.opt.loadoutChat ~= false then print("|cff0070ddShamanPower:|r Activated '" .. name .. "'") end
 	LibStub("AceConfigRegistry-3.0"):NotifyChange("ShamanPower")
 end
 
@@ -22761,9 +22786,13 @@ function ShamanPower:GetLoadoutDescription(index)
 			tinsert(parts, color .. "None|r")
 		end
 	end
-	local order = self.opt and self.opt.loadoutsRememberOrder and self:LoadoutOrderText(loadout)
-	if order then return table.concat(parts, ", ") .. "\n|cff888888Totem bar order: " .. order .. "|r" end
-	return table.concat(parts, ", ")
+	local text = table.concat(parts, ", ")
+	if self.opt and self.opt.loadoutsRememberOrder then
+		local order, drop = self:LoadoutOrderText(loadout), self:LoadoutOrderText(loadout, "dropOrder")
+		if order then text = text .. "\n|cff888888Totem bar order: " .. order .. "|r" end
+		if drop then text = text .. "\n|cff888888Drop order: " .. drop .. "|r" end
+	end
+	return text
 end
 
 -- Get a plain (no color) description string for chat output

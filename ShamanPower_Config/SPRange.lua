@@ -267,6 +267,20 @@ if FS then
 					get = function() return CO().hideWhenCovered ~= false end,
 					set = function(v) CO().hideWhenCovered = v and true or false; SP:UpdateCoverage(); Notify() end,
 				})
+				Row("Dropdown", {
+					label = "Click Through", desc = "The list ignores the mouse: no tooltip, no right-click settings, no dragging."
+						.. " Clicks land on whatever is behind it. In Combat: only during fights, so it's yours again between"
+						.. " them. Its settings stay on the Party Coverage page.",
+					values = function() return { off = "Off", combat = "In Combat", always = "Always" } end,
+					order = function() return { "off", "combat", "always" } end,
+					get = function() return SP.CoverageClickThrough and SP:CoverageClickThrough() or "off" end,
+					set = function(v)
+						CO().clickThrough = (v ~= "off") and v or nil
+						if InCombatLockdown() then print("|cff0070ddShamanPower:|r Click Through changes when the fight ends.") end
+						if SP.ApplyCoverageClickThrough then SP:ApplyCoverageClickThrough() end
+						Notify()
+					end,
+				})
 			end,
 			actions = {
 				{ text = "Choose Totems", desc = "Pick which totems the overlay watches.",

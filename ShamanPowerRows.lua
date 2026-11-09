@@ -1064,6 +1064,8 @@ local function apply()
 		if SP.ThemePaintTotemBorders then SP:ThemePaintTotemBorders() end
 		if SP.ThemeBoxesRefresh then SP:ThemeBoxesRefresh() end
 	end
+	-- (3.0.9.9) Low-Mana Tint: a copy made or given another totem just now is tinted as the flyout's own buttons are
+	if keepFlyouts() and SP.opt.manaTint == true and SP.UpdateManaTint and not SP:IsOff() then SP:UpdateManaTint() end
 	if SP.RefreshUnlockBoxes then SP:RefreshUnlockBoxes() end   -- (Unlock UI open: the boxes follow)
 end
 

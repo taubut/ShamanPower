@@ -28,9 +28,8 @@
 -- game decides what is drawn. The settings previews, the setup tour and Unlock UI
 -- draw it with plain frames at a stack count of their own (Paint), from the same
 -- description of each look.
--- The sound At 5 Stacks: the game plays it the moment "Maelstrom Ready!" (408501)
--- comes on you (C_UnitAuras.AddAuraSound), registered out of combat, as Shield
--- Charges' shield sound is.
+-- The sound At 5 Stacks (3.0.9.9): every Ready Reminder's own ready sound (its Sound,
+-- Volume, Hide In Town), the moment the stacks reach 5 (S.AtFive).
 -- ============================================================================
 
 local SP = ShamanPower
@@ -652,6 +651,20 @@ local function buildEngine(st, e)
 	E.dimHost = CreateFrame("Frame", nil, st.eng)
 	E.dimHost:SetAllPoints(st); E.dimHost:EnableMouse(false)
 	describe(E, st, e)
+	-- (3.0.9.9) At 5 Stacks' sound in a fight: a part the game shows only from 5 stacks, nothing drawn on
+	-- it. The buff back on you puts the game's button on screen before the part is set for the new count,
+	-- so a part still shown from the last 5 comes up with it: the next frame says which it was.
+	E:Part({ from = 5 }, function(host)
+		local button = host:GetParent()
+		if button and button.HookScript then button:HookScript("OnShow", function() st.fiveBtnAt = GetTime() end) end
+		host:HookScript("OnShow", function()
+			if not InCombatLockdown() then return end   -- (out of a fight the count is read: S.Pass)
+			local at = GetTime()
+			C_Timer.After(0, function()
+				if st.fiveBtnAt ~= at then S.AtFive(st) end
+			end)
+		end)
+	end)
 	st.engine = E
 	st.glowCombat = nil   -- (the switch below sets the glow containers for this fight state)
 	return not E.failed
@@ -850,12 +863,16 @@ function S.Pass(f, inCombat)
 			if n ~= nil then
 				if show == "stacks" then visible = n > 0 elseif show == "five" then visible = n >= 5 end
 			end
+			S.FiveCrossed(st, n)
+		else
+			st.fiveWas = nil   -- (the count hidden: the game's part says when 5 comes)
 		end
 	else
 		-- (no game parts on this client: our own frames, from what can be read)
 		setMode(st, "paint")
 		if not st.paint or st.paintSig ~= st.want then buildPaint(st, e); st.paintSig = st.want end
 		local n, left, secs = S.Read(e)
+		S.FiveCrossed(st, n)
 		n = n or 0
 		if show == "stacks" then visible = n > 0 elseif show == "five" then visible = n >= 5 end
 		st.paintN, st.paintLeft, st.paintSecs = n, left, secs
@@ -864,7 +881,7 @@ function S.Pass(f, inCombat)
 	-- in a fight it stays on screen: the game shows what there is (the mouse goes through)
 	f.gridReady = visible
 	if visible then
-		if not f:IsShown() then f:Show() end
+		if not f:IsShown() then st.reshowing = true; f:Show(); st.reshowing = nil end   -- (its 5 part back with it: no sound)
 	elseif f:IsShown() then
 		f:Hide()
 	end
@@ -899,62 +916,27 @@ function S.Demo(f, t)
 end
 
 -- ---------------------------------------------------------------------------
--- At 5 Stacks: the sound (the game plays it, in a fight too)
+-- At 5 Stacks: the sound, as every Ready Reminder's (3.0.9.9)
 -- ---------------------------------------------------------------------------
-local SOUND_OK = SPCompat and SPCompat.FOREVER and C_UnitAuras ~= nil and C_UnitAuras.AddAuraSound ~= nil
-	and Enum ~= nil and Enum.UnitAuraSoundTrigger ~= nil and Enum.UnitAuraSoundTrigger.Added ~= nil
-local soundIDs, soundKey, soundPending, soundLog = {}, nil, false, ""
-local soundInfo = { unitToken = "player", outputChannel = "Master", throttleSeconds = 1 }
-local function soundRemove()
-	if C_UnitAuras and C_UnitAuras.RemoveAuraSound then
-		for i = 1, #soundIDs do pcall(C_UnitAuras.RemoveAuraSound, soundIDs[i]) end
-	end
-	wipe(soundIDs)
-	soundKey = nil
+-- The reminders' own ready sound (API.readySound: the icon's Sound and Volume), the moment
+-- the stacks reach 5. Out of a fight the pass reads the count (S.Pass); in a fight the game
+-- hides it, so the moment comes from a part the game shows only from 5 stacks (buildEngine).
+-- Until 3.0.9.9 the game played it on "Maelstrom Ready!" (408501), with no volume, and
+-- players heard nothing (a Discord report).
+local fiveCount = 0
+function S.AtFive(st)
+	if st.reshowing or not st.f then return end   -- (the reminder back on screen at 5: no new 5)
+	fiveCount = fiveCount + 1
+	API.readySound(st.f)
 end
-local soundFrame
-function S.UpdateSound()
-	if not SOUND_OK then return end
-	local want = nil
-	for _, entry in ipairs(SP.ReadyReminderSpells) do
-		if entry.stacks and entry.stacks.ready and API.SV().enabled and not SP:IsOff() and API.spellOn(entry)
-			and API.usable(entry) and API.knows(entry) and IconOpt(entry, "soundOnReady") then
-			local file = SP:GetSoundFile(IconOpt(entry, "soundName") or "Raid Warning")
-			if file then want = { id = entry.stacks.ready, file = file } end
-		end
-	end
-	local key = want and (want.id .. "|" .. tostring(want.file)) or nil
-	if key == soundKey and (key == nil or #soundIDs > 0) then return end
-	if InCombatLockdown() then
-		soundPending = true
-		if soundFrame then soundFrame:RegisterEvent("PLAYER_REGEN_ENABLED") end
-		return
-	end
-	soundPending = false
-	soundRemove()
-	if not want then return end
-	soundInfo.spellID = want.id
-	if type(want.file) == "number" then soundInfo.soundFileID, soundInfo.soundFileName = want.file, nil
-	else soundInfo.soundFileID, soundInfo.soundFileName = nil, want.file end
-	local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Added, soundInfo)
-	if ok and type(id) == "number" then soundIDs[1] = id end
-	soundLog = want.id .. (ok and ("=" .. tostring(id)) or (":" .. tostring(id)))
-	soundKey = key
+-- out of a fight, the count read: 5 reached since the last pass
+function S.FiveCrossed(st, n)
+	if n == nil then return end
+	local at5 = n >= 5
+	if at5 and st.fiveWas == false then S.AtFive(st) end
+	st.fiveWas = at5
 end
-if SOUND_OK then
-	soundFrame = CreateFrame("Frame")
-	soundFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-	soundFrame:RegisterEvent("PLAYER_LOGOUT")
-	soundFrame:SetScript("OnEvent", function(self, event)
-		if event == "PLAYER_LOGOUT" then soundRemove() return end
-		if event == "PLAYER_REGEN_ENABLED" then
-			self:UnregisterEvent("PLAYER_REGEN_ENABLED")
-			if not soundPending then return end
-		end
-		S.UpdateSound()
-	end)
-	SP:OnOnOff(function() S.UpdateSound() end)
-end
+function S.UpdateSound() end   -- (nothing to register any more; kept for its callers)
 
 -- /spdiag ready: how the stacks are drawn (never what they are)
 function S.Diag(f)
@@ -963,7 +945,7 @@ function S.Diag(f)
 	return string.format("stacks look=%s show=%s left=%s mode=%s containers=%s failed=%s waiting=%s sound=%s",
 		f and S.Look(f.entry) or "-", f and S.Show(f.entry) or "-", f and S.Left(f.entry) or "-", tostring(st and st.mode),
 		tostring(E and #E.list or 0), tostring(E and E.failed or false), tostring(st ~= nil and st.engineSig ~= st.want),
-		soundLog ~= "" and soundLog or "off")
+		"at 5 x" .. fiveCount)
 end
 
 -- the reminder is off screen (switched off, Only In Combat out of combat, the module off):

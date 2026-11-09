@@ -307,6 +307,9 @@ def step_tests(tree, client, only=None):
             continue
         # "-- regime: secrets": the sim's client says it has WoW: Forever's secret regime from load on
         env = dict(os.environ, SP_SIM_SECRETS="1") if re.search(r"--\s*regime:\s*secrets", src) else None
+        # "-- regime: aurasounds": WoW: Forever's C_UnitAuras.AddAuraSound in the sim (the game's own aura sounds)
+        if re.search(r"--\s*regime:\s*aurasounds", src):
+            env = dict(env or os.environ, SP_SIM_AURASOUND="1")
         summary, errors, raw = sim(client, tree, harness + "\n" + src, env=env)
         if summary and summary.startswith("SPCI|skip|"):
             results.append("  skip  %-18s %s" % (name, summary.split("|", 2)[2]))

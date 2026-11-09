@@ -1029,6 +1029,40 @@ local function CoverageOpts()
 	return SP.opt.coverage
 end
 local function CoverageFont() return (CoverageOpts().fontSize or 9) end
+-- (3.0.9.9) Click Through (Off / In Combat / Always), as the Totem Bar's (the owner kept right-clicking the
+-- list in fights, which opened its settings): the list and freely placed totems ignore the mouse, so a
+-- click lands on whatever is behind them; no tooltip, no right-click settings, no drag. In Combat: off as
+-- the fight starts (PLAYER_REGEN_DISABLED, a moment before the lock), back when it ends; a change made in a
+-- fight lands then. Nothing on screen changes; the settings page and Unlock UI still reach it.
+function SP:CoverageClickThrough()
+	local v = CoverageOpts().clickThrough
+	return (v == "combat" or v == "always") and v or "off"
+end
+-- fighting: true at the fight's start, false at its end, nil to ask the game
+function SP:CoverageMouseWanted(fighting)
+	local mode = self:CoverageClickThrough()
+	if mode == "always" then return false end
+	if fighting == nil then fighting = InCombatLockdown() or UnitAffectingCombat("player") end
+	return not (mode == "combat" and fighting)
+end
+function SP:ApplyCoverageClickThrough(fighting)
+	local f = self.coverageFrame
+	if not f then return end
+	if InCombatLockdown() then self._coverageClickPending = true return end
+	self._coverageClickPending = nil
+	local on = self:CoverageMouseWanted(fighting)
+	f:EnableMouse(on)
+	for _, btn in pairs(f.totemCells or {}) do
+		if btn:GetParent() == UIParent then btn:EnableMouse(on) end   -- (a cell in the list keeps its mouse off)
+	end
+end
+SP.coverageClickEvents = CreateFrame("Frame")
+SP.coverageClickEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
+SP.coverageClickEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+SP.coverageClickEvents:SetScript("OnEvent", function(_, event)
+	if SP:CoverageClickThrough() == "off" and not SP._coverageClickPending then return end
+	SP:ApplyCoverageClickThrough(event == "PLAYER_REGEN_DISABLED")
+end)
 -- "Show Dots Instead of Names": a dot per party member, like the totem bar's:
 -- class colour with the buff, red without, or ("Only Show Who's Missing") only
 -- the ones without it. The range pass colours / shows each from UnitHasBuff.
@@ -1122,7 +1156,7 @@ function SP:CreateCoverageFrame()
 	local frame = CreateFrame("Frame", "ShamanPowerCoverage", UIParent, "BackdropTemplate")
 	frame:SetSize(150, 60)
 	frame:SetMovable(true)
-	frame:EnableMouse(true)
+	frame:EnableMouse(SP:CoverageMouseWanted())   -- (Click Through)
 	frame:SetClampedToScreen(true)
 	SP:ApplyPanelBackdrop(frame)
 
@@ -1639,7 +1673,7 @@ local function PlaceFreeCell(btn)
 		btn:SetParent(UIParent)
 		btn:SetFrameStrata("MEDIUM")
 	end
-	btn:EnableMouse(true)
+	btn:EnableMouse(SP:CoverageMouseWanted())   -- (Click Through)
 	SizeCell(btn, CellIconSize(btn.cellKey))
 	if not btn.freePlaced then
 		btn.freePlaced = true

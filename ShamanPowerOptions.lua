@@ -449,19 +449,20 @@ local function RefreshLoadoutArgs()
 		name = function()
 			local known = ShamanPower.KnownTotemSetPages and ShamanPower:KnownTotemSetPages() or {}
 			if known[2] or known[3] then
-				return "Blizzard's totem sets: a loadout's menu > Blizzard Totem Set puts it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements always follows your assignments."
+				return "Blizzard's totem sets: a loadout's menu > Blizzard Totem Set puts it on Call of the Ancestors or Call of the Spirits; its bar button then casts the whole set. Call of the Elements follows your assignments while Call of the Elements Follows My Assignments is on."
 			end
-			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) in its menu (right-click it > Blizzard Totem Set), once your character knows one of them. Call of the Elements always follows your assignments.|r"
+			return "|cffffa040Blizzard's totem sets: each loadout can be put on Call of the Ancestors (learned at level 30) or Call of the Spirits (level 40) in its menu (right-click it > Blizzard Totem Set), once your character knows one of them. Call of the Elements follows your assignments while Call of the Elements Follows My Assignments is on.|r"
 		end,
 		hidden = function() return not HasLoadoutSetControls() end,
 	}
 	loadoutArgs.remember_order = {
 		order = 0.7, type = "toggle", width = "full",
-		name = "Loadouts Remember the Totem Bar Order",
-		desc = "On: a loadout you save or update from now on also keeps the order of the four element buttons on the totem bar"
-			.. " (Totem Bar Order: the 1st to 4th Position dropdowns), and switching to it puts that order on the bar."
-			.. " A loadout saved before you turned this on carries no order until you update it. Off: loadouts are your four"
-			.. " totems and the Drop All excludes, and the bar's order never changes with a switch.",
+		name = "Loadouts Remember the Totem Bar and Drop Order",
+		desc = "On: a loadout you save from now on also keeps the order of the four element buttons on the totem bar"
+			.. " (Totem Bar Order: the 1st to 4th Position dropdowns) and the order Drop All drops them in (Drop Order),"
+			.. " and switching to it puts both back. Change either while a loadout is in use and that loadout keeps the"
+			.. " new one (a loadout saved before you turned this on gets them that way). Off: loadouts are your four"
+			.. " totems and the Drop All excludes, and neither order changes with a switch.",
 		get = function() return ShamanPower.opt.loadoutsRememberOrder == true end,
 		set = function(info, val)
 			if val then ShamanPower.opt.loadoutsRememberOrder = true else ShamanPower.opt.loadoutsRememberOrder = nil end
@@ -517,10 +518,26 @@ local function RefreshLoadoutArgs()
 	loadoutArgs.loadout_chat = {
 		order = 0.86, type = "toggle", width = "full",
 		name = "Show Loadout Changes in My Chat",
-		desc = "A line in your own chat window when a group switches you, e.g. \"switched to loadout MC Trash (The Molten Core)\"."
-			.. " Only you see it.",
+		desc = "A line in your own chat window when your loadout changes: when you switch (\"Activated 'MC Trash'\") and when"
+			.. " a group switches you (\"switched to loadout MC Trash (The Molten Core)\"). Only you see it.",
 		get = function() return ShamanPower.opt.loadoutChat ~= false end,
 		set = function(info, val) if val then ShamanPower.opt.loadoutChat = nil else ShamanPower.opt.loadoutChat = false end end,
+	}
+	-- (3.0.9.9) the same switch as Drop All's right-click menu > Blizzard Totem Sets on the Totem Bar screen, here
+	-- with the other Call settings too (a Discord report: it could not be found)
+	loadoutArgs.cote_sync = {
+		order = 0.855, type = "toggle", width = "full",
+		name = "Call of the Elements Follows My Assignments",
+		desc = "Whenever your totem assignments change, the four totems in Call of the Elements are updated to match (out of"
+			.. " combat). Use /spl set 2 <loadout> and /spl set 3 <loadout> to fill Call of the Ancestors and Call of the"
+			.. " Spirits from saved loadouts. The same switch as Drop All's right-click menu > Blizzard Totem Sets on the"
+			.. " Totem Bar screen.",
+		hidden = function() return not HasLoadoutSetControls() end,
+		get = function() return ShamanPower.opt.totemSetsSyncAssignments ~= false end,
+		set = function(info, val)
+			ShamanPower.opt.totemSetsSyncAssignments = val
+			if val and not InCombatLockdown() and ShamanPower.SyncTotemSetFromAssignments then ShamanPower:SyncTotemSetFromAssignments() end
+		end,
 	}
 	ShamanPower.OptionCustomRow = ShamanPower.OptionCustomRow or {}
 	ShamanPower.OptionCustomRow[loadoutArgs.loadoutIcons] = "loadoutIcons"
@@ -557,7 +574,7 @@ local function RefreshLoadoutArgs()
 	ShamanPower.OrderSettingsBands({ args = loadoutArgs }, {
 		-- the pictures first, the words and switches under them (the owner, 2026-10-17: every icon page)
 		{ header = "loadouts_header", name = "Saved Loadouts", keys = { "loadoutIcons", "make_group", "make_group_desc",
-			"call_ancestors", "call_spirits", "call_desc", "loadout_chat" } },
+			"call_ancestors", "call_spirits", "call_desc", "cote_sync", "loadout_chat" } },
 		{ keys = { "loadouts_desc", "loadouts_sets_note", "remember_order" } },
 	})
 end
@@ -2199,6 +2216,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.dropOrder[1] = val
 								ShamanPower:UpdateDropAllButton()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						drop_order_2 = {
@@ -2228,6 +2246,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.dropOrder[2] = val
 								ShamanPower:UpdateDropAllButton()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						drop_order_3 = {
@@ -2257,6 +2276,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.dropOrder[3] = val
 								ShamanPower:UpdateDropAllButton()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						drop_order_4 = {
@@ -2286,6 +2306,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.dropOrder[4] = val
 								ShamanPower:UpdateDropAllButton()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						exclude_from_drop_all_header = {
@@ -4202,7 +4223,7 @@ ShamanPower.options = {
 							type = "description",
 							name = "|cffffa040Totem Range Tracker is not loaded. Turn on ShamanPower [Totem Range]"
 								.. " in the AddOns list, then type /reload to use these tracker settings."
-								.. " Shaman minimap markers below work without it.|r",
+								.. " Your own totems on the minimap work without it (Other > Minimap Totems).|r",
 							hidden = function() return not (not ShamanPower.SPRangeLoaded) end,
 						},
 						sprange_desc = {
@@ -4211,96 +4232,8 @@ ShamanPower.options = {
 							-- a function: the minimap file loads after this one
 							name = function() return "The optional range overlay shows non-shamans whether OTHER shamans' party buffs are in range."
 								.. " It requires ShamanPower [Totem Range]."
-								.. ((not ShamanPower.MinimapTotemsAvailable or not isShaman) and "\n" or "\n\nShamans can also show their own"
-								.. " totems on the minimap in supported open-world areas."
-								.. " Markers do not appear in instances.\n") end,
-						},
-						minimapTotemMarkers = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
-							order = 0.1, type = "toggle", name = "Totem markers on the minimap", width = "full",
-							get = function() return ShamanPower.opt.minimapTotemMarkers ~= false end,
-							set = function(_, value) ShamanPower.opt.minimapTotemMarkers = value; ShamanPower:RefreshMinimapTotems() end,
-						},
-						minimapTotemRings = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
-							order = 0.2, type = "toggle", name = "Show Estimated Range Rings", width = "full",
-							desc = "Show an estimated range ring. It may differ from your spell's range, including talent bonuses."
-								.. " Totems with unknown range show only a pin. Drop a moved totem again to update its marker.",
-							get = function() return ShamanPower.opt.minimapTotemRings ~= false end,
-							set = function(_, value) ShamanPower.opt.minimapTotemRings = value; ShamanPower:RefreshMinimapTotems() end,
-						},
-						minimapTotemPinSize = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
-							order = 0.3, type = "range", name = "Minimap Totem Marker Size", min = 8, max = 28, step = 1,
-							get = function() return ShamanPower.opt.minimapTotemPinSize or 14 end,
-							set = function(_, value) ShamanPower.opt.minimapTotemPinSize = value; ShamanPower:RefreshMinimapTotems() end,
-						},
-						minimapRingColorMode = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
-							order = 0.25, type = "toggle", name = "Use My Own Ring Colors", width = "full",
-							desc = "Pick a color for each element's range ring on the minimap. Off: each ring takes its element's color (a theme's palette if one is on).",
-							get = function() return ShamanPower.opt.minimapRingColorMode == "custom" end,
-							set = function(_, value)
-								ShamanPower.opt.minimapRingColorMode = value and "custom" or nil
-								ShamanPower.RefreshMinimapTotems()
-								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
-							end,
-						},
-						minimapRingColor1 = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
-							order = 0.251, type = "color", name = "Earth Ring", width = 1.2,
-							get = function()
-								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[1] or ShamanPower.ElementColors[1]
-								return c.r, c.g, c.b
-							end,
-							set = function(_, r, g, b)
-								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
-								ShamanPower.opt.minimapRingColors[1] = { r = r, g = g, b = b }
-								ShamanPower.RefreshMinimapTotems()
-								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
-							end,
-						},
-						minimapRingColor2 = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
-							order = 0.252, type = "color", name = "Fire Ring", width = 1.2,
-							get = function()
-								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[2] or ShamanPower.ElementColors[2]
-								return c.r, c.g, c.b
-							end,
-							set = function(_, r, g, b)
-								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
-								ShamanPower.opt.minimapRingColors[2] = { r = r, g = g, b = b }
-								ShamanPower.RefreshMinimapTotems()
-								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
-							end,
-						},
-						minimapRingColor3 = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
-							order = 0.253, type = "color", name = "Water Ring", width = 1.2,
-							get = function()
-								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[3] or ShamanPower.ElementColors[3]
-								return c.r, c.g, c.b
-							end,
-							set = function(_, r, g, b)
-								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
-								ShamanPower.opt.minimapRingColors[3] = { r = r, g = g, b = b }
-								ShamanPower.RefreshMinimapTotems()
-								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
-							end,
-						},
-						minimapRingColor4 = {
-							hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
-							order = 0.254, type = "color", name = "Air Ring", width = 1.2,
-							get = function()
-								local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[4] or ShamanPower.ElementColors[4]
-								return c.r, c.g, c.b
-							end,
-							set = function(_, r, g, b)
-								ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
-								ShamanPower.opt.minimapRingColors[4] = { r = r, g = g, b = b }
-								ShamanPower.RefreshMinimapTotems()
-								if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
-							end,
+								.. ((not ShamanPower.MinimapTotemsAvailable or not isShaman) and "\n" or "\n\nYour own totems on the"
+								.. " minimap: Other > Minimap Totems.\n") end,
 						},
 						sprange_opacity = {
 							order = 1,
@@ -5025,6 +4958,25 @@ ShamanPower.options = {
 								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
 								ShamanPower.opt.coverage.freeCells = val
 								if ShamanPower.UpdateCoverageLayout then ShamanPower:UpdateCoverageLayout() end
+							end,
+						},
+						-- (3.0.9.9) Click Through, as the Totem Bar's; the mouse itself is ShamanPower_PartyRange.lua's
+						coverage_click_through = {
+							order = 11.5406,
+							type = "select",
+							width = 1.5,
+							name = "Click Through",
+							desc = "The list ignores the mouse: no tooltip, no right-click settings, no dragging. Clicks land on whatever is behind it. In Combat: only during fights, so it's yours again between them.",
+							values = { off = "Off", combat = "In Combat", always = "Always" },
+							sorting = { "off", "combat", "always" },
+							hidden = function() return not (ShamanPower.CoverageAvailable and ShamanPower:CoverageAvailable()) end,
+							disabled = function() return not (ShamanPower.opt.coverage and ShamanPower.opt.coverage.enabled) end,
+							get = function() return ShamanPower.CoverageClickThrough and ShamanPower:CoverageClickThrough() or "off" end,
+							set = function(_, val)
+								ShamanPower.opt.coverage = ShamanPower.opt.coverage or {}
+								ShamanPower.opt.coverage.clickThrough = (val ~= "off") and val or nil
+								if InCombatLockdown() then print("|cff0070ddShamanPower:|r Click Through changes when the fight ends.") end
+								if ShamanPower.ApplyCoverageClickThrough then ShamanPower:ApplyCoverageClickThrough() end
 							end,
 						},
 						coverage_sizes_desc = {
@@ -8426,6 +8378,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.totemBarOrder[1] = val
 								ShamanPower:UpdateMiniTotemBar()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						totem_bar_order_2 = {
@@ -8453,6 +8406,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.totemBarOrder[2] = val
 								ShamanPower:UpdateMiniTotemBar()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						totem_bar_order_3 = {
@@ -8480,6 +8434,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.totemBarOrder[3] = val
 								ShamanPower:UpdateMiniTotemBar()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 						totem_bar_order_4 = {
@@ -8507,6 +8462,7 @@ ShamanPower.options = {
 								end
 								ShamanPower.opt.totemBarOrder[4] = val
 								ShamanPower:UpdateMiniTotemBar()
+								ShamanPower:LoadoutOrderChanged()   -- (3.0.9.9) the loadout in use keeps it
 							end
 						},
 					}
@@ -11568,7 +11524,7 @@ do
 			"coverage_icon_size", "coverage_opacity", "coverage_show_timer", "coverage_plain_icon", "coverage_dots", "coverage_dot_size", "coverage_dot_outline", "coverage_dot_shape", "coverage_dot_position", "coverage_dots_missing_only", "coverage_font", "coverage_hide_border",
 		}, names = { coverage_font = "Text Size", coverage_hide_border = "Hide Background" } },
 		{ header = "behaviour_header", name = "Behavior", keys = {
-			"coverage_hide_covered", "coverage_free", "coverage_vertical",
+			"coverage_hide_covered", "coverage_free", "coverage_vertical", "coverage_click_through",
 		} },
 		{ header = "position_header", name = "Position", keys = { "coverage_move" }, names = { coverage_move = "Move the Coverage List" } },
 	})
@@ -12555,14 +12511,34 @@ do
 			SP:ApplyClickThrough()
 		end,
 	}
+	-- (3.0.9.9, A90) Call Flyout on Drop All (WoW: Forever; ShamanPowerTotemSets.lua)
+	settings.settings_totemClicks.args.call_flyout = {
+		type = "toggle", width = "full",
+		name = "Call Flyout on Drop All",
+		desc = "Drop All opens a flyout of your other Calls, like the totem flyouts: on hover, or on right-click with Flyout"
+			.. " Requires Right-Click on (then a right-click on Drop All doesn't cast Totemic Recall). Pick a Call and Drop All"
+			.. " casts it from then on, and your four totems follow it: a totem you pick in an element's flyout becomes that"
+			.. " Call's totem. Call of the Elements stays as it is meanwhile. Works in fights too. Not with Blizzard-Style"
+			.. " Flyout Arrows. Change it out of combat.",
+		hidden = function() return not SPCompat.FOREVER end,
+		disabled = function()
+			return not (SP.HasTotemSets and SP:HasTotemSets()) or SP:FlyoutBoxMode() or not SP.opt.showTotemFlyouts
+				or SP.opt.dropAllUsesTotemSets == false
+		end,
+		get = function() return SP.opt.dropAllCallFlyout == true end,
+		set = function(_, value)
+			if InCombatLockdown() then print("|cff0070ddShamanPower:|r Call Flyout on Drop All changes out of combat.") return end
+			if SP.SetCallFlyout then SP:SetCallFlyout(value) end
+		end,
+	}
 	SP.OrderSettingsBands(settings.settings_totemClicks, {
 		{ keys = { "layout_desc" } },
 		{ header = "button_header", name = "Bar Buttons", keys = {
 			"click_through", "swap_all_clicks", "rightClickCastsAssigned", "rightClickDestroysTotem",
 		} },
 		{ header = "flyout_header", name = "Flyouts", keys = {
-			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "flyout_arrow_only", "flyout_single_open",
-			"flyout_close_on_cast", "flyout_route_bar_keys",
+			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "call_flyout", "flyout_arrow_only",
+			"flyout_single_open", "flyout_close_on_cast", "flyout_route_bar_keys",
 		} },
 		{ header = "assign_window_header", name = "Assignment Window", keys = { "assign_right_click" } },
 	})
@@ -12685,10 +12661,137 @@ do
 			"sprange_vertical", "sprange_opacity", "sprange_hide_border",
 		} },
 		{ header = "position_header", name = "Position", keys = { "sprange_move" } },
-		{ header = "minimap_header", name = "Minimap Markers", keys = {
-			"minimapTotemMarkers", "minimapTotemRings", "minimapTotemPinSize",
-			"minimapRingColorMode", "minimapRingColor1", "minimapRingColor2", "minimapRingColor3", "minimapRingColor4",
-		} },
+	})
+	-- (3.0.9.9, sheet A91) Other > Minimap Totems: your own totems on the minimap, a page of their own (they
+	-- were at the bottom of Totem Range Tracker, which looked switched off with the tracker off: a Discord
+	-- report). The same saved settings as before; new: Marker Opacity, Ring Opacity and a ring per element.
+	-- Its sidebar switch is Totem markers on the minimap (Window.lua). WoW: Forever only (MinimapTotemsAvailable).
+	local function refresh() if SP.RefreshMinimapTotems then SP.RefreshMinimapTotems() end end
+	local mm = {
+		minimapTotemMarkers = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+			order = 0.1, type = "toggle", name = "Totem markers on the minimap", width = "full",
+			get = function() return ShamanPower.opt.minimapTotemMarkers ~= false end,
+			set = function(_, value) ShamanPower.opt.minimapTotemMarkers = value; ShamanPower:RefreshMinimapTotems() end,
+		},
+		minimapTotemRings = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+			order = 0.2, type = "toggle", name = "Show Estimated Range Rings", width = "full",
+			desc = "Show an estimated range ring. It may differ from your spell's range, including talent bonuses."
+				.. " Totems with unknown range show only a pin. Drop a moved totem again to update its marker.",
+			get = function() return ShamanPower.opt.minimapTotemRings ~= false end,
+			set = function(_, value) ShamanPower.opt.minimapTotemRings = value; ShamanPower:RefreshMinimapTotems() end,
+		},
+		minimapTotemPinSize = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+			order = 0.3, type = "range", name = "Minimap Totem Marker Size", min = 8, max = 28, step = 1,
+			get = function() return ShamanPower.opt.minimapTotemPinSize or 14 end,
+			set = function(_, value) ShamanPower.opt.minimapTotemPinSize = value; ShamanPower:RefreshMinimapTotems() end,
+		},
+		minimapRingColorMode = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+			order = 0.25, type = "toggle", name = "Use My Own Ring Colors", width = "full",
+			desc = "Pick a color for each element's range ring on the minimap. Off: each ring takes its element's color (a theme's palette if one is on).",
+			get = function() return ShamanPower.opt.minimapRingColorMode == "custom" end,
+			set = function(_, value)
+				ShamanPower.opt.minimapRingColorMode = value and "custom" or nil
+				ShamanPower.RefreshMinimapTotems()
+				if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+			end,
+		},
+		minimapRingColor1 = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+			order = 0.251, type = "color", name = "Earth Ring", width = 1.2,
+			get = function()
+				local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[1] or ShamanPower.ElementColors[1]
+				return c.r, c.g, c.b
+			end,
+			set = function(_, r, g, b)
+				ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+				ShamanPower.opt.minimapRingColors[1] = { r = r, g = g, b = b }
+				ShamanPower.RefreshMinimapTotems()
+				if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+			end,
+		},
+		minimapRingColor2 = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+			order = 0.252, type = "color", name = "Fire Ring", width = 1.2,
+			get = function()
+				local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[2] or ShamanPower.ElementColors[2]
+				return c.r, c.g, c.b
+			end,
+			set = function(_, r, g, b)
+				ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+				ShamanPower.opt.minimapRingColors[2] = { r = r, g = g, b = b }
+				ShamanPower.RefreshMinimapTotems()
+				if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+			end,
+		},
+		minimapRingColor3 = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+			order = 0.253, type = "color", name = "Water Ring", width = 1.2,
+			get = function()
+				local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[3] or ShamanPower.ElementColors[3]
+				return c.r, c.g, c.b
+			end,
+			set = function(_, r, g, b)
+				ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+				ShamanPower.opt.minimapRingColors[3] = { r = r, g = g, b = b }
+				ShamanPower.RefreshMinimapTotems()
+				if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+			end,
+		},
+		minimapRingColor4 = {
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman or ShamanPower.opt.minimapRingColorMode ~= "custom" end,
+			order = 0.254, type = "color", name = "Air Ring", width = 1.2,
+			get = function()
+				local c = ShamanPower.opt.minimapRingColors and ShamanPower.opt.minimapRingColors[4] or ShamanPower.ElementColors[4]
+				return c.r, c.g, c.b
+			end,
+			set = function(_, r, g, b)
+				ShamanPower.opt.minimapRingColors = ShamanPower.opt.minimapRingColors or {}
+				ShamanPower.opt.minimapRingColors[4] = { r = r, g = g, b = b }
+				ShamanPower.RefreshMinimapTotems()
+				if ShamanPower.ThemeCheckChange then ShamanPower:ThemeCheckChange() end
+			end,
+		},
+	}
+	mm.minimapTotemMarkers.hidden = function() return true end   -- (the sidebar's switch is the page's on / off)
+	mm.minimapTotemPinSize.width = 1.5
+	mm.mm_desc = { order = 0, type = "description", width = "full", fontSize = "medium",
+		name = "Open world only: in dungeons and raids WoW hides where you are, so there are no markers there.",
+		hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end }
+	mm.minimapMarkerOpacity = { order = 0.31, type = "range", width = 1.5, name = "Marker Opacity", min = 0.1, max = 1,
+		step = 0.01, isPercent = true,
+		desc = "How solid the totem markers are. Lower: you see what is under them (a herb, an ore).",
+		hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+		get = function() return SP.opt.minimapMarkerOpacity or 1 end,
+		set = function(_, v) SP.opt.minimapMarkerOpacity = v; refresh() end }
+	mm.minimapRingOpacity = { order = 0.21, type = "range", width = 1.5, name = "Ring Opacity", min = 0.1, max = 1,
+		step = 0.01, isPercent = true,
+		desc = "How solid the range rings are.",
+		hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+		disabled = function() return SP.opt.minimapTotemRings == false end,
+		get = function() return SP.opt.minimapRingOpacity or 0.65 end,
+		set = function(_, v) SP.opt.minimapRingOpacity = v; refresh() end }
+	for e, n in ipairs({ "Earth", "Fire", "Water", "Air" }) do
+		mm["minimapRing" .. e] = { order = 0.22 + e / 1000, type = "toggle", width = 1.0, name = n .. " Totems",
+			desc = "A range ring round your " .. n .. " totem's marker. Off: only its marker.",
+			hidden = function() return not ShamanPower.MinimapTotemsAvailable or not isShaman end,
+			disabled = function() return SP.opt.minimapTotemRings == false end,
+			get = function() return SP.opt["minimapRing" .. e] ~= false end,
+			set = function(_, v) if v then SP.opt["minimapRing" .. e] = nil else SP.opt["minimapRing" .. e] = false end; refresh() end }
+	end
+	SP.options.args.fluffy.args.minimaptotems_section = { type = "group", name = "Minimap Totems", order = 60, args = mm,
+		hidden = function() return not (ShamanPower.MinimapTotemsAvailable and isShaman) end }   -- (no page on Anniversary)
+	SP.OrderSettingsBands(SP.options.args.fluffy.args.minimaptotems_section, {
+		{ keys = { "minimapTotemMarkers", "mm_desc" } },
+		{ header = "markers_header", name = "Markers", keys = { "minimapTotemPinSize", "minimapMarkerOpacity" },
+			names = { minimapTotemPinSize = "Marker Size" } },
+		{ header = "rings_header", name = "Range Rings", keys = { "minimapTotemRings", "minimapRingOpacity",
+			"minimapRing1", "minimapRing2", "minimapRing3", "minimapRing4" } },
+		{ header = "colors_header", name = "Ring Colors", keys = { "minimapRingColorMode", "minimapRingColor1",
+			"minimapRingColor2", "minimapRingColor3", "minimapRingColor4" } },
 	})
 	SP.options.args.fluffy.args.estrack_section.args.estrack_move = { type = "execute", width = "full", name = "Move the Earth Shield Tracker",
 		desc = "Unlocks only the Earth Shield Tracker: drag its box where you want it, then press Done. It can't be done in a fight.",
@@ -13247,6 +13350,15 @@ do
 			.. "Turn this on and ShamanPower sets up WoW's Cooldown Manager to watch them for you, "
 			.. "hides WoW's own shield icon so you don't see it twice, and reloads once.",
 		hidden = function() return not (SPCompat and SPCompat.FOREVER) end }
+	-- (3.0.9.9) Sound: how loud your shield's drop sound is, as Expiring Alerts' Alert Volume (a Discord ask)
+	args.shieldcharges_sound_volume = { type = "range", width = 1.5, name = "Shield Sound Volume", min = 0, max = 100, step = 1,
+		desc = "How loud Lightning Shield and Water Shield's Sound When Shield Ends plays. Earth Shield's plays at"
+			.. " Expiring Alerts' Alert Volume."
+			.. ((SPCompat and SPCompat.FOREVER) and (" Below 100 needs the shield in WoW's Cooldown Manager (In Fights,"
+			.. " above). Without it, WoW plays the sound at full volume.") or ""),
+		disabled = function() return not (SP.ShieldSoundOn and (SP:ShieldSoundOn(1) or SP:ShieldSoundOn(2))) end,
+		get = function() return SP.ShieldSoundVolume and SP:ShieldSoundVolume() or 100 end,
+		set = function(_, v) if SP.SetShieldSoundVolume then SP:SetShieldSoundVolume(v) end end }
 	F.shieldcharges_page = { type = "group", name = "Shield Charges", order = 17, args = args }
 	SP.OptionCustomRow = SP.OptionCustomRow or {}
 	SP.OptionCustomRow[args.shieldIcons] = "shieldIcons"
@@ -13273,6 +13385,7 @@ do
 		{ keys = { "shieldcharges_enabled" } },   -- under the pictures (every icon page, 2026-10-17)
 		{ header = "cdm_header", name = "In Fights (WoW: Forever)", keys = { "shieldcharges_cdm", "shieldcharges_cdm_desc" } },
 		{ header = "preview_header", name = "Preview", keys = { "shieldPreview" } },
+		{ header = "sound_header", name = "Sound", keys = { "shieldcharges_sound_volume" } },
 		{ header = "position_header", name = "Position", keys = { "shieldcharges_move", "shieldcharges_locked" },
 			names = { shieldcharges_move = "Move the Shield Charges", shieldcharges_locked = "Prevent Dragging and Let Clicks Through" } },
 	})

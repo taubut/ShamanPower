@@ -200,6 +200,7 @@ local function SetDropPlace(e, place)
 		end
 		table.insert(order, math.max(1, math.min(#order + 1, at)), e)
 		O().dropOrder = order
+		Run("LoadoutOrderChanged")   -- (3.0.9.9) the loadout in use keeps it (Loadouts Remember the Totem Bar and Drop Order)
 	end
 	if Excluded(e) then
 		SP:SetDropAllExclude(e, false)   -- (the active loadout keeps it too; the button and macros follow)
@@ -538,6 +539,7 @@ local function ElementMenu(e)
 			for i, x in ipairs(order) do if x == e then table.remove(order, i) break end end
 			table.insert(order, e, e)
 			O().dropOrder = order
+			Run("LoadoutOrderChanged")   -- (3.0.9.9) the loadout in use keeps it
 			if Excluded(e) then SP:SetDropAllExclude(e, false) else Run("UpdateDropAllButton") end
 			Run("UpdateMiniTotemBar")
 			BtnRow:Changed(false)
@@ -677,6 +679,7 @@ local function DropAllMenu()
 			o.dropAllIcon = nil
 			o.dropAllResetSeconds = nil
 			o.dropOrder = { 1, 2, 3, 4 }
+			Run("LoadoutOrderChanged")   -- (3.0.9.9) the loadout in use keeps it
 			if SetsBar() then o.dropAllUsesTotemSets, o.totemSetsSyncAssignments, o.totemSetsAdoptFromBar = nil, nil, nil end
 			for e = 1, 4 do if Excluded(e) then SP:SetDropAllExclude(e, false) end end
 			Run("UpdateDropAllButton")
@@ -1356,6 +1359,7 @@ BtnRow = ns.IconRow.New({
 		table.insert(order, math.max(1, math.min(#order + 1, index)), item.key)
 		O().totemBarOrder = order
 		Run("UpdateMiniTotemBar")
+		Run("LoadoutOrderChanged")   -- (3.0.9.9) the loadout in use keeps it (Loadouts Remember the Totem Bar and Drop Order)
 	end,
 	movable = function(item) return type(item.key) == "number" end,
 	gapBefore = function(item) if item.key == DROPALL then return 14 end return 0 end,

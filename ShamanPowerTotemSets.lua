@@ -25,6 +25,8 @@ local barChangeQueued = false
 local changedPages = {}
 local editedSlots = {}   -- [element] = true: Blizzard said this one page-1 slot changed (a pick or a clear)
 local clearedSlots = {}  -- [element] = true: the player's LAST change to that slot emptied it (a later pick wipes the mark)
+-- (3.0.9.9) Call Flyout on Drop All: its frames, its in-fight copy of each Call's totems, its queue
+local CALL = { sets = {}, buttons = {}, routers = {} }
 
 local function boundLoadout(page)
 	for index, loadout in ipairs(ShamanPower_TotemLoadouts or {}) do
@@ -307,6 +309,20 @@ function SP:SyncTotemSetFromAssignments()
 	-- once the name is known)
 	local me = self.player
 	if type(me) ~= "string" or me == "" or me == "Unknown" or me == UNKNOWNOBJECT then return end
+	-- (3.0.9.9) another Call picked on Drop All's flyout: the assignments are that Call's totems,
+	-- and that Call follows them whatever Call of the Elements Follows My Assignments says (it is
+	-- about Call of the Elements, which is left alone meanwhile)
+	local callPage = self:CallPage()
+	if callPage ~= 1 then
+		if not self:HasTotemBar() or InCombatLockdown() then
+			self.totemSetsSyncPending = self:HasTotemBar() or nil
+			return
+		end
+		if not readPageSafe(callPage) then self.totemSetsSyncPending = true return end
+		self.totemSetsSyncPending = nil
+		CALL.write(self, callPage)
+		return
+	end
 	-- switched off: Blizzard's bar is left alone (brought in step on switch-on). The other
 	-- direction does not depend on it: with My Assignments Follow Blizzard's Totem Bar on, the
 	-- session's first look at the bar is taken here, where the first write would have been
@@ -573,6 +589,8 @@ local function syncAllBoundLoadouts()
 end
 
 function SP:AdoptTotemBarAssignments()
+	-- (3.0.9.9) another Call picked on Drop All's flyout: the assignments are that Call's, not page 1's
+	if self:CallPage() ~= 1 then return end
 	-- The bar is "known" once ShamanPower has written or read it. While Call of the Elements
 	-- Follows My Assignments is on, the session's first write (SyncTotemSetFromAssignments) is
 	-- that moment: until then the bar may still be loading. With it off nothing ever writes the
@@ -642,13 +660,16 @@ end
 -- All, or a totem the slot does not take). Used by the flyouts' "multispell"
 -- helpers, which are the only way to write the bar during a fight.
 function SP:TotemBarSlotSpell(element, totemIndex)
-	if not haveAPI() or self.opt.totemSetsSyncAssignments == false then return nil end
+	if not haveAPI() then return nil end
+	-- (3.0.9.9) the Call the bar is on (Drop All's flyout); the sync option is Call of the Elements' only
+	local page = self:CallPage()
+	if page == 1 and self.opt.totemSetsSyncAssignments == false then return nil end
 	local exclude = {
 		[1] = self.opt.excludeEarthFromDropAll, [2] = self.opt.excludeFireFromDropAll,
 		[3] = self.opt.excludeWaterFromDropAll, [4] = self.opt.excludeAirFromDropAll,
 	}
 	if exclude[element] then return nil end
-	local action = setActionSlot(1, element)
+	local action = setActionSlot(page, element)
 	if not action then return nil end
 	if not totemIndex or totemIndex == 0 then return action, 0 end
 	local id = self:GetTotemSpell(element, totemIndex)
@@ -675,6 +696,546 @@ function SP:PushLoadoutToTotemSet(index, page)
 end
 
 -- ---------------------------------------------------------------------------
+-- (3.0.9.9, A90) Call Flyout on Drop All (Totem Bar > Clicks; a Discord ask). Drop All opens a
+-- flyout of the Calls that are not on it, the totem flyouts' kind: it leaves out the one on the
+-- button, and opens on hover, or on right-click with Flyout Requires Right-Click on (then that
+-- right-click casts no Totemic Recall; Recall keeps its own button). Picking a Call puts it on Drop
+-- All, and the four assignments follow it: the bar shows and drops that Call's totems, and a totem
+-- picked in an element's flyout becomes that Call's totem (a loadout linked to it follows).
+-- Call of the Elements is left alone while another Call is picked, and comes back with it.
+--
+-- The Call the bar is on is the character's own (db.char.callPage, like the assignments), so a
+-- profile never pulls it out of step with them; turning the switch off brings Elements back first.
+--
+-- In a fight: the flyout's buttons are secure, children of a holder frame over Drop All (the totem
+-- flyouts' snippets: show, assignment, relayout, leave), and Drop All's own scripts are wrapped while
+-- the switch is on (SecureHandlerWrapScript: nothing of today's button changes without it). A pick
+-- clicks a secure router (SPCALLR<page>) that keeps the totems the bar casts now as the old Call's,
+-- puts the new Call on Drop All and its totems on the four buttons, and points the flyout pick
+-- helpers (SPFM) at the new Call's slots. The assignments follow when the fight ends, as a flyout
+-- pick's do (pendingAssignments); the icons change at once.
+-- ---------------------------------------------------------------------------
+
+-- the Call the bar is on: 1 (Elements) unless another was picked on Drop All's flyout
+function SP:CallPage()
+	local c = self.db and self.db.char
+	local p = c and c.callPage
+	return (p == 2 or p == 3) and p or 1
+end
+
+-- the switch, and what it needs (Blizzard-Style Flyout Arrows open flyouts their own way: not there)
+function SP:CallFlyoutOn()
+	local o = self.opt
+	if not (o and o.dropAllCallFlyout == true and o.dropAllUsesTotemSets ~= false and o.showTotemFlyouts) then return false end
+	if self:IsOff() or self:FlyoutBoxMode() or not self:HasTotemSets() then return false end
+	if self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar() then return false end
+	return true
+end
+
+local function excludedElement(self, element)
+	local keys = self.DropAllExcludeKeys
+	return (keys and self.opt[keys[element]]) and true or false
+end
+
+-- { [element] = totemIndex, 0 = empty } of a page as the game holds it; nil while unreadable. A
+-- spell our tables do not know leaves its element out (nil): that assignment stays as it is.
+local function pageIndexes(page)
+	local slots = readPageSafe(page)
+	if not slots then return nil end
+	local t = {}
+	for element = 1, 4 do
+		local id = slots[element]
+		if id then t[element] = totemIndexForSpell(element, id) else t[element] = 0 end
+	end
+	return t
+end
+
+-- the name a totem button casts for (element, totem index), as the bar sets it; "" = none
+local function castNameFor(element, idx)
+	if not idx or idx <= 0 then return "" end
+	local id = SP:GetTotemSpell(element, idx)
+	if not id then return "" end
+	local name = GetSpellInfo(id)
+	if SPCompat.HasTotemCastAliases(id) then name = SPCompat.TotemCastName(id) end
+	return name or ""
+end
+
+-- Sync's page for another Call: the assignments into it. A loadout linked to that Call leads the
+-- page (it is written back over it on many refreshes), so it takes the assignments first.
+function CALL.write(self, page)
+	local loadout, index = boundLoadout(page)
+	if not loadout then
+		self:WriteTotemSet(page, self:TotemSetSpellsFromAssignments())
+		return
+	end
+	local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player] or {}
+	local changed = false
+	for element = 1, 4 do
+		if not excludedElement(self, element) then
+			local idx = a[element] or 0
+			if (loadout[element] or 0) ~= idx then loadout[element], changed = idx, true end
+		end
+	end
+	if changed then refreshLoadouts() end
+	CALL.writing = true
+	local ok, err = pcall(self.SyncBoundLoadout, self, index)
+	CALL.writing = nil
+	if not ok then geterrorhandler()(err) end
+end
+
+-- four assignments at once (an element left out keeps its own), then one refresh: one at a time,
+-- each refresh would write a half-switched bar into the Call
+local function applyCallAssignments(self, idx)
+	ShamanPower_Assignments[self.player] = ShamanPower_Assignments[self.player] or {}
+	local a = ShamanPower_Assignments[self.player]
+	local changed = {}
+	for element = 1, 4 do
+		if idx[element] ~= nil and not excludedElement(self, element) and (a[element] or 0) ~= idx[element] then
+			a[element] = idx[element]
+			changed[#changed + 1] = element
+		end
+	end
+	if #changed == 0 then return false end
+	self:UpdateMiniTotemBar()
+	self:UpdateDropAllButton()   -- (and Sync: the Call the bar is on, which holds these already)
+	self:UpdateSPMacros()
+	for element = 1, 4 do
+		self:UpdateFlyoutVisibility(element)
+		if self.ShowEmptySlotArt then self:ShowEmptySlotArt(element, (a[element] or 0) == 0) end
+	end
+	for _, element in ipairs(changed) do
+		self:SendMessage("ASSIGN " .. self.player .. " " .. element .. " " .. (a[element] or 0))
+	end
+	return true
+end
+
+-- Put a Call on Drop All, out of a fight: the bar leaves its Call holding the assignments (a pick
+-- not written yet lands now) and takes the new Call's totems as they are in the game.
+function SP:SelectCall(page)
+	page = (page == 2 or page == 3) and page or 1
+	if InCombatLockdown() or not self:HasTotemBar() or not (self.db and self.db.char) then return false end
+	if page ~= 1 and not self:KnownTotemSetPages()[page] then return false end
+	local cur = self:CallPage()
+	if page == cur then CALL.queue() return true end
+	local target = pageIndexes(page)
+	if not target then return false end   -- (the game can't say yet: nothing changes)
+	self:SyncTotemSetFromAssignments()
+	if page == 1 then
+		self.db.char.callPage = nil
+		page1Actual = readPage1() or page1Actual   -- what Elements holds is known: nothing on it is a new pick
+	else
+		self.db.char.callPage = page
+	end
+	if not applyCallAssignments(self, target) then self:UpdateDropAllButton() end
+	if self.RefreshTotemBarHelpers then self:RefreshTotemBarHelpers() end
+	CALL.queue()
+	return true
+end
+
+-- The switch (Totem Bar > Clicks), out of a fight. Off while another Call is picked: Elements first.
+function SP:SetCallFlyout(on)
+	if InCombatLockdown() or not self.opt then return false end
+	if not on and self:CallPage() ~= 1 then self:SelectCall(1) end
+	self.opt.dropAllCallFlyout = on and true or nil
+	self:UpdateDropAllButton()
+	return true
+end
+
+-- A Call picked in a fight: the secure router did the casting side; here the icons and what
+-- waits for the fight's end (the old Call keeps what the bar has now, the new one's go pending)
+local function pickedInCombat(self, page)
+	local cur = self:CallPage()
+	if page == cur then return end
+	local now = {}
+	for element = 1, 4 do now[element] = self:AssignedIndex(element) end
+	CALL.sets[cur] = now
+	if page == 1 then self.db.char.callPage = nil else self.db.char.callPage = page end
+	local target = CALL.sets[page]
+	if target then
+		self.pendingAssignments = self.pendingAssignments or {}
+		for element = 1, 4 do
+			local idx = target[element]
+			-- (as the router: an element kept out of Drop All, or Air while twisting, keeps its own)
+			if idx ~= nil and not excludedElement(self, element) and not (element == 4 and self.opt.enableTotemTwisting) then
+				self.pendingAssignments[element] = idx
+				local b = self.totemButtons and self.totemButtons[element]
+				if b and b.icon then
+					local icons = self.TotemIcons and self.TotemIcons[element]
+					b.icon:SetTexture((idx > 0 and icons and icons[idx]) or self.ElementIcons[element])
+				end
+				if self.ShowEmptySlotArt then self:ShowEmptySlotArt(element, idx == 0) end
+				self:MarkAssignedInFlyout(element)
+			end
+		end
+	end
+	local d = _G.ShamanPowerAutoDropAll
+	local icon = d and (d.icon or _G.ShamanPowerAutoDropAllIcon)
+	if icon and not (self.DropAllOwnIcon and self:DropAllOwnIcon()) then icon:SetTexture(spellIcon(SUMMON[page]) or 136024) end
+	if self.UpdateActiveTotemOverlays then self:UpdateActiveTotemOverlays() end
+end
+
+-- a Call button's click (PostClick: after the router)
+function SP:CallFlyoutPicked(page)
+	if InCombatLockdown() then pickedInCombat(self, page) return end
+	if self:SelectCall(page) then return end
+	-- the game couldn't say what that Call holds: the router's changes go, the bar casts as before
+	self:UpdateMiniTotemBar()
+	self:UpdateDropAllButton()
+	for element = 1, 4 do self:UpdateFlyoutVisibility(element) end
+	if self.RefreshTotemBarHelpers then self:RefreshTotemBarHelpers() end
+end
+
+-- The snippets. The flyout's are the totem flyouts' (ShamanPower.lua): show, assignment (the one on
+-- Drop All hides), relayout (the rest close the gap), leave (WoW: Forever's form).
+CALL.SHOW = [[
+	if message then
+		if not self:GetAttribute("isCurrentAssignment") and not self:GetAttribute("flyoutHidden") then self:Show() end
+	else
+		self:Hide()
+	end
+]]
+CALL.ASSIGNMENT = [[
+	self:SetAttribute("isCurrentAssignment", message == self:GetAttribute("mySpell"))
+]]
+CALL.RELAYOUT = [[
+	if self:GetAttribute("isCurrentAssignment") or self:GetAttribute("flyoutHidden") then return end
+	local parent = self:GetParent()
+	local size = parent:GetAttribute("flyoutButtonSize") or 28
+	local spacing = parent:GetAttribute("flyoutSpacing") or 0
+	local myIndex = self:GetAttribute("myTotemIndex") or 0
+	local before = 0
+	local children = newtable(parent:GetChildren())
+	for i = 1, #children do
+		local c = children[i]
+		if c:GetAttribute("isFlyoutButton") and (c:GetAttribute("myTotemIndex") or 0) < myIndex
+			and not c:GetAttribute("isCurrentAssignment") and not c:GetAttribute("flyoutHidden") then
+			before = before + 1
+		end
+	end
+	local along = spacing + before * (size + spacing)
+	self:ClearAllPoints()
+	if parent:GetAttribute("flyoutIsHorizontal") then
+		if parent:GetAttribute("isVerticalLeft") then
+			self:SetPoint("RIGHT", parent, "LEFT", -along, 0)
+		else
+			self:SetPoint("LEFT", parent, "RIGHT", along, 0)
+		end
+	elseif parent:GetAttribute("flyoutGoesBelow") then
+		self:SetPoint("TOP", parent, "BOTTOM", 0, -along)
+	else
+		self:SetPoint("BOTTOM", parent, "TOP", 0, along)
+	end
+]]
+CALL.LEAVE = [[
+	local parent = self:GetParent()
+	if parent:IsUnderMouse() then return end
+	local children = newtable(parent:GetChildren())
+	for i = 1, #children do
+		local c = children[i]
+		if c ~= self and c:GetAttribute("spFlyoutProtocol") and c:IsShown() and c:IsUnderMouse() then return end
+	end
+	parent:ChildUpdate("show", false)
+]]
+-- Drop All's own scripts, wrapped (control = the holder)
+CALL.WRAP_ENTER = [[
+	if control:GetAttribute("OpenMenu") == "mouseover" then control:ChildUpdate("show", true) end
+]]
+CALL.WRAP_LEAVE = [[
+	if self:IsUnderMouse() then return end
+	local children = newtable(control:GetChildren())
+	for i = 1, #children do
+		local c = children[i]
+		if c:GetAttribute("spFlyoutProtocol") and c:IsShown() and c:IsUnderMouse() then return end
+	end
+	control:ChildUpdate("show", false)
+]]
+CALL.WRAP_CLICK = [[
+	if control:GetAttribute("OpenMenu") == "click" and button == control:GetAttribute("spOpener") then
+		control:ChildUpdate("show", true)
+		return false
+	end
+]]
+-- The router: one per Call (spPage). hdr = the holder, which keeps the state: spPage (the Call on
+-- Drop All), call<p> (each Call's spell), p<p>e<e> (each Call's totem names, "" = none), keep<e>
+-- (an element kept out of Drop All), tb<e> / dropall / spfm<i> (the frames).
+CALL.ROUTER = [[
+	local hdr = self:GetFrameRef("hdr")
+	if not hdr then return end
+	local page = self:GetAttribute("spPage")
+	local cur = hdr:GetAttribute("spPage") or 1
+	if page == cur then hdr:ChildUpdate("show", false) return end
+	for e = 1, 4 do
+		local b = hdr:GetFrameRef("tb" .. e)
+		if b then hdr:SetAttribute("p" .. cur .. "e" .. e, b:GetAttribute("spell1") or "") end
+	end
+	hdr:SetAttribute("spPage", page)
+	local d = hdr:GetFrameRef("dropall")
+	if d then d:SetAttribute("spell1", hdr:GetAttribute("call" .. page)) end
+	for e = 1, 4 do
+		local b = hdr:GetFrameRef("tb" .. e)
+		if b and not hdr:GetAttribute("keep" .. e) and b:GetAttribute("type1") ~= "macro" then
+			local s = hdr:GetAttribute("p" .. page .. "e" .. e)
+			if s == "" then s = nil end
+			b:SetAttribute("spell1", s)
+			if b:GetAttribute("spSecureResort") then
+				b:ChildUpdate("assignment", s)
+				b:ChildUpdate("relayout", true)
+			end
+		end
+	end
+	local n = hdr:GetAttribute("spfmN") or 0
+	for i = 1, n do
+		local m = hdr:GetFrameRef("spfm" .. i)
+		if m and not m:GetAttribute("spNever") then
+			local base = m:GetAttribute("spBase")
+			if base and not (page == 1 and m:GetAttribute("spPage1Off")) then
+				m:SetAttribute("type", "multispell")
+				m:SetAttribute("action", base + (page - 1) * 4)
+			else
+				m:SetAttribute("type", nil)
+			end
+		end
+	end
+	hdr:ChildUpdate("assignment", hdr:GetAttribute("call" .. page))
+	hdr:ChildUpdate("relayout", true)
+	hdr:ChildUpdate("show", false)
+]]
+SP.CallFlyoutSnippets = CALL   -- (the tests read the snippets)
+
+local function callTooltip(btn)
+	if not (SP.opt and SP.opt.ShowTooltips) then return end
+	GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+	if btn.spSpell then GameTooltip:SetSpellByID(btn.spSpell) end
+	GameTooltip:AddLine(" ")
+	GameTooltip:AddLine("|cff00ff00Click:|r Put it on Drop All. Your totems follow it.", 1, 1, 1, true)
+	GameTooltip:Show()
+end
+
+-- the holder, its three Call buttons and their routers: made once, out of a fight
+local function build(self, d)
+	if CALL.header then return CALL.header end
+	local h = CreateFrame("Frame", "ShamanPowerCallFlyout", d, "SecureHandlerBaseTemplate")
+	h:SetAllPoints(d)
+	h:EnableMouse(false)
+	for page = 1, 3 do
+		local b = CreateFrame("Button", "ShamanPowerCallFlyoutBtn" .. page, h, "SPFlyoutButtonTemplate")
+		b:Hide()
+		b:SetIgnoreParentAlpha(true)
+		self:SetSnippet(b, "_childupdate-show", CALL.SHOW)
+		self:SetSnippet(b, "_childupdate-assignment", CALL.ASSIGNMENT)
+		self:SetSnippet(b, "_childupdate-relayout", CALL.RELAYOUT)
+		self:SetSnippet(b, "_onleave", CALL.LEAVE)
+		b:SetAttribute("spFlyoutProtocol", true)
+		b:SetAttribute("isFlyoutButton", true)
+		b:SetAttribute("myTotemIndex", page)
+		b:SetAttribute("mySpell", SUMMON[page])
+		b:SetAttribute("type1", "macro")
+		b:SetAttribute("macrotext1", "/click SPCALLR" .. page)
+		b:SetAttribute("type2", "macro")
+		b:SetAttribute("macrotext2", "/click SPCALLR" .. page)
+		b.icon = _G[b:GetName() .. "Icon"]
+		b.spPage, b.spSpell = page, SUMMON[page]
+		b:HookScript("OnEnter", callTooltip)
+		b:HookScript("OnLeave", function() GameTooltip:Hide() end)
+		b:SetScript("PostClick", function(btn) SP:CallFlyoutPicked(btn.spPage) end)
+		CALL.buttons[page] = b
+
+		local r = CreateFrame("Button", "SPCALLR" .. page, h, "SecureHandlerClickTemplate")
+		r:SetSize(1, 1)
+		r:SetPoint("CENTER", h, "CENTER")
+		r:EnableMouse(false)
+		r:RegisterForClicks("AnyUp", "AnyDown")
+		r:SetAttribute("spPage", page)
+		r:SetFrameRef("hdr", h)
+		r:SetAttribute("_onclick", CALL.ROUTER)
+		CALL.routers[page] = r
+	end
+	CALL.header = h
+	SP.callFlyoutButtons, SP.callFlyoutHeader = CALL.buttons, h   -- (Click Through gathers them)
+	return h
+end
+
+local WRAPPED = { "OnEnter", "OnLeave", "OnClick" }
+local function wrap(d, h)
+	if CALL.wrapped then return end
+	SecureHandlerWrapScript(d, "OnEnter", h, CALL.WRAP_ENTER)
+	SecureHandlerWrapScript(d, "OnLeave", h, CALL.WRAP_LEAVE)
+	SecureHandlerWrapScript(d, "OnClick", h, CALL.WRAP_CLICK)
+	CALL.wrapped = true
+end
+local function unwrap(d)
+	if not CALL.wrapped then return end
+	for _, script in ipairs(WRAPPED) do pcall(SecureHandlerUnwrapScript, d, script) end
+	CALL.wrapped = nil
+end
+
+-- the Call buttons placed as the relayout snippet places them (out of a fight, and where the
+-- snippets cannot run): every Call but the one on Drop All, in order, away from the screen edge
+local function layout(h, current)
+	local size = h:GetAttribute("flyoutButtonSize") or 28
+	local n = 0
+	for page = 1, 3 do
+		local b = CALL.buttons[page]
+		local on = page ~= current and b.spKnown
+		b:SetAttribute("isCurrentAssignment", page == current)
+		b:SetAttribute("flyoutHidden", not b.spKnown)   -- (a Call not learned yet: never in the flyout)
+		if on then
+			local along = n * size
+			n = n + 1
+			b:ClearAllPoints()
+			if h:GetAttribute("flyoutIsHorizontal") then
+				if h:GetAttribute("isVerticalLeft") then b:SetPoint("RIGHT", h, "LEFT", -along, 0)
+				else b:SetPoint("LEFT", h, "RIGHT", along, 0) end
+			elseif h:GetAttribute("flyoutGoesBelow") then
+				b:SetPoint("TOP", h, "BOTTOM", 0, -along)
+			else
+				b:SetPoint("BOTTOM", h, "TOP", 0, along)
+			end
+		end
+		b:Hide()
+	end
+end
+
+-- Out of a fight: builds, wraps or unwraps, and sets every attribute the snippets read from what
+-- the game and the assignments hold now. The Lua copy of each Call's totems (for a pick in a fight)
+-- comes from the same reads.
+function SP:RefreshCallFlyout()
+	CALL.queued = nil
+	if InCombatLockdown() then CALL.pending = true return end
+	CALL.pending = nil
+	local d = _G.ShamanPowerAutoDropAll
+	if not d or not self.opt then return end
+	-- the switch went off, or Drop All stopped casting the Calls: Elements back first
+	if self:CallPage() ~= 1 and (self.opt.dropAllCallFlyout ~= true or self.opt.dropAllUsesTotemSets == false)
+		and haveAPI() and not CALL.reverting then
+		CALL.reverting = true
+		local ok, err = pcall(self.SelectCall, self, 1)
+		CALL.reverting = nil
+		if not ok then geterrorhandler()(err) end
+	end
+	if not self:CallFlyoutOn() then
+		unwrap(d)
+		for _, b in pairs(CALL.buttons) do b:Hide() end
+		return
+	end
+	local h = build(self, d)
+	if h:GetParent() ~= d then h:SetParent(d) end
+	h:ClearAllPoints()
+	h:SetAllPoints(d)
+	local cur = self:CallPage()
+	local pages = self:KnownTotemSetPages()
+	-- how it opens: as the totem buttons' flyouts, and the click that would cast Totemic Recall
+	h:SetAttribute("OpenMenu", self:FlyoutOpensOnRightClick() and "click" or "mouseover")
+	h:SetAttribute("spOpener", d.spClickFlipped and "LeftButton" or "RightButton")
+	-- which way: the totem flyouts' way
+	h:SetAttribute("flyoutButtonSize", self:TotemFlyoutButtonSize())
+	h:SetAttribute("flyoutSpacing", 0)
+	h:SetAttribute("flyoutIsHorizontal", not self:IsTotemBarHorizontal())
+	h:SetAttribute("isVerticalLeft", (self.opt.layout == "VerticalLeft") and not self:CompactActive())
+	h:SetAttribute("flyoutGoesBelow", self:FlyoutGoesBelow(d))
+	-- what the router sets
+	h:SetAttribute("spPage", cur)
+	h:SetFrameRef("dropall", d)
+	local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player] or {}
+	for page = 1, 3 do
+		h:SetAttribute("call" .. page, pages[page] or pages[1])
+		local idx
+		if page == cur then
+			idx = {}
+			for element = 1, 4 do idx[element] = a[element] or 0 end
+		else
+			idx = pageIndexes(page) or CALL.sets[page]
+		end
+		CALL.sets[page] = idx
+		for element = 1, 4 do
+			local name = idx and castNameFor(element, idx[element]) or ""
+			h:SetAttribute("p" .. page .. "e" .. element, name)
+		end
+	end
+	for element = 1, 4 do
+		local tb = self.totemButtons and self.totemButtons[element]
+		if tb then h:SetFrameRef("tb" .. element, tb) end
+		h:SetAttribute("keep" .. element, excludedElement(self, element) or nil)
+	end
+	-- the flyout pick helpers (SPFM): each one's Call of the Elements slot; the router adds 4 per Call
+	local n = 0
+	local syncOff = self.opt.totemSetsSyncAssignments == false
+	for element = 1, 4 do
+		local flyout = self.totemFlyouts and self.totemFlyouts[element]
+		for _, fb in ipairs(flyout and flyout.allButtons or {}) do
+			local m = _G["SPFM" .. element .. "_" .. tostring(fb.totemIndex)]
+			if m then
+				n = n + 1
+				local base = setActionSlot(1, element)
+				local spell
+				if fb.totemIndex == 0 then
+					spell = 0
+				else
+					local id = self:GetTotemSpell(element, fb.totemIndex)
+					spell = id and resolveInSlot(allowedInSlot(element), id)
+				end
+				m:SetAttribute("spBase", base)
+				m:SetAttribute("spNever", (excludedElement(self, element) or not base or spell == nil) or nil)
+				m:SetAttribute("spPage1Off", syncOff or nil)
+				h:SetFrameRef("spfm" .. n, m)
+			end
+		end
+	end
+	h:SetAttribute("spfmN", n)
+	-- the Call buttons: the known ones, their icons and size, the one on Drop All left out
+	local size = self:TotemFlyoutButtonSize()
+	for page = 1, 3 do
+		local b = CALL.buttons[page]
+		b.spKnown = pages[page] and true or false
+		b:SetAttribute("mySpell", pages[page] or SUMMON[page])
+		b:SetSize(size, size)
+		if b.icon then b.icon:SetTexture(spellIcon(SUMMON[page]) or 136024) end
+	end
+	layout(h, cur)
+	wrap(d, h)
+end
+
+function CALL.queue()
+	if CALL.queued then return end
+	CALL.queued = true
+	C_Timer.After(0, function() if SP.opt then SP:RefreshCallFlyout() else CALL.queued = nil end end)
+end
+
+-- what else moves the flyout: how flyouts open, the click swap, their direction and size
+for _, name in ipairs({ "UpdateTotemFlyoutEnabled", "ApplyClickSwap", "SetupTotemFlyouts", "RefreshTotemBarHelpers" }) do
+	if type(SP[name]) == "function" then hooksecurefunc(SP, name, function() CALL.queue() end) end
+end
+
+-- A loadout linked to the Call the bar is on, changed in Loadouts: the bar takes it (not when the
+-- bar wrote it: CALL.write)
+hooksecurefunc(SP, "SyncBoundLoadout", function(self, index)
+	if CALL.writing or InCombatLockdown() then return end
+	local loadout = ShamanPower_TotemLoadouts and ShamanPower_TotemLoadouts[index]
+	local page = loadout and loadout.setPage
+	if not page or page ~= self:CallPage() or boundLoadout(page) ~= loadout then return end
+	local idx = {}
+	for element = 1, 4 do idx[element] = loadout[element] or 0 end
+	applyCallAssignments(self, idx)
+end)
+
+-- A loadout chosen while another Call is picked: loadouts are Call of the Elements' (a linked one
+-- owns its Call), so Elements comes back first and the loadout lands there, as always
+if type(SP.ApplyLoadout) == "function" then
+	local applyLoadout = SP.ApplyLoadout
+	SP.ApplyLoadout = function(self, ...)
+		if not InCombatLockdown() and self.CallPage and self:CallPage() ~= 1 then self:SelectCall(1) end
+		return applyLoadout(self, ...)
+	end
+end
+
+-- a fight's end: what changed in it (a pick, a Call) is set out again
+CALL.ev = CreateFrame("Frame")
+CALL.ev:RegisterEvent("PLAYER_REGEN_ENABLED")
+CALL.ev:SetScript("OnEvent", function()
+	if CALL.pending or (SP.CallFlyoutOn and SP:CallFlyoutOn()) then CALL.queue() end
+end)
+
+-- ---------------------------------------------------------------------------
 -- Drop All button: cast the sets instead of the castsequence
 -- ---------------------------------------------------------------------------
 
@@ -691,6 +1252,7 @@ function SP:UpdateDropAllButtonForTotemSets(btn)
 				for _, a in ipairs({ "type", "spell1", "shift-spell1", "ctrl-spell1", "alt-spell1", "spell2" }) do btn:SetAttribute(a, nil) end
 			end
 		end
+		CALL.queue()   -- (3.0.9.9) no Call flyout either
 		return false
 	end
 	local pages = self:KnownTotemSetPages()
@@ -702,7 +1264,7 @@ function SP:UpdateDropAllButtonForTotemSets(btn)
 		-- modifier and both mouse buttons (shift-type1 etc. are never set)
 		btn:SetAttribute("macrotext", nil)
 		btn:SetAttribute("type", "spell")
-		btn:SetAttribute("spell1", pages[1])
+		btn:SetAttribute("spell1", pages[self:CallPage()] or pages[1])   -- (3.0.9.9) the Call picked on its flyout
 		btn:SetAttribute("shift-spell1", pages[2] or pages[1])
 		btn:SetAttribute("ctrl-spell1", pages[3] or pages[1])
 		btn:SetAttribute("alt-spell1", pages[1])
@@ -710,7 +1272,8 @@ function SP:UpdateDropAllButtonForTotemSets(btn)
 		self.dropAllLastMacro = "totemsets"
 	end
 	local icon = btn.icon or _G["ShamanPowerAutoDropAllIcon"]
-	if icon then icon:SetTexture((self.DropAllOwnIcon and self:DropAllOwnIcon()) or spellIcon(pages[1]) or 136024) end
+	if icon then icon:SetTexture((self.DropAllOwnIcon and self:DropAllOwnIcon()) or spellIcon(pages[self:CallPage()] or pages[1]) or 136024) end
+	CALL.queue()   -- (3.0.9.9) the Call flyout follows
 	return true
 end
 
@@ -719,7 +1282,10 @@ function SP:DropAllTotemSetsTooltip(button)
 	local pages = self:KnownTotemSetPages()
 	GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
 	GameTooltip:AddLine("Drop All Totems", 1, 0.8, 0)
+	-- (3.0.9.9) a plain click casts the Call picked on Drop All's flyout; Alt-click is always Elements
+	local cp = self:CallPage()
 	local mods = { "Click", "Shift-click", "Ctrl-click" }
+	if cp ~= 1 then mods = { "Alt-click", cp == 2 and "Click, Shift-click" or "Shift-click", cp == 3 and "Click, Ctrl-click" or "Ctrl-click" } end
 	for page = 1, 3 do
 		if pages[page] then
 			GameTooltip:AddLine(" ", 1, 1, 1)
@@ -732,7 +1298,15 @@ function SP:DropAllTotemSetsTooltip(button)
 		end
 	end
 	GameTooltip:AddLine(" ", 1, 1, 1)
-	if known(RECALL) then GameTooltip:AddLine("|cff00ccffRight-click:|r " .. (spellName(RECALL) or "Totemic Recall"), 1, 1, 1) end
+	local callFlyout = self:CallFlyoutOn()
+	local clickOpens = callFlyout and self:FlyoutOpensOnRightClick()
+	if clickOpens then
+		GameTooltip:AddLine("|cff00ccffRight-click:|r Pick another Call", 1, 1, 1)
+	elseif known(RECALL) then
+		GameTooltip:AddLine("|cff00ccffRight-click:|r " .. (spellName(RECALL) or "Totemic Recall"), 1, 1, 1)
+	end
+	if callFlyout and not clickOpens then GameTooltip:AddLine("Hover to pick another Call", 0.5, 0.5, 0.5) end
+	if callFlyout then GameTooltip:AddLine("Your totems follow the Call you pick", 0.5, 0.5, 0.5) end
 	if self.opt.totemSetsSyncAssignments ~= false then
 		GameTooltip:AddLine(pageName(1) .. " follows your assignments", 0.5, 0.5, 0.5)
 	end

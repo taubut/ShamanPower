@@ -81,8 +81,8 @@ setStacks(5)
 check("Only At 5 Stacks: 5 stacks shown", f:IsShown())
 SP:ReadyReminderSetIconOpt("maelstrom", "stackShow", nil)
 
--- each look: the game's parts (main; From N; Exactly N; the Effect's glow)
-local want = { number = 2, bar = 3, baronly = 7, wings = 7, fill = 2, iconfill = 2, storm = 6 }
+-- each look: the game's parts (main; From N; Exactly N; the Effect's glow; 3.0.9.9: + the sound's part At 5 Stacks)
+local want = { number = 3, bar = 4, baronly = 8, wings = 8, fill = 3, iconfill = 3, storm = 7 }
 for _, look in ipairs({ "number", "bar", "baronly", "wings", "fill", "iconfill", "storm" }) do
 	SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", look)
 	setStacks(2)
@@ -96,10 +96,10 @@ SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", "storm")
 SP:ReadyReminderSetIconOpt("maelstrom", "stackLeft", "drain")
 SP:ReadyReminderSetIconOpt("maelstrom", "stackNumber", true)
 setStacks(2)
-checkEq("storm + drain + number: the same parts", tonumber(SP.ReadyStacks.Diag(f):match("containers=(%d+)")), 6)
+checkEq("storm + drain + number: the same parts", tonumber(SP.ReadyStacks.Diag(f):match("containers=(%d+)")), 7)
 SP:ReadyReminderSetIconOpt("maelstrom", "readyEffect", "both")
 setStacks(2)
-checkEq("Effect Glow + Pulse: one part more", tonumber(SP.ReadyStacks.Diag(f):match("containers=(%d+)")), 7)
+checkEq("Effect Glow + Pulse: one part more", tonumber(SP.ReadyStacks.Diag(f):match("containers=(%d+)")), 8)
 
 -- Wings / Fill: three icons wide, a spot of its own (never in the grid)
 SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", "wings")
