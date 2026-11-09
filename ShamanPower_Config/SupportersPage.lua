@@ -17,6 +17,7 @@ ns.SUPPORTERS = {
 	earthenRing = {},
 	supporters = {
 		"Afren",
+		"Bobjee",
 		"Zegma",
 	},
 }

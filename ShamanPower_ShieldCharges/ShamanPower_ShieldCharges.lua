@@ -86,7 +86,22 @@ local function makeShieldFrame(which)
 	end)
 	frame:SetScript("OnDragStop", function(self)
 		self:StopMovingOrSizing()
-		local _, _, _, fx, fy = self:GetPoint()
+		local point, rel, relPoint, fx, fy = self:GetPoint()
+		-- (3.0.9.10) a drag by hand: the game then anchors the frame to the screen corner or edge it is
+		-- nearest, not by its center, and those offsets read as center offsets threw the shield away on
+		-- the next load (a support ticket: Lightning Shield saved off the left edge of the screen). The
+		-- spot is measured from the frame's own center then, in its own scale. (Unlock UI's drop keeps the
+		-- center anchor: its offsets are read as they are, never a rect just set.)
+		if not (point == "CENTER" and relPoint == "CENTER" and (rel == nil or rel == UIParent)) then
+			local cx, cy = self:GetCenter()
+			local ux, uy = UIParent:GetCenter()
+			local fs, us = self:GetEffectiveScale(), UIParent:GetEffectiveScale()
+			if not (cx and cy and ux and uy and fs and fs > 0) then return end
+			local k = us / fs
+			fx, fy = cx - ux * k, cy - uy * k
+			self:ClearAllPoints()
+			self:SetPoint("CENTER", UIParent, "CENTER", fx, fy)
+		end
 		if SP.SetShieldSpot then SP:SetShieldSpot(self.spWhich, fx, fy) end
 	end)
 
@@ -653,6 +668,11 @@ function SP:ResetShieldSpot(which)
 		f:ClearAllPoints(); f:SetPoint("CENTER", UIParent, "CENTER", x, y)
 		f.spSpotX, f.spSpotY = x, y
 	end
+end
+-- (3.0.9.10) has this shield a spot of its own (moved off its starting one)? Reset This Shield Display puts it back
+function SP:ShieldSpotMoved(which)
+	local s, k = self.opt and self.opt.shieldChargeDisplay, KEY[which]
+	return s ~= nil and k ~= nil and (s[k.x] ~= nil or s[k.y] ~= nil)
 end
 function SP:ShieldChargeFrameOf(which)
 	local d = FRAME_DEF[which]

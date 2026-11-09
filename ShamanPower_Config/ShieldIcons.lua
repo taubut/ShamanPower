@@ -695,12 +695,18 @@ local function MenuItems(item)
 		o[#o + 1] = { text = "All Shields", onClick = function() CopyTo(s, "all"); Row:Changed(false) end }
 		return o
 	end }
-	local hasOwn = SP.ShieldOwnChanged and SP:ShieldOwnChanged(s)
+	-- (3.0.9.10) its spot on your screen too: a shield moved off the screen comes back with this (a support ticket)
+	local which = WHICH_OF[s]
+	local moved = which and SP.ShieldSpotMoved and SP:ShieldSpotMoved(which)
+	local hasOwn = (SP.ShieldOwnChanged and SP:ShieldOwnChanged(s)) or moved
 	r[#r + 1] = { text = "Reset This Shield Display", disabled = (not hasOwn) or nil,
-		tip = hasOwn and "Every setting of this shield back to its default. The other shields stay as they are."
+		tip = hasOwn and "Every setting of this shield back to its default, and the shield back on its starting spot on your"
+			.. " screen. The other shields stay as they are."
 			or "Nothing to reset: this shield is at its defaults.",
 		onClick = function()
-			if SP.ResetShield then SP:ResetShield(s); Changed(s) end
+			if SP.ResetShield then SP:ResetShield(s) end
+			if moved and SP.ResetShieldSpot then SP:ResetShieldSpot(which) end
+			Changed(s)
 			Row:Changed(false)
 		end }
 	-- its test
@@ -759,6 +765,7 @@ Row = ns.IconRow.New({
 })
 ns.CustomRows.shieldIcons = Row
 ns.ShieldRow = Row
+SP.ShieldIconsRow = Row   -- (the sp-ci tests open a shield's menu through it)
 
 -- ---------------------------------------------------------------------------
 -- What You See (A17c): each shield's real display in a box of its own, drawn by the

@@ -1,5 +1,17 @@
 # ShamanPower Changelog
 
+## v3.0.9.10 (in progress)
+
+### Changes
+- **Shield Charges:** Reset This Shield Display also puts the shield back on its starting spot, so a shield that ended up off your screen comes back.
+- **Supporters:** Bobjee joins the list.
+
+### Fixes
+- **Shield Charges:** a shield you dragged by hand on your screen (with Prevent Dragging and Let Clicks Through off) could jump somewhere else after a /reload, even off the edge of the screen. It stays where you drop it now.
+
+### Thanks
+- Thanks to LateNate for the report and the support code that showed it.
+
 ## v3.0.9.9 (2026-11-09)
 
 ### New

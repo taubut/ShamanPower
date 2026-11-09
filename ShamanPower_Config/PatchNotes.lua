@@ -9,6 +9,18 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.10",
+		date = "in progress",
+		changes = {
+			"Shield Charges: Reset This Shield Display also puts the shield back on its starting spot, so a shield that ended up off your screen comes back.",
+			"Supporters: Bobjee joins the list.",
+		},
+		fixes = {
+			"Shield Charges: a shield you dragged by hand on your screen could jump somewhere else after a /reload, even off the screen. It stays where you drop it now.",
+		},
+		thanks = "Thanks to LateNate for the report and the support code that showed it.",
+	},
+	{
 		v = "3.0.9.9",
 		date = "2026-11-09",
 		headline = "Pick a Call from Drop All, racials, and a Minimap Totems page",
