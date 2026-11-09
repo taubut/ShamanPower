@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.10 (in progress)
+## v3.0.9.10 (2026-11-09)
 
 ### Changes
 - **Shield Charges:** Reset This Shield Display also puts the shield back on its starting spot, so a shield that ended up off your screen comes back.

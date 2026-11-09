@@ -10,7 +10,8 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.10",
-		date = "in progress",
+		date = "2026-11-09",
+		headline = "Shield Charges: a shield you drag stays where you drop it",
 		changes = {
 			"Shield Charges: Reset This Shield Display also puts the shield back on its starting spot, so a shield that ended up off your screen comes back.",
 			"Supporters: Bobjee joins the list.",

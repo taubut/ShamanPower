@@ -1,5 +1,5 @@
 -- client: both
--- What's New for 3.0.9.9: a player updating from 3.0.9.8 gets the card at login, with 3.0.9.9 and its card
+-- What's New for 3.0.9.9: a player updating from 3.0.9.8 gets the card at login, with 3.0.9.9's card
 -- items: Racials, Click Through, Shield Sound Volume and the loadouts' Drop Order on both games; the Call flyout and
 -- the Minimap Totems page on WoW: Forever's card only (Anniversary has neither).
 local SP = ShamanPower
@@ -18,7 +18,8 @@ SP.db.global.lastSeenVersion = "3.0.9.8"
 SP:ShowWhatsNew()
 __sim.advance(0.3)
 check("from 3.0.9.8 at login: the card", __sim.frameWithText("What's new") ~= nil)
-check("3.0.9.9 on it", __sim.frameWithText("ShamanPower 3.0.9.9") ~= nil)
+-- (headed by the running version: 3.0.9.9 itself, or a newer one with 3.0.9.9's items under Also New In 3.0)
+check("headed by the running version", __sim.frameWithText("ShamanPower " .. GetAddOnMetadata("ShamanPower", "Version")) ~= nil)
 for _, h in ipairs({ "Racials in Ready Reminders", "Click Through for Ready Reminders and Totem Coverage",
 	"Shield Sound Volume", "Loadouts Keep Their Drop Order" }) do
 	check(h, __sim.frameWithText(h) ~= nil)
