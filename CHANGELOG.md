@@ -1,5 +1,17 @@
 # ShamanPower Changelog
 
+## v3.0.9.11 (2026-11-11)
+
+### Changes
+- **Reactive Totems (WoW: Forever):** the page now explains that WoW: Forever hides what kind of crowd control is on you, so the Fear alert shows whenever you lose control of your character, for stuns, sheep and other crowd control too. On TBC Anniversary it still shows for fear, charm and sleep only.
+
+### Fixes
+- **Totem Bar (WoW: Forever):** in Compact style, your totem lines showed the totem's picture stretched across them in fights. They keep their normal look now.
+- **Loadouts:** the Loadout button moved off its spot after a /reload or login when Loadout Bar Scale wasn't 100%. It stays where you put it now.
+
+### Thanks
+- Thanks to Endorian for the report.
+
 ## v3.0.9.10 (2026-11-09)
 
 ### Changes

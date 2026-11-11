@@ -9,6 +9,19 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.11",
+		date = "2026-11-11",
+		headline = "Compact totem lines keep their look in fights",
+		changes = {
+			"Reactive Totems (WoW: Forever): the page now explains that WoW: Forever hides what kind of crowd control is on you, so the Fear alert shows for stuns, sheep and other crowd control too.",
+		},
+		fixes = {
+			"Totem Bar (WoW: Forever): in Compact style, your totem lines showed the totem's picture stretched across them in fights. They keep their normal look now.",
+			"Loadouts: the Loadout button moved off its spot after a /reload when Loadout Bar Scale wasn't 100%. It stays where you put it now.",
+		},
+		thanks = "Thanks to Endorian for the report.",
+	},
+	{
 		v = "3.0.9.10",
 		date = "2026-11-09",
 		headline = "Shield Charges: a shield you drag stays where you drop it",
