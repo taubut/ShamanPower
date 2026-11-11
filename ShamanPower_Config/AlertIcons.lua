@@ -600,6 +600,12 @@ end
 -- ===========================================================================
 local RT_CAPTION = "|cff3FA9F5CLICK|r an alert to turn it on or off. |cff3FA9F5RIGHT-CLICK|r it for its settings:"
 	.. " each alert has its own. |cff3FA9F5Dark|r: its totem isn't learned yet (you can still set it up)."
+-- WoW: Forever hides what kind of crowd control is on you (players kept reporting the Fear alert on roots and stuns)
+if FOREVER then
+	RT_CAPTION = RT_CAPTION .. "\n\n|cffffa040WoW: Forever hides what kind of crowd control is on you, so the Fear alert"
+		.. " can't tell a fear from a stun, a sheep or other crowd control: it shows whenever you lose full control of"
+		.. " your character. Tremor Totem only breaks fear, charm and sleep. On TBC Anniversary it shows for those alone.|r"
+end
 local RT_NOT_LOADED = "Reactive Totems is not loaded: turn on ShamanPower [Reactive Totems] in the AddOns list, then type /reload."
 local RT_COMBAT = "|cff0070ddShamanPower|r: |cffe64a4aReactive Totems' settings can't change in combat - try again after the fight.|r"
 -- a change in a fight: refused, and said (the module's setters refuse it too; the row's lock closes

@@ -10791,7 +10791,9 @@ function ShamanPower:UpdatePlayerTotemRange()
 		local engineIdx, engineHost
 		if blindNow and haveTotem and buffNames[element] and self.OwnRangeEngineFor then
 			local host = (updateOverlayIcon and activeOverlay and activeOverlay.frame) or totemBtn
-			if self:OwnRangeEngineFor(element, host) and self:TotemRangeGrays(element) then
+			-- (a player's report, 11-11) a Compact line has no icon: the game stretched the totem's picture over the line
+			if host == totemBtn and totemBtn and totemBtn.compactLayoutOn then host = nil end
+			if host and self:OwnRangeEngineFor(element, host) and self:TotemRangeGrays(element) then
 				local _, idx = self:GetActiveTotemBuffName(element)
 				if idx then engineIdx, engineHost = idx, host end
 			end
@@ -23015,7 +23017,10 @@ function ShamanPower:CreateLoadoutBar()
 	self.loadoutButtons = {}
 	for i = 1, 8 do self:NewLoadoutSetButton(i) end
 
-	-- Restore position
+	-- Restore position, at the Loadout Bar Scale: the spot is applied in the button's own scale,
+	-- so setting the scale afterwards (UpdateLoadoutBar did) moved it off its spot at every login
+	anchor:SetScale(self.opt.loadoutBarScale or 1.0)
+	anchor._scaleApplied = true
 	self:RestoreLoadoutBarPosition()
 end
 
