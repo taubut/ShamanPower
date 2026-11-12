@@ -45,7 +45,8 @@ local COTE = 66842          -- Call of the Elements: the Drop All button's icon 
 local GENERIC_DROPALL = 136024
 
 local BTN_CAPTION = "|cff3FA9F5CLICK|r a button to show or hide it on the bar. |cff3FA9F5RIGHT-CLICK|r it for its settings."
-	.. " |cff3FA9F5DRAG|r an element to move it on the bar. |cff3FA9F5Dark|r: not learned yet."
+	.. " |cff3FA9F5DRAG|r an element to move it on the bar. |cff3FA9F5MOUSE WHEEL|r over an element to change its totem."
+	.. " |cff3FA9F5Dark|r: not learned yet."
 local BTN_CAPTION_NATIVE = "|cff3FA9F5RIGHT-CLICK|r Drop All for its drop order and Blizzard Totem Sets. You use Blizzard's"
 	.. " Totem Bar (Totem Bar > Style), so its own buttons are on screen instead of ShamanPower's."
 local TOT_CAPTION = "|cff3FA9F5CLICK|r a totem to show or hide it in its flyout. |cff3FA9F5RIGHT-CLICK|r it for its settings."
@@ -152,6 +153,34 @@ end
 local function AssignedEmpty(e)
 	local idx = SP.AssignedIndex and SP:AssignedIndex(e) or 0
 	return not idx or idx == 0
+end
+
+-- (the owner, 11-12) what this page lists or steps through for an element: only the totems you have learned
+-- (never Empty, never one you don't have)
+local function LearnedTotems(e)
+	local out = {}
+	for i = 1, (SP.GetTotemIndexLimit and SP:GetTotemIndexLimit(e) or 0) do
+		if (not SP.TotemExistsOnClient or SP:TotemExistsOnClient(e, i)) and (not SP.KnowsTotem or SP:KnowsTotem(e, i)) then
+			out[#out + 1] = i
+		end
+	end
+	return out
+end
+-- (the owner, 11-12) the mouse wheel steps through Empty too while Show Empty Choice in Flyouts is on (WoW:
+-- Forever, where that setting is); first, as in the flyouts
+local function WheelTotems(e)
+	local out = LearnedTotems(e)
+	if SPCompat and SPCompat.FOREVER and O().flyoutShowEmpty ~= false then table.insert(out, 1, 0) end
+	return out
+end
+-- the next learned totem (delta < 0) or the one before; from one not in the list: the first or the last
+local function StepTotem(list, cur, delta)
+	if #list == 0 then return nil end
+	local at = delta < 0 and 0 or #list + 1
+	for i, idx in ipairs(list) do if idx == cur then at = i break end end
+	at = at + (delta < 0 and 1 or -1)
+	if at > #list then at = 1 elseif at < 1 then at = #list end
+	return list[at]
 end
 
 -- Drop All: an element's place among the elements it drops (nil: Not Dropped)
@@ -1267,7 +1296,24 @@ end
 
 BtnRow = ns.IconRow.New({
 	caption = function() return Native() and BTN_CAPTION_NATIVE or BTN_CAPTION end,
-	hint = "Click: show or hide it on the bar\nRight-click: its settings\nDrag an element: its place on the bar",
+	hint = "Click: show or hide it on the bar\nRight-click: its settings\nDrag an element: its place on the bar"
+		.. "\nMouse wheel over an element: its totem",
+	-- (the owner, 11-12) the mouse wheel over an element: its next totem (down) or the one before (up), as the
+	-- Totem Assignments window's cells do, through the same calls (PerformCycle). IconRow waits for the pointer
+	-- to rest on the icon first, so a page scroll passing over the row never changes a totem
+	wheel = function(item, delta)
+		local e = item.key
+		if type(e) ~= "number" or e < 1 or e > 4 or Native() then return false end
+		if InCombatLockdown() then
+			if UIErrorsFrame then UIErrorsFrame:AddMessage("Can't change assignments in combat", 1, 0.25, 0.25) end
+			return true
+		end
+		-- (only the totems you have learned; never Empty)
+		local cur = SP.AssignedIndex and SP:AssignedIndex(e) or 0
+		local nxt = StepTotem(WheelTotems(e), cur, delta)
+		if nxt and nxt ~= cur then SP:ApplyAssignment(e, nxt) end
+		return true
+	end,
 	list = function(out)
 		if not Native() then
 			for _, e in ipairs(BarOrder()) do out[#out + 1] = { key = e, name = ELEM[e] } end
@@ -1430,6 +1476,296 @@ TotRow = ns.IconRow.New({
 	locked = function() return InCombatLockdown() end,
 	onLocked = LockedSay,
 })
+
+-- ---------------------------------------------------------------------------
+-- (3.0.9.12, A98) WoW: Forever: the Buttons row as three lines, one per Call (Elements, Ancestors,
+-- Spirits). Each starts with its Call's icon (click: your bar goes on it; the green line: the one it is
+-- on), then that Call's four totems: click one to pick another in a short list, or the mouse wheel for the
+-- next one / the one before. Drop All (and Totemic Recall when it is here) stay at the end of the Elements
+-- line. The Call your bar is on holds your assignments, so its four totems are today's buttons (their
+-- menus, Show / Hide This Icon, the drag that orders the bar); the other two hold what the game's Call
+-- holds (or its linked loadout), and a Call not learned yet keeps what is picked for it until it is
+-- (ShamanPowerTotemSets.lua: CallTotems, SetCallTotem). Anniversary, Blizzard's Totem Bar style, or a
+-- character with no totem bar yet: the row exactly as before. The fields that make the lines (group,
+-- its label and gap, the hint) are set when the row lists its items, so the plain row never has them.
+-- ---------------------------------------------------------------------------
+local Calls = {
+	SUMMON = { 66842, 66843, 66844 },
+	LABEL = { "Elements", "Ancestors", "Spirits" },
+	LEVEL = { [2] = 30, [3] = 40 },
+}
+function Calls.On() return SetsBar() and not Native() and SP.CallTotems ~= nil end
+function Calls.Known(c)
+	if c == 1 then return SetsKnown() end
+	local k = SP.KnownTotemSetPages and SP:KnownTotemSetPages()
+	return (k and k[c]) and true or false
+end
+function Calls.Name(c) return (GetSpellInfo(Calls.SUMMON[c])) or ("Call of the " .. Calls.LABEL[c]) end
+function Calls.Totems(c)
+	local t, early = SP:CallTotems(c)
+	return t or {}, early
+end
+function Calls.Bar(c) return SP.CallPage and SP:CallPage() == c end
+-- your bar can be on another Call only while Call Flyout on Drop All is on (and Drop All casts the Calls):
+-- without it the bar goes back to Elements at once (ShamanPowerTotemSets.lua RefreshCallFlyout)
+function Calls.CanSwitch() return O().dropAllCallFlyout == true and O().dropAllUsesTotemSets ~= false end
+function Calls.Set(c, e, idx)
+	if InCombatLockdown() then
+		if UIErrorsFrame then UIErrorsFrame:AddMessage("Can't change totems in combat", 1, 0.25, 0.25) end
+		return
+	end
+	if not SP:SetCallTotem(c, e, idx) then
+		Say(Calls.Name(c) .. " can't take that totem yet: learn it first.")
+	end
+	BtnRow:Changed(false)
+end
+-- the totems a line's mouse wheel steps through: the ones you have learned, and Empty first while Show Empty
+-- Choice in Flyouts is on (WheelTotems)
+function Calls.Choices(c, e)
+	return WheelTotems(e)
+end
+function Calls.Picker(item)
+	local c, e = item.call, item.e
+	local cur = Calls.Index(item)
+	local r = { { text = Calls.Name(c), label = true } }
+	for _, i in ipairs(LearnedTotems(e)) do
+		r[#r + 1] = { text = SP:GetTotemName(e, i), icon = SP.GetTotemIcon and SP:GetTotemIcon(e, i), selected = cur == i,
+			onClick = function() Calls.Set(c, e, i) end }
+	end
+	return r
+end
+-- the totem a line shows for an element: what that Call's slot holds (the Call your bar is on: your
+-- assignments). Only Drop All's own icon decides what is dropped; a slot takes any totem
+function Calls.Index(item)
+	-- (a line is always its own Call's totems, also in the moment after a Call click when your bar is on the
+	-- new Call and the page hasn't moved your buttons yet: the Call your bar is on holds your assignments)
+	local e = item.e or item.key
+	if not item.call then return SP.AssignedIndex and SP:AssignedIndex(e) or 0 end
+	return Calls.Totems(item.call)[e] or 0
+end
+-- nothing there (a slot the game's Call holds empty): on WoW: Forever the bar's own empty-totem art, the faded
+-- totem of Blizzard's totem bar in the element's color (ShowEmptySlotArt); the Classic line keeps its look
+function Calls.EmptyArt(e)
+	local art = SPCompat and SPCompat.FOREVER and SP.FlyoutArrowArt
+	local c = art and art.empty and art.empty[e]
+	if c then return art.texture, c end
+	return SP.ElementIcons and SP.ElementIcons[e] or 134400, nil
+end
+function Calls.Icon(item)
+	local idx = Calls.Index(item)
+	if idx > 0 and SP.GetTotemIcon then return SP:GetTotemIcon(item.e, idx) end
+	return (Calls.EmptyArt(item.e))
+end
+local CALLS_CAPTION = "|cff3FA9F5CLICK|r a totem to pick another for its Call, or a Call to put your bar on it (the green"
+	.. " line: the one it is on). |cff3FA9F5MOUSE WHEEL|r over a totem: the next one. |cff3FA9F5RIGHT-CLICK|r for"
+	.. " settings. |cff3FA9F5DRAG|r a totem of your bar's Call to move it on the bar. |cff3FA9F5Dark|r: not learned"
+	.. " yet (you can set it up now)."
+local CALLS_HINT = "Click a totem: pick another\nClick a Call: your bar goes on it\nMouse wheel over a totem: the next one"
+	.. "\nRight-click: its settings"
+do
+	local def = BtnRow.def
+	local plainHint = def.hint
+	local base = {}
+	for _, k in ipairs({ "list", "textures", "shown", "learned", "hasOwn", "tooltip", "toggle", "menu", "move",
+		"movable", "under", "menuElement", "wheel", "caption" }) do base[k] = def[k] end
+	local function Group(item) return item.call end
+	local function GroupLabel(holder, key)
+		if not holder.text then
+			holder.text = holder:CreateFontString(nil, "OVERLAY")
+			holder.text:SetFontObject(Core.fonts.section)
+			holder.text:SetPoint("LEFT", holder, "LEFT", 0, 0)
+			holder.text:SetJustifyH("LEFT")
+		end
+		holder.text:SetText(strupper(Calls.LABEL[key] or ""))
+		holder.text:SetTextColor(Core:Color("text"))
+	end
+	local function Mark(item) return item.isCall and Calls.Bar(item.call) or false end
+	def.list = function(out)
+		if not Calls.On() then
+			def.group, def.groupLabel, def.groupLabelWidth, def.groupGap, def.mark, def.hint = nil, nil, nil, nil, nil, plainHint
+			return base.list(out)
+		end
+		def.group, def.groupLabel, def.groupLabelWidth, def.groupGap = Group, GroupLabel, 98, 10
+		def.mark, def.hint = Mark, CALLS_HINT
+		for c = 1, 3 do
+			out[#out + 1] = { key = "call" .. c, call = c, isCall = true, name = Calls.Name(c) }
+			for _, e in ipairs(BarOrder()) do
+				-- your bar's Call: today's buttons (key = the element); another Call: its own items
+				if Calls.Bar(c) then out[#out + 1] = { key = e, name = ELEM[e], call = c, e = e }
+				else out[#out + 1] = { key = "c" .. c .. "e" .. e, name = ELEM[e], call = c, e = e } end
+			end
+			-- (the owner, 11-12) Drop All and Totemic Recall sit at the end of the line your bar is on
+			if Calls.Bar(c) then
+				out[#out + 1] = { key = DROPALL, name = "Drop All", call = c }
+				if RecallHere() then out[#out + 1] = { key = RECALL, name = ns.CdbarRecall.name(), call = c } end
+			end
+		end
+	end
+	local function Other(item) return item.e and type(item.key) ~= "number" end   -- a totem of a Call your bar is not on
+	local function ElemOf(item)
+		if item.isCall then return nil end
+		if item.e then return item.e end
+		if type(item.key) == "number" and ELEM[item.key] then return item.key end
+	end
+	-- an element with nothing in it: the faded totem, never an element's spell icon (Seal of Fire reads as Fire Nova)
+	local function EmptyCoords(item)
+		local e = ElemOf(item)
+		if not e or Calls.Index(item) ~= 0 then return nil end
+		local _, c = Calls.EmptyArt(e)
+		return c
+	end
+	def.textures = function(item, out)
+		if item.isCall then out[1] = SpellTexture(Calls.SUMMON[item.call]) or 136024; return 1 end
+		if EmptyCoords(item) then out[1] = SP.FlyoutArrowArt.texture; return 1 end
+		if Calls.On() and item.call and item.e then out[1] = Calls.Icon(item); return 1 end
+		return base.textures(item, out)
+	end
+	def.texCoords = function(item, i)
+		local c = i == 1 and EmptyCoords(item)
+		if c then return c[1], c[2], c[3], c[4] end
+	end
+	def.shown = function(item)
+		if item.isCall or Other(item) then return true end
+		return base.shown(item)
+	end
+	def.learned = function(item)
+		if item.isCall then return Calls.Known(item.call) end
+		if Other(item) then
+			if not Calls.Known(item.call) then return false end
+			local idx = Calls.Totems(item.call)[item.e] or 0
+			return idx == 0 or not SP.KnowsTotem or SP:KnowsTotem(item.e, idx)
+		end
+		return base.learned(item)
+	end
+	def.hasOwn = function(item)
+		if item.isCall then return false end
+		if Other(item) then return base.hasOwn({ key = item.e }) end
+		return base.hasOwn(item)
+	end
+	def.tooltip = function(item)
+		if not Calls.On() then return base.tooltip(item) end
+		local c = item.call
+		if item.isCall then
+			if Calls.Bar(c) then return Calls.Name(c) .. ": your bar is on this Call. Its totems are your four buttons." end
+			if not Calls.Known(c) then
+				return Calls.Name(c) .. ": " .. (Calls.LEVEL[c] and ("you learn it at level " .. Calls.LEVEL[c] .. ".")
+					or "not learned yet.") .. " You can pick its totems now: they go into it when you learn it."
+			end
+			if not Calls.CanSwitch() then
+				return Calls.Name(c) .. ": its totems are this line. To put your bar on it, turn on Call Flyout on Drop All"
+					.. " (just under the Calls)."
+			end
+			return Calls.Name(c) .. ": click to put your bar on it. Your four buttons switch to its totems."
+		end
+		if Other(item) then
+			local totems, early = Calls.Totems(c)
+			local idx = totems[item.e] or 0
+			local t = Calls.Name(c) .. ", its " .. item.name .. " totem: "
+				.. ((idx > 0 and SP:GetTotemName(item.e, idx)) or "Empty") .. "."
+			if early then
+				t = t .. " It goes into the Call when you learn it" .. (Calls.LEVEL[c] and (" (level " .. Calls.LEVEL[c] .. ")") or "") .. "."
+			end
+			return t
+		end
+		local t = base.tooltip(item)
+		if item.e then t = (t or "") .. "\n\n" .. Calls.Name(c) .. " (your bar is on it): this button is its " .. item.name .. " totem." end
+		return t
+	end
+	def.toggle = function(item)
+		if not Calls.On() then return base.toggle(item) end
+		if item.isCall then
+			local c = item.call
+			if Calls.Bar(c) then return end
+			if not Calls.Known(c) then
+				Say(Calls.LEVEL[c] and ("You learn " .. Calls.Name(c) .. " at level " .. Calls.LEVEL[c] .. ".")
+					or ("You haven't learned " .. Calls.Name(c) .. " yet."))
+				return
+			end
+			if not Calls.CanSwitch() then
+				Say("Turn on Call Flyout on Drop All (just under the Calls) to put your bar on another Call.")
+				return
+			end
+			if not SP:SelectCall(c) then Say("The game can't say what " .. Calls.Name(c) .. " holds yet. Try again in a moment.") end
+			-- your four buttons move to that Call's line: the page lays the row out again
+			C_Timer.After(0, function()
+				if BtnRow:ListChanged() then
+					local cfg = _G.ShamanPowerConfig
+					if cfg and cfg.RefreshCurrent then cfg:RefreshCurrent() end
+				end
+			end)
+			return
+		end
+		if item.e then
+			if ns.ContextMenu:IsOpen() then ns.ContextMenu:Close() end   -- (first: closing one ends any picker)
+			BtnRow.picking = item.key
+			BtnRow:OpenMenu(item.key)
+			return
+		end
+		return base.toggle(item)
+	end
+	def.menu = function(item)
+		if Calls.On() and item.e and BtnRow.picking == item.key then return Calls.Picker(item) end
+		if item.isCall then
+			local c = item.call
+			if Calls.Bar(c) then return { { text = "Your Bar Is On This Call", disabled = true } } end
+			return { { text = "Put Your Bar On It", disabled = not (Calls.Known(c) and Calls.CanSwitch()),
+				onClick = function() def.toggle(item) end } }
+		end
+		if Other(item) then return base.menu({ key = item.e }) end
+		return base.menu(item)
+	end
+	def.menuElement = function(item)
+		if item.e then return EKEY[item.e] end
+		return base.menuElement and base.menuElement(item) or nil
+	end
+	def.under = function(item, out)
+		if item.isCall then return 0 end
+		if Other(item) then return base.under({ key = item.e }, out) end
+		return base.under(item, out)
+	end
+	def.wheel = function(item, delta)
+		if not (Calls.On() and item.e and item.call) then return base.wheel(item, delta) end
+		-- the line's own Call, always: the Call your bar is on now (not when the page was laid out) is your
+		-- buttons; any other Call, its own slot
+		if Calls.Bar(item.call) then return base.wheel({ key = item.e }, delta) end
+		if InCombatLockdown() then
+			if UIErrorsFrame then UIErrorsFrame:AddMessage("Can't change totems in combat", 1, 0.25, 0.25) end
+			return true
+		end
+		local cur = Calls.Totems(item.call)[item.e] or 0
+		local nxt = StepTotem(Calls.Choices(item.call, item.e), cur, delta)
+		if nxt and nxt ~= cur then SP:SetCallTotem(item.call, item.e, nxt) end
+		return true
+	end
+	-- a drag moves the bar's own totems along their line: the place on that line, not in the whole row
+	def.move = function(item, index)
+		if Calls.On() and item.call then
+			local first
+			for i, it in ipairs(BtnRow.list) do if it.call == item.call and it.e then first = i break end end
+			if first then index = index - first + 1 end
+		end
+		return base.move(item, index)
+	end
+	def.caption = function()
+		if Calls.On() then return CALLS_CAPTION end
+		return base.caption()
+	end
+	-- the picker is the row's menu on a left-click; any menu closing ends it (a right-click opens the settings)
+	hooksecurefunc(ns.ContextMenu, "Close", function() BtnRow.picking = nil end)
+	-- your bar put on another Call anywhere (Drop All's flyout, a key): your buttons move to its line here too
+	local function Relayout()
+		if not (BtnRow.list and BtnRow.byKey) then return end
+		local shown = false
+		for _, b in pairs(BtnRow.byKey) do if b.IsVisible and b:IsVisible() then shown = true break end end
+		if shown and BtnRow:ListChanged() then
+			local cfg = _G.ShamanPowerConfig
+			if cfg and cfg.RefreshCurrent then cfg:RefreshCurrent() end
+		end
+	end
+	for _, name in ipairs({ "SelectCall", "CallFlyoutPicked" }) do
+		if type(SP[name]) == "function" then hooksecurefunc(SP, name, function() C_Timer.After(0, Relayout) end) end
+	end
+end
 
 ns.CustomRows.tbButtons = BtnRow
 ns.CustomRows.tbTotems = TotRow

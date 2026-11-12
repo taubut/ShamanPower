@@ -16527,13 +16527,21 @@ function ShamanPower:SetupGCDSwipes()
 	end
 end
 
-function ShamanPower:TriggerGCDSwipe()
+function ShamanPower:TriggerGCDSwipe(spellID)
 	-- Get the current GCD from spell cooldown
 	local start, duration = GetSpellCooldown(2484)  -- Earthbind Totem as reference
 	if not start or start == 0 then
 		-- Fallback: standard 1.5 second GCD
 		start = GetTime()
 		duration = 1.5
+		-- (Rakii, 11-11) WoW: Forever hides these numbers in a fight, and its totems have a 1.0 s global
+		-- cooldown (its spell data): the swipe ran 1.5 s there. The cast spell's own, readable in fights
+		if SPCompat and SPCompat.FOREVER and spellID and GetSpellBaseCooldown then
+			local ok, _, gcdMS = pcall(GetSpellBaseCooldown, spellID)
+			if ok and type(gcdMS) == "number" and not (issecretvalue and issecretvalue(gcdMS)) and gcdMS > 0 then
+				duration = gcdMS / 1000
+			end
+		end
 	end
 
 	-- Only trigger if this is a fresh GCD (not a longer cooldown)
@@ -19368,7 +19376,7 @@ function ShamanPower:UNIT_SPELLCAST_SUCCEEDED(event, unitTarget, castGUID, spell
 	-- Trigger GCD swipe when player casts a totem (switched off: the bar is down)
 	if unitTarget == "player" and not self:IsOff() then
 		if self:TotemCastElement(spellID) or spellID == 36936 or spellID == 437009 or spellID == 425874 then
-			self:TriggerGCDSwipe()
+			self:TriggerGCDSwipe(spellID)
 			-- Dynamic Mode (and Grid): immediately update assignment when totem is cast
 			if self:DropSetsAssignment() then
 				-- Small delay to let GetTotemInfo update

@@ -5114,6 +5114,12 @@ end
 local function MaybeAutoOpen()
 	if not SP.opt then return end
 	if SP.opt.setupDone then return end
+	-- (the owner, 11-12) Call Flyout on Drop All starts on for a new install (WoW: Forever). Everyone who
+	-- already has the addon keeps what they have: an unset value reads as off, so the AceDB default stays off
+	if SPCompat and SPCompat.FOREVER and SP.opt.dropAllCallFlyout == nil and not LooksLikeExistingUser() then
+		SP.opt.dropAllCallFlyout = true
+		if not InCombatLockdown() and SP.UpdateDropAllButton then SP:UpdateDropAllButton() end
+	end
 	if SP.IsOff and SP:IsOff() then return end   -- switched off: offered at a login with it on
 	C_Timer.After(1.5, function()
 		if SP.opt.setupDone or (SP.IsOff and SP:IsOff()) then return end

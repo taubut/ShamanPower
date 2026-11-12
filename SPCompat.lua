@@ -330,20 +330,28 @@ do
 	local cache = { main = { has = false }, off = { has = false }, at = -REFRESH }
 	local secret = issecretvalue or function() return false end
 
+	-- (Endorian, 11-11) a weapon can hold an oil or a stone AND an imbue at once, and the list can
+	-- have the oil first: the bar then showed the oil's time, and its unknown enchant as Windfury.
+	-- The shaman imbue is the answer wherever it sits; with none, the first enchant, as before.
 	local function readHand(slotID, t)
 		t.has, t.expiresAt, t.charges, t.id = false, nil, nil, nil
 		if slotID == nil then return end
 		local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slotID)
 		if not ok or type(list) ~= "table" then return end
+		local imbues = ShamanPower and ShamanPower.EnchantIDToImbue
+		local pick
 		for _, e in pairs(list) do
 			if type(e) == "table" and e.hasEnchant == true then
-				t.has, t.charges, t.id = true, e.charges, e.enchantID
-				-- timeLeft is milliseconds, same unit the classic tuple used
-				if type(e.timeLeft) == "number" and not secret(e.timeLeft) then
-					t.expiresAt = GetTime() * 1000 + e.timeLeft
-				end
-				return
+				local id = e.enchantID
+				if imbues and type(id) == "number" and not secret(id) and imbues[id] then pick = e break end
+				pick = pick or e
 			end
+		end
+		if not pick then return end
+		t.has, t.charges, t.id = true, pick.charges, pick.enchantID
+		-- timeLeft is milliseconds, same unit the classic tuple used
+		if type(pick.timeLeft) == "number" and not secret(pick.timeLeft) then
+			t.expiresAt = GetTime() * 1000 + pick.timeLeft
 		end
 	end
 

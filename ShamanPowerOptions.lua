@@ -11818,9 +11818,30 @@ do
 			SP.SettingsPathAliases[old] = { "buttons", "auto_button" }
 		end
 	end
+	-- (3.0.9.9, A90) Call Flyout on Drop All (WoW: Forever; ShamanPowerTotemSets.lua). (3.0.9.12, A98) here, under the three
+	-- Call lines of the Buttons row, from Totem Bar > Clicks: the same switch and saved setting
+	bar.args.call_flyout = {
+		type = "toggle", width = "full",
+		name = "Call Flyout on Drop All",
+		desc = "Drop All opens a flyout of your other Calls, like the totem flyouts: on hover, or on right-click with Flyout"
+			.. " Requires Right-Click on (then a right-click on Drop All doesn't cast Totemic Recall). Pick a Call and Drop All"
+			.. " casts it from then on, and your four totems follow it: a totem you pick in an element's flyout becomes that"
+			.. " Call's totem. Call of the Elements stays as it is meanwhile. Works in fights too. Not with Blizzard-Style"
+			.. " Flyout Arrows. Change it out of combat.",
+		hidden = function() return not SPCompat.FOREVER end,
+		disabled = function()
+			return not (SP.HasTotemSets and SP:HasTotemSets()) or SP:FlyoutBoxMode() or not SP.opt.showTotemFlyouts
+				or SP.opt.dropAllUsesTotemSets == false
+		end,
+		get = function() return SP.opt.dropAllCallFlyout == true end,
+		set = function(_, value)
+			if InCombatLockdown() then print("|cff0070ddShamanPower:|r Call Flyout on Drop All changes out of combat.") return end
+			if SP.SetCallFlyout then SP:SetCallFlyout(value) end
+		end,
+	}
 	SP.OrderSettingsBands(bar, {
 		{ keys = { "auto_enable" } },
-		{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "totembar_hide_unlearned" } },
+		{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "call_flyout", "totembar_hide_unlearned" } },
 		{ header = "flyouts_header", name = "Totems in the Flyouts", keys = {
 			"show_totem_flyouts", "tb_flyouts_note", "tb_totems",
 		} },
@@ -12511,33 +12532,15 @@ do
 			SP:ApplyClickThrough()
 		end,
 	}
-	-- (3.0.9.9, A90) Call Flyout on Drop All (WoW: Forever; ShamanPowerTotemSets.lua)
-	settings.settings_totemClicks.args.call_flyout = {
-		type = "toggle", width = "full",
-		name = "Call Flyout on Drop All",
-		desc = "Drop All opens a flyout of your other Calls, like the totem flyouts: on hover, or on right-click with Flyout"
-			.. " Requires Right-Click on (then a right-click on Drop All doesn't cast Totemic Recall). Pick a Call and Drop All"
-			.. " casts it from then on, and your four totems follow it: a totem you pick in an element's flyout becomes that"
-			.. " Call's totem. Call of the Elements stays as it is meanwhile. Works in fights too. Not with Blizzard-Style"
-			.. " Flyout Arrows. Change it out of combat.",
-		hidden = function() return not SPCompat.FOREVER end,
-		disabled = function()
-			return not (SP.HasTotemSets and SP:HasTotemSets()) or SP:FlyoutBoxMode() or not SP.opt.showTotemFlyouts
-				or SP.opt.dropAllUsesTotemSets == false
-		end,
-		get = function() return SP.opt.dropAllCallFlyout == true end,
-		set = function(_, value)
-			if InCombatLockdown() then print("|cff0070ddShamanPower:|r Call Flyout on Drop All changes out of combat.") return end
-			if SP.SetCallFlyout then SP:SetCallFlyout(value) end
-		end,
-	}
+	-- (3.0.9.12, A98) Call Flyout on Drop All moved to Totem Bar > Bar (Buttons): old links land there
+	SP.SettingsPathAliases["settings/settings_totemClicks/call_flyout"] = { "buttons", "auto_button", "call_flyout" }
 	SP.OrderSettingsBands(settings.settings_totemClicks, {
 		{ keys = { "layout_desc" } },
 		{ header = "button_header", name = "Bar Buttons", keys = {
 			"click_through", "swap_all_clicks", "rightClickCastsAssigned", "rightClickDestroysTotem",
 		} },
 		{ header = "flyout_header", name = "Flyouts", keys = {
-			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "call_flyout", "flyout_arrow_only",
+			"swap_flyout_clicks", "flyout_requires_click", "shift_right_click_pulls_totem", "flyout_arrow_only",
 			"flyout_single_open", "flyout_close_on_cast", "flyout_route_bar_keys",
 		} },
 		{ header = "assign_window_header", name = "Assignment Window", keys = { "assign_right_click" } },

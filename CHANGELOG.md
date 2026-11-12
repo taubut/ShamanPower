@@ -1,5 +1,23 @@
 # ShamanPower Changelog
 
+## v3.0.9.12 (2026-11-12)
+
+### New
+- **All three Calls on the Totem Bar page (WoW: Forever):** Totem Bar > Bar shows Call of the Elements, Call of the Ancestors and Call of the Spirits, a line each with its four totems. Click a totem, or roll the mouse wheel over it, to change it for that Call. Click a Call to put your bar on it (Call Flyout on Drop All, right under the Calls, turns that on): your four totems switch to that Call's, and Drop All and Totemic Recall move to its line.
+- **Mouse wheel over a totem:** on Totem Bar > Bar, rest the pointer on a totem and roll the mouse wheel: down for the next one, up for the one before. Only totems you've learned. With Show Empty Choice in Flyouts on (WoW: Forever), Empty is in there too.
+
+### Changes
+- **Totem Bar (WoW: Forever):** Call Flyout on Drop All moved from the Clicks tab to the Bar tab, right under the Calls.
+- **Totem Bar (WoW: Forever):** Call Flyout on Drop All starts on for a new install. If you already use ShamanPower, yours stays as it is.
+
+### Fixes
+- **Cooldown Bar (WoW: Forever):** with an oil or a sharpening stone on the same weapon as your imbue, the imbue button showed the oil's time. It shows your imbue's now.
+- **Totem Bar (WoW: Forever):** the global cooldown swipe on your totem buttons ran 1.5 seconds in fights. Totems there have a 1 second global cooldown, and the swipe matches it now.
+- **Totem Range Tracker:** turned on by hand, it was off again after every logout or /reload. It stays on now.
+
+### Thanks
+- Thanks to Rakii and Endorian for the reports, and to a player on CurseForge for the Totem Range Tracker one.
+
 ## v3.0.9.11 (2026-11-11)
 
 ### Changes

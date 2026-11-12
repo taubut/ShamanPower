@@ -1609,6 +1609,10 @@ function SP:InitializeSPRange()
 	self:CreateSPRangeFrame()
 	self:SetupSPRangeUpdater()
 
+	-- (a CurseForge report, 11-12) turned on by hand, it stays on after a logout or /reload: the choice was
+	-- saved (ShamanPower_RangeTracker.shown) but nothing read it back, so it came up off every login
+	if ShamanPower_RangeTracker and ShamanPower_RangeTracker.shown == true then self.spRangeManuallyOpened = true end
+
 	-- Check if we should auto-show (in group with a shaman)
 	self:UpdateSPRangeVisibility()
 end

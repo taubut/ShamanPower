@@ -50,7 +50,8 @@ do
 			set = function(_, v) SP.opt.totemBarPadding = v; SP:UpdateRoster() end }
 		SP.OrderSettingsBands(bar, {
 			-- the pictures first, the switches under them (the owner, 2026-10-17: every icon page)
-			{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "totembar_hide_unlearned" } },
+			-- (3.0.9.12, A98) Call Flyout on Drop All under the three Call lines (WoW: Forever), from Totem Bar > Clicks
+			{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "call_flyout", "totembar_hide_unlearned" } },
 			{ header = "flyouts_header", name = "Totems in the Flyouts", keys = { "tb_totems", "show_totem_flyouts", "tb_flyouts_note" } },
 			{ keys = { "auto_enable" } },
 			{ header = "position_header", name = "Position & Size", keys = { "unlock_totem_bar", "tb_bar_size", "tb_bar_spacing" },

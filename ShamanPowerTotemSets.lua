@@ -737,6 +737,33 @@ local function excludedElement(self, element)
 	return (keys and self.opt[keys[element]]) and true or false
 end
 
+-- (3.0.9.12, the owner) Every Call has its own four totems, set on Totem Bar > Bar, and the bar takes all
+-- four with the Call. An element Drop All skips has its game slot kept empty (so the Call never drops it),
+-- so that Call's totem of it is kept here: db.char.callKept[page][element]. A Call not given one yet takes
+-- the bar's totem of that element the first time it is asked (nothing on screen changes; never Empty).
+local function keptTotem(self, page, element)
+	local c = self.db and self.db.char
+	if not c then return nil end
+	local k = c.callKept and c.callKept[page]
+	if k and k[element] ~= nil then return k[element] end   -- (0: Empty, picked with Show Empty Choice on)
+	local loadout = boundLoadout(page)
+	if loadout and (loadout[element] or 0) > 0 then return loadout[element] end
+	local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player]
+	local idx = a and a[element] or 0
+	if idx <= 0 then return nil end
+	c.callKept = c.callKept or {}
+	c.callKept[page] = c.callKept[page] or {}
+	c.callKept[page][element] = idx
+	return idx
+end
+local function setKept(self, page, element, idx)
+	local c = self.db and self.db.char
+	if not c or not idx or idx < 0 then return end
+	c.callKept = c.callKept or {}
+	c.callKept[page] = c.callKept[page] or {}
+	c.callKept[page][element] = idx
+end
+
 -- { [element] = totemIndex, 0 = empty } of a page as the game holds it; nil while unreadable. A
 -- spell our tables do not know leaves its element out (nil): that assignment stays as it is.
 local function pageIndexes(page)
@@ -785,12 +812,14 @@ end
 
 -- four assignments at once (an element left out keeps its own), then one refresh: one at a time,
 -- each refresh would write a half-switched bar into the Call
-local function applyCallAssignments(self, idx)
+local function applyCallAssignments(self, idx, emptyOK)
 	ShamanPower_Assignments[self.player] = ShamanPower_Assignments[self.player] or {}
 	local a = ShamanPower_Assignments[self.player]
 	local changed = {}
 	for element = 1, 4 do
-		if idx[element] ~= nil and not excludedElement(self, element) and (a[element] or 0) ~= idx[element] then
+		-- (3.0.9.12) an element Drop All skips takes its Call's own totem too (keptTotem), never an Empty
+		local skip = excludedElement(self, element) and (idx[element] or 0) == 0 and not (emptyOK and emptyOK[element])
+		if idx[element] ~= nil and not skip and (a[element] or 0) ~= idx[element] then
 			a[element] = idx[element]
 			changed[#changed + 1] = element
 		end
@@ -819,6 +848,17 @@ function SP:SelectCall(page)
 	if page == cur then CALL.queue() return true end
 	local target = pageIndexes(page)
 	if not target then return false end   -- (the game can't say yet: nothing changes)
+	-- (3.0.9.12) an element Drop All skips: the old Call keeps the bar's, the bar takes the new Call's
+	local held = ShamanPower_Assignments and ShamanPower_Assignments[self.player] or {}
+	local emptyOK = {}
+	for element = 1, 4 do
+		if excludedElement(self, element) then
+			local newIdx = keptTotem(self, page, element)
+			setKept(self, cur, element, held[element])
+			target[element] = newIdx
+			emptyOK[element] = newIdx == 0   -- (an Empty that Call was given on purpose)
+		end
+	end
 	self:SyncTotemSetFromAssignments()
 	if page == 1 then
 		self.db.char.callPage = nil
@@ -826,7 +866,7 @@ function SP:SelectCall(page)
 	else
 		self.db.char.callPage = page
 	end
-	if not applyCallAssignments(self, target) then self:UpdateDropAllButton() end
+	if not applyCallAssignments(self, target, emptyOK) then self:UpdateDropAllButton() end
 	if self.RefreshTotemBarHelpers then self:RefreshTotemBarHelpers() end
 	CALL.queue()
 	return true
@@ -841,6 +881,105 @@ function SP:SetCallFlyout(on)
 	return true
 end
 
+-- (3.0.9.12, A98) Totem Bar > Bar shows the three Calls, a line each, and sets their totems one at a time.
+-- The Call the bar is on holds the assignments (it is the bar); another Call holds what its set page holds
+-- in the game, or its linked loadout (which leads that page); a Call not learned yet keeps the totems picked
+-- for it early (db.char.callEarly[page]) and gets them the moment it is learned (ApplyEarlyCallPicks).
+-- { [element] = totem index, 0 = empty }; nil while the game can't say (a page not readable yet).
+-- Second return: true for a Call not learned yet (its picks wait).
+function SP:CallTotems(page)
+	local t = {}
+	if page == self:CallPage() then
+		local a = ShamanPower_Assignments and ShamanPower_Assignments[self.player] or {}
+		for element = 1, 4 do t[element] = a[element] or 0 end
+		return t
+	end
+	local function kept(tt)
+		if not tt then return tt end
+		for element = 1, 4 do
+			if excludedElement(self, element) then tt[element] = keptTotem(self, page, element) or tt[element] end
+		end
+		return tt
+	end
+	local loadout = boundLoadout(page)
+	if loadout then
+		for element = 1, 4 do t[element] = loadout[element] or 0 end
+		return kept(t)
+	end
+	if page ~= 1 and not self:KnownTotemSetPages()[page] then
+		local early = self.db and self.db.char and self.db.char.callEarly and self.db.char.callEarly[page]
+		for element = 1, 4 do t[element] = early and early[element] or 0 end
+		return kept(t), true
+	end
+	return kept(pageIndexes(page))
+end
+
+-- One totem of one Call (0: empty), out of a fight. False when nothing changed: in a fight, or the
+-- game's slot can't take it (a totem not learned yet).
+function SP:SetCallTotem(page, element, idx)
+	if InCombatLockdown() or not self:HasTotemBar() then return false end
+	idx = idx or 0
+	if page == self:CallPage() then return self:ApplyAssignment(element, idx) end
+	if excludedElement(self, element) then
+		-- (its game slot stays empty: the Call keeps it here, and the bar takes it with the Call)
+		if idx < 0 then return false end
+		setKept(self, page, element, idx)
+		return true
+	end
+	local loadout, index = boundLoadout(page)
+	if loadout then
+		loadout[element] = idx
+		refreshLoadouts()
+		self:SyncBoundLoadout(index)
+		return true
+	end
+	if page ~= 1 and not self:KnownTotemSetPages()[page] then
+		local c = self.db and self.db.char
+		if not c then return false end
+		c.callEarly = c.callEarly or {}
+		c.callEarly[page] = c.callEarly[page] or {}
+		c.callEarly[page][element] = idx
+		return true
+	end
+	local spell = idx > 0 and self:GetTotemSpell(element, idx) or false
+	local _, skipped, reason = self:WriteTotemSet(page, { [element] = spell })
+	return reason == nil and (skipped or 0) == 0
+end
+
+-- A Call learned (SPELLS_CHANGED): the totems picked for it early go into it, out of a fight (else the
+-- next SPELLS_CHANGED or the fight's end). A linked loadout takes them, as any pick for it does.
+function SP:ApplyEarlyCallPicks()
+	local c = self.db and self.db.char
+	local early = c and c.callEarly
+	if not early or InCombatLockdown() or not self:HasTotemBar() then return end
+	for page = 2, 3 do
+		local picks = early[page]
+		if picks and self:KnownTotemSetPages()[page] then
+			for element = 1, 4 do
+				if picks[element] ~= nil and excludedElement(self, element) then
+					setKept(self, page, element, picks[element])
+					picks[element] = nil
+				end
+			end
+			local loadout, index = boundLoadout(page)
+			if loadout then
+				for element = 1, 4 do if picks[element] ~= nil then loadout[element] = picks[element] end end
+				refreshLoadouts()
+				self:SyncBoundLoadout(index)
+			else
+				local spells = {}
+				for element = 1, 4 do
+					local idx = picks[element]
+					if idx ~= nil then spells[element] = idx > 0 and self:GetTotemSpell(element, idx) or false end
+				end
+				self:WriteTotemSet(page, spells)
+			end
+			early[page] = nil
+		end
+	end
+	if not next(early) then c.callEarly = nil end
+end
+
 -- A Call picked in a fight: the secure router did the casting side; here the icons and what
 -- waits for the fight's end (the old Call keeps what the bar has now, the new one's go pending)
 local function pickedInCombat(self, page)
@@ -849,6 +988,15 @@ local function pickedInCombat(self, page)
 	local now = {}
 	for element = 1, 4 do now[element] = self:AssignedIndex(element) end
 	CALL.sets[cur] = now
+	-- (3.0.9.12) an element Drop All skips: the old Call keeps the bar's; the new Call's goes on the bar when
+	-- the fight ends (its button keeps casting the one it has until then)
+	for element = 1, 4 do
+		if excludedElement(self, element) then
+			CALL.keptAfterFight = CALL.keptAfterFight or {}
+			setKept(self, cur, element, CALL.keptAfterFight[element] or now[element])
+			CALL.keptAfterFight[element] = keptTotem(self, page, element)
+		end
+	end
 	if page == 1 then self.db.char.callPage = nil else self.db.char.callPage = page end
 	local target = CALL.sets[page]
 	if target then
@@ -1464,6 +1612,15 @@ ef:SetScript("OnEvent", function(_, event, slot)
 	if not SP:HasTotemBar() then return end
 	if event == "PLAYER_REGEN_ENABLED" then
 		if not SP.opt or SP:IsOff() then return end   -- switched off: what waits is done on switch-on
+		local after = CALL.keptAfterFight
+		if after then
+			-- (3.0.9.12) a Call picked in the fight: its own totem of an element Drop All skips, now
+			CALL.keptAfterFight = nil
+			for element, idx in pairs(after) do
+				if idx and excludedElement(SP, element) then SP:ApplyAssignment(element, idx) end
+			end
+		end
+		SP:ApplyEarlyCallPicks()   -- (A98) a Call learned in the fight: its early picks now
 		local boundPending = false
 		for page = 2, 3 do
 			local state = boundPages[page]
@@ -1497,6 +1654,7 @@ ef:SetScript("OnEvent", function(_, event, slot)
 	elseif event == "SPELLS_CHANGED" then
 		if not SP.opt then return end
 		if SP.UpdateDropAllButton and (SP.dropAllTotemSetsActive or SP:HasTotemBar()) then SP:UpdateDropAllButton() end
+		SP:ApplyEarlyCallPicks()   -- (A98) a Call just learned: the totems picked for it early
 		QueueBoundRefresh()
 	end
 end)

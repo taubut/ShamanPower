@@ -682,6 +682,13 @@ function Core:HideTooltipFor(frame)
 	if tip:IsOwned(frame) then tip:Hide() end
 end
 
+-- Show it again with what it says now, if it is showing for this frame (what it describes changed
+-- under the mouse: an icon row's mouse wheel picked another totem)
+function Core:RefreshTooltipFor(frame)
+	local tip = self:Tooltip()
+	if tip:IsOwned(frame) then TipOnEnter(frame) end
+end
+
 -- ---------------------------------------------------------------------------
 -- Label clamping
 -- Long localized labels must not run under the control cluster on the right.

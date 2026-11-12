@@ -9,6 +9,31 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.12",
+		date = "2026-11-12",
+		headline = "Set up all three Calls on the Totem Bar page",
+		new = {
+			{ h = "All Three Calls on the Totem Bar Page", icon = 136053, client = "forever",
+			  b = "Totem Bar > Bar shows Call of the Elements, Call of the Ancestors and Call of the Spirits, a line each with its four totems. Click a totem, or roll the mouse wheel over it, to change it for that Call. Click a Call to put your bar on it (Call Flyout on Drop All, right under the Calls, turns that on): your four totems switch to that Call's, and Drop All and Totemic Recall move to its line.",
+			  path = "Settings > Bars > Totem Bar > Bar", open = { "buttons", "auto_button" },
+			  card = true, s = "All three Calls on the Totem Bar page: set every totem in one place." },
+			{ h = "Mouse Wheel Over a Totem", icon = "Interface\\Icons\\Spell_Nature_EarthBindTotem",
+			  b = "On Totem Bar > Bar, rest the pointer on a totem and roll the mouse wheel: down for the next one, up for the one before. Only totems you've learned. With Show Empty Choice in Flyouts on (WoW: Forever), Empty is in there too.",
+			  path = "Settings > Bars > Totem Bar > Bar", open = { "buttons", "auto_button" },
+			  card = true, s = "Roll the mouse wheel over a totem on the Totem Bar page to change it." },
+		},
+		changes = {
+			"Totem Bar (WoW: Forever): Call Flyout on Drop All moved from the Clicks tab to the Bar tab, right under the Calls.",
+			"Totem Bar (WoW: Forever): Call Flyout on Drop All starts on for a new install. If you already use ShamanPower, yours stays as it is.",
+		},
+		fixes = {
+			"Cooldown Bar (WoW: Forever): with an oil or a sharpening stone on the same weapon as your imbue, the imbue button showed the oil's time. It shows your imbue's now.",
+			"Totem Bar (WoW: Forever): the global cooldown swipe on your totem buttons ran 1.5 seconds in fights. Totems there have a 1 second global cooldown, and the swipe matches it now.",
+			"Totem Range Tracker: turned on by hand, it was off again after every logout or /reload. It stays on now.",
+		},
+		thanks = "Thanks to Rakii and Endorian for the reports, and to a player on CurseForge for the Totem Range Tracker one.",
+	},
+	{
 		v = "3.0.9.11",
 		date = "2026-11-11",
 		headline = "Compact totem lines keep their look in fights",
@@ -41,7 +66,7 @@ ns.PATCH_NOTES = {
 		new = {
 			{ h = "Pick a Call from Drop All", icon = 136053, client = "forever",
 			  b = "Turn on Call Flyout on Drop All, then hover Drop All (or right-click it, with Flyout Requires Right-Click on) to put Call of the Ancestors or Call of the Spirits on it. Your four totems switch to that Call's, and a totem you pick on the bar goes into it. Pick Call of the Elements to come back. It works in fights too.",
-			  path = "Settings > Bars > Totem Bar > Clicks", open = { "settings", "settings_totemClicks" },
+			  path = "Settings > Bars > Totem Bar > Bar", open = { "buttons", "auto_button" },
 			  card = true, s = "Pick a Call from Drop All: Ancestors or Spirits, your totems follow." },
 			{ h = "Racials in Ready Reminders", icon = 135726,
 			  b = "Your own race's racials (Blood Fury, Berserking, War Stomp, Stoneform and more) on the Spells row and in Ready Flash. They're off until you click them.",

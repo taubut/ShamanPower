@@ -78,6 +78,12 @@
 --                                                     menu instead of closing it, its end repaints it again
 --   empty    = "text" or function() return text end, no items: an empty plate with this hint beside it
 --   menu = nil                                        no menu: a right-click does nothing
+--   (optional, 3.0.9.12; left out = the wheel scrolls the page, as before)
+--   wheel    = function(item, delta) return done end, the mouse wheel over an item (delta < 0: down). Only once
+--                                                     the pointer has rested on it WHEEL_REST and the page has not
+--                                                     scrolled for WHEEL_AFTER_SCROLL: a page scroll passing over
+--                                                     the icons never changes one. Not done (false), or not yet:
+--                                                     the page scrolls as it would anywhere else
 -- }
 -- row:Render(body, x, y, width, onChanged) / row:Release()   (ns.CustomRows)
 -- row:Changed(keepMenu)  row:Repaint()  row:OpenMenu(key, path)  row:ShowDrag(key, gap, lineY)
@@ -113,6 +119,10 @@ local LABEL_LINE_GAP = 10  -- a line of tiles to the next
 local PLUS_LEN     = 16    -- the + tile's cross
 local UNDER_GAP    = 3     -- def.under: the 2 px line this far under the plate
 local UNDER_ROOM   = 5     -- and the room the row keeps for it
+-- def.wheel (the owner, 11-12): a wheel over an item changes it only when the pointer was put there (it has
+-- rested on it this long) and the page is not being scrolled (no scroll for this long); otherwise the page scrolls
+local WHEEL_REST         = 0.25
+local WHEEL_AFTER_SCROLL = 0.5
 
 local IconRow = {}
 ns.IconRow = IconRow
@@ -760,12 +770,50 @@ local function AddMark(b)
 	b.mark = t
 end
 
+-- def.wheel: the page's scroll frame round a row, and when it last scrolled (one clock for every row)
+local pageScrolledAt = 0
+local function PageScroll(f)
+	local p = f and f:GetParent()
+	while p do
+		if p.IsObjectType and p:IsObjectType("ScrollFrame") and p:GetScript("OnMouseWheel") then return p end
+		p = p:GetParent()
+	end
+end
+local function WatchPageScroll(sc)
+	if not sc or sc.spIconRowWheel then return end
+	sc.spIconRowWheel = true
+	sc:HookScript("OnMouseWheel", function() pageScrolledAt = GetTime() end)
+end
+local function ButtonWheel(b, delta)
+	local row, item = b.row, b.item
+	local def = row and row.def
+	local now = GetTime()
+	if item and def and def.wheel and not row.liftKey and b.spEnterAt and now - b.spEnterAt >= WHEEL_REST
+		and now - pageScrolledAt >= WHEEL_AFTER_SCROLL then
+		local ok, done = pcall(def.wheel, item, delta)
+		if not ok then Report(done) end
+		if ok and done then
+			row:Changed(false)
+			Core:RefreshTooltipFor(b)   -- (it names the new one)
+			return
+		end
+	end
+	-- not now, or not this item's: the page scrolls, as the wheel does everywhere else on it
+	local sc = PageScroll(b)
+	local fn = sc and sc:GetScript("OnMouseWheel")
+	if fn then
+		pageScrolledAt = now
+		fn(sc, delta)
+	end
+end
+
 function Proto:NewButton(parent)
 	local b = NewPlate(parent)
 	b.row = self
 	b:SetScript("OnClick", ButtonClick)
-	b:SetScript("OnEnter", function(s) s.hoverEdge:Show() end)
-	b:SetScript("OnLeave", function(s) s.hoverEdge:Hide() end)
+	b:SetScript("OnEnter", function(s) s.hoverEdge:Show(); s.spEnterAt = s.spEnterAt or GetTime() end)
+	b:SetScript("OnLeave", function(s) s.hoverEdge:Hide(); s.spEnterAt = nil end)
+	if self.def.wheel then b:SetScript("OnMouseWheel", ButtonWheel) end
 	if self.def.move then
 		b:RegisterForDrag("LeftButton")
 		b:SetScript("OnDragStart", function(s) s.row:StartDrag(s) end)
@@ -922,6 +970,7 @@ function Proto:Render(body, x, y, width, onChanged)
 	f:SetPoint("TOPLEFT", body, "TOPLEFT", x or 0, -(y or 0))
 	f:SetWidth(width)
 	f:Show()
+	if self.def.wheel then WatchPageScroll(PageScroll(f)) end   -- (def.wheel: when the page last scrolled)
 
 	local list = self.list
 	wipe(list)
