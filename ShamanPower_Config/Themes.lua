@@ -1464,9 +1464,24 @@ local PICKS = {
 	  desc = "The logo's colors on duration bars, borders and flyout tabs. Green, yellow and red charges and timers. Navy panels. Your icons stay the same. This preset never changes." },
 	{ key = "minimal", label = "ShamanPower Minimal",
 	  desc = "The ShamanPower theme with icons replaced by flat, colored boxes and letters. This preset never changes." },
+	{ key = "dark", label = "Dark",
+	  desc = "Standard with Dark Icons on the totem bar, the cooldown bar and Ready Reminders: a black edge and a slight dark vignette on every icon, the pictures as they are. Works with every Icon Shape. This preset never changes." },
 }
 local TC = {}   -- the theme cards' helpers (one local: this file is near Lua's 200-local limit)
-TC.PRESET_LABEL = { standard = "Standard", shamanpower = "ShamanPower", minimal = "ShamanPower Minimal" }
+-- Dark Icons (3.0.9.13), under each bar's Icon Shape: the same switch as on the bar's own page
+function TC.DarkToggle(y, W, kind, what, also)
+	if not SP.IconDarkOf then return y end
+	local _, h = Widgets:Toggle(page.body, {
+		label = "Dark Icons", x = 0, y = y, width = W,
+		desc = "A black edge and a slight dark vignette on " .. what .. "; the pictures stay as they are. Works with every"
+			.. " Icon Shape. The Dark card above turns it on for all three. Also on " .. also .. ".",
+		get = function() return SP:IconDarkOf(kind) end,
+		set = function(v) SP:SetIconDark(v, kind) end,
+		onChanged = PageChanged,
+	})
+	return y + h + 10
+end
+TC.PRESET_LABEL = { standard = "Standard", shamanpower = "ShamanPower", minimal = "ShamanPower Minimal", dark = "Dark" }
 local function CustomCardShown() return SP:ThemeIsCustom() or SP:ThemeHasSavedCustom() end
 local CUSTOM_ON = GOLD_TEXT .. "Custom|r is in use: your changes. Save it as a theme to keep it,"
 	.. " or pick any card: your changes stay on the Custom card."
@@ -1807,6 +1822,8 @@ local function PaintPicker()
 			c.selected = (not custom) and card == c.key
 			base, cpal = c.key, nil
 		end
+		local dark = (base == "dark")   -- (the Dark card: Standard's colors, its icons dark)
+		if dark then base = "standard" end
 		PaintCard(c)
 		if c.selected then SetTag(c.tag, "IN USE", "accentHi") else SetTag(c.tag, nil) end
 		local minimal = (base == "minimal")
@@ -1818,6 +1835,7 @@ local function PaintPicker()
 				r, g, b = SP:ThemePaletteRGB(cpal or "shamanpower", e)
 			end
 			PaintSlot(c.slots[e], minimal, mode, c.files[e], CODES[e], r, g, b, false)
+			if SP.DarkIcon and (dark or rawget(c.slots[e], "spDark")) then SP:DarkIcon(c.slots[e], c.slots[e].icon, "totem", dark, "default") end
 			SetBar(c.bars[e], FILL[e], r, g, b)
 		end
 	end
@@ -2296,16 +2314,21 @@ local SHAPE_ROWS = {
 	  get = function() return SP.opt.frameEdge or "default" end, set = function(k) SP:SetFrameEdge(k) end },
 	-- Icon Shape: one per bar (the same settings as on each bar's own page)
 	{ key = "icon", iconKind = "totem", label = "Totem Bar Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  search = "Dark Icons",
 	  note = "The totem bar's buttons, its flyouts, pop-outs and Drop All (ShamanPower Minimal's boxes too). Also on Appearance > Totem Bar.",
-	  get = function() return SP:IconShapeOf("totem") or "default" end, set = function(k) SP:SetIconShape(k, "totem") end },
+	  get = function() return SP:IconShapeOf("totem") or "default" end, set = function(k) SP:SetIconShape(k, "totem") end,
+	  extra = function(y, W) return TC.DarkToggle(y, W, "totem", "the totem bar's icons, its flyouts, pop-outs, Drop All and Totemic Call", "Appearance > Totem Bar") end },
 	{ key = "iconcd", iconKind = "cooldown", label = "Cooldown Bar Icon Shape", list = function() return SP.ICON_SHAPES end,
+	  search = "Dark Icons",
 	  note = "The cooldown bar's buttons and its shield and imbue flyouts (ShamanPower Minimal's boxes too). Also on Appearance > Cooldown Bar and the Cooldown Bar page.",
-	  get = function() return SP:IconShapeOf("cooldown") or "default" end, set = function(k) SP:SetIconShape(k, "cooldown") end },
+	  get = function() return SP:IconShapeOf("cooldown") or "default" end, set = function(k) SP:SetIconShape(k, "cooldown") end,
+	  extra = function(y, W) return TC.DarkToggle(y, W, "cooldown", "the cooldown bar's icons and its shield and imbue flyouts", "Appearance > Cooldown Bar and the Cooldown Bar page") end },
 	{ key = "iconrr", iconKind = "ready", label = "Ready Reminders Icon Shape", list = function() return SP.ICON_SHAPES end,
-	  search = "Keep Borders Square",
+	  search = "Keep Borders Square, Dark Icons",
 	  note = "Ready Reminders' icons (ShamanPower Minimal's boxes too); the glow keeps Glow Shape. Also on Ready Reminders.",
 	  get = function() return SP:IconShapeOf("ready") or "default" end, set = function(k) SP:SetIconShape(k, "ready") end,
 	  extra = function(y, W)
+		y = TC.DarkToggle(y, W, "ready", "Ready Reminders' icons (their border turns black too)", "Ready Reminders")
 		-- borders round a Rounded / Circle icon follow its shape, unless this is on
 		if not IconShapedAny() then return y end
 		local _, h = Widgets:Toggle(page.body, {

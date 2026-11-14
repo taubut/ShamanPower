@@ -59,6 +59,23 @@
 --        actions the game stopped ShamanPower doing, bg { BugSack's ShamanPower
 --        errors, as er }, ui { u Unlock UI, k Keybind Mode, w settings window open },
 --        rr the six addon restriction states (SPR())
+--   z    (3.0.9.13) everything else ShamanPower can tell about itself, each part on its own guard
+--        (a part that fails is named in z.fail), every text through the scrubber (no name of the
+--        player's or the group's): probes { [name] = { lines } } ShamanPower's own read-only probes
+--        as /spdiag sets, cdbar, popout, /spflyout, /sprt status and the Ready Reminders probe show
+--        them (never the combat, frames or beta probes: those draw, send or print), spells { kn
+--        { [spell ID] = known, any rank } for every spell ShamanPower uses, every Ready Reminder's
+--        and every shield, tx { [element] = "1010.." learned or not per totem }, ti { [element] =
+--        { spell IDs } } }, talents { tr { "node:rank:spell" } (the talent tree, WoW: Forever), cl
+--        { "tab.index:rank:name" } (the talent tabs) }, auras { b buffs, d debuffs on the player:
+--        "spellID" or "spellIDxStacks" } (the game's hidden ones as (hidden)), weapons { m / o the
+--        imbue on each hand: h has, s seconds left, c charges, i enchant ID; it { [slot] =
+--        "item:class.subclass:equipLoc" } }, buttons { tb { [element] = { st state, as assigned, t /
+--        sp / m / t2 what it casts, fl / fn its flyout } }, da Drop All, rc Totemic Call, bar, cd {
+--        each cooldown bar button }, pend, asg, order }, frames { [global name] = "SV a1 off" } every
+--        ShamanPower frame (S/s shown, V/v visible, alpha, off the screen) and framesN how many,
+--        state { calls, lo (loadouts linked to a Call), range, rt, rr, off, twist, style }, sounds
+--        { [a sound picked anywhere] = the sound list still has it }
 -- ============================================================================
 
 local SP = ShamanPower
@@ -298,7 +315,13 @@ end
 -- The rest of the picture (every part guarded: a client without an API just leaves it out)
 local KEY_SPELLS = { 324, 24398, 974, 36936, 20608, 16188, 16190, 30823, 16166, 17364 }
 local CVARS = { "countdownForCooldowns", "ActionButtonUseKeyDown", "useUiScale", "uiScale", "nameplateShowEnemyTotems",
-	"nameplateShowFriendlyTotems", "nameplateShowFriendlyPlayers", "nameplateShowFriendlyPlayerMinions", "addonProfilerEnabled" }
+	"nameplateShowFriendlyTotems", "nameplateShowFriendlyPlayers", "nameplateShowFriendlyPlayerMinions", "addonProfilerEnabled",
+	-- (3.0.9.13) sound: ShamanPower's volume sliders play on the Dialog channel
+	"Sound_EnableAllSound", "Sound_EnableSFX", "Sound_EnableDialog", "Sound_EnableMusic", "Sound_EnableAmbience",
+	"Sound_MasterVolume", "Sound_SFXVolume", "Sound_DialogVolume", "Sound_MusicVolume", "Sound_EnableSoundWhenGameIsInBG",
+	"nameplateShowAll", "nameplateShowEnemies", "nameplateShowFriends", "nameplateShowEnemyMinions", "nameplateShowEnemyGuardians",
+	"autoSelfCast", "SpellQueueWindow", "showTargetOfTarget", "doNotFlashLowHealthWarning", "ffxGlow",
+	"addonCombatRestrictionsForced", "addonEncounterRestrictionsForced" }
 -- game functions ShamanPower calls by their old names: on Forever the game has none of
 -- these and ShamanPower adds its own only when no other addon has (Questie's UnitBuff
 -- once hid a shield); on Anniversary they are the game's unless an addon replaced one
@@ -328,6 +351,16 @@ local function scrubber()
 	local parts = {}
 	for _, p in ipairs({ full or false, name or false, second or false }) do
 		if p and #p > 2 then parts[#parts + 1] = p end
+	end
+	-- (3.0.9.13) the group's names too: the probes in the z part can name a unit
+	local units = {}
+	if IsInRaid and IsInRaid() then for i = 1, 40 do units[#units + 1] = "raid" .. i end
+	else for i = 1, 4 do units[#units + 1] = "party" .. i end end
+	for _, u in ipairs(units) do
+		local n = plainString(safe(UnitName, u))
+		if n and #n > 2 then parts[#parts + 1] = n end
+		local whole = SPCompat and SPCompat.UnitName and plainString(safe(SPCompat.UnitName, u))
+		if whole and #whole > 2 then parts[#parts + 1] = whole end
 	end
 	table.sort(parts, function(a, b) return #a > #b end)   -- the whole name before its halves
 	return function(text)
@@ -416,9 +449,10 @@ local function extras()
 		local tk = {}
 		for element = 1, 4 do
 			local n = 0
-			for i = 1, 20 do
-				if not safe(SP.GetTotemSpell, SP, element, i) then break end
-				if safe(SP.KnowsTotem, SP, element, i) then n = n + 1 end
+			-- (3.0.9.13) every slot up to the element's own count: one this client lacks is skipped, not the end
+			-- (Fire's first, Totem of Wrath, is not on WoW: Forever: every Fire totem read as unknown before)
+			for i = 1, (SP.GetTotemIndexLimit and safe(SP.GetTotemIndexLimit, SP, element)) or 20 do
+				if safe(SP.GetTotemSpell, SP, element, i) and safe(SP.KnowsTotem, SP, element, i) then n = n + 1 end
 			end
 			tk[element] = n
 		end
@@ -600,6 +634,312 @@ local function loadHealth()
 	return h
 end
 
+-- ---------------------------------------------------------------------------
+-- (3.0.9.13) z: everything else ShamanPower can tell about itself (the owner, 11-12: "everything").
+-- Each part on its own guard (one that fails leaves only its own name in z.fail), each text through
+-- the scrubber (no name of yours or your group's). See the header's z.
+local ZSPELLS = { 324, 24398, 974, 8017, 8024, 8232, 8033, 8042, 8050, 8056, 370, 403, 421, 331, 1064, 2645, 546, 556,
+	131, 20608, 16188, 16190, 30823, 16166, 17364, 408498, 409946, 408505, 36936, 66842, 66843, 66844, 2484, 8143, 8166, 8170,
+	526, 2870, 5730, 3599, 8075, 8071, 2062, 5394, 8512, 10595, 8177, 6495, 25908, 3738, 30706, 2894, 2062, 32182, 2825, 51490 }
+local function knowsAny(id)
+	local compat = rawget(_G, "SPCompat")
+	if compat and compat.KnowsSpellID then
+		local ok, k = pcall(compat.KnowsSpellID, id)
+		if ok and k then return true end
+	end
+	return known(id)
+end
+local function frameState(f)
+	if not (f and f.IsShown) then return nil end
+	local ok, v = pcall(function()
+		local a = f.GetEffectiveAlpha and f:GetEffectiveAlpha() or 1
+		-- off the screen: only a frame with a size and a spot (an event frame has neither: not "off")
+		local o
+		local w, h = f:GetWidth(), f:GetHeight()
+		if f:GetCenter() and type(w) == "number" and type(h) == "number" and not isSecret(w) and w > 1 and h > 1 then o = onScreen(f) end
+		return (f:IsShown() and "S" or "s") .. (f:IsVisible() and "V" or "v")
+			.. (isSecret(a) and " a?" or string.format(" a%.2g", a)) .. (o == false and " off" or "")
+	end)
+	return ok and v or "?"
+end
+local function attr(f, k)
+	if not (f and f.GetAttribute) then return nil end
+	local ok, v = pcall(f.GetAttribute, f, k)
+	if not ok then return nil end
+	v = plain(v)
+	if type(v) == "string" then v = v:sub(1, 200) end
+	return v
+end
+local Z = {}
+function Z.probes(scrub)
+	local p = {}
+	local function keep(name, lines)
+		local out = {}
+		for i, l in ipairs(lines) do
+			if i > 150 then out[#out + 1] = "(" .. (#lines - 150) .. " more lines left out)" break end
+			local t = tostring(l):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):sub(1, 300)
+			out[#out + 1] = scrub(t)
+		end
+		if out[1] then p[name] = out end
+	end
+	-- ShamanPower's own read-only probes, as /spdiag, /spflyout, /sprt status would show them (not the ones that
+	-- draw, send or print: the combat, frames and beta probes)
+	local function capture(fn, ...)
+		local lines, cap = {}, {}
+		local print0 = SP.Print
+		SP.Print = function(_, ...)
+			local t = {}
+			for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end
+			lines[#lines + 1] = table.concat(t, " ")
+		end
+		local compat = rawget(_G, "SPCompat")
+		if compat then compat.copyCapture = cap end
+		local ok, ret = pcall(fn, ...)
+		SP.Print = print0
+		if compat then compat.copyCapture = nil end
+		if type(ret) == "table" then for _, l in ipairs(ret) do lines[#lines + 1] = l end end
+		for _, c in ipairs(cap) do for l in tostring(c.text):gmatch("[^\n]+") do lines[#lines + 1] = l end end
+		if not ok then lines[#lines + 1] = "(probe failed: " .. tostring(ret):sub(1, 160) .. ")" end
+		return lines
+	end
+	if SP.TotemSetsDiag then keep("sets", capture(SP.TotemSetsDiag, SP)) end
+	if SP.ReadyRemindersDiag then keep("ready", capture(SP.ReadyRemindersDiag, SP)) end
+	if SP.ReactiveEngineReport then keep("reactive", capture(SP.ReactiveEngineReport, SP)) end
+	local slash = rawget(_G, "SlashCmdList")
+	local diag = slash and slash.SPDIAG
+	if diag then
+		keep("cdbar", capture(diag, "cdbar"))
+		keep("popout", capture(diag, "popout"))
+	end
+	local fly = slash and slash.SPFLYOUT
+	if fly then keep("flyout", capture(fly, "")) end
+	return p
+end
+function Z.spells()
+	local s, kn = {}, {}
+	for _, id in ipairs(ZSPELLS) do kn[id] = knowsAny(id) end
+	for _, s2 in ipairs(SP.ShieldSpells or {}) do if type(s2[1]) == "number" then kn[s2[1]] = knowsAny(s2[1]) end end
+	for _, e in ipairs(SP.ReadyReminderSpells or {}) do
+		for _, id in ipairs(type(e.ids) == "table" and e.ids or {}) do if type(id) == "number" then kn[id] = knowsAny(id) end end
+	end
+	s.kn = kn
+	-- every totem of every element: 1 learned, 0 not, in the order the bar lists them
+	if SP.KnowsTotem and SP.GetTotemSpell then
+		local tx, ti = {}, {}
+		for element = 1, 4 do
+			local bits, ids = {}, {}
+			for i = 1, (SP.GetTotemIndexLimit and safe(SP.GetTotemIndexLimit, SP, element)) or 20 do
+				local id = safe(SP.GetTotemSpell, SP, element, i)
+				if id then   -- (a slot this client lacks: left out, not the end)
+					bits[#bits + 1] = safe(SP.KnowsTotem, SP, element, i) and "1" or "0"
+					ids[#ids + 1] = id
+				end
+			end
+			tx[element] = table.concat(bits); ti[element] = ids
+		end
+		s.tx, s.ti = tx, ti
+	end
+	return s
+end
+function Z.talents()
+	local t = {}
+	local CT, T = rawget(_G, "C_ClassTalents"), rawget(_G, "C_Traits")
+	if CT and CT.GetActiveConfigID and T and T.GetConfigInfo and T.GetTreeNodes and T.GetNodeInfo then
+		local cfg = safe(CT.GetActiveConfigID)
+		if type(cfg) ~= "number" or isSecret(cfg) then t.tr = false return t end
+		local info = safe(T.GetConfigInfo, cfg)
+		local list = {}
+		for _, tree in ipairs(type(info) == "table" and info.treeIDs or {}) do
+			for _, node in ipairs(safe(T.GetTreeNodes, tree) or {}) do
+				local ni = safe(T.GetNodeInfo, cfg, node)
+				local r = type(ni) == "table" and ni.ranksPurchased
+				if type(r) == "number" and not isSecret(r) and r > 0 then
+					local entry = type(ni.activeEntry) == "table" and ni.activeEntry.entryID
+					local ei = entry and T.GetEntryInfo and safe(T.GetEntryInfo, cfg, entry)
+					local di = type(ei) == "table" and ei.definitionID and T.GetDefinitionInfo and safe(T.GetDefinitionInfo, ei.definitionID)
+					local spell = type(di) == "table" and plain(di.spellID) or 0
+					list[#list + 1] = node .. ":" .. r .. ":" .. tostring(spell)
+				end
+			end
+		end
+		t.tr = list
+	end
+	local tabs = rawget(_G, "GetNumTalentTabs")
+	local info2 = rawget(_G, "GetTalentInfo")
+	local count = rawget(_G, "GetNumTalents")
+	if tabs and info2 and count and not t.tr then
+		local list = {}
+		for tab = 1, safe(tabs) or 0 do
+			for i = 1, safe(count, tab) or 0 do
+				local ok, name, _, _, _, rank = pcall(info2, tab, i)
+				if ok and type(rank) == "number" and rank > 0 then
+					list[#list + 1] = tab .. "." .. i .. ":" .. rank .. ":" .. (plainString(name) or "?")
+				end
+			end
+		end
+		t.cl = list
+	end
+	return t
+end
+function Z.auras()
+	local a = {}
+	local A = rawget(_G, "C_UnitAuras")
+	local function scan(filter, max)
+		local list = {}
+		for i = 1, max do
+			local ok, d = pcall(A.GetAuraDataByIndex, "player", i, filter)
+			if not ok or type(d) ~= "table" then break end
+			local id, n = d.spellId, d.applications
+			if isSecret(id) then list[#list + 1] = HIDDEN break end
+			list[#list + 1] = tostring(id) .. ((type(n) == "number" and not isSecret(n) and n > 1) and ("x" .. n) or "")
+		end
+		return list
+	end
+	if A and A.GetAuraDataByIndex then
+		a.b = scan("HELPFUL", 40)
+		a.d = scan("HARMFUL", 20)
+	end
+	return a
+end
+function Z.weapons()
+	local w = {}
+	local compat = rawget(_G, "SPCompat")
+	local f = (compat and compat.GetWeaponEnchantInfo) or rawget(_G, "GetWeaponEnchantInfo")
+	if f then
+		local ok, hm, em, cm, im, ho, eo, co, io = pcall(f)
+		if ok then
+			local function sec(ms) ms = plain(ms) if type(ms) == "number" then return math.floor(ms / 1000) end return ms end
+			w.m = { h = plain(hm), s = sec(em), c = plain(cm), i = plain(im) }
+			w.o = { h = plain(ho), s = sec(eo), c = plain(co), i = plain(io) }
+		end
+	end
+	local items = {}
+	local instant = (C_Item and C_Item.GetItemInfoInstant) or rawget(_G, "GetItemInfoInstant")
+	for _, slot in ipairs({ 16, 17, 18 }) do
+		local id = plain(safe(GetInventoryItemID, "player", slot))
+		if type(id) == "number" then
+			local ok, _, _, _, equip, _, class, sub = pcall(instant or function() end, id)
+			items[slot] = id .. ":" .. tostring(ok and class or "?") .. "." .. tostring(ok and sub or "?") .. ":" .. tostring(ok and equip or "?")
+		else
+			items[slot] = false
+		end
+	end
+	w.it = items
+	return w
+end
+function Z.buttons()
+	local b = {}
+	local tb = {}
+	for e = 1, 4 do
+		local f = SP.totemButtons and SP.totemButtons[e]
+		if f then
+			tb[e] = { st = frameState(f), as = SP.AssignedIndex and safe(SP.AssignedIndex, SP, e) or nil,
+				t = attr(f, "type1"), sp = attr(f, "spell1"), m = attr(f, "macrotext1"), t2 = attr(f, "type2"),
+				fl = SP.totemFlyouts and SP.totemFlyouts[e] and frameState(SP.totemFlyouts[e]) or nil,
+				fn = SP.totemFlyouts and SP.totemFlyouts[e] and SP.totemFlyouts[e].allButtons and #SP.totemFlyouts[e].allButtons or nil }
+		end
+	end
+	b.tb = tb
+	local da = rawget(_G, "ShamanPowerAutoDropAll")
+	if da then b.da = { st = frameState(da), t = attr(da, "type1"), sp = attr(da, "spell1"), m = attr(da, "macrotext1"), t2 = attr(da, "type2") } end
+	local rc = rawget(_G, "ShamanPowerAutoTotemicCall")
+	if rc then b.rc = { st = frameState(rc), t = attr(rc, "type1"), sp = attr(rc, "spell1") } end
+	b.bar = frameState(SP.autoButton)
+	local cd = {}
+	for i, f in ipairs(SP.cooldownButtons or {}) do
+		cd[i] = { n = f.GetName and f:GetName() or nil, st = frameState(f), t = attr(f, "type"), t1 = attr(f, "type1"),
+			sp = attr(f, "spell") or attr(f, "spell1"), m = attr(f, "macrotext") or attr(f, "macrotext1") }
+	end
+	b.cd = cd
+	b.pend = SP.pendingAssignments and copyPlain(SP.pendingAssignments) or nil
+	local mine = ShamanPower_Assignments and SP.player and ShamanPower_Assignments[SP.player]
+	if type(mine) == "table" then b.asg = { mine[1] or 0, mine[2] or 0, mine[3] or 0, mine[4] or 0 } end
+	b.order = copyPlain(SP.opt and SP.opt.totemBarOrder)
+	return b
+end
+function Z.frames()
+	-- every ShamanPower frame by its global name: S/s shown, V/v visible, a its alpha, off = off the screen
+	local list, n = {}, 0
+	for k, v in pairs(_G) do
+		if type(k) == "string" and (k:find("^ShamanPower") or k:find("^SPFM") or k:find("^SPCALL")) and type(v) == "table"
+			and not isSecret(v) and type(rawget(v, 0)) == "userdata" and v.IsObjectType then
+			local ok, isFrame = pcall(v.IsObjectType, v, "Frame")
+			if ok and isFrame then
+				n = n + 1
+				if n <= 700 then list[k] = frameState(v) end
+			end
+		end
+	end
+	return list, n
+end
+function Z.state()
+	local m = {}
+	local db = SP.db and SP.db.char
+	if SP.CallPage then
+		m.calls = { page = safe(SP.CallPage, SP), flyout = SP.opt and SP.opt.dropAllCallFlyout,
+			on = SP.CallFlyoutOn and safe(SP.CallFlyoutOn, SP) or nil,
+			kept = db and copyPlain(db.callKept) or nil, early = db and copyPlain(db.callEarly) or nil,
+			known = SP.KnownTotemSetPages and copyPlain(safe(SP.KnownTotemSetPages, SP)) or nil }
+	end
+	local lo = rawget(_G, "ShamanPower_TotemLoadouts")
+	if type(lo) == "table" then
+		local bound = {}
+		for i, l in ipairs(lo) do if type(l) == "table" and l.setPage then bound[#bound + 1] = i .. ">" .. tostring(l.setPage) end end
+		m.lo = { n = #lo, bound = bound, active = plain(SP.activeLoadoutIndex or SP.activeLoadout) }
+	end
+	if SP.SPRangeOverlayOn then
+		m.range = { on = safe(SP.SPRangeOverlayOn, SP), hand = SP.spRangeManuallyOpened == true,
+			here = SP.SPRangeAllowedHere and safe(SP.SPRangeAllowedHere, SP) or nil }
+	end
+	if SP.ReactiveEngineLive then m.rt = { live = safe(SP.ReactiveEngineLive, SP), built = SP.reactiveEngineBuilt == true } end
+	local rr = rawget(_G, "ShamanPower_ReadyReminders")
+	if type(rr) == "table" then m.rr = { on = rr.enabled, frames = SP.readyReminderFrames and (function()
+		local t = {}
+		for key, f in pairs(SP.readyReminderFrames) do t[key] = frameState(f) end
+		return t
+	end)() or nil } end
+	m.off = SP.IsOff and safe(SP.IsOff, SP) or nil
+	m.twist = SP.opt and SP.opt.enableTotemTwisting or nil
+	m.style = SP.GetTotemBarStyle and safe(SP.GetTotemBarStyle, SP) or nil
+	return m
+end
+function Z.sounds()
+	-- every sound picked anywhere (by name): does the sound list still have it
+	local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+	local names, seen = {}, 0
+	local function walkFor(t, depth)
+		if depth > 6 or type(t) ~= "table" or not openable(t) then return end
+		for k, v in pairs(t) do
+			seen = seen + 1
+			if seen > 20000 then return end
+			if type(k) == "string" and type(v) == "string" and not isSecret(v) and k:lower():find("sound") and k:lower():find("name") then
+				names[v] = true
+			elseif type(v) == "table" then
+				walkFor(v, depth + 1)
+			end
+		end
+	end
+	walkFor(SP.opt, 0)
+	for _, sv in ipairs(MODULE_SVARS) do walkFor(rawget(_G, sv), 0) end
+	local out = {}
+	for name in pairs(names) do
+		local f = LSM and safe(LSM.Fetch, LSM, "sound", name, true)
+		out[name:sub(1, 60)] = (f ~= nil and f ~= "") and true or false
+	end
+	return out
+end
+local function everything()
+	local z, fail = {}, {}
+	local scrub = scrubber()
+	for _, part in ipairs({ "probes", "spells", "talents", "auras", "weapons", "buttons", "frames", "state", "sounds" }) do
+		local ok, v, n = pcall(Z[part], scrub)
+		if ok then z[part] = v; if n then z[part .. "N"] = n end
+		else fail[#fail + 1] = part .. ": " .. scrub(tostring(v):sub(1, 160)) end
+	end
+	if fail[1] then z.fail = fail end
+	return z
+end
+
 local function snapshot()
 	local n = {}
 	n.cb = InCombatLockdown() and true or false
@@ -736,6 +1076,8 @@ function SP:BuildSupportCode()
 	payload.x = okX and x or { fail = tostring(x) }
 	local okH, h = pcall(loadHealth)
 	payload.h = okH and h or { fail = tostring(h) }
+	local okZ, z = pcall(everything)
+	payload.z = okZ and z or { fail = { tostring(z):sub(1, 200) } }
 
 	-- only what the code can carry goes in (text, numbers, true/false, tables of them):
 	-- anything else is left out and named in payload.bad, so the code always builds
@@ -780,6 +1122,7 @@ function SP:ShowSupportCode()
 			.. "- Whether you are in combat and what ShamanPower can show right now\n"
 			.. "- Your recent ShamanPower errors (BugSack's too), the spells you know, your addon list, screen size and key bindings\n"
 			.. "- Which ShamanPower features loaded, any problems loading them, and when your settings were last saved\n"
+			.. "- Everything ShamanPower can check about itself: your talents, the buffs on you, your weapons, every ShamanPower button and frame and what it does, and your sound settings\n"
 			.. "- Never: your name, realm, guild, who you group with, or chat",
 		editText = code,
 	})

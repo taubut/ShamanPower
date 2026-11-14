@@ -890,6 +890,17 @@ function S.Pass(f, inCombat)
 	f:SetAlpha(a * (f.fade or 1)); f.fadeBase = a
 end
 
+-- (3.0.9.13) Only In Combat (or Hide In Town) hides the reminder out of combat, and nothing can be made in a
+-- fight: its game parts are made now, inside the hidden reminder, so the first fight has them. Before, Only In
+-- Combat left it with nothing to draw in a fight (a player's report: Maelstrom Weapon never showed)
+function S.Prepare(f)
+	if InCombatLockdown() or not engineOK() then return end
+	local st = stageOf(f)
+	if not st.want then S.Appearance(f) end
+	setMode(st, "engine")
+	ensureEngine(st, f.entry)
+end
+
 -- Previews (the setup tour, the settings window) and Unlock UI: our own frames,
 -- counting up 1 to 5 and holding at 5, the time running down; t = seconds into the
 -- demo, nil = still at 5 stacks with all its time (Unlock UI)

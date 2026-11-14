@@ -1170,6 +1170,7 @@ end
 -- a shape or Keep Borders Square changed: icons, borders, Minimal boxes, Ready Reminders
 function SP:RefreshIconShapes()
 	self:ApplyIconShapes()
+	if self.ApplyIconDark then self:ApplyIconDark() end   -- (Dark Icons: the shape's own picture)
 	if self.ThemePaintTotemBorders then self:ThemePaintTotemBorders() end
 	for e = 1, 4 do   -- the dropped-totem overlays' edges (a ring on Rounded / Circle)
 		local ov = self.activeTotemOverlays and self.activeTotemOverlays[e]
@@ -1184,10 +1185,87 @@ function SP:SetIconBordersSquare(on)
 	if on then self.opt.iconBordersSquare = true else self.opt.iconBordersSquare = nil end
 	self:RefreshIconShapes()
 end
--- a rebuilt bar or flyout gets the shape again
+
+-- Dark Icons (3.0.9.13, mockup A102): each icon keeps its own picture and gets a black
+-- edge over its outside (inside the button: the gaps between buttons stay open) and a
+-- slight dark vignette inside that edge. One picture laid over the icon
+-- (Media/Textures/Dark_<Shape>_<k>.tga, tools/make_dark_icons.py), so it follows the
+-- icon's size by itself and every Icon Shape: Square and Flat take the square one,
+-- Rounded and Circle their own (the edge follows the shape). One switch per bar, as the
+-- shapes; the Dark theme card turns all three on:
+--   opt.iconDark          the totem bar: its buttons, flyouts, pop-outs, Drop All, Totemic Call
+--   opt.iconDarkCooldown  the cooldown bar: its buttons and the shield and imbue flyouts
+--   opt.iconDarkReady     Ready Reminders (their border turns black too)
+-- nil = off: today's look, nothing is made. The edge is about 5 screen pixels on each
+-- bar at its usual size (k / 64 of the icon: the totem bar's 6, the cooldown bar's
+-- smaller buttons 7, Ready Reminders' bigger ones 5).
+local DARK = { key = { totem = "iconDark", cooldown = "iconDarkCooldown", ready = "iconDarkReady" },
+	k = { totem = 6, cooldown = 7, ready = 5 }, file = { rounded = "Rounded", circle = "Circle" } }
+SP.ICON_DARK_KEYS = DARK.key
+function SP:IconDarkOf(kind)
+	local o = self.opt
+	return (o and o[DARK.key[kind] or "iconDark"] == true) and true or false
+end
+-- one icon's dark look. host: the frame its picture is on; icon: the picture; kind: its bar;
+-- own: the icon's own shape (Ready Reminders). Off: hidden (made only the first time it is on).
+function SP:DarkIcon(host, icon, kind, on, own)
+	if not (host and icon and host.CreateTexture) then return end
+	local d = rawget(host, "spDark")
+	if not on then
+		if d then d:Hide() end
+		return
+	end
+	if not d then
+		d = host:CreateTexture(nil, "OVERLAY", nil, -5)   -- (over the icon and its shading; under borders, text and glows)
+		host.spDark = d
+	end
+	if d.spIcon ~= icon then d:ClearAllPoints(); d:SetAllPoints(icon); d.spIcon = icon end
+	local file = SHAPES .. "Dark_" .. (DARK.file[shapeOr(kind, own)] or "Square") .. "_" .. (DARK.k[kind] or 6)
+	if d.spFile ~= file then d:SetTexture(file); d.spFile = file end
+	d:Show()
+end
+local function darkButton(btn, kind, on)
+	if type(btn) ~= "table" then return end
+	local icon = rawget(btn, "icon")
+	if not (icon and icon.GetObjectType) then
+		local name = btn.GetName and btn:GetName()
+		icon = name and _G[name .. "Icon"]   -- (Drop All, Totemic Call, Earth Shield: template icons)
+	end
+	if icon then SP:DarkIcon(btn, icon, kind, on) end
+end
+-- every button ShamanPower has made so far (again after a bar or flyout is rebuilt, and on a shape change)
+function SP:ApplyIconDark()
+	local o = self.opt
+	if not (o and (o.iconDark or o.iconDarkCooldown or o.iconDarkReady or self._iconDarked)) then return end   -- never on: today's code path
+	self._iconDarked = true
+	local tb, cd = self:IconDarkOf("totem"), self:IconDarkOf("cooldown")
+	for e = 1, 4 do
+		darkButton(self.totemButtons and self.totemButtons[e], "totem", tb)
+		local fl = self.totemFlyouts and self.totemFlyouts[e]
+		for _, b in ipairs(fl and (fl.allButtons or fl.buttons) or {}) do darkButton(b, "totem", tb) end
+		for _, b in ipairs(self.RowsCopies and self:RowsCopies(e) or {}) do darkButton(b, "totem", tb) end
+	end
+	for _, f in pairs(self.poppedOutFrames or {}) do darkButton(type(f) == "table" and rawget(f, "button"), "totem", tb) end
+	darkButton(_G.ShamanPowerAutoDropAll, "totem", tb)
+	darkButton(_G.ShamanPowerAutoTotemicCall, "totem", tb)
+	darkButton(_G.ShamanPowerEarthShieldBtn, "totem", tb)
+	for _, b in ipairs(self.cooldownButtons or {}) do darkButton(b, "cooldown", cd) end
+	for _, fl in ipairs({ self.shieldFlyout or false, self.weaponImbueFlyout or false }) do
+		if fl then for _, b in ipairs(fl.allButtons or fl.buttons or {}) do darkButton(b, "cooldown", cd) end end
+	end
+end
+-- kind: "totem" (default), "cooldown" or "ready"
+function SP:SetIconDark(on, kind)
+	if not self.opt then return end
+	self.opt[DARK.key[kind] or "iconDark"] = on and true or nil
+	self:ApplyIconDark()
+	if kind == "ready" and self.UpdateAllReadyReminderAppearance then self:UpdateAllReadyReminderAppearance() end   -- (Ready Reminders draw their own)
+end
+
+-- a rebuilt bar or flyout gets the shape (and the dark look) again
 for _, name in ipairs({ "CreateTotemButtons", "CreateTotemFlyout", "CreateCooldownBar", "CreateWeaponImbueButton",
 	"CreateActiveTotemOverlay", "SetupGCDSwipes", "UpdateCooldownBar", "CreateEarthShieldButton", "CreateESActiveOverlay" }) do
-	if type(SP[name]) == "function" then hooksecurefunc(SP, name, function() SP:ApplyIconShapes() end) end
+	if type(SP[name]) == "function" then hooksecurefunc(SP, name, function() SP:ApplyIconShapes(); SP:ApplyIconDark() end) end
 end
 
 -- Statusbar names for a picker (LibSharedMedia's list: Blizzard's, ShamanPower's

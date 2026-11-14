@@ -1463,15 +1463,23 @@ function SP:UpdateReadyReminderAppearance(key)
 	local hideBg = IconOpt(e, "hideBackground") and true or false
 	local borderOn = not hideBg and not IconOpt(e, "hideBorder")
 	local ringFile = SP.BorderRingFile and SP:BorderRingFile("ready", ownShape)
+	-- Dark Icons (3.0.9.13): the black edge and vignette on the icon, and the border black
+	local dark = SP.IconDarkOf and SP:IconDarkOf("ready")
+	if SP.DarkIcon then SP:DarkIcon(f, f.icon, "ready", dark, ownShape) end
+	local br, bgc, bb = color(IconOpt(e, "borderColor"), 0.2, 0.7, 1.0)
+	if dark then br, bgc, bb = 0, 0, 0 end
 	f.bg:SetShown(not hideBg); f.border:SetShown(borderOn and not ringFile)
-	f.border:SetBackdropBorderColor(color(IconOpt(e, "borderColor"), 0.2, 0.7, 1.0))
+	f.bg:SetColorTexture(0, 0, 0, dark and 1 or 0.6)   -- (Dark: solid, so no lighter band shows between the border and the icon)
+	f.border:SetBackdropBorderColor(br, bgc, bb)
 	if ringFile then
 		if not f.ring then
 			f.ring = f:CreateTexture(nil, "OVERLAY")
 			f.ring:SetAllPoints(f.border)
 		end
-		if f.ring.spFile ~= ringFile then f.ring:SetTexture(ringFile); f.ring.spFile = ringFile end
-		f.ring:SetVertexColor(color(IconOpt(e, "borderColor"), 0.2, 0.7, 1.0))
+		-- (Dark: a ring thick enough to reach the icon's backing, so no light line shows between them)
+		local file = dark and SP.BorderRingSizedFile and SP:BorderRingSizedFile("ready", 4, size + 4, ownShape) or ringFile
+		if f.ring.spFile ~= file then f.ring:SetTexture(file); f.ring.spFile = file end
+		f.ring:SetVertexColor(br, bgc, bb)
 		f.ring:SetShown(borderOn)
 	elseif f.ring then
 		f.ring:Hide()
@@ -4337,6 +4345,16 @@ local function readyPass(self)
 			setFade(f, 1)   -- (D51) a hidden icon is never faded
 			if entry.stacks and SP.ReadyStacks then SP.ReadyStacks.Idle() end   -- (3.0.9.2) nothing to read
 		end
+		-- (3.0.9.13) Maelstrom Weapon hidden out of combat only by Only In Combat (or Hide In Town): its game
+		-- parts made now, still hidden, because a fight cannot make them (ShamanPower_ReadyStacks.lua S.Prepare)
+		if entry.stacks and not want and not inCombat and can and spellOn(entry) and placed(entry)
+			and SP.ReadyStacks and SP.ReadyStacks.Prepare then
+			if not f then f = self:CreateReadyReminderFrame(entry) end
+			if not f.spStacksTest then
+				if f:IsShown() then f:Hide() end
+				SP.ReadyStacks.Prepare(f)
+			end
+		end
 	end
 	layoutGrid(false); layoutRows(false)
 	rangeSync()
@@ -5276,6 +5294,12 @@ local function InjectOptions()
 			if v then SP.opt.readyBuffTimerColors = true else SP.opt.readyBuffTimerColors = nil end
 			if SP.CountdownChanged then SP:CountdownChanged() end
 		end }
+	-- Dark Icons (3.0.9.13): a black edge and a slight vignette on each icon, the border black
+	args.darkIcons = { order = 3004, type = "toggle", width = "full", name = "Dark Icons",
+		desc = "A black edge and a slight dark vignette on each icon, and a black border; the pictures stay as they are."
+			.. " Works with every Icon Shape. The same switch as on Appearance > Themes; the Dark theme card turns it on.",
+		get = function() return SP.IconDarkOf and SP:IconDarkOf("ready") end,
+		set = function(_, v) if SP.SetIconDark then SP:SetIconDark(v, "ready") end end }
 	root.args.fluffy.args.readyreminders_section = { order = 9.5, type = "group", name = "Ready Reminders", args = args }
 	R.FlashTab.migrate()   -- (A26) once: the icons' flash settings become the tab's
 	R.FlashTab.inject(root)

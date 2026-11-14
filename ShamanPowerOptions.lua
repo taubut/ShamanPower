@@ -12034,6 +12034,18 @@ do
 	end
 	pages.totembar_appearance.args.icon_borders_square = bordersSquareRow("totem")
 	pages.cooldownbar_appearance.args.icon_borders_square = bordersSquareRow("cooldown")
+	-- Dark Icons (3.0.9.13): one switch per bar, with any Icon Shape (and on Appearance > Themes)
+	local function darkRow(kind, what)
+		return {
+			type = "toggle", name = "Dark Icons", width = 1.0,
+			desc = "A black edge and a slight dark vignette on " .. what .. "; the pictures stay as they are. Works with every"
+				.. " Icon Shape. The same setting as on Appearance > Themes; the Dark theme card turns it on.",
+			get = function() return ShamanPower:IconDarkOf(kind) end,
+			set = function(_, v) ShamanPower:SetIconDark(v, kind) end,
+		}
+	end
+	pages.totembar_appearance.args.icon_dark = darkRow("totem", "the totem bar's icons, its flyouts, pop-outs, Drop All and Totemic Call")
+	pages.cooldownbar_appearance.args.icon_dark = darkRow("cooldown", "the cooldown bar's icons and its shield and imbue flyouts")
 	-- Gradients: Bar Gradient (Totem Bar > Duration Bars) and Outline Gradient
 	-- (here), one setting each with Appearance > Themes. Two-Tone adds its colors,
 	-- Fade Out how much color is left at the faded end.
@@ -12136,7 +12148,7 @@ do
 	SP.OrderSettingsBands(pages.totembar_appearance, {
 		{ keys = { "layout" }, names = { layout = "Layout" } },
 		{ header = "look_header", name = "Look", keys = {
-			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame", "frame_edge", "icon_shape", "icon_borders_square",
+			"buffscale", "totemBarOpacity", "totemBarPadding", "hide_totem_bar_frame", "frame_edge", "icon_shape", "icon_dark", "icon_borders_square",
 			"outlineGradient", "outlineGradient_direction", "outlineGradient_own", "outlineGradient_color1", "outlineGradient_color2", "outlineGradient_fade",
 		}, names = { buffscale = "Scale", totemBarOpacity = "Opacity", totemBarPadding = "Button Spacing",
 			hide_totem_bar_frame = "Hide Background" } },
@@ -12147,7 +12159,7 @@ do
 	SP.OrderSettingsBands(pages.cooldownbar_appearance, {
 		{ keys = { "cdbarLayout" }, names = { cdbarLayout = "Layout" } },
 		{ header = "look_header", name = "Look", keys = {
-			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame", "frame_edge", "icon_shape", "icon_borders_square",
+			"cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding", "hide_cooldown_bar_frame", "frame_edge", "icon_shape", "icon_dark", "icon_borders_square",
 		}, names = { cooldownBarScale = "Scale", cooldownBarOpacity = "Opacity", cooldownBarPadding = "Button Spacing",
 			hide_cooldown_bar_frame = "Hide Background" } },
 		{ header = "behaviour_header", name = "Behavior", keys = { "cooldownBarFullOpacityWhenActive" } },
@@ -13191,14 +13203,14 @@ do
 		},
 	}
 	local function take(src, keys) for _, k in ipairs(keys) do if src[k] then args[k] = src[k] end end end
-	take(app, { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
+	take(app, { "cdbarLayout", "icon_shape", "icon_dark", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
 		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" })
 	take(disp, { "cdbar_show_progress_bars", "cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
 		"cdbar_duration_text_size", "cdbar_countdown_colors", "cdbar_timer_colors", "cdbar_numbers_note", "cdbar_numbers_button" })
 	take(fx, { "cdbarCueLook", "cdbarCueSignature", "cdbar_test" })
 	take(SP.options.args.fluffy.args.cdbar_items_section.args, { "show_cooldown_bar" })
 	-- two to a line where they pair up
-	for _, k in ipairs({ "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
+	for _, k in ipairs({ "cdbarLayout", "icon_shape", "icon_dark", "cooldownBarScale", "cooldownBarOpacity", "cooldownBarPadding",
 		"hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square",
 		"cdbar_progress_position", "cdbar_progress_height", "cdbar_gradient_direction", "cdbar_duration_text",
 		"cdbar_duration_text_size", "cdbar_countdown_colors", "cdbar_timer_colors", "cdbarCueLook", "cdbarCueSignature" }) do
@@ -13240,7 +13252,7 @@ do
 	SP.OrderSettingsBands(F.cdbar_page, {
 		{ header = "items_header", name = "Items", keys = { "cdbarIcons" } },
 		{ keys = { "show_cooldown_bar" } },   -- under the pictures (every icon page, 2026-10-17)
-		{ header = "bar_header", name = "Bar", keys = { "cdbarLayout", "icon_shape", "cooldownBarScale", "cooldownBarOpacity",
+		{ header = "bar_header", name = "Bar", keys = { "cdbarLayout", "icon_shape", "icon_dark", "cooldownBarScale", "cooldownBarOpacity",
 			"cooldownBarPadding", "hide_cooldown_bar_frame", "cooldownBarFullOpacityWhenActive", "frame_edge", "icon_borders_square" } },
 		{ header = "clicks_header", name = "Clicks", keys = { "cdbar_click_through" } },
 		{ header = "progress_header", name = "Progress Bars and Time", keys = { "cdbar_show_progress_bars", "cdbar_progress_position", "cdbar_progress_height",

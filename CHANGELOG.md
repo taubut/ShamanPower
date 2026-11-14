@@ -1,5 +1,22 @@
 # ShamanPower Changelog
 
+## v3.0.9.13 (2026-11-13)
+
+### New
+- **Dark Icons:** every icon gets a black edge and a slight dark vignette, its picture as it is. One switch each for the totem bar (with its flyouts, pop-outs, Drop All, Totemic Call and the Earth Shield button), the cooldown bar (with its shield and imbue flyouts) and Ready Reminders (their border turns black too). Works with every Icon Shape: Square, Flat, Rounded and Circle. Under Icon Shape on Appearance > Totem Bar, Appearance > Cooldown Bar, the Cooldown Bar page and the Ready Reminders page, and on Appearance > Themes. Off until you turn it on.
+- **Dark theme:** a fourth card on Appearance > Themes, next to Standard, ShamanPower and ShamanPower Minimal: Standard with Dark Icons on the totem bar, the cooldown bar and Ready Reminders. Save it, share it or make it your own like the others.
+
+### Changes
+- **Support Code:** it carries much more of your setup (your spells, talents, buffs, weapons, buttons and sounds, and what ShamanPower's own checks say), so I can answer a report without asking you to try things. The names of the people in your party or raid are never in it.
+
+### Fixes
+- **Cooldown Bar (WoW: Forever):** when a cooldown started in a fight, an error could show ("FontString:SetPoint(): Usage") and the cooldown's countdown number went missing. Both are fixed.
+- **Ready Reminders (WoW: Forever):** Maelstrom Weapon with Only In Combat on never showed in a fight, in Grid or Rows. It shows now.
+- **Reactive Totems (WoW: Forever):** with Hide When Totem Active on, an alert's sound still played while the alert itself was hidden. It stays quiet now.
+
+### Thanks
+- Thanks to interslice for the report.
+
 ## v3.0.9.12 (2026-11-12)
 
 ### New

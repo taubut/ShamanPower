@@ -11677,11 +11677,22 @@ local function PlaceEngineBarText(self, btn, textLocation, showText)
 	cd:SetHideCountdownNumbers(src == nil)
 	if not src then return end
 	local font, size, flags = src:GetFont()
-	if font then fs:SetFont(font, size, flags) end
+	if font and not issecretvalue(font) and not issecretvalue(size) then fs:SetFont(font, size, flags) end
 	local r, g, b = src:GetTextColor()
 	fs:SetTextColor(r or 1, g or 1, b or 1)
-	fs:ClearAllPoints()
+	-- its spot: the text's own anchor. In a fight on WoW: Forever a GetPoint read can come back as
+	-- secret values, which SetPoint refuses (interslice's report, 11-13): the anchor last read outside
+	-- one is used then (the text does not move in a fight), kept on the text in one table
 	local point, rel, relPoint, x, y = src:GetPoint(1)
+	if issecretvalue(point) or issecretvalue(rel) or issecretvalue(relPoint) or issecretvalue(x) or issecretvalue(y) then
+		local a = src.spAnchor
+		if a then point, rel, relPoint, x, y = a[1], a[2], a[3], a[4], a[5] else point = nil end
+	elseif point then
+		local a = src.spAnchor or {}
+		a[1], a[2], a[3], a[4], a[5] = point, rel, relPoint, x, y
+		src.spAnchor = a
+	end
+	fs:ClearAllPoints()
 	if point then fs:SetPoint(point, rel or btn, relPoint or point, x or 0, y or 0) else fs:SetPoint("CENTER", btn, "CENTER", 0, 0) end
 	pcall(cd.SetMinimumCountdownDuration, cd, 2000)
 	pcall(cd.SetCountdownMillisecondsThreshold, cd, 10)

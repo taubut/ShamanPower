@@ -1067,6 +1067,19 @@ function SP:UpdateReactiveTotemDisplay()
 			for totemId, frame in pairs(self.reactiveFrames) do
 				local hit = found[totemId]
 				if hit and totemId == "fear" and hit.unit ~= "player" then hit = nil end   -- Tremor: you only, as drawn
+				-- (3.0.9.13) its totem is down and Hide When Totem Active hides the alert: no sound either (the
+				-- alert's own check, ReactiveShouldShow; a player heard it with the alert hidden)
+				if hit and R(totemId, "hideWhenTotemActive") then
+					local data = self.ReactiveTotems[totemId]
+					local element = data and data.totemElement
+					if element then
+						local haveTotem, totemName = ElementTotemInfo(element)
+						if not issecretvalue(haveTotem) and not issecretvalue(totemName) and haveTotem
+							and SPCompat.TotemNameMatches(totemName, data.totemSpellID, data.totemName) then
+							hit = nil
+						end
+					end
+				end
 				if hit then
 					if not frame.soundPlayed and R(totemId, "playSound") then
 						self:PlayReactiveSound(totemId)

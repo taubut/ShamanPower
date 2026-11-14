@@ -9,6 +9,30 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.13",
+		date = "2026-11-13",
+		headline = "Dark Icons, and a Dark theme",
+		new = {
+			{ h = "Dark Icons", icon = 136200,
+			  b = "A black edge and a slight dark vignette on every icon, its picture as it is. One switch each for the totem bar, the cooldown bar and Ready Reminders, under Icon Shape on each one's page. Works with every Icon Shape.",
+			  path = "Settings > Appearance > Totem Bar", open = { "fluffy", "totembar_appearance" },
+			  card = true, look = true, s = "Dark Icons: a black edge and a slight vignette on every icon." },
+			{ h = "Dark Theme", icon = 136223,
+			  b = "A fourth card on Appearance > Themes: Standard with Dark Icons on the totem bar, the cooldown bar and Ready Reminders.",
+			  path = "Settings > Appearance > Themes", open = { "settings", "settings_themes" },
+			  card = true, s = "A Dark card on Appearance > Themes." },
+		},
+		changes = {
+			"Support Code: it carries much more of your setup, so I can answer a report without asking you to try things. The names of the people in your party or raid are never in it.",
+		},
+		fixes = {
+			"Cooldown Bar (WoW: Forever): when a cooldown started in a fight, an error could show and the cooldown's countdown number went missing. Both are fixed.",
+			"Ready Reminders (WoW: Forever): Maelstrom Weapon with Only In Combat on never showed in a fight. It shows now.",
+			"Reactive Totems (WoW: Forever): with Hide When Totem Active on, an alert's sound still played while the alert itself was hidden. It stays quiet now.",
+		},
+		thanks = "Thanks to interslice for the report.",
+	},
+	{
 		v = "3.0.9.12",
 		date = "2026-11-12",
 		headline = "Set up all three Calls on the Totem Bar page",

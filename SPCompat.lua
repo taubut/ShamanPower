@@ -1770,6 +1770,9 @@ end
 
 local copyWin
 local function ShowCopyWindow(title, text)
+	-- (3.0.9.13) the Support Code runs the read-only probes and keeps what they would show here
+	local cap = SPCompat.copyCapture
+	if type(cap) == "table" then cap[#cap + 1] = { title = title, text = text } return end
 	if not copyWin then
 		local color, makeBorder, borderColor, fonts, closeButton = CopyWindowKit()
 		local f = CreateFrame("Frame", "ShamanPowerCopyWindow", UIParent)

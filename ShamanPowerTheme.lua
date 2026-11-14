@@ -1342,7 +1342,7 @@ local LOOK = {
 	theme = { "borders", "bordersFlyouts", "bordersCooldown", "bordersCooldownFlyouts", "borderSize", "borderSizeFlyouts",
 		"borderSizeCooldown", "borderSizeCooldownFlyouts", "classColors", "showAs" },
 	opt = { "barTexture", "dotShape", "dotGem", "glowShape", "procGlowOut", "frameEdge", "iconShape", "iconShapeCooldown",
-		"iconShapeReady", "iconShapeSplit", "iconBordersSquare", "durationBarBackground",
+		"iconShapeReady", "iconShapeSplit", "iconBordersSquare", "iconDark", "iconDarkCooldown", "iconDarkReady", "durationBarBackground",
 		"barGradientDirection", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection",
 		"totemBarCountdownColors", "cdbarCountdownColors", "readyCountdownColors",
 		"totemBarBuffTimerColors", "cdbarBuffTimerColors", "readyBuffTimerColors" },
@@ -1792,6 +1792,7 @@ function SP:ResetEverythingToDefault()
 	local defaults = SP.db and SP.db.defaults and SP.db.defaults.profile or {}
 	for _, k in ipairs({ "barTexture", "dotShape", "dotGem", "glowShape", "procGlowOut", "frameEdge",
 		"iconShape", "iconShapeCooldown", "iconShapeReady", "iconShapeSplit", "iconBordersSquare",
+		"iconDark", "iconDarkCooldown", "iconDarkReady",
 		"durationBarBackground", "barGradientDirections", "totemCooldownSweepDirection", "cdbarSweepDirection",
 		"totemBarCountdownColors", "cdbarCountdownColors", "readyCountdownColors", "countdownPreset",
 		"totemBarBuffTimerColors", "cdbarBuffTimerColors", "readyBuffTimerColors", "buffTimerPreset" }) do
@@ -1833,6 +1834,11 @@ end
 -- Only on clicks: nothing here runs while playing.
 -- ===========================================================================
 Cards.THEME_KEYS = { "palette", "shield", "custom" }       -- (plus global, spots and LOOK.theme)
+-- Dark (3.0.9.13, mockup A102): a fourth preset, Standard's look with Dark Icons on the
+-- totem bar, the cooldown bar and Ready Reminders. Not a theme of its own (it has no
+-- colors): its card applies Standard, then these.
+Cards.PRESET_EXTRA = { dark = { ["o.iconDark"] = true, ["o.iconDarkCooldown"] = true, ["o.iconDarkReady"] = true } }
+function Cards.IsPreset(key) return (THEMES[key] or Cards.PRESET_EXTRA[key]) and true or false end
 Cards.MODULES = { "ShamanPower_ReadyReminders", "ShamanPowerTremorReminderDB", "ShamanPower_TargetTracker", "ShamanPower_ReactiveTotems" }
 Cards.RR = { "borderColor", "glowColor", "barColor", "rangeColor", "buffEdgeColor", "resetColor", "stackColor", "stackColor5", "oomColor", "oomGlowColor" }
 -- flat keys an update added, with their defaults (see Cards.Migrate)
@@ -2109,6 +2115,12 @@ end
 
 function Cards.ApplyPreset(key)
 	local f = Cards.StandardFlat()
+	local extra = Cards.PRESET_EXTRA[key]
+	if extra then   -- (Dark: Standard, then its own looks)
+		for k, v in pairs(extra) do f[k] = v end
+		Cards.Apply(f, key)
+		return
+	end
 	f["t.global"] = (key ~= "standard") and key or nil
 	if key == "standard" then
 		Cards.Apply(f, "standard")
@@ -2167,7 +2179,7 @@ function Cards.BaseOf(card)
 		local th = Cards.Find(tonumber(card:sub(6)))
 		return th and th.base or "standard"
 	end
-	return THEMES[card] and card or "standard"
+	return Cards.IsPreset(card) and card or "standard"
 end
 -- The highest theme number any profile still points at (its card or its unsaved
 -- look's): a deleted theme's number may live on in another profile.
@@ -2195,7 +2207,7 @@ function Cards.Add(name, base, flat)
 	local id = math.max(tonumber(g.themeNextId) or 1, Cards.HighestRef() + 1)
 	for _, th in ipairs(list) do if (tonumber(th.id) or 0) >= id then id = th.id + 1 end end
 	g.themeNextId = id + 1
-	list[#list + 1] = { id = id, name = name, base = THEMES[base] and base or "standard", flat = Copy(flat),
+	list[#list + 1] = { id = id, name = name, base = Cards.IsPreset(base) and base or "standard", flat = Copy(flat),
 		created = time(), updated = time() }
 	return id
 end
@@ -2391,7 +2403,8 @@ function Cards.Kinds()
 	K["o.compactIdleColor"] = s({ grey = true, element = true })
 	K["o.compactOutlineColorMode"] = s({ element = true, custom = true })
 	K["o.totemCooldownSweepDirection"], K["o.cdbarSweepDirection"] = s({ top = true, bottom = true }), s({ top = true, bottom = true })
-	for _, k in ipairs({ "dotGem", "iconShapeSplit", "iconBordersSquare", "durationBarBackground", "shieldChargeColors",
+	for _, k in ipairs({ "dotGem", "iconShapeSplit", "iconBordersSquare", "iconDark", "iconDarkCooldown", "iconDarkReady",
+		"durationBarBackground", "shieldChargeColors",
 		"cdbarSpellColors", "rangeElementColors" }) do K["o." .. k] = { "b" } end
 	for _, k in ipairs({ "cBuffGood", "cBuffNeedSome", "cBuffNeedAll", "compactOutlineColor", "totemCooldownTextColor",
 		"pulseBarColor", "pulseFlashColor", "manaTintColor", "countdownColorMid", "countdownColorEnd",
@@ -2617,6 +2630,8 @@ Cards.LABEL = {
 	["o.barTexture"] = "Bar Texture", ["o.dotShape"] = "Dot Shape", ["o.dotGem"] = "Gem Dot Finish", ["o.glowShape"] = "Glow Shape", ["o.procGlowOut"] = "Proc Glow Thickness",
 	["o.frameEdge"] = "Frame Edge", ["o.iconShape"] = "Icon Shape", ["o.iconShapeCooldown"] = "Icon Shape (Cooldown Bar)",
 	["o.iconShapeReady"] = "Icon Shape (Ready Reminders)", ["o.iconBordersSquare"] = "Keep Borders Square",
+	["o.iconDark"] = "Dark Icons (Totem Bar)", ["o.iconDarkCooldown"] = "Dark Icons (Cooldown Bar)",
+	["o.iconDarkReady"] = "Dark Icons (Ready Reminders)",
 	["o.durationBarBackground"] = "Duration Bar Background", ["o.shieldTexture"] = "Shield Charges Texture",
 	["o.rangeElementColors"] = "Range Counter Colors", ["o.elementColorPalette"] = "Element Colors",
 	["o.elementColorsCustom"] = "Custom Element Colors", ["o.cBuffGood"] = "Status Colors", ["o.cBuffNeedSome"] = "Status Colors",
@@ -2716,7 +2731,7 @@ end
 
 -- a preset card
 function SP:SetThemeGlobal(key)
-	if not THEMES[key] or not ready then return end
+	if not Cards.IsPreset(key) or not ready then return end
 	local t = TW()
 	if not t then return end
 	local custom = SP:ThemeIsCustom()
@@ -2770,7 +2785,7 @@ function SP:ThemeUndo()
 		if th then Cards.Apply(Cards.Clean(th.flat), card) return end
 		card = "standard"
 	end
-	Cards.ApplyPreset(THEMES[card] and card or "standard")
+	Cards.ApplyPreset(Cards.IsPreset(card) and card or "standard")
 end
 -- Save as Theme / Save as New: the Custom look (in use, else the one waiting) under a
 -- name. A name already used is replaced (the page asked first). Returns the id.
@@ -2862,7 +2877,7 @@ function SP:ThemeTakeShared(list)
 			local flat = Cards.Clean(type(th.flat) == "table" and th.flat or {})
 			local name = Cards.CleanName(th.name)
 			if name == "" then name = "Shared Theme" end
-			local base = THEMES[th.base] and th.base or "standard"
+			local base = Cards.IsPreset(th.base) and th.base or "standard"
 			local mine = Cards.ByName(name)
 			local id
 			if mine then

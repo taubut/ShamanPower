@@ -145,7 +145,7 @@ do
 	SP.OrderSettingsBands(tb, {
 		{ header = "tb_size_header", name = "Size & Spacing", keys = { "tb_size_desc", "layout", "buffscale", "totemBarPadding" },
 		  names = { layout = "Layout", buffscale = "Scale", totemBarPadding = "Button Spacing" } },
-		{ header = "tb_icons_header", name = "Icons", keys = { "tb_icons_desc", "icon_shape" } },
+		{ header = "tb_icons_header", name = "Icons", keys = { "tb_icons_desc", "icon_shape", "icon_dark" } },
 		{ header = "tb_opacity_header", name = "Opacity", keys = { "tb_opacity_desc", "totemBarOpacity", "totemBarFullOpacityWhenActive" },
 		  names = { totemBarOpacity = "Opacity", totemBarFullOpacityWhenActive = "Fully Visible While a Totem Is Down" } },
 		{ header = "tb_panel_header", name = "Background & Border", keys = { "tb_panel_desc", "hide_totem_bar_frame", "tb_panel_note",
@@ -153,7 +153,7 @@ do
 		  names = { hide_totem_bar_frame = "Hide Background and Border" } },
 		{ header = "tb_indicator_header", name = "Dropped Totem Indicator", keys = { "tb_indicator_desc", "activeOverlayDirection" } },
 	})
-	local W = { layout = "full", buffscale = 1.0, totemBarPadding = 1.0, icon_shape = "full", totemBarOpacity = 1.0,
+	local W = { layout = "full", buffscale = 1.0, totemBarPadding = 1.0, icon_shape = "full", icon_dark = "full", totemBarOpacity = 1.0,
 		totemBarFullOpacityWhenActive = "full", hide_totem_bar_frame = "full", activeOverlayDirection = "full" }
 	for k, w in pairs(W) do if a[k] then a[k].width = w end end
 	if a.hide_totem_bar_frame then a.hide_totem_bar_frame.desc = "Hide the panel behind the totem buttons, its background and its border, and show the icons alone." end
@@ -196,6 +196,7 @@ do
 	a.cooldownBarPadding = twin(app.cooldownBarPadding, { name = "Button Spacing", width = 1.0 })
 	a.cd_icons_desc = desc("Changes the cooldown icons and their shield and weapon imbue flyouts.")
 	a.icon_shape = twin(app.icon_shape, { name = "Icon Shape", width = "full" })
+	a.icon_dark = twin(app.icon_dark, { name = "Dark Icons", width = "full" })
 	a.cd_opacity_desc = desc("Choose how visible the buttons are, then whether active buttons become fully visible.")
 	a.cooldownBarOpacity = twin(app.cooldownBarOpacity, { name = "Opacity", width = 1.0 })
 	a.cooldownBarFullOpacityWhenActive = twin(app.cooldownBarFullOpacityWhenActive, { name = "Fully Visible While Active or on Cooldown", width = "full",
@@ -223,7 +224,7 @@ do
 	SP.OrderSettingsBands(cd, {
 		{ keys = { "cd_off_note" } },
 		{ header = "cd_size_header", name = "Size & Spacing", keys = { "cd_size_desc", "cdbarLayout", "cooldownBarScale", "cooldownBarPadding" } },
-		{ header = "cd_icons_header", name = "Icons", keys = { "cd_icons_desc", "icon_shape" } },
+		{ header = "cd_icons_header", name = "Icons", keys = { "cd_icons_desc", "icon_shape", "icon_dark" } },
 		{ header = "cd_opacity_header", name = "Opacity", keys = { "cd_opacity_desc", "cooldownBarOpacity", "cooldownBarFullOpacityWhenActive" } },
 		{ header = "cd_panel_header", name = "Background & Border", keys = { "cd_panel_desc", "hide_cooldown_bar_frame", "cd_bg_color", "cd_border_color" } },
 		{ header = "cd_resets_header", name = "Shared Resets", keys = { "cd_resets_desc", "cd_scale_reset", "cd_reset_opacity_desc", "cd_opacity_reset", "cd_reset_padding_desc", "cd_padding_reset" } },
