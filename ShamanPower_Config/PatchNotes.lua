@@ -9,6 +9,16 @@ local _, ns = ...
 -- line at the bottom of the version's Patch Notes (never on the card).
 ns.PATCH_NOTES = {
 	{
+		v = "3.0.9.15",
+		date = "2026-11-16",
+		headline = "Two fixes: trainer reminders at 60, and Maelstrom's Proc Glow",
+		fixes = {
+			"Trainer reminder (WoW: Forever): at level 60 it asked you to train Flame Shock (Rank 6), Grace of Air Totem (Rank 3), Healing Wave (Rank 10) and Strength of Earth Totem (Rank 5), which WoW: Forever's trainers don't teach yet. It only reminds you of those once a trainer offers them.",
+			"Ready Reminders (WoW: Forever): Maelstrom Weapon with its At 5 Stacks Glow set to Proc Glow showed an error over and over (\"Reparenting disallowed\") and the glow didn't show. It's fixed, and the glow shows.",
+		},
+		thanks = "Thanks to Rakii and BITCORNelius for the reports.",
+	},
+	{
 		v = "3.0.9.14",
 		date = "2026-11-16",
 		headline = "Quick Totems, and a profile for each spec",

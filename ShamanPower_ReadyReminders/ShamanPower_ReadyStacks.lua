@@ -534,13 +534,14 @@ local function describe(A, stage, e)
 				ag:Play()
 			elseif numOnly then
 				fiveCopy(fr, s, gr, gg, gb, true)   -- (Number Only: the 5 itself glows, whatever the Glow Shape)
-			elseif shape == "proc" and SP.ProcGlow_Start then
-				-- Proc Glow: WeakAuras' ring on a frame of ours the size of the icon
+			elseif shape == "proc" and SP.ProcGlow_Plain then
+				-- Proc Glow: WeakAuras' ring on a frame of ours the size of the icon (3.0.9.15: made on it, never a
+				-- pooled one moved in: the game refuses that on its aura button, a player's /sperrors)
 				local c = { gr, gg, gb, 1 }
 				if gr > 0.98 and gg > 0.98 and gb > 0.98 then c = nil end   -- (white: the game's gold)
 				local pf = CreateFrame("Frame", nil, fr)
 				pf:SetSize(w, h); pf:SetPoint("CENTER", stage, "CENTER", 0, 0)
-				SP.ProcGlow_Start(pf, SP:ProcGlowOptions(pf, c, "rs", true, IconOpt(e, "glowThick") or SP.PROC_GLOW_OUT or 0.2))
+				SP.ProcGlow_Plain(pf, SP:ProcGlowOptions(pf, c, "rs", true, IconOpt(e, "glowThick") or SP.PROC_GLOW_OUT or 0.2))
 			elseif barOnly then
 				barGlow(fr, fr, gr, gg, gb)   -- (Charge Bar Only: all the way round the bar)
 			else

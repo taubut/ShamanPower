@@ -82,6 +82,27 @@ local TRAINER = {
 -- was one until the November 2 notes took it out of the game.
 local TALENT_SPELL = { [408521] = true, [16190] = true }
 
+-- (3.0.9.15, Rakii on Discord) ranks Forever's game files list at the level-60 trainer that its trainers don't
+-- teach yet (later vanilla patches): Flame Shock 6, Grace of Air Totem 3, Healing Wave 10, Strength of Earth
+-- Totem 5. Never reminded until a trainer has been seen offering one; then that one is reminded like any rank
+-- (remembered for the account, db.global.trainerSeen), so they start by themselves when they reach the game.
+local LATER = { [29228] = true, [25359] = true, [25357] = true, [25361] = true }
+local LATER_RANK = {}   -- [spellID] = its rank, from TRAINER
+for _, row in pairs(TRAINER) do
+	for i = 1, #row, 2 do if LATER[row[i]] then LATER_RANK[row[i]] = row[i + 1] end end
+end
+local function seenAtTrainer()
+	local g = SP.db and SP.db.global
+	if not g then return nil end
+	if type(g.trainerSeen) ~= "table" then g.trainerSeen = {} end
+	return g.trainerSeen
+end
+local function taught(id)
+	if not LATER[id] then return true end
+	local t = seenAtTrainer()
+	return t ~= nil and t[id] == true
+end
+
 local function cfg()
 	SP.opt.trainerReminder = SP.opt.trainerReminder or {}
 	return SP.opt.trainerReminder
@@ -121,6 +142,7 @@ local function missing(level, newLevel)
 				local ranks = SPCompat.SpellRanks(id)
 				local first = ranks and ranks[1] or id
 				if wanted and TALENT_SPELL[first] then wanted = SPCompat.KnowsSpellID(id) end
+				if wanted and not taught(id) then wanted = false end   -- (3.0.9.15: not at the trainer yet)
 				local name = wanted and SPCompat.SpellName(id)
 				if name then
 					local label = name
@@ -168,11 +190,52 @@ end
 
 function SP:TrainerReminderReport() report(UnitLevel("player") or 1, nil, true) end
 
+-- (3.0.9.15) an open trainer window: which of the LATER ranks it offers (by the spell ID its tooltip data
+-- gives, else by name and rank). Only while a trainer is open, and only while one of them is still unseen.
+local TYPES = { available = true, unavailable = true, used = true }
+local function plain(v) return v ~= nil and not (issecretvalue and issecretvalue(v)) end
+local function scanTrainer()
+	local t = seenAtTrainer()
+	if not (t and GetNumTrainerServices and GetTrainerServiceInfo) then return end
+	local want   -- [name][rank] = spellID, for the ranks not seen yet
+	for id in pairs(LATER) do
+		local name = not t[id] and SPCompat.SpellName(id)
+		if name then
+			want = want or {}
+			want[name] = want[name] or {}
+			want[name][LATER_RANK[id] or 0] = id
+		end
+	end
+	if not want then return end
+	local n = GetNumTrainerServices() or 0
+	for i = 1, n do
+		local tip = C_TooltipInfo and C_TooltipInfo.GetTrainerService
+		local ok, data = false, nil
+		if tip then ok, data = pcall(tip, i) end
+		local tid = ok and type(data) == "table" and plain(data.id) and data.id or nil
+		if tid and LATER[tid] then
+			t[tid] = true
+		else
+			-- WoW: Forever's order: name, type, texture, level, rank text (older clients: name, rank text, type)
+			local r = { GetTrainerServiceInfo(i) }
+			local name, sub = r[1], (plain(r[2]) and TYPES[r[2]]) and r[5] or r[2]
+			if plain(name) and plain(sub) and type(sub) == "string" and want[name] then
+				local rank = tonumber(sub:match("(%d+)"))
+				local id = rank and want[name][rank]
+				if id then t[id] = true end
+			end
+		end
+	end
+end
+
 local f = CreateFrame("Frame")
 if SPCompat and SPCompat.StressRegister then SPCompat.StressRegister(f, "Trainer Reminder") end
 f:RegisterEvent("PLAYER_LEVEL_UP")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
+f:RegisterEvent("TRAINER_SHOW")     -- (3.0.9.15) what the trainer really teaches
+f:RegisterEvent("TRAINER_UPDATE")
 f:SetScript("OnEvent", function(_, event, a1)
+	if event == "TRAINER_SHOW" or event == "TRAINER_UPDATE" then pcall(scanTrainer) return end
 	if SP:IsOff() or not on("enabled", true) then return end
 	if event == "PLAYER_LEVEL_UP" then
 		local lvl = tonumber(a1) or UnitLevel("player")

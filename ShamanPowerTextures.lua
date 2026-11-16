@@ -547,7 +547,7 @@ end
 local ProcGlowPool = CreateFramePool("Frame", GlowParent, nil, ProcGlowResetter)
 SP.ProcGlowPool = ProcGlowPool
 
-local function InitProcGlow(f)
+local function InitProcGlow(f, loopOnly)
     f.ProcStart = f:CreateTexture(nil, "ARTWORK")
     f.ProcStart:SetBlendMode("ADD")
     f.ProcStart:SetAtlas("UI-HUD-ActionBar-Proc-Start-Flipbook")
@@ -582,6 +582,7 @@ local function InitProcGlow(f)
     flipbookRepeat:SetFlipBookFrameWidth(0)
     flipbookRepeat:SetFlipBookFrameHeight(0)
     f.ProcLoopAnim.flipbookRepeat = flipbookRepeat
+    if loopOnly then return end   -- ShamanPower: the loop alone (SP.ProcGlow_Plain below)
 
     f.ProcStartAnim = f:CreateAnimationGroup()
     f.ProcStartAnim:SetToFinalAlpha(true)
@@ -676,24 +677,8 @@ local ProcGlowDefaults = {
     key = ""
 }
 
-function SP.ProcGlow_Start(r, options)
-    if not r then
-        return
-    end
-    options = options or {}
-    setmetatable(options, { __index = ProcGlowDefaults })
-    local key = "_ProcGlow" .. options.key
-    local f, new
-    if r[key] then
-        f = r[key]
-    else
-        f, new = ProcGlowPool:Acquire()
-        if new then
-            InitProcGlow(f)
-        end
-        r[key] = f
-    end
-    f:SetParent(r)
+-- ShamanPower: where the glow sits on r, its mask and its fill (shared by ProcGlow_Start and ProcGlow_Plain)
+local function placeProcGlow(f, r, options)
     f:SetFrameLevel(r:GetFrameLevel() + options.frameLevel)
 
     local width, height = r:GetSize()
@@ -737,9 +722,55 @@ function SP.ProcGlow_Start(r, options)
     else
         for i = 1, 4 do F[i]:Hide() end
     end
+end
 
+function SP.ProcGlow_Start(r, options)
+    if not r then
+        return
+    end
+    options = options or {}
+    setmetatable(options, { __index = ProcGlowDefaults })
+    local key = "_ProcGlow" .. options.key
+    local f, new
+    if r[key] then
+        f = r[key]
+    else
+        f, new = ProcGlowPool:Acquire()
+        if new then
+            InitProcGlow(f)
+        end
+        r[key] = f
+    end
+    f:SetParent(r)
+    placeProcGlow(f, r, options)
     SetupProcGlow(f, options)
     f:Show()
+end
+
+-- ShamanPower (3.0.9.15): a Proc Glow on a part the game shows and hides (a Ready Stacks part on the game's
+-- aura button, WoW: Forever). The game refuses a frame moved there from elsewhere ("Frame:SetParent():
+-- Reparenting disallowed as child object would inherit forbidden aspects", a player's /sperrors), so this one
+-- is made on r itself, never pooled, and carries no script: the ring's loop only (no start burst), started once
+-- and looping with r. Nothing to stop: the part it sits on is rebuilt, never reused.
+function SP.ProcGlow_Plain(r, options)
+    if not r then
+        return
+    end
+    options = options or {}
+    setmetatable(options, { __index = ProcGlowDefaults })
+    local f = CreateFrame("Frame", nil, r)
+    InitProcGlow(f, true)
+    f.ProcStart:Hide()   -- (made with the rest; this one never bursts)
+    placeProcGlow(f, r, options)
+    local c = options.color
+    if c then
+        f.ProcLoop:SetDesaturated(1)
+        f.ProcLoop:SetVertexColor(c[1], c[2], c[3], c[4])
+    end
+    f.ProcLoopAnim.flipbookRepeat:SetDuration(options.duration)
+    f.ProcLoop:Show()
+    f.ProcLoopAnim:Play()
+    return f
 end
 
 function SP.ProcGlow_Stop(r, key)
