@@ -1,5 +1,30 @@
 # ShamanPower Changelog
 
+## v3.0.9.14 (2026-11-16)
+
+### After updating
+- After updating, fully close and restart the game once: 3.0.9.14 adds new files, and a /reload alone does not load them.
+
+### New
+- **Quick Totems:** up to two small buttons at each element's corners on your totem bar, each dropping a totem of that element in one click, while your main totem stays as it is. Pick them on Totem Bar > Bar: right-click a totem there and choose Quick Totem 1 or 2. Turn them on with Show Quick Totems in the Quick Totems band on the same page, where you also pick Where (Auto puts them on the side away from your flyouts), their Size and Show Their Keys. While one of them is down it lights up in its element's color with its time left. Your duration bars, pulse timers and time text move out past them. Works with the Normal, TotemTimers, Single Totem and Dynamic (PvP) styles. Off until you turn it on.
+- **Profile by Spec:** on the Profiles page, pick a profile for Elemental, Enhancement and Restoration. When you change spec, ShamanPower switches to that spec's profile and says so in chat (in a fight, right after it). A profile you pick yourself stays until your spec changes again. Don't Switch leaves your profile alone. Saved for each character.
+- **Ready Reminders by spec:** Show For in each reminder's right-click menu: tick Elemental, Enhancement or Restoration. In your other specs the reminder hides by itself, and it comes back when you switch to a spec you ticked. Nothing ticked: every spec, as before. On WoW: Forever your spec comes from your talents: Rage of the Farseer is Enhancement, Lightning Mastery Elemental, Riptide Restoration.
+- **Clearcasting reminder (WoW: Forever):** Clearcasting, from the Elemental talent Elemental Focus, on the Ready Reminders Spells row. It shows while the buff is on you and hides when it's gone, in fights too, with its own Glow or Pulse and a Sound when it procs. Off until you click it.
+- **Maelstrom Weapon, Number Only (WoW: Forever):** a new Look for the Maelstrom Weapon reminder: just the stack count, with no icon, background or bar. At 5 stacks it turns Color At 5 Stacks and plays its Glow or Pulse. Time Left can add a smaller number under it.
+- **Drop All on either side:** on Totem Bar > Bar, drag Drop All to the start of your bar in the Buttons row. Totemic Call stays where it was.
+
+### Changes
+- **Totem Bar:** Duration Bar Opacity and Pulse Bar Opacity go all the way down to 0%: the bar disappears and its timer stays.
+
+### Fixes
+- **Ready Reminders (WoW: Forever):** Maelstrom Weapon's reminder could show an error ("blocked by secret aspects") when it was set up. It's fixed, and its sound at 5 stacks still plays in fights.
+- **Ready Reminders:** with Click Through on, the spot under a row's (or the grid's) first icon still caught the mouse, so the camera wouldn't turn there. The mouse goes through now.
+- **Battlegrounds (WoW: Forever):** an error could repeat over and over ("calling 'GetTexCoord' on bad self") when a bar was rebuilt. It's gone.
+- **Support Code (WoW: Forever):** it reported the spec you picked in the setup tour instead of the one you play. It reads your talents now.
+
+### Thanks
+- Thanks to Dibul, nano, 하랑, Snugs and aVikingTrex for the ideas on Discord, to noxiism, Mononders and a player on CurseForge for the reports, and to my Patreon supporters Afren, Bobjee and Zegma.
+
 ## v3.0.9.13 (2026-11-13)
 
 ### New
