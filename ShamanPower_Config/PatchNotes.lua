@@ -48,7 +48,7 @@ ns.PATCH_NOTES = {
 			"Battlegrounds (WoW: Forever): an error could repeat over and over when a bar was rebuilt. It's gone.",
 		},
 		also = "Duration Bar and Pulse Bar Opacity go down to 0%",
-		thanks = "Thanks to Dibul, nano, 하랑, Snugs and aVikingTrex for the ideas on Discord, to noxiism, Mononders and a player on CurseForge for the reports, and to my Patreon supporters Afren, Bobjee and Zegma.",
+		thanks = "Thanks to Dibul, nano, Harang, Snugs and aVikingTrex for the ideas on Discord, to noxiism, Mononders and a player on CurseForge for the reports, and to my Patreon supporters Afren, Bobjee and Zegma.",
 	},
 	{
 		v = "3.0.9.13",
