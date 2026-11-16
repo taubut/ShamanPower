@@ -393,6 +393,8 @@ function SP:ApplyDroppedTotems()
 		end
 		local sep = _G.ShamanPowerAutoSeparator
 		if sep then sep:Hide() end
+		sep = _G.ShamanPowerAutoSeparator2   -- (3.0.9.14: Drop All dragged to the start, Totemic Call at the end)
+		if sep then sep:Hide() end
 		if self.HideActiveTotemOverlaysForCompact then self:HideActiveTotemOverlaysForCompact() end
 		if self.autoButton and not self.autoButton.spDroppedMouse then
 			self.autoButton.spDroppedMouse = true

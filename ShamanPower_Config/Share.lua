@@ -245,6 +245,33 @@ local function InjectProfileButtons()
 	for k, o in pairs(order) do if profiles.args[k] then profiles.args[k].order = o end end
 	if profiles.args.desc then profiles.args.desc.name = "A profile holds every setting. Each character can use its own, or share one." end
 	for _, k in ipairs({ "choosedesc", "copydesc", "deldesc", "descreset" }) do if profiles.args[k] then profiles.args[k].hidden = true end end
+	-- (3.0.9.14) Profile by Spec: a profile for each spec, put in use when you change spec
+	if SP.SpecProfileKeys then
+		local NONE = "\001none"
+		profiles.args.spSpecHeader = { order = 0.05, type = "header", name = "Profile by Spec" }
+		profiles.args.spSpecDesc = { order = 0.051, type = "description", fontSize = "medium",
+			name = "Pick a profile for each spec. When you change spec, ShamanPower switches to that spec's profile. Your spec is read from your talents, the same way Ready Reminders' Show For reads it. Saved for this character." }
+		for i, key in ipairs(SP.SpecProfileKeys) do
+			local spec = SP.SpecProfileNames[key]
+			profiles.args["spSpec_" .. key] = {
+				order = 0.052 + i * 0.001, type = "select", width = 1.0, name = spec,
+				desc = "The profile used while you're " .. spec .. ". Don't Switch: your profile stays as it is.",
+				values = function()
+					local t = { [NONE] = "Don't Switch" }
+					for _, n in ipairs((SP.db:GetProfiles())) do t[n] = n end
+					return t
+				end,
+				sorting = function()
+					local names = SP.db:GetProfiles()
+					table.sort(names)
+					table.insert(names, 1, NONE)
+					return names
+				end,
+				get = function() return SP:SpecProfileFor(key) or NONE end,
+				set = function(_, v) SP:SetSpecProfile(key, v ~= NONE and v or nil) end,
+			}
+		end
+	end
 	profiles.args.spShareHeader = { order = 0.1, type = "header", name = "Share" }
 	profiles.args.spShareDesc = {
 		order = 0.15, type = "description", fontSize = "medium",

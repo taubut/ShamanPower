@@ -102,6 +102,7 @@ local SP_SECURE_ONLEAVE_PARENT_MAINLINE = [[
 
 local SP_SECURE_ONLEAVE_PARENT = (SPCompat.FOREVER)
 	and SP_SECURE_ONLEAVE_PARENT_MAINLINE or SP_SECURE_ONLEAVE_PARENT_CLASSIC
+ShamanPower.SECURE_ONLEAVE_PARENT = SP_SECURE_ONLEAVE_PARENT   -- (Quick Totems: their buttons leave a hover flyout the same way)
 
 -- Every secure snippet write goes through here.
 --
@@ -7823,6 +7824,7 @@ function ShamanPower:PositionTotemButtons()
 	-- Compact style: buttons are lines (bw x bh) inside a slot that may also hold an icon square
 	local bw, bh, sw, sh, offX, offY = self:GetTotemSlotDims()
 	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0   -- Compact shield line at the start
+	startOff = startOff + self:TotemBarExtrasLead()   -- (3.0.9.14) Drop All dragged to the start: the totems after it
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 
 	-- Check which totem buttons should be visible (not hidden and not popped out)
@@ -7880,6 +7882,7 @@ function ShamanPower:UpdateTotemButtons()
 	-- Compact style: buttons are lines (bw x bh) inside a slot that may also hold an icon square
 	local bw, bh, sw, sh, offX, offY = self:GetTotemSlotDims()
 	local startOff = self.CompactStartOffset and self:CompactStartOffset() or 0   -- Compact shield line at the start
+	startOff = startOff + self:TotemBarExtrasLead()   -- (3.0.9.14) Drop All dragged to the start: the totems after it
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
 
 	-- Check which totem buttons should be visible (not hidden in options and not popped out)
@@ -8410,6 +8413,16 @@ function ShamanPower:FlyoutArrowAcross(btn, dir)
 	return math.max(0, math.floor(ARROW_H * k - 2 + 0.5))   -- the tab is tucked 2 px into the button
 end
 
+-- (3.0.9.14) The room the tab takes on that side of a button whenever it shows (a fight, in box mode), asked out
+-- of a fight too: Quick Totems on the flyout's side keep it, so they never move when a fight starts (A110).
+function ShamanPower:FlyoutTabRoom(btn, dir)
+	if not (btn and spFlyoutBoxMode() and self.opt and self.opt.showTotemFlyouts ~= false) then return 0 end
+	local sideways = (dir == "left" or dir == "right")
+	local edge = sideways and btn:GetHeight() or btn:GetWidth()
+	local k = math.min(1, ((edge and edge > 0) and edge or ARROW_W) / ARROW_W)
+	return math.max(0, math.floor(ARROW_H * k - 2 + 0.5))
+end
+
 -- Room between a button and the first icon of its flyout, measured so the pieces
 -- butt up against each other with no gap and no overlap:
 --   button | arrow tab | (Compact: the icon square, when it is on this end) | flyout
@@ -8457,7 +8470,17 @@ end
 -- so the per-tick cooldown bar code can read it too.
 function ShamanPower:FlyoutArrowPads(btn)
 	if not btn then return 0, 0, 0, 0 end
-	return btn.spArrowPadT or 0, btn.spArrowPadB or 0, btn.spArrowPadL or 0, btn.spArrowPadR or 0
+	local t, b, l, r = btn.spArrowPadT or 0, btn.spArrowPadB or 0, btn.spArrowPadL or 0, btn.spArrowPadR or 0
+	-- (3.0.9.14) Quick Totems' row on its side of an element button (ShamanPowerQuickTotems.lua): what is drawn
+	-- outside the button steps out past it too. On the tab's side it already holds the tab's room.
+	local qT = btn.spQuickPadT
+	if qT then
+		if qT > t then t = qT end
+		if btn.spQuickPadB > b then b = btn.spQuickPadB end
+		if btn.spQuickPadL > l then l = btn.spQuickPadL end
+		if btn.spQuickPadR > r then r = btn.spQuickPadR end
+	end
+	return t, b, l, r
 end
 
 -- A button's tab appeared, moved or went (PlaceFlyoutArrows, which only runs out
@@ -8472,7 +8495,7 @@ function ShamanPower:FollowFlyoutArrows(btn)
 	local gap = side and self:FlyoutArrowGapOn(btn, side) or 0
 	local t, b = (side == "top") and gap or 0, (side == "bottom") and gap or 0
 	local l, r = (side == "left") and gap or 0, (side == "right") and gap or 0
-	local oT, oB, oL, oR = self:FlyoutArrowPads(btn)
+	local oT, oB, oL, oR = btn.spArrowPadT or 0, btn.spArrowPadB or 0, btn.spArrowPadL or 0, btn.spArrowPadR or 0   -- (the tab's own)
 	if t == oT and b == oB and l == oL and r == oR then return end
 	btn.spArrowPadT, btn.spArrowPadB, btn.spArrowPadL, btn.spArrowPadR = t, b, l, r
 	-- a popped-out button's own panel reaches out past its tab too
@@ -8595,6 +8618,8 @@ function ShamanPower:DressFlyoutFrame(flyout)
 	local size = flyout.buttonSize or 28
 	local f = size / 24                                  -- Blizzard's art is for 24 px icons
 	local lead = flyout.leadGap or 0
+	local quickLead = self.QuickTotemFlyoutLead and self:QuickTotemFlyoutLead(flyout) or 0   -- (3.0.9.14: as the buttons')
+	if quickLead > lead then lead = quickLead end
 	local bw, bh = btn:GetWidth() or 30, btn:GetHeight() or 30
 	local bAlong, bAcross = sideways and bw or bh, sideways and bh or bw
 	-- One even border all the way round: Blizzard shows 4 px of panel beside a
@@ -8740,6 +8765,7 @@ local SP_FLYOUT_CHILD_RELAYOUT = [[
 		local parent = self:GetParent()
 		local buttonSize = parent:GetAttribute("flyoutButtonSize") or 28
 		local spacing = parent:GetAttribute("flyoutSpacing") or 0
+		local lead = parent:GetAttribute("flyoutLead") or spacing   -- (Quick Totems on this side: past their row)
 		local isVerticalLeft = parent:GetAttribute("isVerticalLeft")
 		local flyoutIsHorizontal = parent:GetAttribute("flyoutIsHorizontal")
 		local flyoutGoesBelow = parent:GetAttribute("flyoutGoesBelow")
@@ -8762,15 +8788,15 @@ local SP_FLYOUT_CHILD_RELAYOUT = [[
 		self:ClearAllPoints()
 		if flyoutIsHorizontal then
 			if isVerticalLeft then
-				self:SetPoint("RIGHT", parent, "LEFT", -spacing - visibleBefore * (buttonSize + spacing), 0)
+				self:SetPoint("RIGHT", parent, "LEFT", -lead - visibleBefore * (buttonSize + spacing), 0)
 			else
-				self:SetPoint("LEFT", parent, "RIGHT", spacing + visibleBefore * (buttonSize + spacing), 0)
+				self:SetPoint("LEFT", parent, "RIGHT", lead + visibleBefore * (buttonSize + spacing), 0)
 			end
 		else
 			if flyoutGoesBelow then
-				self:SetPoint("TOP", parent, "BOTTOM", 0, -spacing - visibleBefore * (buttonSize + spacing))
+				self:SetPoint("TOP", parent, "BOTTOM", 0, -lead - visibleBefore * (buttonSize + spacing))
 			else
-				self:SetPoint("BOTTOM", parent, "TOP", 0, spacing + visibleBefore * (buttonSize + spacing))
+				self:SetPoint("BOTTOM", parent, "TOP", 0, lead + visibleBefore * (buttonSize + spacing))
 			end
 		end
 	]]
@@ -9309,6 +9335,13 @@ function ShamanPower:LayoutFlyoutButtons(flyout, flyoutIsHorizontal)
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
 	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow strip
+	-- (3.0.9.14) Quick Totems on this side: the flyout starts past their row (it holds the tab's room already);
+	-- the in-combat relayout reads the same (flyoutLead). Nothing changes without them.
+	local quickLead = self.QuickTotemFlyoutLead and self:QuickTotemFlyoutLead(flyout) or 0
+	if quickLead > (flyout.leadGap or 0) then lead = spacing + quickLead end
+	if flyout.totemButton and not InCombatLockdown() and flyout.totemButton:GetAttribute("flyoutLead") ~= ((quickLead > 0) and lead or nil) then
+		flyout.totemButton:SetAttribute("flyoutLead", (quickLead > 0) and lead or nil)
+	end
 
 	-- Check if this element is popped out and has a custom flyout direction
 	local element = flyout.element or (totemButton and totemButton.element)
@@ -9615,6 +9648,13 @@ function ShamanPower:UpdateFlyoutVisibility(element)
 	local buttonSize = flyout.buttonSize or 28
 	local spacing = flyout.spacing or 0
 	local lead = spacing + (flyout.leadGap or 0)   -- box mode leaves room for the arrow strip
+	-- (3.0.9.14) Quick Totems on this side: the flyout starts past their row (it holds the tab's room already);
+	-- the in-combat relayout reads the same (flyoutLead). Nothing changes without them.
+	local quickLead = self.QuickTotemFlyoutLead and self:QuickTotemFlyoutLead(flyout) or 0
+	if quickLead > (flyout.leadGap or 0) then lead = spacing + quickLead end
+	if flyout.totemButton and not InCombatLockdown() and flyout.totemButton:GetAttribute("flyoutLead") ~= ((quickLead > 0) and lead or nil) then
+		flyout.totemButton:SetAttribute("flyoutLead", (quickLead > 0) and lead or nil)
+	end
 	local visibleIndex = 0
 	local visibleButtons = {}
 
@@ -16118,6 +16158,27 @@ function ShamanPower:AssignmentsChanged()
 	if reg then reg:NotifyChange("ShamanPower") end
 end
 
+-- (3.0.9.14) Drop All dragged to the start of the bar (Totem Bar > Bar, its Buttons row; Dibul's ask on Discord,
+-- 11-14): Drop All goes before the totems with a separator after it; Totemic Call, when it is on this bar, stays at
+-- the end (the owner: "so its just the drop all, and recal stays where it was"). The room Drop All takes there,
+-- along the bar; 0 at the end, as always. The icon styles laid out here only (Compact, Grid, Dropped Totems and
+-- Blizzard's bar keep theirs).
+function ShamanPower:TotemBarExtrasLead()
+	local o = self.opt
+	if not (o and o.dropAllFirst) then return 0 end
+	if (self.CompactActive and self:CompactActive()) or (self.GridActive and self:GridActive())
+		or (self.DroppedActive and self:DroppedActive()) or (self.UsingBlizzardTotemBar and self:UsingBlizzardTotemBar()) then
+		return 0
+	end
+	if not (self:ShowsDropAllButton() and not self:IsDropAllPoppedOut()) then return 0 end
+	for e = 1, 4 do
+		if self:IsElementShown(e) and not self:IsElementPoppedOut(e) then
+			return 26 + 12   -- (the button and the separator's gap: UpdateMiniTotemBar's sizes)
+		end
+	end
+	return 0   -- (no totems: Drop All alone, from the start, as always)
+end
+
 function ShamanPower:UpdateMiniTotemBar()
 	self._ovWake = true   -- this repaints the totem icons: the dropped-totem overlay state is re-applied on the next bar tick
 	self:AssignmentsChanged()
@@ -16177,12 +16238,14 @@ function ShamanPower:UpdateMiniTotemBar()
 	local extraButtonCount = 0
 	if includeDropAll then extraButtonCount = extraButtonCount + 1 end
 	if showTotemicCall then extraButtonCount = extraButtonCount + 1 end
+	-- (3.0.9.14) Drop All at the start, Totemic Call at the end: a separator on each side of the totems
+	local splitExtra = (self:TotemBarExtrasLead() > 0 and showTotemicCall) and (separatorSize - spacing) or 0
 
 	if isHorizontal then
 		-- Horizontal: wide and short
 		local totalWidth = (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
 		if extraButtonCount > 0 and visibleCount > 0 then
-			totalWidth = totalWidth + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1))
+			totalWidth = totalWidth + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1)) + splitExtra
 		elseif extraButtonCount > 0 then
 			totalWidth = (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1)) + (padding * 2)
 		end
@@ -16191,7 +16254,7 @@ function ShamanPower:UpdateMiniTotemBar()
 		-- Vertical: narrow and tall
 		local totalHeight = (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1)) + (padding * 2)
 		if extraButtonCount > 0 and visibleCount > 0 then
-			totalHeight = totalHeight + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1))
+			totalHeight = totalHeight + separatorSize + (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1)) + splitExtra
 		elseif extraButtonCount > 0 then
 			totalHeight = (buttonSize * extraButtonCount) + (spacing * math.max(0, extraButtonCount - 1)) + (padding * 2)
 		end
@@ -16209,6 +16272,7 @@ function ShamanPower:UpdateMiniTotemBar()
 
 	-- Get the order to display totem buttons
 	local totemOrder = self.opt.totemBarOrder or {1, 2, 3, 4}
+	local extrasLead = self:TotemBarExtrasLead()   -- (3.0.9.14) Drop All first: the totems after it
 
 	local visiblePosition = 0  -- Track position of visible buttons
 	for position = 1, 4 do
@@ -16260,10 +16324,10 @@ function ShamanPower:UpdateMiniTotemBar()
 				totemButton:ClearAllPoints()
 				if isHorizontal then
 					-- Horizontal: buttons go left to right
-					totemButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + (visiblePosition - 1) * (buttonSize + spacing), -padding)
+					totemButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + extrasLead + (visiblePosition - 1) * (buttonSize + spacing), -padding)
 				else
 					-- Vertical: buttons go top to bottom
-					totemButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -padding - (visiblePosition - 1) * (buttonSize + spacing))
+					totemButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -padding - extrasLead - (visiblePosition - 1) * (buttonSize + spacing))
 				end
 
 				-- Set up the button: left-click casts totem, right-click casts Totemic Call
@@ -16352,7 +16416,48 @@ function ShamanPower:UpdateMiniTotemBar()
 	if showTotemicCall then extraButtonsShown = extraButtonsShown + 1 end
 
 	-- Position extra buttons (Drop All and Totemic Call)
-	if extraButtonsShown > 0 and visibleCount > 0 then
+	-- a second separator: before Totemic Call at the end, while Drop All is at the start (made the first time)
+	local separator2 = _G["ShamanPowerAutoSeparator2"]
+	if separator2 then separator2:Hide() end
+	if extraButtonsShown > 0 and visibleCount > 0 and extrasLead > 0 then
+		-- (3.0.9.14) dragged to the start: Drop All, the separator, the totems; Totemic Call stays at the end
+		local totemsEnd = padding + extrasLead + (startOff + slotAlong * visibleCount) + (spacing * math.max(0, visibleCount - 1))
+		separator:ClearAllPoints()
+		if isHorizontal then
+			separator:SetSize(2, slotCross)
+			separator:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding + buttonSize + (separatorSize / 2) - 1, -padding)
+		else
+			separator:SetSize(slotCross, 2)
+			separator:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -padding - buttonSize - (separatorSize / 2) + 1)
+		end
+		separator:Show()
+		if dropAllButton then
+			dropAllButton:ClearAllPoints()
+			dropAllButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -padding)
+			dropAllButton:Show()
+		end
+		if showTotemicCall and totemicCallButton then
+			if not separator2 then
+				separator2 = self.autoButton:CreateTexture("ShamanPowerAutoSeparator2", "ARTWORK")
+				separator2:SetColorTexture(0.5, 0.5, 0.5, 0.8)  -- (as the first)
+			end
+			separator2:ClearAllPoints()
+			totemicCallButton:ClearAllPoints()
+			if isHorizontal then
+				separator2:SetSize(2, slotCross)
+				separator2:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", totemsEnd + (separatorSize / 2) - 1, -padding)
+				totemicCallButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", totemsEnd + separatorSize, -padding)
+			else
+				separator2:SetSize(slotCross, 2)
+				separator2:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -totemsEnd - (separatorSize / 2) + 1)
+				totemicCallButton:SetPoint("TOPLEFT", self.autoButton, "TOPLEFT", padding, -totemsEnd - separatorSize)
+			end
+			separator2:Show()
+			totemicCallButton:Show()
+		elseif totemicCallButton then
+			totemicCallButton:Hide()
+		end
+	elseif extraButtonsShown > 0 and visibleCount > 0 then
 		separator:ClearAllPoints()
 		if isHorizontal then
 			-- Vertical separator line
@@ -17930,9 +18035,10 @@ function ShamanPower:RepositionEarthShieldButton()
 	local dropAllBtn = _G["ShamanPowerAutoDropAll"]
 
 	-- First check Totemic Call (it's positioned after Drop All)
+	local extrasFirst = self:TotemBarExtrasLead() > 0   -- (3.0.9.14) Drop All at the start: the bar ends with Totemic Call or a totem
 	if showTotemicCall and totemicCallBtn and totemicCallBtn:IsShown() then
 		anchorFrame = totemicCallBtn
-	elseif showDropAll and dropAllBtn and dropAllBtn:IsShown() and not dropAllPoppedOut then
+	elseif showDropAll and dropAllBtn and dropAllBtn:IsShown() and not dropAllPoppedOut and not extrasFirst then
 		-- Anchor to Drop All button (only if not popped out)
 		anchorFrame = dropAllBtn
 	else
@@ -21728,6 +21834,7 @@ local function GetShortKeybindText(key)
 	key = key:gsub("MOUSEWHEELDOWN", "MWD")
 	return key
 end
+ShamanPower.ShortKeybindText = GetShortKeybindText   -- (Quick Totems' keys read the same)
 
 -- Map totem bar binding names to button names
 ShamanPower.TotemBarKeybinds = {
@@ -23733,6 +23840,11 @@ function ShamanPower:ThemePaintTotemBorders()
 				local cb = copies[i]
 				if cb and cb.totemIndex ~= 0 then self:ThemeBorderEdges(cb, fly, "tb.flyout-boxes", element) end
 			end
+		end
+		-- (3.0.9.14) Quick Totems: as the flyout's own buttons
+		local quick = self.QuickTotemButtons and self:QuickTotemButtons(element)
+		if quick then
+			for i = 1, #quick do self:ThemeBorderEdges(quick[i], fly, "tb.flyout-boxes", element) end
 		end
 	end
 	-- Also on the Cooldown Bar: each button in the colour of its icon (as its flat box)

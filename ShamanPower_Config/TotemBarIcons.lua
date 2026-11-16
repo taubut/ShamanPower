@@ -14,6 +14,7 @@
 --     Paste / Copy To, Hide From The Flyout, Reset This Totem.
 -- No new saved keys: every value is today's setting (Show Earth Totem ..., Show Drop All
 -- Button, totemBarOrder, dropOrder and the Excludes, flyoutTotems, the pulse lists,
+-- (3.0.9.14: dropAllFirst, Drop All dragged to the start; quickTotemPicks, a totem's Quick Totem spot)
 -- usualTotemTemp, the Earth Shield flyout and its filter, the Blizzard Totem Sets
 -- switches) and Earth Shield's own Running Out slot (ShamanPowerCdItems.lua type 12).
 -- The pulse lists keep their old form: a totem turned Off turns its "Only Show ... for
@@ -45,7 +46,8 @@ local COTE = 66842          -- Call of the Elements: the Drop All button's icon 
 local GENERIC_DROPALL = 136024
 
 local BTN_CAPTION = "|cff3FA9F5CLICK|r a button to show or hide it on the bar. |cff3FA9F5RIGHT-CLICK|r it for its settings."
-	.. " |cff3FA9F5DRAG|r an element to move it on the bar. |cff3FA9F5MOUSE WHEEL|r over an element to change its totem."
+	.. " |cff3FA9F5DRAG|r an element to move it on the bar, or Drop All to the start or end. |cff3FA9F5MOUSE WHEEL|r over"
+	.. " an element to change its totem."
 	.. " |cff3FA9F5Dark|r: not learned yet."
 local BTN_CAPTION_NATIVE = "|cff3FA9F5RIGHT-CLICK|r Drop All for its drop order and Blizzard Totem Sets. You use Blizzard's"
 	.. " Totem Bar (Totem Bar > Style), so its own buttons are on screen instead of ShamanPower's."
@@ -1148,6 +1150,24 @@ local function TotemMenu(item)
 			SetInFlyout(item, not on)
 			TotRow:Changed(false)
 		end }
+		-- (3.0.9.14, A109) Quick Totems: this totem in one of its element's two quick spots (ShamanPowerQuickTotems.lua)
+		if SP.SetQuickTotemSlot then
+			local off = not O().quickTotems
+			r[#r + 1] = Choice("Quick Totem", {
+				{ 0, "Not a Quick Totem" },
+				{ 1, "Quick Totem 1", "The first spot: the left corner (the top one on a bar that runs up and down)." },
+				{ 2, "Quick Totem 2", "The second spot: the right corner (the bottom one on a bar that runs up and down)." },
+			}, function()
+				local v = SP:QuickTotemSlotOf(item.e, item.idx)
+				return v, v ~= 0
+			end, function(v)
+				if InCombatLockdown() then Say("Quick Totems change out of combat.") return true end
+				SP:SetQuickTotemSlot(item.e, item.idx, v)
+				return Changed(TotRow)
+			end, "A small button at the corner of the " .. ELEM[item.e] .. " button that drops this totem in one click. Each"
+				.. " element has two spots: a new pick takes the spot over." .. (off and (" |cffffa040Show Quick Totems (below on this"
+				.. " page) is off.|r") or ""), nil, { kind = "none" })
+		end
 		r[#r + 1] = SEP
 	end
 	-- what it does
@@ -1297,6 +1317,7 @@ end
 BtnRow = ns.IconRow.New({
 	caption = function() return Native() and BTN_CAPTION_NATIVE or BTN_CAPTION end,
 	hint = "Click: show or hide it on the bar\nRight-click: its settings\nDrag an element: its place on the bar"
+		.. "\nDrag Drop All: the start or the end of the bar"
 		.. "\nMouse wheel over an element: its totem",
 	-- (the owner, 11-12) the mouse wheel over an element: its next totem (down) or the one before (up), as the
 	-- Totem Assignments window's cells do, through the same calls (PerformCycle). IconRow waits for the pointer
@@ -1315,10 +1336,13 @@ BtnRow = ns.IconRow.New({
 		return true
 	end,
 	list = function(out)
+		-- (3.0.9.14) Drop All dragged to the start: before the elements, as on the bar (Totemic Recall stays at the end)
+		local first = O().dropAllFirst and not Native()
+		if first then out[#out + 1] = { key = DROPALL, name = "Drop All" } end
 		if not Native() then
 			for _, e in ipairs(BarOrder()) do out[#out + 1] = { key = e, name = ELEM[e] } end
 		end
-		out[#out + 1] = { key = DROPALL, name = "Drop All" }
+		if not first then out[#out + 1] = { key = DROPALL, name = "Drop All" } end
 		if RecallHere() then out[#out + 1] = { key = RECALL, name = ns.CdbarRecall.name() } end
 		if HasESButton() and not Native() then out[#out + 1] = { key = ES, name = ESName() } end
 	end,
@@ -1396,7 +1420,16 @@ BtnRow = ns.IconRow.New({
 		return ElementMenu(k)
 	end,
 	move = function(item, index)
-		if InCombatLockdown() or type(item.key) ~= "number" then return end
+		if InCombatLockdown() then return end
+		-- (3.0.9.14, Dibul's ask) Drop All: the start or the end of the bar (index: its place among the elements,
+		-- 1 = before them; the row's move below counts it so)
+		if item.key == DROPALL then
+			if Native() then return end
+			O().dropAllFirst = (index <= 1) or nil
+			Run("UpdateMiniTotemBar")
+			return
+		end
+		if type(item.key) ~= "number" then return end
 		local order = BarOrder()
 		local from
 		for i, x in ipairs(order) do if x == item.key then from = i break end end
@@ -1407,8 +1440,34 @@ BtnRow = ns.IconRow.New({
 		Run("UpdateMiniTotemBar")
 		Run("LoadoutOrderChanged")   -- (3.0.9.9) the loadout in use keeps it (Loadouts Remember the Totem Bar and Drop Order)
 	end,
-	movable = function(item) return type(item.key) == "number" end,
-	gapBefore = function(item) if item.key == DROPALL then return 14 end return 0 end,
+	movable = function(item) return type(item.key) == "number" or (item.key == DROPALL and not Native()) end,
+	-- an element lands among the elements; Drop All before or after them, the nearer end (the separator stays between)
+	snapGap = function(item, gap)
+		local first, last
+		for i, it in ipairs(BtnRow.list or {}) do
+			if type(it.key) == "number" then first = first or i; last = i end
+		end
+		if not first then return gap end
+		if item.key == DROPALL then
+			if gap - first <= (last + 1) - gap then return first end   -- (the start: right before the first element)
+			return last + 1
+		end
+		if gap < first then return first end
+		if gap > last + 1 then return last + 1 end
+		return gap
+	end,
+	-- the step between the elements and Drop All, on whichever side it is
+	gapBefore = function(item)
+		local first = O().dropAllFirst and not Native()
+		if item.key == DROPALL then return first and 0 or 14 end
+		if item.key == RECALL then return first and 14 or 0 end
+		if first and type(item.key) == "number" then
+			for _, it in ipairs(BtnRow.list or {}) do
+				if type(it.key) == "number" then return (it.key == item.key) and 14 or 0 end
+			end
+		end
+		return 0
+	end,
 	under = function(item, out)
 		local k = item.key
 		if k == ES or k == RECALL then return 0 end
@@ -1558,8 +1617,8 @@ function Calls.Icon(item)
 end
 local CALLS_CAPTION = "|cff3FA9F5CLICK|r a totem to pick another for its Call, or a Call to put your bar on it (the green"
 	.. " line: the one it is on). |cff3FA9F5MOUSE WHEEL|r over a totem: the next one. |cff3FA9F5RIGHT-CLICK|r for"
-	.. " settings. |cff3FA9F5DRAG|r a totem of your bar's Call to move it on the bar. |cff3FA9F5Dark|r: not learned"
-	.. " yet (you can set it up now)."
+	.. " settings. |cff3FA9F5DRAG|r a totem of your bar's Call to move it on the bar, or Drop All to the start or end."
+	.. " |cff3FA9F5Dark|r: not learned yet (you can set it up now)."
 local CALLS_HINT = "Click a totem: pick another\nClick a Call: your bar goes on it\nMouse wheel over a totem: the next one"
 	.. "\nRight-click: its settings"
 do
@@ -1591,12 +1650,15 @@ do
 			out[#out + 1] = { key = "call" .. c, call = c, isCall = true, name = Calls.Name(c) }
 			for _, e in ipairs(BarOrder()) do
 				-- your bar's Call: today's buttons (key = the element); another Call: its own items
+				if Calls.Bar(c) and e == BarOrder()[1] and O().dropAllFirst then
+					out[#out + 1] = { key = DROPALL, name = "Drop All", call = c }   -- (3.0.9.14: dragged to the start)
+				end
 				if Calls.Bar(c) then out[#out + 1] = { key = e, name = ELEM[e], call = c, e = e }
 				else out[#out + 1] = { key = "c" .. c .. "e" .. e, name = ELEM[e], call = c, e = e } end
 			end
 			-- (the owner, 11-12) Drop All and Totemic Recall sit at the end of the line your bar is on
 			if Calls.Bar(c) then
-				out[#out + 1] = { key = DROPALL, name = "Drop All", call = c }
+				if not O().dropAllFirst then out[#out + 1] = { key = DROPALL, name = "Drop All", call = c } end
 				if RecallHere() then out[#out + 1] = { key = RECALL, name = ns.CdbarRecall.name(), call = c } end
 			end
 		end
@@ -1743,6 +1805,12 @@ do
 			local first
 			for i, it in ipairs(BtnRow.list) do if it.call == item.call and it.e then first = i break end end
 			if first then index = index - first + 1 end
+		else
+			-- (3.0.9.14) the plain row: Drop All before the elements is not one of their places
+			for _, it in ipairs(BtnRow.list or {}) do
+				if type(it.key) == "number" then break end
+				if it ~= item then index = index - 1 end
+			end
 		end
 		return base.move(item, index)
 	end
@@ -1796,6 +1864,8 @@ function SP.TotemBarResetPage(sp)
 	for e = 1, 4 do o[SHOW_KEY[e]] = true end
 	o.showDropAllButton = true
 	o.totemBarOrder = { 1, 2, 3, 4 }
+	o.dropAllFirst = nil     -- (3.0.9.14) Drop All back at the end of the bar
+	o.quickTotemPicks = nil  -- (3.0.9.14) no totem in a Quick Totem spot (their switches are this page's rows)
 	o.dropOrder = { 1, 2, 3, 4 }
 	o.dropAllUsesTotemSets, o.totemSetsSyncAssignments, o.totemSetsAdoptFromBar = nil, nil, nil
 	for e = 1, 4 do if Excluded(e) and sp.SetDropAllExclude then sp:SetDropAllExclude(e, false) end end
@@ -1806,7 +1876,7 @@ function SP.TotemBarResetPage(sp)
 	o.usualTotemTemp = nil
 	o.dropAllIcon = nil   -- (a picked Drop All icon goes too: the button rotates again)
 	ResetES()
-	for _, fn in ipairs({ "UpdateMiniTotemBar", "UpdateDropAllButton", "RecreateTotemFlyouts", "ApplyUsualTotemSettings" }) do
+	for _, fn in ipairs({ "UpdateMiniTotemBar", "UpdateDropAllButton", "RecreateTotemFlyouts", "ApplyUsualTotemSettings", "QuickTotemsChanged" }) do
 		Run(fn)
 	end
 end

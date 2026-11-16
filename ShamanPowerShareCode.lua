@@ -355,7 +355,17 @@ local function indexOf(list, value)
 	return 0
 end
 
-local function specIndex()
+-- talentsOnly (3.0.9.14, Profile by Spec): no guess from the setup's spec when the talents can't tell (at login,
+-- before the spell book is in): 0 then
+local function specIndex(talentsOnly)
+	-- (3.0.9.14) WoW: Forever has no talent-tab points to count: the spell book says it. Rage of the Farseer
+	-- = Enhancement, Lightning Mastery = Elemental, Riptide = Restoration (asked in that order)
+	if SPCompat and SPCompat.FOREVER and SPCompat.KnowsSpellID then
+		local K = SPCompat.KnowsSpellID
+		if K(425336) then return 2 end
+		if K(16166) then return 3 end
+		if K(408521) or K(61295) then return 1 end
+	end
 	local role = SP.Wizard and SP.Wizard.DetectSpec and SP.Wizard.DetectSpec()
 	if not role and select(2, UnitClass("player")) == "SHAMAN" and GetNumTalentTabs and GetTalentTabInfo then
 		-- the same talent-tab count the setup's detection uses (Config may not be loaded)
@@ -370,7 +380,7 @@ local function specIndex()
 		if best and bestPts > second then role = best end
 	end
 	-- the talents cannot tell (below level 10, a tie, no readable points): the spec picked in the setup
-	if not role then role = sub(sub(SP.db, "char"), "setupRole") end
+	if not role and not talentsOnly then role = sub(sub(SP.db, "char"), "setupRole") end
 	if role == "restoration" then return 1 elseif role == "enhancement" then return 2 elseif role == "elemental" then return 3 end
 	return 0
 end

@@ -9,6 +9,8 @@
 --   fill      Fill: Blizzard's full emblem, gray, lit from the bottom a fifth per stack
 --   iconfill  Fill The Icon: the spell's icon, gray, its color rising a fifth per stack
 --   storm     Storm Glow: the icon's glow, brighter with every stack
+--   numberonly  Number Only: the count alone, no icon, background or bar (3.0.9.14, a player's ask:
+--             just the number near the character); Glow and Pulse at 5 are the number's own
 -- 5 stacks is this reminder's "ready": At 5 Stacks plays its Effect (Glow, Pulse,
 -- both; a Wings or Fill emblem glows or pulses itself). Time Left adds the buff's
 -- time as a number, or the look going gray from the top as it runs out (Drain).
@@ -41,7 +43,7 @@ local IconOpt, color = API.IconOpt, API.color
 local S = { stages = {} }
 SP.ReadyStacks = S
 
-local LOOKS = { number = true, bar = true, wings = true, fill = true, iconfill = true, storm = true, baronly = true }
+local LOOKS = { number = true, bar = true, wings = true, fill = true, iconfill = true, storm = true, baronly = true, numberonly = true }
 -- three icons wide: a spot of their own (Charge Bar Only too: the bar alone, no emblem, no icon)
 local WIDE = { wings = true, fill = true, baronly = true }
 local SHOWS = { stacks = true, five = true, always = true }
@@ -62,7 +64,10 @@ local LEVEL = { main = 2, piece = 4, storm = 4, five = 6, fx = 10, shade = 12, t
 function S.Look(e) local v = IconOpt(e, "stackLook"); if LOOKS[v] then return v end return "number" end
 function S.Show(e) local v = IconOpt(e, "stackShow"); if SHOWS[v] then return v end return "stacks" end
 function S.Left(e) local v = IconOpt(e, "stackLeft"); if LEFTS[v] then return v end return "off" end
-function S.NumberOn(e) return S.Look(e) == "number" or IconOpt(e, "stackNumber") == true end
+function S.NumberOn(e)
+	local look = S.Look(e)
+	return look == "number" or look == "numberonly" or IconOpt(e, "stackNumber") == true
+end
 -- Wings and Fill are three icons wide: a spot of their own, never on a row or in the grid
 function S.Wide(e) return e ~= nil and e.stacks ~= nil and WIDE[S.Look(e)] == true end
 -- the display's width and height, and the icon size it comes from
@@ -224,10 +229,11 @@ local function countText(fr, s, wide, barH)
 	return fs
 end
 -- the time left: in the icon's corner, or under the emblem's middle
-local function timeText(fr, s, wide, barH)
+local function timeText(fr, s, wide, barH, below)
 	local fs = fr:CreateFontString(nil, "OVERLAY")
 	SP:SetSPFont(fs, "alerts", math.max(10, math.floor(s * 0.30 + 0.5)), "OUTLINE")
 	if barH then fs:SetPoint("LEFT", fr, "RIGHT", 4, 0); fs:SetTextColor(1, 1, 1); return fs end   -- (Charge Bar Only: beside it)
+	if below then fs:SetPoint("TOP", fr, "BOTTOM", 0, -1); fs:SetTextColor(1, 1, 1); return fs end   -- (Number Only: under it)
 	if wide then fs:SetPoint("BOTTOM", fr, "BOTTOM", 0, 2) else fs:SetPoint("BOTTOMRIGHT", fr, "BOTTOMRIGHT", -2, 3) end
 	fs:SetTextColor(1, 1, 1)
 	return fs
@@ -336,6 +342,30 @@ local function barGlow(fr, anchor, r, g, b)
 	return gf
 end
 
+-- Number Only at 5: the number's own copy over the game's count ("5": the part only shows at 5), exactly on
+-- it. Glow: the copy in Glow Color, fading in and out, so the 5 breathes between Color At 5 Stacks and the
+-- Glow Color; Pulse: a copy in Color At 5 Stacks, breathing in size
+local function fiveCopy(fr, s, r, g, b, glow)
+	local holder = CreateFrame("Frame", nil, fr)
+	holder:SetAllPoints(fr)
+	holder:SetFrameLevel(fr:GetFrameLevel() + (LEVEL.text - LEVEL.fx) + 2)   -- (over the count)
+	local fs = holder:CreateFontString(nil, "OVERLAY")
+	SP:SetSPFont(fs, "charges", math.max(10, math.floor(s * 0.7 + 0.5)), "OUTLINE")
+	fs:SetPoint("CENTER", holder, "CENTER", 1, 0)
+	fs:SetText("5")
+	fs:SetTextColor(r, g, b)
+	if glow then
+		local ag = holder:CreateAnimationGroup(); ag:SetLooping("REPEAT")
+		local a1 = ag:CreateAnimation("Alpha"); a1:SetFromAlpha(0.15); a1:SetToAlpha(0.8); a1:SetDuration(0.5); a1:SetOrder(1)
+		local a2 = ag:CreateAnimation("Alpha"); a2:SetFromAlpha(0.8); a2:SetToAlpha(0.15); a2:SetDuration(0.5); a2:SetOrder(2)
+		ag:Play()
+		holder.ag = ag
+	else
+		pulse(holder)
+	end
+	return holder
+end
+
 -- the gold of 5 stacks: the same bar, full, in Color At 5 Stacks
 local function stackBarFull(fr, stage, s, r, g, b) return (stackBar(fr, stage, s, r, g, b, true)) end
 -- Drain: a gray copy of the look over its top part, down to where the time left reaches. The
@@ -383,8 +413,9 @@ local function describe(A, stage, e)
 	local look, show, left = S.Look(e), S.Show(e), S.Left(e)
 	local w, h, s = S.Box(e)
 	local barOnly = look == "baronly"
+	local numOnly = look == "numberonly"   -- (3.0.9.14: the count alone)
 	local wide = WIDE[look] == true and not barOnly   -- (the emblem's looks)
-	if barOnly and left == "drain" then left = "number" end   -- (no picture to gray: the number instead)
+	if (barOnly or numOnly) and left == "drain" then left = "number" end   -- (no picture to gray: the number instead)
 	local five = show == "five"
 	local sr, sg, sb = stackRGB(e)
 	local r5, g5, b5 = fiveRGB(e)
@@ -392,8 +423,8 @@ local function describe(A, stage, e)
 	local shape = glowShape(e)
 	local gr, gg, gb = glowRGB(e)
 
-	-- Show: Always: the look at 0 stacks, dimmed, under everything
-	if show == "always" then
+	-- Show: Always: the look at 0 stacks, dimmed, under everything (Number Only: no number at 0, nothing to dim)
+	if show == "always" and not numOnly then
 		A:Part({ dim = true }, function(host)
 			local fr = layer(host, stage, 1)
 			if barOnly then segments(fr, w, h, 1, 5, nil, nil, nil, DIM)
@@ -411,6 +442,7 @@ local function describe(A, stage, e)
 		if barOnly then
 			-- the empty track; Only At 5 Stacks: all of it in Color At 5 Stacks
 			if five then segments(fr, w, h, 1, 5, r5, g5, b5) else segments(fr, w, h, 1, 5) end
+		elseif numOnly then   -- luacheck: ignore 542 (Number Only: no picture, only the count and time below)
 		elseif look == "wings" then
 			if five then emblemTex(fr, EMBLEM) end
 		elseif look == "fill" then
@@ -440,7 +472,7 @@ local function describe(A, stage, e)
 			R:Time(drainShade(fr, fr, e, s, wide, stage))
 		elseif left == "number" then
 			local tf = layer(fr, stage, LEVEL.text)
-			R:TimeText(timeText(tf, s, wide, barOnly and h or nil))
+			R:TimeText(timeText(tf, s, wide, barOnly and h or nil, numOnly))
 		end
 		-- the count (Icon + Stack Number, or Stack Number on)
 		if S.NumberOn(e) then
@@ -500,6 +532,8 @@ local function describe(A, stage, e)
 				local a1 = ag:CreateAnimation("Alpha"); a1:SetFromAlpha(0.15); a1:SetToAlpha(0.8); a1:SetDuration(0.5); a1:SetOrder(1)
 				local a2 = ag:CreateAnimation("Alpha"); a2:SetFromAlpha(0.8); a2:SetToAlpha(0.15); a2:SetDuration(0.5); a2:SetOrder(2)
 				ag:Play()
+			elseif numOnly then
+				fiveCopy(fr, s, gr, gg, gb, true)   -- (Number Only: the 5 itself glows, whatever the Glow Shape)
 			elseif shape == "proc" and SP.ProcGlow_Start then
 				-- Proc Glow: WeakAuras' ring on a frame of ours the size of the icon
 				local c = { gr, gg, gb, 1 }
@@ -517,6 +551,10 @@ local function describe(A, stage, e)
 	if fx == "pulse" or fx == "both" then
 		A:Part({ fx = "pulse" }, function(host)
 			local fr = layer(host, stage, LEVEL.fx - 1)
+			if numOnly then   -- (Number Only: the 5 itself breathes)
+				fiveCopy(fr, s, r5, g5, b5, false)
+				return
+			end
 			if barOnly then   -- (Charge Bar Only: the whole bar, in Color At 5 Stacks, breathes)
 				local pf = CreateFrame("Frame", nil, fr)
 				pf:SetAllPoints(fr)
@@ -596,6 +634,22 @@ function Engine:Part(rule, fn)
 				host = CreateFrame("StatusBar", nil, button)
 				host:SetAllPoints(st)
 				host:SetMinMaxValues(from, from); host:SetValue(from)
+				-- (3.0.9.14) a part that listens (At 5 Stacks' sound in a fight): on plain frames of our own, never
+				-- on a frame the game shows and hides. The game's button refuses a hook ("blocked by secret
+				-- aspects", a CurseForge report), and this bar, which the game shows from n stacks with a hidden
+				-- count, may carry no script at all ("SetShown(): Cannot be called with secrets due to existing
+				-- script handlers", measured): a frame of ours on the button and one inside the bar say when each
+				-- shows. A refused hook is no error; with either one refused, neither is kept (the sound would
+				-- play at the wrong time).
+				if rule.onShow then
+					local mark = CreateFrame("Frame", nil, button)
+					mark:SetAllPoints(st); mark:EnableMouse(false)
+					local probe = CreateFrame("Frame", nil, host)
+					probe:SetAllPoints(st); probe:EnableMouse(false)
+					local okMark = pcall(mark.HookScript, mark, "OnShow", rule.onButtonShow)
+					local okProbe = okMark and pcall(probe.HookScript, probe, "OnShow", rule.onShow)
+					if not (okMark and okProbe) then rule.refused = true end
+				end
 				pcall(button.SetApplicationBar, button, host, { minApplications = from, maxApplications = from })
 			else
 				host = CreateFrame("Frame", nil, button)
@@ -654,17 +708,21 @@ local function buildEngine(st, e)
 	-- (3.0.9.9) At 5 Stacks' sound in a fight: a part the game shows only from 5 stacks, nothing drawn on
 	-- it. The buff back on you puts the game's button on screen before the part is set for the new count,
 	-- so a part still shown from the last 5 comes up with it: the next frame says which it was.
-	E:Part({ from = 5 }, function(host)
-		local button = host:GetParent()
-		if button and button.HookScript then button:HookScript("OnShow", function() st.fiveBtnAt = GetTime() end) end
-		host:HookScript("OnShow", function()
+	-- (3.0.9.14) The hooks go on frames of our own (Engine:Part, rule.onShow): the game now refuses one on its
+	-- own button. Refused there too, there is no sound in a fight (out of one it still plays: S.Pass).
+	local fiveRule = {
+		from = 5,
+		onButtonShow = function() st.fiveBtnAt = GetTime() end,   -- (the game's button came on screen)
+		onShow = function()
 			if not InCombatLockdown() then return end   -- (out of a fight the count is read: S.Pass)
 			local at = GetTime()
 			C_Timer.After(0, function()
 				if st.fiveBtnAt ~= at then S.AtFive(st) end
 			end)
-		end)
-	end)
+		end,
+	}
+	E:Part(fiveRule, function() end)
+	st.fiveRefused = fiveRule.refused or nil
 	st.engine = E
 	st.glowCombat = nil   -- (the switch below sets the glow containers for this fight state)
 	return not E.failed
@@ -953,10 +1011,10 @@ function S.UpdateSound() end   -- (nothing to register any more; kept for its ca
 function S.Diag(f)
 	local st = f and f.stack
 	local E = st and st.engine
-	return string.format("stacks look=%s show=%s left=%s mode=%s containers=%s failed=%s waiting=%s sound=%s",
+	return string.format("stacks look=%s show=%s left=%s mode=%s containers=%s failed=%s waiting=%s sound=%s%s",
 		f and S.Look(f.entry) or "-", f and S.Show(f.entry) or "-", f and S.Left(f.entry) or "-", tostring(st and st.mode),
 		tostring(E and #E.list or 0), tostring(E and E.failed or false), tostring(st ~= nil and st.engineSig ~= st.want),
-		"at 5 x" .. fiveCount)
+		"at 5 x" .. fiveCount, (st and st.fiveRefused) and " (no sound in a fight: the game refused its hook)" or "")
 end
 
 -- the reminder is off screen (switched off, Only In Combat out of combat, the module off):

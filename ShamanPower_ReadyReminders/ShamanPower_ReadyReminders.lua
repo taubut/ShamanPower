@@ -91,7 +91,7 @@ local DEFAULTS = {
 	resetSoundName = "ShamanPower: Ready Ping",
 	resetVolume = 100,
 	-- (3.0.9.2, A55) Maelstrom Weapon: how its stacks show (ShamanPower_ReadyStacks.lua)
-	stackLook = "number",  -- number (Icon + Stack Number) | bar (Charge Bar) | wings | fill | iconfill (Fill The Icon) | storm (Storm Glow)
+	stackLook = "number",  -- number (Icon + Stack Number) | bar (Charge Bar) | baronly | numberonly (Number Only) | wings | fill | iconfill (Fill The Icon) | storm (Storm Glow)
 	stackShow = "stacks",  -- stacks: while you have any | five: only at 5 | always: 0 too, dimmed
 	stackNumber = false,   -- the count on the looks that are not Icon + Stack Number
 	stackLeft = "off",     -- the buff's time left: off | number | drain (the look grays from the top)
@@ -183,6 +183,11 @@ SP.ReadyReminderSpells = {
 	{ key = "naaru",        name = "Gift of the Naaru",   ids = SPCompat.FOREVER and {} or { 28880 }, def = false, races = { [11] = true } },   -- (no Draenei on WoW: Forever)
 	{ key = "skysight",     name = "Skysight",            ids = SPCompat.FOREVER and { 1259686 } or {}, def = false, races = { [96] = true } },
 	{ key = "walkonair",    name = "Walk on Air",         ids = SPCompat.FOREVER and { 1259416 } or {}, def = false, races = { [96] = true } },
+	-- (3.0.9.14, a Discord ask; last in the list, so no default spot before it moves) Clearcasting, WoW: Forever: shows while the buff is on you, instead of a cooldown
+	-- (ShamanPower_ReadyProcs.lua). The buff 16246 comes from the Elemental talent Elemental Focus (16164); one
+	-- charge on Forever (its own spell data)
+	{ key = "clearcasting", name = "Clearcasting", optName = "Clearcasting (shows while it is on you)", ids = { 16164 }, def = false,
+		foreverOnly = true, proc = { buff = 16246, talent = 16164, map = { [16246] = true }, icon = 136170 } },   -- (136170: both spells' icon, the game's data)
 }
 
 local frames = {}
@@ -334,12 +339,14 @@ local ICON_KEYS = { "mode", "outOfRange", "readyEffect", "glowColor", "glowShape
 	-- (3.0.9.2, A55) Maelstrom Weapon's stacks
 	"stackLook", "stackShow", "stackNumber", "stackLeft", "stackColor", "stackColor5", "stackBarHeight",
 	-- (3.0.9.2) When Out of Mana
-	"oomTint", "oomColor", "oomEffect", "oomGlowShape", "oomGlowColor" }
+	"oomTint", "oomColor", "oomEffect", "oomGlowShape", "oomGlowColor",
+	-- (3.0.9.14) Show For: the specs it shows for (none ticked: every spec)
+	"specElemental", "specEnhancement", "specRestoration" }
 local ICON_KEY = {}
 for _, k in ipairs(ICON_KEYS) do ICON_KEY[k] = true end
 local resolved = {}   -- [catalog key] = { gen = n, <setting> = value }: one table per icon, made once
 local function IconOpt(entry, key)
-	if key == "mode" and entry and (entry.imbue or entry.weaponSet or entry.stacks) then return "ready" end   -- (Maelstrom Weapon: its stacks)   -- Weapon Imbue: only while it is missing; Weapon Set: always (always ready)
+	if key == "mode" and entry and (entry.imbue or entry.weaponSet or entry.stacks or entry.proc) then return "ready" end   -- (Maelstrom Weapon: its stacks)   -- Weapon Imbue: only while it is missing; Weapon Set: always (always ready)
 	local r = resolved[entry.key]
 	if not r then r = {}; resolved[entry.key] = r end
 	if r.gen ~= optGen or ShamanPower_ReadyReminders ~= filledFor then   -- (a new saved table: SV() moves optGen)
@@ -397,11 +404,32 @@ local function color(c, dr, dg, db)
 	return dr, dg, db
 end
 
-local function spellOn(entry)
+function SP.ReadyReminderOn(entry)   -- (its on / off as set: the settings show this one)
 	local v = SV().spells[entry.key]
 	if v == nil then return entry.def end
 	return v
 end
+-- (3.0.9.14, Snugs' ask on Discord) Show For: the specs a reminder is ticked for, in its menu; nothing ticked:
+-- every spec. Your spec is the talent tree with the most points (the setup's own reading, SP.ShareSpecIndex;
+-- below level 10 or on a tie, the spec picked in the setup); while it can't be told at all, every reminder
+-- shows. Read once, again when your talents or spells change. A reminder not for your spec is as one turned
+-- off on screen (the rows and the grid close up), and stays on in the settings. (Fields, not locals: this
+-- file's main chunk is at Lua's 200-local limit.)
+SP.ReadySpec = { keys = { "specElemental", "specEnhancement", "specRestoration" },
+	byIndex = { [1] = "specRestoration", [2] = "specEnhancement", [3] = "specElemental" }, cur = false }
+function SP:ReadyReminderMySpec()   -- your spec as Show For reads it: "specElemental" etc., or nil
+	local s = SP.ReadySpec
+	if s.cur == false then s.cur = s.byIndex[SP.ShareSpecIndex and SP.ShareSpecIndex() or 0] end
+	return s.cur
+end
+function SP.ReadyReminderSpecOK(entry)
+	local k = SP.ReadySpec.keys
+	if not (IconOpt(entry, k[1]) or IconOpt(entry, k[2]) or IconOpt(entry, k[3])) then return true end
+	local cur = SP:ReadyReminderMySpec()
+	if not cur then return true end
+	return IconOpt(entry, cur) == true
+end
+local function spellOn(entry) return SP.ReadyReminderOn(entry) and SP.ReadyReminderSpecOK(entry) end
 
 -- The spell ID this client has for the entry (client data, not the spellbook).
 local function clientSpellID(entry)
@@ -426,6 +454,7 @@ function SP:ReadyPlayerRace()
 	return self.readyRaceID
 end
 local function usable(entry)
+	if entry.foreverOnly and not (SPCompat and SPCompat.FOREVER) then return false end   -- (3.0.9.14: Clearcasting)
 	if entry.weaponSet then return true end   -- (A28) no spell: what you hold
 	if entry.races and not entry.races[SP:ReadyPlayerRace() or 0] then return false end   -- (a racial: another race's)
 	local id = clientSpellID(entry)
@@ -434,7 +463,7 @@ local function usable(entry)
 	return true
 end
 SP.ReadyReminderUsable = usable
-SP.ReadyReminderOn = spellOn
+-- (SP.ReadyReminderOn, above: the settings read its on / off as set; Show For only hides it on screen)
 
 -- Does the player know the spell (any rank)? Cached until SPELLS_CHANGED.
 local knownCache = {}
@@ -444,7 +473,9 @@ local function playerKnows(entry)
 	if c ~= nil then return c end
 	local id = clientSpellID(entry)
 	local known = false
-	if id and entry.stacks then
+	if id and entry.proc then
+		known = Buff.KnowsTalent(entry.proc) and true or false   -- (3.0.9.14, Clearcasting: its talent, Elemental Focus)
+	elseif id and entry.stacks then
 		known = Buff.KnowsTalent(entry.stacks) and true or false   -- (Maelstrom Weapon: a talent)
 	elseif id then
 		known = SPCompat.KnowsSpellID(id)
@@ -507,6 +538,7 @@ local SHOCK_FAMILY = { "earthshock", "flameshock", "frostshock" }
 local isShock = { earthshock = true, flameshock = true, frostshock = true }
 local function cooldownOf(entry, ownOnly)
 	if entry.stacks then return nil, nil end   -- (Maelstrom Weapon: stacks, no cooldown)
+	if entry.proc then return nil, nil end     -- (3.0.9.14, Clearcasting: a buff, no cooldown)
 	if entry.imbue then return imbueCooldown() end
 	if entry.weaponSet then return 0, 0 end   -- (A28) always ready: always on screen
 	if entry.combo then
@@ -622,9 +654,19 @@ local function defaultPos(entry)
 		if sv.layout == "column" then return { point = "CENTER", x = 260 + step, y = -off } end
 		return { point = "CENTER", x = off, y = -140 - step }
 	end
+	if entry.proc then
+		-- (3.0.9.14) Clearcasting: just past the end of the spells' row, so every spell's spot is as it was
+		local width = -gap
+		for _, e in ipairs(SP.ReadyReminderSpells) do
+			if not (e.combo or e.races or e.proc) then width = width + (IconOpt(e, "iconSize") or 48) + gap end
+		end
+		local past = width / 2 + gap + (IconOpt(entry, "iconSize") or 48) / 2
+		if sv.layout == "column" then return { point = "CENTER", x = 260, y = -past } end
+		return { point = "CENTER", x = past, y = -140 }
+	end
 	local total, before = -gap, 0
 	for _, e in ipairs(SP.ReadyReminderSpells) do
-		if not (e.combo or e.races) then
+		if not (e.combo or e.races or e.proc) then
 			local cell = (IconOpt(e, "iconSize") or 48) + gap
 			total = total + cell
 			if rankOf(e) < rankOf(entry) then before = before + cell end
@@ -703,6 +745,10 @@ local function ensureGridAnchor()
 	a:SetScript("OnMouseUp", function(self)
 		if self.isMoving then self:StopMovingOrSizing(); self.isMoving = false; saveGridPos(); applyGridPos() end
 	end)
+	-- (3.0.9.14, a CurseForge report) the game switches a frame's mouse on with that script: this invisible
+	-- holder under the first icon then took clicks and hovering with Click Through on, and the camera would not
+	-- turn over it. It never needs the mouse: drags start on the icons, and Unlock UI runs the script itself.
+	a:EnableMouse(false)
 	gridAnchor = a
 	applyGridPos()
 	return a
@@ -731,7 +777,7 @@ local function layoutGrid(byCatalog)
 		local own = R.own(entry)   -- (its own spot)
 		local on = spells[entry.key]   -- spellOn(), without its SV() call
 		if on == nil then on = entry.def end
-		if on and usable(entry) and not own then
+		if on and usable(entry) and not own and SP.ReadyReminderSpecOK(entry) then
 			enabled = enabled + 1
 			local sz = IconOpt(entry, "iconSize") or 48
 			if sz > biggest then biggest = sz end
@@ -852,6 +898,10 @@ function R.ensureRowAnchor(i)
 	a:SetScript("OnMouseUp", function(self)
 		if self.isMoving then self:StopMovingOrSizing(); self.isMoving = false; R.saveRowPos(i); R.applyRowPos(i) end
 	end)
+	-- (3.0.9.14, a CurseForge report) the game switches a frame's mouse on with that script: this invisible
+	-- holder under the first icon then took clicks and hovering with Click Through on, and the camera would not
+	-- turn over it. It never needs the mouse: drags start on the icons, and Unlock UI runs the script itself.
+	a:EnableMouse(false)
 	R.anchors[i] = a
 	R.applyRowPos(i)
 	return a
@@ -1518,10 +1568,11 @@ function SP:UpdateReadyReminderAppearance(key)
 	else
 		local id = clientSpellID(f.entry)
 		local tex = id and GetSpellTextureC(id)
-		f.icon:SetTexture(tex or 136024)
+		f.icon:SetTexture(tex or (f.entry.proc and f.entry.proc.icon) or 136024)
 	end
 	f:SetAlpha((IconOpt(e, "opacity") or 1) * (f.fade or 1))   -- (D51: below 1 only while faded)
 	if e.stacks and SP.ReadyStacks then SP.ReadyStacks.Appearance(f) end   -- (3.0.9.2) its stacks draw it
+	if e.proc and SP.ReadyProcs then SP.ReadyProcs.Appearance(f) end      -- (3.0.9.14) Clearcasting: the buff's look draws it
 	applyPos(f)
 	styleEngine(f)
 end
@@ -1741,7 +1792,7 @@ end
 -- ---------------------------------------------------------------------------
 R.Oom = { n = 0 }
 function R.Oom.on(e)
-	if e.weaponSet or e.stacks then return false end
+	if e.weaponSet or e.stacks or e.proc then return false end
 	return IconOpt(e, "oomTint") == true or (IconOpt(e, "oomEffect") or "none") ~= "none"
 end
 -- true / false, a hidden value in a fight, or nil (no answer)
@@ -3759,7 +3810,7 @@ local function flagsAtEvent(latch)
 	eventSerial = eventSerial + 1
 	for _, entry in ipairs(SP.ReadyReminderSpells) do
 		local f = frames[entry.key]
-		if f and f.inUse and not entry.stacks then
+		if f and f.inUse and not entry.stacks and not entry.proc then
 			readFlags(entry, true, latch, true)
 			f.flagRecheck = nil
 		end
@@ -3803,7 +3854,7 @@ local rangeEventSeen, rangeWaiting = false, false
 local function rangeIDOf(entry)
 	local id = rangeIDs[entry.key]
 	if id ~= nil then return id or nil end
-	if entry.stacks then rangeIDs[entry.key] = false return nil end   -- (Maelstrom Weapon: no target)
+	if entry.stacks or entry.proc then rangeIDs[entry.key] = false return nil end   -- (Maelstrom Weapon, Clearcasting: no target)
 	id = false
 	if RANGE_API then
 		local cand
@@ -4169,6 +4220,7 @@ local function readyPass(self)
 			if f:IsShown() then f:Hide() end; f.wasReady = nil; f.gridVis = nil   -- gridVis: they appear anew
 			setFade(f, 1)   -- (D51) a hidden icon is never faded
 			if f.stack and SP.ReadyStacks then SP.ReadyStacks.Idle() end   -- (3.0.9.2) nothing to read
+			if f.procSt and SP.ReadyProcs then SP.ReadyProcs.Idle(f) end   -- (3.0.9.14) Clearcasting
 		end
 		Buff.Pass(false, true)   -- (D52) their buffs too
 		self.readyCooling = false   -- nothing to draw: sleep until an event wakes the ticker
@@ -4191,7 +4243,7 @@ local function readyPass(self)
 		local want = can and spellOn(entry) and placed(entry)
 		-- (A26) off on the Icons tab, on in Ready Flash: timed like the rest, never on screen
 		local flashOnly = false
-		if not want and can and R.FlashTab.on(entry) and not entry.stacks then want = true; flashOnly = true end
+		if not want and can and R.FlashTab.on(entry) and not entry.stacks and not entry.proc then want = true; flashOnly = true end
 		if f then f.inUse = want end   -- its flags are read on the cooldown events (Forever)
 		-- Only In Combat (the icon's own, else the page's): hidden out of combat, or faded
 		-- with Fade Instead of Hide (D51; not in "never", where it is never on screen)
@@ -4211,6 +4263,13 @@ local function readyPass(self)
 			f.inUse = false   -- (no cooldown flags to read)
 			setFade(f, faded and (townFade or fadedOpacity(entry)) or 1)
 			if SP.ReadyStacks and not f.spStacksTest then SP.ReadyStacks.Pass(f, inCombat) end   -- (Test Icon running: it draws)
+			if f.fadeGlide then fadeGlideNow(f) end
+		elseif want and entry.proc then
+			-- (3.0.9.14) Clearcasting: shown while the buff is on you, drawn by ShamanPower_ReadyProcs.lua
+			if not f then f = self:CreateReadyReminderFrame(entry) end
+			f.inUse = false   -- (no cooldown flags to read)
+			setFade(f, faded and (townFade or fadedOpacity(entry)) or 1)
+			if SP.ReadyProcs then SP.ReadyProcs.Pass(f, inCombat) end
 			if f.fadeGlide then fadeGlideNow(f) end
 		elseif want then
 			if not f then f = self:CreateReadyReminderFrame(entry); f.inUse = true end
@@ -4344,6 +4403,14 @@ local function readyPass(self)
 			f.wasReady, f.flashedEarly = nil, nil
 			setFade(f, 1)   -- (D51) a hidden icon is never faded
 			if entry.stacks and SP.ReadyStacks then SP.ReadyStacks.Idle() end   -- (3.0.9.2) nothing to read
+			if entry.proc and SP.ReadyProcs then SP.ReadyProcs.Idle(f) end   -- (3.0.9.14) Clearcasting
+		end
+		-- (3.0.9.14) Clearcasting hidden out of combat by Only In Combat (or Hide In Town): its game parts made
+		-- now, still hidden, because a fight cannot make them
+		if entry.proc and not want and not inCombat and can and spellOn(entry) and placed(entry) and SP.ReadyProcs then
+			if not f then f = self:CreateReadyReminderFrame(entry) end
+			if f:IsShown() then f:Hide() end
+			SP.ReadyProcs.Prepare(f)
 		end
 		-- (3.0.9.13) Maelstrom Weapon hidden out of combat only by Only In Combat (or Hide In Town): its game
 		-- parts made now, still hidden, because a fight cannot make them (ShamanPower_ReadyStacks.lua S.Prepare)
@@ -4395,6 +4462,7 @@ function SP:ShowAllReadyReminders()
 			setDesat(f, false); f:SetAlpha(IconOpt(entry, "opacity") or 1)
 			f.label:SetShown(entry.weaponSet and IconOpt(entry, "wsWord") ~= false or (not entry.weaponSet and IconOpt(entry, "showNames") == true)); f:Show()
 			if entry.stacks and SP.ReadyStacks then SP.ReadyStacks.Demo(f, nil) end   -- (3.0.9.2) its whole look, at 5 stacks
+			if entry.proc and SP.ReadyProcs then SP.ReadyProcs.Demo(f) end   -- (3.0.9.14) Clearcasting: as if it were on you
 		end
 	end
 	layoutGrid(true); layoutRows(true)
@@ -4497,6 +4565,11 @@ function SP:ReadyRemindersDemo(on)
 						readyCount = readyCount + 1
 						if not f:IsShown() then f:Show() end
 						if SP.ReadyStacks then SP.ReadyStacks.Demo(f, now - t0 + idx * 1.7) end
+					elseif entry.proc then
+						-- (3.0.9.14) Clearcasting: as if the buff were on you
+						readyCount = readyCount + 1
+						if not f:IsShown() then f:Show() end
+						if SP.ReadyProcs then SP.ReadyProcs.Demo(f) end
 					elseif t < DEMO_CD then
 						if mode == "always" or mode == "cooldown" then
 							if not f:IsShown() then f:Show() end
@@ -5031,7 +5104,7 @@ function R.FlashTab.migrate()
 	local icons = iconTable()
 	if sv.flash == true then
 		for _, entry in ipairs(SP.ReadyReminderSpells) do
-			if IconOpt(entry, "flash") and spellOn(entry) then
+			if IconOpt(entry, "flash") and SP.ReadyReminderOn(entry) then
 				local own = icons[entry.key]
 				if type(own) ~= "table" then own = {}; icons[entry.key] = own end
 				own.flash = true
@@ -5044,7 +5117,7 @@ function R.FlashTab.migrate()
 			own.flashAnim, own.flashHold, own.flashName, own.flashMin = nil, nil, nil, nil
 			if not sv.flashPositions[key] then own.flashSize = nil end
 			local e = catalogByKey[key]
-			local wasOn = e == nil or spellOn(e)
+			local wasOn = e == nil or SP.ReadyReminderOn(e)
 			if own.mode == "flash" then
 				own.mode = nil; sv.spells[key] = false
 				if wasOn then own.flash = true else own.flash = nil end
@@ -5169,7 +5242,7 @@ local function InjectOptions()
 					.. " Time Left, Time Turns Gold Under, Edge Color."
 					-- (3.0.9.2) Maelstrom Weapon (WoW: Forever)
 					.. (catalogByKey.maelstrom and usable(catalogByKey.maelstrom) and (" Maelstrom Weapon: Look (Icon + Stack Number, Charge Bar,"
-						.. " Wings, Fill, Fill The Icon, Storm Glow), Show While You Have Stacks or Only At 5 Stacks, Stacks: Stack Number,"
+						.. " Charge Bar Only, Number Only, Wings, Fill, Fill The Icon, Storm Glow), Show While You Have Stacks or Only At 5 Stacks, Stacks: Stack Number,"
 						.. " Time Left (Number or Drain), Stack Color, Color At 5 Stacks, At 5 Stacks.") or "") },
 
 			-- Rows placement: the spells on no row (ShamanPower_Config ReadyIcons.lua, the unplaced row)
@@ -5328,6 +5401,9 @@ end
 SP.ReadyStacksAPI = { IconOpt = IconOpt, SV = SV, Buff = Buff, color = color, spellOn = spellOn, usable = usable,
 	knows = playerKnows, mouseOff = curveMouseOff, mouseBack = curveMouseBack,
 	readySound = readySound }   -- (3.0.9.9) Maelstrom Weapon's sound at 5 stacks: every reminder's own ready sound
+-- (3.0.9.14) Clearcasting (ShamanPower_ReadyProcs.lua, loaded next): what it uses from here
+SP.ReadyProcAPI = { IconOpt = IconOpt, Buff = Buff, color = color, mouseOff = curveMouseOff, mouseBack = curveMouseBack,
+	readySound = readySound }
 
 -- ---------------------------------------------------------------------------
 -- Slash + events
@@ -5366,6 +5442,7 @@ ef:RegisterEvent("PLAYER_LOGIN")
 ef:RegisterEvent("PLAYER_ENTERING_WORLD")
 ef:RegisterEvent("SPELLS_CHANGED")
 ef:RegisterEvent("PLAYER_TALENT_UPDATE")
+pcall(ef.RegisterEvent, ef, "CHARACTER_POINTS_CHANGED")   -- (3.0.9.14, Show For: a talent point spent or a respec)
 ef:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then
 		SV()
@@ -5415,6 +5492,7 @@ ef:SetScript("OnEvent", function(_, event)
 		end
 	else
 		knownCache = {}
+		SP.ReadySpec.cur = false   -- (3.0.9.14) Show For: a respec, a talent point
 		wipe(rangeIDs)   -- the spells known (and so which one a range is checked with) may have changed
 		for _, entry in ipairs(SP.ReadyReminderSpells) do entry.clientID = nil end
 		SP:UpdateAllReadyReminderAppearance()
@@ -5486,7 +5564,7 @@ if SP.ThemeSpotSettings then
 			entries[#entries + 1] = R.themeColor(key, "stackColor5", entry.name .. " Color At 5 Stacks")
 		end
 		-- (3.0.9.2) When Out of Mana's two colors, the same way ("default" = the shared out-of-mana blue)
-		if not (entry.weaponSet or entry.stacks) then
+		if not (entry.weaponSet or entry.stacks or entry.proc) then
 			entries[#entries + 1] = R.themeColor(key, "oomColor", entry.name .. " Out of Mana Color")
 			entries[#entries + 1] = R.themeColor(key, "oomGlowColor", entry.name .. " Out of Mana Glow Color")
 		end

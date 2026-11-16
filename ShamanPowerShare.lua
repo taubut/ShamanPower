@@ -339,3 +339,84 @@ SlashCmdList["SHAMANPOWERPRESET"] = function(msg)
 		print("|cff0070ddShamanPower|r: /sppreset apply [key] — apply a built-in preset (default: " .. (SP.Presets and SP.Presets[1] and SP.Presets[1].key or "none") .. ")")
 	end
 end
+
+-- ---------------------------------------------------------------------------
+-- (3.0.9.14) Profile by Spec (Profiles page): a profile picked for each spec. A change of spec puts its profile in
+-- use, out of combat; picking one for the spec you're in puts it in use at once. Your spec is read as Ready
+-- Reminders' Show For reads it (SP.ShareSpecIndex: the spell book on WoW: Forever, the talent points elsewhere),
+-- never guessed from the setup's spec. Kept per character (db.char.specProfiles); a profile you pick yourself
+-- stays until your spec changes. Woken by spell and talent events only.
+-- ---------------------------------------------------------------------------
+do
+	local BY_INDEX = { "restoration", "enhancement", "elemental" }   -- SP.ShareSpecIndex: 1, 2, 3
+	SP.SpecProfileKeys = { "elemental", "enhancement", "restoration" }   -- the page's order
+	SP.SpecProfileNames = { elemental = "Elemental", enhancement = "Enhancement", restoration = "Restoration" }
+	local ef = CreateFrame("Frame")
+	local queued, waitKey = false, nil
+
+	local function exists(name)
+		for _, n in ipairs((SP.db:GetProfiles())) do if n == name then return true end end
+		return false
+	end
+	function SP:SpecProfileFor(key)
+		local c = SP.db and SP.db.char
+		local name = c and type(c.specProfiles) == "table" and c.specProfiles[key] or nil
+		if type(name) == "string" and exists(name) then return name end
+		return nil
+	end
+
+	local function apply(name, key)
+		SP.db:SetProfile(name)   -- OnProfileChanged rebuilds positions, layout, skin, opacity and pop-outs
+		-- as an import does: the cooldown bar's contents and the totem bar's look, rebuilt whole
+		for _, fn in ipairs({ "UpdateCooldownBar", "UpdateCooldownBarScale", "UpdateCooldownBarFrame",
+			"UpdateCooldownBarProgressBars", "UpdateCooldownBarOpacity", "UpdateCooldownBarFlyoutEnabled",
+			"UpdateTotemBarFrame", "UpdateMiniTotemBar" }) do
+			if SP[fn] then pcall(SP[fn], SP) end
+		end
+		local reg = LibStub and LibStub("AceConfigRegistry-3.0", true)
+		if reg then reg:NotifyChange("ShamanPower") end
+		print("|cff0070ddShamanPower|r: " .. SP.SpecProfileNames[key] .. ", so profile '" .. name .. "' is in use.")
+	end
+
+	-- force: the spec whose profile was just picked (put in use now if it is yours)
+	function SP:SpecProfileCheck(force)
+		local c = SP.db and SP.db.char
+		if not c then return end
+		local key = BY_INDEX[SP.ShareSpecIndex and SP.ShareSpecIndex(true) or 0]
+		if not key then return end   -- (the talents can't tell yet)
+		if key == c.specProfileLast and key ~= force then return end
+		local name = SP:SpecProfileFor(key)
+		if name and name ~= SP.db:GetCurrentProfile() then
+			if InCombatLockdown() then   -- (its bars can't move in a fight: right after it)
+				waitKey = force or waitKey or true
+				ef:RegisterEvent("PLAYER_REGEN_ENABLED")
+				return
+			end
+			apply(name, key)
+		end
+		c.specProfileLast = key
+	end
+	function SP:SetSpecProfile(key, name)
+		local c = SP.db and SP.db.char
+		if not c then return end
+		if type(c.specProfiles) ~= "table" then c.specProfiles = {} end
+		c.specProfiles[key] = name
+		if name then SP:SpecProfileCheck(key) end
+	end
+
+	ef:SetScript("OnEvent", function(_, event)
+		if event == "PLAYER_REGEN_ENABLED" then
+			ef:UnregisterEvent("PLAYER_REGEN_ENABLED")
+			local k = waitKey; waitKey = nil
+			if k then SP:SpecProfileCheck(k ~= true and k or nil) end
+			return
+		end
+		if queued then return end
+		queued = true   -- (a respec sends several events: one look, a second later)
+		C_Timer.After(1, function() queued = false; SP:SpecProfileCheck() end)
+	end)
+	for _, e in ipairs({ "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED", "PLAYER_TALENT_UPDATE", "CHARACTER_POINTS_CHANGED",
+		"ACTIVE_TALENT_GROUP_CHANGED" }) do
+		pcall(ef.RegisterEvent, ef, e)
+	end
+end

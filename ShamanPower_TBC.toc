@@ -64,6 +64,7 @@ ShamanPowerCountdown.lua
 ShamanPowerClickThrough.lua
 ShamanPowerDropped.lua
 ShamanPowerTown.lua
+ShamanPowerQuickTotems.lua
 ShamanPowerCdBarVisibility.lua
 ShamanPowerAppearancePage.lua
 ShamanPowerPageLayouts.lua

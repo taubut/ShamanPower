@@ -245,6 +245,12 @@ SHAMANPOWER_DEFAULT_VALUES = {
         -- Compact style: element-colored lines instead of icons (see ShamanPowerCompact.lua)
         compactStyle = false,
         droppedTotems = false,  -- Dropped Totems: the bar is only the totems that are down (ShamanPowerDropped.lua)
+        -- Quick Totems (3.0.9.14, ShamanPowerQuickTotems.lua): up to two small buttons at each element button's corners,
+        -- each dropping a totem picked in its right-click menu on Totem Bar > Bar (quickTotemPicks: { earth = { idx, idx } })
+        quickTotems = false,
+        quickTotemSide = "auto",   -- "auto" (away from the flyouts), "above", "below", "left", "right"
+        quickTotemSize = 0.5,      -- of the button
+        quickTotemKeys = true,     -- Show Their Keys
         compactOrientation = "horizontal",  -- "horizontal" (lines stacked) / "vertical" (lines side by side)
         compactLength = 120,                -- line length px
         compactThickness = nil,             -- line thickness px (nil = 14 horizontal / 16 vertical)

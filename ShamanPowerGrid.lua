@@ -433,6 +433,8 @@ local function layoutAuxiliaries(width, height)
 	end
 	local separator = _G.ShamanPowerAutoSeparator
 	if separator then separator:Hide() end
+	separator = _G.ShamanPowerAutoSeparator2   -- (3.0.9.14: Drop All dragged to the start, Totemic Call at the end)
+	if separator then separator:Hide() end
 	SP.autoButton:SetSize(math.max(width, x, 34), math.max(34, height + (extra and 40 or 0)))
 end
 

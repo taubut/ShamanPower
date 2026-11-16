@@ -56,6 +56,10 @@ do
 			{ keys = { "auto_enable" } },
 			{ header = "position_header", name = "Position & Size", keys = { "unlock_totem_bar", "tb_bar_size", "tb_bar_spacing" },
 				names = { unlock_totem_bar = "Move the Totem Bar" } },
+			-- (3.0.9.14, A109) Quick Totems: their switch, where, size and keys (each totem's spot: its menu above)
+			{ header = "quick_header", name = "Quick Totems", keys = {
+				"quick_desc", "quick_on", "quick_style_note", "quick_where", "quick_size", "quick_keys",
+			} },
 		})
 	end
 end

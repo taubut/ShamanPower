@@ -66,6 +66,7 @@ local SHOW_CHOICES = {
 local EFFECT_CHOICES = { { "glow", "Glow" }, { "pulse", "Pulse" }, { "both", "Glow + Pulse" }, { "none", "None" } }
 -- (3.0.9.2, A55) Maelstrom Weapon: its stacks' look, when it shows, its time left
 local STACK_LOOKS = { { "number", "Icon + Stack Number" }, { "bar", "Charge Bar" }, { "baronly", "Charge Bar Only" },
+	{ "numberonly", "Number Only" },   -- (3.0.9.14, a player's ask: the count alone, no icon or bar)
 	{ "wings", "Wings" }, { "fill", "Fill" }, { "iconfill", "Fill The Icon" }, { "storm", "Storm Glow" } }
 local STACK_SHOWS = { { "stacks", "While You Have Stacks" }, { "five", "Only At 5 Stacks" }, { "always", "Always (0 Too, Dimmed)" } }
 local STACK_LEFTS = { { "off", "Off" }, { "number", "Number" }, { "drain", "Drain" } }
@@ -357,11 +358,15 @@ local function AppearanceRows(key, entry)
 		SliderRow(key, "Opacity", "opacity", 0.2, 1, 0.05, 1, nil, true, Pic.OPACITY),
 	}
 	-- (3.0.9.2) Wings and Fill: Blizzard's picture alone, no icon, backing or border to set
-	local wide = Wide(entry)
+	-- (3.0.9.14) Number Only: the count alone, no icon, backing or border either
+	local numOnly = entry ~= nil and entry.stacks ~= nil and Opt(key, "stackLook") == "numberonly"
+	local wide = Wide(entry) or numOnly
 	if wide then
 		local barOnly = Opt(key, "stackLook") == "baronly"
-		t[#t + 1] = { text = barOnly and "Charge Bar Only has no icon, background or border" or "Wings and Fill have no icon, background or border", disabled = true,
-			tip = barOnly and "This look is the five-part bar alone. Size sets its width; its height is under Stacks > Bar Height."
+		t[#t + 1] = { text = (numOnly and "Number Only has no icon, background or border")
+				or (barOnly and "Charge Bar Only has no icon, background or border") or "Wings and Fill have no icon, background or border", disabled = true,
+			tip = numOnly and "This look is the stack count alone. Size sets how big the number is; Opacity still applies."
+				or barOnly and "This look is the five-part bar alone. Size sets its width; its height is under Stacks > Bar Height."
 				or "These looks are Blizzard's own Maelstrom picture alone. Size and Opacity still apply; pick another Look for the icon's settings." }
 	end
 	-- Icon Shape (3.0.9): this icon's own (a circle Earth Shock beside a square Stormstrike), else
@@ -460,7 +465,8 @@ local function AppearanceRows(key, entry)
 			t[#t + 1] = row
 		end
 	else
-		local moment = entry.weaponSet and "While Holding" or entry.imbue and "When It's Gone" or entry.stacks and "At 5 Stacks" or "When Ready"
+		local moment = entry.weaponSet and "While Holding" or entry.imbue and "When It's Gone" or entry.stacks and "At 5 Stacks"
+			or entry.proc and "When It Procs" or "When Ready"
 		t[#t + 1] = { text = "No glow yet: pick one under " .. moment .. " > Effect", disabled = true,
 			tip = "This icon's effect has no glow, so there is no glow look to set. Pick Glow or Glow + Pulse under " .. moment .. " > Effect." }
 	end
@@ -692,7 +698,7 @@ end
 local function StackRows(key, entry)
 	local look = Opt(key, "stackLook") or "number"
 	local t = {}
-	if look == "number" then
+	if look == "number" or look == "numberonly" then
 		t[#t + 1] = { text = "Stack Number: always on in this look", disabled = true,
 			tip = "Icon + Stack Number always shows the count. Turn Stack Number on here for the other looks." }
 	else
@@ -700,8 +706,10 @@ local function StackRows(key, entry)
 		n.tip = "The count over the look, as Icon + Stack Number shows it: white, in Color At 5 Stacks at 5."
 		t[#t + 1] = n
 	end
-	local left = ChoiceRow(key, "Time Left", "stackLeft", look == "baronly" and { STACK_LEFTS[1], STACK_LEFTS[2] } or STACK_LEFTS, "off")
+	local bare = (look == "baronly" or look == "numberonly")   -- (no picture to drain: Off or Number)
+	local left = ChoiceRow(key, "Time Left", "stackLeft", bare and { STACK_LEFTS[1], STACK_LEFTS[2] } or STACK_LEFTS, "off")
 	left.tip = (look == "baronly") and "The buff's time left, as a number beside the bar."
+		or (look == "numberonly") and "The buff's time left, as a smaller number under the count."
 		or "The buff's time left: a number, or Drain: the look goes gray from the top as the time runs out."
 	t[#t + 1] = left
 	if look == "baronly" then   -- (Charge Bar Only: its height; Size sets its width)
@@ -718,7 +726,7 @@ local function StackRows(key, entry)
 		t[#t + 1] = { text = "Stack Color: Charge Bar and Storm Glow only", disabled = true,
 			tip = "Only the Charge Bar and the Storm Glow color the stacks below 5. The other looks show the spell's own picture." }
 	end
-	if look == "number" or look == "bar" or look == "baronly" or Opt(key, "stackNumber") then
+	if look == "number" or look == "numberonly" or look == "bar" or look == "baronly" or Opt(key, "stackNumber") then
 		local c5 = ColorRow(key, entry, "Color At 5 Stacks", "stackColor5", 1, 0.82, 0)
 		c5.tip = "At 5 stacks the number turns this color" .. ((look == "bar" or look == "baronly") and ", and so does the Charge Bar." or ".")
 		t[#t + 1] = c5
@@ -961,6 +969,48 @@ local function BuffGroup(key, entry, info)
 	}
 end
 
+-- (3.0.9.14, Snugs' ask on Discord) Show For: the specs this icon is for, ticked in a list that stays open;
+-- nothing ticked: every spec (as before). A respec hides or shows it by itself (Ready Reminders' own check).
+local SPEC_ROWS = { { "specElemental", "Elemental" }, { "specEnhancement", "Enhancement" }, { "specRestoration", "Restoration" } }
+local function SpecRow(key)
+	local function picked()
+		local out = {}
+		for _, sr in ipairs(SPEC_ROWS) do if Opt(key, sr[1]) then out[#out + 1] = sr[2] end end
+		return out
+	end
+	local now = SP.ReadyReminderMySpec and SP:ReadyReminderMySpec()
+	local nowName
+	for _, sr in ipairs(SPEC_ROWS) do if sr[1] == now then nowName = sr[2] end end
+	return { text = "Show For", words = "your specs: a respec hides or shows it by itself",
+		value = function()
+			local p = picked()
+			if #p == 0 then return "Every Spec", false end
+			return table.concat(p, ", "), true
+		end,
+		tip = "Tick the specs this icon is for. When you respec into another one it hides by itself, and comes back when"
+			.. " you respec into one you ticked. Nothing ticked: every spec. "
+			.. ((SPCompat and SPCompat.FOREVER)   -- (WoW: Forever: the spell book says it)
+				and "Your spec comes from your talents: Rage of the Farseer is Enhancement, Lightning Mastery Elemental, Riptide Restoration"
+				or "Your spec is the talent tree with the most points")
+			.. (nowName and (" (right now: " .. nowName .. ").") or "; while that can't be told yet, it always shows."),
+		sub = function()
+			local list = {}
+			for _, sr in ipairs(SPEC_ROWS) do
+				local field = sr[1]
+				list[#list + 1] = { text = sr[2], selected = Opt(key, field) == true, onClick = function()
+					return Set(key, field, (not Opt(key, field)) and true or nil)
+				end }
+			end
+			list[#list + 1] = { separator = true }
+			list[#list + 1] = { text = "Every Spec (Nothing Ticked)", selected = #picked() == 0, onClick = function()
+				for _, sr in ipairs(SPEC_ROWS) do SP:ReadyReminderSetIconOpt(key, sr[1], nil) end
+				Row:Changed(true)
+				return true
+			end }
+			return list
+		end }
+end
+
 local function MenuItems(key)
 	local entry
 	for _, e in ipairs(Ordered()) do if e.key == key then entry = e break end end
@@ -983,6 +1033,9 @@ local function MenuItems(key)
 	items[#items + 1] = stackShow or entry.weaponSet and { text = "Show", words = "always on screen: it shows what you hold",
 		  value = function() return "Always", false end,
 		  tip = "Weapon Set is always on screen: it shows what you hold. Only In Combat below hides it out of a fight." }
+		or entry.proc and { text = "Show", words = "while the buff is on you",   -- (3.0.9.14) Clearcasting
+		  value = function() return "While It's On You", false end,
+		  tip = entry.name .. " shows while the buff is on you and hides when it goes. Only In Combat below hides it out of a fight." }
 		or entry.imbue and { text = "Show", words = "only while an imbue is missing",
 		  value = function() return "Only When Missing", false end,
 		  tip = "Weapon Imbue shows while an imbue is missing (the main hand; with two weapons, either hand) and hides while your imbues are on." }
@@ -1010,6 +1063,7 @@ local function MenuItems(key)
 	items[#items + 1] = combat
 	-- right under Only In Combat: only does something while it is on, and the icon is ever on screen
 	if Opt(key, "onlyInCombat") and show ~= "flash" then items[#items + 1] = FadeRow(key) end
+	items[#items + 1] = SpecRow(key)   -- (3.0.9.14) Show For: its specs
 	if entry.combo then
 		items[#items + 1] = { separator = true }
 		items[#items + 1] = Group("Shocks", function() return ShockRows() end, "how its one icon shows the three shocks")
@@ -1037,10 +1091,11 @@ local function MenuItems(key)
 	items[#items + 1] = { separator = true }
 	-- what it does at its moments
 	items[#items + 1] = { text = "Effects & Sound", label = true }
-	local readyName = entry.weaponSet and "While Holding" or entry.imbue and "While Imbue Is Missing" or entry.stacks and "At 5 Stacks" or "When Ready"
+	local readyName = entry.weaponSet and "While Holding" or entry.imbue and "While Imbue Is Missing" or entry.stacks and "At 5 Stacks"
+		or entry.proc and "When It Procs" or "When Ready"
 	items[#items + 1] = Group(readyName, function() return ReadyRows(key, entry, readyName) end,
 		entry.weaponSet and "the effect while you hold a set" or entry.imbue and "the effect while an imbue is missing"
-		or entry.stacks and "the effect at 5 stacks" or "the effect the moment it's ready")
+		or entry.stacks and "the effect at 5 stacks" or entry.proc and "the effect while it is on you" or "the effect the moment it's ready")
 	if entry.weaponSet then   -- (A28)
 		items[#items + 1] = Group("On A Weapon Swap", function() return SwapRows(key, entry) end, "a sound, the Ready Flash")
 	end
@@ -1049,17 +1104,17 @@ local function MenuItems(key)
 		items[#items + 1] = Group("When The Cooldown Resets", function() return ResetRows(key, entry) end,
 			"a tank's dodge or parry resets it: burst, word, flash, sound")
 	end
-	if not entry.imbue and not entry.weaponSet and not entry.stacks then
+	if not entry.imbue and not entry.weaponSet and not entry.stacks and not entry.proc then
 		items[#items + 1] = Group("Out of Range", function() return RangeRows(key, entry) end,
 			"how it looks when your target is out of range")
 	end
-	if not entry.weaponSet and not entry.stacks then   -- (3.0.9.2)
+	if not entry.weaponSet and not entry.stacks and not entry.proc then   -- (3.0.9.2)
 		items[#items + 1] = Group("When Out of Mana", function() return OomRows(key, entry) end,
 			"how it looks while you can't afford it")
 	end
 	items[#items + 1] = Group("Sound", function() return SoundRows(key, entry) end,
 		entry.weaponSet and "the sound a swap plays" or entry.imbue and "the sound when an imbue goes missing"
-		or entry.stacks and "the sound at 5 stacks" or "the sound the moment it's ready")
+		or entry.stacks and "the sound at 5 stacks" or entry.proc and "the sound when it procs" or "the sound the moment it's ready")
 	items[#items + 1] = { separator = true }
 	-- where it sits (Rows placement: the row it is on; Not On A Row: off your screen)
 	if rowsOn and Wide(entry) then   -- (3.0.9.2) Wings / Fill / Charge Bar Only: never on a row; its own spot or off
@@ -1481,7 +1536,7 @@ end
 FlashRow = ns.IconRow.New({
 	caption = "|cff3FA9F5CLICK|r a spell to flash it when it is ready. |cff3FA9F5RIGHT-CLICK|r it for its own spot, its size there and Flash Early. |cff3FA9F5Dark|r spells aren't learned yet.",
 	hint = "Click: flash it when ready\nRight-click: its own spot and more",
-	list = function(out) for _, e in ipairs(Known(flashList)) do if not e.stacks then out[#out + 1] = e end end end,
+	list = function(out) for _, e in ipairs(Known(flashList)) do if not e.stacks and not e.proc then out[#out + 1] = e end end end,
 	textures = function(e, out) return SP:ReadyReminderIconTextures(e.key, out) end,
 	shown = function(e) return Opt(e.key, "flash") == true end,
 	learned = function(e) return SP.ReadyReminderKnown(e) and true or false end,

@@ -1026,7 +1026,14 @@ local function trimArt(t, on)
 		end
 	end
 end
+-- (3.0.9.14, a CurseForge report from battlegrounds) a part the game has made forbidden (one drawn on its own
+-- aura buttons: Maelstrom Weapon, Clearcasting) takes no call from an addon: left as it is. IsForbidden is the one
+-- call the game always answers
+local function forbidden(x)
+	return type(x) == "table" and x.IsForbidden ~= nil and x:IsForbidden() and true or false
+end
 local function shapeTexture(t, icon)
+	if forbidden(t) or forbidden(icon) then return end
 	local shape = shapeOr(texKind[t] or "totem", ownShape[icon])
 	if t == icon then trimArt(t, shape ~= nil) end
 	local file = MASK_FILE[shape]
@@ -1046,6 +1053,7 @@ local function shapeTexture(t, icon)
 	t.spShapeMask = m
 end
 local function shapeCooldown(cd)
+	if forbidden(cd) then return end
 	local k = shapeOr(shapedCd[cd] or "totem", ownShape[cd])
 	if k and MASK_FILE[k] then
 		cd:SetSwipeTexture(MASK_FILE[k])
@@ -1120,6 +1128,7 @@ function SP:ApplyIconShapes()
 		for _, b in ipairs(fl and (fl.allButtons or fl.buttons) or {}) do shapeButton(b, "totem") end
 		-- (Totem Rows' copies of them, Keep Flyouts on Main Totem Bar: shaped as the flyout's own)
 		for _, b in ipairs(self.RowsCopies and self:RowsCopies(e) or {}) do shapeButton(b, "totem") end
+		for _, b in ipairs(self.QuickTotemButtons and self:QuickTotemButtons(e) or {}) do shapeButton(b, "totem") end   -- (Quick Totems)
 		shapeButton(self.activeTotemOverlays and self.activeTotemOverlays[e], "totem")
 		local gcd = _G["ShamanPowerGCD" .. e]
 		if gcd then SP:ShapeCooldown(gcd, "totem") end
@@ -1244,6 +1253,7 @@ function SP:ApplyIconDark()
 		local fl = self.totemFlyouts and self.totemFlyouts[e]
 		for _, b in ipairs(fl and (fl.allButtons or fl.buttons) or {}) do darkButton(b, "totem", tb) end
 		for _, b in ipairs(self.RowsCopies and self:RowsCopies(e) or {}) do darkButton(b, "totem", tb) end
+		for _, b in ipairs(self.QuickTotemButtons and self:QuickTotemButtons(e) or {}) do darkButton(b, "totem", tb) end   -- (Quick Totems)
 	end
 	for _, f in pairs(self.poppedOutFrames or {}) do darkButton(type(f) == "table" and rawget(f, "button"), "totem", tb) end
 	darkButton(_G.ShamanPowerAutoDropAll, "totem", tb)

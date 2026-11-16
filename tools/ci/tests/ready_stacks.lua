@@ -82,8 +82,8 @@ check("Only At 5 Stacks: 5 stacks shown", f:IsShown())
 SP:ReadyReminderSetIconOpt("maelstrom", "stackShow", nil)
 
 -- each look: the game's parts (main; From N; Exactly N; the Effect's glow; 3.0.9.9: + the sound's part At 5 Stacks)
-local want = { number = 3, bar = 4, baronly = 8, wings = 8, fill = 3, iconfill = 3, storm = 7 }
-for _, look in ipairs({ "number", "bar", "baronly", "wings", "fill", "iconfill", "storm" }) do
+local want = { number = 3, bar = 4, baronly = 8, numberonly = 3, wings = 8, fill = 3, iconfill = 3, storm = 7 }
+for _, look in ipairs({ "number", "bar", "baronly", "numberonly", "wings", "fill", "iconfill", "storm" }) do
 	SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", look)
 	setStacks(2)
 	local d = SP.ReadyStacks.Diag(f)
@@ -100,6 +100,17 @@ checkEq("storm + drain + number: the same parts", tonumber(SP.ReadyStacks.Diag(f
 SP:ReadyReminderSetIconOpt("maelstrom", "readyEffect", "both")
 setStacks(2)
 checkEq("Effect Glow + Pulse: one part more", tonumber(SP.ReadyStacks.Diag(f):match("containers=(%d+)")), 8)
+
+-- (3.0.9.14) Number Only: the count alone, an icon's spot, its number always on, no icon or border drawn
+SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", "numberonly")
+SP:UpdateAllReadyReminderAppearance()
+setStacks(3)
+local nw, nh = f:GetSize()
+check("Number Only: an icon's spot (48 x 48 at Size 48)", math.abs(nw - 48) < 0.5 and math.abs(nh - 48) < 0.5, nw .. "x" .. nh)
+check("Number Only: the number always on", SP.ReadyStacks.NumberOn(f.entry))
+check("Number Only: not a wide look (it can sit on a row or in the grid)", not SP.ReadyStacks.Wide(f.entry))
+check("Number Only: the reminder's own icon and border stay down", not f.icon:IsShown() and not f.border:IsShown())
+SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", nil)
 
 -- Wings / Fill: three icons wide, a spot of its own (never in the grid)
 SP:ReadyReminderSetIconOpt("maelstrom", "stackLook", "wings")
@@ -166,7 +177,7 @@ if Row then
 	check("menu: At 5 Stacks", byText["At 5 Stacks"] ~= nil)
 	check("menu: no Out of Range", byText["Out of Range"] == nil)
 	local lookSub = byText.Look and byText.Look.sub()
-	checkEq("Look: seven looks", lookSub and #lookSub, 7)
+	checkEq("Look: eight looks (3.0.9.14: Number Only)", lookSub and #lookSub, 8)
 	local showSub = byText.Show and byText.Show.sub()
 	checkEq("Show: three choices", showSub and #showSub, 3)
 	if lookSub then lookSub[2].onClick() end

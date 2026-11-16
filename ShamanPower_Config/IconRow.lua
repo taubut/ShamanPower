@@ -58,6 +58,8 @@
 --   under    = function(item, out) return n end,      n colors ({ r, g, b }) into out: a 2 px line under the plate in
 --                                                     n equal parts (0: none); the row keeps room for it
 --   movable  = function(item) return can end,         (with move) only these drag, and only among themselves
+--   snapGap  = function(item, gap) return gap end,    (with move, optional) the gap the lifted item may land in
+--                                                     (gap: before list item gap; n + 1 = after the last)
 --   crossGroups = true,                               (with group and move) a drag may land on another group's
 --                                                     line (Ready Reminders' rows); without it a grouped row's
 --                                                     drag stays in the item's own group (the totems by element)
@@ -620,7 +622,14 @@ function Proto:GapAt(cx, cy)
 	end
 	local lo, hi = 1, n + 1
 	if self.def.movable then lo, hi = self:MovableSpan() end
-	return max(lo, min(hi, gap)), lineY
+	gap = max(lo, min(hi, gap))
+	-- def.snapGap: where the lifted item may land, by the page's own rule (3.0.9.14: Drop All before or after the totems)
+	if self.def.snapGap and self.liftKey then
+		for _, item in ipairs(self.list) do
+			if item.key == self.liftKey then gap = Call(self.def.snapGap, item, gap) or gap break end
+		end
+	end
+	return gap, lineY
 end
 
 -- the cursor in a frame's coordinates (top left, y down), and whether it is inside the frame

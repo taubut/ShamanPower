@@ -8535,9 +8535,9 @@ ShamanPower.options = {
 							order = 2.05,
 							type = "range",
 							name = "Duration Bar Opacity",
-							desc = "How visible the duration bars and their dark track are.",
+							desc = "How visible the duration bars and their dark track are. At 0% the bars are gone and their time text stays.",
 							width = 0.8,
-							min = 0.1, max = 1, step = 0.05, isPercent = true,
+							min = 0, max = 1, step = 0.05, isPercent = true,   -- (3.0.9.14, nano: down to 0%, the timer kept)
 							hidden = function()
 								return ShamanPower.opt.durationBarPosition == "none"
 							end,
@@ -8803,9 +8803,9 @@ ShamanPower.options = {
 							order = 4.51,
 							type = "range",
 							name = "Pulse Bar Opacity",
-							desc = "How visible the pulse bar is (the bar that fills up to each pulse of a totem like Healing Stream or Tremor). The countdown text stays fully visible.",
+							desc = "How visible the pulse bar is (the bar that fills up to each pulse of a totem like Healing Stream or Tremor). Its countdown text stays fully visible, even at 0%.",
 							width = 0.8,
-							min = 0.1, max = 1, step = 0.05, isPercent = true,
+							min = 0, max = 1, step = 0.05, isPercent = true,   -- (3.0.9.14: down to 0%, as Duration Bar Opacity)
 							hidden = function()
 								return ShamanPower.opt.pulseBarPosition == "none"
 							end,
@@ -11795,7 +11795,8 @@ do
 			.. " flyout menus), right-click it for its settings. Pulse Bar, Pulse Flash (Only Show Pulse Bars for Specific"
 			.. " Totems, Only Show Pulse Flash for Specific Totems), Counts As Temporary (Totems That Count as Temporary, Put"
 			.. " Your Usual Totem Back), Keybind, Its Key, Copy Settings, Paste Settings, Copy Settings To, All Totems, Hide"
-			.. " From The Flyout, Show In The Flyout, Reset This Totem. Strength of Earth, Stoneskin, Tremor, Earthbind,"
+			.. " From The Flyout, Show In The Flyout, Quick Totem, Not a Quick Totem, Quick Totem 1, Quick Totem 2, Reset This"
+			.. " Totem. Strength of Earth, Stoneskin, Tremor, Earthbind,"
 			.. " Stoneclaw, Earth Elemental, Totem of Wrath, Searing, Magma, Fire Nova, Flametongue, Frost Resistance, Fire"
 			.. " Elemental, Mana Spring, Healing Stream, Mana Tide, Poison Cleansing, Disease Cleansing, Fire Resistance,"
 			.. " Windfury, Grace of Air, Wrath of Air, Tranquil Air, Grounding, Nature Resistance, Windwall, Sentry."
@@ -11839,6 +11840,46 @@ do
 			if SP.SetCallFlyout then SP:SetCallFlyout(value) end
 		end,
 	}
+	-- (3.0.9.14, mockups A109 + A110) Quick Totems (ShamanPowerQuickTotems.lua): the switch, where they go, their size and
+	-- keys. Which totems: each totem's right-click menu in the Totems rows above (Quick Totem). Out of combat, as the bar.
+	-- (Their band: ShamanPowerPageLayouts.lua, which lays this page out last.)
+	do
+		local function quickOff() return not SP.opt.quickTotems or InCombatLockdown() end
+		local function changed() if SP.QuickTotemsChanged then SP:QuickTotemsChanged() end end
+		bar.args.quick_desc = { type = "description", width = "full", fontSize = "medium",
+			name = "Up to two small buttons at each element's corners, each dropping a totem of that element in one click. Pick"
+				.. " them in a totem's right-click menu above (Quick Totem). Your main totem stays as it is." }
+		bar.args.quick_on = { type = "toggle", width = "full", name = "Show Quick Totems",
+			desc = "Shows the totems you picked as Quick Totem 1 and 2 at each element's corners. While one of them is down it"
+				.. " lights up in its element's color with its time left; while it cools down it shows its seconds. Change it out of combat.",
+			disabled = function() return InCombatLockdown() end,
+			get = function() return SP.opt.quickTotems == true end,
+			set = function(_, v) SP.opt.quickTotems = v and true or false; changed() end }
+		bar.args.quick_style_note = { type = "description", width = "full",
+			name = "|cffffa040Quick Totems show on the Normal, TotemTimers, Single Totem and Dynamic (PvP) styles, with Totem Rows"
+				.. " off. The bar's style or Totem Rows hides them now.|r",
+			hidden = function() return not SP.opt.quickTotems or not SP.QuickTotemsStyleOK or SP:QuickTotemsStyleOK() end }
+		bar.args.quick_where = { type = "select", width = 1.0, name = "Where",
+			values = { auto = "Auto", above = "Above", below = "Below", left = "Left", right = "Right" },
+			sorting = { "auto", "above", "below", "left", "right" },
+			desc = "Auto: the side away from your flyouts (below a bar whose flyouts open up), so they never meet a flyout."
+				.. " Duration bars, pulse timers and time text on their side move out past them. Picked on the flyout's side,"
+				.. " they keep room for the flyout tab, so nothing moves when a fight starts.",
+			disabled = quickOff,
+			get = function() return SP.opt.quickTotemSide or "auto" end,
+			set = function(_, v) SP.opt.quickTotemSide = v; changed() end }
+		bar.args.quick_size = { type = "range", width = 1.0, name = "Size", min = 0.3, max = 0.6, step = 0.01, isPercent = true,
+			desc = "Their size, as a share of the totem button: at half (50%), two fit across it.",
+			disabled = quickOff,
+			get = function() return SP.opt.quickTotemSize or 0.5 end,
+			set = function(_, v) SP.opt.quickTotemSize = v; changed() end }
+		bar.args.quick_keys = { type = "toggle", width = 1.0, name = "Show Their Keys",
+			desc = "Each quick totem's key in its corner: the key you set on it in Keybind Mode, or its spell's key on your"
+				.. " action bars (the order Keybind Shown picks). Set their keys in Keybind Mode, like every button.",
+			disabled = quickOff,
+			get = function() return SP.opt.quickTotemKeys ~= false end,
+			set = function(_, v) SP.opt.quickTotemKeys = v and true or false; changed() end }
+	end
 	SP.OrderSettingsBands(bar, {
 		{ keys = { "auto_enable" } },
 		{ header = "buttons_header", name = "Buttons", keys = { "tb_buttons", "call_flyout", "totembar_hide_unlearned" } },

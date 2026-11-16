@@ -108,6 +108,16 @@ local function collect()
 			end
 		end
 	end
+	-- (3.0.9.14) Quick Totems: named buttons (ShamanPowerQuickTotem<element>_<spot>), a CLICK binding each. The key
+	-- stays with the spot, whatever totem is picked for it later.
+	local quick = SP.QuickTotemButtonList and SP:QuickTotemButtonList()
+	for _, btn in ipairs(quick or {}) do
+		local name = btn:GetName()
+		if name and btn.spOn and btn:IsShown() then
+			local spell = btn.spellID and GetSpellInfo(btn.spellID)
+			add(btn, "CLICK " .. name .. ":LeftButton", (spell or (ELEMENT_NAMES[btn.element] .. " totem")) .. " (Quick Totem " .. (btn.spSlot or 1) .. ")")
+		end
+	end
 	for k = 1, 2 do local flyout = SP[k == 1 and "shieldFlyout" or "weaponImbueFlyout"]   -- each optional flyout (ipairs over { nil, imbue } stopped at the missing shield one)
 		for _, btn in ipairs(flyout and flyout.buttons or {}) do
 			local name = btn:GetName()
