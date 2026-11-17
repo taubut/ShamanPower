@@ -22,6 +22,8 @@ Libs\AceGUI-3.0-SharedMediaWidgets\widget.xml
 #@end-no-lib-strip@
 
 locale\enUS.lua
+locale\zhCN.lua
+locale\zhTW.lua
 
 SPCompat.lua
 ShamanPower.lua
