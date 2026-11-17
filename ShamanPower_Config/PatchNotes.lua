@@ -10,7 +10,7 @@ local _, ns = ...
 ns.PATCH_NOTES = {
 	{
 		v = "3.0.9.16",
-		date = "in progress",
+		date = "2026-11-16",
 		headline = "Maelstrom's sound in fights, and profiles that switch everything",
 		changes = {
 			"Profiles: switching profiles now switches everything: your Ready Reminders and where they sit, Reactive Totems, Tremor Reminder, Expiring Alerts, every other module's settings, your themes and your Call picks. Key bindings stay as they are, and anything a profile brings that would sit mostly off your screen is moved fully onto it.",

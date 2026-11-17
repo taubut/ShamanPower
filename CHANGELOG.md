@@ -1,6 +1,6 @@
 # ShamanPower Changelog
 
-## v3.0.9.16 (in progress)
+## v3.0.9.16 (2026-11-16)
 
 ### Changes
 - **Profiles:** switching profiles now switches everything: your Ready Reminders and where they sit, Reactive Totems, Tremor Reminder, Expiring Alerts, every other module's settings, your themes and your Call picks. Before, a profile you switched to (or imported from a code) kept parts of the one you left. Key bindings stay as they are. Anything a profile brings that would sit mostly off your screen (it was set up on another screen size) is moved fully onto it.
